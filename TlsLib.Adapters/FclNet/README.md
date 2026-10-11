@@ -102,7 +102,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `Socket.IOTimeout` (fcl-net native) | bounds application reads; an expiry is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
 
-**Linux PowerPC, MIPS and SPARC**: fcl-net numbers its socket-option constants the same on every Linux CPU, so the kernel refuses the read timeout there (`Socket.IOTimeout` raises `ESocketError`). The handshake then runs without a read wait, so a peer that goes completely silent blocks it until TCP gives up, and application reads are not bounded by `Socket.IOTimeout`.
+**Read timeouts**: the handshake cap (`HandshakeTimeoutMs`) and an application read's `Socket.IOTimeout` are both enforced by waiting on the socket with `select` before each receive, not by the kernel's receive timeout, so they hold on every CPU. On Linux PowerPC, MIPS and SPARC, fcl-net numbers its socket-option constants the same as on other Linux CPUs and the kernel refuses that option, so setting `Socket.IOTimeout` itself raises `ESocketError` there; the adapter does not set it. A host that sets it on those CPUs should catch that error: the value is still stored and still bounds reads. On Unix, a descriptor of 1024 or more cannot be waited on with `select`, so such a socket's reads are not bounded.
 
 **Certificate chain**: `CertificateData.Certificate` is the chain the server *presents* — put your leaf
 **followed by any intermediates** (a concatenated PEM, or a multi-cert byte slot) so clients build a

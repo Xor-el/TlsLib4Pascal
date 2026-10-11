@@ -27,6 +27,11 @@ interface
 uses
   SysUtils,
   Classes,
+{$IFDEF UNIX}
+  BaseUnix,
+{$ELSE}
+  Winsock2,
+{$ENDIF UNIX}
   sockets,
   ssockets,
   sslsockets,
@@ -55,16 +60,17 @@ uses
 type
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
   /// the Sockets unit's fpRecv/fpSend on Socket.Handle, bypassing the SSL-aware handler methods
-  /// (which carry decrypted application data and would otherwise recurse). fcl-net has no readiness
-  /// wait, so the handshake read cap is enforced by SO_RCVTIMEO on the handle (set through
-  /// Socket.IOTimeout by the handler); this transport only classifies the resulting recv errno: an
-  /// expiry under the handshake cap is ETlsHandshakeTimeout, one on an application read (the
-  /// caller's own Socket.IOTimeout) is the retryable ETlsReadTimeout, never end of stream.</summary>
+  /// (which carry decrypted application data and would otherwise recurse). The handshake read cap
+  /// and an application read's Socket.IOTimeout are both enforced by a select on the handle before
+  /// each receive, which works on every CPU (the kernel's receive timeout is refused on PowerPC,
+  /// MIPS and SPARC). An expiry is ETlsHandshakeTimeout under the handshake cap and the retryable
+  /// ETlsReadTimeout on an application read, never end of stream.</summary>
   TFclNetSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
     FHandle: THandle;
   strict protected
+    function WaitReadable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -301,16 +307,12 @@ const
   SEND_FLAGS = 0;
   NOSIGPIPE_SOCKOPT = 0;
 {$IFEND}
-  // Windows SO_RCVTIMEO expiry code; a literal so the Unix build needs no winsock symbol
-  WSAETIMEDOUT_CODE = 10060;
 
 resourcestring
   SFclNetSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
     'use stAny or stTLSv1_2';
   SFclNetCipherListHint = 'CertificateData.CipherList';
   SFclNetSendNoProgress = 'fcl-net socket send returned no progress';
-  SFclNetHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
-  SFclNetReceiveTimedOut = 'the socket receive timeout elapsed with no data from the peer';
   SPeerVerifyRejected = 'the OnVerifyCertificate handler rejected the peer certificate';
   SNoSelfSignedCerts = 'TlsLib4Pascal does not generate self-signed certificates; supply ' +
     'CertificateData.Certificate and CertificateData.PrivateKey, or CertificateData.PFX';
@@ -349,30 +351,49 @@ begin
   end;
 end;
 
+function TFclNetSocketTransport.WaitReadable(AMs: Int32): Boolean;
+var
+  LSet: TFDSet;
+  LTime: TTimeVal;
+  LReady: Longint;
+begin
+{$IFDEF UNIX}
+  // a descriptor this high does not fit a select set: skip the wait and let the receive block
+  if FHandle >= FD_MAXFDSET then
+    Exit(True);
+{$ENDIF UNIX}
+  LTime.tv_sec := AMs div 1000;
+  LTime.tv_usec := (AMs mod 1000) * 1000;
+  repeat
+{$IFDEF UNIX}
+    LSet := Default(TFDSet);
+    fpFD_ZERO(LSet);
+    fpFD_SET(FHandle, LSet);
+    LReady := fpSelect(FHandle + 1, @LSet, nil, nil, @LTime);
+{$ELSE}
+    FD_ZERO(LSet);
+    FD_SET(FHandle, LSet);
+    LReady := Select(FHandle + 1, @LSet, nil, nil, @LTime);
+{$ENDIF UNIX}
+  until (LReady >= 0) or (SocketError <> EsockEINTR);
+  // an error counts as readable, so the receive that follows reports it
+  Result := LReady <> 0;
+end;
+
 function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 var
   LErr: Integer;
 begin
   // a signal that interrupts a blocking recv is not an error - retry, as the plain fcl-net handler
-  // does; a genuine timeout or close is classified below
+  // does
   repeat
     Result := fpRecv(FHandle, @ABuffer[AOffset], AMaxLength, 0);
   until (Result >= 0) or (SocketError <> EsockEINTR);
   if Result >= 0 then
     Exit; // > 0 bytes, or 0 for an orderly close (the pump reports a truncated handshake)
-  // Result < 0: a receive-timeout errno is SO_RCVTIMEO firing on a silent peer - our handshake cap
-  // while it is armed, else the caller's own application-read timeout, which is retryable and
-  // must not be misreported as a truncation; any other error (a reset, a broken pipe) is a
-  // receive failure carrying its errno, not an orderly end of stream
+  // a reset or a broken pipe is a receive failure carrying its errno, not an orderly end of stream
   LErr := SocketError;
-  if (LErr = EsockEWOULDBLOCK) or (LErr = WSAETIMEDOUT_CODE) then
-  begin
-    if ReadTimeoutMs > 0 then
-      raise ETlsHandshakeTimeout.Create(
-        Format(SFclNetHandshakeReadTimedOut, [ReadTimeoutMs]));
-    raise ETlsReadTimeout.Create(SFclNetReceiveTimedOut);
-  end;
   if LErr > 0 then
     Result := -LErr
   else
@@ -564,8 +585,7 @@ function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
 var
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
-  LPriorTimeoutMs, LEffectiveMs: Integer;
-  LTimeoutApplied: Boolean;
+  LEffectiveMs: Integer;
 begin
   Result := False;
   FLastError := 0;
@@ -591,32 +611,14 @@ begin
         TFclNetSocketTransport.Create(Socket.Handle) as ITlsTimedTransport, FServerVerdictResolver,
         FServerVerdictDeadlineMs);
     end;
-    // fcl-net has no readiness wait, so the handshake read is bounded by SO_RCVTIMEO through
-    // Socket.IOTimeout: the property when set, else today's IOTimeout, else the default; restore it
-    // after. The session arms and clears its own read cap (used to classify the recv errno).
+    // the handshake read cap: the property when set, else the socket's IOTimeout, else the core
+    // connection's one default
     LEffectiveMs := FHandshakeTimeoutMs;
     if LEffectiveMs <= 0 then
       LEffectiveMs := Socket.IOTimeout;
-    // neither the property nor Socket.IOTimeout is set: share the core connection's one default
     if LEffectiveMs <= 0 then
       LEffectiveMs := TTlsConnection.DefaultHandshakeTimeoutMs;
-    LPriorTimeoutMs := Socket.IOTimeout;
-    LTimeoutApplied := True;
-    try
-      Socket.IOTimeout := LEffectiveMs;
-    except
-      // fcl-net numbers its socket-option constants the same on every Linux CPU, so on PowerPC,
-      // MIPS and SPARC the kernel refuses the read timeout: handshake without it, and leave the
-      // option alone afterwards (a restore would be refused the same way)
-      on ESocketError do
-        LTimeoutApplied := False;
-    end;
-    try
-      FConnection.Handshake(LEffectiveMs);
-    finally
-      if LTimeoutApplied then
-        Socket.IOTimeout := LPriorTimeoutMs;
-    end;
+    FConnection.Handshake(LEffectiveMs);
     // fcl-net's native OnVerifyCertificate hook runs after our pipeline accepts the chain and can
     // only additionally reject (augment-only, fail-closed)
     if not DoVerifyCert then
@@ -693,8 +695,9 @@ begin
   FLastError := 0;
   FLastErrorDesc := '';
   try
-    // a clean close_notify surfaces as 0 (EOF, no error)
-    Result := FConnection.Read(PByte(@Buffer)^, Count);
+    // a clean close_notify surfaces as 0 (EOF, no error); an idle read ends retryably after
+    // Socket.IOTimeout ms (0 blocks)
+    Result := FConnection.Read(PByte(@Buffer)^, Count, Socket.IOTimeout);
   except
     on E: Exception do
     begin

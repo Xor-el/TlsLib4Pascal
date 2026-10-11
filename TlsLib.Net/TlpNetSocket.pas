@@ -185,6 +185,11 @@ var
   LTime: TTimeVal;
   LReady: Longint;
 begin
+{$IFDEF UNIX}
+  // a descriptor this high does not fit a select set: skip the wait and let the read block
+  if AHandle >= FD_MAXFDSET then
+    Exit(True);
+{$ENDIF UNIX}
   LTime.tv_sec := AMs div 1000;
   LTime.tv_usec := (AMs mod 1000) * 1000;
   repeat
