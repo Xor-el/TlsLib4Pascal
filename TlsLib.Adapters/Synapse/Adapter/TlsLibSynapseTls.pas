@@ -46,6 +46,7 @@ uses
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
   TlpITlsTransport,
+  TlpAlpnProtocols,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpTlsVersion,
@@ -173,6 +174,9 @@ type
     /// <summary>Whether this connection resumed an earlier session rather than doing a full
     /// handshake (RFC 8446 2.2 / RFC 5246 7.3). Cast Sock.SSL to TSSLTlsLib to read it.</summary>
     function Resumed: Boolean;
+    /// <summary>The ALPN protocol the peer selected as text; empty when none was negotiated or
+    /// the name is not ASCII (RFC 7301). Cast Sock.SSL to TSSLTlsLib to read it.</summary>
+    function NegotiatedAlpn: string;
     // native peer-certificate accessors an OnVerifyCert handler reads
     function GetPeerSubject: string; override;
     function GetPeerIssuer: string; override;
@@ -683,6 +687,12 @@ end;
 function TSSLTlsLib.Resumed: Boolean;
 begin
   Result := TTlsConnection.InfoOf(FConnection).Resumed;
+end;
+
+function TSSLTlsLib.NegotiatedAlpn: string;
+begin
+  if not TAlpnProtocols.TryToText(TTlsConnection.InfoOf(FConnection).AlpnProtocol, Result) then
+    Result := '';
 end;
 
 function TSSLTlsLib.GetPeerSubject: string;

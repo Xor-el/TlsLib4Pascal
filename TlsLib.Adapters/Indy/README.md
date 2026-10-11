@@ -15,7 +15,7 @@ uses TlsLibIndyTls;
 IO := TTlsLibIOHandlerSocket.Create(Client);
 IO.SSLOptions.RootCertFile := 'ca-bundle.pem';   // trust
 Client.IOHandler := IO;
-Client.Host := 'example.com';                     // used for SNI + verification
+Client.Host := 'example.com';                     // used for SNI + verification (URIToCheck's host wins, so TIdHTTP via a proxy verifies the origin)
 Client.Connect;                                   // handshake runs here
 ```
 

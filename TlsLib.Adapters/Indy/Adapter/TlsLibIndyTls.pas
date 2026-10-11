@@ -30,6 +30,7 @@ uses
   SyncObjs,
   IdGlobal,
   IdSSL,
+  IdURI,
   IdStackConsts,
   IdIOHandler,
   IdSocketHandle,
@@ -51,6 +52,7 @@ uses
   TlpTlsLibExceptions,
   TlpTlsCredential,
   TlpITlsTransport,
+  TlpAlpnProtocols,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade;
@@ -279,6 +281,9 @@ type
     /// <summary>Whether this connection resumed an earlier session rather than doing a full
     /// handshake (RFC 8446 2.2 / RFC 5246 7.3).</summary>
     function Resumed: Boolean;
+    /// <summary>The ALPN protocol the peer selected as text; empty when none was negotiated or
+    /// the name is not ASCII (RFC 7301).</summary>
+    function NegotiatedAlpn: string;
     /// <summary>Clears the process-wide client config cache (shared by all handlers), so the next
     /// connect rebuilds from current SSLOptions; this also drops the cached sessions those configs
     /// owned. Call after rotating the client credential to purge the retired key.</summary>
@@ -567,6 +572,8 @@ procedure TTlsLibIOHandlerSocket.DoHandshake;
 var
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
+  LServerName: string;
+  LUri: TIdURI;
 begin
   if FConnection <> nil then
     Exit; // fast path: handshake already run
@@ -582,7 +589,20 @@ begin
     if not IsPeer then
     begin
       LClientConfig := BuildClientConfig;
-      FConnection := TTlsConnection.CreateClient(LClientConfig, Host,
+      // through an HTTP proxy Host is the proxy; the origin is the URI host
+      LServerName := '';
+      if URIToCheck <> '' then
+      begin
+        LUri := TIdURI.Create(URIToCheck);
+        try
+          LServerName := LUri.Host;
+        finally
+          LUri.Free;
+        end;
+      end;
+      if LServerName = '' then
+        LServerName := Host;
+      FConnection := TTlsConnection.CreateClient(LClientConfig, LServerName,
         TIndySocketTransport.Create(Binding) as ITlsTimedTransport, FOptions.VerdictResolver,
         FOptions.VerdictDeadlineMs);
     end
@@ -737,6 +757,12 @@ end;
 function TTlsLibIOHandlerSocket.Resumed: Boolean;
 begin
   Result := TTlsConnection.InfoOf(FConnection).Resumed;
+end;
+
+function TTlsLibIOHandlerSocket.NegotiatedAlpn: string;
+begin
+  if not TAlpnProtocols.TryToText(TTlsConnection.InfoOf(FConnection).AlpnProtocol, Result) then
+    Result := '';
 end;
 
 class procedure TTlsLibIOHandlerSocket.FlushConfigCache;

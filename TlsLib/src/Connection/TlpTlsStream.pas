@@ -47,6 +47,8 @@ type
     FHandshakeFailed: Boolean;
     FFailureClass: ExceptClass;
     FFailureMessage: string;
+    FFailureHasAlert: Boolean;
+    FFailureAlert: TTlsAlertDescription;
     FReadClosed: Boolean;
     FWriteClosed: Boolean;
     FTruncated: Boolean;
@@ -133,7 +135,12 @@ begin
   begin
     if FEngine.IsTerminal then
       TTlsStreamPump.RaiseIfFatal(FEngine);
-    raise FFailureClass.Create(FFailureMessage);
+    // Exception constructors are not virtual, so a latched class cannot rebuild its own state
+    if FFailureHasAlert then
+      raise ETlsStreamError.Create(FFailureAlert, FFailureMessage);
+    if FFailureClass.InheritsFrom(ETlsStreamError) then
+      raise FFailureClass.Create(FFailureMessage);
+    raise ETlsStreamError.Create(FFailureMessage);
   end;
   // a nil resolver is exactly the inline path; a set one decides a parked async verdict
   try
@@ -145,6 +152,9 @@ begin
       FHandshakeFailed := True;
       FFailureClass := ExceptClass(E.ClassType);
       FFailureMessage := E.Message;
+      FFailureHasAlert := (E is ETlsStreamError) and ETlsStreamError(E).HasAlert;
+      if FFailureHasAlert then
+        FFailureAlert := ETlsStreamError(E).Alert;
       raise;
     end;
   end;

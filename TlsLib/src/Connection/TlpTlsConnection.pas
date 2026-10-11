@@ -359,6 +359,9 @@ resourcestring
   SNoClientTrust =
     'peer verification is on but no trust source was named; set %s (system trust is never ' +
     'implicit), or turn peer verification off to skip verification';
+  SSystemTrustWithHostAnchors =
+    'OS trust that is delegate-only on this platform cannot be combined with host-supplied ' +
+    'anchors or a custom trust store; use either system trust or the host trust sources (%s): %s';
   SConfigAndOptionsConflict =
     '%s is set together with cert/trust/ALPN/provider options or a non-default security toggle ' +
     'that a fully-built config replaces; supply either the config or those options, not both';
@@ -675,7 +678,19 @@ begin
   end
   else
     LClient.WithResumption(False);
-  Result := LClient.Build;
+  try
+    Result := LClient.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+    begin
+      // delegate-only OS trust is a verifier source, which cannot union with host anchors
+      if (AOptions.SystemTrust <> nil) and (AOptions.ServerCertificateVerifier = nil) and
+        ((AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.TrustAnchors) > 0)) then
+        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+          @SSystemTrustWithHostAnchors, [AOptions.TrustSourceHint, E.Message]);
+      raise;
+    end;
+  end;
 end;
 
 class function TTlsConfigComposer.BuildServerConfig(
