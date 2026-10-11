@@ -140,6 +140,7 @@ type
     procedure TestUntrustedChainFailsThroughOurPipeline;
     procedure TestHandshakeFailureIsLatchedOnRetry;
     procedure TestNonTerminalHandshakeFailureIsLatched;
+    procedure TestForeignHandshakeFailureIsReraisedAsStreamError;
     procedure TestInsecureSkipVerifyAcceptsUntrustedChain;
     procedure TestVerifyCallbackCanOnlyAdditionallyReject;
     procedure TestPinnedSelfSignedChainStillFullyVerified;
@@ -1013,6 +1014,39 @@ begin
   finally
     LClient.Free; // frees the stream, the transport, and the transport-owned write pipe (LC2S)
     LS2C.Free;    // the read pipe is not owned by the single transport
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestForeignHandshakeFailureIsReraisedAsStreamError;
+var
+  LEngine: ITlsEngine;
+  LClient: TTlsStream;
+  LBuf: TBytes;
+  LFirst, LSecond: string;
+begin
+  LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(False, nil), 'localhost');
+  LClient := TTlsStream.Create(TFailingReadTransport.Create as ITlsTransport, LEngine, True,
+    'localhost');
+  SetLength(LBuf, 16);
+  try
+    LFirst := '';
+    try
+      LClient.Handshake;
+    except
+      on E: EInOutError do
+        LFirst := E.Message;
+    end;
+    CheckTrue(LFirst <> '', 'the transport failure surfaces as itself the first time');
+    LSecond := '';
+    try
+      LClient.Read(LBuf[0], 16);
+    except
+      on E: ETlsStreamError do
+        LSecond := E.Message;
+    end;
+    CheckEquals(LFirst, LSecond, 'the latched failure re-raises as a stream error, same message');
+  finally
+    LClient.Free;
   end;
 end;
 

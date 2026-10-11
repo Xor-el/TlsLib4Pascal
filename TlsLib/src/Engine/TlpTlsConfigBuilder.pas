@@ -2474,7 +2474,7 @@ function TTlsConfigBuilder.WithEncryptedClientHello(
   const AEchConfigList: TBytes): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FEchConfigList := AEchConfigList;
+  FEchConfigList := System.Copy(AEchConfigList);
   FEchIsRetry := False;
   FEchListSupplied := True;
   FTls13Configured := True;
@@ -2485,7 +2485,7 @@ function TTlsConfigBuilder.WithEncryptedClientHelloRetry(
   const AEchConfigList: TBytes): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FEchConfigList := AEchConfigList;
+  FEchConfigList := System.Copy(AEchConfigList);
   FEchIsRetry := True;
   FEchListSupplied := True;
   FTls13Configured := True;

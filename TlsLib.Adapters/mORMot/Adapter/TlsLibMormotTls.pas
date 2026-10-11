@@ -45,6 +45,7 @@ uses
   TlpTlsCredential,
   TlpSecureMemory,
   TlpITlsTransport,
+  TlpAlpnProtocols,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpTlsVersion,
@@ -178,6 +179,9 @@ type
     /// <summary>Whether this connection resumed an earlier session rather than doing a full
     /// handshake (RFC 8446 2.2 / RFC 5246 7.3).</summary>
     function Resumed: Boolean;
+    /// <summary>The ALPN protocol the peer selected as text; empty when none was negotiated or
+    /// the name is not ASCII (RFC 7301).</summary>
+    function NegotiatedAlpn: string;
   end;
 
 /// <summary>The factory to point mORMot's global at: `NewNetTls := @NewTlsLib4PascalTls;`.</summary>
@@ -655,6 +659,12 @@ end;
 function TTlsLibNetTls.Resumed: Boolean;
 begin
   Result := TTlsConnection.InfoOf(FConnection).Resumed;
+end;
+
+function TTlsLibNetTls.NegotiatedAlpn: string;
+begin
+  if not TAlpnProtocols.TryToText(TTlsConnection.InfoOf(FConnection).AlpnProtocol, Result) then
+    Result := '';
 end;
 
 function TTlsLibNetTls.GetRawTls: pointer;

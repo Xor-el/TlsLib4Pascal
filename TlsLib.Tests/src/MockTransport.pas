@@ -94,10 +94,19 @@ type
     procedure Arm;
   end;
 
+  /// <summary>A transport that swallows writes and fails every Read with a non-TLS exception,
+  /// like a socket layer reporting its own error class.</summary>
+  TFailingReadTransport = class sealed(TInterfacedObject, ITlsTransport)
+  public
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+  end;
+
 implementation
 
 resourcestring
   SMockReceiveTimedOut = 'the mock socket receive timeout elapsed';
+  SMockSocketFailed = 'the mock socket failed';
 
 { TMemoryPipe }
 
@@ -285,6 +294,17 @@ end;
 procedure TTimeoutOnceTransport.Arm;
 begin
   FArmed := True;
+end;
+
+{ TFailingReadTransport }
+
+function TFailingReadTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+begin
+  raise EInOutError.CreateRes(@SMockSocketFailed);
+end;
+
+procedure TFailingReadTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
 end;
 
 end.

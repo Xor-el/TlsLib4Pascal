@@ -53,6 +53,7 @@ uses
   TlpTlsLibExceptions,
   TlpTlsCredential,
   TlpITlsTransport,
+  TlpAlpnProtocols,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpSystemTrustFacade,
@@ -187,6 +188,9 @@ type
     /// <summary>Whether this connection resumed an earlier session rather than doing a full
     /// handshake (RFC 8446 2.2 / RFC 5246 7.3).</summary>
     function Resumed: Boolean;
+    /// <summary>The ALPN protocol the peer selected as text; empty when none was negotiated or
+    /// the name is not ASCII (RFC 7301).</summary>
+    function NegotiatedAlpn: string;
     /// <summary>A human-readable description of the last Connect/Accept/Send/Recv failure.</summary>
     property LastErrorDesc: string read FLastErrorDesc;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
@@ -693,6 +697,12 @@ end;
 function TTlsLibSocketHandler.Resumed: Boolean;
 begin
   Result := TTlsConnection.InfoOf(FConnection).Resumed;
+end;
+
+function TTlsLibSocketHandler.NegotiatedAlpn: string;
+begin
+  if not TAlpnProtocols.TryToText(TTlsConnection.InfoOf(FConnection).AlpnProtocol, Result) then
+    Result := '';
 end;
 
 procedure FlushTlsLibFclNetConfigCache;

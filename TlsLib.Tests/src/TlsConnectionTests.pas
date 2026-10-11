@@ -115,6 +115,8 @@ type
     procedure TestClientSystemTrustInstallerCalledForClientRole;
     procedure TestClientVerifierComposesAndBuilds;
     procedure TestClientVerifierWithAnchorConflictPropagates;
+    procedure TestClientDelegateSystemTrustWithHostStoreNamesTheKnobs;
+    procedure TestClientHostVerifierConflictIsNotBlamedOnSystemTrust;
     procedure TestClientVerifierWithVerificationOffIsRefused;
     procedure TestClientEmptyCustomStoreFailsClosed;
     procedure TestClientRaisingInstallerPropagates;
@@ -211,6 +213,8 @@ type
     // unique per instance unless a test sets it, so two fakes differ the way two installers
     // installing different roots do
     InstallerIdentity: string;
+    // installed instead of the store, as a delegate-only platform does
+    DelegateVerifier: IServerCertificateVerifier;
     constructor Create(ARaise: Boolean; const AStore: ITrustAnchorStore);
     function Identity: string;
     procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
@@ -291,7 +295,10 @@ begin
     raise EInvalidOperationTlsLibException.Create('installer refused');
   ClientRoleCalled := True;
   ClientPkix := APkix;
-  ABuilder.WithTrustStore(FStore);
+  if DelegateVerifier <> nil then
+    ABuilder.WithDangerousCertificateVerifier(DelegateVerifier)
+  else
+    ABuilder.WithTrustStore(FStore);
 end;
 
 { TFakeServerVerifier }
@@ -982,6 +989,53 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a verifier plus an anchor source is the builder''s typed conflict');
+end;
+
+procedure TTestTlsConnection.TestClientDelegateSystemTrustWithHostStoreNamesTheKnobs;
+var
+  LOpts: TTlsOptions;
+  LFake: TFakeSystemTrustInstaller;
+  LInst: ISystemTrustInstaller;
+  LHinted: Boolean;
+begin
+  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LFake.DelegateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LInst := LFake;
+  LOpts := TTlsOptions.Default;
+  LOpts.SystemTrust := LInst;
+  LOpts.CustomTrustStore := EcP256RootStore;
+  LOpts.TrustSourceHint := 'MyTrustKnob';
+  LHinted := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
+  except
+    on E: ETlsStreamError do
+      LHinted := Pos('MyTrustKnob', E.Message) > 0;
+  end;
+  CheckTrue(LHinted, 'delegate-only OS trust beside host anchors is refused naming the host knobs');
+end;
+
+procedure TTestTlsConnection.TestClientHostVerifierConflictIsNotBlamedOnSystemTrust;
+var
+  LOpts: TTlsOptions;
+  LFake: TFakeSystemTrustInstaller;
+  LInst: ISystemTrustInstaller;
+  LBuilderError: Boolean;
+begin
+  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LInst := LFake;
+  LOpts := TTlsOptions.Default;
+  LOpts.SystemTrust := LInst;
+  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.CustomTrustStore := EcP256RootStore;
+  LBuilderError := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LBuilderError := True;
+  end;
+  CheckTrue(LBuilderError, 'the builder''s own conflict surfaces when the host set the verifier');
 end;
 
 procedure TTestTlsConnection.TestClientVerifierWithVerificationOffIsRefused;

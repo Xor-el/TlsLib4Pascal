@@ -11,7 +11,7 @@
 /// Handshake customization over the Indy adapter, as a runnable check: SNI, cipher suites,
 /// and the named group (key_share curve), with PEM certificates.
 ///
-/// It stands up a loopback TIdTCPServer + TIdTCPClient and drives three handshakes:
+/// It stands up a loopback TIdTCPServer + TIdTCPClient and drives four handshakes:
 ///
 ///   Run A - the SSLOptions.ServerConfig / ClientConfig escape hatch, fed PEM bytes. It
 ///           pins the named groups so the key_share curve is secp256r1 (NOT the x25519
@@ -30,6 +30,11 @@
 ///           selector that sent the 'other.example' certificate would fail the client's name
 ///           check. A clean, name-verified echo proves the server picked the localhost cert by
 ///           SNI - the per-host selection a single WithCredential could never do.
+///
+///   Run D - origin name through a proxy: the client connects to a stand-in proxy address
+///           (Host = 127.0.0.1) while URIToCheck names the origin 'localhost', as TIdHTTP sets it
+///           for HTTPS through a proxy. The server must see the origin as SNI and the leaf is
+///           verified against it, not against the proxy address.
 ///
 /// Feeding a TIdHTTPServer looks the same - the IOHandler is configured identically:
 ///
@@ -55,7 +60,7 @@ interface
 type
   TIndyCustomizationExample = class sealed(TObject)
   public
-    /// <summary>Runs all three checks; returns 0 on success, 1 on failure.</summary>
+    /// <summary>Runs all four checks; returns 0 on success, 1 on failure.</summary>
     class function Run: Integer; static;
   end;
 
@@ -87,6 +92,8 @@ const
   PORT_A = 28470;
   PORT_B = 28471;
   PORT_C = 28472;
+  PORT_D = 28473;
+  PROXY_HOST = '127.0.0.1'; // stands in for the HTTP proxy the TCP connection goes to
   SNI_HOST = 'localhost'; // matches the leaf's CN/SAN in the fixture
   OTHER_HOST = 'other.example'; // the second virtual host (SAN of otherhost_cert)
   PING = 'ping';
@@ -499,6 +506,62 @@ begin
   end;
 end;
 
+// Run D: the leaf has no IP SAN, so an echo proves the origin name was verified.
+function RunProxyOrigin(const ACertPem, AKeyPem, ARootPem: TBytes; out AServerSni,
+  AFailReason: string): Boolean;
+var
+  LServer: TIdTCPServer;
+  LServerIO: TTlsLibServerIOHandler;
+  LClient: TIdTCPClient;
+  LClientIO: TTlsLibIOHandlerSocket;
+  LObs: TServerObserver;
+  LEcho, LErr: string;
+  LGroup, LSuite: UInt16;
+begin
+  AServerSni := '';
+  AFailReason := '';
+  LEcho := '';
+  LObs := TServerObserver.Create;
+  LServer := TIdTCPServer.Create(nil);
+  LClient := TIdTCPClient.Create(nil);
+  try
+    LServerIO := TTlsLibServerIOHandler.Create(LServer);
+    LServerIO.SSLOptions.ServerConfig := BuildServerConfig(ACertPem, AKeyPem);
+    LServer.IOHandler := LServerIO;
+    LServer.DefaultPort := PORT_D;
+    LServer.OnExecute := LObs.DoExecute;
+    LServer.Active := True;
+
+    LClientIO := TTlsLibIOHandlerSocket.Create(LClient);
+    LClientIO.SSLOptions.ClientConfig := BuildClientConfig(ARootPem);
+    LClientIO.URIToCheck := 'https://' + SNI_HOST + '/';
+    LClient.IOHandler := LClientIO;
+    LClient.Host := PROXY_HOST;
+    LClient.Port := PORT_D;
+    try
+      LClient.Connect;
+      try
+        LClientIO.WriteLn(PING);
+        LEcho := LClientIO.ReadLn;
+      finally
+        LClient.Disconnect;
+      end;
+    except
+      on E: Exception do
+        AFailReason := 'handshake against the origin name failed: ' + E.Message;
+    end;
+    LObs.Snapshot(AServerSni, LGroup, LSuite, LErr);
+    LServer.Active := False;
+    Result := (AFailReason = '') and (LEcho = PING);
+    if (AFailReason = '') and not Result then
+      AFailReason := 'proxy-style handshake did not echo (' + LEcho + ')';
+  finally
+    LClient.Free;
+    LServer.Free;
+    LObs.Free;
+  end;
+end;
+
 // ---------------------------------------------------------------- entry point
 
 class function TIndyCustomizationExample.Run: Integer;
@@ -575,6 +638,16 @@ begin
     end;
     Writeln('Run C OK: two SNI credentials configured; client SNI="', LServerSni,
       '" selected the localhost cert (the other.example decoy would have failed name check)');
+
+    // ---- Run D: the origin name, not the proxy address, is SNI and the verified name ----
+    if (not RunProxyOrigin(LLeafPem, LKeyPem, LRootPem, LServerSni, LReason)) or
+      (LServerSni <> SNI_HOST) then
+    begin
+      Writeln('Indy customization FAIL (Run D): ', LReason, ' serverSNI="', LServerSni, '"');
+      Exit;
+    end;
+    Writeln('Run D OK: with Host=', PROXY_HOST, ' and URIToCheck=localhost the origin was ',
+      'verified and sent as SNI="', LServerSni, '"');
 
     Writeln('Indy customization PASS');
     Result := 0;
