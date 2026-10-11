@@ -29,6 +29,7 @@ uses
 {$IFDEF FPC}
   ssockets,
   fphttpclient,
+  TlpNetSocket,
 {$ELSE}
   System.Net.HttpClient,
   System.Net.URLClient,
@@ -43,13 +44,13 @@ type
   /// <summary>A blocking IHttpFetcher backed by the RTL HTTP client (FPC fphttpclient /
   /// Delphi System.Net.HttpClient). Suitable for live OCSP (POST) and CRL (GET) retrieval.
   /// The timeout bounds the whole exchange once the host name is resolved, so a responder that
-  /// trickles bytes cannot hold the caller past it; name resolution itself is not bounded. The
-  /// Free Pascal client numbers its socket-option constants the same on every Linux CPU, so on
-  /// PowerPC, MIPS and SPARC it cannot set a read wait: a responder that trickles bytes is still
-  /// cut off at the budget, because every read is checked, but one that goes completely silent
-  /// blocks that fetch until TCP gives up (the handshake's own deadline is unaffected). The injected
-  /// clock may be read from another thread. Never raises; a failed exchange yields False with an
-  /// empty response.</summary>
+  /// trickles bytes or goes silent cannot hold the caller past it; name resolution itself is not
+  /// bounded. On Free Pascal an https responder is the exception to the silent case: its reads rely
+  /// on the socket's own receive timeout, and the client numbers its socket-option constants the
+  /// same on every Linux CPU, so on PowerPC, MIPS and SPARC one that goes completely silent blocks
+  /// that fetch until TCP gives up (a trickle is still cut off at the budget, because every read is
+  /// checked; plain http is unaffected). The injected clock may be read from another thread. Never
+  /// raises; a failed exchange yields False with an empty response.</summary>
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
     FClock: ITlsMonotonicClock;
@@ -241,19 +242,47 @@ end;
 {$IFDEF FPC}
 
 type
+  // waits on the socket for no longer than what is left of the budget before each read, so a
+  // responder that goes silent ends the exchange on every CPU
+  TDeadlineSocketHandler = class sealed(TSocketHandler)
+  strict private
+    FDeadline: TFetchDeadline;
+  public
+    constructor Create(const ADeadline: TFetchDeadline); reintroduce;
+    function Recv(const Buffer; Count: Integer): Integer; override;
+  end;
+
   // the client calls DoDataRead on every socket read, response head included
   TDeadlineHttpClient = class(TFPHTTPClient)
   strict private
     FDeadline: TFetchDeadline;
+    FSecure: Boolean;
     FTimeoutsUsable: Boolean;
     procedure HoldReadsToBudget;
   protected
+    function GetSocketHandler(const UseSSL: Boolean): TSocketHandler; override;
     procedure ConnectToServer(const AHost: string; APort: Integer;
       UseSSL: Boolean = False); override;
     procedure DoDataRead; override;
   public
     constructor Create(const ADeadline: TFetchDeadline); reintroduce;
   end;
+
+constructor TDeadlineSocketHandler.Create(const ADeadline: TFetchDeadline);
+begin
+  inherited Create;
+  FDeadline := ADeadline;
+end;
+
+function TDeadlineSocketHandler.Recv(const Buffer; Count: Integer): Integer;
+begin
+  if FDeadline.Bounded then
+    repeat
+      // raises once the budget is spent, which ends a wait that timed out
+      FDeadline.Check;
+    until TNetReadiness.WaitReadable(Socket.Handle, FDeadline.RemainingMs);
+  Result := inherited Recv(Buffer, Count);
+end;
 
 constructor TDeadlineHttpClient.Create(const ADeadline: TFetchDeadline);
 begin
@@ -262,9 +291,20 @@ begin
   FTimeoutsUsable := True;
 end;
 
+function TDeadlineHttpClient.GetSocketHandler(const UseSSL: Boolean): TSocketHandler;
+begin
+  FSecure := UseSSL;
+  if UseSSL then
+    Result := inherited GetSocketHandler(UseSSL)
+  else
+    Result := TDeadlineSocketHandler.Create(FDeadline);
+end;
+
+// a wait on the raw socket cannot tell an encrypted stream that holds decrypted bytes from a
+// silent one, so an https read keeps the socket's own receive timeout, where the target has one
 procedure TDeadlineHttpClient.HoldReadsToBudget;
 begin
-  if (not FDeadline.Bounded) or (not FTimeoutsUsable) then
+  if (not FSecure) or (not FDeadline.Bounded) or (not FTimeoutsUsable) then
     Exit;
   try
     IOTimeout := FDeadline.RemainingMs;
@@ -287,7 +327,7 @@ end;
 procedure TDeadlineHttpClient.DoDataRead;
 begin
   inherited DoDataRead;
-  // a trickle in any phase is cut off, and the next read waits no longer than what is left
+  // a trickle in any phase is cut off, and the next https read waits no longer than what is left
   FDeadline.Check;
   HoldReadsToBudget;
 end;
@@ -299,7 +339,7 @@ var
 begin
   LClient := TDeadlineHttpClient.Create(ADeadline);
   try
-    // the read wait is applied by the client itself once connected
+    // reads wait inside the socket handler; the connect is bounded here
     if ADeadline.Bounded then
       LClient.ConnectTimeout := ADeadline.RemainingMs;
     // the responder URL is peer-chosen; do not chase redirects it hands us

@@ -58,6 +58,15 @@ type
     function WaitAndAccept(AMs: Int32; out AHandle: Longint): Boolean;
   end;
 
+  /// <summary>The wait for a socket to become readable, by select. The kernel's socket receive
+  /// timeout is not settable on every CPU, and a read that depends on it then blocks for good.</summary>
+  TNetReadiness = class sealed(TObject)
+  public
+    /// <summary>True when AHandle has data, or has failed, within AMs ms; a failure counts as
+    /// readable so the read that follows reports it.</summary>
+    class function WaitReadable(AHandle: Longint; AMs: Int32): Boolean; static;
+  end;
+
   TNetStreamSocket = TSocketStream;
   TNetServerSocket = TNetFpcServer;
 {$ELSE}
@@ -169,17 +178,9 @@ type
 
 {$IFDEF FPC}
 
-type
-  // the readiness wait, by select: the kernel's socket receive timeout is not settable on every
-  // CPU, and a read that depends on it then blocks for good
-  TNetOs = class sealed(TObject)
-  public
-    class function WaitReadable(AHandle: Longint; AMs: Int32): Boolean; static;
-  end;
+{ TNetReadiness }
 
-{ TNetOs }
-
-class function TNetOs.WaitReadable(AHandle: Longint; AMs: Int32): Boolean;
+class function TNetReadiness.WaitReadable(AHandle: Longint; AMs: Int32): Boolean;
 var
   LSet: TFDSet;
   LTime: TTimeVal;
@@ -259,7 +260,7 @@ end;
 class function TNetSocketOps.Receive(ASocket: TNetStreamSocket; var ABuffer: TBytes;
   AOffset, AMaxLength, ATimeoutMs: Int32): Int32;
 begin
-  if (ATimeoutMs > 0) and not TNetOs.WaitReadable(ASocket.Handle, ATimeoutMs) then
+  if (ATimeoutMs > 0) and not TNetReadiness.WaitReadable(ASocket.Handle, ATimeoutMs) then
     raise ENetReceiveTimeout.Create(SNetReceiveTimedOut);
   Result := ASocket.Read(ABuffer[AOffset], AMaxLength);
   if Result < 0 then

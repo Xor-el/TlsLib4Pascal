@@ -48,14 +48,17 @@ type
     procedure TestSteadyResponseWithinBudgetIsFetched;
     procedure TestLongResponseIsCutOffAtTheBudget;
     procedure TestTrickledHeadersAreCutOffAtTheBudget;
+    procedure TestSilentResponderIsCutOffAtTheBudget;
     procedure TestNilClockIsRefused;
   end;
 
 implementation
 
 type
-  // answers one request with a large body in small writes, or with a response head that arrives a
-  // line at a time
+  // what a responder does with the request: a large body in small writes, a response head that
+  // arrives a line at a time, or nothing at all
+  TResponderMode = (Body, TrickledHead, Silent);
+
   TResponder = class(TThread)
   strict private
   const
@@ -67,7 +70,7 @@ type
     FListener: ITcpListener;
     FStream: ITlsTimedTransport;
     FBodySize: Int32;
-    FTrickleHeaders: Boolean;
+    FMode: TResponderMode;
     FStop: TEvent;
     function SendText(const AText: string): Boolean;
     function ReadRequest: Boolean;
@@ -76,18 +79,18 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(ABodySize: Int32; ATrickleHeaders: Boolean);
+    constructor Create(ABodySize: Int32; AMode: TResponderMode);
     destructor Destroy; override;
     function Url: string;
   end;
 
 { TResponder }
 
-constructor TResponder.Create(ABodySize: Int32; ATrickleHeaders: Boolean);
+constructor TResponder.Create(ABodySize: Int32; AMode: TResponderMode);
 begin
   FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
   FBodySize := ABodySize;
-  FTrickleHeaders := ATrickleHeaders;
+  FMode := AMode;
   FStop := TEvent.Create(nil, True, False, '');
   inherited Create(False);
 end;
@@ -195,10 +198,14 @@ begin
     Exit;
   if not ReadRequest then
     Exit;
-  if FTrickleHeaders then
-    SendHeadTrickled
+  case FMode of
+    TResponderMode.TrickledHead:
+      SendHeadTrickled;
+    TResponderMode.Silent:
+      FStop.WaitFor(INFINITE);
   else
     SendBody;
+  end;
 end;
 
 { TTestSocketHttpFetcher }
@@ -210,7 +217,7 @@ var
   LResponse: TBytes;
 begin
   // a clock that never moves leaves the whole budget, so the full body arrives
-  LResponder := TResponder.Create(256 * 1024, False);
+  LResponder := TResponder.Create(256 * 1024, TResponderMode.Body);
   try
     LFetcher := TSocketHttpFetcher.Create(TMockMonotonicClock.Create(1000, 0) as ITlsMonotonicClock);
     CheckTrue(LFetcher.Get(LResponder.Url, 10000, 1024 * 1024, LResponse),
@@ -230,7 +237,7 @@ var
 begin
   // the same body, but every progress check spends 100 ms of a 1000 ms budget: each read is well
   // inside any per-read wait, yet the exchange as a whole must stop
-  LResponder := TResponder.Create(256 * 1024, False);
+  LResponder := TResponder.Create(256 * 1024, TResponderMode.Body);
   try
     LFetcher := TSocketHttpFetcher.Create(
       TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock);
@@ -253,13 +260,38 @@ var
 begin
   // a line every 100 ms never stalls a read for the 600 ms budget, so only the exchange-wide
   // limit can stop it
-  LResponder := TResponder.Create(1024, True);
+  LResponder := TResponder.Create(1024, TResponderMode.TrickledHead);
   try
     LClock := TSystemMonotonicClock.Create;
     LFetcher := TSocketHttpFetcher.Create(LClock);
     LStart := LClock.NowMonotonicMillis;
     CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
       'a head that outlasts the budget fails closed');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
+      'the fetch stops near the budget, not when the responder gives up');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcher.TestSilentResponderIsCutOffAtTheBudget;
+var
+  LResponder: TResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // a responder that takes the request and says nothing: only a wait on the socket, not the
+  // check after a read, can end this, and the kernel's receive timeout is not available on every CPU
+  LResponder := TResponder.Create(1024, TResponderMode.Silent);
+  try
+    LClock := TSystemMonotonicClock.Create;
+    LFetcher := TSocketHttpFetcher.Create(LClock);
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
+      'a responder that goes silent fails closed');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops near the budget, not when the responder gives up');
   finally
