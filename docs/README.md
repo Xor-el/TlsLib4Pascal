@@ -85,6 +85,7 @@ if you use it:
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`). |
 | `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake. |
 | `TlpSocketHttpFetcher` *(unit in `TlsLib.Net/`)* | The reference socket `IHttpFetcher` for live OCSP/CRL — a loose unit, not a package. |
+| `TlpNetSocket` *(unit in `TlsLib.Net/`)* | The reference TCP `ITcpConnector` / `ITcpListener` (interfaces in `TlpINetSocket`) whose streams run a `TTlsConnection` directly — a loose unit, not a package. |
 | `TlsLib.Adapter.*` | The mORMot / Indy / Synapse / fcl-net drop-in adapters (package name is singular — `TlsLib.Adapter.mORMot`, `…Indy`, `…Synapse`, `…FclNet`). |
 
 See [Getting started](getting-started.md) for how to add these on Delphi and FPC/Lazarus.

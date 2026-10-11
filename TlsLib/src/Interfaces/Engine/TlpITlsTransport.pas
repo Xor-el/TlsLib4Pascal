@@ -16,7 +16,8 @@ unit TlpITlsTransport;
 interface
 
 uses
-  SysUtils;
+  SysUtils,
+  TlpIClock;
 
 type
   /// <summary>
@@ -36,6 +37,23 @@ type
     /// <summary>Writes ALength bytes from ABuffer at AOffset, blocking until all have been
     /// handed to the transport. Raises on a transport error.</summary>
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+  end;
+
+  /// <summary>
+  /// An ITlsTransport whose reads a connection can bound: it arms a deadline for the handshake, or
+  /// for one application read, and a read past it raises instead of blocking.
+  /// </summary>
+  ITlsTimedTransport = interface(ITlsTransport)
+    ['{9280BFB7-E538-4D74-8C7A-9D0CAB8C326A}']
+    /// <summary>Measures the deadlines on AClock (required; nil raises). Call it before
+    /// SetReadTimeout: it clears any armed cap.</summary>
+    procedure UseClock(const AClock: ITlsMonotonicClock);
+    /// <summary>Bounds the reads that follow to AMs ms in total, as a deadline from this call
+    /// (0 = block); a read past it raises ETlsHandshakeTimeout.</summary>
+    procedure SetReadTimeout(AMs: Int32);
+    /// <summary>As SetReadTimeout, for an application read: a read past the deadline raises the
+    /// retryable ETlsReadTimeout.</summary>
+    procedure SetApplicationReadTimeout(AMs: Int32);
   end;
 
 implementation

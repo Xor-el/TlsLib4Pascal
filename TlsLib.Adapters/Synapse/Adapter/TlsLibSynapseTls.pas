@@ -45,6 +45,7 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
+  TlpITlsTransport,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpTlsVersion,
@@ -526,13 +527,14 @@ begin
     begin
       LClientConfig := BuildClientConfig;
       FConnection := TTlsConnection.CreateClient(LClientConfig, AHost,
-        TSynapseSocketTransport.Create(FSocket), GVerdictResolver, GVerdictDeadlineMs);
+        TSynapseSocketTransport.Create(FSocket) as ITlsTimedTransport, GVerdictResolver,
+        GVerdictDeadlineMs);
     end
     else
     begin
       LServerConfig := BuildServerConfig;
       FConnection := TTlsConnection.CreateServer(LServerConfig,
-        TSynapseSocketTransport.Create(FSocket), GServerVerdictResolver,
+        TSynapseSocketTransport.Create(FSocket) as ITlsTimedTransport, GServerVerdictResolver,
         GServerVerdictDeadlineMs);
     end;
     // bound the handshake read by HandshakeTimeoutMs; the session arms and clears the cap, even

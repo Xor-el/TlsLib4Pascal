@@ -9,15 +9,15 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-{ A real-peer live-revocation cell: it runs the actual driver-edge stack - TSocketHttpFetcher
-  over the RTL HTTP client + TLiveRevocationChecker - against real, live CRL endpoints, and
-  asserts a known-revoked certificate comes back Revoked and a known-good one Good. This is
-  the network-gated counterpart to the fake-fetcher unit tests; it needs outbound HTTP and the
-  captured certificates are cert-reissue-fragile (refresh the vector via the scratchpad capture
-  when badssl.com rotates). NOT part of the unit harness. Run returns 0 on PASS, 1 on FAIL,
-  2 when the vector is missing.
+{ A real-peer live-revocation cell: it handshakes with revoked.badssl.com and badssl.com to capture
+  the chain each presents, then runs the actual driver-edge stack - TSocketHttpFetcher over the RTL
+  HTTP client + TLiveRevocationChecker - against their real, live CRL endpoints, and asserts the
+  revoked certificate comes back Revoked and the good one Good. The chains are captured at run time,
+  so a certificate reissue cannot stale the cell. This is the network-gated counterpart to the
+  fake-fetcher unit tests; it needs outbound TLS and HTTP. NOT part of the unit harness. Run returns
+  0 on PASS, 1 on FAIL, 2 when a host cannot be reached.
 
-  OCSP is being sunset across the ecosystem, so the vector uses CRL-only Let's Encrypt certs;
+  OCSP is being sunset across the ecosystem, so the cell checks the CRL-only Let's Encrypt certs;
   swap the method for a CA that still serves OCSP to exercise the OCSP path live. }
 
 unit RealPeerRevocationProbeExample;
@@ -30,7 +30,21 @@ interface
 
 uses
   SysUtils,
-  Classes,
+  TlpIClock,
+  TlpClock,
+  TlpIPkixProvider,
+  TlpITlsConfig,
+  TlpITlsConfigBuilder,
+  TlpITlsTransport,
+  TlpINetSocket,
+  TlpNetExceptions,
+  TlpNetSocket,
+  TlpDefaultCryptoProvider,
+  TlpDefaultPkixProvider,
+  TlpTlsPresets,
+  TlpTlsConnection,
+  TlpIHttpFetcher,
+  TlpSocketHttpFetcher,
   TlpTrustPolicy,
   TlpLiveRevocation;
 
@@ -41,11 +55,15 @@ type
   strict private
     const
       FetchBudgetMs = Cardinal(20000);
-    /// <summary>Walks up from the executable directory to find the shared test vector, so the
-    /// example runs from any build/output location - no machine-specific path.</summary>
-    class function FindVector: string; static;
-    class function LoadField(const AFields: TStringList;
-      const AName: string): TBytes; static;
+      NetworkTimeoutMs = Int32(20000);
+      HttpsPort = Word(443);
+      RevokedHost = 'revoked.badssl.com';
+      GoodHost = 'badssl.com';
+    class function ClientConfig(const APkix: IPkixProvider): ITlsClientConfig; static;
+    /// <summary>The chain AHost presents, leaf first. False with AError set when the host cannot
+    /// be reached; a failed handshake raises.</summary>
+    class function TryCaptureChain(const AConfig: ITlsClientConfig; const AHost: string;
+      out AChain: TArray<TBytes>; out AError: string): Boolean; static;
     class function OutcomeName(AOutcome: TLiveRevocationOutcome): string; static;
   public
     class function Run: Integer; static;
@@ -53,40 +71,45 @@ type
 
 implementation
 
-uses
-  TlpDataEncoding,
-  TlpIClock,
-  TlpClock,
-  TlpIPkixProvider,
-  TlpDefaultPkixProvider,
-  TlpIHttpFetcher,
-  TlpSocketHttpFetcher;
-
-{ TRealPeerRevocationProbeExample }
-
-class function TRealPeerRevocationProbeExample.FindVector: string;
+class function TRealPeerRevocationProbeExample.ClientConfig(
+  const APkix: IPkixProvider): ITlsClientConfig;
 var
-  LDir, LCandidate: string;
-  LI: Int32;
+  LBuilder: ITlsClientConfigBuilder;
 begin
-  Result := '';
-  LDir := ExtractFileDir(ParamStr(0));
-  for LI := 0 to 8 do
-  begin
-    LCandidate := IncludeTrailingPathDelimiter(LDir) + 'TlsLib.Tests' + PathDelim +
-      'Data' + PathDelim + 'Certs' + PathDelim + 'RealPeerRevocation.txt';
-    if FileExists(LCandidate) then
-      Exit(LCandidate);
-    LDir := ExtractFileDir(LDir);
-    if LDir = '' then
-      Break;
-  end;
+  LBuilder := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, APkix).Client;
+  LBuilder.WithDangerousInsecureSkipVerify;
+  Result := LBuilder.Build;
 end;
 
-class function TRealPeerRevocationProbeExample.LoadField(
-  const AFields: TStringList; const AName: string): TBytes;
+class function TRealPeerRevocationProbeExample.TryCaptureChain(
+  const AConfig: ITlsClientConfig; const AHost: string; out AChain: TArray<TBytes>;
+  out AError: string): Boolean;
+var
+  LConnector: ITcpConnector;
+  LStream: ITlsTimedTransport;
+  LConnection: TTlsConnection;
 begin
-  Result := TDataEncoding.HexDecode(AFields.Values[AName]);
+  AChain := nil;
+  AError := '';
+  LConnector := TTcpConnector.Create(NetworkTimeoutMs) as ITcpConnector;
+  try
+    LStream := LConnector.Connect(AHost, HttpsPort);
+  except
+    on E: ENetConnectError do
+    begin
+      AError := E.Message;
+      Exit(False);
+    end;
+  end;
+  LConnection := TTlsConnection.CreateClient(AConfig, AHost, LStream, nil, 0);
+  try
+    LConnection.Handshake(NetworkTimeoutMs);
+    AChain := TTlsConnection.InfoOf(LConnection).PeerCertificates;
+    LConnection.CloseNotifyQuietly;
+  finally
+    LConnection.Free;
+  end;
+  Result := True;
 end;
 
 class function TRealPeerRevocationProbeExample.OutcomeName(
@@ -105,36 +128,40 @@ end;
 class function TRealPeerRevocationProbeExample.Run: Integer;
 var
   LPkix: IPkixProvider;
+  LConfig: ITlsClientConfig;
   LFetcher: IHttpFetcher;
   LChecker: TLiveRevocationChecker;
-  LFields: TStringList;
-  LPath: string;
   LRevokedChain, LGoodChain: TArray<TBytes>;
   LRevoked, LGood: TLiveRevocationOutcome;
+  LError: string;
 begin
-  LPath := FindVector;
-  if LPath = '' then
-  begin
-    WriteLn('real-peer probe SKIP: RealPeerRevocation.txt not found');
-    Exit(2);
+  Result := 1;
+  LPkix := TDefaultPkixProvider.Create;
+  LConfig := ClientConfig(LPkix);
+  try
+    if not TryCaptureChain(LConfig, RevokedHost, LRevokedChain, LError) then
+    begin
+      WriteLn('real-peer probe SKIP: ', RevokedHost, ' unreachable (', LError, ')');
+      Exit(2);
+    end;
+    if not TryCaptureChain(LConfig, GoodHost, LGoodChain, LError) then
+    begin
+      WriteLn('real-peer probe SKIP: ', GoodHost, ' unreachable (', LError, ')');
+      Exit(2);
+    end;
+  except
+    on E: Exception do
+    begin
+      WriteLn('real-peer live-CRL probe FAIL: ', E.Message);
+      Exit;
+    end;
   end;
 
-  Result := 1;
-  LFields := TStringList.Create;
-  LChecker := nil;
+  LFetcher := TSocketHttpFetcher.Create;
+  // hard-fail posture over the live CRL distribution points
+  LChecker := TLiveRevocationChecker.Create(LPkix, TSystemClock.Create as ITlsClock,
+    TSystemMonotonicClock.Create as ITlsMonotonicClock, LFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, FetchBudgetMs);
   try
-    LFields.LoadFromFile(LPath);
-    LRevokedChain := TArray<TBytes>.Create(LoadField(LFields, 'revoked_leaf'),
-      LoadField(LFields, 'revoked_issuer'));
-    LGoodChain := TArray<TBytes>.Create(LoadField(LFields, 'good_leaf'),
-      LoadField(LFields, 'good_issuer'));
-
-    LPkix := TDefaultPkixProvider.Create;
-    LFetcher := TSocketHttpFetcher.Create;
-    // hard-fail posture over the live CRL distribution points
-    LChecker := TLiveRevocationChecker.Create(LPkix, TSystemClock.Create as ITlsClock,
-      TSystemMonotonicClock.Create as ITlsMonotonicClock, LFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, FetchBudgetMs);
-
     LRevoked := LChecker.Evaluate(LRevokedChain);
     LGood := LChecker.Evaluate(LGoodChain);
 
@@ -151,7 +178,6 @@ begin
       WriteLn('real-peer live-CRL probe FAIL');
   finally
     LChecker.Free;
-    LFields.Free;
   end;
 end;
 

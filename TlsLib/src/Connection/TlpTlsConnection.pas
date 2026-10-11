@@ -204,7 +204,7 @@ type
   /// ETlsHandshakeTimeout (a silent, dead or trickling peer is reaped rather than parking the
   /// thread); with the cap cleared reads block, as application reads must. A host supplies the
   /// readiness wait and the raw receive/send.</summary>
-  TTlsTimedTransportBase = class abstract(TInterfacedObject, ITlsTransport)
+  TTlsTimedTransportBase = class abstract(TInterfacedObject, ITlsTransport, ITlsTimedTransport)
   strict private
   var
     FReadTimeoutMs: Int32;
@@ -264,28 +264,27 @@ type
   strict private
   var
     FStream: TTlsStream;
-    FTransport: ITlsTransport;
-    FTimed: TTlsTimedTransportBase;          // the same object, typed for the cap
+    FTimed: ITlsTimedTransport;
     FEngine: ITlsEngine;
     FIsClient: Boolean;
     FServerName: string;
     function Info: TTlsConnectionInfo;       // Default(...) when FStream = nil
   public
-    constructor Create(const AEngine: ITlsEngine; const ATransport: TTlsTimedTransportBase;
+    constructor Create(const AEngine: ITlsEngine; const ATransport: ITlsTimedTransport;
       AIsClient: Boolean; const AServerName: string;
       const AResolver: TCertificateVerdictResolver); overload;
     /// <summary>As above, giving the resolver ADeadlineMs as its time budget (0 = none set).</summary>
-    constructor Create(const AEngine: ITlsEngine; const ATransport: TTlsTimedTransportBase;
+    constructor Create(const AEngine: ITlsEngine; const ATransport: ITlsTimedTransport;
       AIsClient: Boolean; const AServerName: string;
       const AResolver: TCertificateVerdictResolver; AVerdictDeadlineMs: Cardinal); overload;
     /// <summary>Builds the client engine from AConfig and measures the transport's deadlines on
     /// the config's monotonic clock; AVerdictDeadlineMs is the resolver's budget (0 = none).</summary>
     constructor CreateClient(const AConfig: ITlsClientConfig; const AServerName: string;
-      const ATransport: TTlsTimedTransportBase; const AResolver: TCertificateVerdictResolver;
+      const ATransport: ITlsTimedTransport; const AResolver: TCertificateVerdictResolver;
       AVerdictDeadlineMs: Cardinal);
     /// <summary>The server counterpart of <see cref="CreateClient" />.</summary>
     constructor CreateServer(const AConfig: ITlsServerConfig;
-      const ATransport: TTlsTimedTransportBase; const AResolver: TCertificateVerdictResolver;
+      const ATransport: ITlsTimedTransport; const AResolver: TCertificateVerdictResolver;
       AVerdictDeadlineMs: Cardinal);
     destructor Destroy; override;
     /// <summary>Runs the handshake with reads bounded by AHandshakeTimeoutMs (0 = the 30 s library
@@ -1027,24 +1026,23 @@ end;
 { TTlsConnection }
 
 constructor TTlsConnection.Create(const AEngine: ITlsEngine;
-  const ATransport: TTlsTimedTransportBase; AIsClient: Boolean;
+  const ATransport: ITlsTimedTransport; AIsClient: Boolean;
   const AServerName: string; const AResolver: TCertificateVerdictResolver);
 begin
   Create(AEngine, ATransport, AIsClient, AServerName, AResolver, 0);
 end;
 
 constructor TTlsConnection.Create(const AEngine: ITlsEngine;
-  const ATransport: TTlsTimedTransportBase; AIsClient: Boolean;
+  const ATransport: ITlsTimedTransport; AIsClient: Boolean;
   const AServerName: string; const AResolver: TCertificateVerdictResolver;
   AVerdictDeadlineMs: Cardinal);
 begin
   inherited Create;
   FEngine := AEngine;
   FTimed := ATransport;
-  FTransport := ATransport as ITlsTransport;
   FIsClient := AIsClient;
   FServerName := AServerName;
-  FStream := TTlsStream.Create(FTransport, FEngine, AIsClient, AServerName);
+  FStream := TTlsStream.Create(FTimed, FEngine, AIsClient, AServerName);
   // the caller already chose the role-correct resolver (a client parks on the server's chain, a
   // server on the mTLS client's); the session never guesses the role
   if Assigned(AResolver) then
@@ -1052,11 +1050,11 @@ begin
 end;
 
 constructor TTlsConnection.CreateClient(const AConfig: ITlsClientConfig;
-  const AServerName: string; const ATransport: TTlsTimedTransportBase;
+  const AServerName: string; const ATransport: ITlsTimedTransport;
   const AResolver: TCertificateVerdictResolver; AVerdictDeadlineMs: Cardinal);
 begin
   // own the transport first, so a refused argument or engine build releases it with this instance
-  FTransport := ATransport as ITlsTransport;
+  FTimed := ATransport;
   if (AConfig = nil) or (ATransport = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   ATransport.UseClock(AConfig.MonotonicClock);
@@ -1065,10 +1063,10 @@ begin
 end;
 
 constructor TTlsConnection.CreateServer(const AConfig: ITlsServerConfig;
-  const ATransport: TTlsTimedTransportBase; const AResolver: TCertificateVerdictResolver;
+  const ATransport: ITlsTimedTransport; const AResolver: TCertificateVerdictResolver;
   AVerdictDeadlineMs: Cardinal);
 begin
-  FTransport := ATransport as ITlsTransport;
+  FTimed := ATransport;
   if (AConfig = nil) or (ATransport = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   ATransport.UseClock(AConfig.MonotonicClock);
@@ -1080,7 +1078,6 @@ destructor TTlsConnection.Destroy;
 begin
   FStream.Free;
   FStream := nil;
-  FTransport := nil;
   FTimed := nil;
   FEngine := nil;
   inherited Destroy;

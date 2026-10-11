@@ -54,6 +54,8 @@ uses
 const
   PORT = 28446;
   MUTUAL_PORT = 28456;
+  EARLY_CLOSE_PORT = 28457;
+  EARLY_CLOSE_LIMIT_MS = 2000;
   STALL_HOLD_MS = 4000; // how long the server stays silent after the partial record
   READ_CAP_MS = 800;
   ACCEPT_POLL_MS = 100;
@@ -120,6 +122,36 @@ type
     /// <summary>Connections that reached the server, so a missing one is not read as a
     /// rejection.</summary>
     property Attempts: Integer read FAttempts;
+  end;
+
+  /// <summary>A server that records how long its TLS accept takes to give up on a client that
+  /// connects and closes before sending a ClientHello.</summary>
+  TEarlyCloseServerThread = class(TThread)
+  strict private
+  var
+    FPfx: TBytes;
+    FError: string;
+    FReady, FSettled: TEvent;
+    FServer: TInetServer;
+    FAttemptAt: TDateTime;
+    FSettledMs: Int64;
+    procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
+    procedure HandleConnect(Sender: TObject; AStream: TSocketStream);
+    procedure HandleIdle(Sender: TObject);
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const APfx: TBytes; AReady, ASettled: TEvent);
+    property Error: string read FError;
+    /// <summary>From the connection reaching the server to its accept loop being idle again.</summary>
+    property SettledMs: Int64 read FSettledMs;
+  end;
+
+  TEarlyCloseCheck = class sealed(TObject)
+  public
+    /// <summary>The server's accept of a client that closes before its ClientHello returns
+    /// promptly, not after the handshake cap.</summary>
+    class procedure Run; static;
   end;
 
   TMutualTlsCheck = class sealed(TObject)
@@ -365,6 +397,106 @@ begin
   end;
 end;
 
+{ TEarlyCloseServerThread }
+
+constructor TEarlyCloseServerThread.Create(const APfx: TBytes; AReady, ASettled: TEvent);
+begin
+  inherited Create(True);
+  FreeOnTerminate := False;
+  FPfx := APfx;
+  FReady := AReady;
+  FSettled := ASettled;
+  FSettledMs := -1;
+end;
+
+procedure TEarlyCloseServerThread.MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
+var
+  LHandler: TTlsLibSocketHandler;
+begin
+  FAttemptAt := Now;
+  LHandler := TTlsLibSocketHandler.Create;
+  LHandler.CertificateData.PFX.Value := FPfx;
+  LHandler.CertificateData.KeyPassword := 'tlslib';
+  AHandler := LHandler;
+end;
+
+procedure TEarlyCloseServerThread.HandleConnect(Sender: TObject; AStream: TSocketStream);
+begin
+  AStream.Free;
+end;
+
+procedure TEarlyCloseServerThread.HandleIdle(Sender: TObject);
+begin
+  if (FAttemptAt <> 0) and (FSettledMs < 0) then
+  begin
+    FSettledMs := MilliSecondsBetween(Now, FAttemptAt);
+    FSettled.SetEvent;
+  end;
+  if Terminated then
+    FServer.StopAccepting(False);
+end;
+
+procedure TEarlyCloseServerThread.Execute;
+begin
+  FServer := TInetServer.Create('127.0.0.1', EARLY_CLOSE_PORT);
+  try
+    try
+      FServer.ReuseAddress := True;
+      FServer.AcceptIdleTimeout := ACCEPT_POLL_MS;
+      FServer.OnIdle := HandleIdle;
+      FServer.OnCreateClientSocketHandler := MakeHandler;
+      FServer.OnConnect := HandleConnect;
+      FServer.Listen;
+      FReady.SetEvent;
+      FServer.StartAccepting;
+    except
+      on E: Exception do
+      begin
+        FError := 'early-close server: ' + E.ClassName + ': ' + E.Message;
+        FReady.SetEvent;
+      end;
+    end;
+  finally
+    FreeAndNil(FServer);
+  end;
+end;
+
+{ TEarlyCloseCheck }
+
+class procedure TEarlyCloseCheck.Run;
+var
+  LServer: TEarlyCloseServerThread;
+  LReady, LSettled: TEvent;
+  LSock: TInetSocket;
+begin
+  LReady := TEvent.Create(nil, True, False, '');
+  LSettled := TEvent.Create(nil, True, False, '');
+  try
+    LServer := TEarlyCloseServerThread.Create(
+      TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_pfx')), LReady, LSettled);
+    try
+      LServer.Start;
+      LReady.WaitFor(5000);
+      if LServer.Error <> '' then
+        raise Exception.Create(LServer.Error);
+      LSock := TInetSocket.Create('127.0.0.1', EARLY_CLOSE_PORT);
+      LSock.Free;
+      if LSettled.WaitFor(10000) <> wrSignaled then
+        raise Exception.Create('the server never finished its accept of an early-closed client ' +
+          LServer.Error);
+      if LServer.SettledMs > EARLY_CLOSE_LIMIT_MS then
+        raise Exception.CreateFmt('the server took %d ms to give up on a client that closed ' +
+          'before its ClientHello', [LServer.SettledMs]);
+    finally
+      LServer.Terminate;
+      LServer.Free;
+    end;
+  finally
+    LSettled.Free;
+    LReady.Free;
+  end;
+end;
+
 { TMutualTlsCheck }
 
 class function TMutualTlsCheck.Echo(const APfx: TBytes; const ARootFile: string;
@@ -563,6 +695,7 @@ begin
         raise Exception.Create('the server saw an SNI though SendHostAsSNI was False: ' +
           LServer.PeerServerName);
       TMutualTlsCheck.Run;
+      TEarlyCloseCheck.Run;
     finally
       LServer.Terminate;
       LServer.Free;
