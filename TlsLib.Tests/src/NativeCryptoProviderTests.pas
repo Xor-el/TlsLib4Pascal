@@ -804,10 +804,9 @@ end;
 
 procedure TTestNativeCryptoProvider.TestImportLeavesCallerKeyBytesIntact;
 const
-  // native as given (a PKCS#8 decoded from the PEM fixture; the *_pkcs8_der fixtures hold the
-  // PKCS#1 / SEC1 bytes), native after wrapping (PKCS#1, SEC1), and the portable fallback,
+  // native as given (PKCS#8), native after wrapping (PKCS#1, SEC1), and the portable fallback,
   // which re-reads the very same input bytes
-  Fields: array [0 .. 3] of string = ('rsa_pkcs8_pem', 'rsa_pkcs1_der', 'ec256_sec1_der',
+  Fields: array [0 .. 3] of string = ('rsa_pkcs8_der', 'rsa_pkcs1_der', 'ec256_sec1_der',
     'ed25519_pkcs8_der');
   // each key is native exactly when the backend report says its scheme is
   Schemes: array [0 .. 3] of TSignatureScheme = (TSignatureScheme.RSA_PSS_RSAE_SHA256,

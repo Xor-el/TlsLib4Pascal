@@ -64,6 +64,7 @@ type
   published
     procedure TestRsaImportsEveryFormat;
     procedure TestEcP256ImportsEveryFormat;
+    procedure TestPkcs8FixturesAreWrappedKeys;
     procedure TestEcP384AndP521Import;
     procedure TestEd25519Imports;
     procedure TestEd448Imports;
@@ -187,6 +188,32 @@ begin
   CheckFormats(TSignatureScheme.ECDSA_SECP256R1_SHA256, 'ec256_pub',
     [TSignatureScheme.ECDSA_SECP256R1_SHA256],
     ['ec256_pkcs8_der', 'ec256_pkcs8_pem', 'ec256_sec1_der', 'ec256_sec1_pem']);
+end;
+
+procedure TTestCredentialImport.TestPkcs8FixturesAreWrappedKeys;
+const
+  Pairs: array [0 .. 3, 0 .. 1] of string = (
+    ('rsa_pkcs8_der', 'rsa_pkcs1_der'), ('ec256_pkcs8_der', 'ec256_sec1_der'),
+    ('ec384_pkcs8_der', 'ec384_sec1_der'), ('ec521_pkcs8_der', 'ec521_sec1_der'));
+var
+  LI, LBody: Int32;
+  LKey: TBytes;
+begin
+  // a PKCS#8 PrivateKeyInfo wraps the traditional key with a version and an algorithm identifier,
+  // so it is longer than it; a fixture equal to the traditional bytes tests nothing about PKCS#8
+  for LI := Low(Pairs) to High(Pairs) do
+  begin
+    LKey := DecodeHex(FV.Values[Pairs[LI, 0]]);
+    CheckTrue(System.Length(LKey) > System.Length(DecodeHex(FV.Values[Pairs[LI, 1]])),
+      Pairs[LI, 0] + ' is a PKCS#8 wrapping of ' + Pairs[LI, 1]);
+    // SEQUENCE { INTEGER 0, SEQUENCE (the algorithm identifier) ...
+    LBody := 2;
+    if LKey[1] >= $80 then
+      Inc(LBody, LKey[1] and $7F);
+    CheckTrue((LKey[0] = $30) and (LKey[LBody] = $02) and (LKey[LBody + 1] = $01) and
+      (LKey[LBody + 2] = $00) and (LKey[LBody + 3] = $30),
+      Pairs[LI, 0] + ' opens with a version 0 and an algorithm identifier');
+  end;
 end;
 
 procedure TTestCredentialImport.TestPemKeyAfterOtherObjectsImports;
