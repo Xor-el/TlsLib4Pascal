@@ -24,6 +24,11 @@ interface
 uses
   SysUtils,
 {$IFDEF FPC}
+{$IFDEF UNIX}
+  BaseUnix,
+{$ELSE}
+  Winsock2,
+{$ENDIF UNIX}
   ssockets,
   Sockets,
 {$ELSE}
@@ -164,9 +169,39 @@ type
 
 {$IFDEF FPC}
 
-const
-  // SO_RCVTIMEO expiry code on Windows; a literal so the Unix build needs no winsock symbol
-  WSAETIMEDOUT_CODE = 10060;
+type
+  // the readiness wait, by select: the kernel's socket receive timeout is not settable on every
+  // CPU, and a read that depends on it then blocks for good
+  TNetOs = class sealed(TObject)
+  public
+    class function WaitReadable(AHandle: Longint; AMs: Int32): Boolean; static;
+  end;
+
+{ TNetOs }
+
+class function TNetOs.WaitReadable(AHandle: Longint; AMs: Int32): Boolean;
+var
+  LSet: TFDSet;
+  LTime: TTimeVal;
+  LReady: Longint;
+begin
+  LTime.tv_sec := AMs div 1000;
+  LTime.tv_usec := (AMs mod 1000) * 1000;
+  repeat
+{$IFDEF UNIX}
+    LSet := Default(TFDSet);
+    fpFD_ZERO(LSet);
+    fpFD_SET(AHandle, LSet);
+    LReady := fpSelect(AHandle + 1, @LSet, nil, nil, @LTime);
+{$ELSE}
+    FD_ZERO(LSet);
+    FD_SET(AHandle, LSet);
+    LReady := Select(AHandle + 1, @LSet, nil, nil, @LTime);
+{$ENDIF UNIX}
+  until (LReady >= 0) or (SocketError <> EsockEINTR);
+  // an error counts as readable, so the read that follows reports it
+  Result := LReady <> 0;
+end;
 
 { TNetFpcServer }
 
@@ -218,23 +253,12 @@ end;
 
 class function TNetSocketOps.Receive(ASocket: TNetStreamSocket; var ABuffer: TBytes;
   AOffset, AMaxLength, ATimeoutMs: Int32): Int32;
-var
-  LErr: Integer;
 begin
-  try
-    ASocket.IOTimeout := ATimeoutMs;
-  except
-    // the kernel refuses the option on a few CPUs: the read then blocks unbounded
-    on ESocketError do
-      ;
-  end;
-  Result := ASocket.Read(ABuffer[AOffset], AMaxLength);
-  if Result >= 0 then
-    Exit;
-  LErr := ASocket.LastError;
-  if (ATimeoutMs > 0) and ((LErr = EsockEWOULDBLOCK) or (LErr = WSAETIMEDOUT_CODE)) then
+  if (ATimeoutMs > 0) and not TNetOs.WaitReadable(ASocket.Handle, ATimeoutMs) then
     raise ENetReceiveTimeout.Create(SNetReceiveTimedOut);
-  Result := -1;
+  Result := ASocket.Read(ABuffer[AOffset], AMaxLength);
+  if Result < 0 then
+    Result := -1;
 end;
 
 class function TNetSocketOps.Send(ASocket: TNetStreamSocket; const ABuffer: TBytes;
