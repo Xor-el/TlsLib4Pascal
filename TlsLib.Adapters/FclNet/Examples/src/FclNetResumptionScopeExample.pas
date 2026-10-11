@@ -45,6 +45,7 @@ uses
 
 const
   PORT = 28448;
+  ACCEPT_POLL_MS = 100;
   PING = 'ping from the fclnet client';
   // legs 1, 2 and 4 complete a handshake; leg 3 (the reject leg) does not, so the server's accept
   // loop - which counts only completed handshakes - is bounded by the three that finish
@@ -69,8 +70,10 @@ type
   var
     FLeafFile, FKeyFile, FError: string;
     FReady: TEvent;
+    FServer: TInetServer;
     procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
     procedure HandleConnect(Sender: TObject; AStream: TSocketStream);
+    procedure HandleIdle(Sender: TObject);
     procedure HandleAcceptError(Sender: TObject; ASocket: Longint; AError: Exception;
       var AErrorAction: TAcceptErrorAction);
   protected
@@ -188,21 +191,27 @@ begin
   AErrorAction := aeaIgnore;
 end;
 
-procedure TServerThread.Execute;
-var
-  LServer: TInetServer;
+procedure TServerThread.HandleIdle(Sender: TObject);
 begin
-  LServer := TInetServer.Create('127.0.0.1', PORT);
+  if Terminated then
+    FServer.StopAccepting(False);
+end;
+
+procedure TServerThread.Execute;
+begin
+  FServer := TInetServer.Create('127.0.0.1', PORT);
   try
     try
-      LServer.ReuseAddress := True;
-      LServer.MaxConnections := SUCCESSFUL_LEGS;
-      LServer.OnCreateClientSocketHandler := MakeHandler;
-      LServer.OnConnect := HandleConnect;
-      LServer.OnAcceptError := HandleAcceptError;
-      LServer.Listen;
+      FServer.ReuseAddress := True;
+      FServer.MaxConnections := SUCCESSFUL_LEGS;
+      FServer.AcceptIdleTimeout := ACCEPT_POLL_MS;
+      FServer.OnIdle := HandleIdle;
+      FServer.OnCreateClientSocketHandler := MakeHandler;
+      FServer.OnConnect := HandleConnect;
+      FServer.OnAcceptError := HandleAcceptError;
+      FServer.Listen;
       FReady.SetEvent;
-      LServer.StartAccepting; // returns once the completed handshakes reach SUCCESSFUL_LEGS
+      FServer.StartAccepting; // returns once the completed handshakes reach SUCCESSFUL_LEGS
     except
       on E: Exception do
       begin
@@ -211,7 +220,7 @@ begin
       end;
     end;
   finally
-    LServer.Free;
+    FreeAndNil(FServer);
   end;
 end;
 
@@ -325,6 +334,7 @@ begin
       if LServer.Error <> '' then
         raise Exception.Create(LServer.Error);
     finally
+      LServer.Terminate;
       LServer.Free;
     end;
 

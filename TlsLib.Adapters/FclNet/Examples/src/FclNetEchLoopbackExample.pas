@@ -57,6 +57,7 @@ uses
 
 const
   PORT = 28456;
+  ACCEPT_POLL_MS = 100;
   PING = 'ping from the fclnet ech client';
   PUBLIC_NAME = 'cover.example';
   INNER_HOST = 'localhost';
@@ -83,8 +84,10 @@ type
     FServerConfig: ITlsServerConfig;
     FHandler: TTlsLibSocketHandler;
     FReady: TEvent;
+    FServer: TInetServer;
     procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
     procedure HandleConnect(Sender: TObject; AStream: TSocketStream);
+    procedure HandleIdle(Sender: TObject);
   protected
     procedure Execute; override;
   public
@@ -179,20 +182,26 @@ begin
   AStream.Free;
 end;
 
-procedure TServerThread.Execute;
-var
-  LServer: TInetServer;
+procedure TServerThread.HandleIdle(Sender: TObject);
 begin
-  LServer := TInetServer.Create('127.0.0.1', PORT);
+  if Terminated then
+    FServer.StopAccepting(False);
+end;
+
+procedure TServerThread.Execute;
+begin
+  FServer := TInetServer.Create('127.0.0.1', PORT);
   try
     try
-      LServer.ReuseAddress := True;
-      LServer.MaxConnections := 1;
-      LServer.OnCreateClientSocketHandler := MakeHandler;
-      LServer.OnConnect := HandleConnect;
-      LServer.Listen;
+      FServer.ReuseAddress := True;
+      FServer.MaxConnections := 1;
+      FServer.AcceptIdleTimeout := ACCEPT_POLL_MS;
+      FServer.OnIdle := HandleIdle;
+      FServer.OnCreateClientSocketHandler := MakeHandler;
+      FServer.OnConnect := HandleConnect;
+      FServer.Listen;
       FReady.SetEvent;
-      LServer.StartAccepting;
+      FServer.StartAccepting;
     except
       on E: Exception do
       begin
@@ -201,7 +210,7 @@ begin
       end;
     end;
   finally
-    LServer.Free;
+    FreeAndNil(FServer);
   end;
 end;
 
@@ -284,6 +293,7 @@ begin
       if GServerError <> '' then
         raise Exception.Create(GServerError);
     finally
+      LServer.Terminate;
       LServer.Free;
     end;
 
