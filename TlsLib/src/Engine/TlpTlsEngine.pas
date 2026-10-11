@@ -513,6 +513,9 @@ procedure TTlsEngine.QueueAlertRecord(const AAlert: TTlsAlert);
 var
   LBytes: TBytes;
 begin
+  // nothing may follow our close_notify (RFC 8446 6.1); the engine still goes terminal
+  if FSentClose and (AAlert.Level = TTlsAlertLevel.Fatal) then
+    Exit;
   LBytes := TTlsAlertProtocol.Encode(AAlert);
   FRecordLayer.Write(TTlsContentType.Alert, LBytes, 0, System.Length(LBytes));
 end;

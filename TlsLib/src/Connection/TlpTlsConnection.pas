@@ -296,6 +296,8 @@ type
     /// within AReadTimeoutMs in total (0 or less = block), however many bytes that wait takes in
     /// that do not yield any. The cap is cleared afterwards.</summary>
     function Read(var ABuffer; ACount: Longint; AReadTimeoutMs: Int32): Longint; overload;
+    /// <summary>See TTlsStream.ReadEarlyData; call it after the handshake and before Read.</summary>
+    function ReadEarlyData(var ABuffer; ACount: Longint): Longint;
     function Write(const ABuffer; ACount: Longint): Longint;
     function PendingReadBytes: Int32;
     /// <summary>Sends close_notify; raises like the stream does.</summary>
@@ -359,6 +361,9 @@ resourcestring
   SNoClientTrust =
     'peer verification is on but no trust source was named; set %s (system trust is never ' +
     'implicit), or turn peer verification off to skip verification';
+  SEarlyDataUnsupported =
+    '%s accepts 0-RTT early data, which a host adapter cannot hand to the application; ' +
+    'clear WithEarlyData, or serve it through TTlsConnection.ReadEarlyData';
   SSystemTrustWithHostAnchors =
     'OS trust that is delegate-only on this platform cannot be combined with host-supplied ' +
     'anchors or a custom trust store; use either system trust or the host trust sources (%s): %s';
@@ -937,6 +942,8 @@ begin
   if AOptions.ServerConfig <> nil then
   begin
     GuardNoConflict(AOptions, False, AConfigPropertyName);
+    if AOptions.ServerConfig.MaxEarlyData > 0 then
+      raise EArgumentTlsLibException.CreateResFmt(@SEarlyDataUnsupported, [AConfigPropertyName]);
     if Assigned(AOptions.ServerVerdictResolver) and
       (AOptions.ServerConfig.ClientAuth <> TClientAuthMode.None) and
       (AOptions.ServerConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.None) then
@@ -1150,6 +1157,11 @@ end;
 function TTlsConnection.Read(var ABuffer; ACount: Longint): Longint;
 begin
   Result := FStream.Read(ABuffer, ACount);
+end;
+
+function TTlsConnection.ReadEarlyData(var ABuffer; ACount: Longint): Longint;
+begin
+  Result := FStream.ReadEarlyData(ABuffer, ACount);
 end;
 
 function TTlsConnection.Write(const ABuffer; ACount: Longint): Longint;

@@ -476,8 +476,13 @@ off unless you need it and your early request is idempotent.
 On the server, accepted early data is **never** returned by `ReadAppData` or a stream `Read`: it is
 replayable, so it is kept apart and read with `ReadEarlyData` (`PendingEarlyData` says how much is
 waiting). It precedes all 1-RTT data and stays readable after the handshake completes. Read both
-queues, and act on early data only when the request is safe to replay. The stream, connection and
-framework adapters never read it, so use 0-RTT on the server only with the sans-IO engine.
+queues, and act on early data only when the request is safe to replay.
+
+`TTlsStream` and `TTlsConnection` expose the same queue as `ReadEarlyData`, which returns 0 once none
+is left. Call it after the handshake and before `Read`: `Read` raises
+`EInvalidOperationTlsLibException` while early bytes are unread, so they are never skipped or
+reordered. The framework adapters cannot hand early data to the application, so they refuse a
+`ServerConfig` built with `WithEarlyData`; serve 0-RTT through `TTlsConnection` or the sans-IO engine.
 
 ## Set a revocation posture
 

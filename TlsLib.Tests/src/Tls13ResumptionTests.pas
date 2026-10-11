@@ -68,6 +68,9 @@ uses
   TlpHandshakeMessages,
   TlpHandshakeEffect,
   MockCryptoProvider,
+  MockTransport,
+  TlpITlsTransport,
+  TlpTlsStream,
   MockSessionStores,
   TlsLibTestBase;
 
@@ -135,6 +138,7 @@ type
     procedure TestStoreUpgradesOverStek;
     procedure TestManySmallRecordsQueueByteForByte;
     procedure TestZeroRttAcceptedDeliversEarlyData;
+    procedure TestStreamReadRefusesUntilEarlyDataIsDrained;
     procedure TestZeroRttEarlyExporterMatchesAcrossPeers;
     procedure TestZeroRttRejectWithholdsClientEarlyExporter;
     procedure TestZeroRttRetryWithholdsClientEarlyExporter;
@@ -881,6 +885,61 @@ begin
   CheckEquals(0, System.Length(ReadAllApp(LServer)),
     'accepted early data is never delivered through the 1-RTT read path');
   CheckEquals(0, LClient.PendingEarlyData, 'a client never holds early data');
+end;
+
+procedure TTestTls13Resumption.TestStreamReadRefusesUntilEarlyDataIsDrained;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly, LBuf: TBytes;
+  LReadPipe: TMemoryPipe;
+  LStream: TTlsStream;
+  LRefused, LTruncated: Boolean;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+
+  LReadPipe := TMemoryPipe.Create;
+  LReadPipe.Close;
+  LStream := TTlsStream.Create(TMemoryTransport.Create(LReadPipe, TMemoryPipe.Create) as
+    ITlsTransport, LServer, False, '');
+  SetLength(LBuf, 64);
+  try
+    LRefused := False;
+    try
+      LStream.Read(LBuf[0], 64);
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRefused := True;
+    end;
+    CheckTrue(LRefused, 'a Read over unread 0-RTT bytes is refused, not blocked or skipped');
+    CheckEquals(System.Length(LEarly), LStream.ReadEarlyData(LBuf[0], 64),
+      'ReadEarlyData returns the 0-RTT bytes');
+    CheckEquals(0, LStream.ReadEarlyData(LBuf[0], 64), 'and then reports none left');
+    LTruncated := False;
+    try
+      LStream.Read(LBuf[0], 64);
+    except
+      on E: ETlsTransportTruncated do
+        LTruncated := True;
+    end;
+    CheckTrue(LTruncated, 'Read proceeds to the transport once the early data is drained');
+  finally
+    LStream.Free;
+    LReadPipe.Free;
+  end;
 end;
 
 procedure TTestTls13Resumption.TestZeroRttEarlyExporterMatchesAcrossPeers;

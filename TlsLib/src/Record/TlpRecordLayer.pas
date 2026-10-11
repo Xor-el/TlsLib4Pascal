@@ -603,12 +603,13 @@ begin
       LReader := TWireReader.Create(FInbound, LPos, LAvailable);
       LHeader := TTlsRecordHeader.Parse(LReader, FMaxCiphertextLength);
       LRecordLength := TRecordLimits.HeaderLength + LHeader.Length;
-      if LAvailable < LRecordLength then
-        Break; // the record spans into bytes not yet received
-      // structural framing only; decryption is deferred to the pull side
+      // judged on the header alone so non-TLS input fails at once, not after a full body arrives
       if not IsKnownRecordType(LHeader.ContentTypeByte) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.UnexpectedMessage, @SUnexpectedContentType);
+      if LAvailable < LRecordLength then
+        Break; // the record spans into bytes not yet received
+      // structural framing only; decryption is deferred to the pull side
       // a plaintext change_cipher_spec is queued like any record and judged at pull time, not
       // dropped here: its legality (middlebox drop while the handshake runs, fatal
       // unexpected_message once complete - RFC 8446 5 / D.4) turns on whether the peer's Finished

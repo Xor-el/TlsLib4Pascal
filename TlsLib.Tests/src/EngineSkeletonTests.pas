@@ -62,6 +62,8 @@ type
     procedure TestLastErrorOriginIsUnknownBeforeAnyFailure;
     procedure TestSendAlertMarksLocalOrigin;
     procedure TestConnectionInfoZeroStateBeforeHandshake;
+    procedure TestUnknownRecordTypeIsRejectedOnTheHeaderAlone;
+    procedure TestNoFatalAlertFollowsOurCloseNotify;
   end;
 
 implementation
@@ -435,6 +437,32 @@ begin
     'no requested certificate authorities');
   CheckEquals(0, System.Length(LInfo.PeerOcspStaple), 'no peer OCSP staple');
   CheckEquals(0, System.Length(LInfo.EchRetryConfigs), 'no ECH retry configs');
+end;
+
+procedure TTestEngineSkeleton.TestUnknownRecordTypeIsRejectedOnTheHeaderAlone;
+var
+  LEngine: ITlsEngine;
+begin
+  LEngine := NewEngine;
+  // a header declaring a 16-byte body that never arrives: non-TLS input must not wait for it
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LEngine.ProcessInput(DecodeHex('6303030010'), 0, 5)),
+    'an unknown content type is fatal without its body');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage),
+    Ord(LEngine.LastError.Alert.Description), 'reported as unexpected_message');
+end;
+
+procedure TTestEngineSkeleton.TestNoFatalAlertFollowsOurCloseNotify;
+var
+  LEngine: ITlsEngine;
+  LOut: TBytes;
+begin
+  LEngine := NewEngine;
+  LEngine.SendClose;
+  CheckTrue(System.Length(TakeAll(LEngine)) > 0, 'close_notify is sent');
+  LEngine.ProcessInput(DecodeHex('170303FFFF'), 0, 5);
+  CheckTrue(LEngine.IsTerminal, 'the failure still ends the connection');
+  LOut := TakeAll(LEngine);
+  CheckEquals(0, System.Length(LOut), 'no record follows our close_notify');
 end;
 
 initialization
