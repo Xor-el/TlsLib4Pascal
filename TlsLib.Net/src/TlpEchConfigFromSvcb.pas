@@ -11,7 +11,7 @@
 
 unit TlpEchConfigFromSvcb;
 
-{$I ..\TlsLib\src\Include\TlsLib.inc}
+{$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 
@@ -35,6 +35,9 @@ type
     const
       // the "ech" SvcParamKey (RFC 9848 sec. 3); its SvcParamValue is the ECHConfigList (RFC 9849 sec. 4)
       SvcParamKeyEch = UInt16(5);
+      // domain name limits (RFC 1035 sec. 2.3.4)
+      MaxLabelLength = 63;
+      MaxNameLength = 255;
     class function TryReadEch(const ARdata: TBytes;
       out AEchConfigList: TBytes): Boolean; static;
   public
@@ -65,7 +68,7 @@ class function TEchConfigFromSvcb.TryReadEch(const ARdata: TBytes;
   out AEchConfigList: TBytes): Boolean;
 var
   LReader: TWireReader;
-  LLabelLen: Int32;
+  LLabelLen, LNameLen: Int32;
   LKey, LValueLen, LPrevKey: UInt16;
   LHasPrev, LFound: Boolean;
 begin
@@ -76,9 +79,16 @@ begin
   if LReader.ReadUInt16 = 0 then
     Exit;
   // TargetName: a sequence of length-prefixed labels ended by a zero-length label. No
-  // compression pointers appear in SVCB/HTTPS RDATA (RFC 9460 sec. 2.2)
+  // compression pointers appear in SVCB/HTTPS RDATA (RFC 9460 sec. 2.2), so a length above 63 is
+  // malformed (RFC 1035 sec. 3.1), as is a name past 255 octets
+  LNameLen := 0;
   repeat
     LLabelLen := LReader.ReadUInt8;
+    if LLabelLen > MaxLabelLength then
+      Exit;
+    Inc(LNameLen, LLabelLen + 1);
+    if LNameLen > MaxNameLength then
+      Exit;
     if LLabelLen > 0 then
       LReader.Skip(LLabelLen);
   until LLabelLen = 0;
@@ -120,6 +130,9 @@ begin
   // ech"; only a wire-decode error is swallowed - a programming fault still propagates
   try
     Result := TryReadEch(ARdata, AEchConfigList);
+    // a record that fails after its "ech" value was read must not hand that value out
+    if not Result then
+      AEchConfigList := nil;
   except
     on E: EDecodeErrorTlsLibException do
     begin

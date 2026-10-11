@@ -4,7 +4,8 @@ Drops TlsLib4Pascal's managed TLS engine into **Free Pascal's own networking** t
 fcl-net's `TSSLSocketHandler` "swap-your-SSL" seam — so a stock `TFPHTTPClient` HTTPS
 request (or any `TInetSocket`) speaks our managed TLS instead of OpenSSL.
 
-**Free Pascal only.** This adapter ships no Delphi package or examples.
+**Free Pascal only.** This adapter ships no Delphi package or examples. Its package requires the
+`TlsLib.Net` package, whose socket layer it waits and sends through.
 
 ## How to swap it in
 

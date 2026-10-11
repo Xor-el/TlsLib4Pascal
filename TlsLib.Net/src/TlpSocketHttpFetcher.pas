@@ -18,7 +18,7 @@ unit TlpSocketHttpFetcher;
   status, a timeout, or an empty body is reported as a False result with no body, never a
   raised exception. }
 
-{$I ..\TlsLib\src\Include\TlsLib.inc}
+{$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 
@@ -45,12 +45,19 @@ type
   /// Delphi System.Net.HttpClient). Suitable for live OCSP (POST) and CRL (GET) retrieval.
   /// The timeout bounds the whole exchange once the host name is resolved, so a responder that
   /// trickles bytes or goes silent cannot hold the caller past it; name resolution itself is not
-  /// bounded. On Free Pascal an https responder is the exception to the silent case: its reads rely
-  /// on the socket's own receive timeout, and the client numbers its socket-option constants the
-  /// same on every Linux CPU, so on PowerPC, MIPS and SPARC one that goes completely silent blocks
-  /// that fetch until TCP gives up (a trickle is still cut off at the budget, because every read is
-  /// checked; plain http is unaffected). The injected clock may be read from another thread. Never
-  /// raises; a failed exchange yields False with an empty response.</summary>
+  /// bounded. On Free Pascal the bytes received, response head included, are capped at the size cap
+  /// plus a fixed allowance; elsewhere the cap applies to the body. On Free Pascal an https responder
+  /// is the exception to the silent case: its reads rely on the socket's own receive timeout, and the
+  /// client numbers its socket-option constants the same on every Linux CPU, so on PowerPC, MIPS and
+  /// SPARC one that goes completely silent blocks that fetch until TCP gives up (a trickle is still
+  /// cut off at the budget, because every read is checked; plain http is unaffected), and a peer
+  /// that resets the connection can raise SIGPIPE in the TLS library's own write. Also on Free
+  /// Pascal the client's own connect writes past its select set for a descriptor numbered 1024 or
+  /// more on Unix, so it must not be used in a process that may hold that many: supply your own
+  /// fetcher there. No destination is filtered: a responder URL naming a loopback, private or
+  /// link-local host is fetched like any other, so wrap IHttpFetcher where egress is policed. The
+  /// injected clock may be read from another thread. Never raises; a failed exchange yields False
+  /// with an empty response.</summary>
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
     FClock: ITlsMonotonicClock;
@@ -67,19 +74,25 @@ type
 
 implementation
 
+const
+  // what a response head may take beyond the body cap: the status line and headers
+  ResponseHeadAllowance = Int64(64 * 1024);
+
 resourcestring
-  SNilClock = 'a clock is required (pass a clock, not nil)';
+  SNilClock ='a clock is required (pass a clock, not nil)';
   SFetchBudgetExceeded = 'revocation fetch exceeded its time budget';
   SResponseTooLarge = 'revocation response exceeds the size cap';
 
 type
   // one exchange's whole-time budget: a timeout the RTL applies per read would let a responder that
-  // sends a byte per period hold the caller indefinitely, so progress is checked against this
+  // sends a byte per period hold the caller indefinitely, so progress is checked against this. It
+  // also caps the bytes the exchange may receive, response head included
   TFetchDeadline = class sealed(TObject)
   strict private
     FClock: ITlsMonotonicClock;
     FExpiresAt: Int64;
     FBounded: Boolean;
+    FReceiveCap: Int64;
   public
     // ATimeoutMs = 0 leaves the exchange unbounded
     constructor Create(const AClock: ITlsMonotonicClock; ATimeoutMs: Cardinal);
@@ -89,6 +102,12 @@ type
     // the budget left, for clamping a per-read timeout: 0 when unbounded, else at least 1 and
     // within the Int32 the RTL clients take
     function RemainingMs: Int32;
+    // the connect timeout the RTL client takes: the budget left, in whole seconds rounded up
+    function ConnectTimeoutMs: Int32;
+    // ACap = 0 leaves the received bytes uncounted
+    procedure LimitReceive(ACap: Int64);
+    // raises once ATotal, the bytes the exchange has received so far, passes the cap
+    procedure CheckReceived(ATotal: Int64);
     property Bounded: Boolean read FBounded;
   end;
 
@@ -110,6 +129,8 @@ type
     procedure SetSize(const ANewSize: Int64); override;
   public
     constructor Create(AMaxBytes: Int64; const ADeadline: TFetchDeadline);
+    // the body cap AMaxBytes asks for
+    class function EffectiveCap(AMaxBytes: Int64): Int64; static;
     destructor Destroy; override;
     function Read(var ABuffer; ACount: LongInt): LongInt; override;
     function Write(const ABuffer; ACount: LongInt): LongInt; override;
@@ -170,6 +191,29 @@ begin
   Result := Int32(LLeft);
 end;
 
+function TFetchDeadline.ConnectTimeoutMs: Int32;
+var
+  LSeconds: Int64;
+begin
+  // the RTL client counts a connect timeout in whole seconds, so a smaller budget would be none
+  LSeconds := (Int64(RemainingMs) + 999) div 1000;
+  if LSeconds * 1000 > High(Int32) then
+    Result := (High(Int32) div 1000) * 1000
+  else
+    Result := Int32(LSeconds * 1000);
+end;
+
+procedure TFetchDeadline.LimitReceive(ACap: Int64);
+begin
+  FReceiveCap := ACap;
+end;
+
+procedure TFetchDeadline.CheckReceived(ATotal: Int64);
+begin
+  if (FReceiveCap > 0) and (ATotal > FReceiveCap) then
+    raise EWriteError.CreateRes(@SResponseTooLarge);
+end;
+
 { TBoundedMemoryStream }
 
 constructor TBoundedMemoryStream.Create(AMaxBytes: Int64; const ADeadline: TFetchDeadline);
@@ -177,11 +221,16 @@ begin
   inherited Create;
   FDeadline := ADeadline;
   FInner := TMemoryStream.Create;
+  FCap := EffectiveCap(AMaxBytes);
+end;
+
+class function TBoundedMemoryStream.EffectiveCap(AMaxBytes: Int64): Int64;
+begin
   // honour the caller's bound, but never above the coarse outer limit
   if (AMaxBytes > 0) and (AMaxBytes < MaxResponseBytes) then
-    FCap := AMaxBytes
+    Result := AMaxBytes
   else
-    FCap := MaxResponseBytes;
+    Result := MaxResponseBytes;
 end;
 
 destructor TBoundedMemoryStream.Destroy;
@@ -243,22 +292,29 @@ end;
 
 type
   // waits on the socket for no longer than what is left of the budget before each read, so a
-  // responder that goes silent ends the exchange on every CPU
+  // responder that goes silent ends the exchange on every CPU, and keeps a send to a peer that has
+  // gone from killing the process
   TDeadlineSocketHandler = class sealed(TSocketHandler)
   strict private
     FDeadline: TFetchDeadline;
   public
     constructor Create(const ADeadline: TFetchDeadline); reintroduce;
+    function Connect: Boolean; override;
     function Recv(const Buffer; Count: Integer): Integer; override;
   end;
+
+  // whether the socket accepts a receive timeout: some targets refuse the option
+  TReceiveTimeoutSupport = (Unknown, Usable, Refused);
 
   // the client calls DoDataRead on every socket read, response head included
   TDeadlineHttpClient = class(TFPHTTPClient)
   strict private
     FDeadline: TFetchDeadline;
     FSecure: Boolean;
-    FTimeoutsUsable: Boolean;
+    FReceiveTimeout: TReceiveTimeoutSupport;
     procedure HoldReadsToBudget;
+    function ReceiveTimeoutUsable: Boolean;
+    procedure CapReceived(Sender: TObject; const AContentLength, ACurrentPos: Int64);
   protected
     function GetSocketHandler(const UseSSL: Boolean): TSocketHandler; override;
     procedure ConnectToServer(const AHost: string; APort: Integer;
@@ -274,13 +330,23 @@ begin
   FDeadline := ADeadline;
 end;
 
+function TDeadlineSocketHandler.Connect: Boolean;
+begin
+  Result := inherited Connect;
+  if Result then
+  begin
+    Socket.WriteFlags := TNetOs.SendFlags;
+    TNetOs.ArmAgainstSigPipe(TNetHandle(Socket.Handle));
+  end;
+end;
+
 function TDeadlineSocketHandler.Recv(const Buffer; Count: Integer): Integer;
 begin
   if FDeadline.Bounded then
     repeat
       // raises once the budget is spent, which ends a wait that timed out
       FDeadline.Check;
-    until TNetReadiness.WaitReadable(Socket.Handle, FDeadline.RemainingMs);
+    until TNetOs.Wait(TNetHandle(Socket.Handle), TNetWait.Readable, FDeadline.RemainingMs);
   Result := inherited Recv(Buffer, Count);
 end;
 
@@ -288,7 +354,37 @@ constructor TDeadlineHttpClient.Create(const ADeadline: TFetchDeadline);
 begin
   inherited Create(nil);
   FDeadline := ADeadline;
-  FTimeoutsUsable := True;
+  OnDataReceived := CapReceived;
+end;
+
+procedure TDeadlineHttpClient.CapReceived(Sender: TObject; const AContentLength,
+  ACurrentPos: Int64);
+begin
+  FDeadline.CheckReceived(ACurrentPos);
+end;
+
+// the client numbers its socket-option constants the same on every Linux CPU, so the option is
+// refused on PowerPC, MIPS and SPARC; a throwaway socket tells which kind of target this is
+function TDeadlineHttpClient.ReceiveTimeoutUsable: Boolean;
+var
+  LHandle: TNetHandle;
+  LStream: TSocketStream;
+begin
+  Result := False;
+  if TNetOs.OpenStream(LHandle) <> 0 then
+    Exit;
+  LStream := TSocketStream.Create(Longint(LHandle));
+  try
+    try
+      LStream.IOTimeout := 1000;
+      Result := True;
+    except
+      on ESocketError do
+        Result := False;
+    end;
+  finally
+    LStream.Free;
+  end;
 end;
 
 function TDeadlineHttpClient.GetSocketHandler(const UseSSL: Boolean): TSocketHandler;
@@ -304,24 +400,26 @@ end;
 // silent one, so an https read keeps the socket's own receive timeout, where the target has one
 procedure TDeadlineHttpClient.HoldReadsToBudget;
 begin
-  if (not FSecure) or (not FDeadline.Bounded) or (not FTimeoutsUsable) then
-    Exit;
-  try
+  if FSecure and FDeadline.Bounded and (FReceiveTimeout = TReceiveTimeoutSupport.Usable) then
     IOTimeout := FDeadline.RemainingMs;
-  except
-    // the client's socket-timeout constants are wrong on some targets (PowerPC Linux numbers
-    // these options differently), so the set is refused there: carry on without per-read waits
-    // and rely on the budget check at every read
-    on ESocketError do
-      FTimeoutsUsable := False;
-  end;
 end;
 
 procedure TDeadlineHttpClient.ConnectToServer(const AHost: string; APort: Integer;
   UseSSL: Boolean);
 begin
+  // the client applies the receive timeout to the socket before the connect, which is what bounds
+  // a TLS handshake
+  if UseSSL and FDeadline.Bounded then
+  begin
+    if FReceiveTimeout = TReceiveTimeoutSupport.Unknown then
+      if ReceiveTimeoutUsable then
+        FReceiveTimeout := TReceiveTimeoutSupport.Usable
+      else
+        FReceiveTimeout := TReceiveTimeoutSupport.Refused;
+    if FReceiveTimeout = TReceiveTimeoutSupport.Usable then
+      IOTimeout := FDeadline.RemainingMs;
+  end;
   inherited ConnectToServer(AHost, APort, UseSSL);
-  HoldReadsToBudget;
 end;
 
 procedure TDeadlineHttpClient.DoDataRead;
@@ -341,7 +439,7 @@ begin
   try
     // reads wait inside the socket handler; the connect is bounded here
     if ADeadline.Bounded then
-      LClient.ConnectTimeout := ADeadline.RemainingMs;
+      LClient.ConnectTimeout := ADeadline.ConnectTimeoutMs;
     // the responder URL is peer-chosen; do not chase redirects it hands us
     LClient.AllowRedirect := False;
     if ABody <> nil then
@@ -423,8 +521,10 @@ begin
       LClient.ConnectionTimeout := ADeadline.RemainingMs;
       LClient.ResponseTimeout := ADeadline.RemainingMs;
     end;
-    // the responder URL is peer-chosen; do not chase redirects it hands us
+    // the responder URL is peer-chosen; do not chase redirects it hands us, and never offer it the
+    // process's Windows credentials
     LClient.HandleRedirects := False;
+    LClient.UseDefaultCredentials := False;
     LRequest := LClient.GetRequest(AMethod, AUrl);
     if ABody <> nil then
     begin
@@ -477,6 +577,8 @@ begin
         LRequest.Position := 0;
       end;
       LSink := TBoundedMemoryStream.Create(AMaxBytes, LDeadline);
+      // the head is not part of the body the sink caps, so the exchange gets a fixed allowance for it
+      LDeadline.LimitReceive(TBoundedMemoryStream.EffectiveCap(AMaxBytes) + ResponseHeadAllowance);
       LStatus := Execute(AMethod, LUrl.ToString, AContentType, LRequest, LDeadline, LSink);
       // a cancel can end the exchange with a short response rather than an error
       LDeadline.Check;

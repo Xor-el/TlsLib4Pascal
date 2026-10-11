@@ -73,12 +73,6 @@ def load_run(path):
         return {}
 
 
-def load_tests(path):
-    # {name: result}, each result a dict with actual / expected / is_unexpected / error
-    # (see testresult.go). Returning the whole dict keeps the error string for the fail-open check.
-    return load_run(path).get("tests", {})
-
-
 def actual(result):
     return result.get("actual", "")
 
@@ -105,15 +99,18 @@ def cmd_gate(config_path, gate_path, audit_path):
     out_of_scope = globs_for(disabled, "[out-of-scope]")
     policy = globs_for(disabled, "[policy-difference]")
     deferred = globs_for(disabled, "[deferred]")
-    force_run = globs_for(disabled, *FORCE_RUN_BUCKETS)  # policy + deferred
+    force_run = globs_for(disabled, *FORCE_RUN_BUCKETS)  # policy-difference only
     untagged = [g for g in disabled if not any(disabled[g].startswith(t) for t in BUCKETS)]
 
     gate_run = load_run(gate_path)
     gate = gate_run.get("tests", {})
-    audit = load_tests(audit_path)
+    audit_run = load_run(audit_path)
+    audit = audit_run.get("tests", {})
     # BoGo sets interrupted=True when the run was cut short (signal / abort) - a precise
-    # truncation signal that needs no magic count. A missing/corrupt file loads as {} -> True.
-    interrupted = bool(gate_run.get("interrupted", True))
+    # truncation signal that needs no magic count. A missing/corrupt gate file loads as {} -> True.
+    # The audit file may be the empty stub run-bogo.sh writes when nothing is force-run, so it
+    # counts only when it says it was cut short
+    interrupted = bool(gate_run.get("interrupted", True)) or bool(audit_run.get("interrupted", False))
 
     passed = sorted(n for n, r in gate.items() if actual(r) == "PASS")
     # genuine TLS 1.0/1.1 tests that failed/were-skipped are out of scope (not unexpected)

@@ -409,7 +409,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="..\src;..\..\TlsLib.Tools\RootGen\src;..\..\TlsLib.Tools\EchKeyGen\src;..\..\TlsLib.Net"/>
+      <OtherUnitFiles Value="..\src;..\..\TlsLib.Tools\RootGen\src;..\..\TlsLib.Tools\EchKeyGen\src;..\..\TlsLib.Net\src"/>
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Other>

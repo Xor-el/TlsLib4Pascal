@@ -27,7 +27,7 @@
         <UnitName Value="TlsLibFclNetTls"/>
       </Item1>
     </Files>
-    <RequiredPkgs Count="3">
+    <RequiredPkgs Count="4">
       <Item1>
         <PackageName Value="TlsLib4PascalPackage"/>
         <MinVersion Major="1" Valid="True"/>
@@ -36,8 +36,11 @@
         <PackageName Value="TlsLib.Trust.System"/>
       </Item2>
       <Item3>
-        <PackageName Value="FCL"/>
+        <PackageName Value="TlsLib.Net"/>
       </Item3>
+      <Item4>
+        <PackageName Value="FCL"/>
+      </Item4>
     </RequiredPkgs>
     <UsageOptions>
       <UnitPath Value="$(PkgOutDir)"/>

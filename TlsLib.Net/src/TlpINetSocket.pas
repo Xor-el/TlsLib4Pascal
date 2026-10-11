@@ -11,7 +11,7 @@
 
 unit TlpINetSocket;
 
-{$I ..\TlsLib\src\Include\TlsLib.inc}
+{$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 
@@ -20,6 +20,16 @@ uses
   TlpITlsTransport;
 
 type
+  /// <summary>Turns a host name into an IPv4 address for a connector. A host that needs a bound on
+  /// the lookup, a different resolver, or a policy on the answers supplies its own.</summary>
+  IHostResolver = interface(IInterface)
+    ['{92318617-706F-47D7-8A03-FC994BDB7029}']
+    /// <summary>The IPv4 address of AHost, an IPv4 literal or an ASCII host name (an international
+    /// name in its A-label form, RFC 5890), as four octets in network order; False when it has
+    /// none.</summary>
+    function TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
+  end;
+
   /// <summary>Opens client TCP connections. The stream it returns is an ITlsTimedTransport, so a
   /// TTlsConnection runs over it directly and a raw caller uses Read and Write.</summary>
   ITcpConnector = interface(IInterface)
