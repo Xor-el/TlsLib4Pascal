@@ -1,0 +1,51 @@
+.github/workflows/ci/adapters/fclnet-build.sh
+  s_d27f31cd14035d::t_1bbf7042cb146b 103
+  s_d27f31cd14035d::t_7a2c40124e9bed 98
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_d27f31cd14035d::t_dc881d93acd8ba 59
+  s_d27f31cd14035d::t_69ac94410e4242 87,90
+  s_d27f31cd14035d::t_82c5f6eab92891 113
+  s_d27f31cd14035d::t_79f1c9c8b3bc74 567
+  s_d27f31cd14035d::t_c753f56942313a 392-396
+  s_d27f31cd14035d::t_bd29626c083862 259-264,267,270-276,278,287
+  s_d27f31cd14035d::t_0ed9d2f038c025 422-425,428
+  s_d27f31cd14035d::t_0155d1b9331118 100-102
+  s_d27f31cd14035d::t_824e5d12c07750 336,338-339,348-350
+  s_d27f31cd14035d::t_29936efa73b98a 457-460,466-467,469
+TlsLib.Adapters/FclNet/Examples/src/FclNetAdvancedConfigExample.pas
+  s_d27f31cd14035d::t_804e3263b80a86 208-213,216,219-225,227,236
+  s_d27f31cd14035d::t_26ca0ae5238f42 163,166
+  s_d27f31cd14035d::t_5c8caf1deee1b7 292
+  s_d27f31cd14035d::t_d06ebdca4e2fef 59
+TlsLib.Adapters/FclNet/Examples/src/FclNetWedgeDemoExample.pas
+  s_d27f31cd14035d::t_9395bc441654e1 377
+  s_d27f31cd14035d::t_dc5f97a9ffd024 49
+  s_d27f31cd14035d::t_456769d8213d3c 91,94
+  s_d27f31cd14035d::t_4b10334a1ac66e 257-262,265,268-274,276,285
+TlsLib.Adapters/FclNet/Examples/src/FclNetEchLoopbackExample.pas
+  s_d27f31cd14035d::t_06528c4f21e09e 296
+  s_d27f31cd14035d::t_3114fad0972577 60
+  s_d27f31cd14035d::t_345b1c9262b966 185-190,193,196-202,204,213
+  s_d27f31cd14035d::t_eaa180bac62789 87,90
+TlsLib.Adapters/FclNet/Examples/src/FclNetResumptionScopeExample.pas
+  s_d27f31cd14035d::t_9feb9f398ca4aa 73,76
+  s_d27f31cd14035d::t_bbd9c128780702 337
+  s_d27f31cd14035d::t_6351731b75e2aa 194-199,202,205-212,214,223
+  s_d27f31cd14035d::t_9e10ff61961390 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7161c92dc5d5be85244fa38fd10898b8dfea403a",
+  "prompts": {},
+  "sessions": {
+    "s_d27f31cd14035d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d61c4d21-3cc2-4465-aca6-b1ba56a8e8c7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
