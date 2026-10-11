@@ -66,7 +66,6 @@ type
     procedure CheckSelectsLeafAndVerifies(const AField: string);
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestRsaPfxImportsToCredential;
     procedure TestEcPfxImportsToCredential;
@@ -100,13 +99,7 @@ const
 procedure TTestPkcs12Import.SetUp;
 begin
   inherited SetUp;
-  FV := LoadVectorFields('Certs/Pkcs12.txt');
-end;
-
-procedure TTestPkcs12Import.TearDown;
-begin
-  FV.Free;
-  inherited TearDown;
+  FV := Own<TStringList>(LoadVectorFields('Certs/Pkcs12.txt'));
 end;
 
 function TTestPkcs12Import.Blob(const AField: string): TBytes;

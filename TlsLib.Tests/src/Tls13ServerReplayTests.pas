@@ -112,7 +112,6 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestRfc8448ServerFlightByteExact;
     procedure TestExporterAvailableInHalfRtt;
@@ -194,22 +193,14 @@ end;
 procedure TTestTls13ServerReplay.SetUp;
 begin
   inherited SetUp;
-  FHs := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
-  FSched := LoadVectorFields('Rfc8448/Tls13KeySchedule.txt');
-  FKeys := LoadVectorFields('Certs/SignatureKeys.txt');
+  FDriver := nil;
+  FSm := nil;
+  FHs := Own<TStringList>(LoadVectorFields('Rfc8448/HandshakeMessages.txt'));
+  FSched := Own<TStringList>(LoadVectorFields('Rfc8448/Tls13KeySchedule.txt'));
+  FKeys := Own<TStringList>(LoadVectorFields('Certs/SignatureKeys.txt'));
   // FDriver wraps FLayer, so Own both: the base disposes newest-first, freeing the driver
   // before the layer it references (a re-arrange never leaves a dangling driver either)
   FLayer := Own<TRecordLayer>(TRecordLayer.Create);
-end;
-
-procedure TTestTls13ServerReplay.TearDown;
-begin
-  // FHs/FSched/FKeys are reassigned in SetUp before use, so a plain free is safe here; FLayer and
-  // FDriver are Own'd (freed by the base) - a fixture must never free an Own'd field
-  FHs.Free;
-  FSched.Free;
-  FKeys.Free;
-  inherited TearDown;
 end;
 
 function TTestTls13ServerReplay.Msg(const AName: string): TTlsHandshakeMessage;

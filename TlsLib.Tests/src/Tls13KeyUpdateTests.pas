@@ -48,7 +48,6 @@ type
   const
     ServerHost = 'localhost';
   var
-    FCerts: TStringList;
     function ServerCredential: TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
     function AesGcmRegistry(const AProvider: ICryptoProvider): ICipherSuiteRegistry;
@@ -82,14 +81,16 @@ implementation
 { TTestTls13KeyUpdate }
 
 function TTestTls13KeyUpdate.ServerCredential: TTlsCredential;
+var
+  LCerts: TStringList;
 begin
-  FCerts := LoadVectorFields('Certs/EcP256Chain.txt');
+  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
   try
     Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(FCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']), nil);
+      DecodeHex(LCerts.Values['leaf_cert']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
   finally
-    FreeAndNil(FCerts);
+    FreeAndNil(LCerts);
   end;
 end;
 

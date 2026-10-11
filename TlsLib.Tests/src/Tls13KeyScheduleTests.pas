@@ -56,7 +56,6 @@ type
     function ToBytes(const ASecret: ISecretBuffer): TBytes;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestSecretTreeRfc8448;
     procedure TestTrafficKeysRfc8448;
@@ -94,13 +93,7 @@ implementation
 procedure TTestTls13KeySchedule.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Rfc8448/Tls13KeySchedule.txt');
-end;
-
-procedure TTestTls13KeySchedule.TearDown;
-begin
-  FVec.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Rfc8448/Tls13KeySchedule.txt'));
 end;
 
 function TTestTls13KeySchedule.Bytes(const AName: string): TBytes;

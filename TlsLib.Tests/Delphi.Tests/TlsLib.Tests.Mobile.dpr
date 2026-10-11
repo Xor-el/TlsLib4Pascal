@@ -184,6 +184,7 @@ uses
   MockHttpFetcher in '..\src\MockHttpFetcher.pas',
   SpyRevocationProvider in '..\src\SpyRevocationProvider.pas',
   MockSink in '..\src\MockSink.pas',
+  MockVerifyHooks in '..\src\MockVerifyHooks.pas',
   MockRecordInstaller in '..\src\MockRecordInstaller.pas',
   MockTransport in '..\src\MockTransport.pas',
   MockTests in '..\src\MockTests.pas',

@@ -49,6 +49,7 @@ uses
   TlpTlsLibExceptions,
   TlpTlsStream,
   MockTransport,
+  MockVerifyHooks,
   MockCryptoProvider,
   TlsLibTestBase;
 
@@ -104,7 +105,6 @@ type
 
   TTestTlsStreamLoopback = class(TTlsLibAlgorithmTestCase)
   strict private
-    FCapturedPeerRole: TPeerRole; // the role the pump handed the resolver at the park
     function TrustRoot: TBytes;
     function LeafCert: TBytes;
     function LeafKey: TBytes;
@@ -119,12 +119,8 @@ type
       out AServer: TServerRunner; out AClientTransport: TMemoryTransport);
     function AlwaysReject(const AChain: TArray<TBytes>;
       const AHostName: string): Boolean;
-    function AlwaysAccept(const AChain: TArray<TBytes>;
-      const AHostName: string): Boolean;
     /// <summary>The verdict-resolver form (the seam's context signature): a live-revocation-style
-    /// resolver reporting the reject alert. Reuses AlwaysAccept/AlwaysReject for the decision.</summary>
-    function ResolverAccept(const ACtx: TCertificateVerdictContext;
-      out ARejectAlert: TTlsAlertDescription): Boolean;
+    /// resolver reporting the reject alert. Reuses AlwaysReject for the decision.</summary>
     function ResolverReject(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
     function ResolverRaises(const ACtx: TCertificateVerdictContext;
@@ -476,21 +472,6 @@ function TTestTlsStreamLoopback.AlwaysReject(const AChain: TArray<TBytes>;
   const AHostName: string): Boolean;
 begin
   Result := False;
-end;
-
-function TTestTlsStreamLoopback.AlwaysAccept(const AChain: TArray<TBytes>;
-  const AHostName: string): Boolean;
-begin
-  Result := System.Length(AChain) > 0;
-end;
-
-function TTestTlsStreamLoopback.ResolverAccept(
-  const ACtx: TCertificateVerdictContext;
-  out ARejectAlert: TTlsAlertDescription): Boolean;
-begin
-  FCapturedPeerRole := ACtx.PeerRole; // record the role the pump attributed to the parked chain
-  ARejectAlert := TTlsAlertDescription.BadCertificate;
-  Result := AlwaysAccept(ACtx.Chain, ACtx.HostName);
 end;
 
 function TTestTlsStreamLoopback.ResolverReject(
@@ -1122,18 +1103,19 @@ var
   LTransport: TMemoryTransport;
   LPing, LEcho: TBytes;
   LGot: Int32;
+  LSpy: TVerdictResolverSpy;
 begin
   // async verdict enabled end-to-end over the blocking pump: the pump parks, calls the
   // resolver (which accepts), and the handshake completes and exchanges app data
+  LSpy := Own<TVerdictResolverSpy>(TVerdictResolverSpy.Create);
   RunLoopback(AsyncClientConfig, TServerBehavior.EchoThenClose, LClient, LServer,
     LTransport);
   try
-    FCapturedPeerRole := TPeerRole.Unknown; // seed with the unset value so the assert is meaningful
-    LClient.SetCertificateVerdictResolver(ResolverAccept);
+    LClient.SetCertificateVerdictResolver(LSpy.Resolve);
     LClient.Handshake;
     CheckTrue(LClient.IsHandshakeComplete,
       'an accepted async verdict completes the handshake over the pump');
-    CheckEquals(Ord(TPeerRole.Server), Ord(FCapturedPeerRole),
+    CheckEquals(Ord(TPeerRole.Server), Ord(LSpy.PeerRole),
       'a client park attributes the parked chain to the server role');
     LPing := DecodeHex(PingHex);
     LClient.Write(LPing[0], System.Length(LPing));

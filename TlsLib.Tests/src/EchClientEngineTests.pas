@@ -78,7 +78,6 @@ type
       const AEncoded: TBytes): TBytes;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestOuterHidesRealSniAndDecryptsToInner;
     procedure TestUnusableConfigFailsClosed;
@@ -103,13 +102,7 @@ const
 procedure TTestEchClientEngine.SetUp;
 begin
   inherited SetUp;
-  FVec := LoadVectorFields('Certs/Ech.txt');
-end;
-
-procedure TTestEchClientEngine.TearDown;
-begin
-  FVec.Free;
-  inherited TearDown;
+  FVec := Own<TStringList>(LoadVectorFields('Certs/Ech.txt'));
 end;
 
 function TTestEchClientEngine.BaseParams(

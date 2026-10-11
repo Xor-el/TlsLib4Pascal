@@ -39,6 +39,7 @@ docker run --rm --platform linux/ppc64 \
   -e MAKE_BUILD_BACKEND \
   -e MAKE_PACKAGE_SCOPE \
   -e MAKE_RUN_BENCHMARK \
+  -e MAKE_TEST_REPEAT \
   -e LAZARUS_BRANCH \
   -e LAZARUS_REPO \
   -e CI_DEBUG \

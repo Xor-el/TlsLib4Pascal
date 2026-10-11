@@ -582,22 +582,17 @@ var
   end;
 
 begin
-  LCertPath := IncludeTrailingPathDelimiter(GetCurrentDir) + 'credential_fixture.crt';
-  LKeyPath := IncludeTrailingPathDelimiter(GetCurrentDir) + 'credential_fixture.key';
+  LCertPath := TempPath('credential_fixture.crt');
+  LKeyPath := TempPath('credential_fixture.key');
   WriteFile(LCertPath, ServerCert);
   WriteFile(LKeyPath, ServerKey);
-  try
-    LOpts := TTlsOptions.Default;
-    LOpts.Crypto := Crypto;
-    LOpts.Pkix := Pkix;
-    LOpts.Certificate := TTlsBlobSource.FromFile(LCertPath);
-    LOpts.PrivateKey := TTlsBlobSource.FromFile(LKeyPath);
-    CheckNotNull(TTlsConfigComposer.BuildServerConfig(LOpts),
-      'a server config builds from a certificate file and a key file');
-  finally
-    SysUtils.DeleteFile(LCertPath);
-    SysUtils.DeleteFile(LKeyPath);
-  end;
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := Crypto;
+  LOpts.Pkix := Pkix;
+  LOpts.Certificate := TTlsBlobSource.FromFile(LCertPath);
+  LOpts.PrivateKey := TTlsBlobSource.FromFile(LKeyPath);
+  CheckNotNull(TTlsConfigComposer.BuildServerConfig(LOpts),
+    'a server config builds from a certificate file and a key file');
 end;
 
 procedure TTestTlsConnection.TestPkcs12WithPrivateKeyRaises;

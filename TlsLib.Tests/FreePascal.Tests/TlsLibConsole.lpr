@@ -4,6 +4,8 @@ program TlsLibConsole;
 
 uses
   {$IFDEF UNIX}cthreads, cwstring,{$ENDIF}
+  SysUtils,
+  fpcunit,
   consoletestrunner,
   TlsLibTestResourceLoader,
   TlsLibTestProviders,
@@ -16,6 +18,7 @@ uses
   MockHttpFetcher,
   SpyRevocationProvider,
   MockSink,
+  MockVerifyHooks,
   MockRecordInstaller,
   MockTransport,
   SecretTests,
@@ -98,11 +101,15 @@ uses
   TlsConnectionTests
 ;
 
+const
+  RepeatFlag = 'repeat';
+
 type
   TTlsLibConsoleTestRunner = class(TTestRunner)
   protected
     procedure AppendLongOpts; override;
     procedure WriteCustomHelp; override;
+    procedure DoTestRun(ATest: TTest); override;
   end;
 
 procedure TTlsLibConsoleTestRunner.AppendLongOpts;
@@ -111,12 +118,34 @@ begin
   // fpcunit rejects unregistered options
   LongOpts.Add(TTlsLibTestProviders.CryptoFlag + ':');
   LongOpts.Add(TTlsLibTestProviders.PkixFlag + ':');
+  LongOpts.Add(RepeatFlag + ':');
 end;
 
 procedure TTlsLibConsoleTestRunner.WriteCustomHelp;
 begin
   Writeln('  --', TTlsLibTestProviders.CryptoFlag, '=portable|os   crypto provider');
   Writeln('  --', TTlsLibTestProviders.PkixFlag, '=portable   PKIX provider');
+  Writeln('  --', RepeatFlag, '=N   run the suite N times in this process; fails if any pass fails (a report file keeps the last pass)');
+end;
+
+procedure TTlsLibConsoleTestRunner.DoTestRun(ATest: TTest);
+var
+  LPasses, LPass, LExitCode: Integer;
+begin
+  LPasses := 1;
+  if HasOption(RepeatFlag) then
+    LPasses := StrToIntDef(GetOptionValue(RepeatFlag), 1);
+  if LPasses < 1 then
+    LPasses := 1;
+  LExitCode := 0;
+  for LPass := 1 to LPasses do
+  begin
+    if LPasses > 1 then
+      Writeln(StdErr, 'run ', LPass, '/', LPasses);
+    inherited DoTestRun(ATest);
+    LExitCode := LExitCode or ExitCode;
+  end;
+  ExitCode := LExitCode;
 end;
 
 var

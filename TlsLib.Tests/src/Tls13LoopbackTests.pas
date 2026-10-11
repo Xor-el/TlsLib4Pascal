@@ -1138,15 +1138,18 @@ end;
 procedure TTestTls13Loopback.TestEchAcceptKeyLogIsKeyedByInnerRandom;
 var
   LClient, LServer: ITlsEngine;
+  LClientLog, LServerLog: IKeyLog;
   LIterations, LI: Int32;
   LInner: TBytes;
 begin
   // on ECH accept the exported secrets must be logged under the INNER ClientHello random, not the
   // outer public-name random the wire carries ($11), so a key-log consumer can decrypt the true
-  // (inner) session rather than the decoy. The engines own the sinks through IKeyLog, so the
-  // fields are only cleared here, never freed.
+  // (inner) session rather than the decoy. The interface locals own the sinks, so a build that
+  // raises before an engine takes them still frees them; the fields are only cleared here.
   FClientKeyLog := TMockKeyLog.Create;
+  LClientLog := FClientKeyLog;
   FServerKeyLog := TMockKeyLog.Create;
+  LServerLog := FServerKeyLog;
   try
     LClient := NewEchClient;
     LServer := NewEchServer;

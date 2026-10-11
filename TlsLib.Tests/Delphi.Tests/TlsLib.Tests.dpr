@@ -23,6 +23,7 @@ uses
  {$IFDEF TESTINSIGHT}
   TestInsight.DUnit,
   {$ELSE}
+  SysUtils,
   Forms,
   TestFramework,
   GUITestRunner,
@@ -204,6 +205,7 @@ uses
   MockHttpFetcher in '..\src\MockHttpFetcher.pas',
   SpyRevocationProvider in '..\src\SpyRevocationProvider.pas',
   MockSink in '..\src\MockSink.pas',
+  MockVerifyHooks in '..\src\MockVerifyHooks.pas',
   MockRecordInstaller in '..\src\MockRecordInstaller.pas',
   MockTransport in '..\src\MockTransport.pas',
   MockTests in '..\src\MockTests.pas',
@@ -280,13 +282,37 @@ uses
 
 {$R *.res}
 
+var
+  LPasses, LPass, LI: Integer;
+  LResult: TTestResult;
+  LAllPassed: Boolean;
+
 begin
   Application.Initialize;
   if IsConsole then
   begin
     // stderr keeps the runner's own output clean
     Writeln(ErrOutput, 'providers: ' + TTlsLibTestProviders.Describe);
-    TextTestRunner.RunRegisteredTests;
+    LPasses := 1;
+    for LI := 1 to ParamCount do
+      if Copy(ParamStr(LI), 1, 9) = '--repeat=' then
+        LPasses := StrToIntDef(Copy(ParamStr(LI), 10, MaxInt), 1);
+    if LPasses < 1 then
+      LPasses := 1;
+    LAllPassed := True;
+    for LPass := 1 to LPasses do
+    begin
+      if LPasses > 1 then
+        Writeln(ErrOutput, 'run ' + IntToStr(LPass) + '/' + IntToStr(LPasses));
+      LResult := TextTestRunner.RunRegisteredTests;
+      try
+        LAllPassed := LAllPassed and LResult.WasSuccessful;
+      finally
+        LResult.Free;
+      end;
+    end;
+    if not LAllPassed then
+      ExitCode := 1;
   end
   else
     GUITestRunner.RunRegisteredTests;

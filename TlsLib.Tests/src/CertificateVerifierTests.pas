@@ -45,6 +45,7 @@ uses
   TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
   TlpTrustPolicy,
+  MockVerifyHooks,
   TlsLibTestBase;
 
 type
@@ -84,15 +85,12 @@ type
   /// <summary>The verify callback an instance source composes over a caller-supplied verifier.</summary>
   TTestInstanceSourceVerifyCallback = class(TTlsLibAlgorithmTestCase)
   strict private
-    FAccept: Boolean;
-    FCalls: Int32;
-    function Callback(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
     function Chain: TArray<TBytes>;
     // the verifier an instance source yields over AInner, with the callback set or not
     function ServerVerifier(const AInner: IServerCertificateVerifier;
-      AWithCallback: Boolean): IServerCertificateVerifier;
+      const ACallback: TTlsCertificateVerifyCallback): IServerCertificateVerifier;
     function ClientVerifier(const AInner: IClientCertificateVerifier;
-      AWithCallback: Boolean): IClientCertificateVerifier;
+      const ACallback: TTlsCertificateVerifyCallback): IClientCertificateVerifier;
   published
     procedure TestServerCallbackRejectsOverAcceptingInstance;
     procedure TestServerCallbackAcceptKeepsInstanceVerdict;
@@ -151,7 +149,6 @@ type
       const ADistrusted, AIntermediates: TArray<TBytes>): IServerCertificateVerifier;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestOptionsInitializeMatchesConvenienceDefaults;
     procedure TestValidChainTrusted;
@@ -246,40 +243,35 @@ end;
 
 { TTestInstanceSourceVerifyCallback }
 
-function TTestInstanceSourceVerifyCallback.Callback(const AChain: TArray<TBytes>;
-  const AHostName: string): Boolean;
-begin
-  System.Inc(FCalls);
-  Result := FAccept;
-end;
-
 function TTestInstanceSourceVerifyCallback.Chain: TArray<TBytes>;
 begin
   Result := TArray<TBytes>.Create(TBytes.Create(1, 2, 3));
 end;
 
 function TTestInstanceSourceVerifyCallback.ServerVerifier(
-  const AInner: IServerCertificateVerifier; AWithCallback: Boolean): IServerCertificateVerifier;
+  const AInner: IServerCertificateVerifier;
+  const ACallback: TTlsCertificateVerifyCallback): IServerCertificateVerifier;
 var
   LContext: TServerTrustContext;
   LSource: IServerCertificateVerifierSource;
 begin
   LContext := Default(TServerTrustContext);
-  if AWithCallback then
-    LContext.Dangerous.VerifyCallback := Callback;
+  if Assigned(ACallback) then
+    LContext.Dangerous.VerifyCallback := ACallback;
   LSource := TInstanceServerVerifierSource.Create(AInner) as IServerCertificateVerifierSource;
   Result := LSource.CreateServerVerifier(LContext);
 end;
 
 function TTestInstanceSourceVerifyCallback.ClientVerifier(
-  const AInner: IClientCertificateVerifier; AWithCallback: Boolean): IClientCertificateVerifier;
+  const AInner: IClientCertificateVerifier;
+  const ACallback: TTlsCertificateVerifyCallback): IClientCertificateVerifier;
 var
   LContext: TClientTrustContext;
   LSource: IClientCertificateVerifierSource;
 begin
   LContext := Default(TClientTrustContext);
-  if AWithCallback then
-    LContext.Dangerous.VerifyCallback := Callback;
+  if Assigned(ACallback) then
+    LContext.Dangerous.VerifyCallback := ACallback;
   LSource := TInstanceClientVerifierSource.Create(AInner) as IClientCertificateVerifierSource;
   Result := LSource.CreateClientVerifier(LContext);
 end;
@@ -289,16 +281,17 @@ var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
-  FAccept := False;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
   LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier,
-    True);
+    LSpy.Callback);
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
     LVerified, LAlert), 'the callback rejects what the instance accepted');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the alert is certificate_unknown');
   CheckEquals(0, System.Length(LVerified.Path), 'a rejection carries no validated path');
-  CheckEquals(1, FCalls, 'the callback ran once');
+  CheckEquals(1, LSpy.Calls, 'the callback ran once');
 end;
 
 procedure TTestInstanceSourceVerifyCallback.TestServerCallbackAcceptKeepsInstanceVerdict;
@@ -306,10 +299,11 @@ var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
-  FAccept := True;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier,
-    True);
+    LSpy.Callback);
   CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
     LVerified, LAlert), 'an accepting callback leaves the instance verdict');
   CheckEquals(1, System.Length(LVerified.Path), 'the instance path is kept');
@@ -320,15 +314,16 @@ var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
-  FAccept := True;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(False) as IServerCertificateVerifier,
-    True);
+    LSpy.Callback);
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
     LVerified, LAlert), 'the callback cannot rescue a rejection');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the instance alert is kept');
-  CheckEquals(0, FCalls, 'the callback is not consulted');
+  CheckEquals(0, LSpy.Calls, 'the callback is not consulted');
 end;
 
 procedure TTestInstanceSourceVerifyCallback.TestServerWithoutCallbackReturnsTheInstance;
@@ -336,7 +331,7 @@ var
   LInstance, LVerifier: IServerCertificateVerifier;
 begin
   LInstance := TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier;
-  LVerifier := ServerVerifier(LInstance, False);
+  LVerifier := ServerVerifier(LInstance, nil);
   CheckTrue(LVerifier = LInstance, 'no callback leaves the instance undecorated');
 end;
 
@@ -345,10 +340,11 @@ var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
-  FAccept := False;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
   LVerifier := ClientVerifier(TFixedVerdictVerifier.Create(True) as IClientCertificateVerifier,
-    True);
+    LSpy.Callback);
   CheckFalse(LVerifier.VerifyClientCertificate(Chain, LVerified, LAlert),
     'the callback rejects what the instance accepted');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
@@ -361,13 +357,14 @@ var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
 begin
-  FAccept := True;
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   LVerifier := ClientVerifier(TFixedVerdictVerifier.Create(False) as IClientCertificateVerifier,
-    True);
+    LSpy.Callback);
   CheckFalse(LVerifier.VerifyClientCertificate(Chain, LVerified, LAlert),
     'the callback cannot rescue a rejection');
-  CheckEquals(0, FCalls, 'the callback is not consulted');
+  CheckEquals(0, LSpy.Calls, 'the callback is not consulted');
 end;
 
 procedure TTestInstanceSourceVerifyCallback.TestClientWithoutCallbackReturnsTheInstance;
@@ -375,7 +372,7 @@ var
   LInstance, LVerifier: IClientCertificateVerifier;
 begin
   LInstance := TFixedVerdictVerifier.Create(True) as IClientCertificateVerifier;
-  LVerifier := ClientVerifier(LInstance, False);
+  LVerifier := ClientVerifier(LInstance, nil);
   CheckTrue(LVerifier = LInstance, 'no callback leaves the instance undecorated');
 end;
 
@@ -418,23 +415,12 @@ end;
 procedure TTestCertificateVerifier.SetUp;
 begin
   inherited SetUp;
-  FCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  FChain3 := LoadVectorFields('Certs/OcspStapling.txt');
-  FEku := LoadVectorFields('Certs/ClientAuthChain.txt');
-  FEkuEdge := LoadVectorFields('Certs/SelfSignedEkuEdge.txt');
-  FReissued := LoadVectorFields('Certs/ReissuedRoot.txt');
-  FFlood := LoadVectorFields('Certs/PathBuildFlood.txt');
-end;
-
-procedure TTestCertificateVerifier.TearDown;
-begin
-  FCerts.Free;
-  FChain3.Free;
-  FEku.Free;
-  FEkuEdge.Free;
-  FReissued.Free;
-  FFlood.Free;
-  inherited TearDown;
+  FCerts := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
+  FChain3 := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
+  FEku := Own<TStringList>(LoadVectorFields('Certs/ClientAuthChain.txt'));
+  FEkuEdge := Own<TStringList>(LoadVectorFields('Certs/SelfSignedEkuEdge.txt'));
+  FReissued := Own<TStringList>(LoadVectorFields('Certs/ReissuedRoot.txt'));
+  FFlood := Own<TStringList>(LoadVectorFields('Certs/PathBuildFlood.txt'));
 end;
 
 function TTestCertificateVerifier.Reissued(const AName: string): TBytes;

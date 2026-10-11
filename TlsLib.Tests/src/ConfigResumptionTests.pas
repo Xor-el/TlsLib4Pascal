@@ -138,7 +138,6 @@ type
     function DriveObservingServerCert(const AClient, AServer: ITlsEngine): Boolean;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestTls13StoreResumptionViaConfig;
     procedure TestTls13BadBinderReplayDoesNotConsumeStoreTicket;
@@ -349,15 +348,8 @@ end;
 procedure TTestConfigResumption.SetUp;
 begin
   inherited SetUp;
-  FCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  FOcsp := LoadVectorFields('Certs/OcspStapling.txt');
-end;
-
-procedure TTestConfigResumption.TearDown;
-begin
-  FOcsp.Free;
-  FCerts.Free;
-  inherited TearDown;
+  FCerts := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
+  FOcsp := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
 end;
 
 function TTestConfigResumption.OcspField(const AName: string): TBytes;

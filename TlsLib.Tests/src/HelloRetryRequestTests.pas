@@ -85,7 +85,6 @@ type
     function NewRetryClient(ADualVersion: Boolean): IHandshakeMachine; overload;
   protected
     procedure SetUp; override;
-    procedure TearDown; override;
   published
     procedure TestServerEmitsRfc8448Section5HelloRetryRequestByteExact;
     procedure TestCookieMintVerifyRoundTrip;
@@ -116,13 +115,7 @@ implementation
 procedure TTestHelloRetryRequest.SetUp;
 begin
   inherited SetUp;
-  FHrr := LoadVectorFields('Rfc8448/HelloRetryRequest.txt');
-end;
-
-procedure TTestHelloRetryRequest.TearDown;
-begin
-  FHrr.Free;
-  inherited TearDown;
+  FHrr := Own<TStringList>(LoadVectorFields('Rfc8448/HelloRetryRequest.txt'));
 end;
 
 function TTestHelloRetryRequest.CookieSecret: ISecretBuffer;
