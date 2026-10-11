@@ -95,12 +95,12 @@ for p in FclNetLoopback FclNetEchLoopback FclNetResumptionScope FclNetAdvancedCo
 done
 
 # Bound each run so a server-side hang (the examples' final WaitFor is unbounded) cannot
-# stall the job. Prefer timeout, then macOS's gtimeout; fall back to unbounded.
+# stall the job. Prefer timeout, then gtimeout; perl's alarm bounds the run where neither exists.
 run_bounded() {  # <seconds> <cmd...>
   local secs="$1"; shift
   if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
   elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
-  else "$@"; fi
+  else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' "$secs" "$@"; fi
 }
 
 echo "==> running the deterministic in-process loopbacks (127.0.0.1, no network)"

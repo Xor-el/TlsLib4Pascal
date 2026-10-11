@@ -56,6 +56,7 @@ const
   MUTUAL_PORT = 28456;
   STALL_HOLD_MS = 4000; // how long the server stays silent after the partial record
   READ_CAP_MS = 800;
+  ACCEPT_POLL_MS = 100;
   STALL_LIMIT_MS = 3000; // the socket timeout must end the wait well before the server's silence does
   PING = 'ping from the fclnet client';
 
@@ -83,8 +84,10 @@ type
     FReady: TEvent;
     // the accepted connection's handler; the stream owns it and frees it with the stream
     FAccepted: TTlsLibSocketHandler;
+    FServer: TInetServer;
     procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
     procedure HandleConnect(Sender: TObject; AStream: TSocketStream);
+    procedure HandleIdle(Sender: TObject);
   protected
     procedure Execute; override;
   public
@@ -94,8 +97,9 @@ type
     property PeerServerName: string read FPeerServerName;
   end;
 
-  /// <summary>A server that requires a client certificate and serves up to two connections,
-  /// counting the ones whose handshake completed and that it could echo.</summary>
+  /// <summary>A server that requires a client certificate and serves one connection, counting the
+  /// ones that reached it. A client turned away in the handshake is not an accepted connection, so
+  /// the loop ends after the first one that authenticates.</summary>
   TMutualServerThread = class(TThread)
   strict private
   var
@@ -106,13 +110,11 @@ type
     FServer: TInetServer;
     procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
     procedure HandleConnect(Sender: TObject; AStream: TSocketStream);
+    procedure HandleIdle(Sender: TObject);
   protected
     procedure Execute; override;
   public
     constructor Create(const APfx: TBytes; const ARootFile: string; AReady: TEvent);
-    /// <summary>Ends the accept loop; a turned-away client never counts as a handled connection,
-    /// so the loop would otherwise wait for it.</summary>
-    procedure StopServing;
     property Error: string read FError;
     property Served: Integer read FServed;
     /// <summary>Connections that reached the server, so a missing one is not read as a
@@ -254,20 +256,26 @@ begin
   AStream.Free;
 end;
 
-procedure TServerThread.Execute;
-var
-  LServer: TInetServer;
+procedure TServerThread.HandleIdle(Sender: TObject);
 begin
-  LServer := TInetServer.Create('127.0.0.1', PORT);
+  if Terminated then
+    FServer.StopAccepting(False);
+end;
+
+procedure TServerThread.Execute;
+begin
+  FServer := TInetServer.Create('127.0.0.1', PORT);
   try
     try
-      LServer.ReuseAddress := True;
-      LServer.MaxConnections := 1;
-      LServer.OnCreateClientSocketHandler := MakeHandler;
-      LServer.OnConnect := HandleConnect;
-      LServer.Listen; // bind + listen before the client is told to connect
+      FServer.ReuseAddress := True;
+      FServer.MaxConnections := 1;
+      FServer.AcceptIdleTimeout := ACCEPT_POLL_MS;
+      FServer.OnIdle := HandleIdle;
+      FServer.OnCreateClientSocketHandler := MakeHandler;
+      FServer.OnConnect := HandleConnect;
+      FServer.Listen; // bind + listen before the client is told to connect
       FReady.SetEvent;
-      LServer.StartAccepting; // blocks until the one connection is handled
+      FServer.StartAccepting; // returns once the one connection is handled, or when terminated
     except
       on E: Exception do
       begin
@@ -276,7 +284,7 @@ begin
       end;
     end;
   finally
-    LServer.Free;
+    FreeAndNil(FServer);
   end;
 end;
 
@@ -325,10 +333,10 @@ begin
   AStream.Free;
 end;
 
-procedure TMutualServerThread.StopServing;
+procedure TMutualServerThread.HandleIdle(Sender: TObject);
 begin
-  if Assigned(FServer) then
-    FServer.StopAccepting(True);
+  if Terminated then
+    FServer.StopAccepting(False);
 end;
 
 procedure TMutualServerThread.Execute;
@@ -337,6 +345,9 @@ begin
   try
     try
       FServer.ReuseAddress := True;
+      FServer.MaxConnections := 1;
+      FServer.AcceptIdleTimeout := ACCEPT_POLL_MS;
+      FServer.OnIdle := HandleIdle;
       FServer.OnCreateClientSocketHandler := MakeHandler;
       FServer.OnConnect := HandleConnect;
       FServer.Listen;
@@ -378,8 +389,11 @@ begin
     try
       LSock.Connect;
       LSock.IOTimeout := 2000;
-      LBuf := TBytes.Create(Ord('m'), Ord('u'), Ord('t'), Ord('u'), Ord('a'), Ord('l'));
-      LSock.Write(LBuf[0], System.Length(LBuf));
+      if AWithIdentity then
+      begin
+        LBuf := TBytes.Create(Ord('m'), Ord('u'), Ord('t'), Ord('u'), Ord('a'), Ord('l'));
+        LSock.Write(LBuf[0], System.Length(LBuf));
+      end;
       SetLength(LBuf, 64);
       // TLS 1.3 lets the client finish before the server judges its certificate: the answer is
       // the echo, which a rejected client never gets
@@ -401,24 +415,17 @@ end;
 class function TMutualTlsCheck.RefusesTwoSources(const APfx: TBytes;
   const ARootFile: string): Boolean;
 var
-  LSock: TInetSocket;
   LHandler: TTlsLibSocketHandler;
 begin
   LHandler := TTlsLibSocketHandler.Create;
-  LHandler.CertificateData.CertCA.FileName := ARootFile;
-  LHandler.CertificateData.PFX.Value := APfx;
-  LHandler.CertificateData.Certificate.FileName := ARootFile;
-  LSock := TInetSocket.Create('localhost', MUTUAL_PORT, LHandler);
   try
-    try
-      LSock.Connect;
-    except
-      on E: Exception do
-        ;
-    end;
+    LHandler.CertificateData.CertCA.FileName := ARootFile;
+    LHandler.CertificateData.PFX.Value := APfx;
+    LHandler.CertificateData.Certificate.FileName := ARootFile;
+    LHandler.Connect;
     Result := Pos('sets PFX together with Certificate', LHandler.LastErrorDesc) > 0;
   finally
-    LSock.Free;
+    LHandler.Free;
   end;
 end;
 
@@ -428,7 +435,6 @@ var
   LReady: TEvent;
   LPfx: TBytes;
   LRoot, LError: string;
-  LAfterServed: Integer;
 begin
   LPfx := TDataEncoding.HexDecode(TVectorLocator.FieldHexFrom('ClientAuthChain.txt', 'leaf_pfx'));
   LRoot := TVectorLocator.WriteDer('mutual_root',
@@ -443,25 +449,24 @@ begin
         raise Exception.Create(LServer.Error);
       if not RefusesTwoSources(LPfx, LRoot) then
         raise Exception.Create('a PFX beside a Certificate was not refused naming both');
-      if Echo(LPfx, LRoot, True, LError) <> 'mutual' then
-        raise Exception.Create('a client presenting the PFX identity was not served: ' + LError);
-      LAfterServed := LServer.Attempts;
       if Echo(LPfx, LRoot, False, LError) <> '' then
         raise Exception.Create('a client with no certificate was served');
       // the rejection is the peer's alert, not a timeout or a refused connection
       if Pos('the peer sent a fatal alert', LError) = 0 then
         raise Exception.Create('the client with no certificate was not sent an alert: ' + LError);
-      LServer.StopServing;
+      if LServer.Attempts <> 1 then
+        raise Exception.Create('the client with no certificate never reached the server');
+      if Echo(LPfx, LRoot, True, LError) <> 'mutual' then
+        raise Exception.Create('a client presenting the PFX identity was not served: ' + LError);
       LServer.WaitFor;
       if LServer.Error <> '' then
         raise Exception.Create(LServer.Error);
       if LServer.Served <> 1 then
         raise Exception.CreateFmt('the server served %d clients, expected 1', [LServer.Served]);
-      if LServer.Attempts <= LAfterServed then
-        raise Exception.Create('the client with no certificate never reached the server');
+      if LServer.Attempts <> 2 then
+        raise Exception.CreateFmt('the server saw %d connections, expected 2', [LServer.Attempts]);
     finally
-      // a check that raised leaves the accept loop running, which would block the free
-      LServer.StopServing;
+      LServer.Terminate;
       LServer.Free;
     end;
   finally
@@ -559,6 +564,7 @@ begin
           LServer.PeerServerName);
       TMutualTlsCheck.Run;
     finally
+      LServer.Terminate;
       LServer.Free;
     end;
 
