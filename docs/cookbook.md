@@ -494,7 +494,7 @@ uses TlpTrustPolicy;   // TRevocationPosture
 
 Stapled OCSP is validated in the handshake pipeline. **Live** OCSP/CRL is opt-in, never in the
 sans-IO core: you attach a resolver to the `TTlsStream` backed by the reference socket fetcher
-`TSocketHttpFetcher` (unit `TlpSocketHttpFetcher`, in `TlsLib.Net/` — a loose unit, not a package). The full wiring — including `must-staple`, the
+`TSocketHttpFetcher` (unit `TlpSocketHttpFetcher`, in the `TlsLib.Net` package, `TlsLib.Net/src/`). The full wiring — including `must-staple`, the
 posture/live-channel interaction, and server-side client-cert revocation — is in
 [certificate-verification.md → Live OCSP/CRL](certificate-verification.md#live-ocspcrl-revocation-opt-in).
 

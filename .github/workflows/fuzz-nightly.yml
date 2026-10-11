@@ -17,6 +17,9 @@ on:
         default: "1200"
         type: string
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -55,6 +58,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build
         shell: bash

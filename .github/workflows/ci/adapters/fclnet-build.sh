@@ -41,6 +41,8 @@ LPR_DIR="$ADAPTER/Examples/Lazarus"
 BIN_DIR="$LPR_DIR/bin"
 # the adapter uses the OS-trust facade; compile that package from src like interop-build.sh does
 TRUST_SYSTEM_SRC="$REPO_ROOT/TlsLib.Trust.System/src"
+# the adapter waits and sends through the TlsLib.Net socket layer
+TLSLIB_NET_SRC="$REPO_ROOT/TlsLib.Net/src"
 # the ECH loopback example generates an ECH key via the EchKeyGen tool unit
 ECHKEYGEN_SRC="$REPO_ROOT/TlsLib.Tools/EchKeyGen/src"
 INCLUDE_DIR="$REPO_ROOT/TlsLib/src/Include"
@@ -83,7 +85,8 @@ compile() {  # <program-name>
     -Fi"$(to_native "$INCLUDE_DIR")" \
     -Fu"$(to_native "$CRYPTO_UNITS")" -Fu"$(to_native "$HASH_UNITS")" \
     -Fu"$(to_native "$SB_UNITS")" -Fu"$(to_native "$TLS_UNITS")" \
-    -Fu"$(to_native "$TRUST_SYSTEM_SRC")" -Fu"$(to_native "$ECHKEYGEN_SRC")" \
+    -Fu"$(to_native "$TRUST_SYSTEM_SRC")" -Fu"$(to_native "$TLSLIB_NET_SRC")" \
+    -Fu"$(to_native "$ECHKEYGEN_SRC")" \
     -Fu"$(to_native "$ADAPTER_SRC")" -Fu"$(to_native "$EXAMPLE_SRC")" \
     -FU"$(to_native "$BUILD_DIR")" -o"$(to_native "$BIN_DIR/$1$EXE")" "$(to_native "$LPR_DIR/$1.lpr")"
 }

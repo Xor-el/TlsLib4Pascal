@@ -197,13 +197,18 @@ end;
 procedure TTlsLibTestCase.FreeOwnedObjects;
 var
   LI: Integer;
+  LItem: TObject;
 begin
   if FOwned = nil then
     Exit;
-  // newest first, so a graph is disposed before the objects it references
+  // newest first, so a graph is disposed before the objects it references; an entry leaves the
+  // list before it is freed, so a destructor that raises cannot make the next sweep free it twice
   for LI := FOwned.Count - 1 downto 0 do
-    FOwned[LI].Free;
-  FOwned.Clear;
+  begin
+    LItem := FOwned[LI];
+    FOwned.Delete(LI);
+    LItem.Free;
+  end;
 end;
 
 { TTlsLibAlgorithmTestCase }

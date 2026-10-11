@@ -11,7 +11,7 @@
 
 unit TlpNetExceptions;
 
-{$I ..\TlsLib\src\Include\TlsLib.inc}
+{$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
 interface
 
@@ -26,9 +26,6 @@ type
   /// <summary>A connection could not be made: the name did not resolve, the peer refused, or the
   /// connect timeout elapsed.</summary>
   ENetConnectError = class(ENetSocketError);
-
-  /// <summary>A bounded receive saw no byte within its timeout.</summary>
-  ENetReceiveTimeout = class(ENetSocketError);
 
 implementation
 

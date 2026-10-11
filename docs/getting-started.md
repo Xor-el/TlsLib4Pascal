@@ -29,8 +29,8 @@ Add an **optional** package only when you use its feature:
 | Verify against the OS root store | `TlsLib.Trust.System` |
 | An offline PEM CA bundle (loader) | `TlsLib.Trust.Bundle` |
 | OS-native crypto primitives for the handshake | `TlsLib.Crypto.System` |
-| Live OCSP/CRL over real sockets | the `TlpSocketHttpFetcher` unit (in `TlsLib.Net/`) |
-| A TCP client or listener to run a `TTlsConnection` over | the `TlpNetSocket` unit (in `TlsLib.Net/`) |
+| Live OCSP/CRL over real sockets | the `TlpSocketHttpFetcher` unit (package `TlsLib.Net`) |
+| A TCP client or listener to run a `TTlsConnection` over | the `TlpNetSocket` unit (package `TlsLib.Net`) |
 | A mORMot / Indy / Synapse / fcl-net drop-in | the matching `TlsLib.Adapter.*` |
 
 The core references none of these — a build that doesn't use them links none of them.

@@ -25,6 +25,9 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -110,6 +113,8 @@ jobs:
       target_map: ${{ steps.resolve.outputs.target_map }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Resolve enabled targets
         id: resolve
@@ -128,6 +133,8 @@ jobs:
     needs: setup
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: GUID lint (duplicate interface IIDs)
         run: bash .github/workflows/ci/lint/guid-lint.sh
       - name: Comment lint (production comments)
@@ -154,6 +161,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build
         shell: bash
@@ -199,6 +207,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build
         shell: bash
@@ -245,6 +254,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build
         shell: bash
@@ -265,6 +275,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build
         shell: bash
@@ -285,6 +296,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build
         shell: bash
@@ -341,6 +353,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build
         shell: bash
@@ -367,6 +380,7 @@ jobs:
         with:
           fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['macos-arm64'].fpc_target }}
           artifact-suffix: macos-arm64
+          bogo-ref: ${{ env.BOGO_REF }}
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
@@ -385,6 +399,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build
         shell: bash
@@ -408,6 +423,7 @@ jobs:
         with:
           fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_target }}
           artifact-suffix: macos-x64
+          bogo-ref: ${{ env.BOGO_REF }}
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
@@ -426,6 +442,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build (ARMv7 via QEMU user-mode)
         uses: uraimo/run-on-arch-action@v3
@@ -457,6 +474,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Set up QEMU (ppc64 big-endian)
         run: bash .github/workflows/ci/ppc64-qemu-setup.sh
@@ -484,6 +502,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build (FreeBSD x86_64)
         uses: vmactions/freebsd-vm@v1
@@ -509,6 +528,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build (NetBSD x86_64)
         uses: vmactions/netbsd-vm@v1
@@ -531,6 +551,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build (DragonFlyBSD x86_64)
         uses: vmactions/dragonflybsd-vm@v1
@@ -555,6 +576,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+          persist-credentials: false
 
       - name: Build (Solaris x86_64)
         uses: vmactions/solaris-vm@v1

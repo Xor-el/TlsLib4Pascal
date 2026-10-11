@@ -55,6 +55,15 @@ type
     procedure TestTryAcceptWithNoClientReturnsWithinItsBound;
     procedure TestConnectToAClosedPortRaisesConnectError;
     procedure TestNonPositiveConnectTimeoutIsRefused;
+    procedure TestConnectTimeoutBelowASecondConnects;
+    procedure TestConnectToAnEmptyHostRaisesConnectError;
+    procedure TestListenerRefusesAnAddressThatIsNotAnIpv4Literal;
+    procedure TestConnectorResolvesNamesThroughItsResolver;
+    procedure TestConnectorRefusesAHostTheResolverCannotFind;
+    procedure TestNilResolverIsRefused;
+    procedure TestSystemResolverFindsLiteralsAndLocalhost;
+    procedure TestSystemResolverRefusesEmptyNonAsciiAndUnknownNames;
+    procedure TestSocketsPastTheSelectLimitStillWork;
     procedure TestHandshakeReadCapRaisesHandshakeTimeout;
     procedure TestApplicationReadCapRaisesRetryableReadTimeout;
     procedure TestPeerCloseReadsAsEndOfStream;
@@ -65,6 +74,17 @@ type
 implementation
 
 type
+  // answers one name with the loopback address and counts the questions
+  TFakeResolver = class sealed(TInterfacedObject, IHostResolver)
+  strict private
+    FName: string;
+    FAsked: Int32;
+  public
+    constructor Create(const AName: string);
+    function TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
+    property Asked: Int32 read FAsked;
+  end;
+
   // accepts one connection, runs the TLS server handshake over it and echoes one message
   TEchoServer = class(TThread)
   strict private
@@ -122,6 +142,24 @@ begin
     on E: Exception do
       FError := E.ClassName + ': ' + E.Message;
   end;
+end;
+
+{ TFakeResolver }
+
+constructor TFakeResolver.Create(const AName: string);
+begin
+  inherited Create;
+  FName := AName;
+end;
+
+function TFakeResolver.TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
+begin
+  Inc(FAsked);
+  Result := AHost = FName;
+  if Result then
+    AAddress := TBytes.Create(127, 0, 0, 1)
+  else
+    AAddress := nil;
 end;
 
 { TTestNetSocket }
@@ -249,6 +287,185 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a zero connect timeout is refused');
+end;
+
+procedure TTestNetSocket.TestConnectTimeoutBelowASecondConnects;
+var
+  LListener: ITcpListener;
+  LStream: ITlsTimedTransport;
+begin
+  // a timeout counted in whole seconds would round 50 ms down to none
+  LListener := Listener;
+  LStream := TTcpConnector.Create(50).Connect('127.0.0.1', LListener.Port);
+  CheckTrue(LStream <> nil, 'a connect with a 50 ms timeout still connects');
+end;
+
+procedure TTestNetSocket.TestConnectToAnEmptyHostRaisesConnectError;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    Connector.Connect('', 80);
+  except
+    on E: ENetConnectError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty host is not dialled');
+end;
+
+procedure TTestNetSocket.TestListenerRefusesAnAddressThatIsNotAnIpv4Literal;
+var
+  LRaisedName, LRaisedEmpty: Boolean;
+begin
+  // a name would bind every interface on some targets, which a loopback-only service must not
+  LRaisedName := False;
+  try
+    TTcpListener.Create('localhost', 0);
+  except
+    on E: ENetSocketError do
+      LRaisedName := True;
+  end;
+  CheckTrue(LRaisedName, 'a host name is refused');
+  LRaisedEmpty := False;
+  try
+    TTcpListener.Create('', 0);
+  except
+    on E: ENetSocketError do
+      LRaisedEmpty := True;
+  end;
+  CheckTrue(LRaisedEmpty, 'an empty address is refused');
+end;
+
+procedure TTestNetSocket.TestConnectorResolvesNamesThroughItsResolver;
+var
+  LListener: ITcpListener;
+  LFake: TFakeResolver;
+  LResolver: IHostResolver;
+  LClient, LServer: ITlsTimedTransport;
+  LLeft: Int32;
+begin
+  LListener := Listener;
+  LFake := TFakeResolver.Create('peer.test');
+  LResolver := LFake as IHostResolver;
+  LClient := TTcpConnector.Create(5000, LResolver).Connect('peer.test', LListener.Port);
+  LLeft := 50;
+  while (LServer = nil) and (LLeft > 0) do
+  begin
+    LListener.TryAccept(100, LServer);
+    Dec(LLeft);
+  end;
+  CheckTrue((LClient <> nil) and (LServer <> nil), 'the name reached the listener');
+  CheckEquals(1, LFake.Asked, 'the resolver was asked once');
+end;
+
+procedure TTestNetSocket.TestConnectorRefusesAHostTheResolverCannotFind;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TTcpConnector.Create(1000, TFakeResolver.Create('peer.test') as IHostResolver)
+      .Connect('other.test', 80);
+  except
+    on E: ENetConnectError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a host the resolver does not know raises a connect error');
+end;
+
+procedure TTestNetSocket.TestNilResolverIsRefused;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TTcpConnector.Create(1000, nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil resolver raises');
+end;
+
+procedure TTestNetSocket.TestSystemResolverFindsLiteralsAndLocalhost;
+var
+  LResolver: IHostResolver;
+  LAddress: TBytes;
+begin
+  LResolver := TSystemHostResolver.Create as IHostResolver;
+  CheckTrue(LResolver.TryResolveIPv4('10.1.2.3', LAddress), 'a literal needs no lookup');
+  CheckEquals(4, System.Length(LAddress), 'four octets');
+  CheckEquals(10, LAddress[0], 'in network order');
+  CheckEquals(3, LAddress[3], 'to the last octet');
+  // the layout of the system's address list differs by OS, so a wrong reading shows here
+  CheckTrue(LResolver.TryResolveIPv4('localhost', LAddress), 'localhost resolves');
+  CheckEquals(127, LAddress[0], 'to the loopback network');
+end;
+
+procedure TTestNetSocket.TestSystemResolverRefusesEmptyNonAsciiAndUnknownNames;
+var
+  LResolver: IHostResolver;
+  LAddress: TBytes;
+begin
+  LResolver := TSystemHostResolver.Create as IHostResolver;
+  CheckFalse(LResolver.TryResolveIPv4('', LAddress), 'an empty host has no address');
+  CheckFalse(LResolver.TryResolveIPv4('b' + Char($FC) + 'cher.example', LAddress),
+    'a non-ASCII name is refused before any lookup');
+  CheckFalse(LResolver.TryResolveIPv4('name.invalid', LAddress),
+    'a name under .invalid never resolves (RFC 6761)');
+end;
+
+procedure TTestNetSocket.TestSocketsPastTheSelectLimitStillWork;
+const
+  HeldSockets = 1100;
+  // descriptors given back after the climb, for the listener, client and server below
+  Headroom = 8;
+var
+  LHeld: array of ITcpListener;
+  LCount: Int32;
+  LListener: ITcpListener;
+  LClient, LServer: ITlsTimedTransport;
+  LBuffer: TBytes;
+  LCapRaised, LLimitReached: Boolean;
+begin
+  // a select set names no descriptor past 1024, so a socket opened after this many must still be
+  // waited on, connected, accepted and read
+  SetLength(LHeld, HeldSockets + Headroom);
+  LCount := 0;
+  LLimitReached := False;
+  try
+    try
+      while LCount < HeldSockets + Headroom do
+      begin
+        LHeld[LCount] := Listener;
+        Inc(LCount);
+      end;
+    except
+      on E: ENetSocketError do
+        LLimitReached := True;
+    end;
+    // a process that cannot hold this many sockets cannot take a descriptor past the limit
+    if LLimitReached then
+      Exit;
+    SetLength(LHeld, HeldSockets);
+    LListener := Listener;
+    ConnectPair(LListener, LClient, LServer);
+    LClient.Write(TBytes.Create(7), 0, 1);
+    SetLength(LBuffer, 4);
+    CheckEquals(1, LServer.Read(LBuffer, 0, System.Length(LBuffer)), 'a byte crosses');
+    LServer.SetReadTimeout(100);
+    LCapRaised := False;
+    try
+      LServer.Read(LBuffer, 0, System.Length(LBuffer));
+    except
+      on E: ETlsHandshakeTimeout do
+        LCapRaised := True;
+    end;
+    CheckTrue(LCapRaised, 'the read cap holds on a high descriptor');
+  finally
+    LHeld := nil;
+  end;
 end;
 
 procedure TTestNetSocket.TestHandshakeReadCapRaisesHandshakeTimeout;

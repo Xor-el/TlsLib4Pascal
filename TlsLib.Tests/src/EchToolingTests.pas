@@ -56,6 +56,9 @@ type
   strict private
     function BuildHttpsRdata(APriority: UInt16; AIncludeEch: Boolean;
       const AEchConfigList: TBytes): TBytes;
+    /// <summary>A ServiceMode record whose TargetName is four 62-octet labels and a last label of
+    /// ALastLabelLength, so its wire length is 254 + ALastLabelLength, followed by an ech value.</summary>
+    function BuildNameRdata(ALastLabelLength: Int32): TBytes;
     function BuildEchConfigFor(out APublicKey: TBytes;
       out APrivateKey: ISecretBuffer): TEchConfig;
     /// <summary>Asserts APath is owner-only: mode 0600 on POSIX, and on Windows a protected access
@@ -79,6 +82,10 @@ type
     procedure TestSvcbWithoutEchParamReturnsFalse;
     procedure TestSvcbRejectsOutOfOrderKeys;
     procedure TestSvcbRejectsDuplicateKeys;
+    procedure TestSvcbFailedRecordHandsOutNoEchConfigList;
+    procedure TestSvcbRejectsALabelOver63Octets;
+    procedure TestSvcbRejectsANameOver255Octets;
+    procedure TestSvcbAcceptsANameOf255Octets;
     procedure TestSvcbRejectsTrailingBytes;
     procedure TestSvcbRejectsEmptyEchValue;
     procedure TestSvcbTruncatedRdataReturnsFalse;
@@ -109,6 +116,31 @@ function LocalFree(AMem: Pointer): Pointer; stdcall; external 'kernel32.dll' nam
 {$ENDIF MSWINDOWS}
 
 { TTestEchTooling }
+
+function TTestEchTooling.BuildNameRdata(ALastLabelLength: Int32): TBytes;
+var
+  LWriter: IWireWriter;
+  LLabel: TBytes;
+  LI: Int32;
+begin
+  SetLength(LLabel, 62);
+  for LI := 0 to 61 do
+    LLabel[LI] := $61;
+  LWriter := TWireWriter.Create;
+  LWriter.WriteUInt16(1);
+  for LI := 1 to 4 do
+  begin
+    LWriter.WriteUInt8(62);
+    LWriter.WriteBytes(LLabel);
+  end;
+  LWriter.WriteUInt8(ALastLabelLength);
+  LWriter.WriteBytes(System.Copy(LLabel, 0, ALastLabelLength));
+  LWriter.WriteUInt8(0);
+  LWriter.WriteUInt16(5);
+  LWriter.WriteUInt16(2);
+  LWriter.WriteBytes(TBytes.Create($AB, $CD));
+  Result := LWriter.ToBytes;
+end;
 
 function TTestEchTooling.BuildHttpsRdata(APriority: UInt16;
   AIncludeEch: Boolean; const AEchConfigList: TBytes): TBytes;
@@ -512,6 +544,67 @@ begin
   LWriter.WriteUInt16(0);
   CheckFalse(TEchConfigFromSvcb.TryFromServiceBinding(LWriter.ToBytes, LOut),
     'duplicate SvcParam keys are rejected');
+end;
+
+procedure TTestEchTooling.TestSvcbFailedRecordHandsOutNoEchConfigList;
+var
+  LWriter: IWireWriter;
+  LOut: TBytes;
+begin
+  // the ech value is read before a later key is found out of order: the record is rejected, and
+  // the list read on the way must not be handed out with the False
+  LWriter := TWireWriter.Create;
+  LWriter.WriteUInt16(1);
+  LWriter.WriteUInt8(0);
+  LWriter.WriteUInt16(5);  // ech
+  LWriter.WriteUInt16(2);
+  LWriter.WriteBytes(TBytes.Create($AB, $CD));
+  LWriter.WriteUInt16(3);  // descending
+  LWriter.WriteUInt16(0);
+  CheckFalse(TEchConfigFromSvcb.TryFromServiceBinding(LWriter.ToBytes, LOut),
+    'the mis-ordered record is rejected');
+  CheckEquals(0, System.Length(LOut), 'no ECHConfigList comes out with the False');
+end;
+
+procedure TTestEchTooling.TestSvcbRejectsALabelOver63Octets;
+var
+  LWriter: IWireWriter;
+  LOut: TBytes;
+begin
+  // a length byte above 63 is a compression pointer or a corrupt label (RFC 9460 sec. 2.2 forbids
+  // pointers here), not a label to skip
+  LWriter := TWireWriter.Create;
+  LWriter.WriteUInt16(1);
+  LWriter.WriteUInt8(64);
+  LWriter.WriteBytes(TBytes.Create($61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61,
+    $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61,
+    $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61,
+    $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61, $61));
+  LWriter.WriteUInt8(0);
+  LWriter.WriteUInt16(5);
+  LWriter.WriteUInt16(2);
+  LWriter.WriteBytes(TBytes.Create($AB, $CD));
+  CheckFalse(TEchConfigFromSvcb.TryFromServiceBinding(LWriter.ToBytes, LOut),
+    'a 64-octet label is rejected');
+end;
+
+procedure TTestEchTooling.TestSvcbRejectsANameOver255Octets;
+var
+  LOut: TBytes;
+begin
+  // four 62-octet labels and one of 2 make a 256-octet name on the wire, one past the limit
+  CheckFalse(TEchConfigFromSvcb.TryFromServiceBinding(BuildNameRdata(2), LOut),
+    'a name over 255 octets is rejected');
+end;
+
+procedure TTestEchTooling.TestSvcbAcceptsANameOf255Octets;
+var
+  LOut: TBytes;
+begin
+  // the same name with a last label of 1 is exactly 255 octets, which a name may be
+  CheckTrue(TEchConfigFromSvcb.TryFromServiceBinding(BuildNameRdata(1), LOut),
+    'a name of 255 octets is accepted');
+  CheckEqualBytes('the ech value comes out', TBytes.Create($AB, $CD), LOut);
 end;
 
 procedure TTestEchTooling.TestSvcbRejectsTrailingBytes;

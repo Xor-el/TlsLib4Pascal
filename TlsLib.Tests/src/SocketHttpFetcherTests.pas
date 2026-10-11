@@ -49,6 +49,8 @@ type
     procedure TestLongResponseIsCutOffAtTheBudget;
     procedure TestTrickledHeadersAreCutOffAtTheBudget;
     procedure TestSilentResponderIsCutOffAtTheBudget;
+    procedure TestBudgetBelowASecondStillFetches;
+    procedure TestEndlessHeadIsCutOffAtTheSizeCap;
     procedure TestNilClockIsRefused;
   end;
 
@@ -57,7 +59,7 @@ implementation
 type
   // what a responder does with the request: a large body in small writes, a response head that
   // arrives a line at a time, or nothing at all
-  TResponderMode = (Body, TrickledHead, Silent);
+  TResponderMode = (Body, TrickledHead, Silent, EndlessHead);
 
   TResponder = class(TThread)
   strict private
@@ -66,15 +68,18 @@ type
     HeaderLines = 100;
     HeaderPauseMs = 100;
     AcceptPollMs = 100;
+    EndlessHeadLines = 400;
   var
     FListener: ITcpListener;
     FStream: ITlsTimedTransport;
     FBodySize: Int32;
     FMode: TResponderMode;
     FStop: TEvent;
+    FRequestSeen: TEvent;
     function SendText(const AText: string): Boolean;
     function ReadRequest: Boolean;
     procedure SendHeadTrickled;
+    procedure SendHeadEndless;
     procedure SendBody;
   protected
     procedure Execute; override;
@@ -82,6 +87,8 @@ type
     constructor Create(ABodySize: Int32; AMode: TResponderMode);
     destructor Destroy; override;
     function Url: string;
+    // the request reached the responder, so a failed fetch was not a failed connect
+    function RequestSeen: Boolean;
   end;
 
 { TResponder }
@@ -92,6 +99,7 @@ begin
   FBodySize := ABodySize;
   FMode := AMode;
   FStop := TEvent.Create(nil, True, False, '');
+  FRequestSeen := TEvent.Create(nil, True, False, '');
   inherited Create(False);
 end;
 
@@ -102,6 +110,7 @@ begin
   FStop.SetEvent;
   WaitFor;
   FStop.Free;
+  FRequestSeen.Free;
   FStream := nil;
   FListener := nil;
   inherited Destroy;
@@ -110,6 +119,11 @@ end;
 function TResponder.Url: string;
 begin
   Result := 'http://127.0.0.1:' + IntToStr(FListener.Port) + '/';
+end;
+
+function TResponder.RequestSeen: Boolean;
+begin
+  Result := FRequestSeen.WaitFor(0) = wrSignaled;
 end;
 
 function TResponder.SendText(const AText: string): Boolean;
@@ -165,6 +179,19 @@ begin
   end;
 end;
 
+procedure TResponder.SendHeadEndless;
+var
+  LI: Int32;
+begin
+  // a head that never ends and never pauses, so only a cap on the bytes received can stop it
+  if not SendText('HTTP/1.1 200 OK'#13#10) then
+    Exit;
+  for LI := 1 to EndlessHeadLines do
+    if not SendText('X-Pad: ' + StringOfChar('v', 1000) + #13#10) then
+      Exit;
+  FStop.WaitFor(INFINITE);
+end;
+
 procedure TResponder.SendBody;
 var
   LChunk: TBytes;
@@ -198,11 +225,14 @@ begin
     Exit;
   if not ReadRequest then
     Exit;
+  FRequestSeen.SetEvent;
   case FMode of
     TResponderMode.TrickledHead:
       SendHeadTrickled;
     TResponderMode.Silent:
       FStop.WaitFor(INFINITE);
+    TResponderMode.EndlessHead:
+      SendHeadEndless;
   else
     SendBody;
   end;
@@ -267,6 +297,7 @@ begin
     LStart := LClock.NowMonotonicMillis;
     CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
       'a head that outlasts the budget fails closed');
+    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops near the budget, not when the responder gives up');
   finally
@@ -292,8 +323,55 @@ begin
     LStart := LClock.NowMonotonicMillis;
     CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
       'a responder that goes silent fails closed');
+    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops near the budget, not when the responder gives up');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcher.TestBudgetBelowASecondStillFetches;
+var
+  LResponder: TResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  // the client counts a connect timeout in whole seconds, so a budget under one would leave the
+  // connect none
+  LResponder := TResponder.Create(256, TResponderMode.Body);
+  try
+    LFetcher := TSocketHttpFetcher.Create;
+    CheckTrue(LFetcher.Get(LResponder.Url, 900, 1024, LResponse),
+      'a fetch with a 900 ms budget connects and reads');
+    CheckEquals(256, System.Length(LResponse), 'the whole body arrives');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcher.TestEndlessHeadIsCutOffAtTheSizeCap;
+var
+  LResponder: TResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // about 400 KB of response head, far past the cap, sent without a pause inside a 10 s budget:
+  // only the limit on the bytes received can end the fetch before the budget does
+  LResponder := TResponder.Create(1024, TResponderMode.EndlessHead);
+  try
+    LClock := TSystemMonotonicClock.Create;
+    LFetcher := TSocketHttpFetcher.Create(LClock);
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get(LResponder.Url, 10000, 1024, LResponse),
+      'a head past the size cap fails closed');
+    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
+      'the fetch stops at the size cap, not at the budget');
   finally
     LFetcher := nil;
     LResponder.Free;

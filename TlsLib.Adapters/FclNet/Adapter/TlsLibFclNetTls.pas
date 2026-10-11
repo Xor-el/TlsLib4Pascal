@@ -55,7 +55,8 @@ uses
   TlpITlsTransport,
   TlpTlsConnection,
   TlpTlsConnectionInfo,
-  TlpSystemTrustFacade;
+  TlpSystemTrustFacade,
+  TlpNetSocket;
 
 type
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
@@ -277,8 +278,8 @@ type
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption;
     /// <summary>The time budget (ms) for the whole handshake, so a peer that connects but sends no
     /// data cannot park the connection's thread. 0 (the default) falls back to Socket.IOTimeout when
-    /// that is set, else the 30 s library default; a positive value overrides both. fcl-net bounds a
-    /// receive with the socket option, so one receive in progress can run a full cap past the deadline.</summary>
+    /// that is set, else the 30 s library default; a positive value overrides both. The cap is
+    /// enforced by a wait before each receive.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
   end;
 
@@ -293,20 +294,6 @@ var
 procedure FlushTlsLibFclNetConfigCache;
 
 implementation
-
-const
-  // suppress SIGPIPE on a send to a half-closed peer: MSG_NOSIGNAL per send where it exists, else
-  // the SO_NOSIGPIPE socket option (Darwin); 0 on a platform that has neither
-{$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
-  SEND_FLAGS = 0;
-  NOSIGPIPE_SOCKOPT = SO_NOSIGPIPE;
-{$ELSEIF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_BSD)}
-  SEND_FLAGS = MSG_NOSIGNAL;
-  NOSIGPIPE_SOCKOPT = 0;
-{$ELSE}
-  SEND_FLAGS = 0;
-  NOSIGPIPE_SOCKOPT = 0;
-{$IFEND}
 
 resourcestring
   SFclNetSslTypeUnsupported = 'SSLType selects a protocol this library does not implement; ' +
@@ -338,46 +325,15 @@ var
 { TFclNetSocketTransport }
 
 constructor TFclNetSocketTransport.Create(AHandle: THandle);
-var
-  LOn: Integer;
 begin
   inherited Create;
   FHandle := AHandle;
-  // Darwin arms the socket against SIGPIPE (it has no per-send MSG_NOSIGNAL)
-  if NOSIGPIPE_SOCKOPT <> 0 then
-  begin
-    LOn := 1;
-    fpsetsockopt(FHandle, SOL_SOCKET, NOSIGPIPE_SOCKOPT, @LOn, SizeOf(LOn));
-  end;
+  TNetOs.ArmAgainstSigPipe(TNetHandle(FHandle));
 end;
 
 function TFclNetSocketTransport.WaitReadable(AMs: Int32): Boolean;
-var
-  LSet: TFDSet;
-  LTime: TTimeVal;
-  LReady: Longint;
 begin
-{$IFDEF UNIX}
-  // a descriptor this high does not fit a select set: skip the wait and let the receive block
-  if FHandle >= FD_MAXFDSET then
-    Exit(True);
-{$ENDIF UNIX}
-  LTime.tv_sec := AMs div 1000;
-  LTime.tv_usec := (AMs mod 1000) * 1000;
-  repeat
-{$IFDEF UNIX}
-    LSet := Default(TFDSet);
-    fpFD_ZERO(LSet);
-    fpFD_SET(FHandle, LSet);
-    LReady := fpSelect(FHandle + 1, @LSet, nil, nil, @LTime);
-{$ELSE}
-    FD_ZERO(LSet);
-    FD_SET(FHandle, LSet);
-    LReady := Select(FHandle + 1, @LSet, nil, nil, @LTime);
-{$ENDIF UNIX}
-  until (LReady >= 0) or (SocketError <> EsockEINTR);
-  // an error counts as readable, so the receive that follows reports it
-  Result := LReady <> 0;
+  Result := TNetOs.Wait(TNetHandle(FHandle), TNetWait.Readable, AMs);
 end;
 
 function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
@@ -385,15 +341,11 @@ function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
 var
   LErr: Integer;
 begin
-  // a signal that interrupts a blocking recv is not an error - retry, as the plain fcl-net handler
-  // does
-  repeat
-    Result := fpRecv(FHandle, @ABuffer[AOffset], AMaxLength, 0);
-  until (Result >= 0) or (SocketError <> EsockEINTR);
+  Result := TNetOs.ReceiveBytes(TNetHandle(FHandle), ABuffer, AOffset, AMaxLength);
   if Result >= 0 then
     Exit; // > 0 bytes, or 0 for an orderly close (the pump reports a truncated handshake)
   // a reset or a broken pipe is a receive failure carrying its errno, not an orderly end of stream
-  LErr := SocketError;
+  LErr := TNetOs.LastError;
   if LErr > 0 then
     Result := -LErr
   else
@@ -403,10 +355,7 @@ end;
 function TFclNetSocketTransport.SendRaw(const ABuffer: TBytes; AOffset,
   ALength: Int32): Int32;
 begin
-  // retry a signal-interrupted send rather than reporting it as no progress
-  repeat
-    Result := fpSend(FHandle, @ABuffer[AOffset], ALength, SEND_FLAGS);
-  until (Result > 0) or (SocketError <> EsockEINTR);
+  Result := TNetOs.SendBytes(TNetHandle(FHandle), ABuffer, AOffset, ALength);
   if Result <= 0 then
     raise ETlsStreamError.Create(SFclNetSendNoProgress);
 end;
