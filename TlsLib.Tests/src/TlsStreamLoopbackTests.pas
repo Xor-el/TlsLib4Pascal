@@ -141,6 +141,7 @@ type
     procedure TestHandshakeFailureIsLatchedOnRetry;
     procedure TestNonTerminalHandshakeFailureIsLatched;
     procedure TestForeignHandshakeFailureIsReraisedAsStreamError;
+    procedure TestHandshakeReadTimeoutIsLatchedAsHandshakeTimeout;
     procedure TestInsecureSkipVerifyAcceptsUntrustedChain;
     procedure TestVerifyCallbackCanOnlyAdditionallyReject;
     procedure TestPinnedSelfSignedChainStillFullyVerified;
@@ -1047,6 +1048,43 @@ begin
     CheckEquals(LFirst, LSecond, 'the latched failure re-raises as a stream error, same message');
   finally
     LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeReadTimeoutIsLatchedAsHandshakeTimeout;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LTimeout: TTimeoutOnceTransport;
+  LClient: TTlsStream;
+  LBuf: TBytes;
+  LFirst, LSecond: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LTimeout := TTimeoutOnceTransport.Create(TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport);
+  LTimeout.Arm;
+  LClient := NewClientStream(LTimeout as ITlsTransport, ClientConfig(False, nil));
+  SetLength(LBuf, 16);
+  try
+    LFirst := False;
+    try
+      LClient.Handshake;
+    except
+      on E: ETlsReadTimeout do
+        LFirst := True;
+    end;
+    CheckTrue(LFirst, 'the timed-out handshake read surfaces as the read timeout');
+    LSecond := False;
+    try
+      LClient.Read(LBuf[0], 16);
+    except
+      on E: ETlsHandshakeTimeout do
+        LSecond := True;
+    end;
+    CheckTrue(LSecond, 'the permanent failure is not a retryable read timeout');
+  finally
+    LClient.Free;
+    LS2C.Free;
   end;
 end;
 

@@ -96,6 +96,10 @@ type
 
     // TStream
     function Read(var ABuffer; ACount: Longint): Longint; override;
+    /// <summary>Server only: the 0-RTT bytes the client sent before its handshake finished,
+    /// replayable by an attacker (RFC 8446 8, E.5). Returns 0 when none remain. Read raises
+    /// while any are unread, so they are never skipped or reordered.</summary>
+    function ReadEarlyData(var ABuffer; ACount: Longint): Longint;
     function Write(const ABuffer; ACount: Longint): Longint; override;
     function Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64; override;
   end;
@@ -150,7 +154,11 @@ begin
     on E: Exception do
     begin
       FHandshakeFailed := True;
-      FFailureClass := ExceptClass(E.ClassType);
+      // the stream cannot resume a handshake, so a retryable timeout is not retryable here
+      if E is ETlsReadTimeout then
+        FFailureClass := ETlsHandshakeTimeout
+      else
+        FFailureClass := ExceptClass(E.ClassType);
       FFailureMessage := E.Message;
       FFailureHasAlert := (E is ETlsStreamError) and ETlsStreamError(E).HasAlert;
       if FFailureHasAlert then
@@ -220,6 +228,23 @@ end;
 function TTlsStream.PendingReadBytes: Int32;
 begin
   Result := FEngine.PendingAppData;
+end;
+
+function TTlsStream.ReadEarlyData(var ABuffer; ACount: Longint): Longint;
+var
+  LChunk: Int32;
+begin
+  if ACount <= 0 then
+    Exit(0);
+  EnsureHandshake;
+  LChunk := ACount;
+  if LChunk > TTlsStreamPump.TransportChunk then
+    LChunk := TTlsStreamPump.TransportChunk;
+  if System.Length(FReadChunk) < LChunk then
+    SetLength(FReadChunk, LChunk);
+  Result := FEngine.ReadEarlyData(FReadChunk, 0, LChunk);
+  if Result > 0 then
+    Move(FReadChunk[0], ABuffer, Result);
 end;
 
 function TTlsStream.Read(var ABuffer; ACount: Longint): Longint;

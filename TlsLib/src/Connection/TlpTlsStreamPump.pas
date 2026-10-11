@@ -144,6 +144,7 @@ resourcestring
   STruncatedHandshake = 'the transport closed during the handshake without close_notify';
   SClosedDuringHandshake = 'the peer closed the connection during the handshake';
   SWriteAfterClose = 'a write was attempted after the connection was closed';
+  SEarlyDataUnread = 'accepted 0-RTT data is waiting: read it with ReadEarlyData before Read';
 
 { TTlsStreamPump }
 
@@ -380,6 +381,9 @@ var
   LPeerClosed: Boolean;
   LCertEvent: ICertificateReceivedEvent; // unused post-handshake; a verdict parks only mid-handshake
 begin
+  // 0-RTT bytes precede every 1-RTT byte; reading past them would reorder or lose them
+  if AEngine.PendingEarlyData > 0 then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEarlyDataUnread);
   // surface anything already buffered (app data can arrive coalesced with the peer's
   // final handshake flight) before blocking on the transport
   Result := AEngine.ReadAppData(ADest, 0, AMaxLength);

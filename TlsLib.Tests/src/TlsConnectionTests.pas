@@ -117,6 +117,7 @@ type
     procedure TestClientVerifierWithAnchorConflictPropagates;
     procedure TestClientDelegateSystemTrustWithHostStoreNamesTheKnobs;
     procedure TestClientHostVerifierConflictIsNotBlamedOnSystemTrust;
+    procedure TestHostServerConfigWithEarlyDataIsRefused;
     procedure TestClientVerifierWithVerificationOffIsRefused;
     procedure TestClientEmptyCustomStoreFailsClosed;
     procedure TestClientRaisingInstallerPropagates;
@@ -1036,6 +1037,25 @@ begin
       LBuilderError := True;
   end;
   CheckTrue(LBuilderError, 'the builder''s own conflict surfaces when the host set the verifier');
+end;
+
+procedure TTestTlsConnection.TestHostServerConfigWithEarlyDataIsRefused;
+var
+  LOpts: TTlsOptions;
+  LRefused: Boolean;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.ServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, ServerCert, ServerKey))
+    .Tls13.WithEarlyData(16384).Build;
+  LRefused := False;
+  try
+    TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer, 'ServerConfig');
+  except
+    on E: EArgumentTlsLibException do
+      LRefused := Pos('ServerConfig', E.Message) > 0;
+  end;
+  CheckTrue(LRefused, 'a host-driven server config cannot carry 0-RTT it would never deliver');
 end;
 
 procedure TTestTlsConnection.TestClientVerifierWithVerificationOffIsRefused;
