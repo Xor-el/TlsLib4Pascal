@@ -1,0 +1,66 @@
+TlsLib.Adapters/FclNet/README.md
+  s_58af9e1b217631::t_d1f648c0d6a0e8 90
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_58af9e1b217631::t_cd8c59e249c87b 50-51
+  s_58af9e1b217631::t_31924cd8d88292 911-915
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_58af9e1b217631::t_48aa20099ee1bf 378-379
+  s_58af9e1b217631::t_e12074453ea709 693
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_58af9e1b217631::t_59686f402a2b7b 584-590
+TlsLib.Adapters/Synapse/README.md
+  s_58af9e1b217631::t_d1cdac02bea61c 46
+TlsLib.Adapters/Indy/README.md
+  s_58af9e1b217631::t_bc5c292472709e 46
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_58af9e1b217631::t_4ef929a8bebbeb 1019
+  s_58af9e1b217631::t_df0ada3ec20358 220
+  s_58af9e1b217631::t_db7f094c4732f3 1043
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_58af9e1b217631::t_09bc123632d1b1 184
+  s_58af9e1b217631::t_bde3a224ab8d1f 175-176,178
+  s_58af9e1b217631::t_05f3a27992bf66 127-128
+  s_58af9e1b217631::t_a767079218633c 234
+  s_58af9e1b217631::t_87c52cd6006d28 20
+  s_58af9e1b217631::t_85e9ab6544e161 65-66
+  s_58af9e1b217631::t_4950bb26ba86c2 221
+  s_58af9e1b217631::t_cdc70fc8191d9d 180
+  s_58af9e1b217631::t_630ab3d9cd4406 190,194-201
+  s_58af9e1b217631::t_ed550087d03199 233,235-242
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_58af9e1b217631::t_9df8d08f6753c1 78-80
+  s_58af9e1b217631::t_087d6a6c3d2ee1 465
+  s_58af9e1b217631::t_595308a40c2774 466-468
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_58af9e1b217631::t_568cb92ce80266 380
+  s_58af9e1b217631::t_a3eb746e3b6156 269
+  s_58af9e1b217631::t_461653c41fac4a 2006-2030
+  s_58af9e1b217631::t_86cd6f68c190ea 2928-2943
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_58af9e1b217631::t_2960d32625448e 1159-1163
+  s_58af9e1b217631::t_2ddbef3a105063 64-65
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_58af9e1b217631::t_e9e368a987cf39 223-224
+  s_58af9e1b217631::t_b771ee6b434398 441-445
+  s_58af9e1b217631::t_30119743ffaf33 46-47
+docs/system-trust.md
+  s_58af9e1b217631::t_e0bfe345823114 229
+  s_58af9e1b217631::t_9b8da29b0bd6d8 233
+  s_58af9e1b217631::t_01d0a74149cb6d 554-555
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "68089dddeda466d9a23097a75a388bbab1d3e95f",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
