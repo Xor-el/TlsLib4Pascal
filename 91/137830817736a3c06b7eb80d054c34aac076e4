@@ -1,0 +1,40 @@
+.github/workflows/fuzz-nightly.yml
+  s_a42ddd283d3520::t_dcb984dec477dd 57-60,63-64,69
+  s_a42ddd283d3520::t_d39b1af952b7c3 61-62,65-68
+.gitattributes
+  s_a42ddd283d3520::t_65070e6fa8fc91 21
+  s_a42ddd283d3520::t_db9688019e06da 16
+.github/workflows/ci/interop/fuzz-discovery.sh
+  s_a42ddd283d3520::t_5f741a9592597d 17-18,21-24
+  s_a42ddd283d3520::t_0b37cae247d0e2 76-77
+  s_a42ddd283d3520::t_31a41faab30432 5
+  s_a42ddd283d3520::t_4acc68520e756c 15-16,19-20,25
+TlsLib.Interop/src/TlsFuzzerRunner.pas
+  s_a42ddd283d3520::t_58541bd2a01665 936
+  s_a42ddd283d3520::t_25cb9ef79772da 942,944
+  s_a42ddd283d3520::t_9857416d91565f 956
+  s_a42ddd283d3520::t_a3044ac5b31d11 950-951,953-954,957,962
+  s_a42ddd283d3520::t_7676b86a7c8a77 961
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_a42ddd283d3520::t_949547825fa869 49
+.github/workflows/ci/shared/common.sh
+  s_a42ddd283d3520::t_831e2791120425 56-57
+  s_a42ddd283d3520::t_925f2122305a41 53-54,58-59
+  s_a42ddd283d3520::t_97166b2b1f82c2 51,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "91137830817736a3c06b7eb80d054c34aac076e4",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
