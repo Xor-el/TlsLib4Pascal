@@ -1,0 +1,33 @@
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_58af9e1b217631::t_78d5c8fc733cf9 121-124
+  s_58af9e1b217631::t_b1ed2fb9e472af 211-212
+  s_58af9e1b217631::t_8b34e8b66873bd 1901-1905
+  s_58af9e1b217631::t_e2df12df6138dd 1896-1897,1899,1906-1907
+  s_58af9e1b217631::t_88dc3900d9f03c 1480-1503
+  s_58af9e1b217631::t_0b987efaa7bd90 1894-1895,1898,1900,1908-1920
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_58af9e1b217631::t_27c7afe9e43dfa 424-431
+  s_58af9e1b217631::t_edf83b2885d700 2495
+  s_58af9e1b217631::t_ecb00b73500710 3167-3169,3171-3175
+  s_58af9e1b217631::t_e555b65637252d 2485
+  s_58af9e1b217631::t_e96cc46c323fca 3331-3332
+  s_58af9e1b217631::t_edf4ad30e447a5 174-175,177-181
+  s_58af9e1b217631::t_ba0f8d9029bef3 3324-3326
+  s_58af9e1b217631::t_9ed0609402054d 1992-2006,2013,2016
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "800f72338a6cbc6de4b73a9c58affe20bf0493b8",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
