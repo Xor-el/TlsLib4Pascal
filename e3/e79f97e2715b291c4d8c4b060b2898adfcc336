@@ -1,0 +1,23 @@
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_58af9e1b217631::t_39810c94ae355d 111-114
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoRunner.pas
+  s_58af9e1b217631::t_a1f3b2745a6ed0 514-515
+TlsLib.Trust.System/Examples/Delphi/badssl-untrusted-root.crt
+  s_58af9e1b217631::t_2a93d29ed777c4 1-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e3e79f97e2715b291c4d8c4b060b2898adfcc336",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
