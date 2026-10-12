@@ -39,7 +39,8 @@ extendedKeyUsage, host-name, revocation — just against your anchor instead of 
 > is not accepted as a substitute.
 
 ```pascal
-uses SysUtils, Classes, TlpITlsConfig, TlpITlsConfigBuilder, TlpTlsPresets;
+uses SysUtils, Classes, TlpITlsConfig, TlpITlsConfigBuilder, TlpTlsPresets,
+  TlpCertificateVerifierSource;
 
 function LoadFile(const APath: string): TBytes;
 var LS: TFileStream;
@@ -49,9 +50,9 @@ begin
   finally LS.Free; end;
 end;
 
-// WithTrustAnchors accepts a PEM block/bundle OR a single DER certificate
+// TServerVerification.WebPki accepts a PEM block/bundle OR a single DER certificate
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(LoadFile('my-ca.pem'))
+  .WithServerVerification(TServerVerification.WebPki(LoadFile('my-ca.pem')).Build)
   .Build;
 ```
 
@@ -71,7 +72,7 @@ Pinning **augments** PKIX — it never replaces it, so the chain must *also* val
 (Pins match against the chain the verifier validated — the leaf, any intermediate, and the trust
 anchor, including an issuer recovered from a configured intermediate — per RFC 7469. An attacker
 therefore cannot satisfy a pin by appending the genuine certificate to a chain that validated by a
-different path. Under `WithDangerousInsecureSkipVerify`, where no path is built, only the leaf is
+different path. Under `TServerVerification.DangerousSkip`, where no path is built, only the leaf is
 pinnable.) After the handshake this same validated path is readable as
 `ConnectionInfo.ValidatedPath`, alongside the chain the peer actually presented in
 `ConnectionInfo.PeerCertificates`.
@@ -90,7 +91,7 @@ begin
 end;
 
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(LoadFile('my-ca.pem'))
+  .WithServerVerification(TServerVerification.WebPki(LoadFile('my-ca.pem')).Build)
   .WithCertificatePinning( TArray<TBytes>.Create(SpkiSha256(Crypto, Pkix, LoadFile('leaf.der'))) )
   .Build;
 ```
@@ -107,7 +108,7 @@ risk), so it lives under the `dangerous` name and is a pin-only trust posture.
 
 ```pascal
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(LoadFile('my-ca.pem'))
+  .WithServerVerification(TServerVerification.WebPki(LoadFile('my-ca.pem')).Build)
   .WithDangerousDisableServerNameCheck   // RFC 9525 identity check off; chain still validated
   .Build;
 ```
@@ -138,8 +139,8 @@ but the peer must still present a pinned key. For tests and pinned development p
 ```pascal
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   // skip-verify is itself the explicit trust decision, so Build() needs no trust source; a store
-  // supplied with no roots is refused whenever verification is on (no silent-insecure).
-  .WithDangerousInsecureSkipVerify
+  // with no roots is refused whenever verification is on (no silent-insecure).
+  .WithServerVerification(TServerVerification.DangerousSkip)
   .Build;
 ```
 
@@ -163,17 +164,19 @@ type
 
 // tighten a normally-verified connection with an extra rule of your own
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(LoadFile('my-ca.pem'))
+  .WithServerVerification(TServerVerification.WebPki(LoadFile('my-ca.pem')).Build)
   .WithCertificateVerifyCallback(LMyRules.Check)
   .Build;
 ```
 
 To **replace** validation wholesale (your logic is the sole gate — the rustls/.NET model), implement
-the role interface for the peer you verify and install it with `WithDangerousCertificateVerifier`. A client
-verifies the *server* certificate, so it implements `IServerCertificateVerifier`; a server verifying
-a *client* certificate (mTLS) implements `IClientCertificateVerifier`. It is a first-class,
-fail-closed seam: it replaces the built-in pipeline and is **exclusive** — it cannot be combined with
-any anchor source. (The server name arrives typed as `TServerName`, a DNS name or IP literal.)
+the role interface for the peer you verify and install it with `TServerVerification.Custom` (a client)
+or `TClientVerification.Custom` (a server). A client verifies the *server* certificate, so it
+implements `IServerCertificateVerifier`; a server verifying a *client* certificate (mTLS) implements
+`IClientCertificateVerifier`. It is a first-class, fail-closed seam: it replaces the built-in
+pipeline, and because a `Custom` policy takes no anchors, intermediates or skip-verify, nothing it
+would ignore can be set beside it. (The server name arrives typed as `TServerName`, a DNS name or IP
+literal.)
 
 ```pascal
 type
@@ -185,7 +188,8 @@ type
   end;
 
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithDangerousCertificateVerifier(TMyServerVerifier.Create as IServerCertificateVerifier)  // sole gate
+  .WithServerVerification(TServerVerification.Custom(
+    TMyServerVerifier.Create as IServerCertificateVerifier))  // sole gate
   .Build;
 ```
 
@@ -206,11 +210,11 @@ object could be freed while still in use.
 
 | ASP.NET Core / `HttpClientHandler` | TlsLib4Pascal |
 |---|---|
-| `DangerousAcceptAnyServerCertificateValidator` | `WithDangerousInsecureSkipVerify` |
-| `ServerCertificateCustomValidationCallback = (_,_,_,_) => true` (accept-all) | `WithDangerousInsecureSkipVerify` |
-| `ServerCertificateCustomValidationCallback` with real logic (replace validation) | `WithDangerousCertificateVerifier(myVerifier)` |
+| `DangerousAcceptAnyServerCertificateValidator` | `TServerVerification.DangerousSkip` |
+| `ServerCertificateCustomValidationCallback = (_,_,_,_) => true` (accept-all) | `TServerVerification.DangerousSkip` |
+| `ServerCertificateCustomValidationCallback` with real logic (replace validation) | `TServerVerification.Custom(myVerifier)` |
 | A callback that only *tightens* (extra rejections on top of normal validation) | `WithCertificateVerifyCallback(rule)` alone |
-| Trusting a specific CA instead of the system store | `WithTrustAnchors(caPemOrDer)` |
+| Trusting a specific CA instead of the system store | `TServerVerification.WebPki(caPemOrDer)` |
 | Ignoring only `SslPolicyErrors.RemoteCertificateNameMismatch` | `WithDangerousDisableServerNameCheck` |
 
 The one semantic to internalise: **`ServerCertificateCustomValidationCallback = (...) => true`
@@ -222,7 +226,7 @@ further, never accept-all. (See §4b.)
 ## 6. Through the integration adapters
 
 The [mORMot / Indy / Synapse / fcl-net adapters](../TlsLib.Adapters) map their host's "ignore certificate
-errors" flag onto `InsecureSkipVerify` for you, so the accept-any case is a one-liner:
+errors" flag onto `DangerousSkip` for you, so the accept-any case is a one-liner:
 
 ```pascal
 // mORMot   (TNetTlsContext)
@@ -273,8 +277,9 @@ builder takes no `IHttpFetcher`, by design, so the engine stays network-free. Yo
 
 ```pascal
 // 1. enable the live-revocation verdict on the config, so the engine defers an indeterminate
-//    stapled outcome and parks for the live check: ...WithRevocation(TRevocationPosture.Hard)
-//    .WithLiveRevocationVerdict(deadlineMs)  <-- without this the resolver never fires
+//    stapled outcome and parks for the live check: a policy built with
+//    .WithRevocation(TRevocationPosture.Hard), then .WithLiveRevocationVerdict(deadlineMs)
+//    on the builder  <-- without this the resolver never fires
 // 2. attach the live checker to the stream (the clock dates the responses, the monotonic
 //    clock times the fetch budget; the fetcher owns every socket):
 checker := TLiveRevocationChecker.Create(Pkix, clock, config.MonotonicClock, fetcher,
@@ -321,7 +326,7 @@ Posture **`Off` performs no live fetch at all** (its network and privacy cost is
 stapled Revoked is still honoured by the pipeline. CRL responses are only trusted inside their
 `thisUpdate`/`nextUpdate` window, so a replayed stale CRL is treated as indeterminate, never a Good.
 
-The config **`WithRevocation` posture and the live channel are one policy**: with
+The verification policy's **`WithRevocation` posture and the live channel are one policy**: with
 `WithLiveRevocationVerdict`, an indeterminate/no-staple leaf is *deferred* to the resolver rather
 than decided inline, so `WithRevocation(Hard)` + `WithLiveRevocationVerdict` rejects only a
 genuinely revoked (or unreachable, under Hard) peer — it does not blanket-reject an unstapled one.
@@ -330,7 +335,7 @@ revocation gate, so under it `Hard` still rejects a missing staple inline. Witho
 deferral, `Hard` decides inline (a missing staple is rejected); a `must-staple` leaf (RFC 7633)
 requires a current Good staple, and is enforced only for an initial-handshake server certificate
 the client requested a staple for (`WithOcspStaplingRequest`) — never deferred. An app that
-previously paired `WithRevocation(Hard)` with `WithAsyncCertificateVerdict` and a live checker
+previously paired a Hard posture with `WithAsyncCertificateVerdict` and a live checker
 should switch to `WithLiveRevocationVerdict` (Build now refuses a Hard client that has neither a
 staple request nor live-revocation deferral). On resumption this is decisive: a `Hard` client with
 `WithResumeVerification(Reverify)` but no `WithLiveRevocationVerdict` can never obtain revocation
@@ -354,7 +359,7 @@ thread and the verdict resolves the park.
 // 1. arm the OS delegate in live mode: this uses the delegate, defers inline, and enables the
 //    async park. Give a non-zero deadline so the Windows resolver can bound its fetch (Apple has
 //    no per-evaluation timeout). Windows + Apple only; other platforms raise.
-TSystemTrust.WithSystemTrust(client, provider, TSystemTrustFetch.Live, deadlineMs);
+TSystemTrust.WithLiveSystemTrust(client, TRevocationPosture.Hard, deadlineMs);
 // 2. wire the OS-native resolver, built from the frozen config, to the stream/adapter:
 resolver := TOSSystemTrust.LiveRevocationResolver(clientConfig);   // caller owns + frees it
 stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);
@@ -374,7 +379,7 @@ revocation with no network knob; Unix has no OS delegate). Compose the **portabl
 `ESystemTrustUnsupportedTlsLibException`, as does arming Live without the async verdict enabled.
 
 **Server-side (mutual-TLS client certificates).** The same posture applies to the client
-certificate a server verifies — set it with the server `WithRevocation`. A client cannot be asked
+certificate a server verifies — set it with `TClientVerification`'s `WithRevocation`. A client cannot be asked
 to staple, so `Hard` client-certificate revocation is satisfiable **only** by a live resolver
 (there is no stapled fallback); `Build` rejects a `Hard`, client-authenticating server that has no
 resolver. Attach the resolver on the server's stream exactly as above; a revoked client certificate
@@ -396,7 +401,7 @@ or just-expired leaf, or to validate against a trusted time on a device with no 
 
 ```pascal
 config := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(caDer)
+  .WithServerVerification(TServerVerification.WebPki(caDer).Build)
   .WithClock(myFixedClock)   // drives cert validity, PKIX, and revocation freshness
   .Build;
 ```

@@ -25,11 +25,10 @@ uses
   TlpINegotiation;
 
 type
-  /// <summary>The default cipher-suite registry: an ordered, prunable suite list.</summary>
+  /// <summary>The default cipher-suite registry: an immutable, ordered suite list.</summary>
   TCipherSuiteRegistry = class sealed(TCodeKeyedRegistry<TTlsCipherSuite>,
     ICipherSuiteRegistry)
   strict private
-    class function CodeOf(const ASuite: TTlsCipherSuite): UInt16; static;
     /// <summary>Whether the provider can build both the suite's AEAD and hash, so an
     /// entry is offered only when runnable (or flagged mandatory-to-implement).</summary>
     class function SuiteRunnable(const ACryptoProvider: ICryptoProvider;
@@ -39,10 +38,12 @@ type
     /// the pre-shared-key TLS 1.2 set), AES-GCM ahead of ChaCha20-Poly1305 when it has hardware AES
     /// and the reverse otherwise (a performance ordering: the software AES-GCM path is
     /// constant-time either way), each family in catalog order.</summary>
-    class procedure AddRunnable(const ARegistry: ICipherSuiteRegistry;
+    class procedure AddRunnable(const ABuilder: ICipherSuiteRegistryBuilder;
       const ACryptoProvider: ICryptoProvider; AKeyExchange: TKeyExchangeMethod); static;
   public
-    constructor Create;
+    constructor Create(const ASuites: TArray<TTlsCipherSuite>);
+    class function CodeOf(const ASuite: TTlsCipherSuite): UInt16; static;
+    function ToBuilder: ICipherSuiteRegistryBuilder;
 
     /// <summary>
     /// The TLS 1.3 suites the provider can actually run, in preference order.
@@ -68,11 +69,42 @@ type
       : ICipherSuiteRegistry; static;
   end;
 
+  /// <summary>The cipher-suite registry builder: Add and Prune, then Build a registry snapshot.</summary>
+  TCipherSuiteRegistryBuilder = class sealed(TCodeKeyedRegistryBuilder<TTlsCipherSuite>,
+    ICipherSuiteRegistryBuilder)
+  public
+    /// <summary>An empty builder.</summary>
+    constructor Create; overload;
+    /// <summary>A builder holding ASuites.</summary>
+    constructor Create(const ASuites: TArray<TTlsCipherSuite>); overload;
+    function Build: ICipherSuiteRegistry;
+  end;
+
 implementation
 
-constructor TCipherSuiteRegistry.Create;
+constructor TCipherSuiteRegistry.Create(const ASuites: TArray<TTlsCipherSuite>);
 begin
-  inherited Create(CodeOf);
+  inherited Create(CodeOf, ASuites);
+end;
+
+function TCipherSuiteRegistry.ToBuilder: ICipherSuiteRegistryBuilder;
+begin
+  Result := TCipherSuiteRegistryBuilder.Create(FItems) as ICipherSuiteRegistryBuilder;
+end;
+
+constructor TCipherSuiteRegistryBuilder.Create;
+begin
+  inherited Create(TCipherSuiteRegistry.CodeOf, nil);
+end;
+
+constructor TCipherSuiteRegistryBuilder.Create(const ASuites: TArray<TTlsCipherSuite>);
+begin
+  inherited Create(TCipherSuiteRegistry.CodeOf, ASuites);
+end;
+
+function TCipherSuiteRegistryBuilder.Build: ICipherSuiteRegistry;
+begin
+  Result := TCipherSuiteRegistry.Create(FItems) as ICipherSuiteRegistry;
 end;
 
 class function TCipherSuiteRegistry.CodeOf(const ASuite: TTlsCipherSuite): UInt16;
@@ -93,7 +125,7 @@ begin
   end;
 end;
 
-class procedure TCipherSuiteRegistry.AddRunnable(const ARegistry: ICipherSuiteRegistry;
+class procedure TCipherSuiteRegistry.AddRunnable(const ABuilder: ICipherSuiteRegistryBuilder;
   const ACryptoProvider: ICryptoProvider; AKeyExchange: TKeyExchangeMethod);
 var
   LSuites: TArray<TTlsCipherSuite>;
@@ -110,29 +142,38 @@ begin
         ((LSuites[LI].Common.Aead = TAeadAlgorithm.CHACHA20_POLY1305) = LChaChaPass) and
         ((LSuites[LI].Common.Code = TCipherSuites13.Aes128GcmSha256) or
         SuiteRunnable(ACryptoProvider, LSuites[LI].Common.Aead, LSuites[LI].Common.Hash)) then
-        ARegistry.Add(LSuites[LI]);
+        ABuilder.Add(LSuites[LI]);
   end;
 end;
 
 class function TCipherSuiteRegistry.CreateDefault(const ACryptoProvider: ICryptoProvider)
   : ICipherSuiteRegistry;
+var
+  LBuilder: ICipherSuiteRegistryBuilder;
 begin
-  Result := TCipherSuiteRegistry.Create;
-  AddRunnable(Result, ACryptoProvider, TKeyExchangeMethod.Decoupled);
+  LBuilder := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
+  AddRunnable(LBuilder, ACryptoProvider, TKeyExchangeMethod.Decoupled);
+  Result := LBuilder.Build;
 end;
 
 class function TCipherSuiteRegistry.CreateDualVersion(
   const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
+var
+  LBuilder: ICipherSuiteRegistryBuilder;
 begin
-  Result := CreateDefault(ACryptoProvider);
-  AddRunnable(Result, ACryptoProvider, TKeyExchangeMethod.Ecdhe);
+  LBuilder := CreateDefault(ACryptoProvider).ToBuilder;
+  AddRunnable(LBuilder, ACryptoProvider, TKeyExchangeMethod.Ecdhe);
+  Result := LBuilder.Build;
 end;
 
 class function TCipherSuiteRegistry.CreateTls12Psk(
   const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
+var
+  LBuilder: ICipherSuiteRegistryBuilder;
 begin
-  Result := TCipherSuiteRegistry.Create;
-  AddRunnable(Result, ACryptoProvider, TKeyExchangeMethod.EcdhePsk);
+  LBuilder := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
+  AddRunnable(LBuilder, ACryptoProvider, TKeyExchangeMethod.EcdhePsk);
+  Result := LBuilder.Build;
 end;
 
 end.

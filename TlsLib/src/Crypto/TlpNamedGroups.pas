@@ -192,10 +192,21 @@ type
 
   TNamedGroupRegistry = class sealed(TCodeKeyedRegistry<INamedGroup>,
     INamedGroupRegistry)
-  strict private
-    class function CodeOf(const AGroup: INamedGroup): UInt16; static;
   public
-    constructor Create;
+    constructor Create(const AGroups: TArray<INamedGroup>);
+    class function CodeOf(const AGroup: INamedGroup): UInt16; static;
+    function ToBuilder: INamedGroupRegistryBuilder;
+  end;
+
+  /// <summary>The named-group registry builder: Add and Prune, then Build a snapshot.</summary>
+  TNamedGroupRegistryBuilder = class sealed(TCodeKeyedRegistryBuilder<INamedGroup>,
+    INamedGroupRegistryBuilder)
+  public
+    /// <summary>An empty builder.</summary>
+    constructor Create; overload;
+    /// <summary>A builder holding AGroups.</summary>
+    constructor Create(const AGroups: TArray<INamedGroup>); overload;
+    function Build: INamedGroupRegistry;
   end;
 
 { TKeyAgreementGroup }
@@ -507,9 +518,29 @@ end;
 
 { TNamedGroupRegistry }
 
-constructor TNamedGroupRegistry.Create;
+constructor TNamedGroupRegistry.Create(const AGroups: TArray<INamedGroup>);
 begin
-  inherited Create(CodeOf);
+  inherited Create(CodeOf, AGroups);
+end;
+
+function TNamedGroupRegistry.ToBuilder: INamedGroupRegistryBuilder;
+begin
+  Result := TNamedGroupRegistryBuilder.Create(FItems) as INamedGroupRegistryBuilder;
+end;
+
+constructor TNamedGroupRegistryBuilder.Create;
+begin
+  inherited Create(TNamedGroupRegistry.CodeOf, nil);
+end;
+
+constructor TNamedGroupRegistryBuilder.Create(const AGroups: TArray<INamedGroup>);
+begin
+  inherited Create(TNamedGroupRegistry.CodeOf, AGroups);
+end;
+
+function TNamedGroupRegistryBuilder.Build: INamedGroupRegistry;
+begin
+  Result := TNamedGroupRegistry.Create(FItems) as INamedGroupRegistry;
 end;
 
 class function TNamedGroupRegistry.CodeOf(const AGroup: INamedGroup): UInt16;
@@ -562,29 +593,32 @@ begin
 end;
 
 class function TNamedGroups.CreateDefaultRegistry(const ACryptoProvider: ICryptoProvider): INamedGroupRegistry;
+var
+  LBuilder: INamedGroupRegistryBuilder;
 begin
-  Result := TNamedGroupRegistry.Create;
-  Result.Add(CreateX25519(ACryptoProvider));
-  Result.Add(CreateX25519MlKem768(ACryptoProvider));
-  Result.Add(CreateSecP256r1MlKem768(ACryptoProvider));
-  Result.Add(CreateMlKem768(ACryptoProvider));
-  Result.Add(CreateNistEcdh(ACryptoProvider, 'secp256r1'));
-  Result.Add(CreateNistEcdh(ACryptoProvider, 'secp384r1'));
-  Result.Add(CreateNistEcdh(ACryptoProvider, 'secp521r1'));
+  LBuilder := TNamedGroupRegistryBuilder.Create as INamedGroupRegistryBuilder;
+  LBuilder.Add(CreateX25519(ACryptoProvider));
+  LBuilder.Add(CreateX25519MlKem768(ACryptoProvider));
+  LBuilder.Add(CreateSecP256r1MlKem768(ACryptoProvider));
+  LBuilder.Add(CreateMlKem768(ACryptoProvider));
+  LBuilder.Add(CreateNistEcdh(ACryptoProvider, 'secp256r1'));
+  LBuilder.Add(CreateNistEcdh(ACryptoProvider, 'secp384r1'));
+  LBuilder.Add(CreateNistEcdh(ACryptoProvider, 'secp521r1'));
+  Result := LBuilder.Build;
 end;
 
 class function TNamedGroups.CreateClassicalRegistry(const ACryptoProvider: ICryptoProvider): INamedGroupRegistry;
 var
-  LDefault: INamedGroupRegistry;
+  LBuilder: INamedGroupRegistryBuilder;
   LGroup: INamedGroup;
 begin
   // derived from the default registry with the post-quantum (KEM/hybrid) groups filtered out, so
   // a classical group added to CreateDefaultRegistry is carried here without a second hand-kept list
-  Result := TNamedGroupRegistry.Create;
-  LDefault := CreateDefaultRegistry(ACryptoProvider);
-  for LGroup in LDefault.Items do
+  LBuilder := TNamedGroupRegistryBuilder.Create as INamedGroupRegistryBuilder;
+  for LGroup in CreateDefaultRegistry(ACryptoProvider).Items do
     if LGroup.Kind = TNamedGroupKind.Ecdhe then
-      Result.Add(LGroup);
+      LBuilder.Add(LGroup);
+  Result := LBuilder.Build;
 end;
 
 end.

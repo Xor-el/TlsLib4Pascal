@@ -35,6 +35,7 @@ uses
   TlpIPkixProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpITlsTransport,
   TlpINetSocket,
   TlpNetExceptions,
@@ -77,7 +78,7 @@ var
   LBuilder: ITlsClientConfigBuilder;
 begin
   LBuilder := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, APkix).Client;
-  LBuilder.WithDangerousInsecureSkipVerify;
+  LBuilder.WithServerVerification(TServerVerification.DangerousSkip);
   Result := LBuilder.Build;
 end;
 

@@ -35,10 +35,10 @@ peer.SSLAcceptConnection;             // handshake
 
 | Synapse `TCustomSSL` property                        | TlsLib4Pascal                            |
 |------------------------------------------------------|------------------------------------------|
-| `CertCAFile`                                         | `WithTrustAnchors` (client trust, or a server's client-auth CA) |
+| `CertCAFile`                                         | `WebPki` anchors (client trust, or a server's client-auth CA) |
 | `CertificateFile` / `Certificate` + `PrivateKeyFile` / `PrivateKey` + `KeyPassword`, or `PFX` / `PFXfile` | `WithCredential` (server cert/key, or client mTLS) |
 | `SNIHost`                                            | SNI + the verified host name             |
-| `VerifyCert` (default **True** here)                 | verify on/off; **False** → **`dangerous` `WithDangerousInsecureSkipVerify`** |
+| `VerifyCert` (default **True** here)                 | verify on/off; **False** → **`dangerous` `DangerousSkip`** |
 | `ClientAuth` (extension, **server**) | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs `VerifyCert` on and a private client-CA (`CertCAFile`), else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
 | `SSLType`                                            | `LT_all` offers TLS 1.3 and 1.2; `LT_TLSv1_2` / `LT_TLSv1_3` offer that version alone; any other value fails the handshake |

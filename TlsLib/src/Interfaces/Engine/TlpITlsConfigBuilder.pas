@@ -21,13 +21,11 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpICertificateTrust,
-  TlpITrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
   TlpCertificateLimits,
   TlpTrustPolicy,
-  TlpCertificateStrengthPolicy,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpISession,
@@ -71,7 +69,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{4F9CED92-4D5F-4508-8274-40F9CE5C1ED5}']
+    ['{29AF3A6C-72D0-4EC3-803D-28C8EC0D8632}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
@@ -90,61 +88,16 @@ type
     /// <summary>Offers record_size_limit (RFC 8449): the largest record this client accepts inbound,
     /// as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing; otherwise 64..16384.</summary>
     function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
-    function WithTrustStore(const AStore: ITrustAnchorStore): ITlsClientConfigBuilder;
-    /// <summary>Trust anchors from a PEM block (one certificate or a bundle) or a single
-    /// DER certificate, loaded through the provider.</summary>
-    function WithTrustAnchors(const AData: TBytes): ITlsClientConfigBuilder;
-    /// <summary>DANGEROUS: injects a whole-verifier that REPLACES the built-in trust pipeline for
-    /// the server certificate (e.g. an OS delegate) - the caller owns every check the pipeline would
-    /// have run. Exclusive: combining it with any anchor source (WithTrustStore/WithTrustAnchors),
-    /// or setting two verifiers, is a typed error at Build. The refused settings that the built-in
-    /// pipeline alone would read are intermediates, skip-verify, and a Hard revocation posture
-    /// unless a live verdict applies it.</summary>
-    function WithDangerousCertificateVerifier(
-      const AVerifier: IServerCertificateVerifier): ITlsClientConfigBuilder;
-    /// <summary>Installs a per-connection source that builds the server-certificate verifier
-    /// from the connection's trust context (its clock and revocation posture), rather than a
-    /// pre-built instance - so an OS trust delegate (TlsLib.Trust.System) can honor them.
-    /// Same exclusivity as WithDangerousCertificateVerifier: not combinable with an anchor source
-    /// or a second verifier.</summary>
-    function WithCertificateVerifierSource(
-      const ASource: IServerCertificateVerifierSource): ITlsClientConfigBuilder;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
-    /// <summary>The minimum-strength floors a peer certificate chain's keys must meet
-    /// (RSA modulus bits, allowed EC curves, EdDSA). The advertised-scheme chain-signature
-    /// filter and the MD5/SHA-1 rejection are always applied and not affected by this.</summary>
-    function WithMinimumCertificateStrength(
-      const APolicy: TCertificateStrengthPolicy): ITlsClientConfigBuilder;
     /// <summary>The client's own credential for mutual TLS, presented when the server
     /// sends a CertificateRequest the credential can satisfy. Build one with
     /// TTlsCredential.Load / LoadPkcs12.</summary>
     function WithCredential(const ACredential: TTlsCredential): ITlsClientConfigBuilder;
-    /// <summary>The stapled-OCSP revocation posture (RFC 6960): Soft (default) accepts a
-    /// missing or indeterminate staple, Hard requires a current Good one, Off skips the
-    /// check. Must-staple (RFC 7633) is enforced only for an initial-handshake server
-    /// certificate the client requested a staple for (WithOcspStaplingRequest). Under Hard with
-    /// WithResumeVerification(Reverify) and no WithLiveRevocationVerdict, the client declines
-    /// resumption and does a full handshake (a resume carries no staple to check).</summary>
-    function WithRevocation(APosture: TRevocationPosture): ITlsClientConfigBuilder;
     /// <summary>SPKI-SHA256 public-key pins: when set, some certificate in the server chain
     /// must match one pin. Augments PKIX validation; never a bypass. Empty disables it.</summary>
     function WithCertificatePinning(const APins: TArray<TBytes>): ITlsClientConfigBuilder;
-    /// <summary>Untrusted intermediate certificates that seed PKIX path building when the server
-    /// sends an incomplete chain (e.g. a leaf-only server that omits its issuing CA). AData is a
-    /// PEM bundle (one or more certificates) or a single DER certificate; call more than once to
-    /// add several DER certificates. They are never trusted on their own and never bypass
-    /// validation - a path must still reach a configured trust anchor, and a complete chain the
-    /// server sends is still validated exactly as presented. Calls accumulate. This is NOT a
-    /// substitute for a trust anchor: if validation fails with unknown_ca even when the server
-    /// sends a complete chain, the client is missing the ROOT, not an intermediate - configure the
-    /// root with WithTrustAnchors (or opt into OS system trust) instead, since an intermediate can
-    /// never terminate a path. Public-CA intermediates rotate, so a pinned intermediate can go
-    /// stale - bundle the currently valid set and refresh it with your trust configuration. The
-    /// library never fetches (sans-IO); an application that wants AIA behaviour can resolve the
-    /// issuer URL out of band and feed the result here.</summary>
-    function WithIntermediateCertificates(const AData: TBytes): ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: stop checking that the server certificate matches the connected
     /// host (RFC 9525). The chain is still validated to a trust anchor, but ANY trusted
     /// certificate is then accepted regardless of the host it was issued for - a
@@ -163,13 +116,13 @@ type
     /// default, but the Hardened and Strict presets enable it: without it the client requests no
     /// staple and rejects an unsolicited one.</summary>
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
-    /// <summary>DANGEROUS: when enabled, the server certificate chain is accepted without
-    /// PKIX, revocation or host-name checks; configured SPKI pins still apply, matched against
-    /// the leaf only. For tests and pinned/self-signed
-    /// development peers only - never production. Off by default. Satisfies the Build-time
-    /// trust-source requirement on its own; no anchor store is needed (one supplied is kept
-    /// but not consulted).</summary>
-    function WithDangerousInsecureSkipVerify: ITlsClientConfigBuilder;
+    /// <summary>How the client verifies the server's certificate: one policy, made by
+    /// TServerVerification (WebPki over anchors, a source that owns its roots, a whole verifier, or
+    /// DangerousSkip). A later call replaces an earlier one. Build requires a policy unless the
+    /// client authenticates by an external PSK. DangerousSkip accepts the chain without PKIX,
+    /// revocation or host-name checks (configured pins still apply to the leaf); tests and pinned
+    /// development peers only.</summary>
+    function WithServerVerification(const AVerification: IServerVerification): ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>
@@ -223,7 +176,7 @@ type
     /// original handshake's authentication (inferred from RFC 8446 2.2); Reverify re-runs the certificate
     /// verifier against the stored peer chain, for a stricter posture that re-checks a resumed
     /// server against current trust, at the cost of the verification work on every resume. Under
-    /// WithRevocation(Hard) without WithLiveRevocationVerdict a reverified resume could never obtain
+    /// a Hard revocation posture without WithLiveRevocationVerdict a reverified resume could never obtain
     /// revocation status (a resume carries no staple), so the client offers no resumption and does a
     /// full handshake instead.</summary>
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
@@ -241,7 +194,7 @@ type
   /// <summary>The TLS 1.3-only client settings; each setter returns this facet so they
   /// chain, and the endpoint build and the sibling version facet are reachable here.</summary>
   ITls13ClientConfigFacet = interface(IInterface)
-    ['{651DC9E2-62F5-451B-9524-C3C893D95EE7}']
+    ['{95EA36E2-4E85-4C11-A62A-712DEFE59D2C}']
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the client imports and
     /// offers in the ClientHello, in preference order. When set, the client offers these
     /// instead of drawing a resumption session from the cache. Empty leaves external PSK
@@ -274,25 +227,17 @@ type
     /// it (TLS 1.3, RFC 8446 4.2.10). Off by default.</summary>
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
     /// <summary>
-    /// Offers Encrypted Client Hello (RFC 9849) with the application-supplied
-    /// ECHConfigList (typically fetched from the DNS HTTPS/SVCB ech parameter). A
-    /// malformed list is rejected when the config is built. A usable config makes the client
-    /// TLS 1.3-only (RFC 9849 sec. 6.1). On an ECH reject the
-    /// handshake raises EEchRejectedTlsLibException carrying the server's retry_configs;
-    /// the library never falls back to plaintext.
+    /// How the client offers Encrypted Client Hello (RFC 9849), as one exclusive choice from
+    /// TEchClientModes: Enable offers an application-supplied ECHConfigList (typically from the
+    /// DNS HTTPS/SVCB ech parameter), Retry does so for a reconnection driven by a reject's
+    /// retry_configs (a second reject is not retried), Grease only sends a GREASE ECH (sec. 6.2).
+    /// Enable and Retry need a usable config in the list and a TLS 1.3-only client (sec. 6.1);
+    /// Build refuses either otherwise, so falling back to GREASE is the caller's explicit choice.
+    /// On an ECH reject the handshake raises EEchRejectedTlsLibException carrying the server's
+    /// retry_configs; the library never falls back to plaintext. A later call replaces an earlier
+    /// one. ECH is off unless called.
     /// </summary>
-    function WithEncryptedClientHello(
-      const AEchConfigList: TBytes): ITls13ClientConfigFacet;
-    /// <summary>
-    /// Offers Encrypted Client Hello for a reconnection driven by a prior reject's
-    /// retry_configs (RFC 9849 sec. 6.1.6). Identical to WithEncryptedClientHello but marks
-    /// the attempt as a retry, so a second reject is not itself retried - the one-retry cap.
-    /// </summary>
-    function WithEncryptedClientHelloRetry(
-      const AEchConfigList: TBytes): ITls13ClientConfigFacet;
-    /// <summary>Whether to send a GREASE ECH (RFC 9849 sec. 6.2) when no usable config is
-    /// available. Off by default.</summary>
-    function WithEchGrease(AEnabled: Boolean): ITls13ClientConfigFacet;
+    function WithEch(const AMode: IEchClientMode): ITls13ClientConfigFacet;
     function Tls12: ITls12ClientConfigFacet;
     function Build: ITlsClientConfig;
   end;
@@ -324,7 +269,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{BE031B37-F1DE-47FE-B426-54012085CE08}']
+    ['{CB741560-7E47-4C87-ABBB-A90E087ED9B0}']
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
@@ -358,35 +303,8 @@ type
     /// <summary>The DER-encoded DistinguishedName issuers the server names in its CertificateRequest
     /// certificate_authorities (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty names none.</summary>
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): ITlsServerConfigBuilder;
-    /// <summary>The trust source for a requested client certificate chain (mutual TLS);
-    /// required whenever WithPeerAuth is not None.</summary>
-    function WithTrustStore(const AStore: ITrustAnchorStore): ITlsServerConfigBuilder;
-    /// <summary>As WithTrustStore, from a PEM block/bundle or a single DER certificate.</summary>
-    function WithTrustAnchors(const AData: TBytes): ITlsServerConfigBuilder;
-    /// <summary>DANGEROUS: injects a whole-verifier that REPLACES the built-in trust pipeline for a
-    /// requested client certificate - the caller owns every check the pipeline would have run.
-    /// Exclusive: combining it with any anchor source, or setting two verifiers, is a typed error
-    /// at Build, as are the ignored settings intermediates, skip-verify, and Hard revocation
-    /// without a live verdict.</summary>
-    function WithDangerousCertificateVerifier(
-      const AVerifier: IClientCertificateVerifier): ITlsServerConfigBuilder;
-    /// <summary>Installs a per-connection source that builds the client-certificate verifier
-    /// from the connection's client-trust context (its clock and revocation posture) - so an OS
-    /// client delegate (TlsLib.Trust.System) can validate the peer against the configured
-    /// client-CA anchors as an exclusive trust root. The source consumes those anchors, so
-    /// (unlike an injected whole-verifier) it composes with WithTrustAnchors/WithTrustStore. With
-    /// WithPeerAuth on, Build requires those anchors to yield at least one root (a source with
-    /// nothing to consume is refused, not deferred to a handshake failure); a verifier that brings
-    /// its own roots belongs in WithDangerousCertificateVerifier.</summary>
-    function WithCertificateVerifierSource(
-      const ASource: IClientCertificateVerifierSource): ITlsServerConfigBuilder;
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
-    /// <summary>The minimum-strength floors a peer (client) certificate chain's keys must meet
-    /// (RSA modulus bits, allowed EC curves, EdDSA). The advertised-scheme chain-signature
-    /// filter and the MD5/SHA-1 rejection are always applied and not affected by this.</summary>
-    function WithMinimumCertificateStrength(
-      const APolicy: TCertificateStrengthPolicy): ITlsServerConfigBuilder;
     /// <summary>The server credential the Certificate chain is sent from and whose key
     /// signs the handshake. Build one with TTlsCredential.Load / LoadPkcs12.</summary>
     function WithCredential(const ACredential: TTlsCredential): ITlsServerConfigBuilder;
@@ -404,36 +322,21 @@ type
     function WithCredentialResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
-    /// strictly. A server that requests one also needs a trust source (WithTrustStore). The
-    /// client-certificate trust settings (trust anchors or store, pins, intermediates, client-CA
-    /// list, verifier, verify callback, skip-verify, Hard revocation, async or live verdict) take effect
-    /// only with a mode other than None; Build refuses them otherwise. Defaults to None.</summary>
+    /// strictly. A server that requests one also needs a client verification policy
+    /// (WithClientVerification). The client-certificate trust settings (the policy, pins,
+    /// client-CA list, verify callback, async or live verdict) take effect only with a mode other
+    /// than None; Build refuses them otherwise. Defaults to None.</summary>
     function WithPeerAuth(AMode: TClientAuthMode): ITlsServerConfigBuilder;
-    /// <summary>The revocation posture applied to a requested client certificate (RFC 6960);
-    /// Soft by default. Must-staple (RFC 7633) never applies to a client certificate (it is
-    /// never stapled).</summary>
-    function WithRevocation(APosture: TRevocationPosture): ITlsServerConfigBuilder;
     /// <summary>SPKI-SHA256 pins, one of which some certificate on the validated client path must
     /// match; augments PKIX, never a bypass, and applies only when client authentication is
     /// requested. Each pin must be 32 bytes. Empty disables it.</summary>
     function WithCertificatePinning(const APins: TArray<TBytes>): ITlsServerConfigBuilder;
-    /// <summary>Untrusted intermediate certificates that seed PKIX path building for a requested
-    /// client certificate whose chain arrives incomplete (leaf-only client certificates are common
-    /// in enterprise mutual-TLS). AData is a PEM bundle (one or more certificates) or a single DER
-    /// certificate; call more than once to add several DER certificates. Never trusted on their own
-    /// and never a bypass - a path must still reach a configured trust anchor. Calls accumulate.
-    /// This is NOT a substitute for a trust anchor: if validation fails with unknown_ca even when
-    /// the client sends a complete chain, the missing piece is the ROOT, not an intermediate -
-    /// configure it with WithTrustAnchors, since an intermediate can never terminate a path.
-    /// Public-CA intermediates rotate, so a pinned intermediate can go stale - bundle the currently
-    /// valid set and refresh it with your trust configuration.</summary>
-    function WithIntermediateCertificates(const AData: TBytes): ITlsServerConfigBuilder;
-    /// <summary>DANGEROUS: when enabled, a requested client certificate chain is accepted
-    /// without PKIX or revocation checks; configured SPKI pins still apply, matched against the
-    /// leaf only. For tests only - never production. Satisfies
-    /// the Build-time client-auth trust-source requirement on its own; no anchor store is needed
-    /// (one supplied is kept but not consulted).</summary>
-    function WithDangerousInsecureSkipVerify: ITlsServerConfigBuilder;
+    /// <summary>How the server verifies a client's certificate: one policy, made by
+    /// TClientVerification (WebPki over client-CA anchors, a source over them, a whole verifier, or
+    /// DangerousSkip). It takes effect with WithPeerAuth; a later call replaces an earlier one.
+    /// DangerousSkip accepts a requested client chain without PKIX or revocation checks
+    /// (configured pins still apply to the leaf); tests only.</summary>
+    function WithClientVerification(const AVerification: IClientVerification): ITlsServerConfigBuilder;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>

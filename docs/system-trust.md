@@ -3,7 +3,7 @@
 **TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · System trust · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
 
 By default TlsLib4Pascal verifies against **the trust anchors you give it** — a private CA, a
-pinned root bundle, whatever you pass to `WithTrustAnchors` (see
+pinned root bundle, whatever you pass to `TServerVerification.WebPki` (see
 [certificate-verification.md](certificate-verification.md)). This guide is about the other common
 case: verifying against **the operating system's own trust store**, the way a browser or `curl`
 does, without shipping your own CA bundle.
@@ -84,7 +84,7 @@ Two optional packages support this:
 
 ## Using it directly
 
-The `TSystemTrust` facade adds the OS anchors to a config builder and returns it for chaining:
+The `TSystemTrust` facade makes the OS trust the server-certificate verification policy of a client:
 
 ```pascal
 uses TlpTlsPresets, TlpICryptoProvider, TlpIPkixProvider, TlpDefaultCryptoProvider,
@@ -96,36 +96,44 @@ var
 begin
   Crypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   Pkix := TDefaultPkixProvider.Create as IPkixProvider;
-  LConfig := TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix).Build;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(TSystemTrust.ServerVerification(Pkix).Build)
+    .Build;
   // LConfig now verifies against the OS trust store
 end;
 ```
 
-`WithSystemTrust` takes an **`ITlsClientConfigBuilder` only** — system trust is a *server-certificate*
-trust source (a client verifying a server). An optional argument, `TSystemTrustMode`
-(`Default` / `Anchors` / `Delegate`), forces harvest-vs-delegate; `Default` picks the best available
-for the platform and is what you want.
+`TSystemTrust.ServerVerification` returns a **client** policy only — system trust is a
+*server-certificate* trust source (a client verifying a server). An optional argument,
+`TSystemTrustMode` (`Default` / `Anchors` / `Delegate`), forces harvest-vs-delegate; `Default` picks
+the best available for the platform and is what you want.
 
 > **An mTLS server's client-CA is never the OS store.** The OS roots are the public web PKI (harvested
 > for *server* authentication), so rooting *client*-certificate trust there would accept any
-> publicly-issued certificate as a valid client. There is no server form of `WithSystemTrust`. Supply
-> the server's client-CA explicitly with `WithTrustAnchors` / `WithTrustStore` (a mode whose only trust
-> source is system trust fails the build). To validate client certificates with the **OS chain engine**
-> against *your* private CA, use
+> publicly-issued certificate as a valid client. There is no server form of `ServerVerification`.
+> Supply the server's client-CA explicitly with `TClientVerification.WebPki`. To validate client
+> certificates with the **OS chain engine** against *your* private CA, use
 > [OS-engine client-certificate validation](#os-engine-client-certificate-validation-mtls) below — it
 > treats your configured client-CA anchors as an *exclusive* trust root, so the OS/public roots are
 > never consulted. If you deliberately want the machine store as the client-CA, write it out —
-> `.WithTrustStore(TOSSystemTrust.AnchorStore(Pkix))` — and know it authenticates clients against the
-> public PKI.
+> `TClientVerification.WebPki(TOSSystemTrust.AnchorStore(Pkix))` — and know it authenticates clients
+> against the public PKI.
 
-Because system anchors are just another anchor source, they **union** with anything else you add —
-so "trust the public web PKI **and** my private CA" is simply:
+Host anchors go in as an argument, and they **union** with the OS roots — so "trust the public web
+PKI **and** my private CA" is simply:
 
 ```pascal
-LConfig := TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix)
-  .WithTrustAnchors(LoadFile('my-private-ca.pem'))   // unions with the OS roots
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
+    TTrustAnchorStore.Create(Pkix.Certificates.LoadChain(LoadFile('my-private-ca.pem')))
+    as ITrustAnchorStore).Build)   // the private CA beside the OS roots
   .Build;
 ```
+
+Where the OS evaluates the chain itself (the delegate: Apple's `SecTrust`), the host roots are handed
+to that evaluation as additional anchors, so the platform's own policy still runs. A platform that
+cannot union them (Windows delegate mode, Android) raises `ESystemTrustUnsupportedTlsLibException`
+instead of ignoring them: use OS trust alone, or your roots alone.
 
 ### OS distrust in Anchors mode
 
@@ -143,8 +151,7 @@ not only as a root:
   distrusted certificate, that path verifies. A distrusted root is never an anchor: if the peer
   does not send it, the chain simply has no anchor and fails with `unknown_ca`.
 - **Distrust wins across sources:** the union above applies to distrust too, so a root that the OS
-  distrusts is not re-admitted by supplying it again through `WithTrustAnchors` or
-  `WithTrustStore`.
+  distrusts is not re-admitted by supplying it again as a host anchor.
 - **Immutable stores:** an `ITrustAnchorStore` is a snapshot, and the union of several is built once
   at `Build`. Verification caches work by store identity, so a custom store must never change after
   it is handed to a config — build a new store (and a new config) to change trust.
@@ -186,7 +193,7 @@ notes below.
 ### OS-engine client-certificate validation (mTLS)
 
 An mTLS **server** authenticates the *client's* certificate, and it must do so against **your**
-client-CA — never the public web PKI. So this is deliberately *not* `WithSystemTrust`'s job
+client-CA — never the public web PKI. So this is deliberately *not* `TSystemTrust`'s job
 (it has no server form at all). Instead, install the OS client delegate explicitly; it builds an
 **exclusive-root** chain engine over the client-CA anchors you configure, so nothing else can root a
 client path:
@@ -198,8 +205,10 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix,
     LoadFile('server-chain.pem'), LoadFile('server-key.pem')))
   .WithPeerAuth(TClientAuthMode.Required)                       // request + require a client cert
-  .WithTrustAnchors(LoadFile('client-ca.pem'))                  // YOUR private client CA
-  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.CacheOnly))
+  .WithClientVerification(TClientVerification.VerifierSource(   // YOUR private client CA as its root
+    TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.CacheOnly),
+    TTrustAnchorStore.Create(Pkix.Certificates.LoadChain(LoadFile('client-ca.pem')))
+    as ITrustAnchorStore).Build)
   .Build;
 ```
 
@@ -207,9 +216,8 @@ The delegate uses the `clientAuth` EKU + the OS client-auth policy (a client cer
 stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Apple apply the same
 posture/clock revocation as the server delegate; the Android client delegate is an
 anchors-only KeyStore chain check (no posture/clock — see the Android note below). Note it **consumes**
-the configured anchors (they are its exclusive root), so — unlike a whole verifier — it *composes* with
-`WithTrustAnchors` rather than being exclusive of it; `Build` refuses it when those anchors yield no
-root (it would trust nothing). The `AFetch` argument selects cache-only
+the anchors you pass to `TClientVerification.VerifierSource` (they are its exclusive root); `Build`
+refuses it when those anchors yield no root (it would trust nothing). The `AFetch` argument selects cache-only
 (no socket) or live revocation — see the next section.
 
 #### Live client-certificate revocation (Windows + Apple, opt-in)
@@ -224,10 +232,11 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix,
     LoadFile('server-chain.pem'), LoadFile('server-key.pem')))
   .WithPeerAuth(TClientAuthMode.Required)
-  .WithTrustAnchors(LoadFile('client-ca.pem'))
-  .WithRevocation(TRevocationPosture.Hard)
+  .WithClientVerification(TClientVerification.VerifierSource(
+    TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live),
+    TTrustAnchorStore.Create(Pkix.Certificates.LoadChain(LoadFile('client-ca.pem')))
+    as ITrustAnchorStore).WithRevocation(TRevocationPosture.Hard).Build)
   .WithLiveRevocationVerdict(deadlineMs)             // the park the live check runs in (non-zero)
-  .WithCertificateVerifierSource(TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live))
   .Build;
 resolver := TOSSystemTrust.LiveRevocationResolver(LConfig);   // reads the client-CA anchors + posture
 serverStream.SetCertificateVerdictResolver(resolver.ResolveVerdict);  // caller owns + frees it
@@ -302,8 +311,8 @@ candidates rather than a peer-sent intermediate, and only a leaf-key SPKI pin ca
 The chain-algorithm and key-strength floor is applied to the leaf only: a client-certificate chain's
 intermediates are validated by the platform but not held to that floor, so on this path the floor is
 lower than on the server path and in the portable pipeline. If a deployment needs it on the whole
-chain, leave `WithClientCertificateVerifierSource` unset and supply the client-CA anchors through the
-server builder's client-trust settings, which selects the portable pipeline for client certificates.
+chain, use `TClientVerification.WebPki` over the client-CA anchors instead of the OS source, which
+selects the portable pipeline for client certificates.
 
 Apart from that leaf-only floor, none of these differences weaken the trust decision relative to a
 correctly-configured OS; they are behavioural *differences* to weigh when you pick Delegate over the
@@ -313,24 +322,25 @@ portable pipeline.
 
 ## Composition: union vs. exclusive
 
-The builder distinguishes two kinds of trust contribution:
+A verification policy is one choice, and the anchors are arguments of the factory that makes it:
 
-- **Anchor sources** — `WithTrustAnchors`, `WithTrustStore`, and `TSystemTrust.WithSystemTrust`
-  (client builder; system trust is server-cert trust, never a server's client-CA).
-  These are additive: supply several and they **union** into one root set. Where system trust is
-  a delegate (the `Delegate` mode, and always on iOS and Android) it is a whole verifier, not an anchor source,
-  so it cannot be combined with `WithTrustAnchors` or `WithTrustStore` and `Build` refuses the mix.
-- **A whole verifier** — `WithDangerousCertificateVerifier` (below). This **replaces** the built-in pipeline
-  and is **exclusive**: combining it with any anchor source, or setting two verifiers, is a typed
-  error (`EInvalidOperationTlsLibException`) at `Build`.
+- **`WebPki`** — the built-in pipeline over the anchors you give it (stores and PEM/DER blobs
+  **union** into one root set). System trust joins this as a `WebPki` over the harvested OS roots plus
+  yours (`TSystemTrust.ServerVerification`, client only: system trust is server-cert trust, never a
+  server's client-CA).
+- **`VerifierSource`** — a source that owns its roots (the OS delegate: the `Delegate` mode, and always
+  on iOS and Android). The pipeline knobs (revocation, intermediates, minimum strength) still apply.
+  Host roots reach it only as a factory argument, and only where the platform can union them.
+- **`Custom`** — a whole verifier instance (below). It **replaces** the built-in pipeline, so it
+  takes no anchors, intermediates or skip-verify: nothing it would ignore can be set beside it.
+- **`DangerousSkip`** — no verification.
 
-The rule that decides exclusivity is: *a trust source that brings its **own** roots is exclusive of
-your anchors; one that **consumes** your anchors composes with them.* A whole verifier and the OS
-**server** delegate (OS roots) bring their own → exclusive. The OS **client** delegate uses your
-configured client-CA anchors as its exclusive root → it composes with `WithTrustAnchors` (that is why
-the mTLS example above sets both). Because it has nothing to consume otherwise, `Build` refuses a
-client delegate whose configured anchors yield no root certificate (rather than deferring to an
-`unknown_ca` at handshake).
+The rule that decides who supplies the roots is: *a trust source that brings its **own** roots takes
+none of yours; one that **consumes** your anchors takes them as its argument.* A whole verifier and the OS
+**server** delegate (OS roots) bring their own. The OS **client** delegate uses the client-CA anchors you
+pass to `TClientVerification.VerifierSource` as its exclusive root. Because it has nothing to consume
+otherwise, `Build` refuses a client delegate whose anchors yield no root certificate (rather than
+deferring to an `unknown_ca` at handshake).
 
 ## System trust is never implicit
 
@@ -341,27 +351,28 @@ deliberate: an implicit trust source is exactly the kind of thing that weakens s
 
 ---
 
-## Replacing verification wholesale: `WithDangerousCertificateVerifier`
+## Replacing verification wholesale: `Custom`
 
 Sometimes you want to substitute the entire verification decision with a ready-made verifier instance,
-or plug in bespoke logic. That is what `WithDangerousCertificateVerifier` is for: the client builder takes an
-`IServerCertificateVerifier`, the server builder an `IClientCertificateVerifier`. It **replaces** the
-built-in PKIX pipeline for that config:
+or plug in bespoke logic. That is what `TServerVerification.Custom` is for: a client takes an
+`IServerCertificateVerifier`, and `TClientVerification.Custom` takes an `IClientCertificateVerifier`
+for a server. It **replaces** the built-in PKIX pipeline for that config:
 
 ```pascal
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithDangerousCertificateVerifier(MyVerifier)   // exclusive: no WithTrustAnchors alongside it
+  .WithServerVerification(TServerVerification.Custom(MyVerifier))   // takes no anchors
   .Build;
 ```
 
-Because the instance replaces the pipeline, `Build` refuses the settings that would be silently
-ignored beside it: intermediate certificates, skip-verify, and a Hard revocation posture without a live revocation
-verdict. The adapters refuse a custom verifier beside switched-off peer verification the same way.
+Because the instance replaces the pipeline, the settings that would be silently ignored beside it
+(intermediate certificates, skip-verify) cannot be set on it at all, and a Hard revocation posture
+needs a live revocation verdict (`Build` refuses it otherwise). The adapters refuse a custom verifier
+beside switched-off peer verification the same way.
 
 A pre-built instance cannot see a connection's clock or revocation posture. When a verifier needs
-those — as the OS delegates do — install a **source** with `WithCertificateVerifierSource` instead;
-the engine builds the verifier per connection from the trust context. `TSystemTrust.WithSystemTrust`
-and `TOSSystemTrust.ClientVerifierSource` (above) use this path for you.
+those — as the OS delegates do — use `VerifierSource` instead; the engine builds the verifier per
+connection from the trust context. `TSystemTrust.ServerVerification` and
+`TOSSystemTrust.ClientVerifierSource` (above) use this path for you.
 
 ---
 
@@ -455,7 +466,8 @@ whatever the host trusts — use `TlsLib.Trust.Bundle` instead of (or alongside)
 ```pascal
 uses TlpBundleTrust;
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustStore(TBundleTrust.FromPemFile(Pkix, 'roots.pem'))
+  .WithServerVerification(TServerVerification.WebPki(
+    TBundleTrust.FromPemFile(Pkix, 'roots.pem')).Build)
   .Build;
 ```
 

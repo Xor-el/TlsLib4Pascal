@@ -84,6 +84,7 @@ uses
   TlpDefaultPkixProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpTlsCredential,
   TlsLibIndyTls;
@@ -203,16 +204,17 @@ end;
 // a registry holding exactly ACodes, in that order (the advertised / preferred order)
 function OrderedRegistry(const ACodes: array of UInt16): ICipherSuiteRegistry;
 var
-  LAll, LReg: ICipherSuiteRegistry;
+  LAll: ICipherSuiteRegistry;
+  LReg: ICipherSuiteRegistryBuilder;
   LSuite: TTlsCipherSuite;
   LI: Integer;
 begin
   LAll := TCipherSuiteRegistry.CreateDualVersion(TDefaultCryptoProvider.Shared);
-  LReg := TCipherSuiteRegistry.Create;
+  LReg := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   for LI := System.Low(ACodes) to System.High(ACodes) do
     if LAll.TryGet(ACodes[LI], LSuite) then
       LReg.Add(LSuite);
-  Result := LReg;
+  Result := LReg.Build;
 end;
 
 function BuildServerConfig(const ACertPem, AKeyPem: TBytes): ITlsServerConfig;
@@ -244,7 +246,7 @@ begin
     TNamedGroupCatalog.X25519));
   LClient.WithCipherSuites(OrderedRegistry([TCipherSuites13.Aes256GcmSha384,
     TCipherSuites13.Aes128GcmSha256, TCipherSuites13.ChaCha20Poly1305Sha256]));
-  LClient.WithTrustAnchors(ARootPem); // PEM root (DER works too)
+  LClient.WithServerVerification(TServerVerification.WebPki(ARootPem).Build); // PEM root (DER works too)
   // name checking is on by default: the leaf is verified against the connection Host
   Result := LClient.Build;
 end;

@@ -22,10 +22,19 @@ Fetch the operator's `ECHConfigList` (see [DNS](#4-dns--publishing-and-fetching-
 it to the builder:
 
 ```pascal
-LClient := TTlsPresets.Compatible(Crypto, Pkix).Client;
-LClient.Tls13.WithEncryptedClientHello(LEchConfigList); // the bytes from DNS
+uses TlpEchClient;   // TEchClientModes
+
+LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));   // see below
+LClient.Tls13.WithEch(TEchClientModes.Enable(LEchConfigList)); // the bytes from DNS
 LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example');
 ```
+
+`WithEch` takes one exclusive mode: `Enable` offers the config list, `Retry` does so for the
+reconnection driven by a reject's `retry_configs` (a second reject is not retried again), and `Grease`
+only sends a decoy. `Enable` and `Retry` need a **TLS 1.3-only** client, because the inner ClientHello
+never offers TLS 1.2 (RFC 9849 §6.1): `Build` refuses a dual-version client rather than quietly
+narrowing it, so pin `WithSupportedVersions` first.
 
 The client picks the first HPKE suite it supports from the config, builds the inner and outer, seals
 the inner, and sends the outer. Once the server confirms acceptance the handshake continues on the
@@ -67,18 +76,17 @@ expose your client certificate to the wrong party.
 
 ### GREASE
 
-If you configure an `ECHConfigList` but **none** of its configs is usable — an unsupported HPKE
-suite, an invalid public key, or a mandatory unknown extension — and GREASE is off, the client
-**fails closed**: `CreateClientEngine` raises `EArgumentTlsLibException` rather than silently
-sending the true SNI in the clear. An **empty** config list with GREASE off is rejected the same
-way at `Build`. Enable GREASE to opt into connecting without ECH in that case; `WithEchGrease(True)`
-on its own (no config list) is the explicit GREASE-only mode.
+If you `Enable` an `ECHConfigList` but **none** of its configs is usable — an unsupported HPKE
+suite, an invalid public key, or a mandatory unknown extension — the client **fails closed**: `Build`
+raises `EArgumentTlsLibException` rather than silently sending the true SNI in the clear. An
+**empty** config list is rejected the same way. Connecting without ECH in that case is your explicit
+choice: catch the error and build again with `Grease`.
 
 To make ECH users indistinguishable from non-users, a client with no usable config can send a decoy
-ECH extension (RFC 9849 §6.2):
+ECH extension (RFC 9849 §6.2); `Grease` leaves the offered versions alone:
 
 ```pascal
-LClient.Tls13.WithEchGrease(True); // send a decoy ech when no real config is usable
+LClient.Tls13.WithEch(TEchClientModes.Grease); // send a decoy ech, offer no real ECH
 ```
 
 The decoy is random-but-plausible and is re-sent verbatim across a HelloRetryRequest; any ECH
@@ -155,7 +163,7 @@ into the TLS core):
 ```pascal
 uses TlpEchConfigFromSvcb;
 if TEchConfigFromSvcb.TryFromServiceBinding(LHttpsRdata, LEchConfigList) then
-  LClient.Tls13.WithEncryptedClientHello(LEchConfigList);
+  LClient.Tls13.WithEch(TEchClientModes.Enable(LEchConfigList));
 ```
 
 ---

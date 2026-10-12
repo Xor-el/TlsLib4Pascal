@@ -35,6 +35,7 @@ uses
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpTlsEngineFactory,
   TlpITlsTransport,
@@ -274,8 +275,8 @@ begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, ServerLeaf, ServerKey))
     .WithPeerAuth(TClientAuthMode.Required)
-    .WithTrustAnchors(ClientCa) // the private client CA (issues the client leaf)
-    .WithRevocation(APosture)
+    // the private client CA (issues the client leaf)
+    .WithClientVerification(TClientVerification.WebPki(ClientCa).WithRevocation(APosture).Build)
     .WithLiveRevocationVerdict(0); // arm the park so the live resolver runs off the engine
   if AForce12 then
     LServer.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
@@ -287,7 +288,7 @@ var
   LClient: ITlsClientConfigBuilder;
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustAnchors(ServerRoot)
+    .WithServerVerification(WebPkiServer(ServerRoot))
     // present the client certificate (leaf only)
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, ClientLeaf, ClientKey));
   if AForce12 then

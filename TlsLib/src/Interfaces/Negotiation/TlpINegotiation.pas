@@ -20,28 +20,52 @@ uses
   TlpNegotiationTypes;
 
 type
+  ICipherSuiteRegistryBuilder = interface;
+  ISignatureSchemeRegistryBuilder = interface;
+
   /// <summary>
-  /// The enabled TLS 1.3 cipher suites, in server-preference order. Injectable:
-  /// prune an entry to harden a profile, add one for a new suite. Every entry is
-  /// validated against provider capability when the default set is built.
+  /// The enabled TLS 1.3 cipher suites, in server-preference order. Immutable: a frozen config
+  /// holds it as is. To prune an entry to harden a profile or add one for a new suite, start from
+  /// ToBuilder and build a new registry. Every entry is validated against provider capability when
+  /// the default set is built.
   /// </summary>
   ICipherSuiteRegistry = interface(IInterface)
     ['{6E2A9C14-5F73-4B80-A1D6-3C7E0B4F82A9}']
     function Items: TArray<TTlsCipherSuite>;
     function Contains(ACode: UInt16): Boolean;
     function TryGet(ACode: UInt16; out ASuite: TTlsCipherSuite): Boolean;
-    procedure Add(const ASuite: TTlsCipherSuite);
-    procedure Prune(ACode: UInt16);
+    /// <summary>A builder holding this registry's entries, for deriving a changed registry.</summary>
+    function ToBuilder: ICipherSuiteRegistryBuilder;
   end;
 
-  /// <summary>The enabled signature schemes, in server-preference order (injectable).</summary>
+  /// <summary>Assembles a cipher-suite registry; Build snapshots the entries.</summary>
+  ICipherSuiteRegistryBuilder = interface(IInterface)
+    ['{367573DA-4CFD-4342-8605-47EBA95E6069}']
+    /// <summary>Appends ASuite unless its code is already present.</summary>
+    procedure Add(const ASuite: TTlsCipherSuite);
+    /// <summary>Removes the suite with ACode, if any.</summary>
+    procedure Prune(ACode: UInt16);
+    function Build: ICipherSuiteRegistry;
+  end;
+
+  /// <summary>The enabled signature schemes, in server-preference order (immutable).</summary>
   ISignatureSchemeRegistry = interface(IInterface)
     ['{9A4C1E28-7D50-4F63-8B17-2E6A0C5F94D8}']
     function Items: TArray<TSignatureScheme>;
     function Contains(ACode: UInt16): Boolean;
     function TryGet(ACode: UInt16; out AScheme: TSignatureScheme): Boolean;
+    /// <summary>A builder holding this registry's entries, for deriving a changed registry.</summary>
+    function ToBuilder: ISignatureSchemeRegistryBuilder;
+  end;
+
+  /// <summary>Assembles a signature-scheme registry; Build snapshots the entries.</summary>
+  ISignatureSchemeRegistryBuilder = interface(IInterface)
+    ['{143A1E4C-42AB-4F72-8342-AE929D990D6E}']
+    /// <summary>Appends AScheme unless its code is already present.</summary>
     procedure Add(const AScheme: TSignatureScheme);
+    /// <summary>Removes the scheme with ACode, if any.</summary>
     procedure Prune(ACode: UInt16);
+    function Build: ISignatureSchemeRegistry;
   end;
 
   /// <summary>

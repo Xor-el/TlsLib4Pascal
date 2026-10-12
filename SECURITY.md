@@ -68,7 +68,7 @@ unbounded resource; secret material surviving in freed memory.
   please report those to that project. A *misuse* of a correct primitive by TlsLib4Pascal is in scope
   here.
 - **Deliberately-insecure configuration** via the loudly-named *dangerous* surface
-  (`WithDangerousInsecureSkipVerify`, disabling the name check, key logging) working as documented is
+  (`DangerousSkip`, disabling the name check, key logging) working as documented is
   not a vulnerability — that is opt-in, fail-loud behavior. A way to reach an insecure state *without*
   the dangerous surface is in scope.
 - Third-party host frameworks themselves (mORMot / Indy / Synapse / the FCL) — report framework bugs

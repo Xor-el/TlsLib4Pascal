@@ -29,6 +29,7 @@ uses
   TlpIPkixProvider,
   TlpITlsEngine,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpTlsEngineFactory,
   TlpITlsConfig,
@@ -253,7 +254,8 @@ begin
     LClient := LBuilder.Client;
     LClient.WithSupportedVersions(TArray<UInt16>.Create(FCell.TlsVersion));
     // trust the server's own certificate (portable, cache-only - this side is not under test)
-    LClient.WithTrustStore(TInteropCredentials.TrustFromPem(LPkix, FCell.RootFile));
+    LClient.WithServerVerification(TServerVerification.WebPki(
+      TInteropCredentials.TrustFromPem(LPkix, FCell.RootFile)).Build);
     // offer the client certificate the server verifies (leaf-only: the CA is the server's anchor)
     LClient.WithCredential(TInteropCredentials.ServerCredentialFromPem(LCrypto, LPkix,
       FCell.ClientCertFile, FCell.ClientKeyFile));
@@ -347,23 +349,25 @@ begin
   LClient := LBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(ACell.TlsVersion));
   LClient.WithOcspStaplingRequest(True);
-  LClient.WithRevocation(ACell.Posture);
   if ACell.UseClock then
     LClient.WithClock(TFixedClock.Create(ACell.NowMs) as ITlsClock);
   if ACell.Anchors then
     // the OS root set and its distrust set, harvested into our own verifier
-    TSystemTrust.WithSystemTrust(LClient, APkix, TSystemTrustMode.Anchors)
+    LClient.WithServerVerification(TSystemTrust.ServerVerification(APkix,
+      TSystemTrustMode.Anchors, nil).WithRevocation(ACell.Posture).Build)
   else if ACell.Delegate then
   begin
     // verify the server certificate through the OS trust engine against the real machine store;
     // live arms the async park the OS-native resolver decides in
     if ACell.Live then
-      TSystemTrust.WithSystemTrust(LClient, APkix, TSystemTrustFetch.Live, LiveDeadlineMs)
+      TSystemTrust.WithLiveSystemTrust(LClient, ACell.Posture, LiveDeadlineMs)
     else
-      TSystemTrust.WithSystemTrust(LClient, APkix, TSystemTrustMode.Delegate);
+      LClient.WithServerVerification(TSystemTrust.ServerVerification(APkix,
+        TSystemTrustMode.Delegate, nil).WithRevocation(ACell.Posture).Build);
   end
   else
-    LClient.WithTrustStore(TInteropCredentials.TrustFromPem(APkix, ACell.RootFile));
+    LClient.WithServerVerification(TServerVerification.WebPki(
+      TInteropCredentials.TrustFromPem(APkix, ACell.RootFile)).WithRevocation(ACell.Posture).Build);
   Result := LClient.Build;
 end;
 
@@ -457,16 +461,14 @@ begin
   LServer.WithCredential(TInteropCredentials.ServerCredentialFromPem(ACryptoProvider, APkix,
     ACell.ServerCertFile, ACell.ServerKeyFile));
   LServer.WithPeerAuth(TClientAuthMode.Required);
-  // the configured client-CA is the exclusive anchor the OS client delegate roots against
-  LServer.WithTrustStore(TInteropCredentials.TrustFromPem(APkix, ACaFile));
-  LServer.WithRevocation(ACell.Posture);
   // arm the live-revocation park the OS-native resolver decides in (Hard client-cert needs it)
   LServer.WithLiveRevocationVerdict(LiveDeadlineMs);
   // a NewSessionTicket would otherwise arrive before the echo and look like a broken round-trip
   LServer.WithResumption(False);
-  // verify the peer CLIENT certificate through the OS trust engine, live (network on) at the park
-  LServer.WithCertificateVerifierSource(
-    TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live));
+  // the OS engine verifies the client certificate live at the park, rooted at the client-CA
+  LServer.WithClientVerification(TClientVerification.VerifierSource(
+    TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live),
+    TInteropCredentials.TrustFromPem(APkix, ACaFile)).WithRevocation(ACell.Posture).Build);
   Result := LServer.Build;
 end;
 

@@ -49,7 +49,10 @@ uses
   TlpDefaultPkixProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
+  TlpTlsVersion,
+  TlpEchClient,
   TlpTlsCredential,
   TlpIEch,
   TlpInMemoryEchKeyStore,
@@ -190,8 +193,9 @@ begin
 
   // client config: trust the test root, verify the inner name, and offer ECH with the config list
   LClientBuilder := TTlsPresets.Compatible(LCrypto, LPkix).Client
-    .WithTrustAnchors(TVec.Bytes('root_cert'));
-  LClientBuilder.Tls13.WithEncryptedClientHello(LEch.EchConfigList);
+    .WithServerVerification(TServerVerification.WebPki(TVec.Bytes('root_cert')).Build)
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
+  LClientBuilder.Tls13.WithEch(TEchClientModes.Enable(LEch.EchConfigList));
   LClientConfig := LClientBuilder.Build;
 
   LEchoHandler := TEchoHandler.Create;

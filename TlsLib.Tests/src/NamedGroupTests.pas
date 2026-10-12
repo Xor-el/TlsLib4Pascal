@@ -540,6 +540,7 @@ end;
 procedure TTestNamedGroups.TestRegistry;
 var
   LReg: INamedGroupRegistry;
+  LBuilder: INamedGroupRegistryBuilder;
   LGroup: INamedGroup;
 begin
   LReg := TNamedGroups.CreateDefaultRegistry(Crypto);
@@ -548,9 +549,14 @@ begin
   CheckTrue(LReg.Contains(TNamedGroupCatalog.SecP256r1MlKem768), 'has the P-256 hybrid');
   CheckTrue(LReg.TryGet(TNamedGroupCatalog.X25519, LGroup), 'lookup by code');
   CheckEquals('X25519', LGroup.Name, 'get returns the group');
-  LReg.Prune(TNamedGroupCatalog.Secp521r1);
+  LBuilder := LReg.ToBuilder;
+  LBuilder.Prune(TNamedGroupCatalog.Secp521r1);
+  CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp521r1), 'the built registry is unchanged');
+  LReg := LBuilder.Build;
   CheckFalse(LReg.Contains(TNamedGroupCatalog.Secp521r1), 'pruned entry gone');
-  LReg.Add(TNamedGroups.CreateNistEcdh(Crypto, 'secp521r1'));
+  LBuilder.Add(TNamedGroups.CreateNistEcdh(Crypto, 'secp521r1'));
+  CheckFalse(LReg.Contains(TNamedGroupCatalog.Secp521r1), 'a later Add does not reach a built registry');
+  LReg := LBuilder.Build;
   CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp521r1), 're-added');
   CheckFalse(LReg.TryGet($FFFF, LGroup), 'unknown code is not found');
 end;

@@ -9,10 +9,10 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-/// <summary>Exercises the trust-composition rules the config builder enforces: anchor sources
-/// UNION (multiple WithTrustStore/WithTrustAnchors calls accumulate), while a whole
-/// certificate verifier is EXCLUSIVE (it replaces the pipeline and cannot be combined with any
-/// anchor source, nor set twice) - the invariant the OS system-trust sources rely on.</summary>
+/// <summary>Exercises the trust-composition rules of the verification policies: the anchors of a
+/// WebPki policy UNION (stores and root blobs together), while a whole certificate verifier is a
+/// kind of its own that takes no anchors at all - the invariant the OS system-trust sources rely
+/// on, now unrepresentable rather than refused at Build.</summary>
 unit TrustCompositionTests;
 
 interface
@@ -42,6 +42,7 @@ uses
   TlpCertificateVerifier,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlsLibTestBase;
 
@@ -78,12 +79,6 @@ type
     procedure TestAnchorMatchIsExactDer;
     procedure TestBuildRefusesAUnionWhoseDistrustRemovesEveryAnchor;
     procedure TestCertificateVerifierLandsInFrozenConfig;
-    procedure TestVerifierCombinedWithAnchorSourceIsRejected;
-    // an empty store is still an anchor *source* for the exclusivity count (that rule runs before
-    // the roots-based trust gate), so verifier + empty store is the exclusivity conflict, not empty-store
-    procedure TestVerifierWithEmptyStoreStillConflicts;
-    procedure TestTwoVerifiersAreRejected;
-    procedure TestClientVerifierInstanceAndSourceRejected;
   end;
 
 implementation
@@ -108,39 +103,6 @@ begin
   AVerified.Outcome := TVerificationOutcome.Trusted;
   AAlert := TTlsAlertDescription.CertificateUnknown;
   Result := True;
-end;
-
-type
-  // a client-certificate verifier instance and a source that mints one, to exercise the
-  // dual-verifier guard for the client role (SF-AN)
-  TStubClientCertificateVerifier = class(TInterfacedObject, IClientCertificateVerifier)
-  public
-    function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
-  TStubClientCertificateVerifierSource = class(TInterfacedObject,
-    IClientCertificateVerifierSource)
-  public
-    function CreateClientVerifier(const AContext: TClientTrustContext)
-      : IClientCertificateVerifier;
-  end;
-
-function TStubClientCertificateVerifier.VerifyClientCertificate(
-  const AChain: TArray<TBytes>; out AVerified: TVerifiedChain;
-  out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified.Path := AChain;
-  AVerified.Outcome := TVerificationOutcome.Trusted;
-  AAlert := TTlsAlertDescription.CertificateUnknown;
-  Result := True;
-end;
-
-function TStubClientCertificateVerifierSource.CreateClientVerifier(
-  const AContext: TClientTrustContext): IClientCertificateVerifier;
-begin
-  Result := TStubClientCertificateVerifier.Create as IClientCertificateVerifier;
 end;
 
 { TReleaseWatchStore }
@@ -204,8 +166,8 @@ var
 begin
   // two distinct single-anchor stores added separately must both survive into the frozen config
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustStore(StoreOf('root_cert'))
-    .WithTrustStore(StoreOf('leaf_cert'))
+    .WithServerVerification(TServerVerification.WebPki(
+    TArray<ITrustAnchorStore>.Create(StoreOf('root_cert'), StoreOf('leaf_cert')), nil).Build)
     .Build;
   CheckEquals(2, System.Length(LConfig.TrustStore.RootCertificates),
     'both anchor sources union into the composed trust store');
@@ -308,10 +270,11 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustStore(TTrustAnchorStore.Create(
+    .WithServerVerification(TServerVerification.WebPki(
+    TArray<ITrustAnchorStore>.Create(TTrustAnchorStore.Create(
     TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert'])),
-    TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']))) as ITrustAnchorStore)
-    .WithTrustAnchors(DecodeHex(FCerts.Values['root_cert']))
+    TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']))) as ITrustAnchorStore),
+    TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert']))).Build)
     .Build;
   CheckTrue(LConfig.TrustStore.IsDistrusted(DecodeHex(FCerts.Values['leaf_cert'])),
     'the distrusted certificate is still distrusted after composition with plain anchors');
@@ -326,9 +289,10 @@ begin
   LRaised := False;
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithTrustStore(StoreOf('root_cert'))
-      .WithTrustStore(TTrustAnchorStore.Create(nil,
-      TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert']))) as ITrustAnchorStore)
+      .WithServerVerification(TServerVerification.WebPki(TArray<ITrustAnchorStore>.Create(
+      StoreOf('root_cert'), TTrustAnchorStore.Create(nil,
+      TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert']))) as ITrustAnchorStore),
+      nil).Build)
       .Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -336,7 +300,7 @@ begin
   end;
   CheckTrue(LRaised, 'a union with no anchor left is refused');
   CheckEquals(1, TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustStore(StoreOf('root_cert')).Build.TrustStore.AnchorCount,
+    .WithServerVerification(WebPkiServer(StoreOf('root_cert'))).Build.TrustStore.AnchorCount,
     'control: the root alone builds');
 end;
 
@@ -350,90 +314,11 @@ begin
   // as an instance source that returns it unchanged for every connection
   LStub := TStubCertificateVerifier.Create as IServerCertificateVerifier;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithDangerousCertificateVerifier(LStub)
+    .WithServerVerification(TServerVerification.Custom(LStub))
     .Build;
   LContext := Default(TServerTrustContext);
   CheckTrue(LConfig.ServerVerifierSource.CreateServerVerifier(LContext) = LStub,
     'the injected whole-verifier is returned unchanged by the instance source');
-end;
-
-procedure TTestTrustComposition.TestVerifierCombinedWithAnchorSourceIsRejected;
-var
-  LRaised: Boolean;
-begin
-  // verifier + anchor source is the exclusivity conflict: refused at Build, fail-closed
-  LRaised := False;
-  try
-    TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithDangerousCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
-      .WithTrustStore(StoreOf('root_cert'))
-      .Build;
-  except
-    on E: EInvalidOperationTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised,
-    'a whole-verifier combined with an anchor source is refused at Build');
-end;
-
-procedure TTestTrustComposition.TestVerifierWithEmptyStoreStillConflicts;
-var
-  LMsg: string;
-begin
-  // the exclusivity rule counts a store as a source (empty or not) and runs before the roots gate,
-  // so this raises the verifier conflict, not the empty-store message
-  LMsg := '';
-  try
-    TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithDangerousCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
-      .WithTrustStore(TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
-      .Build;
-  except
-    on E: EInvalidOperationTlsLibException do
-      LMsg := E.Message;
-  end;
-  CheckTrue(Pos('exclusive', LMsg) > 0,
-    'a verifier plus an empty store is the exclusivity conflict; got: ' + LMsg);
-end;
-
-procedure TTestTrustComposition.TestTwoVerifiersAreRejected;
-var
-  LRaised: Boolean;
-begin
-  // two whole-verifiers is the dual-verifier conflict: refused at Build
-  LRaised := False;
-  try
-    TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithDangerousCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
-      .WithDangerousCertificateVerifier(TStubCertificateVerifier.Create as IServerCertificateVerifier)
-      .Build;
-  except
-    on E: EInvalidOperationTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'setting two whole-verifiers is refused at Build');
-end;
-
-procedure TTestTrustComposition.TestClientVerifierInstanceAndSourceRejected;
-var
-  LRaised: Boolean;
-begin
-  // a client-verifier instance plus a client-verifier source is the dual-verifier conflict for the
-  // client role: the source must not silently override the instance, so Build refuses it (SF-AN)
-  LRaised := False;
-  try
-    TTlsPresets.Compatible(Crypto, Pkix).Server
-      .WithDangerousCertificateVerifier(
-        TStubClientCertificateVerifier.Create as IClientCertificateVerifier)
-      .WithCertificateVerifierSource(
-        TStubClientCertificateVerifierSource.Create as IClientCertificateVerifierSource)
-      .Build;
-  except
-    on E: EInvalidOperationTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised,
-    'a client-verifier instance combined with a client-verifier source is refused at Build');
 end;
 
 initialization

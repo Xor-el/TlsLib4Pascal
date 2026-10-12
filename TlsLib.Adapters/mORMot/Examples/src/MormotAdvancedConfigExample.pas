@@ -54,6 +54,7 @@ uses
   TlpDefaultCryptoProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpTlsCredential,
   TlsLibMormotTls;
@@ -115,15 +116,16 @@ end;
 // Add order is the preference order (server-preference is the model, so the server's order wins)
 function OrderedSuites(const ACryptoProvider: ICryptoProvider): ICipherSuiteRegistry;
 var
-  LAll, LOrdered: ICipherSuiteRegistry;
+  LAll: ICipherSuiteRegistry;
+  LOrdered: ICipherSuiteRegistryBuilder;
   LSuite: TTlsCipherSuite;
 begin
   LAll := TCipherSuiteRegistry.CreateDualVersion(ACryptoProvider);
-  LOrdered := TCipherSuiteRegistry.Create;
+  LOrdered := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   if LAll.TryGet(TCipherSuites12.EcdheEcdsaAes256GcmSha384, LSuite) then LOrdered.Add(LSuite);
   if LAll.TryGet(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256, LSuite) then LOrdered.Add(LSuite);
   if LAll.TryGet(TCipherSuites12.EcdheEcdsaAes128GcmSha256, LSuite) then LOrdered.Add(LSuite);
-  Result := LOrdered;
+  Result := LOrdered.Build;
 end;
 
 function BuildClientConfig: ITlsClientConfig;
@@ -140,7 +142,7 @@ begin
   LClient.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1));
   LClient.WithCipherSuites(OrderedSuites(LCrypto));
-  LClient.WithTrustAnchors(GRootDer);
+  LClient.WithServerVerification(TServerVerification.WebPki(GRootDer).Build);
   Result := LClient.Build;
 end;
 

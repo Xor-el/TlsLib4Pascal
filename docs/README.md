@@ -54,7 +54,7 @@ contents track evolving best practice.
 
 ```pascal
 uses TlpTlsPresets, TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider,
-  TlpIPkixProvider;
+  TlpIPkixProvider, TlpCertificateVerifierSource;
 
 var
   Crypto: ICryptoProvider;
@@ -62,7 +62,8 @@ var
 begin
   Crypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   Pkix := TDefaultPkixProvider.Create as IPkixProvider;
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustAnchors(caPem).Build;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(caPem).Build).Build;
 end;
 ```
 

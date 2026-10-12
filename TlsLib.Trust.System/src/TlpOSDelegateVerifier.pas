@@ -49,6 +49,8 @@ type
     ChainLimits: TCertificateChainLimits;
     AdvertisedSchemes: TArray<UInt16>;
     Anchors: TArray<TBytes>;
+    // host roots trusted beside the OS roots, server role only (see TPlatformChainRequest)
+    ExtraAnchors: TArray<TBytes>;
     Intermediates: TArray<TBytes>;
     CheckHostName: Boolean;
     // must-staple (RFC 7633 4.3.3) binds only to a server leaf on the initial handshake the client
@@ -123,13 +125,20 @@ type
   /// verdict, or - for an engine that renders no revocation outcome - a Hard client posture without
   /// it.</summary>
   TOSVerifierSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
-    IClientCertificateVerifierSource)
+    IOSServerVerifierSource, IClientCertificateVerifierSource)
   strict private
     FEngine: IPlatformChainEngine;
     FFetch: TSystemTrustFetch;
+    FExtraAnchors: TArray<TBytes>;
   public
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch);
+      overload;
+    /// <summary>As above, for a server-certificate source that also trusts AExtraAnchors beside the
+    /// OS roots; refused at construction on an engine without the ExtraAnchors capability.</summary>
+    constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
+      const AExtraAnchors: TArray<TBytes>); overload;
     function CreateServerVerifier(const AContext: TServerTrustContext): IServerCertificateVerifier;
+    function ExtraAnchors: TArray<TBytes>;
     function CreateClientVerifier(const AContext: TClientTrustContext): IClientCertificateVerifier;
   end;
 
@@ -240,6 +249,7 @@ begin
   Result := Default(TPlatformChainRequest);
   Result.Chain := AChain;
   Result.Anchors := FPolicy.Anchors;
+  Result.ExtraAnchors := FPolicy.ExtraAnchors;
   Result.Intermediates := FPolicy.Intermediates;
   // with the name check off, withhold the host from an engine that matches it internally so it does
   // not reject a name mismatch the built-in verifier would have skipped (Complete skips the re-check)
@@ -377,21 +387,39 @@ end;
 constructor TOSVerifierSource.Create(const AEngine: IPlatformChainEngine;
   AFetch: TSystemTrustFetch);
 begin
+  Create(AEngine, AFetch, nil);
+end;
+
+constructor TOSVerifierSource.Create(const AEngine: IPlatformChainEngine;
+  AFetch: TSystemTrustFetch; const AExtraAnchors: TArray<TBytes>);
+begin
   inherited Create;
   if (AFetch = TSystemTrustFetch.Live) and
     not (TPlatformChainCapability.LiveFetch in AEngine.Capabilities) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
+  if (System.Length(AExtraAnchors) > 0) and
+    not (TPlatformChainCapability.ExtraAnchors in AEngine.Capabilities) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoExtraAnchorUnion);
   FEngine := AEngine;
   FFetch := AFetch;
+  FExtraAnchors := AExtraAnchors;
 end;
 
 function TOSVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
+var
+  LPolicy: TOSDelegatePolicy;
 begin
   if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
-  Result := TOSDelegateServerVerifier.Create(FEngine,
-    TOSDelegatePolicy.FromServerContext(AContext, FFetch)) as IServerCertificateVerifier;
+  LPolicy := TOSDelegatePolicy.FromServerContext(AContext, FFetch);
+  LPolicy.ExtraAnchors := FExtraAnchors;
+  Result := TOSDelegateServerVerifier.Create(FEngine, LPolicy) as IServerCertificateVerifier;
+end;
+
+function TOSVerifierSource.ExtraAnchors: TArray<TBytes>;
+begin
+  Result := FExtraAnchors;
 end;
 
 function TOSVerifierSource.CreateClientVerifier(
@@ -433,6 +461,7 @@ begin
   LRequest := Default(TPlatformChainRequest);
   LRequest.Chain := AChain;
   LRequest.Anchors := FPolicy.Anchors;
+  LRequest.ExtraAnchors := FPolicy.ExtraAnchors;
   LRequest.Intermediates := FPolicy.Intermediates;
   LRequest.OcspStaple := AStaple;
   LRequest.Revocation := TPlatformRevocationCheck.RequirePositive;

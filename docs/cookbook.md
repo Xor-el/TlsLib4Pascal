@@ -47,10 +47,10 @@ Need more control (ALPN, a posture other than Compatible, pinning, …)? Build i
 recipe below uses this shape:
 
 ```pascal
-uses TlpTlsPresets, TlpITlsConfigBuilder, TlpITlsConfig;
+uses TlpTlsPresets, TlpITlsConfigBuilder, TlpITlsConfig, TlpCertificateVerifierSource;
 
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(LoadFile('my-ca.pem'))
+  .WithServerVerification(TServerVerification.WebPki(LoadFile('my-ca.pem')).Build)
   .Build;
 ```
 
@@ -90,7 +90,7 @@ Presets are safe **starting points**, not locked profiles — override before `B
 
 ```pascal
 LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client     // TLS 1.3 only, PQ-hybrid preferred
-  .WithTrustAnchors(caPem)
+  .WithServerVerification(TServerVerification.WebPki(caPem).Build)
   .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
   .Build;
 ```
@@ -133,7 +133,7 @@ refuses classical-only key exchange), restrict the preferred groups:
 uses TlpNegotiationTypes;   // TNamedGroupCatalog
 
 LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-  .WithTrustAnchors(caPem)
+  .WithServerVerification(TServerVerification.WebPki(caPem).Build)
   .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768))
   .Build;
 ```
@@ -149,25 +149,27 @@ The short version — the full treatment is in
 
 ```pascal
 // a private / self-signed CA (still fully validated against it)
-.WithTrustAnchors(LoadFile('my-ca.pem'))
+.WithServerVerification(TServerVerification.WebPki(LoadFile('my-ca.pem')).Build)
 
 // several anchor sources union together
-.WithTrustAnchors(caPemA).WithTrustAnchors(caPemB)
+.WithServerVerification(TServerVerification.WebPki(
+  TArray<ITrustAnchorStore>.Create(storeA, storeB),
+  TArray<TBytes>.Create(caPemA, caPemB)).Build)
 
 // the OS root store (needs the TlsLib.Trust.System package)
 //   uses TlpSystemTrustFacade;
-//   TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix) ...
+//   .WithServerVerification(TSystemTrust.ServerVerification(Pkix).Build)
 
 // a fixed offline root bundle (needs TlsLib.Trust.Bundle)
 //   uses TlpBundleTrust;
-.WithTrustStore(TBundleTrust.FromPemFile(Pkix, 'roots.pem'))
+.WithServerVerification(TServerVerification.WebPki(TBundleTrust.FromPemFile(Pkix, 'roots.pem')).Build)
 
 // pin an SPKI-SHA256 on top of normal validation (augments, never replaces)
 .WithCertificatePinning(TArray<TBytes>.Create(spkiSha256))
 ```
 
-Anchor sources **union**; a whole `WithDangerousCertificateVerifier` **replaces** the pipeline and is
-exclusive. Pinning and the host-name check are covered in
+Anchors **union** inside one `WebPki` policy; a `TServerVerification.Custom` verifier **replaces** the
+pipeline and takes no anchors at all. Pinning and the host-name check are covered in
 [the verification guide](certificate-verification.md).
 
 ## Integrate with your networking stack
@@ -339,12 +341,12 @@ LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix,
     LoadFile('server-chain.pem'), LoadFile('server-key.pem')))
   .WithPeerAuth(TClientAuthMode.Required)                         // None | Requested | Required
-  .WithTrustAnchors(LoadFile('client-ca.pem'))                    // the CA you accept clients from
+  .WithClientVerification(TClientVerification.WebPki(LoadFile('client-ca.pem')).Build)  // the CA you accept clients from
   .Build;
 ```
 
-`WithTrustAnchors` (or `WithTrustStore`) is what actually **trusts** the client certificate — a
-client-auth server with none is refused at `Build`. `WithClientCertificateAuthorities(...)` is a
+`WithClientVerification` is what actually **trusts** the client certificate — a client-auth server
+with none is refused at `Build`. `WithClientCertificateAuthorities(...)` is a
 separate, optional knob that only *advertises* the acceptable CA names to the client (the
 CertificateRequest); it does not establish trust. To validate client certificates with the **OS chain
 engine** against this private CA instead of the built-in pipeline, see
@@ -354,7 +356,7 @@ Client side — present your credential:
 
 ```pascal
 LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(LoadFile('server-ca.pem'))
+  .WithServerVerification(TServerVerification.WebPki(LoadFile('server-ca.pem')).Build)
   .WithCredential(TTlsCredential.Load(Crypto, Pkix,
     LoadFile('client-chain.pem'), LoadFile('client-key.pem')))  // or TTlsCredential.LoadPkcs12
   .Build;
@@ -419,7 +421,7 @@ uses TlpInMemorySessionCache, TlpInMemorySessionStore, TlpSessionTicketKeys, Tlp
 // CLIENT: reuse this config across connections and its cached tickets come with it. Don't share one
 // cache across configs with different trust — a stricter config could resume a looser one and skip its check.
 LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(caPem)
+  .WithServerVerification(TServerVerification.WebPki(caPem).Build)
   .WithResumption(True)
   .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
   .Build;
@@ -460,7 +462,7 @@ LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 
 // CLIENT: allow offering early data on a resumed connection
 LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(caPem)
+  .WithServerVerification(TServerVerification.WebPki(caPem).Build)
   .WithResumption(True)
   .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
   .Tls13.WithEarlyData(True)
@@ -490,11 +492,12 @@ The posture governs how an **unknown/indeterminate** status is treated; a defini
 **Revoked** always aborts with `certificate_revoked` under every posture:
 
 ```pascal
-uses TlpTrustPolicy;   // TRevocationPosture
+uses TlpTrustPolicy, TlpCertificateVerifierSource;   // TRevocationPosture, TServerVerification
 
-.WithRevocation(TRevocationPosture.Soft)   // default: accept missing/indeterminate status
-.WithRevocation(TRevocationPosture.Hard)   // reject missing/indeterminate status
-.WithRevocation(TRevocationPosture.Off)    // don't require status (and perform no live fetch)
+// on the verification policy (TClientVerification.WebPki has the same method for mTLS):
+TServerVerification.WebPki(caPem).WithRevocation(TRevocationPosture.Soft).Build   // default: accept missing/indeterminate status
+TServerVerification.WebPki(caPem).WithRevocation(TRevocationPosture.Hard).Build   // reject missing/indeterminate status
+TServerVerification.WebPki(caPem).WithRevocation(TRevocationPosture.Off).Build    // don't require status (and perform no live fetch)
 ```
 
 Stapled OCSP is validated in the handshake pipeline. **Live** OCSP/CRL is opt-in, never in the
@@ -534,8 +537,11 @@ SvcParam of the HTTPS record for the name you connect to) and offer it — the l
 reject never falls back to plaintext:
 
 ```pascal
-LClient := TTlsPresets.Compatible(Crypto, Pkix).Client;
-LClient.Tls13.WithEncryptedClientHello(EchConfigList); // bytes from DNS
+uses TlpEchClient;   // TEchClientModes
+
+LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));   // a real ECH offer is TLS 1.3-only
+LClient.Tls13.WithEch(TEchClientModes.Enable(EchConfigList)); // bytes from DNS
 LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example');
 // after the handshake: LStream.ConnectionInfo.EchStatus is Accepted / Rejected / ...
 ```
@@ -560,7 +566,7 @@ host you connect to (RFC 9525):
 
 ```pascal
 LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithTrustAnchors(LoadFile('my-ca.pem'))
+  .WithServerVerification(TServerVerification.WebPki(LoadFile('my-ca.pem')).Build)
   .WithServerNameIndication(TServerNameIndication.Omit);
 LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'host.example');
 ```
@@ -586,7 +592,7 @@ begin
   LPsk.Hash     := THashAlgorithm.SHA_256;         // the PSK's bound hash
 
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustAnchors(caPem)
+    .WithServerVerification(TServerVerification.WebPki(caPem).Build)
     .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(LPsk))
     // .WithExternalPskRequired(False)  // let the client fall back to certificate authentication
     .Build;
@@ -658,7 +664,7 @@ builder makes you type more than one thing. **Never ship these.**
 // skip-verify is the explicit trust decision, so Build needs no trust store; an empty store is
 // refused whenever verification is on.
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithDangerousInsecureSkipVerify
+  .WithServerVerification(TServerVerification.DangerousSkip)
   .Build;
 
 // relax ONLY the host-name check (chain still fully validated)

@@ -26,7 +26,7 @@ uses
 
 type
   /// <summary>The default injectable registry: a registration-ordered list of extensions.</summary>
-  TExtensionRegistry = class sealed(TCodeKeyedRegistry<ITlsExtension>,
+  TExtensionRegistry = class sealed(TCodeKeyedRegistryBuilder<ITlsExtension>,
     IExtensionRegistry)
   strict private
     class function CodeOf(const AExtension: ITlsExtension): UInt16; static;
@@ -72,7 +72,7 @@ resourcestring
 
 constructor TExtensionRegistry.Create;
 begin
-  inherited Create(CodeOf);
+  inherited Create(CodeOf, nil);
 end;
 
 class function TExtensionRegistry.CodeOf(const AExtension: ITlsExtension): UInt16;

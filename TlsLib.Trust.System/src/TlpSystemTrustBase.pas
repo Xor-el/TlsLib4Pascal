@@ -43,6 +43,9 @@ resourcestring
   SNoLiveRevocation =
     'this platform has no OS-native live revocation (only Windows and Apple do); keep cache-only ' +
     'trust and compose the portable live-revocation checker for a live check here';
+  SNoExtraAnchorUnion =
+    'this platform cannot trust host-supplied roots beside the OS delegate; use OS trust alone, ' +
+    'or the host roots alone';
 
 type
   /// <summary>
@@ -60,8 +63,9 @@ type
   /// pass decides Hard from that; an engine without it renders none, and the staple is the only inline
   /// revocation source. DnsIdentity: it matches a DNS host itself, so the host is withheld when the
   /// name check is off; the library matches the SAN identity (SAN-only, RFC 9525) regardless, for
-  /// both DnsIdentity and chain-only engines.</summary>
-  TPlatformChainCapability = (LiveFetch, CachedRevocation, DnsIdentity);
+  /// both DnsIdentity and chain-only engines. ExtraAnchors: the server evaluation can trust host
+  /// roots beside the platform's own, which an engine without it is never asked to do.</summary>
+  TPlatformChainCapability = (LiveFetch, CachedRevocation, DnsIdentity, ExtraAnchors);
   TPlatformChainCapabilities = set of TPlatformChainCapability;
 
   /// <summary>What the engine is asked to do about revocation, already resolved from the posture and
@@ -73,7 +77,9 @@ type
   /// <summary>One platform chain evaluation. Chain is the peer chain (leaf first, DER). Anchors is the
   /// exclusive trust root of a client-certificate evaluation (empty on the server path, where the OS
   /// roots apply). Intermediates are the configured extra certificates, offered to path building as
-  /// untrusted candidates beside the presented chain. ServerName is the server-path identity (the
+  /// untrusted candidates beside the presented chain. ExtraAnchors are host roots trusted beside the
+  /// OS roots on the server path (only for an engine with the ExtraAnchors capability; ignored when
+  /// Anchors is set). ServerName is the server-path identity (the
   /// engine reads AsDns or ToString as its platform requires; empty on the client path). OcspStaple is consumed as cached revocation data
   /// where the platform can. NetworkAllowed is False inline (no socket) and True only from the
   /// off-engine-thread park. Clock nil means platform time. DeadlineMs bounds a network fetch where the
@@ -81,6 +87,7 @@ type
   TPlatformChainRequest = record
     Chain: TArray<TBytes>;
     Anchors: TArray<TBytes>;
+    ExtraAnchors: TArray<TBytes>;
     Intermediates: TArray<TBytes>;
     ServerName: TServerName;
     OcspStaple: TBytes;

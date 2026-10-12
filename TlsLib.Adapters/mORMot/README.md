@@ -23,10 +23,10 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 
 | mORMot `TNetTlsContext` field            | TlsLib4Pascal                                             |
 |------------------------------------------|----------------------------------------------------------|
-| `CACertificatesFile`                     | `WithTrustAnchors` (PEM/DER bundle)                       |
+| `CACertificatesFile`                     | `WebPki` anchors (PEM/DER bundle)                         |
 | `CertificateFile` / `CertificateBin` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS); a PKCS#12 when there is no `PrivateKeyFile` |
 | `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust; `False` (default) never requests a client certificate. The client-CA is `CACertificatesFile` (`CASystemStores` is a server-cert source, ignored on a server). `Requested` (ask, tolerate absence) is available through `SetTlsLibMormotServerConfig` with a builder-driven config |
-| `IgnoreCertificateErrors`                | **`dangerous` `WithDangerousInsecureSkipVerify`** (see below) |
+| `IgnoreCertificateErrors`                | **`dangerous` `DangerousSkip`** (see below) |
 | `DisableTls13`                           | offers TLS 1.2 alone (`SupportedVersions`)                |
 | `CipherName` (out)                       | filled with the negotiated suite and version (`TLS_AES_128_GCM_SHA256 TLSv1.3`) |
 

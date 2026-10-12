@@ -37,6 +37,8 @@ uses
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpCertificateVerifier,
+  TlpICertificateVerifierSource,
+  TlpCertificateVerifierSource,
   TlsLibTestResourceLoader,
   TlsLibTestProviders;
 
@@ -104,6 +106,11 @@ type
     // that need a real trust source present but never verify a chain.
     function EcP256RootCertificate: TBytes;
     function EcP256RootStore: ITrustAnchorStore;
+    // The built-in PKIX pipeline over AStore / over PEM or DER roots, with its default settings.
+    function WebPkiServer(const AStore: ITrustAnchorStore): IServerVerification; overload;
+    function WebPkiServer(const AAnchorData: TBytes): IServerVerification; overload;
+    function WebPkiClient(const AStore: ITrustAnchorStore): IClientVerification; overload;
+    function WebPkiClient(const AAnchorData: TBytes): IClientVerification; overload;
   end;
 
 implementation
@@ -348,6 +355,28 @@ function TTlsLibAlgorithmTestCase.EcP256RootStore: ITrustAnchorStore;
 begin
   Result := TTrustAnchorStore.Create(
     TArray<TBytes>.Create(EcP256RootCertificate)) as ITrustAnchorStore;
+end;
+
+function TTlsLibAlgorithmTestCase.WebPkiServer(const AStore: ITrustAnchorStore)
+  : IServerVerification;
+begin
+  Result := TServerVerification.WebPki(AStore).Build;
+end;
+
+function TTlsLibAlgorithmTestCase.WebPkiServer(const AAnchorData: TBytes): IServerVerification;
+begin
+  Result := TServerVerification.WebPki(AAnchorData).Build;
+end;
+
+function TTlsLibAlgorithmTestCase.WebPkiClient(const AStore: ITrustAnchorStore)
+  : IClientVerification;
+begin
+  Result := TClientVerification.WebPki(AStore).Build;
+end;
+
+function TTlsLibAlgorithmTestCase.WebPkiClient(const AAnchorData: TBytes): IClientVerification;
+begin
+  Result := TClientVerification.WebPki(AAnchorData).Build;
 end;
 
 end.

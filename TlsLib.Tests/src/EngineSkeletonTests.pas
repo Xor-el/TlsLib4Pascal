@@ -77,7 +77,7 @@ begin
   // trust check for a handshake that is never completed here.
   Result := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustStore(EcP256RootStore)
+    .WithServerVerification(WebPkiServer(EcP256RootStore))
     .Build, 'localhost');
 end;
 
