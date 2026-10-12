@@ -95,7 +95,7 @@ for p in InteropSelfTest OpenSslInterop TlsFuzzer BoGoShim TrustDelegateInterop;
 done
 
 echo "==> self-test (loopback TLS 1.3 over real TCP, no external deps)"
-"$BIN_DIR/InteropSelfTest$EXE"
+ci_run_bounded 120 "$BIN_DIR/InteropSelfTest$EXE"
 
 if [ "${MAKE_RUN_TRUST:-true}" = "true" ]; then
   echo "==> native-trust cells (portable verifier everywhere; OS delegate on Windows/macOS)"
@@ -108,7 +108,7 @@ echo "==> structure-aware parser fuzzer (per-push tier: regression replay + fixe
 # --iterations is the per-target smoke budget; the regression-corpus replay always runs.
 # The scheduled discovery soak (a far larger budget) lives in fuzz-nightly.yml, off the
 # per-push path, so a genuine new crasher never makes an unrelated PR flaky.
-"$BIN_DIR/TlsFuzzer$EXE" --iterations "${FUZZ_ITERS:-500}"
+ci_run_bounded 900 "$BIN_DIR/TlsFuzzer$EXE" --iterations "${FUZZ_ITERS:-500}"
 
 if [ "${MAKE_RUN_OPENSSL:-true}" = "true" ]; then
   echo "==> openssl s_client/s_server matrix"

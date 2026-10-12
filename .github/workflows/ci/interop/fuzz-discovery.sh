@@ -2,7 +2,7 @@
 # Scheduled fuzzing discovery soak (not a PR gate): compile TlsFuzzer against the prebuilt
 # packages and run a large --discovery budget. A new crasher/hang persists to
 # TlsLib.Interop/Data/Corpus/regress/ and fails this scheduled run only.
-#   FUZZ_DISCOVERY_SECONDS  wall-clock cap (default 1200)
+#   FUZZ_DISCOVERY_SECONDS  wall-clock cap, 1..5400 (default 1200)
 #   FUZZ_DISCOVERY_ITERS    per-target ceiling (default 500000; the cap dominates)
 
 set -euo pipefail
@@ -11,6 +11,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/../shared/common.sh"
 ci_init_paths
 ci_export_toolchain_path
+
+SOAK_SECONDS="${FUZZ_DISCOVERY_SECONDS:-1200}"
+case "$SOAK_SECONDS" in
+  ''|*[!0-9]*|0|0[0-9]*|?????????*)
+    echo "::error::FUZZ_DISCOVERY_SECONDS must be an integer from 1 to 5400 (got '$SOAK_SECONDS')" >&2
+    exit 2 ;;
+esac
+if [ "$SOAK_SECONDS" -gt 5400 ]; then
+  echo "::error::FUZZ_DISCOVERY_SECONDS must be an integer from 1 to 5400 (got '$SOAK_SECONDS')" >&2
+  exit 2
+fi
 
 : "${FPC_TARGET:?FPC_TARGET is required (e.g. x86_64-linux)}"
 CPU="${FPC_TARGET%-*}"
@@ -62,6 +73,6 @@ fpc "-T$OS" "-P$CPU" -MDelphi -O2 -B \
 chmod +x "$BIN_DIR/TlsFuzzer$EXE"
 
 echo "==> fuzzing discovery soak (off the PR path; new crashers persist to Data/Corpus/regress/)"
-"$BIN_DIR/TlsFuzzer$EXE" --discovery \
-  --max-seconds "${FUZZ_DISCOVERY_SECONDS:-1200}" \
+ci_run_bounded $(( SOAK_SECONDS + 600 )) "$BIN_DIR/TlsFuzzer$EXE" --discovery \
+  --max-seconds "$SOAK_SECONDS" \
   --iterations "${FUZZ_DISCOVERY_ITERS:-500000}"

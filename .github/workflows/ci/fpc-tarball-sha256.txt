@@ -1,0 +1,12 @@
+# SHA-256 of the official FPC 3.2.2 tarballs from downloads.freepascal.org, checked by install-fpc-lazarus.sh
+5adac308a5534b6a76446d8311fc340747cbb7edeaacfe6b651493ff3fe31e83  fpc-3.2.2.x86_64-linux.tar
+b39470f9b6b5b82f50fc8680a5da37d2834f2129c65c24c5628a80894d565451  fpc-3.2.2.aarch64-linux.tar
+10d776cf6e86dccab482b81285da58a9cc8e0aa9c0558b78d3bf08d3981b4924  fpc-3.2.2.x86_64-win64.tar
+70e93eef29e46a5f7ff24c9689f9e82f3449ae805bc890dcf7709d85bfd1eecf  fpc-3.2.2.aarch64-darwin.tar
+b3220cf4cda9a69ff804a61365a1d8cde255520c262ff8e1c02f5c22e6d1b09c  fpc-3.2.2.x86_64-darwin.tar
+971bbcaa1934286ccdaf3998d338afc19a33235e910f8881c75579ed5d6adefd  fpc-3.2.2.arm-linux.tar
+0aa0310163a48c7e3d63a314ab26669142efe47543bbac32ca6164ef4829c775  fpc-3.2.2.powerpc64-linux.tar
+3c80271513567a8b17d06ce09229ee5aaec56e72fdaa1b2e948b8c0a23158ef6  fpc-3.2.2.x86_64-freebsd11.tar
+bf5ccbbc80905ba161104d35a8b41c48e4c0dfcdf8b67f8184f5ca2ef30e80ba  fpc-3.2.2.x86_64-solaris.tar
+d8c1c581945c21ca6b2bddb791af7ddfc17e6cb1fcfb6fc5b73e13f469aefc96  fpc-3.2.2.x86_64-netbsd.tar
+b71d0adbade3783a9e5fa67a33924f2b9fd5f61c7780d9c41a90eb7166fc5ffb  fpc-3.2.2.x86_64-dragonfly.tar

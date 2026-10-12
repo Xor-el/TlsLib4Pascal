@@ -54,6 +54,19 @@ jobs:
             runner: windows-latest
             fpc_target: x86_64-win64
     steps:
+      - name: Validate soak budget
+        shell: bash
+        run: |
+          case "$FUZZ_DISCOVERY_SECONDS" in
+            ''|*[!0-9]*|0|0[0-9]*|?????????*)
+              echo "::error::seconds must be an integer from 1 to 5400 (got '$FUZZ_DISCOVERY_SECONDS')"
+              exit 2 ;;
+          esac
+          if [ "$FUZZ_DISCOVERY_SECONDS" -gt 5400 ]; then
+            echo "::error::seconds must be an integer from 1 to 5400 (got '$FUZZ_DISCOVERY_SECONDS')"
+            exit 2
+          fi
+
       - name: Checkout
         uses: actions/checkout@v7
         with:

@@ -10,7 +10,7 @@
 #                 uninstall -> reject (after). The pre-install reject proves the store is the
 #                 discriminator (a leaked root cannot make it pass); the post-uninstall reject
 #                 proves cleanup. The root's CN carries a per-run id so it never collides.
-#                 The machine store is only ever mutated on a CI runner (GITHUB_ACTIONS=true) or
+#                 The machine store is only ever mutated on a github-hosted runner or
 #                 when TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 is set; elsewhere only the reject path runs.
 #   * os-anchors - our own verifier over the OS root set and its distrust set (the same installed
 #                 root). Inside the bracket a second per-run intermediate is marked OS-distrusted
@@ -43,6 +43,8 @@ set -euo pipefail
 
 SHIM="${1:?usage: run-trust.sh <TrustDelegateInterop binary>}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../shared/common.sh
+source "$HERE/../../shared/common.sh"
 
 TMP="$(mktemp -d)"
 CA="$TMP/ca"
@@ -52,6 +54,9 @@ FAILURES=0
 OSNAME="$(uname -s)"
 # a per-run loopback port + URL for the live OCSP responder (the live cells fetch it)
 OCSP_PORT=$(( 20000 + (RANDOM % 20000) ))
+while (echo >"/dev/tcp/127.0.0.1/$OCSP_PORT") 2>/dev/null; do
+  OCSP_PORT=$(( 20000 + (RANDOM % 20000) ))  # in use (connect succeeded): pick another
+done
 OCSP_URL="http://127.0.0.1:$OCSP_PORT"
 OCSP_PID=""
 # a separate DEAD port for the server-verifies-client indeterminate cell: nothing ever listens here,
@@ -79,7 +84,8 @@ DISTRUSTED=0
 # The cells that install into the machine trust store only ever run on a CI runner (or when
 # explicitly forced): a developer machine's store is never mutated by a casual local run.
 ci_store_mutation_allowed() {
-  [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${TLSLIB_TRUST_ALLOW_STORE_MUTATION:-}" = "1" ]
+  { [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]; } ||
+    [ "${TLSLIB_TRUST_ALLOW_STORE_MUTATION:-}" = "1" ]
 }
 
 cleanup() {
@@ -143,12 +149,6 @@ uninstall_distrust() {
 }
 
 AUTOROOT_ARMED=0
-autoroot_bounded() { # <secs> <cmd...>: same idiom as probe_bounded with a per-call limit
-  local secs="$1"; shift
-  if command -v timeout >/dev/null 2>&1; then timeout -k 5 "$secs" "$@"
-  elif command -v gtimeout >/dev/null 2>&1; then gtimeout -k 5 "$secs" "$@"
-  else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' "$secs" "$@"; fi
-}
 autoroot_ps() { # <action> [extra args]: run the AUTOROOT helper bounded; a timeout warns on stderr, rc stays 0
   local action="$1" secs=60 rc=0 out; shift
   case "$action" in
@@ -157,7 +157,7 @@ autoroot_ps() { # <action> [extra args]: run the AUTOROOT helper bounded; a time
   esac
   mkdir -p "$TMP/autoroot"
   out="$TMP/autoroot/$action.out"
-  autoroot_bounded "$secs" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+  ci_run_bounded "$secs" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass \
     -File "$(cygpath -w "$HERE/autoroot-probe.ps1")" -Action "$action" \
     -Work "$(cygpath -w "$TMP/autoroot")" "$@" >"$out" 2>&1 </dev/null || rc=$?
   tr -d '\r' <"$out"
@@ -210,7 +210,7 @@ OCSP_PID=$!
 # connect would be read by the single-threaded responder as a malformed request and disturb it; a
 # valid query it answers and loops. The new server cells run before the cells that used to warm it up.
 for _ in $(seq 1 50); do
-  if "$OPENSSL" ocsp -CAfile "$CA/root.pem" -issuer "$CA/root.pem" \
+  if ci_run_bounded 10 "$OPENSSL" ocsp -CAfile "$CA/root.pem" -issuer "$CA/root.pem" \
     -cert "$CA/live_leaf.pem" -url "$OCSP_URL" >/dev/null 2>&1; then break; fi
   sleep 0.2
 done
@@ -225,7 +225,7 @@ if [ -n "$PYBIN" ]; then
   "$PYBIN" -m http.server "$CRL_PORT" --bind 127.0.0.1 --directory "$CA/www" >/dev/null 2>&1 &
   CRL_PID=$!
   for _ in $(seq 1 50); do
-    if curl -fsS -o /dev/null "$CRL_URL" 2>/dev/null; then CRL_READY=1; break; fi
+    if curl -fsS --max-time 5 -o /dev/null "$CRL_URL" 2>/dev/null; then CRL_READY=1; break; fi
     sleep 0.2
   done
 fi
@@ -234,7 +234,7 @@ FUTURE_MS=$(( ($(date +%s) + 60*86400) * 1000 ))
 
 cell() { # <label> <shim-args...>
   local label="$1"; shift
-  if "$SHIM" "$@" > "$TMP/o" 2>&1; then
+  if ci_run_bounded 120 "$SHIM" "$@" > "$TMP/o" 2>&1; then
     echo "  PASS  $label"
   else
     echo "  FAIL  $label -> $(cat "$TMP/o")"; FAILURES=$((FAILURES+1))
@@ -312,8 +312,7 @@ if [ "$HAS_DELEGATE" = 1 ]; then
   cell "anchors host root baseline -> accept" --trust-mode os-anchors \
     --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
     --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
-  if ci_store_mutation_allowed && install_distrust; then
-    DISTRUSTED=1
+  if ci_store_mutation_allowed && { DISTRUSTED=1; install_distrust; }; then
     echo "  (distrusted intermediate $DTHUMB, host root only)"
     cell "delegate host root + distrusted intermediate -> reject" --trust-mode os-delegate \
       --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
@@ -340,11 +339,10 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     echo "  FAIL  could not install the distrusted intermediate"
     FAILURES=$((FAILURES+1))
   else
-    echo "  SKIPPED: not a CI runner (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
+    echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
   fi
 
-  if ci_store_mutation_allowed && install_root; then
-    INSTALLED=1
+  if ci_store_mutation_allowed && { INSTALLED=1; install_root; }; then
     echo "  (installed test root $THUMB)"
     # 2-tier chain (root -> leaf, no intermediate) under Hard: the only non-anchor cert is the leaf,
     # which carries a good stapled OCSP, so every element trustd/crypt32 revocation-checks has a
@@ -458,8 +456,8 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "anchors baseline (before distrust) -> accept" --trust-mode os-anchors \
       --server-cert "$CA/distrust_leaf_fullchain.pem" --server-key "$CA/distrust_leaf.key" \
       --posture soft --expect accept
+    DISTRUSTED=1
     if install_distrust; then
-      DISTRUSTED=1
       echo "  (distrusted intermediate $DTHUMB)"
       cell "delegate distrusted intermediate -> reject" --trust-mode os-delegate \
         --server-cert "$CA/distrust_leaf_fullchain.pem" --server-key "$CA/distrust_leaf.key" \
@@ -498,9 +496,11 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "delegate post-uninstall our root -> reject" --trust-mode os-delegate \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
       --staple "$CA/ocsp_good.der" --posture soft --expect reject
+  elif ci_store_mutation_allowed; then
+    echo "  FAIL  could not install the test root"
+    FAILURES=$((FAILURES+1))
   else
-    echo "  SKIPPED: not a CI runner (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force) or the test"
-    echo "           root could not be installed (need privilege); ran the reject path only"
+    echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force); ran the reject path only"
   fi
 
   # server-verifies-client with an UNREACHABLE responder: the client leaf's AIA is the dead port, so
@@ -539,15 +539,9 @@ resolve_ipv4() { # <host>: the shim dials a dotted IPv4 only
   esac
 }
 
-probe_bounded() { # <cmd...>: stock macOS runners have neither timeout nor gtimeout; perl's alarm bounds the run
-  if command -v timeout >/dev/null 2>&1; then timeout 60 "$@"
-  elif command -v gtimeout >/dev/null 2>&1; then gtimeout 60 "$@"
-  else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' 60 "$@"; fi
-}
-
 probe_cell() { # <mode> <ip> <host>: prints ACCEPT | REFUSE:<alert> | NET
   local out rc=0
-  out="$(probe_bounded "$SHIM" --trust-mode "$1" --connect "$2:443" --expect-name "$3" \
+  out="$(ci_run_bounded 60 "$SHIM" --trust-mode "$1" --connect "$2:443" --expect-name "$3" \
     --posture soft --expect accept 2>&1)" || rc=$?
   if [ "$rc" = 0 ]; then
     echo ACCEPT
@@ -730,7 +724,7 @@ case "$OSNAME" in
     if [ "${MAKE_RUN_AUTOROOT:-false}" != "true" ]; then
       echo "  SKIPPED: set MAKE_RUN_AUTOROOT=true to run"
     elif ! ci_store_mutation_allowed; then
-      echo "  SKIPPED: not a CI runner (the probe removes a root from the machine store)"
+      echo "  SKIPPED: store mutation not allowed (the probe removes a root from the machine store)"
     elif [ "${RUNNER_ENVIRONMENT:-}" != "github-hosted" ]; then
       echo "  SKIPPED: not a github-hosted runner (RUNNER_ENVIRONMENT=${RUNNER_ENVIRONMENT:-unset})"
     else
@@ -745,7 +739,7 @@ echo "=== macOS trust mode comparison (informational) ==="
 case "$OSNAME" in
   Darwin)
     if ! ci_store_mutation_allowed; then
-      echo "  SKIPPED: not a CI runner (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
+      echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
     else
       probe_setup
       probe_run_modes

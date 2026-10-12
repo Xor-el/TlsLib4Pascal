@@ -46,6 +46,44 @@ ci_download() {
   fi
 }
 
+# Fails unless $1 matches its "<sha256>  <name>" entry in $2: a missing entry must not disable the check.
+ci_verify_sha256() {
+  local file="$1" list="$2" name expected actual hash entry
+  name="$(basename "$file")"
+  expected=""
+  if [ -r "$list" ]; then
+    while read -r hash entry _ || [ -n "${hash:-}" ]; do
+      entry="$(printf '%s' "$entry" | tr -d '\015')"
+      if [ "${#hash}" -eq 64 ] && [ "$entry" = "$name" ]; then expected="$hash"; break; fi
+    done < "$list"
+  fi
+  if [ -z "$expected" ]; then
+    echo "::error::no SHA-256 listed for $name in $list" >&2
+    return 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum < "$file" | cut -d' ' -f1)"
+  elif command -v shasum >/dev/null 2>&1; then actual="$(shasum -a 256 < "$file" | cut -d' ' -f1)"
+  elif command -v sha256 >/dev/null 2>&1; then actual="$(sha256 -q < "$file")"
+  elif command -v digest >/dev/null 2>&1; then actual="$(digest -a sha256 "$file")"
+  else
+    echo "::error::no SHA-256 tool available to verify $name" >&2
+    return 1
+  fi
+  if [ "$actual" != "$expected" ]; then
+    echo "::error::SHA-256 mismatch for $name: expected $expected, got $actual" >&2
+    return 1
+  fi
+  echo "SHA-256 verified: $name"
+}
+
+# perl's alarm bounds the run where neither timeout nor gtimeout exists (stock macOS).
+ci_run_bounded() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout -k 5 "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout -k 5 "$secs" "$@"
+  else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' "$secs" "$@"; fi
+}
+
 ci_install_toolchain() {
   : "${FPC_TARGET:?FPC_TARGET is required}"
   bash "$WORKFLOWS_DIR/install-fpc-lazarus.sh"
