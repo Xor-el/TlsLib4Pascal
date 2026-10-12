@@ -632,14 +632,17 @@ procedure TTestConfigBuilder.TestEchKeyStoreRetryConfigsMustBeAValidList;
 var
   LSk: ISecretBuffer;
   LReal: IEchServerKeyStore;
+  LForeignSk: ISecretBuffer;
+  LForeign: TBytes;
   LCase: Int32;
   LRaised: Boolean;
 begin
-  // the retry configs go on the wire as they are: an empty or malformed list is refused up front,
-  // while the store's own list passes
+  // the retry configs go on the wire as they are: an empty, malformed or foreign list is refused
+  // up front, while the store's own list passes
   LReal := TInMemoryEchKeyStore.FromConfig(BuildEchConfigList($E6, 'cover.example', LSk), LSk,
     Crypto);
-  for LCase := 0 to 2 do
+  LForeign := BuildEchConfigList($E7, 'cover.example', LForeignSk);
+  for LCase := 0 to 3 do
   begin
     LRaised := False;
     try
@@ -650,12 +653,14 @@ begin
              TRetryOverrideKeyStore.Create(LReal, DecodeHex('00ff0102')) as IEchServerKeyStore);
         2: NewServerBuilder.Tls13.WithEchKeyStore(
              TRetryOverrideKeyStore.Create(LReal, LReal.RetryConfigs) as IEchServerKeyStore);
+        3: NewServerBuilder.Tls13.WithEchKeyStore(
+             TRetryOverrideKeyStore.Create(LReal, LForeign) as IEchServerKeyStore);
       end;
     except
       on E: EArgumentTlsLibException do
         LRaised := True;
     end;
-    CheckEquals(LCase < 2, LRaised, Format('retry configs case %d', [LCase]));
+    CheckEquals(LCase <> 2, LRaised, Format('retry configs case %d', [LCase]));
   end;
 end;
 

@@ -30,6 +30,7 @@ uses
   TlpEchOuterExtensions,
   TlpIEch,
   TlpSecureMemory,
+  TlpArrayUtilities,
   TlpTlsVersion,
   TlpTlsAlert,
   TlpTlsLibExceptions;
@@ -49,6 +50,8 @@ type
     FTrialDecrypt: Boolean;
     constructor Create(ARole: TEchServerRole; const AKeyStore: IEchServerKeyStore;
       ATrialDecrypt: Boolean);
+    class function RetryNamesAnEntry(const ARetryConfigs: TArray<TEchConfig>;
+      const AEntries: TArray<TEchKeyEntry>): Boolean; static;
   public
     /// <summary>A server that holds ECH keys. Every entry of AKeyStore (any implementation, not
     /// only the in-memory one) must be one ACrypto can serve: a key that belongs to its config, a
@@ -126,8 +129,8 @@ resourcestring
   SEchNilKeyStore = 'a keyed ECH server needs a key store (pass one, not nil)';
   SEchEmptyKeyStore = 'a keyed ECH server needs at least one key store entry: with none it ' +
     'rejects every ECH offer and advertises no retry configs';
-  SEchBadRetryConfigs = 'the ECH key store retry configs are empty or not a valid ' +
-    'ECHConfigList';
+  SEchBadRetryConfigs = 'the ECH key store retry configs are empty, not a valid ' +
+    'ECHConfigList, or name no config of a store entry';
   SEchHandshakeNeedsKeyed = 'the ECH server handshake needs a Keyed policy';
   SEchEntryNotServable = 'ECH key store entry %d (config_id %d) cannot be served: it needs a ' +
     'key that matches its config, a servable config, and every advertised cipher suite ' +
@@ -155,11 +158,25 @@ begin
   FTrialDecrypt := ATrialDecrypt;
 end;
 
+class function TEchServerPolicy.RetryNamesAnEntry(const ARetryConfigs: TArray<TEchConfig>;
+  const AEntries: TArray<TEchKeyEntry>): Boolean;
+var
+  LRetry, LEntry: Int32;
+begin
+  Result := False;
+  for LRetry := 0 to System.High(ARetryConfigs) do
+    if ARetryConfigs[LRetry].Version = TEchConfig.SupportedVersion then
+      for LEntry := 0 to System.High(AEntries) do
+        if TArrayUtilities.AreEqual(ARetryConfigs[LRetry].Raw, AEntries[LEntry].Config.Raw) then
+          Exit(True);
+end;
+
 class function TEchServerPolicy.Keyed(const ACrypto: ICryptoProvider;
   const AKeyStore: IEchServerKeyStore; ATrialDecrypt: Boolean): IEchServerPolicy;
 var
   LEntries: TArray<TEchKeyEntry>;
   LRetry: TBytes;
+  LRetryConfigs: TArray<TEchConfig>;
   LI: Int32;
 begin
   if ACrypto = nil then
@@ -173,14 +190,16 @@ begin
     if not LEntries[LI].IsServableBy(ACrypto) then
       raise EArgumentTlsLibException.CreateResFmt(@SEchEntryNotServable,
         [LI, LEntries[LI].Config.ConfigId]);
-  // the retry configs go on the wire as they are, so a custom store's must be a real list
+  // the retry list goes on the wire verbatim, so it must parse and name a servable entry
   LRetry := AKeyStore.RetryConfigs;
   try
-    TEchConfigList.Parse(LRetry);
+    LRetryConfigs := TEchConfigList.Parse(LRetry);
   except
     on EDecodeErrorTlsLibException do
       raise EArgumentTlsLibException.CreateRes(@SEchBadRetryConfigs);
   end;
+  if not RetryNamesAnEntry(LRetryConfigs, LEntries) then
+    raise EArgumentTlsLibException.CreateRes(@SEchBadRetryConfigs);
   Result := TEchServerPolicy.Create(TEchServerRole.Keyed, AKeyStore, ATrialDecrypt)
     as IEchServerPolicy;
 end;
