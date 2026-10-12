@@ -16,7 +16,9 @@
 #                 root). Inside the bracket a second per-run intermediate is marked OS-distrusted
 #                 (Windows Disallowed / macOS Deny): both the delegate and os-anchors must reject a
 #                 path through it (os-anchors with bad_certificate), a non-distrusted intermediate
-#                 and a twin of the distrusted one still verify.
+#                 and a twin of the distrusted one still verify. Before the root install, the same
+#                 distrust is applied to a path that relied on a --host-root (the run root passed
+#                 beside the OS roots), where it must win too.
 #
 # The server-cert delegate reject cells whose alert is a per-OS status-map code (hostname, EKU,
 # expired) assert only that the handshake aborts with a fatal alert, not the exact code: the two OS
@@ -245,6 +247,48 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --client-key "$CA/live_client_revoked.key" --client-ca "$CA/root.pem" \
       --posture hard --expect reject:44
   done
+
+  # OS distrust beats a host root: the run root is NOT installed here, only passed as --host-root, so a
+  # path through the OS-distrusted intermediate relies on the host root and must still be refused. The
+  # baseline accept (host root, nothing distrusted) and the undistrusted-intermediate control keep the
+  # reject from being a vacuous "host root ignored".
+  echo "=== host root vs OS distrust (root not installed) ==="
+  cell "delegate host root baseline -> accept" --trust-mode os-delegate \
+    --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+    --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
+  cell "anchors host root baseline -> accept" --trust-mode os-anchors \
+    --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+    --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
+  if ci_store_mutation_allowed && install_distrust; then
+    DISTRUSTED=1
+    echo "  (distrusted intermediate $DTHUMB, host root only)"
+    cell "delegate host root + distrusted intermediate -> reject" --trust-mode os-delegate \
+      --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+      --server-key "$CA/distrust_leaf.key" --posture soft --expect reject
+    cell "[12] delegate host root + distrusted intermediate -> reject" --trust-mode os-delegate \
+      --tls-version 12 --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+      --server-key "$CA/distrust_leaf.key" --posture soft --expect reject
+    cell "anchors host root + distrusted intermediate -> bad_certificate" --trust-mode os-anchors \
+      --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+      --server-key "$CA/distrust_leaf.key" --posture soft --expect reject:42
+    cell "delegate host root, undistrusted intermediate (control) -> accept" \
+      --trust-mode os-delegate --host-root "$CA/root.pem" --server-cert "$CA/leaf_fullchain.pem" \
+      --server-key "$CA/leaf.key" --staple "$CA/ocsp_good.der" --posture soft --expect accept
+    uninstall_distrust
+    DISTRUSTED=0
+    case "$OSNAME" in
+      MINGW*|MSYS*|CYGWIN*|Windows*)
+        cell "delegate host root after removing the distrust -> accept" --trust-mode os-delegate \
+          --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+          --server-key "$CA/distrust_leaf.key" --posture soft --expect accept ;;
+      *) echo "  (skipped post-removal cell: a macOS trust setting needs the SIP-restricted right to remove)" ;;
+    esac
+  elif ci_store_mutation_allowed; then
+    echo "  FAIL  could not install the distrusted intermediate"
+    FAILURES=$((FAILURES+1))
+  else
+    echo "  SKIPPED: not a CI runner (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
+  fi
 
   if ci_store_mutation_allowed && install_root; then
     INSTALLED=1
