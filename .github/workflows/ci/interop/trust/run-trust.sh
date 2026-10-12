@@ -87,6 +87,7 @@ cleanup() {
   if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; wait "$CRL_PID" 2>/dev/null || true; fi
   if [ "$DISTRUSTED" = 1 ]; then uninstall_distrust || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
+  autoroot_svc_ensure || true
   autoroot_restore || true
   autoroot_policy_restore || true
   autoroot_capi_off || true
@@ -152,7 +153,7 @@ autoroot_ps() { # <action> [extra args]: run the AUTOROOT helper bounded; a time
   local action="$1" secs=60 rc=0 out; shift
   case "$action" in
     restore) secs=120 ;;
-    diag|ctl|leaf|capidump|svcrestart) secs=90 ;;
+    diag|ctl|leaf|capidump|svcrestart|svcensure) secs=90 ;;
   esac
   mkdir -p "$TMP/autoroot"
   out="$TMP/autoroot/$action.out"
@@ -615,6 +616,13 @@ AUTOROOT_LIVE=48002000    # REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | REVOCATION_ACC
 AUTOROOT_CONTROL=00002000 # DISABLE_AIA only
 AUTOROOT_CAPI=0
 AUTOROOT_POLICY=0
+AUTOROOT_SVC=0
+
+autoroot_svc_ensure() { # idempotent: a CryptSvc restart that timed out must not leave the service stopped
+  [ "$AUTOROOT_SVC" = 1 ] || return 0
+  AUTOROOT_SVC=0
+  autoroot_ps svcensure | tail -n 1 | sed 's/^/  /'
+}
 
 autoroot_capi_off() { # idempotent: put the CAPI2 operational log back to its prior state
   [ "$AUTOROOT_CAPI" = 1 ] || return 0
@@ -684,7 +692,9 @@ autoroot_probe() {
   echo "  C5 control (C1, URL cache kept):     $c5"
   c6=''
   if ! autoroot_installed "$c1" && ! autoroot_installed "$c3" && ! autoroot_installed "$c5"; then
+    AUTOROOT_SVC=1
     echo "  $(autoroot_ps svcrestart | tail -n 1)"
+    autoroot_svc_ensure
     c6="$(autoroot_run $AUTOROOT_CONTROL plain inter)"
     echo "  C6 control (C1 after CryptSvc restart): $c6"
   fi
