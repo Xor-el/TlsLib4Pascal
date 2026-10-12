@@ -2,9 +2,9 @@
 
 A minimal console app that verifies a live HTTPS server chain against the **host OS trust
 store** with no manual trust config: an unmodified `TFPHTTPClient` does a GET with its TLS
-carried by the **FclNet adapter**, and the peer is verified against the OS system-trust store
-(Windows crypt32 / macOS SecTrust / Unix `/etc/ssl` bundle) that TlsLib4Pascal harvests and
-validates itself — no pinned root, no OpenSSL.
+carried by the **FclNet adapter**, and the peer is verified against the OS system-trust store: the
+OS engine on Windows (crypt32) and macOS (SecTrust), the `/etc/ssl` bundle that TlsLib4Pascal
+harvests and validates itself on Unix — no pinned root, no OpenSSL.
 
 This is the **Free Pascal counterpart to the Delphi FMX/Indy trust demo** in
 `../Delphi`. They are deliberately separate: the trust *system* is shared (the same
@@ -41,6 +41,8 @@ lazbuild --cpu=x86_64 --os=win64 TlsLib.Trust.System/Examples/Lazarus/SystemTrus
 It is a **network-gated demo, not a test gate**: it needs outbound HTTPS and exits 0 (PASS) /
 2 (SKIP, offline) / 1 (FAIL).
 
+Pass `host-roots` to run the host-roots cells instead (`./SystemTrustDemo host-roots`); see below.
+
 ## What to look for
 
 - `https://postman-echo.com/get` (the `GetUrl` / `Host` constants in `src/SystemTrustExample.pas`)
@@ -48,3 +50,19 @@ It is a **network-gated demo, not a test gate**: it needs outbound HTTPS and exi
   config, entirely inside TlsLib4Pascal.
 - Edit those constants to point at a host with an untrusted/self-signed chain → verification
   **fails closed** (system trust is never implicit).
+
+## Host roots cells
+
+`SystemTrustDemo host-roots` passes the demo's own root beside the OS roots (the rule is in
+`docs/system-trust.md`, "Host roots beside the OS roots") and prints one `PASS:` / `FAIL:` /
+`SKIP:` line per cell, per mode. The modes are `Default` and, where `Default` is the OS engine
+(Windows, macOS), `Anchors`. Exit code 0 / 1 / 2 as above.
+
+| Cell | Host root | Expected |
+|---|---|---|
+| `postman-echo.com`, a public site | an unrelated test root | connects through the OS roots |
+| `untrusted-root.badssl.com` | its own root (embedded PEM) | connects |
+| `untrusted-root.badssl.com` | none | refused |
+| `expired.badssl.com` | the badssl root | refused (expiry is final) |
+| `wrong.host.badssl.com` | the badssl root | refused (name is final) |
+| `self-signed.badssl.com` | an unrelated test root | refused |

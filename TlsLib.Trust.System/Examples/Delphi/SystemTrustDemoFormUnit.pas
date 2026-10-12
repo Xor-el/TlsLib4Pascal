@@ -41,15 +41,19 @@ type
     lblUrl: TLabel;
     edtUrl: TEdit;
     btnRun: TButton;
+    btnHostRoots: TButton;
     memLog: TMemo;
     procedure FormCreate(Sender: TObject);
     procedure btnRunClick(Sender: TObject);
+    procedure btnHostRootsClick(Sender: TObject);
   private
     procedure AppendLog(const ALine: string);
     procedure SetBusy(ABusy: Boolean);
     /// <summary>Runs the demo off the UI thread (mobile platforms forbid network on it) and hands
-    /// its lines to ShowResults on it.</summary>
-    procedure RunDemo(const AUrl: string);
+    /// its lines to ShowResults on it. AHostRoots picks the host-roots cells instead of the
+    /// system-trust GET and checks.</summary>
+    procedure RunDemo(const AUrl: string; AHostRoots: Boolean);
+    procedure StartDemo(const AHeading: string; AHostRoots: Boolean);
     procedure ShowResults(const ALines: TArray<string>);
   public
   end;
@@ -84,15 +88,19 @@ begin
   // No per-platform trust setup here - the OS system trust store decides. (On Android
   // the JVM is resolved on the first verification; FPC/Android builds would call
   // TlsLibAndroidInitTrust once at startup, which is the only platform that needs it.)
-  AppendLog('Enter an https:// URL and tap Verify - the OS system trust store decides.');
+  AppendLog('Enter an https:// URL and tap Verify - the OS system trust store decides. ' +
+    'Host roots runs the extra-root cells against badssl.com.');
 end;
 
-procedure TSystemTrustDemoForm.RunDemo(const AUrl: string);
+procedure TSystemTrustDemoForm.RunDemo(const AUrl: string; AHostRoots: Boolean);
 var
   LLines: TArray<string>;
 begin
   try
-    LLines := TSystemTrustDemoRunner.Run(AUrl);
+    if AHostRoots then
+      LLines := TSystemTrustDemoRunner.RunHostRoots(AUrl)
+    else
+      LLines := TSystemTrustDemoRunner.Run(AUrl);
   except
     // a raise must still release the busy button, so it is reported as a line
     on E: Exception do
@@ -114,7 +122,7 @@ begin
   SetBusy(False);
 end;
 
-procedure TSystemTrustDemoForm.btnRunClick(Sender: TObject);
+procedure TSystemTrustDemoForm.StartDemo(const AHeading: string; AHostRoots: Boolean);
 var
   LUrl: string;
 begin
@@ -122,13 +130,23 @@ begin
   if LUrl = '' then
     Exit;
   SetBusy(True);
-  AppendLog('GET ' + LUrl + ' (UseSystemTrust) ...');
+  AppendLog(AHeading + ' ' + LUrl + ' ...');
   // Network off the UI thread; report back on it.
   TTask.Run(
     procedure
     begin
-      RunDemo(LUrl);
+      RunDemo(LUrl, AHostRoots);
     end);
+end;
+
+procedure TSystemTrustDemoForm.btnRunClick(Sender: TObject);
+begin
+  StartDemo('GET (UseSystemTrust)', False);
+end;
+
+procedure TSystemTrustDemoForm.btnHostRootsClick(Sender: TObject);
+begin
+  StartDemo('Host roots cells, public site', True);
 end;
 
 end.

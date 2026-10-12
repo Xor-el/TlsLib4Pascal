@@ -23,7 +23,7 @@ carries no platform-specific trust code.
 |---|---|
 | `SystemTrustDemo.dpr` | Program. Compiles the core, `TlsLib.Trust.System` and the Indy adapter from source via the search path. |
 | `SystemTrustDemoFormUnit.pas` / `.fmx` | The form: a URL box, a button and a log. It runs the demo off the UI thread and shows the lines it returns. No platform-specific trust code. |
-| `SystemTrustDemoRunner.pas` | Everything the demo does: the OS-verified GET, then the offline OS-delegate checks below. |
+| `SystemTrustDemoRunner.pas` | Everything the demo does: the OS-verified GET, then the offline OS-delegate checks below; also the host-roots cells. |
 
 ## Building it (RAD Studio, author side)
 
@@ -64,6 +64,26 @@ headless build scripts.
 - Point the URL at a host with an untrusted or self-signed chain -> the verification **fails
   closed** (rejects with `unknown_ca`/`certificate_expired`); rejection reasons are written to
   logcat under the `TlsLib` tag.
+
+## Host roots cells
+
+Tap **Host roots beside OS roots** to run the host-roots cells. Each cell fetches a live site
+with the demo's own root passed beside the OS roots (the rule is in `docs/system-trust.md`,
+"Host roots beside the OS roots") and prints `PASS:`, `FAIL:` or `SKIP:` (offline) against what
+the cell expects. The log heading names the mode that ran: `Default = Delegate (OS engine)`, and
+on Windows and macOS also `Anchors`. Android and iOS have only the Delegate mode.
+
+| Cell | Host root | Expected |
+|---|---|---|
+| the URL box (default `postman-echo.com`), a public site | an unrelated test root | connects through the OS roots |
+| `untrusted-root.badssl.com` | its own root (embedded PEM) | connects |
+| `untrusted-root.badssl.com` | none | refused |
+| `expired.badssl.com` | the badssl root | refused (expiry is final) |
+| `wrong.host.badssl.com` | the badssl root | refused (name is final) |
+| `self-signed.badssl.com` | an unrelated test root | refused |
+
+On a phone, a `FAIL:` on the second cell means the host root was not trusted beside the OS roots;
+a `FAIL:` on any refused cell means a final failure (expiry, name, untrusted) was rescued.
 
 ## Caveats (shared with the iOS delegate, by design)
 

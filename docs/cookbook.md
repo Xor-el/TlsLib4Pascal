@@ -241,6 +241,11 @@ The short version — the full treatment is in
 //   uses TlpSystemTrustFacade;
 //   .WithServerVerification(TSystemTrust.ServerVerification(Pkix).Build)
 
+// the OS root store plus my private CA (a chain the OS rejects only for lack of a root is
+// judged against my CA; any other OS failure stays final)
+//   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
+//     TTrustAnchorStore.Create(Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore).Build)
+
 // a fixed offline root bundle (needs TlsLib.Trust.Bundle)
 //   uses TlpBundleTrust;
 .WithServerVerification(TServerVerification.WebPki(TBundleTrust.FromPemFile(Pkix, 'roots.pem')).Build)

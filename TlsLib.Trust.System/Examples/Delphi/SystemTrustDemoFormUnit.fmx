@@ -40,6 +40,16 @@ object SystemTrustDemoForm: TSystemTrustDemoForm
     Text = 'Verify via OS system trust'
     OnClick = btnRunClick
   end
+  object btnHostRoots: TButton
+    Position.X = 8.000000000000000000
+    Position.Y = 176.000000000000000000
+    Size.Width = 336.000000000000000000
+    Size.Height = 44.000000000000000000
+    Size.PlatformDefault = False
+    TabOrder = 1
+    Text = 'Host roots beside OS roots'
+    OnClick = btnHostRootsClick
+  end
   object memLog: TMemo
     Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
     DataDetectorTypes = []
@@ -47,12 +57,12 @@ object SystemTrustDemoForm: TSystemTrustDemoForm
     StyledSettings = [Family, Style, FontColor]
     TextSettings.Font.Size = 13.000000000000000000
     Position.X = 8.000000000000000000
-    Position.Y = 184.000000000000000000
+    Position.Y = 232.000000000000000000
     Size.Width = 336.000000000000000000
-    Size.Height = 444.000000000000000000
+    Size.Height = 396.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 3
     Viewport.Width = 332.000000000000000000
-    Viewport.Height = 440.000000000000000000
+    Viewport.Height = 392.000000000000000000
   end
 end
