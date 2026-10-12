@@ -41,6 +41,8 @@ uses
   TlpCertificateVerifier,
   TlpServerName,
   TlpTrustPolicy,
+  TlpICertificateVerifierSource,
+  TlpCertificateVerifierSource,
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -211,15 +213,16 @@ type
   public
     ClientRoleCalled: Boolean;
     ClientPkix: IPkixProvider;
+    ExtraAnchors: ITrustAnchorStore;
     // unique per instance unless a test sets it, so two fakes differ the way two installers
     // installing different roots do
     InstallerIdentity: string;
-    // installed instead of the store, as a delegate-only platform does
-    DelegateVerifier: IServerCertificateVerifier;
+    // refuses host roots beside it, as a delegate-only platform does
+    DelegateOnly: Boolean;
     constructor Create(ARaise: Boolean; const AStore: ITrustAnchorStore);
     function Identity: string;
-    procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
-      const APkix: IPkixProvider);
+    function ServerVerification(const APkix: IPkixProvider;
+      const AExtraAnchors: ITrustAnchorStore): IServerVerification;
   end;
 
   // an always-reject verifier - the composer only wires it; nothing here runs a handshake
@@ -289,17 +292,17 @@ begin
   Result := InstallerIdentity;
 end;
 
-procedure TFakeSystemTrustInstaller.InstallClientTrust(
-  const ABuilder: ITlsClientConfigBuilder; const APkix: IPkixProvider);
+function TFakeSystemTrustInstaller.ServerVerification(const APkix: IPkixProvider;
+  const AExtraAnchors: ITrustAnchorStore): IServerVerification;
 begin
   if FRaise then
     raise EInvalidOperationTlsLibException.Create('installer refused');
   ClientRoleCalled := True;
   ClientPkix := APkix;
-  if DelegateVerifier <> nil then
-    ABuilder.WithDangerousCertificateVerifier(DelegateVerifier)
-  else
-    ABuilder.WithTrustStore(FStore);
+  ExtraAnchors := AExtraAnchors;
+  if DelegateOnly and (AExtraAnchors <> nil) then
+    raise EInvalidOperationTlsLibException.Create('host roots beside the delegate');
+  Result := TServerVerification.WebPki(FStore).Build;
 end;
 
 { TFakeServerVerifier }
@@ -1000,7 +1003,7 @@ var
   LHinted: Boolean;
 begin
   LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
-  LFake.DelegateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LFake.DelegateOnly := True;
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.SystemTrust := LInst;
@@ -1021,22 +1024,26 @@ var
   LOpts: TTlsOptions;
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
-  LBuilderError: Boolean;
+  LBlamed: Boolean;
 begin
   LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LFake.DelegateOnly := True;
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.SystemTrust := LInst;
   LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
   LOpts.CustomTrustStore := EcP256RootStore;
-  LBuilderError := False;
+  LOpts.TrustSourceHint := 'MyTrustKnob';
+  LBlamed := True;
   try
     TTlsConfigComposer.BuildClientConfig(LOpts);
   except
-    on E: EInvalidOperationTlsLibException do
-      LBuilderError := True;
+    on E: ETlsStreamError do
+      // the host set the verifier, so the message is the verifier conflict, not a delegate limit
+      LBlamed := Pos('delegate-only', E.Message) > 0;
   end;
-  CheckTrue(LBuilderError, 'the builder''s own conflict surfaces when the host set the verifier');
+  CheckFalse(LBlamed, 'a verifier beside host trust is reported as that conflict');
+  CheckFalse(LFake.ClientRoleCalled, 'and the system-trust installer is never asked');
 end;
 
 procedure TTestTlsConnection.TestHostServerConfigWithEarlyDataIsRefused;
@@ -1918,7 +1925,8 @@ var
   LRaised: Boolean;
 begin
   LClockObj := TMockMonotonicClock.Create(1000);
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustStore(EcP256RootStore)
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(EcP256RootStore))
     .WithMonotonicClock(LClockObj as ITlsMonotonicClock).Build;
   LTransport := TTestMemoryTransport.Create(nil, True);
   LTimed := LTransport as ITlsTransport;
@@ -1948,7 +1956,8 @@ var
   LConnection: TTlsConnection;
   LDestroyed, LRaised: Boolean;
 begin
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustStore(EcP256RootStore).Build;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(EcP256RootStore)).Build;
   LTransport := TTestMemoryTransport.Create(nil, True);
   LDestroyed := False;
   LTransport.ReportDestructionTo(@LDestroyed);

@@ -24,6 +24,7 @@ uses
   TlpTlsPresets,
   TlpTlsCredential,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpITlsConfig,
   TlpTlsEngineFactory,
   TlpITlsEngine,
@@ -37,7 +38,7 @@ type
   /// SSL_CTX - and each RunOneHandshake creates a fresh engine pair and drives a full
   /// 1-RTT handshake to completion over an in-memory pump (no sockets), analogous to
   /// SSL_new + the handshake. Peer-certificate PKIX validation is disabled on the client
-  /// (WithDangerousInsecureSkipVerify) so the measurement isolates the handshake proper -
+  /// (TServerVerification.DangerousSkip) so the measurement isolates the handshake proper -
   /// the ECDHE key exchange plus the ECDSA-P256 CertificateVerify - matching the OpenSSL
   /// peer's SSL_VERIFY_NONE. The offered version and ECDHE group are pinned on both ends.
   /// </summary>
@@ -107,8 +108,7 @@ begin
   LClient := LClientBuilder.Client;
   LClient.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LClient.WithPreferredGroups(OfferedGroups(AGroupCode, LCertGroup));
-  LClient.WithDangerousInsecureSkipVerify;
-  LClient.WithTrustAnchors(ACredential.RootCertDer); // a trust source is still required by Build
+  LClient.WithServerVerification(TServerVerification.DangerousSkip);
   FClientConfig := LClient.Build;
 
   LServerBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);

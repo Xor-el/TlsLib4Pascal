@@ -17,24 +17,27 @@ interface
 
 uses
   TlpIPkixProvider,
-  TlpITlsConfigBuilder;
+  TlpITrustAnchorStore,
+  TlpICertificateVerifierSource;
 
 type
   /// <summary>
-  /// Installs the OS system-trust source into a client config builder as the server-certificate
-  /// trust source: the anchors the platform can enumerate, or the OS delegate where it cannot. Lets
-  /// a host-neutral composer add system trust without depending on the system-trust package. System
-  /// trust never vouches for a client certificate: a server's client-CA is always caller-supplied.
+  /// Supplies the OS system-trust policy for the server certificate: the anchors the platform can
+  /// enumerate, or the OS delegate where it cannot. Lets a host-neutral composer add system trust
+  /// without depending on the system-trust package. System trust never vouches for a client
+  /// certificate: a server's client-CA is always caller-supplied.
   /// </summary>
   ISystemTrustInstaller = interface(IInterface)
-    ['{B7FAF480-B5A2-42F3-B18E-9745FABFC363}']
+    ['{C74B4E15-F82E-49C1-993A-EE5DF87BE778}']
     /// <summary>Names what this installer installs: equal for installers that install the same
     /// trust, different otherwise, never empty, and stable for the installer's lifetime. Config
     /// caches key on it, so two installers that install different roots must not share one.</summary>
     function Identity: string;
-    /// <summary>Installs OS server-certificate trust into a client builder.</summary>
-    procedure InstallClientTrust(const ABuilder: ITlsClientConfigBuilder;
-      const APkix: IPkixProvider);
+    /// <summary>The OS server-certificate trust policy. AExtraAnchors (nil for none) are the
+    /// host's own roots to trust beside the OS ones; a platform that cannot union them raises
+    /// instead of ignoring them.</summary>
+    function ServerVerification(const APkix: IPkixProvider;
+      const AExtraAnchors: ITrustAnchorStore): IServerVerification;
   end;
 
 implementation

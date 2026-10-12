@@ -25,6 +25,20 @@ uses
 
 type
   /// <summary>
+  /// How a client offers Encrypted Client Hello (RFC 9849): one exclusive choice, made by
+  /// TEchClientModes. A config list is offered for real (Enable, Retry) or ECH is only GREASEd.
+  /// </summary>
+  IEchClientMode = interface(IInterface)
+    ['{9C41D6B7-3A58-4E0F-8B72-5D1E96A0C3F4}']
+    /// <summary>The ECHConfigList to offer; empty for GREASE.</summary>
+    function ConfigList: TBytes;
+    /// <summary>Whether this attempt follows an earlier ECH reject (the one-retry cap).</summary>
+    function IsRetry: Boolean;
+    /// <summary>Whether ECH is only GREASEd, with no config to offer.</summary>
+    function IsGrease: Boolean;
+  end;
+
+  /// <summary>
   /// The client's frozen Encrypted Client Hello policy (RFC 9849): the parsed
   /// ECHConfigList to offer, whether GREASE ECH is enabled, and whether this handshake
   /// is a retry after an earlier reject (the one-retry cap of sec. 6.1.6). Immutable and

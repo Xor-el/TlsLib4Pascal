@@ -38,9 +38,12 @@ uses
   TlpSession,
   TlpIClock,
   TlpIEch,
+  TlpEchConfig,
+  TlpEchClient,
   TlpICertificateCompression,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpITlsEngine,
   TlpTlsEngineFactory;
@@ -183,6 +186,10 @@ type
     /// classical ECDHE group.</summary>
     class function OnlyPostQuantumGroups(const ACryptoProvider: ICryptoProvider;
       const ACodes: TArray<UInt16>): Boolean; static;
+    /// <summary>The client's ECH choice from the runner's list and GREASE flags: nil, Enable, or
+    /// Grease (an unusable list falls back to GREASE only when GREASE was asked for).</summary>
+    class function ClientEchMode(const ACryptoProvider: ICryptoProvider;
+      const AOptions: TInteropEngineOptions): IEchClientMode; static;
     /// <summary>Returns AVersions without the TLS 1.2 wire version.</summary>
     class function WithoutTls12(const AVersions: TArray<UInt16>): TArray<UInt16>; static;
     // whether the version list offers TLS 1.3 (an empty list = the preset default, which does)
@@ -281,6 +288,27 @@ begin
       Exit(False);
 end;
 
+class function TInteropEngine.ClientEchMode(const ACryptoProvider: ICryptoProvider;
+  const AOptions: TInteropEngineOptions): IEchClientMode;
+var
+  LConfig: TEchConfig;
+  LSuite: IHpkeSuite;
+begin
+  Result := nil;
+  if System.Length(AOptions.EchConfigList) > 0 then
+  begin
+    // a usable list is offered for real; an unusable one degrades to GREASE only when the runner
+    // asked for it, and otherwise stays Enable so Build refuses it
+    if AOptions.EchGrease and not TEchConfigList.TrySelect(
+      TEchConfigList.Parse(AOptions.EchConfigList), ACryptoProvider, LConfig, LSuite) then
+      Result := TEchClientModes.Grease
+    else
+      Result := TEchClientModes.Enable(AOptions.EchConfigList);
+  end
+  else if AOptions.EchGrease then
+    Result := TEchClientModes.Grease;
+end;
+
 class function TInteropEngine.WithoutTls12(
   const AVersions: TArray<UInt16>): TArray<UInt16>;
 var
@@ -344,6 +372,8 @@ var
   LVersions: TArray<UInt16>;
   LCredential: TTlsCredential;
   LResumptionOff: Boolean;
+  LPosture: TRevocationPosture;
+  LEchMode: IEchClientMode;
 begin
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
@@ -367,6 +397,10 @@ begin
   if AOptions.Role = TInteropRole.Client then
   begin
     LClient := LBuilder.Client;
+    LEchMode := ClientEchMode(ACryptoProvider, AOptions);
+    // a real ECH offer is TLS 1.3-only; the runner's version pair is narrowed to match
+    if (LEchMode <> nil) and (not LEchMode.IsGrease) then
+      LVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
     if System.Length(AOptions.OfferedGroups) > 0 then
       LClient.WithPreferredGroups(AOptions.OfferedGroups);
     if System.Length(AOptions.VerifySchemes) > 0 then
@@ -377,11 +411,15 @@ begin
       LClient.WithAlpnProtocols(AOptions.AlpnProtocols);
     // verify the server chain against the supplied trust anchor, or accept any chain when
     // the test supplies none (the leaf-parse and signature checks still run first)
+    LPosture := TRevocationPosture.Soft;
+    if AOptions.ApplyRevocation then
+      LPosture := AOptions.RevocationPosture;
     if AOptions.AcceptAnyPeerCert and (AOptions.Trust = nil) then
-      LClient.WithDangerousCertificateVerifier(
-        TInteropAcceptAnyVerifier.Create as IServerCertificateVerifier)
-    else
-      LClient.WithTrustStore(AOptions.Trust);
+      LClient.WithServerVerification(TServerVerification.Custom(
+        TInteropAcceptAnyVerifier.Create as IServerCertificateVerifier, LPosture))
+    else if AOptions.Trust <> nil then
+      LClient.WithServerVerification(
+        TServerVerification.WebPki(AOptions.Trust).WithRevocation(LPosture).Build);
     // name checking is on by default; the shim disables the RFC 9525 match when the runner
     // did not ask for it (BoGo drives host identity via -expect-* assertions, not the match)
     if not AOptions.CheckServerName then
@@ -390,8 +428,6 @@ begin
     // deterministic assertions (e.g. exact key_share counts) are not perturbed
     LClient.WithGrease(AOptions.Grease);
     LClient.WithOcspStaplingRequest(AOptions.RequestOcsp);
-    if AOptions.ApplyRevocation then
-      LClient.WithRevocation(AOptions.RevocationPosture);
     // async verdict (-async): park after the pipeline accepts and let the driver resolve the
     // verdict out-of-band. Otherwise -verify-fail installs an augment hook that rejects inline.
     if AOptions.AsyncVerify then
@@ -430,12 +466,8 @@ begin
       LClient.WithClock(AOptions.Clock);
     if AOptions.OfferEarlyData then
       LClient.Tls13.WithEarlyData(True);
-    // Encrypted Client Hello (RFC 9849): offer the supplied ECHConfigList, or GREASE when
-    // asked and none is usable; a reject surfaces as an ech_required abort, never a fallback
-    if System.Length(AOptions.EchConfigList) > 0 then
-      LClient.Tls13.WithEncryptedClientHello(AOptions.EchConfigList);
-    if AOptions.EchGrease then
-      LClient.Tls13.WithEchGrease(True);
+    if LEchMode <> nil then
+      LClient.Tls13.WithEch(LEchMode);
     if AOptions.OverrideCertCompression then
       LClient.Tls13.WithCertificateCompressors(AOptions.CertificateCompressors)
         .WithCertificateDecompressors(AOptions.CertificateDecompressors);
@@ -492,10 +524,10 @@ begin
     begin
       LServer.WithPeerAuth(AOptions.ClientAuth);
       if AOptions.AcceptAnyPeerCert and (AOptions.Trust = nil) then
-        LServer.WithDangerousCertificateVerifier(
-          TInteropAcceptAnyVerifier.Create as IClientCertificateVerifier)
-      else
-        LServer.WithTrustStore(AOptions.Trust);
+        LServer.WithClientVerification(TClientVerification.Custom(
+          TInteropAcceptAnyVerifier.Create as IClientCertificateVerifier))
+      else if AOptions.Trust <> nil then
+        LServer.WithClientVerification(TClientVerification.WebPki(AOptions.Trust).Build);
       // async verdict (-async) parks after the pipeline accepts the client chain; otherwise
       // -verify-fail rejects it inline through the augment hook
       if AOptions.AsyncVerify then

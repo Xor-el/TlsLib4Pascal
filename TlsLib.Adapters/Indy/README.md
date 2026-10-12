@@ -38,10 +38,10 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 
 | `TTlsLibSSLOptions`                | TlsLib4Pascal                                              |
 |-----------------------------------|-----------------------------------------------------------|
-| `RootCertFile`                    | `WithTrustAnchors` (client trust; on a server the client-auth CA, consulted only when `ClientAuth <> None`) |
+| `RootCertFile`                    | `WebPki` anchors (client trust; on a server the client-auth CA, consulted only when `ClientAuth <> None`) |
 | `CertFile` + `KeyFile` + `KeyPassword` | `WithCredential` (server cert/key, or client mTLS); a `.pfx` / `.p12` `CertFile` is a PKCS#12 |
 | `ClientAuth` (server)             | `WithPeerAuth(None / Requested / Required)`; the default `None` never requests a client certificate. Any other mode needs a private client-CA (`RootCertFile` or a `CustomTrustStore`/custom verifier) and `VerifyPeer` on, else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
-| `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `WithDangerousInsecureSkipVerify`** |
+| `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `DangerousSkip`** |
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |

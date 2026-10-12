@@ -332,11 +332,12 @@ type
     /// are the owning delegate's.
     /// AServer selects the role: the server path binds the host in the SSL policy and consumes the
     /// handshake staple, against the OS/public roots or, when AAnchors is non-empty, against those
-    /// anchors alone; the client path always builds an anchors-only SecTrust over AAnchors (never the
+    /// anchors alone; AExtraAnchors (server path, no AAnchors) are trusted beside the OS roots. The
+    /// client path always builds an anchors-only SecTrust over AAnchors (never the
     /// OS roots), takes no host and no staple, and rejects zero usable anchors before building any
     /// trust.</summary>
     class function EvaluateWithPolicy(AServer: Boolean;
-      const AChain, AAnchors: TArray<TBytes>; const AHostName: string;
+      const AChain, AAnchors, AExtraAnchors: TArray<TBytes>; const AHostName: string;
       const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
       ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
       out AResult: TPlatformChainResult;
@@ -658,7 +659,7 @@ begin
 end;
 
 class function TAppleTrustApi.EvaluateWithPolicy(AServer: Boolean;
-  const AChain, AAnchors: TArray<TBytes>; const AHostName: string;
+  const AChain, AAnchors, AExtraAnchors: TArray<TBytes>; const AHostName: string;
   const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
   ARevocation: TPlatformRevocationCheck; const AClock: ITlsClock;
   out AResult: TPlatformChainResult;
@@ -678,10 +679,13 @@ var
   LStatus: OSStatus;
   LError: CFErrorRef;
   LPath: TArray<TBytes>;
-  LAddRevocation, LRequirePositive, LAnchored: Boolean;
+  LAddRevocation, LRequirePositive, LAnchored, LUnion: Boolean;
+  LAnchorSet: TArray<TBytes>;
 begin
-  // a client is always anchored; a server only when the caller supplies anchors
+  // a client is always anchored; a server only when the caller supplies anchors, and extra anchors
+  // never replace the system roots
   LAnchored := (not AServer) or (Length(AAnchors) > 0);
+  LUnion := AServer and (not LAnchored) and (Length(AExtraAnchors) > 0);
   // None asks for no revocation policy; BestEffort adds the any-method policy; RequirePositive
   // additionally demands a positive response
   LAddRevocation := ARevocation <> TPlatformRevocationCheck.None;
@@ -700,9 +704,9 @@ begin
     Exit;
   end;
 
-  if LAnchored then
+  if LAnchored or LUnion then
   begin
-    // the anchors-only entry points are required for an anchored evaluation: without them it could
+    // the anchor entry points are required for an anchored evaluation: without them it could
     // validate against the OS/public roots, so fail closed rather than fall back to a weaker check
     if (not System.Assigned(FSecTrustSetAnchorCertificates)) or
       (not System.Assigned(FSecTrustSetAnchorCertificatesOnly)) then
@@ -712,7 +716,7 @@ begin
     end;
     // zero anchors (reachable by a client only) can trust nothing: reject before building any trust so an
     // empty anchor set can never fall through to the system roots
-    if Length(AAnchors) = 0 then
+    if LAnchored and (Length(AAnchors) = 0) then
     begin
       AAlert := TTlsAlertDescription.UnknownCa;
       Exit;
@@ -733,13 +737,19 @@ begin
     // an unparseable leaf or chain certificate is a bad certificate, not a broken runtime
     if not MakeCertArray(AChain, LCertArray) then
       Exit;
-    if LAnchored then
+    if LAnchored or LUnion then
+    begin
+      if LAnchored then
+        LAnchorSet := AAnchors
+      else
+        LAnchorSet := AExtraAnchors;
       // a configured anchor that will not parse is a broken trust configuration, not a bad peer
-      if not MakeCertArray(AAnchors, LAnchorArray) then
+      if not MakeCertArray(LAnchorSet, LAnchorArray) then
       begin
         AAlert := TTlsAlertDescription.InternalError;
         Exit;
       end;
+    end;
 
     // the server binds the host in the SSL policy; a client certificate carries no host identity
     if AServer then
@@ -808,15 +818,15 @@ begin
       Exit;
     end;
 
-    // the supplied anchors are the ONLY trusted roots
-    if LAnchored then
+    // exclusive anchors are the ONLY trusted roots; extra anchors are trusted beside the system roots
+    if LAnchored or LUnion then
     begin
       if FSecTrustSetAnchorCertificates(LTrust, LAnchorArray) <> ErrSecSuccess then
       begin
         AAlert := TTlsAlertDescription.InternalError;
         Exit;
       end;
-      if FSecTrustSetAnchorCertificatesOnly(LTrust, True) <> ErrSecSuccess then
+      if FSecTrustSetAnchorCertificatesOnly(LTrust, LAnchored) <> ErrSecSuccess then
       begin
         AAlert := TTlsAlertDescription.InternalError;
         Exit;
@@ -1155,10 +1165,10 @@ end;
 
 function TAppleChainEngine.Capabilities: TPlatformChainCapabilities;
 begin
-  // Security.framework can fetch live revocation, render a cached revocation outcome, and match the
-  // DNS host
+  // Security.framework can fetch live revocation, render a cached revocation outcome, match the
+  // DNS host, and trust extra anchors beside the system roots
   Result := [TPlatformChainCapability.LiveFetch, TPlatformChainCapability.CachedRevocation,
-    TPlatformChainCapability.DnsIdentity];
+    TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.ExtraAnchors];
 end;
 
 function TAppleChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;
@@ -1169,7 +1179,7 @@ begin
   // the configured intermediates ride behind the presented chain as untrusted path candidates
   Result := TAppleTrustApi.EvaluateWithPolicy(True,
     TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates), ARequest.Anchors,
-    ARequest.ServerName.AsDns, ARequest.OcspStaple, ARequest.NetworkAllowed,
+    ARequest.ExtraAnchors, ARequest.ServerName.AsDns, ARequest.OcspStaple, ARequest.NetworkAllowed,
     ARequest.Revocation, ARequest.Clock, AResult, AAlert);
 end;
 
@@ -1180,7 +1190,7 @@ begin
   // certificate carries no host identity and is never stapled
   Result := TAppleTrustApi.EvaluateWithPolicy(False,
     TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates), ARequest.Anchors,
-    '', nil, ARequest.NetworkAllowed, ARequest.Revocation, ARequest.Clock,
+    nil, '', nil, ARequest.NetworkAllowed, ARequest.Revocation, ARequest.Clock,
     AResult, AAlert);
 end;
 

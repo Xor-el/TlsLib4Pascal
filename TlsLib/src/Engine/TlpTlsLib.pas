@@ -21,6 +21,7 @@ uses
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpCertificateVerifierSource,
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -61,7 +62,7 @@ class function TTlsLib.NewClientConfig(
 begin
   Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared,
     TDefaultPkixProvider.Shared)
-    .Client.WithTrustStore(ATrustStore).Build;
+    .Client.WithServerVerification(TServerVerification.WebPki(ATrustStore).Build).Build;
 end;
 
 class function TTlsLib.NewClientConfig(
@@ -69,7 +70,7 @@ class function TTlsLib.NewClientConfig(
 begin
   Result := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared,
     TDefaultPkixProvider.Shared)
-    .Client.WithTrustAnchors(ATrustAnchorsData).Build;
+    .Client.WithServerVerification(TServerVerification.WebPki(ATrustAnchorsData).Build).Build;
 end;
 
 class function TTlsLib.NewServerConfig(

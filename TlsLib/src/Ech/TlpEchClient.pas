@@ -34,6 +34,23 @@ uses
 
 type
   /// <summary>
+  /// The ways a client offers ECH. Enable and Retry offer a config list for real, so the client
+  /// must be TLS 1.3-only (RFC 9849 sec. 6.1) and the list must hold a usable config; Grease only
+  /// GREASEs (sec. 6.2.1) and leaves the offered versions alone. A caller that wants "ECH, else
+  /// GREASE" catches the Build error of Enable and builds with Grease.
+  /// </summary>
+  TEchClientModes = class sealed(TObject)
+  public
+    /// <summary>Offers AConfigList (typically the DNS HTTPS/SVCB ech parameter).</summary>
+    class function Enable(const AConfigList: TBytes): IEchClientMode; static;
+    /// <summary>As Enable, for the reconnection driven by a reject's retry_configs: a second
+    /// reject is not itself retried (sec. 6.1.6).</summary>
+    class function Retry(const AConfigList: TBytes): IEchClientMode; static;
+    /// <summary>Sends a GREASE ECH extension and offers no real ECH.</summary>
+    class function Grease: IEchClientMode; static;
+  end;
+
+  /// <summary>
   /// The frozen client ECH policy (RFC 9849): parses the ECHConfigList once and holds
   /// the GREASE and retry flags. Immutable; safe to share lock-free.
   /// </summary>
@@ -135,6 +152,61 @@ resourcestring
 
 const
   ServerHelloRandomLength = Int32(32);
+
+type
+  TEchClientMode = class sealed(TInterfacedObject, IEchClientMode)
+  strict private
+    FConfigList: TBytes;
+    FIsRetry: Boolean;
+    FIsGrease: Boolean;
+  public
+    constructor Create(const AConfigList: TBytes; AIsRetry, AIsGrease: Boolean);
+    function ConfigList: TBytes;
+    function IsRetry: Boolean;
+    function IsGrease: Boolean;
+  end;
+
+{ TEchClientMode }
+
+constructor TEchClientMode.Create(const AConfigList: TBytes; AIsRetry, AIsGrease: Boolean);
+begin
+  inherited Create;
+  FConfigList := System.Copy(AConfigList);
+  FIsRetry := AIsRetry;
+  FIsGrease := AIsGrease;
+end;
+
+function TEchClientMode.ConfigList: TBytes;
+begin
+  Result := System.Copy(FConfigList);
+end;
+
+function TEchClientMode.IsRetry: Boolean;
+begin
+  Result := FIsRetry;
+end;
+
+function TEchClientMode.IsGrease: Boolean;
+begin
+  Result := FIsGrease;
+end;
+
+{ TEchClientModes }
+
+class function TEchClientModes.Enable(const AConfigList: TBytes): IEchClientMode;
+begin
+  Result := TEchClientMode.Create(AConfigList, False, False) as IEchClientMode;
+end;
+
+class function TEchClientModes.Retry(const AConfigList: TBytes): IEchClientMode;
+begin
+  Result := TEchClientMode.Create(AConfigList, True, False) as IEchClientMode;
+end;
+
+class function TEchClientModes.Grease: IEchClientMode;
+begin
+  Result := TEchClientMode.Create(nil, False, True) as IEchClientMode;
+end;
 
 { TEchClientPolicy }
 

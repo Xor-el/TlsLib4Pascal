@@ -57,6 +57,7 @@ uses
   TlpDefaultCryptoProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpTlsCredential,
   TlsLibIndyTls;
@@ -154,7 +155,7 @@ begin
   LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
   LClient.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519));
   LClient.WithCipherSuites(OrderedRegistry(AClientOrder)); // the client's advertised order
-  LClient.WithTrustAnchors(GRootDer);
+  LClient.WithServerVerification(TServerVerification.WebPki(GRootDer).Build);
   Result := LClient.Build;
 end;
 

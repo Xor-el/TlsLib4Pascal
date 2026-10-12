@@ -50,6 +50,7 @@ uses
   TlpDefaultCryptoProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpTlsCredential,
   TlsLibFclNetTls;
@@ -135,7 +136,7 @@ begin
   LClient.WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1));
   LClient.WithCipherSuites(OrderedSuites(LCrypto));
-  LClient.WithTrustAnchors(GRootDer);
+  LClient.WithServerVerification(TServerVerification.WebPki(GRootDer).Build);
   Result := LClient.Build;
 end;
 

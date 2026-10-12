@@ -453,9 +453,7 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Server.WithCredential(ServerCredential).Build);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-    .Client.WithTrustStore(TTrustAnchorStore.Create(
-    TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore).Build, 'localhost');
+    .Client.WithServerVerification(WebPkiServer(TestRootCertificate)).Build, 'localhost');
   DriveToCompletion(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset engine');
 end;
@@ -481,12 +479,10 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Server.WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
-    .WithTrustStore(TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
-    as ITrustAnchorStore).Build);
+    .WithClientVerification(WebPkiClient(LClientRoot)).Build);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Client.WithCredential(LClientCred)
-    .WithTrustStore(TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore).Build, 'localhost');
+    .WithServerVerification(WebPkiServer(TestRootCertificate)).Build, 'localhost');
   DriveToCompletion(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset mutual TLS');
 end;
@@ -894,8 +890,7 @@ begin
   LRaised := False;
   try
     TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-      .Client.WithTrustStore(TTrustAnchorStore.Create(
-      TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore).Build, '');
+      .Client.WithServerVerification(WebPkiServer(TestRootCertificate)).Build, '');
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -904,8 +899,7 @@ begin
 
   // opting out with WithDangerousDisableServerNameCheck allows an empty host (chain-only trust, no SNI)
   TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-    .Client.WithTrustStore(TTrustAnchorStore.Create(
-    TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore)
+    .Client.WithServerVerification(WebPkiServer(TestRootCertificate))
     .WithDangerousDisableServerNameCheck.Build, '');
   CheckTrue(True, 'with name-check off, an empty host is allowed');
 end;

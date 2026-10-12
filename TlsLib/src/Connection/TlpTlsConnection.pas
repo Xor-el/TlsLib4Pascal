@@ -45,6 +45,9 @@ uses
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
+  TlpICertificateVerifierSource,
+  TlpCertificateVerifierSource,
   TlpTrustPolicy,
   TlpTrustTypes,
   TlpTlsCredential,
@@ -95,10 +98,10 @@ type
     PrivateKey: TTlsBlobSource;
     KeyPassword: string;
     CredentialForm: TTlsCredentialForm;          // how Certificate is read
-    TrustAnchors: TArray<TTlsBlobSource>; // each -> WithTrustAnchors (union)
+    TrustAnchors: TArray<TTlsBlobSource>; // each is one WebPki anchor blob (union)
     // client role: opt into the OS store (union); a server never reads it (system trust is not a client-CA)
     SystemTrust: ISystemTrustInstaller;
-    CustomTrustStore: ITrustAnchorStore;         // WithTrustStore (union)
+    CustomTrustStore: ITrustAnchorStore;         // one WebPki store (union)
     ServerCertificateVerifier: IServerCertificateVerifier;   // client role; replaces the pipeline
     ClientCertificateVerifier: IClientCertificateVerifier;   // server role; replaces the pipeline
     VerifyPeer: Boolean;                         // default True
@@ -157,6 +160,10 @@ type
       const ACrypto: ICryptoProvider; const APkix: IPkixProvider): TTlsCredential; static;
     class procedure Sign(var ASig: TTlsSignatureBuilder; const AName: string;
       const ASource: TTlsBlobSource); static;
+    /// <summary>The host's own roots as one store: every named anchor source and the custom store,
+    /// nil when none is set.</summary>
+    class function HostAnchorStore(const AOptions: TTlsOptions;
+      const APkix: IPkixProvider): ITrustAnchorStore; static;
     class function HasTrustAnchor(const AOptions: TTlsOptions): Boolean; static;
     class function HasClientTrustSource(const AOptions: TTlsOptions): Boolean; static;
     class function HasClientAuthTrustSource(const AOptions: TTlsOptions): Boolean; static;
@@ -364,6 +371,9 @@ resourcestring
   SEarlyDataUnsupported =
     '%s accepts 0-RTT early data, which a host adapter cannot hand to the application; ' +
     'clear WithEarlyData, or serve it through TTlsConnection.ReadEarlyData';
+  SVerifierWithHostTrust =
+    'a whole certificate verifier replaces the trust sources, so it cannot be combined with ' +
+    'anchors, a custom trust store or system trust; remove one of them (%s)';
   SSystemTrustWithHostAnchors =
     'OS trust that is delegate-only on this platform cannot be combined with host-supplied ' +
     'anchors or a custom trust store; use either system trust or the host trust sources (%s): %s';
@@ -568,6 +578,24 @@ begin
     ASig.AddFile(AName, ASource.FileName);
 end;
 
+class function TTlsConfigComposer.HostAnchorStore(const AOptions: TTlsOptions;
+  const APkix: IPkixProvider): ITrustAnchorStore;
+var
+  LStores: TArray<ITrustAnchorStore>;
+  LI: Int32;
+begin
+  LStores := nil;
+  for LI := 0 to System.High(AOptions.TrustAnchors) do
+    if not AOptions.TrustAnchors[LI].IsEmpty then
+      TArrayUtilities.Append<ITrustAnchorStore>(LStores, TTrustAnchorStore.Create(
+        APkix.Certificates.LoadChain(Load(AOptions.TrustAnchors[LI]))) as ITrustAnchorStore);
+  if AOptions.CustomTrustStore <> nil then
+    TArrayUtilities.Append<ITrustAnchorStore>(LStores, AOptions.CustomTrustStore);
+  if System.Length(LStores) = 0 then
+    Exit(nil);
+  Result := TTrustAnchorStore.Union(LStores);
+end;
+
 class function TTlsConfigComposer.HasTrustAnchor(
   const AOptions: TTlsOptions): Boolean;
 var
@@ -626,7 +654,7 @@ var
   LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
-  LI: Int32;
+  LHostRoots: ITrustAnchorStore;
 begin
   // the verifier is the whole decision, so a switched-off verification beside it is a contradiction
   // the host should see in its own terms rather than as a builder conflict
@@ -644,25 +672,41 @@ begin
   else if System.Length(AOptions.SupportedVersions) > 0 then
     LClient.WithSupportedVersions(AOptions.SupportedVersions);
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else the
-  // anchors + the OS store + a custom store all UNION. Adding both a verifier and an anchor source
-  // is left to fail as the builder's typed conflict. System trust is never implicit.
+  // anchors + the OS store + a custom store all UNION. System trust is never implicit. With no
+  // source named, demand an explicit decision - real trust, or the loud skip toggle (which is itself
+  // the trust decision, so no placeholder store is needed to build)
+  LHostRoots := HostAnchorStore(AOptions, LPkix);
   if AOptions.ServerCertificateVerifier <> nil then
-    LClient.WithDangerousCertificateVerifier(AOptions.ServerCertificateVerifier);
-  for LI := 0 to System.High(AOptions.TrustAnchors) do
-    if not AOptions.TrustAnchors[LI].IsEmpty then
-      LClient.WithTrustAnchors(Load(AOptions.TrustAnchors[LI]));
-  if AOptions.SystemTrust <> nil then
-    AOptions.SystemTrust.InstallClientTrust(LClient, LPkix);
-  if AOptions.CustomTrustStore <> nil then
-    LClient.WithTrustStore(AOptions.CustomTrustStore);
-  // no trust source composed: demand an explicit decision - real trust, or the loud skip toggle
-  // below (which is itself the trust decision, so no placeholder store is needed to build)
-  if (not HasClientTrustSource(AOptions)) and AOptions.VerifyPeer and
-    (not AOptions.InsecureSkipVerify) then
+  begin
+    if (LHostRoots <> nil) or (AOptions.SystemTrust <> nil) then
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SVerifierWithHostTrust, [AOptions.TrustSourceHint]);
+    LClient.WithServerVerification(
+      TServerVerification.Custom(AOptions.ServerCertificateVerifier));
+  end
+  else if AOptions.InsecureSkipVerify or (not AOptions.VerifyPeer) then
+    LClient.WithServerVerification(TServerVerification.DangerousSkip)
+  else if AOptions.SystemTrust <> nil then
+  begin
+    try
+      LClient.WithServerVerification(
+        AOptions.SystemTrust.ServerVerification(LPkix, LHostRoots));
+    except
+      // delegate-only OS trust owns its roots, so host anchors beside it cannot be honoured
+      on E: EBaseTlsLibException do
+      begin
+        if LHostRoots = nil then
+          raise;
+        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+          @SSystemTrustWithHostAnchors, [AOptions.TrustSourceHint, E.Message]);
+      end;
+    end;
+  end
+  else if LHostRoots <> nil then
+    LClient.WithServerVerification(TServerVerification.WebPki(LHostRoots).Build)
+  else
     raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
       @SNoClientTrust, [AOptions.TrustSourceHint]);
-  if AOptions.InsecureSkipVerify or (not AOptions.VerifyPeer) then
-    LClient.WithDangerousInsecureSkipVerify;
   if not AOptions.CheckHostName then
     LClient.WithDangerousDisableServerNameCheck;
   LClient.WithServerNameIndication(AOptions.ServerNameIndication);
@@ -683,19 +727,7 @@ begin
   end
   else
     LClient.WithResumption(False);
-  try
-    Result := LClient.Build;
-  except
-    on E: EInvalidOperationTlsLibException do
-    begin
-      // delegate-only OS trust is a verifier source, which cannot union with host anchors
-      if (AOptions.SystemTrust <> nil) and (AOptions.ServerCertificateVerifier = nil) and
-        ((AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.TrustAnchors) > 0)) then
-        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-          @SSystemTrustWithHostAnchors, [AOptions.TrustSourceHint, E.Message]);
-      raise;
-    end;
-  end;
+  Result := LClient.Build;
 end;
 
 class function TTlsConfigComposer.BuildServerConfig(
@@ -704,7 +736,7 @@ var
   LCrypto: ICryptoProvider;
   LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
-  LI: Int32;
+  LHostRoots: ITrustAnchorStore;
 begin
   if AOptions.Certificate.IsEmpty then
   begin
@@ -759,13 +791,17 @@ begin
   if AOptions.ClientAuth <> TClientAuthMode.None then
   begin
     LServer.WithPeerAuth(AOptions.ClientAuth);
+    LHostRoots := HostAnchorStore(AOptions, LPkix);
     if AOptions.ClientCertificateVerifier <> nil then
-      LServer.WithDangerousCertificateVerifier(AOptions.ClientCertificateVerifier);
-    for LI := 0 to System.High(AOptions.TrustAnchors) do
-      if not AOptions.TrustAnchors[LI].IsEmpty then
-        LServer.WithTrustAnchors(Load(AOptions.TrustAnchors[LI]));
-    if AOptions.CustomTrustStore <> nil then
-      LServer.WithTrustStore(AOptions.CustomTrustStore);
+    begin
+      if LHostRoots <> nil then
+        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+          @SVerifierWithHostTrust, [AOptions.ClientAuthSourceHint]);
+      LServer.WithClientVerification(
+        TClientVerification.Custom(AOptions.ClientCertificateVerifier));
+    end
+    else if LHostRoots <> nil then
+      LServer.WithClientVerification(TClientVerification.WebPki(LHostRoots).Build);
     // the augment-only hook vets a presented client chain too, so an operator's allow-list runs
     if Assigned(AOptions.VerifyCallback) then
       LServer.WithCertificateVerifyCallback(AOptions.VerifyCallback);

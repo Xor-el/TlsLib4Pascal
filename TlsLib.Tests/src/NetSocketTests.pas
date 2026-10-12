@@ -171,7 +171,7 @@ begin
   LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
   try
     Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithTrustAnchors(DecodeHex(LVectors.Values['root_cert'])).Build;
+      .WithServerVerification(WebPkiServer(DecodeHex(LVectors.Values['root_cert']))).Build;
   finally
     LVectors.Free;
   end;

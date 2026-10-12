@@ -84,17 +84,17 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 
 | Source                                                | Maps to                                            |
 |-------------------------------------------------------|----------------------------------------------------|
-| `CertificateData.CertCA` / `.TrustedCertificate`      | `WithTrustAnchors` — pinned anchors (unioned)      |
+| `CertificateData.CertCA` / `.TrustedCertificate`      | `TServerVerification.WebPki` anchor blobs (unioned) |
 | `CertificateData.Certificate` + `.PrivateKey` + `KeyPassword` | `WithCredential` — own cert (server, or mTLS client) |
 | `CertificateData.PFX` + `KeyPassword`                  | `WithCredential` from a PKCS#12; its CA bag is sent as chain, never trusted. PFX beside `Certificate` or `PrivateKey` **fails loudly**, as does `CertCA` with both `Value` and `FileName` set |
 | `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Unix)  |
-| `CustomTrustStore: ITrustAnchorStore`                 | `WithTrustStore` (unions with the above)           |
+| `CustomTrustStore: ITrustAnchorStore`                 | `WebPki` store (unions with the above)             |
 | `ClientAuth: TClientAuthMode` (**server**)            | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs a private client-CA (`CertCA` / `TrustedCertificate` / `CustomTrustStore`). `UseSystemTrust` is a server-cert source, never a client-CA |
-| `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `WithDangerousCertificateVerifier` — **replaces** the pipeline (role-typed) |
+| `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `Custom` verification — **replaces** the pipeline (role-typed) |
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `SendHostAsSNI` (fcl-net native, default True)        | `WithServerNameIndication(Send / Omit)`; False sends no SNI but the certificate is still verified against the host |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols` (ASCII names, converted with `TAlpnProtocols.FromText`) |
-| `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `WithDangerousInsecureSkipVerify` |
+| `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `DangerousSkip` |
 | `SSLType` (fcl-net native)                            | `stAny` offers TLS 1.3 and 1.2; `stTLSv1_2` offers 1.2 alone; any other value fails the handshake |
 | `VerifyCallback` | augment-only hook (chain+host → Boolean) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |

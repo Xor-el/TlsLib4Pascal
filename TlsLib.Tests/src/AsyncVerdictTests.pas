@@ -37,6 +37,7 @@ uses
   TlpCryptoDomainTypes,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpTrustPolicy,
   TlpTlsConnectionInfo,
@@ -189,7 +190,8 @@ function TTestAsyncVerdict.ClientConfig(AAsync: Boolean;
 var
   LClient: ITlsClientConfigBuilder;
 begin
-  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustAnchors(TrustRoot);
+  LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(TrustRoot));
   if AAsync then
     LClient.WithAsyncCertificateVerdict(ADeadlineMs);
   Result := LClient.Build;
@@ -213,7 +215,7 @@ begin
   // the client trusts the server root and presents its own credential when the server
   // requests client authentication (the same vector leaf serves both directions)
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustAnchors(TrustRoot)
+    .WithServerVerification(WebPkiServer(TrustRoot))
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
 end;
 
@@ -223,7 +225,7 @@ var
 begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithTrustAnchors(TrustRoot)
+    .WithClientVerification(WebPkiClient(TrustRoot))
     .WithPeerAuth(TClientAuthMode.Required);
   if AAsync then
     LServer.WithAsyncCertificateVerdict(0);
@@ -246,7 +248,7 @@ function TTestAsyncVerdict.MtlsServerConfigPinned(
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithTrustAnchors(TrustRoot)
+    .WithClientVerification(WebPkiClient(TrustRoot))
     .WithPeerAuth(TClientAuthMode.Required)
     .WithCertificatePinning(APins).Build;
 end;
@@ -284,10 +286,10 @@ begin
   // request a staple and require revocation; the host check is disabled so the test isolates the
   // revocation park from the leaf's SAN identity
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustAnchors(OcspVec('root_cert'))
+    .WithServerVerification(TServerVerification.WebPki(OcspVec('root_cert'))
+    .WithRevocation(TRevocationPosture.Hard).Build)
     .WithDangerousDisableServerNameCheck
-    .WithOcspStaplingRequest(True)
-    .WithRevocation(TRevocationPosture.Hard);
+    .WithOcspStaplingRequest(True);
   if AHostDecision then
     LClient.WithAsyncCertificateVerdict(0)
   else
@@ -317,7 +319,7 @@ begin
   LClientOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := LClientOwner.Client
     .WithSupportedVersions(LVer)
-    .WithTrustAnchors(TrustRoot)
+    .WithServerVerification(WebPkiServer(TrustRoot))
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey));
   LClientCfg := LClient.Build;
 
@@ -325,9 +327,9 @@ begin
   LServer := LServerOwner.Server
     .WithSupportedVersions(LVer)
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithTrustAnchors(TrustRoot)
+    .WithClientVerification(TClientVerification.WebPki(TrustRoot)
+    .WithRevocation(TRevocationPosture.Hard).Build)
     .WithPeerAuth(TClientAuthMode.Required)
-    .WithRevocation(TRevocationPosture.Hard)
     .WithLiveRevocationVerdict(0);
   LServerCfg := LServer.Build;
 

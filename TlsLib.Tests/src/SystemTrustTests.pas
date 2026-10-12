@@ -201,6 +201,8 @@ type
     procedure TestNameMismatchRejectsWithoutDnsCapability;
     procedure TestSourceRefusesLiveWithoutLiveFetch;
     procedure TestServerSourceRefusesLiveWithoutVerdict;
+    procedure TestSourceRefusesExtraAnchorsWithoutUnionCapability;
+    procedure TestServerSourceCarriesExtraAnchorsToTheEngine;
     procedure TestClientSourceRefusesHardWithoutCachedRevocation;
     procedure TestLiveResolverDispatchesToServer;
     procedure TestLiveResolverWrongRoleRefused;
@@ -1185,6 +1187,56 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a Live fetch without the live-revocation verdict is refused at verifier creation');
+end;
+
+procedure TTestOSDelegateTemplate.TestSourceRefusesExtraAnchorsWithoutUnionCapability;
+var
+  LEngine: IPlatformChainEngine;
+  LRaised: Boolean;
+begin
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LRaised := False;
+  try
+    TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
+      TArray<TBytes>.Create(Ocsp('issuer_cert')));
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'extra anchors over an engine that cannot union them are refused at construction');
+end;
+
+procedure TTestOSDelegateTemplate.TestServerSourceCarriesExtraAnchorsToTheEngine;
+var
+  LMock: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
+  LContext: TServerTrustContext;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LChain: TArray<TBytes>;
+begin
+  LChain := TArray<TBytes>.Create(Ocsp('muststaple_leaf_cert'), Ocsp('issuer_cert'));
+  LMock := TMockPlatformChainEngine.Create([TPlatformChainCapability.ExtraAnchors,
+    TPlatformChainCapability.DnsIdentity], False, Result_(TLiveRevocationOutcome.Good, LChain),
+    TTlsAlertDescription.UnknownCa);
+  LEngine := LMock;
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
+    TArray<TBytes>.Create(Ocsp('issuer_cert'))) as IServerCertificateVerifierSource;
+  LContext := Default(TServerTrustContext);
+  LContext.ChainLimits := TCertificateChainLimits.Defaults;
+  LContext.Pkix := Pkix;
+  LContext.Clock := FClock;
+  LContext.CheckHostName := True;
+  LContext.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  LVerifier := LSource.CreateServerVerifier(LContext);
+  LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil, LVerified,
+    LAlert);
+  CheckEquals(1, System.Length(LMock.Last.ExtraAnchors), 'the engine is handed the extra anchor');
+  CheckEquals(0, System.Length(LMock.Last.Anchors),
+    'the extra anchors do not become the exclusive trust root');
 end;
 
 procedure TTestOSDelegateTemplate.TestClientSourceRefusesHardWithoutCachedRevocation;
@@ -2428,18 +2480,15 @@ procedure TTestSystemTrustInstaller.TestClientInstallComposesLikeFacade;
 var
   LInstaller: ISystemTrustInstaller;
   LViaFacade, LViaInstaller: ITlsClientConfig;
-  LFacadeBuilder, LInstallerBuilder: ITlsClientConfigBuilder;
 begin
-  // both paths install the OS server-trust source; the installer simply forwards to the facade
+  // both paths supply the OS server-trust policy; the installer simply forwards to the facade
   LInstaller := TSystemTrustInstaller.Create;
-  LFacadeBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client;
-  TSystemTrust.WithSystemTrust(LFacadeBuilder, Pkix);
-  LViaFacade := LFacadeBuilder.Build;
-  LInstallerBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client;
-  LInstaller.InstallClientTrust(LInstallerBuilder, Pkix);
-  LViaInstaller := LInstallerBuilder.Build;
-  CheckNotNull(LViaFacade, 'the facade installs a usable client trust source');
-  CheckNotNull(LViaInstaller, 'the installer installs a usable client trust source');
+  LViaFacade := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TSystemTrust.ServerVerification(Pkix).Build).Build;
+  LViaInstaller := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    LInstaller.ServerVerification(Pkix, nil)).Build;
+  CheckNotNull(LViaFacade, 'the facade supplies a usable client trust source');
+  CheckNotNull(LViaInstaller, 'the installer supplies a usable client trust source');
 end;
 
 procedure TTestSystemTrustInstaller.TestLiveFetchWithoutADeadlineIsRefused;
@@ -2448,8 +2497,8 @@ var
 begin
   LRefused := False;
   try
-    TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
-      TSystemTrustFetch.Live, 0);
+    TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client,
+      TRevocationPosture.Soft, 0);
   except
     on E: EArgumentTlsLibException do
       LRefused := True;
@@ -2486,7 +2535,7 @@ begin
       .WithCredential(TTlsCredential.Load(Crypto, Pkix,
       DecodeHex(LV.Values['leaf_cert']), DecodeHex(LV.Values['leaf_key'])))
       .WithPeerAuth(TClientAuthMode.Required)
-      .WithTrustStore(LStore).Build;
+      .WithClientVerification(WebPkiClient(LStore)).Build;
   finally
     LV.Free;
   end;

@@ -111,7 +111,8 @@ function TTestTls13KeyUpdate.NewClient: ITlsEngine;
 begin
   // Hardened is TLS 1.3-only, the version that has KeyUpdate
   Result := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(Crypto, Pkix).Client.WithTrustStore(ClientTrust).Build, ServerHost);
+    TTlsPresets.Hardened(Crypto, Pkix).Client.WithServerVerification(WebPkiServer(ClientTrust))
+    .Build, ServerHost);
 end;
 
 function TTestTls13KeyUpdate.NewServer: ITlsEngine;
@@ -248,7 +249,7 @@ begin
   LCapped := TCappedAeadProvider.Create(Crypto, 32) as ICryptoProvider;
   LRegistry := AesGcmRegistry(LCapped);
   LClient := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(LCapped, Pkix).Client.WithTrustStore(ClientTrust)
+    TTlsPresets.Hardened(LCapped, Pkix).Client.WithServerVerification(WebPkiServer(ClientTrust))
     .WithCipherSuites(LRegistry).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(
     TTlsPresets.Hardened(LCapped, Pkix).Server.WithCredential(ServerCredential)

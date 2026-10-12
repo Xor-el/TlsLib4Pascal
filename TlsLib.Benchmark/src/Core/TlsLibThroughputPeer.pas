@@ -25,6 +25,7 @@ uses
   TlpTlsCredential,
   TlpTlsVersion,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpITlsConfig,
   TlpTlsEngineFactory,
   TlpITlsEngine,
@@ -122,8 +123,7 @@ begin
   LClient.WithSupportedVersions(TArray<UInt16>.Create(AWireVersion));
   LClient.WithPreferredGroups(LGroups);
   LClient.WithCipherSuites(SingleSuiteRegistry(ACryptoProvider, ASuiteCode));
-  LClient.WithDangerousInsecureSkipVerify;
-  LClient.WithTrustAnchors(ACredential.RootCertDer);
+  LClient.WithServerVerification(TServerVerification.DangerousSkip);
   AClientConfig := LClient.Build;
 
   LServerBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);

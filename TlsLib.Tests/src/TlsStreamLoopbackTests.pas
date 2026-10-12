@@ -40,6 +40,7 @@ uses
   TlpCipherSuiteRegistry,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpTlsCredential,
   TlpITlsEngine,
@@ -311,10 +312,9 @@ begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11));
   if AInsecureSkipVerify then
-    LClient.WithDangerousInsecureSkipVerify
-      .WithTrustAnchors(TrustRoot) // a trust source is still required by build
+    LClient.WithServerVerification(TServerVerification.DangerousSkip)
   else
-    LClient.WithTrustAnchors(TrustRoot);
+    LClient.WithServerVerification(WebPkiServer(TrustRoot));
   if Assigned(AVerify) then
     LClient.WithCertificateVerifyCallback(AVerify);
   Result := LClient.Build;
@@ -487,7 +487,7 @@ end;
 function TTestTlsStreamLoopback.AsyncClientConfig: ITlsClientConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustAnchors(TrustRoot)
+    .WithServerVerification(WebPkiServer(TrustRoot))
     .WithAsyncCertificateVerdict(0).Build;
 end;
 
@@ -735,7 +735,7 @@ begin
   LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
   LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
   LClientConfig := TTlsPresets.Compatible(LCapped, Pkix).Client
-    .WithTrustAnchors(TrustRoot)
+    .WithServerVerification(WebPkiServer(TrustRoot))
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithCipherSuites(LSuites.Build).Build;
   LServerConfig := TTlsPresets.Compatible(LCapped, Pkix).Server
@@ -916,7 +916,7 @@ begin
   // a client that trusts an unrelated anchor (the leaf's own cert, not its issuer) must
   // reject the server chain through PKIX - no dangerous flag is set
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustAnchors(LeafCert).Build;
+    .WithServerVerification(WebPkiServer(LeafCert)).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
     LFailed := False;
@@ -945,7 +945,8 @@ var
 begin
   // a failed handshake is permanent for a stream: a second Read must re-raise the same failure,
   // never silently re-drive (which would emit a second ClientHello) or read as a truncation
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithTrustAnchors(LeafCert).Build;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(LeafCert)).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   SetLength(LBuf, 16);
   try
@@ -1098,8 +1099,7 @@ begin
   // the same otherwise-untrusted anchor, but InsecureSkipVerify bypasses the pipeline so
   // the handshake completes (test-only; never production)
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithDangerousInsecureSkipVerify
-    .WithTrustAnchors(LeafCert).Build;
+    .WithServerVerification(TServerVerification.DangerousSkip).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
     LClient.Handshake;
@@ -1148,10 +1148,10 @@ var
   LTransport: TMemoryTransport;
   LConfig: ITlsClientConfig;
 begin
-  // a private root trusted via WithTrustAnchors plus an SPKI pin on the leaf: the chain is
+  // a private root trusted via WebPki plus an SPKI pin on the leaf: the chain is
   // still fully verified (PKIX + pinning both hold), so the handshake completes
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithTrustAnchors(TrustRoot)
+    .WithServerVerification(WebPkiServer(TrustRoot))
     .WithCertificatePinning(TArray<TBytes>.Create(
       SpkiSha256(LeafCert))).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
