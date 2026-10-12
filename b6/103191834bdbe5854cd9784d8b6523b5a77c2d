@@ -1,0 +1,29 @@
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_58af9e1b217631::t_124018c197ab8f 91
+  s_58af9e1b217631::t_033a9e761f3922 602-603
+  s_58af9e1b217631::t_2e9a14e65e39c5 592,594-601,604-608,612,620-622,630-637,640-665
+.github/workflows/ci/interop/trust/autoroot-probe.ps1
+  s_58af9e1b217631::t_ebd043ff07738c 338-348,350-362,365,367-372,374-377
+  s_58af9e1b217631::t_ca087d30a70e06 233
+  s_58af9e1b217631::t_d9e23cefb951b7 297-301,306-334
+  s_58af9e1b217631::t_e94776f6e7f307 87-138,140-214
+  s_58af9e1b217631::t_498c6ef9f3bb65 139
+  s_58af9e1b217631::t_ef93b571ba3444 4,7-11
+  s_58af9e1b217631::t_2f21acb4315154 257-266,268-274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b6103191834bdbe5854cd9784d8b6523b5a77c2d",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
