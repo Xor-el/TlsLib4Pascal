@@ -1,0 +1,56 @@
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_58af9e1b217631::t_13900c962eba81 3193,3197,3200-3205
+  s_58af9e1b217631::t_3ba34c7affc8cb 47
+  s_58af9e1b217631::t_58254cd1e6022f 1899-1970
+  s_58af9e1b217631::t_8bb9c3f8b2e9f6 213-215
+  s_58af9e1b217631::t_748aefc31914a5 138
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_58af9e1b217631::t_1105f5fbf6f8b5 47-52
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_58af9e1b217631::t_35820fab133501 2194
+  s_58af9e1b217631::t_21375a7d247ed1 310-311
+  s_58af9e1b217631::t_b30837bf5d360e 716
+  s_58af9e1b217631::t_45de55e1501f8d 1598-1604
+  s_58af9e1b217631::t_8fc8bc174eaaa5 2664
+  s_58af9e1b217631::t_abc931983154a3 375-380
+  s_58af9e1b217631::t_574fc8db557f0f 121-125,2755-2756
+  s_58af9e1b217631::t_256d14c9176009 2207
+  s_58af9e1b217631::t_547e07e85cb8f7 2691
+  s_58af9e1b217631::t_0588a1a21c6cc5 2237-2238,2240
+  s_58af9e1b217631::t_31a7400df22460 3352-3359
+  s_58af9e1b217631::t_ba6254f60ee073 779
+  s_58af9e1b217631::t_14d5f693cc5b8c 2702,2707-2754
+  s_58af9e1b217631::t_f7c65502957d48 2170
+  s_58af9e1b217631::t_892552cbcc8c81 2330
+  s_58af9e1b217631::t_6c763433e82162 199-202
+  s_58af9e1b217631::t_83b04f09f86510 1317-1323
+  s_58af9e1b217631::t_28c97d37f65245 2180
+  s_58af9e1b217631::t_b2b508c73cd6b5 3191-3198
+  s_58af9e1b217631::t_269c3d62042904 2220
+TlsLib/src/Interfaces/Trust/TlpICertificateVerifierSource.pas
+  s_58af9e1b217631::t_44550313a0bc74 19
+  s_58af9e1b217631::t_d5b4fe174d037d 21-23
+  s_58af9e1b217631::t_572d8941aad041 51-109
+TlsLib/src/Trust/TlpCertificateVerifierSource.pas
+  s_58af9e1b217631::t_143e507b66842c 224-542
+  s_58af9e1b217631::t_7d27bb0295c661 19-21,24-25,30-163
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_58af9e1b217631::t_c0c0d9a0069d76 442-445
+  s_58af9e1b217631::t_a6d2a1f06f5821 173-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b9f430d925bd64a7e1648713f607f5aca69c6702",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
