@@ -37,6 +37,8 @@
 #   * Windows root auto-update probe - informational, CI-gated: public hosts through os-anchors then
 #                 os-delegate, to see whether crypt32 fetches a missing root under the cache-only flags.
 #                 Fails only if the delegate refuses a host the anchors accepted.
+#   * Windows root removal probe - informational, CI-gated: removes a few hosts' roots from the machine
+#                 store (exported first, always restored), then anchors vs delegate. Never fails the leg.
 #   * macOS trust mode comparison - report-only, CI-gated: the same hosts through both modes, to see
 #                 whether the Anchors harvest and Apple SecTrust ever disagree. Never fails the leg.
 set -euo pipefail
@@ -87,6 +89,7 @@ cleanup() {
   if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; wait "$CRL_PID" 2>/dev/null || true; fi
   if [ "$DISTRUSTED" = 1 ]; then uninstall_distrust || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
+  restore_roots || true
   rm -rf "$TMP"
 }
 
@@ -136,6 +139,23 @@ uninstall_distrust() {
       sudo security delete-certificate -Z "$DTHUMB" \
         /Library/Keychains/System.keychain >/dev/null 2>&1 || true ;;
   esac
+}
+
+restore_roots() { # re-add every exported public root that is missing from the machine Root store
+  local f
+  for f in "$TMP"/removed/*.cer; do
+    [ -f "$f" ] || continue
+    certutil -store Root "$(basename "$f" .cer)" >/dev/null 2>&1 ||
+      certutil -addstore -f Root "$(cygpath -w "$f")" >/dev/null 2>&1 || true
+  done
+}
+count_missing_roots() { # exported roots currently absent from the machine Root store
+  local f n=0
+  for f in "$TMP"/removed/*.cer; do
+    [ -f "$f" ] || continue
+    certutil -store Root "$(basename "$f" .cer)" >/dev/null 2>&1 || n=$((n+1))
+  done
+  echo "$n"
 }
 
 trap cleanup EXIT
@@ -615,6 +635,123 @@ case "$OSNAME" in
       if [ "$N_REGRESSION" -gt 0 ]; then
         echo "  FAIL  delegate refused $N_REGRESSION host(s) that anchors accepted"
         FAILURES=$((FAILURES+1))
+      fi
+    fi ;;
+  *) echo "  SKIPPED: Windows only" ;;
+esac
+
+chain_root_thumb() { # <host>: SHA-1 of the self-signed root the host's chain builds to, else empty
+  powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$(cygpath -w "$TMP/root_thumb.ps1")" "$1" 2>/dev/null | tr -d '\r\n ' || true
+}
+
+# Informational, never fails the leg: with a few hosts' roots removed from the machine store, does the
+# delegate's cache-only chain engine put them back where Anchors, which sees installed roots only, cannot?
+# Roots are exported first and restored right after the runs and again by the EXIT trap.
+echo "=== Windows root removal probe (informational) ==="
+case "$OSNAME" in
+  MINGW*|MSYS*|CYGWIN*|Windows*)
+    if ! ci_store_mutation_allowed; then
+      echo "  SKIPPED: not a CI runner (the probe removes roots from the machine store)"
+    else
+      probe_setup
+      PROBE_HOSTS=(letsencrypt.org amazon.com godaddy.com entrust.com)
+      mkdir -p "$TMP/removed"
+      cat > "$TMP/root_thumb.ps1" <<'PS'
+param([string]$h)
+try {
+  $c = New-Object System.Net.Sockets.TcpClient
+  if (-not $c.ConnectAsync($h, 443).Wait(15000)) { exit 1 }
+  $cb = [System.Net.Security.RemoteCertificateValidationCallback]{ $true }
+  $s = New-Object System.Net.Security.SslStream($c.GetStream(), $false, $cb)
+  $s.AuthenticateAsClient($h)
+  $x = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($s.RemoteCertificate)
+  $ch = New-Object System.Security.Cryptography.X509Certificates.X509Chain
+  $ch.ChainPolicy.RevocationMode = 'NoCheck'
+  [void]$ch.Build($x)
+  $top = $ch.ChainElements[$ch.ChainElements.Count - 1].Certificate
+  if ($top.Subject -eq $top.Issuer) { $top.Thumbprint }
+} catch { exit 1 }
+PS
+      PROBE_IPS=(); PROBE_T=(); PROBE_B=(); PROBE_A=(); PROBE_D=(); PROBE_A2=(); PROBE_R=(); PROBE_NOTE=()
+      # baseline: only hosts whose root is installed and accepted by anchors are worth removing
+      for I in "${!PROBE_HOSTS[@]}"; do
+        H="${PROBE_HOSTS[$I]}"
+        PROBE_T[$I]=""; PROBE_B[$I]="-"; PROBE_A[$I]="-"; PROBE_D[$I]="-"; PROBE_A2[$I]="-"
+        PROBE_R[$I]="-"; PROBE_NOTE[$I]=""
+        PROBE_IPS[$I]="$(resolve_ipv4 "$H")"
+        T="$(chain_root_thumb "$H")"
+        if [ -z "${PROBE_IPS[$I]}" ]; then PROBE_NOTE[$I]="no IPv4 address"
+        elif ! [[ "$T" =~ ^[0-9A-Fa-f]{40}$ ]]; then PROBE_NOTE[$I]="chain root not determined"
+        elif ! certutil -store Root "$T" >/dev/null 2>&1; then PROBE_NOTE[$I]="root $T not in machine Root"
+        else
+          PROBE_B[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "$H")"
+          if [ "${PROBE_B[$I]}" = ACCEPT ]; then PROBE_T[$I]="$T"
+          else PROBE_NOTE[$I]="baseline ${PROBE_B[$I]}"; fi
+        fi
+      done
+      # export before delete; a root that fails to export is never deleted
+      for I in "${!PROBE_HOSTS[@]}"; do
+        T="${PROBE_T[$I]}"; [ -n "$T" ] || continue
+        F="$TMP/removed/$T.cer"
+        if [ ! -s "$F" ]; then
+          certutil -store Root "$T" "$(cygpath -w "$F")" >/dev/null 2>&1 || rm -f "$F"
+        fi
+        if [ -s "$F" ]; then
+          certutil -delstore Root "$T" >/dev/null 2>&1 || true
+        fi
+      done
+      N_REMOVED="$(count_missing_roots)"
+      for I in "${!PROBE_HOSTS[@]}"; do
+        T="${PROBE_T[$I]}"; [ -n "$T" ] || continue
+        if certutil -store Root "$T" >/dev/null 2>&1; then
+          PROBE_T[$I]=""; PROBE_NOTE[$I]="root $T could not be removed"
+        fi
+      done
+      for I in "${!PROBE_HOSTS[@]}"; do
+        [ -n "${PROBE_T[$I]}" ] || continue
+        PROBE_A[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+      done
+      for I in "${!PROBE_HOSTS[@]}"; do
+        [ -n "${PROBE_T[$I]}" ] || continue
+        PROBE_D[$I]="$(probe_cell os-delegate "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+      done
+      for I in "${!PROBE_HOSTS[@]}"; do
+        [ -n "${PROBE_T[$I]}" ] || continue
+        PROBE_A2[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+        if certutil -store Root "${PROBE_T[$I]}" >/dev/null 2>&1; then PROBE_R[$I]=yes; else PROBE_R[$I]=no; fi
+      done
+      restore_roots
+      N_MISSING="$(count_missing_roots)"
+      printf '  %-16s %-10s %-12s %-12s %-12s %s\n' host baseline anchors-rm delegate anchors-after reinstalled
+      N_EX=0; N_OK=0; N_NO=0; NO_CODES=""
+      for I in "${!PROBE_HOSTS[@]}"; do
+        H="${PROBE_HOSTS[$I]}"
+        printf '  %-16s %-10s %-12s %-12s %-12s %s\n' "$H" "${PROBE_B[$I]}" "${PROBE_A[$I]}" \
+          "${PROBE_D[$I]}" "${PROBE_A2[$I]}" "${PROBE_R[$I]}"
+        [ -n "${PROBE_T[$I]}" ] || { echo "  note: $H not exercised: ${PROBE_NOTE[$I]}"; continue; }
+        case "${PROBE_A[$I]}" in
+          REFUSE*) ;;
+          *) echo "  note: $H not exercised: anchors gave ${PROBE_A[$I]} with the root removed"; continue ;;
+        esac
+        N_EX=$((N_EX+1))
+        case "${PROBE_D[$I]}" in
+          ACCEPT) N_OK=$((N_OK+1)) ;;
+          REFUSE*) N_NO=$((N_NO+1)); NO_CODES="${NO_CODES:+$NO_CODES, }$H=${PROBE_D[$I]#REFUSE:}" ;;
+          *) echo "  note: $H delegate hit network trouble" ;;
+        esac
+      done
+      echo "  roots removed=$N_REMOVED restored=$((N_REMOVED - N_MISSING)) still-missing=$N_MISSING"
+      if [ "$N_MISSING" -gt 0 ]; then echo "  WARN  $N_MISSING exported root(s) could not be restored"; fi
+      if [ "$N_OK" -gt 0 ]; then
+        echo "  root auto-update works under the delegate flags ($N_OK of $N_EX hosts)"
+      fi
+      if [ "$N_NO" -gt 0 ]; then
+        echo "  root auto-update does NOT fire under the delegate flags: delegate refused $N_NO host(s)" \
+          "whose root was removed (alert: $NO_CODES)"
+      fi
+      if [ $((N_OK + N_NO)) -eq 0 ]; then
+        echo "  INCONCLUSIVE: no host could be exercised (INFO, not a failure)"
       fi
     fi ;;
   *) echo "  SKIPPED: Windows only" ;;
