@@ -1,7 +1,7 @@
 # Helper for run-trust.sh's AUTOROOT probe: one action per call, one machine-readable line out.
 # Only certificates whose subject equals the fixture intermediate's issuer are ever touched.
 param(
-  [Parameter(Mandatory)][ValidateSet('ctl', 'diag', 'leaf', 'capion', 'capioff', 'capidump', 'strip', 'build', 'restore')][string]$Action,
+  [Parameter(Mandatory)][ValidateSet('ctl', 'diag', 'leaf', 'capion', 'capioff', 'capidump', 'strip', 'build', 'restore', 'policyclear', 'policyrestore', 'svcrestart')][string]$Action,
   [Parameter(Mandatory)][string]$Work,
   [string]$Flags = '0',
   [ValidateSet('plain', 'ex')][string]$Para = 'plain',
@@ -35,11 +35,37 @@ i0VOx3vP9EAwHWGl5hxtpJAJkm5GSwIwRikYhDR6vPve2BvYGacE9ct+522E2dqO
 $Inter = New-Object "$X509.X509Certificate2" (, [Convert]::FromBase64String(($Pem -replace '\s', '')))
 $IssuerDer = [BitConverter]::ToString($Inter.IssuerName.RawData)
 
+# third field: may be modified; current-user Root/AuthRoot are only read (their changes raise a GUI prompt)
 $Stores = @(
-  @('LocalMachine', 'Root'), @('LocalMachine', 'AuthRoot'), @('LocalMachine', 'CA'),
-  @('CurrentUser', 'Root'), @('CurrentUser', 'AuthRoot'), @('CurrentUser', 'CA'))
+  @('LocalMachine', 'Root', $true), @('LocalMachine', 'AuthRoot', $true), @('LocalMachine', 'CA', $true),
+  @('CurrentUser', 'Root', $false), @('CurrentUser', 'AuthRoot', $false), @('CurrentUser', 'CA', $true))
 $SstDir = Join-Path $Work 'sst'
 $Saved = Join-Path $Work 'saved.txt'
+$Untouched = Join-Path $Work 'untouched.txt'
+$PolKey = 'HKLM:\SOFTWARE\Policies\Microsoft\SystemCertificates\AuthRoot'
+$PolName = 'DisableRootAutoUpdate'
+$PolState = Join-Path $Work 'policy.state'
+
+function Mark($t) { Write-Host $t; [Console]::Out.Flush() }
+
+function Invoke-Bounded([string]$exe, [string[]]$argv, [int]$ms) { # @{TimedOut; Lines}
+  $o = Join-Path $Work 'bounded.out'
+  $e = Join-Path $Work 'bounded.err'
+  $q = ($argv | ForEach-Object { if ($_ -match '[\s"]') { '"' + $_ + '"' } else { $_ } }) -join ' '
+  $p = Start-Process -FilePath $exe -ArgumentList $q -PassThru -WindowStyle Hidden `
+    -RedirectStandardOutput $o -RedirectStandardError $e
+  if (-not $p.WaitForExit($ms)) {
+    try { & taskkill /F /T /PID $p.Id | Out-Null } catch { }
+    return [pscustomobject]@{ TimedOut = $true; Lines = @() }
+  }
+  $lines = @()
+  if (Test-Path $o) { $lines = @(Get-Content $o) }
+  return [pscustomobject]@{ TimedOut = $false; Lines = $lines }
+}
+
+function Get-Pol {
+  try { return "$((Get-ItemProperty -Path $PolKey -Name $PolName -ErrorAction Stop).$PolName)" } catch { return 'absent' }
+}
 
 function Open-Store($loc, $name, $write) {
   $s = New-Object "$X509.X509Store" ($name, $loc)
@@ -49,29 +75,31 @@ function Open-Store($loc, $name, $write) {
   return $s
 }
 
-function Find-Issuers($write) { # every R-subject certificate: @{Loc; Name; Store; Cert}
+function Find-Issuers($write, $touchOnly = $false) { # every R-subject certificate: @{Loc; Name; Touch; Store; Cert}
   foreach ($e in $Stores) {
+    if (($write -or $touchOnly) -and -not $e[2]) { continue }
     $s = Open-Store $e[0] $e[1] $write
     if ($null -eq $s) { continue }
     foreach ($c in @($s.Certificates)) {
       if ([BitConverter]::ToString($c.SubjectName.RawData) -eq $IssuerDer) {
-        [pscustomobject]@{ Loc = $e[0]; Name = $e[1]; Store = $s; Cert = $c }
+        [pscustomobject]@{ Loc = $e[0]; Name = $e[1]; Touch = $e[2]; Store = $s; Cert = $c }
       }
     }
     if (-not $write) { $s.Close() }
   }
 }
 
-function Add-Sst($loc, $name, $file) {
-  $u = @(); if ($loc -eq 'CurrentUser') { $u = @('-user') }
-  & certutil @u -addstore -f $name $file | Out-Null
+function Add-Sst($loc, $name, $file) { # $false on timeout
+  $a = @(); if ($loc -eq 'CurrentUser') { $a = @('-user') }
+  $a += @('-addstore', '-f', $name, $file)
+  return -not (Invoke-Bounded 'certutil' $a 30000).TimedOut
 }
 
 switch ($Action) {
   'ctl' {
     $f = Join-Path $Work 'wu.sst'
     Remove-Item $f -ErrorAction SilentlyContinue
-    & certutil -generateSSTFromWU $f | Out-Null
+    [void](Invoke-Bounded 'certutil' @('-generateSSTFromWU', $f) 60000)
     if (-not (Test-Path $f)) { 'ERR generateSSTFromWU produced no file'; break }
     $col = New-Object "$X509.X509Certificate2Collection"
     $col.Import($f)
@@ -173,18 +201,18 @@ switch ($Action) {
     $log = 'Microsoft-Windows-CAPI2/Operational'
     $state = Join-Path $Work 'capi2.state'
     $was = 'off'
-    if (@(& wevtutil gl $log) -match 'enabled:\s*true') { $was = 'on' }
+    if (@((Invoke-Bounded 'wevtutil' @('gl', $log) 20000).Lines) -match 'enabled:\s*true') { $was = 'on' }
     if (-not (Test-Path $state)) { Set-Content $state $was }
-    & wevtutil sl $log /ms:67108864 | Out-Null
-    & wevtutil sl $log /e:true | Out-Null
-    & wevtutil cl $log | Out-Null
+    [void](Invoke-Bounded 'wevtutil' @('sl', $log, '/ms:67108864') 20000)
+    [void](Invoke-Bounded 'wevtutil' @('sl', $log, '/e:true') 20000)
+    [void](Invoke-Bounded 'wevtutil' @('cl', $log) 30000)
     "capi2=enabled was=$was"
   }
   'capioff' {
     $log = 'Microsoft-Windows-CAPI2/Operational'
     $state = Join-Path $Work 'capi2.state'
     if (Test-Path $state) {
-      if ((Get-Content $state) -eq 'off') { & wevtutil sl $log /e:false | Out-Null }
+      if ((Get-Content $state) -eq 'off') { [void](Invoke-Bounded 'wevtutil' @('sl', $log, '/e:false') 20000) }
       Remove-Item $state -ErrorAction SilentlyContinue
     }
     'capi2=restored'
@@ -192,8 +220,10 @@ switch ($Action) {
   'capidump' {
     $log = 'Microsoft-Windows-CAPI2/Operational'
     $raw = Join-Path $Work 'capi2-events.txt'
-    & wevtutil qe $log /f:text /c:1000 /rd:true | Out-File $raw -Encoding utf8
-    $lines = @(Get-Content $raw)
+    $q = Invoke-Bounded 'wevtutil' @('qe', $log, '/f:text', '/c:1000', '/rd:true') 45000
+    if ($q.TimedOut) { '  capi2 query timed out'; break }
+    $q.Lines | Out-File $raw -Encoding utf8
+    $lines = @($q.Lines)
     $ids = @{}
     foreach ($l in $lines) { if ($l -match '^\s*Event ID:\s*(\d+)') { $ids[$Matches[1]] = 1 + [int]$ids[$Matches[1]] } }
     $idText = ($ids.GetEnumerator() | Sort-Object { [int]$_.Name } | ForEach-Object { "$($_.Name)x$($_.Value)" }) -join ' '
@@ -211,6 +241,46 @@ switch ($Action) {
         if ($n -ge 80) { break }
       }
     }
+    $kw = 'Auto Update|Automatic Root Update|DisableRootAutoUpdate|trustedr'
+    $seenKw = @{}
+    $k = 0
+    foreach ($l in $lines) {
+      $t = $l.Trim()
+      if ($t -notmatch $kw -or $seenKw.ContainsKey($t)) { continue }
+      $seenKw[$t] = $true
+      if ($t.Length -gt 220) { $t = $t.Substring(0, 220) }
+      "  capi2 kw | $t"
+      $k++
+      if ($k -ge 40) { break }
+    }
+    if ($k -eq 0) { '  capi2 kw | (no auto-update text in the events)' }
+  }
+  'policyclear' {
+    $was = Get-Pol
+    if (-not (Test-Path $PolState)) { Set-Content $PolState $was } else { $was = @(Get-Content $PolState)[0] }
+    if (-not (Test-Path $PolKey)) { New-Item -Path $PolKey -Force | Out-Null }
+    Set-ItemProperty -Path $PolKey -Name $PolName -Value 0 -Type DWord
+    "AUTOROOT policy $PolName was=$was now=$(Get-Pol)"
+  }
+  'policyrestore' {
+    if (-not (Test-Path $PolState)) { 'policy restored=unchanged'; break }
+    $orig = @(Get-Content $PolState)[0]
+    if ($orig -eq 'absent') { Remove-ItemProperty -Path $PolKey -Name $PolName -ErrorAction SilentlyContinue }
+    else { Set-ItemProperty -Path $PolKey -Name $PolName -Value ([int]$orig) -Type DWord }
+    Remove-Item $PolState -ErrorAction SilentlyContinue
+    "policy restored=$(Get-Pol)"
+  }
+  'svcrestart' {
+    $j = Start-Job { Restart-Service CryptSvc -Force }
+    if (-not (Wait-Job $j -Timeout 60)) { Stop-Job $j }
+    Remove-Job $j -Force
+    $st = 'unknown'
+    for ($i = 0; $i -lt 30; $i++) {
+      $st = "$((Get-Service CryptSvc).Status)"
+      if ($st -eq 'Running') { break }
+      Start-Sleep -Seconds 1
+    }
+    "cryptsvc=$st"
   }
   'strip' {
     New-Item -ItemType Directory -Force $SstDir | Out-Null
@@ -230,8 +300,11 @@ switch ($Action) {
     }
     foreach ($x in $found) { try { $x.Store.Remove($x.Cert) } catch { } }
     foreach ($x in $found) { $x.Store.Close() }
-    if (-not $KeepCache) { & certutil -urlcache '*' delete | Out-Null }
-    $left = @(Find-Issuers $false)
+    if (-not $KeepCache) { [void](Invoke-Bounded 'certutil' @('-f', '-urlcache', '*', 'delete') 45000) }
+    $un = @(Find-Issuers $false | Where-Object { -not $_.Touch } | ForEach-Object { "$($_.Loc)\$($_.Name)" })
+    [IO.File]::WriteAllLines($Untouched, [string[]]$un)
+    if ($un.Count -gt 0) { "  untouched (read-only, left in place): $($un -join ',')" }
+    $left = @(Find-Issuers $false $true)
     "remaining=$($left.Count)"
   }
   'build' {
@@ -366,7 +439,8 @@ public static class AutoRootChain {
     else { $st = ('other-0x{0:X}' -f $err) }
     $where = @()
     for ($i = 0; $i -le $Poll; $i++) {
-      $where = @(Find-Issuers $false | ForEach-Object { "$($_.Loc)\$($_.Name)" })
+      $pre = @(); if (Test-Path $Untouched) { $pre = @(Get-Content $Untouched) }
+      $where = @(Find-Issuers $false | ForEach-Object { "$($_.Loc)\$($_.Name)" } | Where-Object { $pre -notcontains $_ })
       if ($where.Count -gt 0 -or $i -eq $Poll) { break }
       Start-Sleep -Seconds 1
     }
@@ -381,15 +455,20 @@ public static class AutoRootChain {
     if (Test-Path $Saved) {
       $rows = @(Get-Content $Saved | Where-Object { $_ })
       $removed = $rows.Count
-      foreach ($sst in Get-ChildItem $SstDir -Filter '*.sst') {
+      foreach ($sst in @(Get-ChildItem $SstDir -Filter '*.sst')) {
         $loc, $name = $sst.BaseName.Split('_')
-        Add-Sst $loc $name $sst.FullName
+        if ($loc -eq 'CurrentUser' -and $name -ne 'CA') { continue }
+        Mark "restore: add $loc\$name"
+        if (-not (Add-Sst $loc $name $sst.FullName)) { Mark "restore: add $loc\$name timed out" }
       }
       $keep = @{}
       foreach ($r in $rows) { $keep[$r] = $true }
       foreach ($x in @(Find-Issuers $true)) {
         $key = "$($x.Loc)|$($x.Name)|$($x.Cert.Thumbprint)"
-        if (-not $keep.ContainsKey($key)) { try { $x.Store.Remove($x.Cert) } catch { } }
+        if (-not $keep.ContainsKey($key)) {
+          Mark "restore: remove stray $($x.Loc)\$($x.Name)"
+          try { $x.Store.Remove($x.Cert) } catch { }
+        }
         $x.Store.Close()
       }
       $now = @{}

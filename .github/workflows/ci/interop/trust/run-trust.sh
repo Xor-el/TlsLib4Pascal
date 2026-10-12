@@ -88,6 +88,7 @@ cleanup() {
   if [ "$DISTRUSTED" = 1 ]; then uninstall_distrust || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
   autoroot_restore || true
+  autoroot_policy_restore || true
   autoroot_capi_off || true
   rm -rf "$TMP"
 }
@@ -141,17 +142,40 @@ uninstall_distrust() {
 }
 
 AUTOROOT_ARMED=0
-autoroot_ps() { # <action> [extra args]: run the AUTOROOT helper, one result line on stdout
-  local action="$1"; shift
-  powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-    -File "$(cygpath -w "$HERE/autoroot-probe.ps1")" -Action "$action" \
-    -Work "$(cygpath -w "$TMP/autoroot")" "$@" 2>&1 | tr -d '\r'
+autoroot_bounded() { # <secs> <cmd...>: same idiom as probe_bounded with a per-call limit
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout -k 5 "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout -k 5 "$secs" "$@"
+  else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' "$secs" "$@"; fi
 }
-autoroot_restore() { # idempotent: put back every removed root and print the tally
+autoroot_ps() { # <action> [extra args]: run the AUTOROOT helper bounded; a timeout warns on stderr, rc stays 0
+  local action="$1" secs=60 rc=0 out; shift
+  case "$action" in
+    restore) secs=120 ;;
+    diag|ctl|leaf|capidump|svcrestart) secs=90 ;;
+  esac
+  mkdir -p "$TMP/autoroot"
+  out="$TMP/autoroot/$action.out"
+  autoroot_bounded "$secs" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$(cygpath -w "$HERE/autoroot-probe.ps1")" -Action "$action" \
+    -Work "$(cygpath -w "$TMP/autoroot")" "$@" >"$out" 2>&1 </dev/null || rc=$?
+  tr -d '\r' <"$out"
+  case "$rc" in
+    124|137|142|143) echo "  WARN  AUTOROOT $action timed out" >&2 ;;
+  esac
+  return 0
+}
+autoroot_restore() { # idempotent: put back every removed root and print the tally; a timeout never blocks the job
   [ "$AUTOROOT_ARMED" = 1 ] || return 0
   AUTOROOT_ARMED=0
-  local line missing
-  line="$(autoroot_ps restore | tail -n 1)"
+  local out line missing
+  out="$(autoroot_ps restore)"
+  printf '%s\n' "$out" | sed 's/^/  /'
+  line="$(printf '%s\n' "$out" | tail -n 1)"
+  case "$line" in
+    removed=*) ;;
+    *) echo "  WARN  AUTOROOT restore result unreadable"; return 0 ;;
+  esac
   echo "AUTOROOT RESTORE $line"
   missing="${line##*missing=}"
   case "$missing" in
@@ -590,6 +614,7 @@ AUTOROOT_INLINE=48002004  # CACHE_ONLY_URL_RETRIEVAL | REVOCATION_CHECK_CHAIN_EX
 AUTOROOT_LIVE=48002000    # REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | REVOCATION_ACCUMULATIVE_TIMEOUT | DISABLE_AIA, extended CERT_CHAIN_PARA
 AUTOROOT_CONTROL=00002000 # DISABLE_AIA only
 AUTOROOT_CAPI=0
+AUTOROOT_POLICY=0
 
 autoroot_capi_off() { # idempotent: put the CAPI2 operational log back to its prior state
   [ "$AUTOROOT_CAPI" = 1 ] || return 0
@@ -604,12 +629,24 @@ autoroot_run() { # <flags> <plain|ex> <inter|leaf> [keep]: strip, build once in 
   autoroot_ps build -Flags "$1" -Para "$2" -Target "$3" | tail -n 1
 }
 
-autoroot_installed() { # a run line shows R back in a store
-  case "$1" in *reappeared=none*|'') return 1 ;; *) return 0 ;; esac
+autoroot_policy_restore() { # idempotent: put DisableRootAutoUpdate back as it was
+  [ "$AUTOROOT_POLICY" = 1 ] || return 0
+  AUTOROOT_POLICY=0
+  autoroot_ps policyrestore | tail -n 1 | sed 's/^/  /'
+}
+
+autoroot_installed() { # a run line shows R put into a root store by auto-update (an AIA fetch or a \CA store does not count)
+  local where
+  case "$1" in ''|*aia=True*) return 1 ;; esac
+  where="${1#*reappeared=}"; where="${where%% *}"
+  case ",$where," in
+    *,LocalMachine\\AuthRoot,*|*,LocalMachine\\Root,*|*,CurrentUser\\AuthRoot,*|*,CurrentUser\\Root,*) return 0 ;;
+  esac
+  return 1
 }
 
 autoroot_probe() {
-  local ctl thumb strip run_inline run_live c1 c2 c3 c5 leaf_inline leaf_live
+  local ctl thumb strip strip_out run_inline run_live c1 c2 c3 c5 c6 leaf_inline leaf_live
   mkdir -p "$TMP/autoroot"
   ctl="$(autoroot_ps ctl | tr '\n' ' ')"
   case "$ctl" in
@@ -621,12 +658,16 @@ autoroot_probe() {
   autoroot_ps diag -Thumb "$thumb" || true
   echo "  $(autoroot_ps leaf | tail -n 1)"
   AUTOROOT_ARMED=1
-  strip="$(autoroot_ps strip | tail -n 1)"
+  strip_out="$(autoroot_ps strip)"
+  strip="$(printf '%s\n' "$strip_out" | tail -n 1)"
+  printf '%s\n' "$strip_out" | grep '^  ' || true
   if [ "$strip" != "remaining=0" ]; then
     echo "AUTOROOT PRECONDITION FAILED: issuer still present after removal"
     autoroot_restore
     return 0
   fi
+  AUTOROOT_POLICY=1
+  autoroot_ps policyclear | tail -n 1
   AUTOROOT_CAPI=1
   echo "  $(autoroot_ps capion | tail -n 1)"
   run_inline="$(autoroot_run $AUTOROOT_INLINE plain inter)"
@@ -641,6 +682,12 @@ autoroot_probe() {
   echo "  C2 control (flags 0, AIA allowed):   $c2"
   echo "  C3 control (real leaf, chain+policy): $c3"
   echo "  C5 control (C1, URL cache kept):     $c5"
+  c6=''
+  if ! autoroot_installed "$c1" && ! autoroot_installed "$c3" && ! autoroot_installed "$c5"; then
+    echo "  $(autoroot_ps svcrestart | tail -n 1)"
+    c6="$(autoroot_run $AUTOROOT_CONTROL plain inter)"
+    echo "  C6 control (C1 after CryptSvc restart): $c6"
+  fi
   case "$c2" in *aia=True*) echo "  note: C2 issuer came from AIA, not counted as an auto-update install" ;; esac
   if autoroot_installed "$c3"; then
     leaf_inline="$(autoroot_run $AUTOROOT_INLINE plain leaf)"
@@ -648,9 +695,10 @@ autoroot_probe() {
     echo "  leaf inline: $leaf_inline"
     echo "  leaf live:   $leaf_live"
   fi
+  autoroot_policy_restore
   autoroot_ps capidump || true
   autoroot_capi_off
-  if autoroot_installed "$c1" || autoroot_installed "$c3" || autoroot_installed "$c5"; then
+  if autoroot_installed "$c1" || autoroot_installed "$c3" || autoroot_installed "$c5" || autoroot_installed "$c6"; then
     local i l
     if autoroot_installed "$run_inline"; then i=installs; else i=does-not-fire; fi
     if autoroot_installed "$run_live"; then l=installs; else l=does-not-fire; fi
