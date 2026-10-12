@@ -48,7 +48,8 @@ type
     /// egress, such as refusing loopback or private answers.</summary>
     Resolver: IHostResolver;
     /// <summary>The TLS client config for an https responder; nil fails every https fetch. It must
-    /// not defer to live revocation, which would recurse into this fetcher.</summary>
+    /// not arm a certificate-verdict park (WithAsyncCertificateVerdict, WithLiveRevocationVerdict):
+    /// there is no resolver here, and a live-revocation one would recurse into this fetcher.</summary>
     TlsConfig: ITlsClientConfig;
     /// <summary>A forward proxy, an IPv4 literal or a host name; empty connects directly. An http
     /// request is sent to it in absolute form, an https one through a CONNECT tunnel.</summary>
@@ -81,7 +82,7 @@ type
     /// <summary>The defaults, with the deadline read from AClock; nil raises.</summary>
     constructor Create(const AClock: ITlsMonotonicClock); overload;
     /// <summary>Raises on a nil Clock or Resolver, a ProxyHost with port 0, or a TlsConfig that
-    /// defers to live revocation.</summary>
+    /// arms a certificate-verdict park.</summary>
     constructor Create(const ASettings: TSocketHttpFetcherSettings); overload;
     function Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
       out AResponse: TBytes): Boolean;
@@ -99,7 +100,7 @@ resourcestring
   SNilClock ='a clock is required (pass a clock, not nil)';
   SNilResolver = 'a host resolver is required (pass a resolver, not nil)';
   SProxyPortMissing = 'a proxy host needs a non-zero proxy port';
-  SLiveRevocationConfig = 'the fetcher''s TLS config must not defer its certificate verdict';
+  SDeferredVerdictConfig = 'the fetcher''s TLS config must not defer its certificate verdict';
   SNoTlsConfig = 'an https responder needs a TLS config';
   SFetchBudgetExceeded = 'revocation fetch exceeded its time budget';
   SResponseTooLarge = 'revocation response exceeds the size cap';
@@ -814,7 +815,7 @@ begin
   // a verdict park has no resolver here, and a live-revocation one would recurse into this fetcher
   if (ASettings.TlsConfig <> nil) and (ASettings.TlsConfig.AsyncCertificateVerdict.Deferral <>
     TVerdictDeferral.None) then
-    raise EArgumentTlsLibException.CreateRes(@SLiveRevocationConfig);
+    raise EArgumentTlsLibException.CreateRes(@SDeferredVerdictConfig);
   FSettings := ASettings;
 end;
 

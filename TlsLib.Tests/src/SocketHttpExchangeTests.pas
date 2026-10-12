@@ -148,7 +148,7 @@ type
   published
     procedure TestHttpsResponderIsFetched;
     procedure TestHttpsWithoutTlsConfigConnectsNothing;
-    procedure TestLiveRevocationConfigIsRefused;
+    procedure TestDeferredVerdictConfigIsRefused;
     procedure TestCloseDelimitedBodyNeedsCloseNotify;
     procedure TestSilentHandshakeIsCutOffAtTheBudget;
     procedure TestHttpsThroughAConnectProxy;
@@ -1093,7 +1093,7 @@ begin
   end;
 end;
 
-procedure TTestSocketHttpFetcherTls.TestLiveRevocationConfigIsRefused;
+procedure TTestSocketHttpFetcherTls.TestDeferredVerdictConfigIsRefused;
 var
   LSettings: TSocketHttpFetcherSettings;
   LVectors: TStringList;
