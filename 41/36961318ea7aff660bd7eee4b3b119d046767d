@@ -1,0 +1,23 @@
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_58af9e1b217631::t_a8210dbc061143 93-94,96-103
+scripts/maintenance/sync-trust-demo-nsc.ps1
+  s_58af9e1b217631::t_7eb1402e0d87dc 1-76
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemo.dproj
+  s_58af9e1b217631::t_9688bd6e09449c 319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4136961318ea7aff660bd7eee4b3b119d046767d",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
