@@ -118,7 +118,8 @@ begin
   end;
   // A forced mode the platform cannot honor raises a typed error inside these.
   if LMode = TSystemTrustMode.Delegate then
-    ASource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly, AExtraAnchors)
+    ASource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly, AExtraAnchors,
+      APkixProvider)
   else
     AStore := TOSSystemTrust.AnchorStore(APkixProvider);
 end;

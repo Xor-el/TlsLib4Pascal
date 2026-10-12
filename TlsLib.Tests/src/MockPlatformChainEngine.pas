@@ -32,10 +32,16 @@ type
   /// </summary>
   TMockPlatformChainEngine = class(TInterfacedObject, IPlatformChainEngine)
   strict private
+  type
+    TStep = record
+      Returns: Boolean;
+      Result: TPlatformChainResult;
+      Alert: TTlsAlertDescription;
+    end;
+  var
     FCaps: TPlatformChainCapabilities;
-    FReturns: Boolean;
-    FResult: TPlatformChainResult;
-    FAlert: TTlsAlertDescription;
+    FSteps: TArray<TStep>;
+    FRequests: TArray<TPlatformChainRequest>;
     FLast: TPlatformChainRequest;
     FServerCalls: Integer;
     FClientCalls: Integer;
@@ -44,6 +50,10 @@ type
   public
     constructor Create(ACaps: TPlatformChainCapabilities; AReturns: Boolean;
       const AResult: TPlatformChainResult; AAlert: TTlsAlertDescription);
+    /// <summary>Scripts the outcome of the next evaluation after the ones already scripted; the last
+    /// scripted outcome repeats for any further call.</summary>
+    procedure ThenReturn(AReturns: Boolean; const AResult: TPlatformChainResult;
+      AAlert: TTlsAlertDescription);
     function Capabilities: TPlatformChainCapabilities;
     function EvaluateServer(const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
@@ -51,6 +61,8 @@ type
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>The request the last Evaluate* call received, for asserting the delegate's shaping.</summary>
     property Last: TPlatformChainRequest read FLast;
+    /// <summary>Every request received, in call order.</summary>
+    property Requests: TArray<TPlatformChainRequest> read FRequests;
     property ServerCalls: Integer read FServerCalls;
     property ClientCalls: Integer read FClientCalls;
   end;
@@ -64,9 +76,16 @@ constructor TMockPlatformChainEngine.Create(ACaps: TPlatformChainCapabilities;
 begin
   inherited Create;
   FCaps := ACaps;
-  FReturns := AReturns;
-  FResult := AResult;
-  FAlert := AAlert;
+  ThenReturn(AReturns, AResult, AAlert);
+end;
+
+procedure TMockPlatformChainEngine.ThenReturn(AReturns: Boolean;
+  const AResult: TPlatformChainResult; AAlert: TTlsAlertDescription);
+begin
+  SetLength(FSteps, Length(FSteps) + 1);
+  FSteps[High(FSteps)].Returns := AReturns;
+  FSteps[High(FSteps)].Result := AResult;
+  FSteps[High(FSteps)].Alert := AAlert;
 end;
 
 function TMockPlatformChainEngine.Capabilities: TPlatformChainCapabilities;
@@ -76,11 +95,18 @@ end;
 
 function TMockPlatformChainEngine.Run(const ARequest: TPlatformChainRequest;
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LStep: Integer;
 begin
   FLast := ARequest;
-  AResult := FResult;
-  AAlert := FAlert;
-  Result := FReturns;
+  SetLength(FRequests, Length(FRequests) + 1);
+  FRequests[High(FRequests)] := ARequest;
+  LStep := Length(FRequests) - 1;
+  if LStep > High(FSteps) then
+    LStep := High(FSteps);
+  AResult := FSteps[LStep].Result;
+  AAlert := FSteps[LStep].Alert;
+  Result := FSteps[LStep].Returns;
 end;
 
 function TMockPlatformChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;

@@ -60,6 +60,13 @@ type
   /// </summary>
   TWindowsChainEngine = class sealed(TInterfacedObject, IPlatformChainEngine)
   public
+    /// <summary>Maps a definitive non-revocation chain-policy dwError to the fatal alert (expiry,
+    /// untrusted root, wrong usage, name mismatch, catch-all bad_certificate) and to its failure
+    /// class: NoTrustAnchor only for an untrusted root or a partial chain, so a corrupt signature,
+    /// expiry or wrong usage never lets the host roots rescue the chain. A revocation dwError is not
+    /// handled here - it is classified into the tri-state outcome by the evaluation.</summary>
+    class procedure MapPolicyError(ADwError: DWORD; out AAlert: TTlsAlertDescription;
+      out AFailure: TPlatformChainFailure); static;
     function Capabilities: TPlatformChainCapabilities;
     function EvaluateServer(const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
@@ -336,11 +343,6 @@ type
     class procedure ResolveDynamicImports; static;
     /// <summary>Frees the loaded crypt32 module (unit teardown).</summary>
     class procedure ReleaseDynamicImports; static;
-    /// <summary>Maps a definitive non-revocation chain-policy dwError to the fatal alert (expiry,
-    /// untrusted root, wrong usage, name mismatch, catch-all bad_certificate). A revocation dwError
-    /// is not handled here - it is classified into the tri-state outcome by ClassifyPolicyStatus.</summary>
-    class procedure MapPolicyError(ADwError: DWORD;
-      out AAlert: TTlsAlertDescription); static;
     /// <summary>The CertGetCertificateChain flags for a revocation level and network mode: cache-only
     /// inline (revocation added unless None), or network-enabled for a live check (whole-chain
     /// revocation with AIA disabled so the built path matches the presented one).</summary>
@@ -657,7 +659,7 @@ begin
   else
   begin
     // a definitive non-revocation trust failure: reject with the mapped alert
-    MapPolicyError(ADwError, AAlert);
+    TWindowsChainEngine.MapPolicyError(ADwError, AAlert, AResult.Failure);
     Exit;
   end;
   // the OS-built path (leaf-first, ending at the anchor) is the validated chain; the anchor (last
@@ -891,23 +893,6 @@ begin
   end;
 end;
 
-class procedure TWindowsTrustApi.MapPolicyError(ADwError: DWORD;
-  out AAlert: TTlsAlertDescription);
-begin
-  case ADwError of
-    CERT_E_EXPIRED, CERT_E_VALIDITYPERIODNESTING:
-      AAlert := TTlsAlertDescription.CertificateExpired;
-    CERT_E_UNTRUSTEDROOT, CERT_E_UNTRUSTEDCA, CERT_E_CHAINING,
-      TRUST_E_CERT_SIGNATURE:
-      AAlert := TTlsAlertDescription.UnknownCa;
-    CERT_E_WRONG_USAGE:
-      AAlert := TTlsAlertDescription.UnsupportedCertificate;
-  else
-    // CERT_E_CN_NO_MATCH and everything else map to bad_certificate.
-    AAlert := TTlsAlertDescription.BadCertificate;
-  end;
-end;
-
 { TWindowsRootSource }
 
 function TWindowsRootSource.HarvestRoots: TArray<TBytes>;
@@ -928,11 +913,34 @@ end;
 
 { TWindowsChainEngine }
 
+class procedure TWindowsChainEngine.MapPolicyError(ADwError: DWORD;
+  out AAlert: TTlsAlertDescription; out AFailure: TPlatformChainFailure);
+begin
+  AFailure := TPlatformChainFailure.Other;
+  case ADwError of
+    CERT_E_EXPIRED, CERT_E_VALIDITYPERIODNESTING:
+      AAlert := TTlsAlertDescription.CertificateExpired;
+    CERT_E_UNTRUSTEDROOT, CERT_E_CHAINING:
+    begin
+      AAlert := TTlsAlertDescription.UnknownCa;
+      AFailure := TPlatformChainFailure.NoTrustAnchor;
+    end;
+    CERT_E_UNTRUSTEDCA, TRUST_E_CERT_SIGNATURE:
+      AAlert := TTlsAlertDescription.UnknownCa;
+    CERT_E_WRONG_USAGE:
+      AAlert := TTlsAlertDescription.UnsupportedCertificate;
+  else
+    // CERT_E_CN_NO_MATCH and everything else map to bad_certificate.
+    AAlert := TTlsAlertDescription.BadCertificate;
+  end;
+end;
+
 function TWindowsChainEngine.Capabilities: TPlatformChainCapabilities;
 begin
-  // crypt32 can fetch live revocation, render a cached revocation outcome, and match the DNS host
+  // crypt32 can fetch live revocation, render a cached revocation outcome, match the DNS host, and
+  // evaluate a server chain against an exclusive root set
   Result := [TPlatformChainCapability.LiveFetch, TPlatformChainCapability.CachedRevocation,
-    TPlatformChainCapability.DnsIdentity];
+    TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.ExclusiveServerAnchors];
 end;
 
 function TWindowsChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;

@@ -1166,7 +1166,7 @@ function TAppleChainEngine.Capabilities: TPlatformChainCapabilities;
 begin
   // SecTrust fetches live, renders cached revocation, matches the DNS host, and unions extra anchors
   Result := [TPlatformChainCapability.LiveFetch, TPlatformChainCapability.CachedRevocation,
-    TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.ExtraAnchors];
+    TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.NativeAnchorUnion];
 end;
 
 function TAppleChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;
