@@ -60,6 +60,9 @@ type
     RootFile: string;
     // os-delegate / os-anchors only: a root trusted beside the OS roots
     HostRootFile: string;
+    // client only: dial this dotted-IPv4 peer instead of the in-process server (--connect ip:port)
+    ConnectHost: string;
+    ConnectPort: Word;
     ServerCertFile: string;
     ServerKeyFile: string;
     StapleFile: string;
@@ -106,7 +109,8 @@ type
     class function BuildServerConfig(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const ACell: TTrustCell;
       const ACaFile: string): ITlsServerConfig; static;
-    class function RunClient(APort: Word; const ACell: TTrustCell): string; static;
+    class function RunClient(const AHost: string; APort: Word;
+      const ACell: TTrustCell): string; static;
     class function RunCell(const ACell: TTrustCell): string; static;
     class function RunServer(const ACell: TTrustCell): string; static;
   public
@@ -403,8 +407,8 @@ begin
   end;
 end;
 
-class function TTrustDelegateInteropRunner.RunClient(APort: Word;
-  const ACell: TTrustCell): string;
+class function TTrustDelegateInteropRunner.RunClient(const AHost: string;
+  APort: Word; const ACell: TTrustCell): string;
 var
   LSocket: TInteropSocket;
   LCrypto: ICryptoProvider;
@@ -416,7 +420,7 @@ var
   LSent: TBytes;
 begin
   Result := '';
-  LSocket := TInteropSocket.Connect('127.0.0.1', APort);
+  LSocket := TInteropSocket.Connect(AHost, APort);
   try
     LCrypto := TTlsLibTestProviders.Crypto;
     LPkix := TTlsLibTestProviders.Pkix;
@@ -440,6 +444,12 @@ begin
     Result := MapOutcome(ACell, LResult);
     if (Result <> '') or (not ACell.ExpectAccept) then
       Exit;
+    // a real peer does not echo: the verdict is all the connect mode measures
+    if ACell.ConnectHost <> '' then
+    begin
+      TInteropPump.Close(LEngine, LSocket);
+      Exit;
+    end;
     LSent := TEncoding.UTF8.GetBytes('native trust cell application data');
     TInteropPump.WriteAppData(LEngine, LSocket, LSent);
     LResult := TInteropPump.PumpAppData(LEngine, LSocket);
@@ -557,12 +567,14 @@ begin
   // server-mode (mTLS): our server verifies the peer client certificate live through the OS delegate
   if ACell.IsServer then
     Exit(RunServer(ACell));
+  if ACell.ConnectHost <> '' then
+    Exit(RunClient(ACell.ConnectHost, ACell.ConnectPort, ACell));
   Result := '';
   LListener := TInteropListener.Bind('127.0.0.1', 0);
   try
     LServer := TTrustServerThread.Create(LListener, ACell);
     try
-      Result := RunClient(LListener.Port, ACell);
+      Result := RunClient('127.0.0.1', LListener.Port, ACell);
       LServer.WaitFor;
       if LServer.Error <> '' then
         if Result = '' then
@@ -580,7 +592,8 @@ end;
 class function TTrustDelegateInteropRunner.Run: Int32;
 var
   LCell: TTrustCell;
-  LError, LVersionArg: string;
+  LError, LVersionArg, LConnect: string;
+  LColon: Int32;
 begin
   Result := 0;
   try
@@ -612,6 +625,23 @@ begin
       raise Exception.Create('--host-root applies to the non-live client OS modes only');
     if (LCell.HostRootFile <> '') and not (LCell.Delegate or LCell.Anchors) then
       raise Exception.Create('--host-root needs --trust-mode os-delegate or os-anchors');
+    LConnect := ArgValue('--connect', '');
+    LCell.ConnectHost := '';
+    LCell.ConnectPort := 0;
+    if LConnect <> '' then
+    begin
+      LColon := Pos(':', LConnect);
+      LCell.ConnectHost := Copy(LConnect, 1, LColon - 1);
+      LCell.ConnectPort := Word(StrToIntDef(Copy(LConnect, LColon + 1, MaxInt), 0));
+      if (LColon = 0) or (LCell.ConnectHost = '') or (LCell.ConnectPort = 0) then
+        raise Exception.Create('--connect expects <ipv4>:<port>');
+      if LCell.IsServer or LCell.Live or not (LCell.Delegate or LCell.Anchors) then
+        raise Exception.Create(
+          '--connect applies to the non-live client os-delegate / os-anchors modes only');
+      if HasArg('--server-cert') or HasArg('--server-key') or HasArg('--staple') or
+        HasArg('--now-ms') then
+        raise Exception.Create('--connect dials a real peer: no --server-cert/--server-key/--staple/--now-ms');
+    end;
     LCell.ServerCertFile := ArgValue('--server-cert', '');
     LCell.ServerKeyFile := ArgValue('--server-key', '');
     LCell.StapleFile := ArgValue('--staple', '');
@@ -625,7 +655,8 @@ begin
     LCell.NowMs := UInt64(StrToInt64Def(ArgValue('--now-ms', '0'), 0));
     ParseExpect(ArgValue('--expect', 'accept'), LCell);
 
-    if (LCell.ServerCertFile = '') or (LCell.ServerKeyFile = '') then
+    if (LCell.ConnectHost = '') and
+      ((LCell.ServerCertFile = '') or (LCell.ServerKeyFile = '')) then
       raise Exception.Create('--server-cert and --server-key are required');
     if LCell.IsServer then
     begin

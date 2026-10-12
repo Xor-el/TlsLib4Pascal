@@ -34,6 +34,9 @@
 #                 exclusivity cell (foreign resolver CA) runs inside the install bracket, where it can
 #                 discriminate. Its revoked(44)/indeterminate(113) alerts come from our resolver, not
 #                 the OS map, so they are asserted exactly on both platforms.
+#   * Windows root auto-update probe - informational, CI-gated: public hosts through os-anchors then
+#                 os-delegate, to see whether crypt32 fetches a missing root under the cache-only flags.
+#                 Fails only if the delegate refuses a host the anchors accepted.
 set -euo pipefail
 
 SHIM="${1:?usage: run-trust.sh <TrustDelegateInterop binary>}"
@@ -469,6 +472,110 @@ if [ "$HAS_DELEGATE" = 1 ]; then
 else
   echo "=== OS trust delegate: SKIPPED (no OS delegate on $OSNAME) ==="
 fi
+
+store_snapshot() { # <out file>: store:name:thumbprint for the machine and user Root/AuthRoot stores
+  local s u
+  : > "$1"
+  for s in Root AuthRoot; do
+    for u in "" "-user"; do
+      certutil $u -store "$s" 2>/dev/null | sed -n 's/^Cert Hash(sha1): *//p' | tr -d ' \r' |
+        sed "s/^/${u:-machine}:$s:/" >> "$1" || true
+    done
+  done
+  sort -o "$1" "$1"
+}
+
+resolve_ipv4() { # <host>: the shim dials a dotted IPv4 only
+  powershell -NoProfile -NonInteractive -Command "[System.Net.Dns]::GetHostAddresses('$1') | Where-Object { \$_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1 -ExpandProperty IPAddressToString" 2>/dev/null | tr -d '\r' || true
+}
+
+probe_cell() { # <mode> <ip> <host>: prints ACCEPT | REFUSE:<alert> | NET
+  local out rc=0
+  out="$($PROBE_TIMEOUT "$SHIM" --trust-mode "$1" --connect "$2:443" --expect-name "$3" \
+    --posture soft --expect accept 2>&1)" || rc=$?
+  if [ "$rc" = 0 ]; then
+    echo ACCEPT
+  elif [[ "$out" =~ got\ status\ 2\ alert\ ([0-9]+) ]]; then
+    echo "REFUSE:${BASH_REMATCH[1]}"
+  else
+    echo NET
+  fi
+}
+
+# Informational: does crypt32 fetch a missing public root under the delegate's cache-only flags
+# (the AuthRoot auto-update), where Anchors only sees roots already installed? Auto-update writes
+# to the machine store, so it sits behind the same CI gate as the install cells. Network trouble
+# is INFO; only delegate refusing what anchors accepted fails the leg.
+echo "=== Windows root auto-update probe (informational) ==="
+case "$OSNAME" in
+  MINGW*|MSYS*|CYGWIN*|Windows*)
+    if ! ci_store_mutation_allowed; then
+      echo "  SKIPPED: not a CI runner (root auto-update modifies the machine store)"
+    else
+      PROBE_TIMEOUT=""
+      if command -v timeout >/dev/null 2>&1; then PROBE_TIMEOUT="timeout 60"; fi
+      PROBE_HOSTS=(letsencrypt.org digicert.com globalsign.com sectigo.com amazon.com google.com
+                   microsoft.com godaddy.com ssl.com entrust.com)
+      store_snapshot "$TMP/store_before"
+      PROBE_IPS=(); PROBE_A=(); PROBE_D=(); PROBE_A2=()
+      for I in "${!PROBE_HOSTS[@]}"; do
+        PROBE_IPS[$I]="$(resolve_ipv4 "${PROBE_HOSTS[$I]}")"
+        PROBE_A[$I]=NET; PROBE_D[$I]=NET; PROBE_A2[$I]="-"
+      done
+      # anchors for every host first: a delegate run can install a root a later anchors run would see
+      for I in "${!PROBE_HOSTS[@]}"; do
+        if [ -n "${PROBE_IPS[$I]}" ]; then
+          PROBE_A[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+        fi
+      done
+      for I in "${!PROBE_HOSTS[@]}"; do
+        if [ -n "${PROBE_IPS[$I]}" ]; then
+          PROBE_D[$I]="$(probe_cell os-delegate "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+        fi
+      done
+      N_HEALED=0; N_BOTH_OK=0; N_BOTH_REFUSED=0; N_REGRESSION=0; N_NET=0; N_A_REFUSED=0
+      printf '  %-18s %-12s %-12s %s\n' host anchors delegate anchors-after
+      for I in "${!PROBE_HOSTS[@]}"; do
+        A="${PROBE_A[$I]}"; D="${PROBE_D[$I]}"
+        case "$A" in REFUSE*) N_A_REFUSED=$((N_A_REFUSED+1)) ;; esac
+        if [ "$A" = NET ] || [ "$D" = NET ]; then
+          N_NET=$((N_NET+1))
+        elif [ "$D" = ACCEPT ] && [ "$A" != ACCEPT ]; then
+          N_HEALED=$((N_HEALED+1))
+          PROBE_A2[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+        elif [ "$D" = ACCEPT ]; then
+          N_BOTH_OK=$((N_BOTH_OK+1))
+        elif [ "$A" = ACCEPT ]; then
+          N_REGRESSION=$((N_REGRESSION+1))
+        else
+          N_BOTH_REFUSED=$((N_BOTH_REFUSED+1))
+        fi
+        printf '  %-18s %-12s %-12s %s\n' "${PROBE_HOSTS[$I]}" "$A" "$D" "${PROBE_A2[$I]}"
+      done
+      store_snapshot "$TMP/store_after"
+      for K in machine:Root user:Root machine:AuthRoot user:AuthRoot; do
+        echo "  store ${K}: $(grep -c "^${K}:" "$TMP/store_before" || true) -> $(grep -c "^${K}:" "$TMP/store_after" || true)"
+      done
+      N_NEW="$(comm -13 "$TMP/store_before" "$TMP/store_after" | wc -l | tr -d ' ')"
+      comm -13 "$TMP/store_before" "$TMP/store_after" | sed 's/^/  new: /'
+      echo "  summary: auto-updated(delegate ok, anchors refused)=$N_HEALED both-accepted=$N_BOTH_OK" \
+        "both-refused=$N_BOTH_REFUSED delegate-refused-anchors-ok=$N_REGRESSION network=$N_NET new-store-certs=$N_NEW"
+      if [ "$N_HEALED" -gt 0 ]; then
+        echo "  root auto-update works under the delegate flags"
+      elif [ "$N_NET" -gt 0 ]; then
+        echo "  INCONCLUSIVE: $N_NET host(s) hit network trouble (INFO, not a failure)"
+      elif [ "$N_A_REFUSED" -gt 0 ]; then
+        echo "  NEGATIVE: anchors refused $N_A_REFUSED host(s) and delegate did not rescue them"
+      else
+        echo "  all roots were already installed; the probe could not exercise auto-update on this image"
+      fi
+      if [ "$N_REGRESSION" -gt 0 ]; then
+        echo "  FAIL  delegate refused $N_REGRESSION host(s) that anchors accepted"
+        FAILURES=$((FAILURES+1))
+      fi
+    fi ;;
+  *) echo "  SKIPPED: Windows only" ;;
+esac
 
 echo "=== native-trust cells: $FAILURES failure(s) ==="
 [ "$FAILURES" -eq 0 ]
