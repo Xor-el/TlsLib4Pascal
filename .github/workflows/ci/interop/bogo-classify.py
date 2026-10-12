@@ -113,9 +113,10 @@ def cmd_gate(config_path, gate_path, audit_path):
     interrupted = bool(gate_run.get("interrupted", True)) or bool(audit_run.get("interrupted", False))
 
     passed = sorted(n for n, r in gate.items() if actual(r) == "PASS")
-    # genuine TLS 1.0/1.1 tests that failed/were-skipped are out of scope (not unexpected)
+    # out-of-scope old-version results, unless the shim accepted what it must reject
     old_version = sorted(n for n, r in gate.items()
-                         if actual(r) in ("FAIL", "SKIP") and is_old_version(n))
+                         if actual(r) in ("FAIL", "SKIP") and is_old_version(n)
+                         and not r.get("error", "").lstrip().startswith("unexpected success"))
     old_set = set(old_version)
     failed = sorted(n for n, r in gate.items() if actual(r) == "FAIL" and n not in old_set)
     # no -allow-unimplemented on the gate pass, so an unimplemented in-scope test is a SKIP

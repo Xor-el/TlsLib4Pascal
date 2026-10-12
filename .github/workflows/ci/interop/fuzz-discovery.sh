@@ -62,6 +62,6 @@ fpc "-T$OS" "-P$CPU" -MDelphi -O2 -B \
 chmod +x "$BIN_DIR/TlsFuzzer$EXE"
 
 echo "==> fuzzing discovery soak (off the PR path; new crashers persist to Data/Corpus/regress/)"
-"$BIN_DIR/TlsFuzzer$EXE" --discovery \
+ci_run_bounded $(( ${FUZZ_DISCOVERY_SECONDS:-1200} + 600 )) "$BIN_DIR/TlsFuzzer$EXE" --discovery \
   --max-seconds "${FUZZ_DISCOVERY_SECONDS:-1200}" \
   --iterations "${FUZZ_DISCOVERY_ITERS:-500000}"

@@ -20,6 +20,9 @@ on:
       - '**'
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 concurrency:
   group: gitlab-mirror-${{ github.ref }}
   cancel-in-progress: false
@@ -33,6 +36,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Push ref to GitLab
         env:

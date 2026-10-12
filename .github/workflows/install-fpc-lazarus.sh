@@ -80,7 +80,7 @@ if ci_is_windows; then IS_WINDOWS=1; else IS_WINDOWS=0; fi
 TAR_TARGET="${FPC_TARBALL_TARGET:-$FPC_TARGET}"
 
 TARBALL="fpc-${FPC_VERSION}.${TAR_TARGET}.tar"
-URL="http://downloads.freepascal.org/fpc/dist/${FPC_VERSION}/${FPC_TARGET}/${TARBALL}"
+URL="https://downloads.freepascal.org/fpc/dist/${FPC_VERSION}/${FPC_TARGET}/${TARBALL}"
 
 WORK_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t fpc-install)"
 cd "$WORK_DIR"
@@ -89,6 +89,7 @@ echo "Downloading $URL"
 # Prefer curl (Linux/macOS/Windows); fall back to wget, then the BSD base
 # `fetch`. Retries ride out transient mirror hiccups.
 ci_download "$URL" "$TARBALL"
+ci_verify_sha256 "$TARBALL" "$INSTALL_SCRIPT_DIR/ci/fpc-tarball-sha256.txt"
 
 tar xf "$TARBALL"
 

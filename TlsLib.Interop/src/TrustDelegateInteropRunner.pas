@@ -332,14 +332,19 @@ begin
   ACell.ExpectAccept := SameText(ASpec, 'accept');
   ACell.HasExpectAlert := False;
   ACell.ExpectAlert := -1;
-  if ACell.ExpectAccept then
+  if ACell.ExpectAccept or SameText(ASpec, 'reject') then
     Exit;
   LColon := Pos(':', ASpec);
-  if LColon > 0 then
+  if (LColon > 0) and SameText(Copy(ASpec, 1, LColon - 1), 'reject') then
   begin
-    ACell.HasExpectAlert := True;
     ACell.ExpectAlert := StrToIntDef(Copy(ASpec, LColon + 1, MaxInt), -1);
+    if (ACell.ExpectAlert >= 0) and (ACell.ExpectAlert <= 255) then
+    begin
+      ACell.HasExpectAlert := True;
+      Exit;
+    end;
   end;
+  raise Exception.Create('--expect takes accept, reject or reject:<alert>, got ''' + ASpec + '''');
 end;
 
 class function TTrustDelegateInteropRunner.BuildClientConfig(

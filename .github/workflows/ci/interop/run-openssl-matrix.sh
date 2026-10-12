@@ -38,8 +38,18 @@ for c in "$BIN_DIR/OpenSslInterop" "$BIN_DIR/OpenSslInterop.exe"; do
 done
 [ -n "$DRIVER" ] || { echo "ERROR: OpenSslInterop binary not found under $BIN_DIR"; exit 2; }
 
+# shellcheck source=../shared/common.sh
+source "$HERE/../shared/common.sh"
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"; kill $(jobs -p) 2>/dev/null || true' EXIT
+
+reap_cell() { # a peer stuck in accept must not outlive its cell
+  local _
+  for _ in $(seq 1 100); do [ -z "$(jobs -rp)" ] && break; sleep 0.1; done
+  kill $(jobs -rp) 2>/dev/null || true
+  wait 2>/dev/null || true
+}
 
 echo "openssl: $($OPENSSL version)"
 echo "driver:  $DRIVER"
@@ -77,7 +87,7 @@ for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/s1.log" && break; sleep 0
 # hold stdin open briefly so s_client stays connected to print the echo before its
 # EOF teardown; capture output and ignore its (benign) non-zero exit so pipefail cannot
 # mask a matched echo. Strict verify still holds - a rejected cert aborts before app-data.
-{ printf 'PING-CELL-1\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$P1 -tls1_3 \
+{ printf 'PING-CELL-1\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$P1 -tls1_3 \
      -CAfile "$TMP/root.pem" -servername localhost -verify_hostname localhost \
      -verify_return_error > "$TMP/c1.out" 2>"$TMP/c1.err" || true
 if grep -q 'PING-CELL-1' "$TMP/c1.out"; then
@@ -85,7 +95,7 @@ if grep -q 'PING-CELL-1' "$TMP/c1.out"; then
 else
   echo "  FAIL: cell 1"; cat "$TMP/s1.log" "$TMP/c1.err"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 2: our client  ->  openssl s_server (we verify openssl's cert) ---
 echo "=== cell 2: our client  ->  openssl s_server ==="
@@ -100,13 +110,13 @@ P2=14502
   -accept $P2 -rev -naccept 1 > "$TMP/s2.log" 2>&1 &
 # wait until s_server is accepting (it prints ACCEPT) rather than a fixed sleep
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s2.log" && break; sleep 0.1; done
-if "$DRIVER" --role client --port $P2 --host localhost --ca "$TMP/srv_cert.pem" \
+if ci_run_bounded 120 "$DRIVER" --role client --port $P2 --host localhost --ca "$TMP/srv_cert.pem" \
      --message "hello-cell-2" --data-dir "$DATA_DIR"; then
   echo "  PASS: handshake (we verify peer cert + hostname) + app-data"
 else
   echo "  FAIL: cell 2"; cat "$TMP/s2.log"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 2a: our client  ->  openssl s_server with an Ed25519 server cert ---
 echo "=== cell 2a: our client  ->  openssl s_server (Ed25519 cert) ==="
@@ -117,13 +127,13 @@ P2A=14520
 "$OPENSSL" s_server -cert "$TMP/ed25519_cert.pem" -key "$TMP/ed25519_key.pem" -tls1_3 \
   -accept $P2A -rev -naccept 1 > "$TMP/s2a.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s2a.log" && break; sleep 0.1; done
-if "$DRIVER" --role client --port $P2A --host localhost --ca "$TMP/ed25519_cert.pem" \
+if ci_run_bounded 120 "$DRIVER" --role client --port $P2A --host localhost --ca "$TMP/ed25519_cert.pem" \
      --message "hello-cell-2a" --data-dir "$DATA_DIR"; then
   echo "  PASS: Ed25519 server cert + CertificateVerify verified + app-data"
 else
   echo "  FAIL: cell 2a"; cat "$TMP/s2a.log"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 2b: our client  ->  openssl s_server with an Ed448 server cert ---
 echo "=== cell 2b: our client  ->  openssl s_server (Ed448 cert) ==="
@@ -134,13 +144,13 @@ P2B=14521
 "$OPENSSL" s_server -cert "$TMP/ed448_cert.pem" -key "$TMP/ed448_key.pem" -tls1_3 \
   -accept $P2B -rev -naccept 1 > "$TMP/s2b.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s2b.log" && break; sleep 0.1; done
-if "$DRIVER" --role client --port $P2B --host localhost --ca "$TMP/ed448_cert.pem" \
+if ci_run_bounded 120 "$DRIVER" --role client --port $P2B --host localhost --ca "$TMP/ed448_cert.pem" \
      --message "hello-cell-2b" --data-dir "$DATA_DIR"; then
   echo "  PASS: Ed448 server cert + CertificateVerify verified + app-data"
 else
   echo "  FAIL: cell 2b"; cat "$TMP/s2b.log"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 3: our server  <-  openssl s_client over TLS 1.2 (hardened ECDHE+AEAD) ---
 echo "=== cell 3: our server  <-  openssl s_client (TLS 1.2) ==="
@@ -148,7 +158,7 @@ P3=14503
 "$DRIVER" --role server --port $P3 --data-dir "$DATA_DIR" > "$TMP/s3.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/s3.log" && break; sleep 0.1; done
 # -tls1_2 pins openssl to 1.2; our dual-version server negotiates the hardened 1.2 profile
-{ printf 'PING-CELL-3\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$P3 -tls1_2 \
+{ printf 'PING-CELL-3\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$P3 -tls1_2 \
      -CAfile "$TMP/root.pem" -servername localhost -verify_hostname localhost \
      -verify_return_error > "$TMP/c3.out" 2>"$TMP/c3.err" || true
 if grep -q 'PING-CELL-3' "$TMP/c3.out"; then
@@ -156,7 +166,7 @@ if grep -q 'PING-CELL-3' "$TMP/c3.out"; then
 else
   echo "  FAIL: cell 3"; cat "$TMP/s3.log" "$TMP/c3.err"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 4: our client  ->  openssl s_server over TLS 1.2 ---
 echo "=== cell 4: our client  ->  openssl s_server (TLS 1.2) ==="
@@ -164,13 +174,13 @@ P4=14504
 "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
   -accept $P4 -rev -naccept 1 > "$TMP/s4.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s4.log" && break; sleep 0.1; done
-if "$DRIVER" --role client --port $P4 --host localhost --ca "$TMP/srv_cert.pem" \
+if ci_run_bounded 120 "$DRIVER" --role client --port $P4 --host localhost --ca "$TMP/srv_cert.pem" \
      --message "hello-cell-4" --data-dir "$DATA_DIR"; then
   echo "  PASS: TLS 1.2 handshake (we verify peer cert + hostname) + app-data"
 else
   echo "  FAIL: cell 4"; cat "$TMP/s4.log"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell G12: our TLS 1.2-only client (GREASE on by default) -> openssl s_server over TLS 1.2 ---
 echo "=== cell G12: our TLS 1.2-only client  ->  openssl s_server (TLS 1.2) ==="
@@ -178,13 +188,13 @@ PG=14530
 "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
   -accept $PG -rev -naccept 1 > "$TMP/sg12.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sg12.log" && break; sleep 0.1; done
-if "$DRIVER" --role client --port $PG --host localhost --ca "$TMP/srv_cert.pem" --tls12-only \
+if ci_run_bounded 120 "$DRIVER" --role client --port $PG --host localhost --ca "$TMP/srv_cert.pem" --tls12-only \
      --message "hello-cell-g12" --data-dir "$DATA_DIR"; then
   echo "  PASS: GREASE values in a TLS 1.2-only ClientHello are ignored (RFC 8701 3.2)"
 else
   echo "  FAIL: cell G12"; cat "$TMP/sg12.log"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cells PSK1/PSK2: TLS 1.2 ECDHE_PSK over ChaCha20-Poly1305 (RFC 5489 / RFC 7905), no certificate ---
 # openssl exercises only the ChaCha20 suite among our AEAD PSK suites; gated on an s_server that
@@ -197,20 +207,20 @@ if "$OPENSSL" s_server -help 2>&1 | grep -q -- '-psk '; then
   "$OPENSSL" s_server -nocert -tls1_2 -psk "$PSKHEX" -psk_identity luggage \
     -cipher ECDHE-PSK-CHACHA20-POLY1305 -accept $PP1 -rev -naccept 1 > "$TMP/spsk1.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/spsk1.log" && break; sleep 0.1; done
-  if "$DRIVER" --role client --port $PP1 --host localhost --psk "$PSKHEX" --psk-identity luggage \
+  if ci_run_bounded 120 "$DRIVER" --role client --port $PP1 --host localhost --psk "$PSKHEX" --psk-identity luggage \
        --message "hello-cell-psk1" --data-dir "$DATA_DIR"; then
     echo "  PASS: TLS 1.2 ECDHE_PSK handshake with no certificate + app-data"
   else
     echo "  FAIL: cell PSK1"; cat "$TMP/spsk1.log"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 
   echo "=== cell PSK2: our server  <-  openssl s_client -psk (TLS 1.2 ECDHE_PSK) ==="
   PP2=14532
   "$DRIVER" --role server --port $PP2 --data-dir "$DATA_DIR" --psk "$PSKHEX" \
     --psk-identity luggage > "$TMP/spsk2.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/spsk2.log" && break; sleep 0.1; done
-  { printf 'PING-CELL-PSK2\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PP2 -tls1_2 \
+  { printf 'PING-CELL-PSK2\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PP2 -tls1_2 \
        -psk "$PSKHEX" -psk_identity luggage -cipher ECDHE-PSK-CHACHA20-POLY1305 \
        > "$TMP/cpsk2.out" 2>"$TMP/cpsk2.err" || true
   if grep -q 'PING-CELL-PSK2' "$TMP/cpsk2.out"; then
@@ -218,7 +228,7 @@ if "$OPENSSL" s_server -help 2>&1 | grep -q -- '-psk '; then
   else
     echo "  FAIL: cell PSK2"; cat "$TMP/spsk2.log" "$TMP/cpsk2.err"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 else
   echo "=== cells PSK1-PSK2 (TLS 1.2 ECDHE_PSK): SKIPPED (openssl s_server without -psk, 2 cells) ==="
 fi
@@ -232,14 +242,14 @@ P5=14505
 "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
   -Verify 1 -CAfile "$TMP/root.pem" -accept $P5 -rev -naccept 1 > "$TMP/s5.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s5.log" && break; sleep 0.1; done
-if "$DRIVER" --role client --port $P5 --host localhost --ca "$TMP/srv_cert.pem" \
+if ci_run_bounded 120 "$DRIVER" --role client --port $P5 --host localhost --ca "$TMP/srv_cert.pem" \
      --client-cred "$DATA_DIR/Certs/EcP256Chain.txt" --message "hello-cell-5" \
      --data-dir "$DATA_DIR"; then
   echo "  PASS: TLS 1.2 mutual TLS (we present + the peer verifies our client cert)"
 else
   echo "  FAIL: cell 5"; cat "$TMP/s5.log"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 6: our server (resumption)  <-  openssl s_client saving then resuming a session ---
 echo "=== cell 6: our server (resumption)  <-  openssl s_client (-sess_out/-sess_in) ==="
@@ -250,12 +260,12 @@ P6=14506
 for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/s6.log" && break; sleep 0.1; done
 # connection 0: full handshake; hold open so the post-handshake NewSessionTicket arrives,
 # then save the session (ticket) to disk
-{ printf 'PING-6A\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$P6 -tls1_3 \
+{ printf 'PING-6A\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$P6 -tls1_3 \
      -CAfile "$TMP/root.pem" -servername localhost -sess_out "$TMP/sess6.pem" \
      > "$TMP/c6a.out" 2>"$TMP/c6a.err" || true
 # connection 1: resume with the saved session; openssl prints "Reused" iff our server
 # accepted the ticket and resumed
-{ printf 'PING-6B\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$P6 -tls1_3 \
+{ printf 'PING-6B\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$P6 -tls1_3 \
      -CAfile "$TMP/root.pem" -servername localhost -sess_in "$TMP/sess6.pem" \
      > "$TMP/c6b.out" 2>"$TMP/c6b.err" || true
 if grep -q 'PING-6B' "$TMP/c6b.out" && grep -qi 'Reused' "$TMP/c6b.out"; then
@@ -263,7 +273,7 @@ if grep -q 'PING-6B' "$TMP/c6b.out" && grep -qi 'Reused' "$TMP/c6b.out"; then
 else
   echo "  FAIL: cell 6"; cat "$TMP/s6.log" "$TMP/c6b.err" "$TMP/c6b.out"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 7: our server (stapled OCSP)  <-  openssl s_client -status (RFC 6066) ---
 echo "=== cell 7: our server (stapled OCSP)  <-  openssl s_client -status ==="
@@ -277,7 +287,7 @@ P7=14507
   > "$TMP/s7.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/s7.log" && break; sleep 0.1; done
 # -status makes s_client send status_request and print the stapled response it received
-{ printf 'PING-CELL-7\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$P7 -tls1_3 \
+{ printf 'PING-CELL-7\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$P7 -tls1_3 \
      -status -CAfile "$TMP/ocsp_root.pem" -servername localhost \
      -verify_hostname localhost -verify_return_error > "$TMP/c7.out" 2>"$TMP/c7.err" || true
 # require both the app-data echo (strict verify held) and a stapled successful OCSP response
@@ -287,7 +297,7 @@ if grep -q 'PING-CELL-7' "$TMP/c7.out" && \
 else
   echo "  FAIL: cell 7"; cat "$TMP/s7.log" "$TMP/c7.err" "$TMP/c7.out"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 8: our client (TLS 1.2 resumption)  ->  openssl s_server ---
 echo "=== cell 8: our client (TLS 1.2 resumption)  ->  openssl s_server ==="
@@ -298,13 +308,13 @@ P8=14508
 "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
   -accept $P8 -rev -naccept 2 > "$TMP/s8.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s8.log" && break; sleep 0.1; done
-if "$DRIVER" --role client --port $P8 --host localhost --ca "$TMP/srv_cert.pem" \
+if ci_run_bounded 120 "$DRIVER" --role client --port $P8 --host localhost --ca "$TMP/srv_cert.pem" \
      --resume-count 1 --message "hello-cell-8" --data-dir "$DATA_DIR"; then
   echo "  PASS: TLS 1.2 client resumption (two connections, the second resumed)"
 else
   echo "  FAIL: cell 8"; cat "$TMP/s8.log"; FAILURES=$((FAILURES+1))
 fi
-wait || true
+reap_cell
 
 # --- Cell 9: our client (revocation)  ->  openssl s_server stapling a REVOKED response ---
 # The good-path cell 7 has openssl (as client) read our staple; this is the reject path with a
@@ -336,14 +346,14 @@ if "$OPENSSL" s_server -help 2>&1 | grep -q 'status_file'; then
     -accept $P9 -naccept 1 > "$TMP/s9.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s9.log" && break; sleep 0.1; done
   # --expect-reject 44 inverts the driver's success: 0 iff the handshake aborts with that alert
-  if "$DRIVER" --role client --port $P9 --host localhost --ca "$TMP/o_root_cert.pem" \
+  if ci_run_bounded 120 "$DRIVER" --role client --port $P9 --host localhost --ca "$TMP/o_root_cert.pem" \
        --request-ocsp --revocation-posture soft --expect-reject 44 \
        --data-dir "$DATA_DIR" > "$TMP/c9.out" 2>&1; then
     echo "  PASS: our client rejected a foreign-stapled revoked response (certificate_revoked)"
   else
     echo "  FAIL: cell 9"; cat "$TMP/s9.log" "$TMP/c9.out"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 else
   echo "  SKIPPED: openssl s_server has no -status_file (cell 9)"
 fi
@@ -360,7 +370,7 @@ if [ "$HYBRID_OK" -eq 1 ]; then
   PH1=14591
   "$DRIVER" --role server --port $PH1 --groups X25519MLKEM768 --data-dir "$DATA_DIR" > "$TMP/sh1.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sh1.log" && break; sleep 0.1; done
-  { printf 'PING-CELL-H1\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PH1 -tls1_3 \
+  { printf 'PING-CELL-H1\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PH1 -tls1_3 \
        -groups X25519MLKEM768 -CAfile "$TMP/root.pem" -servername localhost \
        -verify_hostname localhost -verify_return_error > "$TMP/ch1.out" 2>"$TMP/ch1.err" || true
   if grep -q 'PING-CELL-H1' "$TMP/ch1.out"; then
@@ -368,7 +378,7 @@ if [ "$HYBRID_OK" -eq 1 ]; then
   else
     echo "  FAIL: cell H1"; cat "$TMP/sh1.log" "$TMP/ch1.err"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 
   # --- Cell H2: our client (direct)  ->  openssl s_server -groups X25519MLKEM768 ---
   echo "=== cell H2: our client (direct)  ->  openssl s_server (X25519MLKEM768) ==="
@@ -377,13 +387,13 @@ if [ "$HYBRID_OK" -eq 1 ]; then
     -groups X25519MLKEM768 -accept $PH2 -rev -naccept 1 > "$TMP/sh2.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sh2.log" && break; sleep 0.1; done
   # our client offers only the hybrid, so it key-shares it directly (no HRR)
-  if "$DRIVER" --role client --port $PH2 --host localhost --ca "$TMP/srv_cert.pem" \
+  if ci_run_bounded 120 "$DRIVER" --role client --port $PH2 --host localhost --ca "$TMP/srv_cert.pem" \
        --groups X25519MLKEM768 --message "hello-cell-h2" --data-dir "$DATA_DIR"; then
     echo "  PASS: our client key-shared the hybrid directly (no HRR) + app-data"
   else
     echo "  FAIL: cell H2"; cat "$TMP/sh2.log"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 
   # --- Cell H3: our client (classical key_share first)  ->  hybrid-only s_server = HRR ---
   echo "=== cell H3: our client (HRR)  ->  openssl s_server (X25519MLKEM768) ==="
@@ -393,13 +403,13 @@ if [ "$HYBRID_OK" -eq 1 ]; then
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sh3.log" && break; sleep 0.1; done
   # our client key-shares X25519 first but also offers the hybrid; the hybrid-only server
   # answers with a HelloRetryRequest for X25519MLKEM768 and the retried CH completes on it
-  if "$DRIVER" --role client --port $PH3 --host localhost --ca "$TMP/srv_cert.pem" \
+  if ci_run_bounded 120 "$DRIVER" --role client --port $PH3 --host localhost --ca "$TMP/srv_cert.pem" \
        --groups X25519,X25519MLKEM768 --message "hello-cell-h3" --data-dir "$DATA_DIR"; then
     echo "  PASS: HelloRetryRequest drove our client onto the hybrid + app-data"
   else
     echo "  FAIL: cell H3"; cat "$TMP/sh3.log"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 else
   echo "=== cells H1-H3 (X25519MLKEM768): SKIPPED (openssl < 3.5, 3 cells) ==="
 fi
@@ -413,7 +423,7 @@ if [ "$PHYBRID_OK" -eq 1 ]; then
   PP1=14594
   "$DRIVER" --role server --port $PP1 --groups SecP256r1MLKEM768 --data-dir "$DATA_DIR" > "$TMP/sp1.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sp1.log" && break; sleep 0.1; done
-  { printf 'PING-CELL-P1\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PP1 -tls1_3 \
+  { printf 'PING-CELL-P1\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PP1 -tls1_3 \
        -groups SecP256r1MLKEM768 -CAfile "$TMP/root.pem" -servername localhost \
        -verify_hostname localhost -verify_return_error > "$TMP/cp1.out" 2>"$TMP/cp1.err" || true
   if grep -q 'PING-CELL-P1' "$TMP/cp1.out"; then
@@ -421,7 +431,7 @@ if [ "$PHYBRID_OK" -eq 1 ]; then
   else
     echo "  FAIL: cell P1"; cat "$TMP/sp1.log" "$TMP/cp1.err"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 
   # --- Cell P2: our client (direct)  ->  openssl s_server -groups SecP256r1MLKEM768 ---
   echo "=== cell P2: our client (direct)  ->  openssl s_server (SecP256r1MLKEM768) ==="
@@ -429,13 +439,13 @@ if [ "$PHYBRID_OK" -eq 1 ]; then
   "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -groups SecP256r1MLKEM768 -accept $PP2 -rev -naccept 1 > "$TMP/sp2.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sp2.log" && break; sleep 0.1; done
-  if "$DRIVER" --role client --port $PP2 --host localhost --ca "$TMP/srv_cert.pem" \
+  if ci_run_bounded 120 "$DRIVER" --role client --port $PP2 --host localhost --ca "$TMP/srv_cert.pem" \
        --groups SecP256r1MLKEM768 --message "hello-cell-p2" --data-dir "$DATA_DIR"; then
     echo "  PASS: our client key-shared the P-256 hybrid directly (no HRR) + app-data"
   else
     echo "  FAIL: cell P2"; cat "$TMP/sp2.log"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 
   # --- Cell P3: our client (classical key_share first)  ->  hybrid-only s_server = HRR ---
   echo "=== cell P3: our client (HRR)  ->  openssl s_server (SecP256r1MLKEM768) ==="
@@ -443,13 +453,13 @@ if [ "$PHYBRID_OK" -eq 1 ]; then
   "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -groups SecP256r1MLKEM768 -accept $PP3 -rev -naccept 1 > "$TMP/sp3.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sp3.log" && break; sleep 0.1; done
-  if "$DRIVER" --role client --port $PP3 --host localhost --ca "$TMP/srv_cert.pem" \
+  if ci_run_bounded 120 "$DRIVER" --role client --port $PP3 --host localhost --ca "$TMP/srv_cert.pem" \
        --groups X25519,SecP256r1MLKEM768 --message "hello-cell-p3" --data-dir "$DATA_DIR"; then
     echo "  PASS: HelloRetryRequest drove our client onto the P-256 hybrid + app-data"
   else
     echo "  FAIL: cell P3"; cat "$TMP/sp3.log"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 else
   echo "=== cells P1-P3 (SecP256r1MLKEM768): SKIPPED (openssl without the group, 3 cells) ==="
 fi
@@ -480,7 +490,7 @@ if [ "$ECH_OK" -eq 1 ]; then
   for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/se1.log" && break; sleep 0.1; done
   # s_client sends ECH: the outer SNI is the public_name, the real (inner) SNI is localhost,
   # which our server recovers on a successful decrypt and serves the localhost cert for
-  { printf 'PING-ECH-1\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PE1 -tls1_3 \
+  { printf 'PING-ECH-1\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PE1 -tls1_3 \
        -ech_config_list "$(cat "$TMP/echconfig.b64")" -CAfile "$TMP/root.pem" \
        -servername localhost -verify_hostname localhost -verify_return_error \
        > "$TMP/ce1.out" 2>"$TMP/ce1.err" || true
@@ -491,7 +501,7 @@ if [ "$ECH_OK" -eq 1 ]; then
   else
     echo "  FAIL: cell E1"; cat "$TMP/se1.log" "$TMP/ce1.err" "$TMP/ce1.out"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 
   # --- Cell E2: our client (ECH)  ->  openssl s_server (ECH key) ---
   echo "=== cell E2: our client (ECH)  ->  openssl s_server ==="
@@ -501,7 +511,7 @@ if [ "$ECH_OK" -eq 1 ]; then
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/se2.log" && break; sleep 0.1; done
   # our client seals the inner ClientHello (real SNI localhost) under the ECHConfigList; openssl
   # decrypts with the matching key and serves its localhost cert, which our client verifies
-  if "$DRIVER" --role client --port $PE2 --host localhost --ca "$TMP/srv_cert.pem" \
+  if ci_run_bounded 120 "$DRIVER" --role client --port $PE2 --host localhost --ca "$TMP/srv_cert.pem" \
        --ech-config "$TMP/echconfig.b64" --message "hello-ech-2" --data-dir "$DATA_DIR" \
        > "$TMP/ce2.out" 2>&1; then
     ECH2_OK=1
@@ -513,7 +523,7 @@ if [ "$ECH_OK" -eq 1 ]; then
   else
     echo "  FAIL: cell E2"; cat "$TMP/se2.log" "$TMP/ce2.out"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 else
   echo "=== cells E1-E2 (ECH): SKIPPED (openssl without ECH support, 2 cells) ==="
 fi
@@ -527,9 +537,9 @@ COMP_OK=0
 PP=14590
 "$DRIVER" --role server --port $PP --data-dir "$DATA_DIR" > "$TMP/spc.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/spc.log" && break; sleep 0.1; done
-{ printf 'PING\n'; sleep 1; } | "$OPENSSL" s_client -connect 127.0.0.1:$PP -tls1_3 -trace \
+{ printf 'PING\n'; sleep 1; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PP -tls1_3 -trace \
   -CAfile "$TMP/root.pem" -servername localhost > "$TMP/cpc.out" 2>&1 || true
-wait || true
+reap_cell
 if grep -qi 'compress_certificate' "$TMP/cpc.out"; then
   COMP_OK=1
   echo "compress: compress_certificate advertised (C-cells enabled)"
@@ -541,11 +551,11 @@ if [ "$COMP_OK" -eq 1 ]; then
   TOTAL=$((TOTAL+2))
   # --- Cell C1: our client (mutual TLS)  ->  openssl s_server requesting a client certificate ---
   echo "=== cell C1: our client (mTLS, zlib)  ->  openssl s_server ==="
-  PC1=14591
+  PC1=14597
   "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -Verify 1 -CAfile "$TMP/root.pem" -trace -accept $PC1 -rev -naccept 1 > "$TMP/sc1.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sc1.log" && break; sleep 0.1; done
-  if "$DRIVER" --role client --port $PC1 --host localhost --ca "$TMP/srv_cert.pem" \
+  if ci_run_bounded 120 "$DRIVER" --role client --port $PC1 --host localhost --ca "$TMP/srv_cert.pem" \
        --client-cred "$DATA_DIR/Certs/EcP256Chain.txt" --message "hello-cell-c1" \
        --data-dir "$DATA_DIR"; then
     C1_OK=1
@@ -560,11 +570,11 @@ if [ "$COMP_OK" -eq 1 ]; then
   else
     echo "  FAIL: cell C1"; cat "$TMP/sc1.log"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 
   # --- Cell C2: our server (client auth required)  <-  openssl s_client with a client certificate ---
   echo "=== cell C2: our server (mTLS, zlib)  <-  openssl s_client ==="
-  PC2=14592
+  PC2=14598
   # the client certificate comes from the client-auth chain, whose leaf carries the clientAuth
   # purpose our server's role-aware verifier requires
   CLEAF="$(grep '^leaf_cert=' "$DATA_DIR/Certs/ClientAuthChain.txt" | cut -d= -f2)"
@@ -580,7 +590,7 @@ if [ "$COMP_OK" -eq 1 ]; then
   "$DRIVER" --role server --port $PC2 --data-dir "$DATA_DIR" --client-auth required \
     --client-ca "$TMP/cli_root.pem" > "$TMP/sc2.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sc2.log" && break; sleep 0.1; done
-  { printf 'PING-CELL-C2\n'; sleep 2; } | "$OPENSSL" s_client -connect 127.0.0.1:$PC2 -tls1_3 \
+  { printf 'PING-CELL-C2\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PC2 -tls1_3 \
        -cert "$TMP/cli_cert.pem" -key "$TMP/cli_key.pem" -CAfile "$TMP/root.pem" \
        -servername localhost -verify_hostname localhost -verify_return_error -trace \
        > "$TMP/cc2.out" 2>"$TMP/cc2.err" || true
@@ -592,7 +602,7 @@ if [ "$COMP_OK" -eq 1 ]; then
   else
     echo "  FAIL: cell C2"; cat "$TMP/sc2.log" "$TMP/cc2.err"; FAILURES=$((FAILURES+1))
   fi
-  wait || true
+  reap_cell
 else
   echo "=== cells C1-C2 (certificate compression): SKIPPED (openssl without trace or compression, 2 cells) ==="
 fi

@@ -330,17 +330,13 @@ jobs:
           MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
         run: bash .github/workflows/ci/adapters/fclnet-build.sh
 
-      # BoGo now runs on Windows too (the shim reads argv via CommandLineToArgvW so the
-      # runner's binary flag values survive). Gated on MAKE_RUN_BOGO so the harness is off by
-      # default here - the Windows build leg is otherwise unchanged - and enabled per the
-      # plan to run BoGo on Windows CI. The openssl matrix is skipped (its Windows openssl
-      # availability differs); the self-test, fuzzer and BoGo hard gate run.
+      # Same gating as the other native legs: the harness follows MAKE_RUN_INTEROP, BoGo follows MAKE_RUN_BOGO.
       - name: Interop harness (BoGo)
         uses: ./.github/workflows/ci/interop/interop-harness
         with:
           fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_target }}
           artifact-suffix: windows-x64
-          run-interop: ${{ env.MAKE_RUN_BOGO }}
+          run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
           crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
