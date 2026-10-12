@@ -18,12 +18,19 @@ interface
 uses
   SysUtils,
   Classes,
+  SyncObjs,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
+  TlpIClock,
+  TlpClock,
+  TlpITlsConfig,
+  TlpTlsPresets,
+  TlpTlsCredential,
+  TlpTlsConnection,
   TlpIHttpFetcher,
   TlpITlsTransport,
   TlpINetSocket,
@@ -124,6 +131,31 @@ type
     procedure TestProxyWithoutPortIsRefused;
   end;
 
+  /// <summary>https responders over the library's own TLS client, direct and through a CONNECT
+  /// proxy, against a loopback TLS responder with a test CA.</summary>
+  TTestSocketHttpFetcherTls = class(TTlsLibAlgorithmTestCase)
+  strict private
+  const
+    CRLF = #13#10;
+    DefaultCap = Int32(1024);
+    Established = 'HTTP/1.1 200 Connection established' + CRLF + CRLF;
+  strict private
+    function ClientConfig: ITlsClientConfig;
+    function ServerConfig: ITlsServerConfig;
+    // a fetcher verifying with the test CA, reaching AName at the loopback address, through the
+    // proxy at AName:AProxyPort unless AProxyPort is 0
+    function TlsFetcher(const AName: string; AProxyPort: Word): IHttpFetcher;
+  published
+    procedure TestHttpsResponderIsFetched;
+    procedure TestHttpsWithoutTlsConfigConnectsNothing;
+    procedure TestLiveRevocationConfigIsRefused;
+    procedure TestCloseDelimitedBodyNeedsCloseNotify;
+    procedure TestSilentHandshakeIsCutOffAtTheBudget;
+    procedure TestHttpsThroughAConnectProxy;
+    procedure TestRefusedConnectFails;
+    procedure TestBytesAfterTheTunnelReplyFail;
+  end;
+
 implementation
 
 type
@@ -152,13 +184,53 @@ type
     property Accepted: Boolean read FAccepted;
   end;
 
+  // how a TLS responder ends: a clean close_notify, a bare TCP close, or no handshake at all
+  TTlsResponderMode = (CloseNotify, BareClose, Silent);
+
+  // accepts one connection, optionally answers a CONNECT first, then serves one request over TLS
+  TTlsResponder = class(TThread)
+  strict private
+  const
+    AcceptPollMs = 100;
+    ReadMs = 10000;
+  var
+    FListener: ITcpListener;
+    FConfig: ITlsServerConfig;
+    FProxyReply: string;
+    FScript: string;
+    FMode: TTlsResponderMode;
+    FStop: TEvent;
+    FAccepted: Boolean;
+    FTunnelRequest: string;
+    FRequest: string;
+    class function ToBytes(const AText: string): TBytes; static;
+    class function ReadHead(const AStream: ITlsTimedTransport): string; static;
+    procedure Serve(const AStream: ITlsTimedTransport);
+  protected
+    procedure Execute; override;
+  public
+    // AProxyReply '' serves TLS at once; else it answers the CONNECT and goes on only after a 200
+    constructor Create(const AConfig: ITlsServerConfig; const AProxyReply, AScript: string;
+      AMode: TTlsResponderMode);
+    destructor Destroy; override;
+    function Port: Word;
+    // stops the responder; the request it read over TLS
+    function Finish: string;
+    // valid after Finish
+    property Accepted: Boolean read FAccepted;
+    property TunnelRequest: string read FTunnelRequest;
+  end;
+
   // answers one name with 127.0.0.1 and refuses every other
   TMappingResolver = class sealed(TInterfacedObject, IHostResolver)
   strict private
     FName: string;
+    FAsked: Int32;
   public
     constructor Create(const AName: string);
     function TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
+    // how many lookups were asked for, which a connect always starts with
+    property Asked: Int32 read FAsked;
   end;
 
 { TScriptedResponder }
@@ -249,6 +321,126 @@ begin
   end;
 end;
 
+{ TTlsResponder }
+
+constructor TTlsResponder.Create(const AConfig: ITlsServerConfig; const AProxyReply,
+  AScript: string; AMode: TTlsResponderMode);
+begin
+  FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+  FConfig := AConfig;
+  FProxyReply := AProxyReply;
+  FScript := AScript;
+  FMode := AMode;
+  FStop := TEvent.Create(nil, True, False, '');
+  inherited Create(False);
+end;
+
+destructor TTlsResponder.Destroy;
+begin
+  Terminate;
+  FStop.SetEvent;
+  WaitFor;
+  FStop.Free;
+  FListener := nil;
+  inherited Destroy;
+end;
+
+function TTlsResponder.Port: Word;
+begin
+  Result := FListener.Port;
+end;
+
+function TTlsResponder.Finish: string;
+begin
+  Terminate;
+  FStop.SetEvent;
+  WaitFor;
+  Result := FRequest;
+end;
+
+class function TTlsResponder.ToBytes(const AText: string): TBytes;
+var
+  LI: Int32;
+begin
+  SetLength(Result, System.Length(AText));
+  for LI := 1 to System.Length(AText) do
+    Result[LI - 1] := Byte(Ord(AText[LI]));
+end;
+
+class function TTlsResponder.ReadHead(const AStream: ITlsTimedTransport): string;
+var
+  LByte: TBytes;
+begin
+  // a byte at a time, so nothing past the head is taken from the stream
+  Result := '';
+  SetLength(LByte, 1);
+  while Pos(#13#10#13#10, Result) = 0 do
+  begin
+    if AStream.Read(LByte, 0, 1) <= 0 then
+      Exit;
+    Result := Result + Char(LByte[0]);
+  end;
+end;
+
+procedure TTlsResponder.Serve(const AStream: ITlsTimedTransport);
+var
+  LConnection: TTlsConnection;
+  LBuffer, LScript: TBytes;
+  LGot, LI: Int32;
+begin
+  LConnection := TTlsConnection.CreateServer(FConfig, AStream, nil, 0);
+  try
+    LConnection.Handshake(ReadMs);
+    SetLength(LBuffer, 4096);
+    while Pos(#13#10#13#10, FRequest) = 0 do
+    begin
+      LGot := LConnection.Read(LBuffer[0], System.Length(LBuffer));
+      if LGot <= 0 then
+        Exit;
+      for LI := 0 to LGot - 1 do
+        FRequest := FRequest + Char(LBuffer[LI]);
+    end;
+    LScript := ToBytes(FScript);
+    LConnection.Write(LScript[0], System.Length(LScript));
+    if FMode = TTlsResponderMode.CloseNotify then
+      LConnection.CloseNotifyQuietly;
+  finally
+    LConnection.Free;
+  end;
+end;
+
+procedure TTlsResponder.Execute;
+var
+  LStream: ITlsTimedTransport;
+  LReply: TBytes;
+begin
+  LStream := nil;
+  while (LStream = nil) and not Terminated do
+    FListener.TryAccept(AcceptPollMs, LStream);
+  if LStream = nil then
+    Exit;
+  FAccepted := True;
+  try
+    LStream.SetReadTimeout(ReadMs);
+    if FProxyReply <> '' then
+    begin
+      FTunnelRequest := ReadHead(LStream);
+      LReply := ToBytes(FProxyReply);
+      LStream.Write(LReply, 0, System.Length(LReply));
+      if Pos(' 200 ', FProxyReply) = 0 then
+        Exit;
+    end;
+    if FMode = TTlsResponderMode.Silent then
+      FStop.WaitFor(INFINITE)
+    else
+      Serve(LStream);
+  except
+    // the fetcher may hang up first, which is what a refused response does
+    on E: Exception do
+      Exit;
+  end;
+end;
+
 { TMappingResolver }
 
 constructor TMappingResolver.Create(const AName: string);
@@ -259,6 +451,7 @@ end;
 
 function TMappingResolver.TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
 begin
+  Inc(FAsked);
   AAddress := nil;
   Result := SameText(AHost, FName);
   if Result then
@@ -807,6 +1000,247 @@ begin
   CheckTrue(LRaised, 'a proxy host without a port raises');
 end;
 
+{ TTestSocketHttpFetcherTls }
+
+function TTestSocketHttpFetcherTls.ClientConfig: ITlsClientConfig;
+var
+  LVectors: TStringList;
+begin
+  LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
+  try
+    Result := TTlsPresets.Compatible(Crypto, Pkix).Client
+      .WithServerVerification(WebPkiServer(DecodeHex(LVectors.Values['root_cert']))).Build;
+  finally
+    LVectors.Free;
+  end;
+end;
+
+function TTestSocketHttpFetcherTls.ServerConfig: ITlsServerConfig;
+var
+  LVectors: TStringList;
+begin
+  LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
+  try
+    Result := TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(TTlsCredential.Load(Crypto, Pkix, DecodeHex(LVectors.Values['leaf_cert']),
+        DecodeHex(LVectors.Values['leaf_key']))).Build;
+  finally
+    LVectors.Free;
+  end;
+end;
+
+function TTestSocketHttpFetcherTls.TlsFetcher(const AName: string;
+  AProxyPort: Word): IHttpFetcher;
+var
+  LSettings: TSocketHttpFetcherSettings;
+begin
+  LSettings := TSocketHttpFetcherSettings.Defaults;
+  LSettings.Resolver := TMappingResolver.Create(AName);
+  LSettings.TlsConfig := ClientConfig;
+  if AProxyPort <> 0 then
+  begin
+    LSettings.ProxyHost := AName;
+    LSettings.ProxyPort := AProxyPort;
+  end;
+  Result := TSocketHttpFetcher.Create(LSettings);
+end;
+
+procedure TTestSocketHttpFetcherTls.TestHttpsResponderIsFetched;
+var
+  LResponder: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LHost: string;
+begin
+  LResponder := TTlsResponder.Create(ServerConfig, '', 'HTTP/1.1 200 OK' + CRLF +
+    'Content-Length: 5' + CRLF + CRLF + 'hello', TTlsResponderMode.CloseNotify);
+  try
+    LFetcher := TlsFetcher('localhost', 0);
+    LHost := 'localhost:' + IntToStr(LResponder.Port);
+    CheckTrue(LFetcher.Get('https://' + LHost + '/crl', 10000, DefaultCap, LResponse),
+      'the https responder is fetched');
+    CheckEquals(5, System.Length(LResponse), 'the whole body arrives');
+    CheckEquals(Ord('o'), LResponse[4], 'with the bytes sent');
+    CheckEquals('GET /crl HTTP/1.1' + CRLF + 'Host: ' + LHost + CRLF + 'Connection: close' + CRLF +
+      CRLF, LResponder.Finish, 'the request went through the TLS channel');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestHttpsWithoutTlsConfigConnectsNothing;
+var
+  LResponder: TTlsResponder;
+  LResolver: TMappingResolver;
+  LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LResponder := TTlsResponder.Create(ServerConfig, '', 'HTTP/1.1 200 OK' + CRLF +
+    'Content-Length: 5' + CRLF + CRLF + 'hello', TTlsResponderMode.CloseNotify);
+  try
+    LResolver := TMappingResolver.Create('localhost');
+    LSettings := TSocketHttpFetcherSettings.Defaults;
+    LSettings.Resolver := LResolver;
+    LFetcher := TSocketHttpFetcher.Create(LSettings);
+    CheckFalse(LFetcher.Get('https://localhost:' + IntToStr(LResponder.Port) + '/', 5000,
+      DefaultCap, LResponse), 'an https URL without a TLS config fails closed');
+    CheckEquals(0, LResolver.Asked, 'nothing was resolved, so nothing was dialled');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestLiveRevocationConfigIsRefused;
+var
+  LSettings: TSocketHttpFetcherSettings;
+  LVectors: TStringList;
+  LRaised: Boolean;
+begin
+  LSettings := TSocketHttpFetcherSettings.Defaults;
+  LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
+  try
+    LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+      .WithServerVerification(WebPkiServer(DecodeHex(LVectors.Values['root_cert'])))
+      .WithLiveRevocationVerdict(1000).Build;
+  finally
+    LVectors.Free;
+  end;
+  LRaised := False;
+  try
+    TSocketHttpFetcher.Create(LSettings).Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a TLS config that parks for live revocation raises');
+  LSettings.TlsConfig := ClientConfig;
+  TSocketHttpFetcher.Create(LSettings).Free;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestCloseDelimitedBodyNeedsCloseNotify;
+var
+  LResponder: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LUrl: string;
+begin
+  LResponder := TTlsResponder.Create(ServerConfig, '', 'HTTP/1.1 200 OK' + CRLF + CRLF + 'hello',
+    TTlsResponderMode.CloseNotify);
+  try
+    LFetcher := TlsFetcher('localhost', 0);
+    LUrl := 'https://localhost:' + IntToStr(LResponder.Port) + '/';
+    CheckTrue(LFetcher.Get(LUrl, 10000, DefaultCap, LResponse),
+      'a close-delimited body ended by close_notify is fetched');
+    CheckEquals(5, System.Length(LResponse), 'the whole body arrives');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+  LResponder := TTlsResponder.Create(ServerConfig, '', 'HTTP/1.1 200 OK' + CRLF + CRLF + 'hello',
+    TTlsResponderMode.BareClose);
+  try
+    LFetcher := TlsFetcher('localhost', 0);
+    LUrl := 'https://localhost:' + IntToStr(LResponder.Port) + '/';
+    CheckFalse(LFetcher.Get(LUrl, 10000, DefaultCap, LResponse),
+      'a close-delimited body cut off without close_notify fails closed');
+    CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestSilentHandshakeIsCutOffAtTheBudget;
+var
+  LResponder: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  LResponder := TTlsResponder.Create(ServerConfig, '', '', TTlsResponderMode.Silent);
+  try
+    LFetcher := TlsFetcher('localhost', 0);
+    LClock := TSystemMonotonicClock.Create;
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get('https://localhost:' + IntToStr(LResponder.Port) + '/', 600,
+      DefaultCap, LResponse), 'a handshake that never completes fails closed');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
+      'the fetch stops near the budget, not at the handshake default');
+    LResponder.Finish;
+    CheckTrue(LResponder.Accepted, 'the connection reached the responder');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestHttpsThroughAConnectProxy;
+var
+  LProxy: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LProxy := TTlsResponder.Create(ServerConfig, Established, 'HTTP/1.1 200 OK' + CRLF +
+    'Content-Length: 5' + CRLF + CRLF + 'hello', TTlsResponderMode.CloseNotify);
+  try
+    LFetcher := TlsFetcher('proxy.test', LProxy.Port);
+    CheckTrue(LFetcher.Get('https://localhost:8443/crl', 10000, DefaultCap, LResponse),
+      'the https responder is fetched through the tunnel');
+    CheckEquals(5, System.Length(LResponse), 'the whole body arrives');
+    CheckEquals('GET /crl HTTP/1.1' + CRLF + 'Host: localhost:8443' + CRLF + 'Connection: close' +
+      CRLF + CRLF, LProxy.Finish, 'the request inside the tunnel is in origin form');
+    CheckEquals('CONNECT localhost:8443 HTTP/1.1' + CRLF + 'Host: localhost:8443' + CRLF + CRLF,
+      LProxy.TunnelRequest, 'the proxy is asked for a tunnel to the origin');
+  finally
+    LFetcher := nil;
+    LProxy.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestRefusedConnectFails;
+var
+  LProxy: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LProxy := TTlsResponder.Create(ServerConfig, 'HTTP/1.1 403 Forbidden' + CRLF +
+    'Content-Length: 0' + CRLF + CRLF, '', TTlsResponderMode.CloseNotify);
+  try
+    LFetcher := TlsFetcher('proxy.test', LProxy.Port);
+    CheckFalse(LFetcher.Get('https://localhost/crl', 10000, DefaultCap, LResponse),
+      'a refused tunnel fails closed');
+    LProxy.Finish;
+    CheckTrue(Pos('CONNECT localhost:443 ', LProxy.TunnelRequest) = 1,
+      'the tunnel was asked for, with the default port named');
+  finally
+    LFetcher := nil;
+    LProxy.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestBytesAfterTheTunnelReplyFail;
+var
+  LProxy: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  // the client speaks first in TLS, so anything the proxy sends after its reply is not the server's
+  LProxy := TTlsResponder.Create(ServerConfig, Established + 'X', 'HTTP/1.1 200 OK' + CRLF +
+    'Content-Length: 5' + CRLF + CRLF + 'hello', TTlsResponderMode.CloseNotify);
+  try
+    LFetcher := TlsFetcher('proxy.test', LProxy.Port);
+    CheckFalse(LFetcher.Get('https://localhost:8443/crl', 10000, DefaultCap, LResponse),
+      'bytes after the tunnel reply fail closed');
+  finally
+    LFetcher := nil;
+    LProxy.Free;
+  end;
+end;
+
 initialization
 
 {$IFDEF FPC}
@@ -814,11 +1248,13 @@ initialization
   RegisterTest(TTestHttpResponseFraming);
   RegisterTest(TTestHttpChunkedBody);
   RegisterTest(TTestSocketHttpFetcherRequest);
+  RegisterTest(TTestSocketHttpFetcherTls);
 {$ELSE}
   RegisterTest(TTestHttpResponseHead.Suite);
   RegisterTest(TTestHttpResponseFraming.Suite);
   RegisterTest(TTestHttpChunkedBody.Suite);
   RegisterTest(TTestSocketHttpFetcherRequest.Suite);
+  RegisterTest(TTestSocketHttpFetcherTls.Suite);
 {$ENDIF FPC}
 
 end.
