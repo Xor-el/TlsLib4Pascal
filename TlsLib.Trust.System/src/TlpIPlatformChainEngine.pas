@@ -33,8 +33,9 @@ type
   IPlatformChainEngine = interface(IInterface)
     ['{49E77682-9311-473C-A38D-72747D05A868}']
     function Capabilities: TPlatformChainCapabilities;
-    /// <summary>The server-authentication evaluation (server-auth EKU, the OS roots, the DNS host
-    /// where the platform matches it).</summary>
+    /// <summary>The server-authentication evaluation (server-auth EKU, the DNS host where the
+    /// platform matches it) against the OS roots, or against ARequest.Anchors as the exclusive trust
+    /// root when it is non-empty (a private-PKI configuration).</summary>
     function EvaluateServer(const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>The client-authentication evaluation (client-auth EKU) against ARequest.Anchors as the

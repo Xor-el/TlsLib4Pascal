@@ -78,10 +78,11 @@ type
     class function ServerVerifierSource(AFetch: TSystemTrustFetch)
       : IServerCertificateVerifierSource; static;
     /// <summary>A host-owned OS-native live-revocation resolver read from the client config
-    /// (provider, clock, posture, strength policy, advertised schemes, resolver fetch budget): assign
-    /// its ResolveVerdict to the verdict seam. AFallback (may be nil) runs on an indeterminate OS
-    /// outcome before the posture decides. The caller owns and frees the result. Raises where the
-    /// platform has no OS-native live revocation.</summary>
+    /// (provider, clock, posture, strength policy, advertised schemes, resolver fetch budget, and the
+    /// config's trust-store anchors as the exclusive trust root when it has a store, else the OS
+    /// roots): assign its ResolveVerdict to the verdict seam. AFallback (may be nil) runs on an
+    /// indeterminate OS outcome before the posture decides. The caller owns and frees the result.
+    /// Raises where the platform has no OS-native live revocation.</summary>
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
       const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver; overload; static;
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig)
@@ -217,8 +218,11 @@ begin
     LPolicy.ChainLimits := AConfig.CertificateChainLimits;
     LPolicy.AdvertisedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
     LPolicy.CheckHostName := AConfig.CheckServerName;
-    // a server certificate is validated against the OS roots, so no exclusive anchor set
+    // the live pass must build against the same roots as the inline one
     LPolicy.Anchors := nil;
+    if AConfig.TrustStore <> nil then
+      LPolicy.Anchors := AConfig.TrustStore.RootCertificates;
+    LPolicy.Intermediates := AConfig.IntermediateCertificates;
     LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
     Exit(TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, AFallback));
   end;

@@ -254,7 +254,10 @@ begin
   AUrl.FScheme := LScheme;
   AUrl.FHostKind := LKind;
   AUrl.FPort := LPort;
-  AUrl.FHost := LowerCase(LHostPart);
+  if LKind = THttpHostKind.IPv6 then
+    AUrl.FHost := TIpLiteral.FormatIPv6(LBytes)
+  else
+    AUrl.FHost := LowerCase(LHostPart);
   AUrl.FPathAndQuery := LRest;
   Result := True;
 end;

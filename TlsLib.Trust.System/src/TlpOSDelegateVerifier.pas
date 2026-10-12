@@ -35,9 +35,10 @@ uses
 
 type
   /// <summary>The connection-scoped policy an OS delegate applies around its platform engine. Built
-  /// from the trust context by the source; Anchors is the exclusive client-CA root (client role
-  /// only); CheckHostName mirrors the client config so a delegate honours a disabled name check the
-  /// same way the built-in verifier does (server role only; a client cert has no name to match).</summary>
+  /// from the trust context by the source; Anchors is the exclusive trust root (empty = the OS
+  /// roots, server role only; the client role always needs anchors); CheckHostName mirrors the
+  /// client config so a delegate honours a disabled name check the same way the built-in verifier
+  /// does (server role only; a client cert has no name to match).</summary>
   TOSDelegatePolicy = record
     Pkix: IPkixProvider;
     Clock: ITlsClock;

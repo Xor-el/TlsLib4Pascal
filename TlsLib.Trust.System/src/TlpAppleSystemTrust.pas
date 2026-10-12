@@ -331,9 +331,10 @@ type
     /// non-revocation trust failure. The posture, the strength policy and the identity post-checks
     /// are the owning delegate's.
     /// AServer selects the role: the server path binds the host in the SSL policy and consumes the
-    /// handshake staple against the OS/public roots; the client path builds an anchors-only SecTrust
-    /// over AAnchors alone (never the OS roots), takes no host and no staple, and rejects zero usable
-    /// anchors before building any trust.</summary>
+    /// handshake staple, against the OS/public roots or, when AAnchors is non-empty, against those
+    /// anchors alone; the client path always builds an anchors-only SecTrust over AAnchors (never the
+    /// OS roots), takes no host and no staple, and rejects zero usable anchors before building any
+    /// trust.</summary>
     class function EvaluateWithPolicy(AServer: Boolean;
       const AChain, AAnchors: TArray<TBytes>; const AHostName: string;
       const AOcspStaple: TBytes; ANetworkAllowed: Boolean;
@@ -677,8 +678,10 @@ var
   LStatus: OSStatus;
   LError: CFErrorRef;
   LPath: TArray<TBytes>;
-  LAddRevocation, LRequirePositive: Boolean;
+  LAddRevocation, LRequirePositive, LAnchored: Boolean;
 begin
+  // a client is always anchored; a server only when the caller supplies anchors
+  LAnchored := (not AServer) or (Length(AAnchors) > 0);
   // None asks for no revocation policy; BestEffort adds the any-method policy; RequirePositive
   // additionally demands a positive response
   LAddRevocation := ARevocation <> TPlatformRevocationCheck.None;
@@ -697,9 +700,9 @@ begin
     Exit;
   end;
 
-  if not AServer then
+  if LAnchored then
   begin
-    // the anchors-only entry points are required for client-auth: without them a client could
+    // the anchors-only entry points are required for an anchored evaluation: without them it could
     // validate against the OS/public roots, so fail closed rather than fall back to a weaker check
     if (not System.Assigned(FSecTrustSetAnchorCertificates)) or
       (not System.Assigned(FSecTrustSetAnchorCertificatesOnly)) then
@@ -707,7 +710,7 @@ begin
       AAlert := TTlsAlertDescription.InternalError;
       Exit;
     end;
-    // zero configured client-CA anchors can trust nothing: reject before building any trust so an
+    // zero anchors (reachable by a client only) can trust nothing: reject before building any trust so an
     // empty anchor set can never fall through to the system roots
     if Length(AAnchors) = 0 then
     begin
@@ -730,7 +733,7 @@ begin
     // an unparseable leaf or chain certificate is a bad certificate, not a broken runtime
     if not MakeCertArray(AChain, LCertArray) then
       Exit;
-    if not AServer then
+    if LAnchored then
       // a configured anchor that will not parse is a broken trust configuration, not a bad peer
       if not MakeCertArray(AAnchors, LAnchorArray) then
       begin
@@ -805,8 +808,8 @@ begin
       Exit;
     end;
 
-    // the configured client-CA anchors are the ONLY trusted roots for client-auth
-    if not AServer then
+    // the supplied anchors are the ONLY trusted roots
+    if LAnchored then
     begin
       if FSecTrustSetAnchorCertificates(LTrust, LAnchorArray) <> ErrSecSuccess then
       begin
@@ -1165,7 +1168,7 @@ begin
   // library by the delegate
   // the configured intermediates ride behind the presented chain as untrusted path candidates
   Result := TAppleTrustApi.EvaluateWithPolicy(True,
-    TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates), nil,
+    TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates), ARequest.Anchors,
     ARequest.ServerName.AsDns, ARequest.OcspStaple, ARequest.NetworkAllowed,
     ARequest.Revocation, ARequest.Clock, AResult, AAlert);
 end;

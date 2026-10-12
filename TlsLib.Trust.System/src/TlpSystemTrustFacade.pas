@@ -22,6 +22,7 @@ uses
   TlpITrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpITlsConfigBuilder,
+  TlpTlsLibExceptions,
   TlpISystemTrustInstaller,
   TlpSystemTrustBase,
   TlpOSSystemTrust;
@@ -90,6 +91,9 @@ type
 
 implementation
 
+resourcestring
+  SLiveNeedsDeadline = 'a live revocation fetch needs a non-zero verdict deadline';
+
 { TSystemTrust }
 
 class procedure TSystemTrust.ResolveSource(const APkixProvider: IPkixProvider;
@@ -143,6 +147,8 @@ class function TSystemTrust.WithSystemTrust(const ABuilder: ITlsClientConfigBuil
 var
   LSource: IServerCertificateVerifierSource;
 begin
+  if (AFetch = TSystemTrustFetch.Live) and (ADeadlineMs = 0) then
+    raise EArgumentTlsLibException.CreateRes(@SLiveNeedsDeadline);
   // this form always delegates to the OS engine; Live additionally defers an indeterminate
   // revocation to the async park and arms it (the host wires TOSSystemTrust.LiveRevocationResolver)
   LSource := TOSSystemTrust.ServerVerifierSource(AFetch);

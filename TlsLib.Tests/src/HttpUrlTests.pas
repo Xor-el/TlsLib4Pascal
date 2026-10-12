@@ -204,6 +204,18 @@ begin
   CheckEquals('::1', LUrl.Host, 'the host carries no brackets');
   CheckEquals('http://[::1]:8080/p', LUrl.ToString, 'ToString brackets it again');
   CheckEquals('http://[2001:db8::a]/', Canonical('HTTP://[2001:DB8::A]/'), 'hex digits lower-cased');
+  // equivalent spellings share one canonical text (RFC 5952)
+  CheckEquals('http://[2001:db8::1]/', Canonical('http://[2001:0DB8:0:0:0:0:0:1]/'),
+    'leading zeros dropped and the zero run compressed');
+  CheckEquals('http://[::]/', Canonical('http://[0:0:0:0:0:0:0:0]/'), 'the unspecified address');
+  CheckEquals('http://[1:0:0:2::3]/', Canonical('http://[1:0:0:2:0:0:0:3]/'),
+    'the longest zero run is the one compressed');
+  CheckEquals('http://[1::2:0:0:3:4]/', Canonical('http://[1:0:0:2:0:0:3:4]/'),
+    'the first of two equal runs is compressed');
+  CheckEquals('http://[1:0:2:0:3:0:4:5]/', Canonical('http://[1:0:2:0:3:0:4:5]/'),
+    'a single zero group is never compressed');
+  CheckEquals('http://[::ffff:102:304]/', Canonical('http://[::ffff:1.2.3.4]/'),
+    'an embedded quad is written as hex groups');
   CheckTrue(Refused('http://[fe80::1%25eth0]/'), 'a zone identifier');
   CheckTrue(Refused('http://[v1.x]/'), 'IPvFuture');
   CheckTrue(Refused('http://[::1/'), 'a missing bracket');

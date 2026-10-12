@@ -28,6 +28,7 @@ uses
 {$ENDIF FPC}
   TlpICryptoProvider,
   TlpIPkixProvider,
+  TlpPkixDomainTypes,
   TlpISigningKey,
   TlsLibTestProviders,
   TlpCryptoDomainTypes,
@@ -41,6 +42,23 @@ uses
   TlsLibTestBase;
 
 type
+  // a real parsed leaf whose keyUsage reads as undecodable, as a malformed extension would
+  TUndecodableKeyUsageLeaf = class sealed(TInterfacedObject, IInspectedCertificate)
+  strict private
+    FInner: IInspectedCertificate;
+  public
+    constructor Create(const AInner: IInspectedCertificate);
+    function PublicKeyInfo: TBytes;
+    function DnsNames: TArray<string>;
+    function IpAddresses: TArray<TBytes>;
+    function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
+    function KeyIsRsaPss: TCertAnswer;
+    function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
+    function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
+    function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
+  end;
+
   TTestSignature = class(TTlsLibAlgorithmTestCase)
   private
     FHs, FKeys: TStringList;
@@ -77,11 +95,68 @@ type
     procedure TestVerifyMalformedSignatureShapesNeverRaise;
     procedure TestSignerRejectsSchemeOutsideCapableSchemes;
     procedure TestLeafPolicyRejectsSchemeFamilyMismatch;
+    procedure TestLeafPolicyRejectsUndecodableKeyUsage;
+    procedure TestLeafWithMalformedKeyUsageFailsToParse;
     // the ECDSA verifier accepts a valid signature and rejects a non-DER encoding
     procedure TestEcdsaVerifiesValidAndRejectsTrailingBytes;
   end;
 
 implementation
+
+{ TUndecodableKeyUsageLeaf }
+
+constructor TUndecodableKeyUsageLeaf.Create(const AInner: IInspectedCertificate);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TUndecodableKeyUsageLeaf.PublicKeyInfo: TBytes;
+begin
+  Result := FInner.PublicKeyInfo;
+end;
+
+function TUndecodableKeyUsageLeaf.DnsNames: TArray<string>;
+begin
+  Result := FInner.DnsNames;
+end;
+
+function TUndecodableKeyUsageLeaf.IpAddresses: TArray<TBytes>;
+begin
+  Result := FInner.IpAddresses;
+end;
+
+function TUndecodableKeyUsageLeaf.KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
+begin
+  Result := TCertAnswer.Undetermined;
+end;
+
+function TUndecodableKeyUsageLeaf.KeyIsRsaPss: TCertAnswer;
+begin
+  Result := FInner.KeyIsRsaPss;
+end;
+
+function TUndecodableKeyUsageLeaf.KeyKind(out AKind: TSignatureKeyKind;
+  out AEcNamedGroup: UInt16): Boolean;
+begin
+  Result := FInner.KeyKind(AKind, AEcNamedGroup);
+end;
+
+function TUndecodableKeyUsageLeaf.KeyFacts(out AFacts: TCertKeyFacts): Boolean;
+begin
+  Result := FInner.KeyFacts(AFacts);
+end;
+
+function TUndecodableKeyUsageLeaf.SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
+begin
+  Result := FInner.SignatureFacts(AFacts);
+end;
+
+function TUndecodableKeyUsageLeaf.PeerInfo(out ASubject, AIssuer, ACommonName,
+  ASerialHex: string): Boolean;
+begin
+  Result := FInner.PeerInfo(ASubject, AIssuer, ACommonName, ASerialHex);
+end;
 
 { TTestSignature }
 
@@ -528,6 +603,66 @@ begin
   CheckTrue(LRaised, 'an RSA leaf presented for an ecdsa_* signature is rejected');
   CheckEquals(Ord(TTlsAlertDescription.IllegalParameter), Ord(LAlert),
     'the alert is illegal_parameter');
+end;
+
+procedure TTestSignature.TestLeafPolicyRejectsUndecodableKeyUsage;
+var
+  LLeaf: IInspectedCertificate;
+  LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
+begin
+  // a keyUsage that cannot be decoded is as unusable as one without digitalSignature (RFC 5280 4.2)
+  LLeaf := TUndecodableKeyUsageLeaf.Create(
+    Pkix.Certificates.Parse(DecodeHex(FKeys.Values['rsa_cert']))) as IInspectedCertificate;
+  LRaised := False;
+  LAlert := TTlsAlertDescription.InternalError;
+  try
+    TCertificateVerify.EnforceSigningLeafPolicy(LLeaf,
+      TSignatureScheme.RSA_PSS_RSAE_SHA256, False);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      LAlert := E.AlertDescription;
+    end;
+  end;
+  CheckTrue(LRaised, 'a leaf with an undecodable keyUsage is refused for signing');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'as bad_certificate');
+end;
+
+procedure TTestSignature.TestLeafWithMalformedKeyUsageFailsToParse;
+var
+  LDer: TBytes;
+  LI, LValue: Int32;
+  LPatched, LRaised: Boolean;
+begin
+  // the keyUsage value is an OCTET STRING wrapping a BIT STRING; retagging the inner BIT STRING
+  // makes the extension undecodable without touching anything else (parsing fails before any
+  // signature is checked, so the broken signature does not matter)
+  LDer := DecodeHex(Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt')).Values['leaf_cert']);
+  LPatched := False;
+  for LI := 0 to System.Length(LDer) - 12 do
+    if (LDer[LI] = $55) and (LDer[LI + 1] = $1D) and (LDer[LI + 2] = $0F) then
+    begin
+      LValue := LI + 3;
+      if (LDer[LValue] = $01) and (LDer[LValue + 1] = $01) then
+        Inc(LValue, 3); // the critical flag
+      if (LDer[LValue] = $04) and (LDer[LValue + 2] = $03) then
+      begin
+        LDer[LValue + 2] := $04;
+        LPatched := True;
+      end;
+      Break;
+    end;
+  CheckTrue(LPatched, 'the fixture leaf carries a keyUsage extension to corrupt');
+  LRaised := False;
+  try
+    TCertificateVerify.ParseWellFormedLeaf(Pkix.Certificates, LDer);
+  except
+    on E: EDecodeErrorTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a leaf whose keyUsage cannot be decoded is rejected when it is parsed');
 end;
 
 function TTestSignature.VerifyEcdsa(const ACryptoProvider: ICryptoProvider;
