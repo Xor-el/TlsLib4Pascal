@@ -1,0 +1,19 @@
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemo.dproj
+  s_58af9e1b217631::t_7a8734fa4b7f92 319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "222f3d5a3f0b6266eeaa83361a34395ed8153d8f",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
