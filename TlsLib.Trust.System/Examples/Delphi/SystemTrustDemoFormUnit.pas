@@ -80,6 +80,7 @@ end;
 procedure TSystemTrustDemoForm.SetBusy(ABusy: Boolean);
 begin
   btnRun.Enabled := not ABusy;
+  btnHostRoots.Enabled := not ABusy;
 end;
 
 procedure TSystemTrustDemoForm.FormCreate(Sender: TObject);
