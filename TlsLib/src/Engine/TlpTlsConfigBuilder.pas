@@ -171,11 +171,14 @@ type
     FEchIsRetry: Boolean;
     FEchListSupplied: Boolean;
     FEchServerPolicy: IEchServerPolicy;
-    // whether a version's facet was explicitly configured, so a build can refuse a
-    // version that is not offered (defaults are seeded directly, not through a facet)
-    FTls13Configured: Boolean;
-    FTls12Configured: Boolean;
+    // a certificate-codec list has no non-default value to compare, so setting one counts
+    FCertificateCodecsSet: Boolean;
     procedure GuardMutable;
+    /// <summary>Whether any TLS 1.3-only setting differs from its default (defaults are seeded
+    /// directly, not through a facet), so restating a default on a config that does not offer the
+    /// version is not refused.</summary>
+    function Tls13FacetConfigured: Boolean;
+    function Tls12FacetConfigured: Boolean;
     /// <summary>Refuses a version facet that was configured for a version not offered.</summary>
     procedure ValidateVersionScoping;
     /// <summary>Composes the accumulated anchor sources into one store: nil for none (a PSK-only
@@ -418,6 +421,14 @@ resourcestring
   STls12NotOffered = 'TLS 1.2 settings were configured but TLS 1.2 is not in the offered versions';
   SNonEmsResumeWithRequiredEms = 'legacy non-EMS resumption cannot apply when ' +
     'extended_master_secret is required, since a non-EMS client is rejected outright';
+  SClientScopeNeedsCache = 'a resumption scope was supplied without a session cache to resume ' +
+    'from; set WithSessionCache or drop the scope';
+  SExternalPskRequiredNeedsPsk = 'external PSKs were marked optional but none is configured; ' +
+    'set WithExternalPreSharedKeys or drop the toggle';
+  STls12PskRequiredNeedsPsk = 'the TLS 1.2 PSK was marked optional but none is configured; ' +
+    'set WithPreSharedKey or drop the toggle';
+  SAntiReplayNeedsEarlyData = 'an anti-replay strategy is consulted only for 0-RTT, but no ' +
+    'early-data budget is set; set WithEarlyData or drop the strategy';
   SNoSupportedVersions = 'at least one protocol version must be offered (TLS 1.3 and/or TLS 1.2)';
   SUnsupportedVersion = 'protocol version 0x%.4x is not negotiable; only TLS 1.3 (0x0304) and ' +
     'TLS 1.2 (0x0303) are supported';
@@ -1978,16 +1989,31 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SBuilderFrozen);
 end;
 
+function TTlsConfigBuilder.Tls13FacetConfigured: Boolean;
+begin
+  Result := (System.Length(FExternalPsks) > 0) or (not FExternalPskRequired) or
+    FClientEarlyData or (FMaxEarlyData > 0) or (FTicketCount <> DefaultTicketCount) or
+    (FAntiReplay <> nil) or FEchListSupplied or FEchGrease or (FEchServerPolicy <> nil) or
+    FCertificateCodecsSet or (FCertificateCompressionCache <> nil);
+end;
+
+function TTlsConfigBuilder.Tls12FacetConfigured: Boolean;
+begin
+  Result := (System.Length(FTls12Psks) > 0) or (not FTls12PskRequired) or
+    (System.Length(FTls12PskIdentityHint) > 0) or FRequireExtendedMasterSecret or
+    (FNonEmsResumption <> TNonEmsResumption.Decline);
+end;
+
 procedure TTlsConfigBuilder.ValidateVersionScoping;
 begin
   // a raw builder that never called WithSupportedVersions has none; a machine cannot be built
   // without an offered version (RFC 8446 4.2.1; the factory only builds TLS 1.3 and 1.2)
   if System.Length(FSupportedVersions) = 0 then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoSupportedVersions);
-  if FTls13Configured and not (TArrayUtilities.Contains<UInt16>(FSupportedVersions,
+  if Tls13FacetConfigured and not (TArrayUtilities.Contains<UInt16>(FSupportedVersions,
     TlsWireVersionTls13)) then
     raise EInvalidOperationTlsLibException.CreateRes(@STls13NotOffered);
-  if FTls12Configured and not (TArrayUtilities.Contains<UInt16>(FSupportedVersions,
+  if Tls12FacetConfigured and not (TArrayUtilities.Contains<UInt16>(FSupportedVersions,
     TlsWireVersionTls12)) then
     raise EInvalidOperationTlsLibException.CreateRes(@STls12NotOffered);
 end;
@@ -2456,7 +2482,7 @@ begin
   TCertificateCompression.ValidateCompressors(ACompressors);
   // copy so a caller mutating its array after Build cannot alter the frozen config
   FCertificateCompressors := System.Copy(ACompressors);
-  FTls13Configured := True;
+  FCertificateCodecsSet := True;
   Result := Self;
 end;
 
@@ -2466,7 +2492,7 @@ begin
   GuardMutable;
   TCertificateCompression.ValidateDecompressors(ADecompressors);
   FCertificateDecompressors := System.Copy(ADecompressors);
-  FTls13Configured := True;
+  FCertificateCodecsSet := True;
   Result := Self;
 end;
 
@@ -2477,7 +2503,6 @@ begin
   FEchConfigList := System.Copy(AEchConfigList);
   FEchIsRetry := False;
   FEchListSupplied := True;
-  FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2488,7 +2513,6 @@ begin
   FEchConfigList := System.Copy(AEchConfigList);
   FEchIsRetry := True;
   FEchListSupplied := True;
-  FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2496,8 +2520,6 @@ function TTlsConfigBuilder.WithEchGrease(AEnabled: Boolean): TTlsConfigBuilder;
 begin
   GuardMutable;
   FEchGrease := AEnabled;
-  if AEnabled then
-    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2506,10 +2528,6 @@ function TTlsConfigBuilder.WithCertificateCompressionCache(
 begin
   GuardMutable;
   FCertificateCompressionCache := ACache;
-  // a facet counts as configured only by a non-default value, so restating a default on a config
-  // that does not offer that version is not refused
-  if ACache <> nil then
-    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2518,8 +2536,6 @@ function TTlsConfigBuilder.WithExtendedMasterSecret(
 begin
   GuardMutable;
   FRequireExtendedMasterSecret := ARequire;
-  if ARequire then
-    FTls12Configured := True;
   Result := Self;
 end;
 
@@ -2528,8 +2544,6 @@ function TTlsConfigBuilder.WithNonEmsResumption(
 begin
   GuardMutable;
   FNonEmsResumption := AMode;
-  if AMode <> TNonEmsResumption.Decline then
-    FTls12Configured := True;
   Result := Self;
 end;
 
@@ -2742,8 +2756,6 @@ begin
   // copy so a caller mutating its arrays after Build cannot alter the frozen config (matches the
   // frozen ExternalPsks accessor); the PSK secrets are ISecretBuffer, shared by reference
   FExternalPsks := TTlsConfigBuilder.CloneExternalPsks(APsks);
-  if System.Length(APsks) > 0 then
-    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2752,8 +2764,6 @@ function TTlsConfigBuilder.WithExternalPskRequired(
 begin
   GuardMutable;
   FExternalPskRequired := AEnabled;
-  if not AEnabled then
-    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2815,8 +2825,6 @@ begin
   // copied so a caller mutating its arrays after Build cannot alter the frozen config; the
   // secrets are ISecretBuffer, shared by reference
   FTls12Psks := TTlsConfigBuilder.CloneTls12Psks(APsks);
-  if System.Length(APsks) > 0 then
-    FTls12Configured := True;
   Result := Self;
 end;
 
@@ -2827,8 +2835,6 @@ begin
   if System.Length(AHint) > High(UInt16) then
     raise EArgumentTlsLibException.CreateRes(@STls12PskHintLength);
   FTls12PskIdentityHint := System.Copy(AHint);
-  if System.Length(AHint) > 0 then
-    FTls12Configured := True;
   Result := Self;
 end;
 
@@ -2837,8 +2843,6 @@ function TTlsConfigBuilder.WithTls12PreSharedKeyRequired(
 begin
   GuardMutable;
   FTls12PskRequired := AEnabled;
-  if not AEnabled then
-    FTls12Configured := True;
   Result := Self;
 end;
 
@@ -2892,8 +2896,6 @@ begin
   if (ACount < 0) or (ACount > MaxTicketCount) then
     raise EArgumentTlsLibException.CreateRes(@STicketCountOutOfRange);
   FTicketCount := ACount;
-  if ACount <> DefaultTicketCount then
-    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2901,8 +2903,6 @@ function TTlsConfigBuilder.WithClientEarlyData(AEnabled: Boolean): TTlsConfigBui
 begin
   GuardMutable;
   FClientEarlyData := AEnabled;
-  if AEnabled then
-    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2912,8 +2912,6 @@ begin
   if AMaxBytes >= MaxServerEarlyData then
     raise EArgumentTlsLibException.CreateRes(@SServerEarlyDataTooLarge);
   FMaxEarlyData := AMaxBytes;
-  if AMaxBytes > 0 then
-    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2922,8 +2920,6 @@ function TTlsConfigBuilder.WithAntiReplay(
 begin
   GuardMutable;
   FAntiReplay := AStrategy;
-  if AStrategy <> nil then
-    FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2942,7 +2938,6 @@ begin
   if (FEchServerPolicy <> nil) and (FEchServerPolicy.Role = TEchServerRole.Backend) then
     raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
   FEchServerPolicy := TEchServerPolicy.Keyed(FCrypto, AKeyStore, ATrialDecrypt);
-  FTls13Configured := True;
   Result := Self;
 end;
 
@@ -2952,7 +2947,6 @@ begin
   if (FEchServerPolicy <> nil) and (FEchServerPolicy.Role = TEchServerRole.Keyed) then
     raise EInvalidOperationTlsLibException.CreateRes(@SEchBackendWithKeyStore);
   FEchServerPolicy := TEchServerPolicy.Backend;
-  FTls13Configured := True;
   Result := Self;
 end;
 
@@ -3170,7 +3164,15 @@ begin
   // a cache or scope the caller supplied is inert with resumption off, like the guards above
   if (not FResumption) and ((FSessionCache <> nil) or (System.Length(FSessionScope) > 0)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SClientResumptionSettingNeedsResumption);
+  // a scope keys the cached sessions, so it is inert without a cache
+  if (System.Length(FSessionScope) > 0) and (FSessionCache = nil) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SClientScopeNeedsCache);
   ValidateVersionScoping;
+  // "optional" is a statement about a PSK, so it needs one
+  if (not FExternalPskRequired) and (System.Length(FExternalPsks) = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SExternalPskRequiredNeedsPsk);
+  if (not FTls12PskRequired) and (System.Length(FTls12Psks) = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@STls12PskRequiredNeedsPsk);
   LEchPolicy := nil;
   // ECH is configured by a config list, or by GREASE alone; WithEchGrease(False) with no list is a
   // no-op, not a fail-closed empty policy
@@ -3319,11 +3321,15 @@ begin
   // 0-RTT early data is offered only on a resumed session; a limit with resumption off is inert
   if (FMaxEarlyData > 0) and (not FResumption) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerEarlyDataNeedsResumption);
+  // the strategy is read only when early data is accepted
+  if (FAntiReplay <> nil) and (FMaxEarlyData = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SAntiReplayNeedsEarlyData);
   // every other resumption setting is equally inert with resumption off; a ticket lifetime or count
   // counts only when it differs from its default, like any other setting
   if (not FResumption) and ((FSessionStore <> nil) or (FSessionTicketKeys <> nil) or
     FWantDefaultSessionTicketKeys or (FTicketLifetimeSeconds <> DefaultTicketLifetimeSeconds) or
-    (FTicketCount <> DefaultTicketCount) or (System.Length(FResumptionScope) > 0) or
+    ((FTicketCount <> DefaultTicketCount) and (FTicketCount <> 0)) or
+    (System.Length(FResumptionScope) > 0) or
     (FAntiReplay <> nil) or (FNonEmsResumption <> TNonEmsResumption.Decline)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerResumptionSettingNeedsResumption);
   // rejecting every ALPN offer and listing protocols to select from contradict each other

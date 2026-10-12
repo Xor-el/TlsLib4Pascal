@@ -118,6 +118,10 @@ type
       const AReason: string): Boolean; overload;
     function BuildRefused(const ABuilder: ITlsServerConfigBuilder;
       const AReason: string): Boolean; overload;
+    function BuildRefused(const AFacet: ITls13ClientConfigFacet;
+      const AReason: string): Boolean; overload;
+    function BuildRefused(const AFacet: ITls12ClientConfigFacet;
+      const AReason: string): Boolean; overload;
     function BuildRefused(const AFacet: ITls13ServerConfigFacet;
       const AReason: string): Boolean; overload;
     function BuildRefused(const AFacet: ITls12ServerConfigFacet;
@@ -204,6 +208,8 @@ type
     procedure TestEmptyCipherSuiteListIsRefused;
     procedure TestInjectedVerifierRefusesSettingsItIgnores;
     procedure TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
+    procedure TestInertSettingsAreRefusedAtBuild;
+    procedure TestRevertedFacetSettingsAndTicketCountZeroAreNotInert;
     procedure TestOfferedVersionWithoutASuiteIsRefused;
     procedure TestServerCipherSuiteListOrderDecidesTheNegotiatedSuite;
     procedure TestClientCipherSuiteListIsTheOnlyOfferedSuite;
@@ -1471,6 +1477,30 @@ begin
   end;
 end;
 
+function TTestConfigBuilder.BuildRefused(const AFacet: ITls13ClientConfigFacet;
+  const AReason: string): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos(AReason, E.Message) > 0;
+  end;
+end;
+
+function TTestConfigBuilder.BuildRefused(const AFacet: ITls12ClientConfigFacet;
+  const AReason: string): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := Pos(AReason, E.Message) > 0;
+  end;
+end;
+
 function TTestConfigBuilder.BuildRefused(const AFacet: ITls13ServerConfigFacet;
   const AReason: string): Boolean;
 begin
@@ -1859,6 +1889,33 @@ begin
       LHas13 := True;
   CheckFalse(LHas13, 'no TLS 1.3 suite is advertised to a TLS 1.2-only client');
   CheckTrue(System.Length(LSuites) > 0, 'a TLS 1.2 hello still lists suites');
+end;
+
+procedure TTestConfigBuilder.TestInertSettingsAreRefusedAtBuild;
+begin
+  CheckTrue(BuildRefused(NewClientBuilder
+    .WithResumptionScope(Crypto.Primitives.GetRandom.GenerateBytes(8)),
+    'without a session cache'), 'a client scope with resumption on but no cache');
+  CheckTrue(BuildRefused(NewClientBuilder.Tls13.WithExternalPskRequired(False),
+    'marked optional'), 'optional external PSKs without any');
+  CheckTrue(BuildRefused(NewClientBuilder
+    .WithCipherSuites(TCipherSuiteRegistry.CreateDualVersion(Crypto))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12))
+    .Tls12.WithPreSharedKeyRequired(False), 'marked optional'),
+    'an optional TLS 1.2 PSK without one');
+  CheckTrue(BuildRefused(NewServerBuilder
+    .Tls13.WithAntiReplay(TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy),
+    'early-data budget'), 'an anti-replay strategy with no early-data budget');
+end;
+
+procedure TTestConfigBuilder.TestRevertedFacetSettingsAndTicketCountZeroAreNotInert;
+begin
+  // a Tls13 setting put back to its default no longer counts, so a TLS 1.2-only server builds
+  CheckNotNull(NewServerBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .Tls13.WithTicketCount(3).WithTicketCount(2).Build, 'a reverted ticket count');
+  // "no tickets" agrees with resumption off
+  CheckNotNull(NewServerBuilder.WithResumption(False).Tls13.WithTicketCount(0).Build,
+    'ticket count 0 with resumption off');
 end;
 
 procedure TTestConfigBuilder.TestResumptionSettingsAreRefusedWhenResumptionIsOff;
