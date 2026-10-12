@@ -1,0 +1,28 @@
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_58af9e1b217631::t_32e45001a5a0f8 423-444
+  s_58af9e1b217631::t_8f3204464d417f 3304-3310
+  s_58af9e1b217631::t_0713c75ad7c9dd 64-66
+  s_58af9e1b217631::t_89694a2d313443 3080-3159
+  s_58af9e1b217631::t_45d3554a8d2a36 445
+  s_58af9e1b217631::t_6d3e6c73ce039d 3311
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_58af9e1b217631::t_e918d4cafd2e27 199-219
+  s_58af9e1b217631::t_23a42090c9beee 35-55
+  s_58af9e1b217631::t_59d0dfb887ba98 220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8ce6542f58b32f4176a4517ff8ac24472d31980d",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
