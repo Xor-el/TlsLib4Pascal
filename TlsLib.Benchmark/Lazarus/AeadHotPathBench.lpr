@@ -11,7 +11,7 @@ uses
   SysUtils,
   Classes,
   TlpICryptoProvider,
-  TlpCryptoAlgorithms,
+  TlpCryptoDomainTypes,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpDefaultCryptoProvider;
@@ -65,10 +65,12 @@ begin
   LKey := TSecretBuffer.From(MakeBytes(AKeySize, 1));
   LPlain := MakeBytes(CRecordSize, 2);
   LAad := MakeBytes(CAadSize, 3);
-  LReused := AProvider.CreateAead(AAlgorithm);
+  LReused := AProvider.Primitives.CreateAead(AAlgorithm);
   LReused.Init(LKey);
   LNonce := nil;
   SetLength(LNonce, LReused.NonceSize);
+  LSealed := nil;
+  SetLength(LSealed, CRecordSize + LReused.TagSize);
   FillChar(LNonce[0], System.Length(LNonce), 0);
 
   // after: one reused adapter, re-Init'd per record (same-key fast path)
@@ -76,7 +78,7 @@ begin
   for LI := 0 to CRecords - 1 do
   begin
     SetNonce(LNonce, LI);
-    LSealed := LReused.Seal(LNonce, LAad, LPlain);
+    LReused.Seal(LNonce, LAad, LPlain, 0, CRecordSize, LSealed, 0);
   end;
   LReuseMs := TThread.GetTickCount - LStart;
 
@@ -85,9 +87,9 @@ begin
   for LI := 0 to CRecords - 1 do
   begin
     SetNonce(LNonce, LI);
-    LFresh := AProvider.CreateAead(AAlgorithm);
+    LFresh := AProvider.Primitives.CreateAead(AAlgorithm);
     LFresh.Init(LKey);
-    LSealed := LFresh.Seal(LNonce, LAad, LPlain);
+    LFresh.Seal(LNonce, LAad, LPlain, 0, CRecordSize, LSealed, 0);
   end;
   LPerRecMs := TThread.GetTickCount - LStart;
 
@@ -133,7 +135,7 @@ begin
   WriteLn('AEAD hot-path benchmark');
   WriteLn('Platform: ', PlatformInfo);
   WriteLn(Format('records=%d  record-size=%d bytes  HasHardwareAes=%s',
-    [CRecords, CRecordSize, BoolToStr(LProvider.HasHardwareAes, True)]));
+    [CRecords, CRecordSize, BoolToStr(LProvider.Primitives.HasHardwareAes, True)]));
   WriteLn;
   BenchAlgorithm(LProvider, TAeadAlgorithm.AES_128_GCM, 16, 'AES-128-GCM');
   BenchAlgorithm(LProvider, TAeadAlgorithm.AES_256_GCM, 32, 'AES-256-GCM');
