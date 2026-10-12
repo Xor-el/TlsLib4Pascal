@@ -1,0 +1,45 @@
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_58af9e1b217631::t_1591b446cd8cfc 271
+  s_58af9e1b217631::t_16a4a08307b983 253-260,262-263,265-269,272-274
+  s_58af9e1b217631::t_437097e3d9d628 264
+  s_58af9e1b217631::t_8170dc2f921c95 270
+  s_58af9e1b217631::t_c3ab8cd50b1ce1 261
+  s_58af9e1b217631::t_b72982a3c2dba6 117-137
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_58af9e1b217631::t_7aa1c9c35d858b 747
+  s_58af9e1b217631::t_0bcbc432e41e72 39-42
+  s_58af9e1b217631::t_aa9d7b05c0366e 637,639,646-647,656
+  s_58af9e1b217631::t_74b457d621f7c0 960-961
+  s_58af9e1b217631::t_5e987280029cae 143-151,536-539
+  s_58af9e1b217631::t_b4f2d63c458669 941
+  s_58af9e1b217631::t_d19cd3a56b1aac 163-169
+  s_58af9e1b217631::t_fd196a3fc1a532 678,695-707
+  s_58af9e1b217631::t_5325411db4dce8 482-483,487-509,511-513,515-527,533-535,540-543,548-561,563-571
+  s_58af9e1b217631::t_3fcd0d0bee45a5 962,975-976
+  s_58af9e1b217631::t_9efde673a306a1 863
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_58af9e1b217631::t_9db2c76fb57c16 82
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_58af9e1b217631::t_36ac622bc9d125 153
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_58af9e1b217631::t_3acdf1973ac683 1668-1743
+  s_58af9e1b217631::t_ebf9e40aa67338 3262
+  s_58af9e1b217631::t_8de6a635482d20 3269
+  s_58af9e1b217631::t_1a178ceb877f88 268-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7ba3e9fe63297772524c2a94283b734a9d1df9f5",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
