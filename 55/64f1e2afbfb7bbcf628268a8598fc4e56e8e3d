@@ -1,0 +1,80 @@
+TlsLib.Interop/src/TlsFuzzerRunner.pas
+  s_a42ddd283d3520::t_cd4f65737103f4 934
+  s_a42ddd283d3520::t_74fb9c115235d0 970
+  s_a42ddd283d3520::t_4e07f8b17b531e 954,959
+  s_a42ddd283d3520::t_d8d6fc78d0fa49 936,942,944,950-953
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_a42ddd283d3520::t_817660ee4d7456 113,130,147,177,191,210,245,311,349,390,406,442,456,514,558
+  s_a42ddd283d3520::t_0ce79b7996a0e4 90,161,223,263,268,290,373,426,493,540,593
+  s_a42ddd283d3520::t_3e5edad3c04a40 47
+  s_a42ddd283d3520::t_9a6374f6239797 98,119,136,153,169,183,197,216,231,252,276,300,317,356,381,396,412,434,448,462,504,526,542,573,605
+  s_a42ddd283d3520::t_51f50ba4cdc90c 554
+  s_a42ddd283d3520::t_f3512e436c0b5a 577
+  s_a42ddd283d3520::t_5e449867676e3e 41-43,48-52
+  s_a42ddd283d3520::t_2ad85b3e76fb3b 53
+.github/workflows/ci/adapters/fclnet-build.sh
+  s_a42ddd283d3520::t_b81edd4d38e50e 100
+  s_a42ddd283d3520::t_0a044dc57a250d 104
+.github/workflows/ci/interop/fuzz-discovery.sh
+  s_a42ddd283d3520::t_b3217b64a6b707 65
+.github/workflows/ci/lint/comment-lint.sh
+  s_a42ddd283d3520::t_3cd76b72a8055e 16-17
+  s_a42ddd283d3520::t_4249a3dd376ff1 6-11
+.github/workflows/ci/interop/bogo-classify.py
+  s_a42ddd283d3520::t_73f5ba3659217f 116
+  s_a42ddd283d3520::t_97b3d630a779d9 118-119
+.github/workflows/install-fpc-lazarus.sh
+  s_a42ddd283d3520::t_190b3168d0c3cf 92
+  s_a42ddd283d3520::t_34e54206f9facd 83
+.github/workflows/ci/shared/common.sh
+  s_a42ddd283d3520::t_f96608252bbee3 73
+  s_a42ddd283d3520::t_6c6126b06c79c3 74-80
+  s_a42ddd283d3520::t_3e2aebfb5b57f9 50-52,54,57,61-72
+  s_a42ddd283d3520::t_b5288ac295fa6c 49,53,55-56,58-60
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_a42ddd283d3520::t_1ccf563418fe2d 228
+  s_a42ddd283d3520::t_e154da65d7a1ce 499-501
+  s_a42ddd283d3520::t_4aacf13cb352ea 315
+  s_a42ddd283d3520::t_9dff08f0ab8ddb 544
+  s_a42ddd283d3520::t_3b0359bb2c0633 342,503,742
+  s_a42ddd283d3520::t_5b1b6b4cca5b8a 13
+  s_a42ddd283d3520::t_feab8788793323 160
+  s_a42ddd283d3520::t_052c82f87c7f6c 87-88
+  s_a42ddd283d3520::t_b66466bed6153d 459
+  s_a42ddd283d3520::t_5549930a1a48be 345
+  s_a42ddd283d3520::t_0fc6c068d53414 46-47
+  s_a42ddd283d3520::t_55f81857306149 213
+  s_a42ddd283d3520::t_f8dfcbd4a87cdb 237
+  s_a42ddd283d3520::t_ac9ac965acbebb 727
+  s_a42ddd283d3520::t_401e587a7322ff 57-59
+.github/workflows/mirror-to-gitlab.yml
+  s_a42ddd283d3520::t_b06c81df381b3f 23-25
+  s_a42ddd283d3520::t_a91ca27a6ac9c5 39
+.github/workflows/ci/fpc-tarball-sha256.txt
+  s_a42ddd283d3520::t_24e37ee51194bf 1-12
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_a42ddd283d3520::t_76104dffa65826 335,338,342-345,347
+  s_a42ddd283d3520::t_70df12caafdfee 341
+.github/workflows/ci/interop/interop-build.sh
+  s_a42ddd283d3520::t_c0c8325692cbcd 98
+  s_a42ddd283d3520::t_e61f56fe4d36bc 111
+.github/workflows/make.yml
+  s_a42ddd283d3520::t_9ffe300d8a6a83 339
+  s_a42ddd283d3520::t_b5e7f84937a1da 333
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5564f1e2afbfb7bbcf628268a8598fc4e56e8e3d",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
