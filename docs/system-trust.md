@@ -467,7 +467,7 @@ the implementation the four adapters use: a stateless, process-wide instance.
 - `ServerVerification(Pkix, ExtraAnchors)` returns the OS server-certificate policy, the same as
   `TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default, ExtraAnchors).Build`.
   `ExtraAnchors` (nil for none) are the host's own roots, unioned with the OS ones; where the
-  platform cannot union them (delegate-only) it raises rather than drop them.
+  platform cannot union them (Android, and Windows in Delegate mode) it raises rather than drop them.
 - `Identity` names the trust it installs (`'os-system-trust'` for the shared instance). Adapter
   config caches key on it (`TTlsConfigComposer.ClientSignature`), so an installer that installs
   different roots needs a different identity. The signature refuses an empty one.

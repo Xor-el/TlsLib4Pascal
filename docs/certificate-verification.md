@@ -455,7 +455,7 @@ a per-certificate cap above the total, a total above 16 MiB - 1, or a count outs
 apply in the built-in and OS verifiers; a `Custom` verifier owns its own limits.
 
 ```pascal
-uses TlpCertificateLimits;
+uses TlpCertificateLimits, TlpCertificateVerifierSource;
 
 LLimits := TCertificateChainLimits.Defaults;
 LLimits.MaxCertificateLength := 1 shl 17;   // a large post-quantum chain
@@ -480,7 +480,7 @@ every preset:
   admit SHA-1-signed certificates from a private PKI that has not been re-issued.
 
 ```pascal
-uses TlpCertificateStrengthPolicy;
+uses TlpCertificateStrengthPolicy, TlpCertificateVerifierSource;
 
 LStrength := TCertificateStrengthPolicy.Defaults;
 LStrength.MinRsaModulusBits := 3072;

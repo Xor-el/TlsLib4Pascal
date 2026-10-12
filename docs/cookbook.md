@@ -101,7 +101,7 @@ wildcard (`*.example.org`); a `WithCredential` beside them is the default for a 
 SNI or an unknown one:
 
 ```pascal
-uses TlpTlsPresets, TlpITlsConfigBuilder, TlpITlsConfig, TlpTlsCredential;
+uses TlpTlsPresets, TlpITlsConfig, TlpTlsCredential;
 
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithSniCredential('api.example.com', TTlsCredential.Load(Crypto, Pkix,
@@ -114,7 +114,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 
 `Build` raises `EInvalidOperationTlsLibException` when a leaf's dNSName SANs do not cover its host
 (a wildcard entry needs the same wildcard SAN), when a host is mapped twice, or for a wildcard such
-as `*.com`. Without a default credential, an unmatched host is refused with `unrecognized_name`.
+as `*.com`. Without a default credential, an unmatched host is refused with `unrecognized_name` (`handshake_failure` when the client sent no SNI).
 
 For selection by anything else (the client's signature schemes, ALPN, groups), implement
 `ITlsServerCredentialResolver` (unit `TlpITlsCredentialResolver`) and install it with
@@ -142,7 +142,7 @@ begin
   else if AClientHello.ServerName = '' then
     ACredential := FDefaultCred
   else
-    Result := False;   // unrecognized_name (handshake_failure when no SNI was sent)
+    Result := False;   // refused as unrecognized_name
 end;
 
 // ...
@@ -657,6 +657,8 @@ TServerVerification.WebPki(caPem).WithRevocation(TRevocationPosture.Off).Build  
 `WithLiveRevocationVerdict(deadlineMs)`, since a client cannot staple.
 
 ```pascal
+uses TlpTrustPolicy, TlpCertificateVerifierSource;
+
 // a Compatible client that asks the server for a stapled OCSP response (status_request, RFC 6066)
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TServerVerification.WebPki(caPem)
@@ -862,7 +864,7 @@ offered without EMS (RFC 7627 5.3) with `Tls12.WithNonEmsResumption` (`TNonEmsRe
 `handshake_failure`, and `Resume` performs the legacy abbreviated handshake. `Decline` and `Abort`
 also stop issuing resumable sessions from a non-EMS handshake. `Resume` together with
 `WithExtendedMasterSecret(True)` is refused at `Build`. The `Tls12` facet needs TLS 1.2 among the
-offered versions, so it does not apply to the TLS 1.3-only presets.
+offered versions, so it does not apply to the Strict preset.
 
 ## Cap the inbound record size
 
@@ -872,6 +874,8 @@ default, offers nothing; any other value must be 64..16384, or the setter raises
 `EArgumentTlsLibException`.
 
 ```pascal
+uses TlpCertificateVerifierSource;
+
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TServerVerification.WebPki(caPem).Build)
   .WithRecordSizeLimit(4096)
