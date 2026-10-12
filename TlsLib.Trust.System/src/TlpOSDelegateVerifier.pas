@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpTlsAlert,
   TlpIPkixProvider,
   TlpIClock,
@@ -51,6 +52,8 @@ type
     Anchors: TArray<TBytes>;
     // host roots trusted beside the OS roots, server role only (see TPlatformChainRequest)
     ExtraAnchors: TArray<TBytes>;
+    // the OS distrust set, refused on any path that relied on ExtraAnchors
+    Distrusted: TArray<TBytes>;
     Intermediates: TArray<TBytes>;
     CheckHostName: Boolean;
     // must-staple (RFC 7633 4.3.3) binds only to a server leaf on the initial handshake the client
@@ -66,6 +69,20 @@ type
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
     class function FromClientContext(const AContext: TClientTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
+  end;
+
+  /// <summary>The server evaluation with host roots beside the OS roots, the same on every engine. An
+  /// engine with NativeAnchorUnion is asked once with the roots; any other first evaluates against the
+  /// OS roots and, only when that failed for want of a trust anchor, again with the host roots as the
+  /// exclusive root, whose verdict then stands (its alert too, unless it also found no anchor). A path
+  /// that relied on the host roots is refused when it holds an ADistrusted certificate; under a native
+  /// union that is every accepted path (which root ended it is unknowable), otherwise only the
+  /// host-root-reliant ones.</summary>
+  TDelegateEvaluation = class sealed(TObject)
+  public
+    class function EvaluateServer(const AEngine: IPlatformChainEngine;
+      const ARequest: TPlatformChainRequest; const ADistrusted: TArray<TBytes>;
+      out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
   /// <summary>What every OS delegate does around its platform engine, matching each platform's order:
@@ -130,15 +147,17 @@ type
     FEngine: IPlatformChainEngine;
     FFetch: TSystemTrustFetch;
     FExtraAnchors: TArray<TBytes>;
+    FDistrusted: TArray<TBytes>;
   public
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch);
       overload;
     /// <summary>As above, for a server-certificate source that also trusts AExtraAnchors beside the
-    /// OS roots; refused at construction on an engine without the ExtraAnchors capability.</summary>
+    /// OS roots, refusing a path through any ADistrusted certificate.</summary>
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
-      const AExtraAnchors: TArray<TBytes>); overload;
+      const AExtraAnchors, ADistrusted: TArray<TBytes>); overload;
     function CreateServerVerifier(const AContext: TServerTrustContext): IServerCertificateVerifier;
     function ExtraAnchors: TArray<TBytes>;
+    function Distrusted: TArray<TBytes>;
     function CreateClientVerifier(const AContext: TClientTrustContext): IClientCertificateVerifier;
   end;
 
@@ -211,6 +230,51 @@ begin
   else
     Result.Anchors := nil;
   Result.DeadlineMs := 0;
+end;
+
+{ TDelegateEvaluation }
+
+class function TDelegateEvaluation.EvaluateServer(const AEngine: IPlatformChainEngine;
+  const ARequest: TPlatformChainRequest; const ADistrusted: TArray<TBytes>;
+  out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LCapabilities: TPlatformChainCapabilities;
+  LExclusive: TPlatformChainRequest;
+  LExclusiveResult: TPlatformChainResult;
+  LExclusiveAlert: TTlsAlertDescription;
+  LHostRoots: Boolean;
+  LPath, LDistrusted: Int32;
+begin
+  // an exclusive Anchors already is the host's choice of roots, so only the OS-roots case has a union
+  if (System.Length(ARequest.ExtraAnchors) = 0) or (System.Length(ARequest.Anchors) > 0) then
+    Exit(AEngine.EvaluateServer(ARequest, AResult, AAlert));
+  LCapabilities := AEngine.Capabilities;
+  LHostRoots := TPlatformChainCapability.NativeAnchorUnion in LCapabilities;
+  Result := AEngine.EvaluateServer(ARequest, AResult, AAlert);
+  if (not Result) and (AResult.Failure = TPlatformChainFailure.NoTrustAnchor) and
+    (TPlatformChainCapability.ExclusiveServerAnchors in LCapabilities) and not LHostRoots then
+  begin
+    LExclusive := ARequest;
+    LExclusive.Anchors := ARequest.ExtraAnchors;
+    LExclusive.ExtraAnchors := nil;
+    Result := AEngine.EvaluateServer(LExclusive, LExclusiveResult, LExclusiveAlert);
+    // a second evaluation that found no anchor either leaves the first one's verdict standing
+    if Result or (LExclusiveResult.Failure <> TPlatformChainFailure.NoTrustAnchor) then
+    begin
+      AResult := LExclusiveResult;
+      AAlert := LExclusiveAlert;
+      LHostRoots := True;
+    end;
+  end;
+  if (not Result) or (not LHostRoots) then
+    Exit;
+  for LPath := 0 to System.High(AResult.Path) do
+    for LDistrusted := 0 to System.High(ADistrusted) do
+      if TArrayUtilities.AreEqual(AResult.Path[LPath], ADistrusted[LDistrusted]) then
+      begin
+        AAlert := TTlsAlertDescription.BadCertificate;
+        Exit(False);
+      end;
 end;
 
 { TOSDelegateVerifierBase }
@@ -350,7 +414,8 @@ begin
     Exit(False);
   end;
   LRequest := BuildRequest(AChain, AServerName, AOcspStaple);
-  if not Engine.EvaluateServer(LRequest, LResult, AAlert) then
+  if not TDelegateEvaluation.EvaluateServer(Engine, LRequest, Policy.Distrusted, LResult,
+    AAlert) then
     Exit(False);
   if not Complete(LResult, AServerName, AOcspStaple, AVerified, AAlert) then
     Exit(False);
@@ -387,22 +452,24 @@ end;
 constructor TOSVerifierSource.Create(const AEngine: IPlatformChainEngine;
   AFetch: TSystemTrustFetch);
 begin
-  Create(AEngine, AFetch, nil);
+  Create(AEngine, AFetch, nil, nil);
 end;
 
 constructor TOSVerifierSource.Create(const AEngine: IPlatformChainEngine;
-  AFetch: TSystemTrustFetch; const AExtraAnchors: TArray<TBytes>);
+  AFetch: TSystemTrustFetch; const AExtraAnchors, ADistrusted: TArray<TBytes>);
 begin
   inherited Create;
   if (AFetch = TSystemTrustFetch.Live) and
     not (TPlatformChainCapability.LiveFetch in AEngine.Capabilities) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
   if (System.Length(AExtraAnchors) > 0) and
-    not (TPlatformChainCapability.ExtraAnchors in AEngine.Capabilities) then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoExtraAnchorUnion);
+    (AEngine.Capabilities * [TPlatformChainCapability.NativeAnchorUnion,
+    TPlatformChainCapability.ExclusiveServerAnchors] = []) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustHostRoots);
   FEngine := AEngine;
   FFetch := AFetch;
   FExtraAnchors := AExtraAnchors;
+  FDistrusted := ADistrusted;
 end;
 
 function TOSVerifierSource.CreateServerVerifier(
@@ -414,12 +481,18 @@ begin
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
   LPolicy := TOSDelegatePolicy.FromServerContext(AContext, FFetch);
   LPolicy.ExtraAnchors := FExtraAnchors;
+  LPolicy.Distrusted := FDistrusted;
   Result := TOSDelegateServerVerifier.Create(FEngine, LPolicy) as IServerCertificateVerifier;
 end;
 
 function TOSVerifierSource.ExtraAnchors: TArray<TBytes>;
 begin
   Result := FExtraAnchors;
+end;
+
+function TOSVerifierSource.Distrusted: TArray<TBytes>;
+begin
+  Result := FDistrusted;
 end;
 
 function TOSVerifierSource.CreateClientVerifier(
@@ -479,7 +552,8 @@ begin
   else
     LRequest.ServerName := Default(TServerName);
   if FExpectedPeer = TPeerRole.Server then
-    LTrusted := FEngine.EvaluateServer(LRequest, LResult, ARejectAlert)
+    LTrusted := TDelegateEvaluation.EvaluateServer(FEngine, LRequest, FPolicy.Distrusted,
+      LResult, ARejectAlert)
   else
     LTrusted := FEngine.EvaluateClient(LRequest, LResult, ARejectAlert);
   if not LTrusted then

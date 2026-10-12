@@ -87,7 +87,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `CertificateData.CertCA` / `.TrustedCertificate`      | `TServerVerification.WebPki` anchor blobs (unioned) |
 | `CertificateData.Certificate` + `.PrivateKey` + `KeyPassword` | `WithCredential` — own cert (server, or mTLS client) |
 | `CertificateData.PFX` + `KeyPassword`                  | `WithCredential` from a PKCS#12; its CA bag is sent as chain, never trusted. PFX beside `Certificate` or `PrivateKey` **fails loudly**, as does `CertCA` with both `Value` and `FileName` set |
-| `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Unix)  |
+| `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Android / Unix); unions with `CertCA` / `CustomTrustStore` as "my CA plus the OS roots" ([rule](../../docs/system-trust.md#host-roots-beside-the-os-roots)) |
 | `CustomTrustStore: ITrustAnchorStore`                 | `WebPki` store (unions with the above)             |
 | `ClientAuth: TClientAuthMode` (**server**)            | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs a private client-CA (`CertCA` / `TrustedCertificate` / `CustomTrustStore`). `UseSystemTrust` is a server-cert source, never a client-CA |
 | `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `Custom` verification — **replaces** the pipeline (role-typed) |

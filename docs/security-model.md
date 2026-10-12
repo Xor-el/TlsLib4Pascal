@@ -154,8 +154,8 @@ These are intentional and documented — flagging them up front so they aren't m
   which only verifies handshake signatures, does the same: it names no hash OID and hands CNG the one
   DigestInfo of RFC 8017 9.2 Note 1, so a DigestInfo without the NULL does not verify there either. It
   is always strict, whatever the portable provider's strictness is set to. One path is outside this: OS
-  trust delegate mode, where the chain and any revocation data the OS fetches are judged by the
-  platform.
+  trust delegate mode (the default OS trust on Windows, macOS, iOS and Android), where the chain and any
+  revocation data the OS fetches are judged by the platform.
 - **The managed engine is always ours.** Native OS/JVM TLS stacks are never the handshake/record
   engine (a deliberate one-behavior / one-test-corpus stance); OS *trust* is the only sanctioned OS
   touch, and it is opt-in.

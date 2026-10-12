@@ -16,7 +16,9 @@
 #                 root). Inside the bracket a second per-run intermediate is marked OS-distrusted
 #                 (Windows Disallowed / macOS Deny): both the delegate and os-anchors must reject a
 #                 path through it (os-anchors with bad_certificate), a non-distrusted intermediate
-#                 and a twin of the distrusted one still verify.
+#                 and a twin of the distrusted one still verify. Before the root install, the same
+#                 distrust is applied to a path that relied on a --host-root (the run root passed
+#                 beside the OS roots), where it must win too.
 #
 # The server-cert delegate reject cells whose alert is a per-OS status-map code (hostname, EKU,
 # expired) assert only that the handshake aborts with a fatal alert, not the exact code: the two OS
@@ -32,6 +34,11 @@
 #                 exclusivity cell (foreign resolver CA) runs inside the install bracket, where it can
 #                 discriminate. Its revoked(44)/indeterminate(113) alerts come from our resolver, not
 #                 the OS map, so they are asserted exactly on both platforms.
+#   * Windows AUTOROOT - informational, off unless MAKE_RUN_AUTOROOT=true, github-hosted CI only: removes one public root (and only it)
+#                 from the stores, builds a chain for its public intermediate under our inline/live
+#                 flags vs a control, and reports whether crypt32 re-installs the root. Always restored.
+#   * macOS trust mode comparison - report-only, CI-gated: the same hosts through both modes, to see
+#                 whether the Anchors harvest and Apple SecTrust ever disagree. Never fails the leg.
 set -euo pipefail
 
 SHIM="${1:?usage: run-trust.sh <TrustDelegateInterop binary>}"
@@ -80,6 +87,9 @@ cleanup() {
   if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; wait "$CRL_PID" 2>/dev/null || true; fi
   if [ "$DISTRUSTED" = 1 ]; then uninstall_distrust || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
+  autoroot_restore || true
+  autoroot_policy_restore || true
+  autoroot_capi_off || true
   rm -rf "$TMP"
 }
 
@@ -128,6 +138,50 @@ uninstall_distrust() {
     Darwin)
       sudo security delete-certificate -Z "$DTHUMB" \
         /Library/Keychains/System.keychain >/dev/null 2>&1 || true ;;
+  esac
+}
+
+AUTOROOT_ARMED=0
+autoroot_bounded() { # <secs> <cmd...>: same idiom as probe_bounded with a per-call limit
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then timeout -k 5 "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout -k 5 "$secs" "$@"
+  else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' "$secs" "$@"; fi
+}
+autoroot_ps() { # <action> [extra args]: run the AUTOROOT helper bounded; a timeout warns on stderr, rc stays 0
+  local action="$1" secs=60 rc=0 out; shift
+  case "$action" in
+    restore) secs=120 ;;
+    diag|ctl|leaf|capidump|svcrestart) secs=90 ;;
+  esac
+  mkdir -p "$TMP/autoroot"
+  out="$TMP/autoroot/$action.out"
+  autoroot_bounded "$secs" powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$(cygpath -w "$HERE/autoroot-probe.ps1")" -Action "$action" \
+    -Work "$(cygpath -w "$TMP/autoroot")" "$@" >"$out" 2>&1 </dev/null || rc=$?
+  tr -d '\r' <"$out"
+  case "$rc" in
+    124|137|142|143) echo "  WARN  AUTOROOT $action timed out" >&2 ;;
+  esac
+  return 0
+}
+autoroot_restore() { # idempotent: put back every removed root and print the tally; a timeout never blocks the job
+  [ "$AUTOROOT_ARMED" = 1 ] || return 0
+  AUTOROOT_ARMED=0
+  local out line missing
+  out="$(autoroot_ps restore)"
+  printf '%s\n' "$out" | sed 's/^/  /'
+  line="$(printf '%s\n' "$out" | tail -n 1)"
+  case "$line" in
+    removed=*) ;;
+    *) echo "  WARN  AUTOROOT restore result unreadable"; return 0 ;;
+  esac
+  echo "AUTOROOT RESTORE $line"
+  missing="${line##*missing=}"
+  case "$missing" in
+    ''|*[!0-9]*) echo "  WARN  AUTOROOT restore result unreadable" ;;
+    0) ;;
+    *) echo "  WARN  $missing removed root(s) could not be restored"; AUTOROOT_ARMED=1 ;;
   esac
 }
 
@@ -245,6 +299,48 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --client-key "$CA/live_client_revoked.key" --client-ca "$CA/root.pem" \
       --posture hard --expect reject:44
   done
+
+  # OS distrust beats a host root: the run root is NOT installed here, only passed as --host-root, so a
+  # path through the OS-distrusted intermediate relies on the host root and must still be refused. The
+  # baseline accept (host root, nothing distrusted) and the undistrusted-intermediate control keep the
+  # reject from being a vacuous "host root ignored".
+  echo "=== host root vs OS distrust (root not installed) ==="
+  cell "delegate host root baseline -> accept" --trust-mode os-delegate \
+    --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+    --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
+  cell "anchors host root baseline -> accept" --trust-mode os-anchors \
+    --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+    --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
+  if ci_store_mutation_allowed && install_distrust; then
+    DISTRUSTED=1
+    echo "  (distrusted intermediate $DTHUMB, host root only)"
+    cell "delegate host root + distrusted intermediate -> reject" --trust-mode os-delegate \
+      --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+      --server-key "$CA/distrust_leaf.key" --posture soft --expect reject
+    cell "[12] delegate host root + distrusted intermediate -> reject" --trust-mode os-delegate \
+      --tls-version 12 --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+      --server-key "$CA/distrust_leaf.key" --posture soft --expect reject
+    cell "anchors host root + distrusted intermediate -> bad_certificate" --trust-mode os-anchors \
+      --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+      --server-key "$CA/distrust_leaf.key" --posture soft --expect reject:42
+    cell "delegate host root, undistrusted intermediate (control) -> accept" \
+      --trust-mode os-delegate --host-root "$CA/root.pem" --server-cert "$CA/leaf_fullchain.pem" \
+      --server-key "$CA/leaf.key" --staple "$CA/ocsp_good.der" --posture soft --expect accept
+    uninstall_distrust
+    DISTRUSTED=0
+    case "$OSNAME" in
+      MINGW*|MSYS*|CYGWIN*|Windows*)
+        cell "delegate host root after removing the distrust -> accept" --trust-mode os-delegate \
+          --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
+          --server-key "$CA/distrust_leaf.key" --posture soft --expect accept ;;
+      *) echo "  (skipped post-removal cell: a macOS trust setting needs the SIP-restricted right to remove)" ;;
+    esac
+  elif ci_store_mutation_allowed; then
+    echo "  FAIL  could not install the distrusted intermediate"
+    FAILURES=$((FAILURES+1))
+  else
+    echo "  SKIPPED: not a CI runner (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
+  fi
 
   if ci_store_mutation_allowed && install_root; then
     INSTALLED=1
@@ -425,6 +521,249 @@ if [ "$HAS_DELEGATE" = 1 ]; then
 else
   echo "=== OS trust delegate: SKIPPED (no OS delegate on $OSNAME) ==="
 fi
+
+resolve_ipv4() { # <host>: the shim dials a dotted IPv4 only
+  case "$OSNAME" in
+    Darwin)
+      local ip=""
+      if command -v python3 >/dev/null 2>&1; then
+        ip="$(python3 -c 'import socket,sys; print(socket.getaddrinfo(sys.argv[1], 443, socket.AF_INET)[0][4][0])' "$1" 2>/dev/null || true)"
+      fi
+      if [ -z "$ip" ]; then
+        ip="$(dscacheutil -q host -a name "$1" 2>/dev/null | sed -n 's/^ip_address: *//p' | head -n 1 || true)"
+      fi
+      echo "$ip" ;;
+    *)
+      powershell -NoProfile -NonInteractive -Command "[System.Net.Dns]::GetHostAddresses('$1') | Where-Object { \$_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1 -ExpandProperty IPAddressToString" 2>/dev/null | tr -d '\r' || true ;;
+  esac
+}
+
+probe_bounded() { # <cmd...>: stock macOS runners have neither timeout nor gtimeout; perl's alarm bounds the run
+  if command -v timeout >/dev/null 2>&1; then timeout 60 "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout 60 "$@"
+  else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' 60 "$@"; fi
+}
+
+probe_cell() { # <mode> <ip> <host>: prints ACCEPT | REFUSE:<alert> | NET
+  local out rc=0
+  out="$(probe_bounded "$SHIM" --trust-mode "$1" --connect "$2:443" --expect-name "$3" \
+    --posture soft --expect accept 2>&1)" || rc=$?
+  if [ "$rc" = 0 ]; then
+    echo ACCEPT
+  elif [[ "$out" =~ got\ status\ 2\ alert\ ([0-9]+) ]]; then
+    echo "REFUSE:${BASH_REMATCH[1]}"
+  else
+    echo NET
+  fi
+}
+
+probe_setup() {
+  PROBE_HOSTS=(letsencrypt.org digicert.com globalsign.com sectigo.com amazon.com google.com
+               microsoft.com godaddy.com ssl.com entrust.com)
+}
+
+probe_run_modes() { # resolve every host, then anchors for all of them before any delegate run
+  PROBE_IPS=(); PROBE_A=(); PROBE_D=()
+  for I in "${!PROBE_HOSTS[@]}"; do
+    PROBE_IPS[$I]="$(resolve_ipv4 "${PROBE_HOSTS[$I]}")"
+    PROBE_A[$I]=NET; PROBE_D[$I]=NET
+  done
+  # anchors first: a delegate run can install a root a later anchors run would see
+  for I in "${!PROBE_HOSTS[@]}"; do
+    if [ -n "${PROBE_IPS[$I]}" ]; then
+      PROBE_A[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+    fi
+  done
+  for I in "${!PROBE_HOSTS[@]}"; do
+    if [ -n "${PROBE_IPS[$I]}" ]; then
+      PROBE_D[$I]="$(probe_cell os-delegate "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+    fi
+  done
+}
+
+probe_classify() { # <anchors> <delegate>: net | delegate-only | both-ok | anchors-only | both-refused
+  if [ "$1" = NET ] || [ "$2" = NET ]; then echo net
+  elif [ "$2" = ACCEPT ] && [ "$1" != ACCEPT ]; then echo delegate-only
+  elif [ "$2" = ACCEPT ]; then echo both-ok
+  elif [ "$1" = ACCEPT ]; then echo anchors-only
+  else echo both-refused
+  fi
+}
+
+probe_table() { # print the table, fill the N_* counts
+  N_HEALED=0; N_BOTH_OK=0; N_BOTH_REFUSED=0; N_REGRESSION=0; N_NET=0
+  printf '  %-18s %-12s %s\n' host anchors delegate
+  for I in "${!PROBE_HOSTS[@]}"; do
+    A="${PROBE_A[$I]}"; D="${PROBE_D[$I]}"
+    case "$(probe_classify "$A" "$D")" in
+      net) N_NET=$((N_NET+1)) ;;
+      delegate-only) N_HEALED=$((N_HEALED+1)) ;;
+      both-ok) N_BOTH_OK=$((N_BOTH_OK+1)) ;;
+      anchors-only) N_REGRESSION=$((N_REGRESSION+1)) ;;
+      *) N_BOTH_REFUSED=$((N_BOTH_REFUSED+1)) ;;
+    esac
+    printf '  %-18s %-12s %s\n' "${PROBE_HOSTS[$I]}" "$A" "$D"
+  done
+}
+
+# Informational, never fails the leg: with the one root that issues a public intermediate removed, does
+# crypt32 re-install it under our inline/live chain flags (mirroring TWindowsTrustApi.ChainFlags, plus
+# DISABLE_AIA) as it does under a control with no cache-only flag? Each run starts from the same stripped
+# state; the removed certificates are restored right after the runs and again by the EXIT trap.
+AUTOROOT_INLINE=48002004  # CACHE_ONLY_URL_RETRIEVAL | REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | REVOCATION_ACCUMULATIVE_TIMEOUT | DISABLE_AIA
+AUTOROOT_LIVE=48002000    # REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | REVOCATION_ACCUMULATIVE_TIMEOUT | DISABLE_AIA, extended CERT_CHAIN_PARA
+AUTOROOT_CONTROL=00002000 # DISABLE_AIA only
+AUTOROOT_CAPI=0
+AUTOROOT_POLICY=0
+
+autoroot_capi_off() { # idempotent: put the CAPI2 operational log back to its prior state
+  [ "$AUTOROOT_CAPI" = 1 ] || return 0
+  AUTOROOT_CAPI=0
+  autoroot_ps capioff >/dev/null || true
+}
+
+autoroot_run() { # <flags> <plain|ex> <inter|leaf> [keep]: strip, build once in a fresh process, print the run line
+  local keep=()
+  if [ "${4:-}" = keep ]; then keep=(-KeepCache); fi
+  autoroot_ps strip ${keep[@]+"${keep[@]}"} >/dev/null || true
+  autoroot_ps build -Flags "$1" -Para "$2" -Target "$3" | tail -n 1
+}
+
+autoroot_policy_restore() { # idempotent: put DisableRootAutoUpdate back as it was
+  [ "$AUTOROOT_POLICY" = 1 ] || return 0
+  AUTOROOT_POLICY=0
+  autoroot_ps policyrestore | tail -n 1 | sed 's/^/  /'
+}
+
+autoroot_installed() { # a run line shows R put into a root store by auto-update (an AIA fetch or a \CA store does not count)
+  local where
+  case "$1" in ''|*aia=True*) return 1 ;; esac
+  where="${1#*reappeared=}"; where="${where%% *}"
+  case ",$where," in
+    *,LocalMachine\\AuthRoot,*|*,LocalMachine\\Root,*|*,CurrentUser\\AuthRoot,*|*,CurrentUser\\Root,*) return 0 ;;
+  esac
+  return 1
+}
+
+autoroot_probe() {
+  local ctl thumb strip strip_out run_inline run_live c1 c2 c3 c5 c6 leaf_inline leaf_live
+  mkdir -p "$TMP/autoroot"
+  ctl="$(autoroot_ps ctl | tr '\n' ' ')"
+  case "$ctl" in
+    *NOTLISTED*) echo "AUTOROOT PRECONDITION FAILED: R not in authroot.stl"; return 0 ;;
+    *LISTED*) ;;
+    *) echo "AUTOROOT PRECONDITION FAILED: R not in authroot.stl"; echo "  (CTL check: $ctl)"; return 0 ;;
+  esac
+  thumb="${ctl#*sha1=}"; thumb="${thumb%% *}"
+  autoroot_ps diag -Thumb "$thumb" || true
+  echo "  $(autoroot_ps leaf | tail -n 1)"
+  AUTOROOT_ARMED=1
+  strip_out="$(autoroot_ps strip)"
+  strip="$(printf '%s\n' "$strip_out" | tail -n 1)"
+  printf '%s\n' "$strip_out" | grep '^  ' || true
+  if [ "$strip" != "remaining=0" ]; then
+    echo "AUTOROOT PRECONDITION FAILED: issuer still present after removal"
+    autoroot_restore
+    return 0
+  fi
+  AUTOROOT_POLICY=1
+  autoroot_ps policyclear | tail -n 1
+  AUTOROOT_CAPI=1
+  echo "  $(autoroot_ps capion | tail -n 1)"
+  run_inline="$(autoroot_run $AUTOROOT_INLINE plain inter)"
+  run_live="$(autoroot_run $AUTOROOT_LIVE ex inter)"
+  c1="$(autoroot_run $AUTOROOT_CONTROL plain inter)"
+  c2="$(autoroot_run 00000000 plain inter)"
+  c3="$(autoroot_run 00000000 plain leaf)"
+  c5="$(autoroot_run $AUTOROOT_CONTROL plain inter keep)"
+  echo "  inline:  $run_inline"
+  echo "  live:    $run_live"
+  echo "  C1 control (DISABLE_AIA):            $c1"
+  echo "  C2 control (flags 0, AIA allowed):   $c2"
+  echo "  C3 control (real leaf, chain+policy): $c3"
+  echo "  C5 control (C1, URL cache kept):     $c5"
+  c6=''
+  if ! autoroot_installed "$c1" && ! autoroot_installed "$c3" && ! autoroot_installed "$c5"; then
+    echo "  $(autoroot_ps svcrestart | tail -n 1)"
+    c6="$(autoroot_run $AUTOROOT_CONTROL plain inter)"
+    echo "  C6 control (C1 after CryptSvc restart): $c6"
+  fi
+  case "$c2" in *aia=True*) echo "  note: C2 issuer came from AIA, not counted as an auto-update install" ;; esac
+  if autoroot_installed "$c3"; then
+    leaf_inline="$(autoroot_run $AUTOROOT_INLINE plain leaf)"
+    leaf_live="$(autoroot_run $AUTOROOT_LIVE ex leaf)"
+    echo "  leaf inline: $leaf_inline"
+    echo "  leaf live:   $leaf_live"
+  fi
+  autoroot_policy_restore
+  autoroot_ps capidump || true
+  autoroot_capi_off
+  if autoroot_installed "$c1" || autoroot_installed "$c3" || autoroot_installed "$c5" || autoroot_installed "$c6"; then
+    local i l
+    if autoroot_installed "$run_inline"; then i=installs; else i=does-not-fire; fi
+    if autoroot_installed "$run_live"; then l=installs; else l=does-not-fire; fi
+    echo "AUTOROOT RESULT inline=$i live=$l control=installs"
+    if autoroot_installed "$c3"; then
+      if autoroot_installed "$leaf_inline"; then i=installs; else i=does-not-fire; fi
+      if autoroot_installed "$leaf_live"; then l=installs; else l=does-not-fire; fi
+      echo "AUTOROOT RESULT-LEAF inline=$i live=$l"
+    fi
+  else
+    echo "AUTOROOT PRECONDITION FAILED: no unrestricted build installed R (see the diagnostics above)"
+  fi
+  autoroot_restore
+}
+
+echo "=== Windows root auto-update (AUTOROOT, informational) ==="
+case "$OSNAME" in
+  MINGW*|MSYS*|CYGWIN*|Windows*)
+    if [ "${MAKE_RUN_AUTOROOT:-false}" != "true" ]; then
+      echo "  SKIPPED: set MAKE_RUN_AUTOROOT=true to run"
+    elif ! ci_store_mutation_allowed; then
+      echo "  SKIPPED: not a CI runner (the probe removes a root from the machine store)"
+    elif [ "${RUNNER_ENVIRONMENT:-}" != "github-hosted" ]; then
+      echo "  SKIPPED: not a github-hosted runner (RUNNER_ENVIRONMENT=${RUNNER_ENVIRONMENT:-unset})"
+    else
+      autoroot_probe || true
+    fi ;;
+  *) echo "  SKIPPED: Windows only" ;;
+esac
+
+# Informational, never fails the leg: does the Anchors harvest ever disagree with the Apple SecTrust
+# engine on real public hosts (the default is the delegate where the OS has an engine)?
+echo "=== macOS trust mode comparison (informational) ==="
+case "$OSNAME" in
+  Darwin)
+    if ! ci_store_mutation_allowed; then
+      echo "  SKIPPED: not a CI runner (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
+    else
+      probe_setup
+      probe_run_modes
+      probe_table
+      for I in "${!PROBE_HOSTS[@]}"; do
+        A="${PROBE_A[$I]}"; D="${PROBE_D[$I]}"
+        case "$(probe_classify "$A" "$D")" in
+          anchors-only)
+            echo "  note: ${PROBE_HOSTS[$I]}: delegate refused (alert ${D#REFUSE:}), anchors accepted:" \
+              "possible Apple policy difference (CT / validity cap), not necessarily a bug" ;;
+          delegate-only)
+            echo "  note: ${PROBE_HOSTS[$I]}: anchors refused (alert ${A#REFUSE:}), delegate accepted:" \
+              "harvest may be missing a root the OS trusts" ;;
+        esac
+      done
+      echo "  summary: both-accepted=$N_BOTH_OK both-refused=$N_BOTH_REFUSED delegate-only=$N_HEALED" \
+        "anchors-only=$N_REGRESSION network=$N_NET"
+      N_REACHED=$(( ${#PROBE_HOSTS[@]} - N_NET ))
+      if [ "$N_REACHED" -eq 0 ]; then
+        echo "  INCONCLUSIVE: no host was reachable (INFO, not a failure)"
+      elif [ $((N_HEALED + N_REGRESSION)) -eq 0 ]; then
+        echo "  modes agree on all $N_REACHED reachable hosts"
+      else
+        echo "  modes disagree on $((N_HEALED + N_REGRESSION)) host(s)"
+      fi
+    fi ;;
+  *) echo "  SKIPPED: macOS only" ;;
+esac
 
 echo "=== native-trust cells: $FAILURES failure(s) ==="
 [ "$FAILURES" -eq 0 ]

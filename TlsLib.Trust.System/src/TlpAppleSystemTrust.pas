@@ -61,6 +61,8 @@ type
     function HarvestRoots: TArray<TBytes>; override;
     function HarvestDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
+  public
+    function ReadDistrusted: TArray<TBytes>; override;
   end;
 {$ENDIF}
 
@@ -1154,6 +1156,11 @@ begin
   Result := FDistrusted;
 end;
 
+function TAppleRootSource.ReadDistrusted: TArray<TBytes>;
+begin
+  TAppleTrustApi.CopyTrustSettingsCertificates(Result);
+end;
+
 function TAppleRootSource.SourceName: string;
 begin
   Result := 'macOS';
@@ -1166,7 +1173,7 @@ function TAppleChainEngine.Capabilities: TPlatformChainCapabilities;
 begin
   // SecTrust fetches live, renders cached revocation, matches the DNS host, and unions extra anchors
   Result := [TPlatformChainCapability.LiveFetch, TPlatformChainCapability.CachedRevocation,
-    TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.ExtraAnchors];
+    TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.NativeAnchorUnion];
 end;
 
 function TAppleChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;

@@ -22,8 +22,8 @@ uses
 
 type
   /// <summary>
-  /// Supplies the OS system-trust policy for the server certificate: the anchors the platform can
-  /// enumerate, or the OS delegate where it cannot. Lets a host-neutral composer add system trust
+  /// Supplies the OS system-trust policy for the server certificate: the OS verifier where the
+  /// platform has one, else the anchors it can enumerate. Lets a host-neutral composer add system trust
   /// without depending on the system-trust package. System trust never vouches for a client
   /// certificate: a server's client-CA is always caller-supplied.
   /// </summary>

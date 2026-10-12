@@ -23,10 +23,12 @@ uses
 
 type
   /// <summary>An OS server-certificate source that also trusts host roots beside the OS ones, so the
-  /// live re-check can build against the same roots as the inline pass.</summary>
+  /// live re-check can build against the same roots, and apply the same OS distrust, as the inline
+  /// pass.</summary>
   IOSServerVerifierSource = interface(IServerCertificateVerifierSource)
-    ['{3BEC9858-CEA3-452F-B773-0B338A852B4A}']
+    ['{BF76E00D-DBFF-4B19-9BF5-65893CF191AF}']
     function ExtraAnchors: TArray<TBytes>;
+    function Distrusted: TArray<TBytes>;
   end;
 
   /// <summary>
@@ -44,7 +46,8 @@ type
     function Capabilities: TPlatformChainCapabilities;
     /// <summary>The server-authentication evaluation (server-auth EKU, the DNS host where the
     /// platform matches it) against the OS roots, or against ARequest.Anchors as the exclusive trust
-    /// root when it is non-empty (a private-PKI configuration).</summary>
+    /// root when it is non-empty (a private-PKI configuration). A rejection reports its
+    /// AResult.Failure class.</summary>
     function EvaluateServer(const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>The client-authentication evaluation (client-auth EKU) against ARequest.Anchors as the

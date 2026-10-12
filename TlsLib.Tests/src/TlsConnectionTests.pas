@@ -217,7 +217,7 @@ type
     // unique per instance unless a test sets it, so two fakes differ the way two installers
     // installing different roots do
     InstallerIdentity: string;
-    // refuses host roots beside it, as a delegate-only platform does
+    // refuses host roots beside it
     DelegateOnly: Boolean;
     constructor Create(ARaise: Boolean; const AStore: ITrustAnchorStore);
     function Identity: string;
@@ -1016,7 +1016,7 @@ begin
     on E: ETlsStreamError do
       LHinted := Pos('MyTrustKnob', E.Message) > 0;
   end;
-  CheckTrue(LHinted, 'delegate-only OS trust beside host anchors is refused naming the host knobs');
+  CheckTrue(LHinted, 'system trust that refuses host anchors is reported naming the host knobs');
 end;
 
 procedure TTestTlsConnection.TestClientHostVerifierConflictIsNotBlamedOnSystemTrust;
@@ -1040,7 +1040,7 @@ begin
   except
     on E: ETlsStreamError do
       // the host set the verifier, so the message is the verifier conflict, not a delegate limit
-      LBlamed := Pos('delegate-only', E.Message) > 0;
+      LBlamed := Pos('could not be set up', E.Message) > 0;
   end;
   CheckFalse(LBlamed, 'a verifier beside host trust is reported as that conflict');
   CheckFalse(LFake.ClientRoleCalled, 'and the system-trust installer is never asked');

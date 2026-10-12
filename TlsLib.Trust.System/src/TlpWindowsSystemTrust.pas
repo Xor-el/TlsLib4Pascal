@@ -25,6 +25,7 @@ uses
   TlpTlsAlert,
   TlpTrustPolicy,
   TlpSystemTrustBase,
+  TlpSystemTrustExceptions,
   TlpIPlatformChainEngine;
 
 type
@@ -47,6 +48,8 @@ type
     function HarvestRoots: TArray<TBytes>; override;
     function HarvestDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
+  public
+    function ReadDistrusted: TArray<TBytes>; override;
   end;
 
   /// <summary>
@@ -60,6 +63,26 @@ type
   /// </summary>
   TWindowsChainEngine = class sealed(TInterfacedObject, IPlatformChainEngine)
   public
+    /// <summary>Maps a definitive non-revocation chain-policy dwError to the fatal alert (expiry,
+    /// untrusted root, wrong usage, name mismatch, catch-all bad_certificate) and to its failure
+    /// class: NoTrustAnchor only for an untrusted root or a partial chain, so a corrupt signature,
+    /// expiry or wrong usage never lets the host roots rescue the chain. A revocation dwError is not
+    /// handled here - it is classified into the tri-state outcome by the evaluation.</summary>
+    class procedure MapPolicyError(ADwError: DWORD; out AAlert: TTlsAlertDescription;
+      out AFailure: TPlatformChainFailure); static;
+    /// <summary>Turns the chain-policy dwError into the platform result: 0 is Good, a definitive
+    /// revocation is Revoked, an unreachable/undecided revocation is Indeterminate (each with the
+    /// OS-built path and the anchor exempt), and any other error is a False rejection with the
+    /// mapped alert. A revocation error on an explicitly distrusted chain is a bad_certificate
+    /// rejection, not a revocation. A path that cannot be read is internal_error.</summary>
+    class function ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
+      out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>The CertGetCertificateChain flags for a revocation level and network mode: cache-only
+    /// inline (revocation added unless None), or network-enabled for a live check (whole-chain
+    /// revocation with AIA disabled so the built path matches the presented one). Root
+    /// auto-update is never disabled.</summary>
+    class function ChainFlags(ARevocation: TPlatformRevocationCheck;
+      ANetworkAllowed: Boolean): DWORD; static;
     function Capabilities: TPlatformChainCapabilities;
     function EvaluateServer(const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
@@ -72,6 +95,9 @@ type
 implementation
 
 {$IFDEF TLSLIB_MSWINDOWS}
+
+resourcestring
+  SDisallowedUnreadable = 'the Windows Disallowed certificate store could not be opened';
 
 const
   CRYPT32_DLL = 'crypt32.dll';
@@ -100,6 +126,7 @@ const
   // CERT_TRUST_STATUS.dwErrorStatus bits inspected alongside the policy dwError in live mode
   CERT_TRUST_REVOCATION_STATUS_UNKNOWN = $00000040;
   CERT_TRUST_IS_OFFLINE_REVOCATION = $01000000;
+  CERT_TRUST_IS_EXPLICIT_DISTRUST = $04000000;
   // the leaf property crypt32 reads a stapled OCSP response from, so revocation is decided
   // from the handshake staple without a network fetch
   CERT_OCSP_RESPONSE_PROP_ID = 70;
@@ -328,38 +355,26 @@ type
     /// uses (no EKU/property), or the list contains serverAuth or anyExtendedKeyUsage. A root
     /// disabled for all purposes, or trusted only for a non-serverAuth purpose, returns False.</summary>
     class function IsServerAuthAnchor(AContext: PCERT_CONTEXT): Boolean; static;
-    class procedure CollectStore(AStoreName: PWideChar;
+    /// <summary>Appends the store's certificates to ADest; False when the store cannot be opened.</summary>
+    class function CollectStore(AStoreName: PWideChar;
       const AExclude: TDictionary<TBytes, Boolean>;
-      const ADest: TList<TBytes>; AServerAuthOnly: Boolean); static;
+      const ADest: TList<TBytes>; AServerAuthOnly: Boolean): Boolean; static;
     class function UnixMillisToFileTime(AMillisUtc: UInt64): FILETIME; static;
   private
     class procedure ResolveDynamicImports; static;
     /// <summary>Frees the loaded crypt32 module (unit teardown).</summary>
     class procedure ReleaseDynamicImports; static;
-    /// <summary>Maps a definitive non-revocation chain-policy dwError to the fatal alert (expiry,
-    /// untrusted root, wrong usage, name mismatch, catch-all bad_certificate). A revocation dwError
-    /// is not handled here - it is classified into the tri-state outcome by ClassifyPolicyStatus.</summary>
-    class procedure MapPolicyError(ADwError: DWORD;
-      out AAlert: TTlsAlertDescription); static;
-    /// <summary>The CertGetCertificateChain flags for a revocation level and network mode: cache-only
-    /// inline (revocation added unless None), or network-enabled for a live check (whole-chain
-    /// revocation with AIA disabled so the built path matches the presented one).</summary>
-    class function ChainFlags(ARevocation: TPlatformRevocationCheck;
-      ANetworkAllowed: Boolean): DWORD; static;
     /// <summary>The chain-policy dwFlags for a revocation level: BestEffort ignores a
     /// revocation-unknown (soft-fail without masking a real error); None and RequirePositive keep 0
     /// (None has nothing to be unknown, RequirePositive must reject an unknown).</summary>
     class function PolicyFlags(ARevocation: TPlatformRevocationCheck): DWORD; static;
-    /// <summary>Turns the chain-policy dwError into the platform result: 0 is Good, a definitive
-    /// revocation is Revoked, an unreachable/undecided revocation is Indeterminate (each with the
-    /// OS-built path and the anchor exempt), and any other error is a False rejection with the
-    /// mapped alert. A path that cannot be read is internal_error.</summary>
-    class function ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
-      out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>The raw DER of the ROOT store (server-auth-capable roots only) minus the
     /// Disallowed store, and in ADisallowed the Disallowed store's certificates themselves.
     /// Validation and de-duplication are the caller's responsibility.</summary>
     class function HarvestAnchors(out ADisallowed: TArray<TBytes>): TArray<TBytes>; static;
+    /// <summary>The Disallowed store's certificates alone. Empty when crypt32 is unavailable; an
+    /// unopenable store raises, so "none distrusted" is never confused with "could not read".</summary>
+    class function ReadDisallowed: TArray<TBytes>; static;
     /// <summary>Reads the DER of the end-entity simple chain the OS built (rgpChain[0]): element 0
     /// the leaf, the last element the anchor. False on any malformed field (no chain/element, nil
     /// or empty encoded cert) so the caller fails closed.</summary>
@@ -479,9 +494,9 @@ begin
   Result := False;
 end;
 
-class procedure TWindowsTrustApi.CollectStore(AStoreName: PWideChar;
+class function TWindowsTrustApi.CollectStore(AStoreName: PWideChar;
   const AExclude: TDictionary<TBytes, Boolean>; const ADest: TList<TBytes>;
-  AServerAuthOnly: Boolean);
+  AServerAuthOnly: Boolean): Boolean;
 var
   LStore: HCERTSTORE;
   LContext: PCERT_CONTEXT;
@@ -491,7 +506,8 @@ begin
   // read-only, so the harvest cannot alter the OS store
   LStore := FCertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, nil,
     CERT_SYSTEM_STORE_CURRENT_USER or CERT_STORE_READONLY_FLAG, AStoreName);
-  if LStore = nil then
+  Result := LStore <> nil;
+  if not Result then
     Exit;
   try
     LContext := FCertEnumCertificatesInStore(LStore, nil);
@@ -549,6 +565,23 @@ begin
   end;
 end;
 
+class function TWindowsTrustApi.ReadDisallowed: TArray<TBytes>;
+var
+  LDisallowed: TList<TBytes>;
+begin
+  Result := nil;
+  if not FReady then
+    Exit;
+  LDisallowed := TList<TBytes>.Create;
+  try
+    if not CollectStore('Disallowed', nil, LDisallowed, False) then
+      raise ESystemTrustUnavailableTlsLibException.CreateRes(@SDisallowedUnreadable);
+    Result := LDisallowed.ToArray;
+  finally
+    LDisallowed.Free;
+  end;
+end;
+
 class function TWindowsTrustApi.UnixMillisToFileTime(AMillisUtc: UInt64): FILETIME;
 const
   // FILETIME counts 100ns ticks from 1601-01-01, so scale ms by 10000 and add the ticks
@@ -599,25 +632,6 @@ begin
   Result := True;
 end;
 
-class function TWindowsTrustApi.ChainFlags(ARevocation: TPlatformRevocationCheck;
-  ANetworkAllowed: Boolean): DWORD;
-begin
-  if ANetworkAllowed then
-    // live: whole-chain revocation over the network, AIA disabled so the built path matches the
-    // presented one; the accumulative timeout bounds the whole build to the deadline
-    Result := CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
-      CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT or CERT_CHAIN_DISABLE_AIA
-  else
-  begin
-    // cache-only inline (no socket); None skips revocation, otherwise it is checked against the
-    // staple / OS cache
-    Result := CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL;
-    if ARevocation <> TPlatformRevocationCheck.None then
-      Result := Result or CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
-        CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT;
-  end;
-end;
-
 class function TWindowsTrustApi.PolicyFlags(ARevocation: TPlatformRevocationCheck): DWORD;
 begin
   // BestEffort ignores a revocation-unknown at the policy layer, so a missing/offline responder
@@ -629,13 +643,17 @@ begin
     Result := 0;
 end;
 
-class function TWindowsTrustApi.ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
+class function TWindowsChainEngine.ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 var
   LOsPath: TArray<TBytes>;
+  LDistrusted: Boolean;
 begin
   Result := False;
   AResult := Default(TPlatformChainResult);
+  LDistrusted := (AChainCtx <> nil) and
+    ((PCERT_CHAIN_CONTEXT(AChainCtx)^.TrustStatus.dwErrorStatus and
+    CERT_TRUST_IS_EXPLICIT_DISTRUST) <> 0);
   if ADwError = 0 then
   begin
     // dwError can be 0 while BestEffort's policy flag suppressed a revocation-unknown; consult the
@@ -647,7 +665,8 @@ begin
     else
       AResult.Outcome := TLiveRevocationOutcome.Good;
   end
-  else if (ADwError = CERT_E_REVOKED) or (ADwError = CERT_E_REVOKED_ALT) then
+  else if ((ADwError = CERT_E_REVOKED) or (ADwError = CERT_E_REVOKED_ALT)) and
+    (not LDistrusted) then
     // a definitive revocation from the chain engine
     AResult.Outcome := TLiveRevocationOutcome.Revoked
   else if (ADwError = CRYPT_E_NO_REVOCATION_CHECK) or
@@ -657,12 +676,12 @@ begin
   else
   begin
     // a definitive non-revocation trust failure: reject with the mapped alert
-    MapPolicyError(ADwError, AAlert);
+    MapPolicyError(ADwError, AAlert, AResult.Failure);
     Exit;
   end;
   // the OS-built path (leaf-first, ending at the anchor) is the validated chain; the anchor (last
   // element) is exempt from the strength policy the delegate applies over it
-  if not ReadChainPath(AChainCtx, LOsPath) then
+  if not TWindowsTrustApi.ReadChainPath(AChainCtx, LOsPath) then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit;
@@ -819,7 +838,7 @@ begin
       LParaPtr := @LChainPara;
     end;
 
-    LFlags := ChainFlags(ARequest.Revocation, ARequest.NetworkAllowed);
+    LFlags := TWindowsChainEngine.ChainFlags(ARequest.Revocation, ARequest.NetworkAllowed);
 
     // the injected clock pins the validation time; nil defers to system time
     LTimePtr := nil;
@@ -875,7 +894,7 @@ begin
       Exit;
     end;
 
-    Result := ClassifyPolicyStatus(LStatus.dwError, LChain, AResult, AAlert);
+    Result := TWindowsChainEngine.ClassifyPolicyStatus(LStatus.dwError, LChain, AResult, AAlert);
   finally
     if LChain <> nil then
       FCertFreeCertificateChain(LChain);
@@ -888,23 +907,6 @@ begin
     if LStore <> nil then
       FCertCloseStore(LStore, 0);
     FCertFreeCertificateContext(LLeaf);
-  end;
-end;
-
-class procedure TWindowsTrustApi.MapPolicyError(ADwError: DWORD;
-  out AAlert: TTlsAlertDescription);
-begin
-  case ADwError of
-    CERT_E_EXPIRED, CERT_E_VALIDITYPERIODNESTING:
-      AAlert := TTlsAlertDescription.CertificateExpired;
-    CERT_E_UNTRUSTEDROOT, CERT_E_UNTRUSTEDCA, CERT_E_CHAINING,
-      TRUST_E_CERT_SIGNATURE:
-      AAlert := TTlsAlertDescription.UnknownCa;
-    CERT_E_WRONG_USAGE:
-      AAlert := TTlsAlertDescription.UnsupportedCertificate;
-  else
-    // CERT_E_CN_NO_MATCH and everything else map to bad_certificate.
-    AAlert := TTlsAlertDescription.BadCertificate;
   end;
 end;
 
@@ -921,6 +923,11 @@ begin
   Result := FDisallowed;
 end;
 
+function TWindowsRootSource.ReadDistrusted: TArray<TBytes>;
+begin
+  Result := TWindowsTrustApi.ReadDisallowed;
+end;
+
 function TWindowsRootSource.SourceName: string;
 begin
   Result := 'Windows';
@@ -928,11 +935,53 @@ end;
 
 { TWindowsChainEngine }
 
+class function TWindowsChainEngine.ChainFlags(ARevocation: TPlatformRevocationCheck;
+  ANetworkAllowed: Boolean): DWORD;
+begin
+  if ANetworkAllowed then
+    // live: whole-chain revocation over the network, AIA disabled so the built path matches the
+    // presented one; the accumulative timeout bounds the whole build to the deadline
+    Result := CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
+      CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT or CERT_CHAIN_DISABLE_AIA
+  else
+  begin
+    // cache-only inline (no socket); None skips revocation, otherwise it is checked against the
+    // staple / OS cache
+    Result := CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL;
+    if ARevocation <> TPlatformRevocationCheck.None then
+      Result := Result or CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
+        CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT;
+  end;
+end;
+
+class procedure TWindowsChainEngine.MapPolicyError(ADwError: DWORD;
+  out AAlert: TTlsAlertDescription; out AFailure: TPlatformChainFailure);
+begin
+  AFailure := TPlatformChainFailure.Other;
+  case ADwError of
+    CERT_E_EXPIRED, CERT_E_VALIDITYPERIODNESTING:
+      AAlert := TTlsAlertDescription.CertificateExpired;
+    CERT_E_UNTRUSTEDROOT, CERT_E_CHAINING:
+    begin
+      AAlert := TTlsAlertDescription.UnknownCa;
+      AFailure := TPlatformChainFailure.NoTrustAnchor;
+    end;
+    CERT_E_UNTRUSTEDCA, TRUST_E_CERT_SIGNATURE:
+      AAlert := TTlsAlertDescription.UnknownCa;
+    CERT_E_WRONG_USAGE:
+      AAlert := TTlsAlertDescription.UnsupportedCertificate;
+  else
+    // CERT_E_CN_NO_MATCH and everything else map to bad_certificate.
+    AAlert := TTlsAlertDescription.BadCertificate;
+  end;
+end;
+
 function TWindowsChainEngine.Capabilities: TPlatformChainCapabilities;
 begin
-  // crypt32 can fetch live revocation, render a cached revocation outcome, and match the DNS host
+  // crypt32 can fetch live revocation, render a cached revocation outcome, match the DNS host, and
+  // evaluate a server chain against an exclusive root set
   Result := [TPlatformChainCapability.LiveFetch, TPlatformChainCapability.CachedRevocation,
-    TPlatformChainCapability.DnsIdentity];
+    TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.ExclusiveServerAnchors];
 end;
 
 function TWindowsChainEngine.EvaluateServer(const ARequest: TPlatformChainRequest;

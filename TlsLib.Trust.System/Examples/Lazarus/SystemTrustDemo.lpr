@@ -12,5 +12,8 @@ uses
   SystemTrustExample in 'src\SystemTrustExample.pas';
 
 begin
-  Halt(TSystemTrustExample.Run);
+  if ParamStr(1) = 'host-roots' then
+    Halt(TSystemTrustExample.RunHostRoots)
+  else
+    Halt(TSystemTrustExample.Run);
 end.

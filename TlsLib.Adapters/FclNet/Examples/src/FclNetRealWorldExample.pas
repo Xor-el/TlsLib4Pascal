@@ -100,7 +100,7 @@ begin
   if not AUseSSL then
     Exit; // a plain http:// leg (none here) falls back to the default plaintext handler
   LHandler := TTlsLibSocketHandler.Create;
-  LHandler.UseSystemTrust := True; // verify against the OS store our validator harvests
+  LHandler.UseSystemTrust := True; // verify against the OS trust store
   AHandler := LHandler;            // VerifyPeerCert defaults True (real verification, never a bypass)
 end;
 

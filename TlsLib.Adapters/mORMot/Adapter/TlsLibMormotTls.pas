@@ -426,8 +426,8 @@ begin
   // requests a client certificate, so a server without client auth names no source and requests
   // none. The system store is a SERVER-certificate source only: it is the client's server-cert trust
   // and never a server's client-CA (a server's client-CA is always the CACertificatesFile bundle), so
-  // only a client constructs the installer. scsRoot/scsCA are the anchor-bearing OS stores our
-  // harvester collects (scsMY / scsSpc are not server-auth anchors and must not turn system trust on).
+  // only a client constructs the installer. scsRoot/scsCA are the anchor-bearing OS stores
+  // (scsMY / scsSpc are not server-auth anchors and must not turn system trust on).
   // UseSystemTrust reaches the OS store through the host-neutral installer seam, so the core never
   // depends on the system-trust package.
   LWantTrust := AIsClient or AContext.ClientCertificateAuthentication;

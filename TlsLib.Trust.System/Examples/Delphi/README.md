@@ -23,7 +23,7 @@ carries no platform-specific trust code.
 |---|---|
 | `SystemTrustDemo.dpr` | Program. Compiles the core, `TlsLib.Trust.System` and the Indy adapter from source via the search path. |
 | `SystemTrustDemoFormUnit.pas` / `.fmx` | The form: a URL box, a button and a log. It runs the demo off the UI thread and shows the lines it returns. No platform-specific trust code. |
-| `SystemTrustDemoRunner.pas` | Everything the demo does: the OS-verified GET, then the offline OS-delegate checks below. |
+| `SystemTrustDemoRunner.pas` | Everything the demo does: the OS-verified GET, then the offline OS-delegate checks below; also the host-roots cells. |
 
 ## Building it (RAD Studio, author side)
 
@@ -64,6 +64,55 @@ headless build scripts.
 - Point the URL at a host with an untrusted or self-signed chain -> the verification **fails
   closed** (rejects with `unknown_ca`/`certificate_expired`); rejection reasons are written to
   logcat under the `TlsLib` tag.
+
+## Host roots cells
+
+Tap **Host roots beside OS roots** to run the host-roots cells. Each cell fetches a live site
+with the demo's own root passed beside the OS roots (the rule is in `docs/system-trust.md`,
+"Host roots beside the OS roots") and prints `PASS:`, `FAIL:` or `SKIP:` (offline) against what
+the cell expects. The log heading names the mode that ran: `Default = Delegate (OS engine)`, and
+on Windows and macOS also `Anchors`. Android and iOS have only the Delegate mode.
+
+| Cell | Host root | Expected |
+|---|---|---|
+| the URL box (default `postman-echo.com`), a public site | an unrelated test root | connects through the OS roots |
+| `untrusted-root.badssl.com` | its own root (embedded PEM) | connects |
+| `untrusted-root.badssl.com` | none | refused |
+| `expired.badssl.com` | the badssl root | refused (expiry is final) |
+| `wrong.host.badssl.com` | the badssl root | refused (name is final) |
+| `self-signed.badssl.com` | an unrelated test root | refused |
+| `letsencrypt.org` (Android only, wrong network-security-config pin) | ISRG Root X1, the OS root it chains to | refused |
+
+On a phone, a `FAIL:` on the second cell means the host root was not trusted beside the OS roots;
+a `FAIL:` on any refused cell means a final failure (expiry, name, untrusted, pin) was rescued.
+The `letsencrypt.org` cell passes the same root the site already chains to, so the host root would
+accept it if the pin failure were not final. It prints `SKIP:` off Android.
+
+### Wiring the pin cell (Android, local project files)
+
+`res/xml/network_security_config.xml` pins `letsencrypt.org` to a key that matches nothing; it names no
+other domain and has no base config. Wire it in locally with the script (the `.deployproj` and the
+manifest template are not committed):
+
+```
+powershell -File scripts\maintenance\sync-trust-demo-nsc.ps1
+```
+
+It writes `SystemTrustDemo.NetworkSecurity.deployproj` (imported by `SystemTrustDemo.dproj`) and adds
+`android:networkSecurityConfig` to `AndroidManifest.template.xml`. If the template is absent, build the
+demo for Android once so the IDE creates it, then re-run. Re-run after the IDE regenerates the
+template. `-Remove` undoes it.
+
+### User-installed CA is not trusted
+
+On Android the cells end with a `MANUAL:` procedure. Install the `untrusted-root.badssl.com` root
+(Settings -> Security -> Encryption & credentials -> Install a certificate -> CA certificate; a screen
+lock is required), then run the cells again: the `no host root` cell must still be refused, because
+apps targeting API 24 and later do not trust user CAs without a network-security-config opt-in.
+The root is `badssl-untrusted-root.crt` in this folder (sha256
+`43194b56f17cd0b72be548b35ae93adb1664e4023d1d7d0957f5bab66a31fe3d`); copy it to the phone. To fetch
+it yourself, run `openssl s_client -connect untrusted-root.badssl.com:443 -showcerts` on a PC and
+take the last certificate.
 
 ## Caveats (shared with the iOS delegate, by design)
 
