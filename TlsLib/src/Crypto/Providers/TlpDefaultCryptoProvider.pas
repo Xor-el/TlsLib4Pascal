@@ -1525,7 +1525,7 @@ begin
 end;
 
 // Classifies a DER private key by the types of the outer SEQUENCE's first elements:
-// a leading SEQUENCE is EncryptedPrivateKeyInfo; a leading INTEGER (the version) is
+// a leading SEQUENCE with an OCTET STRING second is EncryptedPrivateKeyInfo; a leading INTEGER (the version) is
 // followed by a SEQUENCE (PKCS#8), an INTEGER (PKCS#1 RSAPrivateKey) or an OCTET
 // STRING (SEC1 ECPrivateKey). The ASN.1 layer does the DER decoding and validation.
 class function TCredentialImport.DetectDerKeyShape(const AData: TBytes): TDerKeyShape;

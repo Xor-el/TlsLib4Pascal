@@ -72,7 +72,8 @@ resourcestring
   SHpkeUnsupportedKem = 'the HPKE KEM is not supported';
   SHpkeRecipientKemMismatch =
     'the HPKE suite KEM does not match the recipient key';
-  SHpkeUnsupportedKdfOrAead = 'the HPKE suite names a KDF or AEAD this composition does not implement';
+  SHpkeUnsupportedKdfOrAead =
+    'the HPKE suite names a KDF or AEAD this composition does not implement';
   SHpkeMalformedPrivateKey = 'the HPKE recipient private key is malformed';
   SHpkeMalformedEnc = 'the HPKE encapsulated key could not be processed';
   SHpkeMalformedPublicKey = 'the HPKE recipient public key is malformed';
