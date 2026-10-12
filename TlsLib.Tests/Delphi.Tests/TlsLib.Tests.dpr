@@ -250,6 +250,7 @@ uses
   PemTests in '..\src\PemTests.pas',
   DynamicLibraryTests in '..\src\DynamicLibraryTests.pas',
   SocketHttpFetcherTests in '..\src\SocketHttpFetcherTests.pas',
+  SocketHttpExchangeTests in '..\src\SocketHttpExchangeTests.pas',
   NetSocketTests in '..\src\NetSocketTests.pas',
   SystemTimeUtilitiesTests in '..\src\SystemTimeUtilitiesTests.pas',
   IpLiteralTests in '..\src\IpLiteralTests.pas',
