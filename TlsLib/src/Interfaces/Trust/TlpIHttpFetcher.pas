@@ -33,8 +33,8 @@ type
   /// bounds the whole exchange; 0 leaves the timeout to the implementation.
   ///
   /// The URLs come from the peer's own certificate and are passed as the canonical text of
-  /// THttpUrl.ToString (lower-case scheme and host, default port dropped). The fetcher is the place for a host's egress policy - an
-  /// allowlist, a proxy, or rewriting to a mirror - and it must not run TlsLib live revocation
+  /// THttpUrl.ToString (lower-case scheme and host, default port dropped). The fetcher is the
+  /// place for a host's egress policy - an allowlist, a proxy, or rewriting to a mirror - and it must not run TlsLib live revocation
   /// for its own https fetches, which would recurse.
   /// </summary>
   IHttpFetcher = interface(IInterface)

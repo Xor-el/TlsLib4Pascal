@@ -447,7 +447,7 @@ LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem))
   .WithResumption(True)
   // supply your own manager (WithSessionTicketKeys) only to share keys across servers
-  // (TFleetTicketKeyManager + InstallKey); TStekTicketKeyManager.Create(ARandom) never rotates
+  // (TFleetTicketKeyManager + InstallKey); TStekTicketKeyManager.Create(ARandom) rotates only when you call Rotate
   .Build;
 
 // SERVER (stronger): add a stateful store to get true single-use tickets + 0-RTT anti-replay

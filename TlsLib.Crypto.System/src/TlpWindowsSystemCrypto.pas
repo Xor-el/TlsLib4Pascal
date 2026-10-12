@@ -546,7 +546,8 @@ type
   // X25519 and the same secret for every u the OS module accepts. A non-canonical u is reduced
   // first (RFC 7748 sec. 5); the OS module may still refuse a u outside the prime-order
   // subgroup (RFC 8446 sec. 7.4.2 mandates only the all-zero check), and an honest peer's key
-  // is never refused. The algorithm handle is borrowed from the owning context, which keeps it alive.
+  // is never refused. The algorithm handle is borrowed from the owning context, which keeps it
+  // alive.
   TWindowsCngX25519 = class(TWindowsCngKeyPrimitive, IKeyAgreement)
   strict private
     // whether the 32 bytes at AOffset, bit 255 already clear, encode a u >= p = 2^255-19

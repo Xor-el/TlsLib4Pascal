@@ -300,8 +300,8 @@ type
     FVerbatimEncryptedExtensions: TBytes;
     FVerbatimCertificate: TBytes;
     FVerbatimCertificateVerify: TBytes;
-    /// <summary>Stamps the ECH accept confirmation into ServerHello.random[24..32] (framed offset
-    /// 30; RFC 9849 sec. 7.2), computed over the inner transcript through this ServerHello with
+    /// <summary>Stamps the ECH accept confirmation into the last 8 bytes of ServerHello.random
+    /// (framed offset 30; RFC 9849 sec. 7.2), computed over the inner transcript through this ServerHello with
     /// those 8 bytes zeroed.</summary>
     procedure StampEchAcceptConfirmation(var AServerHelloBytes: TBytes);
     /// <summary>The one structural parse of a ClientHello's extension block: Empty for an absent

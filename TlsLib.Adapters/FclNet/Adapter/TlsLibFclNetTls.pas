@@ -213,7 +213,8 @@ type
     /// <summary>The password for an encrypted CertificateData.PrivateKey, if any.</summary>
     property KeyPassword: string read FKeyPassword write FKeyPassword;
     /// <summary>An injected anchor store; when set it UNIONS with the CertCA / TrustedCertificate
-    /// bundle and UseSystemTrust (where the OS is a delegate only Apple can union; Android raises).</summary>
+    /// bundle and UseSystemTrust (Apple unions it with a delegate OS;
+    /// Android raises).</summary>
     property CustomTrustStore: ITrustAnchorStore read FCustomTrustStore
       write FCustomTrustStore;
     /// <summary>A whole-verifier for the peer SERVER certificate (client connections) that
