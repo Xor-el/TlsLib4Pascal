@@ -141,19 +141,38 @@ uninstall_distrust() {
   esac
 }
 
-restore_roots() { # re-add every exported public root that is missing from the machine Root store
-  local f
+PROBE_STORES=(machine:Root user:Root machine:AuthRoot)
+store_flag() { # <kind:name>: the certutil flag for the store's location (machine is certutil's default)
+  if [ "${1%%:*}" = user ]; then echo -user; fi
+}
+store_has() { # <kind:name> <thumbprint>
+  certutil $(store_flag "$1") -store "${1#*:}" "$2" >/dev/null 2>&1
+}
+probe_present_in() { # <thumbprint>: the probe stores holding it, space separated
+  local s out=""
+  for s in "${PROBE_STORES[@]}"; do
+    if store_has "$s" "$1"; then out="${out:+$out }$s"; fi
+  done
+  echo "$out"
+}
+store_count() { # <kind:name>: number of certificates in the store
+  certutil $(store_flag "$1") -store "${1#*:}" 2>/dev/null | grep -c '^Cert Hash(sha1)' || true
+}
+restore_roots() { # re-add every exported root copy that is missing from the store it came from
+  local f b t s
   for f in "$TMP"/removed/*.cer; do
     [ -f "$f" ] || continue
-    certutil -store Root "$(basename "$f" .cer)" >/dev/null 2>&1 ||
-      certutil -addstore -f Root "$(cygpath -w "$f")" >/dev/null 2>&1 || true
+    b="$(basename "$f" .cer)"; t="${b%%.*}"; s="${b#*.}"; s="${s/./:}"
+    store_has "$s" "$t" ||
+      certutil $(store_flag "$s") -addstore -f "${s#*:}" "$(cygpath -w "$f")" >/dev/null 2>&1 || true
   done
 }
-count_missing_roots() { # exported roots currently absent from the machine Root store
-  local f n=0
+count_missing_roots() { # exported root copies currently absent from the store they came from
+  local f b n=0 s
   for f in "$TMP"/removed/*.cer; do
     [ -f "$f" ] || continue
-    certutil -store Root "$(basename "$f" .cer)" >/dev/null 2>&1 || n=$((n+1))
+    b="$(basename "$f" .cer)"; s="${b#*.}"; s="${s/./:}"
+    store_has "$s" "${b%%.*}" || n=$((n+1))
   done
   echo "$n"
 }
@@ -534,6 +553,9 @@ probe_cell() { # <mode> <ip> <host>: prints ACCEPT | REFUSE:<alert> | NET
   else
     echo NET
   fi
+  if [ -n "${PROBE_LAST_FILE:-}" ]; then
+    printf '%s\n' "$out" | tr -d '\r' | grep -v '^$' | tail -n 1 | cut -c1-160 > "$PROBE_LAST_FILE" || true
+  fi
 }
 
 probe_setup() { # the public host list and a timeout wrapper, when the runner has one
@@ -674,16 +696,25 @@ try {
 } catch { exit 1 }
 PS
       PROBE_IPS=(); PROBE_T=(); PROBE_B=(); PROBE_A=(); PROBE_D=(); PROBE_A2=(); PROBE_R=(); PROBE_NOTE=()
+      PROBE_PRE=(); PROBE_POST=(); PROBE_RC=(); PROBE_MSG=(); PROBE_RT=()
+      probe_rm_cell() { # <mode> <label> <index>: sets RM_RESULT; a REFUSE keeps the shim's last line
+        RM_RESULT="$(probe_cell "$1" "${PROBE_IPS[$3]}" "${PROBE_HOSTS[$3]}")"
+        case "$RM_RESULT" in
+          REFUSE*) PROBE_MSG[$3]+="    $2: $(cat "$PROBE_LAST_FILE")"$'\n' ;;
+        esac
+      }
       # baseline: only hosts whose root is installed and accepted by anchors are worth removing
       for I in "${!PROBE_HOSTS[@]}"; do
         H="${PROBE_HOSTS[$I]}"
         PROBE_T[$I]=""; PROBE_B[$I]="-"; PROBE_A[$I]="-"; PROBE_D[$I]="-"; PROBE_A2[$I]="-"
         PROBE_R[$I]="-"; PROBE_NOTE[$I]=""
+        PROBE_PRE[$I]=""; PROBE_POST[$I]=""; PROBE_RC[$I]=""; PROBE_MSG[$I]=""; PROBE_RT[$I]=""
         PROBE_IPS[$I]="$(resolve_ipv4 "$H")"
         T="$(chain_root_thumb "$H")"
+        PROBE_RT[$I]="$T"
         if [ -z "${PROBE_IPS[$I]}" ]; then PROBE_NOTE[$I]="no IPv4 address"
         elif ! [[ "$T" =~ ^[0-9A-Fa-f]{40}$ ]]; then PROBE_NOTE[$I]="chain root not determined"
-        elif ! certutil -store Root "$T" >/dev/null 2>&1; then PROBE_NOTE[$I]="root $T not in machine Root"
+        elif [ -z "$(probe_present_in "$T")" ]; then PROBE_NOTE[$I]="root $T in none of the stores"
         else
           PROBE_B[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "$H")"
           if [ "${PROBE_B[$I]}" = ACCEPT ]; then PROBE_T[$I]="$T"
@@ -691,36 +722,47 @@ PS
         fi
       done
       # export before delete; a root that fails to export is never deleted
+      N_ROOT_BEFORE="$(store_count machine:Root)"
+      # export every copy before deleting it; a copy that fails to export is never deleted
       for I in "${!PROBE_HOSTS[@]}"; do
         T="${PROBE_T[$I]}"; [ -n "$T" ] || continue
-        F="$TMP/removed/$T.cer"
-        if [ ! -s "$F" ]; then
-          certutil -store Root "$T" "$(cygpath -w "$F")" >/dev/null 2>&1 || rm -f "$F"
-        fi
-        if [ -s "$F" ]; then
-          certutil -delstore Root "$T" >/dev/null 2>&1 || true
+        PROBE_PRE[$I]="$(probe_present_in "$T")"
+        PROBE_RC[$I]=""
+        for S in ${PROBE_PRE[$I]}; do
+          F="$TMP/removed/$T.${S/:/.}.cer"
+          XRC=0; DRC="-"
+          if [ ! -s "$F" ]; then
+            certutil $(store_flag "$S") -store "${S#*:}" "$T" "$(cygpath -w "$F")" >/dev/null 2>&1 || XRC=$?
+            if [ "$XRC" != 0 ]; then rm -f "$F"; fi
+          fi
+          if [ -s "$F" ]; then
+            DRC=0
+            certutil $(store_flag "$S") -delstore "${S#*:}" "$T" >/dev/null 2>&1 || DRC=$?
+          fi
+          PROBE_RC[$I]+=" $S:export=$XRC,delete=$DRC"
+        done
+        PROBE_POST[$I]="$(probe_present_in "$T")"
+        if [ -n "${PROBE_POST[$I]}" ]; then
+          PROBE_NOTE[$I]="not removed (${PROBE_POST[$I]})"; PROBE_T[$I]=""
         fi
       done
       N_REMOVED="$(count_missing_roots)"
+      N_ROOT_AFTER="$(store_count machine:Root)"
+      PROBE_LAST_FILE="$TMP/probe_last"
       for I in "${!PROBE_HOSTS[@]}"; do
-        T="${PROBE_T[$I]}"; [ -n "$T" ] || continue
-        if certutil -store Root "$T" >/dev/null 2>&1; then
-          PROBE_T[$I]=""; PROBE_NOTE[$I]="root $T could not be removed"
-        fi
+        [ -n "${PROBE_T[$I]}" ] || continue
+        probe_rm_cell os-anchors anchors-rm "$I"; PROBE_A[$I]="$RM_RESULT"
       done
       for I in "${!PROBE_HOSTS[@]}"; do
         [ -n "${PROBE_T[$I]}" ] || continue
-        PROBE_A[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+        probe_rm_cell os-delegate delegate "$I"; PROBE_D[$I]="$RM_RESULT"
       done
       for I in "${!PROBE_HOSTS[@]}"; do
         [ -n "${PROBE_T[$I]}" ] || continue
-        PROBE_D[$I]="$(probe_cell os-delegate "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+        probe_rm_cell os-anchors anchors-after "$I"; PROBE_A2[$I]="$RM_RESULT"
+        if [ -n "$(probe_present_in "${PROBE_T[$I]}")" ]; then PROBE_R[$I]=yes; else PROBE_R[$I]=no; fi
       done
-      for I in "${!PROBE_HOSTS[@]}"; do
-        [ -n "${PROBE_T[$I]}" ] || continue
-        PROBE_A2[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
-        if certutil -store Root "${PROBE_T[$I]}" >/dev/null 2>&1; then PROBE_R[$I]=yes; else PROBE_R[$I]=no; fi
-      done
+      PROBE_LAST_FILE=""
       restore_roots
       N_MISSING="$(count_missing_roots)"
       printf '  %-16s %-10s %-12s %-12s %-12s %s\n' host baseline anchors-rm delegate anchors-after reinstalled
@@ -729,6 +771,10 @@ PS
         H="${PROBE_HOSTS[$I]}"
         printf '  %-16s %-10s %-12s %-12s %-12s %s\n' "$H" "${PROBE_B[$I]}" "${PROBE_A[$I]}" \
           "${PROBE_D[$I]}" "${PROBE_A2[$I]}" "${PROBE_R[$I]}"
+        if [ -n "${PROBE_PRE[$I]:-}" ]; then
+          echo "    root ${PROBE_RT[$I]} before=[${PROBE_PRE[$I]}] after=[${PROBE_POST[$I]}]${PROBE_RC[$I]}"
+        fi
+        if [ -n "${PROBE_MSG[$I]:-}" ]; then printf '%s' "${PROBE_MSG[$I]}"; fi
         [ -n "${PROBE_T[$I]}" ] || { echo "  note: $H not exercised: ${PROBE_NOTE[$I]}"; continue; }
         case "${PROBE_A[$I]}" in
           REFUSE*) ;;
@@ -741,6 +787,7 @@ PS
           *) echo "  note: $H delegate hit network trouble" ;;
         esac
       done
+      echo "  machine Root count: before=$N_ROOT_BEFORE after-removal=$N_ROOT_AFTER after-restore=$(store_count machine:Root)"
       echo "  roots removed=$N_REMOVED restored=$((N_REMOVED - N_MISSING)) still-missing=$N_MISSING"
       if [ "$N_MISSING" -gt 0 ]; then echo "  WARN  $N_MISSING exported root(s) could not be restored"; fi
       if [ "$N_OK" -gt 0 ]; then
