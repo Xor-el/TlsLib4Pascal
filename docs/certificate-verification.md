@@ -14,6 +14,7 @@ This guide covers, from safest to most dangerous:
 4. [The `dangerous` escape hatches](#4-the-dangerous-escape-hatches) — bypass verification
 5. [Coming from ASP.NET Core / .NET](#5-coming-from-aspnet-core--net)
 6. [Through the integration adapters](#6-through-the-integration-adapters)
+7. [Other knobs](#7-other-knobs) — chain limits, key-strength floors, stapling
 
 > To verify against the **OS system trust store** (the way a browser does) instead of your own
 > anchors, see [system-trust.md](system-trust.md).
@@ -423,6 +424,92 @@ live-revocation budget measure *elapsed* time on an `ITlsMonotonicClock` (defaul
 handshake cap's clock with `WithMonotonicClock`; the `TLiveRevocationChecker` constructor takes its
 clock explicitly, like its other inputs (pass `Config.MonotonicClock` to share the connection's).
 Neither affects certificate, OCSP or ticket time, which stay on `ITlsClock`.
+
+### The live-check budget over `TTlsStream`
+
+`TTlsStream` does not pass the config's `WithLiveRevocationVerdict(deadlineMs)` to the resolver.
+The OS-native resolver reads that deadline from the config it was built from. A portable
+`TLiveRevocationChecker` spends its own constructor `budgetMs`; to bound it further per stream, use
+`SetCertificateVerdictResolver(checker.ResolveVerdict, deadlineMs)`, and the smaller non-zero value
+applies.
+
+---
+
+## 7. Other knobs
+
+### Certificate-chain limits
+
+`WithCertificateChainLimits` (client and server builders) caps the peer's chain before any PKIX work.
+It is a resource budget, not a trust input. The fields of `TCertificateChainLimits` (unit
+`TlpCertificateLimits`):
+
+| Field | Default | `Strict` preset |
+|---|---|---|
+| `MaxCertificateLength` (one certificate) | 64 KiB | 16 KiB |
+| `MaxTotalChainLength` (the whole Certificate message) | 64 KiB | 32 KiB |
+| `MaxChainCertificates` | 16 | 8 |
+
+`MaxTotalChainLength` is also the handshake reassembly ceiling and the certificate-decompression
+ceiling. Start from `Defaults`; the setter raises `EArgumentTlsLibException` for a non-positive cap,
+a per-certificate cap above the total, a total above 16 MiB - 1, or a count outside 1..255. The caps
+apply in the built-in and OS verifiers; a `Custom` verifier owns its own limits.
+
+```pascal
+uses TlpCertificateLimits, TlpCertificateVerifierSource;
+
+LLimits := TCertificateChainLimits.Defaults;
+LLimits.MaxCertificateLength := 1 shl 17;   // a large post-quantum chain
+LLimits.MaxTotalChainLength := 1 shl 18;
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(TServerVerification.WebPki(caPem).Build)
+  .WithCertificateChainLimits(LLimits)
+  .Build;
+```
+
+### Key-strength floors
+
+`WithMinimumStrength` on a `WebPki` or `VerifierSource` policy (server or client verification) sets
+the floors the leaf and intermediates must meet; a configured trust anchor is exempt. The fields of
+`TCertificateStrengthPolicy` (unit `TlpCertificateStrengthPolicy`) and their `Defaults`, used by
+every preset:
+
+- `MinRsaModulusBits` 2048, `MaxRsaModulusBits` 8192 (0 = no cap, a verify-cost defence).
+- `AllowedEcCurves` P-256, P-384, P-521 (empty = any curve the provider recognises).
+- `AllowEdDsa` True.
+- `AllowedDeprecatedHashes` empty: name `TCertSignatureHash.Sha1` (unit `TlpPkixDomainTypes`) to
+  admit SHA-1-signed certificates from a private PKI that has not been re-issued.
+
+```pascal
+uses TlpCertificateStrengthPolicy, TlpCertificateVerifierSource;
+
+LStrength := TCertificateStrengthPolicy.Defaults;
+LStrength.MinRsaModulusBits := 3072;
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(TServerVerification.WebPki(caPem)
+    .WithMinimumStrength(LStrength).Build)
+  .Build;
+```
+
+### The chain-algorithm policy (always on)
+
+Over the validated path (the anchor exempt), the built-in pipeline and the OS delegates always check:
+
+- every leaf and intermediate is signed with a signature scheme this endpoint advertised, else
+  `unsupported_certificate`;
+- each key meets the floors above, else `unsupported_certificate`;
+- an MD5-signed certificate is refused under any policy, and a SHA-1-signed one unless
+  `AllowedDeprecatedHashes` admits it (RFC 8446 4.4.2.4), with `bad_certificate`.
+
+A `Custom` verifier replaces the pipeline and is not checked.
+
+### OCSP stapling and must-staple
+
+A client requests a staple (`status_request`, RFC 6066) only with `WithOcspStaplingRequest(True)`.
+`Hardened` and `Strict` turn it on; `Compatible` leaves it off. A client that did not request a
+staple rejects an unsolicited one. A must-staple leaf (RFC 7633) is enforced only for a server
+certificate on the initial handshake of a client that requested a staple. Without a current, valid
+Good staple it fails with `bad_certificate_status_response` under every posture, even with a live
+resolver configured.
 
 ---
 
