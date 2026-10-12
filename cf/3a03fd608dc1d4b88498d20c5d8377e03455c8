@@ -1,0 +1,35 @@
+.github/workflows/ci/interop/trust/autoroot-probe.ps1
+  s_58af9e1b217631::t_d40d1162b07c53 442-443
+  s_58af9e1b217631::t_d4b98b8cdca353 102
+  s_58af9e1b217631::t_ddc79afdab8d0a 458,460-462,468-471
+  s_58af9e1b217631::t_cb549aebb8ba23 4
+  s_58af9e1b217631::t_871484181fd7b7 38,40-41,44-68,78,80,85,92-95
+  s_58af9e1b217631::t_f80b7142755e06 244-283
+  s_58af9e1b217631::t_cffcf2d53462e2 223-226
+  s_58af9e1b217631::t_39b0cf6aae7ab5 204,206-208
+  s_58af9e1b217631::t_02ff5a1cd9b90d 215
+  s_58af9e1b217631::t_fbf28d2c76d161 303-307
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_58af9e1b217631::t_e318670f00253a 661-663,669-670
+  s_58af9e1b217631::t_eb11ee8bbc0c0f 685-690,698,701
+  s_58af9e1b217631::t_983de11935bc35 617
+  s_58af9e1b217631::t_e17db4ff2bb495 632-645,649
+  s_58af9e1b217631::t_ae447f75dd46e7 91
+  s_58af9e1b217631::t_12f4241c809bf2 145-159,161-166,168,171-178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cf3a03fd608dc1d4b88498d20c5d8377e03455c8",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
