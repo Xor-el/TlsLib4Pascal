@@ -510,10 +510,7 @@ begin
   end;
   Result := FindPsk(AIdentity);
   if Result <> nil then
-  begin
-    FPskIdentity := System.Copy(AIdentity);
-    FPskBinding := TPskSessionBinding.Derive(FParams.Crypto, Result);
-  end
+    FPskIdentity := System.Copy(AIdentity)
   else
     Result := LStandIn;
 end;
@@ -1104,6 +1101,9 @@ begin
     LChainForTicket := FResumedSession.PeerCertificates
   else
     LChainForTicket := nil;
+  // derived at store time so a known identity does no extra work before the Finished
+  if (System.Length(FPskBinding) = 0) and (System.Length(FPskIdentity) > 0) then
+    FPskBinding := TPskSessionBinding.Derive(FParams.Crypto, FindPsk(FPskIdentity));
   Result := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
     FUseExtendedMasterSecret, nil, FRequestedServerName, EmittedTicketLifetime,
