@@ -320,7 +320,7 @@ procedure TTestNetSocket.TestListenerRefusesAnAddressThatIsNotAnIpv4Literal;
 var
   LRaisedName, LRaisedEmpty: Boolean;
 begin
-  // a name would bind every interface on some targets, which a loopback-only service must not
+  // a name may resolve to all interfaces on some targets; a loopback-only listener must never do that
   LRaisedName := False;
   try
     TTcpListener.Create('localhost', 0);
