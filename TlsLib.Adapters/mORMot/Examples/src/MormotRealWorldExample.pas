@@ -14,7 +14,7 @@
 /// POST to a public test API (postman-echo.com) with its TLS handled entirely by TlsLib4Pascal -
 /// a real handshake against a real internet server and real HTTP/1.1 framing over our records,
 /// with zero OpenSSL. It runs TWICE against the same host: leg A verifies against a pinned root
-/// (CACertificatesFile), leg B verifies against the OS system-trust store harvested and validated
+/// (CACertificatesFile), leg B verifies against the OS system-trust store, verified
 /// entirely by TlsLib4Pascal (CASystemStores, no pinned file) - proving a caller can drop the
 /// bundled PEM and lean on the platform anchors instead. With a keep-alive request both verbs run
 /// over ONE reused TLS connection - the strongest proof that our records carry ordinary
@@ -115,7 +115,7 @@ begin
     LClient := THttpClientSocket.Create(TimeoutMs);
     try
       if AUseSystemTrust then
-        // no pinned file: verify against the OS system-trust store our validator harvests
+        // no pinned file: verify against the OS system-trust store
         LClient.TLS.CASystemStores := [scsRoot]
       else
       begin

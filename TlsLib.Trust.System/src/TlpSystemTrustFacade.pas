@@ -32,13 +32,15 @@ uses
 type
   /// <summary>
   /// OS trust as the server-certificate verification policy of a client.
-  /// Default picks the best source this platform offers (harvest OS anchors into our validator
-  /// where they can be enumerated, else a delegate); Anchors and Delegate force a source and raise
-  /// a typed error where it cannot be honored. Anchors also honour OS distrust of an exact
-  /// certificate anywhere on a path (Windows Disallowed, macOS Deny), as far as the platform lets
-  /// it be read; use Delegate where the full OS policy matters. Host roots passed as extra anchors
-  /// join the harvested ones, and distrust from either wins; a delegate owns its roots, so it
-  /// takes extra anchors only where the platform can union them. System trust verifies server
+  /// Default picks the OS verifier (the delegate) wherever the platform has one (Windows, Apple,
+  /// Android) and harvests OS anchors into our validator elsewhere (Linux, BSD, Solaris); Anchors
+  /// and Delegate force a source and raise a typed error where it cannot be honored. A delegate
+  /// checks revocation from the OS cache and the staple unless the live-revocation verdict is
+  /// armed (see WithLiveSystemTrust). Anchors also honour OS distrust of an exact certificate
+  /// anywhere on a path (Windows Disallowed, macOS Deny), as far as the platform lets it be read;
+  /// a delegate applies the full OS policy. Host roots passed as extra anchors join the harvested
+  /// ones, and distrust from either wins; a delegate trusts them beside the OS roots and OS
+  /// distrust still wins on a path through them. System trust verifies server
   /// certificates only; an mTLS server's client-CA is never the OS store - supply it with
   /// TClientVerification (see TOSSystemTrust.ClientVerifierSource for the OS engine over that
   /// private CA).
@@ -50,7 +52,8 @@ type
       out ASource: IServerCertificateVerifierSource;
       const AExtraAnchors: ITrustAnchorStore); static;
   public
-    /// <summary>OS trust in the Default mode (see the class summary).</summary>
+    /// <summary>OS trust in the Default mode: the OS verifier where the platform has one, else
+    /// the harvested OS anchors (see the class summary).</summary>
     class function ServerVerification(const APkixProvider: IPkixProvider)
       : IServerVerificationBuilder; overload; static;
     /// <summary>OS trust in the given mode, with the host's own roots (nil for none) beside the OS
@@ -108,13 +111,12 @@ begin
   AStore := nil;
   ASource := nil;
   LMode := AMode;
-  // Default = the best available source for this platform.
   if LMode = TSystemTrustMode.Default then
   begin
-    if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
-      LMode := TSystemTrustMode.Anchors
+    if TOSSystemTrust.Supports(TSystemTrustMode.Delegate) then
+      LMode := TSystemTrustMode.Delegate
     else
-      LMode := TSystemTrustMode.Delegate;
+      LMode := TSystemTrustMode.Anchors;
   end;
   // A forced mode the platform cannot honor raises a typed error inside these.
   if LMode = TSystemTrustMode.Delegate then

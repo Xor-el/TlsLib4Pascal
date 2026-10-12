@@ -16,7 +16,7 @@
 /// with zero OpenSSL. THTTPSend keeps the socket alive, so both requests run over ONE reused TLS
 /// connection - the strongest proof that our records carry ordinary application traffic. It runs
 /// TWICE against the same host: leg A verifies against a pinned root (CertCAFile), leg B verifies
-/// against the OS system-trust store harvested and validated entirely by TlsLib4Pascal
+/// against the OS system-trust store, verified entirely by TlsLib4Pascal
 /// (SetTlsLibSynapseSystemTrust, no pinned file) - proving a caller can drop the bundled PEM and
 /// lean on the platform anchors instead. This is a network-gated demo, NOT part of any test gate:
 /// it needs outbound HTTPS; the pinned root is refreshed only if Let's Encrypt rotates (the leaf
@@ -129,7 +129,7 @@ begin
     LHttp := THTTPSend.Create;
     try
       if AUseSystemTrust then
-        // no pinned file: verify against the OS system-trust store our validator harvests
+        // no pinned file: verify against the OS system-trust store
         (LHttp.Sock.SSL as TSSLTlsLib).UseSystemTrust := True
       else
       begin

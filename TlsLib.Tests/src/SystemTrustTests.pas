@@ -123,6 +123,9 @@ type
     procedure TestSharedInstallerIsOneStableInstance;
     procedure TestExplicitOsAnchorsAreTheServerEscapeHatch;
     procedure TestLiveFetchWithoutADeadlineIsRefused;
+    procedure TestDefaultResolvesToTheOsEngineWhereThePlatformHasOne;
+    procedure TestExplicitAnchorsStillResolveToTheHarvestedStore;
+    procedure TestExplicitDelegateIsTheOsEngineOrRefused;
   end;
 
   /// <summary>Portable suite (always runs): the shared OS-delegate post-checks
@@ -373,6 +376,7 @@ type
     procedure TestDistrustedCaRefusedBesideHostRoots;
     procedure TestLiveResolverTrustsHostRoots;
     procedure TestFactorySourceReadsOsDistrustBesideHostRoots;
+    procedure TestDefaultModeTrustsHostRootsThroughTheOsEngine;
   end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
@@ -2894,6 +2898,39 @@ begin
   CheckEquals(0, System.Length(LWithout.Distrusted), 'it is not read without host roots');
 end;
 
+procedure TTestWindowsHostRoots.TestDefaultModeTrustsHostRootsThroughTheOsEngine;
+
+  function DefaultVerifies(const AHostRoots: ITrustAnchorStore): Boolean;
+  var
+    LVerification: IServerVerification;
+    LSource: IOSServerVerifierSource;
+    LContext: TServerTrustContext;
+    LVerified: TVerifiedChain;
+    LAlert: TTlsAlertDescription;
+  begin
+    LVerification := TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
+      AHostRoots).WithRevocation(TRevocationPosture.Off).Build;
+    CheckTrue(SysUtils.Supports(LVerification.Source, IOSServerVerifierSource, LSource),
+      'Default on Windows is the OS verifier source');
+    LContext := Default(TServerTrustContext);
+    LContext.ChainLimits := TCertificateChainLimits.Defaults;
+    LContext.Pkix := Pkix;
+    LContext.Clock := TSystemClock.Create as ITlsClock;
+    LContext.RevocationPosture := TRevocationPosture.Off;
+    LContext.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+    LContext.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
+      TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
+      TSignatureSchemes.EcdsaSecp521r1Sha512);
+    Result := LVerification.Source.CreateServerVerifier(LContext).VerifyServerCertificate(Leaf,
+      Default(TServerName), nil, LVerified, LAlert);
+  end;
+
+begin
+  CheckTrue(DefaultVerifies(TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore),
+    'the host root vouches for the private CA chain under Default');
+  CheckFalse(DefaultVerifies(nil), 'without host roots the private CA is not trusted');
+end;
+
 {$ENDIF TLSLIB_MSWINDOWS}
 
 {$IFDEF TLSLIB_MACOS}
@@ -3223,6 +3260,70 @@ begin
       LRefused := True;
   end;
   CheckTrue(LRefused, 'a live fetch with a zero verdict deadline is refused before any build');
+end;
+
+procedure TTestSystemTrustInstaller.TestDefaultResolvesToTheOsEngineWhereThePlatformHasOne;
+var
+  LFacade, LInstalled: IServerVerification;
+  LSource: IOSServerVerifierSource;
+begin
+  LFacade := TSystemTrust.ServerVerification(Pkix).Build;
+  LInstalled := TSystemTrustInstaller.Shared.ServerVerification(Pkix, nil);
+  if TOSSystemTrust.Supports(TSystemTrustMode.Delegate) then
+  begin
+    CheckEquals(Ord(TVerificationKind.VerifierSource), Ord(LFacade.Kind),
+      'Default is the OS engine where the platform has one');
+    CheckTrue(SysUtils.Supports(LFacade.Source, IOSServerVerifierSource, LSource),
+      'the Default source is the OS verifier source');
+    CheckEquals(Ord(TVerificationKind.VerifierSource), Ord(LInstalled.Kind),
+      'the installer resolves Default the same way');
+  end
+  else
+  begin
+    CheckEquals(Ord(TVerificationKind.WebPki), Ord(LFacade.Kind),
+      'Default harvests the OS anchors where the platform has no OS engine');
+    CheckEquals(1, System.Length(LFacade.AnchorStores), 'the harvested store is the anchor set');
+    CheckEquals(Ord(TVerificationKind.WebPki), Ord(LInstalled.Kind),
+      'the installer resolves Default the same way');
+  end;
+end;
+
+procedure TTestSystemTrustInstaller.TestExplicitAnchorsStillResolveToTheHarvestedStore;
+var
+  LVerification: IServerVerification;
+begin
+  if not TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
+  begin
+    Check(True, 'this platform cannot enumerate OS anchors; the explicit mode does not apply');
+    Exit;
+  end;
+  LVerification := TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Anchors, nil).Build;
+  CheckEquals(Ord(TVerificationKind.WebPki), Ord(LVerification.Kind),
+    'explicit Anchors is our own validator over the harvested roots');
+  CheckEquals(1, System.Length(LVerification.AnchorStores), 'the harvested store is the anchor set');
+  CheckNull(LVerification.Source, 'no OS verifier source is involved');
+end;
+
+procedure TTestSystemTrustInstaller.TestExplicitDelegateIsTheOsEngineOrRefused;
+var
+  LVerification: IServerVerification;
+  LRefused: Boolean;
+begin
+  if TOSSystemTrust.Supports(TSystemTrustMode.Delegate) then
+  begin
+    LVerification := TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Delegate, nil).Build;
+    CheckEquals(Ord(TVerificationKind.VerifierSource), Ord(LVerification.Kind),
+      'explicit Delegate is the OS engine');
+    Exit;
+  end;
+  LRefused := False;
+  try
+    TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Delegate, nil);
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LRefused := True;
+  end;
+  CheckTrue(LRefused, 'explicit Delegate raises where the platform has no OS engine');
 end;
 
 procedure TTestSystemTrustInstaller.TestSharedInstallerIsOneStableInstance;

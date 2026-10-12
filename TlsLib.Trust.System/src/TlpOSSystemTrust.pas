@@ -42,8 +42,8 @@ uses
 
 type
   /// <summary>
-  /// How the platform trust is consumed. Default selects the best source this OS offers
-  /// (harvest OS roots where they can be enumerated, else the OS delegate). Anchors forces
+  /// How the platform trust is consumed. Default selects the OS delegate where this OS has a
+  /// verifier (Windows, Apple, Android), else harvests OS roots (Linux, BSD, Solaris). Anchors forces
   /// harvesting OS roots into our own validator; Delegate forces the OS verifier. Forcing a
   /// mode the platform cannot honor is a typed exception.
   /// </summary>
