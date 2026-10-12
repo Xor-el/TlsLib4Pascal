@@ -90,13 +90,17 @@ The `example.com` cell prints `SKIP:` off Android.
 ### Wiring the pin cell (Android, local project files)
 
 `res/xml/network_security_config.xml` pins `example.com` to a key that matches nothing; it names no
-other domain and has no base config. Wire it in locally (the `.dproj`/`.deployproj` are not committed):
+other domain and has no base config. Wire it in locally with the script (the `.deployproj` and the
+manifest template are not committed):
 
-1. Project -> Deployment, Android64: add `res\xml\network_security_config.xml` with Remote Path
-   `SystemTrustDemo\res\xml\` and Remote Name `network_security_config.xml`.
-2. Edit `AndroidManifest.template.xml` in the project folder (Project -> Options -> Application ->
-   Android: use the "Create template" action if it is absent) and add `android:networkSecurityConfig="@xml/network_security_config"` to
-   the `<application>` element.
+```
+powershell -File scripts\maintenance\sync-trust-demo-nsc.ps1
+```
+
+It writes `SystemTrustDemo.NetworkSecurity.deployproj` (imported by `SystemTrustDemo.dproj`) and adds
+`android:networkSecurityConfig` to `AndroidManifest.template.xml`. If the template is absent, build the
+demo for Android once so the IDE creates it, then re-run. Re-run after the IDE regenerates the
+template. `-Remove` undoes it.
 
 ### User-installed CA is not trusted
 
