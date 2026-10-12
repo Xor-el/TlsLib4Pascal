@@ -1,0 +1,21 @@
+TlsLib/src/Crypto/TlpHpkeComposition.pas
+  s_58af9e1b217631::t_38964b2ca50cbd 75-76
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_58af9e1b217631::t_6dfad8883b58ae 1528
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7b14ba6619c9a9deb705590a52717b9fd1e23c22",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
