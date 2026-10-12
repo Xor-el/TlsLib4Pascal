@@ -10,8 +10,9 @@
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
 { A real-peer live-revocation cell: it handshakes with revoked.badssl.com and badssl.com to capture
-  the chain each presents, then runs the actual driver-edge stack - TSocketHttpFetcher over the RTL
-  HTTP client + TLiveRevocationChecker - against their real, live CRL endpoints, and asserts the
+  the chain each presents, then runs the actual driver-edge stack - TSocketHttpFetcher, verifying
+  any https responder against OS trust, + TLiveRevocationChecker - against their real, live CRL
+  endpoints, and asserts the
   revoked certificate comes back Revoked and the good one Good. The chains are captured at run time,
   so a certificate reissue cannot stale the cell. This is the network-gated counterpart to the
   fake-fetcher unit tests; it needs outbound TLS and HTTP. NOT part of the unit harness. Run returns
@@ -46,6 +47,7 @@ uses
   TlpTlsConnection,
   TlpIHttpFetcher,
   TlpSocketHttpFetcher,
+  TlpSystemTrustFacade,
   TlpTrustPolicy,
   TlpLiveRevocation;
 
@@ -61,6 +63,8 @@ type
       RevokedHost = 'revoked.badssl.com';
       GoodHost = 'badssl.com';
     class function ClientConfig(const APkix: IPkixProvider): ITlsClientConfig; static;
+    /// <summary>A fetcher whose https responders are verified against OS trust.</summary>
+    class function Fetcher(const APkix: IPkixProvider): IHttpFetcher; static;
     /// <summary>The chain AHost presents, leaf first. False with AError set when the host cannot
     /// be reached; a failed handshake raises.</summary>
     class function TryCaptureChain(const AConfig: ITlsClientConfig; const AHost: string;
@@ -80,6 +84,17 @@ begin
   LBuilder := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, APkix).Client;
   LBuilder.WithServerVerification(TServerVerification.DangerousSkip);
   Result := LBuilder.Build;
+end;
+
+class function TRealPeerRevocationProbeExample.Fetcher(const APkix: IPkixProvider): IHttpFetcher;
+var
+  LSettings: TSocketHttpFetcherSettings;
+begin
+  LSettings := TSocketHttpFetcherSettings.Defaults;
+  // the fetcher's own TLS must not defer to live revocation, so it verifies inline
+  LSettings.TlsConfig := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, APkix).Client
+    .WithServerVerification(TSystemTrust.ServerVerification(APkix).Build).Build;
+  Result := TSocketHttpFetcher.Create(LSettings);
 end;
 
 class function TRealPeerRevocationProbeExample.TryCaptureChain(
@@ -158,7 +173,7 @@ begin
     end;
   end;
 
-  LFetcher := TSocketHttpFetcher.Create;
+  LFetcher := Fetcher(LPkix);
   // hard-fail posture over the live CRL distribution points
   LChecker := TLiveRevocationChecker.Create(LPkix, TSystemClock.Create as ITlsClock,
     TSystemMonotonicClock.Create as ITlsMonotonicClock, LFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Crl, FetchBudgetMs);

@@ -527,6 +527,25 @@ sans-IO core: you attach a resolver to the `TTlsStream` backed by the reference 
 posture/live-channel interaction, and server-side client-cert revocation — is in
 [certificate-verification.md → Live OCSP/CRL](certificate-verification.md#live-ocspcrl-revocation-opt-in).
 
+The fetcher speaks a strict HTTP/1.1 subset over the library's own sockets, and https over its own
+TLS client, on every compiler and OS. Configure it with a `TSocketHttpFetcherSettings` value
+(`Defaults`, then set what you need):
+
+- `TlsConfig` — the client config for https responders; without one an https responder fails closed.
+  It must not use `WithLiveRevocationVerdict` (the fetcher would call itself), which the constructor
+  refuses. OCSP and CRL responders are almost always plain http.
+- `Resolver` — the `IHostResolver` every responder and proxy name goes through: the place to refuse
+  loopback or private addresses. Name resolution is outside the fetch timeout.
+- `ProxyHost` / `ProxyPort` — an explicit forward proxy: http requests are sent in absolute form,
+  https through a `CONNECT` tunnel. No system proxy is discovered.
+
+```pascal
+LSettings := TSocketHttpFetcherSettings.Defaults;
+LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(TSystemTrust.ServerVerification(Pkix).Build).Build;
+LFetcher := TSocketHttpFetcher.Create(LSettings);
+```
+
 ## Certificate compression
 
 RFC 8879 certificate compression is **on by default** (zlib) for TLS 1.3 — most valuable for large
