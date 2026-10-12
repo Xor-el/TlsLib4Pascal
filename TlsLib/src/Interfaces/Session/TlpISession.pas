@@ -95,6 +95,14 @@ type
     /// configuration never resumes a session another established under a different scope. Compared
     /// byte-for-byte, never interpreted.</summary>
     function ResumptionScope: TBytes;
+    /// <summary>The identity of the external pre-shared key (RFC 4279 / RFC 9258) that authenticated
+    /// the session; empty for a certificate-authenticated one. A server resumes it only while that
+    /// identity is still configured with the same secret, so removing or rotating a key ends the
+    /// sessions it authenticated.</summary>
+    function PskIdentity: TBytes;
+    /// <summary>A digest of the secret of the pre-shared key that authenticated the session (empty
+    /// for a certificate session), compared on resumption so a rotated secret does not resume.</summary>
+    function PskBinding: TBytes;
   end;
 
   /// <summary>
@@ -128,14 +136,6 @@ type
     function SessionTicket: TBytes;
     /// <summary>Whether Extended Master Secret (RFC 7627) bound the session.</summary>
     function ExtendedMasterSecret: Boolean;
-    /// <summary>The identity of the pre-shared key (RFC 4279) that authenticated the session;
-    /// empty for a certificate-authenticated one. A server resumes it only while that identity
-    /// is still configured with the same secret, so removing or rotating a key ends the sessions
-    /// it authenticated.</summary>
-    function PskIdentity: TBytes;
-    /// <summary>A digest of the secret of the pre-shared key that authenticated the session (empty
-    /// for a certificate session), compared on resumption so a rotated secret does not resume.</summary>
-    function PskBinding: TBytes;
   end;
 
   /// <summary>
@@ -214,10 +214,23 @@ type
     function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
     /// <summary>The decrypt key for AKeyName within the accepted window; False if unknown/retired.</summary>
     function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    /// <summary>Promotes a fresh current key and retires the oldest beyond the window.</summary>
-    procedure Rotate;
     /// <summary>The fixed length in bytes of a key name.</summary>
     function KeyNameLength: Int32;
+  end;
+
+  /// <summary>A key manager that mints its own keys, so it can promote a fresh one on demand.</summary>
+  IRotatingTicketKeyManager = interface(ISessionTicketKeyManager)
+    ['{327AF39F-21E8-430E-B2C8-04FBF8E210C1}']
+    /// <summary>Promotes a fresh current key and retires the oldest beyond the window.</summary>
+    procedure Rotate;
+  end;
+
+  /// <summary>A key manager whose keys come from outside (a shared STEK across a server fleet).</summary>
+  IFleetTicketKeyManager = interface(ISessionTicketKeyManager)
+    ['{A48176EB-BBCD-49A9-BF06-69CBEB2D31BD}']
+    /// <summary>Installs a key as the current one; it also enters the decrypt window. The name and
+    /// key must be the manager's fixed lengths (KeyNameLength and an AES-256 key) or this raises.</summary>
+    procedure InstallKey(const AName: TBytes; const AKey: ISecretBuffer);
   end;
 
   /// <summary>

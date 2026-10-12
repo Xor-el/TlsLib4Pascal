@@ -484,8 +484,8 @@ type
     /// provider RNG and clock, so stateless tickets honor an injected crypto provider rather than
     /// any concrete default; with a session store configured it also issues stateless tickets
     /// alongside the store. An explicit WithSessionTicketKeys always overrides this. The keys are
-    /// scoped to the built config's lifetime; share a STEK across servers/a fleet via a manager's
-    /// InstallKey (e.g. from a KMS).</summary>
+    /// scoped to the built config's lifetime; share a STEK across servers/a fleet through a
+    /// TFleetTicketKeyManager and its InstallKey (e.g. from a KMS).</summary>
     function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
     /// <summary>The clock the server reads for ticket issue time, 0-RTT anti-replay windows and
     /// certificate/OCSP freshness; defaults to the system clock, and nil is refused. Injectable

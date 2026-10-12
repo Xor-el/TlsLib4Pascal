@@ -213,13 +213,17 @@ procedure TTestClientSessionPolicy.TestZeroLifetimeOfferabilityDivergence;
 var
   LSession: IResumableSession;
 begin
-  // the whole point of two functions: a zero-lifetime ticket is discarded by a 1.3 client
-  // (RFC 8446 4.6.1) but still offered by a 1.2 client (a hint of 0 is unspecified, RFC 5077 3.3)
+  // a zero-lifetime ticket is discarded by a 1.3 client (RFC 8446 4.6.1); a 1.2 hint of 0 is
+  // unspecified (RFC 5077 3.3), so it is offered only up to the same seven-day ceiling
   LSession := MakeSession(0, 0);
   CheckFalse(TClientSessionPolicy.IsOfferableTls13(LSession, 0),
     '1.3 discards a zero-lifetime ticket');
   CheckTrue(TClientSessionPolicy.IsOfferableTls12(LSession, 0),
-    '1.2 still offers a zero-lifetime ticket');
+    '1.2 offers a zero-hint ticket inside the ceiling');
+  CheckTrue(TClientSessionPolicy.IsOfferableTls12(LSession, UInt64(604800) * 1000),
+    '1.2 offers a zero-hint ticket at the ceiling edge');
+  CheckFalse(TClientSessionPolicy.IsOfferableTls12(LSession, UInt64(604800) * 1000 + 1),
+    '1.2 drops a zero-hint ticket past the ceiling');
 end;
 
 procedure TTestClientSessionPolicy.TestOfferableWithinCappedLifetime;

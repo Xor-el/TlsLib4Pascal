@@ -163,6 +163,7 @@ type
     procedure TestTicketIssuedUnderDifferentSniFallsBackToFullHandshake;
     procedure TestExternalPskAcceptedDoesNotSurfaceCachedResumptionChain;
     procedure TestExternalPskSuiteSelectionHonorsClientOrder;
+    procedure TestExternalPskTicketResumesOnlyWhilePskIsConfigured;
     procedure TestExternalPskSatisfiesRequiredClientAuth;
   end;
 
@@ -719,7 +720,7 @@ end;
 
 procedure TTestTls13Resumption.TestStekRetiredKeyNotAccepted;
 var
-  LStek: ISessionTicketKeyManager;
+  LStek: IRotatingTicketKeyManager;
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
   LI: Int32;
@@ -2131,6 +2132,110 @@ begin
   CheckEquals(0, System.Length(LInfo.ValidatedPath),
     'an accepted external PSK validates no path');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestExternalPskTicketResumesOnlyWhilePskIsConfigured;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LPsk, LRotated: TExternalPsk;
+  LRandom: IRandom;
+
+  function BuildPskClient(const APsks: TArray<TExternalPsk>): ITlsEngine;
+  var
+    LParams: TClientHandshakeParams;
+  begin
+    LParams := Default(TClientHandshakeParams);
+    LParams.Clock := TSystemClock.Create;
+    LParams.Crypto := Crypto;
+    LParams.Inspector := Pkix.Certificates;
+    LParams.Group := TNamedGroups.CreateX25519(Crypto);
+    LParams.GroupCode := TNamedGroupCatalog.X25519;
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+    LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+    LParams.LegacySessionId := Filled($33, 32);
+    LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
+      TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
+      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
+    LParams.ServerName := ServerHost;
+    LParams.SessionCache := LCache;
+    LParams.ExternalPsks := APsks;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  end;
+
+  function BuildPskServer(const APsks: TArray<TExternalPsk>): ITlsEngine;
+  var
+    LParams: TServerHandshakeParams;
+  begin
+    LParams := Default(TServerHandshakeParams);
+    LParams.Clock := TSystemClock.Create;
+    LParams.Crypto := Crypto;
+    LParams.Inspector := Pkix.Certificates;
+    LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+    LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+    LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    LParams.Group := TNamedGroups.CreateX25519(Crypto);
+    LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+    // no credential: completing proves the peer authenticated via a PSK
+    LParams.SessionTicketKeys := LStek;
+    LParams.IssueTicketCount := 1;
+    LParams.TicketLifetimeSeconds := 7200;
+    LParams.ExternalPsks := APsks;
+    Result := TTlsEngine.CreateConfigured(
+      TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  end;
+
+  // one external-PSK handshake that leaves a ticket in the client cache
+  procedure IssueTicket;
+  begin
+    LClient := BuildPskClient(TArray<TExternalPsk>.Create(LPsk));
+    LServer := BuildPskServer(TArray<TExternalPsk>.Create(LPsk));
+    DriveHandshake(LClient, LServer);
+    CheckFalse(LServer.IsHandshaking, 'the external-PSK handshake completed');
+  end;
+
+begin
+  LRandom := Crypto.Primitives.GetRandom;
+  LStek := TStekTicketKeyManager.Create(LRandom);
+  LCache := TInMemorySessionCache.Create;
+  LPsk.Identity := DecodeHex('6578742d70736b'); // "ext-psk"
+  LPsk.Secret := TSecretBuffer.From(LRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+  LRotated := LPsk;
+  LRotated.Secret := TSecretBuffer.From(LRandom.GenerateBytes(32));
+
+  // the ticket the external-PSK handshake issued resumes while that PSK is still configured
+  IssueTicket;
+  CheckEquals(1, LCache.Count, 'the external-PSK handshake issued a ticket');
+  LClient := BuildPskClient(nil);
+  LServer := BuildPskServer(TArray<TExternalPsk>.Create(LPsk));
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the ticket resumes while its PSK is configured');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'as a resumption');
+
+  // the PSK removed: the credential-less server cannot open the ticket's session nor run a full one
+  IssueTicket;
+  LClient := BuildPskClient(nil);
+  LServer := BuildPskServer(nil);
+  DriveHandshake(LClient, LServer);
+  CheckFalse((not LServer.IsHandshaking) and (not LServer.IsTerminal),
+    'a ticket outliving its removed PSK is not accepted');
+
+  // the secret rotated under the same identity: the old ticket's binding no longer matches
+  IssueTicket;
+  LClient := BuildPskClient(nil);
+  LServer := BuildPskServer(TArray<TExternalPsk>.Create(LRotated));
+  DriveHandshake(LClient, LServer);
+  CheckFalse((not LServer.IsHandshaking) and (not LServer.IsTerminal),
+    'a ticket made under the old secret is not accepted after rotation');
 end;
 
 procedure TTestTls13Resumption.TestExternalPskSatisfiesRequiredClientAuth;

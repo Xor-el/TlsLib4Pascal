@@ -59,7 +59,7 @@ type
     procedure TestCachePrefersTls13OverTls12;
     procedure TestCacheExpiredHeadDoesNotShadowLiveTicket;
     procedure TestCacheExpiredTls13FallsBackToLiveTls12;
-    procedure TestCacheTls12ZeroLifetimeNeverExpires;
+    procedure TestCacheTls12ZeroLifetimeIsHeldToTheCeiling;
     procedure TestCacheExpiryIsInclusiveAtLifetimeBoundary;
     procedure TestKxHintRoundTripsAndIsKeyed;
     procedure TestKxHintBounded;
@@ -69,6 +69,7 @@ type
     procedure TestStekTicketStrategyConsumeIsAlwaysTrue;
     procedure TestStorePutWithId;
     procedure TestStoreBoundedEviction;
+    procedure TestStoreRePutIdIsNotEvictedBeforeOlderEntries;
     procedure TestStoreCompactionPreservesLiveEntriesUnderChurn;
     procedure TestStekCurrentAndLookup;
     procedure TestStekRotationChangesCurrent;
@@ -86,8 +87,7 @@ type
     procedure TestStekInstallKeyRejectsBadNameLength;
     procedure TestStekInstallKeyRejectsBadKeyLength;
     procedure TestStekInstallKeyRejectsNilKey;
-    procedure TestStekInstallKeyDisablesAutoRotation;
-    procedure TestStekInstalledKeyDoesNotTimeExpire;
+    procedure TestStekFleetKeysRetireOnlyByNewerInstalls;
     procedure TestStekRotateDoesNotShortenTimer;
     procedure TestStekBackwardsClockDoesNotExpireOrRaise;
     procedure TestStekExtremeAgeBoundDoesNotExpireKeys;
@@ -115,7 +115,6 @@ type
   public
     function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
     function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    procedure Rotate;
     function KeyNameLength: Int32;
   end;
 
@@ -139,10 +138,6 @@ begin
   Result := True;
 end;
 
-procedure TBadKeyManager.Rotate;
-begin
-end;
-
 function TBadKeyManager.KeyNameLength: Int32;
 begin
   Result := 16;
@@ -162,7 +157,19 @@ type
     function IssuedAtMillis: UInt64;
     function PeerCertificates: TArray<TBytes>;
     function ResumptionScope: TBytes;
+    function PskIdentity: TBytes;
+    function PskBinding: TBytes;
   end;
+
+function TBaseOnlySession.PskIdentity: TBytes;
+begin
+  Result := nil;
+end;
+
+function TBaseOnlySession.PskBinding: TBytes;
+begin
+  Result := nil;
+end;
 
 function TBaseOnlySession.Version: TTlsVersion;
 begin
@@ -345,18 +352,20 @@ begin
   CheckEquals(0, LCache.Count, 'the expired 1.3 entry was dropped too');
 end;
 
-procedure TTestSessionStore.TestCacheTls12ZeroLifetimeNeverExpires;
+procedure TTestSessionStore.TestCacheTls12ZeroLifetimeIsHeldToTheCeiling;
 var
   LCache: ISessionCache;
   LTaken: IResumableSession;
 begin
   LCache := TInMemorySessionCache.Create;
-  // a 1.2 lifetime hint of 0 is unspecified, not expired: the cache leaves the age rule to the
-  // caller's version policy and never drops it, however far the clock has advanced
+  // a 1.2 lifetime hint of 0 is unspecified, not expired: it is held to the 7-day client ceiling
   LCache.Store('host:443', 'x.example', MakeTls12Session(Tag($12, 4), 0, 0));
-  CheckTrue(LCache.Take('host:443', 'x.example', UInt64(10000000000000), LTaken),
-    'a zero-lifetime 1.2 session is not aged out by the cache');
+  CheckTrue(LCache.Take('host:443', 'x.example', UInt64(604800) * 1000, LTaken),
+    'a zero-lifetime 1.2 session is kept up to the ceiling');
   CheckEquals(TlsWireVersionTls12, LTaken.Version.WireValue, 'and it is the 1.2 session');
+  LCache.Store('host:443', 'x.example', MakeTls12Session(Tag($12, 4), 0, 0));
+  CheckFalse(LCache.Take('host:443', 'x.example', UInt64(604800) * 1000 + 1, LTaken),
+    'and aged out past it');
 end;
 
 procedure TTestSessionStore.TestCacheExpiryIsInclusiveAtLifetimeBoundary;
@@ -497,6 +506,25 @@ begin
   CheckEquals(3, LStore.Count, 'the store never grows past its cap');
 end;
 
+procedure TTestSessionStore.TestStoreRePutIdIsNotEvictedBeforeOlderEntries;
+var
+  LStore: ISessionStore;
+  LA, LB, LC: TBytes;
+  LGot: IResumableSession;
+begin
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom, 2);
+  LA := Tag($A1, 8);
+  LB := Tag($B2, 8);
+  LC := Tag($C3, 8);
+  LStore.PutWithId(LA, MakeSession(Tag(1, 4)));
+  LStore.PutWithId(LB, MakeSession(Tag(2, 4)));
+  LStore.PutWithId(LA, MakeSession(Tag(3, 4)));
+  LStore.PutWithId(LC, MakeSession(Tag(4, 4)));
+  CheckEquals(2, LStore.Count, 'the store stays at its cap');
+  CheckTrue(LStore.Peek(LA, LGot), 'the re-put id is newer than B and survives');
+  CheckFalse(LStore.Peek(LB, LGot), 'the oldest live entry is the one evicted');
+end;
+
 procedure TTestSessionStore.TestStoreCompactionPreservesLiveEntriesUnderChurn;
 var
   LStore: ISessionStore;
@@ -543,7 +571,7 @@ end;
 
 procedure TTestSessionStore.TestStekRotationChangesCurrent;
 var
-  LStek: ISessionTicketKeyManager;
+  LStek: IRotatingTicketKeyManager;
   LName1, LName2: TBytes;
   LKey: ISecretBuffer;
   LOld: ISecretBuffer;
@@ -559,7 +587,7 @@ end;
 
 procedure TTestSessionStore.TestStekWindowRetiresOldKeys;
 var
-  LStek: ISessionTicketKeyManager;
+  LStek: IRotatingTicketKeyManager;
   LName, LFirst: TBytes;
   LKey, LFound: ISecretBuffer;
   LI: Int32;
@@ -576,11 +604,11 @@ end;
 procedure TTestSessionStore.TestStekInstallKey;
 var
   LStek: ISessionTicketKeyManager;
-  LConcrete: TStekTicketKeyManager;
+  LConcrete: TFleetTicketKeyManager;
   LName: TBytes;
   LKey, LCurrent: ISecretBuffer;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LConcrete := TFleetTicketKeyManager.Create;
   LStek := LConcrete;
   LName := Tag($55, 16);
   LKey := TSecretBuffer.From(Tag($66, 32));
@@ -593,13 +621,13 @@ end;
 procedure TTestSessionStore.TestStekFleetMintsNothingUntilInstall;
 var
   LStek: ISessionTicketKeyManager;
-  LConcrete: TStekTicketKeyManager;
+  LConcrete: TFleetTicketKeyManager;
   LName, LCurrentName: TBytes;
   LKey, LCurrent: ISecretBuffer;
 begin
   // a fleet manager mints no local key: it seals nothing until the shared STEK is installed, so a
   // pre-install ticket cannot be sealed under a key the fleet cannot open (SF-AC)
-  LConcrete := TStekTicketKeyManager.CreateFleet;
+  LConcrete := TFleetTicketKeyManager.Create;
   LStek := LConcrete;
   CheckFalse(LStek.CurrentKey(LCurrentName, LCurrent),
     'a fleet manager seals nothing before InstallKey');
@@ -720,12 +748,12 @@ end;
 
 procedure TTestSessionStore.TestStekSealCapInFleetModeStopsSealing;
 var
-  LConcrete: TStekTicketKeyManager;
+  LConcrete: TFleetTicketKeyManager;
   LStek: ISessionTicketKeyManager;
   LInstalled, LName: TBytes;
   LKey: ISecretBuffer;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 0, nil, 0, 2);
+  LConcrete := TFleetTicketKeyManager.Create(0, 2);
   LStek := LConcrete;
   LInstalled := Tag($55, 16);
   LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
@@ -780,14 +808,15 @@ end;
 
 procedure TTestSessionStore.TestStekInstallKeyRejectsBadNameLength;
 var
-  LConcrete: TStekTicketKeyManager;
+  LConcrete: TFleetTicketKeyManager;
   LStek: ISessionTicketKeyManager;
   LBefore, LAfter: TBytes;
   LKey: ISecretBuffer;
   LRaised: Boolean;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LConcrete := TFleetTicketKeyManager.Create;
   LStek := LConcrete;
+  LConcrete.InstallKey(Tag($11, 16), TSecretBuffer.From(Tag($22, 32)));
   LStek.CurrentKey(LBefore, LKey);
   LRaised := False;
   try
@@ -803,14 +832,15 @@ end;
 
 procedure TTestSessionStore.TestStekInstallKeyRejectsBadKeyLength;
 var
-  LConcrete: TStekTicketKeyManager;
+  LConcrete: TFleetTicketKeyManager;
   LStek: ISessionTicketKeyManager;
   LBefore, LAfter: TBytes;
   LKey: ISecretBuffer;
   LRaised: Boolean;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LConcrete := TFleetTicketKeyManager.Create;
   LStek := LConcrete;
+  LConcrete.InstallKey(Tag($11, 16), TSecretBuffer.From(Tag($22, 32)));
   LStek.CurrentKey(LBefore, LKey);
   LRaised := False;
   try
@@ -826,14 +856,15 @@ end;
 
 procedure TTestSessionStore.TestStekInstallKeyRejectsNilKey;
 var
-  LConcrete: TStekTicketKeyManager;
+  LConcrete: TFleetTicketKeyManager;
   LStek: ISessionTicketKeyManager;
   LBefore, LAfter: TBytes;
   LKey: ISecretBuffer;
   LRaised: Boolean;
 begin
-  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LConcrete := TFleetTicketKeyManager.Create;
   LStek := LConcrete;
+  LConcrete.InstallKey(Tag($11, 16), TSecretBuffer.From(Tag($22, 32)));
   LStek.CurrentKey(LBefore, LKey);
   LRaised := False;
   try
@@ -847,50 +878,22 @@ begin
   CheckTrue(AreEqual(LBefore, LAfter), 'and the ring is left unchanged');
 end;
 
-procedure TTestSessionStore.TestStekInstallKeyDisablesAutoRotation;
+procedure TTestSessionStore.TestStekFleetKeysRetireOnlyByNewerInstalls;
 var
-  LClockObj: TMockClock;
-  LClock: ITlsClock;
-  LConcrete: TStekTicketKeyManager;
+  LConcrete: TFleetTicketKeyManager;
   LStek: ISessionTicketKeyManager;
   LInstalled, LName: TBytes;
-  LKey: ISecretBuffer;
-begin
-  LClockObj := TMockClock.Create(1000000);
-  LClock := LClockObj;
-  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 0, LClock, 10);
-  LStek := LConcrete;
-  LInstalled := Tag($55, 16);
-  LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
-  LClockObj.Advance(11000); // past the auto-rotation interval
-  LStek.CurrentKey(LName, LKey);
-  CheckTrue(AreEqual(LInstalled, LName),
-    'installing a key freezes auto-rotation for fleet coordination');
-end;
-
-procedure TTestSessionStore.TestStekInstalledKeyDoesNotTimeExpire;
-var
-  LClockObj: TMockClock;
-  LClock: ITlsClock;
-  LConcrete: TStekTicketKeyManager;
-  LStek: ISessionTicketKeyManager;
-  LInstalled, LNext, LName: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LClockObj := TMockClock.Create(1000000);
-  LClock := LClockObj;
-  LConcrete := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom, 2, LClock, 10);
+  LConcrete := TFleetTicketKeyManager.Create(2);
   LStek := LConcrete;
   LInstalled := Tag($55, 16);
   LConcrete.InstallKey(LInstalled, TSecretBuffer.From(Tag($66, 32)));
-  LClockObj.Advance(1000000); // far past any age bound: the fleet, not the clock, owns retirement
-  CheckTrue(LStek.KeyByName(LInstalled, LFound),
-    'an installed key is not retired by the local clock (fleet nodes stamp it independently)');
-  CheckTrue(LStek.CurrentKey(LName, LKey), 'and it still seals');
+  CheckTrue(LStek.CurrentKey(LName, LKey), 'the installed key seals');
   CheckTrue(AreEqual(LInstalled, LName), 'under the installed name');
   // the operator retires an old key by installing newer ones until the window pushes it out
-  LNext := Tag($77, 16);
-  LConcrete.InstallKey(LNext, TSecretBuffer.From(Tag($88, 32)));
+  LConcrete.InstallKey(Tag($77, 16), TSecretBuffer.From(Tag($88, 32)));
+  CheckTrue(LStek.KeyByName(LInstalled, LFound), 'the first key is still inside the window');
   LConcrete.InstallKey(Tag($99, 16), TSecretBuffer.From(Tag($AA, 32)));
   CheckFalse(LStek.KeyByName(LInstalled, LFound),
     'the first installed key falls out of the window once newer keys arrive');
@@ -900,7 +903,7 @@ procedure TTestSessionStore.TestStekRotateDoesNotShortenTimer;
 var
   LClockObj: TMockClock;
   LClock: ITlsClock;
-  LStek: ISessionTicketKeyManager;
+  LStek: IRotatingTicketKeyManager;
   LNameA, LName: TBytes;
   LKey, LFound: ISecretBuffer;
 begin

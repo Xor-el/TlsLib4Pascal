@@ -20,6 +20,7 @@ uses
   SyncObjs,
   Generics.Collections,
   TlpTlsVersion,
+  TlpHandshakeMessages,
   TlpISession;
 
 type
@@ -104,11 +105,16 @@ end;
 
 class function TInMemorySessionCache.IsExpired(const ASession: IResumableSession;
   ANowMillis: UInt64): Boolean;
+var
+  LLifetime: UInt32;
 begin
-  // a zero lifetime is left to the caller's version rule (a 1.2 hint of 0 stays offerable);
-  // a backwards clock underflows the UInt64 subtraction to "expired", matching the offer policy
-  Result := (ASession.TicketLifetime > 0) and
-    ((ANowMillis - ASession.IssuedAtMillis) > (UInt64(ASession.TicketLifetime) * 1000));
+  // an unspecified lifetime (a 1.2 hint of 0, RFC 5077 3.3) is held to the 7-day client ceiling
+  // (RFC 8446 4.6.1); a backwards clock underflows the UInt64 subtraction to "expired",
+  // matching the offer policy
+  LLifetime := ASession.TicketLifetime;
+  if (LLifetime = 0) or (LLifetime > MaxTicketLifetimeSeconds) then
+    LLifetime := MaxTicketLifetimeSeconds;
+  Result := (ANowMillis - ASession.IssuedAtMillis) > (UInt64(LLifetime) * 1000);
 end;
 
 procedure TInMemorySessionCache.Store(const AServerIdentity, AServerName: string;

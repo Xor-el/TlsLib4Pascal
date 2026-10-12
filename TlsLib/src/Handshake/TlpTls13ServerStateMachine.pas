@@ -29,6 +29,8 @@ uses
   TlpINamedGroup,
   TlpIKeySchedule,
   TlpTls13KeySchedule,
+  TlpTls12KeySchedule,
+  TlpSecureMemory,
   TlpEchConfirmation,
   TlpITranscriptHash,
   TlpTranscriptHash,
@@ -249,6 +251,11 @@ type
     /// <summary>The accepted PSK's wire identity, re-located in the retry ClientHello (its
     /// offered index may shift when the client prunes its PSK list).</summary>
     FAcceptedPskIdentity: TBytes;
+    /// <summary>The external PSK that authenticated this handshake (directly, or through the
+    /// resumed ticket it is bound to) and the digest of its secret; sealed into the tickets this
+    /// handshake issues, empty for a certificate handshake.</summary>
+    FSessionPskIdentity: TBytes;
+    FSessionPskBinding: TBytes;
     /// <summary>The configured external PSKs imported for every supported KDF hash, in
     /// server preference order; matched against a ClientHello's offered identities.</summary>
     FExternalPsks: TArray<IPreSharedKey>;
@@ -353,6 +360,9 @@ type
     /// AClientSuites offered; False when none qualifies.</summary>
     function SelectSuiteWithHash(const AClientSuites: TArray<UInt16>;
       AHash: THashAlgorithm; out ASuite: TTlsCipherSuite): Boolean;
+    /// <summary>Whether AIdentity is still a configured external PSK whose secret digests to
+    /// ABinding.</summary>
+    function ExternalPskStillConfigured(const AIdentity, ABinding: TBytes): Boolean;
     /// <summary>The index of AIdentity in AOffered (exact bytes), or -1 when absent.</summary>
     class function IndexOfOfferedIdentity(const AOffered: TArray<TBytes>;
       const AIdentity: TBytes): Int32; static;
@@ -885,6 +895,11 @@ begin
     // trust, so decline it rather than reuse its stored identity
     if not TArrayUtilities.AreEqual(LSession.ResumptionScope, FParams.ResumptionScope) then
       Continue;
+    // a session an external PSK authenticated resumes only while that PSK is still configured
+    // with the same secret, so removing or rotating the key ends the sessions it made
+    if (System.Length(LSession.PskIdentity) > 0) and
+      not ExternalPskStillConfigured(LSession.PskIdentity, LSession.PskBinding) then
+      Continue;
     // the client must still offer the PSK's suite (RFC 8446 4.2.11)
     if not (TArrayUtilities.Contains<UInt16>(AClientHello.CipherSuites,
       LSession.CipherSuite)) then
@@ -919,6 +934,8 @@ begin
     FPskBinderKind := TPskBinderKind.Resumption;
     FSelectedPskIdentity := UInt16(LI);
     FAcceptedPskIdentity := AContext.OfferedPskIdentities[LI];
+    FSessionPskIdentity := LSession.PskIdentity;
+    FSessionPskBinding := LSession.PskBinding;
     FPskSecret := L13.ResumptionSecret;
     FResumedPeerCertificates := LSession.PeerCertificates;
     // 0-RTT is bound to the ticket's ALPN: accepted below only when the resumed handshake
@@ -936,6 +953,18 @@ begin
       LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
     Exit(True);
   end;
+end;
+
+function TTls13ServerStateMachine.ExternalPskStillConfigured(const AIdentity,
+  ABinding: TBytes): Boolean;
+var
+  LPsk: IPreSharedKey;
+begin
+  Result := False;
+  for LPsk in FExternalPsks do
+    if TArrayUtilities.AreEqual(LPsk.Identity, AIdentity) then
+      Exit(TSecureMemory.ConstantTimeAreEqual(
+        TPskSessionBinding.Derive(FParams.Crypto, LPsk.Key), ABinding));
 end;
 
 class function TTls13ServerStateMachine.IndexOfOfferedIdentity(
@@ -1014,6 +1043,8 @@ begin
     FPskBinderKind := LOffer.BinderKind;
     FSelectedPskIdentity := UInt16(LIndex);
     FAcceptedPskIdentity := LOffer.Identity;
+    FSessionPskIdentity := LOffer.Identity;
+    FSessionPskBinding := TPskSessionBinding.Derive(FParams.Crypto, LOffer.Key);
     FPskSecret := LOffer.Key;
     AContext.PskSelected := True;
     AContext.SelectedPskIdentity := UInt16(LIndex);
@@ -1996,7 +2027,8 @@ begin
       FSelectedSuite.Common.Hash, LPsk, FSelectedAlpn,
       FRequestedServerName, nil,
       LLifetime, LAgeAdd, FParams.Clock.NowUnixMillis,
-      FParams.MaxEarlyData, LChainForTicket, FParams.ResumptionScope);
+      FParams.MaxEarlyData, LChainForTicket, FParams.ResumptionScope,
+      FSessionPskIdentity, FSessionPskBinding);
     LHandle := FTicketStrategy.Seal(LSession);
     // an empty handle means the strategy declined to seal (e.g. an oversized chain over the cap):
     // issue no ticket for this connection rather than an unusable one

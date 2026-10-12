@@ -512,7 +512,7 @@ begin
   if Result <> nil then
   begin
     FPskIdentity := System.Copy(AIdentity);
-    FPskBinding := TTls12PskPremaster.SessionBinding(FParams.Crypto, Result);
+    FPskBinding := TPskSessionBinding.Derive(FParams.Crypto, Result);
   end
   else
     Result := LStandIn;
@@ -1051,7 +1051,7 @@ begin
     if LPsk = nil then
       Exit;
     if not TSecureMemory.ConstantTimeAreEqual(
-      TTls12PskPremaster.SessionBinding(FParams.Crypto, LPsk), L12.PskBinding) then
+      TPskSessionBinding.Derive(FParams.Crypto, LPsk), L12.PskBinding) then
       Exit;
   end;
   // neither the session nor this hello used EMS (the checks above settled that): RFC 7627 5.3 says a

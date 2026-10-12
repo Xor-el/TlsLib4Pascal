@@ -99,11 +99,17 @@ type
     /// (RFC 5489 2 names the ECDHE_PSK form, RFC 4279 2 the framing). Neither secret is
     /// materialized in a non-wiped intermediate.</summary>
     class function Build(const AShared, APsk: ISecretBuffer): ISecretBuffer; static;
-    /// <summary>A short digest of APsk sealed into a PSK session, so a resumption is honoured only
-    /// while the key that authenticated it is still the configured one: rotating the secret under the
-    /// same identity ends the sessions the old secret made. It is a keyed hash of a fixed label, so it
-    /// reveals nothing usable about the secret.</summary>
-    class function SessionBinding(const ACrypto: ICryptoProvider;
+  end;
+
+  /// <summary>The digest of a pre-shared key's secret sealed into every session that key
+  /// authenticated, in either protocol version.</summary>
+  TPskSessionBinding = class sealed(TObject)
+  public
+    /// <summary>A short digest of APsk, so a resumption is honoured only while the key that
+    /// authenticated it is still the configured one: rotating the secret under the same identity ends
+    /// the sessions the old secret made. It is a keyed hash of a fixed label, so it reveals nothing
+    /// usable about the secret.</summary>
+    class function Derive(const ACrypto: ICryptoProvider;
       const APsk: ISecretBuffer): TBytes; static;
   end;
 
@@ -360,13 +366,15 @@ begin
   Result := TSecretBuffer.Join(Framed(AShared), Framed(APsk));
 end;
 
-class function TTls12PskPremaster.SessionBinding(const ACrypto: ICryptoProvider;
+{ TPskSessionBinding }
+
+class function TPskSessionBinding.Derive(const ACrypto: ICryptoProvider;
   const APsk: ISecretBuffer): TBytes;
 var
   LMac: IHmac;
   LLabel, LFull: TBytes;
 begin
-  LLabel := TEncoding.ASCII.GetBytes('tls12 psk session');
+  LLabel := TEncoding.ASCII.GetBytes('psk session binding');
   LMac := ACrypto.Primitives.CreateHmac(THashAlgorithm.SHA_256);
   LMac.Init(APsk);
   LMac.Update(LLabel, 0, System.Length(LLabel));

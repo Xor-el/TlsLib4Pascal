@@ -54,8 +54,8 @@ type
     class function IsOfferableTls13(const ASession: IResumableSession;
       ANowMs: UInt64): Boolean; static;
     /// <summary>Whether a cached TLS 1.2 session is still offerable: a ticket past its hinted
-    /// (capped) lifetime is dropped (RFC 5077 3.3), but a hint of 0 is unspecified and still
-    /// offered - the intentional divergence from the 1.3 rule.</summary>
+    /// (capped) lifetime is dropped (RFC 5077 3.3); a hint of 0 is unspecified, so it is held to
+    /// the seven-day client ceiling instead of being discarded as in 1.3.</summary>
     class function IsOfferableTls12(const ASession: IResumableSession;
       ANowMs: UInt64): Boolean; static;
     /// <summary>The extension types a framed ClientHello offered: strips the 4-byte handshake
@@ -123,10 +123,11 @@ var
   LCappedLifetime: UInt32;
 begin
   // a 1.2 ticket past its hinted lifetime is dropped (RFC 5077 3.3); a hint of 0 is
-  // unspecified and still offered; the seven-day ceiling bounds an out-of-band session
+  // unspecified, so it gets the seven-day client ceiling (RFC 8446 4.6.1) like any other session
   LCappedLifetime := ClampTicketLifetime(ASession.TicketLifetime);
-  Result := (ASession.TicketLifetime = 0) or ((ANowMs - ASession.IssuedAtMillis) <=
-    (UInt64(LCappedLifetime) * 1000));
+  if LCappedLifetime = 0 then
+    LCappedLifetime := MaxTicketLifetimeSeconds;
+  Result := (ANowMs - ASession.IssuedAtMillis) <= (UInt64(LCappedLifetime) * 1000);
 end;
 
 class function TClientSessionPolicy.OfferedExtensionTypes(
