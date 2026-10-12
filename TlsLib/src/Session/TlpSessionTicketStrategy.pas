@@ -108,7 +108,9 @@ const
   // v8: the version itself is a 4-byte field, so layout bumps cannot run out of range; a v7 ticket
   // (a one-byte version) reads as a different number and draws a full handshake. The 1.2 tail also
   // carries a digest of the PSK's secret beside the identity, so a rotated secret does not resume
-  TicketFormatVersion = UInt32(8);
+  // v9: the PSK identity and secret digest moved to the common fields so a 1.3 session an external
+  // PSK authenticated carries them too
+  TicketFormatVersion = UInt32(9);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized
   // chain does not bloat the ticket and the resumed ClientHello that re-presents it. Past the cap
@@ -219,6 +221,14 @@ begin
   LMarker := LWriter.OpenVector(1);
   LWriter.WriteBytes(ASession.ResumptionScope);
   LWriter.CloseVector(LMarker);
+  // the external PSK that authenticated the session (empty for a certificate session), so the
+  // server resumes it only while that key is still configured with the same secret
+  LMarker := LWriter.OpenVector(2);
+  LWriter.WriteBytes(ASession.PskIdentity);
+  LWriter.CloseVector(LMarker);
+  LMarker := LWriter.OpenVector(1);
+  LWriter.WriteBytes(ASession.PskBinding);
+  LWriter.CloseVector(LMarker);
   if Supports(ASession, ITls13ResumableSession, L13) then
   begin
     LWriter.WriteUInt32(L13.TicketAgeAdd);
@@ -237,14 +247,6 @@ begin
       LWriter.WriteUInt8(1)
     else
       LWriter.WriteUInt8(0);
-    // the PSK identity that authenticated the session (empty for a certificate session), so the
-    // server resumes it only while that key is still configured
-    LMarker := LWriter.OpenVector(2);
-    LWriter.WriteBytes(L12.PskIdentity);
-    LWriter.CloseVector(LMarker);
-    LMarker := LWriter.OpenVector(1);
-    LWriter.WriteBytes(L12.PskBinding);
-    LWriter.CloseVector(LMarker);
     LMaster := nil;
     if L12.MasterSecret <> nil then
       LMaster := L12.MasterSecret.ToBytes;
@@ -334,6 +336,10 @@ begin
   LPeerChain := DeserializeChain(LReader);
   LVec := LReader.OpenVector(1);
   LScope := LVec.ReadBytes(LVec.Remaining);
+  LVec := LReader.OpenVector(2);
+  LPskIdentity := LVec.ReadBytes(LVec.Remaining);
+  LVec := LReader.OpenVector(1);
+  LPskBinding := LVec.ReadBytes(LVec.Remaining);
 
   try
     if LVersion = TlsWireVersionTls13 then
@@ -350,17 +356,13 @@ begin
         Exit;
       ASession := TTls13ResumableSession.Create(LSuite, LHash,
         TSecretBuffer.From(LResumption), LAlpn, LServerName, nil, LLifetime, LAgeAdd,
-        LIssued, LMaxEarly, LPeerChain, LScope);
+        LIssued, LMaxEarly, LPeerChain, LScope, LPskIdentity, LPskBinding);
     end
     else if LVersion = TlsWireVersionTls12 then
     begin
       LEms := LReader.ReadUInt8;
       if LEms > 1 then
         Exit;
-      LVec := LReader.OpenVector(2);
-      LPskIdentity := LVec.ReadBytes(LVec.Remaining);
-      LVec := LReader.OpenVector(1);
-      LPskBinding := LVec.ReadBytes(LVec.Remaining);
       // the master secret is the fixed-length tail; anything else is a format mismatch
       if LReader.Remaining <> Tls12MasterSecretLength then
         Exit;

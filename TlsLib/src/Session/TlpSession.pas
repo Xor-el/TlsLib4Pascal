@@ -107,7 +107,11 @@ type
     FIssuedAtMillis: UInt64;
     FPeerCertificates: TArray<TBytes>;
     FResumptionScope: TBytes;
+    FPskIdentity: TBytes;
+    FPskBinding: TBytes;
   public
+    function PskIdentity: TBytes;
+    function PskBinding: TBytes;
     function Version: TTlsVersion;
     function CipherSuite: UInt16;
     function Hash: THashAlgorithm;
@@ -137,7 +141,15 @@ type
       const AResumptionSecret: ISecretBuffer; const AAlpn: TBytes; const AServerName: string;
       const ATicketIdentity: TBytes; ATicketLifetime, ATicketAgeAdd: UInt32;
       AIssuedAtMillis: UInt64; AMaxEarlyData: UInt32;
-      const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes);
+      const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes); overload;
+    /// <summary>As above, for a session an external pre-shared key authenticated: APskIdentity is
+    /// that key's identity and APskBinding the digest of its secret.</summary>
+    constructor Create(ACipherSuite: UInt16; AHash: THashAlgorithm;
+      const AResumptionSecret: ISecretBuffer; const AAlpn: TBytes; const AServerName: string;
+      const ATicketIdentity: TBytes; ATicketLifetime, ATicketAgeAdd: UInt32;
+      AIssuedAtMillis: UInt64; AMaxEarlyData: UInt32;
+      const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes;
+      const APskIdentity, APskBinding: TBytes); overload;
 
     function ResumptionSecret: ISecretBuffer;
     function TicketIdentity: TBytes;
@@ -158,8 +170,6 @@ type
     FSessionId: TBytes;
     FSessionTicket: TBytes;
     FExtendedMasterSecret: Boolean;
-    FPskIdentity: TBytes;
-    FPskBinding: TBytes;
   public
     /// <summary>APeerCertificates is the peer chain verified at establishment (empty when none).
     /// AResumptionScope is the opaque server scope sealed into the ticket (empty when none).</summary>
@@ -181,8 +191,6 @@ type
     function SessionId: TBytes;
     function SessionTicket: TBytes;
     function ExtendedMasterSecret: Boolean;
-    function PskIdentity: TBytes;
-    function PskBinding: TBytes;
   end;
 
 implementation
@@ -313,6 +321,16 @@ begin
   Result := System.Copy(FResumptionScope);
 end;
 
+function TResumableSessionBase.PskIdentity: TBytes;
+begin
+  Result := System.Copy(FPskIdentity);
+end;
+
+function TResumableSessionBase.PskBinding: TBytes;
+begin
+  Result := System.Copy(FPskBinding);
+end;
+
 { TTls13ResumableSession }
 
 constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
@@ -322,7 +340,21 @@ constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
   AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>;
   const AResumptionScope: TBytes);
 begin
+  Create(ACipherSuite, AHash, AResumptionSecret, AAlpn, AServerName, ATicketIdentity,
+    ATicketLifetime, ATicketAgeAdd, AIssuedAtMillis, AMaxEarlyData, APeerCertificates,
+    AResumptionScope, nil, nil);
+end;
+
+constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
+  AHash: THashAlgorithm; const AResumptionSecret: ISecretBuffer;
+  const AAlpn: TBytes; const AServerName: string; const ATicketIdentity: TBytes;
+  ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
+  AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>;
+  const AResumptionScope: TBytes; const APskIdentity, APskBinding: TBytes);
+begin
   inherited Create;
+  FPskIdentity := System.Copy(APskIdentity);
+  FPskBinding := System.Copy(APskBinding);
   FVersion := TTlsVersion.Tls13;
   FCipherSuite := ACipherSuite;
   FHash := AHash;
@@ -430,16 +462,6 @@ end;
 function TTls12ResumableSession.ExtendedMasterSecret: Boolean;
 begin
   Result := FExtendedMasterSecret;
-end;
-
-function TTls12ResumableSession.PskIdentity: TBytes;
-begin
-  Result := System.Copy(FPskIdentity);
-end;
-
-function TTls12ResumableSession.PskBinding: TBytes;
-begin
-  Result := System.Copy(FPskBinding);
 end;
 
 end.

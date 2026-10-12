@@ -73,7 +73,6 @@ type
   public
     function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
     function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    procedure Rotate;
     function KeyNameLength: Int32;
   end;
 
@@ -461,10 +460,6 @@ function TDecliningTicketKeys.KeyByName(const AKeyName: TBytes;
 begin
   AKey := nil;
   Result := False;
-end;
-
-procedure TDecliningTicketKeys.Rotate;
-begin
 end;
 
 function TDecliningTicketKeys.KeyNameLength: Int32;

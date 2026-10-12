@@ -475,8 +475,8 @@ begin
     Exit(nil);
   end;
   // resumption: pop one cached TLS 1.2 session for this server to offer in the ClientHello.
-  // A ticket past its hinted lifetime is dropped (RFC 5077 3.3); a hint of 0 is unspecified and
-  // still offered. When a lifetime is hinted, a seven-day retention cap (local policy) bounds it.
+  // A ticket past its hinted lifetime is dropped (RFC 5077 3.3); a hint of 0 is unspecified, so
+  // it is held to the same seven-day retention cap (local policy) as a hinted one.
   if (FParams.SessionCache <> nil) and
     FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName,
     FParams.Clock.NowUnixMillis, LCached) and
@@ -1009,7 +1009,7 @@ begin
   else if FPskMode then
   begin
     LPskIdentity := FParams.ClientPsk.Identity;
-    LPskBinding := TTls12PskPremaster.SessionBinding(FParams.Crypto, FParams.ClientPsk.Secret);
+    LPskBinding := TPskSessionBinding.Derive(FParams.Crypto, FParams.ClientPsk.Secret);
   end;
   LSession := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
