@@ -41,7 +41,8 @@ uses
 type
   /// <summary>How a TSocketHttpFetcher reaches responders.</summary>
   TSocketHttpFetcherSettings = record
-    /// <summary>Measures every fetch's budget; required.</summary>
+    /// <summary>Measures every fetch's budget; required. The TLS timeouts run on the TlsConfig's own
+    /// clock, with the budget left passed as a duration.</summary>
     Clock: ITlsMonotonicClock;
     /// <summary>Resolves the responder or proxy host; required. It is the place to police
     /// egress, such as refusing loopback or private answers.</summary>
@@ -98,7 +99,7 @@ resourcestring
   SNilClock ='a clock is required (pass a clock, not nil)';
   SNilResolver = 'a host resolver is required (pass a resolver, not nil)';
   SProxyPortMissing = 'a proxy host needs a non-zero proxy port';
-  SLiveRevocationConfig = 'the fetcher''s TLS config must not defer to live revocation';
+  SLiveRevocationConfig = 'the fetcher''s TLS config must not defer its certificate verdict';
   SNoTlsConfig = 'an https responder needs a TLS config';
   SFetchBudgetExceeded = 'revocation fetch exceeded its time budget';
   SResponseTooLarge = 'revocation response exceeds the size cap';
@@ -810,9 +811,9 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilResolver);
   if (ASettings.ProxyHost <> '') and (ASettings.ProxyPort = 0) then
     raise EArgumentTlsLibException.CreateRes(@SProxyPortMissing);
-  // a live-revocation park would call back into this fetcher for its own responder's chain
-  if (ASettings.TlsConfig <> nil) and (ASettings.TlsConfig.AsyncCertificateVerdict.Deferral =
-    TVerdictDeferral.LiveRevocation) then
+  // a verdict park has no resolver here, and a live-revocation one would recurse into this fetcher
+  if (ASettings.TlsConfig <> nil) and (ASettings.TlsConfig.AsyncCertificateVerdict.Deferral <>
+    TVerdictDeferral.None) then
     raise EArgumentTlsLibException.CreateRes(@SLiveRevocationConfig);
   FSettings := ASettings;
 end;

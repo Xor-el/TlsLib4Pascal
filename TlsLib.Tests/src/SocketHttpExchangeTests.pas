@@ -1097,13 +1097,15 @@ procedure TTestSocketHttpFetcherTls.TestLiveRevocationConfigIsRefused;
 var
   LSettings: TSocketHttpFetcherSettings;
   LVectors: TStringList;
+  LRoot: TBytes;
   LRaised: Boolean;
 begin
   LSettings := TSocketHttpFetcherSettings.Defaults;
   LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
   try
+    LRoot := DecodeHex(LVectors.Values['root_cert']);
     LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(DecodeHex(LVectors.Values['root_cert'])))
+      .WithServerVerification(WebPkiServer(LRoot))
       .WithLiveRevocationVerdict(1000).Build;
   finally
     LVectors.Free;
@@ -1115,7 +1117,18 @@ begin
     on E: EArgumentTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'a TLS config that parks for live revocation raises');
+  CheckTrue(LRaised, 'a TLS config that parks for a live revocation check raises');
+  LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(LRoot))
+    .WithAsyncCertificateVerdict(1000).Build;
+  LRaised := False;
+  try
+    TSocketHttpFetcher.Create(LSettings).Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a TLS config that parks for a host decision raises');
   LSettings.TlsConfig := ClientConfig;
   TSocketHttpFetcher.Create(LSettings).Free;
 end;
