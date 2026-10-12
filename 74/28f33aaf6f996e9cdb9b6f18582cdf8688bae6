@@ -1,0 +1,83 @@
+TlsLib.Trust.System/src/TlpIPlatformChainEngine.pas
+  s_58af9e1b217631::t_f96c3d1c9e8d03 36-38
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_58af9e1b217631::t_9feb5fcefb4475 39-41
+  s_58af9e1b217631::t_220ce6bf736118 38
+TlsLib/src/Common/TlpIpLiteral.pas
+  s_58af9e1b217631::t_1bde63d4646c32 182-223
+  s_58af9e1b217631::t_e1cbd03ef254a6 35,38
+  s_58af9e1b217631::t_9d764e5f2488ff 36-37
+TlsLib/src/Common/TlpHttpUrl.pas
+  s_58af9e1b217631::t_e79daf3177f027 257-260
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_58af9e1b217631::t_7bc7b8f4298b9b 83
+  s_58af9e1b217631::t_07b7b4f0def723 223-224
+  s_58af9e1b217631::t_94223da87c0e5f 84-85
+  s_58af9e1b217631::t_0a10e853c15e0f 81-82
+  s_58af9e1b217631::t_1adae9e123cc7f 225
+  s_58af9e1b217631::t_474d8dfe3bda9b 221
+TlsLib/src/Handshake/TlpCertificateVerify.pas
+  s_58af9e1b217631::t_510862c16bb7f5 173-174
+  s_58af9e1b217631::t_70fcdd2eb90fef 175
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_58af9e1b217631::t_b877d3cd0b0fd0 121
+  s_58af9e1b217631::t_d7d2e8624d94a0 53
+  s_58af9e1b217631::t_052c52f937922d 2170-2205
+  s_58af9e1b217631::t_4581750da250b2 304
+  s_58af9e1b217631::t_d385b9216b8614 2445-2459
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  s_58af9e1b217631::t_54c1beb7296ede 94-96
+  s_58af9e1b217631::t_600c786707b510 151
+  s_58af9e1b217631::t_c2832d372d1487 150
+  s_58af9e1b217631::t_272d5af7d7af1e 25
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_58af9e1b217631::t_677a3f837a2c9c 713
+  s_58af9e1b217631::t_7bf4f6d9b1e019 811-812
+  s_58af9e1b217631::t_6402213747c27c 703,705
+  s_58af9e1b217631::t_c09d21ac184d95 681,684
+  s_58af9e1b217631::t_8dfe4832f12166 736
+  s_58af9e1b217631::t_ec6f37823675d8 683
+  s_58af9e1b217631::t_cde565f8721b75 1171
+  s_58af9e1b217631::t_724356a970fbbc 334-337
+TlsLib.Tests/src/HttpUrlTests.pas
+  s_58af9e1b217631::t_8db61e054fe495 207-218
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_58af9e1b217631::t_5ef951cf1c384c 703
+  s_58af9e1b217631::t_fb38aea25b8665 832
+  s_58af9e1b217631::t_d5337642e40000 726,730-732,734-736,738-742,744-745
+  s_58af9e1b217631::t_9f6acfc17ff38d 373-378
+  s_58af9e1b217631::t_190cff59df7bad 708
+  s_58af9e1b217631::t_69f656f8bd7130 702
+  s_58af9e1b217631::t_5343fe5d70755a 763
+  s_58af9e1b217631::t_733767af916b32 697,709-710
+TlsLib.Tests/src/SignatureTests.pas
+  s_58af9e1b217631::t_6ad5bfb31e5f91 31
+  s_58af9e1b217631::t_21f630166bb6ba 616,621
+  s_58af9e1b217631::t_85720db7b25bf1 99
+  s_58af9e1b217631::t_6f7e868aaab7e7 155-160
+  s_58af9e1b217631::t_2dcd60fab8e18a 45-58,60-61
+  s_58af9e1b217631::t_a39e1b20287953 608-615,617-620,622-632
+  s_58af9e1b217631::t_b3e773611a485d 633-635,637-641,643-646,651,653-667
+  s_58af9e1b217631::t_85cc8acddb21b0 642
+  s_58af9e1b217631::t_8ba399626fc51f 98
+  s_58af9e1b217631::t_a44057b3692687 106-154
+  s_58af9e1b217631::t_12e50c4e958bc4 59
+  s_58af9e1b217631::t_9c11d9708873cc 636
+  s_58af9e1b217631::t_a5c12bf8a0f1cb 647-650,652
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7428f33aaf6f996e9cdb9b6f18582cdf8688bae6",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
