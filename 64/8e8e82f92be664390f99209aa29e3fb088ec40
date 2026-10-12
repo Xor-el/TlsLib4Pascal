@@ -1,0 +1,156 @@
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_58af9e1b217631::t_d4ec5b322e5cfe 565-566
+  s_58af9e1b217631::t_bcfe47b9e215ba 1315-1316
+TlsLib.Adapters/Synapse/README.md
+  s_58af9e1b217631::t_a7457d9f062e69 82-83
+  s_58af9e1b217631::t_49e64049b94df6 102
+  s_58af9e1b217631::t_c3dea024cb6279 153-155
+  s_58af9e1b217631::t_ad994bb55ef292 45-49
+  s_58af9e1b217631::t_a8867c031c84c5 120-124
+  s_58af9e1b217631::t_865adde65fe934 145
+  s_58af9e1b217631::t_df56a06b59d736 134,136-140
+  s_58af9e1b217631::t_b5df4bac2e2102 129
+docs/getting-started.md
+  s_58af9e1b217631::t_a3072e17e08824 231
+  s_58af9e1b217631::t_6e1da570330aa6 21-22
+  s_58af9e1b217631::t_e9d19807f1b094 132-137,139-159
+  s_58af9e1b217631::t_57e4c3778bec0a 34
+  s_58af9e1b217631::t_3dbca6bddb6a5f 60-61
+  s_58af9e1b217631::t_08123500705fce 138
+  s_58af9e1b217631::t_10ba5dddf510b4 43
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_58af9e1b217631::t_570fabbdbcd737 146
+TlsLib/src/Record/TlpRecordLayer.pas
+  s_58af9e1b217631::t_db52a94ed9328b 529
+docs/cookbook.md
+  s_58af9e1b217631::t_8ae3104aabf751 519-523
+  s_58af9e1b217631::t_d1b950fc3935f3 639
+  s_58af9e1b217631::t_440ff4f45f585d 666-667
+  s_58af9e1b217631::t_17e4e75cd21c68 445,449-450
+  s_58af9e1b217631::t_92cba9bbc7f439 32
+  s_58af9e1b217631::t_69fce1cf5b4cf4 564
+  s_58af9e1b217631::t_294527a13e4144 240-243
+  s_58af9e1b217631::t_48589a7120f970 256-257
+  s_58af9e1b217631::t_d0bf35bc4e1e1b 568-570
+  s_58af9e1b217631::t_40d5c33c3553a0 699
+  s_58af9e1b217631::t_f065338cdbbe29 466
+  s_58af9e1b217631::t_7212773aac5ecc 417-421
+  s_58af9e1b217631::t_aa9f2b5df144b0 275-280,288-294
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_58af9e1b217631::t_b94b78a6808796 621
+  s_58af9e1b217631::t_b48ddc9a47bb4d 1286
+  s_58af9e1b217631::t_557cfbe51fcf1f 303-305
+TlsLib.Trust.System/Examples/Lazarus/README.md
+  s_58af9e1b217631::t_383e17c6449af3 33
+  s_58af9e1b217631::t_a47ca84c6f71a6 17-19
+  s_58af9e1b217631::t_4c794ffaf7a690 46-50
+  s_58af9e1b217631::t_eed155d0355fda 38
+TlsLib/src/Interfaces/Trust/TlpIHttpFetcher.pas
+  s_58af9e1b217631::t_71fe5c96b74b72 35-36
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_58af9e1b217631::t_52f6c98339963a 24
+  s_58af9e1b217631::t_fcb493f73794ac 49-50
+  s_58af9e1b217631::t_33cb073f086c3f 38-40
+  s_58af9e1b217631::t_39b9ab24a73635 8-10
+TlsLib.Adapters/FclNet/README.md
+  s_58af9e1b217631::t_310ed64102ce25 105-107
+  s_58af9e1b217631::t_8be506a7cf6c26 109
+  s_58af9e1b217631::t_c10889cc38f20f 146-153
+  s_58af9e1b217631::t_307dc61d3d5fe6 51
+  s_58af9e1b217631::t_bdbb9685422344 180-182
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_58af9e1b217631::t_4d9a714648f631 416-418
+  s_58af9e1b217631::t_a84639b268c254 199-200
+docs/system-trust.md
+  s_58af9e1b217631::t_aa5a497cc7ad41 483
+  s_58af9e1b217631::t_a18fe5ca447805 202
+  s_58af9e1b217631::t_ad173840a5099a 218-219
+  s_58af9e1b217631::t_894c7ad7f9b2ec 58
+docs/security-model.md
+  s_58af9e1b217631::t_f72727d3c10946 102-104
+  s_58af9e1b217631::t_7332ee5c920969 68
+  s_58af9e1b217631::t_8405ca480eb1b0 96-98
+  s_58af9e1b217631::t_78e13ea08fcf12 56
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_58af9e1b217631::t_5807e15e82a257 488-489
+TlsLib.Adapters/mORMot/README.md
+  s_58af9e1b217631::t_901efb5370f55d 132
+  s_58af9e1b217631::t_2c61f7bf015e1c 100-109
+  s_58af9e1b217631::t_f41cb9b3b6b6a6 149
+  s_58af9e1b217631::t_c4ff22cb044ffe 120-125
+  s_58af9e1b217631::t_99bcd16d9a90d9 20-21
+  s_58af9e1b217631::t_06d7c426e0238b 156-158
+  s_58af9e1b217631::t_1470a62e8896c4 81-82,85-87
+  s_58af9e1b217631::t_3d656828cff34e 137,140-146
+docs/ech.md
+  s_58af9e1b217631::t_8f3c7a6448c53c 11-14
+  s_14f2bc31f299e0::t_24a1ae952bfb4e 27,30
+docs/certificate-compression.md
+  s_58af9e1b217631::t_e71c38c0b433c7 132
+  s_58af9e1b217631::t_c6ca48e1fdca7d 123,125
+  s_58af9e1b217631::t_0a09c4e61154e5 27-30,33-34
+docs/certificate-verification.md
+  s_58af9e1b217631::t_88887fe8470e43 13
+  s_58af9e1b217631::t_9f4a6e87661e06 241-243
+  s_58af9e1b217631::t_994464fed79ae8 398-399
+  s_58af9e1b217631::t_c16700527e6507 253-254
+  s_58af9e1b217631::t_e41011eb152889 345-347
+  s_58af9e1b217631::t_c8f8fee03bd684 262
+  s_58af9e1b217631::t_9e2976d171ef97 386-387
+  s_58af9e1b217631::t_7b67519e7b4bdd 310-312
+  s_58af9e1b217631::t_2d811e2f4cf03f 392-393
+TlsLib.Adapters/Indy/README.md
+  s_58af9e1b217631::t_52f7a322792d2c 155-157
+  s_58af9e1b217631::t_01670c2a1938ad 78
+  s_58af9e1b217631::t_948c565800bf33 115-116
+  s_58af9e1b217631::t_b103a7c3a99624 46-51
+  s_58af9e1b217631::t_14d7d5c65a47f4 114,117-123
+  s_58af9e1b217631::t_0771ff3ecfcabd 133,135-139
+  s_58af9e1b217631::t_1f871e2ca0a92a 128
+  s_58af9e1b217631::t_56b4bfb5116e07 33-34
+  s_58af9e1b217631::t_12de12cb58e8e7 145
+docs/README.md
+  s_58af9e1b217631::t_792844ade5bbb5 56-57,62-63
+  s_58af9e1b217631::t_8501b0182137b1 92
+README.md
+  s_58af9e1b217631::t_aa3e919b765767 68
+  s_58af9e1b217631::t_ae46aab699057e 87
+  s_58af9e1b217631::t_561f0e9c6ec5fb 203-206
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_58af9e1b217631::t_64696e8998257f 65-66
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_58af9e1b217631::t_0c800f3367d4fb 548-549
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_58af9e1b217631::t_2f9056d6378485 278
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_58af9e1b217631::t_f9b618eb5e852d 66
+  s_58af9e1b217631::t_3792a18309f659 216
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  s_58af9e1b217631::t_d1a423117628e9 38-39
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_58af9e1b217631::t_cd03915c0ead98 190-191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "648e8e82f92be664390f99209aa29e3fb088ec40",
+  "prompts": {},
+  "sessions": {
+    "s_14f2bc31f299e0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a994da32740b67d5e",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
