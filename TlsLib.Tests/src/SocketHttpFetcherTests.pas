@@ -39,16 +39,19 @@ uses
 type
   /// <summary>
   /// The fetcher's timeout bounds the whole exchange: a responder that keeps sending, each read
-  /// inside the per-read wait, still stops at the budget. The body case steps a mock clock so it
-  /// does not wait; the header case runs against the real clock, because no progress callback
-  /// exists in that phase on every client and the budget must come from elapsed time.
+  /// inside the per-read wait, still stops at the budget. The long-body case steps a mock clock so
+  /// it does not wait; the trickle cases run against the real clock, so the budget comes from
+  /// elapsed time.
   /// </summary>
   TTestSocketHttpFetcher = class(TTlsLibTestCase)
   published
     procedure TestSteadyResponseWithinBudgetIsFetched;
     procedure TestLongResponseIsCutOffAtTheBudget;
     procedure TestTrickledHeadersAreCutOffAtTheBudget;
+    procedure TestTrickledBodyIsCutOffAtTheBudget;
+    procedure TestNoTimeoutStillCutsOffASilentResponder;
     procedure TestSilentResponderIsCutOffAtTheBudget;
+    procedure TestEarlyCloseFailsWithoutWaiting;
     procedure TestBudgetBelowASecondStillFetches;
     procedure TestEndlessHeadIsCutOffAtTheSizeCap;
     procedure TestNilClockIsRefused;
@@ -57,9 +60,9 @@ type
 implementation
 
 type
-  // what a responder does with the request: a large body in small writes, a response head that
-  // arrives a line at a time, or nothing at all
-  TResponderMode = (Body, TrickledHead, Silent, EndlessHead);
+  // what a responder does with the request: a large body in small writes, a head or a body that
+  // arrives a piece at a time, nothing at all, or part of a response and then a close
+  TResponderMode = (Body, TrickledHead, TrickledBody, Silent, EndlessHead, EarlyClose);
 
   TResponder = class(TThread)
   strict private
@@ -79,6 +82,7 @@ type
     function SendText(const AText: string): Boolean;
     function ReadRequest: Boolean;
     procedure SendHeadTrickled;
+    procedure SendBodyTrickled;
     procedure SendHeadEndless;
     procedure SendBody;
   protected
@@ -179,6 +183,23 @@ begin
   end;
 end;
 
+procedure TResponder.SendBodyTrickled;
+var
+  LI: Int32;
+begin
+  // a body that never completes, yet never leaves a gap as long as any read wait
+  if not SendText('HTTP/1.1 200 OK'#13#10'Content-Length: ' + IntToStr(HeaderLines) +
+    #13#10#13#10) then
+    Exit;
+  for LI := 1 to HeaderLines do
+  begin
+    if not SendText('A') then
+      Exit;
+    if FStop.WaitFor(HeaderPauseMs) = wrSignaled then
+      Exit;
+  end;
+end;
+
 procedure TResponder.SendHeadEndless;
 var
   LI: Int32;
@@ -229,13 +250,19 @@ begin
   case FMode of
     TResponderMode.TrickledHead:
       SendHeadTrickled;
+    TResponderMode.TrickledBody:
+      SendBodyTrickled;
     TResponderMode.Silent:
       FStop.WaitFor(INFINITE);
     TResponderMode.EndlessHead:
       SendHeadEndless;
+    TResponderMode.EarlyClose:
+      SendText('HTTP/1.1 200 OK'#13#10'Content-Length: 100'#13#10#13#10'short');
   else
     SendBody;
   end;
+  // the close is what an early-close responder is tested for
+  FStream := nil;
 end;
 
 { TTestSocketHttpFetcher }
@@ -306,6 +333,81 @@ begin
   end;
 end;
 
+procedure TTestSocketHttpFetcher.TestTrickledBodyIsCutOffAtTheBudget;
+var
+  LResponder: TResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // a byte every 100 ms of a body that would take 10 s: only the exchange-wide limit can stop it
+  LResponder := TResponder.Create(1024, TResponderMode.TrickledBody);
+  try
+    LClock := TSystemMonotonicClock.Create;
+    LFetcher := TSocketHttpFetcher.Create(LClock);
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
+      'a body that outlasts the budget fails closed');
+    CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
+    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
+      'the fetch stops near the budget, not when the responder gives up');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcher.TestEarlyCloseFailsWithoutWaiting;
+var
+  LResponder: TResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // a close five bytes into a 100-byte body is a truncation, known at once
+  LResponder := TResponder.Create(1024, TResponderMode.EarlyClose);
+  try
+    LClock := TSystemMonotonicClock.Create;
+    LFetcher := TSocketHttpFetcher.Create(LClock);
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get(LResponder.Url, 10000, 1024, LResponse),
+      'a body cut short by a close fails closed');
+    CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
+    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000, 'the close ends the fetch, not the budget');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcher.TestNoTimeoutStillCutsOffASilentResponder;
+var
+  LResponder: TResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // a timeout of 0 means the 60 s default, not no limit: a clock that spends 100 s per read ends it
+  LResponder := TResponder.Create(1024, TResponderMode.Silent);
+  try
+    LClock := TSystemMonotonicClock.Create;
+    LFetcher := TSocketHttpFetcher.Create(
+      TMockMonotonicClock.Create(1000, 100000) as ITlsMonotonicClock);
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get(LResponder.Url, 0, 1024, LResponse),
+      'a silent responder is cut off without a caller timeout');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000, 'the default budget ends the wait');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
 procedure TTestSocketHttpFetcher.TestSilentResponderIsCutOffAtTheBudget;
 var
   LResponder: TResponder;
@@ -315,7 +417,7 @@ var
   LStart: Int64;
 begin
   // a responder that takes the request and says nothing: only a wait on the socket, not the
-  // check after a read, can end this, and the kernel's receive timeout is not available on every CPU
+  // check after a read, can end this
   LResponder := TResponder.Create(1024, TResponderMode.Silent);
   try
     LClock := TSystemMonotonicClock.Create;
@@ -338,8 +440,7 @@ var
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
 begin
-  // the client counts a connect timeout in whole seconds, so a budget under one would leave the
-  // connect none
+  // a connect timeout counted in whole seconds would leave a budget under one no connect at all
   LResponder := TResponder.Create(256, TResponderMode.Body);
   try
     LFetcher := TSocketHttpFetcher.Create;

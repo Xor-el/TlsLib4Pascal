@@ -70,6 +70,7 @@ uses
   PemTests,
   DynamicLibraryTests,
   SocketHttpFetcherTests,
+  SocketHttpExchangeTests,
   NetSocketTests,
   SystemTimeUtilitiesTests,
   IpLiteralTests,
