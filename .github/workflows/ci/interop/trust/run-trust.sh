@@ -37,6 +37,8 @@
 #   * Windows root auto-update probe - informational, CI-gated: public hosts through os-anchors then
 #                 os-delegate, to see whether crypt32 fetches a missing root under the cache-only flags.
 #                 Fails only if the delegate refuses a host the anchors accepted.
+#   * macOS trust mode comparison - report-only, CI-gated: the same hosts through both modes, to see
+#                 whether the Anchors harvest and Apple SecTrust ever disagree. Never fails the leg.
 set -euo pipefail
 
 SHIM="${1:?usage: run-trust.sh <TrustDelegateInterop binary>}"
@@ -486,7 +488,19 @@ store_snapshot() { # <out file>: store:name:thumbprint for the machine and user 
 }
 
 resolve_ipv4() { # <host>: the shim dials a dotted IPv4 only
-  powershell -NoProfile -NonInteractive -Command "[System.Net.Dns]::GetHostAddresses('$1') | Where-Object { \$_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1 -ExpandProperty IPAddressToString" 2>/dev/null | tr -d '\r' || true
+  case "$OSNAME" in
+    Darwin)
+      local ip=""
+      if command -v python3 >/dev/null 2>&1; then
+        ip="$(python3 -c 'import socket,sys; print(socket.getaddrinfo(sys.argv[1], 443, socket.AF_INET)[0][4][0])' "$1" 2>/dev/null || true)"
+      fi
+      if [ -z "$ip" ]; then
+        ip="$(dscacheutil -q host -a name "$1" 2>/dev/null | sed -n 's/^ip_address: *//p' | head -n 1 || true)"
+      fi
+      echo "$ip" ;;
+    *)
+      powershell -NoProfile -NonInteractive -Command "[System.Net.Dns]::GetHostAddresses('$1') | Where-Object { \$_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1 -ExpandProperty IPAddressToString" 2>/dev/null | tr -d '\r' || true ;;
+  esac
 }
 
 probe_cell() { # <mode> <ip> <host>: prints ACCEPT | REFUSE:<alert> | NET
@@ -502,6 +516,71 @@ probe_cell() { # <mode> <ip> <host>: prints ACCEPT | REFUSE:<alert> | NET
   fi
 }
 
+probe_setup() { # the public host list and a timeout wrapper, when the runner has one
+  PROBE_TIMEOUT=""
+  if command -v timeout >/dev/null 2>&1; then PROBE_TIMEOUT="timeout 60"
+  elif command -v gtimeout >/dev/null 2>&1; then PROBE_TIMEOUT="gtimeout 60"; fi
+  PROBE_HOSTS=(letsencrypt.org digicert.com globalsign.com sectigo.com amazon.com google.com
+               microsoft.com godaddy.com ssl.com entrust.com)
+}
+
+probe_run_modes() { # resolve every host, then anchors for all of them before any delegate run
+  PROBE_IPS=(); PROBE_A=(); PROBE_D=(); PROBE_A2=()
+  for I in "${!PROBE_HOSTS[@]}"; do
+    PROBE_IPS[$I]="$(resolve_ipv4 "${PROBE_HOSTS[$I]}")"
+    PROBE_A[$I]=NET; PROBE_D[$I]=NET; PROBE_A2[$I]="-"
+  done
+  # anchors first: a delegate run can install a root a later anchors run would see
+  for I in "${!PROBE_HOSTS[@]}"; do
+    if [ -n "${PROBE_IPS[$I]}" ]; then
+      PROBE_A[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+    fi
+  done
+  for I in "${!PROBE_HOSTS[@]}"; do
+    if [ -n "${PROBE_IPS[$I]}" ]; then
+      PROBE_D[$I]="$(probe_cell os-delegate "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+    fi
+  done
+}
+
+probe_classify() { # <anchors> <delegate>: net | delegate-only | both-ok | anchors-only | both-refused
+  if [ "$1" = NET ] || [ "$2" = NET ]; then echo net
+  elif [ "$2" = ACCEPT ] && [ "$1" != ACCEPT ]; then echo delegate-only
+  elif [ "$2" = ACCEPT ]; then echo both-ok
+  elif [ "$1" = ACCEPT ]; then echo anchors-only
+  else echo both-refused
+  fi
+}
+
+probe_table() { # <1 = re-run anchors on delegate-only hosts>: print the table, fill the N_* counts
+  N_HEALED=0; N_BOTH_OK=0; N_BOTH_REFUSED=0; N_REGRESSION=0; N_NET=0; N_A_REFUSED=0
+  if [ "$1" = 1 ]; then
+    printf '  %-18s %-12s %-12s %s\n' host anchors delegate anchors-after
+  else
+    printf '  %-18s %-12s %s\n' host anchors delegate
+  fi
+  for I in "${!PROBE_HOSTS[@]}"; do
+    A="${PROBE_A[$I]}"; D="${PROBE_D[$I]}"
+    case "$A" in REFUSE*) N_A_REFUSED=$((N_A_REFUSED+1)) ;; esac
+    case "$(probe_classify "$A" "$D")" in
+      net) N_NET=$((N_NET+1)) ;;
+      delegate-only)
+        N_HEALED=$((N_HEALED+1))
+        if [ "$1" = 1 ]; then
+          PROBE_A2[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
+        fi ;;
+      both-ok) N_BOTH_OK=$((N_BOTH_OK+1)) ;;
+      anchors-only) N_REGRESSION=$((N_REGRESSION+1)) ;;
+      *) N_BOTH_REFUSED=$((N_BOTH_REFUSED+1)) ;;
+    esac
+    if [ "$1" = 1 ]; then
+      printf '  %-18s %-12s %-12s %s\n' "${PROBE_HOSTS[$I]}" "$A" "$D" "${PROBE_A2[$I]}"
+    else
+      printf '  %-18s %-12s %s\n' "${PROBE_HOSTS[$I]}" "$A" "$D"
+    fi
+  done
+}
+
 # Informational: does crypt32 fetch a missing public root under the delegate's cache-only flags
 # (the AuthRoot auto-update), where Anchors only sees roots already installed? Auto-update writes
 # to the machine store, so it sits behind the same CI gate as the install cells. Network trouble
@@ -512,46 +591,10 @@ case "$OSNAME" in
     if ! ci_store_mutation_allowed; then
       echo "  SKIPPED: not a CI runner (root auto-update modifies the machine store)"
     else
-      PROBE_TIMEOUT=""
-      if command -v timeout >/dev/null 2>&1; then PROBE_TIMEOUT="timeout 60"; fi
-      PROBE_HOSTS=(letsencrypt.org digicert.com globalsign.com sectigo.com amazon.com google.com
-                   microsoft.com godaddy.com ssl.com entrust.com)
+      probe_setup
       store_snapshot "$TMP/store_before"
-      PROBE_IPS=(); PROBE_A=(); PROBE_D=(); PROBE_A2=()
-      for I in "${!PROBE_HOSTS[@]}"; do
-        PROBE_IPS[$I]="$(resolve_ipv4 "${PROBE_HOSTS[$I]}")"
-        PROBE_A[$I]=NET; PROBE_D[$I]=NET; PROBE_A2[$I]="-"
-      done
-      # anchors for every host first: a delegate run can install a root a later anchors run would see
-      for I in "${!PROBE_HOSTS[@]}"; do
-        if [ -n "${PROBE_IPS[$I]}" ]; then
-          PROBE_A[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
-        fi
-      done
-      for I in "${!PROBE_HOSTS[@]}"; do
-        if [ -n "${PROBE_IPS[$I]}" ]; then
-          PROBE_D[$I]="$(probe_cell os-delegate "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
-        fi
-      done
-      N_HEALED=0; N_BOTH_OK=0; N_BOTH_REFUSED=0; N_REGRESSION=0; N_NET=0; N_A_REFUSED=0
-      printf '  %-18s %-12s %-12s %s\n' host anchors delegate anchors-after
-      for I in "${!PROBE_HOSTS[@]}"; do
-        A="${PROBE_A[$I]}"; D="${PROBE_D[$I]}"
-        case "$A" in REFUSE*) N_A_REFUSED=$((N_A_REFUSED+1)) ;; esac
-        if [ "$A" = NET ] || [ "$D" = NET ]; then
-          N_NET=$((N_NET+1))
-        elif [ "$D" = ACCEPT ] && [ "$A" != ACCEPT ]; then
-          N_HEALED=$((N_HEALED+1))
-          PROBE_A2[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
-        elif [ "$D" = ACCEPT ]; then
-          N_BOTH_OK=$((N_BOTH_OK+1))
-        elif [ "$A" = ACCEPT ]; then
-          N_REGRESSION=$((N_REGRESSION+1))
-        else
-          N_BOTH_REFUSED=$((N_BOTH_REFUSED+1))
-        fi
-        printf '  %-18s %-12s %-12s %s\n' "${PROBE_HOSTS[$I]}" "$A" "$D" "${PROBE_A2[$I]}"
-      done
+      probe_run_modes
+      probe_table 1
       store_snapshot "$TMP/store_after"
       for K in machine:Root user:Root machine:AuthRoot user:AuthRoot; do
         echo "  store ${K}: $(grep -c "^${K}:" "$TMP/store_before" || true) -> $(grep -c "^${K}:" "$TMP/store_after" || true)"
@@ -575,6 +618,42 @@ case "$OSNAME" in
       fi
     fi ;;
   *) echo "  SKIPPED: Windows only" ;;
+esac
+
+# Informational, never fails the leg: does the Anchors harvest ever disagree with the Apple SecTrust
+# engine on real public hosts (the default is the delegate where the OS has an engine)?
+echo "=== macOS trust mode comparison (informational) ==="
+case "$OSNAME" in
+  Darwin)
+    if ! ci_store_mutation_allowed; then
+      echo "  SKIPPED: not a CI runner (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
+    else
+      probe_setup
+      probe_run_modes
+      probe_table 0
+      for I in "${!PROBE_HOSTS[@]}"; do
+        A="${PROBE_A[$I]}"; D="${PROBE_D[$I]}"
+        case "$(probe_classify "$A" "$D")" in
+          anchors-only)
+            echo "  note: ${PROBE_HOSTS[$I]}: delegate refused (alert ${D#REFUSE:}), anchors accepted:" \
+              "possible Apple policy difference (CT / validity cap), not necessarily a bug" ;;
+          delegate-only)
+            echo "  note: ${PROBE_HOSTS[$I]}: anchors refused (alert ${A#REFUSE:}), delegate accepted:" \
+              "harvest may be missing a root the OS trusts" ;;
+        esac
+      done
+      echo "  summary: both-accepted=$N_BOTH_OK both-refused=$N_BOTH_REFUSED delegate-only=$N_HEALED" \
+        "anchors-only=$N_REGRESSION network=$N_NET"
+      N_REACHED=$(( ${#PROBE_HOSTS[@]} - N_NET ))
+      if [ "$N_REACHED" -eq 0 ]; then
+        echo "  INCONCLUSIVE: no host was reachable (INFO, not a failure)"
+      elif [ $((N_HEALED + N_REGRESSION)) -eq 0 ]; then
+        echo "  modes agree on all $N_REACHED reachable hosts"
+      else
+        echo "  modes disagree on $((N_HEALED + N_REGRESSION)) host(s)"
+      fi
+    fi ;;
+  *) echo "  SKIPPED: macOS only" ;;
 esac
 
 echo "=== native-trust cells: $FAILURES failure(s) ==="
