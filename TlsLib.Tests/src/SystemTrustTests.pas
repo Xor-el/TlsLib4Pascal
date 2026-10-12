@@ -304,6 +304,8 @@ type
   strict protected
     function CreateAnchorStore: ITrustAnchorStore; override;
     function PlatformName: string; override;
+  published
+    procedure TestReadDistrustedMatchesSnapshotDistrust;
   end;
 
   /// <summary>Behavioural tests for the Windows OS client-certificate delegate against a
@@ -369,6 +371,7 @@ type
     procedure SetUp; override;
   published
     procedure TestPolicyErrorClassification;
+    procedure TestRevocationErrorOnDistrustedChainIsNotRevoked;
     procedure TestPrivateCaServerChainRefusedWithoutHostRoots;
     procedure TestPrivateCaServerChainAcceptedWithHostRoots;
     procedure TestForeignHostRootDoesNotVouchForTheChain;
@@ -2394,6 +2397,27 @@ begin
   Result := 'Windows';
 end;
 
+procedure TTestWindowsSystemTrust.TestReadDistrustedMatchesSnapshotDistrust;
+var
+  LSource: TWindowsRootSource;
+  LRead: TArray<TBytes>;
+  LStore: ITrustAnchorStore;
+  LI: Int32;
+begin
+  LSource := TWindowsRootSource.Create(Pkix);
+  try
+    LRead := LSource.ReadDistrusted;
+  finally
+    LSource.Free;
+  end;
+  LStore := CreateAnchorStore;
+  CheckEquals(System.Length(LStore.DistrustedCertificates), System.Length(LRead),
+    'ReadDistrusted returns the Disallowed store alone');
+  for LI := 0 to System.Length(LRead) - 1 do
+    CheckTrue(LStore.IsDistrusted(LRead[LI]),
+      Format('read distrusted certificate %d is in the snapshot distrust set', [LI]));
+end;
+
 { TTestWindowsClientDelegate }
 
 procedure TTestWindowsClientDelegate.SetUp;
@@ -2809,6 +2833,29 @@ begin
     TPlatformChainFailure.Other, 'CERT_E_WRONG_USAGE');
   CheckMapping($800B010F,TTlsAlertDescription.BadCertificate,
     TPlatformChainFailure.Other, 'CERT_E_CN_NO_MATCH');
+end;
+
+procedure TTestWindowsHostRoots.TestRevocationErrorOnDistrustedChainIsNotRevoked;
+const
+  CertERevoked = Cardinal($800B010C);
+  ExplicitDistrust = Cardinal($04000000);
+var
+  LCtx: TBytes;
+  LResult: TPlatformChainResult;
+  LAlert: TTlsAlertDescription;
+begin
+  // zero-filled chain context: dwErrorStatus follows cbSize
+  SetLength(LCtx, 64);
+  PCardinal(@LCtx[4])^ := ExplicitDistrust;
+  CheckFalse(TWindowsChainEngine.ClassifyPolicyStatus(CertERevoked, @LCtx[0], LResult, LAlert),
+    'an explicitly distrusted chain is rejected');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+  CheckEquals(Ord(TPlatformChainFailure.Other), Ord(LResult.Failure), 'the failure class is Other');
+  CheckTrue(LResult.Outcome <> TLiveRevocationOutcome.Revoked, 'it is not reported as revoked');
+  PCardinal(@LCtx[4])^ := 0;
+  TWindowsChainEngine.ClassifyPolicyStatus(CertERevoked, @LCtx[0], LResult, LAlert);
+  CheckEquals(Ord(TLiveRevocationOutcome.Revoked), Ord(LResult.Outcome),
+    'without the distrust bit the same error is a revocation');
 end;
 
 procedure TTestWindowsHostRoots.TestPrivateCaServerChainRefusedWithoutHostRoots;

@@ -2,7 +2,7 @@
 <network-security-config>
     <!-- a pin that matches no real key, scoped to this one domain so every other host is unaffected -->
     <domain-config>
-        <domain includeSubdomains="false">example.com</domain>
+        <domain includeSubdomains="false">letsencrypt.org</domain>
         <pin-set>
             <pin digest="SHA-256">47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=</pin>
         </pin-set>

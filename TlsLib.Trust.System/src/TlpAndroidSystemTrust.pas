@@ -764,7 +764,7 @@ begin
   end;
   try
     // one frame reclaims the chain build, trust call and returned-list refs
-    if LEnv^^.PushLocalFrame(LEnv, 32 + (Length(AChain) + Length(AAnchors)) * 4) <> 0 then
+    if LEnv^^.PushLocalFrame(LEnv, 48 + (Length(AChain) + Length(AAnchors)) * 4) <> 0 then
     begin
       ClearPending(LEnv);
       Exit;
@@ -984,7 +984,7 @@ begin
   try
     // one frame reclaims the peer chain, the anchor certs and the keystore/trust-manager refs
     if LEnv^^.PushLocalFrame(LEnv,
-      16 + (Length(AChain) + Length(AAnchors)) * 4) <> 0 then
+      32 + (Length(AChain) + Length(AAnchors)) * 4) <> 0 then
     begin
       ClearPending(LEnv);
       Exit;

@@ -81,15 +81,16 @@ on Windows and macOS also `Anchors`. Android and iOS have only the Delegate mode
 | `expired.badssl.com` | the badssl root | refused (expiry is final) |
 | `wrong.host.badssl.com` | the badssl root | refused (name is final) |
 | `self-signed.badssl.com` | an unrelated test root | refused |
-| `example.com` (Android only, wrong network-security-config pin) | the badssl root | refused |
+| `letsencrypt.org` (Android only, wrong network-security-config pin) | ISRG Root X1, the OS root it chains to | refused |
 
 On a phone, a `FAIL:` on the second cell means the host root was not trusted beside the OS roots;
 a `FAIL:` on any refused cell means a final failure (expiry, name, untrusted, pin) was rescued.
-The `example.com` cell prints `SKIP:` off Android.
+The `letsencrypt.org` cell passes the same root the site already chains to, so the host root would
+accept it if the pin failure were not final. It prints `SKIP:` off Android.
 
 ### Wiring the pin cell (Android, local project files)
 
-`res/xml/network_security_config.xml` pins `example.com` to a key that matches nothing; it names no
+`res/xml/network_security_config.xml` pins `letsencrypt.org` to a key that matches nothing; it names no
 other domain and has no base config. Wire it in locally with the script (the `.deployproj` and the
 manifest template are not committed):
 

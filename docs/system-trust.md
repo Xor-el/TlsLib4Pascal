@@ -145,7 +145,7 @@ What happens:
 
 - The OS judges the chain with its own roots and full policy.
 - If it fails **only** for lack of a trusted root, the same OS engine judges the chain against the
-  host roots alone. Any other failure (revoked, expired, distrusted, wrong usage, name, pin) is final
+  host roots alone. Any other failure (revoked, expired, distrusted, wrong usage, name) is final
   and the host roots never rescue it.
 - Apple does this natively in one evaluation: `SecTrust` takes the host roots as extra anchors beside
   the system roots. Windows and Android do two passes: the OS roots first, then the host roots as the
@@ -161,9 +161,11 @@ What happens:
 
 **Android.** The host roots apply app-wide, like a certificate in `<base-config>` that every domain
 inherits. They override a `network_security_config.xml` domain entry that restricts roots, because
-Android has no API to read it. NSC pin-set failures, expiry and revocation stay final, and
-user-installed CAs are not newly trusted. If you need per-domain roots, put them in
-`network_security_config.xml` and pass no host roots.
+Android has no API to read it. Expiry and revocation stay final, and user-installed CAs are not
+newly trusted. `network_security_config.xml` pin-sets apply only to chains that end at an OS root
+(a pin failure there is final); a chain that ends at a host root bypasses
+`network_security_config.xml` entirely, pins included. If you need per-domain roots or pins, put
+them in `network_security_config.xml` and pass no host roots.
 
 ### OS distrust in Anchors mode
 

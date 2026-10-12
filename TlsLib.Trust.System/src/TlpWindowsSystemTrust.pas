@@ -25,6 +25,7 @@ uses
   TlpTlsAlert,
   TlpTrustPolicy,
   TlpSystemTrustBase,
+  TlpSystemTrustExceptions,
   TlpIPlatformChainEngine;
 
 type
@@ -69,6 +70,13 @@ type
     /// handled here - it is classified into the tri-state outcome by the evaluation.</summary>
     class procedure MapPolicyError(ADwError: DWORD; out AAlert: TTlsAlertDescription;
       out AFailure: TPlatformChainFailure); static;
+    /// <summary>Turns the chain-policy dwError into the platform result: 0 is Good, a definitive
+    /// revocation is Revoked, an unreachable/undecided revocation is Indeterminate (each with the
+    /// OS-built path and the anchor exempt), and any other error is a False rejection with the
+    /// mapped alert. A revocation error on an explicitly distrusted chain is a bad_certificate
+    /// rejection, not a revocation. A path that cannot be read is internal_error.</summary>
+    class function ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
+      out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
     function Capabilities: TPlatformChainCapabilities;
     function EvaluateServer(const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
@@ -81,6 +89,9 @@ type
 implementation
 
 {$IFDEF TLSLIB_MSWINDOWS}
+
+resourcestring
+  SDisallowedUnreadable = 'the Windows Disallowed certificate store could not be opened';
 
 const
   CRYPT32_DLL = 'crypt32.dll';
@@ -109,6 +120,7 @@ const
   // CERT_TRUST_STATUS.dwErrorStatus bits inspected alongside the policy dwError in live mode
   CERT_TRUST_REVOCATION_STATUS_UNKNOWN = $00000040;
   CERT_TRUST_IS_OFFLINE_REVOCATION = $01000000;
+  CERT_TRUST_IS_EXPLICIT_DISTRUST = $04000000;
   // the leaf property crypt32 reads a stapled OCSP response from, so revocation is decided
   // from the handshake staple without a network fetch
   CERT_OCSP_RESPONSE_PROP_ID = 70;
@@ -337,9 +349,10 @@ type
     /// uses (no EKU/property), or the list contains serverAuth or anyExtendedKeyUsage. A root
     /// disabled for all purposes, or trusted only for a non-serverAuth purpose, returns False.</summary>
     class function IsServerAuthAnchor(AContext: PCERT_CONTEXT): Boolean; static;
-    class procedure CollectStore(AStoreName: PWideChar;
+    /// <summary>Appends the store's certificates to ADest; False when the store cannot be opened.</summary>
+    class function CollectStore(AStoreName: PWideChar;
       const AExclude: TDictionary<TBytes, Boolean>;
-      const ADest: TList<TBytes>; AServerAuthOnly: Boolean); static;
+      const ADest: TList<TBytes>; AServerAuthOnly: Boolean): Boolean; static;
     class function UnixMillisToFileTime(AMillisUtc: UInt64): FILETIME; static;
   private
     class procedure ResolveDynamicImports; static;
@@ -354,16 +367,13 @@ type
     /// revocation-unknown (soft-fail without masking a real error); None and RequirePositive keep 0
     /// (None has nothing to be unknown, RequirePositive must reject an unknown).</summary>
     class function PolicyFlags(ARevocation: TPlatformRevocationCheck): DWORD; static;
-    /// <summary>Turns the chain-policy dwError into the platform result: 0 is Good, a definitive
-    /// revocation is Revoked, an unreachable/undecided revocation is Indeterminate (each with the
-    /// OS-built path and the anchor exempt), and any other error is a False rejection with the
-    /// mapped alert. A path that cannot be read is internal_error.</summary>
-    class function ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
-      out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>The raw DER of the ROOT store (server-auth-capable roots only) minus the
     /// Disallowed store, and in ADisallowed the Disallowed store's certificates themselves.
     /// Validation and de-duplication are the caller's responsibility.</summary>
     class function HarvestAnchors(out ADisallowed: TArray<TBytes>): TArray<TBytes>; static;
+    /// <summary>The Disallowed store's certificates alone. Empty when crypt32 is unavailable; an
+    /// unopenable store raises, so "none distrusted" is never confused with "could not read".</summary>
+    class function ReadDisallowed: TArray<TBytes>; static;
     /// <summary>Reads the DER of the end-entity simple chain the OS built (rgpChain[0]): element 0
     /// the leaf, the last element the anchor. False on any malformed field (no chain/element, nil
     /// or empty encoded cert) so the caller fails closed.</summary>
@@ -483,9 +493,9 @@ begin
   Result := False;
 end;
 
-class procedure TWindowsTrustApi.CollectStore(AStoreName: PWideChar;
+class function TWindowsTrustApi.CollectStore(AStoreName: PWideChar;
   const AExclude: TDictionary<TBytes, Boolean>; const ADest: TList<TBytes>;
-  AServerAuthOnly: Boolean);
+  AServerAuthOnly: Boolean): Boolean;
 var
   LStore: HCERTSTORE;
   LContext: PCERT_CONTEXT;
@@ -495,7 +505,8 @@ begin
   // read-only, so the harvest cannot alter the OS store
   LStore := FCertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, nil,
     CERT_SYSTEM_STORE_CURRENT_USER or CERT_STORE_READONLY_FLAG, AStoreName);
-  if LStore = nil then
+  Result := LStore <> nil;
+  if not Result then
     Exit;
   try
     LContext := FCertEnumCertificatesInStore(LStore, nil);
@@ -548,6 +559,23 @@ begin
     finally
       LExclude.Free;
     end;
+  finally
+    LDisallowed.Free;
+  end;
+end;
+
+class function TWindowsTrustApi.ReadDisallowed: TArray<TBytes>;
+var
+  LDisallowed: TList<TBytes>;
+begin
+  Result := nil;
+  if not FReady then
+    Exit;
+  LDisallowed := TList<TBytes>.Create;
+  try
+    if not CollectStore('Disallowed', nil, LDisallowed, False) then
+      raise ESystemTrustUnavailableTlsLibException.CreateRes(@SDisallowedUnreadable);
+    Result := LDisallowed.ToArray;
   finally
     LDisallowed.Free;
   end;
@@ -633,13 +661,17 @@ begin
     Result := 0;
 end;
 
-class function TWindowsTrustApi.ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
+class function TWindowsChainEngine.ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 var
   LOsPath: TArray<TBytes>;
+  LDistrusted: Boolean;
 begin
   Result := False;
   AResult := Default(TPlatformChainResult);
+  LDistrusted := (AChainCtx <> nil) and
+    ((PCERT_CHAIN_CONTEXT(AChainCtx)^.TrustStatus.dwErrorStatus and
+    CERT_TRUST_IS_EXPLICIT_DISTRUST) <> 0);
   if ADwError = 0 then
   begin
     // dwError can be 0 while BestEffort's policy flag suppressed a revocation-unknown; consult the
@@ -651,7 +683,8 @@ begin
     else
       AResult.Outcome := TLiveRevocationOutcome.Good;
   end
-  else if (ADwError = CERT_E_REVOKED) or (ADwError = CERT_E_REVOKED_ALT) then
+  else if ((ADwError = CERT_E_REVOKED) or (ADwError = CERT_E_REVOKED_ALT)) and
+    (not LDistrusted) then
     // a definitive revocation from the chain engine
     AResult.Outcome := TLiveRevocationOutcome.Revoked
   else if (ADwError = CRYPT_E_NO_REVOCATION_CHECK) or
@@ -661,12 +694,12 @@ begin
   else
   begin
     // a definitive non-revocation trust failure: reject with the mapped alert
-    TWindowsChainEngine.MapPolicyError(ADwError, AAlert, AResult.Failure);
+    MapPolicyError(ADwError, AAlert, AResult.Failure);
     Exit;
   end;
   // the OS-built path (leaf-first, ending at the anchor) is the validated chain; the anchor (last
   // element) is exempt from the strength policy the delegate applies over it
-  if not ReadChainPath(AChainCtx, LOsPath) then
+  if not TWindowsTrustApi.ReadChainPath(AChainCtx, LOsPath) then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit;
@@ -879,7 +912,7 @@ begin
       Exit;
     end;
 
-    Result := ClassifyPolicyStatus(LStatus.dwError, LChain, AResult, AAlert);
+    Result := TWindowsChainEngine.ClassifyPolicyStatus(LStatus.dwError, LChain, AResult, AAlert);
   finally
     if LChain <> nil then
       FCertFreeCertificateChain(LChain);
@@ -910,7 +943,7 @@ end;
 
 function TWindowsRootSource.ReadDistrusted: TArray<TBytes>;
 begin
-  TWindowsTrustApi.HarvestAnchors(Result);
+  Result := TWindowsTrustApi.ReadDisallowed;
 end;
 
 function TWindowsRootSource.SourceName: string;
