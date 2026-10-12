@@ -370,10 +370,12 @@ type
     /// the cache-only-vs-live mode (live bounds the fetch by ARequest.DeadlineMs). Returns True with
     /// the tri-state result (path + outcome) when the OS built and trusted a path; on a definitive
     /// non-revocation failure False with AAlert.
-    /// AServer selects the role: the server path validates against the OS roots with the serverAuth
-    /// EKU, binds the host and consumes the staple; the client path builds an exclusive-root engine
-    /// over ARequest.Anchors alone (never the OS/public roots) with the clientAuth EKU and no host or
-    /// staple, and returns internal_error when the exclusive-engine entry point is unavailable.</summary>
+    /// AServer selects the role: the server path validates with the serverAuth EKU, binds the host and
+    /// consumes the staple, against the OS roots or, when ARequest.Anchors is non-empty, against an
+    /// exclusive-root engine over those anchors alone; the client path always builds that exclusive
+    /// engine over ARequest.Anchors (never the OS/public roots) with the clientAuth EKU and no host or
+    /// staple. An anchored evaluation returns internal_error when the exclusive-engine entry point is
+    /// unavailable.</summary>
     class function EvaluateWithPolicy(AServer: Boolean;
       const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
@@ -692,26 +694,20 @@ var
   LTimePtr: Pointer;
   LFlags: DWORD;
   LI: Integer;
+  LExclusive: Boolean;
 begin
   Result := False;
   AResult := Default(TPlatformChainResult);
   AAlert := TTlsAlertDescription.BadCertificate;
+  // a client is always anchored; a server only when the caller supplies anchors
+  LExclusive := (not AServer) or (Length(ARequest.Anchors) > 0);
 
   if Length(ARequest.Chain) = 0 then
     Exit;
 
-  if AServer then
-  begin
-    if not FReady then
-    begin
-      AAlert := TTlsAlertDescription.InternalError;
-      Exit;
-    end;
-  end
-  // the exclusive-root engine is required for client-auth: without it a client could validate
-  // against the OS/public roots, so fail closed rather than fall back to a weaker check
-  else if (not FReady) or (not System.Assigned(FCertCreateCertificateChainEngine)) or
-    (not System.Assigned(FCertFreeCertificateChainEngine)) then
+  // without the exclusive-root engine an anchored chain could fall back to the OS roots: fail closed
+  if (not FReady) or (LExclusive and ((not System.Assigned(FCertCreateCertificateChainEngine)) or
+    (not System.Assigned(FCertFreeCertificateChainEngine)))) then
   begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit;
@@ -727,26 +723,26 @@ begin
   LInterStore := nil;
   LEngine := nil;
   LChain := nil;
-  if AServer then
-    LStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil)
-  else
+  if LExclusive then
   begin
     LRootStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
     LInterStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
-  end;
+  end
+  else
+    LStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
   try
-    if AServer then
+    // the staple, attached to the leaf, is read as cached revocation data (no responder fetch)
+    if AServer and (Length(ARequest.OcspStaple) > 0) and
+      System.Assigned(FCertSetCertificateContextProperty) then
     begin
-      // the staple, attached to the leaf, is read as cached revocation data (no responder fetch)
-      if (Length(ARequest.OcspStaple) > 0) and
-        System.Assigned(FCertSetCertificateContextProperty) then
-      begin
-        LStapleBlob.cbData := Length(ARequest.OcspStaple);
-        LStapleBlob.pbData := PByte(ARequest.OcspStaple);
-        FCertSetCertificateContextProperty(LLeaf, CERT_OCSP_RESPONSE_PROP_ID, 0,
-          @LStapleBlob);
-      end;
+      LStapleBlob.cbData := Length(ARequest.OcspStaple);
+      LStapleBlob.pbData := PByte(ARequest.OcspStaple);
+      FCertSetCertificateContextProperty(LLeaf, CERT_OCSP_RESPONSE_PROP_ID, 0,
+        @LStapleBlob);
+    end;
 
+    if not LExclusive then
+    begin
       // Feed the presented intermediates so the engine can build the path without an AIA fetch.
       if LStore <> nil then
         for LI := 1 to Length(ARequest.Chain) - 1 do
@@ -764,7 +760,7 @@ begin
         Exit;
       end;
 
-      // the configured client-CA anchors are the ONLY trusted roots
+      // the supplied anchors are the ONLY trusted roots
       for LI := 0 to Length(ARequest.Anchors) - 1 do
         if Length(ARequest.Anchors[LI]) > 0 then
           FCertAddEncodedCertificateToStore(LRootStore, MY_ENCODING_TYPE,
@@ -833,7 +829,7 @@ begin
       LTimePtr := @LFileTime;
     end;
 
-    // the server uses the default engine (LEngine nil); the client uses its exclusive-root engine
+    // an unanchored server uses the default engine (LEngine nil)
     if not FCertGetCertificateChain(LEngine, LLeaf, LTimePtr, LIntermediates, LParaPtr,
       LFlags, nil, LChain) then
     begin

@@ -50,6 +50,7 @@ uses
   TlpClock,
   MockClock,
   TlpSystemTrustExceptions,
+  TlpTlsLibExceptions,
   // portable engine - drives the always-on fixtures on every host
   TlpFileSystemTrust,
   // the real per-OS harvesters, each compiled only on its own platform
@@ -117,6 +118,7 @@ type
     procedure TestClientInstallComposesLikeFacade;
     procedure TestSharedInstallerIsOneStableInstance;
     procedure TestExplicitOsAnchorsAreTheServerEscapeHatch;
+    procedure TestLiveFetchWithoutADeadlineIsRefused;
   end;
 
   /// <summary>Portable suite (always runs): the shared OS-delegate post-checks
@@ -299,6 +301,7 @@ type
     procedure TestLiveEvaluationStaysExclusiveRoot;
     procedure TestWrongRolePeerRefusedWithInternalError;
     procedure TestServerChainResolverRefusesClientParkAtOff;
+    procedure TestServerRoleLiveEvaluationHonoursSuppliedAnchors;
     procedure TestConfiguredIntermediateCompletesLeafOnlyClientChain;
   end;
 
@@ -2164,6 +2167,42 @@ begin
   end;
 end;
 
+procedure TTestWindowsClientDelegate.TestServerRoleLiveEvaluationHonoursSuppliedAnchors;
+var
+  LAlert: TTlsAlertDescription;
+
+  function ResolveServerRole(const AAnchors: TArray<TBytes>): Boolean;
+  var
+    LResolver: TOSDelegateLiveResolver;
+    LCtx: TCertificateVerdictContext;
+  begin
+    LResolver := TOSDelegateLiveResolver.Create(
+      TWindowsChainEngine.Create as IPlatformChainEngine, TPeerRole.Server,
+      MakePolicy(AAnchors, TRevocationPosture.Soft, TSystemTrustFetch.Live,
+      TVerdictDeferral.LiveRevocation, TSystemClock.Create as ITlsClock,
+      TCertificateStrengthPolicy.Defaults, Advertised), nil);
+    try
+      LCtx.PeerRole := TPeerRole.Server;
+      LCtx.HostName := '';
+      LCtx.OcspStaple := nil;
+      LCtx.Chain := Leaf;
+      Result := LResolver.ResolveVerdict(LCtx, LAlert);
+    finally
+      LResolver.Free;
+    end;
+  end;
+
+begin
+  // a private-PKI server chain is trusted only through the config's anchors: with them the live
+  // pass builds against that root, without them it uses the OS roots and finds no issuer
+  CheckTrue(ResolveServerRole(OwnAnchor),
+    'a server chain to the supplied anchor is trusted on the live path');
+  CheckFalse(ResolveServerRole(nil), 'with no anchors the private root is not an OS root');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'and the failure is unknown_ca');
+  CheckFalse(ResolveServerRole(ForeignAnchor), 'a foreign anchor does not vouch for the chain');
+end;
+
 {$ENDIF TLSLIB_MSWINDOWS}
 
 {$IFDEF TLSLIB_MACOS}
@@ -2401,6 +2440,21 @@ begin
   LViaInstaller := LInstallerBuilder.Build;
   CheckNotNull(LViaFacade, 'the facade installs a usable client trust source');
   CheckNotNull(LViaInstaller, 'the installer installs a usable client trust source');
+end;
+
+procedure TTestSystemTrustInstaller.TestLiveFetchWithoutADeadlineIsRefused;
+var
+  LRefused: Boolean;
+begin
+  LRefused := False;
+  try
+    TSystemTrust.WithSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
+      TSystemTrustFetch.Live, 0);
+  except
+    on E: EArgumentTlsLibException do
+      LRefused := True;
+  end;
+  CheckTrue(LRefused, 'a live fetch with a zero verdict deadline is refused before any build');
 end;
 
 procedure TTestSystemTrustInstaller.TestSharedInstallerIsOneStableInstance;

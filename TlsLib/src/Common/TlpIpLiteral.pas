@@ -32,6 +32,10 @@ type
     /// "::" and an optional trailing embedded IPv4 (RFC 4291 2.2). False for any other
     /// shape.</summary>
     class function TryParseIPv6(const AText: string; out ABytes: TBytes): Boolean; static;
+    /// <summary>The canonical text of sixteen octets (RFC 5952): lower-case hex, no leading zeros,
+    /// and the longest run of two or more zero groups (the first on a tie) written as "::". An
+    /// embedded IPv4 is written as hex groups so every spelling has one canonical form.</summary>
+    class function FormatIPv6(const ABytes: TBytes): string; static;
   end;
 
 implementation
@@ -173,6 +177,48 @@ begin
     Inc(LPos, 2);
   end;
   Result := True;
+end;
+
+class function TIpLiteral.FormatIPv6(const ABytes: TBytes): string;
+var
+  LGroups: array [0 .. 7] of UInt16;
+  LBestStart, LBestLen, LRunStart, LRunLen, LI: Int32;
+begin
+  for LI := 0 to 7 do
+    LGroups[LI] := TBinaryPrimitives.ReadUInt16BigEndian(ABytes, LI * 2);
+  LBestStart := -1;
+  LBestLen := 0;
+  LRunStart := -1;
+  LRunLen := 0;
+  for LI := 0 to 7 do
+    if LGroups[LI] = 0 then
+    begin
+      if LRunLen = 0 then
+        LRunStart := LI;
+      Inc(LRunLen);
+      if LRunLen > LBestLen then
+      begin
+        LBestStart := LRunStart;
+        LBestLen := LRunLen;
+      end;
+    end
+    else
+      LRunLen := 0;
+  Result := '';
+  LI := 0;
+  while LI < 8 do
+  begin
+    if (LBestLen >= 2) and (LI = LBestStart) then
+    begin
+      Result := Result + '::';
+      Inc(LI, LBestLen);
+      Continue;
+    end;
+    if (Result <> '') and (Result[System.Length(Result)] <> ':') then
+      Result := Result + ':';
+    Result := Result + LowerCase(IntToHex(LGroups[LI], 1));
+    Inc(LI);
+  end;
 end;
 
 end.
