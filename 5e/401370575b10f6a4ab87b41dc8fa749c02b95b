@@ -1,0 +1,33 @@
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_58af9e1b217631::t_13d14c84a7fb90 84,87-96,99-109
+  s_58af9e1b217631::t_9fd756e7659637 97-98
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_58af9e1b217631::t_d9eb1015c55206 542-580
+  s_58af9e1b217631::t_3edc1883ab2a1e 596
+  s_58af9e1b217631::t_f185386db7aa5c 166-168
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoRunner.pas
+  s_58af9e1b217631::t_990bed67f3df49 506-507,510-521
+  s_58af9e1b217631::t_dfe35a11901bdb 42
+  s_58af9e1b217631::t_dcdd5c6d3da315 351-354
+  s_58af9e1b217631::t_2a4fa1e1e29d46 536-539
+  s_58af9e1b217631::t_f34dfb7875ef5d 208,210,212-213,215-216,218-219,221-222,224-227
+  s_58af9e1b217631::t_30a6da6d8d2f06 540
+TlsLib.Trust.System/Examples/Delphi/res/xml/network_security_config.xml
+  s_58af9e1b217631::t_4eef01716036a7 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5e401370575b10f6a4ab87b41dc8fa749c02b95b",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
