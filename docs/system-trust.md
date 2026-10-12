@@ -230,7 +230,7 @@ Both modes accept the same chains in the normal case. These are the differences 
 |---|---|---|
 | OS distrust | the OS applies it natively to a path that ended at an OS root; for a path that ended at a host root the library applies an exact-match post-check over the readable list (Windows `Disallowed`, macOS Deny), with the same caveats as Anchors mode (hash-only entries and built-in blocklists are invisible), and none on iOS and Android | exact-certificate match only (Windows `Disallowed`, macOS Deny), on every path |
 | Root-store properties (Windows EKU override, disabled and partially distrusted roots; enterprise policy) | honoured | not honoured: a harvest keeps the certificates only |
-| Windows roots not installed yet | not downloaded inline (cache-only retrieval) | not seen: the harvest lists installed roots |
+| Windows roots not installed yet | installed by Windows root auto-update, inline flags included (measured on a Windows Server 2025 runner with the auto-update policy cleared); not installed where policy disables auto-update | not seen: the harvest lists installed roots |
 | Missing intermediates | no fetch inline; the OS may use its cache | configured intermediates only |
 | Revocation source | OS cache plus the staple; on Windows and Apple `Hard` is decided inline from the staple or an OS-cached good status, and needs the live-revocation verdict only when neither exists (Android has no cached revocation, so `Hard` is refused without it) | staple plus the portable live checker |
 | System-root-only rules (Apple CT and validity caps, Android CT) | apply to the OS roots, not to host roots | none |
@@ -352,7 +352,7 @@ the async park instead):
 | **Host handed to the OS** | the DNS host (an IP literal is stripped) | the DNS host (IP stripped) | the connected host as-is — the network-security-config domain key, not a name check |
 | **Issuer discovery for Hard** | discovers the issuer itself | discovers it itself | needs the peer to send its issuer (a leaf-only chain is indeterminate → Hard rejects, unless `WithLiveRevocationVerdict` defers it to the park) |
 | **A weak *and* revoked leaf** | `certificate_revoked` (revocation is folded into the OS verdict, before our policy) | `certificate_revoked` | `unsupported_certificate` (the staple is a post-check *after* our strength policy) |
-| **An uncached valid root** | may surface as `unknown_ca` (cache-only disables AuthRoot auto-download) | n/a — the OS ships its root store | n/a — the OS ships its root store |
+| **An uncached valid root** | installed by Windows root auto-update; may surface as `unknown_ca` only where policy disables auto-update | n/a — the OS ships its root store | n/a — the OS ships its root store |
 
 On Android the **client-certificate** path is a special case: `checkClientTrusted` reports no validated
 path, so the delegate takes the presented leaf alone as the validated path (the rest of the presented
