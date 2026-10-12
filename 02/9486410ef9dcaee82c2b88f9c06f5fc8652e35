@@ -1,0 +1,20 @@
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_58af9e1b217631::t_e67736f8923313 1106,1108
+  s_58af9e1b217631::t_cc5fc8ba54b4b5 1107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "029486410ef9dcaee82c2b88f9c06f5fc8652e35",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
