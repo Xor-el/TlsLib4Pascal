@@ -1,0 +1,78 @@
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_58af9e1b217631::t_5f14ada6c30823 84-85
+  s_58af9e1b217631::t_926ece90af1b77 103-107,111-112,117
+  s_58af9e1b217631::t_d10597e64376dd 66-71
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_58af9e1b217631::t_099e69049df145 2770
+  s_58af9e1b217631::t_1f72b57b9141ac 1668-2044
+  s_58af9e1b217631::t_c1f165f3d0952e 373
+  s_58af9e1b217631::t_b653a49bcaba60 41
+  s_58af9e1b217631::t_c27569b8d96969 1288,1293
+  s_58af9e1b217631::t_d744756d30f613 2766
+  s_58af9e1b217631::t_1e00173fa0dbcc 2768
+  s_58af9e1b217631::t_89d0c36e8aee73 1268
+  s_58af9e1b217631::t_9c3610556a8d7c 2748
+  s_58af9e1b217631::t_8bdf27eccb05f9 2703-2747,2749-2759,2761,2763,2765,2767,2769,2771,2773-2871
+  s_58af9e1b217631::t_f4c057d5f02768 2762
+  s_58af9e1b217631::t_4365a85de87db4 3185,3191,3199,3203
+  s_58af9e1b217631::t_94258adde40741 230-268
+  s_58af9e1b217631::t_99afdeb077e66f 2764
+  s_58af9e1b217631::t_a244756c8c320c 2772
+  s_58af9e1b217631::t_0315a26408ec4a 2872-2889
+  s_58af9e1b217631::t_1ab107357b6b55 350-372,374-375
+  s_58af9e1b217631::t_88b8c8eda5b10c 2760
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_58af9e1b217631::t_ada1f24790d496 1169
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_58af9e1b217631::t_a6a9810947d7d8 202,206-207,210,217,220-222
+  s_58af9e1b217631::t_2228f4ff139a93 81-83,85-86
+  s_58af9e1b217631::t_04fe657152435e 212-215,223-224
+  s_58af9e1b217631::t_65d0f6d30e5a56 251,253-254
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_58af9e1b217631::t_1f5bcb6cd3260d 234-252,255-257,259-260,262-267,270-278
+  s_58af9e1b217631::t_0975054661beb4 416-417
+  s_58af9e1b217631::t_e530cdae2aaa3f 55-56
+  s_58af9e1b217631::t_ef9750057941a4 20,495-496
+  s_58af9e1b217631::t_9938864346e3f8 483,492-494
+  s_58af9e1b217631::t_8d889962a40d45 554-555
+  s_58af9e1b217631::t_6f0100c5546258 254
+  s_58af9e1b217631::t_a31ad3c5b01415 261
+  s_58af9e1b217631::t_5089a3103d7ddb 74-85
+  s_58af9e1b217631::t_1ddccb728b61dc 148,153-154,156,159
+  s_58af9e1b217631::t_a208897c2a9deb 253
+  s_58af9e1b217631::t_123c76b5d4940d 268-269
+  s_58af9e1b217631::t_9c4efdba3f50ef 258
+  s_58af9e1b217631::t_1b76eafa9f0c59 454,458,465-466,471
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_58af9e1b217631::t_ab2da7a681db12 943
+  s_58af9e1b217631::t_9ed1c61dce7086 662
+  s_58af9e1b217631::t_d69a268b7d44d6 63-69
+  s_58af9e1b217631::t_351511ed79f83f 916-922,924-927,929-937,940-941
+  s_58af9e1b217631::t_7cc293e092f840 923
+  s_58af9e1b217631::t_d0274e04e7eb17 928
+TlsLib.Trust.System/src/TlpIPlatformChainEngine.pas
+  s_58af9e1b217631::t_4caa6e76cb9892 26-27,29,31
+  s_58af9e1b217631::t_2908ebf40b11df 49-50
+TlsLib.Tests/src/MockPlatformChainEngine.pas
+  s_58af9e1b217631::t_2941f1f422a39b 53-56,64-65
+  s_58af9e1b217631::t_e302082c8ed21e 79,82-88,98-99,102-109
+  s_58af9e1b217631::t_10c887862765f4 35-41,43-44,80-81
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  s_58af9e1b217631::t_9bfd0b2b1c9c4b 121-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7c68506c6d0b82987cc09ba6ee31381fdf8fcd6",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
