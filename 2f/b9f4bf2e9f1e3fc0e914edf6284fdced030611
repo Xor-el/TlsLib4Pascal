@@ -1,0 +1,84 @@
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoRunner.pas
+  s_58af9e1b217631::t_7e97647669a2e7 490-511
+  s_58af9e1b217631::t_f510e97bf1d2ad 166-167,207-219,223-224,233-237,246,249-252,254,256,258-260,262-265,272-365,512
+  s_58af9e1b217631::t_6db22d3b71e39b 32
+  s_58af9e1b217631::t_e88eaf8f77498f 20-21,30-31,35-45,48-53,55-63,206
+  s_58af9e1b217631::t_b17bba1c47dc29 168-205
+  s_58af9e1b217631::t_3f2a8cd4c6f864 117
+  s_58af9e1b217631::t_b2f5d8ba9a5aa6 93
+  s_58af9e1b217631::t_5aaa1782fc24d0 245
+  s_58af9e1b217631::t_633439103c6d58 111-114,116,121
+  s_58af9e1b217631::t_61756f78344360 84-87
+  s_58af9e1b217631::t_4b58b6bedeebbf 366,513
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.fmx
+  s_58af9e1b217631::t_4be858eb6670a5 60,62,66
+  s_58af9e1b217631::t_89005e8fe49614 43-52
+TlsLib.Trust.System/Examples/Lazarus/README.md
+  s_58af9e1b217631::t_566e110f064584 53-68
+  s_58af9e1b217631::t_0f185c52a9fc82 5-7
+  s_58af9e1b217631::t_c783d8689c7a3f 44-45
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_58af9e1b217631::t_da9a3c723eb1a6 26
+  s_58af9e1b217631::t_b4d4dc747e25ed 68-86
+  s_58af9e1b217631::t_dcbbd3cd35a875 87
+TlsLib.Adapters/FclNet/README.md
+  s_58af9e1b217631::t_2d3fcc2b5b71dc 90
+TlsLib.Adapters/Synapse/README.md
+  s_58af9e1b217631::t_c79e5788dbfcc0 46
+docs/security-model.md
+  s_58af9e1b217631::t_410e6cb116acda 157-158
+docs/cookbook.md
+  s_58af9e1b217631::t_c22ddf6ddb109e 244-248
+TlsLib.Trust.System/Examples/Lazarus/SystemTrustDemo.lpr
+  s_58af9e1b217631::t_30dfe40cdd4a1f 15-18
+TlsLib.Trust.System/Examples/Lazarus/src/SystemTrustExample.pas
+  s_58af9e1b217631::t_84b5facf6361ea 15-16
+  s_58af9e1b217631::t_06cc9e4575cb0b 28-31,41-42,46-55,65-73,77-79,88-95,98-113,152-171,176-177,179-180,182,189-194,204-206,208
+  s_58af9e1b217631::t_9e5cf831478d59 114-151
+  s_58af9e1b217631::t_46ad3f2fa2ce12 246
+  s_58af9e1b217631::t_ea7746c922f984 43
+  s_58af9e1b217631::t_b1c4b56e77a3c9 291-422
+  s_58af9e1b217631::t_fc4bbe739e4520 207
+  s_58af9e1b217631::t_504eccdd7036f1 44
+  s_58af9e1b217631::t_02601e77acb62a 423
+TlsLib.Adapters/Indy/README.md
+  s_58af9e1b217631::t_b8104b27065dc1 46
+docs/system-trust.md
+  s_58af9e1b217631::t_8b714fc6646665 376-378
+  s_58af9e1b217631::t_97619a4ece8db0 131-134
+  s_58af9e1b217631::t_90fc59e6c1f231 387-394
+  s_58af9e1b217631::t_0fae69afd94caf 520-521
+  s_58af9e1b217631::t_022231a2ddcfd6 197-200
+  s_58af9e1b217631::t_b94798674bf82b 144-166
+  s_58af9e1b217631::t_09a04e2865ccf9 438-440
+  s_58af9e1b217631::t_bffba7a45459f5 537-554
+  s_58af9e1b217631::t_af6868dee0b5d4 117-118
+  s_58af9e1b217631::t_8c8e67fb582bd1 22,24-41,48
+  s_58af9e1b217631::t_4ad39e189a46ab 379-382
+  s_58af9e1b217631::t_19dd6c8aa485aa 223-239
+  s_58af9e1b217631::t_0ec524bbc43481 555
+README.md
+  s_58af9e1b217631::t_4a275581c2ce41 90
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.pas
+  s_58af9e1b217631::t_5cfb2cfa2a68d1 95,100-103
+  s_58af9e1b217631::t_17e409112b25c5 125,133,138,142-150
+  s_58af9e1b217631::t_9757bed11ae171 91-92
+  s_58af9e1b217631::t_b99a69e00848e6 44,48,53-56
+  s_58af9e1b217631::t_472b233bae849b 151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2fb9f4bf2e9f1e3fc0e914edf6284fdced030611",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
