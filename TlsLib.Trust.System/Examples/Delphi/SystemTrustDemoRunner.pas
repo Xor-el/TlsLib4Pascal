@@ -39,6 +39,7 @@ type
     Url: string;
     HostRoot: THostRoot;
     ExpectConnect: Boolean;
+    NeedsNsc: Boolean;
   end;
 
   TGetOutcome = (goConnected, goRefused, goUnreachable, goFailed);
@@ -204,19 +205,26 @@ const
     '2O2tSqU8Ri3XRdgpNPDWp8ZL49KhYGYo3R/k98gnMHiY5g=='#10 +
     '-----END CERTIFICATE-----'#10;
 
-  HostRootCells: array[0..5] of THostRootCell = (
+  HostRootCells: array[0..6] of THostRootCell = (
     (Title: 'public site, unrelated host root'; Url: PublicSiteUrl;
-      HostRoot: hrUnrelated; ExpectConnect: True),
+      HostRoot: hrUnrelated; ExpectConnect: True; NeedsNsc: False),
     (Title: 'untrusted-root.badssl.com, its root as host root';
-      Url: 'https://untrusted-root.badssl.com/'; HostRoot: hrBadSsl; ExpectConnect: True),
+      Url: 'https://untrusted-root.badssl.com/'; HostRoot: hrBadSsl; ExpectConnect: True;
+      NeedsNsc: False),
     (Title: 'untrusted-root.badssl.com, no host root';
-      Url: 'https://untrusted-root.badssl.com/'; HostRoot: hrNone; ExpectConnect: False),
+      Url: 'https://untrusted-root.badssl.com/'; HostRoot: hrNone; ExpectConnect: False;
+      NeedsNsc: False),
     (Title: 'expired.badssl.com, host root present (expiry is final)';
-      Url: 'https://expired.badssl.com/'; HostRoot: hrBadSsl; ExpectConnect: False),
+      Url: 'https://expired.badssl.com/'; HostRoot: hrBadSsl; ExpectConnect: False;
+      NeedsNsc: False),
     (Title: 'wrong.host.badssl.com, host root present (name is final)';
-      Url: 'https://wrong.host.badssl.com/'; HostRoot: hrBadSsl; ExpectConnect: False),
+      Url: 'https://wrong.host.badssl.com/'; HostRoot: hrBadSsl; ExpectConnect: False;
+      NeedsNsc: False),
     (Title: 'self-signed.badssl.com, unrelated host root';
-      Url: 'https://self-signed.badssl.com/'; HostRoot: hrUnrelated; ExpectConnect: False));
+      Url: 'https://self-signed.badssl.com/'; HostRoot: hrUnrelated; ExpectConnect: False;
+      NeedsNsc: False),
+    (Title: 'example.com, wrong network-security-config pin, host root present (a pin failure is final)';
+      Url: 'https://example.com/'; HostRoot: hrBadSsl; ExpectConnect: False; NeedsNsc: True));
 
 { TSystemTrustDemoRunner }
 
@@ -340,6 +348,10 @@ var
   LDetail, LExpected, LGot: string;
   LMet: Boolean;
 begin
+{$IFNDEF ANDROID}
+  if ACell.NeedsNsc then
+    Exit(Format('SKIP: %s: needs the Android network-security-config', [ACell.Title]));
+{$ENDIF}
   try
     LOutcome := HttpsGet(ACell.Url, HostRootConfig(AMode, ACell.HostRoot), LDetail);
   except
@@ -491,10 +503,22 @@ class function TSystemTrustDemoRunner.RunHostRoots(const AUrl: string): TArray<s
 var
   LModes: TArray<TSystemTrustMode>;
   LCell: THostRootCell;
-  LMode, LCellIndex, LLine: Integer;
+  LSteps: TArray<string>;
+  LMode, LCellIndex, LLine, LStep: Integer;
 begin
   LModes := HostRootModes;
-  SetLength(Result, System.Length(LModes) * (System.Length(HostRootCells) + 1));
+  LSteps := nil;
+{$IFDEF ANDROID}
+  LSteps := TArray<string>.Create(
+    'MANUAL: a user-installed CA must not become trusted (apps targeting API 24+ ignore user CAs):',
+    '  1. Fetch the untrusted-root.badssl.com root as PEM (sha256 43194b56...fe3d), e.g. on a PC:',
+    '     openssl s_client -connect untrusted-root.badssl.com:443 -showcerts, last certificate.',
+    '  2. Copy it to the phone as a .crt file.',
+    '  3. Settings > Security > Encryption & credentials > Install a certificate > CA certificate.',
+    '  4. Run these cells again: "untrusted-root.badssl.com, no host root" must still PASS (refused).');
+{$ENDIF}
+  SetLength(Result, System.Length(LModes) * (System.Length(HostRootCells) + 1) +
+    System.Length(LSteps));
   LLine := 0;
   for LMode := 0 to System.High(LModes) do
   begin
@@ -508,6 +532,11 @@ begin
       Result[LLine] := '  ' + RunHostRootCell(LModes[LMode], LCell);
       Inc(LLine);
     end;
+  end;
+  for LStep := 0 to System.High(LSteps) do
+  begin
+    Result[LLine] := LSteps[LStep];
+    Inc(LLine);
   end;
 end;
 

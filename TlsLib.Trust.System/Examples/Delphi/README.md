@@ -81,9 +81,32 @@ on Windows and macOS also `Anchors`. Android and iOS have only the Delegate mode
 | `expired.badssl.com` | the badssl root | refused (expiry is final) |
 | `wrong.host.badssl.com` | the badssl root | refused (name is final) |
 | `self-signed.badssl.com` | an unrelated test root | refused |
+| `example.com` (Android only, wrong network-security-config pin) | the badssl root | refused |
 
 On a phone, a `FAIL:` on the second cell means the host root was not trusted beside the OS roots;
-a `FAIL:` on any refused cell means a final failure (expiry, name, untrusted) was rescued.
+a `FAIL:` on any refused cell means a final failure (expiry, name, untrusted, pin) was rescued.
+The `example.com` cell prints `SKIP:` off Android.
+
+### Wiring the pin cell (Android, local project files)
+
+`res/xml/network_security_config.xml` pins `example.com` to a key that matches nothing; it names no
+other domain and has no base config. Wire it in locally (the `.dproj`/`.deployproj` are not committed):
+
+1. Project -> Deployment, Android64: add `res\xml\network_security_config.xml` with Remote Path
+   `SystemTrustDemo\res\xml\` and Remote Name `network_security_config.xml`.
+2. Edit `AndroidManifest.template.xml` in the project folder (Project -> Options -> Application ->
+   Android: use the "Create template" action if it is absent) and add `android:networkSecurityConfig="@xml/network_security_config"` to
+   the `<application>` element.
+
+### User-installed CA is not trusted
+
+On Android the cells end with a `MANUAL:` procedure. Install the `untrusted-root.badssl.com` root
+(Settings -> Security -> Encryption & credentials -> Install a certificate -> CA certificate; a screen
+lock is required), then run the cells again: the `no host root` cell must still be refused, because
+apps targeting API 24 and later do not trust user CAs without a network-security-config opt-in.
+Fetch the root as PEM on a PC with
+`openssl s_client -connect untrusted-root.badssl.com:443 -showcerts` (the last certificate; its
+sha256 is `43194b56f17cd0b72be548b35ae93adb1664e4023d1d7d0957f5bab66a31fe3d`).
 
 ## Caveats (shared with the iOS delegate, by design)
 

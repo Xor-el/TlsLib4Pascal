@@ -163,6 +163,9 @@ type
       AAnchorArr: TJObjectArray): TJObject; static;
     class function IsInstanceOfNamed(AEnv: PJNIEnv; AObj: TJObject;
       const AClassName: PAnsiChar): Boolean; static;
+    /// <summary>True when the exception or one of its bounded causes is an expired or
+    /// not-yet-valid certificate; any lookup failure answers False.</summary>
+    class function HasTimeInvalidInChain(AEnv: PJNIEnv; AExc: TJThrowable): Boolean; static;
     /// <summary>The facts of a trust-manager exception that the classifier decides on; a lookup
     /// that fails leaves its fact unset, so the rejection classifies as Other.</summary>
     class function ReadExceptionFacts(AEnv: PJNIEnv; AExc: TJThrowable)
@@ -536,6 +539,45 @@ begin
   Result := AEnv^^.IsInstanceOf(AEnv, AObj, LClass) <> 0;
 end;
 
+class function TAndroidTrustApi.HasTimeInvalidInChain(AEnv: PJNIEnv;
+  AExc: TJThrowable): Boolean;
+const
+  MAX_CAUSE_DEPTH = 4;
+var
+  LThrowableClass: TJClass;
+  LGetCause: TJMethodID;
+  LCur: TJObject;
+  LDepth: Integer;
+begin
+  Result := False;
+  LThrowableClass := AEnv^^.FindClass(AEnv, 'java/lang/Throwable');
+  if LThrowableClass = nil then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LGetCause := AEnv^^.GetMethodID(AEnv, LThrowableClass, 'getCause',
+    '()Ljava/lang/Throwable;');
+  if LGetCause = nil then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LCur := AExc;
+  for LDepth := 0 to MAX_CAUSE_DEPTH do
+  begin
+    if IsInstanceOfNamed(AEnv, LCur, 'java/security/cert/CertificateExpiredException') or
+      IsInstanceOfNamed(AEnv, LCur, 'java/security/cert/CertificateNotYetValidException') then
+      Exit(True);
+    LCur := AEnv^^.CallObjectMethodA(AEnv, LCur, LGetCause, nil);
+    if (LCur = nil) or (AEnv^^.ExceptionCheck(AEnv) <> 0) then
+    begin
+      ClearPending(AEnv);
+      Exit;
+    end;
+  end;
+end;
+
 class function TAndroidTrustApi.ReadExceptionFacts(AEnv: PJNIEnv;
   AExc: TJThrowable): TJavaTrustFacts;
 var
@@ -551,9 +593,7 @@ begin
     'java/security/cert/CertificateException');
   if not Result.CertificateException then
     Exit;
-  Result.TimeInvalid := IsInstanceOfNamed(AEnv, AExc,
-    'java/security/cert/CertificateExpiredException') or
-    IsInstanceOfNamed(AEnv, AExc, 'java/security/cert/CertificateNotYetValidException');
+  Result.TimeInvalid := HasTimeInvalidInChain(AEnv, AExc);
 
   LThrowableClass := AEnv^^.FindClass(AEnv, 'java/lang/Throwable');
   LCpvClass := AEnv^^.FindClass(AEnv, 'java/security/cert/CertPathValidatorException');
