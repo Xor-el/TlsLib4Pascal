@@ -511,9 +511,8 @@ begin
 {$IFDEF ANDROID}
   LSteps := TArray<string>.Create(
     'MANUAL: a user-installed CA must not become trusted (apps targeting API 24+ ignore user CAs):',
-    '  1. Fetch the untrusted-root.badssl.com root as PEM (sha256 43194b56...fe3d), e.g. on a PC:',
-    '     openssl s_client -connect untrusted-root.badssl.com:443 -showcerts, last certificate.',
-    '  2. Copy it to the phone as a .crt file.',
+    '  1. Take badssl-untrusted-root.crt from the demo folder in the repo (sha256 43194b56...fe3d).',
+    '  2. Copy it to the phone.',
     '  3. Settings > Security > Encryption & credentials > Install a certificate > CA certificate.',
     '  4. Run these cells again: "untrusted-root.badssl.com, no host root" must still PASS (refused).');
 {$ENDIF}

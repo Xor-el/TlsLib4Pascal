@@ -108,9 +108,10 @@ On Android the cells end with a `MANUAL:` procedure. Install the `untrusted-root
 (Settings -> Security -> Encryption & credentials -> Install a certificate -> CA certificate; a screen
 lock is required), then run the cells again: the `no host root` cell must still be refused, because
 apps targeting API 24 and later do not trust user CAs without a network-security-config opt-in.
-Fetch the root as PEM on a PC with
-`openssl s_client -connect untrusted-root.badssl.com:443 -showcerts` (the last certificate; its
-sha256 is `43194b56f17cd0b72be548b35ae93adb1664e4023d1d7d0957f5bab66a31fe3d`).
+The root is `badssl-untrusted-root.crt` in this folder (sha256
+`43194b56f17cd0b72be548b35ae93adb1664e4023d1d7d0957f5bab66a31fe3d`); copy it to the phone. To fetch
+it yourself, run `openssl s_client -connect untrusted-root.badssl.com:443 -showcerts` on a PC and
+take the last certificate.
 
 ## Caveats (shared with the iOS delegate, by design)
 
