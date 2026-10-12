@@ -1,10 +1,14 @@
 # Helper for run-trust.sh's AUTOROOT probe: one action per call, one machine-readable line out.
 # Only certificates whose subject equals the fixture intermediate's issuer are ever touched.
 param(
-  [Parameter(Mandatory)][ValidateSet('ctl', 'strip', 'build', 'restore')][string]$Action,
+  [Parameter(Mandatory)][ValidateSet('ctl', 'diag', 'leaf', 'capion', 'capioff', 'capidump', 'strip', 'build', 'restore')][string]$Action,
   [Parameter(Mandatory)][string]$Work,
   [string]$Flags = '0',
-  [ValidateSet('plain', 'ex')][string]$Para = 'plain'
+  [ValidateSet('plain', 'ex')][string]$Para = 'plain',
+  [ValidateSet('inter', 'leaf')][string]$Target = 'inter',
+  [string]$Thumb = '',
+  [int]$Poll = 10,
+  [switch]$KeepCache
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Security
@@ -80,6 +84,134 @@ switch ($Action) {
     }
     if ($hit) { 'LISTED' } else { 'NOTLISTED' }
   }
+  'diag' {
+    function Say($t) { "  diag $t" }
+    function Head($u) {
+      try {
+        $r = Invoke-WebRequest -Uri $u -Method Head -UseBasicParsing -TimeoutSec 15
+        return "status=$([int]$r.StatusCode)"
+      } catch {
+        if ($_.Exception.Response) { return "status=$([int]$_.Exception.Response.StatusCode)" }
+        return "exception=$($_.Exception.Message)"
+      }
+    }
+    function Fmt($v) {
+      if ($v -is [byte[]]) { return 'bytes[' + $v.Length + ']:' + ([BitConverter]::ToString($v, 0, [Math]::Min(8, $v.Length))) }
+      return "$v"
+    }
+    try {
+      $os = Get-CimInstance Win32_OperatingSystem
+      Say "os=$($os.Caption) version=$($os.Version) build=$($os.BuildNumber)"
+    } catch { Say "os=unreadable" }
+    try { $sv = Get-Service CryptSvc; Say "CryptSvc=$($sv.Status)/$($sv.StartType)" } catch { Say "CryptSvc=unreadable" }
+    $keys = @(
+      'HKLM:\SOFTWARE\Policies\Microsoft\SystemCertificates\AuthRoot',
+      'HKLM:\SOFTWARE\Microsoft\SystemCertificates\AuthRoot',
+      'HKLM:\SOFTWARE\Microsoft\SystemCertificates\AuthRoot\AutoUpdate')
+    foreach ($k in $keys) {
+      try {
+        if (-not (Test-Path $k)) { Say "reg $k=absent"; continue }
+        $p = Get-ItemProperty $k
+        $vals = @($p.PSObject.Properties | Where-Object { $_.Name -notlike 'PS*' } | ForEach-Object { "$($_.Name)=$(Fmt $_.Value)" })
+        if ($vals.Count -eq 0) { $vals = @('(no values)') }
+        Say "reg $k $($vals -join ' ')"
+      } catch { Say "reg $k=unreadable" }
+    }
+    $sys = "$env:SystemRoot\System32\config\systemprofile\AppData\LocalLow\Microsoft\CryptnetUrlCache"
+    $usr = "$env:USERPROFILE\AppData\LocalLow\Microsoft\CryptnetUrlCache"
+    foreach ($d in @("$env:SystemRoot\System32\CatRoot2", "$sys\MetaData", "$sys\Content", "$usr\MetaData", "$usr\Content")) {
+      try {
+        if (-not (Test-Path $d)) { Say "dir $d=absent"; continue }
+        $fs = @(Get-ChildItem $d -Recurse -File -Force -ErrorAction SilentlyContinue)
+        $ctl = @($fs | Where-Object { $_.Name -match 'authroot|stl|\.sst' } | ForEach-Object { $_.Name } | Select-Object -First 4)
+        Say "dir $d files=$($fs.Count) ctl=$($ctl -join ',')"
+      } catch { Say "dir $d=unreadable" }
+    }
+    $aia = 'none'
+    try {
+      $ext = $Inter.Extensions | Where-Object { $_.Oid.Value -eq '1.3.6.1.5.5.7.1.1' }
+      if ($ext) { $aia = ($ext.Format($false) -replace '\s+', ' ') }
+    } catch { }
+    Say "E5 AIA: $aia"
+    $base = 'http://ctldl.windowsupdate.com/msdownload/update/v3/static/trustedr'
+    Say "head authrootstl.cab $(Head "$base/en/authrootstl.cab")"
+    if ($Thumb) { Say "head R .crt $(Head "$base/certs/$Thumb.crt")" }
+    if ($aia -match 'URL=(http\S+)') { Say "head AIA $(Head $Matches[1])" }
+  }
+  'leaf' {
+    $out = Join-Path $Work 'leaf.txt'
+    Remove-Item $out -ErrorAction SilentlyContinue
+    $hostName = 'valid-isrgrootx2.letsencrypt.org'
+    $script:got = @()
+    try {
+      $tcp = New-Object Net.Sockets.TcpClient
+      $iar = $tcp.BeginConnect($hostName, 443, $null, $null)
+      if (-not $iar.AsyncWaitHandle.WaitOne(10000)) { 'ERR connect timeout'; break }
+      $tcp.EndConnect($iar)
+      $tcp.ReceiveTimeout = 10000
+      $tcp.SendTimeout = 10000
+      $cb = [Net.Security.RemoteCertificateValidationCallback]{
+        param($s, $c, $ch, $e)
+        $script:got = @($ch.ChainElements | ForEach-Object { $_.Certificate })
+        return $true
+      }
+      $ssl = New-Object Net.Security.SslStream($tcp.GetStream(), $false, $cb)
+      $ssl.AuthenticateAsClient($hostName, $null, [Security.Authentication.SslProtocols]::Tls12, $false)
+      $ssl.Close()
+      $tcp.Close()
+    } catch { "ERR $($_.Exception.Message)"; break }
+    if ($script:got.Count -lt 2) { 'ERR no chain captured'; break }
+    $rows = @()
+    foreach ($c in $script:got) {
+      $self = [BitConverter]::ToString($c.SubjectName.RawData) -eq [BitConverter]::ToString($c.IssuerName.RawData)
+      if ($rows.Count -eq 0 -or -not $self) { $rows += [Convert]::ToBase64String($c.RawData) }
+    }
+    [IO.File]::WriteAllLines($out, [string[]]$rows)
+    "LEAF host=$hostName issuer=$($script:got[0].GetNameInfo('SimpleName', $true)) intermediates=$($rows.Count - 1)"
+  }
+  'capion' {
+    $log = 'Microsoft-Windows-CAPI2/Operational'
+    $state = Join-Path $Work 'capi2.state'
+    $was = 'off'
+    if (@(& wevtutil gl $log) -match 'enabled:\s*true') { $was = 'on' }
+    if (-not (Test-Path $state)) { Set-Content $state $was }
+    & wevtutil sl $log /ms:67108864 | Out-Null
+    & wevtutil sl $log /e:true | Out-Null
+    & wevtutil cl $log | Out-Null
+    "capi2=enabled was=$was"
+  }
+  'capioff' {
+    $log = 'Microsoft-Windows-CAPI2/Operational'
+    $state = Join-Path $Work 'capi2.state'
+    if (Test-Path $state) {
+      if ((Get-Content $state) -eq 'off') { & wevtutil sl $log /e:false | Out-Null }
+      Remove-Item $state -ErrorAction SilentlyContinue
+    }
+    'capi2=restored'
+  }
+  'capidump' {
+    $log = 'Microsoft-Windows-CAPI2/Operational'
+    $raw = Join-Path $Work 'capi2-events.txt'
+    & wevtutil qe $log /f:text /c:1000 /rd:true | Out-File $raw -Encoding utf8
+    $lines = @(Get-Content $raw)
+    $ids = @{}
+    foreach ($l in $lines) { if ($l -match '^\s*Event ID:\s*(\d+)') { $ids[$Matches[1]] = 1 + [int]$ids[$Matches[1]] } }
+    $idText = ($ids.GetEnumerator() | Sort-Object { [int]$_.Name } | ForEach-Object { "$($_.Name)x$($_.Value)" }) -join ' '
+    "  capi2 events=$(@($lines | Where-Object { $_ -match '^\s*Event ID:' }).Count) ids: $idText raw=$raw"
+    $pat = 'trustedr|authrootstl|ctldl|windowsupdate|CertDownload|RootUpdate|Root update|Auto ?update|lencr|Url|URL|Result|Error|Revocation'
+    $seen = @{}
+    $n = 0
+    foreach ($l in $lines) {
+      $t = $l.Trim()
+      if ($t -match '^Event ID:\s*\d+' -or $t -match $pat) {
+        if ($seen.ContainsKey($t)) { continue }
+        $seen[$t] = $true
+        "  capi2 | $t"
+        $n++
+        if ($n -ge 80) { break }
+      }
+    }
+  }
   'strip' {
     New-Item -ItemType Directory -Force $SstDir | Out-Null
     $found = @(Find-Issuers $true)
@@ -98,7 +230,7 @@ switch ($Action) {
     }
     foreach ($x in $found) { try { $x.Store.Remove($x.Cert) } catch { } }
     foreach ($x in $found) { $x.Store.Close() }
-    & certutil -urlcache '*' delete | Out-Null
+    if (-not $KeepCache) { & certutil -urlcache '*' delete | Out-Null }
     $left = @(Find-Issuers $false)
     "remaining=$($left.Count)"
   }
@@ -122,8 +254,24 @@ public static class AutoRootChain {
   static extern bool CertGetCertificateChain(IntPtr engine, IntPtr cert, IntPtr time, IntPtr store,
     IntPtr para, uint flags, IntPtr reserved, out IntPtr ctx);
   [DllImport("crypt32.dll")] static extern void CertFreeCertificateChain(IntPtr ctx);
+  [DllImport("crypt32.dll", SetLastError = true)]
+  static extern IntPtr CertOpenStore(IntPtr provider, uint enc, IntPtr prov, uint flags, IntPtr para);
+  [DllImport("crypt32.dll", SetLastError = true)]
+  static extern bool CertAddEncodedCertificateToStore(IntPtr store, uint enc, byte[] pb, uint cb, uint disp, IntPtr ctx);
+  [DllImport("crypt32.dll")] static extern bool CertCloseStore(IntPtr store, uint flags);
+  [StructLayout(LayoutKind.Sequential)] struct SSLPARA { public uint cb; public uint authType; public uint checks; public IntPtr name; }
+  [StructLayout(LayoutKind.Sequential)] struct POLPARA { public uint cb; public uint flags; public IntPtr extra; }
+  [StructLayout(LayoutKind.Sequential)] struct POLSTATUS { public uint cb; public uint error; public int chainIdx; public int elemIdx; public IntPtr extra; }
+  [DllImport("crypt32.dll", SetLastError = true)]
+  static extern bool CertVerifyCertificateChainPolicy(IntPtr policy, IntPtr ctx, ref POLPARA para, ref POLSTATUS status);
 
-  public static string Build(IntPtr cert, bool ex, uint flags, uint timeout) {
+  // "chain|chainElemErrs|policy|elemErr,derB64;..." with every element from leaf to top
+  public static string Build(IntPtr cert, byte[][] extras, bool ex, uint flags, uint timeout, bool policy) {
+    IntPtr extra = IntPtr.Zero;
+    if (extras != null && extras.Length > 0) {
+      extra = CertOpenStore((IntPtr)2, 0, IntPtr.Zero, 0, IntPtr.Zero);
+      foreach (byte[] d in extras) CertAddEncodedCertificateToStore(extra, 1, d, (uint)d.Length, 4, IntPtr.Zero);
+    }
     IntPtr oid = Marshal.StringToHGlobalAnsi("1.3.6.1.5.5.7.3.1");
     IntPtr arr = Marshal.AllocHGlobal(IntPtr.Size);
     Marshal.WriteIntPtr(arr, oid);
@@ -146,35 +294,87 @@ public static class AutoRootChain {
       Marshal.StructureToPtr(p, para, false);
     }
     IntPtr ctx;
-    if (!CertGetCertificateChain(IntPtr.Zero, cert, IntPtr.Zero, IntPtr.Zero, para, flags, IntPtr.Zero, out ctx))
-      return "FAILED " + Marshal.GetLastWin32Error();
+    if (!CertGetCertificateChain(IntPtr.Zero, cert, IntPtr.Zero, extra, para, flags, IntPtr.Zero, out ctx)) {
+      int e = Marshal.GetLastWin32Error();
+      if (extra != IntPtr.Zero) CertCloseStore(extra, 0);
+      return "FAILED " + e;
+    }
     try {
       CCTX c = (CCTX)Marshal.PtrToStructure(ctx, typeof(CCTX));
       IntPtr sp = Marshal.ReadIntPtr(c.rgp);
       SCHAIN sc = (SCHAIN)Marshal.PtrToStructure(sp, typeof(SCHAIN));
-      IntPtr ep = Marshal.ReadIntPtr(sc.rgp, (int)(sc.cElem - 1) * IntPtr.Size);
-      ELEM el = (ELEM)Marshal.PtrToStructure(ep, typeof(ELEM));
-      CCERT cc = (CCERT)Marshal.PtrToStructure(el.cert, typeof(CCERT));
-      byte[] der = new byte[cc.cb];
-      Marshal.Copy(cc.pb, der, 0, (int)cc.cb);
-      return c.ts.err + ";" + sc.ts.err + ";" + el.ts.err + ";" + sc.cElem + ";" + Convert.ToBase64String(der);
-    } finally { CertFreeCertificateChain(ctx); }
+      string els = "";
+      for (int i = 0; i < sc.cElem; i++) {
+        IntPtr ep = Marshal.ReadIntPtr(sc.rgp, i * IntPtr.Size);
+        ELEM el = (ELEM)Marshal.PtrToStructure(ep, typeof(ELEM));
+        CCERT cc = (CCERT)Marshal.PtrToStructure(el.cert, typeof(CCERT));
+        byte[] der = new byte[cc.cb];
+        Marshal.Copy(cc.pb, der, 0, (int)cc.cb);
+        if (i > 0) els += ";";
+        els += el.ts.err + "," + Convert.ToBase64String(der);
+      }
+      string pol = "-";
+      if (policy) {
+        SSLPARA sp2 = new SSLPARA();
+        sp2.cb = (uint)Marshal.SizeOf(typeof(SSLPARA));
+        sp2.authType = 2;
+        IntPtr spp = Marshal.AllocHGlobal((int)sp2.cb);
+        Marshal.StructureToPtr(sp2, spp, false);
+        POLPARA pp = new POLPARA();
+        pp.cb = (uint)Marshal.SizeOf(typeof(POLPARA));
+        pp.extra = spp;
+        POLSTATUS ps = new POLSTATUS();
+        ps.cb = (uint)Marshal.SizeOf(typeof(POLSTATUS));
+        pol = CertVerifyCertificateChainPolicy((IntPtr)4, ctx, ref pp, ref ps) ? ps.error.ToString() : "call-failed";
+      }
+      return c.ts.err + "|" + sc.ts.err + "|" + pol + "|" + els;
+    } finally {
+      CertFreeCertificateChain(ctx);
+      if (extra != IntPtr.Zero) CertCloseStore(extra, 0);
+    }
   }
 }
 '@
-    $r = [AutoRootChain]::Build($Inter.Handle, ($Para -eq 'ex'), [Convert]::ToUInt32($Flags, 16), 15000)
+    $subject = $Inter
+    $extras = [byte[][]]@()
+    if ($Target -eq 'leaf') {
+      $rows = @()
+      $leafFile = Join-Path $Work 'leaf.txt'
+      if (Test-Path $leafFile) { $rows = @(Get-Content $leafFile | Where-Object { $_ }) }
+      if ($rows.Count -lt 2) { 'top=build-failed(no-leaf) reappeared=none'; break }
+      $subject = New-Object "$X509.X509Certificate2" (, [Convert]::FromBase64String($rows[0]))
+      $extras = [byte[][]]@($rows | Select-Object -Skip 1 | ForEach-Object { , [Convert]::FromBase64String($_) })
+    }
+    $r = [AutoRootChain]::Build($subject.Handle, $extras, ($Para -eq 'ex'), [Convert]::ToUInt32($Flags, 16), 15000, ($Target -eq 'leaf'))
     if ($r.StartsWith('FAILED')) { "top=build-failed($r) reappeared=none"; break }
-    $p = $r.Split(';')
-    $top = New-Object "$X509.X509Certificate2" (, [Convert]::FromBase64String($p[4]))
-    $err = [uint32]$p[0] -bor [uint32]$p[1] -bor [uint32]$p[2]
-    $isR = [BitConverter]::ToString($top.SubjectName.RawData) -eq $IssuerDer
+    $p = $r.Split('|')
+    $elems = @($p[3].Split(';') | ForEach-Object {
+      $q = $_.Split(',')
+      [pscustomobject]@{ Err = [uint32]$q[0]; Cert = (New-Object "$X509.X509Certificate2" (, [Convert]::FromBase64String($q[1]))) }
+    })
+    $top = $elems[$elems.Count - 1]
+    $err = [uint32]$p[0] -bor [uint32]$p[1] -bor $top.Err
+    $isR = [BitConverter]::ToString($top.Cert.SubjectName.RawData) -eq $IssuerDer
+    $aia = $false
+    foreach ($e in $elems) {
+      if ([BitConverter]::ToString($e.Cert.SubjectName.RawData) -eq $IssuerDer -and
+          [BitConverter]::ToString($e.Cert.IssuerName.RawData) -ne $IssuerDer) { $aia = $true }
+    }
     if ($err -band 0x20) { $st = 'untrusted-root' }
     elseif ($err -band 0x10000) { $st = 'partial-chain' }
-    elseif ($isR) { $st = 'trusted' }
+    elseif ($err -eq 0) { $st = 'trusted' }
     else { $st = ('other-0x{0:X}' -f $err) }
-    $where = @(Find-Issuers $false | ForEach-Object { "$($_.Loc)\$($_.Name)" })
+    $where = @()
+    for ($i = 0; $i -le $Poll; $i++) {
+      $where = @(Find-Issuers $false | ForEach-Object { "$($_.Loc)\$($_.Name)" })
+      if ($where.Count -gt 0 -or $i -eq $Poll) { break }
+      Start-Sleep -Seconds 1
+    }
     if ($where.Count -eq 0) { $where = @('none') }
-    "top=$st reappeared=$($where -join ',')"
+    $els = ($elems | ForEach-Object { '{0}(0x{1:X})' -f $_.Cert.GetNameInfo('SimpleName', $false), $_.Err }) -join '>'
+    $pol = $p[2]
+    if ($pol -match '^\d+$') { $pol = '0x{0:X}' -f [uint32]$pol }
+    "top=$st reappeared=$($where -join ',') after=${i}s topIsR=$isR aia=$aia chain=0x$('{0:X}' -f [uint32]$p[0]),0x$('{0:X}' -f [uint32]$p[1]) policy=$pol els=$els"
   }
   'restore' {
     $removed = 0; $missing = 0

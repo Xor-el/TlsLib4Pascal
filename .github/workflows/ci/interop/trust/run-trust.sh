@@ -88,6 +88,7 @@ cleanup() {
   if [ "$DISTRUSTED" = 1 ]; then uninstall_distrust || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
   autoroot_restore || true
+  autoroot_capi_off || true
   rm -rf "$TMP"
 }
 
@@ -588,20 +589,27 @@ probe_table() { # print the table, fill the N_* counts
 AUTOROOT_INLINE=48002004  # CACHE_ONLY_URL_RETRIEVAL | REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | REVOCATION_ACCUMULATIVE_TIMEOUT | DISABLE_AIA
 AUTOROOT_LIVE=48002000    # REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | REVOCATION_ACCUMULATIVE_TIMEOUT | DISABLE_AIA, extended CERT_CHAIN_PARA
 AUTOROOT_CONTROL=00002000 # DISABLE_AIA only
+AUTOROOT_CAPI=0
 
-autoroot_run() { # <inline|live|control>: strip, build once in a fresh process, print the run line to stdout
-  local flags para=plain
-  case "$1" in
-    inline) flags=$AUTOROOT_INLINE ;;
-    live) flags=$AUTOROOT_LIVE; para=ex ;;
-    *) flags=$AUTOROOT_CONTROL ;;
-  esac
-  autoroot_ps strip >/dev/null || true
-  autoroot_ps build -Flags "$flags" -Para "$para" | tail -n 1
+autoroot_capi_off() { # idempotent: put the CAPI2 operational log back to its prior state
+  [ "$AUTOROOT_CAPI" = 1 ] || return 0
+  AUTOROOT_CAPI=0
+  autoroot_ps capioff >/dev/null || true
+}
+
+autoroot_run() { # <flags> <plain|ex> <inter|leaf> [keep]: strip, build once in a fresh process, print the run line
+  local keep=()
+  if [ "${4:-}" = keep ]; then keep=(-KeepCache); fi
+  autoroot_ps strip ${keep[@]+"${keep[@]}"} >/dev/null || true
+  autoroot_ps build -Flags "$1" -Para "$2" -Target "$3" | tail -n 1
+}
+
+autoroot_installed() { # a run line shows R back in a store
+  case "$1" in *reappeared=none*|'') return 1 ;; *) return 0 ;; esac
 }
 
 autoroot_probe() {
-  local ctl strip run_inline run_live run_control
+  local ctl thumb strip run_inline run_live c1 c2 c3 c5 leaf_inline leaf_live
   mkdir -p "$TMP/autoroot"
   ctl="$(autoroot_ps ctl | tr '\n' ' ')"
   case "$ctl" in
@@ -609,6 +617,9 @@ autoroot_probe() {
     *LISTED*) ;;
     *) echo "AUTOROOT PRECONDITION FAILED: R not in authroot.stl"; echo "  (CTL check: $ctl)"; return 0 ;;
   esac
+  thumb="${ctl#*sha1=}"; thumb="${thumb%% *}"
+  autoroot_ps diag -Thumb "$thumb" || true
+  echo "  $(autoroot_ps leaf | tail -n 1)"
   AUTOROOT_ARMED=1
   strip="$(autoroot_ps strip | tail -n 1)"
   if [ "$strip" != "remaining=0" ]; then
@@ -616,20 +627,42 @@ autoroot_probe() {
     autoroot_restore
     return 0
   fi
-  run_inline="$(autoroot_run inline)"
-  run_live="$(autoroot_run live)"
-  run_control="$(autoroot_run control)"
+  AUTOROOT_CAPI=1
+  echo "  $(autoroot_ps capion | tail -n 1)"
+  run_inline="$(autoroot_run $AUTOROOT_INLINE plain inter)"
+  run_live="$(autoroot_run $AUTOROOT_LIVE ex inter)"
+  c1="$(autoroot_run $AUTOROOT_CONTROL plain inter)"
+  c2="$(autoroot_run 00000000 plain inter)"
+  c3="$(autoroot_run 00000000 plain leaf)"
+  c5="$(autoroot_run $AUTOROOT_CONTROL plain inter keep)"
   echo "  inline:  $run_inline"
   echo "  live:    $run_live"
-  echo "  control: $run_control"
-  case "$run_control" in
-    *reappeared=none*|'') echo "AUTOROOT PRECONDITION FAILED: control did not install R" ;;
-    *)
-      local i l
-      case "$run_inline" in *reappeared=none*) i=does-not-fire ;; *) i=installs ;; esac
-      case "$run_live" in *reappeared=none*) l=does-not-fire ;; *) l=installs ;; esac
-      echo "AUTOROOT RESULT inline=$i live=$l control=installs" ;;
-  esac
+  echo "  C1 control (DISABLE_AIA):            $c1"
+  echo "  C2 control (flags 0, AIA allowed):   $c2"
+  echo "  C3 control (real leaf, chain+policy): $c3"
+  echo "  C5 control (C1, URL cache kept):     $c5"
+  case "$c2" in *aia=True*) echo "  note: C2 issuer came from AIA, not counted as an auto-update install" ;; esac
+  if autoroot_installed "$c3"; then
+    leaf_inline="$(autoroot_run $AUTOROOT_INLINE plain leaf)"
+    leaf_live="$(autoroot_run $AUTOROOT_LIVE ex leaf)"
+    echo "  leaf inline: $leaf_inline"
+    echo "  leaf live:   $leaf_live"
+  fi
+  autoroot_ps capidump || true
+  autoroot_capi_off
+  if autoroot_installed "$c1" || autoroot_installed "$c3" || autoroot_installed "$c5"; then
+    local i l
+    if autoroot_installed "$run_inline"; then i=installs; else i=does-not-fire; fi
+    if autoroot_installed "$run_live"; then l=installs; else l=does-not-fire; fi
+    echo "AUTOROOT RESULT inline=$i live=$l control=installs"
+    if autoroot_installed "$c3"; then
+      if autoroot_installed "$leaf_inline"; then i=installs; else i=does-not-fire; fi
+      if autoroot_installed "$leaf_live"; then l=installs; else l=does-not-fire; fi
+      echo "AUTOROOT RESULT-LEAF inline=$i live=$l"
+    fi
+  else
+    echo "AUTOROOT PRECONDITION FAILED: no unrestricted build installed R (see the diagnostics above)"
+  fi
   autoroot_restore
 }
 
