@@ -13,7 +13,9 @@
 # CI scripts and their helpers run on POSIX runners: pin them to LF so a
 # checkout under core.autocrlf=true cannot hand bash a CRLF-tainted script.
 *.sh  text eol=lf
+*.py  text eol=lf
 *.c   text eol=lf
 *.env text eol=lf
 *.yml text eol=lf
 *.json text eol=lf
+/.github/workflows/ci/fpc-tarball-sha256.txt text eol=lf

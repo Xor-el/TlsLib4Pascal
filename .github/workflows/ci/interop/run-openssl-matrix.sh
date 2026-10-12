@@ -46,7 +46,7 @@ trap 'rm -rf "$TMP"; kill $(jobs -p) 2>/dev/null || true' EXIT
 
 reap_cell() { # a peer stuck in accept must not outlive its cell
   local _
-  for _ in $(seq 1 100); do [ -z "$(jobs -rp)" ] && break; sleep 0.1; done
+  for _ in $(seq 1 30); do [ -z "$(jobs -rp)" ] && break; sleep 0.1; done
   kill $(jobs -rp) 2>/dev/null || true
   wait 2>/dev/null || true
 }

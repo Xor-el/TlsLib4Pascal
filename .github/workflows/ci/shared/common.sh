@@ -48,9 +48,15 @@ ci_download() {
 
 # Fails unless $1 matches its "<sha256>  <name>" entry in $2: a missing entry must not disable the check.
 ci_verify_sha256() {
-  local file="$1" list="$2" name expected actual
+  local file="$1" list="$2" name expected actual hash entry
   name="$(basename "$file")"
-  expected="$(grep -E "^[0-9a-f]{64}  ${name}[[:space:]]*\$" "$list" 2>/dev/null | head -n 1 | cut -d' ' -f1 || true)"
+  expected=""
+  if [ -r "$list" ]; then
+    while read -r hash entry _ || [ -n "${hash:-}" ]; do
+      entry="$(printf '%s' "$entry" | tr -d '\015')"
+      if [ "${#hash}" -eq 64 ] && [ "$entry" = "$name" ]; then expected="$hash"; break; fi
+    done < "$list"
+  fi
   if [ -z "$expected" ]; then
     echo "::error::no SHA-256 listed for $name in $list" >&2
     return 1
