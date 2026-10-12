@@ -44,6 +44,12 @@ type
   /// </summary>
   TRevocationPosture = (Soft, Hard, Off);
 
+  /// <summary>How a peer certificate is verified: the built-in PKIX pipeline over trust anchors
+  /// (WebPki), a platform or custom source that owns its roots (VerifierSource), a whole injected
+  /// verifier (Custom), or not at all (DangerousSkip). The kinds are exclusive, so a setting that
+  /// only one of them reads cannot be combined with another.</summary>
+  TVerificationKind = (WebPki, VerifierSource, Custom, DangerousSkip);
+
   /// <summary>The result of a revocation check for one certificate: a definitive Good or Revoked,
   /// or Indeterminate when no authoritative status was obtained (missing/expired/unreachable).</summary>
   TLiveRevocationOutcome = (Good, Revoked, Indeterminate);

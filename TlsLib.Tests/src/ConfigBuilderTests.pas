@@ -44,6 +44,7 @@ uses
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpICertificateVerifierSource,
+  TlpCertificateVerifierSource,
   TlpTrustTypes,
   TlpTlsAlert,
   TlpCertificateVerifier,
@@ -134,6 +135,7 @@ type
     // plaintext ServerKeyExchange of a server flight with AValue
     procedure PatchServerKeyExchange(var AWire: TBytes; ACurve: Boolean; AValue: UInt16);
     procedure CheckGreaseInServerKeyExchangeIsRefused(ACurve: Boolean);
+    function NewBareClientBuilder: ITlsClientConfigBuilder;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
@@ -208,6 +210,9 @@ type
     procedure TestEmptyCipherSuiteListIsRefused;
     procedure TestInjectedVerifierRefusesSettingsItIgnores;
     procedure TestTls13SettingsAreRefusedWhenTls13IsNotOffered;
+    procedure TestWebPkiPolicyCarriesItsSettingsIntoTheConfig;
+    procedure TestSkipAndCustomPoliciesNeedNoAnchors;
+    procedure TestVerificationFactoriesRefuseUnusableInput;
     procedure TestInertSettingsAreRefusedAtBuild;
     procedure TestRevertedFacetSettingsAndTicketCountZeroAreNotInert;
     procedure TestOfferedVersionWithoutASuiteIsRefused;
@@ -1891,6 +1896,78 @@ begin
   CheckTrue(System.Length(LSuites) > 0, 'a TLS 1.2 hello still lists suites');
 end;
 
+procedure TTestConfigBuilder.TestWebPkiPolicyCarriesItsSettingsIntoTheConfig;
+var
+  LStrength: TCertificateStrengthPolicy;
+  LConfig: ITlsClientConfig;
+  LChain: TStringList;
+begin
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.MinRsaModulusBits := 3072;
+  LChain := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
+  LConfig := NewBareClientBuilder.WithOcspStaplingRequest(True)
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust)
+    .WithMinimumStrength(LStrength).WithRevocation(TRevocationPosture.Hard)
+    .WithIntermediateCertificates(DecodeHex(LChain.Values['root_cert'])).Build).Build;
+  CheckTrue(LConfig.TrustStore.AnchorCount > 0, 'the policy anchors reach the config');
+  CheckEquals(3072, LConfig.CertificateStrengthPolicy.MinRsaModulusBits, 'the strength floor');
+  CheckTrue(LConfig.RevocationPosture = TRevocationPosture.Hard, 'the revocation posture');
+  CheckEquals(1, System.Length(LConfig.IntermediateCertificates), 'the intermediates');
+  CheckFalse(LConfig.DangerousTrust.InsecureSkipVerify, 'not a skip');
+end;
+
+procedure TTestConfigBuilder.TestSkipAndCustomPoliciesNeedNoAnchors;
+var
+  LConfig: ITlsClientConfig;
+begin
+  LConfig := NewBareClientBuilder.WithServerVerification(TServerVerification.DangerousSkip).Build;
+  CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify, 'skip sets the dangerous flag');
+  CheckNull(LConfig.TrustStore, 'and holds no anchors');
+  LConfig := NewBareClientBuilder.WithServerVerification(
+    TServerVerification.Custom(TAcceptAllServerVerifier.Create as IServerCertificateVerifier)).Build;
+  CheckNull(LConfig.TrustStore, 'a whole verifier holds no anchors');
+  // a staple request does not reach an injected verifier, so Hard needs the live verdict
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithOcspStaplingRequest(True)
+    .WithServerVerification(TServerVerification.Custom(
+    TAcceptAllServerVerifier.Create as IServerCertificateVerifier, TRevocationPosture.Hard)),
+    'WithLiveRevocationVerdict'), 'Hard over an injected verifier without a live verdict');
+  CheckNotNull(NewBareClientBuilder.WithLiveRevocationVerdict(1000)
+    .WithServerVerification(TServerVerification.Custom(
+    TAcceptAllServerVerifier.Create as IServerCertificateVerifier, TRevocationPosture.Hard)).Build,
+    'and builds with one');
+end;
+
+procedure TTestConfigBuilder.TestVerificationFactoriesRefuseUnusableInput;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TServerVerification.WebPki(nil, nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a WebPki policy with no anchors is refused');
+  LRaised := False;
+  try
+    TServerVerification.Custom(nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil verifier is refused');
+  LRaised := False;
+  try
+    TServerVerification.WebPki(ClientTrust).WithMinimumStrength(
+      Default(TCertificateStrengthPolicy));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'invalid strength floors are refused at the call');
+end;
+
 procedure TTestConfigBuilder.TestInertSettingsAreRefusedAtBuild;
 begin
   CheckTrue(BuildRefused(NewClientBuilder
@@ -3113,14 +3190,19 @@ begin
         Exit(False);
 end;
 
-function TTestConfigBuilder.NewClientBuilder: ITlsClientConfigBuilder;
+function TTestConfigBuilder.NewBareClientBuilder: ITlsClientConfigBuilder;
 var
   LOwner: ITlsConfigBuilder;
 begin
-  // a chooser seeded with the shared defaults, narrowed to the client view with a trust source
+  // a chooser seeded with the shared defaults, narrowed to the client view
   LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
-  Result := LOwner.Client.WithTrustStore(ClientTrust);
+  Result := LOwner.Client;
+end;
+
+function TTestConfigBuilder.NewClientBuilder: ITlsClientConfigBuilder;
+begin
+  Result := NewBareClientBuilder.WithTrustStore(ClientTrust);
 end;
 
 function TTestConfigBuilder.NewServerBuilder: ITlsServerConfigBuilder;

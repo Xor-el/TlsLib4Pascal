@@ -170,6 +170,11 @@ type
     /// trust-source requirement on its own; no anchor store is needed (one supplied is kept
     /// but not consulted).</summary>
     function WithDangerousInsecureSkipVerify: ITlsClientConfigBuilder;
+    /// <summary>How the client verifies the server's certificate: one policy, made by
+    /// TServerVerification (WebPki over anchors, a source that owns its roots, a whole verifier, or
+    /// DangerousSkip). A later call replaces an earlier one. Build requires a policy unless the
+    /// client authenticates by an external PSK.</summary>
+    function WithServerVerification(const AVerification: IServerVerification): ITlsClientConfigBuilder;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>
@@ -434,6 +439,10 @@ type
     /// the Build-time client-auth trust-source requirement on its own; no anchor store is needed
     /// (one supplied is kept but not consulted).</summary>
     function WithDangerousInsecureSkipVerify: ITlsServerConfigBuilder;
+    /// <summary>How the server verifies a client's certificate: one policy, made by
+    /// TClientVerification (WebPki over client-CA anchors, a source over them, a whole verifier, or
+    /// DangerousSkip). It takes effect with WithPeerAuth; a later call replaces an earlier one.</summary>
+    function WithClientVerification(const AVerification: IClientVerification): ITlsServerConfigBuilder;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>

@@ -118,6 +118,11 @@ type
     FClientCertVerifier: IClientCertificateVerifier;
     FClientVerifierSource: IClientCertificateVerifierSource;
     FVerifierCount: Int32;
+    // the peer-verification policy of the endpoint role (set through the view); the fields above
+    // are derived from it at Build
+    FServerVerification: IServerVerification;
+    FClientVerification: IClientVerification;
+    FLegacyTrustUsed: Boolean;
     FCheckServerName: Boolean;
     FServerNameIndication: TServerNameIndication;
     FRequestOcspStapling: Boolean;
@@ -191,6 +196,10 @@ type
     /// <summary>Enforces the trust-composition rule at build: a whole-verifier is exclusive
     /// of any anchor source and of a second verifier (typed error).</summary>
     procedure ValidateTrustComposition;
+    /// <summary>Derives the anchor, intermediate, strength, posture and skip state from a
+    /// verification policy, replacing whatever an earlier Build derived. The kind-specific verifier
+    /// and source slots are set by the caller.</summary>
+    procedure ApplyTrustData(const AVerification: ITrustVerification);
     /// <summary>Refuses an anchor store holding a certificate that does not parse: one such root
     /// would otherwise fail every verification against the store, far from its cause.</summary>
     procedure ValidateAnchorRoots;
@@ -298,6 +307,8 @@ type
     function WithCertificatePinning(const APins: TArray<TBytes>): TTlsConfigBuilder;
     function WithIntermediateCertificates(const AData: TBytes): TTlsConfigBuilder;
     function WithDangerousInsecureSkipVerify: TTlsConfigBuilder;
+    function WithServerVerification(const AVerification: IServerVerification): TTlsConfigBuilder;
+    function WithClientVerification(const AVerification: IClientVerification): TTlsConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): TTlsConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -361,6 +372,12 @@ resourcestring
   SBuilderFrozen = 'the configuration has been built and can no longer be changed';
   SEchBackendWithKeyStore = 'a split-mode ECH backend holds no keys; WithEchBackend is mutually ' +
     'exclusive with WithEchKeyStore';
+  SNilVerification = 'a verification policy must not be nil';
+  SLegacyTrustWithPolicy = 'a verification policy cannot be combined with the individual trust ' +
+    'setters; use one or the other';
+  SCustomHardNeedsLiveVerdict = 'a Hard revocation posture over an injected verifier needs ' +
+    'WithLiveRevocationVerdict: a staple request does not reach a verifier that replaces the ' +
+    'built-in chain verification';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
   SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
     'with no anchors is not a trust source (no silent-insecure)';
@@ -696,6 +713,7 @@ type
     function WithServerNameIndication(AMode: TServerNameIndication): ITlsClientConfigBuilder;
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
     function WithDangerousInsecureSkipVerify: ITlsClientConfigBuilder;
+    function WithServerVerification(const AVerification: IServerVerification): ITlsClientConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -758,6 +776,7 @@ type
     function WithIntermediateCertificates(
       const AData: TBytes): ITlsServerConfigBuilder;
     function WithDangerousInsecureSkipVerify: ITlsServerConfigBuilder;
+    function WithClientVerification(const AVerification: IClientVerification): ITlsServerConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsServerConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -1295,6 +1314,13 @@ begin
   Result := Self;
 end;
 
+function TTlsClientConfigBuilder.WithServerVerification(
+  const AVerification: IServerVerification): ITlsClientConfigBuilder;
+begin
+  FOwner.WithServerVerification(AVerification);
+  Result := Self;
+end;
+
 function TTlsClientConfigBuilder.WithAsyncCertificateVerdict(
   ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
 begin
@@ -1566,6 +1592,13 @@ end;
 function TTlsServerConfigBuilder.WithDangerousInsecureSkipVerify: ITlsServerConfigBuilder;
 begin
   FOwner.WithDangerousInsecureSkipVerify;
+  Result := Self;
+end;
+
+function TTlsServerConfigBuilder.WithClientVerification(
+  const AVerification: IClientVerification): ITlsServerConfigBuilder;
+begin
+  FOwner.WithClientVerification(AVerification);
   Result := Self;
 end;
 
@@ -2134,6 +2167,7 @@ begin
   // anchor sources accumulate (union); a nil store is ignored
   if AStore <> nil then
   begin
+    FLegacyTrustUsed := True;
     TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores, AStore);
     FComposedTrust := nil;
   end;
@@ -2143,6 +2177,7 @@ end;
 function TTlsConfigBuilder.WithTrustAnchors(const AData: TBytes): TTlsConfigBuilder;
 begin
   GuardMutable;
+  FLegacyTrustUsed := True;
   TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores,
     TTrustAnchorStore.Create(FPkix.Certificates.LoadChain(AData))
     as ITrustAnchorStore);
@@ -2156,6 +2191,7 @@ begin
   GuardMutable;
   if AVerifier <> nil then
   begin
+    FLegacyTrustUsed := True;
     FServerCertVerifier := AVerifier;
     Inc(FVerifierCount);
   end;
@@ -2168,6 +2204,7 @@ begin
   GuardMutable;
   if ASource <> nil then
   begin
+    FLegacyTrustUsed := True;
     FServerVerifierSource := ASource;
     Inc(FVerifierCount);
   end;
@@ -2180,6 +2217,7 @@ begin
   GuardMutable;
   if AVerifier <> nil then
   begin
+    FLegacyTrustUsed := True;
     FClientCertVerifier := AVerifier;
     Inc(FVerifierCount);
   end;
@@ -2196,7 +2234,10 @@ begin
   // FClientVerifierSource, so it cannot silently override an instance verifier. Because it has
   // nothing to consume without anchors, Build requires anchor roots alongside it when client auth is on.
   if ASource <> nil then
+  begin
+    FLegacyTrustUsed := True;
     FClientVerifierSource := ASource;
+  end;
   Result := Self;
 end;
 
@@ -2286,6 +2327,7 @@ begin
   if (APolicy.MinRsaModulusBits < 1) or ((APolicy.MaxRsaModulusBits <> 0) and
     (APolicy.MaxRsaModulusBits < APolicy.MinRsaModulusBits)) then
     raise EArgumentTlsLibException.CreateRes(@SInvalidStrengthFloors);
+  FLegacyTrustUsed := True;
   FStrengthPolicy := APolicy;
   Result := Self;
 end;
@@ -2619,6 +2661,7 @@ function TTlsConfigBuilder.WithRevocation(
   APosture: TRevocationPosture): TTlsConfigBuilder;
 begin
   GuardMutable;
+  FLegacyTrustUsed := True;
   FRevocationPosture := APosture;
   Result := Self;
 end;
@@ -2645,6 +2688,7 @@ var
   LI: Int32;
 begin
   GuardMutable;
+  FLegacyTrustUsed := True;
   // parse the bundle and accumulate, so successive calls add more intermediates
   LCerts := FPkix.Certificates.LoadChain(AData);
   for LI := 0 to System.High(LCerts) do
@@ -2655,8 +2699,59 @@ end;
 function TTlsConfigBuilder.WithDangerousInsecureSkipVerify: TTlsConfigBuilder;
 begin
   GuardMutable;
+  FLegacyTrustUsed := True;
   FDangerousTrust.InsecureSkipVerify := True;
   Result := Self;
+end;
+
+function TTlsConfigBuilder.WithServerVerification(
+  const AVerification: IServerVerification): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  if AVerification = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilVerification);
+  FServerVerification := AVerification;
+  Result := Self;
+end;
+
+function TTlsConfigBuilder.WithClientVerification(
+  const AVerification: IClientVerification): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  if AVerification = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilVerification);
+  FClientVerification := AVerification;
+  Result := Self;
+end;
+
+procedure TTlsConfigBuilder.ApplyTrustData(const AVerification: ITrustVerification);
+var
+  LBlob, LCert: TBytes;
+begin
+  if FLegacyTrustUsed then
+    raise EInvalidOperationTlsLibException.CreateRes(@SLegacyTrustWithPolicy);
+  // derived afresh on every Build, so a Build that failed can be corrected and retried
+  FAnchorStores := AVerification.AnchorStores;
+  for LBlob in AVerification.AnchorData do
+    TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores,
+      TTrustAnchorStore.Create(FPkix.Certificates.LoadChain(LBlob)) as ITrustAnchorStore);
+  FComposedTrust := nil;
+  FIntermediateCertificates := nil;
+  for LBlob in AVerification.IntermediateData do
+    for LCert in FPkix.Certificates.LoadChain(LBlob) do
+      TArrayUtilities.Append<TBytes>(FIntermediateCertificates, LCert);
+  FStrengthPolicy := AVerification.StrengthPolicy;
+  FRevocationPosture := AVerification.RevocationPosture;
+  FDangerousTrust.InsecureSkipVerify := AVerification.Kind = TVerificationKind.DangerousSkip;
+  FServerCertVerifier := nil;
+  FServerVerifierSource := nil;
+  FClientCertVerifier := nil;
+  FClientVerifierSource := nil;
+  // a staple request does not help an injected verifier, so Hard needs the live verdict
+  if (AVerification.Kind = TVerificationKind.Custom) and
+    (AVerification.RevocationPosture = TRevocationPosture.Hard) and
+    (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCustomHardNeedsLiveVerdict);
 end;
 
 function TTlsConfigBuilder.WithCertificateVerifyCallback(
@@ -3093,6 +3188,14 @@ begin
   // a client-authentication credential, if set, must be self-consistent (key owns its leaf)
   if FHasCredential then
     ValidateCredentialConsistency(FCredential);
+  if FServerVerification <> nil then
+  begin
+    ApplyTrustData(FServerVerification);
+    if FServerVerification.Kind = TVerificationKind.Custom then
+      FServerCertVerifier := FServerVerification.Verifier
+    else if FServerVerification.Kind = TVerificationKind.VerifierSource then
+      FServerVerifierSource := FServerVerification.Source;
+  end;
   ValidateTrustComposition;
   ValidateAnchorRoots;
   // a client authenticates the server by its certificate (anchor ROOTS, a whole-verifier, or a
@@ -3246,6 +3349,14 @@ begin
     (FCredentialResolver = nil) and (System.Length(FExternalPsks) = 0) and
     (System.Length(FTls12Psks) = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoCredential);
+  if FClientVerification <> nil then
+  begin
+    ApplyTrustData(FClientVerification);
+    if FClientVerification.Kind = TVerificationKind.Custom then
+      FClientCertVerifier := FClientVerification.Verifier
+    else if FClientVerification.Kind = TVerificationKind.VerifierSource then
+      FClientVerifierSource := FClientVerification.Source;
+  end;
   ValidateTrustComposition;
   ValidateAnchorRoots;
   // external PSKs are TLS 1.3-only (RFC 9258): a server that accepts them without offering 1.3
