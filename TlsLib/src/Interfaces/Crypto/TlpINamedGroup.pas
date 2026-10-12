@@ -70,10 +70,12 @@ type
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
 
+  INamedGroupRegistryBuilder = interface;
+
   /// <summary>
-  /// An injectable registry of named groups, keyed by wire codepoint; entries can
-  /// be pruned to harden a profile or added for a new group without touching the
-  /// core.
+  /// An injectable, immutable registry of named groups keyed by wire codepoint. To prune a group to
+  /// harden a profile or add one for a new group without touching the core, start from ToBuilder
+  /// and build a new registry.
   /// </summary>
   INamedGroupRegistry = interface(IInterface)
     ['{BF4ACB64-108E-488F-BF30-C49DCF140421}']
@@ -83,10 +85,18 @@ type
     function Contains(ACode: UInt16): Boolean;
     /// <summary>The group registered for ACode; False (AGroup nil) when none.</summary>
     function TryGet(ACode: UInt16; out AGroup: INamedGroup): Boolean;
+    /// <summary>A builder holding this registry's groups, for deriving a changed registry.</summary>
+    function ToBuilder: INamedGroupRegistryBuilder;
+  end;
+
+  /// <summary>Assembles a named-group registry; Build snapshots the entries.</summary>
+  INamedGroupRegistryBuilder = interface(IInterface)
+    ['{EF739F7D-58F5-4B56-B8FA-45F459F0037E}']
     /// <summary>Registers AGroup unless its code is already present.</summary>
     procedure Add(const AGroup: INamedGroup);
     /// <summary>Removes the group registered for ACode, if any.</summary>
     procedure Prune(ACode: UInt16);
+    function Build: INamedGroupRegistry;
   end;
 
 implementation

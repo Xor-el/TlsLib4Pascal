@@ -222,13 +222,16 @@ end;
 
 function TTestTls13KeyUpdate.AesGcmRegistry(
   const AProvider: ICryptoProvider): ICipherSuiteRegistry;
+var
+  LBuilder: ICipherSuiteRegistryBuilder;
 begin
   // AES-128-GCM only: its record-count usage limit is the bound the auto-rekey defends. The
   // CPU-adaptive default prefers ChaCha20 (limited only by the 2^64 sequence, so it never rekeys
   // by count) on a host without hardware AES, which would make the rekey test host-dependent.
-  Result := TCipherSuiteRegistry.CreateDefault(AProvider);
-  Result.Prune(TCipherSuites13.ChaCha20Poly1305Sha256);
-  Result.Prune(TCipherSuites13.Aes256GcmSha384);
+  LBuilder := TCipherSuiteRegistry.CreateDefault(AProvider).ToBuilder;
+  LBuilder.Prune(TCipherSuites13.ChaCha20Poly1305Sha256);
+  LBuilder.Prune(TCipherSuites13.Aes256GcmSha384);
+  Result := LBuilder.Build;
 end;
 
 procedure TTestTls13KeyUpdate.TestWriteAtUsageLimitRekeysAutomatically;

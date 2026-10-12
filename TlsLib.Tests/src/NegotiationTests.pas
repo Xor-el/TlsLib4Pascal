@@ -64,6 +64,7 @@ type
     procedure TestNoCommonVersionIsProtocolVersion;
     procedure TestNoCommonSuiteIsHandshakeFailure;
     procedure TestRegistryPruningRemovesOption;
+    procedure TestBuiltRegistryIgnoresLaterBuilderChanges;
     procedure TestDowngradeSentinelEmittedAndDetected;
     procedure TestDualVersionRegistryHoldsHardenedTls12Suites;
     procedure TestDualVersionRegistryKeepsTls13SuitesDecoupled;
@@ -204,18 +205,18 @@ end;
 
 procedure TTestNegotiation.TestCustomRegistryOrderIsUsedAsGiven;
 var
-  LCiphers: ICipherSuiteRegistry;
+  LCiphers: ICipherSuiteRegistryBuilder;
   LPolicy: INegotiationPolicy;
   LSuite: TTlsCipherSuite;
 begin
   // a registry that lists ChaCha20 ahead of AES-128 keeps that order on a hardware-AES host: the
   // policy no longer re-sorts the AEAD families
-  LCiphers := TCipherSuiteRegistry.Create;
+  LCiphers := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites13.ChaCha20Poly1305Sha256, LSuite), 'catalog');
   LCiphers.Add(LSuite);
   CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites13.Aes128GcmSha256, LSuite), 'catalog');
   LCiphers.Add(LSuite);
-  LPolicy := TNegotiationPolicy.Create(LCiphers,
+  LPolicy := TNegotiationPolicy.Create(LCiphers.Build,
     TNamedGroups.CreateDefaultRegistry(Crypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.X25519),
     TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ServerOrder);
@@ -375,11 +376,13 @@ end;
 
 procedure TTestNegotiation.TestRegistryPruningRemovesOption;
 var
+  LBuilder: ICipherSuiteRegistryBuilder;
   LCiphers: ICipherSuiteRegistry;
   LPolicy: INegotiationPolicy;
 begin
-  LCiphers := TCipherSuiteRegistry.CreateDefault(Crypto);
-  LCiphers.Prune(TCipherSuites13.Aes128GcmSha256);
+  LBuilder := TCipherSuiteRegistry.CreateDefault(Crypto).ToBuilder;
+  LBuilder.Prune(TCipherSuites13.Aes128GcmSha256);
+  LCiphers := LBuilder.Build;
   CheckFalse(LCiphers.Contains(TCipherSuites13.Aes128GcmSha256), 'AES-128 pruned from the registry');
   LPolicy := TNegotiationPolicy.Create(LCiphers,
     TNamedGroups.CreateDefaultRegistry(Crypto),
@@ -387,6 +390,22 @@ begin
     TArray<UInt16>.Create(TlsWireVersionTls13), TServerCipherPreference.ServerOrder);
   CheckTrue(SelectSuiteRaises(LPolicy, TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256),
     TTlsAlertDescription.HandshakeFailure), 'a pruned suite is no longer negotiable');
+end;
+
+procedure TTestNegotiation.TestBuiltRegistryIgnoresLaterBuilderChanges;
+var
+  LBuilder: ICipherSuiteRegistryBuilder;
+  LBuilt: ICipherSuiteRegistry;
+  LItems: TArray<TTlsCipherSuite>;
+begin
+  // a frozen config holds the built registry, so neither the builder nor a returned array can reach it
+  LBuilder := TCipherSuiteRegistry.CreateDefault(Crypto).ToBuilder;
+  LBuilt := LBuilder.Build;
+  LBuilder.Prune(TCipherSuites13.Aes128GcmSha256);
+  CheckTrue(LBuilt.Contains(TCipherSuites13.Aes128GcmSha256), 'a later Prune does not reach the built registry');
+  LItems := LBuilt.Items;
+  SetLength(LItems, 0);
+  CheckTrue(System.Length(LBuilt.Items) > 0, 'the registry hands out copies of its entries');
 end;
 
 procedure TTestNegotiation.TestDowngradeSentinelEmittedAndDetected;

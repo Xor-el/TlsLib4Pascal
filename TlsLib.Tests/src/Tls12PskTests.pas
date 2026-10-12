@@ -658,20 +658,20 @@ end;
 
 procedure TTestTls12Psk.TestServerWithoutPsksNeverSelectsAPskSuite;
 var
-  LRegistry: ICipherSuiteRegistry;
+  LRegistry: ICipherSuiteRegistryBuilder;
   LSuite: TTlsCipherSuite;
   LClient, LServer: ITlsEngine;
 begin
   // a registry that holds PSK suites is not a PSK: with no key configured the server selects a
   // certificate suite
-  LRegistry := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LRegistry := TCipherSuiteRegistry.CreateDualVersion(Crypto).ToBuilder;
   for LSuite in TCipherSuiteRegistry.CreateTls12Psk(Crypto).Items do
     LRegistry.Add(LSuite);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(Only12).WithTrustStore(ClientTrust)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithSupportedVersions(Only12).WithCipherSuites(LRegistry).WithCredential(ServerCredential).Build);
+    .WithSupportedVersions(Only12).WithCipherSuites(LRegistry.Build).WithCredential(ServerCredential).Build);
   Run(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
   CheckEquals(0, System.Length(LServer.ConnectionInfo.PskIdentity), 'by certificate, not PSK');

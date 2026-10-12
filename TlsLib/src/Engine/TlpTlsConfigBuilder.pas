@@ -2788,25 +2788,23 @@ function TTlsConfigBuilder.WithTls12PskSuites(
   const ABase: ICipherSuiteRegistry): ICipherSuiteRegistry;
 var
   LPsk, LSuite: TTlsCipherSuite;
-  LJoined: ICipherSuiteRegistry;
-  LUnused: TTlsCipherSuite;
+  LJoined: ICipherSuiteRegistryBuilder;
 begin
   Result := ABase;
   if System.Length(FTls12Psks) = 0 then
     Exit;
   // the TLS 1.3 suites, then the PSK suites, then the TLS 1.2 certificate suites: the PSK suites
   // lead the TLS 1.2 order, as a matching PSK outranks the certificate in TLS 1.3 too
-  LJoined := TCipherSuiteRegistry.Create;
+  LJoined := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   for LSuite in ABase.Items do
     if LSuite.Protocol = TSuiteProtocol.Tls13 then
       LJoined.Add(LSuite);
   for LPsk in TCipherSuiteRegistry.CreateTls12Psk(FCrypto).Items do
-    if not LJoined.TryGet(LPsk.Common.Code, LUnused) then
-      LJoined.Add(LPsk);
+    LJoined.Add(LPsk);
   for LSuite in ABase.Items do
-    if (LSuite.Protocol = TSuiteProtocol.Tls12) and not LJoined.TryGet(LSuite.Common.Code, LUnused) then
+    if LSuite.Protocol = TSuiteProtocol.Tls12 then
       LJoined.Add(LSuite);
-  Result := LJoined;
+  Result := LJoined.Build;
 end;
 
 function TTlsConfigBuilder.WithTls12PreSharedKeys(
@@ -2997,9 +2995,10 @@ end;
 
 function TTlsConfigBuilder.EffectiveCipherSuites: ICipherSuiteRegistry;
 var
-  LBase, LNarrowed: ICipherSuiteRegistry;
+  LBase: ICipherSuiteRegistry;
+  LNarrowed: ICipherSuiteRegistryBuilder;
   LProtocol: TSuiteProtocol;
-  LSuite, LUnused: TTlsCipherSuite;
+  LSuite: TTlsCipherSuite;
   LNamed: Boolean;
   LI: Int32;
 begin
@@ -3011,7 +3010,7 @@ begin
     if not LBase.TryGet(FCipherSuiteList[LI], LSuite) then
       raise EArgumentTlsLibException.CreateResFmt(@SCipherSuiteNotConfigured,
         [TCipherSuiteCatalog.Name(FCipherSuiteList[LI])]);
-  LNarrowed := TCipherSuiteRegistry.Create;
+  LNarrowed := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   for LProtocol := TSuiteProtocol.Tls13 downto TSuiteProtocol.Tls12 do
   begin
     LNamed := False;
@@ -3019,15 +3018,14 @@ begin
       if LBase.TryGet(FCipherSuiteList[LI], LSuite) and (LSuite.Protocol = LProtocol) then
       begin
         LNamed := True;
-        if not LNarrowed.TryGet(LSuite.Common.Code, LUnused) then
-          LNarrowed.Add(LSuite);
+        LNarrowed.Add(LSuite);
       end;
     if not LNamed then
       for LSuite in LBase.Items do
         if LSuite.Protocol = LProtocol then
           LNarrowed.Add(LSuite);
   end;
-  Result := LNarrowed;
+  Result := LNarrowed.Build;
 end;
 
 procedure TTlsConfigBuilder.ValidateOfferedVersionsHaveSuites(const ASuites: ICipherSuiteRegistry);

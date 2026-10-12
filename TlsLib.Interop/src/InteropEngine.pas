@@ -324,13 +324,15 @@ end;
 class function TInteropEngine.SignatureSchemesFromCodes(
   const ACodes: TArray<UInt16>): ISignatureSchemeRegistry;
 var
+  LBuilder: ISignatureSchemeRegistryBuilder;
   LCode: UInt16;
   LScheme: TSignatureScheme;
 begin
-  Result := TSignatureSchemeRegistry.Create;
+  LBuilder := TSignatureSchemeRegistryBuilder.Create as ISignatureSchemeRegistryBuilder;
   for LCode in ACodes do
     if TSignatureScheme.TryFromCode(LCode, LScheme) then
-      Result.Add(LScheme);
+      LBuilder.Add(LScheme);
+  Result := LBuilder.Build;
 end;
 
 class function TInteropEngine.Build(const ACryptoProvider: ICryptoProvider;

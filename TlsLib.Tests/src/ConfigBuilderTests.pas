@@ -3738,21 +3738,21 @@ end;
 
 procedure TTestConfigBuilder.TestServerWithEmptyGroupIntersectionFailsFast;
 var
-  LReg: INamedGroupRegistry;
+  LReg: INamedGroupRegistryBuilder;
   LRaised: Boolean;
 begin
   // Hardened prefers the hybrid, X25519 and secp256r1; prune the classical registry down to
   // secp384r1 (which Hardened does not prefer), leaving the registry-vs-preference intersection
   // empty. The server must refuse at creation rather than build with an empty offer and fault on
   // the first ClientHello.
-  LReg := TNamedGroups.CreateClassicalRegistry(Crypto);
+  LReg := TNamedGroups.CreateClassicalRegistry(Crypto).ToBuilder;
   LReg.Prune(TNamedGroupCatalog.X25519);
   LReg.Prune(TNamedGroupCatalog.Secp256r1);
   LReg.Prune(TNamedGroupCatalog.Secp521r1);
   LRaised := False;
   try
     TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
-      .WithNamedGroups(LReg).WithCredential(ServerCredential).Build);
+      .WithNamedGroups(LReg.Build).WithCredential(ServerCredential).Build);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

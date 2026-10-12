@@ -714,7 +714,7 @@ end;
 procedure TTestTlsStreamLoopback.TestRecordLimitCloseNotifyReachesPeerOverPump;
 var
   LCapped: ICryptoProvider;
-  LSuites: ICipherSuiteRegistry;
+  LSuites: ICipherSuiteRegistryBuilder;
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
   LC2S, LS2C: TMemoryPipe;
@@ -731,13 +731,13 @@ begin
   // sequence 0). TLS 1.2 has no KeyUpdate, so that first write seals a close_notify and refuses,
   // exercising the limit path over a real stream/transport without sealing millions of records.
   LCapped := TCappedAeadProvider.Create(Crypto, 17) as ICryptoProvider;
-  LSuites := TCipherSuiteRegistry.CreateDualVersion(LCapped);
+  LSuites := TCipherSuiteRegistry.CreateDualVersion(LCapped).ToBuilder;
   LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
   LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
   LClientConfig := TTlsPresets.Compatible(LCapped, Pkix).Client
     .WithTrustAnchors(TrustRoot)
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithCipherSuites(LSuites).Build;
+    .WithCipherSuites(LSuites.Build).Build;
   LServerConfig := TTlsPresets.Compatible(LCapped, Pkix).Server
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
     .WithCredential(TTlsCredential.Load(LCapped, Pkix, LeafCert, LeafKey)).Build;

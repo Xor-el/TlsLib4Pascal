@@ -118,16 +118,17 @@ end;
 // so this controls the client's advertised preference
 function OrderedRegistry(const ACodes: array of UInt16): ICipherSuiteRegistry;
 var
-  LAll, LReg: ICipherSuiteRegistry;
+  LAll: ICipherSuiteRegistry;
+  LReg: ICipherSuiteRegistryBuilder;
   LSuite: TTlsCipherSuite;
   LI: Integer;
 begin
   LAll := TCipherSuiteRegistry.CreateDualVersion(GProvider);
-  LReg := TCipherSuiteRegistry.Create;
+  LReg := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   for LI := System.Low(ACodes) to System.High(ACodes) do
     if LAll.TryGet(ACodes[LI], LSuite) then
       LReg.Add(LSuite);
-  Result := LReg;
+  Result := LReg.Build;
 end;
 
 function BuildServerConfig(APreference: TServerCipherPreference): ITlsServerConfig;

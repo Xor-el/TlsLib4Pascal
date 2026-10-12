@@ -116,41 +116,39 @@ class function TSystemCryptoStrictness.NativeNamedGroups(
   const ACryptoProvider: ICryptoProvider; out ADropped: TArray<string>): INamedGroupRegistry;
 var
   LReport: ICryptoBackendReport;
+  LDefault: INamedGroupRegistry;
+  LBuilder: INamedGroupRegistryBuilder;
   LGroup: INamedGroup;
-  LCodes: TArray<UInt16>;
-  LCode: UInt16;
 begin
   ADropped := nil;
-  LCodes := nil;
   LReport := Report(ACryptoProvider);
-  // start from the provider's default registry (a fresh instance) and prune what is not
-  // served natively
-  Result := TNamedGroups.CreateDefaultRegistry(ACryptoProvider);
-  for LGroup in Result.Items do
+  // start from the provider's default registry and prune what is not served natively
+  LDefault := TNamedGroups.CreateDefaultRegistry(ACryptoProvider);
+  LBuilder := LDefault.ToBuilder;
+  for LGroup in LDefault.Items do
     if not GroupIsNative(LReport, LGroup) then
     begin
       TArrayUtilities.Append<string>(ADropped, LGroup.Name);
-      TArrayUtilities.Append<UInt16>(LCodes, LGroup.Code);
+      LBuilder.Prune(LGroup.Code);
     end;
-  for LCode in LCodes do
-    Result.Prune(LCode);
+  Result := LBuilder.Build;
 end;
 
 class function TSystemCryptoStrictness.NativeCipherSuites(
   const ACryptoProvider: ICryptoProvider; out ADropped: TArray<string>): ICipherSuiteRegistry;
 var
   LReport: ICryptoBackendReport;
+  LDefault: ICipherSuiteRegistry;
+  LBuilder: ICipherSuiteRegistryBuilder;
   LSuite: TTlsCipherSuite;
-  LCodes: TArray<UInt16>;
-  LCode: UInt16;
   LNative: Boolean;
 begin
   ADropped := nil;
-  LCodes := nil;
   LReport := Report(ACryptoProvider);
-  Result := TCipherSuiteRegistry.CreateDefault(ACryptoProvider);
+  LDefault := TCipherSuiteRegistry.CreateDefault(ACryptoProvider);
+  LBuilder := LDefault.ToBuilder;
   // a suite is native when both its record-protection hash and its AEAD are System-backed
-  for LSuite in Result.Items do
+  for LSuite in LDefault.Items do
   begin
     LNative := (LReport <> nil) and
       (LReport.HashBackend(LSuite.Common.Hash).Backend = TCryptoBackend.System) and
@@ -158,36 +156,32 @@ begin
     if not LNative then
     begin
       TArrayUtilities.Append<string>(ADropped, Format('0x%.4x', [LSuite.Common.Code]));
-      TArrayUtilities.Append<UInt16>(LCodes, LSuite.Common.Code);
+      LBuilder.Prune(LSuite.Common.Code);
     end;
   end;
-  for LCode in LCodes do
-    Result.Prune(LCode);
+  Result := LBuilder.Build;
 end;
 
 class function TSystemCryptoStrictness.NativeSignatureSchemes(
   const ACryptoProvider: ICryptoProvider; out ADropped: TArray<string>): ISignatureSchemeRegistry;
 var
   LReport: ICryptoBackendReport;
+  LDefault: ISignatureSchemeRegistry;
+  LBuilder: ISignatureSchemeRegistryBuilder;
   LScheme: TSignatureScheme;
-  LName: string;
-  LCodes: TArray<UInt16>;
-  LCode: UInt16;
 begin
   ADropped := nil;
-  LCodes := nil;
   LReport := Report(ACryptoProvider);
-  Result := TSignatureSchemeRegistry.CreateDefault;
-  for LScheme in Result.Items do
+  LDefault := TSignatureSchemeRegistry.CreateDefault;
+  LBuilder := LDefault.ToBuilder;
+  for LScheme in LDefault.Items do
     if (LReport = nil) or
       (LReport.SigningBackend(LScheme).Backend <> TCryptoBackend.System) then
     begin
-      LName := TEnumUtilities.GetName<TSignatureScheme>(LScheme);
-      TArrayUtilities.Append<string>(ADropped, LName);
-      TArrayUtilities.Append<UInt16>(LCodes, LScheme.ToCode);
+      TArrayUtilities.Append<string>(ADropped, TEnumUtilities.GetName<TSignatureScheme>(LScheme));
+      LBuilder.Prune(LScheme.ToCode);
     end;
-  for LCode in LCodes do
-    Result.Prune(LCode);
+  Result := LBuilder.Build;
 end;
 
 class function TSystemCryptoStrictness.CommaList(const AItems: TArray<string>): string;

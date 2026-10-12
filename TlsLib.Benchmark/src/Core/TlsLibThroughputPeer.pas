@@ -81,12 +81,14 @@ function SingleSuiteRegistry(const ACryptoProvider: ICryptoProvider;
   ASuiteCode: UInt16): ICipherSuiteRegistry;
 var
   LAll: ICipherSuiteRegistry;
+  LBuilder: ICipherSuiteRegistryBuilder;
   LSuite: TTlsCipherSuite;
 begin
   LAll := TCipherSuiteRegistry.CreateDualVersion(ACryptoProvider);
-  Result := TCipherSuiteRegistry.Create;
+  LBuilder := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   if LAll.TryGet(ASuiteCode, LSuite) then
-    Result.Add(LSuite);
+    LBuilder.Add(LSuite);
+  Result := LBuilder.Build;
 end;
 
 function OfferedGroups(const APkix: IPkixProvider;

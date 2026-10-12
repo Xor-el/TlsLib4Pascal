@@ -21,20 +21,18 @@ uses
 
 type
   /// <summary>
-  /// The behavior shared by the code-keyed registries: an ordered, prunable list
-  /// keyed by a UInt16 wire code. A concrete registry supplies the code extractor
-  /// (through the constructor) and the specific registry interface; the vocabulary
-  /// - Items / Contains / TryGet / Add / Prune - is then uniform across all of them.
-  /// Insertion order is preserved (it is the on-wire preference order); Add is a
-  /// no-op when the code is already present.
+  /// The read side shared by the code-keyed registries: an ordered list keyed by a UInt16 wire
+  /// code, fixed when the registry is created. A concrete registry supplies the code extractor
+  /// (through the constructor) and the specific registry interface; the vocabulary - Items /
+  /// Contains / TryGet - is then uniform across all of them. Insertion order is preserved (it is
+  /// the on-wire preference order).
   /// </summary>
   TCodeKeyedRegistry<T> = class abstract(TInterfacedObject)
-  strict private
+  strict protected
   var
     FItems: TArray<T>;
     FCodeOf: TKeyOf<T, UInt16>;
-  strict protected
-    constructor Create(const ACodeOf: TKeyOf<T, UInt16>);
+    constructor Create(const ACodeOf: TKeyOf<T, UInt16>; const AItems: TArray<T>);
   public
     /// <summary>All entries, in insertion (preference) order.</summary>
     function Items: TArray<T>;
@@ -42,6 +40,14 @@ type
     function Contains(ACode: UInt16): Boolean;
     /// <summary>The entry with ACode; False (AItem unset) when none.</summary>
     function TryGet(ACode: UInt16; out AItem: T): Boolean;
+  end;
+
+  /// <summary>
+  /// A registry that can still change: the base of the registry builders. Add is a no-op when the
+  /// code is already present.
+  /// </summary>
+  TCodeKeyedRegistryBuilder<T> = class abstract(TCodeKeyedRegistry<T>)
+  public
     /// <summary>Appends AItem unless its code is already present.</summary>
     procedure Add(const AItem: T);
     /// <summary>Removes the entry with ACode, if any.</summary>
@@ -52,15 +58,17 @@ implementation
 
 { TCodeKeyedRegistry<T> }
 
-constructor TCodeKeyedRegistry<T>.Create(const ACodeOf: TKeyOf<T, UInt16>);
+constructor TCodeKeyedRegistry<T>.Create(const ACodeOf: TKeyOf<T, UInt16>;
+  const AItems: TArray<T>);
 begin
   inherited Create;
   FCodeOf := ACodeOf;
+  FItems := System.Copy(AItems);
 end;
 
 function TCodeKeyedRegistry<T>.Items: TArray<T>;
 begin
-  Result := FItems;
+  Result := System.Copy(FItems);
 end;
 
 function TCodeKeyedRegistry<T>.TryGet(ACode: UInt16; out AItem: T): Boolean;
@@ -80,14 +88,16 @@ begin
   Result := TryGet(ACode, LItem);
 end;
 
-procedure TCodeKeyedRegistry<T>.Add(const AItem: T);
+{ TCodeKeyedRegistryBuilder<T> }
+
+procedure TCodeKeyedRegistryBuilder<T>.Add(const AItem: T);
 begin
   if Contains(FCodeOf(AItem)) then
     Exit;
   TArrayUtilities.Append<T>(FItems, AItem);
 end;
 
-procedure TCodeKeyedRegistry<T>.Prune(ACode: UInt16);
+procedure TCodeKeyedRegistryBuilder<T>.Prune(ACode: UInt16);
 begin
   TArrayUtilities.RemoveKey<T, UInt16>(FItems, FCodeOf, ACode);
 end;
