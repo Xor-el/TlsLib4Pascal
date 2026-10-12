@@ -1,0 +1,38 @@
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_58af9e1b217631::t_0b935608d1d69f 375
+  s_58af9e1b217631::t_c34b82a7bdd33a 2862-2882
+docs/system-trust.md
+  s_58af9e1b217631::t_0ee8926d8085ee 233
+.github/workflows/make.yml
+  s_58af9e1b217631::t_f11b22d74147c2 80-83
+  s_58af9e1b217631::t_7eaf8b2846988e 201,246,349,397,441
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_58af9e1b217631::t_badbaae5cef935 37
+  s_58af9e1b217631::t_ce8e3b8823252c 720-722
+.github/workflows/ci/interop/trust/autoroot-probe.ps1
+  s_58af9e1b217631::t_9378edef821ff8 17
+.github/workflows/ci/interop/interop-harness/action.yml
+  s_58af9e1b217631::t_b8df92ec4920da 96
+  s_58af9e1b217631::t_61dd0f60393788 34-37
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_58af9e1b217631::t_9b514bf74b6c2c 80-85
+  s_58af9e1b217631::t_6bb994cdade414 841
+  s_58af9e1b217631::t_cecf9a6c5b4226 938-949,951-956
+  s_58af9e1b217631::t_a38c991db317a8 950
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7db0990a5814b1c2bcc8f08bf645257e6046bf57",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
