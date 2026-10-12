@@ -681,8 +681,9 @@ TLS client, on every compiler and OS. Configure it with a `TSocketHttpFetcherSet
 (`Defaults`, then set what you need):
 
 - `TlsConfig` — the client config for https responders; without one an https responder fails closed.
-  It must not use `WithLiveRevocationVerdict` (the fetcher would call itself), which the constructor
-  refuses. OCSP and CRL responders are almost always plain http.
+  It must not arm a certificate-verdict park (`WithAsyncCertificateVerdict` or
+  `WithLiveRevocationVerdict`; there is no resolver here, and a live one would call the fetcher
+  itself), which the constructor refuses. OCSP and CRL responders are almost always plain http.
 - `Resolver` — the `IHostResolver` every responder and proxy name goes through: the place to refuse
   loopback or private addresses. Name resolution is outside the fetch timeout.
 - `ProxyHost` / `ProxyPort` — an explicit forward proxy: http requests are sent in absolute form,

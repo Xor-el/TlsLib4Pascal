@@ -139,10 +139,12 @@ uses SysUtils, TlpTlsConnection, TlpNetSocket, TlpINetSocket, TlpITlsTransport;
 
 var
   LConn: TTlsConnection;
+  LConnector: ITcpConnector;
   LTransport: ITlsTimedTransport;
   Buf: TBytes;
 begin
-  LTransport := (TTcpConnector.Create(10000) as ITcpConnector).Connect('example.com', 443);
+  LConnector := TTcpConnector.Create(10000) as ITcpConnector;
+  LTransport := LConnector.Connect('example.com', 443);
   LConn := TTlsConnection.CreateClient(LConfig, 'example.com', LTransport, nil, 0);
   try
     LConn.Handshake(0);                       // 0 = the 30 s default; raises ETlsHandshakeTimeout

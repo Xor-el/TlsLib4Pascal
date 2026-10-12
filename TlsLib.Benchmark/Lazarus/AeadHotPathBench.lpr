@@ -73,7 +73,8 @@ begin
   SetLength(LSealed, CRecordSize + LReused.TagSize);
   FillChar(LNonce[0], System.Length(LNonce), 0);
 
-  // after: one reused adapter, re-Init'd per record (same-key fast path)
+  // after: one keyed adapter reused for every record; both loops reuse the same key and nonces,
+  // which a real sender must never do
   LStart := TThread.GetTickCount;
   for LI := 0 to CRecords - 1 do
   begin

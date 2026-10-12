@@ -292,11 +292,13 @@ end;
 procedure TTestNetSocket.TestConnectTimeoutBelowASecondConnects;
 var
   LListener: ITcpListener;
+  LConnector: ITcpConnector;
   LStream: ITlsTimedTransport;
 begin
   // a timeout counted in whole seconds would round 50 ms down to none
   LListener := Listener;
-  LStream := TTcpConnector.Create(50).Connect('127.0.0.1', LListener.Port);
+  LConnector := TTcpConnector.Create(50) as ITcpConnector;
+  LStream := LConnector.Connect('127.0.0.1', LListener.Port);
   CheckTrue(LStream <> nil, 'a connect with a 50 ms timeout still connects');
 end;
 
@@ -342,13 +344,15 @@ var
   LListener: ITcpListener;
   LFake: TFakeResolver;
   LResolver: IHostResolver;
+  LConnector: ITcpConnector;
   LClient, LServer: ITlsTimedTransport;
   LLeft: Int32;
 begin
   LListener := Listener;
   LFake := TFakeResolver.Create('peer.test');
   LResolver := LFake as IHostResolver;
-  LClient := TTcpConnector.Create(5000, LResolver).Connect('peer.test', LListener.Port);
+  LConnector := TTcpConnector.Create(5000, LResolver) as ITcpConnector;
+  LClient := LConnector.Connect('peer.test', LListener.Port);
   LLeft := 50;
   while (LServer = nil) and (LLeft > 0) do
   begin
@@ -362,11 +366,14 @@ end;
 procedure TTestNetSocket.TestConnectorRefusesAHostTheResolverCannotFind;
 var
   LRaised: Boolean;
+  LResolver: IHostResolver;
+  LConnector: ITcpConnector;
 begin
   LRaised := False;
+  LResolver := TFakeResolver.Create('peer.test') as IHostResolver;
+  LConnector := TTcpConnector.Create(1000, LResolver) as ITcpConnector;
   try
-    TTcpConnector.Create(1000, TFakeResolver.Create('peer.test') as IHostResolver)
-      .Connect('other.test', 80);
+    LConnector.Connect('other.test', 80);
   except
     on E: ENetConnectError do
       LRaised := True;
