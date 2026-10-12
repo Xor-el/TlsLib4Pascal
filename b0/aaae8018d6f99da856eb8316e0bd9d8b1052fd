@@ -1,0 +1,35 @@
+TlsLib.Tests/src/SocketHttpExchangeTests.pas
+  s_58af9e1b217631::t_c37bea3401df3d 151
+  s_58af9e1b217631::t_74cad3671ee11c 1096
+TlsLib.Benchmark/Lazarus/AeadHotPathBench.lpr
+  s_58af9e1b217631::t_c1b1e2852770ec 76-77
+TlsLib.Tests/src/NetSocketTests.pas
+  s_58af9e1b217631::t_736cffcebd7dfb 347,354-355
+  s_58af9e1b217631::t_2012ef87925ea7 295,300-301
+  s_58af9e1b217631::t_d37c707bd03019 369-370,373-374,376
+TlsLib.Net/src/TlpSocketHttpFetcher.pas
+  s_58af9e1b217631::t_136afc03bd3110 818
+  s_58af9e1b217631::t_ec119717deea4a 85
+  s_58af9e1b217631::t_260d7ef58dccbf 103
+  s_58af9e1b217631::t_e0b8d84e8e0aad 51-52
+docs/cookbook.md
+  s_58af9e1b217631::t_04aa830db218f2 684-686
+docs/getting-started.md
+  s_58af9e1b217631::t_5effb9c4e48fa9 142,146-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b0aaae8018d6f99da856eb8316e0bd9d8b1052fd",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
