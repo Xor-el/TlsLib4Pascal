@@ -457,6 +457,32 @@ H.UseSystemTrust := True;                                // OS roots
 anchors; with both it unions them; with neither it fails closed. `VerifyPeerCert := False` is the
 loud `InsecureSkipVerify` bypass.
 
+### Writing your own adapter
+
+The core library reaches system trust only through `ISystemTrustInstaller` (unit
+`TlpISystemTrustInstaller`), so a host-neutral adapter can offer a `UseSystemTrust` switch without
+the core depending on this package. `TSystemTrustInstaller.Shared` (unit `TlpSystemTrustFacade`) is
+the implementation the four adapters use: a stateless, process-wide instance.
+
+- `ServerVerification(Pkix, ExtraAnchors)` returns the OS server-certificate policy, the same as
+  `TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default, ExtraAnchors).Build`.
+  `ExtraAnchors` (nil for none) are the host's own roots, unioned with the OS ones; where the
+  platform cannot union them (delegate-only) it raises rather than drop them.
+- `Identity` names the trust it installs (`'os-system-trust'` for the shared instance). Adapter
+  config caches key on it (`TTlsConfigComposer.ClientSignature`), so an installer that installs
+  different roots needs a different identity. The signature refuses an empty one.
+
+Set it on the client-role options the composer builds from; a server never reads it, since system
+trust is never a client-CA:
+
+```pascal
+uses TlpTlsConnection, TlpITlsConfig, TlpSystemTrustFacade;
+
+LOptions := TTlsOptions.Default;
+LOptions.SystemTrust := TSystemTrustInstaller.Shared;
+LConfig := TTlsConfigComposer.BuildClientConfig(LOptions);
+```
+
 ---
 
 ## Bundled roots

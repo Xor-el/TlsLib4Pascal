@@ -13,12 +13,14 @@ Read [Getting started](getting-started.md) first.
 
 - [Connect a client](#connect-a-client)
 - [Stand up a server](#stand-up-a-server)
+- [Serve several host names (SNI)](#serve-several-host-names-sni)
 - [Choose a security posture](#choose-a-security-posture)
 - [Force post-quantum-hybrid only](#force-post-quantum-hybrid-only)
 - [Trust a private CA, the OS store, or a pinned key](#trust-a-private-ca-the-os-store-or-a-pinned-key)
 - [Integrate with your networking stack](#integrate-with-your-networking-stack)
 - [Drive TLS over your own transport (`TTlsStream`)](#drive-tls-over-your-own-transport)
 - [Drive the raw sans-IO engine (async frameworks)](#drive-the-raw-sans-io-engine)
+- [Export keying material and rekey](#export-keying-material-and-rekey)
 - [Mutual TLS (client certificates)](#mutual-tls-client-certificates)
 - [Negotiate ALPN](#negotiate-alpn)
 - [Inspect the connection](#inspect-the-connection)
@@ -30,6 +32,9 @@ Read [Getting started](getting-started.md) first.
 - [Connect without sending SNI (still verified)](#connect-without-sending-sni-still-verified)
 - [External (out-of-band) PSKs](#external-out-of-band-psks)
 - [TLS 1.2 pre-shared keys](#tls-12-pre-shared-keys-rfc-4279--rfc-5489)
+- [Require Extended Master Secret (TLS 1.2)](#require-extended-master-secret-tls-12)
+- [Cap the inbound record size](#cap-the-inbound-record-size)
+- [Turn off GREASE](#turn-off-grease)
 - [The dangerous surface (dev only)](#the-dangerous-surface-dev-only)
 
 ---
@@ -85,6 +90,69 @@ Then, per accepted socket, `TTlsEngineFactory.CreateServerEngine(LConfig)` and w
 hand it to your adapter. The PKCS#12 importer fails closed on a bad password or a malformed blob
 (typed exception), wipes the password and key bytes, and requires exactly one private-key entry.
 
+To staple OCSP for the leaf, set the credential's `OcspStaple` (DER) or `OcspStapleCallback` (it
+refreshes an expiring staple and takes precedence; it must not do network I/O). The staple is sent
+only to a client that offered `status_request`.
+
+## Serve several host names (SNI)
+
+Map a credential to each SNI host name. A host is an exact name or a single left-most-label
+wildcard (`*.example.org`); a `WithCredential` beside them is the default for a client that sent no
+SNI or an unknown one:
+
+```pascal
+uses TlpTlsPresets, TlpITlsConfigBuilder, TlpITlsConfig, TlpTlsCredential;
+
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithSniCredential('api.example.com', TTlsCredential.Load(Crypto, Pkix,
+    LoadFile('api-chain.pem'), LoadFile('api-key.pem')))
+  .WithSniCredential('*.example.org', TTlsCredential.Load(Crypto, Pkix,
+    LoadFile('org-chain.pem'), LoadFile('org-key.pem')))
+  .WithCredential(LDefaultCred)     // optional
+  .Build;
+```
+
+`Build` raises `EInvalidOperationTlsLibException` when a leaf's dNSName SANs do not cover its host
+(a wildcard entry needs the same wildcard SAN), when a host is mapped twice, or for a wildcard such
+as `*.com`. Without a default credential, an unmatched host is refused with `unrecognized_name`.
+
+For selection by anything else (the client's signature schemes, ALPN, groups), implement
+`ITlsServerCredentialResolver` (unit `TlpITlsCredentialResolver`) and install it with
+`WithCredentialResolver`, which replaces `WithCredential` / `WithSniCredential` (combining them is
+refused at `Build`):
+
+```pascal
+uses SysUtils, TlpITlsCredentialResolver, TlpTlsCredential;
+
+type
+  TMyResolver = class(TInterfacedObject, ITlsServerCredentialResolver)
+  private
+    FApiCred, FDefaultCred: TTlsCredential;
+  public
+    function TryResolve(const AClientHello: TTlsClientHelloInfo;
+      out ACredential: TTlsCredential): Boolean;
+  end;
+
+function TMyResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
+  out ACredential: TTlsCredential): Boolean;
+begin
+  Result := True;
+  if SameText(AClientHello.ServerName, 'api.example.com') then
+    ACredential := FApiCred
+  else if AClientHello.ServerName = '' then
+    ACredential := FDefaultCred
+  else
+    Result := False;   // unrecognized_name (handshake_failure when no SNI was sent)
+end;
+
+// ...
+  .WithCredentialResolver(LResolver as ITlsServerCredentialResolver)
+```
+
+`TryResolve` runs once per ClientHello on the certificate path (twice after a HelloRetryRequest,
+never on a resumed or PSK handshake), concurrently across connections that share the config, so it
+must be thread-safe and must not do network I/O.
+
 ## Choose a security posture
 
 Presets are safe **starting points**, not locked profiles — override before `Build`:
@@ -124,6 +192,18 @@ If your suites arrive as names (a config file, a host's cipher-list string), `TC
 cipher-list property. The suite order in the configured registry is
 the single preference authority: the default registries put AES-GCM first only when the CPU has
 AES hardware, and a registry you supply through `WithCipherSuites` is used in the order you gave it.
+
+A server imposes that order by default (`TServerCipherPreference.ServerOrder`). To pick the client's
+most-preferred mutually supported suite instead, for TLS 1.3 and 1.2 alike:
+
+```pascal
+uses TlpNegotiationTypes;   // TServerCipherPreference
+
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(LCred)
+  .WithCipherSuitePreference(TServerCipherPreference.ClientOrder)
+  .Build;
+```
 
 ## Force post-quantum-hybrid only
 
@@ -340,6 +420,39 @@ handshake to complete (there is no False-Start; 0-RTT goes through `WriteEarlyDa
 This is the same engine the stream and every adapter run — it is also the seam where a native/OS TLS
 engine could be substituted wholesale. Most apps should prefer the stream or an adapter.
 
+## Export keying material and rekey
+
+Both are `ITlsEngine` methods; `TTlsStream` and `TTlsConnection` do not wrap them. With a stream,
+keep the engine you passed to `TTlsStream.Create`.
+
+**Exported keying material** (RFC 5705 / RFC 8446 7.5) binds an application secret to this
+connection:
+
+```pascal
+LKey := LEngine.ExportKeyingMaterial('EXPORTER-my-app', 32);                // no context
+LKey := LEngine.ExportKeyingMaterial('EXPORTER-my-app', LContext, 32);      // with a context
+```
+
+A supplied context, even an empty one, gives a different value from no context. The result is empty
+until the exporter secret is derived. A TLS 1.3 server has it from its own Finished on, before
+client authentication completes under mutual TLS. TLS 1.2 has it only once the handshake completes,
+and only when the session used Extended Master Secret (`ConnectionInfo.ExtendedMasterSecret`). It
+is also empty on a failed connection. `ExportEarlyKeyingMaterial` is the TLS 1.3 0-RTT variant.
+
+**KeyUpdate** (TLS 1.3, RFC 8446 4.6.3) rekeys the write direction; `UpdateRequested` also asks the
+peer to rekey and answer with its own KeyUpdate:
+
+```pascal
+uses TlpHandshakeMessages;   // TKeyUpdateRequest
+
+LEngine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+// the KeyUpdate is queued outbound: drain it with TakeOutgoing like any other record
+```
+
+It is a no-op before the handshake completes, on TLS 1.2, on a failed engine and after your own
+`close_notify`. A peer's KeyUpdate is handled automatically and reported as a `KeyUpdateReceived`
+event.
+
 ## Mutual TLS (client certificates)
 
 Server side — require a client certificate and name the CA(s) you'll accept it from:
@@ -456,6 +569,28 @@ LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 
 Both default in-memory implementations are bounded and safe to share across connections/threads.
 
+A client cache is scoped to the config that stored the session: a cache shared by two configs
+resumes neither's sessions in the other. Two client knobs change that:
+
+```pascal
+uses TlpTlsCredential;   // TResumeVerification
+
+// configs that trust identically and should share one cache: give them the same scope
+  .WithSessionCache(LSharedCache)
+  .WithResumptionScope(TEncoding.UTF8.GetBytes('api-pool'))   // at most 32 bytes; needs a cache
+
+// re-run certificate verification against the stored chain on every resume
+  .WithResumeVerification(TResumeVerification.Reverify)
+```
+
+`WithResumptionScope` is an assertion that the configs trust identically. A scope longer than 32
+bytes raises `EArgumentTlsLibException`; `Build` refuses a scope or `Reverify` on a config with no
+session cache or with resumption off. `ReuseOriginal` (the default) trusts the
+original handshake's verification; `Reverify` re-checks the resumed server against the current
+trust, at the cost of a verification per resume, and fills `ConnectionInfo.ValidatedPath`. A
+server takes `WithResumptionScope` too, to partition configs sharing a ticket-key manager or session
+store; a server that requests client certificates and supplies either must set one.
+
 ## 0-RTT early data
 
 0-RTT is **off by default** and is a deliberate opt-in, because early data is replayable — only send
@@ -520,6 +655,18 @@ TServerVerification.WebPki(caPem).WithRevocation(TRevocationPosture.Off).Build  
 (Hardened and Strict request one; on Compatible add `.WithOcspStaplingRequest(True)`) or
 `WithLiveRevocationVerdict(deadlineMs)`. A server checking client certificates needs
 `WithLiveRevocationVerdict(deadlineMs)`, since a client cannot staple.
+
+```pascal
+// a Compatible client that asks the server for a stapled OCSP response (status_request, RFC 6066)
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(TServerVerification.WebPki(caPem)
+    .WithRevocation(TRevocationPosture.Hard).Build)
+  .WithOcspStaplingRequest(True)
+  .Build;
+```
+
+A client that does not request a staple rejects an unsolicited one, and a must-staple leaf
+(RFC 7633) is enforced only when the client requested one.
 
 Stapled OCSP is validated in the handshake pipeline. **Live** OCSP/CRL is opt-in, never in the
 sans-IO core: you attach a resolver to the `TTlsStream` backed by the reference socket fetcher
@@ -696,6 +843,49 @@ in no preset. The key exchange is ephemeral ECDH, so a recorded session stays fo
   client ignores any hint.
 * A low-entropy secret falls to an offline dictionary attack on a recorded handshake (RFC 4279 7.2); use
   a random key of at least 128 bits. The identity is not private (RFC 4279 7.3).
+
+## Require Extended Master Secret (TLS 1.2)
+
+Both endpoints always offer and use `extended_master_secret` (RFC 7627) when the peer supports it.
+To refuse a TLS 1.2 peer that does not, require it on the `Tls12` facet (TLS 1.3 is unaffected):
+
+```pascal
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(LCred)
+  .Tls12.WithExtendedMasterSecret(True)
+  .Build;
+```
+
+A server that still accepts non-EMS clients chooses how it treats a resumption of a non-EMS session
+offered without EMS (RFC 7627 5.3) with `Tls12.WithNonEmsResumption` (`TNonEmsResumption`, unit
+`TlpTlsCredential`): `Decline` (the default) runs a full handshake, `Abort` ends it with
+`handshake_failure`, and `Resume` performs the legacy abbreviated handshake. `Decline` and `Abort`
+also stop issuing resumable sessions from a non-EMS handshake. `Resume` together with
+`WithExtendedMasterSecret(True)` is refused at `Build`. The `Tls12` facet needs TLS 1.2 among the
+offered versions, so it does not apply to the TLS 1.3-only presets.
+
+## Cap the inbound record size
+
+`WithRecordSizeLimit` offers `record_size_limit` (RFC 8449): the largest record this endpoint
+accepts, counted as TLSInnerPlaintext under TLS 1.3. It suits memory-constrained peers. `0`, the
+default, offers nothing; any other value must be 64..16384, or the setter raises
+`EArgumentTlsLibException`.
+
+```pascal
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(TServerVerification.WebPki(caPem).Build)
+  .WithRecordSizeLimit(4096)
+  .Build;
+```
+
+## Turn off GREASE
+
+A client sends GREASE values (RFC 8701) in its ClientHello by default, whatever versions it offers,
+so peers that choke on unknown values are found early. To stop sending them:
+
+```pascal
+  .WithGrease(False)   // client builder
+```
 
 ## The dangerous surface (dev only)
 
