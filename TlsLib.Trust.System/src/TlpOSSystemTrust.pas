@@ -79,8 +79,7 @@ type
       : IServerCertificateVerifierSource; overload; static;
     /// <summary>As above, also trusting AExtraAnchors (nil for none) beside the OS roots inside the
     /// OS evaluation, so the platform's own policy still runs, and refusing a path through a
-    /// certificate the OS distrusts (read with APkix where the platform exposes that list). Raises
-    /// where the platform cannot trust host roots beside its own (today Android).</summary>
+    /// certificate the OS distrusts (read with APkix where the platform exposes that list).</summary>
     class function ServerVerifierSource(AFetch: TSystemTrustFetch;
       const AExtraAnchors: ITrustAnchorStore; const APkix: IPkixProvider):
       IServerCertificateVerifierSource; overload; static;

@@ -202,7 +202,6 @@ type
     procedure TestNameMismatchRejectsWithoutDnsCapability;
     procedure TestSourceRefusesLiveWithoutLiveFetch;
     procedure TestServerSourceRefusesLiveWithoutVerdict;
-    procedure TestSourceRefusesExtraAnchorsWithoutUnionCapability;
     procedure TestServerSourceCarriesExtraAnchorsToTheEngine;
     procedure TestClientSourceRefusesHardWithoutCachedRevocation;
     procedure TestLiveResolverDispatchesToServer;
@@ -264,6 +263,25 @@ type
     procedure TestLiveResolverRetriesWithHostRoots;
     procedure TestLiveResolverOtherFailureIsFinal;
     procedure TestLiveResolverRefusesDistrustedHostRootPath;
+  end;
+
+  /// <summary>The Java trust-manager rejection classification, from the exception facts alone: only
+  /// a path-validation cause at index -1 naming the missing trust anchor is NoTrustAnchor.</summary>
+  TTestJavaTrustClassifier = class(TTlsLibAlgorithmTestCase)
+  strict private
+    function Facts(ACertificateException, ATimeInvalid, APathValidatorCause: Boolean;
+      ACauseIndex: Int32; const ACauseMessage: string): TJavaTrustFacts;
+    procedure CheckClass(const AFacts: TJavaTrustFacts; AExpectedAlert: TTlsAlertDescription;
+      AExpectedFailure: TPlatformChainFailure; const AName: string);
+  published
+    procedure TestNoTrustAnchorShapeIsNoTrustAnchor;
+    procedure TestPathDoesNotChainMessageIsNoTrustAnchor;
+    procedure TestPinFailureWithoutCauseIsOther;
+    procedure TestPathFailureAtACertificateIndexIsOther;
+    procedure TestUnrelatedPathMessageIsOther;
+    procedure TestTimeInvalidIsOtherEvenWithAnAnchorCause;
+    procedure TestCauseOtherThanPathValidatorIsOther;
+    procedure TestNonCertificateExceptionIsInternalError;
   end;
 
   /// <summary>Engine-agnostic contract for a real OS anchor store, written against
@@ -1255,24 +1273,6 @@ begin
   CheckTrue(LRaised, 'a Live fetch without the live-revocation verdict is refused at verifier creation');
 end;
 
-procedure TTestOSDelegateTemplate.TestSourceRefusesExtraAnchorsWithoutUnionCapability;
-var
-  LEngine: IPlatformChainEngine;
-  LRaised: Boolean;
-begin
-  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
-    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
-  LRaised := False;
-  try
-    TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
-      TArray<TBytes>.Create(Ocsp('issuer_cert')), nil);
-  except
-    on E: ESystemTrustUnsupportedTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'extra anchors over an engine that cannot union them are refused at construction');
-end;
-
 procedure TTestOSDelegateTemplate.TestServerSourceCarriesExtraAnchorsToTheEngine;
 var
   LMock: TMockPlatformChainEngine;
@@ -1663,6 +1663,82 @@ begin
   CheckEquals(1, System.Length(LStore.RootCertificates),
     'a root the source distrusts is not an anchor');
   CheckEqualBytes('the surviving anchor', LRoot, LStore.RootCertificates[0]);
+end;
+
+{ TTestJavaTrustClassifier }
+
+function TTestJavaTrustClassifier.Facts(ACertificateException, ATimeInvalid,
+  APathValidatorCause: Boolean; ACauseIndex: Int32; const ACauseMessage: string): TJavaTrustFacts;
+begin
+  Result.CertificateException := ACertificateException;
+  Result.TimeInvalid := ATimeInvalid;
+  Result.PathValidatorCause := APathValidatorCause;
+  Result.CauseIndex := ACauseIndex;
+  Result.CauseMessage := ACauseMessage;
+end;
+
+procedure TTestJavaTrustClassifier.CheckClass(const AFacts: TJavaTrustFacts;
+  AExpectedAlert: TTlsAlertDescription; AExpectedFailure: TPlatformChainFailure;
+  const AName: string);
+var
+  LAlert: TTlsAlertDescription;
+  LFailure: TPlatformChainFailure;
+begin
+  TJavaTrustClassifier.Classify(AFacts, LAlert, LFailure);
+  CheckEquals(Ord(AExpectedAlert), Ord(LAlert), AName + ': alert');
+  CheckEquals(Ord(AExpectedFailure), Ord(LFailure), AName + ': failure class');
+end;
+
+procedure TTestJavaTrustClassifier.TestNoTrustAnchorShapeIsNoTrustAnchor;
+begin
+  CheckClass(Facts(True, False, True, -1, 'Trust anchor for certification path not found.'),
+    TTlsAlertDescription.UnknownCa, TPlatformChainFailure.NoTrustAnchor, 'Conscrypt');
+end;
+
+procedure TTestJavaTrustClassifier.TestPathDoesNotChainMessageIsNoTrustAnchor;
+begin
+  CheckClass(Facts(True, False, True, -1, 'Path does not chain with any of the trust anchors'),
+    TTlsAlertDescription.UnknownCa, TPlatformChainFailure.NoTrustAnchor, 'PKIX');
+end;
+
+procedure TTestJavaTrustClassifier.TestPinFailureWithoutCauseIsOther;
+begin
+  CheckClass(Facts(True, False, False, 0, ''), TTlsAlertDescription.UnknownCa,
+    TPlatformChainFailure.Other, 'pin');
+end;
+
+procedure TTestJavaTrustClassifier.TestPathFailureAtACertificateIndexIsOther;
+begin
+  CheckClass(Facts(True, False, True, 1, 'Trust anchor for certification path not found.'),
+    TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other, 'index 1');
+end;
+
+procedure TTestJavaTrustClassifier.TestUnrelatedPathMessageIsOther;
+begin
+  CheckClass(Facts(True, False, True, -1, 'Certificate has been revoked'),
+    TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other, 'revoked');
+  CheckClass(Facts(True, False, True, -1, ''), TTlsAlertDescription.UnknownCa,
+    TPlatformChainFailure.Other, 'no message');
+end;
+
+procedure TTestJavaTrustClassifier.TestTimeInvalidIsOtherEvenWithAnAnchorCause;
+begin
+  CheckClass(Facts(True, True, False, 0, ''), TTlsAlertDescription.CertificateExpired,
+    TPlatformChainFailure.Other, 'expired');
+  CheckClass(Facts(True, True, True, -1, 'Trust anchor for certification path not found.'),
+    TTlsAlertDescription.CertificateExpired, TPlatformChainFailure.Other, 'expired with cause');
+end;
+
+procedure TTestJavaTrustClassifier.TestCauseOtherThanPathValidatorIsOther;
+begin
+  CheckClass(Facts(True, False, False, -1, 'Trust anchor for certification path not found.'),
+    TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other, 'other cause');
+end;
+
+procedure TTestJavaTrustClassifier.TestNonCertificateExceptionIsInternalError;
+begin
+  CheckClass(Facts(False, False, True, -1, 'Trust anchor for certification path not found.'),
+    TTlsAlertDescription.InternalError, TPlatformChainFailure.Other, 'not a CertificateException');
 end;
 
 { TTestDelegateHostRoots }
@@ -3183,12 +3259,14 @@ initialization
   RegisterTest(TTestDelegatePostChecks);
   RegisterTest(TTestOSDelegateTemplate);
   RegisterTest(TTestDelegateHostRoots);
+  RegisterTest(TTestJavaTrustClassifier);
   RegisterTest(TTestSystemTrustInstaller);
 {$ELSE}
   RegisterTest(TTestSystemTrustFixtures.Suite);
   RegisterTest(TTestDelegatePostChecks.Suite);
   RegisterTest(TTestOSDelegateTemplate.Suite);
   RegisterTest(TTestDelegateHostRoots.Suite);
+  RegisterTest(TTestJavaTrustClassifier.Suite);
   RegisterTest(TTestSystemTrustInstaller.Suite);
 {$ENDIF FPC}
 

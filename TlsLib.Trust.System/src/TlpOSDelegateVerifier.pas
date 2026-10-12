@@ -150,8 +150,7 @@ type
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch);
       overload;
     /// <summary>As above, for a server-certificate source that also trusts AExtraAnchors beside the
-    /// OS roots, refusing a path through any ADistrusted certificate; refused at construction on an
-    /// engine with neither the NativeAnchorUnion nor the ExclusiveServerAnchors capability.</summary>
+    /// OS roots, refusing a path through any ADistrusted certificate.</summary>
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
       const AExtraAnchors, ADistrusted: TArray<TBytes>); overload;
     function CreateServerVerifier(const AContext: TServerTrustContext): IServerCertificateVerifier;
@@ -461,10 +460,6 @@ begin
   if (AFetch = TSystemTrustFetch.Live) and
     not (TPlatformChainCapability.LiveFetch in AEngine.Capabilities) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
-  if (System.Length(AExtraAnchors) > 0) and
-    ([TPlatformChainCapability.NativeAnchorUnion, TPlatformChainCapability.ExclusiveServerAnchors] *
-    AEngine.Capabilities = []) then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoExtraAnchorUnion);
   FEngine := AEngine;
   FFetch := AFetch;
   FExtraAnchors := AExtraAnchors;
