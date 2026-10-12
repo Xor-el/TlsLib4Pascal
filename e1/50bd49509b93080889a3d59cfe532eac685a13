@@ -1,0 +1,36 @@
+docs/system-trust.md
+  s_58af9e1b217631::t_4c44646e90743a 460-471,474-485
+  s_58af9e1b217631::t_3fed5ea6ac0d6d 472-473
+docs/cookbook.md
+  s_58af9e1b217631::t_4c973d7842502f 196-207
+  s_58af9e1b217631::t_6042944fa54a7f 586-588
+  s_58af9e1b217631::t_1e03986ae0f3b7 659-670
+  s_58af9e1b217631::t_32e17c77fe6556 423-436,441-455
+  s_58af9e1b217631::t_da0ba45205a509 93-124,126-155
+  s_58af9e1b217631::t_c6407b13e32d47 437-440
+  s_58af9e1b217631::t_12ff7b033d22fd 847-889
+  s_58af9e1b217631::t_e98832d8dc39ae 16
+  s_58af9e1b217631::t_5f6bca9ea4300f 35-37
+  s_58af9e1b217631::t_10366a2c5131ca 23
+  s_58af9e1b217631::t_0623141821fefe 125
+  s_58af9e1b217631::t_930e750c10030e 572-585,589-593
+docs/certificate-verification.md
+  s_58af9e1b217631::t_b624925460080d 17
+  s_58af9e1b217631::t_c84a62751ba2c7 428-513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e150bd49509b93080889a3d59cfe532eac685a13",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
