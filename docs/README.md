@@ -53,12 +53,14 @@ contents track evolving best practice.
 | **Strict** | TLS 1.3 only | **X25519MLKEM768**, X25519, secp256r1 | Locked-down posture: fixed group allowlist, tight certificate limits, resumption off. |
 
 ```pascal
-uses TlpTlsPresets, TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider,
-  TlpIPkixProvider, TlpCertificateVerifierSource;
+uses SysUtils, TlpTlsPresets, TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider,
+  TlpIPkixProvider, TlpITlsConfig, TlpCertificateVerifierSource;
 
 var
   Crypto: ICryptoProvider;
   Pkix: IPkixProvider;
+  LConfig: ITlsClientConfig;
+  caPem: TBytes;               // your CA bundle, PEM or DER
 begin
   Crypto := TDefaultCryptoProvider.Create as ICryptoProvider;
   Pkix := TDefaultPkixProvider.Create as IPkixProvider;
@@ -87,6 +89,7 @@ if you use it:
 | `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake. |
 | `TlpSocketHttpFetcher` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | The reference socket `IHttpFetcher` for live OCSP/CRL. |
 | `TlpNetSocket` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | The reference TCP `ITcpConnector` / `ITcpListener` (interfaces in `TlpINetSocket`) whose streams run a `TTlsConnection` directly. |
+| `TlpEchConfigFromSvcb` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | Extracts the ECH config list from DNS HTTPS/SVCB RDATA (`TryFromServiceBinding`, or the raising `FromServiceBinding`). |
 | `TlsLib.Adapter.*` | The mORMot / Indy / Synapse / fcl-net drop-in adapters (package name is singular — `TlsLib.Adapter.mORMot`, `…Indy`, `…Synapse`, `…FclNet`). |
 
 See [Getting started](getting-started.md) for how to add these on Delphi and FPC/Lazarus.

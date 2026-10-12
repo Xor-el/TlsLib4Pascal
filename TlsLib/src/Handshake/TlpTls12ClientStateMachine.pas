@@ -562,7 +562,8 @@ begin
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello, LServerExtensions);
     // a TLS 1.2 ServerHello must not answer with supported_versions (a 1.3-only response
     // extension, RFC 8446 4.2.1); the dispatcher rejects it on the mixed path, so a 1.2-only
-    // client enforces it here too
+    // client enforces it here too (local policy, matching deployed behaviour; RFC 8446 4.2.1
+    // names illegal_parameter)
     if LContext.SelectedVersion <> 0 then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnsupportedExtension, @SSupportedVersionsInServerHello);
@@ -1311,8 +1312,8 @@ begin
       Result := Unexpected;
     TPhase.Connected:
       // this client does not renegotiate: a HelloRequest is answered with a warning
-      // no_renegotiation and the connection continues (RFC 5246 7.2.2, RFC 5746 4.2). Its body
-      // is empty (RFC 5246 7.4.1.1); anything else is a decode_error
+      // no_renegotiation and the connection continues (RFC 5246 7.4.1.1, 7.2.2). Its body is
+      // empty; anything else is a decode_error
       if LKnown and (LType = TTlsHandshakeType.HelloRequest) then
       begin
         if System.Length(AMessage.Body) <> 0 then

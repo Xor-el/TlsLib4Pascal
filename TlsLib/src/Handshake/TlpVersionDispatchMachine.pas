@@ -485,7 +485,8 @@ begin
       LSelectedVersion := LHello.LegacyVersion
     // supported_versions in a ServerHello is a TLS 1.3 construct: a server that
     // negotiates 1.2 or below MUST NOT send it (RFC 8446 4.2.1). Present but
-    // selecting a pre-1.3 version is an unpermitted extension, not a 1.2 handshake.
+    // selecting a pre-1.3 version is an unpermitted extension, not a 1.2 handshake (local policy,
+    // matching deployed behaviour; RFC 8446 4.2.1 names illegal_parameter).
     else if LSelectedVersion < TlsWireVersionTls13 then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.UnsupportedExtension)));

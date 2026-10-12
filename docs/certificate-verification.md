@@ -10,7 +10,7 @@ This guide covers, from safest to most dangerous:
 
 1. [Trusting a private / self-signed CA](#1-trust-a-private-or-self-signed-ca) — still fully verified
 2. [Public-key pinning](#2-pin-a-public-key) — augments verification
-3. [Relaxing only the host-name check](#3-relax-only-the-host-name-check)
+3. [Relaxing only the host-name check](#3-relax-only-the-host-name-check-dangerous)
 4. [The `dangerous` escape hatches](#4-the-dangerous-escape-hatches) — bypass verification
 5. [Coming from ASP.NET Core / .NET](#5-coming-from-aspnet-core--net)
 6. [Through the integration adapters](#6-through-the-integration-adapters)
@@ -238,6 +238,9 @@ IO.SSLOptions.InsecureSkipVerify := True;        // or SSLOptions.VerifyPeer := 
 // Synapse  (TCustomSSL) — NOTE: with our TSSLTlsLib plugin VerifyCert defaults to TRUE (secure) — the
 //           plugin flips Synapse's insecure base default. Set it False for the accept-any bypass
 sock.SSL.VerifyCert := False;
+
+// fcl-net  (TTlsLibSocketHandler)
+Handler.VerifyPeerCert := False;
 ```
 
 A host framework's *own* verify callback is bridged only when its signature carries no OpenSSL
@@ -247,8 +250,8 @@ type. Indy `OnVerifyPeer` and mORMot `OnEachPeerVerify` hand you an OpenSSL cert
 the peer through `GetPeerSubject` / `GetPeerIssuer` / `GetPeerFingerprint`.
 
 For the neutral, framework-agnostic path, each adapter surfaces the augment-only
-`WithCertificateVerifyCallback` on its own options (Indy `SSLOptions.VerifyCallback`; Synapse /
-mORMot `SetTlsLib…VerifyCallback`) — no drop to Tier-2 required. The same surfaces expose an
+`WithCertificateVerifyCallback` on its own options (Indy `SSLOptions.VerifyCallback`; fcl-net
+`VerifyCallback` on the handler; Synapse / mORMot `SetTlsLib…VerifyCallback`) — no drop to Tier-2 required. The same surfaces expose an
 out-of-band **verdict resolver** that parks the handshake for a decision; wire
 `TLiveRevocationChecker.ResolveVerdict` (live OCSP/CRL over an injected `IHttpFetcher`) to it. All
 of these are augment-only and fail-closed. See each adapter's README for details.
@@ -256,7 +259,7 @@ of these are augment-only and fail-closed. See each adapter's README for details
 The verdict resolver is **role-specific**: the *client* hook decides the server's chain (a
 server-auth trust engine), the *server* hook decides an mTLS client's chain (a client-auth engine).
 The two evaluate different EKUs, so each adapter exposes them separately — a client hook
-(`VerdictResolver` / `SetTlsLib…VerdictResolver`) and a server hook (`ServerVerdictResolver` /
+(`VerdictResolver` on Indy and fcl-net / `SetTlsLib…VerdictResolver`) and a server hook (`ServerVerdictResolver` /
 `SetTlsLib…ServerVerdictResolver`). Pair each with the matching `TOSSystemTrust.LiveRevocationResolver`
 overload (a client config for the client hook, a server config for the server hook). An OS-native
 resolver handed a chain of the wrong role refuses it with `internal_error` (a local
@@ -304,7 +307,9 @@ when that is smaller), so one dead responder cannot starve the next, and a spent
 check indeterminate, which the posture then decides. `0` leaves each fetch's timeout to the fetcher
 with no shared deadline, so give a real budget, no larger than the config's async-verdict deadline.
 Each responder tried learns which certificate is being checked; extra ones are asked only after an
-indeterminate answer, and posture `Off` asks none.
+indeterminate answer, and posture `Off` asks none. The portable checker checks the **leaf only**,
+against its issuer; an intermediate's own revocation is not fetched (the OS-native path below
+checks the whole chain).
 
 The limits are tunable through `TLiveRevocationOptions` (declare one, which already holds the
 defaults, and set what you need), passed as the last constructor argument: `MaxOcspResponders` and
@@ -337,7 +342,9 @@ requires a current Good staple, and is enforced only for an initial-handshake se
 the client requested a staple for (`WithOcspStaplingRequest`) — never deferred. An app that
 previously paired a Hard posture with `WithAsyncCertificateVerdict` and a live checker
 should switch to `WithLiveRevocationVerdict` (Build now refuses a Hard client that has neither a
-staple request nor live-revocation deferral). On resumption this is decisive: a `Hard` client with
+staple request nor live-revocation deferral; Hardened and Strict request a staple, Compatible needs
+`WithOcspStaplingRequest(True)`, and a Hard client-authenticating server always needs
+`WithLiveRevocationVerdict`). On resumption this is decisive: a `Hard` client with
 `WithResumeVerification(Reverify)` but no `WithLiveRevocationVerdict` can never obtain revocation
 status for a resumed server (a resume carries no staple), so it offers no resumption and does a full
 handshake instead — the connection still succeeds, it just does not abbreviate.
@@ -376,18 +383,20 @@ on an indeterminate OS outcome before the posture decides.
 **Android and Linux/BSD have no OS-native live revocation** (Android's platform TrustManager owns
 revocation with no network knob; Unix has no OS delegate). Compose the **portable**
 `TLiveRevocationChecker` there instead. `TSystemTrustFetch.Live` on those platforms raises a typed
-`ESystemTrustUnsupportedTlsLibException`, as does arming Live without the async verdict enabled.
+`ESystemTrustUnsupportedTlsLibException`, as does arming Live without `WithLiveRevocationVerdict`; a
+host-decision `WithAsyncCertificateVerdict` does not satisfy it.
 
 **Server-side (mutual-TLS client certificates).** The same posture applies to the client
 certificate a server verifies — set it with `TClientVerification`'s `WithRevocation`. A client cannot be asked
 to staple, so `Hard` client-certificate revocation is satisfiable **only** by a live resolver
-(there is no stapled fallback); `Build` rejects a `Hard`, client-authenticating server that has no
-resolver. Attach the resolver on the server's stream exactly as above; a revoked client certificate
+(there is no stapled fallback); `Build` rejects a `Hard`, client-authenticating server that does not
+call `WithLiveRevocationVerdict`. Attach the resolver on the server's stream exactly as above; a revoked client certificate
 then aborts the handshake with `certificate_revoked`. This works with both the **portable**
 `TLiveRevocationChecker` (give it the configured client-CA anchors as `TLiveRevocationOptions.IssuerCandidates`, so it can
 recover the issuer of a leaf-only client credential) and the **OS-native** delegate on Windows/Apple
 (`TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live)` +
-`TOSSystemTrust.LiveRevocationResolver(serverConfig)` — see the OS-native subsection above and
+`TOSSystemTrust.LiveRevocationResolver(serverConfig)` + `WithLiveRevocationVerdict(deadlineMs)` on the
+server builder, since no server facade arms it — see the OS-native subsection above and
 [system-trust.md](system-trust.md)).
 
 ### Time source: one injected clock

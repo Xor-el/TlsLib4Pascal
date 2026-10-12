@@ -196,9 +196,8 @@ type
   ITls13ClientConfigFacet = interface(IInterface)
     ['{95EA36E2-4E85-4C11-A62A-712DEFE59D2C}']
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the client imports and
-    /// offers in the ClientHello, in preference order. When set, the client offers these
-    /// instead of drawing a resumption session from the cache. Empty leaves external PSK
-    /// off.</summary>
+    /// offers in the ClientHello, in preference order, after any cached resumption ticket. Empty
+    /// leaves external PSK off.</summary>
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITls13ClientConfigFacet;
     /// <summary>Whether configured external PSKs are required (default True): a non-PSK
@@ -414,7 +413,9 @@ type
     ['{8DBA71D8-F01C-4F5B-941A-960DC5474713}']
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the server imports and
     /// matches an offered pre_shared_key against, in preference order. A matching PSK is
-    /// preferred over the server's certificate. Empty leaves external PSK off.</summary>
+    /// preferred over the server's certificate, and an accepted PSK stands in for client
+    /// authentication (no CertificateRequest is sent, RFC 8446 4.3.2). Empty leaves external PSK
+    /// off.</summary>
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITls13ServerConfigFacet;
     /// <summary>How many NewSessionTickets to issue per TLS 1.3 handshake, 0..8 (0 issues none).

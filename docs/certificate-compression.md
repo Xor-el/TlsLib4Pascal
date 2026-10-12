@@ -24,11 +24,14 @@ is compressed by default to any server that advertises compression in its reques
 Compression is configured behind the `Tls13` facet of either role builder:
 
 ```pascal
-// replace the defaults with your own backends (an empty array turns that direction off)
-Builder.Client.Tls13
+// replace the defaults with your own backends (an empty array turns that direction off);
+// a builder configures one endpoint, so the client and the server each take their own
+ClientBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client;
+ClientBuilder.Tls13
   .WithCertificateCompressors(MyCompressors)       // my own Certificate, sent to a server
   .WithCertificateDecompressors(MyDecompressors);  // the server's Certificate, received
-Builder.Server.Tls13
+ServerBuilder := TTlsPresets.Compatible(Crypto, Pkix).Server;
+ServerBuilder.Tls13
   .WithCertificateCompressors(MyCompressors)       // my Certificate, sent to a client
   .WithCertificateDecompressors(MyDecompressors);  // a client's Certificate (mutual TLS), received
 ```
@@ -117,16 +120,16 @@ cache, which you provision consciously (ticket keys differ: a server with resump
 default set at `Build`). Enable it by handing the config a cache:
 
 ```pascal
-Builder.Server.Tls13.WithCertificateCompressionCache(
+ServerBuilder.Tls13.WithCertificateCompressionCache(
   TInMemoryCertificateCompressionCache.Create as ICertificateCompressionCache);
-Builder.Client.Tls13.WithCertificateCompressionCache(  // a client presenting a stable certificate
+ClientBuilder.Tls13.WithCertificateCompressionCache(  // a client presenting a stable certificate
   TInMemoryCertificateCompressionCache.Create as ICertificateCompressionCache);
 ```
 
 The shipped default (`TInMemoryCertificateCompressionCache`) is:
 
 - **shared** across every connection built from that config (that sharing is the whole point);
-- **bounded** (LRU-style, small fixed capacity) and **thread-safe** (internally locked), so one
+- **bounded** (oldest-inserted evicted first; 64 entries by default, or `Create(ACapacity)`) and **thread-safe** (internally locked), so one
   instance is safe to hand to many concurrent connections.
 
 Only **successful** compressions are cached. A compressor that declines (returns False) is asked

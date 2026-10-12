@@ -14,8 +14,9 @@ This is the **Free Pascal counterpart to the Delphi FMX/Indy trust demo** in
 
 ## Zero-config trust
 
-There is nothing to call on a desktop OS. The demo sets `UseSystemTrust := True` on the FclNet
-handler through `TFPHTTPClient.OnGetSocketHandler` and the OS anchors do the rest. (A GUI
+There is nothing to call on a desktop OS. The demo runs twice: once with the one-line
+`TlsLibFclNetTrustDefaults.UseSystemTrust := True` opt-in, once with a per-connection
+`OnGetSocketHandler` that sets `UseSystemTrust := True`; both must PASS. (A GUI
 variant on **Android** would additionally need `TlsLibAndroidInitTrust(vm)` once at startup —
 see `docs/system-trust.md` — but this console demo targets the desktop.)
 
@@ -29,11 +30,12 @@ see `docs/system-trust.md` — but this console demo targets the desktop.)
 ## Building + running
 
 ```bash
+lazbuild --add-package-link <CryptoLib4Pascal>/CryptoLib/src/Packages/FPC/CryptoLib4PascalPackage.lpk
 lazbuild --add-package-link TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
 lazbuild --add-package-link TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.lpk
 lazbuild --add-package-link TlsLib.Adapters/FclNet/Packages/FPC/TlsLib.Adapter.FclNet.lpk
 lazbuild --cpu=x86_64 --os=win64 TlsLib.Trust.System/Examples/Lazarus/SystemTrustDemo.lpi
-./bin/SystemTrustDemo
+./TlsLib.Trust.System/Examples/Lazarus/bin/SystemTrustDemo
 ```
 
 It is a **network-gated demo, not a test gate**: it needs outbound HTTPS and exits 0 (PASS) /
@@ -41,7 +43,8 @@ It is a **network-gated demo, not a test gate**: it needs outbound HTTPS and exi
 
 ## What to look for
 
-- Default `https://postman-echo.com/get` → **PASS**: the public chain verified against the
-  machine's system roots with zero manual trust config, entirely inside TlsLib4Pascal.
-- Point it at a host with an untrusted/self-signed chain → verification **fails closed**
-  (system trust is never implicit).
+- `https://postman-echo.com/get` (the `GetUrl` / `Host` constants in `src/SystemTrustExample.pas`)
+  → **PASS**: the public chain verified against the machine's system roots with zero manual trust
+  config, entirely inside TlsLib4Pascal.
+- Edit those constants to point at a host with an untrusted/self-signed chain → verification
+  **fails closed** (system trust is never implicit).

@@ -55,7 +55,7 @@ once** — FPC has no such global, and its `JNI_OnLoad` is the natural place to 
 // Delphi: nothing to do - UseSystemTrust just works on Android.
 
 // FPC: call once with the JavaVM, from your JNI_OnLoad (where the runtime hands it to you):
-uses TlpAndroidSystemTrust;
+uses jni, TlpAndroidSystemTrust;
 
 function JNI_OnLoad(vm: pointer; reserved: pointer): longint; cdecl; [public, alias: 'FPC_JNI_ON_LOAD'];
 begin
@@ -199,7 +199,7 @@ client-CA — never the public web PKI. So this is deliberately *not* `TSystemTr
 client path:
 
 ```pascal
-uses TlpOSSystemTrust;   // TOSSystemTrust
+uses TlpSystemTrustBase, TlpOSSystemTrust;   // TSystemTrustFetch, TOSSystemTrust
 
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix,
@@ -215,7 +215,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 The delegate uses the `clientAuth` EKU + the OS client-auth policy (a client certificate is never
 stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Apple apply the same
 posture/clock revocation as the server delegate; the Android client delegate is an
-anchors-only KeyStore chain check (no posture/clock — see the Android note below). Note it **consumes**
+anchors-only KeyStore chain check with no OS revocation and no verify-date seam: revocation is
+decided by the posture alone, and the chain is validated at the platform's own time. Note it **consumes**
 the anchors you pass to `TClientVerification.VerifierSource` (they are its exclusive root); `Build`
 refuses it when those anchors yield no root (it would trust nothing). The `AFetch` argument selects cache-only
 (no socket) or live revocation — see the next section.
@@ -479,7 +480,7 @@ The core `TlsLib4PascalPackage` requires **none** of this — verify it never li
 its `requires` / `RequiredPkgs`. To use OS trust, add the optional package to your project:
 
 - **FPC (Lazarus):** add `TlsLib.Trust.System` (and/or `TlsLib.Trust.Bundle`) as a required package.
-- **Delphi:** add the corresponding `.dpk`/`.dproj`.
+- **Delphi:** add `TlsLib.Trust.System.dpk` (and/or `TlsLib.Trust.Bundle.dpk`) to your requires.
 
 The adapters that support system trust already declare the dependency, so if you use an adapter you
 get it transitively.

@@ -300,9 +300,9 @@ type
     FVerbatimEncryptedExtensions: TBytes;
     FVerbatimCertificate: TBytes;
     FVerbatimCertificateVerify: TBytes;
-    /// <summary>Stamps the ECH accept confirmation into the last 8 bytes of the framed
-    /// ServerHello (RFC 9849 sec. 7.2), computed over the inner transcript through this
-    /// ServerHello with those 8 bytes zeroed.</summary>
+    /// <summary>Stamps the ECH accept confirmation into the last 8 bytes of ServerHello.random
+    /// (framed offset 30; RFC 9849 sec. 7.2), computed over the inner transcript through this ServerHello with
+    /// those 8 bytes zeroed.</summary>
     procedure StampEchAcceptConfirmation(var AServerHelloBytes: TBytes);
     /// <summary>The one structural parse of a ClientHello's extension block: Empty for an absent
     /// field (a legacy <=TLS 1.2 shape), otherwise the fully-validated vector. Threaded down so the
@@ -618,7 +618,7 @@ begin
     Exit(DefaultMaxEarlyDataSkipBytes);
   // count records at the content cap the client actually fragments early data to: the
   // record_size_limit we advertised (less the inner content-type byte), else the 2^14 ceiling.
-  // A smaller cap means more records, hence more per-record overhead to allow (RFC 8449 4).
+  // A smaller cap means more records, hence more per-record overhead to allow.
   LContentCap := TRecordLimits.MaxPlaintext;
   if (FPeerRecordSizeLimit > 0) and (FParams.RecordSizeLimit > 0) and
     (FParams.RecordSizeLimit - 1 < LContentCap) then
@@ -1283,8 +1283,7 @@ begin
     LContext.Cookie := ACookie;
     LContext.SelectedVersion := TlsWireVersionTls13;
     // under ECH accept the HRR carries an encrypted_client_hello with an 8-byte accept
-    // confirmation; the registry places it LAST (nothing in a HRR follows it), so its payload is
-    // the final 8 bytes (RFC 9849 sec. 7.2.1) - stamped in below over the zero placeholder
+    // confirmation, stamped in below at its parsed offset over the zero placeholder
     if System.Length(AEchInnerCh1Hash) > 0 then
     begin
       LZeroConf := nil;

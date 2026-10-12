@@ -42,7 +42,11 @@ peer.SSLAcceptConnection;             // handshake
 | `ClientAuth` (extension, **server**) | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs `VerifyCert` on and a private client-CA (`CertCAFile`), else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
 | `SSLType`                                            | `LT_all` offers TLS 1.3 and 1.2; `LT_TLSv1_2` / `LT_TLSv1_3` offer that version alone; any other value fails the handshake |
-| `HandshakeTimeoutMs`                                 | bounds the handshake read (ms); `0` = 30 s default |
+| `HandshakeTimeoutMs` (extension)                     | bounds the handshake read (ms); `0` = 30 s default |
+| `UseSystemTrust` (extension)                         | OS trust anchors, unioned with `CertCAFile` (server-cert trust only) |
+| `ClientConfig` / `ServerConfig` (extension)          | a fully built config that replaces the property-driven build |
+| `SessionResumption` (extension)                      | `WithResumption` (0-RTT is never enabled) |
+| `Crypto` / `Pkix` (extension)                        | the providers the property-driven build uses (nil = the shared defaults) |
 | `ReadTimeoutMs` (extension)                          | bounds one `RecvBuffer` call (ms), including records with no application data; `0` (default) blocks, as Synapse's other TLS plugins do. Synapse's own timeouts only wait for the first byte, so set this on each accepted socket of a server that reads from untrusted peers, not on a client waiting on a slow server. A timeout surfaces as `WSASYSNOTREADY`, is retryable, and loses no data |
 
 A server never requests a client certificate unless you set `ClientAuth` (cast `Sock.SSL` to
@@ -75,7 +79,8 @@ peers, **never** production. With `VerifyCert := True` and no trust source named
 closed (system trust is never implicit).
 
 **Native `OnVerifyCert` hook (bridged).** Set `sock.SSL.OnVerifyCert := yourHandler` before the
-handshake. After our built-in pipeline accepts the server chain, the plugin calls your handler,
+handshake. After our built-in pipeline accepts the peer chain (the server's on a client; a presented
+client certificate on a server), the plugin calls your handler,
 which inspects the peer through the standard `TCustomSSL` accessors — `GetPeerSubject`,
 `GetPeerIssuer`, `GetPeerName`, `GetPeerFingerprint` (SHA-256 of the leaf, lowercase hex),
 `GetPeerSerialNo` — and returns `False` to reject (fail-closed with `bad_certificate`). It is
@@ -94,7 +99,7 @@ SetTlsLibSynapseServerVerdictResolver(resolver, deadlineMs);   // server role: d
 ```
 
 Being process-wide, set these before opening any connection; changing a hook while connections are
-in flight is not supported. A resolver beside a supplied config must be paired with a config that
+in flight is not supported. The verify callback is a client-handshake hook: a server never carries it. A resolver beside a supplied config must be paired with a config that
 itself defers the verdict (`WithLiveRevocationVerdict`), else the connection is refused.
 
 Wire `TLiveRevocationChecker.ResolveVerdict` (from `TlpLiveRevocation`, over an injected
@@ -112,32 +117,41 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 - The transport reads/writes the raw socket handle via `synsock`, bypassing `TTCPBlockSocket`'s
   own SSL-aware buffered methods (which would otherwise recurse once `SSLEnabled` is set).
 - `WaitingData` reports our buffered plaintext count (the `SSL_pending` analogue).
+- Beyond `GetSSLVersion` / `GetCipherName`, cast `Sock.SSL` to `TSSLTlsLib` to read
+  `NegotiatedCipherSuite`, `NegotiatedGroup`, `PeerServerName`, `EchStatus`, `Resumed` and
+  `NegotiatedAlpn` (text; empty when none was agreed) after the handshake.
+- Client configs are cached process-wide. After rotating a certificate or key, call
+  `FlushTlsLibSynapseConfigCache` so the next handshake rebuilds and the retired key is released.
 
 ## Proven
 
 `Examples/` — the loopback (shared logic in `src/SynapseLoopbackExample.pas`) builds as a Lazarus
-project (`Lazarus/SynapseLoopback.lpi`) or a Delphi project (`Delphi/SynapseLoopback.dproj`): two
+project (`Lazarus/SynapseLoopback.lpi`) or a Delphi project (`Delphi/SynapseLoopback.dpr`): two
 `TTCPBlockSocket`s built with our plugin on `127.0.0.1`, full TLS 1.3 handshake + application echo.
 Verified building + running under both FPC/Lazarus and Delphi.
 
 `Examples/` also carries a **real-world** demo (`src/SynapseRealWorldExample.pas`,
-`Lazarus/SynapseRealWorld.lpi` / `Delphi/SynapseRealWorld.dproj`): a single unmodified `THTTPSend`
+`Lazarus/SynapseRealWorld.lpi` / `Delphi/SynapseRealWorld.dpr`): a single unmodified `THTTPSend`
 does a live HTTPS `GET` and `POST` to `postman-echo.com` with its TLS handled entirely by
-TlsLib4Pascal — a real handshake against a real internet server, real certificate verification
-against a **pinned** root (`data/isrg-roots.pem`, the self-signed ISRG roots; **not** `VerifyCert
-:= False`), and real HTTP over our records, with zero OpenSSL. It is a **network-gated demo, not a
-test gate**: it needs outbound HTTPS and exits 0 (PASS) / 2 (SKIP, offline) / 1 (FAIL). `THTTPSend`
+TlsLib4Pascal — a real handshake against a real internet server, real certificate verification,
+and real HTTP over our records, with zero OpenSSL. It runs twice: leg A verifies against the pinned
+root (`data/isrg-roots.pem`, via `CertCAFile`), leg B against the OS trust store
+(`UseSystemTrust`). Neither skips verification. It is a **network-gated demo, not a test gate**: it
+needs outbound HTTPS and exits 0 (both legs PASS) / 2 (SKIP, offline) / 1 (FAIL). `THTTPSend`
 keeps the socket alive, so both verbs run over **one reused TLS connection** — exercising the
 adapter's connection-reuse path end to end.
 
 `Examples/` also carries an **advanced-config** demo (`src/SynapseAdvancedConfigExample.pas`,
-`Lazarus/SynapseAdvancedConfig.lpi` / `Delphi/SynapseAdvancedConfig.dproj`): instead of the
+`Lazarus/SynapseAdvancedConfig.lpi` / `Delphi/SynapseAdvancedConfig.dpr`): instead of the
 `TCustomSSL` cert/CA properties, it hands each socket a fully-built config through
 `(Sock.SSL as TSSLTlsLib).ServerConfig` / `ClientConfig` — an ordered, bound cipher-suite
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
 order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or a
 pinned `SSLType`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+
+`Examples/` further holds `SynapseEchLoopback`, `SynapseResumptionScope` and `SynapseWedgeDemo`,
+each as a Lazarus `.lpi` and a Delphi `.dpr`.
 
 Synapse's `Ciphers` property names the suites to use: exact IANA or OpenSSL suite names, separated
 by `:`, `,`, `;`, spaces or tabs, matched without regard to case and de-duplicated, in preference

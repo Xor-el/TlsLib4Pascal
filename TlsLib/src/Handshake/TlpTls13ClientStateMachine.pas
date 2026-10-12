@@ -232,7 +232,7 @@ type
     /// (RFC 8879), used to pick a compressor for the client Certificate.</summary>
     FServerCertCompressionAlgorithms: TArray<UInt16>;
     /// <summary>The pre-shared keys this ClientHello offered, in offered order (empty when
-    /// none): a single resumption PSK from the cache, or the imported external PSKs (RFC
+    /// none): a single resumption PSK from the cache and/or the imported external PSKs (RFC
     /// 9258), one entry per (external PSK, supported KDF hash). The server's selected_identity
     /// indexes this list.</summary>
     FPskOffers: TArray<IPreSharedKey>;
