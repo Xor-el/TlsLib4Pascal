@@ -1,0 +1,23 @@
+TlsLib.Benchmark/Lazarus/AeadHotPathBench.lpr
+  s_58af9e1b217631::t_2a80e341a6c500 90,92
+  s_58af9e1b217631::t_b47f8c7d4671d7 68,72-73
+  s_58af9e1b217631::t_e235d543fbb7b4 81
+  s_58af9e1b217631::t_99055e0699f88c 14
+  s_58af9e1b217631::t_2df84dc842b4aa 138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b6946aeac1f11b4e4b9b26b2db7cc7622644103",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
