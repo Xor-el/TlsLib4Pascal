@@ -34,11 +34,9 @@
 #                 exclusivity cell (foreign resolver CA) runs inside the install bracket, where it can
 #                 discriminate. Its revoked(44)/indeterminate(113) alerts come from our resolver, not
 #                 the OS map, so they are asserted exactly on both platforms.
-#   * Windows root auto-update probe - informational, CI-gated: public hosts through os-anchors then
-#                 os-delegate, to see whether crypt32 fetches a missing root under the cache-only flags.
-#                 Fails only if the delegate refuses a host the anchors accepted.
-#   * Windows root removal probe - informational, CI-gated: removes a few hosts' roots from the machine
-#                 store (exported first, always restored), then anchors vs delegate. Never fails the leg.
+#   * Windows AUTOROOT - informational, github-hosted CI only: removes one public root (and only it)
+#                 from the stores, builds a chain for its public intermediate under our inline/live
+#                 flags vs a control, and reports whether crypt32 re-installs the root. Always restored.
 #   * macOS trust mode comparison - report-only, CI-gated: the same hosts through both modes, to see
 #                 whether the Anchors harvest and Apple SecTrust ever disagree. Never fails the leg.
 set -euo pipefail
@@ -89,7 +87,7 @@ cleanup() {
   if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; wait "$CRL_PID" 2>/dev/null || true; fi
   if [ "$DISTRUSTED" = 1 ]; then uninstall_distrust || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
-  restore_roots || true
+  autoroot_restore || true
   rm -rf "$TMP"
 }
 
@@ -141,40 +139,25 @@ uninstall_distrust() {
   esac
 }
 
-PROBE_STORES=(machine:Root user:Root machine:AuthRoot)
-store_flag() { # <kind:name>: the certutil flag for the store's location (machine is certutil's default)
-  if [ "${1%%:*}" = user ]; then echo -user; fi
+AUTOROOT_ARMED=0
+autoroot_ps() { # <action> [extra args]: run the AUTOROOT helper, one result line on stdout
+  local action="$1"; shift
+  powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$(cygpath -w "$HERE/autoroot-probe.ps1")" -Action "$action" \
+    -Work "$(cygpath -w "$TMP/autoroot")" "$@" 2>&1 | tr -d '\r'
 }
-store_has() { # <kind:name> <thumbprint>
-  certutil $(store_flag "$1") -store "${1#*:}" "$2" >/dev/null 2>&1
-}
-probe_present_in() { # <thumbprint>: the probe stores holding it, space separated
-  local s out=""
-  for s in "${PROBE_STORES[@]}"; do
-    if store_has "$s" "$1"; then out="${out:+$out }$s"; fi
-  done
-  echo "$out"
-}
-store_count() { # <kind:name>: number of certificates in the store
-  certutil $(store_flag "$1") -store "${1#*:}" 2>/dev/null | grep -c '^Cert Hash(sha1)' || true
-}
-restore_roots() { # re-add every exported root copy that is missing from the store it came from
-  local f b t s
-  for f in "$TMP"/removed/*.cer; do
-    [ -f "$f" ] || continue
-    b="$(basename "$f" .cer)"; t="${b%%.*}"; s="${b#*.}"; s="${s/./:}"
-    store_has "$s" "$t" ||
-      certutil $(store_flag "$s") -addstore -f "${s#*:}" "$(cygpath -w "$f")" >/dev/null 2>&1 || true
-  done
-}
-count_missing_roots() { # exported root copies currently absent from the store they came from
-  local f b n=0 s
-  for f in "$TMP"/removed/*.cer; do
-    [ -f "$f" ] || continue
-    b="$(basename "$f" .cer)"; s="${b#*.}"; s="${s/./:}"
-    store_has "$s" "${b%%.*}" || n=$((n+1))
-  done
-  echo "$n"
+autoroot_restore() { # idempotent: put back every removed root and print the tally
+  [ "$AUTOROOT_ARMED" = 1 ] || return 0
+  AUTOROOT_ARMED=0
+  local line missing
+  line="$(autoroot_ps restore | tail -n 1)"
+  echo "AUTOROOT RESTORE $line"
+  missing="${line##*missing=}"
+  case "$missing" in
+    ''|*[!0-9]*) echo "  WARN  AUTOROOT restore result unreadable" ;;
+    0) ;;
+    *) echo "  WARN  $missing removed root(s) could not be restored"; AUTOROOT_ARMED=1 ;;
+  esac
 }
 
 trap cleanup EXIT
@@ -514,18 +497,6 @@ else
   echo "=== OS trust delegate: SKIPPED (no OS delegate on $OSNAME) ==="
 fi
 
-store_snapshot() { # <out file>: store:name:thumbprint for the machine and user Root/AuthRoot stores
-  local s u
-  : > "$1"
-  for s in Root AuthRoot; do
-    for u in "" "-user"; do
-      certutil $u -store "$s" 2>/dev/null | sed -n 's/^Cert Hash(sha1): *//p' | tr -d ' \r' |
-        sed "s/^/${u:-machine}:$s:/" >> "$1" || true
-    done
-  done
-  sort -o "$1" "$1"
-}
-
 resolve_ipv4() { # <host>: the shim dials a dotted IPv4 only
   case "$OSNAME" in
     Darwin)
@@ -542,9 +513,15 @@ resolve_ipv4() { # <host>: the shim dials a dotted IPv4 only
   esac
 }
 
+probe_bounded() { # <cmd...>: stock macOS runners have neither timeout nor gtimeout; perl's alarm bounds the run
+  if command -v timeout >/dev/null 2>&1; then timeout 60 "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout 60 "$@"
+  else perl -e 'alarm shift; exec @ARGV or die "exec failed: $!\n"' 60 "$@"; fi
+}
+
 probe_cell() { # <mode> <ip> <host>: prints ACCEPT | REFUSE:<alert> | NET
   local out rc=0
-  out="$($PROBE_TIMEOUT "$SHIM" --trust-mode "$1" --connect "$2:443" --expect-name "$3" \
+  out="$(probe_bounded "$SHIM" --trust-mode "$1" --connect "$2:443" --expect-name "$3" \
     --posture soft --expect accept 2>&1)" || rc=$?
   if [ "$rc" = 0 ]; then
     echo ACCEPT
@@ -553,24 +530,18 @@ probe_cell() { # <mode> <ip> <host>: prints ACCEPT | REFUSE:<alert> | NET
   else
     echo NET
   fi
-  if [ -n "${PROBE_LAST_FILE:-}" ]; then
-    printf '%s\n' "$out" | tr -d '\r' | grep -v '^$' | tail -n 1 | cut -c1-160 > "$PROBE_LAST_FILE" || true
-  fi
 }
 
-probe_setup() { # the public host list and a timeout wrapper, when the runner has one
-  PROBE_TIMEOUT=""
-  if command -v timeout >/dev/null 2>&1; then PROBE_TIMEOUT="timeout 60"
-  elif command -v gtimeout >/dev/null 2>&1; then PROBE_TIMEOUT="gtimeout 60"; fi
+probe_setup() {
   PROBE_HOSTS=(letsencrypt.org digicert.com globalsign.com sectigo.com amazon.com google.com
                microsoft.com godaddy.com ssl.com entrust.com)
 }
 
 probe_run_modes() { # resolve every host, then anchors for all of them before any delegate run
-  PROBE_IPS=(); PROBE_A=(); PROBE_D=(); PROBE_A2=()
+  PROBE_IPS=(); PROBE_A=(); PROBE_D=()
   for I in "${!PROBE_HOSTS[@]}"; do
     PROBE_IPS[$I]="$(resolve_ipv4 "${PROBE_HOSTS[$I]}")"
-    PROBE_A[$I]=NET; PROBE_D[$I]=NET; PROBE_A2[$I]="-"
+    PROBE_A[$I]=NET; PROBE_D[$I]=NET
   done
   # anchors first: a delegate run can install a root a later anchors run would see
   for I in "${!PROBE_HOSTS[@]}"; do
@@ -594,212 +565,83 @@ probe_classify() { # <anchors> <delegate>: net | delegate-only | both-ok | ancho
   fi
 }
 
-probe_table() { # <1 = re-run anchors on delegate-only hosts>: print the table, fill the N_* counts
-  N_HEALED=0; N_BOTH_OK=0; N_BOTH_REFUSED=0; N_REGRESSION=0; N_NET=0; N_A_REFUSED=0
-  if [ "$1" = 1 ]; then
-    printf '  %-18s %-12s %-12s %s\n' host anchors delegate anchors-after
-  else
-    printf '  %-18s %-12s %s\n' host anchors delegate
-  fi
+probe_table() { # print the table, fill the N_* counts
+  N_HEALED=0; N_BOTH_OK=0; N_BOTH_REFUSED=0; N_REGRESSION=0; N_NET=0
+  printf '  %-18s %-12s %s\n' host anchors delegate
   for I in "${!PROBE_HOSTS[@]}"; do
     A="${PROBE_A[$I]}"; D="${PROBE_D[$I]}"
-    case "$A" in REFUSE*) N_A_REFUSED=$((N_A_REFUSED+1)) ;; esac
     case "$(probe_classify "$A" "$D")" in
       net) N_NET=$((N_NET+1)) ;;
-      delegate-only)
-        N_HEALED=$((N_HEALED+1))
-        if [ "$1" = 1 ]; then
-          PROBE_A2[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "${PROBE_HOSTS[$I]}")"
-        fi ;;
+      delegate-only) N_HEALED=$((N_HEALED+1)) ;;
       both-ok) N_BOTH_OK=$((N_BOTH_OK+1)) ;;
       anchors-only) N_REGRESSION=$((N_REGRESSION+1)) ;;
       *) N_BOTH_REFUSED=$((N_BOTH_REFUSED+1)) ;;
     esac
-    if [ "$1" = 1 ]; then
-      printf '  %-18s %-12s %-12s %s\n' "${PROBE_HOSTS[$I]}" "$A" "$D" "${PROBE_A2[$I]}"
-    else
-      printf '  %-18s %-12s %s\n' "${PROBE_HOSTS[$I]}" "$A" "$D"
-    fi
+    printf '  %-18s %-12s %s\n' "${PROBE_HOSTS[$I]}" "$A" "$D"
   done
 }
 
-# Informational: does crypt32 fetch a missing public root under the delegate's cache-only flags
-# (the AuthRoot auto-update), where Anchors only sees roots already installed? Auto-update writes
-# to the machine store, so it sits behind the same CI gate as the install cells. Network trouble
-# is INFO; only delegate refusing what anchors accepted fails the leg.
-echo "=== Windows root auto-update probe (informational) ==="
-case "$OSNAME" in
-  MINGW*|MSYS*|CYGWIN*|Windows*)
-    if ! ci_store_mutation_allowed; then
-      echo "  SKIPPED: not a CI runner (root auto-update modifies the machine store)"
-    else
-      probe_setup
-      store_snapshot "$TMP/store_before"
-      probe_run_modes
-      probe_table 1
-      store_snapshot "$TMP/store_after"
-      for K in machine:Root user:Root machine:AuthRoot user:AuthRoot; do
-        echo "  store ${K}: $(grep -c "^${K}:" "$TMP/store_before" || true) -> $(grep -c "^${K}:" "$TMP/store_after" || true)"
-      done
-      N_NEW="$(comm -13 "$TMP/store_before" "$TMP/store_after" | wc -l | tr -d ' ')"
-      comm -13 "$TMP/store_before" "$TMP/store_after" | sed 's/^/  new: /'
-      echo "  summary: auto-updated(delegate ok, anchors refused)=$N_HEALED both-accepted=$N_BOTH_OK" \
-        "both-refused=$N_BOTH_REFUSED delegate-refused-anchors-ok=$N_REGRESSION network=$N_NET new-store-certs=$N_NEW"
-      if [ "$N_HEALED" -gt 0 ]; then
-        echo "  root auto-update works under the delegate flags"
-      elif [ "$N_NET" -gt 0 ]; then
-        echo "  INCONCLUSIVE: $N_NET host(s) hit network trouble (INFO, not a failure)"
-      elif [ "$N_A_REFUSED" -gt 0 ]; then
-        echo "  NEGATIVE: anchors refused $N_A_REFUSED host(s) and delegate did not rescue them"
-      else
-        echo "  all roots were already installed; the probe could not exercise auto-update on this image"
-      fi
-      if [ "$N_REGRESSION" -gt 0 ]; then
-        echo "  FAIL  delegate refused $N_REGRESSION host(s) that anchors accepted"
-        FAILURES=$((FAILURES+1))
-      fi
-    fi ;;
-  *) echo "  SKIPPED: Windows only" ;;
-esac
+# Informational, never fails the leg: with the one root that issues a public intermediate removed, does
+# crypt32 re-install it under our inline/live chain flags (mirroring TWindowsTrustApi.ChainFlags, plus
+# DISABLE_AIA) as it does under a control with no cache-only flag? Each run starts from the same stripped
+# state; the removed certificates are restored right after the runs and again by the EXIT trap.
+AUTOROOT_INLINE=48002004  # CACHE_ONLY_URL_RETRIEVAL | REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | REVOCATION_ACCUMULATIVE_TIMEOUT | DISABLE_AIA
+AUTOROOT_LIVE=48002000    # REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | REVOCATION_ACCUMULATIVE_TIMEOUT | DISABLE_AIA, extended CERT_CHAIN_PARA
+AUTOROOT_CONTROL=00002000 # DISABLE_AIA only
 
-chain_root_thumb() { # <host>: SHA-1 of the self-signed root the host's chain builds to, else empty
-  powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-    -File "$(cygpath -w "$TMP/root_thumb.ps1")" "$1" 2>/dev/null | tr -d '\r\n ' || true
+autoroot_run() { # <inline|live|control>: strip, build once in a fresh process, print the run line to stdout
+  local flags para=plain
+  case "$1" in
+    inline) flags=$AUTOROOT_INLINE ;;
+    live) flags=$AUTOROOT_LIVE; para=ex ;;
+    *) flags=$AUTOROOT_CONTROL ;;
+  esac
+  autoroot_ps strip >/dev/null || true
+  autoroot_ps build -Flags "$flags" -Para "$para" | tail -n 1
 }
 
-# Informational, never fails the leg: with a few hosts' roots removed from the machine store, does the
-# delegate's cache-only chain engine put them back where Anchors, which sees installed roots only, cannot?
-# Roots are exported first and restored right after the runs and again by the EXIT trap.
-echo "=== Windows root removal probe (informational) ==="
+autoroot_probe() {
+  local ctl strip run_inline run_live run_control
+  mkdir -p "$TMP/autoroot"
+  ctl="$(autoroot_ps ctl | tr '\n' ' ')"
+  case "$ctl" in
+    *NOTLISTED*) echo "AUTOROOT PRECONDITION FAILED: R not in authroot.stl"; return 0 ;;
+    *LISTED*) ;;
+    *) echo "AUTOROOT PRECONDITION FAILED: R not in authroot.stl"; echo "  (CTL check: $ctl)"; return 0 ;;
+  esac
+  AUTOROOT_ARMED=1
+  strip="$(autoroot_ps strip | tail -n 1)"
+  if [ "$strip" != "remaining=0" ]; then
+    echo "AUTOROOT PRECONDITION FAILED: issuer still present after removal"
+    autoroot_restore
+    return 0
+  fi
+  run_inline="$(autoroot_run inline)"
+  run_live="$(autoroot_run live)"
+  run_control="$(autoroot_run control)"
+  echo "  inline:  $run_inline"
+  echo "  live:    $run_live"
+  echo "  control: $run_control"
+  case "$run_control" in
+    *reappeared=none*|'') echo "AUTOROOT PRECONDITION FAILED: control did not install R" ;;
+    *)
+      local i l
+      case "$run_inline" in *reappeared=none*) i=does-not-fire ;; *) i=installs ;; esac
+      case "$run_live" in *reappeared=none*) l=does-not-fire ;; *) l=installs ;; esac
+      echo "AUTOROOT RESULT inline=$i live=$l control=installs" ;;
+  esac
+  autoroot_restore
+}
+
+echo "=== Windows root auto-update (AUTOROOT, informational) ==="
 case "$OSNAME" in
   MINGW*|MSYS*|CYGWIN*|Windows*)
     if ! ci_store_mutation_allowed; then
-      echo "  SKIPPED: not a CI runner (the probe removes roots from the machine store)"
+      echo "  SKIPPED: not a CI runner (the probe removes a root from the machine store)"
+    elif [ "${RUNNER_ENVIRONMENT:-}" != "github-hosted" ]; then
+      echo "  SKIPPED: not a github-hosted runner (RUNNER_ENVIRONMENT=${RUNNER_ENVIRONMENT:-unset})"
     else
-      probe_setup
-      PROBE_HOSTS=(letsencrypt.org amazon.com godaddy.com entrust.com)
-      mkdir -p "$TMP/removed"
-      cat > "$TMP/root_thumb.ps1" <<'PS'
-param([string]$h)
-try {
-  $c = New-Object System.Net.Sockets.TcpClient
-  if (-not $c.ConnectAsync($h, 443).Wait(15000)) { exit 1 }
-  $cb = [System.Net.Security.RemoteCertificateValidationCallback]{ $true }
-  $s = New-Object System.Net.Security.SslStream($c.GetStream(), $false, $cb)
-  $s.AuthenticateAsClient($h)
-  $x = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($s.RemoteCertificate)
-  $ch = New-Object System.Security.Cryptography.X509Certificates.X509Chain
-  $ch.ChainPolicy.RevocationMode = 'NoCheck'
-  [void]$ch.Build($x)
-  $top = $ch.ChainElements[$ch.ChainElements.Count - 1].Certificate
-  if ($top.Subject -eq $top.Issuer) { $top.Thumbprint }
-} catch { exit 1 }
-PS
-      PROBE_IPS=(); PROBE_T=(); PROBE_B=(); PROBE_A=(); PROBE_D=(); PROBE_A2=(); PROBE_R=(); PROBE_NOTE=()
-      PROBE_PRE=(); PROBE_POST=(); PROBE_RC=(); PROBE_MSG=(); PROBE_RT=()
-      probe_rm_cell() { # <mode> <label> <index>: sets RM_RESULT; a REFUSE keeps the shim's last line
-        RM_RESULT="$(probe_cell "$1" "${PROBE_IPS[$3]}" "${PROBE_HOSTS[$3]}")"
-        case "$RM_RESULT" in
-          REFUSE*) PROBE_MSG[$3]+="    $2: $(cat "$PROBE_LAST_FILE")"$'\n' ;;
-        esac
-      }
-      # baseline: only hosts whose root is installed and accepted by anchors are worth removing
-      for I in "${!PROBE_HOSTS[@]}"; do
-        H="${PROBE_HOSTS[$I]}"
-        PROBE_T[$I]=""; PROBE_B[$I]="-"; PROBE_A[$I]="-"; PROBE_D[$I]="-"; PROBE_A2[$I]="-"
-        PROBE_R[$I]="-"; PROBE_NOTE[$I]=""
-        PROBE_PRE[$I]=""; PROBE_POST[$I]=""; PROBE_RC[$I]=""; PROBE_MSG[$I]=""; PROBE_RT[$I]=""
-        PROBE_IPS[$I]="$(resolve_ipv4 "$H")"
-        T="$(chain_root_thumb "$H")"
-        PROBE_RT[$I]="$T"
-        if [ -z "${PROBE_IPS[$I]}" ]; then PROBE_NOTE[$I]="no IPv4 address"
-        elif ! [[ "$T" =~ ^[0-9A-Fa-f]{40}$ ]]; then PROBE_NOTE[$I]="chain root not determined"
-        elif [ -z "$(probe_present_in "$T")" ]; then PROBE_NOTE[$I]="root $T in none of the stores"
-        else
-          PROBE_B[$I]="$(probe_cell os-anchors "${PROBE_IPS[$I]}" "$H")"
-          if [ "${PROBE_B[$I]}" = ACCEPT ]; then PROBE_T[$I]="$T"
-          else PROBE_NOTE[$I]="baseline ${PROBE_B[$I]}"; fi
-        fi
-      done
-      # export before delete; a root that fails to export is never deleted
-      N_ROOT_BEFORE="$(store_count machine:Root)"
-      # export every copy before deleting it; a copy that fails to export is never deleted
-      for I in "${!PROBE_HOSTS[@]}"; do
-        T="${PROBE_T[$I]}"; [ -n "$T" ] || continue
-        PROBE_PRE[$I]="$(probe_present_in "$T")"
-        PROBE_RC[$I]=""
-        for S in ${PROBE_PRE[$I]}; do
-          F="$TMP/removed/$T.${S/:/.}.cer"
-          XRC=0; DRC="-"
-          if [ ! -s "$F" ]; then
-            certutil $(store_flag "$S") -store "${S#*:}" "$T" "$(cygpath -w "$F")" >/dev/null 2>&1 || XRC=$?
-            if [ "$XRC" != 0 ]; then rm -f "$F"; fi
-          fi
-          if [ -s "$F" ]; then
-            DRC=0
-            certutil $(store_flag "$S") -delstore "${S#*:}" "$T" >/dev/null 2>&1 || DRC=$?
-          fi
-          PROBE_RC[$I]+=" $S:export=$XRC,delete=$DRC"
-        done
-        PROBE_POST[$I]="$(probe_present_in "$T")"
-        if [ -n "${PROBE_POST[$I]}" ]; then
-          PROBE_NOTE[$I]="not removed (${PROBE_POST[$I]})"; PROBE_T[$I]=""
-        fi
-      done
-      N_REMOVED="$(count_missing_roots)"
-      N_ROOT_AFTER="$(store_count machine:Root)"
-      PROBE_LAST_FILE="$TMP/probe_last"
-      for I in "${!PROBE_HOSTS[@]}"; do
-        [ -n "${PROBE_T[$I]}" ] || continue
-        probe_rm_cell os-anchors anchors-rm "$I"; PROBE_A[$I]="$RM_RESULT"
-      done
-      for I in "${!PROBE_HOSTS[@]}"; do
-        [ -n "${PROBE_T[$I]}" ] || continue
-        probe_rm_cell os-delegate delegate "$I"; PROBE_D[$I]="$RM_RESULT"
-      done
-      for I in "${!PROBE_HOSTS[@]}"; do
-        [ -n "${PROBE_T[$I]}" ] || continue
-        probe_rm_cell os-anchors anchors-after "$I"; PROBE_A2[$I]="$RM_RESULT"
-        if [ -n "$(probe_present_in "${PROBE_T[$I]}")" ]; then PROBE_R[$I]=yes; else PROBE_R[$I]=no; fi
-      done
-      PROBE_LAST_FILE=""
-      restore_roots
-      N_MISSING="$(count_missing_roots)"
-      printf '  %-16s %-10s %-12s %-12s %-12s %s\n' host baseline anchors-rm delegate anchors-after reinstalled
-      N_EX=0; N_OK=0; N_NO=0; NO_CODES=""
-      for I in "${!PROBE_HOSTS[@]}"; do
-        H="${PROBE_HOSTS[$I]}"
-        printf '  %-16s %-10s %-12s %-12s %-12s %s\n' "$H" "${PROBE_B[$I]}" "${PROBE_A[$I]}" \
-          "${PROBE_D[$I]}" "${PROBE_A2[$I]}" "${PROBE_R[$I]}"
-        if [ -n "${PROBE_PRE[$I]:-}" ]; then
-          echo "    root ${PROBE_RT[$I]} before=[${PROBE_PRE[$I]}] after=[${PROBE_POST[$I]}]${PROBE_RC[$I]}"
-        fi
-        if [ -n "${PROBE_MSG[$I]:-}" ]; then printf '%s' "${PROBE_MSG[$I]}"; fi
-        [ -n "${PROBE_T[$I]}" ] || { echo "  note: $H not exercised: ${PROBE_NOTE[$I]}"; continue; }
-        case "${PROBE_A[$I]}" in
-          REFUSE*) ;;
-          *) echo "  note: $H not exercised: anchors gave ${PROBE_A[$I]} with the root removed"; continue ;;
-        esac
-        N_EX=$((N_EX+1))
-        case "${PROBE_D[$I]}" in
-          ACCEPT) N_OK=$((N_OK+1)) ;;
-          REFUSE*) N_NO=$((N_NO+1)); NO_CODES="${NO_CODES:+$NO_CODES, }$H=${PROBE_D[$I]#REFUSE:}" ;;
-          *) echo "  note: $H delegate hit network trouble" ;;
-        esac
-      done
-      echo "  machine Root count: before=$N_ROOT_BEFORE after-removal=$N_ROOT_AFTER after-restore=$(store_count machine:Root)"
-      echo "  roots removed=$N_REMOVED restored=$((N_REMOVED - N_MISSING)) still-missing=$N_MISSING"
-      if [ "$N_MISSING" -gt 0 ]; then echo "  WARN  $N_MISSING exported root(s) could not be restored"; fi
-      if [ "$N_OK" -gt 0 ]; then
-        echo "  root auto-update works under the delegate flags ($N_OK of $N_EX hosts)"
-      fi
-      if [ "$N_NO" -gt 0 ]; then
-        echo "  root auto-update does NOT fire under the delegate flags: delegate refused $N_NO host(s)" \
-          "whose root was removed (alert: $NO_CODES)"
-      fi
-      if [ $((N_OK + N_NO)) -eq 0 ]; then
-        echo "  INCONCLUSIVE: no host could be exercised (INFO, not a failure)"
-      fi
+      autoroot_probe || true
     fi ;;
   *) echo "  SKIPPED: Windows only" ;;
 esac
@@ -814,7 +656,7 @@ case "$OSNAME" in
     else
       probe_setup
       probe_run_modes
-      probe_table 0
+      probe_table
       for I in "${!PROBE_HOSTS[@]}"; do
         A="${PROBE_A[$I]}"; D="${PROBE_D[$I]}"
         case "$(probe_classify "$A" "$D")" in
