@@ -114,27 +114,6 @@ type
     Failure: TPlatformChainFailure;
   end;
 
-  /// <summary>What a Java trust-manager rejection exposes: whether it is a CertificateException, a
-  /// time-validity one, and whether its cause is a CertPathValidatorException with that cause's path
-  /// index and message.</summary>
-  TJavaTrustFacts = record
-    CertificateException: Boolean;
-    TimeInvalid: Boolean;
-    PathValidatorCause: Boolean;
-    CauseIndex: Int32;
-    CauseMessage: string;
-  end;
-
-  /// <summary>Classifies a Java trust-manager rejection from its facts. Only a CertificateException
-  /// is a peer trust failure (anything else is an internal error); it is NoTrustAnchor only when its
-  /// cause is a path-validation failure at index -1 whose message names the missing trust anchor,
-  /// and every other shape (pin, expiry, revocation, unrecognised) is Other.</summary>
-  TJavaTrustClassifier = class sealed(TObject)
-  public
-    class procedure Classify(const AFacts: TJavaTrustFacts; out AAlert: TTlsAlertDescription;
-      out AFailure: TPlatformChainFailure); static;
-  end;
-
   /// <summary>
   /// The post-checks every OS trust delegate applies once the OS engine has accepted the peer:
   /// they can only reject a peer or refuse a configuration, never turn an OS rejection into an
@@ -249,28 +228,6 @@ resourcestring
   SSystemTrustEmpty =
     'the %s trust store could not be read or contained no usable root certificates';
   SNoProvider = 'a PKIX provider is required to read the system trust store';
-
-{ TJavaTrustClassifier }
-
-class procedure TJavaTrustClassifier.Classify(const AFacts: TJavaTrustFacts;
-  out AAlert: TTlsAlertDescription; out AFailure: TPlatformChainFailure);
-begin
-  AFailure := TPlatformChainFailure.Other;
-  if not AFacts.CertificateException then
-  begin
-    AAlert := TTlsAlertDescription.InternalError;
-    Exit;
-  end;
-  if AFacts.TimeInvalid then
-  begin
-    AAlert := TTlsAlertDescription.CertificateExpired;
-    Exit;
-  end;
-  AAlert := TTlsAlertDescription.UnknownCa;
-  if AFacts.PathValidatorCause and (AFacts.CauseIndex = -1) and
-    (Pos('trust anchor', LowerCase(AFacts.CauseMessage)) > 0) then
-    AFailure := TPlatformChainFailure.NoTrustAnchor;
-end;
 
 { TDelegatePostChecks }
 
