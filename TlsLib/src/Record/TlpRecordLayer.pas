@@ -526,7 +526,7 @@ begin
       TTlsContentType.Alert:
       begin
         // an application_data record before the handshake completes is unexpected (RFC 8446 2 /
-        // 4.4.4, RFC 5246 7.4.9), whether empty or not - including under a real epoch installed
+        // 4.4.4, RFC 5246 7.3), whether empty or not - including under a real epoch installed
         // mid-handshake (TLS 1.2 keys at the peer's ChangeCipherSpec, before its Finished).
         // Accepted 0-RTT early data is the exception, excluded by the guard below.
         if FStrictApplicationData and

@@ -8,8 +8,10 @@ site you are visiting — most importantly the Server Name Indication (SNI). The
 publishes in DNS, wrapped inside a **`ClientHelloOuter`** that carries a public, non-sensitive name.
 A network observer sees only the public name; the true destination stays encrypted.
 
-ECH is **TLS 1.3 only** (RFC 9849 6.1: the ClientHelloInner must not offer TLS 1.2 or below). When ECH is enabled the endpoint is 1.3-only — no TLS 1.2 fallback is
-offered, because a 1.2 handshake has no ECH and would defeat its purpose.
+ECH is **TLS 1.3 only** (RFC 9849 6.1: the ClientHelloInner must not offer TLS 1.2 or below). A
+client offering a real ECH config is TLS 1.3-only — no TLS 1.2 fallback is offered, because a 1.2
+handshake has no ECH and would defeat its purpose. GREASE alone does not constrain the version, and
+an ECH server still serves TLS 1.2 to a client that offers no ECH.
 
 ECH lives behind the **`.Tls13` facets**. Everything below is public, provider-neutral API; the HPKE
 sealing/opening happens inside the crypto provider and no backend type escapes it.
@@ -22,9 +24,10 @@ Fetch the operator's `ECHConfigList` (see [DNS](#4-dns--publishing-and-fetching-
 it to the builder:
 
 ```pascal
-uses TlpEchClient;   // TEchClientModes
+uses TlpEchClient, TlpCertificateVerifierSource;   // TEchClientModes, TServerVerification
 
 LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(TServerVerification.WebPki(LCaPem).Build)
   .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));   // see below
 LClient.Tls13.WithEch(TEchClientModes.Enable(LEchConfigList)); // the bytes from DNS
 LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example');

@@ -62,7 +62,8 @@ type
   /// of Indy's OpenSSL SSLOptions): the cert/key/CA files and the verify posture. Indy's SSL
   /// base carries no trust surface (RootCertFile/VerifyMode live only on its OpenSSL handler),
   /// so this class is ours. Peer trust composes from orthogonal sources - a RootCertFile bundle,
-  /// UseSystemTrust for the OS anchors, and/or an injected CustomTrustStore all UNION; a
+  /// UseSystemTrust for the OS anchors, and/or an injected CustomTrustStore all UNION (where the
+  /// OS is a delegate, iOS and Android, only Apple can union them and Android raises); a
   /// custom verifier replaces the pipeline outright. System trust is never implicit. Client
   /// authentication is an explicit ClientAuth opt-in (a named client-CA alone never requests one).</summary>
   TTlsLibSSLOptions = class(TPersistent)

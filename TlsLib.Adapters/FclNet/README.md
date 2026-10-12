@@ -48,7 +48,7 @@ begin
   H.UseSystemTrust := True;             // (or pin a CA: H.CertificateData.CertCA.FileName := ...)
   AHandler := H;                        // verification is on by default; nothing else to set
 end;
-client.OnGetSocketHandler := GetHandler;
+client.OnGetSocketHandler := GetHandler;   // @GetHandler under FPC {$mode objfpc}
 ```
 
 A handler you return fully configured covers every trust and credential case below.
@@ -102,9 +102,11 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = `Socket.IOTimeout` when set, else the 30 s default |
 | `Socket.IOTimeout` (fcl-net native) | bounds application reads; an expiry is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
+| `SessionResumption: Boolean`                          | `WithResumption` (0-RTT is never enabled)          |
+| `Crypto` / `Pkix`                                     | the providers the slot-driven build uses (nil = the shared defaults) |
+| `ClientConfig` / `ServerConfig`                       | a fully built config that replaces the slot-driven build |
 
-**Read timeouts**: the handshake cap (`HandshakeTimeoutMs`) and an application read's `Socket.IOTimeout` are both enforced by waiting on the socket with `select` before each receive, not by the kernel's receive timeout, so they hold on every CPU. On Linux PowerPC, MIPS and SPARC, fcl-net numbers its socket-option constants the same as on other Linux CPUs and the kernel refuses that option, so setting `Socket.IOTimeout` itself raises `ESocketError` there; the adapter does not set it. A host that sets it on those CPUs should catch that error: the value is still stored and still bounds reads. On Unix, a descriptor of 1024 or more cannot be waited on with `select`, so such a socket's reads are not bounded.
-
+**Read timeouts**: the handshake cap (`HandshakeTimeoutMs`) and an application read's `Socket.IOTimeout` are both enforced by waiting on the socket (`poll` on Unix, `select` on Windows) before each receive, not by the kernel's receive timeout, so they hold on every CPU. On Linux PowerPC, MIPS and SPARC, fcl-net numbers its socket-option constants the same as on other Linux CPUs and the kernel refuses that option, so setting `Socket.IOTimeout` itself raises `ESocketError` there; the adapter does not set it. A host that sets it on those CPUs should catch that error: the value is still stored and still bounds reads.
 **Certificate chain**: `CertificateData.Certificate` is the chain the server *presents* — put your leaf
 **followed by any intermediates** (a concatenated PEM, or a multi-cert byte slot) so clients build a
 complete chain. `CertCA` / `TrustedCertificate` are **trust sources** (used to verify the *peer*), never
@@ -141,8 +143,14 @@ system-trust model see [docs/system-trust.md](../../docs/system-trust.md).
 - The transport reads/writes the raw socket handle via the `Sockets` unit's `fpRecv`/`fpSend`,
   bypassing the SSL-aware handler methods (which carry decrypted application data).
 - `BytesAvailable` reports our buffered plaintext count (the `SSL_pending` analogue).
-- `TSocketStream` owns and frees the handler it was given; the adapter frees its inner
-  `TTlsStream` in `Destroy`.
+- `TSocketStream` owns and frees the handler it was given; the adapter frees its `TTlsConnection`
+  (and with it the TLS stream) in `Destroy`.
+- After the handshake the handler reports `NegotiatedVersion`, `NegotiatedCipherSuite`,
+  `NegotiatedGroup`, `PeerServerName`, `EchStatus`, `Resumed` and `NegotiatedAlpn` (text; empty when
+  none was agreed).
+- Built configs are cached process-wide. After rotating a certificate or key, call
+  `FlushTlsLibFclNetConfigCache` (with no TLS traffic in flight) so the next handshake rebuilds and
+  the retired key is released.
 
 ## Proven
 
@@ -168,6 +176,9 @@ the injected config replaced the built-in build. This is the escape hatch to the
 (cipher order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options
 (or a pinned `SSLType`, a verify callback, `SendHostAsSNI := False` on a client, or a crypto/PKIX
 provider) is refused, not silently dropped.
+
+`Examples/` further holds `FclNetEchLoopback`, `FclNetResumptionScope` and `FclNetWedgeDemo`
+(Lazarus `.lpi`).
 
 `CertificateData.CipherList` names the suites to use: exact IANA or OpenSSL suite names, separated
 by `:`, `,`, `;`, spaces or tabs, matched without regard to case and de-duplicated, in preference

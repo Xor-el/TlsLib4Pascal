@@ -63,7 +63,7 @@ type
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
   /// the Sockets unit's fpRecv/fpSend on Socket.Handle, bypassing the SSL-aware handler methods
   /// (which carry decrypted application data and would otherwise recurse). The handshake read cap
-  /// and an application read's Socket.IOTimeout are both enforced by a select on the handle before
+  /// and an application read's Socket.IOTimeout are both enforced by a wait on the handle before
   /// each receive, which works on every CPU (the kernel's receive timeout is refused on PowerPC,
   /// MIPS and SPARC). An expiry is ETlsHandshakeTimeout under the handshake cap and the retryable
   /// ETlsReadTimeout on an application read, never end of stream.</summary>
@@ -213,7 +213,7 @@ type
     /// <summary>The password for an encrypted CertificateData.PrivateKey, if any.</summary>
     property KeyPassword: string read FKeyPassword write FKeyPassword;
     /// <summary>An injected anchor store; when set it UNIONS with the CertCA / TrustedCertificate
-    /// bundle and UseSystemTrust.</summary>
+    /// bundle and UseSystemTrust (where the OS is a delegate only Apple can union; Android raises).</summary>
     property CustomTrustStore: ITrustAnchorStore read FCustomTrustStore
       write FCustomTrustStore;
     /// <summary>A whole-verifier for the peer SERVER certificate (client connections) that

@@ -53,7 +53,7 @@ principal test units (the fuzz + BoGo + KAT suites cross-cover several).
 | 6 | **DoS / resource limits.** Hard caps on handshake-reassembly size, floods of empty records / warning alerts / KeyUpdate requests, the stateful session store, and the 0-RTT strike register. All configurable; secure defaults. A handshake parked on an async verdict buffers inbound under these same caps. | memory exhaustion / infinite-work loops | the record layer + engine bounds; the stateless HRR cookie | record/handshake tests; `TStrikeRegisterAntiReplay` bounds (`Tls13ResumptionTests`) |
 | 7 | **Secret hygiene.** All key material — schedule secrets, traffic keys, PSKs, resumption secrets, STEK/ticket keys, the HRR-cookie secret — lives in a heap-stable `ISecretBuffer`, deterministically wiped once at end-of-life through an anti-dead-store-elimination barrier. Provider intermediates (round keys, HKDF PRKs, scratch) are wiped too. | key material recovered from freed memory | `TSecretBuffer` (refcounted, single buffer, wiped on `_Release`) | `SecretTests` (`TestWipeOnLastRelease` asserts the buffer is zeroed when its last reference is released) |
 | 8 | **Single-threaded per connection.** An engine/connection is single-threaded (caller serializes; no internal locks). Config objects are immutable once built and freely shareable across threads. | accidental data races on connection state | stated contract; frozen config objects | design invariant; config-freeze tests |
-| 9 | **Fail-closed authentication.** A client with verification on but no trust source is refused at `Build` (`SNoTrustStore`), and a client with name checking on but no usable host is refused when the engine is created — never a silent RFC 9525 skip (disable it only via `WithDangerousDisableServerNameCheck`). A certificate whose `extendedKeyUsage` excludes the TLS role — `serverAuth` for a server, `clientAuth` for a client, over the leaf and every intermediate — is rejected as `unsupported_certificate` (required-if-present; `anyExtendedKeyUsage` is not a substitute). Anchors *union* inside one `WebPki` policy; a whole verifier (`Custom`) takes no anchors, intermediates or skip-verify, so nothing it would ignore can be set beside it. A parked certificate verdict that never resolves (or times out) fails the handshake — the only pass is an explicit positive verdict. A definitive, authenticated `Revoked` aborts under every revocation posture, including `Off`. | silent-insecure / fail-open trust / wrong-purpose certificate | the config builder guards + the engine factory + the trust pipeline (augment-only) | `CertificateVerifierTests`, `TrustCompositionTests`, `CertificateCheckTests`, `LiveRevocationTests`, `ServerSideLiveRevocationTests` |
+| 9 | **Fail-closed authentication.** A client with verification on but no trust source is refused at `Build` (`SNoTrustStore`), and a client with name checking on but no usable host is refused when the engine is created — never a silent RFC 9525 skip (disable it only via `WithDangerousDisableServerNameCheck`). A certificate whose `extendedKeyUsage` excludes the TLS role — `serverAuth` for a server, `clientAuth` for a client, over the leaf and every intermediate — is rejected as `unsupported_certificate` (required-if-present; `anyExtendedKeyUsage` is not a substitute). Anchors *union* inside one `WebPki` policy; a whole verifier (`Custom`) takes no anchors, intermediates or skip-verify, so nothing it would ignore can be set beside it. A parked verdict with no resolver, or whose resolver raises, fails the handshake — the only pass is an explicit positive verdict. The deadline is a budget handed to the resolver, which must honour it; the library runs no timer. A definitive, authenticated `Revoked` aborts under every revocation posture, including `Off`. | silent-insecure / fail-open trust / wrong-purpose certificate | the config builder guards + the engine factory + the trust pipeline (augment-only) | `CertificateVerifierTests`, `TrustCompositionTests`, `CertificateCheckTests`, `LiveRevocationTests`, `ServerSideLiveRevocationTests` |
 | 10 | **Downgrade protection.** The ServerHello.random downgrade sentinel is set/checked and is *cryptographically bound* (via the 1.2 SKE signature and, both versions, the Finished MAC over the transcript); a 1.3-capable client aborts `illegal_parameter` on a spurious downgrade. Server-side `TLS_FALLBACK_SCSV` aborts `inappropriate_fallback`. | version-downgrade MITM | negotiation prologue + Finished MAC + SCSV | `NegotiationTests`, `Tls12DualVersionTests` |
 | 11 | **CSPRNG hard-fail.** A randomness failure aborts the operation with a fatal error — never a silent fallback to a weak or zero source. There is no fork detection: after `fork()` the child must not use the parent's provider or any connection it inherited; build a fresh provider in the child. | weak / replayed randomness | the provider's RNG contract | provider RNG tests |
 
@@ -65,7 +65,7 @@ loudly-named surface (`TServerVerification.DangerousSkip`, name-check off, key l
 opt into deliberately. Custom verification **augments** — a `WithCertificateVerifyCallback` can only
 *additionally reject*, never rescue a chain the built-in pipeline failed; only a whole
 `TServerVerification.Custom` replaces the pipeline, and it takes no other trust setting. The async deferred-verdict seam
-rides the same augment-only rule and is fail-closed on timeout. See
+rides the same augment-only rule and is fail-closed when unresolved. See
 [certificate-verification.md](certificate-verification.md) and [system-trust.md](system-trust.md).
 
 `WithDangerousKeyLog` is the one deliberate exception to invariant 7 (secret hygiene): it hands a
@@ -93,13 +93,15 @@ one when ECH was accepted). For debugging only — never production.
 - **Post-quantum hybrid KEX** (X25519MLKEM768) offered by every preset and preferred under
   Hardened and Strict, interop-verified against OpenSSL 3.5+
   and BoringSSL.
-- **Forward-secret resumption.** `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
-  negotiated. Client-cache tickets are single-use; server tickets are single-use with a session
+- **Resumption.** TLS 1.3 resumes with `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
+  negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
+  only as forward-secret as the session store / ticket-key lifetime. Client-cache tickets are single-use; server tickets are single-use with a session
   store. **0-RTT is off by default** and,
   when enabled, is bounded by an anti-replay strategy.
 - **Path validation** is delegated to the crypto backend's PKIX engine (PKITS-verified in the
-  default distribution), run under a constrained web-PKI profile by default, with the full RFC 5280
-  machinery available on opt-in.
+  default distribution), run with a bounded path build (at most 4 non-self-issued intermediates,
+  chain-size caps); other RFC 5280 behaviour needs a custom `ICertificatePathValidator` injected
+  through `TPkixProviderOverrides`.
 - **Side-channel / constant-time behavior is the crypto provider's responsibility, not
   TlsLib4Pascal's.** TlsLib4Pascal *selects* the primitives its default preferences and Strict preset
   use; the pluggable `ICryptoProvider` implements them and owns its own side-channel posture.

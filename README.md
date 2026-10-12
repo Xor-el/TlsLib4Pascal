@@ -65,7 +65,7 @@
 `TLS_AES_128_GCM_SHA256` | `TLS_AES_256_GCM_SHA384` | `TLS_CHACHA20_POLY1305_SHA256` (+ the hardened ECDHE-ECDSA/RSA 1.2 AEAD suites)
 
 #### Named groups
-`X25519` | `X25519MLKEM768` and `SecP256r1MLKEM768` (PQ hybrids) | `secp256r1` | `secp384r1` | `secp521r1`
+`X25519` | `X25519MLKEM768` and `SecP256r1MLKEM768` (PQ hybrids) | `MLKEM768` (pure ML-KEM; registered, offered by no preset) | `secp256r1` | `secp384r1` | `secp521r1`
 
 #### Signature schemes
 `ecdsa_secp256r1/384r1/521r1` | `rsa_pss_rsae_sha256/384/512` | `ed25519` | `ed448` | `rsa_pkcs1_sha256/384/512` (TLS 1.2 handshake signatures and pkcs1-signed certificate chains only; never a TLS 1.3 CertificateVerify)
@@ -84,7 +84,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 <details>
 <summary><strong>Trust &amp; certificates</strong></summary>
 
-- **PKIX path validation** (PKITS-verified), constrained web-PKI profile by default with the full RFC 5280 machinery on opt-in.
+- **PKIX path validation** (PKITS-verified) with a bounded path build; other RFC 5280 behaviour plugs in as a custom `ICertificatePathValidator`.
 - **Endpoint identity** -- RFC 9525 host-name / SAN matching (subject alternative names only).
 - **Revocation** -- stapled OCSP, live OCSP/CRL over an injected fetcher, soft/hard/off posture, and RFC 7633 must-staple.
 - **OS system trust** (opt-in) -- Windows / macOS / Linux anchor harvest, iOS / Android verifier delegates.
@@ -199,6 +199,10 @@ begin
   end;
 end;
 ```
+
+`TTlsStream` arms no timeout, so a silent peer blocks it. For a bounded handshake and bounded reads,
+run the connection as a `TTlsConnection` over an `ITlsTimedTransport` (see
+[getting started](docs/getting-started.md#4-turn-a-config-into-a-connection)).
 
 ### A TLS server
 

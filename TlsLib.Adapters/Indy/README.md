@@ -30,7 +30,8 @@ Server.IOHandler := SrvIO;                         // each peer handshakes on it
 
 ## STARTTLS / `PassThrough`
 
-`PassThrough` is honoured. Start plaintext by setting `IO.PassThrough := True` before connecting;
+`PassThrough` is honoured and defaults to `False` (Indy's own base defaults it to `True`), so a
+plain connect handshakes. Start plaintext by setting `IO.PassThrough := True` before connecting;
 when the protocol says "go secure", set `IO.PassThrough := False` and the handshake runs then
 (the classic STARTTLS upgrade).
 
@@ -42,6 +43,12 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 | `CertFile` + `KeyFile` + `KeyPassword` | `WithCredential` (server cert/key, or client mTLS); a `.pfx` / `.p12` `CertFile` is a PKCS#12 |
 | `ClientAuth` (server)             | `WithPeerAuth(None / Requested / Required)`; the default `None` never requests a client certificate. Any other mode needs a private client-CA (`RootCertFile` or a `CustomTrustStore`/custom verifier) and `VerifyPeer` on, else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
 | `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `DangerousSkip`** |
+| `UseSystemTrust`                  | OS trust anchors, unioned with `RootCertFile` and `CustomTrustStore` (server-cert trust only) |
+| `CustomTrustStore`                | an injected `ITrustAnchorStore`, unioned with the other anchor sources |
+| `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `TServerVerification.Custom` / `TClientVerification.Custom` (replaces the pipeline; excludes every anchor source) |
+| `SessionResumption`               | `WithResumption` (default `True`; 0-RTT is never enabled) |
+| `Crypto` / `Pkix`                 | the providers the options-driven build uses (nil = the shared defaults) |
+| `ClientConfig` / `ServerConfig`   | a fully built config that replaces the options-driven build |
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |
@@ -68,7 +75,7 @@ client-CA: a mode whose only trust source is it fails the build. Name a private 
 
 ## Trust is ours (`dangerous` mapping)
 
-An empty verify posture / `InsecureSkipVerify` reaches **only** our loud `InsecureSkipVerify`
+`VerifyPeer := False` or `InsecureSkipVerify := True` reaches **only** our loud `InsecureSkipVerify`
 (a full, deliberate bypass — tests and pinned dev peers only, never production). With it off
 (the default), an untrusted chain fails through our pipeline.
 
@@ -104,27 +111,38 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
   threads at once (a broadcaster writing while a worker reads must serialize), because a read can
   flush queued outbound records.
 - `Clone` is implemented, so the handler works with Indy's server IOHandler pooling.
+- `Close` sends a best-effort `close_notify` before the socket is torn down.
+- A read that outlives Indy's `ReadTimeout` surfaces as `Id_WSAETIMEDOUT`; `HandshakeTimeoutMs`
+  bounds the handshake separately.
+- After the handshake the client handler reports `NegotiatedVersion`, `NegotiatedCipherSuite`,
+  `NegotiatedGroup`, `PeerServerName`, `EchStatus`, `Resumed` and `NegotiatedAlpn` (text; empty when
+  none was agreed).
+- Built configs are cached and reused. After rotating a certificate or key, call
+  `TTlsLibIOHandlerSocket.FlushConfigCache` (client, process-wide) or the listener's
+  `TTlsLibServerIOHandler.FlushConfigCache` so the next connection rebuilds and the retired key is
+  released.
 
 ## Proven
 
 `Examples/` — the loopback (shared logic in `src/IndyLoopbackExample.pas`) builds as a Lazarus
-project (`Lazarus/IndyLoopback.lpi`) or a Delphi project (`Delphi/IndyLoopback.dproj`): a
+project (`Lazarus/IndyLoopback.lpi`) or a Delphi project (`Delphi/IndyLoopback.dpr`): a
 `TIdTCPServer` and `TIdTCPClient` on `127.0.0.1`, each using our IOHandlers — full TLS 1.3
 handshake + application echo, negotiated version asserted.
 
 `Examples/` also carries a **real-world** demo (`src/IndyRealWorldExample.pas`,
-`Lazarus/IndyRealWorld.lpi` / `Delphi/IndyRealWorld.dproj`): a single unmodified `TIdHTTP` does a
+`Lazarus/IndyRealWorld.lpi` / `Delphi/IndyRealWorld.dpr`): a single unmodified `TIdHTTP` does a
 live HTTPS `GET` and `POST` to `postman-echo.com` with its TLS handled entirely by TlsLib4Pascal — a
-real handshake against a real internet server, real certificate verification against a **pinned**
-root (`data/isrg-roots.pem`, the self-signed ISRG roots; **not** `InsecureSkipVerify`), and real
-HTTP over our records, with zero OpenSSL. It is a **network-gated demo, not a test gate**: it needs
-outbound HTTPS and exits 0 (PASS) / 2 (SKIP, offline) / 1 (FAIL). One `TIdHTTP` drives both verbs:
+real handshake against a real internet server, real certificate verification, and real HTTP over
+our records, with zero OpenSSL. It runs twice: leg A verifies against the pinned root
+(`data/isrg-roots.pem`), leg B against the OS trust store (`UseSystemTrust`). Neither skips
+verification. It is a **network-gated demo, not a test gate**: it needs outbound HTTPS and exits
+0 (both legs PASS) / 2 (SKIP, offline) / 1 (FAIL). One `TIdHTTP` drives both verbs:
 the adapter handshakes each connection Indy opens, so the second request works whether Indy keeps
 the socket alive or reconnects (`ConnectClient` discards the prior TLS session so a reconnect
 re-handshakes rather than reusing the closed session's keys).
 
 `Examples/` also carries an **advanced-config** demo (`src/IndyAdvancedConfigExample.pas`,
-`Lazarus/IndyAdvancedConfig.lpi` / `Delphi/IndyAdvancedConfig.dproj`): it hands the IOHandlers
+`Lazarus/IndyAdvancedConfig.lpi` / `Delphi/IndyAdvancedConfig.dpr`): it hands the IOHandlers
 fully-built configs through `SSLOptions.ServerConfig` / `SSLOptions.ClientConfig` — the escape
 hatch to the whole builder API (cipher order, groups, resumption, ALPN, …) — and drives the
 server's `WithCipherSuitePreference` both ways: `ServerOrder` (default) imposes the server's own
@@ -133,6 +151,9 @@ order, `ClientOrder` honors the client's. It reads the result back through the a
 suite always wins (flip the client's order, flip the result), while under `ServerOrder` the
 negotiated suite is stable regardless of the client's order — proving, through the real handshake,
 that only the server guides selection and can defer to the client when it chooses to.
+
+`Examples/` further holds `IndyEchLoopback`, `IndyResumptionScope`, `IndyWedgeDemo` and
+`IndyCustomization`, each as a Lazarus `.lpi` and a Delphi `.dpr`.
 
 A built config (`SSLOptions.ServerConfig` / `SSLOptions.ClientConfig`) supplied alongside cert/trust
 options (or a verify callback or a crypto/PKIX provider) is refused, not silently dropped.

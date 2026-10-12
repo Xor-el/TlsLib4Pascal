@@ -35,8 +35,8 @@ type
   end;
 
   /// <summary>
-  /// The hardened TLS 1.2 cipher-suite wire codepoints (RFC 5289 / RFC 7905):
-  /// ECDHE key exchange with ECDSA or RSA authentication over AEAD ciphers only.
+  /// The hardened TLS 1.2 cipher-suite wire codepoints (RFC 5289 / RFC 7905 / RFC 8442):
+  /// ECDHE key exchange with ECDSA, RSA or (opt-in) PSK authentication over AEAD ciphers only.
   /// </summary>
   TCipherSuites12 = class sealed(TObject)
   public const

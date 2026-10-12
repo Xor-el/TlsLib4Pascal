@@ -275,7 +275,7 @@ type
     FEngine: ITlsEngine;
     FIsClient: Boolean;
     FServerName: string;
-    function Info: TTlsConnectionInfo;       // Default(...) when FStream = nil
+    function Info: TTlsConnectionInfo;
   public
     constructor Create(const AEngine: ITlsEngine; const ATransport: ITlsTimedTransport;
       AIsClient: Boolean; const AServerName: string;

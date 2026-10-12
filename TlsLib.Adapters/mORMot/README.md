@@ -17,7 +17,8 @@ end;
 ```
 
 That is the whole integration. `RegisterTlsLib4PascalTls` mirrors how `mormot.lib.openssl11`
-assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4PascalTls;`.
+assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4PascalTls;`
+(`@NewTlsLib4PascalTls` under FPC `{$mode objfpc}`).
 
 ## What maps onto what (`TNetTlsContext` → our config)
 
@@ -69,16 +70,6 @@ on (for example a client-certificate allow-list), a context that sets any of the
 `CACertificatesRaw` (live OpenSSL handles), or both `CertificateBin` and `CertificateFile` —
 **fails loudly**: a client at connect, a server at bind.
 
-`CipherList` is honoured: exact IANA or OpenSSL suite names, separated by `:`, `,`, `;`, spaces or
-tabs, matched without regard to case and de-duplicated, in preference order. It narrows and
-reorders TlsLib's own hardened set and never widens it. A list that
-names no TLS 1.3 suite leaves TLS 1.3 on with its default suites (an OpenSSL cipher list never
-governed 1.3); a list that names TLS 1.3 suites narrows 1.3 too, and a list naming only TLS 1.3
-suites turns TLS 1.2 off. Cipher-string expressions such as `HIGH` or `!aNULL`, and suites TlsLib
-does not implement, fail loudly rather than being skipped; empty or `DEFAULT` keeps the preset, and a
-list beside a config supplied with `SetTlsLibMormotClientConfig` / `SetTlsLibMormotServerConfig` is
-refused.
-
 Instead, the neutral hooks are process-wide setters (mORMot builds an `INetTls` per connection
 through the global factory, so its hooks are set the same way):
 
@@ -87,9 +78,13 @@ SetTlsLibMormotVerifyCallback(cb);                            // augment-only  c
 SetTlsLibMormotVerdictResolver(resolver, deadlineMs);         // client role: decides the server's chain
 SetTlsLibMormotServerVerdictResolver(resolver, deadlineMs);   // server role: decides an mTLS client's chain
 SetTlsLibMormotHandshakeTimeout(ms);                          // bounds the handshake read; 0 = 30 s default
+SetTlsLibMormotSessionResumption(enabled);                    // default True; 0-RTT is never enabled
+SetTlsLibMormotCrypto(crypto); SetTlsLibMormotPkix(pkix);     // providers for the context-driven build
 ```
 
-`VerifyCallback` runs after our pipeline accepts the chain and can only additionally reject.
+`VerifyCallback` runs after our pipeline accepts the chain and can only additionally reject. It is a
+client-handshake hook: a server never carries it (vet client chains with a config supplied through
+`SetTlsLibMormotServerConfig`).
 The resolvers decide a parked verdict out-of-band — wire `TLiveRevocationChecker.ResolveVerdict`
 (from `TlpLiveRevocation`, over an injected `IHttpFetcher`) to them for live OCSP/CRL. The verdict
 resolver is role-specific: the client hook evaluates the server's chain (server-auth EKU), the
@@ -102,6 +97,16 @@ For the full trust picture — trusting a private CA, public-key pinning, host-n
 relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 [docs/certificate-verification.md](../../docs/certificate-verification.md).
 
+`CipherList` is honoured: exact IANA or OpenSSL suite names, separated by `:`, `,`, `;`, spaces or
+tabs, matched without regard to case and de-duplicated, in preference order. It narrows and
+reorders TlsLib's own hardened set and never widens it. A list that
+names no TLS 1.3 suite leaves TLS 1.3 on with its default suites (an OpenSSL cipher list never
+governed 1.3); a list that names TLS 1.3 suites narrows 1.3 too, and a list naming only TLS 1.3
+suites turns TLS 1.2 off. Cipher-string expressions such as `HIGH` or `!aNULL`, and suites TlsLib
+does not implement, fail loudly rather than being skipped; empty or `DEFAULT` keeps the preset, and a
+list beside a config supplied with `SetTlsLibMormotClientConfig` / `SetTlsLibMormotServerConfig` is
+refused.
+
 ## Notes
 
 - `GetRawTls` returns `nil`: TlsLib4Pascal is a managed engine with no `PSSL`/OpenSSL handle to
@@ -112,32 +117,42 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
   as `nrRetry` with the connection intact (never a fatal error or a truncation), exactly as mORMot's
   plain sockets report it. A send that stays blocked because the peer stopped reading is bounded
   (30 s) and then fails rather than retrying forever.
+- Beyond `INetTls`, cast the connection's `INetTls` to `TTlsLibNetTls` to read `NegotiatedGroup`,
+  `PeerServerName`, `EchStatus`, `Resumed` and `NegotiatedAlpn` (text; empty when none was agreed)
+  after the handshake; the suite and version are in `CipherName`.
+- Built configs are cached process-wide. After rotating a certificate or key, call
+  `FlushTlsLibMormotConfigCache` (with no TLS traffic in flight) so the next handshake rebuilds and
+  the retired key is released.
 - Blocking seam only (the standard mORMot `TCrtSocket` path). Async frameworks
   (`mormot.net.async`) drive the raw Tier-0 engine off `WantsRead`/`WantsWrite` instead.
 
 ## Proven
 
 `Examples/` — the loopback (shared logic in `src/MormotLoopbackExample.pas`) builds as a Lazarus
-project (`Lazarus/MormotLoopback.lpi`) or a Delphi project (`Delphi/MormotLoopback.dproj`), each
+project (`Lazarus/MormotLoopback.lpi`) or a Delphi project (`Delphi/MormotLoopback.dpr`), each
 driving our `INetTls` on both ends over mORMot's socket layer on `127.0.0.1`: full TLS 1.3
 handshake + application echo, negotiated version asserted.
 
 `Examples/` also carries a **real-world** demo (`src/MormotRealWorldExample.pas`,
-`Lazarus/MormotRealWorld.lpi` / `Delphi/MormotRealWorld.dproj`): a single unmodified
+`Lazarus/MormotRealWorld.lpi` / `Delphi/MormotRealWorld.dpr`): a single unmodified
 `THttpClientSocket` does a live HTTPS `GET` and `POST` to `postman-echo.com` with its TLS handled
 entirely by TlsLib4Pascal — a real handshake against a real internet server, real certificate
-verification against a **pinned** root (`data/isrg-roots.pem`, the self-signed ISRG roots; **not**
-`IgnoreCertificateErrors`), and real HTTP over our records, with zero OpenSSL. It calls
-`RegisterTlsLib4PascalTls` to point mORMot's `NewNetTls` factory at our `INetTls`, sets trust via
-`Client.TLS.CACertificatesFile`, and drives both verbs with a keep-alive `Get`/`Post` over **one
-reused TLS connection**. It is a **network-gated demo, not a test gate**: it needs outbound HTTPS
-and exits 0 (PASS) / 2 (SKIP, offline) / 1 (FAIL).
+verification, and real HTTP over our records, with zero OpenSSL. It calls
+`RegisterTlsLib4PascalTls` to point mORMot's `NewNetTls` factory at our `INetTls` and drives both
+verbs with a keep-alive `Get`/`Post` over **one reused TLS connection**. It runs twice: leg A
+verifies against the pinned root (`data/isrg-roots.pem`, via `CACertificatesFile`), leg B against
+the OS trust store (`CASystemStores := [scsRoot]`). Neither skips verification. It is a
+**network-gated demo, not a test gate**: it needs outbound HTTPS and exits 0 (both legs PASS) /
+2 (SKIP, offline) / 1 (FAIL).
 
 `Examples/` also carries an **advanced-config** demo (`src/MormotAdvancedConfigExample.pas`,
-`Lazarus/MormotAdvancedConfig.lpi` / `Delphi/MormotAdvancedConfig.dproj`): instead of the
+`Lazarus/MormotAdvancedConfig.lpi` / `Delphi/MormotAdvancedConfig.dpr`): instead of the
 `TNetTlsContext` cert/trust fields, it installs fully-built configs process-wide via
 `SetTlsLibMormotServerConfig` / `SetTlsLibMormotClientConfig` — an ordered, bound cipher-suite
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
 order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or
 `DisableTls13`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+
+`Examples/` further holds `MormotEchLoopback`, `MormotResumptionScope` and `MormotWedgeDemo`, each
+as a Lazarus `.lpi` and a Delphi `.dpr`.

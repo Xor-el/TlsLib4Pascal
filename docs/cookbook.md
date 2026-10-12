@@ -29,6 +29,7 @@ Read [Getting started](getting-started.md) first.
 - [Hide the SNI with Encrypted Client Hello](#hide-the-sni-with-encrypted-client-hello)
 - [Connect without sending SNI (still verified)](#connect-without-sending-sni-still-verified)
 - [External (out-of-band) PSKs](#external-out-of-band-psks)
+- [TLS 1.2 pre-shared keys](#tls-12-pre-shared-keys-rfc-4279--rfc-5489)
 - [The dangerous surface (dev only)](#the-dangerous-surface-dev-only)
 
 ---
@@ -236,9 +237,10 @@ LServer.OnCreateClientSocketHandler := MakeHandler;   // TInetServer's event (fc
 ```
 
 Each adapter maps its host's trust/verify/ALPN options onto the library, and each exposes a
-handshake-read timeout (`HandshakeTimeoutMs`, or `SetTlsLibMormotHandshakeTimeout` for mORMot;
-`0` = 30 s default; fcl-net falls back to `Socket.IOTimeout` first) so a stalled peer can't pin the connecting thread.
-Each also honours its host's cipher-list property (`CipherList` on mORMot and Indy, `Ciphers` on
+handshake-read timeout (`HandshakeTimeoutMs`, `SSLOptions.HandshakeTimeoutMs` on Indy, or
+`SetTlsLibMormotHandshakeTimeout` for mORMot; `0` = 30 s default; fcl-net falls back to
+`Socket.IOTimeout` first) so a stalled peer can't pin the connecting thread.
+Each also honours its host's cipher-list property (`CipherList` on mORMot, `SSLOptions.CipherList` on Indy, `Ciphers` on
 Synapse, `CertificateData.CipherList` on fcl-net): exact IANA or OpenSSL suite names, in preference
 order, narrowing the hardened set exactly as `WithCipherSuiteList` does. Cipher-string expressions
 like `HIGH` or `!aNULL` are refused rather than guessed at. See the package READMEs:
@@ -251,7 +253,8 @@ When you own the socket, implement the two-method `ITlsTransport` and let `TTlsS
 `TStream` — do the TLS:
 
 ```pascal
-uses TlpTlsEngineFactory, TlpTlsStream, TlpITlsTransport, TlpITlsEngine;
+uses SysUtils, TlpTlsEngineFactory, TlpTlsStream, TlpITlsTransport, TlpITlsEngine,
+  TlpTlsLibExceptions;
 
 type
   TMySocketTransport = class(TInterfacedObject, ITlsTransport)
@@ -269,19 +272,26 @@ begin
   try
     LStream.Handshake;
     LStream.Write(Req[0], Length(Req));
-    LCount := LStream.Read(Buf[0], Length(Buf));
+    try
+      LCount := LStream.Read(Buf[0], Length(Buf));
+    except
+      on ETlsTransportTruncated do
+        raise Exception.Create('peer closed without close_notify (possible truncation)');
+    end;
     LStream.CloseNotify;
-    // distinguish a clean shutdown from a truncation attack:
-    if LStream.TransportTruncated then
-      raise Exception.Create('peer closed without close_notify (possible truncation)');
   finally
     LStream.Free;
   end;
 end;
 ```
 
-`Read` returns 0 on an orderly close; `TransportTruncated` tells you whether that close was preceded
-by a proper `close_notify`.
+`Read` returns 0 when the peer closes cleanly with `close_notify`. A transport close without
+`close_notify` makes `Read` raise `ETlsTransportTruncated` (unit `TlpTlsLibExceptions`);
+`TransportTruncated` stays True afterwards.
+
+`TTlsStream` arms no timeout, so a silent peer blocks `Handshake` and `Read`. For bounded reads, run
+the connection as a `TTlsConnection` over an `ITlsTimedTransport` (see
+[Getting started §4](getting-started.md#4-turn-a-config-into-a-connection)).
 
 Once the write side is closed — you called `CloseNotify`, the connection failed, or (under TLS 1.2
 only) the peer sent an inbound `close_notify` — a further `Write` raises
@@ -404,6 +414,11 @@ begin
   // LInfo.PeerCertificates               peer chain as presented, leaf first (on a resume: the chain stored with the session)
   // LInfo.ValidatedPath                  path PKIX validated on this connection, leaf..anchor; empty on a resume unless re-verified
   // LInfo.PeerOcspStaple                 the stapled OCSP response, if any
+  // LInfo.RequestedCertificateAuthorities  CA names the peer's CertificateRequest listed (DER)
+  // LInfo.PskIdentity                    the TLS 1.2 PSK identity that authenticated it, or empty
+  // LInfo.ExtendedMasterSecret           RFC 7627 in use (always True on TLS 1.3)
+  // LInfo.EchStatus                      NotOffered / Greased / Accepted / Rejected / Backend
+  // LInfo.EchRetryConfigs, EchIsRetryAttempt, EchRejectAborted   the client-side ECH reject details
 end;
 ```
 
@@ -427,11 +442,12 @@ LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .Build;
 
 // SERVER: stateless STEK tickets (rotating key), the default resumption path. WithResumption(True)
-// alone mints a default key; WithSessionTicketKeys is needed only to supply your own.
+// alone mints a rotating default key manager.
 LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .WithCredential(TTlsCredential.Load(Crypto, Pkix, chainPem, keyPem))
   .WithResumption(True)
-  .WithSessionTicketKeys(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
+  // supply your own manager (WithSessionTicketKeys) only to share keys across servers
+  // (TFleetTicketKeyManager + InstallKey); TStekTicketKeyManager.Create(ARandom) never rotates
   .Build;
 
 // SERVER (stronger): add a stateful store to get true single-use tickets + 0-RTT anti-replay
@@ -447,7 +463,7 @@ Both default in-memory implementations are bounded and safe to share across conn
 strategy:
 
 ```pascal
-uses TlpAntiReplay, TlpISession;
+uses TlpAntiReplay, TlpISession, TlpInMemorySessionStore, TlpInMemorySessionCache;
 
 // SERVER: authorize an early-data budget + register replays (needs resumption; a default
 // anti-replay register is supplied unless you pass your own)
@@ -500,6 +516,11 @@ TServerVerification.WebPki(caPem).WithRevocation(TRevocationPosture.Hard).Build 
 TServerVerification.WebPki(caPem).WithRevocation(TRevocationPosture.Off).Build    // don't require status (and perform no live fetch)
 ```
 
+`Hard` needs a way to obtain status, or `Build` refuses it. A client needs a stapling request
+(Hardened and Strict request one; on Compatible add `.WithOcspStaplingRequest(True)`) or
+`WithLiveRevocationVerdict(deadlineMs)`. A server checking client certificates needs
+`WithLiveRevocationVerdict(deadlineMs)`, since a client cannot staple.
+
 Stapled OCSP is validated in the handshake pipeline. **Live** OCSP/CRL is opt-in, never in the
 sans-IO core: you attach a resolver to the `TTlsStream` backed by the reference socket fetcher
 `TSocketHttpFetcher` (unit `TlpSocketHttpFetcher`, in the `TlsLib.Net` package, `TlsLib.Net/src/`). The full wiring — including `must-staple`, the
@@ -540,10 +561,13 @@ reject never falls back to plaintext:
 uses TlpEchClient;   // TEchClientModes
 
 LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(TServerVerification.WebPki(caPem).Build)
   .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));   // a real ECH offer is TLS 1.3-only
 LClient.Tls13.WithEch(TEchClientModes.Enable(EchConfigList)); // bytes from DNS
 LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example');
-// after the handshake: LStream.ConnectionInfo.EchStatus is Accepted / Rejected / ...
+// a completed handshake reports ConnectionInfo.EchStatus = Accepted; over a TTlsStream or an
+// adapter a reject raises EEchRejectedTlsLibException carrying RetryConfigs (the raw engine
+// records EchStatus = Rejected instead)
 ```
 
 As a **server**, hold the config + private key (an RFC 9934 PEM from `EchKeyGen` or `openssl ech`) and
@@ -612,7 +636,7 @@ used raw (no RFC 9258 import). It has its own type, `TTls12Psk`, and its own set
 facet. Use a secret of its own: do not feed one key to both a `TTls12Psk` and a `TExternalPsk`.
 
 ```pascal
-uses TlpSession, TlpSecretBuffer;   // TTls12Psk, TSecretBuffer
+uses TlpSession, TlpSecretBuffer, TlpTlsVersion;   // TTls12Psk, TSecretBuffer, TlsWireVersionTls12
 
 var LPsk: TTls12Psk;
 begin
@@ -639,8 +663,8 @@ in no preset. The key exchange is ephemeral ECDH, so a recorded session stays fo
 
 * A server prefers a configured PSK over its certificate. A client that requires its PSK (the default)
   offers no TLS 1.2 certificate suite.
-* A server holding no certificate offers TLS 1.2 only, and a client holding no trust source offers the
-  versions it holds a key for, or `Build` refuses it.
+* A server with no certificate, or a client with no trust source, must offer only the versions it holds
+  a PSK for (here `WithSupportedVersions([TLS 1.2])`); `Build` refuses any other version.
 * The server sends no certificate and, when client authentication is required, a known identity stands in
   for it. `ConnectionInfo.PskIdentity` names the key that authenticated a connection.
 * An identity the server does not know proceeds on a stand-in secret, so the handshake ends as it does for a
@@ -672,7 +696,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 
 // log every connection secret so Wireshark can decrypt a capture (SSLKEYLOGFILE, RFC 9850).
 // Debugging only — this writes your keys to disk. Keyed by the ClientHello.random: the inner one when ECH was accepted, otherwise the outer one (RFC 9850 2.1).
-uses TlpKeyLog;
+uses TlpKeyLog, TlpIKeyLog;
 procedure TMyApp.OnKeyLog(const ALabel: string; const AClientRandom, ASecret: TBytes);
 begin
   FKeyLogFile.WriteLine(TNssKeyLogFormat.Line(ALabel, AClientRandom, ASecret));

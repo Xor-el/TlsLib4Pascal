@@ -18,8 +18,8 @@ CryptoLib4Pascal/CryptoLib/src/Packages/FPC/CryptoLib4PascalPackage.lpk
 TlsLib4Pascal/TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
 ```
 
-**Delphi.** Add the matching `.dpk`/`.dproj` under each library's `Packages/Delphi/`, or just add the
-libraries `src` roots to your project search path. The core package is
+**Delphi.** Add the matching `.dpk` under each library's `Packages/Delphi/`, or add every
+subdirectory of each library's `src` to your project search path. The core package is
 `TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk`.
 
 Add an **optional** package only when you use its feature:
@@ -31,6 +31,7 @@ Add an **optional** package only when you use its feature:
 | OS-native crypto primitives for the handshake | `TlsLib.Crypto.System` |
 | Live OCSP/CRL over real sockets | the `TlpSocketHttpFetcher` unit (package `TlsLib.Net`) |
 | A TCP client or listener to run a `TTlsConnection` over | the `TlpNetSocket` unit (package `TlsLib.Net`) |
+| An ECH config list from a DNS HTTPS/SVCB record | the `TlpEchConfigFromSvcb` unit (package `TlsLib.Net`) |
 | A mORMot / Indy / Synapse / fcl-net drop-in | the matching `TlsLib.Adapter.*` |
 
 The core references none of these — a build that doesn't use them links none of them.
@@ -39,7 +40,7 @@ The core references none of these — a build that doesn't use them links none o
 
 Every builder entry point takes an `ICryptoProvider` (crypto primitives + CSPRNG) and an
 `IPkixProvider` (certificate parsing + path validation). The defaults are plain constructed instances —
-there is no global singleton to install:
+nothing needs installing globally:
 
 ```pascal
 uses TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider, TlpIPkixProvider;
@@ -56,7 +57,8 @@ end;
 
 Construction is cheap (a CPU-feature probe plus vtable wiring; the CSPRNG seeds lazily). Build a
 config once, then share it lock-free across many connections. (The `TTlsLib` facade in
-[Your first client](#3-your-first-client-fully-verified) constructs the defaults for you.)
+[Your first client](#3-your-first-client-fully-verified) uses the shared default instances,
+`TDefaultCryptoProvider.Shared` / `TDefaultPkixProvider.Shared`.)
 
 ## 3. Your first client (fully verified)
 
@@ -126,6 +128,34 @@ ITlsTransport = interface(IInterface)
   procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
 end;
 ```
+
+`TTlsStream` arms no timeout: a silent peer blocks `Handshake` or `Read` until the transport itself
+gives up. To bound them, run the connection as a `TTlsConnection` (unit `TlpTlsConnection`) over an
+`ITlsTimedTransport` — the `TTcpStream` that `TTcpConnector.Connect` / `TTcpListener.TryAccept`
+return (unit `TlpNetSocket`), or your own `TTlsTimedTransportBase` descendant:
+
+```pascal
+uses SysUtils, TlpTlsConnection, TlpNetSocket, TlpINetSocket, TlpITlsTransport;
+
+var
+  LConn: TTlsConnection;
+  LTransport: ITlsTimedTransport;
+  Buf: TBytes;
+begin
+  LTransport := (TTcpConnector.Create(10000) as ITcpConnector).Connect('example.com', 443);
+  LConn := TTlsConnection.CreateClient(LConfig, 'example.com', LTransport, nil, 0);
+  try
+    LConn.Handshake(0);                       // 0 = the 30 s default; raises ETlsHandshakeTimeout
+    SetLength(Buf, 4096);
+    LConn.Read(Buf[0], Length(Buf), 15000);   // raises ETlsReadTimeout when nothing arrives in 15 s
+    LConn.CloseNotify;
+  finally
+    LConn.Free;
+  end;
+end;
+```
+
+`TTlsConnection.CreateServer(LConfig, LTransport, nil, 0)` is the server counterpart.
 
 Already using **mORMot, Indy, Synapse, or fcl-net**? Skip the transport entirely — the adapter for
 your stack wires all of this into the socket type you already use. See the
@@ -198,5 +228,5 @@ Three defaults are worth internalising up front, because they shape everything e
 2. **PQ-hybrid offered everywhere.** Every preset offers X25519MLKEM768; you don't opt in. It is
    preferred (negotiated by default) under Hardened and Strict; a Compatible client also
    negotiates it when the server prefers it.
-3. **AEAD-only, forward-secret.** No CBC, RC4, 3DES, static RSA, or TLS compression; resumption is
+3. **AEAD-only, forward-secret.** No CBC, RC4, 3DES, static RSA, or TLS compression; TLS 1.3 resumption is
    `psk_dhe_ke` (forward-secret) and 0-RTT is off unless you explicitly enable it.

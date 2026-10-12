@@ -5,8 +5,9 @@ with no manual trust config: an unmodified Indy `TIdHTTP` does a GET with
 `SSLOptions.UseSystemTrust := True` (no pinned root, no anchors) and the OS renders the verdict.
 
 The form is platform-neutral, so it doubles as the seed of a single cross-platform system-trust
-demo. The project here currently targets **Android**, where the verdict comes from the Java
-`X509TrustManager` (roots, revocation, and the app's network-security-config) reached over JNI.
+demo. The project is enabled for Android64, iOS, macOS and Win32; Android64 is the primary target,
+where the verdict comes from the Java `X509TrustManager` (roots, revocation, and the app's
+network-security-config) reached over JNI.
 
 ## Zero-config trust
 
@@ -20,7 +21,7 @@ carries no platform-specific trust code.
 
 | File | Role |
 |---|---|
-| `SystemTrustDemo.dpr` | Program. Source-links the core, the `TlsLib.Trust.System` package and the Indy adapter. |
+| `SystemTrustDemo.dpr` | Program. Compiles the core, `TlsLib.Trust.System` and the Indy adapter from source via the search path. |
 | `SystemTrustDemoFormUnit.pas` / `.fmx` | The form: a URL box, a button and a log. It runs the demo off the UI thread and shows the lines it returns. No platform-specific trust code. |
 | `SystemTrustDemoRunner.pas` | Everything the demo does: the OS-verified GET, then the offline OS-delegate checks below. |
 
@@ -34,10 +35,9 @@ headless build scripts.
    project group, or drop the four files into a new **Multi-Device Application -> Blank**.
    The tracked `.dproj` carries no machine-specific SDK/NDK paths; the IDE adds your Android
    SDK/NDK, manifest and deployment config to it locally, and those edits must not be committed.
-2. Target platform **Android64** (or **Android**).
-3. Add the Indy runtime dependency the same way the adapter examples under
-   `TlsLib.Adapters/Indy/Examples/Delphi` do (Indy ships with Delphi; the IOHandler unit
-   `TlsLibIndyTls` should be in the search path).
+2. Target platform **Android64**.
+3. Add to the project search path (locally, not committed): every subfolder of `TlsLib/src`,
+   `TlsLib.Trust.System/src`, and `TlsLib.Adapters/Indy/Adapter` (Indy itself ships with Delphi).
 4. In the Android manifest, grant the `INTERNET` permission (Project -> Options -> Uses
    Permissions -> **Internet**). No other permission is required - trust roots are read
    through the framework, never from the filesystem.
@@ -46,7 +46,8 @@ headless build scripts.
 ## What to look for
 
 - Default `https://postman-echo.com/get` -> **PASS**: the public chain verified against the
-  device's system roots with zero manual trust config.
+  device's system roots with zero manual trust config. With no network the GET reports
+  `SKIP: network unreachable` instead.
 - After the GET, three offline **OS-delegate checks** run, each a `PASS:` line (`FAIL:` is a
   defect): an intermediate supplied only through the trust context completes a leaf-only chain
   over the platform engine (and the same leaf is refused without it, with `unknown_ca` on
