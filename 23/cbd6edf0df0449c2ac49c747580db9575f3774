@@ -1,0 +1,21 @@
+TlsLib/src/Ech/TlpEchServer.pas
+  s_58af9e1b217631::t_4cef809c553f61 193
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_58af9e1b217631::t_8f753f06ef7ed6 656-657
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23cbd6edf0df0449c2ac49c747580db9575f3774",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
