@@ -226,11 +226,11 @@ Both modes accept the same chains in the normal case. These are the differences 
 
 | | Delegate (Default on Windows, macOS, iOS, Android) | Anchors (Default on Linux, BSD, Solaris) |
 |---|---|---|
-| OS distrust | the OS applies it, including to a path that ended at a host root | exact-certificate match only (Windows `Disallowed`, macOS Deny), on every path |
+| OS distrust | the OS applies it natively to a path that ended at an OS root; for a path that ended at a host root the library applies an exact-match post-check over the readable list (Windows `Disallowed`, macOS Deny), with the same caveats as Anchors mode (hash-only entries and built-in blocklists are invisible), and none on iOS and Android | exact-certificate match only (Windows `Disallowed`, macOS Deny), on every path |
 | Root-store properties (Windows EKU override, disabled and partially distrusted roots; enterprise policy) | honoured | not honoured: a harvest keeps the certificates only |
 | Windows roots not installed yet | not downloaded inline (cache-only retrieval) | not seen: the harvest lists installed roots |
 | Missing intermediates | no fetch inline; the OS may use its cache | configured intermediates only |
-| Revocation source | OS cache plus the staple; `Hard` needs the live-revocation verdict | staple plus the portable live checker |
+| Revocation source | OS cache plus the staple; on Windows and Apple `Hard` is decided inline from the staple or an OS-cached good status, and needs the live-revocation verdict only when neither exists (Android has no cached revocation, so `Hard` is refused without it) | staple plus the portable live checker |
 | System-root-only rules (Apple CT and validity caps, Android CT) | apply to the OS roots, not to host roots | none |
 | Error alerts | the OS's mapping | ours |
 
@@ -551,7 +551,8 @@ identity and the host-roots rule. The contract:
   the exclusive root. This is required for host roots to work; there is no fallback to our own
   validator.
 - A path that relied on the host roots is refused when it holds a certificate in the OS distrust set
-  the source read.
+  the source read. Under a native union every accepted path is checked, since which root ended it
+  is not known.
 
 ---
 

@@ -580,8 +580,14 @@ begin
     ClearPending(AEnv);
     Exit;
   end;
-  Result.PathValidatorCause := True;
   Result.CauseIndex := AEnv^^.CallIntMethodA(AEnv, LCause, LGetIndex, nil);
+  if AEnv^^.ExceptionCheck(AEnv) <> 0 then
+  begin
+    ClearPending(AEnv);
+    Result.CauseIndex := 0;
+    Exit;
+  end;
+  Result.PathValidatorCause := True;
   LMessage := AEnv^^.CallObjectMethodA(AEnv, LCause, LGetMessage, nil);
   if AEnv^^.ExceptionCheck(AEnv) <> 0 then
   begin

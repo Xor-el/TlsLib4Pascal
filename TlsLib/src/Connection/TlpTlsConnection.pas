@@ -375,8 +375,8 @@ resourcestring
     'a whole certificate verifier replaces the trust sources, so it cannot be combined with ' +
     'anchors, a custom trust store or system trust; remove one of them (%s)';
   SSystemTrustWithHostAnchors =
-    'OS trust that is delegate-only on this platform cannot be combined with host-supplied ' +
-    'anchors or a custom trust store; use either system trust or the host trust sources (%s): %s';
+    'system trust with the host-supplied anchors or custom trust store could not be set up; ' +
+    'use either system trust or the host trust sources (%s): %s';
   SConfigAndOptionsConflict =
     '%s is set together with cert/trust/ALPN/provider options or a non-default security toggle ' +
     'that a fully-built config replaces; supply either the config or those options, not both';
@@ -690,7 +690,7 @@ begin
       LClient.WithServerVerification(
         AOptions.SystemTrust.ServerVerification(LPkix, LHostRoots));
     except
-      // delegate-only OS trust owns its roots, so host anchors beside it cannot be honoured
+      // name the host roots in the failure so it is not mistaken for a platform fault
       on E: EBaseTlsLibException do
       begin
         if LHostRoots = nil then

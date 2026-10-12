@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpTlsLibExceptions,
   TlpIPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
@@ -61,6 +62,8 @@ type
     /// targets); the four delegate factories build the generic verifier source and live resolver
     /// over it.</summary>
     class function TryChainEngine(out AEngine: IPlatformChainEngine): Boolean; static;
+    /// <summary>The platform root source, or raises where this OS cannot enumerate roots.</summary>
+    class function CreateRootSource(const APkixProvider: IPkixProvider): TSystemRootSource; static;
   public
     /// <summary>True if this platform can honor AMode.</summary>
     class function Supports(AMode: TSystemTrustMode): Boolean; static;
@@ -121,6 +124,8 @@ resourcestring
     'this platform exposes no root-enumeration API; use the OS delegate verifier';
   SNoDelegate =
     'this platform exposes no system certificate verifier; harvest OS anchors instead';
+  SHostRootsNeedProvider =
+    'a PKIX provider is required to read the OS distrust list beside host roots';
   SNoClientDelegate =
     'this platform exposes no OS client-certificate verifier; use the built-in verifier over ' +
     'the configured client-CA anchors';
@@ -167,27 +172,33 @@ begin
   end;
 end;
 
-class function TOSSystemTrust.AnchorStore(const APkixProvider: IPkixProvider)
-  : ITrustAnchorStore;
-var
-  LSource: TSystemRootSource;
+class function TOSSystemTrust.CreateRootSource(const APkixProvider: IPkixProvider)
+  : TSystemRootSource;
 begin
-  LSource := nil;
+  Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  LSource := TWindowsRootSource.Create(APkixProvider);
+  Result := TWindowsRootSource.Create(APkixProvider);
 {$ELSEIF DEFINED(TLSLIB_IOS)}
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoHarvest);
 {$ELSEIF DEFINED(TLSLIB_MACOS)}
-  LSource := TAppleRootSource.Create(APkixProvider);
+  Result := TAppleRootSource.Create(APkixProvider);
 {$ELSEIF DEFINED(TLSLIB_ANDROID)}
   // Android is delegate-only: the filesystem store is stale/partial (APEX-updated roots,
   // user-installed CAs, network-security-config), so harvesting is banned - use the OS delegate.
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoHarvest);
 {$ELSEIF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
-  LSource := TUnixRootSource.Create(APkixProvider);
+  Result := TUnixRootSource.Create(APkixProvider);
 {$ELSE}
   {$MESSAGE ERROR 'UNSUPPORTED TARGET.'}
 {$IFEND}
+end;
+
+class function TOSSystemTrust.AnchorStore(const APkixProvider: IPkixProvider)
+  : ITrustAnchorStore;
+var
+  LSource: TSystemRootSource;
+begin
+  LSource := CreateRootSource(APkixProvider);
   try
     Result := LSource.Snapshot;
   finally
@@ -207,6 +218,7 @@ class function TOSSystemTrust.ServerVerifierSource(AFetch: TSystemTrustFetch;
 var
   LEngine: IPlatformChainEngine;
   LExtra, LDistrusted: TArray<TBytes>;
+  LSource: TSystemRootSource;
 begin
   // where a platform chain engine exists, the generic source over it (the source refuses a Live
   // fetch on an engine without live fetch at construction, matching the per-platform refusal timing)
@@ -218,7 +230,16 @@ begin
     LExtra := AExtraAnchors.RootCertificates;
   // the distrust list matters only beside host roots, and only where the OS exposes it
   if (System.Length(LExtra) > 0) and Supports(TSystemTrustMode.Anchors) then
-    LDistrusted := AnchorStore(APkix).DistrustedCertificates;
+  begin
+    if APkix = nil then
+      raise EArgumentTlsLibException.CreateRes(@SHostRootsNeedProvider);
+    LSource := CreateRootSource(APkix);
+    try
+      LDistrusted := LSource.ReadDistrusted;
+    finally
+      LSource.Free;
+    end;
+  end;
   Result := TOSVerifierSource.Create(LEngine, AFetch, LExtra, LDistrusted)
     as IServerCertificateVerifierSource;
 end;

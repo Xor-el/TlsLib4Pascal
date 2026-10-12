@@ -266,6 +266,7 @@ type
     procedure TestDistrustAppliesUnderNativeUnion;
     procedure TestSourceCarriesDistrustToTheVerifier;
     procedure TestSourceAcceptsHostRootsOverAnExclusiveAnchorEngine;
+    procedure TestSourceRefusesHostRootsOverAnEngineWithNeitherCapability;
     procedure TestLiveResolverRetriesWithHostRoots;
     procedure TestLiveResolverOtherFailureIsFinal;
     procedure TestLiveResolverRefusesDistrustedHostRootPath;
@@ -376,6 +377,7 @@ type
     procedure TestDistrustedCaRefusedBesideHostRoots;
     procedure TestLiveResolverTrustsHostRoots;
     procedure TestFactorySourceReadsOsDistrustBesideHostRoots;
+    procedure TestFactorySourceRefusesHostRootsWithoutProvider;
     procedure TestDefaultModeTrustsHostRootsThroughTheOsEngine;
   end;
 
@@ -2001,6 +2003,31 @@ begin
     'host roots are accepted at construction');
 end;
 
+procedure TTestDelegateHostRoots.TestSourceRefusesHostRootsOverAnEngineWithNeitherCapability;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
+  LRaised: Boolean;
+begin
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Rejected(TPlatformChainFailure.None), TTlsAlertDescription.BadCertificate);
+  LRaised := False;
+  try
+    LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly, HostRoots, nil)
+      as IServerCertificateVerifierSource;
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'host roots over an engine that cannot trust them are refused at construction');
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.NativeAnchorUnion], False,
+    Rejected(TPlatformChainFailure.None), TTlsAlertDescription.BadCertificate);
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly, HostRoots, nil)
+    as IServerCertificateVerifierSource;
+  CheckEquals(1, System.Length((LSource as IOSServerVerifierSource).ExtraAnchors),
+    'a native-union engine accepts host roots');
+end;
+
 procedure TTestDelegateHostRoots.TestLiveResolverRetriesWithHostRoots;
 var
   LMock: TMockPlatformChainEngine;
@@ -2896,6 +2923,22 @@ begin
   CheckEquals(LDisallowed, System.Length(LWith.Distrusted),
     'the OS distrust list is read beside host roots');
   CheckEquals(0, System.Length(LWithout.Distrusted), 'it is not read without host roots');
+end;
+
+procedure TTestWindowsHostRoots.TestFactorySourceRefusesHostRootsWithoutProvider;
+var
+  LHostRoots: ITrustAnchorStore;
+  LRaised: Boolean;
+begin
+  LHostRoots := TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore;
+  LRaised := False;
+  try
+    TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly, LHostRoots, nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'host roots without a PKIX provider are refused as an argument error');
 end;
 
 procedure TTestWindowsHostRoots.TestDefaultModeTrustsHostRootsThroughTheOsEngine;

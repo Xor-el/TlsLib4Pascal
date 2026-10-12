@@ -47,6 +47,8 @@ type
     function HarvestRoots: TArray<TBytes>; override;
     function HarvestDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
+  public
+    function ReadDistrusted: TArray<TBytes>; override;
   end;
 
   /// <summary>
@@ -904,6 +906,11 @@ end;
 function TWindowsRootSource.HarvestDistrusted: TArray<TBytes>;
 begin
   Result := FDisallowed;
+end;
+
+function TWindowsRootSource.ReadDistrusted: TArray<TBytes>;
+begin
+  TWindowsTrustApi.HarvestAnchors(Result);
 end;
 
 function TWindowsRootSource.SourceName: string;

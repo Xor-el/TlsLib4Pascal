@@ -75,7 +75,9 @@ type
   /// engine with NativeAnchorUnion is asked once with the roots; any other first evaluates against the
   /// OS roots and, only when that failed for want of a trust anchor, again with the host roots as the
   /// exclusive root, whose verdict then stands (its alert too, unless it also found no anchor). A path
-  /// that relied on the host roots is refused when it holds an ADistrusted certificate.</summary>
+  /// that relied on the host roots is refused when it holds an ADistrusted certificate; under a native
+  /// union that is every accepted path (which root ended it is unknowable), otherwise only the
+  /// host-root-reliant ones.</summary>
   TDelegateEvaluation = class sealed(TObject)
   public
     class function EvaluateServer(const AEngine: IPlatformChainEngine;
@@ -460,6 +462,10 @@ begin
   if (AFetch = TSystemTrustFetch.Live) and
     not (TPlatformChainCapability.LiveFetch in AEngine.Capabilities) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
+  if (System.Length(AExtraAnchors) > 0) and
+    (AEngine.Capabilities * [TPlatformChainCapability.NativeAnchorUnion,
+    TPlatformChainCapability.ExclusiveServerAnchors] = []) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustHostRoots);
   FEngine := AEngine;
   FFetch := AFetch;
   FExtraAnchors := AExtraAnchors;

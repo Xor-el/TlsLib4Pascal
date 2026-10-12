@@ -43,6 +43,8 @@ resourcestring
   SNoLiveRevocation =
     'this platform has no OS-native live revocation (only Windows and Apple do); keep cache-only ' +
     'trust and compose the portable live-revocation checker for a live check here';
+  SEngineCannotTrustHostRoots =
+    'this platform engine cannot trust host roots beside the OS roots';
 
 type
   /// <summary>
@@ -218,6 +220,8 @@ type
     /// raises ESystemTrustUnavailableTlsLibException; a non-empty result is returned
     /// as harvested.</summary>
     function Harvest: TArray<TBytes>;
+    /// <summary>The distrusted certificates alone, read without parsing the roots. Default none.</summary>
+    function ReadDistrusted: TArray<TBytes>; virtual;
     /// <summary>Harvests now and freezes the result into an immutable anchor store.</summary>
     function Snapshot: ITrustAnchorStore;
   end;
@@ -430,6 +434,11 @@ begin
 end;
 
 function TSystemRootSource.HarvestDistrusted: TArray<TBytes>;
+begin
+  Result := nil;
+end;
+
+function TSystemRootSource.ReadDistrusted: TArray<TBytes>;
 begin
   Result := nil;
 end;

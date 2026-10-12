@@ -61,6 +61,8 @@ type
     function HarvestRoots: TArray<TBytes>; override;
     function HarvestDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
+  public
+    function ReadDistrusted: TArray<TBytes>; override;
   end;
 {$ENDIF}
 
@@ -1152,6 +1154,11 @@ end;
 function TAppleRootSource.HarvestDistrusted: TArray<TBytes>;
 begin
   Result := FDistrusted;
+end;
+
+function TAppleRootSource.ReadDistrusted: TArray<TBytes>;
+begin
+  TAppleTrustApi.CopyTrustSettingsCertificates(Result);
 end;
 
 function TAppleRootSource.SourceName: string;
