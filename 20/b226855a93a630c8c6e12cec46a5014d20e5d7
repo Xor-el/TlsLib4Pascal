@@ -1,0 +1,69 @@
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoRunner.pas
+  s_58af9e1b217631::t_2057b6ef32d01b 207
+  s_58af9e1b217631::t_ea8b88d921381f 334-335
+  s_58af9e1b217631::t_e5781f25f21dbe 259-260
+  s_58af9e1b217631::t_6f177d755d1806 35
+  s_58af9e1b217631::t_2f4617da85f518 208-239
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_58af9e1b217631::t_6155697983f760 2838-2839,2842-2860
+  s_58af9e1b217631::t_deebd22994e0af 374
+  s_58af9e1b217631::t_cef20b328dbf10 2840-2841
+  s_58af9e1b217631::t_077aa62885e26e 307-308
+  s_58af9e1b217631::t_837755d9de12b3 2400-2420
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_58af9e1b217631::t_20c891bdfa5ce5 915
+  s_58af9e1b217631::t_42fb89265d6fc0 508-509
+  s_58af9e1b217631::t_5d8c79880c17cf 352-353,355
+  s_58af9e1b217631::t_b7bb204f5120dc 702
+  s_58af9e1b217631::t_352d6fb90ef3c2 567-575,577-578
+  s_58af9e1b217631::t_e11320c76195db 664,668,672-674
+  s_58af9e1b217631::t_038dc756c0d8d4 496,498
+  s_58af9e1b217631::t_3b444398cb9082 946
+  s_58af9e1b217631::t_c932a2b8d4c19f 73-79
+  s_58af9e1b217631::t_3cb1929dc9e4a7 374-376
+  s_58af9e1b217631::t_43b3ec59c48af5 28
+  s_58af9e1b217631::t_854ed6655733c8 123
+  s_58af9e1b217631::t_53b478c11cf487 686
+  s_58af9e1b217631::t_667a62b63cdf2b 576
+  s_58af9e1b217631::t_9c178b6ad490e6 687
+  s_58af9e1b217631::t_01a933203a7d7a 697
+  s_58af9e1b217631::t_7f62fd89ebf639 93-95
+  s_58af9e1b217631::t_fd0fd1022a3d6e 579-581
+  s_9ac0ba93e9010d::t_f38fc17bd717f4 582-583
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_58af9e1b217631::t_522abd9a0d72e7 767
+  s_58af9e1b217631::t_1240d91dd4d9bd 987
+TlsLib.Trust.System/Examples/Delphi/res/xml/network_security_config.xml
+  s_58af9e1b217631::t_a4f484143e8ab9 5
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_58af9e1b217631::t_9caa76403191dd 93
+  s_58af9e1b217631::t_7cc0d341f3f5ba 88-89
+  s_58af9e1b217631::t_73b7a9dba7e399 84
+docs/system-trust.md
+  s_58af9e1b217631::t_cc717137b0b31a 164-168
+  s_58af9e1b217631::t_7a00f173fc8de0 148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "20b226855a93a630c8c6e12cec46a5014d20e5d7",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_9ac0ba93e9010d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a3b9a5edf58a0b923",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
