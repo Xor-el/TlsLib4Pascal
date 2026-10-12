@@ -1,0 +1,39 @@
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_58af9e1b217631::t_0594d8017999b2 37-39
+  s_58af9e1b217631::t_4dfe3506ac2ca7 476-579
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_58af9e1b217631::t_b3393fec3f5fd9 63-65
+  s_58af9e1b217631::t_ca645aefb194bf 570-571
+  s_58af9e1b217631::t_b79ea31d423bd2 595-596
+  s_58af9e1b217631::t_04ee56787eb204 628-644
+  s_58af9e1b217631::t_66982d38fda0a4 447-452
+  s_58af9e1b217631::t_7e604fc408064f 112-113
+  s_58af9e1b217631::t_ade7c44f66b127 410-411
+  s_58af9e1b217631::t_bec2c4db36b96b 658-659
+  s_58af9e1b217631::t_d58d86a24f8b07 577
+  s_85509ae9d74083::t_ade49d535291e8 423
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9be4cf13f61ac34a1b4cf6679712ab4d194e869b",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_85509ae9d74083": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ae956e45c0c03907f",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
