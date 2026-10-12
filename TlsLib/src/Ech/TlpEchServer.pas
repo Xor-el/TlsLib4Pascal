@@ -190,8 +190,7 @@ begin
     if not LEntries[LI].IsServableBy(ACrypto) then
       raise EArgumentTlsLibException.CreateResFmt(@SEchEntryNotServable,
         [LI, LEntries[LI].Config.ConfigId]);
-  // the retry configs go on the wire as they are, so a custom store's must be a real list that
-  // names a config this server can serve
+  // the retry list goes on the wire verbatim, so it must parse and name a servable entry
   LRetry := AKeyStore.RetryConfigs;
   try
     LRetryConfigs := TEchConfigList.Parse(LRetry);

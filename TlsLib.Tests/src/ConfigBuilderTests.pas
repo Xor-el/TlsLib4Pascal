@@ -647,14 +647,14 @@ begin
     LRaised := False;
     try
       case LCase of
-        3: NewServerBuilder.Tls13.WithEchKeyStore(
-             TRetryOverrideKeyStore.Create(LReal, LForeign) as IEchServerKeyStore);
         0: NewServerBuilder.Tls13.WithEchKeyStore(
              TRetryOverrideKeyStore.Create(LReal, nil) as IEchServerKeyStore);
         1: NewServerBuilder.Tls13.WithEchKeyStore(
              TRetryOverrideKeyStore.Create(LReal, DecodeHex('00ff0102')) as IEchServerKeyStore);
         2: NewServerBuilder.Tls13.WithEchKeyStore(
              TRetryOverrideKeyStore.Create(LReal, LReal.RetryConfigs) as IEchServerKeyStore);
+        3: NewServerBuilder.Tls13.WithEchKeyStore(
+             TRetryOverrideKeyStore.Create(LReal, LForeign) as IEchServerKeyStore);
       end;
     except
       on E: EArgumentTlsLibException do
