@@ -1548,7 +1548,12 @@ begin
     Exit;
   LFirst := LSeq[0].ToAsn1Object;
   if Supports(LFirst, IAsn1Sequence, LSeqRef) then
-    Exit(TDerKeyShape.EncryptedPkcs8);
+  begin
+    // EncryptedPrivateKeyInfo is exactly (algorithm, encryptedData OCTET STRING), RFC 5958 3
+    if (LSeq.Count = 2) and Supports(LSeq[1].ToAsn1Object, IAsn1OctetString, LOctRef) then
+      Result := TDerKeyShape.EncryptedPkcs8;
+    Exit;
+  end;
   if not Supports(LFirst, IDerInteger, LIntRef) then
     Exit;
   LSecond := LSeq[1].ToAsn1Object;

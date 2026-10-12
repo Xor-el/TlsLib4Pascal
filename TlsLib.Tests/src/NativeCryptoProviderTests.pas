@@ -437,6 +437,7 @@ begin
   CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA512, 'rsa_pkcs8_der');
   // a second modulus size pins k to the key, not to a 2048-bit assumption
   CheckScheme(LProvider, TSignatureScheme.RSA_PKCS1_SHA256, 'rsa1024_pkcs8_der');
+  CheckScheme(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA384, 'rsa1024_pkcs8_der');
 end;
 
 procedure TTestNativeCryptoProvider.TestNativeRsaPkcs1VerifierIsStrictAboutDigestInfo;
