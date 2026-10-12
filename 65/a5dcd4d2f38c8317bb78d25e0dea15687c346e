@@ -1,0 +1,94 @@
+TlsLib/src/Session/TlpInMemorySessionCache.pas
+  s_58af9e1b217631::t_247b5965fe5ec6 23
+  s_58af9e1b217631::t_a5fe906f24abf1 115
+  s_58af9e1b217631::t_29cbd69e2bd41c 108-109,111-114,116-117
+TlsLib/src/Handshake/TlpClientSessionPolicy.pas
+  s_58af9e1b217631::t_8d43d04c08d872 126,129-130
+  s_58af9e1b217631::t_256cd14ae65b64 128
+  s_58af9e1b217631::t_e999f541b55cee 57-58
+TlsLib/src/Session/TlpInMemorySessionStore.pas
+  s_58af9e1b217631::t_0ba0797271332f 37-46,49-51
+  s_58af9e1b217631::t_86e2d972bcb245 101-102
+  s_58af9e1b217631::t_c5de689540785f 129
+  s_58af9e1b217631::t_9206bbcb08fea8 168-169,176-182
+  s_58af9e1b217631::t_70f8e5331f3a6a 122-123,127-128,130,136-138,140,144-146
+  s_58af9e1b217631::t_f9b5c429cfef1e 195-196,201-203
+  s_58af9e1b217631::t_2d5a939e6a1522 213,219,221-222,224
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_58af9e1b217631::t_5e7372bf91caba 515
+  s_58af9e1b217631::t_f98dc679861cbe 1054
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_58af9e1b217631::t_167771ef5eff29 173,509-527
+  s_58af9e1b217631::t_f275ebdf3eefb5 756
+  s_58af9e1b217631::t_0e68a80470d1ac 62
+  s_58af9e1b217631::t_5841c8a651d440 630
+  s_58af9e1b217631::t_2a64a7b78f902c 574
+  s_58af9e1b217631::t_494c9998412609 881,883,888,892,895-896
+  s_58af9e1b217631::t_bffc542b1c4c9d 817,819,841,843,865,867
+  s_58af9e1b217631::t_191ae024361b7b 607,624,751,811,835,859
+  s_58af9e1b217631::t_164a6d6281cffa 90
+  s_58af9e1b217631::t_7c3ee30401ed6a 906
+  s_58af9e1b217631::t_03c20a13a540fc 355
+  s_58af9e1b217631::t_9bbe69d7ac4ed3 590
+  s_58af9e1b217631::t_d010a50243aca3 160-161,164-172
+  s_58af9e1b217631::t_d3f1951943b6dd 361,363-364,366-368
+  s_58af9e1b217631::t_213aec76c6c61a 611
+  s_58af9e1b217631::t_7e66df6fd3fe41 72
+TlsLib.Tests/src/ClientSessionPolicyTests.pas
+  s_58af9e1b217631::t_92e65a01a59c55 216-217,222-226
+TlsLib/src/Session/TlpSessionTicketKeys.pas
+  s_58af9e1b217631::t_e216c8c1836dd3 132-137
+  s_58af9e1b217631::t_e3c2853135c8d7 33-37,39-40,53,55-56,58-60,62-85,88-90,97,115,117-131,162,164-165,173,182,189,197-199,201-205,208,211,215,225,234,247,270-350,353-354,356,361,368,373,389-397,404-413,427
+  s_58af9e1b217631::t_b2acf196f11b48 398-403
+TlsLib/src/Session/TlpSession.pas
+  s_58af9e1b217631::t_62fcc63b0d3aa9 110-111,113-114
+  s_58af9e1b217631::t_71f1b85f974801 324-333,342-353,356-357
+  s_58af9e1b217631::t_26c2371065acf1 144-152
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  s_58af9e1b217631::t_6214cbd5f1dfcf 339-342
+  s_58af9e1b217631::t_589ccb5cd33022 111-113
+  s_58af9e1b217631::t_f72c87901b2ba4 359
+  s_58af9e1b217631::t_bcd9a250788283 224-231
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_58af9e1b217631::t_2759184b1e43a8 102-112
+  s_58af9e1b217631::t_e306a741e39953 369-371,377
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_58af9e1b217631::t_3edfbeb55f4d34 478-479
+  s_58af9e1b217631::t_94a4116c9698eb 1012
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_58af9e1b217631::t_4260a7d819d7e0 363-365
+  s_58af9e1b217631::t_97b2ffa23f82aa 900
+  s_58af9e1b217631::t_361186e6db04c6 937-938
+  s_58af9e1b217631::t_868612d192fbb5 33
+  s_58af9e1b217631::t_ecc83b5c15da72 32
+  s_58af9e1b217631::t_c6150df06146cf 898-899,901-902
+  s_58af9e1b217631::t_618ab9d40aaddc 254-258
+  s_58af9e1b217631::t_e25b93d80310ad 958-969
+  s_58af9e1b217631::t_c766efeee6c261 2030-2031
+  s_58af9e1b217631::t_deb3b0aacabb2d 1046-1047
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_58af9e1b217631::t_03b4d7d5dbf4c7 723
+  s_58af9e1b217631::t_3736c914f4d343 166
+  s_58af9e1b217631::t_359d61965c23ce 2137-2240
+TlsLib/src/Interfaces/Session/TlpISession.pas
+  s_58af9e1b217631::t_8d1658e9190c19 221-235
+  s_58af9e1b217631::t_166c73d593b996 98-105
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_58af9e1b217631::t_b75a7208eca265 487-488
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "65a5dcd4d2f38c8317bb78d25e0dea15687c346e",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
