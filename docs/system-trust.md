@@ -239,6 +239,22 @@ Both modes accept the same chains in the normal case. These are the differences 
 To get Anchors behaviour on Windows or macOS, pass `TSystemTrustMode.Anchors`: it is deterministic,
 runs our own pipeline and has portable revocation. iOS and Android have no Anchors mode.
 
+```pascal
+// the OS roots only, validated by our own pipeline (nil = no host roots)
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(
+    TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Anchors, nil).Build)
+  .Build;
+
+// the OS roots plus your private CA; pass TSystemTrustMode.Delegate for the OS engine instead
+LMyCa := TTrustAnchorStore.Create(
+  Pkix.Certificates.LoadChain(LoadFile('my-private-ca.pem'))) as ITrustAnchorStore;
+LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithServerVerification(
+    TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Anchors, LMyCa).Build)
+  .Build;
+```
+
 ### OS-engine client-certificate validation (mTLS)
 
 An mTLS **server** authenticates the *client's* certificate, and it must do so against **your**

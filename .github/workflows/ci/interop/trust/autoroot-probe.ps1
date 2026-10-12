@@ -1,7 +1,7 @@
 # Helper for run-trust.sh's AUTOROOT probe: one action per call, one machine-readable line out.
 # Only certificates whose subject equals the fixture intermediate's issuer are ever touched.
 param(
-  [Parameter(Mandatory)][ValidateSet('ctl', 'diag', 'leaf', 'capion', 'capioff', 'capidump', 'strip', 'build', 'restore', 'policyclear', 'policyrestore', 'svcrestart')][string]$Action,
+  [Parameter(Mandatory)][ValidateSet('ctl', 'diag', 'leaf', 'capion', 'capioff', 'capidump', 'strip', 'build', 'restore', 'policyclear', 'policyrestore', 'svcrestart', 'svcensure')][string]$Action,
   [Parameter(Mandatory)][string]$Work,
   [string]$Flags = '0',
   [ValidateSet('plain', 'ex')][string]$Para = 'plain',
@@ -45,6 +45,7 @@ $Untouched = Join-Path $Work 'untouched.txt'
 $PolKey = 'HKLM:\SOFTWARE\Policies\Microsoft\SystemCertificates\AuthRoot'
 $PolName = 'DisableRootAutoUpdate'
 $PolState = Join-Path $Work 'policy.state'
+$SvcState = Join-Path $Work 'svc.state'
 
 function Mark($t) { Write-Host $t; [Console]::Out.Flush() }
 
@@ -257,20 +258,33 @@ switch ($Action) {
   }
   'policyclear' {
     $was = Get-Pol
-    if (-not (Test-Path $PolState)) { Set-Content $PolState $was } else { $was = @(Get-Content $PolState)[0] }
+    if (-not (Test-Path $PolState)) {
+      $rows = @($was)
+      if (-not (Test-Path $PolKey)) { $rows += 'created-key' }
+      Set-Content $PolState $rows
+    } else { $was = @(Get-Content $PolState)[0] }
     if (-not (Test-Path $PolKey)) { New-Item -Path $PolKey -Force | Out-Null }
     Set-ItemProperty -Path $PolKey -Name $PolName -Value 0 -Type DWord
     "AUTOROOT policy $PolName was=$was now=$(Get-Pol)"
   }
   'policyrestore' {
     if (-not (Test-Path $PolState)) { 'policy restored=unchanged'; break }
-    $orig = @(Get-Content $PolState)[0]
-    if ($orig -eq 'absent') { Remove-ItemProperty -Path $PolKey -Name $PolName -ErrorAction SilentlyContinue }
-    else { Set-ItemProperty -Path $PolKey -Name $PolName -Value ([int]$orig) -Type DWord }
+    $st = @(Get-Content $PolState)
+    $orig = $st[0]
+    $madeKey = $st -contains 'created-key'
+    try {
+      if ($orig -eq 'absent') { Remove-ItemProperty -Path $PolKey -Name $PolName -ErrorAction SilentlyContinue }
+      else { Set-ItemProperty -Path $PolKey -Name $PolName -Value ([int]$orig) -Type DWord }
+      if ($madeKey -and (Test-Path $PolKey)) {
+        $k = Get-Item $PolKey
+        if ($k.ValueCount -eq 0 -and $k.SubKeyCount -eq 0) { Remove-Item -Path $PolKey -ErrorAction SilentlyContinue }
+      }
+    } catch { }
     Remove-Item $PolState -ErrorAction SilentlyContinue
-    "policy restored=$(Get-Pol)"
+    "policy restored=$(Get-Pol) key=$(if (Test-Path $PolKey) { 'present' } else { 'absent' })"
   }
   'svcrestart' {
+    Set-Content $SvcState 'attempted'
     $j = Start-Job { Restart-Service CryptSvc -Force }
     if (-not (Wait-Job $j -Timeout 60)) { Stop-Job $j }
     Remove-Job $j -Force
@@ -280,6 +294,19 @@ switch ($Action) {
       if ($st -eq 'Running') { break }
       Start-Sleep -Seconds 1
     }
+    if ($st -eq 'Running') { Remove-Item $SvcState -ErrorAction SilentlyContinue }
+    "cryptsvc=$st"
+  }
+  'svcensure' {
+    if (-not (Test-Path $SvcState)) { 'cryptsvc=unchanged'; break }
+    $st = 'unknown'
+    try {
+      $j = Start-Job { Start-Service CryptSvc -ErrorAction SilentlyContinue }
+      if (-not (Wait-Job $j -Timeout 30)) { Stop-Job $j }
+      Remove-Job $j -Force
+      $st = "$((Get-Service CryptSvc).Status)"
+    } catch { }
+    if ($st -eq 'Running') { Remove-Item $SvcState -ErrorAction SilentlyContinue }
     "cryptsvc=$st"
   }
   'strip' {
