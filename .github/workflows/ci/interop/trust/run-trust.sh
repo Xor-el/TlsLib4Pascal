@@ -34,7 +34,7 @@
 #                 exclusivity cell (foreign resolver CA) runs inside the install bracket, where it can
 #                 discriminate. Its revoked(44)/indeterminate(113) alerts come from our resolver, not
 #                 the OS map, so they are asserted exactly on both platforms.
-#   * Windows AUTOROOT - informational, github-hosted CI only: removes one public root (and only it)
+#   * Windows AUTOROOT - informational, off unless MAKE_RUN_AUTOROOT=true, github-hosted CI only: removes one public root (and only it)
 #                 from the stores, builds a chain for its public intermediate under our inline/live
 #                 flags vs a control, and reports whether crypt32 re-installs the root. Always restored.
 #   * macOS trust mode comparison - report-only, CI-gated: the same hosts through both modes, to see
@@ -717,7 +717,9 @@ autoroot_probe() {
 echo "=== Windows root auto-update (AUTOROOT, informational) ==="
 case "$OSNAME" in
   MINGW*|MSYS*|CYGWIN*|Windows*)
-    if ! ci_store_mutation_allowed; then
+    if [ "${MAKE_RUN_AUTOROOT:-false}" != "true" ]; then
+      echo "  SKIPPED: set MAKE_RUN_AUTOROOT=true to run"
+    elif ! ci_store_mutation_allowed; then
       echo "  SKIPPED: not a CI runner (the probe removes a root from the machine store)"
     elif [ "${RUNNER_ENVIRONMENT:-}" != "github-hosted" ]; then
       echo "  SKIPPED: not a github-hosted runner (RUNNER_ENVIRONMENT=${RUNNER_ENVIRONMENT:-unset})"

@@ -77,6 +77,12 @@ type
     /// rejection, not a revocation. A path that cannot be read is internal_error.</summary>
     class function ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>The CertGetCertificateChain flags for a revocation level and network mode: cache-only
+    /// inline (revocation added unless None), or network-enabled for a live check (whole-chain
+    /// revocation with AIA disabled so the built path matches the presented one). Root
+    /// auto-update is never disabled.</summary>
+    class function ChainFlags(ARevocation: TPlatformRevocationCheck;
+      ANetworkAllowed: Boolean): DWORD; static;
     function Capabilities: TPlatformChainCapabilities;
     function EvaluateServer(const ARequest: TPlatformChainRequest;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
@@ -358,11 +364,6 @@ type
     class procedure ResolveDynamicImports; static;
     /// <summary>Frees the loaded crypt32 module (unit teardown).</summary>
     class procedure ReleaseDynamicImports; static;
-    /// <summary>The CertGetCertificateChain flags for a revocation level and network mode: cache-only
-    /// inline (revocation added unless None), or network-enabled for a live check (whole-chain
-    /// revocation with AIA disabled so the built path matches the presented one).</summary>
-    class function ChainFlags(ARevocation: TPlatformRevocationCheck;
-      ANetworkAllowed: Boolean): DWORD; static;
     /// <summary>The chain-policy dwFlags for a revocation level: BestEffort ignores a
     /// revocation-unknown (soft-fail without masking a real error); None and RequirePositive keep 0
     /// (None has nothing to be unknown, RequirePositive must reject an unknown).</summary>
@@ -631,25 +632,6 @@ begin
   Result := True;
 end;
 
-class function TWindowsTrustApi.ChainFlags(ARevocation: TPlatformRevocationCheck;
-  ANetworkAllowed: Boolean): DWORD;
-begin
-  if ANetworkAllowed then
-    // live: whole-chain revocation over the network, AIA disabled so the built path matches the
-    // presented one; the accumulative timeout bounds the whole build to the deadline
-    Result := CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
-      CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT or CERT_CHAIN_DISABLE_AIA
-  else
-  begin
-    // cache-only inline (no socket); None skips revocation, otherwise it is checked against the
-    // staple / OS cache
-    Result := CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL;
-    if ARevocation <> TPlatformRevocationCheck.None then
-      Result := Result or CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
-        CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT;
-  end;
-end;
-
 class function TWindowsTrustApi.PolicyFlags(ARevocation: TPlatformRevocationCheck): DWORD;
 begin
   // BestEffort ignores a revocation-unknown at the policy layer, so a missing/offline responder
@@ -856,7 +838,7 @@ begin
       LParaPtr := @LChainPara;
     end;
 
-    LFlags := ChainFlags(ARequest.Revocation, ARequest.NetworkAllowed);
+    LFlags := TWindowsChainEngine.ChainFlags(ARequest.Revocation, ARequest.NetworkAllowed);
 
     // the injected clock pins the validation time; nil defers to system time
     LTimePtr := nil;
@@ -952,6 +934,25 @@ begin
 end;
 
 { TWindowsChainEngine }
+
+class function TWindowsChainEngine.ChainFlags(ARevocation: TPlatformRevocationCheck;
+  ANetworkAllowed: Boolean): DWORD;
+begin
+  if ANetworkAllowed then
+    // live: whole-chain revocation over the network, AIA disabled so the built path matches the
+    // presented one; the accumulative timeout bounds the whole build to the deadline
+    Result := CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
+      CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT or CERT_CHAIN_DISABLE_AIA
+  else
+  begin
+    // cache-only inline (no socket); None skips revocation, otherwise it is checked against the
+    // staple / OS cache
+    Result := CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL;
+    if ARevocation <> TPlatformRevocationCheck.None then
+      Result := Result or CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
+        CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT;
+  end;
+end;
 
 class procedure TWindowsChainEngine.MapPolicyError(ADwError: DWORD;
   out AAlert: TTlsAlertDescription; out AFailure: TPlatformChainFailure);

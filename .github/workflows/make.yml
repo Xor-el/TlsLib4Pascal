@@ -77,6 +77,10 @@ env:
   # against a per-run generated CA on every native leg, plus - on Windows/macOS - the OS trust
   # delegate against a throwaway root installed into the machine store. Set false to skip them.
   MAKE_RUN_TRUST: true
+  # When true, the Windows github-hosted leg also runs the informational root auto-update probe
+  # (it removes one public root from the machine stores and restores it). Default false: it answered
+  # its question; the probe stays available for re-checking after a Windows image change.
+  MAKE_RUN_AUTOROOT: false
   # When true (default), the native legs (Linux, Windows, macOS) compile the fcl-net adapter package
   # + its six examples against the prebuilt packages and run its four in-process loopback examples (no
   # network; the real-world example is compile-only, the wedge demo compile-only). fcl-net ships in the
@@ -194,6 +198,7 @@ jobs:
           crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
           pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
+          run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   linux-arm64:
@@ -238,6 +243,7 @@ jobs:
           crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
           pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
+          run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   # Scalar-dispatch legs: same native targets, but MAKE_DEFINES
@@ -340,6 +346,7 @@ jobs:
           crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
           pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
+          run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
           bogo-ref: ${{ env.BOGO_REF }}
 
   macos-arm64:
@@ -387,6 +394,7 @@ jobs:
           crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
           pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
+          run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
 
   macos-x64:
     name: "Native: macOS x86_64 (Intel)"
@@ -430,6 +438,7 @@ jobs:
           crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
           pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
           run-trust: ${{ env.MAKE_RUN_TRUST }}
+          run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
 
   linux-arm32:
     name: "QEMU: Linux ARMv7"

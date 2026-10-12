@@ -230,7 +230,7 @@ Both modes accept the same chains in the normal case. These are the differences 
 |---|---|---|
 | OS distrust | the OS applies it natively to a path that ended at an OS root; for a path that ended at a host root the library applies an exact-match post-check over the readable list (Windows `Disallowed`, macOS Deny), with the same caveats as Anchors mode (hash-only entries and built-in blocklists are invisible), and none on iOS and Android | exact-certificate match only (Windows `Disallowed`, macOS Deny), on every path |
 | Root-store properties (Windows EKU override, disabled and partially distrusted roots; enterprise policy) | honoured | not honoured: a harvest keeps the certificates only |
-| Windows roots not installed yet | installed by Windows root auto-update, inline flags included (measured on a Windows Server 2025 runner with the auto-update policy cleared); not installed where policy disables auto-update | not seen: the harvest lists installed roots |
+| Windows roots not installed yet | installed by Windows root auto-update, including under the inline flags; not installed where policy disables auto-update | not seen: the harvest lists installed roots |
 | Missing intermediates | no fetch inline; the OS may use its cache | configured intermediates only |
 | Revocation source | OS cache plus the staple; on Windows and Apple `Hard` is decided inline from the staple or an OS-cached good status, and needs the live-revocation verdict only when neither exists (Android has no cached revocation, so `Hard` is refused without it) | staple plus the portable live checker |
 | System-root-only rules (Apple CT and validity caps, Android CT) | apply to the OS roots, not to host roots | none |

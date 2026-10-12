@@ -372,6 +372,7 @@ type
   published
     procedure TestPolicyErrorClassification;
     procedure TestRevocationErrorOnDistrustedChainIsNotRevoked;
+    procedure TestChainFlagsKeepRootAutoUpdateEnabled;
     procedure TestPrivateCaServerChainRefusedWithoutHostRoots;
     procedure TestPrivateCaServerChainAcceptedWithHostRoots;
     procedure TestForeignHostRootDoesNotVouchForTheChain;
@@ -2856,6 +2857,27 @@ begin
   TWindowsChainEngine.ClassifyPolicyStatus(CertERevoked, @LCtx[0], LResult, LAlert);
   CheckEquals(Ord(TLiveRevocationOutcome.Revoked), Ord(LResult.Outcome),
     'without the distrust bit the same error is a revocation');
+end;
+
+procedure TTestWindowsHostRoots.TestChainFlagsKeepRootAutoUpdateEnabled;
+const
+  DisableAuthRootAutoUpdate = Cardinal($00000100);
+  CacheOnlyUrlRetrieval = Cardinal($00000004);
+var
+  LLevel: TPlatformRevocationCheck;
+begin
+  for LLevel := Low(TPlatformRevocationCheck) to High(TPlatformRevocationCheck) do
+  begin
+    CheckEquals(0, TWindowsChainEngine.ChainFlags(LLevel, False) and DisableAuthRootAutoUpdate,
+      Format('inline flags leave root auto-update enabled (level %d)', [Ord(LLevel)]));
+    CheckEquals(CacheOnlyUrlRetrieval,
+      TWindowsChainEngine.ChainFlags(LLevel, False) and CacheOnlyUrlRetrieval,
+      Format('inline flags are cache-only (level %d)', [Ord(LLevel)]));
+    CheckEquals(0, TWindowsChainEngine.ChainFlags(LLevel, True) and DisableAuthRootAutoUpdate,
+      Format('live flags leave root auto-update enabled (level %d)', [Ord(LLevel)]));
+    CheckEquals(0, TWindowsChainEngine.ChainFlags(LLevel, True) and CacheOnlyUrlRetrieval,
+      Format('live flags are not cache-only (level %d)', [Ord(LLevel)]));
+  end;
 end;
 
 procedure TTestWindowsHostRoots.TestPrivateCaServerChainRefusedWithoutHostRoots;
