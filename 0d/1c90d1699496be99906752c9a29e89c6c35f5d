@@ -1,0 +1,33 @@
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_58af9e1b217631::t_3b856076a85fc4 190-191
+TlsLib/src/Interfaces/Trust/TlpIHttpFetcher.pas
+  s_58af9e1b217631::t_391b7101d042d7 36-37
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_58af9e1b217631::t_808908340af238 549-550
+docs/cookbook.md
+  s_58af9e1b217631::t_e8154356ae73c4 450
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_58af9e1b217631::t_c79fa51180889b 66
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_58af9e1b217631::t_a20ba0f1397a72 216-217
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_58af9e1b217631::t_5d663198fafa6e 235
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_58af9e1b217631::t_3ac289b860cda3 303-304
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0d1c90d1699496be99906752c9a29e89c6c35f5d",
+  "prompts": {},
+  "sessions": {
+    "s_58af9e1b217631": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78515b5a-4c4a-463c-be1a-454aa0b223ee",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
