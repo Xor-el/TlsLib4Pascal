@@ -125,7 +125,7 @@ type
   /// verdict, or - for an engine that renders no revocation outcome - a Hard client posture without
   /// it.</summary>
   TOSVerifierSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
-    IClientCertificateVerifierSource)
+    IOSServerVerifierSource, IClientCertificateVerifierSource)
   strict private
     FEngine: IPlatformChainEngine;
     FFetch: TSystemTrustFetch;
@@ -138,6 +138,7 @@ type
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
       const AExtraAnchors: TArray<TBytes>); overload;
     function CreateServerVerifier(const AContext: TServerTrustContext): IServerCertificateVerifier;
+    function ExtraAnchors: TArray<TBytes>;
     function CreateClientVerifier(const AContext: TClientTrustContext): IClientCertificateVerifier;
   end;
 
@@ -414,6 +415,11 @@ begin
   LPolicy := TOSDelegatePolicy.FromServerContext(AContext, FFetch);
   LPolicy.ExtraAnchors := FExtraAnchors;
   Result := TOSDelegateServerVerifier.Create(FEngine, LPolicy) as IServerCertificateVerifier;
+end;
+
+function TOSVerifierSource.ExtraAnchors: TArray<TBytes>;
+begin
+  Result := FExtraAnchors;
 end;
 
 function TOSVerifierSource.CreateClientVerifier(

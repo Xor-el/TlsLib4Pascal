@@ -682,8 +682,7 @@ var
   LAddRevocation, LRequirePositive, LAnchored, LUnion: Boolean;
   LAnchorSet: TArray<TBytes>;
 begin
-  // a client is always anchored; a server only when the caller supplies anchors, and extra anchors
-  // never replace the system roots
+  // a client is always anchored; a server only with anchors; extras never replace the system roots
   LAnchored := (not AServer) or (Length(AAnchors) > 0);
   LUnion := AServer and (not LAnchored) and (Length(AExtraAnchors) > 0);
   // None asks for no revocation policy; BestEffort adds the any-method policy; RequirePositive
@@ -1165,8 +1164,7 @@ end;
 
 function TAppleChainEngine.Capabilities: TPlatformChainCapabilities;
 begin
-  // Security.framework can fetch live revocation, render a cached revocation outcome, match the
-  // DNS host, and trust extra anchors beside the system roots
+  // SecTrust fetches live, renders cached revocation, matches the DNS host, and unions extra anchors
   Result := [TPlatformChainCapability.LiveFetch, TPlatformChainCapability.CachedRevocation,
     TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.ExtraAnchors];
 end;

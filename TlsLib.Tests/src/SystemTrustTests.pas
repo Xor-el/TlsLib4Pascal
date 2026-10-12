@@ -111,7 +111,7 @@ type
   end;
 
   /// <summary>Portable suite (always runs): the host-neutral system-trust installer that bridges
-  /// TSystemTrust.WithSystemTrust into the shared adapter-core seam - the client role installs OS
+  /// TSystemTrust.ServerVerification into the shared adapter-core seam - the client role installs OS
   /// server trust, and the server role mirrors the facade's client-authentication refusal.</summary>
   TTestSystemTrustInstaller = class(TTlsLibAlgorithmTestCase)
   published
@@ -1234,6 +1234,8 @@ begin
   LVerifier := LSource.CreateServerVerifier(LContext);
   LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil, LVerified,
     LAlert);
+  CheckEquals(1, System.Length((LSource as IOSServerVerifierSource).ExtraAnchors),
+    'the source exposes its extras for the live re-check');
   CheckEquals(1, System.Length(LMock.Last.ExtraAnchors), 'the engine is handed the extra anchor');
   CheckEquals(0, System.Length(LMock.Last.Anchors),
     'the extra anchors do not become the exclusive trust root');
@@ -2520,8 +2522,7 @@ var
   LV: TStringList;
   LConfig: ITlsServerConfig;
 begin
-  // WithSystemTrust has no server overload: the only way OS roots become a server's client-CA is the
-  // caller writing it out explicitly, which stays reachable and composes a Required-mode server
+  // there is no server form of system trust: OS roots become a client-CA only when written out explicitly
   if not TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
   begin
     Check(True, 'this platform cannot enumerate OS anchors; the explicit path does not apply');

@@ -672,9 +672,7 @@ begin
   else if System.Length(AOptions.SupportedVersions) > 0 then
     LClient.WithSupportedVersions(AOptions.SupportedVersions);
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else the
-  // anchors + the OS store + a custom store all UNION. System trust is never implicit. With no
-  // source named, demand an explicit decision - real trust, or the loud skip toggle (which is itself
-  // the trust decision, so no placeholder store is needed to build)
+  // trust sources union; with none named the policy is skip-verify or a Build refusal
   LHostRoots := HostAnchorStore(AOptions, LPkix);
   if AOptions.ServerCertificateVerifier <> nil then
   begin

@@ -16,10 +16,19 @@ unit TlpIPlatformChainEngine;
 interface
 
 uses
+  SysUtils,
   TlpTlsAlert,
+  TlpICertificateVerifierSource,
   TlpSystemTrustBase;
 
 type
+  /// <summary>An OS server-certificate source that also trusts host roots beside the OS ones, so the
+  /// live re-check can build against the same roots as the inline pass.</summary>
+  IOSServerVerifierSource = interface(IServerCertificateVerifierSource)
+    ['{3BEC9858-CEA3-452F-B773-0B338A852B4A}']
+    function ExtraAnchors: TArray<TBytes>;
+  end;
+
   /// <summary>
   /// The platform chain engine behind an OS trust delegate: it builds and trusts a certificate path
   /// with the OS (crypt32, Security.framework, the Android TrustManager) and reports a revocation

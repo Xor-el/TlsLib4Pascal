@@ -144,8 +144,8 @@ type
 implementation
 
 resourcestring
-  SEchEmptyConfigNoGrease = 'an empty ECHConfigList with ECH GREASE disabled would send the ' +
-    'true SNI in the clear; supply a config list or enable GREASE';
+  SEchEmptyConfigNoGrease = 'an empty ECHConfigList would send the true SNI in the clear; ' +
+    'supply a config list or use TEchClientModes.Grease';
   SEchNoUsableConfig = 'the configured ECHConfigList has no usable config (unsupported HPKE ' +
     'suite or KEM) and ECH GREASE is disabled';
   SEchHandshakeSpent = 'the ECH handshake secrets were forgotten; no further sealing is possible';
@@ -195,11 +195,15 @@ end;
 
 class function TEchClientModes.Enable(const AConfigList: TBytes): IEchClientMode;
 begin
+  if System.Length(AConfigList) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SEchEmptyConfigNoGrease);
   Result := TEchClientMode.Create(AConfigList, False, False) as IEchClientMode;
 end;
 
 class function TEchClientModes.Retry(const AConfigList: TBytes): IEchClientMode;
 begin
+  if System.Length(AConfigList) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SEchEmptyConfigNoGrease);
   Result := TEchClientMode.Create(AConfigList, True, False) as IEchClientMode;
 end;
 

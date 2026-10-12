@@ -297,8 +297,7 @@ begin
   Result := nil;
   if System.Length(AOptions.EchConfigList) > 0 then
   begin
-    // a usable list is offered for real; an unusable one degrades to GREASE only when the runner
-    // asked for it, and otherwise stays Enable so Build refuses it
+    // an unusable list degrades to GREASE only on request; otherwise Build refuses it
     if AOptions.EchGrease and not TEchConfigList.TrySelect(
       TEchConfigList.Parse(AOptions.EchConfigList), ACryptoProvider, LConfig, LSuite) then
       Result := TEchClientModes.Grease

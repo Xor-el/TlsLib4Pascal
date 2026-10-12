@@ -740,7 +740,7 @@ var
   LMsg, LOuter: TBytes;
 begin
   // ECH configured end to end through the public builder: the client offers the config list
-  // (Tls13.WithEncryptedClientHello) and the server is keyed with the matching config store
+  // (Tls13.WithEch) and the server is keyed with the matching config store
   // (Tls13.WithEchKeyStore + TInMemoryEchKeyStore.FromConfig). The store lands on the frozen
   // config, the factory wires it into the server params, and the handshake accepts. The client
   // offers a full (GREASE-bearing) extension set, so this also covers ECH acceptance with
@@ -2624,7 +2624,7 @@ begin
     on E: EInvalidOperationTlsLibException do
       LMsg := E.Message;
   end;
-  CheckTrue(Pos('verifier source', LMsg) > 0,
+  CheckTrue(Pos('TClientVerification.VerifierSource', LMsg) > 0,
     'a source with an empty store is refused with the source message; got: ' + LMsg);
 end;
 

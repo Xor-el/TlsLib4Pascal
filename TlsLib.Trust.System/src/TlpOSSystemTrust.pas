@@ -222,6 +222,7 @@ class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientCo
 var
   LEngine: IPlatformChainEngine;
   LPolicy: TOSDelegatePolicy;
+  LSource: IOSServerVerifierSource;
 begin
   if TryChainEngine(LEngine) then
   begin
@@ -239,6 +240,8 @@ begin
     if AConfig.TrustStore <> nil then
       LPolicy.Anchors := AConfig.TrustStore.RootCertificates;
     LPolicy.Intermediates := AConfig.IntermediateCertificates;
+    if SysUtils.Supports(AConfig.ServerVerifierSource, IOSServerVerifierSource, LSource) then
+      LPolicy.ExtraAnchors := LSource.ExtraAnchors;
     LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
     Exit(TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, AFallback));
   end;

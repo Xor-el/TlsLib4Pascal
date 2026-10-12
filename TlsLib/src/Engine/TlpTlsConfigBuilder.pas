@@ -117,8 +117,7 @@ type
     FServerVerifierSource: IServerCertificateVerifierSource;
     FClientCertVerifier: IClientCertificateVerifier;
     FClientVerifierSource: IClientCertificateVerifierSource;
-    // the peer-verification policy of the endpoint role (set through the view); the fields above
-    // are derived from it at Build
+    // the role's verification policy; the trust fields above are derived from it at Build
     FServerVerification: IServerVerification;
     FClientVerification: IClientVerification;
     FCheckServerName: Boolean;

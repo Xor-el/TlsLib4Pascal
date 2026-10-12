@@ -465,8 +465,7 @@ begin
   LServer.WithLiveRevocationVerdict(LiveDeadlineMs);
   // a NewSessionTicket would otherwise arrive before the echo and look like a broken round-trip
   LServer.WithResumption(False);
-  // verify the peer CLIENT certificate through the OS trust engine, live (network on) at the park,
-  // with the configured client-CA as the exclusive anchor it roots against
+  // the OS engine verifies the client certificate live at the park, rooted at the client-CA
   LServer.WithClientVerification(TClientVerification.VerifierSource(
     TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live),
     TInteropCredentials.TrustFromPem(APkix, ACaFile)).WithRevocation(ACell.Posture).Build);
