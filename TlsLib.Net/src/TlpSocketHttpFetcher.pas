@@ -62,8 +62,8 @@ type
 
   /// <summary>A blocking IHttpFetcher for live OCSP (POST) and CRL (GET) retrieval.
   /// An http responder is fetched with a strict HTTP/1.1 exchange (RFC 9112) over TTcpConnector:
-  /// the timeout bounds the connect and every read, so a responder that trickles bytes or goes
-  /// silent cannot hold the caller past it, on every target; the response head is capped at
+  /// the timeout (0 means 60 s) bounds the connect and every read, so a responder that trickles
+  /// bytes or goes silent cannot hold the caller past it, on every target; the response head is capped at
   /// 64 KiB and the body at the size cap; every wait polls, so no descriptor number can overrun a
   /// select set. The request is sent unbounded, as it fits a socket buffer, and a POST's content
   /// type must be a bare type/subtype. A redirect, a 101, a 204 and a coded or ambiguously framed
@@ -104,8 +104,8 @@ implementation
 const
   // what a response head may take beyond the body cap: the status line and headers
   ResponseHeadAllowance = Int64(64 * 1024);
-  // with no budget the connect still needs the bound the connector requires
-  UnboundedConnectTimeoutMs = Int32(60000);
+  // a fetch asked for no timeout gets this one for the connect and again for the reads
+  UnboundedTimeoutMs = Int32(60000);
 
 resourcestring
   SNilClock ='a clock is required (pass a clock, not nil)';
@@ -685,7 +685,7 @@ class function TSocketHttpExchange.ExecutePlain(const ASettings: TSocketHttpFetc
 var
   LHost, LTarget, LConnectHost: string;
   LConnectPort: Word;
-  LConnectMs: Int32;
+  LConnectMs, LReadMs: Int32;
   LRequest: TBytes;
   LConnector: ITcpConnector;
   LTransport: ITlsTimedTransport;
@@ -714,12 +714,16 @@ begin
   if ADeadline.Bounded then
     LConnectMs := ADeadline.RemainingMs
   else
-    LConnectMs := UnboundedConnectTimeoutMs;
+    LConnectMs := UnboundedTimeoutMs;
   LConnector := TTcpConnector.Create(LConnectMs, ASettings.Resolver);
   LTransport := LConnector.Connect(LConnectHost, LConnectPort);
   LTransport.UseClock(ASettings.Clock);
+  if ADeadline.Bounded then
+    LReadMs := ADeadline.RemainingMs
+  else
+    LReadMs := UnboundedTimeoutMs;
   // one deadline for every read that follows, so a trickle cannot outlast the budget
-  LTransport.SetReadTimeout(ADeadline.RemainingMs);
+  LTransport.SetReadTimeout(LReadMs);
   LTransport.Write(LRequest, 0, System.Length(LRequest));
   LExchange := THttpExchange.Create(LTransport);
   try

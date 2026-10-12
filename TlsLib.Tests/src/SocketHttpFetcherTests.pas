@@ -49,6 +49,7 @@ type
     procedure TestLongResponseIsCutOffAtTheBudget;
     procedure TestTrickledHeadersAreCutOffAtTheBudget;
     procedure TestTrickledBodyIsCutOffAtTheBudget;
+    procedure TestNoTimeoutStillCutsOffASilentResponder;
     procedure TestSilentResponderIsCutOffAtTheBudget;
     procedure TestEarlyCloseFailsWithoutWaiting;
     procedure TestBudgetBelowASecondStillFetches;
@@ -377,6 +378,30 @@ begin
     CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
     CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000, 'the close ends the fetch, not the budget');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcher.TestNoTimeoutStillCutsOffASilentResponder;
+var
+  LResponder: TResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // a timeout of 0 means the 60 s default, not no limit: a clock that spends 100 s per read ends it
+  LResponder := TResponder.Create(1024, TResponderMode.Silent);
+  try
+    LClock := TSystemMonotonicClock.Create;
+    LFetcher := TSocketHttpFetcher.Create(
+      TMockMonotonicClock.Create(1000, 100000) as ITlsMonotonicClock);
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get(LResponder.Url, 0, 1024, LResponse),
+      'a silent responder is cut off without a caller timeout');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000, 'the default budget ends the wait');
   finally
     LFetcher := nil;
     LResponder.Free;
