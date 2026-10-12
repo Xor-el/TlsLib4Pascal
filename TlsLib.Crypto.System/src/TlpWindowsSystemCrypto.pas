@@ -4039,6 +4039,10 @@ begin
   end
   else
   begin
+    // |S| = k for both RSA schemes (RFC 8017 8.1.2, 8.2.2 step 1), not left to CNG
+    LModulusBytes := RsaModulusBytes(AKeyHandle);
+    if (LModulusBytes = 0) or (System.Length(ASignature) <> LModulusBytes) then
+      Exit(False);
     LHashId := HashIdForScheme(AScheme);
     if IsPssScheme(AScheme) then
     begin
@@ -4051,9 +4055,8 @@ begin
     begin
       // only the RFC 8017 9.2 Note 1 DigestInfo may verify (8.2.2 compares the whole block); CNG's
       // own OID handling also accepts one without NULL, so no OID is named and the exact DER is passed
-      LModulusBytes := RsaModulusBytes(AKeyHandle);
       LInput := Pkcs1DigestInfo(AScheme, ADigest);
-      if (LModulusBytes = 0) or (System.Length(ASignature) <> LModulusBytes) or (LInput = nil) then
+      if LInput = nil then
         Exit(False);
       LPkcs1.pszAlgId := nil;
       LPad := @LPkcs1;

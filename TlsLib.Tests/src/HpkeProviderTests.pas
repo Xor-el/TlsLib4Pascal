@@ -78,9 +78,61 @@ type
     procedure TestImportRecipientKeyRejectsWrongLengthScalar;
     // a suite the provider's primitives cannot build is reported as nil, not a live suite
     procedure TestSuiteIsNilWhenAeadUnavailable;
+    procedure TestOpenerRefusesUnknownKdfOrAead;
   end;
 
 implementation
+
+type
+  // a suite that reports the real suite's KEM but a caller-chosen KDF and AEAD
+  TForeignIdsSuite = class(TInterfacedObject, IHpkeSuite)
+  strict private
+    FBase: IHpkeSuite;
+    FKdf: UInt16;
+    FAead: UInt16;
+  public
+    constructor Create(const ABase: IHpkeSuite; AKdf, AAead: UInt16);
+    function Kem: UInt16;
+    function Kdf: UInt16;
+    function Aead: UInt16;
+    function AeadTagLength: Int32;
+    procedure SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
+      out AEnc: TBytes; out ASealer: IHpkeSealer);
+  end;
+
+constructor TForeignIdsSuite.Create(const ABase: IHpkeSuite; AKdf, AAead: UInt16);
+begin
+  inherited Create;
+  FBase := ABase;
+  FKdf := AKdf;
+  FAead := AAead;
+end;
+
+function TForeignIdsSuite.Kem: UInt16;
+begin
+  Result := FBase.Kem;
+end;
+
+function TForeignIdsSuite.Kdf: UInt16;
+begin
+  Result := FKdf;
+end;
+
+function TForeignIdsSuite.Aead: UInt16;
+begin
+  Result := FAead;
+end;
+
+function TForeignIdsSuite.AeadTagLength: Int32;
+begin
+  Result := FBase.AeadTagLength;
+end;
+
+procedure TForeignIdsSuite.SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
+  out AEnc: TBytes; out ASealer: IHpkeSealer);
+begin
+  FBase.SetupSealer(ARecipientPublicKey, AInfo, AEnc, ASealer);
+end;
 
 { TTestHpkeProvider }
 
@@ -434,6 +486,28 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a wrong-length EC scalar is rejected');
+end;
+
+procedure TTestHpkeProvider.TestOpenerRefusesUnknownKdfOrAead;
+
+  function Refused(AKdf, AAead: UInt16): Boolean;
+  begin
+    Result := False;
+    try
+      Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, TSecretBuffer.From(V('base_skRm')))
+        .SetupOpener(TForeignIdsSuite.Create(X25519Suite, AKdf, AAead) as IHpkeSuite,
+        V('base_enc'), V('base_info'));
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  // an id the composition does not implement is refused up front, not mapped to a default algorithm
+  CheckTrue(Refused($FFF0, THpkeAead.AES_128_GCM), 'an unknown KDF');
+  CheckTrue(Refused(THpkeKdf.HKDF_SHA256, $FFF0), 'an unknown AEAD');
+  CheckFalse(Refused(THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM), 'control: the real ids open');
 end;
 
 procedure TTestHpkeProvider.TestSuiteIsNilWhenAeadUnavailable;

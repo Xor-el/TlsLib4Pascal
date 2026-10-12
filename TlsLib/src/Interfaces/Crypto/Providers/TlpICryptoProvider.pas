@@ -385,9 +385,10 @@ type
     procedure GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
       out APrivateKey: ISecretBuffer);
     /// <summary>
-    /// Decodes a PKCS#8 private key (RFC 8410 X25519/X448 or RFC 5915 EC) for the KEM
+    /// Decodes a PKCS#8 private key (RFC 8410 X25519 or RFC 5915 EC) for the KEM
     /// AKem into the raw HPKE scalar, wiped on release. Raises EArgumentTlsLibException
-    /// on a malformed key or one whose algorithm does not match AKem.
+    /// on a malformed key or one whose algorithm does not match AKem, and
+    /// ENotSupportedTlsLibException for an unknown KEM.
     /// </summary>
     function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
     /// <summary>

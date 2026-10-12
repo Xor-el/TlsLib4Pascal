@@ -72,6 +72,8 @@ resourcestring
   SHpkeUnsupportedKem = 'the HPKE KEM is not supported';
   SHpkeRecipientKemMismatch =
     'the HPKE suite KEM does not match the recipient key';
+  SHpkeUnsupportedKdfOrAead =
+    'the HPKE suite names a KDF or AEAD this composition does not implement';
   SHpkeMalformedPrivateKey = 'the HPKE recipient private key is malformed';
   SHpkeMalformedEnc = 'the HPKE encapsulated key could not be processed';
   SHpkeMalformedPublicKey = 'the HPKE recipient public key is malformed';
@@ -553,6 +555,8 @@ var
 begin
   if ASuite.Kem <> FKem then
     raise EArgumentTlsLibException.CreateRes(@SHpkeRecipientKemMismatch);
+  if not (THpkeCore.IsKnownKdf(ASuite.Kdf) and THpkeCore.IsRealAead(ASuite.Aead)) then
+    raise EArgumentTlsLibException.CreateRes(@SHpkeUnsupportedKdfOrAead);
   try
     LSharedSecret := THpkeCore.Decap(FPrimitives, FKem, AEnc, FAgreement, FKey,
       FPublicKey);

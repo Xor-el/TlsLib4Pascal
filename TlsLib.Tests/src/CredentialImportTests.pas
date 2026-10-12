@@ -81,6 +81,7 @@ type
     procedure TestUnsupportedAlgorithmRaisesTypedException;
     procedure TestWrongPasswordRaisesTypedException;
     procedure TestEncryptedKeyWithoutPasswordReportsPasswordRequired;
+    procedure TestCertificateAsKeyIsNotReportedAsPasswordRequired;
     procedure TestSmallRsaKeyOmitsPssSchemeItCannotSign;
     procedure TestFitRsaModulusBoundaries;
     procedure TestWithPreferredSchemesNarrowsReordersAndFilters;
@@ -486,6 +487,22 @@ begin
   // an encrypted key imported with no password is a distinct, actionable error, not "malformed"
   CheckReportsPasswordRequired('rsa_enc_der');
   CheckReportsPasswordRequired('rsa_enc_pem');
+end;
+
+procedure TTestCredentialImport.TestCertificateAsKeyIsNotReportedAsPasswordRequired;
+var
+  LMsg: string;
+begin
+  // a certificate is a SEQUENCE of a SEQUENCE, but not an EncryptedPrivateKeyInfo (RFC 5958 3)
+  LMsg := '';
+  try
+    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['chain_leaf_der']), nil);
+  except
+    on E: EArgumentTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(LMsg <> '', 'a certificate given as a key is refused');
+  CheckTrue(Pos('password', LMsg) = 0, 'the refusal does not blame a missing password; got: ' + LMsg);
 end;
 
 procedure TTestCredentialImport.TestSmallRsaKeyOmitsPssSchemeItCannotSign;

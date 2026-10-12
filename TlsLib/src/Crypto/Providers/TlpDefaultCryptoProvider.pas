@@ -1525,7 +1525,7 @@ begin
 end;
 
 // Classifies a DER private key by the types of the outer SEQUENCE's first elements:
-// a leading SEQUENCE is EncryptedPrivateKeyInfo; a leading INTEGER (the version) is
+// a leading SEQUENCE with an OCTET STRING second is EncryptedPrivateKeyInfo; a leading INTEGER (the version) is
 // followed by a SEQUENCE (PKCS#8), an INTEGER (PKCS#1 RSAPrivateKey) or an OCTET
 // STRING (SEC1 ECPrivateKey). The ASN.1 layer does the DER decoding and validation.
 class function TCredentialImport.DetectDerKeyShape(const AData: TBytes): TDerKeyShape;
@@ -1548,7 +1548,12 @@ begin
     Exit;
   LFirst := LSeq[0].ToAsn1Object;
   if Supports(LFirst, IAsn1Sequence, LSeqRef) then
-    Exit(TDerKeyShape.EncryptedPkcs8);
+  begin
+    // EncryptedPrivateKeyInfo is exactly (algorithm, encryptedData OCTET STRING), RFC 5958 3
+    if (LSeq.Count = 2) and Supports(LSeq[1].ToAsn1Object, IAsn1OctetString, LOctRef) then
+      Result := TDerKeyShape.EncryptedPkcs8;
+    Exit;
+  end;
   if not Supports(LFirst, IDerInteger, LIntRef) then
     Exit;
   LSecond := LSeq[1].ToAsn1Object;

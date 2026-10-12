@@ -191,7 +191,8 @@ type
     function KeyKind: TSignatureKeyKind;
     /// <summary>Drops each rsa_pss_rsae_* scheme whose encoded message cannot fit an RSA
     /// modulus of AModulusBits (RFC 8017 9.1.1: emLen >= 2*hLen + 2), so a key never offers an
-    /// RSA-PSS scheme it cannot sign. Every other scheme is kept.</summary>
+    /// RSA-PSS scheme it cannot sign, and each rsa_pkcs1_* scheme whose modulus is below
+    /// tLen + 11 (RFC 8017 9.2). Every other scheme is kept.</summary>
     class function FitRsaModulus(const ASchemes: TArray<TSignatureScheme>;
       AModulusBits: Int32): TArray<TSignatureScheme>; static;
   end;
