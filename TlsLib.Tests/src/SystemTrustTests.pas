@@ -3384,11 +3384,11 @@ begin
 end;
 
 const
-  WtsCertEUntrustedRoot =Cardinal($800B0109);
-  WtsCertEExpired =Cardinal($800B0101);
-  WtsCertECnNoMatch =Cardinal($800B010F);
-  WtsCertERevoked =Cardinal($800B010C);
-  WtsNoRevocationCheck =Cardinal($80092012);
+  WtsCertEUntrustedRoot = Cardinal($800B0109);
+  WtsCertEExpired = Cardinal($800B0101);
+  WtsCertECnNoMatch = Cardinal($800B010F);
+  WtsCertERevoked = Cardinal($800B010C);
+  WtsNoRevocationCheck = Cardinal($80092012);
   WtsNotTimeValid = Cardinal($00000001);
   WtsIsRevoked = Cardinal($00000004);
   WtsNotSignatureValid = Cardinal($00000008);
