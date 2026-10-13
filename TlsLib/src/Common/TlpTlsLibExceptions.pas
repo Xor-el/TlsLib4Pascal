@@ -150,10 +150,10 @@ type
   /// </summary>
   ETlsHandshakeTimeout = class(ETlsStreamError);
 
-implementation
-
 resourcestring
   SEchRejected = 'the server rejected Encrypted Client Hello';
+
+implementation
 
 { EFatalAlertTlsLibException }
 

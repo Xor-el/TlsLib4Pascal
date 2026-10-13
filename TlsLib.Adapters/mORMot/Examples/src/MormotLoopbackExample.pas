@@ -496,9 +496,8 @@ begin
       raise Exception.CreateFmt('the server served %d clients, expected 1', [LServer.Served]);
     if LServer.Attempts <> 2 then
       raise Exception.CreateFmt('the server saw %d clients, expected 2', [LServer.Attempts]);
-    // the server ended the handshake with its own alert, not a transport failure; the adapter
-    // reports no reason beyond that
-    if Pos('a fatal alert was sent', LServer.Rejection) = 0 then
+    // the server ended the handshake with its own alert and says why, not a transport failure
+    if Pos('client authentication is required but none was sent', LServer.Rejection) = 0 then
       raise Exception.Create('the server did not reject the client with an alert: ' +
         LServer.Rejection);
   finally

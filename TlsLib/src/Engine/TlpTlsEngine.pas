@@ -195,7 +195,6 @@ type
       AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
       const AFacts: TNegotiationFacts);
     procedure OnHandshakeEstablished;
-    procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
     procedure OnWarningAlert(AAlert: TTlsAlertDescription);
     procedure OnEchAccepted;
     procedure OnEchGreased;
@@ -229,6 +228,8 @@ resourcestring
     'the engine was re-entered from within a handshake callback; it is single-threaded and a ' +
     'callback must not call back into it';
   SLocalFatalAlert = 'a fatal alert was sent';
+  SInterleavedRecord =
+    'a record of another type arrived between the fragments of a handshake message';
   SInboundBacklogFull =
     'the framed inbound backlog is full; pull/read before feeding more input (honor WantsRead)';
   SProcessInputSliceOutOfRange = 'the ProcessInput (offset, length) slice is out of range';
@@ -280,7 +281,7 @@ type
       AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
       const AFacts: TNegotiationFacts);
     procedure OnHandshakeEstablished;
-    procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
+    procedure OnHandshakeFailed(AAlert: TTlsAlertDescription; const AReason: string);
     procedure OnWarningAlert(AAlert: TTlsAlertDescription);
     procedure OnEchAccepted;
     procedure OnEchGreased;
@@ -398,9 +399,10 @@ begin
   FEngine.OnHandshakeEstablished;
 end;
 
-procedure TEngineHandshakeBridge.OnHandshakeFailed(AAlert: TTlsAlertDescription);
+procedure TEngineHandshakeBridge.OnHandshakeFailed(AAlert: TTlsAlertDescription;
+  const AReason: string);
 begin
-  FEngine.OnHandshakeFailed(AAlert);
+  FEngine.SendAlert(AAlert, AReason);
 end;
 
 procedure TEngineHandshakeBridge.OnWarningAlert(AAlert: TTlsAlertDescription);
@@ -627,7 +629,8 @@ begin
     Exit;
   end;
   // a warning-level alert is advisory: tolerated in TLS 1.2 (RFC 5246 7.2) and, in TLS 1.3,
-  // only for user_canceled - every other warning is outlawed there (RFC 8446 6). Either way a
+  // only for user_canceled - every other warning is outlawed there, and a fatal-level user_canceled
+  // stays terminal (RFC 8446 6 permits ignoring the level, it does not require it). Either way a
   // flood is refused. close_notify is handled above regardless of level.
   if LReceived.LevelByte = TTlsAlertLevel.Warning.ToByte then
   begin
@@ -662,7 +665,7 @@ begin
   if (AFragment.ContentType <> TTlsContentType.Handshake) and
     FConductor.HasBufferedHandshake then
   begin
-    OnHandshakeFailed(TTlsAlertDescription.UnexpectedMessage);
+    SendAlert(TTlsAlertDescription.UnexpectedMessage, SInterleavedRecord);
     Exit;
   end;
   case AFragment.ContentType of
@@ -1304,16 +1307,6 @@ begin
   FRecordLayer.SetHandshakeComplete;
 end;
 
-procedure TTlsEngine.OnHandshakeFailed(AAlert: TTlsAlertDescription);
-begin
-  if FTerminal then
-    Exit;
-  FLastError := TTlsError.CreateFatal(AAlert, SLocalFatalAlert,
-    TTlsErrorOrigin.Local);
-  QueueAlertRecord(TTlsAlert.CreateFatal(AAlert));
-  FTerminal := True;
-end;
-
 procedure TTlsEngine.OnWarningAlert(AAlert: TTlsAlertDescription);
 begin
   // a warning alert does not tear down the connection; suppress it once the connection is
@@ -1353,7 +1346,7 @@ begin
   FInfo.EchRetryConfigs := ARetryConfigs;
   FInfo.EchIsRetryAttempt := AIsRetryAttempt;
   FInfo.EchRejectAborted := True;
-  OnHandshakeFailed(TTlsAlertDescription.EchRequired);
+  SendAlert(TTlsAlertDescription.EchRequired, SEchRejected);
 end;
 
 end.

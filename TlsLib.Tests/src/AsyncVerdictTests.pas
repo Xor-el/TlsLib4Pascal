@@ -185,6 +185,7 @@ type
     procedure TestServerHardClientRevocationParksThenRevokedTls13;
     procedure TestServerHardClientRevocationParksThenRevokedTls12;
     procedure TestPumpWriteAfterTerminalReportsTheRecordedAlert;
+    procedure TestPumpReportsTheVerdictRejectReason;
     procedure TestPumpAbortSendsTheFatalAlertToThePeer;
     procedure TestPumpDrainEventsReportsPeerFatalAlertWithoutRaising;
     procedure TestPumpDrainEventsReportsCloseNotify;
@@ -1351,6 +1352,36 @@ begin
     CheckTrue(LFailed, 'the write fails');
     CheckTrue(LAlert = TTlsAlertDescription.HandshakeFailure,
       'with the alert the engine recorded');
+  finally
+    LTransport := nil;
+    LRead.Free;
+  end;
+end;
+
+procedure TTestAsyncVerdict.TestPumpReportsTheVerdictRejectReason;
+var
+  LClient, LServer: ITlsEngine;
+  LRead: TMemoryPipe;
+  LTransport: ITlsTransport;
+  LMessage: string;
+begin
+  LClient := NewHardMtls({AForce12=} False, LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckTrue(LServer.AwaitingCertificateVerdict, 'the server parked on the client chain');
+  LServer.SetCertificateVerdict(False, TTlsAlertDescription.BadCertificate);
+  LRead := TMemoryPipe.Create;
+  try
+    LTransport := TMemoryTransport.Create(LRead, TMemoryPipe.Create);
+    LMessage := '';
+    try
+      TTlsStreamPump.WriteApp(LServer, LTransport, DecodeHex('01'), 0, 1);
+    except
+      on E: ETlsStreamError do
+        LMessage := E.Message;
+    end;
+    CheckEquals('the peer certificate was rejected by the host''s verdict', LMessage,
+      'the pump error carries the verdict reject reason');
   finally
     LTransport := nil;
     LRead.Free;

@@ -123,6 +123,7 @@ type
     procedure TestTls13RequestedClientAuthWithoutCertCompletes;
     procedure TestTls13RequestedClientAuthWithNoMatchingSchemeDeclines;
     procedure TestTls13RequiredClientAuthWithNoMatchingSchemeAborts;
+    procedure TestTls13RequiredClientAuthSaysWhy;
     procedure TestTls12RequiredClientAuthCompletes;
     procedure TestTls12RequiredClientAuthMissingCertAborts;
     procedure TestTls12RequestedClientAuthWithoutCertCompletes;
@@ -810,6 +811,18 @@ begin
   CheckEquals(Ord(TTlsAlertDescription.CertificateRequired),
     Ord(LServer.LastError.Alert.Description),
     'the server refuses the empty Certificate with certificate_required, not the client aborting');
+end;
+
+procedure TTestClientAuth.TestTls13RequiredClientAuthSaysWhy;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New13Client(True);
+  LServer := New13ServerWithSchemes(TClientAuthMode.Required,
+    TArray<UInt16>.Create(TSignatureSchemes.Ed25519));
+  Drive(LClient, LServer);
+  CheckEquals('client authentication is required but none was sent',
+    LServer.LastError.Message, 'the server machine''s reason reaches LastError');
 end;
 
 procedure TTestClientAuth.TestTls12RequiredClientAuthCompletes;

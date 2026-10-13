@@ -95,12 +95,12 @@ type
   /// this to bridge the handshake to its own queues.
   /// </summary>
   IHandshakeSink = interface(IInterface)
-    ['{8D3F6A24-5C90-4E71-B2A6-1F4E0C7B85D3}']
+    ['{DBD1663E-3E27-4B45-BD70-EC6B3BBEB1DA}']
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
     procedure OnAlpnSelected(const AProtocol: TBytes);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnHandshakeEstablished;
-    procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
+    procedure OnHandshakeFailed(AAlert: TTlsAlertDescription; const AReason: string);
   end;
 
   /// <summary>

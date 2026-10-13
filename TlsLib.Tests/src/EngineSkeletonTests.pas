@@ -54,6 +54,7 @@ type
     procedure TestZeroLengthWriteBeforeEpochIsRefused;
     procedure TestOutOfRangeSliceRaisesWithoutTerminating;
     procedure TestAlertBetweenHandshakeFragmentsIsUnexpected;
+    procedure TestAlertBetweenHandshakeFragmentsSaysWhy;
     procedure TestReceivedCloseNotifyBeforeHandshakeCompletesIsTerminal;
     procedure TestCloseNotifyWithBogusAlertLevelIsIllegalParameter;
     procedure TestOutOfRangeWriteSliceRaisesWithoutTerminating;
@@ -281,6 +282,21 @@ begin
     'a violation we detected is our own');
   CheckFalse(LEngine.IsInboundClosed,
     'an interleaved alert is a protocol failure, not a clean close');
+end;
+
+procedure TTestEngineSkeleton.TestAlertBetweenHandshakeFragmentsSaysWhy;
+var
+  LEngine: ITlsEngine;
+  LWire: TBytes;
+begin
+  LEngine := NewEngine;
+  LEngine.StartHandshake;
+  LWire := PeerRecord(TTlsContentType.Handshake, DecodeHex('02000004'));
+  LEngine.ProcessInput(LWire, 0, System.Length(LWire));
+  LWire := PeerRecord(TTlsContentType.Alert, DecodeHex('0100'));
+  LEngine.ProcessInput(LWire, 0, System.Length(LWire));
+  CheckEquals('a record of another type arrived between the fragments of a handshake message',
+    LEngine.LastError.Message, 'the interleave violation is named');
 end;
 
 procedure TTestEngineSkeleton.TestReceivedCloseNotifyBeforeHandshakeCompletesIsTerminal;

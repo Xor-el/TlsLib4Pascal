@@ -105,6 +105,7 @@ type
     procedure TestServerHelloTls13LegacyVersionWithoutSupportedVersionsIsProtocolVersion;
     procedure TestServerHelloSelectingAnUnofferedVersionIsProtocolVersion;
     procedure TestScsvFromLowerClientAborts;
+    procedure TestSpuriousFallbackSaysWhy;
     procedure TestScsvFromCurrentClientDoesNotAbort;
     procedure TestScsvToLegacyOnlyServerDoesNotAbort;
     procedure TestScsvWithFutureLegacyVersionAndNoExtensionIsFallbackAtDispatcher;
@@ -784,6 +785,24 @@ begin
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
     DecodeHex('0000')))),
     'SCSV from a fallen-back client to a 1.3-capable server aborts inappropriate_fallback');
+end;
+
+procedure TTestTls12DualVersion.TestSpuriousFallbackSaysWhy;
+var
+  LServer: IHandshakeMachine;
+  LEffect: THandshakeEffect;
+  LReason: string;
+begin
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  LReason := '';
+  for LEffect in LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0000'))) do
+    if LEffect.Kind = THandshakeEffectKind.Fail then
+      LReason := LEffect.Reason;
+  CheckEquals('the client signalled a fallback below the highest version this server supports',
+    LReason, 'the dispatcher names the inappropriate fallback');
 end;
 
 procedure TTestTls12DualVersion.TestScsvToStandaloneTls13ServerAborts;
