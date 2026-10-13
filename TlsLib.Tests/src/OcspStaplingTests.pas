@@ -151,10 +151,6 @@ type
 
 implementation
 
-const
-  OfferStatusRequest = True;
-  NoStatusRequest = False;
-
 { TTestOcspStapling }
 
 procedure TTestOcspStapling.SetUp;
@@ -417,11 +413,13 @@ var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
   LAlert: TTlsAlertDescription;
+  LStatusRequestOffered: Boolean;
 begin
   // under a live-revocation deferral a definitive Good staple settles revocation inline, so the
   // verifier reports RevocationSettledInline and the caller may skip the redundant live park
+  LStatusRequestOffered := True;
   LVerifier := VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation,
-    OfferStatusRequest, TVerificationOccasion.InitialHandshake);
+    LStatusRequestOffered, TVerificationOccasion.InitialHandshake);
   CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName(''), V('ocsp_good'),
     LVerified, LAlert), 'a Good staple accepts under Hard + live revocation');
   CheckEquals(Ord(TVerificationOutcome.RevocationSettledInline), Ord(LVerified.Outcome),
@@ -634,10 +632,12 @@ procedure TTestOcspStapling.TestMustStapleNotRequestedAcceptsUnderSoft;
 var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
+  LStatusRequestOffered: Boolean;
 begin
   // the client never offered status_request, so a must-staple leaf is not required to staple
+  LStatusRequestOffered := False;
   CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
-    NoStatusRequest)
+    LStatusRequestOffered)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'an unrequested must-staple leaf is accepted under soft-fail');
@@ -647,9 +647,11 @@ procedure TTestOcspStapling.TestMustStapleNotRequestedAcceptsUnderOff;
 var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
+  LStatusRequestOffered: Boolean;
 begin
+  LStatusRequestOffered := False;
   CheckTrue(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
-    NoStatusRequest)
+    LStatusRequestOffered)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'an unrequested must-staple leaf is accepted under Off');
@@ -659,11 +661,13 @@ procedure TTestOcspStapling.TestMustStapleNotEnforcedOnResumption;
 var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
+  LStatusRequestOffered: Boolean;
 begin
   // no Certificate is on the wire on a resumption, so must-staple never fires even when the
   // client offered status_request
+  LStatusRequestOffered := True;
   CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
-    OfferStatusRequest, TVerificationOccasion.Resumption)
+    LStatusRequestOffered, TVerificationOccasion.Resumption)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'must-staple is not enforced on a resumption');
@@ -673,10 +677,12 @@ procedure TTestOcspStapling.TestMalformedTlsFeatureAbortsEvenWhenNotRequested;
 var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
+  LStatusRequestOffered: Boolean;
 begin
   // TLS Feature well-formedness is a hard invariant independent of request/occasion
+  LStatusRequestOffered := False;
   CheckFalse(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
-    NoStatusRequest, TVerificationOccasion.Resumption)
+    LStatusRequestOffered, TVerificationOccasion.Resumption)
     .VerifyServerCertificate(ChainFor('badfeature_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'a malformed TLS Feature is fatal even when stapling was not requested');

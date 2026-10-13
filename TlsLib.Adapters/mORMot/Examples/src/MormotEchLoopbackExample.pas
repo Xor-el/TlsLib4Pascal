@@ -63,11 +63,6 @@ uses
 const
   PORT = '28453';
   HOST = '127.0.0.1';
-  BIND_LISTENER = True;
-  CONNECT_ONLY = False;
-  ACCEPT_SYNC = False;
-  TIMEOUT_MS = 3000;
-  NO_RETRY = 0;
   PING = 'ping from the mormot ech client';
   PUBLIC_NAME = 'cover.example';
   INNER_HOST = 'localhost';
@@ -154,16 +149,22 @@ var
   LLastErr, LCipher: RawUtf8;
   LBuf: TBytes;
   LLen: Integer;
+  LDoBind, LAsync: Boolean;
+  LTimeoutMs, LRetry: Integer;
 begin
+  LDoBind := True;
+  LAsync := False;
+  LTimeoutMs := 3000;
+  LRetry := 0;
   try
     // the server credential + ECH key store ride on the process-wide ServerConfig, so the
     // context carries no cert/trust fields
     FillCharFast(LCtx, SizeOf(LCtx), 0);
-    if NewSocket(HOST, PORT, nlTcp, BIND_LISTENER, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, NO_RETRY,
+    if NewSocket(HOST, PORT, nlTcp, LDoBind, LTimeoutMs, LTimeoutMs, LTimeoutMs, LRetry,
       LListener) <> nrOK then
       raise Exception.Create('server bind failed');
     GReady.SetEvent;
-    if LListener.Accept(LClient, LAddr, ACCEPT_SYNC) <> nrOK then
+    if LListener.Accept(LClient, LAddr, LAsync) <> nrOK then
       raise Exception.Create('accept failed');
     LConcrete := TTlsLibNetTls.Create;
     LTls := LConcrete; // used via INetTls; the interface owns it
@@ -200,7 +201,12 @@ var
   LPing, LEcho: TBytes;
   LLen, LI: Integer;
   LOk: Boolean;
+  LDoBind: Boolean;
+  LTimeoutMs, LRetry: Integer;
 begin
+  LDoBind := False;
+  LTimeoutMs := 3000;
+  LRetry := 0;
   Result := 1;
   GServerError := '';
   GServerEch := TEchStatus.NotOffered;
@@ -237,7 +243,7 @@ begin
       raise Exception.Create('server: ' + GServerError);
 
     FillCharFast(LCtx, SizeOf(LCtx), 0);
-    if NewSocket(HOST, PORT, nlTcp, CONNECT_ONLY, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, NO_RETRY, LSock) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, LDoBind, LTimeoutMs, LTimeoutMs, LTimeoutMs, LRetry, LSock) <> nrOK then
       raise Exception.Create('client connect failed');
     LConcrete := TTlsLibNetTls.Create;
     LTls := LConcrete;
