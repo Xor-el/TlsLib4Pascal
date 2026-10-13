@@ -1,0 +1,46 @@
+TlsLib.Adapters/mORMot/Examples/src/MormotEchLoopbackExample.pas
+  s_a42ddd283d3520::t_612a773cda2280 235
+  s_a42ddd283d3520::t_b2795c6771e767 161
+  s_a42ddd283d3520::t_8e94238c291a28 157
+TlsLib.Adapters/mORMot/Examples/src/MormotWedgeDemoExample.pas
+  s_a42ddd283d3520::t_8d236013774f53 209
+  s_a42ddd283d3520::t_5a15b130878a6b 294
+  s_a42ddd283d3520::t_c968271644dfb8 205
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_a42ddd283d3520::t_78ded49f21e9be 346,384
+  s_a42ddd283d3520::t_35482dab2c157f 350,393
+  s_a42ddd283d3520::t_5a23a0d3acb494 440,542
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_a42ddd283d3520::t_e24f9ce22023bf 1075,1093,1107
+  s_a42ddd283d3520::t_70cc88096b7d4f 1290,1309,1368
+  s_a42ddd283d3520::t_4dcb3f919f4149 550,560,570,580,590,598
+TlsLib.Adapters/mORMot/Examples/src/MormotAdvancedConfigExample.pas
+  s_a42ddd283d3520::t_9c2b95b42e1cd0 184
+  s_a42ddd283d3520::t_af1ef34c9bb47e 236
+  s_a42ddd283d3520::t_9100b50d122133 188
+TlsLib.Adapters/mORMot/Examples/src/MormotResumptionScopeExample.pas
+  s_a42ddd283d3520::t_f49792733a574f 170
+  s_a42ddd283d3520::t_c62da293899110 156
+  s_a42ddd283d3520::t_fcdbd819f5b840 151
+  s_a42ddd283d3520::t_7c033850435505 201
+TlsLib.Adapters/mORMot/Examples/src/MormotRealWorldExample.pas
+  s_a42ddd283d3520::t_856edd7e61e989 127
+TlsLib.Tests/src/OcspStaplingTests.pas
+  s_a42ddd283d3520::t_6898bc40014e5b 636,648,662,675
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "51560b90797ff66a58f7b477e4b74c0cbb3878d1",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
