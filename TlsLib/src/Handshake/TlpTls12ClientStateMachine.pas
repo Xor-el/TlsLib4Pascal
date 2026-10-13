@@ -312,6 +312,7 @@ type
 implementation
 
 resourcestring
+  SHelloRequestNotEmpty = 'the HelloRequest carries a body';
   SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
   SUnofferedSuite = 'the server selected a cipher suite that was not offered';
   SPskStatusRequest = 'a pre-shared-key handshake has no certificate to staple a status for';
@@ -1346,7 +1347,7 @@ begin
       begin
         if System.Length(AMessage.Body) <> 0 then
           Result := TArray<THandshakeEffect>.Create(
-            THandshakeEffects.Fail(TTlsAlertDescription.DecodeError))
+            THandshakeEffects.Fail(TTlsAlertDescription.DecodeError, SHelloRequestNotEmpty))
         else
           Result := RefuseRenegotiation;
       end

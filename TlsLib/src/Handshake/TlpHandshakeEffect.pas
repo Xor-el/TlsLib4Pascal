@@ -90,7 +90,8 @@ type
     Resumed: Boolean;            // ConnectionParams (resumed)
     ExtendedMasterSecret: Boolean; // ConnectionParams (RFC 7627 in use; always True on TLS 1.3)
     ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
-    Alert: TTlsAlertDescription; // Fail
+    Alert: TTlsAlertDescription; // Fail / SendWarningAlert
+    Reason: string;              // Fail (why the handshake aborted; becomes LastError's message)
     Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
     HostName: string;            // AwaitCertificateVerdict (the host to authenticate against)
     RevocationPosture: TRevocationPosture; // AwaitCertificateVerdict (the configured posture)
@@ -163,7 +164,9 @@ type
     /// delivers it through the sink so the engine writes it under the current epoch and stays
     /// live (e.g. no_renegotiation, RFC 5246 7.4.1.1 / 7.2.2).</summary>
     class function SendWarningAlert(AAlert: TTlsAlertDescription): THandshakeEffect; static;
-    class function Fail(AAlert: TTlsAlertDescription): THandshakeEffect; static;
+    /// <summary>Aborts with AAlert; AReason is the error the application sees.</summary>
+    class function Fail(AAlert: TTlsAlertDescription;
+      const AReason: string): THandshakeEffect; static;
     /// <summary>ECH was accepted (RFC 9849): record the accepted status so connection info
     /// reports it. Emitted by the 1.3 machines at completion when ECH was in play.</summary>
     class function EchAccepted: THandshakeEffect; static;
@@ -183,9 +186,10 @@ type
     class function EchRejected(const ARetryConfigs: TBytes;
       AIsRetryAttempt: Boolean): THandshakeEffect; static;
     /// <summary>Maps an in-band protocol exception to a Fail effect (EFatalAlert - which covers
-    /// EDecodeError - to its alert; EPeerInput to illegal_parameter); returns False for any other
-    /// exception, which the caller re-raises. The single home for the machines' and the version
-    /// dispatcher's exception-to-Fail mapping.</summary>
+    /// EDecodeError - to its alert; EPeerInput to illegal_parameter) carrying the exception's
+    /// message (our own resourcestrings only); returns False for any other exception, which the
+    /// caller re-raises. The single home for the machines' and the version dispatcher's
+    /// exception-to-Fail mapping.</summary>
     class function TryFromException(const AError: Exception;
       out AEffect: THandshakeEffect): Boolean; static;
   end;
@@ -356,12 +360,13 @@ begin
   Result.Alert := AAlert;
 end;
 
-class function THandshakeEffects.Fail(
-  AAlert: TTlsAlertDescription): THandshakeEffect;
+class function THandshakeEffects.Fail(AAlert: TTlsAlertDescription;
+  const AReason: string): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.Fail;
   Result.Alert := AAlert;
+  Result.Reason := AReason;
 end;
 
 class function THandshakeEffects.EchAccepted: THandshakeEffect;
@@ -404,9 +409,9 @@ begin
   // EPeerInput before EFatalAlert to preserve the original per-site order; EDecodeError is an
   // EFatalAlert subclass, so it carries its own decode_error through the second branch
   if AError is EPeerInputTlsLibException then
-    AEffect := Fail(TTlsAlertDescription.IllegalParameter)
+    AEffect := Fail(TTlsAlertDescription.IllegalParameter, AError.Message)
   else if AError is EFatalAlertTlsLibException then
-    AEffect := Fail(EFatalAlertTlsLibException(AError).AlertDescription)
+    AEffect := Fail(EFatalAlertTlsLibException(AError).AlertDescription, AError.Message)
   else
   begin
     AEffect := Default(THandshakeEffect);

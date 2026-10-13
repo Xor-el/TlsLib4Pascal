@@ -142,6 +142,19 @@ implementation
 resourcestring
   SEmptySupportedVersions = 'supported_versions names no version (RFC 8446 4.2.1 requires at least one)';
   SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
+  SFirstMessageNotClientHello = 'the first handshake message is not a ClientHello';
+  SInappropriateFallback =
+    'the client signalled a fallback below the highest version this server supports';
+  SClientBelowTls12 = 'the client offers no version at or above TLS 1.2';
+  STls13CompressionNotNull = 'a TLS 1.3 ClientHello offers a compression method other than null';
+  SNoCommonVersion = 'the client and server share no protocol version';
+  SFirstMessageNotServerHello = 'the first handshake message is not a ServerHello';
+  SSupportedVersionsBelowTls13 =
+    'the ServerHello carries supported_versions selecting a version below TLS 1.3';
+  SServerVersionNotOffered = 'the server selected a protocol version this client did not offer';
+  SPskRequiresTls13 =
+    'the server selected TLS 1.2 but this client requires an external PSK, which is TLS 1.3 only';
+  SEarlyDataOnTls12 = 'the server selected TLS 1.2 although this client offered early data';
 
 { TVersionDispatchMachineBase }
 
@@ -325,7 +338,8 @@ begin
   // another message is unexpected_message rather than a decode_error
   if AMessage.TypeByte <> TTlsHandshakeType.ClientHello.ToByte then
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage)));
+      THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+        SFirstMessageNotClientHello)));
   LHello := THandshakeMessages.DecodeClientHello(AMessage.Body);
   // parse the outer extension block once; both the supported_versions read and the ech-presence
   // check below take this vector rather than re-walking the unauthenticated block
@@ -347,13 +361,14 @@ begin
   if TServerOfferSelection.IsSpuriousFallback(LHello.CipherSuites, LClientVersions,
     LHello.LegacyVersion, FServerHighestVersion) then
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback)));
+      THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback,
+        SInappropriateFallback)));
 
   // a client below our floor (TLS 1.2) selected nothing this server supports
   LClientHighest := TTlsVersion.ClientHighest(LClientVersions, LHello.LegacyVersion);
   if LClientHighest < TlsWireVersionTls12 then
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
+      THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion, SClientBelowTls12)));
 
   // a client with no supported_versions offers 1.2 through its legacy_version (already floored
   // at 1.2 above); a 1.3 client that lists supported_versions must name 1.2 there to negotiate it
@@ -368,7 +383,8 @@ begin
     // decode already rejected a list that offers no null method at all.
     if not THandshakeMessages.IsNullOnlyCompression(LHello.CompressionMethods) then
       Exit(TArray<THandshakeEffect>.Create(
-        THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter)));
+        THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter,
+          STls13CompressionNotNull)));
     FInner := TTls13ServerStateMachine.Create(FParams13) as IHandshakeMachine;
   end
   else if FServerSupportsTls12 and LClientOffers12 then
@@ -381,7 +397,7 @@ begin
   else
     // the client and server share no supported protocol version (RFC 8446 4.2.1 / D.2)
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
+      THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion, SNoCommonVersion)));
   Result := FInner.ProcessMessage(AMessage);
 end;
 
@@ -438,7 +454,8 @@ begin
   // decoding the body as one
   if AMessage.TypeByte <> TTlsHandshakeType.ServerHello.ToByte then
     Exit(TArray<THandshakeEffect>.Create(
-      THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage)));
+      THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+        SFirstMessageNotServerHello)));
   LHello := THandshakeMessages.DecodeServerHello(AMessage.Body);
   // a HelloRetryRequest is a 1.3 construct; otherwise the negotiated version is the
   // supported_versions selection, or the legacy_version when the extension is absent
@@ -455,14 +472,16 @@ begin
     // matching deployed behaviour; RFC 8446 4.2.1 names illegal_parameter).
     else if LSelectedVersion < TlsWireVersionTls13 then
       Exit(TArray<THandshakeEffect>.Create(
-        THandshakeEffects.Fail(TTlsAlertDescription.UnsupportedExtension)));
+        THandshakeEffects.Fail(TTlsAlertDescription.UnsupportedExtension,
+          SSupportedVersionsBelowTls13)));
     // a server that selected a version outside what this client supports (below its TLS 1.2 floor,
     // or above 1.3 - including a GREASE value) chose one it never offered: protocol_version rather
     // than a misleading downstream alert (RFC 8446 4.2.1 names illegal_parameter for an unoffered
     // supported_versions value; protocol_version is the widely deployed behaviour and stays)
     if (LSelectedVersion < TlsWireVersionTls12) or (LSelectedVersion > TlsWireVersionTls13) then
       Exit(TArray<THandshakeEffect>.Create(
-        THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
+        THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion,
+          SServerVersionNotOffered)));
   end;
 
   if LSelectedVersion = TlsWireVersionTls13 then
@@ -473,12 +492,12 @@ begin
     // PSK is a TLS 1.3 construct), so a 1.2 selection is protocol_version (local policy; RFC 8446 D.1)
     if FRequirePsk then
       Exit(TArray<THandshakeEffect>.Create(
-        THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));
+        THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion, SPskRequiresTls13)));
     // 0-RTT was offered but the server chose 1.2, where early data cannot exist: the response
     // is inconsistent with the offer (RFC 8446 D.3)
     if FPrimary13Typed.EarlyDataOffered then
       Exit(TArray<THandshakeEffect>.Create(
-        THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter)));
+        THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter, SEarlyDataOnTls12)));
     FParams12.PresentClientHello := FClientHello;
     // carry any cached 1.2 session the unified ClientHello offered into the 1.2 machine, so
     // it resumes when the server echoes the offered session id (read before releasing the

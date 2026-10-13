@@ -82,6 +82,7 @@ type
     procedure TestServerInitiatedKeyUpdate;
     procedure TestRepeatedKeyUpdatesStayInSync;
     procedure TestConsecutiveKeyUpdateFloodIsRefused;
+    procedure TestConsecutiveKeyUpdateFloodSaysWhy;
     procedure TestUndrainedEventQueueIsBounded;
     procedure TestWriteAtUsageLimitRekeysAutomatically;
     procedure TestServerExportsKeyingMaterialInHalfRtt;
@@ -443,6 +444,21 @@ begin
     Pump(LServer, LClient);
   end;
   CheckTrue(LClient.IsTerminal, 'the client refuses a consecutive KeyUpdate flood');
+end;
+
+procedure TTestTls13KeyUpdate.TestConsecutiveKeyUpdateFloodSaysWhy;
+var
+  LClient, LServer: ITlsEngine;
+  LI: Int32;
+begin
+  Handshake(LClient, LServer);
+  for LI := 0 to 40 do
+  begin
+    LServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+    Pump(LServer, LClient);
+  end;
+  CheckEquals('the peer sent too many post-handshake messages without application data',
+    LClient.LastError.Message, 'the flood refusal names its cause');
 end;
 
 procedure TTestTls13KeyUpdate.TestUndrainedEventQueueIsBounded;

@@ -102,6 +102,11 @@ type
 
 implementation
 
+resourcestring
+  SUnexpectedHandshakeMessage =
+    'the peer sent a handshake message that is not expected at this point';
+  SRenegotiationRepeated = 'the peer asked to renegotiate again after it was refused';
+
 { THandshakeMachineBase }
 
 constructor THandshakeMachineBase.Create(const AExtensionRegistry: IExtensionRegistry);
@@ -143,14 +148,14 @@ end;
 class function THandshakeMachineBase.Unexpected: TArray<THandshakeEffect>;
 begin
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
+    THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage, SUnexpectedHandshakeMessage));
 end;
 
 function THandshakeMachineBase.RefuseRenegotiation: TArray<THandshakeEffect>;
 begin
   if FRenegotiationRefused then
     Result := TArray<THandshakeEffect>.Create(
-      THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter))
+      THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter, SRenegotiationRepeated))
   else
   begin
     FRenegotiationRefused := True;

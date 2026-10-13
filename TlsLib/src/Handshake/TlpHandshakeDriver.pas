@@ -23,6 +23,7 @@ uses
   TlpRecordProtectionFactory,
   TlpITlsEngine,
   TlpTlsAlert,
+  TlpTlsLibExceptions,
   TlpIHandshakeChannel,
   TlpIHandshakeMachine,
   TlpHandshakeEffect;
@@ -64,6 +65,9 @@ type
   end;
 
 implementation
+
+resourcestring
+  SVerdictUndeliverable = 'the handshake parked for a certificate verdict that nothing can deliver';
 
 { THandshakeDriver }
 
@@ -150,7 +154,7 @@ begin
         FVerdictSink.OnCertificateVerdictNeeded(AEffect.Chain, AEffect.ValidatedPath,
           AEffect.HostName, AEffect.Staple, AEffect.RevocationPosture)
       else
-        FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError);
+        FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SVerdictUndeliverable);
     THandshakeEffectKind.PeerCertificateChain:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain, AEffect.ValidatedPath);
@@ -184,14 +188,14 @@ begin
       if FEchStatusSink <> nil then
         FEchStatusSink.OnEchRejected(AEffect.RetryConfigs, AEffect.IsRetry)
       else
-        FSink.OnHandshakeFailed(TTlsAlertDescription.EchRequired);
+        FSink.OnHandshakeFailed(TTlsAlertDescription.EchRequired, SEchRejected);
     THandshakeEffectKind.SendWarningAlert:
       // a sink that does not handle warning alerts never sees this effect; only the engine
       // bridge does, and it writes the alert under the current epoch and stays live
       if FWarningAlertSink <> nil then
         FWarningAlertSink.OnWarningAlert(AEffect.Alert);
     THandshakeEffectKind.Fail:
-      FSink.OnHandshakeFailed(AEffect.Alert);
+      FSink.OnHandshakeFailed(AEffect.Alert, AEffect.Reason);
   end;
 end;
 

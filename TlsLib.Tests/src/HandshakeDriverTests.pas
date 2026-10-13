@@ -63,12 +63,19 @@ type
     procedure TestChannelReassemblesInbound;
     procedure TestDriverInstallKeysDecryptsRfc8448Record;
     procedure TestDriverReportsOutcomesToSink;
+    procedure TestDriverForwardsTheFailReasonToTheSink;
+    procedure TestTryFromExceptionCarriesTheFatalAlertMessage;
+    procedure TestTryFromExceptionCarriesThePeerInputMessage;
     procedure TestDriverFailsClosedOnUndeliverableVerdictPark;
+    procedure TestUndeliverableVerdictParkSaysWhy;
     procedure TestDriverArmsTls12ReadInstallButInstallsTls13Immediately;
     procedure TestDriverWriteInstallIsImmediate;
   end;
 
 implementation
+
+resourcestring
+  SProbeReason = 'probe abort';
 
 { TTestHandshakeDriver }
 
@@ -313,7 +320,7 @@ begin
     LDriver.Apply(THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
     LDriver.Apply(THandshakeEffects.HandshakeEstablished);
     LDriver.Apply(THandshakeEffects.SendWarningAlert(TTlsAlertDescription.NoRenegotiation));
-    LDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.DecodeError));
+    LDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.DecodeError, SProbeReason));
     LDriver.Apply(THandshakeEffects.SendChangeCipherSpec);
 
     CheckEquals(1, LSink.EventCount, 'one event raised');
@@ -353,6 +360,82 @@ begin
     CheckTrue(LSink.Failed, 'an undeliverable verdict park fails the handshake');
     CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LSink.FailedAlert),
       'the failure is internal_error: our side could not carry the park');
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestDriverForwardsTheFailReasonToTheSink;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+  LSink: TMockHandshakeSink;
+  LSinkRef: IHandshakeSink;
+begin
+  LLayer := TRecordLayer.Create;
+  LSink := TMockHandshakeSink.Create;
+  LSinkRef := LSink;
+  LDriver := THandshakeDriver.Create(THandshakeChannel.Create(LLayer) as IHandshakeChannel, nil,
+    Crypto, LSinkRef);
+  try
+    LDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.DecodeError, SProbeReason));
+    CheckEquals(SProbeReason, LSink.FailedReason, 'the effect reason reaches the sink');
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestTryFromExceptionCarriesTheFatalAlertMessage;
+var
+  LError: Exception;
+  LEffect: THandshakeEffect;
+begin
+  LError := EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.HandshakeFailure,
+    @SProbeReason);
+  try
+    CheckTrue(THandshakeEffects.TryFromException(LError, LEffect), 'the fatal alert maps to Fail');
+    CheckEquals(SProbeReason, LEffect.Reason, 'the exception message is the reason');
+  finally
+    LError.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestTryFromExceptionCarriesThePeerInputMessage;
+var
+  LError: Exception;
+  LEffect: THandshakeEffect;
+begin
+  LError := EPeerInputTlsLibException.CreateRes(@SProbeReason);
+  try
+    CheckTrue(THandshakeEffects.TryFromException(LError, LEffect), 'peer input maps to Fail');
+    CheckEquals(Ord(TTlsAlertDescription.IllegalParameter), Ord(LEffect.Alert),
+      'peer input stays illegal_parameter');
+    CheckEquals(SProbeReason, LEffect.Reason, 'the exception message is the reason');
+  finally
+    LError.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestUndeliverableVerdictParkSaysWhy;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+  LSink: TMockHandshakeSink;
+  LSinkRef: IHandshakeSink;
+begin
+  LLayer := TRecordLayer.Create;
+  LSink := TMockHandshakeSink.Create;
+  LSinkRef := LSink;
+  LDriver := THandshakeDriver.Create(THandshakeChannel.Create(LLayer) as IHandshakeChannel, nil,
+    Crypto, LSinkRef);
+  try
+    LDriver.Apply(THandshakeEffects.AwaitCertificateVerdict(
+      TArray<TBytes>.Create(DecodeHex('3003020100')), nil, 'localhost', nil,
+      TRevocationPosture.Soft));
+    CheckEquals('the handshake parked for a certificate verdict that nothing can deliver',
+      LSink.FailedReason, 'the failure says the park could not be delivered');
   finally
     LDriver.Free;
     LLayer.Free;

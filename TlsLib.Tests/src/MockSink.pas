@@ -25,9 +25,9 @@ uses
 
 type
   /// <summary>A handshake sink double that records what the driver reports: event count and the
-  /// last event, whether the handshake was established, and any failure or warning alert. It also
-  /// implements the optional IWarningAlertSink. A test that does not care about the recordings
-  /// simply ignores them (it doubles as a silent sink).</summary>
+  /// last event, whether the handshake was established, any failure alert and its reason, and any
+  /// warning alert. It also implements the optional IWarningAlertSink. A test that does not care
+  /// about the recordings simply ignores them (it doubles as a silent sink).</summary>
   TMockHandshakeSink = class(TInterfacedObject, IHandshakeSink, IWarningAlertSink)
   strict private
   var
@@ -36,6 +36,7 @@ type
     FEstablished: Boolean;
     FFailed: Boolean;
     FFailedAlert: TTlsAlertDescription;
+    FFailedReason: string;
     FWarned: Boolean;
     FWarnedAlert: TTlsAlertDescription;
   public
@@ -43,13 +44,14 @@ type
     procedure OnAlpnSelected(const AProtocol: TBytes);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnHandshakeEstablished;
-    procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
+    procedure OnHandshakeFailed(AAlert: TTlsAlertDescription; const AReason: string);
     procedure OnWarningAlert(AAlert: TTlsAlertDescription);
     property EventCount: Int32 read FEventCount;
     property LastEvent: TTlsEventKind read FLastEvent;
     property Established: Boolean read FEstablished;
     property Failed: Boolean read FFailed;
     property FailedAlert: TTlsAlertDescription read FFailedAlert;
+    property FailedReason: string read FFailedReason;
     property Warned: Boolean read FWarned;
     property WarnedAlert: TTlsAlertDescription read FWarnedAlert;
   end;
@@ -77,10 +79,12 @@ begin
   FEstablished := True;
 end;
 
-procedure TMockHandshakeSink.OnHandshakeFailed(AAlert: TTlsAlertDescription);
+procedure TMockHandshakeSink.OnHandshakeFailed(AAlert: TTlsAlertDescription;
+  const AReason: string);
 begin
   FFailed := True;
   FFailedAlert := AAlert;
+  FFailedReason := AReason;
 end;
 
 procedure TMockHandshakeSink.OnWarningAlert(AAlert: TTlsAlertDescription);

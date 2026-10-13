@@ -108,6 +108,12 @@ type
 
 implementation
 
+resourcestring
+  SPostHandshakeFlood = 'the peer sent too many post-handshake messages without application data';
+  SDataPastFlightBoundary =
+    'the peer sent handshake data past a key change or the end of its flight in the same record';
+  SCertificateVerdictRejected = 'the peer certificate was rejected by the host''s verdict';
+
 const
   // the number of consecutive post-handshake messages tolerated with no intervening application
   // data before the stream is refused as a flood (a peer streaming KeyUpdate is a DoS)
@@ -252,7 +258,8 @@ begin
       Inc(FPostHandshakeMessages);
       if FPostHandshakeMessages > MaxConsecutivePostHandshakeMessages then
       begin
-        FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
+        FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+          SPostHandshakeFlood));
         Exit;
       end;
     end;
@@ -269,7 +276,8 @@ begin
     // records, so only a key change is a boundary once established.
     if ExcessAfterBoundary(LEffects, LWasEstablished) then
     begin
-      FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
+      FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+        SDataPastFlightBoundary));
       Exit;
     end;
     // a park for an async peer-certificate verdict suspends processing: the rest of the
@@ -311,7 +319,7 @@ begin
     // fail-closed: the host rejected the peer chain (or its resolver timed out). The built-in
     // pipeline had already accepted it, so this can only additionally reject - augment-only.
     // AAlert lets a definitive live-revocation reject abort with certificate_revoked
-    FDriver.Apply(THandshakeEffects.Fail(AAlert));
+    FDriver.Apply(THandshakeEffects.Fail(AAlert, SCertificateVerdictRejected));
     Exit;
   end;
   // accepted. First apply any continuation the machine withheld behind the park: a reverify-on-
@@ -327,7 +335,8 @@ begin
   // prior flight (the server Finished) must have ended on a record boundary
   if ExcessAfterBoundary(LEffects, LWasEstablished) then
   begin
-    FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage));
+    FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+      SDataPastFlightBoundary));
     Exit;
   end;
   // process the buffered remainder: the initial-park server flight (CertificateVerify,

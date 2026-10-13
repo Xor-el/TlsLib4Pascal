@@ -29,6 +29,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsError,
   TlpRecordHeader,
   TlpTlsVersion,
   TlpTlsLibExceptions,
@@ -178,6 +179,7 @@ type
     procedure TestServerHalfRttWriteIsAccepted;
     procedure TestWriteUnderHandshakeKeysIsRefused;
     procedure TestZeroLengthWriteEmitsNothing;
+    procedure TestFatalLevelUserCanceledIsTerminal;
     procedure TestApplicationRecordsQueueNoEvents;
     procedure TestHelloRetryRequestRoundTrip;
     procedure TestHybridDirectHandshakeNegotiates4588;
@@ -874,9 +876,9 @@ begin
     'the cookie no longer fits, so the retry aborts');
   CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.InternalError,
     'with internal_error');
-  // the machine's own fatal alert reaches the engine as a local abort; the encoder's exception
-  // would instead surface with its vector-length text
-  CheckEquals('a fatal alert was sent', LClient.LastError.Message,
+  // the client's own reason reaches LastError; the encoder would carry its vector-length text
+  CheckEquals('the HelloRetryRequest cookie is too large to echo in the second ClientHello',
+    LClient.LastError.Message,
     'raised by the client, not the wire writer');
 end;
 
@@ -1939,6 +1941,32 @@ begin
   LClient.Write(nil, 0, 0);
   CheckFalse(LClient.WantsWrite, 'a zero-length write queues nothing');
   CheckEquals(0, System.Length(Drain(LClient)), 'no record reached the wire');
+end;
+
+procedure TTestTls13Loopback.TestFatalLevelUserCanceledIsTerminal;
+var
+  LClient, LServer: ITlsEngine;
+  LIterations: Int32;
+begin
+  // the public SendAlert is fatal-level, so the peer must close (RFC 8446 6.2)
+  LClient := NewClient;
+  LServer := NewServer;
+  LClient.StartHandshake;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    Pump(LServer, LClient);
+    Inc(LIterations);
+  end;
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  LServer.SendAlert(TTlsAlertDescription.UserCanceled);
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsTerminal, 'a fatal-level user_canceled ends the connection');
+  CheckEquals(Ord(TTlsErrorOrigin.Peer), Ord(LClient.LastError.Origin),
+    'the peer ended it');
+  CheckEquals(Ord(TTlsAlertDescription.UserCanceled), Ord(LClient.LastError.Alert.Description),
+    'with user_canceled');
 end;
 
 procedure TTestTls13Loopback.TestApplicationRecordsQueueNoEvents;

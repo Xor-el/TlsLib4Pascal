@@ -99,6 +99,7 @@ type
     procedure TestCookieOneByteBeyondTheRoomAborts;
     procedure TestClientAbortsWhenTheEchoedCookieOverflowsTheSecondClientHello;
     procedure TestClientRejectsSecondHelloRetryRequest;
+    procedure TestSecondHelloRetryRequestSaysWhy;
     procedure TestClientRejectsHelloRetryWithTls12Suite;
     procedure TestClientRejectsHelloRetryUnofferedGroup;
     procedure TestClientRejectsHelloRetryWithoutSupportedVersions;
@@ -557,6 +558,27 @@ begin
     'a second HelloRetryRequest aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnexpectedMessage,
     'a second HelloRetryRequest is unexpected_message');
+end;
+
+procedure TTestHelloRetryRequest.TestSecondHelloRetryRequestSaysWhy;
+var
+  LClient: IHandshakeMachine;
+  LHrr: TBytes;
+  LEffects: TArray<THandshakeEffect>;
+  LEffect: THandshakeEffect;
+  LReason: string;
+begin
+  LClient := NewRetryClient;
+  LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
+    DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
+  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr));
+  LEffects := LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr));
+  LReason := '';
+  for LEffect in LEffects do
+    if LEffect.Kind = THandshakeEffectKind.Fail then
+      LReason := LEffect.Reason;
+  CheckEquals('the server sent a second HelloRetryRequest', LReason,
+    'the abort names the repeated HelloRetryRequest');
 end;
 
 procedure TTestHelloRetryRequest.TestClientRejectsHelloRetryWithBadLegacyVersion;
