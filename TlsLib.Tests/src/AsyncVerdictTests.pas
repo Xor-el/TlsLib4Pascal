@@ -547,7 +547,7 @@ procedure TTestAsyncVerdict.TestTls13ClientRefusesBadServerSignatureBeforePark;
 var
   LClient, LServer: ITlsEngine;
 begin
-  LClient := VersionedPair({AForce12=} False, {AMtls=} False, {ARefuseSignature=} True, LServer);
+  LClient := VersionedPair(False, False, True, LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
   CheckRefusedBeforePark(LClient);
@@ -557,7 +557,7 @@ procedure TTestAsyncVerdict.TestTls12ClientRefusesBadServerSignatureBeforePark;
 var
   LClient, LServer: ITlsEngine;
 begin
-  LClient := VersionedPair({AForce12=} True, {AMtls=} False, {ARefuseSignature=} True, LServer);
+  LClient := VersionedPair(True, False, True, LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
   CheckRefusedBeforePark(LClient);
@@ -567,7 +567,7 @@ procedure TTestAsyncVerdict.TestTls13ServerRefusesBadClientSignatureBeforePark;
 var
   LClient, LServer: ITlsEngine;
 begin
-  LClient := VersionedPair({AForce12=} False, {AMtls=} True, {ARefuseSignature=} True, LServer);
+  LClient := VersionedPair(False, True, True, LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
   CheckRefusedBeforePark(LServer);
@@ -577,7 +577,7 @@ procedure TTestAsyncVerdict.TestTls12ServerRefusesBadClientSignatureBeforePark;
 var
   LClient, LServer: ITlsEngine;
 begin
-  LClient := VersionedPair({AForce12=} True, {AMtls=} True, {ARefuseSignature=} True, LServer);
+  LClient := VersionedPair(True, True, True, LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
   CheckRefusedBeforePark(LServer);
@@ -587,7 +587,7 @@ procedure TTestAsyncVerdict.TestTls12ClientParksThenAcceptCompletes;
 var
   LClient, LServer: ITlsEngine;
 begin
-  LClient := VersionedPair({AForce12=} True, {AMtls=} False, {ARefuseSignature=} False, LServer);
+  LClient := VersionedPair(True, False, False, LServer);
   CheckParksThenCompletes(LClient, LServer, False);
 end;
 
@@ -595,7 +595,7 @@ procedure TTestAsyncVerdict.TestTls12ServerParksThenAcceptCompletes;
 var
   LClient, LServer: ITlsEngine;
 begin
-  LClient := VersionedPair({AForce12=} True, {AMtls=} True, {ARefuseSignature=} False, LServer);
+  LClient := VersionedPair(True, True, False, LServer);
   CheckParksThenCompletes(LClient, LServer, True);
 end;
 
@@ -1072,7 +1072,7 @@ var
 begin
   // under live-revocation, a current Good staple settles revocation inline, so the redundant live
   // park is skipped: the client never awaits a verdict and completes the handshake
-  LClient := StaplingRevocationClient({AHostDecision=} False, LServer, OcspVec('ocsp_good'));
+  LClient := StaplingRevocationClient(False, LServer, OcspVec('ocsp_good'));
   LClient.StartHandshake;
   DriveToCompletion(LClient, LServer);
 
@@ -1090,7 +1090,7 @@ var
 begin
   // the same client with no staple: revocation is indeterminate and deferred, so the park runs -
   // proving the skip is gated on the settled staple, not on the live-revocation mode itself
-  LClient := StaplingRevocationClient({AHostDecision=} False, LServer, nil);
+  LClient := StaplingRevocationClient(False, LServer, nil);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
 
@@ -1104,7 +1104,7 @@ var
 begin
   // a host-decision park is a separate policy (prompt on every accepted peer): a Good staple never
   // skips it
-  LClient := StaplingRevocationClient({AHostDecision=} True, LServer, OcspVec('ocsp_good'));
+  LClient := StaplingRevocationClient(True, LServer, OcspVec('ocsp_good'));
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
 
@@ -1287,7 +1287,7 @@ begin
   // TLS 1.3 mutual TLS, server on Hard client-cert revocation + an async resolver: the client
   // cert carries no staple, so a Hard server would reject inline UNLESS it defers to the
   // resolver. It must PARK (deferred), then a revoked verdict aborts with certificate_revoked.
-  LClient := NewHardMtls({AForce12=} False, LServer);
+  LClient := NewHardMtls(False, LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
   CheckTrue(LServer.AwaitingCertificateVerdict,
@@ -1306,7 +1306,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // the same, pinned to TLS 1.2 - the 1.2 server machine parks on the client-chain verdict too
-  LClient := NewHardMtls({AForce12=} True, LServer);
+  LClient := NewHardMtls(True, LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
   CheckTrue(LServer.AwaitingCertificateVerdict,
@@ -1365,7 +1365,7 @@ var
   LTransport: ITlsTransport;
   LMessage: string;
 begin
-  LClient := NewHardMtls({AForce12=} False, LServer);
+  LClient := NewHardMtls(False, LServer);
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
   CheckTrue(LServer.AwaitingCertificateVerdict, 'the server parked on the client chain');

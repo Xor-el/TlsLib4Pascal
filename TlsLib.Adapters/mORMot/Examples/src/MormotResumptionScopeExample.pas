@@ -148,12 +148,12 @@ begin
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CertificateFile := GLeafFile;
     LCtx.PrivateKeyFile := GKeyFile;
-    if NewSocket(HOST, PORT, nlTcp, {dobind=}True, 3000, 3000, 3000, 0, LListener) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, True, 3000, 3000, 3000, 0, LListener) <> nrOK then
       raise Exception.Create('server bind failed');
     GReady.SetEvent;
     for LI := 1 to LEGS do
     begin
-      if LListener.Accept(LClient, LAddr, {async=}False) <> nrOK then
+      if LListener.Accept(LClient, LAddr, False) <> nrOK then
         Break;
       LTls := TTlsLibNetTls.Create; // the interface owns it
       try
@@ -167,7 +167,7 @@ begin
         // the reject leg: the client refused our certificate; not fatal to the server loop
       end;
       LTls := nil;
-      LClient.ShutdownAndClose({rdwr=}True);
+      LClient.ShutdownAndClose(True);
     end;
   except
     on E: Exception do
@@ -198,7 +198,7 @@ var
     AConnected := False;
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CACertificatesFile := ARootFile; // pinned root (the only per-leg difference)
-    if NewSocket(HOST, PORT, nlTcp, {dobind=}False, 3000, 3000, 3000, 0, LSock) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, False, 3000, 3000, 3000, 0, LSock) <> nrOK then
       raise Exception.Create('tcp connect failed');
     LConcrete := TTlsLibNetTls.Create;
     LTls := LConcrete; // used via INetTls; the interface owns it

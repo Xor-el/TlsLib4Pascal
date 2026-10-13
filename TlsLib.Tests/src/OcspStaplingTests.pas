@@ -633,7 +633,7 @@ var
 begin
   // the client never offered status_request, so a must-staple leaf is not required to staple
   CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
-    {AStatusRequestOffered=} False)
+    False)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'an unrequested must-staple leaf is accepted under soft-fail');
@@ -645,7 +645,7 @@ var
   LVerified: TVerifiedChain;
 begin
   CheckTrue(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
-    {AStatusRequestOffered=} False)
+    False)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'an unrequested must-staple leaf is accepted under Off');
@@ -659,7 +659,7 @@ begin
   // no Certificate is on the wire on a resumption, so must-staple never fires even when the
   // client offered status_request
   CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
-    {AStatusRequestOffered=} True, TVerificationOccasion.Resumption)
+    True, TVerificationOccasion.Resumption)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'must-staple is not enforced on a resumption');
@@ -672,7 +672,7 @@ var
 begin
   // TLS Feature well-formedness is a hard invariant independent of request/occasion
   CheckFalse(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
-    {AStatusRequestOffered=} False, TVerificationOccasion.Resumption)
+    False, TVerificationOccasion.Resumption)
     .VerifyServerCertificate(ChainFor('badfeature_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'a malformed TLS Feature is fatal even when stapling was not requested');

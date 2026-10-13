@@ -124,7 +124,7 @@ begin
       end;
       // real verification: IgnoreCertificateErrors stays False (never our InsecureSkipVerify)
       // the handshake runs here and verifies the chain for Host (used for SNI too)
-      LClient.OpenBind(Host, Port, {dobind=}False, {tls=}True);
+      LClient.OpenBind(Host, Port, False, True);
       // both verbs over ONE kept-alive TLS connection
       LGetStatus := LClient.Get(GetPath, KeepAliveMs);
       LGetBody := Utf8ToString(LClient.Content);

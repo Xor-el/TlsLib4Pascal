@@ -154,11 +154,11 @@ begin
     // the server credential + ECH key store ride on the process-wide ServerConfig, so the
     // context carries no cert/trust fields
     FillCharFast(LCtx, SizeOf(LCtx), 0);
-    if NewSocket(HOST, PORT, nlTcp, {dobind=}True, 3000, 3000, 3000, 0,
+    if NewSocket(HOST, PORT, nlTcp, True, 3000, 3000, 3000, 0,
       LListener) <> nrOK then
       raise Exception.Create('server bind failed');
     GReady.SetEvent;
-    if LListener.Accept(LClient, LAddr, {async=}False) <> nrOK then
+    if LListener.Accept(LClient, LAddr, False) <> nrOK then
       raise Exception.Create('accept failed');
     LConcrete := TTlsLibNetTls.Create;
     LTls := LConcrete; // used via INetTls; the interface owns it
@@ -232,7 +232,7 @@ begin
       raise Exception.Create('server: ' + GServerError);
 
     FillCharFast(LCtx, SizeOf(LCtx), 0);
-    if NewSocket(HOST, PORT, nlTcp, {dobind=}False, 3000, 3000, 3000, 0, LSock) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, False, 3000, 3000, 3000, 0, LSock) <> nrOK then
       raise Exception.Create('client connect failed');
     LConcrete := TTlsLibNetTls.Create;
     LTls := LConcrete;

@@ -202,11 +202,11 @@ begin
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CertificateFile := GLeafFile;
     LCtx.PrivateKeyFile := GKeyFile;
-    if NewSocket(HOST, PORT, nlTcp, {dobind=}True, 3000, 3000, 3000, 0,
+    if NewSocket(HOST, PORT, nlTcp, True, 3000, 3000, 3000, 0,
       LListener) <> nrOK then
       raise Exception.Create('server bind failed');
     GReady.SetEvent;
-    if LListener.Accept(LClient, LAddr, {async=}False) <> nrOK then
+    if LListener.Accept(LClient, LAddr, False) <> nrOK then
       raise Exception.Create('accept failed');
     LTls := NewTlsLib4PascalTls;
     LTls.AfterAccept(LClient, LCtx, @LLastErr, @LCipher);
@@ -291,7 +291,7 @@ begin
 
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CACertificatesFile := GRootFile;
-    if NewSocket(HOST, PORT, nlTcp, {dobind=}False, 3000, 3000, 3000, 0, LSock) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, False, 3000, 3000, 3000, 0, LSock) <> nrOK then
       raise Exception.Create('client connect failed');
     LTls := NewTlsLib4PascalTls;
     LTls.AfterConnection(LSock, LCtx, 'localhost');
