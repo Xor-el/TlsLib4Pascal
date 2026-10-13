@@ -1,0 +1,57 @@
+TlsLib.Adapters/mORMot/Examples/src/MormotWedgeDemoExample.pas
+  s_a42ddd283d3520::t_4ca9bb4bcb3864 214
+  s_a42ddd283d3520::t_4194f9fcf09681 52-56
+  s_a42ddd283d3520::t_0e8deb795f9d4b 299
+  s_a42ddd283d3520::t_8140aa45abc632 210
+TlsLib.Adapters/mORMot/Examples/src/MormotResumptionScopeExample.pas
+  s_a42ddd283d3520::t_afc3247f23fd55 53-58
+  s_a42ddd283d3520::t_753dc2fa258a6f 207
+  s_a42ddd283d3520::t_270786288bae10 176,216,231
+  s_a42ddd283d3520::t_f0cc69db645f70 157
+  s_a42ddd283d3520::t_cbdf16f9559865 162
+TlsLib.Adapters/mORMot/Examples/src/MormotRealWorldExample.pas
+  s_a42ddd283d3520::t_900a272f0afa1a 71-74
+  s_a42ddd283d3520::t_61aa34742bea07 131
+TlsLib.Tests/src/OcspStaplingTests.pas
+  s_a42ddd283d3520::t_9291629a0aa88a 640,652
+  s_a42ddd283d3520::t_617d25622d99f4 423-424
+  s_a42ddd283d3520::t_7c66dbf93259c8 666
+  s_a42ddd283d3520::t_99baaa389a0538 679
+  s_a42ddd283d3520::t_8cc0f310086e9b 154-157
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_a42ddd283d3520::t_563c8f91343105 560,570,580,590,600,608,1117,1300,1319,1378
+  s_a42ddd283d3520::t_4f93467fb9be93 197-206
+  s_a42ddd283d3520::t_5369d261182c2b 1103
+  s_a42ddd283d3520::t_5f5171e1c041ab 1085
+TlsLib.Adapters/mORMot/Examples/src/MormotAdvancedConfigExample.pas
+  s_a42ddd283d3520::t_30d15d817a3cb9 65-69
+  s_a42ddd283d3520::t_69bed6acf05787 241
+  s_a42ddd283d3520::t_f5baf3a66fdf5c 193
+  s_a42ddd283d3520::t_00c1ef89597bd0 189
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_a42ddd283d3520::t_4d4b76d76bfc14 355,398
+  s_a42ddd283d3520::t_541af9cd22a868 53-57
+  s_a42ddd283d3520::t_f168f41026a504 351,389
+  s_a42ddd283d3520::t_d549b2dbede6d5 445,547
+TlsLib.Adapters/mORMot/Examples/src/MormotEchLoopbackExample.pas
+  s_a42ddd283d3520::t_1282d2ef1d2fca 240
+  s_a42ddd283d3520::t_34a882e0eb9f5e 166
+  s_a42ddd283d3520::t_751b8ef81bd6b2 162
+  s_a42ddd283d3520::t_02fc81de494195 66-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "28dc9c288c613372ad3ba25c589e892a1f55516f",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
