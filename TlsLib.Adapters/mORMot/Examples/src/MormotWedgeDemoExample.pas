@@ -49,6 +49,11 @@ uses
 const
   PORT = '28453';
   HOST = '127.0.0.1';
+  BIND_LISTENER = True;
+  CONNECT_ONLY = False;
+  ACCEPT_SYNC = False;
+  TIMEOUT_MS = 3000;
+  NO_RETRY = 0;
   BULK = 32 * 1024 * 1024;
   CHUNK = 1024 * 1024;
   WEDGE_TIMEOUT_MS = 45000;
@@ -202,11 +207,11 @@ begin
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CertificateFile := GLeafFile;
     LCtx.PrivateKeyFile := GKeyFile;
-    if NewSocket(HOST, PORT, nlTcp, True, 3000, 3000, 3000, 0,
+    if NewSocket(HOST, PORT, nlTcp, BIND_LISTENER, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, NO_RETRY,
       LListener) <> nrOK then
       raise Exception.Create('server bind failed');
     GReady.SetEvent;
-    if LListener.Accept(LClient, LAddr, False) <> nrOK then
+    if LListener.Accept(LClient, LAddr, ACCEPT_SYNC) <> nrOK then
       raise Exception.Create('accept failed');
     LTls := NewTlsLib4PascalTls;
     LTls.AfterAccept(LClient, LCtx, @LLastErr, @LCipher);
@@ -291,7 +296,7 @@ begin
 
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CACertificatesFile := GRootFile;
-    if NewSocket(HOST, PORT, nlTcp, False, 3000, 3000, 3000, 0, LSock) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, CONNECT_ONLY, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, NO_RETRY, LSock) <> nrOK then
       raise Exception.Create('client connect failed');
     LTls := NewTlsLib4PascalTls;
     LTls.AfterConnection(LSock, LCtx, 'localhost');

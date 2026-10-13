@@ -68,6 +68,10 @@ uses
   mormot.net.client,
   TlsLibMormotTls;
 
+const
+  CONNECT_ONLY = False;
+  USE_TLS = True;
+
 { TMormotRealWorldExample }
 
 class function TMormotRealWorldExample.SearchFrom(const AStart: string): string;
@@ -124,7 +128,7 @@ begin
       end;
       // real verification: IgnoreCertificateErrors stays False (never our InsecureSkipVerify)
       // the handshake runs here and verifies the chain for Host (used for SNI too)
-      LClient.OpenBind(Host, Port, False, True);
+      LClient.OpenBind(Host, Port, CONNECT_ONLY, USE_TLS);
       // both verbs over ONE kept-alive TLS connection
       LGetStatus := LClient.Get(GetPath, KeepAliveMs);
       LGetBody := Utf8ToString(LClient.Content);

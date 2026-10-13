@@ -50,6 +50,11 @@ const
   PORT = '28443';
   MUTUAL_PORT = '28453';
   HOST = '127.0.0.1';
+  BIND_LISTENER = True;
+  CONNECT_ONLY = False;
+  ACCEPT_SYNC = False;
+  TIMEOUT_MS = 3000;
+  NO_RETRY = 0;
   PINGHEX = '70696e672066726f6d20746865206d6f724d6f7420636c69656e74';
 
 var
@@ -343,11 +348,11 @@ begin
     // the server identity as an in-memory PKCS#12: no key file, so the bytes are read as one
     LCtx.CertificateBin := GLeafPfx;
     LCtx.PrivatePassword := 'tlslib';
-    if NewSocket(HOST, PORT, nlTcp, True, 3000, 3000, 3000, 0,
+    if NewSocket(HOST, PORT, nlTcp, BIND_LISTENER, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, NO_RETRY,
       LListener) <> nrOK then
       raise Exception.Create('server bind failed');
     GReady.SetEvent;
-    if LListener.Accept(LClient, LAddr, False) <> nrOK then
+    if LListener.Accept(LClient, LAddr, ACCEPT_SYNC) <> nrOK then
       raise Exception.Create('accept failed');
     LTls := NewTlsLib4PascalTls;
     LTls.AfterAccept(LClient, LCtx, @LLastErr, @LCipher);
@@ -381,7 +386,7 @@ begin
     // the test root vouches for clients, and a certificate is required
     LCtx.CACertificatesFile := GMutualRootFile;
     LCtx.ClientCertificateAuthentication := True;
-    if NewSocket(HOST, MUTUAL_PORT, nlTcp, True, 3000, 3000, 3000, 0,
+    if NewSocket(HOST, MUTUAL_PORT, nlTcp, BIND_LISTENER, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, NO_RETRY,
       LListener) <> nrOK then
       raise Exception.Create('mutual server bind failed');
     GReady.SetEvent;
@@ -390,7 +395,7 @@ begin
       // bounded, so a client that never arrives ends the thread instead of blocking its free
       if LListener.WaitFor(5000, [neRead]) <> [neRead] then
         Break;
-      if LListener.Accept(LClient, LAddr, False) <> nrOK then
+      if LListener.Accept(LClient, LAddr, ACCEPT_SYNC) <> nrOK then
         Break;
       Inc(FAttempts);
       LTls := NewTlsLib4PascalTls;
@@ -437,7 +442,7 @@ begin
     LCtx.CertificateBin := GMutualPfx;
     LCtx.PrivatePassword := 'tlslib';
   end;
-  if NewSocket(HOST, MUTUAL_PORT, nlTcp, False, 3000, 3000, 3000, 0, LSock) <> nrOK then
+  if NewSocket(HOST, MUTUAL_PORT, nlTcp, CONNECT_ONLY, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, NO_RETRY, LSock) <> nrOK then
     raise Exception.Create('mutual client connect failed');
   LTls := NewTlsLib4PascalTls;
   try
@@ -539,7 +544,7 @@ begin
     LCtx.CACertificatesFile := GRootFile;
     // the client offers one suite, so a negotiated AES-256 proves the list was honoured
     LCtx.CipherList := 'TLS_AES_256_GCM_SHA384';
-    if NewSocket(HOST, PORT, nlTcp, False, 3000, 3000, 3000, 0, LSock) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, CONNECT_ONLY, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, NO_RETRY, LSock) <> nrOK then
       raise Exception.Create('client connect failed');
     LTls := NewTlsLib4PascalTls;
     // connect to 127.0.0.1 but verify the certificate for 'localhost' (its SAN)
