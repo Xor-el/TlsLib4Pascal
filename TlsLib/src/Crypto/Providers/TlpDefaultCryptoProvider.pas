@@ -216,7 +216,10 @@ resourcestring
   SInvalidKemPublicKey = 'the peer KEM public key could not be parsed';
   SMalformedPrivateKey = 'the private key could not be parsed in any supported encoding';
   SPrivateKeyPasswordRequired =
-    'the private key is encrypted; a password is required to import it';
+    'the private key is encrypted; a password is required to import it, ' +
+    'or it uses an unsupported encryption';
+  SEmptyPassphraseLegacyPem =
+    'a legacy-encrypted PEM private key needs a non-empty password';
   SUnsupportedKeyAlgorithm = 'the private key uses an algorithm this library cannot sign with';
   SForeignSigningKey = 'the signing key was not produced by this provider';
   SMalformedPublicKey = 'the public key could not be parsed as a SubjectPublicKeyInfo';
@@ -568,10 +571,10 @@ type
     /// message hash (RFC 6979), so a weak or repeated RNG draw cannot leak the key.</summary>
     class function CreateDeterministicEcdsaSigner(AHash: THashAlgorithm): ISigner; static;
     /// <summary>Classifies a parsed public key into its TLS key family; False for a key kind the
-    /// provider does not model (e.g. X25519/DH/DSA), which the verifier factory then rejects since
-    /// no catalogued signature scheme can be verified with such a key.</summary>
-    class function KeyKindOf(const AKey: IAsymmetricKeyParameter;
-      out AKind: TSignatureKeyKind): Boolean; static;
+    /// provider does not model (e.g. X25519/DH/DSA, or an id-RSASSA-PSS key), which the verifier
+    /// factory then rejects since no catalogued signature scheme can be verified with such a key.</summary>
+    class function KeyKindOf(const AInfo: ISubjectPublicKeyInfo;
+      const AKey: IAsymmetricKeyParameter; out AKind: TSignatureKeyKind): Boolean; static;
   public
     constructor Create(const ARandom: ISecureRandom);
     function ImportSigningKey(const AData: TBytes;
@@ -1653,10 +1656,23 @@ begin
   LObject := FirstPrivateKeyObject(AData);
   if LObject = nil then
     raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
-  // report an encrypted PEM imported without a password as password-required, not malformed
-  if (APassword = nil) and ((LObject.&Type = 'ENCRYPTED PRIVATE KEY') or
-    HasHeader(LObject, 'Proc-Type', '4,ENCRYPTED')) then
-    raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
+  // the legacy reader cannot take an empty passphrase (nil or zero-length), so it is refused here
+  if ((APassword = nil) or (APassword.Len = 0)) and
+    HasHeader(LObject, 'Proc-Type', '4,ENCRYPTED') then
+    raise EArgumentTlsLibException.CreateRes(@SEmptyPassphraseLegacyPem);
+  // the label binds the content to an EncryptedPrivateKeyInfo (RFC 7468 11); the DER arm decrypts
+  // under any passphrase, an empty one included
+  if LObject.&Type = 'ENCRYPTED PRIVATE KEY' then
+  begin
+    LWipe := LObject.Content;
+    try
+      if DetectDerKeyShape(LWipe) <> TDerKeyShape.EncryptedPkcs8 then
+        raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
+      Exit(KeyParamFromDer(LWipe, APassword));
+    finally
+      TSecureMemory.WipeBytes(LWipe);
+    end;
+  end;
   // the chosen block alone, headers included, goes back through the reader that decrypts it
   LStream := TBytesStream.Create;
   try
@@ -1707,11 +1723,21 @@ begin
       Result := TPrivateKeyFactory.CreateKey(AData);
     TDerKeyShape.EncryptedPkcs8:
       begin
-        if APassword = nil then
-          raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
         LPass := PasswordChars(APassword);
         try
-          Result := TPrivateKeyFactory.DecryptKey(LPass, AData);
+          try
+            Result := TPrivateKeyFactory.DecryptKey(LPass, AData);
+          except
+            on E: EBaseTlsLibException do
+              raise;
+            on E: Exception do
+            begin
+              // an empty passphrase (nil or zero-length) that fails: no password, or unsupported encryption
+              if (APassword = nil) or (APassword.Len = 0) then
+                raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
+              raise;
+            end;
+          end;
         finally
           WipePasswordChars(LPass);
         end;
@@ -2019,10 +2045,13 @@ begin
   Result := TCredentialImport.ImportKey(AData, APassword);
 end;
 
-class function TSigningCrypto.KeyKindOf(const AKey: IAsymmetricKeyParameter;
-  out AKind: TSignatureKeyKind): Boolean;
+class function TSigningCrypto.KeyKindOf(const AInfo: ISubjectPublicKeyInfo;
+  const AKey: IAsymmetricKeyParameter; out AKind: TSignatureKeyKind): Boolean;
 begin
   Result := True;
+  // an id-RSASSA-PSS key fits only rsa_pss_pss_*, which is not offered (RFC 4055 1.2)
+  if AInfo.Algorithm.Algorithm.Equals(TPkcsObjectIdentifiers.IdRsassaPss) then
+    Exit(False);
   if Supports(AKey, IRsaKeyParameters) then
     AKind := TSignatureKeyKind.Rsa
   else if Supports(AKey, IECPublicKeyParameters) then
@@ -2075,6 +2104,7 @@ end;
 function TSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureScheme;
   const APublicKeyDer: TBytes): ISignatureVerifier;
 var
+  LInfo: ISubjectPublicKeyInfo;
   LKey: IAsymmetricKeyParameter;
   LKind: TSignatureKeyKind;
   LSigner: ISigner;
@@ -2082,7 +2112,8 @@ begin
   // parse the SubjectPublicKeyInfo behind a typed exception (a malformed SPKI is a caller/peer
   // input problem, never a raw backend exception crossing the seam)
   try
-    LKey := TPublicKeyFactory.CreateKey(APublicKeyDer);
+    LInfo := TSubjectPublicKeyInfo.GetInstance(APublicKeyDer);
+    LKey := TPublicKeyFactory.CreateKey(LInfo);
   except
     on E: EBaseTlsLibException do
       raise;
@@ -2095,7 +2126,7 @@ begin
   // ecdsa_*, and an unclassifiable key, can never verify the scheme (RFC 8446 4.2.3). Return a
   // fail-closed verifier so the outcome is decrypt_error, not a raised error. The curve-vs-scheme
   // bind stays a TLS 1.3 handshake concern (TCertificateVerify).
-  if (not KeyKindOf(LKey, LKind)) or (LKind <> AScheme.KeyKind) then
+  if (not KeyKindOf(LInfo, LKey, LKind)) or (LKind <> AScheme.KeyKind) then
     Exit(TFailClosedSignatureVerifier.Create as ISignatureVerifier);
   try
     LSigner := TSignerUtilities.GetSigner(SignerMechanismForScheme(AScheme));

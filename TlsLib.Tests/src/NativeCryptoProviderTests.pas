@@ -81,6 +81,9 @@ type
     // test runs), False when it reports portable (the caller skips - a host without the module).
     function NativeSigningOrSkip(const AProvider: ICryptoProvider;
       AScheme: TSignatureScheme): Boolean;
+    // Whether a signature by AKey under AScheme verifies against the SubjectPublicKeyInfo ASpki.
+    function SignedVerifies(AScheme: TSignatureScheme; const AKey: ISigningKey;
+      const ASpki: TBytes): Boolean;
   protected
     procedure SetUp; override;
   end;
@@ -121,6 +124,21 @@ type
     procedure TestBuilderAcceptsNativeCredential;
     // a preference-narrowed copy of a native key keeps the same exported public key
     procedure TestPreferredSchemesCopySharesPublicKey;
+    // a zero-length passphrase is an empty passphrase on the composed provider too
+    procedure TestEmptyPassphraseImportsEncryptedPkcs8Der;
+    procedure TestEmptyPassphraseImportsEncryptedPkcs8Pem;
+    procedure TestEmptyPassphraseOnLegacyPemRaisesTypedError;
+    // nil is the empty passphrase on the composed provider too
+    procedure TestNilPasswordImportsEncryptedPkcs8DerEmptyPassphraseKey;
+    procedure TestNilPasswordImportsEncryptedPkcs8PemEmptyPassphraseKey;
+    procedure TestNilPasswordOnRealPasswordKeyReportsPasswordRequired;
+    // a PBE only the OS module decrypts: the portable provider names the encryption, the composed
+    // one imports and signs
+    procedure TestPortableNamesAnUnsupportedPbeUnderEmptyOrWrongPassword;
+    procedure TestComposedImportsAnOsOnlyPbeKeyUnderEmptyPassphrase;
+    // an id-RSASSA-PSS SubjectPublicKeyInfo verifies no RSA scheme, natively or not
+    procedure TestPssSpkiVerifiesNoRsaPkcs1Signature;
+    procedure TestPssSpkiVerifiesNoRsaPssRsaeSignature;
   end;
 
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -130,6 +148,8 @@ type
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
     procedure TestPkcs12ExportedKeyMatchesLeaf;
+    // one native key handle signs from several threads at once and every signature verifies
+    procedure TestConcurrentSigningOnOneNativeKey;
   end;
 {$IFEND}
 
@@ -162,8 +182,72 @@ type
       const APublicKeyDer: TBytes): ISignatureVerifier;
   end;
 
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+  // signs and verifies repeatedly with one shared key, recording how many signatures verified
+  // and the first failure
+  TSharedKeySignWorker = class(TThread)
+  strict private
+    FProvider: ICryptoProvider;
+    FKey: ISigningKey;
+    FScheme: TSignatureScheme;
+    FIterations: Int32;
+    FVerified: Int32;
+    FFailure: string;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AProvider: ICryptoProvider; const AKey: ISigningKey;
+      AScheme: TSignatureScheme; AIterations: Int32);
+    property Verified: Int32 read FVerified;
+    property Failure: string read FFailure;
+  end;
+{$IFEND}
+
 resourcestring
   SPortableUsed = 'a portable facet ran where the native one must';
+
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+{ TSharedKeySignWorker }
+
+constructor TSharedKeySignWorker.Create(const AProvider: ICryptoProvider;
+  const AKey: ISigningKey; AScheme: TSignatureScheme; AIterations: Int32);
+begin
+  inherited Create(True);
+  FProvider := AProvider;
+  FKey := AKey;
+  FScheme := AScheme;
+  FIterations := AIterations;
+end;
+
+procedure TSharedKeySignWorker.Execute;
+var
+  LSigner: ISignatureSigner;
+  LVerifier: ISignatureVerifier;
+  LMessage, LSignature: TBytes;
+  LI: Int32;
+begin
+  FVerified := 0;
+  FFailure := '';
+  try
+    for LI := 0 to FIterations - 1 do
+    begin
+      LMessage := TBytes.Create(Byte(LI), Byte(ThreadID), 3, 4);
+      LSigner := FProvider.Signing.CreateSignatureSigner(FScheme, FKey);
+      LSigner.Update(LMessage, 0, System.Length(LMessage));
+      LSignature := LSigner.Sign;
+      LVerifier := FProvider.Signing.CreateSignatureVerifier(FScheme, FKey.PublicKeyInfo);
+      LVerifier.Update(LMessage, 0, System.Length(LMessage));
+      if LVerifier.Verify(LSignature) then
+        Inc(FVerified)
+      else
+        FFailure := 'a signature made on a shared key did not verify';
+    end;
+  except
+    on E: Exception do
+      FFailure := E.ClassName + ': ' + E.Message;
+  end;
+end;
+{$IFEND}
 
 { TThrowingInnerSigning }
 
@@ -237,6 +321,21 @@ function TNativeCryptoProviderTestBase.NativeSigningOrSkip(const AProvider: ICry
   AScheme: TSignatureScheme): Boolean;
 begin
   Result := IsNativeSigning(AProvider, AScheme);
+end;
+
+function TNativeCryptoProviderTestBase.SignedVerifies(AScheme: TSignatureScheme;
+  const AKey: ISigningKey; const ASpki: TBytes): Boolean;
+var
+  LSigner: ISignatureSigner;
+  LVerifier: ISignatureVerifier;
+  LMessage: TBytes;
+begin
+  LMessage := DecodeHex(SMessageHex);
+  LSigner := Crypto.Signing.CreateSignatureSigner(AScheme, AKey);
+  LSigner.Update(LMessage, 0, System.Length(LMessage));
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, ASpki);
+  LVerifier.Update(LMessage, 0, System.Length(LMessage));
+  Result := LVerifier.Verify(LSigner.Sign);
 end;
 
 function TNativeCryptoProviderTestBase.BuildServerConfig(
@@ -660,7 +759,166 @@ begin
       LVectors[LI] + ': the exported key pairs the leaf by value');
   end;
 end;
+
+procedure TTestWindowsNativeCryptoProvider.TestConcurrentSigningOnOneNativeKey;
+const
+  WorkerCount = 8;
+  Iterations = 20;
+var
+  LKey: ISigningKey;
+  LWorkers: array [0 .. WorkerCount - 1] of TSharedKeySignWorker;
+  LI: Int32;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckTrue(IsNativeKey(Crypto, LKey), 'the key under test is a native handle');
+  for LI := 0 to WorkerCount - 1 do
+    LWorkers[LI] := TSharedKeySignWorker.Create(Crypto, LKey,
+      TSignatureScheme.RSA_PSS_RSAE_SHA256, Iterations);
+  try
+    for LI := 0 to WorkerCount - 1 do
+      LWorkers[LI].Start;
+    for LI := 0 to WorkerCount - 1 do
+      LWorkers[LI].WaitFor;
+    for LI := 0 to WorkerCount - 1 do
+    begin
+      CheckEquals('', LWorkers[LI].Failure, 'worker ' + IntToStr(LI) + ' saw no failure');
+      CheckEquals(Iterations, LWorkers[LI].Verified,
+        'worker ' + IntToStr(LI) + ' verified every signature');
+    end;
+  finally
+    for LI := 0 to WorkerCount - 1 do
+      LWorkers[LI].Free;
+  end;
+end;
 {$IFEND}
+
+procedure TTestNativeCryptoProvider.TestEmptyPassphraseImportsEncryptedPkcs8Der;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_enc_empty_der']),
+    TSecretBuffer.FromString(''));
+  CheckTrue(SignedVerifies(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey,
+    DecodeHex(FKeys.Values['ec256_pub'])), 'an encrypted PKCS#8 (DER) under an empty passphrase signs');
+end;
+
+procedure TTestNativeCryptoProvider.TestEmptyPassphraseImportsEncryptedPkcs8Pem;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_enc_empty_pem']),
+    TSecretBuffer.FromString(''));
+  CheckTrue(SignedVerifies(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey,
+    DecodeHex(FKeys.Values['ec256_pub'])), 'an ENCRYPTED PRIVATE KEY PEM under an empty passphrase signs');
+end;
+
+procedure TTestNativeCryptoProvider.TestEmptyPassphraseOnLegacyPemRaisesTypedError;
+var
+  LMsg: string;
+begin
+  LMsg := '';
+  try
+    Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_legacy_enc_pem']),
+      TSecretBuffer.FromString(''));
+  except
+    on E: EArgumentTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('non-empty', LMsg) > 0,
+    'an empty passphrase on a legacy-encrypted PEM names the need for a non-empty one; got: ' + LMsg);
+end;
+
+procedure TTestNativeCryptoProvider.TestNilPasswordImportsEncryptedPkcs8DerEmptyPassphraseKey;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_enc_empty_der']), nil);
+  CheckTrue(SignedVerifies(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey,
+    DecodeHex(FKeys.Values['ec256_pub'])), 'nil is the empty passphrase (DER)');
+end;
+
+procedure TTestNativeCryptoProvider.TestNilPasswordImportsEncryptedPkcs8PemEmptyPassphraseKey;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_enc_empty_pem']), nil);
+  CheckTrue(SignedVerifies(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey,
+    DecodeHex(FKeys.Values['ec256_pub'])), 'nil is the empty passphrase (PEM)');
+end;
+
+procedure TTestNativeCryptoProvider.TestPortableNamesAnUnsupportedPbeUnderEmptyOrWrongPassword;
+
+  function ImportMessage(const APassword: ISecretBuffer): string;
+  begin
+    Result := '';
+    try
+      Portable.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_enc_empty_p12pbe_der']),
+        APassword);
+    except
+      on E: EArgumentTlsLibException do
+        Result := E.Message;
+    end;
+  end;
+
+begin
+  // pbeWithSHA1And3-KeyTripleDES-CBC (openssl pkcs8 -v1 PBE-SHA1-3DES) is outside the portable
+  // provider whatever the password, so an empty one names the encryption as a possible cause
+  CheckTrue(Pos('unsupported encryption', ImportMessage(nil)) > 0, 'nil');
+  CheckTrue(Pos('unsupported encryption', ImportMessage(TSecretBuffer.FromString(''))) > 0,
+    'zero-length');
+  // a non-empty password keeps the plain parse error, not the password-required text
+  CheckTrue(Pos('could not be parsed', ImportMessage(TSecretBuffer.FromString('x'))) > 0,
+    'non-empty');
+end;
+
+procedure TTestNativeCryptoProvider.TestComposedImportsAnOsOnlyPbeKeyUnderEmptyPassphrase;
+var
+  LKey: ISigningKey;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.ECDSA_SECP256R1_SHA256) then
+    Exit;
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_enc_empty_p12pbe_der']), nil);
+  CheckTrue(SignedVerifies(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey,
+    DecodeHex(FKeys.Values['ec256_pub'])), 'the OS module decrypts the PBE under the empty passphrase');
+end;
+
+procedure TTestNativeCryptoProvider.TestNilPasswordOnRealPasswordKeyReportsPasswordRequired;
+var
+  LMsg: string;
+begin
+  LMsg := 'imported';
+  try
+    Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_enc_der']), nil);
+  except
+    on E: EArgumentTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('password', LMsg) > 0, 'a key needing a password names it; got: ' + LMsg);
+end;
+
+procedure TTestNativeCryptoProvider.TestPssSpkiVerifiesNoRsaPkcs1Signature;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckTrue(SignedVerifies(TSignatureScheme.RSA_PKCS1_SHA256, LKey,
+    DecodeHex(FKeys.Values['rsa_pub'])), 'control: the signature verifies under the rsaEncryption SPKI');
+  CheckFalse(SignedVerifies(TSignatureScheme.RSA_PKCS1_SHA256, LKey,
+    DecodeHex(FKeys.Values['rsa_pub_pss'])), 'the same key as id-RSASSA-PSS verifies nothing');
+end;
+
+procedure TTestNativeCryptoProvider.TestPssSpkiVerifiesNoRsaPssRsaeSignature;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckTrue(SignedVerifies(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey,
+    DecodeHex(FKeys.Values['rsa_pub'])), 'control: the signature verifies under the rsaEncryption SPKI');
+  CheckFalse(SignedVerifies(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey,
+    DecodeHex(FKeys.Values['rsa_pub_pss'])), 'the same key as id-RSASSA-PSS verifies nothing');
+end;
 
 procedure TTestNativeCryptoProvider.TestPkcs12MultiKeyStillFailsClosed;
 var

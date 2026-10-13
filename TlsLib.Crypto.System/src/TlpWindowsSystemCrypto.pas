@@ -20,6 +20,7 @@ interface
 uses
   Windows,
   SysUtils,
+  SyncObjs,
   TlpArrayUtilities,
   TlpDynamicLibrary,
   TlpDataEncoding,
@@ -119,6 +120,8 @@ const
   CRYPT_DECODE_ALLOC_FLAG = DWORD($00008000);
   CRYPT_ENCODE_ALLOC_FLAG = DWORD($00008000);
   X509_PUBLIC_KEY_INFO_STRUCT = PAnsiChar(8); // WinCrypt lpszStructType ordinal
+  // id-RSASSA-PSS: a key restricted to PSS verifies none of the schemes offered here (RFC 4055 1.2)
+  OID_RSASSA_PSS = '1.2.840.113549.1.1.10';
   BCRYPT_PAD_PKCS1 = ULONG($00000002);
   BCRYPT_PAD_PSS = ULONG($00000008);
   STATUS_INVALID_SIGNATURE = Integer($C000A000);
@@ -776,8 +779,11 @@ type
   // Owns one ephemeral NCrypt key handle shared by a signing key and its
   // preference-narrowed copies.
   INCryptKeyOwner = interface(IInterface)
-    ['{8F1B3D42-0A5C-4977-B6E1-9C2D4E7A8B31}']
+    ['{3B6E0C85-D142-4A7F-9E58-71C0F2A4B963}']
     function Handle: NativeUInt;
+    /// <summary>Serializes signing on the handle: concurrent use of one NCrypt key handle is
+    /// not documented as safe.</summary>
+    function SignLock: TCriticalSection;
   end;
 
   // Marks a signing key produced by this backend, so the Signing decorator can route a
@@ -793,7 +799,7 @@ type
   // for the pre-hash. Construction raises only when ncrypt or the provider is unavailable,
   // so signing then stays portable. Pins the CNG context alive.
   IWindowsNCrypt = interface(IInterface)
-    ['{5D7A2E90-3C41-4B6F-8E2A-1F9C0B4D6A72}']
+    ['{A4C7189E-52D0-4B3A-8F61-0E9D2B7C5A14}']
     /// <summary>Imports a PKCS#8 key the KSP can serve for signing (RSA or NIST-curve
     /// ECDSA), reports the schemes it can sign with, and exports the public key from the
     /// imported handle as canonical X.509 SubjectPublicKeyInfo DER; False when the key is not
@@ -811,7 +817,7 @@ type
     /// <summary>Whether public-key export is usable on this host; a native signing key can be
     /// minted only when it is, so the backend report is honest about native signing.</summary>
     function CanExportPublicKey: Boolean;
-    function SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
+    function SignData(const AOwner: INCryptKeyOwner; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
     procedure FreeKey(AKey: NativeUInt);
     /// <summary>Whether native verification (crypt32 SPKI import + BCryptVerifySignature)
@@ -836,33 +842,42 @@ type
       ACallerFree: Boolean);
   end;
 
-  TNCryptKeyOwner = class(TInterfacedObject, INCryptKeyOwner)
+  // The handle and the signing lock every key owner carries.
+  TNCryptKeyOwnerBase = class abstract(TInterfacedObject, INCryptKeyOwner)
+  strict private
+  var
+    FHandle: NativeUInt;
+    FSignLock: TCriticalSection;
+  public
+    constructor Create(AHandle: NativeUInt);
+    destructor Destroy; override;
+    function Handle: NativeUInt;
+    function SignLock: TCriticalSection;
+  end;
+
+  TNCryptKeyOwner = class(TNCryptKeyOwnerBase)
   strict private
   var
     FKeeper: IWindowsNCrypt;
-    FHandle: NativeUInt;
   public
     constructor Create(const AKeeper: IWindowsNCrypt; AHandle: NativeUInt);
     destructor Destroy; override;
-    function Handle: NativeUInt;
   end;
 
   // Owns a PKCS#12-acquired CNG key. The ephemeral key's lifetime is tied to the in-memory
   // certificate store it came from, so this owner keeps the store and cert context alive
   // and closes them (freeing the key) on release.
-  TPfxKeyOwner = class(TInterfacedObject, INCryptKeyOwner)
+  TPfxKeyOwner = class(TNCryptKeyOwnerBase)
   strict private
   var
     FKeeper: IWindowsNCrypt;
     FStore: Pointer;
     FCert: Pointer;
-    FHandle: NativeUInt;
     FCallerFree: Boolean;
   public
     constructor Create(const AKeeper: IWindowsNCrypt; AStore, ACert: Pointer;
       AHandle: NativeUInt; ACallerFree: Boolean);
     destructor Destroy; override;
-    function Handle: NativeUInt;
   end;
 
   // A native (NCrypt-backed) signing key: an opaque ISigningKey plus the private marker. Its
@@ -980,6 +995,8 @@ type
     // both sign and verify; EdDSA has no CNG path) - the single source the report and the
     // signing decorator both consult, so their "native" view cannot drift apart.
     class function IsNativeScheme(AScheme: TSignatureScheme): Boolean; static;
+    // whether ADer is an EncryptedPrivateKeyInfo: an outer SEQUENCE leading with a SEQUENCE
+    class function IsEncryptedPkcs8(const ADer: TBytes): Boolean; static;
     constructor Create(const ACng: IWindowsCng);
     destructor Destroy; override;
     function TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
@@ -987,7 +1004,7 @@ type
       out APublicKeyInfo: TBytes): Boolean;
     function TryExportPublicKeyInfo(AKey: NativeUInt; out ASpki: TBytes): Boolean;
     function CanExportPublicKey: Boolean;
-    function SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
+    function SignData(const AOwner: INCryptKeyOwner; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
     procedure FreeKey(AKey: NativeUInt);
     function CanVerify: Boolean;
@@ -3025,7 +3042,7 @@ function TWindowsBackendReport.FacetBackend(
   AFacet: TCryptoFacet): TCryptoBackendEntry;
 begin
   // Hpke composes over this overlay's native primitives, so it is Composed; Primitives and
-  // Signing forward to the portable base.
+  // Signing are mixed per algorithm and have no whole-facet answer.
   if AFacet = TCryptoFacet.Hpke then
     Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
   else
@@ -3115,26 +3132,45 @@ begin
     Result := 'system crypto (CNG): ' + LNative + '; all else portable';
 end;
 
+{ TNCryptKeyOwnerBase }
+
+constructor TNCryptKeyOwnerBase.Create(AHandle: NativeUInt);
+begin
+  inherited Create;
+  FHandle := AHandle;
+  FSignLock := TCriticalSection.Create;
+end;
+
+destructor TNCryptKeyOwnerBase.Destroy;
+begin
+  FSignLock.Free;
+  inherited Destroy;
+end;
+
+function TNCryptKeyOwnerBase.Handle: NativeUInt;
+begin
+  Result := FHandle;
+end;
+
+function TNCryptKeyOwnerBase.SignLock: TCriticalSection;
+begin
+  Result := FSignLock;
+end;
+
 { TNCryptKeyOwner }
 
 constructor TNCryptKeyOwner.Create(const AKeeper: IWindowsNCrypt;
   AHandle: NativeUInt);
 begin
-  inherited Create;
+  inherited Create(AHandle);
   FKeeper := AKeeper;
-  FHandle := AHandle;
 end;
 
 destructor TNCryptKeyOwner.Destroy;
 begin
-  if FHandle <> 0 then
-    FKeeper.FreeKey(FHandle);
+  if Handle <> 0 then
+    FKeeper.FreeKey(Handle);
   inherited Destroy;
-end;
-
-function TNCryptKeyOwner.Handle: NativeUInt;
-begin
-  Result := FHandle;
 end;
 
 { TPfxKeyOwner }
@@ -3142,23 +3178,17 @@ end;
 constructor TPfxKeyOwner.Create(const AKeeper: IWindowsNCrypt; AStore, ACert: Pointer;
   AHandle: NativeUInt; ACallerFree: Boolean);
 begin
-  inherited Create;
+  inherited Create(AHandle);
   FKeeper := AKeeper;
   FStore := AStore;
   FCert := ACert;
-  FHandle := AHandle;
   FCallerFree := ACallerFree;
 end;
 
 destructor TPfxKeyOwner.Destroy;
 begin
-  FKeeper.FreePfxKey(FStore, FCert, FHandle, FCallerFree);
+  FKeeper.FreePfxKey(FStore, FCert, Handle, FCallerFree);
   inherited Destroy;
-end;
-
-function TPfxKeyOwner.Handle: NativeUInt;
-begin
-  Result := FHandle;
 end;
 
 { TWindowsSigningKey }
@@ -3241,7 +3271,7 @@ end;
 
 function TWindowsSignatureSigner.Sign: TBytes;
 begin
-  Result := FKeeper.SignData(FOwner.Handle, FScheme, FBuffer);
+  Result := FKeeper.SignData(FOwner, FScheme, FBuffer);
 end;
 
 { TWindowsSignatureVerifier }
@@ -3407,6 +3437,15 @@ class function TWindowsNCrypt.IsEcdsaScheme(AScheme: TSignatureScheme): Boolean;
 begin
   Result := AScheme in [TSignatureScheme.ECDSA_SECP256R1_SHA256,
     TSignatureScheme.ECDSA_SECP384R1_SHA384, TSignatureScheme.ECDSA_SECP521R1_SHA512];
+end;
+
+class function TWindowsNCrypt.IsEncryptedPkcs8(const ADer: TBytes): Boolean;
+var
+  LTag: Byte;
+  LOfs, LLen, LNext: Int32;
+begin
+  Result := TDer.ReadTlv(ADer, 0, LTag, LOfs, LLen, LNext) and (LTag = $30) and
+    TDer.ReadTlv(ADer, LOfs, LTag, LOfs, LLen, LNext) and (LTag = $30);
 end;
 
 class function TWindowsNCrypt.IsNativeScheme(AScheme: TSignatureScheme): Boolean;
@@ -3804,20 +3843,18 @@ begin
       LDer := LWrapped
     else
       LDer := APkcs8;
-    // a non-empty passphrase imports an encrypted PKCS#8: the KSP decrypts it from the
-    // NCRYPTBUFFER_PKCS_SECRET buffer. LPwd must outlive the ImportKey call and is wiped in
-    // the finally
+    // the secret always travels in NCRYPTBUFFER_PKCS_SECRET, L"" for an absent or empty passphrase
+    // (an omitted secret is not reliably the empty password); LPwd is wiped in the finally
     LPwd := WidePassword(APassword);
-    if System.Length(LPwd) > 0 then
-    begin
-      LBuf.cbBuffer := ULONG(System.Length(LPwd)) * SizeOf(WideChar); // includes NUL
-      LBuf.BufferType := NCRYPTBUFFER_PKCS_SECRET;
-      LBuf.pvBuffer := @LPwd[0];
-      LDesc.ulVersion := NCRYPTBUFFER_VERSION;
-      LDesc.cBuffers := 1;
-      LDesc.pBuffers := @LBuf;
-      LParam := @LDesc;
-    end;
+    if System.Length(LPwd) = 0 then
+      SetLength(LPwd, 1); // zero-initialised: the NUL terminator alone
+    LBuf.cbBuffer := ULONG(System.Length(LPwd)) * SizeOf(WideChar); // includes NUL
+    LBuf.BufferType := NCRYPTBUFFER_PKCS_SECRET;
+    LBuf.pvBuffer := @LPwd[0];
+    LDesc.ulVersion := NCRYPTBUFFER_VERSION;
+    LDesc.cBuffers := 1;
+    LDesc.pBuffers := @LBuf;
+    LParam := @LDesc;
     // the KSP parses the PKCS#8 PrivateKeyInfo; a non-PKCS#8 / unsupported-PBE / unsupported key
     // (or a wrong password) simply fails to import and the caller delegates to the portable facet
     if FApi.ImportKey(FProvider, 0, PWideChar(BLOB_PKCS8_PRIVATE), LParam, LKey,
@@ -3907,16 +3944,24 @@ begin
   Result := DerEncodeEcdsa(LRaw);
 end;
 
-function TWindowsNCrypt.SignData(AKey: NativeUInt; AScheme: TSignatureScheme;
+function TWindowsNCrypt.SignData(const AOwner: INCryptKeyOwner; AScheme: TSignatureScheme;
   const AData: TBytes): TBytes;
 var
   LDigest: TBytes;
+  LLock: TCriticalSection;
 begin
   LDigest := HashDigest(HashAlgForScheme(AScheme), AData);
-  if IsEcdsaScheme(AScheme) then
-    Result := SignEcdsaDigest(AKey, LDigest)
-  else
-    Result := SignRsaDigest(AKey, AScheme, LDigest);
+  // one signature at a time per credential: a shared key handle has no documented thread safety
+  LLock := AOwner.SignLock;
+  LLock.Enter;
+  try
+    if IsEcdsaScheme(AScheme) then
+      Result := SignEcdsaDigest(AOwner.Handle, LDigest)
+    else
+      Result := SignRsaDigest(AOwner.Handle, AScheme, LDigest);
+  finally
+    LLock.Leave;
+  end;
 end;
 
 procedure TWindowsNCrypt.FreeKey(AKey: NativeUInt);
@@ -3947,6 +3992,9 @@ begin
     PByte(ASpki), System.Length(ASpki), CRYPT_DECODE_ALLOC_FLAG, nil, @LInfo, LSize) then
     Exit(False);
   try
+    // crypt32 would import an id-RSASSA-PSS key as plain RSA; the portable verifier refuses it
+    if (PPAnsiChar(LInfo)^ <> nil) and (AnsiString(PPAnsiChar(LInfo)^) = OID_RSASSA_PSS) then
+      Exit(False);
     LKey := nil;
     if FCryptApi.ImportPublicKeyInfoEx2(X509_ASN_ENCODING, LInfo, 0, nil, LKey) then
     begin
@@ -4206,7 +4254,9 @@ begin
     // encrypted PKCS#8 needs the password; plain PKCS#8 and the raw PKCS#1/SEC1 forms
     // ("RSA/EC PRIVATE KEY", wrapped to PKCS#8 inside TryImportKey) import unkeyed
     if LBlocks[LIdx].PemType = 'ENCRYPTED PRIVATE KEY' then
-      LImported := FNCrypt.TryImportKey(LBlocks[LIdx].Content, APassword, LKey, LSchemes,
+      // the label means EncryptedPrivateKeyInfo (RFC 7468 11) but the KSP imports plaintext too
+      LImported := TWindowsNCrypt.IsEncryptedPkcs8(LBlocks[LIdx].Content) and
+        FNCrypt.TryImportKey(LBlocks[LIdx].Content, APassword, LKey, LSchemes,
         LSpki)
     else if (LBlocks[LIdx].PemType = 'PRIVATE KEY') or
       (LBlocks[LIdx].PemType = 'RSA PRIVATE KEY') or

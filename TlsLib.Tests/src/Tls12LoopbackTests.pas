@@ -728,33 +728,11 @@ end;
 function TTestTls12Loopback.TamperHandshakeMessage(var AWire: TBytes;
   AMsgType: Byte): Boolean;
 var
-  LPos, LRecLen, LInner, LMsgLen, LBodyEnd: Int32;
+  LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
-  Result := False;
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    // handshake records are plaintext before the ChangeCipherSpec, so their messages
-    // can be walked by type; a coalesced record may carry several messages
-    if AWire[LPos] = 22 then
-    begin
-      LInner := LPos + 5;
-      while LInner + 4 <= LPos + 5 + LRecLen do
-      begin
-        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
-          AWire[LInner + 3];
-        LBodyEnd := LInner + 4 + LMsgLen;
-        if (AWire[LInner] = AMsgType) and (LBodyEnd <= System.Length(AWire)) then
-        begin
-          AWire[LBodyEnd - 1] := AWire[LBodyEnd - 1] xor $01;
-          Exit(True);
-        end;
-        LInner := LBodyEnd;
-      end;
-    end;
-    Inc(LPos, 5 + LRecLen);
-  end;
+  Result := FindPlaintextHandshakeMessage(AWire, AMsgType, LRecordPos, LMsgPos, LMsgLen);
+  if Result then
+    AWire[LMsgPos + 3 + LMsgLen] := AWire[LMsgPos + 3 + LMsgLen] xor $01;
 end;
 
 function TTestTls12Loopback.TamperLastRecordPayload(var AWire: TBytes): Boolean;

@@ -92,8 +92,8 @@ begin
   if not Result.IsValidForHandshake(AVersion) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SLegacyPkcs1InHandshakeSignature);
-  // the leaf must permit digitalSignature and, for an rsa_pss_rsae_* scheme, not be an
-  // id-RSASSA-PSS key; TLS 1.3 additionally binds an ecdsa_* scheme to the leaf's curve
+  // the leaf must permit digitalSignature and match the scheme's key family; TLS 1.3 additionally
+  // binds an ecdsa_* scheme to the leaf's curve
   TCertificateVerify.EnforceSigningLeafPolicy(ALeaf, Result, AVersion.Equals(TTlsVersion.Tls13));
 end;
 

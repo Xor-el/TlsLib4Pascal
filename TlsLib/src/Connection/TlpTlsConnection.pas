@@ -561,9 +561,6 @@ begin
           @SPkcs12WithPrivateKey);
       Result := TTlsCredential.LoadPkcs12(ACrypto, LCert, AOptions.KeyPassword);
     end
-    else if AOptions.KeyPassword = '' then
-      // no password reaches the provider as nil, so an encrypted key reports that it needs one
-      Result := TTlsCredential.Load(ACrypto, APkix, LCert, LKey)
     else
       Result := TTlsCredential.Load(ACrypto, APkix, LCert, LKey, AOptions.KeyPassword);
   finally
