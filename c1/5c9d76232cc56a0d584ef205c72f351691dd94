@@ -1,0 +1,59 @@
+TlsLib.Tests/src/NetSocketTests.pas
+  s_a42ddd283d3520::t_51799fe4c01843 111
+  s_a42ddd283d3520::t_7e71e1a042efd5 88-94,96,98,100,102-110,112-116,118-124,126,129-133
+  s_a42ddd283d3520::t_32dfc3c14c59f1 125
+  s_a42ddd283d3520::t_ad7ff8890261ee 675
+  s_a42ddd283d3520::t_b3cd2dafebcf13 629-674,676-753,762-774,776
+  s_a42ddd283d3520::t_d681fe06033c70 39,775,777
+  s_a42ddd283d3520::t_c43725414bc9bd 222-249
+  s_a42ddd283d3520::t_9529003154e167 48-56,62
+  s_a42ddd283d3520::t_6f875574b9d5cf 491-492,494
+.github/workflows/make.yml
+  s_a42ddd283d3520::t_92a057029fb5d8 317
+  s_a42ddd283d3520::t_a06c0b86c6705f 178
+  s_a42ddd283d3520::t_7ce3c539ea7d55 226
+  s_a42ddd283d3520::t_4b8a4ed0c0182d 97-99
+  s_a42ddd283d3520::t_1b82929cc0080a 372
+  s_a42ddd283d3520::t_b836e2de3b7acd 420
+TlsLib.Net/src/TlpPosixNetOs.pas
+  s_a42ddd283d3520::t_3f978c96784ccf 25,29,67
+  s_a42ddd283d3520::t_13c2d98e456a59 60-66,68-77,81-82,94-97
+  s_a42ddd283d3520::t_483d8e4b9e1be7 485
+  s_a42ddd283d3520::t_6722ef0ed296f6 240-243
+  s_a42ddd283d3520::t_8b654e8fb3260c 482-483,486
+  s_a42ddd283d3520::t_2346d119380d9d 539-540,544,547,550-551,553,555-557,560-561,563,567,570,573,575-577
+  s_a42ddd283d3520::t_a551898a492d63 50-53
+  s_a42ddd283d3520::t_8ea4fae2eb1552 180-181,183
+  s_a42ddd283d3520::t_ac0fcd60281fd7 470
+  s_a42ddd283d3520::t_7afcad21b84a25 48-49
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_a42ddd283d3520::t_434704a27c1ea8 131
+TlsLib.Tests/src/TlsLibTestBase.pas
+  s_a42ddd283d3520::t_9f62680659bee0 125-127
+  s_a42ddd283d3520::t_408a5cebc59e37 67-69
+  s_a42ddd283d3520::t_d936287d6c704b 223
+  s_a42ddd283d3520::t_f66881749af8bd 215-222,224-226
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_a42ddd283d3520::t_60f8f2344bd78c 14
+  s_a42ddd283d3520::t_b9bacb7137a6e1 750
+  s_a42ddd283d3520::t_d8f4644623f216 84,87-91,96
+  s_a42ddd283d3520::t_1a4bff069d1c7e 350
+  s_a42ddd283d3520::t_ccc32eafffa4a8 511
+  s_a42ddd283d3520::t_a94c1865fa9376 85-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c15c9d76232cc56a0d584ef205c72f351691dd94",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
