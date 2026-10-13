@@ -136,6 +136,9 @@ type
     // one imports and signs
     procedure TestPortableNamesAnUnsupportedPbeUnderEmptyOrWrongPassword;
     procedure TestComposedImportsAnOsOnlyPbeKeyUnderEmptyPassphrase;
+    // one native key handle signs from several threads at once and every signature verifies; a guard
+    // only: it passes with or without the per-key signing lock
+    procedure TestConcurrentSigningOnOneNativeKey;
     // an id-RSASSA-PSS SubjectPublicKeyInfo verifies no RSA scheme, natively or not
     procedure TestPssSpkiVerifiesNoRsaPkcs1Signature;
     procedure TestPssSpkiVerifiesNoRsaPssRsaeSignature;
@@ -148,8 +151,6 @@ type
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
     procedure TestPkcs12ExportedKeyMatchesLeaf;
-    // one native key handle signs from several threads at once and every signature verifies
-    procedure TestConcurrentSigningOnOneNativeKey;
   end;
 {$IFEND}
 
@@ -182,7 +183,6 @@ type
       const APublicKeyDer: TBytes): ISignatureVerifier;
   end;
 
-{$IF DEFINED(TLSLIB_MSWINDOWS)}
   // signs and verifies repeatedly with one shared key, recording how many signatures verified
   // and the first failure
   TSharedKeySignWorker = class(TThread)
@@ -201,12 +201,10 @@ type
     property Verified: Int32 read FVerified;
     property Failure: string read FFailure;
   end;
-{$IFEND}
 
 resourcestring
   SPortableUsed = 'a portable facet ran where the native one must';
 
-{$IF DEFINED(TLSLIB_MSWINDOWS)}
 { TSharedKeySignWorker }
 
 constructor TSharedKeySignWorker.Create(const AProvider: ICryptoProvider;
@@ -247,7 +245,6 @@ begin
       FFailure := E.ClassName + ': ' + E.Message;
   end;
 end;
-{$IFEND}
 
 { TThrowingInnerSigning }
 
@@ -760,7 +757,9 @@ begin
   end;
 end;
 
-procedure TTestWindowsNativeCryptoProvider.TestConcurrentSigningOnOneNativeKey;
+{$IFEND}
+
+procedure TTestNativeCryptoProvider.TestConcurrentSigningOnOneNativeKey;
 const
   WorkerCount = 8;
   Iterations = 20;
@@ -792,7 +791,6 @@ begin
       LWorkers[LI].Free;
   end;
 end;
-{$IFEND}
 
 procedure TTestNativeCryptoProvider.TestEmptyPassphraseImportsEncryptedPkcs8Der;
 var
