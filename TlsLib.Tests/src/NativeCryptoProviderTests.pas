@@ -66,6 +66,9 @@ type
     // The class and message of the exception AProvider raises importing AData, empty when it imports.
     function ImportFailure(const AProvider: ICryptoProvider; const AData: TBytes;
       const APassword: ISecretBuffer): string;
+    // Asserts the portable provider reports the AField key as an unsupported encryption under a
+    // nil, a zero-length and a non-empty password.
+    procedure CheckPortableNamesUnsupportedEncryption(const AField: string);
     // the fixture drives the native provider, so the crypto provider under test is the composed one
     function CreateCrypto: ICryptoProvider; override;
     // The portable provider the native one is composed over, for the cases that wrap it (a facet
@@ -134,7 +137,10 @@ type
     procedure TestNilPasswordOnRealPasswordKeyReportsPasswordRequired;
     // a PBE only the OS module decrypts: the portable provider names the encryption, the composed
     // one imports and signs
-    procedure TestPortableNamesAnUnsupportedPbeWhateverThePassword;
+    procedure TestPortableNamesAPkcs12PbeAsUnsupported;
+    procedure TestPortableNamesAnUnmappedPbes2CipherAsUnsupported;
+    procedure TestPortableNamesAnUnmappedPbes2PrfAsUnsupported;
+    procedure TestPortableNamesScryptAsUnsupported;
     procedure TestComposedImportsAnOsOnlyPbeKeyUnderEmptyPassphrase;
     // one native key handle signs from several threads at once and every signature verifies; a guard
     // only: it passes with or without the per-key signing lock
@@ -190,6 +196,7 @@ type
     FProvider: ICryptoProvider;
     FKey: ISigningKey;
     FScheme: TSignatureScheme;
+    FIndex: Int32;
     FIterations: Int32;
     FVerified: Int32;
     FFailure: string;
@@ -197,7 +204,7 @@ type
     procedure Execute; override;
   public
     constructor Create(const AProvider: ICryptoProvider; const AKey: ISigningKey;
-      AScheme: TSignatureScheme; AIterations: Int32);
+      AScheme: TSignatureScheme; AIndex, AIterations: Int32);
     property Verified: Int32 read FVerified;
     property Failure: string read FFailure;
   end;
@@ -208,12 +215,13 @@ resourcestring
 { TSharedKeySignWorker }
 
 constructor TSharedKeySignWorker.Create(const AProvider: ICryptoProvider;
-  const AKey: ISigningKey; AScheme: TSignatureScheme; AIterations: Int32);
+  const AKey: ISigningKey; AScheme: TSignatureScheme; AIndex, AIterations: Int32);
 begin
   inherited Create(True);
   FProvider := AProvider;
   FKey := AKey;
   FScheme := AScheme;
+  FIndex := AIndex;
   FIterations := AIterations;
 end;
 
@@ -229,7 +237,7 @@ begin
   try
     for LI := 0 to FIterations - 1 do
     begin
-      LMessage := TBytes.Create(Byte(LI), Byte(ThreadID), 3, 4);
+      LMessage := TBytes.Create(Byte(LI), Byte(FIndex), 3, 4);
       LSigner := FProvider.Signing.CreateSignatureSigner(FScheme, FKey);
       LSigner.Update(LMessage, 0, System.Length(LMessage));
       LSignature := LSigner.Sign;
@@ -774,7 +782,7 @@ begin
   CheckTrue(IsNativeKey(Crypto, LKey), 'the key under test is a native handle');
   for LI := 0 to WorkerCount - 1 do
     LWorkers[LI] := TSharedKeySignWorker.Create(Crypto, LKey,
-      TSignatureScheme.RSA_PSS_RSAE_SHA256, Iterations);
+      TSignatureScheme.RSA_PSS_RSAE_SHA256, LI, Iterations);
   try
     for LI := 0 to WorkerCount - 1 do
       LWorkers[LI].Start;
@@ -846,28 +854,47 @@ begin
     DecodeHex(FKeys.Values['ec256_pub'])), 'nil is the empty passphrase (PEM)');
 end;
 
-procedure TTestNativeCryptoProvider.TestPortableNamesAnUnsupportedPbeWhateverThePassword;
+procedure TNativeCryptoProviderTestBase.CheckPortableNamesUnsupportedEncryption(
+  const AField: string);
 
-  function ImportMessage(const APassword: ISecretBuffer): string;
+  procedure CheckFor(const APassword: ISecretBuffer; const AWhat: string);
+  var
+    LFailure: string;
   begin
-    Result := '';
-    try
-      Portable.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_enc_empty_p12pbe_der']),
-        APassword);
-    except
-      on E: ENotSupportedTlsLibException do
-        Result := E.Message;
-    end;
+    LFailure := ImportFailure(Portable, DecodeHex(FKeys.Values[AField]), APassword);
+    CheckTrue(Pos('ENotSupportedTlsLibException: ', LFailure) = 1, AWhat + ': ' + LFailure);
+    CheckTrue(Pos('unsupported encryption', LFailure) > 0, AWhat + ': ' + LFailure);
   end;
 
 begin
-  // pbeWithSHA1And3-KeyTripleDES-CBC (openssl pkcs8 -v1 PBE-SHA1-3DES) is outside the portable
-  // provider, so no password is blamed for nil, zero-length or non-empty alike
-  CheckTrue(Pos('unsupported encryption', ImportMessage(nil)) > 0, 'nil');
-  CheckTrue(Pos('unsupported encryption', ImportMessage(TSecretBuffer.FromString(''))) > 0,
-    'zero-length');
-  CheckTrue(Pos('unsupported encryption', ImportMessage(TSecretBuffer.FromString('x'))) > 0,
-    'non-empty');
+  // no password is blamed for an encryption the portable provider cannot run
+  CheckFor(nil, AField + ' nil');
+  CheckFor(TSecretBuffer.FromString(''), AField + ' zero-length');
+  CheckFor(TSecretBuffer.FromString('x'), AField + ' non-empty');
+end;
+
+procedure TTestNativeCryptoProvider.TestPortableNamesAPkcs12PbeAsUnsupported;
+begin
+  // pbeWithSHA1And3-KeyTripleDES-CBC: no engine for the algorithm
+  CheckPortableNamesUnsupportedEncryption('ec256_enc_empty_p12pbe_der');
+end;
+
+procedure TTestNativeCryptoProvider.TestPortableNamesAnUnmappedPbes2CipherAsUnsupported;
+begin
+  // DES-EDE3-CBC: CryptoLib raises while resolving the cipher
+  CheckPortableNamesUnsupportedEncryption('ec256_enc_empty_des3_der');
+end;
+
+procedure TTestNativeCryptoProvider.TestPortableNamesAnUnmappedPbes2PrfAsUnsupported;
+begin
+  // hmacWithMD5: CryptoLib raises while resolving the PRF during decryption
+  CheckPortableNamesUnsupportedEncryption('ec256_enc_empty_prfmd5_der');
+end;
+
+procedure TTestNativeCryptoProvider.TestPortableNamesScryptAsUnsupported;
+begin
+  // id-scrypt as the PBES2 key-derivation function
+  CheckPortableNamesUnsupportedEncryption('ec256_enc_empty_scrypt_der');
 end;
 
 procedure TTestNativeCryptoProvider.TestComposedImportsAnOsOnlyPbeKeyUnderEmptyPassphrase;

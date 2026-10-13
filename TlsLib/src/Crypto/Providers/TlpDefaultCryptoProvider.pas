@@ -1719,6 +1719,7 @@ var
   LInfo: IPrivateKeyInfo;
   LEnc: IEncryptedPrivateKeyInfo;
   LEngine: TValue;
+  LCipher: IBufferedCipher;
   LPass: TArray<Char>;
 begin
   Result := nil;
@@ -1727,18 +1728,30 @@ begin
       Result := TPrivateKeyFactory.CreateKey(AData);
     TDerKeyShape.EncryptedPkcs8:
       begin
-        // the encryption is checked first: an unsupported one is no password problem, whatever was given
+        // an unsupported encryption is reported as such, whatever password was given
         LEnc := TEncryptedPrivateKeyInfo.GetInstance(AData);
-        LEngine := TPbeUtilities.CreateEngine(LEnc.EncryptionAlgorithm);
-        if LEngine.IsEmpty or (LEngine.TypeInfo <> TypeInfo(IBufferedCipher)) then
+        try
+          LEngine := TPbeUtilities.CreateEngine(LEnc.EncryptionAlgorithm);
+        except
+          on E: ESecurityUtilityCryptoLibException do
+            raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyEncryption);
+        end;
+        if not (LEngine.TryGetAsType<IBufferedCipher>(LCipher)) or (LCipher = nil) then
+          raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyEncryption);
+        // PBES2 is read as PBKDF2 whatever its key-derivation function says
+        if LEnc.EncryptionAlgorithm.Algorithm.Equals(TPkcsObjectIdentifiers.IdPbeS2) and
+          not TPbeS2Parameters.GetInstance(LEnc.EncryptionAlgorithm.Parameters.ToAsn1Object)
+          .KeyDerivationFunc.Algorithm.Equals(TPkcsObjectIdentifiers.IdPbkdf2) then
           raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyEncryption);
         LPass := PasswordChars(APassword);
         try
           try
-            Result := TPrivateKeyFactory.DecryptKey(LPass, AData);
+            Result := TPrivateKeyFactory.DecryptKey(LPass, LEnc);
           except
             on E: EBaseTlsLibException do
               raise;
+            on E: ESecurityUtilityCryptoLibException do
+              raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyEncryption);
             on E: Exception do
             begin
               // nil and zero-length are the empty passphrase: failing under it asks for a password
