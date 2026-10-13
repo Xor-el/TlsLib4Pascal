@@ -79,6 +79,8 @@ uses
   ClpPublicKeyFactory,
   ClpPrivateKeyFactory,
   ClpPrivateKeyInfoFactory,
+  ClpPbeUtilities,
+  ClpIBufferedCipher,
   ClpIOpenSslPasswordFinder,
   ClpIOpenSslPemReader,
   ClpOpenSslPemReader,
@@ -216,8 +218,8 @@ resourcestring
   SInvalidKemPublicKey = 'the peer KEM public key could not be parsed';
   SMalformedPrivateKey = 'the private key could not be parsed in any supported encoding';
   SPrivateKeyPasswordRequired =
-    'the private key is encrypted; a password is required to import it, ' +
-    'or it uses an unsupported encryption';
+    'the private key is encrypted; a password is required to import it';
+  SUnsupportedKeyEncryption = 'the private key uses an unsupported encryption';
   SEmptyPassphraseLegacyPem =
     'a legacy-encrypted PEM private key needs a non-empty password';
   SUnsupportedKeyAlgorithm = 'the private key uses an algorithm this library cannot sign with';
@@ -1715,6 +1717,8 @@ var
   LEc: IECPrivateKeyStructure;
   LAlgId: IAlgorithmIdentifier;
   LInfo: IPrivateKeyInfo;
+  LEnc: IEncryptedPrivateKeyInfo;
+  LEngine: TValue;
   LPass: TArray<Char>;
 begin
   Result := nil;
@@ -1723,6 +1727,11 @@ begin
       Result := TPrivateKeyFactory.CreateKey(AData);
     TDerKeyShape.EncryptedPkcs8:
       begin
+        // the encryption is checked first: an unsupported one is no password problem, whatever was given
+        LEnc := TEncryptedPrivateKeyInfo.GetInstance(AData);
+        LEngine := TPbeUtilities.CreateEngine(LEnc.EncryptionAlgorithm);
+        if LEngine.IsEmpty or (LEngine.TypeInfo <> TypeInfo(IBufferedCipher)) then
+          raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyEncryption);
         LPass := PasswordChars(APassword);
         try
           try
@@ -1732,7 +1741,7 @@ begin
               raise;
             on E: Exception do
             begin
-              // an empty passphrase (nil or zero-length) that fails: no password, or unsupported encryption
+              // nil and zero-length are the empty passphrase: failing under it asks for a password
               if (APassword = nil) or (APassword.Len = 0) then
                 raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
               raise;

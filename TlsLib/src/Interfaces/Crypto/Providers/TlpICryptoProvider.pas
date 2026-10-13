@@ -238,7 +238,8 @@ type
     /// passphrase. An encrypted key that does not decrypt under an empty passphrase raises
     /// EArgumentTlsLibException (password required); a legacy "Proc-Type: 4,ENCRYPTED" PEM key
     /// needs a non-empty one. Malformed input raises
-    /// EArgumentTlsLibException; an unsupported key algorithm raises ENotSupportedTlsLibException.
+    /// EArgumentTlsLibException; an unsupported key algorithm or key encryption raises
+    /// ENotSupportedTlsLibException.
     /// </summary>
     function ImportSigningKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey;

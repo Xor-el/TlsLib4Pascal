@@ -134,7 +134,7 @@ type
     procedure TestNilPasswordOnRealPasswordKeyReportsPasswordRequired;
     // a PBE only the OS module decrypts: the portable provider names the encryption, the composed
     // one imports and signs
-    procedure TestPortableNamesAnUnsupportedPbeUnderEmptyOrWrongPassword;
+    procedure TestPortableNamesAnUnsupportedPbeWhateverThePassword;
     procedure TestComposedImportsAnOsOnlyPbeKeyUnderEmptyPassphrase;
     // one native key handle signs from several threads at once and every signature verifies; a guard
     // only: it passes with or without the per-key signing lock
@@ -846,7 +846,7 @@ begin
     DecodeHex(FKeys.Values['ec256_pub'])), 'nil is the empty passphrase (PEM)');
 end;
 
-procedure TTestNativeCryptoProvider.TestPortableNamesAnUnsupportedPbeUnderEmptyOrWrongPassword;
+procedure TTestNativeCryptoProvider.TestPortableNamesAnUnsupportedPbeWhateverThePassword;
 
   function ImportMessage(const APassword: ISecretBuffer): string;
   begin
@@ -855,19 +855,18 @@ procedure TTestNativeCryptoProvider.TestPortableNamesAnUnsupportedPbeUnderEmptyO
       Portable.Signing.ImportSigningKey(DecodeHex(FKeys.Values['ec256_enc_empty_p12pbe_der']),
         APassword);
     except
-      on E: EArgumentTlsLibException do
+      on E: ENotSupportedTlsLibException do
         Result := E.Message;
     end;
   end;
 
 begin
   // pbeWithSHA1And3-KeyTripleDES-CBC (openssl pkcs8 -v1 PBE-SHA1-3DES) is outside the portable
-  // provider whatever the password, so an empty one names the encryption as a possible cause
+  // provider, so no password is blamed for nil, zero-length or non-empty alike
   CheckTrue(Pos('unsupported encryption', ImportMessage(nil)) > 0, 'nil');
   CheckTrue(Pos('unsupported encryption', ImportMessage(TSecretBuffer.FromString(''))) > 0,
     'zero-length');
-  // a non-empty password keeps the plain parse error, not the password-required text
-  CheckTrue(Pos('could not be parsed', ImportMessage(TSecretBuffer.FromString('x'))) > 0,
+  CheckTrue(Pos('unsupported encryption', ImportMessage(TSecretBuffer.FromString('x'))) > 0,
     'non-empty');
 end;
 
