@@ -1,0 +1,30 @@
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_a42ddd283d3520::t_c3b5e5438ef903 283
+  s_a42ddd283d3520::t_9b777ec990ccc6 277
+  s_a42ddd283d3520::t_02ef2777e4b292 279
+  s_a42ddd283d3520::t_b1480751dd1277 278
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_a42ddd283d3520::t_591796a54810fe 41
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_a42ddd283d3520::t_f9da0f22cbd375 1081
+  s_a42ddd283d3520::t_1b8dec7d35e34f 394
+  s_a42ddd283d3520::t_bdb0780673fec9 1222
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_a42ddd283d3520::t_fa93f1b9f168b8 61-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7456ad33d9f2dcc13ea988c8ec30b3892d51de67",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
