@@ -689,8 +689,14 @@ TLS client, on every compiler and OS. Configure it with a `TSocketHttpFetcherSet
   It must not arm a certificate-verdict park (`WithAsyncCertificateVerdict` or
   `WithLiveRevocationVerdict`; there is no resolver here, and a live one would call the fetcher
   itself), which the constructor refuses. OCSP and CRL responders are almost always plain http.
-- `Resolver` — the `IHostResolver` every responder and proxy name goes through: the place to refuse
-  loopback or private addresses. Name resolution is outside the fetch timeout.
+- `Resolver` — the `IHostResolver` for the host the fetcher dials: the responder, or the proxy when
+  one is set. It can refuse loopback or private addresses for what it resolves; under a proxy the
+  proxy resolves the responder, so address checks on the responder are the proxy's job. Name
+  resolution is outside the fetch timeout.
+- `DestinationPolicy` — an `IFetchDestinationPolicy` asked `Admits(Url)` with the parsed responder
+  URL before every connect, direct or proxied; nil admits every URL. It may be called from several
+  threads at once. Live revocation does not block private or loopback responders unless you set
+  one. Ports on the standard blocked-port list (SMTP, IRC, LDAP and the like) are always refused.
 - `ProxyHost` / `ProxyPort` — an explicit forward proxy: http requests are sent in absolute form,
   https through a `CONNECT` tunnel. No system proxy is discovered.
 

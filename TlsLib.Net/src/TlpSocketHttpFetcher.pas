@@ -44,9 +44,12 @@ type
     /// <summary>Measures every fetch's budget; required. The TLS timeouts run on the TlsConfig's own
     /// clock, with the budget left passed as a duration.</summary>
     Clock: ITlsMonotonicClock;
-    /// <summary>Resolves the responder or proxy host; required. It is the place to police
-    /// egress, such as refusing loopback or private answers.</summary>
+    /// <summary>Resolves the host the fetcher dials, the proxy under a proxy (whose own address
+    /// policy then covers the responder); required.</summary>
     Resolver: IHostResolver;
+    /// <summary>Consulted with the parsed URL before every connect, direct or proxied; nil admits
+    /// all. It may be called from several threads at once.</summary>
+    DestinationPolicy: IFetchDestinationPolicy;
     /// <summary>The TLS client config for an https responder; nil fails every https fetch. It must
     /// not arm a certificate-verdict park (WithAsyncCertificateVerdict, WithLiveRevocationVerdict):
     /// there is no resolver here, and a live-revocation one would recurse into this fetcher.</summary>
@@ -56,8 +59,8 @@ type
     ProxyHost: string;
     /// <summary>The proxy's port; required with a ProxyHost.</summary>
     ProxyPort: Word;
-    /// <summary>The system monotonic clock and TSystemHostResolver, with no TLS config and no
-    /// proxy.</summary>
+    /// <summary>The system monotonic clock and TSystemHostResolver, with no TLS config, no proxy
+    /// and no destination policy.</summary>
     class function Defaults: TSocketHttpFetcherSettings; static;
   end;
 
@@ -70,9 +73,10 @@ type
   /// select set. The request is sent unbounded, as it fits a socket buffer, and a POST's content
   /// type must be a bare type/subtype. A redirect, a 101, a 204, a coded or ambiguously framed body
   /// and an https body cut off without close_notify all fail, as does an https URL with no
-  /// TlsConfig and an IPv6 responder. No destination is filtered unless the settings' resolver
-  /// filters it. The injected clock may be read from another thread. Never raises; a failed
-  /// exchange yields False with an empty response.</summary>
+  /// TlsConfig, an IPv6 responder and a port on the standard blocked-port list. No other destination
+  /// is filtered unless the settings' DestinationPolicy or resolver filters it. The injected clock
+  /// may be read from another thread. Never raises; a failed exchange yields False with an empty
+  /// response.</summary>
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
     FSettings: TSocketHttpFetcherSettings;
@@ -106,6 +110,8 @@ resourcestring
   SResponseTooLarge = 'revocation response exceeds the size cap';
   SUnsafeRequest = 'the request target, host or media type is not safe to send';
   SIPv6Responder = 'an IPv6 responder cannot be reached';
+  SDestinationRefused = 'the responder URL is refused by the fetch destination policy';
+  SBlockedPort = 'the responder port is on the blocked-port list';
   SMalformedResponse = 'the response is not well-formed HTTP/1.1';
   SResponseHeadTooLarge = 'the response head or a chunk line exceeds its size limit';
   SUnexpectedStatus = 'the response status is not a 2xx with a body';
@@ -173,6 +179,8 @@ type
     FHeadBytesLeft: Int32;
     FHeadFieldsLeft: Int32;
     FTransferCodings: Int32;
+    // the final status line was HTTP/1.0
+    FHttp10: Boolean;
     FChunked: Boolean;
     FLengthFields: Int32;
     FLengthText: string;
@@ -220,6 +228,8 @@ type
   TSocketHttpExchange = class sealed(TObject)
   strict private
     class function ReadStreamBytes(const AStream: TStream): TBytes; static;
+    // the ports a browser refuses for http(s), which carry other protocols (WHATWG Fetch)
+    class function IsBlockedPort(APort: Word): Boolean; static;
     // asks the proxy on ATransport for a tunnel to AAuthority (RFC 9110 9.3.6)
     class procedure OpenTunnel(const ATransport: ITlsTransport; const AAuthority: string); static;
     // AUrl through the settings' resolver, proxy and TLS config, the body capped at ACap
@@ -523,6 +533,7 @@ begin
     (System.Length(LLine) < 12) or ((System.Length(LLine) > 12) and (LLine[13] <> ' ')) or
     HasControl(LLine, 13) then
     raise EPeerInputTlsLibException.CreateRes(@SMalformedResponse);
+  FHttp10 := Copy(LLine, 1, 9) = 'HTTP/1.0 ';
   Result := 0;
   for LI := 10 to 12 do
   begin
@@ -616,8 +627,8 @@ begin
   ReadFields(True);
   if FTransferCodings > 0 then
   begin
-    // a lone chunked coding only, and never beside a Content-Length (RFC 9112 6.3)
-    if (FTransferCodings > 1) or not FChunked or (FLengthFields > 0) then
+    // a lone chunked coding only, never beside a Content-Length (RFC 9112 6.3) or in HTTP/1.0 (6.1)
+    if FHttp10 or (FTransferCodings > 1) or not FChunked or (FLengthFields > 0) then
       raise EPeerInputTlsLibException.CreateRes(@SUnsupportedFraming);
     ReadChunked(ASink, ACap);
   end
@@ -683,6 +694,20 @@ begin
   AStream.ReadBuffer(Result[0], LLen);
 end;
 
+class function TSocketHttpExchange.IsBlockedPort(APort: Word): Boolean;
+begin
+  case APort of
+    0, 1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95,
+    101 .. 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427,
+    465, 512 .. 515, 526, 530 .. 532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995,
+    1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665 .. 6669, 6679, 6697,
+    10080:
+      Result := True;
+  else
+    Result := False;
+  end;
+end;
+
 class procedure TSocketHttpExchange.OpenTunnel(const ATransport: ITlsTransport;
   const AAuthority: string);
 var
@@ -715,6 +740,10 @@ begin
   // the connector is IPv4-only, and the Host field would need the brackets
   if AUrl.HostKind = THttpHostKind.IPv6 then
     raise EArgumentTlsLibException.CreateRes(@SIPv6Responder);
+  if IsBlockedPort(AUrl.Port) then
+    raise EArgumentTlsLibException.CreateRes(@SBlockedPort);
+  if (ASettings.DestinationPolicy <> nil) and not ASettings.DestinationPolicy.Admits(AUrl) then
+    raise EArgumentTlsLibException.CreateRes(@SDestinationRefused);
   LSecure := AUrl.Scheme = THttpScheme.Https;
   if LSecure and (ASettings.TlsConfig = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNoTlsConfig);

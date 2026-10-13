@@ -64,6 +64,24 @@ type
   // arrives a piece at a time, nothing at all, or part of a response and then a close
   TResponderMode = (Body, TrickledHead, TrickledBody, Silent, EndlessHead, EarlyClose);
 
+  TResponder = class;
+
+  // frozen until the connect starts, then a century ahead once the responder accepted
+  TConnectGatedClock = class sealed(TInterfacedObject, ITlsMonotonicClock, IHostResolver)
+  strict private
+  const
+    StartMs = Int64(1000);
+    LeapMs = Int64(100) * 365 * 24 * 3600 * 1000;
+    AcceptWaitMs = 10000;
+  var
+    FResponder: TResponder;
+    FConnecting: Boolean;
+  public
+    constructor Create(const AResponder: TResponder);
+    function NowMonotonicMillis: Int64;
+    function TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
+  end;
+
   TResponder = class(TThread)
   strict private
   const
@@ -72,6 +90,8 @@ type
     HeaderPauseMs = 100;
     AcceptPollMs = 100;
     EndlessHeadLines = 400;
+    // a silent responder hangs up after this, so a fetch with no deadline fails a time assert
+    SilenceMs = 15000;
   var
     FListener: ITcpListener;
     FStream: ITlsTimedTransport;
@@ -79,6 +99,7 @@ type
     FMode: TResponderMode;
     FStop: TEvent;
     FRequestSeen: TEvent;
+    FAccepted: TEvent;
     function SendText(const AText: string): Boolean;
     function ReadRequest: Boolean;
     procedure SendHeadTrickled;
@@ -91,9 +112,34 @@ type
     constructor Create(ABodySize: Int32; AMode: TResponderMode);
     destructor Destroy; override;
     function Url: string;
-    // the request reached the responder, so a failed fetch was not a failed connect
-    function RequestSeen: Boolean;
+    // the request reached the responder (within AWaitMs), so a failed fetch was not a failed connect
+    function RequestSeen(AWaitMs: Cardinal): Boolean;
+    // signalled once the responder has accepted the connection
+    property Accepted: TEvent read FAccepted;
   end;
+
+{ TConnectGatedClock }
+
+constructor TConnectGatedClock.Create(const AResponder: TResponder);
+begin
+  inherited Create;
+  FResponder := AResponder;
+end;
+
+function TConnectGatedClock.NowMonotonicMillis: Int64;
+begin
+  Result := StartMs;
+  // waiting for the accept keeps a read after the connect from seeing the frozen time
+  if FConnecting and (FResponder.Accepted.WaitFor(AcceptWaitMs) = wrSignaled) then
+    Inc(Result, LeapMs);
+end;
+
+function TConnectGatedClock.TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
+begin
+  FConnecting := True;
+  AAddress := TBytes.Create(127, 0, 0, 1);
+  Result := True;
+end;
 
 { TResponder }
 
@@ -104,6 +150,7 @@ begin
   FMode := AMode;
   FStop := TEvent.Create(nil, True, False, '');
   FRequestSeen := TEvent.Create(nil, True, False, '');
+  FAccepted := TEvent.Create(nil, True, False, '');
   inherited Create(False);
 end;
 
@@ -115,6 +162,7 @@ begin
   WaitFor;
   FStop.Free;
   FRequestSeen.Free;
+  FAccepted.Free;
   FStream := nil;
   FListener := nil;
   inherited Destroy;
@@ -125,9 +173,9 @@ begin
   Result := 'http://127.0.0.1:' + IntToStr(FListener.Port) + '/';
 end;
 
-function TResponder.RequestSeen: Boolean;
+function TResponder.RequestSeen(AWaitMs: Cardinal): Boolean;
 begin
-  Result := FRequestSeen.WaitFor(0) = wrSignaled;
+  Result := FRequestSeen.WaitFor(AWaitMs) = wrSignaled;
 end;
 
 function TResponder.SendText(const AText: string): Boolean;
@@ -244,6 +292,7 @@ begin
     FListener.TryAccept(AcceptPollMs, FStream);
   if FStream = nil then
     Exit;
+  FAccepted.SetEvent;
   if not ReadRequest then
     Exit;
   FRequestSeen.SetEvent;
@@ -253,7 +302,7 @@ begin
     TResponderMode.TrickledBody:
       SendBodyTrickled;
     TResponderMode.Silent:
-      FStop.WaitFor(INFINITE);
+      FStop.WaitFor(SilenceMs);
     TResponderMode.EndlessHead:
       SendHeadEndless;
     TResponderMode.EarlyClose:
@@ -300,6 +349,7 @@ begin
       TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock);
     CheckFalse(LFetcher.Get(LResponder.Url, 1000, 1024 * 1024, LResponse),
       'a response that outlasts the budget fails closed');
+    CheckTrue(LResponder.RequestSeen(5000), 'the request reached the responder');
     CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
   finally
     LFetcher := nil;
@@ -324,7 +374,7 @@ begin
     LStart := LClock.NowMonotonicMillis;
     CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
       'a head that outlasts the budget fails closed');
-    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
+    CheckTrue(LResponder.RequestSeen(5000), 'the request reached the responder');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops near the budget, not when the responder gives up');
   finally
@@ -350,7 +400,7 @@ begin
     CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
       'a body that outlasts the budget fails closed');
     CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
-    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
+    CheckTrue(LResponder.RequestSeen(5000), 'the request reached the responder');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops near the budget, not when the responder gives up');
   finally
@@ -376,7 +426,7 @@ begin
     CheckFalse(LFetcher.Get(LResponder.Url, 10000, 1024, LResponse),
       'a body cut short by a close fails closed');
     CheckEquals(0, System.Length(LResponse), 'no partial body is returned');
-    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
+    CheckTrue(LResponder.RequestSeen(5000), 'the request reached the responder');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000, 'the close ends the fetch, not the budget');
   finally
     LFetcher := nil;
@@ -387,21 +437,28 @@ end;
 procedure TTestSocketHttpFetcher.TestNoTimeoutStillCutsOffASilentResponder;
 var
   LResponder: TResponder;
+  LGated: TConnectGatedClock;
+  LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
   LClock: ITlsMonotonicClock;
-  LStart: Int64;
+  LStart, LElapsed: Int64;
 begin
-  // a timeout of 0 means the 60 s default, not no limit: a clock that spends 100 s per read ends it
+  // timeout 0 is the finite 60 s default: the clock leaps past it once connected
   LResponder := TResponder.Create(1024, TResponderMode.Silent);
   try
     LClock := TSystemMonotonicClock.Create;
-    LFetcher := TSocketHttpFetcher.Create(
-      TMockMonotonicClock.Create(1000, 100000) as ITlsMonotonicClock);
+    LGated := TConnectGatedClock.Create(LResponder);
+    LSettings := TSocketHttpFetcherSettings.Defaults;
+    LSettings.Clock := LGated;
+    LSettings.Resolver := LGated;
+    LFetcher := TSocketHttpFetcher.Create(LSettings);
     LStart := LClock.NowMonotonicMillis;
-    CheckFalse(LFetcher.Get(LResponder.Url, 0, 1024, LResponse),
-      'a silent responder is cut off without a caller timeout');
-    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000, 'the default budget ends the wait');
+    CheckFalse(LFetcher.Get(StringReplace(LResponder.Url, '127.0.0.1', 'responder.test', []), 0,
+      1024, LResponse), 'a silent responder is cut off without a caller timeout');
+    LElapsed := LClock.NowMonotonicMillis - LStart;
+    CheckTrue(LResponder.RequestSeen(5000), 'the request reached the responder');
+    CheckTrue(LElapsed < 4000, 'the default budget ends the wait');
   finally
     LFetcher := nil;
     LResponder.Free;
@@ -425,7 +482,7 @@ begin
     LStart := LClock.NowMonotonicMillis;
     CheckFalse(LFetcher.Get(LResponder.Url, 600, 1024 * 1024, LResponse),
       'a responder that goes silent fails closed');
-    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
+    CheckTrue(LResponder.RequestSeen(5000), 'the request reached the responder');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops near the budget, not when the responder gives up');
   finally
@@ -470,7 +527,7 @@ begin
     LStart := LClock.NowMonotonicMillis;
     CheckFalse(LFetcher.Get(LResponder.Url, 10000, 1024, LResponse),
       'a head past the size cap fails closed');
-    CheckTrue(LResponder.RequestSeen, 'the request reached the responder');
+    CheckTrue(LResponder.RequestSeen(5000), 'the request reached the responder');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops at the size cap, not at the budget');
   finally
@@ -481,11 +538,12 @@ end;
 
 procedure TTestSocketHttpFetcher.TestNilClockIsRefused;
 var
+  LFetcher: IHttpFetcher;
   LRaised: Boolean;
 begin
   LRaised := False;
   try
-    TSocketHttpFetcher.Create(nil);
+    LFetcher := TSocketHttpFetcher.Create(nil) as IHttpFetcher;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

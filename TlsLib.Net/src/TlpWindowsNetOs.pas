@@ -112,6 +112,8 @@ const
   WinsockVersion = $0202;
   // refuses the same port to every other process, which SO_REUSEADDR would allow on Windows
   SoExclusiveAddrUse = not SO_REUSEADDR;
+  // WSA_FLAG_NO_HANDLE_INHERIT, which neither RTL declares
+  WsaFlagNoHandleInherit = $80;
 
 { TWindowsNetOs }
 
@@ -213,11 +215,17 @@ end;
 
 class function TWindowsNetOs.OpenStream(out AHandle: TWindowsSocketHandle): Integer;
 begin
-  AHandle := socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  // created not inheritable, so no child can take it before it is marked
+  AHandle := WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, nil, 0,
+    WSA_FLAG_OVERLAPPED or WsaFlagNoHandleInherit);
+  // a Windows without the flag refuses it, so the handle is marked after the fact
   if AHandle = InvalidHandle then
-    Exit(LastError);
-  // a child process this one starts must not inherit the socket
-  SetHandleInformation(AHandle, HANDLE_FLAG_INHERIT, 0);
+  begin
+    AHandle := socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if AHandle = InvalidHandle then
+      Exit(LastError);
+    SetHandleInformation(AHandle, HANDLE_FLAG_INHERIT, 0);
+  end;
   Result := 0;
 end;
 
@@ -300,6 +308,7 @@ begin
   AHandle := accept(AListener, PSockAddr(@LAddr), @LLen);
   if AHandle = InvalidHandle then
     Exit(LastError);
+  // accept takes no flag, so the accepted handle is marked here
   SetHandleInformation(AHandle, HANDLE_FLAG_INHERIT, 0);
   Result := 0;
 end;

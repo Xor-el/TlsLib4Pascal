@@ -43,7 +43,9 @@ type
   /// <summary>The IPv4 TCP socket calls on a POSIX target, by file descriptor. Every call returns
   /// the OS error code (0 for none) or a plain result, and raises nothing: the caller decides how
   /// an error is reported. Each compiler makes the calls through its own RTL declarations, which
-  /// know the names and layouts of the target, and reads the errno of the same RTL. Linux on MIPS
+  /// know the names and layouts of the target, and reads the errno of the same RTL, except accept4,
+  /// a C library call that reads the C library's errno. A kernel older than Linux 2.6.27, FreeBSD
+  /// 10, NetBSD 6 or OpenBSD 5.7 refuses SOCK_CLOEXEC and is not supported. Linux on MIPS
   /// and SPARC is not supported: the Free Pascal RTL gives SOL_SOCKET, SO_REUSEADDR and SO_ERROR
   /// the values of the other CPUs, which those kernels number differently.</summary>
   TPosixNetOs = class sealed(TObject)
@@ -66,6 +68,10 @@ type
     TGetAddrInfoFunc = function(ANode, AService: PAnsiChar; AHints: Pointer;
       out AList: Pointer): Int32; cdecl;
     TFreeAddrInfoProc = procedure(AList: Pointer); cdecl;
+    TAccept4Func = function(AListener: Integer; AAddr, ALen: Pointer;
+      AFlags: Integer): Integer; cdecl;
+    // the C library's errno, which a libc call sets and an RTL's own errno may not mirror
+    TErrnoLocationFunc = function: PInteger; cdecl;
     // the C struct addrinfo up to ai_next; the two pointer slots are ai_addr and ai_canonname in
     // the order the target's netdb.h gives them, and ai_addrlen is never read
     TAddrInfoView = record
@@ -79,6 +85,8 @@ type
 {$IFNDEF FPC}
     FPoll: TPollFunc;
 {$ENDIF}
+    FAccept4: TAccept4Func;
+    FErrnoLocation: TErrnoLocationFunc;
     FGetAddrInfo: TGetAddrInfoFunc;
     FFreeAddrInfo: TFreeAddrInfoProc;
   strict private
@@ -160,6 +168,27 @@ const
   PollIn = $0001;
   PollOut = $0004;
   CloseOnExec = 1;
+  // SOCK_CLOEXEC for socket() and accept4(), with the C library's errno accessor that reads an
+  // accept4 failure; 0 where fcntl must set it afterwards (older kernels refuse the flag)
+{$IF DEFINED(TLSLIB_ANDROID)}
+  SocketCloseOnExec = $80000;
+  ErrnoSymbol = '__errno';
+{$ELSEIF DEFINED(TLSLIB_LINUX)}
+  SocketCloseOnExec = $80000;
+  ErrnoSymbol = '__errno_location';
+{$ELSEIF DEFINED(FREEBSD)}
+  SocketCloseOnExec = $10000000;
+  ErrnoSymbol = '__error';
+{$ELSEIF DEFINED(NETBSD)}
+  SocketCloseOnExec = $10000000;
+  ErrnoSymbol = '__errno';
+{$ELSEIF DEFINED(OPENBSD)}
+  SocketCloseOnExec = $8000;
+  ErrnoSymbol = '__errno';
+{$ELSE}
+  SocketCloseOnExec = 0;
+  ErrnoSymbol = '';
+{$IFEND}
   // netdb.h orders ai_addr and ai_canonname differently
 {$IF (DEFINED(TLSLIB_LINUX) AND NOT DEFINED(TLSLIB_ANDROID)) OR DEFINED(OPENBSD)}
   AddrInfoAddrSlot = 0;
@@ -179,6 +208,16 @@ const
   ErrProtocol = -1;
 {$IFEND}
   ErrInProgress = ESysEINPROGRESS;
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
+  // accept(2) passes a pending network error of the new connection on like EAGAIN
+  ErrNetDown = ESysENETDOWN;
+  ErrNoProtocolOption = ESysENOPROTOOPT;
+  ErrHostDown = ESysEHOSTDOWN;
+  ErrNoNet = ESysENONET;
+  ErrHostUnreachable = ESysEHOSTUNREACH;
+  ErrNotSupported = ESysEOPNOTSUPP;
+  ErrNetUnreachable = ESysENETUNREACH;
+{$IFEND}
 {$ELSE}
   ErrInterrupted = EINTR;
   ErrAgain = EAGAIN;
@@ -186,6 +225,16 @@ const
   ErrConnAborted = ECONNABORTED;
   ErrProtocol = EPROTO;
   ErrInProgress = EINPROGRESS;
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
+  // accept(2) passes a pending network error of the new connection on like EAGAIN
+  ErrNetDown = ENETDOWN;
+  ErrNoProtocolOption = ENOPROTOOPT;
+  ErrHostDown = EHOSTDOWN;
+  ErrNoNet = ENONET;
+  ErrHostUnreachable = EHOSTUNREACH;
+  ErrNotSupported = EOPNOTSUPP;
+  ErrNetUnreachable = ENETUNREACH;
+{$IFEND}
 {$ENDIF}
 
 { TPosixNetOs }
@@ -199,6 +248,11 @@ begin
 {$IFNDEF FPC}
   FPoll := TPollFunc(TDynamicLibrary.Resolve(LLibrary, 'poll'));
 {$ENDIF}
+  if SocketCloseOnExec <> 0 then
+  begin
+    FAccept4 := TAccept4Func(TDynamicLibrary.Resolve(LLibrary, 'accept4'));
+    FErrnoLocation := TErrnoLocationFunc(TDynamicLibrary.Resolve(LLibrary, ErrnoSymbol));
+  end;
   FGetAddrInfo := TGetAddrInfoFunc(TDynamicLibrary.Resolve(LLibrary, 'getaddrinfo'));
   FFreeAddrInfo := TFreeAddrInfoProc(TDynamicLibrary.Resolve(LLibrary, 'freeaddrinfo'));
 end;
@@ -278,9 +332,9 @@ end;
 class function TPosixNetOs.OpenStream(out AHandle: TPosixSocketHandle): Integer;
 begin
 {$IFDEF FPC}
-  AHandle := fpSocket(AF_INET, SOCK_STREAM, 0);
+  AHandle := fpSocket(AF_INET, SOCK_STREAM or SocketCloseOnExec, 0);
 {$ELSE}
-  AHandle := socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+  AHandle := socket(PF_INET, SOCK_STREAM or SocketCloseOnExec, IPPROTO_TCP);
 {$ENDIF}
   if AHandle < 0 then
   begin
@@ -288,10 +342,11 @@ begin
     Exit(LastError);
   end;
   // a child process this one starts must not inherit the socket
+  if SocketCloseOnExec = 0 then
 {$IFDEF FPC}
-  fpFcntl(AHandle, F_SETFD, CloseOnExec);
+    fpFcntl(AHandle, F_SETFD, CloseOnExec);
 {$ELSE}
-  fcntl(AHandle, F_SETFD, CloseOnExec);
+    fcntl(AHandle, F_SETFD, CloseOnExec);
 {$ENDIF}
   ArmAgainstSigPipe(AHandle);
   Result := 0;
@@ -417,23 +472,33 @@ class function TPosixNetOs.AcceptConnection(AListener: TPosixSocketHandle;
 var
   LAddr: TSockAddrIn;
   LLen: TNetSockLen;
+  LAtomic: Boolean;
 begin
   LAddr := Default(TSockAddrIn);
   LLen := SizeOf(LAddr);
+  // accept4 sets close-on-exec in the call, closing the race a later fcntl leaves
+  LAtomic := Assigned(FAccept4) and Assigned(FErrnoLocation);
+  if LAtomic then
+    AHandle := FAccept4(AListener, @LAddr, @LLen, SocketCloseOnExec)
+  else
 {$IFDEF FPC}
-  AHandle := fpAccept(AListener, PSockAddr(@LAddr), @LLen);
+    AHandle := fpAccept(AListener, PSockAddr(@LAddr), @LLen);
 {$ELSE}
-  AHandle := accept(AListener, sockaddr(LAddr), LLen);
+    AHandle := accept(AListener, sockaddr(LAddr), LLen);
 {$ENDIF}
   if AHandle < 0 then
   begin
     AHandle := InvalidHandle;
+    // a libc call sets libc's errno, which an RTL with its own errno does not read
+    if LAtomic then
+      Exit(FErrnoLocation()^);
     Exit(LastError);
   end;
+  if not LAtomic then
 {$IFDEF FPC}
-  fpFcntl(AHandle, F_SETFD, CloseOnExec);
+    fpFcntl(AHandle, F_SETFD, CloseOnExec);
 {$ELSE}
-  fcntl(AHandle, F_SETFD, CloseOnExec);
+    fcntl(AHandle, F_SETFD, CloseOnExec);
 {$ENDIF}
   Result := 0;
 end;
@@ -442,6 +507,11 @@ class function TPosixNetOs.IsTransientAcceptError(AError: Integer): Boolean;
 begin
   Result := (AError = ErrAgain) or (AError = ErrWouldBlock) or (AError = ErrInterrupted) or
     (AError = ErrConnAborted) or (AError = ErrProtocol);
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
+  Result := Result or (AError = ErrNetDown) or (AError = ErrNoProtocolOption) or
+    (AError = ErrHostDown) or (AError = ErrNoNet) or (AError = ErrHostUnreachable) or
+    (AError = ErrNotSupported) or (AError = ErrNetUnreachable);
+{$IFEND}
 end;
 
 class function TPosixNetOs.ReceiveBytes(AHandle: TPosixSocketHandle; var ABuffer: TBytes;
