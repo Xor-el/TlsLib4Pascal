@@ -1,0 +1,20 @@
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_a42ddd283d3520::t_d0a6efe2af2885 83
+  s_a42ddd283d3520::t_a2eb67334291bd 88,90-92,94,97-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cf88799ed7b1160d5da2a4aef06904479a3feb30",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
