@@ -33,7 +33,7 @@ type
   /// shared across threads.
   /// </summary>
   IInspectedCertificate = interface(IInterface)
-    ['{5A0E2B77-3C41-4E28-9B6E-7E9F0C6D1A44}']
+    ['{6E69C0FB-F1B3-49F6-A5BD-D135DF2B2631}']
     function PublicKeyInfo: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
@@ -50,6 +50,11 @@ type
     /// No when it is not, Undetermined on a malformed certificate.
     /// </summary>
     function KeyIsRsaPss: TCertAnswer;
+    /// <summary>
+    /// Whether the certificate asserts basicConstraints cA=TRUE (RFC 5280 4.2.1.9): Yes, No when
+    /// the extension is absent or cA is FALSE, Undetermined on a malformed certificate.
+    /// </summary>
+    function IsCertificateAuthority: TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     /// <summary>
     /// The subject public key's strength facts (family, size, curve). Returns False (facts
@@ -78,7 +83,7 @@ type
   /// extractor methods (PublicKeyInfo, DnsNames, IpAddresses) raise on malformed input.
   /// </summary>
   ICertificateInspector = interface(IInterface)
-    ['{7E1D9B4C-58A2-4F63-9D0E-3C6B21A7F5E8}']
+    ['{2ED46833-4DDD-484C-B6A7-6785C0C2FC44}']
     /// <summary>
     /// Decodes ADer once into a handle that answers the per-certificate queries from
     /// that single decode. Raises when ADer does not decode to a certificate (empty or
@@ -139,6 +144,11 @@ type
     /// No when it is not, Undetermined on a malformed certificate.
     /// </summary>
     function KeyIsRsaPss(const ACertificateDer: TBytes): TCertAnswer;
+    /// <summary>
+    /// Whether the certificate asserts basicConstraints cA=TRUE (RFC 5280 4.2.1.9). Yes when it
+    /// does, No when the extension is absent or cA is FALSE, Undetermined on a malformed certificate.
+    /// </summary>
+    function IsCertificateAuthority(const ACertificateDer: TBytes): TCertAnswer;
     /// <summary>
     /// Classifies the certificate leaf key: AKind is the public-key algorithm, and for an
     /// ECDSA key AEcNamedGroup is the named-group code of its curve (secp256r1 = 0x0017,

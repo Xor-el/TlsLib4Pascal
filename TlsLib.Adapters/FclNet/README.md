@@ -96,7 +96,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols` (ASCII names, converted with `TAlpnProtocols.FromText`) |
 | `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `DangerousSkip` |
 | `SSLType` (fcl-net native)                            | `stAny` offers TLS 1.3 and 1.2; `stTLSv1_2` offers 1.2 alone; any other value fails the handshake |
-| `VerifyCallback` | augment-only hook (chain+host → Boolean) |
+| `VerifyCallback` | augment-only hook, runs last (presented chain + validated path + host → Boolean) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |
 | `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = `Socket.IOTimeout` when set, else the 30 s default |

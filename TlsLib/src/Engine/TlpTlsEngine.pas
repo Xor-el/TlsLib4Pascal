@@ -26,6 +26,7 @@ uses
   TlpTlsAlertProtocol,
   TlpAlertMapping,
   TlpICryptoProvider,
+  TlpTrustPolicy,
   TlpIKeySchedule,
   TlpIRecordProtection,
   TlpRecordLayer,
@@ -183,7 +184,7 @@ type
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
-      const AHostName: string; const AStaple: TBytes);
+      const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
     procedure OnPskIdentity(const AIdentity: TBytes);
@@ -266,7 +267,7 @@ type
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
-      const AHostName: string; const AStaple: TBytes);
+      const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
     procedure OnPskIdentity(const AIdentity: TBytes);
@@ -356,9 +357,9 @@ end;
 
 procedure TEngineHandshakeBridge.OnCertificateVerdictNeeded(
   const AChain, AValidatedPath: TArray<TBytes>; const AHostName: string;
-  const AStaple: TBytes);
+  const AStaple: TBytes; APosture: TRevocationPosture);
 begin
-  FEngine.OnCertificateVerdictNeeded(AChain, AValidatedPath, AHostName, AStaple);
+  FEngine.OnCertificateVerdictNeeded(AChain, AValidatedPath, AHostName, AStaple, APosture);
 end;
 
 procedure TEngineHandshakeBridge.OnPeerCertificateChain(
@@ -1261,7 +1262,8 @@ begin
 end;
 
 procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain,
-  AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes);
+  AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes;
+  APosture: TRevocationPosture);
 begin
   // the built-in pipeline has already accepted this chain; surface it so a host can decide
   // out-of-band (augment-only). The conductor owns the park state (it sets AwaitingVerdict once
@@ -1270,7 +1272,8 @@ begin
 {$IFDEF DEBUG}
   System.Assert(not FHandshakeComplete);
 {$ENDIF DEBUG}
-  Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AValidatedPath, AHostName, AStaple));
+  Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AValidatedPath, AHostName, AStaple,
+    APosture));
 end;
 
 procedure TTlsEngine.OnHandshakeEstablished;

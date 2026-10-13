@@ -186,6 +186,13 @@ type
     FOcsp: TStringList;
     FEngineHold: IPlatformChainEngine;
     function Ocsp(const AName: string): TBytes;
+    // a server delegate over an engine that trusts APath, AExempt being the anchors it reports
+    function VerifyEnginePath(const AChain, APath, AExempt: TArray<TBytes>;
+      const ACallback: TTlsCertificateVerifyCallback; out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
+    // the client form: the engine reports no anchor, AAnchors are the configured client-CA roots
+    function VerifyClientEnginePath(const AChain, APath, AAnchors: TArray<TBytes>;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
     function OcspChain: TArray<TBytes>;
     function Result_(AOutcome: TLiveRevocationOutcome;
       const APath: TArray<TBytes>): TPlatformChainResult;
@@ -233,6 +240,14 @@ type
     procedure TestClientSourceRefusesHardWithoutCachedRevocation;
     procedure TestLiveResolverDispatchesToServer;
     procedure TestLiveResolverWrongRoleRefused;
+    procedure TestLiveResolverHoldsToTheConfiguredPosture;
+    procedure TestLiveResolverOffPostureStillChecksWhenTheConfigurationAsksForMore;
+    procedure TestEnginePathStartingAtASubCaIsRefused;
+    procedure TestEnginePathOfAPinnedSelfSignedCaIsAccepted;
+    procedure TestClientEngineReportingNoAnchorAcceptsAConfiguredSelfSignedCa;
+    procedure TestClientEngineReportingNoAnchorRefusesAnUnconfiguredCa;
+    procedure TestEnginePathOfAPlainLeafIsAccepted;
+    procedure TestVerifyCallbackSeesThePresentedChainAndTheEnginePath;
     procedure TestClientRoutesByStapleWithoutCachedRevocation;
     procedure TestStapledRevokedRejectsWithoutCachedRevocation;
     procedure TestVerifyCallbackRejectYieldsCertificateUnknown;
@@ -769,6 +784,46 @@ end;
 function TTestOSDelegateTemplate.Ocsp(const AName: string): TBytes;
 begin
   Result := DecodeHex(FOcsp.Values[AName]);
+end;
+
+function TTestOSDelegateTemplate.VerifyEnginePath(const AChain, APath,
+  AExempt: TArray<TBytes>; const ACallback: TTlsCertificateVerifyCallback;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Good;
+  LResult.Path := APath;
+  LResult.PolicyExempt := AExempt;
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True, LResult, TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.Dangerous.VerifyCallback := ACallback;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName('localhost'), nil,
+    AVerified, AAlert);
+end;
+
+function TTestOSDelegateTemplate.VerifyClientEnginePath(const AChain, APath,
+  AAnchors: TArray<TBytes>; out AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LVerifier: IClientCertificateVerifier;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Indeterminate;
+  LResult.Path := APath;
+  LEngine := TMockPlatformChainEngine.Create([], True, LResult, TTlsAlertDescription.BadCertificate);
+  LVerifier := TOSDelegateClientVerifier.Create(LEngine,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, AAnchors))
+    as IClientCertificateVerifier;
+  Result := LVerifier.VerifyClientCertificate(AChain, AVerified, AAlert);
 end;
 
 function TTestOSDelegateTemplate.OcspChain: TArray<TBytes>;
@@ -1699,6 +1754,145 @@ begin
   finally
     LResolver.Free;
   end;
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveResolverHoldsToTheConfiguredPosture;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True,
+    Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
+    Policy(TRevocationPosture.Soft, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation, nil), nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Server;
+    LContext.Chain := OcspChain;
+    LContext.RevocationPosture := TRevocationPosture.Hard;
+    CheckFalse(LResolver.ResolveVerdict(LContext, LAlert),
+      'an indeterminate live result is refused under a Hard configuration');
+    CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+      'the alert is bad_certificate_status_response');
+  finally
+    LResolver.Free;
+  end;
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveResolverOffPostureStillChecksWhenTheConfigurationAsksForMore;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True,
+    Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
+    Policy(TRevocationPosture.Off, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation, nil), nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Server;
+    LContext.Chain := OcspChain;
+    LContext.RevocationPosture := TRevocationPosture.Hard;
+    CheckTrue(LResolver.ResolveVerdict(LContext, LAlert), 'a Good live result accepts');
+    CheckEquals(1, LFake.ServerCalls, 'the engine was consulted despite the resolver''s own Off');
+  finally
+    LResolver.Free;
+  end;
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathStartingAtASubCaIsRefused;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LCaLeaf, LRoot: TBytes;
+begin
+  LCaLeaf := CriticalExtensionsCertificate('caleaf_cert');
+  LRoot := CriticalExtensionsCertificate('root_cert');
+  CheckFalse(VerifyEnginePath(TArray<TBytes>.Create(LCaLeaf),
+    TArray<TBytes>.Create(LCaLeaf, LRoot), TArray<TBytes>.Create(LRoot), nil, LVerified, LAlert),
+    'a CA certificate presented as the end-entity is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+  CheckEquals(0, System.Length(LVerified.Path), 'no validated path is reported');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathOfAPinnedSelfSignedCaIsAccepted;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LSelfCa: TBytes;
+begin
+  LSelfCa := CriticalExtensionsCertificate('selfca_cert');
+  CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LSelfCa), TArray<TBytes>.Create(LSelfCa),
+    TArray<TBytes>.Create(LSelfCa), nil, LVerified, LAlert),
+    'the directly trusted self-signed CA certificate is accepted');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorAcceptsAConfiguredSelfSignedCa;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LSelfCa: TBytes;
+begin
+  LSelfCa := CriticalExtensionsCertificate('selfca_cert');
+  CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(LSelfCa),
+    TArray<TBytes>.Create(LSelfCa), TArray<TBytes>.Create(LSelfCa), LVerified, LAlert),
+    'a leaf equal to a configured anchor is admitted though the engine named no anchor');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorRefusesAnUnconfiguredCa;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LSelfCa: TBytes;
+begin
+  LSelfCa := CriticalExtensionsCertificate('selfca_cert');
+  CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(LSelfCa),
+    TArray<TBytes>.Create(LSelfCa), nil, LVerified, LAlert),
+    'the same CA leaf is refused when it is not a configured anchor');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathOfAPlainLeafIsAccepted;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LLeaf, LInter, LRoot: TBytes;
+begin
+  LLeaf := CriticalExtensionsCertificate('leaf_cert');
+  LInter := CriticalExtensionsCertificate('inter_serverauth_cert');
+  LRoot := CriticalExtensionsCertificate('root_cert');
+  CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf, LInter),
+    TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot), nil, LVerified,
+    LAlert), 'an end-entity certificate under a CA is unaffected');
+  CheckEquals(3, System.Length(LVerified.Path), 'the engine path is reported');
+end;
+
+procedure TTestOSDelegateTemplate.TestVerifyCallbackSeesThePresentedChainAndTheEnginePath;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
+  LLeaf, LInter, LRoot, LExtra: TBytes;
+begin
+  LLeaf := CriticalExtensionsCertificate('leaf_cert');
+  LInter := CriticalExtensionsCertificate('inter_serverauth_cert');
+  LRoot := CriticalExtensionsCertificate('root_cert');
+  LExtra := CriticalExtensionsCertificate('selfca_cert');
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
+  CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf, LInter, LExtra),
+    TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot), LSpy.Callback,
+    LVerified, LAlert), 'accepted');
+  CheckEquals(3, System.Length(LSpy.Presented), 'the callback sees every presented certificate');
+  CheckEquals(3, System.Length(LSpy.Validated), 'and the path the engine built');
+  CheckEqualBytes('the validated path ends at the engine''s root', LRoot, LSpy.Validated[2]);
 end;
 
 procedure TTestOSDelegateTemplate.TestClientRoutesByStapleWithoutCachedRevocation;

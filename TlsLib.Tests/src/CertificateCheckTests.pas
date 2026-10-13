@@ -46,6 +46,11 @@ type
   protected
     procedure SetUp; override;
   published
+    // basicConstraints cA (IsCertificateAuthority)
+    procedure TestCaCertificateIsAnAuthority;
+    procedure TestSelfSignedCaCertificateIsAnAuthority;
+    procedure TestEndEntityCertificateIsNotAnAuthority;
+    procedure TestMalformedCertIsNotDeterminedAsAuthority;
     // keyUsage (CertificateKeyUsagePermits)
     procedure TestDigitalSignatureCertPermitsSigning;
     procedure TestKeyEnciphermentCertForbidsSigning;
@@ -73,6 +78,34 @@ end;
 function TTestCertificateChecks.V(const AName: string): TBytes;
 begin
   Result := DecodeHex(FVec.Values[AName]);
+end;
+
+procedure TTestCertificateChecks.TestCaCertificateIsAnAuthority;
+begin
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Pkix.Certificates.IsCertificateAuthority(CriticalExtensionsCertificate('caleaf_cert'))),
+    'a certificate asserting cA=TRUE is an authority');
+end;
+
+procedure TTestCertificateChecks.TestSelfSignedCaCertificateIsAnAuthority;
+begin
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Pkix.Certificates.IsCertificateAuthority(CriticalExtensionsCertificate('selfca_cert'))),
+    'a self-signed certificate asserting cA=TRUE is an authority');
+end;
+
+procedure TTestCertificateChecks.TestEndEntityCertificateIsNotAnAuthority;
+begin
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Pkix.Certificates.IsCertificateAuthority(CriticalExtensionsCertificate('leaf_cert'))),
+    'a certificate with cA=FALSE is not an authority');
+end;
+
+procedure TTestCertificateChecks.TestMalformedCertIsNotDeterminedAsAuthority;
+begin
+  CheckEquals(Ord(TCertAnswer.Undetermined),
+    Ord(Pkix.Certificates.IsCertificateAuthority(TBytes.Create(7, 7, 7))),
+    'a malformed certificate cannot be determined');
 end;
 
 function TTestCertificateChecks.Permits(const ACertName: string;

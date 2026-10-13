@@ -33,6 +33,12 @@ The **right** way to talk to a server whose certificate a public CA didn't issue
 CA (or the self-signed cert itself). The chain is still fully validated — PKIX, expiry,
 extendedKeyUsage, host-name, revocation — just against your anchor instead of the public roots.
 
+> **End-entity certificate.** The certificate a peer presents must not be a CA (basicConstraints
+> `cA=TRUE`): a sub-CA certificate cannot be served as a server or client identity (`bad_certificate`).
+> The one exception is the self-signed certificate you trust directly — a leaf that is itself the
+> configured anchor, which is how `openssl req -x509` certificates (they carry `CA:TRUE`) are pinned.
+> The built-in verifier and the OS-native delegates apply the same rule.
+
 > **extendedKeyUsage (RFC 5280 4.2.1.12).** A server certificate must carry `serverAuth`, a
 > client certificate `clientAuth`, enforced over the leaf and every intermediate (never the trust
 > anchor). It is *required-if-present*: a certificate with no EKU extension is unrestricted, but one
@@ -75,8 +81,8 @@ anchor, including an issuer recovered from a configured intermediate — per RFC
 therefore cannot satisfy a pin by appending the genuine certificate to a chain that validated by a
 different path. Under `TServerVerification.DangerousSkip`, where no path is built, only the leaf is
 pinnable.) After the handshake this same validated path is readable as
-`ConnectionInfo.ValidatedPath`, alongside the chain the peer actually presented in
-`ConnectionInfo.PeerCertificates`.
+`ConnectionInfo.ValidatedPath` (empty under `DangerousSkip`, though a pin still matches the leaf),
+alongside the chain the peer actually presented in `ConnectionInfo.PeerCertificates`.
 
 ```pascal
 uses TlpCryptoDomainTypes, TlpICryptoProvider, TlpIPkixProvider;
@@ -149,18 +155,28 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 
 ```pascal
 TTlsCertificateVerifyCallback =
-  function(const AChain: TArray<TBytes>; const AHostName: string): Boolean of object;
+  function(const APresented, AValidated: TArray<TBytes>;
+    const AHostName: string): Boolean of object;
 ```
 
-Set with `WithCertificateVerifyCallback(cb)`. It runs **after** the built-in pipeline and can
-**only additionally reject** — returning `True` never rescues a chain the pipeline already
-failed; returning `False` rejects one it passed. This is deliberately stricter than
-rustls/.NET, whose custom validators *replace* verification wholesale.
+Set with `WithCertificateVerifyCallback(cb)`. It runs **last** — after the built-in pipeline (or the
+OS delegate) and after SPKI pinning — and can **only additionally reject**: returning `True` never
+rescues a chain that was already rejected; returning `False` rejects one that passed. This is
+deliberately stricter than rustls/.NET, whose custom validators *replace* verification wholesale.
+
+`APresented` is every certificate the peer sent (leaf first), including extras that played no part in
+validation. `AValidated` is the leaf-first path the verifier reported as validated (a built-in or OS
+verifier ends it at the trust anchor), and is `nil` when nothing was validated (under
+`InsecureSkipVerify`) — as Go's `VerifyPeerCertificate` passes `rawCerts` and `verifiedChains`. A rule
+about *who issued* the peer belongs on `AValidated` (an appended copy of a CA you trust in
+`APresented` proves nothing); a caller that skipped validation and vets the peer itself reads
+`APresented`.
 
 ```pascal
 type
   TMyRules = class
-    function Check(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
+    function Check(const APresented, AValidated: TArray<TBytes>;
+      const AHostName: string): Boolean;
   end;
 
 // tighten a normally-verified connection with an extra rule of your own
@@ -316,8 +332,25 @@ The limits are tunable through `TLiveRevocationOptions` (declare one, which alre
 defaults, and set what you need), passed as the last constructor argument: `MaxOcspResponders` and
 `MaxCrlDistributionPoints` (1 to 8, default 3), `MinAttemptMs` (1 to 60000, default 250; never 0,
 which would leave a fetch unbounded), `MaxCrlBytes` (4 KiB to 256 MiB, default 32 MiB) and
-`IssuerCandidates`. A value outside its range, or a nil `Pkix` provider, clock or fetcher, is refused when
-the checker is created.
+`IssuerCandidates` and `MaxCachedResponses` (0 to 1024, default 64; 0 turns the response cache off).
+A value outside its range, or a nil `Pkix` provider, clock or fetcher, is refused when the checker is
+created.
+
+The checker keeps the OCSP responses and CRLs it fetched that carry a `nextUpdate`, so a later check
+of the same certificate (keyed by its OCSP CertID, or by the canonical CRL URL) does not fetch again.
+A cached answer is re-authenticated and re-judged against the injected clock on every use, is never
+used at or past its `nextUpdate`, is kept for at most a day, never outlives the byte budget of
+`MaxCrlBytes`, and an indeterminate result is never cached.
+
+The park happens **after the peer has proved it holds the leaf key** — after the client's
+`CertificateVerify` (server side), the server's `CertificateVerify` (TLS 1.3) or signed
+`ServerKeyExchange` (TLS 1.2) — so a replayed certificate without its key cannot make the endpoint
+fetch anything. Path, name and inline revocation checks still run first.
+
+A parked verdict is decided at the **stricter of the checker's posture and the configuration's**
+(`Hard` over `Soft` over `Off`): a `Hard` configuration is not relaxed by a checker built `Soft`, and
+an `Off` checker still checks when the configuration asks for more. A response's `thisUpdate` may run
+up to five minutes ahead of the local clock (a responder's clock may be ahead); `nextUpdate` is exact.
 
 A **stapled** OCSP response (validated in the handshake pipeline, before the park) is preferred;
 the live fetch is the fallback for a leaf that carries no staple. When the staple already settles

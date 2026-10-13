@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpArrayUtilities,
   TlpTlsAlertProtocol,
+  TlpTrustPolicy,
   TlpITlsEngine;
 
 type
@@ -29,7 +30,8 @@ type
     class function MakeClosed: ITlsEvent; static;
     class function MakePeerAlert(const AAlert: TReceivedAlert): ITlsEvent; static;
     class function MakeCertificateReceived(const AChain, AValidatedPath: TArray<TBytes>;
-      const AHostName: string; const AStaple: TBytes): ITlsEvent; static;
+      const AHostName: string; const AStaple: TBytes;
+      APosture: TRevocationPosture): ITlsEvent; static;
   end;
 
 implementation
@@ -62,14 +64,16 @@ type
     FValidatedPath: TArray<TBytes>;
     FHostName: string;
     FOcspStaple: TBytes;
+    FRevocationPosture: TRevocationPosture;
   public
     constructor Create(const AChain, AValidatedPath: TArray<TBytes>;
-      const AHostName: string; const AStaple: TBytes);
+      const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
     function Kind: TTlsEventKind;
     function Chain: TArray<TBytes>;
     function ValidatedPath: TArray<TBytes>;
     function HostName: string;
     function OcspStaple: TBytes;
+    function RevocationPosture: TRevocationPosture;
   end;
 
 { TSimpleEvent }
@@ -106,9 +110,11 @@ end;
 { TCertificateReceivedEvent }
 
 constructor TCertificateReceivedEvent.Create(const AChain,
-  AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes);
+  AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes;
+  APosture: TRevocationPosture);
 begin
   inherited Create;
+  FRevocationPosture := APosture;
   FChain := TArrayUtilities.DeepCopy<Byte>(AChain);
   FValidatedPath := TArrayUtilities.DeepCopy<Byte>(AValidatedPath);
   FHostName := AHostName;
@@ -140,6 +146,11 @@ begin
   Result := System.Copy(FOcspStaple);
 end;
 
+function TCertificateReceivedEvent.RevocationPosture: TRevocationPosture;
+begin
+  Result := FRevocationPosture;
+end;
+
 { TTlsEvents }
 
 class function TTlsEvents.MakeSimple(AKind: TTlsEventKind): ITlsEvent;
@@ -159,9 +170,10 @@ end;
 
 class function TTlsEvents.MakeCertificateReceived(const AChain,
   AValidatedPath: TArray<TBytes>; const AHostName: string;
-  const AStaple: TBytes): ITlsEvent;
+  const AStaple: TBytes; APosture: TRevocationPosture): ITlsEvent;
 begin
-  Result := TCertificateReceivedEvent.Create(AChain, AValidatedPath, AHostName, AStaple);
+  Result := TCertificateReceivedEvent.Create(AChain, AValidatedPath, AHostName, AStaple,
+    APosture);
 end;
 
 end.

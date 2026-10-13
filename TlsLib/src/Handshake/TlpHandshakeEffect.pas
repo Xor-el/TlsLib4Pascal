@@ -22,6 +22,7 @@ uses
   TlpCryptoDomainTypes,
   TlpTlsLibExceptions,
   TlpIKeySchedule,
+  TlpTrustPolicy,
   TlpITlsEngine;
 
 type
@@ -82,6 +83,7 @@ type
     Alert: TTlsAlertDescription; // Fail
     Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
     HostName: string;            // AwaitCertificateVerdict (the host to authenticate against)
+    RevocationPosture: TRevocationPosture; // AwaitCertificateVerdict (the configured posture)
     MaxBytes: Int32;             // SkipEarlyData / SetEarlyDataLimit / SetEarlyReadEpoch (a byte budget)
     Active: Boolean;             // SetEarlyReadEpoch (the early-data read window is open)
     IsRetry: Boolean;            // EchRejected (this handshake was itself a retry)
@@ -117,11 +119,13 @@ type
     class function RaiseEvent(AEvent: TTlsEventKind): THandshakeEffect; static;
     /// <summary>Parks the handshake for an out-of-band peer-certificate verdict: the driver
     /// surfaces AChain (as presented), AValidatedPath (the pipeline-validated path, leaf first with
-    /// the issuer at index 1), AHostName and the handshake OCSP staple (empty when none) to the
-    /// host, which resumes with SetCertificateVerdict. Emitted only after the built-in trust
-    /// pipeline has already accepted the chain.</summary>
+    /// the issuer at index 1), AHostName, the handshake OCSP staple (empty when none) and the
+    /// configured APosture to the host, which resumes with SetCertificateVerdict. Emitted only
+    /// after the built-in trust pipeline has accepted the chain and the peer has proved it holds
+    /// the leaf key.</summary>
     class function AwaitCertificateVerdict(const AChain, AValidatedPath: TArray<TBytes>;
-      const AHostName: string; const AStaple: TBytes): THandshakeEffect; static;
+      const AHostName: string; const AStaple: TBytes;
+      APosture: TRevocationPosture): THandshakeEffect; static;
     /// <summary>Surfaces the peer certificate chain as presented (leaf first, DER) and the path the
     /// built-in pipeline validated for read-only connection info; carries no verdict and never blocks
     /// the handshake. AValidatedPath is empty on a resumption that re-ran no verification.</summary>
@@ -274,7 +278,7 @@ end;
 
 class function THandshakeEffects.AwaitCertificateVerdict(
   const AChain, AValidatedPath: TArray<TBytes>; const AHostName: string;
-  const AStaple: TBytes): THandshakeEffect;
+  const AStaple: TBytes; APosture: TRevocationPosture): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.AwaitCertificateVerdict;
@@ -282,6 +286,7 @@ begin
   Result.ValidatedPath := AValidatedPath;
   Result.HostName := AHostName;
   Result.Staple := AStaple;
+  Result.RevocationPosture := APosture;
 end;
 
 class function THandshakeEffects.PeerCertificateChain(

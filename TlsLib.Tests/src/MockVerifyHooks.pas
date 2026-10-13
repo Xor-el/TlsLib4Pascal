@@ -29,10 +29,17 @@ type
   strict private
     FAccept: Boolean;
     FCalls: Int32;
+    FPresented: TArray<TBytes>;
+    FValidated: TArray<TBytes>;
   public
     constructor Create(AAccept: Boolean);
-    function Callback(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
+    function Callback(const APresented, AValidated: TArray<TBytes>;
+      const AHostName: string): Boolean;
     property Calls: Int32 read FCalls;
+    /// <summary>The chain the peer presented, as the last call saw it.</summary>
+    property Presented: TArray<TBytes> read FPresented;
+    /// <summary>The validated path, as the last call saw it (nil when none was validated).</summary>
+    property Validated: TArray<TBytes> read FValidated;
     function Invoked: Boolean;
   end;
 
@@ -58,10 +65,12 @@ begin
   FAccept := AAccept;
 end;
 
-function TVerifyCallbackSpy.Callback(const AChain: TArray<TBytes>;
+function TVerifyCallbackSpy.Callback(const APresented, AValidated: TArray<TBytes>;
   const AHostName: string): Boolean;
 begin
   System.Inc(FCalls);
+  FPresented := APresented;
+  FValidated := AValidated;
   Result := FAccept;
 end;
 

@@ -26,9 +26,25 @@ uses
   SysUtils,
   TlpCryptoDomainTypes,
   TlpPkixDomainTypes,
+  TlpITrustAnchorStore,
   TlpIPkixProvider;
 
 type
+  /// <summary>Counts the path builds it is asked for while delegating to a real validator.</summary>
+  TCountingPathValidator = class(TInterfacedObject, ICertificatePathValidator)
+  strict private
+  var
+    FInner: ICertificatePathValidator;
+    FCount: Integer;
+  public
+    constructor Create(const AInner: ICertificatePathValidator);
+    procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
+      const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
+      const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
+      var AEffectiveChain: TArray<TBytes>);
+    property Count: Integer read FCount;
+  end;
+
   /// <summary>Counts ValidateOcspStaple/CheckCrlRevocation while delegating the whole IPkixProvider
   /// (and IRevocationChecker) surface to an injected real provider. Used to assert the checker never
   /// reaches the parser for an oversize body.</summary>
@@ -40,7 +56,10 @@ type
     FCrlParseCount: Integer;
     FOcspUrlsOverridden, FCrlUrlsOverridden, FOcspRequestFails: Boolean;
     FBuildRequestCount: Integer;
+    FFindIssuerCount: Integer;
     FOcspUrls, FCrlUrls: TArray<string>;
+    FPathValidator: TCountingPathValidator;
+    FPathValidatorRef: ICertificatePathValidator;
     // IPkixProvider
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
@@ -70,12 +89,33 @@ type
     procedure OverrideCrlUrls(const AUrls: TArray<string>);
     /// <summary>Makes BuildOcspRequest report that no request could be built.</summary>
     procedure FailOcspRequest;
+    /// <summary>How many path builds PathValidation has been asked for.</summary>
+    function PathBuildCount: Integer;
     property BuildRequestCount: Integer read FBuildRequestCount;
+    property FindIssuerCount: Integer read FFindIssuerCount;
     property OcspParseCount: Integer read FOcspParseCount;
     property CrlParseCount: Integer read FCrlParseCount;
   end;
 
 implementation
+
+{ TCountingPathValidator }
+
+constructor TCountingPathValidator.Create(const AInner: ICertificatePathValidator);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+procedure TCountingPathValidator.ValidateCertificatePath(const AChain: TArray<TBytes>;
+  const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
+  const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
+  var AEffectiveChain: TArray<TBytes>);
+begin
+  Inc(FCount);
+  FInner.ValidateCertificatePath(AChain, ATrustAnchors, AIntermediates, AValidationTimeUtc,
+    AKeyPurpose, AEffectiveChain);
+end;
 
 { TSpyPkixProvider }
 
@@ -83,6 +123,8 @@ constructor TSpyPkixProvider.Create(const AInner: IPkixProvider);
 begin
   inherited Create;
   FInner := AInner;
+  FPathValidator := TCountingPathValidator.Create(AInner.PathValidation);
+  FPathValidatorRef := FPathValidator as ICertificatePathValidator;
 end;
 
 function TSpyPkixProvider.Certificates: ICertificateInspector;
@@ -92,7 +134,12 @@ end;
 
 function TSpyPkixProvider.PathValidation: ICertificatePathValidator;
 begin
-  Result := FInner.PathValidation;
+  Result := FPathValidatorRef;
+end;
+
+function TSpyPkixProvider.PathBuildCount: Integer;
+begin
+  Result := FPathValidator.Count;
 end;
 
 function TSpyPkixProvider.Revocation: IRevocationChecker;
@@ -172,6 +219,7 @@ end;
 function TSpyPkixProvider.TryFindIssuer(const ALeafCert: TBytes;
   const ACandidates: TArray<TBytes>; out AIssuerCert: TBytes): Boolean;
 begin
+  Inc(FFindIssuerCount);
   Result := FInner.Revocation.TryFindIssuer(ALeafCert, ACandidates, AIssuerCert);
 end;
 

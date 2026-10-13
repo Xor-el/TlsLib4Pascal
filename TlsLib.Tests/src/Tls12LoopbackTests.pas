@@ -114,8 +114,8 @@ type
     // host (HostDecision), so a verified chain parks rather than completing inline
     function ParkingStaplingClientMachine: IHandshakeMachine;
   published
-    procedure TestParkedClientDefersServerKeyExchangeAfterOmittedCertificateStatus;
-    procedure TestParkedClientDefersAnOutOfOrderMessageUntilResume;
+    procedure TestClientParksAfterServerKeyExchangeWhenCertificateStatusIsOmitted;
+    procedure TestOutOfOrderMessageAfterOmittedCertificateStatusFailsWithoutParking;
     procedure TestClientRejectsServerHelloLegacyVersionBelowTls12;
     procedure TestClientRejectsSupportedVersionsInTls12ServerHello;
     procedure TestPlaintextFinishedPackedWithKeyExchangeIsExcessData;
@@ -986,55 +986,48 @@ begin
   Result := TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 
-procedure TTestTls12Loopback.TestParkedClientDefersServerKeyExchangeAfterOmittedCertificateStatus;
+procedure TTestTls12Loopback.TestClientParksAfterServerKeyExchangeWhenCertificateStatusIsOmitted;
 var
   LClient, LServer: IHandshakeMachine;
   LMsgs: TArray<TBytes>;
   LEffects: TArray<THandshakeEffect>;
 begin
-  // the server echoes status_request and staples, so a client that offered status_request waits for a
-  // CertificateStatus. Deliver ServerHello+Certificate, then the ServerKeyExchange while omitting the
-  // CertificateStatus: the client verifies the chain (no staple) and, because the verdict is deferred
-  // to the host, PARKS - and must DEFER the coalesced ServerKeyExchange rather than advance the park
+  // the CertificateStatus is omitted, so the park waits for the signed ServerKeyExchange
   LClient := ParkingStaplingClientMachine;
   LServer := StaplingServerMachine(OcspField('ocsp_good'));
   LMsgs := AllServerMessages(SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start))));
   // [ServerHello, Certificate, CertificateStatus, ServerKeyExchange, ServerHelloDone]
   CheckEquals(5, System.Length(LMsgs), 'the server produced the expected stapled 1.2 flight');
 
-  DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[0], LMsgs[1]));
+  LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[0], LMsgs[1]));
+  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.AwaitCertificateVerdict),
+    'the Certificate alone does not park: the server has not yet proved the key');
   LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[3]));
   CheckTrue(LClient.Stage = THandshakeStage.ParkedForVerdict,
-    'the client parks for the host verdict after verifying without a staple');
+    'the client parks for the host verdict once the ServerKeyExchange verified');
   CheckTrue(HasEffect(LEffects, THandshakeEffectKind.AwaitCertificateVerdict),
     'the park surfaces AwaitCertificateVerdict');
-  CheckTrue(HasEffect(LEffects, THandshakeEffectKind.PeerCertificateChain),
-    'and the peer certificate chain');
   CheckFalse(HasEffect(LEffects, THandshakeEffectKind.SendHandshake),
-    'the deferred ServerKeyExchange did not advance the parked handshake');
+    'the parked handshake sends nothing yet');
   CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail), 'and did not fail');
 
   LEffects := LClient.ResumeAfterVerdict;
   CheckTrue(LClient.Stage = THandshakeStage.Handshaking, 'resuming clears the park');
-  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail),
-    'the deferred ServerKeyExchange re-dispatches cleanly on resume');
+  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail), 'resuming does not fail');
 
   LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[4]));
   CheckTrue(HasEffect(LEffects, THandshakeEffectKind.SendHandshake),
-    'the client emits its flight once ServerHelloDone arrives, proving the deferred SKE was consumed');
+    'the client emits its flight once ServerHelloDone arrives');
   CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail), 'the handshake proceeds without failing');
 end;
 
-procedure TTestTls12Loopback.TestParkedClientDefersAnOutOfOrderMessageUntilResume;
+procedure TTestTls12Loopback.TestOutOfOrderMessageAfterOmittedCertificateStatusFailsWithoutParking;
 var
   LClient, LServer: IHandshakeMachine;
   LMsgs: TArray<TBytes>;
   LEffects: TArray<THandshakeEffect>;
 begin
-  // the deferred message must be acted on ONLY after resume, never in place while parked. Deliver a
-  // ServerHelloDone (out of order for the awaited ServerKeyExchange) as the message following the
-  // omitted CertificateStatus: with the park honoured its protocol error surfaces on resume; a parked
-  // machine that processed it in place would raise the Fail during the park instead
+  // a ServerHelloDone where the ServerKeyExchange is awaited fails at once, nothing having been proved
   LClient := ParkingStaplingClientMachine;
   LServer := StaplingServerMachine(OcspField('ocsp_good'));
   LMsgs := AllServerMessages(SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start))));
@@ -1042,13 +1035,10 @@ begin
 
   DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[0], LMsgs[1]));
   LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[4]));
-  CheckTrue(LClient.Stage = THandshakeStage.ParkedForVerdict, 'the client parks for the host verdict');
-  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.Fail),
-    'the out-of-order message is deferred, not acted on while parked');
-
-  LEffects := LClient.ResumeAfterVerdict;
   CheckTrue(HasFailAlert(LEffects, TTlsAlertDescription.UnexpectedMessage),
-    'the deferred message''s protocol error surfaces on resume, proving it was not processed in the park');
+    'the out-of-order message is an unexpected_message error');
+  CheckFalse(HasEffect(LEffects, THandshakeEffectKind.AwaitCertificateVerdict),
+    'and no verdict park was raised');
 end;
 
 procedure TTestTls12Loopback.TestClientRejectsServerHelloLegacyVersionBelowTls12;

@@ -21,6 +21,7 @@ uses
   TlpTlsAlertProtocol,
   TlpTlsError,
   TlpTlsConnectionInfo,
+  TlpTrustPolicy,
   TlpHandshakeMessages;
 
 type
@@ -39,7 +40,7 @@ type
     EarlyDataAccepted,  // the server accepted the client's 0-RTT early data
     EarlyDataRejected,  // the server rejected 0-RTT; the accepted early data is discarded (not replayed)
     KeyUpdateReceived,  // the peer sent a post-handshake KeyUpdate; the read epoch rekeyed
-    CertificateReceived // the peer chain passed the pipeline; a verdict is awaited (async)
+    CertificateReceived // the peer chain passed and the peer proved key possession; a verdict is awaited
   );
 
   /// <summary>A pollable, closure-free engine event (event-as-data queue).</summary>
@@ -61,23 +62,26 @@ type
   /// <summary>
   /// The parked peer certificate, carried by a CertificateReceived event when async
   /// certificate verdicts are enabled. The chain (leaf first, DER) has already passed the
-  /// engine's built-in trust pipeline; the host inspects it out-of-band and resumes the
-  /// handshake with SetCertificateVerdict (augment-only: the verdict can only reject).
+  /// engine's built-in trust pipeline and the peer has proved it holds the leaf key (its
+  /// CertificateVerify or signed ServerKeyExchange verified); the host inspects it out-of-band and
+  /// resumes the handshake with SetCertificateVerdict (augment-only: the verdict can only reject).
   /// </summary>
   ICertificateReceivedEvent = interface(ITlsEvent)
-    ['{1A6C4E80-3B72-4D95-8F21-7C0E5B9A2D46}']
+    ['{3FE19C43-8399-4841-ACAE-89DB8D6AD679}']
     /// <summary>The peer certificate chain as presented, leaf first, DER.</summary>
     function Chain: TArray<TBytes>;
-    /// <summary>The leaf-first path the built-in pipeline validated (the leaf's issuer at index 1
-    /// where the validator can name it; the leaf alone under InsecureSkipVerify), so an out-of-band
-    /// revocation check authenticates the responder against the issuer PKIX already established
-    /// rather than a re-guess.</summary>
+    /// <summary>The leaf-first path the verifier validated (the leaf's issuer at index 1 where it
+    /// can name one), so an out-of-band revocation check authenticates the responder against the
+    /// issuer PKIX already established; empty when nothing was validated (InsecureSkipVerify).</summary>
     function ValidatedPath: TArray<TBytes>;
     /// <summary>The host the certificate was validated for (empty on the server side).</summary>
     function HostName: string;
     /// <summary>The handshake OCSP staple the peer delivered (empty when none), so an
     /// out-of-band live check can skip a fetch the server already answered in-band.</summary>
     function OcspStaple: TBytes;
+    /// <summary>The revocation posture the configuration asked for; a verdict resolver holds to it
+    /// even when it was built with a laxer one.</summary>
+    function RevocationPosture: TRevocationPosture;
   end;
 
   /// <summary>

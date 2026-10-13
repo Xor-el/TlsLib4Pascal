@@ -108,14 +108,18 @@ type
     /// check (chain validity, PKIX path date, OCSP responder validity) shares one source.</summary>
     function ValidationTimeUtc: TDateTime;
     /// <summary>ACerts from index AFirst on, minus any distrusted certificate (the entries before
-    /// AFirst are kept as they are); AWithheld is set when one was dropped.</summary>
+    /// AFirst are kept as they are); each dropped certificate is appended to AWithheld.</summary>
     class function WithoutDistrusted(const AStore: ITrustAnchorStore;
       const ACerts: TArray<TBytes>; AFirst: Int32;
-      var AWithheld: Boolean): TArray<TBytes>; static;
-    /// <summary>Whether AChain would validate with nothing set aside: tells a failure caused by a
-    /// withheld distrusted certificate from a genuine unknown CA.</summary>
-    function PathValidatesUnfiltered(const AChain: TArray<TBytes>;
-      AKeyPurpose: TCertKeyPurpose): Boolean;
+      var AWithheld: TArray<TBytes>): TArray<TBytes>; static;
+    /// <summary>Whether the issuer line from ALeaf through the supplied and the withheld
+    /// certificates reaches a configured anchor by way of a withheld one: names a distrust failure
+    /// without a second path build. Expiry and EKU of the line are not weighed. Each certificate is
+    /// parsed and expanded once, so the cost stays quadratic in signature checks whatever the peer
+    /// sends, and the non-self-signed certificates on a line are capped at the path builder's
+    /// limit (self-signed stands in for the builder's self-issued).</summary>
+    function DistrustDecidedTheFailure(const ALeaf: TBytes;
+      const AWithheld, APresented, AIntermediates: TArray<TBytes>): Boolean;
     /// <summary>True when any certificate of ACerts is distrusted.</summary>
     class function AnyDistrusted(const AStore: ITrustAnchorStore;
       const ACerts: TArray<TBytes>): Boolean; static;
@@ -256,6 +260,7 @@ resourcestring
   SNilVerifierInput = 'a PKIX provider and clock are required (pass instances, not nil)';
   SNilPinningInput = 'an inner verifier, a crypto provider and a PKIX provider are required ' +
     '(pass instances, not nil)';
+  SEmptyPins = 'at least one SPKI pin is required (pass pins, or do not compose a pinning verifier)';
   SNilCallbackInput = 'an inner verifier and a verify callback are required (pass instances, not nil)';
 
 { TCertificateVerifierOptions }
@@ -322,9 +327,6 @@ end;
 function TCertificateVerifier.CheckRevocation(const AChain: TArray<TBytes>;
   const AOcspStaple: TBytes; AKeyPurpose: TCertKeyPurpose; out ASettled: Boolean;
   out AAlert: TTlsAlertDescription): Boolean;
-const
-  // RFC 7633 TLS Feature id: status_request means the certificate is must-staple
-  MustStapleFeature = UInt16(5);
 var
   LFeatures: TArray<UInt16>;
   LMustStaple: Boolean;
@@ -353,7 +355,7 @@ begin
   begin
     LMustStaple := False;
     for LI := 0 to System.High(LFeatures) do
-      if LFeatures[LI] = MustStapleFeature then
+      if LFeatures[LI] = TTlsFeatureCodes.StatusRequest then
       begin
         LMustStaple := True;
         Break;
@@ -410,7 +412,7 @@ end;
 
 class function TCertificateVerifier.WithoutDistrusted(
   const AStore: ITrustAnchorStore; const ACerts: TArray<TBytes>;
-  AFirst: Int32; var AWithheld: Boolean): TArray<TBytes>;
+  AFirst: Int32; var AWithheld: TArray<TBytes>): TArray<TBytes>;
 var
   LI, LCount: Int32;
 begin
@@ -419,7 +421,7 @@ begin
   LCount := 0;
   for LI := 0 to System.High(ACerts) do
     if (LI >= AFirst) and AStore.IsDistrusted(ACerts[LI]) then
-      AWithheld := True
+      TArrayUtilities.Append<TBytes>(AWithheld, ACerts[LI])
     else
     begin
       Result[LCount] := ACerts[LI];
@@ -428,21 +430,125 @@ begin
   SetLength(Result, LCount);
 end;
 
-function TCertificateVerifier.PathValidatesUnfiltered(const AChain: TArray<TBytes>;
-  AKeyPurpose: TCertKeyPurpose): Boolean;
+function TCertificateVerifier.DistrustDecidedTheFailure(const ALeaf: TBytes;
+  const AWithheld, APresented, AIntermediates: TArray<TBytes>): Boolean;
 var
-  LIgnored: TArray<TBytes>;
-begin
-  // classification only: the verdict was already a failure, this just names its cause
-  LIgnored := AChain;
-  try
-    FPkix.PathValidation.ValidateCertificatePath(AChain, FTrustStore, FIntermediates,
-      ValidationTimeUtc, AKeyPurpose, LIgnored);
-    Result := True;
-  except
-    on E: EFatalAlertTlsLibException do
-      Result := False;
+  LCandidates, LPool: TArray<TBytes>;
+  LIssuer: TBytes;
+  LIssuedBy: array of TArray<Boolean>;
+  LCost: TArray<Int32>;
+  LExpanded, LWithheldAt, LAnchorKnown, LAnchored: TArray<Boolean>;
+  LSubject, LIssuerName: TArray<string>;
+  LRootSubject: TArray<string>;
+  LMatches, LRoots: TArray<TBytes>;
+  LCount, LA, LB, LC, LNext, LTo: Int32;
+  LKnown, LChanged: Boolean;
+  LCommonName, LSerial, LRootIssuer: string;
+
+  // which pool certificates signed AIndex; the diagonal tells whether it is self-signed
+  procedure Expand(AIndex: Int32);
+  var
+    LJ: Int32;
+  begin
+    if LExpanded[AIndex] then
+      Exit;
+    LExpanded[AIndex] := True;
+    SetLength(LIssuedBy[AIndex], LCount);
+    // the name match is a prefilter on the names parsed once, so a signature is only tried on a hit
+    for LJ := 0 to LCount - 1 do
+      LIssuedBy[AIndex][LJ] := (LIssuerName[AIndex] <> '') and
+        SameText(LIssuerName[AIndex], LSubject[LJ]) and
+        FPkix.Revocation.TryFindIssuer(LPool[AIndex], TArray<TBytes>.Create(LPool[LJ]), LIssuer);
   end;
+
+begin
+  LCandidates := TArrayUtilities.Concat<TBytes>(APresented, AIntermediates);
+  LCandidates := TArrayUtilities.Concat<TBytes>(LCandidates, AWithheld);
+  LPool := TArray<TBytes>.Create(ALeaf);
+  for LA := 0 to System.High(LCandidates) do
+  begin
+    LKnown := False;
+    for LB := 0 to System.High(LPool) do
+      if TArrayUtilities.AreEqual(LPool[LB], LCandidates[LA]) then
+        LKnown := True;
+    if not LKnown then
+      TArrayUtilities.Append<TBytes>(LPool, LCandidates[LA]);
+  end;
+  LCount := System.Length(LPool);
+  SetLength(LIssuedBy, LCount);
+  SetLength(LExpanded, LCount);
+  SetLength(LAnchorKnown, LCount);
+  SetLength(LAnchored, LCount);
+  SetLength(LWithheldAt, LCount);
+  SetLength(LSubject, LCount);
+  SetLength(LIssuerName, LCount);
+  for LA := 0 to LCount - 1 do
+    if not FPkix.Certificates.PeerInfo(LPool[LA], LSubject[LA], LIssuerName[LA], LCommonName,
+      LSerial) then
+    begin
+      LSubject[LA] := '';
+      LIssuerName[LA] := '';
+    end;
+  SetLength(LCost, LCount * 2);
+  for LA := 0 to LCount - 1 do
+    for LB := 0 to System.High(AWithheld) do
+      if TArrayUtilities.AreEqual(LPool[LA], AWithheld[LB]) then
+        LWithheldAt[LA] := True;
+  for LA := 0 to System.High(LCost) do
+    LCost[LA] := System.High(Int32);
+  // a state is (certificate, crossed a withheld one), costed in non-self-signed certificates above the leaf
+  LCost[0] := 0;
+  repeat
+    LChanged := False;
+    for LA := 0 to LCount - 1 do
+      for LC := 0 to 1 do
+      begin
+        if LCost[LA * 2 + LC] > TPathBuildLimits.MaxBuiltPathLength then
+          Continue;
+        Expand(LA);
+        if LC = 1 then
+        begin
+          if not LAnchorKnown[LA] then
+          begin
+            LAnchorKnown[LA] := True;
+            if LRootSubject = nil then
+            begin
+              LRoots := FTrustStore.RootCertificates;
+              SetLength(LRootSubject, System.Length(LRoots));
+              for LB := 0 to System.High(LRoots) do
+                if not FPkix.Certificates.PeerInfo(LRoots[LB], LRootSubject[LB], LRootIssuer,
+                  LCommonName, LSerial) then
+                  LRootSubject[LB] := '';
+            end;
+            LMatches := nil;
+            for LB := 0 to System.High(LRoots) do
+              if (LIssuerName[LA] <> '') and SameText(LIssuerName[LA], LRootSubject[LB]) then
+                TArrayUtilities.Append<TBytes>(LMatches, LRoots[LB]);
+            LAnchored[LA] := FPkix.Revocation.TryFindIssuer(LPool[LA], LMatches, LIssuer);
+          end;
+          if LAnchored[LA] then
+            Exit(True);
+        end;
+        for LB := 0 to LCount - 1 do
+        begin
+          if (LB = LA) or not LIssuedBy[LA][LB] then
+            Continue;
+          Expand(LB);
+          LNext := LCost[LA * 2 + LC];
+          if not LIssuedBy[LB][LB] then
+            Inc(LNext);
+          LTo := LB * 2 + LC;
+          if LWithheldAt[LB] then
+            LTo := LB * 2 + 1;
+          if (LNext <= TPathBuildLimits.MaxBuiltPathLength) and (LNext < LCost[LTo]) then
+          begin
+            LCost[LTo] := LNext;
+            LChanged := True;
+          end;
+        end;
+      end;
+  until not LChanged;
+  Result := False;
 end;
 
 class function TCertificateVerifier.AnyDistrusted(
@@ -479,7 +585,7 @@ var
   LEffectiveChain: TArray<TBytes>;
   LPresented, LIntermediates, LAnchors: TArray<TBytes>;
   LLeaf: IInspectedCertificate;
-  LWithheld: Boolean;
+  LWithheld: TArray<TBytes>;
 begin
   Result := False;
   AValidatedChain := nil;
@@ -505,7 +611,7 @@ begin
   // path the peer also sent (a cross-signed twin) still verifies
   LPresented := AChain;
   LIntermediates := FIntermediates;
-  LWithheld := False;
+  LWithheld := nil;
   if FTrustStore.IsDistrusted(AChain[0]) then
     Exit;
   LPresented := WithoutDistrusted(FTrustStore, AChain, 1, LWithheld);
@@ -521,10 +627,9 @@ begin
     on E: EFatalAlertTlsLibException do
     begin
       AAlert := E.AlertDescription;
-      // "no path" with a distrusted certificate withheld is the explicit distrust only if the path
-      // would have validated with it; otherwise it is a genuine unknown CA
-      if LWithheld and (AAlert = TTlsAlertDescription.UnknownCa) and
-        PathValidatesUnfiltered(AChain, AKeyPurpose) then
+      // no path is a distrust failure only when the leaf's issuer line ran through a withheld certificate
+      if (System.Length(LWithheld) > 0) and (AAlert = TTlsAlertDescription.UnknownCa) and
+        DistrustDecidedTheFailure(AChain[0], LWithheld, LPresented, LIntermediates) then
         AAlert := TTlsAlertDescription.BadCertificate;
       Exit;
     end;
@@ -551,6 +656,8 @@ begin
   end
   else if not TChainAlgorithmPolicy.CheckBaseline(FPkix.Certificates, LEffectiveChain,
     LAnchors, AAlert) then
+    Exit;
+  if not TEndEntityPolicy.Admits(FPkix.Certificates, LEffectiveChain, LAnchors, AAlert) then
     Exit;
 
   // revocation via the stapled OCSP response (RFC 6960), in-band only; run over the validated
@@ -598,10 +705,11 @@ begin
     Exit;
   // the loud escape hatch: skip the built-in pipeline entirely (tests / pinned dev peers)
   if FDangerous.InsecureSkipVerify then
-    // with no path validation nothing binds AChain[1..] to the leaf, so a pin may only be a
-    // leaf pin here: the validated chain is the leaf alone (never the peer-supplied rest). No
-    // revocation ran, so the outcome stays Trusted (a configured live park still runs)
-    AVerified.Path := TArray<TBytes>.Create(System.Copy(AChain[0]))
+  begin
+    // nothing binds the rest of the chain to the leaf, so the path is the leaf alone (a leaf pin only)
+    AVerified.Path := TArray<TBytes>.Create(System.Copy(AChain[0]));
+    AVerified.Outcome := TVerificationOutcome.Unvalidated;
+  end
   else
   begin
     if not VerifyPipeline(AChain, AServerName, FCheckHostName, AOcspStaple,
@@ -613,8 +721,8 @@ begin
   end;
   // the augment-only hook runs last and can only additionally reject; it can never rescue a
   // chain the pipeline (when run) already rejected, since a rejection has returned above
-  if not TVerifyCallbackGate.Admits(FDangerous.VerifyCallback, AChain, AServerName.ToString,
-    AAlert) then
+  if not TVerifyCallbackGate.Admits(FDangerous.VerifyCallback, AChain, AVerified,
+    AServerName.ToString, AAlert) then
   begin
     AVerified := Default(TVerifiedChain);
     Exit;
@@ -637,7 +745,10 @@ begin
   // a client certificate carries no host identity and is never stapled: verify the chain
   // for the clientAuth role, with no endpoint-identity match and no OCSP staple
   if FDangerous.InsecureSkipVerify then
-    AVerified.Path := TArray<TBytes>.Create(System.Copy(AChain[0]))
+  begin
+    AVerified.Path := TArray<TBytes>.Create(System.Copy(AChain[0]));
+    AVerified.Outcome := TVerificationOutcome.Unvalidated;
+  end
   else
   begin
     if not VerifyPipeline(AChain, Default(TServerName), False, nil,
@@ -647,7 +758,8 @@ begin
     if LSettled then
       AVerified.Outcome := TVerificationOutcome.RevocationSettledInline;
   end;
-  if not TVerifyCallbackGate.Admits(FDangerous.VerifyCallback, AChain, '', AAlert) then
+  if not TVerifyCallbackGate.Admits(FDangerous.VerifyCallback, AChain, AVerified, '',
+    AAlert) then
   begin
     AVerified := Default(TVerifiedChain);
     Exit;
@@ -672,9 +784,6 @@ var
   LSpki, LDigest: TBytes;
   LI, LJ: Int32;
 begin
-  Result := True;
-  if System.Length(APins) = 0 then
-    Exit;
   // some certificate on the validated path must carry a pinned public key (SPKI-SHA256)
   for LI := 0 to System.High(AChain) do
   begin
@@ -691,7 +800,7 @@ begin
     LDigest := LHash.DoFinal;
     for LJ := 0 to System.High(APins) do
       if TArrayUtilities.AreEqual(LDigest, APins[LJ]) then
-        Exit;
+        Exit(True);
   end;
   Result := False;
 end;
@@ -705,6 +814,8 @@ begin
   inherited Create;
   if (AInner = nil) or (ACryptoProvider = nil) or (APkixProvider = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilPinningInput);
+  if System.Length(APins) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SEmptyPins);
   FInner := AInner;
   FPins := APins;
   FCrypto := ACryptoProvider;
@@ -741,6 +852,8 @@ begin
   inherited Create;
   if (AInner = nil) or (ACryptoProvider = nil) or (APkixProvider = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilPinningInput);
+  if System.Length(APins) = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SEmptyPins);
   FInner := AInner;
   FPins := APins;
   FCrypto := ACryptoProvider;
@@ -785,7 +898,8 @@ begin
     AVerified, AAlert);
   if not Result then
     Exit;
-  if not TVerifyCallbackGate.Admits(FCallback, AChain, AServerName.ToString, AAlert) then
+  if not TVerifyCallbackGate.Admits(FCallback, AChain, AVerified, AServerName.ToString,
+    AAlert) then
   begin
     AVerified := Default(TVerifiedChain);
     Result := False;
@@ -811,7 +925,7 @@ begin
   Result := FInner.VerifyClientCertificate(AChain, AVerified, AAlert);
   if not Result then
     Exit;
-  if not TVerifyCallbackGate.Admits(FCallback, AChain, '', AAlert) then
+  if not TVerifyCallbackGate.Admits(FCallback, AChain, AVerified, '', AAlert) then
   begin
     AVerified := Default(TVerifiedChain);
     Result := False;

@@ -93,7 +93,7 @@ with the session), so an `OnVerifyCert` with side effects will see it fire on re
 such as live OCSP/CRL, set the process-wide hooks the plugin threads into each handshake, by role:
 
 ```pascal
-SetTlsLibSynapseVerifyCallback(cb);                            // augment-only  chain+host -> Boolean
+SetTlsLibSynapseVerifyCallback(cb);                            // augment-only, runs last: presented, validated, host -> Boolean
 SetTlsLibSynapseVerdictResolver(resolver, deadlineMs);         // client role: decides the server's chain
 SetTlsLibSynapseServerVerdictResolver(resolver, deadlineMs);   // server role: decides an mTLS client's chain
 ```

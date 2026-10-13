@@ -60,6 +60,7 @@ uses
   TlpICertificateTrust,
   TlpCertificateLimits,
   TlpTrustTypes,
+  TlpTrustPolicy,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpServerOfferSelection,
@@ -145,6 +146,8 @@ type
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
     /// augment-only and fail-closed, None by default.</summary>
     Deferral: TVerdictDeferral;
+    /// <summary>The configured revocation posture a parked verdict is decided at.</summary>
+    RevocationPosture: TRevocationPosture;
     /// <summary>The out-of-band external PSKs (RFC 9258) the server imports and matches an
     /// offered pre_shared_key against, in preference order. A matching PSK is preferred over
     /// the server certificate. Empty leaves external PSK off.</summary>
@@ -232,6 +235,8 @@ type
     /// <summary>The client's certificate chain (leaf first), captured for the client
     /// CertificateVerify once the client Certificate is processed.</summary>
     FClientCertChain: TArray<TBytes>;
+    // held until the client's CertificateVerify verifies, which is when the verdict parks
+    FPeerVerified: TVerifiedChain;
     // the client chain the accepted ticket carried (empty when none), surfaced on the resumed
     // connection since a resumed handshake sends no Certificate
     FResumedPeerCertificates: TArray<TBytes>;
@@ -1864,16 +1869,10 @@ begin
     FClientCertChain, LVerified, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedClientCertificate);
   FPhase := TPhase.WaitClientCertVerify;
+  FPeerVerified := LVerified;
   // surface the presented client chain and the validated path for connection info (read-only)
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.PeerCertificateChain(FClientCertChain, LVerified.Path));
-  // async verdict: the pipeline accepted the client chain; park for the host's out-of-band decision.
-  // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
-  // authenticates against the PKIX issuer, never a guess. The buffered CertificateVerify/Finished
-  // resume once SetCertificateVerdict does.
-  if TPeerAuthentication.ShouldPark(FParams.Deferral, LVerified.Outcome) then
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      ParkForVerdict(FClientCertChain, LVerified.Path, '', nil));
+    THandshakeEffects.PeerCertificateChain(FClientCertChain, LVerified.ValidatedPath));
 end;
 
 function TTls13ServerStateMachine.ProcessClientCertVerify(
@@ -1896,6 +1895,11 @@ begin
     LContent, LCertVerify.Signature);
   FTranscript.Update(AMessage.Raw);
   FPhase := TPhase.WaitClientFinished;
+  // park only after the key proof so an unproven certificate never costs a fetch or a host decision
+  if TPeerAuthentication.ShouldPark(FParams.Deferral, FPeerVerified.Outcome) then
+    Result := TArray<THandshakeEffect>.Create(ParkForVerdict(FClientCertChain,
+      FPeerVerified.ValidatedPath, '', nil, FParams.RevocationPosture));
+  FPeerVerified := Default(TVerifiedChain);
 end;
 
 function TTls13ServerStateMachine.SignCertificateVerify(

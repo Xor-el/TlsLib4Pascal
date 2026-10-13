@@ -62,7 +62,7 @@ uses
 type
   TTestTlsConnection = class(TTlsLibAlgorithmTestCase)
   strict private
-    function StubVerifyCallback(const AChain: TArray<TBytes>;
+    function StubVerifyCallback(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
     function StubResolver(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
@@ -401,7 +401,7 @@ end;
 
 { TTestTlsConnection }
 
-function TTestTlsConnection.StubVerifyCallback(const AChain: TArray<TBytes>;
+function TTestTlsConnection.StubVerifyCallback(const APresented, AValidated: TArray<TBytes>;
   const AHostName: string): Boolean;
 begin
   Result := True;

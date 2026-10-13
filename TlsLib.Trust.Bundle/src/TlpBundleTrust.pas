@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   Classes,
+  TlpTlsLibExceptions,
   TlpIPkixProvider,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore;
@@ -44,6 +45,9 @@ type
 
 implementation
 
+resourcestring
+  SNilPkixProvider = 'a PKIX provider is required (pass an instance, not nil)';
+
 { TBundleTrust }
 
 class function TBundleTrust.ReadAllBytes(const AFileName: string): TBytes;
@@ -65,6 +69,8 @@ end;
 class function TBundleTrust.FromPem(const APkixProvider: IPkixProvider;
   const AData: TBytes): ITrustAnchorStore;
 begin
+  if APkixProvider = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilPkixProvider);
   Result := TTrustAnchorStore.Create(APkixProvider.Certificates.LoadChain(AData))
     as ITrustAnchorStore;
 end;
@@ -72,6 +78,8 @@ end;
 class function TBundleTrust.FromPemFile(const APkixProvider: IPkixProvider;
   const AFileName: string): ITrustAnchorStore;
 begin
+  if APkixProvider = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilPkixProvider);
   Result := FromPem(APkixProvider, ReadAllBytes(AFileName));
 end;
 

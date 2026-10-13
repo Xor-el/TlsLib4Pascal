@@ -53,6 +53,7 @@ type
     function IpAddresses: TArray<TBytes>;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
+    function IsCertificateAuthority: TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
@@ -134,6 +135,11 @@ end;
 function TUndecodableKeyUsageLeaf.KeyIsRsaPss: TCertAnswer;
 begin
   Result := FInner.KeyIsRsaPss;
+end;
+
+function TUndecodableKeyUsageLeaf.IsCertificateAuthority: TCertAnswer;
+begin
+  Result := FInner.IsCertificateAuthority;
 end;
 
 function TUndecodableKeyUsageLeaf.KeyKind(out AKind: TSignatureKeyKind;

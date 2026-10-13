@@ -76,7 +76,7 @@ Instead, the neutral hooks are process-wide setters (mORMot builds an `INetTls` 
 through the global factory, so its hooks are set the same way):
 
 ```pascal
-SetTlsLibMormotVerifyCallback(cb);                            // augment-only  chain+host -> Boolean
+SetTlsLibMormotVerifyCallback(cb);                            // augment-only, runs last: presented, validated, host -> Boolean
 SetTlsLibMormotVerdictResolver(resolver, deadlineMs);         // client role: decides the server's chain
 SetTlsLibMormotServerVerdictResolver(resolver, deadlineMs);   // server role: decides an mTLS client's chain
 SetTlsLibMormotHandshakeTimeout(ms);                          // bounds the handshake read; 0 = 30 s default
@@ -84,7 +84,8 @@ SetTlsLibMormotSessionResumption(enabled);                    // default True; 0
 SetTlsLibMormotCrypto(crypto); SetTlsLibMormotPkix(pkix);     // providers for the context-driven build
 ```
 
-`VerifyCallback` runs after our pipeline accepts the chain and can only additionally reject. It is a
+`VerifyCallback` runs last, after our pipeline and any pinning accept the chain, and can only
+additionally reject; it receives the presented chain and the validated path (`nil` when skipped). It is a
 client-handshake hook: a server never carries it (vet client chains with a config supplied through
 `SetTlsLibMormotServerConfig`).
 The resolvers decide a parked verdict out-of-band — wire `TLiveRevocationChecker.ResolveVerdict`

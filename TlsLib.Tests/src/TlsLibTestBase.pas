@@ -106,6 +106,8 @@ type
     // that need a real trust source present but never verify a chain.
     function EcP256RootCertificate: TBytes;
     function EcP256RootStore: ITrustAnchorStore;
+    // A named certificate of Certs/CriticalExtensionsChain.txt.
+    function CriticalExtensionsCertificate(const AName: string): TBytes;
     // The built-in PKIX pipeline over AStore / over PEM or DER roots, with its default settings.
     function WebPkiServer(const AStore: ITrustAnchorStore): IServerVerification; overload;
     function WebPkiServer(const AAnchorData: TBytes): IServerVerification; overload;
@@ -355,6 +357,18 @@ function TTlsLibAlgorithmTestCase.EcP256RootStore: ITrustAnchorStore;
 begin
   Result := TTrustAnchorStore.Create(
     TArray<TBytes>.Create(EcP256RootCertificate)) as ITrustAnchorStore;
+end;
+
+function TTlsLibAlgorithmTestCase.CriticalExtensionsCertificate(const AName: string): TBytes;
+var
+  LFields: TStringList;
+begin
+  LFields := LoadVectorFields('Certs/CriticalExtensionsChain.txt');
+  try
+    Result := DecodeHex(LFields.Values[AName]);
+  finally
+    LFields.Free;
+  end;
 end;
 
 function TTlsLibAlgorithmTestCase.WebPkiServer(const AStore: ITrustAnchorStore)
