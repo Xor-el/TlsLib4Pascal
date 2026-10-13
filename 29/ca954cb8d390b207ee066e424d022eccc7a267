@@ -1,0 +1,30 @@
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoRunner.pas
+  s_a42ddd283d3520::t_8d1151280c8fa2 207-229
+  s_a42ddd283d3520::t_b2d23229f79554 362-363
+  s_a42ddd283d3520::t_c752869b9ce089 283-286
+  s_a42ddd283d3520::t_895a83dbca91f7 35
+  s_a42ddd283d3520::t_ff2cf21477f5f5 264
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_a42ddd283d3520::t_0d83986faadac6 3387-3391
+TlsLib.Trust.System/Examples/Delphi/res/xml/network_security_config.xml
+  s_a42ddd283d3520::t_5823b87dc30a14 10-13
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_a42ddd283d3520::t_5eca1d623e1fb0 85
+  s_a42ddd283d3520::t_31c2379c3b26ed 94-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "29ca954cb8d390b207ee066e424d022eccc7a267",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
