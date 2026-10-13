@@ -64,6 +64,9 @@ type
     function NowUtc: TDateTime;
     /// <summary>Reports the test as not run; the caller must Exit after it.</summary>
     procedure SkipTest(const AReason: string);
+    /// <summary>Whether the test switch AName is on: true or false in any case, unset is off;
+    /// any other value raises.</summary>
+    function SwitchEnabled(const AName: string): Boolean;
   public
     destructor Destroy; override;
   protected
@@ -118,6 +121,9 @@ type
   end;
 
 implementation
+
+resourcestring
+  SUnknownSwitch = '%s: "%s" is not true or false';
 
 { TTlsLibTestCase }
 
@@ -204,6 +210,18 @@ begin
 {$ELSE}
   Status('not run: ' + AReason);
 {$ENDIF FPC}
+end;
+
+function TTlsLibTestCase.SwitchEnabled(const AName: string): Boolean;
+var
+  LValue: string;
+begin
+  LValue := Trim(GetEnvironmentVariable(AName));
+  if (LValue = '') or SameText(LValue, 'false') then
+    Exit(False);
+  if not SameText(LValue, 'true') then
+    raise EArgumentException.CreateFmt(SUnknownSwitch, [AName, LValue]);
+  Result := True;
 end;
 
 function TTlsLibTestCase.Own<T>(const AInstance: T): T;
