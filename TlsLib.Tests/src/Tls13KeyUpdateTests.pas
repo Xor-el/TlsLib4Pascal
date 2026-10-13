@@ -39,8 +39,21 @@ uses
   TlpICryptoProvider,
   TlpITlsEngine,
   TlpHandshakeMessages,
+  TlpHandshakeMessage,
+  TlpHandshakeEffect,
+  TlpIHandshakeMachine,
+  TlpIKeySchedule,
+  TlpTls13KeySchedule,
+  TlpCryptoDomainTypes,
+  TlpSecretBuffer,
+  TlpCoreExtensions,
+  TlpExtensionVector,
+  TlpWireReader,
+  TlpITlsConfig,
+  TlpTls13HandshakeBase,
   MockCryptoProvider,
-  TlsLibTestBase;
+  TlsLibTestBase,
+  TlsLibTestHandshakeDecoder;
 
 type
   TTestTls13KeyUpdate = class(TTlsLibAlgorithmTestCase)
@@ -74,9 +87,68 @@ type
     procedure TestServerExportsKeyingMaterialInHalfRtt;
     procedure TestExportKeyingMaterialSurvivesKeyUpdate;
     procedure TestExportUnavailableAfterFatal;
+    procedure TestKeyUpdateStopsAtTheEpochCap;
+    procedure TestKeySharesAreFreshPerConnection;
   end;
 
 implementation
+
+type
+  // a connected 1.3 base over a real key schedule, with the sent-KeyUpdate count settable to reach the cap
+  TKeyUpdateCapProbe = class sealed(TTls13HandshakeBase)
+  strict protected
+    function WriteDirection: TTlsDirection; override;
+    function ReadDirection: TTlsDirection; override;
+    function Route(const AMessage: TTlsHandshakeMessage)
+      : TArray<THandshakeEffect>; override;
+  public
+    constructor Create(const ACrypto: ICryptoProvider);
+    function Start: TArray<THandshakeEffect>; override;
+    procedure SetSent(ASent: UInt64);
+  end;
+
+constructor TKeyUpdateCapProbe.Create(const ACrypto: ICryptoProvider);
+var
+  LSuites: ICipherSuiteRegistry;
+  LZeros: TBytes;
+begin
+  inherited Create(TCoreExtensions.CreateDefaultRegistry);
+  LSuites := TCipherSuiteRegistry.CreateDefault(ACrypto);
+  if not LSuites.TryGet(TCipherSuites13.Aes128GcmSha256, FSelectedSuite) then
+    raise Exception.Create('the AES-128-GCM suite is not registered');
+  FSchedule := TTls13KeySchedule.Create(ACrypto, THashAlgorithm.SHA_256, 16);
+  SetLength(LZeros, 32);
+  FSchedule.SetSharedSecret(TSecretBuffer.From(LZeros));
+  FSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake, LZeros);
+  FSchedule.DeriveEpochSecrets(TTlsEpoch.Application, LZeros);
+  MarkConnected;
+end;
+
+function TKeyUpdateCapProbe.WriteDirection: TTlsDirection;
+begin
+  Result := TTlsDirection.ClientWrite;
+end;
+
+function TKeyUpdateCapProbe.ReadDirection: TTlsDirection;
+begin
+  Result := TTlsDirection.ServerWrite;
+end;
+
+function TKeyUpdateCapProbe.Route(const AMessage: TTlsHandshakeMessage)
+  : TArray<THandshakeEffect>;
+begin
+  Result := HandleInboundKeyUpdate(AMessage);
+end;
+
+function TKeyUpdateCapProbe.Start: TArray<THandshakeEffect>;
+begin
+  Result := nil;
+end;
+
+procedure TKeyUpdateCapProbe.SetSent(ASent: UInt64);
+begin
+  FKeyUpdatesSent := ASent;
+end;
 
 { TTestTls13KeyUpdate }
 
@@ -464,6 +536,90 @@ begin
   CheckTrue(LServer.IsTerminal, 'a bad record made the connection terminal');
   CheckEquals(0, System.Length(LServer.ExportKeyingMaterial('EXPORTER-test',
     DecodeHex('00'), 32)), 'a terminal connection exports nothing');
+end;
+
+procedure TTestTls13KeyUpdate.TestKeyUpdateStopsAtTheEpochCap;
+var
+  LProbe: TKeyUpdateCapProbe;
+  LMachine: IHandshakeMachine;
+  LRequested: TTlsHandshakeMessage;
+const
+  // RFC 9846 4.7.3
+  MaxSent = UInt64($FFFFFFFFFFFF);
+begin
+  LProbe := TKeyUpdateCapProbe.Create(Crypto);
+  LMachine := LProbe as IHandshakeMachine;
+  LRequested := TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    THandshakeFraming.Frame(TTlsHandshakeType.KeyUpdate, TBytes.Create(1)));
+  LProbe.SetSent(MaxSent - 1);
+  CheckEquals(2, System.Length(LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested)),
+    'the last permitted KeyUpdate is sent');
+  CheckEquals(0, System.Length(LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested)),
+    'none is sent at the cap');
+  LProbe.SetSent(MaxSent - 1);
+  LMachine.ProcessMessage(LRequested);
+  CheckEquals(2, System.Length(LMachine.TakePendingKeyUpdate),
+    'the last permitted response is sent');
+  LMachine.ProcessMessage(LRequested);
+  CheckEquals(0, System.Length(LMachine.TakePendingKeyUpdate),
+    'update_requested is ignored at the cap');
+  LProbe.SetSent(0);
+  CheckEquals(0, System.Length(LMachine.TakePendingKeyUpdate),
+    'the ignored request is not left pending');
+end;
+
+procedure TTestTls13KeyUpdate.TestKeySharesAreFreshPerConnection;
+var
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+  LFlight, LServerFlight: TBytes;
+  LEntry: TExtensionEntry;
+  LReader, LList, LShare: TWireReader;
+  LGroup: UInt16;
+  LHello: TTlsServerHello;
+  LClientShares, LServerShares: array [0 .. 1] of TBytes;
+  LI: Int32;
+begin
+  // one config for every connection, so a cached share would repeat (RFC 9846 4.3.8)
+  LClientConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(ClientTrust)).Build;
+  LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).Build;
+  for LI := 0 to 1 do
+  begin
+    LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
+    LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+    LClient.StartHandshake;
+    LFlight := Drain(LClient);
+    CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LFlight)
+      .TryFind(TExtensionTypes.KeyShare, LEntry), 'the ClientHello carries a key_share');
+    // the GREASE share varies on its own, so compare the real one
+    LReader := TWireReader.Create(LEntry.Data);
+    LList := LReader.OpenVector(2);
+    while LList.Remaining > 0 do
+    begin
+      LGroup := LList.ReadUInt16;
+      LShare := LList.OpenVector(2);
+      if (LGroup and $0F0F) <> $0A0A then
+        LClientShares[LI] := LShare.ReadBytes(LShare.Remaining);
+    end;
+    Feed(LServer, LFlight);
+    LServerFlight := Drain(LServer);
+    LHello := THandshakeMessages.DecodeServerHello(
+      TTlsLibTestHandshakeDecoder.HandshakeMessage(System.Copy(LServerFlight, 5,
+      System.Length(LServerFlight) - 5)).Body);
+    CheckFalse(CompareMem(@LHello.Random[0], @HelloRetryRequestSentinel[0],
+      System.Length(HelloRetryRequestSentinel)), 'the first server flight is a ServerHello');
+    CheckTrue(TExtensionVector.Parse(LHello.Extensions)
+      .TryFind(TExtensionTypes.KeyShare, LEntry), 'the ServerHello carries a key_share');
+    LServerShares[LI] := LEntry.Data;
+  end;
+  CheckTrue(System.Length(LClientShares[0]) > 0, 'a real client key share was sent');
+  CheckFalse(AreEqual(LClientShares[0], LClientShares[1]),
+    'two connections never send the same client key share');
+  CheckFalse(AreEqual(LServerShares[0], LServerShares[1]),
+    'two connections never send the same server key share');
 end;
 
 initialization

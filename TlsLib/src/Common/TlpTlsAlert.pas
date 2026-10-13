@@ -59,6 +59,7 @@ type
     BadCertificateStatusResponse = 113,
     UnknownPskIdentity = 115,
     CertificateRequired = 116,
+    GeneralError = 117,
     NoApplicationProtocol = 120,
     EchRequired = 121);
 
@@ -139,6 +140,7 @@ begin
     113: ADescription := TTlsAlertDescription.BadCertificateStatusResponse;
     115: ADescription := TTlsAlertDescription.UnknownPskIdentity;
     116: ADescription := TTlsAlertDescription.CertificateRequired;
+    117: ADescription := TTlsAlertDescription.GeneralError;
     120: ADescription := TTlsAlertDescription.NoApplicationProtocol;
     121: ADescription := TTlsAlertDescription.EchRequired;
   else

@@ -29,6 +29,7 @@ uses
   TlpIKeyExchangePrivateKey,
   TlpIKeySchedule,
   TlpTls13KeySchedule,
+  TlpTls12KeySchedule,
   TlpITranscriptHash,
   TlpTranscriptHash,
   TlpCryptoDomainTypes,
@@ -241,6 +242,12 @@ type
     // the peer chain the offered resumption session carried, kept to re-run the verifier against
     // it when ReverifyOnResume is set (empty for an external PSK)
     FResumptionPeerCertificates: TArray<TBytes>;
+    FResumptionPskIdentity: TBytes;
+    FResumptionPskBinding: TBytes;
+    FResumedFromTicket: Boolean;
+    // this handshake's PSK identity and binding, kept because the accepted PSK is released
+    FSessionPskIdentity: TBytes;
+    FSessionPskBinding: TBytes;
     // the validated path the reverify-on-resume check produced, surfaced to an async park so a
     // live resolver authenticates against the PKIX issuer rather than a re-guess
     FResumeValidatedPath: TArray<TBytes>;
@@ -768,13 +775,13 @@ begin
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On a
   // resumed connection no Certificate was sent, so the ticket inherits the resumed session's chain
   LPeerChain := FCertificateChain;
-  if (System.Length(LPeerChain) = 0) and FPskAccepted then
+  if FResumedFromTicket then
     LPeerChain := FResumptionPeerCertificates;
   LSession := TTls13ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, LPsk, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
     LLifetime, LNst.TicketAgeAdd, NowUnixMillis,
-    LMaxEarlyData, LPeerChain, nil);
+    LMaxEarlyData, LPeerChain, nil, FSessionPskIdentity, FSessionPskBinding);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
@@ -839,6 +846,8 @@ begin
         FPskOffers := TArray<IPreSharedKey>.Create(LOfferedPsk);
         // kept so ReverifyOnResume can re-check the server we resume against current trust
         FResumptionPeerCertificates := LCached.PeerCertificates;
+        FResumptionPskIdentity := LCached.PskIdentity;
+        FResumptionPskBinding := LCached.PskBinding;
       end;
     end
     else if FParams.AlsoOfferTls12 then
@@ -1134,6 +1143,17 @@ begin
       if FSelectedSuite.Common.Hash <> FAcceptedPsk.Hash then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SPskHashMismatch);
+      FResumedFromTicket := FAcceptedPsk.BinderKind = TPskBinderKind.Resumption;
+      if FResumedFromTicket then
+      begin
+        FSessionPskIdentity := FResumptionPskIdentity;
+        FSessionPskBinding := FResumptionPskBinding;
+      end
+      else
+      begin
+        FSessionPskIdentity := FAcceptedPsk.Identity;
+        FSessionPskBinding := TPskSessionBinding.Derive(FParams.Crypto, FAcceptedPsk.Key);
+      end;
     end;
     // a PSK-only client requires the server to select one of its PSKs; a ServerHello that
     // falls through to certificate authentication is a fatal missing_extension (RFC 8446
@@ -1749,11 +1769,11 @@ var
   LHashBeforeFinished, LHashAfterFinished: TBytes;
   LReverify: Boolean;
 begin
-  // stricter opt-in: re-run the certificate verifier against the resumed server's stored chain (an
-  // external PSK carries no chain, so it is never re-verified). The handshake write keys are live
+  // stricter opt-in: re-run the certificate verifier against the resumed server's stored chain (a
+  // PSK-authenticated session has none to re-check). The handshake write keys are live
   // by this point, so a rejection's fatal alert goes out under the right epoch.
-  LReverify := (FParams.ResumeVerification = TResumeVerification.Reverify) and FPskAccepted and
-    (FAcceptedPsk.BinderKind = TPskBinderKind.Resumption);
+  LReverify := (FParams.ResumeVerification = TResumeVerification.Reverify) and
+    FResumedFromTicket and (System.Length(FSessionPskIdentity) = 0);
   if LReverify then
     ReverifyResumedServer;
   // the server Finished is over the transcript EXCLUDING itself
@@ -1772,10 +1792,9 @@ begin
   // a resumed handshake carries no Certificate: surface the server chain the ticket stored, with the
   // re-verified path when ResumeVerification re-ran the pipeline (empty otherwise). Before any park,
   // so connection info reads it while parked - the ordering a full handshake already has. Only a
-  // resumption PSK carries a chain; an accepted external PSK did not authenticate by this stored one.
+  // resumed ticket carries a chain; an accepted external PSK did not authenticate by this stored one.
   Result := nil;
-  if FPskAccepted and (FAcceptedPsk.BinderKind = TPskBinderKind.Resumption) and
-    (System.Length(FResumptionPeerCertificates) > 0) then
+  if FResumedFromTicket and (System.Length(FResumptionPeerCertificates) > 0) then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.PeerCertificateChain(FResumptionPeerCertificates, FResumeValidatedPath));
 

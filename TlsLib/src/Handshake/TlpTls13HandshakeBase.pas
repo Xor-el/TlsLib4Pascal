@@ -44,6 +44,7 @@ type
     /// flushed just before our next application write (RFC 8446 4.6.3): any number of
     /// requests collapses to one response, which also bounds a KeyUpdate flood.</summary>
     FKeyUpdateResponsePending: Boolean;
+    FKeyUpdatesSent: UInt64;
     /// <summary>This endpoint's own write (send) traffic direction.</summary>
     function WriteDirection: TTlsDirection; virtual; abstract;
     /// <summary>The peer's write direction, i.e. this endpoint's read direction.</summary>
@@ -60,6 +61,8 @@ type
     /// Connected route.</summary>
     function HandleInboundKeyUpdate(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
+  strict private
+    function CanSendKeyUpdate: Boolean;
   public
     function RequestKeyUpdate(ARequest: TKeyUpdateRequest)
       : TArray<THandshakeEffect>; override;
@@ -79,6 +82,10 @@ type
 
 implementation
 
+const
+  // the key-update count may not exceed 2^48-1 (RFC 9846 4.7.3)
+  MaxKeyUpdatesSent = UInt64($FFFFFFFFFFFF);
+
 resourcestring
   SBadKeyUpdate = 'malformed KeyUpdate (request_update must be a single 0 or 1 byte)';
 
@@ -90,6 +97,11 @@ begin
   FSchedule.AdvanceKeyUpdate(ADirection);
   Result := THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     ADirection), ASide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application);
+end;
+
+function TTls13HandshakeBase.CanSendKeyUpdate: Boolean;
+begin
+  Result := FKeyUpdatesSent < MaxKeyUpdatesSent;
 end;
 
 function TTls13HandshakeBase.BuildKeyUpdate(ARequest: TKeyUpdateRequest): TBytes;
@@ -115,9 +127,10 @@ begin
   Result := nil;
   // only meaningful once the handshake is established (the application epoch exists); the engine
   // also guards on complete
-  if Stage <> THandshakeStage.Connected then
+  if (Stage <> THandshakeStage.Connected) or not CanSendKeyUpdate then
     Exit;
   // the KeyUpdate goes out under the current write keys; the write epoch rekeys after it
+  Inc(FKeyUpdatesSent);
   LMessage := BuildKeyUpdate(ARequest);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LMessage),
@@ -129,6 +142,7 @@ function TTls13HandshakeBase.HandleInboundKeyUpdate(
 var
   LRequest: TKeyUpdateRequest;
 begin
+  // decode_error is local policy; RFC 8446 4.6.3 names illegal_parameter
   if (System.Length(AMessage.Body) <> 1) or not TKeyUpdateRequest.TryFromByte(AMessage.Body[0], LRequest) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecodeError,
       @SBadKeyUpdate);
@@ -152,6 +166,10 @@ begin
   if not FKeyUpdateResponsePending then
     Exit;
   FKeyUpdateResponsePending := False;
+  // at the epoch cap update_requested is ignored (RFC 9846 4.7.3)
+  if not CanSendKeyUpdate then
+    Exit;
+  Inc(FKeyUpdatesSent);
   // the responding KeyUpdate (never update_requested, so no loop) goes out under the
   // current write keys; the write epoch rekeys after it
   Result := TArray<THandshakeEffect>.Create(

@@ -41,6 +41,7 @@ type
     procedure TestEncodeDecodeRoundTrip;
     procedure TestCloseNotifyEncodeAndClassification;
     procedure TestUnknownDescriptionIsNotGuessed;
+    procedure TestGeneralErrorIsKnownAndFatal;
     procedure TestMalformedAlertLengthRaisesDecodeError;
     procedure TestMappingFatalCarriesOwnDescription;
     procedure TestMappingUnknownExceptionsBecomeInternalError;
@@ -118,6 +119,20 @@ begin
   CheckEquals($FF, LDecoded.DescriptionByte, 'raw byte preserved');
   CheckFalse(LDecoded.IsCloseNotify, 'not close_notify');
   CheckTrue(LDecoded.IsFatalLevel, 'still classified fatal by level');
+end;
+
+procedure TTestAlertProtocol.TestGeneralErrorIsKnownAndFatal;
+var
+  LDecoded: TReceivedAlert;
+begin
+  // general_error(117), RFC 9846 6.2
+  LDecoded := TTlsAlertProtocol.Decode(DecodeHex('0275'), 0, 2);
+  CheckTrue(LDecoded.HasKnownDescription, 'general_error is mapped');
+  CheckEquals(Ord(TTlsAlertDescription.GeneralError), Ord(LDecoded.Description),
+    'description');
+  CheckEquals(117, Ord(TTlsAlertDescription.GeneralError), 'wire code');
+  CheckTrue(LDecoded.IsFatalLevel, 'fatal level');
+  CheckFalse(LDecoded.IsCloseNotify, 'not close_notify');
 end;
 
 procedure TTestAlertProtocol.TestMalformedAlertLengthRaisesDecodeError;

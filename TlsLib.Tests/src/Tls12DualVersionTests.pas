@@ -107,6 +107,13 @@ type
     procedure TestScsvFromLowerClientAborts;
     procedure TestScsvFromCurrentClientDoesNotAbort;
     procedure TestScsvToLegacyOnlyServerDoesNotAbort;
+    procedure TestScsvWithFutureLegacyVersionAndNoExtensionIsFallbackAtDispatcher;
+    procedure TestScsvWithFutureLegacyVersionAndNoExtensionIsFallbackAtStandaloneTls13Server;
+    procedure TestScsvFromPre12ClientToTls12OnlyDispatcherAborts;
+    procedure TestScsvFromPre12ClientToStandaloneTls12ServerAborts;
+    procedure TestScsvWithGreaseAndPre12VersionToStandaloneTls12ServerAborts;
+    procedure TestScsvWithGreaseOnlyVersionsIsNotFallbackAtStandaloneServers;
+    procedure TestPre12ClientWithoutScsvToStandaloneTls12ServerIsProtocolVersion;
     procedure TestScsvWithGreaseVersionStillDetectsFallback;
     procedure TestScsvWithGreaseAndCurrentVersionDoesNotAbort;
     procedure TestScsvToStandaloneTls13ServerAborts;
@@ -823,6 +830,65 @@ begin
     'SCSV with a current 1.3 offer is not a fallback');
 end;
 
+procedure TTestTls12DualVersion.TestScsvFromPre12ClientToStandaloneTls12ServerAborts;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  // reached without the dispatcher, as the factory builds a single-version server
+  LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0000'));
+  LHello.Body[0] := $03;
+  LHello.Body[1] := $01;
+  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+    'SCSV from a pre-1.2 client to a standalone 1.2 server aborts inappropriate_fallback (RFC 7507 3)');
+end;
+
+procedure TTestTls12DualVersion.TestScsvWithGreaseAndPre12VersionToStandaloneTls12ServerAborts;
+var
+  LServer: IHandshakeMachine;
+begin
+  LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
+  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0009002B0005040A0A0302')))),
+    'supported_versions [GREASE, 1.1] with SCSV aborts inappropriate_fallback');
+end;
+
+procedure TTestTls12DualVersion.TestScsvWithGreaseOnlyVersionsIsNotFallbackAtStandaloneServers;
+var
+  LServer: IHandshakeMachine;
+  LEffects: TArray<THandshakeEffect>;
+begin
+  LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
+  LEffects := LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0007002B0003020A0A')));
+  CheckTrue(HasFailAlert(LEffects, TTlsAlertDescription.ProtocolVersion),
+    'a GREASE-only list aborts protocol_version at a 1.2 server');
+  CheckFalse(HasInappropriateFallback(LEffects), 'and is no fallback signal');
+  LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
+  CheckFalse(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
+    DecodeHex('0007002B0003020A0A')))), 'nor at a 1.3 server');
+end;
+
+procedure TTestTls12DualVersion.TestPre12ClientWithoutScsvToStandaloneTls12ServerIsProtocolVersion;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256), DecodeHex('0000'));
+  LHello.Body[0] := $03;
+  LHello.Body[1] := $01;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello), TTlsAlertDescription.ProtocolVersion),
+    'a pre-1.2 client without SCSV aborts protocol_version');
+end;
+
 procedure TTestTls12DualVersion.TestScsvToLegacyOnlyServerDoesNotAbort;
 var
   LServer: IHandshakeMachine;
@@ -835,6 +901,56 @@ begin
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
     DecodeHex('0000')))),
     'SCSV to a 1.2-only server is not a fallback');
+end;
+
+procedure TTestTls12DualVersion.TestScsvWithFutureLegacyVersionAndNoExtensionIsFallbackAtDispatcher;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  // without supported_versions the client tops out at 1.2 whatever legacy_version says (RFC 8446 4.2.1)
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0000'));
+  LHello.Body[0] := $03;
+  LHello.Body[1] := $04;
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+    'the dual-version dispatcher aborts inappropriate_fallback');
+end;
+
+procedure TTestTls12DualVersion.TestScsvWithFutureLegacyVersionAndNoExtensionIsFallbackAtStandaloneTls13Server;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0000'));
+  // the 1.3 server decodes the framed bytes, so patch legacy_version behind the 4-byte header
+  LHello.Raw[4] := $03;
+  LHello.Raw[5] := $04;
+  LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
+  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+    'the standalone 1.3 server aborts inappropriate_fallback');
+end;
+
+procedure TTestTls12DualVersion.TestScsvFromPre12ClientToTls12OnlyDispatcherAborts;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  // a pre-1.2 legacy_version is the client's version (RFC 7507 3)
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls12)) as IHandshakeMachine;
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0000'));
+  LHello.Body[0] := $03;
+  LHello.Body[1] := $01;
+  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+    'SCSV from a pre-1.2 client to a 1.2-only dispatcher aborts inappropriate_fallback');
 end;
 
 procedure TTestTls12DualVersion.TestScsvWithGreaseVersionStillDetectsFallback;

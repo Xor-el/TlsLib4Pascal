@@ -32,6 +32,7 @@ uses
   TlpHandshakeEffect,
   TlpHandshakeStage,
   TlpIHandshakeMachine,
+  TlpServerOfferSelection,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
   TlpTls12ClientStateMachine,
@@ -99,9 +100,6 @@ type
     FServerHighestVersion: UInt16;
     FParams13: TServerHandshakeParams;
     FParams12: TServer12HandshakeParams;
-    /// <summary>The numerically greatest known TLS wire version (0x0301..0x0304) in the set,
-    /// or 0 when none is present; GREASE and unknown codepoints are not versions.</summary>
-    class function HighestKnownVersion(const AVersions: TArray<UInt16>): UInt16; static;
   strict protected
     function Dispatch(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
@@ -290,20 +288,6 @@ end;
 
 { TServerVersionDispatchMachine }
 
-class function TServerVersionDispatchMachine.HighestKnownVersion(
-  const AVersions: TArray<UInt16>): UInt16;
-var
-  LVersion: UInt16;
-begin
-  // a GREASE or otherwise unknown supported_versions entry is ignored (RFC 8701 3.2 /
-  // RFC 8446 4.2.1); counting it as an offer would mask a spurious fallback (RFC 7507)
-  Result := 0;
-  for LVersion in AVersions do
-    if (LVersion >= TlsWireVersionTls10) and (LVersion <= TlsWireVersionTls13) and
-      (LVersion > Result) then
-      Result := LVersion;
-end;
-
 constructor TServerVersionDispatchMachine.Create(
   const AParams13: TServerHandshakeParams;
   const AParams12: TServer12HandshakeParams;
@@ -318,7 +302,7 @@ begin
     TlsWireVersionTls13);
   FServerSupportsTls12 := TArrayUtilities.Contains<UInt16>(ASupportedVersions,
     TlsWireVersionTls12);
-  FServerHighestVersion := HighestKnownVersion(ASupportedVersions);
+  FServerHighestVersion := TTlsVersion.HighestKnown(ASupportedVersions);
 end;
 
 function TServerVersionDispatchMachine.Start: TArray<THandshakeEffect>;
@@ -359,32 +343,14 @@ begin
     (FParams13.EchPolicy <> nil) and (FParams13.EchPolicy.Role = TEchServerRole.Keyed) and
     HasEncryptedClientHello(LExtensions));
 
-  // RFC 7507 TLS_FALLBACK_SCSV: a client that retried at a lower version signals it in
-  // cipher_suites. The client's highest version is its supported_versions (a 1.3 client
-  // sets legacy_version 0x0303 but lists 1.3 there); a legacy client without the
-  // extension tops out at 1.2. If the server could have done better, the fallback was
-  // spurious and is refused (RFC 7507 3). This is checked before the version floor so a
-  // spurious fallback reports inappropriate_fallback rather than protocol_version.
-  if TArrayUtilities.Contains<UInt16>(LHello.CipherSuites, TlsFallbackScsv) then
-  begin
-    if System.Length(LClientVersions) = 0 then
-      LClientHighest := TlsWireVersionTls12
-    else
-      LClientHighest := HighestKnownVersion(LClientVersions);
-    // a list with no known version is not a fallback signal; let the version floor report it as
-    // protocol_version rather than inappropriate_fallback
-    if (LClientHighest <> 0) and (FServerHighestVersion > LClientHighest) then
-      Exit(TArray<THandshakeEffect>.Create(
-        THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback)));
-  end;
+  // before the version floor, so a spurious fallback is not masked as protocol_version
+  if TServerOfferSelection.IsSpuriousFallback(LHello.CipherSuites, LClientVersions,
+    LHello.LegacyVersion, FServerHighestVersion) then
+    Exit(TArray<THandshakeEffect>.Create(
+      THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback)));
 
-  // a client whose highest offered version is below our floor (TLS 1.2) - a pre-1.2 client,
-  // whose version is the legacy_version when supported_versions is absent - selected nothing
-  // this server supports: protocol_version, rather than a 1.2 handshake it cannot complete
-  if System.Length(LClientVersions) = 0 then
-    LClientHighest := LHello.LegacyVersion
-  else
-    LClientHighest := HighestKnownVersion(LClientVersions);
+  // a client below our floor (TLS 1.2) selected nothing this server supports
+  LClientHighest := TTlsVersion.ClientHighest(LClientVersions, LHello.LegacyVersion);
   if LClientHighest < TlsWireVersionTls12 then
     Exit(TArray<THandshakeEffect>.Create(
       THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion)));

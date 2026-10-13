@@ -122,6 +122,7 @@ type
     /// rekey and send its own KeyUpdate back. A no-op before the handshake completes, on a
     /// TLS 1.2 connection, once terminal or after our own close_notify, and (like Write) after
     /// an inbound close_notify only under TLS 1.2 - a 1.3 write half stays open and rekeyable.
+    /// Also a silent no-op once 2^48-1 KeyUpdates have been sent (RFC 9846 4.7.3).
     /// </summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Sends a close_notify (clean shutdown).</summary>
