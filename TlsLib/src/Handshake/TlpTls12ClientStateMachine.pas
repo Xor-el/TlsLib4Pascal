@@ -57,6 +57,7 @@ uses
   TlpSession,
   TlpITlsEngine,
   TlpHandshakeEffect,
+  TlpTlsConnectionInfo,
   TlpHandshakeStage,
   TlpHandshakeMachineBase;
 
@@ -78,6 +79,10 @@ type
     /// <summary>The ALPN protocols the client advertised, in preference order; the
     /// server's ServerHello selection must be one of these (RFC 7301 3.2 binds the server).</summary>
     AlpnProtocols: TArray<TBytes>;
+    /// <summary>Why this connection used no 0-RTT, reported on the connection info: Disabled for a
+    /// client that offers only TLS 1.2, or the 1.3 ClientHello's own reason when a 1.3-capable
+    /// client lands on TLS 1.2.</summary>
+    EarlyDataReason: TEarlyDataReason;
     /// <summary>The versions offered in supported_versions; listing 1.3 arms downgrade
     /// detection on a 1.2 ServerHello carrying the RFC 8446 sentinel.</summary>
     OfferedVersions: TArray<UInt16>;
@@ -165,6 +170,8 @@ type
     FPhase: TPhase;
     FServerRandom: TBytes;
     FCurrentGroup: INamedGroup;
+    FPeerSignatureScheme: UInt16;
+    FSessionGroup: UInt16;
     FServerEcdhePublic: TBytes;
     FCertChain: TArray<TBytes>;
     // the server leaf parsed once for the well-formed gate, reused for the key-kind check,
@@ -275,8 +282,11 @@ type
     /// inline, or from ResumeAfterVerdict when a reverify-on-resume park withheld it.</summary>
     function BuildAbbreviatedClientFlight: TArray<THandshakeEffect>;
     /// <summary>Caches the completed session (session id and/or ticket) for later
-    /// resumption and returns the SessionTicketReceived event when a ticket was issued.</summary>
+    /// resumption and returns the SessionTicketReceived event when a new ticket arrived.</summary>
     function CacheCompletedSession: TArray<THandshakeEffect>;
+    /// <summary>The negotiation facts reported at completion; a TLS 1.2 handshake has no
+    /// HelloRetryRequest, and the early-data reason is the one the dual-version offer recorded.</summary>
+    function Facts: TNegotiationFacts;
     /// <summary>Frames the client Certificate (empty chain when no usable credential),
     /// appending it to AEffects and folding it in; returns whether a chain was sent.</summary>
     function AppendClientCertificate(var AEffects: TArray<THandshakeEffect>;
@@ -410,6 +420,8 @@ begin
     LContext.ExtendedMasterSecret := FParams.OfferExtendedMasterSecret;
     // secure-renegotiation signalling (RFC 5746), even though we never renegotiate
     LContext.RenegotiationInfo := True;
+    // ALPN (RFC 7301): offer the configured protocols
+    LContext.AlpnProtocols := FParams.AlpnProtocols;
     // ec_point_formats (RFC 8422): a client offering ECC suites lists uncompressed support,
     // which strict servers require to accept ECDHE
     LContext.EcPointFormatsOffered := True;
@@ -733,6 +745,7 @@ begin
   // TLS 1.2 does not bind the ECDSA curve to the scheme (that is the supported_groups list below)
   LScheme := TPeerAuthentication.RequirePeerScheme(FParams.OfferedSchemes,
     LSke.SignatureScheme, TTlsVersion.Tls12, FParsedServerLeaf);
+  FPeerSignatureScheme := LSke.SignatureScheme;
 
   // the server's curve must be one we offered and a classical ECDHE group we hold;
   // the client key-exchanges on exactly this curve
@@ -749,6 +762,7 @@ begin
   TPeerAuthentication.VerifyPeerSignature(FParams.Crypto, FParsedServerLeaf, LScheme,
     LContent, LSke.Signature);
 
+  FSessionGroup := FCurrentGroup.Code;
   FServerEcdhePublic := LSke.PublicKey;
   Absorb(AMessage.Raw);
   FPhase := TPhase.WaitServerHelloDone;
@@ -772,6 +786,7 @@ begin
     (FCurrentGroup.Kind <> TNamedGroupKind.Ecdhe) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SBadServerKeyExchangeCurve);
+  FSessionGroup := FCurrentGroup.Code;
   FServerEcdhePublic := LSke.PublicKey;
   Absorb(AMessage.Raw);
   FPhase := TPhase.WaitServerHelloDone;
@@ -972,19 +987,30 @@ begin
     TTlsVersion.Tls12, TTlsEpoch.Application));
 end;
 
+function TTls12ClientStateMachine.Facts: TNegotiationFacts;
+begin
+  Result := Default(TNegotiationFacts);
+  Result.PeerSignatureScheme := FPeerSignatureScheme;
+  Result.EarlyDataReason := FParams.EarlyDataReason;
+end;
+
 function TTls12ClientStateMachine.CacheCompletedSession: TArray<THandshakeEffect>;
 var
   LSession: IResumableSession;
   LPeerChain: TArray<TBytes>;
-  LPskIdentity, LPskBinding: TBytes;
+  LPskIdentity, LPskBinding, LSessionId, LTicket: TBytes;
   LLifetime: UInt32;
   LIssuedAt: UInt64;
 begin
   Result := nil;
   if FParams.SessionCache = nil then
     Exit;
+  // a ticket beyond what a ClientHello is budgeted for is ignored (RFC 5077 3.3); the id still resumes
+  LTicket := FReceivedTicket;
+  if System.Length(LTicket) > TSessionTicketLimits.MaxCachedTicketBytes then
+    LTicket := nil;
   // nothing to resume with unless the server issued a session id or a ticket
-  if (System.Length(FServerSessionId) = 0) and (System.Length(FReceivedTicket) = 0) then
+  if (System.Length(FServerSessionId) = 0) and (System.Length(LTicket) = 0) then
     Exit;
   // a seven-day retention cap (local policy) bounds a stored ticket; a lifetime_hint of 0 is
   // left unspecified per RFC 5077 3.3 rather than discarded
@@ -1016,12 +1042,18 @@ begin
     LPskIdentity := FParams.ClientPsk.Identity;
     LPskBinding := TPskSessionBinding.Derive(FParams.Crypto, FParams.ClientPsk.Secret);
   end;
+  // a ticket resumption echoes a throwaway session id, so the session keeps the id it was resumed by
+  LSessionId := FServerSessionId;
+  if FResumedWithoutNewTicket then
+    LSessionId := FResumptionOffer.SessionId;
   LSession := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
-    FSelectedSuite.Common.Hash, FSchedule.MasterSecret, FServerSessionId,
-    FReceivedTicket, FUseExtendedMasterSecret, nil, FParams.ServerName,
-    LLifetime, LIssuedAt, LPeerChain, nil, LPskIdentity, LPskBinding);
+    FSelectedSuite.Common.Hash, FSchedule.MasterSecret, LSessionId,
+    LTicket, FUseExtendedMasterSecret, nil, FParams.ServerName,
+    LLifetime, LIssuedAt, LPeerChain, nil, LPskIdentity, LPskBinding, FSessionGroup,
+    FPeerSignatureScheme);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
-  if System.Length(FReceivedTicket) > 0 then
+  // the event announces a ticket that arrived, not the one a ticketless resumption re-stored
+  if (System.Length(LTicket) > 0) and (not FResumedWithoutNewTicket) then
     Result := TArray<THandshakeEffect>.Create(
       THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
 end;
@@ -1044,14 +1076,14 @@ begin
   if FPskMode then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.PskIdentity(FParams.ClientPsk.Identity));
-  // a full TLS 1.2 handshake here is ECDHE (the only 1.2 key exchange), so FCurrentGroup is set
+  // a full TLS 1.2 handshake here is ECDHE (the only 1.2 key exchange), so FSessionGroup is set
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
-    FCurrentGroup.Code, False, FUseExtendedMasterSecret, FParams.ServerName));
-  if System.Length(FRequestedCertificateAuthorities) > 0 then
+    FSessionGroup, False, FUseExtendedMasterSecret, FParams.ServerName, Facts));
+  if FCertificateRequested then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RequestedCertificateAuthorities(
-      FRequestedCertificateAuthorities));
+      FRequestedCertificateAuthorities, FClientAuthSchemes));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
 end;
@@ -1083,6 +1115,12 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SResumedEmsMismatch);
   FUseExtendedMasterSecret := FResumptionOffer.ExtendedMasterSecret;
+  // an abbreviated handshake has no key exchange: it reports the original session's group and signer
+  FSessionGroup := FResumptionOffer.NamedGroup;
+  FPeerSignatureScheme := FResumptionOffer.PeerSignatureScheme;
+  // until the server renews it, the resumed session keeps the ticket it was resumed with
+  FReceivedTicket := FResumptionOffer.SessionTicket;
+  FReceivedTicketLifetime := FResumptionOffer.TicketLifetime;
   FResumedWithoutNewTicket := True;
   FResumed := True;
   // resuming a non-EMS session under a required-EMS policy would silently drop the guarantee
@@ -1212,10 +1250,10 @@ begin
   Result := TArrayUtilities.Concat<THandshakeEffect>(Result, CacheCompletedSession);
   // the write keys are installed and the session is re-cached; release the handshake-stage material
   FSchedule.ForgetHandshakeSecrets;
-  // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
+  // an abbreviated resumption does no key exchange, so it reports the group the session carried
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
-    FUseExtendedMasterSecret, FParams.ServerName));
+    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, FSessionGroup, True,
+    FUseExtendedMasterSecret, FParams.ServerName, Facts));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
 end;

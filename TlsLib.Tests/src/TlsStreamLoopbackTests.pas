@@ -30,6 +30,7 @@ uses
   TlpAlpnProtocols,
   TlpTlsVersion,
   TlpTlsAlert,
+  TlpHandshakeMessages,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpTrustPolicy,
@@ -129,6 +130,20 @@ type
     function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A client config with the async peer-certificate verdict enabled.</summary>
     function AsyncClientConfig: ITlsClientConfig;
+    /// <summary>Moves everything AFrom has queued into ATo, returning the byte count.</summary>
+    function PassOutgoing(const AFrom, ATo: ITlsEngine): Int32;
+    procedure HandshakeEngines(out AClient, AServer: ITlsEngine);
+    procedure HandshakeEnginesWith(const AClientConfig: ITlsClientConfig;
+      const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
+    procedure HandshakeTls12WithAlpn(out AClient, AServer: ITlsEngine);
+    /// <summary>The server's two-byte reply followed by an application_data record that cannot
+    /// authenticate, so the drain behind the read of the reply queues bad_record_mac.</summary>
+    function DataThenBadRecord(const AServer: ITlsEngine): TBytes;
+    /// <summary>The server's two-byte reply followed by a KeyUpdate asking the client to rekey.</summary>
+    function DataThenKeyUpdateRequest(const AServer: ITlsEngine): TBytes;
+    /// <summary>Reads data through a socket that dies under the flush of a queued KeyUpdate.</summary>
+    procedure ReadWithAKeyUpdateLostToADeadSocket(out AClient: ITlsEngine;
+      out ATransport: ITlsTransport);
   published
     procedure TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
     procedure TestBulkWriteIsSealedInBoundedSlices;
@@ -138,6 +153,7 @@ type
     procedure TestApplicationReadTimeoutIsRetryableNotTruncation;
     procedure TestNegotiatedVersionAndAlpnSurfaced;
     procedure TestTruncationWithoutCloseNotifyIsSurfaced;
+    procedure TestTruncationIsRaisedAgainOnALaterRead;
     procedure TestUntrustedChainFailsThroughOurPipeline;
     procedure TestHandshakeFailureIsLatchedOnRetry;
     procedure TestNonTerminalHandshakeFailureIsLatched;
@@ -153,6 +169,16 @@ type
     procedure TestWriteAfterPreHandshakeCloseNotifyRaises;
     procedure TestWriteAfterPreHandshakeSendAlertRaises;
     procedure TestPeerCloseNotifyDuringHandshakeRaises;
+    procedure TestTls12ClientReportsTheSelectedAlpn;
+    procedure TestTls12ServerReportsItsSelectedAlpn;
+    procedure TestWriteOnTerminalEngineFlushesQueuedAlertBeforeRaising;
+    procedure TestReadReturningDataFlushesAlertQueuedByTheDrain;
+    procedure TestReadReturningBufferedDataSurvivesADeadTransport;
+    procedure TestFailedFlushBehindBufferedDataLatchesTheEngine;
+    procedure TestFailedFlushBehindReadKeepsTheTransportMessage;
+    procedure TestWriteAfterAFailedFlushBehindReadRaises;
+    procedure TestBadRecordBehindTransportDataRaisesWithTheAlertSent;
+    procedure TestKeyUpdateRequestBehindTransportDataIsAnsweredByTheNextWrite;
   end;
 
 implementation
@@ -905,6 +931,42 @@ begin
   end;
 end;
 
+procedure TTestTlsStreamLoopback.TestTruncationIsRaisedAgainOnALaterRead;
+var
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LBuf: TBytes;
+  LRaised: Boolean;
+begin
+  RunLoopback(ClientConfig(False, nil), TServerBehavior.TruncateAfterHandshake,
+    LClient, LServer, LTransport);
+  try
+    LClient.Handshake;
+    SetLength(LBuf, 4096);
+    LRaised := False;
+    try
+      LClient.Read(LBuf[0], System.Length(LBuf));
+    except
+      on E: ETlsTransportTruncated do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'the first read raises the truncation');
+    LRaised := False;
+    try
+      LClient.Read(LBuf[0], System.Length(LBuf));
+    except
+      on E: ETlsTransportTruncated do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a read after a swallowed truncation raises again, not a clean EOF');
+    LServer.WaitFor;
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
 procedure TTestTlsStreamLoopback.TestUntrustedChainFailsThroughOurPipeline;
 var
   LClient: TTlsStream;
@@ -1334,6 +1396,274 @@ begin
     LClient.Free;
   end;
 end;
+
+function TTestTlsStreamLoopback.PassOutgoing(const AFrom, ATo: ITlsEngine): Int32;
+var
+  LBuf: TBytes;
+  LGot: Int32;
+begin
+  Result := 0;
+  LBuf := nil;
+  System.SetLength(LBuf, 16384);
+  repeat
+    LGot := AFrom.TakeOutgoing(LBuf, 0);
+    if LGot > 0 then
+    begin
+      ATo.ProcessInput(LBuf, 0, LGot);
+      System.Inc(Result, LGot);
+    end;
+  until LGot = 0;
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeEngines(out AClient, AServer: ITlsEngine);
+begin
+  HandshakeEnginesWith(ClientConfig(False, nil), ServerConfig, AClient, AServer);
+end;
+
+procedure TTestTlsStreamLoopback.TestTls12ClientReportsTheSelectedAlpn;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  HandshakeTls12WithAlpn(LClient, LServer);
+  CheckEqualBytes('the client reports the protocol the server selected', TAlpnProtocols.Http11,
+    LClient.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestTlsStreamLoopback.TestTls12ServerReportsItsSelectedAlpn;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  HandshakeTls12WithAlpn(LClient, LServer);
+  CheckEqualBytes('the TLS 1.2 server reports the protocol it selected', TAlpnProtocols.Http11,
+    LServer.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeTls12WithAlpn(out AClient, AServer: ITlsEngine);
+var
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+begin
+  LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
+    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12)).Build;
+  LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.Http11))
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12)).Build;
+  HandshakeEnginesWith(LClientConfig, LServerConfig, AClient, AServer);
+  CheckEquals(Integer(TlsWireVersionTls12), Integer(AServer.ConnectionInfo.NegotiatedVersion.WireValue),
+    'a TLS 1.2 connection');
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeEnginesWith(const AClientConfig: ITlsClientConfig;
+  const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
+begin
+  AClient := TTlsEngineFactory.CreateClientEngine(AClientConfig, 'localhost');
+  AServer := TTlsEngineFactory.CreateServerEngine(AServerConfig);
+  AClient.StartHandshake;
+  while AClient.IsHandshaking or AServer.IsHandshaking do
+    if (PassOutgoing(AClient, AServer) = 0) and (PassOutgoing(AServer, AClient) = 0) then
+      Break;
+  CheckFalse(AClient.IsHandshaking, 'the in-memory handshake completed');
+end;
+
+procedure TTestTlsStreamLoopback.TestWriteOnTerminalEngineFlushesQueuedAlertBeforeRaising;
+var
+  LClient, LServer: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LData: TBytes;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  // a locally sent fatal alert leaves the engine terminal with the alert still queued
+  LClient.SendAlert(TTlsAlertDescription.InternalError);
+  LData := DecodeHex('00');
+  LRaised := False;
+  try
+    TTlsStreamPump.WriteApp(LClient, LTransport, LData, 0, 1);
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a write on a terminal engine raises its alert');
+  CheckTrue(LRecorder.Written > 0, 'the queued alert reached the transport before the raise');
+end;
+
+procedure TTestTlsStreamLoopback.TestReadReturningDataFlushesAlertQueuedByTheDrain;
+var
+  LClient, LServer: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LDest: TBytes;
+  LWire: TBytes;
+  LStatus: TTlsReadStatus;
+  LGot: Int32;
+begin
+  HandshakeEngines(LClient, LServer);
+  LWire := DataThenBadRecord(LServer);
+  LClient.ProcessInput(LWire, 0, System.Length(LWire));
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  System.SetLength(LDest, 16);
+  LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LDest, 16, LStatus);
+  CheckEquals(2, LGot, 'the buffered data is returned');
+  CheckTrue(LRecorder.Written > 0, 'the alert the drain queued was flushed with the data');
+end;
+
+function TTestTlsStreamLoopback.DataThenBadRecord(const AServer: ITlsEngine): TBytes;
+var
+  LData, LGarbage: TBytes;
+  LTaken: Int32;
+begin
+  LData := DecodeHex('0102');
+  AServer.Write(LData, 0, 2);
+  Result := nil;
+  System.SetLength(Result, 16384);
+  LTaken := AServer.TakeOutgoing(Result, 0);
+  // an unauthenticatable record behind the real one: the drain after the read queues bad_record_mac
+  LGarbage := DecodeHex('170303001000112233445566778899aabbccddeeff');
+  System.SetLength(Result, LTaken + System.Length(LGarbage));
+  System.Move(LGarbage[0], Result[LTaken], System.Length(LGarbage));
+end;
+
+function TTestTlsStreamLoopback.DataThenKeyUpdateRequest(const AServer: ITlsEngine): TBytes;
+var
+  LData: TBytes;
+begin
+  LData := DecodeHex('0102');
+  AServer.Write(LData, 0, 2);
+  AServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  Result := nil;
+  System.SetLength(Result, 16384);
+  System.SetLength(Result, AServer.TakeOutgoing(Result, 0));
+end;
+
+procedure TTestTlsStreamLoopback.TestBadRecordBehindTransportDataRaisesWithTheAlertSent;
+var
+  LClient, LServer: ITlsEngine;
+  LScripted: TScriptedTransport;
+  LTransport: ITlsTransport;
+  LDest: TBytes;
+  LStatus: TTlsReadStatus;
+  LRaised: Boolean;
+begin
+  // ProcessInput fails the engine on the bad record before the data is read, so the read raises first
+  HandshakeEngines(LClient, LServer);
+  LScripted := TScriptedTransport.Create(DataThenBadRecord(LServer), False);
+  LTransport := LScripted as ITlsTransport;
+  System.SetLength(LDest, 16);
+  LRaised := False;
+  try
+    TTlsStreamPump.ReadApp(LClient, LTransport, LDest, 16, LStatus);
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the read raises the bad record');
+  CheckTrue(LScripted.Written > 0, 'after sending bad_record_mac');
+end;
+
+procedure TTestTlsStreamLoopback.TestKeyUpdateRequestBehindTransportDataIsAnsweredByTheNextWrite;
+var
+  LClient, LServer: ITlsEngine;
+  LScripted: TScriptedTransport;
+  LTransport: ITlsTransport;
+  LDest, LReply: TBytes;
+  LStatus: TTlsReadStatus;
+begin
+  // the reply to a KeyUpdate is owed, not queued, when the read returns: nothing is left to flush
+  HandshakeEngines(LClient, LServer);
+  LScripted := TScriptedTransport.Create(DataThenKeyUpdateRequest(LServer), False);
+  LTransport := LScripted as ITlsTransport;
+  System.SetLength(LDest, 16);
+  CheckEquals(2, TTlsStreamPump.ReadApp(LClient, LTransport, LDest, 16, LStatus), 'the data');
+  CheckEquals(0, LScripted.Written, 'no reply was queued by the read');
+  LReply := DecodeHex('03');
+  TTlsStreamPump.WriteApp(LClient, LTransport, LReply, 0, 1);
+  CheckTrue(LScripted.Written > 0, 'the next write carries the reply and the data');
+end;
+
+procedure TTestTlsStreamLoopback.ReadWithAKeyUpdateLostToADeadSocket(out AClient: ITlsEngine;
+  out ATransport: ITlsTransport);
+var
+  LServer: ITlsEngine;
+  LDest, LWire: TBytes;
+  LStatus: TTlsReadStatus;
+begin
+  HandshakeEngines(AClient, LServer);
+  LWire := DataThenKeyUpdateRequest(LServer);
+  AClient.ProcessInput(LWire, 0, System.Length(LWire));
+  // our own KeyUpdate is queued, and rotates the write keys, when the socket dies under the flush
+  AClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+  ATransport := TDeadWriteTransport.Create as ITlsTransport;
+  System.SetLength(LDest, 16);
+  TTlsStreamPump.ReadApp(AClient, ATransport, LDest, 16, LStatus);
+end;
+
+procedure TTestTlsStreamLoopback.TestFailedFlushBehindBufferedDataLatchesTheEngine;
+var
+  LClient: ITlsEngine;
+  LTransport: ITlsTransport;
+begin
+  ReadWithAKeyUpdateLostToADeadSocket(LClient, LTransport);
+  CheckTrue(LClient.IsTerminal, 'the lost KeyUpdate latched the engine');
+end;
+
+procedure TTestTlsStreamLoopback.TestFailedFlushBehindReadKeepsTheTransportMessage;
+var
+  LClient: ITlsEngine;
+  LTransport: ITlsTransport;
+begin
+  ReadWithAKeyUpdateLostToADeadSocket(LClient, LTransport);
+  CheckTrue(Pos('the mock socket failed', LClient.LastError.Message) > 0,
+    'the latched error names the transport failure');
+end;
+
+procedure TTestTlsStreamLoopback.TestWriteAfterAFailedFlushBehindReadRaises;
+var
+  LClient: ITlsEngine;
+  LTransport: ITlsTransport;
+  LData: TBytes;
+  LRaised: Boolean;
+begin
+  ReadWithAKeyUpdateLostToADeadSocket(LClient, LTransport);
+  LData := DecodeHex('00');
+  LRaised := False;
+  try
+    TTlsStreamPump.WriteApp(LClient, LTransport, LData, 0, 1);
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'no record is written under keys the peer never received');
+end;
+
+procedure TTestTlsStreamLoopback.TestReadReturningBufferedDataSurvivesADeadTransport;
+var
+  LClient, LServer: ITlsEngine;
+  LTransport: ITlsTransport;
+  LDest, LWire, LData: TBytes;
+  LStatus: TTlsReadStatus;
+  LGot: Int32;
+begin
+  HandshakeEngines(LClient, LServer);
+  // the engine holds a queued KeyUpdate that a dead socket cannot take, beside the data it read
+  LData := DecodeHex('0102');
+  LServer.Write(LData, 0, 2);
+  System.SetLength(LWire, 16384);
+  System.SetLength(LWire, LServer.TakeOutgoing(LWire, 0));
+  LClient.ProcessInput(LWire, 0, System.Length(LWire));
+  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+  LTransport := TDeadWriteTransport.Create as ITlsTransport;
+  System.SetLength(LDest, 16);
+  LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LDest, 16, LStatus);
+  CheckEquals(2, LGot, 'the plaintext already taken from the engine is returned');
+end;
+
 
 initialization
 

@@ -365,6 +365,12 @@ resourcestring
   SClientVerifierNeedsClientAuth =
     'a client-certificate verifier is set but client authentication is None; set a ' +
     'client-authentication mode, or drop the verifier';
+  SVerifyCallbackNeedsClientAuth =
+    'a certificate verify callback is set on a server but client authentication is None; set a ' +
+    'client-authentication mode, or drop the callback';
+  SVerdictResolverNeedsClientAuth =
+    'a server verdict resolver is set but client authentication is None; set a ' +
+    'client-authentication mode, or drop the resolver';
   SNoClientTrust =
     'peer verification is on but no trust source was named; set %s (system trust is never ' +
     'implicit), or turn peer verification off to skip verification';
@@ -768,7 +774,14 @@ begin
     // a server-role client-certificate verifier can only ever vet a requested client chain: it is
     // inert without a mode, so its presence with None is a configuration mistake
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
-      @SClientVerifierNeedsClientAuth);
+      @SClientVerifierNeedsClientAuth)
+  else if Assigned(AOptions.VerifyCallback) then
+    // a server reaches the dual-role callback only through a requested client chain
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SVerifyCallbackNeedsClientAuth)
+  else if Assigned(AOptions.ServerVerdictResolver) then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SVerdictResolverNeedsClientAuth);
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
@@ -978,11 +991,15 @@ begin
     GuardNoConflict(AOptions, False, AConfigPropertyName);
     if AOptions.ServerConfig.MaxEarlyData > 0 then
       raise EArgumentTlsLibException.CreateResFmt(@SEarlyDataUnsupported, [AConfigPropertyName]);
-    if Assigned(AOptions.ServerVerdictResolver) and
-      (AOptions.ServerConfig.ClientAuth <> TClientAuthMode.None) and
-      (AOptions.ServerConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.None) then
-      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-        @SVerdictResolverWithoutDeferral, [AConfigPropertyName]);
+    if Assigned(AOptions.ServerVerdictResolver) then
+    begin
+      if AOptions.ServerConfig.ClientAuth = TClientAuthMode.None then
+        raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+          @SVerdictResolverNeedsClientAuth);
+      if AOptions.ServerConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.None then
+        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+          @SVerdictResolverWithoutDeferral, [AConfigPropertyName]);
+    end;
     Exit(AOptions.ServerConfig);
   end;
   LSig := ServerSignature(AOptions);
@@ -1031,9 +1048,9 @@ end;
 procedure TTlsTimedTransportBase.RaiseCapElapsed;
 begin
   if FApplicationRead then
-    raise ETlsReadTimeout.Create(Format(SApplicationReadTimedOut, [FReadTimeoutMs]))
+    raise ETlsReadTimeout.CreateResFmt(@SApplicationReadTimedOut, [FReadTimeoutMs])
   else
-    raise ETlsHandshakeTimeout.Create(Format(SHandshakeReadTimedOut, [FReadTimeoutMs]));
+    raise ETlsHandshakeTimeout.CreateResFmt(@SHandshakeReadTimedOut, [FReadTimeoutMs]);
 end;
 
 procedure TTlsTimedTransportBase.CheckReadCap;
@@ -1059,7 +1076,7 @@ begin
   // a negative return is a genuine receive error (a reset, a broken pipe), never a peer close
   // (EOF = 0); surface it instead of masking it as a clean end that reads upstream as a truncation
   if Result < 0 then
-    raise ETlsStreamError.Create(Format(STransportReceiveFailed, [Result]));
+    raise ETlsStreamError.CreateResFmt(@STransportReceiveFailed, [Result]);
 end;
 
 procedure TTlsTimedTransportBase.Write(const ABuffer: TBytes; AOffset,
@@ -1073,7 +1090,7 @@ begin
   begin
     LN := SendRaw(ABuffer, LOff, LRemain);
     if LN <= 0 then
-      raise ETlsStreamError.Create(SSendNoProgress);
+      raise ETlsStreamError.CreateRes(@SSendNoProgress);
     Inc(LOff, LN);
     Dec(LRemain, LN);
   end;

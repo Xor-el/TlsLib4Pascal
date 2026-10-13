@@ -33,6 +33,7 @@ uses
   TlpSystemTimeUtilities,
   TlpICryptoProvider,
   TlpIPkixProvider,
+  TlpISession,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
@@ -43,6 +44,23 @@ uses
   TlsLibTestProviders;
 
 type
+  /// <summary>A server-side session store that issues tickets of a fixed length, as a foreign
+  /// server with an unbounded ticket would; it holds nothing and resumes nothing.</summary>
+  TFixedLengthTicketStore = class sealed(TInterfacedObject, ISessionStore)
+  strict private
+  var
+    FTicketLength: Int32;
+  public
+    constructor Create(ATicketLength: Int32);
+    function Put(const ASession: IResumableSession): TBytes;
+    procedure PutWithId(const AId: TBytes; const ASession: IResumableSession);
+    function Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
+    function Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
+    procedure Remove(const AId: TBytes);
+    procedure Clear;
+    function Count: Int32;
+  end;
+
   /// <summary>Shared base fixture. The runner reuses one fixture instance across suite runs, so a
   /// fixture must not free its own object fields (a bare free leaves a dangling field the next run
   /// can double-free). Register each with Own and the base disposes it once per run.</summary>
@@ -118,6 +136,49 @@ type
   end;
 
 implementation
+
+{ TFixedLengthTicketStore }
+
+constructor TFixedLengthTicketStore.Create(ATicketLength: Int32);
+begin
+  inherited Create;
+  FTicketLength := ATicketLength;
+end;
+
+function TFixedLengthTicketStore.Put(const ASession: IResumableSession): TBytes;
+begin
+  Result := nil;
+  System.SetLength(Result, FTicketLength);
+end;
+
+procedure TFixedLengthTicketStore.PutWithId(const AId: TBytes; const ASession: IResumableSession);
+begin
+end;
+
+function TFixedLengthTicketStore.Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
+begin
+  ASession := nil;
+  Result := False;
+end;
+
+function TFixedLengthTicketStore.Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
+begin
+  ASession := nil;
+  Result := False;
+end;
+
+procedure TFixedLengthTicketStore.Remove(const AId: TBytes);
+begin
+end;
+
+procedure TFixedLengthTicketStore.Clear;
+begin
+end;
+
+function TFixedLengthTicketStore.Count: Int32;
+begin
+  Result := 0;
+end;
 
 { TTlsLibTestCase }
 

@@ -102,6 +102,9 @@ role-specific: the client hook evaluates the server's chain (server-auth EKU), t
 client's chain (client-auth EKU), so pair each with the matching `TOSSystemTrust.LiveRevocationResolver`
 overload (client vs server config). All are fail-closed and never loosen our verdict.
 
+These hooks are per handler, so the server-role ones are refused at build when `ClientAuth` is `None`
+(`VerifyCallback` too: a server reaches it only through a requested client chain).
+
 For the full trust picture — trusting a private CA, public-key pinning, host-name-only
 relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 [docs/certificate-verification.md](../../docs/certificate-verification.md).
@@ -114,6 +117,9 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
   flush queued outbound records.
 - `Clone` is implemented, so the handler works with Indy's server IOHandler pooling.
 - `Close` sends a best-effort `close_notify` before the socket is torn down.
+- A read that ends without the peer's `close_notify` raises `ETlsTransportTruncated`, and raises it
+  again on every later read. Indy's `Connected` reads the socket too, so after such a truncation it
+  raises the same error instead of returning `False`; `Disconnect` swallows it.
 - A read that outlives Indy's `ReadTimeout` surfaces as `Id_WSAETIMEDOUT`; `HandshakeTimeoutMs`
   bounds the handshake separately.
 - After the handshake the client handler reports `NegotiatedVersion`, `NegotiatedCipherSuite`,

@@ -38,6 +38,7 @@ uses
   TlpIHandshakeChannel,
   TlpHandshakeChannel,
   TlpIHandshakeMachine,
+  TlpHandshakeEffect,
   TlpHandshakeDriver,
   TlpHandshakeConductor,
   TlpEchConfig;
@@ -143,7 +144,8 @@ type
     function WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     procedure SendClose;
-    procedure SendAlert(ADescription: TTlsAlertDescription);
+    procedure SendAlert(ADescription: TTlsAlertDescription); overload;
+    procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
     procedure StartHandshake;
     procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
@@ -186,10 +188,12 @@ type
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
-    procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
+    procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>;
+      const ASchemes: TArray<UInt16>);
     procedure OnPskIdentity(const AIdentity: TBytes);
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
+      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
+      const AFacts: TNegotiationFacts);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
     procedure OnWarningAlert(AAlert: TTlsAlertDescription);
@@ -269,10 +273,12 @@ type
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
-    procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
+    procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>;
+      const ASchemes: TArray<UInt16>);
     procedure OnPskIdentity(const AIdentity: TBytes);
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
+      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
+      const AFacts: TNegotiationFacts);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription);
     procedure OnWarningAlert(AAlert: TTlsAlertDescription);
@@ -369,9 +375,9 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.OnRequestedCertificateAuthorities(
-  const AAuthorities: TArray<TBytes>);
+  const AAuthorities: TArray<TBytes>; const ASchemes: TArray<UInt16>);
 begin
-  FEngine.OnRequestedCertificateAuthorities(AAuthorities);
+  FEngine.OnRequestedCertificateAuthorities(AAuthorities, ASchemes);
 end;
 
 procedure TEngineHandshakeBridge.OnPskIdentity(const AIdentity: TBytes);
@@ -381,10 +387,10 @@ end;
 
 procedure TEngineHandshakeBridge.OnConnectionParams(ACipherSuite,
   ANamedGroup: UInt16; AResumed, AExtendedMasterSecret: Boolean;
-  const AServerName: string);
+  const AServerName: string; const AFacts: TNegotiationFacts);
 begin
   FEngine.OnConnectionParams(ACipherSuite, ANamedGroup, AResumed, AExtendedMasterSecret,
-    AServerName);
+    AServerName, AFacts);
 end;
 
 procedure TEngineHandshakeBridge.OnHandshakeEstablished;
@@ -944,12 +950,16 @@ end;
 
 procedure TTlsEngine.SendAlert(ADescription: TTlsAlertDescription);
 begin
+  SendAlert(ADescription, SLocalFatalAlert);
+end;
+
+procedure TTlsEngine.SendAlert(ADescription: TTlsAlertDescription; const AReason: string);
+begin
   if FTerminal then
     Exit;
   QueueAlertRecord(TTlsAlert.CreateFatal(ADescription));
   FTerminal := True;
-  FLastError := TTlsError.CreateFatal(ADescription, SLocalFatalAlert,
-    TTlsErrorOrigin.Local);
+  FLastError := TTlsError.CreateFatal(ADescription, AReason, TTlsErrorOrigin.Local);
 end;
 
 procedure TTlsEngine.StartHandshake;
@@ -1199,6 +1209,8 @@ end;
 procedure TTlsEngine.SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
 begin
   FRecordLayer.SetEarlyReadAccepted(AActive, AMaxBytes);
+  if AActive then
+    FInfo.EarlyDataAccepted := True;
 end;
 
 procedure TTlsEngine.OnHandshakeEvent(AEvent: TTlsEventKind);
@@ -1206,8 +1218,11 @@ begin
   // manage the client's early-data buffer as the outcome becomes known
   case AEvent of
     TTlsEventKind.EarlyDataAccepted:
-      // the early data was delivered under the 0-RTT keys; nothing more to do
-      FEarlyDataClosed := True;
+      begin
+        // the early data was delivered under the 0-RTT keys
+        FEarlyDataClosed := True;
+        FInfo.EarlyDataAccepted := True;
+      end;
     TTlsEventKind.EarlyDataRejected:
       // the early data already went out under the early keys; on a reject it is discarded, not
       // retransmitted as 1-RTT (RFC 8446 4.2.10 leaves any resend to the application)
@@ -1241,9 +1256,10 @@ begin
 end;
 
 procedure TTlsEngine.OnRequestedCertificateAuthorities(
-  const AAuthorities: TArray<TBytes>);
+  const AAuthorities: TArray<TBytes>; const ASchemes: TArray<UInt16>);
 begin
   FInfo.RequestedCertificateAuthorities := AAuthorities;
+  FInfo.RequestedSignatureSchemes := ASchemes;
 end;
 
 procedure TTlsEngine.OnPskIdentity(const AIdentity: TBytes);
@@ -1252,8 +1268,13 @@ begin
 end;
 
 procedure TTlsEngine.OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-  AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
+  AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
+  const AFacts: TNegotiationFacts);
 begin
+  FInfo.PeerSignatureScheme := AFacts.PeerSignatureScheme;
+  FInfo.HelloRetryRequest := AFacts.HelloRetryRequest;
+  FInfo.EarlyDataReason := AFacts.EarlyDataReason;
+  FInfo.TicketAgeSkew := AFacts.TicketAgeSkew;
   FInfo.CipherSuite := ACipherSuite;
   FInfo.NamedGroup := ANamedGroup;
   FInfo.ServerName := AServerName;

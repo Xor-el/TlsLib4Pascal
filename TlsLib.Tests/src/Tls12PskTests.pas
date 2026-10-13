@@ -121,6 +121,9 @@ type
     procedure TestClientRefusesACertificateUnderAPskSuite;
     procedure TestClientRefusesACertificateRequestUnderAPskSuite;
     procedure TestBuilderRefusals;
+    procedure TestIdentityBeyondTheWireLimitIsRefused;
+    procedure TestSecretBeyondTheWireLimitIsRefused;
+    procedure TestSecretAtTheWireLimitIsAccepted;
   end;
 
 implementation
@@ -919,6 +922,63 @@ begin
     .WithCipherSuiteList(TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256))
     .Tls12.WithPreSharedKey(Psk(Identity1, 1))),
     'a cipher-suite list that names no PSK suite');
+end;
+
+procedure TTestTls12Psk.TestIdentityBeyondTheWireLimitIsRefused;
+var
+  LPsk: TTls12Psk;
+  LRefused: Boolean;
+begin
+  // RFC 4279 2: the identity is opaque psk_identity<0..2^16-1>
+  System.SetLength(LPsk.Identity, 65536);
+  LPsk.Secret := TSecretBuffer.From(TBytes.Create(1));
+  LRefused := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client.Tls12.WithPreSharedKey(LPsk);
+  except
+    on E: EArgumentTlsLibException do
+      LRefused := True;
+  end;
+  CheckTrue(LRefused, 'a 65536-byte TLS 1.2 PSK identity is refused');
+end;
+
+procedure TTestTls12Psk.TestSecretBeyondTheWireLimitIsRefused;
+var
+  LPsk: TTls12Psk;
+  LSecret: TBytes;
+  LRefused: Boolean;
+begin
+  // RFC 4279 2: the secret is opaque psk<0..2^16-1>
+  LPsk.Identity := BytesOf(Identity1);
+  System.SetLength(LSecret, 65536);
+  LPsk.Secret := TSecretBuffer.From(LSecret);
+  LRefused := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client.Tls12.WithPreSharedKey(LPsk);
+  except
+    on E: EArgumentTlsLibException do
+      LRefused := True;
+  end;
+  CheckTrue(LRefused, 'a 65536-byte TLS 1.2 PSK secret is refused');
+end;
+
+procedure TTestTls12Psk.TestSecretAtTheWireLimitIsAccepted;
+var
+  LPsk: TTls12Psk;
+  LSecret: TBytes;
+  LRefused: Boolean;
+begin
+  LPsk.Identity := BytesOf(Identity1);
+  System.SetLength(LSecret, 65535);
+  LPsk.Secret := TSecretBuffer.From(LSecret);
+  LRefused := False;
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Client.Tls12.WithPreSharedKey(LPsk);
+  except
+    on E: EArgumentTlsLibException do
+      LRefused := True;
+  end;
+  CheckFalse(LRefused, 'a 65535-byte secret passes the setter');
 end;
 
 initialization

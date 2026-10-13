@@ -56,6 +56,14 @@ type
     /// already surfacing a TLS-level error that a transport error must not mask.</summary>
     class procedure FlushQuietly(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport); static;
+    /// <summary>Flushes after a read that returned data without raising: a failure is swallowed so
+    /// the data survives, but on a live engine it also fails the engine, as the bytes handed over
+    /// (a KeyUpdate) are lost and the next write would run under keys the peer never got.</summary>
+    class procedure FlushOrLatch(const AEngine: ITlsEngine;
+      const ATransport: ITlsTransport); static;
+    /// <summary>Flushes what the engine queued; best-effort once it is terminal.</summary>
+    class procedure FlushPending(const AEngine: ITlsEngine;
+      const ATransport: ITlsTransport); static;
     /// <summary>Flushes, then raises if the engine is terminal. The flush comes first so the
     /// fatal alert a failed ProcessInput/Write queued reaches the peer before the error surfaces
     /// here (the peer then reads an alert, not a truncation); once terminal it is best-effort.</summary>
@@ -141,7 +149,8 @@ implementation
 
 resourcestring
   SPeerFatalAlert = 'the peer sent a fatal alert';
-  STruncatedHandshake = 'the transport closed during the handshake without close_notify';
+  STruncatedHandshake = 'the transport closed during the handshake without close_notify ' +
+    '(after %d handshake bytes from the peer)';
   SClosedDuringHandshake = 'the peer closed the connection during the handshake';
   SWriteAfterClose = 'a write was attempted after the connection was closed';
   SEarlyDataUnread = 'accepted 0-RTT data is waiting: read it with ReadEarlyData before Read';
@@ -155,7 +164,7 @@ begin
   if not AEngine.IsTerminal then
     Exit;
   if PeerClosedDuringHandshake(AEngine) then
-    raise ETlsTransportTruncated.Create(SClosedDuringHandshake);
+    raise ETlsTransportTruncated.CreateRes(@SClosedDuringHandshake);
   // a client's ECH reject aborts with ech_required (RFC 9849 sec. 6.1.6); surface the
   // retry_configs and the retry flag through a typed exception so the application can decide to
   // reconnect. keyed on the abort itself, not EchStatus - a server reads Rejected after a benign
@@ -196,13 +205,32 @@ begin
   end;
 end;
 
-class procedure TTlsStreamPump.FlushThenRaiseIfFatal(const AEngine: ITlsEngine;
+class procedure TTlsStreamPump.FlushOrLatch(const AEngine: ITlsEngine;
+  const ATransport: ITlsTransport);
+begin
+  try
+    Flush(AEngine, ATransport);
+  except
+    // the next read or write raises the latched failure, carrying the transport's own message
+    on E: Exception do
+      if not AEngine.IsTerminal then
+        AEngine.SendAlert(TTlsAlertDescription.InternalError, E.Message);
+  end;
+end;
+
+class procedure TTlsStreamPump.FlushPending(const AEngine: ITlsEngine;
   const ATransport: ITlsTransport);
 begin
   if AEngine.IsTerminal then
     FlushQuietly(AEngine, ATransport)
   else
     Flush(AEngine, ATransport);
+end;
+
+class procedure TTlsStreamPump.FlushThenRaiseIfFatal(const AEngine: ITlsEngine;
+  const ATransport: ITlsTransport);
+begin
+  FlushPending(AEngine, ATransport);
   RaiseIfFatal(AEngine);
 end;
 
@@ -362,8 +390,7 @@ begin
     end;
     LGot := ATransport.Read(LBuf, 0, TransportChunk);
     if LGot = 0 then
-      raise ETlsTransportTruncated.Create(
-        Format('%s (after %d handshake bytes from the peer)', [STruncatedHandshake, LTotal]));
+      raise ETlsTransportTruncated.CreateResFmt(@STruncatedHandshake, [LTotal]);
     Inc(LTotal, LGot);
     AEngine.ProcessInput(LBuf, 0, LGot);
     FlushThenRaiseIfFatal(AEngine, ATransport);
@@ -390,6 +417,8 @@ begin
   Result := AEngine.ReadAppData(ADest, 0, AMaxLength);
   if Result > 0 then
   begin
+    // output queued by an earlier engine call goes out now; a dead transport must not lose the bytes
+    FlushOrLatch(AEngine, ATransport);
     AStatus := TTlsReadStatus.Data;
     Exit;
   end;
@@ -447,8 +476,9 @@ class procedure TTlsStreamPump.WriteApp(const AEngine: ITlsEngine;
 var
   LOffset, LRemaining, LChunk: Int32;
 begin
-  // a terminal engine reports the alert it recorded, not a generic closed-write error
-  RaiseIfFatal(AEngine);
+  // a terminal engine reports its recorded alert, sent first, not a closed-write error (RFC 8446 6.2)
+  if AEngine.IsTerminal then
+    FlushThenRaiseIfFatal(AEngine, ATransport);
   // the engine's Write raises once the write side is closed; pre-check so the stream reports a
   // clear error rather than the raw engine exception (and never counts the bytes as sent)
   if AEngine.WriteClosed then

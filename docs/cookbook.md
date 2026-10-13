@@ -528,15 +528,21 @@ begin
   // LInfo.NamedGroup                     e.g. $001D = X25519 (default); $11EC = X25519MLKEM768 hybrid
   // LInfo.AlpnProtocol                   negotiated ALPN name (bytes), or empty
   // LInfo.ServerName                     SNI the peer sent (server side)
-  // LInfo.Resumed                        True if this was a resumption
+  // LInfo.Resumed                        True if this was a resumption (an external PSK is not one)
   // LInfo.PeerCertificates               peer chain as presented, leaf first (on a resume: the chain stored with the session)
   // LInfo.ValidatedPath                  path PKIX validated on this connection, leaf..anchor; empty on a resume unless re-verified
   // LInfo.PeerOcspStaple                 the stapled OCSP response, if any
   // LInfo.RequestedCertificateAuthorities  CA names the peer's CertificateRequest listed (DER)
-  // LInfo.PskIdentity                    the TLS 1.2 PSK identity that authenticated it, or empty
+  // LInfo.PskIdentity                    the PSK identity that authenticated it (TLS 1.2 PSK, or the TLS 1.3 external identity as configured), or empty
   // LInfo.ExtendedMasterSecret           RFC 7627 in use (always True on TLS 1.3)
   // LInfo.EchStatus                      NotOffered / Greased / Accepted / Rejected / Backend
   // LInfo.EchRetryConfigs, EchIsRetryAttempt, EchRejectAborted   the client-side ECH reject details
+  // LInfo.PeerSignatureScheme            IANA code of the scheme that verified the peer's signature; 0 if none (a resume: the original's)
+  // LInfo.HelloRetryRequest              a HelloRetryRequest was used (client: received; server: sent)
+  // LInfo.EarlyDataReason                why 0-RTT was or was not used (TEarlyDataReason)
+  // LInfo.EarlyDataAccepted              0-RTT was accepted (client: the server took it; server: it opened the early-data window)
+  // LInfo.TicketAgeSkew                  server, TLS 1.3 resumption: client-reported ticket age less the server's own, in seconds
+  // LInfo.RequestedSignatureSchemes      the signature_algorithms the peer's CertificateRequest listed
 end;
 ```
 
@@ -807,6 +813,17 @@ External PSKs are TLS 1.3 only, so they are set on the `Tls13` facet (as is the
 server's `WithTicketCount`); a config that does not offer TLS 1.3 refuses a non-default value of them
 at `Build`. Both ends configure the same identity + key. A client requires the PSK by default; use
 `Tls13.WithExternalPskRequired(False)` to let it fall back to certificate authentication.
+
+`WithExternalPreSharedKeys` refuses a malformed PSK up front: an empty or over-65535-byte identity, an
+empty secret, an identity plus context whose imported identity exceeds 65535 bytes, and two PSKs that
+share an identity and context. A client's `Build` also refuses a set that, sent once per KDF hash
+(SHA-256 and SHA-384), would not fit the 65535-byte ClientHello extensions block beside fixed
+allowances: the other extensions, the ALPN list as configured, a cached ticket when a session cache
+is set (a client caches no ticket over 16428 bytes, whoever issued it), and a doubled hello plus ECH
+overhead when ECH is on. A set that passes encodes (about 538 two-byte-identity PSKs with none of
+those, 246 with ECH); a server may hold any number. A connection an
+external PSK authenticated reports `Resumed = False` and the configured identity in `PskIdentity`;
+only a later ticket resumption of it is a resumption.
 
 ## TLS 1.2 pre-shared keys (RFC 4279 / RFC 5489)
 

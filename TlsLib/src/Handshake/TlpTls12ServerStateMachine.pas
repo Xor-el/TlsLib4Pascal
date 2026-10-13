@@ -56,6 +56,7 @@ uses
   TlpSession,
   TlpSessionTicketStrategy,
   TlpHandshakeEffect,
+  TlpTlsConnectionInfo,
   TlpHandshakeStage,
   TlpHandshakeMachineBase;
 
@@ -178,6 +179,7 @@ type
     FClientRandom: TBytes;
     FServerRandom: TBytes;
     FGroupCode: UInt16;
+    FPeerSignatureScheme: UInt16;
     FSelectedGroup: INamedGroup;
     FEcdhePrivate: IKeyExchangePrivateKey;
     FEcdhePublic: TBytes;
@@ -297,12 +299,15 @@ type
       : TArray<THandshakeEffect>;
     /// <summary>Seals the current session under the STEK and frames a NewSessionTicket
     /// (RFC 5077 3.3), with a freshly stamped issue time; frames a zero-length ticket when the
-    /// strategy declines to seal.</summary>
-    function BuildNewSessionTicketMessage: TBytes;
+    /// strategy declines to seal; ASealed reports whether a real ticket was framed.</summary>
+    function BuildNewSessionTicketMessage(out ASealed: Boolean): TBytes;
     /// <summary>The configured ticket lifetime, capped at the RFC 8446 4.6.1 ceiling.</summary>
     function EmittedTicketLifetime: UInt32;
     /// <summary>The resumable session for the current connection, under ASessionId.</summary>
     function BuildStoredSession(const ASessionId: TBytes): IResumableSession;
+    /// <summary>The negotiation facts reported at completion; a TLS 1.2 handshake has no
+    /// HelloRetryRequest and always reports ProtocolVersion as the early-data reason.</summary>
+    function Facts: TNegotiationFacts;
     function BuildServerHello: TBytes;
     procedure StampServerRandom;
     function BuildCertificate: TBytes;
@@ -647,18 +652,15 @@ begin
   if FResuming then
     Exit(EmitAbbreviatedFlight(AMessage.Raw));
 
-  // a full handshake issues a fresh session id (when a store is configured) and, when
-  // the client supports tickets, a NewSessionTicket sealed under the STEK. A session set up without
-  // extended_master_secret is issued only when this server resumes such sessions: otherwise the id
-  // would be empty, which is not resumable (RFC 5246 7.4.1.3), and no NewSessionTicket follows, so
-  // the ticket extension is not echoed (RFC 5077 3.2)
+  // a non-EMS session is issued only when this server resumes such sessions (RFC 7627 5.3)
   LIssueSession := FUseExtendedMasterSecret or
     (FParams.NonEmsResumption = TNonEmsResumption.Resume);
+  FIssueNewTicket := (FTicketStrategy <> nil) and FClientOfferedSessionTicket and LIssueSession;
+  // the id is in the hello before the ticket seals, so it is stored only if the seal declines
   if (FParams.SessionStore <> nil) and LIssueSession then
     FSessionId := FParams.Crypto.Primitives.GetRandom.GenerateBytes(SessionIdLength)
   else
     FSessionId := nil;
-  FIssueNewTicket := (FTicketStrategy <> nil) and FClientOfferedSessionTicket and LIssueSession;
 
   StampServerRandom;
 
@@ -715,6 +717,10 @@ begin
     FPhase := TPhase.WaitClientKeyExchange;
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LServerHello));
+  // surface the protocol the ServerHello selected on the connection info
+  if System.Length(FSelectedAlpn) > 0 then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.SelectAlpn(FSelectedAlpn));
   // limits bind protected records only (RFC 8449 4)
   if FPeerRecordSizeLimit > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -958,6 +964,7 @@ begin
   // key family the client leaf can produce; one outside that set is a wrong signature type
   LScheme := TPeerAuthentication.RequirePeerScheme(FParams.ClientAuthSignatureSchemes,
     LCertVerify.Algorithm, TTlsVersion.Tls12, FParsedClientLeaf);
+  FPeerSignatureScheme := LCertVerify.Algorithm;
   // the 1.2 CertificateVerify signs the raw handshake log through ClientKeyExchange; the scheme
   // applies its own hash, so the suite PRF hash does not matter here (the stream buffer is capacity-
   // sized, so verify over exactly the logged bytes)
@@ -1075,6 +1082,9 @@ begin
     Exit;
 
   FResumedSession := L12;
+  // an abbreviated handshake has no key exchange: it reports the original session's group and signer
+  FGroupCode := L12.NamedGroup;
+  FPeerSignatureScheme := L12.PeerSignatureScheme;
   FPskIdentity := L12.PskIdentity;
   FPskBinding := L12.PskBinding;
   FSelectedSuite := LSuite;
@@ -1089,6 +1099,14 @@ function TTls12ServerStateMachine.EmittedTicketLifetime: UInt32;
 begin
   // apply the TLS 1.3 seven-day ceiling (RFC 8446 4.6.1) to TLS 1.2 tickets as policy; RFC 5077 sets none
   Result := TClientSessionPolicy.ClampTicketLifetime(FParams.TicketLifetimeSeconds);
+end;
+
+function TTls12ServerStateMachine.Facts: TNegotiationFacts;
+begin
+  Result := Default(TNegotiationFacts);
+  Result.PeerSignatureScheme := FPeerSignatureScheme;
+  // 0-RTT is TLS 1.3 only, so a TLS 1.2 server never takes it, configured or not
+  Result.EarlyDataReason := TEarlyDataReason.ProtocolVersion;
 end;
 
 function TTls12ServerStateMachine.BuildStoredSession(
@@ -1112,20 +1130,19 @@ begin
   Result := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
     FUseExtendedMasterSecret, nil, FRequestedServerName, EmittedTicketLifetime,
-    FParams.Clock.NowUnixMillis, LChainForTicket, FParams.ResumptionScope, FPskIdentity, FPskBinding);
+    FParams.Clock.NowUnixMillis, LChainForTicket, FParams.ResumptionScope, FPskIdentity, FPskBinding,
+    FGroupCode, FPeerSignatureScheme);
 end;
 
-function TTls12ServerStateMachine.BuildNewSessionTicketMessage: TBytes;
+function TTls12ServerStateMachine.BuildNewSessionTicketMessage(out ASealed: Boolean): TBytes;
 var
   LMsg: TTls12NewSessionTicket;
   LTicket: TBytes;
 begin
-  // the ticket seals the session (no session id) under the current STEK. Having echoed the
-  // session_ticket extension, the server MUST still send a NewSessionTicket; when the strategy
-  // declines (e.g. an oversized chain over the cap) it sends a zero-length ticket with an
-  // unspecified lifetime rather than nothing, so the client is not left awaiting one (RFC 5077 3.3)
+  // a declined seal still sends a zero-length NewSessionTicket, as session_ticket was echoed (RFC 5077 3.3)
   LTicket := FTicketStrategy.Seal(BuildStoredSession(nil));
-  if System.Length(LTicket) = 0 then
+  ASealed := System.Length(LTicket) > 0;
+  if not ASealed then
     LMsg.TicketLifetimeHint := 0
   else
     LMsg.TicketLifetimeHint := EmittedTicketLifetime;
@@ -1138,6 +1155,7 @@ function TTls12ServerStateMachine.EmitAbbreviatedFlight(
   const AClientHelloRaw: TBytes): TArray<THandshakeEffect>;
 var
   LServerHello, LNst, LServerFinished, LVerifyData: TBytes;
+  LSealed: Boolean;
 begin
   StampServerRandom;
 
@@ -1158,6 +1176,10 @@ begin
 
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LServerHello));
+  // surface the protocol the ServerHello selected on the connection info
+  if System.Length(FSelectedAlpn) > 0 then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.SelectAlpn(FSelectedAlpn));
   // limits bind protected records only (RFC 8449 4)
   if FPeerRecordSizeLimit > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1169,7 +1191,7 @@ begin
       THandshakeEffects.PeerCertificateChain(FResumedSession.PeerCertificates, nil));
   if FIssueNewTicket then
   begin
-    LNst := BuildNewSessionTicketMessage;
+    LNst := BuildNewSessionTicketMessage(LSealed);
     FTranscript.Update(LNst);
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SendHandshake(LNst));
@@ -1205,10 +1227,9 @@ begin
       @SBadClientFinished);
   FPhase := TPhase.Connected;
   MarkConnected;
-  // an abbreviated resumption performs no fresh key exchange, so there is no negotiated group
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, 0, True,
-    FUseExtendedMasterSecret, FRequestedServerName),
+    THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, FGroupCode, True,
+    FUseExtendedMasterSecret, FRequestedServerName, Facts),
     THandshakeEffects.HandshakeEstablished);
   if System.Length(FPskIdentity) > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1221,6 +1242,7 @@ function TTls12ServerStateMachine.ProcessClientFinished(
   const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
 var
   LVerifyData, LServerFinished, LNst: TBytes;
+  LSealed: Boolean;
 begin
   // the client Finished is over the transcript through ClientKeyExchange
   if not FSchedule.VerifyFinished(TTlsDirection.ClientWrite,
@@ -1230,17 +1252,18 @@ begin
   FTranscript.Update(AMessage.Raw);
 
   Result := nil;
+  LSealed := False;
   // a NewSessionTicket (RFC 5077) is sent plaintext before the server ChangeCipherSpec
   // and is folded into the transcript the server Finished covers
   if FIssueNewTicket then
   begin
-    LNst := BuildNewSessionTicketMessage;
+    LNst := BuildNewSessionTicketMessage(LSealed);
     FTranscript.Update(LNst);
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SendHandshake(LNst));
   end;
-  // session-id resumption stores the session under the id echoed in the ServerHello
-  if (FParams.SessionStore <> nil) and (System.Length(FSessionId) > 0) then
+  // the id echoed in the ServerHello is stored unless a sealed ticket already carries the session
+  if (FParams.SessionStore <> nil) and (System.Length(FSessionId) > 0) and (not LSealed) then
     FParams.SessionStore.PutWithId(FSessionId, BuildStoredSession(FSessionId));
 
   // the server Finished is over the transcript INCLUDING the client Finished and any ticket
@@ -1268,7 +1291,7 @@ begin
   // a full TLS 1.2 handshake is always ECDHE (the only 1.2 key exchange): report FGroupCode
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code, FGroupCode, False,
-    FUseExtendedMasterSecret, FRequestedServerName));
+    FUseExtendedMasterSecret, FRequestedServerName, Facts));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
   // the stored session captured the master secret and the write keys are installed; release the

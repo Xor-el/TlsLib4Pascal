@@ -134,8 +134,10 @@ begin
       LJ := 0;
       while LWide[LJ] <> #0 do
       begin
-        // low byte only: the wire values are ASCII plus control-byte prefixes (< 0x100)
-        LArg := LArg + Char(Ord(LWide[LJ]) and $FF);
+        // wire values are below 0x100; a wider unit would silently become a different octet
+        if Ord(LWide[LJ]) > $FF then
+          raise EInteropData.Create('a command-line argument holds a character above 0xFF');
+        LArg := LArg + Char(Ord(LWide[LJ]));
         Inc(LJ);
       end;
       FArgs[LI] := LArg;

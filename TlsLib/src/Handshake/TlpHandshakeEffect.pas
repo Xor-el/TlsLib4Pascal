@@ -23,6 +23,7 @@ uses
   TlpTlsLibExceptions,
   TlpIKeySchedule,
   TlpTrustPolicy,
+  TlpTlsConnectionInfo,
   TlpITlsEngine;
 
 type
@@ -57,6 +58,15 @@ type
     SendWarningAlert,     // emit a warning-level alert and continue (e.g. no_renegotiation)
     Fail);                // abort with a fatal alert
 
+  /// <summary>The facts a handshake machine reports at completion beside the suite, group and
+  /// resumption flag; the engine copies them onto the connection info.</summary>
+  TNegotiationFacts = record
+    PeerSignatureScheme: UInt16;
+    HelloRetryRequest: Boolean;
+    EarlyDataReason: TEarlyDataReason;
+    TicketAgeSkew: Int32;
+  end;
+
   /// <summary>
   /// A pure instruction the state machine emits for the driver to carry out. The
   /// states never touch the record layer, key schedule, or event queue directly;
@@ -89,6 +99,8 @@ type
     IsRetry: Boolean;            // EchRejected (this handshake was itself a retry)
     RetryConfigs: TBytes;        // EchRejected (the server's retry_configs; empty when none)
     Authorities: TArray<TBytes>; // RequestedCertificateAuthorities (the named DistinguishedNames)
+    Schemes: TArray<UInt16>;     // RequestedCertificateAuthorities (the CertificateRequest signature_algorithms)
+    Facts: TNegotiationFacts;    // ConnectionParams (signature scheme, HelloRetryRequest, early-data reason, ticket age skew)
     Identity: TBytes;            // PskIdentity (the pre-shared key's identity)
   end;
 
@@ -133,17 +145,19 @@ type
       const AChain, AValidatedPath: TArray<TBytes>): THandshakeEffect; static;
     /// <summary>Surfaces the DER-encoded DistinguishedName certificate_authorities a peer
     /// named in its CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4), for read-only
-    /// connection info; never blocks the handshake.</summary>
+    /// connection info, with the signature_algorithms it listed (ASchemes); never blocks the
+    /// handshake.</summary>
     class function RequestedCertificateAuthorities(
-      const AAuthorities: TArray<TBytes>): THandshakeEffect; static;
+      const AAuthorities: TArray<TBytes>; const ASchemes: TArray<UInt16>): THandshakeEffect; static;
     /// <summary>Surfaces the identity of the pre-shared key that authenticated the connection, for
     /// read-only connection info.</summary>
     class function PskIdentity(const AIdentity: TBytes): THandshakeEffect; static;
     /// <summary>Surfaces the negotiated cipher suite, named group (0 when none / non-(EC)DHE),
     /// whether the handshake was resumed/abbreviated, and whether the session used Extended Master
-    /// Secret (RFC 7627; always true on TLS 1.3), for read-only connection info.</summary>
+    /// Secret (RFC 7627; always true on TLS 1.3), plus AFacts, for read-only connection info.</summary>
     class function ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string): THandshakeEffect; static;
+      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
+      const AFacts: TNegotiationFacts): THandshakeEffect; static;
     class function HandshakeEstablished: THandshakeEffect; static;
     /// <summary>Emits a warning-level alert without tearing down the connection: the driver
     /// delivers it through the sink so the engine writes it under the current epoch and stays
@@ -299,11 +313,12 @@ begin
 end;
 
 class function THandshakeEffects.RequestedCertificateAuthorities(
-  const AAuthorities: TArray<TBytes>): THandshakeEffect;
+  const AAuthorities: TArray<TBytes>; const ASchemes: TArray<UInt16>): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.RequestedCertificateAuthorities;
   Result.Authorities := AAuthorities;
+  Result.Schemes := ASchemes;
 end;
 
 class function THandshakeEffects.PskIdentity(const AIdentity: TBytes): THandshakeEffect;
@@ -314,10 +329,12 @@ begin
 end;
 
 class function THandshakeEffects.ConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-  AResumed, AExtendedMasterSecret: Boolean; const AServerName: string): THandshakeEffect;
+  AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
+  const AFacts: TNegotiationFacts): THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.ConnectionParams;
+  Result.Facts := AFacts;
   Result.CipherSuite := ACipherSuite;
   Result.NamedGroup := ANamedGroup;
   Result.Resumed := AResumed;

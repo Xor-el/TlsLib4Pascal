@@ -42,6 +42,8 @@ uses
   blcksock,
   synsock,
   TlpDataEncoding,
+  TlpTlsAlert,
+  TlpTrustPolicy,
   TlpTlsCredential,
   TlpNegotiationTypes,
   TlsLibSynapseTls;
@@ -79,6 +81,13 @@ type
   TServerThread = class(TThread)
   protected
     procedure Execute; override;
+  end;
+
+  /// <summary>A server resolver that accepts everything; only its registration matters here.</summary>
+  TAcceptingServerResolver = class sealed(TObject)
+  public
+    function Resolve(const ACtx: TCertificateVerdictContext;
+      out ARejectAlert: TTlsAlertDescription): Boolean;
   end;
 
   /// <summary>A server that requires a client certificate and serves two connections in turn,
@@ -177,6 +186,13 @@ begin
   finally
     LFile.Free;
   end;
+end;
+
+function TAcceptingServerResolver.Resolve(const ACtx: TCertificateVerdictContext;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
+begin
+  ARejectAlert := TTlsAlertDescription.BadCertificate;
+  Result := True;
 end;
 
 procedure TServerThread.Execute;
@@ -409,17 +425,21 @@ var
   LPfx: TBytes;
   LStart: TDateTime;
   LStallMs: Int64;
+  LResolver: TAcceptingServerResolver;
 begin
   Result := 1;
   GServerError := '';
   GVector := TVectorLocator.Find;
   GReady := TEvent.Create(nil, True, False, '');
+  LResolver := TAcceptingServerResolver.Create;
   try
     CheckAssignAndCiphers;
     LPfx := TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_pfx'));
     SetString(GLeafPfx, PAnsiChar(@LPfx[0]), System.Length(LPfx));
     GRootFile := TVectorLocator.WriteDer('root', TVectorLocator.FieldHex('root_cert'));
 
+    // a process-wide server resolver must leave a server that requests no client certificate usable
+    SetTlsLibSynapseServerVerdictResolver(LResolver.Resolve, 1000);
     LServer := TServerThread.Create(True);
     LServer.FreeOnTerminate := False;
     LServer.Start;
@@ -457,6 +477,7 @@ begin
     end;
 
     LServer.WaitFor;
+    SetTlsLibSynapseServerVerdictResolver(nil, 0);
     if GServerError <> '' then
       raise Exception.Create('server: ' + GServerError);
     TMutualTlsCheck.Run;
@@ -474,6 +495,8 @@ begin
     on E: Exception do
       Writeln('Synapse loopback FAIL: ', E.ClassName, ': ', E.Message);
   end;
+  SetTlsLibSynapseServerVerdictResolver(nil, 0);
+  LResolver.Free;
   GReady.Free;
 end;
 

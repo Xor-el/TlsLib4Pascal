@@ -51,10 +51,12 @@ uses
   TlpEndpointIdentity,
   TlpServerName,
   TlpISession,
+  TlpISecretBuffer,
   TlpIClock,
   TlpClock,
   TlpIKeyLog,
   TlpSession,
+  TlpExternalPskImporter,
   TlpSessionTicketKeys,
   TlpAntiReplay,
   TlpIEch,
@@ -178,6 +180,9 @@ type
     /// version is not refused.</summary>
     function Tls13FacetConfigured: Boolean;
     function Tls12FacetConfigured: Boolean;
+    /// <summary>Refuses a client whose external-PSK offer, beside its ALPN list, a cached ticket and
+    /// ECH at their ceilings, would overflow the ClientHello extensions block.</summary>
+    procedure ValidateExternalPskOfferFits;
     /// <summary>Refuses a version facet that was configured for a version not offered.</summary>
     procedure ValidateVersionScoping;
     /// <summary>Composes the accumulated anchor sources into one store: nil for none (a PSK-only
@@ -244,6 +249,14 @@ type
     /// <summary>Raises unless every PSK has a 1 to 2^16-1 byte identity and secret and no two
     /// share an identity.</summary>
     class procedure ValidateTls12Psks(const APsks: TArray<TTls12Psk>); static;
+    /// <summary>Raises unless every external PSK has a 1 to 2^16-1 byte identity, a non-empty
+    /// secret and an imported identity that fits the wire, and no two share an identity and
+    /// context.</summary>
+    class procedure ValidateExternalPsks(const APsks: TArray<TExternalPsk>); static;
+    /// <summary>Raises unless AIdentity is 1 to 2^16-1 bytes and ASecret is non-nil and
+    /// non-empty.</summary>
+    class procedure ValidatePskEntry(const AIdentity: TBytes;
+      const ASecret: ISecretBuffer); static;
     /// <summary>ABase with the TLS 1.2 PSK suites the provider can run placed ahead of its TLS
     /// 1.2 certificate suites, when a TLS 1.2 PSK is configured; ABase itself otherwise.</summary>
     function WithTls12PskSuites(const ABase: ICipherSuiteRegistry): ICipherSuiteRegistry;
@@ -368,9 +381,16 @@ resourcestring
     'back to certificate authentication; keep Tls12.WithPreSharedKeyRequired(True) or add a trust source';
   STls12PskNeedsTls12 = 'a TLS 1.2 PSK is unusable without TLS 1.2; add TLS 1.2 to the offered ' +
     'versions or remove the PSK';
-  STls12PskIdentityLength = 'a TLS 1.2 PSK identity must be 1 to 65535 bytes';
-  STls12PskSecretLength = 'a TLS 1.2 PSK secret must be 1 to 65535 bytes';
+  SPskIdentityLength = 'a PSK identity must be 1 to 65535 bytes';
+  SPskSecretEmpty = 'a PSK secret must not be empty';
+  STls12PskSecretLength = 'a TLS 1.2 PSK secret must be at most 65535 bytes (RFC 4279 2)';
   STls12PskDuplicateIdentity = 'two TLS 1.2 PSKs share an identity';
+  SExternalPskDuplicateIdentity = 'two external PSKs share an identity and context';
+  SExternalPskIdentityTooLong = 'an external PSK identity and context together make an imported ' +
+    'identity beyond 65535 bytes (RFC 9258 5.1)';
+  SExternalPskOfferTooLarge = 'the external PSKs, offered once per KDF hash beside the ALPN ' +
+    'list, a cached ticket and ECH, exceed the ClientHello extensions budget of 65535 bytes ' +
+    '(RFC 8446 4.1.2)';
   STls12PskClientHoldsOne = 'a client presents one TLS 1.2 PSK';
   STls12PskHintLength = 'a TLS 1.2 PSK identity hint must be at most 65535 bytes';
   STls12PskHintNeedsPsk = 'a TLS 1.2 PSK identity hint is sent only with a PSK; configure ' +
@@ -499,6 +519,14 @@ const
   MaxResumptionScopeLength = Int32(32);
   MaxServerEarlyData = UInt32(1 shl 20);
   MaxAlpnListBytes = Int32(16384);
+  // the ClientHello extensions block is one vector of at most 2^16-1 bytes (RFC 8446 4.1.2)
+  MaxClientHelloExtensionsBytes = Int32(65535);
+  // the other extensions (key_share, SNI, groups, schemes, versions, GREASE, the ECH decoy) need about 2 KB
+  ClientHelloOtherExtensionsBytes = Int32(4096);
+  // a cached ticket as a TLS 1.3 PSK: its length prefix and age, plus a SHA-384 binder with its length byte
+  CachedTicketOfferBytes = Int32(TSessionTicketLimits.MaxCachedTicketBytes + 2 + 4 + 1 + 48);
+  // the ECH payload tag, the encapsulated key, the padding and the extension headers
+  EchOverheadBytes = Int32(1024);
 
 type
   /// <summary>The immutable common settings, shared by the client and server config.</summary>
@@ -1841,6 +1869,31 @@ begin
     (FNonEmsResumption <> TNonEmsResumption.Decline);
 end;
 
+procedure TTlsConfigBuilder.ValidateExternalPskOfferFits;
+var
+  LI: Int32;
+  LHello: Int64;
+begin
+  if System.Length(FExternalPsks) = 0 then
+    Exit;
+  LHello := ClientHelloOtherExtensionsBytes;
+  // the ALPN extension: its header, list length and each name with its length byte
+  if System.Length(FAlpnProtocols) > 0 then
+  begin
+    Inc(LHello, 4 + 2);
+    for LI := 0 to System.High(FAlpnProtocols) do
+      Inc(LHello, 1 + System.Length(FAlpnProtocols[LI]));
+  end;
+  if FResumption and (FSessionCache <> nil) then
+    Inc(LHello, CachedTicketOfferBytes);
+  Inc(LHello, 4 + TExternalPskImporter.OfferedExtensionLength(FExternalPsks, TlsWireVersionTls13));
+  // the inner hello rides in the outer ECH payload beside an outer hello of the same shape
+  if (FEchMode <> nil) and (not FEchMode.IsGrease) then
+    LHello := 2 * LHello + EchOverheadBytes;
+  if LHello > MaxClientHelloExtensionsBytes then
+    raise EInvalidOperationTlsLibException.CreateRes(@SExternalPskOfferTooLarge);
+end;
+
 procedure TTlsConfigBuilder.ValidateVersionScoping;
 begin
   // a raw builder that never called WithSupportedVersions has none; a machine cannot be built
@@ -2479,6 +2532,7 @@ function TTlsConfigBuilder.WithExternalPreSharedKeys(
   const APsks: TArray<TExternalPsk>): TTlsConfigBuilder;
 begin
   GuardMutable;
+  ValidateExternalPsks(APsks);
   // copy so a caller mutating its arrays after Build cannot alter the frozen config (matches the
   // frozen ExternalPsks accessor); the PSK secrets are ISecretBuffer, shared by reference
   FExternalPsks := TTlsConfigBuilder.CloneExternalPsks(APsks);
@@ -2503,20 +2557,47 @@ begin
     Result[LI].Identity := System.Copy(APsks[LI].Identity);
 end;
 
+class procedure TTlsConfigBuilder.ValidatePskEntry(const AIdentity: TBytes;
+  const ASecret: ISecretBuffer);
+begin
+  if (System.Length(AIdentity) = 0) or (System.Length(AIdentity) > High(UInt16)) then
+    raise EArgumentTlsLibException.CreateRes(@SPskIdentityLength);
+  if (ASecret = nil) or (ASecret.Len = 0) then
+    raise EArgumentTlsLibException.CreateRes(@SPskSecretEmpty);
+end;
+
 class procedure TTlsConfigBuilder.ValidateTls12Psks(const APsks: TArray<TTls12Psk>);
 var
   LI, LJ: Int32;
 begin
   for LI := 0 to System.High(APsks) do
   begin
-    if (System.Length(APsks[LI].Identity) = 0) or (System.Length(APsks[LI].Identity) > High(UInt16)) then
-      raise EArgumentTlsLibException.CreateRes(@STls12PskIdentityLength);
-    if (APsks[LI].Secret = nil) or (APsks[LI].Secret.Len = 0) or
-      (APsks[LI].Secret.Len > High(UInt16)) then
+    ValidatePskEntry(APsks[LI].Identity, APsks[LI].Secret);
+    if APsks[LI].Secret.Len > High(UInt16) then
       raise EArgumentTlsLibException.CreateRes(@STls12PskSecretLength);
     for LJ := 0 to LI - 1 do
       if TArrayUtilities.AreEqual(APsks[LI].Identity, APsks[LJ].Identity) then
         raise EArgumentTlsLibException.CreateRes(@STls12PskDuplicateIdentity);
+  end;
+end;
+
+class procedure TTlsConfigBuilder.ValidateExternalPsks(const APsks: TArray<TExternalPsk>);
+var
+  LI, LJ: Int32;
+begin
+  for LI := 0 to System.High(APsks) do
+  begin
+    ValidatePskEntry(APsks[LI].Identity, APsks[LI].Secret);
+    // an imported identity that cannot be encoded would fail every accept and every offer
+    if (System.Length(APsks[LI].Context) > High(UInt16)) or
+      (System.Length(TExternalPskImporter.ImportedIdentity(APsks[LI].Identity,
+      APsks[LI].Context, TlsWireVersionTls13, 0)) > High(UInt16)) then
+      raise EArgumentTlsLibException.CreateRes(@SExternalPskIdentityTooLong);
+    // RFC 9258 5.1: the context is part of the imported identity, so only both together collide
+    for LJ := 0 to LI - 1 do
+      if TArrayUtilities.AreEqual(APsks[LI].Identity, APsks[LJ].Identity) and
+        TArrayUtilities.AreEqual(APsks[LI].Context, APsks[LJ].Context) then
+        raise EArgumentTlsLibException.CreateRes(@SExternalPskDuplicateIdentity);
   end;
 end;
 
@@ -2884,6 +2965,8 @@ begin
   if (System.Length(FExternalPsks) > 0) and
     not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SExternalPskNeedsTls13);
+  // only the client sends every imported variant in one extension; a server just matches one
+  ValidateExternalPskOfferFits;
   // 0-RTT rides a resumed handshake, so it needs resumption on and a cache to hold the ticket it
   // resumes from; without both the client can never send early data (an external PSK carries no
   // early-data budget here)

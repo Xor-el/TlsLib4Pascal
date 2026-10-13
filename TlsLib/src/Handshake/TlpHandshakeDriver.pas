@@ -156,7 +156,8 @@ begin
         FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain, AEffect.ValidatedPath);
     THandshakeEffectKind.RequestedCertificateAuthorities:
       if FConnectionInfoSink <> nil then
-        FConnectionInfoSink.OnRequestedCertificateAuthorities(AEffect.Authorities);
+        FConnectionInfoSink.OnRequestedCertificateAuthorities(AEffect.Authorities,
+          AEffect.Schemes);
     THandshakeEffectKind.PskIdentity:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnPskIdentity(AEffect.Identity);
@@ -164,7 +165,7 @@ begin
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnConnectionParams(AEffect.CipherSuite,
           AEffect.NamedGroup, AEffect.Resumed, AEffect.ExtendedMasterSecret,
-          AEffect.ServerName);
+          AEffect.ServerName, AEffect.Facts);
     THandshakeEffectKind.HandshakeEstablished:
       FSink.OnHandshakeEstablished;
     THandshakeEffectKind.EchAccepted:
