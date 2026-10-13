@@ -22,9 +22,11 @@ uses
 {$IFDEF FPC}
   BaseUnix,
   Sockets,
+  initc,
 {$ELSE}
   Posix.SysSocket,
   Posix.NetinetIn,
+  Posix.NetDB,
   Posix.Fcntl,
   Posix.Errno,
   Posix.Unistd,
@@ -43,20 +45,41 @@ type
   /// <summary>The IPv4 TCP socket calls on a POSIX target, by file descriptor. Every call returns
   /// the OS error code (0 for none) or a plain result, and raises nothing: the caller decides how
   /// an error is reported. Each compiler makes the calls through its own RTL declarations, which
-  /// know the names and layouts of the target, and reads the errno of the same RTL, except accept4,
-  /// a C library call that reads the C library's errno. A kernel older than Linux 2.6.27, FreeBSD
-  /// 10, NetBSD 6 or OpenBSD 5.7 refuses SOCK_CLOEXEC and is not supported. Linux on MIPS
-  /// and SPARC is not supported: the Free Pascal RTL gives SOL_SOCKET, SO_REUSEADDR and SO_ERROR
-  /// the values of the other CPUs, which those kernels number differently.</summary>
+  /// know the names and layouts of the target, and reads the errno of the same RTL. accept4, which
+  /// neither RTL declares, and on Free Pascal getaddrinfo come from the C library at run time. A
+  /// kernel older than Linux 2.6.27, FreeBSD 10, NetBSD 6 or OpenBSD 5.7 refuses SOCK_CLOEXEC and
+  /// is not supported. Linux on MIPS and SPARC is not supported: the Free Pascal RTL gives
+  /// SOL_SOCKET, SO_REUSEADDR and SO_ERROR the values of the other CPUs, which those kernels
+  /// number differently.</summary>
   TPosixNetOs = class sealed(TObject)
   strict private
   type
 {$IFDEF FPC}
     TSockAddrIn = TInetSockAddr;
     TNetSockLen = TSockLen;
+    // the C struct addrinfo; netdb.h orders ai_addr and ai_canonname differently
+    TNetAddrInfo = record
+      ai_flags, ai_family, ai_socktype, ai_protocol: Int32;
+      ai_addrlen: NativeUInt;
+{$IF (DEFINED(TLSLIB_LINUX) AND NOT DEFINED(TLSLIB_ANDROID)) OR DEFINED(OPENBSD)}
+      ai_addr: Pointer;
+      ai_canonname: PAnsiChar;
+{$ELSE}
+      ai_canonname: PAnsiChar;
+      ai_addr: Pointer;
+{$IFEND}
+      ai_next: Pointer;
+    end;
+    PNetAddrInfo = ^TNetAddrInfo;
+    // the RTL declares no getaddrinfo, so Free Pascal takes it from the C library
+    TGetAddrInfoFunc = function(ANode, AService: PAnsiChar; AHints: PNetAddrInfo;
+      out AList: PNetAddrInfo): Int32; cdecl;
+    TFreeAddrInfoProc = procedure(AList: PNetAddrInfo); cdecl;
 {$ELSE}
     TSockAddrIn = sockaddr_in;
     TNetSockLen = socklen_t;
+    TNetAddrInfo = addrinfo;
+    PNetAddrInfo = Paddrinfo;
     // the RTL declares no poll, so Delphi takes it from the C library
     TPollFunc = function(AFds: Pointer; ACount: NativeUInt; ATimeoutMs: Integer): Integer; cdecl;
     TPollFd = record
@@ -65,30 +88,16 @@ type
       revents: SmallInt;
     end;
 {$ENDIF}
-    TGetAddrInfoFunc = function(ANode, AService: PAnsiChar; AHints: Pointer;
-      out AList: Pointer): Int32; cdecl;
-    TFreeAddrInfoProc = procedure(AList: Pointer); cdecl;
     TAccept4Func = function(AListener: Integer; AAddr, ALen: Pointer;
       AFlags: Integer): Integer; cdecl;
-    // the C library's errno, which a libc call sets and an RTL's own errno may not mirror
-    TErrnoLocationFunc = function: PInteger; cdecl;
-    // the C struct addrinfo up to ai_next; the two pointer slots are ai_addr and ai_canonname in
-    // the order the target's netdb.h gives them, and ai_addrlen is never read
-    TAddrInfoView = record
-      Flags, Family, SockType, Protocol: Int32;
-      AddrLen: NativeUInt;
-      Slots: array [0 .. 1] of Pointer;
-      Next: Pointer;
-    end;
-    PAddrInfoView = ^TAddrInfoView;
   class var
-{$IFNDEF FPC}
+{$IFDEF FPC}
+    FGetAddrInfo: TGetAddrInfoFunc;
+    FFreeAddrInfo: TFreeAddrInfoProc;
+{$ELSE}
     FPoll: TPollFunc;
 {$ENDIF}
     FAccept4: TAccept4Func;
-    FErrnoLocation: TErrnoLocationFunc;
-    FGetAddrInfo: TGetAddrInfoFunc;
-    FFreeAddrInfo: TFreeAddrInfoProc;
   strict private
     class procedure FillAddress(const AAddress: TBytes; APort: Word;
       out AAddr: TSockAddrIn); static;
@@ -168,32 +177,15 @@ const
   PollIn = $0001;
   PollOut = $0004;
   CloseOnExec = 1;
-  // SOCK_CLOEXEC for socket() and accept4(), with the C library's errno accessor that reads an
-  // accept4 failure; 0 where fcntl must set it afterwards (older kernels refuse the flag)
-{$IF DEFINED(TLSLIB_ANDROID)}
+  // SOCK_CLOEXEC for socket() and accept4(); 0 where fcntl must set it afterwards
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
   SocketCloseOnExec = $80000;
-  ErrnoSymbol = '__errno';
-{$ELSEIF DEFINED(TLSLIB_LINUX)}
-  SocketCloseOnExec = $80000;
-  ErrnoSymbol = '__errno_location';
-{$ELSEIF DEFINED(FREEBSD)}
+{$ELSEIF DEFINED(FREEBSD) OR DEFINED(NETBSD)}
   SocketCloseOnExec = $10000000;
-  ErrnoSymbol = '__error';
-{$ELSEIF DEFINED(NETBSD)}
-  SocketCloseOnExec = $10000000;
-  ErrnoSymbol = '__errno';
 {$ELSEIF DEFINED(OPENBSD)}
   SocketCloseOnExec = $8000;
-  ErrnoSymbol = '__errno';
 {$ELSE}
   SocketCloseOnExec = 0;
-  ErrnoSymbol = '';
-{$IFEND}
-  // netdb.h orders ai_addr and ai_canonname differently
-{$IF (DEFINED(TLSLIB_LINUX) AND NOT DEFINED(TLSLIB_ANDROID)) OR DEFINED(OPENBSD)}
-  AddrInfoAddrSlot = 0;
-{$ELSE}
-  AddrInfoAddrSlot = 1;
 {$IFEND}
 {$IFDEF FPC}
   ErrInterrupted = ESysEINTR;
@@ -245,16 +237,14 @@ var
 begin
   // the global namespace handle stays open for the process lifetime
   LLibrary := TDynamicLibrary.Open('');
-{$IFNDEF FPC}
+{$IFDEF FPC}
+  FGetAddrInfo := TGetAddrInfoFunc(TDynamicLibrary.Resolve(LLibrary, 'getaddrinfo'));
+  FFreeAddrInfo := TFreeAddrInfoProc(TDynamicLibrary.Resolve(LLibrary, 'freeaddrinfo'));
+{$ELSE}
   FPoll := TPollFunc(TDynamicLibrary.Resolve(LLibrary, 'poll'));
 {$ENDIF}
   if SocketCloseOnExec <> 0 then
-  begin
     FAccept4 := TAccept4Func(TDynamicLibrary.Resolve(LLibrary, 'accept4'));
-    FErrnoLocation := TErrnoLocationFunc(TDynamicLibrary.Resolve(LLibrary, ErrnoSymbol));
-  end;
-  FGetAddrInfo := TGetAddrInfoFunc(TDynamicLibrary.Resolve(LLibrary, 'getaddrinfo'));
-  FFreeAddrInfo := TFreeAddrInfoProc(TDynamicLibrary.Resolve(LLibrary, 'freeaddrinfo'));
 end;
 
 class function TPosixNetOs.LastError: Integer;
@@ -477,7 +467,7 @@ begin
   LAddr := Default(TSockAddrIn);
   LLen := SizeOf(LAddr);
   // accept4 sets close-on-exec in the call, closing the race a later fcntl leaves
-  LAtomic := Assigned(FAccept4) and Assigned(FErrnoLocation);
+  LAtomic := Assigned(FAccept4);
   if LAtomic then
     AHandle := FAccept4(AListener, @LAddr, @LLen, SocketCloseOnExec)
   else
@@ -489,9 +479,11 @@ begin
   if AHandle < 0 then
   begin
     AHandle := InvalidHandle;
-    // a libc call sets libc's errno, which an RTL with its own errno does not read
+{$IFDEF FPC}
+    // accept4 sets libc's errno, which this RTL's own errno does not mirror
     if LAtomic then
-      Exit(FErrnoLocation()^);
+      Exit(fpgetCerrno);
+{$ENDIF}
     Exit(LastError);
   end;
   if not LAtomic then
@@ -544,37 +536,45 @@ end;
 
 class function TPosixNetOs.LookupIPv4(const AHost: AnsiString; out AAddress: TBytes): Boolean;
 var
-  LHints: TAddrInfoView;
-  LList, LNode: Pointer;
-  LEntry: PAddrInfoView;
+  LHints: TNetAddrInfo;
+  LList, LEntry: PNetAddrInfo;
 begin
   AAddress := nil;
   Result := False;
+{$IFDEF FPC}
   if not (Assigned(FGetAddrInfo) and Assigned(FFreeAddrInfo)) then
     Exit;
+{$ENDIF}
   // a hint for IPv4 stops the resolver asking for AAAA records; the socket type is left unset,
   // because SOCK_STREAM is not 1 on every target
-  LHints := Default(TAddrInfoView);
-  LHints.Family := AF_INET;
+  LHints := Default(TNetAddrInfo);
+  LHints.ai_family := AF_INET;
   LList := nil;
+{$IFDEF FPC}
   if FGetAddrInfo(PAnsiChar(AHost), nil, @LHints, LList) <> 0 then
+{$ELSE}
+  if getaddrinfo(PAnsiChar(AHost), nil, LHints, LList) <> 0 then
+{$ENDIF}
     Exit;
   try
-    LNode := LList;
-    while LNode <> nil do
+    LEntry := LList;
+    while LEntry <> nil do
     begin
-      LEntry := PAddrInfoView(LNode);
-      if (LEntry^.Family = AF_INET) and (LEntry^.Slots[AddrInfoAddrSlot] <> nil) then
+      if (LEntry^.ai_family = AF_INET) and (LEntry^.ai_addr <> nil) then
       begin
         // the address is at offset 4 of the sockaddr on every layout, already in network order
         SetLength(AAddress, 4);
-        Move((PByte(LEntry^.Slots[AddrInfoAddrSlot]) + 4)^, AAddress[0], 4);
+        Move((PByte(LEntry^.ai_addr) + 4)^, AAddress[0], 4);
         Exit(True);
       end;
-      LNode := LEntry^.Next;
+      LEntry := LEntry^.ai_next;
     end;
   finally
+{$IFDEF FPC}
     FFreeAddrInfo(LList);
+{$ELSE}
+    freeaddrinfo(LList^);
+{$ENDIF}
   end;
 end;
 

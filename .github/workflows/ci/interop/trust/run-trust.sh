@@ -11,7 +11,7 @@
 #                 discriminator (a leaked root cannot make it pass); the post-uninstall reject
 #                 proves cleanup. The root's CN carries a per-run id so it never collides.
 #                 The machine store is only ever mutated on a github-hosted runner or
-#                 when TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 is set; elsewhere only the reject path runs.
+#                 when TLSLIB_TRUST_ALLOW_STORE_MUTATION=true is set; elsewhere only the reject path runs.
 #   * os-anchors - our own verifier over the OS root set and its distrust set (the same installed
 #                 root). Inside the bracket a second per-run intermediate is marked OS-distrusted
 #                 (Windows Disallowed / macOS Deny): both the delegate and os-anchors must reject a
@@ -81,11 +81,19 @@ THUMB=""   # set after the CA exists
 DTHUMB=""  # the distrusted intermediate's thumbprint, set after the CA exists
 DISTRUSTED=0
 
+# parsed once up front, so a bad value fails before any store work
+case "$(printf '%s' "${TLSLIB_TRUST_ALLOW_STORE_MUTATION:-}" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')" in
+  ''|false) STORE_MUTATION_FORCED=false ;;
+  true) STORE_MUTATION_FORCED=true ;;
+  *) echo "TLSLIB_TRUST_ALLOW_STORE_MUTATION: \"$TLSLIB_TRUST_ALLOW_STORE_MUTATION\" is not true or false" >&2
+     exit 2 ;;
+esac
+
 # The cells that install into the machine trust store only ever run on a CI runner (or when
 # explicitly forced): a developer machine's store is never mutated by a casual local run.
 ci_store_mutation_allowed() {
   { [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]; } ||
-    [ "${TLSLIB_TRUST_ALLOW_STORE_MUTATION:-}" = "1" ]
+    [ "$STORE_MUTATION_FORCED" = "true" ]
 }
 
 cleanup() {
@@ -339,7 +347,7 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     echo "  FAIL  could not install the distrusted intermediate"
     FAILURES=$((FAILURES+1))
   else
-    echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
+    echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=true to force)"
   fi
 
   if ci_store_mutation_allowed && { INSTALLED=1; install_root; }; then
@@ -500,7 +508,7 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     echo "  FAIL  could not install the test root"
     FAILURES=$((FAILURES+1))
   else
-    echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force); ran the reject path only"
+    echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=true to force); ran the reject path only"
   fi
 
   # server-verifies-client with an UNREACHABLE responder: the client leaf's AIA is the dead port, so
@@ -739,7 +747,7 @@ echo "=== macOS trust mode comparison (informational) ==="
 case "$OSNAME" in
   Darwin)
     if ! ci_store_mutation_allowed; then
-      echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=1 to force)"
+      echo "  SKIPPED: store mutation not allowed (set TLSLIB_TRUST_ALLOW_STORE_MUTATION=true to force)"
     else
       probe_setup
       probe_run_modes
