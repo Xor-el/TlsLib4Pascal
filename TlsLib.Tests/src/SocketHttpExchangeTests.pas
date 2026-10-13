@@ -31,6 +31,7 @@ uses
   TlpTlsPresets,
   TlpTlsCredential,
   TlpTlsConnection,
+  TlpHttpUrl,
   TlpIHttpFetcher,
   TlpITlsTransport,
   TlpINetSocket,
@@ -50,8 +51,10 @@ type
     OkHead = 'HTTP/1.1 200 OK' + CRLF;
     ChunkedHead = OkHead + 'Transfer-Encoding: chunked' + CRLF + CRLF;
   strict protected
-    /// <summary>Gets the responder's answer to AScript; ABody is the body as text.</summary>
-    function FetchScript(const AScript: string; AMaxBytes: Int32; out ABody: string): Boolean;
+    /// <summary>Gets the responder's answer to AScript; ABody is the body as text and ARequest the
+    /// request the responder read, '' when none reached it.</summary>
+    function FetchScript(const AScript: string; AMaxBytes: Int32; out ABody,
+      ARequest: string): Boolean;
     procedure CheckFetches(const AScript, AExpectedBody, AMessage: string);
     procedure CheckRefused(const AScript, AMessage: string); overload;
     procedure CheckRefused(const AScript: string; AMaxBytes: Int32; const AMessage: string); overload;
@@ -94,6 +97,7 @@ type
     procedure TestContentLengthAtTheCapIsFetched;
     procedure TestShortContentLengthBodyIsRefused;
     procedure TestTransferEncodingWithContentLengthIsRefused;
+    procedure TestChunkedHttp10ResponseIsRefused;
     procedure TestTransferCodingOtherThanChunkedIsRefused;
     procedure TestRepeatedTransferEncodingIsRefused;
     procedure TestContentEncodingIsRefused;
@@ -127,6 +131,12 @@ type
     procedure TestRefusingResolverPreventsTheConnect;
     procedure TestProxyIsSentTheAbsoluteForm;
     procedure TestIPv6ResponderIsRefused;
+    procedure TestDestinationPolicySeesTheUrlAndAdmitsIt;
+    procedure TestRefusedDestinationConnectsNothing;
+    procedure TestRefusedDestinationIsNotSentToTheProxy;
+    procedure TestAdmittedDestinationIsFetchedThroughTheProxy;
+    procedure TestBlockedPortsConnectNothing;
+    procedure TestBlockedDestinationPortIsRefusedThroughTheProxy;
     procedure TestNilResolverIsRefused;
     procedure TestProxyWithoutPortIsRefused;
   end;
@@ -184,8 +194,8 @@ type
     property Accepted: Boolean read FAccepted;
   end;
 
-  // how a TLS responder ends: a clean close_notify, a bare TCP close, or no handshake at all
-  TTlsResponderMode = (CloseNotify, BareClose, Silent);
+  // how a TLS responder ends: close_notify, a bare close, no handshake, or counting post-reply bytes
+  TTlsResponderMode = (CloseNotify, BareClose, Silent, CountAfterReply);
 
   // accepts one connection, optionally answers a CONNECT first, then serves one request over TLS
   TTlsResponder = class(TThread)
@@ -200,12 +210,15 @@ type
     FScript: string;
     FMode: TTlsResponderMode;
     FStop: TEvent;
-    FAccepted: Boolean;
+    FAcceptedEvent: TEvent;
     FTunnelRequest: string;
     FRequest: string;
+    FReplySent: Boolean;
+    FBytesAfterReply: Int32;
     class function ToBytes(const AText: string): TBytes; static;
     class function ReadHead(const AStream: ITlsTimedTransport): string; static;
     procedure Serve(const AStream: ITlsTimedTransport);
+    procedure CountAfterReply(const AStream: ITlsTimedTransport);
   protected
     procedure Execute; override;
   public
@@ -216,9 +229,28 @@ type
     function Port: Word;
     // stops the responder; the request it read over TLS
     function Finish: string;
-    // valid after Finish
-    property Accepted: Boolean read FAccepted;
+    // whether a connection has been accepted
+    function Accepted: Boolean;
+    // signalled once a connection is accepted, so Finish cannot stop the accept loop before it
+    property AcceptedEvent: TEvent read FAcceptedEvent;
     property TunnelRequest: string read FTunnelRequest;
+    // the proxy reply went out; valid after Finish
+    property ReplySent: Boolean read FReplySent;
+    // bytes the client sent after the proxy reply, until it hung up; valid after Finish
+    property BytesAfterReply: Int32 read FBytesAfterReply;
+  end;
+
+  // admits or refuses every URL and records how often it was asked and the last URL it saw
+  TRecordingPolicy = class sealed(TInterfacedObject, IFetchDestinationPolicy)
+  strict private
+    FAdmit: Boolean;
+    FAsked: Int32;
+    FLastUrl: string;
+  public
+    constructor Create(AAdmit: Boolean);
+    function Admits(const AUrl: THttpUrl): Boolean;
+    property Asked: Int32 read FAsked;
+    property LastUrl: string read FLastUrl;
   end;
 
   // answers one name with 127.0.0.1 and refuses every other
@@ -232,6 +264,21 @@ type
     // how many lookups were asked for, which a connect always starts with
     property Asked: Int32 read FAsked;
   end;
+
+{ TRecordingPolicy }
+
+constructor TRecordingPolicy.Create(AAdmit: Boolean);
+begin
+  inherited Create;
+  FAdmit := AAdmit;
+end;
+
+function TRecordingPolicy.Admits(const AUrl: THttpUrl): Boolean;
+begin
+  Inc(FAsked);
+  FLastUrl := AUrl.ToString;
+  Result := FAdmit;
+end;
 
 { TScriptedResponder }
 
@@ -332,6 +379,7 @@ begin
   FScript := AScript;
   FMode := AMode;
   FStop := TEvent.Create(nil, True, False, '');
+  FAcceptedEvent := TEvent.Create(nil, True, False, '');
   inherited Create(False);
 end;
 
@@ -341,8 +389,14 @@ begin
   FStop.SetEvent;
   WaitFor;
   FStop.Free;
+  FAcceptedEvent.Free;
   FListener := nil;
   inherited Destroy;
+end;
+
+function TTlsResponder.Accepted: Boolean;
+begin
+  Result := FAcceptedEvent.WaitFor(0) = wrSignaled;
 end;
 
 function TTlsResponder.Port: Word;
@@ -409,6 +463,19 @@ begin
   end;
 end;
 
+procedure TTlsResponder.CountAfterReply(const AStream: ITlsTimedTransport);
+var
+  LBuffer: TBytes;
+  LGot: Int32;
+begin
+  SetLength(LBuffer, 4096);
+  repeat
+    LGot := AStream.Read(LBuffer, 0, System.Length(LBuffer));
+    if LGot > 0 then
+      Inc(FBytesAfterReply, LGot);
+  until LGot <= 0;
+end;
+
 procedure TTlsResponder.Execute;
 var
   LStream: ITlsTimedTransport;
@@ -419,7 +486,7 @@ begin
     FListener.TryAccept(AcceptPollMs, LStream);
   if LStream = nil then
     Exit;
-  FAccepted := True;
+  FAcceptedEvent.SetEvent;
   try
     LStream.SetReadTimeout(ReadMs);
     if FProxyReply <> '' then
@@ -427,11 +494,14 @@ begin
       FTunnelRequest := ReadHead(LStream);
       LReply := ToBytes(FProxyReply);
       LStream.Write(LReply, 0, System.Length(LReply));
+      FReplySent := True;
       if Pos(' 200 ', FProxyReply) = 0 then
         Exit;
     end;
     if FMode = TTlsResponderMode.Silent then
       FStop.WaitFor(INFINITE)
+    else if FMode = TTlsResponderMode.CountAfterReply then
+      CountAfterReply(LStream)
     else
       Serve(LStream);
   except
@@ -461,7 +531,7 @@ end;
 { TSocketHttpExchangeTestCase }
 
 function TSocketHttpExchangeTestCase.FetchScript(const AScript: string; AMaxBytes: Int32;
-  out ABody: string): Boolean;
+  out ABody, ARequest: string): Boolean;
 var
   LResponder: TScriptedResponder;
   LFetcher: IHttpFetcher;
@@ -472,6 +542,7 @@ begin
   try
     LFetcher := TSocketHttpFetcher.Create;
     Result := LFetcher.Get(LResponder.Url, 5000, AMaxBytes, LResponse);
+    ARequest := LResponder.Finish;
   finally
     LFetcher := nil;
     LResponder.Free;
@@ -484,9 +555,9 @@ end;
 procedure TSocketHttpExchangeTestCase.CheckFetches(const AScript, AExpectedBody,
   AMessage: string);
 var
-  LBody: string;
+  LBody, LRequest: string;
 begin
-  CheckTrue(FetchScript(AScript, DefaultCap, LBody), AMessage);
+  CheckTrue(FetchScript(AScript, DefaultCap, LBody, LRequest), AMessage);
   CheckEquals(AExpectedBody, LBody, AMessage + ': the body');
 end;
 
@@ -498,10 +569,12 @@ end;
 procedure TSocketHttpExchangeTestCase.CheckRefused(const AScript: string; AMaxBytes: Int32;
   const AMessage: string);
 var
-  LBody: string;
+  LBody, LRequest: string;
 begin
-  CheckFalse(FetchScript(AScript, AMaxBytes, LBody), AMessage);
+  CheckFalse(FetchScript(AScript, AMaxBytes, LBody, LRequest), AMessage);
   CheckEquals('', LBody, AMessage + ': no body is returned');
+  // a refusal before the request was even sent would pass for any script
+  CheckTrue(Pos('GET / HTTP/1.1', LRequest) = 1, AMessage + ': the responder read the request');
 end;
 
 function TSocketHttpExchangeTestCase.PadFields(ACount, AWidth: Int32): string;
@@ -715,6 +788,15 @@ procedure TTestHttpResponseFraming.TestTransferEncodingWithContentLengthIsRefuse
 begin
   CheckRefused(OkHead + 'Content-Length: 5' + CRLF + 'Transfer-Encoding: chunked' + CRLF + CRLF +
     '5' + CRLF + 'hello' + CRLF + '0' + CRLF + CRLF, 'Transfer-Encoding beside Content-Length');
+end;
+
+procedure TTestHttpResponseFraming.TestChunkedHttp10ResponseIsRefused;
+const
+  ChunkedBody = 'Transfer-Encoding: chunked' + CRLF + CRLF + '5' + CRLF + 'hello' + CRLF + '0' +
+    CRLF + CRLF;
+begin
+  CheckFetches('HTTP/1.1 200 OK' + CRLF + ChunkedBody, 'hello', 'the same bytes in HTTP/1.1');
+  CheckRefused('HTTP/1.0 200 OK' + CRLF + ChunkedBody, 'a chunked HTTP/1.0 response');
 end;
 
 procedure TTestHttpResponseFraming.TestTransferCodingOtherThanChunkedIsRefused;
@@ -958,24 +1040,187 @@ end;
 
 procedure TTestSocketHttpFetcherRequest.TestIPv6ResponderIsRefused;
 var
+  LResolver: TMappingResolver;
+  LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
 begin
-  LFetcher := TSocketHttpFetcher.Create;
-  CheckFalse(LFetcher.Get('http://[::1]:9/crl', 2000, DefaultCap, LResponse),
+  LResolver := TMappingResolver.Create('never.test');
+  LSettings := TSocketHttpFetcherSettings.Defaults;
+  LSettings.Resolver := LResolver;
+  LFetcher := TSocketHttpFetcher.Create(LSettings);
+  CheckFalse(LFetcher.Get('http://[::1]:8080/crl', 2000, DefaultCap, LResponse),
     'an IPv6 responder fails closed');
+  CheckEquals(0, LResolver.Asked, 'the URL is refused before any lookup');
+end;
+
+procedure TTestSocketHttpFetcherRequest.TestDestinationPolicySeesTheUrlAndAdmitsIt;
+var
+  LResponder: TScriptedResponder;
+  LPolicy: TRecordingPolicy;
+  LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LResponder := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
+  try
+    LPolicy := TRecordingPolicy.Create(True);
+    LSettings := TSocketHttpFetcherSettings.Defaults;
+    LSettings.DestinationPolicy := LPolicy;
+    LFetcher := TSocketHttpFetcher.Create(LSettings);
+    CheckTrue(LFetcher.Get(LResponder.Url + 'crl?x=1', 5000, DefaultCap, LResponse),
+      'an admitted URL is fetched');
+    CheckEquals(1, LPolicy.Asked, 'the policy is asked once');
+    CheckEquals(LResponder.Url + 'crl?x=1', LPolicy.LastUrl, 'with the parsed responder URL');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherRequest.TestRefusedDestinationConnectsNothing;
+var
+  LResponder: TScriptedResponder;
+  LResolver: TMappingResolver;
+  LPolicy: TRecordingPolicy;
+  LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LResponder := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
+  try
+    LResolver := TMappingResolver.Create('127.0.0.1');
+    LPolicy := TRecordingPolicy.Create(False);
+    LSettings := TSocketHttpFetcherSettings.Defaults;
+    LSettings.Resolver := LResolver;
+    LSettings.DestinationPolicy := LPolicy;
+    LFetcher := TSocketHttpFetcher.Create(LSettings);
+    CheckFalse(LFetcher.Get(LResponder.Url, 5000, DefaultCap, LResponse),
+      'a refused URL fails closed');
+    CheckEquals(1, LPolicy.Asked, 'the policy decided it');
+    CheckEquals(0, LResolver.Asked, 'nothing was resolved');
+    LResponder.Finish;
+    CheckFalse(LResponder.Accepted, 'nothing was dialled');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherRequest.TestRefusedDestinationIsNotSentToTheProxy;
+var
+  LProxy: TScriptedResponder;
+  LResolver: TMappingResolver;
+  LPolicy: TRecordingPolicy;
+  LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LProxy := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
+  try
+    LResolver := TMappingResolver.Create('proxy.test');
+    LPolicy := TRecordingPolicy.Create(False);
+    LSettings := TSocketHttpFetcherSettings.Defaults;
+    LSettings.Resolver := LResolver;
+    LSettings.ProxyHost := 'proxy.test';
+    LSettings.ProxyPort := LProxy.Port;
+    LSettings.DestinationPolicy := LPolicy;
+    LFetcher := TSocketHttpFetcher.Create(LSettings);
+    CheckFalse(LFetcher.Get('http://169.254.169.254:8080/crl', 5000, DefaultCap, LResponse),
+      'a refused URL fails closed even with a proxy');
+    CheckEquals(1, LPolicy.Asked, 'the policy decided it');
+    CheckEquals(0, LResolver.Asked, 'the proxy was not resolved');
+    LProxy.Finish;
+    CheckFalse(LProxy.Accepted, 'the proxy was not dialled');
+  finally
+    LFetcher := nil;
+    LProxy.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherRequest.TestAdmittedDestinationIsFetchedThroughTheProxy;
+var
+  LProxy: TScriptedResponder;
+  LPolicy: TRecordingPolicy;
+  LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LProxy := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
+  try
+    LPolicy := TRecordingPolicy.Create(True);
+    LSettings := TSocketHttpFetcherSettings.Defaults;
+    LSettings.Resolver := TMappingResolver.Create('proxy.test');
+    LSettings.ProxyHost := 'proxy.test';
+    LSettings.ProxyPort := LProxy.Port;
+    LSettings.DestinationPolicy := LPolicy;
+    LFetcher := TSocketHttpFetcher.Create(LSettings);
+    CheckTrue(LFetcher.Get('http://origin.test:8080/crl', 5000, DefaultCap, LResponse),
+      'an admitted URL is fetched through the proxy');
+    CheckEquals('http://origin.test:8080/crl', LPolicy.LastUrl,
+      'the policy saw the responder URL, not the proxy');
+  finally
+    LFetcher := nil;
+    LProxy.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherRequest.TestBlockedPortsConnectNothing;
+var
+  LResolver: TMappingResolver;
+  LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LResolver := TMappingResolver.Create('127.0.0.1');
+  LSettings := TSocketHttpFetcherSettings.Defaults;
+  LSettings.Resolver := LResolver;
+  LFetcher := TSocketHttpFetcher.Create(LSettings);
+  CheckFalse(LFetcher.Get('http://127.0.0.1:25/', 2000, DefaultCap, LResponse), 'port 25');
+  CheckFalse(LFetcher.Get('http://127.0.0.1:104/', 2000, DefaultCap, LResponse),
+    'the last port of a blocked range');
+  CheckFalse(LFetcher.Get('http://127.0.0.1:10080/', 2000, DefaultCap, LResponse), 'port 10080');
+  CheckEquals(0, LResolver.Asked, 'a blocked port is refused before any lookup');
+end;
+
+procedure TTestSocketHttpFetcherRequest.TestBlockedDestinationPortIsRefusedThroughTheProxy;
+var
+  LProxy: TScriptedResponder;
+  LResolver: TMappingResolver;
+  LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LProxy := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
+  try
+    LResolver := TMappingResolver.Create('proxy.test');
+    LSettings := TSocketHttpFetcherSettings.Defaults;
+    LSettings.Resolver := LResolver;
+    LSettings.ProxyHost := 'proxy.test';
+    LSettings.ProxyPort := LProxy.Port;
+    LFetcher := TSocketHttpFetcher.Create(LSettings);
+    CheckFalse(LFetcher.Get('http://origin.test:25/', 5000, DefaultCap, LResponse),
+      'a blocked destination port fails closed');
+    CheckEquals(0, LResolver.Asked, 'the proxy was not resolved');
+    LProxy.Finish;
+    CheckFalse(LProxy.Accepted, 'the proxy was not dialled');
+  finally
+    LFetcher := nil;
+    LProxy.Free;
+  end;
 end;
 
 procedure TTestSocketHttpFetcherRequest.TestNilResolverIsRefused;
 var
   LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
   LRaised: Boolean;
 begin
   LSettings := TSocketHttpFetcherSettings.Defaults;
   LSettings.Resolver := nil;
   LRaised := False;
   try
-    TSocketHttpFetcher.Create(LSettings).Free;
+    LFetcher := TSocketHttpFetcher.Create(LSettings) as IHttpFetcher;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -986,13 +1231,14 @@ end;
 procedure TTestSocketHttpFetcherRequest.TestProxyWithoutPortIsRefused;
 var
   LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
   LRaised: Boolean;
 begin
   LSettings := TSocketHttpFetcherSettings.Defaults;
   LSettings.ProxyHost := '127.0.0.1';
   LRaised := False;
   try
-    TSocketHttpFetcher.Create(LSettings).Free;
+    LFetcher := TSocketHttpFetcher.Create(LSettings) as IHttpFetcher;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -1096,6 +1342,7 @@ end;
 procedure TTestSocketHttpFetcherTls.TestDeferredVerdictConfigIsRefused;
 var
   LSettings: TSocketHttpFetcherSettings;
+  LFetcher: IHttpFetcher;
   LVectors: TStringList;
   LRoot: TBytes;
   LRaised: Boolean;
@@ -1112,7 +1359,7 @@ begin
   end;
   LRaised := False;
   try
-    TSocketHttpFetcher.Create(LSettings).Free;
+    LFetcher := TSocketHttpFetcher.Create(LSettings) as IHttpFetcher;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -1123,14 +1370,15 @@ begin
     .WithAsyncCertificateVerdict(1000).Build;
   LRaised := False;
   try
-    TSocketHttpFetcher.Create(LSettings).Free;
+    LFetcher := TSocketHttpFetcher.Create(LSettings) as IHttpFetcher;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a TLS config that parks for a host decision raises');
   LSettings.TlsConfig := ClientConfig;
-  TSocketHttpFetcher.Create(LSettings).Free;
+  LFetcher := TSocketHttpFetcher.Create(LSettings) as IHttpFetcher;
+  CheckTrue(LFetcher <> nil, 'a plain TLS config is accepted');
 end;
 
 procedure TTestSocketHttpFetcherTls.TestCloseDelimitedBodyNeedsCloseNotify;
@@ -1183,8 +1431,9 @@ begin
       DefaultCap, LResponse), 'a handshake that never completes fails closed');
     CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
       'the fetch stops near the budget, not at the handshake default');
+    CheckTrue(LResponder.AcceptedEvent.WaitFor(5000) = wrSignaled,
+      'the connection reached the responder');
     LResponder.Finish;
-    CheckTrue(LResponder.Accepted, 'the connection reached the responder');
   finally
     LFetcher := nil;
     LResponder.Free;
@@ -1242,12 +1491,15 @@ var
   LResponse: TBytes;
 begin
   // the client speaks first in TLS, so anything the proxy sends after its reply is not the server's
-  LProxy := TTlsResponder.Create(ServerConfig, Established + 'X', 'HTTP/1.1 200 OK' + CRLF +
-    'Content-Length: 5' + CRLF + CRLF + 'hello', TTlsResponderMode.CloseNotify);
+  LProxy := TTlsResponder.Create(ServerConfig, Established + 'X', '',
+    TTlsResponderMode.CountAfterReply);
   try
     LFetcher := TlsFetcher('proxy.test', LProxy.Port);
     CheckFalse(LFetcher.Get('https://localhost:8443/crl', 10000, DefaultCap, LResponse),
       'bytes after the tunnel reply fail closed');
+    LProxy.Finish;
+    CheckTrue(LProxy.ReplySent, 'the proxy sent its reply with the extra byte');
+    CheckEquals(0, LProxy.BytesAfterReply, 'the fetcher hung up before sending a ClientHello');
   finally
     LFetcher := nil;
     LProxy.Free;

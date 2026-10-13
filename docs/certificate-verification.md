@@ -316,7 +316,8 @@ path is the same as `/`, percent-encoding hex case is normalised, and the fragme
 and query are otherwise compared exactly. The fetcher is handed that canonical text, not the
 original spelling. A URL carrying userinfo, or one the strict parser refuses (a bad port, a
 numeric last label, a trailing dot, a zone identifier, brackets in the path or query), is skipped without
-using up the cap. By
+using up the cap. A URL that parses is fetched wherever it points: a private or loopback responder
+is not blocked unless the fetcher has a destination policy. By
 default at most three OCSP responders and three CRL points are tried. `budgetMs` is the **total**
 time one check may spend fetching across all of those attempts, measured on the injected clock: each
 attempt gets a fair share of what remains (never less than 250 ms by default, or the whole budget

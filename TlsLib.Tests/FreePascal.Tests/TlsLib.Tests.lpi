@@ -40,7 +40,7 @@
         <PackageName Value="FCL"/>
       </Item7>
     </RequiredPackages>
-    <Units Count="92">
+    <Units Count="96">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -409,6 +409,22 @@
         <Filename Value="..\src\SocketHttpExchangeTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit91>
+      <Unit92>
+        <Filename Value="..\src\AppleAlertMapTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit92>
+      <Unit93>
+        <Filename Value="..\src\BundleTrustTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit93>
+      <Unit94>
+        <Filename Value="..\src\ExtensionVectorTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit94>
+      <Unit95>
+        <Filename Value="..\src\RootGenKeyingTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit95>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

@@ -17,9 +17,19 @@ interface
 
 uses
   SysUtils,
+  TlpHttpUrl,
   TlpITlsTransport;
 
 type
+  /// <summary>Decides which responder URLs a fetcher may contact. It sees the parsed URL before
+  /// any connect, whether or not a proxy is used. It may be called from several threads at
+  /// once.</summary>
+  IFetchDestinationPolicy = interface(IInterface)
+    ['{6F0C2B7A-3D41-4E58-9B6A-8C1D5E2F7A90}']
+    /// <summary>True when AUrl may be fetched.</summary>
+    function Admits(const AUrl: THttpUrl): Boolean;
+  end;
+
   /// <summary>Turns a host name into an IPv4 address for a connector. A host that needs a bound on
   /// the lookup, a different resolver, or a policy on the answers supplies its own.</summary>
   IHostResolver = interface(IInterface)

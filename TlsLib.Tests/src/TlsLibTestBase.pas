@@ -62,6 +62,8 @@ type
     function Own<T: class>(const AInstance: T): T;
     /// <summary>The current UTC time as a TDateTime.</summary>
     function NowUtc: TDateTime;
+    /// <summary>Reports the test as not run; the caller must Exit after it.</summary>
+    procedure SkipTest(const AReason: string);
   public
     destructor Destroy; override;
   protected
@@ -193,6 +195,15 @@ end;
 function TTlsLibTestCase.NowUtc: TDateTime;
 begin
   Result := TDateTimeUtilities.UnixMsToDateTime(TSystemTimeUtilities.UtcUnixMs);
+end;
+
+procedure TTlsLibTestCase.SkipTest(const AReason: string);
+begin
+{$IFDEF FPC}
+  Ignore(AReason);
+{$ELSE}
+  Status('not run: ' + AReason);
+{$ENDIF FPC}
 end;
 
 function TTlsLibTestCase.Own<T>(const AInstance: T): T;
