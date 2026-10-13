@@ -84,8 +84,8 @@ type
   /// ignored when Anchors is set). ServerName is the server-path identity (the
   /// engine reads AsDns or ToString as its platform requires; empty on the client path). OcspStaple is consumed as cached revocation data
   /// where the platform can. NetworkAllowed is False inline (no socket) and True only from the
-  /// off-engine-thread park. Clock nil means platform time. DeadlineMs bounds a network fetch where the
-  /// platform honours one.</summary>
+  /// off-engine-thread park. Clock nil means platform time; Android ignores it and validates at device
+  /// time. DeadlineMs bounds a network fetch where the platform honours one.</summary>
   TPlatformChainRequest = record
     Chain: TArray<TBytes>;
     Anchors: TArray<TBytes>;

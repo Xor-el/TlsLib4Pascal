@@ -157,15 +157,19 @@ What happens:
 - Host roots are judged as private PKI. Rules that exist only for system roots (Apple CT and validity
   caps, Android CT) do not apply to a chain that ends at one.
 - OS distrust (Windows `Disallowed`, macOS trust-settings Deny) also refuses a path that ended at a
-  host root. iOS and Android expose no readable distrust list, so there is nothing to apply.
+  host root. iOS and Android expose no readable distrust list, so there is nothing to apply. A host
+  store's own distrusted certificates are refused on every platform and on every path, host-rooted or
+  not. Both lists are read once, when the verifier source is built.
 
-**Android.** The host roots apply app-wide, like a certificate in `<base-config>` that every domain
-inherits. They override a `network_security_config.xml` domain entry that restricts roots, because
-Android has no API to read it. Expiry and revocation stay final, and user-installed CAs are not
-newly trusted. `network_security_config.xml` pin-sets apply only to chains that end at an OS root
-(a pin failure there is final); a chain that ends at a host root bypasses
-`network_security_config.xml` entirely, pins included. If you need per-domain roots or pins, put
-them in `network_security_config.xml` and pass no host roots.
+**Android.** The host roots apply to every host that `network_security_config.xml` leaves to its
+`<base-config>`, like a certificate in that element. A host that a `<domain-config>` names is decided
+by `network_security_config.xml` alone, its pin-sets and `<trust-anchors>` included: a chain that
+ends at a host root is refused there (`unknown_ca`, and a log line names the host). Put the root in
+that domain's `<trust-anchors>` instead. Expiry and revocation stay final, and user-installed CAs
+are not newly trusted. The check is `X509TrustManagerExtensions.isSameTrustConfiguration(host, "")`
+(API 28; hidden but present from API 24), and it fails closed: where it throws, the host roots do
+not apply. Where it is missing (API 23, which has no network-security-config) there is nothing to
+bypass, so the host roots apply. The platform validates at device time, so an injected clock has no effect.
 
 ### OS distrust in Anchors mode
 
@@ -207,7 +211,8 @@ settings the built-in verifier does:
 
 - **Revocation posture** — `WithRevocation(Soft|Hard|Off)` governs an *indeterminate* outcome
   (no cached CRL/OCSP reachable): `Soft` accepts, `Hard` rejects, `Off` skips the check. A definitive
-  *revoked* always rejects.
+  *revoked* always rejects. On Windows an inline `Hard` check covers the leaf (the staple's scope), so
+  a cached intermediate status is not required; `Soft` and the live pass still check every non-root element.
 - **The stapled OCSP response** from the handshake is fed to the engine as cached revocation data.
 - **The injected clock** (`WithClock`) supplies the validation time.
 

@@ -52,7 +52,7 @@ type
     Anchors: TArray<TBytes>;
     // host roots trusted beside the OS roots, server role only (see TPlatformChainRequest)
     ExtraAnchors: TArray<TBytes>;
-    // the OS distrust set, refused on any path that relied on ExtraAnchors
+    // the OS and host distrust sets, refused on any accepted path
     Distrusted: TArray<TBytes>;
     Intermediates: TArray<TBytes>;
     CheckHostName: Boolean;
@@ -75,14 +75,22 @@ type
   /// engine with NativeAnchorUnion is asked once with the roots; any other first evaluates against the
   /// OS roots and, only when that failed for want of a trust anchor, again with the host roots as the
   /// exclusive root, whose verdict then stands (its alert too, unless it also found no anchor). A path
-  /// that relied on the host roots is refused when it holds an ADistrusted certificate; under a native
-  /// union that is every accepted path (which root ended it is unknowable), otherwise only the
-  /// host-root-reliant ones.</summary>
+  /// that holds an ADistrusted certificate is refused on every accepted path, whichever root ended it
+  /// (a host distrust entry must bind OS-rooted paths as well as host-rooted ones).</summary>
   TDelegateEvaluation = class sealed(TObject)
   public
     class function EvaluateServer(const AEngine: IPlatformChainEngine;
       const ARequest: TPlatformChainRequest; const ADistrusted: TArray<TBytes>;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>True when any certificate of APath is byte-equal to one of ADistrusted.</summary>
+    class function PathIsDistrusted(const APath, ADistrusted: TArray<TBytes>): Boolean; static;
+    /// <summary>ACerts from index AFirst on, minus any ADistrusted certificate (earlier entries are
+    /// kept): the client path withholds them so a platform that reports no path cannot use them.
+    /// Mirrors TCertificateVerifier.WithoutDistrusted, which works on the built-in store and its
+    /// withheld flag; this one takes the raw DER list the OS delegate carries. AWithheld is only
+    /// ever set to True: the caller initialises it.</summary>
+    class function WithoutDistrusted(const ACerts, ADistrusted: TArray<TBytes>; AFirst: Int32;
+      var AWithheld: Boolean): TArray<TBytes>; static;
   end;
 
   /// <summary>What every OS delegate does around its platform engine, matching each platform's order:
@@ -225,10 +233,13 @@ begin
   Result.StatusRequestOffered := False;
   Result.Occasion := TVerificationOccasion.InitialHandshake;
   // a client certificate is authenticated only against the configured client-CA anchors
+  Result.Anchors := nil;
+  Result.Distrusted := nil;
   if AContext.TrustStore <> nil then
-    Result.Anchors := AContext.TrustStore.RootCertificates
-  else
-    Result.Anchors := nil;
+  begin
+    Result.Anchors := AContext.TrustStore.RootCertificates;
+    Result.Distrusted := AContext.TrustStore.DistrustedCertificates;
+  end;
   Result.DeadlineMs := 0;
 end;
 
@@ -242,39 +253,75 @@ var
   LExclusive: TPlatformChainRequest;
   LExclusiveResult: TPlatformChainResult;
   LExclusiveAlert: TTlsAlertDescription;
-  LHostRoots: Boolean;
-  LPath, LDistrusted: Int32;
 begin
   // an exclusive Anchors already is the host's choice of roots, so only the OS-roots case has a union
   if (System.Length(ARequest.ExtraAnchors) = 0) or (System.Length(ARequest.Anchors) > 0) then
-    Exit(AEngine.EvaluateServer(ARequest, AResult, AAlert));
-  LCapabilities := AEngine.Capabilities;
-  LHostRoots := TPlatformChainCapability.NativeAnchorUnion in LCapabilities;
-  Result := AEngine.EvaluateServer(ARequest, AResult, AAlert);
-  if (not Result) and (AResult.Failure = TPlatformChainFailure.NoTrustAnchor) and
-    (TPlatformChainCapability.ExclusiveServerAnchors in LCapabilities) and not LHostRoots then
+    Result := AEngine.EvaluateServer(ARequest, AResult, AAlert)
+  else
   begin
-    LExclusive := ARequest;
-    LExclusive.Anchors := ARequest.ExtraAnchors;
-    LExclusive.ExtraAnchors := nil;
-    Result := AEngine.EvaluateServer(LExclusive, LExclusiveResult, LExclusiveAlert);
-    // a second evaluation that found no anchor either leaves the first one's verdict standing
-    if Result or (LExclusiveResult.Failure <> TPlatformChainFailure.NoTrustAnchor) then
+    LCapabilities := AEngine.Capabilities;
+    Result := AEngine.EvaluateServer(ARequest, AResult, AAlert);
+    if (not Result) and (AResult.Failure = TPlatformChainFailure.NoTrustAnchor) and
+      (TPlatformChainCapability.ExclusiveServerAnchors in LCapabilities) and
+      not (TPlatformChainCapability.NativeAnchorUnion in LCapabilities) then
     begin
-      AResult := LExclusiveResult;
-      AAlert := LExclusiveAlert;
-      LHostRoots := True;
+      LExclusive := ARequest;
+      LExclusive.Anchors := ARequest.ExtraAnchors;
+      LExclusive.ExtraAnchors := nil;
+      Result := AEngine.EvaluateServer(LExclusive, LExclusiveResult, LExclusiveAlert);
+      // a second evaluation that found no anchor either leaves the first one's verdict standing
+      if Result or (LExclusiveResult.Failure <> TPlatformChainFailure.NoTrustAnchor) then
+      begin
+        AResult := LExclusiveResult;
+        AAlert := LExclusiveAlert;
+      end;
     end;
   end;
-  if (not Result) or (not LHostRoots) then
-    Exit;
-  for LPath := 0 to System.High(AResult.Path) do
+  if Result and TDelegateEvaluation.PathIsDistrusted(AResult.Path, ADistrusted) then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Result := False;
+  end;
+end;
+
+class function TDelegateEvaluation.PathIsDistrusted(const APath, ADistrusted: TArray<TBytes>)
+  : Boolean;
+var
+  LPath, LDistrusted: Int32;
+begin
+  for LPath := 0 to System.High(APath) do
     for LDistrusted := 0 to System.High(ADistrusted) do
-      if TArrayUtilities.AreEqual(AResult.Path[LPath], ADistrusted[LDistrusted]) then
-      begin
-        AAlert := TTlsAlertDescription.BadCertificate;
-        Exit(False);
-      end;
+      if TArrayUtilities.AreEqual(APath[LPath], ADistrusted[LDistrusted]) then
+        Exit(True);
+  Result := False;
+end;
+
+class function TDelegateEvaluation.WithoutDistrusted(const ACerts, ADistrusted: TArray<TBytes>;
+  AFirst: Int32; var AWithheld: Boolean): TArray<TBytes>;
+var
+  LI, LJ, LCount: Int32;
+  LKeep: Boolean;
+begin
+  SetLength(Result, System.Length(ACerts));
+  LCount := 0;
+  for LI := 0 to System.High(ACerts) do
+  begin
+    LKeep := True;
+    if LI >= AFirst then
+      for LJ := 0 to System.High(ADistrusted) do
+        if TArrayUtilities.AreEqual(ACerts[LI], ADistrusted[LJ]) then
+        begin
+          LKeep := False;
+          AWithheld := True;
+          Break;
+        end;
+    if LKeep then
+    begin
+      Result[LCount] := ACerts[LI];
+      Inc(LCount);
+    end;
+  end;
+  SetLength(Result, LCount);
 end;
 
 { TOSDelegateVerifierBase }
@@ -430,6 +477,7 @@ var
   LRequest: TPlatformChainRequest;
   LResult: TPlatformChainResult;
   LNoName: TServerName;
+  LWithheld: Boolean;
 begin
   AVerified := Default(TVerifiedChain);
   if (System.Length(AChain) = 0) or not Policy.ChainLimits.AdmitsChain(AChain) then
@@ -439,8 +487,23 @@ begin
   end;
   LNoName := Default(TServerName);
   LRequest := BuildRequest(AChain, LNoName, nil);
+  // withhold distrusted intermediates: an engine that reports no path (Android) hides them
+  LWithheld := False;
+  LRequest.Chain := TDelegateEvaluation.WithoutDistrusted(AChain, Policy.Distrusted, 1, LWithheld);
+  LRequest.Intermediates := TDelegateEvaluation.WithoutDistrusted(Policy.Intermediates,
+    Policy.Distrusted, 0, LWithheld);
   if not Engine.EvaluateClient(LRequest, LResult, AAlert) then
+  begin
+    // built-in parity: an unknown CA once a distrusted certificate is withheld is bad_certificate
+    if LWithheld and (AAlert = TTlsAlertDescription.UnknownCa) then
+      AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
+  end;
+  if TDelegateEvaluation.PathIsDistrusted(LResult.Path, Policy.Distrusted) then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit(False);
+  end;
   if not Complete(LResult, LNoName, nil, AVerified, AAlert) then
     Exit(False);
   // a client certificate carries no host, so the augment hook sees an empty name (built-in parity)
@@ -529,7 +592,7 @@ function TOSDelegateLiveResolver.EvaluateLive(const AChain: TArray<TBytes>;
 var
   LRequest: TPlatformChainRequest;
   LResult: TPlatformChainResult;
-  LTrusted: Boolean;
+  LTrusted, LWithheld: Boolean;
 begin
   LRequest := Default(TPlatformChainRequest);
   LRequest.Chain := AChain;
@@ -555,7 +618,21 @@ begin
     LTrusted := TDelegateEvaluation.EvaluateServer(FEngine, LRequest, FPolicy.Distrusted,
       LResult, ARejectAlert)
   else
+  begin
+    LWithheld := False;
+    LRequest.Chain := TDelegateEvaluation.WithoutDistrusted(AChain, FPolicy.Distrusted, 1,
+      LWithheld);
+    LRequest.Intermediates := TDelegateEvaluation.WithoutDistrusted(FPolicy.Intermediates,
+      FPolicy.Distrusted, 0, LWithheld);
     LTrusted := FEngine.EvaluateClient(LRequest, LResult, ARejectAlert);
+    if (not LTrusted) and LWithheld and (ARejectAlert = TTlsAlertDescription.UnknownCa) then
+      ARejectAlert := TTlsAlertDescription.BadCertificate;
+    if LTrusted and TDelegateEvaluation.PathIsDistrusted(LResult.Path, FPolicy.Distrusted) then
+    begin
+      ARejectAlert := TTlsAlertDescription.BadCertificate;
+      LTrusted := False;
+    end;
+  end;
   if not LTrusted then
     Exit(False);
   // apply the strength policy over the live-built path when the platform trusted revocation too

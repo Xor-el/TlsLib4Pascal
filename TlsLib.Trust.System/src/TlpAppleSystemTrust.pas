@@ -28,6 +28,7 @@ uses
   TlpIClock,
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,
+  TlpSystemTrustExceptions,
   Generics.Collections,
   SysUtils,
   TlpTlsAlert;
@@ -106,6 +107,8 @@ const
   KCFStringEncodingUTF8 = $08000100;
 
   ErrSecSuccess = 0;
+  // SecBase.h errSecNoTrustSettings: the domain has no trust settings at all
+  ErrSecNoTrustSettings = -25263;
 
   KSecTrustSettingsDomainUser = 0;
   KSecTrustSettingsDomainAdmin = 1;
@@ -311,8 +314,9 @@ type
 {$ENDIF}
     /// <summary>Builds a retaining CFArray of SecCertificateRef from the DERs (element refs
     /// released once the array owns them). False when a DER is unparseable or none are usable;
-    /// the caller decides the alert. Never inserts a nil into the array.</summary>
-    class function MakeCertArray(const ADers: TArray<TBytes>;
+    /// an empty entry is skipped under ASkipEmpty (anchors) and a failure otherwise (peer chain).
+    /// The caller decides the alert. Never inserts a nil into the array.</summary>
+    class function MakeCertArray(const ADers: TArray<TBytes>; ASkipEmpty: Boolean;
       out AArray: CFArrayRef): Boolean; static;
     /// <summary>Reads the DER of the path SecTrust built: element 0 the leaf, the last element
     /// the anchor. Prefers the owned-array API (released here); falls back to the indexed
@@ -348,8 +352,10 @@ type
     /// <summary>The raw DER of every keychain-trusted certificate across the
     /// System, Admin and User domains, honouring per-domain trust settings, and in ADistrusted the
     /// certificates (roots or intermediates) a trust setting denies. Validation and
-    /// de-duplication are the caller's responsibility.</summary>
-    class function CopyTrustSettingsCertificates(
+    /// de-duplication are the caller's responsibility. A distrust-only read (AForDistrust) raises
+    /// when the settings API is unavailable instead of returning a System-only list. Any read error
+    /// on a domain (other than no settings) raises, Anchors-mode harvest included (fail closed).</summary>
+    class function CopyTrustSettingsCertificates(AForDistrust: Boolean;
       out ADistrusted: TArray<TBytes>): TArray<TBytes>; static;
 {$ENDIF}
   end;
@@ -611,7 +617,7 @@ begin
   end;
 end;
 
-class function TAppleTrustApi.MakeCertArray(const ADers: TArray<TBytes>;
+class function TAppleTrustApi.MakeCertArray(const ADers: TArray<TBytes>; ASkipEmpty: Boolean;
   out AArray: CFArrayRef): Boolean;
 var
   LRefs: array of Pointer;
@@ -628,7 +634,12 @@ begin
     for LI := 0 to Length(ADers) - 1 do
     begin
       if Length(ADers[LI]) = 0 then
-        Continue;
+      begin
+        // a skipped peer entry would make the next one the evaluated leaf
+        if ASkipEmpty then
+          Continue;
+        Exit;
+      end;
       LData := FCFDataCreate(nil, PByte(ADers[LI]), Length(ADers[LI]));
       if LData = nil then
         Exit;
@@ -736,7 +747,7 @@ begin
   LError := nil;
   try
     // an unparseable leaf or chain certificate is a bad certificate, not a broken runtime
-    if not MakeCertArray(AChain, LCertArray) then
+    if not MakeCertArray(AChain, False, LCertArray) then
       Exit;
     if LAnchored or LUnion then
     begin
@@ -745,7 +756,7 @@ begin
       else
         LAnchorSet := AExtraAnchors;
       // a configured anchor that will not parse is a broken trust configuration, not a bad peer
-      if not MakeCertArray(LAnchorSet, LAnchorArray) then
+      if not MakeCertArray(LAnchorSet, True, LAnchorArray) then
       begin
         AAlert := TTlsAlertDescription.InternalError;
         Exit;
@@ -955,6 +966,11 @@ end;
 
 {$IFDEF TLSLIB_MACOS}
 
+resourcestring
+  STrustSettingsUnreadable = 'the macOS trust settings could not be read completely (status %d)';
+  SDistrustNeedsSettings =
+    'the macOS trust settings API is unavailable, so the distrust list cannot be read';
+
 class function TAppleTrustApi.ClassifyEntry(ADict: Pointer): Int32;
 var
   LPolicy: SecPolicyRef;
@@ -1085,7 +1101,12 @@ var
 begin
   LCerts := nil;
   LStatus := FSecTrustSettingsCopyCertificates(ADomain, LCerts);
-  if (LStatus <> ErrSecSuccess) or (LCerts = nil) then
+  // a domain with no settings is empty; any other failure would silently drop that domain's Deny entries
+  if LStatus = ErrSecNoTrustSettings then
+    Exit;
+  if LStatus <> ErrSecSuccess then
+    raise ESystemTrustUnavailableTlsLibException.CreateResFmt(@STrustSettingsUnreadable, [LStatus]);
+  if LCerts = nil then
     Exit;
   try
     LCount := FCFArrayGetCount(LCerts);
@@ -1111,13 +1132,16 @@ begin
   end;
 end;
 
-class function TAppleTrustApi.CopyTrustSettingsCertificates(
+class function TAppleTrustApi.CopyTrustSettingsCertificates(AForDistrust: Boolean;
   out ADistrusted: TArray<TBytes>): TArray<TBytes>;
 var
   LRoots, LDistrusted: TList<TBytes>;
 begin
   Result := nil;
   ADistrusted := nil;
+  // a distrust list that skipped the Admin/User domains would miss every "Never Trust" there
+  if AForDistrust and not (FReady and FSettingsReady) then
+    raise ESystemTrustUnavailableTlsLibException.CreateRes(@SDistrustNeedsSettings);
   // tier 0: without the enumeration symbols the harvest cannot run; TSystemRootSource.Harvest
   // then raises on the empty result (fail closed)
   if (not FReady) or (not FHarvestReady) then
@@ -1148,7 +1172,7 @@ end;
 function TAppleRootSource.HarvestRoots: TArray<TBytes>;
 begin
   // one enumeration yields both lists, so the roots and the distrust set are one consistent view
-  Result := FilterRoots(TAppleTrustApi.CopyTrustSettingsCertificates(FDistrusted));
+  Result := FilterRoots(TAppleTrustApi.CopyTrustSettingsCertificates(False, FDistrusted));
 end;
 
 function TAppleRootSource.HarvestDistrusted: TArray<TBytes>;
@@ -1158,7 +1182,7 @@ end;
 
 function TAppleRootSource.ReadDistrusted: TArray<TBytes>;
 begin
-  TAppleTrustApi.CopyTrustSettingsCertificates(Result);
+  TAppleTrustApi.CopyTrustSettingsCertificates(True, Result);
 end;
 
 function TAppleRootSource.SourceName: string;
