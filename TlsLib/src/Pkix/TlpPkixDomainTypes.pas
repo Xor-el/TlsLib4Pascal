@@ -26,6 +26,30 @@ type
   /// </summary>
   TOcspStatus = (Good, Revoked, Unknown);
 
+  /// <summary>The revocation-response time window rules shared by every OCSP and CRL freshness
+  /// check, so one constant governs the staple, the live fetch and the CRL.</summary>
+  TRevocationWindow = class sealed(TObject)
+  public
+    /// <summary>How far ahead of our clock a thisUpdate may be (a responder's clock can run ahead);
+    /// nextUpdate stays strict.</summary>
+    const ThisUpdateSkewMs = Int64(5) * 60 * 1000;
+  end;
+
+  /// <summary>The RFC 7633 TLS Feature ids the library enforces.</summary>
+  TTlsFeatureCodes = class sealed(TObject)
+  public
+    /// <summary>status_request: the certificate is must-staple.</summary>
+    const StatusRequest = UInt16(5);
+  end;
+
+  /// <summary>The path-building bound the provider's builder and the verifier's distrust
+  /// classification share.</summary>
+  TPathBuildLimits = class sealed(TObject)
+  public
+    /// <summary>The most certificates a built path may hold, bounding the builder's search.</summary>
+    const MaxBuiltPathLength = 4;
+  end;
+
   /// <summary>
   /// The X.509 keyUsage bits (RFC 5280 4.2.1.3) a TLS handshake consults: whether a
   /// leaf may sign (DigitalSignature), receive a transported key (KeyEncipherment),

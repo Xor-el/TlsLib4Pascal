@@ -127,9 +127,9 @@ type
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
-    /// <summary>An augment-only peer-certificate hook that runs after the built-in pipeline
-    /// and can only additionally reject (never loosen it). Bridges a host framework's own
-    /// verify callback.</summary>
+    /// <summary>An augment-only peer-certificate hook that runs last, after the built-in pipeline
+    /// and pinning, and can only additionally reject (never loosen it). Bridges a host framework's
+    /// own verify callback.</summary>
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
     /// <summary>Enables a host-decision peer-certificate verdict (the deferred-verdict seam):
@@ -340,8 +340,8 @@ type
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsServerConfigBuilder;
-    /// <summary>An augment-only client-certificate hook that runs after the built-in pipeline
-    /// and can only additionally reject (never loosen it).</summary>
+    /// <summary>An augment-only client-certificate hook that runs last, after the built-in pipeline
+    /// and pinning, and can only additionally reject (never loosen it).</summary>
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsServerConfigBuilder;
     /// <summary>Enables a host-decision client-certificate verdict (the deferred-verdict seam) for a

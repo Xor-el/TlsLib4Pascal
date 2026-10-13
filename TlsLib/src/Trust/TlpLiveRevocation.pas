@@ -17,10 +17,12 @@ interface
 
 uses
   SysUtils,
+  SyncObjs,
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpPkixDomainTypes,
   TlpArrayUtilities,
+  TlpDataEncoding,
   TlpIPkixProvider,
   TlpIClock,
   TlpHttpUrl,
@@ -44,6 +46,7 @@ type
     // bounding memory - a cap that rejects a legitimate large CRL would disable revocation exactly
     // where it matters most (Soft) or falsely reject the peer (Hard)
     DefaultMaxCrlBytes = Int32(32 * 1024 * 1024);
+    DefaultCachedResponses = Int32(64);
   public
     /// <summary>Candidate issuer certificates (configured trust anchors and intermediates) used to
     /// recover the issuer when a peer presents a leaf only - the normal mutual-TLS client case,
@@ -61,6 +64,9 @@ type
     /// <summary>The largest CRL body fetched, in bytes (4096..256 MiB, default 32 MiB); a larger one
     /// is indeterminate rather than parsed.</summary>
     MaxCrlBytes: Int32;
+    /// <summary>The most fetched responses kept for later checks (0..1024, default 64; 0 turns the
+    /// cache off). Together they never hold more than MaxCrlBytes of bodies.</summary>
+    MaxCachedResponses: Int32;
     class operator Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
       AOptions: TLiveRevocationOptions);
   end;
@@ -77,13 +83,47 @@ type
   ///   * a current Good accepts;
   ///   * indeterminate (no responder URL, unreachable, malformed, unknown, stale, or a chain
   ///     with no issuer to authenticate against) is treated per the posture - Soft/Off accept
-  ///     (soft-fail), Hard rejects. The posture is the one passed at construction.
+  ///     (soft-fail), Hard rejects. A parked verdict is decided at the stricter of the posture
+  ///     passed at construction and the one the configuration carries in the context.
   ///
   /// Only the leaf is checked, against its issuer: an intermediate's own revocation is not
   /// consulted here (the OS-native live path does check the whole chain).
+  ///
+  /// A bounded cache keeps the fetched OCSP responses and CRLs that carry a nextUpdate. A cached
+  /// response is re-authenticated and re-judged against the injected clock on every use, is never
+  /// used at or past its nextUpdate nor kept longer than a day, and an indeterminate result is
+  /// never cached.
   /// </summary>
   TLiveRevocationChecker = class sealed(TObject)
   strict private
+  type
+    TCachedResponse = record
+      Key: string;
+      Body: TBytes;
+      ExpiresMs: Int64;
+      Revoked: Boolean;
+    end;
+    // oldest first; evicts from the front to stay within both the entry and the byte bounds
+    TResponseCache = class sealed(TObject)
+    strict private
+    var
+      FLock: TCriticalSection;
+      FEntries: TArray<TCachedResponse>;
+      FMaxEntries: Int32;
+      FMaxBytes: Int64;
+      FBytes: Int64;
+      function IndexOf(const AKey: string): Int32;
+      procedure RemoveAt(AIndex: Int32);
+    public
+      constructor Create(AMaxEntries: Int32; AMaxBytes: Int64);
+      destructor Destroy; override;
+      /// <summary>The live body for AKey; an entry at or past its expiry is dropped.</summary>
+      function TryGet(const AKey: string; ANowMs: Int64; out ABody: TBytes): Boolean;
+      /// <summary>Keeps ABody for AKey until AExpiresMs. A live Revoked entry is never replaced by
+      /// a response that is not Revoked.</summary>
+      procedure Put(const AKey: string; const ABody: TBytes; ANowMs, AExpiresMs: Int64;
+        ARevoked: Boolean);
+    end;
   const
     OcspRequestContentType = 'application/ocsp-request';
     // bound a live revocation body: the responder URL comes from the peer's own certificate
@@ -98,6 +138,9 @@ type
     // CRL checking or reject every peer
     CrlBytesFloor = Int32(4096);
     CrlBytesCeiling = Int32(256 * 1024 * 1024);
+    CachedResponsesCeiling = Int32(1024);
+    // a cached answer never outlives this, so a later revocation is seen within a day
+    CacheMaxLifetimeMs = Int64(24) * 60 * 60 * 1000;
   var
     FPkix: IPkixProvider;
     FClock: ITlsClock;
@@ -111,7 +154,20 @@ type
     FMaxCrlPoints: Int32;
     FMinAttemptMs: Int64;
     FMaxCrlBytes: Int32;
+    FCache: TResponseCache;
     class function OptionsValid(const AOptions: TLiveRevocationOptions): Boolean; static;
+    /// <summary>The outcome ARawResponse yields for the leaf: authenticated against the issuer and
+    /// judged against the injected clock. ANextUpdateMs is the response's nextUpdate (0 when it
+    /// carried none).</summary>
+    function ClassifyOcsp(const ALeaf, AIssuer, ARawResponse: TBytes;
+      out ANextUpdateMs: Int64): TLiveRevocationOutcome;
+    /// <summary>The CRL counterpart of ClassifyOcsp.</summary>
+    function ClassifyCrl(const ALeaf, AIssuer, ARawCrl: TBytes;
+      out ANextUpdateMs: Int64): TLiveRevocationOutcome;
+    /// <summary>Keeps a definitive answer that carries a nextUpdate, until that time or the
+    /// cache lifetime, whichever is sooner.</summary>
+    procedure Remember(const AKey: string; const ABody: TBytes;
+      AOutcome: TLiveRevocationOutcome; ANextUpdateMs: Int64);
     function EvaluateOcsp(const ALeaf, AIssuer, ARequest: TBytes; const AResponderUrl: string;
       ATimeoutMs: Cardinal): TLiveRevocationOutcome;
     function EvaluateCrl(const ALeaf, AIssuer: TBytes; const ACrlUrl: string;
@@ -126,11 +182,13 @@ type
     /// spent.</summary>
     function NextTimeout(AStartMs: Int64; AAttemptsLeft: Int32; ADeadlineMs: Cardinal;
       out ATimeoutMs: Cardinal): Boolean;
-    function EvaluateWithin(const AChain: TArray<TBytes>;
-      ADeadlineMs: Cardinal): TLiveRevocationOutcome;
+    function EvaluateWithin(const AChain: TArray<TBytes>; ADeadlineMs: Cardinal;
+      APosture: TRevocationPosture): TLiveRevocationOutcome;
   public
     /// <summary>Builds a checker over an injected provider, fetcher and clocks. APosture governs
-    /// how an indeterminate result is treated (Hard rejects, Soft/Off accept). ADeadlineMs is the
+    /// how an indeterminate result is treated (Hard rejects, Soft/Off accept); a parked verdict is
+    /// decided at the stricter of APosture and the posture the context carries, so a checker built
+    /// Off still fetches for a Soft or Hard configuration. ADeadlineMs is the
     /// total time one check may spend fetching across every OCSP and CRL attempt, measured on
     /// ATicks (0 leaves each fetch's timeout to the fetcher, with no shared deadline); pass
     /// Config.MonotonicClock to share the connection's clock.
@@ -147,6 +205,7 @@ type
       const ATicks: ITlsMonotonicClock; const AFetcher: IHttpFetcher;
       APosture: TRevocationPosture; AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
       const AOptions: TLiveRevocationOptions); overload;
+    destructor Destroy; override;
     /// <summary>The tri-state live outcome for the leaf (leaf = AChain[0], issuer =
     /// AChain[1]); intermediates are not checked. When the chain carries no issuer entry the issuer
     /// is recovered from the configured candidates if any qualify; failing that the outcome is
@@ -156,7 +215,8 @@ type
     /// not used for revocation): assign it to TTlsStream.SetCertificateVerdictResolver to run
     /// live revocation as the out-of-band verdict for a parked handshake. On reject, ARejectAlert
     /// is certificate_revoked for a definitive Revoked and bad_certificate_status_response for a
-    /// hard-fail indeterminate.</summary>
+    /// hard-fail indeterminate. The verdict is decided at the stricter of this checker's posture
+    /// and ACtx.RevocationPosture (Hard over Soft over Off).</summary>
     function ResolveVerdict(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
   end;
@@ -165,8 +225,8 @@ implementation
 
 resourcestring
   SInvalidLiveRevocationOptions = 'the live revocation options must allow 1 to 8 OCSP responders ' +
-    'and 1 to 8 CRL distribution points, a minimum attempt time of 1 to 60000 ms and a CRL size ' +
-    'cap of 4096 bytes to 256 MiB';
+    'and 1 to 8 CRL distribution points, a minimum attempt time of 1 to 60000 ms, a CRL size ' +
+    'cap of 4096 bytes to 256 MiB and 0 to 1024 cached responses';
   SNilLiveRevocationInput = 'a PKIX provider, clock and HTTP fetcher are required (pass ' +
     'instances, not nil)';
 
@@ -181,6 +241,103 @@ begin
   AOptions.MaxCrlDistributionPoints := DefaultResponderCap;
   AOptions.MinAttemptMs := DefaultMinAttemptMs;
   AOptions.MaxCrlBytes := DefaultMaxCrlBytes;
+  AOptions.MaxCachedResponses := DefaultCachedResponses;
+end;
+
+{ TLiveRevocationChecker.TResponseCache }
+
+constructor TLiveRevocationChecker.TResponseCache.Create(AMaxEntries: Int32;
+  AMaxBytes: Int64);
+begin
+  inherited Create;
+  FLock := TCriticalSection.Create;
+  FMaxEntries := AMaxEntries;
+  FMaxBytes := AMaxBytes;
+end;
+
+destructor TLiveRevocationChecker.TResponseCache.Destroy;
+begin
+  FLock.Free;
+  inherited Destroy;
+end;
+
+function TLiveRevocationChecker.TResponseCache.IndexOf(const AKey: string): Int32;
+var
+  LI: Int32;
+begin
+  Result := -1;
+  for LI := 0 to System.High(FEntries) do
+    if FEntries[LI].Key = AKey then
+      Exit(LI);
+end;
+
+procedure TLiveRevocationChecker.TResponseCache.RemoveAt(AIndex: Int32);
+var
+  LI: Int32;
+begin
+  Dec(FBytes, System.Length(FEntries[AIndex].Body));
+  for LI := AIndex to System.High(FEntries) - 1 do
+    FEntries[LI] := FEntries[LI + 1];
+  SetLength(FEntries, System.Length(FEntries) - 1);
+end;
+
+function TLiveRevocationChecker.TResponseCache.TryGet(const AKey: string; ANowMs: Int64;
+  out ABody: TBytes): Boolean;
+var
+  LIndex: Int32;
+begin
+  ABody := nil;
+  Result := False;
+  FLock.Enter;
+  try
+    LIndex := IndexOf(AKey);
+    if LIndex < 0 then
+      Exit;
+    if FEntries[LIndex].ExpiresMs <= ANowMs then
+    begin
+      RemoveAt(LIndex);
+      Exit;
+    end;
+    ABody := System.Copy(FEntries[LIndex].Body);
+    Result := True;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TLiveRevocationChecker.TResponseCache.Put(const AKey: string;
+  const ABody: TBytes; ANowMs, AExpiresMs: Int64; ARevoked: Boolean);
+var
+  LIndex: Int32;
+  LEntry: TCachedResponse;
+begin
+  if (FMaxEntries = 0) or (System.Length(ABody) > FMaxBytes) then
+    Exit;
+  FLock.Enter;
+  try
+    LIndex := IndexOf(AKey);
+    if LIndex >= 0 then
+    begin
+      // a revocation already held and still live is not softened by a later answer
+      if FEntries[LIndex].Revoked and (not ARevoked) and
+        (FEntries[LIndex].ExpiresMs > ANowMs) then
+        Exit;
+      RemoveAt(LIndex);
+    end;
+    while (System.Length(FEntries) > 0) and
+      ((System.Length(FEntries) >= FMaxEntries) or
+      (FBytes + System.Length(ABody) > FMaxBytes)) do
+      RemoveAt(0);
+    LEntry.Key := AKey;
+    LEntry.Body := System.Copy(ABody);
+    LEntry.ExpiresMs := AExpiresMs;
+    LEntry.Revoked := ARevoked;
+    SetLength(FEntries, System.Length(FEntries) + 1);
+    FEntries[System.High(FEntries)] := LEntry;
+    Inc(FBytes, System.Length(ABody));
+  finally
+    FLock.Leave;
+  end;
 end;
 
 { TLiveRevocationChecker }
@@ -193,7 +350,9 @@ begin
     (AOptions.MaxCrlDistributionPoints >= 1) and
     (AOptions.MaxCrlDistributionPoints <= ResponderCapCeiling) and
     (AOptions.MinAttemptMs >= 1) and (AOptions.MinAttemptMs <= MinAttemptCeilingMs) and
-    (AOptions.MaxCrlBytes >= CrlBytesFloor) and (AOptions.MaxCrlBytes <= CrlBytesCeiling);
+    (AOptions.MaxCrlBytes >= CrlBytesFloor) and (AOptions.MaxCrlBytes <= CrlBytesCeiling) and
+    (AOptions.MaxCachedResponses >= 0) and
+    (AOptions.MaxCachedResponses <= CachedResponsesCeiling);
 end;
 
 constructor TLiveRevocationChecker.Create(const APkix: IPkixProvider;
@@ -228,6 +387,13 @@ begin
   FMaxCrlPoints := AOptions.MaxCrlDistributionPoints;
   FMinAttemptMs := AOptions.MinAttemptMs;
   FMaxCrlBytes := AOptions.MaxCrlBytes;
+  FCache := TResponseCache.Create(AOptions.MaxCachedResponses, FMaxCrlBytes);
+end;
+
+destructor TLiveRevocationChecker.Destroy;
+begin
+  FCache.Free;
+  inherited Destroy;
 end;
 
 class function TLiveRevocationChecker.DistinctCapped(const AUrls: TArray<string>;
@@ -270,30 +436,24 @@ begin
   Result := True;
 end;
 
-function TLiveRevocationChecker.EvaluateOcsp(const ALeaf, AIssuer, ARequest: TBytes;
-  const AResponderUrl: string; ATimeoutMs: Cardinal): TLiveRevocationOutcome;
+function TLiveRevocationChecker.ClassifyOcsp(const ALeaf, AIssuer, ARawResponse: TBytes;
+  out ANextUpdateMs: Int64): TLiveRevocationOutcome;
 var
-  LResponse: TBytes;
   LStatus: TOcspStatus;
   LThisUpdate, LNextUpdate: TDateTime;
-  LNowMs, LNextMs: Int64;
+  LNowMs: Int64;
 begin
   Result := TLiveRevocationOutcome.Indeterminate;
-  if AResponderUrl = '' then
-    Exit;
-  // unreachable / non-2xx / empty body -> indeterminate (never a silent pass)
-  if not FFetcher.Post(AResponderUrl, OcspRequestContentType, ARequest, ATimeoutMs,
-    MaxOcspResponseBytes, LResponse) then
-    Exit;
-  if System.Length(LResponse) > MaxOcspResponseBytes then
-    Exit;
+  ANextUpdateMs := 0;
   // reuse the in-band parser: it authenticates the response (issuer- or delegated-signed)
   // and binds the CertID to this leaf; a malformed/unauthorized response is indeterminate.
   // the responder-validity date comes from the injected clock, like the window below
-  if not FPkix.Revocation.ValidateOcspStaple(ALeaf, AIssuer, LResponse,
+  if not FPkix.Revocation.ValidateOcspStaple(ALeaf, AIssuer, ARawResponse,
     TDateTimeUtilities.UnixMsToDateTime(Int64(FClock.NowUnixMillis)), LStatus,
     LThisUpdate, LNextUpdate) then
     Exit;
+  if LNextUpdate <> 0 then
+    ANextUpdateMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
   case LStatus of
     TOcspStatus.Revoked:
       Result := TLiveRevocationOutcome.Revoked;
@@ -302,52 +462,115 @@ begin
         // honor the response validity window; a Good outside it is indeterminate. A live check
         // never settles inline, so a no-nextUpdate Good within the max age is accepted too
         LNowMs := Int64(FClock.NowUnixMillis);
-        if LNextUpdate = 0 then
-          LNextMs := 0
-        else
-          LNextMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
         if TRevocationDecision.OcspFreshness(LNowMs,
-          TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate), LNextMs) in
+          TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate), ANextUpdateMs) in
           [TOcspFreshness.Fresh, TOcspFreshness.Unbounded] then
           Result := TLiveRevocationOutcome.Good;
       end;
   end;
 end;
 
-function TLiveRevocationChecker.EvaluateCrl(const ALeaf, AIssuer: TBytes;
-  const ACrlUrl: string; ATimeoutMs: Cardinal): TLiveRevocationOutcome;
+function TLiveRevocationChecker.ClassifyCrl(const ALeaf, AIssuer, ARawCrl: TBytes;
+  out ANextUpdateMs: Int64): TLiveRevocationOutcome;
 var
-  LCrl: TBytes;
   LRevoked: Boolean;
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := TLiveRevocationOutcome.Indeterminate;
-  if ACrlUrl = '' then
-    Exit;
-  if not FFetcher.Get(ACrlUrl, ATimeoutMs, FMaxCrlBytes, LCrl) then
-    Exit;
-  if System.Length(LCrl) > FMaxCrlBytes then
-    Exit;
+  ANextUpdateMs := 0;
   // an unparseable, issuer-unverifiable or out-of-window CRL is indeterminate, never trusted;
   // the validity window is judged at the injected clock, not the wall clock
-  if not FPkix.Revocation.CheckCrlRevocation(ALeaf, AIssuer, LCrl,
+  if not FPkix.Revocation.CheckCrlRevocation(ALeaf, AIssuer, ARawCrl,
     TDateTimeUtilities.UnixMsToDateTime(Int64(FClock.NowUnixMillis)), LRevoked,
     LThisUpdate, LNextUpdate) then
     Exit;
+  if LNextUpdate <> 0 then
+    ANextUpdateMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
   if LRevoked then
     Result := TLiveRevocationOutcome.Revoked
   else
     Result := TLiveRevocationOutcome.Good;
 end;
 
+procedure TLiveRevocationChecker.Remember(const AKey: string; const ABody: TBytes;
+  AOutcome: TLiveRevocationOutcome; ANextUpdateMs: Int64);
+var
+  LNowMs, LExpiresMs: Int64;
+begin
+  // a response without nextUpdate promises newer information at any time (RFC 6960 4.2.2.1)
+  if (AOutcome = TLiveRevocationOutcome.Indeterminate) or (ANextUpdateMs = 0) then
+    Exit;
+  LNowMs := Int64(FClock.NowUnixMillis);
+  LExpiresMs := ANextUpdateMs;
+  if LExpiresMs > LNowMs + CacheMaxLifetimeMs then
+    LExpiresMs := LNowMs + CacheMaxLifetimeMs;
+  // an answer already past its nextUpdate (a Revoked is not window-checked) must not displace a live one
+  if LExpiresMs <= LNowMs then
+    Exit;
+  FCache.Put(AKey, ABody, LNowMs, LExpiresMs, AOutcome = TLiveRevocationOutcome.Revoked);
+end;
+
+function TLiveRevocationChecker.EvaluateOcsp(const ALeaf, AIssuer, ARequest: TBytes;
+  const AResponderUrl: string; ATimeoutMs: Cardinal): TLiveRevocationOutcome;
+var
+  LResponse: TBytes;
+  LKey: string;
+  LNextMs: Int64;
+begin
+  Result := TLiveRevocationOutcome.Indeterminate;
+  if AResponderUrl = '' then
+    Exit;
+  // the request holds only the CertID, so it names the certificate whichever responder answers
+  LKey := 'ocsp:' + TDataEncoding.HexEncode(ARequest);
+  if FCache.TryGet(LKey, Int64(FClock.NowUnixMillis), LResponse) then
+  begin
+    Result := ClassifyOcsp(ALeaf, AIssuer, LResponse, LNextMs);
+    if Result <> TLiveRevocationOutcome.Indeterminate then
+      Exit;
+  end;
+  // unreachable / non-2xx / empty body -> indeterminate (never a silent pass)
+  if not FFetcher.Post(AResponderUrl, OcspRequestContentType, ARequest, ATimeoutMs,
+    MaxOcspResponseBytes, LResponse) then
+    Exit;
+  if System.Length(LResponse) > MaxOcspResponseBytes then
+    Exit;
+  Result := ClassifyOcsp(ALeaf, AIssuer, LResponse, LNextMs);
+  Remember(LKey, LResponse, Result, LNextMs);
+end;
+
+function TLiveRevocationChecker.EvaluateCrl(const ALeaf, AIssuer: TBytes;
+  const ACrlUrl: string; ATimeoutMs: Cardinal): TLiveRevocationOutcome;
+var
+  LCrl: TBytes;
+  LKey: string;
+  LNextMs: Int64;
+begin
+  Result := TLiveRevocationOutcome.Indeterminate;
+  if ACrlUrl = '' then
+    Exit;
+  LKey := 'crl:' + ACrlUrl;
+  if FCache.TryGet(LKey, Int64(FClock.NowUnixMillis), LCrl) then
+  begin
+    Result := ClassifyCrl(ALeaf, AIssuer, LCrl, LNextMs);
+    if Result <> TLiveRevocationOutcome.Indeterminate then
+      Exit;
+  end;
+  if not FFetcher.Get(ACrlUrl, ATimeoutMs, FMaxCrlBytes, LCrl) then
+    Exit;
+  if System.Length(LCrl) > FMaxCrlBytes then
+    Exit;
+  Result := ClassifyCrl(ALeaf, AIssuer, LCrl, LNextMs);
+  Remember(LKey, LCrl, Result, LNextMs);
+end;
+
 function TLiveRevocationChecker.Evaluate(
   const AChain: TArray<TBytes>): TLiveRevocationOutcome;
 begin
-  Result := EvaluateWithin(AChain, FDeadlineMs);
+  Result := EvaluateWithin(AChain, FDeadlineMs, FPosture);
 end;
 
 function TLiveRevocationChecker.EvaluateWithin(const AChain: TArray<TBytes>;
-  ADeadlineMs: Cardinal): TLiveRevocationOutcome;
+  ADeadlineMs: Cardinal; APosture: TRevocationPosture): TLiveRevocationOutcome;
 var
   LLeaf, LIssuer, LRequest: TBytes;
   LUrls, LOcspUrls, LCrlUrls: TArray<string>;
@@ -359,7 +582,7 @@ begin
   // Off suppresses the live fetch entirely (its network + privacy cost): no OCSP POST
   // and no CRL GET. The outcome is Indeterminate, which the posture accepts under Off (soft); a
   // stapled Revoked is still honored upstream by the built-in pipeline before the park.
-  if FPosture = TRevocationPosture.Off then
+  if APosture = TRevocationPosture.Off then
     Exit;
   if System.Length(AChain) = 0 then
     Exit;
@@ -418,6 +641,7 @@ function TLiveRevocationChecker.ResolveVerdict(
   out ARejectAlert: TTlsAlertDescription): Boolean;
 var
   LDeadlineMs: Cardinal;
+  LPosture: TRevocationPosture;
 begin
   // authenticate against the validated path (issuer at index 1) when the pipeline produced one,
   // so the leaf's issuer comes from PKIX, not a re-guess over configured candidates. The shared
@@ -428,8 +652,10 @@ begin
   LDeadlineMs := FDeadlineMs;
   if (ACtx.DeadlineMs <> 0) and ((LDeadlineMs = 0) or (ACtx.DeadlineMs < LDeadlineMs)) then
     LDeadlineMs := ACtx.DeadlineMs;
+  // the configuration's posture holds even when this checker was built with a laxer one
+  LPosture := TRevocationDecision.Stricter(FPosture, ACtx.RevocationPosture);
   Result := TRevocationDecision.Decide(
-    EvaluateWithin(ACtx.RevocationPath, LDeadlineMs), FPosture, False, ARejectAlert);
+    EvaluateWithin(ACtx.RevocationPath, LDeadlineMs, LPosture), LPosture, False, ARejectAlert);
 end;
 
 end.

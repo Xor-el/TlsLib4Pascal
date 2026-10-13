@@ -66,7 +66,82 @@ type
     procedure TestMd5IsRefusedEvenWhenNamedInThePolicy;
   end;
 
+  /// <summary>The end-entity rule both verifiers share: a CA certificate is no identity unless the
+  /// operator trusts that very certificate as an anchor.</summary>
+  TTestEndEntityPolicy = class(TTlsLibAlgorithmTestCase)
+  published
+    procedure TestAdmitsAnEndEntityCertificate;
+    procedure TestRefusesACaCertificateThatIsNotAnAnchor;
+    procedure TestAdmitsACaCertificateThatIsItselfAnAnchor;
+    procedure TestRefusesACaCertificateWhenAnotherCertificateIsTheAnchor;
+    procedure TestRefusesALeafItCannotDetermine;
+    procedure TestRefusesAnEmptyPath;
+  end;
+
 implementation
+
+{ TTestEndEntityPolicy }
+
+procedure TTestEndEntityPolicy.TestAdmitsAnEndEntityCertificate;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TEndEntityPolicy.Admits(Pkix.Certificates,
+    TArray<TBytes>.Create(CriticalExtensionsCertificate('leaf_cert'),
+    CriticalExtensionsCertificate('root_cert')),
+    TArray<TBytes>.Create(CriticalExtensionsCertificate('root_cert')), LAlert),
+    'a cA=FALSE leaf is admitted');
+end;
+
+procedure TTestEndEntityPolicy.TestRefusesACaCertificateThatIsNotAnAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TEndEntityPolicy.Admits(Pkix.Certificates,
+    TArray<TBytes>.Create(CriticalExtensionsCertificate('caleaf_cert'),
+    CriticalExtensionsCertificate('root_cert')),
+    TArray<TBytes>.Create(CriticalExtensionsCertificate('root_cert')), LAlert),
+    'a cA=TRUE leaf under a root is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
+procedure TTestEndEntityPolicy.TestAdmitsACaCertificateThatIsItselfAnAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TEndEntityPolicy.Admits(Pkix.Certificates,
+    TArray<TBytes>.Create(CriticalExtensionsCertificate('selfca_cert')),
+    TArray<TBytes>.Create(CriticalExtensionsCertificate('selfca_cert')), LAlert),
+    'a directly trusted self-signed CA certificate is admitted');
+end;
+
+procedure TTestEndEntityPolicy.TestRefusesACaCertificateWhenAnotherCertificateIsTheAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TEndEntityPolicy.Admits(Pkix.Certificates,
+    TArray<TBytes>.Create(CriticalExtensionsCertificate('selfca_cert')),
+    TArray<TBytes>.Create(CriticalExtensionsCertificate('root_cert')), LAlert),
+    'the same certificate is refused when it is not the configured anchor');
+end;
+
+procedure TTestEndEntityPolicy.TestRefusesALeafItCannotDetermine;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TEndEntityPolicy.Admits(Pkix.Certificates,
+    TArray<TBytes>.Create(TBytes.Create(1, 2, 3)),
+    TArray<TBytes>.Create(TBytes.Create(1, 2, 3)), LAlert),
+    'an undeterminable answer fails closed even for an anchor-identical leaf');
+end;
+
+procedure TTestEndEntityPolicy.TestRefusesAnEmptyPath;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TEndEntityPolicy.Admits(Pkix.Certificates, nil, nil, LAlert),
+    'a path with no certificate is refused');
+end;
 
 { TTestChainAlgorithmPolicy }
 
@@ -310,8 +385,10 @@ initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestChainAlgorithmPolicy);
+  RegisterTest(TTestEndEntityPolicy);
 {$ELSE}
   RegisterTest(TTestChainAlgorithmPolicy.Suite);
+  RegisterTest(TTestEndEntityPolicy.Suite);
 {$ENDIF FPC}
 
 end.

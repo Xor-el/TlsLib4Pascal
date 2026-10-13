@@ -165,7 +165,7 @@ begin
   if (System.Length(AChain) = 0) or
     not LVerifier.VerifyServerCertificate(AChain, AName, nil, LVerified, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
-  APath := LVerified.Path;
+  APath := LVerified.ValidatedPath;
 end;
 
 end.

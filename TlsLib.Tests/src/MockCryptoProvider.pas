@@ -21,12 +21,40 @@ uses
   SysUtils,
   TlpCryptoDomainTypes,
   TlpISecretBuffer,
+  TlpISigningKey,
+  TlpImportedCredential,
   TlpIKeyExchangePrivateKey,
   TlpICryptoProvider,
   TlpTlsLibExceptions,
   TlpDefaultCryptoProvider;
 
 type
+  /// <summary>A signature verifier that rejects every signature.</summary>
+  TRejectingSignatureVerifier = class(TInterfacedObject, ISignatureVerifier)
+  public
+    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
+    function Verify(const ASignature: TBytes): Boolean;
+  end;
+
+  /// <summary>An <see cref="ISigningCrypto" /> that signs and imports through an inner facet but
+  /// hands out verifiers that reject every signature, so a peer's handshake signature never
+  /// verifies while its certificate chain (checked by the PKIX provider) still does.</summary>
+  TRejectingVerifierSigning = class(TInterfacedObject, ISigningCrypto)
+  strict private
+  var
+    FInner: ISigningCrypto;
+  public
+    constructor Create(const AInner: ISigningCrypto);
+    function ImportSigningKey(const AData: TBytes; const APassword: ISecretBuffer): ISigningKey;
+    function ImportPkcs12(const AData: TBytes;
+      const APassword: ISecretBuffer): TImportedCredential;
+    function CreateSignatureSigner(AScheme: TSignatureScheme;
+      const AKey: ISigningKey): ISignatureSigner;
+    function CreateSignatureVerifier(AScheme: TSignatureScheme;
+      const APublicKeyDer: TBytes): ISignatureVerifier;
+  end;
+
+
   /// <summary>
   /// A test provider that runs the default crypto with a caller-supplied
   /// (deterministic) <see cref="IRandom" />. It is a thin wrapper over the
@@ -215,6 +243,50 @@ const
 resourcestring
   SMissingAead = 'this primitives facet does not provide the requested AEAD';
   SMissingAgreement = 'this primitives facet does not provide the requested key agreement';
+
+{ TRejectingSignatureVerifier }
+
+procedure TRejectingSignatureVerifier.Update(const AData: TBytes; AOffset, ALength: Int32);
+begin
+  // the content is irrelevant: nothing verifies
+end;
+
+function TRejectingSignatureVerifier.Verify(const ASignature: TBytes): Boolean;
+begin
+  Result := False;
+end;
+
+{ TRejectingVerifierSigning }
+
+constructor TRejectingVerifierSigning.Create(const AInner: ISigningCrypto);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TRejectingVerifierSigning.ImportSigningKey(const AData: TBytes;
+  const APassword: ISecretBuffer): ISigningKey;
+begin
+  Result := FInner.ImportSigningKey(AData, APassword);
+end;
+
+function TRejectingVerifierSigning.ImportPkcs12(const AData: TBytes;
+  const APassword: ISecretBuffer): TImportedCredential;
+begin
+  Result := FInner.ImportPkcs12(AData, APassword);
+end;
+
+function TRejectingVerifierSigning.CreateSignatureSigner(AScheme: TSignatureScheme;
+  const AKey: ISigningKey): ISignatureSigner;
+begin
+  Result := FInner.CreateSignatureSigner(AScheme, AKey);
+end;
+
+function TRejectingVerifierSigning.CreateSignatureVerifier(AScheme: TSignatureScheme;
+  const APublicKeyDer: TBytes): ISignatureVerifier;
+begin
+  Result := TRejectingSignatureVerifier.Create as ISignatureVerifier;
+end;
 
 { TMockCryptoProvider }
 

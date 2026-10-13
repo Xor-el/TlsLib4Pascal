@@ -149,7 +149,8 @@ type
     procedure ExchangeFlights(const AClient, AServer: ITlsEngine);
     procedure RunEchThroughBuilder(AMode: TServerNameIndication);
     function OmitSniClient(const AVersions: TArray<UInt16>): ITlsClientConfig;
-    function RejectEveryChain(const AChain: TArray<TBytes>; const AHostName: string): Boolean;
+    function RejectEveryChain(const APresented, AValidated: TArray<TBytes>;
+      const AHostName: string): Boolean;
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
   protected
     procedure SetUp; override;
@@ -3906,7 +3907,7 @@ begin
     .WithServerNameIndication(TServerNameIndication.Omit).Build;
 end;
 
-function TTestConfigBuilder.RejectEveryChain(const AChain: TArray<TBytes>;
+function TTestConfigBuilder.RejectEveryChain(const APresented, AValidated: TArray<TBytes>;
   const AHostName: string): Boolean;
 begin
   Result := False;

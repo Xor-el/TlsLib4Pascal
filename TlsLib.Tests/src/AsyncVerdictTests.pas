@@ -43,6 +43,16 @@ uses
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngineFactory,
+  TlpIClock,
+  TlpClock,
+  TlpIHttpFetcher,
+  TlpLiveRevocation,
+  TlpDefaultCryptoProvider,
+  MockCryptoProvider,
+  SpyRevocationProvider,
+  TlpIPkixProvider,
+  MockHttpFetcher,
+  MockVerifyHooks,
   TlsLibTestBase;
 
 type
@@ -98,7 +108,43 @@ type
     /// on the wire), returning its description; used to assert the reject alert byte-for-byte.</summary>
     class function TakePeerAlert(const AEngine: ITlsEngine;
       out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>A pair pinned to TLS 1.2 or 1.3 in which the verifying side parks on a host verdict:
+    /// the client verifies the server (AMtls False) or the server verifies the client's certificate
+    /// (AMtls True). ARefuseSignature makes that verifying side's crypto reject the peer's handshake
+    /// signature while its certificate chain still validates.</summary>
+    function VersionedPair(AForce12, AMtls, ARefuseSignature: Boolean;
+      out AServer: ITlsEngine): ITlsEngine;
+    /// <summary>A Hard-posture client with live-revocation deferral and a server without a staple, so
+    /// the client parks for the live check.</summary>
+    function LiveRevocationClient(APosture: TRevocationPosture;
+      out AServer: ITlsEngine): ITlsEngine;
+    /// <summary>The verifying side refused the peer's signature before parking: terminal with
+    /// decrypt_error, never awaiting a verdict and never having raised a CertificateReceived event.</summary>
+    procedure CheckRefusedBeforePark(const AVerifier: ITlsEngine);
+    /// <summary>Drives to the park, then resolves it with a Soft checker whose only OCSP responder
+    /// is unreachable.</summary>
+    procedure ResolveWithUnreachableResponder(const AClient, AServer: ITlsEngine);
+    /// <summary>The pair parks after the peer's signature, accepts, and completes.</summary>
+    procedure CheckParksThenCompletes(const AClient, AServer: ITlsEngine; AMtls: Boolean);
   published
+    // the park follows the peer's key proof
+    procedure TestTls13ClientRefusesBadServerSignatureBeforePark;
+    procedure TestTls12ClientRefusesBadServerSignatureBeforePark;
+    procedure TestTls13ServerRefusesBadClientSignatureBeforePark;
+    procedure TestTls12ServerRefusesBadClientSignatureBeforePark;
+    procedure TestTls12ClientParksThenAcceptCompletes;
+    procedure TestTls12ServerParksThenAcceptCompletes;
+    // the configured posture reaches the resolver through the engine
+    procedure TestParkEventCarriesTheConfiguredPosture;
+    procedure TestHardConfigurationRejectsUnreachableResponderBehindASoftChecker;
+    procedure TestSoftConfigurationAcceptsUnreachableResponderBehindASoftChecker;
+    // the verify callback runs last (after pinning) and sees both the presented and validated chains
+    procedure TestVerifyCallbackRunsAfterPinning;
+    procedure TestClientVerifyCallbackSeesPresentedChainAndValidatedPath;
+    procedure TestClientVerifyCallbackSeesNoValidatedPathUnderSkip;
+    procedure TestParkEventReportsNoValidatedPathUnderSkip;
+    procedure TestConnectionInfoReportsNoValidatedPathUnderSkip;
+    procedure TestServerVerifyCallbackSeesPresentedChainAndValidatedPath;
     procedure TestParkThenAcceptCompletes;
     procedure TestCertificateReceivedEventCarriesLeaf;
     procedure TestRejectFailsClosedWithBadCertificate;
@@ -402,6 +448,328 @@ begin
     if (LEvent.Kind = TTlsEventKind.CertificateReceived) and
       Supports(LEvent, ICertificateReceivedEvent, AEvent) then
       Exit(True);
+end;
+
+function TTestAsyncVerdict.VersionedPair(AForce12, AMtls, ARefuseSignature: Boolean;
+  out AServer: ITlsEngine): ITlsEngine;
+var
+  LVer: TArray<UInt16>;
+  LClientCrypto, LServerCrypto, LRejecting: ICryptoProvider;
+  LBuilder: ICryptoProviderBuilder;
+  LClientOwner, LServerOwner: ITlsConfigBuilder;
+  LClient: ITlsClientConfigBuilder;
+  LServer: ITlsServerConfigBuilder;
+begin
+  if AForce12 then
+    LVer := TArray<UInt16>.Create(TlsWireVersionTls12)
+  else
+    LVer := TArray<UInt16>.Create(TlsWireVersionTls13);
+  LClientCrypto := Crypto;
+  LServerCrypto := Crypto;
+  if ARefuseSignature then
+  begin
+    LBuilder := TCryptoProviderBuilder.Create;
+    LRejecting := LBuilder.WithPrimitives(Crypto.Primitives)
+      .WithSigning(TRejectingVerifierSigning.Create(Crypto.Signing) as ISigningCrypto).Build;
+    if AMtls then
+      LServerCrypto := LRejecting
+    else
+      LClientCrypto := LRejecting;
+  end;
+
+  LClientOwner := TTlsPresets.Compatible(LClientCrypto, Pkix);
+  LClient := LClientOwner.Client.WithSupportedVersions(LVer)
+    .WithServerVerification(WebPkiServer(TrustRoot));
+  if AMtls then
+    LClient.WithCredential(TTlsCredential.Load(LClientCrypto, Pkix, LeafCert, LeafKey))
+  else
+    LClient.WithAsyncCertificateVerdict(0);
+
+  LServerOwner := TTlsPresets.Compatible(LServerCrypto, Pkix);
+  LServer := LServerOwner.Server.WithSupportedVersions(LVer)
+    .WithCredential(TTlsCredential.Load(LServerCrypto, Pkix, LeafCert, LeafKey));
+  if AMtls then
+    LServer.WithClientVerification(WebPkiClient(TrustRoot))
+      .WithPeerAuth(TClientAuthMode.Required).WithAsyncCertificateVerdict(0);
+
+  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'localhost');
+  AServer := TTlsEngineFactory.CreateServerEngine(LServer.Build);
+end;
+
+function TTestAsyncVerdict.LiveRevocationClient(APosture: TRevocationPosture;
+  out AServer: ITlsEngine): ITlsEngine;
+var
+  LOwner: ITlsConfigBuilder;
+  LClient: ITlsClientConfigBuilder;
+begin
+  LOwner := TTlsPresets.Compatible(Crypto, Pkix);
+  LClient := LOwner.Client
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).WithRevocation(APosture).Build)
+    .WithLiveRevocationVerdict(0);
+  Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'localhost');
+  AServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+end;
+
+procedure TTestAsyncVerdict.CheckRefusedBeforePark(const AVerifier: ITlsEngine);
+var
+  LEvent: ICertificateReceivedEvent;
+begin
+  CheckTrue(AVerifier.IsTerminal, 'a bad handshake signature aborts the verifying side');
+  CheckEquals(Ord(TTlsAlertDescription.DecryptError),
+    Ord(AVerifier.LastError.Alert.Description), 'the abort is decrypt_error');
+  CheckFalse(AVerifier.AwaitingCertificateVerdict, 'it never awaited a verdict');
+  CheckFalse(TakeCertificateEvent(AVerifier, LEvent), 'and never raised a CertificateReceived event');
+end;
+
+procedure TTestAsyncVerdict.CheckParksThenCompletes(const AClient, AServer: ITlsEngine;
+  AMtls: Boolean);
+var
+  LVerifier: ITlsEngine;
+  LEvent: ICertificateReceivedEvent;
+begin
+  if AMtls then
+    LVerifier := AServer
+  else
+    LVerifier := AClient;
+  AClient.StartHandshake;
+  DriveUntilParkOrSettled(AClient, AServer);
+  CheckTrue(LVerifier.AwaitingCertificateVerdict, 'the verifying side parks once the signature verified');
+  CheckTrue(TakeCertificateEvent(LVerifier, LEvent), 'the park raised its event for the resolver');
+  CheckTrue(LVerifier.IsHandshaking, 'the handshake is held until the verdict arrives');
+  LVerifier.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
+  DriveToCompletion(AClient, AServer);
+  CheckFalse(AClient.IsTerminal or AServer.IsTerminal, 'neither side failed');
+  CheckFalse(AClient.IsHandshaking or AServer.IsHandshaking, 'both handshakes completed');
+end;
+
+procedure TTestAsyncVerdict.TestTls13ClientRefusesBadServerSignatureBeforePark;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := VersionedPair({AForce12=} False, {AMtls=} False, {ARefuseSignature=} True, LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckRefusedBeforePark(LClient);
+end;
+
+procedure TTestAsyncVerdict.TestTls12ClientRefusesBadServerSignatureBeforePark;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := VersionedPair({AForce12=} True, {AMtls=} False, {ARefuseSignature=} True, LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckRefusedBeforePark(LClient);
+end;
+
+procedure TTestAsyncVerdict.TestTls13ServerRefusesBadClientSignatureBeforePark;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := VersionedPair({AForce12=} False, {AMtls=} True, {ARefuseSignature=} True, LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckRefusedBeforePark(LServer);
+end;
+
+procedure TTestAsyncVerdict.TestTls12ServerRefusesBadClientSignatureBeforePark;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := VersionedPair({AForce12=} True, {AMtls=} True, {ARefuseSignature=} True, LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckRefusedBeforePark(LServer);
+end;
+
+procedure TTestAsyncVerdict.TestTls12ClientParksThenAcceptCompletes;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := VersionedPair({AForce12=} True, {AMtls=} False, {ARefuseSignature=} False, LServer);
+  CheckParksThenCompletes(LClient, LServer, False);
+end;
+
+procedure TTestAsyncVerdict.TestTls12ServerParksThenAcceptCompletes;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := VersionedPair({AForce12=} True, {AMtls=} True, {ARefuseSignature=} False, LServer);
+  CheckParksThenCompletes(LClient, LServer, True);
+end;
+
+procedure TTestAsyncVerdict.TestParkEventCarriesTheConfiguredPosture;
+var
+  LClient, LServer: ITlsEngine;
+  LEvent: ICertificateReceivedEvent;
+begin
+  LClient := LiveRevocationClient(TRevocationPosture.Hard, LServer);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckTrue(TakeCertificateEvent(LClient, LEvent), 'the park raised its event');
+  CheckEquals(Ord(TRevocationPosture.Hard), Ord(LEvent.RevocationPosture),
+    'the event carries the configured posture');
+end;
+
+procedure TTestAsyncVerdict.TestHardConfigurationRejectsUnreachableResponderBehindASoftChecker;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := LiveRevocationClient(TRevocationPosture.Hard, LServer);
+  ResolveWithUnreachableResponder(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the Hard configuration rejects the unreachable responder');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse),
+    Ord(LClient.LastError.Alert.Description), 'with bad_certificate_status_response');
+end;
+
+procedure TTestAsyncVerdict.TestSoftConfigurationAcceptsUnreachableResponderBehindASoftChecker;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := LiveRevocationClient(TRevocationPosture.Soft, LServer);
+  ResolveWithUnreachableResponder(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'a Soft configuration soft-fails the unreachable responder');
+end;
+
+procedure TTestAsyncVerdict.ResolveWithUnreachableResponder(const AClient,
+  AServer: ITlsEngine);
+var
+  LEvent: ICertificateReceivedEvent;
+  LSpy: TSpyPkixProvider;
+  LSpyRef: IPkixProvider;
+  LChecker: TLiveRevocationChecker;
+begin
+  AClient.StartHandshake;
+  DriveUntilParkOrSettled(AClient, AServer);
+  CheckTrue(TakeCertificateEvent(AClient, LEvent), 'the park raised its event');
+  LSpy := TSpyPkixProvider.Create(Pkix);
+  LSpyRef := LSpy as IPkixProvider;
+  LSpy.OverrideOcspUrls(TArray<string>.Create('http://ocsp.test/'));
+  LChecker := TLiveRevocationChecker.Create(LSpyRef, TSystemClock.Create as ITlsClock,
+    TSystemMonotonicClock.Create as ITlsMonotonicClock,
+    TMockHttpFetcher.Create as IHttpFetcher, TRevocationPosture.Soft,
+    TLiveRevocationMethod.Ocsp, 0);
+  try
+    TTlsStreamPump.ResolveVerdict(AClient, LEvent, LChecker.ResolveVerdict, TPeerRole.Server);
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestAsyncVerdict.TestVerifyCallbackRunsAfterPinning;
+var
+  LClient, LServer: ITlsEngine;
+  LOwner: ITlsConfigBuilder;
+  LSpy: TVerifyCallbackSpy;
+begin
+  // a pin that matches nothing rejects the chain; the callback, running last, is never asked
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
+  LOwner := TTlsPresets.Compatible(Crypto, Pkix);
+  LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
+    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithCertificatePinning(TArray<TBytes>.Create(Crypto.Primitives.GetRandom.GenerateBytes(32)))
+    .WithCertificateVerifyCallback(LSpy.Callback).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the mismatched pin aborts the client');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate),
+    Ord(LClient.LastError.Alert.Description), 'with bad_certificate from the pin');
+  CheckEquals(0, LSpy.Calls, 'the callback runs after pinning, so a pin rejection never reaches it');
+end;
+
+procedure TTestAsyncVerdict.TestClientVerifyCallbackSeesPresentedChainAndValidatedPath;
+var
+  LClient, LServer: ITlsEngine;
+  LOwner: ITlsConfigBuilder;
+  LSpy: TVerifyCallbackSpy;
+begin
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
+  LOwner := TTlsPresets.Compatible(Crypto, Pkix);
+  LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
+    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithCertificateVerifyCallback(LSpy.Callback).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the accepting callback leaves the handshake alone');
+  CheckEquals(1, System.Length(LSpy.Presented), 'the server presented its leaf only');
+  CheckEquals(2, System.Length(LSpy.Validated), 'the validated path runs leaf then the trust anchor');
+  CheckEqualBytes('the validated path ends at the configured anchor', TrustRoot, LSpy.Validated[1]);
+end;
+
+procedure TTestAsyncVerdict.TestClientVerifyCallbackSeesNoValidatedPathUnderSkip;
+var
+  LClient, LServer: ITlsEngine;
+  LOwner: ITlsConfigBuilder;
+  LSpy: TVerifyCallbackSpy;
+begin
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
+  LOwner := TTlsPresets.Compatible(Crypto, Pkix);
+  LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
+    .WithServerVerification(TServerVerification.DangerousSkip)
+    .WithCertificateVerifyCallback(LSpy.Callback).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the skipped verification accepts');
+  CheckEquals(1, System.Length(LSpy.Presented), 'the presented chain reaches the callback');
+  CheckEquals(0, System.Length(LSpy.Validated), 'no path was validated, so none is reported');
+end;
+
+procedure TTestAsyncVerdict.TestParkEventReportsNoValidatedPathUnderSkip;
+var
+  LClient, LServer: ITlsEngine;
+  LOwner: ITlsConfigBuilder;
+  LEvent: ICertificateReceivedEvent;
+begin
+  LOwner := TTlsPresets.Compatible(Crypto, Pkix);
+  LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
+    .WithServerVerification(TServerVerification.DangerousSkip).WithAsyncCertificateVerdict(0)
+    .Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClient.StartHandshake;
+  DriveUntilParkOrSettled(LClient, LServer);
+  CheckTrue(TakeCertificateEvent(LClient, LEvent), 'the park raised its event');
+  CheckEquals(0, System.Length(LEvent.ValidatedPath), 'nothing was validated, so no path is reported');
+  CheckEquals(1, System.Length(LEvent.Chain), 'the presented chain is reported');
+end;
+
+procedure TTestAsyncVerdict.TestConnectionInfoReportsNoValidatedPathUnderSkip;
+var
+  LClient, LServer: ITlsEngine;
+  LOwner: ITlsConfigBuilder;
+begin
+  LOwner := TTlsPresets.Compatible(Crypto, Pkix);
+  LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
+    .WithServerVerification(TServerVerification.DangerousSkip).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.ValidatedPath),
+    'nothing was validated, so no path is reported');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.PeerCertificates),
+    'the presented chain is reported');
+end;
+
+procedure TTestAsyncVerdict.TestServerVerifyCallbackSeesPresentedChainAndValidatedPath;
+var
+  LClient, LServer: ITlsEngine;
+  LOwner: ITlsConfigBuilder;
+  LSpy: TVerifyCallbackSpy;
+begin
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
+  LOwner := TTlsPresets.Compatible(Crypto, Pkix);
+  LClient := TTlsEngineFactory.CreateClientEngine(MtlsClientConfig, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(LOwner.Server
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
+    .WithClientVerification(WebPkiClient(TrustRoot)).WithPeerAuth(TClientAuthMode.Required)
+    .WithCertificateVerifyCallback(LSpy.Callback).Build);
+  LClient.StartHandshake;
+  DriveToCompletion(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the accepting callback leaves the handshake alone');
+  CheckEquals(1, System.Length(LSpy.Presented), 'the client presented its leaf only');
+  CheckEquals(2, System.Length(LSpy.Validated), 'the validated path runs leaf then the trust anchor');
 end;
 
 procedure TTestAsyncVerdict.TestParkThenAcceptCompletes;

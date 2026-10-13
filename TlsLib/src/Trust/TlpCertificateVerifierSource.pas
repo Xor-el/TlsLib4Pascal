@@ -177,8 +177,8 @@ type
   /// <summary>
   /// A source that returns one caller-supplied verifier for every connection. A pre-built
   /// instance cannot receive the connection's clock or posture, which is exactly why the
-  /// OS-native delegate is installed as its own source rather than through this wrapper; only
-  /// the context's verify callback is applied, over the instance.
+  /// OS-native delegate is installed as its own source rather than through this wrapper. The
+  /// engine, not this source, applies the verify callback.
   /// </summary>
   TInstanceServerVerifierSource = class sealed(TInterfacedObject,
     IServerCertificateVerifierSource)
@@ -206,8 +206,8 @@ type
   /// <summary>
   /// A source that returns one caller-supplied client-certificate verifier for every
   /// connection. A pre-built instance cannot receive the connection's clock or posture, which is
-  /// why the OS-native delegate is installed as its own source; only the context's verify callback
-  /// is applied, over the instance.
+  /// why the OS-native delegate is installed as its own source. The engine, not this source,
+  /// applies the verify callback.
   /// </summary>
   TInstanceClientVerifierSource = class sealed(TInterfacedObject,
     IClientCertificateVerifierSource)
@@ -568,6 +568,8 @@ constructor TInstanceServerVerifierSource.Create(
   const AVerifier: IServerCertificateVerifier);
 begin
   inherited Create;
+  if AVerifier = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilVerifier);
   FVerifier := AVerifier;
 end;
 
@@ -575,10 +577,6 @@ function TInstanceServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 begin
   Result := FVerifier;
-  // the instance cannot take the callback from the context, so the reject rule is composed over it
-  if Assigned(AContext.Dangerous.VerifyCallback) then
-    Result := TVerifyCallbackVerifier.Create(FVerifier,
-      AContext.Dangerous.VerifyCallback) as IServerCertificateVerifier;
 end;
 
 { TBuiltInClientVerifierSource }
@@ -609,6 +607,8 @@ constructor TInstanceClientVerifierSource.Create(
   const AVerifier: IClientCertificateVerifier);
 begin
   inherited Create;
+  if AVerifier = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilVerifier);
   FVerifier := AVerifier;
 end;
 
@@ -616,9 +616,6 @@ function TInstanceClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 begin
   Result := FVerifier;
-  if Assigned(AContext.Dangerous.VerifyCallback) then
-    Result := TClientVerifyCallbackVerifier.Create(FVerifier,
-      AContext.Dangerous.VerifyCallback) as IClientCertificateVerifier;
 end;
 
 end.

@@ -148,7 +148,7 @@ begin
       // resume it, so it fails closed instead of wedging
       if FVerdictSink <> nil then
         FVerdictSink.OnCertificateVerdictNeeded(AEffect.Chain, AEffect.ValidatedPath,
-          AEffect.HostName, AEffect.Staple)
+          AEffect.HostName, AEffect.Staple, AEffect.RevocationPosture)
       else
         FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError);
     THandshakeEffectKind.PeerCertificateChain:

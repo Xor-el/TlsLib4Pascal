@@ -61,6 +61,7 @@ uses
   ClpIStore,
   ClpTrustAnchor,
   ClpIPkixTypes,
+  ClpPkixCertPathChecker,
   ClpOcspProtocolObjects,
   ClpIOcspProtocolObjects,
   ClpOcspGenerators,
@@ -104,6 +105,7 @@ type
     function IpAddresses: TArray<TBytes>;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
+    function IsCertificateAuthority: TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
@@ -116,10 +118,6 @@ type
 
   // ICertificateInspector - pure, per-certificate, side-effect-free X.509 inspection.
   TCertificateInspector = class(TInterfacedObject, ICertificateInspector)
-  strict private
-  const
-    // RFC 7633 id-pe-tlsfeature
-    TlsFeatureExtensionOid = '1.3.6.1.5.5.7.1.24';
   public
     function Parse(const ADer: TBytes): IInspectedCertificate;
     function LoadChain(const AData: TBytes): TArray<TBytes>;
@@ -134,6 +132,7 @@ type
     function KeyUsagePermits(const ACertificateDer: TBytes;
       AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss(const ACertificateDer: TBytes): TCertAnswer;
+    function IsCertificateAuthority(const ACertificateDer: TBytes): TCertAnswer;
     function KeyKind(const ACertificateDer: TBytes;
       out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function SamePublicKey(const ASpkiA, ASpkiB: TBytes): TCertAnswer;
@@ -329,6 +328,75 @@ resourcestring
   SNoCertificatesFound = 'no certificates were found in the input';
   STrailingCertificateData = 'the DER input has bytes after the certificate (concatenated ' +
     'DER or trailing data); use PEM or PKCS#7 to load a certificate chain';
+
+const
+  // RFC 7633 id-pe-tlsfeature
+  TlsFeatureExtensionOid = '1.3.6.1.5.5.7.1.24';
+
+type
+  // marks handled the critical extensions the TLS layer enforces itself after the build
+  TTlsCriticalExtensionChecker = class sealed(TPkixCertPathCheckerBase)
+  strict private
+    FLeaf: IX509Certificate;
+    FInspector: ICertificateInspector;
+  public
+    constructor Create(const ALeaf: IX509Certificate);
+    procedure Init(AForward: Boolean); override;
+    function IsForwardCheckingSupported: Boolean; override;
+    function GetSupportedExtensions: TCryptoLibStringArray; override;
+    procedure Check(const ACert: IX509Certificate;
+      const AUnresolvedCritExts: TList<String>); override;
+    function Clone: IPkixCertPathChecker; override;
+  end;
+
+{ TTlsCriticalExtensionChecker }
+
+constructor TTlsCriticalExtensionChecker.Create(const ALeaf: IX509Certificate);
+begin
+  inherited Create;
+  FLeaf := ALeaf;
+  FInspector := TCertificateInspector.Create as ICertificateInspector;
+end;
+
+procedure TTlsCriticalExtensionChecker.Init(AForward: Boolean);
+begin
+  // stateless
+end;
+
+function TTlsCriticalExtensionChecker.IsForwardCheckingSupported: Boolean;
+begin
+  Result := True;
+end;
+
+function TTlsCriticalExtensionChecker.GetSupportedExtensions: TCryptoLibStringArray;
+begin
+  Result := TCryptoLibStringArray.Create(TX509Extensions.ExtendedKeyUsage.Id,
+    TlsFeatureExtensionOid);
+end;
+
+procedure TTlsCriticalExtensionChecker.Check(const ACert: IX509Certificate;
+  const AUnresolvedCritExts: TList<String>);
+var
+  LFeatures: TArray<UInt16>;
+  LI: Int32;
+  LEnforced: Boolean;
+begin
+  AUnresolvedCritExts.Remove(TX509Extensions.ExtendedKeyUsage.Id);
+  if not ACert.Equals(FLeaf) then
+    Exit;
+  // RFC 7633 4.3.3: only status_request is enforced, so any other critical feature stays refused
+  LEnforced := FInspector.TlsFeatures(ACert.GetEncoded, LFeatures);
+  for LI := 0 to System.High(LFeatures) do
+    if LFeatures[LI] <> TTlsFeatureCodes.StatusRequest then
+      LEnforced := False;
+  if LEnforced then
+    AUnresolvedCritExts.Remove(TlsFeatureExtensionOid);
+end;
+
+function TTlsCriticalExtensionChecker.Clone: IPkixCertPathChecker;
+begin
+  Result := TTlsCriticalExtensionChecker.Create(FLeaf) as IPkixCertPathChecker;
+end;
 
 function TCertificateInspector.LoadChain(
   const AData: TBytes): TArray<TBytes>;
@@ -805,11 +873,6 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain: TArray
   end;
 
 const
-  // every chain goes through the builder, and a real hierarchy is shallow (a leaf plus at most a
-  // few non-self-issued intermediates, which are what the cap counts). Capping the built path's
-  // length keeps a hostile peer that pads its chain with many like-named certificates from driving
-  // the depth-first search into an expensive fan-out; depth 4 over a small pool is the real bound
-  MaxBuiltPathLength = 4;
   // the builder's depth cap does not count self-issued certificates, so a peer padding its chain with
   // same-named ones could still drive a permutation search, and cross-issuing subjects in a ring
   // multiplies it again. Two presented certificates per subject name (a cross-signed pair, or a
@@ -962,7 +1025,9 @@ begin
     LBuilderParams := TPkixBuilderParameters.Create(LAnchors, LTarget);
     LBuilderParams.SetIsRevocationEnabled(False);
     LBuilderParams.SetDate(AValidationTimeUtc);
-    LBuilderParams.SetMaxPathLength(MaxBuiltPathLength);
+    LBuilderParams.SetMaxPathLength(TPathBuildLimits.MaxBuiltPathLength);
+    LBuilderParams.AddCertPathChecker(
+      TTlsCriticalExtensionChecker.Create(LCerts[0]) as IPkixCertPathChecker);
     LPoolStore := TCollectionStore<IX509Certificate>.Create(LPool);
     LBuilderParams.AddStoreCert(LPoolStore);
     LBuilder := TPkixCertPathBuilder.Create as IPkixCertPathBuilder;
@@ -1499,7 +1564,8 @@ begin
     // authoritative - a MITM could otherwise replay an old, legitimately-signed CRL predating
     // the revocation. Out of window -> False (indeterminate), never a silent Good.
     LNowMs := TDateTimeUtilities.DateTimeToUnixMs(AValidationTimeUtc);
-    if LNowMs < TDateTimeUtilities.DateTimeToUnixMs(AThisUpdate) then
+    if LNowMs + TRevocationWindow.ThisUpdateSkewMs <
+      TDateTimeUtilities.DateTimeToUnixMs(AThisUpdate) then
       Exit;
     if LCrl.NextUpdate.HasValue then
     begin
@@ -1651,6 +1717,17 @@ begin
   end;
 end;
 
+function TCertificateInspector.IsCertificateAuthority(
+  const ACertificateDer: TBytes): TCertAnswer;
+begin
+  try
+    Result := Parse(ACertificateDer).IsCertificateAuthority;
+  except
+    // an unparseable certificate cannot be determined
+    Result := TCertAnswer.Undetermined;
+  end;
+end;
+
 function TCertificateInspector.KeyKind(const ACertificateDer: TBytes;
   out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
 begin
@@ -1724,6 +1801,18 @@ begin
   try
     if FCert.GetSubjectPublicKeyInfo.GetAlgorithm.GetAlgorithm.GetID
       = RsaSsaPssKeyOid then
+      Result := TCertAnswer.Yes
+    else
+      Result := TCertAnswer.No;
+  except
+    Result := TCertAnswer.Undetermined;
+  end;
+end;
+
+function TInspectedCertificate.IsCertificateAuthority: TCertAnswer;
+begin
+  try
+    if FCert.GetBasicConstraints >= 0 then
       Result := TCertAnswer.Yes
     else
       Result := TCertAnswer.No;

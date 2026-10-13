@@ -73,9 +73,13 @@ type
     /// within this age; beyond it the response is Stale.</summary>
     const OcspUnboundedMaxAgeMs = Int64(7) * 24 * 60 * 60 * 1000;
     /// <summary>Classifies a Good OCSP response by its window. All times are Unix milliseconds;
-    /// ANextUpdateMs = 0 means the response carried no nextUpdate.</summary>
+    /// ANextUpdateMs = 0 means the response carried no nextUpdate. A thisUpdate up to
+    /// TRevocationWindow.ThisUpdateSkewMs ahead of ANowMs is tolerated; nextUpdate is strict.</summary>
     class function OcspFreshness(ANowMs, AThisUpdateMs,
       ANextUpdateMs: Int64): TOcspFreshness; static;
+    /// <summary>The stricter of two postures (Hard over Soft over Off): a decision made at both a
+    /// configured and a resolver's own posture holds to whichever demands more.</summary>
+    class function Stricter(AFirst, ASecond: TRevocationPosture): TRevocationPosture; static;
     /// <summary>The posture an inline evaluation runs at: Hard becomes Soft while the indeterminate
     /// case is deferred to a live check; otherwise the configured posture.</summary>
     class function EffectivePosture(APosture: TRevocationPosture;
@@ -108,14 +112,17 @@ type
   end;
 
   /// <summary>
-  /// An augment-only peer-certificate check the caller supplies: it runs after the
-  /// built-in pipeline (PKIX, revocation, endpoint identity, pinning) has already
-  /// passed and can only additionally reject (return False) - it can never turn a
-  /// rejected chain into an accepted one. AChain is the peer chain (leaf first, DER);
-  /// AHostName is the expected host (empty on the server side). This is how a host
+  /// An augment-only peer-certificate check the caller supplies: it runs last, after the
+  /// built-in pipeline (PKIX, revocation, endpoint identity) and pinning have already
+  /// passed, and can only additionally reject (return False) - it can never turn a
+  /// rejected chain into an accepted one. APresented is the chain the peer sent (leaf first,
+  /// DER), extra certificates included. AValidated is the leaf-first path the verifier
+  /// reported as validated; it is nil when no validation ran (under InsecureSkipVerify), so a
+  /// rule about issuance reads AValidated and a caller that skipped validation vets APresented
+  /// itself. AHostName is the expected host (empty on the server side). This is how a host
   /// framework's own verify hook is bridged without loosening our trust decision.
   /// </summary>
-  TTlsCertificateVerifyCallback = function(const AChain: TArray<TBytes>;
+  TTlsCertificateVerifyCallback = function(const APresented, AValidated: TArray<TBytes>;
     const AHostName: string): Boolean of object;
 
   /// <summary>
@@ -145,11 +152,12 @@ type
   /// </summary>
   TVerifyCallbackGate = class sealed(TObject)
   public
-    /// <summary>True when ACallback is unassigned or accepts AChain; else False with AAlert set
-    /// (left untouched on True).</summary>
+    /// <summary>True when ACallback is unassigned or accepts the presented chain and the path
+    /// AVerified validated (nil when its Outcome is Unvalidated); else False with AAlert set (left
+    /// untouched on True).</summary>
     class function Admits(const ACallback: TTlsCertificateVerifyCallback;
-      const AChain: TArray<TBytes>; const AHostName: string;
-      out AAlert: TTlsAlertDescription): Boolean; static;
+      const APresented: TArray<TBytes>; const AVerified: TVerifiedChain;
+      const AHostName: string; out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
   /// <summary>Whose certificate a parked verdict concerns. Server: we are the client and the chain
@@ -186,7 +194,8 @@ type
   /// staple (empty when none) so a live check can skip a fetch the server already answered in-band.
   /// A revocation check should authenticate against RevocationPath (ValidatedPath when the pipeline
   /// produced one, else the presented Chain), so the responder is bound to the issuer PKIX already
-  /// authenticated rather than a re-guess. A client certificate may also carry a staple (RFC 8446
+  /// authenticated rather than a re-guess (under InsecureSkipVerify nothing was, so it binds to the
+  /// peer's own Chain[1]). A client certificate may also carry a staple (RFC 8446
   /// 4.4.2.1 lets a server request status_request of a client), so the staple is not a role signal -
   /// branch on PeerRole. A caller that hand-builds this record MUST set PeerRole (a role-specific
   /// resolver refuses the unset Unknown value); ValidatedPath may be left empty, and RevocationPath
@@ -201,6 +210,11 @@ type
     /// <summary>The time budget in milliseconds the host gave the resolver for this park; 0 means
     /// none was set. A resolver that fetches over the network keeps within it.</summary>
     DeadlineMs: Cardinal;
+    /// <summary>The revocation posture the configuration asked for. A resolver decides at the
+    /// stricter of its own posture and this one, so a Hard configuration is never relaxed by a
+    /// resolver built Soft. Soft is the zero value, so a hand-built context lifts a resolver
+    /// built Off unless it sets Off.</summary>
+    RevocationPosture: TRevocationPosture;
     /// <summary>The path a revocation check should authenticate against: the validated path when
     /// the pipeline produced one, else the presented chain (never the reverse, so a hand-built
     /// context that set only Chain keeps its meaning).</summary>
@@ -276,10 +290,11 @@ begin
 end;
 
 class function TVerifyCallbackGate.Admits(const ACallback: TTlsCertificateVerifyCallback;
-  const AChain: TArray<TBytes>; const AHostName: string;
-  out AAlert: TTlsAlertDescription): Boolean;
+  const APresented: TArray<TBytes>; const AVerified: TVerifiedChain;
+  const AHostName: string; out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := (not Assigned(ACallback)) or ACallback(AChain, AHostName);
+  Result := (not Assigned(ACallback)) or
+    ACallback(APresented, AVerified.ValidatedPath, AHostName);
   if not Result then
     AAlert := TTlsAlertDescription.CertificateUnknown;
 end;
@@ -300,7 +315,7 @@ end;
 class function TRevocationDecision.OcspFreshness(ANowMs, AThisUpdateMs,
   ANextUpdateMs: Int64): TOcspFreshness;
 begin
-  if ANowMs < AThisUpdateMs then
+  if ANowMs + TRevocationWindow.ThisUpdateSkewMs < AThisUpdateMs then
     Result := TOcspFreshness.Stale // not yet valid
   else if ANextUpdateMs <> 0 then
   begin
@@ -313,6 +328,17 @@ begin
     Result := TOcspFreshness.Unbounded
   else
     Result := TOcspFreshness.Stale;
+end;
+
+class function TRevocationDecision.Stricter(AFirst,
+  ASecond: TRevocationPosture): TRevocationPosture;
+begin
+  if (AFirst = TRevocationPosture.Hard) or (ASecond = TRevocationPosture.Hard) then
+    Result := TRevocationPosture.Hard
+  else if (AFirst = TRevocationPosture.Soft) or (ASecond = TRevocationPosture.Soft) then
+    Result := TRevocationPosture.Soft
+  else
+    Result := TRevocationPosture.Off;
 end;
 
 class function TRevocationDecision.EffectivePosture(APosture: TRevocationPosture;

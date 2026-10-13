@@ -37,6 +37,7 @@ uses
   TlpNegotiationTypes,
   TlpRecordLayer,
   TlpITlsEngine,
+  TlpTrustPolicy,
   TlpHandshakeMessage,
   TlpIHandshakeChannel,
   TlpHandshakeChannel,
@@ -347,7 +348,8 @@ begin
     Crypto, LSinkRef);
   try
     LDriver.Apply(THandshakeEffects.AwaitCertificateVerdict(
-      TArray<TBytes>.Create(DecodeHex('3003020100')), nil, 'localhost', nil));
+      TArray<TBytes>.Create(DecodeHex('3003020100')), nil, 'localhost', nil,
+      TRevocationPosture.Soft));
     CheckTrue(LSink.Failed, 'an undeliverable verdict park fails the handshake');
     CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LSink.FailedAlert),
       'the failure is internal_error: our side could not carry the park');

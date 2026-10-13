@@ -48,8 +48,10 @@ type
   /// nextUpdate is accepted inline but never settles - the park still runs (RFC 6960 4.2.2.1).
   /// Only a verifier that can settle revocation inline sets
   /// RevocationSettledInline; a delegate whose live check happens at the park always returns Trusted,
-  /// so the park still runs. This never affects a host-decision park, which is a separate policy.</summary>
-  TVerificationOutcome = (Trusted, RevocationSettledInline);
+  /// so the park still runs. This never affects a host-decision park, which is a separate policy.
+  /// Unvalidated means no validation ran (InsecureSkipVerify): Path is only the leaf, kept for a
+  /// leaf pin, and is not a validated path; a configured park still runs.</summary>
+  TVerificationOutcome = (Trusted, RevocationSettledInline, Unvalidated);
 
   /// <summary>The proof a certificate verifier returns on acceptance: the leaf-first path it
   /// validated (Path, with the leaf's issuer at index 1 where the validator can name it; the leaf
@@ -59,6 +61,8 @@ type
   TVerifiedChain = record
     Path: TArray<TBytes>;
     Outcome: TVerificationOutcome;
+    /// <summary>Path when a path was validated; nil when Outcome is Unvalidated.</summary>
+    function ValidatedPath: TArray<TBytes>;
     // zero the unmanaged Outcome to the safe default so a verifier that writes only Path (this is a
     // public seam) can never leave the park-skip driven by a garbage enum on an out parameter
     class operator Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
@@ -66,6 +70,14 @@ type
   end;
 
 implementation
+
+function TVerifiedChain.ValidatedPath: TArray<TBytes>;
+begin
+  if Outcome = TVerificationOutcome.Unvalidated then
+    Result := nil
+  else
+    Result := Path;
+end;
 
 class operator TVerifiedChain.Initialize({$IFDEF FPC}var{$ELSE}out{$ENDIF}
   AVerified: TVerifiedChain);

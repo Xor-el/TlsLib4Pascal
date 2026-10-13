@@ -213,7 +213,7 @@ type
   /// method pointer stays valid for the life of the process (the harness's -verify-fail).</summary>
   TInteropRejectingVerifier = class sealed(TObject)
   public
-    function Reject(const AChain: TArray<TBytes>;
+    function Reject(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
   end;
 
@@ -235,7 +235,7 @@ type
 var
   GRejecter: TInteropRejectingVerifier;
 
-function TInteropRejectingVerifier.Reject(const AChain: TArray<TBytes>;
+function TInteropRejectingVerifier.Reject(const APresented, AValidated: TArray<TBytes>;
   const AHostName: string): Boolean;
 begin
   Result := False;

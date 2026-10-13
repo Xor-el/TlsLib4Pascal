@@ -66,6 +66,20 @@ type
       out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
+  /// <summary>
+  /// The end-entity rule over a validated path, shared by the built-in verifier and the OS
+  /// delegates: the certificate at index 0 must not assert basicConstraints cA=TRUE (RFC 5280
+  /// 4.2.1.9), so a sub-CA certificate cannot be served as a server or client identity. The one
+  /// exception is a leaf that is itself a configured trust anchor (a directly trusted
+  /// self-signed certificate, which tools such as openssl req -x509 mark as a CA). An
+  /// undeterminable answer is refused.
+  /// </summary>
+  TEndEntityPolicy = class sealed(TObject)
+  public
+    class function Admits(const AInspector: ICertificateInspector;
+      const APath, ARoots: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean; static;
+  end;
+
 implementation
 
 { TChainAlgorithmPolicy }
@@ -253,6 +267,27 @@ begin
     if not CheckCertificate(AInspector, AChain[LI], LIssuerKeyIsPss, APolicy,
       AFilterSchemes, AAdvertised, AAlert) then
       Exit(False);
+  end;
+end;
+
+{ TEndEntityPolicy }
+
+class function TEndEntityPolicy.Admits(const AInspector: ICertificateInspector;
+  const APath, ARoots: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LI: Int32;
+begin
+  AAlert := TTlsAlertDescription.BadCertificate;
+  Result := False;
+  if System.Length(APath) = 0 then
+    Exit;
+  case AInspector.IsCertificateAuthority(APath[0]) of
+    TCertAnswer.No:
+      Result := True;
+    TCertAnswer.Yes:
+      for LI := 0 to System.High(ARoots) do
+        if TArrayUtilities.AreEqual(APath[0], ARoots[LI]) then
+          Exit(True);
   end;
 end;
 

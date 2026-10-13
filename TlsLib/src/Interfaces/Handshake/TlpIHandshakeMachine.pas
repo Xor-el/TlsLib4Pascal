@@ -24,6 +24,7 @@ uses
   TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
+  TlpTrustPolicy,
   TlpIKeySchedule,
   TlpIRecordProtection;
 
@@ -133,9 +134,9 @@ type
   /// it; only the engine bridge does, when async certificate verdicts are enabled.
   /// </summary>
   IHandshakeVerdictSink = interface(IInterface)
-    ['{6F1B4D28-7A93-4C05-9E16-2D7C4B8F0A31}']
+    ['{359BC235-C73B-450D-83CC-38475B5F5C71}']
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
-      const AHostName: string; const AStaple: TBytes);
+      const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
   end;
 
   /// <summary>

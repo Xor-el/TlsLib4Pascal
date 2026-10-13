@@ -379,6 +379,8 @@ end;
 function TOSDelegateVerifierBase.Complete(const AResult: TPlatformChainResult;
   const AServerName: TServerName; const AStaple: TBytes;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LRoots: TArray<TBytes>;
 begin
   AVerified := Default(TVerifiedChain);
   // without a provider or a built path there is nothing to decide over - fail closed
@@ -396,6 +398,11 @@ begin
   // strength over the OS-built path, the engine's exempt certificates skipped
   if not TChainAlgorithmPolicy.Check(FPolicy.Pkix.Certificates, AResult.Path,
     AResult.PolicyExempt, FPolicy.StrengthPolicy, FPolicy.AdvertisedSchemes, AAlert) then
+    Exit(False);
+  // an engine that reports no anchor (Android client) still has the configured ones to match
+  LRoots := TArrayUtilities.Concat<TBytes>(AResult.PolicyExempt, FPolicy.Anchors);
+  LRoots := TArrayUtilities.Concat<TBytes>(LRoots, FPolicy.ExtraAnchors);
+  if not TEndEntityPolicy.Admits(FPolicy.Pkix.Certificates, AResult.Path, LRoots, AAlert) then
     Exit(False);
   // a definitive stapled Revoked overrides under every posture (a staple the engine did not fold in,
   // e.g. under Off); an engine with no revocation outcome of its own decides revocation from it here
@@ -432,7 +439,8 @@ function TOSDelegateVerifierBase.ApplyDangerous(const AChain: TArray<TBytes>;
 begin
   // augment-only: the hook can only additionally reject a chain the engine trusted, never rescue one
   // it rejected (a rejection already returned)
-  Result := TVerifyCallbackGate.Admits(FPolicy.Dangerous.VerifyCallback, AChain, AHostName, AAlert);
+  Result := TVerifyCallbackGate.Admits(FPolicy.Dangerous.VerifyCallback, AChain, AVerified,
+    AHostName, AAlert);
   if not Result then
     AVerified := Default(TVerifiedChain);
 end;

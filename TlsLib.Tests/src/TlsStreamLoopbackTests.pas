@@ -118,7 +118,7 @@ type
     procedure RunLoopback(const AClientConfig: ITlsClientConfig;
       AServerBehavior: TServerBehavior; out AClient: TTlsStream;
       out AServer: TServerRunner; out AClientTransport: TMemoryTransport);
-    function AlwaysReject(const AChain: TArray<TBytes>;
+    function AlwaysReject(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
     /// <summary>The verdict-resolver form (the seam's context signature): a live-revocation-style
     /// resolver reporting the reject alert. Reuses AlwaysReject for the decision.</summary>
@@ -470,7 +470,7 @@ begin
   AServer.Start;
 end;
 
-function TTestTlsStreamLoopback.AlwaysReject(const AChain: TArray<TBytes>;
+function TTestTlsStreamLoopback.AlwaysReject(const APresented, AValidated: TArray<TBytes>;
   const AHostName: string): Boolean;
 begin
   Result := False;
@@ -481,7 +481,7 @@ function TTestTlsStreamLoopback.ResolverReject(
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
   ARejectAlert := TTlsAlertDescription.BadCertificate;
-  Result := AlwaysReject(ACtx.Chain, ACtx.HostName);
+  Result := AlwaysReject(ACtx.Chain, ACtx.ValidatedPath, ACtx.HostName);
 end;
 
 function TTestTlsStreamLoopback.AsyncClientConfig: ITlsClientConfig;

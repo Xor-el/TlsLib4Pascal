@@ -290,6 +290,7 @@ begin
     LCtx.HostName := ACertEvent.HostName;
     LCtx.OcspStaple := ACertEvent.OcspStaple;
     LCtx.DeadlineMs := ADeadlineMs;
+    LCtx.RevocationPosture := ACertEvent.RevocationPosture;
     // a resolver that raises must not leave the handshake parked with no verdict: the peer gets an
     // internal_error and the engine is terminal, so the caller surfaces the failure
     try

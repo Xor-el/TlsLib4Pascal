@@ -47,6 +47,7 @@ uses
   TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpTrustTypes,
+  TlpTrustPolicy,
   TlpServerName,
   TlpISigningKey,
   TlpTlsCredential,
@@ -137,6 +138,8 @@ type
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
     /// augment-only and fail-closed, None by default.</summary>
     Deferral: TVerdictDeferral;
+    /// <summary>The configured revocation posture a parked verdict is decided at.</summary>
+    RevocationPosture: TRevocationPosture;
     /// <summary>The record_size_limit (RFC 8449) plaintext value to advertise, in [64, 2^14];
     /// 0 leaves the extension unoffered. A 1.2 server answers in its ServerHello.</summary>
     RecordSizeLimit: Int32;
@@ -173,11 +176,8 @@ type
     /// <summary>Whether the ServerHello echoed status_request, so a CertificateStatus
     /// message (RFC 6066 8) precedes the ServerKeyExchange.</summary>
     FServerWillStaple: Boolean;
-    /// <summary>A message that arrived coalesced with the parked Certificate (the SKE following an
-    /// omitted CertificateStatus): held while the async verdict is pending so the park is not
-    /// advanced, then re-dispatched by ContinueAfterVerdict.</summary>
-    FDeferredMessage: TTlsHandshakeMessage;
-    FHasDeferredMessage: Boolean;
+    // held until the server's signed key exchange verifies, which is when the verdict parks
+    FPeerVerified: TVerifiedChain;
     /// <summary>The stapled OCSP response the CertificateStatus carried; empty when none.
     /// Fed to the trust verdict.</summary>
     FReceivedOcspStaple: TBytes;
@@ -232,11 +232,14 @@ type
     function ProcessCertificateStatus(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
     /// <summary>The fail-closed server-chain trust check, run once the stapled OCSP response
-    /// (if any) is in hand. Raises on rejection. Returns the AwaitCertificateVerdict park
-    /// effect when an async verdict is configured (the pipeline having accepted the chain),
-    /// otherwise an empty result.</summary>
+    /// (if any) is in hand. Raises on rejection. Holds what the verifier accepted in
+    /// FPeerVerified for the ServerKeyExchange to park on, and returns the connection-info
+    /// effect.</summary>
     function VerifyServerChain: TArray<THandshakeEffect>;
     procedure ProcessServerKeyExchangePsk(const AMessage: TTlsHandshakeMessage);
+    /// <summary>Verifies the signed ServerKeyExchange and, once the server has proved it holds
+    /// the leaf key, returns the AwaitCertificateVerdict park effect when an async verdict is
+    /// configured.</summary>
     function ProcessServerKeyExchange(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
     /// <summary>Records a CertificateRequest (RFC 5246 7.4.4) and its signature algorithms.</summary>
@@ -648,17 +651,10 @@ begin
   if not FParams.CertificateVerifier.VerifyServerCertificate(FCertChain,
     FParams.ExpectedServerName, FReceivedOcspStaple, LVerified, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
+  FPeerVerified := LVerified;
   // surface the presented chain and the validated path for connection info (read-only)
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.PeerCertificateChain(FCertChain, LVerified.Path));
-  // async verdict: the pipeline accepted the chain; park for the host's out-of-band decision.
-  // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
-  // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
-  // until SetCertificateVerdict resumes it
-  if TPeerAuthentication.ShouldPark(FParams.Deferral, LVerified.Outcome) then
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      ParkForVerdict(FCertChain, LVerified.Path,
-      FParams.ExpectedServerName.ToString, FReceivedOcspStaple));
+    THandshakeEffects.PeerCertificateChain(FCertChain, LVerified.ValidatedPath));
 end;
 
 function TTls12ClientStateMachine.ProcessCertificate(
@@ -712,7 +708,7 @@ function TTls12ClientStateMachine.ProcessCertificateStatus(
 begin
   FReceivedOcspStaple := THandshakeMessages.DecodeCertificateStatus(AMessage.Body);
   Absorb(AMessage.Raw);
-  // surface the staple so an integration can inspect it, then any async park effect
+  // surface the staple so an integration can inspect it, then the trust verdict's connection info
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.PeerOcspStaple(FReceivedOcspStaple));
   Result := TArrayUtilities.Concat<THandshakeEffect>(Result, VerifyServerChain);
@@ -756,6 +752,12 @@ begin
   FServerEcdhePublic := LSke.PublicKey;
   Absorb(AMessage.Raw);
   FPhase := TPhase.WaitServerHelloDone;
+  // park only after the key proof so an unproven certificate never costs a fetch or a host decision
+  if TPeerAuthentication.ShouldPark(FParams.Deferral, FPeerVerified.Outcome) then
+    Result := TArray<THandshakeEffect>.Create(ParkForVerdict(FCertChain,
+      FPeerVerified.ValidatedPath,
+      FParams.ExpectedServerName.ToString, FReceivedOcspStaple, FParams.RevocationPosture));
+  FPeerVerified := Default(TVerifiedChain);
 end;
 
 procedure TTls12ClientStateMachine.ProcessServerKeyExchangePsk(
@@ -1179,7 +1181,8 @@ begin
     FPhase := TPhase.WaitResumeVerdict;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FResumptionOffer.PeerCertificates,
-      FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil));
+      FResumeValidatedPath, FParams.ExpectedServerName.ToString, nil,
+      FParams.RevocationPosture));
     Exit;
   end;
 
@@ -1220,16 +1223,6 @@ end;
 function TTls12ClientStateMachine.ContinueAfterVerdict: TArray<THandshakeEffect>;
 begin
   Result := nil;
-  // a message coalesced with the parked Certificate (the SKE after an omitted CertificateStatus)
-  // was deferred so the park was not advanced; dispatch it now via ProcessMessage, so an in-band
-  // protocol failure surfaces as a Fail effect rather than a raised exception
-  if FHasDeferredMessage then
-  begin
-    FHasDeferredMessage := False;
-    Result := ProcessMessage(FDeferredMessage);
-    FDeferredMessage := Default(TTlsHandshakeMessage);
-    Exit;
-  end;
   // only the reverify-on-resume park withholds a continuation; other paths resume by draining
   // the buffered server flight, so there is nothing to emit for them
   if FPhase = TPhase.WaitResumeVerdict then
@@ -1261,17 +1254,10 @@ begin
       begin
         // the server may omit the CertificateStatus even after echoing status_request (RFC 6066 8);
         // verify the chain with no staple, then handle the message that followed the (absent)
-        // CertificateStatus. If verification parked for an async verdict, that follow-on message
-        // must wait too - defer it and re-dispatch once the verdict resumes, never advancing a park.
+        // CertificateStatus
         Result := VerifyServerChain;
         FPhase := TPhase.WaitServerKeyExchange;
-        if Stage = THandshakeStage.ParkedForVerdict then
-        begin
-          FDeferredMessage := AMessage;
-          FHasDeferredMessage := True;
-        end
-        else
-          Result := TArrayUtilities.Concat<THandshakeEffect>(Result, Route(AMessage));
+        Result := TArrayUtilities.Concat<THandshakeEffect>(Result, Route(AMessage));
       end;
     TPhase.WaitServerKeyExchange:
       if LKnown and (LType = TTlsHandshakeType.ServerKeyExchange) then

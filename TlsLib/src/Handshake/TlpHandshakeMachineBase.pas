@@ -28,6 +28,7 @@ uses
   TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
+  TlpTrustPolicy,
   TlpIHandshakeMachine;
 
 type
@@ -55,7 +56,8 @@ type
     /// <summary>Suspends the machine for an out-of-band peer-certificate verdict: sets Stage =
     /// ParkedForVerdict and returns the AwaitCertificateVerdict effect the driver reports.</summary>
     function ParkForVerdict(const AChain, AValidatedPath: TArray<TBytes>;
-      const AHostName: string; const AStaple: TBytes): THandshakeEffect;
+      const AHostName: string; const AStaple: TBytes;
+      APosture: TRevocationPosture): THandshakeEffect;
     /// <summary>The withheld continuation resumed after a message-less verdict park; nil by
     /// default, overridden by the clients' reverify-on-resume park. ResumeAfterVerdict clears the
     /// park stage and returns this.</summary>
@@ -126,11 +128,11 @@ end;
 
 function THandshakeMachineBase.ParkForVerdict(const AChain,
   AValidatedPath: TArray<TBytes>; const AHostName: string;
-  const AStaple: TBytes): THandshakeEffect;
+  const AStaple: TBytes; APosture: TRevocationPosture): THandshakeEffect;
 begin
   FStage := THandshakeStage.ParkedForVerdict;
   Result := THandshakeEffects.AwaitCertificateVerdict(AChain, AValidatedPath,
-    AHostName, AStaple);
+    AHostName, AStaple, APosture);
 end;
 
 function THandshakeMachineBase.ContinueAfterVerdict: TArray<THandshakeEffect>;

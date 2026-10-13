@@ -56,6 +56,7 @@ uses
   TlpICertificateTrust,
   TlpCertificateLimits,
   TlpTrustTypes,
+  TlpTrustPolicy,
   TlpServerName,
   TlpISigningKey,
   TlpTlsCredential,
@@ -169,6 +170,8 @@ type
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
     /// augment-only and fail-closed, None by default.</summary>
     Deferral: TVerdictDeferral;
+    /// <summary>The configured revocation posture a parked verdict is decided at.</summary>
+    RevocationPosture: TRevocationPosture;
     /// <summary>The Encrypted Client Hello policy (RFC 9849), or nil when ECH is not
     /// offered. When present the client builds the inner/outer ClientHello, seals the
     /// inner, and detects accept/reject from the ServerHello.</summary>
@@ -215,6 +218,8 @@ type
     FMiddleboxCcsSent: Boolean;
     FOfferedExtensions: TArray<UInt16>;
     FCertificateChain: TArray<TBytes>;
+    // held until the server's CertificateVerify verifies, which is when the verdict parks
+    FPeerVerified: TVerifiedChain;
     // the server leaf parsed once for the well-formed gate, reused for the signing-policy
     // check and its SubjectPublicKeyInfo; released once the signature is verified
     FParsedServerLeaf: IInspectedCertificate;
@@ -354,6 +359,11 @@ type
     function HandleCertificate(const ACertificateBody, ATranscriptRaw: TBytes)
       : TArray<THandshakeEffect>;
     procedure VerifyCertificateVerify(const AMessage: TTlsHandshakeMessage);
+    /// <summary>Verifies the server's CertificateVerify, folds it into the transcript and, once
+    /// the server has proved it holds the leaf key, parks for an out-of-band verdict when one is
+    /// configured.</summary>
+    function ProcessCertificateVerify(const AMessage: TTlsHandshakeMessage)
+      : TArray<THandshakeEffect>;
     /// <summary>Records a CertificateRequest (RFC 8446 4.3.2): the request context and
     /// the server's accepted signature schemes, folding it into the transcript.</summary>
     procedure ProcessCertificateRequest(const AMessage: TTlsHandshakeMessage);
@@ -1571,19 +1581,27 @@ begin
   // surface the presented chain and the validated path for connection info (read-only; both the
   // inline and async paths)
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.PeerCertificateChain(FCertificateChain, LVerified.Path));
+    THandshakeEffects.PeerCertificateChain(FCertificateChain, LVerified.ValidatedPath));
   // surface any accepted staple so an integration can inspect it
   if System.Length(FReceivedOcspStaple) > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.PeerOcspStaple(FReceivedOcspStaple));
-  // async verdict: the pipeline has accepted the chain; park for the host's out-of-band decision.
-  // Carry both the presented chain and the validated path (issuer at index 1), so a live resolver
-  // authenticates against the PKIX issuer, never a guess. The rest of the flight stays buffered
-  // until SetCertificateVerdict resumes it.
-  if TPeerAuthentication.ShouldPark(FParams.Deferral, LVerified.Outcome) then
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      ParkForVerdict(FCertificateChain, LVerified.Path,
-      FExpectedName.ToString, FReceivedOcspStaple));
+  FPeerVerified := LVerified;
+end;
+
+function TTls13ClientStateMachine.ProcessCertificateVerify(
+  const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
+begin
+  VerifyCertificateVerify(AMessage);
+  FTranscript.Update(AMessage.Raw);
+  FPhase := TPhase.WaitServerFinished;
+  Result := nil;
+  // park only after the key proof so an unproven certificate never costs a fetch or a host decision
+  if TPeerAuthentication.ShouldPark(FParams.Deferral, FPeerVerified.Outcome) then
+    Result := TArray<THandshakeEffect>.Create(ParkForVerdict(FCertificateChain,
+      FPeerVerified.ValidatedPath, FExpectedName.ToString, FReceivedOcspStaple,
+      FParams.RevocationPosture));
+  FPeerVerified := Default(TVerifiedChain);
 end;
 
 function TTls13ClientStateMachine.ProcessCertificate(
@@ -1808,7 +1826,7 @@ begin
     FPhase := TPhase.WaitResumeVerdict;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       ParkForVerdict(FResumptionPeerCertificates, FResumeValidatedPath,
-      FExpectedName.ToString, nil));
+      FExpectedName.ToString, nil, FParams.RevocationPosture));
     Exit;
   end;
 
@@ -1955,14 +1973,7 @@ begin
         Result := Unexpected;
     TPhase.WaitCertificateVerify:
       if LKnown and (LType = TTlsHandshakeType.CertificateVerify) then
-      begin
-        // verify the proof-of-possession over the transcript through Certificate,
-        // then fold the message in
-        VerifyCertificateVerify(AMessage);
-        FTranscript.Update(AMessage.Raw);
-        FPhase := TPhase.WaitServerFinished;
-        Result := nil;
-      end
+        Result := ProcessCertificateVerify(AMessage)
       else
         Result := Unexpected;
     TPhase.WaitServerFinished:

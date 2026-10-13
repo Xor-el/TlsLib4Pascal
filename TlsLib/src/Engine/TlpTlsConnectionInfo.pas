@@ -44,8 +44,8 @@ type
     /// On a resumed handshake this is the chain stored with the session.
     PeerCertificates: TArray<TBytes>;
     /// The leaf-first path the built-in pipeline validated on this connection (the leaf's issuer at
-    /// index 1 and the anchor where nameable; the leaf alone under InsecureSkipVerify). Empty when no
-    /// path was validated here: before the handshake, when the peer sent none, and on a resumption
+    /// index 1 and the anchor where nameable). Empty when no path was validated here: under
+    /// InsecureSkipVerify, before the handshake, when the peer sent none, and on a resumption
     /// unless the client re-verified the stored chain (ResumeVerification = Reverify).
     ValidatedPath: TArray<TBytes>;
     /// The DER DistinguishedName certificate_authorities the peer named in its CertificateRequest

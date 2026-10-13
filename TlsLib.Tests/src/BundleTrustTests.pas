@@ -31,6 +31,7 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
+  TlpTlsLibExceptions,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
@@ -46,6 +47,8 @@ type
   published
     procedure TestFromPemLoadsRoot;
     procedure TestFromPemFileLoadsRoot;
+    procedure TestFromPemWithoutAProviderRaises;
+    procedure TestFromPemFileWithoutAProviderRaises;
   end;
 
 implementation
@@ -95,6 +98,34 @@ begin
   CheckTrue(LStore <> nil, 'FromPemFile returns an anchor store');
   CheckEquals(1, Length(LStore.RootCertificates),
     'the bundle file yields exactly one anchor');
+end;
+
+procedure TTestBundleTrust.TestFromPemWithoutAProviderRaises;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TBundleTrust.FromPem(nil, FRootDer);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil PKIX provider raises an argument error, not an access violation');
+end;
+
+procedure TTestBundleTrust.TestFromPemFileWithoutAProviderRaises;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TBundleTrust.FromPemFile(nil, 'bundle-that-is-never-read.pem');
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil PKIX provider raises before the file is read');
 end;
 
 initialization

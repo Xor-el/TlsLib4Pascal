@@ -43,6 +43,25 @@ uses
   TlsLibTestBase;
 
 type
+  /// <summary>An IHttpFetcher double whose first POST runs a second check on its checker (answered
+  /// with ANestedBody) before answering AOuterBody, so two checks overlap without threads.</summary>
+  TNestedCheckFetcher = class(TInterfacedObject, IHttpFetcher)
+  strict private
+    FChecker: TLiveRevocationChecker;
+    FChain: TArray<TBytes>;
+    FOuterBody, FNestedBody: TBytes;
+    FPosts: Int32;
+  public
+    constructor Create(const AOuterBody, ANestedBody: TBytes; const AChain: TArray<TBytes>);
+    /// <summary>The checker the nested check runs on; not owned.</summary>
+    procedure Attach(AChecker: TLiveRevocationChecker);
+    function Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
+      out AResponse: TBytes): Boolean;
+    function Post(const AUrl, AContentType: string; const ABody: TBytes;
+      ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
+    property Posts: Int32 read FPosts;
+  end;
+
   /// <summary>
   /// Live OCSP/CRL revocation over the injected IHttpFetcher. Proves the
   /// provider request/URL/CRL primitives and the checker's fail-closed matrix: a definitive
@@ -50,6 +69,10 @@ type
   /// no-issuer result follows the posture (Soft accepts, Hard rejects).
   /// </summary>
   TTestLiveRevocation = class(TTlsLibAlgorithmTestCase)
+  strict private
+  const
+    // 2020-01-01T00:00:00Z, the thisUpdate of the OCSP and CRL fixtures
+    FixtureThisUpdateMs = Int64(1577836800000);
   strict private
     function SystemTicks: ITlsMonotonicClock;
     function CaCert: TBytes;
@@ -66,6 +89,10 @@ type
     // the checker's accept/reject verdict for a server-presented chain, via the resolver seam
     function Accepts(const AChecker: TLiveRevocationChecker;
       const AChain: TArray<TBytes>): Boolean;
+    // the same verdict when the configuration carries AConfigPosture, as the engine hands it
+    function AcceptsUnderConfig(const AChecker: TLiveRevocationChecker;
+      const AChain: TArray<TBytes>; AConfigPosture: TRevocationPosture;
+      out AAlert: TTlsAlertDescription): Boolean;
     // scripted responders: the spy lists the URLs, the fetcher answers each one and takes time on
     // the mock clock, and the checker runs under a total budget
     procedure Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
@@ -160,6 +187,32 @@ type
     // Indeterminate beyond it; a live check never settles inline, so no park is skipped by it
     procedure TestLiveGoodWithoutNextUpdateWithinMaxAgeIsGood;
     procedure TestLiveGoodWithoutNextUpdateBeyondMaxAgeIsIndeterminate;
+    // the configured posture holds: the stricter of the checker's and the configuration's decides
+    procedure TestConfiguredHardRejectsWhereASoftCheckerWouldAccept;
+    procedure TestConfiguredSoftDoesNotRelaxAHardChecker;
+    procedure TestConfiguredHardMakesAnOffCheckerFetch;
+    // thisUpdate may run a bounded skew ahead of the clock, on the staple, the live OCSP and the CRL
+    procedure TestStapleThisUpdateWithinSkewIsFresh;
+    procedure TestStapleThisUpdateBeyondSkewIsIndeterminate;
+    procedure TestLiveOcspThisUpdateWithinSkewIsGood;
+    procedure TestLiveOcspThisUpdateBeyondSkewIsIndeterminate;
+    procedure TestCrlThisUpdateWithinSkewIsAuthoritative;
+    procedure TestCrlThisUpdateBeyondSkewIsIndeterminate;
+    // the response cache: hits, judged again on every use, expiry, bounds, never softened
+    procedure TestCachedOcspResponseIsReusedWithoutFetching;
+    procedure TestCachedCrlIsReusedWithoutFetching;
+    procedure TestCachedResponseIsJudgedAgainOnEveryUse;
+    procedure TestCachedResponseExpiresAtNextUpdate;
+    procedure TestCachedResponseIsKeptAtMostADay;
+    procedure TestIndeterminateAnswerIsNotCached;
+    procedure TestCacheIsBoundedByItsEntryCount;
+    procedure TestCacheKeepsEntriesWithinItsBound;
+    procedure TestCacheCanBeSwitchedOff;
+    procedure TestCacheIsBoundedByBodyBytes;
+    procedure TestRevokedAnswerPastItsNextUpdateDoesNotDisplaceALiveEntry;
+    procedure TestCachedRevocationSurvivesAnUnrelatedCheckOfTheSameUrl;
+    procedure TestCachedRevokedAnswerIsReplayed;
+    procedure TestOverlappingCheckNeverSoftensACachedRevocation;
   end;
 
   /// <summary>
@@ -247,9 +300,49 @@ type
     procedure TestEffectivePosture;
     // the one OCSP window classification the staple and live paths share
     procedure TestOcspFreshness;
+    procedure TestOcspFreshnessToleratesThisUpdateWithinSkew;
+    procedure TestOcspFreshnessKeepsNextUpdateStrict;
+    procedure TestStricterPosture;
   end;
 
 implementation
+
+{ TNestedCheckFetcher }
+
+constructor TNestedCheckFetcher.Create(const AOuterBody, ANestedBody: TBytes;
+  const AChain: TArray<TBytes>);
+begin
+  inherited Create;
+  FOuterBody := AOuterBody;
+  FNestedBody := ANestedBody;
+  FChain := AChain;
+end;
+
+procedure TNestedCheckFetcher.Attach(AChecker: TLiveRevocationChecker);
+begin
+  FChecker := AChecker;
+end;
+
+function TNestedCheckFetcher.Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
+  out AResponse: TBytes): Boolean;
+begin
+  AResponse := nil;
+  Result := False;
+end;
+
+function TNestedCheckFetcher.Post(const AUrl, AContentType: string; const ABody: TBytes;
+  ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
+begin
+  Inc(FPosts);
+  if FPosts = 1 then
+  begin
+    FChecker.Evaluate(FChain);
+    AResponse := System.Copy(FOuterBody);
+  end
+  else
+    AResponse := System.Copy(FNestedBody);
+  Result := True;
+end;
 
 { TTestLiveRevocation }
 
@@ -328,6 +421,19 @@ begin
   LCtx.PeerRole := TPeerRole.Server;
   LCtx.Chain := AChain;
   Result := AChecker.ResolveVerdict(LCtx, LAlert);
+end;
+
+function TTestLiveRevocation.AcceptsUnderConfig(const AChecker: TLiveRevocationChecker;
+  const AChain: TArray<TBytes>; AConfigPosture: TRevocationPosture;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LCtx: TCertificateVerdictContext;
+begin
+  LCtx := Default(TCertificateVerdictContext);
+  LCtx.PeerRole := TPeerRole.Server;
+  LCtx.Chain := AChain;
+  LCtx.RevocationPosture := AConfigPosture;
+  Result := AChecker.ResolveVerdict(LCtx, AAlert);
 end;
 
 procedure TTestLiveRevocation.CheckUrls(const AExpected: array of string;
@@ -795,6 +901,7 @@ begin
   CheckEquals(3, LOptions.MaxCrlDistributionPoints, 'CRL point cap');
   CheckEquals(250, Int32(LOptions.MinAttemptMs), 'minimum attempt time');
   CheckEquals(32 * 1024 * 1024, LOptions.MaxCrlBytes, 'CRL size cap');
+  CheckEquals(64, LOptions.MaxCachedResponses, 'cached responses');
   CheckEquals(0, System.Length(LOptions.IssuerCandidates), 'no issuer candidates');
 end;
 
@@ -910,6 +1017,14 @@ begin
   CheckFalse(OptionsAreRefused(LOptions), 'a 4 KiB CRL cap');
   LOptions.MaxCrlBytes := 256 * 1024 * 1024;
   CheckFalse(OptionsAreRefused(LOptions), 'a 256 MiB CRL cap');
+  LOptions.MaxCachedResponses := -1;
+  CheckTrue(OptionsAreRefused(LOptions), 'a negative cache size');
+  LOptions.MaxCachedResponses := 1025;
+  CheckTrue(OptionsAreRefused(LOptions), 'a cache over 1024 responses');
+  LOptions.MaxCachedResponses := 0;
+  CheckFalse(OptionsAreRefused(LOptions), 'a disabled cache');
+  LOptions.MaxCachedResponses := 1024;
+  CheckFalse(OptionsAreRefused(LOptions), 'a 1024-response cache');
 end;
 
 procedure TTestLiveRevocation.TestNilInputsAreRefused;
@@ -1406,6 +1521,7 @@ procedure TTestLiveRevocation.TestOffPosturePerformsNoFetch;
 var
   LFetcher: TMockHttpFetcher;
   LChecker: TLiveRevocationChecker;
+  LAlert: TTlsAlertDescription;
 begin
   // Off suppresses the live fetch entirely (network + privacy cost): even with a Revoked OCSP
   // and CRL primed, the checker never calls the fetcher and yields Indeterminate -> accept (Off
@@ -1418,7 +1534,8 @@ begin
   try
     CheckTrue(LChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
       'Off yields Indeterminate without consulting any responder');
-    CheckTrue(Accepts(LChecker, Chain), 'Off accepts the indeterminate outcome (soft)');
+    CheckTrue(AcceptsUnderConfig(LChecker, Chain, TRevocationPosture.Off, LAlert),
+      'Off accepts the indeterminate outcome (soft)');
     CheckEquals(0, LFetcher.PostCount, 'Off performs no OCSP POST');
     CheckEquals(0, LFetcher.GetCount, 'Off performs no CRL GET');
   finally
@@ -1548,6 +1665,356 @@ begin
       'a live Good without nextUpdate past the max age is Indeterminate');
     CheckFalse(Accepts(LChecker, TArray<TBytes>.Create(LLeaf, LCa)),
       'Hard rejects the indeterminate outcome');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestConfiguredHardRejectsWhereASoftCheckerWouldAccept;
+var
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+  LAlert: TTlsAlertDescription;
+begin
+  // the configuration asked for Hard; a checker built Soft must not relax it
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(False, nil); // responder unreachable
+  LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Soft,
+    TLiveRevocationMethod.Ocsp);
+  try
+    CheckFalse(AcceptsUnderConfig(LChecker, Chain, TRevocationPosture.Hard, LAlert),
+      'a Hard configuration rejects an unreachable responder');
+    CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+      'the alert is bad_certificate_status_response');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestConfiguredSoftDoesNotRelaxAHardChecker;
+var
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+  LAlert: TTlsAlertDescription;
+begin
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(False, nil); // responder unreachable
+  LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    TLiveRevocationMethod.Ocsp);
+  try
+    CheckFalse(AcceptsUnderConfig(LChecker, Chain, TRevocationPosture.Soft, LAlert),
+      'a checker built Hard stays Hard under a Soft configuration');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestConfiguredHardMakesAnOffCheckerFetch;
+var
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+  LAlert: TTlsAlertDescription;
+begin
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(False, nil); // responder unreachable
+  LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Off,
+    TLiveRevocationMethod.Ocsp);
+  try
+    CheckFalse(AcceptsUnderConfig(LChecker, Chain, TRevocationPosture.Hard, LAlert),
+      'a Hard configuration rejects the unreachable responder');
+    CheckEquals(1, LFetcher.PostCount, 'the Off checker asked the responder');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestStapleThisUpdateWithinSkewIsFresh;
+var
+  LClock: ITlsClock;
+begin
+  LClock := TMockClock.Create(UInt64(FixtureThisUpdateMs -
+    TRevocationWindow.ThisUpdateSkewMs)) as ITlsClock;
+  CheckEquals(Ord(TStapleVerdict.GoodFresh),
+    Ord(TOcspStaplePolicy.Verdict(Pkix, LClock, Chain, OcspGood)),
+    'a staple whose thisUpdate is within the skew ahead of the clock is current');
+end;
+
+procedure TTestLiveRevocation.TestStapleThisUpdateBeyondSkewIsIndeterminate;
+var
+  LClock: ITlsClock;
+begin
+  LClock := TMockClock.Create(UInt64(FixtureThisUpdateMs -
+    TRevocationWindow.ThisUpdateSkewMs - 1)) as ITlsClock;
+  CheckEquals(Ord(TStapleVerdict.Indeterminate),
+    Ord(TOcspStaplePolicy.Verdict(Pkix, LClock, Chain, OcspGood)),
+    'a staple whose thisUpdate is beyond the skew is not yet valid');
+end;
+
+procedure TTestLiveRevocation.TestLiveOcspThisUpdateWithinSkewIsGood;
+var
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+begin
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(True, OcspGood);
+  LChecker := TLiveRevocationChecker.Create(Pkix,
+    TMockClock.Create(UInt64(FixtureThisUpdateMs - TRevocationWindow.ThisUpdateSkewMs))
+    as ITlsClock, SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    TLiveRevocationMethod.Ocsp, 0);
+  try
+    CheckTrue(LChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+      'a live response a responder clock ahead by the skew is still Good');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestLiveOcspThisUpdateBeyondSkewIsIndeterminate;
+var
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+begin
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(True, OcspGood);
+  LChecker := TLiveRevocationChecker.Create(Pkix,
+    TMockClock.Create(UInt64(FixtureThisUpdateMs - TRevocationWindow.ThisUpdateSkewMs - 1))
+    as ITlsClock, SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    TLiveRevocationMethod.Ocsp, 0);
+  try
+    CheckTrue(LChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
+      'a live response beyond the skew is not yet valid');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestCrlThisUpdateWithinSkewIsAuthoritative;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  CheckTrue(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood,
+    TDateTimeUtilities.UnixMsToDateTime(FixtureThisUpdateMs - TRevocationWindow.ThisUpdateSkewMs),
+    LRevoked, LThisUpdate, LNextUpdate),
+    'a CRL whose thisUpdate is within the skew ahead of the clock is current');
+end;
+
+procedure TTestLiveRevocation.TestCrlThisUpdateBeyondSkewIsIndeterminate;
+var
+  LRevoked: Boolean;
+  LThisUpdate, LNextUpdate: TDateTime;
+begin
+  CheckFalse(Pkix.Revocation.CheckCrlRevocation(LeafCert, CaCert, CrlGood,
+    TDateTimeUtilities.UnixMsToDateTime(FixtureThisUpdateMs -
+    TRevocationWindow.ThisUpdateSkewMs - 1000), LRevoked, LThisUpdate, LNextUpdate),
+    'a CRL whose thisUpdate is beyond the skew is not yet valid');
+end;
+
+procedure TTestLiveRevocation.TestCachedOcspResponseIsReusedWithoutFetching;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
+  FFetcher.SetPost(True, OcspGood);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the first check is Good');
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the second check is Good');
+  CheckEquals(1, FFetcher.PostCount, 'the responder was asked once');
+end;
+
+procedure TTestLiveRevocation.TestCachedCrlIsReusedWithoutFetching;
+begin
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'));
+  FFetcher.SetGet(True, CrlGood);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the first check is Good');
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the second check is Good');
+  CheckEquals(1, FFetcher.GetCount, 'the CRL was fetched once');
+end;
+
+procedure TTestLiveRevocation.TestCachedResponseIsJudgedAgainOnEveryUse;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
+  FFetcher.SetPost(True, OcspGood);
+  FChecker.Evaluate(Chain);
+  FChecker.Evaluate(Chain);
+  CheckEquals(2, FSpy.OcspParseCount,
+    'the cached response is authenticated again rather than trusted as an outcome');
+end;
+
+procedure TTestLiveRevocation.TestCachedResponseExpiresAtNextUpdate;
+var
+  LStatus: TOcspStatus;
+  LThisUpdate, LNextUpdate: TDateTime;
+  LNextMs: Int64;
+begin
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(LeafCert, CaCert, OcspGood, NowUtc, LStatus,
+    LThisUpdate, LNextUpdate), 'the fixture response parses');
+  LNextMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
+  FFetcher.SetPost(True, OcspGood);
+  // an hour before nextUpdate the response is Good and kept
+  FClock.SetUnixMillis(UInt64(LNextMs - 60 * 60 * 1000));
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'Good an hour before nextUpdate');
+  FClock.SetUnixMillis(UInt64(LNextMs - 1));
+  FChecker.Evaluate(Chain);
+  CheckEquals(1, FFetcher.PostCount, 'still cached one millisecond before nextUpdate');
+  // at nextUpdate the entry is dropped without being judged, and the responder is asked again
+  FClock.SetUnixMillis(UInt64(LNextMs));
+  FChecker.Evaluate(Chain);
+  CheckEquals(2, FFetcher.PostCount, 'the responder is asked again at nextUpdate');
+  CheckEquals(3, FSpy.OcspParseCount,
+    'the expired entry was dropped, not judged: first fetch, one cached use, the refetch');
+end;
+
+procedure TTestLiveRevocation.TestCachedResponseIsKeptAtMostADay;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
+  FFetcher.SetPost(True, OcspGood);
+  FChecker.Evaluate(Chain);
+  FClock.Advance(UInt64(24) * 60 * 60 * 1000 - 1);
+  FChecker.Evaluate(Chain);
+  CheckEquals(1, FFetcher.PostCount, 'still cached just inside the day');
+  FClock.Advance(1);
+  FChecker.Evaluate(Chain);
+  CheckEquals(2, FFetcher.PostCount, 'fetched again once the day has passed, nextUpdate being far off');
+end;
+
+procedure TTestLiveRevocation.TestIndeterminateAnswerIsNotCached;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
+  FFetcher.SetPost(True, TBytes.Create(1, 2, 3, 4, 5)); // not an OCSP response
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate, 'garbage is indeterminate');
+  FFetcher.SetPost(True, OcspGood);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+    'the next check asks again and gets the real answer');
+  CheckEquals(2, FFetcher.PostCount, 'both checks reached the responder');
+end;
+
+procedure TTestLiveRevocation.TestCacheIsBoundedByItsEntryCount;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  LOptions.MaxCachedResponses := 1;
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'),
+    LOptions);
+  FFetcher.SetGet(True, CrlGood);
+  FChecker.Evaluate(Chain);
+  FSpy.OverrideCrlUrls(TArray<string>.Create('http://b.test/2.crl'));
+  FChecker.Evaluate(Chain);
+  FSpy.OverrideCrlUrls(TArray<string>.Create('http://a.test/1.crl'));
+  FChecker.Evaluate(Chain);
+  CheckEquals(3, FFetcher.GetCount, 'the first CRL was evicted by the second, so it is fetched again');
+end;
+
+procedure TTestLiveRevocation.TestCacheKeepsEntriesWithinItsBound;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  LOptions.MaxCachedResponses := 2;
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'),
+    LOptions);
+  FFetcher.SetGet(True, CrlGood);
+  FChecker.Evaluate(Chain);
+  FSpy.OverrideCrlUrls(TArray<string>.Create('http://b.test/2.crl'));
+  FChecker.Evaluate(Chain);
+  FSpy.OverrideCrlUrls(TArray<string>.Create('http://a.test/1.crl'));
+  FChecker.Evaluate(Chain);
+  CheckEquals(2, FFetcher.GetCount, 'both CRLs fit, so the third check is a hit');
+end;
+
+procedure TTestLiveRevocation.TestCacheCanBeSwitchedOff;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  LOptions.MaxCachedResponses := 0;
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil, LOptions);
+  FFetcher.SetPost(True, OcspGood);
+  FChecker.Evaluate(Chain);
+  FChecker.Evaluate(Chain);
+  CheckEquals(2, FFetcher.PostCount, 'with no cache every check asks the responder');
+end;
+
+procedure TTestLiveRevocation.TestCachedRevokedAnswerIsReplayed;
+begin
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
+  FFetcher.SetPost(True, OcspRevoked);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked, 'the first check is Revoked');
+  FFetcher.SetPost(True, OcspGood);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
+    'the second check is Revoked from the cache, whatever the responder would say now');
+  CheckEquals(1, FFetcher.PostCount, 'the responder was asked once');
+end;
+
+procedure TTestLiveRevocation.TestCachedRevocationSurvivesAnUnrelatedCheckOfTheSameUrl;
+var
+  LOther: TArray<TBytes>;
+begin
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'));
+  FFetcher.SetGet(True, CrlRevoked);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked, 'the CRL lists the leaf');
+  // another certificate whose issuer did not sign that CRL: it reads as indeterminate
+  LOther := TArray<TBytes>.Create(Field('multi_ocsp_cert'), Field('scheme_cert'));
+  CheckTrue(FChecker.Evaluate(LOther) = TLiveRevocationOutcome.Indeterminate,
+    'the unrelated check is indeterminate');
+  FFetcher.SetGet(True, CrlGood);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
+    'the first leaf is still revoked from the cache');
+end;
+
+procedure TTestLiveRevocation.TestCacheIsBoundedByBodyBytes;
+var
+  LOptions: TLiveRevocationOptions;
+  LPadded: TBytes;
+begin
+  LPadded := System.Copy(CrlGood);
+  SetLength(LPadded, 3000);
+  LOptions.MaxCrlBytes := 4096;
+  Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'),
+    LOptions);
+  FFetcher.SetGet(True, LPadded);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the padded CRL is read');
+  FSpy.OverrideCrlUrls(TArray<string>.Create('http://b.test/2.crl'));
+  FChecker.Evaluate(Chain);
+  FSpy.OverrideCrlUrls(TArray<string>.Create('http://a.test/1.crl'));
+  FChecker.Evaluate(Chain);
+  CheckEquals(3, FFetcher.GetCount, 'the second body evicted the first to stay within the byte budget');
+end;
+
+procedure TTestLiveRevocation.TestRevokedAnswerPastItsNextUpdateDoesNotDisplaceALiveEntry;
+const
+  // 2026-10-14T12:00Z, hours past the revoked response's nextUpdate
+  AfterNextUpdateMs = Int64(1791979200) * 1000;
+var
+  LOptions: TLiveRevocationOptions;
+  LExpired: TArray<TBytes>;
+begin
+  LOptions.MaxCachedResponses := 1;
+  Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil, LOptions);
+  FClock.SetUnixMillis(UInt64(AfterNextUpdateMs));
+  FFetcher.SetPost(True, OcspGood);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the live entry is cached');
+  LExpired := TArray<TBytes>.Create(Field('expiry_leaf_cert'), Field('expiry_ca_cert'));
+  FFetcher.SetPost(True, Field('expiry_ocsp_revoked'));
+  CheckTrue(FChecker.Evaluate(LExpired) = TLiveRevocationOutcome.Revoked,
+    'a revocation is a revocation even past its nextUpdate');
+  FFetcher.SetPost(False, nil);
+  CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
+    'the live entry is still served after the expired answer');
+  CheckEquals(2, FFetcher.PostCount, 'the live entry was not evicted to make room for it');
+end;
+
+procedure TTestLiveRevocation.TestOverlappingCheckNeverSoftensACachedRevocation;
+var
+  LFetcher: TNestedCheckFetcher;
+  LChecker: TLiveRevocationChecker;
+begin
+  // the inner overlapping check caches a Revoked, then the outer one finishes with a Good
+  LFetcher := TNestedCheckFetcher.Create(OcspGood, OcspRevoked, Chain);
+  LChecker := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock, SystemTicks,
+    LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
+  try
+    LFetcher.Attach(LChecker);
+    LChecker.Evaluate(Chain);
+    CheckTrue(LChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
+      'the cached answer is still the revocation');
+    CheckEquals(2, LFetcher.Posts, 'no further fetch was needed');
   finally
     LChecker.Free;
   end;
@@ -1943,12 +2410,14 @@ procedure TTestRevocationDecision.TestOcspFreshness;
 const
   ThisMs = Int64(1700000000000);
   MaxAge = TRevocationDecision.OcspUnboundedMaxAgeMs;
+  Skew = TRevocationWindow.ThisUpdateSkewMs;
 begin
-  // a response is never fresh before its thisUpdate, with or without nextUpdate
+  // a response is never fresh before its thisUpdate less the clock skew, with or without nextUpdate
   CheckEquals(Ord(TOcspFreshness.Stale),
-    Ord(TRevocationDecision.OcspFreshness(ThisMs - 1, ThisMs, 0)), 'not yet valid, unbounded');
+    Ord(TRevocationDecision.OcspFreshness(ThisMs - Skew - 1, ThisMs, 0)),
+    'not yet valid, unbounded');
   CheckEquals(Ord(TOcspFreshness.Stale),
-    Ord(TRevocationDecision.OcspFreshness(ThisMs - 1, ThisMs, ThisMs + MaxAge)),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs - Skew - 1, ThisMs, ThisMs + MaxAge)),
     'not yet valid, bounded');
   // with nextUpdate the window is [thisUpdate, nextUpdate)
   CheckEquals(Ord(TOcspFreshness.Fresh),
@@ -1966,6 +2435,48 @@ begin
   CheckEquals(Ord(TOcspFreshness.Stale),
     Ord(TRevocationDecision.OcspFreshness(ThisMs + MaxAge + 1, ThisMs, 0)),
     'stale one past the max age');
+end;
+
+procedure TTestRevocationDecision.TestOcspFreshnessToleratesThisUpdateWithinSkew;
+const
+  ThisMs = Int64(1700000000000);
+  Skew = TRevocationWindow.ThisUpdateSkewMs;
+begin
+  // a responder clock running ahead by up to the skew does not make a fresh answer Stale
+  CheckEquals(Ord(TOcspFreshness.Fresh),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs - Skew, ThisMs, ThisMs + Skew)),
+    'bounded response at the skew edge');
+  CheckEquals(Ord(TOcspFreshness.Unbounded),
+    Ord(TRevocationDecision.OcspFreshness(ThisMs - Skew, ThisMs, 0)),
+    'unbounded response at the skew edge');
+end;
+
+procedure TTestRevocationDecision.TestOcspFreshnessKeepsNextUpdateStrict;
+const
+  ThisMs = Int64(1700000000000);
+  NextMs = Int64(1700000600000);
+begin
+  // the skew widens thisUpdate only: a clock at nextUpdate is Stale, one just before it is Fresh
+  CheckEquals(Ord(TOcspFreshness.Fresh),
+    Ord(TRevocationDecision.OcspFreshness(NextMs - 1, ThisMs, NextMs)), 'one before nextUpdate');
+  CheckEquals(Ord(TOcspFreshness.Stale),
+    Ord(TRevocationDecision.OcspFreshness(NextMs, ThisMs, NextMs)), 'at nextUpdate');
+end;
+
+procedure TTestRevocationDecision.TestStricterPosture;
+begin
+  CheckEquals(Ord(TRevocationPosture.Hard),
+    Ord(TRevocationDecision.Stricter(TRevocationPosture.Soft, TRevocationPosture.Hard)),
+    'Hard second beats Soft');
+  CheckEquals(Ord(TRevocationPosture.Hard),
+    Ord(TRevocationDecision.Stricter(TRevocationPosture.Hard, TRevocationPosture.Off)),
+    'Hard first beats Off');
+  CheckEquals(Ord(TRevocationPosture.Soft),
+    Ord(TRevocationDecision.Stricter(TRevocationPosture.Off, TRevocationPosture.Soft)),
+    'Soft beats Off');
+  CheckEquals(Ord(TRevocationPosture.Off),
+    Ord(TRevocationDecision.Stricter(TRevocationPosture.Off, TRevocationPosture.Off)),
+    'Off with Off stays Off');
 end;
 
 procedure TTestRevocationDecision.TestDecideTruthTable;

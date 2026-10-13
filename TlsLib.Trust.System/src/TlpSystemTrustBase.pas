@@ -26,6 +26,7 @@ uses
   TlpTrustPolicy,
   TlpCertificateVerifier,
   TlpIPkixProvider,
+  TlpPkixDomainTypes,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
@@ -308,9 +309,6 @@ class function TDelegatePostChecks.RejectMustStaple(const APkix: IPkixProvider;
   const AClock: ITlsClock; const AOsPath: TArray<TBytes>; const AStaple: TBytes;
   AStatusRequestOffered: Boolean; AOccasion: TVerificationOccasion;
   out AAlert: TTlsAlertDescription): Boolean;
-const
-  // RFC 7633 TLS Feature id: status_request means the certificate is must-staple
-  MustStapleFeature = UInt16(5);
 var
   LFeatures: TArray<UInt16>;
   LClock: ITlsClock;
@@ -336,7 +334,7 @@ begin
     Exit(False);
   LMustStaple := False;
   for LI := 0 to System.High(LFeatures) do
-    if LFeatures[LI] = MustStapleFeature then
+    if LFeatures[LI] = TTlsFeatureCodes.StatusRequest then
     begin
       LMustStaple := True;
       Break;

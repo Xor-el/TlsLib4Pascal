@@ -45,7 +45,9 @@ uses
   TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
   TlpTrustPolicy,
+  TlpIPkixProvider,
   MockVerifyHooks,
+  SpyRevocationProvider,
   TlsLibTestBase;
 
 type
@@ -71,8 +73,14 @@ type
     IClientCertificateVerifier)
   strict private
     FAccept: Boolean;
+    FReportPath: Boolean;
+    FPath: TArray<TBytes>;
+    FOutcome: TVerificationOutcome;
   public
-    constructor Create(AAccept: Boolean);
+    constructor Create(AAccept: Boolean); overload;
+    /// <summary>An accepting verifier that reports APath as the validated path with AOutcome,
+    /// instead of echoing the presented chain.</summary>
+    constructor Create(const APath: TArray<TBytes>; AOutcome: TVerificationOutcome); overload;
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AVerified: TVerifiedChain;
@@ -82,11 +90,12 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
-  /// <summary>The verify callback an instance source composes over a caller-supplied verifier.</summary>
-  TTestInstanceSourceVerifyCallback = class(TTlsLibAlgorithmTestCase)
+  /// <summary>The verify callback decorators the engine composes over a caller-supplied verifier,
+  /// and the instance sources that leave the callback to them.</summary>
+  TTestVerifyCallbackVerifier = class(TTlsLibAlgorithmTestCase)
   strict private
     function Chain: TArray<TBytes>;
-    // the verifier an instance source yields over AInner, with the callback set or not
+    // the verifier the callback decorator yields over AInner
     function ServerVerifier(const AInner: IServerCertificateVerifier;
       const ACallback: TTlsCertificateVerifyCallback): IServerCertificateVerifier;
     function ClientVerifier(const AInner: IClientCertificateVerifier;
@@ -95,10 +104,55 @@ type
     procedure TestServerCallbackRejectsOverAcceptingInstance;
     procedure TestServerCallbackAcceptKeepsInstanceVerdict;
     procedure TestServerCallbackNotRunWhenInstanceRejects;
-    procedure TestServerWithoutCallbackReturnsTheInstance;
+    procedure TestServerSourceLeavesTheInstanceUndecorated;
     procedure TestClientCallbackRejectsOverAcceptingInstance;
     procedure TestClientCallbackNotRunWhenInstanceRejects;
-    procedure TestClientWithoutCallbackReturnsTheInstance;
+    procedure TestClientSourceLeavesTheInstanceUndecorated;
+    procedure TestServerCallbackSeesPresentedChainAndValidatedPath;
+    procedure TestClientCallbackSeesPresentedChainAndValidatedPath;
+    procedure TestCallbackSeesNoValidatedPathWhenNothingWasValidated;
+    procedure TestNilServerInstanceSourceRaises;
+    procedure TestNilClientInstanceSourceRaises;
+  end;
+
+  /// <summary>Critical extensions the TLS layer processes itself (extendedKeyUsage on an intermediate,
+  /// TLS Feature on the leaf), the end-entity rule for CA certificates, and the constructor guards
+  /// of the pinning decorators.</summary>
+  TTestCriticalExtensionsAndEndEntity = class(TTlsLibAlgorithmTestCase)
+  strict private
+    // the issuer probes the last DistrustAlert made
+    FIssuerProbes: Int32;
+    // the length of the path the last ServerVerdict validated
+    FValidatedPathLength: Int32;
+    // the fixture certificates named, in order
+    function Chain(const ANames: array of string): TArray<TBytes>;
+    // the verdict of a verifier trusting ARoot for the named chain, with the alert on a refusal
+    function ServerVerdict(const ARoot: string; const AChain: array of string;
+      AStatusRequestOffered: Boolean; out AAlert: TTlsAlertDescription): Boolean;
+    function ClientVerdict(const ARoot: string; const AChain: array of string;
+      out AAlert: TTlsAlertDescription): Boolean;
+    // the alert for a chain with no path once ADistrusted are withheld, and the path builds it took
+    function DistrustAlert(const AChain, ADistrusted: array of string;
+      out APathBuilds: Int32): TTlsAlertDescription;
+  published
+    procedure TestCriticalEkuIntermediateWithServerAuthIsAccepted;
+    procedure TestCriticalEkuIntermediateWithoutServerAuthIsWrongPurpose;
+    procedure TestCriticalStatusRequestFeatureLeafBuildsAPath;
+    procedure TestCriticalStatusRequestFeatureLeafIsProcessedAsMustStaple;
+    procedure TestCriticalStatusRequestWithAnotherFeatureIsRefused;
+    procedure TestCriticalUnenforcedFeatureLeafIsRefused;
+    procedure TestCriticalTlsFeatureOnAnIntermediateIsRefused;
+    procedure TestDistrustedIssuerOfTheLeafIsBadCertificate;
+    procedure TestDistrustedCertificateOffTheLeafLineKeepsUnknownCa;
+    procedure TestTwoDistrustedCertificatesInARowAreBadCertificate;
+    procedure TestDistrustClassificationCostIsBoundedOnASameKeyRing;
+    procedure TestCaCertificateAsServerLeafIsRefused;
+    procedure TestCaCertificateAsClientLeafIsRefused;
+    procedure TestPinnedSelfSignedCaServerLeafIsAccepted;
+    procedure TestPinnedSelfSignedCaClientLeafIsAccepted;
+    procedure TestPinningVerifierWithNoPinsIsRefused;
+    procedure TestClientPinningVerifierWithNoPinsIsRefused;
+    procedure TestDistrustClassificationBuildsThePathOnce;
   end;
 
   TTestCertificateVerifier = class(TTlsLibAlgorithmTestCase)
@@ -181,6 +235,7 @@ type
     procedure TestMisorderedChainValidatedPathIsIssuerOrdered;
     procedure TestMisorderedChainRevokedStapleAborts;
     procedure TestReorderedChainBuildsFromPresentedFirstCert;
+    procedure TestChainWhoseFirstCertificateIsACaIsRefusedAsEndEntity;
     // the trust anchor is identified by subject + key, not exact encoding (RFC 5280 6.1.1(d)):
     // a peer-sent re-issued copy of the configured root collapses onto the configured DER and
     // is exempt from path policy; a same-subject different-key root is not the anchor
@@ -224,6 +279,16 @@ begin
   FAccept := AAccept;
 end;
 
+constructor TFixedVerdictVerifier.Create(const APath: TArray<TBytes>;
+  AOutcome: TVerificationOutcome);
+begin
+  inherited Create;
+  FAccept := True;
+  FReportPath := True;
+  FPath := APath;
+  FOutcome := AOutcome;
+end;
+
 function TFixedVerdictVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
@@ -231,7 +296,14 @@ begin
   AVerified := Default(TVerifiedChain);
   AAlert := TTlsAlertDescription.BadCertificate;
   Result := FAccept;
-  if Result then
+  if not Result then
+    Exit;
+  if FReportPath then
+  begin
+    AVerified.Path := FPath;
+    AVerified.Outcome := FOutcome;
+  end
+  else
     AVerified.Path := AChain;
 end;
 
@@ -241,42 +313,29 @@ begin
   Result := VerifyServerCertificate(AChain, Default(TServerName), nil, AVerified, AAlert);
 end;
 
-{ TTestInstanceSourceVerifyCallback }
+{ TTestVerifyCallbackVerifier }
 
-function TTestInstanceSourceVerifyCallback.Chain: TArray<TBytes>;
+function TTestVerifyCallbackVerifier.Chain: TArray<TBytes>;
 begin
   Result := TArray<TBytes>.Create(TBytes.Create(1, 2, 3));
 end;
 
-function TTestInstanceSourceVerifyCallback.ServerVerifier(
+function TTestVerifyCallbackVerifier.ServerVerifier(
   const AInner: IServerCertificateVerifier;
   const ACallback: TTlsCertificateVerifyCallback): IServerCertificateVerifier;
-var
-  LContext: TServerTrustContext;
-  LSource: IServerCertificateVerifierSource;
 begin
-  LContext := Default(TServerTrustContext);
-  if Assigned(ACallback) then
-    LContext.Dangerous.VerifyCallback := ACallback;
-  LSource := TInstanceServerVerifierSource.Create(AInner) as IServerCertificateVerifierSource;
-  Result := LSource.CreateServerVerifier(LContext);
+  Result := TVerifyCallbackVerifier.Create(AInner, ACallback) as IServerCertificateVerifier;
 end;
 
-function TTestInstanceSourceVerifyCallback.ClientVerifier(
+function TTestVerifyCallbackVerifier.ClientVerifier(
   const AInner: IClientCertificateVerifier;
   const ACallback: TTlsCertificateVerifyCallback): IClientCertificateVerifier;
-var
-  LContext: TClientTrustContext;
-  LSource: IClientCertificateVerifierSource;
 begin
-  LContext := Default(TClientTrustContext);
-  if Assigned(ACallback) then
-    LContext.Dangerous.VerifyCallback := ACallback;
-  LSource := TInstanceClientVerifierSource.Create(AInner) as IClientCertificateVerifierSource;
-  Result := LSource.CreateClientVerifier(LContext);
+  Result := TClientVerifyCallbackVerifier.Create(AInner, ACallback)
+    as IClientCertificateVerifier;
 end;
 
-procedure TTestInstanceSourceVerifyCallback.TestServerCallbackRejectsOverAcceptingInstance;
+procedure TTestVerifyCallbackVerifier.TestServerCallbackRejectsOverAcceptingInstance;
 var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
@@ -294,7 +353,7 @@ begin
   CheckEquals(1, LSpy.Calls, 'the callback ran once');
 end;
 
-procedure TTestInstanceSourceVerifyCallback.TestServerCallbackAcceptKeepsInstanceVerdict;
+procedure TTestVerifyCallbackVerifier.TestServerCallbackAcceptKeepsInstanceVerdict;
 var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
@@ -309,7 +368,7 @@ begin
   CheckEquals(1, System.Length(LVerified.Path), 'the instance path is kept');
 end;
 
-procedure TTestInstanceSourceVerifyCallback.TestServerCallbackNotRunWhenInstanceRejects;
+procedure TTestVerifyCallbackVerifier.TestServerCallbackNotRunWhenInstanceRejects;
 var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
@@ -326,16 +385,23 @@ begin
   CheckEquals(0, LSpy.Calls, 'the callback is not consulted');
 end;
 
-procedure TTestInstanceSourceVerifyCallback.TestServerWithoutCallbackReturnsTheInstance;
+procedure TTestVerifyCallbackVerifier.TestServerSourceLeavesTheInstanceUndecorated;
 var
   LInstance, LVerifier: IServerCertificateVerifier;
+  LContext: TServerTrustContext;
+  LSource: IServerCertificateVerifierSource;
+  LSpy: TVerifyCallbackSpy;
 begin
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
   LInstance := TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier;
-  LVerifier := ServerVerifier(LInstance, nil);
-  CheckTrue(LVerifier = LInstance, 'no callback leaves the instance undecorated');
+  LContext := Default(TServerTrustContext);
+  LContext.Dangerous.VerifyCallback := LSpy.Callback;
+  LSource := TInstanceServerVerifierSource.Create(LInstance) as IServerCertificateVerifierSource;
+  LVerifier := LSource.CreateServerVerifier(LContext);
+  CheckTrue(LVerifier = LInstance, 'the callback is applied once by the engine, not by the source');
 end;
 
-procedure TTestInstanceSourceVerifyCallback.TestClientCallbackRejectsOverAcceptingInstance;
+procedure TTestVerifyCallbackVerifier.TestClientCallbackRejectsOverAcceptingInstance;
 var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
@@ -352,7 +418,7 @@ begin
   CheckEquals(0, System.Length(LVerified.Path), 'a rejection carries no validated path');
 end;
 
-procedure TTestInstanceSourceVerifyCallback.TestClientCallbackNotRunWhenInstanceRejects;
+procedure TTestVerifyCallbackVerifier.TestClientCallbackNotRunWhenInstanceRejects;
 var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
@@ -367,13 +433,348 @@ begin
   CheckEquals(0, LSpy.Calls, 'the callback is not consulted');
 end;
 
-procedure TTestInstanceSourceVerifyCallback.TestClientWithoutCallbackReturnsTheInstance;
+procedure TTestVerifyCallbackVerifier.TestClientSourceLeavesTheInstanceUndecorated;
 var
   LInstance, LVerifier: IClientCertificateVerifier;
+  LContext: TClientTrustContext;
+  LSource: IClientCertificateVerifierSource;
+  LSpy: TVerifyCallbackSpy;
 begin
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
   LInstance := TFixedVerdictVerifier.Create(True) as IClientCertificateVerifier;
-  LVerifier := ClientVerifier(LInstance, nil);
-  CheckTrue(LVerifier = LInstance, 'no callback leaves the instance undecorated');
+  LContext := Default(TClientTrustContext);
+  LContext.Dangerous.VerifyCallback := LSpy.Callback;
+  LSource := TInstanceClientVerifierSource.Create(LInstance) as IClientCertificateVerifierSource;
+  LVerifier := LSource.CreateClientVerifier(LContext);
+  CheckTrue(LVerifier = LInstance, 'the callback is applied once by the engine, not by the source');
+end;
+
+procedure TTestVerifyCallbackVerifier.TestServerCallbackSeesPresentedChainAndValidatedPath;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
+  LPresented, LPath: TArray<TBytes>;
+begin
+  LPresented := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(2), TBytes.Create(3));
+  LPath := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(9));
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(LPath,
+    TVerificationOutcome.Trusted) as IServerCertificateVerifier, LSpy.Callback);
+  CheckTrue(LVerifier.VerifyServerCertificate(LPresented, TServerName.DnsName('host.example'),
+    nil, LVerified, LAlert), 'accepted');
+  CheckEquals(3, System.Length(LSpy.Presented), 'the callback sees every certificate the peer sent');
+  CheckEquals(2, System.Length(LSpy.Validated), 'the callback sees the validated path');
+  CheckEquals(9, LSpy.Validated[1][0], 'the validated path is the verifier''s, not the presented one');
+end;
+
+procedure TTestVerifyCallbackVerifier.TestClientCallbackSeesPresentedChainAndValidatedPath;
+var
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
+  LPresented, LPath: TArray<TBytes>;
+begin
+  LPresented := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(2), TBytes.Create(3));
+  LPath := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(9));
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
+  LVerifier := ClientVerifier(TFixedVerdictVerifier.Create(LPath,
+    TVerificationOutcome.Trusted) as IClientCertificateVerifier, LSpy.Callback);
+  CheckTrue(LVerifier.VerifyClientCertificate(LPresented, LVerified, LAlert), 'accepted');
+  CheckEquals(3, System.Length(LSpy.Presented), 'the callback sees every certificate the peer sent');
+  CheckEquals(2, System.Length(LSpy.Validated), 'the callback sees the validated path');
+  CheckEquals(9, LSpy.Validated[1][0], 'the validated path is the verifier''s, not the presented one');
+end;
+
+procedure TTestVerifyCallbackVerifier.TestCallbackSeesNoValidatedPathWhenNothingWasValidated;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LSpy: TVerifyCallbackSpy;
+  LPresented: TArray<TBytes>;
+begin
+  LPresented := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(2));
+  LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(
+    TArray<TBytes>.Create(TBytes.Create(1)), TVerificationOutcome.Unvalidated)
+    as IServerCertificateVerifier, LSpy.Callback);
+  CheckTrue(LVerifier.VerifyServerCertificate(LPresented, TServerName.DnsName('host.example'),
+    nil, LVerified, LAlert), 'accepted');
+  CheckEquals(0, System.Length(LSpy.Validated), 'an unvalidated acceptance reports no validated path');
+  CheckEquals(2, System.Length(LSpy.Presented), 'the presented chain is intact');
+end;
+
+procedure TTestVerifyCallbackVerifier.TestNilServerInstanceSourceRaises;
+var
+  LRaised: Boolean;
+  LSource: IServerCertificateVerifierSource;
+begin
+  LRaised := False;
+  try
+    LSource := TInstanceServerVerifierSource.Create(nil) as IServerCertificateVerifierSource;
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil server verifier raises at construction');
+end;
+
+procedure TTestVerifyCallbackVerifier.TestNilClientInstanceSourceRaises;
+var
+  LRaised: Boolean;
+  LSource: IClientCertificateVerifierSource;
+begin
+  LRaised := False;
+  try
+    LSource := TInstanceClientVerifierSource.Create(nil) as IClientCertificateVerifierSource;
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil client verifier raises at construction');
+end;
+
+{ TTestCriticalExtensionsAndEndEntity }
+
+function TTestCriticalExtensionsAndEndEntity.Chain(
+  const ANames: array of string): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(ANames));
+  for LI := 0 to System.High(ANames) do
+    Result[LI] := CriticalExtensionsCertificate(ANames[LI]);
+end;
+
+function TTestCriticalExtensionsAndEndEntity.ServerVerdict(const ARoot: string;
+  const AChain: array of string; AStatusRequestOffered: Boolean;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LOptions: TCertificateVerifierOptions;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LOptions.StatusRequestOffered := AStatusRequestOffered;
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(Chain([ARoot])) as ITrustAnchorStore, True, LOptions)
+    as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(Chain(AChain), TServerName.DnsName('localhost'),
+    nil, LVerified, AAlert);
+  FValidatedPathLength := System.Length(LVerified.ValidatedPath);
+end;
+
+function TTestCriticalExtensionsAndEndEntity.ClientVerdict(const ARoot: string;
+  const AChain: array of string; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(Chain([ARoot])) as ITrustAnchorStore, False)
+    as IClientCertificateVerifier;
+  Result := LVerifier.VerifyClientCertificate(Chain(AChain), LVerified, AAlert);
+end;
+
+function TTestCriticalExtensionsAndEndEntity.DistrustAlert(const AChain,
+  ADistrusted: array of string; out APathBuilds: Int32): TTlsAlertDescription;
+var
+  LSpy: TSpyPkixProvider;
+  LSpyRef: IPkixProvider;
+  LOptions: TCertificateVerifierOptions;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LSpy := TSpyPkixProvider.Create(Pkix);
+  LSpyRef := LSpy as IPkixProvider;
+  LVerifier := TCertificateVerifier.Create(LSpyRef, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(Chain(['root_cert']), Chain(ADistrusted)) as ITrustAnchorStore,
+    False, LOptions) as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(Chain(AChain), TServerName.DnsName(''), nil,
+    LVerified, Result), 'the chain has no path');
+  APathBuilds := LSpy.PathBuildCount;
+  FIssuerProbes := LSpy.FindIssuerCount;
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCriticalEkuIntermediateWithServerAuthIsAccepted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ServerVerdict('root_cert', ['leaf_cert', 'inter_serverauth_cert'], False, LAlert),
+    'a critical EKU that includes serverAuth is accepted on an intermediate');
+  CheckEquals(3, FValidatedPathLength, 'the path runs leaf, intermediate, anchor');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCriticalEkuIntermediateWithoutServerAuthIsWrongPurpose;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ServerVerdict('root_cert', ['leaf_cert', 'inter_clientauth_cert'], False, LAlert),
+    'a critical EKU without serverAuth on an intermediate is refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'it is the wrong-purpose alert, not an unknown CA');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCriticalStatusRequestFeatureLeafBuildsAPath;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ServerVerdict('root_cert', ['mustaple_leaf_cert'], False, LAlert),
+    'a leaf with a critical status_request feature is accepted when no staple was asked for');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCriticalStatusRequestFeatureLeafIsProcessedAsMustStaple;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ServerVerdict('root_cert', ['mustaple_leaf_cert'], True, LAlert),
+    'a must-staple leaf without a staple is refused once a staple was asked for');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCriticalStatusRequestWithAnotherFeatureIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ServerVerdict('root_cert', ['mustaple_v2_leaf_cert'], False, LAlert),
+    'a critical feature list beyond status_request stays refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'as an unresolved critical extension');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCriticalUnenforcedFeatureLeafIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ServerVerdict('root_cert', ['other_feature_leaf_cert'], False, LAlert),
+    'a critical feature the library does not enforce is refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'as an unresolved critical extension');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCriticalTlsFeatureOnAnIntermediateIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ServerVerdict('root_cert', ['feature_inter_leaf_cert', 'feature_inter_cert'], True,
+    LAlert), 'a critical TLS Feature on an intermediate is not handled');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'as an unresolved critical extension');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCaCertificateAsServerLeafIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ServerVerdict('root_cert', ['caleaf_cert'], False, LAlert),
+    'a CA certificate is refused as the end-entity');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestCaCertificateAsClientLeafIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ClientVerdict('root_cert', ['inter_serverauth_cert'], LAlert),
+    'a CA certificate is refused as a client identity');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestPinnedSelfSignedCaServerLeafIsAccepted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ServerVerdict('selfca_cert', ['selfca_cert'], False, LAlert),
+    'a directly trusted self-signed CA certificate is accepted');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestPinnedSelfSignedCaClientLeafIsAccepted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ClientVerdict('selfca_cert', ['selfca_cert'], LAlert),
+    'a directly trusted self-signed CA certificate is accepted as a client identity');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestPinningVerifierWithNoPinsIsRefused;
+var
+  LRaised: Boolean;
+  LVerifier: IServerCertificateVerifier;
+begin
+  LRaised := False;
+  try
+    LVerifier := TPinningVerifier.Create(TFixedVerdictVerifier.Create(True)
+      as IServerCertificateVerifier, nil, Crypto, Pkix) as IServerCertificateVerifier;
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a pinning decorator with no pins raises instead of matching everything');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestClientPinningVerifierWithNoPinsIsRefused;
+var
+  LRaised: Boolean;
+  LVerifier: IClientCertificateVerifier;
+begin
+  LRaised := False;
+  try
+    LVerifier := TClientPinningVerifier.Create(TFixedVerdictVerifier.Create(True)
+      as IClientCertificateVerifier, nil, Crypto, Pkix) as IClientCertificateVerifier;
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client pinning decorator with no pins raises instead of matching everything');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestDistrustClassificationBuildsThePathOnce;
+var
+  LBuilds: Int32;
+begin
+  DistrustAlert(['leaf_cert', 'inter_serverauth_cert'], ['inter_serverauth_cert'], LBuilds);
+  CheckEquals(1, LBuilds, 'one path build served the verdict and its classification');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestDistrustedIssuerOfTheLeafIsBadCertificate;
+var
+  LBuilds: Int32;
+begin
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate),
+    Ord(DistrustAlert(['leaf_cert', 'inter_serverauth_cert'], ['inter_serverauth_cert'], LBuilds)),
+    'a path through a distrusted issuer is an explicit distrust');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestDistrustedCertificateOffTheLeafLineKeepsUnknownCa;
+var
+  LBuilds: Int32;
+begin
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa),
+    Ord(DistrustAlert(['x_leaf_cert', 'i2_cert', 'inter_serverauth_cert'],
+    ['inter_serverauth_cert'], LBuilds)), 'a withheld certificate off the leaf''s line is not the cause');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestTwoDistrustedCertificatesInARowAreBadCertificate;
+var
+  LBuilds: Int32;
+begin
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate),
+    Ord(DistrustAlert(['w1_leaf_cert', 'w1_cert', 'inter_serverauth_cert'],
+    ['w1_cert', 'inter_serverauth_cert'], LBuilds)),
+    'a line through two withheld certificates still reaches the anchor');
+end;
+
+procedure TTestCriticalExtensionsAndEndEntity.TestDistrustClassificationCostIsBoundedOnASameKeyRing;
+var
+  LBuilds: Int32;
+begin
+  // eight same-name, same-key certificates issue each other; expanding each once stays quadratic
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa),
+    Ord(DistrustAlert(['ring_leaf', 'ring_00', 'ring_01', 'ring_02', 'ring_03', 'ring_04',
+    'ring_05', 'ring_06', 'ring_07', 'inter_serverauth_cert'], ['inter_serverauth_cert'],
+    LBuilds)), 'a ring off the distrusted line keeps unknown_ca');
+  CheckTrue(FIssuerProbes <= 200, 'issuer probes stay quadratic (' + IntToStr(FIssuerProbes) + ')');
 end;
 
 { TCountingTrustAnchorStore }
@@ -1021,20 +1422,29 @@ begin
     'the alert is certificate_revoked');
 end;
 
+procedure TTestCertificateVerifier.TestChainWhoseFirstCertificateIsACaIsRefusedAsEndEntity;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the build targets index 0 (the issuer here), which the end-entity rule then refuses as a CA
+  CheckFalse(VerifierFor(Chain3('root_cert'), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(Chain3('issuer_cert'), Chain3('leaf_cert'), Chain3('root_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert), 'a CA presented first is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+end;
+
 procedure TTestCertificateVerifier.TestReorderedChainBuildsFromPresentedFirstCert;
 var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
 begin
-  // the build targets the peer's first presented certificate (index 0), whatever order the rest
-  // arrive in: given [issuer, leaf, root] the path is built from the issuer up to the anchor and
-  // the extra leaf is ignored. Binding the handshake to that certificate's key is CertificateVerify's
-  // job downstream, not the path builder's - so this validates and path[0] is the presented cert
+  // the build targets index 0 whatever order the rest arrive in: the extra root is only an input
   CheckTrue(VerifierFor(Chain3('root_cert'), False).VerifyServerCertificate(
-    TArray<TBytes>.Create(Chain3('issuer_cert'), Chain3('leaf_cert'), Chain3('root_cert')),
+    TArray<TBytes>.Create(Chain3('leaf_cert'), Chain3('root_cert'), Chain3('issuer_cert')),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'a chain builds from the first presented certificate to the anchor');
-  CheckEqualBytes('path[0] is the presented first certificate', Chain3('issuer_cert'),
+  CheckEqualBytes('path[0] is the presented first certificate', Chain3('leaf_cert'),
     LVerified.Path[0]);
 end;
 
@@ -1431,10 +1841,12 @@ initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestCertificateVerifier);
-  RegisterTest(TTestInstanceSourceVerifyCallback);
+  RegisterTest(TTestVerifyCallbackVerifier);
+  RegisterTest(TTestCriticalExtensionsAndEndEntity);
 {$ELSE}
   RegisterTest(TTestCertificateVerifier.Suite);
-  RegisterTest(TTestInstanceSourceVerifyCallback.Suite);
+  RegisterTest(TTestVerifyCallbackVerifier.Suite);
+  RegisterTest(TTestCriticalExtensionsAndEndEntity.Suite);
 {$ENDIF FPC}
 
 end.

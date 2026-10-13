@@ -86,6 +86,15 @@ type
     /// literal, RFC 6066 sec. 3, no host, or an Omit config).</summary>
     class function SniHostName(const AConfig: ITlsClientConfig;
       const AName: TServerName): string; static;
+    /// <summary>The server-certificate verifier the source builds from ATrust, composed with SPKI
+    /// pinning and then the augment-only verify callback, so the callback runs last and sees what
+    /// pinning already accepted. The context handed to the source carries no callback (it is
+    /// applied here, once).</summary>
+    class function ComposeServerVerifier(const AConfig: ITlsClientConfig;
+      const ATrust: TServerTrustContext): IServerCertificateVerifier; static;
+    /// <summary>The client-certificate counterpart of ComposeServerVerifier.</summary>
+    class function ComposeClientVerifier(const AConfig: ITlsServerConfig;
+      const ATrust: TClientTrustContext): IClientCertificateVerifier; static;
   public
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
@@ -115,6 +124,41 @@ begin
     Result := ''
   else
     Result := AName.AsDns;
+end;
+
+class function TTlsEngineFactory.ComposeServerVerifier(const AConfig: ITlsClientConfig;
+  const ATrust: TServerTrustContext): IServerCertificateVerifier;
+var
+  LSourceTrust: TServerTrustContext;
+begin
+  LSourceTrust := ATrust;
+  LSourceTrust.Dangerous.VerifyCallback := nil;
+  Result := AConfig.ServerVerifierSource.CreateServerVerifier(LSourceTrust);
+  // SPKI pinning composes over the source output, so it augments any source (built-in or OS delegate)
+  if System.Length(AConfig.CertificatePins) > 0 then
+    Result := TPinningVerifier.Create(Result, AConfig.CertificatePins, AConfig.Crypto,
+      AConfig.Pkix) as IServerCertificateVerifier;
+  if Assigned(ATrust.Dangerous.VerifyCallback) then
+    Result := TVerifyCallbackVerifier.Create(Result, ATrust.Dangerous.VerifyCallback)
+      as IServerCertificateVerifier;
+end;
+
+class function TTlsEngineFactory.ComposeClientVerifier(const AConfig: ITlsServerConfig;
+  const ATrust: TClientTrustContext): IClientCertificateVerifier;
+var
+  LSourceTrust: TClientTrustContext;
+begin
+  LSourceTrust := ATrust;
+  LSourceTrust.Dangerous.VerifyCallback := nil;
+  Result := AConfig.ClientVerifierSource.CreateClientVerifier(LSourceTrust);
+  // SPKI pinning composes over the source output, so it pins the presented client chain
+  // uniformly over the built-in pipeline and an OS client delegate (RFC 7469)
+  if System.Length(AConfig.CertificatePins) > 0 then
+    Result := TClientPinningVerifier.Create(Result, AConfig.CertificatePins, AConfig.Crypto,
+      AConfig.Pkix) as IClientCertificateVerifier;
+  if Assigned(ATrust.Dangerous.VerifyCallback) then
+    Result := TClientVerifyCallbackVerifier.Create(Result, ATrust.Dangerous.VerifyCallback)
+      as IClientCertificateVerifier;
 end;
 
 class function TTlsEngineFactory.SuiteCodes(
@@ -272,11 +316,7 @@ begin
   // the initial-handshake verifier: must-staple binds here only when the client offers status_request
   LTrustContext.StatusRequestOffered := AConfig.RequestOcspStapling;
   LTrustContext.Occasion := TVerificationOccasion.InitialHandshake;
-  LVerifier := AConfig.ServerVerifierSource.CreateServerVerifier(LTrustContext);
-  // SPKI pinning composes over the source output, so it augments any source (built-in or OS delegate)
-  if System.Length(AConfig.CertificatePins) > 0 then
-    LVerifier := TPinningVerifier.Create(LVerifier, AConfig.CertificatePins,
-      AConfig.Crypto, AConfig.Pkix) as IServerCertificateVerifier;
+  LVerifier := ComposeServerVerifier(AConfig, LTrustContext);
   // reverify-on-resume re-checks the stored chain, which carries no Certificate and no fresh
   // staple: a second verifier built for the Resumption occasion so must-staple never fires on a
   // resume. Built only when a resume can actually reverify (composed with the same pins).
@@ -287,10 +327,7 @@ begin
   begin
     LResumeContext := LTrustContext;
     LResumeContext.Occasion := TVerificationOccasion.Resumption;
-    LResumeVerifier := AConfig.ServerVerifierSource.CreateServerVerifier(LResumeContext);
-    if System.Length(AConfig.CertificatePins) > 0 then
-      LResumeVerifier := TPinningVerifier.Create(LResumeVerifier, AConfig.CertificatePins,
-        AConfig.Crypto, AConfig.Pkix) as IServerCertificateVerifier;
+    LResumeVerifier := ComposeServerVerifier(AConfig, LResumeContext);
   end;
 
   L13 := Default(TClientHandshakeParams);
@@ -335,6 +372,7 @@ begin
   L13.CertificateChainLimits := AConfig.CertificateChainLimits;
   L13.ResumeCertificateVerifier := LResumeVerifier;
   L13.Deferral := LDeferral;
+  L13.RevocationPosture := AConfig.RevocationPosture;
   // Encrypted Client Hello policy (RFC 9849), nil when not offered
   L13.EchPolicy := AConfig.EncryptedClientHello;
   L13.ExpectedServerName := LServerName;
@@ -377,6 +415,7 @@ begin
   L12.CertificateVerifier := LVerifier;
   L12.ResumeCertificateVerifier := LResumeVerifier;
   L12.Deferral := LDeferral;
+  L12.RevocationPosture := AConfig.RevocationPosture;
   L12.ExpectedServerName := LServerName;
   L12.ClientCredential := AConfig.Credential;
 
@@ -469,12 +508,7 @@ begin
     LClientContext.Intermediates := AConfig.IntermediateCertificates;
     LClientContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
     LClientContext.AdvertisedSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
-    LClientVerifier := AConfig.ClientVerifierSource.CreateClientVerifier(LClientContext);
-    // SPKI pinning composes over the source output, so it pins the presented client chain
-    // uniformly over the built-in pipeline and an OS client delegate (RFC 7469)
-    if System.Length(AConfig.CertificatePins) > 0 then
-      LClientVerifier := TClientPinningVerifier.Create(LClientVerifier,
-        AConfig.CertificatePins, AConfig.Crypto, AConfig.Pkix) as IClientCertificateVerifier;
+    LClientVerifier := ComposeClientVerifier(AConfig, LClientContext);
   end;
 
   L13 := Default(TServerHandshakeParams);
@@ -522,6 +556,7 @@ begin
   L13.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
   L13.ClientCertificateVerifier := LClientVerifier;
   L13.Deferral := LDeferral;
+  L13.RevocationPosture := AConfig.RevocationPosture;
 
   L12 := Default(TServer12HandshakeParams);
   L12.Crypto := AConfig.Crypto;
@@ -554,6 +589,7 @@ begin
   L12.ClientAuthSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L12.ClientCertificateVerifier := LClientVerifier;
   L12.Deferral := LDeferral;
+  L12.RevocationPosture := AConfig.RevocationPosture;
 
   // resumption (RFC 8446 4.6.1 / RFC 5077): both version machines share the session
   // store/STEK; each stores and accepts only its own version's sessions. 0-RTT is 1.3-only,

@@ -86,14 +86,16 @@ honouring it would re-couple the adapter to OpenSSL — the dependency it exists
 Instead, the neutral hooks are on `SSLOptions` directly (no drop to Tier-2):
 
 ```pascal
-IO.SSLOptions.VerifyCallback  := cb;               // augment-only  chain+host -> Boolean (reject further)
+IO.SSLOptions.VerifyCallback  := cb;               // augment-only, runs last: presented, validated, host -> Boolean
 IO.SSLOptions.VerdictResolver := resolver;         // client role: decides the server's chain
 IO.SSLOptions.VerdictDeadlineMs := 5000;           // client resolver's fetch budget (ms)
 IO.SSLOptions.ServerVerdictResolver := resolver;   // server role: decides an mTLS client's chain
 IO.SSLOptions.ServerVerdictDeadlineMs := 5000;     // server resolver's fetch budget (ms)
 ```
 
-`VerifyCallback` runs after our pipeline accepts the chain and can only additionally reject.
+`VerifyCallback` runs last, after our pipeline and any pinning accept the chain, and can only
+additionally reject. It receives the chain the peer presented and the path that was validated (`nil`
+when verification was skipped).
 The verdict resolvers decide a parked verdict out-of-band — wire `TLiveRevocationChecker.ResolveVerdict`
 (from `TlpLiveRevocation`, over an injected `IHttpFetcher`) to them for live OCSP/CRL. The resolver is
 role-specific: the client hook evaluates the server's chain (server-auth EKU), the server hook an mTLS

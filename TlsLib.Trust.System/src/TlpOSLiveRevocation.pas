@@ -28,9 +28,11 @@ type
   /// the platform's tri-state revocation outcome into an accept/reject verdict for the
   /// TCertificateVerdictResolver seam. The shared verdict logic (posture handling + an optional
   /// portable fallback on an indeterminate OS outcome) lives here; a platform subclass supplies
-  /// EvaluateLive. Off posture does no fetch and accepts (the inline pipeline already settled trust
-  /// and any definitive cached revocation). All per-call state is on the stack, so one instance is
-  /// reusable across connections and threads; the only shared mutable is the host's fallback fetcher.
+  /// EvaluateLive. The verdict is decided at the stricter of this resolver's posture and the one
+  /// the parked context carries; only when that is Off does it skip the fetch and accept (the inline
+  /// pipeline already settled trust and any definitive cached revocation). All per-call state is
+  /// on the stack, so one instance is reusable across connections and threads; the only shared
+  /// mutable is the host's fallback fetcher.
   /// </summary>
   TOSLiveRevocationResolver = class abstract(TObject)
   strict protected
@@ -76,6 +78,7 @@ function TOSLiveRevocationResolver.ResolveVerdict(
   out ARejectAlert: TTlsAlertDescription): Boolean;
 var
   LOutcome: TLiveRevocationOutcome;
+  LPosture: TRevocationPosture;
 begin
   ARejectAlert := TTlsAlertDescription.BadCertificate;
   // this resolver's trust engine is bound to one certificate role (server-auth vs client-auth
@@ -87,9 +90,11 @@ begin
     ARejectAlert := TTlsAlertDescription.InternalError;
     Exit(False);
   end;
+  // the configuration's posture holds even when this resolver was built with a laxer one
+  LPosture := TRevocationDecision.Stricter(FPosture, ACtx.RevocationPosture);
   // Off suppresses the live fetch (its network + privacy cost); the inline pipeline already
   // settled trust and any definitive cached revocation, so accept
-  if FPosture = TRevocationPosture.Off then
+  if LPosture = TRevocationPosture.Off then
     Exit(True);
   // a definitive non-revocation trust failure from the live re-evaluation rejects outright. The
   // live re-check is revocation-only (identity was settled inline), so an IP literal is never
@@ -106,7 +111,7 @@ begin
   if (LOutcome = TLiveRevocationOutcome.Indeterminate) and System.Assigned(FFallback) then
     Result := FFallback(ACtx, ARejectAlert)
   else
-    Result := TRevocationDecision.Decide(LOutcome, FPosture, False, ARejectAlert);
+    Result := TRevocationDecision.Decide(LOutcome, LPosture, False, ARejectAlert);
 end;
 
 end.
