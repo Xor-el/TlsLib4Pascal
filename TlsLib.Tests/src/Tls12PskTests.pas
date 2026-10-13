@@ -72,6 +72,12 @@ type
     function NewServer(const APsks: TArray<TTls12Psk>): ITlsEngine;
     function NewServerWithCertificate(const APsks: TArray<TTls12Psk>): ITlsEngine;
     function NewCertificateClient: ITlsEngine;
+    /// <summary>A PSK and certificate-trust client that re-verifies resumed servers.</summary>
+    function NewReverifyClient(const ACache: ISessionCache;
+      ADeferral: TVerdictDeferral): ITlsEngine;
+    /// <summary>A resuming certificate server over AStore that also accepts APsks.</summary>
+    function NewStoreServer(const AStore: ISessionStore;
+      const APsks: TArray<TTls12Psk>): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
@@ -107,6 +113,9 @@ type
     procedure TestPskSessionResumes;
     procedure TestPskSessionIsNotResumedOnceItsKeyIsGone;
     procedure TestPskSessionIsNotResumedOnceItsSecretIsRotated;
+    procedure TestDeclinedPskOfferDoesNotStampACertificateSession;
+    procedure TestDeclinedCertificateOfferDoesNotStampAPskSession;
+    procedure TestPskResumeUnderReverifyDoesNotParkForAVerdict;
     procedure TestConnectionInfoPskIdentityIsACopy;
     procedure TestServerWithoutPsksNeverSelectsAPskSuite;
     procedure TestClientRefusesACertificateUnderAPskSuite;
@@ -177,6 +186,35 @@ function TTestTls12Psk.NewCertificateClient: ITlsEngine;
 begin
   Result := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(Only12).WithServerVerification(WebPkiServer(ClientTrust)).Build, ServerHost);
+end;
+
+function TTestTls12Psk.NewReverifyClient(const ACache: ISessionCache;
+  ADeferral: TVerdictDeferral): ITlsEngine;
+var
+  LBuilder: ITlsClientConfigBuilder;
+begin
+  LBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client.WithSupportedVersions(Only12)
+    .WithServerVerification(WebPkiServer(ClientTrust)).WithResumption(True).WithSessionCache(ACache)
+    .WithResumptionScope(BytesOf('reverify-client')).WithResumeVerification(TResumeVerification.Reverify);
+  if ADeferral = TVerdictDeferral.LiveRevocation then
+    LBuilder.WithLiveRevocationVerdict(0)
+  else if ADeferral = TVerdictDeferral.HostDecision then
+    LBuilder.WithAsyncCertificateVerdict(0);
+  Result := TTlsEngineFactory.CreateClientEngine(LBuilder.Tls12
+    .WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
+end;
+
+function TTestTls12Psk.NewStoreServer(const AStore: ISessionStore;
+  const APsks: TArray<TTls12Psk>): ITlsEngine;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LBuilder := TTlsPresets.Compatible(Crypto, Pkix).Server.WithSupportedVersions(Only12)
+    .WithCredential(ServerCredential).WithSessionStore(AStore);
+  if System.Length(APsks) > 0 then
+    Result := TTlsEngineFactory.CreateServerEngine(LBuilder.Tls12.WithPreSharedKeys(APsks).Build)
+  else
+    Result := TTlsEngineFactory.CreateServerEngine(LBuilder.Build);
 end;
 
 function TTestTls12Psk.Drain(const AEngine: ITlsEngine): TBytes;
@@ -576,6 +614,116 @@ begin
   CheckEqualBytes('and so does the client', BytesOf(Identity1),
     LClient.ConnectionInfo.PskIdentity);
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Psk.TestDeclinedPskOfferDoesNotStampACertificateSession;
+var
+  LCache: ISessionCache;
+  LStoreA, LStoreB: ISessionStore;
+  LPsks, LNone: TArray<TTls12Psk>;
+  LClient, LServer: ITlsEngine;
+begin
+  // the declined PSK offer's identity must not stamp the new certificate session
+  LCache := TInMemorySessionCache.Create;
+  LStoreA := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LStoreB := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LPsks := TArray<TTls12Psk>.Create(Psk(Identity1, 1));
+  LNone := nil;
+
+  LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
+  LServer := NewStoreServer(LStoreA, LPsks);
+  Run(LClient, LServer);
+  Pump(LServer, LClient);
+  CheckEqualBytes('the first handshake used the PSK', BytesOf(Identity1),
+    LClient.ConnectionInfo.PskIdentity);
+
+  LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
+  LServer := NewStoreServer(LStoreB, LNone);
+  Run(LClient, LServer);
+  Pump(LServer, LClient);
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the unknown session was declined');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.PskIdentity), 'by certificate');
+
+  LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
+  LServer := NewStoreServer(LStoreB, LNone);
+  Run(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the certificate session resumes');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.PskIdentity),
+    'and reports no PSK identity');
+  CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) > 0,
+    'with the verified chain');
+end;
+
+procedure TTestTls12Psk.TestDeclinedCertificateOfferDoesNotStampAPskSession;
+var
+  LCache: ISessionCache;
+  LStoreA, LStoreB: ISessionStore;
+  LPsks, LNone: TArray<TTls12Psk>;
+  LClient, LServer: ITlsEngine;
+begin
+  // the declined certificate offer's chain must not ride onto the new PSK session
+  LCache := TInMemorySessionCache.Create;
+  LStoreA := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LStoreB := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LPsks := TArray<TTls12Psk>.Create(Psk(Identity1, 1));
+  LNone := nil;
+
+  LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
+  LServer := NewStoreServer(LStoreA, LNone);
+  Run(LClient, LServer);
+  Pump(LServer, LClient);
+  CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) > 0,
+    'the first handshake used the certificate');
+
+  LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
+  LServer := NewStoreServer(LStoreB, LPsks);
+  Run(LClient, LServer);
+  Pump(LServer, LClient);
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the unknown session was declined');
+  CheckEqualBytes('the PSK authenticated', BytesOf(Identity1),
+    LClient.ConnectionInfo.PskIdentity);
+
+  LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
+  LServer := NewStoreServer(LStoreB, LPsks);
+  Run(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the PSK session resumes');
+  CheckEqualBytes('under its PSK identity', BytesOf(Identity1),
+    LClient.ConnectionInfo.PskIdentity);
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.PeerCertificates),
+    'with no certificate chain');
+end;
+
+procedure TTestTls12Psk.TestPskResumeUnderReverifyDoesNotParkForAVerdict;
+var
+  LDeferrals: array [0 .. 1] of TVerdictDeferral;
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LPsks: TArray<TTls12Psk>;
+  LClient, LServer: ITlsEngine;
+  LI: Int32;
+begin
+  // a PSK session has no chain to judge: Reverify must neither re-check nor park for a verdict
+  LDeferrals[0] := TVerdictDeferral.HostDecision;
+  LDeferrals[1] := TVerdictDeferral.LiveRevocation;
+  LPsks := TArray<TTls12Psk>.Create(Psk(Identity1, 1));
+  for LI := 0 to 1 do
+  begin
+    LCache := TInMemorySessionCache.Create;
+    LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+    LClient := NewReverifyClient(LCache, LDeferrals[LI]);
+    LServer := NewStoreServer(LStore, LPsks);
+    Run(LClient, LServer);
+    Pump(LServer, LClient);
+    CheckEqualBytes('the first handshake used the PSK', BytesOf(Identity1),
+      LClient.ConnectionInfo.PskIdentity);
+
+    LClient := NewReverifyClient(LCache, LDeferrals[LI]);
+    LServer := NewStoreServer(LStore, LPsks);
+    Run(LClient, LServer);
+    CheckFalse(LClient.AwaitingCertificateVerdict, 'no verdict is requested for a PSK-authenticated session');
+    CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed');
+    CheckTrue(LClient.ConnectionInfo.Resumed, 'as a resumption');
+  end;
 end;
 
 procedure TTestTls12Psk.TestPskSessionIsNotResumedOnceItsKeyIsGone;

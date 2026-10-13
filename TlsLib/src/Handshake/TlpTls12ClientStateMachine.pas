@@ -197,6 +197,8 @@ type
     /// <summary>Whether this handshake resumed the offered session without the server issuing a
     /// new ticket, so the stored session keeps its original issue time and lifetime.</summary>
     FResumedWithoutNewTicket: Boolean;
+    /// <summary>Whether the server resumed the offered session.</summary>
+    FResumed: Boolean;
     /// <summary>Whether the ServerHello echoed the session_ticket extension, so a plaintext
     /// NewSessionTicket precedes the server Finished (its read epoch is deferred past it).</summary>
     FExpectNewSessionTicket: Boolean;
@@ -996,13 +998,13 @@ begin
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On an
   // abbreviated handshake no Certificate was sent, so the session inherits the resumed chain
   LPeerChain := FCertChain;
-  if (System.Length(LPeerChain) = 0) and (FResumptionOffer <> nil) then
+  if FResumed then
     LPeerChain := FResumptionOffer.PeerCertificates;
   // a PSK-authenticated session stores the identity that authenticated it, so the server can
   // refuse to resume it once that key is gone
   LPskIdentity := nil;
   LPskBinding := nil;
-  if (FResumptionOffer <> nil) and (System.Length(FResumptionOffer.PskIdentity) > 0) then
+  if FResumed then
   begin
     LPskIdentity := FResumptionOffer.PskIdentity;
     LPskBinding := FResumptionOffer.PskBinding;
@@ -1080,6 +1082,7 @@ begin
       TTlsAlertDescription.HandshakeFailure, @SResumedEmsMismatch);
   FUseExtendedMasterSecret := FResumptionOffer.ExtendedMasterSecret;
   FResumedWithoutNewTicket := True;
+  FResumed := True;
   // resuming a non-EMS session under a required-EMS policy would silently drop the guarantee
   if FParams.RequireExtendedMasterSecret and not FUseExtendedMasterSecret then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -1170,7 +1173,8 @@ begin
   // transcript is untouched between here and the resume, so the verify_data is identical either way.
   // A resumption carries no staple, so the verifier never settles revocation inline; the park stands.
   if (FParams.ResumeVerification = TResumeVerification.Reverify) and
-    (FParams.Deferral <> TVerdictDeferral.None) then
+    (FParams.Deferral <> TVerdictDeferral.None) and
+    (System.Length(FResumptionOffer.PskIdentity) = 0) then
   begin
     FPhase := TPhase.WaitResumeVerdict;
     TArrayUtilities.Append<THandshakeEffect>(Result,

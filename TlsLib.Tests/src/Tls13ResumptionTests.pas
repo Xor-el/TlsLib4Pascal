@@ -109,6 +109,12 @@ type
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure DriveHandshake(const AClient, AServer: ITlsEngine);
+    /// <summary>A client offering APsks that, when AReverify, re-verifies resumed servers.</summary>
+    function NewExtPskClient(const ACache: ISessionCache;
+      const APsks: TArray<TExternalPsk>; AReverify: Boolean): ITlsEngine;
+    /// <summary>A credential-less server accepting APsks, so completing proves PSK authentication.</summary>
+    function NewExtPskServer(const AStek: ISessionTicketKeyManager;
+      const APsks: TArray<TExternalPsk>; AIssueTickets: Int32): ITlsEngine;
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     function ReadAllEarly(const AEngine: ITlsEngine): TBytes;
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
@@ -165,6 +171,9 @@ type
     procedure TestExternalPskSuiteSelectionHonorsClientOrder;
     procedure TestExternalPskTicketResumesOnlyWhilePskIsConfigured;
     procedure TestExternalPskSatisfiesRequiredClientAuth;
+    procedure TestExternalPskTicketResumesUnderReverify;
+    procedure TestDeclinedTicketWithExternalPskStoresNoChain;
+    procedure TestResumedTicketKeepsItsChainForReverify;
   end;
 
 implementation
@@ -421,6 +430,41 @@ procedure TTestTls13Resumption.DriveHandshake(const AClient, AServer: ITlsEngine
 begin
   AClient.StartHandshake;
   PumpToCompletion(AClient, AServer);
+end;
+
+function TTestTls13Resumption.NewExtPskClient(const ACache: ISessionCache;
+  const APsks: TArray<TExternalPsk>; AReverify: Boolean): ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := ClientParams(ACache, False);
+  LParams.ExternalPsks := APsks;
+  if AReverify then
+    LParams.ResumeVerification := TResumeVerification.Reverify;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestTls13Resumption.NewExtPskServer(const AStek: ISessionTicketKeyManager;
+  const APsks: TArray<TExternalPsk>; AIssueTickets: Int32): ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LParams.SessionTicketKeys := AStek;
+  LParams.IssueTicketCount := AIssueTickets;
+  LParams.TicketLifetimeSeconds := 7200;
+  LParams.ExternalPsks := APsks;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
 function TTestTls13Resumption.ReadAllEarly(const AEngine: ITlsEngine): TBytes;
@@ -2236,6 +2280,106 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse((not LServer.IsHandshaking) and (not LServer.IsTerminal),
     'a ticket made under the old secret is not accepted after rotation');
+end;
+
+procedure TTestTls13Resumption.TestExternalPskTicketResumesUnderReverify;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LPsk: TExternalPsk;
+  LPsks: TArray<TExternalPsk>;
+begin
+  // a PSK-authenticated ticket has no chain, so a Reverify client resumes it without re-checking
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LPsk.Identity := DecodeHex('6578742d70736b');
+  LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+  LPsks := TArray<TExternalPsk>.Create(LPsk);
+
+  LClient := NewExtPskClient(LCache, LPsks, True);
+  LServer := NewExtPskServer(LStek, LPsks, 1);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the external-PSK handshake completed');
+  CheckEquals(1, LCache.Count, 'the client cached the ticket');
+
+  LClient := NewExtPskClient(LCache, nil, True);
+  LServer := NewExtPskServer(LStek, LPsks, 1);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the Reverify resume of a PSK ticket did not abort');
+  CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'as a resumption');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.PeerCertificates),
+    'a PSK-authenticated ticket surfaces no chain');
+end;
+
+procedure TTestTls13Resumption.TestDeclinedTicketWithExternalPskStoresNoChain;
+var
+  LStekA, LStekB: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LPsk: TExternalPsk;
+  LPsks: TArray<TExternalPsk>;
+begin
+  // a declined ticket's chain must not ride onto the external-PSK tickets that replace it
+  LStekA := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LStekB := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LPsk.Identity := DecodeHex('6578742d70736b');
+  LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+  LPsks := TArray<TExternalPsk>.Create(LPsk);
+
+  LClient := NewClient(LCache);
+  LServer := NewStekServer(LStekA, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the certificate handshake cached a ticket with a chain');
+
+  // the server cannot open that ticket (other STEK) but accepts the external PSK offered beside it
+  LClient := NewExtPskClient(LCache, LPsks, False);
+  LServer := NewExtPskServer(LStekB, LPsks, 1);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the external PSK was accepted');
+
+  LClient := NewExtPskClient(LCache, nil, True);
+  LServer := NewExtPskServer(LStekB, LPsks, 1);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the resume did not abort');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the new ticket resumed');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.PeerCertificates),
+    'the new ticket carries no chain from the declined one');
+end;
+
+procedure TTestTls13Resumption.TestResumedTicketKeepsItsChainForReverify;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  // a resumption of a certificate ticket re-issues one that still carries the verified chain
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache);
+  LServer := NewStekServer(LStek, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the full handshake cached a ticket');
+
+  LClient := NewExtPskClient(LCache, nil, True);
+  LServer := NewStekServer(LStek, 1, 7200, False);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the first resume');
+  CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) > 0,
+    'the resumed session surfaces its chain');
+
+  LClient := NewExtPskClient(LCache, nil, True);
+  LServer := NewStekServer(LStek, 1, 7200, False);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the second resume');
+  CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) > 0,
+    'the re-issued ticket kept the chain');
 end;
 
 procedure TTestTls13Resumption.TestExternalPskSatisfiesRequiredClientAuth;

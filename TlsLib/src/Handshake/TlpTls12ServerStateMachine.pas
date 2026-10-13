@@ -551,6 +551,10 @@ begin
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ClientHello,
       LHello.Extensions);
 
+    // before the version floor, so a spurious fallback is not masked as protocol_version
+    TServerOfferSelection.RejectSpuriousFallback(LHello.CipherSuites,
+      LContext.SupportedVersions, LHello.LegacyVersion, TlsWireVersionTls12);
+
     // this machine only speaks TLS 1.2, so a client that offered supported_versions without 1.2,
     // or (absent the extension) a legacy_version below 1.2, shares no version with it: the client
     // selected nothing this server supports (RFC 8446 4.2.1 / D.2)
@@ -706,10 +710,7 @@ begin
     FPhase := TPhase.WaitClientKeyExchange;
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LServerHello));
-  // once the client offered record_size_limit, cap outbound records to its limit (and the client's
-  // to ours; 0 = no inbound cap) BEFORE the possibly large Certificate is framed. The ServerHello
-  // that announced the limit is itself unrestricted (RFC 8449 4); capping before the Certificate
-  // flight is local policy, since the limit applies to records after the handshake keys.
+  // limits bind protected records only (RFC 8449 4)
   if FPeerRecordSizeLimit > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SetRecordSizeLimit(FPeerRecordSizeLimit, FParams.RecordSizeLimit));
@@ -1153,8 +1154,7 @@ begin
 
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LServerHello));
-  // cap outbound records to the client's limit (and its to ours) right after the ServerHello that
-  // announced it, so the resumed flight's NewSessionTicket / Finished are bounded (RFC 8449 4)
+  // limits bind protected records only (RFC 8449 4)
   if FPeerRecordSizeLimit > 0 then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SetRecordSizeLimit(FPeerRecordSizeLimit, FParams.RecordSizeLimit));

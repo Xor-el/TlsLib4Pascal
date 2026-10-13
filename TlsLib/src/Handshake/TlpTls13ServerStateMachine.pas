@@ -512,8 +512,6 @@ resourcestring
     'a TLS 1.3 ClientHello must offer only the null legacy_compression_method';
   SEarlyDataInSecondClientHello =
     'the retry ClientHello must not re-offer early_data (RFC 8446 4.1.2)';
-  SSpuriousFallback =
-    'the client signalled TLS_FALLBACK_SCSV but the server supports a higher version';
   SClientDroppedTls13 =
     'the second ClientHello no longer offers TLS 1.3 (RFC 8446 4.1.2)';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
@@ -655,7 +653,7 @@ procedure TTls13ServerStateMachine.NegotiateFrom(
   AAllowResumption: Boolean; out ASelectedGroup: UInt16);
 var
   LSuiteCode: UInt16;
-  LHasFallbackScsv, LClientOffersTls13: Boolean;
+  LClientOffersTls13: Boolean;
 begin
   // re-derived per ClientHello so a retry that drops the offer drops the response too
   FPeerRecordSizeLimit := 0;
@@ -681,19 +679,11 @@ begin
   FClientOfferedPskDheKe := TArrayUtilities.Contains<Byte>(AContext.PskModes,
     PskDheKeMode);
 
-  // RFC 7507: a client that fell back to a lower version signals TLS_FALLBACK_SCSV. This is a 1.3
-  // server, so if the client does not offer 1.3 yet signals the fallback, the server could have done
-  // better and the fallback was spurious - inappropriate_fallback (checked before version selection
-  // so it is not masked as protocol_version). The version dispatcher enforces this on the mixed path;
-  // a 1.3-only server reaches here directly. A client that does offer 1.3 is legitimately at this
-  // machine (an ECH-accepted handshake processes the inner ClientHello, which carries 1.3).
-  LHasFallbackScsv := TArrayUtilities.Contains<UInt16>(AClientHello.CipherSuites,
-    TlsFallbackScsv);
+  // before version selection, so a spurious fallback is not masked as protocol_version
+  TServerOfferSelection.RejectSpuriousFallback(AClientHello.CipherSuites,
+    AContext.SupportedVersions, AClientHello.LegacyVersion, TlsWireVersionTls13);
   LClientOffersTls13 := TArrayUtilities.Contains<UInt16>(AContext.SupportedVersions,
     TlsWireVersionTls13);
-  if LHasFallbackScsv and not LClientOffersTls13 then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.InappropriateFallback, @SSpuriousFallback);
 
   // version is confirmed via supported_versions; a second ClientHello may not drop 1.3 after the
   // first offered it (RFC 8446 4.1.2)

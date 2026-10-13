@@ -85,9 +85,7 @@ type
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Applies any pending coalesced KeyUpdate response (before an app write).</summary>
     procedure FlushPendingKeyUpdate;
-    /// <summary>Notes that application data arrived: genuine traffic resets the consecutive
-    /// post-handshake message flood counter (RFC 8446 4.6.3 permits unbounded KeyUpdates over
-    /// a connection's life, but not an uninterrupted stream of them).</summary>
+    /// <summary>Notes that application data arrived, which resets the post-handshake flood counter.</summary>
     procedure NoteApplicationData;
     /// <summary>Exported keying material from the active machine's secrets (RFC 8446 7.5 /
     /// RFC 5705).</summary>

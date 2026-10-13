@@ -21,6 +21,7 @@ uses
   TlpArrayUtilities,
   TlpTlsAlert,
   TlpTlsVersion,
+  TlpNegotiationTypes,
   TlpTlsLibExceptions,
   TlpExtensionContext,
   TlpITlsCredentialResolver,
@@ -51,6 +52,14 @@ type
     class function ResolveCredential(const AResolver: ITlsServerCredentialResolver;
       const AContext: TExtensionContext; const ACipherSuites: TArray<UInt16>;
       AVersion: TTlsVersion): TTlsCredential; static;
+    /// <summary>Whether the client signals TLS_FALLBACK_SCSV although its highest known version is below AServerHighest (RFC 7507 3).</summary>
+    class function IsSpuriousFallback(const ACipherSuites,
+      ASupportedVersions: TArray<UInt16>; ALegacyVersion,
+      AServerHighest: UInt16): Boolean; static;
+    /// <summary>Aborts with inappropriate_fallback when IsSpuriousFallback.</summary>
+    class procedure RejectSpuriousFallback(const ACipherSuites,
+      ASupportedVersions: TArray<UInt16>; ALegacyVersion,
+      AServerHighest: UInt16); static;
   end;
 
 implementation
@@ -68,6 +77,8 @@ resourcestring
     'the selected server certificate has no signing key';
   SCredentialHasNoCertificates =
     'the selected server credential has an empty certificate chain';
+  SSpuriousFallback =
+    'the client signalled TLS_FALLBACK_SCSV but the server supports a higher version';
 
 { TServerOfferSelection }
 
@@ -128,6 +139,25 @@ begin
   if System.Length(Result.CertificateChain) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SCredentialHasNoCertificates);
+end;
+
+class function TServerOfferSelection.IsSpuriousFallback(const ACipherSuites,
+  ASupportedVersions: TArray<UInt16>; ALegacyVersion, AServerHighest: UInt16): Boolean;
+var
+  LClientHighest: UInt16;
+begin
+  LClientHighest := TTlsVersion.ClientHighest(ASupportedVersions, ALegacyVersion);
+  Result := (LClientHighest <> 0) and (LClientHighest < AServerHighest) and
+    (TArrayUtilities.Contains<UInt16>(ACipherSuites, TlsFallbackScsv));
+end;
+
+class procedure TServerOfferSelection.RejectSpuriousFallback(const ACipherSuites,
+  ASupportedVersions: TArray<UInt16>; ALegacyVersion, AServerHighest: UInt16);
+begin
+  if IsSpuriousFallback(ACipherSuites, ASupportedVersions, ALegacyVersion,
+    AServerHighest) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.InappropriateFallback, @SSpuriousFallback);
 end;
 
 end.
