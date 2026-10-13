@@ -391,7 +391,7 @@ type
       const AExpectation: TBoGoExpectation; const AObserved: TBoGoObserved;
       const APkix: IPkixProvider; out AMessage: string): Int32; static;
     /// <summary>Runs the assertions whose scope is in AScopes against AObserved (APreReject: the
-    /// view of a rejected 0-RTT offer), plus BoringSSL's always-on ALPN equality.</summary>
+    /// view of a rejected 0-RTT offer), plus the runner's always-on ALPN equality.</summary>
     class function RunExpectations(const AConfig: TBoGoConfig; const AObserved: TBoGoObserved;
       const APkix: IPkixProvider; AScopes: TBoGoExpectScopes; APreReject: Boolean;
       out AMessage: string): Int32; static;
@@ -1078,7 +1078,7 @@ begin
     TEarlyDataReason.TicketAgeSkew:
       Result := 'ticket_age_skew';
   else
-    // the anti-replay decline has no BoringSSL reason
+    // the anti-replay decline has no runner-side reason
     Result := 'unknown';
   end;
 end;
@@ -1219,7 +1219,7 @@ begin
         AMessage := Format('early data reason was "%s", expected "%s"',
           [EarlyDataReasonName(AObserved.Info.EarlyDataReason), AExpectation.Name]);
     TBoGoExpectKind.TicketAgeSkew:
-      // BoringSSL reads the skew of a resumption only, and 0 means no expectation
+      // the runner reads the skew of a resumption only, and 0 means no expectation
       if AObserved.IsResume and (AExpectation.Number <> 0) and
         (AObserved.Info.TicketAgeSkew <> AExpectation.Number) then
         AMessage := Format('ticket age skew was %d, wanted %d',

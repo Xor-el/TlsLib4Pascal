@@ -38,6 +38,7 @@ uses
   TlpIHandshakeChannel,
   TlpHandshakeChannel,
   TlpIHandshakeMachine,
+  TlpHandshakeEffect,
   TlpHandshakeDriver,
   TlpHandshakeConductor,
   TlpEchConfig;

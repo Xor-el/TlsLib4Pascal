@@ -28,15 +28,6 @@ type
     SessionNotResumed, UnsupportedForSession, HelloRetryRequest, AlpnMismatch, TicketAgeSkew,
     ReplayDetected);
 
-  /// <summary>The facts a handshake machine reports at completion beside the suite, group and
-  /// resumption flag; the engine copies them onto the connection info.</summary>
-  TNegotiationFacts = record
-    PeerSignatureScheme: UInt16;
-    HelloRetryRequest: Boolean;
-    EarlyDataReason: TEarlyDataReason;
-    TicketAgeSkew: Int32;
-  end;
-
   /// <summary>
   /// A read-only snapshot of a connection's negotiated facts, taken after the handshake;
   /// reading it before the handshake completes yields the zero values. On a resumed handshake

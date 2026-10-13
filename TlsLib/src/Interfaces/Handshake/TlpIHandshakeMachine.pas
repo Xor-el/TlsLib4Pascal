@@ -24,7 +24,6 @@ uses
   TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
-  TlpTlsConnectionInfo,
   TlpTrustPolicy,
   TlpIKeySchedule,
   TlpIRecordProtection;

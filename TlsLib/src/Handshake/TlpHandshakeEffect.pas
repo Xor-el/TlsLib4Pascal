@@ -58,6 +58,15 @@ type
     SendWarningAlert,     // emit a warning-level alert and continue (e.g. no_renegotiation)
     Fail);                // abort with a fatal alert
 
+  /// <summary>The facts a handshake machine reports at completion beside the suite, group and
+  /// resumption flag; the engine copies them onto the connection info.</summary>
+  TNegotiationFacts = record
+    PeerSignatureScheme: UInt16;
+    HelloRetryRequest: Boolean;
+    EarlyDataReason: TEarlyDataReason;
+    TicketAgeSkew: Int32;
+  end;
+
   /// <summary>
   /// A pure instruction the state machine emits for the driver to carry out. The
   /// states never touch the record layer, key schedule, or event queue directly;
