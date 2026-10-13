@@ -1,0 +1,28 @@
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_a42ddd283d3520::t_909f4b69fce635 1720-1721
+  s_a42ddd283d3520::t_302b676ccd56d1 221-222
+  s_a42ddd283d3520::t_4f3e1e31a78ff9 82-83
+  s_a42ddd283d3520::t_fd361adafa0b77 1730-1732,1734,1744
+  s_a42ddd283d3520::t_44395f5848af65 1733
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_a42ddd283d3520::t_37ab2c042185f8 137
+  s_a42ddd283d3520::t_2be67779ce6d94 849,858,865,869
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_a42ddd283d3520::t_56ec776f5e4b42 241-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e330c68fd8f7fb7d5c90e90205108d6dffec3c8d",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
