@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpTlsLibExceptions,
   TlpIPkixProvider,
   TlpICertificateTrust,
@@ -82,7 +83,8 @@ type
       : IServerCertificateVerifierSource; overload; static;
     /// <summary>As above, also trusting AExtraAnchors (nil for none) beside the OS roots inside the
     /// OS evaluation, so the platform's own policy still runs, and refusing a path through a
-    /// certificate the OS distrusts (read with APkix where the platform exposes that list).</summary>
+    /// certificate the OS distrusts (read with APkix where the platform exposes that list) or that
+    /// AExtraAnchors distrusts. Both lists are snapshotted when the source is built.</summary>
     class function ServerVerifierSource(AFetch: TSystemTrustFetch;
       const AExtraAnchors: ITrustAnchorStore; const APkix: IPkixProvider):
       IServerCertificateVerifierSource; overload; static;
@@ -112,7 +114,8 @@ type
     /// async park). Raises where the platform exposes no OS client-certificate verifier, or where
     /// Live is asked of a platform without OS-native live revocation. On Android the OS reports no
     /// validated path for a client certificate, so the chain-algorithm and key-strength floors apply
-    /// to the leaf alone, not to the presented intermediates.</summary>
+    /// to the leaf alone, not to the presented intermediates. The client-CA store's distrusted
+    /// certificates are withheld from the engine and refused on any reported path.</summary>
     class function ClientVerifierSource(AFetch: TSystemTrustFetch)
       : IClientCertificateVerifierSource; static;
   end;
@@ -227,15 +230,18 @@ begin
   LExtra := nil;
   LDistrusted := nil;
   if AExtraAnchors <> nil then
+  begin
     LExtra := AExtraAnchors.RootCertificates;
-  // the distrust list matters only beside host roots, and only where the OS exposes it
+    LDistrusted := AExtraAnchors.DistrustedCertificates;
+  end;
+  // the OS list matters only beside host roots, and only where the OS exposes it
   if (System.Length(LExtra) > 0) and Supports(TSystemTrustMode.Anchors) then
   begin
     if APkix = nil then
       raise EArgumentTlsLibException.CreateRes(@SHostRootsNeedProvider);
     LSource := CreateRootSource(APkix);
     try
-      LDistrusted := LSource.ReadDistrusted;
+      LDistrusted := TArrayUtilities.Concat<TBytes>(LDistrusted, LSource.ReadDistrusted);
     finally
       LSource.Free;
     end;
@@ -289,12 +295,16 @@ class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsServerCo
 var
   LEngine: IPlatformChainEngine;
   LPolicy: TOSDelegatePolicy;
-  LAnchors: TArray<TBytes>;
+  LAnchors, LDistrusted: TArray<TBytes>;
 begin
   // the client-CA anchors are the exclusive trust root the live re-check builds against
   LAnchors := nil;
+  LDistrusted := nil;
   if AConfig.TrustStore <> nil then
+  begin
     LAnchors := AConfig.TrustStore.RootCertificates;
+    LDistrusted := AConfig.TrustStore.DistrustedCertificates;
+  end;
   if TryChainEngine(LEngine) then
   begin
     LPolicy := Default(TOSDelegatePolicy);
@@ -308,6 +318,7 @@ begin
     // a client certificate carries no server name to match
     LPolicy.CheckHostName := False;
     LPolicy.Anchors := LAnchors;
+    LPolicy.Distrusted := LDistrusted;
     LPolicy.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
     Exit(TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Client, LPolicy, AFallback));
   end;

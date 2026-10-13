@@ -39,8 +39,9 @@ type
   /// armed (see WithLiveSystemTrust). Anchors also honour OS distrust of an exact certificate
   /// anywhere on a path (Windows Disallowed, macOS Deny), as far as the platform lets it be read;
   /// a delegate applies the full OS policy. Host roots passed as extra anchors join the harvested
-  /// ones, and distrust from either wins; a delegate trusts them beside the OS roots and OS
-  /// distrust still wins on a path through them. System trust verifies server
+  /// ones, and distrust from either wins; a delegate trusts them beside the OS roots and
+  /// distrust from the OS or the host store still wins on a path through them. A delegate reads
+  /// the distrust lists once, when the verifier source is built. System trust verifies server
   /// certificates only; an mTLS server's client-CA is never the OS store - supply it with
   /// TClientVerification (see TOSSystemTrust.ClientVerifierSource for the OS engine over that
   /// private CA).

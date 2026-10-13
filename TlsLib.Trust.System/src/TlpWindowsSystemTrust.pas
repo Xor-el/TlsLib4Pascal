@@ -73,14 +73,19 @@ type
     /// <summary>Turns the chain-policy dwError into the platform result: 0 is Good, a definitive
     /// revocation is Revoked, an unreachable/undecided revocation is Indeterminate (each with the
     /// OS-built path and the anchor exempt), and any other error is a False rejection with the
-    /// mapped alert. A revocation error on an explicitly distrusted chain is a bad_certificate
-    /// rejection, not a revocation. A path that cannot be read is internal_error.</summary>
+    /// mapped alert. Given a policy error, a revocation outcome is reported only when the chain
+    /// carries no other error bit (an explicitly distrusted chain is a bad_certificate rejection, not
+    /// a revocation), and NoTrustAnchor is read from the chain bits: an untrusted root or partial
+    /// chain with nothing else but expiry (which the host-root pass re-judges). A policy error of 0
+    /// is accepted as the OS decided. A path that cannot be read is internal_error.</summary>
     class function ClassifyPolicyStatus(ADwError: DWORD; AChainCtx: Pointer;
       out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>The CertGetCertificateChain flags for a revocation level and network mode: cache-only
-    /// inline (revocation added unless None), or network-enabled for a live check (whole-chain
+    /// inline (revocation added unless None; leaf-scoped under RequirePositive, so a good staple is
+    /// not outvoted by an uncached intermediate), or network-enabled for a live check (whole-chain
     /// revocation with AIA disabled so the built path matches the presented one). Root
-    /// auto-update is never disabled.</summary>
+    /// auto-update is never disabled. Trade-off: Hard inline no longer checks cached intermediate
+    /// revocation (the staple covers the leaf); Soft inline and the live pass still do.</summary>
     class function ChainFlags(ARevocation: TPlatformRevocationCheck;
       ANetworkAllowed: Boolean): DWORD; static;
     function Capabilities: TPlatformChainCapabilities;
@@ -112,9 +117,10 @@ const
   CERT_STORE_READONLY_FLAG = $00008000;
   CERT_STORE_ADD_ALWAYS = 4;
   CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL = $00000004;
-  // revocation over the whole chain except the root, bounded by one accumulative timeout so
-  // a cache-only build (no socket) settles promptly instead of per-element stalls
+  // revocation over every non-root element; the accumulative timeout below bounds a cache-only build
   CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT = $40000000;
+  // leaf-only revocation, so a Hard inline pass is decided by the staple like the built-in Hard
+  CERT_CHAIN_REVOCATION_CHECK_END_CERT = $10000000;
   CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT = $08000000;
   // live mode uses the network for revocation only; the presented intermediates already seed the
   // path, so an AIA fetch would just build a different one (a divergent verdict, not a stronger one)
@@ -124,12 +130,18 @@ const
   // name mismatch) that a single dwError would otherwise mask behind CRYPT_E_NO_REVOCATION_CHECK
   CERT_CHAIN_POLICY_IGNORE_ALL_REV_UNKNOWN_FLAGS = $00000F00;
   // CERT_TRUST_STATUS.dwErrorStatus bits inspected alongside the policy dwError in live mode
+  CERT_TRUST_IS_NOT_TIME_VALID = $00000001;
+  CERT_TRUST_IS_REVOKED = $00000004;
+  CERT_TRUST_IS_UNTRUSTED_ROOT = $00000020;
   CERT_TRUST_REVOCATION_STATUS_UNKNOWN = $00000040;
+  CERT_TRUST_IS_PARTIAL_CHAIN = $00010000;
   CERT_TRUST_IS_OFFLINE_REVOCATION = $01000000;
   CERT_TRUST_IS_EXPLICIT_DISTRUST = $04000000;
   // the leaf property crypt32 reads a stapled OCSP response from, so revocation is decided
   // from the handshake staple without a network fetch
   CERT_OCSP_RESPONSE_PROP_ID = 70;
+  // a free-standing context has no store to persist the property to, which is not an error here
+  CERT_SET_PROPERTY_IGNORE_PERSIST_ERROR_FLAG = $80000000;
 
   USAGE_MATCH_TYPE_AND = $00000000;
   AUTHTYPE_SERVER = 2;
@@ -541,7 +553,8 @@ begin
   LDisallowed := TList<TBytes>.Create;
   try
     // Distrust first, so it can be subtracted from the trusted store.
-    CollectStore('Disallowed', nil, LDisallowed, False);
+    if not CollectStore('Disallowed', nil, LDisallowed, False) then
+      raise ESystemTrustUnavailableTlsLibException.CreateRes(@SDisallowedUnreadable);
     ADisallowed := LDisallowed.ToArray;
     LExclude := TDictionary<TBytes, Boolean>.Create;
     try
@@ -647,26 +660,39 @@ class function TWindowsChainEngine.ClassifyPolicyStatus(ADwError: DWORD; AChainC
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 var
   LOsPath: TArray<TBytes>;
-  LDistrusted: Boolean;
+  LErrorStatus, LOtherBits: DWORD;
 begin
   Result := False;
   AResult := Default(TPlatformChainResult);
-  LDistrusted := (AChainCtx <> nil) and
-    ((PCERT_CHAIN_CONTEXT(AChainCtx)^.TrustStatus.dwErrorStatus and
-    CERT_TRUST_IS_EXPLICIT_DISTRUST) <> 0);
+  LErrorStatus := 0;
+  if AChainCtx <> nil then
+    LErrorStatus := PCERT_CHAIN_CONTEXT(AChainCtx)^.TrustStatus.dwErrorStatus;
+  // the chain's own error bits other than the revocation ones
+  LOtherBits := LErrorStatus and (not DWORD(CERT_TRUST_IS_REVOKED or
+    CERT_TRUST_REVOCATION_STATUS_UNKNOWN or CERT_TRUST_IS_OFFLINE_REVOCATION));
+  if (ADwError <> 0) and (LOtherBits <> 0) then
+  begin
+    MapPolicyError(ADwError, AAlert, AResult.Failure);
+    // no anchor only when nothing but root/expiry bits are set; the host-root pass re-judges expiry
+    if ((LOtherBits and (CERT_TRUST_IS_UNTRUSTED_ROOT or CERT_TRUST_IS_PARTIAL_CHAIN)) <> 0) and
+      ((LOtherBits and (not DWORD(CERT_TRUST_IS_UNTRUSTED_ROOT or CERT_TRUST_IS_PARTIAL_CHAIN or
+      CERT_TRUST_IS_NOT_TIME_VALID))) = 0) then
+      AResult.Failure := TPlatformChainFailure.NoTrustAnchor
+    else
+      AResult.Failure := TPlatformChainFailure.Other;
+    Exit;
+  end;
   if ADwError = 0 then
   begin
     // dwError can be 0 while BestEffort's policy flag suppressed a revocation-unknown; consult the
     // chain's own status so an unreachable/offline responder reports Indeterminate, not a false Good
-    if (AChainCtx <> nil) and
-      ((PCERT_CHAIN_CONTEXT(AChainCtx)^.TrustStatus.dwErrorStatus and
-      (CERT_TRUST_REVOCATION_STATUS_UNKNOWN or CERT_TRUST_IS_OFFLINE_REVOCATION)) <> 0) then
+    if (LErrorStatus and (CERT_TRUST_REVOCATION_STATUS_UNKNOWN or
+      CERT_TRUST_IS_OFFLINE_REVOCATION)) <> 0 then
       AResult.Outcome := TLiveRevocationOutcome.Indeterminate
     else
       AResult.Outcome := TLiveRevocationOutcome.Good;
   end
-  else if ((ADwError = CERT_E_REVOKED) or (ADwError = CERT_E_REVOKED_ALT)) and
-    (not LDistrusted) then
+  else if (ADwError = CERT_E_REVOKED) or (ADwError = CERT_E_REVOKED_ALT) then
     // a definitive revocation from the chain engine
     AResult.Outcome := TLiveRevocationOutcome.Revoked
   else if (ADwError = CRYPT_E_NO_REVOCATION_CHECK) or
@@ -675,7 +701,6 @@ begin
     AResult.Outcome := TLiveRevocationOutcome.Indeterminate
   else
   begin
-    // a definitive non-revocation trust failure: reject with the mapped alert
     MapPolicyError(ADwError, AAlert, AResult.Failure);
     Exit;
   end;
@@ -751,13 +776,18 @@ begin
     LStore := FCertOpenStore(CERT_STORE_PROV_MEMORY, MY_ENCODING_TYPE, nil, 0, nil);
   try
     // the staple, attached to the leaf, is read as cached revocation data (no responder fetch)
-    if AServer and (Length(ARequest.OcspStaple) > 0) and
-      System.Assigned(FCertSetCertificateContextProperty) then
+    if AServer and (Length(ARequest.OcspStaple) > 0) then
     begin
       LStapleBlob.cbData := Length(ARequest.OcspStaple);
       LStapleBlob.pbData := PByte(ARequest.OcspStaple);
-      FCertSetCertificateContextProperty(LLeaf, CERT_OCSP_RESPONSE_PROP_ID, 0,
-        @LStapleBlob);
+      // an unattached staple would leave the verdict to the cache alone, so it fails closed
+      if (not System.Assigned(FCertSetCertificateContextProperty)) or
+        (not FCertSetCertificateContextProperty(LLeaf, CERT_OCSP_RESPONSE_PROP_ID,
+        CERT_SET_PROPERTY_IGNORE_PERSIST_ERROR_FLAG, @LStapleBlob)) then
+      begin
+        AAlert := TTlsAlertDescription.InternalError;
+        Exit;
+      end;
     end;
 
     if not LExclusive then
@@ -946,9 +976,12 @@ begin
   else
   begin
     // cache-only inline (no socket); None skips revocation, otherwise it is checked against the
-    // staple / OS cache
+    // staple / OS cache: Hard over the leaf the staple covers, Soft over every non-root element
     Result := CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL;
-    if ARevocation <> TPlatformRevocationCheck.None then
+    if ARevocation = TPlatformRevocationCheck.RequirePositive then
+      Result := Result or CERT_CHAIN_REVOCATION_CHECK_END_CERT or
+        CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT
+    else if ARevocation <> TPlatformRevocationCheck.None then
       Result := Result or CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT or
         CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT;
   end;
