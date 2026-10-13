@@ -74,6 +74,11 @@ type
     function BuildClientHello2(AGroup: UInt16; const AKeyShare, ACookie,
       ASessionId: TBytes; ASuite: UInt16 = 0; const AServerName: string = 'server'): TBytes;
     function CookieFromHrr(const AHrr: TBytes): TBytes;
+    /// <summary>The second ClientHello after a cookie of ACookieLength bytes; nil and the alert
+    /// when the retry aborts.</summary>
+    function RetryHello(ACookieLength: Int32; out AAlert: TTlsAlertDescription): TBytes;
+    /// <summary>The largest cookie the second ClientHello's extensions block holds.</summary>
+    function CookieRoom: Int32;
     function NewSecp256r1Server(const AVerbatimCookie: TBytes): IHandshakeMachine; overload;
     function NewSecp256r1Server(const AVerbatimCookie: TBytes;
       const AEchPolicy: IEchServerPolicy): IHandshakeMachine; overload;
@@ -90,6 +95,9 @@ type
     procedure TestCookieMintVerifyRoundTrip;
     procedure TestCookieRejectsTamperedTag;
     procedure TestClientHandlesHelloRetryRequestEmitsSecondClientHello;
+    procedure TestLargestCookieThatFitsIsDecodedByTheReader;
+    procedure TestCookieOneByteBeyondTheRoomAborts;
+    procedure TestClientAbortsWhenTheEchoedCookieOverflowsTheSecondClientHello;
     procedure TestClientRejectsSecondHelloRetryRequest;
     procedure TestClientRejectsHelloRetryWithTls12Suite;
     procedure TestClientRejectsHelloRetryUnofferedGroup;
@@ -461,6 +469,77 @@ begin
   finally
     LContext.Free;
   end;
+end;
+
+function TTestHelloRetryRequest.RetryHello(ACookieLength: Int32;
+  out AAlert: TTlsAlertDescription): TBytes;
+var
+  LClient: IHandshakeMachine;
+  LEffects: TArray<THandshakeEffect>;
+  LCookie: TBytes;
+begin
+  LClient := NewRetryClient;
+  System.SetLength(LCookie, ACookieLength);
+  LEffects := LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256, LCookie,
+    DecodeHex(StringOfChar('3', 64)))));
+  Result := nil;
+  if not FailAlertOf(LEffects, AAlert) then
+    Result := SendHandshakeOf(LEffects)[0];
+end;
+
+function TTestHelloRetryRequest.CookieRoom: Int32;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the message body our own reader accepts, less what a one-byte cookie leaves of it
+  Result := DefaultMaxHandshakeMessageLength -
+    (System.Length(RetryHello(1, LAlert)) - HandshakeHeaderLength) + 1;
+end;
+
+procedure TTestHelloRetryRequest.TestLargestCookieThatFitsIsDecodedByTheReader;
+var
+  LAlert: TTlsAlertDescription;
+  LReader: THandshakeMessageReader;
+  LMessage: TTlsHandshakeMessage;
+  LHello: TTlsClientHello;
+  LWire: TBytes;
+begin
+  LWire := RetryHello(CookieRoom, LAlert);
+  CheckTrue(LWire <> nil, 'the largest cookie is echoed');
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LWire, 0, System.Length(LWire));
+    CheckTrue(LReader.NextMessage(LMessage), 'our own reader accepts the whole message');
+    LHello := THandshakeMessages.DecodeClientHello(LMessage.Body);
+    CheckTrue(System.Length(LHello.Extensions) > CookieRoom, 'and decodes it with the cookie');
+  finally
+    LReader.Free;
+  end;
+end;
+
+procedure TTestHelloRetryRequest.TestCookieOneByteBeyondTheRoomAborts;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(RetryHello(CookieRoom + 1, LAlert) = nil, 'one byte more aborts the retry');
+  CheckTrue(LAlert = TTlsAlertDescription.InternalError, 'with internal_error');
+end;
+
+procedure TTestHelloRetryRequest.TestClientAbortsWhenTheEchoedCookieOverflowsTheSecondClientHello;
+var
+  LClient: IHandshakeMachine;
+  LHrr, LCookie: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // a foreign server picks the cookie's size; the retry echoes it verbatim beside the other extensions
+  LClient := NewRetryClient;
+  System.SetLength(LCookie, 65446);
+  LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
+    LCookie, DecodeHex(StringOfChar('3', 64)));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert),
+    'the retry aborts instead of raising out of the encoder');
+  CheckTrue(LAlert = TTlsAlertDescription.InternalError, 'with internal_error');
 end;
 
 procedure TTestHelloRetryRequest.TestClientRejectsSecondHelloRetryRequest;

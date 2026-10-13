@@ -36,6 +36,8 @@ uses
   TlpISession,
   TlpSession,
   TlpInMemorySessionCache,
+  TlpClientSessionPolicy,
+  TlpSystemTimeUtilities,
   TlpSessionTicketKeys,
   TlpAntiReplay,
   TlpInMemorySessionStore,
@@ -88,6 +90,9 @@ uses
   TlsLibTestBase;
 
 type
+  /// <summary>The shapes of client the external-PSK budget is checked against.</summary>
+  TOfferKind = (Plain, LargestAlpn, CachedTicket, Ech);
+
   TTestConfigBuilder = class(TTlsLibAlgorithmTestCase)
   private
     FCerts: TStringList;
@@ -142,6 +147,23 @@ type
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
+    function MakePskSpecs(ACount: Int32): TArray<TExternalPsk>;
+    /// <summary>The bytes of the ClientHello a client built from AFacet sends first.</summary>
+    function HelloLength(const AFacet: ITls13ClientConfigFacet): Int32;
+    /// <summary>Whether the ClientHello a client built from AFacet sends is accepted and decoded by
+    /// our own handshake reader.</summary>
+    function HelloDecodes(const AFacet: ITls13ClientConfigFacet): Boolean;
+    /// <summary>Whether Build of AFacet refuses with an invalid-operation error.</summary>
+    function OfferRefused(const AFacet: ITls13ClientConfigFacet): Boolean;
+    function LargestAlpnBuilder: ITlsClientConfigBuilder;
+    /// <summary>A client whose cache holds a ticket at the size cap for localhost.</summary>
+    function CachedTicketBuilder: ITlsClientConfigBuilder;
+    /// <summary>A TLS 1.3 client with ECH on and ACount external PSKs.</summary>
+    function EchFacet(ACount: Int32): ITls13ClientConfigFacet;
+    /// <summary>A client of the given shape holding ACount external PSKs.</summary>
+    function OfferFacet(AKind: TOfferKind; ACount: Int32): ITls13ClientConfigFacet;
+    function LargestAcceptedCount(AKind: TOfferKind): Int32;
+    procedure CheckExternalPskRefused(const APsks: TArray<TExternalPsk>; const AMessage: string);
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure RunHandshake(const AClient, AServer: ITlsEngine);
@@ -201,6 +223,31 @@ type
     procedure TestAlpnListBeyondWireLimitIsRefused;
     procedure TestLargestAlpnListStillEncodesInTheClientHello;
     procedure TestServerExternalPskNeedsTls13;
+    procedure TestExternalPskEmptyIdentityIsRefused;
+    procedure TestExternalPskOversizeIdentityIsRefused;
+    procedure TestExternalPskNilSecretIsRefused;
+    procedure TestExternalPskEmptySecretIsRefused;
+    procedure TestExternalPskDuplicateIdentityIsRefused;
+    procedure TestExternalPskSameIdentityDifferentContextIsAccepted;
+    procedure TestExternalPskSha512ProvisionedHashIsAccepted;
+    procedure TestExternalPskOversizeContextIsRefused;
+    procedure TestExternalPskImportedIdentityAtTheWireLimitIsAccepted;
+    procedure TestExternalPskImportedIdentityBeyondTheWireLimitIsRefused;
+    procedure TestExternalPskOfferAtTheBudgetIsAccepted;
+    procedure TestExternalPskOfferBeyondTheBudgetIsRefused;
+    procedure TestExternalPskOfferAtTheBudgetEncodesInTheClientHello;
+    procedure TestExternalPskOfferWithTheLargestAlpnListEncodes;
+    procedure TestExternalPskOfferBeyondTheBudgetWithTheLargestAlpnListIsRefused;
+    procedure TestExternalPskOfferWithACachedTicketEncodes;
+    procedure TestExternalPskOfferBeyondTheBudgetWithACachedTicketIsRefused;
+    procedure TestExternalPskOfferAtTheBudgetIsDecodedByTheReader;
+    procedure TestExternalPskOfferWithTheLargestAlpnListIsDecodedByTheReader;
+    procedure TestExternalPskOfferWithACachedTicketIsDecodedByTheReader;
+    procedure TestExternalPskOfferWithEchIsDecodedByTheReader;
+    procedure TestExternalPskOfferWithEchEncodes;
+    procedure TestExternalPskOfferBeyondTheBudgetWithEchIsRefused;
+    procedure TestServerMayHoldMoreExternalPsksThanAClientMayOffer;
+    procedure TestServerWithCertificateAndBadExternalPskIsRefused;
     procedure TestPskOnlyServerMustOfferTls13Only;
     procedure TestTls12NeedsAClassicalEcdheGroup;
     procedure TestOneBuilderConfiguresOneEndpoint;
@@ -1178,6 +1225,356 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a TLS 1.2-only server cannot honour external PSKs');
+end;
+
+procedure TTestConfigBuilder.CheckExternalPskRefused(const APsks: TArray<TExternalPsk>;
+  const AMessage: string);
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.Tls13.WithExternalPreSharedKeys(APsks).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, AMessage);
+end;
+
+procedure TTestConfigBuilder.TestExternalPskEmptyIdentityIsRefused;
+var
+  LPsk: TExternalPsk;
+begin
+  LPsk := MakePskSpec;
+  LPsk.Identity := nil;
+  CheckExternalPskRefused(TArray<TExternalPsk>.Create(LPsk), 'an empty external PSK identity');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOversizeIdentityIsRefused;
+var
+  LPsk: TExternalPsk;
+begin
+  LPsk := MakePskSpec;
+  System.SetLength(LPsk.Identity, 65536);
+  CheckExternalPskRefused(TArray<TExternalPsk>.Create(LPsk),
+    'an external PSK identity beyond 65535 bytes');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskNilSecretIsRefused;
+var
+  LPsk: TExternalPsk;
+begin
+  LPsk := MakePskSpec;
+  LPsk.Secret := nil;
+  CheckExternalPskRefused(TArray<TExternalPsk>.Create(LPsk), 'a nil external PSK secret');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskEmptySecretIsRefused;
+var
+  LPsk: TExternalPsk;
+begin
+  LPsk := MakePskSpec;
+  LPsk.Secret := TSecretBuffer.From(nil);
+  CheckExternalPskRefused(TArray<TExternalPsk>.Create(LPsk), 'an empty external PSK secret');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskDuplicateIdentityIsRefused;
+var
+  LPsk: TExternalPsk;
+begin
+  LPsk := MakePskSpec;
+  CheckExternalPskRefused(TArray<TExternalPsk>.Create(LPsk, LPsk),
+    'two external PSKs with one identity and context');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskSameIdentityDifferentContextIsAccepted;
+var
+  LFirst, LSecond: TExternalPsk;
+  LConfig: ITlsClientConfig;
+begin
+  LFirst := MakePskSpec;
+  LSecond := MakePskSpec;
+  LSecond.Context := TBytes.Create($01);
+  LConfig := NewClientBuilder.Tls13.WithExternalPreSharedKeys(
+    TArray<TExternalPsk>.Create(LFirst, LSecond)).Build;
+  CheckEquals(2, System.Length(LConfig.ExternalPsks),
+    'RFC 9258 imported identities differ by context, so the pair is not a duplicate');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskSha512ProvisionedHashIsAccepted;
+var
+  LPsk: TExternalPsk;
+  LConfig: ITlsClientConfig;
+begin
+  // RFC 9258 3 leaves an EPSK's provisioned hash open; only the target KDF is SHA-256 or SHA-384
+  LPsk := MakePskSpec;
+  LPsk.Hash := THashAlgorithm.SHA_512;
+  LConfig := NewClientBuilder.Tls13.WithExternalPreSharedKeys(
+    TArray<TExternalPsk>.Create(LPsk)).Build;
+  CheckEquals(1, System.Length(LConfig.ExternalPsks), 'the SHA-512 PSK is kept');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOversizeContextIsRefused;
+var
+  LPsk: TExternalPsk;
+begin
+  LPsk := MakePskSpec;
+  System.SetLength(LPsk.Context, 65536);
+  CheckExternalPskRefused(TArray<TExternalPsk>.Create(LPsk),
+    'a context beyond 2^16-1 bytes cannot be encoded');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskImportedIdentityAtTheWireLimitIsAccepted;
+var
+  LPsk: TExternalPsk;
+  LConfig: ITlsServerConfig;
+begin
+  // a 2-byte identity and a 65525-byte context make a 65535-byte imported identity
+  LPsk := MakePskSpec;
+  System.SetLength(LPsk.Context, 65525);
+  LConfig := NewServerBuilder.Tls13.WithExternalPreSharedKeys(
+    TArray<TExternalPsk>.Create(LPsk)).Build;
+  CheckEquals(1, System.Length(LConfig.ExternalPsks), 'the largest encodable imported identity');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskImportedIdentityBeyondTheWireLimitIsRefused;
+var
+  LPsk: TExternalPsk;
+begin
+  LPsk := MakePskSpec;
+  System.SetLength(LPsk.Context, 65526);
+  CheckExternalPskRefused(TArray<TExternalPsk>.Create(LPsk),
+    'an imported identity one byte beyond 2^16-1');
+end;
+
+function TTestConfigBuilder.HelloLength(const AFacet: ITls13ClientConfigFacet): Int32;
+var
+  LClient: ITlsEngine;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(AFacet.Build, 'localhost');
+  LClient.StartHandshake;
+  Result := System.Length(Drain(LClient));
+end;
+
+function TTestConfigBuilder.HelloDecodes(const AFacet: ITls13ClientConfigFacet): Boolean;
+var
+  LClient: ITlsEngine;
+  LWire, LPayloads: TBytes;
+  LReader: THandshakeMessageReader;
+  LMessage: TTlsHandshakeMessage;
+  LPos, LLength: Int32;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(AFacet.Build, 'localhost');
+  LClient.StartHandshake;
+  LWire := Drain(LClient);
+  // the plaintext handshake records, joined back into the message our own reader would see
+  LPayloads := nil;
+  LPos := 0;
+  while LPos + 5 <= System.Length(LWire) do
+  begin
+    LLength := (LWire[LPos + 3] shl 8) or LWire[LPos + 4];
+    LPayloads := ConcatBytes(LPayloads, System.Copy(LWire, LPos + 5, LLength));
+    System.Inc(LPos, 5 + LLength);
+  end;
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LPayloads, 0, System.Length(LPayloads));
+    Result := LReader.NextMessage(LMessage) and
+      (System.Length(THandshakeMessages.DecodeClientHello(LMessage.Body).Extensions) > 0);
+  finally
+    LReader.Free;
+  end;
+end;
+
+function TTestConfigBuilder.OfferRefused(const AFacet: ITls13ClientConfigFacet): Boolean;
+begin
+  Result := False;
+  try
+    AFacet.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := True;
+  end;
+end;
+
+function TTestConfigBuilder.LargestAlpnBuilder: ITlsClientConfigBuilder;
+var
+  LNames: TArray<string>;
+  LI: Int32;
+begin
+  System.SetLength(LNames, 64);
+  for LI := 0 to 63 do
+    LNames[LI] := Format('%.3d', [LI]) + StringOfChar('a', 252);
+  Result := NewClientBuilder.WithAlpnProtocols(TAlpnProtocols.FromText(LNames));
+end;
+
+function TTestConfigBuilder.CachedTicketBuilder: ITlsClientConfigBuilder;
+var
+  LCache: ISessionCache;
+  LTicket, LScope: TBytes;
+begin
+  LScope := TBytes.Create($5C);
+  // a ticket at the size cap, as a STEK server seals one
+  System.SetLength(LTicket, TSessionTicketLimits.MaxCachedTicketBytes);
+  LCache := TInMemorySessionCache.Create;
+  LCache.Store(TClientSessionPolicy.CacheIdentity('localhost', 'localhost', LScope),
+    'localhost',
+    TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_256,
+    TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32)), nil, 'localhost', LTicket,
+    3600, 1,
+    UInt64(TSystemTimeUtilities.UtcUnixMs), 0, nil, nil) as IResumableSession);
+  Result := NewClientBuilder.WithSessionCache(LCache).WithResumptionScope(LScope);
+end;
+
+function TTestConfigBuilder.EchFacet(ACount: Int32): ITls13ClientConfigFacet;
+var
+  LSk: ISecretBuffer;
+begin
+  Result := NewClientBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .Tls13.WithEch(TEchClientModes.Enable(BuildEchConfigList($D4, 'cover.example', LSk)))
+    .WithExternalPreSharedKeys(MakePskSpecs(ACount));
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferAtTheBudgetIsAccepted;
+var
+  LConfig: ITlsClientConfig;
+begin
+  // each 2-byte-identity PSK costs 114 bytes in the extension (two variants); 538 fill the budget
+  LConfig := NewClientBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(538)).Build;
+  CheckEquals(538, System.Length(LConfig.ExternalPsks), 'the largest offer the budget holds');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferBeyondTheBudgetIsRefused;
+begin
+  CheckTrue(OfferRefused(NewClientBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(539))),
+    'one PSK more exceeds the ClientHello extensions budget');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferAtTheBudgetEncodesInTheClientHello;
+begin
+  CheckTrue(HelloLength(NewClientBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(538))) >
+    538 * 100, 'the ClientHello carries every variant');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferWithTheLargestAlpnListEncodes;
+begin
+  CheckTrue(HelloLength(LargestAlpnBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(395))) >
+    16384 + 395 * 100, 'the largest ALPN list and the PSKs fit one ClientHello');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferBeyondTheBudgetWithTheLargestAlpnListIsRefused;
+begin
+  CheckTrue(OfferRefused(LargestAlpnBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(396))),
+    'one PSK more than the largest ALPN list leaves room for');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferWithACachedTicketEncodes;
+begin
+  CheckTrue(HelloLength(CachedTicketBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(394))) >
+    16384 + 394 * 100, 'the cached ticket is offered beside the PSKs in one ClientHello');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferBeyondTheBudgetWithACachedTicketIsRefused;
+begin
+  CheckTrue(OfferRefused(CachedTicketBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(395))),
+    'one PSK more than a cached ticket leaves room for');
+end;
+
+function TTestConfigBuilder.OfferFacet(AKind: TOfferKind;
+  ACount: Int32): ITls13ClientConfigFacet;
+begin
+  case AKind of
+    TOfferKind.Plain:
+      Result := NewClientBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(ACount));
+    TOfferKind.LargestAlpn:
+      Result := LargestAlpnBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(ACount));
+    TOfferKind.CachedTicket:
+      Result := CachedTicketBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(ACount));
+  else
+    Result := EchFacet(ACount);
+  end;
+end;
+
+function TTestConfigBuilder.LargestAcceptedCount(AKind: TOfferKind): Int32;
+var
+  LLow, LHigh, LMid: Int32;
+begin
+  // the largest PSK count Build accepts for this shape
+  LLow := 1;
+  LHigh := 800;
+  while LLow < LHigh do
+  begin
+    LMid := (LLow + LHigh + 1) div 2;
+    if OfferRefused(OfferFacet(AKind, LMid)) then
+      LHigh := LMid - 1
+    else
+      LLow := LMid;
+  end;
+  Result := LLow;
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferAtTheBudgetIsDecodedByTheReader;
+begin
+  CheckTrue(HelloDecodes(OfferFacet(TOfferKind.Plain, LargestAcceptedCount(TOfferKind.Plain))),
+    'our own reader accepts the largest default offer Build accepts');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferWithTheLargestAlpnListIsDecodedByTheReader;
+begin
+  CheckTrue(HelloDecodes(OfferFacet(TOfferKind.LargestAlpn,
+    LargestAcceptedCount(TOfferKind.LargestAlpn))),
+    'our own reader accepts the largest offer Build accepts beside the largest ALPN list');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferWithACachedTicketIsDecodedByTheReader;
+begin
+  // the ticket allowance is deliberately the offered size, so this one is tight by design
+  CheckTrue(HelloDecodes(OfferFacet(TOfferKind.CachedTicket,
+    LargestAcceptedCount(TOfferKind.CachedTicket))),
+    'our own reader accepts the largest offer Build accepts beside a cached ticket');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferWithEchIsDecodedByTheReader;
+begin
+  // the ECH factor of two over-counts the inner, which compresses shared extensions, so it has headroom
+  CheckTrue(HelloDecodes(OfferFacet(TOfferKind.Ech, LargestAcceptedCount(TOfferKind.Ech))),
+    'our own reader accepts the largest ECH offer Build accepts');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferWithEchEncodes;
+begin
+  CheckTrue(HelloLength(EchFacet(246)) > 246 * 100, 'the inner and outer hellos fit the ECH payload');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskOfferBeyondTheBudgetWithEchIsRefused;
+begin
+  CheckTrue(OfferRefused(EchFacet(247)), 'one PSK more than an ECH offer leaves room for');
+end;
+
+procedure TTestConfigBuilder.TestServerMayHoldMoreExternalPsksThanAClientMayOffer;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := NewServerBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(600)).Build;
+  CheckEquals(600, System.Length(LConfig.ExternalPsks), 'a server only matches one offered PSK');
+end;
+
+procedure TTestConfigBuilder.TestServerWithCertificateAndBadExternalPskIsRefused;
+var
+  LPsk: TExternalPsk;
+  LRaised: Boolean;
+begin
+  LPsk := MakePskSpec;
+  LPsk.Identity := nil;
+  LRaised := False;
+  try
+    NewServerBuilder.Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(LPsk)).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a certificate server with a malformed external PSK does not build');
 end;
 
 procedure TTestConfigBuilder.TestPskOnlyServerMustOfferTls13Only;
@@ -2414,6 +2811,18 @@ begin
     $88, $99, $AA, $BB, $CC, $DD, $EE, $FF));
   Result.Context := nil;
   Result.Hash := THashAlgorithm.SHA_256;
+end;
+
+function TTestConfigBuilder.MakePskSpecs(ACount: Int32): TArray<TExternalPsk>;
+var
+  LI: Int32;
+begin
+  System.SetLength(Result, ACount);
+  for LI := 0 to ACount - 1 do
+  begin
+    Result[LI] := MakePskSpec;
+    Result[LI].Identity := TBytes.Create(Byte(LI shr 8), Byte(LI));
+  end;
 end;
 
 procedure TTestConfigBuilder.TestPskOnlyClientOfferingTls12IsRefused;

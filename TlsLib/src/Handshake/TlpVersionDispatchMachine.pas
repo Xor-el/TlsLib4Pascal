@@ -484,6 +484,7 @@ begin
     // it resumes when the server echoes the offered session id (read before releasing the
     // 1.3 machine that holds it)
     FParams12.PresentResumptionSession := FPrimary13Typed.Tls12ResumptionSession;
+    FParams12.EarlyDataReason := FPrimary13Typed.EarlyReasonAtOffer;
     // the actually-sent legacy_session_id (a cached 1.2 id, or the compatibility-mode id when
     // resuming nothing), so the 1.2 machine can catch a server that falsely echoes it
     FParams12.PresentOfferedSessionId := FPrimary13Typed.SentLegacySessionId;

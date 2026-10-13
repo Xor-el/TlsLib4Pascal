@@ -124,7 +124,7 @@ type
     /// <summary>An augment-only peer-certificate hook: it runs after the built-in pipeline and
     /// can only additionally reject (never loosen it). The neutral bridge for an app's own
     /// verify rule. On a server it vets the client chain, under client authentication only (the
-    /// host name is empty).</summary>
+    /// host name is empty); a server that requests no client certificate refuses to build with it.</summary>
     property VerifyCallback: TTlsCertificateVerifyCallback read FVerifyCallback
       write FVerifyCallback;
     /// <summary>The CLIENT-role verdict resolver: when assigned, a client handshake parks after
@@ -141,7 +141,7 @@ type
     /// <summary>The SERVER-role verdict resolver: when assigned, a server handshake that requests
     /// a client certificate parks after the pipeline accepts the CLIENT's chain and this resolves
     /// it out-of-band (live client-cert revocation over a client-auth trust engine); augment-only,
-    /// fail-closed.</summary>
+    /// fail-closed. A server that requests no client certificate refuses to build with it.</summary>
     property ServerVerdictResolver: TCertificateVerdictResolver read FServerVerdictResolver
       write FServerVerdictResolver;
     /// <summary>The fetch budget (ms) the server-role resolver is given; 0 leaves it to the
@@ -474,7 +474,7 @@ begin
   Move(ABuffer[AOffset], LTmp[0], ALength);
   Result := FBinding.Send(LTmp, 0, ALength);
   if Result <= 0 then
-    raise ETlsStreamError.Create(SIndySendNoProgress);
+    raise ETlsStreamError.CreateRes(@SIndySendNoProgress);
 end;
 
 { TTlsLibIOHandlerSocket }

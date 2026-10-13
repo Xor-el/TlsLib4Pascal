@@ -67,7 +67,7 @@ type
   /// sub-interfaces; a consumer narrows to the one matching <see cref="Version" />.
   /// </summary>
   IResumableSession = interface(IInterface)
-    ['{F972F274-932F-4220-95C4-FC2B0D122254}']
+    ['{73F5FA8C-E664-460D-8084-AFE4E4B7DE0A}']
     /// <summary>The protocol version this session was established under.</summary>
     function Version: TTlsVersion;
     /// <summary>The negotiated cipher suite.</summary>
@@ -103,6 +103,10 @@ type
     /// <summary>A digest of the secret of the pre-shared key that authenticated the session (empty
     /// for a certificate session), compared on resumption so a rotated secret does not resume.</summary>
     function PskBinding: TBytes;
+    /// <summary>The signature scheme (IANA code) that verified the peer's CertificateVerify or
+    /// ServerKeyExchange when the session was established; 0 when the peer did not sign (a
+    /// pre-shared key, no client certificate). Reported again on a resumption.</summary>
+    function PeerSignatureScheme: UInt16;
   end;
 
   /// <summary>
@@ -127,7 +131,10 @@ type
   /// ticket, and whether Extended Master Secret bound it.
   /// </summary>
   ITls12ResumableSession = interface(IResumableSession)
-    ['{5F074730-ECB9-42CB-B889-D1901191A873}']
+    ['{3B2CB6D7-13E5-4C96-A6D0-6631DD0BCCAC}']
+    /// <summary>The (EC)DHE group (IANA code) of the original handshake, reported again on a
+    /// resumption (an abbreviated handshake has no key exchange); 0 for a plain PSK session.</summary>
+    function NamedGroup: UInt16;
     /// <summary>The master secret.</summary>
     function MasterSecret: ISecretBuffer;
     /// <summary>The session id (empty when only a ticket is held).</summary>

@@ -41,6 +41,7 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpTlsConnectionInfo,
+  TlpAlpnProtocols,
   TlpITlsEngine,
   TlpTlsEngine,
   TlpTlsLibExceptions,
@@ -69,6 +70,7 @@ uses
   TlpHandshakeEffect,
   MockCryptoProvider,
   MockTransport,
+  MockClock,
   TlpITlsTransport,
   TlpTlsStream,
   MockSessionStores,
@@ -79,6 +81,10 @@ type
   private
     const
       ServerHost = 'localhost';
+    var
+      // per-test overrides the builders below honor when set: the peers' clocks and ALPN lists
+      FClientClock, FServerClock: ITlsClock;
+      FClientAlpn, FServerAlpn: TArray<TBytes>;
     function Filled(AByte: Byte; ACount: Int32): TBytes;
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
@@ -115,6 +121,20 @@ type
     /// <summary>A credential-less server accepting APsks, so completing proves PSK authentication.</summary>
     function NewExtPskServer(const AStek: ISessionTicketKeyManager;
       const APsks: TArray<TExternalPsk>; AIssueTickets: Int32): ITlsEngine;
+    /// <summary>Establishes a 0-RTT-capable ticket, then resumes it with a credential-less server
+    /// (so completing proves the resumption), the client writing early data when AClientEarly.</summary>
+    procedure ResumeForEarlyData(AClientEarly: Boolean; AFirstMaxEarly, ASecondMaxEarly: UInt32;
+      const AAntiReplay: IAntiReplayStrategy; out AClient, AServer: ITlsEngine);
+    procedure CheckEarlyDataReasons(AClientReason, AServerReason: TEarlyDataReason;
+      const AClient, AServer: ITlsEngine);
+    /// <summary>A 0-RTT resumption after the client's clock advanced AClientAdvanceMs and the
+    /// server's AServerAdvanceMs since the ticket was issued.</summary>
+    procedure ResumeUnderClockSkew(AClientAdvanceMs, AServerAdvanceMs: UInt64;
+      out AClient, AServer: ITlsEngine);
+    /// <summary>An external-PSK handshake, then (AResume) its ticket resumed; AIdentity is the
+    /// configured external identity.</summary>
+    procedure ExternalPskHandshake(AResume: Boolean; out AClient, AServer: ITlsEngine;
+      out AIdentity: TBytes);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     function ReadAllEarly(const AEngine: ITlsEngine): TBytes;
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
@@ -147,6 +167,8 @@ type
     procedure TestStreamReadRefusesUntilEarlyDataIsDrained;
     procedure TestZeroRttEarlyExporterMatchesAcrossPeers;
     procedure TestZeroRttRejectWithholdsClientEarlyExporter;
+    procedure TestZeroRttAcceptedIsSurfacedOnBothPeers;
+    procedure TestZeroRttRejectedIsSurfacedOnNeitherPeer;
     procedure TestZeroRttRetryWithholdsClientEarlyExporter;
     procedure TestZeroRttPskDeclinedWithholdsClientEarlyExporter;
     procedure TestEarlyDataInEncryptedExtensionsAfterPskDeclinedIsRejected;
@@ -170,6 +192,33 @@ type
     procedure TestExternalPskAcceptedDoesNotSurfaceCachedResumptionChain;
     procedure TestExternalPskSuiteSelectionHonorsClientOrder;
     procedure TestExternalPskTicketResumesOnlyWhilePskIsConfigured;
+    procedure TestEarlyDataReasonAcceptedOnBothPeers;
+    procedure TestEarlyDataReasonServerDisabledClientPeerDeclined;
+    procedure TestEarlyDataReasonClientDisabledServerPeerDeclined;
+    procedure TestEarlyDataReasonNoSessionOffered;
+    procedure TestEarlyDataReasonUnsupportedForSession;
+    procedure TestEarlyDataReasonSessionNotResumed;
+    procedure TestEarlyDataReasonReplayDetected;
+    procedure TestEarlyDataReasonHelloRetryRequestOnBothPeers;
+    procedure TestHelloRetryRequestIsReportedOnBothPeers;
+    procedure TestNoHelloRetryRequestIsReportedAsNone;
+    procedure TestEarlyDataReasonAlpnMismatchOnTheClient;
+    procedure TestEarlyDataReasonAlpnMismatchOnTheServer;
+    procedure TestTicketAgeSkewIsReportedPastTheWindow;
+    procedure TestStaleTicketAgeDeclinesEarlyData;
+    procedure TestTicketAgeSkewIsReportedInsideTheWindow;
+    procedure TestTicketAgeSkewWithinTheWindowKeepsEarlyData;
+    procedure TestTicketBeyondTheCacheLimitIsNotCached;
+    procedure TestTicketAtTheCacheLimitIsCached;
+    procedure TestConnectionAfterAnUncachedTicketIsAFullHandshake;
+    procedure TestTicketAgeDeobfuscationWrapsBelowTheAgeAdd;
+    procedure TestTicketAgeWrapKeepsTheEarlyDataWindowOpen;
+    procedure TestTicketAgeServerSideSaturatesIntoUInt32;
+    procedure TestTicketAgeServerSideNeverGoesNegative;
+    procedure TestExternalPskIsNotAResumption;
+    procedure TestExternalPskReportsItsIdentity;
+    procedure TestTicketIssuedUnderExternalPskResumes;
+    procedure TestTicketIssuedUnderExternalPskKeepsReportingItsIdentity;
     procedure TestExternalPskSatisfiesRequiredClientAuth;
     procedure TestExternalPskTicketResumesUnderReverify;
     procedure TestDeclinedTicketWithExternalPskStoresNoChain;
@@ -179,6 +228,15 @@ type
 implementation
 
 type
+  /// <summary>An anti-replay strategy that treats every binder as already seen.</summary>
+  TRejectingAntiReplay = class(TInterfacedObject, IAntiReplayStrategy)
+  public
+    function CheckAndRecord(const AUniqueValue: TBytes;
+      ANowMillis, AExpiryMillis: UInt64): Boolean;
+    procedure Clear;
+    function Count: Int32;
+  end;
+
   /// <summary>Wraps the strike register and records the (now, expiry) pair of the last
   /// CheckAndRecord, so a test can observe the hold the server asks for.</summary>
   TRecordingAntiReplay = class(TInterfacedObject, IAntiReplayStrategy)
@@ -196,6 +254,23 @@ type
     property LastNow: UInt64 read FLastNow;
     property LastExpiry: UInt64 read FLastExpiry;
   end;
+
+{ TRejectingAntiReplay }
+
+function TRejectingAntiReplay.CheckAndRecord(const AUniqueValue: TBytes;
+  ANowMillis, AExpiryMillis: UInt64): Boolean;
+begin
+  Result := False;
+end;
+
+procedure TRejectingAntiReplay.Clear;
+begin
+end;
+
+function TRejectingAntiReplay.Count: Int32;
+begin
+  Result := 0;
+end;
 
 { TRecordingAntiReplay }
 
@@ -275,6 +350,9 @@ var
 begin
   LParams := Default(TClientHandshakeParams);
   LParams.Clock := TSystemClock.Create;
+  if FClientClock <> nil then
+    LParams.Clock := FClientClock;
+  LParams.AlpnProtocols := FClientAlpn;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   LParams.Group := TNamedGroups.CreateX25519(Crypto);
@@ -304,6 +382,9 @@ var
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
+  if FServerClock <> nil then
+    LParams.Clock := FServerClock;
+  LParams.AlpnProtocols := FServerAlpn;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
   LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
@@ -1050,6 +1131,55 @@ begin
     'a rejected 0-RTT client withholds the early exporter');
 end;
 
+procedure TTestTls13Resumption.TestZeroRttAcceptedIsSurfacedOnBothPeers;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.ConnectionInfo.EarlyDataAccepted, 'a full handshake accepts no early data');
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.EarlyDataAccepted, 'the client sees its early data accepted');
+  CheckTrue(LServer.ConnectionInfo.EarlyDataAccepted, 'the server reports the early data it accepted');
+end;
+
+procedure TTestTls13Resumption.TestZeroRttRejectedIsSurfacedOnNeitherPeer;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 0, LAnti);
+  LEarly := DecodeHex('7265706c617965642064617461');
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckFalse(LClient.ConnectionInfo.EarlyDataAccepted, 'the client sees its early data rejected');
+  CheckFalse(LServer.ConnectionInfo.EarlyDataAccepted, 'the server reports no accepted early data');
+end;
+
 procedure TTestTls13Resumption.TestZeroRttRetryWithholdsClientEarlyExporter;
 var
   LStek: ISessionTicketKeyManager;
@@ -1139,7 +1269,8 @@ begin
   // each flow below gets its own, issued through a real handshake.
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, False);
-  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, TStrikeRegisterAntiReplay.Create);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
   DriveHandshake(LClient, LServer);
   LSm := TTls13ClientStateMachine.Create(ClientParams(LCache, True));
   LMachine := LSm as IHandshakeMachine;
@@ -1172,7 +1303,8 @@ begin
   // the same flow again on a fresh ticket, this time with early_data in EncryptedExtensions
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, False);
-  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384, TStrikeRegisterAntiReplay.Create);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
   DriveHandshake(LClient, LServer);
   LSm := TTls13ClientStateMachine.Create(ClientParams(LCache, True));
   LMachine := LSm as IHandshakeMachine;
@@ -1707,6 +1839,14 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the full mutual-TLS handshake completed');
   CheckEquals(1, LCache.Count, 'the client cached the ticket');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LServer.ConnectionInfo.PeerSignatureScheme,
+    'the server verified the client''s CertificateVerify under ecdsa_secp256r1_sha256');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LClient.ConnectionInfo.PeerSignatureScheme,
+    'the client verified the server''s CertificateVerify under ecdsa_secp256r1_sha256');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    'the client reports the signature_algorithms of the CertificateRequest');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256,
+    LClient.ConnectionInfo.RequestedSignatureSchemes[0], 'the one the server listed');
 
   // resume: client authentication is NOT re-done on a PSK resumption, so the server must not
   // wait for a client Certificate (regression: it used to park in WaitClientCertificate and
@@ -1719,6 +1859,11 @@ begin
   CheckFalse(LServer.IsTerminal, 'no failure resuming a mutual-TLS session');
   LServerInfo := LServer.ConnectionInfo;
   CheckTrue(LServerInfo.Resumed, 'the mutual-TLS session resumed (not a full handshake)');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LServerInfo.PeerSignatureScheme,
+    'the resumed server reports the client scheme its ticket carried');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256,
+    LClient.ConnectionInfo.PeerSignatureScheme,
+    'the resumed client reports the server scheme its cached session carried');
   // the ticket carried the verified client chain, so the resumed connection surfaces it even
   // though a resumed handshake sends no Certificate (byte-equal to what was presented, which also
   // proves the server accepts its own enlarged ticket back on the wire)
@@ -2167,7 +2312,7 @@ begin
   CheckFalse(LClient.IsTerminal, 'the second handshake did not fail');
   CheckFalse(LServer.IsHandshaking, 'the credential-less server completed via the external PSK');
   CheckFalse(LServer.IsTerminal, 'the external-PSK server did not fail');
-  CheckTrue(LClient.ConnectionInfo.Resumed, 'the client negotiated a PSK');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'an external PSK is not a resumption (RFC 8446 2.2)');
   // the accepted PSK is external, so the cached resumption chain did not authenticate this
   // connection and must not leak onto the connection info
   LInfo := LClient.ConnectionInfo;
@@ -2280,6 +2425,442 @@ begin
   DriveHandshake(LClient, LServer);
   CheckFalse((not LServer.IsHandshaking) and (not LServer.IsTerminal),
     'a ticket made under the old secret is not accepted after rotation');
+end;
+
+procedure TTestTls13Resumption.ResumeForEarlyData(AClientEarly: Boolean;
+  AFirstMaxEarly, ASecondMaxEarly: UInt32; const AAntiReplay: IAntiReplayStrategy;
+  out AClient, AServer: ITlsEngine);
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  AClient := NewClient(LCache, False);
+  AServer := BuildServer(LStek, nil, 1, 7200, True, AFirstMaxEarly, AAntiReplay);
+  DriveHandshake(AClient, AServer);
+  AClient := NewClient(LCache, AClientEarly);
+  AServer := BuildServer(LStek, nil, 0, 7200, False, ASecondMaxEarly, AAntiReplay);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  AClient.StartHandshake;
+  if AClientEarly then
+    AClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(AClient, AServer);
+end;
+
+procedure TTestTls13Resumption.CheckEarlyDataReasons(AClientReason, AServerReason: TEarlyDataReason;
+  const AClient, AServer: ITlsEngine);
+begin
+  CheckEquals(Ord(AClientReason), Ord(AClient.ConnectionInfo.EarlyDataReason),
+    'the client''s early-data reason');
+  CheckEquals(Ord(AServerReason), Ord(AServer.ConnectionInfo.EarlyDataReason),
+    'the server''s early-data reason');
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonAcceptedOnBothPeers;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeForEarlyData(True, 16384, 16384, TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy, LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.Accepted, TEarlyDataReason.Accepted, LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonServerDisabledClientPeerDeclined;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeForEarlyData(True, 16384, 0, TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy, LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.PeerDeclined, TEarlyDataReason.Disabled, LClient,
+    LServer);
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonClientDisabledServerPeerDeclined;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeForEarlyData(False, 16384, 16384, TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy, LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.Disabled, TEarlyDataReason.PeerDeclined, LClient,
+    LServer);
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonNoSessionOffered;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := NewClient(TInMemorySessionCache.Create as ISessionCache, True);
+  LServer := BuildServer(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, nil, 0, 7200, True, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
+  DriveHandshake(LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.NoSessionOffered, TEarlyDataReason.NoSessionOffered,
+    LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonUnsupportedForSession;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the first ticket authorizes no 0-RTT, so the client withholds it and the server sees why
+  ResumeForEarlyData(True, 0, 16384, TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy, LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.UnsupportedForSession,
+    TEarlyDataReason.UnsupportedForSession, LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonSessionNotResumed;
+var
+  LCache: ISessionCache;
+  LStek: ISessionTicketKeyManager;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
+  DriveHandshake(LClient, LServer);
+  // a server holding other ticket keys cannot open the ticket and runs a full handshake
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, nil, 0, 7200, True, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.SessionNotResumed, TEarlyDataReason.SessionNotResumed,
+    LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonReplayDetected;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeForEarlyData(True, 16384, 16384, TRejectingAntiReplay.Create as IAntiReplayStrategy, LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.PeerDeclined, TEarlyDataReason.ReplayDetected, LClient,
+    LServer);
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonHelloRetryRequestOnBothPeers;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewRetryClient(LCache, False);
+  LServer := NewRetryServer(LStek, 1, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  LCache.SetKxHint(TClientSessionPolicy.CacheIdentity('', ServerHost, nil), ServerHost, 0);
+  LClient := NewRetryClient(LCache, True);
+  LServer := NewRetryServer(LStek, 0, 16384, LAnti);
+  LEarly := DecodeHex('7265706c617965642064617461');
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.HelloRetryRequest, TEarlyDataReason.HelloRetryRequest,
+    LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestHelloRetryRequestIsReportedOnBothPeers;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewRetryClient(LCache, False);
+  LServer := NewRetryServer(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, 1, 16384, TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.HelloRetryRequest, 'the client saw a retry');
+  CheckTrue(LServer.ConnectionInfo.HelloRetryRequest, 'the server sent a retry');
+end;
+
+procedure TTestTls13Resumption.TestNoHelloRetryRequestIsReportedAsNone;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeForEarlyData(True, 16384, 16384, TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy, LClient, LServer);
+  CheckFalse(LClient.ConnectionInfo.HelloRetryRequest, 'the client saw no retry');
+  CheckFalse(LServer.ConnectionInfo.HelloRetryRequest, 'the server sent no retry');
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonAlpnMismatchOnTheClient;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  FClientAlpn := TArray<TBytes>.Create(TAlpnProtocols.H2);
+  FServerAlpn := TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11);
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
+  DriveHandshake(LClient, LServer);
+  // the ticket's protocol is no longer one the client advertises, so it offers no 0-RTT
+  FClientAlpn := TArray<TBytes>.Create(TAlpnProtocols.Http11);
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, True, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(Ord(TEarlyDataReason.AlpnMismatch), Ord(LClient.ConnectionInfo.EarlyDataReason),
+    'the client withholds early data for the ticket''s protocol');
+  CheckEquals(Ord(TEarlyDataReason.PeerDeclined), Ord(LServer.ConnectionInfo.EarlyDataReason),
+    'so the server sees none offered');
+end;
+
+procedure TTestTls13Resumption.TestEarlyDataReasonAlpnMismatchOnTheServer;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  FClientAlpn := TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11);
+  FServerAlpn := TArray<TBytes>.Create(TAlpnProtocols.H2);
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
+  DriveHandshake(LClient, LServer);
+  // the resuming server now selects another protocol than the ticket carried: it declines 0-RTT
+  FServerAlpn := TArray<TBytes>.Create(TAlpnProtocols.Http11);
+  LClient := NewClient(LCache, True);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384,
+    TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.PeerDeclined, TEarlyDataReason.AlpnMismatch, LClient,
+    LServer);
+end;
+
+procedure TTestTls13Resumption.ResumeUnderClockSkew(AClientAdvanceMs, AServerAdvanceMs: UInt64;
+  out AClient, AServer: ITlsEngine);
+var
+  LClientClock, LServerClock: TMockClock;
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LAnti: IAntiReplayStrategy;
+  LEarly: TBytes;
+begin
+  LClientClock := TMockClock.Create(1700000000000);
+  LServerClock := TMockClock.Create(1700000000000);
+  FClientClock := LClientClock;
+  FServerClock := LServerClock;
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  AClient := NewClient(LCache, False);
+  AServer := BuildServer(LStek, nil, 1, 7200, True, 16384, LAnti);
+  DriveHandshake(AClient, AServer);
+  // each side's own clock ages the ticket, so a difference between the two is the skew
+  LClientClock.Advance(AClientAdvanceMs);
+  LServerClock.Advance(AServerAdvanceMs);
+  AClient := NewClient(LCache, True);
+  AServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  AClient.StartHandshake;
+  AClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(AClient, AServer);
+end;
+
+procedure TTestTls13Resumption.TestTicketAgeSkewIsReportedPastTheWindow;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // 101 s reported against 40 s measured
+  ResumeUnderClockSkew(101000, 40000, LClient, LServer);
+  CheckEquals(61, LServer.ConnectionInfo.TicketAgeSkew, 'the server reports the skew');
+end;
+
+procedure TTestTls13Resumption.TestStaleTicketAgeDeclinesEarlyData;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // a skew of +61 s is one past the 60 s freshness window
+  ResumeUnderClockSkew(101000, 40000, LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.PeerDeclined, TEarlyDataReason.TicketAgeSkew, LClient,
+    LServer);
+end;
+
+procedure TTestTls13Resumption.TestTicketAgeSkewIsReportedInsideTheWindow;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeUnderClockSkew(90000, 40000, LClient, LServer);
+  CheckEquals(50, LServer.ConnectionInfo.TicketAgeSkew, 'the server reports the skew');
+end;
+
+procedure TTestTls13Resumption.TestTicketAgeSkewWithinTheWindowKeepsEarlyData;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeUnderClockSkew(90000, 40000, LClient, LServer);
+  CheckEarlyDataReasons(TEarlyDataReason.Accepted, TEarlyDataReason.Accepted, LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestTicketBeyondTheCacheLimitIsNotCached;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(TFixedLengthTicketStore.Create(
+    TSessionTicketLimits.MaxCachedTicketBytes + 1) as ISessionStore, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(0, LCache.Count, 'a ticket one byte over the limit is ignored');
+end;
+
+procedure TTestTls13Resumption.TestTicketAtTheCacheLimitIsCached;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(TFixedLengthTicketStore.Create(
+    TSessionTicketLimits.MaxCachedTicketBytes) as ISessionStore, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'a ticket at the limit is cached');
+end;
+
+procedure TTestTls13Resumption.TestConnectionAfterAnUncachedTicketIsAFullHandshake;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LStore: ISessionStore;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TFixedLengthTicketStore.Create(TSessionTicketLimits.MaxCachedTicketBytes + 1);
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(LStore, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(LStore, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the next connection runs a full handshake');
+end;
+
+procedure TTestTls13Resumption.TestTicketAgeDeobfuscationWrapsBelowTheAgeAdd;
+var
+  LSkew: Int32;
+  LFresh: Boolean;
+begin
+  // 4500 against an age_add of 2^32 - 512 is 5012 ms modulo 2^32 on every compiler, 2 s measured
+  TTls13ServerStateMachine.TicketAgeVerdict(4500, $FFFFFE00, 1000, 3000, LSkew, LFresh);
+  CheckEquals(3, LSkew, 'the wrapped client age is 5 s against 2 s measured');
+end;
+
+procedure TTestTls13Resumption.TestTicketAgeWrapKeepsTheEarlyDataWindowOpen;
+var
+  LSkew: Int32;
+  LFresh: Boolean;
+begin
+  // 99488 against the same age_add is exactly the 100 s the server measured
+  TTls13ServerStateMachine.TicketAgeVerdict(99488, $FFFFFE00, 1000, 101000, LSkew, LFresh);
+  CheckTrue(LFresh, 'the wrapped client age agrees with the measured one');
+end;
+
+procedure TTestTls13Resumption.TestTicketAgeServerSideSaturatesIntoUInt32;
+var
+  LSkew: Int32;
+  LFresh: Boolean;
+begin
+  TTls13ServerStateMachine.TicketAgeVerdict(0, 0, 0, UInt64(High(UInt32)) + 5000, LSkew, LFresh);
+  CheckEquals(-4294967, LSkew, 'an age beyond 49 days saturates at 2^32 - 1 ms');
+end;
+
+procedure TTestTls13Resumption.TestTicketAgeServerSideNeverGoesNegative;
+var
+  LSkew: Int32;
+  LFresh: Boolean;
+begin
+  TTls13ServerStateMachine.TicketAgeVerdict(0, 0, 5000, 1000, LSkew, LFresh);
+  CheckEquals(0, LSkew, 'a ticket stamped in the future has age zero');
+end;
+
+procedure TTestTls13Resumption.ExternalPskHandshake(AResume: Boolean;
+  out AClient, AServer: ITlsEngine; out AIdentity: TBytes);
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LPsk: TExternalPsk;
+  LPsks: TArray<TExternalPsk>;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  AIdentity := DecodeHex('6578742d70736b'); // "ext-psk"
+  LPsk.Identity := AIdentity;
+  LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+  LPsks := TArray<TExternalPsk>.Create(LPsk);
+  AClient := NewExtPskClient(LCache, LPsks, False);
+  AServer := NewExtPskServer(LStek, LPsks, 1);
+  DriveHandshake(AClient, AServer);
+  if not AResume then
+    Exit;
+  CheckEquals(1, LCache.Count, 'the external-PSK handshake issued a ticket');
+  AClient := NewExtPskClient(LCache, nil, False);
+  AServer := NewExtPskServer(LStek, LPsks, 1);
+  DriveHandshake(AClient, AServer);
+end;
+
+procedure TTestTls13Resumption.TestExternalPskIsNotAResumption;
+var
+  LClient, LServer: ITlsEngine;
+  LIdentity: TBytes;
+begin
+  ExternalPskHandshake(False, LClient, LServer, LIdentity);
+  CheckFalse(LServer.IsHandshaking, 'the external-PSK handshake completed');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the client: an external PSK is not a resumption');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the server: an external PSK is not a resumption');
+end;
+
+procedure TTestTls13Resumption.TestExternalPskReportsItsIdentity;
+var
+  LClient, LServer: ITlsEngine;
+  LIdentity: TBytes;
+begin
+  ExternalPskHandshake(False, LClient, LServer, LIdentity);
+  CheckEqualBytes('the client reports the external identity as configured', LIdentity,
+    LClient.ConnectionInfo.PskIdentity);
+  CheckEqualBytes('the server reports the external identity as configured', LIdentity,
+    LServer.ConnectionInfo.PskIdentity);
+end;
+
+procedure TTestTls13Resumption.TestTicketIssuedUnderExternalPskResumes;
+var
+  LClient, LServer: ITlsEngine;
+  LIdentity: TBytes;
+begin
+  ExternalPskHandshake(True, LClient, LServer, LIdentity);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the client: the ticket is a resumption');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server: the ticket is a resumption');
+end;
+
+procedure TTestTls13Resumption.TestTicketIssuedUnderExternalPskKeepsReportingItsIdentity;
+var
+  LClient, LServer: ITlsEngine;
+  LIdentity: TBytes;
+begin
+  ExternalPskHandshake(True, LClient, LServer, LIdentity);
+  CheckEqualBytes('the client keeps reporting the external identity', LIdentity,
+    LClient.ConnectionInfo.PskIdentity);
+  CheckEqualBytes('the server keeps reporting the external identity', LIdentity,
+    LServer.ConnectionInfo.PskIdentity);
 end;
 
 procedure TTestTls13Resumption.TestExternalPskTicketResumesUnderReverify;
@@ -2467,7 +3048,7 @@ begin
   CheckFalse(LClient.IsTerminal, 'the credential-less client completed via the external PSK');
   LServerInfo := LServer.ConnectionInfo;
   // the PSK was accepted and no certificate was requested, so no client certificate was presented
-  CheckTrue(LServerInfo.Resumed, 'the server accepted the external PSK');
+  CheckTrue(System.Length(LServerInfo.PskIdentity) > 0, 'the server accepted the external PSK');
   CheckEquals(0, System.Length(LServerInfo.PeerCertificates),
     'a PSK handshake requests no client certificate (RFC 8446 4.3.2)');
   CheckAppDataFlows(LClient, LServer);
@@ -2545,7 +3126,8 @@ var
     DriveHandshake(LClient, LServer);
     CheckFalse(LServer.IsHandshaking, AMessage + ': the credential-less server completed');
     CheckFalse(LServer.IsTerminal, AMessage + ': the handshake did not fail');
-    CheckTrue(LClient.ConnectionInfo.Resumed, AMessage + ': the client negotiated the PSK');
+    CheckTrue(System.Length(LClient.ConnectionInfo.PskIdentity) > 0,
+      AMessage + ': the client negotiated the PSK');
     CheckEquals(AExpected, LServer.ConnectionInfo.CipherSuite, AMessage);
     CheckEquals(AExpected, LClient.ConnectionInfo.CipherSuite, AMessage + ' (client view)');
     CheckAppDataFlows(LClient, LServer);

@@ -66,7 +66,8 @@ PKCS#12 opened with `KeyPassword`. Synapse applies these in sequence with the la
 socket that sets two sources for one slot, or a PFX beside any certificate or key, **fails loudly**
 naming both properties. A PFX's CA bag is sent as part of the chain and never trusted (Synapse's
 OpenSSL plugins differ on this). `CertCA`, `TrustCertificate` and `TrustCertificateFile` are not read
-by Synapse's OpenSSL plugins and stay unread here; use `CertCAFile`. A non-ASCII `KeyPassword` is
+by Synapse's OpenSSL plugins, so setting any of them **fails loudly** rather than being ignored;
+use `CertCAFile`. A non-ASCII `KeyPassword` is
 UTF-8 here, where Synapse uses the ANSI code page.
 
 ## Trust is ours (`dangerous` mapping)
@@ -99,8 +100,11 @@ SetTlsLibSynapseServerVerdictResolver(resolver, deadlineMs);   // server role: d
 ```
 
 Being process-wide, set these before opening any connection; changing a hook while connections are
-in flight is not supported. The verify callback is a client-handshake hook: a server never carries it. A resolver beside a supplied config must be paired with a config that
-itself defers the verdict (`WithLiveRevocationVerdict`), else the connection is refused.
+in flight is not supported. The verify callback is a client-handshake hook: a server never carries it.
+The server resolver applies only to a server that requests a client certificate (`ClientAuth` other
+than `None`); a server that requests none ignores it, so one process can run both kinds. A resolver
+beside a supplied config must be paired with a config that itself defers the verdict
+(`WithLiveRevocationVerdict`), else the connection is refused.
 
 Wire `TLiveRevocationChecker.ResolveVerdict` (from `TlpLiveRevocation`, over an injected
 `IHttpFetcher`) as the resolver to get live revocation. The resolver is role-specific — the client

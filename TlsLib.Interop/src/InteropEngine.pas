@@ -43,6 +43,7 @@ uses
   TlpICertificateCompression,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
+  TlpITlsCredentialResolver,
   TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpITlsEngine,
@@ -51,6 +52,13 @@ uses
 type
   /// <summary>Which side of the connection the harness engine plays.</summary>
   TInteropRole = (Client, Server);
+
+  /// <summary>Told each ClientHello the server's credential resolver is asked about, so the harness
+  /// can assert on the offer (ALPN, signature algorithms).</summary>
+  IInteropClientHelloObserver = interface(IInterface)
+    ['{4D400DD2-C5CD-4A5D-AD51-A242C29C673A}']
+    procedure Observe(const AHello: TTlsClientHelloInfo);
+  end;
 
   /// <summary>
   /// The transport-agnostic settings a harness driver turns into a wired engine:
@@ -73,6 +81,9 @@ type
     /// <summary>The offered protocol versions (preference order); empty keeps the
     /// Compatible preset's TLS 1.3 + hardened 1.2 default.</summary>
     SupportedVersions: TArray<UInt16>;
+    /// <summary>The cipher-suite codes the harness restricts the suites to, in preference order
+    /// (the shim's -cipher); empty keeps the preset's suites.</summary>
+    CipherSuites: TArray<UInt16>;
     AlpnProtocols: TArray<TBytes>;
     Trust: ITrustAnchorStore;
     CheckServerName: Boolean;
@@ -172,6 +183,9 @@ type
     /// <summary>A server's Encrypted Client Hello key store (config + private key per config
     /// id); nil leaves ECH off, so an ECH-offering client is shared-mode rejected.</summary>
     EchKeyStore: IEchServerKeyStore;
+    /// <summary>A server's observer of the ClientHellos its credential is resolved for; nil
+    /// installs the credential directly.</summary>
+    ClientHelloObserver: IInteropClientHelloObserver;
   end;
 
   /// <summary>
@@ -232,8 +246,37 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
   end;
 
+  /// <summary>Resolves the one server credential for every ClientHello, telling the observer what
+  /// the client offered.</summary>
+  TInteropObservingResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver)
+  strict private
+    FCredential: TTlsCredential;
+    FObserver: IInteropClientHelloObserver;
+  public
+    constructor Create(const ACredential: TTlsCredential;
+      const AObserver: IInteropClientHelloObserver);
+    function TryResolve(const AClientHello: TTlsClientHelloInfo;
+      out ACredential: TTlsCredential): Boolean;
+  end;
+
 var
   GRejecter: TInteropRejectingVerifier;
+
+constructor TInteropObservingResolver.Create(const ACredential: TTlsCredential;
+  const AObserver: IInteropClientHelloObserver);
+begin
+  inherited Create;
+  FCredential := ACredential;
+  FObserver := AObserver;
+end;
+
+function TInteropObservingResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
+  out ACredential: TTlsCredential): Boolean;
+begin
+  FObserver.Observe(AClientHello);
+  ACredential := FCredential;
+  Result := True;
+end;
 
 function TInteropRejectingVerifier.Reject(const APresented, AValidated: TArray<TBytes>;
   const AHostName: string): Boolean;
@@ -406,6 +449,8 @@ begin
       LClient.WithSignatureSchemes(SignatureSchemesFromCodes(AOptions.VerifySchemes));
     if System.Length(LVersions) > 0 then
       LClient.WithSupportedVersions(LVersions);
+    if System.Length(AOptions.CipherSuites) > 0 then
+      LClient.WithCipherSuiteList(AOptions.CipherSuites);
     if System.Length(AOptions.AlpnProtocols) > 0 then
       LClient.WithAlpnProtocols(AOptions.AlpnProtocols);
     // verify the server chain against the supplied trust anchor, or accept any chain when
@@ -480,6 +525,8 @@ begin
       LServer.WithPreferredGroups(AOptions.OfferedGroups);
     if System.Length(LVersions) > 0 then
       LServer.WithSupportedVersions(LVersions);
+    if System.Length(AOptions.CipherSuites) > 0 then
+      LServer.WithCipherSuiteList(AOptions.CipherSuites);
     if System.Length(AOptions.AlpnProtocols) > 0 then
       LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
     if AOptions.AlpnReject then
@@ -506,7 +553,13 @@ begin
       LCredential.OcspStaple := AOptions.OcspStaple;
     // a PSK-only server presents no certificate; only set a credential when one was supplied
     if AOptions.HasCredential then
-      LServer.WithCredential(LCredential);
+    begin
+      if AOptions.ClientHelloObserver <> nil then
+        LServer.WithCredentialResolver(TInteropObservingResolver.Create(LCredential,
+          AOptions.ClientHelloObserver) as ITlsServerCredentialResolver)
+      else
+        LServer.WithCredential(LCredential);
+    end;
     // out-of-band external PSKs (RFC 9258): imported and matched against the ClientHello,
     // preferred over the certificate
     if System.Length(AOptions.ExternalPsks) > 0 then

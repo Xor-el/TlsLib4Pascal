@@ -102,6 +102,41 @@ type
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
 
+  /// <summary>A transport that counts the bytes written to it and reads as a closed peer.</summary>
+  TRecordingTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  var
+    FWritten: Int32;
+  public
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    property Written: Int32 read FWritten;
+  end;
+
+  /// <summary>A transport that hands out one scripted wire on the first Read, then reads as a closed
+  /// peer; it counts its writes, or fails them like a dead socket when so built.</summary>
+  TScriptedTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  var
+    FWire: TBytes;
+    FServed: Boolean;
+    FWritesFail: Boolean;
+    FWritten: Int32;
+  public
+    constructor Create(const AWire: TBytes; AWritesFail: Boolean);
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    property Written: Int32 read FWritten;
+  end;
+
+  /// <summary>A transport whose socket died: every Write fails like a reset connection and a Read
+  /// reads as a closed peer.</summary>
+  TDeadWriteTransport = class sealed(TInterfacedObject, ITlsTransport)
+  public
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+  end;
+
 implementation
 
 resourcestring
@@ -305,6 +340,58 @@ end;
 
 procedure TFailingReadTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
 begin
+end;
+
+{ TRecordingTransport }
+
+function TRecordingTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+begin
+  Result := 0;
+end;
+
+procedure TRecordingTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
+  System.Inc(FWritten, ALength);
+end;
+
+{ TScriptedTransport }
+
+constructor TScriptedTransport.Create(const AWire: TBytes; AWritesFail: Boolean);
+begin
+  inherited Create;
+  FWire := System.Copy(AWire);
+  FWritesFail := AWritesFail;
+end;
+
+function TScriptedTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+begin
+  Result := 0;
+  if FServed then
+    Exit;
+  FServed := True;
+  Result := System.Length(FWire);
+  if Result > AMaxLength then
+    Result := AMaxLength;
+  System.Move(FWire[0], ABuffer[AOffset], Result);
+end;
+
+procedure TScriptedTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
+  if FWritesFail then
+    raise EInOutError.CreateRes(@SMockSocketFailed);
+  System.Inc(FWritten, ALength);
+end;
+
+{ TDeadWriteTransport }
+
+function TDeadWriteTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+begin
+  Result := 0;
+end;
+
+procedure TDeadWriteTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
+  raise EInOutError.CreateRes(@SMockSocketFailed);
 end;
 
 end.

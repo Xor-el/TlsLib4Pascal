@@ -40,6 +40,7 @@ uses
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpTlsLibExceptions,
+  TlpAlpnProtocols,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpTlsEngine,
@@ -76,19 +77,58 @@ type
     function KeyNameLength: Int32;
   end;
 
+  // a ticket-key manager with a key name of any length, so its tickets can be as large as a foreign one's
+  TLongKeyNameTicketKeys = class sealed(TInterfacedObject, ISessionTicketKeyManager)
+  strict private
+  var
+    FNameLength: Int32;
+  public
+    constructor Create(ANameLength: Int32);
+    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyNameLength: Int32;
+  end;
+
+  // a ticket-key manager that opens an existing manager's tickets but never seals (no renewal)
+  TOpenOnlyTicketKeys = class sealed(TInterfacedObject, ISessionTicketKeyManager)
+  strict private
+    FInner: ISessionTicketKeyManager;
+  public
+    constructor Create(const AInner: ISessionTicketKeyManager);
+    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyNameLength: Int32;
+  end;
+
   TTestTls12Resumption = class(TTlsLibAlgorithmTestCase)
   private const
     TlsSuite = TCipherSuites12.EcdheEcdsaAes128GcmSha256;
     ServerHost = 'localhost';
   private
+  var
+    FClientAlpn: TArray<TBytes>;
+    FServerAlpn: TArray<TBytes>;
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
+    /// <summary>Drains the engine's event queue, returning how many SessionTicketReceived it held.</summary>
+    function CountTicketEvents(const AEngine: ITlsEngine): Int32;
+    /// <summary>The length of the ticket the client cached after a server sealed one under a key
+    /// name of ANameLength bytes.</summary>
+    function CachedTicketLength(ANameLength: Int32): Int32;
+    /// <summary>The key name length that makes a sealed ticket ATicketLength bytes.</summary>
+    function NameLengthForTicket(ATicketLength: Int32): Int32;
+    /// <summary>A client holding a session id plus a ticket it was never sealed, resuming by id
+    /// against a server with no ticket strategy: the server resumes without a NewSessionTicket.</summary>
+    procedure ResumeByIdWithoutNewSessionTicket(out AClient: ITlsEngine;
+      out ACache: ISessionCache; out ATicket: TBytes);
     function AgedCopy(const ASession: IResumableSession; AAgeMillis: UInt64): IResumableSession;
     function NewClient(const ACache: ISessionCache; AOfferEms: Boolean): ITlsEngine;
     /// <summary>A dual-version client (offers TLS 1.3 and 1.2 in one ClientHello) drawing
     /// from and storing into ACache; against a 1.2-only server it negotiates 1.2 and can
     /// resume a cached 1.2 session.</summary>
     function NewDualVersionClient(const ACache: ISessionCache): ITlsEngine;
+    function NewDualVersionClientWith(const ACache: ISessionCache;
+      AEarlyData: Boolean): ITlsEngine;
     /// <summary>A TLS 1.2 server: AStore drives session-id resumption, AStek stateless
     /// tickets; AWithCredential=False makes it credential-less (cannot run a full
     /// handshake).</summary>
@@ -149,6 +189,24 @@ type
     procedure TestMachinesRequireAClock;
     procedure TestDispatchersRequireAClock;
     procedure TestTicketResumeIsAbbreviated;
+    procedure TestTls12ServerReportsProtocolVersionAsEarlyDataReason;
+    procedure TestDualClientOnTls12ReportsItsOfferReason;
+    procedure TestResumptionWithoutNewSessionTicketKeepsTheCachedTicket;
+    procedure TestResumptionWithoutNewSessionTicketRaisesNoTicketEvent;
+    procedure TestZeroLengthTicketOnResumptionRaisesNoTicketEvent;
+    procedure TestFullHandshakeTicketRaisesATicketEvent;
+    procedure TestRenewedTicketOnResumptionRaisesATicketEvent;
+    procedure TestResumedServerReportsItsSelectedAlpn;
+    procedure TestTicketBeyondTheCacheLimitIsNotCached;
+    procedure TestTicketAtTheCacheLimitIsCached;
+    procedure TestConnectionAfterAnUncachedTicketIsAFullHandshake;
+    procedure TestServerHelloCarriesAFreshSessionIdBesideASealedTicket;
+    procedure TestSealedTicketIsNotAlsoStoredUnderASessionId;
+    procedure TestDecliningSealKeepsTheSessionIdResumable;
+    procedure TestTicketResumptionWithoutRenewalKeepsTheCachedSession;
+    procedure TestSessionIdResumptionReportsTheOriginalGroup;
+    procedure TestTicketResumptionReportsTheOriginalGroup;
+    procedure TestResumptionReportsTheOriginalPeerSignatureScheme;
     procedure TestResumePreservesExtendedMasterSecretOn;
     procedure TestResumePreservesExtendedMasterSecretOff;
     procedure TestEmsSessionOfferedWithoutEmsAborts;
@@ -237,12 +295,29 @@ begin
   LParams.ServerName := ServerHost;
   LParams.ServerIdentity := ServerHost + ':443';
   LParams.SessionCache := ACache;
+  LParams.AlpnProtocols := FClientAlpn;
   Result := TTlsEngine.CreateConfigured(
     TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
+function TTestTls12Resumption.CountTicketEvents(const AEngine: ITlsEngine): Int32;
+var
+  LEvent: ITlsEvent;
+begin
+  Result := 0;
+  while AEngine.NextEvent(LEvent) do
+    if LEvent.Kind = TTlsEventKind.SessionTicketReceived then
+      System.Inc(Result);
+end;
+
 function TTestTls12Resumption.NewDualVersionClient(
   const ACache: ISessionCache): ITlsEngine;
+begin
+  Result := NewDualVersionClientWith(ACache, False);
+end;
+
+function TTestTls12Resumption.NewDualVersionClientWith(const ACache: ISessionCache;
+  AEarlyData: Boolean): ITlsEngine;
 var
   L13: TClientHandshakeParams;
   L12: TClient12HandshakeParams;
@@ -281,6 +356,7 @@ begin
   L13.ExpectedServerName := TServerName.DnsName(ServerHost);
   L13.ServerIdentity := ServerHost + ':443';
   L13.SessionCache := ACache;
+  L13.EarlyDataEnabled := AEarlyData;
 
   L12 := Default(TClient12HandshakeParams);
   L12.Clock := TSystemClock.Create;
@@ -346,6 +422,7 @@ begin
   LParams.SessionStore := AStore;
   LParams.SessionTicketKeys := AStek;
   LParams.TicketLifetimeSeconds := ALifetime;
+  LParams.AlpnProtocols := FServerAlpn;
   Result := TTlsEngine.CreateConfigured(
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -465,6 +542,60 @@ end;
 function TDecliningTicketKeys.KeyNameLength: Int32;
 begin
   Result := 16;
+end;
+
+constructor TLongKeyNameTicketKeys.Create(ANameLength: Int32);
+begin
+  inherited Create;
+  FNameLength := ANameLength;
+end;
+
+function TLongKeyNameTicketKeys.CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+var
+  LKey: TBytes;
+  LI: Int32;
+begin
+  AKeyName := nil;
+  System.SetLength(AKeyName, FNameLength);
+  System.SetLength(LKey, 32);
+  for LI := 0 to 31 do
+    LKey[LI] := $42;
+  AKey := TSecretBuffer.From(LKey);
+  Result := True;
+end;
+
+function TLongKeyNameTicketKeys.KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+begin
+  AKey := nil;
+  Result := False;
+end;
+
+function TLongKeyNameTicketKeys.KeyNameLength: Int32;
+begin
+  Result := FNameLength;
+end;
+
+constructor TOpenOnlyTicketKeys.Create(const AInner: ISessionTicketKeyManager);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TOpenOnlyTicketKeys.CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+begin
+  AKeyName := nil;
+  AKey := nil;
+  Result := False;
+end;
+
+function TOpenOnlyTicketKeys.KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+begin
+  Result := FInner.KeyByName(AKeyName, AKey);
+end;
+
+function TOpenOnlyTicketKeys.KeyNameLength: Int32;
+begin
+  Result := FInner.KeyNameLength;
 end;
 
 function TTestTls12Resumption.FlightHasNewSessionTicket(const AWire: TBytes): Boolean;
@@ -769,6 +900,361 @@ begin
   CheckAppDataFlows(LClient, LServer);
 end;
 
+procedure TTestTls12Resumption.ResumeByIdWithoutNewSessionTicket(out AClient: ITlsEngine;
+  out ACache: ISessionCache; out ATicket: TBytes);
+var
+  LStore: ISessionStore;
+  LServer: ITlsEngine;
+  LFirst: IResumableSession;
+  L12: ITls12ResumableSession;
+begin
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  ACache := TInMemorySessionCache.Create;
+  AClient := NewClient(ACache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  AClient.StartHandshake;
+  PumpToCompletion(AClient, LServer);
+  CheckTrue(ACache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
+    LFirst), 'the session id session was cached');
+  CheckTrue(Supports(LFirst, ITls12ResumableSession, L12), 'a TLS 1.2 session');
+  // a ticket the server never sealed: only the id resumes, and no NewSessionTicket replaces it
+  ATicket := DecodeHex('0102030405060708');
+  ACache.Store(ServerHost + ':443', ServerHost, TTls12ResumableSession.Create(L12.CipherSuite,
+    L12.Hash, L12.MasterSecret, L12.SessionId, ATicket, L12.ExtendedMasterSecret, L12.Alpn,
+    L12.ServerName, L12.TicketLifetime, L12.IssuedAtMillis, L12.PeerCertificates,
+    L12.ResumptionScope, nil, nil, L12.NamedGroup, L12.PeerSignatureScheme) as IResumableSession);
+  AClient := NewClient(ACache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  AClient.StartHandshake;
+  PumpToCompletion(AClient, LServer);
+  CheckTrue(AClient.ConnectionInfo.Resumed, 'the id resumed');
+end;
+
+procedure TTestTls12Resumption.TestResumptionWithoutNewSessionTicketKeepsTheCachedTicket;
+var
+  LClient: ITlsEngine;
+  LCache: ISessionCache;
+  LTicket: TBytes;
+  LAfter: IResumableSession;
+  L12: ITls12ResumableSession;
+begin
+  ResumeByIdWithoutNewSessionTicket(LClient, LCache, LTicket);
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
+    LAfter), 'the resumed session was cached again');
+  CheckTrue(Supports(LAfter, ITls12ResumableSession, L12), 'a TLS 1.2 session');
+  CheckEqualBytes('the ticket is the one resumed with', LTicket, L12.SessionTicket);
+end;
+
+procedure TTestTls12Resumption.TestResumptionWithoutNewSessionTicketRaisesNoTicketEvent;
+var
+  LClient: ITlsEngine;
+  LCache: ISessionCache;
+  LTicket: TBytes;
+begin
+  ResumeByIdWithoutNewSessionTicket(LClient, LCache, LTicket);
+  CheckEquals(0, CountTicketEvents(LClient), 'no ticket arrived');
+end;
+
+procedure TTestTls12Resumption.TestZeroLengthTicketOnResumptionRaisesNoTicketEvent;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, TOpenOnlyTicketKeys.Create(LStek) as ISessionTicketKeyManager, 7200,
+    True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(0, CountTicketEvents(LClient), 'a zero-length NewSessionTicket brings no ticket');
+end;
+
+procedure TTestTls12Resumption.TestFullHandshakeTicketRaisesATicketEvent;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := NewClient(TInMemorySessionCache.Create as ISessionCache, True);
+  LServer := NewServer(nil, TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, CountTicketEvents(LClient), 'the issued ticket was announced');
+end;
+
+procedure TTestTls12Resumption.TestRenewedTicketOnResumptionRaisesATicketEvent;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the ticket resumed');
+  CheckEquals(1, CountTicketEvents(LClient), 'the renewed ticket was announced');
+end;
+
+procedure TTestTls12Resumption.TestResumedServerReportsItsSelectedAlpn;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  FClientAlpn := TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11);
+  FServerAlpn := TArray<TBytes>.Create(TAlpnProtocols.Http11);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the ticket resumed');
+  CheckEqualBytes('the abbreviated flight selects the protocol', TAlpnProtocols.Http11,
+    LServer.ConnectionInfo.AlpnProtocol);
+end;
+
+function TTestTls12Resumption.CachedTicketLength(ANameLength: Int32): Int32;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LSession: IResumableSession;
+  L12: ITls12ResumableSession;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore,
+    TLongKeyNameTicketKeys.Create(ANameLength) as ISessionTicketKeyManager, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  // the session id the server also sent keeps the session cached whatever became of its ticket
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
+    LSession), 'the session was cached by its id');
+  CheckTrue(Supports(LSession, ITls12ResumableSession, L12), 'a TLS 1.2 session');
+  Result := System.Length(L12.SessionTicket);
+end;
+
+function TTestTls12Resumption.NameLengthForTicket(ATicketLength: Int32): Int32;
+begin
+  // a ticket is key name, 12-byte nonce, sealed session and 16-byte tag; the session is a fixed size
+  Result := ATicketLength - (CachedTicketLength(16) - 16);
+end;
+
+procedure TTestTls12Resumption.TestTicketBeyondTheCacheLimitIsNotCached;
+begin
+  CheckEquals(0, CachedTicketLength(NameLengthForTicket(TSessionTicketLimits.MaxCachedTicketBytes + 1)),
+    'a ticket one byte over the limit is ignored');
+end;
+
+procedure TTestTls12Resumption.TestTicketAtTheCacheLimitIsCached;
+begin
+  CheckEquals(TSessionTicketLimits.MaxCachedTicketBytes,
+    CachedTicketLength(NameLengthForTicket(TSessionTicketLimits.MaxCachedTicketBytes)),
+    'a ticket at the limit is cached');
+end;
+
+procedure TTestTls12Resumption.TestConnectionAfterAnUncachedTicketIsAFullHandshake;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LStore: ISessionStore;
+  LKeys: ISessionTicketKeyManager;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LKeys := TLongKeyNameTicketKeys.Create(
+    NameLengthForTicket(TSessionTicketLimits.MaxCachedTicketBytes + 1));
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, LKeys, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, LKeys, 7200, True);
+  CheckTrue(DriveObservingServerCert(LClient, LServer), 'the next connection runs a full handshake');
+end;
+
+procedure TTestTls12Resumption.TestServerHelloCarriesAFreshSessionIdBesideASealedTicket;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+begin
+  // the id precedes the seal that decides whether it is stored, so it is sent either way (RFC 5077 3.4)
+  LClient := NewClient(TInMemorySessionCache.Create as ISessionCache, True);
+  LServer := NewServer(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager, 7200,
+    True);
+  LClient.StartHandshake;
+  Pump(LClient, LServer);
+  LFlight := Drain(LServer);
+  CheckEquals(22, LFlight[0], 'a handshake record');
+  CheckEquals(2, LFlight[5], 'opening with the ServerHello');
+  // record header 5, handshake header 4, version 2, random 32, then the session id length
+  CheckEquals(32, LFlight[43], 'carrying a 32-byte session id');
+end;
+
+procedure TTestTls12Resumption.TestSealedTicketIsNotAlsoStoredUnderASessionId;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client cached the session');
+  CheckEquals(0, LStore.Count, 'the sealed ticket carries it, so the server stores no id');
+end;
+
+procedure TTestTls12Resumption.TestDecliningSealKeepsTheSessionIdResumable;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // a seal the strategy declines (an oversized chain) must not leave the client with nothing
+  LStek := TDecliningTicketKeys.Create as ISessionTicketKeyManager;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LStore.Count, 'the declined seal falls back to the stored session id');
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, LStek, 7200, True);
+  CheckFalse(DriveObservingServerCert(LClient, LServer), 'the id resumes abbreviated');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed the session');
+end;
+
+procedure TTestTls12Resumption.TestTicketResumptionWithoutRenewalKeepsTheCachedSession;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LFirst, LAfter: IResumableSession;
+  L12First, L12After: ITls12ResumableSession;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
+    LFirst), 'the initial session was cached');
+  LCache.Store(ServerHost + ':443', ServerHost, LFirst);
+  // the resuming server opens the ticket but seals no new one: the client keeps what it resumed with
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, TOpenOnlyTicketKeys.Create(LStek) as ISessionTicketKeyManager, 7200,
+    True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the ticket resumed');
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
+    LAfter), 'the resumed session was cached again');
+  CheckTrue(Supports(LFirst, ITls12ResumableSession, L12First) and
+    Supports(LAfter, ITls12ResumableSession, L12After), 'both are TLS 1.2 sessions');
+  CheckEqualBytes('the ticket is the one resumed with', L12First.SessionTicket,
+    L12After.SessionTicket);
+  CheckEqualBytes('the session id is the one resumed with, not the echoed throwaway',
+    L12First.SessionId, L12After.SessionId);
+end;
+
+procedure TTestTls12Resumption.TestSessionIdResumptionReportsTheOriginalGroup;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(TNamedGroupCatalog.X25519, LClient.ConnectionInfo.NamedGroup,
+    'the full handshake negotiated X25519');
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the session id resumed');
+  CheckEquals(TNamedGroupCatalog.X25519, LClient.ConnectionInfo.NamedGroup,
+    'the resumed client reports the original group');
+  CheckEquals(TNamedGroupCatalog.X25519, LServer.ConnectionInfo.NamedGroup,
+    'the resumed server reports the original group');
+end;
+
+procedure TTestTls12Resumption.TestTicketResumptionReportsTheOriginalGroup;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the ticket resumed');
+  CheckEquals(TNamedGroupCatalog.X25519, LClient.ConnectionInfo.NamedGroup,
+    'the resumed client reports the original group');
+  CheckEquals(TNamedGroupCatalog.X25519, LServer.ConnectionInfo.NamedGroup,
+    'the server reports the group sealed in the ticket');
+end;
+
+procedure TTestTls12Resumption.TestResumptionReportsTheOriginalPeerSignatureScheme;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LClient.ConnectionInfo.PeerSignatureScheme,
+    'the client saw the server sign with ecdsa_secp256r1_sha256');
+  CheckEquals(0, LServer.ConnectionInfo.PeerSignatureScheme,
+    'a server without client authentication verified no signature');
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the ticket resumed');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LClient.ConnectionInfo.PeerSignatureScheme,
+    'the resumed client reports the original server signature scheme');
+end;
+
 procedure TTestTls12Resumption.TestResumePreservesExtendedMasterSecretOn;
 var
   LStek: ISessionTicketKeyManager;
@@ -980,7 +1466,7 @@ begin
     if LMode = TNonEmsResumption.Resume then
     begin
       CheckEquals(1, LCache.Count, 'Resume issues the client a session');
-      CheckEquals(1, LStore.Count, 'and stores it');
+      CheckEquals(0, LStore.Count, 'carried by its ticket, so the store holds no session id');
     end
     else
     begin
@@ -997,7 +1483,7 @@ begin
     LClient.StartHandshake;
     PumpToCompletion(LClient, LServer);
     CheckEquals(1, LCache.Count, 'an EMS client is issued a session under every policy');
-    CheckEquals(1, LStore.Count, 'and it is stored');
+    CheckEquals(0, LStore.Count, 'carried by its ticket, so the store holds no session id');
   end;
 end;
 
@@ -1357,6 +1843,12 @@ begin
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LCache.Count, 'ticket #1 was cached');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LServer.ConnectionInfo.PeerSignatureScheme,
+    'the server verified the client''s CertificateVerify under ecdsa_secp256r1_sha256');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    'the client reports the signature_algorithms of the CertificateRequest');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256,
+    LClient.ConnectionInfo.RequestedSignatureSchemes[0], 'the one the server listed');
 
   // resume ticket #1 and re-issue ticket #2, which must carry the chain forward
   LClient := BuildMtlsClient(LCache, LCred);
@@ -1514,6 +2006,36 @@ begin
   CheckEquals(0, System.Length(LInfo.ValidatedPath),
     'a non-reverify resumption validates no path on the client');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Resumption.TestTls12ServerReportsProtocolVersionAsEarlyDataReason;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, nil, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(Ord(TEarlyDataReason.ProtocolVersion), Ord(LServer.ConnectionInfo.EarlyDataReason),
+    'a TLS 1.2 server takes no 0-RTT');
+  CheckEquals(Ord(TEarlyDataReason.Disabled), Ord(LClient.ConnectionInfo.EarlyDataReason),
+    'a TLS 1.2-only client was not configured for it');
+end;
+
+procedure TTestTls12Resumption.TestDualClientOnTls12ReportsItsOfferReason;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewDualVersionClientWith(LCache, True);
+  LServer := NewServer(nil, nil, 7200, True);
+  LClient.StartHandshake;
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(Ord(TEarlyDataReason.NoSessionOffered), Ord(LClient.ConnectionInfo.EarlyDataReason),
+    'the 1.3 hello offered no early data for want of a session, and the 1.2 hand-off keeps that');
 end;
 
 procedure TTestTls12Resumption.TestDualVersionClientAbortsStampedAbbreviatedResumption;

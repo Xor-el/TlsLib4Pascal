@@ -254,6 +254,8 @@ resourcestring
     'source for the certificate, the key or the PFX';
   SSynapseCredentialSourceHint = 'CertificateFile/Certificate and PrivateKeyFile/PrivateKey, ' +
     'or PFX/PFXfile';
+  SSynapseInlineTrustUnsupported = 'CertCA, TrustCertificate and TrustCertificateFile are not ' +
+    'read; put the CA certificates in a PEM bundle file and set CertCAFile';
   SSynapseCiphersHint = 'Ciphers';
   SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
   SSynapseClientAuthSourceHint = 'a CertCAFile bundle';
@@ -324,7 +326,7 @@ function TSynapseSocketTransport.SendRaw(const ABuffer: TBytes; AOffset,
 begin
   Result := synsock.Send(FSocket.Socket, @ABuffer[AOffset], ALength, MSG_NOSIGNAL);
   if Result <= 0 then
-    raise ETlsStreamError.Create(SSynapseSendNoProgress);
+    raise ETlsStreamError.CreateRes(@SSynapseSendNoProgress);
 end;
 
 { TSSLTlsLib }
@@ -417,6 +419,10 @@ end;
 function TSSLTlsLib.Snapshot: TTlsOptions;
 begin
   RefuseAmbiguousCredential;
+  // inline trust blobs are not read; refusing beats a client that quietly verifies against less
+  if (FCertCA <> '') or (FTrustCertificate <> '') or (FTrustCertificateFile <> '') then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SSynapseInlineTrustUnsupported);
   Result := TTlsOptions.Default;
   Result.Crypto := FUserCrypto;
   Result.Pkix := FUserPkix;
@@ -454,8 +460,13 @@ begin
   Result.VerifyCallback := GVerifyCallback;
   Result.ClientVerdictResolver := GVerdictResolver;
   Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;
-  Result.ServerVerdictResolver := GServerVerdictResolver;
-  Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
+  // the process-wide server resolver is inert for a server that requests no client certificate
+  if (FClientAuth <> TClientAuthMode.None) or
+    ((FServerConfig <> nil) and (FServerConfig.ClientAuth <> TClientAuthMode.None)) then
+  begin
+    Result.ServerVerdictResolver := GServerVerdictResolver;
+    Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
+  end;
   Result.SessionResumption := FSessionResumption;
   Result.HandshakeTimeoutMs := FHandshakeTimeoutMs;
   // a version the host pinned must narrow the offer or fail; ignoring it would silently widen it

@@ -24,6 +24,7 @@ uses
   TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
+  TlpTlsConnectionInfo,
   TlpTrustPolicy,
   TlpIKeySchedule,
   TlpIRecordProtection;
@@ -146,20 +147,24 @@ type
   /// doubles need not implement it; only the engine bridge does, surfacing it on ITlsEngine.ConnectionInfo.
   /// </summary>
   IHandshakeConnectionInfoSink = interface(IInterface)
-    ['{2B8D5F14-9C60-4A73-B1E8-4F0A7C6D3B95}']
+    ['{C198C67C-A830-4CC0-9D96-A85378713FA5}']
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     /// <summary>Reports the DER DistinguishedName certificate_authorities a peer named in its
-    /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4) - surfaced read-only on ITlsEngine.ConnectionInfo.</summary>
-    procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>);
+    /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4) and the signature_algorithms it listed -
+    /// surfaced read-only on ITlsEngine.ConnectionInfo.</summary>
+    procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>;
+      const ASchemes: TArray<UInt16>);
     /// <summary>Reports the identity of the pre-shared key that authenticated the connection - surfaced
     /// read-only on ITlsEngine.ConnectionInfo.</summary>
     procedure OnPskIdentity(const AIdentity: TBytes);
     /// <summary>Reports the negotiated cipher suite, named group (0 when none / non-(EC)DHE),
     /// whether the handshake resumed, whether the session used Extended Master Secret (RFC 7627;
     /// always true on TLS 1.3), and the SNI server_name in play (the host a client requested, as
-    /// seen by a server; empty when none) - surfaced read-only on ITlsEngine.ConnectionInfo.</summary>
+    /// seen by a server; empty when none), plus the handshake's AFacts - surfaced read-only on
+    /// ITlsEngine.ConnectionInfo.</summary>
     procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string);
+      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
+      const AFacts: TNegotiationFacts);
   end;
 
   /// <summary>

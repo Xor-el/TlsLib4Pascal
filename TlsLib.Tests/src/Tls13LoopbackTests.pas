@@ -58,6 +58,7 @@ uses
   TlpCryptoDomainTypes,
   TlpISecretBuffer,
   TlpWireReader,
+  TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpExtensionVector,
   TlpEchConfig,
@@ -108,11 +109,22 @@ type
       AIssueTickets: Int32): ITlsEngine;
     function NewEchServer: ITlsEngine;
     function NewEchHrrClient(const ACache: ISessionCache = nil): ITlsEngine;
+    /// <summary>The ECH server; AVerbatimCookie, when given, replaces the cookie its retry sends.</summary>
     function NewEchHrrServer(const AStore: ISessionStore = nil;
-      AIssueTickets: Int32 = 0): ITlsEngine;
+      AIssueTickets: Int32 = 0; const AVerbatimCookie: TBytes = nil): ITlsEngine;
+    /// <summary>Runs the ECH client through one retry whose cookie has ACookieLength bytes (the
+    /// server accepts ECH, or with ARejected rejects it); whether the client aborted.</summary>
+    function EchRetryClientAborts(ACookieLength: Int32; ARejected: Boolean;
+      out AClient, AServer: ITlsEngine): Boolean;
+    /// <summary>The largest cookie the ECH retry echoes without aborting (bisected).</summary>
+    function LargestEchRetryCookie(ARejected: Boolean): Int32;
+    /// <summary>Checks that a retry with a cookie of ACookieLength bytes aborts with the client's
+    /// own internal_error.</summary>
+    procedure CheckRetryAbortsWithTheClientsOwnError(ACookieLength: Int32; ARejected: Boolean);
     function NewEchHrrRejectClient(const AConfigList: TBytes): ITlsEngine;
+    /// <summary>The ECH-rejecting server; AVerbatimCookie, when given, replaces its retry cookie.</summary>
     function NewEchHrrRejectServer(const AConfigList: TBytes;
-      const APrivateKey: ISecretBuffer): ITlsEngine;
+      const APrivateKey: ISecretBuffer; const AVerbatimCookie: TBytes = nil): ITlsEngine;
     function NewEchResumeClient(const ACache: ISessionCache;
       AEarlyData: Boolean = False): ITlsEngine;
     function NewEchResumeServer(const AStore: ISessionStore; AIssueTickets: Int32;
@@ -150,6 +162,11 @@ type
     procedure TestEchAcceptLoopback;
     procedure TestEchAcceptKeyLogIsKeyedByInnerRandom;
     procedure TestEchHrrAcceptLoopback;
+    procedure TestEchCookieBeyondTheOuterWrapperAbortsWithTheCookieError;
+    procedure TestEchRejectedRetryCookieBeyondTheOuterAbortsWithTheCookieError;
+    procedure TestEchRejectedRetryCookieBeyondTheOuterVectorAbortsWithTheCookieError;
+    procedure TestEchRejectedRetryCookieAtTheLargestRoomContinuesTheRetry;
+    procedure TestEchCookieAtTheLargestRoomIsReadByOurReader;
     procedure TestEchRejectHrrLoopback;
     procedure TestEchResumeHrrLoopback;
     procedure TestEchGreasePskBindersDifferAcrossHrr;
@@ -605,11 +622,12 @@ begin
 end;
 
 function TTestTls13Loopback.NewEchHrrServer(const AStore: ISessionStore;
-  AIssueTickets: Int32): ITlsEngine;
+  AIssueTickets: Int32; const AVerbatimCookie: TBytes): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
   LVec: TStringList;
   LSk: ISecretBuffer;
+  LMachine: IHandshakeMachine;
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
@@ -637,8 +655,10 @@ begin
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
-  Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  LMachine := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
+  if System.Length(AVerbatimCookie) > 0 then
+    (LMachine as ITls13ServerReplay).SetVerbatimRetryCookie(AVerbatimCookie);
+  Result := TTlsEngine.CreateConfigured(LMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchHrrRejectClient(
@@ -675,9 +695,10 @@ begin
 end;
 
 function TTestTls13Loopback.NewEchHrrRejectServer(const AConfigList: TBytes;
-  const APrivateKey: ISecretBuffer): ITlsEngine;
+  const APrivateKey: ISecretBuffer; const AVerbatimCookie: TBytes): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
+  LMachine: IHandshakeMachine;
 begin
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
@@ -695,8 +716,10 @@ begin
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
     TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto), False);
-  Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+  LMachine := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
+  if System.Length(AVerbatimCookie) > 0 then
+    (LMachine as ITls13ServerReplay).SetVerbatimRetryCookie(AVerbatimCookie);
+  Result := TTlsEngine.CreateConfigured(LMachine, Crypto);
 end;
 
 function TTestTls13Loopback.NewEchResumeClient(
@@ -795,6 +818,122 @@ begin
   Pump(LClient, LServer);
   CheckEqualBytes('app data flows over the ECH-HRR connection', LMsg,
     ReadAllApp(LServer));
+end;
+
+function TTestTls13Loopback.EchRetryClientAborts(ACookieLength: Int32; ARejected: Boolean;
+  out AClient, AServer: ITlsEngine): Boolean;
+var
+  LCookie, LClientConfig, LServerConfig: TBytes;
+  LClientKey, LServerKey: ISecretBuffer;
+begin
+  System.SetLength(LCookie, ACookieLength);
+  if ARejected then
+  begin
+    // the server holds a config the client did not offer, so it rejects ECH and retries
+    LClientConfig := BuildEchConfigList($AA, 'localhost', LClientKey);
+    LServerConfig := BuildEchConfigList($BB, 'localhost', LServerKey);
+    AClient := NewEchHrrRejectClient(LClientConfig);
+    AServer := NewEchHrrRejectServer(LServerConfig, LServerKey, LCookie);
+  end
+  else
+  begin
+    AClient := NewEchHrrClient;
+    AServer := NewEchHrrServer(nil, 0, LCookie);
+  end;
+  AClient.StartHandshake;
+  Pump(AClient, AServer);
+  Pump(AServer, AClient);
+  Result := AClient.IsTerminal;
+end;
+
+function TTestTls13Loopback.LargestEchRetryCookie(ARejected: Boolean): Int32;
+var
+  LClient, LServer: ITlsEngine;
+  LLow, LHigh, LMid: Int32;
+begin
+  // below the result the ECH client completes the retry, above it the outer wrapper overflows
+  LLow := 1;
+  LHigh := 65400;
+  while LLow < LHigh do
+  begin
+    LMid := (LLow + LHigh) div 2;
+    if EchRetryClientAborts(LMid, ARejected, LClient, LServer) then
+      LHigh := LMid
+    else
+      LLow := LMid + 1;
+  end;
+  Result := LLow - 1;
+end;
+
+procedure TTestTls13Loopback.CheckRetryAbortsWithTheClientsOwnError(ACookieLength: Int32;
+  ARejected: Boolean);
+var
+  LClient, LServer: ITlsEngine;
+begin
+  CheckTrue(EchRetryClientAborts(ACookieLength, ARejected, LClient, LServer),
+    'the cookie no longer fits, so the retry aborts');
+  CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.InternalError,
+    'with internal_error');
+  // the machine's own fatal alert reaches the engine as a local abort; the encoder's exception
+  // would instead surface with its vector-length text
+  CheckEquals('a fatal alert was sent', LClient.LastError.Message,
+    'raised by the client, not the wire writer');
+end;
+
+procedure TTestTls13Loopback.TestEchCookieBeyondTheOuterWrapperAbortsWithTheCookieError;
+begin
+  CheckRetryAbortsWithTheClientsOwnError(LargestEchRetryCookie(False) + 1, False);
+end;
+
+procedure TTestTls13Loopback.TestEchRejectedRetryCookieBeyondTheOuterAbortsWithTheCookieError;
+begin
+  CheckRetryAbortsWithTheClientsOwnError(LargestEchRetryCookie(True) + 1, True);
+end;
+
+procedure TTestTls13Loopback.TestEchRejectedRetryCookieBeyondTheOuterVectorAbortsWithTheCookieError;
+begin
+  // the rejected retry's outer repeats CH1's ech extension, so a cookie 150 bytes past its room
+  // still fits the inner yet overflows the outer's extensions vector, not just the body cap
+  CheckRetryAbortsWithTheClientsOwnError(LargestEchRetryCookie(True) + 150, True);
+end;
+
+procedure TTestTls13Loopback.TestEchRejectedRetryCookieAtTheLargestRoomContinuesTheRetry;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  CheckFalse(EchRetryClientAborts(LargestEchRetryCookie(True), True, LClient, LServer),
+    'the rejected-ECH retry is sent');
+end;
+
+procedure TTestTls13Loopback.TestEchCookieAtTheLargestRoomIsReadByOurReader;
+var
+  LClient, LServer: ITlsEngine;
+  LWire, LHandshake: TBytes;
+  LReader: THandshakeMessageReader;
+  LMessage: TTlsHandshakeMessage;
+  LPos, LLength: Int32;
+begin
+  CheckFalse(EchRetryClientAborts(LargestEchRetryCookie(False), False, LClient, LServer),
+    'the retry is sent');
+  // the retry's plaintext handshake records, joined into the message a reader would see
+  LWire := Drain(LClient);
+  LHandshake := nil;
+  LPos := 0;
+  while LPos + 5 <= System.Length(LWire) do
+  begin
+    LLength := (LWire[LPos + 3] shl 8) or LWire[LPos + 4];
+    if LWire[LPos] = 22 then
+      LHandshake := ConcatBytes(LHandshake, System.Copy(LWire, LPos + 5, LLength));
+    System.Inc(LPos, 5 + LLength);
+  end;
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LHandshake, 0, System.Length(LHandshake));
+    CheckTrue(LReader.NextMessage(LMessage), 'our own reader accepts the largest outer hello');
+    CheckTrue(THandshakeMessages.DecodeClientHello(LMessage.Body).Extensions <> nil, 'and decodes it');
+  finally
+    LReader.Free;
+  end;
 end;
 
 procedure TTestTls13Loopback.TestEchRejectHrrLoopback;

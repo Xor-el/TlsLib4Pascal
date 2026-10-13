@@ -350,11 +350,11 @@ begin
         // peer, which the host retries - spinning here would hide it, and treating it as EOF would
         // misreport a truncation
         if ReadTimeoutMs = 0 then
-          raise ETlsReadTimeout.Create(SMormotReceiveTimedOut)
+          raise ETlsReadTimeout.CreateRes(@SMormotReceiveTimedOut)
         else
           CheckReadCap;
     else
-      raise ETlsStreamError.Create(Format(SMormotReceiveFailed, [Ord(LRes)]));
+      raise ETlsStreamError.CreateResFmt(@SMormotReceiveFailed, [Ord(LRes)]);
     end;
   until False;
 end;
@@ -375,9 +375,9 @@ begin
         // the send buffer is full because the peer stopped reading: wait for writability with a
         // bound so a dead peer surfaces instead of an unbounded retry loop
         if not (neWrite in FSocket.WaitFor(SendWaitMs, [neWrite])) then
-          raise ETlsStreamError.Create(SMormotSendTimedOut);
+          raise ETlsStreamError.CreateRes(@SMormotSendTimedOut);
     else
-      raise ETlsStreamError.Create(Format(SMormotSendFailed, [Ord(LRes)]));
+      raise ETlsStreamError.CreateResFmt(@SMormotSendFailed, [Ord(LRes)]);
     end;
   until False;
 end;
@@ -469,8 +469,13 @@ begin
     Result.VerifyCallback := GVerifyCallback;
   Result.ClientVerdictResolver := GVerdictResolver;
   Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;
-  Result.ServerVerdictResolver := GServerVerdictResolver;
-  Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
+  // the process-wide server resolver is inert for a server that requests no client certificate
+  if (not AIsClient) and ((Result.ClientAuth <> TClientAuthMode.None) or
+    ((GServerConfig <> nil) and (GServerConfig.ClientAuth <> TClientAuthMode.None))) then
+  begin
+    Result.ServerVerdictResolver := GServerVerdictResolver;
+    Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
+  end;
   Result.SessionResumption := GSessionResumption;
   Result.HandshakeTimeoutMs := GHandshakeTimeoutMs;
   if AContext.DisableTls13 then

@@ -21,6 +21,22 @@ uses
   TlpEchConfig;
 
 type
+  /// <summary>Why 0-RTT early data was or was not used on a connection (RFC 8446 4.2.10): the
+  /// first reason in this order that applies is reported; ReplayDetected is the anti-replay
+  /// decline (RFC 8446 8.2).</summary>
+  TEarlyDataReason = (Disabled, Accepted, ProtocolVersion, PeerDeclined, NoSessionOffered,
+    SessionNotResumed, UnsupportedForSession, HelloRetryRequest, AlpnMismatch, TicketAgeSkew,
+    ReplayDetected);
+
+  /// <summary>The facts a handshake machine reports at completion beside the suite, group and
+  /// resumption flag; the engine copies them onto the connection info.</summary>
+  TNegotiationFacts = record
+    PeerSignatureScheme: UInt16;
+    HelloRetryRequest: Boolean;
+    EarlyDataReason: TEarlyDataReason;
+    TicketAgeSkew: Int32;
+  end;
+
   /// <summary>
   /// A read-only snapshot of a connection's negotiated facts, taken after the handshake;
   /// reading it before the handshake completes yields the zero values. On a resumed handshake
@@ -51,18 +67,33 @@ type
     /// The DER DistinguishedName certificate_authorities the peer named in its CertificateRequest
     /// (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty when none was requested or named.
     RequestedCertificateAuthorities: TArray<TBytes>;
-    /// The identity of the TLS 1.2 pre-shared key that authenticated the connection (RFC 4279); empty
-    /// when the connection used certificates. A server reads which of its PSKs the client proved.
+    /// The signature scheme (IANA code) that verified the peer's CertificateVerify or ServerKeyExchange; 0
+    /// when the peer did not sign. On a resumption, the scheme of the original handshake.
+    PeerSignatureScheme: UInt16;
+    /// Whether a HelloRetryRequest was used (client: received; server: sent, including the stateless-cookie path).
+    HelloRetryRequest: Boolean;
+    /// Why 0-RTT early data was or was not used on this connection.
+    EarlyDataReason: TEarlyDataReason;
+    /// Server, TLS 1.3 ticket resumption: the age the client reports for the ticket less the server's own, in whole seconds.
+    TicketAgeSkew: Int32;
+    /// The signature_algorithms (IANA codes) the peer's CertificateRequest listed; empty when none was requested.
+    RequestedSignatureSchemes: TArray<UInt16>;
+    /// The identity of the pre-shared key that authenticated the connection: the TLS 1.2 PSK (RFC 4279) or
+    /// the TLS 1.3 external PSK as configured (RFC 9258); empty when it used certificates.
     PskIdentity: TBytes;
     /// The negotiated cipher suite (IANA code).
     CipherSuite: UInt16;
-    /// The negotiated named group (IANA code); 0 for a non-(EC)DHE key exchange.
+    /// The negotiated named group (IANA code); 0 for a non-(EC)DHE key exchange. On a TLS 1.2 resumption, the
+    /// group of the session's original handshake.
     NamedGroup: UInt16;
-    /// Whether the handshake was resumed (abbreviated).
+    /// Whether the handshake was resumed (abbreviated); an external PSK is not a resumption.
     Resumed: Boolean;
     /// Whether the session used Extended Master Secret (RFC 7627): the negotiated value on TLS 1.2,
     /// always True on TLS 1.3. Without it a TLS 1.2 exporter is unavailable (RFC 7627 5.4).
     ExtendedMasterSecret: Boolean;
+    /// Whether 0-RTT early data was accepted (RFC 8446 4.2.10): a client's offer the server accepted, or
+    /// a server that opened the early-data read window. False when none was offered or it was rejected.
+    EarlyDataAccepted: Boolean;
     /// The Encrypted Client Hello outcome (RFC 9849); see TEchStatus.
     EchStatus: TEchStatus;
     /// On a client ECH reject (RFC 9849 6.1.6): the server's retry_configs (empty when none), whether

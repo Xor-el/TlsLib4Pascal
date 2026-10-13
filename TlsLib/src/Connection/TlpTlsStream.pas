@@ -255,6 +255,9 @@ begin
   if ACount <= 0 then
     Exit(0);
   EnsureHandshake;
+  // a truncation stays an error on every later read, never a clean end of stream
+  if FTruncated then
+    raise ETlsTransportTruncated.CreateRes(@SReadTruncated);
   if FReadClosed then
     Exit(0);
   // one record per cycle: bound the scratch to a single transport chunk rather than the caller's
@@ -276,7 +279,7 @@ begin
         // a stripped close_notify is a truncation, not a graceful EOF
         FReadClosed := True;
         FTruncated := True;
-        raise ETlsTransportTruncated.Create(SReadTruncated);
+        raise ETlsTransportTruncated.CreateRes(@SReadTruncated);
       end;
   end;
   Result := LGot;

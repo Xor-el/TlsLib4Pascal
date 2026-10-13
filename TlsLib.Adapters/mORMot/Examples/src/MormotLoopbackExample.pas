@@ -41,6 +41,8 @@ uses
   mormot.core.unicode,
   mormot.net.sock,
   TlpDataEncoding,
+  TlpTlsAlert,
+  TlpTrustPolicy,
   TlpTlsLibExceptions,
   TlsLibMormotTls;
 
@@ -77,6 +79,13 @@ type
   TServerThread = class(TThread)
   protected
     procedure Execute; override;
+  end;
+
+  // a server resolver that accepts everything; only its registration matters here
+  TAcceptingServerResolver = class sealed(TObject)
+  public
+    function Resolve(const ACtx: TCertificateVerdictContext;
+      out ARejectAlert: TTlsAlertDescription): Boolean;
   end;
 
   // a server that requires a client certificate and serves two connections in turn, counting the
@@ -126,6 +135,13 @@ type
   public
     class function AllRefused: Boolean; static;
   end;
+
+function TAcceptingServerResolver.Resolve(const ACtx: TCertificateVerdictContext;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
+begin
+  ARejectAlert := TTlsAlertDescription.BadCertificate;
+  Result := True;
+end;
 
 procedure TUnusedHooks.PeerValidate(Socket: TNetSocket; Context: PNetTlsContext; TLS: pointer);
 begin
@@ -499,16 +515,20 @@ var
   LPing, LEcho, LPfx: TBytes;
   LLen: Integer;
   LOk, LRefused: Boolean;
+  LResolver: TAcceptingServerResolver;
 begin
   Result := 1;
   GServerError := '';
   GVector := TVectorLocator.Find;
   GReady := TEvent.Create(nil, True, False, '');
+  LResolver := TAcceptingServerResolver.Create;
   try
     LPfx := TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_pfx'));
     SetString(GLeafPfx, PAnsiChar(@LPfx[0]), System.Length(LPfx));
     TVectorLocator.WriteDer('root', TVectorLocator.FieldHex('root_cert'), GRootFile);
 
+    // a process-wide server resolver must leave a server that requests no client certificate usable
+    SetTlsLibMormotServerVerdictResolver(LResolver.Resolve, 1000);
     LServer := TServerThread.Create(True);
     LServer.FreeOnTerminate := False;
     LServer.Start;
@@ -534,6 +554,7 @@ begin
     LTls.Receive(@LEcho[0], LLen);
 
     LServer.WaitFor;
+    SetTlsLibMormotServerVerdictResolver(nil, 0);
     if GServerError <> '' then
       raise Exception.Create('server: ' + GServerError);
 
@@ -559,6 +580,8 @@ begin
     on E: Exception do
       Writeln('mORMot loopback FAIL: ', E.ClassName, ': ', E.Message);
   end;
+  SetTlsLibMormotServerVerdictResolver(nil, 0);
+  LResolver.Free;
   GReady.Free;
 end;
 

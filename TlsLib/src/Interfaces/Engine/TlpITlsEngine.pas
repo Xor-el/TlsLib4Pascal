@@ -92,7 +92,7 @@ type
   /// Single-threaded: the caller serializes access; there are no internal locks.
   /// </summary>
   ITlsEngine = interface(IInterface)
-    ['{16683746-5189-4961-9BDD-E12CB439EC12}']
+    ['{7B3E9A41-52C8-4D17-B0E6-3A9C41D82F65}']
     // --- network -> engine ---
     /// <summary>Feeds transport bytes; drives the record layer.</summary>
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
@@ -132,7 +132,9 @@ type
     /// <summary>Sends a close_notify (clean shutdown).</summary>
     procedure SendClose;
     /// <summary>Sends a fatal alert and makes the engine terminal.</summary>
-    procedure SendAlert(ADescription: TTlsAlertDescription);
+    procedure SendAlert(ADescription: TTlsAlertDescription); overload;
+    /// <summary>As above, recording AReason as the error the next operation raises.</summary>
+    procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
     /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
     /// send until the ClientHello.</summary>
     procedure StartHandshake;

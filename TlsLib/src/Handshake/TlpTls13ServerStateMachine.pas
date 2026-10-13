@@ -70,6 +70,7 @@ uses
   TlpEchExtension,
   TlpEchServer,
   TlpHandshakeEffect,
+  TlpTlsConnectionInfo,
   TlpRecordHeader,
   TlpIHandshakeMachine,
   TlpTls13HandshakeBase;
@@ -261,6 +262,7 @@ type
     /// handshake issues, empty for a certificate handshake.</summary>
     FSessionPskIdentity: TBytes;
     FSessionPskBinding: TBytes;
+    FPeerSignatureScheme: UInt16;
     /// <summary>The configured external PSKs imported for every supported KDF hash, in
     /// server preference order; matched against a ClientHello's offered identities.</summary>
     FExternalPsks: TArray<IPreSharedKey>;
@@ -271,6 +273,14 @@ type
     /// 0-RTT (a valid ticket within max_early_data that passed anti-replay).</summary>
     FEarlyDataOfferedByClient: Boolean;
     FEarlyDataAccepted: Boolean;
+    /// <summary>What the accepted ticket and ClientHello decided about 0-RTT, kept apart so the
+    /// ordered reason can be derived once ALPN and the key share are known.</summary>
+    FEarlyDataReason: TEarlyDataReason;
+    FAcceptedMaxEarlyData: UInt32;
+    FAcceptedIdentityIndex: Int32;
+    FEarlyAgeFresh: Boolean;
+    FEarlyReplayed: Boolean;
+    FTicketAgeSkew: Int32;
     /// <summary>The max_early_data_size the resumed ticket authorized; bounds how much rejected
     /// 0-RTT to skip. 0 when no ticket opened (e.g. a foreign STEK), in which case the skip budget
     /// falls back to the fixed default unless this server's own config authorizes early data.</summary>
@@ -379,12 +389,8 @@ type
     procedure EmitNewSessionTickets(var AEffects: TArray<THandshakeEffect>);
     /// <summary>The serialized length of a pre_shared_key binders vector.</summary>
     class function BindersVectorLength(const ABinders: TArray<TBytes>): Int32; static;
-    /// <summary>Whether the client's obfuscated_ticket_age is fresh enough to accept 0-RTT: the
-    /// de-obfuscated reported age must be within 60s of the server-measured elapsed time in
-    /// either direction (RFC 8446 8.3). A larger skew declines 0-RTT while the session still
-    /// resumes.</summary>
-    class function EarlyDataAgeFresh(AObfuscatedAgeMillis, ATicketAgeAdd: UInt32;
-      AIssuedAtMillis, ANowMillis: UInt64): Boolean; static;
+    /// <summary>The ordered reason 0-RTT was or was not taken, once ALPN is selected.</summary>
+    function DecideEarlyDataReason(const AContext: TExtensionContext): TEarlyDataReason;
     /// <summary>The first credential scheme (preference order) the client also offered;
     /// False when the credential's key can satisfy none of the client's schemes.</summary>
     function SelectSignatureScheme(const AClientSchemes: TArray<UInt16>;
@@ -403,6 +409,8 @@ type
     /// <summary>Emits a HelloRetryRequest for ASelectedGroup and waits for the retry.</summary>
     function EmitHelloRetryRequest(const AClientHello: TTlsClientHello;
       const ARaw: TBytes; ASelectedGroup: UInt16): TArray<THandshakeEffect>;
+    /// <summary>The negotiation facts reported at completion.</summary>
+    function Facts: TNegotiationFacts;
     /// <summary>Frames a HelloRetryRequest (a ServerHello with the sentinel random).</summary>
     function BuildHelloRetryRequest(const ALegacySessionId: TBytes;
       ASelectedGroup: UInt16; const ACookie: TBytes;
@@ -466,6 +474,12 @@ type
     destructor Destroy; override;
     function Start: TArray<THandshakeEffect>; override;
     function CanExportKeyingMaterial: Boolean; override;
+    /// <summary>Compares the client's reported ticket age (de-obfuscated with a wrapping u32
+    /// subtraction, RFC 8446 4.2.11.1) with the server-measured one saturated into u32 milliseconds:
+    /// ASkewSeconds is client minus server in whole seconds, AFresh whether they agree within the
+    /// 0-RTT window (RFC 8446 8.3). Public so tests reach the compiler-sensitive arithmetic.</summary>
+    class procedure TicketAgeVerdict(AObfuscatedAgeMillis, ATicketAgeAdd: UInt32;
+      AIssuedAtMillis, ANowMillis: UInt64; out ASkewSeconds: Int32; out AFresh: Boolean); static;
   end;
 
 implementation
@@ -793,6 +807,9 @@ begin
   if FEarlyDataAccepted and
     not TArrayUtilities.AreEqual(FSelectedAlpn, FAcceptedSessionAlpn) then
     FEarlyDataAccepted := False;
+  // the second ClientHello of a retry never offers 0-RTT, so it keeps the reason the retry set
+  if not FHelloRetrySent then
+    FEarlyDataReason := DecideEarlyDataReason(AContext);
   if AContext.RecordSizeLimit > 0 then
   begin
     if AContext.RecordSizeLimit < 64 then
@@ -815,15 +832,39 @@ begin
     Inc(Result, 1 + System.Length(LBinder));
 end;
 
-class function TTls13ServerStateMachine.EarlyDataAgeFresh(AObfuscatedAgeMillis,
-  ATicketAgeAdd: UInt32; AIssuedAtMillis, ANowMillis: UInt64): Boolean;
+function TTls13ServerStateMachine.DecideEarlyDataReason(
+  const AContext: TExtensionContext): TEarlyDataReason;
+begin
+  // the first applicable cause wins, from configuration through the ticket, ALPN and age to replay
+  if (FParams.MaxEarlyData = 0) or (FParams.AntiReplay = nil) then
+    Result := TEarlyDataReason.Disabled
+  else if System.Length(AContext.OfferedPskIdentities) = 0 then
+    Result := TEarlyDataReason.NoSessionOffered
+  else if not (FPskAccepted and (FPskBinderKind = TPskBinderKind.Resumption)) then
+    Result := TEarlyDataReason.SessionNotResumed
+  else if FAcceptedMaxEarlyData = 0 then
+    Result := TEarlyDataReason.UnsupportedForSession
+  else if not (FEarlyDataOfferedByClient and (FAcceptedIdentityIndex = 0)) then
+    Result := TEarlyDataReason.PeerDeclined
+  else if not TArrayUtilities.AreEqual(FSelectedAlpn, FAcceptedSessionAlpn) then
+    Result := TEarlyDataReason.AlpnMismatch
+  else if not FEarlyAgeFresh then
+    Result := TEarlyDataReason.TicketAgeSkew
+  else if FEarlyReplayed then
+    Result := TEarlyDataReason.ReplayDetected
+  else
+    Result := TEarlyDataReason.Accepted;
+end;
+
+class procedure TTls13ServerStateMachine.TicketAgeVerdict(AObfuscatedAgeMillis,
+  ATicketAgeAdd: UInt32; AIssuedAtMillis, ANowMillis: UInt64;
+  out ASkewSeconds: Int32; out AFresh: Boolean);
 var
   LClientAgeMs, LServerAgeMs, LSkewMs: UInt32;
   LElapsedMs: UInt64;
 begin
-  // de-obfuscate the client-reported ticket age with wrapping u32 subtraction (RFC 8446 4.2.11.1)
+  // a UInt32 target wraps the subtraction identically on every compiler
   LClientAgeMs := AObfuscatedAgeMillis - ATicketAgeAdd;
-  // the server-measured age since issuance, saturated into u32 milliseconds
   if ANowMillis > AIssuedAtMillis then
     LElapsedMs := ANowMillis - AIssuedAtMillis
   else
@@ -832,12 +873,12 @@ begin
     LServerAgeMs := High(UInt32)
   else
     LServerAgeMs := UInt32(LElapsedMs);
-  // the absolute skew between the reported and the measured age
+  ASkewSeconds := Int32(LClientAgeMs div 1000) - Int32(LServerAgeMs div 1000);
   if LServerAgeMs >= LClientAgeMs then
     LSkewMs := LServerAgeMs - LClientAgeMs
   else
     LSkewMs := LClientAgeMs - LServerAgeMs;
-  Result := LSkewMs <= MaxFreshnessSkewMillis;
+  AFresh := LSkewMs <= MaxFreshnessSkewMillis;
 end;
 
 function TTls13ServerStateMachine.TryAcceptResumption(
@@ -931,6 +972,8 @@ begin
     FAcceptedPskIdentity := AContext.OfferedPskIdentities[LI];
     FSessionPskIdentity := LSession.PskIdentity;
     FSessionPskBinding := LSession.PskBinding;
+    // a resumption reports the original authentication's signer, as it reports its chain
+    FPeerSignatureScheme := LSession.PeerSignatureScheme;
     FPskSecret := L13.ResumptionSecret;
     FResumedPeerCertificates := LSession.PeerCertificates;
     // 0-RTT is bound to the ticket's ALPN: accepted below only when the resumed handshake
@@ -940,12 +983,19 @@ begin
     AContext.SelectedPskIdentity := UInt16(LI);
     // accept 0-RTT only for identity 0 (RFC 8446 4.2.10), when configured, the ticket authorized
     // it, the reported age is fresh (RFC 8446 8.3), and the binder is not a replay (RFC 8446 8.2)
+    FAcceptedMaxEarlyData := L13.MaxEarlyData;
+    FAcceptedIdentityIndex := LI;
+    TicketAgeVerdict(AContext.OfferedPskAges[LI], L13.TicketAgeAdd, LSession.IssuedAtMillis,
+      LNowMs, FTicketAgeSkew, FEarlyAgeFresh);
     FEarlyDataAccepted := (LI = 0) and FEarlyDataOfferedByClient and
-      (FParams.MaxEarlyData > 0) and (L13.MaxEarlyData > 0) and
-      EarlyDataAgeFresh(AContext.OfferedPskAges[LI], L13.TicketAgeAdd,
-      LSession.IssuedAtMillis, LNowMs) and (FParams.AntiReplay <> nil) and
-      FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[LI], LNowMs,
-      LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
+      (FParams.MaxEarlyData > 0) and (L13.MaxEarlyData > 0) and FEarlyAgeFresh and
+      (FParams.AntiReplay <> nil);
+    if FEarlyDataAccepted then
+    begin
+      FEarlyDataAccepted := FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[LI],
+        LNowMs, LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
+      FEarlyReplayed := not FEarlyDataAccepted;
+    end;
     Exit(True);
   end;
 end;
@@ -1246,6 +1296,9 @@ begin
   // must not accept or skip it on the second flight (RFC 8446 4.2.10)
   FHelloRetrySent := True;
   FFirstClientHelloHash := LCh1Hash;
+  // a retry rejects 0-RTT that nothing else had ruled out
+  if FEarlyDataReason = TEarlyDataReason.Accepted then
+    FEarlyDataReason := TEarlyDataReason.HelloRetryRequest;
   FEarlyDataAccepted := False;
   FPhase := TPhase.WaitSecondClientHello;
   // the transcript is rebuilt from the stateless cookie; only the ECH state (the opener at seq=1,
@@ -1262,6 +1315,15 @@ begin
   if FEarlyDataOfferedByClient then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SkipEarlyData(EarlyDataSkipBudget));
+end;
+
+function TTls13ServerStateMachine.Facts: TNegotiationFacts;
+begin
+  Result := Default(TNegotiationFacts);
+  Result.PeerSignatureScheme := FPeerSignatureScheme;
+  Result.HelloRetryRequest := FHelloRetrySent;
+  Result.EarlyDataReason := FEarlyDataReason;
+  Result.TicketAgeSkew := FTicketAgeSkew;
 end;
 
 function TTls13ServerStateMachine.BuildHelloRetryRequest(
@@ -1888,6 +1950,7 @@ begin
   // handshake, and the client leaf's key must be allowed to produce it (RFC 8446 4.4.3)
   LScheme := TPeerAuthentication.RequirePeerScheme(FParams.ClientAuthSignatureSchemes,
     LCertVerify.Algorithm, TTlsVersion.Tls13, FParsedClientLeaf);
+  FPeerSignatureScheme := LCertVerify.Algorithm;
   // the client signs the transcript through its Certificate, client-side context string
   LContent := TCertificateVerify.SignatureContent(TCertificateVerifySide.Client,
     FTranscript.CurrentHash);
@@ -1956,7 +2019,13 @@ begin
     THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
     TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application),
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
-    FSelectedGroup.Code, FPskAccepted, True, FRequestedServerName));
+    FSelectedGroup.Code, FPskAccepted and (FPskBinderKind = TPskBinderKind.Resumption), True,
+    FRequestedServerName, Facts));
+  // the external identity as configured, also for a ticket resumption of a PSK-authenticated session
+  if FPskAccepted and (System.Length(FSessionPskIdentity) > 0) then
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.PskIdentity(
+      TExternalPskImporter.ExternalIdentity(FSessionPskIdentity)));
   // record the ECH status before signalling completion, so a sink reading it in the established
   // callback sees the final value (the client machine emits the status before completion too)
   if FEchStatus = TEchStatus.Accepted then
@@ -2021,7 +2090,7 @@ begin
       FRequestedServerName, nil,
       LLifetime, LAgeAdd, FParams.Clock.NowUnixMillis,
       FParams.MaxEarlyData, LChainForTicket, FParams.ResumptionScope,
-      FSessionPskIdentity, FSessionPskBinding);
+      FSessionPskIdentity, FSessionPskBinding, FPeerSignatureScheme);
     LHandle := FTicketStrategy.Seal(LSession);
     // an empty handle means the strategy declined to seal (e.g. an oversized chain over the cap):
     // issue no ticket for this connection rather than an unusable one

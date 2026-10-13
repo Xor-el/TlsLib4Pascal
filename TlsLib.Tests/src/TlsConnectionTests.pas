@@ -132,7 +132,9 @@ type
     procedure TestServerRequiredModeComposes;
     procedure TestServerAnchorsWithoutModeAreInert;
     procedure TestServerVerdictResolverArmsLiveRevocation;
-    procedure TestServerVerdictResolverNoModeStaysInline;
+    procedure TestServerVerdictResolverNoModeIsRefused;
+    procedure TestResolverBesideNoClientAuthServerConfigIsRefused;
+    procedure TestServerVerifyCallbackWithoutClientAuthIsRefused;
     procedure TestResolverBesideNonDeferringClientConfigIsRefused;
     procedure TestResolverBesideNonDeferringServerConfigIsRefused;
     procedure TestServerModeWithVerifyPeerOffRaises;
@@ -1160,9 +1162,8 @@ procedure TTestTlsConnection.TestServerNoClientSourceLeavesNoClientAuth;
 var
   LOpts: TTlsOptions;
 begin
-  // a server resolver set but no mode: no client auth is requested and the park is not armed
+  // no mode and no client-trust input: no client auth is requested
   LOpts := ServerOptsWithCredential;
-  LOpts.ServerVerdictResolver := StubResolver;
   CheckEquals(Ord(TClientAuthMode.None),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
     'no mode means no client authentication');
@@ -1237,18 +1238,18 @@ begin
   CheckEquals(777, LConfig.AsyncCertificateVerdict.DeadlineMs, 'the server deadline is carried');
 end;
 
-procedure TTestTlsConnection.TestServerVerdictResolverNoModeStaysInline;
+procedure TTestTlsConnection.TestServerVerdictResolverNoModeIsRefused;
 var
   LOpts: TTlsOptions;
+  LMsg: string;
 begin
-  // a client-CA and a resolver but NO mode: it is the mode, not the source, that arms the park
+  // a client-CA and a resolver but NO mode: only the mode arms the park
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(RootAnchor));
   LOpts.ServerVerdictResolver := StubResolver;
-  CheckEquals(Ord(TVerdictDeferral.None),
-    Ord(TTlsConfigComposer.BuildServerConfig(LOpts).AsyncCertificateVerdict.Deferral),
-    'a resolver without a mode does not arm the park');
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg),
+    'a resolver without a client-authentication mode is refused');
 end;
 
 procedure TTestTlsConnection.TestResolverBesideNonDeferringClientConfigIsRefused;
@@ -1304,11 +1305,38 @@ begin
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(LBuild);
   CheckTrue(TTlsConfigComposer.ResolveServerConfig(LOpts, LMemo, 'ServerConfig') =
     LOpts.ServerConfig, 'a deferring client-auth config accepts the resolver');
-  // without client authentication the server never parks, so the resolver is not a conflict
-  LBuild := ServerOptsWithCredential;
-  LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(LBuild);
-  CheckTrue(TTlsConfigComposer.ResolveServerConfig(LOpts, LMemo, 'ServerConfig') =
-    LOpts.ServerConfig, 'a no-client-auth server config accepts the runtime hook');
+end;
+
+procedure TTestTlsConnection.TestResolverBesideNoClientAuthServerConfigIsRefused;
+var
+  LOpts: TTlsOptions;
+  LMemo: ITlsServerConfigMemo;
+  LMessage: string;
+begin
+  LMemo := TTlsConfigMemos.NewServer;
+  LOpts := TTlsOptions.Default;
+  LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
+  LOpts.ServerVerdictResolver := StubResolver;
+  LMessage := '';
+  try
+    TTlsConfigComposer.ResolveServerConfig(LOpts, LMemo, 'ServerConfig');
+  except
+    on E: ETlsStreamError do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('client authentication is None', LMessage) > 0,
+    'a server resolver beside a config that requests no client certificate is refused for that');
+end;
+
+procedure TTestTlsConnection.TestServerVerifyCallbackWithoutClientAuthIsRefused;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.VerifyCallback := StubVerifyCallback;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg),
+    'a verify callback on a server that requests no client certificate is refused');
 end;
 
 procedure TTestTlsConnection.TestServerModeWithVerifyPeerOffRaises;
