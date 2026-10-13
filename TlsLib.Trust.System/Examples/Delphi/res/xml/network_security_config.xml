@@ -7,4 +7,8 @@
             <pin digest="SHA-256">47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=</pin>
         </pin-set>
     </domain-config>
+    <!-- no pins and no anchors: system anchors only, so a host root must not rescue this host -->
+    <domain-config>
+        <domain includeSubdomains="false">self-signed.badssl.com</domain>
+    </domain-config>
 </network-security-config>

@@ -32,7 +32,7 @@ uses
   TlpOSSystemTrust;
 
 type
-  THostRoot = (hrNone, hrUnrelated, hrBadSsl, hrIsrgX1);
+  THostRoot = (hrNone, hrUnrelated, hrBadSsl, hrIsrgX1, hrSelfSigned);
 
   THostRootCell = record
     Title: string;
@@ -204,6 +204,29 @@ const
     'dAEWyN2WXaBFPx5c8KIW95Eu8ShWE00VVC3oA4emoZ2nrzBXLrUScifY6VaYYkkR'#10 +
     '2O2tSqU8Ri3XRdgpNPDWp8ZL49KhYGYo3R/k98gnMHiY5g=='#10 +
     '-----END CERTIFICATE-----'#10;
+  // the self-signed *.badssl.com leaf self-signed.badssl.com presents (sha256 3963935f5553a2e0db9d53fa9a2d09747216a8e2f68e2079d632205f7b014ee8), valid to 2028-10-05
+  SelfSignedLeafPem =
+    '-----BEGIN CERTIFICATE-----'#10 +
+    'MIIDeTCCAmGgAwIBAgIJAKtFizM4Gg5IMA0GCSqGSIb3DQEBCwUAMGIxCzAJBgNV'#10 +
+    'BAYTAlVTMRMwEQYDVQQIDApDYWxpZm9ybmlhMRYwFAYDVQQHDA1TYW4gRnJhbmNp'#10 +
+    'c2NvMQ8wDQYDVQQKDAZCYWRTU0wxFTATBgNVBAMMDCouYmFkc3NsLmNvbTAeFw0y'#10 +
+    'NjEwMDYyMTAwMTdaFw0yODEwMDUyMTAwMTdaMGIxCzAJBgNVBAYTAlVTMRMwEQYD'#10 +
+    'VQQIDApDYWxpZm9ybmlhMRYwFAYDVQQHDA1TYW4gRnJhbmNpc2NvMQ8wDQYDVQQK'#10 +
+    'DAZCYWRTU0wxFTATBgNVBAMMDCouYmFkc3NsLmNvbTCCASIwDQYJKoZIhvcNAQEB'#10 +
+    'BQADggEPADCCAQoCggEBAMIE7PiM7gTCs9hQ1XBYzJMY61yoaEmwIrX5lZ6xKyx2'#10 +
+    'PmzAS2BMTOqytMAPgLaw+XLJhgL5XEFdEyt/ccRLvOmULlA3pmccYYz2QULFRtMW'#10 +
+    'hyefdOsKnRFSJiFzbIRMeVXk0WvoBj1IFVKtsyjbqv9u/2CVSndrOfEk0TG23U3A'#10 +
+    'xPxTuW1CrbV8/q71FdIzSOciccfCFHpsKOo3St/qbLVytH5aohbcabFXRNsKEqve'#10 +
+    'ww9HdFxBIuGa+RuT5q0iBikusbpJHAwnnqP7i/dAcgCskgjZjFeEU4EFy+b+a1SY'#10 +
+    'QCeFxxC7c3DvaRhBB0VVfPlkPz0sw6l865MaTIbRyoUCAwEAAaMyMDAwCQYDVR0T'#10 +
+    'BAIwADAjBgNVHREEHDAaggwqLmJhZHNzbC5jb22CCmJhZHNzbC5jb20wDQYJKoZI'#10 +
+    'hvcNAQELBQADggEBAGnCNdgCm8TJSktAdUeWVdB5JmyXnVrG581jHUk+G8iO5qOF'#10 +
+    'SETzzlRuqVyT+FUfiy4oN4un8w7TsOnf1OHrNtjzY/UUKI/Jdn0j+BP+g2Q9FQiM'#10 +
+    'zijjy1whoIP86664djYkUKZIfw+Oj8M8UQRaYFMZ0tQbGilb3KDATIOVTClDG4Mm'#10 +
+    'Li0FnGcje+K7e6xE2BEeFHOHkOj8HOD5FBD5xzqSqV3eTEYFOPRJOnXXJ4j2+0u0'#10 +
+    'A28LpGp/srbX7Z3tw7YsSKTyAydiPU6n2yXFpUc7VaVcEW/w6fnw2UIJySyLDti9'#10 +
+    '3WHYOMamHLVzWvhPCQsri+/FK+C+gZLBtjiP5Tw='#10 +
+    '-----END CERTIFICATE-----'#10;
   // ISRG Root X1 (sha256 96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6), the OS root letsencrypt.org chains to
   IsrgX1RootPem =
     '-----BEGIN CERTIFICATE-----'#10 +
@@ -238,7 +261,7 @@ const
     'emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc='#10 +
     '-----END CERTIFICATE-----'#10;
 
-  HostRootCells: array[0..6] of THostRootCell = (
+  HostRootCells: array[0..7] of THostRootCell = (
     (Title: 'public site, unrelated host root'; Url: PublicSiteUrl;
       HostRoot: hrUnrelated; ExpectConnect: True; NeedsNsc: False),
     (Title: 'untrusted-root.badssl.com, its root as host root';
@@ -257,7 +280,10 @@ const
       Url: 'https://self-signed.badssl.com/'; HostRoot: hrUnrelated; ExpectConnect: False;
       NeedsNsc: False),
     (Title: 'letsencrypt.org, wrong network-security-config pin, its own OS root as host root (a pin failure is final)';
-      Url: 'https://letsencrypt.org/'; HostRoot: hrIsrgX1; ExpectConnect: False; NeedsNsc: True));
+      Url: 'https://letsencrypt.org/'; HostRoot: hrIsrgX1; ExpectConnect: False; NeedsNsc: True),
+    (Title: 'self-signed.badssl.com, domain-config host, its own certificate as host root (host roots do not apply)';
+      Url: 'https://self-signed.badssl.com/'; HostRoot: hrSelfSigned; ExpectConnect: False;
+      NeedsNsc: True));
 
 { TSystemTrustDemoRunner }
 
@@ -333,6 +359,8 @@ begin
       Result := TEncoding.ASCII.GetBytes(BadSslRootPem);
     hrIsrgX1:
       Result := TEncoding.ASCII.GetBytes(IsrgX1RootPem);
+    hrSelfSigned:
+      Result := TEncoding.ASCII.GetBytes(SelfSignedLeafPem);
   else
     Result := nil;
   end;

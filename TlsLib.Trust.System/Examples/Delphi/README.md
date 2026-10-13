@@ -82,6 +82,7 @@ on Windows and macOS also `Anchors`. Android and iOS have only the Delegate mode
 | `wrong.host.badssl.com` | the badssl root | refused (name is final) |
 | `self-signed.badssl.com` | an unrelated test root | refused |
 | `letsencrypt.org` (Android only, wrong network-security-config pin) | ISRG Root X1, the OS root it chains to | refused |
+| `self-signed.badssl.com` (Android only, listed in the network-security-config) | its own certificate | refused (host roots do not apply to a host a `<domain-config>` names) |
 
 On a phone, a `FAIL:` on the second cell means the host root was not trusted beside the OS roots;
 a `FAIL:` on any refused cell means a final failure (expiry, name, untrusted, pin) was rescued.
@@ -90,8 +91,8 @@ accept it if the pin failure were not final. It prints `SKIP:` off Android.
 
 ### Wiring the pin cell (Android, local project files)
 
-`res/xml/network_security_config.xml` pins `letsencrypt.org` to a key that matches nothing; it names no
-other domain and has no base config. Wire it in locally with the script (the `.deployproj` and the
+`res/xml/network_security_config.xml` pins `letsencrypt.org` to a key that matches nothing and lists
+`self-signed.badssl.com` with no pins or anchors; it names no other domain and has no base config. Wire it in locally with the script (the `.deployproj` and the
 manifest template are not committed):
 
 ```
