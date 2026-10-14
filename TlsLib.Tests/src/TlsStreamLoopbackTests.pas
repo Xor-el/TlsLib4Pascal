@@ -71,6 +71,7 @@ type
   var
     FStream: TTlsStream;
     FTransport: TMemoryTransport;
+    FClientTransport: TMemoryTransport;
     FBehavior: TServerBehavior;
     FError: string;
     FNegotiatedVersion: UInt16;
@@ -79,9 +80,11 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(const AStream: TTlsStream; const ATransport: TMemoryTransport;
-      ABehavior: TServerBehavior);
+    constructor Create(const AStream: TTlsStream; const ATransport,
+      AClientTransport: TMemoryTransport; ABehavior: TServerBehavior);
     destructor Destroy; override;
+    /// <summary>Ends the client's write side so a server still awaiting it fails, then joins.</summary>
+    procedure Finish;
     property Error: string read FError;
     property NegotiatedVersion: UInt16 read FNegotiatedVersion;
     property Alpn: TBytes read FAlpn;
@@ -199,21 +202,28 @@ const
 { TServerRunner }
 
 constructor TServerRunner.Create(const AStream: TTlsStream;
-  const ATransport: TMemoryTransport; ABehavior: TServerBehavior);
+  const ATransport, AClientTransport: TMemoryTransport; ABehavior: TServerBehavior);
 begin
   inherited Create(True);
   FStream := AStream;
   FTransport := ATransport;
+  FClientTransport := AClientTransport;
   FBehavior := ABehavior;
   FreeOnTerminate := False;
 end;
 
 destructor TServerRunner.Destroy;
 begin
-  // stop the thread first (Execute has finished by the WaitFor the callers do), then free
-  // the server stream we own; that releases its engine and its ITlsTransport (the transport)
+  // EOF the client so a server parked in a read exits and the join cannot hang the run
+  FClientTransport.CloseWrite;
   inherited Destroy;
   FStream.Free;
+end;
+
+procedure TServerRunner.Finish;
+begin
+  FClientTransport.CloseWrite;
+  WaitFor;
 end;
 
 procedure TServerRunner.Execute;
@@ -501,7 +511,8 @@ begin
   LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   AClient := NewClientStream(AClientTransport as ITlsTransport, AClientConfig);
   LServerStream := NewServerStream(LServerTransport as ITlsTransport);
-  AServer := TServerRunner.Create(LServerStream, LServerTransport, AServerBehavior);
+  AServer := TServerRunner.Create(LServerStream, LServerTransport, AClientTransport,
+    AServerBehavior);
   AServer.Start;
 end;
 
@@ -577,7 +588,7 @@ begin
     CheckEquals(0, LGot, 'the client reads EOF after the server close_notify');
     CheckFalse(LClient.TransportTruncated, 'a clean close_notify is not a truncation');
 
-    LServer.WaitFor;
+    LServer.Finish;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally
     LServer.Free;
@@ -615,7 +626,8 @@ begin
   LProbe := TPeakProbeTransport.Create(LInner as ITlsTransport, LEngine);
   LClient := TTlsStream.Create(LProbe as ITlsTransport, LEngine, True, 'localhost');
   LServerStream := NewServerStream(LServerTransport as ITlsTransport);
-  LServer := TServerRunner.Create(LServerStream, LServerTransport, TServerBehavior.BulkEcho);
+  LServer := TServerRunner.Create(LServerStream, LServerTransport, LInner,
+    TServerBehavior.BulkEcho);
   LServer.BulkBytes := BULK;
   LServer.Start;
   try
@@ -638,7 +650,7 @@ begin
     CheckEquals(BULK, LTotal, 'the full payload round-tripped');
     CheckEqualBytes('the sliced write reaches the peer intact and in order', LTx, LRx);
     LClient.CloseNotify;
-    LServer.WaitFor;
+    LServer.Finish;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally
     LServer.Free;
@@ -665,7 +677,7 @@ begin
   LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(False, nil), 'localhost');
   LClient := TTlsStream.Create(LClientTransport as ITlsTransport, LEngine, True, 'localhost');
   LServer := TServerRunner.Create(NewServerStream(LServerTransport as ITlsTransport),
-    LServerTransport, TServerBehavior.EchoThenClose);
+    LServerTransport, LClientTransport, TServerBehavior.EchoThenClose);
   LWatch := TWedgeWatchdog.Create(LC2S, LS2C, 60000);
   LWatch.Start;
   LServer.Start;
@@ -687,7 +699,7 @@ begin
     end;
     CheckFalse(LTruncated, 'the failure is the alert, not a truncation');
     CheckTrue(LRaised, 'a read on a terminal engine raises its alert');
-    LServer.WaitFor;
+    LServer.Finish;
     LWatch.Disarm;
     CheckFalse(LWatch.Fired, 'the read did not leave both sides blocked');
     CheckTrue(Pos('ETlsStreamError:', LServer.Error) = 1,
@@ -738,7 +750,7 @@ begin
     CheckTrue(LAlerted, 'the client read surfaces the peer''s fatal alert');
     CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LAlert),
       'the alert is the bad_record_mac the server queued');
-    LServer.WaitFor;
+    LServer.Finish;
     CheckTrue(LServer.Error <> '', 'the server side failed on the bad record');
   finally
     LServer.Free;
@@ -787,7 +799,7 @@ begin
     'localhost');
   LServerStream := TTlsStream.Create(LServerTransport as ITlsTransport, LServerEngine, False,
     '');
-  LServer := TServerRunner.Create(LServerStream, LServerTransport,
+  LServer := TServerRunner.Create(LServerStream, LServerTransport, LClientTransport,
     TServerBehavior.EchoThenClose);
   // a close_notify that never reaches the server leaves it blocked in its read forever; the
   // watchdog turns that into a surfaced EOF (a server error) instead of a hung run
@@ -810,7 +822,7 @@ begin
     CheckTrue(LRaised, 'a write at the usage limit raises ERecordLimitTlsLibException');
     // the server reads the close_notify the engine queued at the limit as a clean EOF and
     // closes cleanly itself; a truncation would be an error on its side
-    LServer.WaitFor;
+    LServer.Finish;
     LWatch.Disarm;
     CheckFalse(LWatch.Fired, 'the server was not left blocked on its read');
     CheckEquals('', LServer.Error, 'the server saw a clean close_notify, not a truncation');
@@ -841,7 +853,7 @@ begin
   LTimeout := TTimeoutOnceTransport.Create(LInner as ITlsTransport);
   LClient := NewClientStream(LTimeout as ITlsTransport, ClientConfig(False, nil));
   LServerStream := NewServerStream(LServerTransport as ITlsTransport);
-  LServer := TServerRunner.Create(LServerStream, LServerTransport,
+  LServer := TServerRunner.Create(LServerStream, LServerTransport, LInner,
     TServerBehavior.EchoThenClose);
   LServer.Start;
   try
@@ -864,7 +876,7 @@ begin
     LGot := LClient.Read(LEcho[0], System.Length(LEcho));
     CheckEqualBytes('the retried read returns the echo', LPing, System.Copy(LEcho, 0, LGot));
     LClient.CloseNotify;
-    LServer.WaitFor;
+    LServer.Finish;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally
     LServer.Free;
@@ -895,7 +907,7 @@ begin
     CheckFalse(LInfo.Resumed, 'a fresh handshake is not marked resumed');
 
     LClient.CloseNotify;
-    LServer.WaitFor;
+    LServer.Finish;
     CheckEquals('', LServer.Error, 'the server side ran without error');
     CheckEquals(Integer(TlsWireVersionTls13), Integer(LServer.NegotiatedVersion),
       'the server negotiated TLS 1.3');
@@ -933,7 +945,7 @@ begin
       'a close without close_notify raises a fatal truncation, not a graceful EOF');
     CheckTrue(LClient.TransportTruncated,
       'the truncation accessor stays set for a host that catches and tolerates');
-    LServer.WaitFor;
+    LServer.Finish;
   finally
     LServer.Free;
     LClient.Free;
@@ -969,7 +981,7 @@ begin
         LRaised := True;
     end;
     CheckTrue(LRaised, 'a read after a swallowed truncation raises again, not a clean EOF');
-    LServer.WaitFor;
+    LServer.Finish;
   finally
     LServer.Free;
     LClient.Free;
@@ -982,7 +994,8 @@ var
   LServer: TServerRunner;
   LTransport: TMemoryTransport;
   LConfig: ITlsClientConfig;
-  LFailed: Boolean;
+  LPlain: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
   // a client that trusts an unrelated anchor (the leaf's own cert, not its issuer) must
   // reject the server chain through PKIX - no dangerous flag is set
@@ -990,15 +1003,24 @@ begin
     .WithServerVerification(WebPkiServer(LeafCert)).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
-    LFailed := False;
+    LPlain := False;
+    LAlert := TTlsAlertDescription.CloseNotify;
     try
       LClient.Handshake;
     except
       on E: ETlsStreamError do
-        LFailed := True;
+      begin
+        LPlain := E.ClassType = ETlsStreamError;
+        if E.HasAlert then
+          LAlert := E.Alert;
+      end;
     end;
-    CheckTrue(LFailed, 'an untrusted server chain fails the handshake through our pipeline');
-    LServer.WaitFor;
+    CheckTrue(LPlain, 'an untrusted server chain fails with a plain stream error');
+    CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+      'the untrusted chain is refused with unknown_ca');
+    LServer.Finish;
+    CheckTrue(Pos('ETlsStreamError:', LServer.Error) = 1,
+      'the rejection alert reached the server');
   finally
     LServer.Free;
     LClient.Free;
@@ -1013,6 +1035,7 @@ var
   LConfig: ITlsClientConfig;
   LBuf: TBytes;
   LFirst, LSecond: Boolean;
+  LFirstAlert, LSecondAlert: TTlsAlertDescription;
 begin
   // a failed handshake is permanent for a stream: a second Read must re-raise the same failure,
   // never silently re-drive (which would emit a second ClientHello) or read as a truncation
@@ -1022,25 +1045,40 @@ begin
   SetLength(LBuf, 16);
   try
     LFirst := False;
+    LFirstAlert := TTlsAlertDescription.CloseNotify;
     try
       LClient.Handshake;
     except
       on E: ETlsStreamError do
-        LFirst := True;
+      begin
+        LFirst := E.ClassType = ETlsStreamError;
+        if E.HasAlert then
+          LFirstAlert := E.Alert;
+      end;
     end;
-    CheckTrue(LFirst, 'the untrusted chain fails the handshake');
+    CheckTrue(LFirst, 'the untrusted chain fails the handshake with a plain stream error');
+    CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LFirstAlert),
+      'the handshake failure carries unknown_ca');
     CheckFalse(LClient.IsHandshakeComplete, 'the handshake did not complete');
     LSecond := False;
+    LSecondAlert := TTlsAlertDescription.CloseNotify;
     try
       LClient.Read(LBuf[0], 16);
     except
       on E: ETlsStreamError do
-        LSecond := True;
+      begin
+        LSecond := E.ClassType = ETlsStreamError;
+        if E.HasAlert then
+          LSecondAlert := E.Alert;
+      end;
     end;
-    CheckTrue(LSecond, 'a read after the failed handshake re-raises rather than retrying');
+    CheckTrue(LSecond, 'a read after the failed handshake re-raises the plain stream error');
+    CheckEquals(Ord(LFirstAlert), Ord(LSecondAlert), 'the re-raise carries the same alert');
     CheckFalse(LClient.TransportTruncated,
       'the failure is reported as itself, not masked as a truncation');
-    LServer.WaitFor;
+    LServer.Finish;
+    CheckTrue(Pos('ETlsStreamError:', LServer.Error) = 1,
+      'the rejection alert reached the server');
   finally
     LServer.Free;
     LClient.Free;
@@ -1177,7 +1215,7 @@ begin
     CheckTrue(LClient.IsHandshakeComplete,
       'InsecureSkipVerify makes an otherwise-untrusted chain pass');
     LClient.CloseNotify;
-    LServer.WaitFor;
+    LServer.Finish;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally
     LServer.Free;
@@ -1190,22 +1228,32 @@ var
   LClient: TTlsStream;
   LServer: TServerRunner;
   LTransport: TMemoryTransport;
-  LFailed: Boolean;
+  LPlain: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
   // the chain would pass the built-in pipeline (trusted root), but an augment callback
   // additionally rejects it: the handshake must fail
   RunLoopback(ClientConfig(False, AlwaysReject), TServerBehavior.EchoThenClose, LClient,
     LServer, LTransport);
   try
-    LFailed := False;
+    LPlain := False;
+    LAlert := TTlsAlertDescription.CloseNotify;
     try
       LClient.Handshake;
     except
       on E: ETlsStreamError do
-        LFailed := True;
+      begin
+        LPlain := E.ClassType = ETlsStreamError;
+        if E.HasAlert then
+          LAlert := E.Alert;
+      end;
     end;
-    CheckTrue(LFailed, 'the augment callback additionally rejects an otherwise-valid chain');
-    LServer.WaitFor;
+    CheckTrue(LPlain, 'the augment callback rejects an otherwise-valid chain with a stream error');
+    CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+      'the callback rejection is refused with certificate_unknown');
+    LServer.Finish;
+    CheckTrue(Pos('ETlsStreamError:', LServer.Error) = 1,
+      'the rejection alert reached the server');
   finally
     LServer.Free;
     LClient.Free;
@@ -1231,7 +1279,7 @@ begin
     CheckTrue(LClient.IsHandshakeComplete,
       'a trusted-anchor chain that also matches its SPKI pin verifies');
     LClient.CloseNotify;
-    LServer.WaitFor;
+    LServer.Finish;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally
     LServer.Free;
@@ -1267,7 +1315,7 @@ begin
     CheckEqualBytes('the server echoed the client message', LPing,
       System.Copy(LEcho, 0, LGot));
     LClient.CloseNotify;
-    LServer.WaitFor;
+    LServer.Finish;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally
     LServer.Free;
@@ -1280,7 +1328,8 @@ var
   LClient: TTlsStream;
   LServer: TServerRunner;
   LTransport: TMemoryTransport;
-  LFailed: Boolean;
+  LPlain: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
   // a resolver that rejects a chain the pipeline already accepted still aborts the handshake
   // (augment-only, fail-closed) - the pump raises
@@ -1288,15 +1337,24 @@ begin
     LTransport);
   try
     LClient.SetCertificateVerdictResolver(ResolverReject);
-    LFailed := False;
+    LPlain := False;
+    LAlert := TTlsAlertDescription.CloseNotify;
     try
       LClient.Handshake;
     except
       on E: ETlsStreamError do
-        LFailed := True;
+      begin
+        LPlain := E.ClassType = ETlsStreamError;
+        if E.HasAlert then
+          LAlert := E.Alert;
+      end;
     end;
-    CheckTrue(LFailed, 'a rejected async verdict fails the handshake closed over the pump');
-    LServer.WaitFor;
+    CheckTrue(LPlain, 'a rejected async verdict fails closed with a plain stream error');
+    CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+      'the rejection carries the resolver''s bad_certificate');
+    LServer.Finish;
+    CheckTrue(Pos('ETlsStreamError:', LServer.Error) = 1,
+      'the rejection alert reached the server');
   finally
     LServer.Free;
     LClient.Free;
@@ -1339,7 +1397,7 @@ begin
     end;
     CheckTrue(LFailed, 'a raising resolver fails the handshake closed');
     CheckTrue(LAlert = TTlsAlertDescription.InternalError, 'with internal_error');
-    LServer.WaitFor;
+    LServer.Finish;
   finally
     LServer.Free;
     LClient.Free;
@@ -1371,7 +1429,8 @@ begin
   LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   LClient := NewClientStream(LClientTransport as ITlsTransport, ClientConfig(True, nil));
   LServerStream := NewServerStream(LServerTransport as ITlsTransport);
-  LServer := TServerRunner.Create(LServerStream, LServerTransport, TServerBehavior.BulkEcho);
+  LServer := TServerRunner.Create(LServerStream, LServerTransport, LClientTransport,
+    TServerBehavior.BulkEcho);
   LServer.BulkBytes := BULK;
   // a wedge would block a pump read forever; the watchdog closes both pipes after the deadline
   // so the read returns EOF and the test fails loudly instead of hanging the run
@@ -1395,7 +1454,7 @@ begin
     CheckEquals(BULK, LTotal, 'the full payload round-tripped');
     CheckEqualBytes('the echoed stream matches byte-for-byte', LTx, LRx);
     LClient.CloseNotify;
-    LServer.WaitFor;
+    LServer.Finish;
     CheckEquals('', LServer.Error, 'the server side ran without error');
   finally
     LWatch.Disarm; // on any failure path too, so the watchdog thread can exit
@@ -1580,22 +1639,44 @@ end;
 procedure TTestTlsStreamLoopback.TestKeyUpdateRequestBehindTransportDataIsAnsweredByTheNextWrite;
 var
   LClient, LServer: ITlsEngine;
-  LScripted: TScriptedTransport;
+  LS2C, LC2S: TMemoryPipe;
   LTransport: ITlsTransport;
-  LDest, LReply, LTransportBuffer: TBytes;
+  LEvent: ITlsEvent;
+  LDest, LReply, LTransportBuffer, LWritten, LWire: TBytes;
   LStatus: TTlsReadStatus;
+  LGot, LKeyUpdates: Int32;
 begin
   // the reply to a KeyUpdate is owed, not queued, when the read returns: nothing is left to flush
   HandshakeEngines(LClient, LServer);
-  LScripted := TScriptedTransport.Create(DataThenKeyUpdateRequest(LServer), False);
-  LTransport := LScripted as ITlsTransport;
-  System.SetLength(LDest, 16);
-  CheckEquals(2, TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16,
-    LStatus), 'the data');
-  CheckEquals(0, LScripted.Written, 'no reply was queued by the read');
-  LReply := DecodeHex('03');
-  TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LReply, 0, 1);
-  CheckTrue(LScripted.Written > 0, 'the next write carries the reply and the data');
+  LS2C := TMemoryPipe.Create;
+  LC2S := TMemoryPipe.Create;
+  LTransport := TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport;
+  try
+    LWire := DataThenKeyUpdateRequest(LServer);
+    LS2C.Write(LWire, 0, System.Length(LWire));
+    LS2C.Close;
+    LC2S.Close; // closed so the drains below read what was written, never block on an empty pipe
+    System.SetLength(LDest, 16);
+    CheckEquals(2, TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16,
+      LStatus), 'the data');
+    System.SetLength(LWritten, 16384);
+    CheckEquals(0, LC2S.Read(LWritten, 0, System.Length(LWritten)),
+      'no reply was queued by the read');
+    LReply := DecodeHex('03');
+    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LReply, 0, 1);
+    LGot := LC2S.Read(LWritten, 0, System.Length(LWritten));
+    CheckTrue(LGot > 0, 'the next write reached the transport');
+    LServer.ProcessInput(LWritten, 0, LGot);
+    LKeyUpdates := 0;
+    while LServer.NextEvent(LEvent) do
+      if LEvent.Kind = TTlsEventKind.KeyUpdateReceived then
+        System.Inc(LKeyUpdates);
+    CheckEquals(1, LKeyUpdates, 'the next write carried the owed KeyUpdate reply');
+    CheckEquals(1, LServer.PendingAppData,
+      'the data record behind the reply decrypts under the new keys');
+  finally
+    LS2C.Free;
+  end;
 end;
 
 procedure TTestTlsStreamLoopback.ReadWithAKeyUpdateLostToADeadSocket(out AClient: ITlsEngine;

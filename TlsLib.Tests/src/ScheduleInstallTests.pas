@@ -68,34 +68,29 @@ var
   LRecord: TBytes;
   LFragment: TTlsRecordFragment;
 begin
-  LVec := LoadVectorFields('Rfc8448/Tls13KeySchedule.txt');
-  LRec := LoadVectorFields('Rfc8448/Tls13RecordFinished.txt');
-  try
-    // derive the RFC 8448 client handshake epoch and route its keys through the
-    // install-path factory into the record layer's read side
-    LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
-    LSched.SetSharedSecret(TSecretBuffer.From(DecodeHex(LVec.Values['shared_secret'])));
-    LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex(LVec.Values['hash_ch_sh']));
-    LKeys := LSched.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
-    LProt := TRecordProtectionFactory.Build(TTlsVersion.Tls13, LKeys,
-      Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+  LVec := Own<TStringList>(LoadVectorFields('Rfc8448/Tls13KeySchedule.txt'));
+  LRec := Own<TStringList>(LoadVectorFields('Rfc8448/Tls13RecordFinished.txt'));
+  // derive the RFC 8448 client handshake epoch and route its keys through the
+  // install-path factory into the record layer's read side
+  LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
+  LSched.SetSharedSecret(TSecretBuffer.From(DecodeHex(LVec.Values['shared_secret'])));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex(LVec.Values['hash_ch_sh']));
+  LKeys := LSched.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
+  LProt := TRecordProtectionFactory.Build(TTlsVersion.Tls13, LKeys,
+    Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
 
-    LLayer := TRecordLayer.Create;
-    try
-      LLayer.SetReadProtection(LProt);
-      LRecord := DecodeHex(LRec.Values['record']);
-      LLayer.ProcessInput(LRecord, 0, System.Length(LRecord));
-      CheckTrue(LLayer.NextIncoming(LFragment), 'the framed record decrypts');
-      CheckEquals(Ord(TTlsContentType.Handshake), Ord(LFragment.ContentType),
-        'the decrypted record is a handshake fragment');
-      CheckEqualBytes('the record layer decrypts the RFC 8448 Finished',
-        DecodeHex(LRec.Values['plaintext']), LFragment.Data);
-    finally
-      LLayer.Free;
-    end;
+  LLayer := TRecordLayer.Create;
+  try
+    LLayer.SetReadProtection(LProt);
+    LRecord := DecodeHex(LRec.Values['record']);
+    LLayer.ProcessInput(LRecord, 0, System.Length(LRecord));
+    CheckTrue(LLayer.NextIncoming(LFragment), 'the framed record decrypts');
+    CheckEquals(Ord(TTlsContentType.Handshake), Ord(LFragment.ContentType),
+      'the decrypted record is a handshake fragment');
+    CheckEqualBytes('the record layer decrypts the RFC 8448 Finished',
+      DecodeHex(LRec.Values['plaintext']), LFragment.Data);
   finally
-    LVec.Free;
-    LRec.Free;
+    LLayer.Free;
   end;
 end;
 
