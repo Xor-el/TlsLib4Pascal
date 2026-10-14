@@ -399,9 +399,8 @@ A `WithAsyncCertificateVerdict` (host-decision) park is augment-only: it does **
 revocation gate, so under it `Hard` still rejects a missing staple inline. Without any live
 deferral, `Hard` decides inline (a missing staple is rejected); a `must-staple` leaf (RFC 7633)
 requires a current Good staple, and is enforced only for an initial-handshake server certificate
-the client requested a staple for (`WithOcspStaplingRequest`) — never deferred. An app that
-previously paired a Hard posture with `WithAsyncCertificateVerdict` and a live checker
-should switch to `WithLiveRevocationVerdict` (Build refuses a Hard client that has neither a
+the client requested a staple for (`WithOcspStaplingRequest`) — never deferred. A Hard posture with a live checker
+uses `WithLiveRevocationVerdict`, not `WithAsyncCertificateVerdict` (Build refuses a Hard client that has neither a
 staple request nor live-revocation deferral, and a Hard `TServerVerification.Custom` always needs
 `WithLiveRevocationVerdict` because an injected verifier does not apply the posture; Hardened and Strict request a staple, Compatible needs
 `WithOcspStaplingRequest(True)`, and a Hard client-authenticating server always needs

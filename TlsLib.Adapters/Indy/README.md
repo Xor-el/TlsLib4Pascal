@@ -67,8 +67,8 @@ bag is sent as part of the chain and never trusted. A `.pfx` on `KeyFile` beside
 
 **Mutual TLS (client certificates)**: a server requests client certificates only when you set
 `SSLOptions.ClientAuth` — `Requested` (ask, tolerate a client that sends none) or `Required` (ask,
-abort when none is presented); the default `None` never asks. Setting a `RootCertFile` alone no longer
-requests client certificates — it is only the CA a presented client chain is verified against.
+abort when none is presented); the default `None` never asks. Setting a `RootCertFile` alone does not
+request client certificates — it is only the CA a presented client chain is verified against.
 `UseSystemTrust` is a server-certificate source (a client verifying a server) and is **not** a valid
 client-CA: a mode whose only trust source is it fails the build. Name a private `RootCertFile` (or a
 `CustomTrustStore`) for the client-CA instead.

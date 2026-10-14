@@ -36,9 +36,8 @@ There are two ways to use the OS trust store, chosen with `TSystemTrustMode`:
 | **Android** | Delegate (`X509TrustManager`; Delphi: zero-config, FPC: one `TlsLibAndroidInitTrust` call) | raises (harvest banned, the on-disk set is stale/partial) | yes |
 | **Linux, BSD, Solaris** | Anchors | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`, ignored under elevated privilege) | raises (no OS verifier) |
 
-> **Breaking change.** `Default` used to be Anchors on Windows and macOS. It is now Delegate there.
-> Anchors stays an explicit opt-in on both: pass `TSystemTrustMode.Anchors` to get the old behaviour
-> (see [Delegate vs. Anchors](#delegate-vs-anchors-what-differs)).
+> `Default` is Delegate on Windows, macOS, iOS and Android; for the other mode, see
+> [Delegate vs. Anchors](#delegate-vs-anchors-what-differs).
 
 The Unix `SSL_CERT_FILE` / `SSL_CERT_DIR` overrides are dropped when the process runs with elevated
 privileges (setuid/setgid, or the kernel's secure-execution flag), falling back to the built-in CA

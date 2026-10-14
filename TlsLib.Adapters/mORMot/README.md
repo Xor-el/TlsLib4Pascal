@@ -121,7 +121,7 @@ refused.
 - `GetRawTls` returns `nil`: TlsLib4Pascal is a managed engine with no `PSSL`/OpenSSL handle to
   hand back. `GetRawCert` returns the peer leaf DER (for mORMot's cert pinning / peer info), but
   not the signature-hash name, so TLS channel binding that needs it stays inert. On a resumed
-  connection it returns the leaf stored with the session (previously it was empty on a resume).
+  connection it returns the leaf stored with the session.
 - Application reads honour the socket's own `ReceiveTimeout`: an idle peer surfaces from `Receive`
   as `nrRetry` with the connection intact (never a fatal error or a truncation), exactly as mORMot's
   plain sockets report it. A send that stays blocked because the peer stopped reading is bounded
