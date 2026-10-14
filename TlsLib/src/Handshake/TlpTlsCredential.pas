@@ -101,10 +101,14 @@ type
   /// select on (SNI virtual hosting). ServerName is the raw SNI host_name (RFC 6066), empty
   /// when the client sent none; the arrays are the client's offers verbatim as IANA wire
   /// codepoints (SignatureSchemes, CipherSuites, SupportedGroups) or protocol-name octets (Alpn).
+  /// CertificateSignatureSchemes is the client's signature_algorithms_cert, else its
+  /// signature_algorithms; a chain with a certificate (other than a self-issued one) signed with
+  /// MD5, or with SHA-1 not listed here, is refused (RFC 9846 4.5.1.2).
   /// ProtocolVersion is the version of the server machine performing the lookup.</summary>
   TTlsClientHelloInfo = record
     ServerName: string;
     SignatureSchemes: TArray<UInt16>;
+    CertificateSignatureSchemes: TArray<UInt16>;
     AlpnProtocols: TArray<TBytes>;
     CipherSuites: TArray<UInt16>;
     SupportedGroups: TArray<UInt16>;

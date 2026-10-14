@@ -42,6 +42,10 @@ type
     FEc: TStringList;
     FRsa: TStringList;
     FPss: TStringList;
+    FLegacy: TStringList;
+    FReissued: TStringList;
+    function LegacyCert(const AName: string): TBytes;
+    function ReissuedCert(const AName: string): TBytes;
     function EcCert(const AName: string): TBytes;
     function RsaCert(const AName: string): TBytes;
     function PssCert(const AName: string): TBytes;
@@ -64,6 +68,16 @@ type
     procedure TestDefaultsAdmitNoDeprecatedHash;
     procedure TestAdmittedSha1KeepsTheKeyFloors;
     procedure TestMd5IsRefusedEvenWhenNamedInThePolicy;
+    procedure TestSendableToRefusesRsaSha1WhenNotAdvertised;
+    procedure TestSendableToAdmitsRsaSha1WhenAdvertised;
+    procedure TestSendableToRefusesEcdsaSha1WhenOnlyRsaSha1Advertised;
+    procedure TestSendableToAdmitsEcdsaSha1WhenAdvertised;
+    procedure TestSendableToRefusesMd5WhateverIsAdvertised;
+    procedure TestSendableToExemptsASelfIssuedSha1Certificate;
+    procedure TestSendableToAdmitsACurrentHashChainWithNoAdvertisement;
+    procedure TestSendableToDoesNotRefuseAnUndeterminableCertificate;
+    procedure TestSendableToSkipsACertificateWithAnUnknownSignatureAlgorithm;
+    procedure TestSendableToRefusesPssSha1WhateverIsAdvertised;
   end;
 
   /// <summary>The end-entity rule both verifiers share: a CA certificate is no identity unless the
@@ -214,12 +228,121 @@ begin
   end;
 end;
 
+procedure TTestChainAlgorithmPolicy.TestSendableToRefusesRsaSha1WhenNotAdvertised;
+begin
+  CheckFalse(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(LegacyCert('leaf_cert'), LegacyCert('issuer_sha1_cert')), nil),
+    'an RSA SHA-1 issuer is not sent to a peer that advertised nothing');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToAdmitsRsaSha1WhenAdvertised;
+begin
+  CheckTrue(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(LegacyCert('leaf_cert'), LegacyCert('issuer_sha1_cert')),
+    TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha1)),
+    'an RSA SHA-1 issuer is sent to a peer that advertised rsa_pkcs1_sha1');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToRefusesEcdsaSha1WhenOnlyRsaSha1Advertised;
+begin
+  CheckFalse(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(ReissuedCert('leaf_cert'), ReissuedCert('issuer_sha1_cert')),
+    TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha1)),
+    'an ECDSA SHA-1 issuer needs ecdsa_sha1, not rsa_pkcs1_sha1');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToAdmitsEcdsaSha1WhenAdvertised;
+begin
+  CheckTrue(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(ReissuedCert('leaf_cert'), ReissuedCert('issuer_sha1_cert')),
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSha1)),
+    'an ECDSA SHA-1 issuer is sent to a peer that advertised ecdsa_sha1');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToRefusesMd5WhateverIsAdvertised;
+begin
+  CheckFalse(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(LegacyCert('leaf_cert'), LegacyCert('issuer_md5_cert')),
+    TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha1, TSignatureSchemes.EcdsaSha1)),
+    'an MD5-signed issuer is never sent');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToExemptsASelfIssuedSha1Certificate;
+begin
+  CheckTrue(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(ReissuedCert('leaf_cert'), ReissuedCert('issuer_cert'),
+    ReissuedCert('root_reissued_sha1_cert')), nil),
+    'a self-issued SHA-1 certificate begins the path and is not judged');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToAdmitsACurrentHashChainWithNoAdvertisement;
+begin
+  CheckTrue(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(ReissuedCert('leaf_cert'), ReissuedCert('issuer_cert')), nil),
+    'a chain with no legacy hash is sent whatever the peer advertised');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToDoesNotRefuseAnUndeterminableCertificate;
+begin
+  CheckTrue(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(TBytes.Create(1, 2, 3)), nil),
+    'only a positively identified legacy hash is refused');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToSkipsACertificateWithAnUnknownSignatureAlgorithm;
+var
+  LCert: TBytes;
+  LFacts: TCertSignatureFacts;
+  LI: Int32;
+begin
+  // ecdsa-with-SHA1 re-labelled with an unassigned last OID byte, in both signatureAlgorithm
+  // fields: still a well-formed certificate, but its signature algorithm is unknown
+  LCert := System.Copy(ReissuedCert('issuer_sha1_cert'));
+  for LI := 0 to System.Length(LCert) - 7 do
+    if (LCert[LI] = $2A) and (LCert[LI + 1] = $86) and (LCert[LI + 2] = $48) and
+      (LCert[LI + 3] = $CE) and (LCert[LI + 4] = $3D) and (LCert[LI + 5] = $04) and
+      (LCert[LI + 6] = $01) then
+      LCert[LI + 6] := $7F;
+  CheckFalse(Pkix.Certificates.Parse(LCert).SignatureFacts(LFacts),
+    'the signature algorithm of the doctored certificate is unknown');
+  CheckTrue(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(LCert), nil), 'an unknown signature algorithm is left to the peer');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToRefusesPssSha1WhateverIsAdvertised;
+var
+  LVec: TStringList;
+begin
+  // default RSASSA-PSS parameters mean SHA-1, which no scheme codepoint names
+  LVec := LoadVectorFields('Certs/PssSha1Chain.txt');
+  try
+    CheckFalse(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+      TArray<TBytes>.Create(DecodeHex(LVec.Values['leaf_cert'])),
+      TArray<UInt16>.Create(TSignatureSchemes.RsaPkcs1Sha1, TSignatureSchemes.EcdsaSha1)),
+      'a SHA-1 PSS signature is never sent');
+  finally
+    LVec.Free;
+  end;
+end;
+
 procedure TTestChainAlgorithmPolicy.SetUp;
 begin
   inherited SetUp;
+  FLegacy := Own<TStringList>(LoadVectorFields('Certs/LegacyHashChain.txt'));
+  FReissued := Own<TStringList>(LoadVectorFields('Certs/ReissuedRoot.txt'));
   FEc := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
   FRsa := Own<TStringList>(LoadVectorFields('Certs/Rsa2048Chain.txt'));
   FPss := Own<TStringList>(LoadVectorFields('Certs/KeyUsagePss.txt'));
+end;
+
+function TTestChainAlgorithmPolicy.LegacyCert(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FLegacy.Values[AName]);
+end;
+
+function TTestChainAlgorithmPolicy.ReissuedCert(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FReissued.Values[AName]);
 end;
 
 function TTestChainAlgorithmPolicy.EcCert(const AName: string): TBytes;

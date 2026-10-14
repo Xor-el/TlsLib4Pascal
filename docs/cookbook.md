@@ -154,6 +154,12 @@ end;
 never on a resumed or PSK handshake), concurrently across connections that share the config, so it
 must be thread-safe and must not do network I/O.
 
+A chain with a certificate (other than a self-issued one) signed with MD5, or with SHA-1 the client
+did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2); a SHA-256 chain is
+still sent. `AClientHello.CertificateSignatureSchemes` lists what the client advertised, so a
+resolver can pick another chain. A client credential in that state is not sent: the client answers
+without a certificate.
+
 ## Choose a security posture
 
 Presets are safe **starting points**, not locked profiles — override before `Build`:
@@ -209,7 +215,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 The registries behind those lists are replaceable as a whole: `WithNamedGroups` (the groups the
 config can use), `WithSignatureSchemes` and `WithCipherSuites` take a registry, while
 `WithPreferredGroups` orders the groups (a code the registry lacks is skipped; an empty list, or
-a list with no registered group, is refused at `Build`). A server
+a list with no registered group, is refused at `Build`; a repeated group is refused by `WithPreferredGroups`). A server
 acknowledges a client's `server_name` with an empty extension by default; `WithServerNameAcknowledgement(False)`
 omits it. `WithIntermediateCertificates` on a verification builder supplies the intermediates a
 leaf-only peer leaves out.
@@ -592,6 +598,8 @@ LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 ```
 
 Both default in-memory implementations are bounded and safe to share across connections/threads.
+A ticket links the connections that use it, so do not share a cache across connections that must
+stay unlinkable (RFC 9846 C.4).
 
 A client cache is scoped to the config that stored the session: a cache shared by two configs
 resumes neither's sessions in the other. Two client knobs change that:

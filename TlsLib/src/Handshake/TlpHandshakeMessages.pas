@@ -477,20 +477,11 @@ begin
   Result.CipherSuite := LReader.ReadUInt16;
   LCompression := LReader.ReadUInt8;
   Result.Extensions := LReader.ReadBytes(LReader.Remaining);
-  // legacy_compression_method MUST be the null method. In TLS 1.3 it is a fixed structural byte
-  // whose only legal value is 0, so a non-zero is a field out of the specified range - a
-  // decode_error (RFC 8446 4.1.3 / 6.2). In TLS 1.2 the compression_method is a negotiated
-  // selection, so an unacceptable value is an illegal_parameter (RFC 5246 7.4.1.3). The selected
-  // version is read from supported_versions, which a 1.3 server (a HelloRetryRequest included)
-  // always sends; its absence means the server negotiated 1.2 or below.
+  // a non-null compression method is illegal_parameter in TLS 1.3 (RFC 9846 4.2.3) and 1.2 (RFC
+  // 5246 7.4.1.3) alike
   if LCompression <> LegacyCompressionNull then
-  begin
-    if ServerHelloSelectedVersion(Result.Extensions) = TlsWireVersionTls13 then
-      raise EDecodeErrorTlsLibException.CreateRes(@SServerCompressionNotNull)
-    else
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.IllegalParameter, @SServerCompressionNotNull);
-  end;
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SServerCompressionNotNull);
 end;
 
 class function THandshakeMessages.ServerHelloSelectedVersion(

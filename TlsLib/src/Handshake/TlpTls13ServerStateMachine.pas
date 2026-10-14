@@ -770,7 +770,8 @@ begin
     // client's SNI (virtual hosting). A PSK-only server (external PSKs configured, no certificate)
     // has nothing to fall back on, so an unmatched offer is a handshake failure (RFC 8446 4.2.11)
     FResolvedCredential := TServerOfferSelection.ResolveCredential(
-      FParams.CredentialResolver, AContext, AClientHello.CipherSuites, TTlsVersion.Tls13);
+      FParams.CredentialResolver, FParams.Inspector, AContext, AClientHello.CipherSuites,
+      TTlsVersion.Tls13);
     // certificate-based auth requires the client to offer signature_algorithms
     // (RFC 8446 4.2.3 / 9.2); the CertificateVerify scheme is then the first of the
     // credential's key-compatible schemes the client also offered

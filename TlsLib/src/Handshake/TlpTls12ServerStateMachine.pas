@@ -629,7 +629,8 @@ begin
         // select the server certificate for this handshake from the client's SNI (virtual hosting),
         // before suite/scheme negotiation which depends on the selected leaf's key
         FResolvedCredential := TServerOfferSelection.ResolveCredential(
-          FParams.CredentialResolver, LContext, LHello.CipherSuites, TTlsVersion.Tls12);
+          FParams.CredentialResolver, FParams.Inspector, LContext, LHello.CipherSuites,
+          TTlsVersion.Tls12);
         // select the ECDHE group: the first server-preferred group the client also
         // advertised in supported_groups (RFC 8422 5.1). Unknown/non-ECDHE offered
         // codes are simply not chosen, so a client mixing bogus curves still succeeds.

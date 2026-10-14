@@ -24,6 +24,8 @@ uses
   TlpNegotiationTypes,
   TlpTlsLibExceptions,
   TlpExtensionContext,
+  TlpIPkixProvider,
+  TlpChainAlgorithmPolicy,
   TlpITlsCredentialResolver,
   TlpTlsCredential;
 
@@ -48,10 +50,12 @@ type
     /// with handshake_failure when no resolver is configured, unrecognized_name when the client
     /// named a host the resolver has no certificate for (else handshake_failure with no name to
     /// be "unrecognized"), and handshake_failure when the resolved credential carries no signing
-    /// key or an empty chain. The returned credential always has both.</summary>
+    /// key or an empty chain. The returned credential always has both. Also handshake_failure
+    /// when its chain is signed with MD5, or with SHA-1 the client did not advertise (RFC 9846
+    /// 4.5.1.2).</summary>
     class function ResolveCredential(const AResolver: ITlsServerCredentialResolver;
-      const AContext: TExtensionContext; const ACipherSuites: TArray<UInt16>;
-      AVersion: TTlsVersion): TTlsCredential; static;
+      const AInspector: ICertificateInspector; const AContext: TExtensionContext;
+      const ACipherSuites: TArray<UInt16>; AVersion: TTlsVersion): TTlsCredential; static;
     /// <summary>Whether the client signals TLS_FALLBACK_SCSV although its highest known version
     /// is below AServerHighest (RFC 7507 3, obsoleted by RFC 8996).</summary>
     class function IsSpuriousFallback(const ACipherSuites,
@@ -81,6 +85,8 @@ resourcestring
     'the selected server certificate has no signing key';
   SCredentialHasNoCertificates =
     'the selected server credential has an empty certificate chain';
+  SCredentialChainNotSendable =
+    'the certificate chain is signed with MD5 or with SHA-1 the client did not advertise';
   SSpuriousFallback =
     'the client signalled TLS_FALLBACK_SCSV but the server supports a higher version';
   SUnexpectedLegacyVersion =
@@ -111,10 +117,12 @@ begin
 end;
 
 class function TServerOfferSelection.ResolveCredential(
-  const AResolver: ITlsServerCredentialResolver; const AContext: TExtensionContext;
-  const ACipherSuites: TArray<UInt16>; AVersion: TTlsVersion): TTlsCredential;
+  const AResolver: ITlsServerCredentialResolver; const AInspector: ICertificateInspector;
+  const AContext: TExtensionContext; const ACipherSuites: TArray<UInt16>;
+  AVersion: TTlsVersion): TTlsCredential;
 var
   LInfo: TTlsClientHelloInfo;
+  LCertSchemes: TArray<UInt16>;
 begin
   // a PSK-only server (nil resolver) has no certificate to fall back on
   if AResolver = nil then
@@ -122,6 +130,12 @@ begin
       TTlsAlertDescription.HandshakeFailure, @SNoServerCredential);
   LInfo.ServerName := AContext.ServerName;
   LInfo.SignatureSchemes := AContext.SignatureSchemes;
+  // signature_algorithms_cert governs certificate signatures, else signature_algorithms does
+  if System.Length(AContext.SignatureSchemesCert) > 0 then
+    LCertSchemes := AContext.SignatureSchemesCert
+  else
+    LCertSchemes := AContext.SignatureSchemes;
+  LInfo.CertificateSignatureSchemes := LCertSchemes;
   LInfo.AlpnProtocols := TArrayUtilities.DeepCopy<Byte>(AContext.AlpnProtocols);
   LInfo.CipherSuites := ACipherSuites;
   LInfo.SupportedGroups := AContext.SupportedGroups;
@@ -145,6 +159,9 @@ begin
   if System.Length(Result.CertificateChain) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SCredentialHasNoCertificates);
+  if not TChainAlgorithmPolicy.SendableTo(AInspector, Result.CertificateChain, LCertSchemes) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.HandshakeFailure, @SCredentialChainNotSendable);
 end;
 
 class function TServerOfferSelection.IsSpuriousFallback(const ACipherSuites,
