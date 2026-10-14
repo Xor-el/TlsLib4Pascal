@@ -15,9 +15,9 @@ on:
       enabled_targets:
         description: >-
           Comma-separated list of targets to run (leave empty for the default set).
-          Valid IDs: linux-x64, linux-arm64, windows-x64, macos-arm64,
-          macos-x64, linux-arm32, linux-powerpc64-be, freebsd, solaris,
-          netbsd, dragonflybsd
+          Valid IDs: linux-x64, linux-arm64, linux-x64-scalar, linux-arm64-scalar,
+          windows-x64, macos-arm64, macos-x64, linux-arm32, linux-powerpc64-be,
+          freebsd, solaris, netbsd, dragonflybsd
         default: ""
         type: string
       debug:
@@ -55,14 +55,14 @@ env:
   # a run that leaves state behind for the next fails the leg. Override per job below, like
   # MAKE_BUILD_BACKEND.
   MAKE_TEST_REPEAT: 1
-  # When true (default), the Linux native jobs run the interop harness after their
+  # When true (default), the native jobs (not the FORCE_SCALAR legs) run the interop harness after their
   # build: the loopback self-test, the two-tier structure-aware parser fuzzer
   # (regression-corpus replay + a fixed-seed mutation smoke), and the always-on openssl
   # s_client/s_server matrix. Read only by that job's interop-build.sh step. Set false to
   # skip the whole harness.
   MAKE_RUN_INTEROP: true
   # When true (default), the interop step additionally runs the full-suite hard-gate BoGo
-  # conformance run (needs Go + the BOGO_REF-pinned BoringSSL checkout, set up in the linux
+  # conformance run (needs Go + the BOGO_REF-pinned BoringSSL checkout, set up in the harness
   # jobs only when this is on). This is the whole-suite gate, not the old allowlist: every
   # test must PASS or match a disable-ledger glob, else the leg fails - so the gate blocks
   # regressions on push / PR / schedule. The toggle is retained (set false to turn the heavy
@@ -470,6 +470,7 @@ jobs:
             LAZARUS_REPO: ${{ env.LAZARUS_REPO }}
             MAKE_BUILD_BACKEND: ${{ env.MAKE_BUILD_BACKEND }}
             MAKE_PACKAGE_SCOPE: ${{ env.MAKE_PACKAGE_SCOPE }}
+            MAKE_DEFINES: "${{ env.MAKE_DEFINES }}"
             MAKE_RUN_BENCHMARK: ${{ env.MAKE_RUN_BENCHMARK }}
             MAKE_TEST_REPEAT: ${{ env.MAKE_TEST_REPEAT }}
             MAKE_LAZBUILD_GUI: ${{ env.MAKE_LAZBUILD_GUI }}
@@ -499,6 +500,7 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-powerpc64-be'].fpc_tarball_target }}
           MAKE_BUILD_BACKEND: ${{ env.MAKE_BUILD_BACKEND }}
           MAKE_PACKAGE_SCOPE: ${{ env.MAKE_PACKAGE_SCOPE }}
+          MAKE_DEFINES: ${{ env.MAKE_DEFINES }}
           MAKE_RUN_BENCHMARK: ${{ env.MAKE_RUN_BENCHMARK }}
           MAKE_TEST_REPEAT: ${{ env.MAKE_TEST_REPEAT }}
           MAKE_LAZBUILD_GUI: ${{ env.MAKE_LAZBUILD_GUI }}
@@ -524,7 +526,7 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['freebsd'].fpc_tarball_target }}
           FREEBSD_INSTALL_MODE: interim
         with:
-          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG
+          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG
           release: "15.0"
           usesh: true
           prepare: sh .github/workflows/ci/vm-freebsd-prepare.sh
@@ -597,7 +599,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_tarball_target }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG
           release: "11.4-gcc"
           usesh: true
           prepare: sh .github/workflows/ci/vm-solaris-prepare.sh

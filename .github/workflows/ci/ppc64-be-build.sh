@@ -38,6 +38,8 @@ docker run --rm --platform linux/ppc64 \
   -e FPC_TARBALL_TARGET \
   -e MAKE_BUILD_BACKEND \
   -e MAKE_PACKAGE_SCOPE \
+  -e MAKE_DEFINES \
+  -e MAKE_LAZBUILD_GUI \
   -e MAKE_RUN_BENCHMARK \
   -e MAKE_TEST_REPEAT \
   -e LAZARUS_BRANCH \

@@ -148,8 +148,10 @@ def cmd_gate(config_path, gate_path, audit_path):
           f"-> out-of-scope {len(out_of_scope)}, "
           f"policy-difference {len(policy)}, deferred {len(deferred)}")
     print(f"  DISABLED old TLS 1.0/1.1 (RFC 8996, by rule): {len(old_version)}")
+    still_differ = sum(1 for r in audit.values()
+                       if actual(r) == "FAIL" and not is_fail_open(r))
     print(f"  policy-difference disables force-run this gate: "
-          f"{sum(1 for n in audit)} re-confirmed still-differ")
+          f"{still_differ} re-confirmed still-differ")
     print("  NOTE: [deferred]/[out-of-scope] globs are NOT force-run (an unsupported scheme "
           "passes a negative test spuriously); a fully-dead one is not auto-detected (no test list).")
     print("--------------------------------------------------------------------")
