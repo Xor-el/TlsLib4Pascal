@@ -45,6 +45,7 @@ uses
   TlpTlsPresets,
   TlpTlsCredential,
   TlpITlsEngine,
+  TlpTlsError,
   TlpISession,
   TlpInMemorySessionCache,
   TlpTlsEngineFactory,
@@ -187,6 +188,9 @@ type
     procedure TestFailedFlushBehindBufferedDataLatchesTheEngine;
     procedure TestTransportWriteFailureKeepsTheCachedTickets;
     procedure TestProtocolFatalAlertAtThePumpDropsTheCachedTickets;
+    procedure TestLatchedEngineWritesNothingToTheTransport;
+    procedure TestLatchDropsPendingOutboundBytes;
+    procedure TestLatchAfterAFatalAlertKeepsTheQueuedAlert;
     procedure TestFailedFlushBehindReadKeepsTheTransportMessage;
     procedure TestWriteAfterAFailedFlushBehindReadRaises;
     procedure TestBadRecordBehindTransportDataRaisesWithTheAlertSent;
@@ -1743,6 +1747,63 @@ begin
     LTransportBuffer, TTlsAlertDescription.InternalError);
   CheckTrue(LClient.IsTerminal, 'the abort ended the connection');
   CheckEquals(0, LCache.Count, 'a fatal alert withdraws the tickets');
+end;
+
+procedure TTestTlsStreamLoopback.TestLatchedEngineWritesNothingToTheTransport;
+var
+  LClient, LServer: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LData, LTransportBuffer: TBytes;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  CheckFalse(LClient.WantsWrite, 'the handshake left nothing pending');
+  LClient.LatchTransportFailure('the socket failed');
+  CheckFalse(LClient.WantsWrite, 'the latch queued no alert');
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  LData := DecodeHex('00');
+  LRaised := False;
+  try
+    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a write on the latched engine raises');
+  CheckEquals(0, LRecorder.Written, 'nothing reached the transport after the latch');
+end;
+
+procedure TTestTlsStreamLoopback.TestLatchDropsPendingOutboundBytes;
+var
+  LClient, LServer: ITlsEngine;
+  LData: TBytes;
+begin
+  HandshakeEngines(LClient, LServer);
+  LData := DecodeHex('00');
+  LClient.Write(LData, 0, 1);
+  CheckTrue(LClient.WantsWrite, 'the sealed record is pending');
+  LClient.LatchTransportFailure('the socket failed');
+  CheckFalse(LClient.WantsWrite, 'the latch dropped the bytes a broken transport cannot carry');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LClient.LastError.Alert.Description),
+    'the latched error is internal_error');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LClient.LastError.Origin),
+    'the latched failure is our own');
+end;
+
+procedure TTestTlsStreamLoopback.TestLatchAfterAFatalAlertKeepsTheQueuedAlert;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  HandshakeEngines(LClient, LServer);
+  LClient.SendAlert(TTlsAlertDescription.DecodeError);
+  LClient.LatchTransportFailure('x');
+  CheckTrue(LClient.WantsWrite, 'the already-terminal engine keeps its queued alert');
+  CheckEquals(Ord(TTlsAlertDescription.DecodeError), Ord(LClient.LastError.Alert.Description),
+    'the first error stands');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LClient.LastError.Origin),
+    'the first error stays our own');
 end;
 
 procedure TTestTlsStreamLoopback.TestFailedFlushBehindBufferedDataLatchesTheEngine;

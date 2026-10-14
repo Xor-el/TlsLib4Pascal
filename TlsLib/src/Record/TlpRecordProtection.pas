@@ -142,7 +142,8 @@ type
     procedure BuildAadInto(AContentTypeByte: Byte; AVersionWire: UInt16;
       APlaintextLength: Int32);
   public
-    /// <summary>Installs the epoch: AKey is the AEAD key, ASalt the 4-byte implicit nonce.</summary>
+    /// <summary>Installs the epoch: AKey is the AEAD key, ASalt the 4-byte salt (AES-GCM)
+    /// or the 12-byte write IV (ChaCha20-Poly1305).</summary>
     constructor Create(const AKey, ASalt: ISecretBuffer; const AAead: IAead);
     destructor Destroy; override;
     function Protect(AContentType: TTlsContentType; const APlaintext: TBytes;

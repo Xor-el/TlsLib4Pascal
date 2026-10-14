@@ -30,7 +30,8 @@ type
   /// epoch's derived (key, iv) into the record protection for the negotiated
   /// version, so a driver installs schedule output without hand-picking the 1.3 or
   /// 1.2 class. The AEAD comes from the provider for the negotiated cipher suite;
-  /// for TLS 1.2 the traffic keys' iv is the 4-byte implicit-nonce salt.
+  /// for TLS 1.2 the traffic keys' iv is the 4-byte salt (AES-GCM) or the 12-byte write IV
+  /// (ChaCha20-Poly1305).
   /// </summary>
   TRecordProtectionFactory = class sealed(TObject)
   public
