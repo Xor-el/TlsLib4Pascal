@@ -52,8 +52,9 @@ type
     /// empty declines stapling.</summary>
     function CurrentOcspStaple: TBytes;
     /// <summary>A credential from a certificate chain (a PEM block/bundle, a single DER
-    /// certificate or a PKCS#7 bundle, leaf first) and an unencrypted private key (PKCS#8,
-    /// PKCS#1 or SEC1, DER or PEM), each loaded and normalized through the given providers.
+    /// certificate or a PKCS#7 bundle, leaf first) and a private key (PKCS#8, PKCS#1 or SEC1, DER
+    /// or PEM; an encrypted key is decrypted under the empty passphrase), each loaded and
+    /// normalized through the given providers.
     /// No OCSP staple: set OcspStaple / OcspStapleCallback on the result to staple.</summary>
     class function Load(const ACrypto: ICryptoProvider; const APkix: IPkixProvider;
       const ACertificateChainData, APrivateKeyData: TBytes): TTlsCredential;

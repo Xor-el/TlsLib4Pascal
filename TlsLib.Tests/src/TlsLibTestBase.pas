@@ -115,6 +115,11 @@ type
     function AreEqual(const AA, AB: TBytes): Boolean;
     // A fresh array holding AA followed by AB.
     function ConcatBytes(const AA, AB: TBytes): TBytes;
+    // Locates the first handshake message of type AMsgType in the plaintext handshake records of a
+    // wire flight (before any ChangeCipherSpec; a record may coalesce several messages): the
+    // record's offset, the message header's offset and the message body length.
+    function FindPlaintextHandshakeMessage(const AWire: TBytes; AMsgType: Byte;
+      out ARecordPos, AMsgPos, AMsgLen: Int32): Boolean;
     // Whether ANeedle occurs in AHaystack (an empty needle always does).
     function ContainsBytes(const AHaystack, ANeedle: TBytes): Boolean;
     // Whether AText occurs in ABytes as ASCII.
@@ -371,6 +376,36 @@ end;
 function TTlsLibAlgorithmTestCase.ConcatBytes(const AA, AB: TBytes): TBytes;
 begin
   Result := TArrayUtilities.Concat(AA, AB);
+end;
+
+function TTlsLibAlgorithmTestCase.FindPlaintextHandshakeMessage(const AWire: TBytes;
+  AMsgType: Byte; out ARecordPos, AMsgPos, AMsgLen: Int32): Boolean;
+var
+  LRecLen, LInner: Int32;
+begin
+  Result := False;
+  AMsgPos := 0;
+  AMsgLen := 0;
+  ARecordPos := 0;
+  while ARecordPos + 5 <= System.Length(AWire) do
+  begin
+    LRecLen := (AWire[ARecordPos + 3] shl 8) or AWire[ARecordPos + 4];
+    if AWire[ARecordPos] = 22 then
+    begin
+      LInner := ARecordPos + 5;
+      while LInner + 4 <= ARecordPos + 5 + LRecLen do
+      begin
+        AMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or AWire[LInner + 3];
+        if (AWire[LInner] = AMsgType) and (LInner + 4 + AMsgLen <= System.Length(AWire)) then
+        begin
+          AMsgPos := LInner;
+          Exit(True);
+        end;
+        LInner := LInner + 4 + AMsgLen;
+      end;
+    end;
+    Inc(ARecordPos, 5 + LRecLen);
+  end;
 end;
 
 function TTlsLibAlgorithmTestCase.ContainsBytes(const AHaystack, ANeedle: TBytes): Boolean;

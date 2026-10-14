@@ -50,6 +50,12 @@ type
     function P256Suite: IHpkeSuite;
     function OpenRaised(const AOpener: IHpkeOpener;
       const AAad, ACiphertext: TBytes): Boolean;
+    // ADer with ADeleteLen bytes at AIndex replaced by AInsert
+    function Spliced(const ADer: TBytes; AIndex, ADeleteLen: Int32;
+      const AInsert: TBytes): TBytes;
+    function ImportRaises(AKem: UInt16; const APkcs8: TBytes): Boolean;
+    function P256Pkcs8: TBytes;
+    function X25519Pkcs8: TBytes;
     procedure CheckKat(const ASuite: IHpkeSuite; const APrefix: string);
   protected
     procedure SetUp; override;
@@ -72,6 +78,24 @@ type
     procedure TestSuiteSupported;
     procedure TestGenerateKeyPairUnsupportedKemRaises;
     procedure TestImportMismatchedAlgorithmRaises;
+    // every nested TLV of the PKCS#8 walker stays inside its parent, the outer ends at the buffer's
+    // end, and the versions are checked
+    procedure TestImportPrivateKeyRejectsTrailingBytes;
+    procedure TestImportPrivateKeyRejectsTruncatedInput;
+    procedure TestImportPrivateKeyRejectsPkcs8VersionAboveOne;
+    procedure TestImportPrivateKeyAcceptsPkcs8VersionOne;
+    procedure TestImportPrivateKeyRejectsEcPrivateKeyVersionTwo;
+    procedure TestImportPrivateKeyRejectsEcPrivateKeyVersionZero;
+    procedure TestImportPrivateKeyRejectsEcScalarOverrunningItsSequence;
+    procedure TestImportPrivateKeyRejectsX25519ScalarOverrunningItsOctetString;
+    procedure TestImportPrivateKeyRejectsX25519SlackInsideItsOctetString;
+    procedure TestImportPrivateKeyRejectsEcSlackInsideItsOctetString;
+    procedure TestImportPrivateKeyAcceptsEcParametersAndPublicKey;
+    procedure TestImportPrivateKeyRejectsX25519AlgorithmParameters;
+    procedure TestImportPrivateKeyRejectsEcAlgorithmTrailingElement;
+    // an authentication failure and a malformed enc are told apart by their messages
+    procedure TestOpenAuthFailureNamesAuthentication;
+    procedure TestMalformedEncKeepsItsOwnMessage;
     // an out-of-range or wrong-length EC scalar is rejected at import
     procedure TestImportRecipientKeyRejectsZeroScalar;
     procedure TestImportRecipientKeyRejectsScalarAtOrAboveOrder;
@@ -169,6 +193,45 @@ begin
     on E: EHpkeOpenTlsLibException do
       Result := True;
   end;
+end;
+
+function TTestHpkeProvider.Spliced(const ADer: TBytes; AIndex, ADeleteLen: Int32;
+  const AInsert: TBytes): TBytes;
+begin
+  Result := ConcatBytes(ConcatBytes(System.Copy(ADer, 0, AIndex), AInsert),
+    System.Copy(ADer, AIndex + ADeleteLen, System.Length(ADer) - AIndex - ADeleteLen));
+end;
+
+function TTestHpkeProvider.ImportRaises(AKem: UInt16; const APkcs8: TBytes): Boolean;
+begin
+  Result := False;
+  try
+    Crypto.Hpke.ImportPrivateKey(AKem, APkcs8);
+  except
+    on E: EArgumentTlsLibException do
+      Result := True;
+  end;
+end;
+
+function TTestHpkeProvider.P256Pkcs8: TBytes;
+begin
+  Result := V('import_p256_pkcs8');
+  // the layout the byte-level cases below rely on: PKCS#8 version at 5, AlgorithmIdentifier
+  // SEQUENCE at 6 (content to 26), ECPrivateKey SEQUENCE at 29, its version at 33
+  CheckEquals(Int64($30), Int64(Result[6]), 'fixture: AlgorithmIdentifier SEQUENCE at 6');
+  CheckEquals(Int64($13), Int64(Result[7]), 'fixture: AlgorithmIdentifier length');
+  CheckEquals(Int64($30), Int64(Result[29]), 'fixture: ECPrivateKey SEQUENCE at 29');
+  CheckEquals(Int64(1), Int64(Result[33]), 'fixture: ECPrivateKey version at 33');
+end;
+
+function TTestHpkeProvider.X25519Pkcs8: TBytes;
+begin
+  Result := V('import_x25519_pkcs8');
+  // PKCS#8 version at 4, AlgorithmIdentifier SEQUENCE at 5 (content to 11), privateKey OCTET
+  // STRING at 12 holding the CurvePrivateKey OCTET STRING at 14
+  CheckEquals(Int64($30), Int64(Result[5]), 'fixture: AlgorithmIdentifier SEQUENCE at 5');
+  CheckEquals(Int64($22), Int64(Result[13]), 'fixture: privateKey OCTET STRING length');
+  CheckEquals(Int64($04), Int64(Result[14]), 'fixture: CurvePrivateKey OCTET STRING at 14');
 end;
 
 procedure TTestHpkeProvider.TestBaseModeKatOpenSeq0;
@@ -425,6 +488,182 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a key whose algorithm does not match the KEM must be rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsTrailingBytes;
+var
+  LDer: TBytes;
+begin
+  LDer := P256Pkcs8;
+  CheckFalse(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256, LDer), 'control: the key imports');
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Spliced(LDer, System.Length(LDer), 0, TBytes.Create(0))),
+    'a byte after the outer SEQUENCE is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsTruncatedInput;
+var
+  LDer: TBytes;
+begin
+  LDer := P256Pkcs8;
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Spliced(LDer, System.Length(LDer) - 1, 1, nil)), 'a key one byte short is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsPkcs8VersionAboveOne;
+var
+  LDer: TBytes;
+begin
+  LDer := X25519Pkcs8;
+  CheckEquals(Int64(0), Int64(LDer[4]), 'fixture: PKCS#8 version 0');
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    Spliced(LDer, 4, 1, TBytes.Create(2))), 'PKCS#8 version 2 is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyAcceptsPkcs8VersionOne;
+var
+  LDer: TBytes;
+begin
+  // RFC 5958 2: version 1 is a OneAsymmetricKey, still a valid PrivateKeyInfo
+  LDer := X25519Pkcs8;
+  CheckFalse(ImportRaises(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    Spliced(LDer, 4, 1, TBytes.Create(1))), 'PKCS#8 version 1 is accepted');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsEcPrivateKeyVersionTwo;
+begin
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Spliced(P256Pkcs8, 33, 1, TBytes.Create(2))), 'ECPrivateKey version 2 is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsEcPrivateKeyVersionZero;
+begin
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Spliced(P256Pkcs8, 33, 1, TBytes.Create(0))), 'ECPrivateKey version 0 is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsEcScalarOverrunningItsSequence;
+var
+  LDer: TBytes;
+begin
+  // the ECPrivateKey SEQUENCE (length at 30) is shortened by one so its privateKey OCTET STRING,
+  // 3 + 34 bytes in, ends a byte past it while still inside the enclosing OCTET STRING
+  LDer := P256Pkcs8;
+  CheckEquals(Int64($6B), Int64(LDer[30]), 'fixture: ECPrivateKey length');
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256,
+    Spliced(LDer, 30, 1, TBytes.Create(36))), 'a scalar that overruns its SEQUENCE is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsX25519ScalarOverrunningItsOctetString;
+var
+  LDer: TBytes;
+begin
+  // the privateKey OCTET STRING (length at 13) is shortened by one so the CurvePrivateKey inside
+  // it ends a byte past it while still inside the outer SEQUENCE
+  LDer := X25519Pkcs8;
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_X25519_HKDF_SHA256,
+    Spliced(LDer, 13, 1, TBytes.Create($21))), 'a scalar that overruns its OCTET STRING is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsX25519SlackInsideItsOctetString;
+var
+  LDer: TBytes;
+begin
+  // one extra byte inside the privateKey OCTET STRING after the CurvePrivateKey (outer SEQUENCE
+  // and OCTET STRING lengths grown to cover it)
+  LDer := Spliced(Spliced(Spliced(X25519Pkcs8, 13, 1, TBytes.Create($23)), 1, 1,
+    TBytes.Create($2F)), 48, 0, TBytes.Create(0));
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_X25519_HKDF_SHA256, LDer),
+    'a byte after the CurvePrivateKey inside its OCTET STRING is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsEcSlackInsideItsOctetString;
+var
+  LDer: TBytes;
+begin
+  // one extra byte after the ECPrivateKey inside the privateKey OCTET STRING (outer SEQUENCE and
+  // OCTET STRING lengths grown to cover it)
+  LDer := Spliced(Spliced(Spliced(P256Pkcs8, 28, 1, TBytes.Create($6E)), 2, 1,
+    TBytes.Create($88)), System.Length(P256Pkcs8), 0, TBytes.Create(0));
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256, LDer),
+    'a byte after the ECPrivateKey inside its OCTET STRING is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyAcceptsEcParametersAndPublicKey;
+var
+  LDer: TBytes;
+begin
+  // the fixture already carries the [1] publicKey; add the optional [0] parameters inside the
+  // ECPrivateKey (RFC 5915 3), growing its three enclosing lengths by 12
+  LDer := Spliced(Spliced(Spliced(Spliced(P256Pkcs8, 68, 0,
+    TBytes.Create($A0, $0A, $06, $08, $2A, $86, $48, $CE, $3D, $03, $01, $07)),
+    30, 1, TBytes.Create($77)), 28, 1, TBytes.Create($79)), 2, 1, TBytes.Create($93));
+  CheckFalse(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256, LDer),
+    'optional [0] parameters and [1] publicKey inside the ECPrivateKey are accepted');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsX25519AlgorithmParameters;
+var
+  LDer: TBytes;
+begin
+  // RFC 8410 3: the X25519 AlgorithmIdentifier carries no parameters; a NULL is added after the
+  // OID (AlgorithmIdentifier length 5 -> 7, outer 0x2E -> 0x30)
+  LDer := Spliced(Spliced(Spliced(X25519Pkcs8, 12, 0, TBytes.Create(5, 0)), 6, 1,
+    TBytes.Create(7)), 1, 1, TBytes.Create($30));
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_X25519_HKDF_SHA256, LDer),
+    'a parameter inside the X25519 AlgorithmIdentifier is rejected');
+end;
+
+procedure TTestHpkeProvider.TestImportPrivateKeyRejectsEcAlgorithmTrailingElement;
+var
+  LDer: TBytes;
+begin
+  // a NULL after the namedCurve OID (AlgorithmIdentifier length 0x13 -> 0x15, outer 0x87 -> 0x89)
+  LDer := Spliced(Spliced(Spliced(P256Pkcs8, 27, 0, TBytes.Create(5, 0)), 7, 1,
+    TBytes.Create($15)), 2, 1, TBytes.Create($89));
+  CheckTrue(ImportRaises(THpkeKem.DHKEM_P256_HKDF_SHA256, LDer),
+    'an element after the namedCurve inside the AlgorithmIdentifier is rejected');
+end;
+
+procedure TTestHpkeProvider.TestOpenAuthFailureNamesAuthentication;
+var
+  LSkR: ISecretBuffer;
+  LOpener: IHpkeOpener;
+  LTampered: TBytes;
+  LMsg: string;
+begin
+  LSkR := TSecretBuffer.From(V('base_skRm'));
+  LOpener := Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
+    .SetupOpener(X25519Suite, V('base_enc'), V('base_info'));
+  LTampered := V('base_ct0');
+  LTampered[0] := LTampered[0] xor $FF;
+  LMsg := '';
+  try
+    LOpener.Open(V('base_aad0'), LTampered);
+  except
+    on E: EHpkeOpenTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('authentication', LMsg) > 0,
+    'a tag failure is reported as an authentication failure; got: ' + LMsg);
+end;
+
+procedure TTestHpkeProvider.TestMalformedEncKeepsItsOwnMessage;
+var
+  LSkR: ISecretBuffer;
+  LMsg: string;
+begin
+  LSkR := TSecretBuffer.From(V('base_skRm'));
+  LMsg := '';
+  try
+    Crypto.Hpke.ImportRecipientKey(X25519Suite.Kem, LSkR)
+      .SetupOpener(X25519Suite, TBytes.Create(1, 2, 3), V('base_info'));
+  except
+    on E: EHpkeOpenTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('encapsulated key', LMsg) > 0,
+    'a malformed enc is still reported as one; got: ' + LMsg);
 end;
 
 procedure TTestHpkeProvider.TestImportRecipientKeyRejectsZeroScalar;

@@ -51,8 +51,7 @@ type
     /// <summary>Enforces the peer leaf's signing policy before verifying a handshake
     /// signature (a CertificateVerify, or a 1.2 ServerKeyExchange): the leaf must permit
     /// digitalSignature if it carries keyUsage (RFC 5280 4.2.1.3), the scheme's key family
-    /// must match the leaf key's family (an EC leaf cannot sign rsa_pss_rsae_*, etc.), and an
-    /// rsa_pss_rsae_* scheme must not be produced by an id-RSASSA-PSS leaf key (RFC 8446 4.2.3). When
+    /// must match the leaf key's family (an EC leaf cannot sign rsa_pss_rsae_*, etc.). When
     /// ABindEcdsaCurve is set (TLS 1.3), an ecdsa_* scheme additionally requires the leaf
     /// EC key to be on the scheme's named curve (RFC 8446 4.2.3) - TLS 1.2 leaves the curve
     /// to the supported_groups list, so it passes False. Applies symmetrically to a client
@@ -60,9 +59,11 @@ type
     class procedure EnforceSigningLeafPolicy(const ALeaf: IInspectedCertificate;
       const AScheme: TSignatureScheme; ABindEcdsaCurve: Boolean); static;
     /// <summary>Parses a peer leaf, rejecting one that is not a well-formed X.509
-    /// certificate with a decode_error alert before it reaches signature verification or
+    /// certificate with a decode_error alert, and one whose key is id-RSASSA-PSS with an
+    /// unsupported_certificate alert, before it reaches signature verification or
     /// the trust pipeline, and returns the parsed handle so the caller reuses the single
-    /// decode. Applies to a received server or client leaf.</summary>
+    /// decode. Applies to a received server or client leaf. It runs ahead of the per-entry
+    /// extension checks, so a PSS leaf with an unsupported extension gets unsupported_certificate.</summary>
     class function ParseWellFormedLeaf(const AInspector: ICertificateInspector;
       const ALeafCertificate: TBytes): IInspectedCertificate; static;
     /// <summary>The single fail-closed gate for a received client certificate chain, shared by
@@ -82,7 +83,7 @@ resourcestring
   SLeafKeyUsageForbidsSigning =
     'the peer certificate keyUsage does not permit digitalSignature';
   SPssLeafKeyUnsupported =
-    'an rsa_pss_rsae_* signature requires an rsaEncryption leaf key, not id-RSASSA-PSS';
+    'an id-RSASSA-PSS leaf key is not supported: no rsa_pss_pss_* scheme is offered';
   SEcdsaSchemeCurveMismatch =
     'the ecdsa_* signature scheme requires a leaf key on the scheme''s named curve';
   SSchemeKeyFamilyMismatch =
@@ -122,6 +123,10 @@ begin
   // well-formed X.509 structure, so reject it before any downstream cert use.
   if not Result.PeerInfo(LSubject, LIssuer, LCommonName, LSerialHex) then
     raise EDecodeErrorTlsLibException.CreateRes(@SUnparseableLeafCertificate);
+  // an id-RSASSA-PSS key fits only rsa_pss_pss_*, which is never offered (RFC 8446 4.2.3)
+  if Result.KeyIsRsaPss = TCertAnswer.Yes then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.UnsupportedCertificate, @SPssLeafKeyUnsupported);
 end;
 
 class function TCertificateVerify.SignatureContent(ASide: TCertificateVerifySide;
@@ -182,9 +187,6 @@ begin
   if LKindKnown and (LKind <> AScheme.KeyKind) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SSchemeKeyFamilyMismatch);
-  if AScheme.IsRsaPssRsae and (ALeaf.KeyIsRsaPss = TCertAnswer.Yes) then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.IllegalParameter, @SPssLeafKeyUnsupported);
   // TLS 1.3 binds the ECDSA curve to the signature scheme: an ecdsa_secp384r1_sha384
   // signature made by a P-256 leaf key is a wrong-signature-type (RFC 8446 4.2.3)
   if ABindEcdsaCurve then

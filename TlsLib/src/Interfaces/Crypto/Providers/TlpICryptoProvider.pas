@@ -234,9 +234,12 @@ type
     /// that holds the parsed key (the PKCS#8 bytes are not retained) and reports the schemes it
     /// can sign with. An encrypted
     /// PKCS#8 key (DER EncryptedPrivateKeyInfo or an encrypted PEM key) is decrypted with APassword,
-    /// a wiped buffer of UTF-8 passphrase octets: nil expects an unencrypted key (an encrypted one
-    /// then raises), a zero-length buffer is an empty passphrase. Malformed input raises
-    /// EArgumentTlsLibException; an unsupported key algorithm raises ENotSupportedTlsLibException.
+    /// a wiped buffer of UTF-8 passphrase octets: nil and a zero-length buffer are both the empty
+    /// passphrase. An encrypted key that does not decrypt under an empty passphrase raises
+    /// EArgumentTlsLibException (password required); a legacy "Proc-Type: 4,ENCRYPTED" PEM key
+    /// needs a non-empty one. Malformed input raises
+    /// EArgumentTlsLibException; an unsupported key algorithm or key encryption raises
+    /// ENotSupportedTlsLibException.
     /// </summary>
     function ImportSigningKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey;

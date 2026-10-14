@@ -76,6 +76,12 @@ type
     function Credential: TTlsCredential;
     function PeerVerifier: TCertificateVerifier;
     function ClientLeafCert: TBytes;
+    // a self-signed certificate whose key is id-RSASSA-PSS
+    function PssLeafCert: TBytes;
+    // AWire with its first handshake message of type AMsgType replaced by ANewMessage (framed), the
+    // record length adjusted; nil when no plaintext handshake record carries that type
+    function ReplaceHandshakeMessage(const AWire: TBytes; AMsgType: Byte;
+      const ANewMessage: TBytes): TBytes;
     function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A TLS 1.3 mutual-TLS client (with credential) and a server requiring it, with the
     /// given certificate-compression sets on each side; the server is returned through AServer.</summary>
@@ -135,6 +141,12 @@ type
     procedure TestTls13CertificateRequestWithNoUsableSchemeAborts;
     procedure TestTls13ServerRejectsNonEmptyClientCertificateContext;
     procedure TestTls13ServerRejectsClientIntermediateExtension;
+    // an id-RSASSA-PSS peer leaf can complete no handshake here (no rsa_pss_pss_* scheme is
+    // offered), so every machine refuses it at the Certificate message
+    procedure TestTls13ClientRefusesPssSpkiServerLeaf;
+    procedure TestTls13ServerRefusesPssSpkiClientLeaf;
+    procedure TestTls12ClientRefusesPssSpkiServerLeaf;
+    procedure TestTls12ServerRefusesPssSpkiClientLeaf;
     procedure TestTls13ClientCertPinMatchCompletes;
     procedure TestTls13ClientCertPinMismatchAborts;
     procedure TestClientCertificateIsCompressedInBothDirections;
@@ -311,6 +323,35 @@ begin
   finally
     LCerts.Free;
   end;
+end;
+
+function TTestClientAuth.PssLeafCert: TBytes;
+var
+  LCerts: TStringList;
+begin
+  LCerts := LoadVectorFields('Certs/KeyUsagePss.txt');
+  try
+    Result := DecodeHex(LCerts.Values['rsapss_cert']);
+  finally
+    LCerts.Free;
+  end;
+end;
+
+function TTestClientAuth.ReplaceHandshakeMessage(const AWire: TBytes; AMsgType: Byte;
+  const ANewMessage: TBytes): TBytes;
+var
+  LPos, LInner, LMsgLen, LNewRecLen: Int32;
+begin
+  if not FindPlaintextHandshakeMessage(AWire, AMsgType, LPos, LInner, LMsgLen) then
+    Exit(nil);
+  LNewRecLen := ((AWire[LPos + 3] shl 8) or AWire[LPos + 4]) - (4 + LMsgLen) +
+    System.Length(ANewMessage);
+  Result := ConcatBytes(ConcatBytes(ConcatBytes(ConcatBytes(
+    System.Copy(AWire, 0, LPos),
+    TBytes.Create(AWire[LPos], AWire[LPos + 1], AWire[LPos + 2],
+    Byte(LNewRecLen shr 8), Byte(LNewRecLen and $FF))),
+    System.Copy(AWire, LPos + 5, LInner - (LPos + 5))), ANewMessage),
+    System.Copy(AWire, LInner + 4 + LMsgLen, System.Length(AWire) - (LInner + 4 + LMsgLen)));
 end;
 
 function TTestClientAuth.SpkiSha256(const ACertDer: TBytes): TBytes;
@@ -1085,6 +1126,111 @@ begin
     'an extension on a client intermediate entry aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedExtension)), Int64(Ord(LAlert)),
     'the abort is unsupported_extension');
+end;
+
+procedure TTestClientAuth.TestTls13ClientRefusesPssSpkiServerLeaf;
+var
+  LClient, LServer: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LCert: TTlsCertificate;
+  LCertMsg: TBytes;
+  LAlert: TTlsAlertDescription;
+  LI: Int32;
+  LFailed: Boolean;
+begin
+  LClient := New13ClientMachine(False);
+  LServer := New13ServerMachine(TClientAuthMode.None);
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    FirstSendHandshake(LClient.Start))));
+  LFailed := False;
+  LAlert := TTlsAlertDescription.CloseNotify;
+  for LI := 0 to High(LFlight) do
+    if TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[LI]).TypeByte = Byte(Ord(TTlsHandshakeType.Certificate)) then
+    begin
+      // the real server Certificate with its leaf swapped for the id-RSASSA-PSS certificate
+      LCert := THandshakeMessages.DecodeCertificate(
+        TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[LI]).Body);
+      LCert.Entries[0].CertData := PssLeafCert;
+      LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+        THandshakeMessages.EncodeCertificate(LCert));
+      LFailed := FailAlertOf(LClient.ProcessMessage(
+        TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert);
+      Break;
+    end
+    else
+      LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[LI]));
+  CheckTrue(LFailed,'the client aborts on the id-RSASSA-PSS server leaf');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedCertificate)), Int64(Ord(LAlert)),
+    'the abort is unsupported_certificate');
+end;
+
+procedure TTestClientAuth.TestTls13ServerRefusesPssSpkiClientLeaf;
+var
+  LClient, LServer: IHandshakeMachine;
+  LServerFlight, LClientFlight: TArray<TBytes>;
+  LEffects: TArray<THandshakeEffect>;
+  LCert: TTlsCertificate;
+  LCertMsg: TBytes;
+  LAlert: TTlsAlertDescription;
+  LI: Int32;
+begin
+  LClient := New13ClientMachine(True);
+  LServer := New13ServerMachine(TClientAuthMode.Required);
+  LServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    FirstSendHandshake(LClient.Start))));
+  LEffects := nil;
+  for LI := 0 to High(LServerFlight) do
+    LEffects := LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LServerFlight[LI]));
+  LClientFlight := AllSendHandshake(LEffects);
+  CheckTrue(System.Length(LClientFlight) > 0, 'the client answered the server flight');
+  LCert := THandshakeMessages.DecodeCertificate(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientFlight[0]).Body);
+  LCert.Entries[0].CertData := PssLeafCert;
+  LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+    THandshakeMessages.EncodeCertificate(LCert));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
+    'the server aborts on the id-RSASSA-PSS client leaf');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedCertificate)), Int64(Ord(LAlert)),
+    'the abort is unsupported_certificate');
+end;
+
+procedure TTestClientAuth.TestTls12ClientRefusesPssSpkiServerLeaf;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+begin
+  LClient := New12Client(False);
+  LServer := New12Server(TClientAuthMode.None);
+  LClient.StartHandshake;
+  Pump(LClient, LServer);
+  LFlight := ReplaceHandshakeMessage(Drain(LServer), Byte(Ord(TTlsHandshakeType.Certificate)),
+    THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+    THandshakeMessages.EncodeCertificate12(TArray<TBytes>.Create(PssLeafCert))));
+  CheckTrue(System.Length(LFlight) > 0, 'the server flight carries a Certificate to replace');
+  Feed(LClient, LFlight);
+  CheckTrue(LClient.IsTerminal, 'the client aborts on the id-RSASSA-PSS server leaf');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedCertificate)),
+    Int64(Ord(LClient.LastError.Alert.Description)), 'the abort is unsupported_certificate');
+end;
+
+procedure TTestClientAuth.TestTls12ServerRefusesPssSpkiClientLeaf;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight: TBytes;
+begin
+  LClient := New12Client(True);
+  LServer := New12Server(TClientAuthMode.Required);
+  LClient.StartHandshake;
+  Pump(LClient, LServer);
+  Pump(LServer, LClient);
+  LFlight := ReplaceHandshakeMessage(Drain(LClient), Byte(Ord(TTlsHandshakeType.Certificate)),
+    THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
+    THandshakeMessages.EncodeCertificate12(TArray<TBytes>.Create(PssLeafCert))));
+  CheckTrue(System.Length(LFlight) > 0, 'the client flight carries a Certificate to replace');
+  Feed(LServer, LFlight);
+  CheckTrue(LServer.IsTerminal, 'the server aborts on the id-RSASSA-PSS client leaf');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedCertificate)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'the abort is unsupported_certificate');
 end;
 
 procedure TTestClientAuth.TestTls13ClientCertPinMatchCompletes;

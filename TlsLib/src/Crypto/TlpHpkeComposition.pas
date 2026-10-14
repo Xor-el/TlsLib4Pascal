@@ -76,6 +76,7 @@ resourcestring
     'the HPKE suite names a KDF or AEAD this composition does not implement';
   SHpkeMalformedPrivateKey = 'the HPKE recipient private key is malformed';
   SHpkeMalformedEnc = 'the HPKE encapsulated key could not be processed';
+  SHpkeOpenAuthFailed = 'the HPKE ciphertext failed authentication';
   SHpkeMalformedPublicKey = 'the HPKE recipient public key is malformed';
   SHpkeMessageLimit = 'the HPKE context sequence number is exhausted';
 
@@ -250,7 +251,7 @@ begin
       Result := TAeadUtilities.Open(FAead, LNonce, AAad, ACiphertext);
     except
       on E: EBaseTlsLibException do
-        raise EHpkeOpenTlsLibException.CreateRes(@SHpkeMalformedEnc);
+        raise EHpkeOpenTlsLibException.CreateRes(@SHpkeOpenAuthFailed);
     end;
   finally
     TSecureMemory.WipeBytes(LNonce);
@@ -597,7 +598,8 @@ const
   OidP384: array [0 .. 4] of Byte = ($2B, $81, $04, $00, $22); // 1.3.132.0.34
   OidP521: array [0 .. 4] of Byte = ($2B, $81, $04, $00, $23); // 1.3.132.0.35
 var
-  LOfs, LCOfs, LCLen, LNext, LAlgOfs, LAlgLen, LAlgNext, LOidOfs, LOidLen: Int32;
+  LOfs, LCOfs, LCLen, LNext, LEnd, LAlgOfs, LAlgLen, LAlgNext, LKeyEnd, LEcEnd, LOidOfs,
+    LOidLen: Int32;
   LScalar, LRaw: TBytes;
   LX25519, LCurveOk: Boolean;
 
@@ -606,35 +608,45 @@ var
     raise EArgumentTlsLibException.CreateRes(@SHpkeMalformedPrivateKey);
   end;
 
-  function Expect(AOffset: Int32; AExpectedTag: Byte;
-    out AContentOffset, AContentLen, ANext: Int32): Int32;
+  // a nested TLV must end inside its parent
+  procedure Expect(AOffset, AParentEnd: Int32; AExpectedTag: Byte;
+    out AContentOffset, AContentLen, ANext: Int32);
   var
     LGotTag: Byte;
   begin
     if (not TDer.ReadTlv(APkcs8Der, AOffset, LGotTag, AContentOffset, AContentLen, ANext)) or
-      (LGotTag <> AExpectedTag) then
+      (LGotTag <> AExpectedTag) or (ANext > AParentEnd) then
       Fail;
-    Result := AContentOffset;
+  end;
+
+  procedure ExpectVersion(ALow, AHigh: Byte);
+  begin
+    if (LCLen <> 1) or (APkcs8Der[LCOfs] < ALow) or (APkcs8Der[LCOfs] > AHigh) then
+      Fail;
   end;
 
 begin
   LX25519 := AKem = THpkeKem.DHKEM_X25519_HKDF_SHA256;
   // PrivateKeyInfo ::= SEQUENCE { version, AlgorithmIdentifier, privateKey OCTET STRING }
-  Expect(0, $30, LOfs, LCLen, LNext);
-  Expect(LOfs, $02, LCOfs, LCLen, LNext); // version
-  LOfs := LNext;
-  Expect(LOfs, $30, LAlgOfs, LAlgLen, LAlgNext); // AlgorithmIdentifier
-  Expect(LAlgOfs, $06, LOidOfs, LOidLen, LNext); // algorithm OID
+  Expect(0, System.Length(APkcs8Der), $30, LOfs, LCLen, LEnd);
+  if LEnd <> System.Length(APkcs8Der) then
+    Fail;
+  Expect(LOfs, LEnd, $02, LCOfs, LCLen, LNext); // version
+  ExpectVersion(0, 1);
+  Expect(LNext, LEnd, $30, LAlgOfs, LAlgLen, LAlgNext); // AlgorithmIdentifier
+  Expect(LAlgOfs, LAlgNext, $06, LOidOfs, LOidLen, LNext); // algorithm OID
   if LX25519 then
   begin
-    if not TDer.OidMatches(APkcs8Der, LOidOfs, LOidLen, OidX25519) then
+    if (not TDer.OidMatches(APkcs8Der, LOidOfs, LOidLen, OidX25519)) or (LNext <> LAlgNext) then
       Fail;
   end
   else
   begin
     if not TDer.OidMatches(APkcs8Der, LOidOfs, LOidLen, OidEcPublicKey) then
       Fail;
-    Expect(LNext, $06, LOidOfs, LOidLen, LNext); // namedCurve OID
+    Expect(LNext, LAlgNext, $06, LOidOfs, LOidLen, LNext); // namedCurve OID
+    if LNext <> LAlgNext then
+      Fail;
     case AKem of
       THpkeKem.DHKEM_P256_HKDF_SHA256:
         LCurveOk := TDer.OidMatches(APkcs8Der, LOidOfs, LOidLen, OidP256);
@@ -648,22 +660,24 @@ begin
     if not LCurveOk then
       Fail;
   end;
-  LOfs := LAlgNext;
-  Expect(LOfs, $04, LCOfs, LCLen, LNext); // privateKey OCTET STRING
+  Expect(LAlgNext, LEnd, $04, LCOfs, LCLen, LKeyEnd); // privateKey OCTET STRING
   if LX25519 then
   begin
     // CurvePrivateKey ::= OCTET STRING (the 32-byte scalar), exactly the KEM scalar width
-    Expect(LCOfs, $04, LCOfs, LCLen, LNext);
-    if LCLen <> THpkeCore.KemNsk(AKem) then
+    Expect(LCOfs, LKeyEnd, $04, LCOfs, LCLen, LNext);
+    if (LNext <> LKeyEnd) or (LCLen <> THpkeCore.KemNsk(AKem)) then
       Fail;
     LScalar := System.Copy(APkcs8Der, LCOfs, LCLen);
   end
   else
   begin
     // ECPrivateKey ::= SEQUENCE { version, privateKey OCTET STRING, ... }
-    Expect(LCOfs, $30, LCOfs, LCLen, LNext);
-    Expect(LCOfs, $02, LOidOfs, LOidLen, LNext);     // version
-    Expect(LNext, $04, LCOfs, LCLen, LNext);         // privateKey OCTET STRING
+    Expect(LCOfs, LKeyEnd, $30, LCOfs, LCLen, LEcEnd);
+    if LEcEnd <> LKeyEnd then
+      Fail;
+    Expect(LCOfs, LEcEnd, $02, LCOfs, LCLen, LNext); // version, RFC 5915 3
+    ExpectVersion(1, 1);
+    Expect(LNext, LEcEnd, $04, LCOfs, LCLen, LNext); // privateKey OCTET STRING
     // RFC 5915 3 fixes the scalar at ceiling(log2(n)/8) octets; some encoders strip leading zeros,
     // so accept a shorter one (never wider), reject a missing or oversized scalar, and left-pad to
     // the field width

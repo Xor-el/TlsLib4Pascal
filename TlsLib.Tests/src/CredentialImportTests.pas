@@ -70,6 +70,21 @@ type
     procedure TestEd448Imports;
     procedure TestEncryptedKeysImportWithPassword;
     procedure TestEncryptedKeyImportsWithUtf8Passphrase;
+    // a zero-length passphrase decrypts every armour but the legacy Proc-Type PEM, which says so
+    procedure TestEncryptedPkcs8DerImportsWithEmptyPassphrase;
+    procedure TestEncryptedPkcs8PemImportsWithEmptyPassphrase;
+    procedure TestLegacyEncryptedPemImportsWithItsPassphrase;
+    procedure TestLegacyEncryptedPemRefusesEmptyPassphraseWithTypedError;
+    procedure TestLegacyEncryptedPemRefusesNilPasswordWithTypedError;
+    // nil and a zero-length buffer are the same empty passphrase
+    procedure TestEncryptedPkcs8PemWithNilPasswordImportsEmptyPassphraseKey;
+    procedure TestEncryptedPkcs8DerWithNilPasswordImportsEmptyPassphraseKey;
+    procedure TestEncryptedKeyWithEmptyPasswordReportsPasswordRequired;
+    // the ENCRYPTED PRIVATE KEY label binds the content to an EncryptedPrivateKeyInfo
+    procedure TestPlaintextKeyUnderEncryptedLabelIsRefused;
+    // an id-RSASSA-PSS SubjectPublicKeyInfo verifies no RSA scheme (RFC 4055 1.2)
+    procedure TestPssSpkiVerifiesNoRsaPkcs1Signature;
+    procedure TestPssSpkiVerifiesNoRsaPssRsaeSignature;
     procedure TestPemKeyAfterOtherObjectsImports;
     procedure TestShortReadFromInjectedRandomIsRefused;
     procedure TestPkcs1VerifierRejectsDigestInfoWithoutNullParameters;
@@ -340,6 +355,141 @@ begin
     TSecretBuffer.From(DecodeHex('70C3A4737377C3B67264E282AC')));
   CheckTrue(LKey <> nil,
     'an encrypted PKCS#8 key with a non-ASCII UTF-8 passphrase imports (decrypts)');
+end;
+
+procedure TTestCredentialImport.TestEncryptedPkcs8DerImportsWithEmptyPassphrase;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_enc_empty_der']),
+    TSecretBuffer.FromString(''));
+  CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
+    'an encrypted PKCS#8 (DER) under an empty passphrase imports and signs');
+end;
+
+procedure TTestCredentialImport.TestEncryptedPkcs8PemImportsWithEmptyPassphrase;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_enc_empty_pem']),
+    TSecretBuffer.FromString(''));
+  CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
+    'an ENCRYPTED PRIVATE KEY PEM under an empty passphrase imports and signs');
+end;
+
+procedure TTestCredentialImport.TestLegacyEncryptedPemImportsWithItsPassphrase;
+var
+  LKey: ISigningKey;
+begin
+  // the control for the refusal below: this fixture is a valid legacy-encrypted key
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_legacy_enc_pem']),
+    TSecretBuffer.FromString(SPassword));
+  CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
+    'a Proc-Type encrypted PEM imports under its passphrase');
+end;
+
+procedure TTestCredentialImport.TestLegacyEncryptedPemRefusesEmptyPassphraseWithTypedError;
+var
+  LMsg: string;
+begin
+  LMsg := '';
+  try
+    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_legacy_enc_pem']),
+      TSecretBuffer.FromString(''));
+  except
+    on E: EArgumentTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('non-empty', LMsg) > 0,
+    'an empty passphrase on a legacy-encrypted PEM names the need for a non-empty one; got: ' + LMsg);
+end;
+
+procedure TTestCredentialImport.TestLegacyEncryptedPemRefusesNilPasswordWithTypedError;
+var
+  LMsg: string;
+begin
+  LMsg := '';
+  try
+    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_legacy_enc_pem']), nil);
+  except
+    on E: EArgumentTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('non-empty', LMsg) > 0,
+    'a nil password on a legacy-encrypted PEM names the need for a non-empty one; got: ' + LMsg);
+end;
+
+procedure TTestCredentialImport.TestEncryptedPkcs8PemWithNilPasswordImportsEmptyPassphraseKey;
+var
+  LKey: ISigningKey;
+begin
+  // rewritten to the nil == empty contract (it asserted password-required for nil before)
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_enc_empty_pem']), nil);
+  CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
+    'nil is the empty passphrase: an ENCRYPTED PRIVATE KEY PEM under it imports and signs');
+end;
+
+procedure TTestCredentialImport.TestEncryptedPkcs8DerWithNilPasswordImportsEmptyPassphraseKey;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_enc_empty_der']), nil);
+  CheckTrue(RoundTrips(TSignatureScheme.ECDSA_SECP256R1_SHA256, LKey, 'ec256_pub'),
+    'nil is the empty passphrase: an encrypted PKCS#8 (DER) under it imports and signs');
+end;
+
+procedure TTestCredentialImport.TestEncryptedKeyWithEmptyPasswordReportsPasswordRequired;
+
+  procedure CheckReportsPasswordRequired(const AField: string);
+  var
+    LMsg: string;
+  begin
+    LMsg := '';
+    try
+      Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values[AField]), TSecretBuffer.FromString(''));
+    except
+      on E: EArgumentTlsLibException do
+        LMsg := E.Message;
+    end;
+    CheckTrue(Pos('password', LMsg) > 0,
+      AField + ': a zero-length buffer that fails to decrypt names the missing password; got: ' + LMsg);
+  end;
+
+begin
+  CheckReportsPasswordRequired('rsa_enc_der');
+  CheckReportsPasswordRequired('rsa_enc_pem');
+end;
+
+procedure TTestCredentialImport.TestPlaintextKeyUnderEncryptedLabelIsRefused;
+var
+  LMsg: string;
+begin
+  LMsg := 'imported';
+  try
+    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['ec256_mislabelled_pem']),
+      TSecretBuffer.FromString(SPassword));
+  except
+    on E: EArgumentTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('could not be parsed', LMsg) > 0,
+    'a plaintext key under an ENCRYPTED PRIVATE KEY label is malformed; got: ' + LMsg);
+end;
+
+procedure TTestCredentialImport.TestPssSpkiVerifiesNoRsaPkcs1Signature;
+begin
+  CheckTrue(RoundTrips(TSignatureScheme.RSA_PKCS1_SHA256, Import('rsa_pkcs8_der'), 'rsa_pub'),
+    'control: the signature verifies under the rsaEncryption SPKI');
+  CheckFalse(RoundTrips(TSignatureScheme.RSA_PKCS1_SHA256, Import('rsa_pkcs8_der'), 'rsa_pub_pss'),
+    'the same signature does not verify under the id-RSASSA-PSS SPKI of the same key');
+end;
+
+procedure TTestCredentialImport.TestPssSpkiVerifiesNoRsaPssRsaeSignature;
+begin
+  CheckTrue(RoundTrips(TSignatureScheme.RSA_PSS_RSAE_SHA256, Import('rsa_pkcs8_der'), 'rsa_pub'),
+    'control: the signature verifies under the rsaEncryption SPKI');
+  CheckFalse(RoundTrips(TSignatureScheme.RSA_PSS_RSAE_SHA256, Import('rsa_pkcs8_der'), 'rsa_pub_pss'),
+    'the same signature does not verify under the id-RSASSA-PSS SPKI of the same key');
 end;
 
 procedure TTestCredentialImport.TestLoadCertificateChainFromPemBundle;
