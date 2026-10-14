@@ -1,0 +1,92 @@
+TlsLib.Tests/src/ProviderTests.pas
+  s_4adb7e2edc0c28::t_1dc80551c17f8e 933,938-942
+  s_4adb7e2edc0c28::t_8967f8f137fba5 934,936,943-946
+  s_4adb7e2edc0c28::t_e8ceb5ccfc026e 752
+  s_4adb7e2edc0c28::t_c2b39e6f03d81d 86
+  s_4adb7e2edc0c28::t_dd1d31e6864155 750,753-754
+TlsLib.Tests/src/EchToolingTests.pas
+  s_4adb7e2edc0c28::t_649d9a8d7421d6 534,537-541,543-544
+  s_4adb7e2edc0c28::t_11b35b67e2524f 790,800
+TlsLib.Tests/src/EndpointIdentityTests.pas
+  s_4adb7e2edc0c28::t_8fb843f78c8eb0 98
+  s_4adb7e2edc0c28::t_2701eb34915e5e 83
+TlsLib.Tests/src/EchClientTests.pas
+  s_4adb7e2edc0c28::t_f4669612612b5d 504
+  s_4adb7e2edc0c28::t_fa3b851142533a 166-167
+  s_4adb7e2edc0c28::t_f9dfdce89dd012 168-169
+TlsLib.Tests/src/KeyLogTests.pas
+  s_4adb7e2edc0c28::t_0338b431291b74 152,155-157,159-160,164,166-167,169-170
+  s_4adb7e2edc0c28::t_ed007e997f2549 55
+TlsLib.Tests/src/EchClientEngineTests.pas
+  s_4adb7e2edc0c28::t_7928945f72a1a5 348,355-356
+  s_4adb7e2edc0c28::t_ed53550cfe5cff 331,338
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_4adb7e2edc0c28::t_ca95b6663e7ec2 1295-1314,1316-1317,1323-1340
+  s_4adb7e2edc0c28::t_615955c3975e7f 158
+  s_4adb7e2edc0c28::t_237a8b0e3200ee 1315,1318-1322
+  s_4adb7e2edc0c28::t_bcbf4f0b3b7f10 410-411
+  s_4adb7e2edc0c28::t_5f22e96b900a0f 444-445,447
+  s_4adb7e2edc0c28::t_5ed8275325259c 853,858-860
+  s_4adb7e2edc0c28::t_d526f5351fbe8f 1154-1155,1157
+  s_4adb7e2edc0c28::t_6370eaece09373 159,167-169,171-175
+  s_4adb7e2edc0c28::t_16d26a2f356224 453
+  s_4adb7e2edc0c28::t_240d0b96372150 85
+  s_4adb7e2edc0c28::t_5506fd11153089 93
+  s_4adb7e2edc0c28::t_f11b058696b1c8 170
+  s_4adb7e2edc0c28::t_04e40c1537331b 185-186
+  s_4adb7e2edc0c28::t_8246c7b27099d8 429-443,446,448-452,454-456
+  s_4adb7e2edc0c28::t_eec279fa1740f9 1193-1194,1196
+  s_4adb7e2edc0c28::t_bb90efa5bb4bc2 91-92,94
+TlsLib.Tests/src/OcspStaplingTests.pas
+  s_4adb7e2edc0c28::t_344898578306f4 452-454
+  s_4adb7e2edc0c28::t_baee3ffb25419d 362
+  s_4adb7e2edc0c28::t_7ef6aae43dcb01 407-409
+  s_4adb7e2edc0c28::t_afe3b814bef6a8 359
+TlsLib.Tests/src/SignatureTests.pas
+  s_4adb7e2edc0c28::t_7c84c4aa1ab78f 702-703
+  s_4adb7e2edc0c28::t_33b18c0d5978bf 690
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_4adb7e2edc0c28::t_90678ec7baa571 452
+  s_4adb7e2edc0c28::t_2153f3315fbe8b 127
+  s_4adb7e2edc0c28::t_7b75f400110516 413
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_4adb7e2edc0c28::t_4da8a467cae51e 1601,1606-1607,1611,1616
+TlsLib.Tests/src/SystemTimeUtilitiesTests.pas
+  s_4adb7e2edc0c28::t_71be278eebb48d 107
+TlsLib.Tests/src/MockTests.pas
+  s_4adb7e2edc0c28::t_ae65efccda277b 99-107,110-129
+  s_4adb7e2edc0c28::t_516c69f2983c07 43-45
+  s_4adb7e2edc0c28::t_be1551fd817559 30
+  s_4adb7e2edc0c28::t_6998567012ba44 108-109
+  s_4adb7e2edc0c28::t_be472982200743 42
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_4adb7e2edc0c28::t_54dc220acad22d 1603,1610-1611
+  s_4adb7e2edc0c28::t_9a68bd0ce9b100 4182
+  s_4adb7e2edc0c28::t_aaf254ba10e97d 923
+  s_4adb7e2edc0c28::t_3a851f71f1d984 3219
+  s_4adb7e2edc0c28::t_52e1ef449eaac2 3276
+  s_4adb7e2edc0c28::t_39566f213a6361 3182
+  s_4adb7e2edc0c28::t_fae99fce12c5c0 2858
+  s_4adb7e2edc0c28::t_3a1dbf07235311 3248
+  s_4adb7e2edc0c28::t_1f93023ee00295 2467-2468,2470
+  s_4adb7e2edc0c28::t_0e55c85ed9acca 3249
+  s_4adb7e2edc0c28::t_15690ef0c642b7 4133
+  s_4adb7e2edc0c28::t_69ab7e018627bd 4071,4074-4083
+  s_4adb7e2edc0c28::t_538c4a88cb3af5 326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1d2d15a41f299a6f2e8accaa7134b090ba42d737",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
