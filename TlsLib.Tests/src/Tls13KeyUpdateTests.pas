@@ -90,6 +90,7 @@ type
     procedure TestExportUnavailableAfterFatal;
     procedure TestKeyUpdateStopsAtTheEpochCap;
     procedure TestSecondUpdateRequestedIsSentAsNotRequested;
+    procedure TestDowngradedUpdateCountsTowardTheEpochCap;
     procedure TestDowngradedUpdateStillRekeysTheWriteSide;
     procedure TestUpdateRequestedAfterPeerKeyUpdateIsRequestedAgain;
     procedure TestUpdateNotRequestedLeavesNoRequestOutstanding;
@@ -603,6 +604,23 @@ begin
   CheckEquals(1, LFirst[0].Bytes[4], 'the first request is update_requested');
   CheckEquals(0, LSecond[0].Bytes[4],
     'a repeat before the peer replies is update_not_requested');
+end;
+
+procedure TTestTls13KeyUpdate.TestDowngradedUpdateCountsTowardTheEpochCap;
+var
+  LProbe: TKeyUpdateCapProbe;
+  LMachine: IHandshakeMachine;
+const
+  // RFC 9846 4.7.3
+  MaxSent = UInt64($FFFFFFFFFFFF);
+begin
+  LProbe := TKeyUpdateCapProbe.Create(Crypto);
+  LMachine := LProbe as IHandshakeMachine;
+  LProbe.SetSent(MaxSent - 2);
+  LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  CheckEquals(0, System.Length(LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested)),
+    'the downgraded update used up a permitted KeyUpdate');
 end;
 
 procedure TTestTls13KeyUpdate.TestDowngradedUpdateStillRekeysTheWriteSide;

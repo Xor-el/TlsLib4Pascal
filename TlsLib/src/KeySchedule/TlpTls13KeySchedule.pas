@@ -406,14 +406,14 @@ begin
   begin
     FClientApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength);
     Inc(FClientTrafficGeneration);
-    LogSecret(KeyLogLabelClientTrafficPrefix + IntToStr(FClientTrafficGeneration),
+    LogSecret(KeyLogLabelClientTrafficPrefix + UIntToStr(FClientTrafficGeneration),
       FClientApTraffic);
   end
   else
   begin
     FServerApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength);
     Inc(FServerTrafficGeneration);
-    LogSecret(KeyLogLabelServerTrafficPrefix + IntToStr(FServerTrafficGeneration),
+    LogSecret(KeyLogLabelServerTrafficPrefix + UIntToStr(FServerTrafficGeneration),
       FServerApTraffic);
   end;
 end;

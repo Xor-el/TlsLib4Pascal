@@ -45,8 +45,7 @@ type
     /// requests collapses to one response, which also bounds a KeyUpdate flood.</summary>
     FKeyUpdateResponsePending: Boolean;
     FKeyUpdatesSent: UInt64;
-    /// <summary>Whether our update_requested awaits the peer's KeyUpdate; no second one is
-    /// sent until it arrives (RFC 9846 4.7.3).</summary>
+    /// <summary>Our update_requested awaits the peer's KeyUpdate (RFC 9846 4.7.3).</summary>
     FKeyUpdateRequestOutstanding: Boolean;
     /// <summary>This endpoint's own write (send) traffic direction.</summary>
     function WriteDirection: TTlsDirection; virtual; abstract;
