@@ -37,7 +37,10 @@ type
   /// The ways a client offers ECH. Enable and Retry offer a config list for real, so the client
   /// must be TLS 1.3-only (RFC 9849 sec. 6.1) and the list must hold a usable config; Grease only
   /// GREASEs (sec. 6.2.1) and leaves the offered versions alone. A caller that wants "ECH, else
-  /// GREASE" catches the Build error of Enable and builds with Grease.
+  /// GREASE" catches the Build error of Enable and builds with Grease: a malformed list, like an
+  /// unusable one, raises EArgumentTlsLibException there. A real ECH offer is refused when the
+  /// server certificate is not verified at all (DangerousSkip), since an ECH reject must be
+  /// authenticated against public_name (sec. 6.1.7).
   /// </summary>
   TEchClientModes = class sealed(TObject)
   public
@@ -146,6 +149,7 @@ implementation
 resourcestring
   SEchEmptyConfigNoGrease = 'an empty ECHConfigList would send the true SNI in the clear; ' +
     'supply a config list or use TEchClientModes.Grease';
+  SEchBadConfigList = 'the configured ECHConfigList is malformed (RFC 9849 sec. 4)';
   SEchNoUsableConfig = 'the configured ECHConfigList has no usable config (unsupported HPKE ' +
     'suite or KEM) and ECH GREASE is disabled';
   SEchHandshakeSpent = 'the ECH handshake secrets were forgotten; no further sealing is possible';
@@ -220,10 +224,17 @@ var
   LConfigs: TArray<TEchConfig>;
 begin
   inherited Create;
-  // a malformed list is a typed decode error at configuration time; an empty list is only
-  // meaningful as a GREASE-only policy - without GREASE it would silently send the true SNI
+  // a malformed list is the caller's configuration error, not a peer-wire alert; an empty list
+  // is only meaningful as a GREASE-only policy - without GREASE it would silently send the true SNI
   if System.Length(AConfigListBytes) > 0 then
-    LConfigs := TEchConfigList.Parse(AConfigListBytes)
+  begin
+    try
+      LConfigs := TEchConfigList.Parse(AConfigListBytes);
+    except
+      on EDecodeErrorTlsLibException do
+        raise EArgumentTlsLibException.CreateRes(@SEchBadConfigList);
+    end;
+  end
   else if not AGrease then
     raise EArgumentTlsLibException.CreateRes(@SEchEmptyConfigNoGrease);
   FGrease := AGrease;

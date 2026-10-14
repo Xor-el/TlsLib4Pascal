@@ -102,7 +102,8 @@ type
     /// host (RFC 9525). The chain is still validated to a trust anchor, but ANY trusted
     /// certificate is then accepted regardless of the host it was issued for - a
     /// man-in-the-middle risk. Name checking is on by default; only a deliberate pin-only
-    /// trust model should disable it.</summary>
+    /// trust model should disable it. It governs the connected host only: an Encrypted Client
+    /// Hello reject is still verified against the config's public_name (RFC 9849 6.1.7).</summary>
     function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
     /// <summary>Whether the client sends the connection host as server_name (SNI, RFC 6066 sec.
     /// 3). Send, the default, sends a DNS host and never an IP literal; Omit sends none, while the
@@ -129,7 +130,8 @@ type
     function WithDangerousKeyLog(const AKeyLog: IKeyLog): ITlsClientConfigBuilder;
     /// <summary>An augment-only peer-certificate hook that runs last, after the built-in pipeline
     /// and pinning, and can only additionally reject (never loosen it). Bridges a host framework's
-    /// own verify callback.</summary>
+    /// own verify callback. On an Encrypted Client Hello reject its host is the config's
+    /// public_name.</summary>
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
     /// <summary>Enables a host-decision peer-certificate verdict (the deferred-verdict seam):
@@ -139,7 +141,8 @@ type
     /// indeterminate stapled revocation outcome is decided (the posture still decides that
     /// inline). Calling this arms the park unconditionally; it is off unless called. ADeadlineMs is
     /// the resolver's time budget (the engine owns no timer); 0 imposes no budget. Raises if
-    /// WithLiveRevocationVerdict was called: the two share one verdict slot.</summary>
+    /// WithLiveRevocationVerdict was called: the two share one verdict slot. On an Encrypted
+    /// Client Hello reject the host decision sees the config's public_name.</summary>
     function WithAsyncCertificateVerdict(
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     /// <summary>Defers an indeterminate stapled revocation outcome to a live OCSP/CRL resolver at
@@ -232,10 +235,13 @@ type
     /// DNS HTTPS/SVCB ech parameter), Retry does so for a reconnection driven by a reject's
     /// retry_configs (a second reject is not retried), Grease only sends a GREASE ECH (sec. 6.2).
     /// Enable and Retry need a usable config in the list and a TLS 1.3-only client (sec. 6.1);
-    /// Build refuses either otherwise, so falling back to GREASE is the caller's explicit choice.
-    /// On an ECH reject the handshake raises EEchRejectedTlsLibException carrying the server's
-    /// retry_configs; the library never falls back to plaintext. A later call replaces an earlier
-    /// one. ECH is off unless called.
+    /// Build refuses either otherwise, so falling back to GREASE is the caller's explicit choice;
+    /// it also refuses either under TServerVerification.DangerousSkip, since a reject must be
+    /// authenticated against public_name (sec. 6.1.7). On an ECH reject the handshake raises
+    /// EEchRejectedTlsLibException carrying the server's retry_configs only after that
+    /// authentication; the library never falls back to plaintext. A TServerVerification.Custom
+    /// verifier receives the public_name as the host on a reject and owns that check. A later
+    /// call replaces an earlier one. ECH is off unless called.
     /// </summary>
     function WithEch(const AMode: IEchClientMode): ITls13ClientConfigFacet;
     function Tls12: ITls12ClientConfigFacet;

@@ -131,6 +131,10 @@ type
     /// and no fresh staple are on the wire, so must-staple never fires. nil falls back to
     /// CertificateVerifier (never looser than it).</summary>
     ResumeCertificateVerifier: IServerCertificateVerifier;
+    /// <summary>Verifies the server certificate of an ECH reject, always matching public_name
+    /// (RFC 9849 sec. 6.1.7) even when CertificateVerifier skips the name match. nil uses
+    /// CertificateVerifier.</summary>
+    EchRejectCertificateVerifier: IServerCertificateVerifier;
     /// <summary>The name the server certificate must be valid for (RFC 9525).</summary>
     ExpectedServerName: TServerName;
     /// <summary>The client's credential for mutual TLS: presented when the server sends
@@ -1610,6 +1614,7 @@ var
   LExtType: UInt16;
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
+  LVerifier: IServerCertificateVerifier;
 begin
   LCert := THandshakeMessages.DecodeCertificate(ACertificateBody);
   // the server Certificate context is empty in the main handshake (RFC 8446 4.4.2)
@@ -1650,10 +1655,14 @@ begin
 
   // the trust verdict is fail-closed: no configured verifier, or a negative verdict,
   // aborts the handshake with the reason's alert
-  if FParams.CertificateVerifier = nil then
+  LVerifier := FParams.CertificateVerifier;
+  // a reject proves public_name before its retry_configs are trusted (RFC 9849 6.1.7)
+  if (FEchOrch.Status = TEchStatus.Rejected) and (FParams.EchRejectCertificateVerifier <> nil) then
+    LVerifier := FParams.EchRejectCertificateVerifier;
+  if LVerifier = nil then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
-  if not FParams.CertificateVerifier.VerifyServerCertificate(FCertificateChain,
+  if not LVerifier.VerifyServerCertificate(FCertificateChain,
     FExpectedName, FReceivedOcspStaple, LVerified, LAlert) then
     raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
 

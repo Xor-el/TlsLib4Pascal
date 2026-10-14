@@ -52,6 +52,14 @@ If the server cannot decrypt ECH (a stale or wrong config), it completes the han
 completes that handshake, then aborts with an `ech_required` alert and surfaces the outcome so the
 application — not the library — decides whether to retry with the new configuration.
 
+The reject handshake is authenticated against the config's **public name** (RFC 9849 §6.1.7), and
+the `retry_configs` are surfaced only after that succeeds. `WithDangerousDisableServerNameCheck`
+turns off the match against your *origin* only; the public-name check stays on. A `Custom`
+verifier receives the public name as the host on a reject and owns that check; the verify callback
+and an async verdict resolver likewise see the public name as the host. A real ECH offer
+under `TServerVerification.DangerousSkip` is refused at `Build`, since nothing would authenticate
+the reject; `Grease` is unaffected.
+
 Because the reject ends in a fatal alert, the stream surfaces it as a typed exception; catch it to
 read the retry material:
 
@@ -119,7 +127,9 @@ on a key store entry whose key or advertised cipher suite the crypto provider ca
 that only receives the inner ClientHello a split-mode client-facing server forwards (RFC 9849
 sec. 7.2) is configured with `WithEchBackend` instead; it holds no keys, so it cannot be combined
 with `WithEchKeyStore`. A backend aborts an outer-type ech with `illegal_parameter` (RFC 9849
-sec. 7), so use it only behind the client-facing server, never on a directly reachable port.
+sec. 7), so use it only behind the client-facing server, never on a directly reachable port. After
+a HelloRetryRequest it also holds the second ClientHello to the first one's inner: the inner marker
+must still be present and the random unchanged, else `illegal_parameter`.
 
 Rotate keys by building a fresh store and swapping it in — the store is app-driven, not
 clock-rotated, so it tracks exactly what you publish in DNS.
@@ -149,9 +159,11 @@ secret.example. HTTPS 1 . ech="AD7+DQA6BwAg..."
 
 Set **`-max_name_len`** to the length of the longest backend name this config serves. The client
 pads the encrypted inner up to that length (RFC 9849 §6.1.3), so every name at or below it produces
-the same ciphertext size and its length is hidden. The default is `0`, which RFC 9849 defines as
-"longest name not known": the inner is still rounded to a 32-byte multiple, but a shorter name then
-leaks its length within that bucket. Prefer a value that covers your names when you know them.
+the same ciphertext size and its length is hidden. The default is the longer of `64` and the
+`-origin` length (at most `255`), so the origin is always fully padded. `0` is still accepted
+explicitly: RFC 9849 defines it as "longest name not known", and the inner is then only rounded to
+a 32-byte multiple, so a shorter name leaks its length within that bucket. Prefer a value that
+covers all your names when you know them.
 
 ---
 

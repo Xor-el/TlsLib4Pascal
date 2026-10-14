@@ -934,7 +934,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TServerVerification.DangerousSkip)
   .Build;
 
-// relax ONLY the host-name check (chain still fully validated)
+// relax ONLY the host-name check (chain still fully validated; an ECH reject still proves public_name)
 .WithDangerousDisableServerNameCheck
 
 // log every connection secret so Wireshark can decrypt a capture (SSLKEYLOGFILE, RFC 9850).

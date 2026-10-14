@@ -265,8 +265,8 @@ var
   L13: TClientHandshakeParams;
   L12: TClient12HandshakeParams;
   LClientRandom, LSessionId: TBytes;
-  LVerifier, LResumeVerifier: IServerCertificateVerifier;
-  LTrustContext, LResumeContext: TServerTrustContext;
+  LVerifier, LResumeVerifier, LEchRejectVerifier: IServerCertificateVerifier;
+  LTrustContext, LResumeContext, LRejectContext: TServerTrustContext;
   LServerName: TServerName;
   LDeferral: TVerdictDeferral;
   LOffers13, LOffers12, LOffersResumption: Boolean;
@@ -316,6 +316,15 @@ begin
     LResumeContext.Occasion := TVerificationOccasion.Resumption;
     LResumeVerifier := ComposeServerVerifier(AConfig, LResumeContext);
   end;
+  // an ECH reject proves public_name even with the origin check off, at one more source build
+  LEchRejectVerifier := nil;
+  if (AConfig.EncryptedClientHello <> nil) and AConfig.EncryptedClientHello.Usable and
+    not AConfig.CheckServerName then
+  begin
+    LRejectContext := LTrustContext;
+    LRejectContext.CheckHostName := True;
+    LEchRejectVerifier := ComposeServerVerifier(AConfig, LRejectContext);
+  end;
 
   L13 := Default(TClientHandshakeParams);
   L13.Crypto := AConfig.Crypto;
@@ -358,6 +367,7 @@ begin
   L13.CertificateVerifier := LVerifier;
   L13.CertificateChainLimits := AConfig.CertificateChainLimits;
   L13.ResumeCertificateVerifier := LResumeVerifier;
+  L13.EchRejectCertificateVerifier := LEchRejectVerifier;
   L13.Deferral := LDeferral;
   L13.RevocationPosture := AConfig.RevocationPosture;
   // Encrypted Client Hello policy (RFC 9849), nil when not offered
