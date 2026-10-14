@@ -1,0 +1,35 @@
+docs/README.md
+  s_a42ddd283d3520::t_e9ff77e1baebf4 89
+docs/security-model.md
+  s_a42ddd283d3520::t_3473f267e038b6 178
+  s_a42ddd283d3520::t_d216894591d776 59
+SECURITY.md
+  s_a42ddd283d3520::t_7f384a692a3910 59
+docs/system-trust.md
+  s_a42ddd283d3520::t_c17ea5033a8e4f 37
+README.md
+  s_a42ddd283d3520::t_e061d1475630cc 36
+  s_a42ddd283d3520::t_2ee4871a7f61c9 169
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_a42ddd283d3520::t_55ae4057d91d25 41
+docs/cookbook.md
+  s_a42ddd283d3520::t_e566ef7f85ffbc 961-963
+  s_a42ddd283d3520::t_ee351ffae088cd 945,947-950
+  s_a42ddd283d3520::t_941062b99edad7 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "78453fd4fdd4e5e4f8708910bdd166a82d2b6c76",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
