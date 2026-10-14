@@ -35,7 +35,7 @@ type
   /// serves both the portable and the OS-native provider: it uses whatever primitives the seam
   /// hands back, so on the native overlay the KEM/KDF/AEAD run on the OS backend where available.
   /// </summary>
-  THpkeComposition = class(TInterfacedObject, IHpkeCrypto)
+  THpkeComposition = class(TInterfacedObject, IHpkeCrypto, IHpkeComposition)
   strict private
   var
     FPrimitives: ICryptoPrimitives;
@@ -64,6 +64,7 @@ type
     function SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
     function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
     function RandomEncapsulation(AKem: UInt16): TBytes;
+    function ComposedOver: ICryptoPrimitives;
   end;
 
 implementation
@@ -714,6 +715,11 @@ begin
   FAeadOk[0] := AeadAvailable(APrimitives, TAeadAlgorithm.AES_128_GCM);
   FAeadOk[1] := AeadAvailable(APrimitives, TAeadAlgorithm.AES_256_GCM);
   FAeadOk[2] := AeadAvailable(APrimitives, TAeadAlgorithm.CHACHA20_POLY1305);
+end;
+
+function THpkeComposition.ComposedOver: ICryptoPrimitives;
+begin
+  Result := FPrimitives;
 end;
 
 class function THpkeComposition.KaAvailable(const APrimitives: ICryptoPrimitives;

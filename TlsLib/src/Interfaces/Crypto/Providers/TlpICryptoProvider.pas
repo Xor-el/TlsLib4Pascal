@@ -418,6 +418,17 @@ type
     function RandomEncapsulation(AKem: UInt16): TBytes;
   end;
 
+  /// <summary>
+  /// Marks an <see cref="IHpkeCrypto" /> that is the library's own composition over a primitives
+  /// facet, so a native overlay can tell it from a caller-supplied HPKE facet and rebuild only
+  /// the former over its own primitives.
+  /// </summary>
+  IHpkeComposition = interface(IInterface)
+    ['{59E92AA8-1A0F-4517-805C-B6E588FDBE97}']
+    /// <summary>The primitives facet this HPKE is composed over.</summary>
+    function ComposedOver: ICryptoPrimitives;
+  end;
+
 { ===== Composition root ===== }
 
   /// <summary>
@@ -449,6 +460,8 @@ type
     function WithRandom(const ARandom: IRandom): ICryptoProviderBuilder;
     function WithPrimitives(const APrimitives: ICryptoPrimitives): ICryptoProviderBuilder;
     function WithSigning(const ASigning: ISigningCrypto): ICryptoProviderBuilder;
+    /// <summary>A custom HPKE facet; kept as supplied, including by the OS-native overlay. Unset,
+    /// HPKE is the default composition over the Primitives.</summary>
     function WithHpke(const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
     /// <summary>Composes the provider from the accumulated overrides.</summary>
     function Build: ICryptoProvider;

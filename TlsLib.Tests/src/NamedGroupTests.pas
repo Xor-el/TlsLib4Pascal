@@ -85,6 +85,8 @@ type
     procedure TestMlKemValidationRejectsOutOfRangeCoefficient;
     procedure TestNistDecapsulateRejectsOffCurvePoint;
     procedure TestHybridDecapsulateRejectsShortCiphertext;
+    procedure TestMlKemDecapsulateRejectsWrongLengthCiphertext;
+    procedure TestMlKemBackendDecapsulationFaultIsInternalError;
     procedure TestRegistry;
     procedure TestClassicalRegistryOmitsPostQuantum;
     procedure TestGroupKindClassifiesEcdheKemHybrid;
@@ -535,6 +537,50 @@ begin
   // far shorter than the 1088 + 32 hybrid ciphertext; slicing must not reach the backend
   CheckDecapIllegalParameter(LGroup, LPriv, Zeros(100),
     'a short hybrid ciphertext is rejected as illegal_parameter');
+end;
+
+procedure TTestNamedGroups.TestMlKemDecapsulateRejectsWrongLengthCiphertext;
+var
+  LGroup: INamedGroup;
+  LPriv: IKeyExchangePrivateKey;
+  LPub: TBytes;
+begin
+  LGroup := TNamedGroups.CreateMlKem768(Crypto);
+  LGroup.GenerateKeyPair(LPriv, LPub);
+  // RFC 10024 4.2: a ciphertext that is not 1088 bytes is illegal_parameter, at the exact bounds
+  CheckDecapIllegalParameter(LGroup, LPriv, Zeros(100),
+    'a short ML-KEM-768 ciphertext is rejected as illegal_parameter');
+  CheckDecapIllegalParameter(LGroup, LPriv, Zeros(1087),
+    'a ciphertext one byte short is rejected as illegal_parameter');
+  CheckDecapIllegalParameter(LGroup, LPriv, Zeros(1089),
+    'a ciphertext one byte long is rejected as illegal_parameter');
+end;
+
+procedure TTestNamedGroups.TestMlKemBackendDecapsulationFaultIsInternalError;
+var
+  LKem: IKem;
+  LPriv: IKeyExchangePrivateKey;
+  LPub: TBytes;
+  LSecret: ISecretBuffer;
+  LAlert: Int32;
+  LLeaked: string;
+begin
+  LKem := Crypto.Primitives.CreateKem(TKemAlgorithm.ML_KEM_768);
+  LKem.GenerateKeyPair(LPriv, LPub);
+  LAlert := -1;
+  LLeaked := '';
+  try
+    // below the group's length check the backend fault is local, not peer input
+    LKem.Decapsulate(LPriv, Zeros(100), LSecret);
+  except
+    on E: EBaseTlsLibException do
+      LAlert := Ord(TAlertMapping.AlertFor(E).Description);
+    on E: Exception do
+      LLeaked := E.ClassName;
+  end;
+  CheckEquals('', LLeaked, 'no backend exception escapes the KEM');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), LAlert,
+    'a backend decapsulation fault maps to internal_error');
 end;
 
 procedure TTestNamedGroups.TestRegistry;

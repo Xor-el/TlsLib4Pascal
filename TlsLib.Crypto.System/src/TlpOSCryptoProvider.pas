@@ -30,7 +30,8 @@ type
   /// with no native facet returns the base unchanged, so the portable provider is
   /// always the fallback. Only primitives (randomness, key agreement, KEM, AEAD, hashes, HMAC,
   /// KDFs) and signing are ever replaced - trust, path validation, revocation and alert
-  /// behavior stay with the base, whose conformance is authoritative.
+  /// behavior stay with the base, whose conformance is authoritative. A caller-supplied HPKE
+  /// facet is kept; only the default HPKE composition is rebuilt over the native primitives.
   /// </summary>
   TOSCryptoProvider = class sealed(TObject)
   public
