@@ -465,8 +465,10 @@ LEngine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
 // the KeyUpdate is queued outbound: drain it with TakeOutgoing like any other record
 ```
 
-It is a no-op before the handshake completes, on TLS 1.2, on a failed engine and after your own
-`close_notify`. A peer's KeyUpdate is handled automatically and reported as a `KeyUpdateReceived`
+It is a no-op before the handshake completes, on TLS 1.2, on a failed engine, after your own
+`close_notify` and once 2^48-1 KeyUpdates have been sent. While an earlier `UpdateRequested` awaits
+the peer's KeyUpdate, a further one is sent as `UpdateNotRequested` and the write side still
+rekeys (RFC 9846 4.7.3). A peer's KeyUpdate is handled automatically and reported as a `KeyUpdateReceived`
 event.
 
 ## Mutual TLS (client certificates)

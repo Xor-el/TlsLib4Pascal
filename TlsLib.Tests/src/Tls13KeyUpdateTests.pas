@@ -89,6 +89,11 @@ type
     procedure TestExportKeyingMaterialSurvivesKeyUpdate;
     procedure TestExportUnavailableAfterFatal;
     procedure TestKeyUpdateStopsAtTheEpochCap;
+    procedure TestSecondUpdateRequestedIsSentAsNotRequested;
+    procedure TestDowngradedUpdateStillRekeysTheWriteSide;
+    procedure TestUpdateRequestedAfterPeerKeyUpdateIsRequestedAgain;
+    procedure TestUpdateNotRequestedLeavesNoRequestOutstanding;
+    procedure TestRepeatedUpdateRequestedKeepsClientAndServerInSync;
     procedure TestKeySharesAreFreshPerConnection;
   end;
 
@@ -582,6 +587,88 @@ begin
   LProbe.SetSent(0);
   CheckEquals(0, System.Length(LMachine.TakePendingKeyUpdate),
     'the ignored request is not left pending');
+end;
+
+procedure TTestTls13KeyUpdate.TestSecondUpdateRequestedIsSentAsNotRequested;
+var
+  LProbe: TKeyUpdateCapProbe;
+  LMachine: IHandshakeMachine;
+  LFirst, LSecond: TArray<THandshakeEffect>;
+begin
+  LProbe := TKeyUpdateCapProbe.Create(Crypto);
+  LMachine := LProbe as IHandshakeMachine;
+  LFirst := LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  LSecond := LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  // the framed KeyUpdate is a 4-byte header then the request_update byte (RFC 9846 4.7.3)
+  CheckEquals(1, LFirst[0].Bytes[4], 'the first request is update_requested');
+  CheckEquals(0, LSecond[0].Bytes[4],
+    'a repeat before the peer replies is update_not_requested');
+end;
+
+procedure TTestTls13KeyUpdate.TestDowngradedUpdateStillRekeysTheWriteSide;
+var
+  LProbe: TKeyUpdateCapProbe;
+  LMachine: IHandshakeMachine;
+  LSecond: TArray<THandshakeEffect>;
+begin
+  LProbe := TKeyUpdateCapProbe.Create(Crypto);
+  LMachine := LProbe as IHandshakeMachine;
+  LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  LSecond := LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  CheckEquals(2, System.Length(LSecond), 'the downgraded update is still sent with a rekey');
+  CheckTrue(LSecond[1].Kind = THandshakeEffectKind.InstallKeys,
+    'the downgraded update rekeys the write side');
+end;
+
+procedure TTestTls13KeyUpdate.TestUpdateRequestedAfterPeerKeyUpdateIsRequestedAgain;
+var
+  LProbe: TKeyUpdateCapProbe;
+  LMachine: IHandshakeMachine;
+  LPeerUpdate: TTlsHandshakeMessage;
+  LThird: TArray<THandshakeEffect>;
+begin
+  LProbe := TKeyUpdateCapProbe.Create(Crypto);
+  LMachine := LProbe as IHandshakeMachine;
+  LPeerUpdate := TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    THandshakeFraming.Frame(TTlsHandshakeType.KeyUpdate, TBytes.Create(0)));
+  LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  LMachine.ProcessMessage(LPeerUpdate);
+  LThird := LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  CheckEquals(1, LThird[0].Bytes[4],
+    'update_requested is sent again once the peer KeyUpdate arrived');
+end;
+
+procedure TTestTls13KeyUpdate.TestUpdateNotRequestedLeavesNoRequestOutstanding;
+var
+  LProbe: TKeyUpdateCapProbe;
+  LMachine: IHandshakeMachine;
+  LRequested: TArray<THandshakeEffect>;
+begin
+  LProbe := TKeyUpdateCapProbe.Create(Crypto);
+  LMachine := LProbe as IHandshakeMachine;
+  LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+  LRequested := LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  CheckEquals(1, LRequested[0].Bytes[4],
+    'update_not_requested does not block a later update_requested');
+end;
+
+procedure TTestTls13KeyUpdate.TestRepeatedUpdateRequestedKeepsClientAndServerInSync;
+var
+  LClient, LServer: ITlsEngine;
+  LI: Int32;
+begin
+  Handshake(LClient, LServer);
+  for LI := 1 to 3 do
+  begin
+    LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+    LServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  end;
+  Exchange(LClient, LServer);
+  Exchange(LServer, LClient);
+  CheckFalse(LClient.IsTerminal, 'the client stayed healthy');
+  CheckFalse(LServer.IsTerminal, 'the server stayed healthy');
+  CheckAppDataBothWays(LClient, LServer, 'after repeated update_requested from both roles');
 end;
 
 procedure TTestTls13KeyUpdate.TestKeySharesAreFreshPerConnection;

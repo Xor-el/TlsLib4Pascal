@@ -45,6 +45,9 @@ type
     /// requests collapses to one response, which also bounds a KeyUpdate flood.</summary>
     FKeyUpdateResponsePending: Boolean;
     FKeyUpdatesSent: UInt64;
+    /// <summary>Whether our update_requested awaits the peer's KeyUpdate; no second one is
+    /// sent until it arrives (RFC 9846 4.7.3).</summary>
+    FKeyUpdateRequestOutstanding: Boolean;
     /// <summary>This endpoint's own write (send) traffic direction.</summary>
     function WriteDirection: TTlsDirection; virtual; abstract;
     /// <summary>The peer's write direction, i.e. this endpoint's read direction.</summary>
@@ -123,15 +126,25 @@ function TTls13HandshakeBase.RequestKeyUpdate(
   ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
 var
   LMessage: TBytes;
+  LRequest: TKeyUpdateRequest;
 begin
   Result := nil;
   // only meaningful once the handshake is established (the application epoch exists); the engine
   // also guards on complete
   if (Stage <> THandshakeStage.Connected) or not CanSendKeyUpdate then
     Exit;
+  LRequest := ARequest;
+  // a repeat update_requested is downgraded: the write side still rekeys (RFC 9846 4.7.3)
+  if LRequest = TKeyUpdateRequest.UpdateRequested then
+  begin
+    if FKeyUpdateRequestOutstanding then
+      LRequest := TKeyUpdateRequest.UpdateNotRequested
+    else
+      FKeyUpdateRequestOutstanding := True;
+  end;
   // the KeyUpdate goes out under the current write keys; the write epoch rekeys after it
   Inc(FKeyUpdatesSent);
-  LMessage := BuildKeyUpdate(ARequest);
+  LMessage := BuildKeyUpdate(LRequest);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SendHandshake(LMessage),
     RekeyEffect(WriteDirection, TRecordSide.WriteSide));
@@ -147,6 +160,8 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecodeError,
       @SBadKeyUpdate);
 
+  // any peer KeyUpdate answers our outstanding request (RFC 9846 4.7.3)
+  FKeyUpdateRequestOutstanding := False;
   // the peer advanced its send keys; rekey our read epoch so later records decrypt
   Result := TArray<THandshakeEffect>.Create(
     RekeyEffect(ReadDirection, TRecordSide.ReadSide));

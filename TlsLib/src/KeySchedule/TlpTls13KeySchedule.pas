@@ -65,8 +65,8 @@ type
     FHandshakeSecretsReleased: Boolean;
     FKeyLog: IKeyLog;
     FClientRandom: TBytes;
-    FClientTrafficGeneration: Int32;
-    FServerTrafficGeneration: Int32;
+    FClientTrafficGeneration: UInt64;
+    FServerTrafficGeneration: UInt64;
     procedure LogSecret(const ALabel: string; const ASecret: ISecretBuffer);
     function ZeroSecret: ISecretBuffer;
     function HashOf(const AData: TBytes): TBytes;
