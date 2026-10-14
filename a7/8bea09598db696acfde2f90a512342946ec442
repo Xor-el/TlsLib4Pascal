@@ -1,0 +1,37 @@
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_a42ddd283d3520::t_1ba98541707458 785
+  s_a42ddd283d3520::t_871352482f6323 140-143
+  s_a42ddd283d3520::t_64e2d6282cf464 218,224
+  s_a42ddd283d3520::t_60f893bf477cfa 207
+  s_a42ddd283d3520::t_9a940a9f08aca4 240
+  s_a42ddd283d3520::t_ef870c7b43abac 857-858,860-862,864-866,870-897
+  s_a42ddd283d3520::t_44a4123ead3587 71
+  s_a42ddd283d3520::t_43c8980457f33d 69-70
+  s_a42ddd283d3520::t_c474de93675db1 199
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_a42ddd283d3520::t_b2032770837cfd 1722
+  s_a42ddd283d3520::t_0474eb1088008f 1743
+  s_a42ddd283d3520::t_900d73880813a2 1739
+  s_a42ddd283d3520::t_12de2cc45c2949 1753
+  s_a42ddd283d3520::t_8c1716ca959de1 1736
+  s_a42ddd283d3520::t_cb3be38af4ba81 1731,1733-1735,1737-1738,1740-1742,1744,1749,1754
+TlsLib.Tests/Data/Certs/ImportKeys.txt
+  s_a42ddd283d3520::t_9e671187aa263f 89-91,95-97
+  s_a42ddd283d3520::t_f239b597da7182 92-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a78bea09598db696acfde2f90a512342946ec442",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
