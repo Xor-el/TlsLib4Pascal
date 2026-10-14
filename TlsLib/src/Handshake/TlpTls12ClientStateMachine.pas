@@ -110,9 +110,13 @@ type
     PresentClientHello: TBytes;
     /// <summary>On the PresentClientHello (dispatched) path, the cached TLS 1.2 session the
     /// parent's unified ClientHello offered, and the session id it carried. Set together so
-    /// this machine resumes via the abbreviated handshake when the server echoes that id.</summary>
+    /// this machine resumes via the abbreviated handshake when the server echoes that id. The
+    /// session is vetted by the parent under Reverify; this machine does not check it again.</summary>
     PresentResumptionSession: ITls12ResumableSession;
     PresentOfferedSessionId: TBytes;
+    /// <summary>The path the parent's offer-time re-check validated for PresentResumptionSession,
+    /// so this machine does not verify it again; empty unless Reverify applied.</summary>
+    PresentResumeValidatedPath: TArray<TBytes>;
     /// <summary>The client's credential for mutual TLS: presented when the server sends
     /// a CertificateRequest and the credential can satisfy it. An empty chain sends an
     /// empty client Certificate (declining to authenticate).</summary>
@@ -131,7 +135,8 @@ type
     /// across configurations; empty (the direct sans-IO default) leaves the identity unscoped.</summary>
     SessionScope: TBytes;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (default) reuses the
-    /// original authentication; Reverify re-runs CertificateVerifier against the stored chain.</summary>
+    /// original authentication; Reverify checks the stored chain before offering the session and
+    /// offers none whose chain fails.</summary>
     ResumeVerification: TResumeVerification;
     /// <summary>The clock read to stamp a cached 1.2 session's issue time (RFC 5077). A required
     /// input, like Crypto: the engine factory supplies one from the config, and a direct sans-IO
@@ -266,9 +271,6 @@ type
     /// and either defers the read epoch for a forthcoming NewSessionTicket or installs it.</summary>
     function BeginAbbreviatedHandshake(const AContext: TExtensionContext)
       : TArray<THandshakeEffect>;
-    /// <summary>Re-runs the certificate verifier against the resumed session's stored peer chain
-    /// (the ReuseOriginal-vs-Reverify opt-in); a negative verdict aborts the handshake.</summary>
-    procedure ReverifyResumedServer;
     /// <summary>Records a full-handshake NewSessionTicket (RFC 5077), folds it into the
     /// transcript and installs the deferred read epoch for the server Finished.</summary>
     function ProcessNewSessionTicket(const AMessage: TTlsHandshakeMessage)
@@ -494,7 +496,10 @@ begin
     // cached 1.2 session, or a false one (the TLS 1.3 compatibility-mode id) it must reject
     FOfferedSessionId := FParams.PresentOfferedSessionId;
     if FParams.PresentResumptionSession <> nil then
+    begin
       FResumptionOffer := FParams.PresentResumptionSession;
+      FResumeValidatedPath := FParams.PresentResumeValidatedPath;
+    end;
     Exit(nil);
   end;
   // resumption: pop one cached TLS 1.2 session for this server to offer in the ClientHello.
@@ -509,7 +514,10 @@ begin
     // server has to abort that resumption (RFC 7627 5.3)
     if TClientSessionPolicy.IsOfferableTls12(LCached, FParams.Clock.NowUnixMillis) and
       Supports(LCached, ITls12ResumableSession, L12) and
-      (FParams.OfferExtendedMasterSecret or (not L12.ExtendedMasterSecret)) then
+      (FParams.OfferExtendedMasterSecret or (not L12.ExtendedMasterSecret)) and
+      TClientSessionPolicy.SessionTrustedForOffer(FParams.ResumeVerification, LCached,
+      FParams.CertificateVerifier, FParams.ResumeCertificateVerifier,
+      FParams.ExpectedServerName, FResumeValidatedPath) then
       FResumptionOffer := L12;
   end;
   LClientHello := BuildClientHello;
@@ -1102,21 +1110,6 @@ begin
     THandshakeEffects.HandshakeEstablished);
 end;
 
-procedure TTls12ClientStateMachine.ReverifyResumedServer;
-var
-  LChain: TArray<TBytes>;
-begin
-  // an abbreviated handshake sent no Certificate, so re-check the stored chain (a missing offer
-  // leaves an empty chain that fails closed)
-  if FResumptionOffer <> nil then
-    LChain := FResumptionOffer.PeerCertificates
-  else
-    LChain := nil;
-  TClientSessionPolicy.ReverifyResumedServer(FParams.CertificateVerifier,
-    FParams.ResumeCertificateVerifier, LChain, FParams.ExpectedServerName,
-    FResumeValidatedPath);
-end;
-
 function TTls12ClientStateMachine.BeginAbbreviatedHandshake(
   const AContext: TExtensionContext): TArray<THandshakeEffect>;
 begin
@@ -1141,12 +1134,6 @@ begin
   if FParams.RequireExtendedMasterSecret and not FUseExtendedMasterSecret then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SNoExtendedMasterSecret);
-  // stricter opt-in: re-run the certificate verifier against the resumed server's stored chain; a
-  // PSK session has none (the key authenticated it)
-  if (FParams.ResumeVerification = TResumeVerification.Reverify) and
-    (System.Length(FResumptionOffer.PskIdentity) = 0) then
-    ReverifyResumedServer;
-
   // reuse the stored master secret; the key block re-expands under the new randoms
   FSchedule := TTls12KeySchedule.Create(FParams.Crypto,
     FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength, FSelectedSuite.Common.Aead);
@@ -1210,7 +1197,7 @@ begin
   FTranscript.Update(AMessage.Raw);
 
   // an abbreviated handshake carries no Certificate: surface the server chain the session stored,
-  // with the re-verified path when ResumeVerification re-ran the pipeline (empty otherwise). Before
+  // with the path the offer-time re-check validated under Reverify (empty otherwise). Before
   // any park, so connection info reads it while parked - the ordering a full handshake already has.
   Result := nil;
   if (FResumptionOffer <> nil) and (System.Length(FResumptionOffer.PeerCertificates) > 0) then
@@ -1221,11 +1208,7 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.PskIdentity(FResumptionOffer.PskIdentity));
 
-  // reverify-on-resume + async verdict: the inline reverify at the ServerHello accepted (under a
-  // live posture it defers), so park now and withhold the client's closing flight until the
-  // out-of-band verdict resolves - live revocation decides before we commit our Finished. The
-  // transcript is untouched between here and the resume, so the verify_data is identical either way.
-  // A resumption carries no staple, so the verifier never settles revocation inline; the park stands.
+  // a resumption has no staple, so the owed verdict parks here, before our Finished is committed
   if (FParams.ResumeVerification = TResumeVerification.Reverify) and
     (FParams.Deferral <> TVerdictDeferral.None) and
     (System.Length(FResumptionOffer.PskIdentity) = 0) then

@@ -62,17 +62,20 @@ type
   end;
 
   /// <summary>An augment-only verify callback that records the host each peer-certificate
-  /// verification ran against, in order, and accepts or rejects as constructed.</summary>
+  /// verification ran against, in order. It rejects when ARejectResume; in a 0-RTT reject test
+  /// (ARetryState) a verification after a passing first one rejects when ARejectRetry.</summary>
   TInteropVerifyNameRecorder = class sealed(TInterfacedObject)
   strict private
   var
     FNames: TArray<string>;
-    FRejects: Boolean;
+    FRejectResume, FRejectRetry, FRetryState, FRetryRejected: Boolean;
   public
-    constructor Create(ARejects: Boolean);
+    constructor Create(ARejectResume, ARejectRetry, ARetryState: Boolean);
     function Observe(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
     property Names: TArray<string> read FNames;
+    /// <summary>Whether a retry verification ran and was rejected.</summary>
+    property RetryRejected: Boolean read FRetryRejected;
   end;
 
   /// <summary>
@@ -183,9 +186,9 @@ type
     /// <summary>Records the host of each client verification; replaces the VerifyFail hook when set.</summary>
     VerifyNameRecorder: TInteropVerifyNameRecorder;
     /// <summary>When True, a resuming client re-runs its certificate verifier against the stored
-    /// peer chain (the harness's -reverify-on-resume); otherwise resumption reuses the original
-    /// authentication. Combined with VerifyFail on the resumed connection this exercises a
-    /// resumption that its re-verification rejects.</summary>
+    /// peer chain before offering the session (the harness's -reverify-on-resume); otherwise
+    /// resumption reuses the original authentication. Beside VerifyFail the session is declined
+    /// and the full handshake that follows fails.</summary>
     ReverifyOnResume: Boolean;
     /// <summary>When True, async certificate verdicts are enabled (the harness's -async): the
     /// handshake parks after the built-in pipeline accepts the peer chain and the driver
@@ -295,17 +298,30 @@ begin
   Result := True;
 end;
 
-constructor TInteropVerifyNameRecorder.Create(ARejects: Boolean);
+constructor TInteropVerifyNameRecorder.Create(ARejectResume, ARejectRetry,
+  ARetryState: Boolean);
 begin
   inherited Create;
-  FRejects := ARejects;
+  FRejectResume := ARejectResume;
+  FRejectRetry := ARejectRetry;
+  FRetryState := ARetryState;
 end;
 
 function TInteropVerifyNameRecorder.Observe(const APresented, AValidated: TArray<TBytes>;
   const AHostName: string): Boolean;
+var
+  LRetry: Boolean;
 begin
   TArrayUtilities.Append<string>(FNames, AHostName);
-  Result := not FRejects;
+  // a failed first check offers no 0-RTT, so the connection stays in the resume phase
+  LRetry := (System.Length(FNames) > 1) and FRetryState and (not FRejectResume);
+  if LRetry then
+  begin
+    FRetryRejected := FRejectRetry;
+    Result := not FRejectRetry;
+  end
+  else
+    Result := not FRejectResume;
 end;
 
 function TInteropRejectingVerifier.Reject(const APresented, AValidated: TArray<TBytes>;

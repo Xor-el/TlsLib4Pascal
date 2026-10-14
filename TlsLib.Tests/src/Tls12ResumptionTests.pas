@@ -46,6 +46,7 @@ uses
   TlpTlsEngine,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpTrustTypes,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpServerName,
@@ -110,8 +111,11 @@ type
   var
     FClientAlpn: TArray<TBytes>;
     FServerAlpn: TArray<TBytes>;
-    // per-test overrides the builders below honor when set: the peers' clocks
+    // per-test overrides the builders below honor when set: the peers' clocks, and a Reverify
+    // client whose resumption-occasion verifier is FResumeVerifier (nil falls back to the primary)
     FClientClock, FServerClock: ITlsClock;
+    FReverify: Boolean;
+    FResumeVerifier: IServerCertificateVerifier;
     function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     /// <summary>Drains the engine's event queue, returning how many SessionTicketReceived it held.</summary>
@@ -198,6 +202,11 @@ type
     /// <summary>A ticket resumption where the server's sealed copy was authenticated AServerAgeMs ago
     /// and the client's cached copy AClientAgeMs ago; True when the server ran a full handshake.</summary>
     function ResumesAsFullHandshake(AServerAgeMs, AClientAgeMs: UInt64): Boolean;
+    /// <summary>A full ticket handshake against AStek, then a Reverify client (1.2-only, or
+    /// dual-version) whose resumption verifier rejects when ARejectResume; returns True when the
+    /// server ran a full handshake for the second connection.</summary>
+    function ReverifyResumeIsFull(const AStek: ISessionTicketKeyManager;
+      ADualVersion, ARejectResume: Boolean; out AClient: ITlsEngine): Boolean;
     /// <summary>A full session-id handshake, leaving the session in AStore and ACache.</summary>
     procedure EstablishSessionIdSession(const AStore: ISessionStore; const ACache: ISessionCache;
       out AClient, AServer: ITlsEngine);
@@ -266,6 +275,11 @@ type
     procedure TestFatalAlertDropsTheClientsCachedSession;
     procedure TestCloseNotifyKeepsTheStoredSessions;
     procedure TestFailedResumptionByIdDoesNotEvictTheStoredSession;
+    procedure TestReverifyFailureOffersNoSessionAndRunsFullHandshake;
+    procedure TestReverifyFailureDeclinesAndConsumesASessionIdSession;
+    procedure TestReverifyPassResumesTheSessionWithItsValidatedPath;
+    procedure TestDualVersionReverifyFailureOffersNoSessionAndRunsFullHandshake;
+    procedure TestDualVersionReverifyPassHandsItsValidatedPathToTheTls12Machine;
   end;
 
 implementation
@@ -330,6 +344,9 @@ begin
   LParams.ServerIdentity := ServerHost + ':443';
   LParams.SessionCache := ACache;
   LParams.AlpnProtocols := FClientAlpn;
+  if FReverify then
+    LParams.ResumeVerification := TResumeVerification.Reverify;
+  LParams.ResumeCertificateVerifier := FResumeVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -391,6 +408,9 @@ begin
   L13.ServerIdentity := ServerHost + ':443';
   L13.SessionCache := ACache;
   L13.EarlyDataEnabled := AEarlyData;
+  if FReverify then
+    L13.ResumeVerification := TResumeVerification.Reverify;
+  L13.ResumeCertificateVerifier := FResumeVerifier;
 
   L12 := Default(TClient12HandshakeParams);
   L12.Clock := TSystemClock.Create;
@@ -412,6 +432,9 @@ begin
   L12.ExpectedServerName := TServerName.DnsName(ServerHost);
   L12.ServerIdentity := ServerHost + ':443';
   L12.SessionCache := ACache;
+  if FReverify then
+    L12.ResumeVerification := TResumeVerification.Reverify;
+  L12.ResumeCertificateVerifier := FResumeVerifier;
 
   Result := TTlsEngine.CreateConfigured(
     TClientVersionDispatchMachine.Create(L13, L12) as IHandshakeMachine, Crypto);
@@ -2461,6 +2484,110 @@ begin
   DriveObservingServerCert(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the unproven resumption ended in a fatal alert');
   CheckEquals(1, LStore.Count, 'the stored session survives');
+end;
+
+function TTestTls12Resumption.ReverifyResumeIsFull(const AStek: ISessionTicketKeyManager;
+  ADualVersion, ARejectResume: Boolean; out AClient: ITlsEngine): Boolean;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  if ADualVersion then
+    LClient := NewDualVersionClient(LCache)
+  else
+    LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, AStek, 7200, True);
+  CheckTrue(DriveObservingServerCert(LClient, LServer), 'the first handshake is full');
+  CheckEquals(1, LCache.Count, 'the client cached a session');
+
+  FReverify := True;
+  if ARejectResume then
+    FResumeVerifier := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+      as IServerCertificateVerifier;
+  if ADualVersion then
+    AClient := NewDualVersionClient(LCache)
+  else
+    AClient := NewClient(LCache, True);
+  LServer := NewServer(nil, AStek, 7200, True);
+  Result := DriveObservingServerCert(AClient, LServer);
+  CheckFalse(AClient.IsTerminal, 'the second handshake completed without error');
+  CheckFalse(AClient.IsHandshaking, 'the second handshake finished');
+end;
+
+procedure TTestTls12Resumption.TestReverifyFailureOffersNoSessionAndRunsFullHandshake;
+var
+  LClient: ITlsEngine;
+begin
+  CheckTrue(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom),
+    False, True, LClient), 'a declined session is not offered, so the server runs a full one');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the distrusted session was not resumed');
+end;
+
+procedure TTestTls12Resumption.TestReverifyFailureDeclinesAndConsumesASessionIdSession;
+var
+  LStore: ISessionStore;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LFirst, LSecond: IResumableSession;
+  LOldId, LNewId: TBytes;
+  LClock: ITlsClock;
+begin
+  LClock := TSystemClock.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  EstablishSessionIdSession(LStore, LCache, LClient, LServer);
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, LClock.NowUnixMillis, LFirst),
+    'the session was cached');
+  LOldId := (LFirst as ITls12ResumableSession).SessionId;
+  LCache.Store(ServerHost + ':443', ServerHost, LFirst);
+
+  FReverify := True;
+  FResumeVerifier := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    as IServerCertificateVerifier;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(LStore, nil, 7200, True);
+  CheckTrue(DriveObservingServerCert(LClient, LServer),
+    'the declined session id is not offered, so the server runs a full handshake');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the distrusted session was not resumed');
+  CheckEquals(1, LCache.Count, 'only the full handshake''s session is cached');
+  CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, LClock.NowUnixMillis, LSecond),
+    'the full handshake was cached');
+  LNewId := (LSecond as ITls12ResumableSession).SessionId;
+  CheckFalse((System.Length(LOldId) = System.Length(LNewId)) and
+    CompareMem(Pointer(LOldId), Pointer(LNewId), System.Length(LOldId)),
+    'the declined session was consumed, not kept in the cache');
+end;
+
+procedure TTestTls12Resumption.TestReverifyPassResumesTheSessionWithItsValidatedPath;
+var
+  LClient: ITlsEngine;
+begin
+  CheckFalse(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom),
+    False, False, LClient), 'a session that passes the check is offered and resumed');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the session resumed');
+  CheckTrue(System.Length(LClient.ConnectionInfo.ValidatedPath) > 0,
+    'the offer-time check validated a path that the resumed connection reports');
+end;
+
+procedure TTestTls12Resumption.TestDualVersionReverifyFailureOffersNoSessionAndRunsFullHandshake;
+var
+  LClient: ITlsEngine;
+begin
+  CheckTrue(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom),
+    True, True, LClient), 'a declined session is not offered, so the server runs a full one');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the distrusted session was not resumed');
+end;
+
+procedure TTestTls12Resumption.TestDualVersionReverifyPassHandsItsValidatedPathToTheTls12Machine;
+var
+  LClient: ITlsEngine;
+begin
+  CheckFalse(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom),
+    True, False, LClient), 'a session that passes the check is offered and resumed');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the session resumed');
+  CheckTrue(System.Length(LClient.ConnectionInfo.ValidatedPath) > 0,
+    'the parent''s validated path reached the 1.2 machine through the hand-off');
 end;
 
 initialization

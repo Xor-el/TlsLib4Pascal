@@ -78,7 +78,10 @@ type
   /// <summary>How a client treats server-certificate verification when it resumes a session:
   /// ReuseOriginal (the default) reuses the original handshake's authentication without
   /// re-checking (RFC 9846 2.2); Reverify re-runs the certificate verifier against the stored
-  /// peer chain, for a stricter posture that re-checks a resumed server against current trust.
+  /// peer chain before the session is offered, for a stricter posture that re-checks a resumed
+  /// server against current trust. A session whose chain fails is not offered, so no ticket,
+  /// binder or early data is sent and the client runs a full handshake that verifies the fresh
+  /// chain; it then reports Resumed = False.
   /// Sessions are scoped per configuration (see WithSessionCache), so this does not govern
   /// cross-configuration resumption; it re-checks the sessions this configuration, or a scope it
   /// explicitly shares, stored. Under Hard revocation, Reverify needs a live-revocation verdict

@@ -416,6 +416,9 @@ type
     // slot); each refusal has a test, and the neighbouring combination that works builds
     procedure TestReverifyUnderHardNeedsALiveVerdict;
     procedure TestReverifyUnderHardBuildsWithALiveVerdict;
+    procedure TestReverifyWithEarlyDataAndHostDecisionIsRefused;
+    procedure TestReverifyWithEarlyDataAndLiveVerdictIsRefused;
+    procedure TestReverifyWithEarlyDataBuildsWithoutAnAsyncVerdict;
     procedure TestHardWithReuseOriginalBuildsWithACache;
     procedure TestPskOnlyClientRefusesPins;
     procedure TestPskOnlyClientRefusesAVerifyCallback;
@@ -4818,6 +4821,34 @@ begin
     .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
     .WithResumeVerification(TResumeVerification.Reverify).Build,
     'Reverify under Hard with a live verdict');
+end;
+
+procedure TTestConfigBuilder.TestReverifyWithEarlyDataAndHostDecisionIsRefused;
+begin
+  // the verdict resolves after the server flight, so no early data could precede it
+  CheckTrue(BuildRefused(NewClientBuilder.WithAsyncCertificateVerdict(0)
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .Tls13.WithEarlyData(True), 'asynchronous certificate verdict'),
+    'early data with Reverify and a host-decision verdict');
+end;
+
+procedure TTestConfigBuilder.TestReverifyWithEarlyDataAndLiveVerdictIsRefused;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithServerVerification(HardWebPkiServer)
+    .WithLiveRevocationVerdict(0)
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .Tls13.WithEarlyData(True), 'asynchronous certificate verdict'),
+    'early data with Reverify and a live-revocation verdict');
+end;
+
+procedure TTestConfigBuilder.TestReverifyWithEarlyDataBuildsWithoutAnAsyncVerdict;
+begin
+  CheckNotNull(NewClientBuilder
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .Tls13.WithEarlyData(True).Build, 'early data with Reverify and no deferral');
 end;
 
 procedure TTestConfigBuilder.TestHardWithReuseOriginalBuildsWithACache;

@@ -407,7 +407,10 @@ staple request nor live-revocation deferral, and a Hard `TServerVerification.Cus
 `WithLiveRevocationVerdict`). On resumption this is decisive: a `Hard` client with
 `WithResumeVerification(Reverify)` but no `WithLiveRevocationVerdict` can never obtain revocation
 status for a resumed server (a resume carries no staple), so `Build` refuses the pair; add
-`WithLiveRevocationVerdict` or keep the default `ReuseOriginal`.
+`WithLiveRevocationVerdict` or keep the default `ReuseOriginal`. `Reverify` checks the stored chain
+before the session is offered; a chain that fails is not offered and the client runs a full handshake
+that verifies the fresh chain, so no ticket, binder or early data goes out for it. The live verdict
+is still awaited after the server flight, and `Build` refuses `WithEarlyData(True)` beside it.
 On a resumption that does abbreviate, `ConnectionInfo.ValidatedPath` is populated only when the
 client re-verified the stored chain (`WithResumeVerification(Reverify)`); under `ReuseOriginal` it is
 empty, since no path was built on this connection, while `ConnectionInfo.PeerCertificates` still

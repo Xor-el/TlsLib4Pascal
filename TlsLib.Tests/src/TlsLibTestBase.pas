@@ -35,6 +35,9 @@ uses
   TlpIPkixProvider,
   TlpISession,
   TlpICertificateTrust,
+  TlpTrustTypes,
+  TlpTlsAlert,
+  TlpServerName,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpCertificateVerifier,
@@ -44,6 +47,20 @@ uses
   TlsLibTestProviders;
 
 type
+  /// <summary>A whole-verifier that rejects every server chain with AAlert, counting the chains
+  /// it was asked about (stands in for a strict pin, a custom verifier or changed trust).</summary>
+  TRejectingServerVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
+  strict private
+    FAlert: TTlsAlertDescription;
+    FCalls: Int32;
+  public
+    constructor Create(AAlert: TTlsAlertDescription);
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+    property Calls: Int32 read FCalls;
+  end;
+
   /// <summary>A server-side session store that issues tickets of a fixed length, as a foreign
   /// server with an unbounded ticket would; it holds nothing and resumes nothing.</summary>
   TFixedLengthTicketStore = class sealed(TInterfacedObject, ISessionStore)
@@ -144,6 +161,24 @@ type
   end;
 
 implementation
+
+{ TRejectingServerVerifier }
+
+constructor TRejectingServerVerifier.Create(AAlert: TTlsAlertDescription);
+begin
+  inherited Create;
+  FAlert := AAlert;
+end;
+
+function TRejectingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Inc(FCalls);
+  AVerified := Default(TVerifiedChain);
+  AAlert := FAlert;
+  Result := False;
+end;
 
 { TFixedLengthTicketStore }
 

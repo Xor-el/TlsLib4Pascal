@@ -271,14 +271,14 @@ type
     /// unchanged.</summary>
     AsyncVerify: Boolean;
     /// <summary>-on-resume-verify-fail: verification fails only on the resumption handshake. It
-    /// bites only under -reverify-on-resume, where the resuming client re-runs its verifier
-    /// against the stored chain; otherwise resumption reuses the original authentication and it is
-    /// inert.</summary>
+    /// bites only under -reverify-on-resume, where the resuming client checks the stored chain
+    /// before offering the session; otherwise resumption reuses the original authentication and it
+    /// is inert. A failed check drops the session, and the full handshake that follows fails too.</summary>
     OnResumeVerifyFail: Boolean;
-    /// <summary>-on-retry-verify-fail: verification fails on the retry - the resumption handshake's
-    /// continuation after a 0-RTT reject (or its full-handshake fallback when no ticket resumes).
-    /// In this shim's connection model that is the same resumed connection, and our re-verification
-    /// runs once the 0-RTT decision is known, so it bites there exactly like -on-resume-verify-fail.</summary>
+    /// <summary>-on-retry-verify-fail: verification fails on the retry, the resumption handshake's
+    /// continuation after an offered 0-RTT is rejected. The client verifies the stored chain
+    /// once, before offering the session, so only a full-handshake verification after a rejected
+    /// ticket reaches the retry; a rejected 0-RTT that keeps the PSK verifies nothing more.</summary>
     OnRetryVerifyFail: Boolean;
     /// <summary>-reverify-on-resume: the resuming client re-runs its certificate verifier against
     /// the stored peer chain (RFC 9846 2.2 otherwise reuses the original authentication).</summary>
@@ -1382,14 +1382,14 @@ begin
     if (not (AConfig.Expectations[LI].Kind in EchNameKinds)) or
       (not ExpectationApplies(AConfig.Expectations[LI], AObserved.IsResume)) then
       Continue;
-    // a rejected 0-RTT verifies the offered session first (-on-resume-), the retry last (-on-retry-)
+    // the pre-offer check is the first verification (-on-resume-), the retry the last (-on-retry-)
     LFirst := 0;
     LLast := System.High(AObserved.VerifiedNames);
     if LRetry then
     begin
       if AConfig.Expectations[LI].Scope = TBoGoExpectScope.Resume then
       begin
-        // an ECH reject answers the outer hello, so the offered session is never re-verified
+        // a single verification is the retry's, so the resume-scope name was not observed
         if System.Length(AObserved.VerifiedNames) < 2 then
         begin
           LUnobservable := True;
@@ -1423,7 +1423,7 @@ begin
   // decided last so an observable mismatch is never hidden behind the unobservable half
   if LUnobservable then
   begin
-    AMessage := 'unimplemented: the offered session is not verified before a 0-RTT reject';
+    AMessage := 'unimplemented: the offered session''s verification was not observed';
     Exit(ShimExitUnimplemented);
   end;
   Result := ShimExitPass;
@@ -2372,6 +2372,7 @@ var
   LNameRecorder: TInteropVerifyNameRecorder;
   LRecorderOwner: IInterface;
   LMessage: string;
+  LVerifyGate, LRetryVerifyFail, LNeedRecorder: Boolean;
 begin
   // each recorder reports the current connection only, though the cache and store span the loop
   if AConfig.CacheView <> nil then
@@ -2381,29 +2382,34 @@ begin
   if AConfig.HelloView <> nil then
     AConfig.HelloView.BeginConnection;
   LOptions := BuildOptions(ACryptoProvider, APkix, AConfig, AIsResume);
-  LOptions.ReverifyOnResume := AConfig.ReverifyOnResume;
+  // the initial connection has no session to check
+  LOptions.ReverifyOnResume := AConfig.ReverifyOnResume and AIsResume;
   // -verify-fail is fatal only under -verify-peer / -require-any-client-certificate (a hard
-  // verify); without them the runner expects a soft-fail completion (the valid cert
-  // verifies and no reject is injected). -on-resume-verify-fail and -on-retry-verify-fail bite on
-  // the resumed connection: the former on its re-verification (under -reverify-on-resume), the
-  // latter on the retry after a 0-RTT reject or on the full-handshake fallback when no ticket
-  // resumes - both land on the same resumed connection in this shim's model.
-  LOptions.VerifyFail := (AConfig.VerifyFail or
-    ((AConfig.OnResumeVerifyFail or AConfig.OnRetryVerifyFail) and AIsResume)) and
-    (AConfig.VerifyPeer or AConfig.RequireClientCert or
-    (AConfig.ReverifyOnResume and AIsResume));
-  // reverify-on-resume runs the verifier synchronously on the resumed connection (there is no
-  // async park there), so an async verify-fail on that connection is a synchronous reject
+  // verify); without them the runner expects a soft-fail completion (no reject is injected)
+  LVerifyGate := AConfig.VerifyPeer or AConfig.RequireClientCert or
+    (AConfig.ReverifyOnResume and AIsResume);
+  LObserved := Default(TBoGoObserved);
+  LObserved.IsResume := AIsResume;
+  // without -reverify-on-resume the retry flag fails the one verification, in a 0-RTT reject test
+  LOptions.VerifyFail := (AConfig.VerifyFail or (AIsResume and (AConfig.OnResumeVerifyFail or
+    (AConfig.OnRetryVerifyFail and (not AConfig.ReverifyOnResume) and
+    InRetryState(AConfig, LObserved))))) and LVerifyGate;
+  LRetryVerifyFail := AConfig.OnRetryVerifyFail and AIsResume and AConfig.ReverifyOnResume;
+  // the offer-time check is synchronous, and Build refuses early data beside an async verdict
   if AIsResume and AConfig.ReverifyOnResume then
     LOptions.AsyncVerify := False;
-  LNameRecorder := nil;
+  LNeedRecorder := LRetryVerifyFail;
   for LI := 0 to System.High(AConfig.Expectations) do
-    if (AConfig.Expectations[LI].Kind in EchNameKinds) and (LNameRecorder = nil) then
-    begin
-      LNameRecorder := TInteropVerifyNameRecorder.Create(LOptions.VerifyFail);
-      LRecorderOwner := LNameRecorder;
-      LOptions.VerifyNameRecorder := LNameRecorder;
-    end;
+    if AConfig.Expectations[LI].Kind in EchNameKinds then
+      LNeedRecorder := True;
+  LNameRecorder := nil;
+  if LNeedRecorder then
+  begin
+    LNameRecorder := TInteropVerifyNameRecorder.Create(LOptions.VerifyFail, LRetryVerifyFail,
+      InRetryState(AConfig, LObserved));
+    LRecorderOwner := LNameRecorder;
+    LOptions.VerifyNameRecorder := LNameRecorder;
+  end;
   LEngine := TInteropEngine.Build(ACryptoProvider, LOptions);
   // this connection writes first when -shim-writes-first, or on a resumption under
   // -on-resume-shim-writes-first; a client that also offered 0-RTT sends that first write
@@ -2470,8 +2476,6 @@ begin
   // verify-fail (in which case the parked handshake is rejected, fail-closed)
   LResult := TInteropPump.DriveHandshake(LEngine, ASocket, not LOptions.VerifyFail,
     LServerHalfRtt, LProbe);
-  LObserved := Default(TBoGoObserved);
-  LObserved.IsResume := AIsResume;
   if LNameRecorder <> nil then
     LObserved.VerifiedNames := LNameRecorder.Names;
   // an ECH reject fails by design after verifying the public_name, so decide the names first
@@ -2485,6 +2489,13 @@ begin
   begin
     Writeln(ErrOutput, 'handshake failed: ', LResult.Detail);
     Exit(ShimExitFail);
+  end;
+  // a retry failure that never ran must not read as a pass
+  if LRetryVerifyFail and (not LNameRecorder.RetryRejected) then
+  begin
+    Writeln(ErrOutput, 'the retry verification the test fails never ran: the offered session ' +
+      'is verified once, before it is offered');
+    Exit(ShimExitMustFail);
   end;
 
   LInfo := LEngine.ConnectionInfo;
