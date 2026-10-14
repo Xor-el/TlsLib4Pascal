@@ -19,12 +19,12 @@ uses
   SysUtils,
   TlpDataEncoding,
   TlpTlsAlert,
-  TlpTlsLibExceptions,
   TlpExtensionVector,
   TlpHandshakeMessages,
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpServerName,
+  TlpTlsCredential,
   TlpISession;
 
 type
@@ -76,21 +76,19 @@ type
     /// when it was actually offered.</summary>
     class function OfferedExtensionTypes(
       const AFramedClientHello: TBytes): TArray<UInt16>; static;
-    /// <summary>Re-verifies the stored chain of a server being resumed against current trust
-    /// (opt-in ReverifyOnResume): a resumed handshake carries no fresh Certificate/OCSP staple.
-    /// Prefers the resumption-occasion verifier, falls back to the primary; raises
-    /// internal_error when neither is configured, and bad_certificate (or the verifier's alert)
-    /// when the chain is empty or fails. On success APath carries the validated path.</summary>
-    class procedure ReverifyResumedServer(const APrimary,
-      AResume: IServerCertificateVerifier; const AChain: TArray<TBytes>;
-      const AName: TServerName; out APath: TArray<TBytes>); static;
+    /// <summary>Whether a cached session may be offered: always under ReuseOriginal or for a
+    /// session a PSK authenticated (it has no chain); under Reverify only when its stored chain
+    /// passes current trust (a resume carries no fresh Certificate or staple). Prefers the
+    /// resumption-occasion verifier, falls back to the primary; False when neither is configured,
+    /// the chain is empty or the verifier rejects it. APath carries the validated path on a
+    /// pass. A verifier that raises fails the connection.</summary>
+    class function SessionTrustedForOffer(AMode: TResumeVerification;
+      const ASession: IResumableSession; const APrimary,
+      AResume: IServerCertificateVerifier; const AName: TServerName;
+      out APath: TArray<TBytes>): Boolean; static;
   end;
 
 implementation
-
-resourcestring
-  SNoCertificateVerifier = 'no certificate verifier configured (fail-closed)';
-  SUntrustedCertificate = 'the server certificate chain was not trusted';
 
 { TClientSessionPolicy }
 
@@ -180,29 +178,28 @@ begin
   Result := LVector.Types;
 end;
 
-class procedure TClientSessionPolicy.ReverifyResumedServer(const APrimary,
-  AResume: IServerCertificateVerifier; const AChain: TArray<TBytes>;
-  const AName: TServerName; out APath: TArray<TBytes>);
+class function TClientSessionPolicy.SessionTrustedForOffer(AMode: TResumeVerification;
+  const ASession: IResumableSession; const APrimary,
+  AResume: IServerCertificateVerifier; const AName: TServerName;
+  out APath: TArray<TBytes>): Boolean;
 var
   LVerifier: IServerCertificateVerifier;
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
 begin
-  // prefer the resumption-occasion verifier (no must-staple on a chain with no Certificate);
-  // fall back to the primary for a direct caller that wired only one
+  Result := True;
+  if (AMode <> TResumeVerification.Reverify) or (System.Length(ASession.PskIdentity) > 0) then
+    Exit;
+  // the resumption verifier applies no must-staple to a chain that carries no Certificate
   LVerifier := AResume;
   if LVerifier = nil then
     LVerifier := APrimary;
-  if LVerifier = nil then
-    raise EFatalAlertTlsLibException.CreateRes(
-      TTlsAlertDescription.InternalError, @SNoCertificateVerifier);
-  // a resumed handshake carries no fresh OCSP staple; re-check the stored chain against current
-  // trust. An empty stored chain cannot be re-verified, so it fails closed
+  // an unverifiable session is declined, and the full handshake's own verification decides
   LAlert := TTlsAlertDescription.BadCertificate;
-  if (System.Length(AChain) = 0) or
-    not LVerifier.VerifyServerCertificate(AChain, AName, nil, LVerified, LAlert) then
-    raise EFatalAlertTlsLibException.CreateRes(LAlert, @SUntrustedCertificate);
-  APath := LVerified.ValidatedPath;
+  Result := (LVerifier <> nil) and (System.Length(ASession.PeerCertificates) > 0) and
+    LVerifier.VerifyServerCertificate(ASession.PeerCertificates, AName, nil, LVerified, LAlert);
+  if Result then
+    APath := LVerified.ValidatedPath;
 end;
 
 end.

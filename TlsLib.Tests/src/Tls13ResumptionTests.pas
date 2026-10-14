@@ -47,6 +47,8 @@ uses
   TlpTlsLibExceptions,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
+  TlpTrustTypes,
+  TlpArrayUtilities,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpServerName,
@@ -138,6 +140,19 @@ type
       out AIdentity: TBytes);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     function ReadAllEarly(const AEngine: ITlsEngine): TBytes;
+    /// <summary>A Reverify client with 0-RTT on whose resumption-occasion verifier is
+    /// AResumeVerifier, and with the given verdict deferral.</summary>
+    function NewReverifyEarlyClient(const ACache: ISessionCache;
+      const AResumeVerifier: IServerCertificateVerifier;
+      ADeferral: TVerdictDeferral): ITlsEngine;
+    /// <summary>A full handshake that leaves a 0-RTT-capable ticket in ACache.</summary>
+    procedure CacheEarlyDataTicket(const AStek: ISessionTicketKeyManager;
+      const AAnti: IAntiReplayStrategy; const ACache: ISessionCache);
+    /// <summary>Drives a started handshake to its end, accepting an owed certificate verdict;
+    /// True when the client parked for one.</summary>
+    function PumpResolvingVerdict(const AClient, AServer: ITlsEngine): Boolean;
+    /// <summary>The extension types of the ClientHello at the head of AWire.</summary>
+    function OfferedTypes(const AWire: TBytes): TArray<UInt16>;
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
     function MakeSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       ALifetime: UInt32; AMaxEarlyData: UInt32 = 0): IResumableSession;
@@ -251,11 +266,41 @@ type
     procedure TestExternalPskTicketResumesUnderReverify;
     procedure TestDeclinedTicketWithExternalPskStoresNoChain;
     procedure TestResumedTicketKeepsItsChainForReverify;
+    procedure TestReverifyChecksTheStoredChainOnceBeforeTheClientHello;
+    procedure TestReverifyPassOffersTheSessionAndEarlyData;
+    procedure TestReverifyPassDeliversTheEarlyData;
+    procedure TestReverifyPassKeepsTheValidatedPath;
+    procedure TestReverifyFailureOffersNoTicketOrEarlyData;
+    procedure TestReverifyFailureFallsBackToAFullHandshake;
+    procedure TestReverifyRaisingVerifierFailsTheConnectionAndConsumesTheSession;
+    procedure TestReverifyWithAsyncVerdictOffersNoEarlyData;
+    procedure TestReverifyWithAsyncVerdictStillParksAtServerFinished;
   end;
 
 implementation
 
 type
+  /// <summary>Counts the chains it is asked to verify, then verifies them through AInner.</summary>
+  TCountingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
+  strict private
+    FInner: IServerCertificateVerifier;
+    FCalls: Int32;
+  public
+    constructor Create(const AInner: IServerCertificateVerifier);
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+    property Calls: Int32 read FCalls;
+  end;
+
+  /// <summary>A verifier that raises instead of answering.</summary>
+  TRaisingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
+  public
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+  end;
+
   /// <summary>An anti-replay strategy that treats every binder as already seen.</summary>
   TRejectingAntiReplay = class(TInterfacedObject, IAntiReplayStrategy)
   public
@@ -282,6 +327,32 @@ type
     property LastNow: UInt64 read FLastNow;
     property LastExpiry: UInt64 read FLastExpiry;
   end;
+
+{ TCountingServerVerifier }
+
+constructor TCountingServerVerifier.Create(const AInner: IServerCertificateVerifier);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TCountingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Inc(FCalls);
+  Result := FInner.VerifyServerCertificate(AChain, AServerName, AOcspStaple, AVerified, AAlert);
+end;
+
+{ TRaisingServerVerifier }
+
+function TRaisingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := False;
+  raise Exception.Create('the verifier failed');
+end;
 
 { TRejectingAntiReplay }
 
@@ -3540,6 +3611,283 @@ begin
   CheckTrue(LClient.IsClosed, 'the client saw the close');
   CheckEquals(1, LStore.Count, 'a clean close leaves the server ticket');
   CheckEquals(1, LCache.Count, 'and the client ticket');
+end;
+
+function TTestTls13Resumption.NewReverifyEarlyClient(const ACache: ISessionCache;
+  const AResumeVerifier: IServerCertificateVerifier;
+  ADeferral: TVerdictDeferral): ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := ClientParams(ACache, True);
+  LParams.ResumeVerification := TResumeVerification.Reverify;
+  LParams.ResumeCertificateVerifier := AResumeVerifier;
+  LParams.Deferral := ADeferral;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+procedure TTestTls13Resumption.CacheEarlyDataTicket(const AStek: ISessionTicketKeyManager;
+  const AAnti: IAntiReplayStrategy; const ACache: ISessionCache);
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := NewClient(ACache, False);
+  LServer := BuildServer(AStek, nil, 1, 7200, True, 16384, AAnti);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, ACache.Count, 'a 0-RTT-capable ticket was cached');
+end;
+
+function TTestTls13Resumption.OfferedTypes(const AWire: TBytes): TArray<UInt16>;
+var
+  LLen: Int32;
+begin
+  LLen := (AWire[3] shl 8) or AWire[4];
+  Result := TClientSessionPolicy.OfferedExtensionTypes(System.Copy(AWire, 5, LLen));
+end;
+
+procedure TTestTls13Resumption.TestReverifyChecksTheStoredChainOnceBeforeTheClientHello;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LCounter: TCountingServerVerifier;
+  LResumeVerifier: IServerCertificateVerifier;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LCounter := TCountingServerVerifier.Create(ClientParams(LCache, True).CertificateVerifier);
+  LResumeVerifier := LCounter;
+  LClient := NewReverifyEarlyClient(LCache, LResumeVerifier, TVerdictDeferral.None);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LClient.StartHandshake;
+  CheckEquals(1, LCounter.Calls,
+    'the stored chain is checked once, before the ClientHello leaves and before any server byte');
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the session resumed');
+  CheckEquals(1, LCounter.Calls, 'the completed handshake did not check the chain again');
+end;
+
+procedure TTestTls13Resumption.TestReverifyPassOffersTheSessionAndEarlyData;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient: ITlsEngine;
+  LEarly: TBytes;
+  LTypes: TArray<UInt16>;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LClient := NewReverifyEarlyClient(LCache, nil, TVerdictDeferral.None);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  LClient.StartHandshake;
+  CheckEquals(System.Length(LEarly), LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'a session that passes the check opens the early-data window');
+  LTypes := OfferedTypes(Drain(LClient));
+  CheckTrue(TArrayUtilities.Contains<UInt16>(LTypes, TExtensionTypes.PreSharedKey),
+    'the ClientHello offers the PSK');
+  CheckTrue(TArrayUtilities.Contains<UInt16>(LTypes, TExtensionTypes.EarlyData),
+    'the ClientHello offers early data');
+end;
+
+procedure TTestTls13Resumption.TestReverifyPassDeliversTheEarlyData;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LClient := NewReverifyEarlyClient(LCache, nil, TVerdictDeferral.None);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  LClient.StartHandshake;
+  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the session resumed');
+  CheckEquals(Ord(TEarlyDataReason.Accepted), Ord(LClient.ConnectionInfo.EarlyDataReason),
+    'the early data was accepted');
+  CheckEqualBytes('the server received the early data', LEarly, ReadAllEarly(LServer));
+end;
+
+procedure TTestTls13Resumption.TestReverifyPassKeepsTheValidatedPath;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LClient := NewReverifyEarlyClient(LCache, nil, TVerdictDeferral.None);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the session resumed');
+  CheckTrue(System.Length(LClient.ConnectionInfo.ValidatedPath) > 0,
+    'the offer-time check validated a path that the resumed connection reports');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.PeerCertificates),
+    'the resumed connection reports the stored chain');
+end;
+
+procedure TTestTls13Resumption.TestReverifyFailureOffersNoTicketOrEarlyData;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient: ITlsEngine;
+  LEarly: TBytes;
+  LTypes: TArray<UInt16>;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LClient := NewReverifyEarlyClient(LCache,
+    TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    as IServerCertificateVerifier, TVerdictDeferral.None);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  LClient.StartHandshake;
+  CheckEquals(0, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'a session that fails the check opens no early-data window');
+  LTypes := OfferedTypes(Drain(LClient));
+  CheckFalse(TArrayUtilities.Contains<UInt16>(LTypes, TExtensionTypes.PreSharedKey),
+    'no ticket or binder is sent for the distrusted session');
+  CheckFalse(TArrayUtilities.Contains<UInt16>(LTypes, TExtensionTypes.EarlyData),
+    'no early data is offered for the distrusted session');
+end;
+
+procedure TTestTls13Resumption.TestReverifyFailureFallsBackToAFullHandshake;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LClient := NewReverifyEarlyClient(LCache,
+    TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    as IServerCertificateVerifier, TVerdictDeferral.None);
+  LServer := BuildServer(LStek, nil, 0, 7200, True, 16384, LAnti);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the fresh chain passed the full handshake verification');
+  CheckFalse(LClient.IsHandshaking, 'the client completed');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the distrusted session was not resumed');
+  CheckEquals(Ord(TEarlyDataReason.UnsupportedForSession),
+    Ord(LClient.ConnectionInfo.EarlyDataReason), 'no early data was offered');
+  CheckEquals(0, LServer.PendingEarlyData, 'the server received no early data');
+end;
+
+procedure TTestTls13Resumption.TestReverifyRaisingVerifierFailsTheConnectionAndConsumesTheSession;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LClient := NewReverifyEarlyClient(LCache,
+    TRaisingServerVerifier.Create as IServerCertificateVerifier, TVerdictDeferral.None);
+  LClient.StartHandshake;
+  CheckTrue(LClient.IsTerminal, 'a verifier that raises fails the connection');
+  CheckEquals(0, LCache.Count, 'the drawn session is consumed');
+end;
+
+procedure TTestTls13Resumption.TestReverifyWithAsyncVerdictOffersNoEarlyData;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LEarly, LWire: TBytes;
+  LTypes: TArray<UInt16>;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LClient := NewReverifyEarlyClient(LCache, nil, TVerdictDeferral.HostDecision);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LEarly := DecodeHex('30525454206561726c792064617461');
+  LClient.StartHandshake;
+  CheckEquals(0, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'no early window opens while an out-of-band verdict is owed');
+  LWire := Drain(LClient);
+  LTypes := OfferedTypes(LWire);
+  CheckTrue(TArrayUtilities.Contains<UInt16>(LTypes, TExtensionTypes.PreSharedKey),
+    'the session itself is still offered');
+  CheckFalse(TArrayUtilities.Contains<UInt16>(LTypes, TExtensionTypes.EarlyData),
+    'no early data is offered');
+  Feed(LServer, LWire);
+  CheckTrue(PumpResolvingVerdict(LClient, LServer), 'the handshake parked for the verdict');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the handshake completed as a resumption');
+  CheckEquals(Ord(TEarlyDataReason.Disabled), Ord(LClient.ConnectionInfo.EarlyDataReason),
+    'early data was withheld for the owed verdict');
+end;
+
+procedure TTestTls13Resumption.TestReverifyWithAsyncVerdictStillParksAtServerFinished;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+  CacheEarlyDataTicket(LStek, LAnti, LCache);
+
+  LClient := NewReverifyEarlyClient(LCache, nil, TVerdictDeferral.HostDecision);
+  LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
+  LClient.StartHandshake;
+  CheckTrue(PumpResolvingVerdict(LClient, LServer),
+    'the resumed handshake parked for the out-of-band verdict');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the accepted verdict completed the resumption');
+end;
+
+function TTestTls13Resumption.PumpResolvingVerdict(const AClient,
+  AServer: ITlsEngine): Boolean;
+var
+  LIterations: Int32;
+begin
+  Result := False;
+  LIterations := 0;
+  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    if AClient.AwaitingCertificateVerdict then
+    begin
+      Result := True;
+      AClient.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
+    end;
+    Pump(AClient, AServer);
+    Pump(AServer, AClient);
+    Inc(LIterations);
+  end;
 end;
 
 initialization

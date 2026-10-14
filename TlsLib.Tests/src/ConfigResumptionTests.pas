@@ -29,6 +29,11 @@ uses
   TlpTlsVersion,
   TlpTlsLibExceptions,
   TlpICryptoProvider,
+  TlpCryptoDomainTypes,
+  TlpEchConfig,
+  TlpIEch,
+  TlpEchClient,
+  TlpInMemoryEchKeyStore,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
@@ -109,8 +114,8 @@ type
     /// <summary>A TLS 1.3 client whose server-cert verifier rejects every chain (a strict config).</summary>
     function NewRejectingClient13(const ACache: ISessionCache): ITlsEngine;
     /// <summary>Like NewRejectingClient13 but with Reverify, so it re-checks a resumed server.</summary>
-    function NewReverifyRejectClient13(const ACache: ISessionCache;
-      const AScope: TBytes = nil): ITlsEngine;
+    function NewReverifyRejectClient13(const ACache: ISessionCache; const AScope: TBytes;
+      const AVerifier: IServerCertificateVerifier): ITlsEngine;
     /// <summary>A permissive client with Reverify + async verdict: the resumption handshake
     /// re-checks inline (accepts) then parks at ServerFinished for the out-of-band verdict.</summary>
     function NewReverifyAsyncClient13(const ACache: ISessionCache;
@@ -167,6 +172,7 @@ type
     procedure TestSharedCacheDoesNotResumeAcrossConfigurationsTls12;
     procedure TestSharedSessionScopeResumesAcrossRebuiltConfigs;
     procedure TestReverifyOnResumeRejectsUntrustedServer;
+    procedure TestEchRejectChecksTheStoredChainAgainstTheHostBeforeThePublicName;
     procedure TestReverifyOnResumeAsyncParkAcceptsCompletes;
     procedure TestReverifyOnResumeAsyncParkRejectAborts;
     procedure TestLateVerdictAfterFatalAbortQueuesNothing;
@@ -238,23 +244,30 @@ type
     function Count: Int32;
   end;
 
-  // a whole-verifier that rejects every server chain (stands in for a strict pin / custom verifier)
-  TRejectingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
+  // accepts every chain and records the host each verification ran against, in order
+  TNameRecordingVerifier = class(TInterfacedObject, IServerCertificateVerifier)
+  strict private
+    FNames: TArray<string>;
   public
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+    property Names: TArray<string> read FNames;
   end;
 
-function TRejectingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+{ TNameRecordingVerifier }
+
+function TNameRecordingVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
   const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain;
-  out AAlert: TTlsAlertDescription): Boolean;
+  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
 begin
+  SetLength(FNames, System.Length(FNames) + 1);
+  FNames[System.High(FNames)] := AServerName.ToString;
   AVerified := Default(TVerifiedChain);
+  AVerified.Path := AChain;
+  AVerified.Outcome := TVerificationOutcome.Trusted;
   AAlert := TTlsAlertDescription.BadCertificate;
-  Result := False;
+  Result := System.Length(AChain) > 0;
 end;
 
 { TRacingSessionStore }
@@ -544,7 +557,8 @@ var
 begin
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.Custom(
-    TRejectingServerVerifier.Create as IServerCertificateVerifier))
+    TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    as IServerCertificateVerifier))
     .WithResumption(True)
     .WithSessionCache(ACache)
     .Build;
@@ -552,13 +566,13 @@ begin
 end;
 
 function TTestConfigResumption.NewReverifyRejectClient13(
-  const ACache: ISessionCache; const AScope: TBytes): ITlsEngine;
+  const ACache: ISessionCache; const AScope: TBytes;
+  const AVerifier: IServerCertificateVerifier): ITlsEngine;
 var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.Custom(
-    TRejectingServerVerifier.Create as IServerCertificateVerifier))
+    .WithServerVerification(TServerVerification.Custom(AVerifier))
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
@@ -572,7 +586,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // permissive trust accepts the server chain inline; Reverify + async verdict make the
-  // resumption handshake re-check inline (accept) then park at ServerFinished for the verdict
+  // resumption handshake check the stored chain before offering it, then park at ServerFinished
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(WebPkiServer(ClientTrust))
     .WithResumption(True)
@@ -631,7 +645,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // permissive trust accepts the resumed chain inline; Reverify + async verdict make the
-  // abbreviated resumption re-check inline (accept) then park for the out-of-band verdict
+  // abbreviated resumption check the stored chain before offering it, then park for the verdict
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithServerVerification(WebPkiServer(ClientTrust))
@@ -1212,6 +1226,8 @@ var
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
   LBefore: Int32;
+  LRejecting: TRejectingServerVerifier;
+  LVerifier: IServerCertificateVerifier;
 begin
   // a permissive client caches a resumable session, storing the server chain it verified; the two
   // configs share a scope so the resuming one draws the stored session (they trust identically)
@@ -1225,18 +1241,75 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the permissive handshake completed');
   CheckTrue(LCache.Count >= 1, 'the permissive client cached a session');
 
-  // a client that opts into Reverify, resuming the SAME session, re-runs its verifier against the
-  // stored server chain; its rejecting verifier refuses the resumed server, so it aborts. (The
-  // default ReuseOriginal case - a resumption that does NOT re-verify - is covered by
-  // TestSharedCacheDoesNotResumeAcrossConfigurations.)
+  // a Reverify client drawing the same session declines it, then its full handshake fails too;
+  // the verifier is asked twice: once before the offer, once for the fresh chain
   LBefore := LCache.Count;
-  LClient := NewReverifyRejectClient13(LCache, LScope);
+  LRejecting := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate);
+  LVerifier := LRejecting;
+  LClient := NewReverifyRejectClient13(LCache, LScope, LVerifier);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
-  // it drew the cached session (single-use Take), proving it resumed and then reverified - not a
-  // full handshake that would also end terminal
-  CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
-  CheckTrue(LClient.IsTerminal, 'Reverify re-checked the resumed server and rejected it');
+  CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session (single-use Take)');
+  CheckEquals(2, LRejecting.Calls, 'the offer-time check and the full handshake each verified');
+  CheckTrue(LClient.IsTerminal, 'the full handshake rejected the untrusted server');
+end;
+
+procedure TTestConfigResumption.TestEchRejectChecksTheStoredChainAgainstTheHostBeforeThePublicName;
+var
+  LCache: ISessionCache;
+  LScope, LPublicKey, LConfigList: TBytes;
+  LSk: ISecretBuffer;
+  LSuite: TEchCipherSuite;
+  LConfig: TEchConfig;
+  LRecorder: TNameRecordingVerifier;
+  LVerifier: IServerCertificateVerifier;
+  LClient, LServer: ITlsEngine;
+
+  function NewEchClient: ITlsEngine;
+  begin
+    Result := TTlsEngineFactory.CreateClientEngine(
+      TTlsPresets.Hardened(Crypto, Pkix).Client
+      .WithServerVerification(TServerVerification.Custom(LVerifier))
+      .WithResumption(True)
+      .WithResumeVerification(TResumeVerification.Reverify)
+      .WithSessionCache(LCache).WithResumptionScope(LScope)
+      .Tls13.WithEch(TEchClientModes.Enable(LConfigList)).Build, ServerHost);
+  end;
+
+begin
+  Crypto.Hpke.GenerateKeyPair(THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey, LSk);
+  LSuite.KdfId := THpkeKdf.HKDF_SHA256;
+  LSuite.AeadId := THpkeAead.AES_128_GCM;
+  LConfig := TEchConfig.Build(TEchConfig.SupportedVersion, $E1,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, LPublicKey, TArray<TEchCipherSuite>.Create(LSuite), 0,
+    TEncoding.ASCII.GetBytes('cover.example'), nil);
+  LConfigList := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+
+  // an ECH-accepted connection caches a session verified against the origin host
+  LRecorder := TNameRecordingVerifier.Create;
+  LVerifier := LRecorder;
+  LClient := NewEchClient;
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .Tls13.WithEchKeyStore(TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Crypto)).Build);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH was accepted');
+  CheckTrue(LCache.Count >= 1, 'the accepted connection cached a session');
+
+  // the resumption meets a server that rejects ECH: the stored chain is checked before the offer,
+  // against the host, and only the reject's retry verifies the public_name
+  LRecorder := TNameRecordingVerifier.Create;
+  LVerifier := LRecorder;
+  LClient := NewEchClient;
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
+    .WithCredential(ServerCredential).Build);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the ECH reject aborted the connection');
+  CheckEquals(2, System.Length(LRecorder.Names), 'the chain was verified twice');
+  CheckEquals(ServerHost, LRecorder.Names[0], 'the offer-time check ran against the host');
+  CheckEquals('cover.example', LRecorder.Names[1], 'the reject then verified the public_name');
 end;
 
 procedure TTestConfigResumption.TestReverifyOnResumeAsyncParkAcceptsCompletes;
@@ -1257,7 +1330,7 @@ begin
   PumpToCompletion(LClient, LServer);
   CheckTrue(LCache.Count >= 1, 'the permissive client cached a session');
 
-  // resume with Reverify + async: the inline reverify accepts, the handshake parks at
+  // resume with Reverify + async: the offer-time check passes, the handshake parks at
   // ServerFinished (the client Finished is withheld), and the accepted out-of-band verdict
   // drives the withheld continuation to completion
   LClient := NewReverifyAsyncClient13(LCache, LScope);
@@ -1564,7 +1637,7 @@ begin
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the client cached the 1.2 session');
 
-  // resume with Reverify + async: the inline reverify accepts, the abbreviated handshake parks at
+  // resume with Reverify + async: the offer-time check passes, the abbreviated handshake parks at
   // the server Finished (the client Finished is withheld), and the accepted out-of-band verdict
   // drives the withheld continuation to completion
   LClient := NewReverifyAsyncClient12(LCache, LScope);

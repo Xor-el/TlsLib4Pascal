@@ -618,9 +618,12 @@ uses TlpTlsCredential;   // TResumeVerification
 `WithResumptionScope` is an assertion that the configs trust identically. A scope longer than 32
 bytes raises `EArgumentTlsLibException`; `Build` refuses a scope or `Reverify` on a config with no
 session cache or with resumption off. `ReuseOriginal` (the default) trusts the
-original handshake's verification; `Reverify` re-checks the resumed server against the current
-trust, at the cost of a verification per resume, and fills `ConnectionInfo.ValidatedPath`. A
-server takes `WithResumptionScope` too, to partition configs sharing a ticket-key manager or session
+original handshake's verification; `Reverify` checks the stored chain against the current trust
+before the session is offered, at the cost of a verification per resume, and fills
+`ConnectionInfo.ValidatedPath`. A session whose chain fails is not offered: no ticket, binder or
+early data is sent and the client runs a full handshake that verifies the fresh chain; it reports
+`Resumed = False`. An async verdict is still awaited after the server flight (see
+[0-RTT early data](#0-rtt-early-data)). A server takes `WithResumptionScope` too, to partition configs sharing a ticket-key manager or session
 store; a server that requests client certificates and supplies either must set one. The two roles
 default differently when the scope is empty: a client isolates (a fresh scope per config), a server
 shares.
@@ -668,6 +671,13 @@ many bytes it accepted as 0-RTT), and acceptance is reported as an event. Bytes 
 `max_early_data`, and any early data the server rejects, are **not** re-sent for you — resend them as
 1-RTT after the handshake completes if you need to. Treat 0-RTT as an advanced optimisation — leave it
 off unless you need it and your early request is idempotent.
+
+Under `WithResumeVerification(Reverify)` the stored chain is checked before the ClientHello is built,
+so early data is sent only for a session that passes current trust. `Build` refuses `WithEarlyData(True)`
+together with `Reverify` and an async verdict (`WithAsyncCertificateVerdict` or
+`WithLiveRevocationVerdict`): that verdict resolves after the server flight, so no early data could
+precede it, and a rejecting verdict then fails the handshake. A `Hard`-revocation client using
+`Reverify` always carries a live verdict, so it cannot use 0-RTT.
 
 On the server, accepted early data is **never** returned by `ReadAppData` or a stream `Read`: it is
 replayable, so it is kept apart and read with `ReadEarlyData` (`PendingEarlyData` says how much is

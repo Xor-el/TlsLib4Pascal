@@ -187,11 +187,13 @@ type
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) reuses the
     /// original handshake's authentication (inferred from RFC 9846 2.2); Reverify re-runs the
-    /// certificate verifier against the stored peer chain, for a stricter posture that re-checks a
-    /// resumed server against current trust, at the cost of the verification work on every
-    /// resume. Under
-    /// a Hard revocation posture a reverified resume could never obtain revocation status (a resume
-    /// carries no staple), so Build refuses Reverify there without WithLiveRevocationVerdict.</summary>
+    /// certificate verifier against the stored peer chain before the session is offered, at the
+    /// cost of the verification work on every resume. A session whose chain fails current trust is
+    /// not offered: no ticket, binder or early data is sent and the client runs a full handshake,
+    /// which verifies the fresh chain. Under a Hard revocation posture a reverified resume could
+    /// never obtain revocation status (a resume carries no staple), so Build refuses Reverify there
+    /// without WithLiveRevocationVerdict. Build also refuses it with WithEarlyData(True) and an
+    /// async certificate verdict, which resolves only after the server flight.</summary>
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     /// <summary>Whether the client sends GREASE values (RFC 8701) in its ClientHello, whatever
     /// versions it offers. Optional per the RFC; default True.</summary>
@@ -238,7 +240,9 @@ type
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ClientConfigFacet;
     /// <summary>Whether the client offers 0-RTT early data when a cached ticket authorizes
-    /// it (TLS 1.3, RFC 9846 4.3.10). Off by default.</summary>
+    /// it (TLS 1.3, RFC 9846 4.3.10). Off by default. Build refuses it with
+    /// WithResumeVerification(Reverify) and an async certificate verdict, which resolves only
+    /// after the server flight.</summary>
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
     /// <summary>
     /// How the client offers Encrypted Client Hello (RFC 9849), as one exclusive choice from

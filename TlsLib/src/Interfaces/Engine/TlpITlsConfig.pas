@@ -170,7 +170,8 @@ type
     /// shared cache, so trust does not leak across configurations; empty when no cache is set.</summary>
     function SessionScope: TBytes;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (default) reuses the
-    /// original authentication; Reverify re-runs the certificate verifier against the stored chain.</summary>
+    /// original authentication; Reverify re-runs the certificate verifier against the stored chain
+    /// before the session is offered.</summary>
     function ResumeVerification: TResumeVerification;
     /// <summary>TLS 1.3 only: whether the client offers early data (0-RTT) when a cached ticket
     /// authorizes it. Off by default.</summary>

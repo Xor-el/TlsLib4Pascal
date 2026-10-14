@@ -386,6 +386,10 @@ resourcestring
   SReverifyHardNeedsLiveVerdict = 'WithResumeVerification(Reverify) under a Hard revocation ' +
     'posture needs WithLiveRevocationVerdict: a resume carries no staple, so the client could ' +
     'never resume; add the verdict or keep ReuseOriginal';
+  SEarlyDataReverifyAsyncVerdict = 'WithEarlyData(True) cannot be combined with ' +
+    'WithResumeVerification(Reverify) and an asynchronous certificate verdict: the verdict ' +
+    'arrives after the server flight, so no early data could precede it; drop the early data ' +
+    'or the async verdict';
   SPskOnlyClientSetting = '%s has no effect on a client that authenticates by PSK alone, which ' +
     'verifies no certificate: add a trust source or drop it';
   SClientCompressionNeedsCredential = 'certificate compressors and their cache apply only to a ' +
@@ -3149,6 +3153,10 @@ begin
     TRevocationDecision.HardNeedsLiveRevocation(FRevocationPosture,
     FAsyncVerdict.Deferral = TVerdictDeferral.LiveRevocation) then
     raise EInvalidOperationTlsLibException.CreateRes(@SReverifyHardNeedsLiveVerdict);
+  // a deferred verdict resolves after the server flight, so no early data could precede it
+  if FClientEarlyData and (FResumeVerification = TResumeVerification.Reverify) and
+    (FAsyncVerdict.Deferral <> TVerdictDeferral.None) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEarlyDataReverifyAsyncVerdict);
   // the client compresses only a client certificate it sends; an empty list is the off switch
   if ((FCompressorsSet and (System.Length(FCertificateCompressors) > 0)) or
     (FCertificateCompressionCache <> nil)) and (not FHasCredential) then

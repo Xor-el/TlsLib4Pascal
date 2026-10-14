@@ -35,7 +35,7 @@ uses
   TlpTrustTypes,
   TlpICertificateTrust,
   TlpTlsAlert,
-  TlpTlsLibExceptions,
+  TlpTlsCredential,
   TlpExtensionVector,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
@@ -57,11 +57,13 @@ type
     // a framed ClientHello (4-byte handshake header + body) whose extensions field carries the
     // given types in order, each with a single filler byte
     function MakeFramedHello(const ATypes: array of UInt16): TBytes;
-    // asserts ReverifyResumedServer over the given inputs raised a fatal alert of the expected
-    // description
-    procedure CheckReverifyRaises(const APrimary,
+    // a session holding AChain, or authenticated by the PSK APskIdentity when that is set
+    function MakeChainSession(const AChain: TArray<TBytes>;
+      const APskIdentity: TBytes): IResumableSession;
+    // asserts the Reverify offer check over a session of AChain is False and leaves the path empty
+    procedure CheckOfferRefused(const APrimary,
       AResume: IServerCertificateVerifier; const AChain: TArray<TBytes>;
-      AExpected: TTlsAlertDescription; const AName: string);
+      const AName: string);
   published
     procedure TestClampBelowCapIsUnchanged;
     procedure TestClampAtCapIsUnchanged;
@@ -83,12 +85,14 @@ type
     procedure TestCacheIdentityFallsBackToServerName;
     procedure TestCacheIdentityFoldsScopeDeterministically;
     procedure TestOfferedExtensionTypesFromClientHello;
-    procedure TestReverifyNoVerifierRaisesInternalError;
-    procedure TestReverifyEmptyChainRaisesBadCertificate;
-    procedure TestReverifyFailurePropagatesVerifierAlert;
-    procedure TestReverifySuccessSetsValidatedPath;
-    procedure TestReverifyPrefersResumeVerifier;
-    procedure TestReverifyFallsBackToPrimaryVerifier;
+    procedure TestOfferNoVerifierIsRefused;
+    procedure TestOfferEmptyChainIsRefused;
+    procedure TestOfferRejectedByVerifierIsRefused;
+    procedure TestOfferSuccessSetsValidatedPath;
+    procedure TestOfferPrefersResumeVerifier;
+    procedure TestOfferFallsBackToPrimaryVerifier;
+    procedure TestOfferUnderReuseOriginalSkipsTheVerifier;
+    procedure TestOfferOfPskSessionSkipsTheVerifier;
   end;
 
 implementation
@@ -98,18 +102,6 @@ type
   // was taken from the verifier's result
   TAcceptingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
   public
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
-  // rejects every chain with a caller-chosen alert so a test can prove the alert is propagated
-  TRejectingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  private
-    FAlert: TTlsAlertDescription;
-  public
-    constructor Create(AAlert: TTlsAlertDescription);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AVerified: TVerifiedChain;
@@ -129,22 +121,6 @@ begin
   AVerified.Path := TArray<TBytes>.Create(TBytes.Create(AcceptedPathByte));
   AAlert := TTlsAlertDescription.BadCertificate;
   Result := True;
-end;
-
-constructor TRejectingServerVerifier.Create(AAlert: TTlsAlertDescription);
-begin
-  inherited Create;
-  FAlert := AAlert;
-end;
-
-function TRejectingServerVerifier.VerifyServerCertificate(
-  const AChain: TArray<TBytes>; const AServerName: TServerName;
-  const AOcspStaple: TBytes; out AVerified: TVerifiedChain;
-  out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified := Default(TVerifiedChain);
-  AAlert := FAlert;
-  Result := False;
 end;
 
 { TTestClientSessionPolicy }
@@ -198,25 +174,25 @@ begin
     THandshakeMessages.EncodeClientHello(LHello));
 end;
 
-procedure TTestClientSessionPolicy.CheckReverifyRaises(const APrimary,
+function TTestClientSessionPolicy.MakeChainSession(const AChain: TArray<TBytes>;
+  const APskIdentity: TBytes): IResumableSession;
+begin
+  Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(TBytes.Create(1, 2, 3, 4)), nil, '',
+    TBytes.Create($AB), 100, 0, 0, 0, AChain, nil, APskIdentity, nil, 0, 0);
+end;
+
+procedure TTestClientSessionPolicy.CheckOfferRefused(const APrimary,
   AResume: IServerCertificateVerifier; const AChain: TArray<TBytes>;
-  AExpected: TTlsAlertDescription; const AName: string);
+  const AName: string);
 var
-  LRaised: Boolean;
   LPath: TArray<TBytes>;
 begin
-  LRaised := False;
-  try
-    TClientSessionPolicy.ReverifyResumedServer(APrimary, AResume, AChain,
-      Default(TServerName), LPath);
-  except
-    on E: EFatalAlertTlsLibException do
-    begin
-      LRaised := True;
-      CheckTrue(E.AlertDescription = AExpected, AName + ': alert description');
-    end;
-  end;
-  CheckTrue(LRaised, AName + ': a fatal alert is raised');
+  LPath := TArray<TBytes>.Create(TBytes.Create(1));
+  CheckFalse(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
+    MakeChainSession(AChain, nil), APrimary, AResume, Default(TServerName), LPath),
+    AName + ': the session is not offered');
+  CheckEquals(0, System.Length(LPath), AName + ': no validated path is reported');
 end;
 
 procedure TTestClientSessionPolicy.TestClampBelowCapIsUnchanged;
@@ -430,71 +406,95 @@ begin
     'the types are returned in wire order');
 end;
 
-procedure TTestClientSessionPolicy.TestReverifyNoVerifierRaisesInternalError;
+procedure TTestClientSessionPolicy.TestOfferNoVerifierIsRefused;
 begin
-  // neither a primary nor a resumption verifier is configured: fail closed with internal_error
-  CheckReverifyRaises(nil, nil, TArray<TBytes>.Create(TBytes.Create(1)),
-    TTlsAlertDescription.InternalError, 'no verifier');
+  // neither a primary nor a resumption verifier is configured: the session is not offered
+  CheckOfferRefused(nil, nil, TArray<TBytes>.Create(TBytes.Create(1)), 'no verifier');
 end;
 
-procedure TTestClientSessionPolicy.TestReverifyEmptyChainRaisesBadCertificate;
+procedure TTestClientSessionPolicy.TestOfferEmptyChainIsRefused;
 begin
-  // an empty stored chain cannot be re-verified: fail closed with bad_certificate before the
-  // verifier is ever consulted (an accepting verifier still must not rescue it)
-  CheckReverifyRaises(TAcceptingServerVerifier.Create as IServerCertificateVerifier,
-    nil, nil, TTlsAlertDescription.BadCertificate, 'empty chain');
+  // an empty stored chain cannot be checked, and an accepting verifier must not rescue it
+  CheckOfferRefused(TAcceptingServerVerifier.Create as IServerCertificateVerifier,
+    nil, nil, 'empty chain');
 end;
 
-procedure TTestClientSessionPolicy.TestReverifyFailurePropagatesVerifierAlert;
+procedure TTestClientSessionPolicy.TestOfferRejectedByVerifierIsRefused;
 begin
-  // the verifier's own alert (here certificate_expired) is the one that surfaces
-  CheckReverifyRaises(
+  CheckOfferRefused(
     TRejectingServerVerifier.Create(TTlsAlertDescription.CertificateExpired)
     as IServerCertificateVerifier, nil, TArray<TBytes>.Create(TBytes.Create(1)),
-    TTlsAlertDescription.CertificateExpired, 'verifier rejection');
+    'verifier rejection');
 end;
 
-procedure TTestClientSessionPolicy.TestReverifySuccessSetsValidatedPath;
+procedure TTestClientSessionPolicy.TestOfferSuccessSetsValidatedPath;
 var
   LPath: TArray<TBytes>;
-  LVerifier: IServerCertificateVerifier;
 begin
-  LVerifier := TAcceptingServerVerifier.Create;
-  LPath := nil;
-  TClientSessionPolicy.ReverifyResumedServer(LVerifier, nil,
-    TArray<TBytes>.Create(TBytes.Create(1)), Default(TServerName), LPath);
+  CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
+    MakeChainSession(TArray<TBytes>.Create(TBytes.Create(1)), nil),
+    TAcceptingServerVerifier.Create as IServerCertificateVerifier, nil,
+    Default(TServerName), LPath), 'a chain the verifier accepts is offered');
   CheckEquals(1, System.Length(LPath), 'the validated path is the verifier''s result');
   CheckTrue((System.Length(LPath[0]) = 1) and (LPath[0][0] = AcceptedPathByte),
     'the validated path carries the verifier''s certificate');
 end;
 
-procedure TTestClientSessionPolicy.TestReverifyPrefersResumeVerifier;
+procedure TTestClientSessionPolicy.TestOfferPrefersResumeVerifier;
 var
   LPath: TArray<TBytes>;
-  LPrimary, LResume: IServerCertificateVerifier;
 begin
   // a rejecting primary with an accepting resumption verifier must succeed: the resumption-occasion
   // verifier is preferred
-  LPrimary := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate);
-  LResume := TAcceptingServerVerifier.Create;
-  LPath := nil;
-  TClientSessionPolicy.ReverifyResumedServer(LPrimary, LResume,
-    TArray<TBytes>.Create(TBytes.Create(1)), Default(TServerName), LPath);
-  CheckEquals(1, System.Length(LPath),
-    'the resumption verifier accepted and set the path');
+  CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
+    MakeChainSession(TArray<TBytes>.Create(TBytes.Create(1)), nil),
+    TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    as IServerCertificateVerifier,
+    TAcceptingServerVerifier.Create as IServerCertificateVerifier,
+    Default(TServerName), LPath), 'the resumption verifier decides');
+  CheckEquals(1, System.Length(LPath), 'the resumption verifier accepted and set the path');
 end;
 
-procedure TTestClientSessionPolicy.TestReverifyFallsBackToPrimaryVerifier;
+procedure TTestClientSessionPolicy.TestOfferFallsBackToPrimaryVerifier;
 var
   LPath: TArray<TBytes>;
-  LPrimary: IServerCertificateVerifier;
 begin
   // no resumption verifier wired: fall back to the primary
-  LPrimary := TAcceptingServerVerifier.Create;
-  LPath := nil;
-  TClientSessionPolicy.ReverifyResumedServer(LPrimary, nil,
-    TArray<TBytes>.Create(TBytes.Create(1)), Default(TServerName), LPath);
+  CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
+    MakeChainSession(TArray<TBytes>.Create(TBytes.Create(1)), nil),
+    TAcceptingServerVerifier.Create as IServerCertificateVerifier, nil,
+    Default(TServerName), LPath), 'the primary verifier decides');
   CheckEquals(1, System.Length(LPath), 'the primary verifier accepted and set the path');
+end;
+
+procedure TTestClientSessionPolicy.TestOfferUnderReuseOriginalSkipsTheVerifier;
+var
+  LRejecting: TRejectingServerVerifier;
+  LVerifier: IServerCertificateVerifier;
+  LPath: TArray<TBytes>;
+begin
+  LRejecting := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate);
+  LVerifier := LRejecting;
+  CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.ReuseOriginal,
+    MakeChainSession(TArray<TBytes>.Create(TBytes.Create(1)), nil), LVerifier, nil,
+    Default(TServerName), LPath), 'the original authentication is reused');
+  CheckEquals(0, LRejecting.Calls, 'no verification ran');
+  CheckEquals(0, System.Length(LPath), 'no path was validated');
+end;
+
+procedure TTestClientSessionPolicy.TestOfferOfPskSessionSkipsTheVerifier;
+var
+  LRejecting: TRejectingServerVerifier;
+  LVerifier: IServerCertificateVerifier;
+  LPath: TArray<TBytes>;
+begin
+  // a PSK-authenticated session has no chain to judge
+  LRejecting := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate);
+  LVerifier := LRejecting;
+  CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
+    MakeChainSession(nil, TBytes.Create(7)), LVerifier, nil, Default(TServerName), LPath),
+    'a PSK session is offered under Reverify');
+  CheckEquals(0, LRejecting.Calls, 'no verification ran');
 end;
 
 initialization
