@@ -251,6 +251,11 @@ type
     FResumptionPskIdentity: TBytes;
     FResumptionPskBinding: TBytes;
     FResumptionPeerSignatureScheme: UInt16;
+    // when this connection's chain was authenticated: the offered session's time on a resumption,
+    // else the moment the server Finished verified; tickets received on it keep it
+    FAuthenticatedAtMs: UInt64;
+    /// <summary>The tickets this connection cached, which a fatal alert removes.</summary>
+    FStoredSessions: TArray<IResumableSession>;
     FPeerSignatureScheme: UInt16;
     FResumedFromTicket: Boolean;
     // this handshake's PSK identity and binding, kept because the accepted PSK is released
@@ -410,6 +415,7 @@ type
     constructor Create(const AParams: TClientHandshakeParams);
     function Initiates: Boolean; override;
     function Start: TArray<THandshakeEffect>; override;
+    procedure ForgetSessionsOnFatal; override;
     /// <summary>The cached TLS 1.2 session this unified ClientHello offered (nil when it
     /// offered none), for a version-dispatching parent to hand to a 1.2 sub-machine when
     /// the server selects 1.2.</summary>
@@ -481,6 +487,7 @@ resourcestring
 
 const
   PskDheKeMode = Byte(1); // psk_key_exchange_modes: psk_dhe_ke
+  MaxRememberedTickets = Int32(16); // tickets a fatal alert withdraws from the cache
   CookieExtensionOverhead = Int32(4 + 2); // extension header and the cookie's length prefix (RFC 8446 4.2.2)
 
 { TTls13ClientStateMachine }
@@ -812,6 +819,7 @@ var
   LMaxEarlyData: UInt32;
   LPeerChain: TArray<TBytes>;
   LLifetime: UInt32;
+  LAuthenticatedAtMs, LNowMs: UInt64;
 begin
   Result := nil;
   // validate the ticket structure even when not caching (an empty/malformed ticket is a
@@ -838,7 +846,13 @@ begin
   // a ticket beyond what a ClientHello is budgeted for is ignored (RFC 8446 4.6.1)
   if System.Length(LNst.Ticket) > TSessionTicketLimits.MaxCachedTicketBytes then
     Exit;
-  LLifetime := TClientSessionPolicy.ClampTicketLifetime(LNst.TicketLifetime);
+  // a ticket keeps the authentication time of its connection's handshake and only the days left
+  LNowMs := NowUnixMillis;
+  LAuthenticatedAtMs := FAuthenticatedAtMs;
+  LLifetime := TClientSessionPolicy.RenewedTicketLifetime(LNst.TicketLifetime,
+    LAuthenticatedAtMs, LNowMs);
+  if LLifetime = 0 then
+    Exit;
   LPsk := FSchedule.ResumptionPsk(LNst.TicketNonce);
   // carry the verified server chain so an opt-in ReverifyOnResume can re-check it on resume. On a
   // resumed connection no Certificate was sent, so the ticket inherits the resumed session's chain
@@ -848,10 +862,14 @@ begin
   LSession := TTls13ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, LPsk, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
-    LLifetime, LNst.TicketAgeAdd, NowUnixMillis,
+    LLifetime, LNst.TicketAgeAdd, LNowMs,
     LMaxEarlyData, LPeerChain, nil, FSessionPskIdentity, FSessionPskBinding,
-    FPeerSignatureScheme);
+    FPeerSignatureScheme, LAuthenticatedAtMs);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
+  // bounded against a server streaming tickets; older ones are not withdrawn (RFC 8446 6, "if possible")
+  if System.Length(FStoredSessions) >= MaxRememberedTickets then
+    FStoredSessions := System.Copy(FStoredSessions, 1, MaxRememberedTickets - 1);
+  TArrayUtilities.Append<IResumableSession>(FStoredSessions, LSession);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
 end;
@@ -920,6 +938,7 @@ begin
         FResumptionPskIdentity := LCached.PskIdentity;
         FResumptionPskBinding := LCached.PskBinding;
         FResumptionPeerSignatureScheme := LCached.PeerSignatureScheme;
+        FAuthenticatedAtMs := LCached.AuthenticatedAtMillis;
       end;
     end
     else if FParams.AlsoOfferTls12 then
@@ -1902,6 +1921,8 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecryptError,
       @SBadServerFinished);
   FTranscript.Update(AMessage.Raw);
+  if not FResumedFromTicket then
+    FAuthenticatedAtMs := NowUnixMillis;
 
   // application secrets are over the transcript through the server Finished (before any
   // EndOfEarlyData or the client Finished)
@@ -2099,6 +2120,24 @@ begin
   else
     Result := Unexpected;
   end;
+end;
+
+procedure TTls13ClientStateMachine.ForgetSessionsOnFatal;
+var
+  LSession: IResumableSession;
+  LStored: TArray<IResumableSession>;
+begin
+  // RFC 8446 6: tickets of a failed connection SHOULD be discarded
+  LStored := FStoredSessions;
+  FStoredSessions := nil;
+  if FParams.SessionCache = nil then
+    Exit;
+  for LSession in LStored do
+    try
+      FParams.SessionCache.Remove(CacheServerIdentity, FParams.ServerName, LSession);
+    except
+      // one failing removal must not keep the rest from being withdrawn
+    end;
 end;
 
 end.

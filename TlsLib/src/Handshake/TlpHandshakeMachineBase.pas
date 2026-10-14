@@ -98,6 +98,9 @@ type
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; virtual;
     function CanExportEarlyKeyingMaterial: Boolean; virtual;
+    /// <summary>Nothing to drop by default; a machine that stores or mints resumable sessions
+    /// overrides this.</summary>
+    procedure ForgetSessionsOnFatal; virtual;
   end;
 
 implementation
@@ -208,6 +211,10 @@ end;
 function THandshakeMachineBase.CanExportEarlyKeyingMaterial: Boolean;
 begin
   Result := False;
+end;
+
+procedure THandshakeMachineBase.ForgetSessionsOnFatal;
+begin
 end;
 
 function THandshakeMachineBase.ProcessMessage(

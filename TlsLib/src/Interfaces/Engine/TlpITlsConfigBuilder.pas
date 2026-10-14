@@ -402,9 +402,11 @@ type
     /// defaults to the system source, and nil is refused. Injectable primarily so tests can drive
     /// deterministic elapsed time.</summary>
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsServerConfigBuilder;
-    /// <summary>The lifetime advertised for issued sessions and tickets, in seconds. 0 tells the
-    /// client to discard the ticket at once (RFC 8446 4.6.1), so Build refuses it while resumption
-    /// is on.</summary>
+    /// <summary>The lifetime advertised for issued sessions and tickets, in seconds, at most seven
+    /// days (a larger value is refused at the call). 0 tells the client to discard the ticket at
+    /// once (RFC 8446 4.6.1), so Build refuses it while resumption is on. A ticket renewed on a
+    /// resumption advertises at most what remains of seven days since the full handshake that
+    /// authenticated the session, and no session resumes past that.</summary>
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsServerConfigBuilder;

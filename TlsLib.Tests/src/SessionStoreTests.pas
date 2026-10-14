@@ -59,6 +59,9 @@ type
   published
     procedure TestCacheStoreAndTakeSingleUse;
     procedure TestCacheKeyedByServerAndSni;
+    procedure TestCacheRemoveDropsOnlyTheNamedSession;
+    procedure TestCacheRemoveOfAnAbsentSessionIsHarmless;
+    procedure TestCacheTakeDropsASessionWhoseAuthenticationLapsed;
     procedure TestCacheBoundedEviction;
     procedure TestCachePrefersTls13OverTls12;
     procedure TestCacheExpiredHeadDoesNotShadowLiveTicket;
@@ -101,8 +104,10 @@ type
     procedure TestStekSealOpenCarriesTls12Group;
     procedure TestStekSealOpenCarriesTls12PeerSignatureScheme;
     procedure TestLargestSealedTicketIsTheCachedLimit;
-    procedure TestStekTicketOfAnOlderFormatIsDeclined;
     procedure TestStekSealOpenCarriesTls13PeerSignatureScheme;
+    procedure TestStekSealOpenCarriesTls13AuthenticatedAt;
+    procedure TestStekSealOpenCarriesTls12AuthenticatedAt;
+    procedure TestStekV10TicketIsDeclined;
     procedure TestStekSealDeclinesBaseOnlySession;
     procedure TestAntiReplayDetectsReplay;
     procedure TestAntiReplayFreshAfterExpiry;
@@ -164,6 +169,7 @@ type
     function ServerName: string;
     function TicketLifetime: UInt32;
     function IssuedAtMillis: UInt64;
+    function AuthenticatedAtMillis: UInt64;
     function PeerCertificates: TArray<TBytes>;
     function ResumptionScope: TBytes;
     function PskIdentity: TBytes;
@@ -217,6 +223,11 @@ begin
 end;
 
 function TBaseOnlySession.IssuedAtMillis: UInt64;
+begin
+  Result := 0;
+end;
+
+function TBaseOnlySession.AuthenticatedAtMillis: UInt64;
 begin
   Result := 0;
 end;
@@ -284,6 +295,53 @@ begin
     (LTaken as ITls13ResumableSession).TicketIdentity);
   CheckFalse(LCache.Take('example.com:443', 'example.com', 0, LTaken),
     'retrieval is single-use');
+end;
+
+procedure TTestSessionStore.TestCacheRemoveDropsOnlyTheNamedSession;
+var
+  LCache: ISessionCache;
+  LKept, LDropped, LTaken: IResumableSession;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LKept := MakeSession(Tag($01, 4));
+  LDropped := MakeSession(Tag($02, 4));
+  LCache.Store('host:443', 'a.example', LKept);
+  LCache.Store('host:443', 'a.example', LDropped);
+  LCache.Remove('host:443', 'a.example', LDropped);
+  CheckEquals(1, LCache.Count, 'one session is left');
+  CheckTrue(LCache.Take('host:443', 'a.example', 0, LTaken), 'the other session is still there');
+  CheckTrue(LKept = LTaken, 'the kept session is the one that was not removed');
+end;
+
+procedure TTestSessionStore.TestCacheRemoveOfAnAbsentSessionIsHarmless;
+var
+  LCache: ISessionCache;
+  LTaken: IResumableSession;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LCache.Store('host:443', 'a.example', MakeSession(Tag($01, 4)));
+  // a session stored under another server, or already taken, is not an error and drops nothing
+  LCache.Remove('host:443', 'b.example', MakeSession(Tag($02, 4)));
+  LCache.Remove('host:443', 'a.example', MakeSession(Tag($03, 4)));
+  CheckEquals(1, LCache.Count, 'nothing was removed');
+  CheckTrue(LCache.Take('host:443', 'a.example', 0, LTaken), 'the stored session survives');
+end;
+
+procedure TTestSessionStore.TestCacheTakeDropsASessionWhoseAuthenticationLapsed;
+const
+  CapMs = UInt64(604800) * 1000;
+var
+  LCache: ISessionCache;
+  LTaken: IResumableSession;
+begin
+  LCache := TInMemorySessionCache.Create;
+  // freshly issued with a long lifetime, but authenticated more than seven days before the take
+  LCache.Store('host:443', 'a.example', TTls13ResumableSession.Create(
+    TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($01, 4)),
+    nil, '', Tag($01, 4), 604800, 0, CapMs, 0, nil, nil, nil, nil, 0, 0) as IResumableSession);
+  CheckFalse(LCache.Take('host:443', 'a.example', CapMs + 1, LTaken),
+    'a lapsed chain is dropped rather than returned');
+  CheckEquals(0, LCache.Count, 'and no longer held');
 end;
 
 procedure TTestSessionStore.TestCacheKeyedByServerAndSni;
@@ -1078,7 +1136,7 @@ begin
   CheckTrue(AStrategy.Open(AStrategy.Seal(TTls12ResumableSession.Create(
     TCipherSuites12.EcdheEcdsaAes128GcmSha256, THashAlgorithm.SHA_256,
     TSecretBuffer.From(Tag($4D, 48)), nil, nil, True, nil, 'legacy.example', 1800, 2000, nil,
-    nil, nil, nil, $001D, $0403) as IResumableSession), Result), 'the ticket opens');
+    nil, nil, nil, $001D, $0403, 1500) as IResumableSession), Result), 'the ticket opens');
 end;
 
 procedure TTestSessionStore.TestStekSealOpenCarriesTls12Group;
@@ -1126,7 +1184,48 @@ begin
     'the largest ticket the sealer makes is the largest a client caches');
 end;
 
-procedure TTestSessionStore.TestStekTicketOfAnOlderFormatIsDeclined;
+procedure TTestSessionStore.TestStekSealOpenCarriesTls13PeerSignatureScheme;
+var
+  LStrategy: ISessionTicketStrategy;
+  LOpened: IResumableSession;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  CheckTrue(LStrategy.Open(LStrategy.Seal(TTls13ResumableSession.Create(
+    TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)),
+    nil, 'host.example', Tag($AB, 4), 3600, $11223344, 1000, 4096, nil, nil, nil, nil, $0804, 700)
+    as IResumableSession), LOpened), 'the ticket opens');
+  CheckEquals($0804, LOpened.PeerSignatureScheme, 'the peer signature scheme round-trips');
+end;
+
+procedure TTestSessionStore.TestStekSealOpenCarriesTls13AuthenticatedAt;
+var
+  LStrategy: ISessionTicketStrategy;
+  LOpened: IResumableSession;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  // an authentication time beyond 32 bits, apart from the issue time, so neither half can be swapped
+  CheckTrue(LStrategy.Open(LStrategy.Seal(TTls13ResumableSession.Create(
+    TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)),
+    nil, 'host.example', Tag($AB, 4), 3600, $11223344, 1000, 4096, nil, nil, nil, nil, $0804,
+    UInt64($0000012345678ABC)) as IResumableSession), LOpened), 'the ticket opens');
+  CheckTrue(UInt64($0000012345678ABC) = LOpened.AuthenticatedAtMillis,
+    'the 1.3 authentication time round-trips');
+  CheckTrue(1000 = LOpened.IssuedAtMillis, 'the issue time stays its own field');
+end;
+
+procedure TTestSessionStore.TestStekSealOpenCarriesTls12AuthenticatedAt;
+var
+  LStrategy: ISessionTicketStrategy;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  CheckTrue(1500 = SealedTls12WithGroupAndScheme(LStrategy).AuthenticatedAtMillis,
+    'the 1.2 authentication time round-trips');
+end;
+
+procedure TTestSessionStore.TestStekV10TicketIsDeclined;
 var
   LKeys: ISessionTicketKeyManager;
   LStrategy: ISessionTicketStrategy;
@@ -1138,12 +1237,12 @@ var
 begin
   LKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager;
   LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
-  LTicket := LStrategy.Seal(TTls12ResumableSession.Create(
-    TCipherSuites12.EcdheEcdsaAes128GcmSha256, THashAlgorithm.SHA_256,
-    TSecretBuffer.From(Tag($4D, 48)), nil, nil, True, nil, 'legacy.example', 1800, 2000, nil,
-    nil) as IResumableSession);
+  LTicket := LStrategy.Seal(TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)), nil, 'host.example', Tag($AB, 4),
+    3600, 1, 1000, 0, nil, nil) as IResumableSession);
   CheckTrue(LStrategy.Open(LTicket, LOpened), 'control: the current format opens');
-  // re-seal the same body under the same key with the version one lower
+  // re-seal the same body under the same key, relabelled as format 10 (the format before the
+  // authentication time was added); the version is the leading big-endian uint32
   LNameLen := LKeys.KeyNameLength;
   LKeyName := System.Copy(LTicket, 0, LNameLen);
   LNonce := System.Copy(LTicket, LNameLen, 12);
@@ -1152,27 +1251,14 @@ begin
   LAead.Init(LKey);
   LPlain := TAeadUtilities.Open(LAead, LNonce, LKeyName,
     System.Copy(LTicket, LNameLen + 12, System.Length(LTicket) - LNameLen - 12));
-  System.Dec(LPlain[3]); // the version is the leading big-endian uint32
+  CheckEquals(11, Integer(LPlain[3]), 'the current format is 11');
+  LPlain[3] := 10;
   LNonce := Crypto.Primitives.GetRandom.GenerateBytes(12);
   LAead := Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   LAead.Init(LKey);
   LCipher := TAeadUtilities.Seal(LAead, LNonce, LKeyName, LPlain);
   LTicket := ConcatBytes(ConcatBytes(LKeyName, LNonce), LCipher);
-  CheckFalse(LStrategy.Open(LTicket, LOpened), 'a ticket of the previous format draws a full handshake');
-end;
-
-procedure TTestSessionStore.TestStekSealOpenCarriesTls13PeerSignatureScheme;
-var
-  LStrategy: ISessionTicketStrategy;
-  LOpened: IResumableSession;
-begin
-  LStrategy := TStekTicketStrategy.Create(Crypto,
-    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
-  CheckTrue(LStrategy.Open(LStrategy.Seal(TTls13ResumableSession.Create(
-    TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)),
-    nil, 'host.example', Tag($AB, 4), 3600, $11223344, 1000, 4096, nil, nil, nil, nil, $0804)
-    as IResumableSession), LOpened), 'the ticket opens');
-  CheckEquals($0804, LOpened.PeerSignatureScheme, 'the peer signature scheme round-trips');
+  CheckFalse(LStrategy.Open(LTicket, LOpened), 'a format 10 ticket draws a full handshake');
 end;
 
 procedure TTestSessionStore.TestStekSealDeclinesBaseOnlySession;

@@ -55,10 +55,12 @@ type
     FServerSalt: ISecretBuffer;
     FKeyLog: IKeyLog;
     FKeyLogRandom: TBytes;
+    FHandshakeSecretsReleased: Boolean;
     function Prf(const ASecret: ISecretBuffer; const ALabel: string;
       const ASeed: TBytes; ALength: Int32): ISecretBuffer;
     procedure DeriveMaster(const ALabel: string; const ASeed: TBytes);
     procedure GuardMaster;
+    procedure GuardNotReleased;
     function DoExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32): TBytes;
   public
@@ -129,7 +131,9 @@ resourcestring
   SNoSuchEpoch = 'the TLS 1.2 schedule has only an application-data epoch';
   SMasterNotDerived = 'the master secret has not been derived';
   SKeyBlockNotDerived = 'the key block is unavailable (not derived, or released after the handshake)';
-  SMasterAlreadyDerived = 'the pre-master/master secret must be set before the master secret is derived';
+  SMasterAlreadyDerived = 'the master secret has already been set or derived';
+  SPreMasterNotSet = 'the pre-master secret must be set before the master secret is derived';
+  SHandshakeSecretsReleased = 'the handshake secrets have been released';
   SRandomsAfterKeyBlock = 'the client and server randoms must be set before the key block is derived';
   SExportContextTooLong = 'the TLS 1.2 exporter context must not exceed 65535 bytes';
 
@@ -161,6 +165,12 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SMasterNotDerived);
 end;
 
+procedure TTls12KeySchedule.GuardNotReleased;
+begin
+  if FHandshakeSecretsReleased then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeSecretsReleased);
+end;
+
 procedure TTls12KeySchedule.SetKeyLog(const AKeyLog: IKeyLog;
   const AClientRandom: TBytes);
 begin
@@ -188,6 +198,12 @@ end;
 
 procedure TTls12KeySchedule.DeriveMaster(const ALabel: string; const ASeed: TBytes);
 begin
+  GuardNotReleased;
+  // a second derivation, or one after SetMasterSecret, would hand the PRF a nil secret
+  if FMasterSecret <> nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SMasterAlreadyDerived);
+  if FPreMaster = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SPreMasterNotSet);
   FMasterSecret := Prf(FPreMaster, ALabel, ASeed, Tls12MasterSecretLength);
   // the pre-master secret is consumed by this one PRF; release it
   FPreMaster := nil;
@@ -209,6 +225,7 @@ var
   LBlock: ISecretBuffer;
   LMasterBytes: TBytes;
 begin
+  GuardNotReleased;
   GuardMaster;
   // every handshake (full or abbreviated) reaches here once with the randoms set, so this is the
   // single point to report the master secret to the key log - a deliberate secret exposure copied
@@ -234,6 +251,7 @@ end;
 
 procedure TTls12KeySchedule.SetPreMasterSecret(const APreMasterSecret: ISecretBuffer);
 begin
+  GuardNotReleased;
   if FMasterSecret <> nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SMasterAlreadyDerived);
   FPreMaster := APreMasterSecret;
@@ -241,6 +259,7 @@ end;
 
 procedure TTls12KeySchedule.SetMasterSecret(const AMasterSecret: ISecretBuffer);
 begin
+  GuardNotReleased;
   if FMasterSecret <> nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SMasterAlreadyDerived);
   // an abbreviated handshake reuses the stored master secret verbatim; DeriveKeyBlock
@@ -339,6 +358,7 @@ begin
   // release the pre-master and the key-block slices once the record layer holds its keys; keep
   // the master secret (it is the RFC 5705 exporter secret for the connection's lifetime) and the
   // public randoms (also exporter seeds)
+  FHandshakeSecretsReleased := True;
   FPreMaster := nil;
   FClientKey := nil;
   FServerKey := nil;

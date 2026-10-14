@@ -92,7 +92,7 @@ type
   /// Single-threaded: the caller serializes access; there are no internal locks.
   /// </summary>
   ITlsEngine = interface(IInterface)
-    ['{7B3E9A41-52C8-4D17-B0E6-3A9C41D82F65}']
+    ['{F334F198-3F67-4109-8AE8-B1B928131889}']
     // --- network -> engine ---
     /// <summary>Feeds transport bytes; drives the record layer.</summary>
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
@@ -135,6 +135,10 @@ type
     procedure SendAlert(ADescription: TTlsAlertDescription); overload;
     /// <summary>As above, recording AReason as the error the next operation raises.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
+    /// <summary>Ends the connection after the transport failed under it, recording AReason as the
+    /// error the next operation raises. Unlike SendAlert this is not a TLS fatal alert, so the
+    /// sessions the connection stored stay resumable (RFC 5246 7.2.1).</summary>
+    procedure LatchTransportFailure(const AReason: string);
     /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
     /// send until the ClientHello. Call it once: a second call raises, as does a call from inside
     /// a handshake callback; on an engine that already failed it does nothing.</summary>

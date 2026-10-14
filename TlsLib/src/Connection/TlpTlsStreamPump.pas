@@ -215,7 +215,7 @@ begin
     // the next read or write raises the latched failure, carrying the transport's own message
     on E: Exception do
       if not AEngine.IsTerminal then
-        AEngine.SendAlert(TTlsAlertDescription.InternalError, E.Message);
+        AEngine.LatchTransportFailure(E.Message);
   end;
 end;
 

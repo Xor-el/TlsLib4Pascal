@@ -44,6 +44,8 @@ type
   public
     procedure Store(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
+    procedure Remove(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
     function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
       out ASession: IResumableSession): Boolean;
     procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
@@ -53,6 +55,26 @@ type
     property TakeCount: Int32 read FTakeCount;
     property OnStored: TSessionCacheEvent read FOnStored write FOnStored;
     property OnTake: TSessionCacheEvent read FOnTake write FOnTake;
+  end;
+
+  /// <summary>A cache over an inner cache whose first Remove raises, to show one failing removal
+  /// does not keep the engine from withdrawing the rest.</summary>
+  TFlakyRemoveSessionCache = class(TInterfacedObject, ISessionCache)
+  strict private
+    FInner: ISessionCache;
+    FFailed: Boolean;
+  public
+    constructor Create(const AInner: ISessionCache);
+    procedure Store(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    procedure Remove(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
+      out ASession: IResumableSession): Boolean;
+    procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
+    function KxHint(const AServerIdentity, AServerName: string): UInt16;
+    procedure Clear;
+    function Count: Int32;
   end;
 
   /// <summary>
@@ -80,6 +102,58 @@ type
 
 implementation
 
+{ TFlakyRemoveSessionCache }
+
+constructor TFlakyRemoveSessionCache.Create(const AInner: ISessionCache);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+procedure TFlakyRemoveSessionCache.Store(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+  FInner.Store(AServerIdentity, AServerName, ASession);
+end;
+
+procedure TFlakyRemoveSessionCache.Remove(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+  if not FFailed then
+  begin
+    FFailed := True;
+    raise Exception.Create('the cache failed to remove a session');
+  end;
+  FInner.Remove(AServerIdentity, AServerName, ASession);
+end;
+
+function TFlakyRemoveSessionCache.Take(const AServerIdentity, AServerName: string;
+  ANowMillis: UInt64; out ASession: IResumableSession): Boolean;
+begin
+  Result := FInner.Take(AServerIdentity, AServerName, ANowMillis, ASession);
+end;
+
+procedure TFlakyRemoveSessionCache.SetKxHint(const AServerIdentity, AServerName: string;
+  AGroup: UInt16);
+begin
+  FInner.SetKxHint(AServerIdentity, AServerName, AGroup);
+end;
+
+function TFlakyRemoveSessionCache.KxHint(const AServerIdentity, AServerName: string): UInt16;
+begin
+  Result := FInner.KxHint(AServerIdentity, AServerName);
+end;
+
+procedure TFlakyRemoveSessionCache.Clear;
+begin
+  FInner.Clear;
+end;
+
+function TFlakyRemoveSessionCache.Count: Int32;
+begin
+  Result := FInner.Count;
+end;
+
 { TMockSessionCache }
 
 procedure TMockSessionCache.Store(const AServerIdentity, AServerName: string;
@@ -90,6 +164,16 @@ begin
   FHasEntry := True;
   if Assigned(FOnStored) then
     FOnStored;
+end;
+
+procedure TMockSessionCache.Remove(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+  if FHasEntry and (FKey = AServerIdentity + '|' + AServerName) and (FSession = ASession) then
+  begin
+    FSession := nil;
+    FHasEntry := False;
+  end;
 end;
 
 function TMockSessionCache.Take(const AServerIdentity, AServerName: string;

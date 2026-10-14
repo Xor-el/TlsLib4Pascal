@@ -85,6 +85,8 @@ type
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
     function CanExportEarlyKeyingMaterial: Boolean;
+    /// <summary>Forwards the fatal-alert session invalidation to the resolved sub-machine.</summary>
+    procedure ForgetSessionsOnFatal;
   end;
 
   /// <summary>
@@ -255,6 +257,12 @@ end;
 function TVersionDispatchMachineBase.CanExportEarlyKeyingMaterial: Boolean;
 begin
   Result := (FInner <> nil) and FInner.CanExportEarlyKeyingMaterial;
+end;
+
+procedure TVersionDispatchMachineBase.ForgetSessionsOnFatal;
+begin
+  if FInner <> nil then
+    FInner.ForgetSessionsOnFatal;
 end;
 
 class function TVersionDispatchMachineBase.ParseExtensions(

@@ -118,6 +118,7 @@ type
     FServerName: string;
     FTicketLifetime: UInt32;
     FIssuedAtMillis: UInt64;
+    FAuthenticatedAtMillis: UInt64;
     FPeerCertificates: TArray<TBytes>;
     FResumptionScope: TBytes;
     FPskIdentity: TBytes;
@@ -134,6 +135,7 @@ type
     function ServerName: string;
     function TicketLifetime: UInt32;
     function IssuedAtMillis: UInt64;
+    function AuthenticatedAtMillis: UInt64;
     function PeerCertificates: TArray<TBytes>;
     function ResumptionScope: TBytes;
   end;
@@ -158,14 +160,16 @@ type
       AIssuedAtMillis: UInt64; AMaxEarlyData: UInt32;
       const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes); overload;
     /// <summary>As above, for a session an external pre-shared key authenticated (APskIdentity is
-    /// that key's identity, APskBinding the digest of its secret) and recording the signature
-    /// scheme that verified the peer at establishment.</summary>
+    /// that key's identity, APskBinding the digest of its secret), recording the signature
+    /// scheme that verified the peer at establishment and the time of the full handshake that
+    /// authenticated it (AAuthenticatedAtMillis; the short form takes AIssuedAtMillis).</summary>
     constructor Create(ACipherSuite: UInt16; AHash: THashAlgorithm;
       const AResumptionSecret: ISecretBuffer; const AAlpn: TBytes; const AServerName: string;
       const ATicketIdentity: TBytes; ATicketLifetime, ATicketAgeAdd: UInt32;
       AIssuedAtMillis: UInt64; AMaxEarlyData: UInt32;
       const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes;
-      const APskIdentity, APskBinding: TBytes; APeerSignatureScheme: UInt16); overload;
+      const APskIdentity, APskBinding: TBytes; APeerSignatureScheme: UInt16;
+      AAuthenticatedAtMillis: UInt64); overload;
 
     function ResumptionSecret: ISecretBuffer;
     function TicketIdentity: TBytes;
@@ -198,14 +202,16 @@ type
     /// <summary>As above, for a session authenticated by the pre-shared key APskIdentity
     /// (RFC 4279) rather than a certificate (APskBinding is the digest of that key's secret), and
     /// recording the original handshake's (EC)DHE group and the signature scheme that verified the
-    /// peer.</summary>
+    /// peer, and the time of the full handshake that authenticated it (AAuthenticatedAtMillis; the
+    /// short form takes AIssuedAtMillis).</summary>
     constructor Create(ACipherSuite: UInt16; AHash: THashAlgorithm;
       const AMasterSecret: ISecretBuffer; const ASessionId, ASessionTicket: TBytes;
       AExtendedMasterSecret: Boolean; const AAlpn: TBytes; const AServerName: string;
       ATicketLifetime: UInt32; AIssuedAtMillis: UInt64;
       const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes;
       const APskIdentity, APskBinding: TBytes;
-      ANamedGroup, APeerSignatureScheme: UInt16); overload;
+      ANamedGroup, APeerSignatureScheme: UInt16;
+      AAuthenticatedAtMillis: UInt64); overload;
 
     function NamedGroup: UInt16;
     function MasterSecret: ISecretBuffer;
@@ -332,6 +338,11 @@ begin
   Result := FIssuedAtMillis;
 end;
 
+function TResumableSessionBase.AuthenticatedAtMillis: UInt64;
+begin
+  Result := FAuthenticatedAtMillis;
+end;
+
 function TResumableSessionBase.PeerCertificates: TArray<TBytes>;
 begin
   Result := TArrayUtilities.DeepCopy<Byte>(FPeerCertificates);
@@ -368,7 +379,7 @@ constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
 begin
   Create(ACipherSuite, AHash, AResumptionSecret, AAlpn, AServerName, ATicketIdentity,
     ATicketLifetime, ATicketAgeAdd, AIssuedAtMillis, AMaxEarlyData, APeerCertificates,
-    AResumptionScope, nil, nil, 0);
+    AResumptionScope, nil, nil, 0, AIssuedAtMillis);
 end;
 
 constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
@@ -377,9 +388,10 @@ constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
   ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
   AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>;
   const AResumptionScope: TBytes; const APskIdentity, APskBinding: TBytes;
-  APeerSignatureScheme: UInt16);
+  APeerSignatureScheme: UInt16; AAuthenticatedAtMillis: UInt64);
 begin
   inherited Create;
+  FAuthenticatedAtMillis := AAuthenticatedAtMillis;
   FPeerSignatureScheme := APeerSignatureScheme;
   FPskIdentity := System.Copy(APskIdentity);
   FPskBinding := System.Copy(APskBinding);
@@ -444,7 +456,7 @@ constructor TTls12ResumableSession.Create(ACipherSuite: UInt16;
 begin
   Create(ACipherSuite, AHash, AMasterSecret, ASessionId, ASessionTicket,
     AExtendedMasterSecret, AAlpn, AServerName, ATicketLifetime, AIssuedAtMillis,
-    APeerCertificates, AResumptionScope, nil, nil, 0, 0);
+    APeerCertificates, AResumptionScope, nil, nil, 0, 0, AIssuedAtMillis);
 end;
 
 constructor TTls12ResumableSession.Create(ACipherSuite: UInt16;
@@ -453,9 +465,10 @@ constructor TTls12ResumableSession.Create(ACipherSuite: UInt16;
   const AAlpn: TBytes; const AServerName: string; ATicketLifetime: UInt32;
   AIssuedAtMillis: UInt64; const APeerCertificates: TArray<TBytes>;
   const AResumptionScope: TBytes; const APskIdentity, APskBinding: TBytes;
-  ANamedGroup, APeerSignatureScheme: UInt16);
+  ANamedGroup, APeerSignatureScheme: UInt16; AAuthenticatedAtMillis: UInt64);
 begin
   inherited Create;
+  FAuthenticatedAtMillis := AAuthenticatedAtMillis;
   FNamedGroup := ANamedGroup;
   FPeerSignatureScheme := APeerSignatureScheme;
   FPskIdentity := System.Copy(APskIdentity);

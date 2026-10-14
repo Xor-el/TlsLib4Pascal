@@ -42,6 +42,17 @@ type
     /// advertise or honour a value above it, and a client MUST NOT cache one longer, regardless
     /// of what was advertised (RFC 8446 4.6.1).</summary>
     class function ClampTicketLifetime(ALifetime: UInt32): UInt32; static;
+    /// <summary>Whether the seven-day total lifetime of a resumption chain, counted from the full
+    /// handshake that authenticated it (RFC 8446 4.6.1 recommends limiting it), has passed at
+    /// ANowMs; the seventh day itself still counts, and a clock behind the authentication time
+    /// counts as not yet lapsed.</summary>
+    class function AuthenticationLapsed(AAuthenticatedAtMs, ANowMs: UInt64): Boolean; static;
+    /// <summary>The lifetime in seconds a ticket may advertise: the configured one (clamped to
+    /// seven days) cut to what remains of the chain's total lifetime, rounded up so it is zero
+    /// only at the chain's last millisecond or once the authentication has lapsed; a caller mints
+    /// no ticket for 0.</summary>
+    class function RenewedTicketLifetime(ALifetime: UInt32;
+      AAuthenticatedAtMs, ANowMs: UInt64): UInt32; static;
     /// <summary>The session-cache key for a server: the explicit identity when set, else the
     /// SNI host, with the configuration scope folded in so a cache shared with another
     /// configuration does not resume across the two (the #31 separator cannot occur in an
@@ -49,13 +60,14 @@ type
     class function CacheIdentity(const AServerIdentity, AServerName: string;
       const AScope: TBytes): string; static;
     /// <summary>Whether a cached TLS 1.3 session is still offerable as a PSK: a zero lifetime
-    /// means discard immediately, and a ticket past its (capped) lifetime is not offered
-    /// (RFC 8446 4.6.1).</summary>
+    /// means discard immediately, and a ticket past its (capped) lifetime, or whose chain's
+    /// authentication has lapsed, is not offered (RFC 8446 4.6.1).</summary>
     class function IsOfferableTls13(const ASession: IResumableSession;
       ANowMs: UInt64): Boolean; static;
     /// <summary>Whether a cached TLS 1.2 session is still offerable: a ticket past its hinted
-    /// (capped) lifetime is dropped (RFC 5077 3.3); a hint of 0 is unspecified, so it is held to
-    /// the seven-day client ceiling instead of being discarded as in 1.3.</summary>
+    /// (capped) lifetime, or whose chain's authentication has lapsed, is dropped (RFC 5077 3.3); a
+    /// hint of 0 is unspecified, so it is held to the seven-day client ceiling instead of being
+    /// discarded as in 1.3.</summary>
     class function IsOfferableTls12(const ASession: IResumableSession;
       ANowMs: UInt64): Boolean; static;
     /// <summary>The extension types a framed ClientHello offered: strips the 4-byte handshake
@@ -90,6 +102,29 @@ begin
     Result := MaxTicketLifetimeSeconds;
 end;
 
+class function TClientSessionPolicy.AuthenticationLapsed(AAuthenticatedAtMs,
+  ANowMs: UInt64): Boolean;
+begin
+  Result := (ANowMs > AAuthenticatedAtMs) and
+    ((ANowMs - AAuthenticatedAtMs) > UInt64(MaxTicketLifetimeSeconds) * 1000);
+end;
+
+class function TClientSessionPolicy.RenewedTicketLifetime(ALifetime: UInt32;
+  AAuthenticatedAtMs, ANowMs: UInt64): UInt32;
+var
+  LElapsedMs, LRemainingMs: UInt64;
+begin
+  Result := ClampTicketLifetime(ALifetime);
+  if AuthenticationLapsed(AAuthenticatedAtMs, ANowMs) then
+    Exit(0);
+  LElapsedMs := 0;
+  if ANowMs > AAuthenticatedAtMs then
+    LElapsedMs := ANowMs - AAuthenticatedAtMs;
+  LRemainingMs := UInt64(MaxTicketLifetimeSeconds) * 1000 - LElapsedMs;
+  if UInt64(Result) * 1000 > LRemainingMs then
+    Result := UInt32((LRemainingMs + 999) div 1000);
+end;
+
 class function TClientSessionPolicy.CacheIdentity(const AServerIdentity,
   AServerName: string; const AScope: TBytes): string;
 begin
@@ -114,7 +149,8 @@ begin
   // too so a ticket cached out-of-band cannot outlive the RFC bound.
   LCappedLifetime := ClampTicketLifetime(ASession.TicketLifetime);
   Result := (ASession.TicketLifetime > 0) and ((ANowMs - ASession.IssuedAtMillis) <=
-    (UInt64(LCappedLifetime) * 1000));
+    (UInt64(LCappedLifetime) * 1000)) and
+    not AuthenticationLapsed(ASession.AuthenticatedAtMillis, ANowMs);
 end;
 
 class function TClientSessionPolicy.IsOfferableTls12(
@@ -127,7 +163,8 @@ begin
   LCappedLifetime := ClampTicketLifetime(ASession.TicketLifetime);
   if LCappedLifetime = 0 then
     LCappedLifetime := MaxTicketLifetimeSeconds;
-  Result := (ANowMs - ASession.IssuedAtMillis) <= (UInt64(LCappedLifetime) * 1000);
+  Result := ((ANowMs - ASession.IssuedAtMillis) <= (UInt64(LCappedLifetime) * 1000)) and
+    not AuthenticationLapsed(ASession.AuthenticatedAtMillis, ANowMs);
 end;
 
 class function TClientSessionPolicy.OfferedExtensionTypes(

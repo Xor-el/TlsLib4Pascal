@@ -49,6 +49,11 @@ type
     // rules read only those two fields, so the rest is filler
     function MakeSession(ALifetime: UInt32;
       AIssuedAtMillis: UInt64): IResumableSession;
+    // as MakeSession, authenticated at its own time apart from the issue time
+    function MakeAuthenticatedSession(ALifetime: UInt32;
+      AIssuedAtMillis, AAuthenticatedAtMillis: UInt64): IResumableSession;
+    function MakeAuthenticatedTls12Session(ALifetime: UInt32;
+      AIssuedAtMillis, AAuthenticatedAtMillis: UInt64): IResumableSession;
     // a framed ClientHello (4-byte handshake header + body) whose extensions field carries the
     // given types in order, each with a single filler byte
     function MakeFramedHello(const ATypes: array of UInt16): TBytes;
@@ -65,6 +70,15 @@ type
     procedure TestOfferableWithinCappedLifetime;
     procedure TestNotOfferablePastLifetime;
     procedure TestOfferabilityHonorsSevenDayCap;
+    procedure TestAuthenticationLapsesPastSevenDays;
+    procedure TestAuthenticationClockBehindIsNotLapsed;
+    procedure TestRenewedLifetimeIsCutToTheRemainingChain;
+    procedure TestRenewedLifetimeKeepsAShorterConfiguredValue;
+    procedure TestRenewedLifetimeRoundsUpAndNeverZeroWhileLive;
+    procedure TestRenewedLifetimeIsZeroOnceLapsed;
+    procedure TestTls13NotOfferableOnceAuthenticationLapsed;
+    procedure TestTls12NotOfferableOnceAuthenticationLapsed;
+    procedure TestOfferableAtTheAuthenticationEdge;
     procedure TestCacheIdentityPrefersIdentityOverName;
     procedure TestCacheIdentityFallsBackToServerName;
     procedure TestCacheIdentityFoldsScopeDeterministically;
@@ -144,6 +158,24 @@ begin
   Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, LSecret, nil, '',
     TBytes.Create($AB), ALifetime, 0, AIssuedAtMillis, 0, nil, nil);
+end;
+
+function TTestClientSessionPolicy.MakeAuthenticatedSession(ALifetime: UInt32;
+  AIssuedAtMillis, AAuthenticatedAtMillis: UInt64): IResumableSession;
+begin
+  Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(TBytes.Create(1, 2, 3, 4)), nil, '',
+    TBytes.Create($AB), ALifetime, 0, AIssuedAtMillis, 0, nil, nil, nil, nil, 0,
+    AAuthenticatedAtMillis);
+end;
+
+function TTestClientSessionPolicy.MakeAuthenticatedTls12Session(ALifetime: UInt32;
+  AIssuedAtMillis, AAuthenticatedAtMillis: UInt64): IResumableSession;
+begin
+  Result := TTls12ResumableSession.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(TBytes.Create(1, 2, 3, 4)), nil,
+    TBytes.Create($AB), True, nil, '', ALifetime, AIssuedAtMillis, nil, nil, nil, nil, 0, 0,
+    AAuthenticatedAtMillis);
 end;
 
 function TTestClientSessionPolicy.MakeFramedHello(
@@ -267,6 +299,89 @@ begin
     'offerable at the seven-day edge');
   CheckFalse(TClientSessionPolicy.IsOfferableTls13(LSession, LCapMs + 1),
     'not offerable one millisecond past the seven-day cap');
+end;
+
+procedure TTestClientSessionPolicy.TestAuthenticationLapsesPastSevenDays;
+const
+  CapMs = UInt64(604800) * 1000;
+begin
+  CheckFalse(TClientSessionPolicy.AuthenticationLapsed(1000, 1000 + CapMs),
+    'the seventh day itself still counts');
+  CheckTrue(TClientSessionPolicy.AuthenticationLapsed(1000, 1000 + CapMs + 1),
+    'one millisecond past seven days has lapsed');
+end;
+
+procedure TTestClientSessionPolicy.TestAuthenticationClockBehindIsNotLapsed;
+begin
+  CheckFalse(TClientSessionPolicy.AuthenticationLapsed(5000, 1000),
+    'a clock behind the authentication time is not lapsed');
+end;
+
+procedure TTestClientSessionPolicy.TestRenewedLifetimeIsCutToTheRemainingChain;
+const
+  DayMs = UInt64(86400) * 1000;
+begin
+  // six days into the chain, a seven-day configured lifetime shrinks to the one day left
+  CheckEquals(86400, Integer(TClientSessionPolicy.RenewedTicketLifetime(604800, 0, 6 * DayMs)),
+    'the lifetime is cut to what remains of the seven days');
+  CheckEquals(604800, Integer(TClientSessionPolicy.RenewedTicketLifetime(High(UInt32), 0, 0)),
+    'a fresh chain keeps the seven-day ceiling');
+end;
+
+procedure TTestClientSessionPolicy.TestRenewedLifetimeKeepsAShorterConfiguredValue;
+const
+  DayMs = UInt64(86400) * 1000;
+begin
+  CheckEquals(7200, Integer(TClientSessionPolicy.RenewedTicketLifetime(7200, 0, 6 * DayMs)),
+    'a configured lifetime below the remainder is kept');
+end;
+
+procedure TTestClientSessionPolicy.TestRenewedLifetimeRoundsUpAndNeverZeroWhileLive;
+const
+  CapMs = UInt64(604800) * 1000;
+begin
+  CheckEquals(1, Integer(TClientSessionPolicy.RenewedTicketLifetime(604800, 0, CapMs - 1)),
+    'one millisecond left advertises one second');
+  CheckEquals(2, Integer(TClientSessionPolicy.RenewedTicketLifetime(604800, 0, CapMs - 1001)),
+    'a partial second rounds up');
+end;
+
+procedure TTestClientSessionPolicy.TestRenewedLifetimeIsZeroOnceLapsed;
+const
+  CapMs = UInt64(604800) * 1000;
+begin
+  CheckEquals(0, Integer(TClientSessionPolicy.RenewedTicketLifetime(604800, 0, CapMs + 1)),
+    'a lapsed chain advertises no lifetime');
+  CheckEquals(604800, Integer(TClientSessionPolicy.RenewedTicketLifetime(604800, 5000, 1000)),
+    'a clock behind the authentication time keeps the full lifetime');
+end;
+
+procedure TTestClientSessionPolicy.TestTls13NotOfferableOnceAuthenticationLapsed;
+const
+  CapMs = UInt64(604800) * 1000;
+begin
+  // freshly issued, long lifetime, but authenticated more than seven days ago
+  CheckFalse(TClientSessionPolicy.IsOfferableTls13(
+    MakeAuthenticatedSession(604800, CapMs, 0), CapMs + 1), '1.3 does not offer a lapsed chain');
+end;
+
+procedure TTestClientSessionPolicy.TestTls12NotOfferableOnceAuthenticationLapsed;
+const
+  CapMs = UInt64(604800) * 1000;
+begin
+  CheckFalse(TClientSessionPolicy.IsOfferableTls12(
+    MakeAuthenticatedTls12Session(604800, CapMs, 0), CapMs + 1),
+    '1.2 does not offer a lapsed chain');
+end;
+
+procedure TTestClientSessionPolicy.TestOfferableAtTheAuthenticationEdge;
+const
+  CapMs = UInt64(604800) * 1000;
+begin
+  CheckTrue(TClientSessionPolicy.IsOfferableTls13(
+    MakeAuthenticatedSession(604800, CapMs, 0), CapMs), '1.3 offers at the edge');
+  CheckTrue(TClientSessionPolicy.IsOfferableTls12(
+    MakeAuthenticatedTls12Session(604800, CapMs, 0), CapMs), '1.2 offers at the edge');
 end;
 
 procedure TTestClientSessionPolicy.TestCacheIdentityPrefersIdentityOverName;

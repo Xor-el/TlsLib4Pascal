@@ -43,6 +43,8 @@ type
     procedure TestHkdfExpandLabelRfc8448;
     procedure TestDeriveSecretRfc8448;
     procedure TestOverLengthLabelOrContextRaises;
+    procedure TestEmptyLabelEncodesTheBarePrefix;
+    procedure TestLongestLabelIsAccepted;
   end;
 
 implementation
@@ -111,21 +113,29 @@ begin
   end;
 end;
 
+procedure TTestHkdfLabel.TestEmptyLabelEncodesTheBarePrefix;
+var
+  LEncoded: TBytes;
+begin
+  // the exporter derives with an empty label (RFC 8446 7.5): uint16 length, the 6-byte
+  // "tls13 " label, an empty context
+  LEncoded := THkdfLabel.BuildHkdfLabel('', nil, 16);
+  CheckEqualBytes('an empty label encodes as the bare prefix',
+    DecodeHex('0010' + '06' + '746c73313320' + '00'), LEncoded);
+end;
+
+procedure TTestHkdfLabel.TestLongestLabelIsAccepted;
+begin
+  // "tls13 " + 249 chars = 255 bytes, the largest label the length byte can carry
+  CheckEquals(2 + 1 + 255 + 1, System.Length(THkdfLabel.BuildHkdfLabel(StringOfChar('x', 249),
+    nil, 16)), 'a 255-byte label is accepted');
+end;
+
 procedure TTestHkdfLabel.TestOverLengthLabelOrContextRaises;
 var
   LBigContext: TBytes;
   LRaised: Boolean;
 begin
-  // an empty label leaves only the 6-byte "tls13 " prefix, below the 7-byte floor
-  LRaised := False;
-  try
-    THkdfLabel.BuildHkdfLabel('', nil, 16);
-  except
-    on E: EArgumentTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'too-short label rejected');
-
   // "tls13 " + 250 chars = 256 bytes, over the 255 label cap
   LRaised := False;
   try

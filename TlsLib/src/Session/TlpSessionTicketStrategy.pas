@@ -111,7 +111,9 @@ const
   // v9: the PSK identity and secret digest moved to the common fields so a 1.3 session an external
   // PSK authenticated carries them too
   // v10: the common fields add the peer's signature scheme, the 1.2 tail the handshake's named group
-  TicketFormatVersion = UInt32(10);
+  // v11: the common fields add the time of the full handshake that authenticated the session, which
+  // a renewal carries unchanged so a chain of resumptions has a bounded total lifetime
+  TicketFormatVersion = UInt32(11);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized
   // chain does not bloat the ticket and the resumed ClientHello that re-presents it. Past the cap
@@ -194,7 +196,7 @@ class function TStekTicketStrategy.SerializeSession(
 var
   LWriter: IWireWriter;
   LMarker: TWireVectorMarker;
-  LIssued: UInt64;
+  LIssued, LAuthenticated: UInt64;
   L13: ITls13ResumableSession;
   L12: ITls12ResumableSession;
   LResumption, LMaster: TBytes;
@@ -209,6 +211,9 @@ begin
   LIssued := ASession.IssuedAtMillis;
   LWriter.WriteUInt32(UInt32(LIssued shr 32));
   LWriter.WriteUInt32(UInt32(LIssued and $FFFFFFFF));
+  LAuthenticated := ASession.AuthenticatedAtMillis;
+  LWriter.WriteUInt32(UInt32(LAuthenticated shr 32));
+  LWriter.WriteUInt32(UInt32(LAuthenticated and $FFFFFFFF));
   LMarker := LWriter.OpenVector(2);
   LWriter.WriteBytes(ASession.Alpn);
   LWriter.CloseVector(LMarker);
@@ -309,7 +314,7 @@ var
   LHashByte, LEms: Byte;
   LHash: THashAlgorithm;
   LLifetime, LAgeAdd, LMaxEarly, LHi, LLo: UInt32;
-  LIssued: UInt64;
+  LIssued, LAuthenticated: UInt64;
   LServerName: string;
   LAlpn, LResumption, LMaster, LScope, LPskIdentity, LPskBinding: TBytes;
   LPeerChain: TArray<TBytes>;
@@ -332,6 +337,9 @@ begin
   LHi := LReader.ReadUInt32;
   LLo := LReader.ReadUInt32;
   LIssued := (UInt64(LHi) shl 32) or UInt64(LLo);
+  LHi := LReader.ReadUInt32;
+  LLo := LReader.ReadUInt32;
+  LAuthenticated := (UInt64(LHi) shl 32) or UInt64(LLo);
   LVec := LReader.OpenVector(2);
   LAlpn := LVec.ReadBytes(LVec.Remaining);
   LVec := LReader.OpenVector(2);
@@ -360,7 +368,7 @@ begin
         Exit;
       ASession := TTls13ResumableSession.Create(LSuite, LHash,
         TSecretBuffer.From(LResumption), LAlpn, LServerName, nil, LLifetime, LAgeAdd,
-        LIssued, LMaxEarly, LPeerChain, LScope, LPskIdentity, LPskBinding, LScheme);
+        LIssued, LMaxEarly, LPeerChain, LScope, LPskIdentity, LPskBinding, LScheme, LAuthenticated);
     end
     else if LVersion = TlsWireVersionTls12 then
     begin
@@ -374,7 +382,8 @@ begin
       LMaster := LReader.ReadBytes(Tls12MasterSecretLength);
       ASession := TTls12ResumableSession.Create(LSuite, LHash,
         TSecretBuffer.From(LMaster), nil, nil, LEms <> 0, LAlpn, LServerName,
-        LLifetime, LIssued, LPeerChain, LScope, LPskIdentity, LPskBinding, LGroup, LScheme);
+        LLifetime, LIssued, LPeerChain, LScope, LPskIdentity, LPskBinding, LGroup, LScheme,
+        LAuthenticated);
     end
     else
       Exit;
