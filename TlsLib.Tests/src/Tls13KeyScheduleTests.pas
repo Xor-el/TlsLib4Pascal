@@ -65,6 +65,7 @@ type
     procedure TestKeyUpdateAdvancesTheKey;
     procedure TestExporterIsDeterministic;
     procedure TestExporterRejectsBadArgs;
+    procedure TestExporterEmptyLabelMatchesIndependentDerivation;
     procedure TestEarlyExporterDeterministicAndDistinct;
     procedure TestEarlyExporterRaisesBeforeEarlyEpoch;
     procedure TestForgetEarlyExporterWithdrawsIt;
@@ -279,6 +280,37 @@ begin
   CheckEqualBytes('exporter is deterministic', LFirst, LSecond);
 end;
 
+procedure TTestTls13KeySchedule.TestExporterEmptyLabelMatchesIndependentDerivation;
+var
+  LSched: ITls13KeySchedule;
+  LHkdf: IHkdf;
+  LZeros, LDerived, LMaster, LExporterMaster, LLabelSecret: ISecretBuffer;
+  LEmptyHash, LContext, LContextHash, LExpected: TBytes;
+  LHash: IHash;
+begin
+  LSched := NewSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  // recompute RFC 8446 7.5 through the HKDF seam: an empty label is "tls13 " alone
+  LHkdf := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  LZeros := TSecretBuffer.Allocate(32);
+  LEmptyHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256).DoFinal;
+  LDerived := THkdfLabel.DeriveSecret(LHkdf, LHkdf.Extract(nil, LZeros), 'derived', LEmptyHash);
+  LDerived := THkdfLabel.DeriveSecret(LHkdf,
+    LHkdf.Extract(LDerived, TSecretBuffer.From(Bytes('shared_secret'))), 'derived', LEmptyHash);
+  LMaster := LHkdf.Extract(LDerived, LZeros);
+  LExporterMaster := THkdfLabel.DeriveSecret(LHkdf, LMaster, 'exp master', Bytes('hash_ch_sf'));
+  // literal HkdfLabel: length 32, the bare "tls13 " label, context H("")
+  LLabelSecret := LHkdf.Expand(LExporterMaster, DecodeHex('0020' + '06' + '746c73313320' + '20' +
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'), 32);
+  LContext := DecodeHex('00010203');
+  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
+  LHash.Update(LContext, 0, System.Length(LContext));
+  LContextHash := LHash.DoFinal;
+  LExpected := THkdfLabel.HkdfExpandLabel(LHkdf, LLabelSecret, 'exporter', LContextHash, 32).ToBytes;
+  CheckEqualBytes('an empty-label export equals the RFC 8446 7.5 derivation', LExpected,
+    LSched.ExportKeyingMaterial('', LContext, 32));
+end;
+
 procedure TTestTls13KeySchedule.TestEarlyExporterDeterministicAndDistinct;
 var
   LSched: ITls13KeySchedule;
@@ -361,8 +393,7 @@ begin
   CheckTrue(Raises('EXPORTER-test', 0), 'a zero length is rejected');
   CheckTrue(Raises('EXPORTER-test', -1), 'a negative length is rejected');
   CheckTrue(Raises(#$00E9 + 'label', 32), 'a non-ASCII label is rejected');
-  // the label is wrapped as "tls13 " + label, whose 7-byte floor rejects an empty label
-  CheckTrue(Raises('', 32), 'an empty label is rejected for TLS 1.3');
+  CheckFalse(Raises('', 32), 'an empty label is accepted for TLS 1.3');
   // RFC 5705 4: an exporter label must not reuse a TLS PRF label
   CheckTrue(Raises('master secret', 32), 'a reserved PRF label is rejected');
   CheckTrue(Raises('client finished', 32), 'a reserved finished label is rejected');

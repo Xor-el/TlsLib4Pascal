@@ -45,6 +45,8 @@ uses
   TlpTlsPresets,
   TlpTlsCredential,
   TlpITlsEngine,
+  TlpISession,
+  TlpInMemorySessionCache,
   TlpTlsEngineFactory,
   TlpITlsTransport,
   TlpTlsStreamPump,
@@ -133,6 +135,9 @@ type
     /// <summary>Moves everything AFrom has queued into ATo, returning the byte count.</summary>
     function PassOutgoing(const AFrom, ATo: ITlsEngine): Int32;
     procedure HandshakeEngines(out AClient, AServer: ITlsEngine);
+    /// <summary>A handshake whose client caches the server's ticket in ACache.</summary>
+    procedure HandshakeCachingATicket(const ACache: ISessionCache;
+      out AClient, AServer: ITlsEngine);
     procedure HandshakeEnginesWith(const AClientConfig: ITlsClientConfig;
       const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
     procedure HandshakeTls12WithAlpn(out AClient, AServer: ITlsEngine);
@@ -177,6 +182,8 @@ type
     procedure TestPumpFillsTheCallersTransportBuffer;
     procedure TestPumpReusesTheCallersTransportBuffer;
     procedure TestFailedFlushBehindBufferedDataLatchesTheEngine;
+    procedure TestTransportWriteFailureKeepsTheCachedTickets;
+    procedure TestProtocolFatalAlertAtThePumpDropsTheCachedTickets;
     procedure TestFailedFlushBehindReadKeepsTheTransportMessage;
     procedure TestWriteAfterAFailedFlushBehindReadRaises;
     procedure TestBadRecordBehindTransportDataRaisesWithTheAlertSent;
@@ -1606,6 +1613,55 @@ begin
   ATransport := TDeadWriteTransport.Create as ITlsTransport;
   System.SetLength(LDest, 16);
   TTlsStreamPump.ReadApp(AClient, ATransport, LTransportBuffer, LDest, 16, LStatus);
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeCachingATicket(const ACache: ISessionCache;
+  out AClient, AServer: ITlsEngine);
+var
+  LClientConfig: ITlsClientConfig;
+begin
+  LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithResumption(True)
+    .WithSessionCache(ACache).Build;
+  HandshakeEnginesWith(LClientConfig, ServerConfig, AClient, AServer);
+  // the server's post-handshake NewSessionTicket
+  PassOutgoing(AServer, AClient);
+  CheckTrue(ACache.Count > 0, 'the client cached the server''s ticket');
+end;
+
+procedure TTestTlsStreamLoopback.TestTransportWriteFailureKeepsTheCachedTickets;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LDest, LWire, LTransportBuffer: TBytes;
+  LStatus: TTlsReadStatus;
+begin
+  LCache := TInMemorySessionCache.Create;
+  HandshakeCachingATicket(LCache, LClient, LServer);
+  LWire := DataThenKeyUpdateRequest(LServer);
+  LClient.ProcessInput(LWire, 0, System.Length(LWire));
+  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+  System.SetLength(LDest, 16);
+  // the socket dies under the flush: the engine latches, but a broken transport is no TLS fatal alert
+  TTlsStreamPump.ReadApp(LClient, TDeadWriteTransport.Create as ITlsTransport,
+    LTransportBuffer, LDest, 16, LStatus);
+  CheckTrue(LClient.IsTerminal, 'the lost flush latched the engine');
+  CheckTrue(LCache.Count > 0, 'the cached tickets stay resumable');
+end;
+
+procedure TTestTlsStreamLoopback.TestProtocolFatalAlertAtThePumpDropsTheCachedTickets;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LTransportBuffer: TBytes;
+begin
+  LCache := TInMemorySessionCache.Create;
+  HandshakeCachingATicket(LCache, LClient, LServer);
+  TTlsStreamPump.Abort(LClient, TRecordingTransport.Create as ITlsTransport,
+    LTransportBuffer, TTlsAlertDescription.InternalError);
+  CheckTrue(LClient.IsTerminal, 'the abort ended the connection');
+  CheckEquals(0, LCache.Count, 'a fatal alert withdraws the tickets');
 end;
 
 procedure TTestTlsStreamLoopback.TestFailedFlushBehindBufferedDataLatchesTheEngine;

@@ -130,6 +130,10 @@ type
     function NewReverifyAsyncClient12(const ACache: ISessionCache;
       const AScope: TBytes = nil): ITlsEngine;
     function NewServer12(const AStore: ISessionStore): ITlsEngine;
+    /// <summary>A client and server that both speak TLS 1.2 and 1.3, so each runs behind its
+    /// version dispatcher.</summary>
+    function NewDualClient(const ACache: ISessionCache): ITlsEngine;
+    function NewDualServer(const AStore: ISessionStore): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
@@ -184,6 +188,9 @@ type
     // Hard + Reverify needs a live verdict; Build refuses it otherwise
     procedure TestHardReverifyWithoutLiveVerdictIsRefusedAtBuild;
     procedure TestHardReverifyHostDecisionIsRefusedAtBuild;
+    // a fatal alert reaches the sessions through the version dispatchers
+    procedure TestFatalAlertDropsTls13SessionsBehindTheDispatchers;
+    procedure TestFatalAlertDropsTheClientSessionBehindItsDispatcherOnTls12;
   end;
 
 implementation
@@ -201,6 +208,8 @@ type
   public
     constructor Create(const AInner: ISessionCache);
     procedure Store(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    procedure Remove(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
     function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
       out ASession: IResumableSession): Boolean;
@@ -307,6 +316,12 @@ begin
   FIdentity := AServerIdentity;
   FServerName := AServerName;
   FInner.Store(AServerIdentity, AServerName, ASession);
+end;
+
+procedure TTamperingSessionCache.Remove(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+  FInner.Remove(AServerIdentity, AServerName, ASession);
 end;
 
 function TTamperingSessionCache.Take(const AServerIdentity, AServerName: string;
@@ -636,6 +651,30 @@ begin
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithCredential(ServerCredential)
     .WithSessionStore(AStore)
+    .Build;
+  Result := TTlsEngineFactory.CreateServerEngine(LConfig);
+end;
+
+function TTestConfigResumption.NewDualClient(const ACache: ISessionCache): ITlsEngine;
+var
+  LConfig: ITlsClientConfig;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithResumption(True)
+    .WithSessionCache(ACache)
+    .Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
+end;
+
+function TTestConfigResumption.NewDualServer(const AStore: ISessionStore): ITlsEngine;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(ServerCredential)
+    .WithSessionStore(AStore)
+    .Tls13.WithTicketCount(1)
     .Build;
   Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
@@ -1798,6 +1837,48 @@ begin
       LRefused := Pos('WithLiveRevocationVerdict', E.Message) > 0;
   end;
   CheckTrue(LRefused, 'Hard + Reverify with a host-decision verdict is refused at Build');
+end;
+
+procedure TTestConfigResumption.TestFatalAlertDropsTls13SessionsBehindTheDispatchers;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LClient := NewDualClient(LCache);
+  LServer := NewDualServer(LStore);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13,
+    'the dual-version peers negotiated TLS 1.3');
+  CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
+  CheckEquals(1, LStore.Count, 'the server stored the ticket it issued');
+  LServer.SendAlert(TTlsAlertDescription.InternalError);
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsTerminal, 'the client received the fatal alert');
+  CheckEquals(0, LStore.Count, 'the server dispatcher forwards the fatal alert');
+  CheckEquals(0, LCache.Count, 'the client dispatcher forwards the fatal alert');
+end;
+
+procedure TTestConfigResumption.TestFatalAlertDropsTheClientSessionBehindItsDispatcherOnTls12;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LClient := NewDualClient(LCache);
+  LServer := NewServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.NegotiatedVersion.WireValue = TlsWireVersionTls12,
+    'the dual-version client negotiated TLS 1.2');
+  CheckEquals(1, LCache.Count, 'the client cached the 1.2 session');
+  LServer.SendAlert(TTlsAlertDescription.InternalError);
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsTerminal, 'the client received the fatal alert');
+  CheckEquals(0, LCache.Count, 'the client dispatcher forwards the fatal alert');
 end;
 
 initialization

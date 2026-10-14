@@ -499,6 +499,8 @@ type
     constructor Create(const AInner: ISessionCache);
     procedure Store(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
+    procedure Remove(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
     function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
       out ASession: IResumableSession): Boolean;
     procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
@@ -612,6 +614,15 @@ begin
     (not TInteropUtils.BytesEqual(SessionKey(FOffered), SessionKey(ASession))) then
     FNew := ASession;
   FInner.Store(AServerIdentity, AServerName, ASession);
+end;
+
+procedure TBoGoCacheRecorder.Remove(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+  // a session a fatal alert dropped is no longer a new session
+  if FNew = ASession then
+    FNew := nil;
+  FInner.Remove(AServerIdentity, AServerName, ASession);
 end;
 
 function TBoGoCacheRecorder.Take(const AServerIdentity, AServerName: string;

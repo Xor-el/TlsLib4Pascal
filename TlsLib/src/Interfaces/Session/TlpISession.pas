@@ -67,7 +67,7 @@ type
   /// sub-interfaces; a consumer narrows to the one matching <see cref="Version" />.
   /// </summary>
   IResumableSession = interface(IInterface)
-    ['{73F5FA8C-E664-460D-8084-AFE4E4B7DE0A}']
+    ['{49C518BF-2C1E-4F7E-938D-63D653127E11}']
     /// <summary>The protocol version this session was established under.</summary>
     function Version: TTlsVersion;
     /// <summary>The negotiated cipher suite.</summary>
@@ -84,6 +84,12 @@ type
     function TicketLifetime: UInt32;
     /// <summary>Wall-clock issue time in milliseconds.</summary>
     function IssuedAtMillis: UInt64;
+    /// <summary>Wall-clock time in milliseconds of the full handshake that authenticated the peer.
+    /// A resumption and every ticket renewed from it carry it unchanged, so a chain of resumptions
+    /// ends seven days after the authentication (RFC 8446 4.6.1), however often it is renewed. A
+    /// custom persistent cache must persist this value and rebuild a session with the long-form
+    /// constructor; the short form restarts the chain at the issue time, and 0 never resumes.</summary>
+    function AuthenticatedAtMillis: UInt64;
     /// <summary>The peer certificate chain verified when this session was established (leaf-first,
     /// as the peer sent it), empty when the peer presented none. A resumed handshake carries no
     /// Certificate, so the endpoint surfaces this stored chain instead; it is NOT re-verified on
@@ -115,7 +121,7 @@ type
   /// <see cref="IPreSharedKey" /> with a plain <c>as</c> cast.
   /// </summary>
   ITls13ResumableSession = interface(IResumableSession)
-    ['{9B3DC2B4-29C8-428B-9003-E96F4E1E370A}']
+    ['{275BF83D-9B3F-4EF8-928E-816E549D00F4}']
     /// <summary>The resumption PSK secret.</summary>
     function ResumptionSecret: ISecretBuffer;
     /// <summary>The opaque ticket that identifies this session on resumption.</summary>
@@ -131,7 +137,7 @@ type
   /// ticket, and whether Extended Master Secret bound it.
   /// </summary>
   ITls12ResumableSession = interface(IResumableSession)
-    ['{3B2CB6D7-13E5-4C96-A6D0-6631DD0BCCAC}']
+    ['{FC3A7BB5-8D57-4B3F-95C0-F65CAA512328}']
     /// <summary>The (EC)DHE group (IANA code) of the original handshake, reported again on a
     /// resumption (an abbreviated handshake has no key exchange); 0 for a plain PSK session.</summary>
     function NamedGroup: UInt16;
@@ -159,9 +165,16 @@ type
   /// keeps their sessions apart.
   /// </summary>
   ISessionCache = interface(IInterface)
-    ['{D5FE33F3-E018-4A9D-9EBD-14BD9B8F080B}']
+    ['{2D28B4D4-9ED3-459B-944C-F8A25576F3B4}']
     /// <summary>Caches a session under (server identity, SNI), evicting to stay bounded.</summary>
     procedure Store(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    /// <summary>Drops ASession if still cached under (server identity, SNI): a connection that
+    /// ended in a fatal alert must not leave the sessions it stored resumable (RFC 5246 7.2.2,
+    /// RFC 8446 6). A session already taken or evicted is not an error. An implementation matches
+    /// the instance Store was given; a persistent one may match by session id or ticket. It must not
+    /// raise: an exception is ignored and the connection's remaining sessions may stay cached.</summary>
+    procedure Remove(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
     /// <summary>Pops one cached session for (server identity, SNI), preferring a TLS 1.3
     /// session over a TLS 1.2 one; False if none. A session whose ticket lifetime has already
@@ -259,7 +272,8 @@ type
     function Open(const ATicket: TBytes; out ASession: IResumableSession): Boolean;
     /// <summary>Marks ATicket used. False when it was already used (a stateful ticket is
     /// single-use, which backs 0-RTT anti-replay), so the caller declines resumption; a stateless
-    /// ticket is always True.</summary>
+    /// ticket is always True. A server also calls it to withdraw the tickets a connection minted
+    /// once that connection ends in a fatal alert.</summary>
     function Consume(const ATicket: TBytes): Boolean;
   end;
 

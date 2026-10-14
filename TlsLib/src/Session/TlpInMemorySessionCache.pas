@@ -21,6 +21,7 @@ uses
   Generics.Collections,
   TlpTlsVersion,
   TlpHandshakeMessages,
+  TlpClientSessionPolicy,
   TlpISession;
 
 type
@@ -53,6 +54,8 @@ type
     destructor Destroy; override;
 
     procedure Store(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    procedure Remove(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
     function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
       out ASession: IResumableSession): Boolean;
@@ -114,7 +117,8 @@ begin
   LLifetime := ASession.TicketLifetime;
   if (LLifetime = 0) or (LLifetime > MaxTicketLifetimeSeconds) then
     LLifetime := MaxTicketLifetimeSeconds;
-  Result := (ANowMillis - ASession.IssuedAtMillis) > (UInt64(LLifetime) * 1000);
+  Result := ((ANowMillis - ASession.IssuedAtMillis) > (UInt64(LLifetime) * 1000)) or
+    TClientSessionPolicy.AuthenticationLapsed(ASession.AuthenticatedAtMillis, ANowMillis);
 end;
 
 procedure TInMemorySessionCache.Store(const AServerIdentity, AServerName: string;
@@ -131,6 +135,26 @@ begin
     FEntries.Add(LEntry);
     while FEntries.Count > FCapacity do
       FEntries.Delete(0);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure TInMemorySessionCache.Remove(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+var
+  LKey: string;
+  LIndex: Int32;
+begin
+  LKey := KeyFor(AServerIdentity, AServerName);
+  FLock.Enter;
+  try
+    for LIndex := FEntries.Count - 1 downto 0 do
+      if (FEntries[LIndex].Key = LKey) and (FEntries[LIndex].Session = ASession) then
+      begin
+        FEntries.Delete(LIndex);
+        Exit;
+      end;
   finally
     FLock.Leave;
   end;

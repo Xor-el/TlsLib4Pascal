@@ -37,7 +37,7 @@ type
   /// by raising.
   /// </summary>
   IHandshakeMachine = interface(IInterface)
-    ['{2484D235-4095-45EA-9E8E-006BD3DEED79}']
+    ['{D797ED55-685B-4FD7-8CD6-5F1A0DB03060}']
     /// <summary>Whether this endpoint initiates the handshake (a client sending the first
     /// ClientHello) rather than responding to it (a server). Drives the initial
     /// legacy_record_version (RFC 8446 5.1).</summary>
@@ -87,6 +87,11 @@ type
     /// <summary>Whether the early_exporter_master_secret is available (see
     /// ExportEarlyKeyingMaterial).</summary>
     function CanExportEarlyKeyingMaterial: Boolean;
+    /// <summary>Called once the connection ended in a fatal alert, sent or received: drops the
+    /// resumable sessions and tickets this connection stored or minted, so a failed connection is
+    /// never resumed (RFC 5246 7.2.2, RFC 8446 6). A resumption the peer never proved is left alone.
+    /// Idempotent; a stateless ticket holds nothing to drop.</summary>
+    procedure ForgetSessionsOnFatal;
   end;
 
   /// <summary>

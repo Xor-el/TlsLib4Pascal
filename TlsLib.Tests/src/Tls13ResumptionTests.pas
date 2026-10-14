@@ -59,6 +59,7 @@ uses
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   TlpSessionTicketKeys,
+  TlpSessionTicketStrategy,
   TlpAntiReplay,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
@@ -149,7 +150,34 @@ type
       const ACredential: TTlsCredential): ITlsEngine;
     function BuildMtlsServerEngine(const AStek: ISessionTicketKeyManager; AIssue: Int32;
       AClientAuth: TClientAuthMode; const AClientRoot, AScope: TBytes): ITlsEngine;
+    /// <summary>A TLS 1.3 session like ASession, but holding ATicket and authenticated at
+    /// AAuthenticatedAt.</summary>
+    function Reauthenticated(const ASession: ITls13ResumableSession; const ATicket: TBytes;
+      AAuthenticatedAt: UInt64): IResumableSession;
+    /// <summary>A full handshake against a STEK server on the mock clocks, then a ticket resumption
+    /// after six days: AClientSession is the ticket the client cached afterwards, AServerSession what
+    /// the server sealed into it.</summary>
+    procedure RenewAfterSixDays(AAdvanceServerClock: Boolean;
+      out AClientSession, AServerSession: IResumableSession);
+    /// <summary>A ticket resumption where the server's sealed copy was authenticated AServerAgeMs ago
+    /// and the client's cached copy AClientAgeMs ago; True when the server ran a full handshake.</summary>
+    function ResumesAsFullHandshake(AServerAgeMs, AClientAgeMs: UInt64): Boolean;
   published
+    procedure TestRenewedTicketKeepsTheAuthenticationTimeOnTheClient;
+    procedure TestRenewedTicketKeepsTheAuthenticationTimeOnTheServer;
+    procedure TestRenewedTicketLifetimeIsCutToTheRemainingChain;
+    procedure TestClientCutsTheRenewedTicketLifetimeOnItsOwnClock;
+    procedure TestFullHandshakeTicketKeepsTheHandshakeAuthenticationTime;
+    procedure TestFatalAlertFromABadRecordDropsTheClientsCachedTickets;
+    procedure TestManyTicketsAreWithdrawnOnlyUpToTheRememberedBound;
+    procedure TestResumptionOnTheChainsLastMillisecondMintsNoTicket;
+    procedure TestOneFailingRemovalDoesNotStopTheRest;
+    procedure TestServerResumesATicketInsideTheAuthenticationLimit;
+    procedure TestServerDeclinesATicketPastTheAuthenticationLimit;
+    procedure TestClientDoesNotOfferATicketPastTheAuthenticationLimit;
+    procedure TestFatalAlertDropsTheClientsCachedTickets;
+    procedure TestFatalAlertConsumesTheServersStatefulTickets;
+    procedure TestCloseNotifyKeepsTheIssuedTickets;
     procedure TestResumptionCompletesPskDheKe;
     procedure TestMachinesRequireAClock;
     procedure TestSingleUseTicketReplayRejected;
@@ -3178,6 +3206,340 @@ begin
   end;
   CheckTrue(LClientRaised, 'a 1.3 client without a clock is refused');
   CheckTrue(LServerRaised, 'a 1.3 server without a clock is refused');
+end;
+
+function TTestTls13Resumption.Reauthenticated(const ASession: ITls13ResumableSession;
+  const ATicket: TBytes; AAuthenticatedAt: UInt64): IResumableSession;
+begin
+  Result := TTls13ResumableSession.Create(ASession.CipherSuite, ASession.Hash,
+    ASession.ResumptionSecret, ASession.Alpn, ASession.ServerName, ATicket,
+    ASession.TicketLifetime, ASession.TicketAgeAdd, ASession.IssuedAtMillis,
+    ASession.MaxEarlyData, ASession.PeerCertificates, ASession.ResumptionScope,
+    ASession.PskIdentity, ASession.PskBinding, ASession.PeerSignatureScheme,
+    AAuthenticatedAt) as IResumableSession;
+end;
+
+procedure TTestTls13Resumption.RenewAfterSixDays(AAdvanceServerClock: Boolean;
+  out AClientSession, AServerSession: IResumableSession);
+const
+  StartMs = UInt64(1700000000000);
+  SixDaysMs = UInt64(6) * 86400000;
+var
+  LClientClock, LServerClock: TMockClock;
+  LStek: ISessionTicketKeyManager;
+  LStrategy: ISessionTicketStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LClientClock := TMockClock.Create(StartMs);
+  LServerClock := TMockClock.Create(StartMs);
+  FClientClock := LClientClock;
+  FServerClock := LServerClock;
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 604800, True);
+  DriveHandshake(LClient, LServer);
+  LClientClock.Advance(SixDaysMs);
+  if AAdvanceServerClock then
+    LServerClock.Advance(SixDaysMs);
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 604800, True);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the second handshake resumed');
+  CheckTrue(LCache.Take(ServerHost, ServerHost, StartMs + SixDaysMs, AClientSession),
+    'the renewed ticket was cached');
+  LStrategy := TStekTicketStrategy.Create(Crypto, LStek);
+  CheckTrue(LStrategy.Open((AClientSession as ITls13ResumableSession).TicketIdentity,
+    AServerSession), 'the renewed ticket opens');
+end;
+
+procedure TTestTls13Resumption.TestRenewedTicketKeepsTheAuthenticationTimeOnTheClient;
+var
+  LClientSession, LServerSession: IResumableSession;
+begin
+  RenewAfterSixDays(True, LClientSession, LServerSession);
+  CheckTrue(UInt64(1700000000000) = LClientSession.AuthenticatedAtMillis,
+    'the client keeps the time of the full handshake');
+  CheckTrue(UInt64(1700000000000) + UInt64(6) * 86400000 = LClientSession.IssuedAtMillis,
+    'while the renewed ticket is issued now');
+end;
+
+procedure TTestTls13Resumption.TestRenewedTicketKeepsTheAuthenticationTimeOnTheServer;
+var
+  LClientSession, LServerSession: IResumableSession;
+begin
+  RenewAfterSixDays(True, LClientSession, LServerSession);
+  CheckTrue(UInt64(1700000000000) = LServerSession.AuthenticatedAtMillis,
+    'the server seals the time of the full handshake');
+end;
+
+procedure TTestTls13Resumption.TestRenewedTicketLifetimeIsCutToTheRemainingChain;
+var
+  LClientSession, LServerSession: IResumableSession;
+begin
+  RenewAfterSixDays(True, LClientSession, LServerSession);
+  // seven days from the authentication, six of them gone: one day left of the 604800 configured
+  CheckEquals(86400, Integer(LServerSession.TicketLifetime),
+    'the server seals only the remaining day');
+end;
+
+procedure TTestTls13Resumption.TestClientCutsTheRenewedTicketLifetimeOnItsOwnClock;
+var
+  LClientSession, LServerSession: IResumableSession;
+begin
+  // only the client's clock moved, so the server still advertises the full 604800
+  RenewAfterSixDays(False, LClientSession, LServerSession);
+  CheckEquals(604800, Integer(LServerSession.TicketLifetime), 'control: the server advertised all seven days');
+  CheckEquals(86400, Integer(LClientSession.TicketLifetime),
+    'the client caches only the remaining day');
+end;
+
+procedure TTestTls13Resumption.TestFullHandshakeTicketKeepsTheHandshakeAuthenticationTime;
+const
+  StartMs = UInt64(1700000000000);
+  SixDaysMs = UInt64(6) * 86400000;
+var
+  LClientClock: TMockClock;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LHeld, LFlight: TBytes;
+  LSession: IResumableSession;
+  LIterations: Int32;
+begin
+  LClientClock := TMockClock.Create(StartMs);
+  FClientClock := LClientClock;
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewStekServer(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, 1, 604800, True);
+  LClient.StartHandshake;
+  LHeld := nil;
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LClient, LServer);
+    LFlight := Drain(LServer);
+    // once the client is done, what the server sends is its post-handshake ticket: hold it back
+    if LClient.IsHandshaking then
+      Feed(LClient, LFlight)
+    else
+      LHeld := ConcatBytes(LHeld, LFlight);
+    Inc(LIterations);
+  end;
+  CheckTrue(System.Length(LHeld) > 0, 'the ticket was held back');
+  LClientClock.Advance(SixDaysMs);
+  Feed(LClient, LHeld);
+  CheckTrue(LCache.Take(ServerHost, ServerHost, StartMs + SixDaysMs, LSession),
+    'the late ticket was cached');
+  CheckTrue(StartMs = LSession.AuthenticatedAtMillis, 'authenticated when the handshake finished');
+  CheckTrue(StartMs + SixDaysMs = LSession.IssuedAtMillis, 'issued when the ticket arrived');
+end;
+
+procedure TTestTls13Resumption.TestOneFailingRemovalDoesNotStopTheRest;
+var
+  LInner, LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LInner := TInMemorySessionCache.Create;
+  LCache := TFlakyRemoveSessionCache.Create(LInner);
+  LClient := NewClient(LCache, False);
+  LServer := NewStekServer(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, 3, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(3, LInner.Count, 'the client cached three tickets');
+  LServer.SendAlert(TTlsAlertDescription.InternalError);
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsTerminal, 'the client received the fatal alert');
+  CheckEquals(1, LInner.Count, 'only the removal that raised left its ticket behind');
+end;
+
+procedure TTestTls13Resumption.TestResumptionOnTheChainsLastMillisecondMintsNoTicket;
+const
+  StartMs = UInt64(1700000000000);
+  SevenDaysMs = UInt64(604800) * 1000;
+var
+  LClientClock, LServerClock: TMockClock;
+  LStore: ISessionStore;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LFirst, LStored: IResumableSession;
+  L13First, L13Stored: ITls13ResumableSession;
+  LHandle: TBytes;
+begin
+  LClientClock := TMockClock.Create(StartMs);
+  LServerClock := TMockClock.Create(StartMs);
+  FClientClock := LClientClock;
+  FServerClock := LServerClock;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(LStore, 1, 604800, True);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LCache.Take(ServerHost, ServerHost, StartMs, LFirst), 'the ticket was cached');
+  L13First := LFirst as ITls13ResumableSession;
+  CheckTrue(LStore.Take(L13First.TicketIdentity, LStored), 'the server stored the session');
+  L13Stored := LStored as ITls13ResumableSession;
+  // re-seal the server's copy with a lifetime past the chain, so only the chain's own limit is left
+  LHandle := LStore.Put(TTls13ResumableSession.Create(L13Stored.CipherSuite, L13Stored.Hash,
+    L13Stored.ResumptionSecret, L13Stored.Alpn, L13Stored.ServerName, nil, 1209600,
+    L13Stored.TicketAgeAdd, L13Stored.IssuedAtMillis, L13Stored.MaxEarlyData,
+    L13Stored.PeerCertificates, L13Stored.ResumptionScope, L13Stored.PskIdentity,
+    L13Stored.PskBinding, L13Stored.PeerSignatureScheme, L13Stored.AuthenticatedAtMillis)
+    as IResumableSession);
+  LCache.Store(ServerHost, ServerHost, Reauthenticated(L13First, LHandle, StartMs));
+  LClientClock.Advance(SevenDaysMs);
+  LServerClock.Advance(SevenDaysMs);
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(LStore, 1, 604800, True);
+  DriveHandshake(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the seventh day still resumes');
+  CheckEquals(0, LStore.Count, 'but a chain with no time left mints no ticket');
+end;
+
+procedure TTestTls13Resumption.TestFatalAlertFromABadRecordDropsTheClientsCachedTickets;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LWire: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewStekServer(LStek, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
+  LServer.Write(DecodeHex('0102'), 0, 2);
+  LWire := Drain(LServer);
+  // a corrupted ciphertext byte fails the engine itself (bad_record_mac), not a peer alert
+  LWire[System.Length(LWire) - 1] := LWire[System.Length(LWire) - 1] xor $01;
+  Feed(LClient, LWire);
+  CheckTrue(LClient.IsTerminal, 'the bad record ended the connection');
+  CheckEquals(0, LCache.Count, 'the tickets are dropped on the engine''s own failure path');
+end;
+
+procedure TTestTls13Resumption.TestManyTicketsAreWithdrawnOnlyUpToTheRememberedBound;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewStekServer(LStek, 20, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(20, LCache.Count, 'the client cached every ticket');
+  LServer.SendAlert(TTlsAlertDescription.InternalError);
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsTerminal, 'the client received the fatal alert');
+  // the connection remembers its latest 16 tickets and withdraws only those
+  CheckEquals(4, LCache.Count, 'the oldest tickets beyond the bound stay cached');
+end;
+
+function TTestTls13Resumption.ResumesAsFullHandshake(AServerAgeMs, AClientAgeMs: UInt64): Boolean;
+var
+  LStek: ISessionTicketKeyManager;
+  LStrategy: ISessionTicketStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LFirst, LOpened: IResumableSession;
+  L13First, L13Opened: ITls13ResumableSession;
+  LNowMs: UInt64;
+  LTicket: TBytes;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 604800, True);
+  DriveHandshake(LClient, LServer);
+  LNowMs := (TSystemClock.Create as ITlsClock).NowUnixMillis;
+  CheckTrue(LCache.Take(ServerHost, ServerHost, LNowMs, LFirst), 'the ticket was cached');
+  L13First := LFirst as ITls13ResumableSession;
+  LStrategy := TStekTicketStrategy.Create(Crypto, LStek);
+  CheckTrue(LStrategy.Open(L13First.TicketIdentity, LOpened), 'the ticket opens');
+  L13Opened := LOpened as ITls13ResumableSession;
+  // the server's copy re-sealed with its own authentication age, the client's with another
+  LTicket := LStrategy.Seal(Reauthenticated(L13Opened, nil, LNowMs - AServerAgeMs));
+  LCache.Store(ServerHost, ServerHost, Reauthenticated(L13First, LTicket, LNowMs - AClientAgeMs));
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 604800, True);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the second handshake completed');
+  Result := not LClient.ConnectionInfo.Resumed;
+end;
+
+procedure TTestTls13Resumption.TestServerResumesATicketInsideTheAuthenticationLimit;
+begin
+  CheckFalse(ResumesAsFullHandshake(86400000, 86400000),
+    'a ticket authenticated a day ago resumes');
+end;
+
+procedure TTestTls13Resumption.TestServerDeclinesATicketPastTheAuthenticationLimit;
+begin
+  // the client still offers it (its copy is young), so only the server can refuse
+  CheckTrue(ResumesAsFullHandshake(UInt64(8) * 86400000, 86400000),
+    'a ticket authenticated eight days ago draws a full handshake');
+end;
+
+procedure TTestTls13Resumption.TestClientDoesNotOfferATicketPastTheAuthenticationLimit;
+begin
+  // the server would resume its copy (young), so only the client can withhold the offer
+  CheckTrue(ResumesAsFullHandshake(86400000, UInt64(8) * 86400000),
+    'a ticket authenticated eight days ago is not offered');
+end;
+
+procedure TTestTls13Resumption.TestFatalAlertDropsTheClientsCachedTickets;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewStekServer(LStek, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
+  LServer.SendAlert(TTlsAlertDescription.InternalError);
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsTerminal, 'the client received the fatal alert');
+  CheckEquals(0, LCache.Count, 'the tickets it cached are dropped');
+end;
+
+procedure TTestTls13Resumption.TestFatalAlertConsumesTheServersStatefulTickets;
+var
+  LStore: ISessionStore;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(LStore, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LStore.Count, 'the server stored the ticket it issued');
+  LServer.SendAlert(TTlsAlertDescription.InternalError);
+  CheckEquals(0, LStore.Count, 'a connection ended by a fatal alert leaves no ticket to resume');
+end;
+
+procedure TTestTls13Resumption.TestCloseNotifyKeepsTheIssuedTickets;
+var
+  LStore: ISessionStore;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(LStore, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  LServer.SendClose;
+  Pump(LServer, LClient);
+  CheckTrue(LClient.IsClosed, 'the client saw the close');
+  CheckEquals(1, LStore.Count, 'a clean close leaves the server ticket');
+  CheckEquals(1, LCache.Count, 'and the client ticket');
 end;
 
 initialization

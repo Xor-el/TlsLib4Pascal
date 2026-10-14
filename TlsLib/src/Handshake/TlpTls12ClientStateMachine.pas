@@ -206,6 +206,9 @@ type
     FResumedWithoutNewTicket: Boolean;
     /// <summary>Whether the server resumed the offered session.</summary>
     FResumed: Boolean;
+    /// <summary>The session this connection put in the cache once the server Finished verified;
+    /// a fatal alert removes it.</summary>
+    FStoredSession: IResumableSession;
     /// <summary>Whether the ServerHello echoed the session_ticket extension, so a plaintext
     /// NewSessionTicket precedes the server Finished (its read epoch is deferred past it).</summary>
     FExpectNewSessionTicket: Boolean;
@@ -307,6 +310,7 @@ type
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload; override;
     function CanExportKeyingMaterial: Boolean; override;
+    procedure ForgetSessionsOnFatal; override;
   end;
 
 implementation
@@ -1001,7 +1005,7 @@ var
   LPeerChain: TArray<TBytes>;
   LPskIdentity, LPskBinding, LSessionId, LTicket: TBytes;
   LLifetime: UInt32;
-  LIssuedAt: UInt64;
+  LIssuedAt, LAuthenticatedAt: UInt64;
 begin
   Result := nil;
   if FParams.SessionCache = nil then
@@ -1015,8 +1019,13 @@ begin
     Exit;
   // a seven-day retention cap (local policy) bounds a stored ticket; a lifetime_hint of 0 is
   // left unspecified per RFC 5077 3.3 rather than discarded
-  LLifetime := TClientSessionPolicy.ClampTicketLifetime(FReceivedTicketLifetime);
   LIssuedAt := FParams.Clock.NowUnixMillis;
+  // a resumed session keeps its authentication time, so renewing never extends the seven-day chain
+  LAuthenticatedAt := LIssuedAt;
+  if FResumed then
+    LAuthenticatedAt := FResumptionOffer.AuthenticatedAtMillis;
+  LLifetime := TClientSessionPolicy.RenewedTicketLifetime(FReceivedTicketLifetime,
+    LAuthenticatedAt, LIssuedAt);
   // a resumption that brought no fresh ticket re-stores the same session, so it keeps its original
   // issue time and lifetime: restamping it would let a session id or ticket outlive the retention cap
   if FResumedWithoutNewTicket then
@@ -1051,8 +1060,9 @@ begin
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, LSessionId,
     LTicket, FUseExtendedMasterSecret, nil, FParams.ServerName,
     LLifetime, LIssuedAt, LPeerChain, nil, LPskIdentity, LPskBinding, FSessionGroup,
-    FPeerSignatureScheme);
+    FPeerSignatureScheme, LAuthenticatedAt);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
+  FStoredSession := LSession;
   // the event announces a ticket that arrived, not the one a ticketless resumption re-stored
   if (System.Length(LTicket) > 0) and (not FResumedWithoutNewTicket) then
     Result := TArray<THandshakeEffect>.Create(
@@ -1383,6 +1393,14 @@ begin
   // exporter would not be unique to this session (RFC 7627 5.4)
   Result := (Stage = THandshakeStage.Connected) and (FSchedule <> nil) and FSchedule.CanExport and
     FUseExtendedMasterSecret;
+end;
+
+procedure TTls12ClientStateMachine.ForgetSessionsOnFatal;
+begin
+  // RFC 5246 7.2.2: a connection ended by a fatal alert is never resumed
+  if (FStoredSession <> nil) and (FParams.SessionCache <> nil) then
+    FParams.SessionCache.Remove(CacheServerIdentity, FParams.ServerName, FStoredSession);
+  FStoredSession := nil;
 end;
 
 end.

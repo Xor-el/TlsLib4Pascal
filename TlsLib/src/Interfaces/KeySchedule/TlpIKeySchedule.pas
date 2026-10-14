@@ -178,9 +178,12 @@ type
     procedure SetMasterSecret(const AMasterSecret: ISecretBuffer);
     /// <summary>Sets the client and server randoms used as PRF seeds.</summary>
     procedure SetRandoms(const AClientRandom, AServerRandom: TBytes);
-    /// <summary>master_secret = PRF(pms, "master secret", client_random+server_random).</summary>
+    /// <summary>master_secret = PRF(pms, "master secret", client_random+server_random). Raises
+    /// EInvalidOperationTlsLibException when no pre-master secret is set, the master secret
+    /// already exists, or the handshake secrets were released.</summary>
     procedure DeriveMasterSecret;
-    /// <summary>master_secret = PRF(pms, "extended master secret", session_hash) (RFC 7627).</summary>
+    /// <summary>master_secret = PRF(pms, "extended master secret", session_hash) (RFC 7627). Raises
+    /// as DeriveMasterSecret does.</summary>
     procedure DeriveExtendedMasterSecret(const ASessionHash: TBytes);
     /// <summary>key_block = PRF(master, "key expansion", server_random+client_random), split.</summary>
     procedure DeriveKeyBlock;

@@ -241,6 +241,11 @@ type
     // the client chain the accepted ticket carried (empty when none), surfaced on the resumed
     // connection since a resumed handshake sends no Certificate
     FResumedPeerCertificates: TArray<TBytes>;
+    // when the accepted ticket's session was authenticated; re-issued tickets keep it
+    FResumedAuthenticatedAtMs: UInt64;
+    /// <summary>The tickets this connection minted; a fatal alert consumes them (a stateful
+    /// strategy drops its handle, a stateless one has nothing to drop).</summary>
+    FMintedTickets: TArray<TBytes>;
     // the client leaf parsed once for the well-formed gate, reused for the signing-policy
     // check and its SubjectPublicKeyInfo; released once the signature is verified
     FParsedClientLeaf: IInspectedCertificate;
@@ -474,6 +479,7 @@ type
     destructor Destroy; override;
     function Start: TArray<THandshakeEffect>; override;
     function CanExportKeyingMaterial: Boolean; override;
+    procedure ForgetSessionsOnFatal; override;
     /// <summary>Compares the client's reported ticket age (de-obfuscated with a wrapping u32
     /// subtraction, RFC 8446 4.2.11.1) with the server-measured one saturated into u32 milliseconds:
     /// ASkewSeconds is client minus server in whole seconds, AFresh whether they agree within the
@@ -946,6 +952,9 @@ begin
     LNowMs := FParams.Clock.NowUnixMillis;
     if LNowMs >= LSession.IssuedAtMillis + UInt64(LSession.TicketLifetime) * 1000 then
       Continue;
+    // re-issued tickets do not extend the chain: resumable only seven days from the authentication
+    if TClientSessionPolicy.AuthenticationLapsed(LSession.AuthenticatedAtMillis, LNowMs) then
+      Continue;
     // mutual-TLS resumption gate: a resumed handshake never re-runs client auth (RFC 8446 4.3.2),
     // so a Required server needs the identity already stored in the ticket, else a full handshake
     if (FParams.ClientAuth = TClientAuthMode.Required) and
@@ -976,6 +985,7 @@ begin
     FPeerSignatureScheme := LSession.PeerSignatureScheme;
     FPskSecret := L13.ResumptionSecret;
     FResumedPeerCertificates := LSession.PeerCertificates;
+    FResumedAuthenticatedAtMs := LSession.AuthenticatedAtMillis;
     // 0-RTT is bound to the ticket's ALPN: accepted below only when the resumed handshake
     // negotiates the same protocol (checked once ALPN is selected)
     FAcceptedSessionAlpn := LSession.Alpn;
@@ -2057,6 +2067,7 @@ var
   LContext: TExtensionContext;
   LLifetime: UInt32;
   LChainForTicket: TArray<TBytes>;
+  LNowMs, LAuthenticatedAtMs: UInt64;
 begin
   if (FTicketStrategy = nil) or (FParams.IssueTicketCount <= 0) then
     Exit;
@@ -2067,7 +2078,16 @@ begin
     Exit;
   // a server MUST NOT advertise a lifetime above the RFC 8446 4.6.1 ceiling, and MUST NOT honour
   // a resumption beyond it either, so clamp the value the session stores and the ticket carries
-  LLifetime := TClientSessionPolicy.ClampTicketLifetime(FParams.TicketLifetimeSeconds);
+  LNowMs := FParams.Clock.NowUnixMillis;
+  // a resumed session's tickets keep its authentication time
+  LAuthenticatedAtMs := LNowMs;
+  if FPskAccepted and (FPskBinderKind = TPskBinderKind.Resumption) then
+    LAuthenticatedAtMs := FResumedAuthenticatedAtMs;
+  LLifetime := TClientSessionPolicy.RenewedTicketLifetime(FParams.TicketLifetimeSeconds,
+    LAuthenticatedAtMs, LNowMs);
+  // a chain with no time left (or a zero configuration) mints nothing
+  if LLifetime = 0 then
+    Exit;
   for LI := 0 to FParams.IssueTicketCount - 1 do
   begin
     LNonce := FParams.Crypto.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
@@ -2088,14 +2108,15 @@ begin
     LSession := TTls13ResumableSession.Create(FSelectedSuite.Common.Code,
       FSelectedSuite.Common.Hash, LPsk, FSelectedAlpn,
       FRequestedServerName, nil,
-      LLifetime, LAgeAdd, FParams.Clock.NowUnixMillis,
+      LLifetime, LAgeAdd, LNowMs,
       FParams.MaxEarlyData, LChainForTicket, FParams.ResumptionScope,
-      FSessionPskIdentity, FSessionPskBinding, FPeerSignatureScheme);
+      FSessionPskIdentity, FSessionPskBinding, FPeerSignatureScheme, LAuthenticatedAtMs);
     LHandle := FTicketStrategy.Seal(LSession);
     // an empty handle means the strategy declined to seal (e.g. an oversized chain over the cap):
     // issue no ticket for this connection rather than an unusable one
     if System.Length(LHandle) = 0 then
       Continue;
+    TArrayUtilities.Append<TBytes>(FMintedTickets, LHandle);
     LNst := Default(TTlsNewSessionTicket);
     LNst.TicketLifetime := LLifetime;
     LNst.TicketAgeAdd := LAgeAdd;
@@ -2178,6 +2199,24 @@ begin
   Result := inherited CanExportKeyingMaterial and
     ((FParams.ClientAuth = TClientAuthMode.None) or FPskAccepted or
     (FPhase = TPhase.Connected));
+end;
+
+procedure TTls13ServerStateMachine.ForgetSessionsOnFatal;
+var
+  LTicket: TBytes;
+  LMinted: TArray<TBytes>;
+begin
+  // RFC 8446 6: a failed connection's tickets SHOULD be discarded (Consume is a no-op when stateless)
+  LMinted := FMintedTickets;
+  FMintedTickets := nil;
+  if FTicketStrategy = nil then
+    Exit;
+  for LTicket in LMinted do
+    try
+      FTicketStrategy.Consume(LTicket);
+    except
+      // one failing withdrawal must not keep the rest from being withdrawn
+    end;
 end;
 
 function TTls13ServerStateMachine.WriteDirection: TTlsDirection;

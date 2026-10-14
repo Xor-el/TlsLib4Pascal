@@ -104,6 +104,9 @@ type
     /// <summary>Whether a handshake message is partially buffered (spanning records). A
     /// non-handshake record arriving now would interleave with it (RFC 8446 5.1).</summary>
     function HasBufferedHandshake: Boolean;
+    /// <summary>Drops the resumable sessions the active machine stored once the connection ended
+    /// in a fatal alert (RFC 5246 7.2.2, RFC 8446 6).</summary>
+    procedure ForgetSessionsOnFatal;
   end;
 
 implementation
@@ -223,6 +226,11 @@ end;
 function THandshakeConductor.CanExportEarlyKeyingMaterial: Boolean;
 begin
   Result := FMachine.CanExportEarlyKeyingMaterial;
+end;
+
+procedure THandshakeConductor.ForgetSessionsOnFatal;
+begin
+  FMachine.ForgetSessionsOnFatal;
 end;
 
 function THandshakeConductor.HasBufferedHandshake: Boolean;

@@ -96,7 +96,12 @@ one when ECH was accepted). For debugging only — never production.
 - **Resumption.** TLS 1.3 resumes with `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
   negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
   only as forward-secret as the session store / ticket-key lifetime. Client-cache tickets are single-use; server tickets are single-use with a session
-  store. **0-RTT is off by default** and,
+  store. A resumption chain ends seven days after the full handshake that authenticated it, however
+  often its tickets are renewed (RFC 8446 §4.6.1): a renewal keeps the original authentication time
+  and advertises only what is left. A connection ended by a fatal alert, sent or received, drops the
+  sessions and stateful tickets it stored (RFC 5246 §7.2.2, RFC 8446 §6); a stateless ticket cannot
+  be recalled. A transport failure (a reset socket) is not a fatal alert and leaves them resumable
+  (RFC 5246 §7.2.1). **0-RTT is off by default** and,
   when enabled, is bounded by an anti-replay strategy.
 - **Path validation** is delegated to the crypto backend's PKIX engine (PKITS-verified in the
   default distribution), run with a bounded path build (at most 4 non-self-issued intermediates,

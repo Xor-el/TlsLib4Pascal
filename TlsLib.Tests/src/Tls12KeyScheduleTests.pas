@@ -50,6 +50,12 @@ type
     procedure TestExporterIsDeterministic;
     procedure TestExporterRejectsBadArgs;
     procedure TestForgetKeepsMasterForExporterAndReleasesKeyBlock;
+    procedure TestDeriveMasterTwiceRaises;
+    procedure TestDeriveMasterAfterSetMasterRaises;
+    procedure TestDeriveMasterWithoutPreMasterRaises;
+    procedure TestDeriveKeyBlockAfterForgetRaises;
+    procedure TestSetPreMasterAfterForgetRaises;
+    procedure TestSetMasterAfterForgetRaises;
   end;
 
 implementation
@@ -222,6 +228,114 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'the key-block traffic keys are released after forget');
+end;
+
+procedure TTestTls12KeySchedule.TestDeriveMasterTwiceRaises;
+var
+  LSched: ITls12KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSchedule;
+  LSched.DeriveMasterSecret;
+  LRaised := False;
+  try
+    LSched.DeriveMasterSecret;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a second master derivation raises a typed error');
+end;
+
+procedure TTestTls12KeySchedule.TestDeriveMasterAfterSetMasterRaises;
+var
+  LSched: ITls12KeySchedule;
+  LRaised: Boolean;
+begin
+  // a pre-master secret is still held, so only the installed master secret stops the derivation
+  LSched := NewSchedule;
+  LSched.SetMasterSecret(TSecretBuffer.From(DecodeHex(PreMasterHex)));
+  LRaised := False;
+  try
+    LSched.DeriveExtendedMasterSecret(DecodeHex(SessionHashHex));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'deriving after an installed master secret raises a typed error');
+end;
+
+procedure TTestTls12KeySchedule.TestDeriveMasterWithoutPreMasterRaises;
+var
+  LSched: ITls12KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := TTls12KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16,
+    TAeadAlgorithm.AES_128_GCM);
+  LSched.SetRandoms(DecodeHex(ClientRandomHex), DecodeHex(ServerRandomHex));
+  LRaised := False;
+  try
+    LSched.DeriveMasterSecret;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'deriving with no pre-master secret raises a typed error');
+end;
+
+procedure TTestTls12KeySchedule.TestDeriveKeyBlockAfterForgetRaises;
+var
+  LSched: ITls12KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSchedule;
+  LSched.DeriveMasterSecret;
+  LSched.DeriveKeyBlock;
+  LSched.ForgetHandshakeSecrets;
+  LRaised := False;
+  try
+    LSched.DeriveKeyBlock;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a released schedule rejects a further key block derivation');
+end;
+
+procedure TTestTls12KeySchedule.TestSetPreMasterAfterForgetRaises;
+var
+  LSched: ITls12KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := TTls12KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16,
+    TAeadAlgorithm.AES_128_GCM);
+  LSched.ForgetHandshakeSecrets;
+  LRaised := False;
+  try
+    LSched.SetPreMasterSecret(TSecretBuffer.From(DecodeHex(PreMasterHex)));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a released schedule rejects a pre-master secret');
+end;
+
+procedure TTestTls12KeySchedule.TestSetMasterAfterForgetRaises;
+var
+  LSched: ITls12KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := TTls12KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16,
+    TAeadAlgorithm.AES_128_GCM);
+  LSched.ForgetHandshakeSecrets;
+  LRaised := False;
+  try
+    LSched.SetMasterSecret(TSecretBuffer.From(DecodeHex(PreMasterHex)));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a released schedule rejects a master secret');
 end;
 
 initialization

@@ -224,6 +224,13 @@ type
     /// <summary>Resumption state: whether the handshake resumes, and the accepted session.</summary>
     FResuming: Boolean;
     FResumedSession: ITls12ResumableSession;
+    /// <summary>Whether the resumed session was looked up by session id in the store rather than
+    /// recovered from a ticket.</summary>
+    FResumedByStoreId: Boolean;
+    /// <summary>The store id this connection owns once the client Finished proved it (stored by a
+    /// full handshake, or resumed by id); a fatal alert removes it. Empty until then, so a failed
+    /// replay of someone else's id evicts nothing.</summary>
+    FOwnedStoreId: TBytes;
     /// <summary>The client's certificate chain (leaf first) and whether it sent one, for
     /// the client CertificateVerify and the required-auth policy.</summary>
     FClientCertChain: TArray<TBytes>;
@@ -301,9 +308,9 @@ type
     /// (RFC 5077 3.3), with a freshly stamped issue time; frames a zero-length ticket when the
     /// strategy declines to seal; ASealed reports whether a real ticket was framed.</summary>
     function BuildNewSessionTicketMessage(out ASealed: Boolean): TBytes;
-    /// <summary>The configured ticket lifetime, capped at the RFC 8446 4.6.1 ceiling.</summary>
-    function EmittedTicketLifetime: UInt32;
-    /// <summary>The resumable session for the current connection, under ASessionId.</summary>
+    /// <summary>The resumable session for the current connection, under ASessionId. Its lifetime
+    /// is the configured one capped at the RFC 8446 4.6.1 ceiling and at what remains of the seven
+    /// days since the original authentication, which a resumed session keeps.</summary>
     function BuildStoredSession(const ASessionId: TBytes): IResumableSession;
     /// <summary>The negotiation facts reported at completion; a TLS 1.2 handshake has no
     /// HelloRetryRequest and always reports ProtocolVersion as the early-data reason.</summary>
@@ -328,6 +335,7 @@ type
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload; override;
     function CanExportKeyingMaterial: Boolean; override;
+    procedure ForgetSessionsOnFatal; override;
   end;
 
 implementation
@@ -1027,6 +1035,9 @@ begin
   LNowMs := FParams.Clock.NowUnixMillis;
   if LNowMs >= LSession.IssuedAtMillis + UInt64(LSession.TicketLifetime) * 1000 then
     Exit;
+  // renewals do not extend the chain: a session is resumable for seven days from its authentication
+  if TClientSessionPolicy.AuthenticationLapsed(LSession.AuthenticatedAtMillis, LNowMs) then
+    Exit;
   if not FParams.CipherSuites.TryGet(LSession.CipherSuite, LSuite) then
     Exit;
   if LSuite.Protocol <> TSuiteProtocol.Tls12 then
@@ -1082,6 +1093,7 @@ begin
     Exit;
 
   FResumedSession := L12;
+  FResumedByStoreId := not LViaTicket;
   // an abbreviated handshake has no key exchange: it reports the original session's group and signer
   FGroupCode := L12.NamedGroup;
   FPeerSignatureScheme := L12.PeerSignatureScheme;
@@ -1093,12 +1105,6 @@ begin
   // renew the ticket on an abbreviated handshake so single-use tickets stay resumable
   FIssueNewTicket := (FTicketStrategy <> nil) and AContext.SessionTicketOffered;
   Result := True;
-end;
-
-function TTls12ServerStateMachine.EmittedTicketLifetime: UInt32;
-begin
-  // apply the TLS 1.3 seven-day ceiling (RFC 8446 4.6.1) to TLS 1.2 tickets as policy; RFC 5077 sets none
-  Result := TClientSessionPolicy.ClampTicketLifetime(FParams.TicketLifetimeSeconds);
 end;
 
 function TTls12ServerStateMachine.Facts: TNegotiationFacts;
@@ -1113,6 +1119,7 @@ function TTls12ServerStateMachine.BuildStoredSession(
   const ASessionId: TBytes): IResumableSession;
 var
   LChainForTicket: TArray<TBytes>;
+  LNowMs, LAuthenticatedAtMs: UInt64;
 begin
   // carry the client chain forward so a re-issued ticket does not drop the client identity and
   // force the next connection to a full handshake; a resumed chain is only ever one accepted under
@@ -1127,25 +1134,36 @@ begin
   // derived at store time so a known identity does no extra work before the Finished
   if (System.Length(FPskBinding) = 0) and (System.Length(FPskIdentity) > 0) then
     FPskBinding := TPskSessionBinding.Derive(FParams.Crypto, FindPsk(FPskIdentity));
+  LNowMs := FParams.Clock.NowUnixMillis;
+  // a renewal keeps the original authentication time and advertises only the days left of the seven
+  LAuthenticatedAtMs := LNowMs;
+  if FResumedSession <> nil then
+    LAuthenticatedAtMs := FResumedSession.AuthenticatedAtMillis;
   Result := TTls12ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, FSchedule.MasterSecret, ASessionId, nil,
-    FUseExtendedMasterSecret, nil, FRequestedServerName, EmittedTicketLifetime,
-    FParams.Clock.NowUnixMillis, LChainForTicket, FParams.ResumptionScope, FPskIdentity, FPskBinding,
-    FGroupCode, FPeerSignatureScheme);
+    FUseExtendedMasterSecret, nil, FRequestedServerName,
+    TClientSessionPolicy.RenewedTicketLifetime(FParams.TicketLifetimeSeconds,
+    LAuthenticatedAtMs, LNowMs), LNowMs, LChainForTicket, FParams.ResumptionScope, FPskIdentity,
+    FPskBinding, FGroupCode, FPeerSignatureScheme, LAuthenticatedAtMs);
 end;
 
 function TTls12ServerStateMachine.BuildNewSessionTicketMessage(out ASealed: Boolean): TBytes;
 var
   LMsg: TTls12NewSessionTicket;
   LTicket: TBytes;
+  LStored: IResumableSession;
 begin
   // a declined seal still sends a zero-length NewSessionTicket, as session_ticket was echoed (RFC 5077 3.3)
-  LTicket := FTicketStrategy.Seal(BuildStoredSession(nil));
+  LStored := BuildStoredSession(nil);
+  // a zero from the chain's last millisecond would read as "unspecified" (RFC 5077 3.3): seal nothing
+  LTicket := nil;
+  if (LStored.TicketLifetime > 0) or (FParams.TicketLifetimeSeconds = 0) then
+    LTicket := FTicketStrategy.Seal(LStored);
   ASealed := System.Length(LTicket) > 0;
   if not ASealed then
     LMsg.TicketLifetimeHint := 0
   else
-    LMsg.TicketLifetimeHint := EmittedTicketLifetime;
+    LMsg.TicketLifetimeHint := LStored.TicketLifetime;
   LMsg.Ticket := LTicket;
   Result := THandshakeFraming.Frame(TTlsHandshakeType.NewSessionTicket,
     THandshakeMessages.EncodeTls12NewSessionTicket(LMsg));
@@ -1225,6 +1243,8 @@ begin
     FTranscript.CurrentHash, AMessage.Body) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecryptError,
       @SBadClientFinished);
+  if FResumedByStoreId then
+    FOwnedStoreId := FSessionId;
   FPhase := TPhase.Connected;
   MarkConnected;
   Result := TArray<THandshakeEffect>.Create(
@@ -1264,7 +1284,10 @@ begin
   end;
   // the id echoed in the ServerHello is stored unless a sealed ticket already carries the session
   if (FParams.SessionStore <> nil) and (System.Length(FSessionId) > 0) and (not LSealed) then
+  begin
     FParams.SessionStore.PutWithId(FSessionId, BuildStoredSession(FSessionId));
+    FOwnedStoreId := FSessionId;
+  end;
 
   // the server Finished is over the transcript INCLUDING the client Finished and any ticket
   LVerifyData := FSchedule.ComputeVerifyData(TTlsDirection.ServerWrite,
@@ -1375,6 +1398,14 @@ begin
   // exporter would not be unique to this session (RFC 7627 5.4)
   Result := (Stage = THandshakeStage.Connected) and (FSchedule <> nil) and FSchedule.CanExport and
     FUseExtendedMasterSecret;
+end;
+
+procedure TTls12ServerStateMachine.ForgetSessionsOnFatal;
+begin
+  // RFC 5246 7.2.2: a fatal alert ends resumption; 1.2 tickets are stateless, so only the proven id goes
+  if (FParams.SessionStore <> nil) and (System.Length(FOwnedStoreId) > 0) then
+    FParams.SessionStore.Remove(FOwnedStoreId);
+  FOwnedStoreId := nil;
 end;
 
 end.
