@@ -42,9 +42,9 @@ type
   /// <summary>A ClientHello. The extension block is kept as its raw wire vector
   /// (2-byte length + entries) so the extension layer owns its own parsing.</summary>
   TTlsClientHello = record
-    /// <summary>The legacy_version field: 0x0303 alongside supported_versions (a server aborts
-    /// on any other value, RFC 9846 4.2.2); without that extension it carries the client's
-    /// version.</summary>
+    /// <summary>The legacy_version field. In a TLS 1.3 ClientHello (supported_versions present) it
+    /// must be 0x0303, and a server aborts with protocol_version on any other value (RFC 9846 4.2.2).
+    /// Without that extension it keeps its pre-1.3 meaning: the client's highest supported version.</summary>
     LegacyVersion: UInt16;
     Random: TBytes;
     LegacySessionId: TBytes;
@@ -411,7 +411,7 @@ var
   LReader, LSession, LComp: TWireReader;
 begin
   LReader := TWireReader.Create(ABody);
-  // kept verbatim: servers check it (RFC 9846 4.2.2) and a pre-1.2 client carries its version here
+  // read as sent: a server checks it (RFC 9846 4.2.2), and a client without supported_versions uses it
   Result.LegacyVersion := LReader.ReadUInt16;
   Result.Random := LReader.ReadBytes(ClientHelloRandomLength);
   LSession := LReader.OpenVector(1);

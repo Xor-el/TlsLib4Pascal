@@ -480,7 +480,7 @@ begin
     end;
     if LOpened then
     begin
-      // the accepted outer is a TLS 1.3 hello, which the negotiation of the inner never sees
+      // negotiation runs on the inner hello, so the accepted outer's legacy_version is checked here
       if AOuter.LegacyVersion <> TlsWireVersionTls12 then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.ProtocolVersion, @SOuterLegacyVersion);

@@ -118,9 +118,9 @@ resourcestring
   SCertificateVerdictRejected = 'the peer certificate was rejected by the host''s verdict';
 
 const
-  // the number of consecutive post-handshake messages tolerated with no intervening application
-  // data before the stream is refused as a flood (a peer streaming KeyUpdate is a DoS); local DoS
-  // policy, so it also counts NewSessionTickets for a client that does not resume
+  // the most post-handshake messages accepted in a row with no application data between them; more
+  // are refused as a flood (local DoS policy). KeyUpdates and, for a client that does not resume,
+  // NewSessionTickets both count
   MaxConsecutivePostHandshakeMessages = Int32(32);
 
 { THandshakeConductor }

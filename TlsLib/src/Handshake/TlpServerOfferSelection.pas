@@ -61,8 +61,8 @@ type
     class procedure RejectSpuriousFallback(const ACipherSuites,
       ASupportedVersions: TArray<UInt16>; ALegacyVersion,
       AServerHighest: UInt16); static;
-    /// <summary>Aborts with protocol_version unless a ClientHello's legacy_version is 0x0303
-    /// (RFC 9846 4.2.2); callers apply it to a hello that carries supported_versions.</summary>
+    /// <summary>Aborts with protocol_version unless the ClientHello's legacy_version is 0x0303
+    /// (RFC 9846 4.2.2). Call it only for a ClientHello that has supported_versions.</summary>
     class procedure RejectUnexpectedLegacyVersion(ALegacyVersion: UInt16); static;
   end;
 

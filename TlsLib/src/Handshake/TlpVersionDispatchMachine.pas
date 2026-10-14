@@ -372,8 +372,8 @@ begin
       THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback,
         SInappropriateFallback)));
 
-  // with supported_versions the legacy_version must be 0x0303 (RFC 9846 4.2.2); without it the
-  // legacy_version still carries the client's version
+  // legacy_version must be 0x0303 when supported_versions is present (RFC 9846 4.2.2); otherwise it
+  // holds the client's version
   if System.Length(LClientVersions) > 0 then
     TServerOfferSelection.RejectUnexpectedLegacyVersion(LHello.LegacyVersion);
 
