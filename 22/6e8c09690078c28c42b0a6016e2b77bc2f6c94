@@ -1,0 +1,69 @@
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_4adb7e2edc0c28::t_be9cb7473e7411 3215
+  s_4adb7e2edc0c28::t_9034b3222530b2 2851
+  s_4adb7e2edc0c28::t_555fd8acd18d7d 2025
+  s_4adb7e2edc0c28::t_3006793fd158c7 2026
+  s_4adb7e2edc0c28::t_fe39d6e3d8e174 495-497,502-503
+  s_4adb7e2edc0c28::t_9d2053ad4d8c9a 3156-3157
+  s_4adb7e2edc0c28::t_3efb3e9cf34485 3158
+  s_4adb7e2edc0c28::t_2c058b0bfd3cb3 1996-1997
+  s_4adb7e2edc0c28::t_31edf858f1365d 2033
+  s_4adb7e2edc0c28::t_1751743f85582e 3377
+  s_4adb7e2edc0c28::t_41ab8bf44c11e7 498-501
+  s_4adb7e2edc0c28::t_6acd225c795ddc 3290
+  s_4adb7e2edc0c28::t_4e0410c0a83d92 3291-3292
+  s_4adb7e2edc0c28::t_01eadd919745ad 3214
+  s_4adb7e2edc0c28::t_f4083f932e8092 2481
+  s_4adb7e2edc0c28::t_51f20811d14ca7 2478
+  s_4adb7e2edc0c28::t_46ce632bb6e742 2019-2024,2027-2030,2032,2034-2040
+  s_4adb7e2edc0c28::t_4ab0adfca02586 2472-2474,2477,2479-2480,2482-2486
+  s_4adb7e2edc0c28::t_324339893c4def 2031
+  s_4adb7e2edc0c28::t_14ca8271f92eca 580,582-583
+  s_4adb7e2edc0c28::t_5eb5ba124873e7 198-200
+  s_4adb7e2edc0c28::t_58a4bc2303a5d6 581
+  s_4adb7e2edc0c28::t_c77873467265dc 1995
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_4adb7e2edc0c28::t_bcfe33bb386c6a 115
+  s_4adb7e2edc0c28::t_a8bae6e437f84c 488-489
+  s_4adb7e2edc0c28::t_17558c398f1322 114
+  s_4adb7e2edc0c28::t_4baa23d03b9dc3 328
+  s_4adb7e2edc0c28::t_9131393ad157fd 329-331
+  s_4adb7e2edc0c28::t_70417fca97a292 237
+TlsLib/src/Interfaces/Engine/TlpITlsConfig.pas
+  s_4adb7e2edc0c28::t_135ede2c011629 152
+  s_4adb7e2edc0c28::t_f9e62e74455978 153
+TlsLib.Interop/src/InteropEngine.pas
+  s_4adb7e2edc0c28::t_d844eba253221d 472
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_4adb7e2edc0c28::t_997b44ed90243a 128-130
+  s_4adb7e2edc0c28::t_cefd11f50da010 127,131-133
+  s_4adb7e2edc0c28::t_5771bd2d4caf26 428,432-437,441-443
+  s_4adb7e2edc0c28::t_2809ae5ab90189 4895-4920,4952-4961,4963,4965-4968,4972-4977,4980-4983,4986,5043-5051,5053,5056-5062,5065,5067,5069-5074,5077,5079,5081-5086,5089,5091,5093-5094,5096-5098
+  s_4adb7e2edc0c28::t_77d4519cb89249 429
+  s_4adb7e2edc0c28::t_46129b96249035 4921-4927
+  s_4adb7e2edc0c28::t_fecbefefed44af 5052
+  s_4adb7e2edc0c28::t_5f9f9d1e3c02b7 4292-4293,4295
+  s_4adb7e2edc0c28::t_20ae93e3370328 5063-5064,5066,5068,5075-5076,5078,5080,5087-5088,5090,5092,5095
+  s_4adb7e2edc0c28::t_aee046a94cce54 430-431
+  s_4adb7e2edc0c28::t_4ac1d5cb3a42dc 4928-4951
+  s_4adb7e2edc0c28::t_f22986d7097ceb 4962,4964,4969-4971,4978-4979,4984-4985,4987-5042
+  s_4adb7e2edc0c28::t_c1978d2d50c4a8 85-88
+  s_4adb7e2edc0c28::t_fed1b49b158f9d 5054-5055
+  s_4adb7e2edc0c28::t_68d6e4a0d40c2e 438-440
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "226e8c09690078c28c42b0a6016e2b77bc2f6c94",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
