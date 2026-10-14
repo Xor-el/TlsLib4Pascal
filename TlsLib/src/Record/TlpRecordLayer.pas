@@ -73,9 +73,10 @@ type
     /// revert to plaintext): a change_cipher_spec is only ever sent then, so emitting one once
     /// write protection is armed is a caller error (RFC 9846 5 / RFC 5246 7.1).</summary>
     FWriteIsPlaintext: Boolean;
-    /// <summary>When set (by the engine for a real handshake), a cleartext application_data
-    /// record is rejected as unexpected. Off by default so the record layer stays a plain
-    /// framing component for its own unit tests, which feed plaintext application_data.</summary>
+    /// <summary>When set (by the engine for a real handshake), an application_data record before
+    /// the handshake completes is rejected as unexpected. Off by default so the record layer
+    /// stays a plain framing component for its own unit tests, which feed plaintext
+    /// application_data.</summary>
     FStrictApplicationData: Boolean;
     /// <summary>Whether the read side is on the accepted-0-RTT early-data epoch, during which an
     /// application_data record legitimately precedes the handshake completion (RFC 9846 4.3.10).
@@ -190,14 +191,18 @@ type
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
     /// <summary>Pending outbound byte count.</summary>
     function PendingOutgoing: Int32;
+    /// <summary>Drops all pending outbound bytes, for a transport that can no longer carry
+    /// them.</summary>
+    procedure DiscardOutbound;
 
     /// <summary>Records the negotiated protocol version once the peer's hello fixes it, so an
     /// incoming change_cipher_spec can be classified: middlebox-compat filler to drop under TLS
     /// 1.3, but out of its legal window (fatal) before any hello or under an unarmed TLS 1.2
     /// read epoch (RFC 9846 5 / RFC 5246 7.1).</summary>
     procedure SetNegotiatedVersion(const AVersion: TTlsVersion);
-    /// <summary>When set, a cleartext application_data record is rejected as unexpected (RFC
-    /// 9846 5.1). The engine sets it for a real handshake; off by default for framing tests.</summary>
+    /// <summary>When set, an application_data record before the handshake completes is rejected
+    /// as unexpected (RFC 9846 5.1). The engine sets it for a real handshake; off by default for
+    /// framing tests.</summary>
     property StrictApplicationData: Boolean read FStrictApplicationData
       write FStrictApplicationData;
     /// <summary>The record_overflow ceiling applied to an inbound record's length.</summary>
@@ -270,7 +275,7 @@ resourcestring
   SEmptyRecordFlood = 'too many consecutive empty records';
   STooMuchSkippedEarlyData = 'the peer sent more skipped early data than the bound allows';
   STooMuchEarlyData = 'the peer sent more early data than the ticket''s max_early_data_size allows';
-  SUnexpectedApplicationData = 'an application_data record arrived before any read epoch keys';
+  SUnexpectedApplicationData = 'an application_data record arrived before the handshake completed';
   SRecordSizeLimitExceeded = 'inbound record plaintext exceeds the negotiated record_size_limit';
   SChangeCipherSpecFlood = 'too many change_cipher_spec records';
   SChangeCipherSpecAfterHandshake = 'change_cipher_spec after the handshake completed';
@@ -703,7 +708,7 @@ begin
           on E: EFatalAlertTlsLibException do
           begin
             // the record is encrypted under keys the server discarded; charge the record payload
-            // (length less the record header) against the budget, as the accepted path does
+            // (length less the record header) against the budget
             LPlaintextLen := System.Length(LRecord) - TRecordLimits.HeaderLength;
             if LPlaintextLen < 0 then
               LPlaintextLen := 0;
@@ -911,6 +916,13 @@ end;
 function TRecordLayer.PendingOutgoing: Int32;
 begin
   Result := FOutTail - FOutHead;
+end;
+
+procedure TRecordLayer.DiscardOutbound;
+begin
+  FOutbound := nil;
+  FOutHead := 0;
+  FOutTail := 0;
 end;
 
 end.

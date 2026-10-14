@@ -117,12 +117,10 @@ type
     procedure RouteFragment(const AFragment: TTlsRecordFragment);
     procedure DrainRecordLayer;
     function Fail(const AException: Exception): TTlsOutcome;
-    /// <summary>Ends the connection on a fatal alert, sent or received. With ADropSessions it also
-    /// drops the sessions it stored so it is never resumed (RFC 5246 7.2.2, RFC 9846 6).</summary>
+    /// <summary>Ends the connection (a fatal alert, sent or received, or a failed transport).
+    /// With ADropSessions it also drops the sessions it stored so it is never resumed
+    /// (RFC 5246 7.2.2, RFC 9846 6).</summary>
     procedure EnterFatalState(ADropSessions: Boolean);
-    /// <summary>Queues a local fatal alert, ends the connection and records AReason.</summary>
-    procedure AbortWithAlert(ADescription: TTlsAlertDescription; const AReason: string;
-      ADropSessions: Boolean);
   public
     /// <summary>
     /// Builds the engine and wires its handshake in one step: a channel over the
@@ -476,8 +474,8 @@ begin
   // a zero wire code until an epoch's keys name the negotiated version
   FInfo.NegotiatedVersion := TTlsVersion.Create(0);
   FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, '');
-  // a cleartext application_data record (before any read epoch key) is unexpected on a
-  // real handshake (RFC 9846 5.1)
+  // an application_data record before the handshake completes is unexpected on a real
+  // handshake (RFC 9846 5.1)
   FRecordLayer.StrictApplicationData := True;
   // a client stamps its initial ClientHello record with legacy_record_version 0x0301 for
   // backward compatibility before the negotiated version is known (RFC 9846 5.1)
@@ -976,26 +974,24 @@ begin
   SendAlert(ADescription, SLocalFatalAlert);
 end;
 
-procedure TTlsEngine.AbortWithAlert(ADescription: TTlsAlertDescription;
-  const AReason: string; ADropSessions: Boolean);
+procedure TTlsEngine.SendAlert(ADescription: TTlsAlertDescription; const AReason: string);
 begin
   if FTerminal then
     Exit;
   QueueAlertRecord(TTlsAlert.CreateFatal(ADescription));
-  EnterFatalState(ADropSessions);
+  EnterFatalState(True);
   FLastError := TTlsError.CreateFatal(ADescription, AReason, TTlsErrorOrigin.Local);
-end;
-
-procedure TTlsEngine.SendAlert(ADescription: TTlsAlertDescription; const AReason: string);
-begin
-  AbortWithAlert(ADescription, AReason, True);
 end;
 
 procedure TTlsEngine.LatchTransportFailure(const AReason: string);
 begin
-  // a broken transport is not a TLS fatal alert: improper closure does not forbid resumption
-  // (RFC 5246 7.2.1), and a peer resetting the socket must not wipe the cached tickets
-  AbortWithAlert(TTlsAlertDescription.InternalError, AReason, False);
+  if FTerminal then
+    Exit;
+  // not a fatal alert, so sessions stay (RFC 5246 7.2.1); queued bytes may trail a torn record
+  EnterFatalState(False);
+  FRecordLayer.DiscardOutbound;
+  FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, AReason,
+    TTlsErrorOrigin.Local);
 end;
 
 procedure TTlsEngine.StartHandshake;

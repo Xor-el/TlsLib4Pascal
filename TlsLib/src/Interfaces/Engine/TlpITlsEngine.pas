@@ -139,7 +139,8 @@ type
     procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
     /// <summary>Ends the connection after the transport failed under it, recording AReason as the
     /// error the next operation raises. Unlike SendAlert this is not a TLS fatal alert, so the
-    /// sessions the connection stored stay resumable (RFC 5246 7.2.1).</summary>
+    /// sessions the connection stored stay resumable (RFC 5246 7.2.1).
+    /// No alert is queued and pending outbound bytes are dropped.</summary>
     procedure LatchTransportFailure(const AReason: string);
     /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
     /// send until the ClientHello. Call it once: a second call raises, as does a call from inside

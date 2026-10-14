@@ -186,7 +186,7 @@ var
   LEngine: ITlsEngine;
   LWire: TBytes;
 begin
-  // a cleartext application_data record before any read epoch key is unexpected on a real
+  // an application_data record before the handshake completes is unexpected on a real
   // handshake (RFC 9846 5.1): the engine fails with unexpected_message
   LEngine := NewEngine;
   LWire := PeerRecord(TTlsContentType.ApplicationData, DecodeHex('deadbeef'));
