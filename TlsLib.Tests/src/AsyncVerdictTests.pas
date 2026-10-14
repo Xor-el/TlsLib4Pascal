@@ -1359,6 +1359,7 @@ var
   LClient, LServer: ITlsEngine;
   LRead: TMemoryPipe;
   LTransport: ITlsTransport;
+  LTransportBuffer: TBytes;
   LAlert: TTlsAlertDescription;
   LFailed: Boolean;
 begin
@@ -1374,7 +1375,7 @@ begin
     LFailed := False;
     LAlert := TTlsAlertDescription.CloseNotify;
     try
-      TTlsStreamPump.WriteApp(LClient, LTransport, DecodeHex('01'), 0, 1);
+      TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, DecodeHex('01'), 0, 1);
     except
       on E: ETlsStreamError do
       begin
@@ -1397,6 +1398,7 @@ var
   LClient, LServer: ITlsEngine;
   LRead: TMemoryPipe;
   LTransport: ITlsTransport;
+  LTransportBuffer: TBytes;
   LMessage: string;
   LForce12: Boolean;
 begin
@@ -1411,7 +1413,7 @@ begin
     LTransport := TMemoryTransport.Create(LRead, TMemoryPipe.Create);
     LMessage := '';
     try
-      TTlsStreamPump.WriteApp(LServer, LTransport, DecodeHex('01'), 0, 1);
+      TTlsStreamPump.WriteApp(LServer, LTransport, LTransportBuffer, DecodeHex('01'), 0, 1);
     except
       on E: ETlsStreamError do
         LMessage := E.Message;
@@ -1429,7 +1431,7 @@ var
   LClient, LServer: ITlsEngine;
   LRead, LWrite: TMemoryPipe;
   LTransport: ITlsTransport;
-  LWire: TBytes;
+  LWire, LTransportBuffer: TBytes;
   LGot: Int32;
 begin
   LClient := NewClient(ClientConfig(False, 0), 'localhost', LServer);
@@ -1441,7 +1443,8 @@ begin
     LTransport := TMemoryTransport.Create(LRead, LWrite);
     // a host that refuses the peer once the handshake finished sends bad_certificate, not a clean
     // close
-    TTlsStreamPump.Abort(LClient, LTransport, TTlsAlertDescription.BadCertificate);
+    TTlsStreamPump.Abort(LClient, LTransport, LTransportBuffer,
+      TTlsAlertDescription.BadCertificate);
     CheckTrue(LClient.IsTerminal, 'the engine is terminal');
     LWire := nil;
     SetLength(LWire, 4096);

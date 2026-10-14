@@ -29,15 +29,15 @@ type
     ReplayDetected);
 
   /// <summary>
-  /// A read-only snapshot of a connection's negotiated facts, taken after the handshake;
-  /// reading it before the handshake completes yields the zero values. On a resumed handshake
-  /// the peer certificate chain is the one carried in the ticket (presented when the session
-  /// was issued). ServerName has two readers: through a stream it is the client's construction
-  /// host (IP literals included; the stream overlays it), read straight off the engine it is
-  /// the SNI host_name the handshake carried.
+  /// A read-only snapshot of a connection's negotiated facts; the fields fill in as the
+  /// handshake resolves them, so a field not yet resolved reads as its zero value. On a resumed
+  /// handshake the peer certificate chain is the one carried in the ticket (presented when the
+  /// session was issued). ServerName has two readers: through a stream it is the client's
+  /// construction host (IP literals included; the stream overlays it), read straight off the
+  /// engine it is the SNI host_name the handshake carried.
   /// </summary>
   TTlsConnectionInfo = record
-    /// The negotiated protocol version (zero before the handshake completes).
+    /// The negotiated protocol version (zero until the version is selected).
     NegotiatedVersion: TTlsVersion;
     /// The selected ALPN protocol name (RFC 7301 opaque octets; see TAlpnProtocols.TryToText for the
     /// text of an ASCII name); empty when none was negotiated.

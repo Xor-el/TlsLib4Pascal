@@ -23,6 +23,9 @@ uses
   TlpISession;
 
 type
+  /// <summary>Runs inside the engine's synchronous Store or Take callback.</summary>
+  TSessionCacheEvent = procedure of object;
+
   /// <summary>
   /// A minimal, user-authored <see cref="ISessionCache" />: it shows that the seam
   /// accepts any implementation, not only the shipped TInMemorySessionCache. Holds a
@@ -36,6 +39,8 @@ type
     FHasEntry: Boolean;
     FTakeCount: Int32;
     FKxHint: UInt16;
+    FOnStored: TSessionCacheEvent;
+    FOnTake: TSessionCacheEvent;
   public
     procedure Store(const AServerIdentity, AServerName: string;
       const ASession: IResumableSession);
@@ -46,6 +51,8 @@ type
     procedure Clear;
     function Count: Int32;
     property TakeCount: Int32 read FTakeCount;
+    property OnStored: TSessionCacheEvent read FOnStored write FOnStored;
+    property OnTake: TSessionCacheEvent read FOnTake write FOnTake;
   end;
 
   /// <summary>
@@ -81,11 +88,15 @@ begin
   FKey := AServerIdentity + '|' + AServerName;
   FSession := ASession;
   FHasEntry := True;
+  if Assigned(FOnStored) then
+    FOnStored;
 end;
 
 function TMockSessionCache.Take(const AServerIdentity, AServerName: string;
   ANowMillis: UInt64; out ASession: IResumableSession): Boolean;
 begin
+  if Assigned(FOnTake) then
+    FOnTake;
   ASession := nil;
   Result := FHasEntry and (FKey = AServerIdentity + '|' + AServerName);
   if Result then

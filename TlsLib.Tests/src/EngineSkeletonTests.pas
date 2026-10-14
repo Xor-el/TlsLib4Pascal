@@ -65,6 +65,8 @@ type
     procedure TestConnectionInfoZeroStateBeforeHandshake;
     procedure TestUnknownRecordTypeIsRejectedOnTheHeaderAlone;
     procedure TestNoFatalAlertFollowsOurCloseNotify;
+    procedure TestSecondStartHandshakeIsRefused;
+    procedure TestSecondStartHandshakeQueuesNoSecondClientHello;
   end;
 
 implementation
@@ -479,6 +481,43 @@ begin
   CheckTrue(LEngine.IsTerminal, 'the failure still ends the connection');
   LOut := TakeAll(LEngine);
   CheckEquals(0, System.Length(LOut), 'no record follows our close_notify');
+end;
+
+procedure TTestEngineSkeleton.TestSecondStartHandshakeIsRefused;
+var
+  LEngine: ITlsEngine;
+  LRaised: Boolean;
+begin
+  LEngine := NewEngine;
+  LEngine.StartHandshake;
+  LRaised := False;
+  try
+    LEngine.StartHandshake;
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a repeated StartHandshake raises the misuse error');
+  CheckFalse(LEngine.IsTerminal, 'the misuse does not tear the connection down');
+end;
+
+procedure TTestEngineSkeleton.TestSecondStartHandshakeQueuesNoSecondClientHello;
+var
+  LEngine: ITlsEngine;
+  LFirst, LSecond: TBytes;
+begin
+  LEngine := NewEngine;
+  LEngine.StartHandshake;
+  LFirst := TakeAll(LEngine);
+  CheckTrue(System.Length(LFirst) > 0, 'the first start queued the ClientHello');
+  try
+    LEngine.StartHandshake;
+  except
+    on EInvalidOperationTlsLibException do
+      ; // the refusal is asserted by its own test
+  end;
+  LSecond := TakeAll(LEngine);
+  CheckEquals(0, System.Length(LSecond), 'the repeated start queued nothing');
 end;
 
 initialization

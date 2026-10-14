@@ -62,6 +62,15 @@ type
   var
     FCerts: TStringList;
     FOcsp: TStringList;
+    // the engine and outcome of the re-entry probes run from a session-cache Store callback
+    FProbeEngine: ITlsEngine;
+    FProbeStores: Int32;
+    FProbeRefused: Boolean;
+    procedure ProbeProcessInputFromStore;
+    procedure ProbeSetVerdictFromStore;
+    /// <summary>Resumes a cached TLS 1.2 session under a reverify park, with AOnStored run from
+    /// the client's session-cache Store when the accepted verdict resumes the handshake.</summary>
+    procedure ResumeAndAcceptWithStoreProbe(AOnStored: TSessionCacheEvent);
     function ServerCredential: TTlsCredential;
     function ClientTrust: ITrustAnchorStore;
     /// <summary>One field of the OCSP-stapling fixture (root/issuer/leaf certs, leaf key and the
@@ -161,6 +170,11 @@ type
     procedure TestTls12ReverifyOnResumeAsyncParkAcceptsCompletes;
     procedure TestTls12ReverifyOnResumeAsyncParkRejectAborts;
     procedure TestTls12ReverifyOnResumeExporterWithheld;
+    // the verdict resume holds the engine's re-entrancy guard across the machine callbacks
+    procedure TestVerdictResumeRefusesProcessInputFromSessionCacheStore;
+    procedure TestVerdictResumeRefusesSetCertificateVerdictFromSessionCacheStore;
+    procedure TestStartHandshakeRefusesProcessInputFromSessionCacheTake;
+    procedure TestRepeatStartHandshakeTakesTheSessionCacheOnce;
     // invariants that must not move: a resume that CAN obtain a fresh revocation verdict, or that
     // never re-verifies, still resumes exactly as before (guards against widening the gate)
     procedure TestHardReverifyWithLiveVerdictStillResumes;
@@ -1372,6 +1386,128 @@ begin
   // it drew the cached session (single-use Take), proving it parked on a resumption not a full handshake
   CheckEquals(LBefore - 1, LCache.Count, 'the client drew the cached session to resume it');
   CheckTrue(LClient.IsTerminal, 'a rejected park aborted the resumed handshake');
+end;
+
+procedure TTestConfigResumption.ProbeProcessInputFromStore;
+var
+  LNothing: TBytes;
+begin
+  Inc(FProbeStores);
+  LNothing := nil;
+  try
+    FProbeEngine.ProcessInput(LNothing, 0, 0);
+  except
+    on EInvalidOperationTlsLibException do
+      FProbeRefused := True;
+  end;
+end;
+
+procedure TTestConfigResumption.ProbeSetVerdictFromStore;
+begin
+  Inc(FProbeStores);
+  try
+    FProbeEngine.SetCertificateVerdict(True, TTlsAlertDescription.BadCertificate);
+  except
+    on EInvalidOperationTlsLibException do
+      FProbeRefused := True;
+  end;
+end;
+
+procedure TTestConfigResumption.ResumeAndAcceptWithStoreProbe(AOnStored: TSessionCacheEvent);
+var
+  LCacheImpl: TMockSessionCache;
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  LCacheImpl := TMockSessionCache.Create;
+  LCache := LCacheImpl as ISessionCache;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LClient := NewClient12(LCache, LScope);
+  LServer := NewServer12(LStore);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client cached the 1.2 session');
+  LClient := NewReverifyAsyncClient12(LCache, LScope);
+  LServer := NewServer12(LStore);
+  FProbeEngine := LClient;
+  FProbeStores := 0;
+  FProbeRefused := False;
+  LCacheImpl.OnStored := AOnStored;
+  try
+    PumpToCompletionResolving(LClient, LServer, True, TTlsAlertDescription.BadCertificate);
+  finally
+    LCacheImpl.OnStored := nil;
+    FProbeEngine := nil;
+  end;
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'the parked resumption completed');
+  CheckTrue(FProbeStores > 0, 'the accepted verdict re-stored the session through the cache');
+end;
+
+procedure TTestConfigResumption.TestVerdictResumeRefusesProcessInputFromSessionCacheStore;
+begin
+  ResumeAndAcceptWithStoreProbe(ProbeProcessInputFromStore);
+  CheckTrue(FProbeRefused, 'ProcessInput from inside the resume is refused');
+end;
+
+procedure TTestConfigResumption.TestVerdictResumeRefusesSetCertificateVerdictFromSessionCacheStore;
+begin
+  ResumeAndAcceptWithStoreProbe(ProbeSetVerdictFromStore);
+  CheckTrue(FProbeRefused, 'SetCertificateVerdict from inside the resume is refused');
+end;
+
+procedure TTestConfigResumption.TestStartHandshakeRefusesProcessInputFromSessionCacheTake;
+var
+  LCacheImpl: TMockSessionCache;
+  LCache: ISessionCache;
+  LClient: ITlsEngine;
+begin
+  LCacheImpl := TMockSessionCache.Create;
+  LCache := LCacheImpl as ISessionCache;
+  LClient := NewClient12(LCache, Crypto.Primitives.GetRandom.GenerateBytes(16));
+  FProbeEngine := LClient;
+  FProbeStores := 0;
+  FProbeRefused := False;
+  LCacheImpl.OnTake := ProbeProcessInputFromStore;
+  try
+    LClient.StartHandshake;
+  finally
+    LCacheImpl.OnTake := nil;
+    FProbeEngine := nil;
+  end;
+  CheckTrue(FProbeStores > 0, 'the start looked the session up through the cache');
+  CheckTrue(FProbeRefused, 'ProcessInput from inside the start is refused');
+end;
+
+procedure TTestConfigResumption.TestRepeatStartHandshakeTakesTheSessionCacheOnce;
+var
+  LCacheImpl: TMockSessionCache;
+  LCache: ISessionCache;
+  LClient: ITlsEngine;
+  LRefused: Boolean;
+begin
+  LCacheImpl := TMockSessionCache.Create;
+  LCache := LCacheImpl as ISessionCache;
+  LClient := NewClient12(LCache, Crypto.Primitives.GetRandom.GenerateBytes(16));
+  FProbeEngine := LClient;
+  FProbeStores := 0;
+  LCacheImpl.OnTake := ProbeProcessInputFromStore;
+  LRefused := False;
+  try
+    LClient.StartHandshake;
+    try
+      LClient.StartHandshake;
+    except
+      on EInvalidOperationTlsLibException do
+        LRefused := True;
+    end;
+  finally
+    LCacheImpl.OnTake := nil;
+    FProbeEngine := nil;
+  end;
+  CheckTrue(LRefused, 'the second start is refused');
+  CheckEquals(1, FProbeStores, 'the session cache was taken once');
 end;
 
 procedure TTestConfigResumption.TestTls12ReverifyOnResumeAsyncParkAcceptsCompletes;

@@ -97,10 +97,14 @@ type
     FEarlyDataSent: Int32;
     // the negotiated facts, surfaced to callers as one snapshot by ConnectionInfo
     FInfo: TTlsConnectionInfo;
-    // set while draining inbound records: a synchronous handshake callback (verify callback,
-    // verdict resolver, session store) is re-entering the single-threaded engine if it calls
-    // ProcessInput/ReadAppData/SetCertificateVerdict while this is set, so those fail loud
+    // set while the engine runs handshake machinery (start, record drain, verdict resume): a
+    // synchronous handshake callback (verify callback, verdict resolver, session store) is
+    // re-entering the single-threaded engine if it calls ProcessInput/ReadAppData/
+    // SetCertificateVerdict/StartHandshake while this is set, so those fail loud
     FDraining: Boolean;
+    // set on the first StartHandshake, even one that failed: a second start would replay the
+    // opening flight under the current write epoch
+    FStarted: Boolean;
     FLastError: TTlsError;
     // an out-of-range caller slice is misuse, refused locally rather than failed on the wire
     class procedure RequireSlice(const AData: TBytes; AOffset, ALength: Int32;
@@ -109,7 +113,6 @@ type
     function IsTls13: Boolean;
     procedure QueueAlertRecord(const AAlert: TTlsAlert);
     procedure AppendAppData(const AData: TBytes);
-    function AppReadAvailable: Int32;
     procedure HandleIncomingAlert(const AData: TBytes);
     procedure RouteFragment(const AFragment: TTlsRecordFragment);
     procedure DrainRecordLayer;
@@ -227,6 +230,7 @@ resourcestring
   SReentrantEngineCall =
     'the engine was re-entered from within a handshake callback; it is single-threaded and a ' +
     'callback must not call back into it';
+  SHandshakeAlreadyStarted = 'StartHandshake was already called on this engine';
   SLocalFatalAlert = 'a fatal alert was sent';
   SInterleavedRecord =
     'a record of another type arrived between the fragments of a handshake message';
@@ -539,11 +543,6 @@ begin
   FAppQueue.Append(AData);
 end;
 
-function TTlsEngine.AppReadAvailable: Int32;
-begin
-  Result := FAppQueue.Available;
-end;
-
 procedure TTlsEngine.TPlaintextQueue.Append(const AData: TBytes);
 var
   LLive, LNeed, LCap: Int32;
@@ -619,7 +618,7 @@ begin
     FClosed := True;
     // the peer's write side is closed; release any inbound state and ignore later bytes (RFC 8446 6.1)
     FRecordLayer.DiscardInbound;
-    Enqueue(TTlsEvents.MakeClosed);
+    Enqueue(TTlsEvents.MakeSimple(TTlsEventKind.Closed));
     // closing before the handshake completes abandons it: a failure, not a half-close
     if not FHandshakeComplete then
     begin
@@ -690,6 +689,7 @@ end;
 procedure TTlsEngine.DrainRecordLayer;
 var
   LFragment: TTlsRecordFragment;
+  LWasDraining: Boolean;
 begin
   // while a peer-certificate verdict is parked, pull no further records. Decryption is
   // resolved per record at pull time under the currently installed read epoch; the next
@@ -704,9 +704,10 @@ begin
   // close_notify coalesced ahead of app-data): the trailing record stays framed, undecrypted.
   // Also stop once the app-read buffer is full: unread plaintext applies backpressure (the
   // record stays framed, WantsRead reports False) instead of growing the buffer without bound.
+  LWasDraining := FDraining;
   FDraining := True;
   try
-    while (not (FTerminal or FClosed)) and (AppReadAvailable < FMaxAppReadBuffer) and
+    while (not (FTerminal or FClosed)) and (FAppQueue.Available < FMaxAppReadBuffer) and
       FRecordLayer.NextIncoming(LFragment) do
     begin
       RouteFragment(LFragment);
@@ -714,7 +715,7 @@ begin
         Break;
     end;
   finally
-    FDraining := False;
+    FDraining := LWasDraining;
   end;
 end;
 
@@ -764,7 +765,7 @@ begin
   end;
   if FTerminal then // a received fatal alert or a handshake failure
     Exit(TTlsOutcome.Fatal);
-  if (AppReadAvailable > 0) or (FEarlyQueue.Available > 0) or (FEvents.Count > 0) or
+  if (FAppQueue.Available > 0) or (FEarlyQueue.Available > 0) or (FEvents.Count > 0) or
     (FRecordLayer.PendingOutgoing > 0) then
     Result := TTlsOutcome.Advanced
   else
@@ -970,15 +971,22 @@ begin
   // an abort already ended the connection; a hello queued behind its alert would be noise
   if FTerminal then
     Exit;
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
+  if FStarted then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeAlreadyStarted);
+  FStarted := True;
+  FDraining := True;
   // an in-band start failure (ECH/PSK/crypto setup) aborts with its alert rather than escaping
   try
-    FConductor.Start;
-  except
-    on E: Exception do
-    begin
-      Fail(E);
-      Exit;
+    try
+      FConductor.Start;
+    except
+      on E: Exception do
+        Fail(E);
     end;
+  finally
+    FDraining := False;
   end;
 end;
 
@@ -998,19 +1006,21 @@ begin
   // drains the buffered flight and completes the handshake. A malformed/bad-signature record in
   // that buffered flight is fatal: abort with its alert instead of letting the exception escape
   // the engine (and the pump) with no alert on the wire and the engine left non-terminal.
+  FDraining := True;
   try
-    FConductor.ResolveCertificateVerdict(AAccept, AAlert);
-    // with the park cleared, resume pulling the framed remainder of the flight that was held
-    // back while parked, so each record decrypts under the epoch installed by the record
-    // before it (the Finished installs the application read epoch ahead of any app data)
-    if not FTerminal then
-      DrainRecordLayer;
-  except
-    on E: Exception do
-    begin
-      Fail(E);
-      Exit;
+    try
+      FConductor.ResolveCertificateVerdict(AAccept, AAlert);
+      // with the park cleared, resume pulling the framed remainder of the flight that was held
+      // back while parked, so each record decrypts under the epoch installed by the record
+      // before it (the Finished installs the application read epoch ahead of any app data)
+      if not FTerminal then
+        DrainRecordLayer;
+    except
+      on E: Exception do
+        Fail(E);
     end;
+  finally
+    FDraining := False;
   end;
 end;
 
@@ -1099,7 +1109,7 @@ end;
 function TTlsEngine.WantsRead: Boolean;
 begin
   Result := (not FTerminal) and (not FClosed) and
-    (AppReadAvailable < FMaxAppReadBuffer) and
+    (FAppQueue.Available < FMaxAppReadBuffer) and
     (not FRecordLayer.InboundBacklogFull);
 end;
 

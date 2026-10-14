@@ -39,7 +39,8 @@ type
   /// read inbound, repeat. The deferred certificate verdict resolves inline here (the
   /// engine's trust pipeline runs synchronously while ProcessInput drives the handshake).
   /// A fatal outcome raises ETlsStreamError; a transport EOF mid-handshake raises
-  /// ETlsTransportTruncated.
+  /// ETlsTransportTruncated. Every call takes the caller's transport buffer (ATransportBuffer),
+  /// grown to TransportChunk on first use and reused, so a read or flush cycle allocates nothing.
   /// </summary>
   TTlsStreamPump = class sealed(TObject)
   public
@@ -55,20 +56,20 @@ type
     /// <summary>Flushes best-effort: a transport failure here is swallowed because the caller is
     /// already surfacing a TLS-level error that a transport error must not mask.</summary>
     class procedure FlushQuietly(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport); static;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Flushes after a read that returned data without raising: a failure is swallowed so
     /// the data survives, but on a live engine it also fails the engine, as the bytes handed over
     /// (a KeyUpdate) are lost and the next write would run under keys the peer never got.</summary>
     class procedure FlushOrLatch(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport); static;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Flushes what the engine queued; best-effort once it is terminal.</summary>
     class procedure FlushPending(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport); static;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Flushes, then raises if the engine is terminal. The flush comes first so the
     /// fatal alert a failed ProcessInput/Write queued reaches the peer before the error surfaces
     /// here (the peer then reads an alert, not a truncation); once terminal it is best-effort.</summary>
     class procedure FlushThenRaiseIfFatal(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport); static;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Whether the engine ended because the peer sent close_notify before the handshake
     /// completed; that is a truncation for the caller, not a fatal alert.</summary>
     class function PeerClosedDuringHandshake(const AEngine: ITlsEngine): Boolean; static;
@@ -103,23 +104,24 @@ type
     class procedure RaiseIfFatal(const AEngine: ITlsEngine); static;
     /// <summary>Sends every pending outbound byte to the transport.</summary>
     class procedure Flush(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport); static;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Runs the handshake to completion. A client sends its opening flight first
     /// (StartHandshake); a server waits for the ClientHello. Raises on failure. This overload has
     /// no resolver, so with async certificate verdicts enabled a parked verdict fails closed with
     /// certificate_unknown; use the resolver overload to decide it out-of-band.</summary>
     class procedure DriveHandshake(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport; AIsClient: Boolean); overload; static;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes;
+      AIsClient: Boolean); overload; static;
     /// <summary>Runs the handshake to completion, resolving any parked peer-certificate
     /// verdict through AResolveVerdict (a nil resolver fails such a park closed). With async
     /// verdicts disabled the handshake never parks and this behaves exactly like the plain
     /// overload.</summary>
     class procedure DriveHandshake(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport; AIsClient: Boolean;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes; AIsClient: Boolean;
       const AResolveVerdict: TCertificateVerdictResolver); overload; static;
     /// <summary>As above, handing the resolver ADeadlineMs as its time budget (0 = none set).</summary>
     class procedure DriveHandshake(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport; AIsClient: Boolean;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes; AIsClient: Boolean;
       const AResolveVerdict: TCertificateVerdictResolver;
       ADeadlineMs: Cardinal); overload; static;
     /// <summary>One application read cycle: drains engine-buffered plaintext (which may have
@@ -127,22 +129,22 @@ type
     /// Returns the count copied into ADest and, via AStatus, whether more may follow, the
     /// peer closed cleanly, or the transport was truncated.</summary>
     class function ReadApp(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport; var ADest: TBytes; AMaxLength: Int32;
-      out AStatus: TTlsReadStatus): Int32; static;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes; var ADest: TBytes;
+      AMaxLength: Int32; out AStatus: TTlsReadStatus): Int32; static;
     /// <summary>Encrypts and sends application data, sealing and draining at most WriteChunk
     /// bytes per iteration so a bulk write never holds its whole ciphertext in memory. At the
     /// AEAD usage limit with no rekey available the engine's close_notify is still sent before
     /// ERecordLimitTlsLibException propagates.</summary>
     class procedure WriteApp(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport; const AData: TBytes;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes; const AData: TBytes;
       AOffset, ALength: Int32); static;
     /// <summary>Sends close_notify and flushes it.</summary>
     class procedure Close(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport); static;
+      const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Sends a fatal alert (the engine goes terminal) and flushes it, best effort: used
     /// when the local host refuses a connection that already completed its handshake.</summary>
     class procedure Abort(const AEngine: ITlsEngine; const ATransport: ITlsTransport;
-      ADescription: TTlsAlertDescription); static;
+      var ATransportBuffer: TBytes; ADescription: TTlsAlertDescription); static;
   end;
 
 implementation
@@ -177,39 +179,38 @@ begin
 end;
 
 class procedure TTlsStreamPump.Flush(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes);
 var
-  LBuf: TBytes;
   LGot: Int32;
 begin
-  // this runs on every read cycle too; do not allocate the transport buffer when there is
+  // this runs on every read cycle too; do not touch the transport buffer when there is
   // nothing to send
   if not AEngine.WantsWrite then
     Exit;
-  LBuf := nil;
-  SetLength(LBuf, TransportChunk);
+  if System.Length(ATransportBuffer) < TransportChunk then
+    SetLength(ATransportBuffer, TransportChunk);
   repeat
-    LGot := AEngine.TakeOutgoing(LBuf, 0);
+    LGot := AEngine.TakeOutgoing(ATransportBuffer, 0);
     if LGot > 0 then
-      ATransport.Write(LBuf, 0, LGot);
+      ATransport.Write(ATransportBuffer, 0, LGot);
   until LGot = 0;
 end;
 
 class procedure TTlsStreamPump.FlushQuietly(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes);
 begin
   try
-    Flush(AEngine, ATransport);
+    Flush(AEngine, ATransport, ATransportBuffer);
   except
     // best effort: the TLS-level error being surfaced takes precedence
   end;
 end;
 
 class procedure TTlsStreamPump.FlushOrLatch(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes);
 begin
   try
-    Flush(AEngine, ATransport);
+    Flush(AEngine, ATransport, ATransportBuffer);
   except
     // the next read or write raises the latched failure, carrying the transport's own message
     on E: Exception do
@@ -219,18 +220,18 @@ begin
 end;
 
 class procedure TTlsStreamPump.FlushPending(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes);
 begin
   if AEngine.IsTerminal then
-    FlushQuietly(AEngine, ATransport)
+    FlushQuietly(AEngine, ATransport, ATransportBuffer)
   else
-    Flush(AEngine, ATransport);
+    Flush(AEngine, ATransport, ATransportBuffer);
 end;
 
 class procedure TTlsStreamPump.FlushThenRaiseIfFatal(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes);
 begin
-  FlushPending(AEngine, ATransport);
+  FlushPending(AEngine, ATransport, ATransportBuffer);
   RaiseIfFatal(AEngine);
 end;
 
@@ -335,26 +336,25 @@ begin
 end;
 
 class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport; AIsClient: Boolean);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes; AIsClient: Boolean);
 begin
   // no resolver: with async verdicts disabled (the default) the handshake never parks, so
   // this is exactly the inline (non-async) path; if async was enabled without a resolver,
   // a park fails closed
-  DriveHandshake(AEngine, ATransport, AIsClient, nil);
+  DriveHandshake(AEngine, ATransport, ATransportBuffer, AIsClient, nil);
 end;
 
 class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport; AIsClient: Boolean;
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes; AIsClient: Boolean;
   const AResolveVerdict: TCertificateVerdictResolver);
 begin
-  DriveHandshake(AEngine, ATransport, AIsClient, AResolveVerdict, 0);
+  DriveHandshake(AEngine, ATransport, ATransportBuffer, AIsClient, AResolveVerdict, 0);
 end;
 
 class procedure TTlsStreamPump.DriveHandshake(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport; AIsClient: Boolean;
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes; AIsClient: Boolean;
   const AResolveVerdict: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
 var
-  LBuf: TBytes;
   LGot: Int32;
   LTotal: Int64;
   LPeerClosed: Boolean;
@@ -372,10 +372,10 @@ begin
   if AIsClient then
     AEngine.StartHandshake;
   LTotal := 0;
-  LBuf := nil;
-  SetLength(LBuf, TransportChunk);
+  if System.Length(ATransportBuffer) < TransportChunk then
+    SetLength(ATransportBuffer, TransportChunk);
   LCertEvent := nil;
-  Flush(AEngine, ATransport);
+  Flush(AEngine, ATransport, ATransportBuffer);
   while AEngine.IsHandshaking do
   begin
     // a parked verdict makes no progress on the wire; resolve it before blocking on a read
@@ -384,16 +384,16 @@ begin
     begin
       ResolveVerdict(AEngine, LCertEvent, AResolveVerdict, LPeerRole, ADeadlineMs);
       // send the resumed flight, or the abort alert of a rejected verdict, then surface the abort
-      FlushThenRaiseIfFatal(AEngine, ATransport);
+      FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);
       LCertEvent := nil;
       Continue;
     end;
-    LGot := ATransport.Read(LBuf, 0, TransportChunk);
+    LGot := ATransport.Read(ATransportBuffer, 0, TransportChunk);
     if LGot = 0 then
       raise ETlsTransportTruncated.CreateResFmt(@STruncatedHandshake, [LTotal]);
     Inc(LTotal, LGot);
-    AEngine.ProcessInput(LBuf, 0, LGot);
-    FlushThenRaiseIfFatal(AEngine, ATransport);
+    AEngine.ProcessInput(ATransportBuffer, 0, LGot);
+    FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);
     DrainEventsOrRaise(AEngine, LPeerClosed, LCertEvent);
   end;
   // StartHandshake itself can fail the engine (never entering the loop); surface that alert
@@ -401,10 +401,9 @@ begin
 end;
 
 class function TTlsStreamPump.ReadApp(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport; var ADest: TBytes; AMaxLength: Int32;
-  out AStatus: TTlsReadStatus): Int32;
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes; var ADest: TBytes;
+  AMaxLength: Int32; out AStatus: TTlsReadStatus): Int32;
 var
-  LBuf: TBytes;
   LGot: Int32;
   LPeerClosed: Boolean;
   LCertEvent: ICertificateReceivedEvent; // unused post-handshake; a verdict parks only mid-handshake
@@ -418,7 +417,7 @@ begin
   if Result > 0 then
   begin
     // output queued by an earlier engine call goes out now; a dead transport must not lose the bytes
-    FlushOrLatch(AEngine, ATransport);
+    FlushOrLatch(AEngine, ATransport, ATransportBuffer);
     AStatus := TTlsReadStatus.Data;
     Exit;
   end;
@@ -433,16 +432,16 @@ begin
     Exit(0);
   end;
 
-  LBuf := nil;
-  SetLength(LBuf, TransportChunk);
+  if System.Length(ATransportBuffer) < TransportChunk then
+    SetLength(ATransportBuffer, TransportChunk);
   repeat
     // a terminal engine takes no more input: reading would block forever with its alert unsent
     if AEngine.IsTerminal then
     begin
-      FlushQuietly(AEngine, ATransport);
+      FlushQuietly(AEngine, ATransport, ATransportBuffer);
       RaiseIfFatal(AEngine);
     end;
-    LGot := ATransport.Read(LBuf, 0, TransportChunk);
+    LGot := ATransport.Read(ATransportBuffer, 0, TransportChunk);
     if LGot = 0 then
     begin
       // the transport closed. A prior close_notify would have surfaced above as CleanEof,
@@ -450,11 +449,11 @@ begin
       AStatus := TTlsReadStatus.Truncated;
       Exit(0);
     end;
-    AEngine.ProcessInput(LBuf, 0, LGot);
+    AEngine.ProcessInput(ATransportBuffer, 0, LGot);
     // what the input provoked (a fatal alert, a no_renegotiation warning) must reach the peer now,
     // since a read-only caller never writes. The engine and transport are single-threaded: a
     // connection is not read and written from two threads at once
-    FlushThenRaiseIfFatal(AEngine, ATransport);
+    FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);
     Result := AEngine.ReadAppData(ADest, 0, AMaxLength);
     if Result > 0 then
     begin
@@ -472,13 +471,14 @@ begin
 end;
 
 class procedure TTlsStreamPump.WriteApp(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport; const AData: TBytes; AOffset, ALength: Int32);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes; const AData: TBytes;
+  AOffset, ALength: Int32);
 var
   LOffset, LRemaining, LChunk: Int32;
 begin
   // a terminal engine reports its recorded alert, sent first, not a closed-write error (RFC 8446 6.2)
   if AEngine.IsTerminal then
-    FlushThenRaiseIfFatal(AEngine, ATransport);
+    FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);
   // the engine's Write raises once the write side is closed; pre-check so the stream reports a
   // clear error rather than the raw engine exception (and never counts the bytes as sent)
   if AEngine.WriteClosed then
@@ -500,31 +500,32 @@ begin
         // a failed seal leaves the engine with an alert queued - close_notify at the AEAD usage
         // limit, or the fatal alert of a seal fault; deliver it (any slices sealed before are
         // already on the wire) before surfacing the failure to the caller
-        FlushQuietly(AEngine, ATransport);
+        FlushQuietly(AEngine, ATransport, ATransportBuffer);
         if AEngine.IsTerminal then
           RaiseIfFatal(AEngine);
         raise;
       end;
     end;
-    FlushThenRaiseIfFatal(AEngine, ATransport);
+    FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);
     Inc(LOffset, LChunk);
     Dec(LRemaining, LChunk);
   end;
 end;
 
 class procedure TTlsStreamPump.Close(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes);
 begin
   AEngine.SendClose;
-  Flush(AEngine, ATransport);
+  Flush(AEngine, ATransport, ATransportBuffer);
 end;
 
 class procedure TTlsStreamPump.Abort(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport; ADescription: TTlsAlertDescription);
+  const ATransport: ITlsTransport; var ATransportBuffer: TBytes;
+  ADescription: TTlsAlertDescription);
 begin
   AEngine.SendAlert(ADescription);
   // the connection is already being refused; a dead peer must not mask the reason
-  FlushQuietly(AEngine, ATransport);
+  FlushQuietly(AEngine, ATransport, ATransportBuffer);
 end;
 
 end.

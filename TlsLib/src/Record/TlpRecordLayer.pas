@@ -603,7 +603,7 @@ begin
       LReader := TWireReader.Create(FInbound, LPos, LAvailable);
       LHeader := TTlsRecordHeader.Parse(LReader, FMaxCiphertextLength);
       LRecordLength := TRecordLimits.HeaderLength + LHeader.Length;
-      // judged on the header alone so non-TLS input fails at once, not after a full body arrives
+      // an unknown record type fails at once, judged on the header alone, before the body arrives
       if not IsKnownRecordType(LHeader.ContentTypeByte) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.UnexpectedMessage, @SUnexpectedContentType);
