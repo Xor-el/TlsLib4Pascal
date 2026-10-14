@@ -469,7 +469,7 @@ begin
         TServerVerification.WebPki(AOptions.Trust).WithRevocation(LPosture).Build);
     // name checking is on by default; the shim disables the RFC 9525 match when the runner
     // did not ask for it (BoGo drives host identity via -expect-* assertions, not the match)
-    if not AOptions.CheckServerName then
+    if LCertPath and (not AOptions.CheckServerName) then
       LClient.WithDangerousDisableServerNameCheck;
     // GREASE (RFC 8701) is optional; the shim keeps it off unless the runner enables it, so
     // deterministic assertions (e.g. exact key_share counts) are not perturbed
