@@ -36,6 +36,7 @@ TlsLib.Tests/src/Tls13KeyScheduleTests.pas
   s_a42ddd283d3520::t_9b67da57114858 283-301,305-313
 TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
   s_a42ddd283d3520::t_3949cf8e979104 405
+  s_a42ddd283d3520::t_f312f9f81dfd70 406-409
 TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
   s_a42ddd283d3520::t_b666de027b3188 262-263,265-267
   s_a42ddd283d3520::t_116e51ee3ab88a 88-89
@@ -218,6 +219,9 @@ TlsLib.Tests/src/TlsStreamLoopbackTests.pas
   s_a42ddd283d3520::t_b3bd9cc2447905 138-140
   s_a42ddd283d3520::t_8623e6020868e6 185-186
   s_a42ddd283d3520::t_1f4f95f8c0787e 48-49
+  s_a42ddd283d3520::t_a8cf3af526d23e 1637
+  s_a42ddd283d3520::t_ecb091eaf758ef 1657,1662
+  s_a42ddd283d3520::t_ab0391bbe0a158 1647-1648
 TlsLib/src/Session/TlpSessionTicketStrategy.pas
   s_a42ddd283d3520::t_5a5b9ec0266f2e 340-342
   s_a42ddd283d3520::t_6057ee6c860ab5 215-216
