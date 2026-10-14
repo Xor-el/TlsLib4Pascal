@@ -35,6 +35,7 @@ Read [Getting started](getting-started.md) first.
 - [Require Extended Master Secret (TLS 1.2)](#require-extended-master-secret-tls-12)
 - [Cap the inbound record size](#cap-the-inbound-record-size)
 - [Turn off GREASE](#turn-off-grease)
+- [Use the OS-native crypto overlay](#use-the-os-native-crypto-overlay)
 - [The dangerous surface (dev only)](#the-dangerous-surface-dev-only)
 
 ---
@@ -205,6 +206,14 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
   .Build;
 ```
 
+The registries behind those lists are replaceable as a whole: `WithNamedGroups` (the groups the
+config can use), `WithSignatureSchemes` and `WithCipherSuites` take a registry, while
+`WithPreferredGroups` orders the groups (a code the registry lacks is skipped; an empty list, or
+a list with no registered group, is refused at `Build`). A server
+acknowledges a client's `server_name` with an empty extension by default; `WithServerNameAcknowledgement(False)`
+omits it. `WithIntermediateCertificates` on a verification builder supplies the intermediates a
+leaf-only peer leaves out.
+
 ## Force post-quantum-hybrid only
 
 Every preset already *offers* X25519MLKEM768. To offer **nothing but** the hybrid (a client that
@@ -243,6 +252,7 @@ The short version — the full treatment is in
 
 // the OS root store plus my private CA (a chain the OS rejects only for lack of a root is
 // judged against my CA; any other OS failure stays final)
+//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore;   // TSystemTrustMode, TTrustAnchorStore
 //   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
 //     TTrustAnchorStore.Create(Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore).Build)
 
@@ -282,7 +292,7 @@ LServer.IOHandler := TTlsLibServerIOHandler.Create(LServer);   // server
 **Synapse** — the plugin registers itself on `uses`; create sockets normally:
 
 ```pascal
-uses TlsLibSynapseTls;           // registers SSLImplementation := TSSLTlsLib
+uses blcksock, TlsLibSynapseTls;   // registers SSLImplementation := TSSLTlsLib
 LSock := TTCPBlockSocket.CreateWithSSL(SSLImplementation);
 ```
 
@@ -318,10 +328,10 @@ end;
 
 // wiring:
 LServer := TInetServer.Create('0.0.0.0', 443);
-LServer.OnCreateClientSocketHandler := MakeHandler;   // TInetServer's event (fcl-net's own), not the adapter's
+LServer.OnCreateClientSocketHandler := MakeHandler;   // @MakeHandler under FPC {$mode objfpc}; TInetServer's event (fcl-net's own), not the adapter's
 ```
 
-Each adapter maps its host's trust/verify/ALPN options onto the library, and each exposes a
+Each adapter maps its host's trust/verify options onto the library (ALPN on fcl-net only), and each exposes a
 handshake-read timeout (`HandshakeTimeoutMs`, `SSLOptions.HandshakeTimeoutMs` on Indy, or
 `SetTlsLibMormotHandshakeTimeout` for mORMot; `0` = 30 s default; fcl-net falls back to
 `Socket.IOTimeout` first) so a stalled peer can't pin the connecting thread.
@@ -601,7 +611,18 @@ session cache or with resumption off. `ReuseOriginal` (the default) trusts the
 original handshake's verification; `Reverify` re-checks the resumed server against the current
 trust, at the cost of a verification per resume, and fills `ConnectionInfo.ValidatedPath`. A
 server takes `WithResumptionScope` too, to partition configs sharing a ticket-key manager or session
-store; a server that requests client certificates and supplies either must set one.
+store; a server that requests client certificates and supplies either must set one. The two roles
+default differently when the scope is empty: a client isolates (a fresh scope per config), a server
+shares.
+
+On the server, `WithTicketLifetime(Seconds)` sets the lifetime advertised for issued tickets (default
+7200 s; at most seven days, a larger value is refused; 0 is refused while resumption is on). A client
+clamps any advertised lifetime to seven days, and a resumption chain ends seven days after the full
+handshake whatever the lifetime. The default ticket key rotates on that lifetime, and is minted
+only when resumption is on and no ticket keys or session store are set. `WithDefaultSessionTicketKeys`
+asks for that default explicitly (also beside a session store), and `Tls13.WithTicketCount` sets how
+many TLS 1.3 tickets each handshake issues; on a TLS 1.3-only server `WithTicketCount(0)` refuses
+default ticket keys and a non-default lifetime, as no tickets would be issued.
 
 ## 0-RTT early data
 
@@ -745,7 +766,7 @@ SvcParam of the HTTPS record for the name you connect to) and offer it — the l
 reject never falls back to plaintext:
 
 ```pascal
-uses TlpEchClient;   // TEchClientModes
+uses TlpEchClient, TlpTlsVersion, TlpTlsEngineFactory;   // TEchClientModes, TlsWireVersionTls13, TTlsEngineFactory
 
 LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TServerVerification.WebPki(caPem).Build)
@@ -921,6 +942,29 @@ so peers that choke on unknown values are found early. To stop sending them:
   .WithGrease(False)   // client builder
 ```
 
+## Use the OS-native crypto overlay
+
+The optional `TlsLib.Crypto.System` package overlays the platform's native primitives (randomness,
+key agreement, AEAD, hashes, HMAC, KDFs and handshake signing) onto a base provider. Where the
+platform has no native backend, `Compose` returns the base unchanged. Trust, path validation and
+revocation stay with the base.
+
+```pascal
+uses TlpOSCryptoProvider, TlpSystemCryptoStrictness, TlpDefaultCryptoProvider, TlpICryptoProvider,
+  TlpNegotiationTypes;   // TNamedGroupCatalog
+
+Crypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider);
+// optional: fail at startup when a group the app depends on would fall back to the portable code
+TSystemCryptoStrictness.RequireNamedGroups(Crypto, [TNamedGroupCatalog.X25519]);
+```
+
+Where a native backend exists, the composed provider also implements `ICryptoBackendReport` (unit
+`TlpICryptoBackendReport`), which says per primitive whether the OS or the portable code serves it.
+`TSystemCryptoStrictness` can narrow a registry to the natively served
+entries (`NativeNamedGroups`, `NativeCipherSuites`, `NativeSignatureSchemes`) or require them
+(`RequireNamedGroups`, `RequireCipherSuites`, `RequireSignatureSchemes` raise
+`ESystemCryptoRequirementTlsLibException` listing what is missing).
+
 ## The dangerous surface (dev only)
 
 Everything that weakens authentication lives behind one loudly-named surface, and even then the
@@ -945,7 +989,7 @@ begin
   FKeyLogFile.WriteLine(TNssKeyLogFormat.Line(ALabel, AClientRandom, ASecret));
 end;
 // ...
-.WithDangerousKeyLog(TCallbackKeyLog.Create(Self.OnKeyLog) as IKeyLog)
+.WithDangerousKeyLog(TCallbackKeyLog.Create(Self.OnKeyLog) as IKeyLog)   // @Self.OnKeyLog under FPC {$mode objfpc}
 ```
 
 Point Wireshark at the file via *Preferences → Protocols → TLS → (Pre)-Master-Secret log filename*.

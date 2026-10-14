@@ -98,7 +98,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `SSLType` (fcl-net native)                            | `stAny` offers TLS 1.3 and 1.2; `stTLSv1_2` offers 1.2 alone; any other value fails the handshake |
 | `VerifyCallback` | augment-only hook, runs last (presented chain + validated path + host → Boolean) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
-| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |
+| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused; beside a server config that requests no client certificate the resolver is refused outright |
 | `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = `Socket.IOTimeout` when set, else the 30 s default |
 | `Socket.IOTimeout` (fcl-net native) | bounds application reads; an expiry is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
@@ -140,8 +140,15 @@ system-trust model see [docs/system-trust.md](../../docs/system-trust.md).
 
 ## Notes
 
-- The transport reads/writes the raw socket handle via the `Sockets` unit's `fpRecv`/`fpSend`,
-  bypassing the SSL-aware handler methods (which carry decrypted application data).
+- The transport reads/writes the raw socket handle through TlsLib.Net's `TNetOs`
+  (`ReceiveBytes` / `SendBytes`; WinSock `recv`/`send` on Windows), bypassing the SSL-aware handler
+  methods (which carry decrypted application data).
+- `TlsLibFclNetTrustDefaults` also seeds `Crypto`, `Pkix` and `SessionResumption` into every new
+  handler. A handler given a `ClientConfig` / `ServerConfig` while `Crypto` or `Pkix` is non-nil or
+  `SessionResumption` is False raises a conflict, as a config carries its own providers and
+  resumption setting.
+- `KeyPassword` on the handler wins; when it is empty the host's `CertificateData.KeyPassword` is used.
+- A handler with no host (not created through a `TInetSocket`) fails closed under `CheckHostName`.
 - `BytesAvailable` reports our buffered plaintext count (the `SSL_pending` analogue).
 - `TSocketStream` owns and frees the handler it was given; the adapter frees its `TTlsConnection`
   (and with it the TLS stream) in `Destroy`.
@@ -175,7 +182,9 @@ cipher-suite preference pinned to TLS 1.2, so the negotiated 1.2 (the preset wou
 the injected config replaced the built-in build. This is the escape hatch to the whole builder API
 (cipher order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options
 (or a pinned `SSLType`, a verify callback, `SendHostAsSNI := False` on a client, or a crypto/PKIX
-provider) is refused, not silently dropped.
+provider) is refused, not silently dropped; so are resumption turned off, a non-default
+`ClientAuth`, verification or the host-name check switched off, and a cipher list.
+`CustomClientCertificateVerifier` also counts as a client-CA source for `ClientAuth`.
 
 `Examples/` further holds `FclNetEchLoopback`, `FclNetResumptionScope` and `FclNetWedgeDemo`
 (Lazarus `.lpi`).

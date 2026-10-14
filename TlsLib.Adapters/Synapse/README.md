@@ -70,6 +70,10 @@ by Synapse's OpenSSL plugins, so setting any of them **fails loudly** rather tha
 use `CertCAFile`. A non-ASCII `KeyPassword` is
 UTF-8 here, where Synapse uses the ANSI code page.
 
+`SessionResumption` defaults to `True`. `GetCipherName` returns the IANA suite name and
+`GetPeerSerialNo` only the low 32 bits of the serial (Synapse's `integer`). `Assign` copies the
+extension properties along with the native ones.
+
 ## Trust is ours (`dangerous` mapping)
 
 **Verification is on by default — safer than stock Synapse.** Synapse's own `TCustomSSL` defaults
@@ -86,7 +90,7 @@ which inspects the peer through the standard `TCustomSSL` accessors — `GetPeer
 `GetPeerIssuer`, `GetPeerName`, `GetPeerFingerprint` (SHA-256 of the leaf, lowercase hex),
 `GetPeerSerialNo` — and returns `False` to reject (fail-closed with `bad_certificate`). It is
 **augment-only**: it can add a reject rule on top of our verdict, never rescue a chain the
-pipeline already rejected. The hook also runs on a resumed connection now (against the leaf stored
+pipeline already rejected. The hook also runs on a resumed connection (against the leaf stored
 with the session), so an `OnVerifyCert` with side effects will see it fire on resumes too. (Unlike Indy's and mORMot's native hooks, `OnVerifyCert`'s signature —
 `function(Sender: TObject): Boolean` — carries no OpenSSL type, so bridging it forces no coupling.)
 
@@ -104,7 +108,8 @@ in flight is not supported. The verify callback is a client-handshake hook: a se
 The server resolver applies only to a server that requests a client certificate (`ClientAuth` other
 than `None`); a server that requests none ignores it, so one process can run both kinds. A resolver
 beside a supplied config must be paired with a config that itself defers the verdict
-(`WithLiveRevocationVerdict`), else the connection is refused.
+(`WithLiveRevocationVerdict`), else the connection is refused (a server config only when it has
+`ClientAuth` other than `None`).
 
 Wire `TLiveRevocationChecker.ResolveVerdict` (from `TlpLiveRevocation`, over an injected
 `IHttpFetcher`) as the resolver to get live revocation. The resolver is role-specific — the client
@@ -152,7 +157,9 @@ adapter's connection-reuse path end to end.
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
 order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or a
-pinned `SSLType`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+pinned `SSLType`, a verify callback on a client or a crypto/PKIX provider) is refused, not silently
+dropped; so are resumption turned off, a non-default `ClientAuth`, verification switched off, and a
+cipher list.
 
 `Examples/` further holds `SynapseEchLoopback`, `SynapseResumptionScope` and `SynapseWedgeDemo`,
 each as a Lazarus `.lpi` and a Delphi `.dpr`.

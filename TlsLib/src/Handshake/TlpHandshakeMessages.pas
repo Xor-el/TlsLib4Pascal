@@ -96,7 +96,7 @@ type
   end;
 
   /// <summary>
-  /// A TLS 1.2 ECDHE ServerKeyExchange (RFC 4492 / RFC 8422 5.4): the named-curve
+  /// A TLS 1.2 ECDHE ServerKeyExchange (RFC 8422 5.4): the named-curve
   /// server params and the digitally-signed proof over client_random + server_random
   /// + those params. Only the named_curve curve_type is modelled (the hardened profile).
   /// </summary>

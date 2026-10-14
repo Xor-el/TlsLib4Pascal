@@ -70,7 +70,7 @@
 #### Signature schemes
 `ecdsa_secp256r1/384r1/521r1` | `rsa_pss_rsae_sha256/384/512` | `ed25519` | `ed448` | `rsa_pkcs1_sha256/384/512` (TLS 1.2 handshake signatures and pkcs1-signed certificate chains only; never a TLS 1.3 CertificateVerify)
 
-CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is absent), server-preference backbone with an equal-preference AEAD group.
+CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is absent), server-preference order (opt-in ClientOrder).
 
 </details>
 
@@ -89,7 +89,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 - **Revocation** -- stapled OCSP, live OCSP/CRL over an injected fetcher, soft/hard/off posture, and RFC 7633 must-staple.
 - **OS system trust** (opt-in) -- the OS verifier on Windows / macOS / iOS / Android, an OS root harvest on Linux / BSD / Solaris; your own CA can sit beside the OS roots.
 - **CA bundles** -- a PEM/DER bundle loader (`TlsLib.Trust.Bundle`).
-- **Pinning**, **mutual TLS**, and **OCSP stapling** both directions.
+- **Pinning**, **mutual TLS**, and **OCSP stapling** (sent by servers, enforced by clients).
 - One composable, fail-closed pipeline; custom verification **augments** (can only reject further), and every bypass is behind the `dangerous` surface.
 
 </details>
@@ -97,7 +97,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 <details>
 <summary><strong>Resumption, PSK &amp; 0-RTT</strong></summary>
 
-- TLS 1.3 -- forward-secret `psk_dhe_ke`, single-use client tickets (server tickets with a session store), stateless STEK rotation auto-upgrading to a stateful store.
+- TLS 1.3 -- forward-secret `psk_dhe_ke`, single-use client tickets (server tickets with a session store), stateless STEK rotation, upgrading to stateful single-use tickets when a session store is configured.
 - TLS 1.2 -- session IDs + RFC 5077 tickets.
 - **External PSKs** -- out-of-band pre-shared keys, imported per RFC 9258. Both peers must implement the import; a peer that does not import the PSK as RFC 9258 describes will not interoperate.
 - **0-RTT early data** -- off by default, bounded by a pluggable anti-replay strategy when enabled.
@@ -167,6 +167,7 @@ Add one only when you use its feature; the core references none of them:
 | `TlsLib.Trust.System` | OS system-trust harvest + verifier delegate |
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`) |
 | `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake |
+| `TlsLib.Net` | TCP connector/listener, the HTTP/OCSP/CRL fetcher (`TSocketHttpFetcher`), and the DNS/SVCB ECH config helper; the fcl-net adapter requires it |
 | `TlsLib.Adapter.mORMot` / `.Indy` / `.Synapse` / `.FclNet` | Drop-in adapters for those networking stacks |
 
 ## Quick Examples
@@ -221,8 +222,12 @@ begin
   // per accepted connection:
   LEngine := TTlsEngineFactory.CreateServerEngine(LConfig);
   LStream := TTlsStream.Create(AcceptedTransport, LEngine, {IsClient=} False, '');
-  LStream.Handshake;
-  // read / write / CloseNotify exactly as the client does
+  try
+    LStream.Handshake;
+    // read / write / CloseNotify exactly as the client does
+  finally
+    LStream.Free;
+  end;
 end;
 ```
 
@@ -246,6 +251,7 @@ Full usage docs live in [`docs/`](docs/):
 - **[Certificate verification & trust](docs/certificate-verification.md)** -- private CAs, pinning, live revocation, and the escape hatches.
 - **[OS system trust](docs/system-trust.md)** -- verifying against the operating system's root store.
 - **[Certificate compression](docs/certificate-compression.md)** -- RFC 8879 and the compression cache.
+- **[Encrypted Client Hello](docs/ech.md)** -- client modes, the server key store, and the `EchKeyGen` tool.
 - **[Security model](docs/security-model.md)** -- the invariants, how each is enforced, and how it's tested.
 
 ## Security

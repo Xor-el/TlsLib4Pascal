@@ -136,7 +136,7 @@ begin
   for LI := 1 to System.Length(ALabel) do
   begin
     LCh := ALabel[LI];
-    // letters/digits/hyphen (RFC 1123), plus underscore as a widely tolerated exception
+    // letters/digits/hyphen (RFC 1123), plus underscore by local policy
     if not (((LCh >= 'A') and (LCh <= 'Z')) or ((LCh >= 'a') and (LCh <= 'z')) or
       ((LCh >= '0') and (LCh <= '9')) or (LCh = '-') or (LCh = '_')) then
       Exit;

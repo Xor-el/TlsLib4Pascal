@@ -61,7 +61,7 @@ uses
 
 type
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
-  /// the Sockets unit's fpRecv/fpSend on Socket.Handle, bypassing the SSL-aware handler methods
+  /// TlsLib.Net's TNetOs on Socket.Handle, bypassing the SSL-aware handler methods
   /// (which carry decrypted application data and would otherwise recurse). The handshake read cap
   /// and an application read's Socket.IOTimeout are both enforced by a wait on the handle before
   /// each receive, which works on every CPU (the kernel's receive timeout is refused on PowerPC,

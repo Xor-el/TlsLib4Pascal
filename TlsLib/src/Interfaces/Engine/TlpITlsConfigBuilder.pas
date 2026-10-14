@@ -70,16 +70,22 @@ type
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
     ['{29AF3A6C-72D0-4EC3-803D-28C8EC0D8632}']
+    /// <summary>The cipher-suite registry offered. A configured TLS 1.2 PSK adds its ECDHE_PSK
+    /// suites to it.</summary>
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
     /// Never widens - a code outside the configured set is refused at Build, and so is a list
     /// naming only suites of a protocol version that is not offered (a TLS 1.2 list beside a TLS
-    /// 1.3-only config); a mixed list is accepted and its off-version part is ignored.</summary>
+    /// 1.3-only config); a mixed list is accepted and its off-version part is ignored. The
+    /// configured set includes the ECDHE_PSK suites a configured TLS 1.2 PSK adds.</summary>
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
+    /// <summary>The groups to prefer, in order, among the registered ones; a code the group
+    /// registry lacks is skipped. Build refuses an empty list, a list with no registered group,
+    /// and, when TLS 1.2 is offered, a list with no registered classical ECDHE group.</summary>
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsClientConfigBuilder;
     /// <summary>The application protocols offered in preference order; an empty list offers no
     /// ALPN. Each name is 1..255 opaque octets and is listed once; anything else is rejected here
@@ -103,7 +109,8 @@ type
     /// certificate is then accepted regardless of the host it was issued for - a
     /// man-in-the-middle risk. Name checking is on by default; only a deliberate pin-only
     /// trust model should disable it. It governs the connected host only: an Encrypted Client
-    /// Hello reject is still verified against the config's public_name (RFC 9849 6.1.7).</summary>
+    /// Hello reject is still verified against the config's public_name (RFC 9849 6.1.7). Ignored
+    /// under a Custom verifier, which owns the identity check.</summary>
     function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
     /// <summary>Whether the client sends the connection host as server_name (SNI, RFC 6066 sec.
     /// 3). Send, the default, sends a DNS host and never an IP literal; Omit sends none, while the
@@ -163,7 +170,8 @@ type
     /// so configurations given the same scope resume each other's sessions from a shared cache; the
     /// caller asserts they trust identically. Empty or unset (the default) mints a fresh
     /// per-configuration scope, so a shared cache never resumes across configurations. Independent of
-    /// the WithSessionCache call order.</summary>
+    /// the WithSessionCache call order. The server method of the same name has the opposite empty
+    /// default: it shares rather than isolates.</summary>
     function WithResumptionScope(const AScope: TBytes): ITlsClientConfigBuilder;
     /// <summary>The clock the client reads for a resumption PSK's obfuscated_ticket_age and
     /// ticket-lifetime expiry (RFC 8446 4.2.11 / 4.6.1); defaults to the system
@@ -176,9 +184,10 @@ type
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) reuses the
-    /// original handshake's authentication (inferred from RFC 8446 2.2); Reverify re-runs the certificate
-    /// verifier against the stored peer chain, for a stricter posture that re-checks a resumed
-    /// server against current trust, at the cost of the verification work on every resume. Under
+    /// original handshake's authentication (inferred from RFC 8446 2.2); Reverify re-runs the
+    /// certificate verifier against the stored peer chain, for a stricter posture that re-checks a
+    /// resumed server against current trust, at the cost of the verification work on every
+    /// resume. Under
     /// a Hard revocation posture a reverified resume could never obtain revocation status (a resume
     /// carries no staple), so Build refuses Reverify there without WithLiveRevocationVerdict.</summary>
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
@@ -276,16 +285,22 @@ type
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
     ['{CB741560-7E47-4C87-ABBB-A90E087ED9B0}']
+    /// <summary>The cipher-suite registry offered. A configured TLS 1.2 PSK adds its ECDHE_PSK
+    /// suites to it.</summary>
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
     /// Never widens - a code outside the configured set is refused at Build, and so is a list
     /// naming only suites of a protocol version that is not offered (a TLS 1.2 list beside a TLS
-    /// 1.3-only config); a mixed list is accepted and its off-version part is ignored.</summary>
+    /// 1.3-only config); a mixed list is accepted and its off-version part is ignored. The
+    /// configured set includes the ECDHE_PSK suites a configured TLS 1.2 PSK adds.</summary>
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;
+    /// <summary>The groups to prefer, in order, among the registered ones; a code the group
+    /// registry lacks is skipped. Build refuses an empty list, a list with no registered group,
+    /// and, when TLS 1.2 is offered, a list with no registered classical ECDHE group.</summary>
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsServerConfigBuilder;
     /// <summary>The application protocols the server selects from, in preference order; an empty
     /// list offers no ALPN. Each name is 1..255 opaque octets and is listed once; anything else is
@@ -309,6 +324,9 @@ type
     /// <summary>The DER-encoded DistinguishedName issuers the server names in its CertificateRequest
     /// certificate_authorities (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty names none.</summary>
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): ITlsServerConfigBuilder;
+    /// <summary>The certificate-chain resource caps for a requested client certificate; they bound
+    /// that chain only; without WithPeerAuth any value other than the preset's is refused at
+    /// Build.</summary>
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
     /// <summary>The server credential the Certificate chain is sent from and whose key
@@ -390,7 +408,8 @@ type
     /// resumes a session another established under different client-authentication trust. Empty
     /// (the default) does not partition: configurations sharing a key/store resume each other, as
     /// before. Set the same scope on configurations that trust identically, different scopes to
-    /// keep them apart.</summary>
+    /// keep them apart. The client method of the same name has the opposite empty default: it
+    /// isolates rather than shares.</summary>
     function WithResumptionScope(const AScope: TBytes): ITlsServerConfigBuilder;
     /// <summary>Requests a default STEK, minted at build time from this configuration's own
     /// provider RNG and clock, so stateless tickets honor an injected crypto provider rather than

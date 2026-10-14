@@ -135,9 +135,10 @@ gives up. To bound them, run the connection as a `TTlsConnection` (unit `TlpTlsC
 return (unit `TlpNetSocket`), or your own `TTlsTimedTransportBase` descendant:
 
 ```pascal
-uses SysUtils, TlpTlsConnection, TlpNetSocket, TlpINetSocket, TlpITlsTransport;
+uses SysUtils, TlpITlsConfig, TlpTlsConnection, TlpNetSocket, TlpINetSocket, TlpITlsTransport;
 
 var
+  LConfig: ITlsClientConfig;   // from step 3
   LConn: TTlsConnection;
   LConnector: ITcpConnector;
   LTransport: ITlsTimedTransport;
@@ -181,8 +182,12 @@ begin
   // then, per accepted socket:
   LEngine := TTlsEngineFactory.CreateServerEngine(LConfig);
   LStream := TTlsStream.Create(AcceptedTransport, LEngine, {IsClient=}False, '');
-  LStream.Handshake;
-  // read / write / CloseNotify exactly as the client does
+  try
+    LStream.Handshake;
+    // read / write / CloseNotify exactly as the client does
+  finally
+    LStream.Free;
+  end;
 end;
 ```
 

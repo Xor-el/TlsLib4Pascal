@@ -37,7 +37,8 @@ headless build scripts.
    SDK/NDK, manifest and deployment config to it locally, and those edits must not be committed.
 2. Target platform **Android64**.
 3. Add to the project search path (locally, not committed): every subfolder of `TlsLib/src`,
-   `TlsLib.Trust.System/src`, and `TlsLib.Adapters/Indy/Adapter` (Indy itself ships with Delphi).
+   `TlsLib.Trust.System/src`, `TlsLib.Adapters/Indy/Adapter` (Indy itself ships with Delphi) and the
+   source folders of the library's dependencies.
 4. In the Android manifest, grant the `INTERNET` permission (Project -> Options -> Uses
    Permissions -> **Internet**). No other permission is required - trust roots are read
    through the framework, never from the filesystem.
@@ -105,6 +106,13 @@ It writes `SystemTrustDemo.NetworkSecurity.deployproj` (imported by `SystemTrust
 `android:networkSecurityConfig` to `AndroidManifest.template.xml`. If the template is absent, build the
 demo for Android once so the IDE creates it, then re-run. Re-run after the IDE regenerates the
 template. `-Remove` undoes it.
+
+### Android CT refuses host roots (Android 16+)
+
+To reproduce, add `<base-config><certificateTransparency enabled="true"/></base-config>` to
+`res/xml/network_security_config.xml`, rebuild, and run the host roots cells: the
+`untrusted-root.badssl.com` cell with its own root is refused (alert 48) because the private-root chain
+carries no SCTs. The other cells passed in the 2026-10-14 runs. Remove the element again afterwards.
 
 ### User-installed CA is not trusted
 

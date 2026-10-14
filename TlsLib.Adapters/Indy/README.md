@@ -51,7 +51,7 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 | `ClientConfig` / `ServerConfig`   | a fully built config that replaces the options-driven build |
 | `VerifyCallback`                  | neutral augment-only hook (`WithCertificateVerifyCallback`) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
-| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused |
+| `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused; beside a server config that requests no client certificate the resolver is refused outright |
 | `HandshakeTimeoutMs`              | bounds the handshake read (ms); `0` = 30 s default        |
 
 **Certificate chain**: `CertFile` is the chain the server *presents* — put your leaf **followed by any
@@ -67,15 +67,15 @@ bag is sent as part of the chain and never trusted. A `.pfx` on `KeyFile` beside
 
 **Mutual TLS (client certificates)**: a server requests client certificates only when you set
 `SSLOptions.ClientAuth` — `Requested` (ask, tolerate a client that sends none) or `Required` (ask,
-abort when none is presented); the default `None` never asks. Setting a `RootCertFile` alone no longer
-requests client certificates — it is only the CA a presented client chain is verified against.
+abort when none is presented); the default `None` never asks. Setting a `RootCertFile` alone does not
+request client certificates — it is only the CA a presented client chain is verified against.
 `UseSystemTrust` is a server-certificate source (a client verifying a server) and is **not** a valid
 client-CA: a mode whose only trust source is it fails the build. Name a private `RootCertFile` (or a
 `CustomTrustStore`) for the client-CA instead.
 
 ## Trust is ours (`dangerous` mapping)
 
-`VerifyPeer := False` or `InsecureSkipVerify := True` reaches **only** our loud `InsecureSkipVerify`
+`VerifyPeer := False` or `InsecureSkipVerify := True` reaches **only** our loud `DangerousSkip`
 (a full, deliberate bypass — tests and pinned dev peers only, never production). With it off
 (the default), an untrusted chain fails through our pipeline.
 
@@ -115,7 +115,9 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 - A connection is not thread-safe once the handshake is done: do not read and write it from two
   threads at once (a broadcaster writing while a worker reads must serialize), because a read can
   flush queued outbound records.
-- `Clone` is implemented, so the handler works with Indy's server IOHandler pooling.
+- `Clone` is implemented, so the handler works with Indy's server IOHandler pooling. The FTP data
+  channels (`MakeFTPSvrPort` / `MakeFTPSvrPasv`) get a handler built from the same options.
+- `KeyPassword` is not streamed (`stored False`), so a password never lands in a `.dfm`.
 - `Close` sends a best-effort `close_notify` before the socket is torn down.
 - A read that ends without the peer's `close_notify` raises `ETlsTransportTruncated`, and raises it
   again on every later read. Indy's `Connected` reads the socket too, so after such a truncation it
@@ -164,7 +166,8 @@ that only the server guides selection and can defer to the client when it choose
 `IndyCustomization`, each as a Lazarus `.lpi` and a Delphi `.dpr`.
 
 A built config (`SSLOptions.ServerConfig` / `SSLOptions.ClientConfig`) supplied alongside cert/trust
-options (or a verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+options (or a verify callback or a crypto/PKIX provider) is refused, not silently dropped; so are
+resumption turned off, a non-default `ClientAuth`, verification switched off, and a cipher list.
 
 `SSLOptions.CipherList` (the name Indy's own OpenSSL options use) names the suites to use: exact IANA
 or OpenSSL suite names, separated by `:`, `,`, `;`, spaces or tabs, matched without regard to case

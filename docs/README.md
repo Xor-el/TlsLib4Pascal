@@ -49,8 +49,8 @@ contents track evolving best practice.
 | Preset | Versions | Groups | For |
 |---|---|---|---|
 | **Compatible** *(default)* | TLS 1.3 + hardened TLS 1.2 | X25519, **X25519MLKEM768**, **SecP256r1MLKEM768**, P-256/384/521 | The broad default. Interops widely; still PQ-hybrid capable and AEAD-only. |
-| **Hardened** | TLS 1.3 only | **X25519MLKEM768** (preferred), **SecP256r1MLKEM768**, X25519, P-256 | Modern peers only; post-quantum hybrid preferred. |
-| **Strict** | TLS 1.3 only | **X25519MLKEM768**, X25519, secp256r1 | Locked-down posture: fixed group allowlist, tight certificate limits, resumption off. |
+| **Hardened** | TLS 1.3 only | **X25519MLKEM768** (preferred), **SecP256r1MLKEM768**, X25519, P-256 | Modern peers only; post-quantum hybrid preferred. Requests an OCSP staple. |
+| **Strict** | TLS 1.3 only | **X25519MLKEM768**, X25519, secp256r1 | Locked-down posture: fixed group allowlist, tight certificate limits, resumption off. Requests an OCSP staple. |
 
 ```pascal
 uses SysUtils, TlpTlsPresets, TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider,
@@ -87,8 +87,8 @@ if you use it:
 | `TlsLib.Trust.System` | OS system-trust harvest + delegate ([system-trust.md](system-trust.md)). |
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`). |
 | `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake. |
-| `TlpSocketHttpFetcher` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | The reference socket `IHttpFetcher` for live OCSP/CRL (http, and https with a supplied TLS config). |
-| `TlpNetSocket` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | The reference TCP `ITcpConnector` / `ITcpListener` (interfaces in `TlpINetSocket`) whose streams run a `TTlsConnection` directly. |
+| `TlpSocketHttpFetcher` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | The reference socket `IHttpFetcher` for live OCSP/CRL (http, and https with a supplied TLS config), configured through `TSocketHttpFetcherSettings` (clock, `IHostResolver`, destination policy, forward proxy by absolute-form or CONNECT). |
+| `TlpNetSocket` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | The reference TCP `ITcpConnector` / `ITcpListener` (interfaces in `TlpINetSocket`) whose streams run a `TTlsConnection` directly; also the default `TSystemHostResolver` (the `IHostResolver` interface is in `TlpINetSocket`). |
 | `TlpEchConfigFromSvcb` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | Extracts the ECH config list from DNS HTTPS/SVCB RDATA (`TryFromServiceBinding`, or the raising `FromServiceBinding`). |
 | `TlsLib.Adapter.*` | The mORMot / Indy / Synapse / fcl-net drop-in adapters (package name is singular — `TlsLib.Adapter.mORMot`, `…Indy`, `…Synapse`, `…FclNet`). |
 

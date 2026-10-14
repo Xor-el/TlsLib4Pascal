@@ -152,8 +152,8 @@ const
     ($44, $4F, $57, $4E, $47, $52, $44, $01);
   Tls11DowngradeSentinel: array [0 .. 7] of Byte =
     ($44, $4F, $57, $4E, $47, $52, $44, $00);
-  // RFC 7507 signaling cipher suite: a client lists it when retrying at a lower version
-  // after a failed handshake; it is never negotiated as a real suite
+  // RFC 7507 (obsoleted by RFC 8996) signaling cipher suite: a client lists it when retrying
+  // at a lower version after a failed handshake; it is never negotiated as a real suite
   TlsFallbackScsv = UInt16($5600);
   // ServerHello.random of a HelloRetryRequest = SHA-256("HelloRetryRequest")
   // (RFC 8446 4.1.3)

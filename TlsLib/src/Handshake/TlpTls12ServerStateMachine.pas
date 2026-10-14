@@ -159,7 +159,7 @@ type
   end;
 
   /// <summary>
-  /// The hardened TLS 1.2 server machine (RFC 5246 + RFC 4492/8422 ECDHE + RFC 7627
+  /// The hardened TLS 1.2 server machine (RFC 5246 + RFC 8422 ECDHE + RFC 7627
   /// Extended Master Secret). It kicks on the ClientHello: it negotiates an AEAD ECDHE
   /// suite and a signature scheme its credential can produce, sends ServerHello,
   /// Certificate, a signed ServerKeyExchange and ServerHelloDone, then on the client's

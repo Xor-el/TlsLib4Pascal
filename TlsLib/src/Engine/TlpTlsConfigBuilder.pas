@@ -3266,10 +3266,10 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SHardServerRevocationUnusable);
   // a ticket-key manager or session store is the one thing an operator can share across
   // configurations, and a resumed handshake reuses the original client authentication without
-  // re-verifying it (inferred from RFC 8446 2.2): an mTLS configuration that supplies one must partition its
-  // tickets with an explicit scope, or a ticket minted under another configuration's client-CA
-  // trust would resume here as an authenticated identity. The per-config default STEK is exempt
-  // (it is never shared), so the common case builds unchanged.
+  // re-verifying it (inferred from RFC 8446 2.2): an mTLS configuration that supplies one must
+  // partition its tickets with an explicit scope, or a ticket minted under another
+  // configuration's client-CA trust would resume here as an authenticated identity. The
+  // per-config default STEK is exempt (it is never shared), so the common case builds unchanged.
   if FResumption and (FClientAuth <> TClientAuthMode.None) and
     ((FSessionTicketKeys <> nil) or (FSessionStore <> nil)) and
     (System.Length(FResumptionScope) = 0) then

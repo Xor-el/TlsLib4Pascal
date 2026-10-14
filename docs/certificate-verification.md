@@ -135,14 +135,18 @@ default certificate that then fails the name check; the client never falls back 
 
 ## 4. The `dangerous` escape hatches
 
-Two knobs live under the deliberately-loud "dangerous" naming. **Never ship either in
-production.**
+The deliberately-loud "dangerous" naming covers `TServerVerification.DangerousSkip` /
+`TClientVerification.DangerousSkip` (below), `WithDangerousDisableServerNameCheck` (§3) and
+`WithDangerousKeyLog`. **Never ship any of them in production.** The verify callback of §4b is not
+one of them: it can only tighten.
 
-### 4a. `InsecureSkipVerify` — accept *any* chain
+### 4a. `DangerousSkip` — accept *any* chain
 
-Bypasses the built-in pipeline: PKIX, revocation, and host-name. Any configured public-key
-**pinning still applies** (it composes over the verifier, not inside the pipeline) — so
-`InsecureSkipVerify` together with `WithCertificatePinning` is pin-only trust: no CA validation,
+Bypasses the built-in pipeline entirely: PKIX, revocation, host-name, the per-certificate and
+count chain caps, the algorithm and key-strength policy, and distrust. Any configured public-key
+**pinning still applies**, matched against the leaf only (it composes over the verifier, not inside
+the pipeline), and so does the verify callback — so
+`DangerousSkip` together with `WithCertificatePinning` is pin-only trust: no CA validation,
 but the peer must still present a pinned key. For tests and pinned development peers only. A
 real Encrypted Client Hello offer is refused at `Build` under it, since nothing would authenticate
 an ECH reject (RFC 9849 §6.1.7).
@@ -173,7 +177,7 @@ resolver's host decision sees it too), not the host you connected to.
 `APresented` is every certificate the peer sent (leaf first), including extras that played no part in
 validation. `AValidated` is the leaf-first path the verifier reported as validated (a built-in or OS
 verifier ends it at the trust anchor), and is `nil` when nothing was validated (under
-`InsecureSkipVerify`) — as Go's `VerifyPeerCertificate` passes `rawCerts` and `verifiedChains`. A rule
+`DangerousSkip`) — as Go's `VerifyPeerCertificate` passes `rawCerts` and `verifiedChains`. A rule
 about *who issued* the peer belongs on `AValidated` (an appended copy of a CA you trust in
 `APresented` proves nothing); a caller that skipped validation and vets the peer itself reads
 `APresented`.
@@ -185,10 +189,11 @@ type
       const AHostName: string): Boolean;
   end;
 
-// tighten a normally-verified connection with an extra rule of your own
+// tighten a normally-verified connection with an extra rule of your own; LMyRules is a
+// TMyRules instance, a plain object (not reference counted) that must outlive the config
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TServerVerification.WebPki(LoadFile('my-ca.pem')).Build)
-  .WithCertificateVerifyCallback(LMyRules.Check)
+  .WithCertificateVerifyCallback(LMyRules.Check)   // @LMyRules.Check under FPC {$mode objfpc}
   .Build;
 ```
 
@@ -202,6 +207,9 @@ would ignore can be set beside it. (The server name arrives typed as `TServerNam
 literal.)
 
 ```pascal
+uses SysUtils, TlpICertificateTrust, TlpServerName, TlpTrustTypes, TlpTlsAlert,
+  TlpTlsPresets, TlpCertificateVerifierSource;
+
 type
   TMyServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
@@ -237,11 +245,11 @@ object could be freed while still in use.
 | `ServerCertificateCustomValidationCallback = (_,_,_,_) => true` (accept-all) | `TServerVerification.DangerousSkip` |
 | `ServerCertificateCustomValidationCallback` with real logic (replace validation) | `TServerVerification.Custom(myVerifier)` |
 | A callback that only *tightens* (extra rejections on top of normal validation) | `WithCertificateVerifyCallback(rule)` alone |
-| Trusting a specific CA instead of the system store | `TServerVerification.WebPki(caPemOrDer)` |
+| Trusting a specific CA instead of the system store | `TServerVerification.WebPki(caPemOrDer).Build` |
 | Ignoring only `SslPolicyErrors.RemoteCertificateNameMismatch` | `WithDangerousDisableServerNameCheck` |
 
 The one semantic to internalise: **`ServerCertificateCustomValidationCallback = (...) => true`
-maps to `InsecureSkipVerify`, not to our verify callback** — because ours can only reject
+maps to `DangerousSkip`, not to our verify callback** — because ours can only reject
 further, never accept-all. (See §4b.)
 
 ---
@@ -270,7 +278,8 @@ A host framework's *own* verify callback is bridged only when its signature carr
 type. Indy `OnVerifyPeer` and mORMot `OnEachPeerVerify` hand you an OpenSSL cert (`TIdX509` /
 `PX509`), so they are **not** bridged (it would re-couple the adapter to OpenSSL). Synapse's
 `OnVerifyCert` (`function(Sender): Boolean`, no OpenSSL type) **is** bridged: set it and inspect
-the peer through `GetPeerSubject` / `GetPeerIssuer` / `GetPeerFingerprint`.
+the peer through `GetPeerSubject` / `GetPeerIssuer` / `GetPeerFingerprint`. So is fcl-net's
+`OnVerifyCertificate`, augment-only as well.
 
 For the neutral, framework-agnostic path, each adapter surfaces the augment-only
 `WithCertificateVerifyCallback` on its own options (Indy `SSLOptions.VerifyCallback`; fcl-net
@@ -310,8 +319,17 @@ builder takes no `IHttpFetcher`, by design, so the engine stays network-free. Yo
 //    clock times the fetch budget; the fetcher owns every socket):
 checker := TLiveRevocationChecker.Create(Pkix, clock, config.MonotonicClock, fetcher,
   TRevocationPosture.Hard, TLiveRevocationMethod.OcspThenCrl, budgetMs);
-stream.SetCertificateVerdictResolver(checker.ResolveVerdict);
+try
+  stream.SetCertificateVerdictResolver(checker.ResolveVerdict);   // @checker.ResolveVerdict under FPC {$mode objfpc}
+  stream.Handshake;
+  // ... use the stream
+finally
+  checker.Free;
+end;
 ```
+
+The checker is a plain object: you own it, keep it alive for as long as the stream can park, and
+free it after the stream is done.
 
 The checker tries the responders a certificate lists in order — every OCSP responder URL, then every
 CRL distribution point — and stops at the first definitive answer (a current **Good** or a
@@ -320,8 +338,8 @@ responder are tried once, judged on a canonical form: the scheme and host are co
 regard to case, a default port (`:80` for http, `:443` for https) or a bare `:` is the same as no port, an empty
 path is the same as `/`, percent-encoding hex case is normalised, and the fragment is dropped; path
 and query are otherwise compared exactly. The fetcher is handed that canonical text, not the
-original spelling. A URL carrying userinfo, or one the strict parser refuses (a bad port, a
-numeric last label, a trailing dot, a zone identifier, brackets in the path or query), is skipped without
+original spelling. A URL carrying userinfo, or one the strict parser refuses (a scheme other than http or https, such as an `ldap://` CRL point, a bad port, a
+last label that starts with a digit, a trailing dot, a zone identifier, brackets in the path or query), is skipped without
 using up the cap. A URL that parses is fetched wherever it points: a private or loopback responder
 is not blocked unless the fetcher has a destination policy. By
 default at most three OCSP responders and three CRL points are tried. `budgetMs` is the **total**
@@ -340,7 +358,7 @@ defaults, and set what you need), passed as the last constructor argument: `MaxO
 `MaxCrlDistributionPoints` (1 to 8, default 3), `MinAttemptMs` (1 to 60000, default 250; never 0,
 which would leave a fetch unbounded), `MaxCrlBytes` (4 KiB to 256 MiB, default 32 MiB) and
 `IssuerCandidates` and `MaxCachedResponses` (0 to 1024, default 64; 0 turns the response cache off).
-A value outside its range, or a nil `Pkix` provider, clock or fetcher, is refused when the checker is
+A value outside its range, or a nil `Pkix` provider, clock, monotonic clock or fetcher, is refused when the checker is
 created.
 
 The checker keeps the OCSP responses and CRLs it fetched that carry a `nextUpdate`, so a later check
@@ -361,8 +379,9 @@ up to five minutes ahead of the local clock (a responder's clock may be ahead); 
 
 A **stapled** OCSP response (validated in the handshake pipeline, before the park) is preferred;
 the live fetch is the fallback for a leaf that carries no staple. When the staple already settles
-revocation with a current, authenticated **Good**, the live park is **skipped** (the fetch would only
-re-answer what the staple already did), so a `WithLiveRevocationVerdict` resolver is invoked only for
+revocation with a current, authenticated **Good** that carries a `nextUpdate` and is inside its window, the live park is **skipped** (the fetch would only
+re-answer what the staple already did); a Good staple without a `nextUpdate` is accepted inline but
+still parks. So a `WithLiveRevocationVerdict` resolver is invoked only for
 peers whose status is still undecided. A host that must observe *every* accepted peer (an audit hook,
 extra policy) uses the host-decision park (`WithAsyncCertificateVerdict`), which always parks. The
 posture governs the
@@ -380,10 +399,10 @@ A `WithAsyncCertificateVerdict` (host-decision) park is augment-only: it does **
 revocation gate, so under it `Hard` still rejects a missing staple inline. Without any live
 deferral, `Hard` decides inline (a missing staple is rejected); a `must-staple` leaf (RFC 7633)
 requires a current Good staple, and is enforced only for an initial-handshake server certificate
-the client requested a staple for (`WithOcspStaplingRequest`) — never deferred. An app that
-previously paired a Hard posture with `WithAsyncCertificateVerdict` and a live checker
-should switch to `WithLiveRevocationVerdict` (Build now refuses a Hard client that has neither a
-staple request nor live-revocation deferral; Hardened and Strict request a staple, Compatible needs
+the client requested a staple for (`WithOcspStaplingRequest`) — never deferred. A Hard posture with a live checker
+uses `WithLiveRevocationVerdict`, not `WithAsyncCertificateVerdict` (Build refuses a Hard client that has neither a
+staple request nor live-revocation deferral, and a Hard `TServerVerification.Custom` always needs
+`WithLiveRevocationVerdict` because an injected verifier does not apply the posture; Hardened and Strict request a staple, Compatible needs
 `WithOcspStaplingRequest(True)`, and a Hard client-authenticating server always needs
 `WithLiveRevocationVerdict`). On resumption this is decisive: a `Hard` client with
 `WithResumeVerification(Reverify)` but no `WithLiveRevocationVerdict` can never obtain revocation
@@ -405,12 +424,13 @@ thread and the verdict resolves the park.
 
 ```pascal
 // 1. arm the OS delegate in live mode: this uses the delegate, defers inline, and enables the
-//    async park. Give a non-zero deadline so the Windows resolver can bound its fetch (Apple has
-//    no per-evaluation timeout). Windows + Apple only; other platforms raise.
-TSystemTrust.WithLiveSystemTrust(client, TRevocationPosture.Hard, deadlineMs);
+//    async park. The deadline must be non-zero (0 raises) so the Windows resolver can bound its
+//    fetch (Apple has no per-evaluation timeout). It replaces any earlier WithServerVerification.
+//    Windows + Apple only; other platforms raise.
+client := TSystemTrust.WithLiveSystemTrust(client, TRevocationPosture.Hard, deadlineMs);
 // 2. wire the OS-native resolver, built from the frozen config, to the stream/adapter:
 resolver := TOSSystemTrust.LiveRevocationResolver(clientConfig);   // caller owns + frees it
-stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);
+stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);   // @resolver.ResolveVerdict under FPC {$mode objfpc}
 ```
 
 The OS engine returns a tri-state: a definitive **Revoked** aborts with `certificate_revoked`; a
@@ -424,7 +444,8 @@ on an indeterminate OS outcome before the posture decides.
 **Android and Linux/BSD have no OS-native live revocation** (Android's platform TrustManager owns
 revocation with no network knob; Unix has no OS delegate). Compose the **portable**
 `TLiveRevocationChecker` there instead. `TSystemTrustFetch.Live` on those platforms raises a typed
-`ESystemTrustUnsupportedTlsLibException`, as does arming Live without `WithLiveRevocationVerdict`; a
+`ESystemTrustUnsupportedTlsLibException`, as does arming Live without `WithLiveRevocationVerdict`
+(raised when the engine is created, before any I/O, not at `Build`); a
 host-decision `WithAsyncCertificateVerdict` does not satisfy it.
 
 **Server-side (mutual-TLS client certificates).** The same posture applies to the client
@@ -469,9 +490,10 @@ Neither affects certificate, OCSP or ticket time, which stay on `ITlsClock`.
 
 `TTlsStream` does not pass the config's `WithLiveRevocationVerdict(deadlineMs)` to the resolver.
 The OS-native resolver reads that deadline from the config it was built from. A portable
-`TLiveRevocationChecker` spends its own constructor `budgetMs`; to bound it further per stream, use
-`SetCertificateVerdictResolver(checker.ResolveVerdict, deadlineMs)`, and the smaller non-zero value
-applies.
+`TLiveRevocationChecker` spends its own constructor `budgetMs`; to bound either further per stream,
+use `SetCertificateVerdictResolver(resolver, deadlineMs)`, and the smaller non-zero value
+applies to the portable checker and the OS resolver alike (on Windows; Apple has no per-evaluation
+fetch timeout).
 
 ---
 
@@ -492,7 +514,10 @@ It is a resource budget, not a trust input. The fields of `TCertificateChainLimi
 `MaxTotalChainLength` is also the handshake reassembly ceiling and the certificate-decompression
 ceiling. Start from `Defaults`; the setter raises `EArgumentTlsLibException` for a non-positive cap,
 a per-certificate cap above the total, a total above 16 MiB - 1, or a count outside 1..255. The caps
-apply in the built-in and OS verifiers; a `Custom` verifier owns its own limits.
+apply in the built-in and OS verifiers; a `Custom` verifier owns only the per-certificate and count caps
+(`MaxTotalChainLength` still bounds reassembly and decompression for every verifier). On a server,
+`WithCertificateChainLimits` bounds a requested client certificate only; without `WithPeerAuth` any
+value other than the preset's is refused at `Build`.
 
 ```pascal
 uses TlpCertificateLimits, TlpCertificateVerifierSource;
@@ -551,10 +576,37 @@ certificate on the initial handshake of a client that requested a staple. Withou
 Good staple it fails with `bad_certificate_status_response` under every posture, even with a live
 resolver configured.
 
+### More behaviour worth knowing
+
+- **Anchors.** `WebPki` also takes a single `ITrustAnchorStore`, or a union of stores and root blobs
+  (`WebPki(TArray<ITrustAnchorStore>, TArray<TBytes>)`); a malformed anchor is refused at `Build`. `Custom(verifier, posture)` adds a
+  revocation posture for a live verdict over the verifier's path (the plain `Custom` is `Soft`).
+- **Identity.** Names match the certificate's SANs, with a single wildcard
+  only as the whole leftmost label and only when at least two labels remain below it (so never
+  `*.com`; there is no public-suffix list); an IP-literal host matches only an
+  iPAddress SAN.
+- **Pinning.** Server-side `WithCertificatePinning` (mTLS) pins the client certificate; a pin is exactly
+  32 bytes (SPKI-SHA256).
+- **Verify callback.** A callback that returns `False` aborts with `certificate_unknown`.
+- **Strength floors.** `WithMinimumStrength` raises `EArgumentTlsLibException` for a non-positive
+  minimum RSA modulus or a maximum below it.
+- **Live revocation.** `TLiveRevocationMethod` is `Ocsp`, `Crl` or `OcspThenCrl`; an OCSP response is
+  capped at 64 KiB. `WithAsyncCertificateVerdict(0)` and `WithLiveRevocationVerdict(0)` impose no
+  deadline on the resolver (0 = unbounded), and calling the other of the two after one is set raises
+  `EInvalidOperationTlsLibException` (they share one verdict slot).
+- **The fetcher.** `TSocketHttpFetcher` (package `TlsLib.Net`, see [the cookbook](cookbook.md#set-a-revocation-posture))
+  takes `TSocketHttpFetcherSettings` (a runnable use is `TlsLib.Net/Examples/README.md`'s
+  RealPeerRevocationProbe); a timeout of 0 means 60 s, the response head is capped at 64 KiB,
+  and it follows no redirect, treats a 101 or 204 as a failure and cannot reach an IPv6 responder.
+- **Server-side mTLS.** A server requests client certificates with `WithPeerAuth` and verifies them with
+  `WithClientVerification(TClientVerification.WebPki(...).Build)`. Without `WithPeerAuth`, the
+  client-verification, pinning, callback, verdict and chain-limit settings are refused at `Build`, and a
+  server that shares a session store or ticket keys must also set `WithResumptionScope`.
+
 ---
 
 ## Rule of thumb
 
 Reach for §1–§3 (trust a CA, pin, or relax just the host-name) before ever reaching for §4.
-`InsecureSkipVerify` disables authentication entirely — it makes the connection encrypted but
+`DangerousSkip` disables authentication entirely — it makes the connection encrypted but
 **not** authenticated, which defeats most of the point of TLS. Keep it to tests.

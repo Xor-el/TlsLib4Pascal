@@ -25,8 +25,10 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 | mORMot `TNetTlsContext` field            | TlsLib4Pascal                                             |
 |------------------------------------------|----------------------------------------------------------|
 | `CACertificatesFile`                     | `WebPki` anchors (PEM/DER bundle)                         |
-| `CertificateFile` / `CertificateBin` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS); a PKCS#12 when there is no `PrivateKeyFile` |
+| `CertificateFile` / `CertificateBin` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS); a PKCS#12 only for a non-PEM source with no `PrivateKeyFile` |
 | `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust; `False` (default) never requests a client certificate. The client-CA is `CACertificatesFile` (`CASystemStores` is a server-cert source, ignored on a server). `Requested` (ask, tolerate absence) is available through `SetTlsLibMormotServerConfig` with a builder-driven config |
+| `CASystemStores`                         | OS system trust for a client: `scsRoot` and/or `scsCA` turn it on when `CACertificatesFile` is empty; `scsMY` / `scsSpc` do not count |
+| `CipherList`                             | `WithCipherSuiteList`: exact IANA or OpenSSL suite names (see below) |
 | `IgnoreCertificateErrors`                | **`dangerous` `DangerousSkip`** (see below) |
 | `DisableTls13`                           | offers TLS 1.2 alone (`SupportedVersions`)                |
 | `CipherName` (out)                       | filled with the negotiated suite and version (`TLS_AES_128_GCM_SHA256 TLSv1.3`) |
@@ -46,7 +48,7 @@ Of the output fields only `CipherName` (and a server's `LastError`) are filled; 
 exclusively when it is set, and the `CASystemStores` OS roots only when it is not.
 
 **Certificate and key**: `CertificateFile` or `CertificateBin` (not both) hold a PEM chain, with its
-key in `PrivateKeyFile`. With no `PrivateKeyFile` the same property may hold a PKCS#12 (`.pfx`),
+key in `PrivateKeyFile`. With no `PrivateKeyFile`, a source that is not PEM-armored is read as a PKCS#12 (`.pfx`),
 opened with `PrivatePassword`, as in mORMot's OpenSSL backend; its CA bag is sent as part of the
 chain and never trusted. `OnPrivatePassword`, when set, supplies the password for `PrivateKeyFile`
 and wins over `PrivatePassword`; it runs on every handshake (a server calls it once per accepted
@@ -55,8 +57,9 @@ supplied through `SetTlsLibMormotClientConfig` / `SetTlsLibMormotServerConfig`.
 
 ## Trust is ours (`dangerous` mapping)
 
-`IgnoreCertificateErrors` reaches **only** our loud `InsecureSkipVerify` — a full, deliberate
-bypass of PKIX/OCSP/host/pinning for tests and pinned dev peers, **never** production. With it
+`IgnoreCertificateErrors` reaches **only** our loud `DangerousSkip` — a full, deliberate
+bypass of PKIX/OCSP/host for tests and dev peers, **never**
+production. It is client-only: a server ignores it. With it
 off (the default), an untrusted chain fails through our pipeline. `CASystemStores` is the OS
 server-certificate store: a client verifies a server against it, but a server never authenticates
 clients against it — a server's client-CA is `CACertificatesFile`. On Android, `CACertificatesFile`
@@ -96,7 +99,8 @@ matching `TOSSystemTrust.LiveRevocationResolver` overload (client vs server conf
 fail-closed and never loosen our verdict. The server resolver applies only to a server that requests
 a client certificate (`ClientCertificateAuthentication`); a server that requests none ignores it, so
 one process can run both kinds. Beside a config you supply yourself, that config must itself defer
-the verdict (`WithLiveRevocationVerdict`), else the connection is refused.
+the verdict (`WithLiveRevocationVerdict`), else the connection is refused (a server config only when
+it requests client certificates).
 
 For the full trust picture — trusting a private CA, public-key pinning, host-name-only
 relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
@@ -117,7 +121,7 @@ refused.
 - `GetRawTls` returns `nil`: TlsLib4Pascal is a managed engine with no `PSSL`/OpenSSL handle to
   hand back. `GetRawCert` returns the peer leaf DER (for mORMot's cert pinning / peer info), but
   not the signature-hash name, so TLS channel binding that needs it stays inert. On a resumed
-  connection it returns the leaf stored with the session (previously it was empty on a resume).
+  connection it returns the leaf stored with the session.
 - Application reads honour the socket's own `ReceiveTimeout`: an idle peer surfaces from `Receive`
   as `nrRetry` with the connection intact (never a fatal error or a truncation), exactly as mORMot's
   plain sockets report it. A send that stays blocked because the peer stopped reading is bounded
@@ -157,7 +161,9 @@ the OS trust store (`CASystemStores := [scsRoot]`). Neither skips verification. 
 preference pinned to TLS 1.2, so the negotiated 1.2 (the preset would pick 1.3) proves the injected
 config replaced the built-in build. This is the escape hatch to the whole builder API (cipher
 order, groups, resumption, ALPN, …). A built config supplied alongside cert/trust options (or
-`DisableTls13`, a verify callback or a crypto/PKIX provider) is refused, not silently dropped.
+`DisableTls13`, a verify callback on a client or a crypto/PKIX provider) is refused, not silently
+dropped; so are resumption turned off, a non-default `ClientCertificateAuthentication`,
+verification switched off, and a cipher list.
 
 `Examples/` further holds `MormotEchLoopback`, `MormotResumptionScope` and `MormotWedgeDemo`, each
 as a Lazarus `.lpi` and a Delphi `.dpr`.
