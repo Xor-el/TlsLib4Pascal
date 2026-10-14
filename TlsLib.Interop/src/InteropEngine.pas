@@ -416,6 +416,7 @@ var
   LResumptionOff: Boolean;
   LPosture: TRevocationPosture;
   LEchMode: IEchClientMode;
+  LCertPath, LRequestsCert: Boolean;
 begin
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
@@ -455,6 +456,8 @@ begin
       LClient.WithAlpnProtocols(AOptions.AlpnProtocols);
     // verify the server chain against the supplied trust anchor, or accept any chain when
     // the test supplies none (the leaf-parse and signature checks still run first)
+    // a PSK-only client verifies no certificate, so the settings that act on one are left off it
+    LCertPath := (AOptions.Trust <> nil) or AOptions.AcceptAnyPeerCert;
     LPosture := TRevocationPosture.Soft;
     if AOptions.ApplyRevocation then
       LPosture := AOptions.RevocationPosture;
@@ -474,12 +477,12 @@ begin
     LClient.WithOcspStaplingRequest(AOptions.RequestOcsp);
     // async verdict (-async): park after the pipeline accepts and let the driver resolve the
     // verdict out-of-band. Otherwise -verify-fail installs an augment hook that rejects inline.
-    if AOptions.AsyncVerify then
+    if LCertPath and AOptions.AsyncVerify then
       LClient.WithAsyncCertificateVerdict(0)
-    else if AOptions.VerifyFail then
+    else if LCertPath and AOptions.VerifyFail then
       LClient.WithCertificateVerifyCallback(GRejecter.Reject);
     // a mutual-TLS client presents its own credential when the server requests one
-    if AOptions.HasCredential then
+    if LCertPath and AOptions.HasCredential then
       LClient.WithCredential(AOptions.Credential);
     // out-of-band external PSKs (RFC 9258): imported and offered alongside a cached session
     if System.Length(AOptions.ExternalPsks) > 0 then
@@ -504,7 +507,7 @@ begin
       LClient.WithSessionCache(AOptions.SessionCache);
       LClient.WithResumptionScope(AOptions.SessionScope);
     end;
-    if AOptions.ReverifyOnResume then
+    if LCertPath and AOptions.ReverifyOnResume then
       LClient.WithResumeVerification(TResumeVerification.Reverify);
     if AOptions.Clock <> nil then
       LClient.WithClock(AOptions.Clock);
@@ -512,9 +515,13 @@ begin
       LClient.Tls13.WithEarlyData(True);
     if LEchMode <> nil then
       LClient.Tls13.WithEch(LEchMode);
-    if AOptions.OverrideCertCompression then
-      LClient.Tls13.WithCertificateCompressors(AOptions.CertificateCompressors)
-        .WithCertificateDecompressors(AOptions.CertificateDecompressors);
+    // the client compresses only a certificate it sends, and decompresses only a server's
+    if AOptions.OverrideCertCompression and LCertPath then
+    begin
+      LClient.Tls13.WithCertificateDecompressors(AOptions.CertificateDecompressors);
+      if AOptions.HasCredential then
+        LClient.Tls13.WithCertificateCompressors(AOptions.CertificateCompressors);
+    end;
     Result := TTlsEngineFactory.CreateClientEngine(
       LClient.Build, AOptions.ServerName);
   end
@@ -536,9 +543,16 @@ begin
         AOptions.ClientCertificateAuthorities);
     if AOptions.SuppressServerNameAck then
       LServer.WithServerNameAcknowledgement(False);
+    // a certificate-less (PSK-only) server requests no client certificate and sends none
+    LRequestsCert := (AOptions.ClientAuth <> TClientAuthMode.None) and AOptions.HasCredential;
+    // the server compresses only a certificate it sends, and decompresses only a client's
     if AOptions.OverrideCertCompression then
-      LServer.Tls13.WithCertificateCompressors(AOptions.CertificateCompressors)
-        .WithCertificateDecompressors(AOptions.CertificateDecompressors);
+    begin
+      if AOptions.HasCredential then
+        LServer.Tls13.WithCertificateCompressors(AOptions.CertificateCompressors);
+      if LRequestsCert then
+        LServer.Tls13.WithCertificateDecompressors(AOptions.CertificateDecompressors);
+    end;
     // with neither ticket keys nor a store nor early data the server runs with resumption off,
     // where a non-EMS resumption mode has nothing to act on
     LResumptionOff := (AOptions.SessionTicketKeys = nil) and (AOptions.SessionStore = nil) and
@@ -572,7 +586,7 @@ begin
     end;
     // mutual TLS: request the client certificate and either verify it against the trust
     // store or, for -require-any-client-certificate, accept any chain via a whole-verifier
-    if AOptions.ClientAuth <> TClientAuthMode.None then
+    if LRequestsCert then
     begin
       LServer.WithPeerAuth(AOptions.ClientAuth);
       if AOptions.AcceptAnyPeerCert and (AOptions.Trust = nil) then

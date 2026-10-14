@@ -74,6 +74,8 @@ uses
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpITlsConfigBuilder,
+  TlpITlsCredentialResolver,
+  TlpCredentialResolvers,
   TlpTlsPresets,
   TlpTlsConfigBuilder,
   TlpTlsEngineFactory,
@@ -146,6 +148,8 @@ type
     function NewBareClientBuilder: ITlsClientConfigBuilder;
     function NewClientBuilder: ITlsClientConfigBuilder;
     function NewServerBuilder: ITlsServerConfigBuilder;
+    /// <summary>A server builder holding no certificate credential, for the PSK-only shape.</summary>
+    function NewPskOnlyServerBuilder: ITlsServerConfigBuilder;
     function MakePskSpec: TExternalPsk;
     function MakePskSpecs(ACount: Int32): TArray<TExternalPsk>;
     /// <summary>The bytes of the ClientHello a client built from AFacet sends first.</summary>
@@ -383,6 +387,52 @@ type
     procedure TestOmittedSniHrrRetryKeepsServerNameAbsent;
     procedure TestOmittedSniKeepsSessionsApart;
     procedure TestEchWithOmittedSniAcceptsAndVerifiesHost;
+    // dead and ignored combinations are refused at Build (or at the second of two setters sharing a
+    // slot); each refusal has a test, and the neighbouring combination that works builds
+    procedure TestReverifyUnderHardNeedsALiveVerdict;
+    procedure TestReverifyUnderHardBuildsWithALiveVerdict;
+    procedure TestHardWithReuseOriginalBuildsWithACache;
+    procedure TestPskOnlyClientRefusesPins;
+    procedure TestPskOnlyClientRefusesAVerifyCallback;
+    procedure TestPskOnlyClientRefusesAVerdictDeferral;
+    procedure TestPskOnlyClientRefusesChangedChainLimits;
+    procedure TestPskOnlyClientRefusesAChangedStapleRequest;
+    procedure TestPskOnlyClientRefusesACredential;
+    procedure TestPskOnlyClientRefusesDecompressors;
+    procedure TestPskOnlyClientRefusesReverify;
+    procedure TestPskOnlyStrictClientBuildsWithItsSeededSettings;
+    procedure TestClientCompressorsNeedACredential;
+    procedure TestClientCompressionCacheNeedsACredential;
+    procedure TestClientDecompressorsBuildWithoutACredential;
+    procedure TestAsyncVerdictThenLiveVerdictRaises;
+    procedure TestLiveVerdictThenAsyncVerdictRaises;
+    procedure TestRepeatingOneVerdictSetterIsAccepted;
+    procedure TestCipherSuiteListOfAnUnofferedVersionIsRefused;
+    procedure TestMixedCipherSuiteListBuilds;
+    procedure TestTicketCountZeroRefusesEarlyDataWithNothingToResume;
+    procedure TestTicketCountZeroKeepsEarlyDataWithASessionStore;
+    procedure TestTicketCountZeroOnTls13OnlyRefusesDefaultKeys;
+    procedure TestTicketCountZeroOnTls13OnlyRefusesATicketLifetime;
+    procedure TestTicketCountZeroKeepsDefaultKeysWhenTls12IsOffered;
+    procedure TestServerDecompressorsNeedPeerAuth;
+    procedure TestServerDecompressorsBuildWithPeerAuth;
+    procedure TestPskOnlyServerRefusesCompressors;
+    procedure TestPskOnlyServerRefusesCompressionCache;
+    procedure TestServerChainLimitsNeedPeerAuth;
+    procedure TestServerChainLimitsBuildWithPeerAuth;
+    procedure TestStrictServerBuildsWithItsSeededChainLimits;
+    procedure TestPskOnlyServerRefusesPeerAuth;
+    procedure TestTicketLifetimeZeroIsRefusedWithResumptionOn;
+    procedure TestDefaultKeysThenExplicitKeysRaise;
+    procedure TestExplicitKeysThenDefaultKeysRaise;
+    procedure TestDefaultKeysBesideASessionStoreBuild;
+    procedure TestEmptyDecompressorsBuildOnAServerWithoutPeerAuth;
+    procedure TestEmptyCompressorsBuildOnAPskOnlyServer;
+    procedure TestTicketCountZeroKeepsEarlyDataWithExplicitTicketKeys;
+    procedure TestTicketLifetimeZeroWithResumptionOffIsRefusedAsInert;
+    procedure TestServerCompressorsBuildWithOnlyAnSniCredential;
+    procedure TestServerCompressorsBuildWithOnlyACredentialResolver;
+    procedure TestTicketCountZeroOnTls13OnlyWithNothingSharedStillBuilds;
   end;
 
 implementation
@@ -1853,7 +1903,7 @@ procedure TTestConfigBuilder.TestInjectedVerifierRefusesSettingsItIgnores;
 
 begin
   // a whole-verifier replaces the built-in verification: it has no intermediates, floors or skip
-  // to ignore, and Hard needs the live verdict because a staple request never reaches it
+  // to ignore, and Hard needs the live verdict because the verifier does not apply the posture
   CheckTrue(ClientRefused(NewVerifierClient(TRevocationPosture.Hard)),
     'Hard revocation beside a verifier instance without a live verdict');
   CheckTrue(ClientRefused(NewVerifierClient(TRevocationPosture.Hard).WithOcspStaplingRequest(True)),
@@ -2079,8 +2129,9 @@ begin
   LCache := TInMemoryCertificateCompressionCache.Create;
   CheckTrue(NewClientBuilder.Build.CertificateCompressionCache = nil, 'a client defaults to no cache');
   CheckTrue(NewServerBuilder.Build.CertificateCompressionCache = nil, 'a server defaults to no cache');
-  CheckTrue(NewClientBuilder.Tls13.WithCertificateCompressionCache(LCache).Build
-    .CertificateCompressionCache = LCache, 'a client can memoize its own compression');
+  CheckTrue(NewClientBuilder.WithCredential(ServerCredential).Tls13
+    .WithCertificateCompressionCache(LCache).Build.CertificateCompressionCache = LCache,
+    'a client can memoize its own compression');
 end;
 
 function TTestConfigBuilder.HelloSuites(const AWire: TBytes): TArray<UInt16>;
@@ -2361,7 +2412,7 @@ begin
   LConfig := NewBareClientBuilder.WithServerVerification(
     TServerVerification.Custom(TAcceptAllServerVerifier.Create as IServerCertificateVerifier)).Build;
   CheckNull(LConfig.TrustStore, 'a whole verifier holds no anchors');
-  // a staple request does not reach an injected verifier, so Hard needs the live verdict
+  // an injected verifier does not apply the posture, so Hard needs the live verdict
   CheckTrue(BuildRefused(NewBareClientBuilder.WithOcspStaplingRequest(True)
     .WithServerVerification(TServerVerification.Custom(
     TAcceptAllServerVerifier.Create as IServerCertificateVerifier, TRevocationPosture.Hard)),
@@ -2603,7 +2654,8 @@ var
 begin
   LList := TZlibCertificateCompression.DefaultCompressors;
   CheckTrue(System.Length(LList) > 0, 'there is at least one default compressor to snapshot');
-  LConfig := NewClientBuilder.Tls13.WithCertificateCompressors(LList).Build;
+  LConfig := NewClientBuilder.WithCredential(ServerCredential).Tls13
+    .WithCertificateCompressors(LList).Build;
   LList[0] := nil; // mutating the caller's array must not reach the config
   CheckTrue(LConfig.CertificateCompressors[0] <> nil,
     'the compressor list is a snapshot of the caller array');
@@ -3631,7 +3683,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   // the client builder chained into the .Tls13 facet, built off the facet
-  LConfig := NewClientBuilder.Tls13
+  LConfig := NewClientBuilder.WithCredential(ServerCredential).Tls13
     .WithCertificateCompressors(TZlibCertificateCompression.DefaultCompressors)
     .WithCertificateDecompressors(TZlibCertificateCompression.DefaultDecompressors)
     .Build;
@@ -3730,11 +3782,11 @@ procedure TTestConfigBuilder.TestRequiredEmsWithNonEmsResumeIsRefused;
   end;
 
 begin
-  // requiring EMS rejects every non-EMS client, so legacy resumption could never apply; the other two
-  // policies are subsumed and still build
+  // requiring EMS rejects every non-EMS client, so no non-EMS resumption mode other than the
+  // default could ever apply
   CheckFalse(Builds(TNonEmsResumption.Resume), 'required EMS with legacy resumption contradicts itself');
+  CheckFalse(Builds(TNonEmsResumption.Abort), 'required EMS with Abort contradicts itself');
   CheckTrue(Builds(TNonEmsResumption.Decline), 'required EMS with Decline builds');
-  CheckTrue(Builds(TNonEmsResumption.Abort), 'required EMS with Abort builds');
 end;
 
 procedure TTestConfigBuilder.TestDefaultRevocationPostureIsSoft;
@@ -4526,6 +4578,396 @@ begin
   CheckFalse(LOffered, 'a client that omits SNI does not offer a session made with it');
   CheckTrue(Resumes(TServerNameIndication.Omit), 'a repeat without SNI resumes its own session');
   CheckTrue(LOffered, 'it offers its own cached session');
+end;
+
+function TTestConfigBuilder.NewPskOnlyServerBuilder: ITlsServerConfigBuilder;
+var
+  LOwner: ITlsConfigBuilder;
+begin
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
+  Result := LOwner.Server;
+end;
+
+procedure TTestConfigBuilder.TestReverifyUnderHardNeedsALiveVerdict;
+begin
+  // a reverified resume carries no staple, so Hard with only a staple request could never resume
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithOcspStaplingRequest(True)
+    .WithServerVerification(HardWebPkiServer)
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
+    .WithResumeVerification(TResumeVerification.Reverify), 'WithResumeVerification(Reverify)'),
+    'Reverify under Hard with no live verdict');
+end;
+
+procedure TTestConfigBuilder.TestReverifyUnderHardBuildsWithALiveVerdict;
+begin
+  CheckNotNull(NewBareClientBuilder.WithServerVerification(HardWebPkiServer)
+    .WithLiveRevocationVerdict(0)
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
+    .WithResumeVerification(TResumeVerification.Reverify).Build,
+    'Reverify under Hard with a live verdict');
+end;
+
+procedure TTestConfigBuilder.TestHardWithReuseOriginalBuildsWithACache;
+begin
+  CheckNotNull(NewBareClientBuilder.WithOcspStaplingRequest(True)
+    .WithServerVerification(HardWebPkiServer)
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache).Build,
+    'Hard with the default reuse mode');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesPins;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder
+    .WithCertificatePinning(TArray<TBytes>.Create(Crypto.Primitives.GetRandom.GenerateBytes(32)))
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithCertificatePinning'),
+    'pins on a client that verifies no certificate');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesAVerifyCallback;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithCertificateVerifyCallback(RejectEveryChain)
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithCertificateVerifyCallback'),
+    'a verify callback on a client that verifies no certificate');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesAVerdictDeferral;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithAsyncCertificateVerdict(0)
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithLiveRevocationVerdict'),
+    'a verdict deferral on a client that verifies no certificate');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesChangedChainLimits;
+var
+  LLimits: TCertificateChainLimits;
+begin
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxChainCertificates := 8;
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithCertificateChainLimits(LLimits)
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithCertificateChainLimits'),
+    'chain limits changed on a client that verifies no certificate');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesAChangedStapleRequest;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithOcspStaplingRequest(True)
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithOcspStaplingRequest'),
+    'a staple request added on a client that verifies no certificate');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesACredential;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithCredential(ServerCredential)
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithCredential'),
+    'a credential on a client whose server never requests one');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesDecompressors;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder.Tls13
+    .WithCertificateDecompressors(TZlibCertificateCompression.DefaultDecompressors)
+    .WithExternalPreSharedKeys(MakePskSpecs(1)), 'Tls13.WithCertificateDecompressors'),
+    'decompressors on a client that receives no certificate');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesReverify;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
+    .WithResumeVerification(TResumeVerification.Reverify)
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithResumeVerification(Reverify)'),
+    'Reverify on a client that has no certificate to re-verify');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyStrictClientBuildsWithItsSeededSettings;
+begin
+  // Strict seeds chain limits and a staple request; seeded values are the starting point, not a change
+  CheckNotNull(TTlsPresets.Strict(Crypto, Pkix).Client
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)).Build, 'a PSK-only Strict client');
+end;
+
+procedure TTestConfigBuilder.TestClientCompressorsNeedACredential;
+begin
+  CheckTrue(BuildRefused(NewClientBuilder.Tls13
+    .WithCertificateCompressors(TZlibCertificateCompression.DefaultCompressors),
+    'certificate compressors'), 'compressors on a client with no credential');
+end;
+
+procedure TTestConfigBuilder.TestClientCompressionCacheNeedsACredential;
+begin
+  CheckTrue(BuildRefused(NewClientBuilder.Tls13.WithCertificateCompressionCache(
+    TInMemoryCertificateCompressionCache.Create as ICertificateCompressionCache),
+    'certificate compressors'), 'a compression cache on a client with no credential');
+end;
+
+procedure TTestConfigBuilder.TestClientDecompressorsBuildWithoutACredential;
+begin
+  // the client decompresses the server's certificate whether or not it holds a credential
+  CheckNotNull(NewClientBuilder.Tls13
+    .WithCertificateDecompressors(TZlibCertificateCompression.DefaultDecompressors).Build,
+    'decompressors on a client with no credential');
+end;
+
+procedure TTestConfigBuilder.TestAsyncVerdictThenLiveVerdictRaises;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.WithAsyncCertificateVerdict(0).WithLiveRevocationVerdict(0);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('verdict slot', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'the live verdict after a host-decision verdict');
+end;
+
+procedure TTestConfigBuilder.TestLiveVerdictThenAsyncVerdictRaises;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.WithLiveRevocationVerdict(0).WithAsyncCertificateVerdict(0);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('verdict slot', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'the host-decision verdict after a live verdict');
+end;
+
+procedure TTestConfigBuilder.TestRepeatingOneVerdictSetterIsAccepted;
+begin
+  CheckNotNull(NewClientBuilder.WithLiveRevocationVerdict(0).WithLiveRevocationVerdict(500).Build,
+    'a repeated live verdict call');
+end;
+
+procedure TTestConfigBuilder.TestCipherSuiteListOfAnUnofferedVersionIsRefused;
+var
+  LRefused: Boolean;
+begin
+  // the default profile offers TLS 1.3 only, so a list of TLS 1.2 suites alone would change nothing
+  LRefused := False;
+  try
+    NewClientBuilder.WithCipherSuiteList(
+      TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256)).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRefused := True;
+  end;
+  CheckTrue(LRefused, 'a TLS 1.2 list beside a TLS 1.3-only client');
+end;
+
+procedure TTestConfigBuilder.TestMixedCipherSuiteListBuilds;
+begin
+  // a host's shared list may name suites of a version this config does not offer
+  CheckNotNull(NewClientBuilder.WithCipherSuiteList(TArray<UInt16>.Create(
+    TCipherSuites13.Aes128GcmSha256, TCipherSuites12.EcdheEcdsaAes128GcmSha256)).Build,
+    'a mixed list beside a TLS 1.3-only client');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountZeroRefusesEarlyDataWithNothingToResume;
+begin
+  CheckTrue(BuildRefused(NewServerBuilder.Tls13.WithTicketCount(0).WithEarlyData(1000),
+    'WithTicketCount(0)'), 'an early-data limit on a server that issues no tickets');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountZeroKeepsEarlyDataWithASessionStore;
+begin
+  // a shared store can still resume the tickets another server issued
+  CheckNotNull(NewServerBuilder
+    .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore)
+    .Tls13.WithTicketCount(0).WithEarlyData(1000).Build,
+    'an early-data limit beside a session store');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountZeroOnTls13OnlyRefusesDefaultKeys;
+begin
+  CheckTrue(BuildRefused(NewServerBuilder.WithDefaultSessionTicketKeys.Tls13.WithTicketCount(0),
+    'WithTicketCount(0)'), 'default ticket keys on a TLS 1.3-only server that issues no tickets');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountZeroOnTls13OnlyRefusesATicketLifetime;
+begin
+  CheckTrue(BuildRefused(NewServerBuilder.WithTicketLifetime(600).Tls13.WithTicketCount(0),
+    'WithTicketCount(0)'), 'a ticket lifetime on a TLS 1.3-only server that issues no tickets');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountZeroKeepsDefaultKeysWhenTls12IsOffered;
+begin
+  // the TLS 1.2 side of the server still issues tickets under these
+  CheckNotNull(NewServerBuilder.WithSupportedVersions(
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12))
+    .WithDefaultSessionTicketKeys.WithTicketLifetime(600).Tls13.WithTicketCount(0).Build,
+    'default keys and a lifetime on a dual-version server');
+end;
+
+procedure TTestConfigBuilder.TestServerDecompressorsNeedPeerAuth;
+begin
+  CheckTrue(BuildRefused(NewServerBuilder.Tls13
+    .WithCertificateDecompressors(TZlibCertificateCompression.DefaultDecompressors),
+    'certificate decompressors'), 'decompressors on a server that requests no client certificate');
+end;
+
+procedure TTestConfigBuilder.TestServerDecompressorsBuildWithPeerAuth;
+begin
+  CheckNotNull(NewServerBuilder.WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(WebPkiClient(ClientTrust)).Tls13
+    .WithCertificateDecompressors(TZlibCertificateCompression.DefaultDecompressors).Build,
+    'decompressors on a server that requests client certificates');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyServerRefusesCompressors;
+begin
+  CheckTrue(BuildRefused(NewPskOnlyServerBuilder.Tls13
+    .WithCertificateCompressors(TZlibCertificateCompression.DefaultCompressors)
+    .WithExternalPreSharedKeys(MakePskSpecs(1)), 'certificate compressors'),
+    'compressors on a server that sends no certificate');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyServerRefusesCompressionCache;
+begin
+  CheckTrue(BuildRefused(NewPskOnlyServerBuilder.Tls13.WithCertificateCompressionCache(
+    TInMemoryCertificateCompressionCache.Create as ICertificateCompressionCache)
+    .WithExternalPreSharedKeys(MakePskSpecs(1)), 'certificate compressors'),
+    'a compression cache on a server that sends no certificate');
+end;
+
+procedure TTestConfigBuilder.TestServerChainLimitsNeedPeerAuth;
+var
+  LLimits: TCertificateChainLimits;
+begin
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxChainCertificates := 8;
+  CheckTrue(BuildRefused(NewServerBuilder.WithCertificateChainLimits(LLimits),
+    'certificate-chain limits'), 'chain limits changed on a server that requests no client certificate');
+end;
+
+procedure TTestConfigBuilder.TestServerChainLimitsBuildWithPeerAuth;
+var
+  LLimits: TCertificateChainLimits;
+begin
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxChainCertificates := 8;
+  CheckNotNull(NewServerBuilder.WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(WebPkiClient(ClientTrust)).WithCertificateChainLimits(LLimits).Build,
+    'chain limits on a server that requests client certificates');
+end;
+
+procedure TTestConfigBuilder.TestStrictServerBuildsWithItsSeededChainLimits;
+begin
+  CheckNotNull(TTlsPresets.Strict(Crypto, Pkix).Server.WithCredential(ServerCredential).Build,
+    'a Strict server that requests no client certificate');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyServerRefusesPeerAuth;
+begin
+  CheckTrue(BuildRefused(NewPskOnlyServerBuilder.WithPeerAuth(TClientAuthMode.Required)
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'never sends a CertificateRequest'),
+    'client authentication on a server that sends no certificate');
+end;
+
+procedure TTestConfigBuilder.TestTicketLifetimeZeroIsRefusedWithResumptionOn;
+begin
+  CheckTrue(BuildRefused(NewServerBuilder.WithTicketLifetime(0), 'lifetime of 0'),
+    'a lifetime of 0 while resumption is on');
+end;
+
+procedure TTestConfigBuilder.TestDefaultKeysThenExplicitKeysRaise;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewServerBuilder.WithDefaultSessionTicketKeys.WithSessionTicketKeys(
+      TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('WithDefaultSessionTicketKeys', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'explicit keys after the default request');
+end;
+
+procedure TTestConfigBuilder.TestExplicitKeysThenDefaultKeysRaise;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewServerBuilder.WithSessionTicketKeys(
+      TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
+      .WithDefaultSessionTicketKeys;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := Pos('WithDefaultSessionTicketKeys', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'the default request after explicit keys');
+end;
+
+procedure TTestConfigBuilder.TestDefaultKeysBesideASessionStoreBuild;
+begin
+  // the store and the default keys are both consulted (stateless tickets alongside the store)
+  CheckNotNull(NewServerBuilder.WithDefaultSessionTicketKeys
+    .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore).Build,
+    'default keys beside a session store');
+end;
+
+procedure TTestConfigBuilder.TestEmptyDecompressorsBuildOnAServerWithoutPeerAuth;
+begin
+  // an empty list is the documented off switch, legal wherever the direction is unused
+  CheckNotNull(NewServerBuilder.Tls13.WithCertificateDecompressors(nil).Build,
+    'an empty decompressor list on a server that requests no client certificate');
+end;
+
+procedure TTestConfigBuilder.TestEmptyCompressorsBuildOnAPskOnlyServer;
+begin
+  CheckNotNull(NewPskOnlyServerBuilder.Tls13.WithCertificateCompressors(nil)
+    .WithExternalPreSharedKeys(MakePskSpecs(1)).Build,
+    'an empty compressor list on a server that sends no certificate');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountZeroKeepsEarlyDataWithExplicitTicketKeys;
+begin
+  // explicit keys can resume tickets another server issued, like a session store
+  CheckNotNull(NewServerBuilder.WithSessionTicketKeys(
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
+    .Tls13.WithTicketCount(0).WithEarlyData(1000)
+    .WithAntiReplay(TStrikeRegisterAntiReplay.Create as IAntiReplayStrategy).Build,
+    'an early-data limit beside explicit ticket keys');
+end;
+
+procedure TTestConfigBuilder.TestTicketLifetimeZeroWithResumptionOffIsRefusedAsInert;
+begin
+  // with resumption off the lifetime is refused as an inert setting, not as a zero lifetime
+  CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False).WithTicketLifetime(0),
+    'resumption is off'), 'a lifetime of 0 with resumption off');
+end;
+
+procedure TTestConfigBuilder.TestServerCompressorsBuildWithOnlyAnSniCredential;
+var
+  LOwner: ITlsConfigBuilder;
+begin
+  LOwner := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  TArrayUtilities.Append<ITlsConfigBuilder>(FBuilders, LOwner);
+  CheckNotNull(LOwner.Server.WithSniCredential('localhost', ServerCredential).Tls13
+    .WithCertificateCompressors(TZlibCertificateCompression.DefaultCompressors).Build,
+    'compressors on a server holding only an SNI credential');
+end;
+
+procedure TTestConfigBuilder.TestServerCompressorsBuildWithOnlyACredentialResolver;
+begin
+  CheckNotNull(NewPskOnlyServerBuilder.WithCredentialResolver(
+    TSniCredentialResolver.ForCredential(ServerCredential)).Tls13
+    .WithCertificateCompressors(TZlibCertificateCompression.DefaultCompressors).Build,
+    'compressors on a server holding only a credential resolver');
+end;
+
+procedure TTestConfigBuilder.TestTicketCountZeroOnTls13OnlyWithNothingSharedStillBuilds;
+begin
+  // documented, not refused: count 0 issues no tickets, so nothing resumes without shared state
+  CheckNotNull(NewServerBuilder.Tls13.WithTicketCount(0).Build,
+    'count 0 on a TLS 1.3-only server with resumption on and nothing shared');
 end;
 
 initialization

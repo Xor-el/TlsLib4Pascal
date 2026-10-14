@@ -169,7 +169,7 @@ type
     class function HasClientAuthTrustSource(const AOptions: TTlsOptions): Boolean; static;
     /// <summary>The versions left once TLS 1.2 is dropped for a host cipher list that names no TLS
     /// 1.2 suite; TLS 1.3 stays because a host cipher list never governed it. Raises when none
-    /// remains.</summary>
+    /// remains, or when a TLS 1.2-only list meets a TLS 1.3-only pin.</summary>
     class function HostListVersions(const AOptions: TTlsOptions): TArray<UInt16>; static;
   public
     class function EffectiveCrypto(const AOptions: TTlsOptions): ICryptoProvider; static;
@@ -630,7 +630,7 @@ class function TTlsConfigComposer.HostListVersions(
   const AOptions: TTlsOptions): TArray<UInt16>;
 var
   LVersions: TArray<UInt16>;
-  LNames12: Boolean;
+  LNames12, LNames13: Boolean;
   LSuite: TTlsCipherSuite;
   LI: Int32;
 begin
@@ -638,10 +638,13 @@ begin
   if System.Length(LVersions) = 0 then
     LVersions := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
   LNames12 := False;
+  LNames13 := False;
   for LI := 0 to System.High(AOptions.CipherSuites) do
-    if TCipherSuiteCatalog.TryGet(AOptions.CipherSuites[LI], LSuite) and
-      (LSuite.Protocol = TSuiteProtocol.Tls12) then
-      LNames12 := True;
+    if TCipherSuiteCatalog.TryGet(AOptions.CipherSuites[LI], LSuite) then
+      if LSuite.Protocol = TSuiteProtocol.Tls12 then
+        LNames12 := True
+      else
+        LNames13 := True;
   Result := nil;
   for LI := 0 to System.High(LVersions) do
     if LNames12 or (LVersions[LI] = TlsWireVersionTls13) then
@@ -649,6 +652,10 @@ begin
   if System.Length(Result) = 0 then
     raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
       @SHostCipherListNoUsableSuite, [AOptions.CipherSuitesHint, 'TLS 1.3']);
+  // a list of TLS 1.2 suites beside a TLS 1.3-only pin would change nothing either
+  if (not LNames13) and not (TArrayUtilities.Contains<UInt16>(Result, TlsWireVersionTls12)) then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SHostCipherListNoUsableSuite, [AOptions.CipherSuitesHint, 'TLS 1.2']);
 end;
 
 class function TTlsConfigComposer.BuildClientConfig(

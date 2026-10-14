@@ -179,7 +179,8 @@ type
     procedure TestHostCipherListNarrowsAndOrdersTheBuiltConfig;
     procedure TestHostCipherListNamingNoTls12SuiteDropsTls12;
     procedure TestHostCipherListLeavesNoUsableSuiteIsRefused;
-    procedure TestHostCipherListNamingOnlyTls12SuitesLeavesPinnedTls13Alone;
+    procedure TestHostCipherListNamingOnlyTls12SuitesRefusesAPinnedTls13Only;
+    procedure TestServerHostCipherListNamingOnlyTls12SuitesRefusesAPinnedTls13Only;
     procedure TestHostCipherListIsPartOfTheMemoKey;
     procedure TestHostCipherListConflictsWithASuppliedConfig;
     procedure TestTransportReturnsDataWhenReadable;
@@ -2302,20 +2303,32 @@ begin
   CheckTrue(Pos('CipherList', LMessage) > 0, 'naming the host property: ' + LMessage);
 end;
 
-procedure TTestTlsConnection.TestHostCipherListNamingOnlyTls12SuitesLeavesPinnedTls13Alone;
+procedure TTestTlsConnection.TestHostCipherListNamingOnlyTls12SuitesRefusesAPinnedTls13Only;
 var
   LOpts: TTlsOptions;
-  LConfig: ITlsClientConfig;
+  LMessage: string;
 begin
-  // a host list never governed TLS 1.3, so a 1.2-only list beside a 1.3-only pin is inert
+  // a host list never governed TLS 1.3, so a 1.2-only list beside a 1.3-only pin would change
+  // nothing: refused in the host's terms, as a stream error naming its property
   LOpts := ClientOptsWithStore;
   LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
   LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256);
-  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
-  CheckEquals(1, System.Length(LConfig.SupportedVersions), 'still TLS 1.3 only');
-  CheckEquals(Integer(TlsWireVersionTls13), Integer(LConfig.SupportedVersions[0]), 'TLS 1.3');
-  CheckTrue(System.Length(TNegotiationPolicy.SuiteOrder(LConfig.CipherSuites,
-    TSuiteProtocol.Tls13)) > 0, 'with its TLS 1.3 suites intact');
+  LOpts.CipherSuitesHint := 'CipherList';
+  CheckTrue(RaisesStreamError(LOpts, True, LMessage), 'the dead pairing is refused');
+  CheckTrue(Pos('CipherList', LMessage) > 0, 'naming the host property: ' + LMessage);
+end;
+
+procedure TTestTlsConnection.TestServerHostCipherListNamingOnlyTls12SuitesRefusesAPinnedTls13Only;
+var
+  LOpts: TTlsOptions;
+  LMessage: string;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  LOpts.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheRsaAes128GcmSha256);
+  LOpts.CipherSuitesHint := 'CipherList';
+  CheckTrue(RaisesStreamError(LOpts, False, LMessage), 'the dead pairing is refused');
+  CheckTrue(Pos('CipherList', LMessage) > 0, 'naming the host property: ' + LMessage);
 end;
 
 procedure TTestTlsConnection.TestHostCipherListIsPartOfTheMemoKey;

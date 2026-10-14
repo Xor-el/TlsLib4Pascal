@@ -81,8 +81,8 @@ type
   /// peer chain, for a stricter posture that re-checks a resumed server against current trust.
   /// Sessions are scoped per configuration (see WithSessionCache), so this does not govern
   /// cross-configuration resumption; it re-checks the sessions this configuration, or a scope it
-  /// explicitly shares, stored. Under Hard revocation with no live-revocation verdict a Reverify
-  /// client declines resumption to a full handshake, since a resume carries no staple to check.</summary>
+  /// explicitly shares, stored. Under Hard revocation, Reverify needs a live-revocation verdict
+  /// (a resume carries no staple to check), and the builder refuses it without one.</summary>
   TResumeVerification = (ReuseOriginal, Reverify);
 
   /// <summary>How a TLS 1.2 server treats a ClientHello that resumes a session established without

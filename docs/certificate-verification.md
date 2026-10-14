@@ -381,8 +381,8 @@ staple request nor live-revocation deferral; Hardened and Strict request a stapl
 `WithOcspStaplingRequest(True)`, and a Hard client-authenticating server always needs
 `WithLiveRevocationVerdict`). On resumption this is decisive: a `Hard` client with
 `WithResumeVerification(Reverify)` but no `WithLiveRevocationVerdict` can never obtain revocation
-status for a resumed server (a resume carries no staple), so it offers no resumption and does a full
-handshake instead — the connection still succeeds, it just does not abbreviate.
+status for a resumed server (a resume carries no staple), so `Build` refuses the pair; add
+`WithLiveRevocationVerdict` or keep the default `ReuseOriginal`.
 On a resumption that does abbreviate, `ConnectionInfo.ValidatedPath` is populated only when the
 client re-verified the stored chain (`WithResumeVerification(Reverify)`); under `ReuseOriginal` it is
 empty, since no path was built on this connection, while `ConnectionInfo.PeerCertificates` still

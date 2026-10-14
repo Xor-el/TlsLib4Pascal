@@ -143,7 +143,8 @@ These are intentional and documented — flagging them up front so they aren't m
   one. A host's string is read exactly: OpenSSL-style expressions (`HIGH`, `ALL`, `!aNULL`, `+RSA`)
   and unimplemented suites are refused rather than skipped, so a list never quietly means something
   other than what the host wrote. An OpenSSL cipher list never governed TLS 1.3, so a
-  list naming no TLS 1.3 suite leaves 1.3 on with its default suites.
+  list naming no TLS 1.3 suite leaves 1.3 on with its default suites. A list naming only suites of
+  a version the config does not offer is refused at `Build` as dead.
 - **No process-global mutable configuration in the core.** All behavior lives in immutable,
   per-connection config objects; there is no ambient process-wide default to install (a footgun for
   a security library). The framework adapters expose a few process-wide setters (for example the
