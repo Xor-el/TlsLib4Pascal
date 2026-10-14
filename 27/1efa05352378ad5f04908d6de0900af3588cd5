@@ -1,0 +1,138 @@
+TlsLib.Interop/src/InteropEngine.pas
+  s_a42ddd283d3520::t_c8fd7b660759d5 480,482,485
+  s_a42ddd283d3520::t_3030e18a805489 510
+  s_a42ddd283d3520::t_ab0f4d9d89805e 546-548,550-555
+  s_a42ddd283d3520::t_91b75b527b4fdc 589
+  s_a42ddd283d3520::t_eb25bd40d34ce4 459-460
+  s_a42ddd283d3520::t_a3731f937f0667 518-524
+  s_a42ddd283d3520::t_7eaf93c4d169d6 419
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_a42ddd283d3520::t_821a6561c128d1 310
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_a42ddd283d3520::t_e8791ed61445c8 2776-2777
+  s_a42ddd283d3520::t_ec3dac770964af 3087,3089
+  s_a42ddd283d3520::t_be2487e8a565bf 1988
+  s_a42ddd283d3520::t_d1bfdaadf0122d 3083
+  s_a42ddd283d3520::t_3f1eca27ac7684 3214
+  s_a42ddd283d3520::t_0aa14d7d7509a5 3082,3084-3086,3090
+  s_a42ddd283d3520::t_46d7f347aa0948 1975
+  s_a42ddd283d3520::t_6645a665f196f5 1954-1974,1976-1986,1989,1993-1995
+  s_a42ddd283d3520::t_9db1e53e81c19d 1987
+  s_a42ddd283d3520::t_1438c55b62d9c9 2348
+  s_a42ddd283d3520::t_22245bc3fedb3a 2550
+  s_a42ddd283d3520::t_31c951f5f63821 2549
+  s_a42ddd283d3520::t_0791beee2ae792 3212
+  s_a42ddd283d3520::t_2ccdff9d2a6977 3234-3235
+  s_a42ddd283d3520::t_44157d2848b03b 2539
+  s_a42ddd283d3520::t_61fb9c19ccad8e 3215
+  s_a42ddd283d3520::t_b6ed19ac0cac23 3230,3232-3233,3236
+  s_a42ddd283d3520::t_972a5e6ab8df8a 2913
+  s_a42ddd283d3520::t_0bcf19fe13de09 379-405,411-412
+  s_a42ddd283d3520::t_16ff6472b74181 2358
+  s_a42ddd283d3520::t_87c5edf3ee3f0a 2775
+  s_a42ddd283d3520::t_566b26a45979b0 2894-2895
+  s_a42ddd283d3520::t_e8f761f9714985 3213,3216
+  s_a42ddd283d3520::t_aef1e222aec06b 191-194,197
+  s_a42ddd283d3520::t_c6da979c4777ca 176-179
+  s_a42ddd283d3520::t_51b8311d60a747 3297
+  s_a42ddd283d3520::t_0056aadee05141 1991
+  s_a42ddd283d3520::t_1ca247f0588cf7 3293,3298-3299
+  s_a42ddd283d3520::t_a8c41938a99d12 2902,2904,2908-2912,2914
+  s_a42ddd283d3520::t_2e925c38822a86 471
+  s_a42ddd283d3520::t_4527d23363db21 2538
+  s_a42ddd283d3520::t_abb33de68a3aca 3296
+  s_a42ddd283d3520::t_5f9f8e88702661 2756
+  s_a42ddd283d3520::t_b032dcab562d96 406-410
+  s_a42ddd283d3520::t_984d475e3056eb 3088
+  s_a42ddd283d3520::t_cebbd7dc121471 1990
+  s_a42ddd283d3520::t_262ab9026734a2 3050
+  s_a42ddd283d3520::t_f4f312ad0dbe52 1837
+  s_a42ddd283d3520::t_7ae0b621c5e163 1905
+  s_a42ddd283d3520::t_9d5a09b2d80515 2757
+  s_a42ddd283d3520::t_a8bfd00ab4862f 2519
+  s_a42ddd283d3520::t_bea63c26dd8a81 1992
+  s_a42ddd283d3520::t_b9ad5d2f72b092 195-196
+  s_a42ddd283d3520::t_fc9255f422a580 3231
+  s_a42ddd283d3520::t_6141011c662b12 3294
+docs/security-model.md
+  s_a42ddd283d3520::t_e96a8ceb10feb2 146-147
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_a42ddd283d3520::t_d2b52d22f5bc9a 3686
+  s_a42ddd283d3520::t_eecc6e61f4ec51 2657-2658
+  s_a42ddd283d3520::t_ebe24410e98536 429-435
+  s_a42ddd283d3520::t_4d9f21a77543a4 390-428
+  s_a42ddd283d3520::t_bdecbb45c560b8 2415
+  s_a42ddd283d3520::t_95c3f67538e2bc 3785-3786,3788
+  s_a42ddd283d3520::t_437742f6694858 1906
+  s_a42ddd283d3520::t_ab41c5dcf1a459 77-78
+  s_a42ddd283d3520::t_cb1d2ab3dbb316 151-152
+  s_a42ddd283d3520::t_45e064ce0d5363 4583-4915
+  s_a42ddd283d3520::t_1718feaac82f00 2132-2134
+  s_a42ddd283d3520::t_973730be106c82 4916-4972
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_a42ddd283d3520::t_020ce4c10c887f 76-78
+  s_a42ddd283d3520::t_baccc5badedb0c 364-365
+  s_a42ddd283d3520::t_0f1d24c90bc1e9 276-278
+  s_a42ddd283d3520::t_af5e64a861b589 440-441
+  s_a42ddd283d3520::t_bd0ba1f39c40e8 222-223
+  s_a42ddd283d3520::t_4867b586c01317 433-435
+  s_a42ddd283d3520::t_e7e1b76d83de2c 356-357
+  s_a42ddd283d3520::t_eb81b72ad2ed30 447-448
+  s_a42ddd283d3520::t_b4ab627b32cbe9 217
+  s_a42ddd283d3520::t_7fd85f6104d176 179-180
+  s_a42ddd283d3520::t_b4b9774a68ea3d 148-149
+  s_a42ddd283d3520::t_777b64b7b23d6a 392-393
+  s_a42ddd283d3520::t_ba37e00ec2af28 327-330
+  s_a42ddd283d3520::t_39538506d21f63 502-503
+  s_a42ddd283d3520::t_75cd9a5ecb7b98 216
+  s_a42ddd283d3520::t_0d9e375ed9fe97 455
+  s_a42ddd283d3520::t_0ca127a0e0b163 429-432
+  s_a42ddd283d3520::t_e3e5c85deef68f 405-407
+  s_a42ddd283d3520::t_d509f3bb8fa140 141-142
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_a42ddd283d3520::t_6d7145d5e275d6 170
+  s_a42ddd283d3520::t_22244088d40e22 1658
+  s_a42ddd283d3520::t_d5a1d2a9185a99 171-172
+  s_a42ddd283d3520::t_39d0fdc391cd3a 1630,1633,1636,1638-1639,1641-1646,1649,1652,1654,1656-1657,1659-1664
+  s_a42ddd283d3520::t_773a54d39a464d 1640
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_a42ddd283d3520::t_1b291820f1aae7 172
+  s_a42ddd283d3520::t_e6029761f53f7d 636,644,646-650
+  s_a42ddd283d3520::t_1361593a07cbb8 658,660-661
+  s_a42ddd283d3520::t_2f4d5d4f463f5d 659
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_a42ddd283d3520::t_8e56238227f581 83-84
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_a42ddd283d3520::t_7d40d9f42b22c7 2309,2312,2316-2318
+  s_a42ddd283d3520::t_8c7b952c7c5576 2321-2331
+  s_a42ddd283d3520::t_31da8d0070becb 2306,2311,2319-2320
+  s_a42ddd283d3520::t_8eac0cbf7b0504 183
+  s_a42ddd283d3520::t_f2f7711ec49056 182
+docs/cookbook.md
+  s_a42ddd283d3520::t_f1c4d345106465 553-555
+docs/certificate-verification.md
+  s_a42ddd283d3520::t_30c7d31b3e2675 384-385
+docs/certificate-compression.md
+  s_a42ddd283d3520::t_46740b9991f0ec 43-46
+  s_a42ddd283d3520::t_2332b9fa019b26 47-48
+  s_a42ddd283d3520::t_eb9c623a6087db 29-30,34-36
+TlsLib/src/Trust/TlpCertificateLimits.pas
+  s_a42ddd283d3520::t_cd7c1add91a9cb 66-72
+  s_a42ddd283d3520::t_91ce3afd73a118 48-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "271efa05352378ad5f04908d6de0900af3588cd5",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
