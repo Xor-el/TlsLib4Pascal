@@ -1,0 +1,57 @@
+TlsLib.Tests/src/ScheduleInstallTests.pas
+  s_4adb7e2edc0c28::t_4b85c97b528700 71-80,82-91,93
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_4adb7e2edc0c28::t_6a298e9f6798fe 987-988,994-995,999-1000,1002-1005,1007-1011
+  s_4adb7e2edc0c28::t_1271af395240be 2000,2008,2015-2016,2018-2019,2022-2024
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_4adb7e2edc0c28::t_47147dc52e7045 75-76
+  s_4adb7e2edc0c28::t_bbb1b4871da7d0 60
+  s_4adb7e2edc0c28::t_093f1f780b6a92 208
+  s_4adb7e2edc0c28::t_d1760711797f56 172-173,192
+  s_4adb7e2edc0c28::t_09e24491ceeaa6 207
+  s_4adb7e2edc0c28::t_21377d6cb88df8 426,458,493,525,559,593,623,648,679,715
+  s_4adb7e2edc0c28::t_e5aefa6a96af0d 162-163,168-171
+  s_4adb7e2edc0c28::t_8a58bb3ff28be6 193
+  s_4adb7e2edc0c28::t_41936c7f685873 343-344
+  s_4adb7e2edc0c28::t_ea25e5714581d6 148-149,154
+  s_4adb7e2edc0c28::t_ce0ffbae3f39fa 71-73
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_4adb7e2edc0c28::t_eed469ba81c8b3 680
+  s_4adb7e2edc0c28::t_14126f7c2c18d9 1675-1676
+  s_4adb7e2edc0c28::t_c50a658663d881 1642,1644,1647,1651-1654,1657-1674,1677-1679
+  s_4adb7e2edc0c28::t_1872b8b14824b4 1252-1253
+  s_4adb7e2edc0c28::t_8a46de1c143ee6 1331-1332,1340-1341,1346-1350,1352-1354,1356-1357
+  s_4adb7e2edc0c28::t_bf22e07d95db77 86-87
+  s_4adb7e2edc0c28::t_c85c295afc4a7c 1231-1232,1239-1240,1245-1249,1251,1255-1256
+  s_4adb7e2edc0c28::t_ba4717f28c3430 83-84
+  s_4adb7e2edc0c28::t_c28eeae3229348 591,653,702,753,825,879,910,948,984,1021,1079,1218,1254,1282,1318,1355,1400,1457
+  s_4adb7e2edc0c28::t_670466ad47dc7f 802
+  s_4adb7e2edc0c28::t_e16c4b6912d3bd 856
+  s_4adb7e2edc0c28::t_ef9c08faaaecb9 205,210
+  s_4adb7e2edc0c28::t_0032f0c56b7117 997-998,1006-1007,1012-1016,1019-1020,1022-1023
+  s_4adb7e2edc0c28::t_418510646f2f68 1018
+  s_4adb7e2edc0c28::t_fe35fb22d6f490 1038,1048,1053-1057,1059-1061,1064,1069-1073,1075-1076,1080-1081
+  s_4adb7e2edc0c28::t_bf2f8288dfe59b 1432-1433
+  s_4adb7e2edc0c28::t_5c1ef8264a7941 217-218,223-226
+  s_4adb7e2edc0c28::t_af658c1e30c36e 514-515
+  s_4adb7e2edc0c28::t_4a44356303499c 1645
+  s_4adb7e2edc0c28::t_68dbf7bbff30e8 1655-1656
+  s_4adb7e2edc0c28::t_03847d6db729a0 629-630
+  s_4adb7e2edc0c28::t_10bc3c941be855 74,227-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d5c95688977e0c9c575b097a469e4cef26e8c383",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
