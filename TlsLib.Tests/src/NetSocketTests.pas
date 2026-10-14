@@ -29,7 +29,6 @@ uses
 {$ENDIF FPC}
   TlpIClock,
   TlpClock,
-  TlpDynamicLibrary,
   TlpITlsConfig,
   TlpTlsPresets,
   TlpTlsCredential,
@@ -37,6 +36,7 @@ uses
   TlpINetSocket,
   TlpNetExceptions,
 {$IFDEF TLSLIB_UNIXLIKE}
+  TlpDynamicLibrary,
   TlpPosixNetOs,
 {$ENDIF}
   TlpNetSocket,
@@ -45,21 +45,24 @@ uses
   TlsLibTestBase;
 
 type
+  /// <summary>Shared fixtures for the TCP connector and listener suites: a loopback listener on
+  /// an ephemeral port, a connector, and an accepted pair. Never registered on its own.</summary>
+  TNetSocketTestBase = class abstract(TTlsLibAlgorithmTestCase)
+  strict protected
+    function Listener: ITcpListener;
+    function Connector: ITcpConnector;
+    procedure ConnectPair(const AListener: ITcpListener; out AClient, AServer: ITlsTimedTransport);
+  end;
+
   /// <summary>
   /// The TCP connector and listener: a round trip on an ephemeral port, a bounded accept, a refused
   /// connect, the handshake and application read caps, an orderly close, and a TTlsConnection over
   /// the streams on both ends.
   /// </summary>
-  TTestNetSocket = class(TTlsLibAlgorithmTestCase)
+  TTestNetSocket = class(TNetSocketTestBase)
   strict private
     function ClientConfig: ITlsClientConfig;
     function ServerConfig: ITlsServerConfig;
-    function Listener: ITcpListener;
-    function Connector: ITcpConnector;
-    procedure ConnectPair(const AListener: ITcpListener; out AClient, AServer: ITlsTimedTransport);
-    // raises the soft descriptor limit toward the hard one where it can; False when it stays
-    // below ARequired
-    function RaiseDescriptorLimit(ARequired: Int32): Boolean;
   published
     procedure TestBytesRoundTripOnAnEphemeralPort;
     procedure TestTryAcceptWithNoClientReturnsWithinItsBound;
@@ -74,9 +77,6 @@ type
     procedure TestSystemResolverFindsLiteralsAndLocalhost;
     procedure TestSystemResolverRefusesEmptyAndNonAsciiNames;
     procedure TestSystemResolverRefusesAnUnknownNameOnTheNetwork;
-    procedure TestSocketsPastTheSelectLimitStillWork;
-    procedure TestPendingNetworkErrorsOnAcceptAreRetriedOnLinux;
-    procedure TestAcceptWithNothingPendingIsTransientNotFatal;
     procedure TestHandshakeReadCapRaisesHandshakeTimeout;
     procedure TestApplicationReadCapRaisesRetryableReadTimeout;
     procedure TestPeerCloseReadsAsEndOfStream;
@@ -84,31 +84,53 @@ type
     procedure TestTlsConnectionRunsOverTheStreamsOnBothEnds;
   end;
 
+{$IFDEF TLSLIB_UNIXLIKE}
+
+  /// <summary>The POSIX socket layer: descriptors past the select limit, and an accept with
+  /// nothing pending. Registered only on POSIX targets.</summary>
+  TTestPosixNetSocket = class(TNetSocketTestBase)
+  strict private
+  const
+    // the resource number of the open-descriptor limit, and the most a soft limit is raised to
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
+    RLimitNoFile = 7;
+{$ELSEIF DEFINED(TLSLIB_SOLARIS)}
+    RLimitNoFile = 5;
+{$ELSE}
+    RLimitNoFile = 8;
+{$IFEND}
+    MaxSoftDescriptors = 10240;
+  type
+    // struct rlimit; rlim_t is as wide as a pointer on every target we build (32-bit on Android32)
+    TRLimit = record
+      rlim_cur: NativeUInt;
+      rlim_max: NativeUInt;
+    end;
+    TRLimitFunc = function(AResource: Integer; var ALimit: TRLimit): Integer; cdecl;
+  strict private
+    // raises the soft descriptor limit toward the hard one; False if it stays below ARequired
+    function RaiseDescriptorLimit(ARequired: Int32): Boolean;
+  published
+    procedure TestSocketsPastTheSelectLimitStillWork;
+    procedure TestAcceptWithNothingPendingIsTransientNotFatal;
+  end;
+
+{$ENDIF TLSLIB_UNIXLIKE}
+
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
+
+  /// <summary>accept(2) on Linux passes a pending network error of the new connection on like
+  /// EAGAIN. Registered only on Linux and Android.</summary>
+  TTestLinuxNetSocket = class(TTlsLibAlgorithmTestCase)
+  published
+    procedure TestPendingNetworkErrorsOnAcceptAreRetried;
+  end;
+
+{$IFEND}
+
 implementation
 
-{$IFDEF TLSLIB_UNIXLIKE}
-const
-  // the resource number of the open-descriptor limit, and the most a soft limit is raised to
-{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
-  RLimitNoFile = 7;
-{$ELSEIF DEFINED(TLSLIB_SOLARIS)}
-  RLimitNoFile = 5;
-{$ELSE}
-  RLimitNoFile = 8;
-{$IFEND}
-  MaxSoftDescriptors = 10240;
-{$ENDIF}
-
 type
-{$IFDEF TLSLIB_UNIXLIKE}
-  // struct rlimit; rlim_t is as wide as a pointer on every target we build (32-bit on Android32)
-  TRLimit = record
-    rlim_cur: NativeUInt;
-    rlim_max: NativeUInt;
-  end;
-  TRLimitFunc = function(AResource: Integer; var ALimit: TRLimit): Integer; cdecl;
-{$ENDIF}
-
   // answers one name with the loopback address and counts the questions
   TFakeResolver = class sealed(TInterfacedObject, IHostResolver)
   strict private
@@ -197,6 +219,34 @@ begin
     AAddress := nil;
 end;
 
+{ TNetSocketTestBase }
+
+function TNetSocketTestBase.Listener: ITcpListener;
+begin
+  Result := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+end;
+
+function TNetSocketTestBase.Connector: ITcpConnector;
+begin
+  Result := TTcpConnector.Create(5000) as ITcpConnector;
+end;
+
+procedure TNetSocketTestBase.ConnectPair(const AListener: ITcpListener;
+  out AClient, AServer: ITlsTimedTransport);
+var
+  LLeft: Int32;
+begin
+  AClient := Connector.Connect('127.0.0.1', AListener.Port);
+  AServer := nil;
+  LLeft := 50;
+  while (AServer = nil) and (LLeft > 0) do
+  begin
+    AListener.TryAccept(100, AServer);
+    Dec(LLeft);
+  end;
+  CheckTrue(AServer <> nil, 'the listener accepted the connection');
+end;
+
 { TTestNetSocket }
 
 function TTestNetSocket.ClientConfig: ITlsClientConfig;
@@ -224,59 +274,6 @@ begin
   finally
     LVectors.Free;
   end;
-end;
-
-function TTestNetSocket.Listener: ITcpListener;
-begin
-  Result := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
-end;
-
-function TTestNetSocket.Connector: ITcpConnector;
-begin
-  Result := TTcpConnector.Create(5000) as ITcpConnector;
-end;
-
-procedure TTestNetSocket.ConnectPair(const AListener: ITcpListener;
-  out AClient, AServer: ITlsTimedTransport);
-var
-  LLeft: Int32;
-begin
-  AClient := Connector.Connect('127.0.0.1', AListener.Port);
-  AServer := nil;
-  LLeft := 50;
-  while (AServer = nil) and (LLeft > 0) do
-  begin
-    AListener.TryAccept(100, AServer);
-    Dec(LLeft);
-  end;
-  CheckTrue(AServer <> nil, 'the listener accepted the connection');
-end;
-
-function TTestNetSocket.RaiseDescriptorLimit(ARequired: Int32): Boolean;
-{$IFDEF TLSLIB_UNIXLIKE}
-var
-  LLibrary: NativeUInt;
-  LGet, LSet: TRLimitFunc;
-  LLimit: TRLimit;
-{$ENDIF}
-begin
-  Result := False;
-{$IFDEF TLSLIB_UNIXLIKE}
-  LLibrary := TDynamicLibrary.Open('');
-  LGet := TRLimitFunc(TDynamicLibrary.Resolve(LLibrary, 'getrlimit'));
-  LSet := TRLimitFunc(TDynamicLibrary.Resolve(LLibrary, 'setrlimit'));
-  if not (Assigned(LGet) and Assigned(LSet)) or (LGet(RLimitNoFile, LLimit) <> 0) then
-    Exit;
-  Result := UInt64(LLimit.rlim_cur) >= UInt64(ARequired);
-  if Result or (UInt64(LLimit.rlim_max) < UInt64(ARequired)) then
-    Exit;
-  // macOS refuses a soft limit above its open-file cap when the hard limit is unlimited
-  if UInt64(LLimit.rlim_max) < UInt64(MaxSoftDescriptors) then
-    LLimit.rlim_cur := LLimit.rlim_max
-  else
-    LLimit.rlim_cur := MaxSoftDescriptors;
-  Result := LSet(RLimitNoFile, LLimit) = 0;
-{$ENDIF}
 end;
 
 procedure TTestNetSocket.TestBytesRoundTripOnAnEphemeralPort;
@@ -491,117 +488,15 @@ var
   LResolver: IHostResolver;
   LAddress: TBytes;
 begin
-  // this reaches the system resolver, and a rewriting resolver or a dead nameserver can fail it
-  if GetEnvironmentVariable('TLSLIB_TEST_NETWORK') <> '1' then
+  // this reaches the system resolver, and one that rewrites unknown names fails it
+  if not SwitchEnabled('TLSLIB_TEST_NETWORK') then
   begin
-    SkipTest('set TLSLIB_TEST_NETWORK=1 to run the live DNS check');
+    SkipTest('set TLSLIB_TEST_NETWORK=true to run the live DNS check');
     Exit;
   end;
   LResolver := TSystemHostResolver.Create as IHostResolver;
   CheckFalse(LResolver.TryResolveIPv4('name.invalid', LAddress),
     'a name under .invalid never resolves (RFC 6761)');
-end;
-
-procedure TTestNetSocket.TestSocketsPastTheSelectLimitStillWork;
-const
-  HeldSockets = 1100;
-  // descriptors given back after the climb, for the listener, client and server below
-  Headroom = 8;
-  // descriptors the runner and the other fixtures already hold
-  Spare = 64;
-var
-  LHeld: array of ITcpListener;
-  LCount: Int32;
-  LListener: ITcpListener;
-  LClient, LServer: ITlsTimedTransport;
-  LBuffer: TBytes;
-  LCapRaised: Boolean;
-begin
-  // a select set names no descriptor past 1024, so a socket opened after this many must still be
-  // waited on, connected, accepted and read; a descriptor number is only large on POSIX
-  if not RaiseDescriptorLimit(HeldSockets + Headroom + Spare) then
-  begin
-    SkipTest('needs a descriptor limit of 1172 or more, on a POSIX target');
-    Exit;
-  end;
-  SetLength(LHeld, HeldSockets + Headroom);
-  LCount := 0;
-  try
-    while LCount < HeldSockets + Headroom do
-    begin
-      LHeld[LCount] := Listener;
-      Inc(LCount);
-    end;
-    SetLength(LHeld, HeldSockets);
-    LListener := Listener;
-    ConnectPair(LListener, LClient, LServer);
-    LClient.Write(TBytes.Create(7), 0, 1);
-    SetLength(LBuffer, 4);
-    CheckEquals(1, LServer.Read(LBuffer, 0, System.Length(LBuffer)), 'a byte crosses');
-    LServer.SetReadTimeout(100);
-    LCapRaised := False;
-    try
-      LServer.Read(LBuffer, 0, System.Length(LBuffer));
-    except
-      on E: ETlsHandshakeTimeout do
-        LCapRaised := True;
-    end;
-    CheckTrue(LCapRaised, 'the read cap holds on a high descriptor');
-  finally
-    LHeld := nil;
-  end;
-end;
-
-procedure TTestNetSocket.TestPendingNetworkErrorsOnAcceptAreRetriedOnLinux;
-{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
-const
-  // ENETDOWN, ENOPROTOOPT, EHOSTDOWN, ENONET, EHOSTUNREACH, EOPNOTSUPP, ENETUNREACH
-  PendingErrors: array [0 .. 6] of Integer = (100, 92, 112, 64, 113, 95, 101);
-  // EBADF, EINVAL
-  FatalErrors: array [0 .. 1] of Integer = (9, 22);
-var
-  LI: Int32;
-{$IFEND}
-begin
-{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
-  for LI := Low(PendingErrors) to High(PendingErrors) do
-    CheckTrue(TPosixNetOs.IsTransientAcceptError(PendingErrors[LI]),
-      'errno ' + IntToStr(PendingErrors[LI]) + ' is retried, not a listener failure');
-  for LI := Low(FatalErrors) to High(FatalErrors) do
-    CheckFalse(TPosixNetOs.IsTransientAcceptError(FatalErrors[LI]),
-      'errno ' + IntToStr(FatalErrors[LI]) + ' still fails the listener');
-{$ELSE}
-  SkipTest('Linux and Android only');
-{$IFEND}
-end;
-
-procedure TTestNetSocket.TestAcceptWithNothingPendingIsTransientNotFatal;
-{$IFDEF TLSLIB_UNIXLIKE}
-var
-  LListener, LAccepted, LError: Integer;
-{$ENDIF}
-begin
-{$IFDEF TLSLIB_UNIXLIKE}
-  LListener := TPosixNetOs.InvalidHandle;
-  CheckEquals(0, TPosixNetOs.OpenStream(LListener), 'a socket opens');
-  try
-    CheckEquals(0, TPosixNetOs.BindAndListen(LListener, TBytes.Create(127, 0, 0, 1), 0, 4),
-      'it listens on the loopback');
-    CheckEquals(0, TPosixNetOs.SetBlocking(LListener, False), 'and does not block');
-{$IFDEF FPC}
-    // a stale non-transient RTL errno must not be what the accept reports
-    fpSetErrno(ESysEBADF);
-{$ENDIF}
-    LError := TPosixNetOs.AcceptConnection(LListener, LAccepted);
-    CheckTrue(LError <> 0, 'nothing is pending, so the accept reports an error');
-    CheckTrue(TPosixNetOs.IsTransientAcceptError(LError),
-      'which is a retry, not a failed listener (errno ' + IntToStr(LError) + ')');
-  finally
-    TPosixNetOs.Close(LListener);
-  end;
-{$ELSE}
-  SkipTest('POSIX only');
-{$ENDIF}
 end;
 
 procedure TTestNetSocket.TestHandshakeReadCapRaisesHandshakeTimeout;
@@ -731,6 +626,131 @@ begin
   end;
 end;
 
+{$IFDEF TLSLIB_UNIXLIKE}
+
+{ TTestPosixNetSocket }
+
+function TTestPosixNetSocket.RaiseDescriptorLimit(ARequired: Int32): Boolean;
+var
+  LLibrary: NativeUInt;
+  LGet, LSet: TRLimitFunc;
+  LLimit: TRLimit;
+begin
+  Result := False;
+  LLibrary := TDynamicLibrary.Open('');
+  LGet := TRLimitFunc(TDynamicLibrary.Resolve(LLibrary, 'getrlimit'));
+  LSet := TRLimitFunc(TDynamicLibrary.Resolve(LLibrary, 'setrlimit'));
+  if not (Assigned(LGet) and Assigned(LSet)) or (LGet(RLimitNoFile, LLimit) <> 0) then
+    Exit;
+  Result := UInt64(LLimit.rlim_cur) >= UInt64(ARequired);
+  if Result or (UInt64(LLimit.rlim_max) < UInt64(ARequired)) then
+    Exit;
+  // macOS refuses a soft limit above its open-file cap when the hard limit is unlimited
+  if UInt64(LLimit.rlim_max) < UInt64(MaxSoftDescriptors) then
+    LLimit.rlim_cur := LLimit.rlim_max
+  else
+    LLimit.rlim_cur := MaxSoftDescriptors;
+  Result := LSet(RLimitNoFile, LLimit) = 0;
+end;
+
+procedure TTestPosixNetSocket.TestSocketsPastTheSelectLimitStillWork;
+const
+  HeldSockets = 1100;
+  // descriptors given back after the climb, for the listener, client and server below
+  Headroom = 8;
+  // descriptors the runner and the other fixtures already hold
+  Spare = 64;
+var
+  LHeld: array of ITcpListener;
+  LCount: Int32;
+  LListener: ITcpListener;
+  LClient, LServer: ITlsTimedTransport;
+  LBuffer: TBytes;
+  LCapRaised: Boolean;
+begin
+  // a select set names no descriptor past 1024, so a socket opened after this many must still be
+  // waited on, connected, accepted and read
+  if not RaiseDescriptorLimit(HeldSockets + Headroom + Spare) then
+  begin
+    SkipTest(Format('needs a descriptor limit of %d or more', [HeldSockets + Headroom + Spare]));
+    Exit;
+  end;
+  SetLength(LHeld, HeldSockets + Headroom);
+  LCount := 0;
+  try
+    while LCount < HeldSockets + Headroom do
+    begin
+      LHeld[LCount] := Listener;
+      Inc(LCount);
+    end;
+    SetLength(LHeld, HeldSockets);
+    LListener := Listener;
+    ConnectPair(LListener, LClient, LServer);
+    LClient.Write(TBytes.Create(7), 0, 1);
+    SetLength(LBuffer, 4);
+    CheckEquals(1, LServer.Read(LBuffer, 0, System.Length(LBuffer)), 'a byte crosses');
+    LServer.SetReadTimeout(100);
+    LCapRaised := False;
+    try
+      LServer.Read(LBuffer, 0, System.Length(LBuffer));
+    except
+      on E: ETlsHandshakeTimeout do
+        LCapRaised := True;
+    end;
+    CheckTrue(LCapRaised, 'the read cap holds on a high descriptor');
+  finally
+    LHeld := nil;
+  end;
+end;
+
+procedure TTestPosixNetSocket.TestAcceptWithNothingPendingIsTransientNotFatal;
+var
+  LListener, LAccepted, LError: Integer;
+begin
+  LListener := TPosixNetOs.InvalidHandle;
+  CheckEquals(0, TPosixNetOs.OpenStream(LListener), 'a socket opens');
+  try
+    CheckEquals(0, TPosixNetOs.BindAndListen(LListener, TBytes.Create(127, 0, 0, 1), 0, 4),
+      'it listens on the loopback');
+    CheckEquals(0, TPosixNetOs.SetBlocking(LListener, False), 'and does not block');
+{$IFDEF FPC}
+    // a stale non-transient RTL errno must not be what the accept reports
+    fpSetErrno(ESysEBADF);
+{$ENDIF}
+    LError := TPosixNetOs.AcceptConnection(LListener, LAccepted);
+    CheckTrue(LError <> 0, 'nothing is pending, so the accept reports an error');
+    CheckTrue(TPosixNetOs.IsTransientAcceptError(LError),
+      'which is a retry, not a failed listener (errno ' + IntToStr(LError) + ')');
+  finally
+    TPosixNetOs.Close(LListener);
+  end;
+end;
+
+{$ENDIF TLSLIB_UNIXLIKE}
+
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
+
+{ TTestLinuxNetSocket }
+
+procedure TTestLinuxNetSocket.TestPendingNetworkErrorsOnAcceptAreRetried;
+const
+  // ENETDOWN, ENOPROTOOPT, EHOSTDOWN, ENONET, EHOSTUNREACH, EOPNOTSUPP, ENETUNREACH
+  PendingErrors: array [0 .. 6] of Integer = (100, 92, 112, 64, 113, 95, 101);
+  // EBADF, EINVAL
+  FatalErrors: array [0 .. 1] of Integer = (9, 22);
+var
+  LI: Int32;
+begin
+  for LI := Low(PendingErrors) to High(PendingErrors) do
+    CheckTrue(TPosixNetOs.IsTransientAcceptError(PendingErrors[LI]),
+      'errno ' + IntToStr(PendingErrors[LI]) + ' is retried, not a listener failure');
+  for LI := Low(FatalErrors) to High(FatalErrors) do
+    CheckFalse(TPosixNetOs.IsTransientAcceptError(FatalErrors[LI]),
+      'errno ' + IntToStr(FatalErrors[LI]) + ' still fails the listener');
+end;
+
+{$IFEND}
+
 initialization
 
 {$IFDEF FPC}
@@ -738,5 +758,21 @@ initialization
 {$ELSE}
   RegisterTest(TTestNetSocket.Suite);
 {$ENDIF FPC}
+
+{$IFDEF TLSLIB_UNIXLIKE}
+{$IFDEF FPC}
+  RegisterTest(TTestPosixNetSocket);
+{$ELSE}
+  RegisterTest(TTestPosixNetSocket.Suite);
+{$ENDIF FPC}
+{$ENDIF TLSLIB_UNIXLIKE}
+
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
+{$IFDEF FPC}
+  RegisterTest(TTestLinuxNetSocket);
+{$ELSE}
+  RegisterTest(TTestLinuxNetSocket.Suite);
+{$ENDIF FPC}
+{$IFEND}
 
 end.

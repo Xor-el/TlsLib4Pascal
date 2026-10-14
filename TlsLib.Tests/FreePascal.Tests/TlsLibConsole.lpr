@@ -128,7 +128,7 @@ procedure TTlsLibConsoleTestRunner.WriteCustomHelp;
 begin
   Writeln('  --', TTlsLibTestProviders.CryptoFlag, '=portable|os   crypto provider');
   Writeln('  --', TTlsLibTestProviders.PkixFlag, '=portable   PKIX provider');
-  Writeln('  env TLSLIB_TEST_NETWORK=1   also run the tests that need live DNS');
+  Writeln('  env TLSLIB_TEST_NETWORK=true   also run the tests that need live DNS');
   Writeln('  --', RepeatFlag, '=N   run the suite N times in this process; fails if any pass fails (a report file keeps the last pass)');
 end;
 
