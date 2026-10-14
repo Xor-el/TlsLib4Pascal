@@ -151,7 +151,7 @@ type
   end;
 
   /// <summary>
-  /// The hardened TLS 1.2 client machine (RFC 5246 + RFC 4492/8422 ECDHE + RFC 7627
+  /// The hardened TLS 1.2 client machine (RFC 5246 + RFC 8422 ECDHE + RFC 7627
   /// Extended Master Secret). It sends the ClientHello, then on the server flight
   /// verifies the certificate chain and the ServerKeyExchange signature, sends its
   /// ClientKeyExchange, derives the (extended) master secret, sends its Finished, and
@@ -584,8 +584,8 @@ begin
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello, LServerExtensions);
     // a TLS 1.2 ServerHello must not answer with supported_versions (a 1.3-only response
     // extension, RFC 8446 4.2.1); the dispatcher rejects it on the mixed path, so a 1.2-only
-    // client enforces it here too (local policy, matching deployed behaviour; RFC 8446 4.2.1
-    // names illegal_parameter)
+    // client enforces it here too (unsupported_extension names the fault; RFC 8446 4.2.1 says
+    // illegal_parameter)
     if LContext.SelectedVersion <> 0 then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnsupportedExtension, @SSupportedVersionsInServerHello);

@@ -33,8 +33,9 @@ see `docs/system-trust.md` — but this console demo targets the desktop.)
 lazbuild --add-package-link <CryptoLib4Pascal>/CryptoLib/src/Packages/FPC/CryptoLib4PascalPackage.lpk
 lazbuild --add-package-link TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
 lazbuild --add-package-link TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.lpk
+lazbuild --add-package-link TlsLib.Net/Packages/FPC/TlsLib.Net.lpk
 lazbuild --add-package-link TlsLib.Adapters/FclNet/Packages/FPC/TlsLib.Adapter.FclNet.lpk
-lazbuild --cpu=x86_64 --os=win64 TlsLib.Trust.System/Examples/Lazarus/SystemTrustDemo.lpi
+lazbuild --cpu=x86_64 --os=win64 TlsLib.Trust.System/Examples/Lazarus/SystemTrustDemo.lpi   # use your own --cpu / --os
 ./TlsLib.Trust.System/Examples/Lazarus/bin/SystemTrustDemo
 ```
 

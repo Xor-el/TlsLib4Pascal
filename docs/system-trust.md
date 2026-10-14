@@ -34,7 +34,7 @@ There are two ways to use the OS trust store, chosen with `TSystemTrustMode`:
 | **macOS** | Delegate (`SecTrust`) | harvest of System + admin + user trust settings (SSL-scoped; a user "Never Trust" in any domain excludes); a Deny on any certificate, root or intermediate, is refused anywhere on a path | yes |
 | **iOS** | Delegate (`SecTrust`) | raises (no enumeration API) | yes |
 | **Android** | Delegate (`X509TrustManager`; Delphi: zero-config, FPC: one `TlsLibAndroidInitTrust` call) | raises (harvest banned, the on-disk set is stale/partial) | yes |
-| **Linux, BSD, Solaris** | Anchors | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`, ignored under elevated privilege) | raises (no OS verifier) |
+| **Linux, BSD, Solaris** (NetBSD and DragonFly BSD are not CI-verified) | Anchors | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`, ignored under elevated privilege) | raises (no OS verifier) |
 
 > **Breaking change.** `Default` used to be Anchors on Windows and macOS. It is now Delegate there.
 > Anchors stays an explicit opt-in on both: pass `TSystemTrustMode.Anchors` to get the old behaviour
@@ -84,8 +84,8 @@ hostname check and the per-domain NSC/pin lookup (the OS falls back to plain
 Two optional packages support this:
 
 - **`TlsLib.Trust.System`** — the OS harvest + delegate above.
-- **`TlsLib.Trust.Bundle`** — a baked-in PEM root set (e.g. the Mozilla/NSS roots), for when you want
-  a *fixed, offline* public-root set instead of whatever the host happens to trust. See
+- **`TlsLib.Trust.Bundle`** — a loader for a PEM/DER root bundle you supply (nothing is baked in),
+  for when you want a *fixed, offline* public-root set instead of whatever the host happens to trust. See
   [Bundled roots](#bundled-roots) below.
 
 ---
@@ -96,7 +96,8 @@ The `TSystemTrust` facade makes the OS trust the server-certificate verification
 
 ```pascal
 uses TlpTlsPresets, TlpICryptoProvider, TlpIPkixProvider, TlpDefaultCryptoProvider,
-  TlpDefaultPkixProvider, TlpSystemTrustFacade;
+  TlpDefaultPkixProvider, TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore,
+  TlpITrustAnchorStore;
 
 var
   Crypto: ICryptoProvider;
@@ -155,7 +156,11 @@ What happens:
 - In Anchors mode the host roots join the harvested OS roots in our own validator and any anchor ends
   a path.
 - Host roots are judged as private PKI. Rules that exist only for system roots (Apple CT and validity
-  caps, Android CT) do not apply to a chain that ends at one.
+  caps) do not apply to a chain that ends at one. Android's CT requirement does: when the app opts
+  in through its network security config (Android 16+), the host-root pass is refused for a
+  private-root chain, which carries no SCTs, so an app that requires CT for a host cannot use host
+  roots for that host. (The Apple exemption above comes from Apple's documentation and is not
+  device-tested here.)
 - OS distrust (Windows `Disallowed`, macOS trust-settings Deny) also refuses a path that ended at a
   host root. iOS and Android expose no readable distrust list, so there is nothing to apply. A host
   store's own distrusted certificates are refused on every platform and on every path, host-rooted or
@@ -238,7 +243,8 @@ Both modes accept the same chains in the normal case. These are the differences 
 | Windows roots not installed yet | installed by Windows root auto-update, including under the inline flags; not installed where policy disables auto-update | not seen: the harvest lists installed roots |
 | Missing intermediates | no fetch inline; the OS may use its cache | configured intermediates only |
 | Revocation source | OS cache plus the staple; on Windows and Apple `Hard` is decided inline from the staple or an OS-cached good status, and needs the live-revocation verdict only when neither exists (Android has no cached revocation, so `Hard` is refused without it) | staple plus the portable live checker |
-| System-root-only rules (Apple CT and validity caps, Android CT) | apply to the OS roots, not to host roots | none |
+| System-root-only rules (Apple CT and validity caps) | apply to the OS roots, not to host roots | none |
+| Android CT (when the app opts in through its network security config, Android 16+) | applies to host roots too and refuses a private-root chain | none |
 | Error alerts | the OS's mapping | ours |
 
 To get Anchors behaviour on Windows or macOS, pass `TSystemTrustMode.Anchors`: it is deterministic,
@@ -472,11 +478,10 @@ LHttp.IOHandler := LIO;
 ### mORMot
 
 Map mORMot's native `TNetTlsContext.CASystemStores`: naming an **anchor-bearing** store
-(`scsRoot` and/or `scsCA`) turns on the OS harvest, but only when `CACertificatesFile` is empty: a
+(`scsRoot` and/or `scsCA`) turns on OS system trust in `Default` mode (the OS engine on Windows, macOS, iOS and Android,
+harvested roots on Unix), but only when `CACertificatesFile` is empty: a
 CA file replaces system trust, as it does in mORMot's own OpenSSL backend.
-`scsMY`/`scsSpc` are *not* server-auth anchors and do not trigger it. (On Windows the harvest
-itself reads the `ROOT` store only — the `CA` store holds cached intermediates, not anchors — so
-`scsCA` and `scsRoot` both enable the same ROOT-only harvest.)
+`scsMY`/`scsSpc` are *not* server-auth anchors and do not trigger it.
 
 ```pascal
 LClient.TLS.CASystemStores := [scsRoot];         // OS roots (only when CACertificatesFile is empty)
@@ -508,7 +513,7 @@ LHttp.Sock.SSL.VerifyCert := True;                        // real verification
 
 `VerifyCert := True` with a `CertCAFile` pins to that bundle; with `UseSystemTrust` it uses the OS
 store; with both it unions them; with neither it fails closed. `VerifyCert := False` is the loud
-`InsecureSkipVerify` bypass.
+`DangerousSkip` bypass.
 
 ### fcl-net
 
@@ -521,7 +526,7 @@ by default; `TlsLibFclNetTrustDefaults.UseSystemTrust` turns it on for every new
 uses TlsLibFclNetTls;
 
 TlsLibFclNetTrustDefaults.UseSystemTrust := True;        // once, at startup: OS roots for every handler
-// or per handler, inside OnCreateClientSocketHandler:
+// or per handler, inside OnGetSocketHandler (TFPHTTPClient) or on a handler passed to TInetSocket.Create:
 H.UseSystemTrust := True;                                // OS roots
 // H.CertificateData.CertCA.FileName := 'private.pem';   // (optional) unions a private CA
 ```
@@ -529,7 +534,7 @@ H.UseSystemTrust := True;                                // OS roots
 `VerifyPeerCert` defaults to **True** here (stock fcl-net defaults it to `False`). With
 `UseSystemTrust` it uses the OS store; with `CertCA` / `TrustedCertificate` it pins to those
 anchors; with both it unions them; with neither it fails closed. `VerifyPeerCert := False` is the
-loud `InsecureSkipVerify` bypass.
+loud verification bypass.
 
 ### Writing your own adapter
 
@@ -591,6 +596,11 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     TBundleTrust.FromPemFile(Pkix, 'roots.pem')).Build)
   .Build;
 ```
+
+To compile a root set into your program instead of loading a file, `TlsLib.Tools/RootGen` turns a
+Mozilla NSS `certdata.txt` that you fetch yourself into a Pascal unit exposing an `AnchorStore(Pkix)`
+(only roots trusted for server authentication are kept, sorted deterministically); the tool ships,
+the root data does not.
 
 ---
 

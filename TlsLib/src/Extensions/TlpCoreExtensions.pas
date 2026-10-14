@@ -74,7 +74,8 @@ type
 
   /// <summary>ec_point_formats (RFC 8422 5.1.2): a client offering ECC cipher suites for
   /// TLS 1.2 lists the point formats it supports (only uncompressed); the 1.2 server does not
-  /// echo it (RFC 8422 5.2 makes the echo optional). Ignored in TLS 1.3.</summary>
+  /// echo it (the receiver treats absence as uncompressed-only, RFC 8422 5.1.2, 5.2). Ignored
+  /// in TLS 1.3.</summary>
   TEcPointFormatsExtension = class sealed(TInterfacedObject, ITlsExtension)
   public
     function ExtensionType: UInt16;
@@ -821,7 +822,7 @@ begin
     Exit;
   end;
   // a CertificateRequest's status_request asks for a status of OUR certificate, which this client
-  // never staples; it is permitted and has no effect (RFC 8446 4.2)
+  // never staples; it is permitted and has no effect (RFC 8446 4.4.2.1)
   if AContext.MessageContext = TTlsExtensionContextKind.CertificateRequest then
     Exit;
   // ClientHello CertificateStatusRequest (RFC 6066 8): status_type(1), and for an ocsp(1) request

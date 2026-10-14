@@ -176,7 +176,8 @@ var
 begin
   // the caller passes the leaf already parsed by ParseWellFormedLeaf, answering every
   // signing-policy query from that one decode. A keyUsage that cannot be decoded fails like a
-  // clear bit (RFC 5280 4.2); the other queries pass an Undetermined answer (fail-open per check)
+  // clear bit (stricter local policy; RFC 5280 4.2 mandates it only for critical extensions);
+  // the other queries pass an Undetermined answer (fail-open per check)
   if ALeaf.KeyUsagePermits(TCertKeyUsage.DigitalSignature) <> TCertAnswer.Yes then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.BadCertificate, @SLeafKeyUsageForbidsSigning);

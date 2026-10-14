@@ -24,7 +24,8 @@ Fetch the operator's `ECHConfigList` (see [DNS](#4-dns--publishing-and-fetching-
 it to the builder:
 
 ```pascal
-uses TlpEchClient, TlpCertificateVerifierSource;   // TEchClientModes, TServerVerification
+uses TlpEchClient, TlpCertificateVerifierSource,   // TEchClientModes, TServerVerification
+  TlpTlsPresets, TlpTlsVersion, TlpITlsConfigBuilder, TlpTlsEngineFactory, TlpITlsEngine;
 
 LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TServerVerification.WebPki(LCaPem).Build)
@@ -36,8 +37,8 @@ LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example')
 `WithEch` takes one exclusive mode: `Enable` offers the config list, `Retry` does so for the
 reconnection driven by a reject's `retry_configs` (a second reject is not retried again), and `Grease`
 only sends a decoy. `Enable` and `Retry` need a **TLS 1.3-only** client, because the inner ClientHello
-never offers TLS 1.2 (RFC 9849 §6.1): `Build` refuses a dual-version client rather than quietly
-narrowing it, so pin `WithSupportedVersions` first.
+never offers TLS 1.2 (RFC 9849 §6.1): `Build` refuses a dual-version client with
+`EInvalidOperationTlsLibException` rather than quietly narrowing it, so pin `WithSupportedVersions` first.
 
 The client picks the first HPKE suite it supports from the config, builds the inner and outer, seals
 the inner, and sends the outer. Once the server confirms acceptance the handshake continues on the
@@ -70,16 +71,17 @@ except
   on E: EEchRejectedTlsLibException do
     // E.RetryConfigs holds the server's retry_configs; E.IsRetryAttempt is True when this
     // handshake was already a retry (honor the one-retry cap). Reconnect with the new configs if
-    // your policy allows, or surface the failure. If RetryConfigs is empty the server has
-    // securely disabled ECH (RFC 9849 6.1.6): retry WITHOUT an ECH policy (or with GREASE), not
-    // with an empty config list, which is rejected at Build.
+    // your policy allows, or surface the failure. If RetryConfigs is empty and IsRetryAttempt is
+    // False, the server has securely disabled ECH (RFC 9849 6.1.6): retry WITHOUT an ECH policy
+    // (or with GREASE), not with an empty config list, which TEchClientModes.Enable/Retry refuse.
 end;
 ```
 
 A sans-IO caller reads the same outcome off the engine instead: `LEngine.ConnectionInfo.EchStatus`
 reports `NotOffered`, `Greased`, `Accepted`, `Rejected`, or `Backend`, and on a reject
 `LEngine.ConnectionInfo.EchRetryConfigs` / `LEngine.ConnectionInfo.EchIsRetryAttempt` carry the
-retry material — the engine records the reject rather than raising.
+retry material — the engine records the reject rather than raising. `ConnectionInfo.EchRejectAborted`
+is True when this endpoint aborted with `ech_required` over its own rejected offer (never on a server).
 
 On rejection the client is talking to the *client-facing* server on the public name, not your
 intended server, so it **declines client authentication** (sends an empty `Certificate`) rather than
@@ -90,7 +92,8 @@ expose your client certificate to the wrong party.
 If you `Enable` an `ECHConfigList` but **none** of its configs is usable — an unsupported HPKE
 suite, an invalid public key, or a mandatory unknown extension — the client **fails closed**: `Build`
 raises `EArgumentTlsLibException` rather than silently sending the true SNI in the clear. An
-**empty** config list is rejected the same way. Connecting without ECH in that case is your explicit
+**empty** config list is refused earlier, by `TEchClientModes.Enable` / `Retry` themselves, with the
+same exception type. Connecting without ECH in that case is your explicit
 choice: catch the error and build again with `Grease`.
 
 To make ECH users indistinguishable from non-users, a client with no usable config can send a decoy
@@ -113,10 +116,19 @@ A server decrypts ECH with a key store that holds one or more configs and their 
 them from an RFC 9934 PEM (the format `EchKeyGen` and `openssl ech` emit):
 
 ```pascal
+uses TlpInMemoryEchKeyStore, TlpTlsPresets;   // plus TlpIEch for IEchServerKeyStore
+
 LStore := TInMemoryEchKeyStore.FromPem(LPemBytes, Crypto);
 LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
 LServer.Tls13.WithEchKeyStore(LStore, True);
 ```
+
+`TInMemoryEchKeyStore.FromConfig(ConfigList, PrivateKey, Crypto)` builds the same store from an
+`ECHConfigList` and its HPKE private key (an `ISecretBuffer`) instead of a PEM. The one-argument
+`WithEchKeyStore(LStore)` leaves trial decryption off, so only the key whose `config_id` matches is
+tried. You can supply your own `IEchServerKeyStore`: `Entries` lists the valid config and key pairs
+in preference order, and `RetryConfigs` is the `ECHConfigList` advertised on a reject, which must be
+non-empty and hold at least one config byte-equal to an entry's whenever `Entries` is non-empty.
 
 The server trial-decrypts the outer against its keys; on success it reconstructs the inner and
 serves the true name, on failure it serves the public name and advertises the store's `is_retry`
@@ -144,6 +156,10 @@ clock-rotated, so it tracks exactly what you publish in DNS.
 EchKeyGen -public_name public.example -origin secret.example -out ech.pem
           [-suite x25519,hkdf-sha256,aes-128-gcm] [-max_name_len 64] [-config_id N]
 ```
+
+`-suite` is `kem,kdf,aead`: kem `x25519 | p256 | p384 | p521`, kdf `hkdf-sha256 | hkdf-sha384 |
+hkdf-sha512`, aead `aes-128-gcm | aes-256-gcm | chacha20-poly1305`. Without `-config_id` (0 to 255)
+a random id is chosen.
 
 `-public_name` is the client-facing name carried inside the `ECHConfig` (the outer SNI);
 `-origin` is the name clients actually connect to (the inner SNI) and is the owner of the HTTPS

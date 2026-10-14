@@ -1254,10 +1254,11 @@ begin
       end;
     end;
     // a PSK-only client requires the server to select one of its PSKs; a ServerHello that
-    // falls through to certificate authentication is a fatal missing_extension (RFC 8446
-    // 4.2.11), since there is no certificate trust to fall back on. A rejected-ECH handshake is
-    // the exception: it authenticates the public_name by certificate (RFC 9849 sec. 6.1.7) and
-    // completes to that name before aborting ech_required, so the PSK requirement does not apply
+    // falls through to certificate authentication is a fatal missing_extension (local policy,
+    // RFC 8446 6.2), since there is no certificate trust to fall back on. A rejected-ECH
+    // handshake is the exception: it authenticates the public_name by certificate (RFC 9849
+    // sec. 6.1.7) and completes to that name before aborting ech_required, so the PSK
+    // requirement does not apply
     if (not FPskAccepted) and FParams.RequirePsk and
       (FEchOrch.Status <> TEchStatus.Rejected) then
       raise EFatalAlertTlsLibException.CreateRes(

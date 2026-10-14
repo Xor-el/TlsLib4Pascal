@@ -1494,7 +1494,8 @@ begin
     if not TArrayUtilities.AreEqual(FFirstClientHelloHash, LCh1Hash) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SCookieFirstHelloMismatch);
-    // a cookie minted for another suite is a replay from a different connection (RFC 8446 4.1.4)
+    // a cookie minted for another suite is a replay from another connection (RFC 8446 4.2.2,
+    // inferred)
     if LCookieSuite <> LPinnedSuite then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SCookieSuiteMismatch);
@@ -1868,7 +1869,7 @@ begin
   try
     LContext.SignatureSchemes := FParams.ClientAuthSignatureSchemes;
     LContext.CertificateAuthorities := FParams.ClientCertificateAuthorities;
-    // advertise what we can decompress (RFC 8879 4): the client may then compress its Certificate
+    // advertise what we can decompress (RFC 8879 3): the client may then compress its Certificate
     LContext.CertCompressionAlgorithms :=
       TCertificateCompression.Algorithms(FParams.CertificateDecompressors);
     FCertCompressionAdvertised := System.Length(LContext.CertCompressionAlgorithms) > 0;

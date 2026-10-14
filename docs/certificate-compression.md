@@ -122,10 +122,12 @@ recompute. A change that alters the message (for example a refreshed leaf OCSP s
 bytes, so the key changes and the endpoint simply recomputes; there is no stale-cache case.
 
 The cache is **opt-in** — `nil` by default, the same posture as the session store and the session
-cache, which you provision consciously (ticket keys differ: a server with resumption on mints a
-default set at `Build`). Enable it by handing the config a cache:
+cache, which you provision consciously (ticket keys differ: a server with resumption on and no session
+store or ticket keys set mints a default set at `Build`). Enable it by handing the config a cache:
 
 ```pascal
+uses TlpICertificateCompressionCache, TlpInMemoryCertificateCompressionCache;
+
 ServerBuilder.Tls13.WithCertificateCompressionCache(
   TInMemoryCertificateCompressionCache.Create as ICertificateCompressionCache);
 ClientBuilder.Tls13.WithCertificateCompressionCache(  // a client presenting a stable certificate
@@ -141,7 +143,9 @@ The shipped default (`TInMemoryCertificateCompressionCache`) is:
 Only **successful** compressions are cached. A compressor that declines (returns False) is asked
 again next time, since a decline may be transient. You can also supply your own
 `ICertificateCompressionCache` implementation (for example a store shared across several configs)
-via the same call.
+via the same call. The contract is `TryGet(Key, out Compressed): Boolean`, `Put(Key, Compressed)`,
+`Clear` and `Count`; it is a plain bytes-to-bytes map and must be safe to share across connections
+and threads.
 
 Only the endpoint's outbound `Certificate` compression is cached. Inbound **decompression is never
 cached** — it is attacker-controlled, so caching it would add a cache-poisoning / bomb-amplification

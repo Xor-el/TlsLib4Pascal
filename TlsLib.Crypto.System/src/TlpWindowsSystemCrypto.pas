@@ -3041,8 +3041,8 @@ end;
 function TWindowsBackendReport.FacetBackend(
   AFacet: TCryptoFacet): TCryptoBackendEntry;
 begin
-  // Hpke composes over this overlay's native primitives, so it is Composed; Primitives and
-  // Signing are mixed per algorithm and have no whole-facet answer.
+  // Primitives and Signing are mixed per algorithm; only Hpke has a whole-facet answer
+  // (Composed over this overlay's native primitives).
   if AFacet = TCryptoFacet.Hpke then
     Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
   else
@@ -4159,10 +4159,9 @@ begin
     Exit(False);
   LBlob.cbData := System.Length(APfx);
   LBlob.pbData := PByte(APfx);
-  // an empty/absent passphrase is L"" (a pointer to a single NUL) - exactly what the prior empty
-  // WideString gave, and distinct from NULL, which PFXImportCertStore may treat differently from
-  // an empty password (RFC 7292 Appendix B.1); a real one is the owned wide buffer, wiped once
-  // import returns
+  // an empty/absent passphrase is L"" (RFC 7292 Appendix B.1: two NUL bytes); PFXImportCertStore
+  // may treat a NULL pointer differently, so it is never passed. A real one is the owned wide
+  // buffer, wiped once import returns
   LPassword := WidePassword(APassword);
   LEmptyPassword := #0;
   if System.Length(LPassword) > 0 then

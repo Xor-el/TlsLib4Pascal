@@ -61,17 +61,17 @@ type
     /// <summary>The inbound-record size this endpoint offers under record_size_limit (RFC 8449);
     /// counted as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing.</summary>
     function RecordSizeLimit: Int32;
-    /// <summary>The certificate-compression algorithms this endpoint compresses a sent
-    /// Certificate with (RFC 8879); empty never sends a CompressedCertificate.</summary>
+    /// <summary>TLS 1.3 only: the certificate-compression algorithms this endpoint compresses a
+    /// sent Certificate with (RFC 8879); empty never sends a CompressedCertificate.</summary>
     function CertificateCompressors: TArray<ICertificateCompressor>;
-    /// <summary>The certificate-compression algorithms this endpoint can decompress,
+    /// <summary>TLS 1.3 only: the certificate-compression algorithms this endpoint can decompress,
     /// advertised in compress_certificate (a client in its ClientHello, a server in its
     /// CertificateRequest); empty omits the extension.</summary>
     function CertificateDecompressors: TArray<ICertificateDecompressor>;
     /// <summary>The optional cross-connection cache memoizing this endpoint's compressed
     /// Certificate (RFC 8879), so a stable certificate is deflated once rather than every
     /// handshake. Shared across the connections built from this config; nil (the default)
-    /// compresses each time.</summary>
+    /// compresses each time. TLS 1.3 only.</summary>
     function CertificateCompressionCache: ICertificateCompressionCache;
     /// <summary>This endpoint's own credential: the server certificate, or (mutual TLS)
     /// the client certificate. Empty when the endpoint presents none.</summary>
@@ -100,7 +100,7 @@ type
     /// only trust anchors anchor a path - and they never bypass validation. Empty (the
     /// default) validates the peer chain exactly as received.</summary>
     function IntermediateCertificates: TArray<TBytes>;
-    /// <summary>Whether TLS 1.2 requires extended_master_secret (RFC 7627); when False,
+    /// <summary>TLS 1.2 only: whether it requires extended_master_secret (RFC 7627); when False,
     /// a peer that does not offer it falls back to the plain master secret. A server then also
     /// applies NonEmsResumption to resumption of such sessions.</summary>
     function RequireExtendedMasterSecret: Boolean;
@@ -120,13 +120,14 @@ type
     /// hardened profiles may default it off.</summary>
     function Resumption: Boolean;
     /// <summary>The out-of-band external pre-shared keys (RFC 9258), in preference order.
-    /// A client imports and offers them (TLS 1.3 only); a server imports and matches an
+    /// A client imports and offers them; a server imports and matches an
     /// offered pre_shared_key against them, preferring a matching PSK over its
-    /// certificate. Empty leaves external PSK off. Independent of Resumption.</summary>
+    /// certificate. Empty leaves external PSK off. Independent of Resumption. TLS 1.3
+    /// only.</summary>
     function ExternalPsks: TArray<TExternalPsk>;
-    /// <summary>The TLS 1.2 pre-shared keys (RFC 4279 / RFC 5489). A client holds at most one,
-    /// which it presents when the server selects a PSK suite; a server holds the set it accepts,
-    /// looked up by the identity the client presents. Empty leaves the TLS 1.2 PSK suites off.
+    /// <summary>TLS 1.2 only: the pre-shared keys (RFC 4279 / RFC 5489). A client holds at most
+    /// one, which it presents when the server selects a PSK suite; a server holds the set it
+    /// accepts, looked up by the identity the client presents. Empty leaves the TLS 1.2 PSK suites off.
     /// Distinct from ExternalPsks, which are TLS 1.3 only.</summary>
     function Tls12Psks: TArray<TTls12Psk>;
     /// <summary>The clock this endpoint reads for time-dependent decisions - a resumption PSK's
@@ -170,21 +171,21 @@ type
     /// <summary>How the client verifies a resumed server: ReuseOriginal (default) reuses the
     /// original authentication; Reverify re-runs the certificate verifier against the stored chain.</summary>
     function ResumeVerification: TResumeVerification;
-    /// <summary>Whether the client offers TLS 1.3 early data (0-RTT) when a cached ticket
+    /// <summary>TLS 1.3 only: whether the client offers early data (0-RTT) when a cached ticket
     /// authorizes it. Off by default.</summary>
     function EarlyData: Boolean;
     /// <summary>Whether a client that configured external PSKs requires the server to select
     /// one: when True (the default), a ServerHello that omits pre_shared_key is fatal rather
     /// than a fall-through to certificate authentication. Set False to also accept a
-    /// certificate handshake. No effect without configured external PSKs.</summary>
+    /// certificate handshake. No effect without configured external PSKs. TLS 1.3 only.</summary>
     function ExternalPskRequired: Boolean;
     /// <summary>Whether a client that configured a TLS 1.2 PSK offers only the PSK suites for
     /// TLS 1.2, so a TLS 1.2 handshake cannot fall back to certificate authentication. When True
     /// (the default) the PSK suites replace the certificate suites; when False both are offered.
     /// No effect without a configured TLS 1.2 PSK.</summary>
     function Tls12PreSharedKeyRequired: Boolean;
-    /// <summary>The frozen Encrypted Client Hello policy (RFC 9849), or nil when ECH is
-    /// not offered.</summary>
+    /// <summary>TLS 1.3 only: the frozen Encrypted Client Hello policy (RFC 9849), or nil when ECH
+    /// is not offered.</summary>
     function EncryptedClientHello: IEchClientPolicy;
   end;
 
@@ -197,7 +198,7 @@ type
     /// <summary>How the server resolves the cipher suite: ServerOrder (default) imposes the
     /// server's own preference; ClientOrder honors the client's offered order.</summary>
     function CipherSuitePreference: TServerCipherPreference;
-    /// <summary>How a TLS 1.2 server treats a resumption of a session established without
+    /// <summary>TLS 1.2 only: how a server treats a resumption of a session established without
     /// extended_master_secret when the hello does not offer it either (RFC 7627 5.3); Decline by
     /// default. Moot when RequireExtendedMasterSecret is set.</summary>
     function NonEmsResumption: TNonEmsResumption;
@@ -230,20 +231,22 @@ type
     /// WithCredentialResolver. nil for a PSK-only server (no certificate). The Credential
     /// accessor still returns the no-SNI / no-match default.</summary>
     function CredentialResolver: ITlsServerCredentialResolver;
-    /// <summary>The anti-replay register guarding accepted 0-RTT early data; required for
-    /// the server to accept early data.</summary>
+    /// <summary>TLS 1.3 only: the anti-replay register guarding accepted 0-RTT early data;
+    /// required for the server to accept early data.</summary>
     function AntiReplay: IAntiReplayStrategy;
     /// <summary>The lifetime advertised for issued sessions and tickets, in seconds.</summary>
     function TicketLifetimeSeconds: UInt32;
-    /// <summary>How many TLS 1.3 NewSessionTickets to issue per handshake.</summary>
+    /// <summary>TLS 1.3 only: how many NewSessionTickets to issue per handshake.</summary>
     function TicketCount: Int32;
     /// <summary>The psk_identity_hint a server sends in its ECDHE_PSK ServerKeyExchange (RFC 4279
     /// 5.2); empty (the default) sends none. A client ignores it.</summary>
     function Tls12PskIdentityHint: TBytes;
-    /// <summary>The 0-RTT early-data byte budget the server authorizes (0 = no early data).</summary>
+    /// <summary>TLS 1.3 only: the 0-RTT early-data byte budget the server authorizes (0 = no early
+    /// data).</summary>
     function MaxEarlyData: UInt32;
-    /// <summary>The server's Encrypted Client Hello policy (RFC 9849): a keyed server's store and
-    /// trial-decrypt setting, or a split-mode backend. nil when ECH is not configured; an inner-type
+    /// <summary>TLS 1.3 only: the server's Encrypted Client Hello policy (RFC 9849): a keyed
+    /// server's store and trial-decrypt setting, or a split-mode backend. nil when ECH is not
+    /// configured; an inner-type
     /// ech at a server that is not a backend is illegal_parameter.</summary>
     function EncryptedClientHello: IEchServerPolicy;
   end;

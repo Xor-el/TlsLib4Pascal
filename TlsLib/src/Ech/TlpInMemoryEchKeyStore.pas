@@ -66,7 +66,7 @@ type
     /// <summary>
     /// A store built from an RFC 9934 ECH PEM: every config becomes a key the server
     /// decrypts with and advertises as retry_configs. No per-entry expiry (rotate by
-    /// swapping the store); for expiry, build TEchKeyEntry values and use the constructor.
+    /// swapping the store).
     /// </summary>
     class function FromPem(const APem: TBytes;
       const ACryptoProvider: ICryptoProvider): IEchServerKeyStore; static;

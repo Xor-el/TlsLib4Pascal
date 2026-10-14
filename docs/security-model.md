@@ -30,8 +30,9 @@ Three principles shape everything below.
 TlsLib4Pascal defends the confidentiality, integrity, and authenticity of a TLS 1.2 / 1.3 connection
 against a **network attacker** (Dolev–Yao): one who can read, drop, inject, reorder, and replay
 records, present forged or malicious certificates, and drive the handshake with hostile or
-malformed input. It additionally hardens against **local side-channel** observation of the default
-provider's secret-dependent computation (cache/timing).
+malformed input. Local side-channel observation (cache/timing) of secret-dependent computation is
+the crypto provider's responsibility, not the library's (see Cryptographic posture); the library
+itself compares secrets in constant time (invariant 2).
 
 Explicitly **out of the threat model** (documented non-goals): a hostile process with the same memory
 (the secret-hygiene invariant targets the managed runtime, not `mlock`/swap/hibernation resistance);
@@ -47,15 +48,15 @@ principal test units (the fuzz + BoGo + KAT suites cross-cover several).
 |---|---|---|---|---|
 | 1 | **Parser safety — no over-read.** One bounds-checked reader mediates all wire parsing; every length-prefixed field is validated against bytes-remaining *before* the read; sub-structures parse over a bounded sub-slice; trailing bytes are rejected (`decode_error`). No raw pointer indexing into borrowed buffers. | Heartbleed / GnuTLS-length buffer over-read | the single wire reader/codec | `WireCodecTests`, `RecordHeaderTests`, `ExtensionCodecTests`; **structure-aware fuzzing** (`TlsFuzzer`) asserts no crash / no over-read on truncated / oversized / reordered / duplicated / wrong-context input |
 | 2 | **Constant-time secret comparison.** Finished `verify_data`, PSK binder, session-ticket MAC/decrypt, HRR-cookie MAC, and AEAD tags use a constant-time compare — never an early-exit `=` on secret-dependent data. | timing oracle / MAC forgery | CT compare helper used at every secret-equality site | key-schedule + handshake + resumption tests (`Tls13KeyScheduleTests`, `Tls12KeyScheduleTests`, `Tls13ResumptionTests`) |
-| 3 | **Certificate decompression cap (RFC 8879).** Output is capped at the peer's `uncompressed_length`; output exceeding it or a length mismatch aborts `bad_certificate`; the same max message size applies as if uncompressed; memory is bounded during decompression. | decompression / zip bomb | centralized bomb defense in the compression policy layer (declared length capped at the configured `MaxTotalChainLength`, ratio guard `100`, exact-length match) | `CertificateCompressionCacheTests` + the compression policy tests |
+| 3 | **Certificate decompression cap (RFC 8879).** Output is capped at the peer's `uncompressed_length`; output exceeding it or a length mismatch aborts `bad_certificate`; the same max message size applies as if uncompressed; memory is bounded during decompression. | decompression / zip bomb | centralized bomb defense in the compression policy layer (declared length capped at the configured `MaxTotalChainLength`, ratio guard `100`, exact-length match) | `ResourceLimitTests` (bomb / decompression ceiling) + the compression policy tests |
 | 4 | **Peer key-share / public-key validation.** Incoming key shares are validated before use: NIST-curve points are checked on-curve and non-identity; X25519/X448 are safe by construction (the Windows CNG overlay additionally reduces a non-canonical X25519 u per RFC 7748 sec. 5, and fails closed as a peer-input error on a u the OS module refuses); ML-KEM decapsulation uses constant-time implicit rejection; the hybrid combiner concatenates so no component failure leaks. | invalid-curve / small-subgroup | the KEM-shaped `INamedGroup` seam (`ValidatePeerShare`) | `NamedGroupTests` (incl. hybrid + short-ciphertext rejection) |
-| 5 | **AEAD nonce non-reuse + usage limits.** Per-epoch nonces are monotonic and never repeat within a key; a proactive KeyUpdate rekeys before the AES-GCM record limit (~2^24.5); the sequence never wraps without a rekey. | catastrophic GCM nonce reuse | `IRecordProtection` (monotonic sequence → nonce) + the AEAD backend's own nonce-reuse rejection (`SAeadSealRejected`; the CNG overlay checks too) | `RecordProtectionTests`, `ProviderTests` |
-| 6 | **DoS / resource limits.** Hard caps on handshake-reassembly size, floods of empty records / warning alerts / KeyUpdate requests, the stateful session store, and the 0-RTT strike register. All configurable; secure defaults. A handshake parked on an async verdict buffers inbound under these same caps. | memory exhaustion / infinite-work loops | the record layer + engine bounds; the stateless HRR cookie | record/handshake tests; `TStrikeRegisterAntiReplay` bounds (`Tls13ResumptionTests`) |
-| 7 | **Secret hygiene.** All key material — schedule secrets, traffic keys, PSKs, resumption secrets, STEK/ticket keys, the HRR-cookie secret — lives in a heap-stable `ISecretBuffer`, deterministically wiped once at end-of-life through an anti-dead-store-elimination barrier. Provider intermediates (round keys, HKDF PRKs, scratch) are wiped too. | key material recovered from freed memory | `TSecretBuffer` (refcounted, single buffer, wiped on `_Release`) | `SecretTests` (`TestWipeOnLastRelease` asserts the buffer is zeroed when its last reference is released) |
+| 5 | **AEAD nonce non-reuse + usage limits.** Per-epoch nonces are monotonic and never repeat within a key; on TLS 1.3 a proactive KeyUpdate rekeys before the AES-GCM record limit (~2^24.5); TLS 1.2 has no rekey, so at the limit (23,726,566 records) the engine sends close_notify and raises `ERecordLimitTlsLibException`; the sequence never wraps without a rekey. | catastrophic GCM nonce reuse | `IRecordProtection` (monotonic sequence → nonce) + the AEAD backend's own nonce-reuse rejection (`SAeadSealRejected`; the CNG overlay checks too) | `RecordProtectionTests`, `ProviderTests` |
+| 6 | **DoS / resource limits.** Hard caps on handshake-reassembly size, floods of empty records / warning alerts / KeyUpdate requests, the stateful session store, and the 0-RTT strike register. The reassembly and chain sizes, the session store and the strike register are configurable; the flood caps (consecutive empty records, change_cipher_spec, warning alerts, post-handshake messages) are fixed constants. Secure defaults throughout. A handshake parked on an async verdict buffers inbound under these same caps. | memory exhaustion / infinite-work loops | the record layer + engine bounds; the stateless HRR cookie | record/handshake tests; `TStrikeRegisterAntiReplay` bounds (`Tls13ResumptionTests`) |
+| 7 | **Secret hygiene.** All key material — schedule secrets, traffic keys, PSKs, resumption secrets, STEK/ticket keys, the HRR-cookie secret — lives in a heap-stable `ISecretBuffer`, wiped once at end-of-life with a plain `FillChar` over the buffer (`TSecureMemory.Wipe`; there is no extra barrier against the compiler eliding the store). Provider intermediates (round keys, HKDF PRKs, scratch) are wiped too. | key material recovered from freed memory | `TSecretBuffer` (refcounted, single buffer, wiped in its destructor when the last reference is released) | `SecretTests` (`TestWipeOnLastRelease` asserts the buffer is zeroed when its last reference is released) |
 | 8 | **Single-threaded per connection.** An engine/connection is single-threaded (caller serializes; no internal locks). Config objects are immutable once built and freely shareable across threads. | accidental data races on connection state | stated contract; frozen config objects | design invariant; config-freeze tests |
 | 9 | **Fail-closed authentication.** A client with verification on but no trust source is refused at `Build` (`SNoTrustStore`), and a client with name checking on but no usable host is refused when the engine is created — never a silent RFC 9525 skip (disable it only via `WithDangerousDisableServerNameCheck`). A certificate whose `extendedKeyUsage` excludes the TLS role — `serverAuth` for a server, `clientAuth` for a client, over the leaf and every intermediate — is rejected as `unsupported_certificate` (required-if-present; `anyExtendedKeyUsage` is not a substitute). Anchors *union* inside one `WebPki` policy; a whole verifier (`Custom`) takes no anchors, intermediates or skip-verify, so nothing it would ignore can be set beside it. A parked verdict with no resolver, or whose resolver raises, fails the handshake — the only pass is an explicit positive verdict. The deadline is a budget handed to the resolver, which must honour it; the library runs no timer. A definitive, authenticated `Revoked` aborts under every revocation posture, including `Off`. | silent-insecure / fail-open trust / wrong-purpose certificate | the config builder guards + the engine factory + the trust pipeline (augment-only) | `CertificateVerifierTests`, `TrustCompositionTests`, `CertificateCheckTests`, `LiveRevocationTests`, `ServerSideLiveRevocationTests` |
 | 10 | **Downgrade protection.** The ServerHello.random downgrade sentinel is set/checked and is *cryptographically bound* (via the 1.2 SKE signature and, both versions, the Finished MAC over the transcript); a 1.3-capable client aborts `illegal_parameter` on a spurious downgrade. Server-side `TLS_FALLBACK_SCSV` aborts `inappropriate_fallback`. | version-downgrade MITM | negotiation prologue + Finished MAC + SCSV | `NegotiationTests`, `Tls12DualVersionTests` |
-| 11 | **CSPRNG hard-fail.** A randomness failure aborts the operation with a fatal error — never a silent fallback to a weak or zero source. There is no fork detection: after `fork()` the child must not use the parent's provider or any connection it inherited; build a fresh provider in the child. | weak / replayed randomness | the provider's RNG contract | provider RNG tests |
+| 11 | **CSPRNG hard-fail.** A randomness failure aborts the operation with a fatal error — never a silent fallback to a weak or zero source. There is no fork detection: after `fork()` the child must not use the parent's provider or any connection it inherited; build a fresh provider in the child. | weak / replayed randomness | the provider's RNG contract | provider RNG tests (no test exercises the RNG failure path) |
 
 ## Authentication & trust — the fail-closed core
 
@@ -63,8 +64,10 @@ The one behavior most worth internalizing: **you cannot ship an unauthenticated 
 The builder requires an explicit trust source, and turning verification off is gated behind a single,
 loudly-named surface (`TServerVerification.DangerousSkip`, name-check off, key logging) that you have to
 opt into deliberately. Custom verification **augments** — a `WithCertificateVerifyCallback` can only
-*additionally reject*, never rescue a chain the built-in pipeline failed; only a whole
-`TServerVerification.Custom` replaces the pipeline, and it takes no other trust setting. The async deferred-verdict seam
+*additionally reject*, never rescue a chain the built-in pipeline failed. Two paths replace the
+pipeline: a whole `TServerVerification.Custom`, which takes no other trust setting, and a
+`TServerVerification.VerifierSource`, whose custom source receives the verify callback only through
+its context and must apply it to keep the augment-only rule (the OS delegate does). The async deferred-verdict seam
 rides the same augment-only rule and is fail-closed when unresolved. See
 [certificate-verification.md](certificate-verification.md) and [system-trust.md](system-trust.md).
 
@@ -90,9 +93,10 @@ one when ECH was accepted). For debugging only — never production.
   server does not know proceeds on a stand-in secret and ends like a wrong secret (RFC 4279 §2 permits
   this), so a probe cannot enumerate identities; the identity itself is sent in the clear (RFC 4279 §7.3).
   A PSK session resumes only while its identity is configured with the same secret.
-- **Post-quantum hybrid KEX** (X25519MLKEM768) offered by every preset and preferred under
-  Hardened and Strict, interop-verified against OpenSSL 3.5+
-  and BoringSSL.
+- **Post-quantum hybrid KEX** (X25519MLKEM768, and SecP256r1MLKEM768 in the Compatible and Hardened
+  presets) offered by the presets and preferred under Hardened and Strict. X25519MLKEM768 is
+  interop-verified against OpenSSL 3.5+ and BoringSSL; SecP256r1MLKEM768 against OpenSSL where the
+  installed build supports it.
 - **Resumption.** TLS 1.3 resumes with `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
   negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
   only as forward-secret as the session store / ticket-key lifetime. Client-cache tickets are single-use; server tickets are single-use with a session
@@ -101,8 +105,14 @@ one when ECH was accepted). For debugging only — never production.
   and advertises only what is left. A connection ended by a fatal alert, sent or received, drops the
   sessions and stateful tickets it stored (RFC 5246 §7.2.2, RFC 8446 §6); a stateless ticket cannot
   be recalled. A transport failure (a reset socket) is not a fatal alert and leaves them resumable
-  (RFC 5246 §7.2.1). **0-RTT is off by default** and,
-  when enabled, is bounded by an anti-replay strategy.
+  (RFC 5246 §7.2.1). A server's ticket lifetime defaults to 7200 s and `WithTicketLifetime` accepts at
+  most seven days (604800 s); a client clamps any advertised lifetime to seven days. With resumption
+  on and no session store or ticket keys set, `Build` mints a default ticket key (STEK) that rotates on
+  that lifetime. **0-RTT is off by default** and, when enabled, is bounded by an anti-replay strategy.
+  A server `WithEarlyData` budget must be below 1 MiB and needs resumption; with explicit
+  `WithSessionTicketKeys` and no session store it also needs `WithAntiReplay`, and `WithAntiReplay`
+  needs a positive budget; with `Tls13.WithTicketCount(0)` it also needs a session store or ticket
+  keys. A client `WithEarlyData(True)` needs resumption and a session cache.
 - **Path validation** is delegated to the crypto backend's PKIX engine (PKITS-verified in the
   default distribution), run with a bounded path build (at most 4 non-self-issued intermediates,
   chain-size caps); other RFC 5280 behaviour needs a custom `ICertificatePathValidator` injected
@@ -116,7 +126,8 @@ one when ECH was accepted). For debugging only — never production.
 The correctness/security story is enforced continuously, not once:
 
 - **RFC 8448 byte-exact trace replay** + HKDF / traffic-key known-answer tests
-  (`Tls13KeyScheduleTests`, `Tls12KeyScheduleTests`) — the handshake and key schedule match the RFC
+  (`Tls13KeyScheduleTests`, `Tls12KeyScheduleTests`; the RFC 8448 replay traces are in
+  `Tls13ClientReplayTests` and `Tls13ServerReplayTests`) — the handshake and key schedule match the RFC
   vectors bit for bit.
 - **Structure-aware negative fuzzing** of the pure core (`TlsFuzzer`) — truncated / oversized /
   reordered / duplicated / wrong-context input must produce the exact alert and never crash; this is
@@ -124,8 +135,8 @@ The correctness/security story is enforced continuously, not once:
 - **BoGo conformance as a required CI gate** — the BoringSSL external-stack test suite
   (`BoGoShim` + `bogo-classify.py`) runs full-suite-minus-explicit-disables at boundary 0: every test
   PASSes or is disabled-with-a-reason, and any unexpected / regressed / stale-disable result fails CI.
-  Plus an always-on `openssl s_client`/`s_server` interop matrix (including a version-gated
-  X25519MLKEM768 hybrid cell).
+  Plus a capability-gated `openssl s_client`/`s_server` interop matrix, including a version-gated
+  X25519MLKEM768 hybrid cell; a cell the installed OpenSSL cannot run is skipped.
 - **Regression suite** pinning immunity to the designed-out attacks (downgrade sentinel, no-CBC,
   decompression bomb, invalid-curve, timing).
 - **Secret-wipe test** — a secret buffer is asserted to be zeroed when its last reference is
@@ -158,13 +169,14 @@ These are intentional and documented — flagging them up front so they aren't m
   signatures, and TLS 1.2 handshake signatures) re-encodes the DigestInfo with its NULL parameters and
   compares it exactly (RFC 8017 8.2.2, 9.2 and B.1). The optional Windows native (CNG) verifier,
   which only verifies handshake signatures, does the same: it names no hash OID and hands CNG the one
-  DigestInfo of RFC 8017 9.2 Note 1, so a DigestInfo without the NULL does not verify there either. It
-  is always strict, whatever the portable provider's strictness is set to. One path is outside this: OS
-  trust delegate mode (the default OS trust on Windows, macOS, iOS and Android), where the chain and any
+  DigestInfo of RFC 8017 9.2 Note 1, so a DigestInfo without the NULL does not verify there either. The
+  portable path is always strict as well. One path is outside this: OS
+  trust delegate mode (the Default mode of OS trust on Windows, macOS, iOS and Android), where the chain and any
   revocation data the OS fetches are judged by the platform.
 - **The managed engine is always ours.** Native OS/JVM TLS stacks are never the handshake/record
-  engine (a deliberate one-behavior / one-test-corpus stance); OS *trust* is the only sanctioned OS
-  touch, and it is opt-in.
+  engine (a deliberate one-behavior / one-test-corpus stance); OS *trust* (opt-in; its Default
+  mode is the OS's own verifier on Windows, macOS, iOS and Android) and the opt-in Windows CNG crypto
+  overlay (`TlsLib.Crypto.System`) are the only sanctioned OS touches.
 
 ## Reporting
 

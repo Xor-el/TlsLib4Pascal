@@ -40,7 +40,7 @@ type
   public
     /// <summary>
     /// Whether an extension type may be compressed into ech_outer_extensions. Maximal
-    /// compression (RFC 9849 sec. 5.1) is the ecosystem norm and the smaller, less
+    /// compression (RFC 9849 sec. 5.1) gives the smaller, less
     /// distinguishable ClientHelloOuter: every extension is eligible except the three the
     /// inner and outer never share - server_name (real vs public_name), the
     /// encrypted_client_hello marker, and pre_shared_key (real binder vs GREASE). Byte

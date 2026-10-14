@@ -52,7 +52,8 @@ type
     class function ResolveCredential(const AResolver: ITlsServerCredentialResolver;
       const AContext: TExtensionContext; const ACipherSuites: TArray<UInt16>;
       AVersion: TTlsVersion): TTlsCredential; static;
-    /// <summary>Whether the client signals TLS_FALLBACK_SCSV although its highest known version is below AServerHighest (RFC 7507 3).</summary>
+    /// <summary>Whether the client signals TLS_FALLBACK_SCSV although its highest known version
+    /// is below AServerHighest (RFC 7507 3, obsoleted by RFC 8996).</summary>
     class function IsSpuriousFallback(const ACipherSuites,
       ASupportedVersions: TArray<UInt16>; ALegacyVersion,
       AServerHighest: UInt16): Boolean; static;

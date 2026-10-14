@@ -254,8 +254,8 @@ type
     /// the key, one is selected deterministically. Fails closed: a wrong password, bad MAC, malformed store, or a
     /// store with no certificate for its key raises EArgumentTlsLibException and no partial
     /// credential is returned; an unsupported key algorithm raises ENotSupportedTlsLibException.
-    /// The passphrase is a wiped buffer of UTF-8 passphrase octets: nil means no passphrase, a
-    /// zero-length buffer means an empty passphrase.
+    /// The passphrase is a wiped buffer of UTF-8 passphrase octets: nil and a zero-length buffer
+    /// are both the empty passphrase.
     /// </summary>
     function ImportPkcs12(const AData: TBytes;
       const APassword: ISecretBuffer): TImportedCredential;
