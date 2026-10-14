@@ -94,11 +94,18 @@ type
     /// the padding hint AMaximumNameLength. ACryptoProvider frames the PEM (RFC 7468) so the
     /// output matches what the server store reads. The DNS line is published at AOrigin
     /// (the name clients connect to). Raises for an HPKE suite the provider cannot instantiate,
-    /// an invalid name, or a PEM that does not load back through the server key store.
+    /// an invalid name, or a PEM that does not load back through the server key store; on a raise
+    /// no PEM is handed out and the in-memory private-key copies are wiped.
     /// </summary>
     class function Generate(const ACryptoProvider: ICryptoProvider;
       const APublicName, AOrigin: string; AConfigId: Byte; AKem, AKdf, AAead: UInt16;
       AMaximumNameLength: Byte): TEchKeyGenResult; static;
+    /// <summary>
+    /// The maximum_name_length the command line uses when -max_name_len is absent: the longer of
+    /// 64 (a DNS label is at most 63) and the origin's length, so the one name the tool knows is
+    /// always fully padded (RFC 9849 sec. 6.1.3), capped at the field's 255.
+    /// </summary>
+    class function DefaultMaximumNameLength(const AOrigin: string): Byte; static;
     /// <summary>
     /// The command-line entry point: parses the arguments, generates the key material,
     /// writes the PEM to the -out file, and prints the DNS line. Returns a process exit
@@ -122,6 +129,9 @@ function ConvertStringSecurityDescriptorToSecurityDescriptorW(AText: PWideChar; 
   external 'advapi32.dll' name 'ConvertStringSecurityDescriptorToSecurityDescriptorW';
 {$ENDIF MSWINDOWS}
 
+const
+  DefaultNameFloor = Int32(64);
+
 resourcestring
   SKeyFileExists = 'the private key file "%s" already exists; it is never overwritten or ' +
     'written through a symlink';
@@ -137,7 +147,7 @@ var
   LKem: IHpkeKem;
   LPair: IAsymmetricCipherKeyPair;
   LPrivateInfo: IPrivateKeyInfo;
-  LPublicKey, LPkcs8: TBytes;
+  LPublicKey, LPkcs8, LPem: TBytes;
   LSuite: TEchCipherSuite;
   LConfig: TEchConfig;
   LBlocks: TArray<TPemBlock>;
@@ -164,8 +174,7 @@ begin
   LPublicKey := LKem.SerializePublicKey(LPair.&Public);
   LPrivateInfo := TPrivateKeyInfoFactory.CreatePrivateKeyInfo(LPair.&Private);
   LPkcs8 := LPrivateInfo.GetDerEncoded();
-  // the PKCS#8 DER is the raw private key; wipe this and the PEM block that aliases it once the
-  // output PEM is built (Result.Pem is the caller's copy). Result itself is never wiped here.
+  // wipe the private-key DER, its PEM block and an unreleased PEM; Result.Pem is set last
   try
     LSuite.KdfId := AKdf;
     LSuite.AeadId := AAead;
@@ -180,22 +189,40 @@ begin
     LBlocks[0].Content := LPkcs8;
     LBlocks[1].PemType := 'ECHCONFIG';
     LBlocks[1].Content := Result.EchConfigList;
-    Result.Pem := TPem.WriteBlocks(LBlocks);
+    LPem := TPem.WriteBlocks(LBlocks);
 
     // load the PEM back through the server key store before it is handed out: the PKCS#8 encoding,
     // the config and the key pair must round-trip exactly as a server will read them
-    TInMemoryEchKeyStore.FromPem(Result.Pem, ACryptoProvider);
+    TInMemoryEchKeyStore.FromPem(LPem, ACryptoProvider);
 
     // an HTTPS record in ServiceMode (priority 1) with the ECHConfigList in the "ech"
     // SvcParam, base64 as the presentation format expects. It is published at the origin the
     // client connects to; the public_name lives only inside the ECHConfig, as the outer SNI.
     Result.DnsLine := LOrigin + '. HTTPS 1 . ech="' +
       TDataEncoding.Base64Encode(Result.EchConfigList) + '"';
+    // handed to the caller only after every step that can fail; the local is then nil
+    Result.Pem := LPem;
+    LPem := nil;
   finally
+    TSecureMemory.WipeBytes(LPem);
     TSecureMemory.WipeBytes(LPkcs8);
     if System.Length(LBlocks) > 0 then
       TSecureMemory.WipeBytes(LBlocks[0].Content);
   end;
+end;
+
+class function TEchKeyGenerator.DefaultMaximumNameLength(const AOrigin: string): Byte;
+var
+  LLength: Int32;
+begin
+  LLength := System.Length(AOrigin);
+  if (LLength > 0) and (AOrigin[LLength] = '.') then
+    Dec(LLength);
+  if LLength < DefaultNameFloor then
+    LLength := DefaultNameFloor;
+  if LLength > High(Byte) then
+    LLength := High(Byte);
+  Result := Byte(LLength);
 end;
 
 class function TEchKeyGenerator.MapKem(const AName: string;
@@ -373,7 +400,7 @@ var
   LPublicName, LOrigin, LOutPath, LSuite, LArg, LValue: string;
   LKem, LKdf, LAead: UInt16;
   LConfigId, LMaxNameLen: Int32;
-  LHasConfigId: Boolean;
+  LHasConfigId, LHasMaxNameLen: Boolean;
   LI: Int32;
   LResult: TEchKeyGenResult;
 begin
@@ -382,6 +409,7 @@ begin
   LOutPath := '';
   LSuite := 'x25519,hkdf-sha256,aes-128-gcm';
   LMaxNameLen := 0;
+  LHasMaxNameLen := False;
   LConfigId := 0;
   LHasConfigId := False;
   LI := 1;
@@ -401,7 +429,10 @@ begin
     else if LArg = '-suite' then
       LSuite := LValue
     else if LArg = '-max_name_len' then
-      LMaxNameLen := StrToIntDef(LValue, -1)
+    begin
+      LMaxNameLen := StrToIntDef(LValue, -1);
+      LHasMaxNameLen := True;
+    end
     else if LArg = '-config_id' then
     begin
       LConfigId := StrToIntDef(LValue, -1);
@@ -419,6 +450,8 @@ begin
   begin
     WriteLn('usage: EchKeyGen -public_name <name> -origin <name> -out <file.pem> ' +
       '[-suite kem,kdf,aead] [-max_name_len N] [-config_id N]');
+    WriteLn('  -max_name_len: default is the longer of 64 and the -origin length; 0 = longest ' +
+      'name unknown: no SNI padding, only the 32-byte rounding (RFC 9849 6.1.3)');
     WriteLn('  kem:  x25519 | p256 | p384 | p521');
     WriteLn('  kdf:  hkdf-sha256 | hkdf-sha384 | hkdf-sha512');
     WriteLn('  aead: aes-128-gcm | aes-256-gcm | chacha20-poly1305');
@@ -434,6 +467,8 @@ begin
     WriteLn('error: -max_name_len must be between 0 and 255');
     Exit(2);
   end;
+  if not LHasMaxNameLen then
+    LMaxNameLen := DefaultMaximumNameLength(LOrigin);
   if LHasConfigId and ((LConfigId < 0) or (LConfigId > 255)) then
   begin
     WriteLn('error: -config_id must be between 0 and 255');

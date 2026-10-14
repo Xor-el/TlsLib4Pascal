@@ -111,7 +111,9 @@ If the *only* thing you want to ignore is a host-name mismatch (the certificate 
 its SAN doesn't match the address you connected to), turn off just that check — PKIX, expiry,
 revocation and extendedKeyUsage all still apply. This is **dangerous**: with the match off, *any*
 trusted certificate is accepted regardless of the host it was issued for (a man-in-the-middle
-risk), so it lives under the `dangerous` name and is a pin-only trust posture.
+risk), so it lives under the `dangerous` name and is a pin-only trust posture. It governs the
+connected host only: with Encrypted Client Hello, a reject is still verified against the config's
+`public_name` (see [ech.md](ech.md)).
 
 ```pascal
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
@@ -141,7 +143,9 @@ production.**
 Bypasses the built-in pipeline: PKIX, revocation, and host-name. Any configured public-key
 **pinning still applies** (it composes over the verifier, not inside the pipeline) — so
 `InsecureSkipVerify` together with `WithCertificatePinning` is pin-only trust: no CA validation,
-but the peer must still present a pinned key. For tests and pinned development peers only.
+but the peer must still present a pinned key. For tests and pinned development peers only. A
+real Encrypted Client Hello offer is refused at `Build` under it, since nothing would authenticate
+an ECH reject (RFC 9849 §6.1.7).
 
 ```pascal
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
@@ -163,6 +167,8 @@ Set with `WithCertificateVerifyCallback(cb)`. It runs **last** — after the bui
 OS delegate) and after SPKI pinning — and can **only additionally reject**: returning `True` never
 rescues a chain that was already rejected; returning `False` rejects one that passed. This is
 deliberately stricter than rustls/.NET, whose custom validators *replace* verification wholesale.
+On an Encrypted Client Hello reject, `AHostName` is the config's `public_name` (and an async verdict
+resolver's host decision sees it too), not the host you connected to.
 
 `APresented` is every certificate the peer sent (leaf first), including extras that played no part in
 validation. `AValidated` is the leaf-first path the verifier reported as validated (a built-in or OS

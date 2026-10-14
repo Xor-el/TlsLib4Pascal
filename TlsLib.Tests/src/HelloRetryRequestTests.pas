@@ -86,6 +86,9 @@ type
     function WithEch(const AFramedClientHello, AEchBody: TBytes): TBytes;
     function WithInnerEch(const AFramedClientHello: TBytes): TBytes;
     function WithOuterEch(const AFramedClientHello: TBytes): TBytes;
+    /// <summary>AFramedClientHello carrying the random of AFramedFirstHello, as a retry that keeps
+    /// the first hello's random does.</summary>
+    function WithRandomOf(const AFramedClientHello, AFramedFirstHello: TBytes): TBytes;
     function NewRetryClient: IHandshakeMachine; overload;
     function NewRetryClient(ADualVersion: Boolean): IHandshakeMachine; overload;
   protected
@@ -115,6 +118,9 @@ type
     procedure TestServerRejectsInnerEchInRetryClientHello;
     procedure TestBackendServerAcceptsInnerEchInRetryClientHello;
     procedure TestBackendServerRejectsOuterEchInRetryClientHello;
+    procedure TestBackendServerRejectsRetryClientHelloWithAChangedRandom;
+    procedure TestBackendServerRejectsRetryClientHelloWithoutTheInnerMarker;
+    procedure TestBackendServerRejectsRetryClientHelloThatAddsTheInnerMarker;
   end;
 
 implementation
@@ -300,6 +306,20 @@ begin
   LOuter.Enc := DecodeHex(StringOfChar('1', 64));
   LOuter.Payload := DecodeHex(StringOfChar('2', 128));
   Result := WithEch(AFramedClientHello, TEchExtension.EncodeOuter(LOuter));
+end;
+
+function TTestHelloRetryRequest.WithRandomOf(const AFramedClientHello,
+  AFramedFirstHello: TBytes): TBytes;
+var
+  LHello, LFirst: TTlsClientHello;
+begin
+  LHello := THandshakeMessages.DecodeClientHello(
+    System.Copy(AFramedClientHello, 4, System.Length(AFramedClientHello) - 4));
+  LFirst := THandshakeMessages.DecodeClientHello(
+    System.Copy(AFramedFirstHello, 4, System.Length(AFramedFirstHello) - 4));
+  LHello.Random := LFirst.Random;
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
+    THandshakeMessages.EncodeClientHello(LHello));
 end;
 
 function TTestHelloRetryRequest.NewSecp256r1Server(
@@ -872,8 +892,8 @@ begin
   LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
   LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(WithInnerEch(Vec('client_hello_1')))))[0];
   LCookie := CookieFromHrr(LHrr);
-  LCh2 := WithInnerEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
-    TCipherSuites13.Aes128GcmSha256));
+  LCh2 := WithInnerEch(WithRandomOf(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare,
+    LCookie, nil, TCipherSuites13.Aes128GcmSha256), Vec('client_hello_1')));
   LEffects := LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2));
   CheckFalse(FailAlertOf(LEffects, LAlert),
     'a backend server does not abort an inner-type ech in the retry ClientHello');
@@ -898,6 +918,65 @@ begin
     TCipherSuites13.Aes128GcmSha256));
   CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
     'an outer-type ech in the retry ClientHello aborts at a backend');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter, 'it is illegal_parameter');
+end;
+
+procedure TTestHelloRetryRequest.TestBackendServerRejectsRetryClientHelloWithAChangedRandom;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LAlert: TTlsAlertDescription;
+begin
+  // the backend confirmed CH1's inner, and ClientHelloInner.random must not change across the retry
+  // (RFC 8446 4.1.2): BuildClientHello2's zero random differs from the first hello's
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(WithInnerEch(Vec('client_hello_1')))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := WithInnerEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
+    TCipherSuites13.Aes128GcmSha256));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
+    'a retry with a different inner random aborts at a backend');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter, 'it is illegal_parameter');
+end;
+
+procedure TTestHelloRetryRequest.TestBackendServerRejectsRetryClientHelloWithoutTheInnerMarker;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LAlert: TTlsAlertDescription;
+begin
+  // the backend confirmed CH1's inner in the HelloRetryRequest, so a retry that drops the inner
+  // marker must not be confirmed again
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(WithInnerEch(Vec('client_hello_1')))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := WithRandomOf(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
+    TCipherSuites13.Aes128GcmSha256), Vec('client_hello_1'));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
+    'a retry without the inner marker aborts at a backend');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter, 'it is illegal_parameter');
+end;
+
+procedure TTestHelloRetryRequest.TestBackendServerRejectsRetryClientHelloThatAddsTheInnerMarker;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+  LAlert: TTlsAlertDescription;
+begin
+  // the first hello carried no ech, so the retry may not add one (RFC 8446 4.1.2)
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := WithInnerEch(WithRandomOf(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare,
+    LCookie, nil, TCipherSuites13.Aes128GcmSha256), Vec('client_hello_1')));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
+    'a retry that adds the inner marker aborts at a backend');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter, 'it is illegal_parameter');
 end;
 

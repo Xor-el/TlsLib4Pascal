@@ -85,6 +85,7 @@ type
     procedure TestGreaseDegradesWhenProviderLacksX25519;
     procedure TestGreaseSuiteIsCommonlyDeployed;
     procedure TestEmptyConfigListWithoutGreaseFailsClosed;
+    procedure TestMalformedConfigListIsAConfigurationError;
     procedure TestServerRetryOuterBeforeAcceptFailsLoud;
     procedure TestServerRetryOuterAfterRejectFailsLoud;
     procedure TestServerProcessOuterEmptyVectorIsNotOffered;
@@ -329,6 +330,25 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an empty ECHConfigList with GREASE off fails closed');
+end;
+
+procedure TTestEchClientEngine.TestMalformedConfigListIsAConfigurationError;
+var
+  LRaised, LWireAlert: Boolean;
+begin
+  // caller-supplied bytes that do not parse are an argument fault, not a peer-wire alert
+  LRaised := False;
+  LWireAlert := False;
+  try
+    TEchClientPolicy.Create(Crypto, TBytes.Create($00, $05, $01), False, False);
+  except
+    on E: EFatalAlertTlsLibException do
+      LWireAlert := True;
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckFalse(LWireAlert, 'a malformed ECHConfigList is not reported as a fatal-alert type');
+  CheckTrue(LRaised, 'a malformed ECHConfigList raises EArgumentTlsLibException');
 end;
 
 procedure TTestEchClientEngine.TestServerRetryOuterBeforeAcceptFailsLoud;

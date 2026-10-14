@@ -76,6 +76,10 @@ type
     procedure TestKeyGenRejectsUnsupportedKem;
     procedure TestKeyGenRejectsExportOnlyAead;
     procedure TestKeyGenRejectsUnknownKdf;
+    procedure TestKeyGenDefaultMaximumNameLengthHasAFloorOf64;
+    procedure TestKeyGenDefaultMaximumNameLengthCoversALongerOrigin;
+    procedure TestKeyGenDefaultMaximumNameLengthIgnoresATrailingDot;
+    procedure TestKeyGenDefaultMaximumNameLengthIsCappedAtTheFieldWidth;
     procedure TestKeyGenAllKemsPemRoundTripThroughStore;
     procedure TestSvcbExtractsEchConfigList;
     procedure TestSvcbAliasModeHasNoEch;
@@ -451,6 +455,40 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an unknown KDF is rejected');
+end;
+
+procedure TTestEchTooling.TestKeyGenDefaultMaximumNameLengthHasAFloorOf64;
+begin
+  // a DNS label is at most 63, so 64 pads every single-label name; a shorter origin still gets 64
+  CheckEquals(64, TEchKeyGenerator.DefaultMaximumNameLength('secret.example'),
+    'a short origin gets the floor');
+  CheckEquals(64, TEchKeyGenerator.DefaultMaximumNameLength(StringOfChar('a', 63)),
+    'an origin just under the floor gets the floor');
+  CheckEquals(64, TEchKeyGenerator.DefaultMaximumNameLength(StringOfChar('a', 64)),
+    'an origin exactly at the floor gets the floor');
+end;
+
+procedure TTestEchTooling.TestKeyGenDefaultMaximumNameLengthCoversALongerOrigin;
+begin
+  CheckEquals(65, TEchKeyGenerator.DefaultMaximumNameLength(StringOfChar('a', 65)),
+    'an origin one past the floor is fully padded');
+  CheckEquals(200, TEchKeyGenerator.DefaultMaximumNameLength(StringOfChar('a', 200)),
+    'a long origin is fully padded');
+end;
+
+procedure TTestEchTooling.TestKeyGenDefaultMaximumNameLengthIgnoresATrailingDot;
+begin
+  // the inner SNI is sent without the root dot, so it does not count toward the name length
+  CheckEquals(65, TEchKeyGenerator.DefaultMaximumNameLength(StringOfChar('a', 65) + '.'),
+    'the root dot is not part of the name');
+end;
+
+procedure TTestEchTooling.TestKeyGenDefaultMaximumNameLengthIsCappedAtTheFieldWidth;
+begin
+  CheckEquals(255, TEchKeyGenerator.DefaultMaximumNameLength(StringOfChar('a', 255)),
+    'the field is one octet, so 255 is the largest value');
+  CheckEquals(255, TEchKeyGenerator.DefaultMaximumNameLength(StringOfChar('a', 300)),
+    'a longer name is capped at the field width');
 end;
 
 procedure TTestEchTooling.TestKeyGenAllKemsPemRoundTripThroughStore;

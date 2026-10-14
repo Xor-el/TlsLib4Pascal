@@ -375,6 +375,9 @@ resourcestring
   SEchNeedsTls13Only = 'Encrypted Client Hello with a config list needs a TLS 1.3-only client ' +
     '(RFC 9849 sec. 6.1: the inner hello never offers TLS 1.2); pin WithSupportedVersions to ' +
     'TLS 1.3, or use TEchClientModes.Grease';
+  SEchNeedsVerification = 'Encrypted Client Hello with a config list cannot be combined with ' +
+    'TServerVerification.DangerousSkip: an ECH reject must be authenticated against the ' +
+    'public_name (RFC 9849 sec. 6.1.7); verify the server, or use TEchClientModes.Grease';
   SCustomHardNeedsLiveVerdict = 'a Hard revocation posture over an injected verifier needs ' +
     'WithLiveRevocationVerdict: an injected verifier does not apply the posture';
   SReverifyHardNeedsLiveVerdict = 'WithResumeVerification(Reverify) under a Hard revocation ' +
@@ -3107,6 +3110,9 @@ begin
     if (not FEchMode.IsGrease) and
       (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) then
       raise EInvalidOperationTlsLibException.CreateRes(@SEchNeedsTls13Only);
+    // skipped verification authenticates nothing, so retry_configs are untrustworthy (sec. 6.1.7)
+    if (not FEchMode.IsGrease) and FDangerousTrust.InsecureSkipVerify then
+      raise EInvalidOperationTlsLibException.CreateRes(@SEchNeedsVerification);
     LEchPolicy := TEchClientPolicy.Create(FCrypto, FEchMode.ConfigList, FEchMode.IsGrease,
       FEchMode.IsRetry) as IEchClientPolicy;
   end;

@@ -130,13 +130,16 @@ type
     /// <summary>A source that owns its roots (the OS delegate); the pipeline knobs still apply.</summary>
     class function VerifierSource(const ASource: IServerCertificateVerifierSource)
       : IServerVerificationBuilder; static;
-    /// <summary>A whole injected verifier; it replaces the built-in chain verification.</summary>
+    /// <summary>A whole injected verifier; it replaces the built-in chain verification. On an
+    /// Encrypted Client Hello reject it is handed the config's public_name as the host and owns
+    /// that check (RFC 9849 sec. 6.1.7).</summary>
     class function Custom(const AVerifier: IServerCertificateVerifier): IServerVerification;
       overload; static;
     /// <summary>As above, with a revocation posture for a live verdict over the verifier's path.</summary>
     class function Custom(const AVerifier: IServerCertificateVerifier;
       APosture: TRevocationPosture): IServerVerification; overload; static;
-    /// <summary>No verification: the handshake accepts any server certificate. Test use only.</summary>
+    /// <summary>No verification: the handshake accepts any server certificate. Test use only; a
+    /// real Encrypted Client Hello offer is refused at Build under it.</summary>
     class function DangerousSkip: IServerVerification; static;
   end;
 

@@ -174,6 +174,11 @@ type
     // the flight exchange of a handshake whose client has already started and sent its first flight
     procedure ExchangeFlights(const AClient, AServer: ITlsEngine);
     procedure RunEchThroughBuilder(AMode: TServerNameIndication);
+    /// <summary>A name-check-off client offering a config for APublicName to a server whose store
+    /// holds a different config (an ECH reject); returns the aborted client and the server's
+    /// retry_configs.</summary>
+    function RunEchRejectWithNameCheckOff(const APublicName: string;
+      out ARetryConfigs: TBytes): ITlsEngine;
     function OmitSniClient(const AVersions: TArray<UInt16>): ITlsClientConfig;
     function RejectEveryChain(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
@@ -197,6 +202,14 @@ type
     procedure TestEchKeyStoreEntryTheProviderCanServeBuilds;
     procedure TestEmptyEchConfigListWithoutGreaseRejectedAtBuild;
     procedure TestEchGreaseOnlyBuildsWithoutConfig;
+    procedure TestEchEnableRefusedUnderDangerousSkip;
+    procedure TestEchRetryRefusedUnderDangerousSkip;
+    procedure TestEchGreaseBuildsUnderDangerousSkip;
+    procedure TestEchBuildsWithTheNameCheckDisabled;
+    procedure TestEchMalformedConfigListIsAnArgumentError;
+    procedure TestEchRejectIsAuthenticatedAgainstPublicNameWithTheNameCheckOff;
+    procedure TestEchRejectOfATrustedPublicNameSurfacesRetryConfigs;
+    procedure TestEchAcceptedWithTheNameCheckOffIgnoresTheHostName;
     procedure TestEnabledEchRefusesTls12Offer;
     procedure TestNilEchModeIsRefused;
     procedure TestEmptySupportedVersionsIsRefused;
@@ -903,6 +916,162 @@ begin
   Feed(LServer, Drain(LClient));
   CheckEqualBytes('app data flows over the builder-configured ECH connection', LMsg,
     ReadAllApp(LServer));
+end;
+
+function TTestConfigBuilder.RunEchRejectWithNameCheckOff(const APublicName: string;
+  out ARetryConfigs: TBytes): ITlsEngine;
+var
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LServer: ITlsEngine;
+  LClientList: TBytes;
+  LClientSk, LServerSk: ISecretBuffer;
+begin
+  // the server's store holds a different config id, so it cannot decrypt the offer and rejects
+  LClientList := BuildEchConfigList($D1, APublicName, LClientSk);
+  ARetryConfigs := BuildEchConfigList($D2, APublicName, LServerSk);
+  LClientConfig := NewClientBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithDangerousDisableServerNameCheck
+    .Tls13.WithEch(TEchClientModes.Enable(LClientList)).Build;
+  LServerConfig := NewServerBuilder.Tls13.WithEchKeyStore(
+    TInMemoryEchKeyStore.FromConfig(ARetryConfigs, LServerSk, Crypto)).Build;
+  Result := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  Result.StartHandshake;
+  ExchangeFlights(Result, LServer);
+end;
+
+procedure TTestConfigBuilder.TestEchRejectIsAuthenticatedAgainstPublicNameWithTheNameCheckOff;
+var
+  LClient: ITlsEngine;
+  LRetry: TBytes;
+begin
+  // the server's leaf is valid for localhost only: with the origin name check off the reject must
+  // still fail against the cover.example public_name, and its retry_configs must not surface
+  LClient := RunEchRejectWithNameCheckOff('cover.example', LRetry);
+  CheckTrue(LClient.IsTerminal, 'the client aborted');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate),
+    Ord(LClient.LastError.Alert.Description), 'the public_name check failed the certificate');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.EchRetryConfigs),
+    'unauthenticated retry_configs are not surfaced');
+end;
+
+procedure TTestConfigBuilder.TestEchRejectOfATrustedPublicNameSurfacesRetryConfigs;
+var
+  LClient: ITlsEngine;
+  LRetry: TBytes;
+begin
+  // control: the public_name is one the leaf is valid for, so the reject authenticates, aborts with
+  // ech_required and surfaces the retry_configs
+  LClient := RunEchRejectWithNameCheckOff('localhost', LRetry);
+  CheckEquals(Ord(TTlsAlertDescription.EchRequired),
+    Ord(LClient.LastError.Alert.Description), 'the authenticated reject aborts with ech_required');
+  CheckEqualBytes('the authenticated reject surfaces the server retry_configs', LRetry,
+    LClient.ConnectionInfo.EchRetryConfigs);
+end;
+
+procedure TTestConfigBuilder.TestEchAcceptedWithTheNameCheckOffIgnoresTheHostName;
+var
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+  LConfigList: TBytes;
+  LSk: ISecretBuffer;
+begin
+  // the public_name check belongs to a reject only: on an accepted ECH the origin name check stays
+  // off, so a host the leaf (valid for localhost) does not carry still completes as Accepted
+  LConfigList := BuildEchConfigList($D3, 'cover.example', LSk);
+  LClientConfig := NewClientBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithDangerousDisableServerNameCheck
+    .Tls13.WithEch(TEchClientModes.Enable(LConfigList)).Build;
+  LServerConfig := NewServerBuilder.Tls13.WithEchKeyStore(
+    TInMemoryEchKeyStore.FromConfig(LConfigList, LSk, Crypto)).Build;
+  LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'other.example');
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  LClient.StartHandshake;
+  ExchangeFlights(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the client did not abort: ' + LClient.LastError.Message);
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH was accepted');
+end;
+
+procedure TTestConfigBuilder.TestEchEnableRefusedUnderDangerousSkip;
+var
+  LConfigList: TBytes;
+  LSk: ISecretBuffer;
+  LMsg: string;
+begin
+  LConfigList := BuildEchConfigList($D7, 'cover.example', LSk);
+  LMsg := '';
+  try
+    NewBareClientBuilder.WithServerVerification(TServerVerification.DangerousSkip)
+      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+      .Tls13.WithEch(TEchClientModes.Enable(LConfigList)).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue((Pos('DangerousSkip', LMsg) > 0) and (Pos('public_name', LMsg) > 0),
+    'a real ECH offer is refused for lack of server verification; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestEchRetryRefusedUnderDangerousSkip;
+var
+  LConfigList: TBytes;
+  LSk: ISecretBuffer;
+  LMsg: string;
+begin
+  LConfigList := BuildEchConfigList($D7, 'cover.example', LSk);
+  LMsg := '';
+  try
+    NewBareClientBuilder.WithServerVerification(TServerVerification.DangerousSkip)
+      .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+      .Tls13.WithEch(TEchClientModes.Retry(LConfigList)).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue((Pos('DangerousSkip', LMsg) > 0) and (Pos('public_name', LMsg) > 0),
+    'a retry ECH offer is refused for lack of server verification; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestEchGreaseBuildsUnderDangerousSkip;
+begin
+  // a decoy offers no real ECH, so there is no reject to authenticate
+  CheckTrue(NewBareClientBuilder.WithServerVerification(TServerVerification.DangerousSkip)
+    .Tls13.WithEch(TEchClientModes.Grease).Build.EncryptedClientHello.GreaseEnabled,
+    'GREASE builds under DangerousSkip');
+end;
+
+procedure TTestConfigBuilder.TestEchBuildsWithTheNameCheckDisabled;
+var
+  LConfigList: TBytes;
+  LSk: ISecretBuffer;
+begin
+  // the origin name check is separate from the reject's public_name check: it does not refuse ECH
+  LConfigList := BuildEchConfigList($D7, 'cover.example', LSk);
+  CheckTrue(NewClientBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithDangerousDisableServerNameCheck
+    .Tls13.WithEch(TEchClientModes.Enable(LConfigList)).Build.EncryptedClientHello.Usable,
+    'a real ECH offer builds with the origin name check off');
+end;
+
+procedure TTestConfigBuilder.TestEchMalformedConfigListIsAnArgumentError;
+var
+  LRaised: Boolean;
+begin
+  // a configuration fault is not a peer-wire alert: an app falling back to GREASE catches this type
+  LRaised := False;
+  try
+    NewClientBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+      .Tls13.WithEch(TEchClientModes.Enable(TBytes.Create($00, $05, $01))).Build;
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a malformed ECHConfigList raises the configuration error type');
 end;
 
 procedure TTestConfigBuilder.TestEmptyEchConfigListWithoutGreaseRejectedAtBuild;

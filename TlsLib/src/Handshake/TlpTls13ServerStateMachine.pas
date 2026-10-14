@@ -535,6 +535,10 @@ resourcestring
     'the second ClientHello no longer offers TLS 1.3 (RFC 8446 4.1.2)';
   SNonEmptyEndOfEarlyData = 'the EndOfEarlyData message must be empty';
   SEchInnerRandomChanged = 'the ClientHelloInner random changed across the HelloRetryRequest';
+  SEchInnerMarkerDropped = 'the second ClientHello dropped the inner Encrypted Client Hello ' +
+    'marker the first one carried';
+  SEchInnerMarkerAdded = 'the second ClientHello added an inner Encrypted Client Hello marker ' +
+    'the first one did not carry';
   SEchAcceptedWithoutHandshake = 'ECH is marked accepted but the handshake state is gone';
   SEchInnerNotBackend = 'an inner-type Encrypted Client Hello reached a server not deployed as ' +
     'a split-mode backend (it holds ECH keys, or did not opt into the backend role)';
@@ -1391,7 +1395,7 @@ var
   LContext: TExtensionContext;
   LSelectedGroup, LCookieGroup, LCookieSuite, LPinnedSuite: UInt16;
   LCh1Hash, LClientShare, LHrr, LCh2Raw, LEchHrrHash, LCookieSessionId: TBytes;
-  LEchAccepted, LSentServerName: Boolean;
+  LEchAccepted, LSentServerName, LHasEchExtension: Boolean;
   LEchType: TEchClientHelloType;
   LRequestedServerName: string;
   LExtensions: TExtensionVector;
@@ -1421,8 +1425,22 @@ begin
   LExtensions := ParseClientHelloExtensions(LClientHello);
   // the ech type is held to the same role gate as on the first hello (an accepted outer was already
   // checked in ProcessRetryOuter)
-  if (not LEchAccepted) and TryEchType(LExtensions, LEchType) then
+  LHasEchExtension := (not LEchAccepted) and TryEchType(LExtensions, LEchType);
+  if LHasEchExtension then
     RequireEchTypeForRole(LEchType);
+  // a backend's CH2 must be exactly CH1's inner (RFC 8446 4.1.2, RFC 9849 7.2.1)
+  if FEchStatus = TEchStatus.Backend then
+  begin
+    if not LHasEchExtension then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SEchInnerMarkerDropped);
+    if not TArrayUtilities.AreEqual(LClientHello.Random, FEchInnerRandom) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SEchInnerRandomChanged);
+  end
+  else if LHasEchExtension and (LEchType = TEchClientHelloType.Inner) then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.IllegalParameter, @SEchInnerMarkerAdded);
   LContext := TExtensionContext.Create;
   try
     // the HelloRetryRequest named the suite selected from CH1, and the retry transcript is rebuilt
