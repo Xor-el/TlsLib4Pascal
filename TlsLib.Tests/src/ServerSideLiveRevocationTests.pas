@@ -57,6 +57,7 @@ type
   var
     FStream: TTlsStream;
     FTransport: TMemoryTransport;
+    FClientTransport: TMemoryTransport;
     FResolver: TCertificateVerdictResolver;
     FEcho: Boolean;
     FError: string;
@@ -67,9 +68,12 @@ type
   protected
     procedure Execute; override;
   public
-    constructor Create(const AStream: TTlsStream; const ATransport: TMemoryTransport;
-      const AResolver: TCertificateVerdictResolver; AEcho: Boolean);
+    constructor Create(const AStream: TTlsStream; const ATransport,
+      AClientTransport: TMemoryTransport; const AResolver: TCertificateVerdictResolver;
+      AEcho: Boolean);
     destructor Destroy; override;
+    /// <summary>Ends the client's write side so a server still awaiting it fails, then joins.</summary>
+    procedure Finish;
     property Error: string read FError;
     property HandshakeOk: Boolean read FHandshakeOk;
     property HasAlert: Boolean read FHasAlert;
@@ -141,12 +145,13 @@ const
 { TMtlsLiveServerRunner }
 
 constructor TMtlsLiveServerRunner.Create(const AStream: TTlsStream;
-  const ATransport: TMemoryTransport; const AResolver: TCertificateVerdictResolver;
-  AEcho: Boolean);
+  const ATransport, AClientTransport: TMemoryTransport;
+  const AResolver: TCertificateVerdictResolver; AEcho: Boolean);
 begin
   inherited Create(True);
   FStream := AStream;
   FTransport := ATransport;
+  FClientTransport := AClientTransport;
   FResolver := AResolver;
   FEcho := AEcho;
   FreeOnTerminate := False;
@@ -154,10 +159,16 @@ end;
 
 destructor TMtlsLiveServerRunner.Destroy;
 begin
-  // inherited waits for Execute to finish; then free the server stream we own (it releases the
-  // engine and the transport)
+  // EOF the client so a server parked in a read exits and the join cannot hang the run
+  FClientTransport.CloseWrite;
   inherited Destroy;
   FStream.Free;
+end;
+
+procedure TMtlsLiveServerRunner.Finish;
+begin
+  FClientTransport.CloseWrite;
+  WaitFor;
 end;
 
 procedure TMtlsLiveServerRunner.Execute;
@@ -177,8 +188,9 @@ begin
       LGot := FStream.Read(LChunk[0], System.Length(LChunk));
       if LGot > 0 then
         FStream.Write(LChunk[0], LGot);
-      FStream.CloseNotify;
     end;
+    // closing even when not echoing lets a client wrongly accepted here read EOF, not block
+    FStream.CloseNotify;
   except
     on E: ETlsStreamError do
     begin
@@ -192,6 +204,8 @@ begin
     on E: Exception do
       FError := E.ClassName + ': ' + E.Message;
   end;
+  // a server that ended has nothing more to send: release a client blocked on its read
+  FTransport.CloseWrite;
 end;
 
 { TTestServerSideLiveRevocation }
@@ -326,7 +340,8 @@ begin
   LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   AClient := NewClientStream(AClientTransport as ITlsTransport, AClientConfig);
   LServerStream := NewServerStream(LServerTransport as ITlsTransport, AServerConfig);
-  AServer := TMtlsLiveServerRunner.Create(LServerStream, LServerTransport, AResolver, AEcho);
+  AServer := TMtlsLiveServerRunner.Create(LServerStream, LServerTransport, AClientTransport,
+    AResolver, AEcho);
   AServer.Start;
 end;
 
@@ -408,7 +423,7 @@ begin
       CheckTrue(LClient.IsHandshakeComplete, 'the client completed the mTLS handshake');
       ExchangePingEcho(LClient);
       LClient.CloseNotify;
-      LServer.WaitFor;
+      LServer.Finish;
       CheckTrue(LServer.HandshakeOk, 'the server accepted the live-good client certificate');
       CheckTrue(LServer.PeerCertCount >= 1, 'the server surfaced the client certificate');
       CheckEquals('', LServer.Error, 'the server side ran without error');
@@ -440,7 +455,7 @@ begin
       LAlert := ClientFatalAlert(LClient);
       CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateRevoked)), Int64(Ord(LAlert)),
         'the client receives certificate_revoked for the revoked client certificate');
-      LServer.WaitFor;
+      LServer.Finish;
       CheckFalse(LServer.HandshakeOk, 'the server rejected the revoked client certificate');
       CheckTrue(LServer.HasAlert, 'the server aborted with an alert');
       CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateRevoked)),
@@ -475,7 +490,7 @@ begin
       CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificateStatusResponse)),
         Int64(Ord(LAlert)),
         'an unreachable responder under Hard rejects with bad_certificate_status_response');
-      LServer.WaitFor;
+      LServer.Finish;
       CheckFalse(LServer.HandshakeOk, 'the server rejected the indeterminate client under Hard');
     finally
       LServer.Free;
@@ -507,7 +522,7 @@ begin
         'Soft accepts an indeterminate live result and completes the handshake');
       ExchangePingEcho(LClient);
       LClient.CloseNotify;
-      LServer.WaitFor;
+      LServer.Finish;
       CheckTrue(LServer.HandshakeOk, 'the server accepted the client under Soft');
       CheckEquals('', LServer.Error, 'the server side ran without error');
     finally
@@ -541,7 +556,7 @@ begin
       CheckTrue(LClient.IsHandshakeComplete, 'the client completed the 1.2 mTLS handshake');
       ExchangePingEcho(LClient);
       LClient.CloseNotify;
-      LServer.WaitFor;
+      LServer.Finish;
       CheckTrue(LServer.HandshakeOk, 'the 1.2 server accepted the live-good client certificate');
       CheckEquals('', LServer.Error, 'the server side ran without error');
     finally
@@ -575,7 +590,7 @@ begin
       LAlert := ClientFatalAlert(LClient);
       CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateRevoked)), Int64(Ord(LAlert)),
         'the 1.2 client receives certificate_revoked for the revoked client certificate');
-      LServer.WaitFor;
+      LServer.Finish;
       CheckFalse(LServer.HandshakeOk, 'the 1.2 server rejected the revoked client certificate');
       CheckTrue(LServer.HasAlert, 'the 1.2 server aborted with an alert');
       CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateRevoked)),
@@ -605,7 +620,7 @@ begin
     CheckTrue(LClient.IsHandshakeComplete, 'an accepted server verdict completes the handshake');
     ExchangePingEcho(LClient);
     LClient.CloseNotify;
-    LServer.WaitFor;
+    LServer.Finish;
     CheckTrue(LServer.HandshakeOk, 'the server accepted the client via the stub resolver');
     CheckEquals('', LServer.Error, 'the server side ran without error');
     // the server park concerns the mTLS client's chain (WaitFor is the memory barrier)
@@ -630,7 +645,7 @@ begin
     LAlert := ClientFatalAlert(LClient);
     CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateRevoked)), Int64(Ord(LAlert)),
       'a rejected server verdict aborts the handshake with the resolver alert');
-    LServer.WaitFor;
+    LServer.Finish;
     CheckFalse(LServer.HandshakeOk, 'the server rejected the client via the stub resolver');
   finally
     LServer.Free;
@@ -661,7 +676,7 @@ begin
         'the leaf-only client completed: the issuer came from the validated path');
       ExchangePingEcho(LClient);
       LClient.CloseNotify;
-      LServer.WaitFor;
+      LServer.Finish;
       CheckTrue(LServer.HandshakeOk, 'the server accepted the live-good leaf-only client');
       CheckEquals('', LServer.Error, 'the server side ran without error');
       CheckEquals(1, FFetcher.PostCount,
@@ -697,7 +712,7 @@ begin
       CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificateStatusResponse)),
         Int64(Ord(LAlert)),
         'an indeterminate live outcome under Hard rejects');
-      LServer.WaitFor;
+      LServer.Finish;
       CheckFalse(LServer.HandshakeOk, 'the server rejected the indeterminate client');
       CheckEquals(1, FFetcher.PostCount,
         'the responder was still queried - the validated path supplied the issuer');

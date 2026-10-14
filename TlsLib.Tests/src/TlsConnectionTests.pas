@@ -984,18 +984,31 @@ procedure TTestTlsConnection.TestClientVerifierWithAnchorConflictPropagates;
 var
   LOpts: TTlsOptions;
   LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
+  LMessage: string;
 begin
   LOpts := TTlsOptions.Default;
   LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
   LOpts.CustomTrustStore := EcP256RootStore;
   LRaised := False;
+  LAlert := TTlsAlertDescription.CloseNotify;
+  LMessage := '';
   try
     TTlsConfigComposer.BuildClientConfig(LOpts);
   except
-    on E: Exception do
+    on E: ETlsStreamError do
+    begin
       LRaised := True;
+      LMessage := E.Message;
+      if E.HasAlert then
+        LAlert := E.Alert;
+    end;
   end;
-  CheckTrue(LRaised, 'a verifier plus an anchor source is the builder''s typed conflict');
+  CheckTrue(LRaised, 'a verifier plus an anchor source is refused as a stream error');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+    'the conflict carries internal_error');
+  CheckTrue(Pos('cannot be combined with anchors', LMessage) > 0,
+    'the refusal names the verifier-versus-trust-source conflict');
 end;
 
 procedure TTestTlsConnection.TestClientDelegateSystemTrustWithHostStoreNamesTheKnobs;
@@ -1984,6 +1997,7 @@ var
   LTransport: TTestMemoryTransport;
   LConnection: TTlsConnection;
   LDestroyed, LRaised: Boolean;
+  LMessage: string;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(WebPkiServer(EcP256RootStore)).Build;
@@ -1991,17 +2005,23 @@ begin
   LDestroyed := False;
   LTransport.ReportDestructionTo(@LDestroyed);
   LRaised := False;
+  LMessage := '';
   LConnection := nil;
   try
     // an empty host with the name check on is refused when the engine is built; the connection
     // is the transport's only owner here, so it must release it
     LConnection := TTlsConnection.CreateClient(LConfig, '', LTransport, nil, 0);
   except
-    on E: Exception do
+    on E: EArgumentTlsLibException do
+    begin
       LRaised := True;
+      LMessage := E.Message;
+    end;
   end;
   LConnection.Free;
-  CheckTrue(LRaised, 'the engine build is refused');
+  CheckTrue(LRaised, 'the engine build is refused as an argument error');
+  CheckTrue(Pos('server-name checking is on', LMessage) > 0,
+    'the refusal is the missing server name');
   CheckTrue(LDestroyed, 'a refused engine build still releases the transport');
 end;
 
