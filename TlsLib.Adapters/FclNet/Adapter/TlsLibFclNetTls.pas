@@ -162,7 +162,13 @@ type
     function BuildClientConfig(const AHost: string): ITlsClientConfig;
     function BuildServerConfig: ITlsServerConfig;
     function DriveHandshake(AIsClient: Boolean; const AHost: string): Boolean;
+  private
+  class var
+    // unit-private: FlushTlsLibFclNetConfigCache clears them
+    FServerConfigMemo: ITlsServerConfigMemo;
+    FClientConfigMemo: ITlsClientConfigMemo;
   public
+    class constructor Create;
     constructor Create; override;
     destructor Destroy; override;
     function CreateCertGenerator: TX509Certificate; override;
@@ -322,11 +328,6 @@ resourcestring
   SFclNetClientAuthSourceHint = 'CertificateData.CertCA / TrustedCertificate, or a ' +
     'CustomTrustStore/CustomVerifier';
 
-var
-  // fcl-net creates the handler per connection, so the build-once memos live process-wide
-  GServerConfigMemo: ITlsServerConfigMemo;
-  GClientConfigMemo: ITlsClientConfigMemo;
-
 { TFclNetSocketTransport }
 
 constructor TFclNetSocketTransport.Create(AHandle: THandle);
@@ -374,6 +375,12 @@ begin
 end;
 
 { TTlsLibSocketHandler }
+
+class constructor TTlsLibSocketHandler.Create;
+begin
+  FServerConfigMemo := TTlsConfigMemos.NewServer;
+  FClientConfigMemo := TTlsConfigMemos.NewClient;
+end;
 
 constructor TTlsLibSocketHandler.Create;
 begin
@@ -517,7 +524,7 @@ begin
   // into the memoised config, so it never applies to a supplied ClientConfig.
   if FCheckHostName and VerifyPeerCert and (AHost = '') and (FClientConfig = nil) then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoHostForNameCheck);
-  Result := TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo, 'ClientConfig');
+  Result := TTlsConfigComposer.ResolveClientConfig(LOptions, FClientConfigMemo, 'ClientConfig');
 end;
 
 function TTlsLibSocketHandler.BuildServerConfig: ITlsServerConfig;
@@ -531,7 +538,7 @@ begin
   // composer's mode-vs-verify guard
   LOptions.VerifyPeer := True;
   LOptions.InsecureSkipVerify := False;
-  Result := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo, 'ServerConfig');
+  Result := TTlsConfigComposer.ResolveServerConfig(LOptions, FServerConfigMemo, 'ServerConfig');
 end;
 
 function TTlsLibSocketHandler.DriveHandshake(AIsClient: Boolean;
@@ -708,13 +715,11 @@ end;
 
 procedure FlushTlsLibFclNetConfigCache;
 begin
-  GServerConfigMemo.Clear;
-  GClientConfigMemo.Clear;
+  TTlsLibSocketHandler.FServerConfigMemo.Clear;
+  TTlsLibSocketHandler.FClientConfigMemo.Clear;
 end;
 
 initialization
-  GServerConfigMemo := TTlsConfigMemos.NewServer;
-  GClientConfigMemo := TTlsConfigMemos.NewClient;
   TlsLibFclNetTrustDefaults.SessionResumption := True;
   TSSLSocketHandler.SetDefaultHandlerClass(TTlsLibSocketHandler);
 

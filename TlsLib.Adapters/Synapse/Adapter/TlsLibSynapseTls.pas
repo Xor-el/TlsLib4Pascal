@@ -142,7 +142,18 @@ type
     /// <summary>Runs Synapse's native OnVerifyCert hook, if set, after a handshake; returns
     /// False when the app rejected the peer certificate.</summary>
     function RunPeerVerifyHook: Boolean;
+  private
+  class var
+    // unit-private: the public Set* procedures write them
+    FVerifyCallback: TTlsCertificateVerifyCallback;
+    FVerdictResolver: TCertificateVerdictResolver;
+    FVerdictDeadlineMs: Cardinal;
+    FServerVerdictResolver: TCertificateVerdictResolver;
+    FServerVerdictDeadlineMs: Cardinal;
+    FServerConfigMemo: ITlsServerConfigMemo;
+    FClientConfigMemo: ITlsClientConfigMemo;
   public
+    class constructor Create;
     constructor Create(const AValue: TTCPBlockSocket); override;
     destructor Destroy; override;
     /// <summary>Copies the base settings and, when Value is also a TSSLTlsLib, this plugin's extra
@@ -260,44 +271,30 @@ resourcestring
   SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
   SSynapseClientAuthSourceHint = 'a CertCAFile bundle';
 
-var
-  // process-wide neutral hooks the per-socket plugin threads into each client handshake
-  GVerifyCallback: TTlsCertificateVerifyCallback;
-  // the client-role resolver evaluates the server's chain; the server-role resolver an mTLS
-  // client's chain. They bind different EKUs, so the two roles keep separate hooks
-  GVerdictResolver: TCertificateVerdictResolver;
-  GVerdictDeadlineMs: Cardinal;
-  GServerVerdictResolver: TCertificateVerdictResolver;
-  GServerVerdictDeadlineMs: Cardinal;
-  // the plugin is created per socket, so the build-once memos live process-wide (like the hooks
-  // above); keyed so several servers with different certs in one process do not thrash
-  GServerConfigMemo: ITlsServerConfigMemo;
-  GClientConfigMemo: ITlsClientConfigMemo;
-
 procedure SetTlsLibSynapseVerifyCallback(
   const ACallback: TTlsCertificateVerifyCallback);
 begin
-  GVerifyCallback := ACallback;
+  TSSLTlsLib.FVerifyCallback := ACallback;
 end;
 
 procedure SetTlsLibSynapseVerdictResolver(const AResolver: TCertificateVerdictResolver;
   ADeadlineMs: Cardinal);
 begin
-  GVerdictResolver := AResolver;
-  GVerdictDeadlineMs := ADeadlineMs;
+  TSSLTlsLib.FVerdictResolver := AResolver;
+  TSSLTlsLib.FVerdictDeadlineMs := ADeadlineMs;
 end;
 
 procedure SetTlsLibSynapseServerVerdictResolver(
   const AResolver: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
 begin
-  GServerVerdictResolver := AResolver;
-  GServerVerdictDeadlineMs := ADeadlineMs;
+  TSSLTlsLib.FServerVerdictResolver := AResolver;
+  TSSLTlsLib.FServerVerdictDeadlineMs := ADeadlineMs;
 end;
 
 procedure FlushTlsLibSynapseConfigCache;
 begin
-  GServerConfigMemo.Clear;
-  GClientConfigMemo.Clear;
+  TSSLTlsLib.FServerConfigMemo.Clear;
+  TSSLTlsLib.FClientConfigMemo.Clear;
 end;
 
 { TSynapseSocketTransport }
@@ -330,6 +327,12 @@ begin
 end;
 
 { TSSLTlsLib }
+
+class constructor TSSLTlsLib.Create;
+begin
+  FServerConfigMemo := TTlsConfigMemos.NewServer;
+  FClientConfigMemo := TTlsConfigMemos.NewClient;
+end;
 
 constructor TSSLTlsLib.Create(const AValue: TTCPBlockSocket);
 begin
@@ -457,15 +460,15 @@ begin
   // CheckHostName keeps the composable default (True); Synapse exposes no knob. A server never
   // requests a client certificate unless ClientAuth is set (VerifyCert alone does not).
   Result.ClientAuth := FClientAuth;
-  Result.VerifyCallback := GVerifyCallback;
-  Result.ClientVerdictResolver := GVerdictResolver;
-  Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;
+  Result.VerifyCallback := FVerifyCallback;
+  Result.ClientVerdictResolver := FVerdictResolver;
+  Result.ClientVerdictDeadlineMs := FVerdictDeadlineMs;
   // the process-wide server resolver is inert for a server that requests no client certificate
   if (FClientAuth <> TClientAuthMode.None) or
     ((FServerConfig <> nil) and (FServerConfig.ClientAuth <> TClientAuthMode.None)) then
   begin
-    Result.ServerVerdictResolver := GServerVerdictResolver;
-    Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
+    Result.ServerVerdictResolver := FServerVerdictResolver;
+    Result.ServerVerdictDeadlineMs := FServerVerdictDeadlineMs;
   end;
   Result.SessionResumption := FSessionResumption;
   Result.HandshakeTimeoutMs := FHandshakeTimeoutMs;
@@ -497,7 +500,7 @@ begin
   try
     // a fully-built config supplied by the app REPLACES the property-driven build outright; the
     // composer's conflict guard fails loud when cert/trust properties are named alongside it
-    Result := TTlsConfigComposer.ResolveClientConfig(LOptions, GClientConfigMemo,
+    Result := TTlsConfigComposer.ResolveClientConfig(LOptions, FClientConfigMemo,
       'ClientConfig');
   finally
     WipeCopies(LOptions);
@@ -515,7 +518,7 @@ begin
   // the process-wide callback is a client-handshake hook, so a server never carries it
   LOptions.VerifyCallback := nil;
   try
-    Result := TTlsConfigComposer.ResolveServerConfig(LOptions, GServerConfigMemo,
+    Result := TTlsConfigComposer.ResolveServerConfig(LOptions, FServerConfigMemo,
       'ServerConfig');
   finally
     WipeCopies(LOptions);
@@ -542,15 +545,15 @@ begin
     begin
       LClientConfig := BuildClientConfig;
       FConnection := TTlsConnection.CreateClient(LClientConfig, AHost,
-        TSynapseSocketTransport.Create(FSocket) as ITlsTimedTransport, GVerdictResolver,
-        GVerdictDeadlineMs);
+        TSynapseSocketTransport.Create(FSocket) as ITlsTimedTransport, FVerdictResolver,
+        FVerdictDeadlineMs);
     end
     else
     begin
       LServerConfig := BuildServerConfig;
       FConnection := TTlsConnection.CreateServer(LServerConfig,
-        TSynapseSocketTransport.Create(FSocket) as ITlsTimedTransport, GServerVerdictResolver,
-        GServerVerdictDeadlineMs);
+        TSynapseSocketTransport.Create(FSocket) as ITlsTimedTransport, FServerVerdictResolver,
+        FServerVerdictDeadlineMs);
     end;
     // bound the handshake read by HandshakeTimeoutMs; the session arms and clears the cap, even
     // when the handshake raised, so a later app read is not left bounded
@@ -777,7 +780,5 @@ end;
 
 initialization
   SSLImplementation := TSSLTlsLib;
-  GServerConfigMemo := TTlsConfigMemos.NewServer;
-  GClientConfigMemo := TTlsConfigMemos.NewClient;
 
 end.

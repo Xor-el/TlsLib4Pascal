@@ -102,7 +102,7 @@ echo "classifier decides the verdict, and fails on an interrupted/incomplete run
 # unimplemented one a clean SKIP. Any that now PASS = stale; any that fail-open (the shim
 # accepts what it must reject) is caught from the recorded error string.
 if [ -n "$AUDIT_GLOBS" ]; then
-  echo "=== audit: re-confirming the policy + deferred disables still hold ==="
+  echo "=== audit: re-confirming the policy-difference disables still hold ==="
   ( cd "$RUNNER_DIR" && go test -timeout 60m \
       -shim-path="$SHIM" -shim-config="$CONFIG" \
       -loose-errors -num-workers="$WORKERS" \
