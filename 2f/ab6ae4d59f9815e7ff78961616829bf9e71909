@@ -1,0 +1,48 @@
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_a42ddd283d3520::t_39f6b401e976ff 78
+  s_a42ddd283d3520::t_b99fbcb246eb79 79
+  s_a42ddd283d3520::t_70776a958beff4 80
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_a42ddd283d3520::t_ae649a7d993c88 121-123
+docs/security-model.md
+  s_a42ddd283d3520::t_3af476b1fa34ed 58
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_a42ddd283d3520::t_a4da55306a18f9 723
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_a42ddd283d3520::t_79a976883fea7a 375-376
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_a42ddd283d3520::t_55a05fe74af040 129-131
+TlsLib/src/Handshake/TlpTls13HandshakeBase.pas
+  s_a42ddd283d3520::t_cecb35a88d0d98 137-138
+  s_a42ddd283d3520::t_9cf878a7232135 164
+  s_a42ddd283d3520::t_2cc9d7c6f9c531 48-49
+TlsLib/src/Handshake/TlpServerOfferSelection.pas
+  s_a42ddd283d3520::t_16d365870b4653 64-65
+TlsLib/src/Handshake/TlpHandshakeMessages.pas
+  s_a42ddd283d3520::t_ab87440f483c54 414
+  s_a42ddd283d3520::t_2a0854eebcf588 45-47
+docs/cookbook.md
+  s_a42ddd283d3520::t_3b880ff70e72ba 469-471
+TlsLib/src/Ech/TlpEchServer.pas
+  s_a42ddd283d3520::t_0c671f80adc1c9 483
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_a42ddd283d3520::t_8d80d8ab8977bd 210-211
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_a42ddd283d3520::t_6758e67eccc54e 637-640
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2fab6ae4d59f9815e7ff78961616829bf9e71909",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
