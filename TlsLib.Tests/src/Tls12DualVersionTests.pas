@@ -93,7 +93,26 @@ type
       const AEffects: TArray<THandshakeEffect>): Boolean;
     function HasFailAlert(const AEffects: TArray<THandshakeEffect>;
       AAlert: TTlsAlertDescription): Boolean;
+    function HasAnyFail(const AEffects: TArray<THandshakeEffect>): Boolean;
+    /// <summary>The dual-version client's real ClientHello with its legacy_version set to
+    /// ALegacyVersion.</summary>
+    function RealClientHello(ALegacyVersion: UInt16): TTlsHandshakeMessage;
+    /// <summary>Whether AServer aborts the real ClientHello at ALegacyVersion with
+    /// protocol_version.</summary>
+    function AbortsProtocolVersion(const AServer: IHandshakeMachine;
+      ALegacyVersion: UInt16): Boolean;
   published
+    procedure TestDispatcherAcceptsLegacyVersion0303;
+    procedure TestDispatcherRejectsLegacyVersion0302WithSupportedVersions;
+    procedure TestDispatcherRejectsLegacyVersion0304WithSupportedVersions;
+    procedure TestDispatcherRejectsLegacyVersion0300WithSupportedVersions;
+    procedure TestDispatcherRejectsLegacyVersion0000WithSupportedVersions;
+    procedure TestDispatcherRejectsLegacyVersion0302WithTls12OnlySupportedVersions;
+    procedure TestDispatcherWithoutSupportedVersionsKeepsLegacyVersionHandling;
+    procedure TestTls12OnlyDispatcherKeepsLegacyVersionHandling;
+    procedure TestStandaloneTls13ServerAcceptsLegacyVersion0303;
+    procedure TestStandaloneTls13ServerRejectsLegacyVersion0304;
+    procedure TestStandaloneTls13ServerRejectsLegacyVersion0300;
     procedure TestDualClientDualServerNegotiates13;
     procedure TestDualClientTls13OnlyServerNegotiates13;
     procedure TestDualClientTls12OnlyServerNegotiates12;
@@ -677,6 +696,183 @@ begin
   for LEffect in AEffects do
     if (LEffect.Kind = THandshakeEffectKind.Fail) and (LEffect.Alert = AAlert) then
       Result := True;
+end;
+
+function TTestTls12DualVersion.HasAnyFail(
+  const AEffects: TArray<THandshakeEffect>): Boolean;
+var
+  LEffect: THandshakeEffect;
+begin
+  Result := False;
+  for LEffect in AEffects do
+    if LEffect.Kind = THandshakeEffectKind.Fail then
+      Result := True;
+end;
+
+function TTestTls12DualVersion.RealClientHello(
+  ALegacyVersion: UInt16): TTlsHandshakeMessage;
+var
+  LClient: IHandshakeMachine;
+  LEffect: THandshakeEffect;
+  LFramed: TBytes;
+  LReader: THandshakeMessageReader;
+begin
+  LFramed := nil;
+  LClient := TClientVersionDispatchMachine.Create(Client13Params, Client12Params)
+    as IHandshakeMachine;
+  for LEffect in LClient.Start do
+    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
+      LFramed := LEffect.Bytes;
+  CheckTrue(System.Length(LFramed) > 0, 'the client emitted a ClientHello');
+  // legacy_version follows the 4-byte handshake header
+  LFramed[4] := Byte(ALegacyVersion shr 8);
+  LFramed[5] := Byte(ALegacyVersion);
+  LReader := THandshakeMessageReader.Create;
+  try
+    LReader.Append(LFramed, 0, System.Length(LFramed));
+    LReader.NextMessage(Result);
+  finally
+    LReader.Free;
+  end;
+end;
+
+function TTestTls12DualVersion.AbortsProtocolVersion(const AServer: IHandshakeMachine;
+  ALegacyVersion: UInt16): Boolean;
+begin
+  Result := HasFailAlert(AServer.ProcessMessage(RealClientHello(ALegacyVersion)),
+    TTlsAlertDescription.ProtocolVersion);
+end;
+
+procedure TTestTls12DualVersion.TestDispatcherAcceptsLegacyVersion0303;
+var
+  LServer: IHandshakeMachine;
+begin
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckFalse(HasAnyFail(LServer.ProcessMessage(RealClientHello(TlsWireVersionTls12))),
+    'a conformant ClientHello proceeds');
+end;
+
+procedure TTestTls12DualVersion.TestDispatcherRejectsLegacyVersion0302WithSupportedVersions;
+var
+  LServer: IHandshakeMachine;
+begin
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(AbortsProtocolVersion(LServer, TlsWireVersionTls11),
+    'legacy_version 0x0302 with supported_versions aborts protocol_version (RFC 9846 4.2.2)');
+end;
+
+procedure TTestTls12DualVersion.TestDispatcherRejectsLegacyVersion0304WithSupportedVersions;
+var
+  LServer: IHandshakeMachine;
+begin
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(AbortsProtocolVersion(LServer, TlsWireVersionTls13),
+    'legacy_version 0x0304 with supported_versions aborts protocol_version (RFC 9846 4.2.2)');
+end;
+
+procedure TTestTls12DualVersion.TestDispatcherRejectsLegacyVersion0300WithSupportedVersions;
+var
+  LServer: IHandshakeMachine;
+  LSsl3: UInt16;
+begin
+  LSsl3 := $0300;
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(AbortsProtocolVersion(LServer, LSsl3),
+    'legacy_version 0x0300 with supported_versions aborts protocol_version (RFC 8446 D.5)');
+end;
+
+procedure TTestTls12DualVersion.TestDispatcherRejectsLegacyVersion0000WithSupportedVersions;
+var
+  LServer: IHandshakeMachine;
+  LZero: UInt16;
+begin
+  LZero := 0;
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(AbortsProtocolVersion(LServer, LZero),
+    'legacy_version 0x0000 with supported_versions aborts protocol_version');
+end;
+
+procedure TTestTls12DualVersion.TestDispatcherRejectsLegacyVersion0302WithTls12OnlySupportedVersions;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  // supported_versions [1.2] alone would route to the TLS 1.2 machine; the legacy_version rule
+  // still applies on a 1.3-capable server
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0007002B0003020303'));
+  LHello.Body[0] := $03;
+  LHello.Body[1] := $02;
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello), TTlsAlertDescription.ProtocolVersion),
+    'legacy_version 0x0302 with supported_versions [1.2] aborts protocol_version');
+end;
+
+procedure TTestTls12DualVersion.TestDispatcherWithoutSupportedVersionsKeepsLegacyVersionHandling;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  // without supported_versions the client tops out at 1.2 whatever legacy_version says
+  // (RFC 8446 4.2.1): no protocol_version, whatever else the bare hello later fails on.
+  // A guard, not a mutation target: the unchanged path is what it pins.
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0000'));
+  LHello.Body[0] := $03;
+  LHello.Body[1] := $04;
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckFalse(HasFailAlert(LServer.ProcessMessage(LHello), TTlsAlertDescription.ProtocolVersion),
+    'legacy_version 0x0304 without supported_versions is not protocol_version');
+end;
+
+procedure TTestTls12DualVersion.TestTls12OnlyDispatcherKeepsLegacyVersionHandling;
+var
+  LServer: IHandshakeMachine;
+begin
+  // a server without TLS 1.3 negotiates 1.2 from the offer and does not apply the 1.3 rule;
+  // a guard, not a mutation target: the unchanged path is what it pins
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckFalse(HasAnyFail(LServer.ProcessMessage(RealClientHello(TlsWireVersionTls11))),
+    'a TLS 1.2-only server proceeds despite legacy_version 0x0302');
+end;
+
+procedure TTestTls12DualVersion.TestStandaloneTls13ServerAcceptsLegacyVersion0303;
+var
+  LServer: IHandshakeMachine;
+begin
+  LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
+  CheckFalse(HasAnyFail(LServer.ProcessMessage(RealClientHello(TlsWireVersionTls12))),
+    'a conformant ClientHello proceeds');
+end;
+
+procedure TTestTls12DualVersion.TestStandaloneTls13ServerRejectsLegacyVersion0304;
+var
+  LServer: IHandshakeMachine;
+begin
+  LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
+  CheckTrue(AbortsProtocolVersion(LServer, TlsWireVersionTls13),
+    'legacy_version 0x0304 aborts protocol_version at a 1.3 server');
+end;
+
+procedure TTestTls12DualVersion.TestStandaloneTls13ServerRejectsLegacyVersion0300;
+var
+  LServer: IHandshakeMachine;
+  LSsl3: UInt16;
+begin
+  LSsl3 := $0300;
+  LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
+  CheckTrue(AbortsProtocolVersion(LServer, LSsl3),
+    'legacy_version 0x0300 aborts protocol_version at a 1.3 server');
 end;
 
 procedure TTestTls12DualVersion.TestServerRejectsSupportedVersionsWithoutCommonVersion;

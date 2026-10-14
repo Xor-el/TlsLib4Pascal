@@ -372,6 +372,11 @@ begin
       THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback,
         SInappropriateFallback)));
 
+  // a hello carrying supported_versions is a TLS 1.3 client's, whose legacy_version must be 0x0303
+  // (RFC 9846 4.2.2); a hello without it keeps the TLS 1.2 legacy_version handling
+  if FServerSupportsTls13 and (System.Length(LClientVersions) > 0) then
+    TServerOfferSelection.RejectUnexpectedLegacyVersion(LHello.LegacyVersion);
+
   // a client below our floor (TLS 1.2) selected nothing this server supports
   LClientHighest := TTlsVersion.ClientHighest(LClientVersions, LHello.LegacyVersion);
   if LClientHighest < TlsWireVersionTls12 then
