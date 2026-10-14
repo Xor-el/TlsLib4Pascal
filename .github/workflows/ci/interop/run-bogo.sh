@@ -14,7 +14,7 @@
 # _comment in bogo-shim-config.json.
 #
 #   BOGO_SRC        BoringSSL checkout (has ssl/test/runner)        [required]
-#   BOGO_REF        commit to pin the peer at                       [optional]
+#   BOGO_REF        commit to pin the peer at                       [required]
 #   BOGO_TESTS      run only these (glob;glob) and report, no gate  [optional]
 #   BOGO_LOG_DIR    archive gate.json / audit.json / the boundary   [optional]
 # A partial/crashed run is caught precisely by BoGo's own top-level "interrupted" flag in the
@@ -27,8 +27,8 @@ CONFIG="$HERE/bogo-shim-config.json"
 CLASSIFY="$HERE/bogo-classify.py"
 BIN_DIR="$REPO_ROOT/TlsLib.Interop/FreePascal.Interop/bin"
 WORKERS="${BOGO_WORKERS:-1}"
-# the peer commit the ledger was reconciled against; override BOGO_REF to move it
-BOGO_REF="${BOGO_REF:-ae49d2681a56ca7b8609f6039a770fda2a8eb550}"
+# make.yml's BOGO_REF is the single pin; there is no default here
+[ -n "${BOGO_REF:-}" ] || { echo "ERROR: set BOGO_REF to the peer commit, e.g. BOGO_REF=<commit> BOGO_SRC=<dir> bash ./run-bogo.sh"; exit 2; }
 WORK="$(mktemp -d)"
 GATE_JSON="$WORK/gate.json"
 AUDIT_JSON="$WORK/audit.json"
@@ -55,12 +55,9 @@ done
 [ -n "$SHIM" ] || { echo "ERROR: BoGoShim binary not found under $BIN_DIR (run interop-build.sh first)"; exit 2; }
 echo "shim: $SHIM"
 
-# pin the peer if a ref was given
-if [ -n "${BOGO_REF:-}" ]; then
-  echo "pinning BoGo peer to $BOGO_REF"
-  git -C "$BOGO_SRC" fetch --depth 1 origin "$BOGO_REF" 2>/dev/null || true
-  git -C "$BOGO_SRC" checkout -q "$BOGO_REF"
-fi
+echo "pinning BoGo peer to $BOGO_REF"
+git -C "$BOGO_SRC" fetch --depth 1 origin "$BOGO_REF" 2>/dev/null || true
+git -C "$BOGO_SRC" checkout -q "$BOGO_REF"
 echo "BoGo peer at: $(git -C "$BOGO_SRC" rev-parse HEAD)"
 
 RUNNER_DIR="$BOGO_SRC/ssl/test/runner"

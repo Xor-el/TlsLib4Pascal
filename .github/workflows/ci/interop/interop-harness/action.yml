@@ -3,8 +3,8 @@ description: >-
   Compile the interop programs against the already-built packages and run the loopback
   self-test, the structure-aware parser fuzzer, the openssl s_client/s_server matrix, and
   the full-suite hard-gate BoGo run. Provisions Go and the pinned BoringSSL peer when the
-  BoGo run is enabled. Shared by every native job (Linux and Windows) so the harness lives
-  in one place, not duplicated per job.
+  BoGo run is enabled. Shared by the Linux, Windows and macOS native jobs (not the
+  FORCE_SCALAR legs) so the harness lives in one place, not duplicated per job.
 
 inputs:
   fpc-target:
@@ -20,7 +20,7 @@ inputs:
   run-bogo:
     description: Whether to run the hard-gate BoGo suite (also provisions Go + the peer).
     required: false
-    default: 'false'
+    default: 'true'
   run-openssl:
     description: Whether to run the openssl s_client/s_server matrix (skipped where openssl is unavailable).
     required: false
@@ -48,8 +48,7 @@ inputs:
     default: 'portable'
   bogo-ref:
     description: The BoringSSL peer commit to pin the BoGo run against.
-    required: false
-    default: ae49d2681a56ca7b8609f6039a770fda2a8eb550
+    required: true
   bogo-workers:
     description: >-
       BoGo runner parallelism (-num-workers); 4 for speed. Dial back if a
