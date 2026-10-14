@@ -91,6 +91,10 @@ type
     function WithRandomOf(const AFramedClientHello, AFramedFirstHello: TBytes): TBytes;
     function NewRetryClient: IHandshakeMachine; overload;
     function NewRetryClient(ADualVersion: Boolean): IHandshakeMachine; overload;
+    /// <summary>The server's verdict on a conformant retry ClientHello whose legacy_version is
+    /// ALegacyVersion: whether it aborts, and with which alert.</summary>
+    function RetryVerdictForLegacyVersion(ALegacyVersion: UInt16;
+      out AAlert: TTlsAlertDescription): Boolean;
   protected
     procedure SetUp; override;
   published
@@ -113,6 +117,10 @@ type
     procedure TestServerRejectsCookieMintedForAnotherFirstClientHello;
     procedure TestServerRejectsUnexpectedMessageDuringRetryWait;
     procedure TestServerRejectsRetryClientHelloThatChangesSuite;
+    procedure TestServerAcceptsRetryClientHelloWithLegacyVersion0303;
+    procedure TestServerRejectsRetryClientHelloWithLegacyVersion0304;
+    procedure TestServerRejectsRetryClientHelloWithLegacyVersion0000;
+    procedure TestServerRejectsFirstClientHelloWithLegacyVersion0302;
     procedure TestServerRejectsRetryClientHelloThatChangesSessionId;
     procedure TestServerRejectsRetryClientHelloThatChangesServerName;
     procedure TestServerRejectsInnerEchInRetryClientHello;
@@ -799,6 +807,72 @@ begin
     TCipherSuites13.Aes128GcmSha256);
   CheckTrue(System.Length(SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)))) > 0,
     'a conformant retry that keeps the suite proceeds to a ServerHello');
+end;
+
+function TTestHelloRetryRequest.RetryVerdictForLegacyVersion(ALegacyVersion: UInt16;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LServer: IHandshakeMachine;
+  LHrr, LCookie, LCh2, LShare: TBytes;
+  LPriv: IKeyExchangePrivateKey;
+begin
+  TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
+  LServer := NewSecp256r1Server(nil);
+  LHrr := SendHandshakeOf(LServer.ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
+  LCookie := CookieFromHrr(LHrr);
+  LCh2 := BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, DecodeHex(''),
+    TCipherSuites13.Aes128GcmSha256);
+  // legacy_version follows the 4-byte handshake header
+  LCh2[4] := Byte(ALegacyVersion shr 8);
+  LCh2[5] := Byte(ALegacyVersion);
+  Result := FailAlertOf(LServer.ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), AAlert);
+end;
+
+procedure TTestHelloRetryRequest.TestServerAcceptsRetryClientHelloWithLegacyVersion0303;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(RetryVerdictForLegacyVersion(TlsWireVersionTls12, LAlert),
+    'a retry ClientHello keeping legacy_version 0x0303 proceeds');
+end;
+
+procedure TTestHelloRetryRequest.TestServerRejectsRetryClientHelloWithLegacyVersion0304;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(RetryVerdictForLegacyVersion(TlsWireVersionTls13, LAlert),
+    'a retry ClientHello with legacy_version 0x0304 aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion,
+    'it is protocol_version (RFC 9846 4.2.2)');
+end;
+
+procedure TTestHelloRetryRequest.TestServerRejectsRetryClientHelloWithLegacyVersion0000;
+var
+  LAlert: TTlsAlertDescription;
+  LZero: UInt16;
+begin
+  LZero := 0;
+  CheckTrue(RetryVerdictForLegacyVersion(LZero, LAlert),
+    'a retry ClientHello with legacy_version 0x0000 aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion, 'it is protocol_version');
+end;
+
+procedure TTestHelloRetryRequest.TestServerRejectsFirstClientHelloWithLegacyVersion0302;
+var
+  LServer: IHandshakeMachine;
+  LCh1: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  LCh1 := System.Copy(Vec('client_hello_1'));
+  LCh1[4] := $03;
+  LCh1[5] := $02;
+  LServer := NewSecp256r1Server(nil);
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh1)), LAlert),
+    'a first ClientHello with legacy_version 0x0302 aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion, 'it is protocol_version');
 end;
 
 procedure TTestHelloRetryRequest.TestServerRejectsRetryClientHelloThatChangesServerName;

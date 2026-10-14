@@ -45,7 +45,8 @@ type
     /// requests collapses to one response, which also bounds a KeyUpdate flood.</summary>
     FKeyUpdateResponsePending: Boolean;
     FKeyUpdatesSent: UInt64;
-    /// <summary>Our update_requested awaits the peer's KeyUpdate (RFC 9846 4.7.3).</summary>
+    /// <summary>True while an update_requested we sent has not been answered by a KeyUpdate from
+    /// the peer (RFC 9846 4.7.3).</summary>
     FKeyUpdateRequestOutstanding: Boolean;
     /// <summary>This endpoint's own write (send) traffic direction.</summary>
     function WriteDirection: TTlsDirection; virtual; abstract;
@@ -133,7 +134,8 @@ begin
   if (Stage <> THandshakeStage.Connected) or not CanSendKeyUpdate then
     Exit;
   LRequest := ARequest;
-  // a repeat update_requested is downgraded: the write side still rekeys (RFC 9846 4.7.3)
+  // a second update_requested before the peer answers goes out as update_not_requested; the write
+  // keys still update (RFC 9846 4.7.3)
   if LRequest = TKeyUpdateRequest.UpdateRequested then
   begin
     if FKeyUpdateRequestOutstanding then
@@ -159,7 +161,7 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecodeError,
       @SBadKeyUpdate);
 
-  // any peer KeyUpdate answers our outstanding request (RFC 9846 4.7.3)
+  // a KeyUpdate from the peer answers our outstanding update_requested (RFC 9846 4.7.3)
   FKeyUpdateRequestOutstanding := False;
   // the peer advanced its send keys; rekey our read epoch so later records decrypt
   Result := TArray<THandshakeEffect>.Create(

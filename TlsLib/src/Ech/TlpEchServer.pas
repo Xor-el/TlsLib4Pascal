@@ -143,6 +143,7 @@ resourcestring
   SMissingInnerEch = 'the reconstructed inner has no inner-type encrypted_client_hello';
   SInnerOffersLegacy = 'the inner ClientHello offers TLS 1.2 or below';
   SEchRetryMismatch = 'the retry ech changed config_id/cipher_suite or set a non-empty enc';
+  SOuterLegacyVersion = 'the ClientHelloOuter legacy_version is not 0x0303';
   SEchRetryDecrypt = 'the retry ech failed to decrypt at seq=1';
   SEchRetryWithoutAccept = 'the retry ClientHelloOuter was processed without an accepted first ' +
     'ClientHelloOuter';
@@ -479,6 +480,10 @@ begin
     end;
     if LOpened then
     begin
+      // negotiation runs on the inner hello, so the accepted outer's legacy_version is checked here
+      if AOuter.LegacyVersion <> TlsWireVersionTls12 then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.ProtocolVersion, @SOuterLegacyVersion);
       ReconstructInner(LEncoded, AOuter, AOuterEntries);
       FOpener := LOpener;
       FSuite := LSuite;
@@ -508,6 +513,9 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SEchRetryWithoutAccept);
   LOuterBody := System.Copy(AOuterFramed, 4, System.Length(AOuterFramed) - 4);
   LOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
+  if LOuter.LegacyVersion <> TlsWireVersionTls12 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.ProtocolVersion, @SOuterLegacyVersion);
   // CH1 was accepted, so CH2 MUST re-offer the outer ech (RFC 9849 sec. 7.1.1); an absent
   // extensions field carries none - missing_extension, not a decode_error on the vector
   if System.Length(LOuter.Extensions) = 0 then

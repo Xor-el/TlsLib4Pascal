@@ -372,6 +372,11 @@ begin
       THandshakeEffects.Fail(TTlsAlertDescription.InappropriateFallback,
         SInappropriateFallback)));
 
+  // legacy_version must be 0x0303 when supported_versions is present (RFC 9846 4.2.2); otherwise it
+  // holds the client's version
+  if System.Length(LClientVersions) > 0 then
+    TServerOfferSelection.RejectUnexpectedLegacyVersion(LHello.LegacyVersion);
+
   // a client below our floor (TLS 1.2) selected nothing this server supports
   LClientHighest := TTlsVersion.ClientHighest(LClientVersions, LHello.LegacyVersion);
   if LClientHighest < TlsWireVersionTls12 then

@@ -61,6 +61,9 @@ type
     class procedure RejectSpuriousFallback(const ACipherSuites,
       ASupportedVersions: TArray<UInt16>; ALegacyVersion,
       AServerHighest: UInt16); static;
+    /// <summary>Aborts with protocol_version unless the ClientHello's legacy_version is 0x0303
+    /// (RFC 9846 4.2.2). Call it only for a ClientHello that has supported_versions.</summary>
+    class procedure RejectUnexpectedLegacyVersion(ALegacyVersion: UInt16); static;
   end;
 
 implementation
@@ -80,6 +83,8 @@ resourcestring
     'the selected server credential has an empty certificate chain';
   SSpuriousFallback =
     'the client signalled TLS_FALLBACK_SCSV but the server supports a higher version';
+  SUnexpectedLegacyVersion =
+    'the ClientHello legacy_version is not 0x0303';
 
 { TServerOfferSelection }
 
@@ -159,6 +164,14 @@ begin
     AServerHighest) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.InappropriateFallback, @SSpuriousFallback);
+end;
+
+class procedure TServerOfferSelection.RejectUnexpectedLegacyVersion(
+  ALegacyVersion: UInt16);
+begin
+  if ALegacyVersion <> TlsWireVersionTls12 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.ProtocolVersion, @SUnexpectedLegacyVersion);
 end;
 
 end.

@@ -53,6 +53,8 @@ uses
   TlpInMemoryEchKeyStore,
   TlpEchKeyGen,
   TlpIEch,
+  TlpTlsVersion,
+  TlpTlsAlert,
   TlpTlsLibExceptions,
   TlsLibTestBase,
   TlsLibTestHandshakeDecoder;
@@ -73,15 +75,23 @@ type
     function ProcessOuterFramed(const AEch: IEchServerHandshake;
       const AFramed: TBytes): TEchStatus;
     // seals AEncoded into the outer's ech extension with ASealer and returns the framed outer
+    // carrying ALegacyVersion (also in the AAD)
     function SealOuter(var AOuter: TTlsClientHello; var AEntries: TExtensionVector;
       var AEch: TEchOuterClientHello; const ASealer: IHpkeSealer;
-      const AEncoded: TBytes): TBytes;
+      const AEncoded: TBytes; ALegacyVersion: UInt16): TBytes;
+    // a trial-decrypting server for the real client's outer, plus the outer's decrypted
+    // EncodedClientHelloInner and a sealer to reseal it under a wire config_id that is not the entry's
+    procedure PrepareReseal(out AServer: IEchServerHandshake; out AOuter: TTlsClientHello;
+      out AEntries: TExtensionVector; out AEch: TEchOuterClientHello;
+      out ASealer: IHpkeSealer; out AEncoded: TBytes);
   protected
     procedure SetUp; override;
   published
     procedure TestOuterHidesRealSniAndDecryptsToInner;
     procedure TestUnusableConfigFailsClosed;
     procedure TestRetryChecksTheWireConfigIdNotTheEntrys;
+    procedure TestAcceptedOuterWithLegacyVersion0304AbortsProtocolVersion;
+    procedure TestRetryOuterWithLegacyVersion0304AbortsProtocolVersion;
     procedure TestGreaseDegradesWhenProviderLacksX25519;
     procedure TestGreaseSuiteIsCommonlyDeployed;
     procedure TestEmptyConfigListWithoutGreaseFailsClosed;
@@ -415,84 +425,165 @@ end;
 
 function TTestEchClientEngine.SealOuter(var AOuter: TTlsClientHello;
   var AEntries: TExtensionVector; var AEch: TEchOuterClientHello;
-  const ASealer: IHpkeSealer; const AEncoded: TBytes): TBytes;
+  const ASealer: IHpkeSealer; const AEncoded: TBytes; ALegacyVersion: UInt16): TBytes;
 var
   LIdx: Int32;
   LAad: TBytes;
 begin
   LIdx := AEntries.IndexOf(TExtensionTypes.EncryptedClientHello);
-  // the AAD is the outer with the payload zeroed at its final length (RFC 9849 sec. 5.2)
+  // the AAD is the outer with the payload zeroed at its final length (RFC 9849 sec. 5.2); the
+  // encoder always writes 0x0303, so the wanted legacy_version is patched into the AAD and the frame
   AEch.Payload := nil;
   System.SetLength(AEch.Payload, System.Length(AEncoded) + 16);
   AEntries.SetData(LIdx, TEchExtension.EncodeOuter(AEch));
   AOuter.Extensions := AEntries.Encode;
   LAad := THandshakeMessages.EncodeClientHello(AOuter);
+  LAad[0] := Byte(ALegacyVersion shr 8);
+  LAad[1] := Byte(ALegacyVersion);
   AEch.Payload := ASealer.Seal(LAad, AEncoded);
   AEntries.SetData(LIdx, TEchExtension.EncodeOuter(AEch));
   AOuter.Extensions := AEntries.Encode;
   Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
     THandshakeMessages.EncodeClientHello(AOuter));
+  Result[4] := Byte(ALegacyVersion shr 8);
+  Result[5] := Byte(ALegacyVersion);
 end;
 
-procedure TTestEchClientEngine.TestRetryChecksTheWireConfigIdNotTheEntrys;
+procedure TTestEchClientEngine.PrepareReseal(out AServer: IEchServerHandshake;
+  out AOuter: TTlsClientHello; out AEntries: TExtensionVector;
+  out AEch: TEchOuterClientHello; out ASealer: IHpkeSealer; out AEncoded: TBytes);
 var
-  LOuterFramed, LOuterBody, LAad, LEncoded, LEnc, LRetryFramed: TBytes;
-  LOuter: TTlsClientHello;
-  LEntries: TExtensionVector;
+  LOuterFramed, LOuterBody, LAad, LEnc: TBytes;
   LEch: TExtensionEntry;
   LType: TEchClientHelloType;
-  LOuterEch: TEchOuterClientHello;
   LConfig: TEchConfig;
   LSuite: IHpkeSuite;
   LSk: ISecretBuffer;
   LOpener: IHpkeOpener;
-  LSealer: IHpkeSealer;
   LStore: IEchServerKeyStore;
-  LServer: IEchServerHandshake;
-  LWireId: Byte;
 begin
-  // a client that ignores the config identifiers randomizes config_id on the first hello and must
-  // keep that value on the retry (RFC 9849 sec. 6.1.1, 7.1.1); a trial-decrypting server compares
-  // the retry with what it was sent, not with the id of the key-store entry that opened it
   LOuterFramed := OuterClientHello;
   LOuterBody := System.Copy(LOuterFramed, 4, System.Length(LOuterFramed) - 4);
-  LOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
-  LEntries := TExtensionVector.Parse(LOuter.Extensions);
-  CheckTrue(LEntries.TryFind(TExtensionTypes.EncryptedClientHello, LEch), 'outer has an ech extension');
-  TEchExtension.Decode(LEch.Data, LType, LOuterEch);
+  AOuter := THandshakeMessages.DecodeClientHello(LOuterBody);
+  AEntries := TExtensionVector.Parse(AOuter.Extensions);
+  CheckTrue(AEntries.TryFind(TExtensionTypes.EncryptedClientHello, LEch), 'outer has an ech extension');
+  TEchExtension.Decode(LEch.Data, LType, AEch);
   LConfig := TEchConfigList.Parse(DecodeHex(FVec.Values['config_list']))[0];
-  LSuite := Crypto.Hpke.Suite(LConfig.KemId, LOuterEch.CipherSuite.KdfId,
-    LOuterEch.CipherSuite.AeadId);
+  LSuite := Crypto.Hpke.Suite(LConfig.KemId, AEch.CipherSuite.KdfId, AEch.CipherSuite.AeadId);
   LSk := Crypto.Hpke.ImportPrivateKey(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     DecodeHex(FVec.Values['config_private_key']));
 
   // recover the encoded inner the real client sealed
-  FillChar(LOuterEch.Payload[0], System.Length(LOuterEch.Payload), 0);
-  LEntries.SetData(LEntries.IndexOf(TExtensionTypes.EncryptedClientHello),
-    TEchExtension.EncodeOuter(LOuterEch));
-  LOuter.Extensions := LEntries.Encode;
-  LAad := THandshakeMessages.EncodeClientHello(LOuter);
-  TEchExtension.Decode(LEch.Data, LType, LOuterEch);
+  FillChar(AEch.Payload[0], System.Length(AEch.Payload), 0);
+  AEntries.SetData(AEntries.IndexOf(TExtensionTypes.EncryptedClientHello),
+    TEchExtension.EncodeOuter(AEch));
+  AOuter.Extensions := AEntries.Encode;
+  LAad := THandshakeMessages.EncodeClientHello(AOuter);
+  TEchExtension.Decode(LEch.Data, LType, AEch);
   LOpener := Crypto.Hpke.ImportRecipientKey(LSuite.Kem, LSk)
-    .SetupOpener(LSuite, LOuterEch.Enc, LConfig.HpkeInfo);
-  LEncoded := LOpener.Open(LAad, LOuterEch.Payload);
+    .SetupOpener(LSuite, AEch.Enc, LConfig.HpkeInfo);
+  AEncoded := LOpener.Open(LAad, AEch.Payload);
 
   // reseal it under a wire config_id that is not the entry's
-  LWireId := Byte(LOuterEch.ConfigId xor 1);
-  LOuterEch.ConfigId := LWireId;
-  LSuite.SetupSealer(LConfig.PublicKey, LConfig.HpkeInfo, LEnc, LSealer);
-  LOuterEch.Enc := LEnc;
+  AEch.ConfigId := Byte(AEch.ConfigId xor 1);
+  LSuite.SetupSealer(LConfig.PublicKey, LConfig.HpkeInfo, LEnc, ASealer);
+  AEch.Enc := LEnc;
   LStore := TInMemoryEchKeyStore.FromConfig(DecodeHex(FVec.Values['config_list']), LSk, Crypto);
-  LServer := TEchServerHandshake.Create(Crypto, TEchServerPolicy.Keyed(Crypto, LStore, True))
+  AServer := TEchServerHandshake.Create(Crypto, TEchServerPolicy.Keyed(Crypto, LStore, True))
     as IEchServerHandshake;
-  CheckTrue(ProcessOuterFramed(LServer, SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded)) =
+end;
+
+procedure TTestEchClientEngine.TestRetryChecksTheWireConfigIdNotTheEntrys;
+var
+  LEncoded, LRetryFramed: TBytes;
+  LOuter: TTlsClientHello;
+  LEntries: TExtensionVector;
+  LOuterEch: TEchOuterClientHello;
+  LSealer: IHpkeSealer;
+  LServer: IEchServerHandshake;
+  LStandard: UInt16;
+begin
+  // a client that ignores the config identifiers randomizes config_id on the first hello and must
+  // keep that value on the retry (RFC 9849 sec. 6.1.1, 7.1.1); a trial-decrypting server compares
+  // the retry with what it was sent, not with the id of the key-store entry that opened it
+  PrepareReseal(LServer, LOuter, LEntries, LOuterEch, LSealer, LEncoded);
+  LStandard := TlsWireVersionTls12;
+  CheckTrue(ProcessOuterFramed(LServer,
+    SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded, LStandard)) =
     TEchStatus.Accepted, 'the trial-decrypting server opens the first hello');
 
   // the retry keeps the wire id, cipher_suite and an empty enc, sealed at the next sequence number
   LOuterEch.Enc := nil;
-  LRetryFramed := SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded);
+  LRetryFramed := SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded, LStandard);
   CheckTrue(LServer.ProcessRetryOuter(LRetryFramed) = TEchStatus.Accepted,
     'the retry that keeps the wire config_id is accepted');
+end;
+
+procedure TTestEchClientEngine.TestAcceptedOuterWithLegacyVersion0304AbortsProtocolVersion;
+var
+  LEncoded: TBytes;
+  LOuter: TTlsClientHello;
+  LEntries: TExtensionVector;
+  LOuterEch: TEchOuterClientHello;
+  LSealer: IHpkeSealer;
+  LServer: IEchServerHandshake;
+  LFuture: UInt16;
+  LAlert: TTlsAlertDescription;
+  LRaised: Boolean;
+begin
+  // the outer is sealed correctly (its AAD carries the bad legacy_version), so only the
+  // legacy_version rule can refuse it (RFC 9846 4.2.2)
+  PrepareReseal(LServer, LOuter, LEntries, LOuterEch, LSealer, LEncoded);
+  LFuture := TlsWireVersionTls13;
+  LRaised := False;
+  LAlert := TTlsAlertDescription.CloseNotify;
+  try
+    ProcessOuterFramed(LServer, SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded,
+      LFuture));
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      LAlert := E.AlertDescription;
+    end;
+  end;
+  CheckTrue(LRaised, 'an accepted outer with legacy_version 0x0304 aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion, 'it is protocol_version');
+end;
+
+procedure TTestEchClientEngine.TestRetryOuterWithLegacyVersion0304AbortsProtocolVersion;
+var
+  LEncoded: TBytes;
+  LOuter: TTlsClientHello;
+  LEntries: TExtensionVector;
+  LOuterEch: TEchOuterClientHello;
+  LSealer: IHpkeSealer;
+  LServer: IEchServerHandshake;
+  LStandard, LFuture: UInt16;
+  LAlert: TTlsAlertDescription;
+  LRaised: Boolean;
+begin
+  PrepareReseal(LServer, LOuter, LEntries, LOuterEch, LSealer, LEncoded);
+  LStandard := TlsWireVersionTls12;
+  LFuture := TlsWireVersionTls13;
+  CheckTrue(ProcessOuterFramed(LServer,
+    SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded, LStandard)) =
+    TEchStatus.Accepted, 'the first outer is accepted');
+  LOuterEch.Enc := nil;
+  LRaised := False;
+  LAlert := TTlsAlertDescription.CloseNotify;
+  try
+    LServer.ProcessRetryOuter(SealOuter(LOuter, LEntries, LOuterEch, LSealer, LEncoded,
+      LFuture));
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      LAlert := E.AlertDescription;
+    end;
+  end;
+  CheckTrue(LRaised, 'a retry outer with legacy_version 0x0304 aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion, 'it is protocol_version');
 end;
 
 procedure TTestEchClientEngine.TestServerProcessOuterEmptyVectorIsNotOffered;

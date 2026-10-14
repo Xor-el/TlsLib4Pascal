@@ -634,10 +634,10 @@ begin
     end;
     Exit;
   end;
-  // a warning-level alert is advisory: tolerated in TLS 1.2 (RFC 5246 7.2) and, in TLS 1.3,
-  // only for user_canceled - every other warning is outlawed there. A fatal-level user_canceled stays
-  // terminal: local policy against the SHOULD to keep reading (RFC 9846 6.1). Either way a flood is
-  // refused. close_notify is handled above regardless of level.
+  // a warning-level alert is advisory: TLS 1.2 tolerates it (RFC 5246 7.2); TLS 1.3 tolerates only
+  // user_canceled and rejects any other warning. A fatal user_canceled still ends the connection,
+  // as local policy, although RFC 9846 6.1 says a receiver SHOULD keep reading. Too many warnings
+  // in a row are refused. close_notify is handled above at either level.
   if LReceived.LevelByte = TTlsAlertLevel.Warning.ToByte then
   begin
     if (FInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
