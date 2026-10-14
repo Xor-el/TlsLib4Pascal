@@ -63,6 +63,7 @@ uses
   TlpInMemoryEchKeyStore,
   TlpCryptoDomainTypes,
   TlpTlsCredential,
+  TlpITlsCredentialResolver,
   TlpCredentialResolvers,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
@@ -103,6 +104,14 @@ type
     function NewServerMachineWith(const AChain: TArray<TBytes>;
       const ACompressors: TArray<ICertificateCompressor>): IHandshakeMachine;
     function CredentialWithChain(const AChain: TArray<TBytes>): TTlsCredential;
+    // an ECDSA leaf under an issuer signed with SHA-1, which no stock client advertises
+    function Sha1Chain: TArray<TBytes>;
+    function RsaSha1Chain: TArray<TBytes>;
+    function NewServer12WithChain(const AChain: TArray<TBytes>): ITlsEngine;
+    function NewServerMachineForResolver(
+      const AResolver: ITlsServerCredentialResolver): IHandshakeMachine;
+    // a real ClientHello with a signature_algorithms_cert extension appended
+    function ClientHelloWithCertSchemes(const ACertSchemes: TArray<UInt16>): TBytes;
     function DriveServerCertMessage(const AClient,
       AServer: IHandshakeMachine): TTlsHandshakeMessage;
     function PlaintextCertBody(const AChain: TArray<TBytes>): TBytes;
@@ -137,6 +146,12 @@ type
     procedure TestServerOmitsUnofferedRecordSizeLimit;
     procedure TestTls12RecordSizeLimitCapsOutboundRecords;
     procedure TestServerRejectsNonNullCompressionOnTls13;
+    procedure TestTls13ServerRefusesAChainSignedWithAnUnadvertisedHash;
+    procedure TestTls13ServerRefusesAnRsaSha1ChainTheClientDidNotAdvertise;
+    procedure TestTls13ServerSendsTheChainWhenCertSchemesAdvertiseItsHash;
+    procedure TestTls12ServerRefusesAChainSignedWithAnUnadvertisedHash;
+    procedure TestResolverSeesSignatureAlgorithmsWhenNoCertVariantIsSent;
+    procedure TestResolverSeesSignatureAlgorithmsCertWhenPresent;
     procedure TestGreaseValueClassification;
     procedure TestClientGreaseToleratedAndNeverSelected;
     procedure TestUnknownHandshakeTypeUnexpected;
@@ -191,6 +206,32 @@ type
     function Algorithm: UInt16;
     function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
   end;
+
+  // hands out one credential and keeps the ClientHello facts it was asked about
+  TRecordingCredentialResolver = class(TInterfacedObject, ITlsServerCredentialResolver)
+  strict private
+    FCredential: TTlsCredential;
+    FHello: TTlsClientHelloInfo;
+  public
+    constructor Create(const ACredential: TTlsCredential);
+    function TryResolve(const AClientHello: TTlsClientHelloInfo;
+      out ACredential: TTlsCredential): Boolean;
+    property Hello: TTlsClientHelloInfo read FHello;
+  end;
+
+constructor TRecordingCredentialResolver.Create(const ACredential: TTlsCredential);
+begin
+  inherited Create;
+  FCredential := ACredential;
+end;
+
+function TRecordingCredentialResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
+  out ACredential: TTlsCredential): Boolean;
+begin
+  FHello := AClientHello;
+  ACredential := FCredential;
+  Result := True;
+end;
 
 function TDecliningCertCompressor.Algorithm: UInt16;
 begin
@@ -589,6 +630,93 @@ begin
   // keep the real signing key, swap the certificate chain the Certificate carries
   Result := ServerCredential;
   Result.CertificateChain := AChain;
+end;
+
+function TTestExtensionNegotiation.RsaSha1Chain: TArray<TBytes>;
+var
+  LCerts: TStringList;
+begin
+  LCerts := LoadVectorFields('Certs/LegacyHashChain.txt');
+  try
+    Result := TArray<TBytes>.Create(DecodeHex(LCerts.Values['leaf_cert']),
+      DecodeHex(LCerts.Values['issuer_sha1_cert']));
+  finally
+    LCerts.Free;
+  end;
+end;
+
+function TTestExtensionNegotiation.Sha1Chain: TArray<TBytes>;
+var
+  LCerts: TStringList;
+begin
+  LCerts := LoadVectorFields('Certs/ReissuedRoot.txt');
+  try
+    Result := TArray<TBytes>.Create(DecodeHex(LCerts.Values['leaf_cert']),
+      DecodeHex(LCerts.Values['issuer_sha1_cert']));
+  finally
+    LCerts.Free;
+  end;
+end;
+
+function TTestExtensionNegotiation.NewServer12WithChain(
+  const AChain: TArray<TBytes>): ITlsEngine;
+var
+  LParams: TServer12HandshakeParams;
+begin
+  LParams := Default(TServer12HandshakeParams);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(CredentialWithChain(AChain));
+  Result := TTlsEngine.CreateConfigured(
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestExtensionNegotiation.NewServerMachineForResolver(
+  const AResolver: ITlsServerCredentialResolver): IHandshakeMachine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := DecodeHex(StringOfChar('2', 64));
+  LParams.CredentialResolver := AResolver;
+  Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestExtensionNegotiation.ClientHelloWithCertSchemes(
+  const ACertSchemes: TArray<UInt16>): TBytes;
+var
+  LClientHello, LBody, LList: TBytes;
+  LHello: TTlsClientHello;
+  LEntries: TExtensionVector;
+  LI: Int32;
+begin
+  LClientHello := FirstSendHandshake(NewClientMachine(nil).Start);
+  LBody := System.Copy(LClientHello, 4, System.Length(LClientHello) - 4);
+  LHello := THandshakeMessages.DecodeClientHello(LBody);
+  LEntries := TExtensionVector.Parse(LHello.Extensions);
+  // a uint16-length-prefixed list of big-endian scheme codes
+  LList := TBytes.Create(Byte((System.Length(ACertSchemes) * 2) shr 8),
+    Byte((System.Length(ACertSchemes) * 2) and $FF));
+  for LI := 0 to System.High(ACertSchemes) do
+    LList := ConcatBytes(LList, TBytes.Create(Byte(ACertSchemes[LI] shr 8),
+      Byte(ACertSchemes[LI] and $FF)));
+  LEntries.Append(TExtensionEntry.Create(TExtensionTypes.SignatureAlgorithmsCert, LList));
+  LHello.Extensions := LEntries.Encode;
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.ClientHello,
+    THandshakeMessages.EncodeClientHello(LHello));
 end;
 
 function TTestExtensionNegotiation.DriveServerCertMessage(const AClient,
@@ -1152,6 +1280,86 @@ begin
   // control: the untampered null-only ClientHello is accepted (the server responds, no abort)
   CheckFalse(FailAlertOf(NewServerMachine(nil).ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientHello)), LAlert),
     'null-only legacy_compression_methods is accepted');
+end;
+
+procedure TTestExtensionNegotiation.TestTls13ServerRefusesAChainSignedWithAnUnadvertisedHash;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(FailAlertOf(NewServerMachineWith(Sha1Chain, nil).ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    FirstSendHandshake(NewClientMachine(nil).Start))), LAlert),
+    'a SHA-1-signed chain the client did not advertise aborts (RFC 9846 4.5.1.2)');
+  CheckTrue(LAlert = TTlsAlertDescription.HandshakeFailure, 'the alert is handshake_failure');
+end;
+
+procedure TTestExtensionNegotiation.TestTls13ServerRefusesAnRsaSha1ChainTheClientDidNotAdvertise;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(FailAlertOf(NewServerMachineWith(RsaSha1Chain, nil).ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    FirstSendHandshake(NewClientMachine(nil).Start))), LAlert),
+    'an RSA SHA-1 chain the client did not advertise aborts (RFC 9846 4.5.1.2)');
+  CheckTrue(LAlert = TTlsAlertDescription.HandshakeFailure, 'the alert is handshake_failure');
+end;
+
+procedure TTestExtensionNegotiation.TestTls13ServerSendsTheChainWhenCertSchemesAdvertiseItsHash;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // signature_algorithms_cert governs certificate signatures: it admits the SHA-1 issuer even
+  // though signature_algorithms does not
+  CheckFalse(FailAlertOf(NewServerMachineWith(Sha1Chain, nil).ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(ClientHelloWithCertSchemes(
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSha1)))), LAlert),
+    'an advertised SHA-1 certificate signature lets the server send its chain');
+end;
+
+procedure TTestExtensionNegotiation.TestTls12ServerRefusesAChainSignedWithAnUnadvertisedHash;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := NewClient12(0);
+  LServer := NewServer12WithChain(Sha1Chain);
+  Handshake(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the 1.2 server aborts');
+  CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
+    Ord(LServer.LastError.Alert.Description), 'the alert is handshake_failure');
+end;
+
+procedure TTestExtensionNegotiation.TestResolverSeesSignatureAlgorithmsWhenNoCertVariantIsSent;
+var
+  LResolver: TRecordingCredentialResolver;
+  LResolverRef: ITlsServerCredentialResolver;
+begin
+  LResolver := TRecordingCredentialResolver.Create(ServerCredential);
+  LResolverRef := LResolver;
+  NewServerMachineForResolver(LResolverRef).ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    FirstSendHandshake(NewClientMachine(nil).Start)));
+  CheckEquals(1, System.Length(LResolver.Hello.CertificateSignatureSchemes),
+    'one certificate scheme');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256,
+    LResolver.Hello.CertificateSignatureSchemes[0], 'it is the signature_algorithms entry');
+end;
+
+procedure TTestExtensionNegotiation.TestResolverSeesSignatureAlgorithmsCertWhenPresent;
+var
+  LResolver: TRecordingCredentialResolver;
+  LResolverRef: ITlsServerCredentialResolver;
+begin
+  LResolver := TRecordingCredentialResolver.Create(ServerCredential);
+  LResolverRef := LResolver;
+  NewServerMachineForResolver(LResolverRef).ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(ClientHelloWithCertSchemes(
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSha1))));
+  CheckEquals(1, System.Length(LResolver.Hello.CertificateSignatureSchemes),
+    'one certificate scheme');
+  CheckEquals(TSignatureSchemes.EcdsaSha1, LResolver.Hello.CertificateSignatureSchemes[0],
+    'it is the signature_algorithms_cert entry');
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LResolver.Hello.SignatureSchemes[0],
+    'SignatureSchemes still holds signature_algorithms');
 end;
 
 procedure TTestExtensionNegotiation.TestClientAppliesNoInboundLimitWhenServerOmitsIt;

@@ -85,7 +85,8 @@ type
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
     /// <summary>The groups to prefer, in order, among the registered ones; a code the group
     /// registry lacks is skipped. Build refuses an empty list, a list with no registered group,
-    /// and, when TLS 1.2 is offered, a list with no registered classical ECDHE group.</summary>
+    /// and, when TLS 1.2 is offered, a list with no registered classical ECDHE group. Each group
+    /// is listed once; a repeat is rejected here.</summary>
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsClientConfigBuilder;
     /// <summary>The application protocols offered in preference order; an empty list offers no
     /// ALPN. Each name is 1..255 opaque octets and is listed once; anything else is rejected here
@@ -300,7 +301,8 @@ type
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;
     /// <summary>The groups to prefer, in order, among the registered ones; a code the group
     /// registry lacks is skipped. Build refuses an empty list, a list with no registered group,
-    /// and, when TLS 1.2 is offered, a list with no registered classical ECDHE group.</summary>
+    /// and, when TLS 1.2 is offered, a list with no registered classical ECDHE group. Each group
+    /// is listed once; a repeat is rejected here.</summary>
     function WithPreferredGroups(const AGroups: TArray<UInt16>): ITlsServerConfigBuilder;
     /// <summary>The application protocols the server selects from, in preference order; an empty
     /// list offers no ALPN. Each name is 1..255 opaque octets and is listed once; anything else is

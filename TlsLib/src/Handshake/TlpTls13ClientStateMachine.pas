@@ -52,6 +52,7 @@ uses
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
   TlpCertificateVerify,
+  TlpChainAlgorithmPolicy,
   TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpCertificateLimits,
@@ -236,6 +237,7 @@ type
     FCertificateRequested: Boolean;
     FRequestContext: TBytes;
     FClientAuthSchemes: TArray<UInt16>;
+    FClientAuthCertSchemes: TArray<UInt16>;
     /// <summary>The DER DistinguishedName certificate_authorities the server named in its
     /// CertificateRequest (RFC 8446 4.2.4); surfaced for read-only connection info.</summary>
     FRequestedCertificateAuthorities: TArray<TBytes>;
@@ -1771,6 +1773,10 @@ begin
   try
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.CertificateRequest, LExtensions);
     FClientAuthSchemes := LContext.SignatureSchemes;
+    if System.Length(LContext.SignatureSchemesCert) > 0 then
+      FClientAuthCertSchemes := LContext.SignatureSchemesCert
+    else
+      FClientAuthCertSchemes := LContext.SignatureSchemes;
     FRequestedCertificateAuthorities := LContext.CertificateAuthorities;
     FServerCertCompressionAlgorithms := LContext.CertCompressionAlgorithms;
   finally
@@ -1814,10 +1820,13 @@ begin
   // server accepts, the client declines with an empty Certificate (RFC 8446 4.4.2) and the
   // server's own policy decides. On an ECH reject the handshake is with the client-facing
   // server on the public_name, not the intended server, so the client MUST NOT present its
-  // certificate there (RFC 9849 sec. 6.1.7): it declines with an empty one.
+  // certificate there (RFC 9849 sec. 6.1.7): it declines with an empty one. It also declines when
+  // its chain has MD5, or SHA-1 the server did not advertise (RFC 9846 4.5.1.2).
   LHasScheme := False;
   if (System.Length(FParams.ClientCredential.CertificateChain) > 0) and
-    (FEchOrch.Status <> TEchStatus.Rejected) then
+    (FEchOrch.Status <> TEchStatus.Rejected) and
+    TChainAlgorithmPolicy.SendableTo(FParams.Inspector,
+    FParams.ClientCredential.CertificateChain, FClientAuthCertSchemes) then
   begin
     for LScheme in FParams.ClientCredential.PrivateKey.CapableSchemes do
       if LScheme.IsValidForHandshake(TTlsVersion.Tls13) and

@@ -42,6 +42,7 @@ type
     class function RequiredScheme(AFamily: TCertSignatureFamily;
       AHash: TCertSignatureHash; APssCanonical: Boolean;
       AIssuerKeyIsPss: Boolean): UInt16; static;
+    class function LegacySha1Scheme(AFamily: TCertSignatureFamily): UInt16; static;
     class function KeyMeetsPolicy(const AFacts: TCertKeyFacts;
       const APolicy: TCertificateStrengthPolicy): Boolean; static;
     class function CheckCertificate(const AInspector: ICertificateInspector;
@@ -64,6 +65,13 @@ type
     class function CheckBaseline(const AInspector: ICertificateInspector;
       const AChain, ARoots: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>
+    /// Whether we may send AChain: no certificate other than a self-issued one is signed with MD5,
+    /// or with SHA-1 the peer did not advertise in APeerCertSchemes (RFC 9846 4.5.1.2). A
+    /// certificate whose signature cannot be determined is not refused.
+    /// </summary>
+    class function SendableTo(const AInspector: ICertificateInspector;
+      const AChain: TArray<TBytes>; const APeerCertSchemes: TArray<UInt16>): Boolean; static;
   end;
 
   /// <summary>
@@ -146,6 +154,53 @@ begin
       Result := TSignatureSchemes.Ed25519;
     TCertSignatureFamily.Ed448:
       Result := TSignatureSchemes.Ed448;
+  end;
+end;
+
+class function TChainAlgorithmPolicy.LegacySha1Scheme(AFamily: TCertSignatureFamily): UInt16;
+begin
+  Result := 0; // 0 = no codepoint names a SHA-1 signature of this family (PSS has none)
+  case AFamily of
+    TCertSignatureFamily.RsaPkcs1:
+      Result := TSignatureSchemes.RsaPkcs1Sha1;
+    TCertSignatureFamily.Ecdsa:
+      Result := TSignatureSchemes.EcdsaSha1;
+  end;
+end;
+
+class function TChainAlgorithmPolicy.SendableTo(const AInspector: ICertificateInspector;
+  const AChain: TArray<TBytes>; const APeerCertSchemes: TArray<UInt16>): Boolean;
+var
+  LI: Int32;
+  LCert: IInspectedCertificate;
+  LSig: TCertSignatureFacts;
+  LSubject, LIssuer, LCommonName, LSerial: string;
+  LScheme: UInt16;
+begin
+  Result := True;
+  for LI := 0 to System.High(AChain) do
+  begin
+    try
+      LCert := AInspector.Parse(AChain[LI]);
+    except
+      Continue;
+    end;
+    if not LCert.SignatureFacts(LSig) then
+      Continue;
+    // a self-issued signature begins a path and is not validated (RFC 9846 4.3.3)
+    if LCert.PeerInfo(LSubject, LIssuer, LCommonName, LSerial) and (LSubject = LIssuer) then
+      Continue;
+    case LSig.Hash.Standing of
+      TCertSignatureHashStanding.Forbidden:
+        Exit(False);
+      TCertSignatureHashStanding.Deprecated:
+        begin
+          LScheme := LegacySha1Scheme(LSig.Family);
+          if (LScheme = 0) or
+            not (TArrayUtilities.Contains<UInt16>(APeerCertSchemes, LScheme)) then
+            Exit(False);
+        end;
+    end;
   end;
 end;
 

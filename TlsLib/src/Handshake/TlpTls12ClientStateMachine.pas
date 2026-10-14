@@ -44,6 +44,7 @@ uses
   TlpHandshakeMessages,
   TlpClientSessionPolicy,
   TlpCertificateVerify,
+  TlpChainAlgorithmPolicy,
   TlpPeerAuthentication,
   TlpICertificateTrust,
   TlpTrustTypes,
@@ -857,8 +858,10 @@ begin
     else
       LCertType := EcdsaSignCertType;
   end;
+  // a chain with MD5, or SHA-1 the server did not advertise, is declined too (RFC 5246 7.4.6)
   if (LCertType <> 0) and
-    (TArrayUtilities.Contains<Byte>(FClientAuthCertTypes, LCertType)) then
+    (TArrayUtilities.Contains<Byte>(FClientAuthCertTypes, LCertType)) and
+    TChainAlgorithmPolicy.SendableTo(FParams.Inspector, LChain, FClientAuthSchemes) then
     for LScheme in FParams.ClientCredential.PrivateKey.CapableSchemes do
       if TArrayUtilities.Contains<UInt16>(FClientAuthSchemes, LScheme.ToCode) then
       begin

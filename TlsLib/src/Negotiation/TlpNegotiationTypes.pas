@@ -76,6 +76,9 @@ type
     RsaPkcs1Sha256 = UInt16($0401);
     RsaPkcs1Sha384 = UInt16($0501);
     RsaPkcs1Sha512 = UInt16($0601);
+    // wire codes only: matched in a peer's advertisement, never registered or offered (RFC 9155)
+    RsaPkcs1Sha1 = UInt16($0201);
+    EcdsaSha1 = UInt16($0203);
   end;
 
   /// <summary>Which protocol version a cipher suite belongs to.</summary>

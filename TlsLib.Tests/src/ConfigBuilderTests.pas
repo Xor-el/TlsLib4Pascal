@@ -269,6 +269,7 @@ type
     procedure TestTls12NeedsAClassicalEcdheGroup;
     procedure TestOneBuilderConfiguresOneEndpoint;
     procedure TestPreferredGroupsWithNoRegisteredGroupIsRefused;
+    procedure TestDuplicatePreferredGroupIsRefused;
     procedure TestEmptyPreferredGroupsIsRefusedAtBuild;
     procedure TestNilRegistryIsRefusedAtBuild;
     procedure TestCipherSuiteListNarrowsAndOrdersPerProtocol;
@@ -1897,6 +1898,21 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'preferred groups that are all unregistered are refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestDuplicatePreferredGroupIsRefused;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.WithPreferredGroups(TArray<UInt16>.Create(
+      TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.X25519)).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a duplicate preferred group is refused (RFC 9846 4.3.7)');
 end;
 
 procedure TTestConfigBuilder.TestEmptyPreferredGroupsIsRefusedAtBuild;

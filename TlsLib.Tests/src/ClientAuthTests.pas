@@ -74,6 +74,8 @@ type
     function Filled(AByte: Byte; ACount: Int32): TBytes;
     function RootCert: TBytes;
     function Credential: TTlsCredential;
+    // an ECDSA leaf under an issuer signed with SHA-1, a hash no stock server advertises
+    function Sha1IssuerCredential: TTlsCredential;
     function PeerVerifier: TCertificateVerifier;
     function ClientLeafCert: TBytes;
     // a self-signed certificate whose key is id-RSASSA-PSS
@@ -108,6 +110,8 @@ type
     function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
       out AAlert: TTlsAlertDescription): Boolean;
     function New12Client(AWithCredential: Boolean): ITlsEngine;
+    // an empty credential offers none
+    function New12ClientWith(const ACredential: TTlsCredential): ITlsEngine;
     function New12Server(AMode: TClientAuthMode): ITlsEngine;
     function Drain(const AEngine: ITlsEngine): TBytes;
     procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
@@ -133,6 +137,10 @@ type
     procedure TestTls12RequiredClientAuthCompletes;
     procedure TestTls12RequiredClientAuthMissingCertAborts;
     procedure TestTls12RequestedClientAuthWithoutCertCompletes;
+    procedure TestTls13ClientDeclinesASha1ChainTheServerDidNotAdvertise;
+    procedure TestTls13RequiredServerRefusesTheDeclinedSha1Chain;
+    procedure TestTls12ClientDeclinesASha1ChainTheServerDidNotAdvertise;
+    procedure TestTls12RequiredServerRefusesTheDeclinedSha1Chain;
     procedure TestVerifyClientChainNilVerifierFailsClosed;
     procedure TestTls13NilClientVerifierWithCertAborts;
     procedure TestTls12ServerRejectsUnrequestedClientCertVerifyScheme;
@@ -299,6 +307,20 @@ begin
   try
     Result.CertificateChain := TArray<TBytes>.Create(
       DecodeHex(LCerts.Values['leaf_cert']));
+    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
+  finally
+    LCerts.Free;
+  end;
+end;
+
+function TTestClientAuth.Sha1IssuerCredential: TTlsCredential;
+var
+  LCerts: TStringList;
+begin
+  LCerts := LoadVectorFields('Certs/ReissuedRoot.txt');
+  try
+    Result.CertificateChain := TArray<TBytes>.Create(
+      DecodeHex(LCerts.Values['leaf_cert']), DecodeHex(LCerts.Values['issuer_sha1_cert']));
     Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
   finally
     LCerts.Free;
@@ -597,6 +619,17 @@ end;
 
 function TTestClientAuth.New12Client(AWithCredential: Boolean): ITlsEngine;
 var
+  LCredential: TTlsCredential;
+begin
+  if AWithCredential then
+    LCredential := Credential
+  else
+    LCredential := Default(TTlsCredential);
+  Result := New12ClientWith(LCredential);
+end;
+
+function TTestClientAuth.New12ClientWith(const ACredential: TTlsCredential): ITlsEngine;
+var
   LParams: TClient12HandshakeParams;
 begin
   LParams := Default(TClient12HandshakeParams);
@@ -618,8 +651,8 @@ begin
   LParams.OfferExtendedMasterSecret := True;
   LParams.CertificateVerifier := PeerVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
-  if AWithCredential then
-    LParams.ClientCredential := Credential;
+  if System.Length(ACredential.CertificateChain) > 0 then
+    LParams.ClientCredential := ACredential;
   Result := TTlsEngine.CreateConfigured(
     TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
@@ -898,6 +931,57 @@ begin
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
     '1.2 requested mTLS completes without a client cert');
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.2 requested mTLS: no failure');
+end;
+
+procedure TTestClientAuth.TestTls13ClientDeclinesASha1ChainTheServerDidNotAdvertise;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  // the client would otherwise send the SHA-1-signed chain, which the server cannot trust, and fail
+  LClient := New13ClientWith(Sha1IssuerCredential);
+  LServer := New13Server(TClientAuthMode.Requested);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
+    '1.3: the client answers without a certificate and the handshake completes');
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.3: no failure (RFC 9846 4.5.1.2)');
+end;
+
+procedure TTestClientAuth.TestTls13RequiredServerRefusesTheDeclinedSha1Chain;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New13ClientWith(Sha1IssuerCredential);
+  LServer := New13Server(TClientAuthMode.Required);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, '1.3: a Required server fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRequired),
+    Ord(LServer.LastError.Alert.Description),
+    '1.3: the server refuses the empty Certificate, the client did not abort');
+end;
+
+procedure TTestClientAuth.TestTls12ClientDeclinesASha1ChainTheServerDidNotAdvertise;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New12ClientWith(Sha1IssuerCredential);
+  LServer := New12Server(TClientAuthMode.Requested);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
+    '1.2: the client answers without a certificate and the handshake completes');
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.2: no failure (RFC 9846 4.5.1.2)');
+end;
+
+procedure TTestClientAuth.TestTls12RequiredServerRefusesTheDeclinedSha1Chain;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New12ClientWith(Sha1IssuerCredential);
+  LServer := New12Server(TClientAuthMode.Required);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, '1.2: a Required server fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
+    Ord(LServer.LastError.Alert.Description),
+    '1.2: the server refuses the empty Certificate, the client did not abort');
 end;
 
 procedure TTestClientAuth.TestVerifyClientChainNilVerifierFailsClosed;

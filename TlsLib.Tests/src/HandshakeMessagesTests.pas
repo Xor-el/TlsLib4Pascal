@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsLibExceptions,
+  TlpTlsAlert,
   TlpNegotiationTypes,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
@@ -53,6 +54,8 @@ type
     procedure TestEmptyOrTrailingNewSessionTicketIsDecodeError;
     procedure TestEmptyCipherSuitesIsDecodeError;
     procedure TestEmptyCompressionMethodsIsDecodeError;
+    procedure TestServerHelloNonNullCompressionTls13IsIllegalParameter;
+    procedure TestServerHelloNonNullCompressionTls12IsIllegalParameter;
   end;
 
 implementation
@@ -247,6 +250,53 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'an empty legacy_compression_methods vector is a decode_error');
+end;
+
+procedure TTestHandshakeMessages.TestServerHelloNonNullCompressionTls13IsIllegalParameter;
+var
+  LBody: TBytes;
+  LRaised: Boolean;
+begin
+  // legacy_version 0303, zero random, empty session id, TLS_AES_128_GCM_SHA256, compression 1,
+  // then supported_versions selecting TLS 1.3 (RFC 9846 4.2.3)
+  LBody := DecodeHex('0303' +
+    '0000000000000000000000000000000000000000000000000000000000000000' +
+    '00' + '1301' + '01' + '0006' + '002b00020304');
+  LRaised := False;
+  try
+    THandshakeMessages.DecodeServerHello(LBody);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      CheckTrue(E.AlertDescription = TTlsAlertDescription.IllegalParameter,
+        'a non-null TLS 1.3 ServerHello compression method is illegal_parameter');
+    end;
+  end;
+  CheckTrue(LRaised, 'a non-null TLS 1.3 ServerHello compression method is refused');
+end;
+
+procedure TTestHandshakeMessages.TestServerHelloNonNullCompressionTls12IsIllegalParameter;
+var
+  LBody: TBytes;
+  LRaised: Boolean;
+begin
+  // the same hello without supported_versions is a TLS 1.2 selection (RFC 5246 7.4.1.3)
+  LBody := DecodeHex('0303' +
+    '0000000000000000000000000000000000000000000000000000000000000000' +
+    '00' + 'c02f' + '01');
+  LRaised := False;
+  try
+    THandshakeMessages.DecodeServerHello(LBody);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      CheckTrue(E.AlertDescription = TTlsAlertDescription.IllegalParameter,
+        'a non-null TLS 1.2 ServerHello compression method is illegal_parameter');
+    end;
+  end;
+  CheckTrue(LRaised, 'a non-null TLS 1.2 ServerHello compression method is refused');
 end;
 
 procedure TTestHandshakeMessages.TestOverlongSessionIdIsDecodeError;

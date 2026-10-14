@@ -496,6 +496,7 @@ resourcestring
   SNoSuiteForVersion = '%s is offered but the cipher-suite set holds no %s suite';
   SNoClassicalEcdheGroup = 'TLS 1.2 is offered but none of the preferred key-exchange groups is a ' +
     'registered classical ECDHE group, so no TLS 1.2 handshake could ever select a group';
+  SDuplicatePreferredGroup = 'a preferred key-exchange group may be listed only once';
   SAlpnProtocolDuplicate = 'an ALPN protocol name is offered more than once';
   SRecordSizeLimitRange = 'the record_size_limit must be 0 (not offered) or 64..16384 (the library cap; RFC 8449 4)';
   SHardRevocationUnusable = 'a Hard revocation posture rejects a peer whose certificate has no ' +
@@ -2056,8 +2057,15 @@ end;
 
 function TTlsConfigBuilder.WithPreferredGroups(
   const AGroups: TArray<UInt16>): TTlsConfigBuilder;
+var
+  LI, LJ: Int32;
 begin
   GuardMutable;
+  // supported_groups must not repeat a group (RFC 9846 4.3.7)
+  for LI := 0 to System.High(AGroups) do
+    for LJ := LI + 1 to System.High(AGroups) do
+      if AGroups[LJ] = AGroups[LI] then
+        raise EArgumentTlsLibException.CreateRes(@SDuplicatePreferredGroup);
   // copy so a caller mutating its array after Build cannot alter the frozen config
   FPreferredGroups := System.Copy(AGroups);
   Result := Self;
