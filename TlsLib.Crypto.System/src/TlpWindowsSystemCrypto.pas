@@ -166,7 +166,6 @@ var
 resourcestring
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
   SInvalidKemPublicKey = 'the peer KEM public key could not be parsed';
-  SInvalidCiphertext = 'the peer ciphertext could not be decapsulated';
   SDegenerateSharedSecret =
     'the peer key produced a degenerate all-zero shared secret';
   SCngBackendError = 'a Windows CNG operation failed (status 0x%.8x)';
@@ -1058,11 +1057,12 @@ type
   var
     FCng: IWindowsCng;
     FSigningNative: Boolean;
+    FHpkeComposed: Boolean;
     class function Ent(ABackend: TCryptoBackend;
       AReason: TCryptoBackendReason): TCryptoBackendEntry; static;
     class function NotNative: TCryptoBackendEntry; static;
   public
-    constructor Create(const ACng: IWindowsCng; ASigningNative: Boolean);
+    constructor Create(const ACng: IWindowsCng; ASigningNative, AHpkeComposed: Boolean);
     function RandomBackend: TCryptoBackendEntry;
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
@@ -2203,10 +2203,9 @@ begin
     try
       SetLength(LSecret, MLKEM768_SHARED_SECRET_SIZE);
       LSecretLen := 0;
-      if FApi.Decapsulate(LPrivKey, PByte(ACiphertext),
+      TCngError.Check(FApi.Decapsulate(LPrivKey, PByte(ACiphertext),
         ULONG(System.Length(ACiphertext)), PByte(LSecret),
-        ULONG(System.Length(LSecret)), LSecretLen, 0) <> STATUS_SUCCESS then
-        raise EPeerInputTlsLibException.CreateRes(@SInvalidCiphertext);
+        ULONG(System.Length(LSecret)), LSecretLen, 0));
       SetLength(LSecret, LSecretLen);
       ASharedSecret := TSecretBuffer.From(LSecret);
     finally
@@ -2914,11 +2913,12 @@ end;
 { TWindowsBackendReport }
 
 constructor TWindowsBackendReport.Create(const ACng: IWindowsCng;
-  ASigningNative: Boolean);
+  ASigningNative, AHpkeComposed: Boolean);
 begin
   inherited Create;
   FCng := ACng;
   FSigningNative := ASigningNative;
+  FHpkeComposed := AHpkeComposed;
 end;
 
 class function TWindowsBackendReport.Ent(ABackend: TCryptoBackend;
@@ -3042,8 +3042,8 @@ function TWindowsBackendReport.FacetBackend(
   AFacet: TCryptoFacet): TCryptoBackendEntry;
 begin
   // Primitives and Signing are mixed per algorithm; only Hpke has a whole-facet answer
-  // (Composed over this overlay's native primitives).
-  if AFacet = TCryptoFacet.Hpke then
+  // (Composed over this overlay's native primitives, unless the caller supplied its own).
+  if (AFacet = TCryptoFacet.Hpke) and FHpkeComposed then
     Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
   else
     Result := NotNative;
@@ -4388,7 +4388,8 @@ begin
     on ESystemCryptoUnsupportedTlsLibException do
       LSigning := nil;
   end;
-  LReport := TWindowsBackendReport.Create(LCng, LSigningNative);
+  LReport := TWindowsBackendReport.Create(LCng, LSigningNative,
+    TOverlayCryptoProvider.RebuildsHpke(ABase));
   Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport);
 end;
 

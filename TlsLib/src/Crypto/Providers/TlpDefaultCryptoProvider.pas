@@ -214,7 +214,7 @@ resourcestring
   SInvalidPeerPoint = 'the peer public point is not a valid curve point';
   SRandomSpanOutOfRange = 'the requested random span lies outside the destination buffer';
   SRandomShortRead = 'the random source returned %d bytes where %d were requested';
-  SInvalidCiphertext = 'the peer ciphertext could not be decapsulated';
+  SKemDecapsulationFailed = 'the KEM decapsulation failed';
   SInvalidKemPublicKey = 'the peer KEM public key could not be parsed';
   SMalformedPrivateKey = 'the private key could not be parsed in any supported encoding';
   SPrivateKeyPasswordRequired =
@@ -1295,9 +1295,9 @@ begin
       TSecureMemory.WipeBytes(LSecret);
     end;
   except
-    // a malformed peer ciphertext must not leak a backend exception
+    // RFC 10024 4.2: past the group's length check a fault is local (internal_error)
     on E: ECryptoLibException do
-      raise EPeerInputTlsLibException.CreateRes(@SInvalidCiphertext);
+      raise EInvalidOperationTlsLibException.CreateRes(@SKemDecapsulationFailed);
   end;
 end;
 

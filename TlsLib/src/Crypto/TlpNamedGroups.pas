@@ -324,6 +324,10 @@ end;
 procedure TKemGroup.Decapsulate(const APriv: IKeyExchangePrivateKey;
   const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
 begin
+  // RFC 10024 4.2: a wrong-length ciphertext is illegal_parameter
+  if (FComposition.Kem = TKemAlgorithm.ML_KEM_768) and
+    (System.Length(ACiphertext) <> MlKem768CiphertextBytes) then
+    raise EPeerInputTlsLibException.CreateResFmt(@SInvalidPeerShare, [Name]);
   FKem.Decapsulate(APriv, ACiphertext, ASharedSecret);
 end;
 
