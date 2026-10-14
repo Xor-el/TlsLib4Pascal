@@ -65,8 +65,8 @@ type
     FHandshakeSecretsReleased: Boolean;
     FKeyLog: IKeyLog;
     FClientRandom: TBytes;
-    FClientTrafficGeneration: Int32;
-    FServerTrafficGeneration: Int32;
+    FClientTrafficGeneration: UInt64;
+    FServerTrafficGeneration: UInt64;
     procedure LogSecret(const ALabel: string; const ASecret: ISecretBuffer);
     function ZeroSecret: ISecretBuffer;
     function HashOf(const AData: TBytes): TBytes;
@@ -406,14 +406,14 @@ begin
   begin
     FClientApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength);
     Inc(FClientTrafficGeneration);
-    LogSecret(KeyLogLabelClientTrafficPrefix + IntToStr(FClientTrafficGeneration),
+    LogSecret(KeyLogLabelClientTrafficPrefix + UIntToStr(FClientTrafficGeneration),
       FClientApTraffic);
   end
   else
   begin
     FServerApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength);
     Inc(FServerTrafficGeneration);
-    LogSecret(KeyLogLabelServerTrafficPrefix + IntToStr(FServerTrafficGeneration),
+    LogSecret(KeyLogLabelServerTrafficPrefix + UIntToStr(FServerTrafficGeneration),
       FServerApTraffic);
   end;
 end;

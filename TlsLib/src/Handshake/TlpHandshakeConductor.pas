@@ -119,7 +119,8 @@ resourcestring
 
 const
   // the number of consecutive post-handshake messages tolerated with no intervening application
-  // data before the stream is refused as a flood (a peer streaming KeyUpdate is a DoS)
+  // data before the stream is refused as a flood (a peer streaming KeyUpdate is a DoS); local DoS
+  // policy, so it also counts NewSessionTickets for a client that does not resume
   MaxConsecutivePostHandshakeMessages = Int32(32);
 
 { THandshakeConductor }
