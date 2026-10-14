@@ -1,0 +1,37 @@
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_a42ddd283d3520::t_0bd31fbd1b56b6 723
+docs/security-model.md
+  s_a42ddd283d3520::t_4169ad6774142e 58
+TlsLib/src/Handshake/TlpServerOfferSelection.pas
+  s_a42ddd283d3520::t_53446dfd05c4ec 64-65
+TlsLib/src/Handshake/TlpHandshakeMessages.pas
+  s_a42ddd283d3520::t_0acfbcb1c71213 45-47
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_a42ddd283d3520::t_b89d814977dbf7 375-376
+  s_a42ddd283d3520::t_cf954e1540b618 377
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_a42ddd283d3520::t_7288cd5fd26653 112-114
+  s_a42ddd283d3520::t_0dab15de79df7f 839,845-878
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_a42ddd283d3520::t_75fb5e3ba5a8f5 78
+  s_a42ddd283d3520::t_142e77b5a2a952 79
+  s_a42ddd283d3520::t_760f7ac0397bd3 80
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_a42ddd283d3520::t_b5220c771e8684 581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3aff7b7b5f566c73d6d199dfc86048688acbadee",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
