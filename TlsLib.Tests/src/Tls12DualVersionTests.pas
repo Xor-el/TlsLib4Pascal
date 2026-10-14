@@ -322,7 +322,7 @@ var
   LParams: TServer12HandshakeParams;
 begin
   // a 1.3-capable server that (maliciously) answers a 1.3+1.2 client with 1.2 and
-  // stamps the RFC 8446 downgrade sentinel
+  // stamps the RFC 9846 downgrade sentinel
   LParams := Server12Params;
   LParams.EmitDowngradeSentinel := True;
   Result := TTlsEngine.CreateConfigured(
@@ -590,7 +590,7 @@ var
   LVec: TExtensionVector;
   LMsg, LWire: TBytes;
 begin
-  // TLS 1.3 is selected only through supported_versions (RFC 8446 4.2.1; D.1 for the alert): the
+  // TLS 1.3 is selected only through supported_versions (RFC 9846 4.3.1; E.1 for the alert): the
   // dispatcher routes legacy_version 0x0304 to the 1.3 machine, which refuses it
   LClient := NewDualClient;
   LClient.StartHandshake;
@@ -784,7 +784,7 @@ begin
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
   CheckTrue(AbortsProtocolVersion(LServer, LSsl3),
-    'legacy_version 0x0300 with supported_versions aborts protocol_version (RFC 8446 D.5)');
+    'legacy_version 0x0300 with supported_versions aborts protocol_version (RFC 9846 E.5)');
 end;
 
 procedure TTestTls12DualVersion.TestDispatcherRejectsLegacyVersion0000WithSupportedVersions;
@@ -823,7 +823,7 @@ var
   LHello: TTlsHandshakeMessage;
 begin
   // without supported_versions the client tops out at 1.2 whatever legacy_version says
-  // (RFC 8446 4.2.1): no protocol_version, whatever else the bare hello later fails on.
+  // (RFC 9846 4.3.1): no protocol_version, whatever else the bare hello later fails on.
   // A guard, not a mutation target: the unchanged path is what it pins.
   LHello := MakeClientHello(
     TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
@@ -858,7 +858,7 @@ begin
   LHello.Body[1] := $00;
   LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
   CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello), TTlsAlertDescription.ProtocolVersion),
-    'legacy_version 0x0300 with supported_versions [1.2] aborts protocol_version (RFC 8446 D.5)');
+    'legacy_version 0x0300 with supported_versions [1.2] aborts protocol_version (RFC 9846 E.5)');
 end;
 
 procedure TTestTls12DualVersion.TestScsvOutranksLegacyVersionRejection;
@@ -912,7 +912,7 @@ var
   LServer: IHandshakeMachine;
 begin
   // a client that offers only 0x1111 in supported_versions shares no version with a
-  // 1.3+1.2 server: protocol_version, not a 1.2 handshake (RFC 8446 4.2.1)
+  // 1.3+1.2 server: protocol_version, not a 1.2 handshake (RFC 9846 4.3.1)
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
   CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
@@ -963,7 +963,7 @@ var
   LServer: IHandshakeMachine;
 begin
   // the version dispatcher's supported_versions pre-scan rejects an empty list as decode_error
-  // rather than treating it as absent and negotiating legacy (RFC 8446 4.2.1). Extensions =
+  // rather than treating it as absent and negotiating legacy (RFC 9846 4.3.1). Extensions =
   // one supported_versions extension carrying an empty versions list.
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
@@ -992,7 +992,7 @@ var
   LServer: IHandshakeMachine;
 begin
   // the 1.2-only server machine, reached directly, rejects a client that offers only 1.3 in
-  // supported_versions: it shares no version with it (RFC 8446 4.2.1)
+  // supported_versions: it shares no version with it (RFC 9846 4.3.1)
   LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
   CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
@@ -1155,7 +1155,7 @@ var
   LServer: IHandshakeMachine;
   LHello: TTlsHandshakeMessage;
 begin
-  // without supported_versions the client tops out at 1.2 whatever legacy_version says (RFC 8446 4.2.1)
+  // without supported_versions the client tops out at 1.2 whatever legacy_version says (RFC 9846 4.3.1)
   LHello := MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
     DecodeHex('0000'));
@@ -1235,7 +1235,7 @@ var
   LServer: IHandshakeMachine;
 begin
   // a supported_versions that lists only a GREASE codepoint offers no version at all:
-  // protocol_version (RFC 8446 4.2.1)
+  // protocol_version (RFC 9846 4.3.1)
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
   CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(

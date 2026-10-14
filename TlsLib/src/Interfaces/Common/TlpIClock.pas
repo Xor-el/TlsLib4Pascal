@@ -19,7 +19,7 @@ type
   /// <summary>
   /// The engine's source of wall-clock time, in Unix epoch milliseconds. Injectable so the
   /// endpoint's time-dependent decisions - a resumption PSK's obfuscated_ticket_age and
-  /// ticket-lifetime expiry (RFC 8446 4.2.11 / 4.6.1), a server's 0-RTT anti-replay window,
+  /// ticket-lifetime expiry (RFC 9846 4.3.11 / 4.7.1), a server's 0-RTT anti-replay window,
   /// certificate validity and OCSP/CRL freshness - can be driven by a deterministic test
   /// clock. The default is the real system clock (<see cref="TSystemClock" />).
   /// </summary>

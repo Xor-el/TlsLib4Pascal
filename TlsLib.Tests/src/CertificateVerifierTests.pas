@@ -230,7 +230,7 @@ type
     // a present-but-unparsable EKU is a certificate fault, not an internal error
     procedure TestMalformedEkuRejectedAsBadCertificate;
     // the validated path is issuer-ordered (leaf, its issuer, ..., anchor) whatever order the
-    // peer presented (RFC 8446 4.4.2 tolerates arbitrary ordering), so the staple check keys off
+    // peer presented (RFC 9846 4.5.1 tolerates arbitrary ordering), so the staple check keys off
     // the real issuer at [1]
     procedure TestMisorderedChainValidatedPathIsIssuerOrdered;
     procedure TestMisorderedChainRevokedStapleAborts;
@@ -1118,7 +1118,7 @@ var
   LVerified: TVerifiedChain;
 begin
   // an expired certificate the peer includes but that is not on the built path to the anchor is
-  // ignored as extraneous rather than failing the whole chain (RFC 8446 4.4.2); the leaf chains
+  // ignored as extraneous rather than failing the whole chain (RFC 9846 4.5.1); the leaf chains
   // to the trusted root on its own, so the extra expired certificate never enters the path
   CheckTrue(VerifierFor(Cert('root_cert'), False).VerifyServerCertificate(
     TArray<TBytes>.Create(Cert('leaf_cert'), Cert('expired_cert')),
@@ -1473,7 +1473,7 @@ var
   LChain: TArray<TBytes>;
 begin
   // the peer copy of the root is self-signed with SHA-1, which the chain-algorithm policy refuses
-  // on any validated edge (RFC 8446 4.4.2.4) - but the anchor's self-signature is not one, so a
+  // on any validated edge (RFC 9846 4.5.1.3) - but the anchor's self-signature is not one, so a
   // re-issued copy that resolves to the configured anchor is exempt exactly as the configured
   // DER itself would be
   LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'),
@@ -1500,7 +1500,7 @@ var
   LVerified: TVerifiedChain;
 begin
   // a verifier built without an armed chain policy (the whole-verifier instance path) still
-  // refuses a SHA-1-signed chain certificate (RFC 8446 4.4.2.4)
+  // refuses a SHA-1-signed chain certificate (RFC 9846 4.5.1.3)
   CheckTrue(VerifierFor(Reissued('root_cert'), False).VerifyServerCertificate(
     TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert')),
     TServerName.DnsName(''), nil, LVerified, LAlert),

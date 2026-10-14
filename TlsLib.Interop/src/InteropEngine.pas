@@ -76,7 +76,7 @@ type
     /// <summary>A server that rejects any client ALPN offer with no_application_protocol.</summary>
     AlpnReject: Boolean;
     /// <summary>The DER DistinguishedName certificate_authorities a server names in its
-    /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty names none.</summary>
+    /// CertificateRequest (RFC 9846 4.3.4 / RFC 5246 7.4.4); empty names none.</summary>
     ClientCertificateAuthorities: TArray<TBytes>;
     /// <summary>The offered protocol versions (preference order); empty keeps the
     /// Compatible preset's TLS 1.3 + hardened 1.2 default.</summary>
@@ -618,7 +618,7 @@ begin
     if (System.Length(AOptions.ResumptionScope) > 0) and not LResumptionOff then
       LServer.WithResumptionScope(AOptions.ResumptionScope);
     // the injected clock drives the server's ticket-issue time and the 0-RTT ticket-age
-    // freshness window (RFC 8446 8.3), advanced between connections by -resumption-delay
+    // freshness window (RFC 9846 8.3), advanced between connections by -resumption-delay
     if AOptions.Clock <> nil then
       LServer.WithClock(AOptions.Clock);
     if AOptions.MaxEarlyData > 0 then

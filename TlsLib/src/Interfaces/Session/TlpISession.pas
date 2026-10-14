@@ -24,7 +24,7 @@ uses
 
 type
   /// <summary>
-  /// A pre-shared key the client offers in a ClientHello (RFC 8446 4.2.11). An
+  /// A pre-shared key the client offers in a ClientHello (RFC 9846 4.3.11). An
   /// external PSK carries only its identity, secret and bound hash; a resumption PSK
   /// adds the bound suite, the ticket lifetime, the ticket_age_add obfuscator and its
   /// issue time so the client can compute obfuscated_ticket_age, plus the
@@ -46,8 +46,8 @@ type
     /// <summary>The 0-RTT byte budget the ticket authorized (0 = no early data).</summary>
     function MaxEarlyData: UInt32;
     /// <summary>The ALPN protocol negotiated on the session this PSK resumes (empty when none),
-    /// so an accepted 0-RTT offer can enforce that the server keeps the same protocol (RFC 8446
-    /// 4.2.10); external PSKs carry no ALPN.</summary>
+    /// so an accepted 0-RTT offer can enforce that the server keeps the same protocol (RFC 9846
+    /// 4.3.10); external PSKs carry no ALPN.</summary>
     function Alpn: TBytes;
     /// <summary>Which binder label the PSK uses: Resumption for a ticket, Imported for an
     /// RFC 9258 external PSK. Also selects whether an obfuscated_ticket_age is offered.</summary>
@@ -86,7 +86,7 @@ type
     function IssuedAtMillis: UInt64;
     /// <summary>Wall-clock time in milliseconds of the full handshake that authenticated the peer.
     /// A resumption and every ticket renewed from it carry it unchanged, so a chain of resumptions
-    /// ends seven days after the authentication (RFC 8446 4.6.1), however often it is renewed. A
+    /// ends seven days after the authentication (RFC 9846 4.7.1), however often it is renewed. A
     /// custom persistent cache must persist this value and rebuild a session with the long-form
     /// constructor; the short form restarts the chain at the issue time, and 0 never resumes.</summary>
     function AuthenticatedAtMillis: UInt64;
@@ -171,7 +171,7 @@ type
       const ASession: IResumableSession);
     /// <summary>Drops ASession if still cached under (server identity, SNI): a connection that
     /// ended in a fatal alert must not leave the sessions it stored resumable (RFC 5246 7.2.2,
-    /// RFC 8446 6). A session already taken or evicted is not an error. An implementation matches
+    /// RFC 9846 6). A session already taken or evicted is not an error. An implementation matches
     /// the instance Store was given; a persistent one may match by session id or ticket. It must not
     /// raise: an exception is ignored and the connection's remaining sessions may stay cached.</summary>
     procedure Remove(const AServerIdentity, AServerName: string;
@@ -278,7 +278,7 @@ type
   end;
 
   /// <summary>
-  /// A bounded anti-replay register for 0-RTT early data (RFC 8446 8). It records
+  /// A bounded anti-replay register for 0-RTT early data (RFC 9846 8). It records
   /// a per-attempt unique value (accepting it once) and rejects any later attempt
   /// carrying the same value within its freshness window. Bounded by a
   /// configurable cap; entries past their expiry are pruned.

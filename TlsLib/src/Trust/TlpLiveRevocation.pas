@@ -50,7 +50,7 @@ type
   public
     /// <summary>Candidate issuer certificates (configured trust anchors and intermediates) used to
     /// recover the issuer when a peer presents a leaf only - the normal mutual-TLS client case,
-    /// where the issuing CA is a configured anchor rather than sent on the wire (RFC 8446 4.4.2).
+    /// where the issuing CA is a configured anchor rather than sent on the wire (RFC 9846 4.5.1).
     /// Candidates must come from local configuration, never the peer. Default: none.</summary>
     IssuerCandidates: TArray<TBytes>;
     /// <summary>The most OCSP responders one check asks, in certificate order, after repeats are

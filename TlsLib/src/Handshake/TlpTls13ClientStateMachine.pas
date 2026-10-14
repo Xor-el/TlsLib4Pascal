@@ -153,7 +153,7 @@ type
     /// original authentication; Reverify re-runs CertificateVerifier against the stored chain.</summary>
     ResumeVerification: TResumeVerification;
     /// <summary>The clock read for a resumption PSK's obfuscated_ticket_age and ticket-lifetime
-    /// expiry (RFC 8446 4.2.11 / 4.6.1). A required input: the factory supplies one from the
+    /// expiry (RFC 9846 4.3.11 / 4.7.1). A required input: the factory supplies one from the
     /// config, and a direct sans-IO caller must set it.</summary>
     Clock: ITlsClock;
     /// <summary>The dangerous key-log sink; nil reports nothing.</summary>
@@ -213,14 +213,14 @@ type
     FRetried: Boolean;
     /// <summary>The GREASE seed, chosen once for the first ClientHello and reused on a
     /// HelloRetryRequest retry so the retry's GREASE codepoints match the first exactly
-    /// (RFC 8446 4.1.2 requires an otherwise-identical second ClientHello). -1 until chosen.</summary>
+    /// (RFC 9846 4.2.2 requires an otherwise-identical second ClientHello). -1 until chosen.</summary>
     FGreaseSeed: Int32;
     /// <summary>Whether the HelloRetryRequest requested a key_share group change. On a group
     /// change the retry sends a single key_share for the new group (no GREASE); a cookie-only
-    /// retry keeps the first ClientHello's key_share unchanged (RFC 8446 4.1.2).</summary>
+    /// retry keeps the first ClientHello's key_share unchanged (RFC 9846 4.2.2).</summary>
     FHrrChangedGroup: Boolean;
     /// <summary>Guards the single middlebox-compatibility change_cipher_spec so it is
-    /// emitted at most once (RFC 8446 D.4).</summary>
+    /// emitted at most once (RFC 9846 E.4).</summary>
     FMiddleboxCcsSent: Boolean;
     FOfferedExtensions: TArray<UInt16>;
     FCertificateChain: TArray<TBytes>;
@@ -230,7 +230,7 @@ type
     // check and its SubjectPublicKeyInfo; released once the signature is verified
     FParsedServerLeaf: IInspectedCertificate;
     /// <summary>The stapled OCSP response the server delivered in the leaf CertificateEntry
-    /// (RFC 8446 4.4.2.1); empty when none was stapled. Fed to the trust verdict.</summary>
+    /// (RFC 9846 4.5.1.1); empty when none was stapled. Fed to the trust verdict.</summary>
     FReceivedOcspStaple: TBytes;
     /// <summary>A CertificateRequest was received, so the client owes a Certificate
     /// (and, when it has a usable credential, a CertificateVerify).</summary>
@@ -239,7 +239,7 @@ type
     FClientAuthSchemes: TArray<UInt16>;
     FClientAuthCertSchemes: TArray<UInt16>;
     /// <summary>The DER DistinguishedName certificate_authorities the server named in its
-    /// CertificateRequest (RFC 8446 4.2.4); surfaced for read-only connection info.</summary>
+    /// CertificateRequest (RFC 9846 4.3.4); surfaced for read-only connection info.</summary>
     FRequestedCertificateAuthorities: TArray<TBytes>;
     /// <summary>The compress_certificate algorithms the server's CertificateRequest advertised
     /// (RFC 8879), used to pick a compressor for the client Certificate.</summary>
@@ -276,7 +276,7 @@ type
     FTls12ResumptionSession: ITls12ResumableSession;
     FTls12OfferedSessionId: TBytes;
     /// <summary>The legacy_session_id this ClientHello actually sent, which the server must
-    /// echo (RFC 8446 4.1.3); normally the middlebox id, but the offered 1.2 session id when
+    /// echo (RFC 9846 4.2.3); normally the middlebox id, but the offered 1.2 session id when
     /// resuming 1.2.</summary>
     FSentLegacySessionId: TBytes;
     /// <summary>The exact first ClientHello bytes as sent (binder patched), kept so a
@@ -293,13 +293,13 @@ type
     FEarlyDataAccepted: Boolean;
     /// <summary>Whether the selected suite matches the resumption PSK's bound suite; 0-RTT
     /// is bound to the ticket's exact suite, so accepted early data under a different one
-    /// is illegal (RFC 8446 4.2.10).</summary>
+    /// is illegal (RFC 9846 4.3.10).</summary>
     FEarlySuiteMatched: Boolean;
     /// <summary>Whether a single offered PSK pre-activated the transcript at Start (so the
     /// binder and early keys ran under that PSK's hash), and the hash it was activated under.
     /// If the server then rejects the PSK and (without a HelloRetryRequest) selects a suite
     /// with a different hash - a 0-RTT reject that changes the PRF - the transcript must be
-    /// rebuilt from the raw first ClientHello under the newly selected hash (RFC 8446 4.4.1).</summary>
+    /// rebuilt from the raw first ClientHello under the newly selected hash (RFC 9846 4.1).</summary>
     FTranscriptPreActivated: Boolean;
     FPreActivatedHash: THashAlgorithm;
     /// <summary>The ALPN protocol negotiated in EncryptedExtensions, stored on a ticket.</summary>
@@ -311,7 +311,7 @@ type
     FEchOrch: IEchClientOrchestrator;
     FPhase: TPhase;
     /// <summary>Records the extension types the sent ClientHello carried, so a server
-    /// response extension the client did not offer is rejected (RFC 8446 4.2).</summary>
+    /// response extension the client did not offer is rejected (RFC 9846 4.3).</summary>
     procedure RememberOffered(const AFramedClientHello: TBytes);
     /// <summary>Marks the recorded offered extension types on AContext.</summary>
     procedure ApplyOffered(const AContext: TExtensionContext);
@@ -327,12 +327,12 @@ type
     function HashUnder(AHash: THashAlgorithm; const AData: TBytes): TBytes;
     /// <summary>After a HelloRetryRequest fixes the cipher (hence hash), drops every offered
     /// PSK whose hash differs, so the second ClientHello offers only the still-eligible ones
-    /// (RFC 8446 4.1.2). The server's selected_identity then indexes the pruned list.</summary>
+    /// (RFC 9846 4.2.2). The server's selected_identity then indexes the pruned list.</summary>
     procedure PruneOffersToHash(AHash: THashAlgorithm);
     /// <summary>
     /// Back-patches the real PSK binders into the ClientHello tail: each binder MACs the
     /// message up to (excluding) the binders vector, computed under its own offered PSK and
-    /// that PSK's hash (RFC 8446 4.2.11.2 / RFC 9258 5.2).
+    /// that PSK's hash (RFC 9846 4.3.11.2 / RFC 9258 5.2).
     /// </summary>
     procedure PatchBinder(var AClientHello: TBytes;
       const ATranscript: ITranscriptHash);
@@ -340,7 +340,7 @@ type
     /// outer wrapper aborts with internal_error rather than the encoder's error.</summary>
     function BuildRetryOuter(AMode: TEchChMode; const AInner: TBytes): TBytes;
     /// <summary>Consumes a post-handshake NewSessionTicket into an IResumableSession and
-    /// caches it, returning the SessionTicketReceived effect (RFC 8446 4.6.1).</summary>
+    /// caches it, returning the SessionTicketReceived effect (RFC 9846 4.7.1).</summary>
     function CacheNewSessionTicket(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
     function ProcessServerHello(const AMessage: TTlsHandshakeMessage)
@@ -350,12 +350,12 @@ type
     procedure ReverifyResumedServer;
     /// <summary>Replaces the transcript with a fresh one under the selected suite's hash and
     /// replays the raw first ClientHello into it, for a 0-RTT reject whose full handshake uses
-    /// a different PRF hash than the pre-activated PSK (RFC 8446 4.4.1). Not a message_hash
+    /// a different PRF hash than the pre-activated PSK (RFC 9846 4.1). Not a message_hash
     /// rebase (that is HelloRetryRequest-only); the full-handshake transcript is the plain
     /// ClientHello || ServerHello || ... under the new hash.</summary>
     procedure RebuildTranscriptUnderSelectedHash;
     /// <summary>Rejects a TLS 1.3 ServerHello that carries any extension other than
-    /// supported_versions, key_share or pre_shared_key (RFC 8446 4.1.3).</summary>
+    /// supported_versions, key_share or pre_shared_key (RFC 9846 4.2.3).</summary>
     class procedure EnforceTls13ServerHelloExtensions(
       const AVector: TExtensionVector); static;
     /// <summary>Consumes EncryptedExtensions: validates the server's ALPN selection
@@ -383,11 +383,11 @@ type
     /// configured.</summary>
     function ProcessCertificateVerify(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
-    /// <summary>Records a CertificateRequest (RFC 8446 4.3.2): the request context and
+    /// <summary>Records a CertificateRequest (RFC 9846 4.4.2): the request context and
     /// the server's accepted signature schemes, folding it into the transcript.</summary>
     procedure ProcessCertificateRequest(const AMessage: TTlsHandshakeMessage);
     /// <summary>True when any code is a known scheme usable for a TLS 1.3 handshake
-    /// signature (RFC 8446 4.2.3).</summary>
+    /// signature (RFC 9846 4.3.3).</summary>
     class function HasTls13UsableScheme(const ASchemes: TArray<UInt16>): Boolean; static;
     /// <summary>Frames the client Certificate for the request context (empty chain when
     /// no usable credential); appends the framed CertificateVerify when a chain is sent.</summary>
@@ -434,7 +434,7 @@ type
     /// genuine resumption or a false one (RFC 5246 7.4.1.3).</summary>
     property SentLegacySessionId: TBytes read FSentLegacySessionId;
     /// <summary>Whether this ClientHello offered early data (0-RTT). A version-dispatching parent
-    /// reads it to refuse a 1.2 hand-off, since 0-RTT is a TLS 1.3 construct (RFC 8446 4.2.10).</summary>
+    /// reads it to refuse a 1.2 hand-off, since 0-RTT is a TLS 1.3 construct (RFC 9846 4.3.10).</summary>
     property EarlyDataOffered: Boolean read FEarlyDataOffered;
   end;
 
@@ -449,7 +449,7 @@ resourcestring
   SDowngradeDetected = 'the ServerHello carries a version downgrade sentinel';
   SUnsupportedSelectedVersion = 'the server did not select TLS 1.3';
   SUnofferedGroup = 'the server selected a key share group that was not offered';
-  SMissingServerKeyShare = 'the ServerHello carries no key_share for the (EC)DHE handshake';
+  SMissingServerKeyShare = 'the ServerHello carries no key_share for the asymmetric key exchange';
   SEarlyDataWithoutPsk =
     'EncryptedExtensions carries early_data but no offered PSK was accepted';
   SBadServerFinished = 'the server Finished did not verify';
@@ -489,12 +489,12 @@ resourcestring
   SPskHashMismatch = 'the selected cipher suite hash does not match the accepted pre_shared_key hash';
   SPskRequiredNotSelected = 'the server did not select a pre_shared_key and no certificate trust is configured';
   SEchRejectPsk = 'a rejected-ECH ServerHello selected the outer pre_shared_key';
-  SCertReqMissingSigAlgs = 'CertificateRequest must contain signature_algorithms (RFC 8446 4.3.2)';
+  SCertReqMissingSigAlgs = 'CertificateRequest must contain signature_algorithms (RFC 9846 4.4.2)';
 
 const
   PskDheKeMode = Byte(1); // psk_key_exchange_modes: psk_dhe_ke
   MaxRememberedTickets = Int32(16); // tickets a fatal alert withdraws from the cache
-  CookieExtensionOverhead = Int32(4 + 2); // extension header and the cookie's length prefix (RFC 8446 4.2.2)
+  CookieExtensionOverhead = Int32(4 + 2); // extension header and the cookie's length prefix (RFC 9846 4.3.2)
 
 { TTls13ClientStateMachine }
 
@@ -602,7 +602,7 @@ begin
     if FParams.Grease then
     begin
       // choose the seed once; a HelloRetryRequest retry reuses it so its GREASE codepoints
-      // match the first ClientHello exactly (RFC 8446 4.1.2)
+      // match the first ClientHello exactly (RFC 9846 4.2.2)
       if FGreaseSeed < 0 then
         FGreaseSeed := FParams.Crypto.Primitives.GetRandom.GenerateBytes(1)[0];
       LSeed := FGreaseSeed;
@@ -612,7 +612,7 @@ begin
       LSchemes := TGrease.Prepend(LSchemes, TGrease.ValueAt(LSeed + 2));
       LSuites := TGrease.Prepend(LSuites, TGrease.ValueAt(LSeed + 3));
       // a group-change retry MUST carry exactly one KeyShareEntry - the requested group
-      // (RFC 8446 4.1.2), so drop the GREASE share then. The first ClientHello, and a
+      // (RFC 9846 4.2.2), so drop the GREASE share then. The first ClientHello, and a
       // cookie-only retry (whose key_share must stay identical to it), keep the GREASE share.
       if not (FRetried and FHrrChangedGroup) then
       begin
@@ -629,7 +629,7 @@ begin
     LContext.EarlyDataOffered := FEarlyDataOffered;
     // signal resumption support (psk_dhe_ke) whenever a cache is configured, so a spec-
     // compliant server issues NewSessionTickets even on the initial handshake where no PSK
-    // is offered yet (RFC 8446 4.2.9); the pre_shared_key identity and its back-patched
+    // is offered yet (RFC 9846 4.3.9); the pre_shared_key identity and its back-patched
     // binder are added only when actually resuming (pre_shared_key stays the last extension)
     if (FParams.SessionCache <> nil) or (System.Length(FPskOffers) > 0) then
       LContext.PskModes := TBytes.Create(PskDheKeMode);
@@ -650,7 +650,7 @@ begin
     end;
     // pre_shared_key: one identity + obfuscated_age + placeholder binder per offered PSK.
     // A resumption ticket carries its obfuscated_ticket_age; an external PSK has none, so
-    // it offers 0 (RFC 8446 4.2.11). The binders are back-patched after serialization.
+    // it offers 0 (RFC 9846 4.3.11). The binders are back-patched after serialization.
     if System.Length(FPskOffers) > 0 then
     begin
       SetLength(LContext.OfferedPskIdentities, System.Length(FPskOffers));
@@ -701,8 +701,8 @@ begin
     end;
     LBlock := FCodec.ProduceBlock(LContext, TTlsExtensionContextKind.ClientHello);
     // GREASE splices two extensions, one empty and one 1-byte (RFC 8701 3.1 varying length), next
-    // to encrypted_client_hello (else before pre_shared_key, which must stay last, RFC 8446
-    // 4.2.11), so an ECH inner keeps them in one compressible run
+    // to encrypted_client_hello (else before pre_shared_key, which must stay last, RFC 9846
+    // 4.3.11), so an ECH inner keeps them in one compressible run
     if FParams.Grease then
       LBlock := TGrease.InjectPair(LBlock, LSeed);
     LHello.Extensions := LBlock;
@@ -845,11 +845,11 @@ begin
     Exit;
   if FParams.SessionCache = nil then
     Exit;
-  // ticket_lifetime 0 means discard immediately, and a client MUST NOT cache a ticket for longer
-  // than seven days regardless of what the server advertised (RFC 8446 4.6.1)
+  // ticket_lifetime 0 means discard immediately, and a client MUST NOT use a ticket for longer
+  // than seven days regardless of what the server advertised (RFC 9846 4.7.1)
   if LNst.TicketLifetime = 0 then
     Exit;
-  // a ticket beyond what a ClientHello is budgeted for is ignored (RFC 8446 4.6.1)
+  // a ticket beyond what a ClientHello is budgeted for is ignored (RFC 9846 4.7.1)
   if System.Length(LNst.Ticket) > TSessionTicketLimits.MaxCachedTicketBytes then
     Exit;
   // a ticket keeps the authentication time of its connection's handshake and only the days left
@@ -872,7 +872,7 @@ begin
     LMaxEarlyData, LPeerChain, nil, FSessionPskIdentity, FSessionPskBinding,
     FPeerSignatureScheme, LAuthenticatedAtMs);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
-  // bounded against a server streaming tickets; older ones are not withdrawn (RFC 8446 6, "if possible")
+  // bounded against a server streaming tickets; older ones are not withdrawn (RFC 9846 6, "if possible")
   if System.Length(FStoredSessions) >= MaxRememberedTickets then
     FStoredSessions := System.Copy(FStoredSessions, 1, MaxRememberedTickets - 1);
   TArrayUtilities.Append<IResumableSession>(FStoredSessions, LSession);
@@ -917,7 +917,7 @@ begin
   FCurrentGroup.GenerateKeyPair(FEphemeralPrivate, FEphemeralPublic);
   // resumption: pop one cached session for this server. A 1.3 session is offered as a PSK,
   // whose single hash the transcript runs under from the start so the binder can be MAC'd
-  // and (if accepted) the handshake continues under it (RFC 8446 4.2.11). A cached 1.2
+  // and (if accepted) the handshake continues under it (RFC 9846 4.3.11). A cached 1.2
   // session is instead offered as a legacy session_ticket / session id in this dual-version
   // hello, for a 1.2 server to resume (a 1.3 server ignores it); the taken session is
   // threaded to a 1.2 sub-machine by the version-dispatching parent.
@@ -1051,7 +1051,7 @@ begin
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, LPskSuite.Common.Aead,
       TTlsVersion.Tls13, TTlsEpoch.EarlyData));
     // bound the outbound 0-RTT at the ticket's max_early_data; bytes beyond the budget are
-    // refused and the caller resends them as 1-RTT (RFC 8446 4.2.10)
+    // refused and the caller resends them as 1-RTT (RFC 9846 4.3.10)
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SetEarlyDataLimit(EarlyDataBudget(FPskOffers[0].MaxEarlyData)));
   end;
@@ -1108,13 +1108,13 @@ begin
   // resolve the negotiated version before anything version-specific (the cipher suite, the
   // key_share): supported_versions when present, else the legacy_version. This client offers
   // only TLS 1.3, so any other selection is not one it agreed to - a stamped downgrade is an
-  // attack (illegal_parameter, RFC 8446 4.1.3), any other lower version is unsupported and
-  // reported as protocol_version (RFC 8446 D.1), not a cipher/decode error.
+  // attack (illegal_parameter, RFC 9846 4.2.3), any other lower version is unsupported and
+  // reported as protocol_version (RFC 9846 E.1), not a cipher/decode error.
   LNegotiatedVersion := THandshakeMessages.ServerHelloSelectedVersion(LHello.Extensions);
   if LNegotiatedVersion <> 0 then
   begin
     // a ServerHello that selects its version via supported_versions is a TLS 1.3 construct
-    // whose legacy_version MUST be 0x0303 (RFC 8446 4.1.3); any other value is not a version
+    // whose legacy_version MUST be 0x0303 (RFC 9846 4.2.3); any other value is not a version
     // this client agreed to
     if LHello.LegacyVersion <> TlsWireVersionTls12 then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -1122,8 +1122,8 @@ begin
   end
   else
   begin
-    // TLS 1.3 is selected only through supported_versions (RFC 8446 4.2.1); an unsupported version
-    // aborts with protocol_version (D.1)
+    // TLS 1.3 is selected only through supported_versions (RFC 9846 4.3.1); an unsupported version
+    // aborts with protocol_version (E.1)
     if LHello.LegacyVersion >= TlsWireVersionTls13 then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.ProtocolVersion, @SUnsupportedSelectedVersion);
@@ -1137,25 +1137,25 @@ begin
       TTlsAlertDescription.ProtocolVersion, @SUnsupportedSelectedVersion);
 
   // after a HelloRetryRequest the ServerHello MUST keep the cipher suite the HRR chose (it
-  // fixes the transcript hash); a change is illegal (RFC 8446 4.1.4)
+  // fixes the transcript hash); a change is illegal (RFC 9846 4.2.4)
   if FRetried and (LHello.CipherSuite <> FSelectedSuite.Common.Code) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SRetryCipherChanged);
 
   // the selected suite must be one this client offered, not merely one it supports
-  // (RFC 8446 4.1.3)
+  // (RFC 9846 4.2.3)
   if not (TArrayUtilities.Contains<UInt16>(FParams.OfferedSuites, LHello.CipherSuite)) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnofferedSuite);
   if not FParams.CipherSuites.TryGet(LHello.CipherSuite, FSelectedSuite) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnknownSelectedSuite);
-  // a 1.2 suite in a 1.3 hello is a wrong-version selection (RFC 8446 4.1.3)
+  // a 1.2 suite in a 1.3 hello is a wrong-version selection (RFC 9846 4.2.3)
   if FSelectedSuite.Protocol <> TSuiteProtocol.Tls13 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SNotTls13Suite);
 
-  // legacy_session_id_echo must equal the id offered in the ClientHello (RFC 8446 4.1.3)
+  // legacy_session_id_echo must equal the id offered in the ClientHello (RFC 9846 4.2.3)
   if not TArrayUtilities.AreEqual(LHello.LegacySessionIdEcho, FSentLegacySessionId) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SBadSessionIdEcho);
@@ -1166,7 +1166,7 @@ begin
   // a different hash (a 0-RTT reject that changes the PRF), rebuild the transcript from the
   // raw first ClientHello under the newly selected hash so the derivations match the peer.
   // activate the (outer) transcript under the now-known hash unless a retry already did, else
-  // rebuild it when a 0-RTT PSK reject changed the PRF (RFC 8446 4.4.1)
+  // rebuild it when a 0-RTT PSK reject changed the PRF (RFC 9846 4.1)
   if not FTranscript.IsActive then
     FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash))
   else if FTranscriptPreActivated and
@@ -1202,22 +1202,22 @@ begin
     // the negotiated TLS 1.3 was already confirmed before the cipher suite (above); a
     // TLS 1.3 ServerHello may carry only supported_versions, key_share and pre_shared_key;
     // anything else (e.g. ALPN, which belongs in the encrypted EncryptedExtensions) is
-    // unsupported_extension (local policy: RFC 8446 4.1.3 limits the set, and 4.2 would send
+    // unsupported_extension (local policy: RFC 9846 4.2.3 limits the set, and 4.3 would send
     // illegal_parameter for a recognized extension). Checked before the decoders run, so a
     // malformed forbidden extension is reported as forbidden.
     LExtensions := TExtensionVector.Parse(LHello.Extensions);
     EnforceTls13ServerHelloExtensions(LExtensions);
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello, LExtensions);
 
-    // this client only ever offers psk_dhe_ke, so an (EC)DHE key_share is always required; its
+    // this client only ever offers psk_dhe_ke, so a key_share is always required; its
     // absence is missing_extension, distinct from the wrong-group illegal_parameter below
-    // (RFC 8446 4.2.8 / 9.2)
+    // (RFC 9846 4.3.8 / 9.2)
     if System.Length(LContext.SelectedKeyShare.KeyExchange) = 0 then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.MissingExtension, @SMissingServerKeyShare);
 
     // the selected group must be the one we key-shared (the initial group, or the one
-    // a HelloRetryRequest moved us to), checked before decapsulation (RFC 8446 4.2.8)
+    // a HelloRetryRequest moved us to), checked before decapsulation (RFC 9846 4.3.8)
     if LContext.SelectedKeyShare.Group <> FCurrentGroupCode then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SUnofferedGroup);
@@ -1228,7 +1228,7 @@ begin
     FEphemeralPrivate := nil;
 
     // the server accepted a PSK iff it echoed pre_shared_key with our identity index; that
-    // index must be within the list we offered (RFC 8446 4.2.11), and the selected suite's
+    // index must be within the list we offered (RFC 9846 4.3.11), and the selected suite's
     // hash must match the accepted PSK's bound hash. Otherwise it fell through to a full
     // handshake and we drop the PSK.
     FPskAccepted := (System.Length(FPskOffers) > 0) and LContext.PskSelected;
@@ -1257,7 +1257,7 @@ begin
     end;
     // a PSK-only client requires the server to select one of its PSKs; a ServerHello that
     // falls through to certificate authentication is a fatal missing_extension (local policy,
-    // RFC 8446 6.2), since there is no certificate trust to fall back on. A rejected-ECH
+    // RFC 9846 6.2), since there is no certificate trust to fall back on. A rejected-ECH
     // handshake is the exception: it authenticates the public_name by certificate (RFC 9849
     // sec. 6.1.7) and completes to that name before aborting ech_required, so the PSK
     // requirement does not apply
@@ -1343,7 +1343,7 @@ begin
   FTranscript.Update(AMessage.Raw);
   LContext := TExtensionContext.Create;
   try
-    // a response extension the client did not offer is fatal (RFC 8446 4.2)
+    // a response extension the client did not offer is fatal (RFC 9846 4.3)
     ApplyOffered(LContext);
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.EncryptedExtensions,
       THandshakeMessages.DecodeEncryptedExtensions(AMessage.Body));
@@ -1386,7 +1386,7 @@ begin
   FEchOrch.NoteEncryptedExtensions(LEchPresent, LEchData);
   // early_data in EncryptedExtensions is meaningful only when we offered 0-RTT and the server
   // accepted the PSK; sent on a full handshake it is an extension the response cannot carry
-  // (RFC 8446 4.2.10)
+  // (RFC 9846 4.3.10)
   if LServerAcceptedEarly and not (FEarlyDataOffered and FPskAccepted) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.UnsupportedExtension, @SEarlyDataWithoutPsk);
@@ -1399,12 +1399,12 @@ begin
     if LServerAcceptedEarly then
     begin
       // 0-RTT is bound to the ticket's exact suite; a server that accepts early data
-      // under a different suite than the PSK's is illegal (RFC 8446 4.2.10)
+      // under a different suite than the PSK's is illegal (RFC 9846 4.3.10)
       if not FEarlySuiteMatched then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SEarlyDataSuiteMismatch);
       // 0-RTT is likewise bound to the resumed session's ALPN: when the server accepts early
-      // data it MUST negotiate the same ALPN protocol as that session (RFC 8446 4.2.10); a
+      // data it MUST negotiate the same ALPN protocol as that session (RFC 9846 4.3.10); a
       // changed (or dropped) protocol is illegal
       if not TArrayUtilities.AreEqual(FNegotiatedAlpn, FAcceptedPsk.Alpn) then
         raise EFatalAlertTlsLibException.CreateRes(
@@ -1443,24 +1443,24 @@ var
   LCh1Hash: IHash;
   LEarlyDataWasOffered: Boolean;
 begin
-  // at most one HelloRetryRequest per handshake (RFC 8446 4.1.4)
+  // at most one HelloRetryRequest per handshake (RFC 9846 4.2.4)
   if FRetried then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.UnexpectedMessage, @SHelloRetryTwice);
 
-  // like any ServerHello, the HRR's legacy_version must be exactly 0x0303 (RFC 8446 4.1.3); the
+  // like any ServerHello, the HRR's legacy_version must be exactly 0x0303 (RFC 9846 4.2.3); the
   // real version rides supported_versions, checked next
   if AHello.LegacyVersion <> TlsWireVersionTls12 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.ProtocolVersion, @SUnsupportedSelectedVersion);
 
   // a HelloRetryRequest is a TLS 1.3 message, so its supported_versions MUST select TLS 1.3;
-  // absent or any other value is a version this client did not agree to (RFC 8446 4.1.4, 4.2.1)
+  // absent or any other value is a version this client did not agree to (RFC 9846 4.2.4, 4.3.1)
   if THandshakeMessages.ServerHelloSelectedVersion(AHello.Extensions) <> TlsWireVersionTls13 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SHelloRetryVersion);
 
-  // the selected suite must be one we offered (RFC 8446 4.1.3)
+  // the selected suite must be one we offered (RFC 9846 4.2.3)
   if not (TArrayUtilities.Contains<UInt16>(FParams.OfferedSuites, AHello.CipherSuite)) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnofferedSuite);
@@ -1475,12 +1475,12 @@ begin
       TTlsAlertDescription.IllegalParameter, @SBadSessionIdEcho);
 
   // the cipher (hence hash) is now fixed: drop any offered PSK bound to a different hash, so
-  // the second ClientHello offers only the still-eligible PSKs (RFC 8446 4.1.2). A single
+  // the second ClientHello offers only the still-eligible PSKs (RFC 9846 4.2.2). A single
   // resumption offer already matches; a multi-hash external offer shrinks to one entry.
   PruneOffersToHash(FSelectedSuite.Common.Hash);
 
   // the hash is known: rebase the transcript to message_hash(Hash(ClientHello1)) under the
-  // retry-selected hash (RFC 8446 4.4.1), computed from the RAW first ClientHello. Using the
+  // retry-selected hash (RFC 9846 4.1), computed from the RAW first ClientHello. Using the
   // raw bytes keeps this correct even when a single-PSK resumption pre-activated the transcript
   // under a different hash the retry then rejects (a non-resumable-cipher HRR). Then add the HRR.
   LCh1Hash := FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash);
@@ -1509,7 +1509,7 @@ begin
       AHello.Extensions);
 
     // a HelloRetryRequest may request a different key_share group, or carry only a cookie
-    // (RFC 8446 4.1.4). When it names a group, it must be one we advertised and must differ
+    // (RFC 9846 4.2.4). When it names a group, it must be one we advertised and must differ
     // from the group we already key-shared; we then regenerate the key_share for it.
     if LContext.HelloRetryGroup <> 0 then
     begin
@@ -1533,7 +1533,7 @@ begin
     end
     else if System.Length(LContext.Cookie) = 0 then
       // no group change and no cookie leaves the ClientHello unchanged: a HelloRetryRequest
-      // must produce some change, else it is illegal (RFC 8446 4.1.4)
+      // must produce some change, else it is illegal (RFC 9846 4.2.4)
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SHelloRetryNoChange);
     FCookie := LContext.Cookie;
@@ -1542,7 +1542,7 @@ begin
     LContext.Free;
   end;
 
-  // a HelloRetryRequest rejects any offered 0-RTT (RFC 8446 4.2.10): the second ClientHello
+  // a HelloRetryRequest rejects any offered 0-RTT (RFC 9846 4.3.10): the second ClientHello
   // MUST NOT re-offer early_data, so clear the offer before rebuilding it
   LEarlyDataWasOffered := FEarlyDataOffered;
   FEarlyDataOffered := False;
@@ -1587,7 +1587,7 @@ begin
   end;
   FPhase := TPhase.WaitServerHello;
   // on a retry the client's second flight is the second ClientHello, so the middlebox
-  // change_cipher_spec goes immediately before it (RFC 8446 D.4). The negotiated version leads
+  // change_cipher_spec goes immediately before it (RFC 9846 E.4). The negotiated version leads
   // the flight so the server's post-HelloRetryRequest change_cipher_spec is classified (dropped)
   // before it is pulled: a retry installs no keys, so nothing else fixes the version until the
   // real ServerHello.
@@ -1620,14 +1620,14 @@ var
   LVerifier: IServerCertificateVerifier;
 begin
   LCert := THandshakeMessages.DecodeCertificate(ACertificateBody);
-  // the server Certificate context is empty in the main handshake (RFC 8446 4.4.2)
+  // the server Certificate context is empty in the main handshake (RFC 9846 4.5.1)
   if System.Length(LCert.RequestContext) <> 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SServerCertContextNotEmpty);
   if System.Length(LCert.Entries) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SEmptyCertificate);
-  // RFC 8446 4.4.2: every CertificateEntry extension must correspond to one offered in the
+  // RFC 9846 4.5.1: every CertificateEntry extension must correspond to one offered in the
   // ClientHello, and only status_request / SCT are defined for a certificate entry; an
   // unsolicited or unknown extension is unsupported_extension. Only the leaf's values are used;
   // intermediates' are validated and ignored. A repeated type is already illegal_parameter from
@@ -1651,7 +1651,7 @@ begin
   FParsedServerLeaf := TCertificateVerify.ParseWellFormedLeaf(FParams.Inspector,
     FCertificateChain[0]);
 
-  // capture any stapled OCSP response carried in the leaf entry (RFC 8446 4.4.2.1)
+  // capture any stapled OCSP response carried in the leaf entry (RFC 9846 4.5.1.1)
   FReceivedOcspStaple := nil;
   THandshakeMessages.TryExtractLeafStaple(LCert.Entries[0].Extensions,
     FReceivedOcspStaple);
@@ -1753,18 +1753,18 @@ var
   LExtensions: TExtensionVector;
 begin
   // one CertificateRequest per handshake; post-handshake authentication is not offered, so a
-  // second one has no legal slot (RFC 8446 4.3.2, 4.6.2)
+  // second one has no legal slot (RFC 9846 4.4.2, 4.7.2)
   if FCertificateRequested then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.UnexpectedMessage, @SCertificateRequestTwice);
   LRequest := THandshakeMessages.DecodeCertificateRequest13(AMessage.Body);
   // the certificate_request_context is zero-length in the handshake CertificateRequest;
-  // a non-empty one is only valid in post-handshake auth, which is not offered (RFC 8446 4.3.2)
+  // a non-empty one is only valid in post-handshake auth, which is not offered (RFC 9846 4.4.2)
   if System.Length(LRequest.RequestContext) <> 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.DecodeError, @SRequestContextNotEmpty);
   FRequestContext := LRequest.RequestContext;
-  // a CertificateRequest MUST carry signature_algorithms; its absence is fatal (RFC 8446 4.3.2)
+  // a CertificateRequest MUST carry signature_algorithms; its absence is fatal (RFC 9846 4.4.2)
   LExtensions := TExtensionVector.Parse(LRequest.Extensions);
   if not LExtensions.Contains(TExtensionTypes.SignatureAlgorithms) then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -1782,9 +1782,9 @@ begin
   finally
     LContext.Free;
   end;
-  // a request none of whose schemes a TLS 1.3 handshake can use (RFC 8446 4.2.3) could never
+  // a request none of whose schemes a TLS 1.3 handshake can use (RFC 9846 4.3.3) could never
   // accept a CertificateVerify, whatever the credential, so it is refused; a request with usable schemes
-  // none of which fits the credential is declined with an empty Certificate (RFC 8446 4.4.2)
+  // none of which fits the credential is declined with an empty Certificate (RFC 9846 4.5.1)
   if not HasTls13UsableScheme(FClientAuthSchemes) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SNoUsableCertificateRequestScheme);
@@ -1817,7 +1817,7 @@ var
   LVerify: TTlsCertificateVerify;
 begin
   // choose a credential scheme the server accepts; with no credential, or none whose scheme the
-  // server accepts, the client declines with an empty Certificate (RFC 8446 4.4.2) and the
+  // server accepts, the client declines with an empty Certificate (RFC 9846 4.5.1) and the
   // server's own policy decides. On an ECH reject the handshake is with the client-facing
   // server on the public_name, not the intended server, so the client MUST NOT present its
   // certificate there (RFC 9849 sec. 6.1.7): it declines with an empty one. It also declines when
@@ -1899,7 +1899,7 @@ begin
     Result := TEarlyDataReason.UnsupportedForSession
   else if (System.Length(FPskOffers[0].Alpn) > 0) and
     (not TAlpnProtocols.Contains(FParams.AlpnProtocols, FPskOffers[0].Alpn)) then
-    // RFC 8446 4.2.10: the ticket's ALPN must still be an offered protocol
+    // RFC 9846 4.3.10: the ticket's ALPN must still be an offered protocol
     Result := TEarlyDataReason.AlpnMismatch;
 end;
 
@@ -1980,7 +1980,7 @@ var
 begin
   Result := nil;
   // accepted 0-RTT: EndOfEarlyData (under the early keys) closes early data and folds
-  // into the transcript, then the write side moves to the handshake keys (RFC 8446 4.5)
+  // into the transcript, then the write side moves to the handshake keys (RFC 9846 4.6)
   if FEarlyDataAccepted then
   begin
     LEndOfEarlyData := THandshakeFraming.Frame(TTlsHandshakeType.EndOfEarlyData, nil);
@@ -2003,7 +2003,7 @@ begin
   LClientFinished := THandshakeFraming.Frame(TTlsHandshakeType.Finished,
     THandshakeMessages.EncodeFinished(LClientVerifyData));
   FTranscript.Update(LClientFinished);
-  // the resumption master secret is over the transcript through the client Finished
+  // the resumption secret is over the transcript through the client Finished
   FSchedule.DeriveResumptionMasterSecret(FTranscript.CurrentHash);
   FSchedule.ForgetHandshakeSecrets;
   // drop the offered/accepted PSKs too, so a resumption PSK does not outlive the handshake
@@ -2018,7 +2018,7 @@ begin
     FPhase := TPhase.Connected;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SendHandshake(LClientFinished));
-    // the handshake completed, so the write side moves to the application keys (RFC 8446 4.4.4)
+    // the handshake completed, so the write side moves to the application keys (RFC 9846 4.5.3)
     // before the ech_required alert: a completed connection's post-Finished records - the alert
     // included - ride the application keys, and the peer decrypts them as such
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -2105,7 +2105,7 @@ begin
         Result := Unexpected;
     TPhase.WaitCertificate:
       // a CertificateRequest (mutual TLS) precedes the server Certificate; record it
-      // and keep waiting for the Certificate (RFC 8446 4.3.2)
+      // and keep waiting for the Certificate (RFC 9846 4.4.2)
       if LKnown and (LType = TTlsHandshakeType.CertificateRequest) then
       begin
         ProcessCertificateRequest(AMessage);
@@ -2128,8 +2128,8 @@ begin
       else
         Result := Unexpected;
     TPhase.Connected:
-      // post-handshake: a NewSessionTicket is cached (RFC 8446 4.6.1), a KeyUpdate rekeys
-      // the read epoch and may trigger one responding update (RFC 8446 4.6.3)
+      // post-handshake: a NewSessionTicket is cached (RFC 9846 4.7.1), a KeyUpdate rekeys
+      // the read epoch and may trigger one responding update (RFC 9846 4.7.3)
       if LKnown and (LType = TTlsHandshakeType.NewSessionTicket) then
         Result := CacheNewSessionTicket(AMessage)
       else if LKnown and (LType = TTlsHandshakeType.KeyUpdate) then
@@ -2146,7 +2146,7 @@ var
   LSession: IResumableSession;
   LStored: TArray<IResumableSession>;
 begin
-  // RFC 8446 6: tickets of a failed connection SHOULD be discarded
+  // RFC 9846 6: tickets of a failed connection SHOULD be discarded
   LStored := FStoredSessions;
   FStoredSessions := nil;
   if FParams.SessionCache = nil then

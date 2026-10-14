@@ -33,7 +33,7 @@ uses
 type
   /// <summary>
   /// The TLS 1.3 handshake base: the shared version-neutral plumbing plus the 1.3 key
-  /// schedule and the post-handshake KeyUpdate machinery (RFC 8446 4.6.3), which both the
+  /// schedule and the post-handshake KeyUpdate machinery (RFC 9846 4.7.3), which both the
   /// client and server share once Connected. A concrete 1.3 machine supplies Start, Route
   /// and its role's read/write directions.
   /// </summary>
@@ -41,7 +41,7 @@ type
   strict protected
     FSchedule: ITls13KeySchedule;
     /// <summary>Whether a peer update_requested is awaiting our single coalesced response,
-    /// flushed just before our next application write (RFC 8446 4.6.3): any number of
+    /// flushed just before our next application write (RFC 9846 4.7.3): any number of
     /// requests collapses to one response, which also bounds a KeyUpdate flood.</summary>
     FKeyUpdateResponsePending: Boolean;
     FKeyUpdatesSent: UInt64;
@@ -156,7 +156,7 @@ function TTls13HandshakeBase.HandleInboundKeyUpdate(
 var
   LRequest: TKeyUpdateRequest;
 begin
-  // decode_error is local policy; RFC 8446 4.6.3 names illegal_parameter
+  // decode_error is local policy; RFC 9846 4.7.3 names illegal_parameter
   if (System.Length(AMessage.Body) <> 1) or not TKeyUpdateRequest.TryFromByte(AMessage.Body[0], LRequest) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.DecodeError,
       @SBadKeyUpdate);
@@ -168,7 +168,7 @@ begin
     RekeyEffect(ReadDirection, TRecordSide.ReadSide));
 
   // update_requested: mark one response pending (repeats coalesce to a single response,
-  // flushed just before our next application write - RFC 8446 4.6.3)
+  // flushed just before our next application write - RFC 9846 4.7.3)
   if LRequest = TKeyUpdateRequest.UpdateRequested then
     FKeyUpdateResponsePending := True;
 
@@ -195,8 +195,8 @@ end;
 
 function TTls13HandshakeBase.CanExportKeyingMaterial: Boolean;
 begin
-  // available once the exporter_master_secret is derived - for a server that is half-RTT (after
-  // its Finished), before the peer's Finished (RFC 8446 7.5) - but never while parked on an
+  // available once the exporter_secret is derived - for a server that is half-RTT (after
+  // its Finished), before the peer's Finished (RFC 9846 7.5) - but never while parked on an
   // out-of-band peer-certificate verdict: neither side exports over a peer identity still being
   // decided (the client during its reverify-on-resume park; the server while an async
   // client-certificate verdict is open). Export resumes the moment the verdict clears the park.
@@ -226,7 +226,7 @@ end;
 function TTls13HandshakeBase.CanExportEarlyKeyingMaterial: Boolean;
 begin
   // the early exporter binds only the ClientHello - no peer identity is pending in it - so unlike
-  // the main exporter it is not gated on the verdict park (RFC 8446 7.5)
+  // the main exporter it is not gated on the verdict park (RFC 9846 7.5)
   Result := (FSchedule <> nil) and FSchedule.CanExportEarly;
 end;
 

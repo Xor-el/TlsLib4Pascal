@@ -93,7 +93,7 @@ type
   /// The server-side version dispatcher: it starts on the ClientHello, chooses TLS 1.3
   /// when both peers support it and TLS 1.2 otherwise, and builds the matching server
   /// sub-machine. When a 1.3-capable server negotiates 1.2 it tells the 1.2 machine to
-  /// stamp the downgrade sentinel (RFC 8446 4.1.3).
+  /// stamp the downgrade sentinel (RFC 9846 4.2.3).
   /// </summary>
   TServerVersionDispatchMachine = class sealed(TVersionDispatchMachineBase)
   strict private
@@ -142,7 +142,7 @@ type
 implementation
 
 resourcestring
-  SEmptySupportedVersions = 'supported_versions names no version (RFC 8446 4.2.1 requires at least one)';
+  SEmptySupportedVersions = 'supported_versions names no version (RFC 9846 4.3.1 requires at least one)';
   SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
   SFirstMessageNotClientHello = 'the first handshake message is not a ClientHello';
   SInappropriateFallback =
@@ -289,7 +289,7 @@ begin
   if AVector.TryFind(TExtensionTypes.SupportedVersions, LEntry) then
   begin
     // ClientHello supported_versions: a 1-byte-length list of uint16 versions; an empty list is a
-    // decode error here (RFC 8446 4.2.1), the same verdict the codec reaches on the message pass -
+    // decode error here (RFC 9846 4.3.1), the same verdict the codec reaches on the message pass -
     // so routing never treats a structurally invalid empty list as "absent" and negotiates legacy
     LReader := TWireReader.Create(LEntry.Data);
     LVers := LReader.OpenVector(1);
@@ -391,7 +391,7 @@ begin
   if FServerSupportsTls13 and LClientSupportsTls13 then
   begin
     // a TLS 1.3 ClientHello's legacy_compression_methods is exactly the single null byte;
-    // any additional methods are an illegal_parameter (RFC 8446 4.1.2). A lower version
+    // any additional methods are an illegal_parameter (RFC 9846 4.2.2). A lower version
     // still accepts a longer list, so this is enforced only now that 1.3 is selected - the
     // decode already rejected a list that offers no null method at all.
     if not THandshakeMessages.IsNullOnlyCompression(LHello.CompressionMethods) then
@@ -403,12 +403,12 @@ begin
   else if FServerSupportsTls12 and LClientOffers12 then
   begin
     // a 1.3-capable server that negotiates 1.2 stamps the downgrade sentinel so a
-    // 1.3-capable client detects a stripped 1.3 offer (RFC 8446 4.1.3)
+    // 1.3-capable client detects a stripped 1.3 offer (RFC 9846 4.2.3)
     FParams12.EmitDowngradeSentinel := FServerSupportsTls13;
     FInner := TTls12ServerStateMachine.Create(FParams12) as IHandshakeMachine;
   end
   else
-    // the client and server share no supported protocol version (RFC 8446 4.2.1 / D.2)
+    // the client and server share no supported protocol version (RFC 9846 4.3.1 / E.2)
     Exit(TArray<THandshakeEffect>.Create(
       THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion, SNoCommonVersion)));
   Result := FInner.ProcessMessage(AMessage);
@@ -480,16 +480,16 @@ begin
     if LSelectedVersion = 0 then
       LSelectedVersion := LHello.LegacyVersion
     // supported_versions in a ServerHello is a TLS 1.3 construct: a server that
-    // negotiates 1.2 or below MUST NOT send it (RFC 8446 4.2.1). Present but
+    // negotiates 1.2 or below MUST NOT send it (RFC 9846 4.3.1). Present but
     // selecting a pre-1.3 version is an unpermitted extension, not a 1.2 handshake
-    // (unsupported_extension names the fault; RFC 8446 4.2.1 says illegal_parameter).
+    // (unsupported_extension names the fault; RFC 9846 4.3.1 says illegal_parameter).
     else if LSelectedVersion < TlsWireVersionTls13 then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.UnsupportedExtension,
           SSupportedVersionsBelowTls13)));
     // a server that selected a version outside what this client supports (below its TLS 1.2 floor,
     // or above 1.3 - including a GREASE value) chose one it never offered: protocol_version rather
-    // than a misleading downstream alert (RFC 8446 4.2.1 names illegal_parameter for an unoffered
+    // than a misleading downstream alert (RFC 9846 4.3.1 names illegal_parameter for an unoffered
     // supported_versions value; protocol_version names the fault and stays)
     if (LSelectedVersion < TlsWireVersionTls12) or (LSelectedVersion > TlsWireVersionTls13) then
       Exit(TArray<THandshakeEffect>.Create(
@@ -502,12 +502,12 @@ begin
   else
   begin
     // a PSK-only client cannot satisfy its required external PSK over TLS 1.2 (an external
-    // PSK is a TLS 1.3 construct), so a 1.2 selection is protocol_version (local policy; RFC 8446 D.1)
+    // PSK is a TLS 1.3 construct), so a 1.2 selection is protocol_version (local policy; RFC 9846 E.1)
     if FRequirePsk then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.ProtocolVersion, SPskRequiresTls13)));
     // 0-RTT was offered but the server chose 1.2, where early data cannot exist: the response
-    // is inconsistent with the offer (RFC 8446 D.3)
+    // is inconsistent with the offer (RFC 9846 E.3)
     if FPrimary13Typed.EarlyDataOffered then
       Exit(TArray<THandshakeEffect>.Create(
         THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter, SEarlyDataOnTls12)));

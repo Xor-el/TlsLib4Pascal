@@ -50,7 +50,7 @@ type
   public
     /// <summary>
     /// The per-record nonce: the 8-byte big-endian sequence, right-aligned into a
-    /// copy of the write IV and XORed in (RFC 8446 5.3). Pure and non-secret.
+    /// copy of the write IV and XORed in (RFC 9846 5.3). Pure and non-secret.
     /// </summary>
     class function DeriveNonce(const AIv: TBytes; ASeq: UInt64): TBytes; static;
     function Protect(AContentType: TTlsContentType; const APlaintext: TBytes;
@@ -73,13 +73,13 @@ type
   var
     /// <summary>The legacy_record_version for the next record, and whether a one-shot
     /// initial override is pending. A client stamps its initial ClientHello record with
-    /// 0x0301 for backward compatibility, then 0x0303 (RFC 8446 5.1).</summary>
+    /// 0x0301 for backward compatibility, then 0x0303 (RFC 9846 5.1).</summary>
     FInitialVersion: TTlsVersion;
     FInitialPending: Boolean;
   public
     constructor Create;
     /// <summary>Makes the next record carry AVersion as its legacy_record_version, reverting
-    /// to 0x0303 afterwards (the client's initial-ClientHello 0x0301, RFC 8446 5.1).</summary>
+    /// to 0x0303 afterwards (the client's initial-ClientHello 0x0301, RFC 9846 5.1).</summary>
     procedure SetInitialLegacyVersion(const AVersion: TTlsVersion);
     function Protect(AContentType: TTlsContentType; const APlaintext: TBytes;
       AOffset, ALength: Int32): TBytes; override;
@@ -89,7 +89,7 @@ type
   end;
 
   /// <summary>
-  /// TLS 1.3 record protection (RFC 8446 5.2): nonce = sequence XOR write_iv, the
+  /// TLS 1.3 record protection (RFC 9846 5.2): nonce = sequence XOR write_iv, the
   /// real content type lives inside the inner plaintext, the outer type is always
   /// application_data, and the AAD is the 5-byte record header.
   /// </summary>
@@ -172,7 +172,7 @@ resourcestring
   SRecordTooShort = 'record body is shorter than the AEAD overhead';
   SRecordLengthMismatch = 'record length does not match its header';
   SBadOuterRecordType =
-    'a protected TLS 1.3 record must carry the application_data outer type (RFC 8446 5.2)';
+    'a protected TLS 1.3 record must carry the application_data outer type (RFC 9846 5.2)';
 
 { TRecordProtectionBase }
 
@@ -218,7 +218,7 @@ end;
 function TRecordProtectionBase.NeedsKeyUpdate: Boolean;
 begin
   // soft threshold: reached a lead margin before the hard limit so a key update can still be
-  // sealed under the current epoch (RFC 8446 5.5 advises rekeying before the limit)
+  // sealed under the current epoch (RFC 9846 5.5 requires a key update or a close before the limit)
   Result := (FRecordLimit > RekeyLeadRecords) and (FSeq >= FRecordLimit - RekeyLeadRecords);
 end;
 
@@ -252,7 +252,7 @@ var
 begin
   Result := nil;
   // the initial record (a client's first ClientHello) may carry 0x0301; every record after
-  // it carries 0x0303 (RFC 8446 5.1)
+  // it carries 0x0303 (RFC 9846 5.1)
   if FInitialPending then
   begin
     LVersion := FInitialVersion;
@@ -381,12 +381,12 @@ begin
     // the outer opaque_type check comes AFTER a successful decrypt: a record that fails its
     // AEAD (e.g. a plaintext record arriving where encryption is expected) is a bad_record_mac,
     // and only a validly protected record with the wrong outer type is a framing violation.
-    // A protected 1.3 record's outer type is always application_data(23) (RFC 8446 5.2)
+    // A protected 1.3 record's outer type is always application_data(23) (RFC 9846 5.2)
     if LHeader.ContentTypeByte <> Byte(Ord(TTlsContentType.ApplicationData)) then
       raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
         @SBadOuterRecordType);
     // the full TLSInnerPlaintext (content || type || padding) is capped at 2^14+1
-    // (RFC 8446 5.4), independent of how much of it is padding
+    // (RFC 9846 5.4), independent of how much of it is padding
     if System.Length(LInner) > TRecordLimits.MaxPlaintext + 1 then
       raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.RecordOverflow,
         @SInnerPlaintextTooLong);

@@ -16,7 +16,7 @@ unit TlpTlsAlert;
 interface
 
 type
-  /// <summary>TLS alert level (RFC 8446).</summary>
+  /// <summary>TLS alert level (RFC 9846).</summary>
   TTlsAlertLevel = (Warning = 1, Fatal = 2);
 
   /// <summary>The on-wire byte for an alert level.</summary>
@@ -27,7 +27,7 @@ type
   end;
 
   /// <summary>
-  /// TLS alert description (RFC 8446). The ordinal is the on-wire code, so Ord()
+  /// TLS alert description (RFC 9846). The ordinal is the on-wire code, so Ord()
   /// yields the byte directly. The enum is sparse - use the round-trip helpers
   /// rather than casting a raw byte.
   /// </summary>

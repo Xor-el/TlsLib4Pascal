@@ -39,11 +39,11 @@ type
   TClientSessionPolicy = class sealed(TObject)
   public
     /// <summary>Clamps a session-ticket lifetime to the seven-day ceiling: a server MUST NOT
-    /// advertise or honour a value above it, and a client MUST NOT cache one longer, regardless
-    /// of what was advertised (RFC 8446 4.6.1).</summary>
+    /// advertise or honour a value above it, and a client MUST NOT use one for longer, regardless
+    /// of what was advertised (RFC 9846 4.7.1).</summary>
     class function ClampTicketLifetime(ALifetime: UInt32): UInt32; static;
     /// <summary>Whether the seven-day total lifetime of a resumption chain, counted from the full
-    /// handshake that authenticated it (RFC 8446 4.6.1 recommends limiting it), has passed at
+    /// handshake that authenticated it (RFC 9846 4.7.1 recommends limiting it), has passed at
     /// ANowMs; the seventh day itself still counts, and a clock behind the authentication time
     /// counts as not yet lapsed.</summary>
     class function AuthenticationLapsed(AAuthenticatedAtMs, ANowMs: UInt64): Boolean; static;
@@ -61,7 +61,7 @@ type
       const AScope: TBytes): string; static;
     /// <summary>Whether a cached TLS 1.3 session is still offerable as a PSK: a zero lifetime
     /// means discard immediately, and a ticket past its (capped) lifetime, or whose chain's
-    /// authentication has lapsed, is not offered (RFC 8446 4.6.1).</summary>
+    /// authentication has lapsed, is not offered (RFC 9846 4.7.1).</summary>
     class function IsOfferableTls13(const ASession: IResumableSession;
       ANowMs: UInt64): Boolean; static;
     /// <summary>Whether a cached TLS 1.2 session is still offerable: a ticket past its hinted
@@ -143,7 +143,7 @@ class function TClientSessionPolicy.IsOfferableTls13(
 var
   LCappedLifetime: UInt32;
 begin
-  // a ticket past its lifetime is not offered (RFC 8446 4.6.1): the client drops the
+  // a ticket past its lifetime is not offered (RFC 9846 4.7.1): the client drops the
   // expired PSK and does a full handshake rather than offer one the server will reject.
   // A zero lifetime means discard immediately, and the seven-day ceiling is enforced here
   // too so a ticket cached out-of-band cannot outlive the RFC bound.
@@ -159,7 +159,7 @@ var
   LCappedLifetime: UInt32;
 begin
   // a 1.2 ticket past its hinted lifetime is dropped (RFC 5077 3.3); a hint of 0 is
-  // unspecified, so it gets the seven-day client ceiling (RFC 8446 4.6.1) like any other session
+  // unspecified, so it gets the seven-day client ceiling (RFC 9846 4.7.1) like any other session
   LCappedLifetime := ClampTicketLifetime(ASession.TicketLifetime);
   if LCappedLifetime = 0 then
     LCappedLifetime := MaxTicketLifetimeSeconds;

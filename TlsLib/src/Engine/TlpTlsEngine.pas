@@ -80,7 +80,7 @@ type
     FSentClose: Boolean;
     FHandshakeComplete: Boolean;
     /// <summary>Count of tolerated warning-level alerts received, bounded to guard against a
-    /// peer flooding them (RFC 5246 7.2 tolerates warnings, RFC 8446 6 only user_canceled; a flood
+    /// peer flooding them (RFC 5246 7.2 tolerates warnings, RFC 9846 6 only user_canceled; a flood
     /// is a DoS).</summary>
     FWarningAlertCount: Int32;
     // 0-RTT: a write protection is installed (early or later) and the early-data window is
@@ -88,7 +88,7 @@ type
     FWriteProtectionInstalled: Boolean;
     // the Application write epoch is installed: application data may be sealed (a 1.3 server reaches
     // it at its Finished, half-RTT; a 1.3 client and any 1.2 endpoint at completion). Handshake and
-    // early write epochs must not carry application data (RFC 8446 2 / 4.4.4)
+    // early write epochs must not carry application data (RFC 9846 2 / 4.5.3)
     FAppWriteEpoch: Boolean;
     FEarlyDataClosed: Boolean;
     // 0-RTT outbound cap: the ticket's max_early_data budget and how much has gone out as
@@ -118,7 +118,7 @@ type
     procedure DrainRecordLayer;
     function Fail(const AException: Exception): TTlsOutcome;
     /// <summary>Ends the connection on a fatal alert, sent or received. With ADropSessions it also
-    /// drops the sessions it stored so it is never resumed (RFC 5246 7.2.2, RFC 8446 6).</summary>
+    /// drops the sessions it stored so it is never resumed (RFC 5246 7.2.2, RFC 9846 6).</summary>
     procedure EnterFatalState(ADropSessions: Boolean);
     /// <summary>Queues a local fatal alert, ends the connection and records AReason.</summary>
     procedure AbortWithAlert(ADescription: TTlsAlertDescription; const AReason: string;
@@ -220,7 +220,7 @@ const
   PlaintextQueueMinCapacity = Int32(4096);
   PlaintextQueueRetainCapacity = Int32(1 shl 16);
   // the number of warning-level alerts tolerated before a flood is refused; the next one
-  // aborts the connection (RFC 5246 7.2 tolerates warnings, RFC 8446 6 only user_canceled; a
+  // aborts the connection (RFC 5246 7.2 tolerates warnings, RFC 9846 6 only user_canceled; a
   // flood is a DoS)
   MaxWarningAlerts = Int32(4);
   // the most undrained events kept before the informational kinds are dropped: room for a
@@ -477,10 +477,10 @@ begin
   FInfo.NegotiatedVersion := TTlsVersion.Create(0);
   FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, '');
   // a cleartext application_data record (before any read epoch key) is unexpected on a
-  // real handshake (RFC 8446 5.1)
+  // real handshake (RFC 9846 5.1)
   FRecordLayer.StrictApplicationData := True;
   // a client stamps its initial ClientHello record with legacy_record_version 0x0301 for
-  // backward compatibility before the negotiated version is known (RFC 8446 5.1)
+  // backward compatibility before the negotiated version is known (RFC 9846 5.1)
   if AInitialMachine.Initiates then
     FRecordLayer.UseClientInitialRecordVersion;
   LChannel := THandshakeChannel.Create(FRecordLayer, AMaxCertificateMessageLength)
@@ -533,7 +533,7 @@ procedure TTlsEngine.QueueAlertRecord(const AAlert: TTlsAlert);
 var
   LBytes: TBytes;
 begin
-  // nothing may follow our close_notify (RFC 8446 6.1); the engine still goes terminal
+  // nothing may follow our close_notify (RFC 9846 6.1); the engine still goes terminal
   if FSentClose and (AAlert.Level = TTlsAlertLevel.Fatal) then
     Exit;
   LBytes := TTlsAlertProtocol.Encode(AAlert);
@@ -623,7 +623,7 @@ begin
   if LReceived.IsCloseNotify then
   begin
     FClosed := True;
-    // the peer's write side is closed; release any inbound state and ignore later bytes (RFC 8446 6.1)
+    // the peer's write side is closed; release any inbound state and ignore later bytes (RFC 9846 6.1)
     FRecordLayer.DiscardInbound;
     Enqueue(TTlsEvents.MakeSimple(TTlsEventKind.Closed));
     // closing before the handshake completes abandons it: a failure, not a half-close
@@ -665,7 +665,7 @@ begin
   if FTerminal or FClosed then
     Exit;
   // a handshake message that spans records MUST NOT have another record type interleaved
-  // between its fragments (RFC 8446 5.1); an application_data or alert record arriving while one
+  // between its fragments (RFC 9846 5.1); an application_data or alert record arriving while one
   // is partially buffered is that violation (change_cipher_spec is consumed in the record layer
   // and never reaches here)
   if (AFragment.ContentType <> TTlsContentType.Handshake) and
@@ -765,7 +765,7 @@ begin
   if FTerminal then
     Exit(TTlsOutcome.Fatal);
   // after an inbound close_notify the peer's write side is closed: discard anything it keeps
-  // sending rather than frame it (RFC 8446 6.1). Checked before the backlog bound so a post-close
+  // sending rather than frame it (RFC 9846 6.1). Checked before the backlog bound so a post-close
   // feed never raises. The tail below still reports any already-buffered app data / events.
   if not FClosed then
   begin
@@ -802,25 +802,25 @@ var
 begin
   RequireSlice(AData, AOffset, ALength, @SWriteSliceOutOfRange);
   // writing after our own close_notify or after a fatal is API misuse in either version. An
-  // inbound close_notify closes only the read side under TLS 1.3 (RFC 8446 6.1: each half is
+  // inbound close_notify closes only the read side under TLS 1.3 (RFC 9846 6.1: each half is
   // independent), so a 1.3 write continues; under TLS 1.2 it closes the connection (RFC 5246
   // 7.2.1 discards pending writes, and we offer no half-close there).
   if FTerminal or FSentClose or (FClosed and not IsTls13) then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
   // refuse application data until the Application write epoch is in force, so it is never sealed in
   // the clear (plaintext / post-HRR-revert epoch), under the handshake keys, or under the early-data
-  // keys as replayable 0-RTT (RFC 8446 8). A TLS 1.3 server may write from its Finished
-  // onward (half-RTT, RFC 8446 4.4.4); a 1.3 client and any TLS 1.2 endpoint must wait for the
+  // keys as replayable 0-RTT (RFC 9846 8). A TLS 1.3 server may write from its Finished
+  // onward (half-RTT, RFC 9846 4.5.3); a 1.3 client and any TLS 1.2 endpoint must wait for the
   // handshake to complete (no False-Start). 0-RTT is sent through WriteEarlyData, not here.
   if not (FAppWriteEpoch and (IsTls13 or FHandshakeComplete)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteBeforeWriteEpoch);
   // a zero-length application write is a no-op (after the close/epoch guards): it has nothing to
-  // precede an owed KeyUpdate with, and must not put an empty record on the wire (RFC 8446 5.4
+  // precede an owed KeyUpdate with, and must not put an empty record on the wire (RFC 9846 5.4
   // permits empty application_data; the peer's consecutive-empty-record bound is local policy)
   if ALength <= 0 then
     Exit;
   // a KeyUpdate owed to a peer update_requested must precede our next application data
-  // (RFC 8446 4.6.3); flushing here coalesces repeats into one response before the write.
+  // (RFC 9846 4.7.3); flushing here coalesces repeats into one response before the write.
   // A failure to build/flush it is fatal - abort with its alert and do NOT queue the app
   // plaintext behind that alert (the record layer's Write is not blocked by a failed read side).
   if FHandshakeComplete then
@@ -837,7 +837,7 @@ begin
   LOffset := AOffset;
   LRemaining := ALength;
   // seal in chunks; the record layer pauses application data at the write epoch's AEAD rekey
-  // threshold (RFC 8446 5.5). At each pause send a KeyUpdate (1.3) to rekey the write side and
+  // threshold (RFC 9846 5.5). At each pause send a KeyUpdate (1.3) to rekey the write side and
   // resume; TLS 1.2 has no KeyUpdate, so a write epoch that cannot be rekeyed closes the
   // connection rather than exceed the AEAD safety bound.
   repeat
@@ -889,7 +889,7 @@ begin
   if FTerminal or FClosed or FSentClose or FHandshakeComplete or FEarlyDataClosed or
     (not FWriteProtectionInstalled) or (ALength <= 0) then
     Exit;
-  // cap outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.6.1): send at most the
+  // cap outbound 0-RTT at the ticket's max_early_data (RFC 9846 4.7.1): send at most the
   // remaining budget as early data and return that count; the caller resends the rest as 1-RTT
   // once the handshake completes
   LAccept := FEarlyDataLimit - FEarlyDataSent;
@@ -937,7 +937,7 @@ function TTlsEngine.ExportKeyingMaterial(const ALabel: string;
   ALength: Int32): TBytes;
 begin
   // available once the connection's exporter secret is derived - for a TLS 1.3 server that is
-  // half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
+  // half-RTT (after it sent its Finished), before the peer's Finished (RFC 9846 7.5); TLS 1.2
   // stays gated on completion and on Extended Master Secret. Withheld while parked on an out-of-band peer-certificate verdict,
   // and a failed (terminal) connection exports nothing.
   if FTerminal or (not FConductor.CanExportKeyingMaterial) then
@@ -957,7 +957,7 @@ function TTlsEngine.ExportEarlyKeyingMaterial(const ALabel: string;
   const AContext: TBytes; ALength: Int32): TBytes;
 begin
   // TLS 1.3 early exporter: available on a client once it offers 0-RTT and on a server once it
-  // accepts 0-RTT; empty on TLS 1.2 and on a failed connection (RFC 8446 7.5)
+  // accepts 0-RTT; empty on TLS 1.2 and on a failed connection (RFC 9846 7.5)
   if FTerminal or (not FConductor.CanExportEarlyKeyingMaterial) then
     Exit(nil);
   Result := FConductor.ExportEarlyKeyingMaterial(ALabel, AContext, ALength);
@@ -1180,7 +1180,7 @@ function TTlsEngine.WriteClosed: Boolean;
 begin
   // the write-closed subset of Write's guards (Write also refuses before the application write
   // epoch is in force - a transient pre-completion state, not reported here). An inbound
-  // close_notify closes the write side only under TLS 1.2; under TLS 1.3 it stays open (RFC 8446 6.1).
+  // close_notify closes the write side only under TLS 1.2; under TLS 1.3 it stays open (RFC 9846 6.1).
   Result := FTerminal or FSentClose or (FClosed and not IsTls13);
 end;
 
@@ -1230,7 +1230,7 @@ end;
 procedure TTlsEngine.RevertWriteToPlaintext;
 begin
   // a HelloRetryRequest rejected the offered 0-RTT: drop the early-data write epoch back to
-  // plaintext so the second ClientHello onward goes out in the clear (RFC 8446 4.2.10). No
+  // plaintext so the second ClientHello onward goes out in the clear (RFC 9846 4.3.10). No
   // keys-installed event - this is a downgrade of the write epoch, not a new epoch.
   FRecordLayer.RevertWriteToPlaintext;
   FAppWriteEpoch := False;
@@ -1270,7 +1270,7 @@ begin
       end;
     TTlsEventKind.EarlyDataRejected:
       // the early data already went out under the early keys; on a reject it is discarded, not
-      // retransmitted as 1-RTT (RFC 8446 4.2.10 leaves any resend to the application)
+      // retransmitted as 1-RTT (RFC 9846 4.3.10 leaves any resend to the application)
       FEarlyDataClosed := True;
   end;
   Enqueue(TTlsEvents.MakeSimple(AEvent));

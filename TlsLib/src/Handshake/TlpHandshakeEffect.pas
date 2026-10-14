@@ -121,12 +121,12 @@ type
     class function SetEarlyDataLimit(AMaxBytes: Int32): THandshakeEffect; static;
     /// <summary>Reverts the write epoch to plaintext after a HelloRetryRequest rejects offered
     /// 0-RTT: the early-data keys are abandoned and the second ClientHello (and the rest of the
-    /// flight) is sent in the clear (RFC 8446 4.2.10).</summary>
+    /// flight) is sent in the clear (RFC 9846 4.3.10).</summary>
     class function RevertWriteToPlaintext: THandshakeEffect; static;
     /// <summary>Opens (AActive) or closes the accepted-0-RTT early-data read window on the record
     /// layer: while open, an application_data record legitimately precedes the handshake
-    /// completion (RFC 8446 4.2.10). A server emits it on accepting early data, with the
-    /// ticket's max_early_data_size as AMaxBytes (RFC 8446 4.6.1), and at EndOfEarlyData.</summary>
+    /// completion (RFC 9846 4.3.10). A server emits it on accepting early data, with the
+    /// ticket's max_early_data_size as AMaxBytes (RFC 9846 4.7.1), and at EndOfEarlyData.</summary>
     class function SetEarlyReadEpoch(AActive: Boolean;
       AMaxBytes: Int32): THandshakeEffect; static;
     class function RaiseEvent(AEvent: TTlsEventKind): THandshakeEffect; static;
@@ -145,7 +145,7 @@ type
     class function PeerCertificateChain(
       const AChain, AValidatedPath: TArray<TBytes>): THandshakeEffect; static;
     /// <summary>Surfaces the DER-encoded DistinguishedName certificate_authorities a peer
-    /// named in its CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4), for read-only
+    /// named in its CertificateRequest (RFC 9846 4.3.4 / RFC 5246 7.4.4), for read-only
     /// connection info, with the signature_algorithms it listed (ASchemes); never blocks the
     /// handshake.</summary>
     class function RequestedCertificateAuthorities(

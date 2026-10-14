@@ -57,7 +57,7 @@ type
 
   /// <summary>
   /// Serializes and parses a message's extensions vector, driving the injectable
-  /// registry and enforcing the RFC 8446 4.2 rules (duplicate/wrong-context/unknown).
+  /// registry and enforcing the RFC 9846 4.3 rules (duplicate/wrong-context/unknown).
   /// </summary>
   IExtensionBlockCodec = interface(IInterface)
     ['{5F1B8C46-2A70-4E39-9C82-7D5A3E1F6B04}']

@@ -170,7 +170,7 @@ end;
 
 procedure TTestEchOuterExtensions.TestTwoOuterExtensionsBlocksAbort;
 begin
-  // ech_outer_extensions is itself an extension, so two blocks repeat a type (RFC 8446 4.2)
+  // ech_outer_extensions is itself an extension, so two blocks repeat a type (RFC 9846 4.3)
   CheckTrue(ReconstructAborts(Vec([Entry(10, nil), Entry(13, nil)]),
     Vec([OuterExtEntry(TArray<UInt16>.Create(UInt16(10))),
     OuterExtEntry(TArray<UInt16>.Create(UInt16(13)))])),

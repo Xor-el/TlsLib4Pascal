@@ -223,7 +223,7 @@ procedure TTestResourceLimit.TestDuplicateExtensionRejected;
 var
   LAlert: TTlsAlertDescription;
 begin
-  // two extensions of the same (unknown) type in one block (RFC 8446 4.2): a repeated type is
+  // two extensions of the same (unknown) type in one block (RFC 9846 4.3): a repeated type is
   // rejected structurally with illegal_parameter
   CheckTrue(ConsumeAlert(ExtensionBlock(TArray<UInt16>.Create($FF00, $FF00)), LAlert),
     'a duplicate extension aborts');

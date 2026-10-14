@@ -255,7 +255,7 @@ reap_cell
 echo "=== cell 6: our server (resumption)  <-  openssl s_client (-sess_out/-sess_in) ==="
 P6=14506
 # our server serves two connections over one STEK: it issues a ticket on the first and
-# resumes it on the second (RFC 8446 4.6.1)
+# resumes it on the second (RFC 9846 4.7.1)
 "$DRIVER" --role server --port $P6 --resume-count 1 --data-dir "$DATA_DIR" > "$TMP/s6.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/s6.log" && break; sleep 0.1; done
 # connection 0: full handshake; hold open so the post-handshake NewSessionTicket arrives,

@@ -20,7 +20,7 @@ uses
   TlpTlsLibExceptions;
 
 type
-  /// <summary>Shared argument guard for the RFC 5705 / RFC 8446 keying-material exporters, used by
+  /// <summary>Shared argument guard for the RFC 5705 / RFC 9846 keying-material exporters, used by
   /// both the TLS 1.2 and TLS 1.3 key schedules.</summary>
   TExporterArgs = class sealed(TObject)
   public

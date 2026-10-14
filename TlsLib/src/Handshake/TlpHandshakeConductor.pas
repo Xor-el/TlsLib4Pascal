@@ -58,7 +58,7 @@ type
     class function HasReadKeyChange(
       const AEffects: TArray<THandshakeEffect>): Boolean; static;
     /// <summary>Whether buffered handshake bytes remain past a point where the peer's record must
-    /// have ended: a read-key change at any time (RFC 8446 5.1), or, as local policy, a flight
+    /// have ended: a read-key change at any time (RFC 9846 5.1), or, as local policy, a flight
     /// boundary or completion while still handshaking.</summary>
     function ExcessAfterBoundary(const AEffects: TArray<THandshakeEffect>;
       AWasEstablished: Boolean): Boolean;
@@ -81,13 +81,13 @@ type
     /// AAlert. A no-op when nothing is parked.</summary>
     procedure ResolveCertificateVerdict(AAccept: Boolean;
       AAlert: TTlsAlertDescription);
-    /// <summary>Applies the machine's post-handshake KeyUpdate effects (RFC 8446 4.6.3).</summary>
+    /// <summary>Applies the machine's post-handshake KeyUpdate effects (RFC 9846 4.7.3).</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Applies any pending coalesced KeyUpdate response (before an app write).</summary>
     procedure FlushPendingKeyUpdate;
     /// <summary>Notes that application data arrived, which resets the post-handshake flood counter.</summary>
     procedure NoteApplicationData;
-    /// <summary>Exported keying material from the active machine's secrets (RFC 8446 7.5 /
+    /// <summary>Exported keying material from the active machine's secrets (RFC 9846 7.5 /
     /// RFC 5705).</summary>
     function ExportKeyingMaterial(const ALabel: string;
       ALength: Int32): TBytes; overload;
@@ -96,16 +96,16 @@ type
     /// <summary>Whether the active machine's exporter secret is available (half-RTT for a
     /// TLS 1.3 server).</summary>
     function CanExportKeyingMaterial: Boolean;
-    /// <summary>Early-data (0-RTT) keying material from the active machine (RFC 8446 7.5).</summary>
+    /// <summary>Early-data (0-RTT) keying material from the active machine (RFC 9846 7.5).</summary>
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
-    /// <summary>Whether the active machine's early_exporter_master_secret is available.</summary>
+    /// <summary>Whether the active machine's early_exporter_secret is available.</summary>
     function CanExportEarlyKeyingMaterial: Boolean;
     /// <summary>Whether a handshake message is partially buffered (spanning records). A
-    /// non-handshake record arriving now would interleave with it (RFC 8446 5.1).</summary>
+    /// non-handshake record arriving now would interleave with it (RFC 9846 5.1).</summary>
     function HasBufferedHandshake: Boolean;
     /// <summary>Drops the resumable sessions the active machine stored once the connection ended
-    /// in a fatal alert (RFC 5246 7.2.2, RFC 8446 6).</summary>
+    /// in a fatal alert (RFC 5246 7.2.2, RFC 9846 6).</summary>
     procedure ForgetSessionsOnFatal;
   end;
 
@@ -164,7 +164,7 @@ begin
   Result := False;
   for LEffect in AEffects do
     // sending a handshake message means the peer's flight ended and we are responding; a
-    // read-epoch install is a key change. Either way the reassembler must be empty (RFC 8446
+    // read-epoch install is a key change. Either way the reassembler must be empty (RFC 9846
     // 5.1): a handshake message must not span a key change or a flight boundary.
     if (LEffect.Kind = THandshakeEffectKind.SendHandshake) or
       ((LEffect.Kind = THandshakeEffectKind.InstallKeys) and
@@ -278,7 +278,7 @@ begin
     if HasFail(LEffects) then
       Exit;
     // the peer must not pack the next flight's bytes into the record that ends the current one
-    // (a read-key change requires it, RFC 8446 5.1; a flight boundary is local policy), so buffered
+    // (a read-key change requires it, RFC 9846 5.1; a flight boundary is local policy), so buffered
     // bytes past a read-key change, or past a flight boundary or completion while handshaking, are
     // excess data. Checked per message so a complete message
     // behind the boundary is refused too. Post-handshake NewSessionTicket / KeyUpdate may span

@@ -26,7 +26,7 @@ type
   /// <summary>
   /// A decoded alert. The description is surfaced as its raw wire byte plus, when
   /// it maps to a code we know, the enum; an unrecognized code is reported as
-  /// unknown rather than guessed (RFC 8446 6).
+  /// unknown rather than guessed (RFC 9846 6).
   /// </summary>
   TReceivedAlert = record
   strict private

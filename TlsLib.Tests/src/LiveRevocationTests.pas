@@ -257,7 +257,7 @@ type
 
   /// <summary>
   /// A CRL, an OCSP response or a delegated responder certificate signed with SHA-1 does not
-  /// authenticate (RFC 8446 4.4.2.4): the outcome is Indeterminate, never Good or Revoked, while
+  /// authenticate (RFC 9846 4.5.1.3): the outcome is Indeterminate, never Good or Revoked, while
   /// the same artifacts signed with SHA-256 are authoritative.
   /// </summary>
   TTestWeakRevocationSignatures = class(TTlsLibAlgorithmTestCase)

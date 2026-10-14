@@ -348,7 +348,7 @@ begin
     'AES-128-GCM was negotiated so the record limit is deterministic');
 
   // write a run of application records: as the write epoch nears its (capped) usage limit the
-  // client must auto-emit a KeyUpdate ahead of the data (RFC 8446 5.5) and rotate its write
+  // client must auto-emit a KeyUpdate ahead of the data (RFC 9846 5.5) and rotate its write
   // epoch, transparently, with the server decrypting every record across the rotation. Data flows
   // each round, so the run is never mistaken for a KeyUpdate flood.
   LMsg := DecodeHex('7061737420746865206c696d6974'); // "past the limit"
@@ -389,7 +389,7 @@ var
 begin
   Handshake(LClient, LServer);
   // update_requested: the server rekeys read now and owes one coalesced response, which it
-  // flushes just before its next application write (RFC 8446 4.6.3)
+  // flushes just before its next application write (RFC 9846 4.7.3)
   LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
   Exchange(LClient, LServer);
   CheckEquals(1, CountKeyUpdateEvents(LServer), 'the server saw one KeyUpdate');
@@ -535,7 +535,7 @@ begin
   LCtx := DecodeHex('aabbcc');
   LBefore := LServer.ExportKeyingMaterial('EXPORTER-test', LCtx, 48);
   CheckEquals(48, System.Length(LBefore), 'the server exported keying material');
-  // a KeyUpdate rotates the application traffic secrets; the exporter secret is fixed (RFC 8446
+  // a KeyUpdate rotates the application traffic secrets; the exporter secret is fixed (RFC 9846
   // 7.5), so the exported value must not change
   LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
   Exchange(LClient, LServer);

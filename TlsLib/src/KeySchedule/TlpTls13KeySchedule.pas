@@ -32,7 +32,7 @@ uses
 
 type
   /// <summary>
-  /// The TLS 1.3 key schedule (RFC 8446 7.1): the Early -> Handshake -> Master
+  /// The TLS 1.3 key schedule (RFC 9846 7.1): the Early -> Handshake -> Main
   /// HKDF-Extract tree, the per-epoch traffic secrets derived from a transcript
   /// hash handed in, the (key, iv) for each, and the Finished MAC. Pure derivation
   /// - a driver installs the results into the record layer. Every secret is an
@@ -132,7 +132,7 @@ resourcestring
   SPskAfterEarlySecret = 'the pre-shared key must be set before the early secret is derived';
   SSharedSecretAfterHandshake =
     'the shared secret must be set before the handshake secret is derived';
-  SResumptionMasterNotDerived = 'the resumption master secret has not been derived';
+  SResumptionMasterNotDerived = 'the resumption secret has not been derived';
   SForgetBeforeApplication =
     'the application epoch must be derived before releasing the handshake secrets';
   STranscriptHashLength =
@@ -230,7 +230,7 @@ begin
   else
     LIkm := ZeroSecret;
   FHandshakeSecret := FHkdf.Extract(LSalt, LIkm);
-  // the (EC)DHE shared secret is consumed by this one Extract; release it
+  // the asymmetric shared secret is consumed by this one Extract; release it
   FSharedSecret := nil;
 end;
 
@@ -440,7 +440,7 @@ begin
   TExporterArgs.Guard(ALabel, ALength);
   if AMaster = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
-  // TLS 1.3 always hashes a context value; no context is exactly an empty context (RFC 8446 7.5)
+  // TLS 1.3 always hashes a context value; no context is exactly an empty context (RFC 9846 7.5)
   LDerived := THkdfLabel.DeriveSecret(FHkdf, AMaster, ALabel, FHashEmpty);
   LContextHash := HashOf(AContext);
   Result := THkdfLabel.HkdfExpandLabel(FHkdf, LDerived, 'exporter', LContextHash,

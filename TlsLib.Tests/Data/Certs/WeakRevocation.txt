@@ -1,4 +1,4 @@
-# Revocation artifacts signed with a weak hash (RFC 8446 4.4.2.4 MD5 MUST / SHA-1 RECOMMENDED refusal, applied to OCSP and CRL).
+# Revocation artifacts signed with a weak hash (RFC 9846 4.5.1.3 MD5 MUST / SHA-1 RECOMMENDED refusal, applied to OCSP and CRL).
 # ca_cert / leaf_cert are CrlScope.txt's (EC P-256 CA serial 1 -> leaf serial 0x1234, issued by ca_key). Every artifact below
 # is genuine and valid (window 2020-01-01..2099-12-31 or OCSP now..+100y) apart from the hash it was signed with.
 #   crl_clean_sha256 / crl_revoked_sha256  - whole-scope CRL by ca_key, ecdsa-with-SHA256; clean / revoking 0x1234 (keyCompromise)

@@ -95,7 +95,7 @@ end;
 
 procedure THandshakeChannel.SendChangeCipherSpec;
 begin
-  // the legacy 1-byte 0x01 change_cipher_spec, sent in the clear (RFC 8446 D.4)
+  // the legacy 1-byte 0x01 change_cipher_spec, sent in the clear (RFC 9846 E.4)
   FRecordLayer.Write(TTlsContentType.ChangeCipherSpec, TBytes.Create(1), 0, 1);
 end;
 

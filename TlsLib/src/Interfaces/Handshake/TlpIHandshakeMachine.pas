@@ -40,7 +40,7 @@ type
     ['{D797ED55-685B-4FD7-8CD6-5F1A0DB03060}']
     /// <summary>Whether this endpoint initiates the handshake (a client sending the first
     /// ClientHello) rather than responding to it (a server). Drives the initial
-    /// legacy_record_version (RFC 8446 5.1).</summary>
+    /// legacy_record_version (RFC 9846 5.1).</summary>
     function Initiates: Boolean;
     /// <summary>The coarse handshake stage (Handshaking / ParkedForVerdict / Connected), read by
     /// the engine and conductor to gate KeyUpdate, exporter availability, and completion without
@@ -64,32 +64,32 @@ type
     /// machine/version that does not park at a message-less point.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
     /// <summary>Exported keying material over the established secrets with no context value (RFC
-    /// 8446 7.5 / RFC 5705). Empty unless CanExportKeyingMaterial (the exporter secret has been
+    /// 9846 7.5 / RFC 5705). Empty unless CanExportKeyingMaterial (the exporter secret has been
     /// derived).</summary>
     function ExportKeyingMaterial(const ALabel: string;
       ALength: Int32): TBytes; overload;
     /// <summary>Exported keying material over the established secrets bound to AContext (empty
-    /// allowed, distinct from no context; RFC 8446 7.5 / RFC 5705). Empty unless
+    /// allowed, distinct from no context; RFC 9846 7.5 / RFC 5705). Empty unless
     /// CanExportKeyingMaterial (the exporter secret has been derived).</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload;
     /// <summary>Whether the exporter secret is available: for a TLS 1.3 server that is true in
-    /// half-RTT (after it sent its Finished), before the peer's Finished (RFC 8446 7.5); TLS 1.2
+    /// half-RTT (after it sent its Finished), before the peer's Finished (RFC 9846 7.5); TLS 1.2
     /// stays gated on completion. Never available while the machine is parked on an out-of-band
     /// peer-certificate verdict (Stage = ParkedForVerdict) - neither side exports over a peer
     /// identity still being decided.</summary>
     function CanExportKeyingMaterial: Boolean;
-    /// <summary>Early-data (0-RTT) keying material (RFC 8446 7.5). TLS 1.3 only: available on a
+    /// <summary>Early-data (0-RTT) keying material (RFC 9846 7.5). TLS 1.3 only: available on a
     /// client from when it offers 0-RTT until the server rejects it, and on a server once it accepts
     /// 0-RTT; empty otherwise, once 0-RTT is rejected, on TLS 1.2, and on a failed connection.</summary>
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
-    /// <summary>Whether the early_exporter_master_secret is available (see
+    /// <summary>Whether the early_exporter_secret is available (see
     /// ExportEarlyKeyingMaterial).</summary>
     function CanExportEarlyKeyingMaterial: Boolean;
     /// <summary>Called once the connection ended in a fatal alert, sent or received: drops the
     /// resumable sessions and tickets this connection stored or minted, so a failed connection is
-    /// never resumed (RFC 5246 7.2.2, RFC 8446 6). A resumption the peer never proved is left alone.
+    /// never resumed (RFC 5246 7.2.2, RFC 9846 6). A resumption the peer never proved is left alone.
     /// Idempotent; a stateless ticket holds nothing to drop.</summary>
     procedure ForgetSessionsOnFatal;
   end;
@@ -154,7 +154,7 @@ type
     ['{C198C67C-A830-4CC0-9D96-A85378713FA5}']
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     /// <summary>Reports the DER DistinguishedName certificate_authorities a peer named in its
-    /// CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4) and the signature_algorithms it listed -
+    /// CertificateRequest (RFC 9846 4.3.4 / RFC 5246 7.4.4) and the signature_algorithms it listed -
     /// surfaced read-only on ITlsEngine.ConnectionInfo.</summary>
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>;
       const ASchemes: TArray<UInt16>);
@@ -241,7 +241,7 @@ type
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
     /// <summary>
     /// Reverts the write epoch to plaintext, abandoning an installed early-data write
-    /// protection when a HelloRetryRequest rejects offered 0-RTT (RFC 8446 4.2.10): the
+    /// protection when a HelloRetryRequest rejects offered 0-RTT (RFC 9846 4.3.10): the
     /// second ClientHello and the rest of the client's flight are sent in the clear.
     /// </summary>
     procedure RevertWriteToPlaintext;
@@ -249,23 +249,23 @@ type
     /// TLSInnerPlaintext caps); 0 means the extension was not negotiated.</summary>
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     /// <summary>
-    /// Enters the 0-RTT reject skip mode (RFC 8446 4.2.10): undecryptable early-data
+    /// Enters the 0-RTT reject skip mode (RFC 9846 4.3.10): undecryptable early-data
     /// application records are dropped, up to AMaxBytes, until a record decrypts under
     /// the installed epoch. Used when the server rejects offered early data.
     /// </summary>
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     /// <summary>
-    /// Caps outbound 0-RTT at the ticket's max_early_data (RFC 8446 4.6.1): the client
+    /// Caps outbound 0-RTT at the ticket's max_early_data (RFC 9846 4.7.1): the client
     /// sends at most AMaxBytes of early data; WriteEarlyData returns how much was accepted and
     /// the caller resends the rest as 1-RTT once the handshake completes. Set when the client
     /// opens the early-data write window.
     /// </summary>
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
     /// <summary>
-    /// Opens (AActive) or closes the accepted-0-RTT early-data read window (RFC 8446 4.2.10):
+    /// Opens (AActive) or closes the accepted-0-RTT early-data read window (RFC 9846 4.3.10):
     /// while open, an application_data record legitimately precedes the handshake completion.
     /// A server opens it on installing the early read keys, with the ticket's
-    /// max_early_data_size as AMaxBytes (early data beyond it is fatal, RFC 8446 4.6.1), and
+    /// max_early_data_size as AMaxBytes (early data beyond it is fatal, RFC 9846 4.7.1), and
     /// closes it at EndOfEarlyData.
     /// </summary>
     procedure SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);

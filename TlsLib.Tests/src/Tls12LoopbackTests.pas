@@ -540,7 +540,7 @@ begin
 
   // TLS 1.2 has no KeyUpdate; at the AEAD usage limit the write epoch cannot be rekeyed, so a
   // write closes the connection and refuses rather than exceed the AEAD safety bound (RFC 9325
-  // 4.4 for TLS 1.2; RFC 8446 5.5 is the TLS 1.3 analogue). The close_notify still seals
+  // 4.4 for TLS 1.2; RFC 9846 5.5 is the TLS 1.3 analogue). The close_notify still seals
   // under the current, still-valid epoch.
   LRaised := False;
   try
@@ -1026,7 +1026,7 @@ var
   LFramed: TBytes;
 begin
   // a single-version 1.2 client (built directly, not via the version dispatcher) rejects a
-  // ServerHello whose legacy_version is below TLS 1.2 (RFC 5246 / RFC 8446 4.1.3): protocol_version.
+  // ServerHello whose legacy_version is below TLS 1.2 (RFC 5246 / RFC 9846 4.2.3): protocol_version.
   // the conformant encoder always writes 0x0303, so patch the low byte of legacy_version directly
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);

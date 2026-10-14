@@ -36,7 +36,7 @@ type
   TTlsEventKind = (
     PeerAlert,          // the peer sent an alert
     Closed,             // a close_notify was received (a failure before the handshake completes)
-    SessionTicketReceived, // a resumption ticket arrived and was cached (RFC 8446 4.6.1)
+    SessionTicketReceived, // a resumption ticket arrived and was cached (RFC 9846 4.7.1)
     EarlyDataAccepted,  // the server accepted the client's 0-RTT early data
     EarlyDataRejected,  // the server rejected 0-RTT; the accepted early data is discarded (not replayed)
     KeyUpdateReceived,  // the peer sent a post-handshake KeyUpdate; the read epoch rekeyed
@@ -105,12 +105,12 @@ type
     /// Finished onward (half-RTT), a TLS 1.3 client and any TLS 1.2 endpoint once the handshake
     /// completes; drive the handshake first, and send 0-RTT through WriteEarlyData. A zero-length
     /// write (once a write epoch exists) is a no-op. Under TLS 1.3 an inbound close_notify leaves
-    /// the write side open (RFC 8446 6.1). ALength is sealed in full into the outbound queue; a raw
+    /// the write side open (RFC 9846 6.1). ALength is sealed in full into the outbound queue; a raw
     /// embedder bounds transient memory on a bulk write by writing in slices and draining
     /// TakeOutgoing between them.</summary>
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     /// <summary>
-    /// Queues 0-RTT early application data (RFC 8446 2.3) and returns the number of bytes
+    /// Queues 0-RTT early application data (RFC 9846 2.3) and returns the number of bytes
     /// accepted as early data. Valid only for a client that offered early data, after
     /// StartHandshake and before the server's response is processed. Bytes are sent under the
     /// early keys up to the ticket's max_early_data; anything beyond that budget is NOT sent -
@@ -121,7 +121,7 @@ type
     /// </summary>
     function WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
     /// <summary>
-    /// Initiates a post-handshake TLS 1.3 KeyUpdate (RFC 8446 4.6.3): rekeys the write
+    /// Initiates a post-handshake TLS 1.3 KeyUpdate (RFC 9846 4.7.3): rekeys the write
     /// epoch and sends a KeyUpdate. When ARequest is UpdateRequested the peer is asked to
     /// rekey and send its own KeyUpdate back. A no-op before the handshake completes, on a
     /// TLS 1.2 connection, once terminal or after our own close_notify, and (like Write) after
@@ -169,8 +169,8 @@ type
     /// read (accepted early data is counted by PendingEarlyData); 0 when the caller must read
     /// the transport for more.</summary>
     function PendingAppData: Int32;
-    /// <summary>Copies up to AMaxLength bytes of accepted 0-RTT early data (RFC 8446 2.3) out;
-    /// returns the count. Early data is replayable (RFC 8446 8, E.5), so act on it only when the
+    /// <summary>Copies up to AMaxLength bytes of accepted 0-RTT early data (RFC 9846 2.3) out;
+    /// returns the count. Early data is replayable (RFC 9846 8, F.5), so act on it only when the
     /// request is idempotent. It is never returned by ReadAppData and precedes all 1-RTT data on
     /// the wire; it stays readable after the handshake completes. Always 0 on a client or when
     /// 0-RTT was not accepted.</summary>
@@ -220,13 +220,13 @@ type
     function IsInboundClosed: Boolean;
     /// <summary>Whether outbound application data is no longer accepted: the engine is terminal,
     /// we sent close_notify, or (TLS 1.2 only) the peer's inbound close_notify closed it. Under
-    /// TLS 1.3 an inbound close_notify leaves the write side open (RFC 8446 6.1). A Write in this
+    /// TLS 1.3 an inbound close_notify leaves the write side open (RFC 9846 6.1). A Write in this
     /// state raises EInvalidOperationTlsLibException, so callers must check this first.</summary>
     function WriteClosed: Boolean;
     /// <summary>The structured error after a Fatal outcome.</summary>
     function LastError: TTlsError;
     /// <summary>Exported keying material derived from the connection's exporter secret with no
-    /// context value (RFC 8446 7.5 / RFC 5705). Available once the exporter secret is derived: for a
+    /// context value (RFC 9846 7.5 / RFC 5705). Available once the exporter secret is derived: for a
     /// TLS 1.3 server that is half-RTT (after it sent its Finished) - the value binds the
     /// transcript through the server Finished and so precedes client authentication under
     /// mutual TLS; TLS 1.2 is available only after the handshake completes, and only when the session
@@ -235,11 +235,11 @@ type
     function ExportKeyingMaterial(const ALabel: string;
       ALength: Int32): TBytes; overload;
     /// <summary>Exported keying material derived from the connection's exporter secret and bound to
-    /// AContext (RFC 8446 7.5 / RFC 5705). A supplied context, empty or not, is distinct from no
+    /// AContext (RFC 9846 7.5 / RFC 5705). A supplied context, empty or not, is distinct from no
     /// context at all. Availability matches the no-context overload.</summary>
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload;
-    /// <summary>Early-data (0-RTT) keying material (RFC 8446 7.5). TLS 1.3 only: available on a
+    /// <summary>Early-data (0-RTT) keying material (RFC 9846 7.5). TLS 1.3 only: available on a
     /// client from when it offers 0-RTT until the server rejects it, and on a server once it
     /// accepts 0-RTT; empty otherwise, once 0-RTT is rejected, on TLS 1.2, and on a failed
     /// connection. Material from early data carries the same replay caveat as ReadEarlyData.</summary>

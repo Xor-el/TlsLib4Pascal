@@ -81,7 +81,7 @@ type
     function IsHandshakeComplete: Boolean;
     /// <summary>The negotiated connection info; meaningful only after the handshake.</summary>
     function ConnectionInfo: TTlsConnectionInfo;
-    /// <summary>Sends close_notify to shut the write side down cleanly (RFC 8446 6.1);
+    /// <summary>Sends close_notify to shut the write side down cleanly (RFC 9846 6.1);
     /// idempotent. The transport itself is not closed - the caller owns it.</summary>
     procedure CloseNotify;
     /// <summary>Refuses the connection with a fatal alert (for example bad_certificate after a
@@ -98,7 +98,7 @@ type
     // TStream
     function Read(var ABuffer; ACount: Longint): Longint; override;
     /// <summary>Server only: the 0-RTT bytes the client sent before its handshake finished,
-    /// replayable by an attacker (RFC 8446 8, E.5). Returns 0 when none remain. Read raises
+    /// replayable by an attacker (RFC 9846 8, F.5). Returns 0 when none remain. Read raises
     /// while any are unread, so they are never skipped or reordered.</summary>
     function ReadEarlyData(var ABuffer; ACount: Longint): Longint;
     function Write(const ABuffer; ACount: Longint): Longint; override;

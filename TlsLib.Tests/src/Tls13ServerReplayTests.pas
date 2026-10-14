@@ -465,7 +465,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // a non-PSK ClientHello that omits both supported_groups and key_share: the present/absent XOR
-  // passes (both absent), so without the RFC 8446 9.2 guard it would fail later at group selection
+  // passes (both absent), so without the RFC 9846 9.2 guard it would fail later at group selection
   // with handshake_failure instead of missing_extension. signature_algorithms is present so the
   // only defect is the missing supported_groups.
   LCodec := TExtensionBlockCodec.Create(TCoreExtensions.CreateDefaultRegistry)

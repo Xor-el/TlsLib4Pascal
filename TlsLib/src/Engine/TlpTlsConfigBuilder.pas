@@ -412,7 +412,7 @@ resourcestring
     'server that offers only TLS 1.3 and issues no tickets (Tls13.WithTicketCount(0)), so it ' +
     'would have no effect: use WithResumption(False), or leave it out';
   STicketLifetimeZero = 'a ticket lifetime of 0 tells the client to discard the ticket at once ' +
-    '(RFC 8446 4.6.1), so no session could resume: pass a positive lifetime or turn resumption off';
+    '(RFC 9846 4.7.1), so no session could resume: pass a positive lifetime or turn resumption off';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
   SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
     'with no anchors is not a trust source (no silent-insecure)';
@@ -435,7 +435,7 @@ resourcestring
     'identity beyond 65535 bytes (RFC 9258 5.1)';
   SExternalPskOfferTooLarge = 'the external PSKs, offered once per KDF hash beside the ALPN ' +
     'list, a cached ticket and ECH, exceed the ClientHello extensions budget of 65535 bytes ' +
-    '(RFC 8446 4.1.2)';
+    '(RFC 9846 4.2.2)';
   STls12PskClientHoldsOne = 'a client presents one TLS 1.2 PSK';
   STls12PskHintLength = 'a TLS 1.2 PSK identity hint must be at most 65535 bytes';
   STls12PskHintNeedsPsk = 'a TLS 1.2 PSK identity hint is sent only with a PSK; configure ' +
@@ -488,7 +488,7 @@ resourcestring
   SAlpnProtocolEmpty = 'an ALPN protocol name must not be empty (RFC 7301 3.1)';
   SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
   SAlpnListTooLong = 'the ALPN protocol list must not exceed 16384 bytes on the wire, so that ' +
-    'a ClientHello''s extensions block (RFC 8446 4.1.2) can always carry it';
+    'a ClientHello''s extensions block (RFC 9846 4.2.2) can always carry it';
   SNoRegisteredPreferredGroup = 'none of the preferred key-exchange groups is in the named-group ' +
     'registry, so no handshake could ever select a group';
   SCipherSuiteListEmpty = 'a cipher-suite list must name at least one suite';
@@ -513,7 +513,7 @@ resourcestring
     'client-certificate revocation requires a live OCSP/CRL verdict resolver ' +
     '(WithLiveRevocationVerdict)';
   STicketLifetimeTooLong = 'the session-ticket lifetime must not exceed 604800 seconds ' +
-    '(7 days), the maximum a server may advertise (RFC 8446 4.6.1)';
+    '(7 days), the maximum a server may advertise (RFC 9846 4.7.1)';
   SResumptionScopeTooLong = 'the resumption scope must not exceed 32 bytes';
   SExternalPskNeedsTls13 = 'external PSKs are TLS 1.3-only (RFC 9258); offering them without TLS ' +
     '1.3 leaves them unusable, so add TLS 1.3 to the offered versions or remove the external PSKs';
@@ -550,7 +550,7 @@ resourcestring
     'that forbids digitalSignature, so it cannot sign a handshake (RFC 5280 4.2.1.3)';
   SCredentialLeafRsaPssUnsupported = 'the credential''s end-entity certificate carries an ' +
     'id-RSASSA-PSS public key, which is not supported for signing here; use an rsaEncryption ' +
-    'certificate (RFC 8446 4.2.3)';
+    'certificate (RFC 9846 4.3.3)';
   SCredentialKeyNotExportable = 'the credential''s private key cannot export its public key, so it ' +
     'cannot be matched to its certificate; supply a credential whose key exposes a public key';
   SMalformedTrustAnchor = 'anchor %d of trust store %d is not a well-formed certificate; one unparsable root ' +
@@ -565,7 +565,7 @@ const
   MaxResumptionScopeLength = Int32(32);
   MaxServerEarlyData = UInt32(1 shl 20);
   MaxAlpnListBytes = Int32(16384);
-  // the ClientHello extensions block is one vector of at most 2^16-1 bytes (RFC 8446 4.1.2)
+  // the ClientHello extensions block is one vector of at most 2^16-1 bytes (RFC 9846 4.2.2)
   MaxClientHelloExtensionsBytes = Int32(65535);
   // the other extensions (key_share, SNI, groups, schemes, versions, GREASE, the ECH decoy) need about 2 KB
   ClientHelloOtherExtensionsBytes = Int32(4096);
@@ -1845,7 +1845,7 @@ begin
   // the client does not offer status_request unless asked: an unsolicited staple is rejected
   FRequestOcspStapling := False;
   // soft-fail revocation is the default posture (stapled OCSP, RFC 6066 8 /
-  // RFC 8446 4.4.2.1; must-staple RFC 7633); presets may harden it
+  // RFC 9846 4.5.1.1; must-staple RFC 7633); presets may harden it
   FRevocationPosture := TRevocationPosture.Soft;
   FChainLimits := TCertificateChainLimits.Defaults;
   FStrengthPolicy := TCertificateStrengthPolicy.Defaults;
@@ -1944,7 +1944,7 @@ end;
 procedure TTlsConfigBuilder.ValidateVersionScoping;
 begin
   // a raw builder that never called WithSupportedVersions has none; a machine cannot be built
-  // without an offered version (RFC 8446 4.2.1; the factory only builds TLS 1.3 and 1.2)
+  // without an offered version (RFC 9846 4.3.1; the factory only builds TLS 1.3 and 1.2)
   if System.Length(FSupportedVersions) = 0 then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoSupportedVersions);
   if Tls13FacetConfigured and not (TArrayUtilities.Contains<UInt16>(FSupportedVersions,
@@ -1957,7 +1957,7 @@ end;
 
 procedure TTlsConfigBuilder.ValidatePskOnlyClientSettings;
 begin
-  // the server never requests a client certificate in a PSK handshake (RFC 8446 4.3.2)
+  // the server never requests a client certificate in a PSK handshake (RFC 9846 4.4.2)
   if FHasCredential then
     raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
       ['WithCredential']);
@@ -2040,7 +2040,7 @@ begin
   GuardMutable;
   // the offered set is a non-empty, duplicate-free preference list of negotiable versions; the
   // factory only builds TLS 1.3/1.2, so anything else would silently fall through to a nil-registry
-  // 1.2 machine (RFC 8446 4.2.1)
+  // 1.2 machine (RFC 9846 4.3.1)
   if System.Length(AVersions) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoSupportedVersions);
   for LI := 0 to System.High(AVersions) do
@@ -2253,7 +2253,7 @@ var
   LLeaf, LKeyPublicKeyInfo: TBytes;
   LSchemes: TArray<TSignatureScheme>;
 begin
-  // an empty chain would emit an empty certificate_list (RFC 8446 4.4.2) and a missing key
+  // an empty chain would emit an empty certificate_list (RFC 9846 4.5.1) and a missing key
   // cannot sign, so either is refused here rather than failing mid-handshake
   if System.Length(ACredential.CertificateChain) = 0 then
     raise EInvalidOperationTlsLibException.CreateRes(@SCredentialChainEmpty);
@@ -3274,7 +3274,7 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SHardServerRevocationUnusable);
   // a ticket-key manager or session store is the one thing an operator can share across
   // configurations, and a resumed handshake reuses the original client authentication without
-  // re-verifying it (inferred from RFC 8446 2.2): an mTLS configuration that supplies one must
+  // re-verifying it (inferred from RFC 9846 2.2): an mTLS configuration that supplies one must
   // partition its tickets with an explicit scope, or a ticket minted under another
   // configuration's client-CA trust would resume here as an authenticated identity. The
   // per-config default STEK is exempt (it is never shared), so the common case builds unchanged.
@@ -3307,7 +3307,7 @@ begin
   // requiring the extension rejects every non-EMS client, so no non-EMS resumption mode can apply
   if FRequireExtendedMasterSecret and (FNonEmsResumption <> TNonEmsResumption.Decline) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNonEmsResumeWithRequiredEms);
-  // RFC 8446 4.6.1: a lifetime of 0 tells the client to discard the ticket at once
+  // RFC 9846 4.7.1: a lifetime of 0 tells the client to discard the ticket at once
   if FResumption and (FTicketLifetimeSeconds = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@STicketLifetimeZero);
   ValidateTicketCountZeroSettings;
@@ -3365,7 +3365,7 @@ begin
     LConfig.FSessionTicketKeys := TStekTicketKeyManager.CreateDefault(FCrypto, FClock,
       FTicketLifetimeSeconds);
   // one register per config, shared across every connection so a replayed 0-RTT offer is
-  // detected across connections (RFC 8446 8)
+  // detected across connections (RFC 9846 8)
   if FAntiReplay <> nil then
     LConfig.FAntiReplay := FAntiReplay
   else if (FMaxEarlyData > 0) and FResumption then

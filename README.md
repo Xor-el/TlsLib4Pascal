@@ -51,7 +51,7 @@
 <details>
 <summary><strong>Protocol &amp; handshake</strong></summary>
 
-- **TLS 1.3** ([RFC 8446](https://www.rfc-editor.org/rfc/rfc8446)) and **hardened TLS 1.2** ([RFC 5246](https://www.rfc-editor.org/rfc/rfc5246) family) -- client + server. TLS 1.3 per RFC 8446; source comments cite RFC 8446 section numbers. [RFC 9846](https://www.rfc-editor.org/rfc/rfc9846) (July 2026) is its current revision.
+- **TLS 1.3** ([RFC 9846](https://www.rfc-editor.org/rfc/rfc9846)) and **hardened TLS 1.2** ([RFC 5246](https://www.rfc-editor.org/rfc/rfc5246) family) -- client + server. TLS 1.3 per RFC 9846; source comments cite RFC 9846 section numbers.
 - HelloRetryRequest with a stateless authenticated cookie; downgrade-sentinel protection + `TLS_FALLBACK_SCSV`.
 - Middlebox-compatibility mode; post-handshake KeyUpdate; centralized alert + unexpected-message handling.
 - A **sans-IO engine** core -- no sockets, threads, or timers; one contract for client/server and 1.2/1.3.

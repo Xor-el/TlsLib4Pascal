@@ -998,7 +998,7 @@ begin
   // one pool, one path: the presented certificates and the configured intermediates seed a
   // leaf-up build to a trusted anchor, so extraneous, misordered, expired-but-unused or
   // already-trusted extra certificates are simply left out of the built path rather than failing
-  // an otherwise valid chain (RFC 8446 4.4.2 tolerates extraneous certificates and arbitrary order)
+  // an otherwise valid chain (RFC 9846 4.5.1 tolerates extraneous certificates and arbitrary order)
   SetLength(LPool, System.Length(LCerts) + System.Length(LInter));
   LPoolCount := 0;
   // the leaf always pools; each further presented certificate pools only while its subject name is

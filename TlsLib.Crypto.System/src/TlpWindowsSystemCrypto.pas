@@ -548,7 +548,7 @@ type
   // raw agreement byte-reversed to the RFC 7748 output. Same neutral currency as the portable
   // X25519 and the same secret for every u the OS module accepts. A non-canonical u is reduced
   // first (RFC 7748 sec. 5); the OS module may still refuse a u outside the prime-order
-  // subgroup (RFC 8446 sec. 7.4.2 mandates only the all-zero check), and an honest peer's key
+  // subgroup (RFC 9846 sec. 7.4.2 mandates only the all-zero check), and an honest peer's key
   // is never refused. The algorithm handle is borrowed from the owning context, which keeps it
   // alive.
   TWindowsCngX25519 = class(TWindowsCngKeyPrimitive, IKeyAgreement)
@@ -1667,7 +1667,7 @@ end;
 
 function TWindowsCngKeyAgreement.IsUncompressed(const APoint: TBytes): Boolean;
 begin
-  // an EC key share must use the uncompressed point form: RFC 8446 4.2.8.2 (TLS 1.3)
+  // an EC key share must use the uncompressed point form: RFC 9846 4.3.8.2 (TLS 1.3)
   // and RFC 8422 5.1.2 (TLS 1.2) both mandate it and forbid compressed/hybrid
   Result := (System.Length(APoint) = 1 + 2 * FCurve.FieldSize) and
     (APoint[0] = UncompressedPointPrefix);

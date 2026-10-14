@@ -350,7 +350,7 @@ begin
   LInner := Default(TTlsClientHello);
   // the encoded inner must be the canonical TLS 1.3 form: legacy_version 0x0303, an empty
   // legacy_session_id (RFC 9849 sec. 5.1), and a single null legacy_compression_methods (RFC
-  // 8446 sec. 4.1.2). The re-frame below canonicalizes these fields, so verifying them here
+  // 9846 sec. 4.2.2). The re-frame below canonicalizes these fields, so verifying them here
   // keeps the reconstructed transcript byte-exact with the client's rather than silently rewriting
   if LReader.ReadUInt16 <> TlsWireVersionTls12 then
     raise EFatalAlertTlsLibException.CreateRes(

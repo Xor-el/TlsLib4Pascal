@@ -117,7 +117,7 @@ procedure TTestHkdfLabel.TestEmptyLabelEncodesTheBarePrefix;
 var
   LEncoded: TBytes;
 begin
-  // the exporter derives with an empty label (RFC 8446 7.5): uint16 length, the 6-byte
+  // the exporter derives with an empty label (RFC 9846 7.5): uint16 length, the 6-byte
   // "tls13 " label, an empty context
   LEncoded := THkdfLabel.BuildHkdfLabel('', nil, 16);
   CheckEqualBytes('an empty label encodes as the bare prefix',

@@ -1020,7 +1020,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // the server's real Certificate re-encoded with a one-byte certificate_request_context;
-  // the context SHALL be empty in the main handshake (RFC 8446 4.4.2)
+  // the context SHALL be empty in the main handshake (RFC 9846 4.5.1)
   LClient := DriveClientToWaitCertificate(LFlight);
   LCert := THandshakeMessages.DecodeCertificate(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]).Body);
   LCert.RequestContext := TBytes.Create($01);
@@ -1270,7 +1270,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // a single-version 1.3 server (built directly, not via the version dispatcher) must reject a
-  // ClientHello whose legacy_compression_methods is not exactly null (RFC 8446 4.1.2)
+  // ClientHello whose legacy_compression_methods is not exactly null (RFC 9846 4.2.2)
   LClientHello := FirstSendHandshake(NewClientMachine(nil).Start);
   CheckTrue(FailAlertOf(NewServerMachine(nil).ProcessMessage(
     TTlsLibTestHandshakeDecoder.HandshakeMessage(WithExtraCompression(LClientHello))), LAlert),
@@ -1406,7 +1406,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // a server configured with a record_size_limit against a client that never offered one:
-  // the server may not respond to an extension the client did not send (RFC 8446 4.2 /
+  // the server may not respond to an extension the client did not send (RFC 9846 4.3 /
   // RFC 8449 4), so the handshake completes without it
   LClient := NewClient(nil, 0);
   LServer := NewServer(nil, 512);
@@ -1599,7 +1599,7 @@ var
   LExt: ITlsExtension;
   LDst: TExtensionContext;
 begin
-  // RFC 8446 4.2 lists status_request for CertificateRequest: the server asks for a status of OUR
+  // RFC 9846 4.3 lists status_request for CertificateRequest: the server asks for a status of OUR
   // certificate. It is read and has no effect, since this client never staples.
   LExt := TStatusRequestExtension.Create as ITlsExtension;
   CheckTrue(TTlsExtensionContextKind.CertificateRequest in LExt.ValidContexts,

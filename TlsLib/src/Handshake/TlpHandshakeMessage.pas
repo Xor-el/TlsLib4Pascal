@@ -24,7 +24,7 @@ uses
   TlpWireWriter;
 
 type
-  /// <summary>The handshake message types (RFC 8446 4; RFC 5246 7.4 for the
+  /// <summary>The handshake message types (RFC 9846 4; RFC 5246 7.4 for the
   /// TLS 1.2-only ServerKeyExchange / ServerHelloDone / ClientKeyExchange).</summary>
   TTlsHandshakeType = (
     HelloRequest = 0,
@@ -177,7 +177,7 @@ begin
       AType := TTlsHandshakeType.KeyUpdate;
     25:
       AType := TTlsHandshakeType.CompressedCertificate;
-    // message_hash (254) is a synthetic transcript-only type (RFC 8446 4.4.1) that must never
+    // message_hash (254) is a synthetic transcript-only type (RFC 9846 4.1) that must never
     // arrive on the wire, so it is intentionally not decodable here
   else
     Result := False;

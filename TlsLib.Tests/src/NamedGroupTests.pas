@@ -380,7 +380,7 @@ begin
   LGroup.GenerateKeyPair(LPriv, LPub);
   CheckTrue(LGroup.ValidatePeerShare(LPub), 'valid point accepted');
   // the same on-curve point in COMPRESSED form must be rejected: modern TLS requires
-  // the uncompressed form (RFC 8446 4.2.8.2, RFC 8422 5.1.2), though the curve decodes it
+  // the uncompressed form (RFC 9846 4.3.8.2, RFC 8422 5.1.2), though the curve decodes it
   LCompressed := nil;
   SetLength(LCompressed, 33);
   Move(LPub[1], LCompressed[1], 32); // the X coordinate

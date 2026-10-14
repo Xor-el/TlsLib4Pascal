@@ -28,12 +28,12 @@ uses
   TlpExtensionVector;
 
 type
-  /// <summary>RFC 8446 4.6.3 KeyUpdateRequest: whether the peer is asked to update its own
+  /// <summary>RFC 9846 4.7.3 KeyUpdateRequest: whether the peer is asked to update its own
   /// keys in response (update_requested) or not (update_not_requested).</summary>
   TKeyUpdateRequest = (UpdateNotRequested, UpdateRequested);
 
   TKeyUpdateRequestHelper = record helper for TKeyUpdateRequest
-    /// <summary>The wire byte (RFC 8446 4.6.3): 0 = update_not_requested, 1 = update_requested.</summary>
+    /// <summary>The wire byte (RFC 9846 4.7.3): 0 = update_not_requested, 1 = update_requested.</summary>
     function ToByte: Byte;
     /// <summary>Decodes the wire byte; False (a decode error) for any value other than 0 or 1.</summary>
     class function TryFromByte(AByte: Byte; out AValue: TKeyUpdateRequest): Boolean; static;
@@ -50,7 +50,7 @@ type
     LegacySessionId: TBytes;
     CipherSuites: TArray<UInt16>;
     /// <summary>The raw legacy_compression_methods list. A well-formed offer includes the
-    /// null method; a TLS 1.3 ClientHello carries only that single byte (RFC 8446 4.1.2).
+    /// null method; a TLS 1.3 ClientHello carries only that single byte (RFC 9846 4.2.2).
     /// Kept verbatim so the version-specific rule is applied once the version is known.</summary>
     CompressionMethods: TBytes;
     Extensions: TBytes;
@@ -61,7 +61,7 @@ type
     /// <summary>The legacy_version field. A negotiated TLS 1.3 sets it to 0x0303 and carries
     /// the real version in supported_versions; a server that selected 1.2 or below carries
     /// its version here. Read verbatim so the client can map an unsupported selection to a
-    /// protocol_version alert rather than a decode error (RFC 8446 D.1).</summary>
+    /// protocol_version alert rather than a decode error (RFC 9846 E.1).</summary>
     LegacyVersion: UInt16;
     Random: TBytes;
     LegacySessionIdEcho: TBytes;
@@ -129,7 +129,7 @@ type
     PublicKey: TBytes;
   end;
 
-  /// <summary>A TLS 1.3 CertificateRequest (RFC 8446 4.3.2): the request context and
+  /// <summary>A TLS 1.3 CertificateRequest (RFC 9846 4.4.2): the request context and
   /// the raw extension block (signature_algorithms lives inside it).</summary>
   TTlsCertificateRequest13 = record
     RequestContext: TBytes;
@@ -145,7 +145,7 @@ type
     CertificateAuthorities: TArray<TBytes>;
   end;
 
-  /// <summary>A TLS 1.3 NewSessionTicket (RFC 8446 4.6.1): the lifetime, the age
+  /// <summary>A TLS 1.3 NewSessionTicket (RFC 9846 4.7.1): the lifetime, the age
   /// obfuscator, the ticket nonce, the opaque ticket, and a raw extension block
   /// (early_data's max_early_data_size lives inside it).</summary>
   TTlsNewSessionTicket = record
@@ -164,7 +164,7 @@ type
   end;
 
   /// <summary>
-  /// Encodes and decodes the bodies of the TLS 1.3 handshake messages (RFC 8446 4).
+  /// Encodes and decodes the bodies of the TLS 1.3 handshake messages (RFC 9846 4).
   /// It handles only a message body - the type and uint24 length framing is the
   /// handshake message layer's job - and treats each extension block as opaque
   /// wire bytes for the extension codec to interpret.
@@ -183,11 +183,11 @@ type
     class function EncodeServerHello(const AMsg: TTlsServerHello): TBytes; static;
     class function DecodeServerHello(const ABody: TBytes): TTlsServerHello; static;
     /// <summary>The version a ServerHello selected via its supported_versions extension
-    /// (RFC 8446 4.2.1), or 0 when the extension is absent - a server that negotiated TLS 1.2
+    /// (RFC 9846 4.3.1), or 0 when the extension is absent - a server that negotiated TLS 1.2
     /// or below, whose version is then the legacy_version field.</summary>
     class function ServerHelloSelectedVersion(const AExtensions: TBytes): UInt16; static;
     /// <summary>True when legacy_compression_methods is exactly the single null byte - the
-    /// only form a TLS 1.3 ClientHello may carry (RFC 8446 4.1.2). A lower version accepts a
+    /// only form a TLS 1.3 ClientHello may carry (RFC 9846 4.2.2). A lower version accepts a
     /// longer list, so this is enforced only once the negotiated version is known to be 1.3.</summary>
     class function IsNullOnlyCompression(const AMethods: TBytes): Boolean; static;
     /// <summary>The body is exactly the raw extensions vector.</summary>
@@ -202,8 +202,8 @@ type
     /// decode_error on a wrong status_type or an empty response.</summary>
     class function DecodeCertificateStatus(const ABody: TBytes): TBytes; static;
     /// <summary>The raw per-entry extensions vector for a leaf CertificateEntry carrying
-    /// a single status_request extension whose body is the CertificateStatus (RFC 8446
-    /// 4.4.2.1) - the TLS 1.3 stapled OCSP form.</summary>
+    /// a single status_request extension whose body is the CertificateStatus (RFC 9846
+    /// 4.5.1.1) - the TLS 1.3 stapled OCSP form.</summary>
     class function EncodeLeafStapleExtensions(const AResponse: TBytes): TBytes; static;
     /// <summary>Extracts the stapled DER OCSPResponse from a leaf CertificateEntry's raw
     /// extensions vector. False when no status_request extension is present; raises
@@ -211,7 +211,7 @@ type
     class function TryExtractLeafStaple(const AExtensions: TBytes;
       out AResponse: TBytes): Boolean; static;
     /// <summary>The extension types present in a CertificateEntry's raw extensions vector,
-    /// in order. Used to reject unsolicited/unknown leaf extensions (RFC 8446 4.4.2).</summary>
+    /// in order. Used to reject unsolicited/unknown leaf extensions (RFC 9846 4.5.1).</summary>
     class function CertificateEntryExtensionTypes(
       const AExtensions: TBytes): TArray<UInt16>; static;
     class function EncodeCertificateVerify(const AMsg: TTlsCertificateVerify): TBytes;
@@ -273,11 +273,11 @@ const
   EcCurveTypeNamedCurve = Byte(3); // RFC 8422 5.4 ECCurveType.named_curve
   LegacyCompressionNull = Byte(0);
   ClientHelloRandomLength = Int32(32);
-  MaxLegacySessionIdLength = Int32(32); // legacy_session_id<0..32> (RFC 8446 4.1.2)
+  MaxLegacySessionIdLength = Int32(32); // legacy_session_id<0..32> (RFC 9846 4.2.2)
   CertificateStatusTypeOcsp = Byte(1); // RFC 6066 8 CertificateStatusType.ocsp
   StatusRequestExtensionCode = UInt16(5); // IANA TLS ExtensionType status_request
   SctExtensionCode = UInt16(18); // IANA TLS ExtensionType signed_certificate_timestamp
-  // "Servers MUST NOT use any value greater than 604800 seconds (7 days)" (RFC 8446 4.6.1)
+  // "Servers MUST NOT use any value greater than 604800 seconds (7 days)" (RFC 9846 4.7.1)
   MaxTicketLifetimeSeconds = UInt32(604800);
 
 implementation
@@ -288,8 +288,8 @@ resourcestring
   SServerCompressionNotNull =
     'the server selected a non-null legacy_compression_method';
   SSessionIdTooLong = 'legacy_session_id exceeds the 32-byte maximum';
-  SEmptyCipherSuites = 'a ClientHello names no cipher suite (RFC 8446 4.1.2 / RFC 5246 7.4.1.2)';
-  SEmptyCompressionMethods = 'a ClientHello carries no legacy_compression_methods (RFC 8446 4.1.2)';
+  SEmptyCipherSuites = 'a ClientHello names no cipher suite (RFC 9846 4.2.2 / RFC 5246 7.4.1.2)';
+  SEmptyCompressionMethods = 'a ClientHello carries no legacy_compression_methods (RFC 9846 4.2.2)';
   SEmptySessionTicket = 'a NewSessionTicket carries an empty ticket';
   SBadCurveType = 'unsupported ECCurveType in ServerKeyExchange (named_curve only)';
   SBadCertificateStatusType = 'a CertificateStatus carries an unsupported status_type';
@@ -431,7 +431,7 @@ begin
   // legacy_compression_methods must offer the null method (both versions); a list without it
   // selects only compression this endpoint will never support. The list is a well-formed byte
   // vector with an unacceptable value, so this is an illegal_parameter, not a decode error
-  // (RFC 8446 4.1.2 / RFC 5246 7.4.1.2). The stricter TLS 1.3 "exactly one null byte" rule is
+  // (RFC 9846 4.2.2 / RFC 5246 7.4.1.2). The stricter TLS 1.3 "exactly one null byte" rule is
   // version-specific and enforced once the negotiated version is known.
   if not CompressionOffersNull(Result.CompressionMethods) then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -467,7 +467,7 @@ begin
   LReader := TWireReader.Create(ABody);
   // legacy_version is read verbatim, not rejected: a server that selected TLS 1.2 or below
   // carries its version here (supported_versions absent), and the client maps an unsupported
-  // selection to a protocol_version alert during version negotiation (RFC 8446 D.1)
+  // selection to a protocol_version alert during version negotiation (RFC 9846 E.1)
   Result.LegacyVersion := LReader.ReadUInt16;
   Result.Random := LReader.ReadBytes(ClientHelloRandomLength);
   LSession := LReader.OpenVector(1);
@@ -568,7 +568,7 @@ begin
   for LI := 0 to LCount - 1 do
   begin
     LCert := LList.OpenVector(3);
-    // cert_data is <1..2^24-1> (RFC 8446 4.4.2)
+    // cert_data is <1..2^24-1> (RFC 9846 4.5.1)
     if LCert.Remaining = 0 then
       raise EDecodeErrorTlsLibException.CreateRes(@SEmptyCertificateData);
     Result.Entries[LI].CertData := LCert.ReadBytes(LCert.Remaining);
@@ -1019,7 +1019,7 @@ begin
   Result.TicketNonce := LNonce.ReadBytes(LNonce.Remaining);
   LTicket := LReader.OpenVector(2);
   Result.Ticket := LTicket.ReadBytes(LTicket.Remaining);
-  // ticket is opaque ticket<1..2^16-1> (RFC 8446 4.6.1): an empty ticket is malformed
+  // ticket is opaque ticket<1..2^16-1> (RFC 9846 4.7.1): an empty ticket is malformed
   if System.Length(Result.Ticket) = 0 then
     raise EDecodeErrorTlsLibException.CreateRes(@SEmptySessionTicket);
   // keep the extension block raw for the extension codec (early_data)

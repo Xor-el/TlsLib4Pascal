@@ -35,7 +35,7 @@ type
   /// <summary>
   /// The provider certificate introspection seam used by the handshake to police a
   /// leaf's key: the keyUsage extension (RFC 5280 4.2.1.3) that must permit signing
-  /// and the id-RSASSA-PSS key type (RFC 8446 4.2.3) the rsa_pss_rsae schemes reject.
+  /// and the id-RSASSA-PSS key type (RFC 9846 4.3.3) the rsa_pss_rsae schemes reject.
   /// Driven by single-certificate vectors parsed in isolation.
   /// </summary>
   TTestCertificateChecks = class(TTlsLibAlgorithmTestCase)

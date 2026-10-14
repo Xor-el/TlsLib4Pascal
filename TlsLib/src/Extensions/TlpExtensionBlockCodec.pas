@@ -35,8 +35,8 @@ type
   end;
 
   /// <summary>
-  /// Owns all extension-block wire framing and the cross-extension rules of RFC 8446
-  /// 4.2: the outer extensions vector, duplicate detection (illegal_parameter), the
+  /// Owns all extension-block wire framing and the cross-extension rules of RFC 9846
+  /// 4.3: the outer extensions vector, duplicate detection (illegal_parameter), the
   /// unknown-extension skip (which also tolerates GREASE), per-message context
   /// enforcement (wrong context -> illegal_parameter), and the response-only
   /// rule that an extension the ClientHello did not offer is fatal
@@ -95,7 +95,7 @@ begin
   // ClientHello and may carry only extensions it offered. ClientHello is unprompted;
   // NewSessionTicket is server-originated post-handshake; and a CertificateRequest carries
   // the server's own constraints (signature_algorithms, certificate_authorities, oid_filters
-  // per RFC 8446 4.3.2), which are not gated by client offers - only by each extension's
+  // per RFC 9846 4.4.2), which are not gated by client offers - only by each extension's
   // ValidContexts.
   Result := (AKind <> TTlsExtensionContextKind.ClientHello) and
     (AKind <> TTlsExtensionContextKind.NewSessionTicket) and
@@ -161,7 +161,7 @@ var
 begin
   AContext.MessageContext := AKind;
   // semantic pass: record which types an inbound ClientHello carried (symmetric with the
-  // produce path, so the server can enforce presence rules such as RFC 8446 9.2's mutually-
+  // produce path, so the server can enforce presence rules such as RFC 9846 9.2's mutually-
   // required extensions), reject a response extension the ClientHello never offered, and
   // dispatch each known type to its handler (an unknown type, incl. GREASE, is skipped)
   for LI := 0 to AVector.Count - 1 do
@@ -190,7 +190,7 @@ begin
     if FRegistry.TryGet(LType, LExt) then
     begin
       // a recognized extension in a message it is not specified for is illegal_parameter,
-      // distinct from the unsolicited-response case above (RFC 8446 4.2)
+      // distinct from the unsolicited-response case above (RFC 9846 4.3)
       if not (AKind in LExt.ValidContexts) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.IllegalParameter, @SWrongContextExtension);

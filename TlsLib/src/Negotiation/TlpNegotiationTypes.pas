@@ -26,7 +26,7 @@ type
   /// Governs both TLS 1.3 and TLS 1.2 handshakes identically.</summary>
   TServerCipherPreference = (ServerOrder, ClientOrder);
 
-  /// <summary>TLS 1.3 cipher-suite wire codepoints (RFC 8446 B.4).</summary>
+  /// <summary>TLS 1.3 cipher-suite wire codepoints (RFC 9846 B.4).</summary>
   TCipherSuites13 = class sealed(TObject)
   public const
     Aes128GcmSha256 = UInt16($1301);
@@ -53,7 +53,7 @@ type
     EcdhePskAes256GcmSha384 = UInt16($D002);
   end;
 
-  /// <summary>Signature-scheme wire codepoints (RFC 8446 4.2.3). Wire vocabulary only;
+  /// <summary>Signature-scheme wire codepoints (RFC 9846 4.3.3). Wire vocabulary only;
   /// whether a scheme may sign a given version's handshake is decided by
   /// <see cref="TSignatureScheme.IsValidForHandshake" />.</summary>
   TSignatureSchemes = class sealed(TObject)
@@ -71,7 +71,7 @@ type
     RsaPssPssSha256 = UInt16($0809);
     RsaPssPssSha384 = UInt16($080A);
     RsaPssPssSha512 = UInt16($080B);
-    // legacy (RFC 8446 4.2.3): in TLS 1.3 valid only in signature_algorithms_cert,
+    // legacy (RFC 9846 4.3.3): in TLS 1.3 valid only in signature_algorithms_cert,
     // never a CertificateVerify; still a TLS 1.2 handshake signature (RFC 5246 7.4.1.4.1)
     RsaPkcs1Sha256 = UInt16($0401);
     RsaPkcs1Sha384 = UInt16($0501);
@@ -128,7 +128,7 @@ type
   end;
 
   /// <summary>
-  /// The named-group wire codepoints (RFC 8446, the IANA TLS Supported Groups registry,
+  /// The named-group wire codepoints (RFC 9846, the IANA TLS Supported Groups registry,
   /// RFC 10024) and the mapping between a code and the provider group name it resolves to.
   /// </summary>
   TNamedGroupCatalog = class sealed(TObject)
@@ -150,7 +150,7 @@ type
 
 const
   // last 8 bytes of ServerHello.random when a 1.3-capable server negotiates lower
-  // (RFC 8446 4.1.3): "DOWNGRD" then 0x01 for 1.2, 0x00 for 1.1 and below
+  // (RFC 9846 4.2.3): "DOWNGRD" then 0x01 for 1.2, 0x00 for 1.1 and below
   Tls12DowngradeSentinel: array [0 .. 7] of Byte =
     ($44, $4F, $57, $4E, $47, $52, $44, $01);
   Tls11DowngradeSentinel: array [0 .. 7] of Byte =
@@ -159,7 +159,7 @@ const
   // at a lower version after a failed handshake; it is never negotiated as a real suite
   TlsFallbackScsv = UInt16($5600);
   // ServerHello.random of a HelloRetryRequest = SHA-256("HelloRetryRequest")
-  // (RFC 8446 4.1.3)
+  // (RFC 9846 4.2.3)
   HelloRetryRequestSentinel: array [0 .. 31] of Byte = (
     $CF, $21, $AD, $74, $E5, $9A, $61, $11, $BE, $1D, $8C, $02, $1E, $65, $B8, $91,
     $C2, $A2, $11, $16, $7A, $BB, $8C, $5E, $07, $9E, $09, $E2, $C8, $A8, $33, $9C);

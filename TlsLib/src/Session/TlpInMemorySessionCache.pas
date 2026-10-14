@@ -112,7 +112,7 @@ var
   LLifetime: UInt32;
 begin
   // an unspecified lifetime (a 1.2 hint of 0, RFC 5077 3.3) is held to the 7-day client ceiling
-  // (RFC 8446 4.6.1); a backwards clock underflows the UInt64 subtraction to "expired",
+  // (RFC 9846 4.7.1); a backwards clock underflows the UInt64 subtraction to "expired",
   // matching the offer policy
   LLifetime := ASession.TicketLifetime;
   if (LLifetime = 0) or (LLifetime > MaxTicketLifetimeSeconds) then

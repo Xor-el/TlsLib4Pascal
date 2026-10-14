@@ -216,7 +216,7 @@ var
   LBody: TBytes;
   LRaised: Boolean;
 begin
-  // a ClientHello with an empty cipher_suites<2..2^16-2> is a decode_error (RFC 8446 4.1.2):
+  // a ClientHello with an empty cipher_suites<2..2^16-2> is a decode_error (RFC 9846 4.2.2):
   // version + 32-byte random + empty session_id + empty cipher_suites + null compression + no exts
   LBody := DecodeHex('0303' +
     '0000000000000000000000000000000000000000000000000000000000000000' +
@@ -237,7 +237,7 @@ var
   LRaised: Boolean;
 begin
   // a ClientHello with an empty legacy_compression_methods<1..2^8-1> is a decode_error, distinct
-  // from the null-method-missing illegal_parameter (RFC 8446 4.1.2): one AES-128-GCM suite, then
+  // from the null-method-missing illegal_parameter (RFC 9846 4.2.2): one AES-128-GCM suite, then
   // an empty compression vector
   LBody := DecodeHex('0303' +
     '0000000000000000000000000000000000000000000000000000000000000000' +
@@ -317,7 +317,7 @@ var
   LServer: TTlsServerHello;
   LRaised: Boolean;
 begin
-  // legacy_session_id / legacy_session_id_echo are <0..32> (RFC 8446 4.1.2/4.1.3): a
+  // legacy_session_id / legacy_session_id_echo are <0..32> (RFC 9846 4.2.2/4.2.3): a
   // 33-byte value must be a decode_error, not silently accepted
   LClient := THandshakeMessages.DecodeClientHello(Body('client_hello'));
   SetLength(LClient.LegacySessionId, 33);
@@ -340,7 +340,7 @@ procedure TTestHandshakeMessages.TestEmptyCertificateDataIsDecodeError;
 var
   LRaised13, LRaised12: Boolean;
 begin
-  // cert_data is <1..2^24-1> in 1.3 (RFC 8446 4.4.2) and ASN.1Cert is <1..2^24-1> in 1.2
+  // cert_data is <1..2^24-1> in 1.3 (RFC 9846 4.5.1) and ASN.1Cert is <1..2^24-1> in 1.2
   // (RFC 5246 7.4.2): a zero-length entry is malformed, not an empty certificate to be parsed
   LRaised13 := False;
   LRaised12 := False;
@@ -389,7 +389,7 @@ begin
   LGood := THandshakeMessages.EncodeNewSessionTicket(LNst);
   CheckFalse(Rejects(LGood), 'a well-formed NewSessionTicket decodes');
 
-  // empty ticket is opaque ticket<1..2^16-1> -> decode_error (RFC 8446 4.6.1)
+  // empty ticket is opaque ticket<1..2^16-1> -> decode_error (RFC 9846 4.7.1)
   LNst.Ticket := nil;
   CheckTrue(Rejects(THandshakeMessages.EncodeNewSessionTicket(LNst)),
     'an empty NewSessionTicket ticket is a decode_error');

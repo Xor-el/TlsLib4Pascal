@@ -28,8 +28,9 @@ type
   /// provider recognises); AllowEdDsa admits Ed25519/Ed448 keys; AllowedDeprecatedHashes admits
   /// signature hashes the library otherwise refuses. The chain-signature algorithm check (peer
   /// chain signed only with an advertised scheme, and the MD5 (MUST) / SHA-1 (RECOMMENDED)
-  /// rejection of RFC 8446 4.4.2.4) is always applied; the only part of it this record loosens is
-  /// that admission.
+  /// rejection of RFC 9846 4.5.1.3) is always applied; the only part of it this record loosens is
+  /// that admission. AllowedDeprecatedHashes governs the peer's chain only; our own chain is sent
+  /// with SHA-1 only when the peer advertised it (RFC 9846 4.5.1.2).
   /// </summary>
   TCertificateStrengthPolicy = record
     MinRsaModulusBits: Int32;

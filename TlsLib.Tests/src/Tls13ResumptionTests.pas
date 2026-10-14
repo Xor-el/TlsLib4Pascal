@@ -741,7 +741,7 @@ begin
 
   // a present binder that does not validate against an opened ticket is fatal: the server
   // aborts with decrypt_error rather than silently falling back to a full handshake
-  // (RFC 8446 4.2.11.2)
+  // (RFC 9846 4.3.11.2)
   LClient := NewClient(LCache);
   LServer := NewServer(LStore, 0, 7200, True);
   DriveHandshake(LClient, LServer);
@@ -756,7 +756,7 @@ var
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
 begin
-  // pre_shared_key identity<1..2^16-1> (RFC 8446 4.2.11): an empty identity is malformed
+  // pre_shared_key identity<1..2^16-1> (RFC 9846 4.3.11): an empty identity is malformed
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(nil,
@@ -801,7 +801,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // a ticket_lifetime of 0 means the client discards it immediately and must not cache it
-  // (RFC 8446 4.6.1)
+  // (RFC 9846 4.7.1)
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient(LCache);
@@ -1118,8 +1118,8 @@ begin
   LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsTerminal, 'the 0-RTT resumption completed');
-  // both peers derive the early_exporter_master_secret over the same ClientHello, so an
-  // exported early value agrees end to end (RFC 8446 7.5)
+  // both peers derive the early_exporter_secret over the same ClientHello, so an
+  // exported early value agrees end to end (RFC 9846 7.5)
   LCtx := DecodeHex('00010203');
   LClientExp := LClient.ExportEarlyKeyingMaterial('EXPORTER-tlslib', LCtx, 32);
   LServerExp := LServer.ExportEarlyKeyingMaterial('EXPORTER-tlslib', LCtx, 32);
@@ -1293,7 +1293,7 @@ begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   // a client that offers a ticket and 0-RTT, fed a ServerHello that selects no PSK (the server
   // fell back to a full handshake): early_data in EncryptedExtensions is then one the response
-  // cannot carry, although the client did offer it (RFC 8446 4.2.10). A ticket is used once, so
+  // cannot carry, although the client did offer it (RFC 9846 4.3.10). A ticket is used once, so
   // each flow below gets its own, issued through a real handshake.
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, False);
@@ -1397,7 +1397,7 @@ var
 begin
   // while the write side is on the early-data epoch, a regular Write must be refused: it would
   // otherwise seal application data under the 0-RTT keys as replayable early data. 0-RTT goes
-  // through WriteEarlyData, not Write (RFC 8446 2 / 4.2.10)
+  // through WriteEarlyData, not Write (RFC 9846 2 / 4.3.10)
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
   LCache := TInMemorySessionCache.Create;
@@ -1486,7 +1486,7 @@ begin
 
   // resume and send 0-RTT, but the server rejects early data (MaxEarlyData 0). The rejected
   // early data went out under the early keys and the server skips it; the engine does NOT
-  // transparently replay it as 1-RTT (RFC 8446 4.2.10 leaves any resend to the application), so
+  // transparently replay it as 1-RTT (RFC 9846 4.3.10 leaves any resend to the application), so
   // nothing is delivered to the server for it.
   LClient := NewClient(LCache, True);
   LServer := BuildServer(LStek, nil, 0, 7200, False, 0, LAnti);
@@ -1674,7 +1674,7 @@ begin
     'the client sends up to its cached max_early_data');
   PumpToCompletion(LClient, LServer);
   // more accepted early data than the ticket's max_early_data_size MUST terminate the
-  // connection with unexpected_message (RFC 8446 4.6.1)
+  // connection with unexpected_message (RFC 9846 4.7.1)
   CheckTrue(LServer.IsTerminal, 'accepted 0-RTT beyond the ticket budget is fatal');
   CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.UnexpectedMessage,
     'the server sent unexpected_message');
@@ -2340,7 +2340,7 @@ begin
   CheckFalse(LClient.IsTerminal, 'the second handshake did not fail');
   CheckFalse(LServer.IsHandshaking, 'the credential-less server completed via the external PSK');
   CheckFalse(LServer.IsTerminal, 'the external-PSK server did not fail');
-  CheckFalse(LClient.ConnectionInfo.Resumed, 'an external PSK is not a resumption (RFC 8446 2.2)');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'an external PSK is not a resumption (RFC 9846 2.2)');
   // the accepted PSK is external, so the cached resumption chain did not authenticate this
   // connection and must not leak onto the connection info
   LInfo := LClient.ConnectionInfo;
@@ -3056,7 +3056,7 @@ var
   end;
 
 begin
-  // an accepted external PSK is itself the client's authentication: RFC 8446 4.3.2 forbids a
+  // an accepted external PSK is itself the client's authentication: RFC 9846 4.4.2 forbids a
   // CertificateRequest in a PSK handshake, so a server configured to require a client certificate
   // must still NOT request one when it negotiates a PSK. The credential-less client completing
   // proves it.
@@ -3078,7 +3078,7 @@ begin
   // the PSK was accepted and no certificate was requested, so no client certificate was presented
   CheckTrue(System.Length(LServerInfo.PskIdentity) > 0, 'the server accepted the external PSK');
   CheckEquals(0, System.Length(LServerInfo.PeerCertificates),
-    'a PSK handshake requests no client certificate (RFC 8446 4.3.2)');
+    'a PSK handshake requests no client certificate (RFC 9846 4.4.2)');
   CheckAppDataFlows(LClient, LServer);
 end;
 

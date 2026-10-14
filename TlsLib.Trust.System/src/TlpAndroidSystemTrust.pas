@@ -1157,7 +1157,7 @@ function TAndroidChainEngine.EvaluateClient(const ARequest: TPlatformChainReques
 begin
   AResult := Default(TPlatformChainResult);
   // anchors-only over the configured client-CA anchors (never the system roots). checkClientTrusted
-  // reports no path and the presented chain is peer-ordered beyond index 0 (RFC 8446 4.4.2 only fixes
+  // reports no path and the presented chain is peer-ordered beyond index 0 (RFC 9846 4.5.1 only fixes
   // the leaf), so only the leaf is a reliable validated path; issuer recovery for revocation comes from
   // the configured candidates rather than a spoofable chain entry. Never stapled. The strength floor
   // therefore covers the leaf only; the platform still validates the whole chain.

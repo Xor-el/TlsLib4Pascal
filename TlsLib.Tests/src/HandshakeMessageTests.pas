@@ -409,7 +409,7 @@ procedure TTestHandshakeMessage.TestMessageHashIsNotWireDecodable;
 var
   LType: TTlsHandshakeType;
 begin
-  // message_hash (254) is a synthetic transcript-only type (RFC 8446 4.4.1); it must never be
+  // message_hash (254) is a synthetic transcript-only type (RFC 9846 4.1); it must never be
   // decodable from the wire, though its code still encodes for transcript synthesis
   CheckFalse(TTlsHandshakeType.TryFromByte(254, LType),
     'message_hash (254) is not wire-decodable');

@@ -38,7 +38,7 @@ type
     /// <summary>Splices an empty-bodied GREASE extension (type AType) into an already-serialized
     /// extensions block (2-byte length prefix + entries), just before encrypted_client_hello (else
     /// pre_shared_key, else at the end) so it stays in the compressible run of an ECH inner and
-    /// keeps pre_shared_key last (RFC 8446 4.2.11).</summary>
+    /// keeps pre_shared_key last (RFC 9846 4.3.11).</summary>
     class function InjectExtension(const ABlock: TBytes; AType: UInt16): TBytes; overload; static;
     /// <summary>As above, with the body ABody, so a hello carries GREASE extensions of varying
     /// length and contents (RFC 8701 3.1).</summary>
@@ -99,8 +99,8 @@ var
 begin
   // GREASE is duplicated verbatim into an ECH ClientHelloOuter, so it belongs with the other
   // compressible extensions - just before encrypted_client_hello - and one ech_outer_extensions
-  // run then covers it. Fall back to before pre_shared_key (which must stay last, RFC 8446
-  // 4.2.11), else the end when neither is present.
+  // run then covers it. Fall back to before pre_shared_key (which must stay last, RFC 9846
+  // 4.3.11), else the end when neither is present.
   LVector := TExtensionVector.Parse(ABlock);
   LIndex := LVector.IndexOf(TExtensionTypes.EncryptedClientHello);
   if LIndex < 0 then

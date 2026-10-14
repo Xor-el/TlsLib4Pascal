@@ -67,7 +67,7 @@ type
   end;
 
   /// <summary>
-  /// The ordered certificate-trust pipeline (RFC 8446 4.4.2 / RFC 5280 / RFC 9525),
+  /// The ordered certificate-trust pipeline (RFC 9846 4.5.1 / RFC 5280 / RFC 9525),
   /// fail-closed: the provider validates the chain to a trusted root for the role's
   /// extendedKeyUsage (certificate_expired / unknown_ca / bad_certificate /
   /// unsupported_certificate), then - for a server certificate - matches the leaf's SANs

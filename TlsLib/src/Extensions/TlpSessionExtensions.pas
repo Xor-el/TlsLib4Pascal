@@ -27,7 +27,7 @@ uses
 
 type
   /// <summary>
-  /// psk_key_exchange_modes (RFC 8446 4.2.9): the PSK exchange modes the client
+  /// psk_key_exchange_modes (RFC 9846 4.3.9): the PSK exchange modes the client
   /// offers (psk_ke = 0, psk_dhe_ke = 1). Present only in the ClientHello.
   /// </summary>
   TPskKeyExchangeModesExtension = class sealed(TInterfacedObject, ITlsExtension)
@@ -39,7 +39,7 @@ type
   end;
 
   /// <summary>
-  /// early_data (RFC 8446 4.2.10): an empty flag in the ClientHello (offering
+  /// early_data (RFC 9846 4.3.10): an empty flag in the ClientHello (offering
   /// 0-RTT) and in EncryptedExtensions (accepting it), and a max_early_data_size
   /// (uint32) in a NewSessionTicket.
   /// </summary>
@@ -66,7 +66,7 @@ type
   end;
 
   /// <summary>
-  /// pre_shared_key (RFC 8446 4.2.11): the ClientHello OfferedPsks (identities +
+  /// pre_shared_key (RFC 9846 4.3.11): the ClientHello OfferedPsks (identities +
   /// obfuscated ages + binders) and the ServerHello selected_identity. It MUST be
   /// the last ClientHello extension - the binders are computed over the transcript
   /// up to their own bytes, so the caller writes a placeholder here and back-patches

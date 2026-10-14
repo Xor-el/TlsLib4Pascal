@@ -109,9 +109,9 @@ var
 begin
   LRegistry := TSignatureSchemeRegistryBuilder.Create as ISignatureSchemeRegistryBuilder;
   // preference order: ECDSA, then EdDSA (Ed25519, Ed448), then RSA-PSS, then legacy RSA-PKCS1. PSS is
-  // preferred over PKCS1 (and is the only RSA option a 1.3 handshake signature may use);
-  // the pkcs1 schemes are advertised for TLS 1.2 handshake signatures and for pkcs1-signed
-  // certificate chains, which RFC 8446 4.2.3 permits ("for backward compatibility with
+  // preferred over PKCS1 (and is the only RSA option this library signs or accepts in a 1.3
+  // handshake); the pkcs1 schemes are advertised for TLS 1.2 handshake signatures and for pkcs1-signed
+  // certificate chains, which RFC 9846 4.3.3 permits ("for backward compatibility with
   // TLS 1.2") even in a 1.3 ClientHello.
   LRegistry.Add(TSignatureScheme.ECDSA_SECP256R1_SHA256);
   LRegistry.Add(TSignatureScheme.ECDSA_SECP384R1_SHA384);

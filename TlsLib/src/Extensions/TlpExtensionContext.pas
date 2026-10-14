@@ -21,7 +21,7 @@ uses
 
 type
   /// <summary>
-  /// The handshake message an extension block belongs to (RFC 8446 4.2). Only
+  /// The handshake message an extension block belongs to (RFC 9846 4.3). Only
   /// ClientHello is a request the peer originates unprompted; every other kind is
   /// a response and may carry only extensions the ClientHello offered.
   /// </summary>
@@ -65,7 +65,7 @@ type
     HelloRetryGroup: UInt16;
     SignatureSchemes: TArray<UInt16>;
     SignatureSchemesCert: TArray<UInt16>;
-    /// <summary>certificate_authorities (RFC 8446 4.2.4 / RFC 5246 7.4.4): the DER-encoded
+    /// <summary>certificate_authorities (RFC 9846 4.3.4 / RFC 5246 7.4.4): the DER-encoded
     /// DistinguishedName issuers a server names in its CertificateRequest. Set outbound to
     /// emit them; populated inbound on the client from a received CertificateRequest.</summary>
     CertificateAuthorities: TArray<TBytes>;
@@ -87,10 +87,10 @@ type
     /// handshake) and set true inbound when the peer's extension is present. TLS 1.2-only
     /// secure-renegotiation signalling, even though renegotiation itself is never done.</summary>
     RenegotiationInfo: Boolean;
-    /// <summary>psk_key_exchange_modes (RFC 8446 4.2.9): the modes the client offers
+    /// <summary>psk_key_exchange_modes (RFC 9846 4.3.9): the modes the client offers
     /// (0 = psk_ke, 1 = psk_dhe_ke).</summary>
     PskModes: TBytes;
-    /// <summary>pre_shared_key (RFC 8446 4.2.11) ClientHello identities, one opaque ticket each.</summary>
+    /// <summary>pre_shared_key (RFC 9846 4.3.11) ClientHello identities, one opaque ticket each.</summary>
     OfferedPskIdentities: TArray<TBytes>;
     /// <summary>The obfuscated_ticket_age accompanying each offered identity.</summary>
     OfferedPskAges: TArray<UInt32>;
@@ -100,7 +100,7 @@ type
     PskSelected: Boolean;
     /// <summary>The index into the offered identities the server selected.</summary>
     SelectedPskIdentity: UInt16;
-    /// <summary>early_data (RFC 8446 4.2.10): present (empty) in the ClientHello offering 0-RTT.</summary>
+    /// <summary>early_data (RFC 9846 4.3.10): present (empty) in the ClientHello offering 0-RTT.</summary>
     EarlyDataOffered: Boolean;
     /// <summary>early_data present (empty) in EncryptedExtensions accepting 0-RTT.</summary>
     EarlyDataAccepted: Boolean;

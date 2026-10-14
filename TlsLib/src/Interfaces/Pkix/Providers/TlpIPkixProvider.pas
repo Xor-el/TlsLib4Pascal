@@ -46,10 +46,10 @@ type
     /// <summary>
     /// Whether the certificate's SubjectPublicKeyInfo algorithm is id-RSASSA-PSS
     /// (OID 1.2.840.113549.1.1.10), the restricted RSA-PSS key type that the
-    /// rsa_pss_rsae_* schemes must not be used with (RFC 8446 4.2.3). Yes when it is,
+    /// rsa_pss_rsae_* schemes must not be used with (RFC 9846 4.3.3). Yes when it is,
     /// No when it is not, Undetermined on a malformed certificate.
     /// </summary>
-    function KeyIsRsaPss: TCertAnswer;
+    function KeyIsRsaPss:TCertAnswer;
     /// <summary>
     /// Whether the certificate asserts basicConstraints cA=TRUE (RFC 5280 4.2.1.9): Yes, No when
     /// the extension is absent or cA is FALSE, Undetermined on a malformed certificate.
@@ -140,7 +140,7 @@ type
     /// <summary>
     /// Whether the certificate's SubjectPublicKeyInfo algorithm is id-RSASSA-PSS
     /// (OID 1.2.840.113549.1.1.10), the restricted RSA-PSS key type that the
-    /// rsa_pss_rsae_* schemes must not be used with (RFC 8446 4.2.3). Yes when it is,
+    /// rsa_pss_rsae_* schemes must not be used with (RFC 9846 4.3.3). Yes when it is,
     /// No when it is not, Undetermined on a malformed certificate.
     /// </summary>
     function KeyIsRsaPss(const ACertificateDer: TBytes): TCertAnswer;
@@ -191,7 +191,7 @@ type
     /// chain (e.g. a leaf-only server); empty builds the path only from what the peer sent.
     /// They never anchor a path and never bypass validation. The presented certificates and the
     /// intermediates form one pool from which a path is built from the leaf up to an anchor, so
-    /// extraneous, misordered or expired-but-unused certificates are left out (RFC 8446 4.4.2).
+    /// extraneous, misordered or expired-but-unused certificates are left out (RFC 9846 4.5.1).
     /// AEffectiveChain returns the validated path in issuer order (leaf at [0], its issuer at [1],
     /// ...), ending at the configured trust anchor exactly once - never the peer's presented order -
     /// so the caller's staple and pin checks key off the real issuer. It is a var parameter so a
@@ -277,7 +277,7 @@ type
     /// <summary>
     /// Finds, among ACandidates, the certificate that issued ALeaf - for a live revocation check on a
     /// peer that presented a leaf-only chain (a mutual-TLS client whose issuer is a configured anchor,
-    /// not sent on the wire; RFC 8446 4.4.2). A candidate qualifies only when its subject name matches
+    /// not sent on the wire; RFC 9846 4.5.1). A candidate qualifies only when its subject name matches
     /// the leaf's issuer name AND its public key verifies the leaf's signature, so a same-name/wrong-key
     /// candidate is rejected (it would otherwise mis-key the OCSP CertID). Candidates must come from
     /// local configuration (anchors / configured intermediates), never the peer. Returns False (no

@@ -83,7 +83,7 @@ begin
   ARejectAlert := TTlsAlertDescription.BadCertificate;
   // this resolver's trust engine is bound to one certificate role (server-auth vs client-auth
   // EKU); a park for the other role cannot be evaluated here. Refuse it as a local
-  // misconfiguration (internal_error, RFC 8446 6.2) rather than let it surface as a misleading
+  // misconfiguration (internal_error, RFC 9846 6.2) rather than let it surface as a misleading
   // trust failure that would look like a rejected peer
   if ACtx.PeerRole <> FExpectedPeer then
   begin
