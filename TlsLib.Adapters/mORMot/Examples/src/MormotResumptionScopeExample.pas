@@ -143,17 +143,24 @@ var
   LLastErr, LCipher: RawUtf8;
   LBuf: TBytes;
   LLen, LI: Integer;
+  LDoBind, LAsync, LRdwr: Boolean;
+  LTimeoutMs, LRetry: Integer;
 begin
+  LDoBind := True;
+  LAsync := False;
+  LRdwr := True;
+  LTimeoutMs := 3000;
+  LRetry := 0;
   try
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CertificateFile := GLeafFile;
     LCtx.PrivateKeyFile := GKeyFile;
-    if NewSocket(HOST, PORT, nlTcp, {dobind=}True, 3000, 3000, 3000, 0, LListener) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, LDoBind, LTimeoutMs, LTimeoutMs, LTimeoutMs, LRetry, LListener) <> nrOK then
       raise Exception.Create('server bind failed');
     GReady.SetEvent;
     for LI := 1 to LEGS do
     begin
-      if LListener.Accept(LClient, LAddr, {async=}False) <> nrOK then
+      if LListener.Accept(LClient, LAddr, LAsync) <> nrOK then
         Break;
       LTls := TTlsLibNetTls.Create; // the interface owns it
       try
@@ -167,7 +174,7 @@ begin
         // the reject leg: the client refused our certificate; not fatal to the server loop
       end;
       LTls := nil;
-      LClient.ShutdownAndClose({rdwr=}True);
+      LClient.ShutdownAndClose(LRdwr);
     end;
   except
     on E: Exception do
@@ -193,12 +200,18 @@ var
     LTls: INetTls;
     LPing, LEcho: TBytes;
     LLen: Integer;
+    LDoBind, LRdwr: Boolean;
+    LTimeoutMs, LRetry: Integer;
   begin
+    LDoBind := False;
+    LRdwr := True;
+    LTimeoutMs := 3000;
+    LRetry := 0;
     Result := False;
     AConnected := False;
     FillCharFast(LCtx, SizeOf(LCtx), 0);
     LCtx.CACertificatesFile := ARootFile; // pinned root (the only per-leg difference)
-    if NewSocket(HOST, PORT, nlTcp, {dobind=}False, 3000, 3000, 3000, 0, LSock) <> nrOK then
+    if NewSocket(HOST, PORT, nlTcp, LDoBind, LTimeoutMs, LTimeoutMs, LTimeoutMs, LRetry, LSock) <> nrOK then
       raise Exception.Create('tcp connect failed');
     LConcrete := TTlsLibNetTls.Create;
     LTls := LConcrete; // used via INetTls; the interface owns it
@@ -207,7 +220,7 @@ var
         LTls.AfterConnection(LSock, LCtx, 'localhost');
         AConnected := True;
       except
-        LSock.ShutdownAndClose(True);
+        LSock.ShutdownAndClose(LRdwr);
         Exit; // the reject leg lands here: the wrong root refused the server certificate
       end;
       // drain the round trip so the server's post-handshake NewSessionTicket reaches the client
@@ -222,7 +235,7 @@ var
       Result := LConcrete.Resumed;
     finally
       LTls := nil;
-      LSock.ShutdownAndClose(True);
+      LSock.ShutdownAndClose(LRdwr);
     end;
   end;
 

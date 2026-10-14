@@ -107,7 +107,10 @@ var
   LRoot, LGetBody, LPostBody: string;
   LClient: THttpClientSocket;
   LGetStatus, LPostStatus: Integer;
+  LDoBind, LTls: Boolean;
 begin
+  LDoBind := False;
+  LTls := True;
   Result := 1;
   LGetBody := '';
   LPostBody := '';
@@ -124,7 +127,7 @@ begin
       end;
       // real verification: IgnoreCertificateErrors stays False (never our InsecureSkipVerify)
       // the handshake runs here and verifies the chain for Host (used for SNI too)
-      LClient.OpenBind(Host, Port, {dobind=}False, {tls=}True);
+      LClient.OpenBind(Host, Port, LDoBind, LTls);
       // both verbs over ONE kept-alive TLS connection
       LGetStatus := LClient.Get(GetPath, KeepAliveMs);
       LGetBody := Utf8ToString(LClient.Content);
