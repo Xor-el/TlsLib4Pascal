@@ -720,7 +720,7 @@ begin
   if not LClientOffersTls13 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.ProtocolVersion, @SClientDroppedTls13);
-  // checked on the first and the retry ClientHello alike (RFC 9846 4.2.2)
+  // checked on the first, the retry and the ECH inner ClientHello alike (RFC 9846 4.2.2)
   TServerOfferSelection.RejectUnexpectedLegacyVersion(AClientHello.LegacyVersion);
 
   // legacy_compression_methods must be exactly the null method in TLS 1.3 (RFC 8446 4.1.2),

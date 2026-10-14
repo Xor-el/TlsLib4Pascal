@@ -109,7 +109,9 @@ type
     procedure TestDispatcherRejectsLegacyVersion0000WithSupportedVersions;
     procedure TestDispatcherRejectsLegacyVersion0302WithTls12OnlySupportedVersions;
     procedure TestDispatcherWithoutSupportedVersionsKeepsLegacyVersionHandling;
-    procedure TestTls12OnlyDispatcherKeepsLegacyVersionHandling;
+    procedure TestTls12OnlyDispatcherRejectsLegacyVersion0302WithSupportedVersions;
+    procedure TestStandaloneTls12ServerRejectsLegacyVersion0300WithSupportedVersions;
+    procedure TestScsvOutranksLegacyVersionRejection;
     procedure TestStandaloneTls13ServerAcceptsLegacyVersion0303;
     procedure TestStandaloneTls13ServerRejectsLegacyVersion0304;
     procedure TestStandaloneTls13ServerRejectsLegacyVersion0300;
@@ -834,16 +836,46 @@ begin
     'legacy_version 0x0304 without supported_versions is not protocol_version');
 end;
 
-procedure TTestTls12DualVersion.TestTls12OnlyDispatcherKeepsLegacyVersionHandling;
+procedure TTestTls12DualVersion.TestTls12OnlyDispatcherRejectsLegacyVersion0302WithSupportedVersions;
 var
   LServer: IHandshakeMachine;
 begin
-  // a server without TLS 1.3 negotiates 1.2 from the offer and does not apply the 1.3 rule;
-  // a guard, not a mutation target: the unchanged path is what it pins
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls12)) as IHandshakeMachine;
-  CheckFalse(HasAnyFail(LServer.ProcessMessage(RealClientHello(TlsWireVersionTls11))),
-    'a TLS 1.2-only server proceeds despite legacy_version 0x0302');
+  CheckTrue(AbortsProtocolVersion(LServer, TlsWireVersionTls11),
+    'a TLS 1.2-only dispatcher aborts protocol_version on legacy_version 0x0302 with supported_versions');
+end;
+
+procedure TTestTls12DualVersion.TestStandaloneTls12ServerRejectsLegacyVersion0300WithSupportedVersions;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0007002B0003020303'));
+  LHello.Body[0] := $03;
+  LHello.Body[1] := $00;
+  LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello), TTlsAlertDescription.ProtocolVersion),
+    'legacy_version 0x0300 with supported_versions [1.2] aborts protocol_version (RFC 8446 D.5)');
+end;
+
+procedure TTestTls12DualVersion.TestScsvOutranksLegacyVersionRejection;
+var
+  LServer: IHandshakeMachine;
+  LHello: TTlsHandshakeMessage;
+begin
+  // the fallback verdict comes first, so the spurious-fallback signal is not masked
+  LHello := MakeClientHello(
+    TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
+    DecodeHex('0007002B0003020303'));
+  LHello.Body[0] := $03;
+  LHello.Body[1] := $02;
+  LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
+    TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
+  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+    'SCSV with a bad legacy_version aborts inappropriate_fallback');
 end;
 
 procedure TTestTls12DualVersion.TestStandaloneTls13ServerAcceptsLegacyVersion0303;

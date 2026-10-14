@@ -578,6 +578,7 @@ begin
     // selected nothing this server supports (RFC 8446 4.2.1 / D.2)
     if System.Length(LContext.SupportedVersions) > 0 then
     begin
+      TServerOfferSelection.RejectUnexpectedLegacyVersion(LHello.LegacyVersion);
       if not (TArrayUtilities.Contains<UInt16>(LContext.SupportedVersions,
         TlsWireVersionTls12)) then
         raise EFatalAlertTlsLibException.CreateRes(
