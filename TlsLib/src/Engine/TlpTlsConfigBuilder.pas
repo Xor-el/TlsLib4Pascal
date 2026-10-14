@@ -173,7 +173,10 @@ type
     FEchMode: IEchClientMode;
     FEchServerPolicy: IEchServerPolicy;
     // a certificate-codec list has no non-default value to compare, so setting one counts
-    FCertificateCodecsSet: Boolean;
+    FCompressorsSet: Boolean;
+    FDecompressorsSet: Boolean;
+    // the starting point a setting is judged against: a preset's values are never refused as inert
+    FBaseline: TTlsConfigProfile;
     procedure GuardMutable;
     /// <summary>Whether any TLS 1.3-only setting differs from its default (defaults are seeded
     /// directly, not through a facet), so restating a default on a config that does not offer the
@@ -185,6 +188,13 @@ type
     procedure ValidateExternalPskOfferFits;
     /// <summary>Refuses a version facet that was configured for a version not offered.</summary>
     procedure ValidateVersionScoping;
+    /// <summary>Refuses a setting that only a certificate handshake consults on a client that
+    /// authenticates by PSK alone, where none can ever run.</summary>
+    procedure ValidatePskOnlyClientSettings;
+    /// <summary>Refuses a server resumption setting that a ticket count of 0 makes dead: early
+    /// data when no store or keys can resume another server's tickets, and the default keys and the
+    /// lifetime on a server not offering TLS 1.2.</summary>
+    procedure ValidateTicketCountZeroSettings;
     /// <summary>Composes the accumulated anchor sources into one store: nil for none (a PSK-only
     /// or skip-verify client), the single store for one, else a union. nil when a whole-verifier
     /// is used instead.</summary>
@@ -366,8 +376,40 @@ resourcestring
     '(RFC 9849 sec. 6.1: the inner hello never offers TLS 1.2); pin WithSupportedVersions to ' +
     'TLS 1.3, or use TEchClientModes.Grease';
   SCustomHardNeedsLiveVerdict = 'a Hard revocation posture over an injected verifier needs ' +
-    'WithLiveRevocationVerdict: a staple request does not reach a verifier that replaces the ' +
-    'built-in chain verification';
+    'WithLiveRevocationVerdict: an injected verifier does not apply the posture';
+  SReverifyHardNeedsLiveVerdict = 'WithResumeVerification(Reverify) under a Hard revocation ' +
+    'posture needs WithLiveRevocationVerdict: a resume carries no staple, so the client could ' +
+    'never resume; add the verdict or keep ReuseOriginal';
+  SPskOnlyClientSetting = '%s has no effect on a client that authenticates by PSK alone, which ' +
+    'verifies no certificate: add a trust source or drop it';
+  SClientCompressionNeedsCredential = 'certificate compressors and their cache apply only to a ' +
+    'client certificate, but no credential is set: add WithCredential or drop them';
+  SServerCompressionNeedsCertificate = 'certificate compressors and their cache apply only to a ' +
+    'certificate the server sends, but it holds no certificate credential: add WithCredential or ' +
+    'drop them';
+  SServerDecompressorsNeedPeerAuth = 'certificate decompressors are advertised only in a ' +
+    'CertificateRequest, but the server requests no client certificate: call WithPeerAuth or drop ' +
+    'Tls13.WithCertificateDecompressors';
+  SServerChainLimitsNeedPeerAuth = 'certificate-chain limits bound only a requested client ' +
+    'certificate, but the server requests none: call WithPeerAuth or leave the limits as the ' +
+    'preset set them';
+  SPskOnlyServerPeerAuth = 'a server holding no certificate credential never sends a ' +
+    'CertificateRequest, so WithPeerAuth would have no effect: add a credential or drop it';
+  SVerdictSlotConflict = 'WithAsyncCertificateVerdict and WithLiveRevocationVerdict set the same ' +
+    'verdict slot: call only one';
+  SDefaultKeysBesideExplicitKeys = 'WithDefaultSessionTicketKeys can never take effect beside ' +
+    'WithSessionTicketKeys: call only one';
+  SCipherSuiteListNotOffered = 'the cipher-suite list names only suites of a protocol version ' +
+    'that is not offered, so it would change nothing: list a suite of an offered version or drop ' +
+    'WithCipherSuiteList';
+  SServerEarlyDataNeedsTickets = '0-RTT early data rides a resumption ticket, but ' +
+    'Tls13.WithTicketCount(0) issues none and no session store or ticket keys are set to resume ' +
+    'another server''s: raise the count, add them, or drop the early-data limit';
+  SServerSettingNeedsTickets = 'default ticket keys or a ticket lifetime was supplied to a ' +
+    'server that offers only TLS 1.3 and issues no tickets (Tls13.WithTicketCount(0)), so it ' +
+    'would have no effect: use WithResumption(False), or leave it out';
+  STicketLifetimeZero = 'a ticket lifetime of 0 tells the client to discard the ticket at once ' +
+    '(RFC 8446 4.6.1), so no session could resume: pass a positive lifetime or turn resumption off';
   SNoTrustStore = 'a client configuration requires a trust source (no silent-insecure)';
   SEmptyTrustStore = 'a trust store was supplied but contains no root certificates; a store ' +
     'with no anchors is not a trust source (no silent-insecure)';
@@ -426,7 +468,7 @@ resourcestring
     'left-most label wildcard (*.example.com) is allowed';
   STls13NotOffered = 'TLS 1.3 settings were configured but TLS 1.3 is not in the offered versions';
   STls12NotOffered = 'TLS 1.2 settings were configured but TLS 1.2 is not in the offered versions';
-  SNonEmsResumeWithRequiredEms = 'legacy non-EMS resumption cannot apply when ' +
+  SNonEmsResumeWithRequiredEms = 'a non-EMS resumption mode other than Decline cannot apply when ' +
     'extended_master_secret is required, since a non-EMS client is rejected outright';
   SClientScopeNeedsCache = 'a resumption scope was supplied without a session cache to resume ' +
     'from; set WithSessionCache or drop the scope';
@@ -1792,6 +1834,7 @@ begin
   FCrypto := ACryptoProvider;
   FPkix := APkixProvider;
   FFrozen := False;
+  FBaseline := AProfile;
   FHasCredential := False;
   FCheckServerName := True;
   FServerNameIndication := TServerNameIndication.Send;
@@ -1859,7 +1902,7 @@ begin
   Result := (System.Length(FExternalPsks) > 0) or (not FExternalPskRequired) or
     FClientEarlyData or (FMaxEarlyData > 0) or (FTicketCount <> DefaultTicketCount) or
     (FAntiReplay <> nil) or (FEchMode <> nil) or (FEchServerPolicy <> nil) or
-    FCertificateCodecsSet or (FCertificateCompressionCache <> nil);
+    FCompressorsSet or FDecompressorsSet or (FCertificateCompressionCache <> nil);
 end;
 
 function TTlsConfigBuilder.Tls12FacetConfigured: Boolean;
@@ -1906,6 +1949,48 @@ begin
   if Tls12FacetConfigured and not (TArrayUtilities.Contains<UInt16>(FSupportedVersions,
     TlsWireVersionTls12)) then
     raise EInvalidOperationTlsLibException.CreateRes(@STls12NotOffered);
+end;
+
+procedure TTlsConfigBuilder.ValidatePskOnlyClientSettings;
+begin
+  // the server never requests a client certificate in a PSK handshake (RFC 8446 4.3.2)
+  if FHasCredential then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['WithCredential']);
+  if System.Length(FCertificatePins) > 0 then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['WithCertificatePinning']);
+  if Assigned(FDangerousTrust.VerifyCallback) then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['WithCertificateVerifyCallback']);
+  if FAsyncVerdict.Deferral <> TVerdictDeferral.None then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['WithAsyncCertificateVerdict and WithLiveRevocationVerdict']);
+  if not (FChainLimits = FBaseline.CertificateChainLimits) then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['WithCertificateChainLimits']);
+  if FRequestOcspStapling <> FBaseline.RequestOcspStapling then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['WithOcspStaplingRequest']);
+  if FDecompressorsSet and (System.Length(FCertificateDecompressors) > 0) then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['Tls13.WithCertificateDecompressors']);
+  if FResumeVerification = TResumeVerification.Reverify then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['WithResumeVerification(Reverify)']);
+end;
+
+procedure TTlsConfigBuilder.ValidateTicketCountZeroSettings;
+begin
+  if (FTicketCount <> 0) or (not FResumption) then
+    Exit;
+  // a shared store or key manager can still resume tickets another server issued, early data included
+  if (FMaxEarlyData > 0) and (FSessionStore = nil) and (FSessionTicketKeys = nil) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SServerEarlyDataNeedsTickets);
+  // the default keys and the lifetime shape only the tickets this server issues, and TLS 1.2 still issues
+  if not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) and
+    (FWantDefaultSessionTicketKeys or (FTicketLifetimeSeconds <> DefaultTicketLifetimeSeconds)) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SServerSettingNeedsTickets);
 end;
 
 function TTlsConfigBuilder.WithCipherSuites(
@@ -2260,7 +2345,7 @@ begin
   TCertificateCompression.ValidateCompressors(ACompressors);
   // copy so a caller mutating its array after Build cannot alter the frozen config
   FCertificateCompressors := System.Copy(ACompressors);
-  FCertificateCodecsSet := True;
+  FCompressorsSet := True;
   Result := Self;
 end;
 
@@ -2270,7 +2355,7 @@ begin
   GuardMutable;
   TCertificateCompression.ValidateDecompressors(ADecompressors);
   FCertificateDecompressors := System.Copy(ADecompressors);
-  FCertificateCodecsSet := True;
+  FDecompressorsSet := True;
   Result := Self;
 end;
 
@@ -2431,7 +2516,7 @@ begin
   FServerVerifierSource := nil;
   FClientCertVerifier := nil;
   FClientVerifierSource := nil;
-  // a staple request does not help an injected verifier, so Hard needs the live verdict
+  // an injected verifier does not apply the posture, so Hard needs the live verdict
   if (AVerification.Kind = TVerificationKind.Custom) and
     (AVerification.RevocationPosture = TRevocationPosture.Hard) and
     (FAsyncVerdict.Deferral <> TVerdictDeferral.LiveRevocation) then
@@ -2450,7 +2535,8 @@ function TTlsConfigBuilder.WithAsyncCertificateVerdict(
   ADeadlineMs: Cardinal): TTlsConfigBuilder;
 begin
   GuardMutable;
-  // last call wins across the two verdict-deferral setters
+  if FAsyncVerdict.Deferral = TVerdictDeferral.LiveRevocation then
+    raise EInvalidOperationTlsLibException.CreateRes(@SVerdictSlotConflict);
   FAsyncVerdict.Deferral := TVerdictDeferral.HostDecision;
   FAsyncVerdict.DeadlineMs := ADeadlineMs;
   Result := Self;
@@ -2460,6 +2546,8 @@ function TTlsConfigBuilder.WithLiveRevocationVerdict(
   ADeadlineMs: Cardinal): TTlsConfigBuilder;
 begin
   GuardMutable;
+  if FAsyncVerdict.Deferral = TVerdictDeferral.HostDecision then
+    raise EInvalidOperationTlsLibException.CreateRes(@SVerdictSlotConflict);
   FAsyncVerdict.Deferral := TVerdictDeferral.LiveRevocation;
   FAsyncVerdict.DeadlineMs := ADeadlineMs;
   Result := Self;
@@ -2665,6 +2753,8 @@ function TTlsConfigBuilder.WithSessionTicketKeys(
   const AKeys: ISessionTicketKeyManager): TTlsConfigBuilder;
 begin
   GuardMutable;
+  if (AKeys <> nil) and FWantDefaultSessionTicketKeys then
+    raise EInvalidOperationTlsLibException.CreateRes(@SDefaultKeysBesideExplicitKeys);
   FSessionTicketKeys := AKeys;
   Result := Self;
 end;
@@ -2682,8 +2772,9 @@ end;
 function TTlsConfigBuilder.WithDefaultSessionTicketKeys: TTlsConfigBuilder;
 begin
   GuardMutable;
-  // request a default STEK minted from THIS builder's provider + clock at BuildServer time;
-  // an explicit WithSessionTicketKeys always wins (resolved in BuildServer, order-insensitive)
+  if FSessionTicketKeys <> nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SDefaultKeysBesideExplicitKeys);
+  // request a default STEK minted from THIS builder's provider + clock at BuildServer time
   FWantDefaultSessionTicketKeys := True;
   Result := Self;
 end;
@@ -2800,17 +2891,27 @@ var
   LNarrowed: ICipherSuiteRegistryBuilder;
   LProtocol: TSuiteProtocol;
   LSuite: TTlsCipherSuite;
-  LNamed: Boolean;
+  LNamed, LOffered: Boolean;
+  LVersion: UInt16;
   LI: Int32;
 begin
   // a configured TLS 1.2 PSK brings its suites in; a list may then name them like any other
   LBase := WithTls12PskSuites(FCipherSuites);
   if System.Length(FCipherSuiteList) = 0 then
     Exit(LBase);
+  LOffered := False;
   for LI := 0 to System.High(FCipherSuiteList) do
+  begin
     if not LBase.TryGet(FCipherSuiteList[LI], LSuite) then
       raise EArgumentTlsLibException.CreateResFmt(@SCipherSuiteNotConfigured,
         [TCipherSuiteCatalog.Name(FCipherSuiteList[LI])]);
+    for LVersion in FSupportedVersions do
+      if TNegotiationPolicy.ProtocolOf(LVersion) = LSuite.Protocol then
+        LOffered := True;
+  end;
+  // a mixed list is a host's shared list, but one with nothing for the offered versions is dead
+  if not LOffered then
+    raise EArgumentTlsLibException.CreateRes(@SCipherSuiteListNotOffered);
   LNarrowed := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   for LProtocol := TSuiteProtocol.Tls13 downto TSuiteProtocol.Tls12 do
   begin
@@ -2946,6 +3047,7 @@ begin
       if not FTls12PskRequired then
         raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls12PskRequired);
     end;
+    ValidatePskOnlyClientSettings;
   end;
   // a TLS 1.2 PSK is unusable without TLS 1.2
   if (System.Length(FTls12Psks) > 0) and
@@ -2977,6 +3079,15 @@ begin
   if (FResumeVerification = TResumeVerification.Reverify) and
     ((not FResumption) or (FSessionCache = nil)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SResumeVerifyNeedsCache);
+  // a reverified resume carries no staple, so Hard could never be satisfied without a live verdict
+  if (FResumeVerification = TResumeVerification.Reverify) and
+    TRevocationDecision.HardNeedsLiveRevocation(FRevocationPosture,
+    FAsyncVerdict.Deferral = TVerdictDeferral.LiveRevocation) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReverifyHardNeedsLiveVerdict);
+  // the client compresses only a client certificate it sends; an empty list is the off switch
+  if ((FCompressorsSet and (System.Length(FCertificateCompressors) > 0)) or
+    (FCertificateCompressionCache <> nil)) and (not FHasCredential) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SClientCompressionNeedsCredential);
   // a cache or scope the caller supplied is inert with resumption off, like the guards above
   if (not FResumption) and ((FSessionCache <> nil) or (System.Length(FSessionScope) > 0)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SClientResumptionSettingNeedsResumption);
@@ -3098,6 +3209,11 @@ begin
     if (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) and
       (System.Length(FExternalPsks) = 0) then
       raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyServerNeedsTls12Only);
+    if FClientAuth <> TClientAuthMode.None then
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyServerPeerAuth);
+    if (FCompressorsSet and (System.Length(FCertificateCompressors) > 0)) or
+      (FCertificateCompressionCache <> nil) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SServerCompressionNeedsCertificate);
   end;
   // client-certificate trust inputs act only when the server requests a client certificate; set
   // without WithPeerAuth they would be accepted and silently ignored, and the server would admit
@@ -3111,6 +3227,13 @@ begin
     (FAsyncVerdict.Deferral <> TVerdictDeferral.None) or
     (FRevocationPosture = TRevocationPosture.Hard)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerTrustNeedsPeerAuth);
+  // the limits and decompressors act only on a requested client certificate
+  if (FClientAuth = TClientAuthMode.None) and
+    not (FChainLimits = FBaseline.CertificateChainLimits) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SServerChainLimitsNeedPeerAuth);
+  if (FClientAuth = TClientAuthMode.None) and FDecompressorsSet and
+    (System.Length(FCertificateDecompressors) > 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SServerDecompressorsNeedPeerAuth);
   // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
   // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
   // consumes the client-CA anchors as its exclusive root, so it needs roots too. Without one the
@@ -3167,9 +3290,13 @@ begin
   if (FMaxEarlyData > 0) and (FSessionTicketKeys <> nil) and (FSessionStore = nil) and
     (FAntiReplay = nil) then
     raise EInvalidOperationTlsLibException.CreateRes(@SExplicitStekEarlyDataNeedsAntiReplay);
-  // requiring the extension rejects every non-EMS client, so legacy resumption can never apply
-  if FRequireExtendedMasterSecret and (FNonEmsResumption = TNonEmsResumption.Resume) then
+  // requiring the extension rejects every non-EMS client, so no non-EMS resumption mode can apply
+  if FRequireExtendedMasterSecret and (FNonEmsResumption <> TNonEmsResumption.Decline) then
     raise EInvalidOperationTlsLibException.CreateRes(@SNonEmsResumeWithRequiredEms);
+  // RFC 8446 4.6.1: a lifetime of 0 tells the client to discard the ticket at once
+  if FResumption and (FTicketLifetimeSeconds = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@STicketLifetimeZero);
+  ValidateTicketCountZeroSettings;
   ValidateVersionScoping;
   ValidateRequiredCollaborators;
   LConfig := TFrozenServerConfig.Create;

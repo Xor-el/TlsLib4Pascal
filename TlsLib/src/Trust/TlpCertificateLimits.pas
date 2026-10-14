@@ -45,6 +45,8 @@ type
     MaxChainCertificates: Int32;
     /// <summary>The conservative web-PKI defaults (sub-64 KiB certs and message, 16 certificates).</summary>
     class function Defaults: TCertificateChainLimits; static;
+    /// <summary>True when every cap of ALeft equals the matching cap of ARight.</summary>
+    class operator Equal(const ALeft, ARight: TCertificateChainLimits): Boolean;
     /// <summary>True when AChain is within every cap: the entry count, each certificate's length
     /// and the total length. An over-cap chain is refused before any PKIX work.</summary>
     function AdmitsChain(const AChain: TArray<TBytes>): Boolean;
@@ -59,6 +61,13 @@ begin
   Result.MaxCertificateLength := 1 shl 16;
   Result.MaxTotalChainLength := 1 shl 16;
   Result.MaxChainCertificates := 16;
+end;
+
+class operator TCertificateChainLimits.Equal(const ALeft, ARight: TCertificateChainLimits): Boolean;
+begin
+  Result := (ALeft.MaxCertificateLength = ARight.MaxCertificateLength) and
+    (ALeft.MaxTotalChainLength = ARight.MaxTotalChainLength) and
+    (ALeft.MaxChainCertificates = ARight.MaxChainCertificates);
 end;
 
 function TCertificateChainLimits.AdmitsChain(const AChain: TArray<TBytes>): Boolean;

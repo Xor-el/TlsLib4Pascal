@@ -73,9 +73,9 @@ type
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
-    /// Never widens - a code outside the configured set is refused at Build. A list naming only
-    /// suites of a protocol version that is not offered changes nothing (a TLS 1.2 list beside a
-    /// TLS 1.3-only config is a no-op).</summary>
+    /// Never widens - a code outside the configured set is refused at Build, and so is a list
+    /// naming only suites of a protocol version that is not offered (a TLS 1.2 list beside a TLS
+    /// 1.3-only config); a mixed list is accepted and its off-version part is ignored.</summary>
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsClientConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
@@ -138,15 +138,15 @@ type
     /// SetCertificateVerdict. Augment-only and fail-closed; it does not change how an
     /// indeterminate stapled revocation outcome is decided (the posture still decides that
     /// inline). Calling this arms the park unconditionally; it is off unless called. ADeadlineMs is
-    /// the resolver's time budget (the engine owns no timer); 0 imposes no budget. The last of this
-    /// and WithLiveRevocationVerdict wins.</summary>
+    /// the resolver's time budget (the engine owns no timer); 0 imposes no budget. Raises if
+    /// WithLiveRevocationVerdict was called: the two share one verdict slot.</summary>
     function WithAsyncCertificateVerdict(
       ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     /// <summary>Defers an indeterminate stapled revocation outcome to a live OCSP/CRL resolver at
     /// the park (rather than deciding it inline by the posture), so a Hard posture is reachable for
     /// a server that carries no staple. Parks after the pipeline accepts the chain, augment-only and
-    /// fail-closed. ADeadlineMs is the resolver's fetch budget (the engine owns no timer). The
-    /// last of this and WithAsyncCertificateVerdict wins.</summary>
+    /// fail-closed. ADeadlineMs is the resolver's fetch budget (the engine owns no timer). Raises
+    /// if WithAsyncCertificateVerdict was called: the two share one verdict slot.</summary>
     function WithLiveRevocationVerdict(ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
     /// <summary>The client-side session cache to draw resumed sessions from and store new
     /// ones into; providing one engages client resumption (subject to WithResumption). Sessions
@@ -176,9 +176,8 @@ type
     /// original handshake's authentication (inferred from RFC 8446 2.2); Reverify re-runs the certificate
     /// verifier against the stored peer chain, for a stricter posture that re-checks a resumed
     /// server against current trust, at the cost of the verification work on every resume. Under
-    /// a Hard revocation posture without WithLiveRevocationVerdict a reverified resume could never obtain
-    /// revocation status (a resume carries no staple), so the client offers no resumption and does a
-    /// full handshake instead.</summary>
+    /// a Hard revocation posture a reverified resume could never obtain revocation status (a resume
+    /// carries no staple), so Build refuses Reverify there without WithLiveRevocationVerdict.</summary>
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     /// <summary>Whether the client sends GREASE values (RFC 8701) in its ClientHello, whatever
     /// versions it offers. Optional per the RFC; default True.</summary>
@@ -214,12 +213,14 @@ type
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ClientConfigFacet;
     /// <summary>The backends the client compresses its own Certificate with when a server asks
     /// for a client certificate and advertises a matching algorithm (RFC 8879); empty sends it
-    /// uncompressed. Defaults to zlib. Refuses a nil entry, codepoint 0 or a repeated codepoint.</summary>
+    /// uncompressed. Defaults to zlib. Refuses a nil entry, codepoint 0 or a repeated codepoint,
+    /// and Build refuses a non-empty list on a client with no WithCredential.</summary>
     function WithCertificateCompressors(
       const ACompressors: TArray<ICertificateCompressor>): ITls13ClientConfigFacet;
     /// <summary>An optional cache memoizing the client's compressed Certificate across
     /// connections, so a stable certificate is deflated once (an in-memory implementation ships
-    /// as TInMemoryCertificateCompressionCache). nil (the default) compresses each time.</summary>
+    /// as TInMemoryCertificateCompressionCache). nil (the default) compresses each time. Build
+    /// refuses a cache on a client with no WithCredential.</summary>
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ClientConfigFacet;
     /// <summary>Whether the client offers 0-RTT early data when a cached ticket authorizes
@@ -272,9 +273,9 @@ type
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
-    /// Never widens - a code outside the configured set is refused at Build. A list naming only
-    /// suites of a protocol version that is not offered changes nothing (a TLS 1.2 list beside a
-    /// TLS 1.3-only config is a no-op).</summary>
+    /// Never widens - a code outside the configured set is refused at Build, and so is a list
+    /// naming only suites of a protocol version that is not offered (a TLS 1.2 list beside a TLS
+    /// 1.3-only config); a mixed list is accepted and its off-version part is ignored.</summary>
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsServerConfigBuilder;
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
@@ -323,8 +324,10 @@ type
     /// <summary>Whether the server requests a client certificate (mutual TLS) and how
     /// strictly. A server that requests one also needs a client verification policy
     /// (WithClientVerification). The client-certificate trust settings (the policy, pins,
-    /// client-CA list, verify callback, async or live verdict) take effect only with a mode other
-    /// than None; Build refuses them otherwise. Defaults to None.</summary>
+    /// client-CA list, verify callback, async or live verdict, chain limits changed from the
+    /// preset, certificate decompressors) take effect only with a mode other than None; Build
+    /// refuses them otherwise, and refuses a mode other than None on a server holding no
+    /// certificate credential (it never sends a CertificateRequest). Defaults to None.</summary>
     function WithPeerAuth(AMode: TClientAuthMode): ITlsServerConfigBuilder;
     /// <summary>SPKI-SHA256 pins, one of which some certificate on the validated client path must
     /// match; augments PKIX, never a bypass, and applies only when client authentication is
@@ -350,15 +353,16 @@ type
     /// SetCertificateVerdict. Augment-only and fail-closed; it does not change how an indeterminate
     /// revocation outcome is decided (the posture still decides that inline). Calling this arms the
     /// park unconditionally; it is off unless called. ADeadlineMs is the resolver's fetch budget
-    /// (the engine and stream drivers enforce no timer). The last of this and
-    /// WithLiveRevocationVerdict wins.</summary>
+    /// (the engine and stream drivers enforce no timer). Raises if WithLiveRevocationVerdict was
+    /// called: the two share one verdict slot.</summary>
     function WithAsyncCertificateVerdict(
       ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
     /// <summary>Defers an indeterminate client-certificate revocation outcome to a live OCSP/CRL
     /// resolver at the park (rather than deciding it inline by the posture). A client certificate is
     /// never stapled, so this is the only way a Hard posture is reachable for client authentication.
     /// Parks after the pipeline accepts the chain, augment-only and fail-closed. ADeadlineMs is the
-    /// resolver's fetch budget. The last of this and WithAsyncCertificateVerdict wins.</summary>
+    /// resolver's fetch budget. Raises if WithAsyncCertificateVerdict was called: the two share one
+    /// verdict slot.</summary>
     function WithLiveRevocationVerdict(ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
     /// <summary>The stateful session store backing session-id resumption and stateful
     /// tickets; providing one engages server resumption (subject to WithResumption). A store or
@@ -385,7 +389,8 @@ type
     /// <summary>Requests a default STEK, minted at build time from this configuration's own
     /// provider RNG and clock, so stateless tickets honor an injected crypto provider rather than
     /// any concrete default; with a session store configured it also issues stateless tickets
-    /// alongside the store. An explicit WithSessionTicketKeys always overrides this. The keys are
+    /// alongside the store. Raises if WithSessionTicketKeys was called, which it could never
+    /// take effect beside. The keys are
     /// scoped to the built config's lifetime; share a STEK across servers/a fleet through a
     /// TFleetTicketKeyManager and its InstallKey (e.g. from a KMS).</summary>
     function WithDefaultSessionTicketKeys: ITlsServerConfigBuilder;
@@ -397,7 +402,9 @@ type
     /// defaults to the system source, and nil is refused. Injectable primarily so tests can drive
     /// deterministic elapsed time.</summary>
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsServerConfigBuilder;
-    /// <summary>The lifetime advertised for issued sessions and tickets, in seconds.</summary>
+    /// <summary>The lifetime advertised for issued sessions and tickets, in seconds. 0 tells the
+    /// client to discard the ticket at once (RFC 8446 4.6.1), so Build refuses it while resumption
+    /// is on.</summary>
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsServerConfigBuilder;
@@ -419,25 +426,33 @@ type
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITls13ServerConfigFacet;
     /// <summary>How many NewSessionTickets to issue per TLS 1.3 handshake, 0..8 (0 issues none).
-    /// TLS 1.2 tickets are governed by WithResumption alone.</summary>
+    /// TLS 1.2 tickets are governed by WithResumption alone. A TLS 1.3 server issuing none resumes
+    /// nothing unless a store, keys or scope shared with another node is set, and Build still
+    /// accepts that; use WithResumption(False) to turn resumption off explicitly. With 0 and
+    /// resumption on, Build refuses
+    /// an early-data limit unless a session store or ticket keys can resume another server's
+    /// tickets, and on a server not offering TLS 1.2 also default ticket keys or a lifetime: use
+    /// WithResumption(False) to turn resumption off.</summary>
     function WithTicketCount(ACount: Int32): ITls13ServerConfigFacet;
     /// <summary>The backends the server can decompress a client Certificate with (RFC 8879),
     /// advertised in its CertificateRequest when client authentication is requested; empty
     /// advertises none. Defaults to zlib. A nil entry, the reserved codepoint 0, a codepoint
-    /// listed twice, or more than 127 entries is refused.</summary>
+    /// listed twice, or more than 127 entries is refused, and Build refuses a non-empty list on a
+    /// server that requests no client certificate.</summary>
     function WithCertificateDecompressors(
       const ADecompressors: TArray<ICertificateDecompressor>): ITls13ServerConfigFacet;
     /// <summary>The backends the server compresses its own Certificate with when the client
     /// advertised a matching algorithm (RFC 8879), in the server's preference order; empty sends
     /// it uncompressed. Defaults to zlib. Refuses a nil entry, codepoint 0 or a repeated
-    /// codepoint.</summary>
+    /// codepoint, and Build refuses a non-empty list on a server holding no certificate
+    /// credential.</summary>
     function WithCertificateCompressors(
       const ACompressors: TArray<ICertificateCompressor>): ITls13ServerConfigFacet;
     /// <summary>A cross-connection cache memoizing the server's compressed Certificate
     /// (RFC 8879); providing one deflates a stable certificate once and reuses it across the
     /// connections built from this config (a bounded, thread-safe
     /// TInMemoryCertificateCompressionCache ships for this). nil (the default) compresses on
-    /// every handshake.</summary>
+    /// every handshake. Build refuses a cache on a server holding no certificate credential.</summary>
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
     /// <summary>The 0-RTT early-data byte budget the server authorizes (TLS 1.3, RFC 8446
@@ -484,8 +499,8 @@ type
     /// default, runs a full handshake; Abort ends the handshake with handshake_failure; Resume
     /// performs the legacy abbreviated handshake. Decline and Abort also stop issuing resumable
     /// sessions from a non-EMS full handshake. For a server that accepts no non-EMS client at all,
-    /// use WithExtendedMasterSecret(True), which makes this moot; combining that with Resume is
-    /// refused at Build.</summary>
+    /// use WithExtendedMasterSecret(True), which makes this moot; combining that with Abort or
+    /// Resume is refused at Build.</summary>
     function WithNonEmsResumption(AMode: TNonEmsResumption): ITls12ServerConfigFacet;
     /// <summary>The pre-shared keys (RFC 4279 / RFC 5489) the server accepts for the ECDHE_PSK
     /// suites, looked up by the identity the client presents. A configured PSK is preferred over

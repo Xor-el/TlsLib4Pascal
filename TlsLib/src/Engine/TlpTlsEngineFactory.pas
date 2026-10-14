@@ -78,10 +78,6 @@ type
       const ACodes: TArray<UInt16>): TArray<UInt16>; static;
     class function Offers(const AConfig: ITlsCommonConfig;
       AVersion: UInt16): Boolean; static;
-    /// <summary>Whether a cached session may be offered for resumption: a reverified resume carries
-    /// no staple, so a Hard posture with no live-revocation deferral would reject every resumed
-    /// server. Withholding the offer yields a full handshake, which can staple.</summary>
-    class function OffersResumption(const AConfig: ITlsClientConfig): Boolean; static;
     /// <summary>The host_name a client sends in server_name: the DNS host, else empty (an IP
     /// literal, RFC 6066 sec. 3, no host, or an Omit config).</summary>
     class function SniHostName(const AConfig: ITlsClientConfig;
@@ -263,15 +259,6 @@ begin
   Result := TArrayUtilities.Contains<UInt16>(AConfig.SupportedVersions, AVersion);
 end;
 
-class function TTlsEngineFactory.OffersResumption(
-  const AConfig: ITlsClientConfig): Boolean;
-begin
-  Result := AConfig.Resumption and (AConfig.SessionCache <> nil) and not
-    ((AConfig.ResumeVerification = TResumeVerification.Reverify) and
-    TRevocationDecision.HardNeedsLiveRevocation(AConfig.RevocationPosture,
-    AConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.LiveRevocation));
-end;
-
 class function TTlsEngineFactory.CreateClientEngine(
   const AConfig: ITlsClientConfig; const AHost: string): ITlsEngine;
 var
@@ -320,7 +307,7 @@ begin
   // reverify-on-resume re-checks the stored chain, which carries no Certificate and no fresh
   // staple: a second verifier built for the Resumption occasion so must-staple never fires on a
   // resume. Built only when a resume can actually reverify (composed with the same pins).
-  LOffersResumption := OffersResumption(AConfig);
+  LOffersResumption := AConfig.Resumption and (AConfig.SessionCache <> nil);
   LResumeVerifier := nil;
   if LOffersResumption and
     (AConfig.ResumeVerification = TResumeVerification.Reverify) then

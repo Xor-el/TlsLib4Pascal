@@ -26,20 +26,26 @@ Compression is configured behind the `Tls13` facet of either role builder:
 ```pascal
 // replace the defaults with your own backends (an empty array turns that direction off);
 // a builder configures one endpoint, so the client and the server each take their own
-ClientBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client;
+ClientBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client
+  .WithCredential(MyClientCredential);             // compressors need a client certificate to send
 ClientBuilder.Tls13
   .WithCertificateCompressors(MyCompressors)       // my own Certificate, sent to a server
   .WithCertificateDecompressors(MyDecompressors);  // the server's Certificate, received
-ServerBuilder := TTlsPresets.Compatible(Crypto, Pkix).Server;
+ServerBuilder := TTlsPresets.Compatible(Crypto, Pkix).Server
+  .WithCredential(MyServerCredential)
+  .WithPeerAuth(TClientAuthMode.Required);         // decompressors need a requested client certificate
 ServerBuilder.Tls13
   .WithCertificateCompressors(MyCompressors)       // my Certificate, sent to a client
   .WithCertificateDecompressors(MyDecompressors);  // a client's Certificate (mutual TLS), received
 ```
 
 A setter refuses a nil entry, the reserved codepoint 0, a codepoint listed twice, and more than 127
-decompressors (all a `compress_certificate` extension can carry). To keep zlib beside your own,
-include `TZlibCertificateCompression.DefaultCompressors` / `DefaultDecompressors` in the array. To
-turn compression off entirely, pass an empty array in both directions.
+decompressors (all a `compress_certificate` extension can carry). `Build` refuses a non-empty codec
+list the role can never use: client compressors or a cache without `WithCredential`, server
+decompressors without `WithPeerAuth`, and server compressors or a cache with no certificate
+credential (an empty list is always fine). To keep zlib
+beside your own, include `TZlibCertificateCompression.DefaultCompressors` / `DefaultDecompressors`
+in the array. To turn compression off entirely, pass an empty array in both directions.
 
 A compressor is chosen in the **sender's** order: the first of its compressors that the peer
 advertised. The message is then sent compressed whether or not it ended up smaller; RFC 8879 sets

@@ -181,11 +181,9 @@ type
     procedure TestTls12HardReverifyWithLiveVerdictStillResumes;
     procedure TestHardReuseOriginalStillResumes;
     procedure TestSoftReverifyWithoutLiveVerdictStillResumes;
-    // the fallback: a Hard + Reverify client with no live-revocation channel withholds the
-    // resumption offer and performs a full handshake (which can staple) instead of aborting it
-    procedure TestHardReverifyWithoutLiveVerdictFallsBackToFullHandshake;
-    procedure TestHardReverifyHostDecisionFallsBackToFullHandshake;
-    procedure TestTls12HardReverifyWithoutLiveVerdictFallsBackToFullHandshake;
+    // Hard + Reverify needs a live verdict; Build refuses it otherwise
+    procedure TestHardReverifyWithoutLiveVerdictIsRefusedAtBuild;
+    procedure TestHardReverifyHostDecisionIsRefusedAtBuild;
   end;
 
 implementation
@@ -1765,108 +1763,41 @@ begin
     OcspField('root_cert'), LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
 end;
 
-procedure TTestConfigResumption.TestHardReverifyWithoutLiveVerdictFallsBackToFullHandshake;
+procedure TTestConfigResumption.TestHardReverifyWithoutLiveVerdictIsRefusedAtBuild;
 var
   LCache: ISessionCache;
-  LScope: TBytes;
-  LStore: ISessionStore;
-  LClient, LServer: ITlsEngine;
-  LBefore: Int32;
+  LRefused: Boolean;
 begin
   // a Hard + Reverify client with no live-revocation channel could never obtain a fresh verdict on
-  // a resume (no staple travels), so the engine withholds the offer: a full handshake runs instead
-  // (the server staples a Good response, satisfying Hard), the cached session is never drawn, and
-  // ConnectionInfo reports no resumption. A second connection behaves identically - no flip-flop.
+  // a resume (no staple travels): Build refuses it instead of silently never resuming
   LCache := TInMemorySessionCache.Create;
-  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-
-  LClient := NewStaplingSeedClient13(LCache, LScope);
-  LServer := NewStaplingServer13(LStore, 2);
-  PumpToCompletion(LClient, LServer);
-  LBefore := LCache.Count;
-  CheckTrue(LBefore >= 1, 'the seed client cached a session');
-
-  LClient := NewHardReverifyClient13(LCache, LScope, TVerdictDeferral.None);
-  LServer := NewStaplingServer13(LStore, 0);
-  PumpToCompletion(LClient, LServer);
-  CheckEquals(LBefore, LCache.Count,
-    'the gated client never drew the cached session (no resumption offered)');
-  CheckFalse(LClient.ConnectionInfo.Resumed, 'the gated client ran a full handshake');
-  CheckFalse(LClient.IsHandshaking, 'the full handshake completed');
-  CheckFalse(LClient.IsTerminal, 'the Good staple satisfied Hard on the full handshake');
-  CheckAppDataFlows(LClient, LServer);
-
-  // a second connection with another gated client is still full and still completes
-  LClient := NewHardReverifyClient13(LCache, LScope, TVerdictDeferral.None);
-  LServer := NewStaplingServer13(LStore, 0);
-  PumpToCompletion(LClient, LServer);
-  CheckEquals(LBefore, LCache.Count, 'the second connection also drew nothing');
-  CheckFalse(LClient.ConnectionInfo.Resumed, 'the second connection is also a full handshake');
-  CheckFalse(LClient.IsTerminal, 'the second full handshake completed (no flip-flop)');
+  LRefused := False;
+  try
+    NewHardReverifyClient13(LCache, Crypto.Primitives.GetRandom.GenerateBytes(16),
+      TVerdictDeferral.None);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRefused := Pos('WithLiveRevocationVerdict', E.Message) > 0;
+  end;
+  CheckTrue(LRefused, 'Hard + Reverify without a live verdict is refused at Build');
 end;
 
-procedure TTestConfigResumption.TestHardReverifyHostDecisionFallsBackToFullHandshake;
+procedure TTestConfigResumption.TestHardReverifyHostDecisionIsRefusedAtBuild;
 var
   LCache: ISessionCache;
-  LScope: TBytes;
-  LStore: ISessionStore;
-  LClient, LServer: ITlsEngine;
-  LBefore: Int32;
+  LRefused: Boolean;
 begin
-  // HostDecision cannot settle revocation on a resume either, so the offer is withheld: the full
-  // handshake runs its ordinary initial-cert host-decision park, which the accepted verdict clears
+  // a host-decision park cannot settle revocation on a resume either
   LCache := TInMemorySessionCache.Create;
-  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-
-  LClient := NewStaplingSeedClient13(LCache, LScope);
-  LServer := NewStaplingServer13(LStore, 2);
-  PumpToCompletion(LClient, LServer);
-  LBefore := LCache.Count;
-  CheckTrue(LBefore >= 1, 'the seed client cached a session');
-
-  LClient := NewHardReverifyClient13(LCache, LScope, TVerdictDeferral.HostDecision);
-  LServer := NewStaplingServer13(LStore, 0);
-  PumpToCompletionResolving(LClient, LServer, True, TTlsAlertDescription.BadCertificate);
-  CheckEquals(LBefore, LCache.Count,
-    'the gated client never drew the cached session (no resumption offered)');
-  CheckFalse(LClient.ConnectionInfo.Resumed, 'the gated client ran a full handshake');
-  CheckFalse(LClient.IsHandshaking, 'the full handshake completed after the host-decision park');
-  CheckFalse(LClient.IsTerminal, 'the accepted host decision did not abort');
-end;
-
-procedure TTestConfigResumption.TestTls12HardReverifyWithoutLiveVerdictFallsBackToFullHandshake;
-var
-  LCache: ISessionCache;
-  LScope: TBytes;
-  LStore: ISessionStore;
-  LClient, LServer: ITlsEngine;
-  LBefore: Int32;
-begin
-  // the TLS 1.2 twin: the gated client withholds the session_ticket offer, so the server flight
-  // carries a full Certificate (the abbreviated-vs-full tell), the cached session is untouched,
-  // and ConnectionInfo reports no resumption
-  LCache := TInMemorySessionCache.Create;
-  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
-  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-
-  LClient := NewStaplingSeedClient12(LCache, LScope);
-  LServer := NewStaplingServer12(LStore);
-  PumpToCompletion(LClient, LServer);
-  LBefore := LCache.Count;
-  CheckTrue(LBefore >= 1, 'the seed 1.2 client cached a session');
-
-  LClient := NewHardReverifyClient12(LCache, LScope, TVerdictDeferral.None);
-  LServer := NewStaplingServer12(LStore);
-  CheckTrue(DriveObservingServerCert(LClient, LServer),
-    'the gated 1.2 client ran a full handshake (the server sent a Certificate)');
-  CheckEquals(LBefore, LCache.Count,
-    'the gated 1.2 client never drew the cached session (no resumption offered)');
-  CheckFalse(LClient.ConnectionInfo.Resumed, 'the gated 1.2 client did not resume');
-  CheckFalse(LClient.IsTerminal, 'the Good staple satisfied Hard on the full 1.2 handshake');
-  CheckFalse(LClient.IsHandshaking, 'the gated 1.2 client completed the full handshake');
-  CheckAppDataFlows(LClient, LServer);
+  LRefused := False;
+  try
+    NewHardReverifyClient13(LCache, Crypto.Primitives.GetRandom.GenerateBytes(16),
+      TVerdictDeferral.HostDecision);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRefused := Pos('WithLiveRevocationVerdict', E.Message) > 0;
+  end;
+  CheckTrue(LRefused, 'Hard + Reverify with a host-decision verdict is refused at Build');
 end;
 
 initialization
