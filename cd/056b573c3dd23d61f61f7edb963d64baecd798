@@ -1,0 +1,29 @@
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_a42ddd283d3520::t_9da6b824b48635 93
+  s_a42ddd283d3520::t_517c85e70bd611 609-625
+docs/cookbook.md
+  s_a42ddd283d3520::t_4d23b8a253e5d4 471-472
+TlsLib/src/Handshake/TlpTls13HandshakeBase.pas
+  s_a42ddd283d3520::t_5b34db14621d8f 48
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_a42ddd283d3520::t_858ed38af19f3e 210
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_a42ddd283d3520::t_dba3862b5ad1a6 409
+  s_a42ddd283d3520::t_4761f7bc1179d2 416
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd056b573c3dd23d61f61f7edb963d64baecd798",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
