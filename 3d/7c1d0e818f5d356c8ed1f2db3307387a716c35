@@ -1,0 +1,73 @@
+TlsLib.Adapters/mORMot/Examples/src/MormotResumptionScopeExample.pas
+  s_a42ddd283d3520::t_352b964842f646 146-147,149-153,158
+  s_a42ddd283d3520::t_202e6213780f24 203-204,206-209
+  s_a42ddd283d3520::t_0391b598bf736f 163
+  s_a42ddd283d3520::t_e45f96e291fa86 214
+  s_a42ddd283d3520::t_a9aeb732b55ae6 177,223,238
+TlsLib.Adapters/mORMot/Examples/src/MormotEchLoopbackExample.pas
+  s_a42ddd283d3520::t_e776ff539cec27 167
+  s_a42ddd283d3520::t_351754f533988c 163
+  s_a42ddd283d3520::t_89dde4706e4244 204-205,207-209
+  s_a42ddd283d3520::t_969fdc17da7fef 246
+  s_a42ddd283d3520::t_afd538d43eb1a9 152-153,155-158
+TlsLib.Adapters/mORMot/Examples/src/MormotLoopbackExample.pas
+  s_a42ddd283d3520::t_f4e2d880a034ba 356,405
+  s_a42ddd283d3520::t_2a4d24f59cfd00 352
+  s_a42ddd283d3520::t_dbad0f379cbf27 564
+  s_a42ddd283d3520::t_7a389d95ad0948 340-341,343-346
+  s_a42ddd283d3520::t_0f76a5b9d726c3 441-442,444-446
+  s_a42ddd283d3520::t_7335ff8d1d4ca6 457
+  s_a42ddd283d3520::t_2a580d3d8f4c25 382-383,385-388
+  s_a42ddd283d3520::t_bd098d4473c331 396
+  s_a42ddd283d3520::t_39be7e7f34d5c6 535-536,538-540
+TlsLib.Adapters/mORMot/Examples/src/MormotWedgeDemoExample.pas
+  s_a42ddd283d3520::t_4f32a4f55314e1 200-201,203-206,211
+  s_a42ddd283d3520::t_fe57b0f83c8458 215
+  s_a42ddd283d3520::t_e29714d6816615 305
+  s_a42ddd283d3520::t_38a8884b936fb7 278-279,281-283
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_a42ddd283d3520::t_b459c817a3caaa 1321-1322
+  s_a42ddd283d3520::t_12a8a0bf192084 1339,1342-1343
+  s_a42ddd283d3520::t_aad76ea432601b 577,579-582
+  s_a42ddd283d3520::t_578d7317985cc9 1132,1136-1137
+  s_a42ddd283d3520::t_5f9beeefd4930b 591,593-596
+  s_a42ddd283d3520::t_148d74f6ce1d6c 563,565-568
+  s_a42ddd283d3520::t_225b99e2e74cbe 1116,1120-1121
+  s_a42ddd283d3520::t_ae770a6e736b89 605,607-610
+  s_a42ddd283d3520::t_22ab78a2a8e5cf 1096,1100-1101
+  s_a42ddd283d3520::t_d5fa4cb75d1fe4 1401,1403-1404
+  s_a42ddd283d3520::t_70c1b5cb44c029 617,619-622
+  s_a42ddd283d3520::t_17a96ec2c9ce34 549,551-554
+  s_a42ddd283d3520::t_26e530fac78440 1316
+TlsLib.Tests/src/OcspStaplingTests.pas
+  s_a42ddd283d3520::t_61dcd2d6cf4182 635,638,640
+  s_a42ddd283d3520::t_5d2bc4503cb3ac 650,652,654
+  s_a42ddd283d3520::t_9e417114111117 680,683,685
+  s_a42ddd283d3520::t_f6e1f6ce077e42 416,420,422
+  s_a42ddd283d3520::t_37240488b1635a 664,668,670
+TlsLib.Adapters/mORMot/Examples/src/MormotRealWorldExample.pas
+  s_a42ddd283d3520::t_e413402bd6f6fe 110,112-113
+  s_a42ddd283d3520::t_901d60c38fa415 130
+TlsLib.Adapters/mORMot/Examples/src/MormotAdvancedConfigExample.pas
+  s_a42ddd283d3520::t_f6b06ad4f03088 221-222,224-226
+  s_a42ddd283d3520::t_5dd0a26af35dc4 247
+  s_a42ddd283d3520::t_966bb35092e148 190
+  s_a42ddd283d3520::t_7bf1aca2ee13a3 181-182,184-187
+  s_a42ddd283d3520::t_57e05222d3361e 194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3d7c1d0e818f5d356c8ed1f2db3307387a716c35",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
