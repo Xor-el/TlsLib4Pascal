@@ -54,6 +54,7 @@ type
     FTruncated: Boolean;
     FReadChunk: TBytes;
     FWriteChunk: TBytes;
+    FTransportBuffer: TBytes;
     FVerdictResolver: TCertificateVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
     procedure EnsureHandshake;
@@ -148,8 +149,8 @@ begin
   end;
   // a nil resolver is exactly the inline path; a set one decides a parked async verdict
   try
-    TTlsStreamPump.DriveHandshake(FEngine, FTransport, FIsClient, FVerdictResolver,
-      FVerdictDeadlineMs);
+    TTlsStreamPump.DriveHandshake(FEngine, FTransport, FTransportBuffer, FIsClient,
+      FVerdictResolver, FVerdictDeadlineMs);
   except
     on E: Exception do
     begin
@@ -207,7 +208,7 @@ begin
     Exit;
   FWriteClosed := True;
   if FHandshakeDone then
-    TTlsStreamPump.Abort(FEngine, FTransport, ADescription);
+    TTlsStreamPump.Abort(FEngine, FTransport, FTransportBuffer, ADescription);
 end;
 
 procedure TTlsStream.CloseNotify;
@@ -217,7 +218,7 @@ begin
   FWriteClosed := True;
   // a close before the handshake even ran has nothing to protect; only shut down a live one
   if FHandshakeDone then
-    TTlsStreamPump.Close(FEngine, FTransport);
+    TTlsStreamPump.Close(FEngine, FTransport, FTransportBuffer);
 end;
 
 function TTlsStream.TransportTruncated: Boolean;
@@ -268,7 +269,8 @@ begin
     LChunk := TTlsStreamPump.TransportChunk;
   if System.Length(FReadChunk) < LChunk then
     SetLength(FReadChunk, LChunk);
-  LGot := TTlsStreamPump.ReadApp(FEngine, FTransport, FReadChunk, LChunk, LStatus);
+  LGot := TTlsStreamPump.ReadApp(FEngine, FTransport, FTransportBuffer, FReadChunk, LChunk,
+    LStatus);
   case LStatus of
     TTlsReadStatus.Data:
       Move(FReadChunk[0], ABuffer, LGot);
@@ -311,7 +313,7 @@ begin
     if LChunk > TTlsStreamPump.WriteChunk then
       LChunk := TTlsStreamPump.WriteChunk;
     Move(PByte(@ABuffer)[LOffset], FWriteChunk[0], LChunk);
-    TTlsStreamPump.WriteApp(FEngine, FTransport, FWriteChunk, 0, LChunk);
+    TTlsStreamPump.WriteApp(FEngine, FTransport, FTransportBuffer, FWriteChunk, 0, LChunk);
     Inc(LOffset, LChunk);
   end;
   Result := ACount;

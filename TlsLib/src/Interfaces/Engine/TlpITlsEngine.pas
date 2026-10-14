@@ -136,7 +136,8 @@ type
     /// <summary>As above, recording AReason as the error the next operation raises.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
     /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
-    /// send until the ClientHello.</summary>
+    /// send until the ClientHello. Call it once: a second call raises, as does a call from inside
+    /// a handshake callback; on an engine that already failed it does nothing.</summary>
     procedure StartHandshake;
     /// <summary>
     /// Resumes a handshake parked for an async peer-certificate verdict.

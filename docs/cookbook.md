@@ -392,6 +392,7 @@ or timers. You pump bytes; it transduces. The contract (unit `TlpITlsEngine`):
 
 - feed ciphertext in with `ProcessInput(wire, offset, len)`
 - drain ciphertext to send with `TakeOutgoing(dest, destOffset)`
+- call `StartHandshake` once; a second call raises (it does nothing on an engine that already failed)
 - push/pull application data with `Write(...)` / `ReadAppData(...)`
 - check `WantsWrite` / `IsHandshaking`, and service `NextEvent` every cycle — application data is
   not an event (poll `PendingAppData` / `ReadAppData`); past 64 undrained events the informational

@@ -174,6 +174,8 @@ type
     procedure TestWriteOnTerminalEngineFlushesQueuedAlertBeforeRaising;
     procedure TestReadReturningDataFlushesAlertQueuedByTheDrain;
     procedure TestReadReturningBufferedDataSurvivesADeadTransport;
+    procedure TestPumpFillsTheCallersTransportBuffer;
+    procedure TestPumpReusesTheCallersTransportBuffer;
     procedure TestFailedFlushBehindBufferedDataLatchesTheEngine;
     procedure TestFailedFlushBehindReadKeepsTheTransportMessage;
     procedure TestWriteAfterAFailedFlushBehindReadRaises;
@@ -1473,7 +1475,7 @@ var
   LClient, LServer: ITlsEngine;
   LRecorder: TRecordingTransport;
   LTransport: ITlsTransport;
-  LData: TBytes;
+  LData, LTransportBuffer: TBytes;
   LRaised: Boolean;
 begin
   HandshakeEngines(LClient, LServer);
@@ -1484,7 +1486,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, LTransport, LData, 0, 1);
+    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1500,6 +1502,7 @@ var
   LTransport: ITlsTransport;
   LDest: TBytes;
   LWire: TBytes;
+  LTransportBuffer: TBytes;
   LStatus: TTlsReadStatus;
   LGot: Int32;
 begin
@@ -1509,7 +1512,7 @@ begin
   LRecorder := TRecordingTransport.Create;
   LTransport := LRecorder as ITlsTransport;
   System.SetLength(LDest, 16);
-  LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LDest, 16, LStatus);
+  LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16, LStatus);
   CheckEquals(2, LGot, 'the buffered data is returned');
   CheckTrue(LRecorder.Written > 0, 'the alert the drain queued was flushed with the data');
 end;
@@ -1547,7 +1550,7 @@ var
   LClient, LServer: ITlsEngine;
   LScripted: TScriptedTransport;
   LTransport: ITlsTransport;
-  LDest: TBytes;
+  LDest, LTransportBuffer: TBytes;
   LStatus: TTlsReadStatus;
   LRaised: Boolean;
 begin
@@ -1558,7 +1561,7 @@ begin
   System.SetLength(LDest, 16);
   LRaised := False;
   try
-    TTlsStreamPump.ReadApp(LClient, LTransport, LDest, 16, LStatus);
+    TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16, LStatus);
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1572,7 +1575,7 @@ var
   LClient, LServer: ITlsEngine;
   LScripted: TScriptedTransport;
   LTransport: ITlsTransport;
-  LDest, LReply: TBytes;
+  LDest, LReply, LTransportBuffer: TBytes;
   LStatus: TTlsReadStatus;
 begin
   // the reply to a KeyUpdate is owed, not queued, when the read returns: nothing is left to flush
@@ -1580,10 +1583,11 @@ begin
   LScripted := TScriptedTransport.Create(DataThenKeyUpdateRequest(LServer), False);
   LTransport := LScripted as ITlsTransport;
   System.SetLength(LDest, 16);
-  CheckEquals(2, TTlsStreamPump.ReadApp(LClient, LTransport, LDest, 16, LStatus), 'the data');
+  CheckEquals(2, TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16,
+    LStatus), 'the data');
   CheckEquals(0, LScripted.Written, 'no reply was queued by the read');
   LReply := DecodeHex('03');
-  TTlsStreamPump.WriteApp(LClient, LTransport, LReply, 0, 1);
+  TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LReply, 0, 1);
   CheckTrue(LScripted.Written > 0, 'the next write carries the reply and the data');
 end;
 
@@ -1591,7 +1595,7 @@ procedure TTestTlsStreamLoopback.ReadWithAKeyUpdateLostToADeadSocket(out AClient
   out ATransport: ITlsTransport);
 var
   LServer: ITlsEngine;
-  LDest, LWire: TBytes;
+  LDest, LWire, LTransportBuffer: TBytes;
   LStatus: TTlsReadStatus;
 begin
   HandshakeEngines(AClient, LServer);
@@ -1601,7 +1605,7 @@ begin
   AClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
   ATransport := TDeadWriteTransport.Create as ITlsTransport;
   System.SetLength(LDest, 16);
-  TTlsStreamPump.ReadApp(AClient, ATransport, LDest, 16, LStatus);
+  TTlsStreamPump.ReadApp(AClient, ATransport, LTransportBuffer, LDest, 16, LStatus);
 end;
 
 procedure TTestTlsStreamLoopback.TestFailedFlushBehindBufferedDataLatchesTheEngine;
@@ -1627,14 +1631,14 @@ procedure TTestTlsStreamLoopback.TestWriteAfterAFailedFlushBehindReadRaises;
 var
   LClient: ITlsEngine;
   LTransport: ITlsTransport;
-  LData: TBytes;
+  LData, LTransportBuffer: TBytes;
   LRaised: Boolean;
 begin
   ReadWithAKeyUpdateLostToADeadSocket(LClient, LTransport);
   LData := DecodeHex('00');
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, LTransport, LData, 0, 1);
+    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1642,11 +1646,47 @@ begin
   CheckTrue(LRaised, 'no record is written under keys the peer never received');
 end;
 
+procedure TTestTlsStreamLoopback.TestPumpFillsTheCallersTransportBuffer;
+var
+  LClient, LServer: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LData, LTransportBuffer: TBytes;
+begin
+  HandshakeEngines(LClient, LServer);
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  LData := DecodeHex('00');
+  TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+  CheckTrue(LRecorder.Written > 0, 'the record reached the transport');
+  CheckEquals(TTlsStreamPump.TransportChunk, System.Length(LTransportBuffer),
+    'the flush grew the caller''s buffer to the transport chunk');
+end;
+
+procedure TTestTlsStreamLoopback.TestPumpReusesTheCallersTransportBuffer;
+var
+  LClient, LServer: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LData, LTransportBuffer, LFirst: TBytes;
+begin
+  HandshakeEngines(LClient, LServer);
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  LData := DecodeHex('00');
+  TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+  // holding the first array alive means a reallocation cannot land on the same address
+  LFirst := LTransportBuffer;
+  CheckTrue(LFirst <> nil, 'the first flush allocated the caller''s buffer');
+  TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+  CheckTrue(Pointer(LFirst) = Pointer(LTransportBuffer), 'the second flush reused the buffer');
+end;
+
 procedure TTestTlsStreamLoopback.TestReadReturningBufferedDataSurvivesADeadTransport;
 var
   LClient, LServer: ITlsEngine;
   LTransport: ITlsTransport;
-  LDest, LWire, LData: TBytes;
+  LDest, LWire, LData, LTransportBuffer: TBytes;
   LStatus: TTlsReadStatus;
   LGot: Int32;
 begin
@@ -1660,7 +1700,7 @@ begin
   LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
   LTransport := TDeadWriteTransport.Create as ITlsTransport;
   System.SetLength(LDest, 16);
-  LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LDest, 16, LStatus);
+  LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16, LStatus);
   CheckEquals(2, LGot, 'the plaintext already taken from the engine is returned');
 end;
 
