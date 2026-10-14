@@ -1,0 +1,105 @@
+TlsLib.Tests/src/EchClientEngineTests.pas
+  s_a42ddd283d3520::t_cefeaf8338bc05 88
+  s_a42ddd283d3520::t_56ef846b0a1b67 335-353
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_a42ddd283d3520::t_03f5111bd3bf0a 538-539
+  s_a42ddd283d3520::t_70aa59e6d63271 540-541
+  s_a42ddd283d3520::t_6cbf1cab13b231 1398
+  s_a42ddd283d3520::t_a84f76a4259668 1431
+  s_a42ddd283d3520::t_593f910d579859 1434-1439
+  s_a42ddd283d3520::t_cad7489e41ee04 1428-1429,1432-1433
+  s_a42ddd283d3520::t_447d2376a6d713 1440-1443
+docs/certificate-verification.md
+  s_a42ddd283d3520::t_6991cd1a2364e4 146-148
+  s_a42ddd283d3520::t_d26c35fdda7bac 170-171
+  s_a42ddd283d3520::t_729a4e0a06b8ab 114-116
+TlsLib/src/Ech/TlpEchClient.pas
+  s_a42ddd283d3520::t_2d3ea37a3160ae 40
+  s_a42ddd283d3520::t_cb22f784df2927 41-43
+  s_a42ddd283d3520::t_656d39659d837c 227-228,230,237
+  s_a42ddd283d3520::t_9f5880c8ac3931 152
+  s_a42ddd283d3520::t_d4fb5492048694 231-236
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_a42ddd283d3520::t_d57e91a458ca28 895-896
+  s_a42ddd283d3520::t_4679d8f461a835 123
+  s_a42ddd283d3520::t_5bbd3878203233 121-122
+  s_a42ddd283d3520::t_808caccfb1307d 89-91
+  s_a42ddd283d3520::t_7534f4b336a74e 311-324
+  s_a42ddd283d3520::t_26f00f4aa47289 924-963
+  s_a42ddd283d3520::t_c8233f83a80205 964-982
+TlsLib/src/Trust/TlpCertificateVerifierSource.pas
+  s_a42ddd283d3520::t_d47f700b38cecb 141-142
+  s_a42ddd283d3520::t_993f697b366051 133-135
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_a42ddd283d3520::t_aa615d1c20f0da 3114-3115
+  s_a42ddd283d3520::t_3ceda6ce39ea1c 3113
+  s_a42ddd283d3520::t_30625d3d7c2af8 378-380
+docs/cookbook.md
+  s_a42ddd283d3520::t_23f807ac56aba0 937
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_a42ddd283d3520::t_60b92b45f1ca76 320-327
+  s_a42ddd283d3520::t_063d76689538f1 268-269
+  s_a42ddd283d3520::t_419ac5c7b93557 319
+  s_a42ddd283d3520::t_b9d4141d638dcd 370
+docs/ech.md
+  s_a42ddd283d3520::t_31ecf88da7165f 58-59
+  s_a42ddd283d3520::t_735390e865de45 162-166
+  s_a42ddd283d3520::t_97ef799385c42e 55-57,60-62
+  s_a42ddd283d3520::t_84307540cdd0d9 130-132
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_a42ddd283d3520::t_02833ff4645d8f 243-244
+  s_a42ddd283d3520::t_1bfa8619efecb0 106
+  s_a42ddd283d3520::t_92fc1963bafe4f 133-134
+  s_a42ddd283d3520::t_2e4c9a698d7927 105
+  s_a42ddd283d3520::t_b06248b9bc2bf1 238-242
+TlsLib.Tools/EchKeyGen/src/TlpEchKeyGen.pas
+  s_a42ddd283d3520::t_024ded43850f52 453-454
+  s_a42ddd283d3520::t_fc2b7519dc5629 412
+  s_a42ddd283d3520::t_5230f2c0ae880d 132-134
+  s_a42ddd283d3520::t_774bc20ddc0154 219-220,223-224
+  s_a42ddd283d3520::t_de5629e7ff6859 97-98,104-108
+  s_a42ddd283d3520::t_892e5de4a82adc 432-435
+  s_a42ddd283d3520::t_b757830fad1550 150
+  s_a42ddd283d3520::t_c0a86338404cc6 470-471
+  s_a42ddd283d3520::t_51b4e2933d95f4 214-218,225-227
+  s_a42ddd283d3520::t_59e0fbe69360d1 177
+  s_a42ddd283d3520::t_c899f786fbdf48 203-205,207
+  s_a42ddd283d3520::t_30fba47ff4fb68 221-222
+  s_a42ddd283d3520::t_5b4a9d30cda04e 109,192,196
+  s_a42ddd283d3520::t_1f7d18ba7b9a66 403
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_a42ddd283d3520::t_379a8fde147d2c 177-181
+  s_a42ddd283d3520::t_7755c798b9cea4 211
+  s_a42ddd283d3520::t_21f6a37bb6651b 212
+  s_a42ddd283d3520::t_b6b24f14a0a722 921-959,961-973,1000-1003,1005-1006,1008-1012,1015,1018-1023,1025-1026,1028-1032,1035,1038-1052,1054-1076
+  s_a42ddd283d3520::t_e33aa01580dd25 205-210
+  s_a42ddd283d3520::t_cf6d4962005a6a 974-999
+  s_a42ddd283d3520::t_aa32f59d6aac4b 1004,1007,1013-1014,1016-1017
+  s_a42ddd283d3520::t_2b459ab8ba93af 1024,1027,1033-1034,1036-1037
+  s_a42ddd283d3520::t_b1d71ecde2aac3 960
+  s_a42ddd283d3520::t_e726f7d27a33fc 1053
+TlsLib.Tests/src/EchToolingTests.pas
+  s_a42ddd283d3520::t_56eb1700466dff 460-493
+  s_a42ddd283d3520::t_d2c250115530aa 79-82
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_a42ddd283d3520::t_7b4ce4fcf445d9 134-137
+  s_a42ddd283d3520::t_6223edf46500da 1639,1641-1643,1646
+  s_a42ddd283d3520::t_d4c0b70db4def2 1640
+  s_a42ddd283d3520::t_475bbd1c668221 1598
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8cf27b10cdcc98e68a6ffb77ff34c01a1a138f87",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
