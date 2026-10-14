@@ -80,7 +80,7 @@ begin
   for LI := 0 to High(ANames) do
     LNames[LI] := ANames[LI];
   if not TServerName.TryParse(AHost, LName) then
-    Exit(False);
+    Fail('the host under test does not parse: ' + AHost);
   Result := TEndpointIdentity.Matches(LName, LNames, nil);
 end;
 
@@ -95,7 +95,7 @@ begin
   for LI := 0 to High(AIps) do
     LIps[LI] := AIps[LI];
   if not TServerName.TryParse(AHost, LName) then
-    Exit(False);
+    Fail('the host under test does not parse: ' + AHost);
   Result := TEndpointIdentity.Matches(LName, nil, LIps);
 end;
 

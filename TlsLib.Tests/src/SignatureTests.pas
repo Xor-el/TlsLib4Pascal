@@ -686,11 +686,8 @@ procedure TTestSignature.TestEcdsaVerifiesValidAndRejectsTrailingBytes;
 var
   LMessage, LSig, LTampered: TBytes;
   LSigner: ISignatureSigner;
-  LRejected: Boolean;
 begin
-  // a valid ECDSA signature verifies (no regression from the stricter DER check), and a signature
-  // with a trailing byte after the SEQUENCE is rejected - either as a False verdict (a native
-  // decoder) or by the strict DER decoder raising, so the check tolerates both
+  // a trailing byte after the DER SEQUENCE is a False verdict, never a raise
   LMessage := DecodeHex('54686520717569636b2062726f776e20666f78'); // "The quick brown fox"
   LSigner := Crypto.Signing.CreateSignatureSigner(
     TSignatureScheme.ECDSA_SECP256R1_SHA256,
@@ -702,13 +699,8 @@ begin
 
   LTampered := System.Copy(LSig);
   SetLength(LTampered, System.Length(LTampered) + 1); // a trailing byte after the DER SEQUENCE
-  try
-    LRejected := not VerifyEcdsa(Crypto, LTampered, LMessage);
-  except
-    on E: Exception do
-      LRejected := True;
-  end;
-  CheckTrue(LRejected, 'a signature with a trailing byte is rejected');
+  CheckFalse(VerifyEcdsa(Crypto, LTampered, LMessage),
+    'a signature with a trailing byte verifies False without raising');
 end;
 
 initialization

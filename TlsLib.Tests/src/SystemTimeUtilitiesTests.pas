@@ -104,7 +104,7 @@ var
 begin
   // an independent reading of UTC from the runtime library
 {$IFDEF FPC}
-  LRtlMs := TDateTimeUtilities.DateTimeToUnixMs(NowUTC);
+  LRtlMs := TDateTimeUtilities.DateTimeToUnixMs(LocalTimeToUniversal(Now));
 {$ELSE}
   LRtlMs := TDateTimeUtilities.DateTimeToUnixMs(TTimeZone.Local.ToUniversalTime(Now));
 {$ENDIF}

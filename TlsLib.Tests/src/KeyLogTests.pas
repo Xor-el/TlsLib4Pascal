@@ -52,7 +52,7 @@ type
   published
     procedure TestTls13ReportsSecretsInOrderKeyedByRandom;
     procedure TestTls13ReportsEarlySecretsForZeroRtt;
-    procedure TestTls13NoSinkReportsNothing;
+    procedure TestTls13DetachingTheSinkStopsReporting;
     procedure TestTls12ReportsMasterSecretAsClientRandom;
     procedure TestBuilderKeyLogLandsInConfig;
     procedure TestBuilderDefaultKeyLogIsNil;
@@ -149,24 +149,28 @@ begin
   end;
 end;
 
-procedure TTestKeyLog.TestTls13NoSinkReportsNothing;
+procedure TTestKeyLog.TestTls13DetachingTheSinkStopsReporting;
 var
   LSched: TTls13KeySchedule;
+  LMock: TMockKeyLog;
+  LLog: IKeyLog;
+  LReported: Int32;
 begin
+  LMock := TMockKeyLog.Create;
+  LLog := LMock as IKeyLog;
   LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
   try
     LSched.SetSharedSecret(TSecretBuffer.From(Rep($AB, 32)));
-    // no SetKeyLog: nothing must be read or reported
+    LSched.SetKeyLog(LLog, FixedRandom);
     LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Rep($01, 32));
-    LSched.DeriveEpochSecrets(TTlsEpoch.Application, Rep($02, 32));
-    // the absence of a sink is proven by no crash and no secret read; a second schedule with a nil
-    // sink installed behaves identically
+    LReported := LMock.Count;
+    CheckTrue(LReported > 0, 'control: the installed sink receives the handshake secrets');
     LSched.SetKeyLog(nil, FixedRandom);
-    LSched.DeriveEpochSecrets(TTlsEpoch.Application, Rep($03, 32));
+    LSched.DeriveEpochSecrets(TTlsEpoch.Application, Rep($02, 32));
+    CheckEquals(LReported, LMock.Count, 'a detached sink receives nothing further');
   finally
     LSched.Free;
   end;
-  Check(True, 'deriving without a sink neither reports nor raises');
 end;
 
 procedure TTestKeyLog.TestTls12ReportsMasterSecretAsClientRandom;

@@ -328,13 +328,14 @@ end;
 
 procedure TTestEchClientEngine.TestEmptyConfigListWithoutGreaseFailsClosed;
 var
+  LPolicy: IEchClientPolicy;
   LRaised: Boolean;
 begin
   // an empty ECHConfigList with GREASE off would silently send the true SNI: reject it at
   // configuration time rather than fall back to cleartext
   LRaised := False;
   try
-    TEchClientPolicy.Create(Crypto, nil, False, False);
+    LPolicy := TEchClientPolicy.Create(Crypto, nil, False, False) as IEchClientPolicy;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -344,13 +345,15 @@ end;
 
 procedure TTestEchClientEngine.TestMalformedConfigListIsAConfigurationError;
 var
+  LPolicy: IEchClientPolicy;
   LRaised, LWireAlert: Boolean;
 begin
   // caller-supplied bytes that do not parse are an argument fault, not a peer-wire alert
   LRaised := False;
   LWireAlert := False;
   try
-    TEchClientPolicy.Create(Crypto, TBytes.Create($00, $05, $01), False, False);
+    LPolicy := TEchClientPolicy.Create(Crypto, TBytes.Create($00, $05, $01), False, False)
+      as IEchClientPolicy;
   except
     on E: EFatalAlertTlsLibException do
       LWireAlert := True;

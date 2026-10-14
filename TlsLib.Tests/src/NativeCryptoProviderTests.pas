@@ -82,13 +82,16 @@ type
     // Whether AKey was adopted by the platform's native module (carries the native marker).
     function IsNativeKey(const AProvider: ICryptoProvider;
       const AKey: ISigningKey): Boolean;
-    // Gate for a native test: True when the composed provider serves AScheme natively (so the
-    // test runs), False when it reports portable (the caller skips - a host without the module).
+    // True when AScheme is served natively; otherwise skips the test and returns False (caller Exits).
     function NativeSigningOrSkip(const AProvider: ICryptoProvider;
       AScheme: TSignatureScheme): Boolean;
     // Whether a signature by AKey under AScheme verifies against the SubjectPublicKeyInfo ASpki.
     function SignedVerifies(AScheme: TSignatureScheme; const AKey: ISigningKey;
       const ASpki: TBytes): Boolean;
+    // A portable provider holding AHpke as its HPKE facet (nil: the default composition).
+    function BaseWithHpke(const AHpke: IHpkeCrypto): ICryptoProvider;
+    // HPKE is reported Composed exactly when it composes over the provider's own primitives.
+    procedure CheckHpkeFacetReport(const AProvider: ICryptoProvider);
   protected
     procedure SetUp; override;
   end;
@@ -152,12 +155,8 @@ type
     procedure TestPssSpkiVerifiesNoRsaPssRsaeSignature;
   end;
 
-  /// <summary>How the overlay class treats the base's HPKE facet, constructed directly so it runs
-  /// on every platform (Compose returns the base where there is no native provider). A nil facet
-  /// passed to BaseWithHpke gives the default composition.</summary>
-  TTestOverlayCryptoProvider = class(TTlsLibAlgorithmTestCase)
-  strict private
-    function BaseWithHpke(const AHpke: IHpkeCrypto): ICryptoProvider;
+  /// <summary>The overlay's HPKE contract, directly and through Compose, so every platform is covered.</summary>
+  TTestOverlayCryptoProvider = class(TNativeCryptoProviderTestBase)
   published
     // a caller-supplied facet that is not the library's composition is returned as given
     procedure TestSuppliedHpkeFacetIsKept;
@@ -165,6 +164,15 @@ type
     procedure TestHpkeCompositionOverOtherPrimitivesIsKept;
     // the default composition is rebuilt over the overlay's own primitives
     procedure TestDefaultHpkeIsRebuiltOverOverlayPrimitives;
+    // through TOSCryptoProvider.Compose on any platform: a supplied facet comes back as given
+    procedure TestComposeKeepsSuppliedHpkeFacet;
+    procedure TestComposeKeepsHpkeCompositionOverOtherPrimitives;
+    // and the default composition rides the result's own primitives
+    procedure TestComposeDefaultHpkeRidesTheResultPrimitives;
+    // the backend report agrees with the structure of the facet Compose returned
+    procedure TestComposedReportMatchesSuppliedHpkeFacet;
+    procedure TestComposedReportMatchesHpkeCompositionOverOtherPrimitives;
+    procedure TestComposedReportMatchesDefaultHpkeComposition;
   end;
 
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -174,9 +182,8 @@ type
     // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
     // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
     procedure TestPkcs12ExportedKeyMatchesLeaf;
-    // Compose keeps a supplied HPKE facet, and the backend report claims a composed HPKE only
-    // for the default composition
-    procedure TestComposeKeepsSuppliedHpkeAndReportsOnlyTheDefaultAsComposed;
+    // the CNG overlay engages and reports the default HPKE composition as composed
+    procedure TestComposeEngagesCngAndReportsDefaultHpkeAsComposed;
   end;
 {$IFEND}
 
@@ -400,6 +407,8 @@ function TNativeCryptoProviderTestBase.NativeSigningOrSkip(const AProvider: ICry
   AScheme: TSignatureScheme): Boolean;
 begin
   Result := IsNativeSigning(AProvider, AScheme);
+  if not Result then
+    SkipTest('the platform serves this scheme from no native module');
 end;
 
 function TNativeCryptoProviderTestBase.SignedVerifies(AScheme: TSignatureScheme;
@@ -415,6 +424,34 @@ begin
   LVerifier := Crypto.Signing.CreateSignatureVerifier(AScheme, ASpki);
   LVerifier.Update(LMessage, 0, System.Length(LMessage));
   Result := LVerifier.Verify(LSigner.Sign);
+end;
+
+function TNativeCryptoProviderTestBase.BaseWithHpke(const AHpke: IHpkeCrypto): ICryptoProvider;
+var
+  LBuilder: ICryptoProviderBuilder;
+begin
+  LBuilder := TCryptoProviderBuilder.Create as ICryptoProviderBuilder;
+  Result := LBuilder.WithHpke(AHpke).Build;
+end;
+
+procedure TNativeCryptoProviderTestBase.CheckHpkeFacetReport(const AProvider: ICryptoProvider);
+var
+  LReport: ICryptoBackendReport;
+  LComposition: IHpkeComposition;
+  LExpected: TCryptoBackend;
+begin
+  if not Supports(AProvider, ICryptoBackendReport, LReport) then
+  begin
+    SkipTest('no overlay engaged, so there is no backend report');
+    Exit;
+  end;
+  if Supports(AProvider.Hpke, IHpkeComposition, LComposition) and
+    (LComposition.ComposedOver = AProvider.Primitives) then
+    LExpected := TCryptoBackend.Composed
+  else
+    LExpected := TCryptoBackend.Portable;
+  CheckEquals(Ord(LExpected), Ord(LReport.FacetBackend(TCryptoFacet.Hpke).Backend),
+    'the HPKE backend report follows the structure of the facet');
 end;
 
 function TNativeCryptoProviderTestBase.BuildServerConfig(
@@ -813,44 +850,16 @@ begin
 end;
 
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-procedure TTestWindowsNativeCryptoProvider.TestComposeKeepsSuppliedHpkeAndReportsOnlyTheDefaultAsComposed;
-var
-  LOther: ICryptoProviderBuilder;
-  LStub, LForeign: IHpkeCrypto;
-
-  // composes over a base holding AHpke (nil: the default); the overlay must have engaged
-  function ComposedOver(const AHpke: IHpkeCrypto;
-    out AReport: ICryptoBackendReport): ICryptoProvider;
-  var
-    LBuilder: ICryptoProviderBuilder;
-  begin
-    LBuilder := TCryptoProviderBuilder.Create as ICryptoProviderBuilder;
-    LBuilder.WithHpke(AHpke);
-    Result := TOSCryptoProvider.Compose(LBuilder.Build);
-    CheckTrue(Supports(Result, ICryptoBackendReport, AReport),
-      'the overlay engaged and reports its backends');
-  end;
-
+procedure TTestWindowsNativeCryptoProvider.TestComposeEngagesCngAndReportsDefaultHpkeAsComposed;
 var
   LReport: ICryptoBackendReport;
   LProvider: ICryptoProvider;
 begin
-  LProvider := ComposedOver(nil, LReport);
+  LProvider := Composed(BaseWithHpke(nil));
+  CheckTrue(Supports(LProvider, ICryptoBackendReport, LReport),
+    'the overlay engaged and reports its backends');
   CheckTrue(LReport.FacetBackend(TCryptoFacet.Hpke).Backend = TCryptoBackend.Composed,
     'the default HPKE composition is reported as composed over the native primitives');
-
-  LStub := TStubHpke.Create as IHpkeCrypto;
-  LProvider := ComposedOver(LStub, LReport);
-  CheckTrue(LProvider.Hpke = LStub, 'Compose keeps a supplied HPKE facet');
-  CheckTrue(LReport.FacetBackend(TCryptoFacet.Hpke).Backend = TCryptoBackend.Portable,
-    'a supplied HPKE facet is not reported as composed');
-
-  LOther := TCryptoProviderBuilder.Create as ICryptoProviderBuilder;
-  LForeign := THpkeComposition.Create(LOther.Build.Primitives) as IHpkeCrypto;
-  LProvider := ComposedOver(LForeign, LReport);
-  CheckTrue(LProvider.Hpke = LForeign, 'Compose keeps a composition over other primitives');
-  CheckTrue(LReport.FacetBackend(TCryptoFacet.Hpke).Backend = TCryptoBackend.Portable,
-    'a composition over other primitives is not reported as composed');
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestPkcs12ExportedKeyMatchesLeaf;
@@ -1142,7 +1151,10 @@ begin
     TSecretBuffer.FromString(SPassword));
   // the guard under test is for a natively held key; a platform that adopts none skips
   if not IsNativeKey(Crypto, LCredential.PrivateKey) then
+  begin
+    SkipTest('the platform adopts no native PKCS#12 key');
     Exit;
+  end;
   // pair the native RSA key with a valid EC signing leaf: it permits signing (so the guard
   // reaches the key compare) but its key is a different family, so it fails as a wrong leaf -
   // not on an earlier keyUsage/exportability check
@@ -1178,7 +1190,10 @@ begin
   LCredential := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
     TSecretBuffer.FromString(SPassword));
   if not IsNativeKey(Crypto, LCredential.PrivateKey) then
+  begin
+    SkipTest('the platform adopts no native PKCS#12 key');
     Exit;
+  end;
   LGood.CertificateChain := LCredential.CertificateChain;
   LGood.PrivateKey := LCredential.PrivateKey;
   // the native key's exported SPKI matches its own leaf, so the guard passes and Build succeeds
@@ -1237,14 +1252,6 @@ end;
 
 { TTestOverlayCryptoProvider }
 
-function TTestOverlayCryptoProvider.BaseWithHpke(const AHpke: IHpkeCrypto): ICryptoProvider;
-var
-  LBuilder: ICryptoProviderBuilder;
-begin
-  LBuilder := TCryptoProviderBuilder.Create as ICryptoProviderBuilder;
-  Result := LBuilder.WithHpke(AHpke).Build;
-end;
-
 procedure TTestOverlayCryptoProvider.TestSuppliedHpkeFacetIsKept;
 var
   LSupplied: IHpkeCrypto;
@@ -1283,6 +1290,52 @@ begin
     'the overlay''s HPKE is still the default composition');
   CheckTrue(LComposition.ComposedOver = LPrimitives,
     'the default composition is rebuilt over the overlay''s primitives');
+end;
+
+procedure TTestOverlayCryptoProvider.TestComposeKeepsSuppliedHpkeFacet;
+var
+  LSupplied: IHpkeCrypto;
+begin
+  LSupplied := TStubHpke.Create as IHpkeCrypto;
+  CheckTrue(Composed(BaseWithHpke(LSupplied)).Hpke = LSupplied,
+    'Compose keeps a supplied HPKE facet');
+end;
+
+procedure TTestOverlayCryptoProvider.TestComposeKeepsHpkeCompositionOverOtherPrimitives;
+var
+  LSupplied: IHpkeCrypto;
+begin
+  LSupplied := THpkeComposition.Create(BaseWithHpke(nil).Primitives) as IHpkeCrypto;
+  CheckTrue(Composed(BaseWithHpke(LSupplied)).Hpke = LSupplied,
+    'Compose keeps a composition over other primitives');
+end;
+
+procedure TTestOverlayCryptoProvider.TestComposeDefaultHpkeRidesTheResultPrimitives;
+var
+  LResult: ICryptoProvider;
+  LComposition: IHpkeComposition;
+begin
+  LResult := Composed(BaseWithHpke(nil));
+  CheckTrue(Supports(LResult.Hpke, IHpkeComposition, LComposition),
+    'the default HPKE is a composition');
+  CheckTrue(LComposition.ComposedOver = LResult.Primitives,
+    'the default composition rides the result''s own primitives');
+end;
+
+procedure TTestOverlayCryptoProvider.TestComposedReportMatchesSuppliedHpkeFacet;
+begin
+  CheckHpkeFacetReport(Composed(BaseWithHpke(TStubHpke.Create as IHpkeCrypto)));
+end;
+
+procedure TTestOverlayCryptoProvider.TestComposedReportMatchesHpkeCompositionOverOtherPrimitives;
+begin
+  CheckHpkeFacetReport(Composed(BaseWithHpke(
+    THpkeComposition.Create(BaseWithHpke(nil).Primitives) as IHpkeCrypto)));
+end;
+
+procedure TTestOverlayCryptoProvider.TestComposedReportMatchesDefaultHpkeComposition;
+begin
+  CheckHpkeFacetReport(Composed(BaseWithHpke(nil)));
 end;
 
 initialization

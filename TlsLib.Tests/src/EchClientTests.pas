@@ -163,7 +163,10 @@ begin
   CheckEquals(0, LSession.Remaining, 'EncodedClientHelloInner session_id is empty');
   LCipher := LReader.OpenVector(2); // cipher_suites
   LComp := LReader.OpenVector(1); // legacy_compression_methods
-  CheckTrue((LCipher.Remaining >= 0) and (LComp.Remaining >= 0), 'framed');
+  CheckTrue((LCipher.Remaining > 0) and (LCipher.Remaining mod 2 = 0),
+    'cipher_suites holds whole two-byte suites');
+  CheckEquals(1, LComp.Remaining, 'legacy_compression_methods holds one method');
+  CheckEquals(0, LComp.ReadUInt8, 'and it is the null method');
   // extensions vector, followed by the padding
   AEntries := TExtensionVector.ParseFrom(LReader);
   APadding := LReader.ReadBytes(LReader.Remaining);
@@ -498,9 +501,8 @@ begin
     end;
     CheckTrue(LRefused, 'BuildEncodedInner refuses after ForgetSecrets');
 
-    // forgetting again is a harmless no-op (does not raise)
+    // forgetting again is a harmless no-op: a raise here fails the test
     LEch.ForgetSecrets;
-    CheckTrue(True, 'ForgetSecrets is idempotent');
   finally
     LEch.Free;
   end;

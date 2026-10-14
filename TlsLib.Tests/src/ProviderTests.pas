@@ -83,7 +83,7 @@ type
     procedure TestAeadLongConnectionRoundTrip;
     procedure TestAeadNonceReuseRejected;
     procedure TestRandomDistinctNonZero;
-    procedure TestHasHardwareAesReturnsBoolean;
+    procedure TestHasHardwareAesIsStable;
     procedure TestAgreeRejectsForeignKeyHandle;
     procedure TestX25519AgreeRejectsWrongLengthPeerKeyAsPeerInput;
     procedure TestAgreeRejectsCompressedPeerPoint;
@@ -747,13 +747,11 @@ begin
   CheckFalse(AreEqual(LA, LB), 'two draws must differ');
 end;
 
-procedure TTestCryptoProvider.TestHasHardwareAesReturnsBoolean;
-var
-  LValue: Boolean;
+procedure TTestCryptoProvider.TestHasHardwareAesIsStable;
 begin
-  // the contract is only that it returns a Boolean without throwing
-  LValue := Crypto.Primitives.HasHardwareAes;
-  CheckTrue((LValue = True) or (LValue = False), 'HasHardwareAes is a Boolean');
+  // the default suite order reads it more than once per pass, so it must not flip
+  CheckEquals(Crypto.Primitives.HasHardwareAes, Crypto.Primitives.HasHardwareAes,
+    'HasHardwareAes answers the same twice');
 end;
 
 procedure TTestCryptoProvider.DoAgreeRejectsForeignKeyHandle(
@@ -932,12 +930,20 @@ begin
   // tag 0x04, then a 4-byte length 0x7FFFFFFF whose content end would overflow Int32: rejected
   CheckFalse(TDer.ReadTlv(DecodeHex('04847FFFFFFF'), 0, LTag, LContentOff, LContentLen, LNext),
     'an overflowing 4-byte length is rejected');
-  // tag 0x04, long form 0x81 0x05: a length under 0x80 must use the short form (non-minimal)
-  CheckFalse(TDer.ReadTlv(DecodeHex('048105'), 0, LTag, LContentOff, LContentLen, LNext),
+  // each non-minimal vector carries its full content, so only minimality can refuse it
+  CheckFalse(TDer.ReadTlv(DecodeHex('0481050102030405'), 0, LTag, LContentOff, LContentLen, LNext),
     'a length under 0x80 in long form is non-minimal');
-  // tag 0x04, long form 0x82 0x00 0x05: a multi-byte length with a leading zero byte is non-minimal
-  CheckFalse(TDer.ReadTlv(DecodeHex('04820005'), 0, LTag, LContentOff, LContentLen, LNext),
+  CheckFalse(TDer.ReadTlv(DecodeHex('048200050102030405'), 0, LTag, LContentOff, LContentLen, LNext),
     'a multi-byte length with a leading zero byte is non-minimal');
+  CheckFalse(TDer.ReadTlv(DecodeHex('04820080' + StringOfChar('A', 256)), 0, LTag, LContentOff,
+    LContentLen, LNext), 'a leading zero byte is non-minimal even when the length is 0x80 or more');
+  CheckTrue(TDer.ReadTlv(DecodeHex('048180' + StringOfChar('A', 256)), 0, LTag, LContentOff,
+    LContentLen, LNext), 'control: the minimal long form of 128 parses');
+  CheckEquals(128, LContentLen, 'long-form content length');
+  // the same content under the minimal short form parses
+  CheckTrue(TDer.ReadTlv(DecodeHex('04050102030405'), 0, LTag, LContentOff, LContentLen, LNext),
+    'control: the minimal encoding of the same TLV parses');
+  CheckEquals(5, LContentLen, 'minimal-form content length');
   // a well-formed short-form TLV still parses
   CheckTrue(TDer.ReadTlv(DecodeHex('0403AABBCC'), 0, LTag, LContentOff, LContentLen, LNext),
     'a short-form TLV parses');
