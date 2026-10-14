@@ -1,0 +1,37 @@
+.github/workflows/ci/interop/run-bogo.sh
+  s_4adb7e2edc0c28::t_a1bbd2512dbccf 17
+  s_4adb7e2edc0c28::t_b49228e4201a9e 30-31
+  s_4adb7e2edc0c28::t_3546ea83270a3b 58-60
+.github/workflows/ci/ppc64-be-build.sh
+  s_4adb7e2edc0c28::t_b602e3bce79167 41-42
+.github/workflows/ci/interop/interop-harness/action.yml
+  s_4adb7e2edc0c28::t_45e27d594f6714 23
+  s_4adb7e2edc0c28::t_e75e26bccaffc6 51
+  s_4adb7e2edc0c28::t_3b838248c17753 6-7
+.github/workflows/make.yml
+  s_4adb7e2edc0c28::t_bf4962215c1892 58
+  s_4adb7e2edc0c28::t_30c9884fca2bac 529
+  s_4adb7e2edc0c28::t_3d3186607b399f 65
+  s_4adb7e2edc0c28::t_99d39e9222275f 18-20
+  s_4adb7e2edc0c28::t_05e341c9280ab0 602
+  s_4adb7e2edc0c28::t_499ed20d7df80c 503
+  s_4adb7e2edc0c28::t_aed22c2c8595f1 473
+.github/workflows/ci/interop/bogo-classify.py
+  s_4adb7e2edc0c28::t_ca5e80e44affd7 151-152,154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1b4a9c85771c1b0dd5225a337fa5b4014269250f",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
