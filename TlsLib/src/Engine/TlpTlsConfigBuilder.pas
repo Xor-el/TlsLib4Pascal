@@ -195,6 +195,9 @@ type
     /// data when no store or keys can resume another server's tickets, and the default keys and the
     /// lifetime on a server not offering TLS 1.2.</summary>
     procedure ValidateTicketCountZeroSettings;
+    /// <summary>Refuses a client-CA list that, with the signature_algorithms and compress_certificate
+    /// extensions this config sends, overflows a TLS 1.3 CertificateRequest extensions block.</summary>
+    procedure ValidateClientCertificateAuthoritiesFit;
     /// <summary>Composes the accumulated anchor sources into one store: nil for none (a PSK-only
     /// or skip-verify client), the single store for one, else a union. nil when a whole-verifier
     /// is used instead.</summary>
@@ -489,6 +492,15 @@ resourcestring
   SAlpnProtocolTooLong = 'an ALPN protocol name must not exceed 255 bytes (RFC 7301 3.1)';
   SAlpnListTooLong = 'the ALPN protocol list must not exceed 16384 bytes on the wire, so that ' +
     'a ClientHello''s extensions block (RFC 9846 4.2.2) can always carry it';
+  SCertificateAuthorityEmpty = 'a client certificate authority name must not be empty ' +
+    '(RFC 9846 4.3.4)';
+  SCertificateAuthoritiesTooLong = 'the client certificate authority names must not exceed ' +
+    '65535 bytes with their 2-byte length prefixes (RFC 5246 7.4.4, RFC 9846 4.3.4)';
+  SCertificateAuthoritiesNeedRoom = 'the client certificate authority names take %d bytes with ' +
+    'their length prefixes, but a TLS 1.3 CertificateRequest has room for %d beside its other ' +
+    'extensions (RFC 9846 4.4.2): shorten the list or offer TLS 1.2 only';
+  SCompressionCacheNeedsCompressor = 'a certificate compression cache needs at least one ' +
+    'compressor, but the compressor list is empty: add a compressor or drop the cache';
   SNoRegisteredPreferredGroup = 'none of the preferred key-exchange groups is in the named-group ' +
     'registry, so no handshake could ever select a group';
   SCipherSuiteListEmpty = 'a cipher-suite list must name at least one suite';
@@ -565,6 +577,10 @@ const
   MaxResumptionScopeLength = Int32(32);
   MaxServerEarlyData = UInt32(1 shl 20);
   MaxAlpnListBytes = Int32(16384);
+  // the names ride one list with a 2-byte length in both versions (RFC 5246 7.4.4, RFC 9846 4.3.4)
+  MaxCertificateAuthoritiesBytes = Int32(65535);
+  // the whole CertificateRequest extensions block is one 2-byte-length vector (RFC 9846 4.4.2)
+  MaxCertificateRequestExtensionsBytes = Int32(65535);
   // the ClientHello extensions block is one vector of at most 2^16-1 bytes (RFC 9846 4.2.2)
   MaxClientHelloExtensionsBytes = Int32(65535);
   // the other extensions (key_share, SNI, groups, schemes, versions, GREASE, the ECH decoy) need about 2 KB
@@ -1976,6 +1992,9 @@ begin
   if FRequestOcspStapling <> FBaseline.RequestOcspStapling then
     raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
       ['WithOcspStaplingRequest']);
+  if not FCheckServerName then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
+      ['WithDangerousDisableServerNameCheck']);
   if FDecompressorsSet and (System.Length(FCertificateDecompressors) > 0) then
     raise EInvalidOperationTlsLibException.CreateResFmt(@SPskOnlyClientSetting,
       ['Tls13.WithCertificateDecompressors']);
@@ -1995,6 +2014,28 @@ begin
   if not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) and
     (FWantDefaultSessionTicketKeys or (FTicketLifetimeSeconds <> DefaultTicketLifetimeSeconds)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerSettingNeedsTickets);
+end;
+
+procedure TTlsConfigBuilder.ValidateClientCertificateAuthoritiesFit;
+var
+  LI: Int32;
+  LNames: Int32;
+  LRoom: Int32;
+begin
+  if (System.Length(FClientCertificateAuthorities) = 0) or
+    not (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) then
+    Exit;
+  LNames := 0;
+  for LI := 0 to System.High(FClientCertificateAuthorities) do
+    Inc(LNames, 2 + System.Length(FClientCertificateAuthorities[LI]));
+  // each extension adds a 4-byte header and its list length (2, 1, 2 bytes); a scheme or algorithm is 2
+  LRoom := MaxCertificateRequestExtensionsBytes - (4 + 2 + 2 * System.Length(FSignatureSchemes.Items)) -
+    (4 + 2);
+  if System.Length(FCertificateDecompressors) > 0 then
+    Dec(LRoom, 4 + 1 + 2 * System.Length(FCertificateDecompressors));
+  if LNames > LRoom then
+    raise EInvalidOperationTlsLibException.CreateResFmt(@SCertificateAuthoritiesNeedRoom,
+      [LNames, LRoom]);
 end;
 
 function TTlsConfigBuilder.WithCipherSuites(
@@ -2428,8 +2469,21 @@ end;
 
 function TTlsConfigBuilder.WithClientCertificateAuthorities(
   const AAuthorities: TArray<TBytes>): TTlsConfigBuilder;
+var
+  LI: Int32;
+  LWireLength: Int32;
 begin
   GuardMutable;
+  LWireLength := 0;
+  // a name over the list cap also overflows its own 2-byte length, so there is no per-name bound
+  for LI := 0 to System.High(AAuthorities) do
+  begin
+    if System.Length(AAuthorities[LI]) = 0 then
+      raise EArgumentTlsLibException.CreateRes(@SCertificateAuthorityEmpty);
+    if System.Length(AAuthorities[LI]) > MaxCertificateAuthoritiesBytes - LWireLength - 2 then
+      raise EArgumentTlsLibException.CreateRes(@SCertificateAuthoritiesTooLong);
+    Inc(LWireLength, 2 + System.Length(AAuthorities[LI]));
+  end;
   FClientCertificateAuthorities := TArrayUtilities.DeepCopy<Byte>(AAuthorities);
   Result := Self;
 end;
@@ -2794,7 +2848,7 @@ function TTlsConfigBuilder.WithTicketLifetime(ASeconds: UInt32): TTlsConfigBuild
 begin
   GuardMutable;
   if ASeconds > MaxTicketLifetimeSeconds then
-    raise EInvalidOperationTlsLibException.CreateRes(@STicketLifetimeTooLong);
+    raise EArgumentTlsLibException.CreateRes(@STicketLifetimeTooLong);
   FTicketLifetimeSeconds := ASeconds;
   Result := Self;
 end;
@@ -3099,6 +3153,9 @@ begin
   if ((FCompressorsSet and (System.Length(FCertificateCompressors) > 0)) or
     (FCertificateCompressionCache <> nil)) and (not FHasCredential) then
     raise EInvalidOperationTlsLibException.CreateRes(@SClientCompressionNeedsCredential);
+  if (FCertificateCompressionCache <> nil) and FCompressorsSet and
+    (System.Length(FCertificateCompressors) = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCompressionCacheNeedsCompressor);
   // a cache or scope the caller supplied is inert with resumption off, like the guards above
   if (not FResumption) and ((FSessionCache <> nil) or (System.Length(FSessionScope) > 0)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SClientResumptionSettingNeedsResumption);
@@ -3154,7 +3211,8 @@ begin
   LConfig.FResumption := FResumption;
   LConfig.FExternalPsks := FExternalPsks;
   LConfig.FTls12Psks := FTls12Psks;
-  LConfig.FCheckServerName := FCheckServerName;
+  // a PSK-only client has no certificate to match a host against
+  LConfig.FCheckServerName := FCheckServerName and (LHasTrust or FDangerousTrust.InsecureSkipVerify);
   LConfig.FServerNameIndication := FServerNameIndication;
   LConfig.FServerVerifierSource := ComposeServerVerifierSource;
   LConfig.FRequestOcspStapling := FRequestOcspStapling;
@@ -3229,6 +3287,9 @@ begin
       (FCertificateCompressionCache <> nil) then
       raise EInvalidOperationTlsLibException.CreateRes(@SServerCompressionNeedsCertificate);
   end;
+  if (FCertificateCompressionCache <> nil) and FCompressorsSet and
+    (System.Length(FCertificateCompressors) = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCompressionCacheNeedsCompressor);
   // client-certificate trust inputs act only when the server requests a client certificate; set
   // without WithPeerAuth they would be accepted and silently ignored, and the server would admit
   // clients unauthenticated
@@ -3313,6 +3374,7 @@ begin
   ValidateTicketCountZeroSettings;
   ValidateVersionScoping;
   ValidateRequiredCollaborators;
+  ValidateClientCertificateAuthoritiesFit;
   LConfig := TFrozenServerConfig.Create;
   Result := LConfig;
   LConfig.FCrypto := FCrypto;

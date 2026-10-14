@@ -82,6 +82,10 @@ uses
   TlpServerName,
   TlpExtensionVector,
   TlpCoreExtensions,
+  TlpExtensionContext,
+  TlpITlsExtension,
+  TlpExtensionBlockCodec,
+  TlpCertificateCompression,
   TlpGrease,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
@@ -120,6 +124,13 @@ type
     function ChainLimitsAccepted(AMaxCert, AMaxTotal: Int32): Boolean;
     function SameOrder(const AA, AB: TArray<UInt16>): Boolean;
     function ServerBuildIsRefused(const ABuilder: ITlsServerConfigBuilder): Boolean;
+    function AuthorityName(ALength: Int32): TBytes;
+    function ClientAuthServerBuilder: ITlsServerConfigBuilder;
+    // the most framed name bytes a TLS 1.3 CertificateRequest can carry for this default config
+    function CertificateRequestRoom: Int32;
+    // the message of the EArgumentTlsLibException the call raises, '' when it raises none
+    function ClientAuthoritiesRefusal(const ABuilder: ITlsServerConfigBuilder;
+      const ANames: TArray<TBytes>): string;
     function HardWebPkiServer: IServerVerification;
     function HardWebPkiClient: IClientVerification;
     function ClientBuildNeedsTls13(const AFacet: ITls13ClientConfigFacet): Boolean;
@@ -414,6 +425,22 @@ type
     procedure TestPskOnlyClientRefusesACredential;
     procedure TestPskOnlyClientRefusesDecompressors;
     procedure TestPskOnlyClientRefusesReverify;
+    procedure TestPskOnlyClientRefusesDisabledServerNameCheck;
+    procedure TestPskOnlyClientChecksNoServerName;
+    procedure TestPskOnlyClientEngineNeedsNoHost;
+    procedure TestClientAuthoritiesNilSignatureSchemesIsATypedRefusal;
+    procedure TestClientAuthoritiesEmptyNameIsRefused;
+    procedure TestClientAuthoritiesFramedTotalAtLimitIsAccepted;
+    procedure TestClientAuthoritiesFramedTotalOverLimitIsRefused;
+    procedure TestClientAuthoritiesRunningTotalAtLimitIsAccepted;
+    procedure TestClientAuthoritiesRunningTotalOverLimitIsRefused;
+    procedure TestClientAuthoritiesRefusalLeavesBuilderUsable;
+    procedure TestClientAuthoritiesAtCertificateRequestRoomBuildAndEncode;
+    procedure TestClientAuthoritiesOverCertificateRequestRoomIsRefused;
+    procedure TestClientAuthoritiesOverRoomBuildOnTls12Only;
+    procedure TestClientCompressionCacheBesideEmptyCompressorsIsRefused;
+    procedure TestServerCompressionCacheBesideEmptyCompressorsIsRefused;
+    procedure TestEmptyCompressorsWithoutCacheBuild;
     procedure TestPskOnlyStrictClientBuildsWithItsSeededSettings;
     procedure TestClientCompressorsNeedACredential;
     procedure TestClientCompressionCacheNeedsACredential;
@@ -4262,10 +4289,10 @@ begin
   try
     LServer.WithTicketLifetime(604801); // one second over the RFC 9846 4.7.1 ceiling
   except
-    on E: EInvalidOperationTlsLibException do
-      LRaised := True;
+    on E: EArgumentTlsLibException do
+      LRaised := Pos('604800', E.Message) > 0;
   end;
-  CheckTrue(LRaised, 'a ticket lifetime above 604800 seconds is rejected');
+  CheckTrue(LRaised, 'a ticket lifetime above 604800 seconds is an argument error');
 end;
 
 procedure TTestConfigBuilder.TestTicketLifetimeAtCapIsAccepted;
@@ -4863,6 +4890,210 @@ begin
     .WithResumeVerification(TResumeVerification.Reverify)
     .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithResumeVerification(Reverify)'),
     'Reverify on a client that has no certificate to re-verify');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientRefusesDisabledServerNameCheck;
+begin
+  CheckTrue(BuildRefused(NewBareClientBuilder.WithDangerousDisableServerNameCheck
+    .Tls13.WithExternalPreSharedKeys(MakePskSpecs(1)), 'WithDangerousDisableServerNameCheck'),
+    'a disabled name check on a client that verifies no certificate');
+end;
+
+function TTestConfigBuilder.AuthorityName(ALength: Int32): TBytes;
+begin
+  SetLength(Result, ALength);
+  if ALength > 0 then
+    FillChar(Result[0], ALength, $30);
+end;
+
+function TTestConfigBuilder.ClientAuthoritiesRefusal(const ABuilder: ITlsServerConfigBuilder;
+  const ANames: TArray<TBytes>): string;
+begin
+  Result := '';
+  try
+    ABuilder.WithClientCertificateAuthorities(ANames);
+  except
+    on E: EArgumentTlsLibException do
+      Result := E.Message;
+  end;
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientChecksNoServerName;
+begin
+  CheckFalse(NewBareClientBuilder.Tls13.WithExternalPreSharedKeys(MakePskSpecs(1))
+    .Build.CheckServerName, 'a PSK-only client has no name to check');
+  CheckTrue(NewClientBuilder.Build.CheckServerName, 'a client with trust still checks the name');
+end;
+
+procedure TTestConfigBuilder.TestPskOnlyClientEngineNeedsNoHost;
+var
+  LClient: ITlsEngine;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(NewBareClientBuilder.Tls13
+    .WithExternalPreSharedKeys(MakePskSpecs(1)).Build, '');
+  CheckNotNull(LClient, 'a PSK-only client engine is created without a host');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesNilSignatureSchemesIsATypedRefusal;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    ClientAuthServerBuilder.WithSignatureSchemes(nil)
+      .WithClientCertificateAuthorities(TArray<TBytes>.Create(AuthorityName(16))).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := Pos('registries are required', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a nil signature-scheme registry is refused by name, not dereferenced');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesEmptyNameIsRefused;
+begin
+  CheckTrue(Pos('must not be empty', ClientAuthoritiesRefusal(NewServerBuilder,
+    TArray<TBytes>.Create(AuthorityName(8), nil))) > 0, 'a nil name');
+  CheckTrue(Pos('must not be empty', ClientAuthoritiesRefusal(NewServerBuilder,
+    TArray<TBytes>.Create(AuthorityName(0)))) > 0, 'a zero-length name');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesFramedTotalAtLimitIsAccepted;
+begin
+  // one name of 65533 bytes plus its 2-byte prefix fills the 65535-byte list
+  CheckEquals('', ClientAuthoritiesRefusal(NewServerBuilder,
+    TArray<TBytes>.Create(AuthorityName(65533))), 'a name filling the list exactly');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesFramedTotalOverLimitIsRefused;
+begin
+  CheckTrue(Pos('must not exceed 65535', ClientAuthoritiesRefusal(NewServerBuilder,
+    TArray<TBytes>.Create(AuthorityName(65534)))) > 0, 'a name one byte over');
+  CheckTrue(Pos('must not exceed 65535', ClientAuthoritiesRefusal(NewServerBuilder,
+    TArray<TBytes>.Create(AuthorityName(65536)))) > 0, 'a name of 65536 bytes');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesRunningTotalAtLimitIsAccepted;
+begin
+  CheckEquals('', ClientAuthoritiesRefusal(NewServerBuilder,
+    TArray<TBytes>.Create(AuthorityName(32766), AuthorityName(32765))),
+    'two names framing to exactly 65535');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesRunningTotalOverLimitIsRefused;
+begin
+  CheckTrue(Pos('must not exceed 65535', ClientAuthoritiesRefusal(NewServerBuilder,
+    TArray<TBytes>.Create(AuthorityName(32766), AuthorityName(32766)))) > 0,
+    'two names framing to one byte over');
+end;
+
+function TTestConfigBuilder.ClientAuthServerBuilder: ITlsServerConfigBuilder;
+begin
+  Result := NewServerBuilder.WithClientVerification(WebPkiClient(ClientTrust))
+    .WithPeerAuth(TClientAuthMode.Requested);
+end;
+
+function TTestConfigBuilder.CertificateRequestRoom: Int32;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := ClientAuthServerBuilder.Build;
+  Result := 65535 - (4 + 2 + 2 * System.Length(LConfig.SignatureSchemes.Items)) - (4 + 2);
+  if System.Length(LConfig.CertificateDecompressors) > 0 then
+    Dec(Result, 4 + 1 + 2 * System.Length(LConfig.CertificateDecompressors));
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesAtCertificateRequestRoomBuildAndEncode;
+var
+  LConfig: ITlsServerConfig;
+  LCodec: IExtensionBlockCodec;
+  LContext: TExtensionContext;
+  LBlock: TBytes;
+begin
+  LConfig := ClientAuthServerBuilder.WithClientCertificateAuthorities(
+    TArray<TBytes>.Create(AuthorityName(CertificateRequestRoom - 2))).Build;
+  LCodec := TExtensionBlockCodec.Create(TCoreExtensions.CreateDefaultRegistry)
+    as IExtensionBlockCodec;
+  LContext := TExtensionContext.Create;
+  try
+    LContext.SignatureSchemes := TSignatureSchemeCodes.FromRegistry(LConfig.SignatureSchemes);
+    LContext.CertificateAuthorities := LConfig.ClientCertificateAuthorities;
+    LContext.CertCompressionAlgorithms :=
+      TCertificateCompression.Algorithms(LConfig.CertificateDecompressors);
+    LBlock := LCodec.ProduceBlock(LContext, TTlsExtensionContextKind.CertificateRequest);
+  finally
+    LContext.Free;
+  end;
+  CheckEquals(2 + 65535, System.Length(LBlock), 'the block is exactly full');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesOverCertificateRequestRoomIsRefused;
+begin
+  CheckTrue(BuildRefused(ClientAuthServerBuilder.WithClientCertificateAuthorities(
+    TArray<TBytes>.Create(AuthorityName(CertificateRequestRoom - 1))),
+    'room for ' + IntToStr(CertificateRequestRoom)), 'one byte over the room');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesOverRoomBuildOnTls12Only;
+begin
+  // TLS 1.2 frames the names in a list of their own, so only 1.3 shares the block with other extensions
+  CheckNotNull(ClientAuthServerBuilder
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithClientCertificateAuthorities(TArray<TBytes>.Create(
+    AuthorityName(CertificateRequestRoom - 1))).Build, 'a list over the 1.3 room on a 1.2-only server');
+end;
+
+procedure TTestConfigBuilder.TestClientAuthoritiesRefusalLeavesBuilderUsable;
+var
+  LBuilder: ITlsServerConfigBuilder;
+  LKept: TBytes;
+  LConfig: ITlsServerConfig;
+begin
+  LKept := AuthorityName(16);
+  LBuilder := ClientAuthServerBuilder.WithClientCertificateAuthorities(
+    TArray<TBytes>.Create(LKept));
+  CheckTrue(Pos('must not be empty', ClientAuthoritiesRefusal(LBuilder,
+    TArray<TBytes>.Create(AuthorityName(1), nil))) > 0, 'the refused call raised');
+  LConfig := LBuilder.Build;
+  CheckEquals(1, System.Length(LConfig.ClientCertificateAuthorities), 'the earlier list survived');
+  CheckEquals(16, System.Length(LConfig.ClientCertificateAuthorities[0]),
+    'the earlier name survived');
+end;
+
+procedure TTestConfigBuilder.TestClientCompressionCacheBesideEmptyCompressorsIsRefused;
+var
+  LEmptyComp: TArray<ICertificateCompressor>;
+begin
+  LEmptyComp := nil;
+  CheckTrue(BuildRefused(NewClientBuilder.WithCredential(ServerCredential).Tls13
+    .WithCertificateCompressors(LEmptyComp)
+    .WithCertificateCompressionCache(
+      TInMemoryCertificateCompressionCache.Create as ICertificateCompressionCache),
+    'needs at least one compressor'), 'a cache beside an empty compressor list on a client');
+end;
+
+procedure TTestConfigBuilder.TestServerCompressionCacheBesideEmptyCompressorsIsRefused;
+var
+  LEmptyComp: TArray<ICertificateCompressor>;
+begin
+  LEmptyComp := nil;
+  CheckTrue(BuildRefused(NewServerBuilder.Tls13
+    .WithCertificateCompressors(LEmptyComp)
+    .WithCertificateCompressionCache(
+      TInMemoryCertificateCompressionCache.Create as ICertificateCompressionCache),
+    'needs at least one compressor'), 'a cache beside an empty compressor list on a server');
+end;
+
+procedure TTestConfigBuilder.TestEmptyCompressorsWithoutCacheBuild;
+var
+  LEmptyComp: TArray<ICertificateCompressor>;
+begin
+  LEmptyComp := nil;
+  CheckNotNull(NewClientBuilder.WithCredential(ServerCredential).Tls13
+    .WithCertificateCompressors(LEmptyComp).Build,
+    'an empty compressor list alone on a client');
+  CheckNotNull(NewServerBuilder.Tls13
+    .WithCertificateCompressors(LEmptyComp).Build,
+    'an empty compressor list alone on a server');
 end;
 
 procedure TTestConfigBuilder.TestPskOnlyStrictClientBuildsWithItsSeededSettings;

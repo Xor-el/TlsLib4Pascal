@@ -149,7 +149,8 @@ type
     /// <summary>Whether a client sprinkles GREASE values (RFC 8701) across its offers to keep
     /// peers tolerant of unknown values. Optional per the RFC; default True.</summary>
     function Grease: Boolean;
-    /// <summary>Whether the server certificate must match the connected host (RFC 9525).</summary>
+    /// <summary>Whether the server certificate must match the connected host (RFC 9525); always
+    /// False for a PSK-only client, which has no certificate to match against a host.</summary>
     function CheckServerName: Boolean;
     /// <summary>Whether the client sends its host as server_name (SNI); Send by default.
     /// Independent of CheckServerName.</summary>

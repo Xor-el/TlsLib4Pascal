@@ -111,7 +111,8 @@ type
     /// man-in-the-middle risk. Name checking is on by default; only a deliberate pin-only
     /// trust model should disable it. It governs the connected host only: an Encrypted Client
     /// Hello reject is still verified against the config's public_name (RFC 9849 6.1.7). Ignored
-    /// under a Custom verifier, which owns the identity check.</summary>
+    /// under a Custom verifier, which owns the identity check. Build refuses it on a PSK-only
+    /// client, which has no certificate to match against a host.</summary>
     function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
     /// <summary>Whether the client sends the connection host as server_name (SNI, RFC 6066 sec.
     /// 3). Send, the default, sends a DNS host and never an IP literal; Omit sends none, while the
@@ -233,7 +234,7 @@ type
     /// <summary>An optional cache memoizing the client's compressed Certificate across
     /// connections, so a stable certificate is deflated once (an in-memory implementation ships
     /// as TInMemoryCertificateCompressionCache). nil (the default) compresses each time. Build
-    /// refuses a cache on a client with no WithCredential.</summary>
+    /// refuses a cache on a client with no WithCredential or beside an empty compressor list.</summary>
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ClientConfigFacet;
     /// <summary>Whether the client offers 0-RTT early data when a cached ticket authorizes
@@ -324,7 +325,10 @@ type
     /// no_application_protocol (RFC 7301 3.2) instead of selecting or declining. Default False.</summary>
     function WithAlpnRejection(AReject: Boolean): ITlsServerConfigBuilder;
     /// <summary>The DER-encoded DistinguishedName issuers the server names in its CertificateRequest
-    /// certificate_authorities (RFC 9846 4.3.4 / RFC 5246 7.4.4); empty names none.</summary>
+    /// certificate_authorities (RFC 9846 4.3.4 / RFC 5246 7.4.4); empty names none. Refuses an empty
+    /// name, or names totalling over 65535 bytes with their 2-byte length prefixes, at the call;
+    /// Build refuses a list too long for the TLS 1.3 CertificateRequest beside its other
+    /// extensions.</summary>
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): ITlsServerConfigBuilder;
     /// <summary>The certificate-chain resource caps for a requested client certificate; they bound
     /// that chain only; without WithPeerAuth any value other than the preset's is refused at
@@ -481,7 +485,8 @@ type
     /// (RFC 8879); providing one deflates a stable certificate once and reuses it across the
     /// connections built from this config (a bounded, thread-safe
     /// TInMemoryCertificateCompressionCache ships for this). nil (the default) compresses on
-    /// every handshake. Build refuses a cache on a server holding no certificate credential.</summary>
+    /// every handshake. Build refuses a cache on a server holding no certificate credential or
+    /// beside an empty compressor list.</summary>
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
     /// <summary>The 0-RTT early-data byte budget the server authorizes (TLS 1.3, RFC 9846
