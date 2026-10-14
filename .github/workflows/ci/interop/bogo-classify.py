@@ -123,7 +123,7 @@ def cmd_gate(config_path, gate_path, audit_path):
     unimplemented = sorted(n for n, r in gate.items()
                            if actual(r) == "SKIP" and n not in old_set)
 
-    # stale: a force-run disable (policy OR deferred) that now PASSES (its reason is gone)
+    # stale: a force-run [policy-difference] disable that now PASSES (its reason is gone)
     stale = sorted(n for n, r in audit.items()
                    if actual(r) == "PASS" and matches_any(n, force_run))
     # dead: a force-run glob that matched no force-run test (renamed/removed test)

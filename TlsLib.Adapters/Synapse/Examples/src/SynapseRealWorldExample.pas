@@ -17,7 +17,7 @@
 /// connection - the strongest proof that our records carry ordinary application traffic. It runs
 /// TWICE against the same host: leg A verifies against a pinned root (CertCAFile), leg B verifies
 /// against the OS system-trust store, verified entirely by TlsLib4Pascal
-/// (SetTlsLibSynapseSystemTrust, no pinned file) - proving a caller can drop the bundled PEM and
+/// (UseSystemTrust, no pinned file) - proving a caller can drop the bundled PEM and
 /// lean on the platform anchors instead. This is a network-gated demo, NOT part of any test gate:
 /// it needs outbound HTTPS; the pinned root is refreshed only if Let's Encrypt rotates (the leaf
 /// rotates ~90 days but always chains to it). Run returns 0 when both legs PASS, 1 on FAIL, 2 when

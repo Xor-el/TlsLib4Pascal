@@ -232,6 +232,9 @@ type
   /// </summary>
   TTlsLibIOHandlerSocket = class(TIdSSLIOHandlerSocketBase)
   strict private
+  class var
+    // process-wide so handlers sharing a trust config reuse one frozen config and its session cache
+    FClientConfigMemo: ITlsClientConfigMemo;
   var
     FOptions: TTlsLibSSLOptions;
     FConnection: TTlsConnection;
@@ -256,6 +259,8 @@ type
     function CheckForError(ALastResult: Integer): Integer; override;
     function SendEnc(const ABuffer: TIdBytes; const AOffset, ALength: Integer): Integer; override;
   public
+    class constructor Create;
+    class destructor Destroy;
     destructor Destroy; override;
     function Readable(AMSec: Integer): Boolean; override;
     /// <summary>Sends a TLS close_notify (best-effort, half-close) before the socket is torn down,
@@ -317,10 +322,6 @@ type
   end;
 
 implementation
-
-var
-  // process-global so handlers sharing a trust config reuse one frozen config and its session cache
-  GClientConfigMemo: ITlsClientConfigMemo;
 
 resourcestring
   SIndyCredentialSourcesConflict = 'a .pfx/.p12 file is set on CertFile or KeyFile beside ' +
@@ -491,6 +492,17 @@ begin
   fPassThrough := False;
 end;
 
+class constructor TTlsLibIOHandlerSocket.Create;
+begin
+  FClientConfigMemo := TTlsConfigMemos.NewClient;
+end;
+
+class destructor TTlsLibIOHandlerSocket.Destroy;
+begin
+  FClientConfigMemo.Clear;
+  FClientConfigMemo := nil;
+end;
+
 destructor TTlsLibIOHandlerSocket.Destroy;
 begin
   // belt-and-braces for a handler freed directly without a prior Close: emit close_notify while
@@ -552,7 +564,7 @@ function TTlsLibIOHandlerSocket.BuildClientConfig: ITlsClientConfig;
 begin
   // a fully-built config supplied by the app REPLACES the options-driven build outright; the
   // composer's conflict guard fails loud when cert/trust options are named alongside it
-  Result := TTlsConfigComposer.ResolveClientConfig(FOptions.Snapshot, GClientConfigMemo,
+  Result := TTlsConfigComposer.ResolveClientConfig(FOptions.Snapshot, FClientConfigMemo,
     'SSLOptions.ClientConfig');
 end;
 
@@ -574,6 +586,7 @@ var
   LServerConfig: ITlsServerConfig;
   LServerName: string;
   LUri: TIdURI;
+  LConnection: TTlsConnection;
 begin
   if FConnection <> nil then
     Exit; // fast path: handshake already run
@@ -602,21 +615,26 @@ begin
       end;
       if LServerName = '' then
         LServerName := Host;
-      FConnection := TTlsConnection.CreateClient(LClientConfig, LServerName,
+      LConnection := TTlsConnection.CreateClient(LClientConfig, LServerName,
         TIndySocketTransport.Create(Binding) as ITlsTimedTransport, FOptions.VerdictResolver,
         FOptions.VerdictDeadlineMs);
     end
     else
     begin
       LServerConfig := BuildServerConfig;
-      FConnection := TTlsConnection.CreateServer(LServerConfig,
+      LConnection := TTlsConnection.CreateServer(LServerConfig,
         TIndySocketTransport.Create(Binding) as ITlsTimedTransport, FOptions.ServerVerdictResolver,
         FOptions.ServerVerdictDeadlineMs);
     end;
     // bound the handshake read by the dedicated HandshakeTimeoutMs option, NOT app ReadTimeout
     // (a short app-read deadline would wrongly abort slow-but-valid handshakes); the session
     // arms and clears the cap, even when the handshake raised
-    FConnection.Handshake(FOptions.HandshakeTimeoutMs);
+    // published after the handshake or its failure, so unlocked readers never see it mid-handshake
+    try
+      LConnection.Handshake(FOptions.HandshakeTimeoutMs);
+    finally
+      FConnection := LConnection;
+    end;
   finally
     FHandshakeLock.Leave;
   end;
@@ -767,8 +785,8 @@ end;
 
 class procedure TTlsLibIOHandlerSocket.FlushConfigCache;
 begin
-  if GClientConfigMemo <> nil then
-    GClientConfigMemo.Clear;
+  if FClientConfigMemo <> nil then
+    FClientConfigMemo.Clear;
 end;
 
 function TTlsLibIOHandlerSocket.Clone: TIdSSLIOHandlerSocketBase;
@@ -852,13 +870,5 @@ begin
   if FServerMemo <> nil then
     FServerMemo.Clear;
 end;
-
-initialization
-  GClientConfigMemo := TTlsConfigMemos.NewClient;
-
-finalization
-  if GClientConfigMemo <> nil then
-    GClientConfigMemo.Clear;
-  GClientConfigMemo := nil;
 
 end.

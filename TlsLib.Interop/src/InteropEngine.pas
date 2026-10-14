@@ -19,6 +19,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
@@ -58,6 +59,20 @@ type
   IInteropClientHelloObserver = interface(IInterface)
     ['{4D400DD2-C5CD-4A5D-AD51-A242C29C673A}']
     procedure Observe(const AHello: TTlsClientHelloInfo);
+  end;
+
+  /// <summary>An augment-only verify callback that records the host each peer-certificate
+  /// verification ran against, in order, and accepts or rejects as constructed.</summary>
+  TInteropVerifyNameRecorder = class sealed(TInterfacedObject)
+  strict private
+  var
+    FNames: TArray<string>;
+    FRejects: Boolean;
+  public
+    constructor Create(ARejects: Boolean);
+    function Observe(const APresented, AValidated: TArray<TBytes>;
+      const AHostName: string): Boolean;
+    property Names: TArray<string> read FNames;
   end;
 
   /// <summary>
@@ -165,6 +180,8 @@ type
     /// otherwise-rejected chain. Ignored under AsyncVerify, where the verdict is instead
     /// decided out-of-band via SetCertificateVerdict.</summary>
     VerifyFail: Boolean;
+    /// <summary>Records the host of each client verification; replaces the VerifyFail hook when set.</summary>
+    VerifyNameRecorder: TInteropVerifyNameRecorder;
     /// <summary>When True, a resuming client re-runs its certificate verifier against the stored
     /// peer chain (the harness's -reverify-on-resume); otherwise resumption reuses the original
     /// authentication. Combined with VerifyFail on the resumed connection this exercises a
@@ -276,6 +293,19 @@ begin
   FObserver.Observe(AClientHello);
   ACredential := FCredential;
   Result := True;
+end;
+
+constructor TInteropVerifyNameRecorder.Create(ARejects: Boolean);
+begin
+  inherited Create;
+  FRejects := ARejects;
+end;
+
+function TInteropVerifyNameRecorder.Observe(const APresented, AValidated: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  TArrayUtilities.Append<string>(FNames, AHostName);
+  Result := not FRejects;
 end;
 
 function TInteropRejectingVerifier.Reject(const APresented, AValidated: TArray<TBytes>;
@@ -479,6 +509,8 @@ begin
     // verdict out-of-band. Otherwise -verify-fail installs an augment hook that rejects inline.
     if LCertPath and AOptions.AsyncVerify then
       LClient.WithAsyncCertificateVerdict(0)
+    else if LCertPath and (AOptions.VerifyNameRecorder <> nil) then
+      LClient.WithCertificateVerifyCallback(AOptions.VerifyNameRecorder.Observe)
     else if LCertPath and AOptions.VerifyFail then
       LClient.WithCertificateVerifyCallback(GRejecter.Reject);
     // a mutual-TLS client presents its own credential when the server requests one

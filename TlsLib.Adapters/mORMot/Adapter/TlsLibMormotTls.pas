@@ -152,7 +152,29 @@ type
     class function BuildServerConfig(const AContext: TNetTlsContext;
       ASocket: TNetSocket): ITlsServerConfig; static;
     procedure RunHandshake;
+  private
+  class var
+    // unit-private: the public Set* procedures write them
+    FVerifyCallback: TTlsCertificateVerifyCallback;
+    FVerdictResolver: TCertificateVerdictResolver;
+    FVerdictDeadlineMs: Cardinal;
+    FServerVerdictResolver: TCertificateVerdictResolver;
+    FServerVerdictDeadlineMs: Cardinal;
+    // fully-built configs that, when set, REPLACE the context-driven build
+    FClientConfig: ITlsClientConfig;
+    FServerConfig: ITlsServerConfig;
+    // mORMot builds an INetTls per connection, so the build-once memos live process-wide
+    FServerConfigMemo: ITlsServerConfigMemo;
+    FClientConfigMemo: ITlsClientConfigMemo;
+    // injected providers for the context-driven build; nil uses the shared default
+    FCrypto: ICryptoProvider;
+    FPkix: IPkixProvider;
+    // whether the context-driven build enables session resumption (default True)
+    FSessionResumption: Boolean;
+    // the read timeout (ms) bounding every handshake; 0 uses the library default
+    FHandshakeTimeoutMs: Int32;
   public
+    class constructor Create;
     destructor Destroy; override;
     // INetTls
     procedure AfterConnection(Socket: TNetSocket; var Context: TNetTlsContext;
@@ -230,85 +252,62 @@ resourcestring
   SMormotTrustSourceHint = 'CACertificatesFile or CASystemStores';
   SMormotClientAuthSourceHint = 'CACertificatesFile';
 
-var
-  // process-wide neutral hooks the per-connection adapter threads into each client handshake
-  GVerifyCallback: TTlsCertificateVerifyCallback;
-  // the client-role resolver evaluates the server's chain; the server-role resolver evaluates an
-  // mTLS client's chain. They bind different EKUs, so the two roles keep separate hooks
-  GVerdictResolver: TCertificateVerdictResolver;
-  GVerdictDeadlineMs: Cardinal;
-  GServerVerdictResolver: TCertificateVerdictResolver;
-  GServerVerdictDeadlineMs: Cardinal;
-  // process-wide fully-built configs that, when set, REPLACE the context-driven build
-  GClientConfig: ITlsClientConfig;
-  GServerConfig: ITlsServerConfig;
-  // mORMot builds an INetTls per connection, so the build-once memos for the context-driven
-  // path live process-wide
-  GServerConfigMemo: ITlsServerConfigMemo;
-  GClientConfigMemo: ITlsClientConfigMemo;
-  // an injected provider for the context-driven build; nil uses the shared default
-  GCrypto: ICryptoProvider;
-  // an injected PKIX provider for the context-driven build; nil uses the shared default
-  GPkix: IPkixProvider;
-  // whether the context-driven build enables session resumption (default True, set in init)
-  GSessionResumption: Boolean;
-  // the read timeout (ms) bounding every handshake; 0 uses the library default
-  GHandshakeTimeoutMs: Int32;
-
 procedure SetTlsLibMormotVerifyCallback(
   const ACallback: TTlsCertificateVerifyCallback);
 begin
-  GVerifyCallback := ACallback;
+  TTlsLibNetTls.FVerifyCallback := ACallback;
 end;
 
 procedure SetTlsLibMormotVerdictResolver(const AResolver: TCertificateVerdictResolver;
   ADeadlineMs: Cardinal);
 begin
-  GVerdictResolver := AResolver;
-  GVerdictDeadlineMs := ADeadlineMs;
+  TTlsLibNetTls.FVerdictResolver := AResolver;
+  TTlsLibNetTls.FVerdictDeadlineMs := ADeadlineMs;
 end;
 
 procedure SetTlsLibMormotServerVerdictResolver(
   const AResolver: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
 begin
-  GServerVerdictResolver := AResolver;
-  GServerVerdictDeadlineMs := ADeadlineMs;
+  TTlsLibNetTls.FServerVerdictResolver := AResolver;
+  TTlsLibNetTls.FServerVerdictDeadlineMs := ADeadlineMs;
 end;
 
 procedure SetTlsLibMormotClientConfig(const AConfig: ITlsClientConfig);
 begin
-  GClientConfig := AConfig;
+  TTlsLibNetTls.FClientConfig := AConfig;
 end;
 
 procedure SetTlsLibMormotServerConfig(const AConfig: ITlsServerConfig);
 begin
-  GServerConfig := AConfig;
+  TTlsLibNetTls.FServerConfig := AConfig;
 end;
 
 procedure SetTlsLibMormotCrypto(const ACryptoProvider: ICryptoProvider);
 begin
-  GCrypto := ACryptoProvider;
+  TTlsLibNetTls.FCrypto := ACryptoProvider;
 end;
 
 procedure SetTlsLibMormotPkix(const APkix: IPkixProvider);
 begin
-  GPkix := APkix;
+  TTlsLibNetTls.FPkix := APkix;
 end;
 
 procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
 begin
-  GSessionResumption := AEnabled;
+  TTlsLibNetTls.FSessionResumption := AEnabled;
 end;
 
 procedure SetTlsLibMormotHandshakeTimeout(AMs: Int32);
 begin
-  GHandshakeTimeoutMs := AMs;
+  TTlsLibNetTls.FHandshakeTimeoutMs := AMs;
 end;
 
 procedure FlushTlsLibMormotConfigCache;
 begin
-  GServerConfigMemo.Clear;
-  GClientConfigMemo.Clear;
+  if TTlsLibNetTls.FServerConfigMemo <> nil then
+    TTlsLibNetTls.FServerConfigMemo.Clear;
+  if TTlsLibNetTls.FClientConfigMemo <> nil then
+    TTlsLibNetTls.FClientConfigMemo.Clear;
 end;
 
 { TMormotSocketTransport }
@@ -384,6 +383,13 @@ end;
 
 { TTlsLibNetTls }
 
+class constructor TTlsLibNetTls.Create;
+begin
+  FServerConfigMemo := TTlsConfigMemos.NewServer;
+  FClientConfigMemo := TTlsConfigMemos.NewClient;
+  FSessionResumption := True;
+end;
+
 destructor TTlsLibNetTls.Destroy;
 begin
   // close_notify before the session goes away, so a strict peer reads a clean shutdown rather than
@@ -405,8 +411,8 @@ var
   LBytes: TBytes;
 begin
   Result := TTlsOptions.Default;
-  Result.Crypto := GCrypto;
-  Result.Pkix := GPkix;
+  Result.Crypto := FCrypto;
+  Result.Pkix := FPkix;
   if AContext.CertificateBin <> '' then
   begin
     // a private copy of the host's bytes, so the build can wipe it
@@ -466,28 +472,28 @@ begin
   // CheckHostName keeps the composable default (True); mORMot exposes no host-name or ALPN surface
   // the process-wide callback is a client-handshake hook, so a server snapshot does not carry it
   if AIsClient then
-    Result.VerifyCallback := GVerifyCallback;
-  Result.ClientVerdictResolver := GVerdictResolver;
-  Result.ClientVerdictDeadlineMs := GVerdictDeadlineMs;
+    Result.VerifyCallback := FVerifyCallback;
+  Result.ClientVerdictResolver := FVerdictResolver;
+  Result.ClientVerdictDeadlineMs := FVerdictDeadlineMs;
   // the process-wide server resolver is inert for a server that requests no client certificate
   if (not AIsClient) and ((Result.ClientAuth <> TClientAuthMode.None) or
-    ((GServerConfig <> nil) and (GServerConfig.ClientAuth <> TClientAuthMode.None))) then
+    ((FServerConfig <> nil) and (FServerConfig.ClientAuth <> TClientAuthMode.None))) then
   begin
-    Result.ServerVerdictResolver := GServerVerdictResolver;
-    Result.ServerVerdictDeadlineMs := GServerVerdictDeadlineMs;
+    Result.ServerVerdictResolver := FServerVerdictResolver;
+    Result.ServerVerdictDeadlineMs := FServerVerdictDeadlineMs;
   end;
-  Result.SessionResumption := GSessionResumption;
-  Result.HandshakeTimeoutMs := GHandshakeTimeoutMs;
+  Result.SessionResumption := FSessionResumption;
+  Result.HandshakeTimeoutMs := FHandshakeTimeoutMs;
   if AContext.DisableTls13 then
     Result.SupportedVersions := TArray<UInt16>.Create(TlsWireVersionTls12);
   Result.CipherSuites := THostCipherList.Parse(Utf8ToString(AContext.CipherList),
     SMormotCipherListHint);
-  Result.ClientConfig := GClientConfig;
-  Result.ServerConfig := GServerConfig;
+  Result.ClientConfig := FClientConfig;
+  Result.ServerConfig := FServerConfig;
   // the stock backend lets the callback win for the key file; it passes no TLS handle at setup. A
   // supplied config replaces the build, so the host is not prompted for a password it would not use
   if Assigned(AContext.OnPrivatePassword) and (AContext.PrivateKeyFile <> '') and
-    ((AIsClient and (GClientConfig = nil)) or ((not AIsClient) and (GServerConfig = nil))) then
+    ((AIsClient and (FClientConfig = nil)) or ((not AIsClient) and (FServerConfig = nil))) then
     Result.KeyPassword := Utf8ToString(AContext.OnPrivatePassword(ASocket, @AContext, nil));
   Result.CipherSuitesHint := SMormotCipherListHint;
   Result.CredentialSourceHint := SMormotCredentialSourceHint;
@@ -549,7 +555,7 @@ begin
   LOptions := Snapshot(AContext, True, ASocket);
   try
     Result := TTlsConfigComposer.ResolveClientConfig(LOptions,
-      GClientConfigMemo, 'SetTlsLibMormotClientConfig');
+      FClientConfigMemo, 'SetTlsLibMormotClientConfig');
   finally
     // the snapshot's bytes are our private copy of the host's
     TSecureMemory.WipeBytes(LOptions.Certificate.Data);
@@ -566,7 +572,7 @@ begin
   LOptions := Snapshot(AContext, False, ASocket);
   try
     Result := TTlsConfigComposer.ResolveServerConfig(LOptions,
-      GServerConfigMemo, 'SetTlsLibMormotServerConfig');
+      FServerConfigMemo, 'SetTlsLibMormotServerConfig');
   finally
     TSecureMemory.WipeBytes(LOptions.Certificate.Data);
   end;
@@ -576,7 +582,7 @@ procedure TTlsLibNetTls.RunHandshake;
 begin
   // bound the handshake read by the process-wide timeout (0 = the library default); the session
   // arms and clears the cap, even when the handshake raised, so a later app read is not left bounded
-  FConnection.Handshake(GHandshakeTimeoutMs);
+  FConnection.Handshake(FHandshakeTimeoutMs);
 end;
 
 procedure TTlsLibNetTls.AfterConnection(Socket: TNetSocket;
@@ -590,8 +596,8 @@ begin
   // the client parks on the server's chain, a server (client auth) on the mTLS client's chain -
   // the two bind different EKUs, so one resolver cannot serve both
   FConnection := TTlsConnection.CreateClient(LConfig, LHost,
-    TMormotSocketTransport.Create(Socket) as ITlsTimedTransport, GVerdictResolver,
-    GVerdictDeadlineMs);
+    TMormotSocketTransport.Create(Socket) as ITlsTimedTransport, FVerdictResolver,
+    FVerdictDeadlineMs);
   RunHandshake;
   Context.CipherName := GetCipherName;
 end;
@@ -615,8 +621,8 @@ begin
     // the stock backend hands its password callback no socket on the server side either
     LConfig := BuildServerConfig(BoundContext, nil);
     FConnection := TTlsConnection.CreateServer(LConfig,
-      TMormotSocketTransport.Create(Socket) as ITlsTimedTransport, GServerVerdictResolver,
-      GServerVerdictDeadlineMs);
+      TMormotSocketTransport.Create(Socket) as ITlsTimedTransport, FServerVerdictResolver,
+      FServerVerdictDeadlineMs);
     RunHandshake;
     if CipherName <> nil then
       CipherName^ := GetCipherName;
@@ -745,10 +751,5 @@ procedure RegisterTlsLib4PascalTls;
 begin
   NewNetTls := NewTlsLib4PascalTls;
 end;
-
-initialization
-  GServerConfigMemo := TTlsConfigMemos.NewServer;
-  GClientConfigMemo := TTlsConfigMemos.NewClient;
-  GSessionResumption := True;
 
 end.

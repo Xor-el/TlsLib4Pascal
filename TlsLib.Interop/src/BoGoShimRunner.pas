@@ -59,6 +59,8 @@ const
   ShimExitPass = 0;
   ShimExitFail = 1;
   ShimExitUnimplemented = 89;
+  // the runner fails 90 even for a must-fail test, where loose-errors would pass any failure
+  ShimExitMustFail = 90;
 
 type
   /// <summary>The reference runner's three mock certificate-compression algorithms (RFC 8879):
@@ -106,7 +108,7 @@ type
     AcceptEarlyData, RejectEarlyData, Cipher, Alpn, AdvertisedAlpn, PeerVerifyPref,
     PeerSignatureAlgorithm, VerifyResult, PeerCertFile, SecureRenegotiation,
     HelloRetryRequest, NoHelloRetryRequest, SelectedCredential, EarlyDataReason,
-    TicketAgeSkew, NoOfferEarlyData,
+    TicketAgeSkew, NoOfferEarlyData, EchNameOverride, NoEchNameOverride,
     NoSession, TicketSupportsEarlyData, TicketRenewal, NotResumableAcrossNames,
     SessionId, NoSessionId);
 
@@ -169,6 +171,8 @@ type
     HelloAlpn: TArray<TBytes>;
     HelloSchemes: TArray<UInt16>;
     ServerSessionStored: Boolean;
+    /// <summary>The host of each verification this connection ran, in order.</summary>
+    VerifiedNames: TArray<string>;
   end;
 
   /// <summary>The parsed per-test shim configuration BoGo hands over on argv.</summary>
@@ -395,6 +399,9 @@ type
     class function RunExpectations(const AConfig: TBoGoConfig; const AObserved: TBoGoObserved;
       const APkix: IPkixProvider; AScopes: TBoGoExpectScopes; APreReject: Boolean;
       out AMessage: string): Int32; static;
+    /// <summary>Checks the ECH name-override assertions against the verified hosts (RFC 9849 6.1.7).</summary>
+    class function CheckEchNameExpectations(const AConfig: TBoGoConfig;
+      const AObserved: TBoGoObserved; out AMessage: string): Int32; static;
     /// <summary>Checks the session-reuse invariant and every assertion bound to this connection
     /// against the finished handshake; a shim exit code.</summary>
     class function CheckHandshakeExpectations(const AConfig: TBoGoConfig;
@@ -444,6 +451,8 @@ const
   ShrinkingAlgorithm = UInt16($FF01);
   ExpandingAlgorithm = UInt16($FF02);
   RandomAlgorithm = UInt16($FF03);
+  // decided by CheckEchNameExpectations, which also runs when the handshake fails
+  EchNameKinds = [TBoGoExpectKind.EchNameOverride, TBoGoExpectKind.NoEchNameOverride];
 
 type
   TBoGoTestCompressor = class sealed(TInterfacedObject, ICertificateCompressor)
@@ -1014,11 +1023,15 @@ begin
     AExpectation.Kind := TBoGoExpectKind.EarlyDataReason
   else if LBase = '-expect-ticket-age-skew' then
     AExpectation.Kind := TBoGoExpectKind.TicketAgeSkew
+  else if LBase = '-expect-ech-name-override' then
+    AExpectation.Kind := TBoGoExpectKind.EchNameOverride
   else
   begin
     AHasValue := False;
     if LBase = '-expect-no-offer-early-data' then
       AExpectation.Kind := TBoGoExpectKind.NoOfferEarlyData
+    else if LBase = '-expect-no-ech-name-override' then
+      AExpectation.Kind := TBoGoExpectKind.NoEchNameOverride
     else if LBase = '-expect-extended-master-secret' then
       AExpectation.Kind := TBoGoExpectKind.ExtendedMasterSecret
     else if LBase = '-expect-no-peer-cert' then
@@ -1310,7 +1323,7 @@ begin
   begin
     if (not (AConfig.Expectations[LI].Scope in AScopes)) or
       (not ExpectationApplies(AConfig.Expectations[LI], AObserved.IsResume)) or
-      (AConfig.Expectations[LI].Kind in SessionKinds + [TBoGoExpectKind.Alpn]) then
+      (AConfig.Expectations[LI].Kind in SessionKinds + EchNameKinds + [TBoGoExpectKind.Alpn]) then
       Continue;
     if AConfig.Expectations[LI].Kind = TBoGoExpectKind.PeerVerifyPref then
     begin
@@ -1350,6 +1363,68 @@ begin
       AMessage := 'the peer verify preferences did not match the expected ones';
       Exit(ShimExitFail);
     end;
+  end;
+  Result := ShimExitPass;
+end;
+
+class function TBoGoShimRunner.CheckEchNameExpectations(const AConfig: TBoGoConfig;
+  const AObserved: TBoGoObserved; out AMessage: string): Int32;
+var
+  LI, LJ, LFirst, LLast: Int32;
+  LRetry, LUnobservable: Boolean;
+  LExpected: string;
+begin
+  AMessage := '';
+  LUnobservable := False;
+  LRetry := InRetryState(AConfig, AObserved);
+  for LI := 0 to System.High(AConfig.Expectations) do
+  begin
+    if (not (AConfig.Expectations[LI].Kind in EchNameKinds)) or
+      (not ExpectationApplies(AConfig.Expectations[LI], AObserved.IsResume)) then
+      Continue;
+    // a rejected 0-RTT verifies the offered session first (-on-resume-), the retry last (-on-retry-)
+    LFirst := 0;
+    LLast := System.High(AObserved.VerifiedNames);
+    if LRetry then
+    begin
+      if AConfig.Expectations[LI].Scope = TBoGoExpectScope.Resume then
+      begin
+        // an ECH reject answers the outer hello, so the offered session is never re-verified
+        if System.Length(AObserved.VerifiedNames) < 2 then
+        begin
+          LUnobservable := True;
+          Continue;
+        end;
+        LLast := 0;
+      end
+      else if AConfig.Expectations[LI].Scope = TBoGoExpectScope.Retry then
+        LFirst := LLast;
+    end
+    else if AConfig.Expectations[LI].Scope = TBoGoExpectScope.Retry then
+      Continue;
+    if System.Length(AObserved.VerifiedNames) = 0 then
+    begin
+      AMessage := 'no peer certificate verification ran, so the name override was not observed';
+      Exit(ShimExitMustFail);
+    end;
+    // no override verifies the host the connection was configured with, an override its own name
+    if AConfig.Expectations[LI].Kind = TBoGoExpectKind.EchNameOverride then
+      LExpected := AConfig.Expectations[LI].Name
+    else
+      LExpected := AConfig.HostName;
+    for LJ := LFirst to LLast do
+      if AObserved.VerifiedNames[LJ] <> LExpected then
+      begin
+        AMessage := Format('the peer was verified against "%s", wanted "%s"',
+          [AObserved.VerifiedNames[LJ], LExpected]);
+        Exit(ShimExitMustFail);
+      end;
+  end;
+  // decided last so an observable mismatch is never hidden behind the unobservable half
+  if LUnobservable then
+  begin
+    AMessage := 'unimplemented: the offered session is not verified before a 0-RTT reject';
+    Exit(ShimExitUnimplemented);
   end;
   Result := ShimExitPass;
 end;
@@ -1901,16 +1976,6 @@ begin
       SetLastEchServerKey(TInteropUtils.DecodeBase64(NextValue(LArg)))
     else if LArg = '-ech-is-retry-config' then
       SetLastEchServerRetry(NextValue(LArg) = '1')
-    // name-override assertions describe the client's public_name handling on a reject; our
-    // reject aborts with ech_required (never a plaintext fallback), so consume and ignore them
-    else if IsInList(LArg, ['-expect-ech-name-override',
-      '-on-retry-expect-ech-name-override']) then
-      NextValue(LArg)
-    else if IsInList(LArg, ['-expect-no-ech-name-override',
-      '-on-resume-expect-no-ech-name-override']) then
-    begin
-      // no value; the public_name override is not separately asserted
-    end
     else if LArg = '-expect-total-renegotiations' then
     begin
       // this shim never renegotiates, so only an expectation of zero renegotiations is
@@ -1929,7 +1994,8 @@ begin
         if LExpectation.Kind in [TBoGoExpectKind.ServerName, TBoGoExpectKind.Alpn] then
           LExpectation.Text := TInteropUtils.OctetsOf(LValue)
         else if LExpectation.Kind in [TBoGoExpectKind.AdvertisedAlpn,
-          TBoGoExpectKind.PeerCertFile, TBoGoExpectKind.EarlyDataReason] then
+          TBoGoExpectKind.PeerCertFile, TBoGoExpectKind.EarlyDataReason,
+          TBoGoExpectKind.EchNameOverride] then
           LExpectation.Name := LValue
         else
           LExpectation.Number := StrToInt(LValue);
@@ -2303,6 +2369,9 @@ var
   LInfo: TTlsConnectionInfo;
   LCaIdx, LRep, LRepeat, LAccepted, LCheck: Int32;
   LObserved: TBoGoObserved;
+  LNameRecorder: TInteropVerifyNameRecorder;
+  LRecorderOwner: IInterface;
+  LMessage: string;
 begin
   // each recorder reports the current connection only, though the cache and store span the loop
   if AConfig.CacheView <> nil then
@@ -2327,6 +2396,14 @@ begin
   // async park there), so an async verify-fail on that connection is a synchronous reject
   if AIsResume and AConfig.ReverifyOnResume then
     LOptions.AsyncVerify := False;
+  LNameRecorder := nil;
+  for LI := 0 to System.High(AConfig.Expectations) do
+    if (AConfig.Expectations[LI].Kind in EchNameKinds) and (LNameRecorder = nil) then
+    begin
+      LNameRecorder := TInteropVerifyNameRecorder.Create(LOptions.VerifyFail);
+      LRecorderOwner := LNameRecorder;
+      LOptions.VerifyNameRecorder := LNameRecorder;
+    end;
   LEngine := TInteropEngine.Build(ACryptoProvider, LOptions);
   // this connection writes first when -shim-writes-first, or on a resumption under
   // -on-resume-shim-writes-first; a client that also offered 0-RTT sends that first write
@@ -2393,6 +2470,17 @@ begin
   // verify-fail (in which case the parked handshake is rejected, fail-closed)
   LResult := TInteropPump.DriveHandshake(LEngine, ASocket, not LOptions.VerifyFail,
     LServerHalfRtt, LProbe);
+  LObserved := Default(TBoGoObserved);
+  LObserved.IsResume := AIsResume;
+  if LNameRecorder <> nil then
+    LObserved.VerifiedNames := LNameRecorder.Names;
+  // an ECH reject fails by design after verifying the public_name, so decide the names first
+  LCheck := CheckEchNameExpectations(AConfig, LObserved, LMessage);
+  if LCheck <> ShimExitPass then
+  begin
+    Writeln(ErrOutput, LMessage);
+    Exit(LCheck);
+  end;
   if LResult.Status <> TInteropStatus.Ok then
   begin
     Writeln(ErrOutput, 'handshake failed: ', LResult.Detail);
@@ -2411,9 +2499,7 @@ begin
     Exit(ShimExitFail);
   end;
 
-  LObserved := Default(TBoGoObserved);
   LObserved.Info := LInfo;
-  LObserved.IsResume := AIsResume;
   LObserved.VerifyFailConfigured := AConfig.VerifyFail or
     ((AConfig.OnResumeVerifyFail or AConfig.OnRetryVerifyFail) and AIsResume);
   LObserved.WebPkiTrust := LOptions.Trust <> nil;
@@ -2591,7 +2677,6 @@ begin
 
   LCrypto := TTlsLibTestProviders.Crypto;
   LPkix := TTlsLibTestProviders.Pkix;
-  // one session cache (client) / STEK (server) shared across every connection, so a
   // the client always keeps a session cache so it offers psk_key_exchange_modes and accepts
   // (and validates) the NewSessionTickets the server issues, even on a non-resume connection;
   // a resumption reuses the same cache across the ResumeCount+1 connections. The server only
