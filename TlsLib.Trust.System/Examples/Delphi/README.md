@@ -38,7 +38,7 @@ headless build scripts.
 2. Target platform **Android64**.
 3. Add to the project search path (locally, not committed): every subfolder of `TlsLib/src`,
    `TlsLib.Trust.System/src`, `TlsLib.Adapters/Indy/Adapter` (Indy itself ships with Delphi) and the
-   CryptoLib4Pascal source folders, which the default providers require.
+   source folders of the library's dependencies.
 4. In the Android manifest, grant the `INTERNET` permission (Project -> Options -> Uses
    Permissions -> **Internet**). No other permission is required - trust roots are read
    through the framework, never from the filesystem.

@@ -86,7 +86,7 @@ if you use it:
 | `TlsLib4PascalPackage` | The core library + default provider. **Requires none of the below.** |
 | `TlsLib.Trust.System` | OS system-trust harvest + delegate ([system-trust.md](system-trust.md)). |
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`). |
-| `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake (Windows CNG only). |
+| `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake. |
 | `TlpSocketHttpFetcher` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | The reference socket `IHttpFetcher` for live OCSP/CRL (http, and https with a supplied TLS config), configured through `TSocketHttpFetcherSettings` (clock, `IHostResolver`, destination policy, forward proxy by absolute-form or CONNECT). |
 | `TlpNetSocket` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | The reference TCP `ITcpConnector` / `ITcpListener` (interfaces in `TlpINetSocket`) whose streams run a `TTlsConnection` directly; also the default `TSystemHostResolver` (the `IHostResolver` interface is in `TlpINetSocket`). |
 | `TlpEchConfigFromSvcb` *(package `TlsLib.Net`, `TlsLib.Net/src/`)* | Extracts the ECH config list from DNS HTTPS/SVCB RDATA (`TryFromServiceBinding`, or the raising `FromServiceBinding`). |

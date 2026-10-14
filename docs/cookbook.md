@@ -35,7 +35,7 @@ Read [Getting started](getting-started.md) first.
 - [Require Extended Master Secret (TLS 1.2)](#require-extended-master-secret-tls-12)
 - [Cap the inbound record size](#cap-the-inbound-record-size)
 - [Turn off GREASE](#turn-off-grease)
-- [Use the Windows CNG crypto overlay](#use-the-windows-cng-crypto-overlay)
+- [Use the OS-native crypto overlay](#use-the-os-native-crypto-overlay)
 - [The dangerous surface (dev only)](#the-dangerous-surface-dev-only)
 
 ---
@@ -942,11 +942,12 @@ so peers that choke on unknown values are found early. To stop sending them:
   .WithGrease(False)   // client builder
 ```
 
-## Use the Windows CNG crypto overlay
+## Use the OS-native crypto overlay
 
-The optional `TlsLib.Crypto.System` package overlays Windows CNG primitives (randomness, key
-agreement, AEAD, hashes, HMAC, KDFs and handshake signing) onto a base provider. It is Windows-only;
-elsewhere `Compose` returns the base unchanged. Trust, path validation and revocation stay with the base.
+The optional `TlsLib.Crypto.System` package overlays the platform's native primitives (randomness,
+key agreement, AEAD, hashes, HMAC, KDFs and handshake signing) onto a base provider. Where the
+platform has no native backend, `Compose` returns the base unchanged. Trust, path validation and
+revocation stay with the base.
 
 ```pascal
 uses TlpOSCryptoProvider, TlpSystemCryptoStrictness, TlpDefaultCryptoProvider, TlpICryptoProvider,
@@ -957,8 +958,9 @@ Crypto := TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProv
 TSystemCryptoStrictness.RequireNamedGroups(Crypto, [TNamedGroupCatalog.X25519]);
 ```
 
-On Windows the composed provider also implements `ICryptoBackendReport` (unit
-`TlpICryptoBackendReport`), which says per primitive whether the OS or the portable code serves it. `TSystemCryptoStrictness` can narrow a registry to the natively served
+Where a native backend exists, the composed provider also implements `ICryptoBackendReport` (unit
+`TlpICryptoBackendReport`), which says per primitive whether the OS or the portable code serves it.
+`TSystemCryptoStrictness` can narrow a registry to the natively served
 entries (`NativeNamedGroups`, `NativeCipherSuites`, `NativeSignatureSchemes`) or require them
 (`RequireNamedGroups`, `RequireCipherSuites`, `RequireSignatureSchemes` raise
 `ESystemCryptoRequirementTlsLibException` listing what is missing).

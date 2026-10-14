@@ -56,7 +56,7 @@ formal SLA. In general you can expect:
 - the extension framework, negotiation policy, and the session/resumption/0-RTT machinery;
 - Encrypted Client Hello (client modes, the server key store and trial decryption) and certificate
   compression (the decompression bounds);
-- `TlsLib.Crypto.System`, the Windows CNG overlay, which validates peer key shares and AEAD nonces;
+- `TlsLib.Crypto.System`, the OS-native crypto overlay, which validates peer key shares and AEAD nonces;
 - `TlsLib.Net`, including the HTTP/OCSP/CRL fetcher that parses untrusted responder bytes and the
   TCP connector/listener;
 - the `EchKeyGen` tool, which writes private-key files with exclusive create and an owner-only mode

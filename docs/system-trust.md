@@ -34,7 +34,7 @@ There are two ways to use the OS trust store, chosen with `TSystemTrustMode`:
 | **macOS** | Delegate (`SecTrust`) | harvest of System + admin + user trust settings (SSL-scoped; a user "Never Trust" in any domain excludes); a Deny on any certificate, root or intermediate, is refused anywhere on a path | yes |
 | **iOS** | Delegate (`SecTrust`) | raises (no enumeration API) | yes |
 | **Android** | Delegate (`X509TrustManager`; Delphi: zero-config, FPC: one `TlsLibAndroidInitTrust` call) | raises (harvest banned, the on-disk set is stale/partial) | yes |
-| **Linux, BSD, Solaris** (NetBSD and DragonFly BSD are not CI-verified) | Anchors | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`, ignored under elevated privilege) | raises (no OS verifier) |
+| **Linux, BSD, Solaris** | Anchors | `/etc/ssl/certs` (and distro variants; honours `SSL_CERT_FILE` / `SSL_CERT_DIR`, ignored under elevated privilege) | raises (no OS verifier) |
 
 > **Breaking change.** `Default` used to be Anchors on Windows and macOS. It is now Delegate there.
 > Anchors stays an explicit opt-in on both: pass `TSystemTrustMode.Anchors` to get the old behaviour

@@ -33,7 +33,7 @@
 
 ## Features
 
-- **Fully managed, from-scratch** -- one pure Object Pascal TLS engine, identical on every platform; CI-verified on Linux (x64, arm64, arm32, PowerPC64 BE), Windows x64, macOS (arm64, x64), FreeBSD and Solaris, while NetBSD and DragonFly BSD are not CI-verified
+- **Fully managed, from-scratch** -- one pure Object Pascal TLS engine, identical on every platform
 - **TLS 1.3 + hardened TLS 1.2** -- client and server, designed together; 1.2 is an ECDHE + AEAD profile that offers Extended Master Secret (and, opt-in, ECDHE_PSK pre-shared keys)
 - **Post-quantum hybrid KEX** -- `X25519MLKEM768` offered by every preset; preferred under Hardened and Strict
 - **AEAD-only, forward-secret** -- no CBC-HMAC, RC4, 3DES, static-RSA/DH, or TLS-level compression; 0-RTT off by default
@@ -166,7 +166,7 @@ Add one only when you use its feature; the core references none of them:
 |---|---|
 | `TlsLib.Trust.System` | OS system-trust harvest + verifier delegate |
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`) |
-| `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake (Windows CNG only) |
+| `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake |
 | `TlsLib.Net` | TCP connector/listener, the HTTP/OCSP/CRL fetcher (`TSocketHttpFetcher`), and the DNS/SVCB ECH config helper; the fcl-net adapter requires it |
 | `TlsLib.Adapter.mORMot` / `.Indy` / `.Synapse` / `.FclNet` | Drop-in adapters for those networking stacks |
 
