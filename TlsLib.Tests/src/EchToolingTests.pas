@@ -531,12 +531,17 @@ end;
 
 procedure TTestEchTooling.TestSvcbAliasModeHasNoEch;
 var
+  LGen: TEchKeyGenResult;
   LRdata, LOut: TBytes;
 begin
-  // priority 0 is AliasMode and carries no SvcParams
-  LRdata := BuildHttpsRdata(0, False, nil);
+  // priority 0 is AliasMode: an ech SvcParam it carries is ignored, never handed out
+  LGen := TEchKeyGenerator.Generate(Crypto, 'public.example', 'secret.example', 1,
+    THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
+    THpkeAead.AES_128_GCM, 0);
+  LRdata := BuildHttpsRdata(0, True, LGen.EchConfigList);
   CheckFalse(TEchConfigFromSvcb.TryFromServiceBinding(LRdata, LOut),
-    'AliasMode yields no ECHConfigList');
+    'AliasMode yields no ECHConfigList even with an ech SvcParam present');
+  CheckEquals(0, System.Length(LOut), 'nothing is handed out');
 end;
 
 procedure TTestEchTooling.TestSvcbWithoutEchParamReturnsFalse;
@@ -782,6 +787,7 @@ var
   LPub: TBytes;
   LSk: ISecretBuffer;
   LEntries: TArray<TEchKeyEntry>;
+  LStore: IEchServerKeyStore;
   LRaised: Boolean;
 begin
   SetLength(LEntries, 1);
@@ -791,7 +797,7 @@ begin
   LEntries[0].IsRetry := False; // a store that advertises no retry_configs
   LRaised := False;
   try
-    TInMemoryEchKeyStore.Create(LEntries);
+    LStore := TInMemoryEchKeyStore.Create(LEntries) as IEchServerKeyStore;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

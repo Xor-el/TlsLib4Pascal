@@ -356,10 +356,10 @@ var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  // the CertID names the real issuer, so it does not match an unrelated one
+  // refused at the issuer-signed-leaf guard; the CertID issuer match is not covered here
   CheckFalse(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('other_ca_cert'),
     V('ocsp_good'), NowUtc, LStatus, LThis, LNext),
-    'a response whose CertID does not match the issuer is indeterminate');
+    'a staple checked against an unrelated issuer is indeterminate');
 end;
 
 procedure TTestOcspStapling.TestValidateStapleMalformed;
@@ -404,8 +404,9 @@ procedure TTestOcspStapling.TestGoodStapleCompletes;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(VerifyStaple(TRevocationPosture.Soft, V('ocsp_good'), LAlert),
-    'a current Good staple lets the chain validate');
+  // Hard rejects an indeterminate staple, so acceptance proves the Good staple authenticated
+  CheckTrue(VerifyStaple(TRevocationPosture.Hard, V('ocsp_good'), LAlert),
+    'a current Good staple lets the chain validate under Hard');
 end;
 
 procedure TTestOcspStapling.TestGoodStapleUnderLiveRevocationSettlesInline;
@@ -448,8 +449,9 @@ procedure TTestOcspStapling.TestDelegatedGoodStapleCompletes;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(VerifyStaple(TRevocationPosture.Soft, V('ocsp_good_delegated'), LAlert),
-    'a Good staple from a delegated responder lets the chain validate');
+  // Hard rejects an indeterminate staple, so acceptance proves the delegated signer authenticated
+  CheckTrue(VerifyStaple(TRevocationPosture.Hard, V('ocsp_good_delegated'), LAlert),
+    'a Good staple from a delegated responder lets the chain validate under Hard');
 end;
 
 procedure TTestOcspStapling.TestStaleStapleSoftCompletes;

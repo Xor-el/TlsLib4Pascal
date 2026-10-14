@@ -31,8 +31,6 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpPkixDomainTypes,
-  TlpDateTimeUtilities,
-  TlpSystemTimeUtilities,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
@@ -1600,20 +1598,22 @@ function TTestCertificateVerifier.PathAlert(const AChain: TArray<TBytes>;
   const AAnchor: TBytes; out AElapsedMs: Int64): TTlsAlertDescription;
 var
   LEffective: TArray<TBytes>;
+  LClock: ITlsMonotonicClock;
   LStart: Int64;
 begin
   Result := TTlsAlertDescription.CloseNotify; // stands for "no alert raised"
   LEffective := nil;
-  LStart := TSystemTimeUtilities.UtcUnixMs;
+  LClock := TSystemMonotonicClock.Create as ITlsMonotonicClock;
+  LStart := LClock.NowMonotonicMillis;
   try
     Pkix.PathValidation.ValidateCertificatePath(AChain,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(AAnchor)) as ITrustAnchorStore, nil,
-      TDateTimeUtilities.UnixMsToDateTime(LStart), TCertKeyPurpose.ServerAuth, LEffective);
+      NowUtc, TCertKeyPurpose.ServerAuth, LEffective);
   except
     on E: EFatalAlertTlsLibException do
       Result := E.AlertDescription;
   end;
-  AElapsedMs := TSystemTimeUtilities.UtcUnixMs - LStart;
+  AElapsedMs := LClock.NowMonotonicMillis - LStart;
 end;
 
 procedure TTestCertificateVerifier.TestSelfIssuedFillerFloodFailsFast;

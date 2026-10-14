@@ -124,6 +124,7 @@ type
   var
     FInner: ICryptoPrimitives;
     FMissing: TAeadAlgorithm;
+    FHasMissingAead: Boolean;
     FMissingAgreement: TKeyAgreementAlgorithm;
     FHasMissingAgreement: Boolean;
     FLenientKem: Boolean;
@@ -409,7 +410,7 @@ begin
   inherited Create;
   FInner := AInner;
   FMissing := AMissing;
-  FHasMissingAgreement := False;
+  FHasMissingAead := True;
 end;
 
 constructor TMissingAeadPrimitives.Create(const AInner: ICryptoPrimitives;
@@ -448,7 +449,7 @@ end;
 
 function TMissingAeadPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
-  if (not FHasMissingAgreement) and (AAlgorithm = FMissing) then
+  if FHasMissingAead and (AAlgorithm = FMissing) then
     raise ENotSupportedTlsLibException.CreateRes(@SMissingAead);
   Result := FInner.CreateAead(AAlgorithm);
 end;

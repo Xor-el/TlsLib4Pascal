@@ -323,9 +323,7 @@ type
     /// store (Windows, macOS); False where it may legitimately be absent (a bare Unix box).</summary>
     function RequiresPopulatedStore: Boolean; virtual;
     // ---- shared helpers ----
-    /// <summary>Harvests the real store. Returns False (no assertion) when the store is absent on
-    /// a platform that tolerates it - so the caller should Exit and skip. Fails outright when an
-    /// always-populated platform harvests nothing.</summary>
+    /// <summary>Harvests the real store; skips and returns False (caller Exits) when a tolerant platform has none.</summary>
     function HarvestOrSkip(out ARoots: TArray<TBytes>): Boolean;
   published
     procedure TestHarvestYieldsRoots;
@@ -922,6 +920,7 @@ begin
     as IServerCertificateVerifier;
   LVerifier.VerifyServerCertificate(OcspChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert);
+  CheckEquals(1, LFake.ServerCalls, 'the engine was consulted exactly once');
   CheckFalse(LFake.Last.NetworkAllowed, 'the inline pass never allows a network fetch');
 end;
 
@@ -1601,13 +1600,15 @@ end;
 procedure TTestOSDelegateTemplate.TestSourceRefusesLiveWithoutLiveFetch;
 var
   LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
   LRaised: Boolean;
 begin
   LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
     Result_(TLiveRevocationOutcome.Good, OcspChain), TTlsAlertDescription.BadCertificate);
   LRaised := False;
   try
-    TOSVerifierSource.Create(LEngine, TSystemTrustFetch.Live);
+    LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.Live)
+      as IServerCertificateVerifierSource;
   except
     on E: ESystemTrustUnsupportedTlsLibException do
       LRaised := True;
@@ -2463,7 +2464,10 @@ begin
     as ITrustAnchorStore;
   CheckEquals(1, System.Length(LStore.DistrustedCertificates), 'the host store carries its entry');
   if not TOSSystemTrust.Supports(TSystemTrustMode.Delegate) then
+  begin
+    SkipTest('this platform has no OS delegate engine');
     Exit;
+  end;
   LSource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly, LStore, Pkix);
   LDistrusted := (LSource as IOSServerVerifierSource).Distrusted;
   LFound := False;
@@ -2851,6 +2855,7 @@ begin
         Fail(PlatformName +
           ' OS trust store harvested no roots (expected an always-populated store)');
       Result := False;
+      SkipTest(PlatformName + ' has no readable OS trust store here');
     end;
   end;
 end;
@@ -3174,9 +3179,8 @@ begin
     MakePolicy(AAnchors, APosture, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation,
     TSystemClock.Create as ITlsClock, TCertificateStrengthPolicy.Defaults, Advertised), nil);
   try
+    LCtx := Default(TCertificateVerdictContext);
     LCtx.PeerRole := TPeerRole.Client; // a client-chain resolver evaluates a client certificate
-    LCtx.HostName := '';
-    LCtx.OcspStaple := nil;
     LCtx.Chain := Leaf;
     Result := LResolver.ResolveVerdict(LCtx, AAlert);
   finally
@@ -3212,9 +3216,8 @@ begin
     TVerdictDeferral.LiveRevocation, TSystemClock.Create as ITlsClock,
     TCertificateStrengthPolicy.Defaults, Advertised), nil);
   try
+    LCtx := Default(TCertificateVerdictContext);
     LCtx.PeerRole := TPeerRole.Server; // wrong role for a client-chain resolver
-    LCtx.HostName := '';
-    LCtx.OcspStaple := nil;
     LCtx.Chain := Leaf;
     CheckFalse(LResolver.ResolveVerdict(LCtx, LAlert),
       'a wrong-role park is refused, not evaluated');
@@ -3242,9 +3245,9 @@ begin
     TVerdictDeferral.LiveRevocation, TSystemClock.Create as ITlsClock,
     TCertificateStrengthPolicy.Defaults, Advertised), nil);
   try
+    LCtx := Default(TCertificateVerdictContext);
+    LCtx.RevocationPosture := TRevocationPosture.Off; // the zero value (Soft) would lift it out of Off
     LCtx.PeerRole := TPeerRole.Client; // a client chain handed to a server-chain resolver
-    LCtx.HostName := '';
-    LCtx.OcspStaple := nil;
     LCtx.Chain := Leaf;
     CheckFalse(LResolver.ResolveVerdict(LCtx, LAlert),
       'a server-chain resolver refuses a client park even under Off');
@@ -3270,9 +3273,8 @@ var
       TVerdictDeferral.LiveRevocation, TSystemClock.Create as ITlsClock,
       TCertificateStrengthPolicy.Defaults, Advertised), nil);
     try
+      LCtx := Default(TCertificateVerdictContext);
       LCtx.PeerRole := TPeerRole.Server;
-      LCtx.HostName := '';
-      LCtx.OcspStaple := nil;
       LCtx.Chain := Leaf;
       Result := LResolver.ResolveVerdict(LCtx, LAlert);
     finally
@@ -4066,16 +4068,19 @@ end;
 procedure TTestSystemTrustInstaller.TestClientInstallComposesLikeFacade;
 var
   LInstaller: ISystemTrustInstaller;
-  LViaFacade, LViaInstaller: ITlsClientConfig;
+  LViaFacade, LViaInstaller: IServerVerification;
 begin
-  // both paths supply the OS server-trust policy; the installer simply forwards to the facade
   LInstaller := TSystemTrustInstaller.Create;
-  LViaFacade := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
-    TSystemTrust.ServerVerification(Pkix).Build).Build;
-  LViaInstaller := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
-    LInstaller.ServerVerification(Pkix, nil)).Build;
-  CheckNotNull(LViaFacade, 'the facade supplies a usable client trust source');
-  CheckNotNull(LViaInstaller, 'the installer supplies a usable client trust source');
+  LViaFacade := TSystemTrust.ServerVerification(Pkix).Build;
+  LViaInstaller := LInstaller.ServerVerification(Pkix, nil);
+  CheckEquals(Ord(LViaFacade.Kind), Ord(LViaInstaller.Kind),
+    'the installer composes the same kind of server verification as the facade');
+  CheckEquals(System.Length(LViaFacade.AnchorStores), System.Length(LViaInstaller.AnchorStores),
+    'the installer composes the same anchor-store count as the facade');
+  CheckEquals(LViaFacade.Source = nil, LViaInstaller.Source = nil,
+    'the installer has an OS verifier source exactly when the facade does');
+  CheckNotNull(TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    LViaInstaller).Build, 'the installer''s verification builds into a client config');
 end;
 
 procedure TTestSystemTrustInstaller.TestLiveFetchWithoutADeadlineIsRefused;
@@ -4125,7 +4130,7 @@ var
 begin
   if not TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
   begin
-    Check(True, 'this platform cannot enumerate OS anchors; the explicit mode does not apply');
+    SkipTest('this platform cannot enumerate OS anchors');
     Exit;
   end;
   LVerification := TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Anchors, nil).Build;
@@ -4174,7 +4179,7 @@ begin
   // there is no server form of system trust: OS roots become a client-CA only when written out explicitly
   if not TOSSystemTrust.Supports(TSystemTrustMode.Anchors) then
   begin
-    Check(True, 'this platform cannot enumerate OS anchors; the explicit path does not apply');
+    SkipTest('this platform cannot enumerate OS anchors');
     Exit;
   end;
   LStore := TOSSystemTrust.AnchorStore(Pkix);
