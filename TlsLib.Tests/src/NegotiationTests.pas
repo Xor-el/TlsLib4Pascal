@@ -428,7 +428,7 @@ begin
   CheckTrue(TDowngradeProtection.IsDowngradeAttack(LRandom, True, TlsWireVersionTls12),
     'a 1.3 client on a 1.2 connection with the stamp is a downgrade');
   // the 1.1-and-below sentinel differs from the 1.2 one only in its last byte (0x00): a 1.3 client
-  // checks for both whatever lower version was negotiated (RFC 8446 4.1.3)
+  // checks for both whatever lower version was negotiated (RFC 9846 4.2.3)
   LRandom[31] := $00;
   CheckTrue(TDowngradeProtection.IsDowngradeAttack(LRandom, True, TlsWireVersionTls12),
     'the 1.1 sentinel on a 1.2 connection is a downgrade too');

@@ -118,7 +118,7 @@ type
     /// server certificate is still verified against the host (RFC 9525) unless the name check is
     /// disabled. Applies to TLS 1.3 and 1.2. Under ECH the ClientHelloOuter still carries the
     /// public_name (RFC 9849 sec. 6.1) and Omit leaves the inner without a name. A server may
-    /// refuse a ClientHello without server_name (missing_extension, RFC 8446 sec. 9.2) or present a
+    /// refuse a ClientHello without server_name (missing_extension, RFC 9846 sec. 9.2) or present a
     /// default certificate that then fails the name check.</summary>
     function WithServerNameIndication(AMode: TServerNameIndication): ITlsClientConfigBuilder;
     /// <summary>Whether the client offers status_request (OCSP stapling, RFC 6066). Off by
@@ -175,7 +175,7 @@ type
     /// default: it shares rather than isolates.</summary>
     function WithResumptionScope(const AScope: TBytes): ITlsClientConfigBuilder;
     /// <summary>The clock the client reads for a resumption PSK's obfuscated_ticket_age and
-    /// ticket-lifetime expiry (RFC 8446 4.2.11 / 4.6.1); defaults to the system
+    /// ticket-lifetime expiry (RFC 9846 4.3.11 / 4.7.1); defaults to the system
     /// clock, and nil is refused. Injectable primarily so tests can drive a deterministic time.</summary>
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
     /// <summary>The elapsed-time source the connection layer measures its handshake read cap on;
@@ -185,7 +185,7 @@ type
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;
     /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) reuses the
-    /// original handshake's authentication (inferred from RFC 8446 2.2); Reverify re-runs the
+    /// original handshake's authentication (inferred from RFC 9846 2.2); Reverify re-runs the
     /// certificate verifier against the stored peer chain, for a stricter posture that re-checks a
     /// resumed server against current trust, at the cost of the verification work on every
     /// resume. Under
@@ -237,7 +237,7 @@ type
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ClientConfigFacet;
     /// <summary>Whether the client offers 0-RTT early data when a cached ticket authorizes
-    /// it (TLS 1.3, RFC 8446 4.2.10). Off by default.</summary>
+    /// it (TLS 1.3, RFC 9846 4.3.10). Off by default.</summary>
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
     /// <summary>
     /// How the client offers Encrypted Client Hello (RFC 9849), as one exclusive choice from
@@ -324,7 +324,7 @@ type
     /// no_application_protocol (RFC 7301 3.2) instead of selecting or declining. Default False.</summary>
     function WithAlpnRejection(AReject: Boolean): ITlsServerConfigBuilder;
     /// <summary>The DER-encoded DistinguishedName issuers the server names in its CertificateRequest
-    /// certificate_authorities (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty names none.</summary>
+    /// certificate_authorities (RFC 9846 4.3.4 / RFC 5246 7.4.4); empty names none.</summary>
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): ITlsServerConfigBuilder;
     /// <summary>The certificate-chain resource caps for a requested client certificate; they bound
     /// that chain only; without WithPeerAuth any value other than the preset's is refused at
@@ -431,7 +431,7 @@ type
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsServerConfigBuilder;
     /// <summary>The lifetime advertised for issued sessions and tickets, in seconds, at most seven
     /// days (a larger value is refused at the call). 0 tells the client to discard the ticket at
-    /// once (RFC 8446 4.6.1), so Build refuses it while resumption is on. A ticket renewed on a
+    /// once (RFC 9846 4.7.1), so Build refuses it while resumption is on. A ticket renewed on a
     /// resumption advertises at most what remains of seven days since the full handshake that
     /// authenticated the session, and no session resumes past that.</summary>
     function WithTicketLifetime(ASeconds: UInt32): ITlsServerConfigBuilder;
@@ -450,7 +450,7 @@ type
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the server imports and
     /// matches an offered pre_shared_key against, in preference order. A matching PSK is
     /// preferred over the server's certificate, and an accepted PSK stands in for client
-    /// authentication (no CertificateRequest is sent, RFC 8446 4.3.2). Empty leaves external PSK
+    /// authentication (no CertificateRequest is sent, RFC 9846 4.4.2). Empty leaves external PSK
     /// off.</summary>
     function WithExternalPreSharedKeys(
       const APsks: TArray<TExternalPsk>): ITls13ServerConfigFacet;
@@ -484,8 +484,8 @@ type
     /// every handshake. Build refuses a cache on a server holding no certificate credential.</summary>
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
-    /// <summary>The 0-RTT early-data byte budget the server authorizes (TLS 1.3, RFC 8446
-    /// 4.2.10); 0 disables early data. A default anti-replay register is provided when none is
+    /// <summary>The 0-RTT early-data byte budget the server authorizes (TLS 1.3, RFC 9846
+    /// 4.3.10); 0 disables early data. A default anti-replay register is provided when none is
     /// set (see WithAntiReplay); resumption must be enabled for 0-RTT, and the budget must be below
     /// 1 MiB. With an explicit WithSessionTicketKeys the default per-configuration register
     /// cannot guard tickets shared across instances, so a session store or WithAntiReplay is

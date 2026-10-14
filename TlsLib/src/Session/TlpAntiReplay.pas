@@ -214,7 +214,7 @@ begin
       (not FSorted) and (FMinExpiry <= ANowMillis) then
       PruneAllExpired(ANowMillis);
     // at capacity a new value is declined rather than evicting a live strike: dropping one would let
-    // its captured 0-RTT flight replay inside its window (RFC 8446 8)
+    // its captured 0-RTT flight replay inside its window (RFC 9846 8)
     if (not FByKey.ContainsKey(LKey)) and (FByKey.Count >= FCapacity) then
       Exit;
     if Int64(FOrder.Count) >= 2 * Int64(FCapacity) then

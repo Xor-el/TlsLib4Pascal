@@ -177,7 +177,7 @@ type
     /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849).</summary>
     function EchStatus: TEchStatus;
     /// <summary>Whether this connection resumed an earlier session rather than doing a full
-    /// handshake (RFC 8446 2.2 / RFC 5246 7.3).</summary>
+    /// handshake (RFC 9846 2.2 / RFC 5246 7.3).</summary>
     function Resumed: Boolean;
     /// <summary>The ALPN protocol the peer selected as text; empty when none was negotiated or
     /// the name is not ASCII (RFC 7301).</summary>
@@ -387,7 +387,7 @@ end;
 destructor TTlsLibNetTls.Destroy;
 begin
   // close_notify before the session goes away, so a strict peer reads a clean shutdown rather than
-  // a truncation (RFC 8446 6.1). The INetTls seam has no explicit close hook, but mORMot's
+  // a truncation (RFC 9846 6.1). The INetTls seam has no explicit close hook, but mORMot's
   // TCrtSocket.Close releases this interface (running us here) BEFORE it closes the socket, so the
   // socket is still open and the alert goes out. Best-effort: a write to a peer that already RST
   // the connection is expected and ignored.

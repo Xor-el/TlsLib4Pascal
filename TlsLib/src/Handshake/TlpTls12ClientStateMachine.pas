@@ -85,7 +85,7 @@ type
     /// client lands on TLS 1.2.</summary>
     EarlyDataReason: TEarlyDataReason;
     /// <summary>The versions offered in supported_versions; listing 1.3 arms downgrade
-    /// detection on a 1.2 ServerHello carrying the RFC 8446 sentinel.</summary>
+    /// detection on a 1.2 ServerHello carrying the RFC 9846 sentinel.</summary>
     OfferedVersions: TArray<UInt16>;
     ClientRandom: TBytes;
     LegacySessionId: TBytes;
@@ -530,7 +530,7 @@ begin
   Result := nil;
   LHello := THandshakeMessages.DecodeServerHello(AMessage.Body);
 
-  // a 1.2 ServerHello's legacy_version is exactly 0x0303 (RFC 5246 7.4.1.3 / RFC 8446 4.1.3); the
+  // a 1.2 ServerHello's legacy_version is exactly 0x0303 (RFC 5246 7.4.1.3 / RFC 9846 4.2.3); the
   // version dispatcher enforces this on the mixed path, but a 1.2-only client reaches here directly
   if LHello.LegacyVersion <> TlsWireVersionTls12 then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -558,7 +558,7 @@ begin
   FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash));
   Absorb(AMessage.Raw);
 
-  // a 1.3-capable client aborts a stamped downgrade (RFC 8446 4.1.3) before acting on the rest
+  // a 1.3-capable client aborts a stamped downgrade (RFC 9846 4.2.3) before acting on the rest
   // of the ServerHello, so an abbreviated (resumption) ServerHello is checked too; a genuine
   // 1.2-only server never stamps the sentinel
   if TDowngradeProtection.IsDowngradeAttack(LHello.Random, FClientSupportsTls13,
@@ -575,7 +575,7 @@ begin
     else
       LServerExtensions := TExtensionVector.Parse(LHello.Extensions);
     // key_share and pre_shared_key are TLS 1.3 constructs; a 1.2 server answering with either has
-    // sent an extension that has no meaning here (local policy; RFC 8446 4.2 scopes them to 1.3).
+    // sent an extension that has no meaning here (local policy; RFC 9846 4.3 scopes them to 1.3).
     // The unified hello offered both, so the codec alone would accept them; judged before the
     // codec acts on them
     if LServerExtensions.Contains(TExtensionTypes.KeyShare) or
@@ -584,8 +584,8 @@ begin
         TTlsAlertDescription.UnsupportedExtension, @STls13ExtensionInServerHello);
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.ServerHello, LServerExtensions);
     // a TLS 1.2 ServerHello must not answer with supported_versions (a 1.3-only response
-    // extension, RFC 8446 4.2.1); the dispatcher rejects it on the mixed path, so a 1.2-only
-    // client enforces it here too (unsupported_extension names the fault; RFC 8446 4.2.1 says
+    // extension, RFC 9846 4.3.1); the dispatcher rejects it on the mixed path, so a 1.2-only
+    // client enforces it here too (unsupported_extension names the fault; RFC 9846 4.3.1 says
     // illegal_parameter)
     if LContext.SelectedVersion <> 0 then
       raise EFatalAlertTlsLibException.CreateRes(

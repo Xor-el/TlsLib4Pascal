@@ -155,10 +155,10 @@ never on a resumed or PSK handshake), concurrently across connections that share
 must be thread-safe and must not do network I/O.
 
 A chain with a certificate (other than a self-issued one) signed with MD5, or with SHA-1 the client
-did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2); a SHA-256 chain is
-still sent. `AClientHello.CertificateSignatureSchemes` lists what the client advertised, so a
-resolver can pick another chain. A client credential in that state is not sent: the client answers
-without a certificate.
+did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2), independent of
+`AllowedDeprecatedHashes`; a SHA-256 chain is still sent. `AClientHello.CertificateSignatureSchemes`
+lists what the client advertised, so a resolver can pick another chain. A client credential in that
+state is not sent: the client answers without a certificate.
 
 ## Choose a security posture
 
@@ -397,7 +397,7 @@ the connection as a `TTlsConnection` over an `ITlsTimedTransport` (see
 Once the write side is closed — you called `CloseNotify`, the connection failed, or (under TLS 1.2
 only) the peer sent an inbound `close_notify` — a further `Write` raises
 `EInvalidOperationTlsLibException` rather than silently discarding the bytes. Under TLS 1.3 an
-inbound `close_notify` closes only the read side (RFC 8446 6.1), so you may keep writing until you
+inbound `close_notify` closes only the read side (RFC 9846 6.1), so you may keep writing until you
 close your own side; `ITlsEngine.WriteClosed` tells you which case you are in. The engine never reports data as
 sent that it did not send, so a write on a closed stream is always surfaced, never a phantom success.
 
@@ -447,7 +447,7 @@ engine could be substituted wholesale. Most apps should prefer the stream or an 
 Both are `ITlsEngine` methods; `TTlsStream` and `TTlsConnection` do not wrap them. With a stream,
 keep the engine you passed to `TTlsStream.Create`.
 
-**Exported keying material** (RFC 5705 / RFC 8446 7.5) binds an application secret to this
+**Exported keying material** (RFC 5705 / RFC 9846 7.5) binds an application secret to this
 connection:
 
 ```pascal
@@ -461,7 +461,7 @@ client authentication completes under mutual TLS. TLS 1.2 has it only once the h
 and only when the session used Extended Master Secret (`ConnectionInfo.ExtendedMasterSecret`). It
 is also empty on a failed connection. `ExportEarlyKeyingMaterial` is the TLS 1.3 0-RTT variant.
 
-**KeyUpdate** (TLS 1.3, RFC 8446 4.6.3) rekeys the write direction; `UpdateRequested` also asks the
+**KeyUpdate** (TLS 1.3, RFC 9846 4.7.3) rekeys the write direction; `UpdateRequested` also asks the
 peer to rekey and answer with its own KeyUpdate:
 
 ```pascal

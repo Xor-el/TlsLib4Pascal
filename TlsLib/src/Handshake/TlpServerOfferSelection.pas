@@ -143,7 +143,7 @@ begin
   if not AResolver.TryResolve(LInfo, Result) then
   begin
     // no certificate for the requested host: unrecognized_name when the client named one
-    // (RFC 6066 3), else handshake_failure with no name to be "unrecognized" (RFC 8446 6.2)
+    // (RFC 6066 3), else handshake_failure with no name to be "unrecognized" (RFC 9846 6.2)
     if AContext.ServerName <> '' then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnrecognizedName, @SNoCredentialForServerName);
@@ -155,7 +155,7 @@ begin
   if not Assigned(Result.PrivateKey) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SCredentialHasNoSigningKey);
-  // an empty chain would emit an empty certificate_list (RFC 8446 4.4.2)
+  // an empty chain would emit an empty certificate_list (RFC 9846 4.5.1)
   if System.Length(Result.CertificateChain) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.HandshakeFailure, @SCredentialHasNoCertificates);

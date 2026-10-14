@@ -21,7 +21,7 @@ uses
 
 type
   /// <summary>
-  /// The running hash of the handshake transcript (RFC 8446 4.4.1). Messages are
+  /// The running hash of the handshake transcript (RFC 9846 4.1). Messages are
   /// fed in the exact wire bytes as they are sent or received; CurrentHash is the
   /// digest of everything fed so far. The boundary invariant: a signature or MAC
   /// is taken over the transcript EXCLUDING the message being produced, while key
@@ -48,7 +48,7 @@ type
     /// <summary>
     /// Restarts the transcript from AFreshHash, seeded with the synthetic
     /// Handshake(message_hash, ACh1Hash) that replaces ClientHello1 after a
-    /// HelloRetryRequest (RFC 8446 4.4.1). Discards any prior state or deferred buffer.
+    /// HelloRetryRequest (RFC 9846 4.1). Discards any prior state or deferred buffer.
     /// </summary>
     procedure SeedWithMessageHash(const AFreshHash: IHash; const ACh1Hash: TBytes);
 
@@ -57,7 +57,7 @@ type
     /// <summary>
     /// The digest of the transcript so far followed by APartialClientHello, without
     /// disturbing the running state - the PSK binder MAC covers the ClientHello up
-    /// to (excluding) the binders list (RFC 8446 4.2.11.2).
+    /// to (excluding) the binders list (RFC 9846 4.3.11.2).
     /// </summary>
     function HashPrefixExcludingBinders(const APartialClientHello: TBytes): TBytes;
     /// <summary>The digest size in bytes (0 while deferred).</summary>

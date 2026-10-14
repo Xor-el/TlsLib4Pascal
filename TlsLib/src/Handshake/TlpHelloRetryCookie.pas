@@ -26,7 +26,7 @@ uses
 
 type
   /// <summary>
-  /// The HelloRetryRequest cookie (RFC 8446 4.2.2): a self-contained token authenticated by an
+  /// The HelloRetryRequest cookie (RFC 9846 4.3.2): a self-contained token authenticated by an
   /// HMAC over a per-server-instance secret. The transcript rebuild that follows the second
   /// ClientHello is driven solely by the values a verified cookie carries - Hash(ClientHello1),
   /// the selected cipher suite and group, and the first ClientHello's legacy_session_id - so a

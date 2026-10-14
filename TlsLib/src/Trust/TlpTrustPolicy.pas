@@ -148,7 +148,7 @@ type
   /// <summary>
   /// The one augment-only reject rule every verifier applies after its own decision: an assigned
   /// VerifyCallback that returns False rejects the chain. A custom rejection is an acceptability
-  /// problem rather than a corrupt certificate, so the alert is certificate_unknown (RFC 8446 6.2).
+  /// problem rather than a corrupt certificate, so the alert is certificate_unknown (RFC 9846 6.2).
   /// </summary>
   TVerifyCallbackGate = class sealed(TObject)
   public
@@ -195,8 +195,8 @@ type
   /// A revocation check should authenticate against RevocationPath (ValidatedPath when the pipeline
   /// produced one, else the presented Chain), so the responder is bound to the issuer PKIX already
   /// authenticated rather than a re-guess (under InsecureSkipVerify nothing was, so it binds to the
-  /// peer's own Chain[1]). A client certificate may also carry a staple (RFC 8446
-  /// 4.4.2.1 lets a server request status_request of a client), so the staple is not a role signal -
+  /// peer's own Chain[1]). A client certificate may also carry a staple (RFC 9846
+  /// 4.5.1.1 lets a server request status_request of a client), so the staple is not a role signal -
   /// branch on PeerRole. A caller that hand-builds this record MUST set PeerRole (a role-specific
   /// resolver refuses the unset Unknown value); ValidatedPath may be left empty, and RevocationPath
   /// then falls back to Chain.

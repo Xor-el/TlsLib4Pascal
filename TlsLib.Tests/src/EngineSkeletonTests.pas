@@ -147,7 +147,7 @@ begin
   CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LOutcome), 'fatal outcome');
   CheckTrue(LEngine.IsTerminal, 'engine is terminal');
   // the record_overflow alert (fatal=2, 22) is pre-queued as a plaintext record; a client's
-  // first outbound record carries legacy_record_version 0x0301 (RFC 8446 5.1)
+  // first outbound record carries legacy_record_version 0x0301 (RFC 9846 5.1)
   CheckEqualBytes('alert record pre-queued', DecodeHex('15030100020216'),
     TakeAll(LEngine));
   CheckEquals(Ord(TTlsAlertDescription.RecordOverflow),
@@ -187,7 +187,7 @@ var
   LWire: TBytes;
 begin
   // a cleartext application_data record before any read epoch key is unexpected on a real
-  // handshake (RFC 8446 5.1): the engine fails with unexpected_message
+  // handshake (RFC 9846 5.1): the engine fails with unexpected_message
   LEngine := NewEngine;
   LWire := PeerRecord(TTlsContentType.ApplicationData, DecodeHex('deadbeef'));
   CheckEquals(Ord(TTlsOutcome.Fatal),
@@ -265,7 +265,7 @@ var
   LWire: TBytes;
 begin
   // a handshake message that spans records must not have another record type interleaved
-  // between its fragments (RFC 8446 5.1) - an alert is that violation as much as app data is
+  // between its fragments (RFC 9846 5.1) - an alert is that violation as much as app data is
   LEngine := NewEngine;
   LEngine.StartHandshake;
   // a ServerHello handshake header claiming a 4-byte body with none present: one partial

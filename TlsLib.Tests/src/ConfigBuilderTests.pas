@@ -365,7 +365,7 @@ type
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
     procedure TestClientCredentialWithMismatchedKeyRejected;
     procedure TestMatchingCredentialBuildsServer;
-    // RFC 8446 4.6.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
+    // RFC 9846 4.7.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
     procedure TestTicketLifetimeAboveCapIsRejected;
     procedure TestTicketLifetimeAtCapIsAccepted;
     procedure TestResumptionScopeAboveCapIsRejected;
@@ -376,7 +376,7 @@ type
     procedure TestTicketCountAboveCapIsRejected;
     procedure TestTicketCountNegativeIsRejected;
     procedure TestTicketCountAtCapIsAccepted;
-    // RFC 8446 8: a server authorizing 0-RTT gets one anti-replay register per config (shared
+    // RFC 9846 8: a server authorizing 0-RTT gets one anti-replay register per config (shared
     // across connections), so a replay across connections is detectable without WithAntiReplay
     procedure TestServerEarlyDataMintsSharedAntiReplayDefault;
     procedure TestServerRejectsPublicSuffixSniWildcard;
@@ -4260,7 +4260,7 @@ begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
   LRaised := False;
   try
-    LServer.WithTicketLifetime(604801); // one second over the RFC 8446 4.6.1 ceiling
+    LServer.WithTicketLifetime(604801); // one second over the RFC 9846 4.7.1 ceiling
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
@@ -4563,7 +4563,7 @@ procedure TTestConfigBuilder.TestTls13ReportsExtendedMasterSecret;
 var
   LClient, LServer: ITlsEngine;
 begin
-  // TLS 1.3 binds every secret to the full transcript (RFC 8446 7.1), so the library reports EMS
+  // TLS 1.3 binds every secret to the full transcript (RFC 9846 7.1), so the library reports EMS
   // as in use, including a dual-version client that settles on 1.3
   LClient := TTlsEngineFactory.CreateClientEngine(NewClientBuilder.Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);

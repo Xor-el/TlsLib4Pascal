@@ -71,19 +71,19 @@ type
     FHasDecrypted: Boolean;
     /// <summary>True while the write side is on an unprotected epoch (the initial one, or after a
     /// revert to plaintext): a change_cipher_spec is only ever sent then, so emitting one once
-    /// write protection is armed is a caller error (RFC 8446 5 / RFC 5246 7.1).</summary>
+    /// write protection is armed is a caller error (RFC 9846 5 / RFC 5246 7.1).</summary>
     FWriteIsPlaintext: Boolean;
     /// <summary>When set (by the engine for a real handshake), a cleartext application_data
     /// record is rejected as unexpected. Off by default so the record layer stays a plain
     /// framing component for its own unit tests, which feed plaintext application_data.</summary>
     FStrictApplicationData: Boolean;
     /// <summary>Whether the read side is on the accepted-0-RTT early-data epoch, during which an
-    /// application_data record legitimately precedes the handshake completion (RFC 8446 4.2.10).
+    /// application_data record legitimately precedes the handshake completion (RFC 9846 4.3.10).
     /// Set when the server installs the early read keys and cleared at EndOfEarlyData; outside
     /// that window an application_data record before the handshake completes is unexpected.</summary>
     FEarlyReadAccepted: Boolean;
     /// <summary>How much more accepted early data the ticket's max_early_data_size allows
-    /// (RFC 8446 4.6.1); 0 outside the accepted window.</summary>
+    /// (RFC 9846 4.7.1); 0 outside the accepted window.</summary>
     FEarlyReadRemaining: Int32;
     // un-framed inbound bytes (a trailing partial record) are [FInHead, FInTail) within the
     // capacity buffer: each feed is one Move in and records are framed by scanning in place, so a
@@ -148,10 +148,10 @@ type
     procedure SetWriteProtection(const AProtection: IRecordProtection);
     /// <summary>Reverts the write epoch to an unprotected (plaintext) one, abandoning an
     /// installed early-data write protection when a HelloRetryRequest rejects offered 0-RTT
-    /// (RFC 8446 4.2.10).</summary>
+    /// (RFC 9846 4.3.10).</summary>
     procedure RevertWriteToPlaintext;
     /// <summary>A client calls this before its first flight so the initial ClientHello record
-    /// carries legacy_record_version 0x0301 (RFC 8446 5.1); later records carry 0x0303.</summary>
+    /// carries legacy_record_version 0x0301 (RFC 9846 5.1); later records carry 0x0303.</summary>
     procedure UseClientInitialRecordVersion;
 
     /// <summary>Feeds transport bytes; frames complete records and queues them raw.</summary>
@@ -194,10 +194,10 @@ type
     /// <summary>Records the negotiated protocol version once the peer's hello fixes it, so an
     /// incoming change_cipher_spec can be classified: middlebox-compat filler to drop under TLS
     /// 1.3, but out of its legal window (fatal) before any hello or under an unarmed TLS 1.2
-    /// read epoch (RFC 8446 5 / RFC 5246 7.1).</summary>
+    /// read epoch (RFC 9846 5 / RFC 5246 7.1).</summary>
     procedure SetNegotiatedVersion(const AVersion: TTlsVersion);
     /// <summary>When set, a cleartext application_data record is rejected as unexpected (RFC
-    /// 8446 5.1). The engine sets it for a real handshake; off by default for framing tests.</summary>
+    /// 9846 5.1). The engine sets it for a real handshake; off by default for framing tests.</summary>
     property StrictApplicationData: Boolean read FStrictApplicationData
       write FStrictApplicationData;
     /// <summary>The record_overflow ceiling applied to an inbound record's length.</summary>
@@ -219,19 +219,19 @@ type
     property MaxChangeCipherSpec: Int32 read FMaxChangeCipherSpec;
 
     /// <summary>
-    /// Enters the 0-RTT reject skip mode (RFC 8446 4.2.10): NextIncoming drops
+    /// Enters the 0-RTT reject skip mode (RFC 9846 4.3.10): NextIncoming drops
     /// undecryptable application_data records (early data the server cannot read), up to
     /// AMaxBytes, until a record decrypts under the installed epoch.
     /// </summary>
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     /// <summary>Opens (server accepts 0-RTT, on installing the early read keys) or closes (at
     /// EndOfEarlyData) the accepted-early-data read window, during which an application_data
-    /// record legitimately precedes the handshake completion (RFC 8446 4.2.10). AMaxBytes is
+    /// record legitimately precedes the handshake completion (RFC 9846 4.3.10). AMaxBytes is
     /// the ticket's max_early_data_size: accepted early data beyond it is fatal.</summary>
     procedure SetEarlyReadAccepted(AActive: Boolean; AMaxBytes: Int32);
 
     /// <summary>Marks the handshake complete, after which a change_cipher_spec is no
-    /// longer in its legal window and is rejected (RFC 8446 5).</summary>
+    /// longer in its legal window and is rejected (RFC 9846 5).</summary>
     procedure SetHandshakeComplete;
   end;
 
@@ -240,7 +240,7 @@ implementation
 const
   DefaultMaxConsecutiveEmptyRecords = Int32(32);
   // each peer sends at most one middlebox change_cipher_spec; a small margin tolerates
-  // an interleaved one without opening a flood vector (RFC 8446 D.4)
+  // an interleaved one without opening a flood vector (RFC 9846 E.4)
   DefaultMaxChangeCipherSpec = Int32(2);
   // a handful of max-size records: comfortably holds a legitimate flight buffered while parked
   // (CertificateVerify + Finished + a few NewSessionTickets) plus a small pull-ahead, while
@@ -325,8 +325,8 @@ end;
 
 class function TRecordLayer.IsKnownRecordType(AByte: Byte): Boolean;
 begin
-  // the four outer record content types the layer accepts (RFC 8446 5.1); an
-  // unknown or unsupported outer type is rejected at framing (RFC 8446 5), before it is queued
+  // the four outer record content types the layer accepts (RFC 9846 5.1); an
+  // unknown or unsupported outer type is rejected at framing (RFC 9846 5), before it is queued
   Result := (AByte = Byte(Ord(TTlsContentType.ChangeCipherSpec))) or
     (AByte = Byte(Ord(TTlsContentType.Alert))) or
     (AByte = Byte(Ord(TTlsContentType.Handshake))) or
@@ -363,7 +363,7 @@ procedure TRecordLayer.RevertWriteToPlaintext;
 begin
   // drop back to an unprotected write epoch (legacy_record_version 0x0303): a client that
   // offered 0-RTT installed the early-data write keys, but a HelloRetryRequest rejects the
-  // early data, so its second ClientHello onward goes out in the clear (RFC 8446 4.2.10)
+  // early data, so its second ClientHello onward goes out in the clear (RFC 9846 4.3.10)
   FWriteProtection := TNullRecordProtection.Create;
   FWriteIsPlaintext := True;
 end;
@@ -381,7 +381,7 @@ end;
 
 procedure TRecordLayer.SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
 const
-  // the largest a TLSInnerPlaintext may be (RFC 8446 5.4: 2^14 content + 1 type byte)
+  // the largest a TLSInnerPlaintext may be (RFC 9846 5.4: 2^14 content + 1 type byte)
   MaxInnerPlaintext = TRecordLimits.MaxPlaintext + 1;
 begin
   // raw TLSInnerPlaintext caps; ignore a non-positive value and clamp defensively
@@ -408,7 +408,7 @@ begin
   if (ABodyLength <> 1) or (ARecord[ABodyOffset] <> 1) then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
       @SBadChangeCipherSpec);
-  // never legal once the handshake is complete (RFC 8446 5)
+  // never legal once the handshake is complete (RFC 9846 5)
   if FHandshakeComplete then
     raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
       @SChangeCipherSpecAfterHandshake);
@@ -422,7 +422,7 @@ begin
     Exit;
   end;
   // TLS 1.3 middlebox-compatibility filler: dropped, but only a bounded number of times and only
-  // once the peer's hello has fixed the version (local policy: RFC 8446 5 admits a
+  // once the peer's hello has fixed the version (local policy: RFC 9846 5 admits a
   // change_cipher_spec only in the middlebox-compatibility window, and we stay stricter before the
   // peer's first hello).
   if FNegotiatedVersion.Equals(TTlsVersion.Tls13) then
@@ -435,7 +435,7 @@ begin
   end;
   // otherwise out of its legal window: before the peer's first hello (version still unknown), or
   // a TLS 1.2 change_cipher_spec with no read epoch armed (before ClientKeyExchange, or a stray
-  // extra one) (RFC 8446 5 / RFC 5246 7.1)
+  // extra one) (RFC 9846 5 / RFC 5246 7.1)
   raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
     @SChangeCipherSpecOutOfWindow);
 end;
@@ -488,7 +488,7 @@ begin
   // only TLS 1.3 needs the heuristic (TLS 1.2 keying changes at the change_cipher_spec), only
   // until a record has ever decrypted, only a record too short to be protected, and only a fatal
   // alert other than close_notify (which closes at any level): an unauthenticated close_notify or
-  // warning must never be honoured, since it would forge the closure of RFC 8446 6.1
+  // warning must never be honoured, since it would forge the closure of RFC 9846 6.1
   Result := FNegotiatedVersion.Equals(TTlsVersion.Tls13) and (not FReadIsPlaintext) and
     (not FHasDecrypted) and (System.Length(ARecord) > 0) and
     (ARecord[0] = OuterAlert) and
@@ -525,8 +525,8 @@ begin
     TTlsContentType.ApplicationData, TTlsContentType.Handshake,
       TTlsContentType.Alert:
       begin
-        // an application_data record before the handshake completes is unexpected (RFC 8446 2 /
-        // 4.4.4, RFC 5246 7.3), whether empty or not - including under a real epoch installed
+        // an application_data record before the handshake completes is unexpected (RFC 9846 2 /
+        // 4.5.3, RFC 5246 7.3), whether empty or not - including under a real epoch installed
         // mid-handshake (TLS 1.2 keys at the peer's ChangeCipherSpec, before its Finished).
         // Accepted 0-RTT early data is the exception, excluded by the guard below.
         if FStrictApplicationData and
@@ -535,7 +535,7 @@ begin
           raise EFatalAlertTlsLibException.CreateRes(
             TTlsAlertDescription.UnexpectedMessage, @SUnexpectedApplicationData);
         // the server MUST NOT accept more 0-RTT than the ticket's max_early_data_size and SHOULD
-        // terminate with unexpected_message past it (RFC 8446 4.6.1; we always do); the limit counts the
+        // terminate with unexpected_message past it (RFC 9846 4.7.1; we always do); the limit counts the
         // early-data payload, not the record's type byte or padding
         if FEarlyReadAccepted and
           (AFragment.ContentType = TTlsContentType.ApplicationData) then
@@ -549,7 +549,7 @@ begin
         if System.Length(AFragment.Data) = 0 then
         begin
           // a zero-length handshake or alert record is forbidden; only an empty application_data
-          // record is legal, and only its cadence is bounded (RFC 8446 5.4 / RFC 5246 6.2.1)
+          // record is legal, and only its cadence is bounded (RFC 9846 5.4 / RFC 5246 6.2.1)
           if AFragment.ContentType <> TTlsContentType.ApplicationData then
             raise EFatalAlertTlsLibException.CreateRes(
               TTlsAlertDescription.UnexpectedMessage, @SEmptyControlRecord);
@@ -572,7 +572,7 @@ begin
       // reaching here is a change_cipher_spec whose content type surfaced from a decrypted
       // record - a PROTECTED change_cipher_spec (a plaintext one is recognized by its outer
       // type and dropped before decryption). A protected change_cipher_spec is never valid and
-      // MUST abort with unexpected_message (RFC 8446 5), e.g. a post-handshake CCS a peer sends
+      // MUST abort with unexpected_message (RFC 9846 5), e.g. a post-handshake CCS a peer sends
       // under the application keys.
       raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.UnexpectedMessage,
         @SProtectedChangeCipherSpec);
@@ -612,7 +612,7 @@ begin
       // structural framing only; decryption is deferred to the pull side
       // a plaintext change_cipher_spec is queued like any record and judged at pull time, not
       // dropped here: its legality (middlebox drop while the handshake runs, fatal
-      // unexpected_message once complete - RFC 8446 5 / D.4) turns on whether the peer's Finished
+      // unexpected_message once complete - RFC 9846 5 / E.4) turns on whether the peer's Finished
       // has been processed, which happens only at the pull side. Dropping it eagerly would clear a
       // CCS coalesced with the peer's final flight before that Finished flips handshake-complete.
       FFramed.Enqueue(System.Copy(FInbound, LPos, LRecordLength));
@@ -645,7 +645,7 @@ begin
       Dec(FFramedBytes, System.Length(LRecord));
       // a plaintext change_cipher_spec (never encrypted, so its outer type is authoritative):
       // dropped as middlebox compatibility while the handshake runs, but a fatal
-      // unexpected_message once complete (RFC 8446 5 / D.4). Judged here at pull time so a CCS
+      // unexpected_message once complete (RFC 9846 5 / E.4). Judged here at pull time so a CCS
       // coalesced with the peer's final flight is decided after that flight's Finished, not at framing.
       if (System.Length(LRecord) > 0) and (LRecord[0] = OuterChangeCipherSpec) then
       begin
@@ -739,7 +739,7 @@ begin
   if (AOffset < 0) or (ALength < 0) or
     (Int64(AOffset) + ALength > System.Length(AData)) then
     raise EArgumentTlsLibException.CreateRes(@SWriteSliceOutOfRange);
-  // a change_cipher_spec is only ever sent under the initial plaintext epoch (RFC 8446 5 /
+  // a change_cipher_spec is only ever sent under the initial plaintext epoch (RFC 9846 5 /
   // RFC 5246 7.1); emitting one once write protection is armed would be a caller error
   if (AContentType = TTlsContentType.ChangeCipherSpec) and (not FWriteIsPlaintext) then
     raise EInvalidOperationTlsLibException.CreateRes(@SProtectedChangeCipherSpec);
@@ -765,7 +765,7 @@ begin
   if LPlainCap < 1 then
     LPlainCap := 1;
   // only application_data may be empty; a zero-length handshake/alert record is forbidden
-  // (RFC 8446 5.4 / RFC 5246 6.2.1). Protect advances the sequence exactly once per record
+  // (RFC 9846 5.4 / RFC 5246 6.2.1). Protect advances the sequence exactly once per record
   if ALength <= 0 then
   begin
     if not LIsAppData then

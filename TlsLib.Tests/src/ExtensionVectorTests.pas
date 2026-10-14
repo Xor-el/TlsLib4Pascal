@@ -25,7 +25,7 @@ uses
 
 type
   /// <summary>
-  /// The one extensions&lt;0..2^16-1&gt; codec (RFC 8446 4.2) as a value: byte-exact
+  /// The one extensions&lt;0..2^16-1&gt; codec (RFC 9846 4.3) as a value: byte-exact
   /// Parse/Encode round-trip, the fail-closed parse rules (duplicate -&gt; illegal_parameter,
   /// over-cap / trailing / empty-field -&gt; decode_error), the find/last helpers, the
   /// copy-on-write mutators, and the absolute data offsets used for in-place ECH patching.

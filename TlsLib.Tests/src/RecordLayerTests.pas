@@ -454,7 +454,7 @@ var
 begin
   LRecv := TRecordLayer.Create;
   try
-    // RFC 8446 5.4 / RFC 5246 6.2.1: a zero-length handshake record is unexpected_message
+    // RFC 9846 5.4 / RFC 5246 6.2.1: a zero-length handshake record is unexpected_message
     CheckTrue(ExpectFatal(LRecv, DecodeHex('1603030000'),
       TTlsAlertDescription.UnexpectedMessage), 'an empty handshake record is rejected');
   finally
@@ -497,7 +497,7 @@ var
 begin
   LRecv := TRecordLayer.Create;
   try
-    // an empty application_data record is legal (RFC 8446 5.4); it delivers nothing
+    // an empty application_data record is legal (RFC 9846 5.4); it delivers nothing
     LRecv.ProcessInput(DecodeHex('1703030000'), 0, 5);
     CheckFalse(DrainOne(LRecv, LFrag),
       'an empty application_data record is accepted and delivers nothing');
@@ -516,7 +516,7 @@ begin
     LKey := DecodeHex('000102030405060708090a0b0c0d0e0f');
     LIv := DecodeHex('000102030405060708090a0b');
     // a protected record whose decrypted inner content is empty and inner type is handshake is
-    // forbidden (RFC 8446 5.4) - the reject must run after decrypt, on the TLSInnerPlaintext
+    // forbidden (RFC 9846 5.4) - the reject must run after decrypt, on the TLSInnerPlaintext
     LWire := MakeTls13(LKey, LIv).Protect(TTlsContentType.Handshake, nil, 0, 0);
     LRecv.SetReadProtection(MakeTls13(LKey, LIv));
     CheckTrue(ExpectFatal(LRecv, LWire, TTlsAlertDescription.UnexpectedMessage),
@@ -911,7 +911,7 @@ begin
     LRecv.SetNegotiatedVersion(TTlsVersion.Tls13);
     // before anything has decrypted only a FATAL plaintext alert is accepted; a warning level
     // alert (close_notify) is unauthenticated and would forge a truncation (library policy; see
-    // RFC 8446 6.1)
+    // RFC 9846 6.1)
     CheckTrue(ExpectFatal(LRecv, DecodeHex('15030300020100'), TTlsAlertDescription.BadRecordMac),
       'a plaintext close_notify is refused');
   finally
@@ -1023,7 +1023,7 @@ begin
     CheckTrue(DrainOne(LRecv, LFrag), 'early data within the budget surfaces');
     CheckEqualBytes('the first early record is delivered', LA, LFrag.Data);
     // 5 + 5 exceeds the 8-byte budget: the server MUST terminate with unexpected_message
-    // (RFC 8446 4.6.1)
+    // (RFC 9846 4.7.1)
     CheckTrue(ExpectFatal(LRecv, LSecond, TTlsAlertDescription.UnexpectedMessage),
       'accepted early data beyond max_early_data_size is unexpected_message');
   finally
@@ -1134,7 +1134,7 @@ begin
   LRecv := TRecordLayer.Create;
   try
     // before any peer hello fixes the version, a change_cipher_spec is out of its legal
-    // window (RFC 8446 D.4): unexpected_message, not silently dropped
+    // window (RFC 9846 E.4): unexpected_message, not silently dropped
     CheckTrue(ExpectFatal(LRecv, DecodeHex('140303000101'),
       TTlsAlertDescription.UnexpectedMessage),
       'a change_cipher_spec before the peer hello is unexpected_message');

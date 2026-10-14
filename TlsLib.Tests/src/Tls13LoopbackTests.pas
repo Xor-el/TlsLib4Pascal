@@ -1045,7 +1045,7 @@ begin
   // across an HRR. CH2 must keep CH1's PSK identities AND obfuscated ticket ages verbatim (a real
   // offer's age moves only by the retry round-trip) while regenerating the binders, as a real
   // resumption CH2 does - a fresh age or a verbatim binder would fingerprint the decoy (RFC 9849
-  // sec. 10.10.4, RFC 8446 4.1.2/4.2.11.1)
+  // sec. 10.10.4, RFC 9846 4.2.2/4.3.11.1)
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
@@ -1529,7 +1529,7 @@ begin
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the negotiation policy prefers X25519 (and PQ hybrids) ahead of secp256r1; a client that omits
-  // them and offers only secp256r1 (mandatory to implement, RFC 8446 9.1) still negotiates it,
+  // them and offers only secp256r1 (mandatory to implement, RFC 9846 9.1) still negotiates it,
   // without a HelloRetryRequest, because it sent that key_share
   LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
   LParams.ServerRandom := Filled($22, 32);
@@ -1644,7 +1644,7 @@ var
   LMatch: Boolean;
 begin
   // a HelloRetryRequest is a ServerHello whose random is the fixed HRR sentinel
-  // (RFC 8446 4.1.3); the 32-byte sentinel is unique enough to scan for directly
+  // (RFC 9846 4.2.3); the 32-byte sentinel is unique enough to scan for directly
   Result := 0;
   LN := System.Length(HelloRetryRequestSentinel);
   LI := 0;
@@ -1855,7 +1855,7 @@ var
   LHalfRtt: TBytes;
 begin
   // a TLS 1.3 server may write application data from its own Finished onward, before it has
-  // received the client Finished (half-RTT, RFC 8446 2 / 4.4.4). This guards the one legitimate
+  // received the client Finished (half-RTT, RFC 9846 2 / 4.5.3). This guards the one legitimate
   // path the application-write-epoch gate must not refuse.
   LClient := NewClient;
   LServer := NewServer;
@@ -1888,7 +1888,7 @@ var
   LRaised: Boolean;
 begin
   // after the ServerHello the client holds the handshake write epoch, not the application one;
-  // a Write must be refused so application data is never sealed under handshake keys (RFC 8446 2)
+  // a Write must be refused so application data is never sealed under handshake keys (RFC 9846 2)
   LClient := NewClient;
   LServer := NewServer;
   LClient.StartHandshake;
@@ -1925,7 +1925,7 @@ var
   LIterations: Int32;
 begin
   // after completion a zero-length application write is a no-op: it must not put an empty
-  // application_data record on the wire (library policy; RFC 8446 5.1 / 5.4 allow zero-length data)
+  // application_data record on the wire (library policy; RFC 9846 5.1 / 5.4 allow zero-length data)
   LClient := NewClient;
   LServer := NewServer;
   LClient.StartHandshake;
@@ -1948,7 +1948,7 @@ var
   LClient, LServer: ITlsEngine;
   LIterations: Int32;
 begin
-  // the public SendAlert is fatal-level, so the peer must close (RFC 8446 6.2)
+  // the public SendAlert is fatal-level, so the peer must close (RFC 9846 6.2)
   LClient := NewClient;
   LServer := NewServer;
   LClient.StartHandshake;
@@ -2208,7 +2208,7 @@ begin
   Feed(LServer, Drain(LClient));
   LFlight := Drain(LServer);
   // the plaintext ServerHello record also carries an EncryptedExtensions: a handshake message
-  // must not follow a key change in the same record (RFC 8446 5.1)
+  // must not follow a key change in the same record (RFC 9846 5.1)
   LMerged := FirstRecordWith(LFlight, DecodeHex('08 00 00 02 00 00'));
   LOutcome := LClient.ProcessInput(LMerged, 0, System.Length(LMerged));
   CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LOutcome), 'a message packed behind the ServerHello is fatal');
@@ -2290,7 +2290,7 @@ var
   LI: Int32;
 begin
   // before any ServerHello has fixed the version, a bare change_cipher_spec is out of its legal
-  // window (RFC 8446 D.4): the client fails with unexpected_message, not a silent drop
+  // window (RFC 9846 E.4): the client fails with unexpected_message, not a silent drop
   LClient := NewClient;
   LClient.StartHandshake;
   Drain(LClient);
@@ -2340,12 +2340,12 @@ begin
   Pump(LServer, LClient);
   CheckTrue(LClient.IsInboundClosed, 'the client saw the inbound close_notify');
   CheckFalse(LClient.IsTerminal, 'a close after the handshake is not a failure');
-  // bytes the peer sends after its close_notify are discarded, not framed (RFC 8446 6.1)
+  // bytes the peer sends after its close_notify are discarded, not framed (RFC 9846 6.1)
   LMsg := DecodeHex('1703030004deadbeef');
   CheckFalse(LClient.ProcessInput(LMsg, 0, System.Length(LMsg)) = TTlsOutcome.Fatal,
     'input after the close is discarded');
   CheckFalse(LClient.IsTerminal, 'post-close input does not make the engine terminal');
-  // under TLS 1.3 an inbound close_notify closes only the read side (RFC 8446 6.1): the client's
+  // under TLS 1.3 an inbound close_notify closes only the read side (RFC 9846 6.1): the client's
   // write half stays open, so it can still write and rekey
   CheckFalse(LClient.WriteClosed, 'the TLS 1.3 write side stays open after an inbound close');
   LMsg := DecodeHex('61667465722d636c6f7365'); // "after-close"
@@ -2415,7 +2415,7 @@ var
   LIterations: Int32;
 begin
   // the server staples a current Good OCSP response in the leaf CertificateEntry, which a
-  // hard-fail client requires (a posture of this library; the format is RFC 8446 4.4.2.1)
+  // hard-fail client requires (a posture of this library; the format is RFC 9846 4.5.1.1)
   LClient := NewHardRevocationClient;
   LServer := NewStaplingServer(OcspField('ocsp_good'));
   LClient.StartHandshake;

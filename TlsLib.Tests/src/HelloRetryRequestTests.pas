@@ -617,7 +617,7 @@ var
 begin
   LClient := NewRetryClient;
   // a well-formed HRR for an offered group, then its legacy_version (framed bytes 4..5) patched
-  // from 0x0303 to a bogus value: the client rejects it like any ServerHello (RFC 8446 4.1.3)
+  // from 0x0303 to a bogus value: the client rejects it like any ServerHello (RFC 9846 4.2.3)
   LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
     DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
   LHrr[4] := $03;
@@ -764,7 +764,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // after emitting a HelloRetryRequest the server waits for the second ClientHello;
-  // any other message (here a Finished) is unexpected (RFC 8446 6.2 / 4.1.4)
+  // any other message (here a Finished) is unexpected (RFC 9846 6.2 / 4.2.4)
   LServer := NewSecp256r1Server(nil);
   LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1')));
   CheckTrue(FailAlertOf(LServer.ProcessMessage(
@@ -787,7 +787,7 @@ begin
 
   // the server selects AES-128-GCM from ClientHello1 and names it in the HelloRetryRequest; a
   // retry that offers a different suite (here ChaCha20-Poly1305, same SHA-256 hash) must abort
-  // rather than re-negotiate (RFC 8446 4.1.4)
+  // rather than re-negotiate (RFC 9846 4.2.4)
   LServer := NewSecp256r1Server(nil);
   LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];
   LCookie := CookieFromHrr(LHrr);
@@ -887,7 +887,7 @@ const
 begin
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   // the first hello names "server"; a retry that renames the host, or drops the name, must abort
-  // (RFC 8446 4.1.2), else the host check made on the first hello (ticket scope) is bypassed.
+  // (RFC 9846 4.2.2), else the host check made on the first hello (ticket scope) is bypassed.
   // The last case keeps the name: the positive control that a conformant retry proceeds.
   for LI := Low(Names) to High(Names) do
   begin
@@ -917,7 +917,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // the retry ClientHello must resend CH1 unchanged except for the permitted fields; a changed
-  // legacy_session_id is illegal_parameter (RFC 8446 4.1.2). ClientHello1 (the vector) carried an
+  // legacy_session_id is illegal_parameter (RFC 9846 4.2.2). ClientHello1 (the vector) carried an
   // empty session id, which the cookie binds; CH2 here sends a 32-byte one.
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   LServer := NewSecp256r1Server(nil);
@@ -1003,7 +1003,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // the backend confirmed CH1's inner, and ClientHelloInner.random must not change across the retry
-  // (RFC 8446 4.1.2): BuildClientHello2's zero random differs from the first hello's
+  // (RFC 9846 4.2.2): BuildClientHello2's zero random differs from the first hello's
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
   LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(WithInnerEch(Vec('client_hello_1')))))[0];
@@ -1042,7 +1042,7 @@ var
   LPriv: IKeyExchangePrivateKey;
   LAlert: TTlsAlertDescription;
 begin
-  // the first hello carried no ech, so the retry may not add one (RFC 8446 4.1.2)
+  // the first hello carried no ech, so the retry may not add one (RFC 9846 4.2.2)
   TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1').GenerateKeyPair(LPriv, LShare);
   LServer := NewSecp256r1Server(nil, TEchServerPolicy.Backend);
   LHrr := SendHandshakeOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(Vec('client_hello_1'))))[0];

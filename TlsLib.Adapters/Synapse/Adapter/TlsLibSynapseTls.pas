@@ -172,7 +172,7 @@ type
     /// <summary>The Encrypted Client Hello outcome for this connection (RFC 9849).</summary>
     function EchStatus: TEchStatus;
     /// <summary>Whether this connection resumed an earlier session rather than doing a full
-    /// handshake (RFC 8446 2.2 / RFC 5246 7.3). Cast Sock.SSL to TSSLTlsLib to read it.</summary>
+    /// handshake (RFC 9846 2.2 / RFC 5246 7.3). Cast Sock.SSL to TSSLTlsLib to read it.</summary>
     function Resumed: Boolean;
     /// <summary>The ALPN protocol the peer selected as text; empty when none was negotiated or
     /// the name is not ASCII (RFC 7301). Cast Sock.SSL to TSSLTlsLib to read it.</summary>

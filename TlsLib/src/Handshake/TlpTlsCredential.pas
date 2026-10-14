@@ -70,14 +70,14 @@ type
       const APassword: string): TTlsCredential; static;
   end;
 
-  /// <summary>How a server treats client-certificate authentication (RFC 8446 4.3.2 /
+  /// <summary>How a server treats client-certificate authentication (RFC 9846 4.4.2 /
   /// RFC 5246 7.4.4): None never requests one, Requested asks but tolerates a client
   /// that sends none, Required aborts when the client presents no certificate.</summary>
   TClientAuthMode = (None, Requested, Required);
 
   /// <summary>How a client treats server-certificate verification when it resumes a session:
   /// ReuseOriginal (the default) reuses the original handshake's authentication without
-  /// re-checking (RFC 8446 2.2); Reverify re-runs the certificate verifier against the stored
+  /// re-checking (RFC 9846 2.2); Reverify re-runs the certificate verifier against the stored
   /// peer chain, for a stricter posture that re-checks a resumed server against current trust.
   /// Sessions are scoped per configuration (see WithSessionCache), so this does not govern
   /// cross-configuration resumption; it re-checks the sessions this configuration, or a scope it

@@ -81,7 +81,7 @@ procedure TTestAlert.TestUnknownByteRejected;
 var
   LDecoded: TTlsAlertDescription;
 begin
-  // 1 and 255 are not assigned RFC 8446 alert codes
+  // 1 and 255 are not assigned RFC 9846 alert codes
   CheckFalse(TTlsAlertDescription.TryFromByte(1, LDecoded), 'code 1 unknown');
   CheckFalse(TTlsAlertDescription.TryFromByte(255, LDecoded), 'code 255 unknown');
 end;

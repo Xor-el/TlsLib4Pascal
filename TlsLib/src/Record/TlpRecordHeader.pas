@@ -25,7 +25,7 @@ uses
   TlpWireReader;
 
 type
-  /// <summary>The record-layer size ceilings (RFC 8446 5.1/5.2, RFC 5246 6.2.3).</summary>
+  /// <summary>The record-layer size ceilings (RFC 9846 5.1/5.2, RFC 5246 6.2.3).</summary>
   TRecordLimits = class sealed(TObject)
   public const
     /// <summary>The fixed 5-byte record header: type(1) version(2) length(2).</summary>
@@ -41,7 +41,7 @@ type
   /// <summary>
   /// The 5-byte TLS record header. The content type is held as its raw wire byte
   /// so an unknown code survives the parse for the record layer's demux to reject
-  /// (RFC 8446 5) rather than being guessed or dropped here.
+  /// (RFC 9846 5) rather than being guessed or dropped here.
   /// </summary>
   TTlsRecordHeader = record
   strict private

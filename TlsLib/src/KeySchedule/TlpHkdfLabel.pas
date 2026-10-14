@@ -25,14 +25,14 @@ uses
 type
   /// <summary>
   /// The TLS 1.3 label wrapper over the raw HKDF: HKDF-Expand-Label and
-  /// Derive-Secret (RFC 8446 7.1), built on the provider's IHkdf. Stateless - the
+  /// Derive-Secret (RFC 9846 7.1), built on the provider's IHkdf. Stateless - the
   /// hash is carried by the supplied IHkdf and the transcript hash is passed in.
   /// </summary>
   THkdfLabel = class sealed(TObject)
   public
     /// <summary>
     /// The serialized HkdfLabel struct: uint16 length, opaque label = "tls13 " + ALabel (at most
-    /// 255 bytes; an empty ALabel is allowed, which RFC 8446 7.1's 7-byte floor would forbid),
+    /// 255 bytes; an empty ALabel is allowed, which RFC 9846 7.1's 7-byte floor would forbid),
     /// opaque context &lt;0..255&gt;. Out-of-range raises.
     /// </summary>
     class function BuildHkdfLabel(const ALabel: string; const AContext: TBytes;
@@ -68,7 +68,7 @@ class function THkdfLabel.BuildHkdfLabel(const ALabel: string;
 var
   LPrefixLen, LLabelLen, LFullLabelLen, LContextLen, LPos, LI: Int32;
 begin
-  // HkdfLabel (RFC 8446 7.1): uint16 length || opaque label = "tls13 " + ALabel
+  // HkdfLabel (RFC 9846 7.1): uint16 length || opaque label = "tls13 " + ALabel
   // || opaque context<0..255>.
   Result := nil;
   // the length is written as a uint16; reject a value that would silently truncate
@@ -77,7 +77,7 @@ begin
   LPrefixLen := System.Length(Tls13LabelPrefix);
   LLabelLen := System.Length(ALabel);
   LFullLabelLen := LPrefixLen + LLabelLen;
-  // no 7-byte floor (RFC 8446 7.1 says <7..255>): an empty exporter label derives as "tls13 " alone, as peers do
+  // no 7-byte floor (RFC 9846 7.1 says <7..255>): an empty exporter label derives as "tls13 " alone, as peers do
   if LFullLabelLen > MaxFullLabelLength then
     raise EArgumentTlsLibException.CreateResFmt(@SLabelLength, [LFullLabelLen]);
   LContextLen := System.Length(AContext);

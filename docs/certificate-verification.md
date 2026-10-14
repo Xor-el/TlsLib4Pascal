@@ -563,7 +563,7 @@ Over the validated path (the anchor exempt), the built-in pipeline and the OS de
   `unsupported_certificate`;
 - each key meets the floors above, else `unsupported_certificate`;
 - an MD5-signed certificate is refused under any policy, and a SHA-1-signed one unless
-  `AllowedDeprecatedHashes` admits it (RFC 8446 4.4.2.4), with `bad_certificate`.
+  `AllowedDeprecatedHashes` admits it (RFC 9846 4.5.1.3), with `bad_certificate`.
 
 A `Custom` verifier replaces the pipeline and is not checked.
 

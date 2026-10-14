@@ -101,9 +101,9 @@ one when ECH was accepted). For debugging only — never production.
   negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
   only as forward-secret as the session store / ticket-key lifetime. Client-cache tickets are single-use; server tickets are single-use with a session
   store. A resumption chain ends seven days after the full handshake that authenticated it, however
-  often its tickets are renewed (RFC 8446 §4.6.1): a renewal keeps the original authentication time
+  often its tickets are renewed (RFC 9846 §4.7.1): a renewal keeps the original authentication time
   and advertises only what is left. A connection ended by a fatal alert, sent or received, drops the
-  sessions and stateful tickets it stored (RFC 5246 §7.2.2, RFC 8446 §6); a stateless ticket cannot
+  sessions and stateful tickets it stored (RFC 5246 §7.2.2, RFC 9846 §6); a stateless ticket cannot
   be recalled. A transport failure (a reset socket) is not a fatal alert and leaves them resumable
   (RFC 5246 §7.2.1). A server's ticket lifetime defaults to 7200 s and `WithTicketLifetime` accepts at
   most seven days (604800 s); a client clamps any advertised lifetime to seven days. With resumption

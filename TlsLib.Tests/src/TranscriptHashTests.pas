@@ -194,7 +194,7 @@ var
   LTranscript: ITranscriptHash;
   LCh1, LCh1Hash, LExpected: TBytes;
 begin
-  // RFC 8446 4.4.1: on a HelloRetryRequest, ClientHello1 is replaced in the transcript
+  // RFC 9846 4.1: on a HelloRetryRequest, ClientHello1 is replaced in the transcript
   // by Handshake(message_hash, Hash(ClientHello1)). Verify byte-exact against the
   // RFC 8448 Section 5 ClientHello1 by recomputing the wrapper independently.
   LHrr := LoadVectorFields('Rfc8448/HelloRetryRequest.txt');

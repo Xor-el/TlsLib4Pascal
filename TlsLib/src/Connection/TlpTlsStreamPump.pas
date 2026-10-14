@@ -476,7 +476,7 @@ class procedure TTlsStreamPump.WriteApp(const AEngine: ITlsEngine;
 var
   LOffset, LRemaining, LChunk: Int32;
 begin
-  // a terminal engine reports its recorded alert, sent first, not a closed-write error (RFC 8446 6.2)
+  // a terminal engine reports its recorded alert, sent first, not a closed-write error (RFC 9846 6.2)
   if AEngine.IsTerminal then
     FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);
   // the engine's Write raises once the write side is closed; pre-check so the stream reports a

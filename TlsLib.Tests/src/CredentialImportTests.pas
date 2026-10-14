@@ -190,7 +190,7 @@ end;
 procedure TTestCredentialImport.TestRsaImportsEveryFormat;
 begin
   // PKCS#8 and PKCS#1, DER and PEM, all normalize to the same RSA key. An rsaEncryption key
-  // advertises RSA-PSS (preferred) and the legacy RSA-PKCS1 schemes (RFC 8446 4.2.3).
+  // advertises RSA-PSS (preferred) and the legacy RSA-PKCS1 schemes (RFC 9846 4.3.3).
   CheckFormats(TSignatureScheme.RSA_PSS_RSAE_SHA256, 'rsa_pub',
     [TSignatureScheme.RSA_PSS_RSAE_SHA256, TSignatureScheme.RSA_PSS_RSAE_SHA384,
      TSignatureScheme.RSA_PSS_RSAE_SHA512, TSignatureScheme.RSA_PKCS1_SHA256,

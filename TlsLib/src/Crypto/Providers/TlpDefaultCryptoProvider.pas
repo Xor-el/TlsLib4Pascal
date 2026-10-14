@@ -1078,7 +1078,7 @@ var
   LPoint: IECPoint;
 begin
   // the peer point must be the SEC1 uncompressed form of the exact field width: RFC 9180 7.1 / 7.1.1
-  // fix the DHKEM public-key length (Npk = 1 + 2*fieldSize) and RFC 8446 4.2.8.2 / RFC 8422
+  // fix the DHKEM public-key length (Npk = 1 + 2*fieldSize) and RFC 9846 4.3.8.2 / RFC 8422
   // 5.1.2 forbid compressed/hybrid encodings. DecodePoint alone would accept a compressed
   // 0x02/0x03 point, so gate the form here - this path also serves HPKE Decap, where a short
   // compressed enc would slip through.
@@ -1173,7 +1173,7 @@ var
   LPoint: IECPoint;
 begin
   Result := False;
-  // an EC key share must use the uncompressed point form: RFC 8446 4.2.8.2 (TLS 1.3)
+  // an EC key share must use the uncompressed point form: RFC 9846 4.3.8.2 (TLS 1.3)
   // and RFC 8422 5.1.2 (TLS 1.2 and earlier) both mandate it and forbid compressed/
   // hybrid, so reject those up front - the caller then yields illegal_parameter
   if (System.Length(APublicKey) = 0) or (APublicKey[0] <> UncompressedPointPrefix) then
@@ -1584,7 +1584,7 @@ begin
   LOid := LAlg.Algorithm;
   // an rsaEncryption key can sign both RSASSA-PSS and legacy RSASSA-PKCS1-v1_5; PSS is
   // listed first so it stays preferred (and is the only RSA option for a 1.3 handshake
-  // signature - the pkcs1 schemes are gated out there, RFC 8446 4.2.3)
+  // signature - the pkcs1 schemes are gated out there, RFC 9846 4.3.3)
   if LOid.Equals(TPkcsObjectIdentifiers.RsaEncryption) then
     Exit(TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256,
       TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA512,
@@ -1964,7 +1964,7 @@ begin
     TSignatureScheme.RSA_PSS_RSAE_SHA512:
       Result := 'SHA-512withRSAandMGF1';
     // the legacy rsa_pkcs1_* schemes are RSASSA-PKCS1-v1_5 with the named hash; valid for
-    // a TLS 1.2 handshake signature and for certificate signatures (RFC 8446 4.2.3)
+    // a TLS 1.2 handshake signature and for certificate signatures (RFC 9846 4.3.3)
     TSignatureScheme.RSA_PKCS1_SHA256:
       Result := 'SHA-256withRSA';
     TSignatureScheme.RSA_PKCS1_SHA384:
@@ -2145,7 +2145,7 @@ begin
       raise EArgumentTlsLibException.CreateRes(@SMalformedPublicKey);
   end;
   // bind the scheme's key family to the key: an EC key under rsa_pss_rsae_*, or an RSA key under
-  // ecdsa_*, and an unclassifiable key, can never verify the scheme (RFC 8446 4.2.3). Return a
+  // ecdsa_*, and an unclassifiable key, can never verify the scheme (RFC 9846 4.3.3). Return a
   // fail-closed verifier so the outcome is decrypt_error, not a raised error. The curve-vs-scheme
   // bind stays a TLS 1.3 handshake concern (TCertificateVerify).
   if (not KeyKindOf(LInfo, LKey, LKind)) or (LKind <> AScheme.KeyKind) then

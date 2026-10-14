@@ -359,7 +359,7 @@ var
   LRandom: IRandom;
 begin
   // the identities and obfuscated ticket ages are the minted, retry-stable values (a real offer
-  // re-sends the identities across a retry; RFC 8446 4.1.2 recomputes the ages, which this decoy
+  // re-sends the identities across a retry; RFC 9846 4.2.2 recomputes the ages, which this decoy
   // deliberately keeps stable); only the binders are drawn fresh here, as a real client
   // recomputes them over the new transcript
   LRandom := FCrypto.Primitives.GetRandom;
@@ -419,7 +419,7 @@ begin
       ServerNameData(FSelectedConfig.PublicName));
   if LOuterEntries.Contains(TExtensionTypes.PreSharedKey) then
   begin
-    // a retry keeps CH1's GREASE PSK identities (RFC 8446 4.1.2) and, deliberately, their ages, so
+    // a retry keeps CH1's GREASE PSK identities (RFC 9846 4.2.2) and, deliberately, their ages, so
     // the decoy does not change shape across the retry; they are minted on the first flight, and
     // the binders are regenerated each hello so a decoy's CH2 does not carry CH1's binders
     // verbatim the way a real one never would
@@ -442,7 +442,7 @@ begin
       TTlsAlertDescription.InternalError, @SEchExtensionUnregistered);
 
   // a rejecting HelloRetryRequest: the server ignored our ech, so CH2's outer ech extension is
-  // an exact copy of CH1's (RFC 8446 4.1.2; the verbatim-copy rule of RFC 9849 sec. 6.2.1 is
+  // an exact copy of CH1's (RFC 9846 4.2.2; the verbatim-copy rule of RFC 9849 sec. 6.2.1 is
   // applied here by analogy); the rest of the outer
   // carries the retry's new key_share and cookie, but the ech payload is never re-sealed
   if AMode = TEchChMode.RetryReject then
@@ -502,7 +502,7 @@ var
 begin
   // (re)activate ONLY the inner transcript under the selected hash; the machine handles the
   // outer transcript. When a single pre-activated PSK fixed a hash the server then declined for a
-  // different one, rebuild the inner from the raw sent inner (RFC 8446 4.4.1) so the confirmation
+  // different one, rebuild the inner from the raw sent inner (RFC 9846 4.1) so the confirmation
   // and key schedule use the right PRF.
   if ARebuildInnerUnderHash then
   begin

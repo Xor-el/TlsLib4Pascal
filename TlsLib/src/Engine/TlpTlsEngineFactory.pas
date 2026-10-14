@@ -399,7 +399,7 @@ begin
   L12.OfferedVersions := AConfig.SupportedVersions;
   L12.ClientRandom := LClientRandom;
   // the non-empty legacy_session_id is the TLS 1.3 middlebox-compatibility session id
-  // (RFC 8446 D.4); a client that does not offer 1.3 sends an empty session id
+  // (RFC 9846 E.4); a client that does not offer 1.3 sends an empty session id
   if LOffers13 then
     L12.LegacySessionId := LSessionId
   else
@@ -416,7 +416,7 @@ begin
   L12.ExpectedServerName := LServerName;
   L12.ClientCredential := AConfig.Credential;
 
-  // resumption (RFC 8446 4.6.1 / RFC 5077): the version-appropriate client machine draws a
+  // resumption (RFC 9846 4.7.1 / RFC 5077): the version-appropriate client machine draws a
   // cached session and offers it. In a dual-version client the 1.3 machine draws (preferring
   // a 1.3 ticket, else offering a cached 1.2 session it hands to the 1.2 machine); either
   // way the 1.2 machine still needs the cache to store completed 1.2 sessions, so wire both.
@@ -521,7 +521,7 @@ begin
   if LOffers13 then
     L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the negotiation policy (built above from the same PreferredGroups/NamedGroups) selects the
-  // group by server preference among the client's supported_groups (RFC 8446 4.2.7); the state
+  // group by server preference among the client's supported_groups (RFC 9846 4.3.7); the state
   // machine resolves the selected code via GroupRegistry
   L13.GroupRegistry := AConfig.NamedGroups;
   // validate at creation that at least one preferred group is registered when 1.3 is offered (an
@@ -588,7 +588,7 @@ begin
   L12.Deferral := LDeferral;
   L12.RevocationPosture := AConfig.RevocationPosture;
 
-  // resumption (RFC 8446 4.6.1 / RFC 5077): both version machines share the session
+  // resumption (RFC 9846 4.7.1 / RFC 5077): both version machines share the session
   // store/STEK; each stores and accepts only its own version's sessions. 0-RTT is 1.3-only,
   // so the early-data budget and anti-replay reach only the 1.3 machine
   if AConfig.Resumption then

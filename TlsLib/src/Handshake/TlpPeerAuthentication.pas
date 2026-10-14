@@ -41,7 +41,7 @@ type
   TPeerAuthentication = class sealed(TObject)
   public
     /// <summary>Validates the peer's chosen signature scheme before a signature is verified: it
-    /// must be one APermittedSchemes advertised (RFC 8446 4.4.3 / RFC 5246 7.4.8 - a scheme
+    /// must be one APermittedSchemes advertised (RFC 9846 4.5.2 / RFC 5246 7.4.8 - a scheme
     /// outside the accepted set is a wrong signature type), a scheme this build knows, and one
     /// valid to carry a handshake signature for AVersion (rsa_pkcs1_* is certificate-only in TLS
     /// 1.3). It then enforces ALeaf's signing policy for the scheme (digitalSignature keyUsage,
@@ -87,8 +87,8 @@ begin
   if not TSignatureScheme.TryFromCode(ASchemeCode, Result) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SUnacceptedPeerScheme);
-  // rsa_pkcs1_* may be offered in TLS 1.3 for backward compatibility but must not sign a
-  // handshake message there (RFC 8446 4.2.3); every scheme may sign a TLS 1.2 handshake
+  // rsa_pkcs1_* may be offered in TLS 1.3 for backward compatibility but are not defined for a
+  // TLS 1.3 handshake signature (RFC 9846 4.3.3); every scheme may sign a TLS 1.2 handshake
   if not Result.IsValidForHandshake(AVersion) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SLegacyPkcs1InHandshakeSignature);

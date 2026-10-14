@@ -38,7 +38,7 @@ type
   end;
 
   /// <summary>
-  /// The extensions&lt;0..2^16-1&gt; vector of RFC 8446 4.2 as a value type: ordered entries,
+  /// The extensions&lt;0..2^16-1&gt; vector of RFC 9846 4.3 as a value type: ordered entries,
   /// no repeated type (illegal_parameter), at most MaxEntries (decode_error), nothing after
   /// the vector (decode_error). Parse and Encode round-trip byte-exact with the wire framing.
   /// Copy-on-write: every mutator uniquifies the entry array first, so a copy never aliases its

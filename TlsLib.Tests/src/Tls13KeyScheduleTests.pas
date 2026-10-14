@@ -158,13 +158,13 @@ begin
     THkdfLabel.DeriveSecret(LHkdf, LMaster, 'c ap traffic', Bytes('hash_ch_sf'))));
   CheckEqualBytes('s ap traffic', Bytes('s_ap_traffic'), ToBytes(
     THkdfLabel.DeriveSecret(LHkdf, LMaster, 's ap traffic', Bytes('hash_ch_sf'))));
-  CheckEqualBytes('exporter master', Bytes('exp_master'), ToBytes(
+  CheckEqualBytes('exporter secret', Bytes('exp_master'), ToBytes(
     THkdfLabel.DeriveSecret(LHkdf, LMaster, 'exp master', Bytes('hash_ch_sf'))));
 
-  // the resumption master secret is the schedule's own public output
+  // the resumption secret is the schedule's own public output
   LResumption := NewSchedule;
   LResumption.DeriveResumptionMasterSecret(Bytes('hash_ch_cf'));
-  CheckEqualBytes('resumption master', Bytes('res_master'),
+  CheckEqualBytes('resumption secret', Bytes('res_master'),
     ToBytes(LResumption.ResumptionMasterSecret));
 end;
 
@@ -290,7 +290,7 @@ var
 begin
   LSched := NewSchedule;
   LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
-  // recompute RFC 8446 7.5 through the HKDF seam: an empty label is "tls13 " alone
+  // recompute RFC 9846 7.5 through the HKDF seam: an empty label is "tls13 " alone
   LHkdf := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
   LZeros := TSecretBuffer.Allocate(32);
   LEmptyHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256).DoFinal;
@@ -307,7 +307,7 @@ begin
   LHash.Update(LContext, 0, System.Length(LContext));
   LContextHash := LHash.DoFinal;
   LExpected := THkdfLabel.HkdfExpandLabel(LHkdf, LLabelSecret, 'exporter', LContextHash, 32).ToBytes;
-  CheckEqualBytes('an empty-label export equals the RFC 8446 7.5 derivation', LExpected,
+  CheckEqualBytes('an empty-label export equals the RFC 9846 7.5 derivation', LExpected,
     LSched.ExportKeyingMaterial('', LContext, 32));
 end;
 
@@ -325,7 +325,7 @@ begin
   LEarly2 := LSched.ExportEarlyKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
   CheckEquals(32, System.Length(LEarly), 'requested length honored');
   CheckEqualBytes('early exporter is deterministic', LEarly, LEarly2);
-  // the early_exporter_master_secret is a different master, so the value differs from the
+  // the early_exporter_secret is a different secret, so the value differs from the
   // application exporter for the same label and context
   LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
   LMain := LSched.ExportKeyingMaterial('EXPORTER-test', DecodeHex('00010203'), 32);
@@ -440,7 +440,7 @@ var
   LPsk: ISecretBuffer;
   LShared, LHash, LTrunc: TBytes;
 begin
-  // the client and server, given the same resumption PSK and the same fresh (EC)DHE
+  // the client and server, given the same resumption PSK and the same fresh asymmetric
   // shared secret, derive identical binder, traffic keys and Finished verify_data
   LPsk := TSecretBuffer.From(DecodeHex('1122334455667788990011223344556677889900AABBCCDD'));
   LShared := DecodeHex('9FA1E9C3B6D2074F5E8A0C1D2B3A4958677685948382718065544332211009FF');
@@ -473,7 +473,7 @@ var
   LPsk: ISecretBuffer;
   LShared, LHash: TBytes;
 begin
-  // folding a fresh (EC)DHE secret in (psk_dhe_ke) must change the handshake keys
+  // folding a fresh asymmetric shared secret in (psk_dhe_ke) must change the handshake keys
   // versus PSK-only (psk_ke) - proving the shared secret is actually composed
   LPsk := TSecretBuffer.From(DecodeHex('00112233445566778899AABBCCDDEEFF'));
   LShared := DecodeHex('DEADBEEFCAFEBABE0011223344556677889900AABBCCDDEEFF0102030405060708');
@@ -754,7 +754,7 @@ procedure TTestTls13KeySchedule.TestResumptionPskSurvivesForget;
 var
   LKept, LReference: ITls13KeySchedule;
 begin
-  // the resumption master (derived before forget) still yields a per-ticket PSK afterwards,
+  // the resumption secret (derived before forget) still yields a per-ticket PSK afterwards,
   // matching a schedule that never forgot
   LKept := NewSchedule;
   LKept.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
@@ -775,7 +775,7 @@ var
   LSched: ITls13KeySchedule;
   LRaised: Boolean;
 begin
-  // a server releases the resumption master once its tickets are minted; ResumptionPsk then raises,
+  // a server releases the resumption secret once its tickets are minted; ResumptionPsk then raises,
   // while export and traffic keys stay available
   LSched := NewSchedule;
   LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
@@ -789,8 +789,8 @@ begin
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'ResumptionPsk raises after the resumption master is forgotten');
-  CheckTrue(LSched.CanExport, 'export still available after forgetting the resumption master');
+  CheckTrue(LRaised, 'ResumptionPsk raises after the resumption secret is forgotten');
+  CheckTrue(LSched.CanExport, 'export still available after forgetting the resumption secret');
 end;
 
 procedure TTestTls13KeySchedule.TestLateStageInputRaises;

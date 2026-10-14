@@ -35,7 +35,7 @@ type
   /// record-count bound, ChaCha20-Poly1305 is bounded only by the record sequence.</summary>
   TAeadUsageCategory = (AesGcm, ChaCha20);
 
-  /// <summary>The default records-per-key usage limit for a category (RFC 8446 5.5): the AES-GCM
+  /// <summary>The default records-per-key usage limit for a category (RFC 9846 5.5): the AES-GCM
   /// rekey bound (2^24.5), else the 2^64 sequence itself for ChaCha20-Poly1305.</summary>
   TAeadUsageCategoryHelper = record helper for TAeadUsageCategory
     function UsageLimit: UInt64;
@@ -113,7 +113,7 @@ type
   /// (rsaEncryption or id-RSASSA-PSS), an ECDSA key on a named curve, or an EdDSA key.
   /// Only recognized kinds are listed - a key the seam cannot classify is reported by
   /// the seam returning False (not by a catch-all member that would imply a real category).
-  /// Maps a signature scheme to the leaf key family it needs (RFC 8446 4.2.3) and classifies
+  /// Maps a signature scheme to the leaf key family it needs (RFC 9846 4.3.3) and classifies
   /// a bare public key for signature verification; also the key family a certificate carries.
   /// </summary>
   TSignatureKeyKind = (Rsa, Ecdsa, Ed25519, Ed448);
@@ -150,7 +150,7 @@ type
   end;
 
   /// <summary>
-  /// The TLS 1.3 signature schemes (RFC 8446 4.2.3). Unlike the primitives above,
+  /// The TLS 1.3 signature schemes (RFC 9846 4.3.3). Unlike the primitives above,
   /// a scheme is a wire value carried in the signature_algorithms extension, so it
   /// has a 2-byte codepoint (see the record helper).
   /// </summary>
@@ -167,7 +167,7 @@ type
     RSA_PKCS1_SHA384,
     RSA_PKCS1_SHA512);
 
-  /// <summary>Wire-codepoint codec for the signature scheme (RFC 8446 4.2.3).</summary>
+  /// <summary>Wire-codepoint codec for the signature scheme (RFC 9846 4.3.3).</summary>
   TSignatureSchemeHelper = record helper for TSignatureScheme
   public
     /// <summary>The scheme's 2-byte SignatureScheme codepoint.</summary>
@@ -176,18 +176,18 @@ type
     class function TryFromCode(ACode: UInt16;
       out AScheme: TSignatureScheme): Boolean; static;
     /// <summary>True for the rsa_pss_rsae_* schemes, which require an rsaEncryption
-    /// leaf key rather than an id-RSASSA-PSS one (RFC 8446 4.2.3).</summary>
+    /// leaf key rather than an id-RSASSA-PSS one (RFC 9846 4.3.3).</summary>
     function IsRsaPssRsae: Boolean;
-    /// <summary>True for the legacy rsa_pkcs1_* schemes. RFC 8446 4.2.3 defines these
+    /// <summary>True for the legacy rsa_pkcs1_* schemes. RFC 9846 4.3.3 defines these
     /// solely for signatures in certificates: they are valid for a TLS 1.2 handshake
     /// signature but MUST NOT sign or verify a TLS 1.3 CertificateVerify.</summary>
     function IsRsaPkcs1: Boolean;
     /// <summary>Whether this scheme may carry a handshake signature at the given TLS
     /// version. All schemes are valid in TLS 1.2; the legacy rsa_pkcs1_* schemes are
-    /// certificate-only in TLS 1.3 (RFC 8446 4.2.3).</summary>
+    /// certificate-only in TLS 1.3 (RFC 9846 4.3.3).</summary>
     function IsValidForHandshake(const AVersion: TTlsVersion): Boolean;
-    /// <summary>The leaf key family a signature under this scheme must come from (RFC 8446
-    /// 4.2.3): ecdsa_* -> Ecdsa, ed25519 -> Ed25519, ed448 -> Ed448, all rsa_* -> Rsa.</summary>
+    /// <summary>The leaf key family a signature under this scheme must come from (RFC 9846
+    /// 4.3.3): ecdsa_* -> Ecdsa, ed25519 -> Ed25519, ed448 -> Ed448, all rsa_* -> Rsa.</summary>
     function KeyKind: TSignatureKeyKind;
     /// <summary>Drops each rsa_pss_rsae_* scheme whose encoded message cannot fit an RSA
     /// modulus of AModulusBits (RFC 8017 9.1.1: emLen >= 2*hLen + 2), so a key never offers an
@@ -207,7 +207,7 @@ resourcestring
 
 function TAeadUsageCategoryHelper.UsageLimit: UInt64;
 begin
-  // AES-GCM may protect at most 2^24.5 records under one key (RFC 8446 5.5); ChaCha20-Poly1305 has
+  // AES-GCM may protect at most 2^24.5 records under one key (RFC 9846 5.5); ChaCha20-Poly1305 has
   // no limit beyond the 2^64 record sequence number.
   if Self = TAeadUsageCategory.AesGcm then
     Result := UInt64(23726566)
@@ -329,7 +329,7 @@ end;
 function TSignatureSchemeHelper.IsValidForHandshake(
   const AVersion: TTlsVersion): Boolean;
 begin
-  // the legacy rsa_pkcs1_* schemes are certificate-only in TLS 1.3 (RFC 8446 4.2.3);
+  // the legacy rsa_pkcs1_* schemes are certificate-only in TLS 1.3 (RFC 9846 4.3.3);
   // every scheme may carry a TLS 1.2 handshake signature
   Result := (not AVersion.Equals(TTlsVersion.Tls13)) or (not IsRsaPkcs1);
 end;

@@ -17,7 +17,7 @@ interface
 
 type
   /// <summary>
-  /// TLS record content type (RFC 8446). The ordinal is the on-wire byte, so
+  /// TLS record content type (RFC 9846). The ordinal is the on-wire byte, so
   /// Ord() yields the code directly. The enum is sparse - map a raw byte through
   /// <see cref="TryFromByte" /> rather than casting.
   /// </summary>

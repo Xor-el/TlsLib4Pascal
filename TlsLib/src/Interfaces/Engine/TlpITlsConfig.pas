@@ -114,7 +114,7 @@ type
     /// out-of-band, resuming with SetCertificateVerdict (augment-only, fail-closed). None by
     /// default (inline).</summary>
     function AsyncCertificateVerdict: TAsyncCertificateVerdict;
-    /// <summary>Whether session resumption is engaged (RFC 8446 4.6.1 / RFC 5077). When
+    /// <summary>Whether session resumption is engaged (RFC 9846 4.7.1 / RFC 5077). When
     /// False, the endpoint neither offers/uses (client) nor issues/accepts (server) a
     /// resumed session even if a cache/store is configured. Presets set the default;
     /// hardened profiles may default it off.</summary>
@@ -132,7 +132,7 @@ type
     function Tls12Psks: TArray<TTls12Psk>;
     /// <summary>The clock this endpoint reads for time-dependent decisions - a resumption PSK's
     /// obfuscated_ticket_age and ticket-lifetime expiry, a server's 0-RTT anti-replay window,
-    /// and certificate/OCSP freshness (RFC 8446 4.2.11 / 4.6.1). Never nil: the builder defaults
+    /// and certificate/OCSP freshness (RFC 9846 4.3.11 / 4.7.1). Never nil: the builder defaults
     /// it to the system clock.</summary>
     function Clock: ITlsClock;
     /// <summary>The elapsed-time source the connection layer measures its handshake read cap on
@@ -207,10 +207,10 @@ type
     /// default False.</summary>
     function AlpnRejectAll: Boolean;
     /// <summary>The DER-encoded DistinguishedName issuers a server names in its CertificateRequest
-    /// certificate_authorities (RFC 8446 4.2.4 / RFC 5246 7.4.4); empty names none.</summary>
+    /// certificate_authorities (RFC 9846 4.3.4 / RFC 5246 7.4.4); empty names none.</summary>
     function ClientCertificateAuthorities: TArray<TBytes>;
     /// <summary>Whether the server requests a client certificate and how strictly
-    /// (RFC 8446 4.3.2 / RFC 5246 7.4.4).</summary>
+    /// (RFC 9846 4.4.2 / RFC 5246 7.4.4).</summary>
     function ClientAuth: TClientAuthMode;
     /// <summary>The source the engine builds the peer client-certificate verifier from, per
     /// connection (mTLS): the built-in PKIX source by default, else a wrapped injected verifier,

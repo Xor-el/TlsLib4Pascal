@@ -128,7 +128,7 @@ type
   /// <summary>
   /// The peer ended the exchange before the handshake completed - a transport EOF, or a
   /// close_notify (which is not a clean shutdown until the handshake completes). After the
-  /// handshake, only an EOF without close_notify is a truncation (RFC 8446 6.1); a clean
+  /// handshake, only an EOF without close_notify is a truncation (RFC 9846 6.1); a clean
   /// close_notify is surfaced as an ordinary EOF. On a server this is usually benign - a peer
   /// that walked away mid-handshake - and belongs at info level.
   /// </summary>

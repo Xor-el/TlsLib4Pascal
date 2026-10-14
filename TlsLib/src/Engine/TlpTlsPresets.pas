@@ -101,7 +101,7 @@ begin
   LProfile.RequestOcspStapling := True;
   // the certificate strength floors and signature schemes stay at the web-PKI-compatible defaults:
   // the RSA floor covers public CAs, and PKCS#1-v1.5 codepoints are certificate-only in TLS 1.3
-  // (RFC 8446 4.2.3), while the handshake CertificateVerify is already PSS-only by construction, so
+  // (RFC 9846 4.3.3), while the handshake CertificateVerify is already PSS-only by construction, so
   // there is nothing to tighten without refusing the servers a hardened client must still reach
   Result := TTlsConfigBuilder.CreateFromProfile(ACryptoProvider, APkixProvider, LProfile);
 end;
@@ -114,7 +114,7 @@ var
 begin
   LProfile := Base(ACryptoProvider);
   // a fixed allowlist: the post-quantum hybrid, X25519, and secp256r1 (mandatory to implement,
-  // RFC 8446 9.1), so a Strict endpoint stays interoperable with a conformant peer
+  // RFC 9846 9.1), so a Strict endpoint stays interoperable with a conformant peer
   LProfile.PreferredGroups := TArray<UInt16>.Create(
     TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1);

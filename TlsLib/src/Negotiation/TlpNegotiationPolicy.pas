@@ -77,7 +77,7 @@ type
   end;
 
   /// <summary>
-  /// The HelloRetryRequest sentinel (RFC 8446 4.1.3): a HelloRetryRequest is a
+  /// The HelloRetryRequest sentinel (RFC 9846 4.2.3): a HelloRetryRequest is a
   /// ServerHello whose random is the fixed SHA-256("HelloRetryRequest") value, so
   /// both roles recognize it by that random without a distinct message type.
   /// </summary>
@@ -90,7 +90,7 @@ type
   end;
 
   /// <summary>
-  /// The ServerHello.random downgrade sentinel (RFC 8446 4.1.3): a 1.3-capable
+  /// The ServerHello.random downgrade sentinel (RFC 9846 4.2.3): a 1.3-capable
   /// server that negotiates a lower version stamps the last 8 bytes, and a
   /// 1.3-capable client aborts if it sees that stamp on a downgraded connection.
   /// </summary>
@@ -297,7 +297,7 @@ class function TDowngradeProtection.IsDowngradeAttack(const AServerRandom: TByte
   AClientSupportsTls13: Boolean; ANegotiatedVersion: UInt16): Boolean;
 begin
   // a 1.3-capable client checks for both sentinels whatever lower version was negotiated
-  // (RFC 8446 4.1.3): a server stamps either only when it answers below its own highest version
+  // (RFC 9846 4.2.3): a server stamps either only when it answers below its own highest version
   Result := AClientSupportsTls13 and (ANegotiatedVersion < TlsWireVersionTls13) and
     (HasSentinel(AServerRandom, TlsWireVersionTls12) or
     HasSentinel(AServerRandom, TlsWireVersionTls11));

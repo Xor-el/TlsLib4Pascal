@@ -84,7 +84,7 @@ type
     /// status_request in the ServerHello and sends a CertificateStatus message (RFC 6066 8)
     /// carrying the selected credential's OCSP staple. nil for a PSK-only server.</summary>
     CredentialResolver: ITlsServerCredentialResolver;
-    /// <summary>When a 1.3-capable server negotiates 1.2 it stamps the RFC 8446 4.1.3
+    /// <summary>When a 1.3-capable server negotiates 1.2 it stamps the RFC 9846 4.2.3
     /// downgrade sentinel into the last 8 bytes of the server random.</summary>
     EmitDowngradeSentinel: Boolean;
     /// <summary>When set, a client that did not offer extended_master_secret (RFC 7627)
@@ -309,7 +309,7 @@ type
     /// strategy declines to seal; ASealed reports whether a real ticket was framed.</summary>
     function BuildNewSessionTicketMessage(out ASealed: Boolean): TBytes;
     /// <summary>The resumable session for the current connection, under ASessionId. Its lifetime
-    /// is the configured one capped at the RFC 8446 4.6.1 ceiling and at what remains of the seven
+    /// is the configured one capped at the RFC 9846 4.7.1 ceiling and at what remains of the seven
     /// days since the original authentication, which a resumed session keeps.</summary>
     function BuildStoredSession(const ASessionId: TBytes): IResumableSession;
     /// <summary>The negotiation facts reported at completion; a TLS 1.2 handshake has no
@@ -409,7 +409,7 @@ begin
         TSignatureScheme.ED448];
     TAuthMethod.Rsa:
       // an ECDHE_RSA suite signs the ServerKeyExchange with an rsaEncryption key: TLS 1.2
-      // accepts RSA-PSS and the legacy RSASSA-PKCS1-v1_5 schemes (RFC 5246 / RFC 8446 4.2.3)
+      // accepts RSA-PSS and the legacy RSASSA-PKCS1-v1_5 schemes (RFC 5246 / RFC 9846 4.3.3)
       Result := AScheme in [TSignatureScheme.RSA_PSS_RSAE_SHA256,
         TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA512,
         TSignatureScheme.RSA_PKCS1_SHA256, TSignatureScheme.RSA_PKCS1_SHA384,
@@ -575,7 +575,7 @@ begin
 
     // this machine only speaks TLS 1.2, so a client that offered supported_versions without 1.2,
     // or (absent the extension) a legacy_version below 1.2, shares no version with it: the client
-    // selected nothing this server supports (RFC 8446 4.2.1 / D.2)
+    // selected nothing this server supports (RFC 9846 4.3.1 / E.2)
     if System.Length(LContext.SupportedVersions) > 0 then
     begin
       TServerOfferSelection.RejectUnexpectedLegacyVersion(LHello.LegacyVersion);
@@ -753,7 +753,7 @@ end;
 procedure TTls12ServerStateMachine.StampServerRandom;
 begin
   // a server that can speak TLS 1.3 stamps the downgrade sentinel into ServerHello.random on
-  // every TLS 1.2 negotiation, full or abbreviated (RFC 8446 4.1.3)
+  // every TLS 1.2 negotiation, full or abbreviated (RFC 9846 4.2.3)
   FServerRandom := System.Copy(FParams.ServerRandom);
   if FParams.EmitDowngradeSentinel then
     Move(Tls12DowngradeSentinel[0], FServerRandom[24], 8);

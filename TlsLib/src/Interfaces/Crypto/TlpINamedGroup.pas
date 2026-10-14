@@ -31,7 +31,7 @@ type
   /// </summary>
   INamedGroup = interface(IInterface)
     ['{2EBC7B08-44E0-4664-A3A2-B43C2A9B7492}']
-    /// <summary>The group's wire codepoint (RFC 8446 4.2.7 NamedGroup).</summary>
+    /// <summary>The group's wire codepoint (RFC 9846 4.3.7 NamedGroup).</summary>
     function Code: UInt16;
     /// <summary>The group's registered name (e.g. "X25519").</summary>
     function Name: string;

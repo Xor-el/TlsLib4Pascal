@@ -862,7 +862,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // the credential's only scheme (ECDSA P-256) is not in the server's signature_algorithms, so the
-  // client sends an empty Certificate (RFC 8446 4.4.2) and a Requested server carries on
+  // client sends an empty Certificate (RFC 9846 4.5.1) and a Requested server carries on
   LClient := New13Client(True);
   LServer := New13ServerWithSchemes(TClientAuthMode.Requested,
     TArray<UInt16>.Create(TSignatureSchemes.Ed25519));
@@ -1093,7 +1093,7 @@ var
   LCertReq: TBytes;
   LAlert: TTlsAlertDescription;
 begin
-  // a TLS 1.3 CertificateRequest MUST carry signature_algorithms (RFC 8446 4.3.2); drive the
+  // a TLS 1.3 CertificateRequest MUST carry signature_algorithms (RFC 9846 4.4.2); drive the
   // client to WaitCertificate, then feed a CertificateRequest whose extensions omit it
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
@@ -1157,7 +1157,7 @@ begin
   // drive the client through the server's whole first flight so it answers with its real
   // Certificate, then re-encode that Certificate with a one-byte certificate_request_context:
   // the context echoes the (empty) CertificateRequest context in the main handshake
-  // (RFC 8446 4.4.2), so the server aborts; decode_error is this library's choice of alert
+  // (RFC 9846 4.5.1), so the server aborts; decode_error is this library's choice of alert
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
   LServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
@@ -1190,7 +1190,7 @@ var
   LI: Int32;
 begin
   // the CertificateRequest solicits no certificate-entry extension, so one on a client
-  // intermediate entry is unsupported_extension just like one on the leaf (RFC 8446 4.4.2)
+  // intermediate entry is unsupported_extension just like one on the leaf (RFC 9846 4.5.1)
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
   LServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(

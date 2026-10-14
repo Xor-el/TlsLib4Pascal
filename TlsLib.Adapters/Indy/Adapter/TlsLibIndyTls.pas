@@ -259,7 +259,7 @@ type
     destructor Destroy; override;
     function Readable(AMSec: Integer): Boolean; override;
     /// <summary>Sends a TLS close_notify (best-effort, half-close) before the socket is torn down,
-    /// so a strict peer sees a clean shutdown instead of a truncation (RFC 8446 6.1).</summary>
+    /// so a strict peer sees a clean shutdown instead of a truncation (RFC 9846 6.1).</summary>
     procedure Close; override;
     function Clone: TIdSSLIOHandlerSocketBase; override;
     procedure StartSSL; override;
@@ -279,7 +279,7 @@ type
     /// ECH was offered and the inner ClientHello was used, Rejected/Greased/NotOffered otherwise.</summary>
     function EchStatus: TEchStatus;
     /// <summary>Whether this connection resumed an earlier session rather than doing a full
-    /// handshake (RFC 8446 2.2 / RFC 5246 7.3).</summary>
+    /// handshake (RFC 9846 2.2 / RFC 5246 7.3).</summary>
     function Resumed: Boolean;
     /// <summary>The ALPN protocol the peer selected as text; empty when none was negotiated or
     /// the name is not ASCII (RFC 7301).</summary>
@@ -507,7 +507,7 @@ end;
 procedure TTlsLibIOHandlerSocket.Close;
 begin
   // send a TLS close_notify before the transport goes away, so a strict peer reads a clean
-  // shutdown rather than a truncation (RFC 8446 6.1). Best-effort and half-close: CloseNotify
+  // shutdown rather than a truncation (RFC 9846 6.1). Best-effort and half-close: CloseNotify
   // only writes and flushes (it never waits for the peer's answering close_notify, so there is
   // no wedge), is idempotent, and no-ops on a stream that never finished the handshake. A write
   // to an already-dead peer is expected and ignored.

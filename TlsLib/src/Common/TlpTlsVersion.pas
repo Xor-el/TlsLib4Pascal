@@ -23,11 +23,11 @@ const
   /// The 2-byte version codes. Only TLS 1.2 and 1.3 are ever negotiable; the
   /// older code exists solely as a legacy wire value the format requires -
   /// legacy_record_version is 0x0301 on the initial flight and 0x0303 after
-  /// (RFC 8446 5.1), and legacy_version is 0x0303 even in a 1.3 handshake
-  /// (RFC 8446 4.1.2 / 4.1.3).
+  /// (RFC 9846 5.1), and legacy_version is 0x0303 even in a 1.3 handshake
+  /// (RFC 9846 4.2.2 / 4.2.3).
   /// </summary>
   TlsWireVersionTls10 = UInt16($0301);
-  // not negotiable; names the 1.1-and-below downgrade sentinel (RFC 8446 4.1.3)
+  // not negotiable; names the 1.1-and-below downgrade sentinel (RFC 9846 4.2.3)
   TlsWireVersionTls11 = UInt16($0302);
   TlsWireVersionTls12 = UInt16($0303);
   TlsWireVersionTls13 = UInt16($0304);
@@ -51,7 +51,7 @@ type
     /// <summary>The numerically greatest known wire version (0x0301..0x0304) in the set, or 0
     /// when none is present; GREASE and unknown codepoints are not versions.</summary>
     class function HighestKnown(const AVersions: TArray<UInt16>): UInt16; static;
-    /// <summary>A ClientHello's highest version: its supported_versions, else legacy_version capped at 1.2 (RFC 8446 4.2.1).</summary>
+    /// <summary>A ClientHello's highest version: its supported_versions, else legacy_version capped at 1.2 (RFC 9846 4.3.1).</summary>
     class function ClientHighest(const ASupportedVersions: TArray<UInt16>;
       ALegacyVersion: UInt16): UInt16; static;
 

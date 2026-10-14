@@ -119,7 +119,7 @@ begin
     end;
 
     // ech_outer_extensions is itself a ClientHelloInner extension, so it may appear at most once
-    // (RFC 8446 4.2 forbids a repeated extension type)
+    // (RFC 9846 4.3 forbids a repeated extension type)
     if LSeenOuterExtensions then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SDuplicateOuterExtensions);

@@ -228,7 +228,7 @@ end;
 
 procedure TTestClientSessionPolicy.TestClampAtCapIsUnchanged;
 begin
-  // RFC 8446 4.6.1: 604800 seconds (7 days) is the ceiling, and the boundary itself is kept
+  // RFC 9846 4.7.1: 604800 seconds (7 days) is the ceiling, and the boundary itself is kept
   CheckTrue(TClientSessionPolicy.ClampTicketLifetime(604800) = 604800,
     'the boundary lifetime is kept');
 end;
@@ -245,7 +245,7 @@ procedure TTestClientSessionPolicy.TestZeroLifetimeOfferabilityDivergence;
 var
   LSession: IResumableSession;
 begin
-  // a zero-lifetime ticket is discarded by a 1.3 client (RFC 8446 4.6.1); a 1.2 hint of 0 is
+  // a zero-lifetime ticket is discarded by a 1.3 client (RFC 9846 4.7.1); a 1.2 hint of 0 is
   // unspecified (RFC 5077 3.3), so it is offered only up to the same seven-day ceiling
   LSession := MakeSession(0, 0);
   CheckFalse(TClientSessionPolicy.IsOfferableTls13(LSession, 0),

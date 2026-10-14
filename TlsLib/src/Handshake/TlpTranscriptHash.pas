@@ -55,7 +55,7 @@ type
 implementation
 
 const
-  MessageHashType = Byte(254); // the message_hash handshake type (RFC 8446 4.4.1)
+  MessageHashType = Byte(254); // the message_hash handshake type (RFC 9846 4.1)
 
 resourcestring
   SAlreadyActive = 'the transcript hash is already bound to a hash';

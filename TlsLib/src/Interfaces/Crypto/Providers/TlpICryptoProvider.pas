@@ -104,7 +104,7 @@ type
     /// and the default usage limit.</summary>
     function UsageCategory: TAeadUsageCategory;
     /// <summary>Records that may be sealed under one key: the record layer rekeys a lead before this
-    /// bound and refuses to seal at it (RFC 8446 5.5). Must exceed the rekey lead of 16 records, or
+    /// bound and refuses to seal at it (RFC 9846 5.5). Must exceed the rekey lead of 16 records, or
     /// the epoch is rejected at install (a KeyUpdate could never seal in time).</summary>
     function UsageLimit: UInt64;
     /// <summary>Required key length in bytes.</summary>

@@ -226,9 +226,9 @@ type
     ShimShutsDown: Boolean;
     /// <summary>-check-close-notify: the shim's shutdown is bidirectional - after sending its
     /// close_notify it waits for the peer's, reading through any interleaved warning alerts /
-    /// empty records (RFC 8446 6.1).</summary>
+    /// empty records (RFC 9846 6.1).</summary>
     CheckCloseNotify: Boolean;
-    /// <summary>Exported keying material (RFC 5705 / RFC 8446 7.5): the shim exports this many
+    /// <summary>Exported keying material (RFC 5705 / RFC 9846 7.5): the shim exports this many
     /// bytes right after the handshake and writes them for the runner to compare. 0 = none.</summary>
     ExportLen: Int32;
     ExportLabel: string;
@@ -244,7 +244,7 @@ type
     VerifyPrefs: TArray<UInt16>;
     /// <summary>-use-client-ca-list: the DER DistinguishedName issuers a server names in its
     /// CertificateRequest certificate_authorities; the literal &lt;NULL&gt;/&lt;EMPTY&gt; name none
-    /// (RFC 5246 7.4.4 / RFC 8446 4.2.4).</summary>
+    /// (RFC 5246 7.4.4 / RFC 9846 4.3.4).</summary>
     UseClientCaList: TArray<TBytes>;
     /// <summary>-expect-client-ca-list: the DER DistinguishedName issuers the client must have
     /// seen in the server's CertificateRequest; asserted after the handshake when set.</summary>
@@ -277,11 +277,11 @@ type
     /// runs once the 0-RTT decision is known, so it bites there exactly like -on-resume-verify-fail.</summary>
     OnRetryVerifyFail: Boolean;
     /// <summary>-reverify-on-resume: the resuming client re-runs its certificate verifier against
-    /// the stored peer chain (RFC 8446 2.2 otherwise reuses the original authentication).</summary>
+    /// the stored peer chain (RFC 9846 2.2 otherwise reuses the original authentication).</summary>
     ReverifyOnResume: Boolean;
-    /// <summary>Send one unsolicited post-handshake KeyUpdate (RFC 8446 4.6.3).</summary>
+    /// <summary>Send one unsolicited post-handshake KeyUpdate (RFC 9846 4.7.3).</summary>
     KeyUpdate: Boolean;
-    /// <summary>Number of resumption connections after the initial one (RFC 8446 2.2);
+    /// <summary>Number of resumption connections after the initial one (RFC 9846 2.2);
     /// the shim makes ResumeCount+1 connections reusing one session cache/STEK.</summary>
     ResumeCount: Int32;
     /// <summary>-no-ticket: the server mints no session tickets (no STEK), so a 1.2 client
@@ -292,11 +292,11 @@ type
     /// offered ticket and falls back to a full handshake; the client stops offering the cached
     /// session, so a server that still echoes the session id is rejected (RFC 5246 7.4.1.3).</summary>
     OnResumeNoTicket: Boolean;
-    /// <summary>The client offers 0-RTT early data on a resumption (RFC 8446 2.3).</summary>
+    /// <summary>The client offers 0-RTT early data on a resumption (RFC 9846 2.3).</summary>
     EnableEarlyData: Boolean;
     /// <summary>-on-resume-enable-early-data: early data is enabled on the resumption connection
     /// only. The initial ticket is minted without 0-RTT authorization, so the server rejects the
-    /// client's early data on resume (the session did not allow it, RFC 8446 4.2.10).</summary>
+    /// client's early data on resume (the session did not allow it, RFC 9846 4.3.10).</summary>
     OnResumeEnableEarlyData: Boolean;
     /// <summary>On a resumption connection the shim writes first (its early data / initial
     /// message), rather than waiting to echo the peer.</summary>
@@ -304,7 +304,7 @@ type
     /// <summary>-on-resume-shim-initial-write + -on-resume-repeat-shim-initial-write: on the
     /// resumption the shim writes this payload repeated N times as its initial (early) write.
     /// Used by the large-early-data test where the total exceeds max_early_data, so the engine
-    /// sends the budget as 0-RTT and defers the remainder to 1-RTT (RFC 8446 4.2.10).</summary>
+    /// sends the budget as 0-RTT and defers the remainder to 1-RTT (RFC 9846 4.3.10).</summary>
     OnResumeInitialWrite: TBytes;
     OnResumeInitialWriteRepeat: Int32;
     /// <summary>The client-side cache and the server-side STEK, created once and shared
@@ -1859,7 +1859,7 @@ begin
       AConfig.SuppressServerNameAck := True
     else if LArg = '-check-close-notify' then
       // a shim-initiated shutdown must be bidirectional: send our close_notify and wait for
-      // the peer's before closing the transport (RFC 8446 6.1)
+      // the peer's before closing the transport (RFC 9846 6.1)
       AConfig.CheckCloseNotify := True
     else if LArg = '-resumption-delay' then
       // seconds the runner advances its clock between connections; the shim advances its own
@@ -2239,7 +2239,7 @@ var
 
   function AppDataDuringShutdown: Int32;
   begin
-    // a peer that has our close_notify must not send application data (RFC 8446 6.1)
+    // a peer that has our close_notify must not send application data (RFC 9846 6.1)
     Writeln(ErrOutput, 'application data received during shutdown');
     Result := ShimExitFail;
   end;
@@ -2367,7 +2367,7 @@ begin
   LServerHalfRtt := AConfig.IsServer and AIsResume and
     (AConfig.EnableEarlyData or AConfig.OnResumeEnableEarlyData);
   // resolve the effective export parameters (on-resume overrides when supplied) up front so a
-  // server can capture its keying-material export in half-RTT (RFC 8446 7.5) during the pump
+  // server can capture its keying-material export in half-RTT (RFC 9846 7.5) during the pump
   LExportLen := AConfig.ExportLen;
   LExportLabel := AConfig.ExportLabel;
   LExportContext := AConfig.ExportContext;
@@ -2441,7 +2441,7 @@ begin
     Exit(ShimExitFail);
   end;
   // the client must have seen exactly the certificate_authorities the server named in its
-  // CertificateRequest (RFC 8446 4.2.4 / RFC 5246 7.4.4), in the same order
+  // CertificateRequest (RFC 9846 4.3.4 / RFC 5246 7.4.4), in the same order
   if AConfig.ExpectClientCaListSet then
   begin
     LSeenCas := LInfo.RequestedCertificateAuthorities;
@@ -2460,7 +2460,7 @@ begin
   end;
 
   // exported keying material is written first thing after the handshake so the runner reads it
-  // before the echo protocol (RFC 5705 / RFC 8446 7.5). A TLS 1.3 server writes the value it
+  // before the echo protocol (RFC 5705 / RFC 9846 7.5). A TLS 1.3 server writes the value it
   // captured in half-RTT (the runner reads it post-handshake, but capturing it in half-RTT is what
   // validates the capability); a nil capture there means the half-RTT export was unavailable and
   // fails loudly rather than falling back. A client, or a TLS 1.2 server, exports post-handshake.
@@ -2483,7 +2483,7 @@ begin
     TInteropPump.WriteAppData(LEngine, ASocket, LExported);
   end;
 
-  // an unsolicited KeyUpdate is sent right after the handshake (RFC 8446 4.6.3); inbound
+  // an unsolicited KeyUpdate is sent right after the handshake (RFC 9846 4.7.3); inbound
   // KeyUpdates the peer sends are absorbed by the engine during the echo loop below
   if AConfig.KeyUpdate then
   begin

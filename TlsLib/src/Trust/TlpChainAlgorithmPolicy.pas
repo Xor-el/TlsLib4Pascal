@@ -28,9 +28,9 @@ uses
 type
   /// <summary>
   /// Enforces the chain-algorithm policy over an already path-validated peer chain: every leaf
-  /// and intermediate must be signed with a signature scheme the endpoint advertised (RFC 8446
-  /// 4.4.2.2 / 4.4.2.3, RFC 5246 7.4.2 / 7.4.4 / 7.4.6), an MD5-signed certificate is refused
-  /// outright and a SHA-1-signed one unless the policy admits it (RFC 8446 4.4.2.4), and each
+  /// and intermediate must be signed with a signature scheme the endpoint advertised (RFC 9846
+  /// 4.5.1.2, RFC 5246 7.4.2 / 7.4.4 / 7.4.6), an MD5-signed certificate is refused
+  /// outright and a SHA-1-signed one unless the policy admits it (RFC 9846 4.5.1.3), and each
   /// subject key must meet the configured minimum-strength floors. A configured trust anchor is
   /// exempt (its self-signature is not a validated edge and its key
   /// is the operator's trust); the leaf never is. Verdict-only: it decides accept/reject and the
@@ -249,7 +249,7 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  // RFC 8446 4.4.2.4: a forbidden hash (MD5) is never accepted, a deprecated one (SHA-1) only
+  // RFC 9846 4.5.1.3: a forbidden hash (MD5) is never accepted, a deprecated one (SHA-1) only
   // when the policy admits it
   LStanding := LSig.Hash.Standing;
   LAdmitted := (LStanding = TCertSignatureHashStanding.Deprecated) and
@@ -312,7 +312,7 @@ begin
   AAlert := TTlsAlertDescription.BadCertificate;
   for LI := 0 to System.Length(AChain) - 1 do
   begin
-    // a configured trust anchor is not a validated edge (RFC 8446 4.2.3); the leaf never is
+    // a configured trust anchor is not a validated edge (RFC 9846 4.3.3); the leaf never is
     if (LI > 0) and IsAnchor(AChain[LI], ARoots) then
       Continue;
     // the signature on this certificate was made by its issuer (the next element); a PSS-restricted

@@ -124,7 +124,7 @@ type
     /// <summary>Feeds AMessage to a freshly-started client and returns the fatal alert, or False.</summary>
     function ServerHelloAlert(const AMessage: TTlsHandshakeMessage;
       out AAlert: TTlsAlertDescription): Boolean;
-    /// <summary>A minimal well-formed NewSessionTicket message (RFC 8446 4.6.1).</summary>
+    /// <summary>A minimal well-formed NewSessionTicket message (RFC 9846 4.7.1).</summary>
     function BuildNewSessionTicket: TTlsHandshakeMessage;
   protected
     procedure SetUp; override;
@@ -334,7 +334,7 @@ begin
   StartClient;
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('server_hello')));
   // the middlebox change_cipher_spec goes out on the ServerHello, before the client's
-  // encrypted flight (RFC 8446 D.4); discard it so the flight capture stays byte-exact
+  // encrypted flight (RFC 9846 E.4); discard it so the flight capture stays byte-exact
   TakeAll(FLayer);
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('encrypted_ext')));
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('certificate')));
@@ -522,7 +522,7 @@ var
   LAlert: TTlsAlertDescription;
   LDual: Int32;
 begin
-  // TLS 1.3 is selected only through supported_versions (RFC 8446 4.2.1): a ServerHello that claims
+  // TLS 1.3 is selected only through supported_versions (RFC 9846 4.3.1): a ServerHello that claims
   // it through legacy_version 0x0304 alone is refused, whether or not the client also offers 1.2
   // suites
   for LDual := 0 to 1 do
@@ -571,7 +571,7 @@ begin
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('server_hello')));
   TakeAll(FLayer);
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('encrypted_ext')));
-  // an extension type the client never offered on an intermediate entry (RFC 8446 4.4.2)
+  // an extension type the client never offered on an intermediate entry (RFC 9846 4.5.1)
   CheckTrue(FailAlertOf(FSm.ProcessMessage(
     CertificateWithIntermediateExtensions(DecodeHex('0004aaaa0000'))), LAlert),
     'an unsolicited extension on an intermediate entry aborts');
@@ -612,8 +612,8 @@ var
   LMsg: TTlsHandshakeMessage;
   LAlert: TTlsAlertDescription;
 begin
-  // record_size_limit was offered, but it is not allowed in a TLS 1.3 ServerHello (RFC 8446
-  // 4.1.3); with a body too short to decode the allow-list must still answer first, so the alert
+  // record_size_limit was offered, but it is not allowed in a TLS 1.3 ServerHello (RFC 9846
+  // 4.2.3); with a body too short to decode the allow-list must still answer first, so the alert
   // names the forbidden extension rather than the decoder's complaint
   StartClient;
   LSh := THandshakeMessages.DecodeServerHello(Msg('server_hello').Body);
@@ -640,7 +640,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // a full handshake never offered early_data, so one in EncryptedExtensions is an extension the
-  // client did not solicit (RFC 8446 4.2). The branch for 0-RTT offered but the PSK declined is a
+  // client did not solicit (RFC 9846 4.3). The branch for 0-RTT offered but the PSK declined is a
   // separate guard that needs a resumption rig to reach
   StartClient;
   FDriver.ApplyAll(FSm.ProcessMessage(Msg('server_hello')));
@@ -709,8 +709,8 @@ procedure TTestTls13ClientReplay.TestServerHelloMissingKeyShareRejected;
 var
   LAlert: TTlsAlertDescription;
 begin
-  // a 1.3 ServerHello with no key_share for the (EC)DHE handshake is missing_extension, not the
-  // wrong-group illegal_parameter (RFC 8446 4.2.8). A nil key exchange omits the extension.
+  // a 1.3 ServerHello with no key_share for the asymmetric key exchange is missing_extension,
+  // not the wrong-group illegal_parameter (RFC 9846 4.3.8). A nil key exchange omits the extension.
   CheckTrue(ServerHelloAlert(BuildServerHello(Filled($01, 32), nil,
     TCipherSuites13.Aes128GcmSha256, TlsWireVersionTls13,
     TNamedGroupCatalog.X25519, nil), LAlert),

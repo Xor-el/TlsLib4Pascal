@@ -284,7 +284,7 @@ function TTestSignature.ServerCertVerifyContent(
 var
   LContext: TBytes;
 begin
-  // RFC 8446 4.4.3: 64 spaces, the context string, a 0x00 separator, the transcript hash
+  // RFC 9846 4.5.2: 64 spaces, the context string, a 0x00 separator, the transcript hash
   SetLength(Result, 64);
   FillChar(Result[0], 64, $20);
   LContext := TEncoding.ASCII.GetBytes('TLS 1.3, server CertificateVerify');
@@ -460,7 +460,7 @@ end;
 procedure TTestSignature.TestSignatureSchemeCodesMatchCatalog;
 begin
   // the enum's ToCode and the wire-code catalog are two hand-kept mappings of the same
-  // RFC 8446 4.2.3 codepoints; assert every scheme agrees so an edit to one that misses the
+  // RFC 9846 4.3.3 codepoints; assert every scheme agrees so an edit to one that misses the
   // other cannot drift silently
   CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256,
     TSignatureScheme.ECDSA_SECP256R1_SHA256.ToCode, 'ecdsa_secp256r1_sha256');

@@ -2082,7 +2082,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // a 1.3-capable client aborts a stamped downgrade even on an abbreviated (resumption)
-  // ServerHello, not only on a full one (RFC 8446 4.1.3)
+  // ServerHello, not only on a full one (RFC 9846 4.2.3)
   LCache := TInMemorySessionCache.Create;
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
 
@@ -2100,7 +2100,7 @@ begin
   CheckTrue(LClient.IsTerminal, 'the client aborts a stamped abbreviated ServerHello');
   CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
     Int64(Ord(LClient.LastError.Alert.Description)),
-    'the abort is illegal_parameter (RFC 8446 4.1.3)');
+    'the abort is illegal_parameter (RFC 9846 4.2.3)');
 end;
 
 procedure TTestTls12Resumption.TestSessionIssuedUnderDifferentSniFallsBackToFullHandshake;

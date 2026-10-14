@@ -299,7 +299,7 @@ end;
 procedure TTestExtensionCodec.TestOmittedEncryptedExtensionsBlockIsDecodeError;
 begin
   // unlike a TLS 1.2 ServerHello, an EncryptedExtensions message carries a mandatory
-  // extensions<0..> vector (RFC 8446 4.3.1); a message body with no bytes at all omits it
+  // extensions<0..> vector (RFC 9846 4.4.1); a message body with no bytes at all omits it
   // and must decode_error, not be tolerated as an empty offer
   CheckTrue(ConsumeRaisesDecodeError(
     TTlsExtensionContextKind.EncryptedExtensions, nil),
@@ -309,7 +309,7 @@ end;
 procedure TTestExtensionCodec.TestEmptyCertificateAuthoritiesIsDecodeError;
 begin
   // a CertificateRequest certificate_authorities extension (type 0x002F) with an empty
-  // authorities vector violates the <3..2^16-1> minimum (RFC 8446 4.2.4) -> decode_error.
+  // authorities vector violates the <3..2^16-1> minimum (RFC 9846 4.3.4) -> decode_error.
   // Block: outer(0006) + type(002F) + ext_len(0002) + authorities_len(0000)
   CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.CertificateRequest,
     DecodeHex('0006002F00020000')),
@@ -321,7 +321,7 @@ var
   LCtx: TExtensionContext;
 begin
   // a CertificateRequest carries the server's own constraints, not responses to client
-  // offers (RFC 8446 4.3.2), so an unknown extension is ignored, not rejected as unsolicited.
+  // offers (RFC 9846 4.4.2), so an unknown extension is ignored, not rejected as unsolicited.
   // Block: outer(0006) + unknown type(1234) + ext_len(0002) + body(ABCD)
   LCtx := NewContext;
   try
@@ -503,7 +503,7 @@ procedure TTestExtensionCodec.TestWrongContextIsIllegalParameter;
 begin
   // supported_versions (allowed in CH/SH/HRR) appearing in EncryptedExtensions,
   // offered so it clears the unsolicited check and reaches the context check: a recognized
-  // extension in a message it is not specified for is illegal_parameter (RFC 8446 4.2)
+  // extension in a message it is not specified for is illegal_parameter (RFC 9846 4.3)
   CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
     ConsumeAlertCode(TTlsExtensionContextKind.EncryptedExtensions,
     DecodeHex('0006002b00020304'), $002B),
@@ -513,7 +513,7 @@ end;
 procedure TTestExtensionCodec.TestUnsolicitedServerExtensionAborts;
 begin
   // a ServerHello supported_versions the client never offered: an unsolicited response
-  // extension is unsupported_extension, distinct from the wrong-context case (RFC 8446 4.2)
+  // extension is unsupported_extension, distinct from the wrong-context case (RFC 9846 4.3)
   CheckEquals(Integer(TTlsAlertDescription.UnsupportedExtension),
     ConsumeAlertCode(TTlsExtensionContextKind.ServerHello,
     DecodeHex('0006002b00020304'), -1),
@@ -542,7 +542,7 @@ begin
   // (outer 000A | ext 0033 len 0006 | shares 0004 | group 001D | key_exchange 0000)
   CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
     DecodeHex('000A003300060004001D0000')),
-    'an empty client key_exchange is a decode_error (RFC 8446 4.2.8)');
+    'an empty client key_exchange is a decode_error (RFC 9846 4.3.8)');
 end;
 
 procedure TTestExtensionCodec.TestServerHelloEmptyKeyExchangeIsDecodeError;
@@ -563,7 +563,7 @@ begin
       on E: EDecodeErrorTlsLibException do
         LRaised := True;
     end;
-    CheckTrue(LRaised, 'an empty server key_exchange is a decode_error (RFC 8446 4.2.8)');
+    CheckTrue(LRaised, 'an empty server key_exchange is a decode_error (RFC 9846 4.3.8)');
   finally
     LCtx.Free;
   end;
@@ -578,7 +578,7 @@ begin
   LSrc := NewContext;
   LDst := NewContext;
   try
-    // two key_share entries for the same group (RFC 8446 4.2.8 forbids this)
+    // two key_share entries for the same group (RFC 9846 4.3.8 forbids this)
     SetLength(LSrc.ClientKeyShares, 2);
     LSrc.ClientKeyShares[0].Group := TNamedGroupCatalog.X25519;
     LSrc.ClientKeyShares[0].KeyExchange :=
@@ -754,7 +754,7 @@ procedure TTestExtensionCodec.TestEchInServerHelloIsIllegalParameter;
 begin
   // an empty encrypted_client_hello in a ServerHello, offered so it clears the unsolicited
   // check and reaches the context check (ech is valid only in CH / HRR / EE): a recognized
-  // extension in a message it is not specified for is illegal_parameter (RFC 8446 4.2)
+  // extension in a message it is not specified for is illegal_parameter (RFC 9846 4.3)
   CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
     ConsumeAlertCode(TTlsExtensionContextKind.ServerHello,
     DecodeHex('0004fe0d0000'), Int32(TExtensionTypes.EncryptedClientHello)),
@@ -848,7 +848,7 @@ end;
 
 procedure TTestExtensionCodec.TestEmptySupportedVersionsIsDecodeError;
 begin
-  // supported_versions with an empty versions<2..254> list (RFC 8446 4.2.1)
+  // supported_versions with an empty versions<2..254> list (RFC 9846 4.3.1)
   CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
     DecodeHex('0005002b000100')),
     'an empty supported_versions list is a decode_error');
@@ -856,7 +856,7 @@ end;
 
 procedure TTestExtensionCodec.TestEmptySupportedGroupsIsDecodeError;
 begin
-  // supported_groups with an empty NamedGroupList<2..2^16-1> (RFC 8446 4.2.7)
+  // supported_groups with an empty NamedGroupList<2..2^16-1> (RFC 9846 4.3.7)
   CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
     DecodeHex('0006000a00020000')),
     'an empty supported_groups list is a decode_error');
@@ -864,7 +864,7 @@ end;
 
 procedure TTestExtensionCodec.TestEmptyCookieIsDecodeError;
 begin
-  // cookie with an empty value<1..2^16-1> (RFC 8446 4.2.2)
+  // cookie with an empty value<1..2^16-1> (RFC 9846 4.3.2)
   CheckTrue(ConsumeRaisesDecodeError(TTlsExtensionContextKind.ClientHello,
     DecodeHex('0006002c00020000')),
     'an empty cookie is a decode_error');

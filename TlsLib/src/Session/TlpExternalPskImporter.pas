@@ -56,7 +56,7 @@ type
   public
     /// <summary>The byte length of the pre_shared_key extension body that offers ASpecs for
     /// ATargetProtocol once per supported KDF hash: both vectors, with each identity's obfuscated age
-    /// and each binder's length byte (RFC 8446 4.2.11). The identities are measured through the encoder.</summary>
+    /// and each binder's length byte (RFC 9846 4.3.11). The identities are measured through the encoder.</summary>
     class function OfferedExtensionLength(const ASpecs: TArray<TExternalPsk>;
       ATargetProtocol: UInt16): Int64; static;
     /// <summary>The serialized ImportedIdentity (RFC 9258 5.1): the external identity and

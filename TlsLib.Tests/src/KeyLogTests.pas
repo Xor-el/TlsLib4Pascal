@@ -127,7 +127,7 @@ var
   LRandom: TBytes;
 begin
   // a 0-RTT schedule (a PSK + the early epoch) logs exactly the client early traffic secret and the
-  // early_exporter_master_secret, each keyed by the client random
+  // early_exporter_secret, each keyed by the client random
   LMock := TMockKeyLog.Create;
   LRandom := FixedRandom;
   LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
@@ -137,7 +137,7 @@ begin
     LSched.DeriveEpochSecrets(TTlsEpoch.EarlyData, Rep($01, 32));
     CheckEquals(2, LMock.Count, 'two early secrets are reported');
     CheckEquals(KeyLogLabelClientEarlyTraffic, LMock[0].Lbl, 'the client early traffic secret');
-    CheckEquals(KeyLogLabelEarlyExporter, LMock[1].Lbl, 'the early exporter master secret');
+    CheckEquals(KeyLogLabelEarlyExporter, LMock[1].Lbl, 'the early exporter secret');
     CheckEqualBytes('client early traffic keyed by the client random', LRandom,
       LMock[0].ClientRandom);
     CheckEqualBytes('early exporter keyed by the client random', LRandom,

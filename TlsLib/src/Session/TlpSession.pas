@@ -34,7 +34,7 @@ type
     MaxSerializedSession = Int32(16384);
     /// <summary>The largest ticket a client caches: a sealed maximum session plus the 16-byte key
     /// name, the 12-byte nonce and the 16-byte tag. A server's larger ticket is ignored, which a
-    /// client may do (RFC 8446 4.6.1, RFC 5077 3.3), so the ClientHello budget can count on it.</summary>
+    /// client may do (RFC 9846 4.7.1, RFC 5077 3.3), so the ClientHello budget can count on it.</summary>
     MaxCachedTicketBytes = Int32(MaxSerializedSession + 16 + 12 + 16);
   end;
 
