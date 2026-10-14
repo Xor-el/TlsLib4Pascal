@@ -1,0 +1,27 @@
+docs/system-trust.md
+  s_a42ddd283d3520::t_d09afa8c5f40ba 39-40
+docs/certificate-verification.md
+  s_a42ddd283d3520::t_2337fc421af80c 402-403
+TlsLib.Adapters/mORMot/README.md
+  s_a42ddd283d3520::t_db0169310d44c0 124
+TlsLib.Adapters/Synapse/README.md
+  s_a42ddd283d3520::t_8b5297934cd82e 93
+TlsLib.Adapters/Indy/README.md
+  s_a42ddd283d3520::t_880594485c0ce7 70-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "78c3bf0a915eb14bac24af9874feccc900ed4249",
+  "prompts": {},
+  "sessions": {
+    "s_a42ddd283d3520": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70fc87a0-5502-471f-a607-63edf9fef757",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
