@@ -35,12 +35,10 @@ uses
   TlpHkdfLabel,
   TlpTls13KeySchedule,
   TlpTls12KeySchedule,
-  TlpNegotiationTypes,
   TlpTlsPresets,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpCertificateVerifierSource,
-  TlpDataEncoding,
   MockKeyLog,
   TlsLibTestBase;
 

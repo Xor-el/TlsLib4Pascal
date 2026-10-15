@@ -32,9 +32,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsLibExceptions,
-  TlpICertificateTrust,
   TlpITrustAnchorStore,
-  TlpTrustAnchorStore,
   TlpBundleTrust,
   TlsLibTestBase;
 

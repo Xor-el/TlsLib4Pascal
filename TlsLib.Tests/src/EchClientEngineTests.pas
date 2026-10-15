@@ -29,7 +29,6 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpISecretBuffer,
-  TlpIClock,
   TlpClock,
   TlpNamedGroups,
   TlpNegotiationTypes,

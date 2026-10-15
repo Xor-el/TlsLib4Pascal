@@ -30,7 +30,6 @@ uses
   TlpTlsAlert,
   TlpIClock,
   TlpClock,
-  TlpIHttpFetcher,
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpITlsConfig,

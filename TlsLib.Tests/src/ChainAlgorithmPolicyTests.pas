@@ -29,8 +29,6 @@ uses
   TlpTlsAlert,
   TlpCryptoDomainTypes,
   TlpPkixDomainTypes,
-  TlpICryptoProvider,
-  TlpTrustPolicy,
   TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
   TlpChainAlgorithmPolicy,
