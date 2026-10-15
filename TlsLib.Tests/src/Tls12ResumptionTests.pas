@@ -62,6 +62,7 @@ uses
   TlpSessionTicketKeys,
   TlpSessionTicketStrategy,
   MockClock,
+  MockSessionStores,
   TlpTlsPresets,
   TlpITlsConfigBuilder,
   TlpTlsEngineFactory,
@@ -74,40 +75,6 @@ uses
   TlsLibTestBase;
 
 type
-  // a ticket-key manager that always declines to seal, so the strategy returns an empty ticket
-  TDecliningTicketKeys = class sealed(TInterfacedObject, ISessionTicketKeyManager)
-  public
-    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    function KeyNameLength: Int32;
-  end;
-
-  // a ticket-key manager with a key name of any length, so its tickets can be as large as a foreign one's
-  TLongKeyNameTicketKeys = class sealed(TInterfacedObject, ISessionTicketKeyManager)
-  strict private
-  var
-    FNameLength: Int32;
-    FSeals: Int32;
-  public
-    constructor Create(ANameLength: Int32);
-    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    function KeyNameLength: Int32;
-    /// <summary>How many times the server asked for a sealing key.</summary>
-    property Seals: Int32 read FSeals;
-  end;
-
-  // a ticket-key manager that opens an existing manager's tickets but never seals (no renewal)
-  TOpenOnlyTicketKeys = class sealed(TInterfacedObject, ISessionTicketKeyManager)
-  strict private
-    FInner: ISessionTicketKeyManager;
-  public
-    constructor Create(const AInner: ISessionTicketKeyManager);
-    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    function KeyNameLength: Int32;
-  end;
-
   TTestTls12Resumption = class(TTlsLibAlgorithmTestCase)
   private const
     TlsSuite = TCipherSuites12.EcdheEcdsaAes128GcmSha256;
@@ -588,81 +555,6 @@ begin
     ReadAllApp(AClient));
 end;
 
-function TDecliningTicketKeys.CurrentKey(out AKeyName: TBytes;
-  out AKey: ISecretBuffer): Boolean;
-begin
-  AKeyName := nil;
-  AKey := nil;
-  Result := False;
-end;
-
-function TDecliningTicketKeys.KeyByName(const AKeyName: TBytes;
-  out AKey: ISecretBuffer): Boolean;
-begin
-  AKey := nil;
-  Result := False;
-end;
-
-function TDecliningTicketKeys.KeyNameLength: Int32;
-begin
-  Result := 16;
-end;
-
-constructor TLongKeyNameTicketKeys.Create(ANameLength: Int32);
-begin
-  inherited Create;
-  FNameLength := ANameLength;
-end;
-
-function TLongKeyNameTicketKeys.CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-var
-  LKey: TBytes;
-  LI: Int32;
-begin
-  Inc(FSeals);
-  AKeyName := nil;
-  System.SetLength(AKeyName, FNameLength);
-  System.SetLength(LKey, 32);
-  for LI := 0 to 31 do
-    LKey[LI] := $42;
-  AKey := TSecretBuffer.From(LKey);
-  Result := True;
-end;
-
-function TLongKeyNameTicketKeys.KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-begin
-  AKey := nil;
-  Result := False;
-end;
-
-function TLongKeyNameTicketKeys.KeyNameLength: Int32;
-begin
-  Result := FNameLength;
-end;
-
-constructor TOpenOnlyTicketKeys.Create(const AInner: ISessionTicketKeyManager);
-begin
-  inherited Create;
-  FInner := AInner;
-end;
-
-function TOpenOnlyTicketKeys.CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-begin
-  AKeyName := nil;
-  AKey := nil;
-  Result := False;
-end;
-
-function TOpenOnlyTicketKeys.KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-begin
-  Result := FInner.KeyByName(AKeyName, AKey);
-end;
-
-function TOpenOnlyTicketKeys.KeyNameLength: Int32;
-begin
-  Result := FInner.KeyNameLength;
-end;
-
 function TTestTls12Resumption.FlightHasNewSessionTicket(const AWire: TBytes): Boolean;
 var
   LPos, LRecLen, LInner, LMsgLen: Int32;
@@ -1106,7 +998,8 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore,
-    TLongKeyNameTicketKeys.Create(ANameLength) as ISessionTicketKeyManager, 7200, True);
+    TScriptedTicketKeys.Create(ANameLength, Crypto.Primitives.GetRandom.GenerateBytes(32),
+    nil) as ISessionTicketKeyManager, 7200, True);
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
   // the session id the server also sent keeps the session cached whatever became of its ticket
@@ -1141,14 +1034,15 @@ var
   LClient, LServer: ITlsEngine;
   LStore: ISessionStore;
   LKeys: ISessionTicketKeyManager;
-  LKeysImpl: TLongKeyNameTicketKeys;
+  LKeysImpl: TScriptedTicketKeys;
   LHello, LFlight: TBytes;
   LExtension: TExtensionEntry;
 begin
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-  LKeysImpl := TLongKeyNameTicketKeys.Create(
-    NameLengthForTicket(TSessionTicketLimits.MaxCachedTicketBytes + 1));
+  LKeysImpl := TScriptedTicketKeys.Create(
+    NameLengthForTicket(TSessionTicketLimits.MaxCachedTicketBytes + 1),
+    Crypto.Primitives.GetRandom.GenerateBytes(32), nil);
   LKeys := LKeysImpl;
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, LKeys, 7200, True);
@@ -1214,7 +1108,7 @@ var
   LClient, LServer: ITlsEngine;
 begin
   // a seal the strategy declines (an oversized chain) must not leave the client with nothing
-  LStek := TDecliningTicketKeys.Create as ISessionTicketKeyManager;
+  LStek := TScriptedTicketKeys.Create(16, nil, nil) as ISessionTicketKeyManager;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
@@ -1961,7 +1855,8 @@ begin
   // it (RFC 5077 3.3)
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
-  LServer := NewServer(nil, TDecliningTicketKeys.Create, 7200, True);
+  LServer := NewServer(nil, TScriptedTicketKeys.Create(16, nil, nil) as ISessionTicketKeyManager,
+    7200, True);
   LClient.StartHandshake;
   LServerWire := nil;
   LIterations := 0;
