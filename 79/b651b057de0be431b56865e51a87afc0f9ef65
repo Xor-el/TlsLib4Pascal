@@ -1,0 +1,19 @@
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_4adb7e2edc0c28::t_242e0c273fa9e3 233-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "79b651b057de0be431b56865e51a87afc0f9ef65",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
