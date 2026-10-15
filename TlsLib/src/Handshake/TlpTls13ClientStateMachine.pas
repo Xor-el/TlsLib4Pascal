@@ -1110,9 +1110,10 @@ begin
   // key_share): supported_versions when present, else the legacy_version. This client offers
   // only TLS 1.3, so any other selection is not one it agreed to - a stamped downgrade is an
   // attack (illegal_parameter, RFC 9846 4.2.3), any other lower version is unsupported and
-  // reported as protocol_version (RFC 9846 E.1), not a cipher/decode error.
-  LNegotiatedVersion := THandshakeMessages.ServerHelloSelectedVersion(LHello.Extensions);
-  if LNegotiatedVersion <> 0 then
+  // reported as protocol_version (RFC 9846 E.1; 4.3.1 says illegal_parameter), not a cipher/decode
+  // error.
+  if THandshakeMessages.TryGetServerHelloSelectedVersion(LHello.Extensions,
+    LNegotiatedVersion) then
   begin
     // a ServerHello that selects its version via supported_versions is a TLS 1.3 construct
     // whose legacy_version MUST be 0x0303 (RFC 9846 4.2.3); any other value is not a version
@@ -1443,6 +1444,7 @@ var
   LOffered: TArray<UInt16>;
   LCh1Hash: IHash;
   LEarlyDataWasOffered: Boolean;
+  LSelectedVersion: UInt16;
 begin
   // at most one HelloRetryRequest per handshake (RFC 9846 4.2.4)
   if FRetried then
@@ -1457,7 +1459,8 @@ begin
 
   // a HelloRetryRequest is a TLS 1.3 message, so its supported_versions MUST select TLS 1.3;
   // absent or any other value is a version this client did not agree to (RFC 9846 4.2.4, 4.3.1)
-  if THandshakeMessages.ServerHelloSelectedVersion(AHello.Extensions) <> TlsWireVersionTls13 then
+  if not THandshakeMessages.TryGetServerHelloSelectedVersion(AHello.Extensions,
+    LSelectedVersion) or (LSelectedVersion <> TlsWireVersionTls13) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SHelloRetryVersion);
 

@@ -118,6 +118,7 @@ type
     procedure TestOutOfOrderMessageAfterOmittedCertificateStatusFailsWithoutParking;
     procedure TestClientRejectsServerHelloLegacyVersionBelowTls12;
     procedure TestClientRejectsSupportedVersionsInTls12ServerHello;
+    procedure TestClientRejectsZeroSupportedVersionsInTls12ServerHello;
     procedure TestPlaintextFinishedPackedWithKeyExchangeIsExcessData;
     procedure TestEcdheEd448CredentialHandshake;
     procedure TestEcdheEd25519CredentialHandshake;
@@ -1062,6 +1063,28 @@ begin
     THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
     THandshakeMessages.EncodeServerHello(LSh)))), TTlsAlertDescription.UnsupportedExtension),
     'a supported_versions extension in a 1.2 ServerHello aborts with unsupported_extension');
+end;
+
+procedure TTestTls12Loopback.TestClientRejectsZeroSupportedVersionsInTls12ServerHello;
+var
+  LClient, LServer: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LSh: TTlsServerHello;
+  LVec: TExtensionVector;
+begin
+  // a present supported_versions whose value is 0 is still a present extension, not an absent one
+  LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := ServerMachine(False);
+  LFlight := SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start)));
+  CheckTrue(System.Length(LFlight) > 0, 'the server produced a flight');
+  LSh := DecodeServerFlightHello(LFlight);
+  LVec := TExtensionVector.Parse(LSh.Extensions);
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.SupportedVersions, TBytes.Create($00, $00)));
+  LSh.Extensions := LVec.Encode;
+  CheckTrue(HasFailAlert(DeliverFlight(LClient, TArray<TBytes>.Create(
+    THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LSh)))), TTlsAlertDescription.UnsupportedExtension),
+    'supported_versions = 0 in a 1.2 ServerHello aborts with unsupported_extension');
 end;
 
 procedure TTestTls12Loopback.TestServerRejectsClientFinishedWithWrongVerifyData;

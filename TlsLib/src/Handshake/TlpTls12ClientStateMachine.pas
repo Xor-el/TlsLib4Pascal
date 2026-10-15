@@ -595,7 +595,7 @@ begin
     // extension, RFC 9846 4.3.1); the dispatcher rejects it on the mixed path, so a 1.2-only
     // client enforces it here too (unsupported_extension names the fault; RFC 9846 4.3.1 says
     // illegal_parameter)
-    if LContext.SelectedVersion <> 0 then
+    if LServerExtensions.Contains(TExtensionTypes.SupportedVersions) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnsupportedExtension, @SSupportedVersionsInServerHello);
     // a server that echoed the (empty) session_ticket extension will send a NewSessionTicket

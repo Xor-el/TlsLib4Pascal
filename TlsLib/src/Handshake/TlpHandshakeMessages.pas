@@ -182,10 +182,11 @@ type
     class function DecodeClientHello(const ABody: TBytes): TTlsClientHello; static;
     class function EncodeServerHello(const AMsg: TTlsServerHello): TBytes; static;
     class function DecodeServerHello(const ABody: TBytes): TTlsServerHello; static;
-    /// <summary>The version a ServerHello selected via its supported_versions extension
-    /// (RFC 9846 4.3.1), or 0 when the extension is absent - a server that negotiated TLS 1.2
-    /// or below, whose version is then the legacy_version field.</summary>
-    class function ServerHelloSelectedVersion(const AExtensions: TBytes): UInt16; static;
+    /// <summary>True when the ServerHello carries supported_versions (RFC 9846 4.3.1), with the
+    /// selected version in AVersion (any value, including 0). False when it is absent - a server
+    /// that negotiated TLS 1.2 or below, whose version is then the legacy_version field.</summary>
+    class function TryGetServerHelloSelectedVersion(const AExtensions: TBytes;
+      out AVersion: UInt16): Boolean; static;
     /// <summary>True when legacy_compression_methods is exactly the single null byte - the
     /// only form a TLS 1.3 ClientHello may carry (RFC 9846 4.2.2). A lower version accepts a
     /// longer list, so this is enforced only once the negotiated version is known to be 1.3.</summary>
@@ -484,18 +485,18 @@ begin
       TTlsAlertDescription.IllegalParameter, @SServerCompressionNotNull);
 end;
 
-class function THandshakeMessages.ServerHelloSelectedVersion(
-  const AExtensions: TBytes): UInt16;
+class function THandshakeMessages.TryGetServerHelloSelectedVersion(
+  const AExtensions: TBytes; out AVersion: UInt16): Boolean;
 var
   LVector: TExtensionVector;
   LEntry: TExtensionEntry;
   LReader: TWireReader;
 begin
-  Result := 0;
+  AVersion := 0;
+  Result := False;
   // an omitted extensions field (a TLS 1.2 ServerHello may end after compression_method)
-  // carries no supported_versions, so the selected version is the legacy one (0). a present
-  // field is parsed in full, so a malformed ServerHello is refused with its structural alert
-  // before the version is trusted
+  // carries no supported_versions. A present field is parsed in full, so a malformed
+  // ServerHello is refused with its structural alert before the version is trusted
   if System.Length(AExtensions) = 0 then
     Exit;
   LVector := TExtensionVector.Parse(AExtensions);
@@ -503,7 +504,9 @@ begin
   begin
     // a ServerHello supported_versions carries the single selected uint16 version
     LReader := TWireReader.Create(LEntry.Data);
-    Result := LReader.ReadUInt16;
+    AVersion := LReader.ReadUInt16;
+    LReader.ExpectEnd;
+    Result := True;
   end;
 end;
 
