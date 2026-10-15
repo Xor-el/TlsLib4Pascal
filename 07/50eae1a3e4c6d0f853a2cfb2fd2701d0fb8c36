@@ -1,0 +1,33 @@
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_4adb7e2edc0c28::t_e79444349e3c1b 1001-1002
+  s_4adb7e2edc0c28::t_53dcc33117c2ad 1037
+  s_4adb7e2edc0c28::t_34ed30235bd73a 1043
+  s_4adb7e2edc0c28::t_132e7b51b21c1d 1111
+  s_4adb7e2edc0c28::t_a0917822b6f4f5 1044-1045
+  s_4adb7e2edc0c28::t_645f02f9c286fe 1858-1859
+  s_4adb7e2edc0c28::t_02d74506c14909 65
+TlsLib.Tests/src/MockSessionStores.pas
+  s_4adb7e2edc0c28::t_a2a5a16cbd81bd 360-464
+  s_4adb7e2edc0c28::t_d9a63f17e30550 143
+  s_4adb7e2edc0c28::t_160b066f6ed140 23-24
+  s_4adb7e2edc0c28::t_fc7e19b3464da6 105-142,144-153
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_4adb7e2edc0c28::t_c27ae545e624a3 33
+  s_4adb7e2edc0c28::t_0a8bcdd9fd4dde 1019-1020
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0750eae1a3e4c6d0f853a2cfb2fd2701d0fb8c36",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
