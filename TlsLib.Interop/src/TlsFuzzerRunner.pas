@@ -32,6 +32,7 @@ uses
   TlpHandshakeMessages,
   TlpRecordLayer,
   TlpCertificateCompression,
+  TlpCertificateLimits,
   TlpZlibCertificateCompression,
   TlpICertificateCompression,
   TlpEchConfig,
@@ -689,7 +690,8 @@ begin
           TCertificateCompression.Decompress(
             TZlibCertificateCompression.DefaultDecompressors,
             LCompressed.Algorithm, LCompressed.Compressed,
-            LCompressed.UncompressedLength);
+            LCompressed.UncompressedLength,
+            TCertificateChainLimits.Defaults.MaxTotalChainLength);
         end;
       TFuzzTarget.Finished:
         THandshakeMessages.DecodeFinished(AInput);

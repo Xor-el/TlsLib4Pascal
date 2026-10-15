@@ -21,6 +21,7 @@ uses
   TlpIClock,
   TlpClock,
   SysUtils,
+  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -41,11 +42,10 @@ uses
   TlpICertificateCompression,
   TlpZlibCertificateCompression,
   TlpICertificateTrust,
-  TlpITrustAnchorStore,
-  TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpServerName,
   TlpCertificateVerifier,
+  TlpCertificateLimits,
   TlsLibTestBase;
 
 type
@@ -55,21 +55,28 @@ type
     function ConsumeAlert(const ABlock: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
     function JunkCert(ALength: Int32): TBytes;
-    function VerifyAlert(const AChain: TArray<TBytes>;
+    function LeafCertificate: TBytes;
+    function VerifyChain(const AChain: TArray<TBytes>; const ALimits: TCertificateChainLimits;
       out AAlert: TTlsAlertDescription): Boolean;
     function ZlibCompress(const AData: TBytes): TBytes;
-    function SeamDecompress(AAlgorithm: UInt16; const ACompressed: TBytes;
-      ADeclaredLength: Int32): TBytes;
+    function DecompressAlert(AAlgorithm: UInt16; const ACompressed: TBytes;
+      ADeclaredLength, AMaxLength: Int32; out AAlert: TTlsAlertDescription): Boolean;
   published
     procedure TestOverLengthHandshakeMessageRejected;
     procedure TestHandshakeReassemblyOverflowRejected;
     procedure TestDuplicateExtensionRejected;
     procedure TestExtensionCountFloodRejected;
-    procedure TestOversizeCertificateRejected;
+    procedure TestCertificateOverPerCertificateCapRejected;
+    procedure TestCertificateAtPerCertificateCapAccepted;
+    procedure TestChainOverTotalCapRejected;
+    procedure TestChainAtTotalCapAccepted;
     procedure TestDecompressionHonoursConfiguredCeiling;
+    procedure TestCertificateDecompressionDeclaredAtCeilingPassesCapCheck;
+    procedure TestCertificateDecompressionZeroDeclaredLengthRejected;
     procedure TestCertificateDecompressionRoundTrip;
     procedure TestCertificateDecompressionRatioBombRejected;
-    procedure TestCertificateDecompressionDeclaredTooLargeRejected;
+    procedure TestCertificateDecompressionAtRatioLimitPassesGuard;
+    procedure TestCertificateDecompressionJustOverRatioLimitRejected;
     procedure TestCertificateDecompressionLengthMismatchRejected;
     procedure TestCertificateDecompressionTrailingBytesRejected;
     procedure TestCertificateDecompressionUnsupportedAlgorithmRejected;
@@ -89,12 +96,24 @@ begin
   CheckTrue(LCompressors[0].TryCompress(AData, Result), 'zlib compressed the body');
 end;
 
-function TTestResourceLimit.SeamDecompress(AAlgorithm: UInt16;
-  const ACompressed: TBytes; ADeclaredLength: Int32): TBytes;
+// True when Decompress refused the input with a fatal alert, which AAlert carries
+function TTestResourceLimit.DecompressAlert(AAlgorithm: UInt16;
+  const ACompressed: TBytes; ADeclaredLength, AMaxLength: Int32;
+  out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := TCertificateCompression.Decompress(
-    TZlibCertificateCompression.DefaultDecompressors, AAlgorithm, ACompressed,
-    ADeclaredLength);
+  Result := False;
+  AAlert := TTlsAlertDescription.CloseNotify;
+  try
+    TCertificateCompression.Decompress(
+      TZlibCertificateCompression.DefaultDecompressors, AAlgorithm, ACompressed,
+      ADeclaredLength, AMaxLength);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      AAlert := E.AlertDescription;
+      Result := True;
+    end;
+  end;
 end;
 
 function TTestResourceLimit.ExtensionBlock(
@@ -154,16 +173,31 @@ begin
     FillChar(Result[0], ALength, $41);
 end;
 
-function TTestResourceLimit.VerifyAlert(const AChain: TArray<TBytes>;
-  out AAlert: TTlsAlertDescription): Boolean;
+function TTestResourceLimit.LeafCertificate: TBytes;
 var
+  LFields: TStringList;
+begin
+  LFields := LoadVectorFields('Certs/EcP256Chain.txt');
+  try
+    Result := DecodeHex(LFields.Values['leaf_cert']);
+  finally
+    LFields.Free;
+  end;
+end;
+
+// a real chain under the real root, so only a cap in ALimits can refuse it
+function TTestResourceLimit.VerifyChain(const AChain: TArray<TBytes>;
+  const ALimits: TCertificateChainLimits; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LOptions: TCertificateVerifierOptions;
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
+  LOptions.ChainLimits := ALimits;
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False) as IServerCertificateVerifier;
-  Result := not LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName(''), nil,
-    LVerified, AAlert);
+    EcP256RootStore, True, LOptions) as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(AChain,
+    TServerName.DnsName('localhost'), nil, LVerified, AAlert);
 end;
 
 procedure TTestResourceLimit.TestOverLengthHandshakeMessageRejected;
@@ -248,34 +282,93 @@ begin
     'an extension-count flood is decode_error');
 end;
 
-procedure TTestResourceLimit.TestOversizeCertificateRejected;
+procedure TTestResourceLimit.TestCertificateOverPerCertificateCapRejected;
 var
+  LLeaf: TBytes;
+  LLimits: TCertificateChainLimits;
   LAlert: TTlsAlertDescription;
 begin
-  // a single certificate above the per-certificate size cap
-  CheckTrue(VerifyAlert(TArray<TBytes>.Create(JunkCert((1 shl 16) + 1)), LAlert),
-    'an oversize certificate aborts');
+  // only this cap is tightened, so it alone refuses an otherwise valid certificate
+  LLeaf := LeafCertificate;
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxCertificateLength := System.Length(LLeaf) - 1;
+  CheckFalse(VerifyChain(TArray<TBytes>.Create(LLeaf), LLimits, LAlert),
+    'a certificate one byte over the cap aborts');
   CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
-    'an oversize certificate is bad_certificate');
+    'an over-cap certificate is bad_certificate');
+end;
+
+procedure TTestResourceLimit.TestCertificateAtPerCertificateCapAccepted;
+var
+  LLeaf: TBytes;
+  LLimits: TCertificateChainLimits;
+  LAlert: TTlsAlertDescription;
+begin
+  // the control for the cap test above: the same leaf at exactly the cap verifies
+  LLeaf := LeafCertificate;
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxCertificateLength := System.Length(LLeaf);
+  CheckTrue(VerifyChain(TArray<TBytes>.Create(LLeaf), LLimits, LAlert),
+    'a certificate exactly at the cap verifies');
+end;
+
+procedure TTestResourceLimit.TestChainOverTotalCapRejected;
+var
+  LChain: TArray<TBytes>;
+  LLimits: TCertificateChainLimits;
+  LAlert: TTlsAlertDescription;
+begin
+  // each certificate is under the per-certificate cap, so only the summed total can refuse it
+  LChain := TArray<TBytes>.Create(LeafCertificate, EcP256RootCertificate);
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxTotalChainLength := System.Length(LChain[0]) + System.Length(LChain[1]) - 1;
+  CheckFalse(VerifyChain(LChain, LLimits, LAlert), 'a chain one byte over the total cap aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
+    'an over-total chain is bad_certificate');
+end;
+
+procedure TTestResourceLimit.TestChainAtTotalCapAccepted;
+var
+  LChain: TArray<TBytes>;
+  LLimits: TCertificateChainLimits;
+  LAlert: TTlsAlertDescription;
+begin
+  LChain := TArray<TBytes>.Create(LeafCertificate, EcP256RootCertificate);
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxTotalChainLength := System.Length(LChain[0]) + System.Length(LChain[1]);
+  CheckTrue(VerifyChain(LChain, LLimits, LAlert), 'a chain exactly at the total cap verifies');
 end;
 
 procedure TTestResourceLimit.TestDecompressionHonoursConfiguredCeiling;
 var
-  LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
-  // the ceiling overload bounds the declared length by the caller's configured budget rather
-  // than the fixed 256 KiB constant: a declared length above the passed ceiling (but below the
-  // hard constant) is refused, so the compressed path composes with the chain limits
-  LRaised := False;
-  try
-    TCertificateCompression.Decompress(
-      TZlibCertificateCompression.DefaultDecompressors,
-      TCertificateCompressionAlgorithms.Zlib, JunkCert(64), 4096, 1024);
-  except
-    on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
-  end;
-  CheckTrue(LRaised, 'a declared length above the configured ceiling is rejected');
+  // 100 bytes allow 10000 under the ratio guard, so only the 4096 ceiling can refuse 4097
+  CheckTrue(DecompressAlert(TCertificateCompressionAlgorithms.Zlib, JunkCert(100), 4097, 4096,
+    LAlert), 'a declared length one over the ceiling is refused');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'an over-ceiling declared length is illegal_parameter');
+end;
+
+procedure TTestResourceLimit.TestCertificateDecompressionDeclaredAtCeilingPassesCapCheck;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // control: exactly the ceiling clears the cap, then the junk input fails to inflate
+  CheckTrue(DecompressAlert(TCertificateCompressionAlgorithms.Zlib, JunkCert(100), 4096, 4096,
+    LAlert), 'the junk input is refused');
+  CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
+    'a declared length at the ceiling reaches the decompressor');
+end;
+
+procedure TTestResourceLimit.TestCertificateDecompressionZeroDeclaredLengthRejected;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(DecompressAlert(TCertificateCompressionAlgorithms.Zlib, JunkCert(100), 0, 4096,
+    LAlert), 'a zero declared length is refused');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a zero declared length is illegal_parameter');
 end;
 
 procedure TTestResourceLimit.TestCertificateDecompressionRoundTrip;
@@ -289,53 +382,56 @@ begin
   for LI := 0 to System.Length(LOriginal) - 1 do
     LOriginal[LI] := Byte((LI * 7) and $FF);
   LCompressed := ZlibCompress(LOriginal);
-  LRestored := SeamDecompress(TCertificateCompressionAlgorithms.Zlib,
-    LCompressed, System.Length(LOriginal));
+  LRestored := TCertificateCompression.Decompress(
+    TZlibCertificateCompression.DefaultDecompressors,
+    TCertificateCompressionAlgorithms.Zlib, LCompressed, System.Length(LOriginal), 8192);
   CheckEqualBytes('the payload round-trips through zlib', LOriginal, LRestored);
 end;
 
 procedure TTestResourceLimit.TestCertificateDecompressionRatioBombRejected;
 var
   LZeros, LCompressed: TBytes;
-  LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
-  // a highly compressible blob is the classic bomb: a tiny compressed body declaring a
-  // huge expansion must be refused by the ratio guard before it is inflated
-  LZeros := JunkCert(0);
+  // 60000 zeros stay under the ceiling, so only the ratio guard can refuse the declared length
+  LZeros := nil;
   SetLength(LZeros, 60000);
   FillChar(LZeros[0], 60000, 0);
   LCompressed := ZlibCompress(LZeros);
-  LRaised := False;
-  try
-    SeamDecompress(TCertificateCompressionAlgorithms.Zlib, LCompressed, 60000);
-  except
-    on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
-  end;
-  CheckTrue(LRaised, 'a decompression bomb is rejected as illegal_parameter');
+  CheckTrue(System.Length(LCompressed) * TCertificateCompression.MaxExpansionRatio < 60000,
+    'the body compresses past the ratio limit');
+  CheckTrue(DecompressAlert(TCertificateCompressionAlgorithms.Zlib, LCompressed, 60000,
+    1 shl 18, LAlert), 'the bomb is refused');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a decompression bomb is illegal_parameter');
 end;
 
-procedure TTestResourceLimit.TestCertificateDecompressionDeclaredTooLargeRejected;
+procedure TTestResourceLimit.TestCertificateDecompressionAtRatioLimitPassesGuard;
 var
-  LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
-  // a declared uncompressed length above the hard ceiling is refused up front
-  LRaised := False;
-  try
-    SeamDecompress(TCertificateCompressionAlgorithms.Zlib,
-      JunkCert(64), (1 shl 18) + 1);
-  except
-    on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
-  end;
-  CheckTrue(LRaised, 'an over-large declared length is rejected');
+  // control: 10 bytes allow exactly 1000, so the guard passes and the junk fails to inflate
+  CheckTrue(DecompressAlert(TCertificateCompressionAlgorithms.Zlib, JunkCert(10), 1000,
+    1 shl 18, LAlert), 'the junk input is refused');
+  CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
+    'a declared length at the ratio limit reaches the decompressor');
+end;
+
+procedure TTestResourceLimit.TestCertificateDecompressionJustOverRatioLimitRejected;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(DecompressAlert(TCertificateCompressionAlgorithms.Zlib, JunkCert(10), 1001,
+    1 shl 18, LAlert), 'a declared length one over the ratio limit is refused');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'an over-ratio declared length is illegal_parameter');
 end;
 
 procedure TTestResourceLimit.TestCertificateDecompressionLengthMismatchRejected;
 var
   LOriginal, LCompressed: TBytes;
   LI: Int32;
-  LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
   // the produced length must equal the declared length exactly. Use a moderately-compressible
   // payload and declare one byte over the true size so the ratio guard is not tripped first: only
@@ -345,21 +441,17 @@ begin
   for LI := 0 to System.Length(LOriginal) - 1 do
     LOriginal[LI] := Byte((LI * 7) and $FF);
   LCompressed := ZlibCompress(LOriginal);
-  LRaised := False;
-  try
-    SeamDecompress(TCertificateCompressionAlgorithms.Zlib, LCompressed, 5001);
-  except
-    on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
-  end;
-  CheckTrue(LRaised, 'a declared/produced length mismatch is rejected');
+  CheckTrue(DecompressAlert(TCertificateCompressionAlgorithms.Zlib, LCompressed, 5001, 8192,
+    LAlert), 'a declared/produced length mismatch is rejected');
+  CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
+    'a length mismatch is bad_certificate');
 end;
 
 procedure TTestResourceLimit.TestCertificateDecompressionTrailingBytesRejected;
 var
   LOriginal, LCompressed, LWithTrailer: TBytes;
   LI: Int32;
-  LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
   // a CompressedCertificate body is exactly one zlib stream; a byte appended after it is
   // malformed and must be rejected, not silently ignored
@@ -371,30 +463,21 @@ begin
   LWithTrailer := System.Copy(LCompressed);
   SetLength(LWithTrailer, System.Length(LWithTrailer) + 1);
   LWithTrailer[System.Length(LWithTrailer) - 1] := $2A;
-  LRaised := False;
-  try
-    SeamDecompress(TCertificateCompressionAlgorithms.Zlib, LWithTrailer,
-      System.Length(LOriginal));
-  except
-    on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.BadCertificate;
-  end;
-  CheckTrue(LRaised, 'a byte after the zlib stream is rejected');
+  CheckTrue(DecompressAlert(TCertificateCompressionAlgorithms.Zlib, LWithTrailer,
+    System.Length(LOriginal), 8192, LAlert), 'a byte after the zlib stream is rejected');
+  CheckTrue(LAlert = TTlsAlertDescription.BadCertificate,
+    'a trailing byte is bad_certificate');
 end;
 
 procedure TTestResourceLimit.TestCertificateDecompressionUnsupportedAlgorithmRejected;
 var
-  LRaised: Boolean;
+  LAlert: TTlsAlertDescription;
 begin
-  // brotli (2) is not one we advertise or can decompress
-  LRaised := False;
-  try
-    SeamDecompress(2, JunkCert(64), 100);
-  except
-    on E: EFatalAlertTlsLibException do
-      LRaised := E.AlertDescription = TTlsAlertDescription.IllegalParameter;
-  end;
-  CheckTrue(LRaised, 'an unsupported compression algorithm is rejected');
+  // brotli (2) is not advertised; 100 is within the ceiling and ratio, so only the lookup refuses
+  CheckTrue(DecompressAlert(2, JunkCert(64), 100, 8192, LAlert),
+    'an unsupported compression algorithm is rejected');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'an unsupported algorithm is illegal_parameter');
 end;
 
 initialization

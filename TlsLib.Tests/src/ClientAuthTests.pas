@@ -105,6 +105,13 @@ type
       const APins: TArray<TBytes>): ITlsEngine;
     function New13ClientMachine(AWithCredential: Boolean): IHandshakeMachine;
     function New13ServerMachine(AMode: TClientAuthMode): IHandshakeMachine;
+    // a Required-auth server that advertised zlib decompression, under the given chain budget
+    function New13CompressingServerMachine(
+      const ALimits: TCertificateChainLimits): IHandshakeMachine;
+    // the alert (if any) a server with a budget one under, or equal to, the client Certificate
+    // body length raises on CompressedClientCertificate
+    function ServerAlertOnCompressedClientCertificate(ABudgetBelowBody: Boolean;
+      out AAlert: TTlsAlertDescription): Boolean;
     function FirstSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
     function AllSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
     function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
@@ -171,6 +178,8 @@ type
     procedure TestOversizeCompressionFallsBackToAPlainCertificate;
     procedure TestUnsolicitedCompressedCertificateIsUnexpected;
     procedure TestCompressedCertificateWithoutClientAuthIsUnexpected;
+    procedure TestServerRejectsCompressedClientCertificateOverTheChainBudget;
+    procedure TestServerAcceptsCompressedClientCertificateAtTheChainBudget;
   end;
 
 implementation
@@ -572,6 +581,73 @@ begin
   LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
   LParams.ClientCertificateVerifier := PeerVerifier;
   Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestClientAuth.New13CompressingServerMachine(
+  const ALimits: TCertificateChainLimits): IHandshakeMachine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
+  LParams.ClientAuth := TClientAuthMode.Required;
+  LParams.ClientAuthSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientCertificateVerifier := PeerVerifier;
+  LParams.CertificateDecompressors := TZlibCertificateCompression.DefaultDecompressors;
+  LParams.CertificateChainLimits := ALimits;
+  Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
+end;
+
+function TTestClientAuth.ServerAlertOnCompressedClientCertificate(
+  ABudgetBelowBody: Boolean; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LLimits: TCertificateChainLimits;
+  LClient, LServer: IHandshakeMachine;
+  LFramed: TBytes;
+  LBodyLength: Int32;
+begin
+  LFramed := CompressedClientCertificate;
+  LBodyLength := THandshakeMessages.DecodeCompressedCertificate(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(LFramed).Body).UncompressedLength;
+  LLimits := TCertificateChainLimits.Defaults;
+  if ABudgetBelowBody then
+    LLimits.MaxTotalChainLength := LBodyLength - 1
+  else
+    LLimits.MaxTotalChainLength := LBodyLength;
+  LClient := New13ClientMachine(True);
+  LServer := New13CompressingServerMachine(LLimits);
+  AllSendHandshake(LServer.ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  Result := FailAlertOf(LServer.ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(LFramed)), AAlert);
+end;
+
+procedure TTestClientAuth.TestServerRejectsCompressedClientCertificateOverTheChainBudget;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the body compresses far less than 100x, so only the budget passed in can refuse it
+  CheckTrue(ServerAlertOnCompressedClientCertificate(True, LAlert),
+    'a declared length over the chain budget aborts');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)), Int64(Ord(LAlert)),
+    'the abort is illegal_parameter');
+end;
+
+procedure TTestClientAuth.TestServerAcceptsCompressedClientCertificateAtTheChainBudget;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the control for the over-budget test: a budget of exactly the body length passes the check
+  CheckFalse(ServerAlertOnCompressedClientCertificate(False, LAlert),
+    'a declared length at the chain budget is accepted');
 end;
 
 function TTestClientAuth.FirstSendHandshake(

@@ -46,7 +46,8 @@ type
   /// classification share.</summary>
   TPathBuildLimits = class sealed(TObject)
   public
-    /// <summary>The most certificates a built path may hold, bounding the builder's search.</summary>
+    /// <summary>The most non-self-issued certificates above the leaf a built path may hold,
+    /// bounding the builder's search.</summary>
     const MaxBuiltPathLength = 4;
   end;
 
