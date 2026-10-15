@@ -20,6 +20,8 @@ interface
 uses
   SysUtils,
   TlpArrayUtilities,
+  TlpISecretBuffer,
+  TlpSecretBuffer,
   TlpISession;
 
 type
@@ -98,6 +100,55 @@ type
     procedure Clear;
     function Count: Int32;
     property TakeCount: Int32 read FTakeCount;
+  end;
+
+  /// <summary>A server-side session store that issues tickets of a fixed length, as a foreign
+  /// server with an unbounded ticket would; it holds nothing and resumes nothing.</summary>
+  TFixedLengthTicketStore = class sealed(TInterfacedObject, ISessionStore)
+  strict private
+  var
+    FTicketLength: Int32;
+    FPuts: Int32;
+  public
+    constructor Create(ATicketLength: Int32);
+    /// <summary>How many tickets the server asked this store to mint.</summary>
+    property Puts: Int32 read FPuts;
+    function Put(const ASession: IResumableSession): TBytes;
+    procedure PutWithId(const AId: TBytes; const ASession: IResumableSession);
+    function Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
+    function Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
+    procedure Remove(const AId: TBytes);
+    procedure Clear;
+    function Count: Int32;
+  end;
+
+  /// <summary>A ticket-key manager whose key name is ANameLength bytes: a nil ASealKey declines
+  /// to seal, a nil AOpenKey finds no key by name.</summary>
+  TScriptedTicketKeys = class sealed(TInterfacedObject, ISessionTicketKeyManager)
+  strict private
+  var
+    FNameLength: Int32;
+    FSealKey: TBytes;
+    FOpenKey: TBytes;
+    FSeals: Int32;
+  public
+    constructor Create(ANameLength: Int32; const ASealKey, AOpenKey: TBytes);
+    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyNameLength: Int32;
+    /// <summary>How many times the server asked for a sealing key.</summary>
+    property Seals: Int32 read FSeals;
+  end;
+
+  /// <summary>A ticket-key manager that opens AInner's tickets but never seals (no renewal).</summary>
+  TOpenOnlyTicketKeys = class sealed(TInterfacedObject, ISessionTicketKeyManager)
+  strict private
+    FInner: ISessionTicketKeyManager;
+  public
+    constructor Create(const AInner: ISessionTicketKeyManager);
+    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+    function KeyNameLength: Int32;
   end;
 
 implementation
@@ -304,6 +355,111 @@ end;
 function TMockSessionStore.Count: Int32;
 begin
   Result := System.Length(FIds);
+end;
+
+{ TFixedLengthTicketStore }
+
+constructor TFixedLengthTicketStore.Create(ATicketLength: Int32);
+begin
+  inherited Create;
+  FTicketLength := ATicketLength;
+end;
+
+function TFixedLengthTicketStore.Put(const ASession: IResumableSession): TBytes;
+begin
+  Inc(FPuts);
+  Result := nil;
+  System.SetLength(Result, FTicketLength);
+end;
+
+procedure TFixedLengthTicketStore.PutWithId(const AId: TBytes; const ASession: IResumableSession);
+begin
+end;
+
+function TFixedLengthTicketStore.Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
+begin
+  ASession := nil;
+  Result := False;
+end;
+
+function TFixedLengthTicketStore.Take(const AId: TBytes; out ASession: IResumableSession): Boolean;
+begin
+  ASession := nil;
+  Result := False;
+end;
+
+procedure TFixedLengthTicketStore.Remove(const AId: TBytes);
+begin
+end;
+
+procedure TFixedLengthTicketStore.Clear;
+begin
+end;
+
+function TFixedLengthTicketStore.Count: Int32;
+begin
+  Result := 0;
+end;
+
+{ TScriptedTicketKeys }
+
+constructor TScriptedTicketKeys.Create(ANameLength: Int32; const ASealKey, AOpenKey: TBytes);
+begin
+  inherited Create;
+  FNameLength := ANameLength;
+  FSealKey := ASealKey;
+  FOpenKey := AOpenKey;
+end;
+
+function TScriptedTicketKeys.CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+begin
+  Inc(FSeals);
+  AKeyName := nil;
+  AKey := nil;
+  Result := FSealKey <> nil;
+  if Result then
+  begin
+    System.SetLength(AKeyName, FNameLength);
+    AKey := TSecretBuffer.From(FSealKey);
+  end;
+end;
+
+function TScriptedTicketKeys.KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+begin
+  AKey := nil;
+  Result := FOpenKey <> nil;
+  if Result then
+    AKey := TSecretBuffer.From(FOpenKey);
+end;
+
+function TScriptedTicketKeys.KeyNameLength: Int32;
+begin
+  Result := FNameLength;
+end;
+
+{ TOpenOnlyTicketKeys }
+
+constructor TOpenOnlyTicketKeys.Create(const AInner: ISessionTicketKeyManager);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TOpenOnlyTicketKeys.CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+begin
+  AKeyName := nil;
+  AKey := nil;
+  Result := False;
+end;
+
+function TOpenOnlyTicketKeys.KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
+begin
+  Result := FInner.KeyByName(AKeyName, AKey);
+end;
+
+function TOpenOnlyTicketKeys.KeyNameLength: Int32;
+begin
+  Result := FInner.KeyNameLength;
 end;
 
 end.

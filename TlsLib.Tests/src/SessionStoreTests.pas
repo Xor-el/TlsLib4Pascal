@@ -30,6 +30,7 @@ uses
   TlpTlsVersion,
   TlpIClock,
   MockClock,
+  MockSessionStores,
   TlpICryptoProvider,
   TlpAeadUtilities,
   TlpISecretBuffer,
@@ -121,41 +122,6 @@ type
   end;
 
 implementation
-
-type
-  // a key manager that hands the open path a wrong-length key, to prove the strategy falls back to
-  // a full handshake rather than letting the AEAD Init exception escape
-  TBadKeyManager = class sealed(TInterfacedObject, ISessionTicketKeyManager)
-  public
-    function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
-    function KeyNameLength: Int32;
-  end;
-
-function TBadKeyManager.CurrentKey(out AKeyName: TBytes;
-  out AKey: ISecretBuffer): Boolean;
-begin
-  AKeyName := nil;
-  AKey := nil;
-  Result := False;
-end;
-
-function TBadKeyManager.KeyByName(const AKeyName: TBytes;
-  out AKey: ISecretBuffer): Boolean;
-var
-  LRaw: TBytes;
-begin
-  LRaw := nil;
-  SetLength(LRaw, 16); // too short for AES-256-GCM, so Init must reject it
-  FillChar(LRaw[0], 16, $AB);
-  AKey := TSecretBuffer.From(LRaw);
-  Result := True;
-end;
-
-function TBadKeyManager.KeyNameLength: Int32;
-begin
-  Result := 16;
-end;
 
 type
   // a session that implements only the version-agnostic base (neither sub-interface), to prove Seal
@@ -1050,7 +1016,8 @@ var
 begin
   // a key the manager cannot bind (here, a wrong-length one) must fall back to a full handshake,
   // not let the AEAD Init exception escape the open path
-  LStrategy := TStekTicketStrategy.Create(Crypto, TBadKeyManager.Create as ISessionTicketKeyManager);
+  LStrategy := TStekTicketStrategy.Create(Crypto,
+    TScriptedTicketKeys.Create(16, nil, Tag($AB, 16)) as ISessionTicketKeyManager);
   LTicket := Tag($01, 60); // long enough to pass the framing length check and reach the AEAD
   LRaised := False;
   LOk := True;
