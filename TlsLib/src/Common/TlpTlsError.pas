@@ -19,14 +19,17 @@ uses
   TlpTlsAlert;
 
 type
-  /// <summary>Whether the error is one this side produced (its alert was sent) or one the peer
-  /// sent (its alert was received). Unknown is the zero value: no failure recorded yet.</summary>
-  TTlsErrorOrigin = (Unknown, Local, Peer);
+  /// <summary>Where the error came from: Local is one this side produced (its alert was sent,
+  /// unless our close_notify or a failed seal prevented it), Peer one the peer sent (its alert
+  /// was received), Transport a transport failure under the connection (no alert was sent or
+  /// received, so Alert and AlertByte are placeholders). Unknown is the zero value: no failure
+  /// recorded yet.</summary>
+  TTlsErrorOrigin = (Unknown, Local, Peer, Transport);
 
   /// <summary>
   /// The structured, public-facing error surfaced to callers: the alert that
-  /// was (or would be) sent and a human-readable message that must not leak
-  /// internal state.
+  /// was (or would be) sent, unless Origin is Transport, and a human-readable
+  /// message that must not leak internal state.
   /// </summary>
   TTlsError = record
   strict private
@@ -54,7 +57,8 @@ type
     property Message: string read FMessage;
     property Origin: TTlsErrorOrigin read FOrigin;
     /// <summary>The on-wire alert description byte: for a peer alert the code the peer sent (even
-    /// when unmapped); otherwise the byte of Alert.Description.</summary>
+    /// when unmapped); otherwise the byte of Alert.Description; a placeholder when Origin is
+    /// Transport.</summary>
     property AlertByte: Byte read FAlertByte;
   end;
 

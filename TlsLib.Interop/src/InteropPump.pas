@@ -139,8 +139,9 @@ begin
     Result := ResultOf(TInteropStatus.PeerAlert, LError.Message)
   else
     Result := ResultOf(TInteropStatus.LocalAlert, LError.Message);
-  Result.HasAlert := True;
-  Result.Alert := LError.Alert.Description;
+  Result.HasAlert := LError.Origin <> TTlsErrorOrigin.Transport;
+  if Result.HasAlert then
+    Result.Alert := LError.Alert.Description;
 end;
 
 class procedure TInteropPump.Flush(const AEngine: ITlsEngine;

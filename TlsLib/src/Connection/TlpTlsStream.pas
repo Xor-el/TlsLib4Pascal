@@ -134,8 +134,8 @@ begin
     Exit;
   // a failed handshake is permanent for this stream: never re-drive it (a retry would emit a
   // second ClientHello or block on a dead transport, masking the real cause). Re-raise the
-  // engine's terminal alert if it has one, else the latched original failure. Build a new stream
-  // to retry.
+  // engine's terminal failure if it has one, else the latched original failure. Build a new
+  // stream to retry.
   if FHandshakeFailed then
   begin
     if FEngine.IsTerminal then

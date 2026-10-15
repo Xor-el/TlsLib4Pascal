@@ -100,14 +100,16 @@ type
 
   /// <summary>
   /// A fatal TLS error raised out of the blocking stream pump: it carries the
-  /// structured alert and message the engine (or the peer) produced, so a host
-  /// adapter can map it onto its own error convention.
+  /// structured alert and message the engine (or the peer) produced, or a transport
+  /// failure's message with no alert, so a host adapter can map it onto its own error
+  /// convention.
   /// </summary>
   ETlsStreamError = class(EBaseTlsLibException)
   strict private
     FAlert: TTlsAlertDescription;
     FHasAlert: Boolean;
   public
+    /// <summary>Carries AError's alert; HasAlert is False when AError.Origin is Transport.</summary>
     constructor Create(const AError: TTlsError); overload;
     constructor Create(ADescription: TTlsAlertDescription;
       const AMessage: string); overload;
@@ -200,7 +202,7 @@ constructor ETlsStreamError.Create(const AError: TTlsError);
 begin
   inherited Create(AError.Message);
   FAlert := AError.Alert.Description;
-  FHasAlert := True;
+  FHasAlert := AError.Origin <> TTlsErrorOrigin.Transport;
 end;
 
 constructor ETlsStreamError.Create(ADescription: TTlsAlertDescription;
