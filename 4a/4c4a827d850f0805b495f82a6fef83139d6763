@@ -1,0 +1,44 @@
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_4adb7e2edc0c28::t_fbc9e9274eadbd 52,57
+TlsLib.Tests/src/Tls13ServerReplayTests.pas
+  s_4adb7e2edc0c28::t_425331fda69b26 57,60
+  s_4adb7e2edc0c28::t_7b19d351b2c549 423
+  s_4adb7e2edc0c28::t_8ada893b15796a 192
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_4adb7e2edc0c28::t_1ec2705e95346f 278-279
+  s_4adb7e2edc0c28::t_a8a624754bbb20 2327-2329
+  s_4adb7e2edc0c28::t_4881bf372b2fb2 246-247
+  s_4adb7e2edc0c28::t_c6f34df5c74db6 1261-1264
+  s_4adb7e2edc0c28::t_a7e905262eb457 75,80
+  s_4adb7e2edc0c28::t_d07a578b59b946 2243-2244
+  s_4adb7e2edc0c28::t_d28aa2bb3a0f9c 1294-1295
+  s_4adb7e2edc0c28::t_713e9a5a05af6b 2191-2192
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_4adb7e2edc0c28::t_56cd85d00af61c 303
+  s_4adb7e2edc0c28::t_54479f652dffca 57,60
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_4adb7e2edc0c28::t_10541c48ccc7a3 81
+  s_4adb7e2edc0c28::t_a2dea40e29b6a9 1219
+  s_4adb7e2edc0c28::t_205f6ceae30df4 1758
+  s_4adb7e2edc0c28::t_7f0e4c8b4e2f14 1886
+  s_4adb7e2edc0c28::t_82c53356ae35ec 2020,2053,2084,2118,2150,3008
+  s_4adb7e2edc0c28::t_c3c6e1af4018cb 84
+  s_4adb7e2edc0c28::t_9c56fcd2281529 1248
+  s_4adb7e2edc0c28::t_dec7eff1048622 1223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4a4c4a827d850f0805b495f82a6fef83139d6763",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
