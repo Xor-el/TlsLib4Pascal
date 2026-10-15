@@ -92,6 +92,8 @@ type
     function BaseWithHpke(const AHpke: IHpkeCrypto): ICryptoProvider;
     // HPKE is reported Composed exactly when it composes over the provider's own primitives.
     procedure CheckHpkeFacetReport(const AProvider: ICryptoProvider);
+    // AProvider's X25519 accepts a valid peer share, then refuses each small-order one as peer input.
+    procedure CheckX25519RefusesSmallOrderShares(const AProvider: ICryptoProvider);
   protected
     procedure SetUp; override;
   end;
@@ -101,7 +103,7 @@ type
   /// as strictly as the portable verifier, key exchange refuses foreign keys, and the credential
   /// leaf guard sees the native key. Each test runs only for what the backend report says is
   /// native, so a platform with no native provider runs none of them and a new one needs no edit
-  /// here.</summary>
+  /// here (the portable-path counterparts run everywhere).</summary>
   TTestNativeCryptoProvider = class(TNativeCryptoProviderTestBase)
   published
     // the exported SubjectPublicKeyInfo does not come from the portable facet: over a base
@@ -123,6 +125,9 @@ type
     // the overlay's X25519 returns the portable result for a u outside the prime-order subgroup,
     // or refuses it, never a different value
     procedure TestX25519NeverDisagreesWithPortable;
+    // a small-order peer share is refused as peer input (RFC 7748 6.1), natively and portably
+    procedure TestNativeX25519RefusesSmallOrderPeerShares;
+    procedure TestPortableX25519RefusesSmallOrderPeerShares;
     // policy stays enforced through the overlay: a multi-key store is rejected on every platform
     procedure TestPkcs12MultiKeyStillFailsClosed;
     procedure TestPemFirstPrivateKeyBlockDecidesImport;
@@ -193,6 +198,22 @@ const
   // "The quick brown fox"
   SMessageHex = '54686520717569636b2062726f776e20666f78';
   SPassword = 'tlslib';
+  // small-order or non-canonical encodings of low-order X25519 u, then the same with bit 255 set
+  SmallOrderShares: array [0 .. 13] of string = (
+    '0000000000000000000000000000000000000000000000000000000000000000',
+    '0100000000000000000000000000000000000000000000000000000000000000',
+    'e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800',
+    '5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157',
+    'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+    'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+    'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
+    '0000000000000000000000000000000000000000000000000000000000000080',
+    '0100000000000000000000000000000000000000000000000000000000000080',
+    'e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880',
+    '5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f11d7',
+    'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+    'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+    'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
 
 type
   // a signing facet whose key import always fails loudly, used to prove the overlay's native
@@ -452,6 +473,37 @@ begin
     LExpected := TCryptoBackend.Portable;
   CheckEquals(Ord(LExpected), Ord(LReport.FacetBackend(TCryptoFacet.Hpke).Backend),
     'the HPKE backend report follows the structure of the facet');
+end;
+
+procedure TNativeCryptoProviderTestBase.CheckX25519RefusesSmallOrderShares(
+  const AProvider: ICryptoProvider);
+var
+  LAgreement: IKeyAgreement;
+  LPrivate, LPeerPrivate: IKeyExchangePrivateKey;
+  LPublic, LPeerPublic: TBytes;
+  LI: Int32;
+
+  // exactly the peer-input error: EArgument or a raw backend error is not the refusal
+  function Refused(const APeer: TBytes): Boolean;
+  begin
+    Result := False;
+    try
+      LAgreement.Agree(LPrivate, APeer);
+    except
+      on E: Exception do
+        Result := E.ClassType = EPeerInputTlsLibException;
+    end;
+  end;
+
+begin
+  LAgreement := AProvider.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);
+  LAgreement.GenerateKeyPair(LPrivate, LPublic);
+  LAgreement.GenerateKeyPair(LPeerPrivate, LPeerPublic);
+  CheckTrue(LAgreement.Agree(LPrivate, LPeerPublic) <> nil, 'a valid peer share is accepted');
+  for LI := Low(SmallOrderShares) to High(SmallOrderShares) do
+    CheckTrue(Refused(DecodeHex(SmallOrderShares[LI])),
+      Format('the small-order share %s is refused as peer input',
+        [System.Copy(SmallOrderShares[LI], 1, 8)]));
 end;
 
 function TNativeCryptoProviderTestBase.BuildServerConfig(
@@ -729,6 +781,25 @@ begin
   finally
     LVec.Free;
   end;
+end;
+
+procedure TTestNativeCryptoProvider.TestNativeX25519RefusesSmallOrderPeerShares;
+var
+  LReport: ICryptoBackendReport;
+begin
+  if not Supports(Crypto, ICryptoBackendReport, LReport) or
+    (LReport.KeyAgreementBackend(TKeyAgreementAlgorithm.X25519).Backend <>
+      TCryptoBackend.System) then
+  begin
+    SkipTest('the platform serves X25519 from no native module');
+    Exit;
+  end;
+  CheckX25519RefusesSmallOrderShares(Crypto);
+end;
+
+procedure TTestNativeCryptoProvider.TestPortableX25519RefusesSmallOrderPeerShares;
+begin
+  CheckX25519RefusesSmallOrderShares(Portable);
 end;
 
 procedure TTestNativeCryptoProvider.TestKeyExchangePrimitivesRefuseEachOthersKeys;
