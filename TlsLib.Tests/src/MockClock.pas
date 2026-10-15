@@ -27,7 +27,7 @@ type
   /// checks (certificate validity, staple freshness) deterministically. SetUnixMillis advances
   /// it. Never for production use.
   /// </summary>
-  TMockClock = class(TInterfacedObject, ITlsClock)
+  TMockClock = class sealed(TInterfacedObject, ITlsClock)
   strict private
   var
     FUnixMillis: UInt64;
@@ -45,7 +45,7 @@ type
   /// An <see cref="ITlsMonotonicClock" /> a test advances by hand, so a deadline can be driven
   /// without waiting. It only moves forward, as the real source does. Never for production use.
   /// </summary>
-  TMockMonotonicClock = class(TInterfacedObject, ITlsMonotonicClock)
+  TMockMonotonicClock = class sealed(TInterfacedObject, ITlsMonotonicClock)
   strict private
   var
     FMillis: Int64;

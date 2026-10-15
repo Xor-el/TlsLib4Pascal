@@ -43,6 +43,7 @@ uses
   TlpTlsConnection,
   TlpTlsLibExceptions,
   TlpCertificateVerifierSource,
+  MockTransport,
   TlsLibTestBase;
 
 type
@@ -132,17 +133,6 @@ type
 implementation
 
 type
-  // answers one name with the loopback address and counts the questions
-  TFakeResolver = class sealed(TInterfacedObject, IHostResolver)
-  strict private
-    FName: string;
-    FAsked: Int32;
-  public
-    constructor Create(const AName: string);
-    function TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
-    property Asked: Int32 read FAsked;
-  end;
-
   // accepts one connection, runs the TLS server handshake over it and echoes one message
   TEchoServer = class(TThread)
   strict private
@@ -200,24 +190,6 @@ begin
     on E: Exception do
       FError := E.ClassName + ': ' + E.Message;
   end;
-end;
-
-{ TFakeResolver }
-
-constructor TFakeResolver.Create(const AName: string);
-begin
-  inherited Create;
-  FName := AName;
-end;
-
-function TFakeResolver.TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
-begin
-  Inc(FAsked);
-  Result := AHost = FName;
-  if Result then
-    AAddress := TBytes.Create(127, 0, 0, 1)
-  else
-    AAddress := nil;
 end;
 
 { TNetSocketTestBase }
@@ -405,14 +377,14 @@ end;
 procedure TTestNetSocket.TestConnectorResolvesNamesThroughItsResolver;
 var
   LListener: ITcpListener;
-  LFake: TFakeResolver;
+  LFake: TMockHostResolver;
   LResolver: IHostResolver;
   LConnector: ITcpConnector;
   LClient, LServer: ITlsTimedTransport;
   LLeft: Int32;
 begin
   LListener := Listener;
-  LFake := TFakeResolver.Create('peer.test');
+  LFake := TMockHostResolver.Create('peer.test');
   LResolver := LFake as IHostResolver;
   LConnector := TTcpConnector.Create(5000, LResolver) as ITcpConnector;
   LClient := LConnector.Connect('peer.test', LListener.Port);
@@ -433,7 +405,7 @@ var
   LConnector: ITcpConnector;
 begin
   LRaised := False;
-  LResolver := TFakeResolver.Create('peer.test') as IHostResolver;
+  LResolver := TMockHostResolver.Create('peer.test') as IHostResolver;
   LConnector := TTcpConnector.Create(1000, LResolver) as ITcpConnector;
   try
     LConnector.Connect('other.test', 80);

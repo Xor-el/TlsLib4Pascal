@@ -34,7 +34,7 @@ type
   /// single entry and counts the calls the engine makes, so a test can assert the
   /// engine actually consulted it.
   /// </summary>
-  TMockSessionCache = class(TInterfacedObject, ISessionCache)
+  TMockSessionCache = class sealed(TInterfacedObject, ISessionCache)
   strict private
     FKey: string;
     FSession: IResumableSession;
@@ -61,7 +61,7 @@ type
 
   /// <summary>A cache over an inner cache whose first Remove raises, to show one failing removal
   /// does not keep the engine from withdrawing the rest.</summary>
-  TFlakyRemoveSessionCache = class(TInterfacedObject, ISessionCache)
+  TFlakyRemoveSessionCache = class sealed(TInterfacedObject, ISessionCache)
   strict private
     FInner: ISessionCache;
     FFailed: Boolean;
@@ -83,7 +83,7 @@ type
   /// A minimal, user-authored <see cref="ISessionStore" />: a plain list keyed by an
   /// opaque handle, counting the Take calls the engine makes.
   /// </summary>
-  TMockSessionStore = class(TInterfacedObject, ISessionStore)
+  TMockSessionStore = class sealed(TInterfacedObject, ISessionStore)
   strict private
     FIds: TArray<TBytes>;
     FSessions: TArray<IResumableSession>;

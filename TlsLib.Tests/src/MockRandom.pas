@@ -26,7 +26,7 @@ type
   /// A deterministic <see cref="IRandom" /> for tests: a seeded xorshift stream,
   /// so a given seed always yields the same bytes. Never for production use.
   /// </summary>
-  TMockRandom = class(TInterfacedObject, IRandom)
+  TMockRandom = class sealed(TInterfacedObject, IRandom)
   strict private
   var
     FState: UInt64;
@@ -41,7 +41,7 @@ type
   /// A faulty <see cref="IRandom" /> that hands back one byte fewer than asked, to prove a
   /// consumer refuses a short read instead of using memory beyond it.
   /// </summary>
-  TShortRandom = class(TInterfacedObject, IRandom)
+  TShortRandom = class sealed(TInterfacedObject, IRandom)
   public
     procedure NextBytes(const ABuffer: TBytes);
     function GenerateBytes(ALength: Int32): TBytes;

@@ -90,10 +90,8 @@ type
     function NewServer: ITlsEngine;
     function NewServerWithResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsEngine;
-    function EchConfigListBytes: TBytes;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes;
-    function NewEchClient: ITlsEngine;
     function NewEchClientWith(const AConfigList: TBytes;
       const ACache: ISessionCache = nil): ITlsEngine;
     function NewEchAcceptServer(const AConfigList: TBytes;
@@ -314,18 +312,6 @@ begin
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestTls13Loopback.EchConfigListBytes: TBytes;
-var
-  LVec: TStringList;
-begin
-  LVec := LoadVectorFields('Certs/Ech.txt');
-  try
-    Result := DecodeHex(LVec.Values['config_list']);
-  finally
-    LVec.Free;
-  end;
-end;
-
 function TTestTls13Loopback.BuildEchConfigList(AConfigId: Byte;
   const APublicName: string; out APrivateKey: ISecretBuffer): TBytes;
 var
@@ -342,11 +328,6 @@ begin
     TArray<TEchCipherSuite>.Create(LSuite), 0,
     TEncoding.ASCII.GetBytes(APublicName), nil);
   Result := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
-end;
-
-function TTestTls13Loopback.NewEchClient: ITlsEngine;
-begin
-  Result := NewEchClientWith(EchConfigListBytes);
 end;
 
 function TTestTls13Loopback.NewEchClientWith(const AConfigList: TBytes;
@@ -432,7 +413,8 @@ begin
     LVec.Free;
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
-    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
+    TInMemoryEchKeyStore.FromConfig(
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   if FServerKeyLog <> nil then
     LParams.KeyLog := FServerKeyLog as IKeyLog;
   Result := TTlsEngine.CreateConfigured(
@@ -490,7 +472,8 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
-  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, EchConfigListBytes, False, False)
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto,
+    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -526,7 +509,8 @@ begin
     LVec.Free;
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
-    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
+    TInMemoryEchKeyStore.FromConfig(
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
@@ -618,7 +602,8 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
-  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, EchConfigListBytes, False, False)
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto,
+    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
   LParams.EarlyDataEnabled := AEarlyData;
@@ -653,7 +638,8 @@ begin
     LVec.Free;
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
-    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
+    TInMemoryEchKeyStore.FromConfig(
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
@@ -945,7 +931,7 @@ begin
   LClient.StartHandshake;
   LCh1 := Drain(LClient);        // ClientHelloOuter #1 (GREASE outer pre_shared_key)
   Feed(LServer, LCh1);
-  Feed(LClient, Drain(LServer)); // deliver the HelloRetryRequest
+  Pump(LServer, LClient);        // deliver the HelloRetryRequest
   LCh2 := Drain(LClient);        // ClientHelloOuter #2 (retry, possibly led by a CCS record)
 
   LPsk1 := OuterPskExtData(LCh1);
@@ -1127,7 +1113,8 @@ var
   LIterations: Int32;
   LMsg: TBytes;
 begin
-  LClient := NewEchClient;
+  LClient := NewEchClientWith(
+    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
   LServer := NewEchServer;
   LClient.StartHandshake;
   LIterations := 0;
@@ -1169,7 +1156,8 @@ begin
   FServerKeyLog := TMockKeyLog.Create;
   LServerLog := FServerKeyLog;
   try
-    LClient := NewEchClient;
+    LClient := NewEchClientWith(
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
     LServer := NewEchServer;
     LClient.StartHandshake;
     LIterations := 0;
@@ -1975,7 +1963,7 @@ begin
   LClient := NewClient;
   LServer := NewServer;
   LClient.StartHandshake;
-  Feed(LServer, Drain(LClient));
+  Pump(LClient, LServer);
   LFlight := Drain(LServer);
   // the plaintext ServerHello record also carries an EncryptedExtensions: a handshake message
   // must not follow a key change in the same record (RFC 9846 5.1)
@@ -2001,8 +1989,8 @@ begin
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12),
     TServerCipherPreference.ServerOrder));
   LClient.StartHandshake;
-  Feed(LServer, Drain(LClient));
-  Feed(LClient, Drain(LServer));
+  Pump(LClient, LServer);
+  Pump(LServer, LClient);
   LCh2 := Drain(LClient);
   // rewrite the supported_versions extension (2b 00 03 02 03 04) so the retry offers 1.2 only
   LI := 0;
@@ -2028,7 +2016,7 @@ begin
   LClient := NewClient;
   LServer := NewServerWithResolver(TSniCredentialResolver.ForCredential(LNoChain));
   LClient.StartHandshake;
-  Feed(LServer, Drain(LClient));
+  Pump(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'a custom resolver handing back no certificate fails the server');
   CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.HandshakeFailure,
     'it aborts with handshake_failure rather than emitting an empty certificate_list');

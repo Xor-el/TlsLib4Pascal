@@ -1664,7 +1664,7 @@ begin
   LIterations := 0;
   while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
   begin
-    Feed(LServer, Drain(LClient));
+    Pump(LClient, LServer);
     LServerOut := Drain(LServer);
     LServerWire := ConcatBytes(LServerWire, LServerOut);
     Feed(LClient, LServerOut);

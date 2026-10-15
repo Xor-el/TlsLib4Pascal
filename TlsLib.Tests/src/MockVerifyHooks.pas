@@ -25,7 +25,7 @@ uses
 type
   /// <summary>An augment-only verify callback double: answers with a fixed verdict and counts how
   /// often it ran. A test creates its own, so no count survives into another test or run.</summary>
-  TVerifyCallbackSpy = class(TObject)
+  TVerifyCallbackSpy = class sealed(TObject)
   strict private
     FAccept: Boolean;
     FCalls: Int32;
@@ -45,7 +45,7 @@ type
 
   /// <summary>An async verdict resolver double: accepts a non-empty chain and records the role the
   /// pump attributed to the parked chain, Unknown until it runs.</summary>
-  TVerdictResolverSpy = class(TObject)
+  TVerdictResolverSpy = class sealed(TObject)
   strict private
     FPeerRole: TPeerRole;
   public

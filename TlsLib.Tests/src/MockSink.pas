@@ -28,7 +28,7 @@ type
   /// last event, whether the handshake was established, any failure alert and its reason, and any
   /// warning alert. It also implements the optional IWarningAlertSink. A test that does not care
   /// about the recordings simply ignores them (it doubles as a silent sink).</summary>
-  TMockHandshakeSink = class(TInterfacedObject, IHandshakeSink, IWarningAlertSink)
+  TMockHandshakeSink = class sealed(TInterfacedObject, IHandshakeSink, IWarningAlertSink)
   strict private
   var
     FEventCount: Int32;

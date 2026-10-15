@@ -39,6 +39,7 @@ uses
   TlpTlsLibExceptions,
   TlpSocketHttpFetcher,
   TlpCertificateVerifierSource,
+  MockTransport,
   TlsLibTestBase;
 
 type
@@ -252,18 +253,6 @@ type
     function Admits(const AUrl: THttpUrl): Boolean;
     property Asked: Int32 read FAsked;
     property LastUrl: string read FLastUrl;
-  end;
-
-  // answers one name with 127.0.0.1 and refuses every other
-  TMappingResolver = class sealed(TInterfacedObject, IHostResolver)
-  strict private
-    FName: string;
-    FAsked: Int32;
-  public
-    constructor Create(const AName: string);
-    function TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
-    // how many lookups were asked for, which a connect always starts with
-    property Asked: Int32 read FAsked;
   end;
 
 { TRecordingPolicy }
@@ -510,23 +499,6 @@ begin
     on E: Exception do
       Exit;
   end;
-end;
-
-{ TMappingResolver }
-
-constructor TMappingResolver.Create(const AName: string);
-begin
-  inherited Create;
-  FName := AName;
-end;
-
-function TMappingResolver.TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
-begin
-  Inc(FAsked);
-  AAddress := nil;
-  Result := SameText(AHost, FName);
-  if Result then
-    AAddress := TBytes.Create(127, 0, 0, 1);
 end;
 
 { TSocketHttpExchangeTestCase }
@@ -979,7 +951,7 @@ begin
   LResponder := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
   try
     LSettings := TSocketHttpFetcherSettings.Defaults;
-    LSettings.Resolver := TMappingResolver.Create('responder.test');
+    LSettings.Resolver := TMockHostResolver.Create('responder.test');
     LFetcher := TSocketHttpFetcher.Create(LSettings);
     LHost := 'responder.test:' + IntToStr(LResponder.Port);
     CheckTrue(LFetcher.Get('http://' + LHost + '/crl', 5000, DefaultCap, LResponse),
@@ -1002,7 +974,7 @@ begin
   LResponder := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
   try
     LSettings := TSocketHttpFetcherSettings.Defaults;
-    LSettings.Resolver := TMappingResolver.Create('other.test');
+    LSettings.Resolver := TMockHostResolver.Create('other.test');
     LFetcher := TSocketHttpFetcher.Create(LSettings);
     CheckFalse(LFetcher.Get(LResponder.Url, 5000, DefaultCap, LResponse),
       'a refused address fails closed');
@@ -1024,7 +996,7 @@ begin
   LProxy := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
   try
     LSettings := TSocketHttpFetcherSettings.Defaults;
-    LSettings.Resolver := TMappingResolver.Create('proxy.test');
+    LSettings.Resolver := TMockHostResolver.Create('proxy.test');
     LSettings.ProxyHost := 'proxy.test';
     LSettings.ProxyPort := LProxy.Port;
     LFetcher := TSocketHttpFetcher.Create(LSettings);
@@ -1041,12 +1013,12 @@ end;
 
 procedure TTestSocketHttpFetcherRequest.TestIPv6ResponderIsRefused;
 var
-  LResolver: TMappingResolver;
+  LResolver: TMockHostResolver;
   LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
 begin
-  LResolver := TMappingResolver.Create('never.test');
+  LResolver := TMockHostResolver.Create('never.test');
   LSettings := TSocketHttpFetcherSettings.Defaults;
   LSettings.Resolver := LResolver;
   LFetcher := TSocketHttpFetcher.Create(LSettings);
@@ -1082,7 +1054,7 @@ end;
 procedure TTestSocketHttpFetcherRequest.TestRefusedDestinationConnectsNothing;
 var
   LResponder: TScriptedResponder;
-  LResolver: TMappingResolver;
+  LResolver: TMockHostResolver;
   LPolicy: TRecordingPolicy;
   LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
@@ -1090,7 +1062,7 @@ var
 begin
   LResponder := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
   try
-    LResolver := TMappingResolver.Create('127.0.0.1');
+    LResolver := TMockHostResolver.Create('127.0.0.1');
     LPolicy := TRecordingPolicy.Create(False);
     LSettings := TSocketHttpFetcherSettings.Defaults;
     LSettings.Resolver := LResolver;
@@ -1111,7 +1083,7 @@ end;
 procedure TTestSocketHttpFetcherRequest.TestRefusedDestinationIsNotSentToTheProxy;
 var
   LProxy: TScriptedResponder;
-  LResolver: TMappingResolver;
+  LResolver: TMockHostResolver;
   LPolicy: TRecordingPolicy;
   LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
@@ -1119,7 +1091,7 @@ var
 begin
   LProxy := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
   try
-    LResolver := TMappingResolver.Create('proxy.test');
+    LResolver := TMockHostResolver.Create('proxy.test');
     LPolicy := TRecordingPolicy.Create(False);
     LSettings := TSocketHttpFetcherSettings.Defaults;
     LSettings.Resolver := LResolver;
@@ -1151,7 +1123,7 @@ begin
   try
     LPolicy := TRecordingPolicy.Create(True);
     LSettings := TSocketHttpFetcherSettings.Defaults;
-    LSettings.Resolver := TMappingResolver.Create('proxy.test');
+    LSettings.Resolver := TMockHostResolver.Create('proxy.test');
     LSettings.ProxyHost := 'proxy.test';
     LSettings.ProxyPort := LProxy.Port;
     LSettings.DestinationPolicy := LPolicy;
@@ -1168,12 +1140,12 @@ end;
 
 procedure TTestSocketHttpFetcherRequest.TestBlockedPortsConnectNothing;
 var
-  LResolver: TMappingResolver;
+  LResolver: TMockHostResolver;
   LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
 begin
-  LResolver := TMappingResolver.Create('127.0.0.1');
+  LResolver := TMockHostResolver.Create('127.0.0.1');
   LSettings := TSocketHttpFetcherSettings.Defaults;
   LSettings.Resolver := LResolver;
   LFetcher := TSocketHttpFetcher.Create(LSettings);
@@ -1187,14 +1159,14 @@ end;
 procedure TTestSocketHttpFetcherRequest.TestBlockedDestinationPortIsRefusedThroughTheProxy;
 var
   LProxy: TScriptedResponder;
-  LResolver: TMappingResolver;
+  LResolver: TMockHostResolver;
   LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
 begin
   LProxy := TScriptedResponder.Create(OkHead + 'Content-Length: 2' + CRLF + CRLF + 'ok');
   try
-    LResolver := TMappingResolver.Create('proxy.test');
+    LResolver := TMockHostResolver.Create('proxy.test');
     LSettings := TSocketHttpFetcherSettings.Defaults;
     LSettings.Resolver := LResolver;
     LSettings.ProxyHost := 'proxy.test';
@@ -1283,7 +1255,7 @@ var
   LSettings: TSocketHttpFetcherSettings;
 begin
   LSettings := TSocketHttpFetcherSettings.Defaults;
-  LSettings.Resolver := TMappingResolver.Create(AName);
+  LSettings.Resolver := TMockHostResolver.Create(AName);
   LSettings.TlsConfig := ClientConfig;
   if AProxyPort <> 0 then
   begin
@@ -1320,7 +1292,7 @@ end;
 procedure TTestSocketHttpFetcherTls.TestHttpsWithoutTlsConfigConnectsNothing;
 var
   LResponder: TTlsResponder;
-  LResolver: TMappingResolver;
+  LResolver: TMockHostResolver;
   LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
   LResponse: TBytes;
@@ -1328,7 +1300,7 @@ begin
   LResponder := TTlsResponder.Create(ServerConfig, '', 'HTTP/1.1 200 OK' + CRLF +
     'Content-Length: 5' + CRLF + CRLF + 'hello', TTlsResponderMode.CloseNotify);
   try
-    LResolver := TMappingResolver.Create('localhost');
+    LResolver := TMockHostResolver.Create('localhost');
     LSettings := TSocketHttpFetcherSettings.Defaults;
     LSettings.Resolver := LResolver;
     LFetcher := TSocketHttpFetcher.Create(LSettings);

@@ -879,7 +879,7 @@ begin
     CheckEquals('localhost', LServer.ConnectionInfo.ServerName, 'the inner hello carries the host');
   LMsg := DecodeHex('6563682d6f6b'); // "ech-ok"
   LClient.Write(LMsg, 0, System.Length(LMsg));
-  Feed(LServer, Drain(LClient));
+  Pump(LClient, LServer);
   CheckEqualBytes('app data flows over the builder-configured ECH connection', LMsg,
     ReadAllApp(LServer));
 end;
@@ -2479,7 +2479,7 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build);
   LClient.StartHandshake;
-  Feed(LServer, Drain(LClient));
+  Pump(LClient, LServer);
   LFlight := Drain(LServer);
   PatchServerKeyExchange(LFlight, ACurve, TGrease.ValueAt(5));
   Feed(LClient, LFlight);
@@ -2875,8 +2875,8 @@ begin
   LIterations := 0;
   while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
   begin
-    Feed(AServer, Drain(AClient));
-    Feed(AClient, Drain(AServer));
+    Pump(AClient, AServer);
+    Pump(AServer, AClient);
     Inc(LIterations);
   end;
 end;
@@ -3593,7 +3593,7 @@ begin
 
   LFromClient := DecodeHex('66616361646520617070206461746121'); // "facade app data!"
   LClient.Write(LFromClient, 0, System.Length(LFromClient));
-  Feed(LServer, Drain(LClient));
+  Pump(LClient, LServer);
   CheckEqualBytes('application data flows over the facade-built connection',
     LFromClient, ReadAllApp(LServer));
 end;
@@ -4623,7 +4623,7 @@ begin
   CheckEquals('', LServer.ConnectionInfo.ServerName, 'the server saw no SNI');
   LMsg := DecodeHex('736e692d6f6d6974'); // "sni-omit"
   LClient.Write(LMsg, 0, System.Length(LMsg));
-  Feed(LServer, Drain(LClient));
+  Pump(LClient, LServer);
   CheckEqualBytes('app data flows without SNI', LMsg, ReadAllApp(LServer));
 end;
 
@@ -4696,7 +4696,7 @@ begin
   LClient.StartHandshake;
   LCh1 := Drain(LClient);
   Feed(LServer, LCh1);
-  Feed(LClient, Drain(LServer));
+  Pump(LServer, LClient);
   LCh2 := Drain(LClient);
   LExts := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LCh2);
   CheckTrue(LExts.Count > 0, 'the retry flight carries a ClientHello');
@@ -4740,7 +4740,7 @@ var
     Feed(LServer, LFlight);
     ExchangeFlights(LClient, LServer);
     // let the post-handshake ticket reach the client's cache
-    Feed(LClient, Drain(LServer));
+    Pump(LServer, LClient);
     Result := LClient.ConnectionInfo.Resumed;
   end;
 

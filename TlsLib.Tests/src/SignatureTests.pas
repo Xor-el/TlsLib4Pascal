@@ -42,24 +42,6 @@ uses
   TlsLibTestBase;
 
 type
-  // a real parsed leaf whose keyUsage reads as undecodable, as a malformed extension would
-  TUndecodableKeyUsageLeaf = class sealed(TInterfacedObject, IInspectedCertificate)
-  strict private
-    FInner: IInspectedCertificate;
-  public
-    constructor Create(const AInner: IInspectedCertificate);
-    function PublicKeyInfo: TBytes;
-    function DnsNames: TArray<string>;
-    function IpAddresses: TArray<TBytes>;
-    function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
-    function KeyIsRsaPss: TCertAnswer;
-    function IsCertificateAuthority: TCertAnswer;
-    function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
-    function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
-    function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
-    function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
-  end;
-
   TTestSignature = class(TTlsLibAlgorithmTestCase)
   private
     FHs, FKeys: TStringList;
@@ -103,6 +85,25 @@ type
   end;
 
 implementation
+
+type
+  // a real parsed leaf whose keyUsage reads as undecodable, as a malformed extension would
+  TUndecodableKeyUsageLeaf = class sealed(TInterfacedObject, IInspectedCertificate)
+  strict private
+    FInner: IInspectedCertificate;
+  public
+    constructor Create(const AInner: IInspectedCertificate);
+    function PublicKeyInfo: TBytes;
+    function DnsNames: TArray<string>;
+    function IpAddresses: TArray<TBytes>;
+    function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
+    function KeyIsRsaPss: TCertAnswer;
+    function IsCertificateAuthority: TCertAnswer;
+    function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
+    function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
+    function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
+    function PeerInfo(out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
+  end;
 
 { TUndecodableKeyUsageLeaf }
 

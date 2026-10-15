@@ -72,14 +72,10 @@ uses
 type
   TTestClientAuth = class(TTlsLibHandshakeTestCase)
   private
-    function RootCert: TBytes;
     function Credential: TTlsCredential;
     // an ECDSA leaf under an issuer signed with SHA-1, a hash no stock server advertises
     function Sha1IssuerCredential: TTlsCredential;
     function PeerVerifier: TCertificateVerifier;
-    function ClientLeafCert: TBytes;
-    // a self-signed certificate whose key is id-RSASSA-PSS
-    function PssLeafCert: TBytes;
     // AWire with its first handshake message of type AMsgType replaced by ANewMessage (framed), the
     // record length adjusted; nil when no plaintext handshake record carries that type
     function ReplaceHandshakeMessage(const AWire: TBytes; AMsgType: Byte;
@@ -178,18 +174,6 @@ implementation
 
 { TTestClientAuth }
 
-function TTestClientAuth.RootCert: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestClientAuth.Credential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -222,32 +206,10 @@ function TTestClientAuth.PeerVerifier: TCertificateVerifier;
 begin
   // trusts the test root; hostname identity is not applied to a peer certificate
   Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(RootCert)) as ITrustAnchorStore,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')))
+      as ITrustAnchorStore,
     False);
-end;
-
-function TTestClientAuth.ClientLeafCert: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['leaf_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
-function TTestClientAuth.PssLeafCert: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/KeyUsagePss.txt');
-  try
-    Result := DecodeHex(LCerts.Values['rsapss_cert']);
-  finally
-    LCerts.Free;
-  end;
 end;
 
 function TTestClientAuth.ReplaceHandshakeMessage(const AWire: TBytes; AMsgType: Byte;
@@ -660,11 +622,15 @@ begin
     LFields.Free;
   end;
   LOpts.CustomTrustStore := TTrustAnchorStore.Create(
-    TArray<TBytes>.Create(RootCert)) as ITrustAnchorStore;
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')))
+    as ITrustAnchorStore;
   LCredential := TTlsConfigComposer.BuildClientConfig(LOpts).Credential;
   // the PKCS#12's leaf is the one presented, with its CA bag behind it
   CheckEquals(2, System.Length(LCredential.CertificateChain), 'leaf and CA bag');
-  CheckTrue(AreEqual(LCredential.CertificateChain[0], ClientLeafCert), 'the PFX leaf leads');
+  CheckTrue(AreEqual(LCredential.CertificateChain[0],
+    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert')),
+    'the PFX leaf leads');
   LClient := New13ClientWith(LCredential);
   LServer := New13Server(TClientAuthMode.Required);
   Drive(LClient, LServer);
@@ -1072,7 +1038,8 @@ begin
       // the real server Certificate with its leaf swapped for the id-RSASSA-PSS certificate
       LCert := THandshakeMessages.DecodeCertificate(
         TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[LI]).Body);
-      LCert.Entries[0].CertData := PssLeafCert;
+      LCert.Entries[0].CertData :=
+        TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert');
       LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
         THandshakeMessages.EncodeCertificate(LCert));
       LFailed := FailAlertOf(LClient.ProcessMessage(
@@ -1107,7 +1074,8 @@ begin
   CheckTrue(System.Length(LClientFlight) > 0, 'the client answered the server flight');
   LCert := THandshakeMessages.DecodeCertificate(
     TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientFlight[0]).Body);
-  LCert.Entries[0].CertData := PssLeafCert;
+  LCert.Entries[0].CertData :=
+    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert');
   LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate(LCert));
   CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
@@ -1127,7 +1095,8 @@ begin
   Pump(LClient, LServer);
   LFlight := ReplaceHandshakeMessage(Drain(LServer), Byte(Ord(TTlsHandshakeType.Certificate)),
     THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
-    THandshakeMessages.EncodeCertificate12(TArray<TBytes>.Create(PssLeafCert))));
+    THandshakeMessages.EncodeCertificate12(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert')))));
   CheckTrue(System.Length(LFlight) > 0, 'the server flight carries a Certificate to replace');
   Feed(LClient, LFlight);
   CheckTrue(LClient.IsTerminal, 'the client aborts on the id-RSASSA-PSS server leaf');
@@ -1147,7 +1116,8 @@ begin
   Pump(LServer, LClient);
   LFlight := ReplaceHandshakeMessage(Drain(LClient), Byte(Ord(TTlsHandshakeType.Certificate)),
     THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
-    THandshakeMessages.EncodeCertificate12(TArray<TBytes>.Create(PssLeafCert))));
+    THandshakeMessages.EncodeCertificate12(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert')))));
   CheckTrue(System.Length(LFlight) > 0, 'the client flight carries a Certificate to replace');
   Feed(LServer, LFlight);
   CheckTrue(LServer.IsTerminal, 'the server aborts on the id-RSASSA-PSS client leaf');
@@ -1164,7 +1134,8 @@ begin
   LClient := New13Client(True);
   LServer := New13ServerPinned(TClientAuthMode.Required,
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix, ClientLeafCert)));
+      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix,
+        TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'))));
   Drive(LClient, LServer);
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
     '1.3 mTLS with a matching client-cert pin completes');

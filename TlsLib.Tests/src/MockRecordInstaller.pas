@@ -26,7 +26,7 @@ uses
 type
   /// <summary>Installs record protection straight onto a record layer (test seam): a handshake
   /// driver over this drives a real record layer without a full engine.</summary>
-  TRecordLayerInstaller = class(TInterfacedObject, IRecordEpochInstaller)
+  TRecordLayerInstaller = class sealed(TInterfacedObject, IRecordEpochInstaller)
   strict private
     FLayer: TRecordLayer;
   public

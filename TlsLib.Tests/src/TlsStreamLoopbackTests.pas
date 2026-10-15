@@ -67,12 +67,9 @@ type
 
   /// <summary>Runs the server side of a loopback on its own thread so the client (main
   /// thread) can block on a real duplex. Captures the negotiated info and any error.</summary>
-  TServerRunner = class(TThread)
+  TServerRunner = class(TLoopbackServerThread)
   strict private
   var
-    FStream: TTlsStream;
-    FTransport: TMemoryTransport;
-    FClientTransport: TMemoryTransport;
     FBehavior: TServerBehavior;
     FError: string;
     FNegotiatedVersion: UInt16;
@@ -83,9 +80,6 @@ type
   public
     constructor Create(const AStream: TTlsStream; const ATransport,
       AClientTransport: TMemoryTransport; ABehavior: TServerBehavior);
-    destructor Destroy; override;
-    /// <summary>Ends the client's write side so a server still awaiting it fails, then joins.</summary>
-    procedure Finish;
     property Error: string read FError;
     property NegotiatedVersion: UInt16 read FNegotiatedVersion;
     property Alpn: TBytes read FAlpn;
@@ -93,29 +87,8 @@ type
     property BulkBytes: Int32 read FBulkBytes write FBulkBytes;
   end;
 
-  /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
-  /// a surfaced EOF rather than hanging the run. Disarmed once the exchange completes.</summary>
-  TWedgeWatchdog = class(TThread)
-  strict private
-  var
-    FPipeA, FPipeB: TMemoryPipe;
-    FDeadlineMs: UInt32;
-    FDone: TEvent;
-    FFired: Boolean;
-  protected
-    procedure Execute; override;
-  public
-    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32);
-    destructor Destroy; override;
-    procedure Disarm; // the exchange finished in time; stop before the deadline
-    property Fired: Boolean read FFired;
-  end;
-
   TTestTlsStreamLoopback = class(TTlsLibAlgorithmTestCase)
   strict private
-    function TrustRoot: TBytes;
-    function LeafCert: TBytes;
-    function LeafKey: TBytes;
     function ClientConfig(AInsecureSkipVerify: Boolean;
       const AVerify: TTlsCertificateVerifyCallback): ITlsClientConfig;
     function ServerConfig: ITlsServerConfig;
@@ -237,6 +210,24 @@ type
     function Count: Int32;
   end;
 
+  /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
+  /// a surfaced EOF rather than hanging the run. Disarmed once the exchange completes.</summary>
+  TWedgeWatchdog = class(TThread)
+  strict private
+  var
+    FPipeA, FPipeB: TMemoryPipe;
+    FDeadlineMs: UInt32;
+    FDone: TEvent;
+    FFired: Boolean;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32);
+    destructor Destroy; override;
+    procedure Disarm; // the exchange finished in time; stop before the deadline
+    property Fired: Boolean read FFired;
+  end;
+
 { TFailingSessionCache }
 
 procedure TFailingSessionCache.Store(const AServerIdentity, AServerName: string;
@@ -279,26 +270,8 @@ end;
 constructor TServerRunner.Create(const AStream: TTlsStream;
   const ATransport, AClientTransport: TMemoryTransport; ABehavior: TServerBehavior);
 begin
-  inherited Create(True);
-  FStream := AStream;
-  FTransport := ATransport;
-  FClientTransport := AClientTransport;
+  inherited Create(AStream, ATransport, AClientTransport);
   FBehavior := ABehavior;
-  FreeOnTerminate := False;
-end;
-
-destructor TServerRunner.Destroy;
-begin
-  // EOF the client so a server parked in a read exits and the join cannot hang the run
-  FClientTransport.CloseWrite;
-  inherited Destroy;
-  FStream.Free;
-end;
-
-procedure TServerRunner.Finish;
-begin
-  FClientTransport.CloseWrite;
-  WaitFor;
 end;
 
 procedure TServerRunner.Execute;
@@ -388,42 +361,6 @@ end;
 
 { TTestTlsStreamLoopback }
 
-function TTestTlsStreamLoopback.TrustRoot: TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LV.Values['root_cert']);
-  finally
-    LV.Free;
-  end;
-end;
-
-function TTestTlsStreamLoopback.LeafCert: TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LV.Values['leaf_cert']);
-  finally
-    LV.Free;
-  end;
-end;
-
-function TTestTlsStreamLoopback.LeafKey: TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LV.Values['leaf_key']);
-  finally
-    LV.Free;
-  end;
-end;
-
 function TTestTlsStreamLoopback.ClientConfig(AInsecureSkipVerify: Boolean;
   const AVerify: TTlsCertificateVerifyCallback): ITlsClientConfig;
 var
@@ -434,7 +371,8 @@ begin
   if AInsecureSkipVerify then
     LClient.WithServerVerification(TServerVerification.DangerousSkip)
   else
-    LClient.WithServerVerification(TServerVerification.WebPki(TrustRoot).Build);
+    LClient.WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build);
   if Assigned(AVerify) then
     LClient.WithCertificateVerifyCallback(AVerify);
   Result := LClient.Build;
@@ -444,7 +382,9 @@ function TTestTlsStreamLoopback.ServerConfig: ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
 end;
 
 function TTestTlsStreamLoopback.NewClientStream(const ATransport: ITlsTransport;
@@ -608,7 +548,8 @@ end;
 function TTestTlsStreamLoopback.AsyncClientConfig: ITlsClientConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithAsyncCertificateVerdict(0).Build;
 end;
 
@@ -628,14 +569,17 @@ begin
     // the presented server chain is what the peer put on the wire: a leaf-only credential
     CheckEquals(1, System.Length(LClient.ConnectionInfo.PeerCertificates),
       'connection info carries the presented server chain');
-    CheckEqualBytes('the leaf is the first chain entry', LeafCert,
+    CheckEqualBytes('the leaf is the first chain entry',
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
       LClient.ConnectionInfo.PeerCertificates[0]);
     // the validated path is what the pipeline built here: leaf, assembled issuer, up to the anchor
     CheckTrue(System.Length(LClient.ConnectionInfo.ValidatedPath) >= 2,
       'the validated path assembles the issuer beyond the presented leaf');
-    CheckEqualBytes('the validated path leaf is the server leaf', LeafCert,
+    CheckEqualBytes('the validated path leaf is the server leaf',
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
       LClient.ConnectionInfo.ValidatedPath[0]);
-    CheckEqualBytes('the validated path terminates at the trust anchor', TrustRoot,
+    CheckEqualBytes('the validated path terminates at the trust anchor',
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'),
       LClient.ConnectionInfo.ValidatedPath[System.High(LClient.ConnectionInfo.ValidatedPath)]);
 
     LPing := DecodeHex(PingHex);
@@ -837,12 +781,15 @@ begin
   LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
   LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
   AClientConfig := TTlsPresets.Compatible(LCapped, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithCipherSuites(LSuites.Build).Build;
   AServerConfig := TTlsPresets.Compatible(LCapped, Pkix).Server
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
-    .WithCredential(TTlsCredential.Load(LCapped, Pkix, LeafCert, LeafKey)).Build;
+    .WithCredential(TTlsCredential.Load(LCapped, Pkix,
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
 end;
 
 procedure TTestTlsStreamLoopback.TestRecordLimitCloseNotifyReachesPeerOverPump;
@@ -1070,7 +1017,8 @@ begin
   // a client that trusts an unrelated anchor (the leaf's own cert, not its issuer) must
   // reject the server chain through PKIX - no dangerous flag is set
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(LeafCert).Build).Build;
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')).Build).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
     LPlain := False;
@@ -1110,7 +1058,8 @@ begin
   // a failed handshake is permanent for a stream: a second Read must re-raise the same failure,
   // never silently re-drive (which would emit a second ClientHello) or read as a truncation
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(LeafCert).Build).Build;
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')).Build).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   SetLength(LBuf, 16);
   try
@@ -1340,9 +1289,11 @@ begin
   // a private root trusted via WebPki plus an SPKI pin on the leaf: the chain is
   // still fully verified (PKIX + pinning both hold), so the handshake completes
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithCertificatePinning(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix, LeafCert))).Build;
+      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix,
+        TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')))).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
     LClient.Handshake;
@@ -1583,11 +1534,14 @@ var
 begin
   LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12)).Build;
   LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.Http11))
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12)).Build;
   HandshakeEnginesWith(LClientConfig, LServerConfig, AClient, AServer);
   CheckEquals(Integer(TlsWireVersionTls12), Integer(AServer.ConnectionInfo.NegotiatedVersion.WireValue),
@@ -1772,7 +1726,8 @@ var
   LClientConfig: ITlsClientConfig;
 begin
   LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithResumption(True)
     .WithSessionCache(ACache).Build;
   HandshakeEnginesWith(LClientConfig, ServerConfig, AClient, AServer);
@@ -2142,7 +2097,8 @@ var
 begin
   LCache := TFailingSessionCache.Create;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithResumption(True)
     .WithSessionCache(LCache).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LConfig, 'localhost');

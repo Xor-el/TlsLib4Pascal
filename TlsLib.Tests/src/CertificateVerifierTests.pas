@@ -45,7 +45,7 @@ uses
   TlpTrustPolicy,
   TlpIPkixProvider,
   MockVerifyHooks,
-  SpyRevocationProvider,
+  MockPkixProvider,
   MockCertificateVerifiers,
   TlsLibTestCertificates,
   TlsLibTestBase;
@@ -517,13 +517,13 @@ end;
 function TTestCriticalExtensionsAndEndEntity.DistrustAlert(const AChain,
   ADistrusted: array of string; out APathBuilds: Int32): TTlsAlertDescription;
 var
-  LSpy: TSpyPkixProvider;
+  LSpy: TMockPkixProvider;
   LSpyRef: IPkixProvider;
   LOptions: TCertificateVerifierOptions;
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
-  LSpy := TSpyPkixProvider.Create(Pkix);
+  LSpy := TMockPkixProvider.Create(Pkix);
   LSpyRef := LSpy as IPkixProvider;
   LVerifier := TCertificateVerifier.Create(LSpyRef, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(Chain(['root_cert']), Chain(ADistrusted)) as ITrustAnchorStore,

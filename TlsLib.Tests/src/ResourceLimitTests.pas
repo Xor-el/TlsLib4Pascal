@@ -21,7 +21,6 @@ uses
   TlpIClock,
   TlpClock,
   SysUtils,
-  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -56,7 +55,6 @@ type
     function ConsumeAlert(const ABlock: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
     function JunkCert(ALength: Int32): TBytes;
-    function LeafCertificate: TBytes;
     function VerifyChain(const AChain: TArray<TBytes>; const ALimits: TCertificateChainLimits;
       out AAlert: TTlsAlertDescription): Boolean;
     function ZlibCompress(const AData: TBytes): TBytes;
@@ -174,18 +172,6 @@ begin
     FillChar(Result[0], ALength, $41);
 end;
 
-function TTestResourceLimit.LeafCertificate: TBytes;
-var
-  LFields: TStringList;
-begin
-  LFields := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LFields.Values['leaf_cert']);
-  finally
-    LFields.Free;
-  end;
-end;
-
 // a real chain under the real root, so only a cap in ALimits can refuse it
 function TTestResourceLimit.VerifyChain(const AChain: TArray<TBytes>;
   const ALimits: TCertificateChainLimits; out AAlert: TTlsAlertDescription): Boolean;
@@ -290,7 +276,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // only this cap is tightened, so it alone refuses an otherwise valid certificate
-  LLeaf := LeafCertificate;
+  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
   LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxCertificateLength := System.Length(LLeaf) - 1;
   CheckFalse(VerifyChain(TArray<TBytes>.Create(LLeaf), LLimits, LAlert),
@@ -306,7 +292,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // the control for the cap test above: the same leaf at exactly the cap verifies
-  LLeaf := LeafCertificate;
+  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
   LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxCertificateLength := System.Length(LLeaf);
   CheckTrue(VerifyChain(TArray<TBytes>.Create(LLeaf), LLimits, LAlert),
@@ -320,7 +306,8 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // each certificate is under the per-certificate cap, so only the summed total can refuse it
-  LChain := TArray<TBytes>.Create(LeafCertificate,
+  LChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
     TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
   LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxTotalChainLength := System.Length(LChain[0]) + System.Length(LChain[1]) - 1;
@@ -335,7 +322,8 @@ var
   LLimits: TCertificateChainLimits;
   LAlert: TTlsAlertDescription;
 begin
-  LChain := TArray<TBytes>.Create(LeafCertificate,
+  LChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
     TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
   LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxTotalChainLength := System.Length(LChain[0]) + System.Length(LChain[1]);

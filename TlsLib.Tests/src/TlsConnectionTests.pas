@@ -68,16 +68,12 @@ type
       out ARejectAlert: TTlsAlertDescription): Boolean;
     function StubResolverAlt(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
-    function ServerCert: TBytes;
-    function ServerKey: TBytes;
-    function RootAnchor: TBytes;
     // client options with a trust source so the build always succeeds
     function ClientOptsWithStore: TTlsOptions;
     // server options with a valid credential so the build always succeeds
     function ServerOptsWithCredential: TTlsOptions;
     function RaisesStreamError(const AOpts: TTlsOptions;
       AIsClient: Boolean; out AMessage: string): Boolean;
-    function Pkcs12Field(const AName: string): TBytes;
     function PemChain: TBytes;
     function Pkcs12Options(const AField: string): TTlsOptions;
   published
@@ -392,42 +388,6 @@ begin
   Result := False;
 end;
 
-function TTestTlsConnection.ServerCert: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['leaf_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
-function TTestTlsConnection.ServerKey: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['leaf_key']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
-function TTestTlsConnection.RootAnchor: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTlsConnection.ClientOptsWithStore: TTlsOptions;
 begin
   Result := TTlsOptions.Default;
@@ -442,8 +402,10 @@ begin
   Result := TTlsOptions.Default;
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
-  Result.Certificate := TTlsBlobSource.FromBytes(ServerCert);
-  Result.PrivateKey := TTlsBlobSource.FromBytes(ServerKey);
+  Result.Certificate := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+  Result.PrivateKey := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   Result.TrustSourceHint := 'a client-CA bundle';
   Result.ClientAuthSourceHint := 'a client-CA bundle';
 end;
@@ -467,25 +429,14 @@ begin
   end;
 end;
 
-function TTestTlsConnection.Pkcs12Field(const AName: string): TBytes;
-var
-  LFields: TStringList;
-begin
-  LFields := LoadVectorFields('Certs/Pkcs12.txt');
-  try
-    Result := DecodeHex(LFields.Values[AName]);
-  finally
-    LFields.Free;
-  end;
-end;
-
 function TTestTlsConnection.PemChain: TBytes;
 var
   LBlocks: TArray<TPemBlock>;
 begin
   SetLength(LBlocks, 1);
   LBlocks[0].PemType := 'CERTIFICATE';
-  LBlocks[0].Content := ServerCert;
+  LBlocks[0].Content :=
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
   Result := TPem.WriteBlocks(LBlocks);
 end;
 
@@ -494,7 +445,8 @@ begin
   Result := TTlsOptions.Default;
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
-  Result.Certificate := TTlsBlobSource.FromBytes(Pkcs12Field(AField));
+  Result.Certificate := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/Pkcs12.txt', AField));
   Result.KeyPassword := 'tlslib';
   Result.CredentialForm := TTlsCredentialForm.Pkcs12;
 end;
@@ -566,8 +518,10 @@ var
 begin
   LCertPath := TempPath('credential_fixture.crt');
   LKeyPath := TempPath('credential_fixture.key');
-  WriteFile(LCertPath, ServerCert);
-  WriteFile(LKeyPath, ServerKey);
+  WriteFile(LCertPath,
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+  WriteFile(LKeyPath,
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   LOpts := TTlsOptions.Default;
   LOpts.Crypto := Crypto;
   LOpts.Pkix := Pkix;
@@ -583,7 +537,8 @@ var
   LMsg: string;
 begin
   LOpts := Pkcs12Options('chain_pfx');
-  LOpts.PrivateKey := TTlsBlobSource.FromBytes(ServerKey);
+  LOpts.PrivateKey := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
     'a PKCS#12 identity beside a separate private key is refused');
   CheckTrue(Pos('PKCS#12', LMsg) > 0, 'the message names PKCS#12: ' + LMsg);
@@ -626,7 +581,8 @@ var
   LMsg: string;
 begin
   LOpts := ClientOptsWithStore;
-  LOpts.PrivateKey := TTlsBlobSource.FromBytes(ServerKey);
+  LOpts.PrivateKey := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   LOpts.CredentialSourceHint := 'CertificateFile';
   CheckTrue(RaisesStreamError(LOpts, True, LMsg),
     'a client key with no certificate is refused, not dropped');
@@ -1040,7 +996,9 @@ var
 begin
   LOpts := TTlsOptions.Default;
   LOpts.ServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, ServerCert, ServerKey))
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
     .Tls13.WithEarlyData(16384).Build;
   LRefused := False;
   try
@@ -1161,7 +1119,8 @@ var
 begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Requested;
   CheckEquals(Ord(TClientAuthMode.Requested),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
@@ -1174,7 +1133,8 @@ var
 begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   CheckEquals(Ord(TClientAuthMode.Required),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
@@ -1190,7 +1150,8 @@ begin
   // shared / process-wide trust setting reaching a server keeps working) and request no client auth
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
     TTlsLibTestCertificates.EcP256RootStore);
   LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
@@ -1214,7 +1175,8 @@ begin
   // a client-CA source, an explicit mode AND a server-role resolver arm the client-cert verdict park
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.ServerVerdictResolver := StubResolver;
   LOpts.ServerVerdictDeadlineMs := 777;
@@ -1233,7 +1195,8 @@ begin
   // a client-CA and a resolver but NO mode: only the mode arms the park
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ServerVerdictResolver := StubResolver;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
     'a resolver without a client-authentication mode is refused');
@@ -1274,7 +1237,9 @@ var
 begin
   LMemo := TTlsConfigMemos.NewServer;
   LBuild := ServerOptsWithCredential;
-  LBuild.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(RootAnchor));
+  LBuild.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LBuild.ClientAuth := TClientAuthMode.Required;
   LOpts := TTlsOptions.Default;
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(LBuild);
@@ -1333,7 +1298,8 @@ var
 begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.VerifyPeer := False;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
@@ -1349,7 +1315,8 @@ var
 begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.InsecureSkipVerify := True;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
@@ -1383,18 +1350,22 @@ begin
   // system trust beside a private client-CA under a mode builds, and the client-auth trust is the
   // private CA ONLY - the OS/public store (a DISTINCT cert here) is never unioned into it
   LFake := TFakeSystemTrustInstaller.Create(False,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(ServerCert)) as ITrustAnchorStore);
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')))
+      as ITrustAnchorStore);
   LInst := LFake;
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := LInst;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
   CheckFalse(LFake.ClientRoleCalled, 'a server build never touches the system-trust installer');
   CheckEquals(1, System.Length(LConfig.TrustStore.RootCertificates),
     'only the private client-CA is trusted; the OS store is not unioned in');
-  CheckEqualBytes('the sole client-CA is the private root', RootAnchor,
+  CheckEqualBytes('the sole client-CA is the private root',
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'),
     LConfig.TrustStore.RootCertificates[0]);
 end;
 
@@ -1496,7 +1467,8 @@ begin
     'adding ALPN changes the key');
 
   LMut := LBase;
-  LMut.Certificate := TTlsBlobSource.FromBytes(ServerCert);
+  LMut.Certificate := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'a credential blob changes the key');
 
@@ -1687,7 +1659,8 @@ var
   LOpts: TTlsOptions;
 begin
   LOpts := TTlsOptions.Default;
-  LOpts.Certificate := TTlsBlobSource.FromBytes(ServerCert);
+  LOpts.Certificate := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   ExpectConflict(LOpts, 'a certificate');
 
   LOpts := TTlsOptions.Default;
@@ -1696,7 +1669,8 @@ begin
 
   LOpts := TTlsOptions.Default;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(RootAnchor));
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   ExpectConflict(LOpts, 'trust anchors');
 
   LOpts := TTlsOptions.Default;
@@ -1848,7 +1822,8 @@ begin
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
   CheckNotNull(TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer,
     'ServerConfig'), 'client-only options do not conflict with a server config-in');
-  LOpts.Certificate := TTlsBlobSource.FromBytes(ServerCert);
+  LOpts.Certificate := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   LRaised := False;
   try
     TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer, 'ServerConfig');
@@ -1866,7 +1841,9 @@ var
 begin
   // the augment-only hook vets a presented client chain, so an operator's allow-list must run
   LOpts := ServerOptsWithCredential;
-  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(RootAnchor));
+  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.VerifyCallback := StubVerifyCallback;
   LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
