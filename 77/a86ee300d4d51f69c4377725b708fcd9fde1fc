@@ -1,0 +1,143 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_4adb7e2edc0c28::t_7e1a09a8b25e38 485
+  s_4adb7e2edc0c28::t_e1921a92a43632 50
+TlsLib.Tests/src/ChainAlgorithmPolicyTests.pas
+  s_4adb7e2edc0c28::t_03a5b1d12f34a6 118-122
+  s_4adb7e2edc0c28::t_b20235b08b26b0 144-147
+  s_4adb7e2edc0c28::t_8e00729cece24c 37
+  s_4adb7e2edc0c28::t_7fd9ddc9c4845c 105,107-109
+  s_4adb7e2edc0c28::t_9cca958653037b 106
+  s_4adb7e2edc0c28::t_695ddb74f0df1e 132-135
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_4adb7e2edc0c28::t_46bece883024f4 260,307,444,797,1438
+  s_4adb7e2edc0c28::t_5893e0bc6d2b11 73
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_4adb7e2edc0c28::t_92baf3dd24f920 1982-1983
+  s_4adb7e2edc0c28::t_33833523cf48e2 1196-1197,1411-1412
+  s_4adb7e2edc0c28::t_bf1ca91b80093a 438,515,773,964,998,1024,1198
+  s_4adb7e2edc0c28::t_5482a5e419e5af 1709-1710,1848-1849
+  s_4adb7e2edc0c28::t_1e6d7b2282cfd0 1107
+  s_4adb7e2edc0c28::t_c4ce89bddc83a6 1575-1576
+  s_4adb7e2edc0c28::t_0e2afa62f3d6d0 1516-1517,1523-1524
+  s_4adb7e2edc0c28::t_f4e68a62944bb9 1949-1950
+  s_4adb7e2edc0c28::t_fddb7a308b9475 61
+  s_4adb7e2edc0c28::t_acf051916204d1 931,993,1017,1428
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_4adb7e2edc0c28::t_7b7b5ede5d5f6c 77
+  s_4adb7e2edc0c28::t_db1cadc6efb3a9 486,604,676,732
+  s_4adb7e2edc0c28::t_e3dffcea8a8b54 2535-2536
+  s_4adb7e2edc0c28::t_6be6d6a96f5480 247,1445,1500,1550,1598
+TlsLib.Tests/src/CertificateCheckTests.pas
+  s_4adb7e2edc0c28::t_9ce4ec20ef7295 32
+  s_4adb7e2edc0c28::t_d21a99025c517e 103-104
+  s_4adb7e2edc0c28::t_41938c118c3ac0 87-88
+  s_4adb7e2edc0c28::t_5c19623a1a73d7 95-96
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_4adb7e2edc0c28::t_70c331dfa84014 98
+  s_4adb7e2edc0c28::t_e94934be1d2836 3292-3293
+  s_4adb7e2edc0c28::t_16789cac3500c0 3318
+  s_4adb7e2edc0c28::t_920d37476b4600 3386-3388
+  s_4adb7e2edc0c28::t_bb69630feeb062 4230-4231
+  s_4adb7e2edc0c28::t_9fe37b3c8129ae 3191-3192
+  s_4adb7e2edc0c28::t_56cb31396320e3 3310-3311
+  s_4adb7e2edc0c28::t_23ceb1d36c9ffd 3644-3645
+  s_4adb7e2edc0c28::t_62ecbb24b2b0ab 5291-5292
+  s_4adb7e2edc0c28::t_20e608d013f5e0 2625
+  s_4adb7e2edc0c28::t_abbad2678e7e05 3347
+  s_4adb7e2edc0c28::t_92efce2f62655b 2350-2352
+  s_4adb7e2edc0c28::t_a65582e99921d2 3381-3382
+  s_4adb7e2edc0c28::t_2b6ee2bd264181 4188-4189,4200-4201,4263-4264
+  s_4adb7e2edc0c28::t_3286a47cfb54a8 2568-2569
+  s_4adb7e2edc0c28::t_f233d9d65bf7f2 3357-3358
+  s_4adb7e2edc0c28::t_8ca3c4fd9bd5d3 5049-5050
+  s_4adb7e2edc0c28::t_3de504b8d12b24 2950-2951,2969-2970
+  s_4adb7e2edc0c28::t_7b2700f8d98011 3324
+  s_4adb7e2edc0c28::t_6f92883962e26c 3414-3415
+  s_4adb7e2edc0c28::t_748e4ae89cbee0 3848-3849
+  s_4adb7e2edc0c28::t_ef0f3e1539429f 1106-1107,1117-1118,4790-4791
+  s_4adb7e2edc0c28::t_21eb55a84f88cf 3397-3398,3494-3495,3511-3512,5330-5331
+  s_4adb7e2edc0c28::t_3a4bdfc307c408 552-553,855-856,1083-1084,2993-2994,3627-3628,3720-3721,4040-4041,4374-4375,4394-4395,4605-4606,4748-4749
+  s_4adb7e2edc0c28::t_a0853144064fab 3786-3787
+  s_4adb7e2edc0c28::t_2890fd6676d9ae 4511-4513,4540-4542
+  s_4adb7e2edc0c28::t_0778d3f43b3524 4586-4587
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_4adb7e2edc0c28::t_5d61af61c8c93b 1162-1163
+  s_4adb7e2edc0c28::t_cc542b43ade1d0 55
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_4adb7e2edc0c28::t_32320f8a25ec10 69
+  s_4adb7e2edc0c28::t_80807224c184be 1259-1260
+TlsLib.Tests/src/PresetTests.pas
+  s_4adb7e2edc0c28::t_a1e375f15bb506 64-65
+  s_4adb7e2edc0c28::t_c815927337bcdb 35
+  s_4adb7e2edc0c28::t_2d33594b335ad8 162-163
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_4adb7e2edc0c28::t_b9a12baa47e57b 1846,1858,1870
+  s_4adb7e2edc0c28::t_9118f3556aa369 1831
+  s_4adb7e2edc0c28::t_cbf7385bae7438 85
+  s_4adb7e2edc0c28::t_b422ce6c59b8cf 1832,1886,1903
+  s_4adb7e2edc0c28::t_94b1b4a6fe5c0e 1883,1900
+  s_4adb7e2edc0c28::t_8a3b2be3d29394 1884-1885,1901-1902
+  s_4adb7e2edc0c28::t_c96bed967e7fb3 1904
+TlsLib.Tests/src/ResourceLimitTests.pas
+  s_4adb7e2edc0c28::t_5ef849cd0120e7 49
+  s_4adb7e2edc0c28::t_672384628eb41d 323-324,338-339
+  s_4adb7e2edc0c28::t_a0649d223b6a8b 199
+TlsLib.Tests/src/CertificateCompressionCacheTests.pas
+  s_4adb7e2edc0c28::t_77f39cc749a551 56
+  s_4adb7e2edc0c28::t_247de77fd70fd9 423
+TlsLib.Tests/src/EngineSkeletonTests.pas
+  s_4adb7e2edc0c28::t_5efd937611182b 41
+  s_4adb7e2edc0c28::t_1268541af6a75f 85-86
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_4adb7e2edc0c28::t_0e1640003dc8c6 77
+  s_4adb7e2edc0c28::t_17a716e0584cb4 297,335,1655
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_4adb7e2edc0c28::t_d0474c4700ec9e 1054-1056
+  s_4adb7e2edc0c28::t_824606a0b5684f 1078-1079,1089-1090
+  s_4adb7e2edc0c28::t_a053722e40103e 61
+  s_4adb7e2edc0c28::t_8615bdb0075b3d 512-513,558-559,604-605,620-621,647-648
+  s_4adb7e2edc0c28::t_e41f467c8d1e84 1034-1035
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_4adb7e2edc0c28::t_9257f2085fd1d1 506-507
+  s_4adb7e2edc0c28::t_8e06bbb2c83e80 63
+  s_4adb7e2edc0c28::t_baee0c35b454e6 475-476,1332-1333
+  s_4adb7e2edc0c28::t_cd2c041c86f1c8 1321-1322
+  s_4adb7e2edc0c28::t_3e264abf8c7a1b 214,241
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_4adb7e2edc0c28::t_47e6b50aec3962 58
+  s_4adb7e2edc0c28::t_bee1244088d37e 1345
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_4adb7e2edc0c28::t_3a4003b66f5ad3 180-181,320-321
+  s_4adb7e2edc0c28::t_1847fa74239d9c 697-698
+  s_4adb7e2edc0c28::t_7841bee947e12f 55
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_4adb7e2edc0c28::t_201c1d75c6a3bd 2284-2285
+  s_4adb7e2edc0c28::t_e9687bb7dcbb9e 413,2090
+  s_4adb7e2edc0c28::t_2d588c59e29768 1840,1973,2396,2498,3147,3211
+  s_4adb7e2edc0c28::t_16016815af14bb 81
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_4adb7e2edc0c28::t_aae4e557b9405d 204
+  s_4adb7e2edc0c28::t_2e63dcede561d6 63
+TlsLib.Tests/src/Tls12PskTests.pas
+  s_4adb7e2edc0c28::t_a542277ed51b65 624-625
+  s_4adb7e2edc0c28::t_7886c1330cddc0 187-189
+  s_4adb7e2edc0c28::t_ae51272c5db109 198-200
+  s_4adb7e2edc0c28::t_99aa3b1a9f3681 579-580,607-608,869-870,960-961
+  s_4adb7e2edc0c28::t_587f1e35ff56a4 55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "77a86ee300d4d51f69c4377725b708fcd9fde1fc",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
