@@ -21,7 +21,6 @@ uses
   TlpIClock,
   TlpClock,
   SysUtils,
-  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -79,10 +78,10 @@ uses
   MockSessionStores,
   MockCertificateVerifiers,
   TlsLibTestCertificates,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
-  TTestTls13Resumption = class(TTlsLibAlgorithmTestCase)
+  TTestTls13Resumption = class(TTlsLibHandshakeTestCase)
   private
     const
       ServerHost = 'localhost';
@@ -90,8 +89,6 @@ type
       // per-test overrides the builders below honor when set: the peers' clocks and ALPN lists
       FClientClock, FServerClock: ITlsClock;
       FClientAlpn, FServerAlpn: TArray<TBytes>;
-    function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function ServerCredential: TTlsCredential;
     function ClientParams(const ACache: ISessionCache;
       AEarlyData: Boolean): TClientHandshakeParams;
     /// <summary>A framed message of AType whose body is ABody, as the client would receive it.</summary>
@@ -115,9 +112,6 @@ type
     function NewStekServer(const AStek: ISessionTicketKeyManager;
       AIssueTickets: Int32; ALifetimeSeconds: UInt32;
       AWithCredential: Boolean): ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure DriveHandshake(const AClient, AServer: ITlsEngine);
     /// <summary>A client offering APsks that, when AReverify, re-verifies resumed servers.</summary>
     function NewExtPskClient(const ACache: ISessionCache;
@@ -139,8 +133,6 @@ type
     /// configured external identity.</summary>
     procedure ExternalPskHandshake(AResume: Boolean; out AClient, AServer: ITlsEngine;
       out AIdentity: TBytes);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
-    function ReadAllEarly(const AEngine: ITlsEngine): TBytes;
     /// <summary>A Reverify client with 0-RTT on whose resumption-occasion verifier is
     /// AResumeVerifier, and with the given verdict deferral.</summary>
     function NewReverifyEarlyClient(const ACache: ISessionCache;
@@ -154,14 +146,12 @@ type
     function PumpResolvingVerdict(const AClient, AServer: ITlsEngine): Boolean;
     /// <summary>The extension types of the ClientHello at the head of AWire.</summary>
     function OfferedTypes(const AWire: TBytes): TArray<UInt16>;
-    procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
     function MakeSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       ALifetime: UInt32; AMaxEarlyData: UInt32 = 0): IResumableSession;
     function MakeSessionForHost(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       ALifetime: UInt32; const AHost: string;
       AMaxEarlyData: UInt32 = 0): IResumableSession;
     // shared mTLS-resumption scaffolding parameterized by the resumption scope
-    function LoadClientAuthCredential(out ARootCert: TBytes): TTlsCredential;
     function BuildMtlsClientEngine(const ACache: ISessionCache;
       const ACredential: TTlsCredential): ITlsEngine;
     function BuildMtlsServerEngine(const AStek: ISessionTicketKeyManager; AIssue: Int32;
@@ -359,28 +349,6 @@ end;
 
 { TTestTls13Resumption }
 
-function TTestTls13Resumption.Filled(AByte: Byte; ACount: Int32): TBytes;
-begin
-  Result := nil;
-  SetLength(Result, ACount);
-  if ACount > 0 then
-    FillChar(Result[0], ACount, AByte);
-end;
-
-function TTestTls13Resumption.ServerCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls13Resumption.NewClient(const ACache: ISessionCache;
   AEarlyData: Boolean): ITlsEngine;
 begin
@@ -505,38 +473,6 @@ begin
   Result := BuildServer(AStek, nil, AIssueTickets, ALifetimeSeconds, AWithCredential);
 end;
 
-function TTestTls13Resumption.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls13Resumption.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
-procedure TTestTls13Resumption.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
 procedure TTestTls13Resumption.PumpToCompletion(const AClient, AServer: ITlsEngine);
 var
   LIterations: Int32;
@@ -591,50 +527,6 @@ begin
   LParams.ExternalPsks := APsks;
   Result := TTlsEngine.CreateConfigured(
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
-end;
-
-function TTestTls13Resumption.ReadAllEarly(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadEarlyData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-function TTestTls13Resumption.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls13Resumption.CheckAppDataFlows(const AClient, AServer: ITlsEngine);
-var
-  LFromClient, LFromServer: TBytes;
-begin
-  LFromClient := DecodeHex('68656c6c6f2066726f6d2074686520636c69656e74');
-  AClient.Write(LFromClient, 0, System.Length(LFromClient));
-  Pump(AClient, AServer);
-  CheckEqualBytes('the server decrypts the client application data', LFromClient,
-    ReadAllApp(AServer));
-  LFromServer := DecodeHex('68656c6c6f2066726f6d2074686520736572766572');
-  AServer.Write(LFromServer, 0, System.Length(LFromServer));
-  Pump(AServer, AClient);
-  CheckEqualBytes('the client decrypts the server application data', LFromServer,
-    ReadAllApp(AClient));
 end;
 
 function TTestTls13Resumption.MakeSession(const AIdentity: TBytes;
@@ -1291,21 +1183,6 @@ var
   LFailed: Boolean;
   LAlert: TTlsAlertDescription;
 
-  function FailedWith(const AEffects: TArray<THandshakeEffect>;
-    out AWhich: TTlsAlertDescription): Boolean;
-  var
-    LItem: THandshakeEffect;
-  begin
-    Result := False;
-    AWhich := TTlsAlertDescription.CloseNotify;
-    for LItem in AEffects do
-      if LItem.Kind = THandshakeEffectKind.Fail then
-      begin
-        AWhich := LItem.Alert;
-        Exit(True);
-      end;
-  end;
-
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   // a client that offers a ticket and 0-RTT, fed a ServerHello that selects no PSK (the server
@@ -1339,11 +1216,11 @@ begin
   end;
   LEffects := LMachine.ProcessMessage(Framed(TTlsHandshakeType.ServerHello,
     THandshakeMessages.EncodeServerHello(LHello)));
-  CheckFalse(FailedWith(LEffects, LAlert), 'a ServerHello without a PSK is a full handshake');
+  CheckFalse(FailAlertOf(LEffects, LAlert), 'a ServerHello without a PSK is a full handshake');
   // control: EncryptedExtensions without early_data is accepted
   LEffects := LMachine.ProcessMessage(Framed(TTlsHandshakeType.EncryptedExtensions,
     DecodeHex('0000')));
-  CheckFalse(FailedWith(LEffects, LAlert), 'control: plain EncryptedExtensions is accepted');
+  CheckFalse(FailAlertOf(LEffects, LAlert), 'control: plain EncryptedExtensions is accepted');
 
   // the same flow again on a fresh ticket, this time with early_data in EncryptedExtensions
   LCache := TInMemorySessionCache.Create;
@@ -1368,7 +1245,7 @@ begin
     THandshakeMessages.EncodeServerHello(LHello)));
   LEffects := LMachine.ProcessMessage(Framed(TTlsHandshakeType.EncryptedExtensions,
     DecodeHex('0004002a0000')));
-  LFailed := FailedWith(LEffects, LAlert);
+  LFailed := FailAlertOf(LEffects, LAlert);
   CheckTrue(LFailed, 'early_data after a declined PSK aborts the handshake');
   CheckTrue(LAlert = TTlsAlertDescription.UnsupportedExtension, 'with unsupported_extension');
 end;
@@ -1816,7 +1693,6 @@ var
   LClient, LServer: ITlsEngine;
   LClientCred: TTlsCredential;
   LClientRoot: TBytes;
-  LV: TStringList;
   LServerInfo, LClientInfo: TTlsConnectionInfo;
   LServerCred: TTlsCredential;
 
@@ -1879,14 +1755,7 @@ begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   // the client presents a dual-EKU (clientAuth) leaf; the server trusts its dedicated root
-  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    LClientRoot := DecodeHex(LV.Values['root_cert']);
-    LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']), nil);
-  finally
-    LV.Free;
-  end;
+  LClientCred := ClientAuthCredential(LClientRoot);
 
   // a full mutual-TLS handshake: the server verifies the client certificate and issues a ticket
   LClient := BuildMtlsClient;
@@ -1950,7 +1819,6 @@ var
   LClient, LServer: ITlsEngine;
   LClientCred: TTlsCredential;
   LClientRoot: TBytes;
-  LV: TStringList;
   LServerInfo: TTlsConnectionInfo;
 
   function BuildMtlsClient: ITlsEngine;
@@ -2015,14 +1883,7 @@ var
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    LClientRoot := DecodeHex(LV.Values['root_cert']);
-    LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']), nil);
-  finally
-    LV.Free;
-  end;
+  LClientCred := ClientAuthCredential(LClientRoot);
 
   // a no-client-auth server issues a ticket that carries no client identity
   LClient := BuildMtlsClient;
@@ -2051,21 +1912,6 @@ begin
   CheckEqualBytes('the validated path leaf is the client credential leaf',
     LClientCred.CertificateChain[0], LServerInfo.ValidatedPath[0]);
   CheckAppDataFlows(LClient, LServer);
-end;
-
-function TTestTls13Resumption.LoadClientAuthCredential(
-  out ARootCert: TBytes): TTlsCredential;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    ARootCert := DecodeHex(LV.Values['root_cert']);
-    Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']), nil);
-  finally
-    LV.Free;
-  end;
 end;
 
 function TTestTls13Resumption.BuildMtlsClientEngine(const ACache: ISessionCache;
@@ -2171,7 +2017,7 @@ var
   LClientRoot: TBytes;
 begin
   // the PSK authenticated the client (RFC 9846 4.4.2), so its ticket resumes under Required
-  LoadClientAuthCredential(LClientRoot);
+  ClientAuthCredential(LClientRoot);
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LPsk.Identity := DecodeHex('6578742d70736b');
@@ -2204,7 +2050,7 @@ var
   LClientRoot: TBytes;
 begin
   // a chainless, PSK-less ticket is no client auth: a Required server with a PSK still declines it
-  LoadClientAuthCredential(LClientRoot);
+  ClientAuthCredential(LClientRoot);
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LPsk.Identity := DecodeHex('6578742d70736b');
@@ -2235,7 +2081,7 @@ var
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  LCred := LoadClientAuthCredential(LClientRoot);
+  LCred := ClientAuthCredential(LClientRoot);
 
   // an issuer under scope A mints an mTLS ticket carrying the verified client chain
   LClient := BuildMtlsClientEngine(LCache, LCred);
@@ -2269,7 +2115,7 @@ var
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  LCred := LoadClientAuthCredential(LClientRoot);
+  LCred := ClientAuthCredential(LClientRoot);
   LScope := Filled($5C, 8);
 
   LClient := BuildMtlsClientEngine(LCache, LCred);
@@ -2301,7 +2147,7 @@ var
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  LCred := LoadClientAuthCredential(LClientRoot);
+  LCred := ClientAuthCredential(LClientRoot);
   LScope := Filled($5C, 8);
 
   // full mutual-TLS handshake -> ticket #1
@@ -3159,7 +3005,7 @@ begin
   // CertificateRequest in a PSK handshake, so a server configured to require a client certificate
   // must still NOT request one when it negotiates a PSK. The credential-less client completing
   // proves it.
-  LoadClientAuthCredential(LClientRoot); // only for the server's client-CA anchor
+  ClientAuthCredential(LClientRoot); // only for the server's client-CA anchor
   LPsk.Identity := DecodeHex('6578742d70736b'); // "ext-psk"
   LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LPsk.Context := nil;
