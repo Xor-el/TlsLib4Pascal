@@ -962,10 +962,11 @@ begin
     // re-issued tickets do not extend the chain: resumable only seven days from the authentication
     if TClientSessionPolicy.AuthenticationLapsed(LSession.AuthenticatedAtMillis, LNowMs) then
       Continue;
-    // mutual-TLS resumption gate: a resumed handshake never re-runs client auth (RFC 9846 4.4.2),
-    // so a Required server needs the identity already stored in the ticket, else a full handshake
+    // a resumption re-runs no client auth (RFC 9846 4.4.2): Required needs a stored chain or the
+    // external PSK checked above
     if (FParams.ClientAuth = TClientAuthMode.Required) and
-      (System.Length(LSession.PeerCertificates) = 0) then
+      (System.Length(LSession.PeerCertificates) = 0) and
+      (System.Length(LSession.PskIdentity) = 0) then
       Continue;
     // this identity is the selection; a present binder that does not validate is fatal
     // (RFC 9846 4.3.11.2) - only a decrypted-but-bad-binder ticket aborts, never a decline above

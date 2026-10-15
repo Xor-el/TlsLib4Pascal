@@ -65,8 +65,6 @@ type
     FHandshakeSecretsReleased: Boolean;
     FKeyLog: IKeyLog;
     FClientRandom: TBytes;
-    FClientTrafficGeneration: UInt64;
-    FServerTrafficGeneration: UInt64;
     procedure LogSecret(const ALabel: string; const ASecret: ISecretBuffer);
     function ZeroSecret: ISecretBuffer;
     function HashOf(const AData: TBytes): TBytes;
@@ -75,10 +73,6 @@ type
     procedure EnsureMasterSecret;
     function HandshakeTrafficSecret(ADirection: TTlsDirection): ISecretBuffer;
     function EpochSecret(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ISecretBuffer;
-    function ExpandKey(const ASecret: ISecretBuffer; const ALabel: string;
-      ALength: Int32): ISecretBuffer;
-    function DoExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      AUseContext: Boolean; ALength: Int32): TBytes;
     function ExportFrom(const AMaster: ISecretBuffer; const ALabel: string;
       const AContext: TBytes; ALength: Int32): TBytes;
   public
@@ -276,12 +270,6 @@ begin
   end;
 end;
 
-function TTls13KeySchedule.ExpandKey(const ASecret: ISecretBuffer;
-  const ALabel: string; ALength: Int32): ISecretBuffer;
-begin
-  Result := THkdfLabel.HkdfExpandLabel(FHkdf, ASecret, ALabel, nil, ALength);
-end;
-
 procedure TTls13KeySchedule.SetPsk(const APsk: ISecretBuffer);
 begin
   if FHandshakeSecretsReleased then
@@ -353,8 +341,8 @@ begin
   LSecret := EpochSecret(AEpoch, ADirection);
   if LSecret = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
-  Result := TTrafficKeys.Create(ExpandKey(LSecret, 'key', FKeyLength),
-    ExpandKey(LSecret, 'iv', FIvLength));
+  Result := TTrafficKeys.Create(THkdfLabel.HkdfExpandLabel(FHkdf, LSecret, 'key', nil, FKeyLength),
+    THkdfLabel.HkdfExpandLabel(FHkdf, LSecret, 'iv', nil, FIvLength));
 end;
 
 function TTls13KeySchedule.FinishedKey(ADirection: TTlsDirection): ISecretBuffer;
@@ -364,7 +352,7 @@ begin
   LSecret := HandshakeTrafficSecret(ADirection);
   if LSecret = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
-  Result := ExpandKey(LSecret, 'finished', FHashLength);
+  Result := THkdfLabel.HkdfExpandLabel(FHkdf, LSecret, 'finished', nil, FHashLength);
 end;
 
 function TTls13KeySchedule.ComputeVerifyData(ADirection: TTlsDirection;
@@ -403,31 +391,21 @@ begin
   if LOld = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
   if ADirection = TTlsDirection.ClientWrite then
-  begin
-    FClientApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength);
-    Inc(FClientTrafficGeneration);
-    LogSecret(KeyLogLabelClientTrafficPrefix + UIntToStr(FClientTrafficGeneration),
-      FClientApTraffic);
-  end
+    FClientApTraffic := THkdfLabel.HkdfExpandLabel(FHkdf, LOld, 'traffic upd', nil, FHashLength)
   else
-  begin
-    FServerApTraffic := ExpandKey(LOld, 'traffic upd', FHashLength);
-    Inc(FServerTrafficGeneration);
-    LogSecret(KeyLogLabelServerTrafficPrefix + UIntToStr(FServerTrafficGeneration),
-      FServerApTraffic);
-  end;
+    FServerApTraffic := THkdfLabel.HkdfExpandLabel(FHkdf, LOld, 'traffic upd', nil, FHashLength);
 end;
 
 function TTls13KeySchedule.ExportKeyingMaterial(const ALabel: string;
   ALength: Int32): TBytes;
 begin
-  Result := DoExportKeyingMaterial(ALabel, nil, False, ALength);
+  Result := ExportFrom(FExporterMaster, ALabel, nil, ALength);
 end;
 
 function TTls13KeySchedule.ExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; ALength: Int32): TBytes;
 begin
-  Result := DoExportKeyingMaterial(ALabel, AContext, True, ALength);
+  Result := ExportFrom(FExporterMaster, ALabel, AContext, ALength);
 end;
 
 function TTls13KeySchedule.ExportFrom(const AMaster: ISecretBuffer;
@@ -445,14 +423,6 @@ begin
   LContextHash := HashOf(AContext);
   Result := THkdfLabel.HkdfExpandLabel(FHkdf, LDerived, 'exporter', LContextHash,
     ALength).ToBytes;
-end;
-
-function TTls13KeySchedule.DoExportKeyingMaterial(const ALabel: string;
-  const AContext: TBytes; AUseContext: Boolean; ALength: Int32): TBytes;
-begin
-  // AUseContext has no effect on 1.3 (no context is an empty context); it exists for the base
-  // ExportKeyingMaterial overloads that also serve TLS 1.2
-  Result := ExportFrom(FExporterMaster, ALabel, AContext, ALength);
 end;
 
 function TTls13KeySchedule.ExportEarlyKeyingMaterial(const ALabel: string;
