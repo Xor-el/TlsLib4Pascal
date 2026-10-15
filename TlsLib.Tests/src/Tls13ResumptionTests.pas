@@ -1829,7 +1829,8 @@ var
   LAnti: IAntiReplayStrategy;
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
-  LEarly: TBytes;
+  LEarly, LWire: TBytes;
+  LTypes: TArray<UInt16>;
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LAnti := TStrikeRegisterAntiReplay.Create;
@@ -1844,11 +1845,21 @@ begin
   LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
   LEarly := DecodeHex('6e6f742073656e74'); // "not sent"
   LClient.StartHandshake;
-  LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)); // a no-op: no early epoch
+  CheckEquals(0, LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly)),
+    'no early epoch: nothing is written');
+  LWire := Drain(LClient);
+  LTypes := OfferedTypes(LWire);
+  CheckTrue(TArrayUtilities.Contains<UInt16>(LTypes, TExtensionTypes.PreSharedKey),
+    'the ticket is offered, so the server could accept early data');
+  CheckFalse(TArrayUtilities.Contains<UInt16>(LTypes, TExtensionTypes.EarlyData),
+    'the ClientHello does not offer early data');
+  Feed(LServer, LWire);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the resumption completed without any early data');
-  CheckEquals(0, System.Length(ReadAllApp(LServer)),
-    'no early data was sent when 0-RTT was not enabled');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the ticket was resumed');
+  CheckEquals(0, LServer.PendingEarlyData, 'the server holds no early data');
+  CheckEquals(0, System.Length(ReadAllEarly(LServer)),
+    'no early data was delivered when 0-RTT was not enabled');
   CheckAppDataFlows(LClient, LServer);
 end;
 
@@ -2840,15 +2851,25 @@ var
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
   LStore: ISessionStore;
+  LStoreImpl: TFixedLengthTicketStore;
+  LWire: TBytes;
 begin
   LCache := TInMemorySessionCache.Create;
-  LStore := TFixedLengthTicketStore.Create(TSessionTicketLimits.MaxCachedTicketBytes + 1);
+  LStoreImpl := TFixedLengthTicketStore.Create(TSessionTicketLimits.MaxCachedTicketBytes + 1);
+  LStore := LStoreImpl;
   LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 1, 7200, True);
   DriveHandshake(LClient, LServer);
+  CheckEquals(1, LStoreImpl.Puts, 'the server minted the over-limit ticket');
+  // the store resumes nothing, so only the hello shows the over-limit ticket was not re-offered
   LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 1, 7200, True);
-  DriveHandshake(LClient, LServer);
+  LClient.StartHandshake;
+  LWire := Drain(LClient);
+  CheckFalse(TArrayUtilities.Contains<UInt16>(OfferedTypes(LWire), TExtensionTypes.PreSharedKey),
+    'the next ClientHello offers no ticket');
+  Feed(LServer, LWire);
+  PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.ConnectionInfo.Resumed, 'the next connection runs a full handshake');
 end;
 

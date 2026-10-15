@@ -1226,6 +1226,8 @@ begin
   Handshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the handshake is unaffected by absent ALPN');
   CheckFalse(LServer.IsTerminal, 'the handshake is unaffected by absent ALPN');
+  CheckFalse(LClient.IsHandshaking, 'the client completed');
+  CheckFalse(LServer.IsHandshaking, 'the server completed');
   CheckEquals(0, System.Length(LClient.ConnectionInfo.AlpnProtocol), 'no ALPN negotiated');
   CheckEquals(0, System.Length(LServer.ConnectionInfo.AlpnProtocol), 'no ALPN negotiated');
 end;

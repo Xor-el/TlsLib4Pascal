@@ -310,6 +310,9 @@ procedure TTestTls13ServerReplay.TestRfc8448ServerFlightByteExact;
 var
   LEffects: TArray<THandshakeEffect>;
   LFlight: TArray<TBytes>;
+  LEffect: THandshakeEffect;
+  LAlert: TTlsAlertDescription;
+  LEstablished: Boolean;
 begin
   Arrange;
 
@@ -331,6 +334,12 @@ begin
   // the RFC client Finished verifies against the server-side transcript, and the
   // handshake is established
   LEffects := FSm.ProcessMessage(Msg('client_finished'));
+  CheckFalse(FailAlertOf(LEffects, LAlert), 'the genuine client Finished is not refused');
+  LEstablished := False;
+  for LEffect in LEffects do
+    if LEffect.Kind = THandshakeEffectKind.HandshakeEstablished then
+      LEstablished := True;
+  CheckTrue(LEstablished, 'accepting the client Finished establishes the handshake');
   FDriver.ApplyAll(LEffects);
 end;
 

@@ -67,8 +67,11 @@ type
   strict private
   var
     FTicketLength: Int32;
+    FPuts: Int32;
   public
     constructor Create(ATicketLength: Int32);
+    /// <summary>How many tickets the server asked this store to mint.</summary>
+    property Puts: Int32 read FPuts;
     function Put(const ASession: IResumableSession): TBytes;
     procedure PutWithId(const AId: TBytes; const ASession: IResumableSession);
     function Peek(const AId: TBytes; out ASession: IResumableSession): Boolean;
@@ -190,6 +193,7 @@ end;
 
 function TFixedLengthTicketStore.Put(const ASession: IResumableSession): TBytes;
 begin
+  Inc(FPuts);
   Result := nil;
   System.SetLength(Result, FTicketLength);
 end;

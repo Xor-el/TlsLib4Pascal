@@ -39,6 +39,7 @@ uses
   TlpNegotiationPolicy,
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
+  TlpExtensionVector,
   TlpTlsLibExceptions,
   TlpAlpnProtocols,
   TlpTlsConnectionInfo,
@@ -69,6 +70,7 @@ uses
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
   TlpVersionDispatchMachine,
+  TlsLibTestHandshakeDecoder,
   TlsLibTestBase;
 
 type
@@ -85,11 +87,14 @@ type
   strict private
   var
     FNameLength: Int32;
+    FSeals: Int32;
   public
     constructor Create(ANameLength: Int32);
     function CurrentKey(out AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
     function KeyByName(const AKeyName: TBytes; out AKey: ISecretBuffer): Boolean;
     function KeyNameLength: Int32;
+    /// <summary>How many times the server asked for a sealing key.</summary>
+    property Seals: Int32 read FSeals;
   end;
 
   // a ticket-key manager that opens an existing manager's tickets but never seals (no renewal)
@@ -614,6 +619,7 @@ var
   LKey: TBytes;
   LI: Int32;
 begin
+  Inc(FSeals);
   AKeyName := nil;
   System.SetLength(AKeyName, FNameLength);
   System.SetLength(LKey, 32);
@@ -1135,18 +1141,32 @@ var
   LClient, LServer: ITlsEngine;
   LStore: ISessionStore;
   LKeys: ISessionTicketKeyManager;
+  LKeysImpl: TLongKeyNameTicketKeys;
+  LHello, LFlight: TBytes;
+  LExtension: TExtensionEntry;
 begin
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-  LKeys := TLongKeyNameTicketKeys.Create(
+  LKeysImpl := TLongKeyNameTicketKeys.Create(
     NameLengthForTicket(TSessionTicketLimits.MaxCachedTicketBytes + 1));
+  LKeys := LKeysImpl;
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, LKeys, 7200, True);
   LClient.StartHandshake;
   PumpToCompletion(LClient, LServer);
+  CheckTrue(LKeysImpl.Seals > 0, 'the server sealed an over-limit ticket to issue');
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, LKeys, 7200, True);
-  CheckTrue(DriveObservingServerCert(LClient, LServer), 'the next connection runs a full handshake');
+  LClient.StartHandshake;
+  LHello := Drain(LClient);
+  CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LHello)
+    .TryFind(TExtensionTypes.SessionTicket, LExtension),
+    'the next hello still advertises ticket support');
+  CheckEquals(0, System.Length(LExtension.Data),
+    'but carries no ticket: the over-limit one was not kept');
+  Feed(LServer, LHello);
+  LFlight := Drain(LServer);
+  CheckTrue(FlightHasCertificate(LFlight), 'the next connection runs a full handshake');
 end;
 
 procedure TTestTls12Resumption.TestServerHelloCarriesAFreshSessionIdBesideASealedTicket;
@@ -1991,18 +2011,26 @@ var
   LStek: ISessionTicketKeyManager;
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
+  LTicket, LHello, LFlight: TBytes;
 begin
   // the client presents a ticket that is not a valid STEK seal; the server cannot open it
   // and completes a full handshake
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  LCache.Store(ServerHost, ServerHost,
-    MakeTicketSession(Crypto.Primitives.GetRandom.GenerateBytes(64), False));
+  LTicket := Crypto.Primitives.GetRandom.GenerateBytes(64);
+  LCache.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, False));
 
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  CheckTrue(DriveObservingServerCert(LClient, LServer),
+  LClient.StartHandshake;
+  LHello := Drain(LClient);
+  CheckTrue(ContainsBytes(LHello, LTicket), 'the bogus ticket is offered');
+  Feed(LServer, LHello);
+  LFlight := Drain(LServer);
+  CheckTrue(FlightHasCertificate(LFlight),
     'a bogus ticket falls back to a full handshake (Certificate sent)');
+  Feed(LClient, LFlight);
+  PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client completed the full handshake');
   CheckFalse(LServer.IsTerminal, 'a bogus ticket is not fatal');
   CheckAppDataFlows(LClient, LServer);
@@ -2381,6 +2409,11 @@ begin
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 604800, True);
   Result := DriveObservingServerCert(LClient, LServer);
+  // an alert-only flight carries no Certificate either, so completion and Resumed must agree
+  CheckFalse(LServer.IsTerminal, 'the handshake did not fail');
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+  CheckTrue(Result <> LServer.ConnectionInfo.Resumed,
+    'a flight without a Certificate is a resumption, one with it a full handshake');
 end;
 
 procedure TTestTls12Resumption.TestServerResumesATicketInsideTheAuthenticationLimit;

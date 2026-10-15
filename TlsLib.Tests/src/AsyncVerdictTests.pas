@@ -654,6 +654,9 @@ begin
   LClient := LiveRevocationClient(TRevocationPosture.Soft, LServer);
   ResolveWithUnreachableResponder(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'a Soft configuration soft-fails the unreachable responder');
+  CheckFalse(LClient.AwaitingCertificateVerdict,
+    'the verdict was delivered, the client is not parked');
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
 end;
 
 procedure TTestAsyncVerdict.ResolveWithUnreachableResponder(const AClient,

@@ -474,6 +474,9 @@ begin
   DriveToCompletion(LClient, LServer);
   CheckTrue(LClient.IsTerminal,
     'the client aborts a 1.2 downgrade that carries the 1.3-capable sentinel');
+  // RFC 9846 4.2.3
+  CheckEquals(Ord(TTlsAlertDescription.IllegalParameter),
+    Ord(LClient.LastError.Alert.Description), 'with illegal_parameter');
 end;
 
 procedure TTestTls12DualVersion.TestCompatiblePresetEngineLoopback;
