@@ -43,6 +43,10 @@ uses
   TlpServerName,
   TlpEchConfig,
   TlpExtensionVector,
+  TlpExtensionContext,
+  TlpITlsExtension,
+  TlpExtensionBlockCodec,
+  TlpNegotiationPolicy,
   TlpEchExtension,
   TlpEchOuterExtensions,
   TlpEchClient,
@@ -84,6 +88,8 @@ type
     procedure PrepareReseal(out AServer: IEchServerHandshake; out AOuter: TTlsClientHello;
       out AEntries: TExtensionVector; out AEch: TEchOuterClientHello;
       out ASealer: IHpkeSealer; out AEncoded: TBytes);
+    // a GREASE client's effects on a cookie-only HelloRetryRequest carrying AEchBody as its ech
+    function GreaseClientHrrEffects(const AEchBody: TBytes): TArray<THandshakeEffect>;
   protected
     procedure SetUp; override;
   published
@@ -100,6 +106,8 @@ type
     procedure TestServerRetryOuterAfterRejectFailsLoud;
     procedure TestServerProcessOuterEmptyVectorIsNotOffered;
     procedure TestUsableEchWithTls12OfferRejected;
+    procedure TestGreaseClientRejectsHrrEchOfWrongLengthWithDecodeError;
+    procedure TestGreaseClientIgnoresWellFormedHrrEchAndRetries;
   end;
 
 implementation
@@ -285,7 +293,7 @@ begin
     THpkeKem.DHKEM_X25519_HKDF_SHA256)), 'no encapsulation without the KEM primitive');
   LOrchestrator := TEchClientOrchestrator.Create(LCrypto,
     TEchClientPolicy.Create(LCrypto, nil, True, False) as IEchClientPolicy);
-  CheckFalse(LOrchestrator.Grease, 'no decoy is offered, and nothing raised');
+  CheckEquals(0, System.Length(LOrchestrator.GreaseEchExt), 'no decoy is offered, and nothing raised');
 end;
 
 procedure TTestEchClientEngine.TestGreaseSuiteIsCommonlyDeployed;
@@ -625,6 +633,82 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a usable ECH config paired with a 1.2 offer is rejected');
+end;
+
+function TTestEchClientEngine.GreaseClientHrrEffects(
+  const AEchBody: TBytes): TArray<THandshakeEffect>;
+var
+  LParams: TClientHandshakeParams;
+  LMachine: TTls13ClientStateMachine;
+  LCodec: IExtensionBlockCodec;
+  LContext: TExtensionContext;
+  LHello: TTlsServerHello;
+  LHrr: TBytes;
+begin
+  LParams := BaseParams(DecodeHex(FVec.Values['config_list']));
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, nil, True, False) as IEchClientPolicy;
+  LCodec := TExtensionBlockCodec.Create(TCoreExtensions.CreateDefaultRegistry);
+  LContext := TExtensionContext.Create;
+  try
+    LContext.SelectedVersion := TlsWireVersionTls13;
+    LContext.Cookie := DecodeHex('a1b2c3d4e5f6');
+    LContext.EchExtensionData := AEchBody;
+    LHello.Random := THelloRetryRequest.SentinelRandom;
+    LHello.LegacySessionIdEcho := LParams.LegacySessionId;
+    LHello.CipherSuite := TCipherSuites13.Aes128GcmSha256;
+    LHello.Extensions := LCodec.ProduceBlock(LContext,
+      TTlsExtensionContextKind.HelloRetryRequest);
+  finally
+    LContext.Free;
+  end;
+  LHrr := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LHello));
+  LMachine := TTls13ClientStateMachine.Create(LParams);
+  try
+    LMachine.Start;
+    Result := LMachine.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr));
+  finally
+    LMachine.Free;
+  end;
+end;
+
+procedure TTestEchClientEngine.TestGreaseClientRejectsHrrEchOfWrongLengthWithDecodeError;
+var
+  LEffects: TArray<THandshakeEffect>;
+  LI: Int32;
+  LFailed: Boolean;
+begin
+  // RFC 9849 sec. 6.2.1: a GREASE client still rejects a malformed HRR ech with decode_error
+  LEffects := GreaseClientHrrEffects(DecodeHex('aabbcc'));
+  LFailed := False;
+  for LI := 0 to System.High(LEffects) do
+    if LEffects[LI].Kind = THandshakeEffectKind.Fail then
+    begin
+      LFailed := True;
+      CheckEquals(Integer(TTlsAlertDescription.DecodeError), Integer(LEffects[LI].Alert),
+        'a malformed HRR ech under GREASE is a decode_error');
+      CheckTrue(Pos('confirmation must be 8 bytes', LEffects[LI].Reason) > 0,
+        'the failure comes from the HRR confirmation length check');
+    end;
+  CheckTrue(LFailed, 'a malformed HRR ech under GREASE aborts the handshake');
+end;
+
+procedure TTestEchClientEngine.TestGreaseClientIgnoresWellFormedHrrEchAndRetries;
+var
+  LEffects: TArray<THandshakeEffect>;
+  LI, LSent: Int32;
+begin
+  // the decoy was not accepted, so an 8-byte HRR ech (any value) is ignored and the retry is sent
+  LEffects := GreaseClientHrrEffects(DecodeHex('0102030405060708'));
+  LSent := 0;
+  for LI := 0 to System.High(LEffects) do
+  begin
+    CheckFalse(LEffects[LI].Kind = THandshakeEffectKind.Fail,
+      'a well-formed HRR ech under GREASE does not abort');
+    if LEffects[LI].Kind = THandshakeEffectKind.SendHandshake then
+      Inc(LSent);
+  end;
+  CheckEquals(1, LSent, 'the GREASE client sends its second ClientHello');
 end;
 
 initialization

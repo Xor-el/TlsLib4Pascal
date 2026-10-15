@@ -1489,11 +1489,7 @@ begin
   // under ECH, decide accept/reject from the HRR's ech confirmation and rebase the inner
   // transcript before building the second ClientHello
   if FEchOrch.Active then
-    FEchOrch.DecideHelloRetryRequest(AHello, AMessage, FSelectedSuite.Common.Hash)
-  else if FEchOrch.Grease then
-    // a GREASE client does not act on the HRR ech, but it MUST still validate it
-    // syntactically - a present-but-not-8-byte ech is a decode_error (RFC 9849 sec. 6.2.1)
-    FEchOrch.NoteHelloRetryRequestGrease(AMessage.Raw);
+    FEchOrch.DecideHelloRetryRequest(AHello, AMessage, FSelectedSuite.Common.Hash);
 
   LContext := TExtensionContext.Create;
   try
