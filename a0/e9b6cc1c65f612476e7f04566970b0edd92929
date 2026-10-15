@@ -1,0 +1,47 @@
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_4adb7e2edc0c28::t_04a832d80d2948 981
+  s_4adb7e2edc0c28::t_a12021b8f61433 1817
+  s_4adb7e2edc0c28::t_464c726136b7c7 1795
+  s_4adb7e2edc0c28::t_bc48330e03c005 1855
+  s_4adb7e2edc0c28::t_c37cf87deb98a7 1005-1007
+  s_4adb7e2edc0c28::t_cc67f0e2dbf75b 559,565-566
+  s_4adb7e2edc0c28::t_af0cca3c99c07e 1818
+  s_4adb7e2edc0c28::t_df24ee75dda94b 1871-1872
+  s_4adb7e2edc0c28::t_f03bdd2bc34833 49
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_4adb7e2edc0c28::t_4b49b8e8e53877 2473,2475-2480,2482-2485
+  s_4adb7e2edc0c28::t_87240fce55963d 2378,2416,2449
+  s_4adb7e2edc0c28::t_06d8b5d199afba 2481
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_4adb7e2edc0c28::t_85208cab282c30 689,691-694,696,701,704-713
+  s_4adb7e2edc0c28::t_fdd1b03f78982d 695
+  s_4adb7e2edc0c28::t_4d2a93cc03a318 277-278
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_4adb7e2edc0c28::t_de8f724a85c4d0 747-748
+  s_4adb7e2edc0c28::t_1b59f29ec96f95 905
+  s_4adb7e2edc0c28::t_0e170e934de9f4 889
+  s_4adb7e2edc0c28::t_0b430631cffa9d 835-837
+  s_4adb7e2edc0c28::t_a17ced40199724 812-814
+  s_4adb7e2edc0c28::t_cb3723e3fbd355 62
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_4adb7e2edc0c28::t_46b07ad5e4d7f1 1489
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_4adb7e2edc0c28::t_8c2a2d3c5d55b2 61
+  s_4adb7e2edc0c28::t_c8dac8f720ea46 766,771-772
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a0e9b6cc1c65f612476e7f04566970b0edd92929",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
