@@ -1,0 +1,82 @@
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_4adb7e2edc0c28::t_982a2be4c8e56d 2475
+  s_4adb7e2edc0c28::t_19763b5cb01fc0 66
+  s_4adb7e2edc0c28::t_fb4f1cffb00c84 2435
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_4adb7e2edc0c28::t_a6b8ee0a03d709 3304
+  s_4adb7e2edc0c28::t_6894c219e12374 2610-2611
+  s_4adb7e2edc0c28::t_25a09fa53dc0d4 2621-2622
+  s_4adb7e2edc0c28::t_46f4bd348fb181 2067
+  s_4adb7e2edc0c28::t_9ccec6d2d61174 2616
+  s_4adb7e2edc0c28::t_c1927631b29686 3360
+  s_4adb7e2edc0c28::t_808e0d4108d06b 4622
+  s_4adb7e2edc0c28::t_e11f96f800fb62 3323
+  s_4adb7e2edc0c28::t_65965237abd751 2073-2074
+  s_4adb7e2edc0c28::t_eea52633d3c7d4 97
+  s_4adb7e2edc0c28::t_a185c6835e97aa 3288
+  s_4adb7e2edc0c28::t_5aa6e383de2129 3401-3402
+  s_4adb7e2edc0c28::t_9c1903f1c596ab 2617
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_4adb7e2edc0c28::t_420a5c932a0d7d 3836
+  s_4adb7e2edc0c28::t_3f7ab1119ff72e 80
+  s_4adb7e2edc0c28::t_c7f61d0f4065fb 3701
+  s_4adb7e2edc0c28::t_1187f21ff64e17 3710
+  s_4adb7e2edc0c28::t_64fa8f8bca8797 3810
+TlsLib.Tests/src/ClientSessionPolicyTests.pas
+  s_4adb7e2edc0c28::t_1f2a5e8e7e37f9 43
+  s_4adb7e2edc0c28::t_44c290234d2b43 434
+  s_4adb7e2edc0c28::t_cc79670917b028 473,478
+  s_4adb7e2edc0c28::t_67f5b836eacf49 397-399,405
+  s_4adb7e2edc0c28::t_00d26bd997f4e0 433,435-436
+  s_4adb7e2edc0c28::t_adebf020b20871 416-418
+  s_4adb7e2edc0c28::t_8c91769aee65a1 458,462
+  s_4adb7e2edc0c28::t_6eed4096d0454f 449-451
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_4adb7e2edc0c28::t_9d3b945203bf88 330
+  s_4adb7e2edc0c28::t_45be1fa0fe65bd 49
+  s_4adb7e2edc0c28::t_f09e6c4fcc8a1e 378
+  s_4adb7e2edc0c28::t_40dbd95ffb3c0e 363-364
+  s_4adb7e2edc0c28::t_b71872a8812060 397
+  s_4adb7e2edc0c28::t_c5254fc0d00435 298-299
+  s_4adb7e2edc0c28::t_7f996b265255bc 435
+  s_4adb7e2edc0c28::t_49449ce9da11d4 346-347
+  s_4adb7e2edc0c28::t_426c5e347af945 657
+  s_4adb7e2edc0c28::t_f837accb40c296 641
+  s_4adb7e2edc0c28::t_3a4eb7f6067ea6 417
+  s_4adb7e2edc0c28::t_f2b98601451afa 280-281
+  s_4adb7e2edc0c28::t_fd49796dcfa6e7 313-314
+TlsLib.Tests/src/TrustCompositionTests.pas
+  s_4adb7e2edc0c28::t_d00aa6e342423d 291
+  s_4adb7e2edc0c28::t_ce1f75cdfc2e94 44
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_4adb7e2edc0c28::t_94baa5f37c3c69 203-204
+  s_4adb7e2edc0c28::t_f1a189a4db8b37 56
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_4adb7e2edc0c28::t_4a50b145aa93bd 56
+  s_4adb7e2edc0c28::t_d2530109ec48ab 1368-1369
+  s_4adb7e2edc0c28::t_4f608382e867c8 946-947,961-962,1021-1022,1072-1073,1843-1844,2028-2029
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_4adb7e2edc0c28::t_bc4fcf7cedcc9a 1220
+  s_4adb7e2edc0c28::t_562aae0eadf4f7 1238
+  s_4adb7e2edc0c28::t_5e15261697ff30 1282-1283
+  s_4adb7e2edc0c28::t_75ec79159a8aa9 536
+  s_4adb7e2edc0c28::t_7ae52ede0fc815 1295-1296
+  s_4adb7e2edc0c28::t_a75fe0fae9dd3a 51
+  s_4adb7e2edc0c28::t_db82e7b2c22b22 1255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "148fe5e039505a81d883c247a8f8718d9b51d8c6",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
