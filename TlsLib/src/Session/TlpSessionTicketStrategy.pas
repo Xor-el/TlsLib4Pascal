@@ -94,25 +94,7 @@ type
 implementation
 
 const
-  // bumped when the ticket layout changes; an older ticket fails the version check on Open and
-  // simply draws a full handshake. 2 added the SNI host_name (virtual-hosting guard); 3 added the
-  // peer certificate chain (so a resumed mTLS connection can surface the client's identity)
-  // v5: the PRF hash is persisted as a stable code (HashToCode) rather than Ord(THashAlgorithm),
-  // so a fleet enum reorder no longer misreads it; older-format tickets fail cleanly to a full
-  // handshake on the version check
-  // v6: the body is version-partitioned - the common fields, then a 1.3 tail (age_add, max_early,
-  // resumption_secret) or a 1.2 tail (ems, master); the dead named_group and the never-sealed
-  // session_id/session_ticket are gone
-  // v7: the 1.2 tail also carries the PSK identity that authenticated the session (empty for a
-  // certificate session)
-  // v8: the version itself is a 4-byte field, so layout bumps cannot run out of range; a v7 ticket
-  // (a one-byte version) reads as a different number and draws a full handshake. The 1.2 tail also
-  // carries a digest of the PSK's secret beside the identity, so a rotated secret does not resume
-  // v9: the PSK identity and secret digest moved to the common fields so a 1.3 session an external
-  // PSK authenticated carries them too
-  // v10: the common fields add the peer's signature scheme, the 1.2 tail the handshake's named group
-  // v11: the common fields add the time of the full handshake that authenticated the session, which
-  // a renewal carries unchanged so a chain of resumptions has a bounded total lifetime
+  // bumped on any layout change; an older ticket fails the version check and draws a full handshake
   TicketFormatVersion = UInt32(11);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized

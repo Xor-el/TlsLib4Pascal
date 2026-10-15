@@ -165,6 +165,9 @@ type
       const ACredential: TTlsCredential): ITlsEngine;
     function BuildMtlsServerEngine(const AStek: ISessionTicketKeyManager; AIssue: Int32;
       AClientAuth: TClientAuthMode; const AClientRoot, AScope: TBytes): ITlsEngine;
+    /// <summary>A STEK server that requires a client certificate and also holds APsks.</summary>
+    function BuildRequiredAuthPskServer(const AStek: ISessionTicketKeyManager;
+      const APsks: TArray<TExternalPsk>; const AClientRoot: TBytes): ITlsEngine;
     /// <summary>A TLS 1.3 session like ASession, but holding ATicket and authenticated at
     /// AAuthenticatedAt.</summary>
     function Reauthenticated(const ASession: ITls13ResumableSession; const ATicket: TBytes;
@@ -263,6 +266,8 @@ type
     procedure TestTicketIssuedUnderExternalPskResumes;
     procedure TestTicketIssuedUnderExternalPskKeepsReportingItsIdentity;
     procedure TestExternalPskSatisfiesRequiredClientAuth;
+    procedure TestExternalPskTicketResumesUnderRequiredClientAuth;
+    procedure TestRequiredClientAuthStillDeclinesAChainlessTicketWithoutAPsk;
     procedure TestExternalPskTicketResumesUnderReverify;
     procedure TestDeclinedTicketWithExternalPskStoresNoChain;
     procedure TestResumedTicketKeepsItsChainForReverify;
@@ -2187,6 +2192,100 @@ begin
     TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Crypto);
 end;
 
+function TTestTls13Resumption.BuildRequiredAuthPskServer(
+  const AStek: ISessionTicketKeyManager; const APsks: TArray<TExternalPsk>;
+  const AClientRoot: TBytes): ITlsEngine;
+var
+  LP: TServerHandshakeParams;
+begin
+  LP := Default(TServerHandshakeParams);
+  LP.Clock := TSystemClock.Create;
+  LP.Crypto := Crypto;
+  LP.Inspector := Pkix.Certificates;
+  LP.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LP.Group := TNamedGroups.CreateX25519(Crypto);
+  LP.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
+  LP.SessionTicketKeys := AStek;
+  LP.IssueTicketCount := 1;
+  LP.TicketLifetimeSeconds := 7200;
+  LP.ClientAuth := TClientAuthMode.Required;
+  LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LP.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
+    TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(AClientRoot))
+    as ITrustAnchorStore, False) as IClientCertificateVerifier;
+  LP.ExternalPsks := APsks;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Crypto);
+end;
+
+procedure TTestTls13Resumption.TestExternalPskTicketResumesUnderRequiredClientAuth;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LPsk: TExternalPsk;
+  LPsks: TArray<TExternalPsk>;
+  LClientRoot: TBytes;
+begin
+  // the PSK authenticated the client (RFC 9846 4.4.2), so its ticket resumes under Required
+  LoadClientAuthCredential(LClientRoot);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LPsk.Identity := DecodeHex('6578742d70736b');
+  LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+  LPsks := TArray<TExternalPsk>.Create(LPsk);
+
+  LClient := NewExtPskClient(LCache, LPsks, False);
+  LServer := BuildRequiredAuthPskServer(LStek, LPsks, LClientRoot);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the PSK handshake completed');
+  CheckEquals(1, LCache.Count, 'it issued a ticket');
+
+  LClient := NewExtPskClient(LCache, nil, False);
+  LServer := BuildRequiredAuthPskServer(LStek, LPsks, LClientRoot);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the resumption did not fail');
+  CheckFalse(LServer.IsHandshaking, 'the resumption completed');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the ticket resumed under Required client auth');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestRequiredClientAuthStillDeclinesAChainlessTicketWithoutAPsk;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LPsk: TExternalPsk;
+  LClientRoot: TBytes;
+begin
+  // a chainless, PSK-less ticket is no client auth: a Required server with a PSK still declines it
+  LoadClientAuthCredential(LClientRoot);
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LPsk.Identity := DecodeHex('6578742d70736b');
+  LPsk.Secret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LPsk.Context := nil;
+  LPsk.Hash := THashAlgorithm.SHA_256;
+
+  LClient := NewClient(LCache);
+  LServer := NewStekServer(LStek, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the unauthenticated handshake issued a ticket');
+
+  LClient := NewClient(LCache);
+  LServer := BuildRequiredAuthPskServer(LStek, TArray<TExternalPsk>.Create(LPsk), LClientRoot);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the chainless ticket was not resumed');
+  CheckTrue(LServer.IsTerminal, 'the full handshake refused the credential-less client');
+end;
+
 procedure TTestTls13Resumption.TestResumptionScopeMismatchDeclinesTicket;
 var
   LStek: ISessionTicketKeyManager;
@@ -3120,33 +3219,6 @@ var
       TTls13ClientStateMachine.Create(LP) as IHandshakeMachine, Crypto);
   end;
 
-  function BuildPskRequireAuthServer: ITlsEngine;
-  var
-    LP: TServerHandshakeParams;
-  begin
-    LP := Default(TServerHandshakeParams);
-    LP.Clock := TSystemClock.Create;
-    LP.Crypto := Crypto;
-    LP.Inspector := Pkix.Certificates;
-    LP.Policy := TNegotiationPolicy.CreateDefault(Crypto);
-    LP.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
-    LP.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-    LP.Group := TNamedGroups.CreateX25519(Crypto);
-    LP.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
-    LP.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
-    // the server is configured to REQUIRE a client certificate AND holds the same external PSK
-    LP.ClientAuth := TClientAuthMode.Required;
-    LP.ClientAuthSignatureSchemes := TArray<UInt16>.Create(
-      TSignatureSchemes.EcdsaSecp256r1Sha256);
-    LP.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
-      TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientRoot))
-      as ITrustAnchorStore, False) as IClientCertificateVerifier;
-    LP.ExternalPsks := LPsks;
-    Result := TTlsEngine.CreateConfigured(
-      TTls13ServerStateMachine.Create(LP) as IHandshakeMachine, Crypto);
-  end;
-
 begin
   // an accepted external PSK is itself the client's authentication: RFC 9846 4.4.2 forbids a
   // CertificateRequest in a PSK handshake, so a server configured to require a client certificate
@@ -3160,7 +3232,7 @@ begin
   LPsks := TArray<TExternalPsk>.Create(LPsk);
 
   LClient := BuildPskClientNoCred;
-  LServer := BuildPskRequireAuthServer;
+  LServer := BuildRequiredAuthPskServer(nil, LPsks, LClientRoot);
   DriveHandshake(LClient, LServer);
 
   CheckFalse(LServer.IsHandshaking, 'the PSK handshake completed');

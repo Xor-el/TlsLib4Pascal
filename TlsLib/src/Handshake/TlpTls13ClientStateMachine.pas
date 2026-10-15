@@ -319,9 +319,6 @@ type
       const AEchBody: TBytes): TBytes;
     /// <summary>The (server identity, SNI) key this client caches resumable sessions under.</summary>
     function CacheServerIdentity: string;
-    /// <summary>The current time in Unix milliseconds from the injected clock, falling back to
-    /// the system clock when none was supplied (a directly-built params record).</summary>
-    function NowUnixMillis: UInt64;
     /// <summary>The digest of AData under AHash (the per-PSK binder transcript on the first
     /// ClientHello, where the transcript is otherwise just this message).</summary>
     function HashUnder(AHash: THashAlgorithm; const AData: TBytes): TBytes;
@@ -664,7 +661,7 @@ begin
         LContext.OfferedPskIdentities[LI] := FPskOffers[LI].Identity;
         if FPskOffers[LI].BinderKind = TPskBinderKind.Resumption then
           LContext.OfferedPskAges[LI] := UInt32(
-            (NowUnixMillis - FPskOffers[LI].IssuedAtMillis) +
+            (FParams.Clock.NowUnixMillis - FPskOffers[LI].IssuedAtMillis) +
             FPskOffers[LI].TicketAgeAdd)
         else
           LContext.OfferedPskAges[LI] := 0;
@@ -743,12 +740,6 @@ function TTls13ClientStateMachine.CacheServerIdentity: string;
 begin
   Result := TClientSessionPolicy.CacheIdentity(FParams.ServerIdentity,
     FParams.ServerName, FParams.SessionScope);
-end;
-
-function TTls13ClientStateMachine.NowUnixMillis: UInt64;
-begin
-  // the constructor requires a clock, so this never branches on nil
-  Result := FParams.Clock.NowUnixMillis;
 end;
 
 function TTls13ClientStateMachine.HashUnder(AHash: THashAlgorithm;
@@ -856,7 +847,7 @@ begin
   if System.Length(LNst.Ticket) > TSessionTicketLimits.MaxCachedTicketBytes then
     Exit;
   // a ticket keeps the authentication time of its connection's handshake and only the days left
-  LNowMs := NowUnixMillis;
+  LNowMs := FParams.Clock.NowUnixMillis;
   LAuthenticatedAtMs := FAuthenticatedAtMs;
   LLifetime := TClientSessionPolicy.RenewedTicketLifetime(LNst.TicketLifetime,
     LAuthenticatedAtMs, LNowMs);
@@ -927,12 +918,12 @@ begin
   // a preset verbatim ClientHello forbids a SessionCache, so no resumption take here
   LSessionTaken := (FParams.SessionCache <> nil)
     and FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName,
-    NowUnixMillis, LCached);
+    FParams.Clock.NowUnixMillis, LCached);
   if LSessionTaken then
   begin
     if LCached.Version.WireValue = TlsWireVersionTls13 then
     begin
-      if TClientSessionPolicy.IsOfferableTls13(LCached, NowUnixMillis) and
+      if TClientSessionPolicy.IsOfferableTls13(LCached, FParams.Clock.NowUnixMillis) and
         Supports(LCached, ITls13ResumableSession, L13) and
         TClientSessionPolicy.SessionTrustedForOffer(FParams.ResumeVerification, LCached,
         FParams.CertificateVerifier, FParams.ResumeCertificateVerifier, FExpectedName,
@@ -955,7 +946,7 @@ begin
     end
     else if FParams.AlsoOfferTls12 then
     begin
-      if TClientSessionPolicy.IsOfferableTls12(LCached, NowUnixMillis) and
+      if TClientSessionPolicy.IsOfferableTls12(LCached, FParams.Clock.NowUnixMillis) and
         Supports(LCached, ITls12ResumableSession, L12) and
         TClientSessionPolicy.SessionTrustedForOffer(FParams.ResumeVerification, LCached,
         FParams.CertificateVerifier, FParams.ResumeCertificateVerifier, FExpectedName,
@@ -1947,7 +1938,7 @@ begin
       @SBadServerFinished);
   FTranscript.Update(AMessage.Raw);
   if not FResumedFromTicket then
-    FAuthenticatedAtMs := NowUnixMillis;
+    FAuthenticatedAtMs := FParams.Clock.NowUnixMillis;
 
   // application secrets are over the transcript through the server Finished (before any
   // EndOfEarlyData or the client Finished)

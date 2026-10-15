@@ -51,6 +51,7 @@ type
     function Rep(AByte: Byte; ALen: Int32): TBytes;
   published
     procedure TestTls13ReportsSecretsInOrderKeyedByRandom;
+    procedure TestTls13KeyUpdateLogsNoFurtherTrafficSecret;
     procedure TestTls13ReportsEarlySecretsForZeroRtt;
     procedure TestTls13DetachingTheSinkStopsReporting;
     procedure TestTls12ReportsMasterSecretAsClientRandom;
@@ -115,6 +116,28 @@ begin
       LSched.FinishedKey(TTlsDirection.ServerWrite).ToBytes,
       THkdfLabel.HkdfExpandLabel(LHkdf, TSecretBuffer.From(LMock[1].Secret),
       'finished', nil, 32).ToBytes);
+  finally
+    LSched.Free;
+  end;
+end;
+
+procedure TTestKeyLog.TestTls13KeyUpdateLogsNoFurtherTrafficSecret;
+var
+  LSched: TTls13KeySchedule;
+  LMock: TMockKeyLog;
+begin
+  // RFC 9850 defines only the _0 application traffic labels; later generations stay unlogged
+  LMock := TMockKeyLog.Create;
+  LSched := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
+  try
+    LSched.SetSharedSecret(TSecretBuffer.From(Rep($AB, 32)));
+    LSched.SetKeyLog(LMock as IKeyLog, FixedRandom);
+    LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Rep($01, 32));
+    LSched.DeriveEpochSecrets(TTlsEpoch.Application, Rep($02, 32));
+    CheckEquals(5, LMock.Count, 'the handshake logged its five secrets');
+    LSched.AdvanceKeyUpdate(TTlsDirection.ClientWrite);
+    LSched.AdvanceKeyUpdate(TTlsDirection.ServerWrite);
+    CheckEquals(5, LMock.Count, 'a KeyUpdate in either direction logs nothing');
   finally
     LSched.Free;
   end;

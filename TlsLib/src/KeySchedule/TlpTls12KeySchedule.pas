@@ -56,8 +56,6 @@ type
     FKeyLog: IKeyLog;
     FKeyLogRandom: TBytes;
     FHandshakeSecretsReleased: Boolean;
-    function Prf(const ASecret: ISecretBuffer; const ALabel: string;
-      const ASeed: TBytes; ALength: Int32): ISecretBuffer;
     procedure DeriveMaster(const ALabel: string; const ASeed: TBytes);
     procedure GuardMaster;
     procedure GuardNotReleased;
@@ -153,12 +151,6 @@ begin
     FSaltLength := Tls12AeadSaltLength;
 end;
 
-function TTls12KeySchedule.Prf(const ASecret: ISecretBuffer; const ALabel: string;
-  const ASeed: TBytes; ALength: Int32): ISecretBuffer;
-begin
-  Result := FPrf.Compute(ASecret, ALabel, ASeed, ALength);
-end;
-
 procedure TTls12KeySchedule.GuardMaster;
 begin
   if FMasterSecret = nil then
@@ -204,7 +196,7 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SMasterAlreadyDerived);
   if FPreMaster = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SPreMasterNotSet);
-  FMasterSecret := Prf(FPreMaster, ALabel, ASeed, Tls12MasterSecretLength);
+  FMasterSecret := FPrf.Compute(FPreMaster, ALabel, ASeed, Tls12MasterSecretLength);
   // the pre-master secret is consumed by this one PRF; release it
   FPreMaster := nil;
 end;
@@ -240,7 +232,7 @@ begin
     end;
   end;
   // AEAD suites have no MAC keys: client_key || server_key || client_salt || server_salt
-  LBlock := Prf(FMasterSecret, 'key expansion',
+  LBlock := FPrf.Compute(FMasterSecret, 'key expansion',
     TArrayUtilities.Concat(FServerRandom, FClientRandom),
     2 * (FKeyLength + FSaltLength));
   FClientKey := TSecretBuffer.Slice(LBlock, 0, FKeyLength);
@@ -298,7 +290,7 @@ begin
   else
     LLabel := 'server finished';
   // verify_data is a public wire value (RFC 5246 7.4.9)
-  Result := Prf(FMasterSecret, LLabel, ATranscriptHash, Tls12VerifyDataLength).ToBytes;
+  Result := FPrf.Compute(FMasterSecret, LLabel, ATranscriptHash, Tls12VerifyDataLength).ToBytes;
 end;
 
 function TTls12KeySchedule.VerifyFinished(ADirection: TTlsDirection;
@@ -350,7 +342,7 @@ begin
       TArrayUtilities.Concat(LContextLen, AContext));
   end;
   // RFC 5705 exported keying material is returned to the caller as public output
-  Result := Prf(FMasterSecret, ALabel, LSeed, ALength).ToBytes;
+  Result := FPrf.Compute(FMasterSecret, ALabel, LSeed, ALength).ToBytes;
 end;
 
 procedure TTls12KeySchedule.ForgetHandshakeSecrets;
