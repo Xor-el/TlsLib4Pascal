@@ -232,6 +232,8 @@ type
     procedure TestAlpnDuplicateNameIsRefused;
     procedure TestAlpnEmptyListMeansNoAlpn;
     procedure TestCertificateCompressionSetsAreValidated;
+    procedure TestMoreThan127DistinctDecompressorsAreRefusedForTheCount;
+    procedure Test127DistinctDecompressorsAreAccepted;
     procedure TestClientCertificateCompressionCacheIsConfigurable;
     procedure TestAlpnRejectionWithProtocolsIsRefused;
     procedure TestResumptionSettingsAreRefusedWhenResumptionIsOff;
@@ -391,6 +393,7 @@ type
     // across connections), so a replay across connections is detectable without WithAntiReplay
     procedure TestServerEarlyDataMintsSharedAntiReplayDefault;
     procedure TestServerRejectsPublicSuffixSniWildcard;
+    procedure TestServerSniWildcardUnderRegistrableDomainPassesTheWildcardGate;
     // a restricted (classical-only) registry composes with a preset whose preferred order still
     // names the pruned hybrid: the engine drops it from the offer instead of failing to build,
     // and the handshake negotiates a classical group
@@ -493,6 +496,17 @@ type
     function RetryConfigs: TBytes;
   end;
 
+  // a decompressor with a caller-chosen codepoint, to build sets of distinct algorithms
+  TNumberedDecompressor = class(TInterfacedObject, ICertificateDecompressor)
+  strict private
+    FAlgorithm: UInt16;
+  public
+    constructor Create(AAlgorithm: UInt16);
+    function Algorithm: UInt16;
+    function TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
+      out ADecompressed: TBytes): Boolean;
+  end;
+
   // an accept-all client-certificate verifier source, to exercise the Build-time roots gate
   // without a live handshake
   TAcceptAllClientVerifier = class(TInterfacedObject, IClientCertificateVerifier)
@@ -514,6 +528,24 @@ type
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
   end;
+
+constructor TNumberedDecompressor.Create(AAlgorithm: UInt16);
+begin
+  inherited Create;
+  FAlgorithm := AAlgorithm;
+end;
+
+function TNumberedDecompressor.Algorithm: UInt16;
+begin
+  Result := FAlgorithm;
+end;
+
+function TNumberedDecompressor.TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
+  out ADecompressed: TBytes): Boolean;
+begin
+  ADecompressed := nil;
+  Result := False;
+end;
 
 function TAcceptAllClientVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
@@ -2295,11 +2327,9 @@ procedure TTestConfigBuilder.TestCertificateCompressionSetsAreValidated;
 var
   LNilEntry: TArray<ICertificateCompressor>;
   LTwice: TArray<ICertificateDecompressor>;
-  LMany: TArray<ICertificateDecompressor>;
-  LI: Int32;
-  LNilRefused, LTwiceRefused, LManyRefused: Boolean;
+  LNilRefused, LTwiceRefused: Boolean;
 begin
-  // nil, a repeated codepoint and more than the extension can carry are refused where they are set
+  // nil and a repeated codepoint are refused where they are set
   SetLength(LNilEntry, 1);
   LNilEntry[0] := nil;
   LNilRefused := False;
@@ -2321,20 +2351,44 @@ begin
       LTwiceRefused := True;
   end;
   CheckTrue(LTwiceRefused, 'a repeated decompressor codepoint');
+  // empty or nil turns a direction off and is valid
+  CheckTrue(NewClientBuilder.Tls13.WithCertificateCompressors(nil)
+    .WithCertificateDecompressors(nil).Build <> nil, 'an empty set builds');
+end;
+
+procedure TTestConfigBuilder.TestMoreThan127DistinctDecompressorsAreRefusedForTheCount;
+var
+  LMany: TArray<ICertificateDecompressor>;
+  LI: Int32;
+  LMsg: string;
+begin
+  // 128 distinct codepoints, so only the RFC 8879 3 count cap can refuse the set
   SetLength(LMany, 128);
   for LI := 0 to 127 do
-    LMany[LI] := TZlibCertificateCompression.DefaultDecompressors[0];
-  LManyRefused := False;
+    LMany[LI] := TNumberedDecompressor.Create(1 + LI) as ICertificateDecompressor;
+  LMsg := '';
   try
     NewClientBuilder.Tls13.WithCertificateDecompressors(LMany);
   except
     on E: EArgumentTlsLibException do
-      LManyRefused := True;
+      LMsg := E.Message;
   end;
-  CheckTrue(LManyRefused, 'more than 127 decompressors');
-  // empty or nil turns a direction off and is valid
-  CheckTrue(NewClientBuilder.Tls13.WithCertificateCompressors(nil)
-    .WithCertificateDecompressors(nil).Build <> nil, 'an empty set builds');
+  CheckTrue(Pos('at most 127', LMsg) > 0,
+    'more than 127 distinct decompressors are refused for the count; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.Test127DistinctDecompressorsAreAccepted;
+var
+  LSet: TArray<ICertificateDecompressor>;
+  LConfig: ITlsClientConfig;
+  LI: Int32;
+begin
+  SetLength(LSet, 127);
+  for LI := 0 to 126 do
+    LSet[LI] := TNumberedDecompressor.Create(1 + LI) as ICertificateDecompressor;
+  LConfig := NewClientBuilder.Tls13.WithCertificateDecompressors(LSet).Build;
+  CheckEquals(127, System.Length(LConfig.CertificateDecompressors),
+    'the boundary count (127) is accepted and kept');
 end;
 
 procedure TTestConfigBuilder.TestClientCertificateCompressionCacheIsConfigurable;
@@ -3336,8 +3390,10 @@ begin
     .WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.VerifierSource(
       TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource,
-      ClientTrust).Build).Build;
-  CheckTrue(LConfig <> nil, 'a source over a real root builds');
+      TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(
+        TTrustAnchorStore.Create(nil) as ITrustAnchorStore, ClientTrust))).Build).Build;
+  CheckEquals(1, System.Length(LConfig.TrustStore.RootCertificates),
+    'the union carries the one real root; the empty store contributes none');
 end;
 
 function TTestConfigBuilder.HardWebPkiServer: IServerVerification;
@@ -4463,21 +4519,39 @@ end;
 
 procedure TTestConfigBuilder.TestServerRejectsPublicSuffixSniWildcard;
 var
-  LBuilder: ITlsConfigBuilder;
-  LRaised: Boolean;
+  LBuilder: ITlsServerConfigBuilder;
+  LMsg: string;
 begin
   // a public-suffix wildcard (*.com) can never match a host at runtime, so it is rejected as an
   // SNI pattern at configuration - the same rule name verification enforces
-  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
-  LBuilder.Server.WithSniCredential('*.com', ServerCredential);
-  LRaised := False;
+  LBuilder := NewServerBuilder.WithSniCredential('*.com', ServerCredential);
+  LMsg := '';
   try
-    LBuilder.Server.Build;
+    LBuilder.Build;
   except
     on E: EInvalidOperationTlsLibException do
-      LRaised := True;
+      LMsg := E.Message;
   end;
-  CheckTrue(LRaised, 'a *.com SNI wildcard is rejected at configuration');
+  CheckTrue(Pos('is not a supported wildcard', LMsg) > 0,
+    'a *.com SNI wildcard is refused as a malformed wildcard; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestServerSniWildcardUnderRegistrableDomainPassesTheWildcardGate;
+var
+  LBuilder: ITlsServerConfigBuilder;
+  LMsg: string;
+begin
+  // control: *.example.com clears the wildcard gate and fails only on SAN coverage
+  LBuilder := NewServerBuilder.WithSniCredential('*.example.com', ServerCredential);
+  LMsg := '';
+  try
+    LBuilder.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('does not cover it', LMsg) > 0,
+    'a *.example.com SNI wildcard is refused only for SAN coverage; got: ' + LMsg);
 end;
 
 procedure TTestConfigBuilder.TestClassicalRegistryOverPresetNegotiatesClassical;

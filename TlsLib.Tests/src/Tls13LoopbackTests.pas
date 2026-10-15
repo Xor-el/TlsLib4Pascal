@@ -856,6 +856,11 @@ begin
   // below the result the ECH client completes the retry, above it the outer wrapper overflows
   LLow := 1;
   LHigh := 65400;
+  // the bisection never evaluates its own ends, so check them here
+  CheckFalse(EchRetryClientAborts(LLow, ARejected, LClient, LServer),
+    'a one-byte cookie fits, so the lower end of the search is real');
+  CheckTrue(EchRetryClientAborts(LHigh, ARejected, LClient, LServer),
+    'an oversize cookie aborts, so the upper end of the search is real');
   while LLow < LHigh do
   begin
     LMid := (LLow + LHigh) div 2;
@@ -1688,7 +1693,7 @@ end;
 procedure TTestTls13Loopback.TestMultiGroupServerSelectsClientGroupWithoutHrr;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
+  LHrr: Int32;
   LFromClient: TBytes;
 begin
   LClient := NewP256OnlyClient;
@@ -1698,22 +1703,16 @@ begin
 
   // the client key-shared secp256r1 (its only group); the server, though it prefers X25519,
   // selects secp256r1 because the client offered it - and, since the client already sent that
-  // key_share, without a HelloRetryRequest. A single direct exchange completes the handshake.
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  // key_share, without a HelloRetryRequest
+  LHrr := DriveCountingHrr(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
   CheckFalse(LServer.IsHandshaking, 'the server completed the handshake');
   CheckFalse(LClient.IsTerminal, 'the client did not fail (secp256r1 was negotiated)');
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
-  // a direct (no-retry) handshake needs only a couple of pump rounds; a spurious
-  // HelloRetryRequest would take more
-  CheckTrue(LIterations <= 3, 'the handshake completed without a HelloRetryRequest');
+  CheckEquals(0, LHrr, 'the server sent no HelloRetryRequest');
+  CheckEquals(Integer(TNamedGroupCatalog.Secp256r1), Integer(LClient.ConnectionInfo.NamedGroup),
+    'the client''s own group was negotiated');
 
   LFromClient := DecodeHex('68656c6c6f206f766572207032353620776974686f75742061206872720a');
   LClient.Write(LFromClient, 0, System.Length(LFromClient));

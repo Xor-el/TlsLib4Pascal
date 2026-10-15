@@ -713,6 +713,9 @@ begin
   end;
 
   CheckTrue(LServer.IsTerminal, 'the server aborted when required EMS was absent');
+  // RFC 7627 5.2: aborting means a fatal handshake_failure
+  CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
+    Ord(LServer.LastError.Alert.Description), 'with handshake_failure');
 end;
 
 function TTestTls12Loopback.FirstRecordWith(const AWire, AExtra: TBytes): TBytes;

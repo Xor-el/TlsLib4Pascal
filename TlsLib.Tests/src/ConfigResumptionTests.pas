@@ -57,6 +57,8 @@ uses
   TlpTlsEngineFactory,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
+  TlpCoreExtensions,
+  TlsLibTestHandshakeDecoder,
   TlsLibTestBase;
 
 type
@@ -908,6 +910,8 @@ var
   LScope: TBytes;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
+  LHello: TBytes;
+  LIterations: Int32;
 begin
   // a server whose resumption scope differs opens the ticket, then declines it (the scope check
   // runs after the session is recovered). A decline leaves the stored ticket alone, so only an
@@ -923,7 +927,18 @@ begin
 
   LClient := NewClient13(LCache, True, LScope);
   LServer := NewScopedServer13(LStore, Crypto.Primitives.GetRandom.GenerateBytes(16));
-  PumpToCompletion(LClient, LServer);
+  LClient.StartHandshake;
+  LHello := Drain(LClient);
+  CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LHello)
+    .Contains(TExtensionTypes.PreSharedKey), 'the ClientHello offers the ticket');
+  Feed(LServer, LHello);
+  LIterations := 0;
+  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(LServer, LClient);
+    Pump(LClient, LServer);
+    Inc(LIterations);
+  end;
   CheckFalse(LServer.IsTerminal, 'the declined connection fell back to a full handshake');
   CheckFalse(LServer.ConnectionInfo.Resumed, 'the other scope did not resume the ticket');
   CheckEquals(1, LStore.Count, 'the declined ticket is still in the store');
@@ -953,6 +968,8 @@ begin
   LClient := NewClient13(LCache, True, LScope);
   LServer := NewServer13(LStore, 0, True);
   PumpToCompletion(LClient, LServer);
+  CheckEquals(0, LCache.Count, 'the client drew the ticket to offer it');
+  CheckEquals(0, LInner.Count, 'the racing lookup removed the ticket');
   CheckFalse(LServer.IsTerminal, 'losing the commit is a decline, not a failure');
   CheckFalse(LServer.ConnectionInfo.Resumed, 'the ticket was not resumed twice');
   CheckAppDataFlows(LClient, LServer);

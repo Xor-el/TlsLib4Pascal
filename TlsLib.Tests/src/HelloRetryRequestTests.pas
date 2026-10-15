@@ -582,7 +582,8 @@ begin
   LHrr := BuildHrr(TNamedGroupCatalog.Secp256r1, TCipherSuites13.Aes128GcmSha256,
     DecodeHex('a1b2c3'), DecodeHex(StringOfChar('3', 64)));
   // the first retry is accepted; a second HelloRetryRequest is fatal
-  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr));
+  CheckFalse(FailAlertOf(LClient.ProcessMessage(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert), 'the first retry is accepted');
   CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr)), LAlert),
     'a second HelloRetryRequest aborts');
   CheckTrue(LAlert = TTlsAlertDescription.UnexpectedMessage,
@@ -970,6 +971,9 @@ var
   LHrr, LCookie, LCh2, LShare: TBytes;
   LPriv: IKeyExchangePrivateKey;
   LAlert: TTlsAlertDescription;
+  LEffects: TArray<THandshakeEffect>;
+  LEffect: THandshakeEffect;
+  LReason: string;
 begin
   // an inner-type ech is a decrypted ClientHelloInner, which only a split-mode backend may see
   // (RFC 9849 sec. 7); the retry ClientHello is held to the same rule as the first
@@ -979,10 +983,17 @@ begin
   LCookie := CookieFromHrr(LHrr);
   LCh2 := WithInnerEch(BuildClientHello2(TNamedGroupCatalog.Secp256r1, LShare, LCookie, nil,
     TCipherSuites13.Aes128GcmSha256));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2)), LAlert),
-    'an inner-type ech in the retry ClientHello aborts');
+  LEffects := LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCh2));
+  CheckTrue(FailAlertOf(LEffects, LAlert), 'an inner-type ech in the retry ClientHello aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'it is illegal_parameter');
+  LReason := '';
+  for LEffect in LEffects do
+    if LEffect.Kind = THandshakeEffectKind.Fail then
+      LReason := LEffect.Reason;
+  // the role gate, not the retry-added-marker check, which would also raise illegal_parameter
+  CheckTrue(Pos('not deployed as a split-mode backend', LReason) > 0,
+    'the retry is refused by the role gate; got: ' + LReason);
 end;
 
 procedure TTestHelloRetryRequest.TestBackendServerAcceptsInnerEchInRetryClientHello;

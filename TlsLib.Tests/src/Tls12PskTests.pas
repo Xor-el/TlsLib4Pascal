@@ -98,6 +98,8 @@ type
   published
     procedure TestPremasterFraming;
     procedure TestPremasterRefusesAnOversizeOperand;
+    procedure TestPremasterAcceptsTheLargestOperand;
+    procedure TestPremasterRefusesAMissingOperand;
     procedure TestServerKeyExchangeRoundTrips;
     procedure TestClientKeyExchangeRoundTrips;
     procedure TestPskSuitesAreInTheCatalogAndNotInTheDefaults;
@@ -367,6 +369,46 @@ begin
 end;
 
 procedure TTestTls12Psk.TestPremasterRefusesAnOversizeOperand;
+var
+  LSmall, LBig: ISecretBuffer;
+  LSharedRefused, LPskRefused: Boolean;
+begin
+  // a uint16 length prefix cannot frame 65536 bytes (RFC 4279 2)
+  LSmall := TSecretBuffer.From(TBytes.Create($AA));
+  LBig := TSecretBuffer.Allocate(65536);
+  LSharedRefused := False;
+  try
+    TTls12PskPremaster.Build(LBig, LSmall);
+  except
+    on E: EArgumentTlsLibException do
+      LSharedRefused := True;
+  end;
+  CheckTrue(LSharedRefused, 'an oversize shared secret is refused');
+  LPskRefused := False;
+  try
+    TTls12PskPremaster.Build(LSmall, LBig);
+  except
+    on E: EArgumentTlsLibException do
+      LPskRefused := True;
+  end;
+  CheckTrue(LPskRefused, 'an oversize PSK is refused');
+end;
+
+procedure TTestTls12Psk.TestPremasterAcceptsTheLargestOperand;
+var
+  LPremaster: ISecretBuffer;
+  LBytes: TBytes;
+begin
+  LPremaster := TTls12PskPremaster.Build(TSecretBuffer.Allocate(65535),
+    TSecretBuffer.From(TBytes.Create($AA)));
+  CheckEquals(2 + 65535 + 2 + 1, LPremaster.Len, 'the 65535-byte boundary is framed');
+  LBytes := LPremaster.ToBytes;
+  CheckEquals($FFFF, (Int32(LBytes[0]) shl 8) or LBytes[1], 'the length prefix is FF FF');
+  CheckEquals($0001, (Int32(LBytes[2 + 65535]) shl 8) or LBytes[2 + 65535 + 1],
+    'the PSK length prefix follows the 65535-byte operand');
+end;
+
+procedure TTestTls12Psk.TestPremasterRefusesAMissingOperand;
 var
   LRefused: Boolean;
 begin

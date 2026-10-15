@@ -397,6 +397,7 @@ var
   LBuilder: ICipherSuiteRegistryBuilder;
   LBuilt: ICipherSuiteRegistry;
   LItems: TArray<TTlsCipherSuite>;
+  LFirstCode: UInt16;
 begin
   // a frozen config holds the built registry, so neither the builder nor a returned array can reach it
   LBuilder := TCipherSuiteRegistry.CreateDefault(Crypto).ToBuilder;
@@ -404,8 +405,10 @@ begin
   LBuilder.Prune(TCipherSuites13.Aes128GcmSha256);
   CheckTrue(LBuilt.Contains(TCipherSuites13.Aes128GcmSha256), 'a later Prune does not reach the built registry');
   LItems := LBuilt.Items;
-  SetLength(LItems, 0);
-  CheckTrue(System.Length(LBuilt.Items) > 0, 'the registry hands out copies of its entries');
+  LFirstCode := LItems[0].Common.Code;
+  LItems[0].Common.Code := LFirstCode xor $FFFF;
+  CheckEquals(Integer(LFirstCode), Integer(LBuilt.Items[0].Common.Code),
+    'the registry hands out copies of its entries');
 end;
 
 procedure TTestNegotiation.TestDowngradeSentinelEmittedAndDetected;
