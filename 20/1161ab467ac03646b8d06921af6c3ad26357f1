@@ -1,0 +1,51 @@
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_4adb7e2edc0c28::t_c187e0b7d07136 1068-1069
+  s_4adb7e2edc0c28::t_e5052640c6f212 1087-1088
+  s_4adb7e2edc0c28::t_164083666fb83e 1096-1097
+  s_4adb7e2edc0c28::t_ebaad87c137871 73
+  s_4adb7e2edc0c28::t_d7f660f2f512d8 1083-1084
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_4adb7e2edc0c28::t_daf72e798a8536 96
+  s_4adb7e2edc0c28::t_da13484fa8f806 2361-2362
+  s_4adb7e2edc0c28::t_3503e3be33def1 2340-2341
+TlsLib.Tests/src/CertificateCompressionCacheTests.pas
+  s_4adb7e2edc0c28::t_962325bdb5a3cf 365
+  s_4adb7e2edc0c28::t_467b360475ed81 304-305,322-323,355-356,531-532,567-568
+  s_4adb7e2edc0c28::t_cdff6d5b6b1685 299,317,348,522,560
+  s_4adb7e2edc0c28::t_6f96306c415507 56
+  s_4adb7e2edc0c28::t_1f5c8a6de0ee83 359
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_4adb7e2edc0c28::t_8dad1177aff1d4 1338-1345
+  s_4adb7e2edc0c28::t_19773154cef664 1454-1455
+  s_4adb7e2edc0c28::t_8404fae9161f82 1570-1571
+  s_4adb7e2edc0c28::t_5e0265e308226c 1539
+  s_4adb7e2edc0c28::t_b4b1877a33af15 1332-1333
+  s_4adb7e2edc0c28::t_de5f8afab41535 1430-1433
+  s_4adb7e2edc0c28::t_5b4597ce2a8dc3 68
+  s_4adb7e2edc0c28::t_8ff4f4a1fbed11 1385-1386,1405-1406
+  s_4adb7e2edc0c28::t_4cbeead9ad7269 1382,1400,1426,1468
+  s_4adb7e2edc0c28::t_8845e934e01ee6 1552-1553
+  s_4adb7e2edc0c28::t_b3a49f0517c27e 1528-1529
+  s_4adb7e2edc0c28::t_0e729704230836 1545-1547
+  s_4adb7e2edc0c28::t_b96355b5c56387 1472-1473
+  s_4adb7e2edc0c28::t_c3e6acef8cc3b5 1493-1494
+  s_4adb7e2edc0c28::t_6c91dd2f7e5f85 1364,1427
+  s_4adb7e2edc0c28::t_ec564e04cc203f 1367-1368
+  s_4adb7e2edc0c28::t_932ea6f8bd9ffd 1511-1512
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "201161ab467ac03646b8d06921af6c3ad26357f1",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
