@@ -42,6 +42,10 @@ type
     procedure FeedCoalesced(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure PumpCoalesced(const ASrc, ADst: ITlsEngine);
+    // Client to server then back, until neither is handshaking; stops silently after 16 rounds.
+    procedure ExchangeFlights(const AClient, AServer: ITlsEngine);
+    // Starts AClient's handshake, then ExchangeFlights.
+    procedure RunHandshake(const AClient, AServer: ITlsEngine);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     function ReadAllEarly(const AEngine: ITlsEngine): TBytes;
     // ACount bytes of AByte.
@@ -116,6 +120,25 @@ end;
 procedure TTlsLibHandshakeTestCase.PumpCoalesced(const ASrc, ADst: ITlsEngine);
 begin
   FeedCoalesced(ADst, Drain(ASrc));
+end;
+
+procedure TTlsLibHandshakeTestCase.ExchangeFlights(const AClient, AServer: ITlsEngine);
+var
+  LIterations: Int32;
+begin
+  LIterations := 0;
+  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
+  begin
+    Pump(AClient, AServer);
+    Pump(AServer, AClient);
+    Inc(LIterations);
+  end;
+end;
+
+procedure TTlsLibHandshakeTestCase.RunHandshake(const AClient, AServer: ITlsEngine);
+begin
+  AClient.StartHandshake;
+  ExchangeFlights(AClient, AServer);
 end;
 
 function TTlsLibHandshakeTestCase.ReadAllApp(const AEngine: ITlsEngine): TBytes;
@@ -287,7 +310,7 @@ function TTlsLibHandshakeTestCase.DriveObservingServerCert(
   const AClient, AServer: ITlsEngine): Boolean;
 var
   LFlight: TBytes;
-  LRecordPos, LMsgPos, LMsgLen, LIterations: Int32;
+  LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
   AClient.StartHandshake;
   Pump(AClient, AServer);
@@ -295,13 +318,7 @@ begin
   Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
     Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen);
   Feed(AClient, LFlight);
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
-    Inc(LIterations);
-  end;
+  ExchangeFlights(AClient, AServer);
 end;
 
 end.

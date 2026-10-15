@@ -176,9 +176,6 @@ type
     function OfferFacet(AKind: TOfferKind; ACount: Int32): ITls13ClientConfigFacet;
     function LargestAcceptedCount(AKind: TOfferKind): Int32;
     procedure CheckExternalPskRefused(const APsks: TArray<TExternalPsk>; const AMessage: string);
-    procedure RunHandshake(const AClient, AServer: ITlsEngine);
-    // the flight exchange of a handshake whose client has already started and sent its first flight
-    procedure ExchangeFlights(const AClient, AServer: ITlsEngine);
     procedure RunEchThroughBuilder(AMode: TServerNameIndication);
     /// <summary>A name-check-off client offering a config for APublicName to a server whose store
     /// holds a different config (an ECH reject); returns the aborted client and the server's
@@ -2860,25 +2857,6 @@ begin
   CheckTrue(LRaised, 'a build with no offered versions is refused');
   CheckTrue(Pos('must be offered', LMsg) > 0,
     'the message names the missing offered versions');
-end;
-
-procedure TTestConfigBuilder.RunHandshake(const AClient, AServer: ITlsEngine);
-begin
-  AClient.StartHandshake;
-  ExchangeFlights(AClient, AServer);
-end;
-
-procedure TTestConfigBuilder.ExchangeFlights(const AClient, AServer: ITlsEngine);
-var
-  LIterations: Int32;
-begin
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
-    Inc(LIterations);
-  end;
 end;
 
 procedure TTestConfigBuilder.TestBuilderRejectsMutationAfterBuild;
