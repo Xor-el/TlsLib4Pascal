@@ -44,6 +44,7 @@ uses
   TlpTlsLibExceptions,
   TlpCertificateVerifierSource,
   MockTransport,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -223,31 +224,18 @@ end;
 { TTestNetSocket }
 
 function TTestNetSocket.ClientConfig: ITlsClientConfig;
-var
-  LVectors: TStringList;
 begin
-  LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(TServerVerification.WebPki(
-        DecodeHex(LVectors.Values['root_cert'])).Build).Build;
-  finally
-    LVectors.Free;
-  end;
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build).Build;
 end;
 
 function TTestNetSocket.ServerConfig: ITlsServerConfig;
-var
-  LVectors: TStringList;
 begin
-  LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := TTlsPresets.Compatible(Crypto, Pkix).Server
-      .WithCredential(TTlsCredential.Load(Crypto, Pkix, DecodeHex(LVectors.Values['leaf_cert']),
-        DecodeHex(LVectors.Values['leaf_key']))).Build;
-  finally
-    LVectors.Free;
-  end;
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
 end;
 
 procedure TTestNetSocket.TestBytesRoundTripOnAnEphemeralPort;

@@ -87,10 +87,6 @@ type
     FFetcher: TMockHttpFetcher; // one primed fetcher per test, referenced by the checker
     function ServerConfig(APosture: TRevocationPosture; AForce12: Boolean): ITlsServerConfig;
     function ClientConfig(AForce12: Boolean): ITlsClientConfig;
-    function NewClientStream(const ATransport: ITlsTransport;
-      const AConfig: ITlsClientConfig): TTlsStream;
-    function NewServerStream(const ATransport: ITlsTransport;
-      const AConfig: ITlsServerConfig): TTlsStream;
     procedure RunLoopback(const AClientConfig: ITlsClientConfig;
       const AServerConfig: ITlsServerConfig;
       const AResolver: TCertificateVerdictResolver; AEcho: Boolean;
@@ -220,20 +216,6 @@ begin
   Result := LClient.Build;
 end;
 
-function TTestServerSideLiveRevocation.NewClientStream(const ATransport: ITlsTransport;
-  const AConfig: ITlsClientConfig): TTlsStream;
-begin
-  Result := TTlsStream.Create(ATransport,
-    TTlsEngineFactory.CreateClientEngine(AConfig, 'localhost'), True, 'localhost');
-end;
-
-function TTestServerSideLiveRevocation.NewServerStream(const ATransport: ITlsTransport;
-  const AConfig: ITlsServerConfig): TTlsStream;
-begin
-  Result := TTlsStream.Create(ATransport,
-    TTlsEngineFactory.CreateServerEngine(AConfig), False, '');
-end;
-
 procedure TTestServerSideLiveRevocation.RunLoopback(const AClientConfig: ITlsClientConfig;
   const AServerConfig: ITlsServerConfig;
   const AResolver: TCertificateVerdictResolver; AEcho: Boolean;
@@ -248,8 +230,10 @@ begin
   LS2C := TMemoryPipe.Create;
   AClientTransport := TMemoryTransport.Create(LS2C, LC2S);
   LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
-  AClient := NewClientStream(AClientTransport as ITlsTransport, AClientConfig);
-  LServerStream := NewServerStream(LServerTransport as ITlsTransport, AServerConfig);
+  AClient := TTlsStream.Create(AClientTransport as ITlsTransport,
+    TTlsEngineFactory.CreateClientEngine(AClientConfig, 'localhost'), True, 'localhost');
+  LServerStream := TTlsStream.Create(LServerTransport as ITlsTransport,
+    TTlsEngineFactory.CreateServerEngine(AServerConfig), False, '');
   AServer := TMtlsLiveServerRunner.Create(LServerStream, LServerTransport, AClientTransport,
     AResolver, AEcho);
   AServer.Start;
