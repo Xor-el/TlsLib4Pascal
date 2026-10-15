@@ -35,7 +35,8 @@ type
     /// (transport EOF). Raises on a transport error.</summary>
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     /// <summary>Writes ALength bytes from ABuffer at AOffset, blocking until all have been
-    /// handed to the transport. Raises on a transport error.</summary>
+    /// handed to the transport, or raises. A raise may follow a partial write, so the connection
+    /// is unusable afterwards: the caller must not retry.</summary>
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
 
