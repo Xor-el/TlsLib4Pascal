@@ -65,14 +65,13 @@ uses
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   MockCertificateCompression,
-  TlsLibTestBase,
+  TlsLibHandshakeTestBase,
   TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
-  TTestClientAuth = class(TTlsLibAlgorithmTestCase)
+  TTestClientAuth = class(TTlsLibHandshakeTestCase)
   private
-    function Filled(AByte: Byte; ACount: Int32): TBytes;
     function RootCert: TBytes;
     function Credential: TTlsCredential;
     // an ECDSA leaf under an issuer signed with SHA-1, a hash no stock server advertises
@@ -112,16 +111,10 @@ type
     // body length raises on CompressedClientCertificate
     function ServerAlertOnCompressedClientCertificate(ABudgetBelowBody: Boolean;
       out AAlert: TTlsAlertDescription): Boolean;
-    function FirstSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
-    function AllSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
-    function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
-      out AAlert: TTlsAlertDescription): Boolean;
     function New12Client(AWithCredential: Boolean): ITlsEngine;
     // an empty credential offers none
     function New12ClientWith(const ACredential: TTlsCredential): ITlsEngine;
     function New12Server(AMode: TClientAuthMode): ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     // rewrites the signature scheme of the first plaintext CertificateVerify (handshake type 15)
     // in a wire flight, to forge a client CertificateVerify under an unadvertised scheme
     procedure PatchFirstCertVerifyScheme(var AWire: TBytes; AScheme: UInt16);
@@ -131,7 +124,6 @@ type
     // a client Certificate zlib-compressed and framed as a CompressedCertificate, for a server
     // that never advertised compress_certificate
     function CompressedClientCertificate: TBytes;
-    procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure Drive(const AClient, AServer: ITlsEngine);
   published
     procedure TestTls13RequiredClientAuthCompletes;
@@ -185,16 +177,6 @@ type
 implementation
 
 { TTestClientAuth }
-
-function TTestClientAuth.Filled(AByte: Byte; ACount: Int32): TBytes;
-var
-  LI: Int32;
-begin
-  Result := nil;
-  SetLength(Result, ACount);
-  for LI := 0 to ACount - 1 do
-    Result[LI] := AByte;
-end;
 
 function TTestClientAuth.RootCert: TBytes;
 var
@@ -540,49 +522,6 @@ begin
     'a declared length at the chain budget is accepted');
 end;
 
-function TTestClientAuth.FirstSendHandshake(
-  const AEffects: TArray<THandshakeEffect>): TBytes;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := nil;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-      Exit(LEffect.Bytes);
-end;
-
-function TTestClientAuth.AllSendHandshake(
-  const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
-var
-  LEffect: THandshakeEffect;
-  LCount: Int32;
-begin
-  Result := nil;
-  LCount := 0;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-    begin
-      SetLength(Result, LCount + 1);
-      Result[LCount] := LEffect.Bytes;
-      Inc(LCount);
-    end;
-end;
-
-function TTestClientAuth.FailAlertOf(const AEffects: TArray<THandshakeEffect>;
-  out AAlert: TTlsAlertDescription): Boolean;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := False;
-  AAlert := TTlsAlertDescription.CloseNotify;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.Fail then
-    begin
-      AAlert := LEffect.Alert;
-      Exit(True);
-    end;
-end;
-
 function TTestClientAuth.New12Client(AWithCredential: Boolean): ITlsEngine;
 var
   LCredential: TTlsCredential;
@@ -644,33 +583,6 @@ begin
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestClientAuth.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestClientAuth.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
 procedure TTestClientAuth.PatchFirstCertVerifyScheme(var AWire: TBytes;
   AScheme: UInt16);
 var
@@ -699,11 +611,6 @@ begin
   // original wire up to and including this record, then the duplicate, then the rest
   Result := ConcatBytes(ConcatBytes(System.Copy(AWire, 0, LRecordEnd), LRecord),
     System.Copy(AWire, LRecordEnd, System.Length(AWire) - LRecordEnd));
-end;
-
-procedure TTestClientAuth.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
 end;
 
 procedure TTestClientAuth.Drive(const AClient, AServer: ITlsEngine);

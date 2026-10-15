@@ -56,19 +56,17 @@ uses
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpCoreExtensions,
-  TlpHandshakeMessage,
   TlsLibTestHandshakeDecoder,
   TlsLibTestCertificates,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
-  TTestConfigResumption = class(TTlsLibAlgorithmTestCase)
+  TTestConfigResumption = class(TTlsLibHandshakeTestCase)
   private
   const
     ServerHost = 'localhost';
   var
     FCerts: TStringList;
-    FOcsp: TStringList;
     // the engine and outcome of the re-entry probes run from a session-cache Store callback
     FProbeEngine: ITlsEngine;
     FProbeStores: Int32;
@@ -78,10 +76,6 @@ type
     /// <summary>Resumes a cached TLS 1.2 session under a reverify park, with AOnStored run from
     /// the client's session-cache Store when the accepted verdict resumes the handshake.</summary>
     procedure ResumeAndAcceptWithStoreProbe(AOnStored: TSessionCacheEvent);
-    function ServerCredential: TTlsCredential;
-    /// <summary>One field of the OCSP-stapling fixture (root/issuer/leaf certs, leaf key and the
-    /// Good OCSP response).</summary>
-    function OcspField(const AName: string): TBytes;
     /// <summary>The stapling server credential: leaf + issuer with a current Good OCSP response
     /// sealed on it, so a staple-requesting client completes a full handshake under a Hard posture.</summary>
     function StaplingCredential: TTlsCredential;
@@ -140,19 +134,12 @@ type
     /// version dispatcher.</summary>
     function NewDualClient(const ACache: ISessionCache): ITlsEngine;
     function NewDualServer(const AStore: ISessionStore): ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure PumpToCompletion(const AClient, AServer: ITlsEngine);
     /// <summary>Like PumpToCompletion but resolves a parked peer-certificate verdict with
     /// AAccept/AAlert, so the async park (initial-cert or reverify-on-resume) can proceed.</summary>
     procedure PumpToCompletionResolving(const AClient, AServer: ITlsEngine;
       AAccept: Boolean; AAlert: TTlsAlertDescription);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
-    procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
-    /// <summary>Runs to completion, returning whether the server's first flight carried a
-    /// plaintext Certificate (TLS 1.2 full-vs-abbreviated tell).</summary>
-    function DriveObservingServerCert(const AClient, AServer: ITlsEngine): Boolean;
+    procedure CheckClientDataReachesServer(const AClient, AServer: ITlsEngine);
   protected
     procedure SetUp; override;
   published
@@ -362,22 +349,18 @@ procedure TTestConfigResumption.SetUp;
 begin
   inherited SetUp;
   FCerts := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
-  FOcsp := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
-end;
-
-function TTestConfigResumption.OcspField(const AName: string): TBytes;
-begin
-  Result := DecodeHex(FOcsp.Values[AName]);
 end;
 
 function TTestConfigResumption.StaplingCredential: TTlsCredential;
 begin
   // leaf + issuer, with a current Good OCSP response sealed on the credential so the server
   // sends a CertificateStatus when the client requests one
-  Result.CertificateChain := TArray<TBytes>.Create(OcspField('leaf_cert'),
-    OcspField('issuer_cert'));
-  Result.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'), nil);
-  Result.OcspStaple := OcspField('ocsp_good');
+  Result.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
+  Result.PrivateKey := Crypto.Signing.ImportSigningKey(
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
+  Result.OcspStaple := TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good');
 end;
 
 function TTestConfigResumption.NewStaplingServer13(const AStore: ISessionStore;
@@ -415,7 +398,8 @@ begin
   // permissive: trusts the stapling root and completes a full handshake, caching the ticket the
   // strict client draws from; the host check is disabled to isolate the resumption behaviour
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert')).Build)
+    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+      'Certs/OcspStapling.txt', 'root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumption(True)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
@@ -430,7 +414,8 @@ var
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert')).Build)
+    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+      'Certs/OcspStapling.txt', 'root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumption(True)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
@@ -444,7 +429,8 @@ var
   LClient: ITlsClientConfigBuilder;
 begin
   LClient := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert'))
+    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+      'Certs/OcspStapling.txt', 'root_cert'))
     .WithRevocation(TRevocationPosture.Hard).Build)
     .WithDangerousDisableServerNameCheck
     .WithOcspStaplingRequest(True)
@@ -465,7 +451,8 @@ var
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert'))
+    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+      'Certs/OcspStapling.txt', 'root_cert'))
     .WithRevocation(TRevocationPosture.Hard).Build)
     .WithDangerousDisableServerNameCheck
     .WithOcspStaplingRequest(True)
@@ -486,7 +473,8 @@ var
 begin
   // Hard posture but the default ReuseOriginal (no re-verify on resume), so the gate never fires
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert'))
+    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+      'Certs/OcspStapling.txt', 'root_cert'))
     .WithRevocation(TRevocationPosture.Hard).Build)
     .WithDangerousDisableServerNameCheck
     .WithOcspStaplingRequest(True)
@@ -494,12 +482,6 @@ begin
     .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
-end;
-
-function TTestConfigResumption.ServerCredential: TTlsCredential;
-begin
-  Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
-  Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']), nil);
 end;
 
 function TTestConfigResumption.NewClient13(const ACache: ISessionCache;
@@ -664,38 +646,6 @@ begin
   Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
 
-function TTestConfigResumption.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestConfigResumption.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
-procedure TTestConfigResumption.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
 procedure TTestConfigResumption.PumpToCompletion(const AClient, AServer: ITlsEngine);
 var
   LIterations: Int32;
@@ -731,21 +681,7 @@ begin
   Pump(AServer, AClient);
 end;
 
-function TTestConfigResumption.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestConfigResumption.CheckAppDataFlows(const AClient, AServer: ITlsEngine);
+procedure TTestConfigResumption.CheckClientDataReachesServer(const AClient, AServer: ITlsEngine);
 var
   LFromClient: TBytes;
 begin
@@ -754,27 +690,6 @@ begin
   Pump(AClient, AServer);
   CheckEqualBytes('the server decrypts the client application data', LFromClient,
     ReadAllApp(AServer));
-end;
-
-function TTestConfigResumption.DriveObservingServerCert(
-  const AClient, AServer: ITlsEngine): Boolean;
-var
-  LFlight: TBytes;
-  LRecordPos, LMsgPos, LMsgLen, LIterations: Int32;
-begin
-  AClient.StartHandshake;
-  Pump(AClient, AServer);
-  LFlight := Drain(AServer);
-  Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
-    Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen);
-  Feed(AClient, LFlight);
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
-    Inc(LIterations);
-  end;
 end;
 
 procedure TTestConfigResumption.TestTls13StoreResumptionViaConfig;
@@ -805,7 +720,7 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the resuming server completed');
   CheckFalse(LServer.IsTerminal, 'the resuming server did not fail');
   CheckEquals(0, LStore.Count, 'the stored session was consumed (resumed via the config)');
-  CheckAppDataFlows(LClient, LServer);
+  CheckClientDataReachesServer(LClient, LServer);
 end;
 
 procedure TTestConfigResumption.TestTls13BadBinderReplayDoesNotConsumeStoreTicket;
@@ -842,7 +757,7 @@ begin
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsTerminal, 'the victim still resumes');
   CheckEquals(0, LStore.Count, 'the genuine resumption used the ticket up (single-use)');
-  CheckAppDataFlows(LClient, LServer);
+  CheckClientDataReachesServer(LClient, LServer);
 end;
 
 procedure TTestConfigResumption.TestTls13DeclinedTicketIsNotConsumed;
@@ -913,7 +828,7 @@ begin
   CheckEquals(0, LInner.Count, 'the racing lookup removed the ticket');
   CheckFalse(LServer.IsTerminal, 'losing the commit is a decline, not a failure');
   CheckFalse(LServer.ConnectionInfo.Resumed, 'the ticket was not resumed twice');
-  CheckAppDataFlows(LClient, LServer);
+  CheckClientDataReachesServer(LClient, LServer);
 end;
 
 procedure TTestConfigResumption.TestTls12SessionIdResumptionKeepsStoredSession;
@@ -969,7 +884,7 @@ begin
   CheckFalse(DriveObservingServerCert(LClient, LServer),
     '1.2 resumption via the config is abbreviated (no Certificate)');
   CheckFalse(LServer.IsTerminal, 'the 1.2 resume did not fail');
-  CheckAppDataFlows(LClient, LServer);
+  CheckClientDataReachesServer(LClient, LServer);
 end;
 
 procedure TTestConfigResumption.TestDefaultServerIssuesTicketsOutOfBox;
@@ -1002,7 +917,7 @@ begin
   CheckFalse(LServer.IsTerminal, 'the resuming server did not fail');
   // prove it actually resumed via the out-of-box ticket, not a silent full-handshake fallback
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the second handshake resumed off the auto-issued ticket');
-  CheckAppDataFlows(LClient, LServer);
+  CheckClientDataReachesServer(LClient, LServer);
 end;
 
 procedure TTestConfigResumption.TestResumptionOffServerIssuesNoTicket;
@@ -1058,7 +973,7 @@ begin
     .WithCredential(ServerCredential).Build);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the Strict handshake completed');
-  CheckAppDataFlows(LClient, LServer);
+  CheckClientDataReachesServer(LClient, LServer);
 end;
 
 procedure TTestConfigResumption.TestStrictResumptionReEnabledWithNoGuard;
@@ -1096,7 +1011,7 @@ begin
   PumpToCompletion(LClient, LServer);
   CheckFalse(LServer.IsTerminal, 're-enabled Strict resume did not fail');
   CheckEquals(0, LStore.Count, 're-enabled Strict resumed (store consumed)');
-  CheckAppDataFlows(LClient, LServer);
+  CheckClientDataReachesServer(LClient, LServer);
 end;
 
 procedure TTestConfigResumption.TestSharedCacheDoesNotResumeAcrossConfigurations;
@@ -1817,7 +1732,8 @@ begin
   LBefore := LCache.Count;
   // Soft (the default posture) + Reverify, no live deferral
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert')).Build)
+    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+      'Certs/OcspStapling.txt', 'root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithResumption(True)
@@ -1834,13 +1750,16 @@ begin
   CheckEquals(2, System.Length(LInfo.PeerCertificates),
     'the presented chain is the stored leaf + issuer credential');
   CheckEqualBytes('the presented chain leaf is the stapling leaf',
-    OcspField('leaf_cert'), LInfo.PeerCertificates[0]);
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    LInfo.PeerCertificates[0]);
   CheckTrue(System.Length(LInfo.ValidatedPath) >= System.Length(LInfo.PeerCertificates),
     'the Reverify resume validated a path at least as long as the presented chain');
   CheckEqualBytes('the validated path leaf is the stapling leaf',
-    OcspField('leaf_cert'), LInfo.ValidatedPath[0]);
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    LInfo.ValidatedPath[0]);
   CheckEqualBytes('the validated path terminates at the stapling root',
-    OcspField('root_cert'), LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert'),
+    LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
 end;
 
 procedure TTestConfigResumption.TestHardReverifyWithoutLiveVerdictIsRefusedAtBuild;
