@@ -73,7 +73,6 @@ type
     /// <summary>A resuming certificate server over AStore that also accepts APsks.</summary>
     function NewStoreServer(const AStore: ISessionStore;
       const APsks: TArray<TTls12Psk>): ITlsEngine;
-    procedure Run(const AClient, AServer: ITlsEngine);
     procedure CheckClientDataReachesServer(const AClient, AServer: ITlsEngine);
     /// <summary>Runs an unknown-identity or wrong-secret handshake and returns the alert the
     /// server and the client each end on.</summary>
@@ -198,20 +197,6 @@ begin
     Result := TTlsEngineFactory.CreateServerEngine(LBuilder.Build);
 end;
 
-procedure TTestTls12Psk.Run(const AClient, AServer: ITlsEngine);
-var
-  LIterations: Int32;
-begin
-  AClient.StartHandshake;
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
-    Inc(LIterations);
-  end;
-end;
-
 procedure TTestTls12Psk.CheckClientDataReachesServer(const AClient, AServer: ITlsEngine);
 var
   LFromClient: TBytes;
@@ -230,7 +215,7 @@ var
 begin
   LClient := NewClient(APsk);
   LServer := NewServer(AServerPsks);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the server ended the handshake');
   AServerAlert := LServer.LastError.Alert.Description;
   AClientAlert := TTlsAlertDescription.CloseNotify;
@@ -435,7 +420,7 @@ begin
     LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
       .WithSupportedVersions(Only12).WithCipherSuiteList(TArray<UInt16>.Create(LCodes[LI]))
       .Tls12.WithPreSharedKeys(TArray<TTls12Psk>.Create(LPsk)).Build);
-    Run(LClient, LServer);
+    RunHandshake(LClient, LServer);
     CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
     CheckEquals(Int64(LCodes[LI]), Int64(LClient.ConnectionInfo.CipherSuite), 'the client suite');
     CheckEquals(Int64(LCodes[LI]), Int64(LServer.ConnectionInfo.CipherSuite), 'the server suite');
@@ -451,7 +436,7 @@ var
 begin
   LClient := NewClient(Psk(Identity1, 1));
   LServer := NewServer(TArray<TTls12Psk>.Create(Psk(Identity1, 1)));
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
   CheckEqualBytes('the server sees the identity', BytesOf(Identity1),
     LServer.ConnectionInfo.PskIdentity);
@@ -465,7 +450,7 @@ var
 begin
   LClient := NewClient(Psk(Identity2, 50));
   LServer := NewServer(TArray<TTls12Psk>.Create(Psk(Identity1, 1), Psk(Identity2, 50)));
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
   CheckEqualBytes('the second identity was matched', BytesOf(Identity2),
     LServer.ConnectionInfo.PskIdentity);
@@ -496,7 +481,7 @@ begin
   LClient := NewClient(Psk(Identity1, 1));
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCredential(ServerCredential).Build);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the server found no common suite');
   CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
     Int64(Ord(LServer.LastError.Alert.Description)), 'with handshake_failure');
@@ -513,7 +498,7 @@ begin
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCredential(ServerCredential).Build);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
   CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) > 0, 'a certificate was used');
   CheckEquals(0, System.Length(LClient.ConnectionInfo.PskIdentity), 'and no PSK');
@@ -525,7 +510,7 @@ var
 begin
   LClient := NewCertificateClient;
   LServer := NewServerWithCertificate(TArray<TTls12Psk>.Create(Psk(Identity1, 1)));
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
   CheckEquals(0, System.Length(LServer.ConnectionInfo.PskIdentity), 'by certificate');
 end;
@@ -540,7 +525,7 @@ begin
       TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := NewServerWithCertificate(TArray<TTls12Psk>.Create(Psk(Identity1, 1)));
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
   CheckEqualBytes('the PSK was used', BytesOf(Identity1), LServer.ConnectionInfo.PskIdentity);
   CheckEquals(0, System.Length(LClient.ConnectionInfo.PeerCertificates),
@@ -558,7 +543,7 @@ begin
     .WithPeerAuth(TClientAuthMode.Required)
     .Tls12.WithPreSharedKeys(TArray<TTls12Psk>.Create(Psk(Identity1, 1))).Build);
   LClient := NewClient(Psk(Identity1, 1));
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal,
     'the PSK authenticated the client, so no certificate was requested');
 end;
@@ -580,13 +565,13 @@ begin
     TArray<TTls12Psk>.Create(Psk(Identity1, 1))).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.ConnectionInfo.Resumed, 'a first handshake is not a resumption');
   Pump(LServer, LClient);
   // the second connection resumes the PSK session, with no key exchange and no certificate
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the second handshake completed');
   CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed');
   CheckTrue(LClient.ConnectionInfo.Resumed, 'and so did the client');
@@ -613,21 +598,21 @@ begin
 
   LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
   LServer := NewStoreServer(LStoreA, LPsks);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   Pump(LServer, LClient);
   CheckEqualBytes('the first handshake used the PSK', BytesOf(Identity1),
     LClient.ConnectionInfo.PskIdentity);
 
   LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
   LServer := NewStoreServer(LStoreB, LNone);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   Pump(LServer, LClient);
   CheckFalse(LClient.ConnectionInfo.Resumed, 'the unknown session was declined');
   CheckEquals(0, System.Length(LClient.ConnectionInfo.PskIdentity), 'by certificate');
 
   LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
   LServer := NewStoreServer(LStoreB, LNone);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the certificate session resumes');
   CheckEquals(0, System.Length(LClient.ConnectionInfo.PskIdentity),
     'and reports no PSK identity');
@@ -651,14 +636,14 @@ begin
 
   LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
   LServer := NewStoreServer(LStoreA, LNone);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   Pump(LServer, LClient);
   CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) > 0,
     'the first handshake used the certificate');
 
   LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
   LServer := NewStoreServer(LStoreB, LPsks);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   Pump(LServer, LClient);
   CheckFalse(LClient.ConnectionInfo.Resumed, 'the unknown session was declined');
   CheckEqualBytes('the PSK authenticated', BytesOf(Identity1),
@@ -666,7 +651,7 @@ begin
 
   LClient := NewReverifyClient(LCache, TVerdictDeferral.None);
   LServer := NewStoreServer(LStoreB, LPsks);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the PSK session resumes');
   CheckEqualBytes('under its PSK identity', BytesOf(Identity1),
     LClient.ConnectionInfo.PskIdentity);
@@ -693,14 +678,14 @@ begin
     LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
     LClient := NewReverifyClient(LCache, LDeferrals[LI]);
     LServer := NewStoreServer(LStore, LPsks);
-    Run(LClient, LServer);
+    RunHandshake(LClient, LServer);
     Pump(LServer, LClient);
     CheckEqualBytes('the first handshake used the PSK', BytesOf(Identity1),
       LClient.ConnectionInfo.PskIdentity);
 
     LClient := NewReverifyClient(LCache, LDeferrals[LI]);
     LServer := NewStoreServer(LStore, LPsks);
-    Run(LClient, LServer);
+    RunHandshake(LClient, LServer);
     CheckFalse(LClient.AwaitingCertificateVerdict, 'no verdict is requested for a PSK-authenticated session');
     CheckFalse(LClient.IsHandshaking, 'the resumed handshake completed');
     CheckTrue(LClient.ConnectionInfo.Resumed, 'as a resumption');
@@ -726,7 +711,7 @@ begin
     TArray<TTls12Psk>.Create(Psk(Identity1, 1), Psk(Identity2, 50))).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
   LEngine := TTlsEngineFactory.CreateServerEngine(LServer);
-  Run(LClient, LEngine);
+  RunHandshake(LClient, LEngine);
   CheckFalse(LClient.IsTerminal or LEngine.IsTerminal, 'the first handshake completed');
   Pump(LEngine, LClient);
   // the same store and scope, but the key that authenticated the session is no longer configured
@@ -735,7 +720,7 @@ begin
     TArray<TTls12Psk>.Create(Psk(Identity2, 50))).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
   LEngine := TTlsEngineFactory.CreateServerEngine(LServer);
-  Run(LClient, LEngine);
+  RunHandshake(LClient, LEngine);
   CheckFalse(LEngine.ConnectionInfo.Resumed, 'a revoked key does not resume its session');
 end;
 
@@ -758,7 +743,7 @@ begin
     TArray<TTls12Psk>.Create(Psk(Identity1, 1))).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
   LEngine := TTlsEngineFactory.CreateServerEngine(LServer);
-  Run(LClient, LEngine);
+  RunHandshake(LClient, LEngine);
   CheckFalse(LClient.IsTerminal or LEngine.IsTerminal, 'the first handshake completed');
   Pump(LEngine, LClient);
   // the identity is still configured, but its secret has been rotated: the old session must not resume
@@ -767,7 +752,7 @@ begin
     TArray<TTls12Psk>.Create(Psk(Identity1, 9))).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, ServerHost);
   LEngine := TTlsEngineFactory.CreateServerEngine(LServer);
-  Run(LClient, LEngine);
+  RunHandshake(LClient, LEngine);
   CheckFalse(LEngine.ConnectionInfo.Resumed, 'a rotated secret does not resume the old session');
 end;
 
@@ -778,7 +763,7 @@ var
 begin
   LClient := NewClient(Psk(Identity1, 1));
   LServer := NewServer(TArray<TTls12Psk>.Create(Psk(Identity1, 1)));
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   LInfo := LServer.ConnectionInfo;
   LInfo.PskIdentity[0] := Byte(Ord('X'));
   CheckEqualBytes('the engine keeps its own copy', BytesOf(Identity1),
@@ -803,7 +788,7 @@ begin
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCipherSuites(LRegistry.Build).WithCredential(ServerCredential).Build);
-  Run(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'the handshake completed');
   CheckEquals(0, System.Length(LServer.ConnectionInfo.PskIdentity), 'by certificate, not PSK');
   CheckTrue(System.Length(LClient.ConnectionInfo.PeerCertificates) > 0, 'a certificate was sent');

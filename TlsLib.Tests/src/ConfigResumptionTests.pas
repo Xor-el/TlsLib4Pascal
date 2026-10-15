@@ -645,17 +645,8 @@ begin
 end;
 
 procedure TTestConfigResumption.PumpToCompletion(const AClient, AServer: ITlsEngine);
-var
-  LIterations: Int32;
 begin
-  AClient.StartHandshake;
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(AClient, AServer);
   // flush any post-handshake NewSessionTicket from the server to the client
   Pump(AServer, AClient);
 end;
