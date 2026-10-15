@@ -991,7 +991,7 @@ begin
   EnterFatalState(False);
   FRecordLayer.DiscardOutbound;
   FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, AReason,
-    TTlsErrorOrigin.Local);
+    TTlsErrorOrigin.Transport);
 end;
 
 procedure TTlsEngine.StartHandshake;

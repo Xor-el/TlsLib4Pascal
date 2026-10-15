@@ -207,6 +207,8 @@ type
     procedure TestWriteAfterAFailedWriteFlushSendsNothing;
     procedure TestFailedCloseFlushKeepsTheCachedTickets;
     procedure TestFailedHandshakeFlushLatchesTheEngine;
+    procedure TestWriteAfterAFailedWriteFlushRaisesNoAlert;
+    procedure TestStreamHandshakeReplayAfterADeadSocketRaisesNoAlert;
     procedure TestCloseAfterAFailedWriteFlushSendsNothing;
     procedure TestSealLimitOverADeadSocketStillRaisesTheLimitError;
     procedure TestFailedHandshakeStartOverADeadSocketRaisesTheTlsError;
@@ -1862,10 +1864,8 @@ begin
   CheckTrue(LClient.WantsWrite, 'the sealed record is pending');
   LClient.LatchTransportFailure('the socket failed');
   CheckFalse(LClient.WantsWrite, 'the latch dropped the bytes a broken transport cannot carry');
-  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LClient.LastError.Alert.Description),
-    'the latched error is internal_error');
-  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LClient.LastError.Origin),
-    'the latched failure is our own');
+  CheckEquals(Ord(TTlsErrorOrigin.Transport), Ord(LClient.LastError.Origin),
+    'the latched failure is a transport failure, not an alert');
 end;
 
 procedure TTestTlsStreamLoopback.TestLatchAfterAFatalAlertKeepsTheQueuedAlert;
@@ -2035,6 +2035,76 @@ begin
   end;
   CheckTrue(LRaised, 'the retry raises the latched transport failure');
   CheckEquals(0, LRecorder.Written, 'nothing follows the torn write');
+end;
+
+procedure TTestTlsStreamLoopback.TestWriteAfterAFailedWriteFlushRaisesNoAlert;
+var
+  LClient: ITlsEngine;
+  LTransport: ITlsTransport;
+  LData, LTransportBuffer: TBytes;
+  LRaised, LHasAlert: Boolean;
+  LMessage: string;
+begin
+  FailAWriteOverADeadSocket(LClient);
+  LData := DecodeHex('00');
+  LTransport := TRecordingTransport.Create as ITlsTransport;
+  LRaised := False;
+  LHasAlert := True;
+  LMessage := '';
+  try
+    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+  except
+    on E: ETlsStreamError do
+    begin
+      LRaised := True;
+      LHasAlert := E.HasAlert;
+      LMessage := E.Message;
+    end;
+  end;
+  CheckTrue(LRaised, 'the retry raises a stream error');
+  CheckFalse(LHasAlert, 'a transport failure is not reported as a TLS alert');
+  CheckTrue(Pos('the mock socket failed', LMessage) > 0, 'the error names the transport failure');
+end;
+
+procedure TTestTlsStreamLoopback.TestStreamHandshakeReplayAfterADeadSocketRaisesNoAlert;
+var
+  LClient: TTlsStream;
+  LFirst, LRaised, LHasAlert, LExactClass: Boolean;
+  LMessage: string;
+begin
+  LClient := NewClientStream(TDeadWriteTransport.Create as ITlsTransport,
+    ClientConfig(False, nil));
+  try
+    LFirst := False;
+    try
+      LClient.Handshake;
+    except
+      on E: EInOutError do
+        LFirst := True;
+    end;
+    CheckTrue(LFirst, 'the first handshake raises the transport''s own exception');
+    LRaised := False;
+    LHasAlert := True;
+    LExactClass := False;
+    LMessage := '';
+    try
+      LClient.Handshake;
+    except
+      on E: ETlsStreamError do
+      begin
+        LRaised := True;
+        LHasAlert := E.HasAlert;
+        LExactClass := E.ClassType = ETlsStreamError;
+        LMessage := E.Message;
+      end;
+    end;
+    CheckTrue(LRaised, 'the replay raises a stream error');
+    CheckTrue(LExactClass, 'the replay is a plain stream error');
+    CheckFalse(LHasAlert, 'the replay carries no alert, as the first failure did');
+    CheckTrue(Pos('the mock socket failed', LMessage) > 0, 'the replay names the failure');
+  finally
+    LClient.Free;
+  end;
 end;
 
 procedure TTestTlsStreamLoopback.TestCloseAfterAFailedWriteFlushSendsNothing;

@@ -402,8 +402,8 @@ close your own side; `ITlsEngine.WriteClosed` tells you which case you are in. T
 sent that it did not send, so a write on a closed stream is always surfaced, never a phantom success.
 
 If your transport's `Write` raises, the stream is finished: later writes, and reads once the data
-already received is returned, raise `ETlsStreamError`, and `CloseNotify` does nothing. Reconnect;
-resumption still works.
+already received is returned, raise `ETlsStreamError` with no alert (`HasAlert` False), and
+`CloseNotify` does nothing. Reconnect; resumption still works.
 
 ## Drive the raw sans-IO engine
 

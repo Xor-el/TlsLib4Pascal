@@ -95,13 +95,15 @@ type
       const ACertEvent: ICertificateReceivedEvent;
       const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole;
       ADeadlineMs: Cardinal); overload; static;
-    /// <summary>Raises the engine's terminal failure as the precise TLS error (its alert) when it
-    /// is in a fatal state; a no-op otherwise. Lets a caller re-surface a latched handshake failure
-    /// with the same alert the engine recorded.</summary>
+    /// <summary>Raises the engine's terminal failure as the precise TLS error (its alert), or after
+    /// a transport failure as an ETlsStreamError with no alert, when it is in a fatal state; a
+    /// no-op otherwise. Lets a caller re-surface a latched handshake failure with what the engine
+    /// recorded.</summary>
     class procedure RaiseIfFatal(const AEngine: ITlsEngine); static;
     /// <summary>Sends every pending outbound byte to the transport. A transport failure raises
     /// unchanged and ends the connection: a live engine is latched (no alert, sessions kept), a
-    /// terminal one drops its unsent queue.</summary>
+    /// terminal one drops its unsent queue. Later calls raise the latched error with no
+    /// alert.</summary>
     class procedure Flush(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Runs the handshake to completion. A client sends its opening flight first
@@ -478,7 +480,7 @@ var
   LOffset, LRemaining, LChunk: Int32;
   LSealFault: Boolean;
 begin
-  // a terminal engine reports its recorded alert, sent first, not a closed-write error (RFC 9846 6.2)
+  // a terminal engine reports its recorded failure first, not a closed-write error (RFC 9846 6.2)
   if AEngine.IsTerminal then
     FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);
   // the engine's Write raises once the write side is closed; pre-check so the stream reports a

@@ -140,7 +140,8 @@ type
     /// <summary>Ends the connection after the transport failed under it, recording AReason as the
     /// error the next operation raises. Unlike SendAlert this is not a TLS fatal alert, so the
     /// sessions the connection stored stay resumable (RFC 5246 7.2.1).
-    /// No alert is queued and pending outbound bytes are dropped.</summary>
+    /// No alert is queued and pending outbound bytes are dropped; LastError.Origin is Transport and
+    /// carries no alert.</summary>
     procedure LatchTransportFailure(const AReason: string);
     /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
     /// send until the ClientHello. Call it once: a second call raises, as does a call from inside
@@ -203,11 +204,11 @@ type
     /// False when async certificate verdicts are disabled (the verdict resolves inline).
     /// </summary>
     function AwaitingCertificateVerdict: Boolean;
-    /// <summary>Whether the engine has FAILED (a fatal alert was sent or received, or the peer sent
-    /// close_notify before the handshake completed) and accepts no more work. It is NOT set by a
-    /// close_notify after the handshake (under TLS 1.3 that half-closes: the write side stays
-    /// open). To end a read loop use IsClosed
-    /// (failed or peer-closed); to detect a clean inbound shutdown use IsInboundClosed.</summary>
+    /// <summary>Whether the engine has FAILED (a fatal alert was sent or received, the peer sent
+    /// close_notify before the handshake completed, or the transport failed under it) and accepts
+    /// no more work. It is NOT set by a close_notify after the handshake (under TLS 1.3 that
+    /// half-closes: the write side stays open). To end a read loop use IsClosed (failed or
+    /// peer-closed); to detect a clean inbound shutdown use IsInboundClosed.</summary>
     function IsTerminal: Boolean;
     /// <summary>Whether the engine is finished for reading: it has failed OR the peer sent
     /// close_notify. The single, honest loop condition for a raw embedder - once True no further
@@ -225,7 +226,7 @@ type
     /// TLS 1.3 an inbound close_notify leaves the write side open (RFC 9846 6.1). A Write in this
     /// state raises EInvalidOperationTlsLibException, so callers must check this first.</summary>
     function WriteClosed: Boolean;
-    /// <summary>The structured error after a Fatal outcome.</summary>
+    /// <summary>The structured error after a Fatal outcome or a latched transport failure.</summary>
     function LastError: TTlsError;
     /// <summary>Exported keying material derived from the connection's exporter secret with no
     /// context value (RFC 9846 7.5 / RFC 5705). Available once the exporter secret is derived: for a
