@@ -210,7 +210,7 @@ var
   LSuite: TTlsCipherSuite;
 begin
   // a registry that lists ChaCha20 ahead of AES-128 keeps that order on a hardware-AES host: the
-  // policy no longer re-sorts the AEAD families
+  // policy keeps the registry's AEAD order
   LCiphers := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
   CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites13.ChaCha20Poly1305Sha256, LSuite), 'catalog');
   LCiphers.Add(LSuite);

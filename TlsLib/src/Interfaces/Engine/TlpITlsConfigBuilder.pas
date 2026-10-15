@@ -112,7 +112,7 @@ type
     /// trust model should disable it. It governs the connected host only: an Encrypted Client
     /// Hello reject is still verified against the config's public_name (RFC 9849 6.1.7). Ignored
     /// under a Custom verifier, which owns the identity check. Build refuses it on a PSK-only
-    /// client, which has no certificate to match against a host.</summary>
+    /// client.</summary>
     function WithDangerousDisableServerNameCheck: ITlsClientConfigBuilder;
     /// <summary>Whether the client sends the connection host as server_name (SNI, RFC 6066 sec.
     /// 3). Send, the default, sends a DNS host and never an IP literal; Omit sends none, while the
@@ -185,15 +185,14 @@ type
     function WithMonotonicClock(const AClock: ITlsMonotonicClock): ITlsClientConfigBuilder;
     /// <summary>Whether session resumption is engaged; defaults to the preset's posture.</summary>
     function WithResumption(AEnabled: Boolean): ITlsClientConfigBuilder;
-    /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) reuses the
-    /// original handshake's authentication (inferred from RFC 9846 2.2); Reverify re-runs the
-    /// certificate verifier against the stored peer chain before the session is offered, at the
-    /// cost of the verification work on every resume. A session whose chain fails current trust is
-    /// not offered: no ticket, binder or early data is sent and the client runs a full handshake,
-    /// which verifies the fresh chain. Under a Hard revocation posture a reverified resume could
-    /// never obtain revocation status (a resume carries no staple), so Build refuses Reverify there
-    /// without WithLiveRevocationVerdict. Build also refuses it with WithEarlyData(True) and an
-    /// async certificate verdict, which resolves only after the server flight.</summary>
+    /// <summary>How the client verifies a resumed server: ReuseOriginal (the default) keeps the
+    /// original authentication (inferred from RFC 9846 2.2); Reverify re-runs the certificate
+    /// verifier against the stored peer chain before the session is offered, at the cost of a
+    /// verification per resume. A session whose chain fails current trust is not offered, so no
+    /// ticket, binder or early data is sent and the client runs a full handshake (Resumed = False).
+    /// Build refuses Reverify without a session cache and resumption on, with WithEarlyData(True)
+    /// and an async certificate verdict, and, since a resume carries no staple, under a Hard
+    /// revocation posture without WithLiveRevocationVerdict.</summary>
     function WithResumeVerification(AMode: TResumeVerification): ITlsClientConfigBuilder;
     /// <summary>Whether the client sends GREASE values (RFC 8701) in its ClientHello, whatever
     /// versions it offers. Optional per the RFC; default True.</summary>
@@ -240,9 +239,8 @@ type
     function WithCertificateCompressionCache(
       const ACache: ICertificateCompressionCache): ITls13ClientConfigFacet;
     /// <summary>Whether the client offers 0-RTT early data when a cached ticket authorizes
-    /// it (TLS 1.3, RFC 9846 4.3.10). Off by default. Build refuses it with
-    /// WithResumeVerification(Reverify) and an async certificate verdict, which resolves only
-    /// after the server flight.</summary>
+    /// it (TLS 1.3, RFC 9846 4.3.10). Off by default. Build refuses it together with Reverify and
+    /// an async certificate verdict (the verdict resolves after the server flight).</summary>
     function WithEarlyData(AEnabled: Boolean): ITls13ClientConfigFacet;
     /// <summary>
     /// How the client offers Encrypted Client Hello (RFC 9849), as one exclusive choice from
@@ -414,12 +412,11 @@ type
     /// <summary>An opaque scope (at most 32 bytes) sealed into every ticket/session this
     /// configuration issues and required to match on resumption. When a ticket key or session
     /// store is shared across configurations, only those given the same scope resume each other's
-    /// sessions - so a configuration never
-    /// resumes a session another established under different client-authentication trust. Empty
-    /// (the default) does not partition: configurations sharing a key/store resume each other, as
-    /// before. Set the same scope on configurations that trust identically, different scopes to
-    /// keep them apart. The client method of the same name has the opposite empty default: it
-    /// isolates rather than shares.</summary>
+    /// sessions, so a configuration never resumes a session another established under different
+    /// client-authentication trust. Empty (the default) does not partition: configurations sharing
+    /// a key/store resume each other. Set the same scope on configurations that trust identically,
+    /// different scopes to keep them apart. The client method of the same name has the opposite
+    /// empty default: it isolates rather than shares.</summary>
     function WithResumptionScope(const AScope: TBytes): ITlsServerConfigBuilder;
     /// <summary>Requests a default STEK, minted at build time from this configuration's own
     /// provider RNG and clock, so stateless tickets honor an injected crypto provider rather than

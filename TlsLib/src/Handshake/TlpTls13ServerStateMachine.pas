@@ -1442,7 +1442,8 @@ begin
   LHasEchExtension := (not LEchAccepted) and TryEchType(LExtensions, LEchType);
   if LHasEchExtension then
     RequireEchTypeForRole(LEchType);
-  // a backend's CH2 must be exactly CH1's inner (RFC 9846 4.2.2, RFC 9849 7.2.1)
+  // a backend's CH2 keeps CH1's inner ech marker and random (RFC 9846 4.2.2; inferred from RFC
+  // 9849 6.1.5)
   if FEchStatus = TEchStatus.Backend then
   begin
     if not LHasEchExtension then

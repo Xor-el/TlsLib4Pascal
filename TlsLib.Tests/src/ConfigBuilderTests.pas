@@ -4446,7 +4446,7 @@ begin
   SetLength(LScope, 8);
   FillChar(LScope[0], 8, $2A);
   // set the scope BEFORE the cache: the two setters are order-insensitive, so the pinned scope
-  // survives (the cache setter no longer clears it)
+  // survives (the cache setter leaves it alone)
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(WebPkiServer(ClientTrust))
     .WithResumptionScope(LScope)

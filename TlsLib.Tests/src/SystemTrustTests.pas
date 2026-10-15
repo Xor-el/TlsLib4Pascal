@@ -269,13 +269,13 @@ type
     procedure TestClientSourceCarriesVerifyCallbackFromContext;
     procedure TestFilterRootsDeDupsAndDropsMalformed;
     procedure TestSnapshotCarriesFilteredDistrustSet;
-    // RFC 7633 must-staple + TLS Feature well-formedness, now enforced by the OS delegate
+    // RFC 7633 must-staple + TLS Feature well-formedness, enforced by the OS delegate
     procedure TestMustStapleLeafWithoutStapleRejects;
     procedure TestMustStapleLeafWithGoodStapleAccepts;
     procedure TestMustStapleNotBoundWhenNotOfferedOrOnResumption;
     procedure TestMalformedTlsFeatureRejectsBothRoles;
     procedure TestServerSourceEnforcesMustStaple;
-    // S2: a DnsIdentity engine's host match no longer substitutes for the library SAN check
+    // a DnsIdentity engine's host match does not substitute for the library SAN check
     procedure TestNameMismatchRejectsWithDnsCapability;
   end;
 

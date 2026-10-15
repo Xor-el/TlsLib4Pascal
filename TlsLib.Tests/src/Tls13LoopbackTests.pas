@@ -953,8 +953,9 @@ begin
   // ECH reject coincident with a HelloRetryRequest: the server holds a mismatched config (so it
   // rejects ECH) and offers only secp256r1 (so it retries the X25519 key_share). The client must
   // send a second ClientHelloOuter whose ech extension is a verbatim copy of the first's (RFC
-  // 9849 sec. 6.1.5) rather than a plaintext ClientHello - then complete to public_name and abort
-  // with ech_required. A malformed or SNI-leaking CH2 would break the outer handshake here.
+  // 9849 sec. 6.2.1 by analogy) rather than a plaintext ClientHello - then complete to
+  // public_name and abort with ech_required. A malformed or SNI-leaking CH2 would break the
+  // outer handshake here.
   LConfigClient := BuildEchConfigList($AA, 'localhost', LSkClient);
   LConfigServer := BuildEchConfigList($BB, 'localhost', LSkServer);
   LClient := NewEchHrrRejectClient(LConfigClient);

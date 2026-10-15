@@ -534,8 +534,7 @@ begin
   // it inline). PassThrough=False makes Indy route reads/writes through RecvEnc/SendEnc, where
   // the handshake then runs lazily on this connection's worker thread.
   fPassThrough := False;
-  // AfterAccept (which we no longer call on the listener thread) would have copied the
-  // accepted binding's IP version; restore it so an IPv6-accepted server peer reports correctly
+  // restore the accepted binding's IP version so an IPv6-accepted server peer reports correctly
   if Binding <> nil then
     IPVersion := Binding.IPVersion;
 end;

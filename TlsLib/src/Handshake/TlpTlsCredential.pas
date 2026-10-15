@@ -76,16 +76,9 @@ type
   TClientAuthMode = (None, Requested, Required);
 
   /// <summary>How a client treats server-certificate verification when it resumes a session:
-  /// ReuseOriginal (the default) reuses the original handshake's authentication without
-  /// re-checking (RFC 9846 2.2); Reverify re-runs the certificate verifier against the stored
-  /// peer chain before the session is offered, for a stricter posture that re-checks a resumed
-  /// server against current trust. A session whose chain fails is not offered, so no ticket,
-  /// binder or early data is sent and the client runs a full handshake that verifies the fresh
-  /// chain; it then reports Resumed = False.
-  /// Sessions are scoped per configuration (see WithSessionCache), so this does not govern
-  /// cross-configuration resumption; it re-checks the sessions this configuration, or a scope it
-  /// explicitly shares, stored. Under Hard revocation, Reverify needs a live-revocation verdict
-  /// (a resume carries no staple to check), and the builder refuses it without one.</summary>
+  /// ReuseOriginal (the default) keeps the original authentication (inferred from RFC 9846 2.2);
+  /// Reverify re-runs the certificate verifier against the stored peer chain before the session is
+  /// offered. See WithResumeVerification.</summary>
   TResumeVerification = (ReuseOriginal, Reverify);
 
   /// <summary>How a TLS 1.2 server treats a ClientHello that resumes a session established without
@@ -106,7 +99,7 @@ type
   /// codepoints (SignatureSchemes, CipherSuites, SupportedGroups) or protocol-name octets (Alpn).
   /// CertificateSignatureSchemes is the client's signature_algorithms_cert, else its
   /// signature_algorithms; a chain with a certificate (other than a self-issued one) signed with
-  /// MD5, or with SHA-1 not listed here, is refused (RFC 9846 4.5.1.2).
+  /// MD5, or with SHA-1 not listed here, is refused (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3).
   /// ProtocolVersion is the version of the server machine performing the lookup.</summary>
   TTlsClientHelloInfo = record
     ServerName: string;

@@ -52,7 +52,7 @@ type
     /// be "unrecognized"), and handshake_failure when the resolved credential carries no signing
     /// key or an empty chain. The returned credential always has both. Also handshake_failure
     /// when its chain is signed with MD5, or with SHA-1 the client did not advertise (RFC 9846
-    /// 4.5.1.2).</summary>
+    /// 4.5.1.2; MD5 inferred from 4.5.1.3).</summary>
     class function ResolveCredential(const AResolver: ITlsServerCredentialResolver;
       const AInspector: ICertificateInspector; const AContext: TExtensionContext;
       const ACipherSuites: TArray<UInt16>; AVersion: TTlsVersion): TTlsCredential; static;

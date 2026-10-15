@@ -73,10 +73,6 @@ type
     /// revert to plaintext): a change_cipher_spec is only ever sent then, so emitting one once
     /// write protection is armed is a caller error (RFC 9846 5 / RFC 5246 7.1).</summary>
     FWriteIsPlaintext: Boolean;
-    /// <summary>When set (by the engine for a real handshake), an application_data record before
-    /// the handshake completes is rejected as unexpected. Off by default so the record layer
-    /// stays a plain framing component for its own unit tests, which feed plaintext
-    /// application_data.</summary>
     FStrictApplicationData: Boolean;
     /// <summary>Whether the read side is on the accepted-0-RTT early-data epoch, during which an
     /// application_data record legitimately precedes the handshake completion (RFC 9846 4.3.10).

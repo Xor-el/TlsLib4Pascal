@@ -67,8 +67,8 @@ type
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>
     /// Whether we may send AChain: no certificate other than a self-issued one is signed with MD5,
-    /// or with SHA-1 the peer did not advertise in APeerCertSchemes (RFC 9846 4.5.1.2). A
-    /// certificate whose signature cannot be determined is not refused.
+    /// or with SHA-1 the peer did not advertise in APeerCertSchemes (RFC 9846 4.5.1.2; MD5 inferred
+    /// from 4.5.1.3). A certificate whose signature cannot be determined is not refused.
     /// </summary>
     class function SendableTo(const AInspector: ICertificateInspector;
       const AChain: TArray<TBytes>; const APeerCertSchemes: TArray<UInt16>): Boolean; static;

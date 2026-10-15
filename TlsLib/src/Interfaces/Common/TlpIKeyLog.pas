@@ -21,11 +21,9 @@ uses
 type
   /// <summary>
   /// DANGEROUS. Receives each RFC 9850 connection secret as the key schedule derives it, so a
-  /// packet capture can be decrypted out of band (the SSLKEYLOGFILE format). ALabel names the
-  /// secret: CLIENT_RANDOM carries the TLS 1.2 master secret; CLIENT_EARLY_TRAFFIC_SECRET,
-  /// EARLY_EXPORTER_SECRET, CLIENT_HANDSHAKE_TRAFFIC_SECRET, SERVER_HANDSHAKE_TRAFFIC_SECRET,
-  /// CLIENT_TRAFFIC_SECRET_0, SERVER_TRAFFIC_SECRET_0 and EXPORTER_SECRET carry the TLS 1.3
-  /// secrets; a KeyUpdate logs no further traffic secret. AClientRandom is the 32-byte
+  /// packet capture can be decrypted out of band (the SSLKEYLOGFILE format). ALabel is the
+  /// SSLKEYLOGFILE label (CLIENT_RANDOM for the TLS 1.2 master secret, per-secret labels for TLS
+  /// 1.3); a KeyUpdate logs no further traffic secret. AClientRandom is the 32-byte
   /// ClientHello.random the line is keyed by - the inner ClientHello's when Encrypted Client
   /// Hello was accepted, the outer's otherwise. ASecret is a transient copy wiped when the call
   /// returns; a sink that keeps it holds live key material. Never installed unless a caller opts

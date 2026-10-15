@@ -84,8 +84,7 @@ type
     /// inline (revocation added unless None; leaf-scoped under RequirePositive, so a good staple is
     /// not outvoted by an uncached intermediate), or network-enabled for a live check (whole-chain
     /// revocation with AIA disabled so the built path matches the presented one). Root
-    /// auto-update is never disabled. Trade-off: Hard inline no longer checks cached intermediate
-    /// revocation (the staple covers the leaf); Soft inline and the live pass still do.</summary>
+    /// auto-update is never disabled.</summary>
     class function ChainFlags(ARevocation: TPlatformRevocationCheck;
       ANetworkAllowed: Boolean): DWORD; static;
     function Capabilities: TPlatformChainCapabilities;

@@ -1101,8 +1101,8 @@ begin
   // key_share): supported_versions when present, else the legacy_version. This client offers
   // only TLS 1.3, so any other selection is not one it agreed to - a stamped downgrade is an
   // attack (illegal_parameter, RFC 9846 4.2.3), any other lower version is unsupported and
-  // reported as protocol_version (RFC 9846 E.1; 4.3.1 says illegal_parameter), not a cipher/decode
-  // error.
+  // reported as protocol_version (RFC 9846 E.1; a deliberate deviation from 4.3.1's
+  // illegal_parameter), not a cipher/decode error.
   if THandshakeMessages.TryGetServerHelloSelectedVersion(LHello.Extensions,
     LNegotiatedVersion) then
   begin
@@ -1812,7 +1812,8 @@ begin
   // server's own policy decides. On an ECH reject the handshake is with the client-facing
   // server on the public_name, not the intended server, so the client MUST NOT present its
   // certificate there (RFC 9849 sec. 6.1.7): it declines with an empty one. It also declines when
-  // its chain has MD5, or SHA-1 the server did not advertise (RFC 9846 4.5.1.2).
+  // its chain has MD5, or SHA-1 the server did not advertise (RFC 9846 4.5.1.2; MD5 inferred from
+  // 4.5.1.3).
   LHasScheme := False;
   if (System.Length(FParams.ClientCredential.CertificateChain) > 0) and
     (FEchOrch.Status <> TEchStatus.Rejected) and
