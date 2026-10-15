@@ -238,7 +238,7 @@ var
   LClient: ITlsClientConfigBuilder;
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(TrustRoot));
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build);
   if AAsync then
     LClient.WithAsyncCertificateVerdict(ADeadlineMs);
   Result := LClient.Build;
@@ -262,7 +262,7 @@ begin
   // the client trusts the server root and presents its own credential when the server
   // requests client authentication (the same vector leaf serves both directions)
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
 end;
 
@@ -272,7 +272,7 @@ var
 begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithClientVerification(WebPkiClient(TrustRoot))
+    .WithClientVerification(TClientVerification.WebPki(TrustRoot).Build)
     .WithPeerAuth(TClientAuthMode.Required);
   if AAsync then
     LServer.WithAsyncCertificateVerdict(0);
@@ -295,7 +295,7 @@ function TTestAsyncVerdict.MtlsServerConfigPinned(
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithClientVerification(WebPkiClient(TrustRoot))
+    .WithClientVerification(TClientVerification.WebPki(TrustRoot).Build)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithCertificatePinning(APins).Build;
 end;
@@ -366,7 +366,7 @@ begin
   LClientOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := LClientOwner.Client
     .WithSupportedVersions(LVer)
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey));
   LClientCfg := LClient.Build;
 
@@ -480,7 +480,7 @@ begin
 
   LClientOwner := TTlsPresets.Compatible(LClientCrypto, Pkix);
   LClient := LClientOwner.Client.WithSupportedVersions(LVer)
-    .WithServerVerification(WebPkiServer(TrustRoot));
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build);
   if AMtls then
     LClient.WithCredential(TTlsCredential.Load(LClientCrypto, Pkix, LeafCert, LeafKey))
   else
@@ -490,7 +490,7 @@ begin
   LServer := LServerOwner.Server.WithSupportedVersions(LVer)
     .WithCredential(TTlsCredential.Load(LServerCrypto, Pkix, LeafCert, LeafKey));
   if AMtls then
-    LServer.WithClientVerification(WebPkiClient(TrustRoot))
+    LServer.WithClientVerification(TClientVerification.WebPki(TrustRoot).Build)
       .WithPeerAuth(TClientAuthMode.Required).WithAsyncCertificateVerdict(0);
 
   Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'localhost');
@@ -694,7 +694,7 @@ begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   LOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithCertificatePinning(TArray<TBytes>.Create(Crypto.Primitives.GetRandom.GenerateBytes(32)))
     .WithCertificateVerifyCallback(LSpy.Callback).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
@@ -715,7 +715,7 @@ begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   LOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithCertificateVerifyCallback(LSpy.Callback).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
   LClient.StartHandshake;
@@ -791,8 +791,8 @@ begin
   LClient := TTlsEngineFactory.CreateClientEngine(MtlsClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(LOwner.Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithClientVerification(WebPkiClient(TrustRoot)).WithPeerAuth(TClientAuthMode.Required)
-    .WithCertificateVerifyCallback(LSpy.Callback).Build);
+    .WithClientVerification(TClientVerification.WebPki(TrustRoot).Build)
+    .WithPeerAuth(TClientAuthMode.Required).WithCertificateVerifyCallback(LSpy.Callback).Build);
   LClient.StartHandshake;
   DriveToCompletion(LClient, LServer);
   CheckFalse(LServer.IsTerminal, 'the accepting callback leaves the handshake alone');

@@ -40,6 +40,7 @@ uses
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
+  TlpCertificateVerifierSource,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
@@ -4304,7 +4305,7 @@ begin
       .WithCredential(TTlsCredential.Load(Crypto, Pkix,
       DecodeHex(LV.Values['leaf_cert']), DecodeHex(LV.Values['leaf_key'])))
       .WithPeerAuth(TClientAuthMode.Required)
-      .WithClientVerification(WebPkiClient(LStore)).Build;
+      .WithClientVerification(TClientVerification.WebPki(LStore).Build).Build;
   finally
     LV.Free;
   end;

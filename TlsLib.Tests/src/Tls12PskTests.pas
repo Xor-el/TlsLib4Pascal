@@ -32,6 +32,7 @@ uses
   TlpICryptoProvider,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
+  TlpCertificateVerifierSource,
   TlpTrustTypes,
   TlpTlsCredential,
   TlpISecretBuffer,
@@ -190,7 +191,8 @@ end;
 function TTestTls12Psk.NewCertificateClient: ITlsEngine;
 begin
   Result := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithSupportedVersions(Only12).WithServerVerification(WebPkiServer(ClientTrust)).Build, ServerHost);
+    .WithSupportedVersions(Only12)
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).Build, ServerHost);
 end;
 
 function TTestTls12Psk.NewReverifyClient(const ACache: ISessionCache;
@@ -199,7 +201,8 @@ var
   LBuilder: ITlsClientConfigBuilder;
 begin
   LBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client.WithSupportedVersions(Only12)
-    .WithServerVerification(WebPkiServer(ClientTrust)).WithResumption(True).WithSessionCache(ACache)
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).WithResumption(True)
+    .WithSessionCache(ACache)
     .WithResumptionScope(BytesOf('reverify-client')).WithResumeVerification(TResumeVerification.Reverify);
   if ADeferral = TVerdictDeferral.LiveRevocation then
     LBuilder.WithLiveRevocationVerdict(0)
@@ -577,7 +580,8 @@ var
   LClient, LServer: ITlsEngine;
 begin
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithSupportedVersions(Only12).WithServerVerification(WebPkiServer(ClientTrust))
+    .WithSupportedVersions(Only12)
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCredential(ServerCredential).Build);
@@ -603,7 +607,8 @@ var
   LClient, LServer: ITlsEngine;
 begin
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithSupportedVersions(Only12).WithServerVerification(WebPkiServer(ClientTrust))
+    .WithSupportedVersions(Only12)
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := NewServerWithCertificate(TArray<TTls12Psk>.Create(Psk(Identity1, 1)));
   Run(LClient, LServer);
@@ -619,7 +624,8 @@ var
 begin
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCredential(ServerCredential)
-    .WithClientVerification(WebPkiClient(ClientTrust)).WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(TClientVerification.WebPki(ClientTrust).Build)
+    .WithPeerAuth(TClientAuthMode.Required)
     .Tls12.WithPreSharedKeys(TArray<TTls12Psk>.Create(Psk(Identity1, 1))).Build);
   LClient := NewClient(Psk(Identity1, 1));
   Run(LClient, LServer);
@@ -861,7 +867,8 @@ begin
   for LSuite in TCipherSuiteRegistry.CreateTls12Psk(Crypto).Items do
     LRegistry.Add(LSuite);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithSupportedVersions(Only12).WithServerVerification(WebPkiServer(ClientTrust))
+    .WithSupportedVersions(Only12)
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCipherSuites(LRegistry.Build).WithCredential(ServerCredential).Build);
@@ -950,7 +957,8 @@ begin
   LOnly13 := TArray<UInt16>.Create(TlsWireVersionTls13);
   LBoth := TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12);
   CheckTrue(ClientRefused(TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithSupportedVersions(LOnly13).WithServerVerification(WebPkiServer(ClientTrust))
+    .WithSupportedVersions(LOnly13)
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1))), 'a TLS 1.2 PSK without TLS 1.2 offered');
   CheckTrue(ClientRefused(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(LBoth).Tls12.WithPreSharedKey(Psk(Identity1, 1))),

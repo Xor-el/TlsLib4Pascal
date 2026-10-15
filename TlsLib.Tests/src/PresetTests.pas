@@ -59,7 +59,8 @@ function TTestPreset.ClientOf(
   const ABuilder: ITlsConfigBuilder): ITlsClientConfig;
 begin
   // a real single-root store lets the client build so its invariants can be read
-  Result := ABuilder.Client.WithServerVerification(WebPkiServer(EcP256RootStore)).Build;
+  Result := ABuilder.Client
+    .WithServerVerification(TServerVerification.WebPki(EcP256RootStore).Build).Build;
 end;
 
 procedure TTestPreset.TestHardenedPrefersPqHybridGroup;

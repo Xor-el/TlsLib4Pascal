@@ -54,6 +54,7 @@ uses
   TlpTrustAnchorStore,
   TlpServerName,
   TlpCertificateVerifier,
+  TlpCertificateVerifierSource,
   TlpTlsCredential,
   TlpCredentialResolvers,
   TlpTls13ClientStateMachine,
@@ -487,7 +488,8 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Server.WithCredential(ServerCredential).Build);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-    .Client.WithServerVerification(WebPkiServer(TestRootCertificate)).Build, 'localhost');
+    .Client.WithServerVerification(TServerVerification.WebPki(TestRootCertificate).Build)
+    .Build, 'localhost');
   DriveToCompletion(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset engine');
 end;
@@ -513,10 +515,11 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Server.WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(WebPkiClient(LClientRoot)).Build);
+    .WithClientVerification(TClientVerification.WebPki(LClientRoot).Build).Build);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Client.WithCredential(LClientCred)
-    .WithServerVerification(WebPkiServer(TestRootCertificate)).Build, 'localhost');
+    .WithServerVerification(TServerVerification.WebPki(TestRootCertificate).Build)
+    .Build, 'localhost');
   DriveToCompletion(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset mutual TLS');
 end;
@@ -1329,7 +1332,8 @@ begin
   LRaised := False;
   try
     TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-      .Client.WithServerVerification(WebPkiServer(TestRootCertificate)).Build, '');
+      .Client.WithServerVerification(TServerVerification.WebPki(TestRootCertificate).Build)
+      .Build, '');
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -1338,7 +1342,7 @@ begin
 
   // opting out with WithDangerousDisableServerNameCheck allows an empty host (chain-only trust, no SNI)
   TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-    .Client.WithServerVerification(WebPkiServer(TestRootCertificate))
+    .Client.WithServerVerification(TServerVerification.WebPki(TestRootCertificate).Build)
     .WithDangerousDisableServerNameCheck.Build, '');
   CheckTrue(True, 'with name-check off, an empty host is allowed');
 end;

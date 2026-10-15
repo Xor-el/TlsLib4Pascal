@@ -1943,7 +1943,7 @@ var
 begin
   LClockObj := TMockMonotonicClock.Create(1000);
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(EcP256RootStore))
+    .WithServerVerification(TServerVerification.WebPki(EcP256RootStore).Build)
     .WithMonotonicClock(LClockObj as ITlsMonotonicClock).Build;
   LTransport := TTestMemoryTransport.Create(nil, True);
   LTimed := LTransport as ITlsTransport;
@@ -1975,7 +1975,7 @@ var
   LMessage: string;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(EcP256RootStore)).Build;
+    .WithServerVerification(TServerVerification.WebPki(EcP256RootStore).Build).Build;
   LTransport := TTestMemoryTransport.Create(nil, True);
   LDestroyed := False;
   LTransport.ReportDestructionTo(@LDestroyed);

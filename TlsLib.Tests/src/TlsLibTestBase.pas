@@ -35,9 +35,6 @@ uses
   TlpIPkixProvider,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
-  TlpCertificateVerifier,
-  TlpICertificateVerifierSource,
-  TlpCertificateVerifierSource,
   TlsLibTestResourceLoader,
   TlsLibTestProviders;
 
@@ -102,8 +99,6 @@ type
     function ContainsAscii(const ABytes: TBytes; const AText: string): Boolean;
     // Fail with a hex diff unless AActual equals AExpected.
     procedure CheckEqualBytes(const AName: string; const AExpected, AActual: TBytes);
-    function LoadResourceBytes(const ARelativePath: string): TBytes;
-    function LoadResourceString(const ARelativePath: string): string;
     // Loads a "name=hexvalue" vector file; read fields via Result.Values['name'].
     function LoadVectorFields(const ARelativePath: string): TStringList;
     // The EcP256Chain self-signed root (Certs/EcP256Chain.txt: root_cert), for config-only tests
@@ -112,11 +107,6 @@ type
     function EcP256RootStore: ITrustAnchorStore;
     // A named certificate of Certs/CriticalExtensionsChain.txt.
     function CriticalExtensionsCertificate(const AName: string): TBytes;
-    // The built-in PKIX pipeline over AStore / over PEM or DER roots, with its default settings.
-    function WebPkiServer(const AStore: ITrustAnchorStore): IServerVerification; overload;
-    function WebPkiServer(const AAnchorData: TBytes): IServerVerification; overload;
-    function WebPkiClient(const AStore: ITrustAnchorStore): IClientVerification; overload;
-    function WebPkiClient(const AAnchorData: TBytes): IClientVerification; overload;
   end;
 
 implementation
@@ -348,16 +338,6 @@ begin
       [AName, EncodeHex(AExpected), EncodeHex(AActual)]));
 end;
 
-function TTlsLibAlgorithmTestCase.LoadResourceBytes(const ARelativePath: string): TBytes;
-begin
-  Result := TTlsLibTestResourceLoader.LoadBytes(ARelativePath);
-end;
-
-function TTlsLibAlgorithmTestCase.LoadResourceString(const ARelativePath: string): string;
-begin
-  Result := TTlsLibTestResourceLoader.LoadString(ARelativePath);
-end;
-
 function TTlsLibAlgorithmTestCase.LoadVectorFields(const ARelativePath: string): TStringList;
 begin
   Result := TStringList.Create;
@@ -397,28 +377,6 @@ begin
   finally
     LFields.Free;
   end;
-end;
-
-function TTlsLibAlgorithmTestCase.WebPkiServer(const AStore: ITrustAnchorStore)
-  : IServerVerification;
-begin
-  Result := TServerVerification.WebPki(AStore).Build;
-end;
-
-function TTlsLibAlgorithmTestCase.WebPkiServer(const AAnchorData: TBytes): IServerVerification;
-begin
-  Result := TServerVerification.WebPki(AAnchorData).Build;
-end;
-
-function TTlsLibAlgorithmTestCase.WebPkiClient(const AStore: ITrustAnchorStore)
-  : IClientVerification;
-begin
-  Result := TClientVerification.WebPki(AStore).Build;
-end;
-
-function TTlsLibAlgorithmTestCase.WebPkiClient(const AAnchorData: TBytes): IClientVerification;
-begin
-  Result := TClientVerification.WebPki(AAnchorData).Build;
 end;
 
 end.

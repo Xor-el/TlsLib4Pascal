@@ -302,7 +302,7 @@ var
   LClient: ITlsClientConfigBuilder;
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ServerRoot))
+    .WithServerVerification(TServerVerification.WebPki(ServerRoot).Build)
     // present the client certificate (leaf only)
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, ClientLeaf, ClientKey));
   if AForce12 then

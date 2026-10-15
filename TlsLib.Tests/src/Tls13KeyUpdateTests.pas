@@ -30,6 +30,7 @@ uses
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpCertificateVerifier,
+  TlpCertificateVerifierSource,
   TlpTlsCredential,
   TlpTlsPresets,
   TlpTlsEngineFactory,
@@ -190,7 +191,8 @@ function TTestTls13KeyUpdate.NewClient: ITlsEngine;
 begin
   // Hardened is TLS 1.3-only, the version that has KeyUpdate
   Result := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(Crypto, Pkix).Client.WithServerVerification(WebPkiServer(ClientTrust))
+    TTlsPresets.Hardened(Crypto, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .Build, ServerHost);
 end;
 
@@ -328,7 +330,8 @@ begin
   LCapped := TCappedAeadProvider.Create(Crypto, 32) as ICryptoProvider;
   LRegistry := AesGcmRegistry(LCapped);
   LClient := TTlsEngineFactory.CreateClientEngine(
-    TTlsPresets.Hardened(LCapped, Pkix).Client.WithServerVerification(WebPkiServer(ClientTrust))
+    TTlsPresets.Hardened(LCapped, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithCipherSuites(LRegistry).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(
     TTlsPresets.Hardened(LCapped, Pkix).Server.WithCredential(ServerCredential)
@@ -704,7 +707,7 @@ var
 begin
   // one config for every connection, so a cached share would repeat (RFC 9846 4.3.8)
   LClientConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust)).Build;
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).Build;
   LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   for LI := 0 to 1 do

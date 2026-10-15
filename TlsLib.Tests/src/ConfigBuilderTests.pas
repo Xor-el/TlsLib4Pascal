@@ -555,7 +555,7 @@ begin
     .WithNamedGroups(TNamedGroups.CreateDefaultRegistry(ACryptoProvider))
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .Build;
 end;
 
@@ -857,7 +857,7 @@ begin
     .WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Crypto))
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithServerNameIndication(AMode)
     .Tls13.WithEch(TEchClientModes.Enable(LConfigList)).Build;
   LServerBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
@@ -1084,7 +1084,7 @@ var
 begin
   // GREASE with no config list is the explicit GREASE-only mode; it builds
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .Tls13.WithEch(TEchClientModes.Grease).Build;
   CheckTrue(LConfig.EncryptedClientHello <> nil, 'GREASE-only ECH is configured');
   CheckTrue(LConfig.EncryptedClientHello.GreaseEnabled, 'the policy is GREASE-enabled');
@@ -1106,7 +1106,7 @@ begin
   LMsg := '';
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(ClientTrust))
+      .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
       .Tls13.WithEch(TEchClientModes.Enable(LConfigList)).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -1116,7 +1116,7 @@ begin
   LMsg := '';
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(ClientTrust))
+      .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
       .Tls13.WithEch(TEchClientModes.Retry(LConfigList)).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -2348,7 +2348,8 @@ function TTestConfigBuilder.NewTls12OnlyClient(AGrease: Boolean): ITlsEngine;
 begin
   Result := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithServerVerification(WebPkiServer(ClientTrust)).WithGrease(AGrease).Build, 'localhost');
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).WithGrease(AGrease)
+    .Build, 'localhost');
 end;
 
 function TTestConfigBuilder.GreaseCount(const AValues: TArray<UInt16>): Int32;
@@ -2945,7 +2946,7 @@ var
   LRaised: Boolean;
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client;
-  LClient.WithServerVerification(WebPkiServer(ClientTrust));
+  LClient.WithServerVerification(TServerVerification.WebPki(ClientTrust).Build);
   LClient.Build;
   LRaised := False;
   try
@@ -2963,7 +2964,7 @@ var
   LRaised: Boolean;
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client;
-  LClient.WithServerVerification(WebPkiServer(ClientTrust));
+  LClient.WithServerVerification(TServerVerification.WebPki(ClientTrust).Build);
   LClient.Build;
   LRaised := False;
   try
@@ -2986,7 +2987,7 @@ begin
   LOther := DecodeHex(
     'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithCertificatePinning(TArray<TBytes>.Create(LPin))
     .Build;
   // neither reassigning an element nor mutating an inner byte of the returned array
@@ -3144,7 +3145,8 @@ begin
   LMsg := '';
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(TTrustAnchorStore.Create(nil) as ITrustAnchorStore))
+      .WithServerVerification(TServerVerification.WebPki(
+        TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build)
       .Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -3166,7 +3168,7 @@ begin
   LMsg := '';
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(LUnion)).Build;
+      .WithServerVerification(TServerVerification.WebPki(LUnion).Build).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LMsg := E.Message;
@@ -3208,7 +3210,8 @@ begin
   LRaised := False;
   try
     TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(TTrustAnchorStore.Create(nil) as ITrustAnchorStore))
+      .WithServerVerification(TServerVerification.WebPki(
+        TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build)
       .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(MakePskSpec)).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -3226,7 +3229,8 @@ begin
     TTlsPresets.Compatible(Crypto, Pkix).Server
       .WithCredential(ServerCredential)
       .WithPeerAuth(TClientAuthMode.Required)
-      .WithClientVerification(WebPkiClient(TTrustAnchorStore.Create(nil) as ITrustAnchorStore))
+      .WithClientVerification(TClientVerification.WebPki(
+        TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build)
       .Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -3342,7 +3346,8 @@ begin
   // each client-certificate trust input is inert on a server that requests no client certificate,
   // so it is refused rather than accepted and ignored
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(ServerCredential).WithClientVerification(WebPkiClient(ClientTrust))),
+    .WithCredential(ServerCredential)
+    .WithClientVerification(TClientVerification.WebPki(ClientTrust).Build)),
     'a trust store');
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
@@ -3364,7 +3369,8 @@ begin
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithAsyncCertificateVerdict(1000)), 'an async verdict');
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(ServerCredential).WithClientVerification(WebPkiClient(EcP256RootCertificate))),
+    .WithCredential(ServerCredential)
+    .WithClientVerification(TClientVerification.WebPki(EcP256RootCertificate).Build)),
     'trust anchors given as a certificate');
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithClientVerification(
@@ -3377,7 +3383,8 @@ begin
     'a verifier instance');
   // control: the same trust store builds once the server requests client certificates
   CheckTrue(TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(ServerCredential).WithClientVerification(WebPkiClient(ClientTrust))
+    .WithCredential(ServerCredential)
+    .WithClientVerification(TClientVerification.WebPki(ClientTrust).Build)
     .WithPeerAuth(TClientAuthMode.Requested).Build <> nil, 'control: with WithPeerAuth');
 end;
 
@@ -3393,7 +3400,7 @@ begin
     TTlsPresets.Compatible(Crypto, Pkix).Server
       .WithCredential(ServerCredential)
       .WithPeerAuth(TClientAuthMode.Required)
-      .WithClientVerification(WebPkiClient(ClientTrust))
+      .WithClientVerification(TClientVerification.WebPki(ClientTrust).Build)
       .WithSessionTicketKeys(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
       .Build;
   except
@@ -3472,7 +3479,7 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(WebPkiClient(ClientTrust))
+    .WithClientVerification(TClientVerification.WebPki(ClientTrust).Build)
     .WithSessionTicketKeys(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager)
     .WithResumptionScope(TBytes.Create($73, $63, $6F, $70, $65))
     .Build;
@@ -3488,7 +3495,7 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(WebPkiClient(ClientTrust))
+    .WithClientVerification(TClientVerification.WebPki(ClientTrust).Build)
     .Build;
   CheckTrue(LConfig <> nil, 'an mTLS server on the default STEK builds without a scope');
 end;
@@ -3603,7 +3610,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithAsyncCertificateVerdict(0)
     .Build;
   CheckEquals(Ord(TVerdictDeferral.HostDecision),
@@ -3694,7 +3701,7 @@ begin
     .WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Crypto))
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithCertificateChainLimits(LCustom)
     .Build;
   LFrozen := LConfig.CertificateChainLimits;
@@ -3819,7 +3826,8 @@ end;
 
 function TTestConfigBuilder.NewClientBuilder: ITlsClientConfigBuilder;
 begin
-  Result := NewBareClientBuilder.WithServerVerification(WebPkiServer(ClientTrust));
+  Result := NewBareClientBuilder
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build);
 end;
 
 function TTestConfigBuilder.NewServerBuilder: ITlsServerConfigBuilder;
@@ -4010,7 +4018,7 @@ begin
     .WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Crypto))
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithCertificatePinning(TArray<TBytes>.Create(LPin))
     .Build;
   CheckEquals(1, System.Length(LConfig.CertificatePins), 'one pin is stored');
@@ -4157,7 +4165,8 @@ begin
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   LRaised := False;
   try
-    LBuilder.Client.WithServerVerification(WebPkiServer(ClientTrust)).WithCredential(LNoKey).Build;
+    LBuilder.Client.WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
+      .WithCredential(LNoKey).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := Pos('private key', E.Message) > 0;
@@ -4167,7 +4176,8 @@ begin
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   LRaised := False;
   try
-    LBuilder.Client.WithServerVerification(WebPkiServer(ClientTrust)).WithCredential(LNoChain).Build;
+    LBuilder.Client.WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
+      .WithCredential(LNoChain).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := Pos('leaf certificate', E.Message) > 0;
@@ -4184,9 +4194,9 @@ begin
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   LRaised := False;
   try
-    LBuilder.Client.WithServerVerification(WebPkiServer(TTrustAnchorStore.Create(
+    LBuilder.Client.WithServerVerification(TServerVerification.WebPki(TTrustAnchorStore.Create(
       TArray<TBytes>.Create(DecodeHex(FCerts.Values['root_cert']), TBytes.Create(1, 2, 3)))
-      as ITrustAnchorStore)).Build;
+      as ITrustAnchorStore).Build).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := Pos('anchor 1 of trust store 0', E.Message) > 0;
@@ -4194,7 +4204,8 @@ begin
   CheckTrue(LRaised, 'a store with an unparsable root is refused, naming it');
   // control: the same store without the junk entry builds
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
-  CheckTrue(LBuilder.Client.WithServerVerification(WebPkiServer(ClientTrust)).Build <> nil, 'a valid store builds');
+  CheckTrue(LBuilder.Client.WithServerVerification(
+    TServerVerification.WebPki(ClientTrust).Build).Build <> nil, 'a valid store builds');
 end;
 
 procedure TTestConfigBuilder.TestSniCredentialWithMismatchedKeyNamesHost;
@@ -4226,7 +4237,7 @@ begin
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   LRaised := False;
   try
-    LBuilder.Client.WithServerVerification(WebPkiServer(ClientTrust))
+    LBuilder.Client.WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
       .WithCredential(CredentialWithForeignKey('ec256_pkcs8_der')).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -4336,7 +4347,7 @@ begin
   SetLength(LScope, 32); // the boundary value is legal
   FillChar(LScope[0], 32, $5C);
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
     .WithResumptionScope(LScope)
     .Build;
@@ -4355,7 +4366,7 @@ begin
   // set the scope BEFORE the cache: the two setters are order-insensitive, so the pinned scope
   // survives (the cache setter leaves it alone)
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithResumptionScope(LScope)
     .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
     .Build;
@@ -4471,7 +4482,7 @@ begin
   // in the registry); now the hybrid is dropped from the offer and X25519 is negotiated instead.
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithNamedGroups(TNamedGroups.CreateClassicalRegistry(Crypto))
-    .WithServerVerification(WebPkiServer(ClientTrust)).Build, 'localhost');
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithNamedGroups(TNamedGroups.CreateClassicalRegistry(Crypto))
     .WithCredential(ServerCredential).Build);
@@ -4498,7 +4509,7 @@ begin
   // not the PreferredGroup fix, protects.
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithNamedGroups(TNamedGroups.CreateClassicalRegistry(Crypto))
-    .WithServerVerification(WebPkiServer(ClientTrust)).Build, 'localhost');
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build);
   RunHandshake(LClient, LServer);
@@ -4542,7 +4553,7 @@ begin
   // the server-name / cipher-order / ALPN-reject knobs live only on the server config now, and
   // GREASE only on the client config; each surfaces its builder default off the role config
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust)).Build;
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).Build;
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   CheckTrue(LServer.ServerNameAcknowledgement, 'a server acknowledges SNI by default');
@@ -4560,7 +4571,7 @@ function TTestConfigBuilder.OmitSniClient(const AVersions: TArray<UInt16>): ITls
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(AVersions)
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithServerNameIndication(TServerNameIndication.Omit).Build;
 end;
 
@@ -4702,7 +4713,7 @@ begin
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
     TNamedGroupCatalog.Secp256r1))
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithServerNameIndication(TServerNameIndication.Omit).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(
     TTlsPresets.Compatible(Crypto, Pkix).Server
@@ -4743,7 +4754,8 @@ var
     LClient := TTlsEngineFactory.CreateClientEngine(
       TTlsPresets.Compatible(Crypto, Pkix).Client
       .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
-      .WithServerVerification(WebPkiServer(ClientTrust)).WithSessionCache(LCache).WithResumptionScope(LScope)
+      .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
+      .WithSessionCache(LCache).WithResumptionScope(LScope)
       .WithServerNameIndication(AMode).Build, 'localhost');
     LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
     LClient.StartHandshake;
@@ -5000,7 +5012,7 @@ end;
 
 function TTestConfigBuilder.ClientAuthServerBuilder: ITlsServerConfigBuilder;
 begin
-  Result := NewServerBuilder.WithClientVerification(WebPkiClient(ClientTrust))
+  Result := NewServerBuilder.WithClientVerification(TClientVerification.WebPki(ClientTrust).Build)
     .WithPeerAuth(TClientAuthMode.Requested);
 end;
 
@@ -5241,7 +5253,7 @@ end;
 procedure TTestConfigBuilder.TestServerDecompressorsBuildWithPeerAuth;
 begin
   CheckNotNull(NewServerBuilder.WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(WebPkiClient(ClientTrust)).Tls13
+    .WithClientVerification(TClientVerification.WebPki(ClientTrust).Build).Tls13
     .WithCertificateDecompressors(TZlibCertificateCompression.DefaultDecompressors).Build,
     'decompressors on a server that requests client certificates');
 end;
@@ -5279,7 +5291,8 @@ begin
   LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxChainCertificates := 8;
   CheckNotNull(NewServerBuilder.WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(WebPkiClient(ClientTrust)).WithCertificateChainLimits(LLimits).Build,
+    .WithClientVerification(TClientVerification.WebPki(ClientTrust).Build)
+    .WithCertificateChainLimits(LLimits).Build,
     'chain limits on a server that requests client certificates');
 end;
 

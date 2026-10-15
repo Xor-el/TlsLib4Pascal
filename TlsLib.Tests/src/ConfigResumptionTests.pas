@@ -417,7 +417,7 @@ begin
   // permissive: trusts the stapling root and completes a full handshake, caching the ticket the
   // strict client draws from; the host check is disabled to isolate the resumption behaviour
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(OcspField('root_cert')))
+    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumption(True)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
@@ -432,7 +432,7 @@ var
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithServerVerification(WebPkiServer(OcspField('root_cert')))
+    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumption(True)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
@@ -517,7 +517,7 @@ var
 begin
   // Hardened is TLS 1.3-only; the public surface wires the cache and resumption toggle
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithResumption(AResumption)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
@@ -562,7 +562,7 @@ begin
   // permissive trust accepts the server chain inline; Reverify + async verdict make the
   // resumption handshake check the stored chain before offering it, then park at ServerFinished
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithAsyncCertificateVerdict(0)
@@ -607,7 +607,7 @@ var
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
@@ -622,7 +622,7 @@ begin
   // abbreviated resumption check the stored chain before offering it, then park for the verdict
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithAsyncCertificateVerdict(0)
@@ -648,7 +648,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust))
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
     .WithResumption(True)
     .WithSessionCache(ACache)
     .Build;
@@ -1033,7 +1033,8 @@ begin
   // engaged, so Build refuses it rather than leave it silently inert
   LRefusedCache := False;
   try
-    TTlsPresets.Strict(Crypto, Pkix).Client.WithServerVerification(WebPkiServer(ClientTrust))
+    TTlsPresets.Strict(Crypto, Pkix).Client
+      .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
       .WithSessionCache(TInMemorySessionCache.Create).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -1052,7 +1053,7 @@ begin
 
   // control: Strict as it ships completes a handshake and resumes nothing
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(ClientTrust)).Build, ServerHost);
+    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build);
   PumpToCompletion(LClient, LServer);
@@ -1074,7 +1075,8 @@ begin
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
-    .WithResumption(True).WithServerVerification(WebPkiServer(ClientTrust)).WithSessionCache(LCache).WithResumptionScope(LScope).Build,
+    .WithResumption(True).WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
+    .WithSessionCache(LCache).WithResumptionScope(LScope).Build,
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
@@ -1083,7 +1085,8 @@ begin
   CheckEquals(1, LStore.Count, 're-enabled Strict stored a session');
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
-    .WithResumption(True).WithServerVerification(WebPkiServer(ClientTrust)).WithSessionCache(LCache).WithResumptionScope(LScope).Build,
+    .WithResumption(True).WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
+    .WithSessionCache(LCache).WithResumptionScope(LScope).Build,
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithResumption(True).WithCredential(ServerCredential).WithSessionStore(LStore)
@@ -1812,7 +1815,7 @@ begin
   LBefore := LCache.Count;
   // Soft (the default posture) + Reverify, no live deferral
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(OcspField('root_cert')))
+    .WithServerVerification(TServerVerification.WebPki(OcspField('root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithResumption(True)

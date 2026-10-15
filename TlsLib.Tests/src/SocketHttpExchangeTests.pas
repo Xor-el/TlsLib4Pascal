@@ -38,6 +38,7 @@ uses
   TlpNetSocket,
   TlpTlsLibExceptions,
   TlpSocketHttpFetcher,
+  TlpCertificateVerifierSource,
   TlsLibTestBase;
 
 type
@@ -1255,7 +1256,8 @@ begin
   LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
   try
     Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(DecodeHex(LVectors.Values['root_cert']))).Build;
+      .WithServerVerification(TServerVerification.WebPki(
+        DecodeHex(LVectors.Values['root_cert'])).Build).Build;
   finally
     LVectors.Free;
   end;
@@ -1352,7 +1354,7 @@ begin
   try
     LRoot := DecodeHex(LVectors.Values['root_cert']);
     LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(LRoot))
+      .WithServerVerification(TServerVerification.WebPki(LRoot).Build)
       .WithLiveRevocationVerdict(1000).Build;
   finally
     LVectors.Free;
@@ -1366,7 +1368,7 @@ begin
   end;
   CheckTrue(LRaised, 'a TLS config that parks for a live revocation check raises');
   LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(LRoot))
+    .WithServerVerification(TServerVerification.WebPki(LRoot).Build)
     .WithAsyncCertificateVerdict(1000).Build;
   LRaised := False;
   try
