@@ -21,7 +21,6 @@ uses
   TlpIClock,
   TlpClock,
   SysUtils,
-  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -75,10 +74,10 @@ uses
   TlpVersionDispatchMachine,
   TlsLibTestHandshakeDecoder,
   TlsLibTestCertificates,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
-  TTestTls12Resumption = class(TTlsLibAlgorithmTestCase)
+  TTestTls12Resumption = class(TTlsLibHandshakeTestCase)
   private const
     TlsSuite = TCipherSuites12.EcdheEcdsaAes128GcmSha256;
     ServerHost = 'localhost';
@@ -91,7 +90,6 @@ type
     FClientClock, FServerClock: ITlsClock;
     FReverify: Boolean;
     FResumeVerifier: IServerCertificateVerifier;
-    function ServerCredential: TTlsCredential;
     /// <summary>Drains the engine's event queue, returning how many SessionTicketReceived it held.</summary>
     function CountTicketEvents(const AEngine: ITlsEngine): Int32;
     /// <summary>The length of the ticket the client cached after a server sealed one under a key
@@ -136,15 +134,7 @@ type
     procedure OfferMintedSession(const ACache: ISessionCache; const AStore: ISessionStore;
       const AStek: ISessionTicketKeyManager; AMode: TNonEmsResumption;
       out AClient, AServer: ITlsEngine);
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure PumpToCompletion(const AClient, AServer: ITlsEngine);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
-    procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
-    /// <summary>Runs the client and server to completion and reports whether the server's
-    /// first response flight contained a Certificate (i.e. it ran a full handshake).</summary>
-    function DriveObservingServerCert(const AClient, AServer: ITlsEngine): Boolean;
     function MakeTicketSession(const ATicket: TBytes;
       AExtendedMasterSecret: Boolean): IResumableSession;
     /// <summary>The first ClientHello flight of a client that holds a cached ticket session made
@@ -154,7 +144,6 @@ type
     function MakeStoredSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       const AHost: string): IResumableSession;
     // shared mTLS-resumption scaffolding parameterized by the resumption scope
-    function LoadClientAuthCredential(out ARootCert: TBytes): TTlsCredential;
     function BuildMtlsClient(const ACache: ISessionCache;
       const ACredential: TTlsCredential): ITlsEngine;
     function BuildMtlsServer(const AStek: ISessionTicketKeyManager;
@@ -254,20 +243,6 @@ type
 implementation
 
 { TTestTls12Resumption }
-
-function TTestTls12Resumption.ServerCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
 
 function TTestTls12Resumption.NewClient(const ACache: ISessionCache;
   AOfferEms: Boolean): ITlsEngine;
@@ -461,96 +436,10 @@ begin
   AServer := NewPolicyServer(AStore, AStek, 7200, True, False, AMode);
 end;
 
-function TTestTls12Resumption.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls12Resumption.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  // one record at a time so an epoch installed while processing one record is active
-  // for the next
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
-procedure TTestTls12Resumption.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
 procedure TTestTls12Resumption.PumpToCompletion(const AClient, AServer: ITlsEngine);
 var
   LIterations: Int32;
 begin
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
-    Inc(LIterations);
-  end;
-end;
-
-function TTestTls12Resumption.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls12Resumption.CheckAppDataFlows(const AClient, AServer: ITlsEngine);
-var
-  LFromClient, LFromServer: TBytes;
-begin
-  LFromClient := DecodeHex('68656c6c6f2066726f6d2074686520636c69656e74');
-  AClient.Write(LFromClient, 0, System.Length(LFromClient));
-  Pump(AClient, AServer);
-  CheckEqualBytes('the server decrypts the client application data', LFromClient,
-    ReadAllApp(AServer));
-  LFromServer := DecodeHex('68656c6c6f2066726f6d2074686520736572766572');
-  AServer.Write(LFromServer, 0, System.Length(LFromServer));
-  Pump(AServer, AClient);
-  CheckEqualBytes('the client decrypts the server application data', LFromServer,
-    ReadAllApp(AClient));
-end;
-
-function TTestTls12Resumption.DriveObservingServerCert(
-  const AClient, AServer: ITlsEngine): Boolean;
-var
-  LFlight: TBytes;
-  LRecordPos, LMsgPos, LMsgLen, LIterations: Int32;
-begin
-  AClient.StartHandshake;
-  // the server consumes the ClientHello and queues its first response flight
-  Pump(AClient, AServer);
-  LFlight := Drain(AServer);
-  Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
-    Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen);
-  Feed(AClient, LFlight);
   LIterations := 0;
   while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
   begin
@@ -1616,21 +1505,6 @@ begin
   CheckFalse(LServer.IsTerminal, 'the reverse EMS mismatch is not fatal');
 end;
 
-function TTestTls12Resumption.LoadClientAuthCredential(
-  out ARootCert: TBytes): TTlsCredential;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    ARootCert := DecodeHex(LV.Values['root_cert']);
-    Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']), nil);
-  finally
-    LV.Free;
-  end;
-end;
-
 function TTestTls12Resumption.BuildMtlsClient(const ACache: ISessionCache;
   const ACredential: TTlsCredential): ITlsEngine;
 var
@@ -1704,7 +1578,7 @@ var
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  LCred := LoadClientAuthCredential(LClientRoot);
+  LCred := ClientAuthCredential(LClientRoot);
 
   // an issuer under scope A mints an mTLS ticket carrying the verified client chain
   LClient := BuildMtlsClient(LCache, LCred);
@@ -1737,7 +1611,7 @@ var
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  LCred := LoadClientAuthCredential(LClientRoot);
+  LCred := ClientAuthCredential(LClientRoot);
   LScope := DecodeHex('5c5c5c5c5c5c5c5c');
 
   // full mutual-TLS handshake -> ticket #1

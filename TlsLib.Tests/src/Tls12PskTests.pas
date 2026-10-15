@@ -19,7 +19,6 @@ interface
 
 uses
   SysUtils,
-  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -53,18 +52,15 @@ uses
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlsLibTestCertificates,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
-  TTestTls12Psk = class(TTlsLibAlgorithmTestCase)
+  TTestTls12Psk = class(TTlsLibHandshakeTestCase)
   private
   const
     ServerHost = 'localhost';
     Identity1 = 'client-one';
     Identity2 = 'client-two';
-  var
-    FCerts: TStringList;
-    function ServerCredential: TTlsCredential;
     function Psk(const AIdentity: string; ASeed: Byte): TTls12Psk;
     function Only12: TArray<UInt16>;
     function NewClient(const APsk: TTls12Psk): ITlsEngine;
@@ -77,12 +73,8 @@ type
     /// <summary>A resuming certificate server over AStore that also accepts APsks.</summary>
     function NewStoreServer(const AStore: ISessionStore;
       const APsks: TArray<TTls12Psk>): ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure Run(const AClient, AServer: ITlsEngine);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
-    procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
+    procedure CheckClientDataReachesServer(const AClient, AServer: ITlsEngine);
     /// <summary>Runs an unknown-identity or wrong-secret handshake and returns the alert the
     /// server and the client each end on.</summary>
     procedure RunFailing(const APsk: TTls12Psk; const AServerPsks: TArray<TTls12Psk>;
@@ -92,8 +84,6 @@ type
     function Splice(const AFlight: TBytes; AAfter: Int32; const AFramed: TBytes): TBytes;
     function ClientRefused(const AFacet: ITls12ClientConfigFacet): Boolean;
     function ServerRefused(const AFacet: ITls12ServerConfigFacet): Boolean;
-  protected
-    procedure SetUp; override;
   published
     procedure TestPremasterFraming;
     procedure TestPremasterRefusesAnOversizeOperand;
@@ -130,18 +120,6 @@ type
 implementation
 
 { TTestTls12Psk }
-
-procedure TTestTls12Psk.SetUp;
-begin
-  inherited SetUp;
-  FCerts := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
-end;
-
-function TTestTls12Psk.ServerCredential: TTlsCredential;
-begin
-  Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
-  Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']), nil);
-end;
 
 function TTestTls12Psk.Psk(const AIdentity: string; ASeed: Byte): TTls12Psk;
 var
@@ -220,38 +198,6 @@ begin
     Result := TTlsEngineFactory.CreateServerEngine(LBuilder.Build);
 end;
 
-function TTestTls12Psk.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls12Psk.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
-procedure TTestTls12Psk.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
 procedure TTestTls12Psk.Run(const AClient, AServer: ITlsEngine);
 var
   LIterations: Int32;
@@ -266,21 +212,7 @@ begin
   end;
 end;
 
-function TTestTls12Psk.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls12Psk.CheckAppDataFlows(const AClient, AServer: ITlsEngine);
+procedure TTestTls12Psk.CheckClientDataReachesServer(const AClient, AServer: ITlsEngine);
 var
   LFromClient: TBytes;
 begin
@@ -509,7 +441,7 @@ begin
     CheckEquals(Int64(LCodes[LI]), Int64(LServer.ConnectionInfo.CipherSuite), 'the server suite');
     CheckEquals(0, System.Length(LClient.ConnectionInfo.PeerCertificates),
       'no server certificate was sent');
-    CheckAppDataFlows(LClient, LServer);
+    CheckClientDataReachesServer(LClient, LServer);
   end;
 end;
 
@@ -662,7 +594,7 @@ begin
     LServer.ConnectionInfo.PskIdentity);
   CheckEqualBytes('and so does the client', BytesOf(Identity1),
     LClient.ConnectionInfo.PskIdentity);
-  CheckAppDataFlows(LClient, LServer);
+  CheckClientDataReachesServer(LClient, LServer);
 end;
 
 procedure TTestTls12Psk.TestDeclinedPskOfferDoesNotStampACertificateSession;
