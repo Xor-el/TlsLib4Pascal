@@ -1,0 +1,58 @@
+TlsLib.Tests/src/CertificateCompressionCacheTests.pas
+  s_4adb7e2edc0c28::t_98552d44e48206 53
+  s_4adb7e2edc0c28::t_3be04d519506a7 58
+TlsLib.Tests/src/ClientAuthTests.pas
+  s_4adb7e2edc0c28::t_0b36d123915bf9 68
+  s_4adb7e2edc0c28::t_883e1be47546c6 73
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_4adb7e2edc0c28::t_870b2927c50847 77
+  s_4adb7e2edc0c28::t_e1acf06a3e25a6 1066,1094,1102,1246,1353
+  s_4adb7e2edc0c28::t_7ef85777e077db 316-317
+  s_4adb7e2edc0c28::t_d49cc6a0ab7fdf 72
+  s_4adb7e2edc0c28::t_970240ffed093e 1378-1379
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_4adb7e2edc0c28::t_83bab40a0bde37 813-814
+  s_4adb7e2edc0c28::t_6bcd391b48525a 484,827,995
+  s_4adb7e2edc0c28::t_d8e0d6b24c8267 718-719,795-796,808-809,932-933,957-958,1072-1073
+  s_4adb7e2edc0c28::t_4f8eba97404f1c 62
+  s_4adb7e2edc0c28::t_549722d841a7d6 449-450
+  s_4adb7e2edc0c28::t_7b313491460ddb 901-902
+  s_4adb7e2edc0c28::t_5a1d5825137e59 907-908
+  s_4adb7e2edc0c28::t_c14f6f2dc28168 987,1010,1031,1052
+  s_4adb7e2edc0c28::t_a812b311b3fb1a 751-752
+  s_4adb7e2edc0c28::t_b1f2ebac899588 988,1011,1032,1053
+  s_4adb7e2edc0c28::t_ab8926ffc5a87a 58
+  s_4adb7e2edc0c28::t_9fa7d54fe16f69 744-745
+  s_4adb7e2edc0c28::t_987f3884dfbf55 384-385
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_4adb7e2edc0c28::t_fdbde649738130 99
+  s_4adb7e2edc0c28::t_c34d084278481e 105
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_4adb7e2edc0c28::t_c73face8fbe6b2 723,760,831,887,920,976,1014
+  s_4adb7e2edc0c28::t_faface976564dd 401-402,417-418,1735-1736
+  s_4adb7e2edc0c28::t_c2e211d630a106 432-433,454-455,476-477
+  s_4adb7e2edc0c28::t_1b4b75b9ffe53d 1761-1762
+  s_4adb7e2edc0c28::t_e3749f23bd43f2 142
+  s_4adb7e2edc0c28::t_6bb88d5b4a798a 358-363
+  s_4adb7e2edc0c28::t_f1a2bc6e2db760 1753-1754
+  s_4adb7e2edc0c28::t_b4e6371b332a05 64
+  s_4adb7e2edc0c28::t_917700e4c6de67 61
+  s_4adb7e2edc0c28::t_968b1d3845e7fc 684
+  s_4adb7e2edc0c28::t_7d2bf86390c074 1758-1759
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "012469cad07d185f5de427413918e90d478ddee4",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
