@@ -70,9 +70,8 @@ type
     function Chain: TArray<TBytes>;
     function ChainFor(const ALeafName: string): TArray<TBytes>;
     function VerifierFor(APosture: TRevocationPosture;
-      ADeferral: TVerdictDeferral = TVerdictDeferral.None;
-      AStatusRequestOffered: Boolean = True;
-      AOccasion: TVerificationOccasion = TVerificationOccasion.InitialHandshake)
+      ADeferral: TVerdictDeferral; AStatusRequestOffered: Boolean;
+      AOccasion: TVerificationOccasion)
       : IServerCertificateVerifier;
     function VerifyStaple(APosture: TRevocationPosture; const AStaple: TBytes;
       out AAlert: TTlsAlertDescription): Boolean;
@@ -84,7 +83,7 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
     // a verifier trusting the root and seeded with AIntermediates for path building
     function IntermediateVerifierFor(APosture: TRevocationPosture;
-      const AIntermediates: TArray<TBytes>; const APins: TArray<TBytes> = nil)
+      const AIntermediates: TArray<TBytes>; const APins: TArray<TBytes>)
       : IServerCertificateVerifier;
   protected
     procedure SetUp; override;
@@ -266,8 +265,9 @@ function TTestOcspStapling.VerifyStaple(APosture: TRevocationPosture;
 var
   LVerified: TVerifiedChain;
 begin
-  Result := VerifierFor(APosture).VerifyServerCertificate(Chain, TServerName.DnsName(''),
-    AStaple, LVerified, AAlert);
+  Result := VerifierFor(APosture, TVerdictDeferral.None, True,
+    TVerificationOccasion.InitialHandshake).VerifyServerCertificate(Chain,
+    TServerName.DnsName(''), AStaple, LVerified, AAlert);
 end;
 
 function TTestOcspStapling.VerifyChain(APosture: TRevocationPosture;
@@ -276,8 +276,9 @@ function TTestOcspStapling.VerifyChain(APosture: TRevocationPosture;
 var
   LVerified: TVerifiedChain;
 begin
-  Result := VerifierFor(APosture).VerifyServerCertificate(AChain, TServerName.DnsName(''),
-    AStaple, LVerified, AAlert);
+  Result := VerifierFor(APosture, TVerdictDeferral.None, True,
+    TVerificationOccasion.InitialHandshake).VerifyServerCertificate(AChain,
+    TServerName.DnsName(''), AStaple, LVerified, AAlert);
 end;
 
 function TTestOcspStapling.LeafSpkiPin: TBytes;
@@ -638,7 +639,8 @@ var
 begin
   // with a live verdict resolver, a no-staple leaf under Hard is accepted here (deferred) so the
   // handshake reaches the park where the resolver decides - not rejected inline
-  CheckTrue(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
+  CheckTrue(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation,
+    True, TVerificationOccasion.InitialHandshake)
     .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LVerified, LAlert),
     'a missing staple under Hard is deferred to the resolver, not rejected inline');
 end;
@@ -649,7 +651,8 @@ var
   LVerified: TVerifiedChain;
 begin
   // a definitive stapled Revoked is authoritative and short-circuits before any deferral
-  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
+  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation,
+    True, TVerificationOccasion.InitialHandshake)
     .VerifyServerCertificate(Chain, TServerName.DnsName(''), V('ocsp_revoked'), LVerified, LAlert),
     'a revoked staple aborts even when a resolver is present');
   CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
@@ -663,7 +666,8 @@ var
 begin
   // RFC 7633: a must-staple leaf demands a current Good staple; a live fetch does not satisfy it,
   // so it is rejected inline even with a resolver present (the deferral never applies)
-  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation)
+  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation,
+    True, TVerificationOccasion.InitialHandshake)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'), TServerName.DnsName(''), nil,
     LVerified, LAlert),
     'a must-staple leaf with no staple aborts even with a resolver present');
@@ -754,7 +758,8 @@ var
 begin
   // a host-decision park does not defer the revocation gate, so a no-staple leaf under Hard is
   // rejected inline exactly as with no deferral (only LiveRevocation would defer it)
-  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.HostDecision)
+  CheckFalse(VerifierFor(TRevocationPosture.Hard, TVerdictDeferral.HostDecision,
+    True, TVerificationOccasion.InitialHandshake)
     .VerifyServerCertificate(Chain, TServerName.DnsName(''), nil, LVerified, LAlert),
     'a missing staple under Hard + host-decision is rejected inline, not deferred');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
@@ -770,7 +775,7 @@ begin
   // the client never offered status_request, so a must-staple leaf is not required to staple
   LStatusRequestOffered := False;
   CheckTrue(VerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None,
-    LStatusRequestOffered)
+    LStatusRequestOffered, TVerificationOccasion.InitialHandshake)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'an unrequested must-staple leaf is accepted under soft-fail');
@@ -784,7 +789,7 @@ var
 begin
   LStatusRequestOffered := False;
   CheckTrue(VerifierFor(TRevocationPosture.Off, TVerdictDeferral.None,
-    LStatusRequestOffered)
+    LStatusRequestOffered, TVerificationOccasion.InitialHandshake)
     .VerifyServerCertificate(ChainFor('muststaple_leaf_cert'),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'an unrequested must-staple leaf is accepted under Off');
@@ -895,7 +900,7 @@ begin
   // intermediate. Under Hard posture a good staple must still be authenticated - which is only
   // possible because path building hands the recovered issuer to the revocation step.
   CheckTrue(IntermediateVerifierFor(TRevocationPosture.Hard,
-    TArray<TBytes>.Create(V('issuer_cert'))).VerifyServerCertificate(
+    TArray<TBytes>.Create(V('issuer_cert')), nil).VerifyServerCertificate(
     TArray<TBytes>.Create(V('leaf_cert')), TServerName.DnsName(''), V('ocsp_good'),
     LVerified, LAlert),
     'a good staple authenticates against the configured issuer for a leaf-only peer');

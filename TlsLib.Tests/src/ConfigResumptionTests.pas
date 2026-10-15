@@ -103,7 +103,7 @@ type
     /// <summary>A TLS 1.3 client engine built through the public config surface. A non-empty
     /// AScope opts the config into sharing sessions with configs given the same scope.</summary>
     function NewClient13(const ACache: ISessionCache; AResumption: Boolean;
-      const AScope: TBytes = nil): ITlsEngine;
+      const AScope: TBytes): ITlsEngine;
     /// <summary>A TLS 1.3 client whose server-cert verifier rejects every chain (a strict config).</summary>
     function NewRejectingClient13(const ACache: ISessionCache): ITlsEngine;
     /// <summary>Like NewRejectingClient13 but with Reverify, so it re-checks a resumed server.</summary>
@@ -112,7 +112,7 @@ type
     /// <summary>A permissive client with Reverify + async verdict: the resumption handshake
     /// re-checks inline (accepts) then parks at ServerFinished for the out-of-band verdict.</summary>
     function NewReverifyAsyncClient13(const ACache: ISessionCache;
-      const AScope: TBytes = nil): ITlsEngine;
+      const AScope: TBytes): ITlsEngine;
     /// <summary>A TLS 1.3 server engine; AIssueTickets tickets, resumption toggle.</summary>
     function NewServer13(const AStore: ISessionStore; AIssueTickets: Int32;
       AResumption: Boolean): ITlsEngine;
@@ -121,12 +121,12 @@ type
     function NewScopedServer13(const AStore: ISessionStore;
       const AScope: TBytes): ITlsEngine;
     function NewClient12(const ACache: ISessionCache;
-      const AScope: TBytes = nil): ITlsEngine;
+      const AScope: TBytes): ITlsEngine;
     /// <summary>A permissive TLS 1.2 client with Reverify + async verdict: the abbreviated
     /// resumption handshake re-checks inline (accepts) then parks at the abbreviated
     /// ServerFinished for the out-of-band verdict.</summary>
     function NewReverifyAsyncClient12(const ACache: ISessionCache;
-      const AScope: TBytes = nil): ITlsEngine;
+      const AScope: TBytes): ITlsEngine;
     function NewServer12(const AStore: ISessionStore): ITlsEngine;
     /// <summary>A client and server that both speak TLS 1.2 and 1.3, so each runs behind its
     /// version dispatcher.</summary>
@@ -917,7 +917,7 @@ begin
   // WithResumption(False) opts a server out even under the resume-by-default posture: no STEK is
   // engaged, so no ticket is issued and the client caches nothing
   LCache := TInMemorySessionCache.Create;
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, nil);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithResumption(False).Build);
   PumpToCompletion(LClient, LServer);
@@ -1014,7 +1014,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, nil);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the permissive handshake completed');
@@ -1042,14 +1042,14 @@ begin
   // (each its own fresh scope) does not resume across them
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-  LClient := NewClient12(LCache);
+  LClient := NewClient12(LCache, nil);
   LServer := NewServer12(LStore);
   PumpToCompletion(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the first 1.2 configuration cached a session');
 
   // a different configuration sharing the same cache cannot see it (scopes differ), so the server
   // flight carries a full Certificate rather than an abbreviated resume
-  LClient := NewClient12(LCache);
+  LClient := NewClient12(LCache, nil);
   LServer := NewServer12(LStore);
   CheckTrue(DriveObservingServerCert(LClient, LServer),
     'a shared cache does not resume a 1.2 session across configurations');
@@ -1082,7 +1082,7 @@ begin
   // a configuration with no explicit scope (a fresh per-build one) does not resume across them,
   // even sharing the same cache instance; a scoped session must remain for the check to be real
   CheckTrue(LCache.Count >= 1, 'a session remains for the unshared configuration to be denied');
-  LClient := NewClient13(LCache, True);
+  LClient := NewClient13(LCache, True, nil);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   PumpToCompletion(LClient, LServer);
   CheckFalse(LClient.ConnectionInfo.Resumed,

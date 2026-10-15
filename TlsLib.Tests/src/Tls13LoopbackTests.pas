@@ -93,15 +93,15 @@ type
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes;
     function NewEchClientWith(const AConfigList: TBytes;
-      const ACache: ISessionCache = nil): ITlsEngine;
+      const ACache: ISessionCache): ITlsEngine;
     function NewEchAcceptServer(const AConfigList: TBytes;
       const APrivateKey: ISecretBuffer; const AStore: ISessionStore;
       AIssueTickets: Int32): ITlsEngine;
     function NewEchServer: ITlsEngine;
-    function NewEchHrrClient(const ACache: ISessionCache = nil): ITlsEngine;
+    function NewEchHrrClient(const ACache: ISessionCache): ITlsEngine;
     /// <summary>The ECH server; AVerbatimCookie, when given, replaces the cookie its retry sends.</summary>
-    function NewEchHrrServer(const AStore: ISessionStore = nil;
-      AIssueTickets: Int32 = 0; const AVerbatimCookie: TBytes = nil): ITlsEngine;
+    function NewEchHrrServer(const AStore: ISessionStore;
+      AIssueTickets: Int32; const AVerbatimCookie: TBytes): ITlsEngine;
     /// <summary>Runs the ECH client through one retry whose cookie has ACookieLength bytes (the
     /// server accepts ECH, or with ARejected rejects it); whether the client aborted.</summary>
     function EchRetryClientAborts(ACookieLength: Int32; ARejected: Boolean;
@@ -114,12 +114,12 @@ type
     function NewEchHrrRejectClient(const AConfigList: TBytes): ITlsEngine;
     /// <summary>The ECH-rejecting server; AVerbatimCookie, when given, replaces its retry cookie.</summary>
     function NewEchHrrRejectServer(const AConfigList: TBytes;
-      const APrivateKey: ISecretBuffer; const AVerbatimCookie: TBytes = nil): ITlsEngine;
+      const APrivateKey: ISecretBuffer; const AVerbatimCookie: TBytes): ITlsEngine;
     function NewEchResumeClient(const ACache: ISessionCache;
-      AEarlyData: Boolean = False): ITlsEngine;
+      AEarlyData: Boolean): ITlsEngine;
     function NewEchResumeServer(const AStore: ISessionStore; AIssueTickets: Int32;
-      AMaxEarlyData: UInt32 = 0;
-      const AAntiReplay: IAntiReplayStrategy = nil): ITlsEngine;
+      AMaxEarlyData: UInt32;
+      const AAntiReplay: IAntiReplayStrategy): ITlsEngine;
     function NewEchRejectServer(const AConfigList: TBytes;
       const APrivateKey: ISecretBuffer): ITlsEngine;
     function NewHrrClient: ITlsEngine;
@@ -657,8 +657,8 @@ begin
   // ECH + HelloRetryRequest: the server accepts ECH on CH1, retries the client onto secp256r1,
   // re-opens the inner CH2 at HPKE seq=1, and completes. Completion proves the ECH-HRR accept
   // path end to end (a broken HRR confirmation or seq handling would diverge/abort).
-  LClient := NewEchHrrClient;
-  LServer := NewEchHrrServer;
+  LClient := NewEchHrrClient(nil);
+  LServer := NewEchHrrServer(nil, 0, nil);
   RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the ECH-HRR client did not fail');
   CheckFalse(LServer.IsTerminal, 'the ECH-HRR server did not fail');
@@ -688,7 +688,7 @@ begin
   end
   else
   begin
-    AClient := NewEchHrrClient;
+    AClient := NewEchHrrClient(nil);
     AServer := NewEchHrrServer(nil, 0, LCookie);
   end;
   AClient.StartHandshake;
@@ -807,7 +807,7 @@ begin
   LConfigClient := BuildEchConfigList($AA, 'localhost', LSkClient);
   LConfigServer := BuildEchConfigList($BB, 'localhost', LSkServer);
   LClient := NewEchHrrRejectClient(LConfigClient);
-  LServer := NewEchHrrRejectServer(LConfigServer, LSkServer);
+  LServer := NewEchHrrRejectServer(LConfigServer, LSkServer, nil);
   RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected,
     'the client saw an ECH reject across the HRR');
@@ -831,7 +831,7 @@ begin
 
   // first ECH connection (itself retried onto secp256r1) issues one resumption ticket
   LClient := NewEchHrrClient(LCache);
-  LServer := NewEchHrrServer(LStore, 1);
+  LServer := NewEchHrrServer(LStore, 1, nil);
   RunHandshake(LClient, LServer);
   LClientInfo := LClient.ConnectionInfo;
   CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first HRR handshake');
@@ -841,7 +841,7 @@ begin
   // second ECH connection: resumes (real inner PSK, GREASE outer PSK) and is retried again, so
   // the inner CH2 binder is recomputed over the rebased inner transcript
   LClient := NewEchHrrClient(LCache);
-  LServer := NewEchHrrServer(LStore, 0);
+  LServer := NewEchHrrServer(LStore, 0, nil);
   RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the resuming ECH-HRR client did not fail');
   CheckFalse(LServer.IsTerminal, 'the resuming ECH-HRR server did not fail');
@@ -883,13 +883,13 @@ begin
 
   // first ECH+HRR handshake issues a resumption ticket
   LClient := NewEchHrrClient(LCache);
-  LServer := NewEchHrrServer(LStore, 1);
+  LServer := NewEchHrrServer(LStore, 1, nil);
   RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the first handshake cached a ticket');
 
   // second handshake: capture CH1 outer, deliver the HRR, capture CH2 outer
   LClient := NewEchHrrClient(LCache);
-  LServer := NewEchHrrServer(LStore, 0);
+  LServer := NewEchHrrServer(LStore, 0, nil);
   LClient.StartHandshake;
   LCh1 := Drain(LClient);        // ClientHelloOuter #1 (GREASE outer pre_shared_key)
   Feed(LServer, LCh1);
@@ -934,8 +934,8 @@ begin
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   // first ECH connection: a full accept that issues one resumption ticket
-  LClient := NewEchResumeClient(LCache);
-  LServer := NewEchResumeServer(LStore, 1);
+  LClient := NewEchResumeClient(LCache, False);
+  LServer := NewEchResumeServer(LStore, 1, 0, nil);
   RunHandshake(LClient, LServer);
   LClientInfo := LClient.ConnectionInfo;
   CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first handshake');
@@ -944,8 +944,8 @@ begin
 
   // second ECH connection: the real PSK rides the inner ClientHello (a GREASE PSK the
   // outer), the server accepts ECH and resumes over the reconstructed inner
-  LClient := NewEchResumeClient(LCache);
-  LServer := NewEchResumeServer(LStore, 0);
+  LClient := NewEchResumeClient(LCache, False);
+  LServer := NewEchResumeServer(LStore, 0, 0, nil);
   RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the resuming ECH client did not fail');
   CheckFalse(LServer.IsTerminal, 'the resuming ECH server did not fail');
@@ -1031,7 +1031,7 @@ var
   LMsg: TBytes;
 begin
   LClient := NewEchClientWith(
-    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
+    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), nil);
   LServer := NewEchServer;
   RunHandshake(LClient, LServer);
   // completion proves ECH was accepted end to end: the server certificate matches only
@@ -1067,7 +1067,7 @@ begin
   LServerLog := FServerKeyLog;
   try
     LClient := NewEchClientWith(
-      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), nil);
     LServer := NewEchServer;
     RunHandshake(LClient, LServer);
     CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH was accepted');
@@ -1103,7 +1103,7 @@ begin
   // (RFC 9849 sec. 6.1.6) - never a plaintext fall-back.
   LClientList := BuildEchConfigList($AA, 'localhost', LClientSk);
   LServerList := BuildEchConfigList($BB, 'localhost', LServerSk);
-  LClient := NewEchClientWith(LClientList);
+  LClient := NewEchClientWith(LClientList, nil);
   LServer := NewEchRejectServer(LServerList, LServerSk);
   RunHandshake(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'the client aborted the rejected ECH handshake');

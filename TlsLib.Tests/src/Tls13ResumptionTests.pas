@@ -94,7 +94,7 @@ type
     /// <summary>A framed message of AType whose body is ABody, as the client would receive it.</summary>
     function Framed(AType: TTlsHandshakeType; const ABody: TBytes): TTlsHandshakeMessage;
     function NewClient(const ACache: ISessionCache;
-      AEarlyData: Boolean = False): ITlsEngine;
+      AEarlyData: Boolean): ITlsEngine;
     /// <summary>A client that key-shares X25519 and also lists secp256r1, and a secp256r1-only
     /// server, so the handshake runs over a HelloRetryRequest.</summary>
     function NewRetryClient(const ACache: ISessionCache; AEarlyData: Boolean): ITlsEngine;
@@ -104,8 +104,8 @@ type
     // completed handshake proves the PSK was accepted (resumption).
     function BuildServer(const AStek: ISessionTicketKeyManager;
       const AStore: ISessionStore; AIssueTickets: Int32; ALifetimeSeconds: UInt32;
-      AWithCredential: Boolean; AMaxEarlyData: UInt32 = 0;
-      const AAntiReplay: IAntiReplayStrategy = nil): ITlsEngine;
+      AWithCredential: Boolean; AMaxEarlyData: UInt32;
+      const AAntiReplay: IAntiReplayStrategy): ITlsEngine;
     procedure PumpToCompletion(const AClient, AServer: ITlsEngine);
     function NewServer(const AStore: ISessionStore; AIssueTickets: Int32;
       ALifetimeSeconds: UInt32; AWithCredential: Boolean): ITlsEngine;
@@ -147,10 +147,10 @@ type
     /// <summary>The extension types of the ClientHello at the head of AWire.</summary>
     function OfferedTypes(const AWire: TBytes): TArray<UInt16>;
     function MakeSession(const AIdentity: TBytes; const ASecret: ISecretBuffer;
-      ALifetime: UInt32; AMaxEarlyData: UInt32 = 0): IResumableSession;
+      ALifetime: UInt32; AMaxEarlyData: UInt32): IResumableSession;
     function MakeSessionForHost(const AIdentity: TBytes; const ASecret: ISecretBuffer;
       ALifetime: UInt32; const AHost: string;
-      AMaxEarlyData: UInt32 = 0): IResumableSession;
+      AMaxEarlyData: UInt32): IResumableSession;
     // shared mTLS-resumption scaffolding parameterized by the resumption scope
     function BuildMtlsClientEngine(const ACache: ISessionCache;
       const ACredential: TTlsCredential): ITlsEngine;
@@ -463,14 +463,14 @@ function TTestTls13Resumption.NewServer(const AStore: ISessionStore;
   AIssueTickets: Int32; ALifetimeSeconds: UInt32;
   AWithCredential: Boolean): ITlsEngine;
 begin
-  Result := BuildServer(nil, AStore, AIssueTickets, ALifetimeSeconds, AWithCredential);
+  Result := BuildServer(nil, AStore, AIssueTickets, ALifetimeSeconds, AWithCredential, 0, nil);
 end;
 
 function TTestTls13Resumption.NewStekServer(const AStek: ISessionTicketKeyManager;
   AIssueTickets: Int32; ALifetimeSeconds: UInt32;
   AWithCredential: Boolean): ITlsEngine;
 begin
-  Result := BuildServer(AStek, nil, AIssueTickets, ALifetimeSeconds, AWithCredential);
+  Result := BuildServer(AStek, nil, AIssueTickets, ALifetimeSeconds, AWithCredential, 0, nil);
 end;
 
 procedure TTestTls13Resumption.PumpToCompletion(const AClient, AServer: ITlsEngine);
@@ -548,7 +548,7 @@ begin
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
 
   // first connection: a full handshake that issues one ticket
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 1, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the initial client handshake completed');
@@ -565,7 +565,7 @@ begin
 
   // second connection: the server has NO credential, so it can only complete by
   // accepting the PSK (a full handshake would need a certificate)
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 7200, False);
   DriveHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the resuming client completed');
@@ -601,11 +601,11 @@ begin
   LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
-  LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 7200));
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200, 0));
+  LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 7200, 0));
 
   // first use resumes against a credential-less server: completion proves acceptance
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 7200, False);
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the first use resumed');
@@ -615,8 +615,8 @@ begin
   // replay the same ticket: the store no longer holds it, so a credential-less server
   // cannot resume and cannot run a full handshake - the replay is rejected
   LCache := TInMemorySessionCache.Create;
-  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
-  LClient := NewClient(LCache);
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200, 0));
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 7200, False);
   DriveHandshake(LClient, LServer);
   CheckFalse((not LServer.IsHandshaking) and (not LServer.IsTerminal),
@@ -636,14 +636,14 @@ begin
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity,
-    TSecretBuffer.From(Filled($AA, 32)), 7200));
+    TSecretBuffer.From(Filled($AA, 32)), 7200, 0));
   LStore.PutWithId(LIdentity, MakeSession(LIdentity,
-    TSecretBuffer.From(Filled($BB, 32)), 7200));
+    TSecretBuffer.From(Filled($BB, 32)), 7200, 0));
 
   // a present binder that does not validate against an opened ticket is fatal: the server
   // aborts with decrypt_error rather than silently falling back to a full handshake
   // (RFC 9846 4.3.11.2)
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the server aborted on the bad binder');
@@ -661,8 +661,8 @@ begin
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache.Store(ServerHost, ServerHost, MakeSession(nil,
-    TSecretBuffer.From(Filled($AA, 32)), 7200));
-  LClient := NewClient(LCache);
+    TSecretBuffer.From(Filled($AA, 32)), 7200, 0));
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the server aborted on the empty identity');
@@ -685,10 +685,10 @@ begin
   LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 0));
-  LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 0));
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 0, 0));
+  LStore.PutWithId(LIdentity, MakeSession(LIdentity, LSecret, 0, 0));
 
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 0, False);
   DriveHandshake(LClient, LServer);
   CheckFalse((not LServer.IsHandshaking) and (not LServer.IsTerminal),
@@ -705,7 +705,7 @@ begin
   // (RFC 9846 4.7.1)
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 1, 0, True);
   DriveHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
@@ -729,7 +729,7 @@ begin
   LStore := LStoreImpl;
 
   // first connection: a full handshake issues a ticket through the custom store/cache
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 1, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the custom cache received the ticket');
@@ -737,7 +737,7 @@ begin
 
   // second connection resumes: a credential-less server can only complete if the engine
   // actually consulted the custom store and cache
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 7200, False);
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the resume completed through the custom store');
@@ -758,13 +758,13 @@ begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStek, 1, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the client cached the STEK ticket');
 
   // credential-less: completion proves the sealed ticket was opened and accepted
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStek, 0, 7200, False);
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the stateless STEK resume completed');
@@ -783,7 +783,7 @@ begin
   LCache := TInMemorySessionCache.Create;
 
   // issue a real STEK ticket
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStek, 1, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'a STEK ticket was issued');
@@ -794,7 +794,7 @@ begin
 
   // the sealed ticket's key is gone: a credential-less server cannot open it and cannot
   // run a full handshake, so it does not complete
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStek, 0, 7200, False);
   DriveHandshake(LClient, LServer);
   CheckFalse((not LServer.IsHandshaking) and (not LServer.IsTerminal),
@@ -812,10 +812,10 @@ begin
   LCache := TInMemorySessionCache.Create;
   LCache.Store(ServerHost, ServerHost, MakeSession(
     Crypto.Primitives.GetRandom.GenerateBytes(48),
-    TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32)), 7200));
+    TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32)), 7200, 0));
 
   // the server cannot open the bogus ticket and completes a full handshake instead
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStek, 0, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client completed a full handshake');
@@ -836,13 +836,13 @@ begin
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
 
-  LClient := NewClient(LCache);
-  LServer := BuildServer(LStek, LStore, 1, 7200, True);
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, LStore, 1, 7200, True, 0, nil);
   DriveHandshake(LClient, LServer);
   CheckEquals(1, LStore.Count, 'the store (not the STEK) issued the ticket');
 
-  LClient := NewClient(LCache);
-  LServer := BuildServer(LStek, LStore, 0, 7200, False);
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, LStore, 0, 7200, False, 0, nil);
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the store-backed resume completed');
   CheckEquals(0, LStore.Count, 'the store ticket was consumed (single-use), proving the upgrade');
@@ -2050,12 +2050,12 @@ begin
   LPsk.Context := nil;
   LPsk.Hash := THashAlgorithm.SHA_256;
 
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStek, 1, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the unauthenticated handshake issued a ticket');
 
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := BuildRequiredAuthPskServer(LStek, TArray<TExternalPsk>.Create(LPsk), LClientRoot);
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.ConnectionInfo.Resumed, 'the chainless ticket was not resumed');
@@ -2183,9 +2183,9 @@ begin
   // control: issued under the requested host -> resumes
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
-  LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, ServerHost));
-  LClient := NewClient(LCache);
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200, 0));
+  LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, ServerHost, 0));
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckTrue(LServer.ConnectionInfo.Resumed, 'a ticket issued under the requested host resumes');
@@ -2194,9 +2194,9 @@ begin
   // full handshake instead of resuming under the wrong identity
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
-  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200));
-  LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, 'other.example'));
-  LClient := NewClient(LCache);
+  LCache.Store(ServerHost, ServerHost, MakeSession(LIdentity, LSecret, 7200, 0));
+  LStore.PutWithId(LIdentity, MakeSessionForHost(LIdentity, LSecret, 7200, 'other.example', 0));
+  LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 0, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckFalse(LServer.IsHandshaking, 'the guarded handshake completed');
@@ -2278,7 +2278,7 @@ begin
 
   // first connection: a full handshake to a cert-authenticating server. It authenticates by the
   // certificate, so the cached ticket carries the verified server chain.
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStekA, 1, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the initial handshake completed');
@@ -2907,7 +2907,7 @@ begin
   LPsk.Hash := THashAlgorithm.SHA_256;
   LPsks := TArray<TExternalPsk>.Create(LPsk);
 
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStekA, 1, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the certificate handshake cached a ticket with a chain');
@@ -2936,7 +2936,7 @@ begin
   // a resumption of a certificate ticket re-issues one that still carries the verified chain
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  LClient := NewClient(LCache);
+  LClient := NewClient(LCache, False);
   LServer := NewStekServer(LStek, 1, 7200, True);
   DriveHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the full handshake cached a ticket');
@@ -3174,13 +3174,13 @@ begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, False);
-  LServer := BuildServer(LStek, nil, 1, 604800, True);
+  LServer := BuildServer(LStek, nil, 1, 604800, True, 0, nil);
   DriveHandshake(LClient, LServer);
   LClientClock.Advance(SixDaysMs);
   if AAdvanceServerClock then
     LServerClock.Advance(SixDaysMs);
   LClient := NewClient(LCache, False);
-  LServer := BuildServer(LStek, nil, 1, 604800, True);
+  LServer := BuildServer(LStek, nil, 1, 604800, True, 0, nil);
   DriveHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the second handshake resumed');
   CheckTrue(LCache.Take(ServerHost, ServerHost, StartMs + SixDaysMs, AClientSession),
@@ -3388,7 +3388,7 @@ begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, False);
-  LServer := BuildServer(LStek, nil, 1, 604800, True);
+  LServer := BuildServer(LStek, nil, 1, 604800, True, 0, nil);
   DriveHandshake(LClient, LServer);
   LNowMs := (TSystemClock.Create as ITlsClock).NowUnixMillis;
   CheckTrue(LCache.Take(ServerHost, ServerHost, LNowMs, LFirst), 'the ticket was cached');
@@ -3400,7 +3400,7 @@ begin
   LTicket := LStrategy.Seal(Reauthenticated(L13Opened, nil, LNowMs - AServerAgeMs));
   LCache.Store(ServerHost, ServerHost, Reauthenticated(L13First, LTicket, LNowMs - AClientAgeMs));
   LClient := NewClient(LCache, False);
-  LServer := BuildServer(LStek, nil, 1, 604800, True);
+  LServer := BuildServer(LStek, nil, 1, 604800, True, 0, nil);
   DriveHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the second handshake completed');
   Result := not LClient.ConnectionInfo.Resumed;
