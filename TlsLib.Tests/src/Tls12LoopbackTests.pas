@@ -38,6 +38,7 @@ uses
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpICryptoProvider,
+  TlpCryptoDomainTypes,
   TlpITlsEngine,
   TlpTlsEngine,
   TlpIHandshakeMachine,
@@ -113,6 +114,10 @@ type
     // a bare 1.2 client that offers status_request and defers its peer-certificate verdict to the
     // host (HostDecision), so a verified chain parks rather than completing inline
     function ParkingStaplingClientMachine: IHandshakeMachine;
+    // a server fed the client's second flight, its ClientKeyExchange share zeroed or untouched
+    function ServerAfterClientFlight(AZeroShare: Boolean): ITlsEngine;
+    // a client fed the server's first flight with the ServerKeyExchange re-signed over AShare
+    function ClientAfterServerFlight(const AShare: TBytes): ITlsEngine;
   published
     procedure TestClientParksAfterServerKeyExchangeWhenCertificateStatusIsOmitted;
     procedure TestOutOfOrderMessageAfterOmittedCertificateStatusFailsWithoutParking;
@@ -131,6 +136,10 @@ type
     procedure TestPlainMasterSecretWhenEmsNotOffered;
     procedure TestRequiredEmsAbortsWhenClientDoesNotOfferIt;
     procedure TestTamperedServerKeyExchangeSignatureAborts;
+    procedure TestServerRefusesAllZeroX25519ClientKeyExchange;
+    procedure TestServerAcceptsUntouchedX25519ClientKeyExchange;
+    procedure TestClientRefusesAllZeroX25519ServerKeyExchange;
+    procedure TestClientAcceptsValidX25519ServerKeyExchangeShare;
     procedure TestTamperedClientFinishedAborts;
     procedure TestServerRejectsClientFinishedWithWrongVerifyData;
     procedure TestClientAnswersHelloRequestWithWarningThenAborts;
@@ -782,6 +791,116 @@ begin
     Ord(LClient.LastError.Alert.Description), 'the client aborts with decrypt_error');
   CheckEquals(0, System.Length(ReadAllApp(LClient)),
     'no application data is produced after the abort');
+end;
+
+function TTestTls12Loopback.ServerAfterClientFlight(AZeroShare: Boolean): ITlsEngine;
+var
+  LClient: ITlsEngine;
+  LWire: TBytes;
+  LRecordPos, LMsgPos, LMsgLen, LI: Int32;
+begin
+  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  Result := NewServer(False);
+  LClient.StartHandshake;
+  Pump(LClient, Result);
+  Pump(Result, LClient);
+  LWire := Drain(LClient);
+  if AZeroShare then
+  begin
+    CheckTrue(FindPlaintextHandshakeMessage(LWire, Ord(TTlsHandshakeType.ClientKeyExchange),
+      LRecordPos, LMsgPos, LMsgLen), 'the client flight carries a plaintext ClientKeyExchange');
+    CheckEquals(33, LMsgLen, 'the ClientKeyExchange holds one X25519 share');
+    for LI := 0 to 31 do
+      LWire[LMsgPos + 5 + LI] := 0;
+  end;
+  Feed(Result, LWire);
+end;
+
+function TTestTls12Loopback.ClientAfterServerFlight(const AShare: TBytes): ITlsEngine;
+var
+  LServer: ITlsEngine;
+  LWire, LRewritten, LContent: TBytes;
+  LSke: TTlsServerKeyExchangeEcdhe;
+  LSigner: ISignatureSigner;
+  LRecordPos, LMsgPos, LMsgLen, LRecordLen: Int32;
+begin
+  Result := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := NewServer(False);
+  Result.StartHandshake;
+  Pump(Result, LServer);
+  LWire := Drain(LServer);
+  CheckTrue(FindPlaintextHandshakeMessage(LWire, Ord(TTlsHandshakeType.ServerKeyExchange),
+    LRecordPos, LMsgPos, LMsgLen), 'the server flight carries a plaintext ServerKeyExchange');
+  LSke := THandshakeMessages.DecodeServerKeyExchangeEcdhe(
+    System.Copy(LWire, LMsgPos + 4, LMsgLen));
+  LSke.PublicKey := AShare;
+  // signed_params = client_random + server_random + params (RFC 8422 5.4)
+  LContent := ConcatBytes(ConcatBytes(Filled($11, 32), Filled($22, 32)),
+    THandshakeMessages.EcdheServerParams(LSke.NamedCurve, LSke.PublicKey));
+  LSigner := Crypto.Signing.CreateSignatureSigner(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    ServerCredential.PrivateKey);
+  LSigner.Update(LContent, 0, System.Length(LContent));
+  LSke.Signature := LSigner.Sign;
+  LRewritten := THandshakeFraming.Frame(TTlsHandshakeType.ServerKeyExchange,
+    THandshakeMessages.EncodeServerKeyExchangeEcdhe(LSke));
+  LWire := ConcatBytes(ConcatBytes(System.Copy(LWire, 0, LMsgPos), LRewritten),
+    System.Copy(LWire, LMsgPos + 4 + LMsgLen, System.Length(LWire)));
+  LRecordLen := ((LWire[LRecordPos + 3] shl 8) or LWire[LRecordPos + 4]) +
+    System.Length(LRewritten) - (4 + LMsgLen);
+  LWire[LRecordPos + 3] := Byte(LRecordLen shr 8);
+  LWire[LRecordPos + 4] := Byte(LRecordLen);
+  Feed(Result, LWire);
+end;
+
+procedure TTestTls12Loopback.TestServerRefusesAllZeroX25519ClientKeyExchange;
+var
+  LServer: ITlsEngine;
+begin
+  // RFC 8422 5.11: an all-zero X25519 shared secret aborts the handshake
+  LServer := ServerAfterClientFlight(True);
+  CheckTrue(LServer.IsTerminal, 'an all-zero client share fails the server');
+  CheckEquals(Ord(TTlsAlertDescription.IllegalParameter),
+    Ord(LServer.LastError.Alert.Description), 'with illegal_parameter');
+end;
+
+procedure TTestTls12Loopback.TestServerAcceptsUntouchedX25519ClientKeyExchange;
+var
+  LServer: ITlsEngine;
+begin
+  // control: the same flight, unpatched, completes the handshake
+  LServer := ServerAfterClientFlight(False);
+  CheckFalse(LServer.IsTerminal, 'the untouched flight does not fail the server');
+  CheckFalse(LServer.IsHandshaking, 'the server completed the handshake');
+end;
+
+procedure TTestTls12Loopback.TestClientRefusesAllZeroX25519ServerKeyExchange;
+var
+  LClient: ITlsEngine;
+  LRecordPos, LMsgPos, LMsgLen: Int32;
+begin
+  LClient := ClientAfterServerFlight(Filled(0, 32));
+  CheckTrue(LClient.IsTerminal, 'an all-zero server share fails the client');
+  CheckEquals(Ord(TTlsAlertDescription.IllegalParameter),
+    Ord(LClient.LastError.Alert.Description), 'with illegal_parameter');
+  CheckFalse(FindPlaintextHandshakeMessage(Drain(LClient),
+    Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
+    'no ClientKeyExchange is sent after the refusal');
+end;
+
+procedure TTestTls12Loopback.TestClientAcceptsValidX25519ServerKeyExchangeShare;
+var
+  LClient: ITlsEngine;
+  LShare: TBytes;
+  LRecordPos, LMsgPos, LMsgLen: Int32;
+begin
+  // control: the same re-signed flight with the base point u = 9 (RFC 7748 4.1) is accepted
+  LShare := Filled(0, 32);
+  LShare[0] := 9;
+  LClient := ClientAfterServerFlight(LShare);
+  CheckFalse(LClient.IsTerminal, 'a valid re-signed share does not fail the client');
+  CheckTrue(FindPlaintextHandshakeMessage(Drain(LClient),
+    Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
+    'the client answers with a ClientKeyExchange');
 end;
 
 procedure TTestTls12Loopback.TestTamperedClientFinishedAborts;
