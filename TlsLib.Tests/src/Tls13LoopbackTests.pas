@@ -652,7 +652,6 @@ end;
 procedure TTestTls13Loopback.TestEchHrrAcceptLoopback;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LMsg: TBytes;
 begin
   // ECH + HelloRetryRequest: the server accepts ECH on CH1, retries the client onto secp256r1,
@@ -660,14 +659,7 @@ begin
   // path end to end (a broken HRR confirmation or seq handling would diverge/abort).
   LClient := NewEchHrrClient;
   LServer := NewEchHrrServer;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the ECH-HRR client did not fail');
   CheckFalse(LServer.IsTerminal, 'the ECH-HRR server did not fail');
   CheckFalse(LClient.IsHandshaking, 'the ECH-HRR client completed');
@@ -805,7 +797,6 @@ var
   LClient, LServer: ITlsEngine;
   LConfigClient, LConfigServer: TBytes;
   LSkClient, LSkServer: ISecretBuffer;
-  LIterations: Int32;
 begin
   // ECH reject coincident with a HelloRetryRequest: the server holds a mismatched config (so it
   // rejects ECH) and offers only secp256r1 (so it retries the X25519 key_share). The client must
@@ -817,14 +808,7 @@ begin
   LConfigServer := BuildEchConfigList($BB, 'localhost', LSkServer);
   LClient := NewEchHrrRejectClient(LConfigClient);
   LServer := NewEchHrrRejectServer(LConfigServer, LSkServer);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected,
     'the client saw an ECH reject across the HRR');
   CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.EchRequired,
@@ -837,7 +821,6 @@ var
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
   LClientInfo, LServerInfo: TTlsConnectionInfo;
-  LIterations: Int32;
 begin
   // PSK resumption + ECH + HelloRetryRequest together: the resuming client carries the real
   // pre_shared_key on the inner ClientHello, the server retries it onto secp256r1, and the inner
@@ -849,14 +832,7 @@ begin
   // first ECH connection (itself retried onto secp256r1) issues one resumption ticket
   LClient := NewEchHrrClient(LCache);
   LServer := NewEchHrrServer(LStore, 1);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   LClientInfo := LClient.ConnectionInfo;
   CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first HRR handshake');
   CheckFalse(LClientInfo.Resumed, 'the first handshake is not resumed');
@@ -866,14 +842,7 @@ begin
   // the inner CH2 binder is recomputed over the rebased inner transcript
   LClient := NewEchHrrClient(LCache);
   LServer := NewEchHrrServer(LStore, 0);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the resuming ECH-HRR client did not fail');
   CheckFalse(LServer.IsTerminal, 'the resuming ECH-HRR server did not fail');
   LClientInfo := LClient.ConnectionInfo;
@@ -900,7 +869,7 @@ var
   LCache: ISessionCache;
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
-  LIterations, LIdLen1, LIdLen2, LI: Int32;
+  LIdLen1, LIdLen2, LI: Int32;
   LCh1, LCh2, LPsk1, LPsk2, LIds1, LIds2, LBind1, LBind2: TBytes;
   LSameBinders: Boolean;
 begin
@@ -915,14 +884,7 @@ begin
   // first ECH+HRR handshake issues a resumption ticket
   LClient := NewEchHrrClient(LCache);
   LServer := NewEchHrrServer(LStore, 1);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the first handshake cached a ticket');
 
   // second handshake: capture CH1 outer, deliver the HRR, capture CH2 outer
@@ -967,7 +929,6 @@ var
   LStore: ISessionStore;
   LClient, LServer: ITlsEngine;
   LClientInfo, LServerInfo: TTlsConnectionInfo;
-  LIterations: Int32;
 begin
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
@@ -975,14 +936,7 @@ begin
   // first ECH connection: a full accept that issues one resumption ticket
   LClient := NewEchResumeClient(LCache);
   LServer := NewEchResumeServer(LStore, 1);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   LClientInfo := LClient.ConnectionInfo;
   CheckTrue(LClientInfo.EchStatus = TEchStatus.Accepted, 'ECH accepted on the first handshake');
   CheckFalse(LClientInfo.Resumed, 'the first handshake is not resumed');
@@ -992,14 +946,7 @@ begin
   // outer), the server accepts ECH and resumes over the reconstructed inner
   LClient := NewEchResumeClient(LCache);
   LServer := NewEchResumeServer(LStore, 0);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the resuming ECH client did not fail');
   CheckFalse(LServer.IsTerminal, 'the resuming ECH server did not fail');
   LClientInfo := LClient.ConnectionInfo;
@@ -1016,7 +963,6 @@ var
   LClient, LServer: ITlsEngine;
   LConfigA, LConfigB: TBytes;
   LSkA, LSkB: ISecretBuffer;
-  LIterations: Int32;
 begin
   // a resuming client offers a GREASE pre_shared_key on the ClientHelloOuter; when the server
   // rejects ECH it must ignore that decoy (it cannot validate the random identity) and complete
@@ -1029,28 +975,14 @@ begin
   // first: accept config_A and issue a ticket the client caches
   LClient := NewEchClientWith(LConfigA, LCache);
   LServer := NewEchAcceptServer(LConfigA, LSkA, LStore, 1);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the ticket was cached for the resume');
 
   // second: the resuming client's outer carries a GREASE PSK, but the server holds config_B
   // and rejects; the GREASE PSK must not derail the reject
   LClient := NewEchClientWith(LConfigA, LCache);
   LServer := NewEchRejectServer(LConfigB, LSkB);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected,
     'the resuming client saw an ECH reject (the outer GREASE PSK was ignored)');
   CheckTrue(LClient.LastError.Alert.Description = TTlsAlertDescription.EchRequired,
@@ -1064,7 +996,6 @@ var
   LAnti: IAntiReplayStrategy;
   LClient, LServer: ITlsEngine;
   LClientInfo: TTlsConnectionInfo;
-  LIterations: Int32;
   LEarly: TBytes;
 begin
   LCache := TInMemorySessionCache.Create;
@@ -1074,14 +1005,7 @@ begin
   // first ECH connection: a full accept issuing a 0-RTT-capable ticket
   LClient := NewEchResumeClient(LCache, False);
   LServer := NewEchResumeServer(LStore, 1, 16384, LAnti);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'a 0-RTT-capable ticket was cached over ECH');
 
   // second ECH connection: send 0-RTT early data. The early keys derive from the inner
@@ -1091,13 +1015,7 @@ begin
   LEarly := DecodeHex('6563682d30727474'); // "ech-0rtt"
   LClient.StartHandshake;
   LClient.WriteEarlyData(LEarly, 0, System.Length(LEarly));
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  ExchangeFlights(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the 0-RTT ECH client did not fail');
   CheckFalse(LServer.IsTerminal, 'the 0-RTT ECH server did not fail');
   LClientInfo := LClient.ConnectionInfo;
@@ -1110,20 +1028,12 @@ end;
 procedure TTestTls13Loopback.TestEchAcceptLoopback;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LMsg: TBytes;
 begin
   LClient := NewEchClientWith(
     TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
   LServer := NewEchServer;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   // completion proves ECH was accepted end to end: the server certificate matches only
   // the inner SNI (localhost), never the public_name, so a reject would abort on the
   // certificate check, and a broken accept confirmation would diverge the transcripts
@@ -1144,7 +1054,7 @@ procedure TTestTls13Loopback.TestEchAcceptKeyLogIsKeyedByInnerRandom;
 var
   LClient, LServer: ITlsEngine;
   LClientLog, LServerLog: IKeyLog;
-  LIterations, LI: Int32;
+  LI: Int32;
   LInner: TBytes;
 begin
   // on ECH accept the exported secrets must be logged under the INNER ClientHello random, not the
@@ -1159,14 +1069,7 @@ begin
     LClient := NewEchClientWith(
       TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
     LServer := NewEchServer;
-    LClient.StartHandshake;
-    LIterations := 0;
-    while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-    begin
-      Pump(LClient, LServer);
-      Pump(LServer, LClient);
-      Inc(LIterations);
-    end;
+    RunHandshake(LClient, LServer);
     CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH was accepted');
     CheckTrue(FClientKeyLog.Count > 0, 'the client logged key material');
     CheckTrue(FServerKeyLog.Count > 0, 'the server logged key material');
@@ -1192,7 +1095,6 @@ var
   LClientSk, LServerSk: ISecretBuffer;
   LClientInfo: TTlsConnectionInfo;
   LReturnedRetry: TBytes;
-  LIterations: Int32;
 begin
   // the client offers config_id $AA (public_name localhost); the server's store holds a
   // different config ($BB, is_retry), so no config_id matches and it rejects ECH, advertising
@@ -1203,14 +1105,7 @@ begin
   LServerList := BuildEchConfigList($BB, 'localhost', LServerSk);
   LClient := NewEchClientWith(LClientList);
   LServer := NewEchRejectServer(LServerList, LServerSk);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'the client aborted the rejected ECH handshake');
   LClientInfo := LClient.ConnectionInfo;
   CheckTrue(LClientInfo.EchStatus = TEchStatus.Rejected, 'the client recorded an ECH reject');
@@ -1571,21 +1466,13 @@ end;
 procedure TTestTls13Loopback.TestClientServerLoopbackReachesApplicationData;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LFromClient, LFromServer: TBytes;
 begin
   LClient := NewClient;
   LServer := NewServer;
 
   LClient.StartHandshake; // emits the ClientHello (and the middlebox CCS)
-
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  ExchangeFlights(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
   CheckFalse(LServer.IsHandshaking, 'the server completed the handshake');
@@ -1680,20 +1567,12 @@ end;
 procedure TTestTls13Loopback.TestZeroLengthWriteEmitsNothing;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
 begin
   // after completion a zero-length application write is a no-op: it must not put an empty
   // application_data record on the wire (library policy; RFC 9846 5.1 / 5.4 allow zero-length data)
   LClient := NewClient;
   LServer := NewServer;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
   Drain(LClient); // clear any residual outbound first
   LClient.Write(nil, 0, 0);
@@ -1704,19 +1583,11 @@ end;
 procedure TTestTls13Loopback.TestFatalLevelUserCanceledIsTerminal;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
 begin
   // the public SendAlert is fatal-level, so the peer must close (RFC 9846 6.2)
   LClient := NewClient;
   LServer := NewServer;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
   LServer.SendAlert(TTlsAlertDescription.UserCanceled);
   Pump(LServer, LClient);
@@ -1731,19 +1602,12 @@ procedure TTestTls13Loopback.TestApplicationRecordsQueueNoEvents;
 var
   LClient, LServer: ITlsEngine;
   LEvent: ITlsEvent;
-  LIterations, LI: Int32;
+  LI: Int32;
   LFromClient: TBytes;
 begin
   LClient := NewClient;
   LServer := NewServer;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking, 'the handshake completed');
   while LServer.NextEvent(LEvent) do ; // clear the handshake-phase events
   // application data is signalled by PendingAppData, not by an event per record: a stream of
@@ -1760,24 +1624,15 @@ end;
 procedure TTestTls13Loopback.TestHelloRetryRequestRoundTrip;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LFromClient, LFromServer: TBytes;
 begin
   LClient := NewHrrClient;
   LServer := NewHrrServer;
 
-  LClient.StartHandshake;
-
   // the server answers ClientHello1 with a HelloRetryRequest (the client key-shared
   // X25519 but the server offers only secp256r1); the client retries onto secp256r1,
   // the server rebuilds the transcript from the cookie, and the handshake completes
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the client completed after the retry');
   CheckFalse(LServer.IsHandshaking, 'the server completed after the retry');
@@ -1916,19 +1771,12 @@ end;
 procedure TTestTls13Loopback.TestAppDataAcrossRecordsChunkedReads;
 var
   LClient, LServer: ITlsEngine;
-  LIterations, LGot: Int32;
+  LGot: Int32;
   LMsg1, LMsg2, LMsg3, LExpected, LGotAll, LOne: TBytes;
 begin
   LClient := NewClient;
   LServer := NewServer;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking, 'the handshake completed');
 
   // three separate writes arrive as three application-data records => three queue
@@ -2045,7 +1893,6 @@ end;
 procedure TTestTls13Loopback.TestMiddleboxChangeCipherSpec;
 var
   LClient, LServer: ITlsEngine;
-  LI: Int32;
 begin
   // before any ServerHello has fixed the version, a bare change_cipher_spec is out of its legal
   // window (RFC 9846 E.4): the client fails with unexpected_message, not a silent drop
@@ -2061,14 +1908,7 @@ begin
   // ServerHello; the client drops it once the version is fixed, so the handshake completes
   LClient := NewClient;
   LServer := NewServer;
-  LClient.StartHandshake;
-  LI := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LI);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal,
     'the handshake carrying the middlebox change_cipher_spec completed');
   CheckFalse(LClient.IsHandshaking, 'the client finished the handshake');
@@ -2077,20 +1917,12 @@ end;
 procedure TTestTls13Loopback.TestWriteAfterInboundCloseNotifyHalfCloses;
 var
   LClient, LServer: ITlsEngine;
-  LI: Int32;
   LMsg: TBytes;
   LRaised: Boolean;
 begin
   LClient := NewClient;
   LServer := NewServer;
-  LClient.StartHandshake;
-  LI := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LI);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
 
   // the server closes its write side; the client receives the inbound close_notify
@@ -2136,19 +1968,11 @@ end;
 procedure TTestTls13Loopback.TestCoalescedFinalDataAndCloseNotifyBothSurface;
 var
   LClient, LServer: ITlsEngine;
-  LI: Int32;
   LMsg, LWire: TBytes;
 begin
   LClient := NewClient;
   LServer := NewServer;
-  LClient.StartHandshake;
-  LI := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LI);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
 
   // the server sends a final application message and immediately closes, so the
@@ -2170,22 +1994,13 @@ end;
 procedure TTestTls13Loopback.TestStapledGoodOcspCompletesUnderHardPosture;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
 begin
   // the server staples a current Good OCSP response in the leaf CertificateEntry, which a
   // hard-fail client requires (a posture of this library; the format is RFC 9846 4.5.1.1)
   LClient := NewHardRevocationClient;
   LServer := NewStaplingServer(
     TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good'));
-  LClient.StartHandshake;
-
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
   CheckFalse(LClient.IsTerminal, 'the client accepted the stapled Good response');
@@ -2195,20 +2010,11 @@ end;
 procedure TTestTls13Loopback.TestMissingStapleAbortsUnderHardPosture;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
 begin
   // the same client, but the server staples nothing: hard-fail rejects the leaf
   LClient := NewHardRevocationClient;
   LServer := NewStaplingServer(nil);
-  LClient.StartHandshake;
-
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckTrue(LClient.IsTerminal,
     'the client aborted the handshake for a missing staple under hard-fail');
@@ -2218,7 +2024,6 @@ procedure TTestTls13Loopback.TestSniSelectsHostCredentialAmongMany;
 var
   LClient, LServer: ITlsEngine;
   LEntries: TArray<TSniCredentialEntry>;
-  LIterations: Int32;
   LPing: TBytes;
 begin
   // a virtual-hosting server: 'localhost' -> the localhost leaf, 'other.example' -> a decoy.
@@ -2235,14 +2040,7 @@ begin
   LClient := NewClientForSni('localhost', 'localhost');
   LServer := NewServerWithResolver(TSniCredentialResolver.ForEntries(LEntries));
 
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
   CheckFalse(LClient.IsTerminal, 'the client accepted the localhost leaf it was served by SNI');
@@ -2259,7 +2057,6 @@ procedure TTestTls13Loopback.TestUnknownSniWithoutDefaultAbortsUnrecognizedName;
 var
   LClient, LServer: ITlsEngine;
   LEntries: TArray<TSniCredentialEntry>;
-  LIterations: Int32;
 begin
   // the server knows only 'localhost' and has no default credential; a client requesting an
   // unknown host must be rejected with unrecognized_name(112) per RFC 6066 3, not served some
@@ -2271,14 +2068,7 @@ begin
   LClient := NewClientForSni('unknown.example', 'unknown.example');
   LServer := NewServerWithResolver(TSniCredentialResolver.ForEntries(LEntries));
 
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckTrue(LServer.IsTerminal, 'the server aborted the unresolvable-SNI handshake');
   CheckEquals(Ord(TTlsAlertDescription.UnrecognizedName),
@@ -2349,19 +2139,11 @@ end;
 procedure TTestTls13Loopback.TestEd448ServerCredentialHandshake;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LMsg: TBytes;
 begin
   LClient := NewClientEd448;
   LServer := NewServerEd448;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   // the server derived ed448 from its credential, signed CertificateVerify with it, and the
   // client verified both the Ed448 cert chain and that signature
   CheckFalse(LClient.IsHandshaking, 'the client completed the Ed448 handshake');
@@ -2378,19 +2160,11 @@ end;
 procedure TTestTls13Loopback.TestEd25519ServerCredentialHandshake;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LMsg: TBytes;
 begin
   LClient := NewClientEd25519;
   LServer := NewServerEd25519;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client completed the Ed25519 handshake');
   CheckFalse(LServer.IsHandshaking, 'the server completed the Ed25519 handshake');
   CheckFalse(LClient.IsTerminal, 'the client did not fail');

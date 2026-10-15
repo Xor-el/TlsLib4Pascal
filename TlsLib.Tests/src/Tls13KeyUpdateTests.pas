@@ -200,18 +200,10 @@ begin
 end;
 
 procedure TTestTls13KeyUpdate.Handshake(out AClient, AServer: ITlsEngine);
-var
-  LIterations: Int32;
 begin
   AClient := NewClient;
   AServer := NewServer;
-  AClient.StartHandshake;
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Exchange(AClient, AServer);
-    Inc(LIterations);
-  end;
+  RunHandshake(AClient, AServer);
   CheckFalse(AClient.IsHandshaking, 'the client completed the handshake');
   CheckFalse(AServer.IsHandshaking, 'the server completed the handshake');
   // clear the handshake-phase events (SessionTicketReceived, ...)
@@ -254,13 +246,7 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(
     TTlsPresets.Hardened(LCapped, Pkix).Server.WithCredential(ServerCredential)
     .WithCipherSuites(LRegistry).Build);
-  LClient.StartHandshake;
-  LI := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LI < 16) do
-  begin
-    Exchange(LClient, LServer);
-    Inc(LI);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
   CountKeyUpdateEvents(LClient); // clear handshake-phase events
   CountKeyUpdateEvents(LServer);

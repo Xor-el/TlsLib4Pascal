@@ -74,7 +74,6 @@ type
     function NewHybridOfferingDualClient: ITlsEngine;
     function NewServerDispatch(const AVersions: TArray<UInt16>): ITlsEngine;
     function NewDowngradeAttacker: ITlsEngine;
-    procedure DriveToCompletion(const AClient, AServer: ITlsEngine);
     procedure CheckExchangesData(const AClient, AServer: ITlsEngine;
       const AMsg: string);
     /// <summary>Frames a ClientHello with the given cipher_suites and raw extensions
@@ -281,20 +280,6 @@ begin
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-procedure TTestTls12DualVersion.DriveToCompletion(const AClient, AServer: ITlsEngine);
-var
-  LIterations: Int32;
-begin
-  AClient.StartHandshake;
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
-    Inc(LIterations);
-  end;
-end;
-
 procedure TTestTls12DualVersion.CheckExchangesData(const AClient, AServer: ITlsEngine;
   const AMsg: string);
 var
@@ -325,7 +310,7 @@ begin
   LClient := NewDualClient;
   LServer := NewServerDispatch(TArray<UInt16>.Create(TlsWireVersionTls13,
     TlsWireVersionTls12));
-  DriveToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'dual client + dual server');
 end;
 
@@ -335,7 +320,7 @@ var
 begin
   LClient := NewDualClient;
   LServer := NewServerDispatch(TArray<UInt16>.Create(TlsWireVersionTls13));
-  DriveToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'dual client + 1.3-only server');
 end;
 
@@ -347,7 +332,7 @@ begin
   // machine; a 1.2-only server never stamps the downgrade sentinel
   LClient := NewDualClient;
   LServer := NewServerDispatch(TArray<UInt16>.Create(TlsWireVersionTls12));
-  DriveToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'dual client + 1.2-only server');
 end;
 
@@ -360,7 +345,7 @@ begin
   // negotiate a classical ECDHE group - a KEM hybrid is never selected on TLS 1.2 (RFC 10024)
   LClient := NewHybridOfferingDualClient;
   LServer := NewServerDispatch(TArray<UInt16>.Create(TlsWireVersionTls12));
-  DriveToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'dual client offering hybrid + 1.2-only server');
   LClientInfo := LClient.ConnectionInfo;
   CheckEquals(Integer(TlsWireVersionTls12), Integer(LClientInfo.NegotiatedVersion.WireValue),
@@ -375,7 +360,7 @@ var
 begin
   LClient := NewDualClient;
   LServer := NewDowngradeAttacker;
-  DriveToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.IsTerminal,
     'the client aborts a 1.2 downgrade that carries the 1.3-capable sentinel');
   // RFC 9846 4.2.3
@@ -394,7 +379,7 @@ begin
     .Client.WithServerVerification(TServerVerification.WebPki(
       TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .Build, 'localhost');
-  DriveToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset engine');
 end;
 
@@ -417,7 +402,7 @@ begin
     .WithServerVerification(TServerVerification.WebPki(
       TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .Build, 'localhost');
-  DriveToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset mutual TLS');
 end;
 

@@ -133,7 +133,6 @@ type
     procedure OfferMintedSession(const ACache: ISessionCache; const AStore: ISessionStore;
       const AStek: ISessionTicketKeyManager; AMode: TNonEmsResumption;
       out AClient, AServer: ITlsEngine);
-    procedure PumpToCompletion(const AClient, AServer: ITlsEngine);
     function MakeTicketSession(const ATicket: TBytes;
       AExtendedMasterSecret: Boolean): IResumableSession;
     /// <summary>The first ClientHello flight of a client that holds a cached ticket session made
@@ -422,8 +421,7 @@ var
 begin
   LClient := NewClient(ACache, False);
   LServer := NewPolicyServer(AStore, AStek, 7200, True, False, TNonEmsResumption.Resume);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, ACache.Count, 'a server that resumes non-EMS sessions issued one');
 end;
 
@@ -433,19 +431,6 @@ procedure TTestTls12Resumption.OfferMintedSession(const ACache: ISessionCache;
 begin
   AClient := NewClient(ACache, False);
   AServer := NewPolicyServer(AStore, AStek, 7200, True, False, AMode);
-end;
-
-procedure TTestTls12Resumption.PumpToCompletion(const AClient, AServer: ITlsEngine);
-var
-  LIterations: Int32;
-begin
-  LIterations := 0;
-  while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
-    Inc(LIterations);
-  end;
 end;
 
 function TTestTls12Resumption.MakeTicketSession(const ATicket: TBytes;
@@ -528,8 +513,7 @@ begin
 
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, nil, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the initial handshake completed');
   CheckEquals(1, LCache.Count, 'the client cached the session id');
   CheckEquals(1, LStore.Count, 'the server stored the session under its id');
@@ -585,8 +569,7 @@ begin
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, nil, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
     (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession), 'the session was cached');
   LAged := AgedCopy(LSession, AgeMillis);
@@ -617,8 +600,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
     (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession), 'the session was cached');
   LAged := AgedCopy(LSession, AgeMillis);
@@ -647,8 +629,7 @@ begin
 
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the client cached the issued ticket');
 
   LClient := NewClient(LCache, True);
@@ -684,8 +665,7 @@ begin
   ACache := TInMemorySessionCache.Create;
   AClient := NewClient(ACache, True);
   LServer := NewServer(LStore, nil, 7200, True);
-  AClient.StartHandshake;
-  PumpToCompletion(AClient, LServer);
+  RunHandshake(AClient, LServer);
   CheckTrue(ACache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
     LFirst), 'the session id session was cached');
   CheckTrue(Supports(LFirst, ITls12ResumableSession, L12), 'a TLS 1.2 session');
@@ -698,8 +678,7 @@ begin
     L12.AuthenticatedAtMillis) as IResumableSession);
   AClient := NewClient(ACache, True);
   LServer := NewServer(LStore, nil, 7200, True);
-  AClient.StartHandshake;
-  PumpToCompletion(AClient, LServer);
+  RunHandshake(AClient, LServer);
   CheckTrue(AClient.ConnectionInfo.Resumed, 'the id resumed');
 end;
 
@@ -738,13 +717,11 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, TOpenOnlyTicketKeys.Create(LStek) as ISessionTicketKeyManager, 7200,
     True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(0, CountTicketEvents(LClient), 'a zero-length NewSessionTicket brings no ticket');
 end;
 
@@ -755,8 +732,7 @@ begin
   LClient := NewClient(TInMemorySessionCache.Create as ISessionCache, True);
   LServer := NewServer(nil, TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
     as ISessionTicketKeyManager, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, CountTicketEvents(LClient), 'the issued ticket was announced');
 end;
 
@@ -770,12 +746,10 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the ticket resumed');
   CheckEquals(1, CountTicketEvents(LClient), 'the renewed ticket was announced');
 end;
@@ -792,12 +766,10 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.ConnectionInfo.Resumed, 'the ticket resumed');
   CheckEqualBytes('the abbreviated flight selects the protocol', TAlpnProtocols.Http11,
     LServer.ConnectionInfo.AlpnProtocol);
@@ -815,8 +787,7 @@ begin
   LServer := NewServer(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore,
     TScriptedTicketKeys.Create(ANameLength, Crypto.Primitives.GetRandom.GenerateBytes(32),
     nil) as ISessionTicketKeyManager, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   // the session id the server also sent keeps the session cached whatever became of its ticket
   CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
     LSession), 'the session was cached by its id');
@@ -862,8 +833,7 @@ begin
   LKeys := LKeysImpl;
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, LKeys, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LKeysImpl.Seals > 0, 'the server sealed an over-limit ticket to issue');
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, LKeys, 7200, True);
@@ -912,8 +882,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the client cached the session');
   CheckEquals(0, LStore.Count, 'the sealed ticket carries it, so the server stores no id');
 end;
@@ -931,8 +900,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LStore.Count, 'the declined seal falls back to the stored session id');
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, LStek, 7200, True);
@@ -952,8 +920,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
     LFirst), 'the initial session was cached');
   LCache.Store(ServerHost + ':443', ServerHost, LFirst);
@@ -961,8 +928,7 @@ begin
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, TOpenOnlyTicketKeys.Create(LStek) as ISessionTicketKeyManager, 7200,
     True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the ticket resumed');
   CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, UInt64(TSystemTimeUtilities.UtcUnixMs),
     LAfter), 'the resumed session was cached again');
@@ -984,14 +950,12 @@ begin
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, nil, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(TNamedGroupCatalog.X25519, LClient.ConnectionInfo.NamedGroup,
     'the full handshake negotiated X25519');
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, nil, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the session id resumed');
   CheckEquals(TNamedGroupCatalog.X25519, LClient.ConnectionInfo.NamedGroup,
     'the resumed client reports the original group');
@@ -1009,12 +973,10 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.ConnectionInfo.Resumed, 'the ticket resumed');
   CheckEquals(TNamedGroupCatalog.X25519, LClient.ConnectionInfo.NamedGroup,
     'the resumed client reports the original group');
@@ -1032,16 +994,14 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LClient.ConnectionInfo.PeerSignatureScheme,
     'the client saw the server sign with ecdsa_secp256r1_sha256');
   CheckEquals(0, LServer.ConnectionInfo.PeerSignatureScheme,
     'a server without client authentication verified no signature');
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the ticket resumed');
   CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LClient.ConnectionInfo.PeerSignatureScheme,
     'the resumed client reports the original server signature scheme');
@@ -1060,8 +1020,7 @@ begin
 
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'an EMS session was cached');
 
   LClient := NewClient(LCache, True);
@@ -1093,8 +1052,7 @@ begin
 
   LClient := NewClient(LCache, False);
   LServer := NewPolicyServer(nil, LStek, 7200, True, False, TNonEmsResumption.Resume);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'a non-EMS session was cached');
 
   LClient := NewClient(LCache, False);
@@ -1165,8 +1123,7 @@ begin
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
   MintNonEmsSession(LCache, LStore, nil);
   OfferMintedSession(LCache, LStore, nil, TNonEmsResumption.Abort, LClient, LServer);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'a non-EMS session aborts under the Abort policy');
   CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
     Int64(Ord(LServer.LastError.Alert.Description)), 'the abort is handshake_failure (RFC 7627 5.2)');
@@ -1186,8 +1143,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   MintNonEmsSession(LCache, nil, LStek);
   OfferMintedSession(LCache, nil, LStek, TNonEmsResumption.Abort, LClient, LServer);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'a non-EMS ticket aborts under the Abort policy');
   CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
     Int64(Ord(LServer.LastError.Alert.Description)), 'the abort is handshake_failure (RFC 7627 5.2)');
@@ -1252,8 +1208,7 @@ begin
     LCache := TInMemorySessionCache.Create;
     LClient := NewClient(LCache, False);
     LServer := NewPolicyServer(LStore, LStek, 7200, True, False, LMode);
-    LClient.StartHandshake;
-    PumpToCompletion(LClient, LServer);
+    RunHandshake(LClient, LServer);
     CheckFalse(LServer.IsTerminal, 'the non-EMS full handshake completes under every policy');
     if LMode = TNonEmsResumption.Resume then
     begin
@@ -1272,8 +1227,7 @@ begin
     LCache := TInMemorySessionCache.Create;
     LClient := NewClient(LCache, True);
     LServer := NewPolicyServer(LStore, LStek, 7200, True, False, LMode);
-    LClient.StartHandshake;
-    PumpToCompletion(LClient, LServer);
+    RunHandshake(LClient, LServer);
     CheckEquals(1, LCache.Count, 'an EMS client is issued a session under every policy');
     CheckEquals(0, LStore.Count, 'carried by its ticket, so the store holds no session id');
   end;
@@ -1296,8 +1250,7 @@ begin
     LCache := TInMemorySessionCache.Create;
     LClient := NewClient(LCache, True);
     LServer := NewPolicyServer(nil, LStek, 7200, True, False, LMode);
-    LClient.StartHandshake;
-    PumpToCompletion(LClient, LServer);
+    RunHandshake(LClient, LServer);
     CheckTrue(LCache.Take(ServerHost + ':443', ServerHost,
       (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession), 'the EMS session was cached');
     LTicket := (LSession as ITls12ResumableSession).SessionTicket;
@@ -1314,8 +1267,7 @@ begin
     LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, False));
     LClient := NewClient(LCache2, False);
     LServer := NewPolicyServer(nil, LStek, 7200, True, False, LMode);
-    LClient.StartHandshake;
-    PumpToCompletion(LClient, LServer);
+    RunHandshake(LClient, LServer);
     CheckTrue(LServer.IsTerminal, 'an EMS session offered without EMS aborts under every policy');
 
     // a non-EMS session offered with EMS declines, even under Resume
@@ -1351,8 +1303,7 @@ begin
     MintNonEmsSession(LCache, nil, LStek);
     LClient := NewClient(LCache, False);
     LServer := NewServerWith(nil, LStek, 7200, True, False, LMode, True);
-    LClient.StartHandshake;
-    PumpToCompletion(LClient, LServer);
+    RunHandshake(LClient, LServer);
     CheckTrue(LServer.IsTerminal, 'a required-EMS server refuses the non-EMS client');
     CheckFalse(LServer.ConnectionInfo.Resumed, 'and never resumes its session');
     CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
@@ -1383,14 +1334,12 @@ begin
 
   LClient := NewClient(LCache, False);
   LServer := BuildServer(TNonEmsResumption.Resume);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'a built Resume server issued a non-EMS session');
 
   LClient := NewClient(LCache, False);
   LServer := BuildServer(TNonEmsResumption.Abort);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'a built Abort server aborts the non-EMS resumption');
   CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
     Int64(Ord(LServer.LastError.Alert.Description)), 'with handshake_failure');
@@ -1414,8 +1363,7 @@ begin
   LCache1 := TInMemorySessionCache.Create;
   LClient := NewClient(LCache1, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost,
     (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession),
     'the EMS session was cached');
@@ -1425,8 +1373,7 @@ begin
   LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, False));
   LClient := NewClient(LCache2, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'a resumption that changes the EMS choice aborts the client');
   CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
     Int64(Ord(LClient.LastError.Alert.Description)),
@@ -1448,8 +1395,7 @@ begin
   LCache1 := TInMemorySessionCache.Create;
   LClient := NewClient(LCache1, True);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost,
     (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession),
     'the EMS session was cached');
@@ -1459,8 +1405,7 @@ begin
   LCache2.Store(ServerHost + ':443', ServerHost, MakeTicketSession(LTicket, False));
   LClient := NewClient(LCache2, False);
   LServer := NewServer(nil, LStek, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'an EMS session offered without EMS aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)),
     Int64(Ord(LServer.LastError.Alert.Description)),
@@ -1488,8 +1433,7 @@ begin
   // the non-EMS session is minted by a server that resumes such sessions, since a default one
   // issues none
   LServer := NewPolicyServer(nil, LStek, 7200, True, False, TNonEmsResumption.Resume);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LCache1.Take(ServerHost + ':443', ServerHost,
     (TSystemClock.Create as ITlsClock).NowUnixMillis, LSession),
     'the non-EMS session was cached');
@@ -1583,8 +1527,7 @@ begin
   LClient := BuildMtlsClient(LCache, LCred);
   LServer := BuildMtlsServer(LStek, TClientAuthMode.Required, LClientRoot,
     DecodeHex('a1a1a1a1a1a1a1a1'));
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the client cached the scope-A ticket');
 
   // a configuration sharing the STEK but under scope B declines the ticket (scope mismatch) and
@@ -1616,8 +1559,7 @@ begin
   // full mutual-TLS handshake -> ticket #1
   LClient := BuildMtlsClient(LCache, LCred);
   LServer := BuildMtlsServer(LStek, TClientAuthMode.Required, LClientRoot, LScope);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'ticket #1 was cached');
   CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, LServer.ConnectionInfo.PeerSignatureScheme,
     'the server verified the client''s CertificateVerify under ecdsa_secp256r1_sha256');
@@ -1629,16 +1571,14 @@ begin
   // resume ticket #1 and re-issue ticket #2, which must carry the chain forward
   LClient := BuildMtlsClient(LCache, LCred);
   LServer := BuildMtlsServer(LStek, TClientAuthMode.Required, LClientRoot, LScope);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LServer.ConnectionInfo.Resumed, 'the first resumption resumed');
   CheckEquals(1, LCache.Count, 'the client holds a ticket for the next connection');
 
   // resume ticket #2: resumes only if it carried the chain (else Required declines to full)
   LClient := BuildMtlsClient(LCache, LCred);
   LServer := BuildMtlsServer(LStek, TClientAuthMode.Required, LClientRoot, LScope);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   LServerInfo := LServer.ConnectionInfo;
   CheckTrue(LServerInfo.Resumed, 'the re-issued ticket carried the chain, so it resumes again');
   CheckTrue(System.Length(LServerInfo.PeerCertificates) > 0,
@@ -1691,8 +1631,7 @@ begin
 
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 0, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(1, LCache.Count, 'the expired ticket was cached');
 
   LClient := NewClient(LCache, True);
@@ -1730,7 +1669,7 @@ begin
     Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen),
     'a bogus ticket falls back to a full handshake (Certificate sent)');
   Feed(LClient, LFlight);
-  PumpToCompletion(LClient, LServer);
+  ExchangeFlights(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client completed the full handshake');
   CheckFalse(LServer.IsTerminal, 'a bogus ticket is not fatal');
   CheckAppDataFlows(LClient, LServer);
@@ -1804,8 +1743,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, nil, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(Ord(TEarlyDataReason.ProtocolVersion), Ord(LServer.ConnectionInfo.EarlyDataReason),
     'a TLS 1.2 server takes no 0-RTT');
   CheckEquals(Ord(TEarlyDataReason.Disabled), Ord(LClient.ConnectionInfo.EarlyDataReason),
@@ -1820,8 +1758,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewDualVersionClientWith(LCache, True);
   LServer := NewServer(nil, nil, 7200, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckEquals(Ord(TEarlyDataReason.NoSessionOffered), Ord(LClient.ConnectionInfo.EarlyDataReason),
     'the 1.3 hello offered no early data for want of a session, and the 1.2 hand-off keeps that');
 end;
@@ -1846,8 +1783,7 @@ begin
   // the resuming server stamps the downgrade sentinel on the abbreviated ServerHello
   LClient := NewDualVersionClient(LCache);
   LServer := NewServer(nil, LStek, 7200, True, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'the client aborts a stamped abbreviated ServerHello');
   CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
     Int64(Ord(LClient.LastError.Alert.Description)),
@@ -1990,8 +1926,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 604800, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   LClientClock.Advance(SixDaysMs);
   if AAdvanceServerClock then
     LServerClock.Advance(SixDaysMs);
@@ -2094,8 +2029,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 604800, True);
-  LClient.StartHandshake;
-  PumpToCompletion(LClient, LServer);
+  RunHandshake(LClient, LServer);
   LNowMs := (TSystemClock.Create as ITlsClock).NowUnixMillis;
   CheckTrue(LCache.Take(ServerHost + ':443', ServerHost, LNowMs, LFirst), 'the ticket was cached');
   L12First := LFirst as ITls12ResumableSession;
@@ -2141,8 +2075,7 @@ procedure TTestTls12Resumption.EstablishSessionIdSession(const AStore: ISessionS
 begin
   AClient := NewClient(ACache, True);
   AServer := NewServer(AStore, nil, 7200, True);
-  AClient.StartHandshake;
-  PumpToCompletion(AClient, AServer);
+  RunHandshake(AClient, AServer);
   CheckEquals(1, AStore.Count, 'the server stored the session under its id');
   CheckEquals(1, ACache.Count, 'the client cached the session');
 end;
