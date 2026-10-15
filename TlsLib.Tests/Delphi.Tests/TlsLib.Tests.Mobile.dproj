@@ -513,6 +513,8 @@
         <DCCReference Include="..\src\TlsLibTestHandshakeDecoder.pas"/>
         <DCCReference Include="..\src\SecretTests.pas"/>
         <DCCReference Include="..\src\TlsLibTestBase.pas"/>
+        <DCCReference Include="..\src\TlsLibTestCertificates.pas"/>
+        <DCCReference Include="..\src\TlsLibHandshakeTestBase.pas"/>
         <DCCReference Include="..\src\AlertTests.pas"/>
         <DCCReference Include="..\src\ExceptionTests.pas"/>
         <DCCReference Include="..\src\WireCodecTests.pas"/>
@@ -530,6 +532,9 @@
         <DCCReference Include="..\src\MockVerifyHooks.pas"/>
         <DCCReference Include="..\src\MockRecordInstaller.pas"/>
         <DCCReference Include="..\src\MockTransport.pas"/>
+        <DCCReference Include="..\src\MockCertificateVerifiers.pas"/>
+        <DCCReference Include="..\src\MockCertificateCompression.pas"/>
+        <DCCReference Include="..\src\MockNamedGroups.pas"/>
         <DCCReference Include="..\src\MockTests.pas"/>
         <DCCReference Include="..\src\RecordHeaderTests.pas"/>
         <DCCReference Include="..\src\RecordProtectionTests.pas"/>
