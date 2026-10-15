@@ -96,20 +96,18 @@ uses
   MockCertificateCompression,
   MockCertificateVerifiers,
   TlsLibTestCertificates,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
   /// <summary>The shapes of client the external-PSK budget is checked against.</summary>
   TOfferKind = (Plain, LargestAlpn, CachedTicket, Ech);
 
-  TTestConfigBuilder = class(TTlsLibAlgorithmTestCase)
+  TTestConfigBuilder = class(TTlsLibHandshakeTestCase)
   private
     FCerts: TStringList;
     // the endpoint views hold a raw back-reference to their owner, so a helper that hands back a
     // view keeps the owning builder alive here for the test's duration
     FBuilders: TArray<ITlsConfigBuilder>;
-    function ServerCredential: TTlsCredential; overload;
-    function ServerCredential(const ACrypto: ICryptoProvider): TTlsCredential; overload;
     // the EcP256 leaf paired with a foreign private key from ImportKeys.txt (never its own key),
     // so the key does not own the leaf
     function CredentialWithForeignKey(const AKeyField: string): TTlsCredential;
@@ -180,8 +178,6 @@ type
     function OfferFacet(AKind: TOfferKind; ACount: Int32): ITls13ClientConfigFacet;
     function LargestAcceptedCount(AKind: TOfferKind): Int32;
     procedure CheckExternalPskRefused(const APsks: TArray<TExternalPsk>; const AMessage: string);
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
     procedure RunHandshake(const AClient, AServer: ITlsEngine);
     // the flight exchange of a handshake whose client has already started and sent its first flight
     procedure ExchangeFlights(const AClient, AServer: ITlsEngine);
@@ -194,7 +190,6 @@ type
     function OmitSniClient(const AVersions: TArray<UInt16>): ITlsClientConfig;
     function RejectEveryChain(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -509,17 +504,6 @@ procedure TTestConfigBuilder.TearDown;
 begin
   FBuilders := nil;
   inherited TearDown;
-end;
-
-function TTestConfigBuilder.ServerCredential: TTlsCredential;
-begin
-  Result := ServerCredential(Crypto);
-end;
-
-function TTestConfigBuilder.ServerCredential(const ACrypto: ICryptoProvider): TTlsCredential;
-begin
-  Result.CertificateChain := TArray<TBytes>.Create(DecodeHex(FCerts.Values['leaf_cert']));
-  Result.PrivateKey := ACrypto.Signing.ImportSigningKey(DecodeHex(FCerts.Values['leaf_key']), nil);
 end;
 
 function TTestConfigBuilder.CredentialWithForeignKey(
@@ -2880,34 +2864,6 @@ begin
     'the message names the missing offered versions');
 end;
 
-function TTestConfigBuilder.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestConfigBuilder.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  // one record at a time, so a key-epoch install takes effect before the next record
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
 procedure TTestConfigBuilder.RunHandshake(const AClient, AServer: ITlsEngine);
 begin
   AClient.StartHandshake;
@@ -2925,20 +2881,6 @@ begin
     Feed(AClient, Drain(AServer));
     Inc(LIterations);
   end;
-end;
-
-function TTestConfigBuilder.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
 end;
 
 procedure TTestConfigBuilder.TestBuilderRejectsMutationAfterBuild;

@@ -69,22 +69,17 @@ uses
   TlpTls12ServerStateMachine,
   TlpTlsVersion,
   MockCertificateCompression,
-  TlsLibTestBase,
+  TlsLibHandshakeTestBase,
   TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
-  TTestExtensionNegotiation = class(TTlsLibAlgorithmTestCase)
+  TTestExtensionNegotiation = class(TTlsLibHandshakeTestCase)
   private
-    function ServerCredential: TTlsCredential;
     function NewClient(const AAlpn: TArray<TBytes>; ARecordSizeLimit: Int32): ITlsEngine;
     function NewServer(const AAlpn: TArray<TBytes>; ARecordSizeLimit: Int32): ITlsEngine;
     function NewClient12(ARecordSizeLimit: Int32): ITlsEngine;
     function NewServer12(ARecordSizeLimit: Int32): ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     procedure Handshake(const AClient, AServer: ITlsEngine);
     function MaxAppRecordLength(const AWire: TBytes): Int32;
     function AppRecordCount(const AWire: TBytes): Int32;
@@ -103,7 +98,6 @@ type
     function OuterEchClientHello: TBytes;
     function NewServerMachineWith(const AChain: TArray<TBytes>;
       const ACompressors: TArray<ICertificateCompressor>): IHandshakeMachine;
-    function CredentialWithChain(const AChain: TArray<TBytes>): TTlsCredential;
     // an ECDSA leaf under an issuer signed with SHA-1, which no stock client advertises
     function Sha1Chain: TArray<TBytes>;
     function RsaSha1Chain: TArray<TBytes>;
@@ -118,10 +112,6 @@ type
     function CompressibleChain: TArray<TBytes>;
     function IncompressibleChain: TArray<TBytes>;
     function ZlibCompress(const AData: TBytes): TBytes;
-    function FirstSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
-    function AllSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
-    function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
-      out AAlert: TTlsAlertDescription): Boolean;
     function BuildEncryptedExtensionsWithAlpn(const AProtocol: TBytes): TBytes;
     function BuildEncryptedExtensionsWithExtension(AType: UInt16): TBytes;
     function GreaseExtensionTypeOf(const AClientHelloFramed: TBytes): UInt16;
@@ -223,20 +213,6 @@ begin
   CheckTrue(LCompressors[0].TryCompress(AData, Result), 'zlib compressed the body');
 end;
 
-function TTestExtensionNegotiation.ServerCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestExtensionNegotiation.NewClient(const AAlpn: TArray<TBytes>;
   ARecordSizeLimit: Int32): ITlsEngine;
 var
@@ -329,46 +305,6 @@ begin
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestExtensionNegotiation.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestExtensionNegotiation.Feed(const AEngine: ITlsEngine;
-  const AWire: TBytes);
-begin
-  if System.Length(AWire) > 0 then
-    AEngine.ProcessInput(AWire, 0, System.Length(AWire));
-end;
-
-procedure TTestExtensionNegotiation.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
-function TTestExtensionNegotiation.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
 procedure TTestExtensionNegotiation.Handshake(const AClient, AServer: ITlsEngine);
 var
   LIterations: Int32;
@@ -377,8 +313,8 @@ begin
   LIterations := 0;
   while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
   begin
-    Pump(AClient, AServer);
-    Pump(AServer, AClient);
+    PumpCoalesced(AClient, AServer);
+    PumpCoalesced(AServer, AClient);
     Inc(LIterations);
   end;
 end;
@@ -550,14 +486,6 @@ begin
   Result := TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine;
 end;
 
-function TTestExtensionNegotiation.CredentialWithChain(
-  const AChain: TArray<TBytes>): TTlsCredential;
-begin
-  // keep the real signing key, swap the certificate chain the Certificate carries
-  Result := ServerCredential;
-  Result.CertificateChain := AChain;
-end;
-
 function TTestExtensionNegotiation.RsaSha1Chain: TArray<TBytes>;
 var
   LCerts: TStringList;
@@ -683,50 +611,6 @@ begin
   // 32 high-entropy bytes: zlib framing makes the output larger, not smaller
   Result := TArray<TBytes>.Create(
     DecodeHex('9f1c7a4e0b62d3851fae09c7b24d6f80e5a31c9d7042bf68ac15e3902d7c4b6a'));
-end;
-
-function TTestExtensionNegotiation.FirstSendHandshake(
-  const AEffects: TArray<THandshakeEffect>): TBytes;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := nil;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-      Exit(LEffect.Bytes);
-end;
-
-function TTestExtensionNegotiation.AllSendHandshake(
-  const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
-var
-  LEffect: THandshakeEffect;
-  LCount: Int32;
-begin
-  Result := nil;
-  LCount := 0;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-    begin
-      SetLength(Result, LCount + 1);
-      Result[LCount] := LEffect.Bytes;
-      Inc(LCount);
-    end;
-end;
-
-function TTestExtensionNegotiation.FailAlertOf(
-  const AEffects: TArray<THandshakeEffect>;
-  out AAlert: TTlsAlertDescription): Boolean;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := False;
-  AAlert := TTlsAlertDescription.CloseNotify;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.Fail then
-    begin
-      AAlert := LEffect.Alert;
-      Exit(True);
-    end;
 end;
 
 function TTestExtensionNegotiation.BuildEncryptedExtensionsWithAlpn(
@@ -1179,7 +1063,7 @@ begin
   CheckTrue(MaxAppRecordLength(LWire) <= 528, 'no record exceeds the negotiated cap');
   CheckTrue(AppRecordCount(LWire) > 1, 'the oversize write fragmented into several records');
 
-  Feed(LServer, LWire);
+  FeedCoalesced(LServer, LWire);
   LReceived := ReadAllApp(LServer);
   CheckEqualBytes('the server reassembles the fragmented payload', LPayload, LReceived);
 end;
@@ -1207,7 +1091,7 @@ begin
   // 512-byte plaintext cap => ciphertext <= 512 + 8-byte explicit nonce + 16-byte tag = 536
   CheckTrue(MaxAppRecordLength(LWire) <= 536, 'no client record exceeds the negotiated cap');
   CheckTrue(AppRecordCount(LWire) > 1, 'the oversize client write fragmented into several records');
-  Feed(LServer, LWire);
+  FeedCoalesced(LServer, LWire);
   CheckEqualBytes('the server reassembles the client payload', LPayload, ReadAllApp(LServer));
 
   // the server's outbound side is capped by the same negotiated limit
@@ -1215,7 +1099,7 @@ begin
   LWire := Drain(LServer);
   CheckTrue(MaxAppRecordLength(LWire) <= 536, 'no server record exceeds the negotiated cap');
   CheckTrue(AppRecordCount(LWire) > 1, 'the oversize server write fragmented into several records');
-  Feed(LClient, LWire);
+  FeedCoalesced(LClient, LWire);
   CheckEqualBytes('the client reassembles the server payload', LPayload, ReadAllApp(LClient));
 end;
 
@@ -1359,7 +1243,7 @@ begin
     LPayload[LI] := Byte(LI and $FF);
   LServer.Write(LPayload, 0, System.Length(LPayload));
   LWire := Drain(LServer);
-  Feed(LClient, LWire);
+  FeedCoalesced(LClient, LWire);
   LReceived := ReadAllApp(LClient);
   CheckFalse(LClient.IsTerminal, 'the client accepted the oversize server record');
   CheckEqualBytes('the client received the full payload', LPayload, LReceived);
@@ -1466,7 +1350,7 @@ begin
 
   LClient.StartHandshake;
   // capture the server's first flight to prove nothing GREASE was selected
-  Feed(LServer, Drain(LClient));
+  FeedCoalesced(LServer, Drain(LClient));
   LServerHello := TTlsLibTestHandshakeDecoder.ServerHello(Drain(LServer));
   CheckFalse(TGrease.IsGrease(LServerHello.CipherSuite),
     'the server did not select a GREASE cipher suite');
@@ -1491,8 +1375,8 @@ begin
   LIterations := 0;
   while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
   begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
+    PumpCoalesced(LClient, LServer);
+    PumpCoalesced(LServer, LClient);
     Inc(LIterations);
   end;
   CheckFalse(LClient.IsTerminal, 'the client completed with GREASE');

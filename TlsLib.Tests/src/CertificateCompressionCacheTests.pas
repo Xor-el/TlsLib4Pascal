@@ -35,14 +35,12 @@ uses
   TlpCipherSuiteRegistry,
   TlpCoreExtensions,
   TlpIHandshakeMachine,
-  TlpHandshakeEffect,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpICertificateTrust,
   TlpServerName,
   TlpCertificateLimits,
   TlpCertificateVerifier,
-  TlpTlsCredential,
   TlpCredentialResolvers,
   TlpCertificateCompression,
   TlpICertificateCompression,
@@ -52,12 +50,12 @@ uses
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
   MockCertificateCompression,
-  TlsLibTestBase,
+  TlsLibHandshakeTestBase,
   TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
-  TTestCertificateCompressionCache = class(TTlsLibAlgorithmTestCase)
+  TTestCertificateCompressionCache = class(TTlsLibHandshakeTestCase)
   private
     function ByteBlob(AValue: Byte; ALength: Int32): TBytes;
     function ZlibCompressor: ICertificateCompressor;
@@ -65,8 +63,6 @@ type
     function CompressThrough(const ACache: ICertificateCompressionCache;
       const ACompressor: ICertificateCompressor; const ABody: TBytes): TBytes;
     // low-level machine scaffold for the end-to-end loopback proof
-    function ServerCredential: TTlsCredential;
-    function CredentialWithChain(const AChain: TArray<TBytes>): TTlsCredential;
     function CompressibleChain(AValue: Byte): TArray<TBytes>;
     function NewClientMachine: IHandshakeMachine;
     function NewServerMachine(const AChain: TArray<TBytes>;
@@ -76,8 +72,6 @@ type
       const ACompressors: TArray<ICertificateCompressor>;
       const ACache: ICertificateCompressionCache): TTlsHandshakeMessage;
     function PlaintextCertBody(const AChain: TArray<TBytes>): TBytes;
-    function FirstSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
-    function AllSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
   published
     // cache unit
     procedure TestMissThenPutThenHit;
@@ -366,28 +360,6 @@ begin
   CheckEquals(3, LSpy.Count, 'the first success is cached, the repeat is a hit');
 end;
 
-function TTestCertificateCompressionCache.ServerCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
-
-function TTestCertificateCompressionCache.CredentialWithChain(
-  const AChain: TArray<TBytes>): TTlsCredential;
-begin
-  // keep the real signing key, swap the certificate chain the Certificate carries
-  Result := ServerCredential;
-  Result.CertificateChain := AChain;
-end;
-
 function TTestCertificateCompressionCache.CompressibleChain(AValue: Byte): TArray<TBytes>;
 var
   LData: TBytes;
@@ -471,34 +443,6 @@ function TTestCertificateCompressionCache.PlaintextCertBody(
 begin
   // a server with no compressors always sends the uncompressed Certificate body
   Result := ServerCertMessage(AChain, nil, nil).Body;
-end;
-
-function TTestCertificateCompressionCache.FirstSendHandshake(
-  const AEffects: TArray<THandshakeEffect>): TBytes;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := nil;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-      Exit(LEffect.Bytes);
-end;
-
-function TTestCertificateCompressionCache.AllSendHandshake(
-  const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
-var
-  LEffect: THandshakeEffect;
-  LCount: Int32;
-begin
-  Result := nil;
-  LCount := 0;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-    begin
-      SetLength(Result, LCount + 1);
-      Result[LCount] := LEffect.Bytes;
-      Inc(LCount);
-    end;
 end;
 
 procedure TTestCertificateCompressionCache.TestLoopbackWireIdenticalAndSingleCompress;
