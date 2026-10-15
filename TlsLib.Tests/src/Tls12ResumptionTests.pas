@@ -113,8 +113,9 @@ type
     /// handshake).</summary>
     function NewServer(const AStore: ISessionStore;
       const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
-      AWithCredential: Boolean; AEmitSentinel: Boolean = False): ITlsEngine;
-    /// <summary>NewServer with an explicit policy for resuming a session established without EMS.</summary>
+      AWithCredential: Boolean): ITlsEngine;
+    /// <summary>NewServer with an explicit downgrade-sentinel switch and policy for resuming a
+    /// session established without EMS.</summary>
     function NewPolicyServer(const AStore: ISessionStore;
       const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
       AWithCredential, AEmitSentinel: Boolean; AMode: TNonEmsResumption): ITlsEngine;
@@ -370,9 +371,9 @@ end;
 
 function TTestTls12Resumption.NewServer(const AStore: ISessionStore;
   const AStek: ISessionTicketKeyManager; ALifetime: UInt32;
-  AWithCredential: Boolean; AEmitSentinel: Boolean): ITlsEngine;
+  AWithCredential: Boolean): ITlsEngine;
 begin
-  Result := NewPolicyServer(AStore, AStek, ALifetime, AWithCredential, AEmitSentinel,
+  Result := NewPolicyServer(AStore, AStek, ALifetime, AWithCredential, False,
     TNonEmsResumption.Decline);
 end;
 
@@ -1782,7 +1783,7 @@ begin
 
   // the resuming server stamps the downgrade sentinel on the abbreviated ServerHello
   LClient := NewDualVersionClient(LCache);
-  LServer := NewServer(nil, LStek, 7200, True, True);
+  LServer := NewPolicyServer(nil, LStek, 7200, True, True, TNonEmsResumption.Decline);
   RunHandshake(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'the client aborts a stamped abbreviated ServerHello');
   CheckEquals(Int64(Ord(TTlsAlertDescription.IllegalParameter)),
