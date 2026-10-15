@@ -1,0 +1,82 @@
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_4adb7e2edc0c28::t_b2357fe0659804 106
+  s_4adb7e2edc0c28::t_ec9680aea9f643 124
+  s_4adb7e2edc0c28::t_9a84f3e9e33c7d 920,1017,1085
+  s_4adb7e2edc0c28::t_869dc329689d61 1045,1052
+  s_4adb7e2edc0c28::t_50a5dbe1d882b7 129
+  s_4adb7e2edc0c28::t_99779be8c743b3 115
+TlsLib.Tests/src/OcspStaplingTests.pas
+  s_4adb7e2edc0c28::t_57d138ef3fd76a 761-762
+  s_4adb7e2edc0c28::t_4615146ede50ba 903
+  s_4adb7e2edc0c28::t_ac10a7ac6b1287 73-74
+  s_4adb7e2edc0c28::t_4eb94c35fe8b5c 778,792
+  s_4adb7e2edc0c28::t_75120023532985 279-281
+  s_4adb7e2edc0c28::t_000a3cc268f832 86
+  s_4adb7e2edc0c28::t_9810be982a4619 642-643,654-655,669-670
+  s_4adb7e2edc0c28::t_55fbf6c3f5d531 268-270
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_4adb7e2edc0c28::t_a063d071c15f82 373,375
+  s_4adb7e2edc0c28::t_2a0efabd73b404 116
+  s_4adb7e2edc0c28::t_04b0eee0dc1b3c 1785
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_4adb7e2edc0c28::t_4461cbda2b3252 466-467
+  s_4adb7e2edc0c28::t_86e50fea4ae6a4 474-475
+  s_4adb7e2edc0c28::t_30059d6ebe02c7 690-691
+  s_4adb7e2edc0c28::t_29b649c0f2ee5f 3180,3186,3394,3406
+  s_4adb7e2edc0c28::t_0363e473af05c7 553,570,610,621,648,667,693,710,734,742,763,769,788,799,820,841,846,2055,2060,2190,2202,2284,2913,2942
+  s_4adb7e2edc0c28::t_470f61ea709786 641,666
+  s_4adb7e2edc0c28::t_088dcf804ca9ce 643
+  s_4adb7e2edc0c28::t_72f3f5785eb6be 107-108
+  s_4adb7e2edc0c28::t_aa9402770569d8 2189
+  s_4adb7e2edc0c28::t_efe13f44dd9440 2200-2201
+  s_4adb7e2edc0c28::t_ea122e8b83570c 97
+  s_4adb7e2edc0c28::t_259113bef6e572 150
+  s_4adb7e2edc0c28::t_ea63f9906535d9 842
+  s_4adb7e2edc0c28::t_a7a42b1dc243db 847
+  s_4adb7e2edc0c28::t_9529b679271b2e 817
+  s_4adb7e2edc0c28::t_c36d57088d2c4b 606-607,620,2188,2199
+  s_4adb7e2edc0c28::t_f2440990c76bf4 153
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_4adb7e2edc0c28::t_2fcda260c22e89 844,892
+  s_4adb7e2edc0c28::t_0c9cc46cf59571 103-104
+  s_4adb7e2edc0c28::t_271b5c401193d9 691
+  s_4adb7e2edc0c28::t_386947774f4b0b 101
+  s_4adb7e2edc0c28::t_79a37260c5f2e0 119
+  s_4adb7e2edc0c28::t_a16d126762527b 948
+  s_4adb7e2edc0c28::t_83e2174381da36 938
+  s_4adb7e2edc0c28::t_85e30866fb7164 810
+  s_4adb7e2edc0c28::t_46a8014ddf1287 937,947
+  s_4adb7e2edc0c28::t_1fa55b1a1d878d 834,886
+  s_4adb7e2edc0c28::t_6155a47ed42695 117
+  s_4adb7e2edc0c28::t_2e95d26925441c 121-122
+  s_4adb7e2edc0c28::t_a513ede7bd51fa 660-661
+TlsLib.Tests/src/HelloRetryRequestTests.pas
+  s_4adb7e2edc0c28::t_fda12b83398890 448-449,536-537
+  s_4adb7e2edc0c28::t_90af61d375c2a7 482
+  s_4adb7e2edc0c28::t_9a27cdadfa430e 68-70,72
+  s_4adb7e2edc0c28::t_7bb6a2af3ca813 551,571,592,610,626
+  s_4adb7e2edc0c28::t_d467746355adff 706
+  s_4adb7e2edc0c28::t_125461c13d1e11 938-939
+  s_4adb7e2edc0c28::t_dfa54b29dc5aed 964,1017,1038
+  s_4adb7e2edc0c28::t_3487741dd94c59 1059
+  s_4adb7e2edc0c28::t_07516585e85928 750,814,833
+  s_4adb7e2edc0c28::t_e4d38cdb3f6001 727
+  s_4adb7e2edc0c28::t_5adab81deb09a4 801
+  s_4adb7e2edc0c28::t_66e33323c2e977 994,1079
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7b5626c3dd5395632ec7f8ab29e47d6427e9ff0c",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
