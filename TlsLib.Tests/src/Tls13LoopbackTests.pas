@@ -90,7 +90,6 @@ type
     function NewServer: ITlsEngine;
     function NewServerWithResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsEngine;
-    function EchConfigListBytes: TBytes;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes;
     function NewEchClient: ITlsEngine;
@@ -314,18 +313,6 @@ begin
     TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestTls13Loopback.EchConfigListBytes: TBytes;
-var
-  LVec: TStringList;
-begin
-  LVec := LoadVectorFields('Certs/Ech.txt');
-  try
-    Result := DecodeHex(LVec.Values['config_list']);
-  finally
-    LVec.Free;
-  end;
-end;
-
 function TTestTls13Loopback.BuildEchConfigList(AConfigId: Byte;
   const APublicName: string; out APrivateKey: ISecretBuffer): TBytes;
 var
@@ -346,7 +333,8 @@ end;
 
 function TTestTls13Loopback.NewEchClient: ITlsEngine;
 begin
-  Result := NewEchClientWith(EchConfigListBytes);
+  Result := NewEchClientWith(
+    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
 end;
 
 function TTestTls13Loopback.NewEchClientWith(const AConfigList: TBytes;
@@ -432,7 +420,8 @@ begin
     LVec.Free;
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
-    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
+    TInMemoryEchKeyStore.FromConfig(
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   if FServerKeyLog <> nil then
     LParams.KeyLog := FServerKeyLog as IKeyLog;
   Result := TTlsEngine.CreateConfigured(
@@ -490,7 +479,8 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
-  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, EchConfigListBytes, False, False)
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto,
+    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -526,7 +516,8 @@ begin
     LVec.Free;
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
-    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
+    TInMemoryEchKeyStore.FromConfig(
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
@@ -618,7 +609,8 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
-  LParams.EchPolicy := TEchClientPolicy.Create(Crypto, EchConfigListBytes, False, False)
+  LParams.EchPolicy := TEchClientPolicy.Create(Crypto,
+    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
   LParams.EarlyDataEnabled := AEarlyData;
@@ -653,7 +645,8 @@ begin
     LVec.Free;
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
-    TInMemoryEchKeyStore.FromConfig(EchConfigListBytes, LSk, Crypto), False);
+    TInMemoryEchKeyStore.FromConfig(
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;

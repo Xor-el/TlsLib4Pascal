@@ -19,7 +19,6 @@ interface
 
 uses
   SysUtils,
-  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -68,9 +67,6 @@ type
   strict private
   const
     MaxPumpRounds = Int32(64);
-    function TrustRoot: TBytes;
-    function LeafCert: TBytes;
-    function LeafKey: TBytes;
     function ClientConfig(AAsync: Boolean; ADeadlineMs: Cardinal): ITlsClientConfig;
     function ServerConfig: ITlsServerConfig;
     function MtlsClientConfig: ITlsClientConfig;
@@ -79,7 +75,6 @@ type
     // builder + CreateServerEngine so the test exercises the factory composition, not a hand-wrapped
     // decorator
     function MtlsServerConfigPinned(const APins: TArray<TBytes>): ITlsServerConfig;
-    function OcspVec(const AName: string): TBytes;
     // a server presenting the OCSP-stapling cert set with AStaple sealed on its credential, and a
     // client that requests a staple and defers revocation (live, or host-decision), so the park is
     // exercised end-to-end. The client's host check is disabled to isolate the revocation behaviour.
@@ -195,49 +190,14 @@ implementation
 
 { TTestAsyncVerdict }
 
-function TTestAsyncVerdict.TrustRoot: TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    Result := DecodeHex(LV.Values['root_cert']);
-  finally
-    LV.Free;
-  end;
-end;
-
-function TTestAsyncVerdict.LeafCert: TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    Result := DecodeHex(LV.Values['leaf_cert']);
-  finally
-    LV.Free;
-  end;
-end;
-
-function TTestAsyncVerdict.LeafKey: TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    Result := DecodeHex(LV.Values['leaf_key']);
-  finally
-    LV.Free;
-  end;
-end;
-
 function TTestAsyncVerdict.ClientConfig(AAsync: Boolean;
   ADeadlineMs: Cardinal): ITlsClientConfig;
 var
   LClient: ITlsClientConfigBuilder;
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build);
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build);
   if AAsync then
     LClient.WithAsyncCertificateVerdict(ADeadlineMs);
   Result := LClient.Build;
@@ -246,7 +206,9 @@ end;
 function TTestAsyncVerdict.ServerConfig: ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key'))).Build;
 end;
 
 function TTestAsyncVerdict.NewClient(const AConfig: ITlsClientConfig;
@@ -261,8 +223,11 @@ begin
   // the client trusts the server root and presents its own credential when the server
   // requests client authentication (the same vector leaf serves both directions)
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey)).Build;
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key'))).Build;
 end;
 
 function TTestAsyncVerdict.MtlsServerConfig(AAsync: Boolean): ITlsServerConfig;
@@ -270,8 +235,11 @@ var
   LServer: ITlsServerConfigBuilder;
 begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithClientVerification(TClientVerification.WebPki(TrustRoot).Build)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')))
+    .WithClientVerification(TClientVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
     .WithPeerAuth(TClientAuthMode.Required);
   if AAsync then
     LServer.WithAsyncCertificateVerdict(0);
@@ -282,22 +250,13 @@ function TTestAsyncVerdict.MtlsServerConfigPinned(
   const APins: TArray<TBytes>): ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithClientVerification(TClientVerification.WebPki(TrustRoot).Build)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')))
+    .WithClientVerification(TClientVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithCertificatePinning(APins).Build;
-end;
-
-function TTestAsyncVerdict.OcspVec(const AName: string): TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/OcspStapling.txt');
-  try
-    Result := DecodeHex(LV.Values[AName]);
-  finally
-    LV.Free;
-  end;
 end;
 
 function TTestAsyncVerdict.StapledServer(const AStaple: TBytes): ITlsEngine;
@@ -306,8 +265,11 @@ var
 begin
   // present the leaf + its issuer, and seal the OCSP staple on the credential so the server sends
   // a CertificateStatus when the client requests one
-  LCred.CertificateChain := TArray<TBytes>.Create(OcspVec('leaf_cert'), OcspVec('issuer_cert'));
-  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspVec('leaf_key'), nil);
+  LCred.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
   LCred.OcspStaple := AStaple;
   Result := TTlsEngineFactory.CreateServerEngine(
     TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Build);
@@ -321,7 +283,8 @@ begin
   // request a staple and require revocation; the host check is disabled so the test isolates the
   // revocation park from the leaf's SAN identity
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(OcspVec('root_cert'))
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert'))
     .WithRevocation(TRevocationPosture.Hard).Build)
     .WithDangerousDisableServerNameCheck
     .WithOcspStaplingRequest(True);
@@ -354,15 +317,21 @@ begin
   LClientOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := LClientOwner.Client
     .WithSupportedVersions(LVer)
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey));
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')));
   LClientCfg := LClient.Build;
 
   LServerOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LServer := LServerOwner.Server
     .WithSupportedVersions(LVer)
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithClientVerification(TClientVerification.WebPki(TrustRoot)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')))
+    .WithClientVerification(TClientVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert'))
     .WithRevocation(TRevocationPosture.Hard).Build)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithLiveRevocationVerdict(0);
@@ -468,17 +437,23 @@ begin
 
   LClientOwner := TTlsPresets.Compatible(LClientCrypto, Pkix);
   LClient := LClientOwner.Client.WithSupportedVersions(LVer)
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build);
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build);
   if AMtls then
-    LClient.WithCredential(TTlsCredential.Load(LClientCrypto, Pkix, LeafCert, LeafKey))
+    LClient.WithCredential(TTlsCredential.Load(LClientCrypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')))
   else
     LClient.WithAsyncCertificateVerdict(0);
 
   LServerOwner := TTlsPresets.Compatible(LServerCrypto, Pkix);
   LServer := LServerOwner.Server.WithSupportedVersions(LVer)
-    .WithCredential(TTlsCredential.Load(LServerCrypto, Pkix, LeafCert, LeafKey));
+    .WithCredential(TTlsCredential.Load(LServerCrypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')));
   if AMtls then
-    LServer.WithClientVerification(TClientVerification.WebPki(TrustRoot).Build)
+    LServer.WithClientVerification(TClientVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
       .WithPeerAuth(TClientAuthMode.Required).WithAsyncCertificateVerdict(0);
 
   Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'localhost');
@@ -493,7 +468,9 @@ var
 begin
   LOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := LOwner.Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).WithRevocation(APosture).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert'))
+      .WithRevocation(APosture).Build)
     .WithLiveRevocationVerdict(0);
   Result := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'localhost');
   AServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
@@ -682,7 +659,8 @@ begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   LOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
     .WithCertificatePinning(TArray<TBytes>.Create(Crypto.Primitives.GetRandom.GenerateBytes(32)))
     .WithCertificateVerifyCallback(LSpy.Callback).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
@@ -703,7 +681,8 @@ begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   LOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := TTlsEngineFactory.CreateClientEngine(LOwner.Client
-    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
     .WithCertificateVerifyCallback(LSpy.Callback).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
   LClient.StartHandshake;
@@ -711,7 +690,8 @@ begin
   CheckFalse(LClient.IsTerminal, 'the accepting callback leaves the handshake alone');
   CheckEquals(1, System.Length(LSpy.Presented), 'the server presented its leaf only');
   CheckEquals(2, System.Length(LSpy.Validated), 'the validated path runs leaf then the trust anchor');
-  CheckEqualBytes('the validated path ends at the configured anchor', TrustRoot, LSpy.Validated[1]);
+  CheckEqualBytes('the validated path ends at the configured anchor',
+    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert'), LSpy.Validated[1]);
 end;
 
 procedure TTestAsyncVerdict.TestClientVerifyCallbackSeesNoValidatedPathUnderSkip;
@@ -778,8 +758,11 @@ begin
   LOwner := TTlsPresets.Compatible(Crypto, Pkix);
   LClient := TTlsEngineFactory.CreateClientEngine(MtlsClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(LOwner.Server
-    .WithCredential(TTlsCredential.Load(Crypto, Pkix, LeafCert, LeafKey))
-    .WithClientVerification(TClientVerification.WebPki(TrustRoot).Build)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')))
+    .WithClientVerification(TClientVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
     .WithPeerAuth(TClientAuthMode.Required).WithCertificateVerifyCallback(LSpy.Callback).Build);
   LClient.StartHandshake;
   DriveToCompletion(LClient, LServer);
@@ -828,7 +811,8 @@ begin
     'a CertificateReceived event must be raised on the park');
   LChain := LEvent.Chain;
   CheckTrue(System.Length(LChain) >= 1, 'the event carries the peer chain');
-  CheckTrue(AreEqual(LeafCert, LChain[0]),
+  CheckTrue(AreEqual(
+    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'), LChain[0]),
     'the leaf certificate is the first chain entry');
   CheckEquals('localhost', LEvent.HostName, 'the event carries the expected host');
 end;
@@ -1072,11 +1056,16 @@ begin
     'a CertificateReceived event is raised on the server park');
   LPresented := LEvent.Chain;
   LValidated := LEvent.ValidatedPath;
-  CheckTrue(AreEqual(LeafCert, LPresented[0]), 'the presented chain leaf is the client leaf');
+  CheckTrue(AreEqual(
+    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'), LPresented[0]),
+    'the presented chain leaf is the client leaf');
   CheckTrue(System.Length(LValidated) >= 2,
     'the validated path carries the assembled issuer, not just the leaf');
-  CheckTrue(AreEqual(LeafCert, LValidated[0]), 'the validated path leaf is the client leaf');
-  CheckTrue(AreEqual(TrustRoot, LValidated[System.High(LValidated)]),
+  CheckTrue(AreEqual(
+    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'), LValidated[0]),
+    'the validated path leaf is the client leaf');
+  CheckTrue(AreEqual(TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert'),
+    LValidated[System.High(LValidated)]),
     'the validated path terminates at the configured trust anchor');
 end;
 
@@ -1089,7 +1078,8 @@ begin
   // under live-revocation, a current Good staple settles revocation inline, so the redundant live
   // park is skipped: the client never awaits a verdict and completes the handshake
   LHostDecision := False;
-  LClient := StaplingRevocationClient(LHostDecision, LServer, OcspVec('ocsp_good'));
+  LClient := StaplingRevocationClient(LHostDecision, LServer,
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good'));
   LClient.StartHandshake;
   DriveToCompletion(LClient, LServer);
 
@@ -1125,7 +1115,8 @@ begin
   // a host-decision park is a separate policy (prompt on every accepted peer): a Good staple never
   // skips it
   LHostDecision := True;
-  LClient := StaplingRevocationClient(LHostDecision, LServer, OcspVec('ocsp_good'));
+  LClient := StaplingRevocationClient(LHostDecision, LServer,
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good'));
   LClient.StartHandshake;
   DriveUntilParkOrSettled(LClient, LServer);
 
@@ -1160,7 +1151,8 @@ begin
   LClient := TTlsEngineFactory.CreateClientEngine(MtlsClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(
     MtlsServerConfigPinned(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix, LeafCert))));
+      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix,
+        TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert')))));
   LClient.StartHandshake;
   DriveToCompletion(LClient, LServer);
   CheckFalse(LServer.IsHandshaking or LClient.IsHandshaking,
@@ -1207,13 +1199,18 @@ begin
   LInfo := LServer.ConnectionInfo;
   CheckEquals(1, System.Length(LInfo.PeerCertificates),
     'the presented client chain is the leaf-only credential');
-  CheckTrue(AreEqual(LeafCert, LInfo.PeerCertificates[0]),
+  CheckTrue(AreEqual(
+    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+    LInfo.PeerCertificates[0]),
     'the presented chain leaf is the client leaf');
   CheckTrue(System.Length(LInfo.ValidatedPath) >= 2,
     'the validated path assembles the issuer beyond the presented leaf');
-  CheckTrue(AreEqual(LeafCert, LInfo.ValidatedPath[0]),
+  CheckTrue(AreEqual(
+    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+    LInfo.ValidatedPath[0]),
     'the validated path leaf is the client leaf');
-  CheckTrue(AreEqual(TrustRoot, LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]),
+  CheckTrue(AreEqual(TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert'),
+    LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]),
     'the validated path terminates at the configured trust anchor');
 end;
 
