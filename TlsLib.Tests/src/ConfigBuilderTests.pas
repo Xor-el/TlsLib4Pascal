@@ -151,7 +151,6 @@ type
     function BuildRefused(const AFacet: ITls12ServerConfigFacet;
       const AReason: string): Boolean; overload;
     function HelloSuites(const AWire: TBytes): TArray<UInt16>;
-    function HelloOf(const AWire: TBytes): TTlsClientHello;
     function NewTls12OnlyClient(AGrease: Boolean): ITlsEngine;
     function GreaseCount(const AValues: TArray<UInt16>): Int32;
     // overwrites the named_curve (ACurve) or the signature scheme (not ACurve) in the first
@@ -2345,13 +2344,6 @@ begin
     Result[LI] := UInt16((AWire[LPos + 2 * LI] shl 8) or AWire[LPos + 2 * LI + 1]);
 end;
 
-function TTestConfigBuilder.HelloOf(const AWire: TBytes): TTlsClientHello;
-begin
-  // record header 5, handshake header 4
-  Result := THandshakeMessages.DecodeClientHello(
-    System.Copy(AWire, 9, System.Length(AWire) - 9));
-end;
-
 function TTestConfigBuilder.NewTls12OnlyClient(AGrease: Boolean): ITlsEngine;
 begin
   Result := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
@@ -2383,7 +2375,7 @@ begin
   // RFC 8701 3.1 covers every ClientHello, not just a TLS 1.3 one
   LClient := NewTls12OnlyClient(True);
   LClient.StartHandshake;
-  LHello := HelloOf(Drain(LClient));
+  LHello := TTlsLibTestHandshakeDecoder.ClientHello(Drain(LClient));
   CheckEquals(1, GreaseCount(LHello.CipherSuites), 'one GREASE cipher suite');
   LVector := TExtensionVector.Parse(LHello.Extensions);
   CheckTrue(LVector.TryFind(TExtensionTypes.SupportedGroups, LEntry), 'supported_groups is sent');
@@ -2421,7 +2413,7 @@ var
 begin
   LClient := NewTls12OnlyClient(False);
   LClient.StartHandshake;
-  LHello := HelloOf(Drain(LClient));
+  LHello := TTlsLibTestHandshakeDecoder.ClientHello(Drain(LClient));
   CheckEquals(0, GreaseCount(LHello.CipherSuites), 'no GREASE suite');
   LVector := TExtensionVector.Parse(LHello.Extensions);
   for LType in LVector.Types do
@@ -2454,7 +2446,7 @@ begin
   // against the configured suites, which never hold one
   LClient := NewTls12OnlyClient(True);
   LClient.StartHandshake;
-  LHello := HelloOf(Drain(LClient));
+  LHello := TTlsLibTestHandshakeDecoder.ClientHello(Drain(LClient));
   LGreaseSuite := -1;
   for LI := 0 to System.High(LHello.CipherSuites) do
     if TGrease.IsGrease(LHello.CipherSuites[LI]) then
@@ -2478,36 +2470,19 @@ end;
 procedure TTestConfigBuilder.PatchServerKeyExchange(var AWire: TBytes; ACurve: Boolean;
   AValue: UInt16);
 var
-  LPos, LRecordEnd, LMsgPos, LLen, LBody, LOffset: Int32;
+  LRecordPos, LMsgPos, LMsgLen, LBody, LOffset: Int32;
 begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LRecordEnd := LPos + 5 + ((AWire[LPos + 3] shl 8) or AWire[LPos + 4]);
-    if AWire[LPos] = $16 then
-    begin
-      LMsgPos := LPos + 5;
-      while LMsgPos + 4 <= LRecordEnd do
-      begin
-        LLen := (AWire[LMsgPos + 1] shl 16) or (AWire[LMsgPos + 2] shl 8) or AWire[LMsgPos + 3];
-        if AWire[LMsgPos] = Byte(Ord(TTlsHandshakeType.ServerKeyExchange)) then
-        begin
-          // curve_type(1) named_curve(2) point_len(1) point, then the scheme(2)
-          LBody := LMsgPos + 4;
-          if ACurve then
-            LOffset := LBody + 1
-          else
-            LOffset := LBody + 4 + AWire[LBody + 3];
-          AWire[LOffset] := Byte(AValue shr 8);
-          AWire[LOffset + 1] := Byte(AValue);
-          Exit;
-        end;
-        Inc(LMsgPos, 4 + LLen);
-      end;
-    end;
-    LPos := LRecordEnd;
-  end;
-  Fail('the flight carries no plaintext ServerKeyExchange');
+  if not TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire,
+    Ord(TTlsHandshakeType.ServerKeyExchange), LRecordPos, LMsgPos, LMsgLen) then
+    Fail('the flight carries no plaintext ServerKeyExchange');
+  // curve_type(1) named_curve(2) point_len(1) point, then the scheme(2)
+  LBody := LMsgPos + 4;
+  if ACurve then
+    LOffset := LBody + 1
+  else
+    LOffset := LBody + 4 + AWire[LBody + 3];
+  AWire[LOffset] := Byte(AValue shr 8);
+  AWire[LOffset + 1] := Byte(AValue);
 end;
 
 procedure TTestConfigBuilder.CheckGreaseInServerKeyExchangeIsRefused(ACurve: Boolean);

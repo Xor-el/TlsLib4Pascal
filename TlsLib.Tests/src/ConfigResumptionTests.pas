@@ -58,6 +58,7 @@ uses
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpCoreExtensions,
+  TlpHandshakeMessage,
   TlsLibTestHandshakeDecoder,
   TlsLibTestBase;
 
@@ -151,9 +152,6 @@ type
       AAccept: Boolean; AAlert: TTlsAlertDescription);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
-    /// <summary>Whether a plaintext handshake flight carries a Certificate (type 11):
-    /// present in a full TLS 1.2 handshake, absent in an abbreviated one.</summary>
-    function FlightHasCertificate(const AWire: TBytes): Boolean;
     /// <summary>Runs to completion, returning whether the server's first flight carried a
     /// plaintext Certificate (TLS 1.2 full-vs-abbreviated tell).</summary>
     function DriveObservingServerCert(const AClient, AServer: ITlsEngine): Boolean;
@@ -761,45 +759,17 @@ begin
     ReadAllApp(AServer));
 end;
 
-function TTestConfigResumption.FlightHasCertificate(const AWire: TBytes): Boolean;
-var
-  LPos, LRecLen, LInner, LMsgLen: Int32;
-begin
-  Result := False;
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    // stop at the ChangeCipherSpec: records after it are encrypted and must not be walked
-    // as plaintext handshake messages
-    if AWire[LPos] = 20 then
-      Exit;
-    if AWire[LPos] = 22 then
-    begin
-      LInner := LPos + 5;
-      while LInner + 4 <= LPos + 5 + LRecLen do
-      begin
-        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
-          AWire[LInner + 3];
-        if AWire[LInner] = 11 then // Certificate
-          Exit(True);
-        LInner := LInner + 4 + LMsgLen;
-      end;
-    end;
-    Inc(LPos, 5 + LRecLen);
-  end;
-end;
-
 function TTestConfigResumption.DriveObservingServerCert(
   const AClient, AServer: ITlsEngine): Boolean;
 var
   LFlight: TBytes;
-  LIterations: Int32;
+  LRecordPos, LMsgPos, LMsgLen, LIterations: Int32;
 begin
   AClient.StartHandshake;
   Pump(AClient, AServer);
   LFlight := Drain(AServer);
-  Result := FlightHasCertificate(LFlight);
+  Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
+    Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen);
   Feed(AClient, LFlight);
   LIterations := 0;
   while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do

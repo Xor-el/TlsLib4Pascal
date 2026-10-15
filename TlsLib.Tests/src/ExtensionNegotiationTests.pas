@@ -129,7 +129,6 @@ type
     function GreaseExtensionTypeOf(const AClientHelloFramed: TBytes): UInt16;
     function NewGreasingClient: ITlsEngine;
     function NewGreasingClientMachine: IHandshakeMachine;
-    function ServerHelloFrom(const AWire: TBytes): TTlsServerHello;
     function DriveClientToWaitCertificate(const ALimits: TCertificateChainLimits;
       out AServerFlight: TArray<TBytes>): IHandshakeMachine;
     function CompressedCertificateOf(AAlgorithm: UInt16;
@@ -1461,27 +1460,6 @@ begin
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestExtensionNegotiation.ServerHelloFrom(
-  const AWire: TBytes): TTlsServerHello;
-var
-  LPos, LLen: Int32;
-begin
-  Result := Default(TTlsServerHello);
-  LPos := 0;
-  // the first handshake record (type 22) carries the plaintext ServerHello
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    if AWire[LPos] = 22 then
-    begin
-      Result := THandshakeMessages.DecodeServerHello(
-        TTlsLibTestHandshakeDecoder.HandshakeMessage(System.Copy(AWire, LPos + 5, LLen)).Body);
-      Exit;
-    end;
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
 procedure TTestExtensionNegotiation.TestGreaseValueClassification;
 var
   LI: Int32;
@@ -1508,7 +1486,7 @@ begin
   LClient.StartHandshake;
   // capture the server's first flight to prove nothing GREASE was selected
   Feed(LServer, Drain(LClient));
-  LServerHello := ServerHelloFrom(Drain(LServer));
+  LServerHello := TTlsLibTestHandshakeDecoder.ServerHello(Drain(LServer));
   CheckFalse(TGrease.IsGrease(LServerHello.CipherSuite),
     'the server did not select a GREASE cipher suite');
   LContext := TExtensionContext.Create;

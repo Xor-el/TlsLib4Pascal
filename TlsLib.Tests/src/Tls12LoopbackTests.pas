@@ -59,6 +59,7 @@ uses
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   MockCryptoProvider,
+  TlsLibTestHandshakeDecoder,
   TlsLibTestBase;
 
 type
@@ -743,7 +744,8 @@ function TTestTls12Loopback.TamperHandshakeMessage(var AWire: TBytes;
 var
   LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
-  Result := FindPlaintextHandshakeMessage(AWire, AMsgType, LRecordPos, LMsgPos, LMsgLen);
+  Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire, AMsgType,
+    LRecordPos, LMsgPos, LMsgLen);
   if Result then
     AWire[LMsgPos + 3 + LMsgLen] := AWire[LMsgPos + 3 + LMsgLen] xor $01;
 end;
@@ -807,8 +809,9 @@ begin
   LWire := Drain(LClient);
   if AZeroShare then
   begin
-    CheckTrue(FindPlaintextHandshakeMessage(LWire, Ord(TTlsHandshakeType.ClientKeyExchange),
-      LRecordPos, LMsgPos, LMsgLen), 'the client flight carries a plaintext ClientKeyExchange');
+    CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LWire,
+      Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
+      'the client flight carries a plaintext ClientKeyExchange');
     CheckEquals(33, LMsgLen, 'the ClientKeyExchange holds one X25519 share');
     for LI := 0 to 31 do
       LWire[LMsgPos + 5 + LI] := 0;
@@ -829,8 +832,9 @@ begin
   Result.StartHandshake;
   Pump(Result, LServer);
   LWire := Drain(LServer);
-  CheckTrue(FindPlaintextHandshakeMessage(LWire, Ord(TTlsHandshakeType.ServerKeyExchange),
-    LRecordPos, LMsgPos, LMsgLen), 'the server flight carries a plaintext ServerKeyExchange');
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LWire,
+    Ord(TTlsHandshakeType.ServerKeyExchange), LRecordPos, LMsgPos, LMsgLen),
+    'the server flight carries a plaintext ServerKeyExchange');
   LSke := THandshakeMessages.DecodeServerKeyExchangeEcdhe(
     System.Copy(LWire, LMsgPos + 4, LMsgLen));
   LSke.PublicKey := AShare;
@@ -882,7 +886,7 @@ begin
   CheckTrue(LClient.IsTerminal, 'an all-zero server share fails the client');
   CheckEquals(Ord(TTlsAlertDescription.IllegalParameter),
     Ord(LClient.LastError.Alert.Description), 'with illegal_parameter');
-  CheckFalse(FindPlaintextHandshakeMessage(Drain(LClient),
+  CheckFalse(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(Drain(LClient),
     Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
     'no ClientKeyExchange is sent after the refusal');
 end;
@@ -898,7 +902,7 @@ begin
   LShare[0] := 9;
   LClient := ClientAfterServerFlight(LShare);
   CheckFalse(LClient.IsTerminal, 'a valid re-signed share does not fail the client');
-  CheckTrue(FindPlaintextHandshakeMessage(Drain(LClient),
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(Drain(LClient),
     Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
     'the client answers with a ClientKeyExchange');
 end;

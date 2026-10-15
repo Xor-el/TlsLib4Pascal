@@ -274,7 +274,8 @@ function TTestClientAuth.ReplaceHandshakeMessage(const AWire: TBytes; AMsgType: 
 var
   LPos, LInner, LMsgLen, LNewRecLen: Int32;
 begin
-  if not FindPlaintextHandshakeMessage(AWire, AMsgType, LPos, LInner, LMsgLen) then
+  if not TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire, AMsgType, LPos,
+    LInner, LMsgLen) then
     Exit(nil);
   LNewRecLen := ((AWire[LPos + 3] shl 8) or AWire[LPos + 4]) - (4 + LMsgLen) +
     System.Length(ANewMessage);
@@ -685,66 +686,31 @@ end;
 procedure TTestClientAuth.PatchFirstCertVerifyScheme(var AWire: TBytes;
   AScheme: UInt16);
 var
-  LPos, LRecLen, LInner, LMsgLen: Int32;
+  LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    if AWire[LPos] = 22 then // handshake record (plaintext, before the client ChangeCipherSpec)
-    begin
-      LInner := LPos + 5;
-      while LInner + 4 <= LPos + 5 + LRecLen do
-      begin
-        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
-          AWire[LInner + 3];
-        if AWire[LInner] = 15 then // CertificateVerify: body starts with the 2-byte scheme
-        begin
-          AWire[LInner + 4] := Byte(AScheme shr 8);
-          AWire[LInner + 5] := Byte(AScheme and $FF);
-          Exit;
-        end;
-        LInner := LInner + 4 + LMsgLen;
-      end;
-    end;
-    LPos := LPos + 5 + LRecLen;
-  end;
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire,
+    Ord(TTlsHandshakeType.CertificateVerify), LRecordPos, LMsgPos, LMsgLen),
+    'the flight carries a plaintext CertificateVerify');
+  // the body starts with the 2-byte scheme
+  AWire[LMsgPos + 4] := Byte(AScheme shr 8);
+  AWire[LMsgPos + 5] := Byte(AScheme and $FF);
 end;
 
 function TTestClientAuth.DuplicateCertificateRequest(const AWire: TBytes): TBytes;
 var
-  LPos, LRecLen, LInner, LMsgLen: Int32;
+  LRecordPos, LMsgPos, LMsgLen, LRecordEnd: Int32;
   LMsg, LRecord: TBytes;
 begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    if AWire[LPos] = 22 then // handshake record (plaintext, before any ChangeCipherSpec)
-    begin
-      LInner := LPos + 5;
-      while LInner + 4 <= LPos + 5 + LRecLen do
-      begin
-        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
-          AWire[LInner + 3];
-        if AWire[LInner] = 13 then // CertificateRequest
-        begin
-          LMsg := System.Copy(AWire, LInner, 4 + LMsgLen);
-          LRecord := ConcatBytes(TBytes.Create(22, 3, 3, Byte(System.Length(LMsg) shr 8),
-            Byte(System.Length(LMsg) and $FF)), LMsg);
-          // original wire up to and including this record, then the duplicate, then the rest
-          Result := ConcatBytes(ConcatBytes(
-            System.Copy(AWire, 0, LPos + 5 + LRecLen), LRecord),
-            System.Copy(AWire, LPos + 5 + LRecLen,
-            System.Length(AWire) - (LPos + 5 + LRecLen)));
-          Exit;
-        end;
-        LInner := LInner + 4 + LMsgLen;
-      end;
-    end;
-    LPos := LPos + 5 + LRecLen;
-  end;
-  Result := System.Copy(AWire);
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire,
+    Ord(TTlsHandshakeType.CertificateRequest), LRecordPos, LMsgPos, LMsgLen),
+    'the flight carries a plaintext CertificateRequest');
+  LMsg := System.Copy(AWire, LMsgPos, 4 + LMsgLen);
+  LRecord := ConcatBytes(TBytes.Create(22, 3, 3, Byte(System.Length(LMsg) shr 8),
+    Byte(System.Length(LMsg) and $FF)), LMsg);
+  LRecordEnd := LRecordPos + 5 + ((AWire[LRecordPos + 3] shl 8) or AWire[LRecordPos + 4]);
+  // original wire up to and including this record, then the duplicate, then the rest
+  Result := ConcatBytes(ConcatBytes(System.Copy(AWire, 0, LRecordEnd), LRecord),
+    System.Copy(AWire, LRecordEnd, System.Length(AWire) - LRecordEnd));
 end;
 
 procedure TTestClientAuth.Pump(const ASrc, ADst: ITlsEngine);
