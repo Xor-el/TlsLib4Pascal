@@ -29,12 +29,8 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpTlsVersion,
-  TlpISecretBuffer,
-  TlpSecretBuffer,
   TlpICryptoProvider,
-  TlpCryptoDomainTypes,
   TlpINamedGroup,
-  TlpIKeyExchangePrivateKey,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
   TlpCipherSuiteRegistry,
@@ -55,36 +51,12 @@ uses
   TlpTlsCredential,
   TlpCredentialResolvers,
   MockCryptoProvider,
+  MockNamedGroups,
   MockSink,
   MockRecordInstaller,
   TlsLibTestBase;
 
 type
-  /// <summary>A minimal key-exchange key double for the replay group (no real material).</summary>
-  TReplayServerKeyExchangeKey = class(TInterfacedObject, IKeyExchangePrivateKey)
-  public
-    function Usage: TKeyAgreementUsage;
-    function ExportRaw: ISecretBuffer;
-  end;
-
-  /// <summary>A named group whose Encapsulate yields fixed (share, secret) for RFC replay.</summary>
-  TReplayServerGroup = class(TInterfacedObject, INamedGroup)
-  strict private
-    FServerShare, FShared: TBytes;
-  public
-    constructor Create(const AServerShare, AShared: TBytes);
-    function Code: UInt16;
-    function Name: string;
-    function Kind: TNamedGroupKind;
-    function Composition: TNamedGroupComposition;
-    procedure GenerateKeyPair(out APriv: IKeyExchangePrivateKey; out APubShare: TBytes);
-    procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
-      out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APriv: IKeyExchangePrivateKey; const ACiphertext: TBytes;
-      out ASharedSecret: ISecretBuffer);
-    function ValidatePeerShare(const AShare: TBytes): Boolean;
-  end;
-
   TTestTls13ServerReplay = class(TTlsLibAlgorithmTestCase)
   private
     FHs, FSched, FKeys: TStringList;
@@ -123,70 +95,6 @@ type
   end;
 
 implementation
-
-{ TReplayServerGroup }
-
-constructor TReplayServerGroup.Create(const AServerShare, AShared: TBytes);
-begin
-  inherited Create;
-  FServerShare := AServerShare;
-  FShared := AShared;
-end;
-
-function TReplayServerGroup.Code: UInt16;
-begin
-  Result := TNamedGroupCatalog.X25519;
-end;
-
-function TReplayServerGroup.Name: string;
-begin
-  Result := 'X25519';
-end;
-
-function TReplayServerGroup.Kind: TNamedGroupKind;
-begin
-  Result := TNamedGroupKind.Ecdhe;
-end;
-
-function TReplayServerGroup.Composition: TNamedGroupComposition;
-begin
-  Result := TNamedGroupComposition.From(TKeyAgreementAlgorithm.X25519);
-end;
-
-function TReplayServerKeyExchangeKey.Usage: TKeyAgreementUsage;
-begin
-  Result := TKeyAgreementUsage.Ephemeral;
-end;
-
-function TReplayServerKeyExchangeKey.ExportRaw: ISecretBuffer;
-begin
-  Result := TSecretBuffer.Allocate(0);
-end;
-
-procedure TReplayServerGroup.GenerateKeyPair(out APriv: IKeyExchangePrivateKey;
-  out APubShare: TBytes);
-begin
-  APriv := TReplayServerKeyExchangeKey.Create;
-  APubShare := System.Copy(FServerShare);
-end;
-
-procedure TReplayServerGroup.Encapsulate(const APeerPub: TBytes;
-  out ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
-begin
-  ACiphertext := System.Copy(FServerShare);
-  ASharedSecret := TSecretBuffer.From(FShared);
-end;
-
-procedure TReplayServerGroup.Decapsulate(const APriv: IKeyExchangePrivateKey;
-  const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
-begin
-  ASharedSecret := TSecretBuffer.From(FShared);
-end;
-
-function TReplayServerGroup.ValidatePeerShare(const AShare: TBytes): Boolean;
-begin
-  Result := True;
-end;
 
 { TTestTls13ServerReplay }
 
@@ -284,7 +192,7 @@ begin
   LParams.Policy := TNegotiationPolicy.CreateDefault(LParams.Crypto);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LParams.Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TReplayServerGroup.Create(LServerShare,
+  LParams.Group := TFixedSecretGroup.Create(LServerShare,
     DecodeHex(FSched.Values['shared_secret'])) as INamedGroup;
   // the ServerHello random sits after type(1) length(3) legacy_version(2)
   LParams.ServerRandom := System.Copy(LServerHello, 6, 32);
@@ -523,7 +431,7 @@ begin
   LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
   LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TReplayServerGroup.Create(LFill, LFill) as INamedGroup;
+  LParams.Group := TFixedSecretGroup.Create(LFill, LFill) as INamedGroup;
   LParams.ServerRandom := LFill;
   // one RSA key; its capable schemes are the three rsa_pss_rsae_* variants, and the
   // machine signs for real (no verbatim CertificateVerify is set)
