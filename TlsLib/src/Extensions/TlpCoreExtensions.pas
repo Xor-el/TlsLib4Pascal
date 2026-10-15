@@ -217,6 +217,7 @@ resourcestring
   SEmptyAlpnList = 'ALPN protocol list is empty';
   SDuplicateKeyShare = 'key_share offers two entries for the same group';
   SEmptyKeyExchange = 'key_share carries a zero-length key_exchange (RFC 9846 4.3.8)';
+  SHelloRetryGroupZero = 'HelloRetryRequest key_share selects group 0, which was never offered (RFC 9846 4.3.8)';
   SBadRecordSizeLimit = 'record_size_limit is below the 64-byte minimum (RFC 8449 4)';
   SBadExtendedMasterSecret = 'extended_master_secret must carry an empty body';
   SBadStatusRequestEcho = 'a server status_request response must carry an empty body';
@@ -532,6 +533,10 @@ begin
   else // HelloRetryRequest
     AContext.HelloRetryGroup := LReader.ReadUInt16;
     LReader.ExpectEnd;
+    // 0 means "no key_share" to the retry logic, so a present group 0 must not pass as absent
+    if AContext.HelloRetryGroup = 0 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SHelloRetryGroupZero);
   end;
 end;
 

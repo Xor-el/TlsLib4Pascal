@@ -112,6 +112,7 @@ type
     procedure TestClientRejectsHelloRetryWithoutSupportedVersions;
     procedure TestClientRejectsHelloRetrySelectingTls12;
     procedure TestClientRejectsHelloRetryWithBadLegacyVersion;
+    procedure TestClientRejectsHelloRetryWithGroupZero;
     procedure TestServerRejectsSecondClientHelloWithoutCookie;
     procedure TestServerRejectsTamperedCookie;
     procedure TestServerRejectsCookieMintedForAnotherFirstClientHello;
@@ -689,6 +690,38 @@ begin
     'a HelloRetryRequest selecting TLS 1.2 aborts');
   CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
     'a HelloRetryRequest selecting a non-1.3 version is illegal_parameter');
+end;
+
+procedure TTestHelloRetryRequest.TestClientRejectsHelloRetryWithGroupZero;
+var
+  LClient: IHandshakeMachine;
+  LHello: TTlsServerHello;
+  LVec: TExtensionVector;
+  LAlert: TTlsAlertDescription;
+  LEffects: TArray<THandshakeEffect>;
+  LEffect: THandshakeEffect;
+begin
+  LClient := NewRetryClient;
+  // a present key_share naming group 0 plus a cookie: the cookie alone would otherwise make it a
+  // plain retry
+  LHello.Random := THelloRetryRequest.SentinelRandom;
+  LHello.LegacySessionIdEcho := DecodeHex(StringOfChar('3', 64));
+  LHello.CipherSuite := TCipherSuites13.Aes128GcmSha256;
+  LVec := TExtensionVector.Empty;
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.SupportedVersions, DecodeHex('0304')));
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.KeyShare, DecodeHex('0000')));
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.Cookie, DecodeHex('0003a1b2c3')));
+  LHello.Extensions := LVec.Encode;
+  LEffects := LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+      THandshakeMessages.EncodeServerHello(LHello))));
+  CheckTrue(FailAlertOf(LEffects, LAlert), 'a HelloRetryRequest key_share naming group 0 aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'a retry key_share naming group 0 is illegal_parameter');
+  for LEffect in LEffects do
+    if LEffect.Kind = THandshakeEffectKind.Fail then
+      CheckTrue(Pos('selects group 0', LEffect.Reason) > 0,
+        'the group-0 check refused it: ' + LEffect.Reason);
 end;
 
 procedure TTestHelloRetryRequest.TestServerRejectsSecondClientHelloWithoutCookie;

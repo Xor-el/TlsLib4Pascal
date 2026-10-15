@@ -56,6 +56,11 @@ type
     procedure TestEmptyCompressionMethodsIsDecodeError;
     procedure TestServerHelloNonNullCompressionTls13IsIllegalParameter;
     procedure TestServerHelloNonNullCompressionTls12IsIllegalParameter;
+    procedure TestSelectedVersionZeroIsReportedAsPresent;
+    procedure TestSelectedVersionIsReportedAsWritten;
+    procedure TestOverlongSelectedVersionIsDecodeError;
+    procedure TestTruncatedSelectedVersionIsDecodeError;
+    procedure TestSelectedVersionAbsentIsReportedAsAbsent;
   end;
 
 implementation
@@ -297,6 +302,70 @@ begin
     end;
   end;
   CheckTrue(LRaised, 'a non-null TLS 1.2 ServerHello compression method is refused');
+end;
+
+procedure TTestHandshakeMessages.TestSelectedVersionZeroIsReportedAsPresent;
+var
+  LVersion: UInt16;
+begin
+  // supported_versions = 0x0000 on the wire
+  CheckTrue(THandshakeMessages.TryGetServerHelloSelectedVersion(
+    DecodeHex('0006002b00020000'), LVersion), 'the extension is present');
+  CheckEquals(0, Integer(LVersion), 'the wire value is reported as is');
+end;
+
+procedure TTestHandshakeMessages.TestSelectedVersionIsReportedAsWritten;
+var
+  LVersion: UInt16;
+begin
+  CheckTrue(THandshakeMessages.TryGetServerHelloSelectedVersion(
+    DecodeHex('0006002b00020304'), LVersion), 'a TLS 1.3 selection is present');
+  CheckEquals($0304, Integer(LVersion), 'the TLS 1.3 value is reported as is');
+  CheckTrue(THandshakeMessages.TryGetServerHelloSelectedVersion(
+    DecodeHex('0006002b00020303'), LVersion), 'a TLS 1.2 selection is present');
+  CheckEquals($0303, Integer(LVersion), 'the TLS 1.2 value is reported as is');
+end;
+
+procedure TTestHandshakeMessages.TestOverlongSelectedVersionIsDecodeError;
+var
+  LVersion: UInt16;
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    THandshakeMessages.TryGetServerHelloSelectedVersion(
+      DecodeHex('0007002b0003030400'), LVersion);
+  except
+    on EDecodeErrorTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a supported_versions body longer than one version is a decode_error');
+end;
+
+procedure TTestHandshakeMessages.TestTruncatedSelectedVersionIsDecodeError;
+var
+  LVersion: UInt16;
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    THandshakeMessages.TryGetServerHelloSelectedVersion(
+      DecodeHex('0005002b000103'), LVersion);
+  except
+    on EDecodeErrorTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a one-byte supported_versions body is a decode_error');
+end;
+
+procedure TTestHandshakeMessages.TestSelectedVersionAbsentIsReportedAsAbsent;
+var
+  LVersion: UInt16;
+begin
+  CheckFalse(THandshakeMessages.TryGetServerHelloSelectedVersion(nil, LVersion),
+    'an omitted extensions field carries none');
+  CheckFalse(THandshakeMessages.TryGetServerHelloSelectedVersion(
+    DecodeHex('000400100000'), LVersion), 'a block without supported_versions carries none');
 end;
 
 procedure TTestHandshakeMessages.TestOverlongSessionIdIsDecodeError;

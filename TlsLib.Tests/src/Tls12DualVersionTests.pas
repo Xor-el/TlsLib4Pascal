@@ -125,6 +125,8 @@ type
     procedure TestTls12ServerHelloWithTls13ExtensionIsRefused;
     procedure TestServerHelloTls13LegacyVersionWithoutSupportedVersionsIsProtocolVersion;
     procedure TestServerHelloSelectingAnUnofferedVersionIsProtocolVersion;
+    procedure TestServerHelloSelectingPreTls13VersionIsRefusedByTheDispatcher;
+    procedure TestServerHelloSelectingTls13ReachesTheTls13Machine;
     procedure TestScsvFromLowerClientAborts;
     procedure TestSpuriousFallbackSaysWhy;
     procedure TestScsvFromCurrentClientDoesNotAbort;
@@ -653,6 +655,77 @@ begin
       Ord(LClient.LastError.Alert.Description),
       Format('selecting version %x is protocol_version', [LVersion]));
   end;
+end;
+
+procedure TTestTls12DualVersion.TestServerHelloSelectingPreTls13VersionIsRefusedByTheDispatcher;
+var
+  LClient: ITlsEngine;
+  LSh: TTlsServerHello;
+  LVec: TExtensionVector;
+  LMsg, LWire: TBytes;
+  LVersion: string;
+  LI: Int32;
+begin
+  // 0x0000 must not read as absent and fall through to the 1.2 machine; 0x0303 is the exact upper
+  // edge of the pre-1.3 values. The dispatcher's own reason is pinned, since the 1.2 machine's
+  // guard raises the same alert
+  for LI := 0 to 1 do
+  begin
+    if LI = 0 then
+      LVersion := '0000'
+    else
+      LVersion := '0303';
+    LClient := NewDualClient;
+    LClient.StartHandshake;
+    Drain(LClient);
+    LSh.Random := Filled($22, 32);
+    LSh.LegacySessionIdEcho := nil;
+    LSh.CipherSuite := TCipherSuites12.EcdheEcdsaAes128GcmSha256;
+    LVec := TExtensionVector.Empty;
+    LVec.Append(TExtensionEntry.Create(TExtensionTypes.SupportedVersions, DecodeHex(LVersion)));
+    LSh.Extensions := LVec.Encode;
+    LMsg := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+      THandshakeMessages.EncodeServerHello(LSh));
+    LWire := ConcatBytes(DecodeHex('160303'),
+      ConcatBytes(TBytes.Create(Byte(System.Length(LMsg) shr 8), Byte(System.Length(LMsg))), LMsg));
+    Feed(LClient, LWire);
+    CheckTrue(LClient.IsTerminal, 'the client aborts on ' + LVersion);
+    CheckEquals(Ord(TTlsAlertDescription.UnsupportedExtension),
+      Ord(LClient.LastError.Alert.Description),
+      'supported_versions = ' + LVersion + ' is unsupported_extension');
+    CheckTrue(Pos('selecting a version below TLS 1.3', LClient.LastError.Message) > 0,
+      'the dispatcher refused supported_versions = ' + LVersion + ': ' + LClient.LastError.Message);
+  end;
+end;
+
+procedure TTestTls12DualVersion.TestServerHelloSelectingTls13ReachesTheTls13Machine;
+var
+  LClient: ITlsEngine;
+  LSh: TTlsServerHello;
+  LVec: TExtensionVector;
+  LMsg, LWire, LSent: TBytes;
+begin
+  // the exact value 0x0304 passes the version gate: with no key_share the 1.3 machine then
+  // refuses with missing_extension, not a version alert
+  LClient := NewDualClient;
+  LClient.StartHandshake;
+  LSent := Drain(LClient);
+  // record header 5 + handshake header 4 + legacy_version 2 + random 32, then the session id
+  LSh.Random := Filled($22, 32);
+  LSh.LegacySessionIdEcho := System.Copy(LSent, 44, LSent[43]);
+  LSh.CipherSuite := TCipherSuites13.Aes128GcmSha256;
+  LVec := TExtensionVector.Empty;
+  LVec.Append(TExtensionEntry.Create(TExtensionTypes.SupportedVersions, DecodeHex('0304')));
+  LSh.Extensions := LVec.Encode;
+  LMsg := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
+    THandshakeMessages.EncodeServerHello(LSh));
+  LWire := ConcatBytes(DecodeHex('160303'),
+    ConcatBytes(TBytes.Create(Byte(System.Length(LMsg) shr 8), Byte(System.Length(LMsg))), LMsg));
+  Feed(LClient, LWire);
+  CheckTrue(LClient.IsTerminal, 'the client aborts');
+  CheckEquals(Ord(TTlsAlertDescription.MissingExtension),
+    Ord(LClient.LastError.Alert.Description),
+    'supported_versions = 0x0304 passes the version gate and fails on the missing key_share');
 end;
 
 function TTestTls12DualVersion.MakeClientHello(const ACipherSuites: TArray<UInt16>;
