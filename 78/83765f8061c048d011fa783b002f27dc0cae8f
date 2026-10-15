@@ -1,0 +1,71 @@
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_4adb7e2edc0c28::t_3e6cec7e360728 1159-1160
+  s_4adb7e2edc0c28::t_01d5309c8540b7 934
+  s_4adb7e2edc0c28::t_3699b327c7d6ed 1116-1117
+TlsLib.Tests/src/HandshakeMessageTests.pas
+  s_4adb7e2edc0c28::t_7fdc16c174edd2 282
+  s_4adb7e2edc0c28::t_403e8dee05cbdc 311-313
+  s_4adb7e2edc0c28::t_c763570154a990 30
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_4adb7e2edc0c28::t_11ebb06c7d8d73 631,638
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_4adb7e2edc0c28::t_114c6cc91bec1b 520,526
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_4adb7e2edc0c28::t_4a763869ce554b 1353
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_4adb7e2edc0c28::t_059f73f3d73728 214
+TlsLib.Tests/src/MockTransport.pas
+  s_4adb7e2edc0c28::t_6af955e3d4de17 143-144
+  s_4adb7e2edc0c28::t_c4c08815a2c385 156
+  s_4adb7e2edc0c28::t_39e42e51de8e95 167
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_4adb7e2edc0c28::t_6273ea2f64a354 2009-2010
+  s_4adb7e2edc0c28::t_d92f212d0f90b2 1023-1024,1035-1036
+  s_4adb7e2edc0c28::t_755228044ae484 1163-1166,1195-1198,1506-1509
+  s_4adb7e2edc0c28::t_baa1195eadcb57 347-349
+  s_4adb7e2edc0c28::t_b549e2addd0a2b 1242-1243,1265-1266,1350-1351,1563-1564,1776-1777,1796-1797,1841-1842,1861-1862,1882-1883,1901-1902,1917-1918,1964-1965,1977-1978,2035-2036
+  s_4adb7e2edc0c28::t_a507ee4d28d7e6 1875-1878
+  s_4adb7e2edc0c28::t_0e52ec5abe5762 1147-1150,1222-1225
+  s_4adb7e2edc0c28::t_93886a2049204a 1228-1231,1815-1818,1829-1832
+  s_4adb7e2edc0c28::t_20f22ceea66893 1029-1031
+  s_4adb7e2edc0c28::t_6656c096739c4e 1169-1172,1176-1179
+  s_4adb7e2edc0c28::t_c63cdc3195e6a0 1569-1570
+  s_4adb7e2edc0c28::t_e392e667af3acc 1203-1204,1515-1516
+  s_4adb7e2edc0c28::t_4131f8b58ea976 1753-1754,1765-1766
+  s_4adb7e2edc0c28::t_053a713d383887 1096-1097
+  s_4adb7e2edc0c28::t_18a6d09941a521 456-457
+  s_4adb7e2edc0c28::t_15ecac97f4deaa 1411-1412,1541-1542,1989-1990
+  s_4adb7e2edc0c28::t_798055428c2456 1134-1137
+  s_4adb7e2edc0c28::t_57180c495a1988 1026-1027,1039-1040
+  s_4adb7e2edc0c28::t_29619b58a6fa31 1107-1109
+  s_4adb7e2edc0c28::t_82e271028b9a38 523-524
+  s_4adb7e2edc0c28::t_3c8f14a6f99efb 1120-1122
+  s_4adb7e2edc0c28::t_7295569004f2b8 92,442,1316,1329,1352,1448,1460,1482
+  s_4adb7e2edc0c28::t_d81bb3540932be 483-484,510-511,533-534,569-570,577-578
+  s_4adb7e2edc0c28::t_fae5f39d1c60e6 504-505,525-526
+  s_4adb7e2edc0c28::t_4a72d7f52605b1 531-532
+  s_4adb7e2edc0c28::t_3d2750e49240d7 1041-1042
+  s_4adb7e2edc0c28::t_105f43b474dbec 1295-1296,1539-1540,1591-1592,1974-1975
+  s_4adb7e2edc0c28::t_05c54f048ae078 1573-1574
+  s_4adb7e2edc0c28::t_794cf8bd0314f0 1277-1278,1432-1433,1480-1481,1851-1852,1931-1932,1948-1949,1998-1999
+  s_4adb7e2edc0c28::t_d23a4386a51b0e 2057-2059
+TlsLib.Tests/src/MockPkixProvider.pas
+  s_4adb7e2edc0c28::t_df823c7e6e6a12 42-43
+  s_4adb7e2edc0c28::t_e9455923ab0b80 44,113,115,123,128,133,138,143,152,164,169,175,181,192,203,212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7883765f8061c048d011fa783b002f27dc0cae8f",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
