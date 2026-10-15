@@ -54,10 +54,10 @@ uses
   MockNamedGroups,
   MockSink,
   MockRecordInstaller,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
-  TTestTls13ServerReplay = class(TTlsLibAlgorithmTestCase)
+  TTestTls13ServerReplay = class(TTlsLibHandshakeTestCase)
   private
     FHs, FSched, FKeys: TStringList;
     FLayer: TRecordLayer;
@@ -70,10 +70,6 @@ type
     /// <summary>Arranges a server whose RSA credential can sign any rsa_pss_rsae_*
     /// variant (schemes listed [sha384, sha256, sha512]); it really signs, no override.</summary>
     procedure ArrangeMultiSchemeRsa;
-    function CollectSendHandshake(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
-    /// <summary>The alert of the first Fail effect in AEffects, or False if none.</summary>
-    function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
-      out AAlert: TTlsAlertDescription): Boolean;
     procedure Arrange;
     /// <summary>Synthesizes a framed ClientHello offering AGroup and AKeyShare; when
     /// AIncludeSchemes is set it carries signature_algorithms = ASchemes.</summary>
@@ -124,39 +120,6 @@ begin
   finally
     LReader.Free;
   end;
-end;
-
-function TTestTls13ServerReplay.CollectSendHandshake(
-  const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
-var
-  LEffect: THandshakeEffect;
-  LCount: Int32;
-begin
-  Result := nil;
-  LCount := 0;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-    begin
-      SetLength(Result, LCount + 1);
-      Result[LCount] := LEffect.Bytes;
-      Inc(LCount);
-    end;
-end;
-
-function TTestTls13ServerReplay.FailAlertOf(
-  const AEffects: TArray<THandshakeEffect>;
-  out AAlert: TTlsAlertDescription): Boolean;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := False;
-  AAlert := TTlsAlertDescription.CloseNotify;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.Fail then
-    begin
-      AAlert := LEffect.Alert;
-      Exit(True);
-    end;
 end;
 
 procedure TTestTls13ServerReplay.BuildDriver(const ACryptoProvider: ICryptoProvider);
@@ -226,7 +189,7 @@ begin
 
   // the ClientHello drives the whole server flight
   LEffects := FSm.ProcessMessage(Msg('client_hello'));
-  LFlight := CollectSendHandshake(LEffects);
+  LFlight := AllSendHandshake(LEffects);
   CheckEquals(5, System.Length(LFlight),
     'the server sends ServerHello, EncryptedExtensions, Certificate, CertificateVerify, Finished');
   // the reconstructed ServerHello is byte-exact (so its transcript matches the RFC)
@@ -457,7 +420,7 @@ var
     LCv: TBytes;
   begin
     ArrangeMultiSchemeRsa;
-    LFlight := CollectSendHandshake(FSm.ProcessMessage(BuildClientHello(True, ASchemes)));
+    LFlight := AllSendHandshake(FSm.ProcessMessage(BuildClientHello(True, ASchemes)));
     CheckEquals(5, System.Length(LFlight), 'the server emits its full flight');
     LCv := LFlight[3]; // ServerHello, EncryptedExtensions, Certificate, CertificateVerify
     Result := THandshakeMessages.DecodeCertificateVerify(

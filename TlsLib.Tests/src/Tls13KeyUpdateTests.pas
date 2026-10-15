@@ -19,7 +19,6 @@ interface
 
 uses
   SysUtils,
-  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -29,7 +28,6 @@ uses
   TlpICertificateTrust,
   TlpCertificateVerifier,
   TlpCertificateVerifierSource,
-  TlpTlsCredential,
   TlpTlsPresets,
   TlpTlsEngineFactory,
   TlpINegotiation,
@@ -51,25 +49,20 @@ uses
   TlpITlsConfig,
   TlpTls13HandshakeBase,
   MockCryptoProvider,
-  TlsLibTestBase,
+  TlsLibHandshakeTestBase,
   TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
-  TTestTls13KeyUpdate = class(TTlsLibAlgorithmTestCase)
+  TTestTls13KeyUpdate = class(TTlsLibHandshakeTestCase)
   private
   const
     ServerHost = 'localhost';
   var
-    function ServerCredential: TTlsCredential;
     function AesGcmRegistry(const AProvider: ICryptoProvider): ICipherSuiteRegistry;
     function NewClient: ITlsEngine;
     function NewServer: ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
     procedure Exchange(const AClient, AServer: ITlsEngine);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     /// <summary>Drains the event queue and counts the KeyUpdateReceived events.</summary>
     function CountKeyUpdateEvents(const AEngine: ITlsEngine): Int32;
     procedure CheckAppDataBothWays(const AClient, AServer: ITlsEngine;
@@ -158,20 +151,6 @@ end;
 
 { TTestTls13KeyUpdate }
 
-function TTestTls13KeyUpdate.ServerCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    FreeAndNil(LCerts);
-  end;
-end;
-
 function TTestTls13KeyUpdate.NewClient: ITlsEngine;
 begin
   // Hardened is TLS 1.3-only, the version that has KeyUpdate
@@ -188,57 +167,11 @@ begin
     TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential).Build);
 end;
 
-function TTestTls13KeyUpdate.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls13KeyUpdate.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
-procedure TTestTls13KeyUpdate.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
 procedure TTestTls13KeyUpdate.Exchange(const AClient, AServer: ITlsEngine);
 begin
   // one full round-trip so an initiated KeyUpdate reaches the peer and any response returns
   Pump(AClient, AServer);
   Pump(AServer, AClient);
-end;
-
-function TTestTls13KeyUpdate.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
 end;
 
 function TTestTls13KeyUpdate.CountKeyUpdateEvents(const AEngine: ITlsEngine): Int32;

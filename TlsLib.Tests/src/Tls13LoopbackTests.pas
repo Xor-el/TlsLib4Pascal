@@ -30,7 +30,6 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpTlsError,
-  TlpRecordHeader,
   TlpTlsVersion,
   TlpTlsLibExceptions,
   TlpICryptoProvider,
@@ -73,29 +72,22 @@ uses
   TlpAntiReplay,
   TlpIKeyLog,
   MockKeyLog,
-  TlsLibTestBase,
+  TlsLibHandshakeTestBase,
   TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
-  TTestTls13Loopback = class(TTlsLibAlgorithmTestCase)
+  TTestTls13Loopback = class(TTlsLibHandshakeTestCase)
   private
     // opt-in NSS key-log sinks: nil by default (helpers skip injection); a test sets them to
     // observe which ClientHello random the exported secrets are keyed by
     FClientKeyLog, FServerKeyLog: TMockKeyLog;
-    function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function ServerCredential: TTlsCredential;
-    function WrongNameCredential: TTlsCredential;
     function NewClient: ITlsEngine;
     function NewClientForSni(const ASni, AExpectedHost: string): ITlsEngine;
     function NewClientEd448: ITlsEngine;
     function NewServerEd448: ITlsEngine;
-    function TestRootCertificateEd448: TBytes;
-    function ServerCredentialEd448: TTlsCredential;
     function NewClientEd25519: ITlsEngine;
     function NewServerEd25519: ITlsEngine;
-    function TestRootCertificateEd25519: TBytes;
-    function ServerCredentialEd25519: TTlsCredential;
     function NewServer: ITlsEngine;
     function NewServerWithResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsEngine;
@@ -136,8 +128,6 @@ type
     function NewHrrClient: ITlsEngine;
     function NewHrrServer: ITlsEngine;
     function NewHrrServerWithPolicy(const APolicy: INegotiationPolicy): ITlsEngine;
-    // AWire's first record alone, with AExtra appended to its body (the length is rewritten).
-    function FirstRecordWith(const AWire, AExtra: TBytes): TBytes;
     function NewP256OnlyClient: ITlsEngine;
     function NewMultiGroupServer: ITlsEngine;
     function NewHybridClient: ITlsEngine;
@@ -146,16 +136,8 @@ type
     function NewHybridHrrServer: ITlsEngine;
     function CountHelloRetryRequests(const AWire: TBytes): Int32;
     function DriveCountingHrr(const AClient, AServer: ITlsEngine): Int32;
-    function OcspField(const AName: string): TBytes;
     function NewStaplingServer(const AStaple: TBytes): ITlsEngine;
     function NewHardRevocationClient: ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure FeedCoalesced(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
-    procedure PumpCoalesced(const ASrc, ADst: ITlsEngine);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
-    function ReadAllEarly(const AEngine: ITlsEngine): TBytes;
     // the pre_shared_key extension data (identities + binders) from the outer ClientHello in a
     // record-framed client flight, skipping any leading ChangeCipherSpec; nil when there is none
     function OuterPskExtData(const AFlight: TBytes): TBytes;
@@ -207,16 +189,6 @@ implementation
 
 { TTestTls13Loopback }
 
-function TTestTls13Loopback.Filled(AByte: Byte; ACount: Int32): TBytes;
-var
-  LI: Int32;
-begin
-  Result := nil;
-  SetLength(Result, ACount);
-  for LI := 0 to ACount - 1 do
-    Result[LI] := AByte;
-end;
-
 function TTestTls13Loopback.NewClient: ITlsEngine;
 begin
   // no SNI on the wire; the leaf is name-checked against localhost
@@ -251,47 +223,6 @@ begin
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestTls13Loopback.ServerCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
-
-function TTestTls13Loopback.TestRootCertificateEd448: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/Ed448Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
-function TTestTls13Loopback.ServerCredentialEd448: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/Ed448Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-      DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls13Loopback.NewClientEd448: ITlsEngine;
 var
   LParams: TClientHandshakeParams;
@@ -312,7 +243,8 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificateEd448))
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/Ed448Chain.txt', 'root_cert')))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -322,33 +254,6 @@ function TTestTls13Loopback.NewServerEd448: ITlsEngine;
 begin
   Result := NewServerWithResolver(
     TSniCredentialResolver.ForCredential(ServerCredentialEd448));
-end;
-
-function TTestTls13Loopback.TestRootCertificateEd25519: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/Ed25519Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
-function TTestTls13Loopback.ServerCredentialEd25519: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/Ed25519Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-      DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
 end;
 
 function TTestTls13Loopback.NewClientEd25519: ITlsEngine;
@@ -370,7 +275,8 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificateEd25519))
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert')))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -380,23 +286,6 @@ function TTestTls13Loopback.NewServerEd25519: ITlsEngine;
 begin
   Result := NewServerWithResolver(
     TSniCredentialResolver.ForCredential(ServerCredentialEd25519));
-end;
-
-function TTestTls13Loopback.WrongNameCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  // the wrongname leaf carries SAN=other.example; it is paired here with the localhost key
-  // purely as an opaque decoy entry - a localhost client never selects it, so the mismatched
-  // key is never used to sign
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['wrongname_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
 end;
 
 function TTestTls13Loopback.NewServer: ITlsEngine;
@@ -1352,18 +1241,6 @@ begin
     LClient.ConnectionInfo.EchRetryConfigs);
 end;
 
-function TTestTls13Loopback.OcspField(const AName: string): TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/OcspStapling.txt');
-  try
-    Result := DecodeHex(LV.Values[AName]);
-  finally
-    LV.Free;
-  end;
-end;
-
 function TTestTls13Loopback.NewStaplingServer(const AStaple: TBytes): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
@@ -1381,8 +1258,10 @@ begin
   // the leaf's issuer travels in the chain so the client can authenticate the staple
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
-    OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'), nil);
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
 
@@ -1412,7 +1291,8 @@ begin
   LParams.RequestOcspStapling := True;
   LOptions.RevocationPosture := TRevocationPosture.Hard;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
     as ITrustAnchorStore, True, LOptions) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
@@ -1699,94 +1579,6 @@ begin
   Pump(LClient, LServer);
   CheckEqualBytes('the server decrypts application data over the secp256r1 keys',
     LFromClient, ReadAllApp(LServer));
-end;
-
-function TTestTls13Loopback.FirstRecordWith(const AWire, AExtra: TBytes): TBytes;
-var
-  LLen: Int32;
-begin
-  LLen := (AWire[3] shl 8) or AWire[4];
-  Result := ConcatBytes(System.Copy(AWire, 0, TRecordLimits.HeaderLength + LLen), AExtra);
-  Inc(LLen, System.Length(AExtra));
-  Result[3] := Byte(LLen shr 8);
-  Result[4] := Byte(LLen);
-end;
-
-function TTestTls13Loopback.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls13Loopback.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  // deliver one record at a time so an epoch installed while processing one record
-  // is active for the next (a coalesced feed cannot cross an epoch boundary)
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
-procedure TTestTls13Loopback.FeedCoalesced(const AEngine: ITlsEngine;
-  const AWire: TBytes);
-begin
-  // deliver the whole flight in a single ProcessInput; a flight that changes epoch
-  // mid-buffer (a plaintext ServerHello followed by the encrypted rest) must still
-  // decode, because each record is decrypted under the epoch installed at pull time
-  if System.Length(AWire) > 0 then
-    AEngine.ProcessInput(AWire, 0, System.Length(AWire));
-end;
-
-procedure TTestTls13Loopback.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
-procedure TTestTls13Loopback.PumpCoalesced(const ASrc, ADst: ITlsEngine);
-begin
-  FeedCoalesced(ADst, Drain(ASrc));
-end;
-
-function TTestTls13Loopback.ReadAllEarly(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadEarlyData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-function TTestTls13Loopback.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
 end;
 
 procedure TTestTls13Loopback.TestClientServerLoopbackReachesApplicationData;
@@ -2396,7 +2188,8 @@ begin
   // the server staples a current Good OCSP response in the leaf CertificateEntry, which a
   // hard-fail client requires (a posture of this library; the format is RFC 9846 4.5.1.1)
   LClient := NewHardRevocationClient;
-  LServer := NewStaplingServer(OcspField('ocsp_good'));
+  LServer := NewStaplingServer(
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good'));
   LClient.StartHandshake;
 
   LIterations := 0;
@@ -2447,7 +2240,8 @@ begin
   // selected by SNI rather than by config order (the decoy is listed first)
   SetLength(LEntries, 2);
   LEntries[0].Host := 'other.example';
-  LEntries[0].Credential := WrongNameCredential;
+  LEntries[0].Credential := CredentialWithChain(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
   LEntries[1].Host := 'localhost';
   LEntries[1].Credential := ServerCredential;
 
@@ -2530,7 +2324,9 @@ begin
   // payloads distinguished by their leaf bytes, so wildcard and case-folding are testable
   // without needing a certificate that actually carries those names
   LExact := ServerCredential;        // stands in for host.example.com
-  LWildcard := WrongNameCredential;  // stands in for *.wild.example
+  // stands in for *.wild.example
+  LWildcard := CredentialWithChain(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
   LDefault := Default(TTlsCredential);
   LDefault.CertificateChain := TArray<TBytes>.Create(
     TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));

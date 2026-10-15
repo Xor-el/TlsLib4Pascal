@@ -54,10 +54,10 @@ uses
   MockSink,
   MockRecordInstaller,
   MockCertificateVerifiers,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
-  TTestTls13ClientReplay = class(TTlsLibAlgorithmTestCase)
+  TTestTls13ClientReplay = class(TTlsLibHandshakeTestCase)
   private
     FHs, FSched, FRec: TStringList;
     FLayer: TRecordLayer;
@@ -65,11 +65,6 @@ type
     FSm: IHandshakeMachine;
     FDualVersion: Boolean;
     function Msg(const AName: string): TTlsHandshakeMessage;
-    function FindSendHandshake(const AEffects: TArray<THandshakeEffect>): TBytes;
-    /// <summary>The alert of the first Fail effect in AEffects, or False if none.</summary>
-    function FailAlertOf(const AEffects: TArray<THandshakeEffect>;
-      out AAlert: TTlsAlertDescription): Boolean;
-    function Filled(AByte: Byte; ACount: Int32): TBytes;
     procedure StartClient;
     procedure ArrangeThroughCertificate;
     procedure ArrangeThroughCertificateVerify;
@@ -140,33 +135,6 @@ begin
   finally
     LReader.Free;
   end;
-end;
-
-function TTestTls13ClientReplay.FindSendHandshake(
-  const AEffects: TArray<THandshakeEffect>): TBytes;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := nil;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-      Exit(LEffect.Bytes);
-end;
-
-function TTestTls13ClientReplay.FailAlertOf(
-  const AEffects: TArray<THandshakeEffect>;
-  out AAlert: TTlsAlertDescription): Boolean;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := False;
-  AAlert := TTlsAlertDescription.CloseNotify;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.Fail then
-    begin
-      AAlert := LEffect.Alert;
-      Exit(True);
-    end;
 end;
 
 procedure TTestTls13ClientReplay.StartClient;
@@ -332,7 +300,7 @@ begin
   LExpectedFinished := ConcatBytes(DecodeHex('14000020'),
     DecodeHex(FSched.Values['client_verify_data']));
   CheckEqualBytes('client Finished verify_data matches RFC 8448',
-    LExpectedFinished, FindSendHandshake(LEffects));
+    LExpectedFinished, FirstSendHandshake(LEffects));
 
   FDriver.ApplyAll(LEffects);
   // the emitted encrypted client Finished record is byte-exact vs RFC 8448
@@ -365,14 +333,6 @@ begin
     'a bad server Finished aborts');
   CheckTrue(LAlert = TTlsAlertDescription.DecryptError,
     'a bad server Finished is decrypt_error');
-end;
-
-function TTestTls13ClientReplay.Filled(AByte: Byte; ACount: Int32): TBytes;
-begin
-  Result := nil;
-  SetLength(Result, ACount);
-  if ACount > 0 then
-    FillChar(Result[0], ACount, AByte);
 end;
 
 procedure TTestTls13ClientReplay.TestServerHelloUnofferedSuiteRejected;
