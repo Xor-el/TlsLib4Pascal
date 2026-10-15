@@ -53,16 +53,13 @@ type
     // regrows the outbound buffer and holds at most one slice of ciphertext at a time
     WriteChunk = Int32(4 * 16384);
   strict private
-    /// <summary>Flushes best-effort: a transport failure here is swallowed because the caller is
-    /// already surfacing a TLS-level error that a transport error must not mask.</summary>
+    /// <summary>Flushes best-effort: a transport failure is swallowed because the caller is
+    /// already surfacing a TLS-level error, or has data to return, that a transport error must not
+    /// mask. Flush has still latched the engine or emptied its queue.</summary>
     class procedure FlushQuietly(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
-    /// <summary>Flushes after a read that returned data without raising: a failure is swallowed so
-    /// the data survives, but on a live engine it also fails the engine, as the bytes handed over
-    /// (a KeyUpdate) are lost and the next write would run under keys the peer never got.</summary>
-    class procedure FlushOrLatch(const AEngine: ITlsEngine;
-      const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
-    /// <summary>Flushes what the engine queued; best-effort once it is terminal.</summary>
+    /// <summary>Flushes what the engine queued; a transport failure raises while it is live and is
+    /// swallowed once it is terminal.</summary>
     class procedure FlushPending(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Flushes, then raises if the engine is terminal. The flush comes first so the
@@ -102,7 +99,9 @@ type
     /// is in a fatal state; a no-op otherwise. Lets a caller re-surface a latched handshake failure
     /// with the same alert the engine recorded.</summary>
     class procedure RaiseIfFatal(const AEngine: ITlsEngine); static;
-    /// <summary>Sends every pending outbound byte to the transport.</summary>
+    /// <summary>Sends every pending outbound byte to the transport. A transport failure raises
+    /// unchanged and ends the connection: a live engine is latched (no alert, sessions kept), a
+    /// terminal one drops its unsent queue.</summary>
     class procedure Flush(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Runs the handshake to completion. A client sends its opening flight first
@@ -134,11 +133,12 @@ type
     /// <summary>Encrypts and sends application data, sealing and draining at most WriteChunk
     /// bytes per iteration so a bulk write never holds its whole ciphertext in memory. At the
     /// AEAD usage limit with no rekey available the engine's close_notify is still sent before
-    /// ERecordLimitTlsLibException propagates.</summary>
+    /// ERecordLimitTlsLibException propagates. A transport failure ends the connection: its
+    /// exception propagates and later calls raise the latched error.</summary>
     class procedure WriteApp(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; var ATransportBuffer: TBytes; const AData: TBytes;
       AOffset, ALength: Int32); static;
-    /// <summary>Sends close_notify and flushes it.</summary>
+    /// <summary>Sends close_notify and flushes it; a transport failure raises as for Flush.</summary>
     class procedure Close(const AEngine: ITlsEngine;
       const ATransport: ITlsTransport; var ATransportBuffer: TBytes); static;
     /// <summary>Sends a fatal alert (the engine goes terminal) and flushes it, best effort: used
@@ -189,11 +189,25 @@ begin
     Exit;
   if System.Length(ATransportBuffer) < TransportChunk then
     SetLength(ATransportBuffer, TransportChunk);
-  repeat
-    LGot := AEngine.TakeOutgoing(ATransportBuffer, 0);
-    if LGot > 0 then
-      ATransport.Write(ATransportBuffer, 0, LGot);
-  until LGot = 0;
+  try
+    repeat
+      LGot := AEngine.TakeOutgoing(ATransportBuffer, 0);
+      if LGot > 0 then
+        ATransport.Write(ATransportBuffer, 0, LGot);
+    until LGot = 0;
+  except
+    // Write reports no progress on a raise: nothing queued can follow it intact
+    on E: Exception do
+    begin
+      if AEngine.IsTerminal then
+        repeat
+          LGot := AEngine.TakeOutgoing(ATransportBuffer, 0);
+        until LGot = 0
+      else
+        AEngine.LatchTransportFailure(E.Message);
+      raise;
+    end;
+  end;
 end;
 
 class procedure TTlsStreamPump.FlushQuietly(const AEngine: ITlsEngine;
@@ -202,20 +216,7 @@ begin
   try
     Flush(AEngine, ATransport, ATransportBuffer);
   except
-    // best effort: the TLS-level error being surfaced takes precedence
-  end;
-end;
-
-class procedure TTlsStreamPump.FlushOrLatch(const AEngine: ITlsEngine;
-  const ATransport: ITlsTransport; var ATransportBuffer: TBytes);
-begin
-  try
-    Flush(AEngine, ATransport, ATransportBuffer);
-  except
-    // the next read or write raises the latched failure, carrying the transport's own message
-    on E: Exception do
-      if not AEngine.IsTerminal then
-        AEngine.LatchTransportFailure(E.Message);
+    // best effort: the caller's own error or data takes precedence
   end;
 end;
 
@@ -375,7 +376,7 @@ begin
   if System.Length(ATransportBuffer) < TransportChunk then
     SetLength(ATransportBuffer, TransportChunk);
   LCertEvent := nil;
-  Flush(AEngine, ATransport, ATransportBuffer);
+  FlushPending(AEngine, ATransport, ATransportBuffer);
   while AEngine.IsHandshaking do
   begin
     // a parked verdict makes no progress on the wire; resolve it before blocking on a read
@@ -417,7 +418,7 @@ begin
   if Result > 0 then
   begin
     // output queued by an earlier engine call goes out now; a dead transport must not lose the bytes
-    FlushOrLatch(AEngine, ATransport, ATransportBuffer);
+    FlushQuietly(AEngine, ATransport, ATransportBuffer);
     AStatus := TTlsReadStatus.Data;
     Exit;
   end;
@@ -475,6 +476,7 @@ class procedure TTlsStreamPump.WriteApp(const AEngine: ITlsEngine;
   AOffset, ALength: Int32);
 var
   LOffset, LRemaining, LChunk: Int32;
+  LSealFault: Boolean;
 begin
   // a terminal engine reports its recorded alert, sent first, not a closed-write error (RFC 9846 6.2)
   if AEngine.IsTerminal then
@@ -500,8 +502,9 @@ begin
         // a failed seal leaves the engine with an alert queued - close_notify at the AEAD usage
         // limit, or the fatal alert of a seal fault; deliver it (any slices sealed before are
         // already on the wire) before surfacing the failure to the caller
+        LSealFault := AEngine.IsTerminal;
         FlushQuietly(AEngine, ATransport, ATransportBuffer);
-        if AEngine.IsTerminal then
+        if LSealFault then
           RaiseIfFatal(AEngine);
         raise;
       end;

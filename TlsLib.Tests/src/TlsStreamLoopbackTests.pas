@@ -145,6 +145,9 @@ type
     procedure HandshakeEnginesWith(const AClientConfig: ITlsClientConfig;
       const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
     procedure HandshakeTls12WithAlpn(out AClient, AServer: ITlsEngine);
+    /// <summary>TLS 1.2 configs whose AEAD hits its usage limit on the first application record.</summary>
+    procedure CappedTls12Configs(out AClientConfig: ITlsClientConfig;
+      out AServerConfig: ITlsServerConfig);
     /// <summary>The server's two-byte reply followed by an application_data record that cannot
     /// authenticate, so the drain behind the read of the reply queues bad_record_mac.</summary>
     function DataThenBadRecord(const AServer: ITlsEngine): TBytes;
@@ -153,6 +156,11 @@ type
     /// <summary>Reads data through a socket that dies under the flush of a queued KeyUpdate.</summary>
     procedure ReadWithAKeyUpdateLostToADeadSocket(out AClient: ITlsEngine;
       out ATransport: ITlsTransport);
+    /// <summary>Fails a write over a dead socket, leaving AClient latched.</summary>
+    procedure FailAWriteOverADeadSocket(out AClient: ITlsEngine);
+    /// <summary>Aborts an engine whose queue holds more than one transport chunk, over a dead
+    /// socket that refuses the first chunk.</summary>
+    procedure AbortWithAnOversizedQueueOverADeadSocket(out AClient: ITlsEngine);
   published
     procedure TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
     procedure TestBulkWriteIsSealedInBoundedSlices;
@@ -195,6 +203,15 @@ type
     procedure TestWriteAfterAFailedFlushBehindReadRaises;
     procedure TestBadRecordBehindTransportDataRaisesWithTheAlertSent;
     procedure TestKeyUpdateRequestBehindTransportDataIsAnsweredByTheNextWrite;
+    procedure TestFailedWriteFlushLatchesTheEngine;
+    procedure TestWriteAfterAFailedWriteFlushSendsNothing;
+    procedure TestFailedCloseFlushKeepsTheCachedTickets;
+    procedure TestFailedHandshakeFlushLatchesTheEngine;
+    procedure TestCloseAfterAFailedWriteFlushSendsNothing;
+    procedure TestSealLimitOverADeadSocketStillRaisesTheLimitError;
+    procedure TestFailedHandshakeStartOverADeadSocketRaisesTheTlsError;
+    procedure TestFailedFlushOnATerminalEngineDropsTheTail;
+    procedure TestTerminalEngineSendsNothingAfterAFailedFlush;
   end;
 
 implementation
@@ -202,6 +219,59 @@ implementation
 const
   // "ping from the client" / "pong from the server"
   PingHex = '70696e672066726f6d2074686520636c69656e74';
+
+type
+  /// <summary>A session cache whose Take raises, failing a resuming client's StartHandshake.</summary>
+  TFailingSessionCache = class sealed(TInterfacedObject, ISessionCache)
+  public
+    procedure Store(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    procedure Remove(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
+      out ASession: IResumableSession): Boolean;
+    procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
+    function KxHint(const AServerIdentity, AServerName: string): UInt16;
+    procedure Clear;
+    function Count: Int32;
+  end;
+
+{ TFailingSessionCache }
+
+procedure TFailingSessionCache.Store(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+end;
+
+procedure TFailingSessionCache.Remove(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+end;
+
+function TFailingSessionCache.Take(const AServerIdentity, AServerName: string;
+  ANowMillis: UInt64; out ASession: IResumableSession): Boolean;
+begin
+  raise EInvalidOperation.Create('the session cache failed');
+end;
+
+procedure TFailingSessionCache.SetKxHint(const AServerIdentity, AServerName: string;
+  AGroup: UInt16);
+begin
+end;
+
+function TFailingSessionCache.KxHint(const AServerIdentity, AServerName: string): UInt16;
+begin
+  Result := 0;
+end;
+
+procedure TFailingSessionCache.Clear;
+begin
+end;
+
+function TFailingSessionCache.Count: Int32;
+begin
+  Result := 0;
+end;
 
 { TServerRunner }
 
@@ -762,10 +832,31 @@ begin
   end;
 end;
 
-procedure TTestTlsStreamLoopback.TestRecordLimitCloseNotifyReachesPeerOverPump;
+procedure TTestTlsStreamLoopback.CappedTls12Configs(out AClientConfig: ITlsClientConfig;
+  out AServerConfig: ITlsServerConfig);
 var
   LCapped: ICryptoProvider;
   LSuites: ICipherSuiteRegistryBuilder;
+begin
+  // a capped AEAD whose usage limit is one past the rekey lead (17 = lead 16 + 1) puts the write
+  // epoch at its soft threshold on the very first application record (the Finished consumed
+  // sequence 0). TLS 1.2 has no KeyUpdate, so that first write seals a close_notify and refuses,
+  // exercising the limit path without sealing millions of records.
+  LCapped := TCappedAeadProvider.Create(Crypto, 17) as ICryptoProvider;
+  LSuites := TCipherSuiteRegistry.CreateDualVersion(LCapped).ToBuilder;
+  LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
+  LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
+  AClientConfig := TTlsPresets.Compatible(LCapped, Pkix).Client
+    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithCipherSuites(LSuites.Build).Build;
+  AServerConfig := TTlsPresets.Compatible(LCapped, Pkix).Server
+    .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
+    .WithCredential(TTlsCredential.Load(LCapped, Pkix, LeafCert, LeafKey)).Build;
+end;
+
+procedure TTestTlsStreamLoopback.TestRecordLimitCloseNotifyReachesPeerOverPump;
+var
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
   LC2S, LS2C: TMemoryPipe;
@@ -777,22 +868,7 @@ var
   LByte: TBytes;
   LRaised: Boolean;
 begin
-  // a capped AEAD whose usage limit is one past the rekey lead (17 = lead 16 + 1) puts the write
-  // epoch at its soft threshold on the very first application record (the Finished consumed
-  // sequence 0). TLS 1.2 has no KeyUpdate, so that first write seals a close_notify and refuses,
-  // exercising the limit path over a real stream/transport without sealing millions of records.
-  LCapped := TCappedAeadProvider.Create(Crypto, 17) as ICryptoProvider;
-  LSuites := TCipherSuiteRegistry.CreateDualVersion(LCapped).ToBuilder;
-  LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
-  LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
-  LClientConfig := TTlsPresets.Compatible(LCapped, Pkix).Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
-    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithCipherSuites(LSuites.Build).Build;
-  LServerConfig := TTlsPresets.Compatible(LCapped, Pkix).Server
-    .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
-    .WithCredential(TTlsCredential.Load(LCapped, Pkix, LeafCert, LeafKey)).Build;
-
+  CappedTls12Configs(LClientConfig, LServerConfig);
   LC2S := TMemoryPipe.Create;
   LS2C := TMemoryPipe.Create;
   LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
@@ -1900,6 +1976,216 @@ begin
   System.SetLength(LDest, 16);
   LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16, LStatus);
   CheckEquals(2, LGot, 'the plaintext already taken from the engine is returned');
+end;
+
+procedure TTestTlsStreamLoopback.TestFailedWriteFlushLatchesTheEngine;
+var
+  LClient, LServer: ITlsEngine;
+  LData, LTransportBuffer: TBytes;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LData := DecodeHex('00');
+  LRaised := False;
+  try
+    TTlsStreamPump.WriteApp(LClient, TDeadWriteTransport.Create as ITlsTransport,
+      LTransportBuffer, LData, 0, 1);
+  except
+    on E: EInOutError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the transport''s own exception is re-raised');
+  CheckTrue(LClient.IsTerminal, 'the failed flush latched the engine');
+end;
+
+procedure TTestTlsStreamLoopback.FailAWriteOverADeadSocket(out AClient: ITlsEngine);
+var
+  LServer: ITlsEngine;
+  LData, LTransportBuffer: TBytes;
+begin
+  HandshakeEngines(AClient, LServer);
+  LData := DecodeHex('00');
+  try
+    TTlsStreamPump.WriteApp(AClient, TDeadWriteTransport.Create as ITlsTransport,
+      LTransportBuffer, LData, 0, 1);
+  except
+    on E: EInOutError do
+      ;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestWriteAfterAFailedWriteFlushSendsNothing;
+var
+  LClient: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LData, LTransportBuffer: TBytes;
+  LRaised: Boolean;
+begin
+  FailAWriteOverADeadSocket(LClient);
+  LData := DecodeHex('00');
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  LRaised := False;
+  try
+    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+  except
+    on E: ETlsStreamError do
+      LRaised := Pos('the mock socket failed', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'the retry raises the latched transport failure');
+  CheckEquals(0, LRecorder.Written, 'nothing follows the torn write');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseAfterAFailedWriteFlushSendsNothing;
+var
+  LClient: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LTransportBuffer: TBytes;
+begin
+  FailAWriteOverADeadSocket(LClient);
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  TTlsStreamPump.Close(LClient, LTransport, LTransportBuffer);
+  CheckEquals(0, LRecorder.Written, 'no close_notify follows the torn write');
+end;
+
+procedure TTestTlsStreamLoopback.TestSealLimitOverADeadSocketStillRaisesTheLimitError;
+var
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+  LData, LTransportBuffer: TBytes;
+  LRaised: Boolean;
+begin
+  CappedTls12Configs(LClientConfig, LServerConfig);
+  HandshakeEnginesWith(LClientConfig, LServerConfig, LClient, LServer);
+  LData := DecodeHex('00');
+  LRaised := False;
+  try
+    TTlsStreamPump.WriteApp(LClient, TDeadWriteTransport.Create as ITlsTransport,
+      LTransportBuffer, LData, 0, 1);
+  except
+    on ERecordLimitTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the seal error, not the transport error, reaches the caller');
+  CheckTrue(LClient.IsTerminal, 'the lost close_notify latched the engine');
+end;
+
+procedure TTestTlsStreamLoopback.TestFailedHandshakeStartOverADeadSocketRaisesTheTlsError;
+var
+  LCache: ISessionCache;
+  LConfig: ITlsClientConfig;
+  LClient: ITlsEngine;
+  LTransportBuffer: TBytes;
+  LRaised: Boolean;
+begin
+  LCache := TFailingSessionCache.Create;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithResumption(True)
+    .WithSessionCache(LCache).Build;
+  LClient := TTlsEngineFactory.CreateClientEngine(LConfig, 'localhost');
+  LRaised := False;
+  try
+    TTlsStreamPump.DriveHandshake(LClient, TDeadWriteTransport.Create as ITlsTransport,
+      LTransportBuffer, True);
+  except
+    on ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the start failure outranks the transport error on its alert');
+end;
+
+procedure TTestTlsStreamLoopback.TestFailedCloseFlushKeepsTheCachedTickets;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LTransportBuffer: TBytes;
+  LRaised: Boolean;
+begin
+  LCache := TInMemorySessionCache.Create;
+  HandshakeCachingATicket(LCache, LClient, LServer);
+  LRaised := False;
+  try
+    TTlsStreamPump.Close(LClient, TDeadWriteTransport.Create as ITlsTransport,
+      LTransportBuffer);
+  except
+    on E: EInOutError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the transport''s own exception is re-raised');
+  CheckTrue(LClient.IsTerminal, 'the failed close_notify flush latched the engine');
+  CheckTrue(LCache.Count > 0, 'a transport failure is no fatal alert: the tickets stay');
+end;
+
+procedure TTestTlsStreamLoopback.TestFailedHandshakeFlushLatchesTheEngine;
+var
+  LConfig: ITlsClientConfig;
+  LClient: ITlsEngine;
+  LTransportBuffer: TBytes;
+  LRaised: Boolean;
+begin
+  LConfig := ClientConfig(False, nil);
+  LClient := TTlsEngineFactory.CreateClientEngine(LConfig, 'localhost');
+  LRaised := False;
+  try
+    TTlsStreamPump.DriveHandshake(LClient, TDeadWriteTransport.Create as ITlsTransport,
+      LTransportBuffer, True);
+  except
+    on E: EInOutError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the ClientHello write failure is re-raised unchanged');
+  CheckTrue(LClient.IsTerminal, 'the failed first flight latched the engine');
+end;
+
+procedure TTestTlsStreamLoopback.AbortWithAnOversizedQueueOverADeadSocket(out AClient: ITlsEngine);
+var
+  LServer: ITlsEngine;
+  LData, LTransportBuffer: TBytes;
+begin
+  HandshakeEngines(AClient, LServer);
+  System.SetLength(LData, 2 * TTlsStreamPump.TransportChunk);
+  AClient.Write(LData, 0, System.Length(LData));
+  TTlsStreamPump.Abort(AClient, TDeadWriteTransport.Create as ITlsTransport,
+    LTransportBuffer, TTlsAlertDescription.DecodeError);
+end;
+
+procedure TTestTlsStreamLoopback.TestFailedFlushOnATerminalEngineDropsTheTail;
+var
+  LClient: ITlsEngine;
+begin
+  AbortWithAnOversizedQueueOverADeadSocket(LClient);
+  CheckTrue(LClient.IsTerminal, 'the abort ended the connection');
+  CheckFalse(LClient.WantsWrite, 'the alert tail the transport refused was dropped');
+  CheckEquals(Ord(TTlsAlertDescription.DecodeError), Ord(LClient.LastError.Alert.Description),
+    'the first error stands');
+end;
+
+procedure TTestTlsStreamLoopback.TestTerminalEngineSendsNothingAfterAFailedFlush;
+var
+  LClient: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LData, LTransportBuffer: TBytes;
+  LRaised: Boolean;
+begin
+  AbortWithAnOversizedQueueOverADeadSocket(LClient);
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  LData := DecodeHex('00');
+  LRaised := False;
+  try
+    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+  except
+    on E: ETlsStreamError do
+      LRaised := E.Alert = TTlsAlertDescription.DecodeError;
+  end;
+  CheckTrue(LRaised, 'the write raises the recorded decode_error');
+  CheckEquals(0, LRecorder.Written, 'the alert is not resent after a failed flush');
 end;
 
 
