@@ -1,0 +1,52 @@
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_4adb7e2edc0c28::t_3b07d24037d4ee 1015-1016,1031-1032
+  s_4adb7e2edc0c28::t_ea02db402d81bc 410
+  s_4adb7e2edc0c28::t_87ddc0ce1222a7 1178-1179
+  s_4adb7e2edc0c28::t_3912de4dc1d98f 1193-1194
+  s_4adb7e2edc0c28::t_de9c64f62535f9 830-831,1048-1049,1126-1127,1143-1144,1161-1162
+  s_4adb7e2edc0c28::t_97197c9e27a9f9 1060-1061
+  s_4adb7e2edc0c28::t_6956626cbfd556 1076-1077
+  s_4adb7e2edc0c28::t_8189497c080a77 66
+  s_4adb7e2edc0c28::t_f5948b8cb24d51 1081-1082
+  s_4adb7e2edc0c28::t_72e53df1f548d9 968,1000,1109
+  s_4adb7e2edc0c28::t_98b1983640f75f 63
+  s_4adb7e2edc0c28::t_953186f410796b 966,998,1013,1029,1058,1079,1107,1176,1191
+TlsLib.Tests/src/Tls12PskTests.pas
+  s_4adb7e2edc0c28::t_41d4e5487ba619 77
+  s_4adb7e2edc0c28::t_4f8f0d634c95f5 444,597
+  s_4adb7e2edc0c28::t_912deb1f658956 215
+  s_4adb7e2edc0c28::t_00bd8a178cb31e 58
+  s_4adb7e2edc0c28::t_41c182931a638c 55
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_4adb7e2edc0c28::t_690a7ec38dc6b5 77
+  s_4adb7e2edc0c28::t_b197c544f36c94 1581,1614
+  s_4adb7e2edc0c28::t_84a886db69f224 80
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_4adb7e2edc0c28::t_d8701f772bd4e1 338-339,901-902
+  s_4adb7e2edc0c28::t_6505e82b425060 865-868
+  s_4adb7e2edc0c28::t_4a123c162eac4e 1052-1053
+  s_4adb7e2edc0c28::t_91c39c28b7dea8 978,999,1022
+  s_4adb7e2edc0c28::t_90eff291068856 1140-1141
+  s_4adb7e2edc0c28::t_a02d514f510852 1091,1121
+  s_4adb7e2edc0c28::t_f0fe44b7962900 918-919,955-956
+  s_4adb7e2edc0c28::t_9c49b03f599cea 66
+  s_4adb7e2edc0c28::t_63529973c59457 916-917,953-954
+  s_4adb7e2edc0c28::t_d9671dc8d137de 1089-1090,1119-1120
+  s_4adb7e2edc0c28::t_110f5ad0c3c414 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1315b048bf0a18a285a5c81fbf049e4adf692721",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
