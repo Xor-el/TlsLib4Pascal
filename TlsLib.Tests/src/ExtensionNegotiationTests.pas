@@ -70,6 +70,7 @@ uses
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   TlpTlsVersion,
+  MockCertificateCompression,
   TlsLibTestBase,
   TlsLibTestHandshakeDecoder;
 
@@ -188,28 +189,6 @@ const
   CustomCertCompressionAlgo = UInt16($FF01);
 
 type
-  // a stand-in compression backend under a private codepoint: it reuses zlib bytes,
-  // so a green test proves the seam dispatches by injected algorithm, not a fixed path
-  TCustomCertCompressor = class(TInterfacedObject, ICertificateCompressor)
-  public
-    function Algorithm: UInt16;
-    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
-  end;
-
-  TCustomCertDecompressor = class(TInterfacedObject, ICertificateDecompressor)
-  public
-    function Algorithm: UInt16;
-    function TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
-      out ADecompressed: TBytes): Boolean;
-  end;
-
-  // a compressor for zlib's codepoint that always declines
-  TDecliningCertCompressor = class(TInterfacedObject, ICertificateCompressor)
-  public
-    function Algorithm: UInt16;
-    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
-  end;
-
   // hands out one credential and keeps the ClientHello facts it was asked about
   TRecordingCredentialResolver = class(TInterfacedObject, ITlsServerCredentialResolver)
   strict private
@@ -234,46 +213,6 @@ begin
   FHello := AClientHello;
   ACredential := FCredential;
   Result := True;
-end;
-
-function TDecliningCertCompressor.Algorithm: UInt16;
-begin
-  Result := TCertificateCompressionAlgorithms.Zlib;
-end;
-
-function TDecliningCertCompressor.TryCompress(const AData: TBytes;
-  out ACompressed: TBytes): Boolean;
-begin
-  ACompressed := nil;
-  Result := False;
-end;
-
-function TCustomCertCompressor.Algorithm: UInt16;
-begin
-  Result := CustomCertCompressionAlgo;
-end;
-
-function TCustomCertCompressor.TryCompress(const AData: TBytes;
-  out ACompressed: TBytes): Boolean;
-var
-  LZlib: TArray<ICertificateCompressor>;
-begin
-  LZlib := TZlibCertificateCompression.DefaultCompressors;
-  Result := LZlib[0].TryCompress(AData, ACompressed);
-end;
-
-function TCustomCertDecompressor.Algorithm: UInt16;
-begin
-  Result := CustomCertCompressionAlgo;
-end;
-
-function TCustomCertDecompressor.TryDecompress(const ACompressed: TBytes;
-  AMaxLength: Int32; out ADecompressed: TBytes): Boolean;
-var
-  LZlib: TArray<ICertificateDecompressor>;
-begin
-  LZlib := TZlibCertificateCompression.DefaultDecompressors;
-  Result := LZlib[0].TryDecompress(ACompressed, AMaxLength, ADecompressed);
 end;
 
 { TTestExtensionNegotiation }
@@ -1126,7 +1065,8 @@ begin
   // a compressor that declines (False) sends the Certificate uncompressed: compression is a MAY
   LCertMsg := DriveServerCertMessage(NewClientMachine(nil),
     NewServerMachineWith(CompressibleChain, TArray<ICertificateCompressor>.Create(
-      TDecliningCertCompressor.Create as ICertificateCompressor)));
+      TMockCertificateCompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+      TMockCompressorMode.Decline) as ICertificateCompressor)));
   CheckTrue(LCertMsg.TypeByte = Byte(Ord(TTlsHandshakeType.Certificate)),
     'a declined compression falls back to a plain Certificate');
 end;
@@ -1140,10 +1080,12 @@ begin
   // a custom (non-zlib codepoint) backend injected on both ends is honored end to end
   LCertMsg := DriveServerCertMessage(
     NewClientMachineWith(nil, TArray<ICertificateDecompressor>.Create(
-      TCustomCertDecompressor.Create as ICertificateDecompressor),
+      TMockCertificateDecompressor.Create(CustomCertCompressionAlgo,
+      TMockDecompressorMode.Works) as ICertificateDecompressor),
       TCertificateChainLimits.Defaults),
     NewServerMachineWith(CompressibleChain, TArray<ICertificateCompressor>.Create(
-      TCustomCertCompressor.Create as ICertificateCompressor)));
+      TMockCertificateCompressor.Create(CustomCertCompressionAlgo,
+      TMockCompressorMode.Normal) as ICertificateCompressor)));
   CheckTrue(LCertMsg.TypeByte = Byte(Ord(TTlsHandshakeType.CompressedCertificate)),
     'the server compresses with the injected backend');
   LDecoded := THandshakeMessages.DecodeCompressedCertificate(LCertMsg.Body);
@@ -1151,7 +1093,8 @@ begin
     'the emitted algorithm is the injected codepoint');
   LRecovered := TCertificateCompression.Decompress(
     TArray<ICertificateDecompressor>.Create(
-    TCustomCertDecompressor.Create as ICertificateDecompressor),
+    TMockCertificateDecompressor.Create(CustomCertCompressionAlgo,
+    TMockDecompressorMode.Works) as ICertificateDecompressor),
     LDecoded.Algorithm, LDecoded.Compressed, LDecoded.UncompressedLength,
     TCertificateChainLimits.Defaults.MaxTotalChainLength);
   CheckEqualBytes('the injected backend round-trips the plaintext Certificate',

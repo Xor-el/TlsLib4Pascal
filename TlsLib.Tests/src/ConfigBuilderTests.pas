@@ -93,6 +93,7 @@ uses
   TlpTlsLib,
   MockCryptoProvider,
   TlsLibTestProviders,
+  MockCertificateCompression,
   TlsLibTestBase;
 
 type
@@ -496,17 +497,6 @@ type
     function RetryConfigs: TBytes;
   end;
 
-  // a decompressor with a caller-chosen codepoint, to build sets of distinct algorithms
-  TNumberedDecompressor = class(TInterfacedObject, ICertificateDecompressor)
-  strict private
-    FAlgorithm: UInt16;
-  public
-    constructor Create(AAlgorithm: UInt16);
-    function Algorithm: UInt16;
-    function TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
-      out ADecompressed: TBytes): Boolean;
-  end;
-
   // an accept-all client-certificate verifier source, to exercise the Build-time roots gate
   // without a live handshake
   TAcceptAllClientVerifier = class(TInterfacedObject, IClientCertificateVerifier)
@@ -528,24 +518,6 @@ type
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
   end;
-
-constructor TNumberedDecompressor.Create(AAlgorithm: UInt16);
-begin
-  inherited Create;
-  FAlgorithm := AAlgorithm;
-end;
-
-function TNumberedDecompressor.Algorithm: UInt16;
-begin
-  Result := FAlgorithm;
-end;
-
-function TNumberedDecompressor.TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
-  out ADecompressed: TBytes): Boolean;
-begin
-  ADecompressed := nil;
-  Result := False;
-end;
 
 function TAcceptAllClientVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
@@ -2365,7 +2337,8 @@ begin
   // 128 distinct codepoints, so only the RFC 8879 3 count cap can refuse the set
   SetLength(LMany, 128);
   for LI := 0 to 127 do
-    LMany[LI] := TNumberedDecompressor.Create(1 + LI) as ICertificateDecompressor;
+    LMany[LI] := TMockCertificateDecompressor.Create(1 + LI,
+      TMockDecompressorMode.Fails) as ICertificateDecompressor;
   LMsg := '';
   try
     NewClientBuilder.Tls13.WithCertificateDecompressors(LMany);
@@ -2385,7 +2358,8 @@ var
 begin
   SetLength(LSet, 127);
   for LI := 0 to 126 do
-    LSet[LI] := TNumberedDecompressor.Create(1 + LI) as ICertificateDecompressor;
+    LSet[LI] := TMockCertificateDecompressor.Create(1 + LI,
+      TMockDecompressorMode.Fails) as ICertificateDecompressor;
   LConfig := NewClientBuilder.Tls13.WithCertificateDecompressors(LSet).Build;
   CheckEquals(127, System.Length(LConfig.CertificateDecompressors),
     'the boundary count (127) is accepted and kept');

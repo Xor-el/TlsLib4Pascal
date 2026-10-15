@@ -53,6 +53,7 @@ uses
   TlpInMemoryCertificateCompressionCache,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
+  MockCertificateCompression,
   TlsLibTestBase,
   TlsLibTestHandshakeDecoder;
 
@@ -100,22 +101,6 @@ type
 implementation
 
 type
-  /// <summary>A zlib compressor that tallies its TryCompress calls, so a test can prove the
-  /// cache computes a given body exactly once. With Decline set it reports False instead.</summary>
-  TSpyCompressor = class sealed(TInterfacedObject, ICertificateCompressor)
-  strict private
-  var
-    FInner: ICertificateCompressor;
-    FCount: Int32;
-    FDecline: Boolean;
-  public
-    constructor Create;
-    function Algorithm: UInt16;
-    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
-    property Count: Int32 read FCount;
-    property Decline: Boolean read FDecline write FDecline;
-  end;
-
   /// <summary>Hammers one shared cache from a background thread to smoke-test the lock.</summary>
   TCacheStressThread = class sealed(TThread)
   strict private
@@ -128,29 +113,6 @@ type
     constructor Create(const ACache: ICertificateCompressionCache; ABase: Byte; AOps: Int32);
     procedure Execute; override;
   end;
-
-{ TSpyCompressor }
-
-constructor TSpyCompressor.Create;
-begin
-  inherited Create;
-  FInner := TZlibCertificateCompression.DefaultCompressors[0];
-  FCount := 0;
-end;
-
-function TSpyCompressor.Algorithm: UInt16;
-begin
-  Result := FInner.Algorithm;
-end;
-
-function TSpyCompressor.TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
-begin
-  Inc(FCount);
-  ACompressed := nil;
-  if FDecline then
-    Exit(False);
-  Result := FInner.TryCompress(AData, ACompressed);
-end;
 
 { TCacheStressThread }
 
@@ -334,12 +296,13 @@ end;
 procedure TTestCertificateCompressionCache.TestComputesOncePerBody;
 var
   LCache: ICertificateCompressionCache;
-  LSpy: TSpyCompressor;
+  LSpy: TMockCertificateCompressor;
   LSpyRef: ICertificateCompressor;
   LBody, LFirst, LSecond: TBytes;
 begin
   LCache := TInMemoryCertificateCompressionCache.Create;
-  LSpy := TSpyCompressor.Create;
+  LSpy := TMockCertificateCompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockCompressorMode.Normal);
   LSpyRef := LSpy; // the interface reference governs lifetime; read Count off the object
   LBody := ByteBlob($77, 4096);
   LFirst := CompressThrough(LCache, LSpyRef, LBody);
@@ -351,12 +314,13 @@ end;
 procedure TTestCertificateCompressionCache.TestRecomputesWhenBodyChanges;
 var
   LCache: ICertificateCompressionCache;
-  LSpy: TSpyCompressor;
+  LSpy: TMockCertificateCompressor;
   LSpyRef: ICertificateCompressor;
   LBodyA, LBodyB, LOutA, LOutB: TBytes;
 begin
   LCache := TInMemoryCertificateCompressionCache.Create;
-  LSpy := TSpyCompressor.Create;
+  LSpy := TMockCertificateCompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockCompressorMode.Normal);
   LSpyRef := LSpy;
   LBodyA := ByteBlob($10, 2048);
   // a changed leaf staple changes the exact bytes handed to Compress, so the key differs
@@ -381,23 +345,24 @@ end;
 procedure TTestCertificateCompressionCache.TestDeclineIsNotCached;
 var
   LCache: ICertificateCompressionCache;
-  LSpy: TSpyCompressor;
+  LSpy: TMockCertificateCompressor;
   LSpyRef: ICertificateCompressor;
   LBody, LOut: TBytes;
 begin
   // a decline may be transient, so it is not remembered: the next call asks the compressor again,
   // and once it succeeds that result is cached like any other
   LCache := TInMemoryCertificateCompressionCache.Create;
-  LSpy := TSpyCompressor.Create;
+  LSpy := TMockCertificateCompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockCompressorMode.Normal);
   LSpyRef := LSpy;
   LBody := ByteBlob($21, 1024);
-  LSpy.Decline := True;
+  LSpy.Mode := TMockCompressorMode.Decline;
   CheckFalse(TCertificateCompression.TryCompressWithCache(LCache, Crypto, LSpyRef, LBody, LOut),
     'a declining compressor reports False');
   CheckFalse(TCertificateCompression.TryCompressWithCache(LCache, Crypto, LSpyRef, LBody, LOut),
     'and is asked again rather than served a remembered decline');
   CheckEquals(2, LSpy.Count, 'a decline is never cached');
-  LSpy.Decline := False;
+  LSpy.Mode := TMockCompressorMode.Normal;
   CompressThrough(LCache, LSpyRef, LBody);
   CompressThrough(LCache, LSpyRef, LBody);
   CheckEquals(3, LSpy.Count, 'the first success is cached, the repeat is a hit');
@@ -554,7 +519,7 @@ end;
 procedure TTestCertificateCompressionCache.TestLoopbackWireIdenticalAndSingleCompress;
 var
   LCache: ICertificateCompressionCache;
-  LSpy: TSpyCompressor;
+  LSpy: TMockCertificateCompressor;
   LCompressors: TArray<ICertificateCompressor>;
   LChain: TArray<TBytes>;
   LMsg1, LMsg2: TTlsHandshakeMessage;
@@ -563,7 +528,8 @@ var
 begin
   // one shared cache and one spy compressor across two independent server handshakes
   LCache := TInMemoryCertificateCompressionCache.Create;
-  LSpy := TSpyCompressor.Create;
+  LSpy := TMockCertificateCompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockCompressorMode.Normal);
   LCompressors := TArray<ICertificateCompressor>.Create(LSpy as ICertificateCompressor);
   LChain := CompressibleChain(0);
 
@@ -591,14 +557,15 @@ end;
 procedure TTestCertificateCompressionCache.TestLoopbackBodyChangeRecomputesBothWireCorrect;
 var
   LCache: ICertificateCompressionCache;
-  LSpy: TSpyCompressor;
+  LSpy: TMockCertificateCompressor;
   LCompressors: TArray<ICertificateCompressor>;
   LChainA, LChainB: TArray<TBytes>;
   LMsgA, LMsgB: TTlsHandshakeMessage;
   LDecodedA, LDecodedB: TTlsCompressedCertificate;
 begin
   LCache := TInMemoryCertificateCompressionCache.Create;
-  LSpy := TSpyCompressor.Create;
+  LSpy := TMockCertificateCompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockCompressorMode.Normal);
   LCompressors := TArray<ICertificateCompressor>.Create(LSpy as ICertificateCompressor);
   LChainA := CompressibleChain(0);
   LChainB := CompressibleChain(1); // a different Certificate body (staple/chain change)
