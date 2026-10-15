@@ -49,24 +49,14 @@ uses
   TlpHandshakeEffect,
   TlpHandshakeDriver,
   TlpICertificateTrust,
-  TlpTrustTypes,
-  TlpServerName,
   TlpTls13ClientStateMachine,
   MockNamedGroups,
   MockSink,
   MockRecordInstaller,
+  MockCertificateVerifiers,
   TlsLibTestBase;
 
 type
-  /// <summary>A verifier that trusts any chain (for tests not exercising trust).</summary>
-  TAcceptAllVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  public
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
   TTestTls13ClientReplay = class(TTlsLibAlgorithmTestCase)
   private
     FHs, FSched, FRec: TStringList;
@@ -120,19 +110,6 @@ type
   end;
 
 implementation
-
-{ TAcceptAllVerifier }
-
-function TAcceptAllVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain;
-  out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified.Path := AChain;
-  AVerified.Outcome := TVerificationOutcome.Trusted;
-  AAlert := TTlsAlertDescription.BadCertificate;
-  Result := True;
-end;
 
 { TTestTls13ClientReplay }
 
@@ -223,7 +200,8 @@ begin
     TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.RsaPssRsaeSha256);
   // the RFC 8448 leaf is not part of any test trust store; this replay exercises
   // the message flow, not trust, so accept any chain
-  LParams.CertificateVerifier := TAcceptAllVerifier.Create;
+  LParams.CertificateVerifier := TFixedVerdictVerifier.CreateAccepting
+    as IServerCertificateVerifier;
   FSm := TTls13ClientStateMachine.Create(LParams);
   (FSm as ITls13ClientReplay).SetVerbatimClientHello(
     DecodeHex(FHs.Values['client_hello']));

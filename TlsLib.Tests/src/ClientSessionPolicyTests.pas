@@ -40,6 +40,7 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpClientSessionPolicy,
+  MockCertificateVerifiers,
   TlsLibTestBase;
 
 type
@@ -97,31 +98,9 @@ type
 
 implementation
 
-type
-  // accepts every chain, returning a fixed one-element path so a caller can prove the out path
-  // was taken from the verifier's result
-  TAcceptingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  public
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
 const
   // the fixed path an accepting verifier returns (a single one-byte "certificate")
   AcceptedPathByte = $5A;
-
-function TAcceptingServerVerifier.VerifyServerCertificate(
-  const AChain: TArray<TBytes>; const AServerName: TServerName;
-  const AOcspStaple: TBytes; out AVerified: TVerifiedChain;
-  out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified := Default(TVerifiedChain);
-  AVerified.Path := TArray<TBytes>.Create(TBytes.Create(AcceptedPathByte));
-  AAlert := TTlsAlertDescription.BadCertificate;
-  Result := True;
-end;
 
 { TTestClientSessionPolicy }
 
@@ -415,14 +394,15 @@ end;
 procedure TTestClientSessionPolicy.TestOfferEmptyChainIsRefused;
 begin
   // an empty stored chain cannot be checked, and an accepting verifier must not rescue it
-  CheckOfferRefused(TAcceptingServerVerifier.Create as IServerCertificateVerifier,
-    nil, nil, 'empty chain');
+  CheckOfferRefused(TFixedVerdictVerifier.CreateReporting(
+    TArray<TBytes>.Create(TBytes.Create(AcceptedPathByte)), TVerificationOutcome.Trusted)
+    as IServerCertificateVerifier, nil, nil, 'empty chain');
 end;
 
 procedure TTestClientSessionPolicy.TestOfferRejectedByVerifierIsRefused;
 begin
   CheckOfferRefused(
-    TRejectingServerVerifier.Create(TTlsAlertDescription.CertificateExpired)
+    TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.CertificateExpired)
     as IServerCertificateVerifier, nil, TArray<TBytes>.Create(TBytes.Create(1)),
     'verifier rejection');
 end;
@@ -433,7 +413,9 @@ var
 begin
   CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
     MakeChainSession(TArray<TBytes>.Create(TBytes.Create(1)), nil),
-    TAcceptingServerVerifier.Create as IServerCertificateVerifier, nil,
+    TFixedVerdictVerifier.CreateReporting(
+    TArray<TBytes>.Create(TBytes.Create(AcceptedPathByte)), TVerificationOutcome.Trusted)
+    as IServerCertificateVerifier, nil,
     Default(TServerName), LPath), 'a chain the verifier accepts is offered');
   CheckEquals(1, System.Length(LPath), 'the validated path is the verifier''s result');
   CheckTrue((System.Length(LPath[0]) = 1) and (LPath[0][0] = AcceptedPathByte),
@@ -448,9 +430,11 @@ begin
   // verifier is preferred
   CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
     MakeChainSession(TArray<TBytes>.Create(TBytes.Create(1)), nil),
-    TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate)
     as IServerCertificateVerifier,
-    TAcceptingServerVerifier.Create as IServerCertificateVerifier,
+    TFixedVerdictVerifier.CreateReporting(
+    TArray<TBytes>.Create(TBytes.Create(AcceptedPathByte)), TVerificationOutcome.Trusted)
+    as IServerCertificateVerifier,
     Default(TServerName), LPath), 'the resumption verifier decides');
   CheckEquals(1, System.Length(LPath), 'the resumption verifier accepted and set the path');
 end;
@@ -462,18 +446,20 @@ begin
   // no resumption verifier wired: fall back to the primary
   CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
     MakeChainSession(TArray<TBytes>.Create(TBytes.Create(1)), nil),
-    TAcceptingServerVerifier.Create as IServerCertificateVerifier, nil,
+    TFixedVerdictVerifier.CreateReporting(
+    TArray<TBytes>.Create(TBytes.Create(AcceptedPathByte)), TVerificationOutcome.Trusted)
+    as IServerCertificateVerifier, nil,
     Default(TServerName), LPath), 'the primary verifier decides');
   CheckEquals(1, System.Length(LPath), 'the primary verifier accepted and set the path');
 end;
 
 procedure TTestClientSessionPolicy.TestOfferUnderReuseOriginalSkipsTheVerifier;
 var
-  LRejecting: TRejectingServerVerifier;
+  LRejecting: TFixedVerdictVerifier;
   LVerifier: IServerCertificateVerifier;
   LPath: TArray<TBytes>;
 begin
-  LRejecting := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate);
+  LRejecting := TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate);
   LVerifier := LRejecting;
   CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.ReuseOriginal,
     MakeChainSession(TArray<TBytes>.Create(TBytes.Create(1)), nil), LVerifier, nil,
@@ -484,12 +470,12 @@ end;
 
 procedure TTestClientSessionPolicy.TestOfferOfPskSessionSkipsTheVerifier;
 var
-  LRejecting: TRejectingServerVerifier;
+  LRejecting: TFixedVerdictVerifier;
   LVerifier: IServerCertificateVerifier;
   LPath: TArray<TBytes>;
 begin
   // a PSK-authenticated session has no chain to judge
-  LRejecting := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate);
+  LRejecting := TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate);
   LVerifier := LRejecting;
   CheckTrue(TClientSessionPolicy.SessionTrustedForOffer(TResumeVerification.Reverify,
     MakeChainSession(nil, TBytes.Create(7)), LVerifier, nil, Default(TServerName), LPath),

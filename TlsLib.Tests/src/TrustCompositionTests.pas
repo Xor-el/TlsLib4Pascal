@@ -31,19 +31,17 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsLibExceptions,
-  TlpTlsAlert,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
-  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
-  TlpServerName,
   TlpCertificateVerifier,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpCertificateVerifierSource,
   TlpTlsPresets,
+  MockCertificateVerifiers,
   TlsLibTestBase;
 
 type
@@ -82,28 +80,6 @@ type
   end;
 
 implementation
-
-type
-  /// <summary>A whole-verifier stub: it accepts everything and carries no anchors, standing in
-  /// for an OS delegate so the composition rules can be exercised without real PKIX.</summary>
-  TStubCertificateVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  public
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
-function TStubCertificateVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain;
-  out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified.Path := AChain;
-  AVerified.Outcome := TVerificationOutcome.Trusted;
-  AAlert := TTlsAlertDescription.CertificateUnknown;
-  Result := True;
-end;
 
 { TReleaseWatchStore }
 
@@ -312,7 +288,7 @@ var
 begin
   // a whole-verifier is a valid, self-sufficient trust source (no anchors needed); it is wrapped
   // as an instance source that returns it unchanged for every connection
-  LStub := TStubCertificateVerifier.Create as IServerCertificateVerifier;
+  LStub := TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.Custom(LStub))
     .Build;

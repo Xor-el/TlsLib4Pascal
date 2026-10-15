@@ -63,6 +63,7 @@ uses
   TlpSessionTicketStrategy,
   MockClock,
   MockSessionStores,
+  MockCertificateVerifiers,
   TlpTlsPresets,
   TlpITlsConfigBuilder,
   TlpTlsEngineFactory,
@@ -2431,7 +2432,7 @@ begin
 
   FReverify := True;
   if ARejectResume then
-    FResumeVerifier := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    FResumeVerifier := TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate)
       as IServerCertificateVerifier;
   if ADualVersion then
     AClient := NewDualVersionClient(LCache)
@@ -2471,7 +2472,7 @@ begin
   LCache.Store(ServerHost + ':443', ServerHost, LFirst);
 
   FReverify := True;
-  FResumeVerifier := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+  FResumeVerifier := TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate)
     as IServerCertificateVerifier;
   LClient := NewClient(LCache, True);
   LServer := NewServer(LStore, nil, 7200, True);

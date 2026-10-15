@@ -46,6 +46,7 @@ uses
   TlpIPkixProvider,
   MockVerifyHooks,
   SpyRevocationProvider,
+  MockCertificateVerifiers,
   TlsLibTestBase;
 
 type
@@ -63,29 +64,6 @@ type
     function DistrustedCertificates: TArray<TBytes>;
     function IsDistrusted(const ACertificate: TBytes): Boolean;
     property Reads: Int32 read FReads;
-  end;
-
-  /// <summary>A whole-verifier instance that accepts or rejects every chain, standing in for a
-  /// caller-supplied verifier behind an instance source.</summary>
-  TFixedVerdictVerifier = class(TInterfacedObject, IServerCertificateVerifier,
-    IClientCertificateVerifier)
-  strict private
-    FAccept: Boolean;
-    FReportPath: Boolean;
-    FPath: TArray<TBytes>;
-    FOutcome: TVerificationOutcome;
-  public
-    constructor Create(AAccept: Boolean); overload;
-    /// <summary>An accepting verifier that reports APath as the validated path with AOutcome,
-    /// instead of echoing the presented chain.</summary>
-    constructor Create(const APath: TArray<TBytes>; AOutcome: TVerificationOutcome); overload;
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
-    function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AVerified: TVerifiedChain;
-      out AAlert: TTlsAlertDescription): Boolean;
   end;
 
   /// <summary>The verify callback decorators the engine composes over a caller-supplied verifier,
@@ -269,48 +247,6 @@ type
 
 implementation
 
-{ TFixedVerdictVerifier }
-
-constructor TFixedVerdictVerifier.Create(AAccept: Boolean);
-begin
-  inherited Create;
-  FAccept := AAccept;
-end;
-
-constructor TFixedVerdictVerifier.Create(const APath: TArray<TBytes>;
-  AOutcome: TVerificationOutcome);
-begin
-  inherited Create;
-  FAccept := True;
-  FReportPath := True;
-  FPath := APath;
-  FOutcome := AOutcome;
-end;
-
-function TFixedVerdictVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified := Default(TVerifiedChain);
-  AAlert := TTlsAlertDescription.BadCertificate;
-  Result := FAccept;
-  if not Result then
-    Exit;
-  if FReportPath then
-  begin
-    AVerified.Path := FPath;
-    AVerified.Outcome := FOutcome;
-  end
-  else
-    AVerified.Path := AChain;
-end;
-
-function TFixedVerdictVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  Result := VerifyServerCertificate(AChain, Default(TServerName), nil, AVerified, AAlert);
-end;
-
 { TTestVerifyCallbackVerifier }
 
 function TTestVerifyCallbackVerifier.Chain: TArray<TBytes>;
@@ -341,8 +277,8 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
-  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier,
-    LSpy.Callback);
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateAccepting
+    as IServerCertificateVerifier, LSpy.Callback);
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
     LVerified, LAlert), 'the callback rejects what the instance accepted');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
@@ -359,8 +295,8 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
-  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier,
-    LSpy.Callback);
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateAccepting
+    as IServerCertificateVerifier, LSpy.Callback);
   CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
     LVerified, LAlert), 'an accepting callback leaves the instance verdict');
   CheckEquals(1, System.Length(LVerified.Path), 'the instance path is kept');
@@ -374,8 +310,8 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
-  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(False) as IServerCertificateVerifier,
-    LSpy.Callback);
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier, LSpy.Callback);
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
     LVerified, LAlert), 'the callback cannot rescue a rejection');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
@@ -391,7 +327,7 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
-  LInstance := TFixedVerdictVerifier.Create(True) as IServerCertificateVerifier;
+  LInstance := TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier;
   LContext := Default(TServerTrustContext);
   LContext.Dangerous.VerifyCallback := LSpy.Callback;
   LSource := TInstanceServerVerifierSource.Create(LInstance) as IServerCertificateVerifierSource;
@@ -407,8 +343,8 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
-  LVerifier := ClientVerifier(TFixedVerdictVerifier.Create(True) as IClientCertificateVerifier,
-    LSpy.Callback);
+  LVerifier := ClientVerifier(TFixedVerdictVerifier.CreateAccepting
+    as IClientCertificateVerifier, LSpy.Callback);
   CheckFalse(LVerifier.VerifyClientCertificate(Chain, LVerified, LAlert),
     'the callback rejects what the instance accepted');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
@@ -424,8 +360,8 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
-  LVerifier := ClientVerifier(TFixedVerdictVerifier.Create(False) as IClientCertificateVerifier,
-    LSpy.Callback);
+  LVerifier := ClientVerifier(TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IClientCertificateVerifier, LSpy.Callback);
   CheckFalse(LVerifier.VerifyClientCertificate(Chain, LVerified, LAlert),
     'the callback cannot rescue a rejection');
   CheckEquals(0, LSpy.Calls, 'the callback is not consulted');
@@ -439,7 +375,7 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
-  LInstance := TFixedVerdictVerifier.Create(True) as IClientCertificateVerifier;
+  LInstance := TFixedVerdictVerifier.CreateAccepting as IClientCertificateVerifier;
   LContext := Default(TClientTrustContext);
   LContext.Dangerous.VerifyCallback := LSpy.Callback;
   LSource := TInstanceClientVerifierSource.Create(LInstance) as IClientCertificateVerifierSource;
@@ -458,7 +394,7 @@ begin
   LPresented := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(2), TBytes.Create(3));
   LPath := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(9));
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
-  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(LPath,
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateReporting(LPath,
     TVerificationOutcome.Trusted) as IServerCertificateVerifier, LSpy.Callback);
   CheckTrue(LVerifier.VerifyServerCertificate(LPresented, TServerName.DnsName('host.example'),
     nil, LVerified, LAlert), 'accepted');
@@ -478,7 +414,7 @@ begin
   LPresented := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(2), TBytes.Create(3));
   LPath := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(9));
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
-  LVerifier := ClientVerifier(TFixedVerdictVerifier.Create(LPath,
+  LVerifier := ClientVerifier(TFixedVerdictVerifier.CreateReporting(LPath,
     TVerificationOutcome.Trusted) as IClientCertificateVerifier, LSpy.Callback);
   CheckTrue(LVerifier.VerifyClientCertificate(LPresented, LVerified, LAlert), 'accepted');
   CheckEquals(3, System.Length(LSpy.Presented), 'the callback sees every certificate the peer sent');
@@ -496,7 +432,7 @@ var
 begin
   LPresented := TArray<TBytes>.Create(TBytes.Create(1), TBytes.Create(2));
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
-  LVerifier := ServerVerifier(TFixedVerdictVerifier.Create(
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateReporting(
     TArray<TBytes>.Create(TBytes.Create(1)), TVerificationOutcome.Unvalidated)
     as IServerCertificateVerifier, LSpy.Callback);
   CheckTrue(LVerifier.VerifyServerCertificate(LPresented, TServerName.DnsName('host.example'),
@@ -702,7 +638,7 @@ var
 begin
   LRaised := False;
   try
-    LVerifier := TPinningVerifier.Create(TFixedVerdictVerifier.Create(True)
+    LVerifier := TPinningVerifier.Create(TFixedVerdictVerifier.CreateAccepting
       as IServerCertificateVerifier, nil, Crypto, Pkix) as IServerCertificateVerifier;
   except
     on EArgumentTlsLibException do
@@ -718,7 +654,7 @@ var
 begin
   LRaised := False;
   try
-    LVerifier := TClientPinningVerifier.Create(TFixedVerdictVerifier.Create(True)
+    LVerifier := TClientPinningVerifier.Create(TFixedVerdictVerifier.CreateAccepting
       as IClientCertificateVerifier, nil, Crypto, Pkix) as IClientCertificateVerifier;
   except
     on EArgumentTlsLibException do

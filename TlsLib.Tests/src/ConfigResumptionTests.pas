@@ -40,7 +40,6 @@ uses
   TlpTrustTypes,
   TlpCertificateVerifier,
   TlpCertificateVerifierSource,
-  TlpServerName,
   TlpTlsAlert,
   TlpTrustPolicy,
   TlpTlsCredential,
@@ -49,6 +48,7 @@ uses
   TlpISecretBuffer,
   TlpSecretBuffer,
   MockSessionStores,
+  MockCertificateVerifiers,
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   TlpITlsConfig,
@@ -245,32 +245,6 @@ type
     procedure Clear;
     function Count: Int32;
   end;
-
-  // accepts every chain and records the host each verification ran against, in order
-  TNameRecordingVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  strict private
-    FNames: TArray<string>;
-  public
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-    property Names: TArray<string> read FNames;
-  end;
-
-{ TNameRecordingVerifier }
-
-function TNameRecordingVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  SetLength(FNames, System.Length(FNames) + 1);
-  FNames[System.High(FNames)] := AServerName.ToString;
-  AVerified := Default(TVerifiedChain);
-  AVerified.Path := AChain;
-  AVerified.Outcome := TVerificationOutcome.Trusted;
-  AAlert := TTlsAlertDescription.BadCertificate;
-  Result := System.Length(AChain) > 0;
-end;
 
 { TRacingSessionStore }
 
@@ -559,7 +533,7 @@ var
 begin
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.Custom(
-    TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate)
     as IServerCertificateVerifier))
     .WithResumption(True)
     .WithSessionCache(ACache)
@@ -1243,7 +1217,7 @@ var
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
   LBefore: Int32;
-  LRejecting: TRejectingServerVerifier;
+  LRejecting: TFixedVerdictVerifier;
   LVerifier: IServerCertificateVerifier;
 begin
   // a permissive client caches a resumable session, storing the server chain it verified; the two
@@ -1261,7 +1235,7 @@ begin
   // a Reverify client drawing the same session declines it, then its full handshake fails too;
   // the verifier is asked twice: once before the offer, once for the fresh chain
   LBefore := LCache.Count;
-  LRejecting := TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate);
+  LRejecting := TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate);
   LVerifier := LRejecting;
   LClient := NewReverifyRejectClient13(LCache, LScope, LVerifier);
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -1278,7 +1252,7 @@ var
   LSk: ISecretBuffer;
   LSuite: TEchCipherSuite;
   LConfig: TEchConfig;
-  LRecorder: TNameRecordingVerifier;
+  LRecorder: TRecordingServerVerifier;
   LVerifier: IServerCertificateVerifier;
   LClient, LServer: ITlsEngine;
 
@@ -1305,7 +1279,8 @@ begin
   LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
 
   // an ECH-accepted connection caches a session verified against the origin host
-  LRecorder := TNameRecordingVerifier.Create;
+  LRecorder := TRecordingServerVerifier.Create(TFixedVerdictVerifier.CreateAcceptingNonEmpty
+    as IServerCertificateVerifier);
   LVerifier := LRecorder;
   LClient := NewEchClient;
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
@@ -1317,7 +1292,8 @@ begin
 
   // the resumption meets a server that rejects ECH: the stored chain is checked before the offer,
   // against the host, and only the reject's retry verifies the public_name
-  LRecorder := TNameRecordingVerifier.Create;
+  LRecorder := TRecordingServerVerifier.Create(TFixedVerdictVerifier.CreateAcceptingNonEmpty
+    as IServerCertificateVerifier);
   LVerifier := LRecorder;
   LClient := NewEchClient;
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Hardened(Crypto, Pkix).Server
