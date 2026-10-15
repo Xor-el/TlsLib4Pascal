@@ -36,7 +36,6 @@ uses
   TlpTrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
-  TlpCertificateVerifier,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpCertificateVerifierSource,

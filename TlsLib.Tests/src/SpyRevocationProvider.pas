@@ -24,7 +24,6 @@ interface
 
 uses
   SysUtils,
-  TlpCryptoDomainTypes,
   TlpPkixDomainTypes,
   TlpITrustAnchorStore,
   TlpIPkixProvider;

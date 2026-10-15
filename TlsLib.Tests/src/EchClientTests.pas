@@ -38,7 +38,6 @@ uses
   TlpCoreExtensions,
   TlpExtensionVector,
   TlpEchConfig,
-  TlpEchExtension,
   TlpEchOuterExtensions,
   TlpEchClient,
   TlpSecureMemory,

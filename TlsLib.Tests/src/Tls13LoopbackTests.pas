@@ -57,7 +57,6 @@ uses
   TlpTls13ServerStateMachine,
   TlpCryptoDomainTypes,
   TlpISecretBuffer,
-  TlpWireReader,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpExtensionVector,

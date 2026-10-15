@@ -39,7 +39,6 @@ uses
   TlpITlsExtension,
   TlpExtensionBlockCodec,
   TlpRecordLayer,
-  TlpITlsEngine,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpIHandshakeChannel,

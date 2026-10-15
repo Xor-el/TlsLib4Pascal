@@ -37,7 +37,6 @@ uses
   TlpISecretBuffer,
   TlpIWireWriter,
   TlpWireWriter,
-  TlpWireVectorMarker,
   TlpEchConfig,
   TlpInMemoryEchKeyStore,
   TlpIEch,

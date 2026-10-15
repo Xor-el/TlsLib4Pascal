@@ -47,7 +47,6 @@ uses
   TlpIHandshakeMachine,
   TlpHandshakeMessage,
   TlpICertificateTrust,
-  TlpTrustTypes,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpServerName,
