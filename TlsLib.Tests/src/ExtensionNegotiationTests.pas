@@ -1343,7 +1343,6 @@ var
   LServerHello: TTlsServerHello;
   LContext: TExtensionContext;
   LCodec: IExtensionBlockCodec;
-  LIterations: Int32;
 begin
   LClient := NewGreasingClient;
   LServer := NewServer(nil, 0);
@@ -1371,14 +1370,7 @@ begin
   // and the GREASE-laden handshake still completes end to end
   LClient := NewGreasingClient;
   LServer := NewServer(nil, 0);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    PumpCoalesced(LClient, LServer);
-    PumpCoalesced(LServer, LClient);
-    Inc(LIterations);
-  end;
+  Handshake(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the client completed with GREASE');
   CheckFalse(LServer.IsTerminal, 'the server tolerated the GREASE');
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking, 'the handshake finished');

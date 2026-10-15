@@ -351,19 +351,11 @@ end;
 procedure TTestTls12Loopback.TestWriteAfterInboundCloseNotifyClosesWrite;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LRaised: Boolean;
 begin
   LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := NewServer(False);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
 
   // under TLS 1.2 an inbound close_notify closes the write side too (RFC 5246 7.2.1)
@@ -386,7 +378,6 @@ procedure TTestTls12Loopback.TestWriteAtUsageLimitClosesWhenNoRekey;
 var
   LClient, LServer: ITlsEngine;
   LCapped: ICryptoProvider;
-  LIterations: Int32;
   LRaised: Boolean;
 begin
   // a capped AEAD whose usage limit is one past the rekey lead (17 = lead 16 + 1) puts the write
@@ -396,14 +387,7 @@ begin
   LClient := TTlsEngine.CreateConfigured(
     ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True), LCapped);
   LServer := TTlsEngine.CreateConfigured(ServerMachine(False), LCapped);
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the handshake completed');
 
   // TLS 1.2 has no KeyUpdate; at the AEAD usage limit the write epoch cannot be rekeyed, so a
@@ -427,20 +411,12 @@ procedure TTestTls12Loopback.RunHandshakeAndExchange(ASuite: UInt16;
   AOfferEms, ARequireEms: Boolean; const AMsg: string);
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LFromClient, LFromServer: TBytes;
 begin
   LClient := NewClient(ASuite, AOfferEms);
   LServer := NewServer(ARequireEms);
 
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, AMsg + ': the client completed the handshake');
   CheckFalse(LServer.IsHandshaking, AMsg + ': the server completed the handshake');
@@ -563,21 +539,13 @@ end;
 procedure TTestTls12Loopback.TestRequiredEmsAbortsWhenClientDoesNotOfferIt;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
 begin
   // the server requires extended_master_secret but the client did not offer it, so
   // the server aborts rather than falling back to a plain master secret
   LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, False);
   LServer := NewServer(True);
 
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckTrue(LServer.IsTerminal, 'the server aborted when required EMS was absent');
   // RFC 7627 5.2: aborting means a fatal handshake_failure
@@ -1132,22 +1100,13 @@ end;
 procedure TTestTls12Loopback.TestStapledGoodOcspCompletesUnderHardPosture;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
 begin
   // the server sends a CertificateStatus carrying a current Good OCSP response, which a
   // hard-fail client requires (a posture of this library; the message format is RFC 6066 8)
   LClient := NewHardRevocationClient;
   LServer := NewStaplingServer(TTlsLibTestCertificates.Field('Certs/OcspStapling.txt',
     'ocsp_good'));
-  LClient.StartHandshake;
-
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
   CheckFalse(LClient.IsTerminal, 'the client accepted the stapled Good response');
@@ -1157,20 +1116,11 @@ end;
 procedure TTestTls12Loopback.TestMissingStapleAbortsUnderHardPosture;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
 begin
   // the same client, but the server sends no CertificateStatus: hard-fail rejects the leaf
   LClient := NewHardRevocationClient;
   LServer := NewStaplingServer(nil);
-  LClient.StartHandshake;
-
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
 
   CheckTrue(LClient.IsTerminal,
     'the client aborted the handshake for a missing staple under hard-fail');
@@ -1200,19 +1150,11 @@ end;
 procedure TTestTls12Loopback.TestEcdheEd448CredentialHandshake;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LMsg: TBytes;
 begin
   LClient := NewClientEd448;
   LServer := NewServerEd448;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   // the 1.2 server selected the ECDHE_ECDSA suite for its Ed448 credential (the auth-method
   // allowlist admits EdDSA), signed the ServerKeyExchange with ed448, and the client verified it
   CheckFalse(LClient.IsHandshaking, 'the client completed the 1.2 Ed448 handshake');
@@ -1229,19 +1171,11 @@ end;
 procedure TTestTls12Loopback.TestEcdheEd25519CredentialHandshake;
 var
   LClient, LServer: ITlsEngine;
-  LIterations: Int32;
   LMsg: TBytes;
 begin
   LClient := NewClientEd25519;
   LServer := NewServerEd25519;
-  LClient.StartHandshake;
-  LIterations := 0;
-  while (LClient.IsHandshaking or LServer.IsHandshaking) and (LIterations < 16) do
-  begin
-    Pump(LClient, LServer);
-    Pump(LServer, LClient);
-    Inc(LIterations);
-  end;
+  RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client completed the 1.2 Ed25519 handshake');
   CheckFalse(LServer.IsHandshaking, 'the server completed the 1.2 Ed25519 handshake');
   CheckFalse(LClient.IsTerminal, 'the client did not fail');
