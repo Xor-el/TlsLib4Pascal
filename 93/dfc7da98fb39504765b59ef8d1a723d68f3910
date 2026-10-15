@@ -1,0 +1,125 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_4adb7e2edc0c28::t_b0c99cf8cb0b29 208
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_4adb7e2edc0c28::t_18db2cc12cd2af 339
+TlsLib.Tests/src/NetSocketTests.pas
+  s_4adb7e2edc0c28::t_2ba69ff0230a5f 380
+  s_4adb7e2edc0c28::t_d4469a633b44a0 408
+  s_4adb7e2edc0c28::t_93e63afeeacc72 46
+  s_4adb7e2edc0c28::t_9a381eb91c1477 387
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_4adb7e2edc0c28::t_58c2a1fc71d059 21
+TlsLib.Tests/src/RecordProtectionTests.pas
+  s_4adb7e2edc0c28::t_fd6c4a56184a90 77-89
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_4adb7e2edc0c28::t_d9d6e5c316b527 21
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_4adb7e2edc0c28::t_d29220f6e5ecc7 1667
+TlsLib.Tests/src/MockClock.pas
+  s_4adb7e2edc0c28::t_071be094aebdc7 30
+  s_4adb7e2edc0c28::t_865e1550d3cd95 48
+TlsLib.Tests/src/MockTransport.pas
+  s_4adb7e2edc0c28::t_cd33becda51ebc 22,27-28
+  s_4adb7e2edc0c28::t_e1628b970f2426 168-169
+  s_4adb7e2edc0c28::t_e61fad1a8e3009 447-472
+  s_4adb7e2edc0c28::t_d05c5c37cd40f7 156-167,170-172
+  s_4adb7e2edc0c28::t_8b5f851a93dfe1 26
+  s_4adb7e2edc0c28::t_107f07c4cfb3da 440
+  s_4adb7e2edc0c28::t_2cba7f1621a2c5 143-155
+  s_4adb7e2edc0c28::t_36bfb1b8470501 430-439,441-446
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_4adb7e2edc0c28::t_acf580ee44902b 51
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_4adb7e2edc0c28::t_f35bc38afa687f 54
+  s_4adb7e2edc0c28::t_bc0c9b5f36154a 144
+TlsLib.Tests/src/SignatureTests.pas
+  s_4adb7e2edc0c28::t_df2a26afbd6c90 89-107
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_4adb7e2edc0c28::t_1d31b3a3fcf6ab 4699,4743
+  s_4adb7e2edc0c28::t_6e2b14f6ec814f 882,2482,3596,4626
+  s_4adb7e2edc0c28::t_2c036ace9711cc 2878-2879
+TlsLib.Tests/src/MockPkixProvider.pas
+  s_4adb7e2edc0c28::t_5c24b70f5aca3b 12
+  s_2670639843a555::t_51d4ed141d9e74 33
+TlsLib.Tests/src/SocketHttpExchangeTests.pas
+  s_4adb7e2edc0c28::t_50982540eef9d2 42
+  s_4adb7e2edc0c28::t_6bbdb3158b0ce5 954,977,999,1016,1021,1057,1065,1086,1094,1126,1143,1148,1162,1169,1258,1295,1303
+TlsLib.Tests/src/MockSessionStores.pas
+  s_4adb7e2edc0c28::t_3f2ececf87414c 64
+  s_4adb7e2edc0c28::t_69c21516f8769b 37
+  s_4adb7e2edc0c28::t_9258a4507377b3 86
+TlsLib.Tests/src/MockVerifyHooks.pas
+  s_4adb7e2edc0c28::t_51169627f144eb 28
+  s_4adb7e2edc0c28::t_8e82b7c3cd8cb5 48
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_4adb7e2edc0c28::t_47c34124e7cdd5 534
+  s_4adb7e2edc0c28::t_a0c9a8ff41efa7 532-533,535-549
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_4adb7e2edc0c28::t_fe69fdb9281365 345
+TlsLib.Tests/src/MockHttpFetcher.pas
+  s_4adb7e2edc0c28::t_9f751a36f9fd9b 31
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_4adb7e2edc0c28::t_35dcd23e03f209 42
+  s_4adb7e2edc0c28::t_66396601a7d364 291-310
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_4adb7e2edc0c28::t_222e1fc8123302 70
+  s_4adb7e2edc0c28::t_0150f62389723a 276
+  s_4adb7e2edc0c28::t_9cea42eaa670d5 216-233
+TlsLib.Tests/src/MockPlatformChainEngine.pas
+  s_4adb7e2edc0c28::t_6078ed3cc76d00 33
+TlsLib.Tests/src/MockRecordInstaller.pas
+  s_4adb7e2edc0c28::t_d0906738ed1a9d 29
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_4adb7e2edc0c28::t_a83c085cf95565 948,2005
+  s_4adb7e2edc0c28::t_e0b350b3cdb6cd 1978,2004,2031
+TlsLib.Tests/src/TrustCompositionTests.pas
+  s_4adb7e2edc0c28::t_0d8940b920c9a0 69-70
+  s_4adb7e2edc0c28::t_15fa2a7e6a868e 68,71-84
+TlsLib.Tests/src/MockSink.pas
+  s_4adb7e2edc0c28::t_7259c832aac25f 31
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_4adb7e2edc0c28::t_7619d61b344c18 228
+  s_4adb7e2edc0c28::t_8a3c2acc343430 122
+  s_4adb7e2edc0c28::t_3a29115cfbc095 152
+  s_4adb7e2edc0c28::t_a67097210afd53 168
+  s_4adb7e2edc0c28::t_787119e48311e6 33
+  s_4adb7e2edc0c28::t_6cf3fac4c73b4c 208
+  s_4adb7e2edc0c28::t_62292bf951c1b1 106
+  s_4adb7e2edc0c28::t_bcfb5b4393960b 66
+  s_4adb7e2edc0c28::t_736632680ac100 187
+  s_4adb7e2edc0c28::t_6c4f5e70f23272 42
+  s_4adb7e2edc0c28::t_717cc8e6a2b689 82
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_4adb7e2edc0c28::t_9b4d12b6ab825e 187
+TlsLib.Tests/src/MockRandom.pas
+  s_4adb7e2edc0c28::t_a852b98607a5df 44
+  s_4adb7e2edc0c28::t_0080447f8aa7e2 29
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_4adb7e2edc0c28::t_a8993c025d91f1 530
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_4adb7e2edc0c28::t_f0f8fb7c88b725 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "93dfc7da98fb39504765b59ef8d1a723d68f3910",
+  "prompts": {},
+  "sessions": {
+    "s_2670639843a555": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a7e41ce4050c57680",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
