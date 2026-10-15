@@ -30,7 +30,7 @@ type
   /// shaping and role dispatch can be asserted without a real platform trust engine. Never for
   /// production use.
   /// </summary>
-  TMockPlatformChainEngine = class(TInterfacedObject, IPlatformChainEngine)
+  TMockPlatformChainEngine = class sealed(TInterfacedObject, IPlatformChainEngine)
   strict private
   type
     TStep = record

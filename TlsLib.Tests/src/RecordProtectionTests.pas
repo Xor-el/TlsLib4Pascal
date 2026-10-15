@@ -42,18 +42,6 @@ uses
   TlsLibTestBase;
 
 type
-  // a minimal concrete protection whose sequence counter a test can force, to reach the 2^64
-  // exhaustion guard no capped AEAD can seal up to (the guard is base-owned defence-in-depth)
-  TProbeRecordProtection = class(TRecordProtectionBase)
-  public
-    procedure ForceSequence(AValue: UInt64);
-    function Protect(AContentType: TTlsContentType; const APlaintext: TBytes;
-      AOffset, ALength: Int32): TBytes; override;
-    function Unprotect(const ARecord: TBytes; AOffset, ALength: Int32;
-      out AContentType: TTlsContentType): TBytes; override;
-    function Overhead: Int32; override;
-  end;
-
   TTestRecordProtection = class(TTlsLibAlgorithmTestCase)
   private
     function MakeTls13(const AKey, AIv: TBytes; AAlgorithm: TAeadAlgorithm): IRecordProtection;
@@ -85,6 +73,19 @@ type
   end;
 
 implementation
+
+type
+  // a minimal concrete protection whose sequence counter a test can force, to reach the 2^64
+  // exhaustion guard no capped AEAD can seal up to (the guard is base-owned defence-in-depth)
+  TProbeRecordProtection = class(TRecordProtectionBase)
+  public
+    procedure ForceSequence(AValue: UInt64);
+    function Protect(AContentType: TTlsContentType; const APlaintext: TBytes;
+      AOffset, ALength: Int32): TBytes; override;
+    function Unprotect(const ARecord: TBytes; AOffset, ALength: Int32;
+      out AContentType: TTlsContentType): TBytes; override;
+    function Overhead: Int32; override;
+  end;
 
 { TProbeRecordProtection }
 

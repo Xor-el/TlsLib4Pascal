@@ -19,10 +19,13 @@ interface
 
 uses
   SysUtils,
+  Classes,
   SyncObjs,
   TlpTlsLibExceptions,
   TlpITlsEngine,
-  TlpITlsTransport;
+  TlpITlsTransport,
+  TlpINetSocket,
+  TlpTlsStream;
 
 type
   /// <summary>A single-direction in-memory byte pipe with blocking reads. Write appends;
@@ -135,6 +138,36 @@ type
   public
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+  end;
+
+  /// <summary>A host resolver that answers one name, ignoring case, with 127.0.0.1 and refuses every
+  /// other, counting the lookups it was asked for.</summary>
+  TMockHostResolver = class sealed(TInterfacedObject, IHostResolver)
+  strict private
+  var
+    FName: string;
+    FAsked: Int32;
+  public
+    constructor Create(const AName: string);
+    function TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
+    property Asked: Int32 read FAsked;
+  end;
+
+  /// <summary>The server half of a loopback on its own thread, owning the server stream; ending
+  /// the client's write side on Finish or Destroy lets a server parked in a read exit.</summary>
+  TLoopbackServerThread = class abstract(TThread)
+  strict protected
+  var
+    FStream: TTlsStream;
+    FTransport: TMemoryTransport;
+    FClientTransport: TMemoryTransport;
+  public
+    constructor Create(const AStream: TTlsStream; const ATransport,
+      AClientTransport: TMemoryTransport);
+    destructor Destroy; override;
+    /// <summary>Ends the client's write side so a server still awaiting it fails, then
+    /// joins.</summary>
+    procedure Finish;
   end;
 
 implementation
@@ -392,6 +425,49 @@ end;
 procedure TDeadWriteTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
 begin
   raise EInOutError.CreateRes(@SMockSocketFailed);
+end;
+
+{ TMockHostResolver }
+
+constructor TMockHostResolver.Create(const AName: string);
+begin
+  inherited Create;
+  FName := AName;
+end;
+
+function TMockHostResolver.TryResolveIPv4(const AHost: string; out AAddress: TBytes): Boolean;
+begin
+  System.Inc(FAsked);
+  AAddress := nil;
+  Result := SameText(AHost, FName);
+  if Result then
+    AAddress := TBytes.Create(127, 0, 0, 1);
+end;
+
+{ TLoopbackServerThread }
+
+constructor TLoopbackServerThread.Create(const AStream: TTlsStream;
+  const ATransport, AClientTransport: TMemoryTransport);
+begin
+  inherited Create(True);
+  FStream := AStream;
+  FTransport := ATransport;
+  FClientTransport := AClientTransport;
+  FreeOnTerminate := False;
+end;
+
+destructor TLoopbackServerThread.Destroy;
+begin
+  // EOF the client so a server parked in a read exits and the join cannot hang the run
+  FClientTransport.CloseWrite;
+  inherited Destroy;
+  FStream.Free;
+end;
+
+procedure TLoopbackServerThread.Finish;
+begin
+  FClientTransport.CloseWrite;
+  WaitFor;
 end;
 
 end.

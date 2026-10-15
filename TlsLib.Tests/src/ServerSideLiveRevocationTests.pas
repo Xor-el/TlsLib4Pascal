@@ -51,12 +51,9 @@ type
   /// certificate through the async verdict park with the supplied resolver. Captures whether the
   /// handshake completed, the client-chain size, and any fatal alert the server itself emitted
   /// (a rejected client-cert verdict aborts with that alert).</summary>
-  TMtlsLiveServerRunner = class(TThread)
+  TMtlsLiveServerRunner = class(TLoopbackServerThread)
   strict private
   var
-    FStream: TTlsStream;
-    FTransport: TMemoryTransport;
-    FClientTransport: TMemoryTransport;
     FResolver: TCertificateVerdictResolver;
     FEcho: Boolean;
     FError: string;
@@ -70,9 +67,6 @@ type
     constructor Create(const AStream: TTlsStream; const ATransport,
       AClientTransport: TMemoryTransport; const AResolver: TCertificateVerdictResolver;
       AEcho: Boolean);
-    destructor Destroy; override;
-    /// <summary>Ends the client's write side so a server still awaiting it fails, then joins.</summary>
-    procedure Finish;
     property Error: string read FError;
     property HandshakeOk: Boolean read FHandshakeOk;
     property HasAlert: Boolean read FHasAlert;
@@ -147,27 +141,9 @@ constructor TMtlsLiveServerRunner.Create(const AStream: TTlsStream;
   const ATransport, AClientTransport: TMemoryTransport;
   const AResolver: TCertificateVerdictResolver; AEcho: Boolean);
 begin
-  inherited Create(True);
-  FStream := AStream;
-  FTransport := ATransport;
-  FClientTransport := AClientTransport;
+  inherited Create(AStream, ATransport, AClientTransport);
   FResolver := AResolver;
   FEcho := AEcho;
-  FreeOnTerminate := False;
-end;
-
-destructor TMtlsLiveServerRunner.Destroy;
-begin
-  // EOF the client so a server parked in a read exits and the join cannot hang the run
-  FClientTransport.CloseWrite;
-  inherited Destroy;
-  FStream.Free;
-end;
-
-procedure TMtlsLiveServerRunner.Finish;
-begin
-  FClientTransport.CloseWrite;
-  WaitFor;
 end;
 
 procedure TMtlsLiveServerRunner.Execute;

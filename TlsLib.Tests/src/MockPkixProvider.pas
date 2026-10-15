@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit SpyRevocationProvider;
+unit MockPkixProvider;
 
 { A pass-through IPkixProvider that delegates every call to a real provider while counting the two
   revocation-parse entry points (ValidateOcspStaple / CheckCrlRevocation). It lets a test prove that
@@ -30,7 +30,7 @@ uses
 
 type
   /// <summary>Counts the path builds it is asked for while delegating to a real validator.</summary>
-  TCountingPathValidator = class(TInterfacedObject, ICertificatePathValidator)
+  TCountingPathValidator = class sealed(TInterfacedObject, ICertificatePathValidator)
   strict private
   var
     FInner: ICertificatePathValidator;

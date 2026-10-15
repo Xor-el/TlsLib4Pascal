@@ -39,29 +39,10 @@ uses
   TlpIPkixProvider,
   TlpTrustPolicy,
   TlpLiveRevocation,
-  SpyRevocationProvider,
+  MockPkixProvider,
   TlsLibTestBase;
 
 type
-  /// <summary>An IHttpFetcher double whose first POST runs a second check on its checker (answered
-  /// with ANestedBody) before answering AOuterBody, so two checks overlap without threads.</summary>
-  TNestedCheckFetcher = class(TInterfacedObject, IHttpFetcher)
-  strict private
-    FChecker: TLiveRevocationChecker;
-    FChain: TArray<TBytes>;
-    FOuterBody, FNestedBody: TBytes;
-    FPosts: Int32;
-  public
-    constructor Create(const AOuterBody, ANestedBody: TBytes; const AChain: TArray<TBytes>);
-    /// <summary>The checker the nested check runs on; not owned.</summary>
-    procedure Attach(AChecker: TLiveRevocationChecker);
-    function Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
-      out AResponse: TBytes): Boolean;
-    function Post(const AUrl, AContentType: string; const ABody: TBytes;
-      ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
-    property Posts: Int32 read FPosts;
-  end;
-
   /// <summary>
   /// Live OCSP/CRL revocation over the injected IHttpFetcher. Proves the
   /// provider request/URL/CRL primitives and the checker's fail-closed matrix: a definitive
@@ -306,6 +287,26 @@ type
   end;
 
 implementation
+
+type
+  /// <summary>An IHttpFetcher double whose first POST runs a second check on its checker (answered
+  /// with ANestedBody) before answering AOuterBody, so two checks overlap without threads.</summary>
+  TNestedCheckFetcher = class(TInterfacedObject, IHttpFetcher)
+  strict private
+    FChecker: TLiveRevocationChecker;
+    FChain: TArray<TBytes>;
+    FOuterBody, FNestedBody: TBytes;
+    FPosts: Int32;
+  public
+    constructor Create(const AOuterBody, ANestedBody: TBytes; const AChain: TArray<TBytes>);
+    /// <summary>The checker the nested check runs on; not owned.</summary>
+    procedure Attach(AChecker: TLiveRevocationChecker);
+    function Get(const AUrl: string; ATimeoutMs: Cardinal; AMaxBytes: Int32;
+      out AResponse: TBytes): Boolean;
+    function Post(const AUrl, AContentType: string; const ABody: TBytes;
+      ATimeoutMs: Cardinal; AMaxBytes: Int32; out AResponse: TBytes): Boolean;
+    property Posts: Int32 read FPosts;
+  end;
 
 { TNestedCheckFetcher }
 

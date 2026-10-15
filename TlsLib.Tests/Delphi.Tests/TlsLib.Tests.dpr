@@ -205,7 +205,7 @@ uses
   MockPlatformChainEngine in '..\src\MockPlatformChainEngine.pas',
   MockCryptoProvider in '..\src\MockCryptoProvider.pas',
   MockHttpFetcher in '..\src\MockHttpFetcher.pas',
-  SpyRevocationProvider in '..\src\SpyRevocationProvider.pas',
+  MockPkixProvider in '..\src\MockPkixProvider.pas',
   MockSink in '..\src\MockSink.pas',
   MockVerifyHooks in '..\src\MockVerifyHooks.pas',
   MockRecordInstaller in '..\src\MockRecordInstaller.pas',

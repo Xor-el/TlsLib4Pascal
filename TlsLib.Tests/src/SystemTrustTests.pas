@@ -173,23 +173,6 @@ type
     procedure TestNameMismatchNilProviderFailsClosed;
   end;
 
-  /// <summary>A probe over the abstract root source that drives its shared FilterRoots helper
-  /// directly, so the well-formed + de-dup filter both harvesters funnel through is tested once.</summary>
-  TFilterRootsProbe = class(TSystemRootSource)
-  strict private
-  var
-    FRoots: TArray<TBytes>;
-    FDistrusted: TArray<TBytes>;
-  strict protected
-    function HarvestRoots: TArray<TBytes>; override;
-    function HarvestDistrusted: TArray<TBytes>; override;
-    function SourceName: string; override;
-  public
-    function Filter(const ARaw: TArray<TBytes>): TArray<TBytes>;
-    /// <summary>What a Snapshot of this probe harvests.</summary>
-    procedure Harvests(const ARoots, ADistrusted: TArray<TBytes>);
-  end;
-
   /// <summary>Platform-neutral tests for the OS delegate template over a fake platform engine: the
   /// request shaping, the strength/revocation/identity tail, the source-construction guards and the
   /// live-resolver dispatch.</summary>
@@ -545,6 +528,24 @@ type
 {$IFEND}
 
 implementation
+
+type
+  /// <summary>A probe over the abstract root source that drives its shared FilterRoots helper
+  /// directly, so the well-formed + de-dup filter both harvesters use is tested once.</summary>
+  TFilterRootsProbe = class(TSystemRootSource)
+  strict private
+  var
+    FRoots: TArray<TBytes>;
+    FDistrusted: TArray<TBytes>;
+  strict protected
+    function HarvestRoots: TArray<TBytes>; override;
+    function HarvestDistrusted: TArray<TBytes>; override;
+    function SourceName: string; override;
+  public
+    function Filter(const ARaw: TArray<TBytes>): TArray<TBytes>;
+    /// <summary>What a Snapshot of this probe harvests.</summary>
+    procedure Harvests(const ARoots, ADistrusted: TArray<TBytes>);
+  end;
 
 { TTestDelegatePostChecks }
 

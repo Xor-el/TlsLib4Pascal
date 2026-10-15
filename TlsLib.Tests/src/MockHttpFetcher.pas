@@ -28,7 +28,7 @@ type
   /// the network, so revocation tests run offline; the invocation counts prove no live fetch
   /// happened. A URL can also be scripted to its own result and to take time on an attached
   /// clock, and every call's URL and timeout is recorded.</summary>
-  TMockHttpFetcher = class(TInterfacedObject, IHttpFetcher)
+  TMockHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
   type
     TScript = record

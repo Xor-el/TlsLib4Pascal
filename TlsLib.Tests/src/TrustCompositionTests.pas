@@ -44,21 +44,6 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>A one-root store that reports when it is destroyed, to prove what keeps a store alive.</summary>
-  TReleaseWatchStore = class(TInterfacedObject, ITrustAnchorStore)
-  strict private
-    FRoot: TBytes;
-    FReleased: PBoolean;
-  public
-    constructor Create(const ARoot: TBytes; AReleased: PBoolean);
-    destructor Destroy; override;
-    function AnchorCount: Int32;
-    function RootCertificates: TArray<TBytes>;
-    function IsAnchor(const ACertificate: TBytes): Boolean;
-    function DistrustedCertificates: TArray<TBytes>;
-    function IsDistrusted(const ACertificate: TBytes): Boolean;
-  end;
-
   TTestTrustComposition = class(TTlsLibAlgorithmTestCase)
   private
     FCerts: TStringList;
@@ -79,6 +64,23 @@ type
   end;
 
 implementation
+
+type
+  /// <summary>A one-root store that reports when it is destroyed, to prove what keeps a store
+  /// alive.</summary>
+  TReleaseWatchStore = class(TInterfacedObject, ITrustAnchorStore)
+  strict private
+    FRoot: TBytes;
+    FReleased: PBoolean;
+  public
+    constructor Create(const ARoot: TBytes; AReleased: PBoolean);
+    destructor Destroy; override;
+    function AnchorCount: Int32;
+    function RootCertificates: TArray<TBytes>;
+    function IsAnchor(const ACertificate: TBytes): Boolean;
+    function DistrustedCertificates: TArray<TBytes>;
+    function IsDistrusted(const ACertificate: TBytes): Boolean;
+  end;
 
 { TReleaseWatchStore }
 

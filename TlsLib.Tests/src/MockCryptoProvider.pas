@@ -30,7 +30,7 @@ uses
 
 type
   /// <summary>A signature verifier that rejects every signature.</summary>
-  TRejectingSignatureVerifier = class(TInterfacedObject, ISignatureVerifier)
+  TRejectingSignatureVerifier = class sealed(TInterfacedObject, ISignatureVerifier)
   public
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Verify(const ASignature: TBytes): Boolean;
@@ -39,7 +39,7 @@ type
   /// <summary>An <see cref="ISigningCrypto" /> that signs and imports through an inner facet but
   /// hands out verifiers that reject every signature, so a peer's handshake signature never
   /// verifies while its certificate chain (checked by the PKIX provider) still does.</summary>
-  TRejectingVerifierSigning = class(TInterfacedObject, ISigningCrypto)
+  TRejectingVerifierSigning = class sealed(TInterfacedObject, ISigningCrypto)
   strict private
   var
     FInner: ISigningCrypto;
@@ -63,7 +63,7 @@ type
   /// operation is the real default. This is the seam an engine leans on to run with
   /// a fixed randomness stream.
   /// </summary>
-  TMockCryptoProvider = class(TInterfacedObject, ICryptoProvider)
+  TMockCryptoProvider = class sealed(TInterfacedObject, ICryptoProvider)
   strict private
   var
     FComposed: ICryptoProvider;
@@ -79,7 +79,7 @@ type
   /// <c>HasHardwareAes</c> answer and forwards every other primitive to an inner
   /// primitives facet.
   /// </summary>
-  TFixedAesPrimitives = class(TInterfacedObject, ICryptoPrimitives)
+  TFixedAesPrimitives = class sealed(TInterfacedObject, ICryptoPrimitives)
   strict private
   var
     FInner: ICryptoPrimitives;
@@ -103,7 +103,7 @@ type
   /// built with a primitives override that decorates the inner's primitives - and
   /// makes the CPU-adaptive AEAD ordering deterministic in tests.
   /// </summary>
-  TFixedAesProvider = class(TInterfacedObject, ICryptoProvider)
+  TFixedAesProvider = class sealed(TInterfacedObject, ICryptoProvider)
   strict private
   var
     FComposed: ICryptoProvider;
@@ -119,7 +119,7 @@ type
   /// raises ENotSupportedTlsLibException for that algorithm and forwards everything else - so a
   /// composed provider models an overlay that lacks a primitive (for the HPKE suite-probe check).
   /// </summary>
-  TMissingAeadPrimitives = class(TInterfacedObject, ICryptoPrimitives)
+  TMissingAeadPrimitives = class sealed(TInterfacedObject, ICryptoPrimitives)
   strict private
   var
     FInner: ICryptoPrimitives;
@@ -149,7 +149,7 @@ type
 
   /// <summary>An <see cref="IKem" /> that forwards to an inner KEM but validates only the length
   /// of an ML-KEM-768 encapsulation key.</summary>
-  TLenientKem = class(TInterfacedObject, IKem)
+  TLenientKem = class sealed(TInterfacedObject, IKem)
   strict private
   var
     FInner: IKem;
@@ -165,7 +165,7 @@ type
 
   /// <summary>A test provider whose primitives cannot build one configured AEAD (or one key
   /// agreement), or whose KEM validates only the key length.</summary>
-  TMissingAeadProvider = class(TInterfacedObject, ICryptoProvider)
+  TMissingAeadProvider = class sealed(TInterfacedObject, ICryptoProvider)
   strict private
   var
     FComposed: ICryptoProvider;
@@ -184,7 +184,7 @@ type
   /// small <c>UsageLimit</c>, so a test drives the record layer's usage-limit rekey path by writing
   /// a few dozen records instead of 2^24.
   /// </summary>
-  TCappedAead = class(TInterfacedObject, IAead)
+  TCappedAead = class sealed(TInterfacedObject, IAead)
   strict private
   var
     FInner: IAead;
@@ -205,7 +205,7 @@ type
 
   /// <summary>An <see cref="ICryptoPrimitives" /> decorator whose <c>CreateAead</c> wraps the inner
   /// AEAD with a small usage limit; every other primitive forwards.</summary>
-  TCappedAeadPrimitives = class(TInterfacedObject, ICryptoPrimitives)
+  TCappedAeadPrimitives = class sealed(TInterfacedObject, ICryptoPrimitives)
   strict private
   var
     FInner: ICryptoPrimitives;
@@ -225,7 +225,7 @@ type
 
   /// <summary>A test provider whose AEADs carry a small usage limit, so the record-layer rekey /
   /// usage-limit path is reached by writing a few dozen records rather than 2^24.</summary>
-  TCappedAeadProvider = class(TInterfacedObject, ICryptoProvider)
+  TCappedAeadProvider = class sealed(TInterfacedObject, ICryptoProvider)
   strict private
   var
     FComposed: ICryptoProvider;

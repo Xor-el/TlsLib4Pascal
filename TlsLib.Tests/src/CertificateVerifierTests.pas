@@ -45,7 +45,7 @@ uses
   TlpTrustPolicy,
   TlpIPkixProvider,
   MockVerifyHooks,
-  SpyRevocationProvider,
+  MockPkixProvider,
   MockCertificateVerifiers,
   TlsLibTestCertificates,
   TlsLibTestBase;

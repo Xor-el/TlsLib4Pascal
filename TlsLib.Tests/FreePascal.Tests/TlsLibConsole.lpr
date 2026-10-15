@@ -18,7 +18,7 @@ uses
   MockKeyLog,
   MockCryptoProvider,
   MockHttpFetcher,
-  SpyRevocationProvider,
+  MockPkixProvider,
   MockSink,
   MockPlatformChainEngine,
   MockVerifyHooks,

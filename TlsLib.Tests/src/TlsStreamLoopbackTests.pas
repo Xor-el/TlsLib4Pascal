@@ -67,12 +67,9 @@ type
 
   /// <summary>Runs the server side of a loopback on its own thread so the client (main
   /// thread) can block on a real duplex. Captures the negotiated info and any error.</summary>
-  TServerRunner = class(TThread)
+  TServerRunner = class(TLoopbackServerThread)
   strict private
   var
-    FStream: TTlsStream;
-    FTransport: TMemoryTransport;
-    FClientTransport: TMemoryTransport;
     FBehavior: TServerBehavior;
     FError: string;
     FNegotiatedVersion: UInt16;
@@ -83,32 +80,11 @@ type
   public
     constructor Create(const AStream: TTlsStream; const ATransport,
       AClientTransport: TMemoryTransport; ABehavior: TServerBehavior);
-    destructor Destroy; override;
-    /// <summary>Ends the client's write side so a server still awaiting it fails, then joins.</summary>
-    procedure Finish;
     property Error: string read FError;
     property NegotiatedVersion: UInt16 read FNegotiatedVersion;
     property Alpn: TBytes read FAlpn;
     // total bytes a BulkEcho server echoes back before closing
     property BulkBytes: Int32 read FBulkBytes write FBulkBytes;
-  end;
-
-  /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
-  /// a surfaced EOF rather than hanging the run. Disarmed once the exchange completes.</summary>
-  TWedgeWatchdog = class(TThread)
-  strict private
-  var
-    FPipeA, FPipeB: TMemoryPipe;
-    FDeadlineMs: UInt32;
-    FDone: TEvent;
-    FFired: Boolean;
-  protected
-    procedure Execute; override;
-  public
-    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32);
-    destructor Destroy; override;
-    procedure Disarm; // the exchange finished in time; stop before the deadline
-    property Fired: Boolean read FFired;
   end;
 
   TTestTlsStreamLoopback = class(TTlsLibAlgorithmTestCase)
@@ -237,6 +213,24 @@ type
     function Count: Int32;
   end;
 
+  /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
+  /// a surfaced EOF rather than hanging the run. Disarmed once the exchange completes.</summary>
+  TWedgeWatchdog = class(TThread)
+  strict private
+  var
+    FPipeA, FPipeB: TMemoryPipe;
+    FDeadlineMs: UInt32;
+    FDone: TEvent;
+    FFired: Boolean;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32);
+    destructor Destroy; override;
+    procedure Disarm; // the exchange finished in time; stop before the deadline
+    property Fired: Boolean read FFired;
+  end;
+
 { TFailingSessionCache }
 
 procedure TFailingSessionCache.Store(const AServerIdentity, AServerName: string;
@@ -279,26 +273,8 @@ end;
 constructor TServerRunner.Create(const AStream: TTlsStream;
   const ATransport, AClientTransport: TMemoryTransport; ABehavior: TServerBehavior);
 begin
-  inherited Create(True);
-  FStream := AStream;
-  FTransport := ATransport;
-  FClientTransport := AClientTransport;
+  inherited Create(AStream, ATransport, AClientTransport);
   FBehavior := ABehavior;
-  FreeOnTerminate := False;
-end;
-
-destructor TServerRunner.Destroy;
-begin
-  // EOF the client so a server parked in a read exits and the join cannot hang the run
-  FClientTransport.CloseWrite;
-  inherited Destroy;
-  FStream.Free;
-end;
-
-procedure TServerRunner.Finish;
-begin
-  FClientTransport.CloseWrite;
-  WaitFor;
 end;
 
 procedure TServerRunner.Execute;

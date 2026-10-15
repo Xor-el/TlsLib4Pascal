@@ -945,7 +945,7 @@ begin
   LClient.StartHandshake;
   LCh1 := Drain(LClient);        // ClientHelloOuter #1 (GREASE outer pre_shared_key)
   Feed(LServer, LCh1);
-  Feed(LClient, Drain(LServer)); // deliver the HelloRetryRequest
+  Pump(LServer, LClient); // deliver the HelloRetryRequest
   LCh2 := Drain(LClient);        // ClientHelloOuter #2 (retry, possibly led by a CCS record)
 
   LPsk1 := OuterPskExtData(LCh1);
@@ -1975,7 +1975,7 @@ begin
   LClient := NewClient;
   LServer := NewServer;
   LClient.StartHandshake;
-  Feed(LServer, Drain(LClient));
+  Pump(LClient, LServer);
   LFlight := Drain(LServer);
   // the plaintext ServerHello record also carries an EncryptedExtensions: a handshake message
   // must not follow a key change in the same record (RFC 9846 5.1)
@@ -2001,8 +2001,8 @@ begin
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12),
     TServerCipherPreference.ServerOrder));
   LClient.StartHandshake;
-  Feed(LServer, Drain(LClient));
-  Feed(LClient, Drain(LServer));
+  Pump(LClient, LServer);
+  Pump(LServer, LClient);
   LCh2 := Drain(LClient);
   // rewrite the supported_versions extension (2b 00 03 02 03 04) so the retry offers 1.2 only
   LI := 0;
@@ -2028,7 +2028,7 @@ begin
   LClient := NewClient;
   LServer := NewServerWithResolver(TSniCredentialResolver.ForCredential(LNoChain));
   LClient.StartHandshake;
-  Feed(LServer, Drain(LClient));
+  Pump(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'a custom resolver handing back no certificate fails the server');
   CheckTrue(LServer.LastError.Alert.Description = TTlsAlertDescription.HandshakeFailure,
     'it aborts with handshake_failure rather than emitting an empty certificate_list');

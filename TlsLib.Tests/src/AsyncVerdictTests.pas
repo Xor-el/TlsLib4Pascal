@@ -48,7 +48,7 @@ uses
   TlpLiveRevocation,
   TlpDefaultCryptoProvider,
   MockCryptoProvider,
-  SpyRevocationProvider,
+  MockPkixProvider,
   TlpIPkixProvider,
   MockHttpFetcher,
   MockVerifyHooks,
