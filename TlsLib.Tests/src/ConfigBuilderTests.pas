@@ -94,6 +94,7 @@ uses
   MockCryptoProvider,
   TlsLibTestProviders,
   MockCertificateCompression,
+  MockCertificateVerifiers,
   TlsLibTestBase;
 
 type
@@ -496,53 +497,6 @@ type
     function Entries: TArray<TEchKeyEntry>;
     function RetryConfigs: TBytes;
   end;
-
-  // an accept-all client-certificate verifier source, to exercise the Build-time roots gate
-  // without a live handshake
-  TAcceptAllClientVerifier = class(TInterfacedObject, IClientCertificateVerifier)
-  public
-    function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
-  TAcceptAllClientVerifierSource = class(TInterfacedObject, IClientCertificateVerifierSource)
-  public
-    function CreateClientVerifier(const AContext: TClientTrustContext)
-      : IClientCertificateVerifier;
-  end;
-
-  // an accept-all server-certificate verifier, standing in for a caller-supplied whole verifier
-  TAcceptAllServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  public
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
-function TAcceptAllClientVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified.Path := AChain;
-  AVerified.Outcome := TVerificationOutcome.Trusted;
-  AAlert := TTlsAlertDescription.CertificateUnknown;
-  Result := True;
-end;
-
-function TAcceptAllClientVerifierSource.CreateClientVerifier(
-  const AContext: TClientTrustContext): IClientCertificateVerifier;
-begin
-  Result := TAcceptAllClientVerifier.Create as IClientCertificateVerifier;
-end;
-
-function TAcceptAllServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AVerified.Path := AChain;
-  AVerified.Outcome := TVerificationOutcome.Trusted;
-  AAlert := TTlsAlertDescription.BadCertificate;
-  Result := True;
-end;
 
 { TTestConfigBuilder }
 
@@ -2110,14 +2064,14 @@ procedure TTestConfigBuilder.TestInjectedVerifierRefusesSettingsItIgnores;
   begin
     Result := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(ServerCredential)
       .WithPeerAuth(TClientAuthMode.Required).WithClientVerification(TClientVerification.Custom(
-      TAcceptAllClientVerifier.Create as IClientCertificateVerifier, APosture));
+      TFixedVerdictVerifier.CreateAccepting as IClientCertificateVerifier, APosture));
   end;
 
   function NewVerifierClient(APosture: TRevocationPosture): ITlsClientConfigBuilder;
   begin
     Result := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
-      TServerVerification.Custom(TAcceptAllServerVerifier.Create as IServerCertificateVerifier,
-      APosture));
+      TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting
+      as IServerCertificateVerifier, APosture));
   end;
 
 begin
@@ -2653,16 +2607,19 @@ begin
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify, 'skip sets the dangerous flag');
   CheckNull(LConfig.TrustStore, 'and holds no anchors');
   LConfig := NewBareClientBuilder.WithServerVerification(
-    TServerVerification.Custom(TAcceptAllServerVerifier.Create as IServerCertificateVerifier)).Build;
+    TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting
+    as IServerCertificateVerifier)).Build;
   CheckNull(LConfig.TrustStore, 'a whole verifier holds no anchors');
   // an injected verifier does not apply the posture, so Hard needs the live verdict
   CheckTrue(BuildRefused(NewBareClientBuilder.WithOcspStaplingRequest(True)
     .WithServerVerification(TServerVerification.Custom(
-    TAcceptAllServerVerifier.Create as IServerCertificateVerifier, TRevocationPosture.Hard)),
+    TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier,
+    TRevocationPosture.Hard)),
     'WithLiveRevocationVerdict'), 'Hard over an injected verifier without a live verdict');
   CheckNotNull(NewBareClientBuilder.WithLiveRevocationVerdict(1000)
     .WithServerVerification(TServerVerification.Custom(
-    TAcceptAllServerVerifier.Create as IServerCertificateVerifier, TRevocationPosture.Hard)).Build,
+    TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier,
+    TRevocationPosture.Hard)).Build,
     'and builds with one');
 end;
 
@@ -3328,7 +3285,7 @@ begin
       .WithCredential(ServerCredential)
       .WithPeerAuth(TClientAuthMode.Required)
       .WithClientVerification(TClientVerification.VerifierSource(
-        TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource,
+        TAcceptingClientVerifierSource.Create as IClientCertificateVerifierSource,
         TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -3344,7 +3301,7 @@ var
   LSource: IClientCertificateVerifierSource;
 begin
   // the composition promise: a source alongside real anchors builds, and the anchors survive
-  LSource := TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource;
+  LSource := TAcceptingClientVerifierSource.Create as IClientCertificateVerifierSource;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
@@ -3363,7 +3320,7 @@ begin
     .WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.VerifierSource(
-      TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource,
+      TAcceptingClientVerifierSource.Create as IClientCertificateVerifierSource,
       TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(
         TTrustAnchorStore.Create(nil) as ITrustAnchorStore, ClientTrust))).Build).Build;
   CheckEquals(1, System.Length(LConfig.TrustStore.RootCertificates),
@@ -3400,7 +3357,7 @@ begin
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithClientVerification(TClientVerification.VerifierSource(
-      TAcceptAllClientVerifierSource.Create as IClientCertificateVerifierSource,
+      TAcceptingClientVerifierSource.Create as IClientCertificateVerifierSource,
       ClientTrust).Build)),
     'a client verifier source without WithPeerAuth is refused');
 end;
@@ -3441,7 +3398,8 @@ begin
     'intermediate certificates');
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithClientVerification(TClientVerification.Custom(
-      TAcceptAllClientVerifier.Create as IClientCertificateVerifier))), 'a verifier instance');
+      TFixedVerdictVerifier.CreateAccepting as IClientCertificateVerifier))),
+    'a verifier instance');
   // control: the same trust store builds once the server requests client certificates
   CheckTrue(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithClientVerification(WebPkiClient(ClientTrust))
@@ -4661,7 +4619,7 @@ begin
     TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithServerVerification(TServerVerification.Custom(
-      TAcceptAllServerVerifier.Create as IServerCertificateVerifier))
+      TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier))
     .WithCertificateVerifyCallback(RejectEveryChain).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
   RunHandshake(LClient, LServer);

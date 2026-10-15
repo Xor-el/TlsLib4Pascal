@@ -53,6 +53,7 @@ uses
   TlpITlsTransport,
   TlpIClock,
   MockClock,
+  MockCertificateVerifiers,
   TlpTlsLibExceptions,
   TlpTlsConnection,
   TlpNegotiationTypes,
@@ -228,21 +229,6 @@ type
       const AExtraAnchors: ITrustAnchorStore): IServerVerification;
   end;
 
-  // an always-reject verifier - the composer only wires it; nothing here runs a handshake
-  TFakeServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  public
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
-  // a client-certificate verifier the composer only wires; used to prove a mode is required for it
-  TFakeClientVerifier = class(TInterfacedObject, IClientCertificateVerifier)
-  public
-    function VerifyClientCertificate(const AChain: TArray<TBytes>;
-      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
   // a timed transport over an in-memory inbound buffer, with a switchable readiness answer and a
   // per-send cap so a partial-write loop can be exercised
   TTestMemoryTransport = class(TTlsTimedTransportBase)
@@ -306,23 +292,6 @@ begin
   if DelegateOnly and (AExtraAnchors <> nil) then
     raise EInvalidOperationTlsLibException.Create('host roots beside the delegate');
   Result := TServerVerification.WebPki(FStore).Build;
-end;
-
-{ TFakeServerVerifier }
-
-function TFakeServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AAlert := TTlsAlertDescription.BadCertificate;
-  Result := False;
-end;
-
-function TFakeClientVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AAlert := TTlsAlertDescription.BadCertificate;
-  Result := False;
 end;
 
 { TTestMemoryTransport }
@@ -974,7 +943,8 @@ var
   LConfig: ITlsClientConfig;
 begin
   LOpts := TTlsOptions.Default;
-  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
   LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
   CheckNotNull(LConfig.ServerVerifierSource,
     'a whole-verifier composes into the verifier source');
@@ -988,7 +958,8 @@ var
   LMessage: string;
 begin
   LOpts := TTlsOptions.Default;
-  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
   LOpts.CustomTrustStore := EcP256RootStore;
   LRaised := False;
   LAlert := TTlsAlertDescription.CloseNotify;
@@ -1047,7 +1018,8 @@ begin
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.SystemTrust := LInst;
-  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
   LOpts.CustomTrustStore := EcP256RootStore;
   LOpts.TrustSourceHint := 'MyTrustKnob';
   LBlamed := True;
@@ -1097,7 +1069,8 @@ var
   LOpts: TTlsOptions;
 begin
   LOpts := TTlsOptions.Default;
-  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
   LOpts.VerifyPeer := False;
   CheckTrue(Refused(LOpts), 'a verifier beside VerifyPeer off is refused in adapter terms');
   LOpts.VerifyPeer := True;
@@ -1392,7 +1365,8 @@ var
 begin
   // a server-role client-cert verifier with mode None is inert: fail loud, do not silently drop it
   LOpts := ServerOptsWithCredential;
-  LOpts.ClientCertificateVerifier := TFakeClientVerifier.Create;
+  LOpts.ClientCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IClientCertificateVerifier;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
     'a client-cert verifier with mode None fails closed');
   CheckTrue(Pos('client authentication is None', LMsg) > 0,
@@ -1866,7 +1840,8 @@ begin
   // the server-cert verifier and system trust are client-only reads, so they do not conflict with a
   // supplied server config; a shared option (a certificate) still does
   LOpts := TTlsOptions.Default;
-  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
     as ISystemTrustInstaller;
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
@@ -2050,7 +2025,8 @@ var
 begin
   // the server-cert verifier is a client-role read, so it conflicts with a supplied client config
   LOpts := TTlsOptions.Default;
-  LOpts.ServerCertificateVerifier := TFakeServerVerifier.Create as IServerCertificateVerifier;
+  LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
+    TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
   LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
   LRaised := False;
   try

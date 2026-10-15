@@ -77,6 +77,7 @@ uses
   TlpITlsTransport,
   TlpTlsStream,
   MockSessionStores,
+  MockCertificateVerifiers,
   TlsLibTestBase;
 
 type
@@ -285,27 +286,6 @@ type
 implementation
 
 type
-  /// <summary>Counts the chains it is asked to verify, then verifies them through AInner.</summary>
-  TCountingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  strict private
-    FInner: IServerCertificateVerifier;
-    FCalls: Int32;
-  public
-    constructor Create(const AInner: IServerCertificateVerifier);
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-    property Calls: Int32 read FCalls;
-  end;
-
-  /// <summary>A verifier that raises instead of answering.</summary>
-  TRaisingServerVerifier = class(TInterfacedObject, IServerCertificateVerifier)
-  public
-    function VerifyServerCertificate(const AChain: TArray<TBytes>;
-      const AServerName: TServerName; const AOcspStaple: TBytes;
-      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-  end;
-
   /// <summary>An anti-replay strategy that treats every binder as already seen.</summary>
   TRejectingAntiReplay = class(TInterfacedObject, IAntiReplayStrategy)
   public
@@ -332,32 +312,6 @@ type
     property LastNow: UInt64 read FLastNow;
     property LastExpiry: UInt64 read FLastExpiry;
   end;
-
-{ TCountingServerVerifier }
-
-constructor TCountingServerVerifier.Create(const AInner: IServerCertificateVerifier);
-begin
-  inherited Create;
-  FInner := AInner;
-end;
-
-function TCountingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  Inc(FCalls);
-  Result := FInner.VerifyServerCertificate(AChain, AServerName, AOcspStaple, AVerified, AAlert);
-end;
-
-{ TRaisingServerVerifier }
-
-function TRaisingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
-  const AServerName: TServerName; const AOcspStaple: TBytes;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
-begin
-  Result := False;
-  raise Exception.Create('the verifier failed');
-end;
 
 { TRejectingAntiReplay }
 
@@ -3744,7 +3698,7 @@ var
   LStek: ISessionTicketKeyManager;
   LAnti: IAntiReplayStrategy;
   LCache: ISessionCache;
-  LCounter: TCountingServerVerifier;
+  LCounter: TRecordingServerVerifier;
   LResumeVerifier: IServerCertificateVerifier;
   LClient, LServer: ITlsEngine;
 begin
@@ -3753,7 +3707,7 @@ begin
   LCache := TInMemorySessionCache.Create;
   CacheEarlyDataTicket(LStek, LAnti, LCache);
 
-  LCounter := TCountingServerVerifier.Create(ClientParams(LCache, True).CertificateVerifier);
+  LCounter := TRecordingServerVerifier.Create(ClientParams(LCache, True).CertificateVerifier);
   LResumeVerifier := LCounter;
   LClient := NewReverifyEarlyClient(LCache, LResumeVerifier, TVerdictDeferral.None);
   LServer := BuildServer(LStek, nil, 0, 7200, False, 16384, LAnti);
@@ -3853,7 +3807,7 @@ begin
   CacheEarlyDataTicket(LStek, LAnti, LCache);
 
   LClient := NewReverifyEarlyClient(LCache,
-    TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate)
     as IServerCertificateVerifier, TVerdictDeferral.None);
   LEarly := DecodeHex('30525454206561726c792064617461');
   LClient.StartHandshake;
@@ -3879,7 +3833,7 @@ begin
   CacheEarlyDataTicket(LStek, LAnti, LCache);
 
   LClient := NewReverifyEarlyClient(LCache,
-    TRejectingServerVerifier.Create(TTlsAlertDescription.BadCertificate)
+    TFixedVerdictVerifier.CreateRejecting(TTlsAlertDescription.BadCertificate)
     as IServerCertificateVerifier, TVerdictDeferral.None);
   LServer := BuildServer(LStek, nil, 0, 7200, True, 16384, LAnti);
   DriveHandshake(LClient, LServer);
