@@ -83,7 +83,8 @@ type
     // cache unit
     procedure TestMissThenPutThenHit;
     procedure TestBoundedEvictionDropsOldest;
-    procedure TestCompactionPreservesLiveEntriesUnderChurn;
+    procedure TestOverwriteChurnPreservesLiveEntries;
+    procedure TestRePutAfterEvictionIsNotEvictedByStaleOrder;
     procedure TestConcurrentPutAndGetSmoke;
     // policy (TryCompressWithCache)
     procedure TestCacheHitAndMissEqualDirectCompress;
@@ -244,16 +245,35 @@ begin
   CheckTrue(LCache.TryGet(LK3, LGot), 'the newest entry survives');
 end;
 
-procedure TTestCertificateCompressionCache.TestCompactionPreservesLiveEntriesUnderChurn;
+procedure TTestCertificateCompressionCache.TestRePutAfterEvictionIsNotEvictedByStaleOrder;
+var
+  LCache: ICertificateCompressionCache;
+  LA, LB, LC, LGot: TBytes;
+begin
+  LCache := TInMemoryCertificateCompressionCache.Create(2);
+  LA := ByteBlob($01, 32);
+  LB := ByteBlob($02, 32);
+  LC := ByteBlob($03, 32);
+  LCache.Put(LA, ByteBlob($A1, 8));
+  LCache.Put(LA, ByteBlob($A2, 8)); // an overwrite must not queue A a second time
+  LCache.Put(LB, ByteBlob($B1, 8));
+  LCache.Put(LC, ByteBlob($C1, 8)); // evicts A, the oldest
+  CheckFalse(LCache.TryGet(LA, LGot), 'the oldest key was evicted');
+  LCache.Put(LA, ByteBlob($A3, 8)); // evicts B, now the oldest
+  CheckTrue(LCache.TryGet(LA, LGot), 'a key put again is held, not evicted by a leftover order entry');
+  CheckEqualBytes('with its new value', ByteBlob($A3, 8), LGot);
+  CheckFalse(LCache.TryGet(LB, LGot), 'the oldest live key was evicted instead');
+  CheckEquals(2, LCache.Count, 'the cache stays at its cap');
+end;
+
+procedure TTestCertificateCompressionCache.TestOverwriteChurnPreservesLiveEntries;
 var
   LCache: ICertificateCompressionCache;
   LLive: array [0 .. 4] of TBytes;
   LChurn, LGot: TBytes;
   LI: Int32;
 begin
-  // overwrite one throwaway key far more often than the cap: FByKey stays small so eviction
-  // rarely fires and the order structure must be compacted instead of growing without bound.
-  // Compaction must leave the long-lived entries intact.
+  // overwriting one key past the cap neither evicts the long-lived entries nor loses its value
   LCache := TInMemoryCertificateCompressionCache.Create(8);
   for LI := 0 to 4 do
   begin
@@ -265,7 +285,7 @@ begin
     LCache.Put(LChurn, ByteBlob(Byte(LI), 4));
   for LI := 0 to 4 do
   begin
-    CheckTrue(LCache.TryGet(LLive[LI], LGot), 'a live entry survives repeated compaction');
+    CheckTrue(LCache.TryGet(LLive[LI], LGot), 'a live entry survives the overwrite churn');
     CheckEqualBytes('with its bytes intact', ByteBlob(Byte($A0 + LI), 16), LGot);
   end;
   CheckTrue(LCache.TryGet(LChurn, LGot), 'the churned key holds its latest value');
@@ -562,7 +582,8 @@ begin
   LDecoded := THandshakeMessages.DecodeCompressedCertificate(LMsg2.Body);
   LRecovered := TCertificateCompression.Decompress(
     TZlibCertificateCompression.DefaultDecompressors, LDecoded.Algorithm,
-    LDecoded.Compressed, LDecoded.UncompressedLength);
+    LDecoded.Compressed, LDecoded.UncompressedLength,
+    TCertificateChainLimits.Defaults.MaxTotalChainLength);
   CheckEqualBytes('the cached body decompresses to the plaintext Certificate',
     PlaintextCertBody(LChain), LRecovered);
 end;
@@ -592,12 +613,14 @@ begin
   CheckEqualBytes('body A decompresses to its plaintext Certificate',
     PlaintextCertBody(LChainA), TCertificateCompression.Decompress(
     TZlibCertificateCompression.DefaultDecompressors, LDecodedA.Algorithm,
-    LDecodedA.Compressed, LDecodedA.UncompressedLength));
+    LDecodedA.Compressed, LDecodedA.UncompressedLength,
+    TCertificateChainLimits.Defaults.MaxTotalChainLength));
   LDecodedB := THandshakeMessages.DecodeCompressedCertificate(LMsgB.Body);
   CheckEqualBytes('body B decompresses to its plaintext Certificate',
     PlaintextCertBody(LChainB), TCertificateCompression.Decompress(
     TZlibCertificateCompression.DefaultDecompressors, LDecodedB.Algorithm,
-    LDecodedB.Compressed, LDecodedB.UncompressedLength));
+    LDecodedB.Compressed, LDecodedB.UncompressedLength,
+    TCertificateChainLimits.Defaults.MaxTotalChainLength));
 end;
 
 initialization

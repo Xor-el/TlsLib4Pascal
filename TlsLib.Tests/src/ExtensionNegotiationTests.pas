@@ -91,7 +91,8 @@ type
     function AppRecordCount(const AWire: TBytes): Int32;
     function NewClientMachine(const AAlpn: TArray<TBytes>): IHandshakeMachine;
     function NewClientMachineWith(const AAlpn: TArray<TBytes>;
-      const ADecompressors: TArray<ICertificateDecompressor>): IHandshakeMachine;
+      const ADecompressors: TArray<ICertificateDecompressor>;
+      const ALimits: TCertificateChainLimits): IHandshakeMachine;
     function NewServerMachine(const AAlpn: TArray<TBytes>): IHandshakeMachine;
     function NewServerMachineLimited(const AAlpn: TArray<TBytes>;
       ARecordSizeLimit: Int32): IHandshakeMachine;
@@ -128,7 +129,7 @@ type
     function NewGreasingClient: ITlsEngine;
     function NewGreasingClientMachine: IHandshakeMachine;
     function ServerHelloFrom(const AWire: TBytes): TTlsServerHello;
-    function DriveClientToWaitCertificate(
+    function DriveClientToWaitCertificate(const ALimits: TCertificateChainLimits;
       out AServerFlight: TArray<TBytes>): IHandshakeMachine;
     function CompressedCertificateOf(AAlgorithm: UInt16;
       AUncompressedLength: Int32; const ACompressed: TBytes): TBytes;
@@ -158,6 +159,8 @@ type
     procedure TestCertificateVerifyBeforeCertificateUnexpected;
     procedure TestClientAcceptsCompressedCertificate;
     procedure TestClientRejectsCompressedCertificateBomb;
+    procedure TestClientRejectsCompressedCertificateOverTheChainBudget;
+    procedure TestClientAcceptsCompressedCertificateAtTheChainBudget;
     procedure TestClientRejectsUnadvertisedCompressionAlgorithm;
     procedure TestClientRejectsNonEmptyCertificateRequestContext;
     procedure TestServerEmitsCompressedCertificate;
@@ -491,12 +494,14 @@ end;
 function TTestExtensionNegotiation.NewClientMachine(
   const AAlpn: TArray<TBytes>): IHandshakeMachine;
 begin
-  Result := NewClientMachineWith(AAlpn, TZlibCertificateCompression.DefaultDecompressors);
+  Result := NewClientMachineWith(AAlpn, TZlibCertificateCompression.DefaultDecompressors,
+    TCertificateChainLimits.Defaults);
 end;
 
 function TTestExtensionNegotiation.NewClientMachineWith(
   const AAlpn: TArray<TBytes>;
-  const ADecompressors: TArray<ICertificateDecompressor>): IHandshakeMachine;
+  const ADecompressors: TArray<ICertificateDecompressor>;
+  const ALimits: TCertificateChainLimits): IHandshakeMachine;
 var
   LParams: TClientHandshakeParams;
 begin
@@ -517,7 +522,7 @@ begin
     TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
     True) as IServerCertificateVerifier;
   LParams.CertificateDecompressors := ADecompressors;
-  LParams.CertificateChainLimits := TCertificateChainLimits.Defaults;
+  LParams.CertificateChainLimits := ALimits;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
@@ -932,12 +937,13 @@ begin
 end;
 
 function TTestExtensionNegotiation.DriveClientToWaitCertificate(
+  const ALimits: TCertificateChainLimits;
   out AServerFlight: TArray<TBytes>): IHandshakeMachine;
 var
   LServer: IHandshakeMachine;
 begin
   // real ClientHello/ServerHello exchange, then feed ServerHello + EncryptedExtensions
-  Result := NewClientMachine(nil);
+  Result := NewClientMachineWith(nil, TZlibCertificateCompression.DefaultDecompressors, ALimits);
   LServer := NewServerMachine(nil);
   AServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(Result.Start))));
@@ -964,7 +970,7 @@ var
   LCertBody, LCompressed, LCompMsg: TBytes;
   LAlert: TTlsAlertDescription;
 begin
-  LClient := DriveClientToWaitCertificate(LFlight);
+  LClient := DriveClientToWaitCertificate(TCertificateChainLimits.Defaults, LFlight);
   // compress the server's real Certificate message and deliver it compressed
   LCertBody := TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]).Body;
   LCompressed := ZlibCompress(LCertBody);
@@ -982,7 +988,7 @@ var
   LZeros, LCompressed, LCompMsg: TBytes;
   LAlert: TTlsAlertDescription;
 begin
-  LClient := DriveClientToWaitCertificate(LFlight);
+  LClient := DriveClientToWaitCertificate(TCertificateChainLimits.Defaults, LFlight);
   // a tiny compressed body declaring a huge expansion is a bomb
   LZeros := nil;
   SetLength(LZeros, 60000);
@@ -995,6 +1001,48 @@ begin
     'a compressed-certificate bomb is illegal_parameter');
 end;
 
+procedure TTestExtensionNegotiation.TestClientRejectsCompressedCertificateOverTheChainBudget;
+var
+  LLimits: TCertificateChainLimits;
+  LClient: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LCertBody, LCompMsg: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // the body compresses far less than 100x, so only the budget passed in can refuse it
+  LLimits := TCertificateChainLimits.Defaults;
+  LClient := DriveClientToWaitCertificate(LLimits, LFlight);
+  LCertBody := TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]).Body;
+  LLimits.MaxTotalChainLength := System.Length(LCertBody) - 1;
+  LClient := DriveClientToWaitCertificate(LLimits, LFlight);
+  LCompMsg := CompressedCertificateOf(TCertificateCompressionAlgorithms.Zlib,
+    System.Length(LCertBody), ZlibCompress(LCertBody));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCompMsg)), LAlert),
+    'a declared length over the chain budget aborts');
+  CheckTrue(LAlert = TTlsAlertDescription.IllegalParameter,
+    'an over-budget declared length is illegal_parameter');
+end;
+
+procedure TTestExtensionNegotiation.TestClientAcceptsCompressedCertificateAtTheChainBudget;
+var
+  LLimits: TCertificateChainLimits;
+  LClient: IHandshakeMachine;
+  LFlight: TArray<TBytes>;
+  LCertBody, LCompMsg: TBytes;
+  LAlert: TTlsAlertDescription;
+begin
+  // the control for the over-budget test: a budget of exactly the body length passes the check
+  LLimits := TCertificateChainLimits.Defaults;
+  LClient := DriveClientToWaitCertificate(LLimits, LFlight);
+  LCertBody := TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]).Body;
+  LLimits.MaxTotalChainLength := System.Length(LCertBody);
+  LClient := DriveClientToWaitCertificate(LLimits, LFlight);
+  LCompMsg := CompressedCertificateOf(TCertificateCompressionAlgorithms.Zlib,
+    System.Length(LCertBody), ZlibCompress(LCertBody));
+  CheckFalse(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCompMsg)), LAlert),
+    'a declared length at the chain budget is accepted');
+end;
+
 procedure TTestExtensionNegotiation.TestClientRejectsUnadvertisedCompressionAlgorithm;
 var
   LClient: IHandshakeMachine;
@@ -1002,7 +1050,7 @@ var
   LCompMsg: TBytes;
   LAlert: TTlsAlertDescription;
 begin
-  LClient := DriveClientToWaitCertificate(LFlight);
+  LClient := DriveClientToWaitCertificate(TCertificateChainLimits.Defaults, LFlight);
   // brotli (2) was never advertised by the client
   LCompMsg := CompressedCertificateOf(2, 100, DecodeHex('00010203'));
   CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCompMsg)), LAlert),
@@ -1021,7 +1069,7 @@ var
 begin
   // the server's real Certificate re-encoded with a one-byte certificate_request_context;
   // the context SHALL be empty in the main handshake (RFC 9846 4.5.1)
-  LClient := DriveClientToWaitCertificate(LFlight);
+  LClient := DriveClientToWaitCertificate(TCertificateChainLimits.Defaults, LFlight);
   LCert := THandshakeMessages.DecodeCertificate(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]).Body);
   LCert.RequestContext := TBytes.Create($01);
   LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
@@ -1049,7 +1097,8 @@ begin
     'the emitted algorithm is zlib');
   LRecovered := TCertificateCompression.Decompress(
     TZlibCertificateCompression.DefaultDecompressors, LDecoded.Algorithm,
-    LDecoded.Compressed, LDecoded.UncompressedLength);
+    LDecoded.Compressed, LDecoded.UncompressedLength,
+    TCertificateChainLimits.Defaults.MaxTotalChainLength);
   CheckEqualBytes('the compressed body decompresses to the plaintext Certificate',
     PlaintextCertBody(CompressibleChain), LRecovered);
 end;
@@ -1091,7 +1140,8 @@ begin
   // a custom (non-zlib codepoint) backend injected on both ends is honored end to end
   LCertMsg := DriveServerCertMessage(
     NewClientMachineWith(nil, TArray<ICertificateDecompressor>.Create(
-      TCustomCertDecompressor.Create as ICertificateDecompressor)),
+      TCustomCertDecompressor.Create as ICertificateDecompressor),
+      TCertificateChainLimits.Defaults),
     NewServerMachineWith(CompressibleChain, TArray<ICertificateCompressor>.Create(
       TCustomCertCompressor.Create as ICertificateCompressor)));
   CheckTrue(LCertMsg.TypeByte = Byte(Ord(TTlsHandshakeType.CompressedCertificate)),
@@ -1102,7 +1152,8 @@ begin
   LRecovered := TCertificateCompression.Decompress(
     TArray<ICertificateDecompressor>.Create(
     TCustomCertDecompressor.Create as ICertificateDecompressor),
-    LDecoded.Algorithm, LDecoded.Compressed, LDecoded.UncompressedLength);
+    LDecoded.Algorithm, LDecoded.Compressed, LDecoded.UncompressedLength,
+    TCertificateChainLimits.Defaults.MaxTotalChainLength);
   CheckEqualBytes('the injected backend round-trips the plaintext Certificate',
     PlaintextCertBody(CompressibleChain), LRecovered);
 end;

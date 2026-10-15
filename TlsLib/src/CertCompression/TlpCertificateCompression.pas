@@ -56,8 +56,6 @@ type
     class function DeriveKey(const ACryptoProvider: ICryptoProvider; AAlgorithm: UInt16;
       const ABody: TBytes): TBytes; static;
   public const
-    /// <summary>The hard ceiling on decompressed certificate-message bytes.</summary>
-    MaxDecompressedLength = Int32(1 shl 18);
     /// <summary>The largest declared expansion over the compressed size (bomb guard).</summary>
     MaxExpansionRatio = Int32(100);
     /// <summary>The most algorithms one compress_certificate extension can list
@@ -111,23 +109,16 @@ type
       AHasEntries: Boolean): TBytes; static;
     /// <summary>
     /// Decompresses ACompressed under AAlgorithm using ADecompressors, bounded to
-    /// ADeclaredLength against the hard MaxDecompressedLength ceiling. Raises a fatal
-    /// alert on an unsupported algorithm or a declared length outside its bounds
-    /// (illegal_parameter), a ratio that reeks of a bomb (illegal_parameter), a
-    /// decompressor that cannot decompress the input or raises (bad_certificate), or an
-    /// output whose length does not match the declared length (bad_certificate).
+    /// ADeclaredLength, which must not exceed AMaxLength (the caller's configured
+    /// certificate-chain budget). Raises a fatal alert on an unsupported algorithm or a
+    /// declared length outside its bounds (illegal_parameter), a ratio that reeks of a
+    /// bomb (illegal_parameter), a decompressor that cannot decompress the input or raises
+    /// (bad_certificate), or an output whose length does not match the declared length
+    /// (bad_certificate).
     /// </summary>
     class function Decompress(
       const ADecompressors: TArray<ICertificateDecompressor>; AAlgorithm: UInt16;
-      const ACompressed: TBytes; ADeclaredLength: Int32): TBytes; overload; static;
-    /// <summary>As above, but with an explicit AMaxLength ceiling so the caller's
-    /// configured budget (the certificate-chain limits) bounds the decompressed body
-    /// rather than the fixed MaxDecompressedLength - the compressed and uncompressed
-    /// paths then honour the same cap.</summary>
-    class function Decompress(
-      const ADecompressors: TArray<ICertificateDecompressor>; AAlgorithm: UInt16;
-      const ACompressed: TBytes; ADeclaredLength, AMaxLength: Int32): TBytes;
-      overload; static;
+      const ACompressed: TBytes; ADeclaredLength, AMaxLength: Int32): TBytes; static;
   end;
 
 implementation
@@ -277,14 +268,6 @@ begin
       THandshakeMessages.EncodeCompressedCertificate(LMsg)));
   end;
   Result := THandshakeFraming.Frame(TTlsHandshakeType.Certificate, ABody);
-end;
-
-class function TCertificateCompression.Decompress(
-  const ADecompressors: TArray<ICertificateDecompressor>; AAlgorithm: UInt16;
-  const ACompressed: TBytes; ADeclaredLength: Int32): TBytes;
-begin
-  Result := Decompress(ADecompressors, AAlgorithm, ACompressed, ADeclaredLength,
-    MaxDecompressedLength);
 end;
 
 class function TCertificateCompression.Decompress(
