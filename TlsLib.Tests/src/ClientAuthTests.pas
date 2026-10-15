@@ -65,6 +65,7 @@ uses
   TlpTls13ServerStateMachine,
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
+  MockCertificateCompression,
   TlsLibTestBase,
   TlsLibTestHandshakeDecoder;
 
@@ -183,106 +184,6 @@ type
   end;
 
 implementation
-
-type
-  TCompressorMode = (Normal, Decline, EmptySuccess, Throws, Oversize);
-  TDecompressorMode = (Works, Fails, Raises, WrongLength);
-
-  // zlib's codepoint with a tally and a scripted misbehaviour, so a test can prove which side
-  // compressed or decompressed, and how the engine reacts to a contract breach
-  TSpyCertCompressor = class sealed(TInterfacedObject, ICertificateCompressor)
-  strict private
-    FMode: TCompressorMode;
-    FCount: Int32;
-  public
-    constructor Create(AMode: TCompressorMode);
-    function Algorithm: UInt16;
-    function TryCompress(const AData: TBytes; out ACompressed: TBytes): Boolean;
-    property Count: Int32 read FCount;
-  end;
-
-  TSpyCertDecompressor = class sealed(TInterfacedObject, ICertificateDecompressor)
-  strict private
-    FMode: TDecompressorMode;
-    FCount: Int32;
-  public
-    constructor Create(AMode: TDecompressorMode);
-    function Algorithm: UInt16;
-    function TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
-      out ADecompressed: TBytes): Boolean;
-    property Count: Int32 read FCount;
-  end;
-
-  ESpyBackend = class(Exception);
-
-constructor TSpyCertCompressor.Create(AMode: TCompressorMode);
-begin
-  inherited Create;
-  FMode := AMode;
-end;
-
-function TSpyCertCompressor.Algorithm: UInt16;
-begin
-  Result := TCertificateCompressionAlgorithms.Zlib;
-end;
-
-function TSpyCertCompressor.TryCompress(const AData: TBytes;
-  out ACompressed: TBytes): Boolean;
-begin
-  Inc(FCount);
-  ACompressed := nil;
-  case FMode of
-    TCompressorMode.Decline:
-      Result := False;
-    TCompressorMode.EmptySuccess:
-      Result := True;
-    TCompressorMode.Throws:
-      raise ESpyBackend.Create('the backend failed');
-    TCompressorMode.Oversize:
-      begin
-        // one byte past the 2^24-1 compressed_certificate_message ceiling
-        SetLength(ACompressed, TCertificateCompression.MaxCompressedLength + 1);
-        Result := True;
-      end;
-  else
-    Result := TZlibCertificateCompression.DefaultCompressors[0].TryCompress(AData, ACompressed);
-  end;
-end;
-
-constructor TSpyCertDecompressor.Create(AMode: TDecompressorMode);
-begin
-  inherited Create;
-  FMode := AMode;
-end;
-
-function TSpyCertDecompressor.Algorithm: UInt16;
-begin
-  Result := TCertificateCompressionAlgorithms.Zlib;
-end;
-
-function TSpyCertDecompressor.TryDecompress(const ACompressed: TBytes; AMaxLength: Int32;
-  out ADecompressed: TBytes): Boolean;
-begin
-  Inc(FCount);
-  ADecompressed := nil;
-  case FMode of
-    TDecompressorMode.Fails:
-      Result := False;
-    TDecompressorMode.Raises:
-      raise ESpyBackend.Create('the backend failed');
-    TDecompressorMode.WrongLength:
-    begin
-      // a short result that is not the declared length
-      Result := TZlibCertificateCompression.DefaultDecompressors[0].TryDecompress(
-        ACompressed, AMaxLength, ADecompressed);
-      if Result and (System.Length(ADecompressed) > 0) then
-        SetLength(ADecompressed, System.Length(ADecompressed) - 1);
-    end;
-  else
-    Result := TZlibCertificateCompression.DefaultDecompressors[0].TryDecompress(
-      ACompressed, AMaxLength, ADecompressed);
-  end;
-end;
 
 { TTestClientAuth }
 
@@ -1428,16 +1329,20 @@ end;
 procedure TTestClientAuth.TestClientCertificateIsCompressedInBothDirections;
 var
   LClient, LServer: ITlsEngine;
-  LClientCompressor, LServerCompressor: TSpyCertCompressor;
-  LClientDecompressor, LServerDecompressor: TSpyCertDecompressor;
+  LClientCompressor, LServerCompressor: TMockCertificateCompressor;
+  LClientDecompressor, LServerDecompressor: TMockCertificateDecompressor;
 begin
   // each side holds a compressor and a decompressor for zlib: the server compresses its
   // Certificate for the client (the existing direction) and, now that its CertificateRequest
   // advertises compress_certificate, the client compresses its own for the server
-  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Normal);
-  LServerCompressor := TSpyCertCompressor.Create(TCompressorMode.Normal);
-  LClientDecompressor := TSpyCertDecompressor.Create(TDecompressorMode.Works);
-  LServerDecompressor := TSpyCertDecompressor.Create(TDecompressorMode.Works);
+  LClientCompressor := TMockCertificateCompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockCompressorMode.Normal);
+  LServerCompressor := TMockCertificateCompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockCompressorMode.Normal);
+  LClientDecompressor := TMockCertificateDecompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockDecompressorMode.Works);
+  LServerDecompressor := TMockCertificateDecompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockDecompressorMode.Works);
   LClient := New13CompressionPair(
     TArray<ICertificateCompressor>.Create(LClientCompressor as ICertificateCompressor),
     TArray<ICertificateDecompressor>.Create(LClientDecompressor as ICertificateDecompressor),
@@ -1456,10 +1361,11 @@ end;
 procedure TTestClientAuth.TestEmptyClientCompressorsSendAPlainCertificate;
 var
   LClient, LServer: ITlsEngine;
-  LServerDecompressor: TSpyCertDecompressor;
+  LServerDecompressor: TMockCertificateDecompressor;
 begin
   // an empty compressor set turns client-certificate compression off, whatever the server advertises
-  LServerDecompressor := TSpyCertDecompressor.Create(TDecompressorMode.Works);
+  LServerDecompressor := TMockCertificateDecompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockDecompressorMode.Works);
   LClient := New13CompressionPair(nil,
     TZlibCertificateCompression.DefaultDecompressors, nil,
     TZlibCertificateCompression.DefaultCompressors,
@@ -1473,10 +1379,11 @@ end;
 procedure TTestClientAuth.TestServerAdvertisingNothingGetsAPlainCertificate;
 var
   LClient, LServer: ITlsEngine;
-  LClientCompressor: TSpyCertCompressor;
+  LClientCompressor: TMockCertificateCompressor;
 begin
   // a server with no decompressors advertises nothing, so there is no common algorithm to use
-  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Normal);
+  LClientCompressor := TMockCertificateCompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockCompressorMode.Normal);
   LClient := New13CompressionPair(
     TArray<ICertificateCompressor>.Create(LClientCompressor as ICertificateCompressor),
     TZlibCertificateCompression.DefaultDecompressors, nil,
@@ -1490,12 +1397,13 @@ procedure TTestClientAuth.TestClientCertificateCompressionIsMemoizedOnTheClient;
 var
   LCache: ICertificateCompressionCache;
   LClient, LServer: ITlsEngine;
-  LClientCompressor: TSpyCertCompressor;
+  LClientCompressor: TMockCertificateCompressor;
   LClientCompressorRef: ICertificateCompressor;
 begin
   // two handshakes from one client config compress the same Certificate once through a shared cache
   LCache := TInMemoryCertificateCompressionCache.Create;
-  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Normal);
+  LClientCompressor := TMockCertificateCompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockCompressorMode.Normal);
   LClientCompressorRef := LClientCompressor;
   LClient := New13CompressionPair(TArray<ICertificateCompressor>.Create(LClientCompressorRef),
     TZlibCertificateCompression.DefaultDecompressors, LCache,
@@ -1515,12 +1423,14 @@ end;
 procedure TTestClientAuth.TestDecliningClientCompressorSendsAPlainCertificate;
 var
   LClient, LServer: ITlsEngine;
-  LClientCompressor: TSpyCertCompressor;
-  LServerDecompressor: TSpyCertDecompressor;
+  LClientCompressor: TMockCertificateCompressor;
+  LServerDecompressor: TMockCertificateDecompressor;
 begin
   // a compressor that declines (False) leaves the Certificate uncompressed: compression is a MAY
-  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Decline);
-  LServerDecompressor := TSpyCertDecompressor.Create(TDecompressorMode.Works);
+  LClientCompressor := TMockCertificateCompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockCompressorMode.Decline);
+  LServerDecompressor := TMockCertificateDecompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockDecompressorMode.Works);
   LClient := New13CompressionPair(
     TArray<ICertificateCompressor>.Create(LClientCompressor as ICertificateCompressor),
     TZlibCertificateCompression.DefaultDecompressors, nil,
@@ -1541,7 +1451,8 @@ begin
   // loud internal_error, not a silent fall back to uncompressed
   LClient := New13CompressionPair(
     TArray<ICertificateCompressor>.Create(
-    TSpyCertCompressor.Create(TCompressorMode.EmptySuccess) as ICertificateCompressor),
+    TMockCertificateCompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockCompressorMode.EmptySuccess) as ICertificateCompressor),
     TZlibCertificateCompression.DefaultDecompressors, nil,
     TZlibCertificateCompression.DefaultCompressors,
     TZlibCertificateCompression.DefaultDecompressors, LServer);
@@ -1554,11 +1465,12 @@ end;
 procedure TTestClientAuth.TestRaisingCompressorIsNotSwallowed;
 var
   LClient, LServer: ITlsEngine;
-  LClientCompressor: TSpyCertCompressor;
+  LClientCompressor: TMockCertificateCompressor;
 begin
   // an exception from a compressor is a bug or an unrecoverable condition: the engine does not
   // catch it and fall back, it fails the handshake
-  LClientCompressor := TSpyCertCompressor.Create(TCompressorMode.Throws);
+  LClientCompressor := TMockCertificateCompressor.Create(
+    TCertificateCompressionAlgorithms.Zlib, TMockCompressorMode.Throws);
   LClient := New13CompressionPair(
     TArray<ICertificateCompressor>.Create(LClientCompressor as ICertificateCompressor),
     TZlibCertificateCompression.DefaultDecompressors, nil,
@@ -1578,7 +1490,8 @@ begin
     TZlibCertificateCompression.DefaultDecompressors, nil,
     TZlibCertificateCompression.DefaultCompressors,
     TArray<ICertificateDecompressor>.Create(
-    TSpyCertDecompressor.Create(TDecompressorMode.Fails) as ICertificateDecompressor), LServer);
+    TMockCertificateDecompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockDecompressorMode.Fails) as ICertificateDecompressor), LServer);
   Drive(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the server aborted');
   CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
@@ -1595,7 +1508,8 @@ begin
     TZlibCertificateCompression.DefaultDecompressors, nil,
     TZlibCertificateCompression.DefaultCompressors,
     TArray<ICertificateDecompressor>.Create(
-    TSpyCertDecompressor.Create(TDecompressorMode.Raises) as ICertificateDecompressor), LServer);
+    TMockCertificateDecompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockDecompressorMode.Raises) as ICertificateDecompressor), LServer);
   Drive(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the server aborted');
   CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificate)),
@@ -1611,7 +1525,8 @@ begin
     TZlibCertificateCompression.DefaultDecompressors, nil,
     TZlibCertificateCompression.DefaultCompressors,
     TArray<ICertificateDecompressor>.Create(
-    TSpyCertDecompressor.Create(TDecompressorMode.WrongLength) as ICertificateDecompressor),
+    TMockCertificateDecompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockDecompressorMode.WrongLength) as ICertificateDecompressor),
     LServer);
   Drive(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the server aborted');
@@ -1621,20 +1536,21 @@ end;
 
 procedure TTestClientAuth.TestClientDecompressorContractBreachesAreBadCertificate;
 var
-  LModes: array[0..2] of TDecompressorMode;
+  LModes: array[0..2] of TMockDecompressorMode;
   LI: Int32;
   LClient, LServer: ITlsEngine;
 begin
   // the central mapping holds for the client receiving the server's Certificate just as for the
   // server receiving the client's: a False, a raise, or a wrong length is bad_certificate
-  LModes[0] := TDecompressorMode.Fails;
-  LModes[1] := TDecompressorMode.Raises;
-  LModes[2] := TDecompressorMode.WrongLength;
+  LModes[0] := TMockDecompressorMode.Fails;
+  LModes[1] := TMockDecompressorMode.Raises;
+  LModes[2] := TMockDecompressorMode.WrongLength;
   for LI := 0 to 2 do
   begin
     LClient := New13CompressionPair(TZlibCertificateCompression.DefaultCompressors,
       TArray<ICertificateDecompressor>.Create(
-      TSpyCertDecompressor.Create(LModes[LI]) as ICertificateDecompressor), nil,
+      TMockCertificateDecompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+      LModes[LI]) as ICertificateDecompressor), nil,
       TZlibCertificateCompression.DefaultCompressors,
       TZlibCertificateCompression.DefaultDecompressors, LServer);
     Drive(LClient, LServer);
@@ -1651,7 +1567,8 @@ begin
   // a result past the 2^24-1 ceiling cannot be framed, so the Certificate goes out plain
   LFramed := TCertificateCompression.FrameCertificate(
     TArray<ICertificateCompressor>.Create(
-    TSpyCertCompressor.Create(TCompressorMode.Oversize) as ICertificateCompressor),
+    TMockCertificateCompressor.Create(TCertificateCompressionAlgorithms.Zlib,
+    TMockCompressorMode.Oversize) as ICertificateCompressor),
     TArray<UInt16>.Create(TCertificateCompressionAlgorithms.Zlib), nil, Crypto,
     TBytes.Create($00, $00, $00, $00), True);
   CheckEquals(Int64(Ord(TTlsHandshakeType.Certificate)), Int64(LFramed[0]),
