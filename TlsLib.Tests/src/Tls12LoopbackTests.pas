@@ -30,7 +30,6 @@ uses
 {$ENDIF FPC}
   TlpTlsVersion,
   TlpTlsAlert,
-  TlpRecordHeader,
   TlpTlsLibExceptions,
   TlpNamedGroups,
   TlpNegotiationTypes,
@@ -61,49 +60,33 @@ uses
   MockCryptoProvider,
   TlsLibTestHandshakeDecoder,
   TlsLibTestCertificates,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
-  TTestTls12Loopback = class(TTlsLibAlgorithmTestCase)
+  TTestTls12Loopback = class(TTlsLibHandshakeTestCase)
   private
-    function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function ServerCredential: TTlsCredential;
     function NewClient(ASuite: UInt16; AOfferEms: Boolean): ITlsEngine;
     function NewServer(ARequireEms: Boolean): ITlsEngine;
-    function ServerCredentialEd448: TTlsCredential;
     function NewClientEd448: ITlsEngine;
     function NewServerEd448: ITlsEngine;
-    function ServerCredentialEd25519: TTlsCredential;
     function NewClientEd25519: ITlsEngine;
     function NewServerEd25519: ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     procedure RunHandshakeAndExchange(ASuite: UInt16; AOfferEms, ARequireEms: Boolean;
       const AMsg: string);
     /// <summary>Flips the last byte of the first handshake message of AMsgType found in
     /// the plaintext handshake records of AWire (test-only wire mutation).</summary>
     function TamperHandshakeMessage(var AWire: TBytes; AMsgType: Byte): Boolean;
-    // AWire's first record alone, with AExtra appended to its body (the length is rewritten).
-    function FirstRecordWith(const AWire, AExtra: TBytes): TBytes;
     /// <summary>Flips a payload byte of the last record in AWire (the encrypted Finished
     /// on a second flight); returns False when AWire holds no record.</summary>
     function TamperLastRecordPayload(var AWire: TBytes): Boolean;
     function ClientMachine(ASuite: UInt16; AOfferEms: Boolean): IHandshakeMachine;
     function ServerMachine(ARequireEms: Boolean): IHandshakeMachine;
-    function OcspField(const AName: string): TBytes;
     function NewStaplingServer(const AStaple: TBytes): ITlsEngine;
     function NewHardRevocationClient: ITlsEngine;
-    /// <summary>The framed bytes of each SendHandshake effect, in order (the record-layer
-    /// effects a machine emits - keys, change_cipher_spec - are dropped).</summary>
-    function SendMessages(const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
     /// <summary>Delivers each framed handshake message to ADst and returns every effect
     /// it produced, so two bare state machines can be driven without a record layer.</summary>
     function DeliverFlight(const ADst: IHandshakeMachine;
       const AMsgs: TArray<TBytes>): TArray<THandshakeEffect>;
-    function HasFailAlert(const AEffects: TArray<THandshakeEffect>;
-      AAlert: TTlsAlertDescription): Boolean;
     function HasEffect(const AEffects: TArray<THandshakeEffect>;
       AKind: THandshakeEffectKind): Boolean;
     function DecodeServerFlightHello(const AFlight: TArray<TBytes>): TTlsServerHello;
@@ -152,30 +135,6 @@ type
 implementation
 
 { TTestTls12Loopback }
-
-function TTestTls12Loopback.Filled(AByte: Byte; ACount: Int32): TBytes;
-var
-  LI: Int32;
-begin
-  Result := nil;
-  SetLength(Result, ACount);
-  for LI := 0 to ACount - 1 do
-    Result[LI] := AByte;
-end;
-
-function TTestTls12Loopback.ServerCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
 
 function TTestTls12Loopback.ClientMachine(ASuite: UInt16;
   AOfferEms: Boolean): IHandshakeMachine;
@@ -228,21 +187,6 @@ begin
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.RequireExtendedMasterSecret := ARequireEms;
   Result := TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine;
-end;
-
-function TTestTls12Loopback.ServerCredentialEd448: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/Ed448Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-      DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
 end;
 
 function TTestTls12Loopback.NewClientEd448: ITlsEngine;
@@ -301,21 +245,6 @@ begin
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestTls12Loopback.ServerCredentialEd25519: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/Ed25519Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-      DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls12Loopback.NewClientEd25519: ITlsEngine;
 var
   LParams: TClient12HandshakeParams;
@@ -371,18 +300,6 @@ begin
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestTls12Loopback.OcspField(const AName: string): TBytes;
-var
-  LV: TStringList;
-begin
-  LV := LoadVectorFields('Certs/OcspStapling.txt');
-  try
-    Result := DecodeHex(LV.Values[AName]);
-  finally
-    LV.Free;
-  end;
-end;
-
 function TTestTls12Loopback.NewStaplingServer(const AStaple: TBytes): ITlsEngine;
 begin
   Result := TTlsEngine.CreateConfigured(StaplingServerMachine(AStaple), Crypto);
@@ -418,7 +335,8 @@ begin
   LParams.RequestOcspStapling := True;
   LOptions.RevocationPosture := TRevocationPosture.Hard;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
     as ITrustAnchorStore, True, LOptions) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
@@ -428,54 +346,6 @@ end;
 function TTestTls12Loopback.NewServer(ARequireEms: Boolean): ITlsEngine;
 begin
   Result := TTlsEngine.CreateConfigured(ServerMachine(ARequireEms), Crypto);
-end;
-
-function TTestTls12Loopback.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls12Loopback.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  // one record at a time so an epoch installed while processing one record is active
-  // for the next
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
-procedure TTestTls12Loopback.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
-function TTestTls12Loopback.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
 end;
 
 procedure TTestTls12Loopback.TestWriteAfterInboundCloseNotifyClosesWrite;
@@ -715,17 +585,6 @@ begin
     Ord(LServer.LastError.Alert.Description), 'with handshake_failure');
 end;
 
-function TTestTls12Loopback.FirstRecordWith(const AWire, AExtra: TBytes): TBytes;
-var
-  LLen: Int32;
-begin
-  LLen := (AWire[3] shl 8) or AWire[4];
-  Result := ConcatBytes(System.Copy(AWire, 0, TRecordLimits.HeaderLength + LLen), AExtra);
-  Inc(LLen, System.Length(AExtra));
-  Result[3] := Byte(LLen shr 8);
-  Result[4] := Byte(LLen);
-end;
-
 function TTestTls12Loopback.TamperHandshakeMessage(var AWire: TBytes;
   AMsgType: Byte): Boolean;
 var
@@ -917,20 +776,6 @@ begin
     'no application data is produced after the abort');
 end;
 
-function TTestTls12Loopback.SendMessages(
-  const AEffects: TArray<THandshakeEffect>): TArray<TBytes>;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := nil;
-  for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.SendHandshake then
-    begin
-      SetLength(Result, System.Length(Result) + 1);
-      Result[System.High(Result)] := LEffect.Bytes;
-    end;
-end;
-
 function TTestTls12Loopback.DeliverFlight(const ADst: IHandshakeMachine;
   const AMsgs: TArray<TBytes>): TArray<THandshakeEffect>;
 var
@@ -955,17 +800,6 @@ begin
       LReader.Free;
     end;
   end;
-end;
-
-function TTestTls12Loopback.HasFailAlert(
-  const AEffects: TArray<THandshakeEffect>; AAlert: TTlsAlertDescription): Boolean;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := False;
-  for LEffect in AEffects do
-    if (LEffect.Kind = THandshakeEffectKind.Fail) and (LEffect.Alert = AAlert) then
-      Result := True;
 end;
 
 function TTestTls12Loopback.DecodeServerFlightHello(
@@ -1028,8 +862,10 @@ begin
   // the leaf's issuer travels in the chain so the client can authenticate the staple
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
-    OcspField('leaf_cert'), OcspField('issuer_cert'));
-  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(OcspField('leaf_key'), nil);
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
+  LCred.PrivateKey := Crypto.Signing.ImportSigningKey(
+    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   Result := TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine;
@@ -1062,7 +898,8 @@ begin
   LParams.Deferral := TVerdictDeferral.HostDecision;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(OcspField('root_cert')))
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine;
@@ -1076,8 +913,10 @@ var
 begin
   // the CertificateStatus is omitted, so the park waits for the signed ServerKeyExchange
   LClient := ParkingStaplingClientMachine;
-  LServer := StaplingServerMachine(OcspField('ocsp_good'));
-  LMsgs := AllServerMessages(SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start))));
+  LServer := StaplingServerMachine(TTlsLibTestCertificates.Field('Certs/OcspStapling.txt',
+    'ocsp_good'));
+  LMsgs := AllServerMessages(AllSendHandshake(DeliverFlight(LServer,
+    AllSendHandshake(LClient.Start))));
   // [ServerHello, Certificate, CertificateStatus, ServerKeyExchange, ServerHelloDone]
   CheckEquals(5, System.Length(LMsgs), 'the server produced the expected stapled 1.2 flight');
 
@@ -1111,8 +950,10 @@ var
 begin
   // a ServerHelloDone where the ServerKeyExchange is awaited fails at once, nothing having been proved
   LClient := ParkingStaplingClientMachine;
-  LServer := StaplingServerMachine(OcspField('ocsp_good'));
-  LMsgs := AllServerMessages(SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start))));
+  LServer := StaplingServerMachine(TTlsLibTestCertificates.Field('Certs/OcspStapling.txt',
+    'ocsp_good'));
+  LMsgs := AllServerMessages(AllSendHandshake(DeliverFlight(LServer,
+    AllSendHandshake(LClient.Start))));
   CheckEquals(5, System.Length(LMsgs), 'the server produced the expected stapled 1.2 flight');
 
   DeliverFlight(LClient, TArray<TBytes>.Create(LMsgs[0], LMsgs[1]));
@@ -1134,7 +975,7 @@ begin
   // the conformant encoder always writes 0x0303, so patch the low byte of legacy_version directly
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);
-  LFlight := SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start)));
+  LFlight := AllSendHandshake(DeliverFlight(LServer, AllSendHandshake(LClient.Start)));
   CheckTrue(System.Length(LFlight) > 0, 'the server produced a flight');
   LFramed := THandshakeFraming.Frame(TTlsHandshakeType.ServerHello,
     THandshakeMessages.EncodeServerHello(DecodeServerFlightHello(LFlight)));
@@ -1155,7 +996,7 @@ begin
   // client rejects the echo of an extension it offered with unsupported_extension
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);
-  LFlight := SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start)));
+  LFlight := AllSendHandshake(DeliverFlight(LServer, AllSendHandshake(LClient.Start)));
   CheckTrue(System.Length(LFlight) > 0, 'the server produced a flight');
   LSh := DecodeServerFlightHello(LFlight);
   LVec := TExtensionVector.Parse(LSh.Extensions);
@@ -1178,7 +1019,7 @@ begin
   // a present supported_versions whose value is 0 is still a present extension, not an absent one
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);
-  LFlight := SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start)));
+  LFlight := AllSendHandshake(DeliverFlight(LServer, AllSendHandshake(LClient.Start)));
   CheckTrue(System.Length(LFlight) > 0, 'the server produced a flight');
   LSh := DecodeServerFlightHello(LFlight);
   LVec := TExtensionVector.Parse(LSh.Extensions);
@@ -1208,8 +1049,8 @@ begin
   LServer := ServerMachine(False);
 
   // ClientHello -> the server flight -> the client's ClientKeyExchange + Finished
-  LClientFlight := SendMessages(DeliverFlight(LClient,
-    SendMessages(DeliverFlight(LServer, SendMessages(LClient.Start)))));
+  LClientFlight := AllSendHandshake(DeliverFlight(LClient,
+    AllSendHandshake(DeliverFlight(LServer, AllSendHandshake(LClient.Start)))));
   CheckTrue(System.Length(LClientFlight) >= 2,
     'the client emitted a ClientKeyExchange and a Finished');
 
@@ -1245,9 +1086,9 @@ begin
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);
   // ClientHello -> server flight -> client ClientKeyExchange+Finished -> server Finished -> client
-  DeliverFlight(LClient, SendMessages(DeliverFlight(LServer,
-    SendMessages(DeliverFlight(LClient, SendMessages(DeliverFlight(LServer,
-    SendMessages(LClient.Start))))))));
+  DeliverFlight(LClient, AllSendHandshake(DeliverFlight(LServer,
+    AllSendHandshake(DeliverFlight(LClient, AllSendHandshake(DeliverFlight(LServer,
+    AllSendHandshake(LClient.Start))))))));
 
   // a HelloRequest is type 0 with an empty body
   LWarnings := 0;
@@ -1275,9 +1116,9 @@ begin
   // a HelloRequest carries an empty body (RFC 5246 7.4.1.1); a non-empty one is a decode_error
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);
-  DeliverFlight(LClient, SendMessages(DeliverFlight(LServer,
-    SendMessages(DeliverFlight(LClient, SendMessages(DeliverFlight(LServer,
-    SendMessages(LClient.Start))))))));
+  DeliverFlight(LClient, AllSendHandshake(DeliverFlight(LServer,
+    AllSendHandshake(DeliverFlight(LClient, AllSendHandshake(DeliverFlight(LServer,
+    AllSendHandshake(LClient.Start))))))));
 
   LFails := 0;
   // type 0, length 1, one body byte
@@ -1296,7 +1137,8 @@ begin
   // the server sends a CertificateStatus carrying a current Good OCSP response, which a
   // hard-fail client requires (a posture of this library; the message format is RFC 6066 8)
   LClient := NewHardRevocationClient;
-  LServer := NewStaplingServer(OcspField('ocsp_good'));
+  LServer := NewStaplingServer(TTlsLibTestCertificates.Field('Certs/OcspStapling.txt',
+    'ocsp_good'));
   LClient.StartHandshake;
 
   LIterations := 0;

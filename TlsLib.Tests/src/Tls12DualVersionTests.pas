@@ -21,7 +21,6 @@ uses
   TlpIClock,
   TlpClock,
   SysUtils,
-  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -61,13 +60,11 @@ uses
   TlpTls12ServerStateMachine,
   TlpVersionDispatchMachine,
   TlsLibTestCertificates,
-  TlsLibTestBase;
+  TlsLibHandshakeTestBase;
 
 type
-  TTestTls12DualVersion = class(TTlsLibAlgorithmTestCase)
+  TTestTls12DualVersion = class(TTlsLibHandshakeTestCase)
   private
-    function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function ServerCredential: TTlsCredential;
     function DualSuites: TArray<UInt16>;
     function Client13Params: TClientHandshakeParams;
     function Client12Params: TClient12HandshakeParams;
@@ -77,10 +74,6 @@ type
     function NewHybridOfferingDualClient: ITlsEngine;
     function NewServerDispatch(const AVersions: TArray<UInt16>): ITlsEngine;
     function NewDowngradeAttacker: ITlsEngine;
-    function Drain(const AEngine: ITlsEngine): TBytes;
-    procedure Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-    procedure Pump(const ASrc, ADst: ITlsEngine);
-    function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     procedure DriveToCompletion(const AClient, AServer: ITlsEngine);
     procedure CheckExchangesData(const AClient, AServer: ITlsEngine;
       const AMsg: string);
@@ -88,10 +81,6 @@ type
     /// block (a length-prefixed vector), parsed back into a handshake message.</summary>
     function MakeClientHello(const ACipherSuites: TArray<UInt16>;
       const AExtensions: TBytes): TTlsHandshakeMessage;
-    function HasInappropriateFallback(
-      const AEffects: TArray<THandshakeEffect>): Boolean;
-    function HasFailAlert(const AEffects: TArray<THandshakeEffect>;
-      AAlert: TTlsAlertDescription): Boolean;
     function HasAnyFail(const AEffects: TArray<THandshakeEffect>): Boolean;
     /// <summary>The dual-version client's real ClientHello with its legacy_version set to
     /// ALegacyVersion.</summary>
@@ -156,30 +145,6 @@ type
 implementation
 
 { TTestTls12DualVersion }
-
-function TTestTls12DualVersion.Filled(AByte: Byte; ACount: Int32): TBytes;
-var
-  LI: Int32;
-begin
-  Result := nil;
-  SetLength(Result, ACount);
-  for LI := 0 to ACount - 1 do
-    Result[LI] := AByte;
-end;
-
-function TTestTls12DualVersion.ServerCredential: TTlsCredential;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result.CertificateChain := TArray<TBytes>.Create(
-      DecodeHex(LCerts.Values['leaf_cert']));
-    Result.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LCerts.Values['leaf_key']), nil);
-  finally
-    LCerts.Free;
-  end;
-end;
 
 function TTestTls12DualVersion.DualSuites: TArray<UInt16>;
 begin
@@ -316,52 +281,6 @@ begin
     TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
 end;
 
-function TTestTls12DualVersion.Drain(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.TakeOutgoing(LChunk, 0);
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
-procedure TTestTls12DualVersion.Feed(const AEngine: ITlsEngine; const AWire: TBytes);
-var
-  LPos, LLen: Int32;
-begin
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    AEngine.ProcessInput(AWire, LPos, 5 + LLen);
-    Inc(LPos, 5 + LLen);
-  end;
-end;
-
-procedure TTestTls12DualVersion.Pump(const ASrc, ADst: ITlsEngine);
-begin
-  Feed(ADst, Drain(ASrc));
-end;
-
-function TTestTls12DualVersion.ReadAllApp(const AEngine: ITlsEngine): TBytes;
-var
-  LChunk: TBytes;
-  LGot: Int32;
-begin
-  Result := nil;
-  SetLength(LChunk, 65536);
-  repeat
-    LGot := AEngine.ReadAppData(LChunk, 0, System.Length(LChunk));
-    if LGot > 0 then
-      Result := ConcatBytes(Result, System.Copy(LChunk, 0, LGot));
-  until LGot = 0;
-end;
-
 procedure TTestTls12DualVersion.DriveToCompletion(const AClient, AServer: ITlsEngine);
 var
   LIterations: Int32;
@@ -482,21 +401,13 @@ end;
 procedure TTestTls12DualVersion.TestCompatiblePresetMutualTlsCompletes;
 var
   LClient, LServer: ITlsEngine;
-  LV: TStringList;
   LClientCred: TTlsCredential;
   LClientRoot: TBytes;
 begin
   // mutual TLS through the preset/config surface: the server requires and trusts the
   // client certificate, the client presents its credential. The client presents a
   // dual-EKU (clientAuth) leaf so it satisfies the server's extendedKeyUsage check.
-  LV := LoadVectorFields('Certs/ClientAuthChain.txt');
-  try
-    LClientRoot := DecodeHex(LV.Values['root_cert']);
-    LClientCred.CertificateChain := TArray<TBytes>.Create(DecodeHex(LV.Values['leaf_cert']));
-    LClientCred.PrivateKey := Crypto.Signing.ImportSigningKey(DecodeHex(LV.Values['leaf_key']), nil);
-  finally
-    LV.Free;
-  end;
+  LClientCred := ClientAuthCredential(LClientRoot);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Server.WithCredential(ServerCredential)
     .WithPeerAuth(TClientAuthMode.Required)
@@ -742,29 +653,6 @@ begin
   end;
 end;
 
-function TTestTls12DualVersion.HasInappropriateFallback(
-  const AEffects: TArray<THandshakeEffect>): Boolean;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := False;
-  for LEffect in AEffects do
-    if (LEffect.Kind = THandshakeEffectKind.Fail) and
-      (LEffect.Alert = TTlsAlertDescription.InappropriateFallback) then
-      Result := True;
-end;
-
-function TTestTls12DualVersion.HasFailAlert(
-  const AEffects: TArray<THandshakeEffect>; AAlert: TTlsAlertDescription): Boolean;
-var
-  LEffect: THandshakeEffect;
-begin
-  Result := False;
-  for LEffect in AEffects do
-    if (LEffect.Kind = THandshakeEffectKind.Fail) and (LEffect.Alert = AAlert) then
-      Result := True;
-end;
-
 function TTestTls12DualVersion.HasAnyFail(
   const AEffects: TArray<THandshakeEffect>): Boolean;
 var
@@ -939,7 +827,8 @@ begin
   LHello.Body[1] := $02;
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello),
+    TTlsAlertDescription.InappropriateFallback),
     'SCSV with a bad legacy_version aborts inappropriate_fallback');
 end;
 
@@ -1074,9 +963,9 @@ begin
   // fallback: the server could have done 1.3 (RFC 7507)
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
-    DecodeHex('0000')))),
+    DecodeHex('0000'))), TTlsAlertDescription.InappropriateFallback),
     'SCSV from a fallen-back client to a 1.3-capable server aborts inappropriate_fallback');
 end;
 
@@ -1106,9 +995,9 @@ begin
   // fell back to 1.2 (no supported_versions) yet signals TLS_FALLBACK_SCSV must still get
   // inappropriate_fallback here - the 1.3 server could have done better (RFC 7507)
   LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
-    DecodeHex('0000')))),
+    DecodeHex('0000'))), TTlsAlertDescription.InappropriateFallback),
     'SCSV from a fallen-back client to a standalone 1.3 server aborts inappropriate_fallback');
 end;
 
@@ -1121,9 +1010,10 @@ begin
   // ClientHello still aborts later on its absent supported_groups/key_share - just not with
   // inappropriate_fallback)
   LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
-  CheckFalse(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckFalse(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
-    DecodeHex('0009002B00050403040303')))),
+    DecodeHex('0009002B00050403040303'))),
+    TTlsAlertDescription.InappropriateFallback),
     'SCSV with a current 1.3 offer is not treated as a fallback at a standalone 1.3 server');
 end;
 
@@ -1136,9 +1026,10 @@ begin
   // supported_versions [1.3, 1.2]
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
-  CheckFalse(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckFalse(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
-    DecodeHex('0009002B00050403040303')))),
+    DecodeHex('0009002B00050403040303'))),
+    TTlsAlertDescription.InappropriateFallback),
     'SCSV with a current 1.3 offer is not a fallback');
 end;
 
@@ -1154,7 +1045,8 @@ begin
     DecodeHex('0000'));
   LHello.Body[0] := $03;
   LHello.Body[1] := $01;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello),
+    TTlsAlertDescription.InappropriateFallback),
     'SCSV from a pre-1.2 client to a standalone 1.2 server aborts inappropriate_fallback (RFC 7507 3)');
 end;
 
@@ -1163,9 +1055,10 @@ var
   LServer: IHandshakeMachine;
 begin
   LServer := TTls12ServerStateMachine.Create(Server12Params) as IHandshakeMachine;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
-    DecodeHex('0009002B0005040A0A0302')))),
+    DecodeHex('0009002B0005040A0A0302'))),
+    TTlsAlertDescription.InappropriateFallback),
     'supported_versions [GREASE, 1.1] with SCSV aborts inappropriate_fallback');
 end;
 
@@ -1180,11 +1073,13 @@ begin
     DecodeHex('0007002B0003020A0A')));
   CheckTrue(HasFailAlert(LEffects, TTlsAlertDescription.ProtocolVersion),
     'a GREASE-only list aborts protocol_version at a 1.2 server');
-  CheckFalse(HasInappropriateFallback(LEffects), 'and is no fallback signal');
+  CheckFalse(HasFailAlert(LEffects, TTlsAlertDescription.InappropriateFallback),
+    'and is no fallback signal');
   LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
-  CheckFalse(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckFalse(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
-    DecodeHex('0007002B0003020A0A')))), 'nor at a 1.3 server');
+    DecodeHex('0007002B0003020A0A'))),
+    TTlsAlertDescription.InappropriateFallback), 'nor at a 1.3 server');
 end;
 
 procedure TTestTls12DualVersion.TestPre12ClientWithoutScsvToStandaloneTls12ServerIsProtocolVersion;
@@ -1209,9 +1104,9 @@ begin
   // SCSV: server_max = client_max = 1.2, a legitimate 1.2 handshake, not a fallback
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls12)) as IHandshakeMachine;
-  CheckFalse(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckFalse(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
-    DecodeHex('0000')))),
+    DecodeHex('0000'))), TTlsAlertDescription.InappropriateFallback),
     'SCSV to a 1.2-only server is not a fallback');
 end;
 
@@ -1228,7 +1123,8 @@ begin
   LHello.Body[1] := $04;
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello),
+    TTlsAlertDescription.InappropriateFallback),
     'the dual-version dispatcher aborts inappropriate_fallback');
 end;
 
@@ -1244,7 +1140,8 @@ begin
   LHello.Raw[4] := $03;
   LHello.Raw[5] := $04;
   LServer := TTls13ServerStateMachine.Create(Server13Params) as IHandshakeMachine;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello),
+    TTlsAlertDescription.InappropriateFallback),
     'the standalone 1.3 server aborts inappropriate_fallback');
 end;
 
@@ -1261,7 +1158,8 @@ begin
     DecodeHex('0000'));
   LHello.Body[0] := $03;
   LHello.Body[1] := $01;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(LHello)),
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(LHello),
+    TTlsAlertDescription.InappropriateFallback),
     'SCSV from a pre-1.2 client to a 1.2-only dispatcher aborts inappropriate_fallback');
 end;
 
@@ -1275,9 +1173,10 @@ begin
   // fell back spuriously (RFC 7507). Extensions = supported_versions [0x0A0A, 0x0303]
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
-  CheckTrue(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckTrue(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites12.EcdheEcdsaAes128GcmSha256),
-    DecodeHex('0009002B0005040A0A0303')))),
+    DecodeHex('0009002B0005040A0A0303'))),
+    TTlsAlertDescription.InappropriateFallback),
     'SCSV with a GREASE-padded 1.2-only offer is still an inappropriate_fallback');
 end;
 
@@ -1289,9 +1188,10 @@ begin
   // is a current client, not a fallback. Extensions = supported_versions [0x0A0A, 1.3, 1.2]
   LServer := TServerVersionDispatchMachine.Create(Server13Params, Server12Params,
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12)) as IHandshakeMachine;
-  CheckFalse(HasInappropriateFallback(LServer.ProcessMessage(MakeClientHello(
+  CheckFalse(HasFailAlert(LServer.ProcessMessage(MakeClientHello(
     TArray<UInt16>.Create(TlsFallbackScsv, TCipherSuites13.Aes128GcmSha256),
-    DecodeHex('000B002B0007060A0A03040303')))),
+    DecodeHex('000B002B0007060A0A03040303'))),
+    TTlsAlertDescription.InappropriateFallback),
     'SCSV with a GREASE-padded current offer is not a fallback');
 end;
 
