@@ -1,0 +1,22 @@
+TlsLib.Tests/src/TlsLibHandshakeTestBase.pas
+  s_4adb7e2edc0c28::t_bd0db36f8ef8a0 313
+  s_4adb7e2edc0c28::t_4a83ae5a6efc64 321
+  s_4adb7e2edc0c28::t_a1aefd916e74eb 45-48
+  s_4adb7e2edc0c28::t_d55b3a19dadea5 125-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6a355a477960ad2d3adb6cf25e0b091fb17483da",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
