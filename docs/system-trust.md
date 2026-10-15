@@ -39,9 +39,11 @@ There are two ways to use the OS trust store, chosen with `TSystemTrustMode`:
 > `Default` is Delegate on Windows, macOS, iOS and Android; for the other mode, see
 > [Delegate vs. Anchors](#delegate-vs-anchors-what-differs).
 
-The Unix `SSL_CERT_FILE` / `SSL_CERT_DIR` overrides are dropped when the process runs with elevated
-privileges (setuid/setgid, or the kernel's secure-execution flag), falling back to the built-in CA
-table — an attacker who controls a privileged process's environment cannot redirect trust to their
+The Unix `SSL_CERT_FILE` / `SSL_CERT_DIR` overrides replace the default locations; when both are set, both
+are harvested. `SSL_CERT_DIR` is a `:`-separated list: every existing entry is harvested, and a variable
+that names nothing usable (a missing file, or a list with no existing directory) raises even when the other
+is usable. Both are dropped when the process runs with elevated privileges (setuid/setgid, or the kernel's
+secure-execution flag), falling back to the built-in CA table — an attacker who controls a privileged process's environment cannot redirect trust to their
 own CA.
 
 iOS and Android are **delegate-only**. Apple exposes no API to *list* the

@@ -93,6 +93,7 @@ type
     FFile: string;      // a fixture bundle file holding the test root
     FMissing: string;   // a path that does not exist
     FCertDir: string;   // a fixture directory holding one root file
+    FExtraDir: string;  // a fixture directory holding the second root
     FRootDer: TBytes;   // the test root DER
     FRoot2Der: TBytes;  // a second, distinct root DER
     procedure WriteBytes(const APath: string; const AData: TBytes);
@@ -111,6 +112,16 @@ type
     procedure TestDuplicateCertsAreDeduplicated;
     procedure TestDistinctCertsAreNotMerged;
     procedure TestSnapshotSurvivesSourceFileDeletion;
+    procedure TestEnvDirListHarvestsEveryEntry;
+    procedure TestEnvDirListSkipsMissingEntry;
+    procedure TestEnvDirListWithNoExistingEntryFailsClosed;
+    procedure TestEnvDirListWithNoExistingEntryFailsClosedEvenWithAGoodFile;
+    procedure TestMissingEnvFileFailsClosedEvenWithAGoodDir;
+    procedure TestEnvDirListIgnoresEmptyEntries;
+    procedure TestEnvFileAndEnvDirAreBothHarvested;
+    procedure TestEnvFileAndEnvDirSharingACertificateDeduplicate;
+    procedure TestEnvDirOverrideReplacesDefaultFiles;
+    procedure TestEnvFileOverrideReplacesDefaultDirs;
     procedure TestFactoryAnchorStoreMatchesSupports;
     procedure TestFactoryServerVerifierSourceMatchesSupports;
   end;
@@ -2667,10 +2678,15 @@ begin
   WriteBytes(FFile, LDer);
   WriteBytes(IncludeTrailingPathDelimiter(FCertDir) + 'root.der', LDer);
   FMissing := IncludeTrailingPathDelimiter(FDir) + 'does-not-exist.der';
+  FExtraDir := IncludeTrailingPathDelimiter(FDir) + 'extradir';
+  ForceDirectories(FExtraDir);
+  WriteBytes(IncludeTrailingPathDelimiter(FExtraDir) + 'root2.der', FRoot2Der);
 end;
 
 procedure TTestSystemTrustFixtures.TearDown;
 begin
+  SysUtils.DeleteFile(IncludeTrailingPathDelimiter(FExtraDir) + 'root2.der');
+  SysUtils.RemoveDir(FExtraDir);
   SysUtils.DeleteFile(FFile);
   SysUtils.DeleteFile(IncludeTrailingPathDelimiter(FCertDir) + 'root.der');
   SysUtils.RemoveDir(FCertDir);
@@ -2776,6 +2792,104 @@ begin
     SysUtils.DeleteFile(LFile);
     SysUtils.RemoveDir(LDir);
   end;
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvDirListHarvestsEveryEntry;
+begin
+  CheckEquals(2, System.Length(FileSnapshot('', FCertDir + PathSep + FExtraDir,
+    nil, nil).RootCertificates),
+    'every directory in the list is harvested');
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvDirListSkipsMissingEntry;
+begin
+  CheckEquals(1, System.Length(FileSnapshot('', FMissing + PathSep + FCertDir,
+    nil, nil).RootCertificates),
+    'a missing entry is skipped and the existing one is harvested');
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvDirListWithNoExistingEntryFailsClosed;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    FileSnapshot('', FMissing + PathSep + FMissing + 'x', nil, TArray<string>.Create(FCertDir));
+  except
+    on E: ESystemTrustUnavailableTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a list naming no existing directory fails closed without falling back');
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvDirListIgnoresEmptyEntries;
+begin
+  CheckEquals(2, System.Length(FileSnapshot('',
+    PathSep + FCertDir + PathSep + PathSep + FExtraDir + PathSep,
+    nil, nil).RootCertificates),
+    'leading, doubled and trailing separators add no entry');
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvFileAndEnvDirAreBothHarvested;
+begin
+  CheckEquals(2, System.Length(FileSnapshot(FFile, FExtraDir, nil, nil).RootCertificates),
+    'the bundle file and the directory are both harvested');
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvFileAndEnvDirSharingACertificateDeduplicate;
+begin
+  CheckEquals(1, System.Length(FileSnapshot(FFile, FCertDir, nil, nil).RootCertificates),
+    'a certificate present in both sources is one anchor');
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvDirOverrideReplacesDefaultFiles;
+var
+  LRoots: TArray<TBytes>;
+begin
+  LRoots := FileSnapshot('', FExtraDir, TArray<string>.Create(FFile), nil).RootCertificates;
+  CheckEquals(1, System.Length(LRoots),
+    'the default bundle is not loaded when only the directory is named');
+  CheckTrue(TArrayUtilities.AreEqual(LRoots[0], FRoot2Der),
+    'the harvested anchor is the named directory''s, not the default bundle''s');
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvFileOverrideReplacesDefaultDirs;
+var
+  LRoots: TArray<TBytes>;
+begin
+  LRoots := FileSnapshot(FFile, '', nil, TArray<string>.Create(FExtraDir)).RootCertificates;
+  CheckEquals(1, System.Length(LRoots),
+    'the default directories are not loaded when only the file is named');
+  CheckTrue(TArrayUtilities.AreEqual(LRoots[0], FRootDer),
+    'the harvested anchor is the named file''s, not the default directory''s');
+end;
+
+procedure TTestSystemTrustFixtures.TestEnvDirListWithNoExistingEntryFailsClosedEvenWithAGoodFile;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    FileSnapshot(FFile, FMissing + PathSep + FMissing + 'x', nil, nil);
+  except
+    on E: ESystemTrustUnavailableTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a directory list naming nothing usable is refused even when the file is good');
+end;
+
+procedure TTestSystemTrustFixtures.TestMissingEnvFileFailsClosedEvenWithAGoodDir;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    FileSnapshot(FMissing, FExtraDir, nil, nil);
+  except
+    on E: ESystemTrustUnavailableTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a missing bundle file is refused even when the directory is good');
 end;
 
 procedure TTestSystemTrustFixtures.TestFactoryAnchorStoreMatchesSupports;
