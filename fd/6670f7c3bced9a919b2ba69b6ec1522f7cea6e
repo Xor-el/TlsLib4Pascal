@@ -1,0 +1,65 @@
+TlsLib.Tests/src/MockCertificateVerifiers.pas
+  s_4adb7e2edc0c28::t_8a900164deaa66 48
+  s_4adb7e2edc0c28::t_8863f032a2c68c 30
+  s_4adb7e2edc0c28::t_2a3f46d03e732e 1-29,31-47,49-57,59-186
+  s_4adb7e2edc0c28::t_bbbd658ef03cca 58
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_4adb7e2edc0c28::t_596d05d58de146 37
+  s_4adb7e2edc0c28::t_67fb87e103c81c 422-441
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_4adb7e2edc0c28::t_38194c7285a06d 27-29
+  s_4adb7e2edc0c28::t_7647ba0af56f12 14-15
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_4adb7e2edc0c28::t_70b34214b33758 43
+  s_4adb7e2edc0c28::t_f0635d90a9d897 428-447
+TlsLib.Tests/src/TlsLibHandshakeTestBase.pas
+  s_4adb7e2edc0c28::t_4f340d1a10c8e4 226
+  s_4adb7e2edc0c28::t_cb7bddb20bcfc6 34
+  s_4adb7e2edc0c28::t_e0905a657e22b3 26
+  s_4adb7e2edc0c28::t_200a15e1a4df1d 1-25,27-33,35-38,40,42-225,227-295,297-307
+  s_4adb7e2edc0c28::t_15b8454ec34416 39,41
+  s_4adb7e2edc0c28::t_e8e293bb4d89ab 296
+TlsLib.Tests/src/MockNamedGroups.pas
+  s_4adb7e2edc0c28::t_8f4f10765c8fba 1-36,38-124
+  s_4adb7e2edc0c28::t_7a506bb3e7a28b 37
+TlsLib.Tests/src/MockCertificateCompression.pas
+  s_4adb7e2edc0c28::t_6cb33576e97627 1-142
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_4adb7e2edc0c28::t_2e9b7d83ed6533 213-215
+  s_4adb7e2edc0c28::t_36bc7d8d5cfdff 193-194
+TlsLib.Tests/src/TlsLibTestHandshakeDecoder.pas
+  s_4adb7e2edc0c28::t_d0a82ed5f17802 42-47
+  s_4adb7e2edc0c28::t_cf21bcc266080e 107-118,121-167
+  s_4adb7e2edc0c28::t_cb284037749caa 41
+  s_4adb7e2edc0c28::t_2523f5cfb1241c 119-120
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_4adb7e2edc0c28::t_117c6b9628f5fe 27-29
+  s_4adb7e2edc0c28::t_3b7508207357e6 14-15
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_4adb7e2edc0c28::t_e71327b04e683d 192-194
+  s_4adb7e2edc0c28::t_9360bda9216411 172-173
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_4adb7e2edc0c28::t_50cc6c65c2c5e9 535-537
+  s_4adb7e2edc0c28::t_7f86e044ea6b1a 516-517
+TlsLib.Tests/src/TlsLibTestCertificates.pas
+  s_4adb7e2edc0c28::t_b66126afe2221c 35
+  s_4adb7e2edc0c28::t_aaae8db88cfdf2 1-34,36,39-63,66-80
+  s_4adb7e2edc0c28::t_3ecf29806577d9 37-38
+  s_4adb7e2edc0c28::t_0cd7a888441b41 64-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fd6670f7c3bced9a919b2ba69b6ec1522f7cea6e",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
