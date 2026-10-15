@@ -1,0 +1,24 @@
+TlsLib.Tests/src/NetSocketTests.pas
+  s_4adb7e2edc0c28::t_1cac0fac701b60 47
+  s_4adb7e2edc0c28::t_b449524fdbd66e 228-230,235-238
+TlsLib.Tests/src/SocketHttpExchangeTests.pas
+  s_4adb7e2edc0c28::t_9e903ed2db6bd4 1227-1229,1234-1237
+  s_4adb7e2edc0c28::t_cfcf8e36e48c2b 1312-1315
+  s_4adb7e2edc0c28::t_8150d5d4b6583c 43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dc8fb701f7ebdc703b7b0d5ec24c37c2e38a3fc6",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
