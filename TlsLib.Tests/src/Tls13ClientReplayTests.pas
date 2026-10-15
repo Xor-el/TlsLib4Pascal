@@ -30,11 +30,7 @@ uses
 {$ENDIF FPC}
   TlpTlsAlert,
   TlpTlsVersion,
-  TlpISecretBuffer,
-  TlpSecretBuffer,
-  TlpCryptoDomainTypes,
   TlpINamedGroup,
-  TlpIKeyExchangePrivateKey,
   TlpIRecordProtection,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
@@ -56,6 +52,7 @@ uses
   TlpTrustTypes,
   TlpServerName,
   TlpTls13ClientStateMachine,
+  MockNamedGroups,
   MockSink,
   MockRecordInstaller,
   TlsLibTestBase;
@@ -69,32 +66,6 @@ type
       out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
   end;
-
-  /// <summary>A minimal key-exchange key double for the replay group (no real material).</summary>
-  TReplayKeyExchangeKey = class(TInterfacedObject, IKeyExchangePrivateKey)
-  public
-    function Usage: TKeyAgreementUsage;
-    function ExportRaw: ISecretBuffer;
-  end;
-
-  /// <summary>A named group that yields a fixed shared secret (for RFC replay).</summary>
-  TReplayGroup = class(TInterfacedObject, INamedGroup)
-  strict private
-    FShared: TBytes;
-  public
-    constructor Create(const AShared: TBytes);
-    function Code: UInt16;
-    function Name: string;
-    function Kind: TNamedGroupKind;
-    function Composition: TNamedGroupComposition;
-    procedure GenerateKeyPair(out APriv: IKeyExchangePrivateKey; out APubShare: TBytes);
-    procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
-      out ASharedSecret: ISecretBuffer);
-    procedure Decapsulate(const APriv: IKeyExchangePrivateKey; const ACiphertext: TBytes;
-      out ASharedSecret: ISecretBuffer);
-    function ValidatePeerShare(const AShare: TBytes): Boolean;
-  end;
-
 
   TTestTls13ClientReplay = class(TTlsLibAlgorithmTestCase)
   private
@@ -160,70 +131,6 @@ begin
   AVerified.Path := AChain;
   AVerified.Outcome := TVerificationOutcome.Trusted;
   AAlert := TTlsAlertDescription.BadCertificate;
-  Result := True;
-end;
-
-{ TReplayGroup }
-
-constructor TReplayGroup.Create(const AShared: TBytes);
-begin
-  inherited Create;
-  FShared := AShared;
-end;
-
-function TReplayGroup.Code: UInt16;
-begin
-  Result := TNamedGroupCatalog.X25519;
-end;
-
-function TReplayGroup.Name: string;
-begin
-  Result := 'X25519';
-end;
-
-function TReplayGroup.Kind: TNamedGroupKind;
-begin
-  Result := TNamedGroupKind.Ecdhe;
-end;
-
-function TReplayGroup.Composition: TNamedGroupComposition;
-begin
-  Result := TNamedGroupComposition.From(TKeyAgreementAlgorithm.X25519);
-end;
-
-function TReplayKeyExchangeKey.Usage: TKeyAgreementUsage;
-begin
-  Result := TKeyAgreementUsage.Ephemeral;
-end;
-
-function TReplayKeyExchangeKey.ExportRaw: ISecretBuffer;
-begin
-  Result := TSecretBuffer.Allocate(0);
-end;
-
-procedure TReplayGroup.GenerateKeyPair(out APriv: IKeyExchangePrivateKey;
-  out APubShare: TBytes);
-begin
-  APriv := TReplayKeyExchangeKey.Create;
-  APubShare := nil;
-  SetLength(APubShare, 32);
-end;
-
-procedure TReplayGroup.Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
-  out ASharedSecret: ISecretBuffer);
-begin
-  ACiphertext := nil;
-  ASharedSecret := TSecretBuffer.From(FShared);
-end;
-
-procedure TReplayGroup.Decapsulate(const APriv: IKeyExchangePrivateKey;
-  const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
-begin
-  ASharedSecret := TSecretBuffer.From(FShared);
-end;
-
-function TReplayGroup.ValidatePeerShare(const AShare: TBytes): Boolean;
-begin
   Result := True;
 end;
 
@@ -293,7 +200,8 @@ begin
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Group := TReplayGroup.Create(DecodeHex(FSched.Values['shared_secret']));
+  LParams.Group := TFixedSecretGroup.Create(Filled($00, 32),
+    DecodeHex(FSched.Values['shared_secret'])) as INamedGroup;
   LParams.GroupCode := TNamedGroupCatalog.X25519;
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   if FDualVersion then
