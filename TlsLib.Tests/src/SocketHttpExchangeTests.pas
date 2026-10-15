@@ -40,6 +40,7 @@ uses
   TlpSocketHttpFetcher,
   TlpCertificateVerifierSource,
   MockTransport,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -1222,31 +1223,18 @@ end;
 { TTestSocketHttpFetcherTls }
 
 function TTestSocketHttpFetcherTls.ClientConfig: ITlsClientConfig;
-var
-  LVectors: TStringList;
 begin
-  LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(TServerVerification.WebPki(
-        DecodeHex(LVectors.Values['root_cert'])).Build).Build;
-  finally
-    LVectors.Free;
-  end;
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build).Build;
 end;
 
 function TTestSocketHttpFetcherTls.ServerConfig: ITlsServerConfig;
-var
-  LVectors: TStringList;
 begin
-  LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := TTlsPresets.Compatible(Crypto, Pkix).Server
-      .WithCredential(TTlsCredential.Load(Crypto, Pkix, DecodeHex(LVectors.Values['leaf_cert']),
-        DecodeHex(LVectors.Values['leaf_key']))).Build;
-  finally
-    LVectors.Free;
-  end;
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
 end;
 
 function TTestSocketHttpFetcherTls.TlsFetcher(const AName: string;
@@ -1317,20 +1305,14 @@ procedure TTestSocketHttpFetcherTls.TestDeferredVerdictConfigIsRefused;
 var
   LSettings: TSocketHttpFetcherSettings;
   LFetcher: IHttpFetcher;
-  LVectors: TStringList;
   LRoot: TBytes;
   LRaised: Boolean;
 begin
   LSettings := TSocketHttpFetcherSettings.Defaults;
-  LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    LRoot := DecodeHex(LVectors.Values['root_cert']);
-    LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(TServerVerification.WebPki(LRoot).Build)
-      .WithLiveRevocationVerdict(1000).Build;
-  finally
-    LVectors.Free;
-  end;
+  LRoot := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
+  LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(LRoot).Build)
+    .WithLiveRevocationVerdict(1000).Build;
   LRaised := False;
   try
     LFetcher := TSocketHttpFetcher.Create(LSettings) as IHttpFetcher;
