@@ -155,7 +155,7 @@ never on a resumed or PSK handshake), concurrently across connections that share
 must be thread-safe and must not do network I/O.
 
 A chain with a certificate (other than a self-issued one) signed with MD5, or with SHA-1 the client
-did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2), independent of
+did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3), independent of
 `AllowedDeprecatedHashes`; a SHA-256 chain is still sent. `AClientHello.CertificateSignatureSchemes`
 lists what the client advertised, so a resolver can pick another chain. A client credential in that
 state is not sent: the client answers without a certificate.
@@ -407,7 +407,9 @@ For non-blocking / event-loop frameworks, drive `ITlsEngine` directly — it own
 or timers. You pump bytes; it transduces. The contract (unit `TlpITlsEngine`):
 
 - feed ciphertext in with `ProcessInput(wire, offset, len)`
-- drain ciphertext to send with `TakeOutgoing(dest, destOffset)`
+- drain ciphertext to send with `TakeOutgoing(dest, destOffset)`; it copies at most
+  `Length(dest) - destOffset` bytes (0 when that is not positive), so size `dest` first and loop
+  while `WantsWrite`
 - call `StartHandshake` once; a second call raises (it does nothing on an engine that already failed)
 - push/pull application data with `Write(...)` / `ReadAppData(...)`
 - check `WantsWrite` / `IsHandshaking`, and service `NextEvent` every cycle — application data is
@@ -418,6 +420,7 @@ or timers. You pump bytes; it transduces. The contract (unit `TlpITlsEngine`):
 uses TlpTlsEngineFactory, TlpITlsEngine;
 
 LEngine := TTlsEngineFactory.CreateClientEngine(LConfig, 'example.com');
+SetLength(LOut, 16 * 1024 + 256);
 LEngine.StartHandshake;
 repeat
   // 1. flush anything the engine wants to send
@@ -430,6 +433,12 @@ repeat
   LN := MySocketRecv(LIn);
   if LN > 0 then LEngine.ProcessInput(LIn, 0, LN);
 until not LEngine.IsHandshaking;
+// the last ProcessInput can finish the handshake with the client Finished or an alert still queued
+while LEngine.WantsWrite do
+begin
+  LN := LEngine.TakeOutgoing(LOut, 0);
+  MySocketSend(LOut, LN);
+end;
 // then LEngine.Write / LEngine.ReadAppData for application data
 ```
 
@@ -569,9 +578,9 @@ end;
 
 Resumption is `psk_dhe_ke` (forward-secret). The client cache hands each ticket out once. Give the
 **client** a session cache; the **server** resumes out of the box via stateless tickets, which are
-only single-use once you upgrade it to a stateful store. A `Hard`-revocation client using `WithResumeVerification(Reverify)` needs
-`WithLiveRevocationVerdict` (a resume carries no staple to re-check), and `Build` refuses it without
-one — see [certificate-verification.md](certificate-verification.md).
+only single-use once you upgrade it to a stateful store. A `Hard`-revocation client using
+`WithResumeVerification(Reverify)` needs `WithLiveRevocationVerdict` (a resume carries no staple), and
+`Build` refuses it without one; see [certificate-verification.md](certificate-verification.md).
 
 ```pascal
 uses TlpInMemorySessionCache, TlpInMemorySessionStore, TlpSessionTicketKeys, TlpISession;
@@ -621,11 +630,10 @@ session cache or with resumption off. `ReuseOriginal` (the default) trusts the
 original handshake's verification; `Reverify` checks the stored chain against the current trust
 before the session is offered, at the cost of a verification per resume, and fills
 `ConnectionInfo.ValidatedPath`. A session whose chain fails is not offered: no ticket, binder or
-early data is sent and the client runs a full handshake that verifies the fresh chain; it reports
-`Resumed = False`. An async verdict is still awaited after the server flight (see
-[0-RTT early data](#0-rtt-early-data)). A server takes `WithResumptionScope` too, to partition configs sharing a ticket-key manager or session
-store; a server that requests client certificates and supplies either must set one. The two roles
-default differently when the scope is empty: a client isolates (a fresh scope per config), a server
+early data is sent and the client runs a full handshake that verifies the fresh chain
+(`Resumed = False`). A server takes `WithResumptionScope` too, to partition configs sharing a
+ticket-key manager or session store; a server that requests client certificates and supplies either
+must set one. The two roles default differently when the scope is empty: a client isolates (a fresh scope per config), a server
 shares.
 
 On the server, `WithTicketLifetime(Seconds)` sets the lifetime advertised for issued tickets (default
@@ -676,8 +684,8 @@ Under `WithResumeVerification(Reverify)` the stored chain is checked before the 
 so early data is sent only for a session that passes current trust. `Build` refuses `WithEarlyData(True)`
 together with `Reverify` and an async verdict (`WithAsyncCertificateVerdict` or
 `WithLiveRevocationVerdict`): that verdict resolves after the server flight, so no early data could
-precede it, and a rejecting verdict then fails the handshake. A `Hard`-revocation client using
-`Reverify` always carries a live verdict, so it cannot use 0-RTT.
+precede it. A `Hard`-revocation client using `Reverify` always carries a live verdict, so it cannot
+use 0-RTT.
 
 On the server, accepted early data is **never** returned by `ReadAppData` or a stream `Read`: it is
 replayable, so it is kept apart and read with `ReadEarlyData` (`PendingEarlyData` says how much is

@@ -100,16 +100,18 @@ end;
 
 procedure TTestSystemTimeUtilities.TestUtcMatchesTheRuntimeLibrary;
 var
-  LRtlMs: Int64;
+  LLocalNow, LFromUtc: TDateTime;
 begin
-  // an independent reading of UTC from the runtime library
+  // UTC to local has one answer in every zone, unlike local to UTC in a repeated DST hour
+  LLocalNow := Now;
+  LFromUtc := TDateTimeUtilities.UnixMsToDateTime(TSystemTimeUtilities.UtcUnixMs);
 {$IFDEF FPC}
-  LRtlMs := TDateTimeUtilities.DateTimeToUnixMs(LocalTimeToUniversal(Now));
+  LFromUtc := UniversalTimeToLocal(LFromUtc);
 {$ELSE}
-  LRtlMs := TDateTimeUtilities.DateTimeToUnixMs(TTimeZone.Local.ToUniversalTime(Now));
+  LFromUtc := TTimeZone.Local.ToLocalTime(LFromUtc);
 {$ENDIF}
-  CheckTrue(Abs(TSystemTimeUtilities.UtcUnixMs - LRtlMs) <= UtcToleranceMs,
-    'the OS UTC reading agrees with the runtime library');
+  CheckTrue(MilliSecondsBetween(LFromUtc, LLocalNow) <= UtcToleranceMs,
+    'the OS UTC reading, converted to local time, agrees with the runtime library local clock');
 end;
 
 procedure TTestSystemTimeUtilities.TestTheClockWrappersReadTheSameSources;

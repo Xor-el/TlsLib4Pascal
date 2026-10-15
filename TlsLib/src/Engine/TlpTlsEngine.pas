@@ -1213,7 +1213,7 @@ end;
 procedure TTlsEngine.InstallWriteProtection(const AProtection: IRecordProtection;
   AEpoch: TTlsEpoch);
 begin
-  // installing write keys no longer means the handshake is done: in TLS 1.3 the
+  // installing write keys does not mean the handshake is done: in TLS 1.3 the
   // write side moves to the handshake epoch mid-flight. Completion is signalled by
   // the state machine through OnHandshakeEstablished.
   FRecordLayer.SetWriteProtection(AProtection);

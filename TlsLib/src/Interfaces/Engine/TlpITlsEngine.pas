@@ -159,7 +159,8 @@ type
     procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
 
     // --- engine -> caller (drains) ---
-    /// <summary>Copies pending outbound bytes into ADest at ADestOffset; returns the count.</summary>
+    /// <summary>Copies pending outbound bytes into ADest at ADestOffset; returns the count, at most
+    /// Length(ADest) - ADestOffset (0 when that is not positive), so size ADest first.</summary>
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
     /// <summary>Copies up to AMaxLength decrypted application bytes out; returns the count. It can
     /// resume a deferred inbound drain, so like ProcessInput it can leave the engine terminal or

@@ -12,7 +12,7 @@
 /// <summary>Proves TRootGenerator keys a certificate to its trust record by
 /// (CKA_ISSUER, CKA_SERIAL_NUMBER), not by the display CKA_LABEL, over a tiny
 /// synthetic certdata.txt: a label-mismatched pair still associates, a label
-/// collision no longer mis-associates, and a non-delegator trust is excluded.</summary>
+/// collision does not mis-associate, and a non-delegator trust is excluded.</summary>
 unit RootGenKeyingTests;
 
 {$IFDEF FPC}

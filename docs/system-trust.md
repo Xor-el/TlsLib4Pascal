@@ -42,9 +42,8 @@ There are two ways to use the OS trust store, chosen with `TSystemTrustMode`:
 The Unix `SSL_CERT_FILE` / `SSL_CERT_DIR` overrides replace the default locations; when both are set, both
 are harvested. `SSL_CERT_DIR` is a `:`-separated list: every existing entry is harvested, and a variable
 that names nothing usable (a missing file, or a list with no existing directory) raises even when the other
-is usable. Both are dropped when the process runs with elevated privileges (setuid/setgid, or the kernel's
-secure-execution flag), falling back to the built-in CA table — an attacker who controls a privileged process's environment cannot redirect trust to their
-own CA.
+is usable. Both are ignored under elevated privilege (setuid/setgid or secure-execution), falling
+back to the built-in CA table, so a hostile environment cannot redirect trust.
 
 iOS and Android are **delegate-only**. Apple exposes no API to *list* the
 trusted roots, so there we delegate the whole verdict to `SecTrust`. On Android the on-disk root set is
@@ -243,7 +242,7 @@ Both modes accept the same chains in the normal case. These are the differences 
 | Root-store properties (Windows EKU override, disabled and partially distrusted roots; enterprise policy) | honoured | not honoured: a harvest keeps the certificates only |
 | Windows roots not installed yet | installed by Windows root auto-update, including under the inline flags; not installed where policy disables auto-update | not seen: the harvest lists installed roots |
 | Missing intermediates | no fetch inline; the OS may use its cache | configured intermediates only |
-| Revocation source | OS cache plus the staple; on Windows and Apple `Hard` is decided inline from the staple or an OS-cached good status, and needs the live-revocation verdict only when neither exists (Android has no cached revocation, so `Hard` is refused without it) | staple plus the portable live checker |
+| Revocation source | OS cache plus the staple; on Windows and Apple `Hard` is decided inline from the staple or an OS-cached good status, and needs the live-revocation verdict only when neither exists; Android has no OS cache, so `Hard` there is decided from the staple (a staple-less server is rejected unless the live verdict defers it) | staple plus the portable live checker |
 | System-root-only rules (Apple CT and validity caps) | apply to the OS roots, not to host roots | none |
 | Android CT (when the app opts in through its network security config, Android 16+) | applies to host roots too and refuses a private-root chain | none |
 | Error alerts | the OS's mapping | ours |
@@ -375,7 +374,7 @@ the async park instead):
 |---|---|---|---|
 | **Revocation mechanism** | chain revocation flags + cache-only URL retrieval, plus the staple | `SecPolicyCreateRevocation`, network fetch disabled | none of its own — the library's staple verdict |
 | **OS distrust inputs** | the **Disallowed** store + CTLs (Anchors mode reads the Disallowed certificates only) | SecTrust settings (Anchors mode reads the Deny results only) | the platform trust store |
-| **Alert mapping** | crypt32 codes → a specific alert, else `bad_certificate` | `OSStatus` → a specific alert, else `bad_certificate` | mapped from the `X509TrustManager` exception |
+| **Alert mapping** | crypt32 codes → a specific alert, else `bad_certificate` | `OSStatus` → a specific alert, else `unknown_ca` | mapped from the `X509TrustManager` exception |
 | **Injected clock** | chain validity + staple freshness | chain validity + staple freshness | staple freshness only — no verify-date seam, so the chain validates at the platform's own time (the one documented Android limitation) |
 | **Host handed to the OS** | the DNS host (an IP literal is stripped) | the DNS host (IP stripped) | the connected host as-is — the network-security-config domain key, not a name check |
 | **Issuer discovery for Hard** | discovers the issuer itself | discovers it itself | needs the peer to send its issuer (a leaf-only chain is indeterminate → Hard rejects, unless `WithLiveRevocationVerdict` defers it to the park) |

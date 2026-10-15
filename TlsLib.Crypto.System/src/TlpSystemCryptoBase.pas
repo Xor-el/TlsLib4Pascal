@@ -60,8 +60,8 @@ type
   /// Signing facet on a base provider - so a native overlay preserves the
   /// base's identity and its same-reference-every-call contract. A nil override takes that
   /// facet from the base. The base's HPKE is kept unless it is the default composition over the
-  /// base's own primitives, which is rebuilt over the overlay's primitives so its KEM/KDF/AEAD
-  /// ride the native seam. A platform composer builds this; the OS factory only dispatches.
+  /// base's own primitives, which is rebuilt over the overlay's. A platform composer builds this;
+  /// the OS factory only dispatches.
   /// </summary>
   TOverlayCryptoProvider = class(TInterfacedObject, ICryptoProvider, ICryptoBackendReport)
   strict private
@@ -70,15 +70,13 @@ type
     FPrimitives: ICryptoPrimitives;
     FSigning: ISigningCrypto;
     FReport: ICryptoBackendReport;
-    // the base's HPKE unless it is the default composition, rebuilt over this overlay's primitives
     FHpke: IHpkeCrypto;
     // delegates ICryptoBackendReport to the held report; a nil report is not claimed
     // (Supports returns False), so a provider with no backend map reads as wholly portable
     property BackendReport: ICryptoBackendReport read FReport
       implements ICryptoBackendReport;
   public
-    /// <summary>True only for the default composition over ABase's own primitives; any other
-    /// HPKE is caller-supplied and kept.</summary>
+    /// <summary>True only for the default HPKE composition over ABase's own primitives.</summary>
     class function RebuildsHpke(const ABase: ICryptoProvider): Boolean; static;
     constructor Create(const ABase: ICryptoProvider;
       const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;

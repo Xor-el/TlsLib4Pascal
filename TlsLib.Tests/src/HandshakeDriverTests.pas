@@ -281,8 +281,7 @@ begin
       DecodeHex(LVec.Values['hash_ch_sh']));
 
     // install the READ side (from the client's handshake traffic secret) through the
-    // driver into a standalone record layer - the engine no longer exposes an
-    // installer seam to callers
+    // driver into a standalone record layer - the engine exposes no installer seam to callers
     LDriver := THandshakeDriver.Create(
       THandshakeChannel.Create(LLayer) as IHandshakeChannel,
       TRecordLayerInstaller.Create(LLayer) as IRecordEpochInstaller, Crypto,
