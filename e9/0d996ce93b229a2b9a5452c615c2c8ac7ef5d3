@@ -1,0 +1,32 @@
+TlsLib.Tests/src/ConfigResumptionTests.pas
+  s_4adb7e2edc0c28::t_b5d840016d0c5c 648-649
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_4adb7e2edc0c28::t_c50e61ed197c8b 478
+TlsLib.Tests/src/Tls12PskTests.pas
+  s_4adb7e2edc0c28::t_b74355b31df8d3 218,423,439,453,484,501,513,528,546,568,574,601,608,615,639,646,654,681,688,766,791
+  s_4adb7e2edc0c28::t_66224f8d07214a 714,723,746,755
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_4adb7e2edc0c28::t_4adf973def6bb1 1672
+  s_4adb7e2edc0c28::t_3f73a9ed4a70a0 668,681
+  s_4adb7e2edc0c28::t_d82b2c91917668 424,516,572,603,632,720,724,735,749,752,769,772,790,836,885,903,923,931,953,958,976,979,997,1004,1023,1055,1126,1146,1337,1342,1366,1376,1398,1408,1436,1530,1562,1574,1581,1634,1746,1761,1786,1929,2032
+  s_4adb7e2edc0c28::t_4877977309d609 1211,1230,1253,1270,1306
+  s_4adb7e2edc0c28::t_9ad77212fb51f4 2078
+TlsLib.Tests/src/Tls12DualVersionTests.pas
+  s_4adb7e2edc0c28::t_88003e1c4abc6b 313,323,335,348,363,382,405
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e90d996ce93b229a2b9a5452c615c2c8ac7ef5d3",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
