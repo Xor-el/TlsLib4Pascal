@@ -19,7 +19,6 @@ interface
 
 uses
   SysUtils,
-  Classes,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -28,12 +27,12 @@ uses
 {$ENDIF FPC}
   TlpTlsLibExceptions,
   TlpHandshakeMessage,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
   TTestHandshakeMessage = class(TTlsLibAlgorithmTestCase)
   private
-    function Msg(const AName: string): TBytes;
     function Framed(AType: TTlsHandshakeType; ABodyLength: Int32; AFill: Byte): TBytes;
     procedure CheckMessage(const AWhat: string; const AFramed: TBytes;
       const AMessage: TTlsHandshakeMessage);
@@ -55,16 +54,6 @@ type
   end;
 
 implementation
-
-var
-  GVectors: TStringList = nil;
-
-function TTestHandshakeMessage.Msg(const AName: string): TBytes;
-begin
-  if GVectors = nil then
-    GVectors := LoadVectorFields('Rfc8448/HandshakeMessages.txt');
-  Result := DecodeHex(GVectors.Values[AName]);
-end;
 
 function TTestHandshakeMessage.Framed(AType: TTlsHandshakeType; ABodyLength: Int32;
   AFill: Byte): TBytes;
@@ -290,7 +279,7 @@ var
   LPos, LChunk: Int32;
 begin
   // the RFC 8448 ClientHello (200 wire bytes) fed 40 at a time
-  LWhole := Msg('client_hello');
+  LWhole := TTlsLibTestCertificates.Field('Rfc8448/HandshakeMessages.txt', 'client_hello');
   LReader := THandshakeMessageReader.Create;
   try
     LPos := 0;
@@ -319,7 +308,9 @@ var
   LBoth: TBytes;
 begin
   // ClientHello and ServerHello coalesced into a single feed
-  LBoth := ConcatBytes(Msg('client_hello'), Msg('server_hello'));
+  LBoth := ConcatBytes(
+    TTlsLibTestCertificates.Field('Rfc8448/HandshakeMessages.txt', 'client_hello'),
+    TTlsLibTestCertificates.Field('Rfc8448/HandshakeMessages.txt', 'server_hello'));
   LReader := THandshakeMessageReader.Create;
   try
     LReader.Append(LBoth, 0, System.Length(LBoth));
@@ -424,8 +415,5 @@ initialization
 {$ELSE}
   RegisterTest(TTestHandshakeMessage.Suite);
 {$ENDIF FPC}
-
-finalization
-  GVectors.Free;
 
 end.

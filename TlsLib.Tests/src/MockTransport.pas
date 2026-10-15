@@ -140,8 +140,8 @@ type
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
 
-  /// <summary>A host resolver that answers one name, ignoring case, with 127.0.0.1 and refuses every
-  /// other, counting the lookups it was asked for.</summary>
+  /// <summary>A host resolver that answers one name, any case, with 127.0.0.1 and refuses the
+  /// rest, counting the lookups.</summary>
   TMockHostResolver = class sealed(TInterfacedObject, IHostResolver)
   strict private
   var
@@ -153,8 +153,7 @@ type
     property Asked: Int32 read FAsked;
   end;
 
-  /// <summary>The server half of a loopback on its own thread, owning the server stream; ending
-  /// the client's write side on Finish or Destroy lets a server parked in a read exit.</summary>
+  /// <summary>The server half of a loopback on its own thread; owns the server stream.</summary>
   TLoopbackServerThread = class abstract(TThread)
   strict protected
   var
@@ -165,8 +164,7 @@ type
     constructor Create(const AStream: TTlsStream; const ATransport,
       AClientTransport: TMemoryTransport);
     destructor Destroy; override;
-    /// <summary>Ends the client's write side so a server still awaiting it fails, then
-    /// joins.</summary>
+    /// <summary>Ends the client's write side so a waiting server fails, then joins.</summary>
     procedure Finish;
   end;
 

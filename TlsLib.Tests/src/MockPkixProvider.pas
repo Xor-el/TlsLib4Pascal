@@ -11,11 +11,6 @@
 
 unit MockPkixProvider;
 
-{ A pass-through IPkixProvider that delegates every call to a real provider while counting the two
-  revocation-parse entry points (ValidateOcspStaple / CheckCrlRevocation). It lets a test prove that
-  the live checker's size cap short-circuits BEFORE any parse - an outcome assertion alone cannot,
-  since a garbage body is rejected by the parser too. }
-
 interface
 
 {$IFDEF FPC}
@@ -44,10 +39,9 @@ type
     property Count: Integer read FCount;
   end;
 
-  /// <summary>Counts ValidateOcspStaple/CheckCrlRevocation while delegating the whole IPkixProvider
-  /// (and IRevocationChecker) surface to an injected real provider. Used to assert the checker never
-  /// reaches the parser for an oversize body.</summary>
-  TSpyPkixProvider = class sealed(TInterfacedObject, IPkixProvider, IRevocationChecker)
+  /// <summary>Delegates to a real provider, counting the revocation and path calls, with
+  /// scriptable responder URLs and request failure.</summary>
+  TMockPkixProvider = class sealed(TInterfacedObject, IPkixProvider, IRevocationChecker)
   strict private
   var
     FInner: IPkixProvider;
@@ -116,9 +110,9 @@ begin
     AKeyPurpose, AEffectiveChain);
 end;
 
-{ TSpyPkixProvider }
+{ TMockPkixProvider }
 
-constructor TSpyPkixProvider.Create(const AInner: IPkixProvider);
+constructor TMockPkixProvider.Create(const AInner: IPkixProvider);
 begin
   inherited Create;
   FInner := AInner;
@@ -126,27 +120,27 @@ begin
   FPathValidatorRef := FPathValidator as ICertificatePathValidator;
 end;
 
-function TSpyPkixProvider.Certificates: ICertificateInspector;
+function TMockPkixProvider.Certificates: ICertificateInspector;
 begin
   Result := FInner.Certificates;
 end;
 
-function TSpyPkixProvider.PathValidation: ICertificatePathValidator;
+function TMockPkixProvider.PathValidation: ICertificatePathValidator;
 begin
   Result := FPathValidatorRef;
 end;
 
-function TSpyPkixProvider.PathBuildCount: Integer;
+function TMockPkixProvider.PathBuildCount: Integer;
 begin
   Result := FPathValidator.Count;
 end;
 
-function TSpyPkixProvider.Revocation: IRevocationChecker;
+function TMockPkixProvider.Revocation: IRevocationChecker;
 begin
   Result := Self;
 end;
 
-function TSpyPkixProvider.ValidateOcspStaple(const ALeafCert, AIssuerCert,
+function TMockPkixProvider.ValidateOcspStaple(const ALeafCert, AIssuerCert,
   AOcspResponseDer: TBytes; const AValidationTimeUtc: TDateTime;
   out AStatus: TOcspStatus; out AThisUpdate, ANextUpdate: TDateTime): Boolean;
 begin
@@ -155,7 +149,7 @@ begin
     AOcspResponseDer, AValidationTimeUtc, AStatus, AThisUpdate, ANextUpdate);
 end;
 
-function TSpyPkixProvider.BuildOcspRequest(const ALeafCert, AIssuerCert: TBytes;
+function TMockPkixProvider.BuildOcspRequest(const ALeafCert, AIssuerCert: TBytes;
   out ARequestDer: TBytes): Boolean;
 begin
   Inc(FBuildRequestCount);
@@ -167,24 +161,24 @@ begin
   Result := FInner.Revocation.BuildOcspRequest(ALeafCert, AIssuerCert, ARequestDer);
 end;
 
-procedure TSpyPkixProvider.FailOcspRequest;
+procedure TMockPkixProvider.FailOcspRequest;
 begin
   FOcspRequestFails := True;
 end;
 
-procedure TSpyPkixProvider.OverrideOcspUrls(const AUrls: TArray<string>);
+procedure TMockPkixProvider.OverrideOcspUrls(const AUrls: TArray<string>);
 begin
   FOcspUrlsOverridden := True;
   FOcspUrls := AUrls;
 end;
 
-procedure TSpyPkixProvider.OverrideCrlUrls(const AUrls: TArray<string>);
+procedure TMockPkixProvider.OverrideCrlUrls(const AUrls: TArray<string>);
 begin
   FCrlUrlsOverridden := True;
   FCrlUrls := AUrls;
 end;
 
-function TSpyPkixProvider.TryGetOcspResponderUrls(const ACert: TBytes;
+function TMockPkixProvider.TryGetOcspResponderUrls(const ACert: TBytes;
   out AUrls: TArray<string>): Boolean;
 begin
   if FOcspUrlsOverridden then
@@ -195,7 +189,7 @@ begin
   Result := FInner.Revocation.TryGetOcspResponderUrls(ACert, AUrls);
 end;
 
-function TSpyPkixProvider.TryGetCrlDistributionPoints(const ACert: TBytes;
+function TMockPkixProvider.TryGetCrlDistributionPoints(const ACert: TBytes;
   out AUrls: TArray<string>): Boolean;
 begin
   if FCrlUrlsOverridden then
@@ -206,7 +200,7 @@ begin
   Result := FInner.Revocation.TryGetCrlDistributionPoints(ACert, AUrls);
 end;
 
-function TSpyPkixProvider.CheckCrlRevocation(const ALeafCert, AIssuerCert,
+function TMockPkixProvider.CheckCrlRevocation(const ALeafCert, AIssuerCert,
   ACrlDer: TBytes; const AValidationTimeUtc: TDateTime; out ARevoked: Boolean;
   out AThisUpdate, ANextUpdate: TDateTime): Boolean;
 begin
@@ -215,7 +209,7 @@ begin
     AValidationTimeUtc, ARevoked, AThisUpdate, ANextUpdate);
 end;
 
-function TSpyPkixProvider.TryFindIssuer(const ALeafCert: TBytes;
+function TMockPkixProvider.TryFindIssuer(const ALeafCert: TBytes;
   const ACandidates: TArray<TBytes>; out AIssuerCert: TBytes): Boolean;
 begin
   Inc(FFindIssuerCount);

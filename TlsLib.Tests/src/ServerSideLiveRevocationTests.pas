@@ -211,8 +211,7 @@ begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(
       TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
-    // present the client certificate (leaf only); the LiveRevocation leaf carries no EKU, so it
-    // is acceptable as a client certificate, and an AIA OCSP + CRL DP with matching responses
+    // the LiveRevocation leaf alone: no EKU, so client-auth capable, with OCSP/CRL vectors
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
       TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
       TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_key')));

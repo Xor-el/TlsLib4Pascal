@@ -1350,7 +1350,7 @@ begin
 
   LClient.StartHandshake;
   // capture the server's first flight to prove nothing GREASE was selected
-  FeedCoalesced(LServer, Drain(LClient));
+  PumpCoalesced(LClient, LServer);
   LServerHello := TTlsLibTestHandshakeDecoder.ServerHello(Drain(LServer));
   CheckFalse(TGrease.IsGrease(LServerHello.CipherSuite),
     'the server did not select a GREASE cipher suite');

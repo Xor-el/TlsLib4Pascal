@@ -92,7 +92,6 @@ type
       const AResolver: ITlsServerCredentialResolver): ITlsEngine;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes;
-    function NewEchClient: ITlsEngine;
     function NewEchClientWith(const AConfigList: TBytes;
       const ACache: ISessionCache = nil): ITlsEngine;
     function NewEchAcceptServer(const AConfigList: TBytes;
@@ -329,12 +328,6 @@ begin
     TArray<TEchCipherSuite>.Create(LSuite), 0,
     TEncoding.ASCII.GetBytes(APublicName), nil);
   Result := TEchConfigList.Encode(TArray<TEchConfig>.Create(LConfig));
-end;
-
-function TTestTls13Loopback.NewEchClient: ITlsEngine;
-begin
-  Result := NewEchClientWith(
-    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
 end;
 
 function TTestTls13Loopback.NewEchClientWith(const AConfigList: TBytes;
@@ -938,7 +931,7 @@ begin
   LClient.StartHandshake;
   LCh1 := Drain(LClient);        // ClientHelloOuter #1 (GREASE outer pre_shared_key)
   Feed(LServer, LCh1);
-  Pump(LServer, LClient); // deliver the HelloRetryRequest
+  Pump(LServer, LClient);        // deliver the HelloRetryRequest
   LCh2 := Drain(LClient);        // ClientHelloOuter #2 (retry, possibly led by a CCS record)
 
   LPsk1 := OuterPskExtData(LCh1);
@@ -1120,7 +1113,8 @@ var
   LIterations: Int32;
   LMsg: TBytes;
 begin
-  LClient := NewEchClient;
+  LClient := NewEchClientWith(
+    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
   LServer := NewEchServer;
   LClient.StartHandshake;
   LIterations := 0;
@@ -1162,7 +1156,8 @@ begin
   FServerKeyLog := TMockKeyLog.Create;
   LServerLog := FServerKeyLog;
   try
-    LClient := NewEchClient;
+    LClient := NewEchClientWith(
+      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'));
     LServer := NewEchServer;
     LClient.StartHandshake;
     LIterations := 0;

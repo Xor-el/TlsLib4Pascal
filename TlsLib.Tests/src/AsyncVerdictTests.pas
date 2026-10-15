@@ -628,14 +628,14 @@ procedure TTestAsyncVerdict.ResolveWithUnreachableResponder(const AClient,
   AServer: ITlsEngine);
 var
   LEvent: ICertificateReceivedEvent;
-  LSpy: TSpyPkixProvider;
+  LSpy: TMockPkixProvider;
   LSpyRef: IPkixProvider;
   LChecker: TLiveRevocationChecker;
 begin
   AClient.StartHandshake;
   DriveUntilParkOrSettled(AClient, AServer);
   CheckTrue(TakeCertificateEvent(AClient, LEvent), 'the park raised its event');
-  LSpy := TSpyPkixProvider.Create(Pkix);
+  LSpy := TMockPkixProvider.Create(Pkix);
   LSpyRef := LSpy as IPkixProvider;
   LSpy.OverrideOcspUrls(TArray<string>.Create('http://ocsp.test/'));
   LChecker := TLiveRevocationChecker.Create(LSpyRef, TSystemClock.Create as ITlsClock,
