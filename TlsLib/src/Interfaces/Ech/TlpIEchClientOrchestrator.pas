@@ -36,7 +36,7 @@ type
   /// the inner transcript and random on accept, or the public_name on reject).
   /// </summary>
   IEchClientOrchestrator = interface(IInterface)
-    ['{7CD24F66-ACAF-4E05-96C8-2A7912416003}']
+    ['{5B8E1A32-6C4D-4F97-A0D3-B7E2194C8F15}']
     /// <summary>Creates the inner transcript before the inner ClientHello is built (a single
     /// offered PSK pre-activates it so its binder MACs the inner history).</summary>
     procedure PrepareInnerTranscript(APreActivated: Boolean; AHash: THashAlgorithm);
@@ -56,9 +56,6 @@ type
     /// confirmation and rebases the inner transcript to message_hash(Hash(innerCH1)), HRR.</summary>
     procedure DecideHelloRetryRequest(const AHello: TTlsServerHello;
       const AMessage: TTlsHandshakeMessage; AHash: THashAlgorithm);
-    /// <summary>Under GREASE, validate the HelloRetryRequest ech syntactically without acting on
-    /// it: a present-but-not-8-byte ech is a decode_error (RFC 9849 sec. 6.2.1).</summary>
-    procedure NoteHelloRetryRequestGrease(const ARaw: TBytes);
     /// <summary>Applies the EncryptedExtensions ech rule from the machine-parsed extension
     /// (AEchPresent, and AEchData when present): unsolicited on accept (unsupported_extension),
     /// retry_configs captured on reject (unless this was a retry), validated-and-ignored under
@@ -68,7 +65,6 @@ type
     /// index-aligned with the machine's pruned pre_shared_key offers across a HelloRetryRequest.</summary>
     procedure KeepPskDecoys(const AKeptIndices: TArray<Int32>);
     function Active: Boolean;
-    function Grease: Boolean;
     function Status: TEchStatus;
     function RetryConfigs: TBytes;
     function HrrAccepted: Boolean;

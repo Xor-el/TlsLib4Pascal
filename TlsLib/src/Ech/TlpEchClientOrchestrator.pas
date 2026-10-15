@@ -53,7 +53,6 @@ type
     FEch: TEchClientHandshake;
     FStatus: TEchStatus;
     FActive: Boolean;
-    FGrease: Boolean;
     FGreaseEchExt: TBytes;
     FHrrAccepted: Boolean;
     FHrrDecided: Boolean;
@@ -70,7 +69,6 @@ type
     function BuildGreaseEch: TBytes;
     procedure MintGreasePskIdentities(const APskOffers: TArray<IPreSharedKey>);
     function BuildGreasePskData(const APskOffers: TArray<IPreSharedKey>): TBytes;
-    function LocateHrrEchConfirmation(const ARaw: TBytes; out AOffset: Int32): Boolean;
     function HashUnder(AHash: THashAlgorithm; const AData: TBytes): TBytes;
     // drop the client ECH secrets once the ServerHello decides: the live sealer (its AEAD key) and
     // the sent inner (real SNI + binders) are not read again after the verdict
@@ -102,9 +100,6 @@ type
     /// confirmation and rebases the inner transcript to message_hash(Hash(innerCH1)), HRR.</summary>
     procedure DecideHelloRetryRequest(const AHello: TTlsServerHello;
       const AMessage: TTlsHandshakeMessage; AHash: THashAlgorithm);
-    /// <summary>Under GREASE, validate the HelloRetryRequest ech syntactically without acting on
-    /// it: a present-but-not-8-byte ech is a decode_error (RFC 9849 sec. 6.2.1).</summary>
-    procedure NoteHelloRetryRequestGrease(const ARaw: TBytes);
     /// <summary>Applies the EncryptedExtensions ech rule from the machine-parsed extension
     /// (AEchPresent, and AEchData when present): unsolicited on accept (unsupported_extension),
     /// retry_configs captured on reject (unless this was a retry), validated-and-ignored under
@@ -114,7 +109,6 @@ type
     /// index-aligned with the machine's pruned pre_shared_key offers across a HelloRetryRequest.</summary>
     procedure KeepPskDecoys(const AKeptIndices: TArray<Int32>);
     function Active: Boolean;
-    function Grease: Boolean;
     function Status: TEchStatus;
     function RetryConfigs: TBytes;
     function HrrAccepted: Boolean;
@@ -166,10 +160,7 @@ begin
     // sends no decoy rather than failing the handshake
     FGreaseEchExt := BuildGreaseEch;
     if System.Length(FGreaseEchExt) > 0 then
-    begin
-      FGrease := True;
       FStatus := TEchStatus.Greased;
-    end;
   end
   else
     // ECH was requested but no config is usable and GREASE is off: fail closed rather than
@@ -202,11 +193,6 @@ end;
 function TEchClientOrchestrator.Active: Boolean;
 begin
   Result := FActive;
-end;
-
-function TEchClientOrchestrator.Grease: Boolean;
-begin
-  Result := FGrease;
 end;
 
 function TEchClientOrchestrator.Status: TEchStatus;
@@ -564,12 +550,6 @@ begin
     TEchConfigList.Parse(AEchData);
 end;
 
-function TEchClientOrchestrator.LocateHrrEchConfirmation(const ARaw: TBytes;
-  out AOffset: Int32): Boolean;
-begin
-  Result := TEchExtension.LocateHrrConfirmation(ARaw, AOffset);
-end;
-
 procedure TEchClientOrchestrator.DecideHelloRetryRequest(
   const AHello: TTlsServerHello; const AMessage: TTlsHandshakeMessage;
   AHash: THashAlgorithm);
@@ -584,7 +564,7 @@ begin
   // absence means the server did not accept ECH on CH1. The extension's position is not fixed
   // by the RFC, so it is found by parsing rather than assumed to be the last 8 bytes.
   LHrrZeroed := System.Copy(AMessage.Raw);
-  LHasEch := LocateHrrEchConfirmation(LHrrZeroed, LEchOffset);
+  LHasEch := TEchExtension.LocateHrrConfirmation(LHrrZeroed, LEchOffset);
   if LHasEch then
   begin
     LActual := System.Copy(LHrrZeroed, LEchOffset, TEchExtension.ConfirmationLength);
@@ -610,13 +590,6 @@ begin
   FInnerTranscript.SeedWithMessageHash(
     FCrypto.Primitives.CreateHash(AHash), LInnerCh1Hash);
   FInnerTranscript.Update(AMessage.Raw);
-end;
-
-procedure TEchClientOrchestrator.NoteHelloRetryRequestGrease(const ARaw: TBytes);
-var
-  LDummyOffset: Int32;
-begin
-  LocateHrrEchConfirmation(ARaw, LDummyOffset);
 end;
 
 procedure TEchClientOrchestrator.KeepPskDecoys(const AKeptIndices: TArray<Int32>);
