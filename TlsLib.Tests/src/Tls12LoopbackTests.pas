@@ -60,13 +60,13 @@ uses
   TlpTls12ServerStateMachine,
   MockCryptoProvider,
   TlsLibTestHandshakeDecoder,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
   TTestTls12Loopback = class(TTlsLibAlgorithmTestCase)
   private
     function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     function NewClient(ASuite: UInt16; AOfferEms: Boolean): ITlsEngine;
     function NewServer(ARequireEms: Boolean): ITlsEngine;
@@ -163,18 +163,6 @@ begin
     Result[LI] := AByte;
 end;
 
-function TTestTls12Loopback.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls12Loopback.ServerCredential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -213,8 +201,7 @@ begin
   LParams.LegacySessionId := nil;
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;

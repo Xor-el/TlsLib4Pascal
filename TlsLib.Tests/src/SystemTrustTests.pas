@@ -82,6 +82,7 @@ uses
   TlpTlsPresets,
   MockPlatformChainEngine,
   MockVerifyHooks,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -1827,8 +1828,8 @@ var
   LAlert: TTlsAlertDescription;
   LCaLeaf, LRoot: TBytes;
 begin
-  LCaLeaf := CriticalExtensionsCertificate('caleaf_cert');
-  LRoot := CriticalExtensionsCertificate('root_cert');
+  LCaLeaf := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
   CheckFalse(VerifyEnginePath(TArray<TBytes>.Create(LCaLeaf),
     TArray<TBytes>.Create(LCaLeaf, LRoot), TArray<TBytes>.Create(LRoot), nil, LVerified, LAlert),
     'a CA certificate presented as the end-entity is refused');
@@ -1842,7 +1843,7 @@ var
   LAlert: TTlsAlertDescription;
   LSelfCa: TBytes;
 begin
-  LSelfCa := CriticalExtensionsCertificate('selfca_cert');
+  LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LSelfCa), TArray<TBytes>.Create(LSelfCa),
     TArray<TBytes>.Create(LSelfCa), nil, LVerified, LAlert),
     'the directly trusted self-signed CA certificate is accepted');
@@ -1854,7 +1855,7 @@ var
   LAlert: TTlsAlertDescription;
   LSelfCa: TBytes;
 begin
-  LSelfCa := CriticalExtensionsCertificate('selfca_cert');
+  LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(LSelfCa),
     TArray<TBytes>.Create(LSelfCa), TArray<TBytes>.Create(LSelfCa), LVerified, LAlert),
     'a leaf equal to a configured anchor is admitted though the engine named no anchor');
@@ -1866,7 +1867,7 @@ var
   LAlert: TTlsAlertDescription;
   LSelfCa: TBytes;
 begin
-  LSelfCa := CriticalExtensionsCertificate('selfca_cert');
+  LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(LSelfCa),
     TArray<TBytes>.Create(LSelfCa), nil, LVerified, LAlert),
     'the same CA leaf is refused when it is not a configured anchor');
@@ -1879,9 +1880,10 @@ var
   LAlert: TTlsAlertDescription;
   LLeaf, LInter, LRoot: TBytes;
 begin
-  LLeaf := CriticalExtensionsCertificate('leaf_cert');
-  LInter := CriticalExtensionsCertificate('inter_serverauth_cert');
-  LRoot := CriticalExtensionsCertificate('root_cert');
+  LLeaf := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert');
+  LInter := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt',
+    'inter_serverauth_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf, LInter),
     TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot), nil, LVerified,
     LAlert), 'an end-entity certificate under a CA is unaffected');
@@ -1895,10 +1897,11 @@ var
   LSpy: TVerifyCallbackSpy;
   LLeaf, LInter, LRoot, LExtra: TBytes;
 begin
-  LLeaf := CriticalExtensionsCertificate('leaf_cert');
-  LInter := CriticalExtensionsCertificate('inter_serverauth_cert');
-  LRoot := CriticalExtensionsCertificate('root_cert');
-  LExtra := CriticalExtensionsCertificate('selfca_cert');
+  LLeaf := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert');
+  LInter := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt',
+    'inter_serverauth_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
+  LExtra := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf, LInter, LExtra),
     TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot), LSpy.Callback,

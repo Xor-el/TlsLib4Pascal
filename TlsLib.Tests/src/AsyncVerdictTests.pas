@@ -34,7 +34,6 @@ uses
   TlpTlsVersion,
   TlpTlsCredential,
   TlpICryptoProvider,
-  TlpCryptoDomainTypes,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpCertificateVerifierSource,
@@ -53,6 +52,7 @@ uses
   TlpIPkixProvider,
   MockHttpFetcher,
   MockVerifyHooks,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -75,7 +75,6 @@ type
     function ServerConfig: ITlsServerConfig;
     function MtlsClientConfig: ITlsClientConfig;
     function MtlsServerConfig(AAsync: Boolean): ITlsServerConfig;
-    function SpkiSha256(const ACertDer: TBytes): TBytes;
     // a mutual-TLS server that pins the accepted client chain, built through the real
     // builder + CreateServerEngine so the test exercises the factory composition, not a hand-wrapped
     // decorator
@@ -277,17 +276,6 @@ begin
   if AAsync then
     LServer.WithAsyncCertificateVerdict(0);
   Result := LServer.Build;
-end;
-
-function TTestAsyncVerdict.SpkiSha256(const ACertDer: TBytes): TBytes;
-var
-  LHash: IHash;
-  LSpki: TBytes;
-begin
-  LSpki := Pkix.Certificates.PublicKeyInfo(ACertDer);
-  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
-  LHash.Update(LSpki, 0, System.Length(LSpki));
-  Result := LHash.DoFinal;
 end;
 
 function TTestAsyncVerdict.MtlsServerConfigPinned(
@@ -1171,7 +1159,8 @@ begin
   // mutual handshake completes
   LClient := TTlsEngineFactory.CreateClientEngine(MtlsClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(
-    MtlsServerConfigPinned(TArray<TBytes>.Create(SpkiSha256(LeafCert))));
+    MtlsServerConfigPinned(TArray<TBytes>.Create(
+      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix, LeafCert))));
   LClient.StartHandshake;
   DriveToCompletion(LClient, LServer);
   CheckFalse(LServer.IsHandshaking or LClient.IsHandshaking,

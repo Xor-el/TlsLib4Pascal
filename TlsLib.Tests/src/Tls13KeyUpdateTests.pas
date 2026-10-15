@@ -27,8 +27,6 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICertificateTrust,
-  TlpITrustAnchorStore,
-  TlpTrustAnchorStore,
   TlpCertificateVerifier,
   TlpCertificateVerifierSource,
   TlpTlsCredential,
@@ -54,6 +52,7 @@ uses
   TlpTls13HandshakeBase,
   MockCryptoProvider,
   TlsLibTestBase,
+  TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
@@ -63,7 +62,6 @@ type
     ServerHost = 'localhost';
   var
     function ServerCredential: TTlsCredential;
-    function ClientTrust: ITrustAnchorStore;
     function AesGcmRegistry(const AProvider: ICryptoProvider): ICipherSuiteRegistry;
     function NewClient: ITlsEngine;
     function NewServer: ITlsEngine;
@@ -174,25 +172,13 @@ begin
   end;
 end;
 
-function TTestTls13KeyUpdate.ClientTrust: ITrustAnchorStore;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := TTrustAnchorStore.Create(
-      TArray<TBytes>.Create(DecodeHex(LCerts.Values['root_cert']))) as ITrustAnchorStore;
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls13KeyUpdate.NewClient: ITlsEngine;
 begin
   // Hardened is TLS 1.3-only, the version that has KeyUpdate
   Result := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
     .Build, ServerHost);
 end;
 
@@ -331,7 +317,8 @@ begin
   LRegistry := AesGcmRegistry(LCapped);
   LClient := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Hardened(LCapped, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build)
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
     .WithCipherSuites(LRegistry).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(
     TTlsPresets.Hardened(LCapped, Pkix).Server.WithCredential(ServerCredential)
@@ -707,7 +694,8 @@ var
 begin
   // one config for every connection, so a cached share would repeat (RFC 9846 4.3.8)
   LClientConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(ClientTrust).Build).Build;
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
   LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   for LI := 0 to 1 do

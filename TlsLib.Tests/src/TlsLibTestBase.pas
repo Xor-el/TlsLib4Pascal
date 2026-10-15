@@ -33,8 +33,6 @@ uses
   TlpSystemTimeUtilities,
   TlpICryptoProvider,
   TlpIPkixProvider,
-  TlpITrustAnchorStore,
-  TlpTrustAnchorStore,
   TlsLibTestResourceLoader,
   TlsLibTestProviders;
 
@@ -101,12 +99,6 @@ type
     procedure CheckEqualBytes(const AName: string; const AExpected, AActual: TBytes);
     // Loads a "name=hexvalue" vector file; read fields via Result.Values['name'].
     function LoadVectorFields(const ARelativePath: string): TStringList;
-    // The EcP256Chain self-signed root (Certs/EcP256Chain.txt: root_cert), for config-only tests
-    // that need a real trust source present but never verify a chain.
-    function EcP256RootCertificate: TBytes;
-    function EcP256RootStore: ITrustAnchorStore;
-    // A named certificate of Certs/CriticalExtensionsChain.txt.
-    function CriticalExtensionsCertificate(const AName: string): TBytes;
   end;
 
 implementation
@@ -346,36 +338,6 @@ begin
   except
     Result.Free;
     raise;
-  end;
-end;
-
-function TTlsLibAlgorithmTestCase.EcP256RootCertificate: TBytes;
-var
-  LFields: TStringList;
-begin
-  LFields := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LFields.Values['root_cert']);
-  finally
-    LFields.Free;
-  end;
-end;
-
-function TTlsLibAlgorithmTestCase.EcP256RootStore: ITrustAnchorStore;
-begin
-  Result := TTrustAnchorStore.Create(
-    TArray<TBytes>.Create(EcP256RootCertificate)) as ITrustAnchorStore;
-end;
-
-function TTlsLibAlgorithmTestCase.CriticalExtensionsCertificate(const AName: string): TBytes;
-var
-  LFields: TStringList;
-begin
-  LFields := LoadVectorFields('Certs/CriticalExtensionsChain.txt');
-  try
-    Result := DecodeHex(LFields.Values[AName]);
-  finally
-    LFields.Free;
   end;
 end;
 

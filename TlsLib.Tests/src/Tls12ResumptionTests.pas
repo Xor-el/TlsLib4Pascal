@@ -74,6 +74,7 @@ uses
   TlpTls13ServerStateMachine,
   TlpVersionDispatchMachine,
   TlsLibTestHandshakeDecoder,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -90,7 +91,6 @@ type
     FClientClock, FServerClock: ITlsClock;
     FReverify: Boolean;
     FResumeVerifier: IServerCertificateVerifier;
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     /// <summary>Drains the engine's event queue, returning how many SessionTicketReceived it held.</summary>
     function CountTicketEvents(const AEngine: ITlsEngine): Int32;
@@ -255,18 +255,6 @@ implementation
 
 { TTestTls12Resumption }
 
-function TTestTls12Resumption.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls12Resumption.ServerCredential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -306,8 +294,7 @@ begin
   LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.ServerIdentity := ServerHost + ':443';
@@ -345,8 +332,7 @@ var
   LRandom, LSessionId: TBytes;
 begin
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   // the dispatcher sends one unified ClientHello, so both sub-machines must share the same
   // client_random and legacy_session_id (the abbreviated Finished MAC binds them)
   LRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
@@ -1666,8 +1652,7 @@ begin
   LParams.OfferExtendedMasterSecret := True;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.ServerIdentity := ServerHost + ':443';

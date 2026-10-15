@@ -39,8 +39,6 @@ uses
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpICertificateTrust,
-  TlpITrustAnchorStore,
-  TlpTrustAnchorStore,
   TlpServerName,
   TlpCertificateLimits,
   TlpCertificateVerifier,
@@ -55,6 +53,7 @@ uses
   TlpTls13ServerStateMachine,
   MockCertificateCompression,
   TlsLibTestBase,
+  TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
@@ -66,7 +65,6 @@ type
     function CompressThrough(const ACache: ICertificateCompressionCache;
       const ACompressor: ICertificateCompressor; const ABody: TBytes): TBytes;
     // low-level machine scaffold for the end-to-end loopback proof
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     function CredentialWithChain(const AChain: TArray<TBytes>): TTlsCredential;
     function CompressibleChain(AValue: Byte): TArray<TBytes>;
@@ -368,18 +366,6 @@ begin
   CheckEquals(3, LSpy.Count, 'the first success is cached, the repeat is a hit');
 end;
 
-function TTestCertificateCompressionCache.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestCertificateCompressionCache.ServerCredential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -434,8 +420,7 @@ begin
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   // the client advertises the built-in zlib decompressor, so the server may compress
   LParams.CertificateDecompressors := TZlibCertificateCompression.DefaultDecompressors;
   LParams.CertificateChainLimits := TCertificateChainLimits.Defaults;

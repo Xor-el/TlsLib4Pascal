@@ -46,6 +46,7 @@ uses
   TlpServerName,
   TlpCertificateVerifier,
   TlpCertificateLimits,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -195,7 +196,7 @@ var
 begin
   LOptions.ChainLimits := ALimits;
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    EcP256RootStore, True, LOptions) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True, LOptions) as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(AChain,
     TServerName.DnsName('localhost'), nil, LVerified, AAlert);
 end;
@@ -319,7 +320,8 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // each certificate is under the per-certificate cap, so only the summed total can refuse it
-  LChain := TArray<TBytes>.Create(LeafCertificate, EcP256RootCertificate);
+  LChain := TArray<TBytes>.Create(LeafCertificate,
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
   LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxTotalChainLength := System.Length(LChain[0]) + System.Length(LChain[1]) - 1;
   CheckFalse(VerifyChain(LChain, LLimits, LAlert), 'a chain one byte over the total cap aborts');
@@ -333,7 +335,8 @@ var
   LLimits: TCertificateChainLimits;
   LAlert: TTlsAlertDescription;
 begin
-  LChain := TArray<TBytes>.Create(LeafCertificate, EcP256RootCertificate);
+  LChain := TArray<TBytes>.Create(LeafCertificate,
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
   LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxTotalChainLength := System.Length(LChain[0]) + System.Length(LChain[1]);
   CheckTrue(VerifyChain(LChain, LLimits, LAlert), 'a chain exactly at the total cap verifies');

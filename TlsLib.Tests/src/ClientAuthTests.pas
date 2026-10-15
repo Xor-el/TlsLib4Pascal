@@ -46,7 +46,6 @@ uses
   TlpTlsConnection,
   TlpICryptoProvider,
   TlpIPkixProvider,
-  TlpCryptoDomainTypes,
   TlpTrustTypes,
   TlpCertificateVerify,
   TlpTlsAlert,
@@ -67,6 +66,7 @@ uses
   TlpTls12ServerStateMachine,
   MockCertificateCompression,
   TlsLibTestBase,
+  TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
@@ -85,7 +85,6 @@ type
     // record length adjusted; nil when no plaintext handshake record carries that type
     function ReplaceHandshakeMessage(const AWire: TBytes; AMsgType: Byte;
       const ANewMessage: TBytes): TBytes;
-    function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A TLS 1.3 mutual-TLS client (with credential) and a server requiring it, with the
     /// given certificate-compression sets on each side; the server is returned through AServer.</summary>
     function New13CompressionPair(const AClientCompressors: TArray<ICertificateCompressor>;
@@ -285,17 +284,6 @@ begin
     Byte(LNewRecLen shr 8), Byte(LNewRecLen and $FF))),
     System.Copy(AWire, LPos + 5, LInner - (LPos + 5))), ANewMessage),
     System.Copy(AWire, LInner + 4 + LMsgLen, System.Length(AWire) - (LInner + 4 + LMsgLen)));
-end;
-
-function TTestClientAuth.SpkiSha256(const ACertDer: TBytes): TBytes;
-var
-  LHash: IHash;
-  LSpki: TBytes;
-begin
-  LSpki := Pkix.Certificates.PublicKeyInfo(ACertDer);
-  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
-  LHash.Update(LSpki, 0, System.Length(LSpki));
-  Result := LHash.DoFinal;
 end;
 
 function TTestClientAuth.New13ServerPinned(AMode: TClientAuthMode;
@@ -1268,7 +1256,8 @@ begin
   // verifier validates the chain and the pin matches, so the mTLS handshake completes
   LClient := New13Client(True);
   LServer := New13ServerPinned(TClientAuthMode.Required,
-    TArray<TBytes>.Create(SpkiSha256(ClientLeafCert)));
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix, ClientLeafCert)));
   Drive(LClient, LServer);
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
     '1.3 mTLS with a matching client-cert pin completes');

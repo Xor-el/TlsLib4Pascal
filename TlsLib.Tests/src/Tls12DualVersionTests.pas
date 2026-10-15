@@ -50,8 +50,6 @@ uses
   TlpTlsLibExceptions,
   TlpIHandshakeMachine,
   TlpICertificateTrust,
-  TlpITrustAnchorStore,
-  TlpTrustAnchorStore,
   TlpServerName,
   TlpCertificateVerifier,
   TlpCertificateVerifierSource,
@@ -62,13 +60,13 @@ uses
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   TlpVersionDispatchMachine,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
   TTestTls12DualVersion = class(TTlsLibAlgorithmTestCase)
   private
     function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     function DualSuites: TArray<UInt16>;
     function Client13Params: TClientHandshakeParams;
@@ -169,18 +167,6 @@ begin
     Result[LI] := AByte;
 end;
 
-function TTestTls12DualVersion.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls12DualVersion.ServerCredential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -225,8 +211,7 @@ begin
   Result.ClientRandom := Filled($11, 32);
   Result.LegacySessionId := Filled($33, 32);
   Result.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   Result.ExpectedServerName := TServerName.DnsName('localhost');
 end;
 
@@ -253,8 +238,7 @@ begin
   Result.LegacySessionId := Filled($33, 32);
   Result.OfferExtendedMasterSecret := True;
   Result.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   Result.ExpectedServerName := TServerName.DnsName('localhost');
 end;
 
@@ -488,7 +472,8 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Server.WithCredential(ServerCredential).Build);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-    .Client.WithServerVerification(TServerVerification.WebPki(TestRootCertificate).Build)
+    .Client.WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .Build, 'localhost');
   DriveToCompletion(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset engine');
@@ -518,7 +503,8 @@ begin
     .WithClientVerification(TClientVerification.WebPki(LClientRoot).Build).Build);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Client.WithCredential(LClientCred)
-    .WithServerVerification(TServerVerification.WebPki(TestRootCertificate).Build)
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .Build, 'localhost');
   DriveToCompletion(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset mutual TLS');
@@ -1332,7 +1318,8 @@ begin
   LRaised := False;
   try
     TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-      .Client.WithServerVerification(TServerVerification.WebPki(TestRootCertificate).Build)
+      .Client.WithServerVerification(TServerVerification.WebPki(
+        TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
       .Build, '');
   except
     on E: EArgumentTlsLibException do
@@ -1342,7 +1329,8 @@ begin
 
   // opting out with WithDangerousDisableServerNameCheck allows an empty host (chain-only trust, no SNI)
   TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
-    .Client.WithServerVerification(TServerVerification.WebPki(TestRootCertificate).Build)
+    .Client.WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithDangerousDisableServerNameCheck.Build, '');
   CheckTrue(True, 'with name-check off, an empty host is allowed');
 end;

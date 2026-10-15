@@ -31,7 +31,6 @@ uses
   TlpTlsVersion,
   TlpTlsAlert,
   TlpHandshakeMessages,
-  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpTrustPolicy,
   TlpTlsConnectionInfo,
@@ -56,6 +55,7 @@ uses
   MockTransport,
   MockVerifyHooks,
   MockCryptoProvider,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -133,7 +133,6 @@ type
       out ARejectAlert: TTlsAlertDescription): Boolean;
     function ResolverRaises(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
-    function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A client config with the async peer-certificate verdict enabled.</summary>
     function AsyncClientConfig: ITlsClientConfig;
     /// <summary>Moves everything AFrom has queued into ATo, returning the byte count.</summary>
@@ -611,17 +610,6 @@ begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithAsyncCertificateVerdict(0).Build;
-end;
-
-function TTestTlsStreamLoopback.SpkiSha256(const ACertDer: TBytes): TBytes;
-var
-  LHash: IHash;
-  LSpki: TBytes;
-begin
-  LSpki := Pkix.Certificates.PublicKeyInfo(ACertDer);
-  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
-  LHash.Update(LSpki, 0, System.Length(LSpki));
-  Result := LHash.DoFinal;
 end;
 
 procedure TTestTlsStreamLoopback.TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
@@ -1354,7 +1342,7 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithCertificatePinning(TArray<TBytes>.Create(
-      SpkiSha256(LeafCert))).Build;
+      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix, LeafCert))).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
     LClient.Handshake;

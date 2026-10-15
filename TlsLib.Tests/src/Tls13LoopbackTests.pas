@@ -74,6 +74,7 @@ uses
   TlpIKeyLog,
   MockKeyLog,
   TlsLibTestBase,
+  TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
@@ -83,7 +84,6 @@ type
     // observe which ClientHello random the exported secrets are keyed by
     FClientKeyLog, FServerKeyLog: TMockKeyLog;
     function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     function WrongNameCredential: TTlsCredential;
     function NewClient: ITlsEngine;
@@ -244,24 +244,11 @@ begin
   // ServerName is the SNI sent on the wire; ExpectedHostName is the name the leaf is checked against
   LParams.ServerName := ASni;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(AExpectedHost);
 
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
-end;
-
-function TTestTls13Loopback.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
 end;
 
 function TTestTls13Loopback.ServerCredential: TTlsCredential;
@@ -496,8 +483,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto, AConfigList, False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
@@ -615,8 +601,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto, EchConfigListBytes, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
@@ -688,8 +673,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto, AConfigList, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
@@ -745,8 +729,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto, EchConfigListBytes, False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
@@ -1459,8 +1442,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
@@ -1515,8 +1497,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
@@ -1566,8 +1547,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
@@ -1615,8 +1595,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
@@ -2553,7 +2532,8 @@ begin
   LExact := ServerCredential;        // stands in for host.example.com
   LWildcard := WrongNameCredential;  // stands in for *.wild.example
   LDefault := Default(TTlsCredential);
-  LDefault.CertificateChain := TArray<TBytes>.Create(TestRootCertificate);
+  LDefault.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
 
   SetLength(LEntries, 2);
   LEntries[0].Host := 'host.example.com';

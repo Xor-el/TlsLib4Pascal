@@ -32,6 +32,7 @@ uses
   TlpITlsConfigBuilder,
   TlpCertificateVerifierSource,
   TlpTlsPresets,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -60,7 +61,8 @@ function TTestPreset.ClientOf(
 begin
   // a real single-root store lets the client build so its invariants can be read
   Result := ABuilder.Client
-    .WithServerVerification(TServerVerification.WebPki(EcP256RootStore).Build).Build;
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
 end;
 
 procedure TTestPreset.TestHardenedPrefersPqHybridGroup;
@@ -157,7 +159,8 @@ begin
   // Strict already requests a staple, so raising the posture to Hard is satisfiable without a
   // staple request of the caller's own - Build does not fail fast as always-rejecting
   LConfig := TTlsPresets.Strict(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(EcP256RootStore)
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore)
     .WithRevocation(TRevocationPosture.Hard).Build)
     .Build;
   CheckEquals(Ord(TRevocationPosture.Hard), Ord(LConfig.RevocationPosture),

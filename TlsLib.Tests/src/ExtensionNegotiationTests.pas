@@ -52,8 +52,6 @@ uses
   TlpICertificateCompression,
   TlpZlibCertificateCompression,
   TlpICertificateTrust,
-  TlpITrustAnchorStore,
-  TlpTrustAnchorStore,
   TlpServerName,
   TlpCertificateLimits,
   TlpCertificateVerifier,
@@ -72,12 +70,12 @@ uses
   TlpTlsVersion,
   MockCertificateCompression,
   TlsLibTestBase,
+  TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
 
 type
   TTestExtensionNegotiation = class(TTlsLibAlgorithmTestCase)
   private
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     function NewClient(const AAlpn: TArray<TBytes>; ARecordSizeLimit: Int32): ITlsEngine;
     function NewServer(const AAlpn: TArray<TBytes>; ARecordSizeLimit: Int32): ITlsEngine;
@@ -225,18 +223,6 @@ begin
   CheckTrue(LCompressors[0].TryCompress(AData, Result), 'zlib compressed the body');
 end;
 
-function TTestExtensionNegotiation.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestExtensionNegotiation.ServerCredential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -271,8 +257,7 @@ begin
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -319,8 +304,7 @@ begin
   LParams.LegacySessionId := nil;
   LParams.RecordSizeLimit := ARecordSizeLimit;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
     TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -457,8 +441,7 @@ begin
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.CertificateDecompressors := ADecompressors;
   LParams.CertificateChainLimits := ALimits;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
@@ -811,8 +794,7 @@ begin
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
@@ -1453,8 +1435,7 @@ begin
   LParams.ClientRandom := DecodeHex(StringOfChar('1', 64));
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate)) as ITrustAnchorStore,
-    True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);

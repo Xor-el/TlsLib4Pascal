@@ -34,6 +34,7 @@ uses
   TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
   TlpChainAlgorithmPolicy,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -101,9 +102,11 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(TEndEntityPolicy.Admits(Pkix.Certificates,
-    TArray<TBytes>.Create(CriticalExtensionsCertificate('leaf_cert'),
-    CriticalExtensionsCertificate('root_cert')),
-    TArray<TBytes>.Create(CriticalExtensionsCertificate('root_cert')), LAlert),
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')),
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
     'a cA=FALSE leaf is admitted');
 end;
 
@@ -112,9 +115,11 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(TEndEntityPolicy.Admits(Pkix.Certificates,
-    TArray<TBytes>.Create(CriticalExtensionsCertificate('caleaf_cert'),
-    CriticalExtensionsCertificate('root_cert')),
-    TArray<TBytes>.Create(CriticalExtensionsCertificate('root_cert')), LAlert),
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')),
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
     'a cA=TRUE leaf under a root is refused');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
 end;
@@ -124,8 +129,10 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(TEndEntityPolicy.Admits(Pkix.Certificates,
-    TArray<TBytes>.Create(CriticalExtensionsCertificate('selfca_cert')),
-    TArray<TBytes>.Create(CriticalExtensionsCertificate('selfca_cert')), LAlert),
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')),
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')), LAlert),
     'a directly trusted self-signed CA certificate is admitted');
 end;
 
@@ -134,8 +141,10 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(TEndEntityPolicy.Admits(Pkix.Certificates,
-    TArray<TBytes>.Create(CriticalExtensionsCertificate('selfca_cert')),
-    TArray<TBytes>.Create(CriticalExtensionsCertificate('root_cert')), LAlert),
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')),
+    TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
     'the same certificate is refused when it is not the configured anchor');
 end;
 
