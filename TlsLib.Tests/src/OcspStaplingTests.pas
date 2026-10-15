@@ -54,14 +54,19 @@ type
     FVec: TStringList;
     // a CA-signed Good response with no nextUpdate (and one with, for contrast)
     FNoNext: TStringList;
+    // a delegated responder issued by CA A, with a staple naming CA A or CA B in its CertID
+    FMatch: TStringList;
     function V(const AName: string): TBytes;
     function N(const AName: string): TBytes;
+    function M(const AName: string): TBytes;
+    // a Hard verifier anchored at CA A whose clock is one hour after the control's thisUpdate
+    function MatchVerifier: IServerCertificateVerifier;
     function NoNextChain: TArray<TBytes>;
     // the response's thisUpdate in Unix ms, read back from the parsed vector so the clock the
     // tests pin is derived from the data rather than hard-coded
-    function NoNextThisUpdateMs(const AResponse: TBytes): Int64;
-    function NoNextVerifierFor(APosture: TRevocationPosture; ADeferral: TVerdictDeferral;
-      AClockMs: Int64): IServerCertificateVerifier;
+    function StapleThisUpdateMs(const ALeaf, AIssuer, AResponse: TBytes): Int64;
+    function ClockedVerifierFor(const AAnchor: TBytes; APosture: TRevocationPosture;
+      ADeferral: TVerdictDeferral; AClockMs: Int64): IServerCertificateVerifier;
     function Chain: TArray<TBytes>;
     function ChainFor(const ALeafName: string): TArray<TBytes>;
     function VerifierFor(APosture: TRevocationPosture;
@@ -90,6 +95,16 @@ type
     procedure TestValidateStapleDelegatedResponder;
     procedure TestValidateStapleUnauthorizedSigner;
     procedure TestValidateStapleWrongIssuer;
+    // the CertID issuer match is the only guard against a delegated responder's staple for another CA
+    procedure TestValidateStapleDelegatedMatchingCertIdAccepted;
+    procedure TestValidateStapleDelegatedCertIdNamesOtherCaRefused;
+    procedure TestDelegatedMatchingCertIdStapleHardCompletes;
+    procedure TestDelegatedCertIdNamesOtherCaStapleHardAborts;
+    // one hash wrong at a time, so a comparison of only the name hash or only the key hash is caught
+    procedure TestValidateStapleDelegatedCertIdKeyHashDiffersRefused;
+    procedure TestValidateStapleDelegatedCertIdNameHashDiffersRefused;
+    procedure TestDelegatedCertIdKeyHashDiffersStapleHardAborts;
+    procedure TestDelegatedCertIdNameHashDiffersStapleHardAborts;
     procedure TestValidateStapleMalformed;
     procedure TestTlsFeaturesAbsentIsEmpty;
     procedure TestTlsFeaturesMustStaple;
@@ -158,6 +173,21 @@ begin
   inherited SetUp;
   FVec := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
   FNoNext := Own<TStringList>(LoadVectorFields('Certs/OcspNoNextUpdate.txt'));
+  FMatch := Own<TStringList>(LoadVectorFields('Certs/OcspIssuerMatch.txt'));
+end;
+
+function TTestOcspStapling.M(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FMatch.Values[AName]);
+end;
+
+function TTestOcspStapling.MatchVerifier: IServerCertificateVerifier;
+var
+  LThisMs: Int64;
+begin
+  LThisMs := StapleThisUpdateMs(M('leaf_cert'), M('ca_a_cert'), M('ocsp_delegated_good'));
+  Result := ClockedVerifierFor(M('ca_a_cert'), TRevocationPosture.Hard, TVerdictDeferral.None,
+    LThisMs + 3600 * 1000);
 end;
 
 function TTestOcspStapling.V(const AName: string): TBytes;
@@ -175,20 +205,22 @@ begin
   Result := TArray<TBytes>.Create(N('leaf_cert'), N('ca_cert'));
 end;
 
-function TTestOcspStapling.NoNextThisUpdateMs(const AResponse: TBytes): Int64;
+function TTestOcspStapling.StapleThisUpdateMs(const ALeaf, AIssuer,
+  AResponse: TBytes): Int64;
 var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  CheckTrue(Pkix.Revocation.ValidateOcspStaple(N('leaf_cert'), N('ca_cert'), AResponse,
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(ALeaf, AIssuer, AResponse,
     NowUtc, LStatus, LThis, LNext),
-    'the CA-signed response about the leaf is authoritative');
+    'the issuer-authorised response about the leaf is authoritative');
   CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
   Result := TDateTimeUtilities.DateTimeToUnixMs(LThis);
 end;
 
-function TTestOcspStapling.NoNextVerifierFor(APosture: TRevocationPosture;
-  ADeferral: TVerdictDeferral; AClockMs: Int64): IServerCertificateVerifier;
+function TTestOcspStapling.ClockedVerifierFor(const AAnchor: TBytes;
+  APosture: TRevocationPosture; ADeferral: TVerdictDeferral;
+  AClockMs: Int64): IServerCertificateVerifier;
 var
   LOptions: TCertificateVerifierOptions;
 begin
@@ -196,7 +228,7 @@ begin
   LOptions.Deferral := ADeferral;
   LOptions.StatusRequestOffered := True;
   Result := TCertificateVerifier.Create(Pkix, TMockClock.Create(UInt64(AClockMs)) as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(N('ca_cert'))) as ITrustAnchorStore, False,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(AAnchor)) as ITrustAnchorStore, False,
     LOptions) as IServerCertificateVerifier;
 end;
 
@@ -356,10 +388,109 @@ var
   LStatus: TOcspStatus;
   LThis, LNext: TDateTime;
 begin
-  // refused at the issuer-signed-leaf guard; the CertID issuer match is not covered here
+  // refused at the issuer-signed-leaf guard
   CheckFalse(Pkix.Revocation.ValidateOcspStaple(V('leaf_cert'), V('other_ca_cert'),
     V('ocsp_good'), NowUtc, LStatus, LThis, LNext),
     'a staple checked against an unrelated issuer is indeterminate');
+end;
+
+procedure TTestOcspStapling.TestValidateStapleDelegatedMatchingCertIdAccepted;
+var
+  LStatus: TOcspStatus;
+  LThis, LNext: TDateTime;
+begin
+  // control: the delegate is valid and the CertID names CA A, so the staple is authoritative
+  CheckTrue(Pkix.Revocation.ValidateOcspStaple(M('leaf_cert'), M('ca_a_cert'),
+    M('ocsp_delegated_good'), NowUtc, LStatus, LThis, LNext),
+    'a delegated staple whose CertID names the real issuer is authoritative');
+  CheckEquals(Ord(TOcspStatus.Good), Ord(LStatus), 'the status is Good');
+end;
+
+procedure TTestOcspStapling.TestValidateStapleDelegatedCertIdNamesOtherCaRefused;
+var
+  LStatus: TOcspStatus;
+  LThis, LNext: TDateTime;
+begin
+  // only the CertID issuer hashes differ from the control
+  CheckFalse(Pkix.Revocation.ValidateOcspStaple(M('leaf_cert'), M('ca_a_cert'),
+    M('ocsp_delegated_wrong_certid'), NowUtc, LStatus, LThis, LNext),
+    'a staple whose CertID names another issuer says nothing about this leaf');
+  CheckEquals(Ord(TOcspStatus.Unknown), Ord(LStatus), 'the status stays Unknown');
+end;
+
+procedure TTestOcspStapling.TestValidateStapleDelegatedCertIdKeyHashDiffersRefused;
+var
+  LStatus: TOcspStatus;
+  LThis, LNext: TDateTime;
+begin
+  // CA A's name under another key: the name hash matches, so only the key hash can refuse it
+  CheckFalse(Pkix.Revocation.ValidateOcspStaple(M('leaf_cert'), M('ca_a_cert'),
+    M('ocsp_delegated_wrong_key_hash'), NowUtc, LStatus, LThis, LNext),
+    'a CertID whose issuer key hash differs is not about this issuer');
+  CheckEquals(Ord(TOcspStatus.Unknown), Ord(LStatus), 'the status stays Unknown');
+end;
+
+procedure TTestOcspStapling.TestValidateStapleDelegatedCertIdNameHashDiffersRefused;
+var
+  LStatus: TOcspStatus;
+  LThis, LNext: TDateTime;
+begin
+  // CA A's key under another name: the key hash matches, so only the name hash can refuse it
+  CheckFalse(Pkix.Revocation.ValidateOcspStaple(M('leaf_cert'), M('ca_a_cert'),
+    M('ocsp_delegated_wrong_name_hash'), NowUtc, LStatus, LThis, LNext),
+    'a CertID whose issuer name hash differs is not about this issuer');
+  CheckEquals(Ord(TOcspStatus.Unknown), Ord(LStatus), 'the status stays Unknown');
+end;
+
+procedure TTestOcspStapling.TestDelegatedMatchingCertIdStapleHardCompletes;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // Hard rejects an indeterminate staple, so acceptance proves the control authenticated
+  CheckTrue(MatchVerifier.VerifyServerCertificate(
+    TArray<TBytes>.Create(M('leaf_cert'), M('ca_a_cert')), TServerName.DnsName(''),
+    M('ocsp_delegated_good'), LVerified, LAlert),
+    'a delegated Good staple naming the real issuer validates under Hard');
+end;
+
+procedure TTestOcspStapling.TestDelegatedCertIdNamesOtherCaStapleHardAborts;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  CheckFalse(MatchVerifier.VerifyServerCertificate(
+    TArray<TBytes>.Create(M('leaf_cert'), M('ca_a_cert')), TServerName.DnsName(''),
+    M('ocsp_delegated_wrong_certid'), LVerified, LAlert),
+    'a staple whose CertID names another issuer is indeterminate, which Hard rejects');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
+end;
+
+procedure TTestOcspStapling.TestDelegatedCertIdKeyHashDiffersStapleHardAborts;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  CheckFalse(MatchVerifier.VerifyServerCertificate(
+    TArray<TBytes>.Create(M('leaf_cert'), M('ca_a_cert')), TServerName.DnsName(''),
+    M('ocsp_delegated_wrong_key_hash'), LVerified, LAlert),
+    'a staple whose CertID key hash differs is indeterminate, which Hard rejects');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
+end;
+
+procedure TTestOcspStapling.TestDelegatedCertIdNameHashDiffersStapleHardAborts;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  CheckFalse(MatchVerifier.VerifyServerCertificate(
+    TArray<TBytes>.Create(M('leaf_cert'), M('ca_a_cert')), TServerName.DnsName(''),
+    M('ocsp_delegated_wrong_name_hash'), LVerified, LAlert),
+    'a staple whose CertID name hash differs is indeterminate, which Hard rejects');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+    'the alert is bad_certificate_status_response');
 end;
 
 procedure TTestOcspStapling.TestValidateStapleMalformed;
@@ -846,8 +977,9 @@ begin
   // Hard + live revocation, one hour after thisUpdate: the staple satisfies the inline gate, but
   // the outcome stays Trusted so the configured live park still runs - a replayed old Good must
   // not stand in for the live check that would report a later revocation
-  CheckTrue(NoNextVerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation,
-    NoNextThisUpdateMs(N('ocsp_good_nonext')) + 3600 * 1000).VerifyServerCertificate(
+  CheckTrue(ClockedVerifierFor(N('ca_cert'), TRevocationPosture.Hard,
+    TVerdictDeferral.LiveRevocation, StapleThisUpdateMs(N('leaf_cert'), N('ca_cert'),
+    N('ocsp_good_nonext')) + 3600 * 1000).VerifyServerCertificate(
     NoNextChain, TServerName.DnsName(''), N('ocsp_good_nonext'), LVerified, LAlert),
     'a recent Good staple without nextUpdate is accepted under Hard + live revocation');
   CheckEquals(Ord(TVerificationOutcome.Trusted), Ord(LVerified.Outcome),
@@ -860,8 +992,9 @@ var
   LVerified: TVerifiedChain;
 begin
   // the contrast: the same responder's Good WITH nextUpdate is Fresh and settles inline
-  CheckTrue(NoNextVerifierFor(TRevocationPosture.Hard, TVerdictDeferral.LiveRevocation,
-    NoNextThisUpdateMs(N('ocsp_good_withnext')) + 3600 * 1000).VerifyServerCertificate(
+  CheckTrue(ClockedVerifierFor(N('ca_cert'), TRevocationPosture.Hard,
+    TVerdictDeferral.LiveRevocation, StapleThisUpdateMs(N('leaf_cert'), N('ca_cert'),
+    N('ocsp_good_withnext')) + 3600 * 1000).VerifyServerCertificate(
     NoNextChain, TServerName.DnsName(''), N('ocsp_good_withnext'), LVerified, LAlert),
     'a Good staple with nextUpdate is accepted under Hard + live revocation');
   CheckEquals(Ord(TVerificationOutcome.RevocationSettledInline), Ord(LVerified.Outcome),
@@ -876,14 +1009,15 @@ var
 begin
   // eight days after thisUpdate the no-nextUpdate Good is past the max age: Indeterminate, which
   // Hard rejects and Soft accepts
-  LClockMs := NoNextThisUpdateMs(N('ocsp_good_nonext')) + Int64(8) * 24 * 3600 * 1000;
-  CheckFalse(NoNextVerifierFor(TRevocationPosture.Hard, TVerdictDeferral.None, LClockMs)
-    .VerifyServerCertificate(NoNextChain, TServerName.DnsName(''), N('ocsp_good_nonext'),
+  LClockMs := StapleThisUpdateMs(N('leaf_cert'), N('ca_cert'), N('ocsp_good_nonext')) +
+    Int64(8) * 24 * 3600 * 1000;
+  CheckFalse(ClockedVerifierFor(N('ca_cert'), TRevocationPosture.Hard, TVerdictDeferral.None,
+    LClockMs).VerifyServerCertificate(NoNextChain, TServerName.DnsName(''), N('ocsp_good_nonext'),
     LVerified, LAlert), 'Hard rejects a Good without nextUpdate that is past the max age');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
     'the alert is bad_certificate_status_response');
-  CheckTrue(NoNextVerifierFor(TRevocationPosture.Soft, TVerdictDeferral.None, LClockMs)
-    .VerifyServerCertificate(NoNextChain, TServerName.DnsName(''), N('ocsp_good_nonext'),
+  CheckTrue(ClockedVerifierFor(N('ca_cert'), TRevocationPosture.Soft, TVerdictDeferral.None,
+    LClockMs).VerifyServerCertificate(NoNextChain, TServerName.DnsName(''), N('ocsp_good_nonext'),
     LVerified, LAlert), 'Soft accepts the indeterminate outcome');
   CheckEquals(Ord(TVerificationOutcome.Trusted), Ord(LVerified.Outcome),
     'an indeterminate outcome never settles');
