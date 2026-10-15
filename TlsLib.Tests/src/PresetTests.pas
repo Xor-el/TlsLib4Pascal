@@ -161,7 +161,7 @@ begin
   LConfig := TTlsPresets.Strict(Crypto, Pkix).Client
     .WithServerVerification(
       TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore)
-    .WithRevocation(TRevocationPosture.Hard).Build)
+      .WithRevocation(TRevocationPosture.Hard).Build)
     .Build;
   CheckEquals(Ord(TRevocationPosture.Hard), Ord(LConfig.RevocationPosture),
     'Strict builds with Hard revocation on the staple it already requests');

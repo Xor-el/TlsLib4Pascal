@@ -970,19 +970,9 @@ end;
 
 function TTestTls12Loopback.DecodeServerFlightHello(
   const AFlight: TArray<TBytes>): TTlsServerHello;
-var
-  LReader: THandshakeMessageReader;
-  LMsg: TTlsHandshakeMessage;
 begin
-  Result := Default(TTlsServerHello);
-  LReader := THandshakeMessageReader.Create;
-  try
-    LReader.Append(AFlight[0], 0, System.Length(AFlight[0]));
-    if LReader.NextMessage(LMsg) then
-      Result := THandshakeMessages.DecodeServerHello(LMsg.Body);
-  finally
-    LReader.Free;
-  end;
+  Result := THandshakeMessages.DecodeServerHello(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(AFlight[0]).Body);
 end;
 
 function TTestTls12Loopback.HasEffect(const AEffects: TArray<THandshakeEffect>;
