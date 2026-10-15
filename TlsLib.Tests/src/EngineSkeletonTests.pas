@@ -37,6 +37,8 @@ uses
   TlpTlsEngineFactory,
   TlpITlsEngine,
   TlpIHandshakeMachine,
+  TlpCertificateVerifierSource,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -80,7 +82,8 @@ begin
   // trust check for a handshake that is never completed here.
   Result := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(EcP256RootStore))
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
     .Build, 'localhost');
 end;
 

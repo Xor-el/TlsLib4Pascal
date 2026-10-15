@@ -276,7 +276,8 @@ begin
   end;
   CheckTrue(LRaised, 'a union with no anchor left is refused');
   CheckEquals(1, TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(StoreOf('root_cert'))).Build.TrustStore.AnchorCount,
+    .WithServerVerification(TServerVerification.WebPki(StoreOf('root_cert')).Build)
+    .Build.TrustStore.AnchorCount,
     'control: the root alone builds');
 end;
 

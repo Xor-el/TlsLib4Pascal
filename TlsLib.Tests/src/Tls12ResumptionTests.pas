@@ -46,6 +46,7 @@ uses
   TlpITlsEngine,
   TlpTlsEngine,
   TlpIHandshakeMachine,
+  TlpHandshakeMessage,
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpITrustAnchorStore,
@@ -73,6 +74,7 @@ uses
   TlpTls13ServerStateMachine,
   TlpVersionDispatchMachine,
   TlsLibTestHandshakeDecoder,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -89,7 +91,6 @@ type
     FClientClock, FServerClock: ITlsClock;
     FReverify: Boolean;
     FResumeVerifier: IServerCertificateVerifier;
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     /// <summary>Drains the engine's event queue, returning how many SessionTicketReceived it held.</summary>
     function CountTicketEvents(const AEngine: ITlsEngine): Int32;
@@ -141,11 +142,6 @@ type
     procedure PumpToCompletion(const AClient, AServer: ITlsEngine);
     function ReadAllApp(const AEngine: ITlsEngine): TBytes;
     procedure CheckAppDataFlows(const AClient, AServer: ITlsEngine);
-    /// <summary>Whether a plaintext handshake flight carries a Certificate (type 11): a
-    /// full handshake does, an abbreviated (resumed) handshake does not.</summary>
-    function FlightHasCertificate(const AWire: TBytes): Boolean;
-    /// <summary>Whether a plaintext handshake flight carries a NewSessionTicket (type 4).</summary>
-    function FlightHasNewSessionTicket(const AWire: TBytes): Boolean;
     /// <summary>Runs the client and server to completion and reports whether the server's
     /// first response flight contained a Certificate (i.e. it ran a full handshake).</summary>
     function DriveObservingServerCert(const AClient, AServer: ITlsEngine): Boolean;
@@ -259,18 +255,6 @@ implementation
 
 { TTestTls12Resumption }
 
-function TTestTls12Resumption.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls12Resumption.ServerCredential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -310,8 +294,7 @@ begin
   LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.ServerIdentity := ServerHost + ':443';
@@ -349,8 +332,7 @@ var
   LRandom, LSessionId: TBytes;
 begin
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   // the dispatcher sends one unified ClientHello, so both sub-machines must share the same
   // client_random and legacy_session_id (the abbreviated Finished MAC binds them)
   LRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
@@ -556,74 +538,18 @@ begin
     ReadAllApp(AClient));
 end;
 
-function TTestTls12Resumption.FlightHasNewSessionTicket(const AWire: TBytes): Boolean;
-var
-  LPos, LRecLen, LInner, LMsgLen: Int32;
-begin
-  Result := False;
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    if AWire[LPos] = 20 then // stop at ChangeCipherSpec; the encrypted flight follows
-      Exit;
-    if AWire[LPos] = 22 then
-    begin
-      LInner := LPos + 5;
-      while LInner + 4 <= LPos + 5 + LRecLen do
-      begin
-        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
-          AWire[LInner + 3];
-        if AWire[LInner] = 4 then // NewSessionTicket
-          Exit(True);
-        LInner := LInner + 4 + LMsgLen;
-      end;
-    end;
-    Inc(LPos, 5 + LRecLen);
-  end;
-end;
-
-function TTestTls12Resumption.FlightHasCertificate(const AWire: TBytes): Boolean;
-var
-  LPos, LRecLen, LInner, LMsgLen, LBodyEnd: Int32;
-begin
-  Result := False;
-  LPos := 0;
-  while LPos + 5 <= System.Length(AWire) do
-  begin
-    LRecLen := (AWire[LPos + 3] shl 8) or AWire[LPos + 4];
-    // handshake records are plaintext only up to the ChangeCipherSpec; stop there so the
-    // encrypted Finished that follows is not misread as plaintext handshake messages
-    if AWire[LPos] = 20 then
-      Exit;
-    if AWire[LPos] = 22 then
-    begin
-      LInner := LPos + 5;
-      while LInner + 4 <= LPos + 5 + LRecLen do
-      begin
-        LMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or
-          AWire[LInner + 3];
-        LBodyEnd := LInner + 4 + LMsgLen;
-        if AWire[LInner] = 11 then // Certificate
-          Exit(True);
-        LInner := LBodyEnd;
-      end;
-    end;
-    Inc(LPos, 5 + LRecLen);
-  end;
-end;
-
 function TTestTls12Resumption.DriveObservingServerCert(
   const AClient, AServer: ITlsEngine): Boolean;
 var
   LFlight: TBytes;
-  LIterations: Int32;
+  LRecordPos, LMsgPos, LMsgLen, LIterations: Int32;
 begin
   AClient.StartHandshake;
   // the server consumes the ClientHello and queues its first response flight
   Pump(AClient, AServer);
   LFlight := Drain(AServer);
-  Result := FlightHasCertificate(LFlight);
+  Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
+    Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen);
   Feed(AClient, LFlight);
   LIterations := 0;
   while (AClient.IsHandshaking or AServer.IsHandshaking) and (LIterations < 16) do
@@ -1038,6 +964,7 @@ var
   LKeysImpl: TScriptedTicketKeys;
   LHello, LFlight: TBytes;
   LExtension: TExtensionEntry;
+  LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
   LCache := TInMemorySessionCache.Create;
   LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
@@ -1061,7 +988,9 @@ begin
     'but carries no ticket: the over-limit one was not kept');
   Feed(LServer, LHello);
   LFlight := Drain(LServer);
-  CheckTrue(FlightHasCertificate(LFlight), 'the next connection runs a full handshake');
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
+    Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen),
+    'the next connection runs a full handshake');
 end;
 
 procedure TTestTls12Resumption.TestServerHelloCarriesAFreshSessionIdBesideASealedTicket;
@@ -1723,8 +1652,7 @@ begin
   LParams.OfferExtendedMasterSecret := True;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.ServerIdentity := ServerHost + ':443';
@@ -1849,7 +1777,7 @@ var
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
   LServerWire, LServerOut: TBytes;
-  LIterations: Int32;
+  LRecordPos, LMsgPos, LMsgLen, LIterations: Int32;
 begin
   // a server that echoed the session_ticket extension MUST still send a NewSessionTicket, even
   // when the strategy declines to seal - a zero-length one - so the client is not left awaiting
@@ -1871,7 +1799,8 @@ begin
   end;
   CheckFalse(LClient.IsHandshaking, 'the client completed despite the declined ticket');
   CheckFalse(LServer.IsHandshaking, 'the server completed');
-  CheckTrue(FlightHasNewSessionTicket(LServerWire),
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LServerWire,
+    Ord(TTlsHandshakeType.NewSessionTicket), LRecordPos, LMsgPos, LMsgLen),
     'the server still sent a NewSessionTicket (zero-length)');
   CheckAppDataFlows(LClient, LServer);
 end;
@@ -1908,6 +1837,7 @@ var
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
   LTicket, LHello, LFlight: TBytes;
+  LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
   // the client presents a ticket that is not a valid STEK seal; the server cannot open it
   // and completes a full handshake
@@ -1923,7 +1853,8 @@ begin
   CheckTrue(ContainsBytes(LHello, LTicket), 'the bogus ticket is offered');
   Feed(LServer, LHello);
   LFlight := Drain(LServer);
-  CheckTrue(FlightHasCertificate(LFlight),
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
+    Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen),
     'a bogus ticket falls back to a full handshake (Certificate sent)');
   Feed(LClient, LFlight);
   PumpToCompletion(LClient, LServer);

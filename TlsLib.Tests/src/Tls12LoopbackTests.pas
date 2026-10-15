@@ -59,13 +59,14 @@ uses
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   MockCryptoProvider,
+  TlsLibTestHandshakeDecoder,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
   TTestTls12Loopback = class(TTlsLibAlgorithmTestCase)
   private
     function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     function NewClient(ASuite: UInt16; AOfferEms: Boolean): ITlsEngine;
     function NewServer(ARequireEms: Boolean): ITlsEngine;
@@ -162,18 +163,6 @@ begin
     Result[LI] := AByte;
 end;
 
-function TTestTls12Loopback.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls12Loopback.ServerCredential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -212,8 +201,7 @@ begin
   LParams.LegacySessionId := nil;
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
@@ -743,7 +731,8 @@ function TTestTls12Loopback.TamperHandshakeMessage(var AWire: TBytes;
 var
   LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
-  Result := FindPlaintextHandshakeMessage(AWire, AMsgType, LRecordPos, LMsgPos, LMsgLen);
+  Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire, AMsgType,
+    LRecordPos, LMsgPos, LMsgLen);
   if Result then
     AWire[LMsgPos + 3 + LMsgLen] := AWire[LMsgPos + 3 + LMsgLen] xor $01;
 end;
@@ -807,8 +796,9 @@ begin
   LWire := Drain(LClient);
   if AZeroShare then
   begin
-    CheckTrue(FindPlaintextHandshakeMessage(LWire, Ord(TTlsHandshakeType.ClientKeyExchange),
-      LRecordPos, LMsgPos, LMsgLen), 'the client flight carries a plaintext ClientKeyExchange');
+    CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LWire,
+      Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
+      'the client flight carries a plaintext ClientKeyExchange');
     CheckEquals(33, LMsgLen, 'the ClientKeyExchange holds one X25519 share');
     for LI := 0 to 31 do
       LWire[LMsgPos + 5 + LI] := 0;
@@ -829,8 +819,9 @@ begin
   Result.StartHandshake;
   Pump(Result, LServer);
   LWire := Drain(LServer);
-  CheckTrue(FindPlaintextHandshakeMessage(LWire, Ord(TTlsHandshakeType.ServerKeyExchange),
-    LRecordPos, LMsgPos, LMsgLen), 'the server flight carries a plaintext ServerKeyExchange');
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LWire,
+    Ord(TTlsHandshakeType.ServerKeyExchange), LRecordPos, LMsgPos, LMsgLen),
+    'the server flight carries a plaintext ServerKeyExchange');
   LSke := THandshakeMessages.DecodeServerKeyExchangeEcdhe(
     System.Copy(LWire, LMsgPos + 4, LMsgLen));
   LSke.PublicKey := AShare;
@@ -882,7 +873,7 @@ begin
   CheckTrue(LClient.IsTerminal, 'an all-zero server share fails the client');
   CheckEquals(Ord(TTlsAlertDescription.IllegalParameter),
     Ord(LClient.LastError.Alert.Description), 'with illegal_parameter');
-  CheckFalse(FindPlaintextHandshakeMessage(Drain(LClient),
+  CheckFalse(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(Drain(LClient),
     Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
     'no ClientKeyExchange is sent after the refusal');
 end;
@@ -898,7 +889,7 @@ begin
   LShare[0] := 9;
   LClient := ClientAfterServerFlight(LShare);
   CheckFalse(LClient.IsTerminal, 'a valid re-signed share does not fail the client');
-  CheckTrue(FindPlaintextHandshakeMessage(Drain(LClient),
+  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(Drain(LClient),
     Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
     'the client answers with a ClientKeyExchange');
 end;
@@ -979,19 +970,9 @@ end;
 
 function TTestTls12Loopback.DecodeServerFlightHello(
   const AFlight: TArray<TBytes>): TTlsServerHello;
-var
-  LReader: THandshakeMessageReader;
-  LMsg: TTlsHandshakeMessage;
 begin
-  Result := Default(TTlsServerHello);
-  LReader := THandshakeMessageReader.Create;
-  try
-    LReader.Append(AFlight[0], 0, System.Length(AFlight[0]));
-    if LReader.NextMessage(LMsg) then
-      Result := THandshakeMessages.DecodeServerHello(LMsg.Body);
-  finally
-    LReader.Free;
-  end;
+  Result := THandshakeMessages.DecodeServerHello(
+    TTlsLibTestHandshakeDecoder.HandshakeMessage(AFlight[0]).Body);
 end;
 
 function TTestTls12Loopback.HasEffect(const AEffects: TArray<THandshakeEffect>;

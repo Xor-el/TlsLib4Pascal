@@ -47,6 +47,7 @@ uses
   MockVerifyHooks,
   SpyRevocationProvider,
   MockCertificateVerifiers,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -481,7 +482,7 @@ begin
   Result := nil;
   SetLength(Result, System.Length(ANames));
   for LI := 0 to System.High(ANames) do
-    Result[LI] := CriticalExtensionsCertificate(ANames[LI]);
+    Result[LI] := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', ANames[LI]);
 end;
 
 function TTestCriticalExtensionsAndEndEntity.ServerVerdict(const ARoot: string;

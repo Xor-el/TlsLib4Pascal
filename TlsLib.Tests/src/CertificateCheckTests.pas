@@ -29,6 +29,7 @@ uses
   TlpCryptoDomainTypes,
   TlpPkixDomainTypes,
   TlpICryptoProvider,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -83,21 +84,24 @@ end;
 procedure TTestCertificateChecks.TestCaCertificateIsAnAuthority;
 begin
   CheckEquals(Ord(TCertAnswer.Yes),
-    Ord(Pkix.Certificates.IsCertificateAuthority(CriticalExtensionsCertificate('caleaf_cert'))),
+    Ord(Pkix.Certificates.IsCertificateAuthority(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert'))),
     'a certificate asserting cA=TRUE is an authority');
 end;
 
 procedure TTestCertificateChecks.TestSelfSignedCaCertificateIsAnAuthority;
 begin
   CheckEquals(Ord(TCertAnswer.Yes),
-    Ord(Pkix.Certificates.IsCertificateAuthority(CriticalExtensionsCertificate('selfca_cert'))),
+    Ord(Pkix.Certificates.IsCertificateAuthority(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert'))),
     'a self-signed certificate asserting cA=TRUE is an authority');
 end;
 
 procedure TTestCertificateChecks.TestEndEntityCertificateIsNotAnAuthority;
 begin
   CheckEquals(Ord(TCertAnswer.No),
-    Ord(Pkix.Certificates.IsCertificateAuthority(CriticalExtensionsCertificate('leaf_cert'))),
+    Ord(Pkix.Certificates.IsCertificateAuthority(
+      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert'))),
     'a certificate with cA=FALSE is not an authority');
 end;
 

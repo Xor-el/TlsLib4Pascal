@@ -33,11 +33,6 @@ uses
   TlpSystemTimeUtilities,
   TlpICryptoProvider,
   TlpIPkixProvider,
-  TlpITrustAnchorStore,
-  TlpTrustAnchorStore,
-  TlpCertificateVerifier,
-  TlpICertificateVerifierSource,
-  TlpCertificateVerifierSource,
   TlsLibTestResourceLoader,
   TlsLibTestProviders;
 
@@ -96,32 +91,14 @@ type
     function AreEqual(const AA, AB: TBytes): Boolean;
     // A fresh array holding AA followed by AB.
     function ConcatBytes(const AA, AB: TBytes): TBytes;
-    // Locates the first handshake message of type AMsgType in the plaintext handshake records of a
-    // wire flight (before any ChangeCipherSpec; a record may coalesce several messages): the
-    // record's offset, the message header's offset and the message body length.
-    function FindPlaintextHandshakeMessage(const AWire: TBytes; AMsgType: Byte;
-      out ARecordPos, AMsgPos, AMsgLen: Int32): Boolean;
     // Whether ANeedle occurs in AHaystack (an empty needle always does).
     function ContainsBytes(const AHaystack, ANeedle: TBytes): Boolean;
     // Whether AText occurs in ABytes as ASCII.
     function ContainsAscii(const ABytes: TBytes; const AText: string): Boolean;
     // Fail with a hex diff unless AActual equals AExpected.
     procedure CheckEqualBytes(const AName: string; const AExpected, AActual: TBytes);
-    function LoadResourceBytes(const ARelativePath: string): TBytes;
-    function LoadResourceString(const ARelativePath: string): string;
     // Loads a "name=hexvalue" vector file; read fields via Result.Values['name'].
     function LoadVectorFields(const ARelativePath: string): TStringList;
-    // The EcP256Chain self-signed root (Certs/EcP256Chain.txt: root_cert), for config-only tests
-    // that need a real trust source present but never verify a chain.
-    function EcP256RootCertificate: TBytes;
-    function EcP256RootStore: ITrustAnchorStore;
-    // A named certificate of Certs/CriticalExtensionsChain.txt.
-    function CriticalExtensionsCertificate(const AName: string): TBytes;
-    // The built-in PKIX pipeline over AStore / over PEM or DER roots, with its default settings.
-    function WebPkiServer(const AStore: ITrustAnchorStore): IServerVerification; overload;
-    function WebPkiServer(const AAnchorData: TBytes): IServerVerification; overload;
-    function WebPkiClient(const AStore: ITrustAnchorStore): IClientVerification; overload;
-    function WebPkiClient(const AAnchorData: TBytes): IClientVerification; overload;
   end;
 
 implementation
@@ -316,36 +293,6 @@ begin
   Result := TArrayUtilities.Concat(AA, AB);
 end;
 
-function TTlsLibAlgorithmTestCase.FindPlaintextHandshakeMessage(const AWire: TBytes;
-  AMsgType: Byte; out ARecordPos, AMsgPos, AMsgLen: Int32): Boolean;
-var
-  LRecLen, LInner: Int32;
-begin
-  Result := False;
-  AMsgPos := 0;
-  AMsgLen := 0;
-  ARecordPos := 0;
-  while ARecordPos + 5 <= System.Length(AWire) do
-  begin
-    LRecLen := (AWire[ARecordPos + 3] shl 8) or AWire[ARecordPos + 4];
-    if AWire[ARecordPos] = 22 then
-    begin
-      LInner := ARecordPos + 5;
-      while LInner + 4 <= ARecordPos + 5 + LRecLen do
-      begin
-        AMsgLen := (AWire[LInner + 1] shl 16) or (AWire[LInner + 2] shl 8) or AWire[LInner + 3];
-        if (AWire[LInner] = AMsgType) and (LInner + 4 + AMsgLen <= System.Length(AWire)) then
-        begin
-          AMsgPos := LInner;
-          Exit(True);
-        end;
-        LInner := LInner + 4 + AMsgLen;
-      end;
-    end;
-    Inc(ARecordPos, 5 + LRecLen);
-  end;
-end;
-
 function TTlsLibAlgorithmTestCase.ContainsBytes(const AHaystack, ANeedle: TBytes): Boolean;
 var
   LOffset, LIdx: Int32;
@@ -383,16 +330,6 @@ begin
       [AName, EncodeHex(AExpected), EncodeHex(AActual)]));
 end;
 
-function TTlsLibAlgorithmTestCase.LoadResourceBytes(const ARelativePath: string): TBytes;
-begin
-  Result := TTlsLibTestResourceLoader.LoadBytes(ARelativePath);
-end;
-
-function TTlsLibAlgorithmTestCase.LoadResourceString(const ARelativePath: string): string;
-begin
-  Result := TTlsLibTestResourceLoader.LoadString(ARelativePath);
-end;
-
 function TTlsLibAlgorithmTestCase.LoadVectorFields(const ARelativePath: string): TStringList;
 begin
   Result := TStringList.Create;
@@ -402,58 +339,6 @@ begin
     Result.Free;
     raise;
   end;
-end;
-
-function TTlsLibAlgorithmTestCase.EcP256RootCertificate: TBytes;
-var
-  LFields: TStringList;
-begin
-  LFields := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LFields.Values['root_cert']);
-  finally
-    LFields.Free;
-  end;
-end;
-
-function TTlsLibAlgorithmTestCase.EcP256RootStore: ITrustAnchorStore;
-begin
-  Result := TTrustAnchorStore.Create(
-    TArray<TBytes>.Create(EcP256RootCertificate)) as ITrustAnchorStore;
-end;
-
-function TTlsLibAlgorithmTestCase.CriticalExtensionsCertificate(const AName: string): TBytes;
-var
-  LFields: TStringList;
-begin
-  LFields := LoadVectorFields('Certs/CriticalExtensionsChain.txt');
-  try
-    Result := DecodeHex(LFields.Values[AName]);
-  finally
-    LFields.Free;
-  end;
-end;
-
-function TTlsLibAlgorithmTestCase.WebPkiServer(const AStore: ITrustAnchorStore)
-  : IServerVerification;
-begin
-  Result := TServerVerification.WebPki(AStore).Build;
-end;
-
-function TTlsLibAlgorithmTestCase.WebPkiServer(const AAnchorData: TBytes): IServerVerification;
-begin
-  Result := TServerVerification.WebPki(AAnchorData).Build;
-end;
-
-function TTlsLibAlgorithmTestCase.WebPkiClient(const AStore: ITrustAnchorStore)
-  : IClientVerification;
-begin
-  Result := TClientVerification.WebPki(AStore).Build;
-end;
-
-function TTlsLibAlgorithmTestCase.WebPkiClient(const AAnchorData: TBytes): IClientVerification;
-begin
-  Result := TClientVerification.WebPki(AAnchorData).Build;
 end;
 
 end.

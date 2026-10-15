@@ -58,6 +58,7 @@ uses
   TlpTlsConnection,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -434,7 +435,7 @@ begin
   Result := TTlsOptions.Default;
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
-  Result.CustomTrustStore := EcP256RootStore;
+  Result.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
   Result.TrustSourceHint := 'a trust anchor bundle, system trust, or a custom store';
 end;
 
@@ -511,7 +512,7 @@ var
   LOpts: TTlsOptions;
 begin
   LOpts := Pkcs12Options('chain_pfx');
-  LOpts.CustomTrustStore := EcP256RootStore;
+  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
   CheckNotNull(TTlsConfigComposer.BuildClientConfig(LOpts),
     'a client config builds from a PKCS#12 identity');
 end;
@@ -769,7 +770,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LOpts := TTlsOptions.Default;
-  LOpts.CustomTrustStore := EcP256RootStore;
+  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
   LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
   CheckTrue(LConfig.Crypto = TDefaultCryptoProvider.Shared,
     'nil crypto falls back to the shared default');
@@ -927,7 +928,7 @@ var
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.Pkix := Pkix;
@@ -960,7 +961,7 @@ begin
   LOpts := TTlsOptions.Default;
   LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
     TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
-  LOpts.CustomTrustStore := EcP256RootStore;
+  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
   LRaised := False;
   LAlert := TTlsAlertDescription.CloseNotify;
   LMessage := '';
@@ -989,12 +990,12 @@ var
   LInst: ISystemTrustInstaller;
   LHinted: Boolean;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
   LFake.DelegateOnly := True;
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.SystemTrust := LInst;
-  LOpts.CustomTrustStore := EcP256RootStore;
+  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
   LOpts.TrustSourceHint := 'MyTrustKnob';
   LHinted := False;
   try
@@ -1013,14 +1014,14 @@ var
   LInst: ISystemTrustInstaller;
   LBlamed: Boolean;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
   LFake.DelegateOnly := True;
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.SystemTrust := LInst;
   LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
     TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
-  LOpts.CustomTrustStore := EcP256RootStore;
+  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
   LOpts.TrustSourceHint := 'MyTrustKnob';
   LBlamed := True;
   try
@@ -1103,7 +1104,7 @@ var
   LInst: ISystemTrustInstaller;
   LRaised: Boolean;
 begin
-  LInst := TFakeSystemTrustInstaller.Create(True, EcP256RootStore);
+  LInst := TFakeSystemTrustInstaller.Create(True, TTlsLibTestCertificates.EcP256RootStore);
   LOpts := TTlsOptions.Default;
   LOpts.Pkix := Pkix;
   LOpts.SystemTrust := LInst;
@@ -1192,8 +1193,9 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(RootAnchor));
-  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
-  LOpts.CustomTrustStore := EcP256RootStore;
+  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
+    TTlsLibTestCertificates.EcP256RootStore);
+  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
   LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
   CheckEquals(Ord(TClientAuthMode.None), Ord(LConfig.ClientAuth),
     'anchors without a mode do not request client authentication');
@@ -1406,7 +1408,8 @@ begin
   // a mode whose only named source is system trust fails at build with a dedicated message: the fix
   // is a private client-CA, not "more" system trust
   LOpts := ServerOptsWithCredential;
-  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
+    TTlsLibTestCertificates.EcP256RootStore);
   LOpts.ClientAuth := TClientAuthMode.Required;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
     'system trust as the only client-CA under a mode fails closed');
@@ -1422,7 +1425,7 @@ var
   LConfig: ITlsServerConfig;
 begin
   // with no mode, system trust on a server is inert and requests no client auth
-  LFake := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
   LInst := LFake;
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := LInst;
@@ -1510,15 +1513,15 @@ begin
   // system trust is a client-only read: it changes the CLIENT key but never the server key (the
   // server build does not read it, so it must not be in the server memo signature)
   LMut := LBase;
-  LMut.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
-    as ISystemTrustInstaller;
+  LMut.SystemTrust := TFakeSystemTrustInstaller.Create(False,
+    TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
   CheckTrue(TTlsConfigComposer.ServerSignature(LMut) = LBaseSig,
     'system trust does not change the server key');
   LBase := ClientOptsWithStore;
   LBaseSig := TTlsConfigComposer.ClientSignature(LBase);
   LMut := LBase;
-  LMut.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
-    as ISystemTrustInstaller;
+  LMut.SystemTrust := TFakeSystemTrustInstaller.Create(False,
+    TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'system trust changes the client key');
 end;
@@ -1569,8 +1572,8 @@ begin
   // the key follows what the installer installs, not where it lives: equal identities share a
   // key across distinct instances, different identities never do
   LBase := ClientOptsWithStore;
-  LFirst := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
-  LSecond := TFakeSystemTrustInstaller.Create(False, EcP256RootStore);
+  LFirst := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LSecond := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
   LA := LBase;
   LA.SystemTrust := LFirst as ISystemTrustInstaller;
   LB := LBase;
@@ -1703,8 +1706,8 @@ begin
   ExpectConflict(LOpts, 'an injected crypto provider');
 
   LOpts := TTlsOptions.Default;
-  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
-    as ISystemTrustInstaller;
+  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
+    TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
   ExpectConflict(LOpts, 'system trust');
 end;
 
@@ -1842,8 +1845,8 @@ begin
   LOpts := TTlsOptions.Default;
   LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
     TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
-  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False, EcP256RootStore)
-    as ISystemTrustInstaller;
+  LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
+    TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
   CheckNotNull(TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer,
     'ServerConfig'), 'client-only options do not conflict with a server config-in');
@@ -1943,7 +1946,8 @@ var
 begin
   LClockObj := TMockMonotonicClock.Create(1000);
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(EcP256RootStore))
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
     .WithMonotonicClock(LClockObj as ITlsMonotonicClock).Build;
   LTransport := TTestMemoryTransport.Create(nil, True);
   LTimed := LTransport as ITlsTransport;
@@ -1975,7 +1979,8 @@ var
   LMessage: string;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(EcP256RootStore)).Build;
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
   LTransport := TTestMemoryTransport.Create(nil, True);
   LDestroyed := False;
   LTransport.ReportDestructionTo(@LDestroyed);

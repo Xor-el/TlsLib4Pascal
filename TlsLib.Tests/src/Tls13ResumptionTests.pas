@@ -78,6 +78,7 @@ uses
   TlpTlsStream,
   MockSessionStores,
   MockCertificateVerifiers,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -90,7 +91,6 @@ type
       FClientClock, FServerClock: ITlsClock;
       FClientAlpn, FServerAlpn: TArray<TBytes>;
     function Filled(AByte: Byte; ACount: Int32): TBytes;
-    function TestRootCertificate: TBytes;
     function ServerCredential: TTlsCredential;
     function ClientParams(const ACache: ISessionCache;
       AEarlyData: Boolean): TClientHandshakeParams;
@@ -367,18 +367,6 @@ begin
     FillChar(Result[0], ACount, AByte);
 end;
 
-function TTestTls13Resumption.TestRootCertificate: TBytes;
-var
-  LCerts: TStringList;
-begin
-  LCerts := LoadVectorFields('Certs/EcP256Chain.txt');
-  try
-    Result := DecodeHex(LCerts.Values['root_cert']);
-  finally
-    LCerts.Free;
-  end;
-end;
-
 function TTestTls13Resumption.ServerCredential: TTlsCredential;
 var
   LCerts: TStringList;
@@ -422,8 +410,7 @@ begin
   LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.SessionCache := ACache;
@@ -1850,8 +1837,7 @@ var
     LP.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
     LP.LegacySessionId := Filled($33, 32);
     LP.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+      TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
     LP.ExpectedServerName := TServerName.DnsName(ServerHost);
     LP.ServerName := ServerHost;
     LP.SessionCache := LCache;
@@ -1984,8 +1970,7 @@ var
     LP.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
     LP.LegacySessionId := Filled($33, 32);
     LP.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+      TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
     LP.ExpectedServerName := TServerName.DnsName(ServerHost);
     LP.ServerName := ServerHost;
     LP.SessionCache := LCache;
@@ -2102,8 +2087,7 @@ begin
   LP.LegacySessionId := Filled($33, 32);
   LP.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-    as ITrustAnchorStore, True) as IServerCertificateVerifier;
+    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LP.ExpectedServerName := TServerName.DnsName(ServerHost);
   LP.ServerName := ServerHost;
   LP.SessionCache := ACache;
@@ -2297,8 +2281,8 @@ begin
   // root (so its verifier would reject this chain), yet it still resumes - proving the resumed chain
   // is not re-verified, only the scope is checked
   LClient := BuildMtlsClientEngine(LCache, LCred);
-  LServer := BuildMtlsServerEngine(LStek, 0, TClientAuthMode.Required, TestRootCertificate,
-    LScope);
+  LServer := BuildMtlsServerEngine(LStek, 0, TClientAuthMode.Required,
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), LScope);
   DriveHandshake(LClient, LServer);
   LServerInfo := LServer.ConnectionInfo;
   CheckTrue(LServerInfo.Resumed, 'a same-scope configuration resumes without re-verifying the chain');
@@ -2409,8 +2393,7 @@ var
     LParams.LegacySessionId := Filled($33, 32);
     LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
       TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+      TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
     LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
     LParams.ServerName := ServerHost;
     LParams.SessionCache := LCache;
@@ -2512,8 +2495,7 @@ var
     LParams.LegacySessionId := Filled($33, 32);
     LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
       TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+      TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
     LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
     LParams.ServerName := ServerHost;
     LParams.SessionCache := LCache;
@@ -3162,8 +3144,7 @@ var
     LP.LegacySessionId := Filled($33, 32);
     LP.CertificateVerifier := TCertificateVerifier.Create(Pkix,
       TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+      TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
     LP.ExpectedServerName := TServerName.DnsName(ServerHost);
     LP.ServerName := ServerHost;
     // the client offers the external PSK and holds NO client credential: the PSK is its
@@ -3227,8 +3208,7 @@ var
     LParams.LegacySessionId := Filled($44, 32);
     LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
       TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(TArray<TBytes>.Create(TestRootCertificate))
-      as ITrustAnchorStore, True) as IServerCertificateVerifier;
+      TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
     LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
     LParams.ServerName := ServerHost;
     LParams.ExternalPsks := LPsks;

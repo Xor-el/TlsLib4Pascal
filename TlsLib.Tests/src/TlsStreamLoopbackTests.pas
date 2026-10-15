@@ -31,7 +31,6 @@ uses
   TlpTlsVersion,
   TlpTlsAlert,
   TlpHandshakeMessages,
-  TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpTrustPolicy,
   TlpTlsConnectionInfo,
@@ -56,6 +55,7 @@ uses
   MockTransport,
   MockVerifyHooks,
   MockCryptoProvider,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
@@ -133,7 +133,6 @@ type
       out ARejectAlert: TTlsAlertDescription): Boolean;
     function ResolverRaises(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
-    function SpkiSha256(const ACertDer: TBytes): TBytes;
     /// <summary>A client config with the async peer-certificate verdict enabled.</summary>
     function AsyncClientConfig: ITlsClientConfig;
     /// <summary>Moves everything AFrom has queued into ATo, returning the byte count.</summary>
@@ -435,7 +434,7 @@ begin
   if AInsecureSkipVerify then
     LClient.WithServerVerification(TServerVerification.DangerousSkip)
   else
-    LClient.WithServerVerification(WebPkiServer(TrustRoot));
+    LClient.WithServerVerification(TServerVerification.WebPki(TrustRoot).Build);
   if Assigned(AVerify) then
     LClient.WithCertificateVerifyCallback(AVerify);
   Result := LClient.Build;
@@ -609,19 +608,8 @@ end;
 function TTestTlsStreamLoopback.AsyncClientConfig: ITlsClientConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithAsyncCertificateVerdict(0).Build;
-end;
-
-function TTestTlsStreamLoopback.SpkiSha256(const ACertDer: TBytes): TBytes;
-var
-  LHash: IHash;
-  LSpki: TBytes;
-begin
-  LSpki := Pkix.Certificates.PublicKeyInfo(ACertDer);
-  LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256);
-  LHash.Update(LSpki, 0, System.Length(LSpki));
-  Result := LHash.DoFinal;
 end;
 
 procedure TTestTlsStreamLoopback.TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
@@ -849,7 +837,7 @@ begin
   LSuites.Prune(TCipherSuites12.EcdheEcdsaChaCha20Poly1305Sha256);
   LSuites.Prune(TCipherSuites12.EcdheRsaChaCha20Poly1305Sha256);
   AClientConfig := TTlsPresets.Compatible(LCapped, Pkix).Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithCipherSuites(LSuites.Build).Build;
   AServerConfig := TTlsPresets.Compatible(LCapped, Pkix).Server
@@ -1082,7 +1070,7 @@ begin
   // a client that trusts an unrelated anchor (the leaf's own cert, not its issuer) must
   // reject the server chain through PKIX - no dangerous flag is set
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(LeafCert)).Build;
+    .WithServerVerification(TServerVerification.WebPki(LeafCert).Build).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
     LPlain := False;
@@ -1122,7 +1110,7 @@ begin
   // a failed handshake is permanent for a stream: a second Read must re-raise the same failure,
   // never silently re-drive (which would emit a second ClientHello) or read as a truncation
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(LeafCert)).Build;
+    .WithServerVerification(TServerVerification.WebPki(LeafCert).Build).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   SetLength(LBuf, 16);
   try
@@ -1352,9 +1340,9 @@ begin
   // a private root trusted via WebPki plus an SPKI pin on the leaf: the chain is
   // still fully verified (PKIX + pinning both hold), so the handshake completes
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithCertificatePinning(TArray<TBytes>.Create(
-      SpkiSha256(LeafCert))).Build;
+      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix, LeafCert))).Build;
   RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
   try
     LClient.Handshake;
@@ -1595,7 +1583,7 @@ var
 begin
   LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12)).Build;
   LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.Http11))
@@ -1784,7 +1772,7 @@ var
   LClientConfig: ITlsClientConfig;
 begin
   LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithResumption(True)
     .WithSessionCache(ACache).Build;
   HandshakeEnginesWith(LClientConfig, ServerConfig, AClient, AServer);
@@ -2154,7 +2142,7 @@ var
 begin
   LCache := TFailingSessionCache.Create;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-    .WithServerVerification(WebPkiServer(TrustRoot))
+    .WithServerVerification(TServerVerification.WebPki(TrustRoot).Build)
     .WithResumption(True)
     .WithSessionCache(LCache).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LConfig, 'localhost');

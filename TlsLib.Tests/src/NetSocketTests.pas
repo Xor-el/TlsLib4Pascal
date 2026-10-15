@@ -42,6 +42,7 @@ uses
   TlpNetSocket,
   TlpTlsConnection,
   TlpTlsLibExceptions,
+  TlpCertificateVerifierSource,
   TlsLibTestBase;
 
 type
@@ -256,7 +257,8 @@ begin
   LVectors := LoadVectorFields('Certs/EcP256Chain.txt');
   try
     Result := TTlsPresets.Compatible(Crypto, Pkix).Client
-      .WithServerVerification(WebPkiServer(DecodeHex(LVectors.Values['root_cert']))).Build;
+      .WithServerVerification(TServerVerification.WebPki(
+        DecodeHex(LVectors.Values['root_cert'])).Build).Build;
   finally
     LVectors.Free;
   end;
