@@ -171,7 +171,6 @@ function TRaisingServerVerifier.VerifyServerCertificate(const AChain: TArray<TBy
   const AServerName: TServerName; const AOcspStaple: TBytes;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
 begin
-  Result := False;
   raise Exception.Create('the verifier failed');
 end;
 
