@@ -122,7 +122,8 @@ type
       AResStringRec: PResStringRec); overload;
     constructor CreateResFmt(ADescription: TTlsAlertDescription;
       AResStringRec: PResStringRec; const AArgs: array of const); overload;
-    /// <summary>The alert that was (or would be) sent; valid only when HasAlert.</summary>
+    /// <summary>The alert this side sent or would send, or the peer's for a peer-sent
+    /// error; valid only when HasAlert.</summary>
     property Alert: TTlsAlertDescription read FAlert;
     property HasAlert: Boolean read FHasAlert;
   end;
