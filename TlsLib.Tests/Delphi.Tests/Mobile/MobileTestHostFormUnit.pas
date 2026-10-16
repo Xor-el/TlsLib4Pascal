@@ -81,28 +81,20 @@ begin
 end;
 
 procedure TMobileTestHostForm.RefreshDataRootSection;
-var
-  LDataRoot: string;
-  LFiles: TArray<string>;
 begin
-  LDataRoot := TTlsLibTestResourceLoader.DataRoot;
   memLog.Lines.BeginUpdate;
   try
     memLog.Lines.Clear;
     memLog.Lines.Add('=== Test data ===');
-    memLog.Lines.Add('Data root: ' + LDataRoot);
-    if LDataRoot = '' then
-    begin
-      memLog.Lines.Add('(path provider did not resolve a data root)');
-      Exit;
+    try
+      memLog.Lines.Add('Data root: ' + TTlsLibTestResourceLoader.DataRoot);
+      memLog.Lines.Add('file count: ' + IntToStr(Length(TDirectory.GetFiles(
+        TTlsLibTestResourceLoader.DataRoot, '*', TSearchOption.soAllDirectories))));
+    except
+      // a missing data root must not stop the host from starting; the tests report it
+      on E: Exception do
+        memLog.Lines.Add('Data root not found: ' + E.Message);
     end;
-    if TDirectory.Exists(LDataRoot) then
-    begin
-      LFiles := TDirectory.GetFiles(LDataRoot, '*', TSearchOption.soAllDirectories);
-      memLog.Lines.Add('file count: ' + IntToStr(Length(LFiles)));
-    end
-    else
-      memLog.Lines.Add('(directory does not exist)');
     memLog.Lines.Add('');
     memLog.Lines.Add('=== Test log ===');
   finally
