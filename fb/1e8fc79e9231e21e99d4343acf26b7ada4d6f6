@@ -1,0 +1,43 @@
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_4adb7e2edc0c28::t_adaa538096bc1e 48
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_d8d8988669bf6e::t_1cdbe9a3fb9616 165,181-199,2332-2366
+  s_4adb7e2edc0c28::t_a6d48d05a64631 159
+  s_4adb7e2edc0c28::t_e9156ea4390e1b 160-162
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_4adb7e2edc0c28::t_f0504782966b14 29
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_4adb7e2edc0c28::t_bf7f3263492c94 265,276-278,282,296-313,2118-2145
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_4adb7e2edc0c28::t_089856655df550 29
+TlsLib.Tests/src/CertificateCheckTests.pas
+  s_4adb7e2edc0c28::t_146d55d2dff7f0 31
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_4adb7e2edc0c28::t_dfb297d4ff9e6c 31
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_4adb7e2edc0c28::t_8c211d204eb06e 59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fb1e8fc79e9231e21e99d4343acf26b7ada4d6f6",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": null
+    },
+    "s_d8d8988669bf6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-aeecb107632db81dd",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
