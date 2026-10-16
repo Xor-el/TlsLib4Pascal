@@ -1,0 +1,56 @@
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_4adb7e2edc0c28::t_b9636a499b7a6e 2035-2037,2040-2041,2045-2046,2050-2051,2058
+  s_4adb7e2edc0c28::t_8c71432ff1b1ff 277-281
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_4adb7e2edc0c28::t_bd0c689b9e3a65 54
+  s_4adb7e2edc0c28::t_3497119e992e4f 58
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_4adb7e2edc0c28::t_8b4294f25f385e 61
+  s_4adb7e2edc0c28::t_3e5850626e7920 57
+TlsLib/src/Crypto/Providers/TlpCryptoProviderBuilder.pas
+  s_4adb7e2edc0c28::t_84f18e582f0442 1-79
+docs/security-model.md
+  s_4adb7e2edc0c28::t_6aa18bbc7a01f2 119
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_4adb7e2edc0c28::t_fc42a746996cb9 148,159-160
+  s_4adb7e2edc0c28::t_401bfb3d9e60a3 161-162
+TlsLib/src/Pkix/Providers/TlpPkixProviderBuilder.pas
+  s_4adb7e2edc0c28::t_cfd8a443e3e2c2 1-67,69-71
+  s_4adb7e2edc0c28::t_eba0f7db157ace 68
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_4adb7e2edc0c28::t_0b448d35eb95a4 59-60
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_4adb7e2edc0c28::t_6159f1d7960a4e 37
+  s_4adb7e2edc0c28::t_310c35e7a59485 33
+TlsLib.Tests/src/CertificateCheckTests.pas
+  s_4adb7e2edc0c28::t_5df4bd4d1d97bc 30-32
+  s_4adb7e2edc0c28::t_362657c9f75410 68-69
+  s_4adb7e2edc0c28::t_baece4ffb6894e 197-210
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_4adb7e2edc0c28::t_c1975a8f8b6ce2 31
+  s_4adb7e2edc0c28::t_158e956b4f67f7 668-675
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_4adb7e2edc0c28::t_aed4ffea8cff28 48
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_4adb7e2edc0c28::t_e976e8339d24ec 376,380
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_4adb7e2edc0c28::t_c89cadaee4e93c 29
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_4adb7e2edc0c28::t_131ca9a8c4e0db 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "84f311222ed15645d147585a6863e51002635796",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
