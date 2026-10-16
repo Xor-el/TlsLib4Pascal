@@ -4,6 +4,7 @@
 #   .\sync-mobile-testdata.ps1 -DeployProjName TlsLib.Tests.Mobile.TestData.deployproj -AppDeployFolderName TlsLib.Tests.Mobile
 #   .\sync-mobile-testdata.ps1 -DeployProjName Project1.TestData.deployproj -AppDeployFolderName Project1
 # Re-run when files under TlsLib.Tests/Data change (or AppDeployFolderName changes), then rebuild the mobile test host.
+# StartUpCopy never overwrites deployed files: uninstall the app after changing TlsLib.Tests/Data.
 
 param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
@@ -58,11 +59,11 @@ Get-ChildItem -Path $DataDir -Recurse -File | ForEach-Object {
     if ($relDir) {
         $relDirSlash = $relDir -replace '\\', '\'
         $androidRemoteDir = "$AppDeployFolderName\assets\internal\TlsLib.Tests\Data\$relDirSlash\"
-        $iosRemoteDir = "StartUpDocuments\TlsLib.Tests\Data\$relDirSlash\"
+        $iosRemoteDir = "StartUp\Documents\TlsLib.Tests\Data\$relDirSlash\"
     }
     else {
         $androidRemoteDir = "$AppDeployFolderName\assets\internal\TlsLib.Tests\Data\"
-        $iosRemoteDir = "StartUpDocuments\TlsLib.Tests\Data\"
+        $iosRemoteDir = "StartUp\Documents\TlsLib.Tests\Data\"
     }
 
     $AndroidBlocks.Add((New-DeployFileBlock -IncludePath $include -RemoteDir $androidRemoteDir -RemoteName $fileName))
