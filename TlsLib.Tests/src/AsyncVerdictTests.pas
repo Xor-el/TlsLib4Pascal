@@ -45,7 +45,7 @@ uses
   TlpClock,
   TlpIHttpFetcher,
   TlpLiveRevocation,
-  TlpDefaultCryptoProvider,
+  TlpCryptoProviderBuilder,
   MockCryptoProvider,
   MockPkixProvider,
   TlpIPkixProvider,

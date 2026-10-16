@@ -145,7 +145,7 @@ type
   /// <summary>
   /// The default <see cref="ICryptoProvider" />. A thin composition root: it holds one
   /// instance of each facet and its accessors return them. <see cref="Create" /> is the
-  /// single composition point; the five facet implementations are private to this unit.
+  /// single composition point; the Primitives and Signing implementations are private to this unit.
   /// </summary>
   TDefaultCryptoProvider = class(TInterfacedObject, ICryptoProvider)
   strict private
@@ -156,13 +156,12 @@ type
     FPrimitives: ICryptoPrimitives;
     FSigning: ISigningCrypto;
     FHpke: IHpkeCrypto;
-  private
-    /// <summary>The single composition point (reached by the builder). ARandom is bridged to a
-    /// CSPRNG (else a fresh one) and threaded into the default Primitives/Signing; each nil facet
-    /// is defaulted, each supplied one held as-is. A supplied facet or IRandom must be thread-safe.</summary>
+  public
+    /// <summary>The single composition point; the builder is the preferred way to reach it.
+    /// ARandom (nil: a fresh CSPRNG) feeds the default Primitives/Signing; each nil facet is
+    /// defaulted. A supplied facet or IRandom must be thread-safe.</summary>
     constructor Create(const ARandom: IRandom; const APrimitives: ICryptoPrimitives;
       const ASigning: ISigningCrypto; const AHpke: IHpkeCrypto); overload;
-  public
     /// <summary>An all-defaults provider (no overrides).</summary>
     constructor Create; overload;
     class constructor Create;
@@ -176,25 +175,6 @@ type
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
     function Hpke: IHpkeCrypto;
-  end;
-
-  /// <summary>
-  /// The fluent <see cref="ICryptoProviderBuilder" />: accumulates facet overrides
-  /// and composes through <see cref="TDefaultCryptoProvider.Create" />.
-  /// </summary>
-  TCryptoProviderBuilder = class(TInterfacedObject, ICryptoProviderBuilder)
-  strict private
-  var
-    FRandom: IRandom;
-    FPrimitives: ICryptoPrimitives;
-    FSigning: ISigningCrypto;
-    FHpke: IHpkeCrypto;
-  public
-    function WithRandom(const ARandom: IRandom): ICryptoProviderBuilder;
-    function WithPrimitives(const APrimitives: ICryptoPrimitives): ICryptoProviderBuilder;
-    function WithSigning(const ASigning: ISigningCrypto): ICryptoProviderBuilder;
-    function WithHpke(const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
-    function Build: ICryptoProvider;
   end;
 
 implementation
@@ -2327,41 +2307,6 @@ end;
 function TCryptoPrimitives.HasHardwareAes: Boolean;
 begin
   Result := FHasHardwareAes;
-end;
-
-{ TCryptoProviderBuilder }
-
-function TCryptoProviderBuilder.WithRandom(
-  const ARandom: IRandom): ICryptoProviderBuilder;
-begin
-  FRandom := ARandom;
-  Result := Self;
-end;
-
-function TCryptoProviderBuilder.WithPrimitives(
-  const APrimitives: ICryptoPrimitives): ICryptoProviderBuilder;
-begin
-  FPrimitives := APrimitives;
-  Result := Self;
-end;
-
-function TCryptoProviderBuilder.WithSigning(
-  const ASigning: ISigningCrypto): ICryptoProviderBuilder;
-begin
-  FSigning := ASigning;
-  Result := Self;
-end;
-
-function TCryptoProviderBuilder.WithHpke(
-  const AHpke: IHpkeCrypto): ICryptoProviderBuilder;
-begin
-  FHpke := AHpke;
-  Result := Self;
-end;
-
-function TCryptoProviderBuilder.Build: ICryptoProvider;
-begin
-  Result := TDefaultCryptoProvider.Create(FRandom, FPrimitives, FSigning, FHpke) as ICryptoProvider;
 end;
 
 end.

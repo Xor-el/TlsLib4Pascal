@@ -27,6 +27,9 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpPkixDomainTypes,
+  TlpIPkixProvider,
+  TlpPkixProviderBuilder,
+  MockPkixProvider,
   TlsLibTestCertificates,
   TlsLibTestBase;
 
@@ -62,6 +65,8 @@ type
     procedure TestNormalRsaKeyIsNotPss;
     procedure TestEcKeyIsNotPss;
     procedure TestMalformedCertIsNotPss;
+    // provider composition (TPkixProviderBuilder)
+    procedure TestPkixBuilderHoldsASuppliedPathValidator;
   end;
 
 implementation
@@ -187,6 +192,20 @@ begin
   CheckEquals(Ord(TCertAnswer.Undetermined),
     Ord(Pkix.Certificates.KeyIsRsaPss(TBytes.Create(9, 9, 9))),
     'a malformed certificate cannot be determined');
+end;
+
+procedure TTestCertificateChecks.TestPkixBuilderHoldsASuppliedPathValidator;
+var
+  LValidator: ICertificatePathValidator;
+  LBuilder: IPkixProviderBuilder;
+  LProvider: IPkixProvider;
+begin
+  LValidator := TCountingPathValidator.Create(Pkix.PathValidation) as ICertificatePathValidator;
+  LBuilder := TPkixProviderBuilder.Create as IPkixProviderBuilder;
+  LProvider := LBuilder.WithPathValidation(LValidator).Build;
+  CheckTrue(LProvider.PathValidation = LValidator, 'the supplied path validator is held as-is');
+  CheckTrue(LProvider.Certificates <> nil, 'an unsupplied inspector is defaulted');
+  CheckTrue(LProvider.Revocation <> nil, 'an unsupplied revocation checker is defaulted');
 end;
 
 initialization

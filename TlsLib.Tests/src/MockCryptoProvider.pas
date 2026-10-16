@@ -26,7 +26,7 @@ uses
   TlpIKeyExchangePrivateKey,
   TlpICryptoProvider,
   TlpTlsLibExceptions,
-  TlpDefaultCryptoProvider;
+  TlpCryptoProviderBuilder;
 
 type
   /// <summary>A signature verifier that rejects every signature.</summary>
