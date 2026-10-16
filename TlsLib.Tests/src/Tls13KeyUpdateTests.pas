@@ -33,6 +33,8 @@ uses
   TlpCipherSuiteRegistry,
   TlpICryptoProvider,
   TlpITlsEngine,
+  TlpTlsAlert,
+  TlpTlsError,
   TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeEffect,
@@ -66,6 +68,10 @@ type
     procedure CheckAppDataBothWays(const AClient, AServer: ITlsEngine;
       const AMsg: string);
     procedure Handshake(out AClient, AServer: ITlsEngine);
+    /// <summary>A completed handshake whose client seals through ASwitch, then drains both
+    /// engines.</summary>
+    procedure HandshakeWithFaultableClient(const ASwitch: TAeadFaultSwitch;
+      out AClient, AServer: ITlsEngine);
   published
     procedure TestClientKeyUpdateNoRequestRekeysServerRead;
     procedure TestClientKeyUpdateRequestedTriggersOneResponse;
@@ -73,6 +79,8 @@ type
     procedure TestRepeatedKeyUpdatesStayInSync;
     procedure TestConsecutiveKeyUpdateFloodIsRefused;
     procedure TestConsecutiveKeyUpdateFloodSaysWhy;
+    procedure TestSendAlertWhoseSealFailsStillEndsTheEngine;
+    procedure TestFloodRefusalWhoseAlertSealFailsKeepsItsAlert;
     procedure TestUndrainedEventQueueIsBounded;
     procedure TestWriteAtUsageLimitRekeysAutomatically;
     procedure TestServerExportsKeyingMaterialInHalfRtt;
@@ -209,6 +217,26 @@ begin
   // clear the handshake-phase events (SessionTicketReceived, ...)
   CountKeyUpdateEvents(AClient);
   CountKeyUpdateEvents(AServer);
+end;
+
+procedure TTestTls13KeyUpdate.HandshakeWithFaultableClient(const ASwitch: TAeadFaultSwitch;
+  out AClient, AServer: ITlsEngine);
+var
+  LFaulty: ICryptoProvider;
+begin
+  // the usage limit sits far above the rekey lead, so only the switch can make a seal fail
+  LFaulty := TCappedAeadProvider.Create(Crypto, UInt64(1) shl 24, ASwitch) as ICryptoProvider;
+  AClient := TTlsEngineFactory.CreateClientEngine(
+    TTlsPresets.Hardened(LFaulty, Pkix).Client
+    .WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+    .Build, ServerHost);
+  AServer := NewServer;
+  RunHandshake(AClient, AServer);
+  CheckFalse(AClient.IsHandshaking, 'the client completed the handshake');
+  CheckFalse(AServer.IsHandshaking, 'the server completed the handshake');
+  Drain(AClient);
+  Drain(AServer);
 end;
 
 function TTestTls13KeyUpdate.AesGcmRegistry(
@@ -372,6 +400,47 @@ begin
   end;
   CheckEquals('the peer sent too many post-handshake messages without application data',
     LClient.LastError.Message, 'the flood refusal names its cause');
+end;
+
+procedure TTestTls13KeyUpdate.TestSendAlertWhoseSealFailsStillEndsTheEngine;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+begin
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  HandshakeWithFaultableClient(LSwitch, LClient, LServer);
+  LSwitch.Armed := True;
+  LClient.SendAlert(TTlsAlertDescription.HandshakeFailure);
+  CheckTrue(LClient.IsTerminal, 'an alert that cannot be sealed still ends the engine');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LClient.LastError.Origin),
+    'the failure is recorded as our own');
+  CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
+    Ord(LClient.LastError.Alert.Description), 'the recorded alert is the one asked for');
+  CheckEquals(0, System.Length(Drain(LClient)), 'no alert was queued');
+end;
+
+procedure TTestTls13KeyUpdate.TestFloodRefusalWhoseAlertSealFailsKeepsItsAlert;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+  LI: Int32;
+begin
+  // the flood refusal is a handshake Fail effect, so its alert goes through SendAlert
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  HandshakeWithFaultableClient(LSwitch, LClient, LServer);
+  LSwitch.Armed := True;
+  for LI := 0 to 40 do
+  begin
+    LServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+    Pump(LServer, LClient);
+  end;
+  CheckTrue(LClient.IsTerminal, 'the client refuses the flood');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage),
+    Ord(LClient.LastError.Alert.Description),
+    'the flood alert survives the failed seal instead of becoming internal_error');
+  CheckEquals('the peer sent too many post-handshake messages without application data',
+    LClient.LastError.Message, 'the flood reason survives the failed seal');
+  CheckEquals(0, System.Length(Drain(LClient)), 'no alert was queued');
 end;
 
 procedure TTestTls13KeyUpdate.TestUndrainedEventQueueIsBounded;
