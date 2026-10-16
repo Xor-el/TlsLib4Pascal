@@ -1,0 +1,21 @@
+TlsLib/src/Common/TlpTlsError.pas
+  s_4adb7e2edc0c28::t_bcf295eebe4bd6 30-32
+TlsLib/src/Common/TlpTlsLibExceptions.pas
+  s_4adb7e2edc0c28::t_de6c00b4604706 125-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9454f22143310a12d7fd743dea2cdded79f492e9",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
