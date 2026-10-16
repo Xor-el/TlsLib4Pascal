@@ -166,7 +166,7 @@ begin
     TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.RsaPssRsaeSha256);
   // the RFC 8448 leaf is not part of any test trust store; this replay exercises
   // the message flow, not trust, so accept any chain
-  LParams.CertificateVerifier := TFixedVerdictVerifier.CreateAccepting
+  LParams.CertificateVerifier := TFixedVerdictVerifier.CreateAccepting(False)
     as IServerCertificateVerifier;
   FSm := TTls13ClientStateMachine.Create(LParams);
   (FSm as ITls13ClientReplay).SetVerbatimClientHello(

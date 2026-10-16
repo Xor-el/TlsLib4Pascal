@@ -1158,7 +1158,7 @@ begin
   LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
 
   // an ECH-accepted connection caches a session verified against the origin host
-  LRecorder := TRecordingServerVerifier.Create(TFixedVerdictVerifier.CreateAcceptingNonEmpty
+  LRecorder := TRecordingServerVerifier.Create(TFixedVerdictVerifier.CreateAccepting(True)
     as IServerCertificateVerifier);
   LVerifier := LRecorder;
   LClient := NewEchClient;
@@ -1171,7 +1171,7 @@ begin
 
   // the resumption meets a server that rejects ECH: the stored chain is checked before the offer,
   // against the host, and only the reject's retry verifies the public_name
-  LRecorder := TRecordingServerVerifier.Create(TFixedVerdictVerifier.CreateAcceptingNonEmpty
+  LRecorder := TRecordingServerVerifier.Create(TFixedVerdictVerifier.CreateAccepting(True)
     as IServerCertificateVerifier);
   LVerifier := LRecorder;
   LClient := NewEchClient;

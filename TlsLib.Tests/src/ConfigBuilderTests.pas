@@ -2041,13 +2041,13 @@ procedure TTestConfigBuilder.TestInjectedVerifierRefusesSettingsItIgnores;
   begin
     Result := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(ServerCredential)
       .WithPeerAuth(TClientAuthMode.Required).WithClientVerification(TClientVerification.Custom(
-      TFixedVerdictVerifier.CreateAccepting as IClientCertificateVerifier, APosture));
+      TFixedVerdictVerifier.CreateAccepting(False) as IClientCertificateVerifier, APosture));
   end;
 
   function NewVerifierClient(APosture: TRevocationPosture): ITlsClientConfigBuilder;
   begin
     Result := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
-      TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting
+      TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting(False)
       as IServerCertificateVerifier, APosture));
   end;
 
@@ -2563,18 +2563,18 @@ begin
   CheckTrue(LConfig.DangerousTrust.InsecureSkipVerify, 'skip sets the dangerous flag');
   CheckNull(LConfig.TrustStore, 'and holds no anchors');
   LConfig := NewBareClientBuilder.WithServerVerification(
-    TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting
+    TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting(False)
     as IServerCertificateVerifier)).Build;
   CheckNull(LConfig.TrustStore, 'a whole verifier holds no anchors');
   // an injected verifier does not apply the posture, so Hard needs the live verdict
   CheckTrue(BuildRefused(NewBareClientBuilder.WithOcspStaplingRequest(True)
     .WithServerVerification(TServerVerification.Custom(
-    TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier,
+    TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier,
     TRevocationPosture.Hard)),
     'WithLiveRevocationVerdict'), 'Hard over an injected verifier without a live verdict');
   CheckNotNull(NewBareClientBuilder.WithLiveRevocationVerdict(1000)
     .WithServerVerification(TServerVerification.Custom(
-    TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier,
+    TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier,
     TRevocationPosture.Hard)).Build,
     'and builds with one');
 end;
@@ -3307,7 +3307,7 @@ begin
     'intermediate certificates');
   CheckTrue(ServerBuildIsRefused(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).WithClientVerification(TClientVerification.Custom(
-      TFixedVerdictVerifier.CreateAccepting as IClientCertificateVerifier))),
+      TFixedVerdictVerifier.CreateAccepting(False) as IClientCertificateVerifier))),
     'a verifier instance');
   // control: the same trust store builds once the server requests client certificates
   CheckTrue(TTlsPresets.Compatible(Crypto, Pkix).Server
@@ -4555,7 +4555,7 @@ begin
     TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
     .WithServerVerification(TServerVerification.Custom(
-      TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier))
+      TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier))
     .WithCertificateVerifyCallback(RejectEveryChain).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(NewServerBuilder.Build);
   RunHandshake(LClient, LServer);

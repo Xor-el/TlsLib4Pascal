@@ -278,7 +278,7 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
-  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateAccepting
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateAccepting(False)
     as IServerCertificateVerifier, LSpy.Callback);
   CheckFalse(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
     LVerified, LAlert), 'the callback rejects what the instance accepted');
@@ -296,7 +296,7 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
-  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateAccepting
+  LVerifier := ServerVerifier(TFixedVerdictVerifier.CreateAccepting(False)
     as IServerCertificateVerifier, LSpy.Callback);
   CheckTrue(LVerifier.VerifyServerCertificate(Chain, TServerName.DnsName('host.example'), nil,
     LVerified, LAlert), 'an accepting callback leaves the instance verdict');
@@ -328,7 +328,7 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
-  LInstance := TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier;
+  LInstance := TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier;
   LContext := Default(TServerTrustContext);
   LContext.Dangerous.VerifyCallback := LSpy.Callback;
   LSource := TInstanceServerVerifierSource.Create(LInstance) as IServerCertificateVerifierSource;
@@ -344,7 +344,7 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
-  LVerifier := ClientVerifier(TFixedVerdictVerifier.CreateAccepting
+  LVerifier := ClientVerifier(TFixedVerdictVerifier.CreateAccepting(False)
     as IClientCertificateVerifier, LSpy.Callback);
   CheckFalse(LVerifier.VerifyClientCertificate(Chain, LVerified, LAlert),
     'the callback rejects what the instance accepted');
@@ -376,7 +376,7 @@ var
   LSpy: TVerifyCallbackSpy;
 begin
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(False));
-  LInstance := TFixedVerdictVerifier.CreateAccepting as IClientCertificateVerifier;
+  LInstance := TFixedVerdictVerifier.CreateAccepting(False) as IClientCertificateVerifier;
   LContext := Default(TClientTrustContext);
   LContext.Dangerous.VerifyCallback := LSpy.Callback;
   LSource := TInstanceClientVerifierSource.Create(LInstance) as IClientCertificateVerifierSource;
@@ -639,7 +639,7 @@ var
 begin
   LRaised := False;
   try
-    LVerifier := TPinningVerifier.Create(TFixedVerdictVerifier.CreateAccepting
+    LVerifier := TPinningVerifier.Create(TFixedVerdictVerifier.CreateAccepting(False)
       as IServerCertificateVerifier, nil, Crypto, Pkix) as IServerCertificateVerifier;
   except
     on EArgumentTlsLibException do
@@ -655,7 +655,7 @@ var
 begin
   LRaised := False;
   try
-    LVerifier := TClientPinningVerifier.Create(TFixedVerdictVerifier.CreateAccepting
+    LVerifier := TClientPinningVerifier.Create(TFixedVerdictVerifier.CreateAccepting(False)
       as IClientCertificateVerifier, nil, Crypto, Pkix) as IClientCertificateVerifier;
   except
     on EArgumentTlsLibException do
