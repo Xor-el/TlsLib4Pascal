@@ -1,0 +1,26 @@
+TlsLib.Tests/src/TlsLibTestResourceLoader.pas
+  s_4adb7e2edc0c28::t_0690db0c52970e 28-29
+  s_4adb7e2edc0c28::t_7f68d71ae291e1 94
+  s_4adb7e2edc0c28::t_347270554de04c 77-78,81
+  s_4adb7e2edc0c28::t_2b3550ff615dc6 14,16,19-21
+  s_4adb7e2edc0c28::t_56a4feca4ebce5 54,57-63
+  s_4adb7e2edc0c28::t_07017ace9ba9c3 71
+TlsLib.Tests/Delphi.Tests/Mobile/MobileTestHostFormUnit.pas
+  s_4adb7e2edc0c28::t_d8dc8e793ecf4f 89-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "85d43b5e2cdf09bb7d59e43a4df7d927eac77e00",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
