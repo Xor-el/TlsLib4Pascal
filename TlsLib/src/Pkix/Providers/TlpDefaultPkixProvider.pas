@@ -262,7 +262,7 @@ type
   /// <summary>
   /// The default <see cref="IPkixProvider" />. A thin composition root: it holds one
   /// instance of each facet and its accessors return them. <see cref="Create" /> is the
-  /// single composition point; the facet implementations are private to this unit.
+  /// single composition point.
   /// </summary>
   TDefaultPkixProvider = class(TInterfacedObject, IPkixProvider)
   strict private
@@ -273,12 +273,13 @@ type
     FInspector: ICertificateInspector;
     FPathValidation: ICertificatePathValidator;
     FRevocation: IRevocationChecker;
-  public
-    /// <summary>The single composition point; the builder is the preferred way to reach it.
-    /// Each nil facet is defaulted. A supplied facet must be thread-safe.</summary>
+  private
+    /// <summary>The single composition point (reached by the builder). Each nil facet is
+    /// defaulted, each supplied one held as-is. A supplied facet must be thread-safe.</summary>
     constructor Create(const AInspector: ICertificateInspector;
       const APathValidation: ICertificatePathValidator;
       const ARevocation: IRevocationChecker); overload;
+  public
     /// <summary>An all-defaults provider (no overrides).</summary>
     constructor Create; overload;
     class constructor Create;
@@ -290,6 +291,24 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
+  end;
+
+  /// <summary>
+  /// The fluent <see cref="IPkixProviderBuilder" />: accumulates facet overrides
+  /// and composes through <see cref="TDefaultPkixProvider.Create" />.
+  /// </summary>
+  TPkixProviderBuilder = class(TInterfacedObject, IPkixProviderBuilder)
+  strict private
+  var
+    FInspector: ICertificateInspector;
+    FPathValidation: ICertificatePathValidator;
+    FRevocation: IRevocationChecker;
+  public
+    function WithInspector(const AInspector: ICertificateInspector): IPkixProviderBuilder;
+    function WithPathValidation(
+      const APathValidation: ICertificatePathValidator): IPkixProviderBuilder;
+    function WithRevocation(const ARevocation: IRevocationChecker): IPkixProviderBuilder;
+    function Build: IPkixProvider;
   end;
 
 implementation
@@ -2094,6 +2113,34 @@ end;
 function TDefaultPkixProvider.Revocation: IRevocationChecker;
 begin
   Result := FRevocation;
+end;
+
+{ TPkixProviderBuilder }
+
+function TPkixProviderBuilder.WithInspector(
+  const AInspector: ICertificateInspector): IPkixProviderBuilder;
+begin
+  FInspector := AInspector;
+  Result := Self;
+end;
+
+function TPkixProviderBuilder.WithPathValidation(
+  const APathValidation: ICertificatePathValidator): IPkixProviderBuilder;
+begin
+  FPathValidation := APathValidation;
+  Result := Self;
+end;
+
+function TPkixProviderBuilder.WithRevocation(
+  const ARevocation: IRevocationChecker): IPkixProviderBuilder;
+begin
+  FRevocation := ARevocation;
+  Result := Self;
+end;
+
+function TPkixProviderBuilder.Build: IPkixProvider;
+begin
+  Result := TDefaultPkixProvider.Create(FInspector, FPathValidation, FRevocation) as IPkixProvider;
 end;
 
 end.
