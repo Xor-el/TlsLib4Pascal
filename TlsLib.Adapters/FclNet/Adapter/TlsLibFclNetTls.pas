@@ -27,11 +27,6 @@ interface
 uses
   SysUtils,
   Classes,
-{$IFDEF UNIX}
-  BaseUnix,
-{$ELSE}
-  Winsock2,
-{$ENDIF UNIX}
   sockets,
   ssockets,
   sslsockets,
