@@ -1,0 +1,30 @@
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_4adb7e2edc0c28::t_14bc2178019cc1 119,728,730-736,738-743,984
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_4adb7e2edc0c28::t_5ad4a83892550c 36-37,71-74,82-83,222-241,405-445
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_4adb7e2edc0c28::t_7ee5e099b10879 504
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_4adb7e2edc0c28::t_3df1db1a969960 30-31,136-137
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_4adb7e2edc0c28::t_d04a5596fd8964 182-191,195-196,203,205-207,227,229-230,249-251,264,595-600,605,641-642,655,660,690,713-718,725
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_4adb7e2edc0c28::t_84157ccdd9cabc 1969-1996
+  s_4adb7e2edc0c28::t_3957adf42b207c 175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b5067abd7f963f5a2f44674b0e144c7012a1658c",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
