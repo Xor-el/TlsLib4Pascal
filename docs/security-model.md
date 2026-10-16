@@ -116,7 +116,7 @@ one when ECH was accepted). For debugging only — never production.
 - **Path validation** is delegated to the crypto backend's PKIX engine (PKITS-verified in the
   default distribution), run with a bounded path build (at most 4 non-self-issued intermediates,
   chain-size caps); other RFC 5280 behaviour needs a custom `ICertificatePathValidator` injected
-  through `TPkixProviderOverrides`.
+  through `TPkixProviderBuilder`.
 - **Side-channel / constant-time behavior is the crypto provider's responsibility, not
   TlsLib4Pascal's.** TlsLib4Pascal *selects* the primitives its default preferences and Strict preset
   use; the pluggable `ICryptoProvider` implements them and owns its own side-channel posture.

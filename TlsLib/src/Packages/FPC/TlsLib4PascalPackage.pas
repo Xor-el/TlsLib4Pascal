@@ -56,7 +56,8 @@ uses
   TlpITrustAnchorStore, TlpTrustAnchorStore, TlpDynamicLibrary, 
   TlpSystemTimeUtilities, TlpWindowsSystemTime, TlpPosixSystemTime, 
   TlpCipherSuiteCatalog, TlpIpLiteral, TlpHttpUrl, TlpWindowsDynamicLibrary,
-  TlpPosixDynamicLibrary, TlpAlpnProtocols;
+  TlpPosixDynamicLibrary, TlpAlpnProtocols, TlpCryptoProviderBuilder,
+  TlpPkixProviderBuilder;
 
 implementation
 

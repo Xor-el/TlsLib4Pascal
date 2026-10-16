@@ -260,18 +260,6 @@ type
   end;
 
   /// <summary>
-  /// A recipe for composing a PKIX provider: each nil field takes the default, each
-  /// non-nil field replaces that one facet. Composing coherent facets is the composer's
-  /// responsibility: any supplied facet must be thread-safe (stateless or internally
-  /// synchronized), since it slots into a provider whose accessors promise thread-safety.
-  /// </summary>
-  TPkixProviderOverrides = record
-    Inspector: ICertificateInspector;
-    PathValidation: ICertificatePathValidator;
-    Revocation: IRevocationChecker;
-  end;
-
-  /// <summary>
   /// The default <see cref="IPkixProvider" />. A thin composition root: it holds one
   /// instance of each facet and its accessors return them. <see cref="Create" /> is the
   /// single composition point; the facet implementations are private to this unit.
@@ -286,9 +274,11 @@ type
     FPathValidation: ICertificatePathValidator;
     FRevocation: IRevocationChecker;
   public
-    /// <summary>The single composition point: each nil facet override is defaulted,
-    /// each supplied facet is held as-is.</summary>
-    constructor Create(const AOverrides: TPkixProviderOverrides); overload;
+    /// <summary>The single composition point; the builder is the preferred way to reach it.
+    /// Each nil facet is defaulted. A supplied facet must be thread-safe.</summary>
+    constructor Create(const AInspector: ICertificateInspector;
+      const APathValidation: ICertificatePathValidator;
+      const ARevocation: IRevocationChecker); overload;
     /// <summary>An all-defaults provider (no overrides).</summary>
     constructor Create; overload;
     class constructor Create;
@@ -300,21 +290,6 @@ type
     function Certificates: ICertificateInspector;
     function PathValidation: ICertificatePathValidator;
     function Revocation: IRevocationChecker;
-  end;
-
-  /// <summary>
-  /// The fluent <see cref="IPkixProviderBuilder" />: accumulates facet overrides
-  /// and composes through <see cref="TDefaultPkixProvider.Create" />.
-  /// </summary>
-  TPkixProviderBuilder = class(TInterfacedObject, IPkixProviderBuilder)
-  strict private
-  var
-    FOverrides: TPkixProviderOverrides;
-  public
-    function WithInspector(const AInspector: ICertificateInspector): IPkixProviderBuilder;
-    function WithPathValidation(const APathValidation: ICertificatePathValidator): IPkixProviderBuilder;
-    function WithRevocation(const ARevocation: IRevocationChecker): IPkixProviderBuilder;
-    function Build: IPkixProvider;
   end;
 
 implementation
@@ -2057,31 +2032,30 @@ end;
 
 { TDefaultPkixProvider }
 
-constructor TDefaultPkixProvider.Create(const AOverrides: TPkixProviderOverrides);
+constructor TDefaultPkixProvider.Create(const AInspector: ICertificateInspector;
+  const APathValidation: ICertificatePathValidator;
+  const ARevocation: IRevocationChecker);
 begin
   inherited Create;
-  if AOverrides.Inspector <> nil then
-    FInspector := AOverrides.Inspector
+  if AInspector <> nil then
+    FInspector := AInspector
   else
     FInspector := TCertificateInspector.Create as ICertificateInspector;
 
-  if AOverrides.PathValidation <> nil then
-    FPathValidation := AOverrides.PathValidation
+  if APathValidation <> nil then
+    FPathValidation := APathValidation
   else
     FPathValidation := TCertificatePathValidator.Create as ICertificatePathValidator;
 
-  if AOverrides.Revocation <> nil then
-    FRevocation := AOverrides.Revocation
+  if ARevocation <> nil then
+    FRevocation := ARevocation
   else
     FRevocation := TRevocationChecker.Create as IRevocationChecker;
 end;
 
 constructor TDefaultPkixProvider.Create;
-var
-  LOverrides: TPkixProviderOverrides;
 begin
-  LOverrides := Default(TPkixProviderOverrides);
-  Create(LOverrides);
+  Create(nil, nil, nil);
 end;
 
 class constructor TDefaultPkixProvider.Create;
@@ -2120,34 +2094,6 @@ end;
 function TDefaultPkixProvider.Revocation: IRevocationChecker;
 begin
   Result := FRevocation;
-end;
-
-{ TPkixProviderBuilder }
-
-function TPkixProviderBuilder.WithInspector(
-  const AInspector: ICertificateInspector): IPkixProviderBuilder;
-begin
-  FOverrides.Inspector := AInspector;
-  Result := Self;
-end;
-
-function TPkixProviderBuilder.WithPathValidation(
-  const APathValidation: ICertificatePathValidator): IPkixProviderBuilder;
-begin
-  FOverrides.PathValidation := APathValidation;
-  Result := Self;
-end;
-
-function TPkixProviderBuilder.WithRevocation(
-  const ARevocation: IRevocationChecker): IPkixProviderBuilder;
-begin
-  FOverrides.Revocation := ARevocation;
-  Result := Self;
-end;
-
-function TPkixProviderBuilder.Build: IPkixProvider;
-begin
-  Result := TDefaultPkixProvider.Create(FOverrides) as IPkixProvider;
 end;
 
 end.
