@@ -11,26 +11,27 @@
 
 unit TlsLibTestResourceLoader;
 
+{$I ..\..\TlsLib\src\Include\TlsLib.inc}
+
 interface
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$ENDIF FPC}
-
 uses
+{$IF DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_IOS)}
+  System.IOUtils,
+{$IFEND}
   SysUtils;
 
 type
   /// <summary>
   /// Locates test vectors in TlsLib.Tests\Data at runtime (files, never string
   /// literals). The data root is discovered by walking up from the current
-  /// directory until a TlsLib.Tests\Data folder is found.
+  /// directory (the app's documents folder on mobile) until a TlsLib.Tests\Data
+  /// folder is found.
   /// </summary>
   TTlsLibTestResourceLoader = class sealed(TObject)
   strict private
     class var FDataRoot: string;
     class function DiscoverDataRoot: string; static;
-    class function ResolveDataRoot: string; static;
   public
     /// <summary>The absolute path to TlsLib.Tests\Data (discovered once).</summary>
     class function DataRoot: string; static;
@@ -50,11 +51,16 @@ resourcestring
 
 class function TTlsLibTestResourceLoader.DiscoverDataRoot: string;
 var
-  LDir, LCandidate, LParent: string;
+  LStart, LDir, LCandidate, LParent: string;
   LI: Int32;
 begin
-  Result := '';
-  LDir := ExcludeTrailingPathDelimiter(GetCurrentDir);
+{$IF DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_IOS)}
+  // the app deploy copies the vectors under the documents folder at start-up
+  LStart := TPath.GetDocumentsPath;
+{$ELSE}
+  LStart := GetCurrentDir;
+{$IFEND}
+  LDir := ExcludeTrailingPathDelimiter(LStart);
   for LI := 0 to 12 do
   begin
     if LDir = '' then
@@ -62,27 +68,21 @@ begin
     LCandidate := IncludeTrailingPathDelimiter(LDir) + TestsProjectName +
       PathDelim + TestsDataFolderName;
     if DirectoryExists(LCandidate) then
-      Exit(ExcludeTrailingPathDelimiter(LCandidate));
+      Exit(LCandidate);
     LParent := ExcludeTrailingPathDelimiter(ExtractFilePath(LDir));
     if (LParent = '') or SameText(LParent, LDir) then
       Break;
     LDir := LParent;
   end;
-end;
-
-class function TTlsLibTestResourceLoader.ResolveDataRoot: string;
-begin
-  if FDataRoot = '' then
-    FDataRoot := DiscoverDataRoot;
-  if FDataRoot = '' then
-    raise Exception.CreateResFmt(@SDataRootNotFound,
-      [TestsProjectName, PathDelim, TestsDataFolderName, GetCurrentDir]);
-  Result := FDataRoot;
+  raise Exception.CreateResFmt(@SDataRootNotFound,
+    [TestsProjectName, PathDelim, TestsDataFolderName, LStart]);
 end;
 
 class function TTlsLibTestResourceLoader.DataRoot: string;
 begin
-  Result := ResolveDataRoot;
+  if FDataRoot = '' then
+    FDataRoot := DiscoverDataRoot;
+  Result := FDataRoot;
 end;
 
 class function TTlsLibTestResourceLoader.ResourcePath(const ARelativePath: string): string;
@@ -91,7 +91,7 @@ var
 begin
   LRel := StringReplace(ARelativePath, '/', PathDelim, [rfReplaceAll]);
   LRel := StringReplace(LRel, '\', PathDelim, [rfReplaceAll]);
-  Result := IncludeTrailingPathDelimiter(ResolveDataRoot) + LRel;
+  Result := IncludeTrailingPathDelimiter(DataRoot) + LRel;
 end;
 
 end.
