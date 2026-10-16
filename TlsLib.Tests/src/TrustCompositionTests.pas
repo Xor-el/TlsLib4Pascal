@@ -290,7 +290,7 @@ var
 begin
   // a whole-verifier is a valid, self-sufficient trust source (no anchors needed); it is wrapped
   // as an instance source that returns it unchanged for every connection
-  LStub := TFixedVerdictVerifier.CreateAccepting as IServerCertificateVerifier;
+  LStub := TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.Custom(LStub))
     .Build;

@@ -39,10 +39,9 @@ type
     FOutcome: TVerificationOutcome;
     FCalls: Int32;
   public
-    /// <summary>Accepts every chain, echoing it as the validated path.</summary>
-    constructor CreateAccepting;
-    /// <summary>Accepts only a chain with at least one certificate.</summary>
-    constructor CreateAcceptingNonEmpty;
+    /// <summary>Accepts every chain, echoing it as the validated path; ANonEmptyChainOnly
+    /// rejects an empty chain.</summary>
+    constructor CreateAccepting(ANonEmptyChainOnly: Boolean);
     /// <summary>Rejects every chain with AAlert.</summary>
     constructor CreateRejecting(AAlert: TTlsAlertDescription);
     /// <summary>Accepts every chain, reporting APath and AOutcome as the validated path.</summary>
@@ -90,18 +89,11 @@ implementation
 
 { TFixedVerdictVerifier }
 
-constructor TFixedVerdictVerifier.CreateAccepting;
+constructor TFixedVerdictVerifier.CreateAccepting(ANonEmptyChainOnly: Boolean);
 begin
   inherited Create;
   FAccept := True;
-  FAlert := TTlsAlertDescription.BadCertificate;
-end;
-
-constructor TFixedVerdictVerifier.CreateAcceptingNonEmpty;
-begin
-  inherited Create;
-  FAccept := True;
-  FNonEmptyOnly := True;
+  FNonEmptyOnly := ANonEmptyChainOnly;
   FAlert := TTlsAlertDescription.BadCertificate;
 end;
 
@@ -179,7 +171,7 @@ end;
 function TAcceptingClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 begin
-  Result := TFixedVerdictVerifier.CreateAccepting as IClientCertificateVerifier;
+  Result := TFixedVerdictVerifier.CreateAccepting(False) as IClientCertificateVerifier;
 end;
 
 end.
