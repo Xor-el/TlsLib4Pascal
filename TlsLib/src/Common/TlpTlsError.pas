@@ -27,9 +27,9 @@ type
   TTlsErrorOrigin = (Unknown, Local, Peer, Transport);
 
   /// <summary>
-  /// The structured, public-facing error surfaced to callers: the alert that
-  /// was (or would be) sent, unless Origin is Transport, and a human-readable
-  /// message that must not leak internal state.
+  /// The structured, public-facing error surfaced to callers: the alert this
+  /// side sent or would send (Local) or the peer sent (Peer), unless Origin is
+  /// Transport, and a human-readable message that must not leak internal state.
   /// </summary>
   TTlsError = record
   strict private
