@@ -116,6 +116,7 @@ type
     procedure HandleIncomingAlert(const AData: TBytes);
     procedure RouteFragment(const AFragment: TTlsRecordFragment);
     procedure DrainRecordLayer;
+    procedure AbortWith(const AError: TTlsError);
     function Fail(const AException: Exception): TTlsOutcome;
     /// <summary>Ends the connection (a fatal alert, sent or received, or a failed transport).
     /// With ADropSessions it also drops the sessions it stored so it is never resumed
@@ -724,18 +725,22 @@ begin
   end;
 end;
 
+procedure TTlsEngine.AbortWith(const AError: TTlsError);
+begin
+  if FTerminal then
+    Exit;
+  FLastError := AError;
+  try
+    QueueAlertRecord(AError.Alert);
+  except
+    // if even emitting the alert fails, the engine still becomes terminal
+  end;
+  EnterFatalState(True);
+end;
+
 function TTlsEngine.Fail(const AException: Exception): TTlsOutcome;
 begin
-  if not FTerminal then
-  begin
-    FLastError := TAlertMapping.ErrorFor(AException);
-    try
-      QueueAlertRecord(FLastError.Alert);
-    except
-      // if even emitting the alert fails, the engine still becomes terminal
-    end;
-    EnterFatalState(True);
-  end;
+  AbortWith(TAlertMapping.ErrorFor(AException));
   Result := TTlsOutcome.Fatal;
 end;
 
@@ -976,11 +981,7 @@ end;
 
 procedure TTlsEngine.SendAlert(ADescription: TTlsAlertDescription; const AReason: string);
 begin
-  if FTerminal then
-    Exit;
-  QueueAlertRecord(TTlsAlert.CreateFatal(ADescription));
-  EnterFatalState(True);
-  FLastError := TTlsError.CreateFatal(ADescription, AReason, TTlsErrorOrigin.Local);
+  AbortWith(TTlsError.CreateFatal(ADescription, AReason, TTlsErrorOrigin.Local));
 end;
 
 procedure TTlsEngine.LatchTransportFailure(const AReason: string);

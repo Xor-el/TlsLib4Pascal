@@ -179,18 +179,32 @@ type
     function Hpke: IHpkeCrypto;
   end;
 
+  /// <summary>A switch a test arms to make every <see cref="TCappedAead" /> that shares it fail on
+  /// Seal; Open is never affected.</summary>
+  TAeadFaultSwitch = class sealed(TObject)
+  strict private
+  var
+    FArmed: Boolean;
+  public
+    property Armed: Boolean read FArmed write FArmed;
+  end;
+
   /// <summary>
   /// An <see cref="IAead" /> decorator that forwards every operation to an inner AEAD but reports a
   /// small <c>UsageLimit</c>, so a test drives the record layer's usage-limit rekey path by writing
-  /// a few dozen records instead of 2^24.
+  /// a few dozen records instead of 2^24. While its fault switch (nil means none) is armed, Seal
+  /// raises.
   /// </summary>
   TCappedAead = class sealed(TInterfacedObject, IAead)
   strict private
   var
     FInner: IAead;
     FUsageLimit: UInt64;
+    FSwitch: TAeadFaultSwitch;
   public
-    constructor Create(const AInner: IAead; AUsageLimit: UInt64);
+    constructor Create(const AInner: IAead; AUsageLimit: UInt64); overload;
+    constructor Create(const AInner: IAead; AUsageLimit: UInt64;
+      const ASwitch: TAeadFaultSwitch); overload;
     function UsageCategory: TAeadUsageCategory;
     function UsageLimit: UInt64;
     function KeySize: Int32;
@@ -210,8 +224,10 @@ type
   var
     FInner: ICryptoPrimitives;
     FUsageLimit: UInt64;
+    FSwitch: TAeadFaultSwitch;
   public
-    constructor Create(const AInner: ICryptoPrimitives; AUsageLimit: UInt64);
+    constructor Create(const AInner: ICryptoPrimitives; AUsageLimit: UInt64;
+      const ASwitch: TAeadFaultSwitch);
     function GetRandom: IRandom;
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
@@ -230,7 +246,9 @@ type
   var
     FComposed: ICryptoProvider;
   public
-    constructor Create(const AInner: ICryptoProvider; AUsageLimit: UInt64);
+    constructor Create(const AInner: ICryptoProvider; AUsageLimit: UInt64); overload;
+    constructor Create(const AInner: ICryptoProvider; AUsageLimit: UInt64;
+      const ASwitch: TAeadFaultSwitch); overload;
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
     function Hpke: IHpkeCrypto;
@@ -243,6 +261,7 @@ const
 
 resourcestring
   SMissingAead = 'this primitives facet does not provide the requested AEAD';
+  SInjectedSealFault = 'the AEAD seal was made to fail by the test';
   SMissingAgreement = 'this primitives facet does not provide the requested key agreement';
 
 { TRejectingSignatureVerifier }
@@ -574,9 +593,16 @@ end;
 
 constructor TCappedAead.Create(const AInner: IAead; AUsageLimit: UInt64);
 begin
+  Create(AInner, AUsageLimit, nil);
+end;
+
+constructor TCappedAead.Create(const AInner: IAead; AUsageLimit: UInt64;
+  const ASwitch: TAeadFaultSwitch);
+begin
   inherited Create;
   FInner := AInner;
   FUsageLimit := AUsageLimit;
+  FSwitch := ASwitch;
 end;
 
 function TCappedAead.UsageCategory: TAeadUsageCategory;
@@ -612,6 +638,8 @@ end;
 function TCappedAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
   const ADest: TBytes; ADestOff: Int32): Int32;
 begin
+  if (FSwitch <> nil) and FSwitch.Armed then
+    raise EInvalidOperationTlsLibException.CreateRes(@SInjectedSealFault);
   Result := FInner.Seal(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
 end;
 
@@ -624,11 +652,12 @@ end;
 { TCappedAeadPrimitives }
 
 constructor TCappedAeadPrimitives.Create(const AInner: ICryptoPrimitives;
-  AUsageLimit: UInt64);
+  AUsageLimit: UInt64; const ASwitch: TAeadFaultSwitch);
 begin
   inherited Create;
   FInner := AInner;
   FUsageLimit := AUsageLimit;
+  FSwitch := ASwitch;
 end;
 
 function TCappedAeadPrimitives.GetRandom: IRandom;
@@ -658,7 +687,7 @@ end;
 
 function TCappedAeadPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
-  Result := TCappedAead.Create(FInner.CreateAead(AAlgorithm), FUsageLimit) as IAead;
+  Result := TCappedAead.Create(FInner.CreateAead(AAlgorithm), FUsageLimit, FSwitch) as IAead;
 end;
 
 function TCappedAeadPrimitives.CreateKeyAgreement(
@@ -681,13 +710,19 @@ end;
 
 constructor TCappedAeadProvider.Create(const AInner: ICryptoProvider;
   AUsageLimit: UInt64);
+begin
+  Create(AInner, AUsageLimit, nil);
+end;
+
+constructor TCappedAeadProvider.Create(const AInner: ICryptoProvider;
+  AUsageLimit: UInt64; const ASwitch: TAeadFaultSwitch);
 var
   LBuilder: ICryptoProviderBuilder;
 begin
   inherited Create;
   LBuilder := TCryptoProviderBuilder.Create;
   FComposed := LBuilder
-    .WithPrimitives(TCappedAeadPrimitives.Create(AInner.Primitives, AUsageLimit)
+    .WithPrimitives(TCappedAeadPrimitives.Create(AInner.Primitives, AUsageLimit, ASwitch)
       as ICryptoPrimitives)
     .WithSigning(AInner.Signing)
     .Build;

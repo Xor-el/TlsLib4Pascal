@@ -27,8 +27,8 @@ uses
 type
   /// <summary>
   /// The result of feeding bytes to the engine: it made progress, it needs more
-  /// input, or it failed fatally (the alert is pre-queued and the engine is now
-  /// terminal). Genuine API misuse raises instead.
+  /// input, or it failed fatally (the engine is now terminal; a local failure queues its alert
+  /// unless our close_notify or a failed seal prevented it). Genuine API misuse raises instead.
   /// </summary>
   TTlsOutcome = (Advanced, NeedMoreInput, Fatal);
 
@@ -133,7 +133,8 @@ type
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Sends a close_notify (clean shutdown).</summary>
     procedure SendClose;
-    /// <summary>Sends a fatal alert and makes the engine terminal.</summary>
+    /// <summary>Sends a fatal alert and makes the engine terminal; nothing is queued after our
+    /// close_notify (RFC 9846 6.1) or if the alert cannot be sealed.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription); overload;
     /// <summary>As above, recording AReason as the error the next operation raises.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;

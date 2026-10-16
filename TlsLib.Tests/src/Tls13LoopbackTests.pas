@@ -172,6 +172,7 @@ type
     procedure TestUnexpectedMessageAbortsWithUnexpectedMessage;
     procedure TestMiddleboxChangeCipherSpec;
     procedure TestWriteAfterInboundCloseNotifyHalfCloses;
+    procedure TestErrorAfterOurCloseNotifyQueuesNoAlert;
     procedure TestCoalescedFinalDataAndCloseNotifyBothSurface;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
     procedure TestMissingStapleAbortsUnderHardPosture;
@@ -1963,6 +1964,34 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a write after our own close_notify raises');
+end;
+
+procedure TTestTls13Loopback.TestErrorAfterOurCloseNotifyQueuesNoAlert;
+var
+  LClient, LServer: ITlsEngine;
+  LByte, LWire: TBytes;
+begin
+  LClient := NewClient;
+  LServer := NewServer;
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+  Drain(LClient);
+  Drain(LServer);
+  LClient.SendClose;
+  CheckTrue(System.Length(Drain(LClient)) > 0, 'our close_notify is sent');
+  LByte := DecodeHex('61');
+  LServer.Write(LByte, 0, System.Length(LByte));
+  LWire := Drain(LServer);
+  // corrupt the AEAD tag in the last byte of the server's record
+  LWire[System.High(LWire)] := LWire[System.High(LWire)] xor $01;
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LClient.ProcessInput(LWire, 0, System.Length(LWire))),
+    'a corrupt record after our close_notify is fatal');
+  CheckTrue(LClient.IsTerminal, 'the engine is terminal');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LClient.LastError.Origin),
+    'the failure is recorded as our own');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LClient.LastError.Alert.Description),
+    'the recorded alert is bad_record_mac');
+  CheckEquals(0, System.Length(Drain(LClient)), 'nothing follows our close_notify');
 end;
 
 procedure TTestTls13Loopback.TestCoalescedFinalDataAndCloseNotifyBothSurface;

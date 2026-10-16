@@ -501,7 +501,7 @@ begin
     except
       on Exception do
       begin
-        // a failed seal leaves the engine with an alert queued - close_notify at the AEAD usage
+        // a failed seal may leave an alert queued - close_notify at the AEAD usage
         // limit, or the fatal alert of a seal fault; deliver it (any slices sealed before are
         // already on the wire) before surfacing the failure to the caller
         LSealFault := AEngine.IsTerminal;
