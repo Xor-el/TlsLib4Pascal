@@ -28,7 +28,7 @@ uses
 {$ENDIF FPC}
   TlpPkixDomainTypes,
   TlpIPkixProvider,
-  TlpPkixProviderBuilder,
+  TlpDefaultPkixProvider,
   MockPkixProvider,
   TlsLibTestCertificates,
   TlsLibTestBase;

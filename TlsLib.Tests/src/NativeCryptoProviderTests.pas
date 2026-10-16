@@ -26,7 +26,7 @@ uses
 {$ENDIF FPC}
   TlpICryptoProvider,
   TlpIKeyExchangePrivateKey,
-  TlpCryptoProviderBuilder,
+  TlpDefaultCryptoProvider,
   TlsLibTestProviders,
   TlpOSCryptoProvider,
   TlpICryptoBackendReport,
