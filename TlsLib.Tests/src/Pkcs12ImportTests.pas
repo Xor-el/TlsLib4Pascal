@@ -44,6 +44,7 @@ uses
   TlpCertificateVerifier,
   TlpTlsAlert,
   TlpTlsLibExceptions,
+  TlsLibTestProviders,
   TlsLibTestBase;
 
 type
@@ -63,6 +64,8 @@ type
     // Asserts a forged leaf-selection vector imports to [leaf, CA]: the key pairs
     // CertificateChain[0] and the chain validates to the ca_cert_der anchor.
     procedure CheckSelectsLeafAndVerifies(const AField: string);
+    // The class and message the portable provider raises importing the plaintext AField store.
+    function ImportFailure(const AField: string): string;
   protected
     procedure SetUp; override;
   published
@@ -84,6 +87,11 @@ type
     procedure TestLoadPkcs12Credential;
     // a PKCS#12-loaded credential passes Build's key<->leaf consistency and freezes into a config
     procedure TestLoadedPkcs12CredentialBuildsServer;
+    // portable-only precedence (a native backend may hide cert-less keys): count and pairing win
+    procedure TestUnsupportedKeyIsReportedAsUnsupported;
+    procedure TestUnsupportedKeyBesideAnotherKeyIsMultipleKeys;
+    procedure TestUnsupportedCurveBesideAnotherKeyIsMultipleKeys;
+    procedure TestUnsupportedCurveWithNoPairingCertIsNoCertForKey;
   end;
 
 implementation
@@ -344,6 +352,51 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Build;
   CheckEquals(2, System.Length(LConfig.Credential.CertificateChain),
     'the PKCS#12-loaded credential freezes leaf + CA into the config');
+end;
+
+function TTestPkcs12Import.ImportFailure(const AField: string): string;
+begin
+  Result := '';
+  try
+    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable).Signing.ImportPkcs12(
+      Blob(AField), nil);
+  except
+    on E: Exception do
+      Result := E.ClassName + ': ' + E.Message;
+  end;
+end;
+
+procedure TTestPkcs12Import.TestUnsupportedKeyIsReportedAsUnsupported;
+begin
+  CheckEquals('ENotSupportedTlsLibException: the private key uses an algorithm this library ' +
+    'cannot sign with', ImportFailure('unsupp_pfx'),
+    'a DSA key is an unsupported algorithm, not a malformed store');
+end;
+
+procedure TTestPkcs12Import.TestUnsupportedKeyBesideAnotherKeyIsMultipleKeys;
+var
+  LFailure: string;
+begin
+  LFailure := ImportFailure('unsupp_multikey_pfx');
+  CheckEquals(1, Pos('EArgumentTlsLibException: the PKCS#12 blob holds more than one private-key',
+    LFailure), 'two keys are ambiguous whatever their algorithms; got: ' + LFailure);
+end;
+
+procedure TTestPkcs12Import.TestUnsupportedCurveBesideAnotherKeyIsMultipleKeys;
+var
+  LFailure: string;
+begin
+  LFailure := ImportFailure('k1_multikey_pfx');
+  CheckEquals(1, Pos('EArgumentTlsLibException: the PKCS#12 blob holds more than one private-key',
+    LFailure), 'a second key makes the store ambiguous before any scheme is derived; got: '
+    + LFailure);
+end;
+
+procedure TTestPkcs12Import.TestUnsupportedCurveWithNoPairingCertIsNoCertForKey;
+begin
+  CheckEquals('EArgumentTlsLibException: the PKCS#12 blob holds no certificate for its ' +
+    'private key', ImportFailure('k1_nocert_pfx'),
+    'the missing certificate is reported before the curve is judged');
 end;
 
 initialization

@@ -89,7 +89,10 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(LCred).Bui
 
 Then, per accepted socket, `TTlsEngineFactory.CreateServerEngine(LConfig)` and wrap it in a stream or
 hand it to your adapter. The PKCS#12 importer fails closed on a bad password or a malformed blob
-(typed exception), wipes the password and key bytes, and requires exactly one private-key entry.
+(typed exception), wipes the password and key bytes, and expects a single private key.
+The leaf is the certificate that pairs the key (the linked one if it does, else the lowest DER),
+and the chain follows it by issuer name. Where the OS-native overlay can, the OS unwraps the
+file; a store it cannot unwrap goes to the portable importer.
 
 To staple OCSP for the leaf, set the credential's `OcspStaple` (DER) or `OcspStapleCallback` (it
 refreshes an expiring staple and takes precedence; it must not do network I/O). The staple is sent

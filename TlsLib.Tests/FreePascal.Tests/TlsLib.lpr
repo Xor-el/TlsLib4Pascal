@@ -72,6 +72,7 @@ uses
   SignatureTests,
   CredentialImportTests,
   Pkcs12ImportTests,
+  Pkcs12IdentityTests,
   EndpointIdentityTests,
   PemTests,
   DynamicLibraryTests,

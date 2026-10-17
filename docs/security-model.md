@@ -173,6 +173,15 @@ These are intentional and documented — flagging them up front so they aren't m
   portable path is always strict as well. One path is outside this: OS
   trust delegate mode (the Default mode of OS trust on Windows, macOS, iOS and Android), where the chain and any
   revocation data the OS fetches are judged by the platform.
+- **One PKCS#12 credential policy.** One piece of code decides, for every backend, that a store
+  holds exactly one private key, which certificate is its leaf and which follow it as the chain;
+  the backends only read the store. The OS-native overlay has the OS unwrap the store where it
+  can (password derivation, integrity check, decryption), so the private key never enters the
+  portable backend's memory, and sends a store it cannot unwrap or serve to the portable backend,
+  which owns the errors. An OS backend may read legacy encryption profiles (for example RC2 or
+  3DES) that the portable backend rejects. Not every OS reports a second key that matches no
+  certificate or separate key bags that hold the same key, so an OS backend can accept a store
+  the portable backend rejects.
 - **The managed engine is always ours.** Native OS/JVM TLS stacks are never the handshake/record
   engine (a deliberate one-behavior / one-test-corpus stance); OS *trust* (opt-in; its Default
   mode is the OS's own verifier on Windows, macOS, iOS and Android) and the opt-in OS-native crypto

@@ -33,6 +33,7 @@ uses
   TlpICryptoBackendReport,
   TlpISigningKey,
   TlpImportedCredential,
+  TlpPkcs12Identity,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpSecureMemory,
@@ -131,7 +132,6 @@ const
   // read directly from CERT_NCRYPT_KEY_HANDLE_PROP_ID.
   PKCS12_NO_PERSIST_KEY = DWORD($00008000);
   PKCS12_ALWAYS_CNG_KSP = DWORD($00000200);
-  CERT_FIND_HAS_PRIVATE_KEY = DWORD($00150000);
   CERT_NCRYPT_KEY_HANDLE_PROP_ID = DWORD(78);
 
 var
@@ -369,17 +369,50 @@ type
     pbData: PByte;
   end;
 
-  // crypt32 PKCS#12: import a PFX to an in-memory store, find the key cert, and acquire its
-  // (CNG) private key handle.
+  // crypt32 PKCS#12: import a PFX to an in-memory store and read each cert's CNG key handle.
   TPFXImportCertStore = function(pPFX: Pointer; szPassword: PWideChar;
     dwFlags: DWORD): Pointer; stdcall;
-  TCertFindCertificateInStore = function(hCertStore: Pointer;
-    dwCertEncodingType, dwFindFlags, dwFindType: DWORD; pvFindPara: Pointer;
+  TCertEnumCertificatesInStore = function(hCertStore: Pointer;
     pPrevCertContext: Pointer): Pointer; stdcall;
+  TCertDuplicateCertificateContext = function(pCertContext: Pointer): Pointer; stdcall;
+  TCertDuplicateStore = function(hCertStore: Pointer): Pointer; stdcall;
   TCertGetCertificateContextProperty = function(pCertContext: Pointer;
     dwPropId: DWORD; pvData: Pointer; out pcbData: DWORD): BOOL; stdcall;
   TCertFreeCertificateContext = function(pCertContext: Pointer): BOOL; stdcall;
   TCertCloseStore = function(hCertStore: Pointer; dwFlags: DWORD): BOOL; stdcall;
+
+  TCryptAlgorithmIdentifier = record
+    pszObjId: PAnsiChar;
+    Parameters: TCryptDataBlob;
+  end;
+
+  TCertPublicKeyInfo = record
+    Algorithm: TCryptAlgorithmIdentifier;
+    PublicKeyData: TCryptDataBlob;
+    UnusedBits: DWORD;
+  end;
+
+  // CERT_INFO through SubjectPublicKeyInfo: the leading fields of the certificate context's info
+  TCertInfoHead = record
+    Version: DWORD;
+    SerialNumber: TCryptDataBlob;
+    SignatureAlgorithm: TCryptAlgorithmIdentifier;
+    Issuer: TCryptDataBlob;
+    NotBefore: array [0 .. 1] of DWORD;
+    NotAfter: array [0 .. 1] of DWORD;
+    Subject: TCryptDataBlob;
+    SubjectPublicKeyInfo: TCertPublicKeyInfo;
+  end;
+  PCertInfoHead = ^TCertInfoHead;
+
+  TCertContextHead = record
+    CertEncodingType: DWORD;
+    CertEncoded: PByte;
+    CertEncodedSize: DWORD;
+    CertInfo: PCertInfoHead;
+    Store: Pointer;
+  end;
+  PCertContextHead = ^TCertContextHead;
 
   TCrypt32Api = record
     DecodeObjectEx: TCryptDecodeObjectEx;
@@ -387,7 +420,9 @@ type
     ExportPublicKeyInfoEx: TCryptExportPublicKeyInfoEx;
     EncodeObjectEx: TCryptEncodeObjectEx;
     PFXImportCertStore: TPFXImportCertStore;
-    CertFindCertificateInStore: TCertFindCertificateInStore;
+    EnumCertificatesInStore: TCertEnumCertificatesInStore;
+    DuplicateCertificateContext: TCertDuplicateCertificateContext;
+    DuplicateStore: TCertDuplicateStore;
     GetCertContextProperty: TCertGetCertificateContextProperty;
     FreeCertificateContext: TCertFreeCertificateContext;
     CloseStore: TCertCloseStore;
@@ -798,7 +833,7 @@ type
   // for the pre-hash. Construction raises only when ncrypt or the provider is unavailable,
   // so signing then stays portable. Pins the CNG context alive.
   IWindowsNCrypt = interface(IInterface)
-    ['{A4C7189E-52D0-4B3A-8F61-0E9D2B7C5A14}']
+    ['{6D2B94E7-1C58-4F03-A9E6-3B7D0A58C214}']
     /// <summary>Imports a PKCS#8 key the KSP can serve for signing (RSA or NIST-curve
     /// ECDSA), reports the schemes it can sign with, and exports the public key from the
     /// imported handle as canonical X.509 SubjectPublicKeyInfo DER; False when the key is not
@@ -830,11 +865,13 @@ type
     function VerifyData(AKeyHandle: Pointer; AScheme: TSignatureScheme;
       const AData, ASignature: TBytes): Boolean;
     procedure FreeVerifyKey(AKeyHandle: Pointer);
-    /// <summary>Imports a PKCS#12 blob and adopts its private key as a native CNG-backed
-    /// signing key, exporting its public key from the handle; False when it cannot (the caller
-    /// then keeps the portable key).</summary>
-    function TryImportPkcs12Key(const APfx: TBytes; const APassword: ISecretBuffer;
-      out AKey: ISigningKey): Boolean;
+    /// <summary>Unwraps a PKCS#12 blob in the OS: every certificate, and each distinct private key
+    /// as a native CNG-backed signing key whose public key is exported from its handle, with the
+    /// certificates that pair it. A key owns its own store and certificate references, so one the
+    /// caller drops frees itself. False when the OS cannot read the store, finds no key, or cannot
+    /// serve a key it finds (the caller then falls back to the portable facet).</summary>
+    function TryUnwrapPkcs12(const APfx: TBytes; const APassword: ISecretBuffer;
+      out AContents: TPkcs12Contents): Boolean;
     /// <summary>Releases a PKCS#12-acquired key: the key handle (when caller-owned), its
     /// certificate context, and the in-memory store.</summary>
     procedure FreePfxKey(AStore, ACert: Pointer; AHandle: NativeUInt;
@@ -951,7 +988,7 @@ type
     class function LoadApi(out AModule: NativeUInt; out AApi: TNCryptApi): Boolean; static;
     // PFXImportCertStore honours PKCS12_NO_PERSIST_KEY only on Win8+/Server 2012+; on an older
     // host the flag is ignored and the key is persisted to the user's container, so native
-    // PKCS#12 adoption is skipped there (the portable key stays)
+    // PKCS#12 unwrap is skipped there (the portable facet imports instead)
     class function NoPersistKeySupported: Boolean; static;
     class function HashAlgForScheme(AScheme: TSignatureScheme): THashAlgorithm; static;
     class function HashIdForScheme(AScheme: TSignatureScheme): WideString; static;
@@ -980,6 +1017,8 @@ type
     // encrypted) or an unrecognized blob, which is imported as given and never wiped here
     class function TryWrapPkcs8(const ADer: TBytes; out AWrapped: TBytes): Boolean; static;
     class function WidePassword(const APassword: ISecretBuffer): TArray<WideChar>; static;
+    // canonical X.509 SubjectPublicKeyInfo DER of a decoded CERT_PUBLIC_KEY_INFO
+    function TryEncodePublicKeyInfo(AInfo: Pointer; out ASpki: TBytes): Boolean;
     function AlgName(AKey: NativeUInt): string;
     function KeySchemes(AKey: NativeUInt;
       out ASchemes: TArray<TSignatureScheme>): Boolean;
@@ -1011,8 +1050,8 @@ type
     function VerifyData(AKeyHandle: Pointer; AScheme: TSignatureScheme;
       const AData, ASignature: TBytes): Boolean;
     procedure FreeVerifyKey(AKeyHandle: Pointer);
-    function TryImportPkcs12Key(const APfx: TBytes; const APassword: ISecretBuffer;
-      out AKey: ISigningKey): Boolean;
+    function TryUnwrapPkcs12(const APfx: TBytes; const APassword: ISecretBuffer;
+      out AContents: TPkcs12Contents): Boolean;
     procedure FreePfxKey(AStore, ACert: Pointer; AHandle: NativeUInt;
       ACallerFree: Boolean);
   end;
@@ -3714,8 +3753,12 @@ begin
       TDynamicLibrary.Resolve(FCrypt32, 'CryptEncodeObjectEx'));
     FCryptApi.PFXImportCertStore := TPFXImportCertStore(
       TDynamicLibrary.Resolve(FCrypt32, 'PFXImportCertStore'));
-    FCryptApi.CertFindCertificateInStore := TCertFindCertificateInStore(
-      TDynamicLibrary.Resolve(FCrypt32, 'CertFindCertificateInStore'));
+    FCryptApi.EnumCertificatesInStore := TCertEnumCertificatesInStore(
+      TDynamicLibrary.Resolve(FCrypt32, 'CertEnumCertificatesInStore'));
+    FCryptApi.DuplicateCertificateContext := TCertDuplicateCertificateContext(
+      TDynamicLibrary.Resolve(FCrypt32, 'CertDuplicateCertificateContext'));
+    FCryptApi.DuplicateStore := TCertDuplicateStore(
+      TDynamicLibrary.Resolve(FCrypt32, 'CertDuplicateStore'));
     FCryptApi.GetCertContextProperty := TCertGetCertificateContextProperty(
       TDynamicLibrary.Resolve(FCrypt32, 'CertGetCertificateContextProperty'));
     FCryptApi.FreeCertificateContext := TCertFreeCertificateContext(
@@ -3728,7 +3771,9 @@ begin
     System.Assigned(FBcrypt.VerifySignature) and System.Assigned(FBcrypt.DestroyKey);
   FPfxReady := (FCrypt32 <> 0) and
     System.Assigned(FCryptApi.PFXImportCertStore) and
-    System.Assigned(FCryptApi.CertFindCertificateInStore) and
+    System.Assigned(FCryptApi.EnumCertificatesInStore) and
+    System.Assigned(FCryptApi.DuplicateCertificateContext) and
+    System.Assigned(FCryptApi.DuplicateStore) and
     System.Assigned(FCryptApi.GetCertContextProperty) and
     System.Assigned(FCryptApi.FreeCertificateContext) and
     System.Assigned(FCryptApi.CloseStore);
@@ -4007,12 +4052,37 @@ begin
   end;
 end;
 
+function TWindowsNCrypt.TryEncodePublicKeyInfo(AInfo: Pointer;
+  out ASpki: TBytes): Boolean;
+var
+  LEncodedSize: DWORD;
+  LEncoded: PByte;
+begin
+  ASpki := nil;
+  // canonical X.509 SubjectPublicKeyInfo DER, byte-for-byte what the portable SPKI encoder
+  // produces
+  LEncoded := nil;
+  LEncodedSize := 0;
+  if not FCryptApi.EncodeObjectEx(X509_ASN_ENCODING, X509_PUBLIC_KEY_INFO_STRUCT,
+    AInfo, CRYPT_ENCODE_ALLOC_FLAG, nil, @LEncoded, LEncodedSize) then
+    Exit(False);
+  try
+    // a success with no output is a failure: never mint a native key with a nil SPKI
+    if (LEncoded = nil) or (LEncodedSize = 0) then
+      Exit(False);
+    SetLength(ASpki, LEncodedSize);
+    System.Move(LEncoded^, ASpki[0], LEncodedSize);
+    Result := True;
+  finally
+    LocalFree(HLOCAL(LEncoded));
+  end;
+end;
+
 function TWindowsNCrypt.TryExportPublicKeyInfo(AKey: NativeUInt;
   out ASpki: TBytes): Boolean;
 var
-  LInfoSize, LEncodedSize: DWORD;
+  LInfoSize: DWORD;
   LInfo: TBytes;
-  LEncoded: PByte;
 begin
   ASpki := nil;
   if (not FExportReady) or (AKey = 0) then
@@ -4027,23 +4097,7 @@ begin
   if not FCryptApi.ExportPublicKeyInfoEx(AKey, 0, X509_ASN_ENCODING, nil, 0, nil,
     PByte(LInfo), LInfoSize) then
     Exit(False);
-  // canonical X.509 SubjectPublicKeyInfo DER, byte-for-byte what the portable SPKI encoder
-  // produces
-  LEncoded := nil;
-  LEncodedSize := 0;
-  if not FCryptApi.EncodeObjectEx(X509_ASN_ENCODING, X509_PUBLIC_KEY_INFO_STRUCT,
-    PByte(LInfo), CRYPT_ENCODE_ALLOC_FLAG, nil, @LEncoded, LEncodedSize) then
-    Exit(False);
-  try
-    // a success with no output is a failure: never mint a native key with a nil SPKI
-    if (LEncoded = nil) or (LEncodedSize = 0) then
-      Exit(False);
-    SetLength(ASpki, LEncodedSize);
-    System.Move(LEncoded^, ASpki[0], LEncodedSize);
-    Result := True;
-  finally
-    LocalFree(HLOCAL(LEncoded));
-  end;
+  Result := TryEncodePublicKeyInfo(PByte(LInfo), ASpki);
 end;
 
 function TWindowsNCrypt.CanExportPublicKey: Boolean;
@@ -4137,30 +4191,36 @@ begin
     FBcrypt.DestroyKey(AKeyHandle);
 end;
 
-function TWindowsNCrypt.TryImportPkcs12Key(const APfx: TBytes;
-  const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
+function TWindowsNCrypt.TryUnwrapPkcs12(const APfx: TBytes;
+  const APassword: ISecretBuffer; out AContents: TPkcs12Contents): Boolean;
 var
   LBlob: TCryptDataBlob;
   LPassword: TArray<WideChar>;
   LPasswordPtr: PWideChar;
   LEmptyPassword: WideChar;
   LStore, LCert: Pointer;
-  LKey: NativeUInt;
+  LContents: TPkcs12Contents;
+  LCertificate: TPkcs12Certificate;
+  LKey: TPkcs12Key;
+  LHandle: NativeUInt;
   LSize: DWORD;
   LSchemes: TArray<TSignatureScheme>;
-  LSpki: TBytes;
+  LKeySpki, LCertSpki: TBytes;
+  LCertSpkis, LKeySpkis: TArray<TBytes>;
+  LContext: PCertContextHead;
+  LInfo: PCertInfoHead;
+  LCertIndex, LI, LJ: Int32;
 begin
-  AKey := nil;
-  if not FPfxReady then
+  AContents.Certificates := nil;
+  AContents.Keys := nil;
+  if not (FPfxReady and FExportReady) then
     Exit(False);
-  // a host that would persist the key to disk stays on the portable key
+  // a host that would persist the key to disk stays on the portable facet
   if not NoPersistKeySupported then
     Exit(False);
   LBlob.cbData := System.Length(APfx);
   LBlob.pbData := PByte(APfx);
-  // an empty/absent passphrase is L"" (RFC 7292 Appendix B.1: two NUL bytes); PFXImportCertStore
-  // may treat a NULL pointer differently, so it is never passed. A real one is the owned wide
-  // buffer, wiped once import returns
+  // an empty passphrase is L"" (RFC 7292 Appendix B.1: two zero bytes)
   LPassword := WidePassword(APassword);
   LEmptyPassword := #0;
   if System.Length(LPassword) > 0 then
@@ -4174,28 +4234,70 @@ begin
     FillChar(LPassword[0], System.Length(LPassword) * SizeOf(WideChar), 0);
   if LStore = nil then
     Exit(False);
-  // the portable import already guaranteed exactly one key entry, so the first cert with a
-  // private key is the identity's leaf; the no-persist CNG handle is on the cert context
-  LCert := FCryptApi.CertFindCertificateInStore(LStore, X509_ASN_ENCODING, 0,
-    CERT_FIND_HAS_PRIVATE_KEY, nil, nil);
-  if LCert = nil then
-  begin
+  try
+    LCert := nil;
+    try
+      repeat
+        // the enumeration releases the previous context itself
+        LCert := FCryptApi.EnumCertificatesInStore(LStore, LCert);
+        if LCert = nil then
+          Break;
+        LContext := PCertContextHead(LCert);
+        LInfo := LContext^.CertInfo;
+        SetLength(LCertificate.Der, LContext^.CertEncodedSize);
+        System.Move(LContext^.CertEncoded^, LCertificate.Der[0], LContext^.CertEncodedSize);
+        SetLength(LCertificate.Subject, LInfo^.Subject.cbData);
+        System.Move(LInfo^.Subject.pbData^, LCertificate.Subject[0], LInfo^.Subject.cbData);
+        SetLength(LCertificate.Issuer, LInfo^.Issuer.cbData);
+        System.Move(LInfo^.Issuer.pbData^, LCertificate.Issuer[0], LInfo^.Issuer.cbData);
+        TArrayUtilities.Append<TPkcs12Certificate>(LContents.Certificates, LCertificate);
+        LCertIndex := System.Length(LContents.Certificates) - 1;
+        // an unencodable certificate key leaves nil, which pairs no private key
+        TryEncodePublicKeyInfo(@LInfo^.SubjectPublicKeyInfo, LCertSpki);
+        TArrayUtilities.Append<TBytes>(LCertSpkis, LCertSpki);
+
+        LHandle := 0;
+        LSize := SizeOf(LHandle);
+        if (not FCryptApi.GetCertContextProperty(LCert, CERT_NCRYPT_KEY_HANDLE_PROP_ID,
+          @LHandle, LSize)) or (LHandle = 0) then
+          Continue;
+        // a key the OS cannot serve natively sends the whole store to the portable facet
+        if (not KeySchemes(LHandle, LSchemes)) or
+          (not TryExportPublicKeyInfo(LHandle, LKeySpki)) then
+          Exit(False);
+        // defensive, not reached today: a key on several certificates leaves the leaf to portable
+        for LI := 0 to System.Length(LKeySpkis) - 1 do
+          if TArrayUtilities.AreEqual(LKeySpkis[LI], LKeySpki) then
+            Exit(False);
+        // the handle belongs to the cert context; the owner's own references keep it alive
+        LKey.Key := TWindowsSigningKey.Create(TPfxKeyOwner.Create(Self as IWindowsNCrypt,
+          FCryptApi.DuplicateStore(LStore), FCryptApi.DuplicateCertificateContext(LCert),
+          LHandle, False) as INCryptKeyOwner, LSchemes, LKeySpki);
+        LKey.Linked := LCertIndex;
+        LKey.Pairs := nil;
+        TArrayUtilities.Append<TPkcs12Key>(LContents.Keys, LKey);
+        TArrayUtilities.Append<TBytes>(LKeySpkis, LKeySpki);
+      until False;
+    finally
+      if LCert <> nil then
+        FCryptApi.FreeCertificateContext(LCert);
+    end;
+  finally
     FCryptApi.CloseStore(LStore, 0);
-    Exit(False);
   end;
-  LKey := 0;
-  LSize := SizeOf(LKey);
-  // the public key is exported from the adopted handle, so the leaf guard matches the signing key
-  if (not FCryptApi.GetCertContextProperty(LCert, CERT_NCRYPT_KEY_HANDLE_PROP_ID,
-    @LKey, LSize)) or (LKey = 0) or (not KeySchemes(LKey, LSchemes)) or
-    (not TryExportPublicKeyInfo(LKey, LSpki)) then
-  begin
-    FreePfxKey(LStore, LCert, 0, False);
+  // the OS drops a key that matches no certificate, so zero keys proves nothing
+  if System.Length(LContents.Keys) = 0 then
     Exit(False);
-  end;
-  // the handle is owned by the cert context / store, freed when the owner closes them
-  AKey := TWindowsSigningKey.Create(TPfxKeyOwner.Create(Self as IWindowsNCrypt,
-    LStore, LCert, LKey, False) as INCryptKeyOwner, LSchemes, LSpki);
+  for LI := 0 to System.Length(LContents.Keys) - 1 do
+    for LJ := 0 to System.Length(LCertSpkis) - 1 do
+      if (LCertSpkis[LJ] <> nil) and
+        TArrayUtilities.AreEqual(LCertSpkis[LJ], LKeySpkis[LI]) then
+        TArrayUtilities.Append<Int32>(LContents.Keys[LI].Pairs, LJ);
+  // defensive, not reached today: the OS paired the key, so an empty Pairs is our compare missing
+  for LI := 0 to System.Length(LContents.Keys) - 1 do
+    if System.Length(LContents.Keys[LI].Pairs) = 0 then
+      Exit(False);
+  AContents := LContents;
   Result := True;
 end;
 
@@ -4304,20 +4406,13 @@ end;
 function TWindowsSigningCrypto.ImportPkcs12(const AData: TBytes;
   const APassword: ISecretBuffer): TImportedCredential;
 var
-  LNativeKey: ISigningKey;
+  LContents: TPkcs12Contents;
 begin
-  // the parsed credential (which cert is the leaf, chain order, store-ambiguity and password
-  // rules, typed errors) is a decision that must mean the same thing on every platform, so the
-  // portable facet DECIDES it; the native facet only supplies the signing backend for the SAME
-  // key, whose public key it exports from its own handle. The double parse is the Build-time
-  // price of platform-invariant parsing; on any native failure the portable key stays.
-  Result := FInner.ImportPkcs12(AData, APassword);
-  // adopt the native key only when it is the key the portable parse chose: the OS and the
-  // portable parser can read an odd store differently, and the credential must keep signing
-  // with the key that matches its leaf
-  if FNCrypt.TryImportPkcs12Key(AData, APassword, LNativeKey) and
-    TArrayUtilities.AreEqual(LNativeKey.PublicKeyInfo, Result.PrivateKey.PublicKeyInfo) then
-    Result.PrivateKey := LNativeKey;
+  // a verdict over an OS-unwrapped store is final; any other store goes to the portable facet
+  if FNCrypt.TryUnwrapPkcs12(AData, APassword, LContents) then
+    Result := TPkcs12Identity.Select(LContents)
+  else
+    Result := FInner.ImportPkcs12(AData, APassword);
 end;
 
 function TWindowsSigningCrypto.CreateSignatureSigner(AScheme: TSignatureScheme;
