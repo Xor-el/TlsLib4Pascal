@@ -35,8 +35,7 @@ uses
   TlpSystemTimeUtilities;
 
 type
-  /// <summary>A POSIX socket is a file descriptor, an int on every target. It is not the RTL's
-  /// THandle, which is pointer-sized on Delphi.</summary>
+  /// <summary>A POSIX socket is a file descriptor, an int on every target.</summary>
   TPosixSocketHandle = Integer;
 
   /// <summary>What a wait is for: data to read, or room to write (a connect under way).</summary>
