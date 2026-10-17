@@ -40,7 +40,7 @@
         <PackageName Value="FCL"/>
       </Item7>
     </RequiredPackages>
-    <Units Count="102">
+    <Units Count="103">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -449,6 +449,10 @@
         <Filename Value="..\src\Pkcs12IdentityTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit101>
+      <Unit102>
+        <Filename Value="..\src\ArrayUtilitiesTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit102>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

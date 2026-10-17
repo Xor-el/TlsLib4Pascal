@@ -231,6 +231,7 @@ uses
   CredentialImportTests in '..\src\CredentialImportTests.pas',
   Pkcs12ImportTests in '..\src\Pkcs12ImportTests.pas',
   Pkcs12IdentityTests in '..\src\Pkcs12IdentityTests.pas',
+  ArrayUtilitiesTests in '..\src\ArrayUtilitiesTests.pas',
   TlsStreamLoopbackTests in '..\src\TlsStreamLoopbackTests.pas',
   EndpointIdentityTests in '..\src\EndpointIdentityTests.pas',
   PemTests in '..\src\PemTests.pas',

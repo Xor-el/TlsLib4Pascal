@@ -38,6 +38,10 @@ type
     /// data. The constant-time twin is
     /// <see cref="TSecureMemory.ConstantTimeAreEqual" />.</summary>
     class function AreEqual(const AA, AB: TBytes): Boolean; static;
+    /// <summary>Unsigned byte-wise lexicographic order: negative, zero or positive as AA sorts
+    /// before, equal to or after AB. A shorter array that is a prefix of a longer one sorts
+    /// first.</summary>
+    class function CompareLexicographic(const AA, AB: TBytes): Int32; static;
 
     /// <summary>Appends AValue, growing AItems by one.</summary>
     class procedure Append<T>(var AItems: TArray<T>; const AValue: T); static;
@@ -93,6 +97,23 @@ begin
     if AA[LI] <> AB[LI] then
       Exit;
   Result := True;
+end;
+
+class function TArrayUtilities.CompareLexicographic(const AA, AB: TBytes): Int32;
+var
+  LI, LCommon: Int32;
+begin
+  LCommon := System.Length(AA);
+  if System.Length(AB) < LCommon then
+    LCommon := System.Length(AB);
+  for LI := 0 to LCommon - 1 do
+    if AA[LI] <> AB[LI] then
+    begin
+      if AA[LI] < AB[LI] then
+        Exit(-1);
+      Exit(1);
+    end;
+  Result := System.Length(AA) - System.Length(AB);
 end;
 
 class procedure TArrayUtilities.Append<T>(var AItems: TArray<T>; const AValue: T);
