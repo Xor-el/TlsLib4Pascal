@@ -1,0 +1,43 @@
+TlsLib.Tests/src/ArrayUtilitiesTests.pas
+  s_4adb7e2edc0c28::t_b904ba0fda6214 1-119
+TlsLib/src/Crypto/TlpPkcs12Identity.pas
+  s_4adb7e2edc0c28::t_cc93dc4835041a 85-86
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_4adb7e2edc0c28::t_66300a6da15d1a 76
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_4adb7e2edc0c28::t_1c1359c0eb9a6c 76
+TlsLib/src/Common/TlpArrayUtilities.pas
+  s_4adb7e2edc0c28::t_d26d9302a1e559 112
+  s_4adb7e2edc0c28::t_2ea5cad9ffcf2d 41-44
+  s_4adb7e2edc0c28::t_91f6d8d479b723 102-111,113-118
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_4adb7e2edc0c28::t_bb56ab1494bb1d 234
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_4adb7e2edc0c28::t_d5f61f0334c139 255
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_4adb7e2edc0c28::t_9f5c9558f01488 43
+  s_4adb7e2edc0c28::t_26b8c65f7e1d6f 452-455
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_4adb7e2edc0c28::t_398be8a9442464 37
+  s_4adb7e2edc0c28::t_a864124f6280b4 446-449
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_4adb7e2edc0c28::t_5537b91c7bc81d 577
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_4adb7e2edc0c28::t_5ae49a045bea44 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eca2846583b09938ce05abecfc78c2a9f6c3a3f8",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
