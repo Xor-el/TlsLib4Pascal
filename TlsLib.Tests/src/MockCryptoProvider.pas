@@ -36,6 +36,15 @@ type
     function Verify(const ASignature: TBytes): Boolean;
   end;
 
+  /// <summary>An opaque signing key that holds nothing and signs nothing, for tests that only
+  /// route a key (compared by reference) through code that never uses it.</summary>
+  TMockSigningKey = class sealed(TInterfacedObject, ISigningKey)
+  public
+    function CapableSchemes: TArray<TSignatureScheme>;
+    function PublicKeyInfo: TBytes;
+    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+  end;
+
   /// <summary>An <see cref="ISigningCrypto" /> that signs and imports through an inner facet but
   /// hands out verifiers that reject every signature, so a peer's handshake signature never
   /// verifies while its certificate chain (checked by the PKIX provider) still does.</summary>
@@ -274,6 +283,24 @@ end;
 function TRejectingSignatureVerifier.Verify(const ASignature: TBytes): Boolean;
 begin
   Result := False;
+end;
+
+{ TMockSigningKey }
+
+function TMockSigningKey.CapableSchemes: TArray<TSignatureScheme>;
+begin
+  Result := nil;
+end;
+
+function TMockSigningKey.PublicKeyInfo: TBytes;
+begin
+  Result := nil;
+end;
+
+function TMockSigningKey.WithPreferredSchemes(
+  const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+begin
+  Result := Self;
 end;
 
 { TRejectingVerifierSigning }

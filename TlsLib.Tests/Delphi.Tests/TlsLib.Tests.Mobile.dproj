@@ -367,6 +367,7 @@
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\Providers\TlpICryptoProvider.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpISigningKey.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpImportedCredential.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Crypto\TlpPkcs12Identity.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Crypto\TlpIKeyExchangePrivateKey.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpHpkeComposition.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Crypto\TlpAeadUtilities.pas"/>
@@ -572,6 +573,7 @@
         <DCCReference Include="..\src\SignatureTests.pas"/>
         <DCCReference Include="..\src\CredentialImportTests.pas"/>
         <DCCReference Include="..\src\Pkcs12ImportTests.pas"/>
+        <DCCReference Include="..\src\Pkcs12IdentityTests.pas"/>
         <DCCReference Include="..\src\TlsStreamLoopbackTests.pas"/>
         <DCCReference Include="..\src\EndpointIdentityTests.pas"/>
         <DCCReference Include="..\src\CertificateVerifierTests.pas"/>

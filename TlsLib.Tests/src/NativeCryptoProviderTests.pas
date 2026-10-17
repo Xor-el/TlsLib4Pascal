@@ -183,10 +183,42 @@ type
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   /// <summary>The Windows CNG / crypt32 cases, beside the native provider contract.</summary>
   TTestWindowsNativeCryptoProvider = class(TNativeCryptoProviderTestBase)
+  strict private
+    // The import outcome as text: chain and key SPKI on success, exception class and message else.
+    function Pkcs12Outcome(const AProvider: ICryptoProvider; const AField: string;
+      const APassword: ISecretBuffer): string;
+    // A composed provider whose portable facet fails every import, so only the OS can import.
+    function ComposedOverRejectingImports: ICryptoProvider;
+    // Imports AField and checks that the key signs what the leaf's public key verifies.
+    function ImportPairingLeaf(const AProvider: ICryptoProvider; const AField: string;
+      const APassword: ISecretBuffer): TImportedCredential;
   published
-    // both parsers agree on the key: the natively adopted PKCS#12 key's exported SPKI equals
-    // the leaf certificate's SPKI (guards against crypt32 key<->cert association drift)
+    // the native key's exported SPKI equals the leaf certificate's SPKI
     procedure TestPkcs12ExportedKeyMatchesLeaf;
+    // with every portable import failing, the OS still unwraps the store and its key signs
+    procedure TestPkcs12NativeUnwrapNeedsNoPortableImport;
+    // a policy verdict over an OS-unwrapped store is final: it never reaches the portable facet
+    procedure TestPkcs12NativeVerdictIsFinal;
+    // the composed provider gives the portable outcome, errors included
+    procedure TestPkcs12NativeAgreesWithPortable;
+    // an Ed25519 store is beyond the OS key store, so the portable facet imports it
+    procedure TestPkcs12NativeFailureFallsBackToPortable;
+    // a key linked to the wrong certificate: the OS refuses the store, the portable facet loads it
+    procedure TestPkcs12WrongLinkFallsBackToPortable;
+    // the legacy RC2 / 3DES profiles import only through the OS
+    procedure TestPkcs12LegacyProfilesImport;
+    // a NULL-password store opens with nil and with an empty buffer, and only the OS reads it
+    procedure TestPkcs12NullPasswordStore;
+    // the password is the UTF-8 octets, so a non-ASCII one opens the store only as spelled
+    procedure TestPkcs12NonAsciiPassword;
+    // neither the OS nor the portable facet reads a PBMAC1 store
+    procedure TestPkcs12Pbmac1Store;
+    // the OS drops a key that matches no certificate: it imports what the portable facet refuses
+    procedure TestPkcs12NativeAcceptsStoresPortableRejects;
+    // a key on two certificates: the leaf is the linked one even though the other has the lower DER
+    procedure TestPkcs12KeyOnSeveralCertificates;
+    // an id-RSASSA-PSS certificate store is not unwrapped natively; the portable facet loads it
+    procedure TestPkcs12RsaPssCertificateStore;
     // the CNG overlay engages and reports the default HPKE composition as composed
     procedure TestComposeEngagesCngAndReportsDefaultHpkeAsComposed;
   end;
@@ -222,11 +254,14 @@ type
   strict private
     FReal: ISigningCrypto;
     FThrowOnVerify: Boolean;
+    FThrowOnPkcs12: Boolean;
   public
     constructor Create(const AReal: ISigningCrypto); overload;
     // imports and signs through the real facet but fails loudly on creating a verifier, so a
     // test can prove a verification ran natively and not through this facet
     constructor Create(const AReal: ISigningCrypto; AThrowOnVerify: Boolean); overload;
+    // fails loudly on every import, PKCS#12 included, so a test can prove an import ran natively
+    constructor CreateRejectingImports(const AReal: ISigningCrypto);
     function ImportSigningKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey;
     function ImportPkcs12(const AData: TBytes;
@@ -363,12 +398,19 @@ begin
   inherited Create;
   FReal := AReal;
   FThrowOnVerify := False;
+  FThrowOnPkcs12 := False;
 end;
 
 constructor TThrowingInnerSigning.Create(const AReal: ISigningCrypto; AThrowOnVerify: Boolean);
 begin
   Create(AReal);
   FThrowOnVerify := AThrowOnVerify;
+end;
+
+constructor TThrowingInnerSigning.CreateRejectingImports(const AReal: ISigningCrypto);
+begin
+  Create(AReal);
+  FThrowOnPkcs12 := True;
 end;
 
 function TThrowingInnerSigning.ImportSigningKey(const AData: TBytes;
@@ -382,6 +424,8 @@ end;
 function TThrowingInnerSigning.ImportPkcs12(const AData: TBytes;
   const APassword: ISecretBuffer): TImportedCredential;
 begin
+  if FThrowOnPkcs12 then
+    raise Exception.CreateRes(@SPortableUsed);
   Result := FReal.ImportPkcs12(AData, APassword);
 end;
 
@@ -956,6 +1000,295 @@ begin
     CheckTrue(Pkix.Certificates.SamePublicKey(LLeafSpki,
       LCredential.PrivateKey.PublicKeyInfo) = TCertAnswer.Yes,
       LVectors[LI] + ': the exported key pairs the leaf by value');
+  end;
+end;
+
+function TTestWindowsNativeCryptoProvider.Pkcs12Outcome(const AProvider: ICryptoProvider;
+  const AField: string; const APassword: ISecretBuffer): string;
+var
+  LCredential: TImportedCredential;
+  LI: Int32;
+begin
+  try
+    LCredential := AProvider.Signing.ImportPkcs12(DecodeHex(FPfx.Values[AField]), APassword);
+    Result := 'imported';
+    for LI := 0 to System.High(LCredential.CertificateChain) do
+      Result := Result + ' ' + EncodeHex(LCredential.CertificateChain[LI]);
+    Result := Result + ' key ' + EncodeHex(LCredential.PrivateKey.PublicKeyInfo);
+  except
+    on E: Exception do
+      Result := E.ClassName + ': ' + E.Message;
+  end;
+end;
+
+function TTestWindowsNativeCryptoProvider.ComposedOverRejectingImports: ICryptoProvider;
+begin
+  Result := Composed((TCryptoProviderBuilder.Create as ICryptoProviderBuilder)
+    .WithSigning(TThrowingInnerSigning.CreateRejectingImports(Portable.Signing)
+    as ISigningCrypto).Build);
+end;
+
+function TTestWindowsNativeCryptoProvider.ImportPairingLeaf(const AProvider: ICryptoProvider;
+  const AField: string; const APassword: ISecretBuffer): TImportedCredential;
+var
+  LScheme: TSignatureScheme;
+  LSigner: ISignatureSigner;
+  LVerifier: ISignatureVerifier;
+  LMessage, LSignature: TBytes;
+begin
+  Result := AProvider.Signing.ImportPkcs12(DecodeHex(FPfx.Values[AField]), APassword);
+  LScheme := Result.PrivateKey.CapableSchemes[0];
+  LMessage := DecodeHex(SMessageHex);
+  LSigner := AProvider.Signing.CreateSignatureSigner(LScheme, Result.PrivateKey);
+  LSigner.Update(LMessage, 0, System.Length(LMessage));
+  LSignature := LSigner.Sign;
+  LVerifier := AProvider.Signing.CreateSignatureVerifier(LScheme,
+    Pkix.Certificates.PublicKeyInfo(Result.CertificateChain[0]));
+  LVerifier.Update(LMessage, 0, System.Length(LMessage));
+  CheckTrue(LVerifier.Verify(LSignature),
+    AField + ': the imported key signs what the first chain certificate verifies');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12NativeUnwrapNeedsNoPortableImport;
+const
+  LFields: array [0 .. 5] of string = ('rsa_pfx', 'ec_pfx', 'chain_pfx', 'rsa_altalg_pfx',
+    'nolink_cafirst_pfx', 'orphanlink_pfx');
+  LPasswords: array [0 .. 5] of string = (SPassword, SPassword, SPassword, SPassword, '', '');
+  LChainLengths: array [0 .. 5] of Int32 = (1, 1, 2, 1, 2, 2);
+var
+  LProvider: ICryptoProvider;
+  LCredential: TImportedCredential;
+  LI: Int32;
+begin
+  LProvider := ComposedOverRejectingImports;
+  if not NativeSigningOrSkip(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  for LI := Low(LFields) to High(LFields) do
+  begin
+    LCredential := ImportPairingLeaf(LProvider, LFields[LI],
+      TSecretBuffer.FromString(LPasswords[LI]));
+    CheckTrue(IsNativeKey(LProvider, LCredential.PrivateKey),
+      LFields[LI] + ': the key was adopted by the OS module');
+    CheckEquals(LChainLengths[LI], System.Length(LCredential.CertificateChain),
+      LFields[LI] + ': the chain holds the store''s certificates');
+    if LChainLengths[LI] = 2 then
+      CheckEqualBytes(LFields[LI] + ': the CA follows the leaf',
+        DecodeHex(FPfx.Values['ca_cert_der']), LCredential.CertificateChain[1]);
+  end;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12NativeVerdictIsFinal;
+const
+  SMultipleKeys = 'EArgumentTlsLibException: the PKCS#12 blob holds more than one private-key';
+var
+  LProvider: ICryptoProvider;
+  LOutcome: string;
+begin
+  LProvider := ComposedOverRejectingImports;
+  if not NativeSigningOrSkip(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LOutcome := Pkcs12Outcome(LProvider, 'multikey_pfx', TSecretBuffer.FromString(SPassword));
+  CheckEquals(1, Pos(SMultipleKeys, LOutcome),
+    'the policy rejects the two-key store the OS unwrapped; got: ' + LOutcome);
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12NativeAgreesWithPortable;
+const
+  SUnreadable = 'EArgumentTlsLibException: the PKCS#12 blob could not be read';
+  SMultipleKeys = 'EArgumentTlsLibException: the PKCS#12 blob holds more than one private-key';
+  SNoCert = 'EArgumentTlsLibException: the PKCS#12 blob holds no certificate for its private key';
+var
+  LPortable: ICryptoProvider;
+  LPassword, LUtf8Password: TBytes;
+
+  // AExpectedStart is the portable outcome's expected beginning: 'imported ' or the error
+  procedure CheckAgrees(const AField: string; const APasswordBytes: TBytes;
+    const AExpectedStart: string);
+  var
+    LExpected: string;
+  begin
+    LExpected := Pkcs12Outcome(LPortable, AField, TSecretBuffer.From(APasswordBytes));
+    CheckEquals(1, Pos(AExpectedStart, LExpected),
+      AField + ': the portable outcome is the expected kind; got: ' + LExpected);
+    CheckEquals(LExpected, Pkcs12Outcome(Crypto, AField, TSecretBuffer.From(APasswordBytes)),
+      AField + ': the composed provider gives the portable outcome');
+  end;
+
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LPortable := Portable;
+  LPassword := TEncoding.UTF8.GetBytes(SPassword);
+  LUtf8Password := DecodeHex(FPfx.Values['utf8pw_password']);
+  CheckAgrees('rsa_pfx', LPassword, 'imported ');
+  CheckAgrees('rsa_altalg_pfx', LPassword, 'imported ');
+  CheckAgrees('ec_pfx', LPassword, 'imported ');
+  CheckAgrees('chain_pfx', LPassword, 'imported ');
+  CheckAgrees('utf8pw_pfx', LUtf8Password, 'imported ');
+  CheckAgrees('nolink_cafirst_pfx', nil, 'imported ');
+  CheckAgrees('orphanlink_pfx', nil, 'imported ');
+  CheckAgrees('multikey_pfx', LPassword, SMultipleKeys);
+  CheckAgrees('nomatch_pfx', nil, SNoCert);
+  CheckAgrees('rsa_pfx', TEncoding.UTF8.GetBytes('not-the-password'), SUnreadable);
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12NativeFailureFallsBackToPortable;
+var
+  LCredential: TImportedCredential;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LCredential := ImportPairingLeaf(Crypto, 'ed25519_pfx', TSecretBuffer.FromString(SPassword));
+  CheckFalse(IsNativeKey(Crypto, LCredential.PrivateKey),
+    'the Ed25519 key is the portable facet''s');
+  CheckTrue(TSignatureScheme.ED25519 = LCredential.PrivateKey.CapableSchemes[0],
+    'the key signs with Ed25519');
+  CheckTrue(Pos(SPortableUsed, Pkcs12Outcome(ComposedOverRejectingImports, 'ed25519_pfx',
+    TSecretBuffer.FromString(SPassword))) > 0, 'the store reached the portable facet');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12WrongLinkFallsBackToPortable;
+var
+  LCredential: TImportedCredential;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LCredential := ImportPairingLeaf(Crypto, 'wronglink_pfx', nil);
+  CheckFalse(IsNativeKey(Crypto, LCredential.PrivateKey),
+    'the OS refuses a store whose key names the wrong certificate');
+  CheckEquals(2, System.Length(LCredential.CertificateChain), 'the chain is the leaf and the CA');
+  CheckEquals(Pkcs12Outcome(Portable, 'wronglink_pfx', nil),
+    Pkcs12Outcome(Crypto, 'wronglink_pfx', nil), 'the composed import is the portable one');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12LegacyProfilesImport;
+const
+  LFields: array [0 .. 1] of string = ('legacy_pfx', 'des3_pfx');
+var
+  LCredential: TImportedCredential;
+  LPortableOutcome: string;
+  LI: Int32;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  for LI := Low(LFields) to High(LFields) do
+  begin
+    LCredential := ImportPairingLeaf(Crypto, LFields[LI], TSecretBuffer.FromString(SPassword));
+    CheckTrue(IsNativeKey(Crypto, LCredential.PrivateKey),
+      LFields[LI] + ': the OS imported the store');
+    LPortableOutcome := Pkcs12Outcome(Portable, LFields[LI],
+      TSecretBuffer.FromString(SPassword));
+    CheckEquals(1, Pos('EArgumentTlsLibException: the PKCS#12 blob could not be read',
+      LPortableOutcome), LFields[LI] + ': the portable facet cannot read the profile; got: '
+      + LPortableOutcome);
+  end;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12NullPasswordStore;
+var
+  LCredential: TImportedCredential;
+  LPortableOutcome: string;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LCredential := ImportPairingLeaf(Crypto, 'nullpw_pfx', nil);
+  CheckTrue(IsNativeKey(Crypto, LCredential.PrivateKey), 'the OS imported the store with nil');
+  LCredential := ImportPairingLeaf(Crypto, 'nullpw_pfx', TSecretBuffer.FromString(''));
+  CheckTrue(IsNativeKey(Crypto, LCredential.PrivateKey),
+    'the OS imported the store with an empty buffer');
+  LPortableOutcome := Pkcs12Outcome(Portable, 'nullpw_pfx', nil);
+  CheckEquals(1, Pos('EArgumentTlsLibException: the PKCS#12 blob could not be read',
+    LPortableOutcome), 'the portable facet cannot read the profile; got: ' + LPortableOutcome);
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12NonAsciiPassword;
+var
+  LCredential: TImportedCredential;
+  LWrongOutcome: string;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LCredential := ImportPairingLeaf(Crypto, 'utf8pw_pfx',
+    TSecretBuffer.From(DecodeHex(FPfx.Values['utf8pw_password'])));
+  CheckTrue(IsNativeKey(Crypto, LCredential.PrivateKey),
+    'the OS read the store under its UTF-8 password');
+  LWrongOutcome := Pkcs12Outcome(Crypto, 'utf8pw_pfx', TSecretBuffer.FromString('cafe-'));
+  CheckEquals(1, Pos('EArgumentTlsLibException: the PKCS#12 blob could not be read',
+    LWrongOutcome), 'the ASCII spelling of the password does not open the store; got: '
+    + LWrongOutcome);
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12Pbmac1Store;
+const
+  SUnreadable = 'EArgumentTlsLibException: the PKCS#12 blob could not be read';
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckEquals(1, Pos(SUnreadable, Pkcs12Outcome(Portable, 'pbmac1_pfx',
+    TSecretBuffer.FromString(SPassword))), 'the portable facet rejects the PBMAC1 store');
+  CheckEquals(1, Pos(SUnreadable, Pkcs12Outcome(Crypto, 'pbmac1_pfx',
+    TSecretBuffer.FromString(SPassword))), 'the composed provider rejects the PBMAC1 store');
+  CheckTrue(Pos(SPortableUsed, Pkcs12Outcome(ComposedOverRejectingImports, 'pbmac1_pfx',
+    TSecretBuffer.FromString(SPassword))) > 0, 'the OS refused it, so the portable facet ran');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12KeyOnSeveralCertificates;
+var
+  LCredential: TImportedCredential;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LCredential := ImportPairingLeaf(Crypto, 'dupkey_pfx', TSecretBuffer.FromString(SPassword));
+  CheckTrue(IsNativeKey(Crypto, LCredential.PrivateKey), 'the OS imported the store');
+  CheckEquals(1, System.Length(LCredential.CertificateChain),
+    'the self-issued leaf is the whole chain');
+  CheckEqualBytes('the leaf is the certificate the store links, not the lower-DER one',
+    DecodeHex(FPfx.Values['dupkey_linked_cert']), LCredential.CertificateChain[0]);
+  CheckEquals(Pkcs12Outcome(Portable, 'dupkey_pfx', TSecretBuffer.FromString(SPassword)),
+    Pkcs12Outcome(Crypto, 'dupkey_pfx', TSecretBuffer.FromString(SPassword)),
+    'the composed provider gives the portable outcome');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12RsaPssCertificateStore;
+var
+  LCredential: TImportedCredential;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LCredential := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['pss_pfx']),
+    TSecretBuffer.FromString(SPassword));
+  CheckEquals(1, System.Length(LCredential.CertificateChain), 'the chain is the leaf');
+  CheckFalse(IsNativeKey(Crypto, LCredential.PrivateKey), 'the portable facet imported the store');
+  CheckTrue(Pos(SPortableUsed, Pkcs12Outcome(ComposedOverRejectingImports, 'pss_pfx',
+    TSecretBuffer.FromString(SPassword))) > 0, 'the OS handed the store over');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPkcs12NativeAcceptsStoresPortableRejects;
+const
+  SMultipleKeys = 'EArgumentTlsLibException: the PKCS#12 blob holds more than one private-key';
+  SNoCert = 'EArgumentTlsLibException: the PKCS#12 blob holds no certificate for its private key';
+  LFields: array [0 .. 2] of string = ('hid_nolink_pfx', 'hid_orphan_pfx', 'hid_sharedlink_pfx');
+var
+  LCredential: TImportedCredential;
+  LPortableOutcome, LExpected: string;
+  LI: Int32;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  for LI := Low(LFields) to High(LFields) do
+  begin
+    LCredential := ImportPairingLeaf(Crypto, LFields[LI], nil);
+    CheckTrue(IsNativeKey(Crypto, LCredential.PrivateKey),
+      LFields[LI] + ': the OS imported the store');
+    CheckEquals(1, System.Length(LCredential.CertificateChain),
+      LFields[LI] + ': the chain is the RSA leaf');
+    if LI = High(LFields) then
+      LExpected := SNoCert
+    else
+      LExpected := SMultipleKeys;
+    LPortableOutcome := Pkcs12Outcome(Portable, LFields[LI], nil);
+    CheckEquals(1, Pos(LExpected, LPortableOutcome),
+      LFields[LI] + ': the portable facet refuses the store; got: ' + LPortableOutcome);
   end;
 end;
 

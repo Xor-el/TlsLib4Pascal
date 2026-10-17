@@ -52,6 +52,7 @@ contains
   TlpICryptoProvider in '..\..\Interfaces\Crypto\Providers\TlpICryptoProvider.pas',
   TlpISigningKey in '..\..\Interfaces\Crypto\TlpISigningKey.pas',
   TlpImportedCredential in '..\..\Crypto\TlpImportedCredential.pas',
+  TlpPkcs12Identity in '..\..\Crypto\TlpPkcs12Identity.pas',
   TlpIKeyExchangePrivateKey in '..\..\Interfaces\Crypto\TlpIKeyExchangePrivateKey.pas',
   TlpDefaultCryptoProvider in '..\..\Crypto\Providers\TlpDefaultCryptoProvider.pas',
   TlpPkixDomainTypes in '..\..\Pkix\TlpPkixDomainTypes.pas',

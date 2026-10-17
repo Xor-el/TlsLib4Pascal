@@ -1,4 +1,4 @@
-﻿{ *********************************************************************************** }
+{ *********************************************************************************** }
 { *                                 TlsLib Library                                  * }
 { *                          Author - Ugochukwu Mmaduekwe                           * }
 { *                  Github Repository <https://github.com/Xor-el>                  * }
@@ -132,6 +132,7 @@ uses
   TlpISigningKey,
   TlpIKeyExchangePrivateKey,
   TlpImportedCredential,
+  TlpPkcs12Identity,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpTls12PrfComposition,
@@ -235,12 +236,6 @@ resourcestring
   SKeyExchangeKeyNotExportable =
     'this key-exchange key has no raw scalar to export (a KEM or hybrid key)';
   SMalformedPkcs12 = 'the PKCS#12 blob could not be read (wrong password, bad MAC, or malformed)';
-  SPkcs12NoKeyEntry = 'the PKCS#12 blob holds no private-key entry';
-  SPkcs12MultipleKeys =
-    'the PKCS#12 blob holds more than one private-key entry; it is ambiguous for a ' +
-    'single credential — split it or import the intended identity explicitly';
-  SPkcs12NoCertForKey =
-    'the PKCS#12 blob holds no certificate for its private key';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
 
@@ -2167,13 +2162,14 @@ var
   LStoreBuilder: IPkcs12StoreBuilder;
   LStream: TBytesStream;
   LPass: TArray<Char>;
-  LAliases: TArray<string>;
-  LAlias, LKeyAlias: string;
+  LAliases, LKeyAliases: TArray<string>;
   LKeyParam, LPub: IAsymmetricKeyParameter;
-  LChainEntries, LAllCerts: TArray<IX509CertificateEntry>;
-  LLeaf: IX509CertificateEntry;
-  LChain: TArray<TBytes>;
-  LI, LKeyCount: Int32;
+  LCerts: TArray<IX509CertificateEntry>;
+  LLinked: IX509CertificateEntry;
+  LLinkedDer: TBytes;
+  LContents: TPkcs12Contents;
+  LKey: TPkcs12Key;
+  LI, LJ: Int32;
 
   function CertPairsKey(const AEntry: IX509CertificateEntry): Boolean;
   begin
@@ -2201,63 +2197,50 @@ begin
         LStream.Free;
       end;
 
-      // the credential requires exactly one private-key entry; alias order is not stable,
-      // so a multi-identity store is rejected rather than binding an arbitrary one
-      LKeyAlias := '';
-      LKeyCount := 0;
+      // alias order is not stable, so the key count decides before any key or certificate is read
       LAliases := LStore.GetAliases;
       for LI := 0 to System.High(LAliases) do
+        if LStore.IsKeyEntry(LAliases[LI]) then
+          TArrayUtilities.Append<string>(LKeyAliases, LAliases[LI]);
+      SetLength(LContents.Keys, System.Length(LKeyAliases));
+
+      if System.Length(LKeyAliases) = 1 then
       begin
-        LAlias := LAliases[LI];
-        if LStore.IsKeyEntry(LAlias) then
+        // every certificate bag counts, including those with no alias
+        LCerts := LStore.GetCertificates;
+        SetLength(LContents.Certificates, System.Length(LCerts));
+        for LI := 0 to System.High(LCerts) do
         begin
-          LKeyAlias := LAlias;
-          Inc(LKeyCount);
+          LContents.Certificates[LI].Der := LCerts[LI].Certificate.GetEncoded;
+          LContents.Certificates[LI].Subject := LCerts[LI].Certificate.SubjectDN.GetEncoded;
+          LContents.Certificates[LI].Issuer := LCerts[LI].Certificate.IssuerDN.GetEncoded;
         end;
+
+        // RFC 7292 leaves the key<->cert link (localKeyId) optional, so pairing is by public key
+        LKeyParam := LStore.GetKey(LKeyAliases[0]).Key;
+        LPub := TSigningKey.DerivePublicParameter(LKeyParam);
+        if LPub = nil then
+          raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyAlgorithm);
+        LKey.Linked := -1;
+        LLinked := LStore.GetCertificate(LKeyAliases[0]);
+        if LLinked <> nil then
+          LLinkedDer := LLinked.Certificate.GetEncoded
+        else
+          LLinkedDer := nil;
+        for LJ := 0 to System.High(LCerts) do
+        begin
+          if CertPairsKey(LCerts[LJ]) then
+            TArrayUtilities.Append<Int32>(LKey.Pairs, LJ);
+          if (LLinkedDer <> nil) and (LKey.Linked < 0) and
+            TArrayUtilities.AreEqual(LContents.Certificates[LJ].Der, LLinkedDer) then
+            LKey.Linked := LJ;
+        end;
+        // the signing key is built only once a certificate pairs it
+        if System.Length(LKey.Pairs) > 0 then
+          LKey.Key := TCredentialImport.SigningKeyFromParam(LKeyParam);
+        LContents.Keys[0] := LKey;
       end;
-      if LKeyCount = 0 then
-        raise EArgumentTlsLibException.CreateRes(@SPkcs12NoKeyEntry);
-      if LKeyCount > 1 then
-        raise EArgumentTlsLibException.CreateRes(@SPkcs12MultipleKeys);
-
-      // the leaf is the certificate whose public key pairs the private key; RFC 7292 imposes no
-      // bag order and the key<->cert link (localKeyId) may be absent or wrong
-      LKeyParam := LStore.GetKey(LKeyAlias).Key;
-      LPub := TSigningKey.DerivePublicParameter(LKeyParam);
-      if LPub = nil then
-        raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyAlgorithm);
-
-      LLeaf := nil;
-      // fast path: the store links the key to a leaf-first chain and that leaf pairs the key
-      LChainEntries := LStore.GetCertificateChain(LKeyAlias);
-      if (System.Length(LChainEntries) > 0) and CertPairsKey(LChainEntries[0]) then
-        LLeaf := LChainEntries[0]
-      else
-      begin
-        // fallback: the link is absent or wrong, so scan every certificate (including bags with no
-        // alias) for the key's own; several certificates sharing the key resolve to the first the
-        // store enumerates (deterministic)
-        LAllCerts := LStore.GetCertificates;
-        for LI := 0 to System.High(LAllCerts) do
-          if CertPairsKey(LAllCerts[LI]) then
-          begin
-            LLeaf := LAllCerts[LI];
-            Break;
-          end;
-        if LLeaf = nil then
-          raise EArgumentTlsLibException.CreateRes(@SPkcs12NoCertForKey);
-        // rebuild the chain leaf-first from the selected leaf (issuer walk), so a CA present in
-        // the store still follows the leaf
-        LChainEntries := LStore.GetCertificateChain(LLeaf);
-      end;
-
-      SetLength(LChain, System.Length(LChainEntries));
-      for LI := 0 to System.High(LChainEntries) do
-        LChain[LI] := LChainEntries[LI].Certificate.GetEncoded;
-
-      // the single signing-key path shared with ImportSigningKey
-      Result.PrivateKey := TCredentialImport.SigningKeyFromParam(LKeyParam);
-      Result.CertificateChain := LChain;
+      Result := TPkcs12Identity.Select(LContents);
     except
       // fail closed: reclassify any backend failure as a typed library exception, leaving
       // an already-typed one (e.g. unsupported-algorithm) to propagate unchanged

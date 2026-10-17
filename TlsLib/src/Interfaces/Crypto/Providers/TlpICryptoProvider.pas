@@ -247,13 +247,17 @@ type
     /// Imports a PKCS#12 (.pfx/.p12) blob decrypted with APassword into a crypto-level identity:
     /// the leaf and any intermediates as the chain (leaf first, DER) and an ISigningKey composed
     /// from the enclosed private key (TTlsCredential.LoadPkcs12 lifts it into a full credential).
-    /// The store must hold exactly one private-key entry - a multi-identity store is ambiguous
-    /// and rejected.
+    /// The store must yield exactly one private key, else it is rejected; a backend may ignore a
+    /// key bag that no certificate pairs.
     /// The leaf is the certificate whose public key pairs the private key (PKCS#12 imposes no
-    /// order and the key/cert link may be absent or wrong); when more than one certificate pairs
-    /// the key, one is selected deterministically. Fails closed: a wrong password, bad MAC, malformed store, or a
-    /// store with no certificate for its key raises EArgumentTlsLibException and no partial
-    /// credential is returned; an unsupported key algorithm raises ENotSupportedTlsLibException.
+    /// order and the key/cert link may be absent or wrong): the certificate the store links to the
+    /// key when it pairs it, else the pairing certificate with the lowest DER byte order. The chain
+    /// follows the leaf by issuer name: each next certificate is the one whose Subject equals the
+    /// current Issuer byte for byte (the lowest DER on a tie), ending at a self-issued
+    /// certificate, when none matches, or when a certificate would repeat; certificates off that
+    /// walk are dropped. Fails closed: a wrong password, bad MAC, malformed store, or a store
+    /// with no certificate for its key raises EArgumentTlsLibException and no partial credential
+    /// is returned; an unsupported key algorithm raises ENotSupportedTlsLibException.
     /// The passphrase is a wiped buffer of UTF-8 passphrase octets: nil and a zero-length buffer
     /// are both the empty passphrase.
     /// </summary>
