@@ -50,8 +50,6 @@ type
   /// the leaf is the certificate that pairs it, and the chain follows the issuer names.</summary>
   TPkcs12Identity = class sealed(TObject)
   strict private
-    // unsigned byte order, a shorter array first when it is a prefix of the other
-    class function CompareDer(const AA, AB: TBytes): Int32; static;
     class function IndexOfLowestDer(const AContents: TPkcs12Contents;
       const AIndexes: TArray<Int32>): Int32; static;
   public
@@ -77,23 +75,6 @@ resourcestring
 
 { TPkcs12Identity }
 
-class function TPkcs12Identity.CompareDer(const AA, AB: TBytes): Int32;
-var
-  LI, LCommon: Int32;
-begin
-  LCommon := System.Length(AA);
-  if System.Length(AB) < LCommon then
-    LCommon := System.Length(AB);
-  for LI := 0 to LCommon - 1 do
-    if AA[LI] <> AB[LI] then
-    begin
-      if AA[LI] < AB[LI] then
-        Exit(-1);
-      Exit(1);
-    end;
-  Result := System.Length(AA) - System.Length(AB);
-end;
-
 class function TPkcs12Identity.IndexOfLowestDer(const AContents: TPkcs12Contents;
   const AIndexes: TArray<Int32>): Int32;
 var
@@ -101,8 +82,8 @@ var
 begin
   Result := -1;
   for LI := 0 to System.Length(AIndexes) - 1 do
-    if (Result < 0) or (CompareDer(AContents.Certificates[AIndexes[LI]].Der,
-      AContents.Certificates[Result].Der) < 0) then
+    if (Result < 0) or (TArrayUtilities.CompareLexicographic(
+      AContents.Certificates[AIndexes[LI]].Der, AContents.Certificates[Result].Der) < 0) then
       Result := AIndexes[LI];
 end;
 

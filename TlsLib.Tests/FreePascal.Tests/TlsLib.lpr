@@ -73,6 +73,7 @@ uses
   CredentialImportTests,
   Pkcs12ImportTests,
   Pkcs12IdentityTests,
+  ArrayUtilitiesTests,
   EndpointIdentityTests,
   PemTests,
   DynamicLibraryTests,
