@@ -224,18 +224,27 @@ for _ in $(seq 1 50); do
 done
 # a loopback HTTP server for the root-signed CRL (the Windows-only CRL-source cell). Serves ONLY the
 # CRL from a dedicated dir (never the CA dir with its keys). Threaded server tolerates raw probes;
-# curl-probe until it answers. A missing python leaves CRL_READY=0 - the Windows cell then FAILS
-# rather than skipping, so a broken server can never make the cell vacuously pass.
-PYBIN="$(command -v python3 || command -v python || true)"
-if [ -n "$PYBIN" ]; then
+# curl-probe until it answers. A missing or non-running python leaves CRL_READY=0 - the Windows cell
+# then FAILS rather than skipping, so a broken server can never make the cell vacuously pass.
+# A name that merely exists is not enough (Windows python3 can be the Store stub): take the first
+# interpreter that runs.
+PYRUN=()
+for _py in "python3" "python" "py -3"; do
+  # shellcheck disable=SC2086
+  if $_py -c 'import sys' >/dev/null 2>&1; then read -r -a PYRUN <<< "$_py"; break; fi
+done
+CRL_LOG="$TMP/crl-server.log"
+if [ "${#PYRUN[@]}" -gt 0 ]; then
   # --directory (not cd in a subshell): keep python's CWD off "www" so cleanup can rm it on Windows,
   # and so $! is python itself, not a wrapper subshell that would orphan python on kill.
-  "$PYBIN" -m http.server "$CRL_PORT" --bind 127.0.0.1 --directory "$CA/www" >/dev/null 2>&1 &
+  "${PYRUN[@]}" -m http.server "$CRL_PORT" --bind 127.0.0.1 --directory "$CA/www" >"$CRL_LOG" 2>&1 &
   CRL_PID=$!
   for _ in $(seq 1 50); do
     if curl -fsS --max-time 5 -o /dev/null "$CRL_URL" 2>/dev/null; then CRL_READY=1; break; fi
     sleep 0.2
   done
+else
+  echo "no working python3, python or py -3 found" > "$CRL_LOG"
 fi
 # a verify time past the 30-day leaf notAfter, to prove the injected clock reaches validation
 FUTURE_MS=$(( ($(date +%s) + 60*86400) * 1000 ))
@@ -429,7 +438,7 @@ if [ "$HAS_DELEGATE" = 1 ]; then
             --revocation-fetch live --server-cert "$CA/crl_revoked_leaf_fullchain.pem" \
             --server-key "$CA/crl_revoked_leaf.key" --posture hard --expect reject:44
         else
-          echo "  FAIL  delegate CRL revoked -> CRL server never started (python missing?)"
+          echo "  FAIL  delegate CRL revoked -> CRL server never started: $(cat "$CRL_LOG" 2>/dev/null)"
           FAILURES=$((FAILURES+1))
         fi ;;
       *) echo "  (skipped CRL-source cell: $OSNAME trustd does not fetch CRLs for TLS)" ;;
@@ -535,8 +544,8 @@ resolve_ipv4() { # <host>: the shim dials a dotted IPv4 only
   case "$OSNAME" in
     Darwin)
       local ip=""
-      if command -v python3 >/dev/null 2>&1; then
-        ip="$(python3 -c 'import socket,sys; print(socket.getaddrinfo(sys.argv[1], 443, socket.AF_INET)[0][4][0])' "$1" 2>/dev/null || true)"
+      if [ "${#PYRUN[@]}" -gt 0 ]; then
+        ip="$("${PYRUN[@]}" -c'import socket,sys; print(socket.getaddrinfo(sys.argv[1], 443, socket.AF_INET)[0][4][0])' "$1" 2>/dev/null || true)"
       fi
       if [ -z "$ip" ]; then
         ip="$(dscacheutil -q host -a name "$1" 2>/dev/null | sed -n 's/^ip_address: *//p' | head -n 1 || true)"
