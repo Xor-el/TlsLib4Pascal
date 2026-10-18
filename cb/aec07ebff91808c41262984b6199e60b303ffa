@@ -1,0 +1,40 @@
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_faf2a627446535 951
+  s_f2c9bd75607afc::t_85cc6412a4ba18 948
+TlsLib.Tests/src/TlsLibTestBase.pas
+  s_f2c9bd75607afc::t_3520eb3f9eee71 39-47
+TlsLib.Tests/src/SecretTests.pas
+  s_f2c9bd75607afc::t_044abb187dc306 385,387-389
+  s_f2c9bd75607afc::t_d088f260993016 386
+  s_f2c9bd75607afc::t_45abd1f00431fc 324
+TlsLib.Tests/src/SystemCryptoHelperTests.pas
+  s_f2c9bd75607afc::t_c2557a15c50248 304
+  s_f2c9bd75607afc::t_007873117eb51a 1553
+  s_f2c9bd75607afc::t_a4fecc65474118 1722,1724-1725,1728-1730,1732,1735-1749
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.pas
+  s_4f1a4bdea91ca5::t_85a184fdc5083d 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cbaec07ebff91808c41262984b6199e60b303ffa",
+  "prompts": {},
+  "sessions": {
+    "s_4f1a4bdea91ca5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ada443a24264e4af3",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
