@@ -1,0 +1,37 @@
+TlsLib/src/Handshake/TlpVersionDispatchMachine.pas
+  s_f2c9bd75607afc::t_7315d754997c5c 480-482
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_f2c9bd75607afc::t_84efa9e7bf2e02 451-452
+  s_f2c9bd75607afc::t_6aae9ee0179bc5 1108-1109
+  s_f2c9bd75607afc::t_ecefaace0ede10 1113-1115
+  s_f2c9bd75607afc::t_45173ef4b45fac 871-872
+TlsLib/src/Extensions/TlpExtensionBlockCodec.pas
+  s_f2c9bd75607afc::t_df04a7a5de0212 55
+  s_f2c9bd75607afc::t_9708edb821ad3d 58
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_f2c9bd75607afc::t_1982c0e39eceaf 1100
+  s_f2c9bd75607afc::t_769449df318318 972
+  s_f2c9bd75607afc::t_a26a2901fb08a6 1488
+  s_f2c9bd75607afc::t_53d1cda3cdfcae 1159
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_f2c9bd75607afc::t_fb5fed2cbace6e 535-536
+TlsLib/src/Interfaces/Extensions/TlpITlsExtension.pas
+  s_f2c9bd75607afc::t_156498732368b9 67
+  s_f2c9bd75607afc::t_3dad98e02593ef 70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "07244bb9b03ffdae900b2744ca4ddd6c83c6db2e",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
