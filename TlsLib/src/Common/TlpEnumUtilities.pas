@@ -212,9 +212,7 @@ class function TEnumUtilities.TryGetEnumValue<T>(const AInput: string; out AResu
 var
   LOrd: Int32;
 begin
-  // FPC 3.2.x fails to compile a forward to TryGetEnumValue<T>(AInput, AResult, nil);
-  // when the minimum FPC is raised to a version that compiles it, this inlined body
-  // can forward instead.
+  // inlined rather than forwarding to the generic overload with a nil replacer
   Result := TryGetEnumValue(TypeInfo(T), AInput, LOrd, nil);
   if Result then
     WriteOrdinal<T>(AResult, LOrd)

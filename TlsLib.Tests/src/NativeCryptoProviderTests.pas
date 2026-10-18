@@ -1408,13 +1408,13 @@ end;
 
 procedure TTestNativeCryptoProvider.TestPortableNamesAnUnmappedPbes2CipherAsUnsupported;
 begin
-  // DES-EDE3-CBC: CryptoLib raises while resolving the cipher
+  // DES-EDE3-CBC: the portable provider raises while resolving the cipher
   CheckPortableNamesUnsupportedEncryption('ec256_enc_empty_des3_der');
 end;
 
 procedure TTestNativeCryptoProvider.TestPortableNamesAnUnmappedPbes2PrfAsUnsupported;
 begin
-  // hmacWithMD5: CryptoLib raises while resolving the PRF during decryption
+  // hmacWithMD5: the portable provider raises while resolving the PRF during decryption
   CheckPortableNamesUnsupportedEncryption('ec256_enc_empty_prfmd5_der');
 end;
 

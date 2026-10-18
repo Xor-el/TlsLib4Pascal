@@ -1,4 +1,4 @@
-# OCSP stapling + must-staple test vectors for TlsLib4Pascal P6.5 (RFC 6960 / RFC 7633).
+# OCSP stapling + must-staple test vectors for TlsLib4Pascal (RFC 6960 / RFC 7633).
 # EC P-256 hierarchy: root_cert (anchor) -> issuer_cert -> leaf_cert. The issuer signs
 # the authoritative OCSP responses; delegate_cert is an id-kp-OCSPSigning responder the
 # issuer delegated to; other_ca_cert is unrelated. muststaple_leaf_cert carries the RFC
