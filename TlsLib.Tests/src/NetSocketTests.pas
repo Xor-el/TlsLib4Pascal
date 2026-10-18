@@ -25,8 +25,15 @@ uses
   fpcunit,
   testregistry,
 {$ELSE}
+{$IFDEF TLSLIB_UNIXLIKE}
+  Posix.Errno,
+  Posix.Fcntl,
+{$ENDIF}
   TestFramework,
 {$ENDIF FPC}
+{$IFDEF TLSLIB_MSWINDOWS}
+  Winsock2,
+{$ENDIF}
   TlpIClock,
   TlpClock,
   TlpITlsConfig,
@@ -59,8 +66,8 @@ type
 
   /// <summary>
   /// The TCP connector and listener: a round trip on an ephemeral port, a bounded accept, a refused
-  /// connect, the handshake and application read caps, an orderly close, and a TTlsConnection over
-  /// the streams on both ends.
+  /// connect and its refusal code, the handshake and application read caps, an orderly close, a
+  /// write to a gone peer, and a TTlsConnection over the streams on both ends.
   /// </summary>
   TTestNetSocket = class(TNetSocketTestBase)
   strict private
@@ -85,15 +92,20 @@ type
     procedure TestPeerCloseReadsAsEndOfStream;
     procedure TestServerHandshakeFailsFastWhenTheClientClosesFirst;
     procedure TestTlsConnectionRunsOverTheStreamsOnBothEnds;
+    procedure TestWriteToAGonePeerFailsWithoutSigPipe;
+    procedure TestRefusedConnectReportsTheRefusal;
   end;
 
 {$IFDEF TLSLIB_UNIXLIKE}
 
-  /// <summary>The POSIX socket layer: descriptors past the select limit, and an accept with
-  /// nothing pending. Registered only on POSIX targets.</summary>
+  /// <summary>The POSIX socket layer: descriptors past the select limit, an accept with nothing
+  /// pending, close-on-exec, and a port rebound in TIME_WAIT. Registered only on POSIX
+  /// targets.</summary>
   TTestPosixNetSocket = class(TNetSocketTestBase)
   strict private
   const
+    // the FD_CLOEXEC bit of F_GETFD
+    DescriptorCloseOnExec = 1;
     // the resource number of the open-descriptor limit, and the most a soft limit is raised to
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
     RLimitNoFile = 7;
@@ -104,7 +116,7 @@ type
 {$IFEND}
     MaxSoftDescriptors = 10240;
   type
-    // struct rlimit; rlim_t is as wide as a pointer on every target we build (32-bit on Android32)
+    // struct rlimit; rlim_t is as wide as a pointer on every target we build
     TRLimit = record
       rlim_cur: NativeUInt;
       rlim_max: NativeUInt;
@@ -113,9 +125,12 @@ type
   strict private
     // raises the soft descriptor limit toward the hard one; False if it stays below ARequired
     function RaiseDescriptorLimit(ARequired: Int32): Boolean;
+    function HasCloseOnExec(AHandle: TPosixSocketHandle): Boolean;
   published
     procedure TestSocketsPastTheSelectLimitStillWork;
     procedure TestAcceptWithNothingPendingIsTransientNotFatal;
+    procedure TestSocketsAreCloseOnExec;
+    procedure TestListenerRebindsAPortHeldInTimeWait;
   end;
 
 {$ENDIF TLSLIB_UNIXLIKE}
@@ -132,6 +147,18 @@ type
 {$IFEND}
 
 implementation
+
+const
+  // what a connect to a port nobody listens on reports
+{$IFDEF TLSLIB_MSWINDOWS}
+  RefusedError = WSAECONNREFUSED;
+{$ELSE}
+{$IFDEF FPC}
+  RefusedError = ESysECONNREFUSED;
+{$ELSE}
+  RefusedError = ECONNREFUSED;
+{$ENDIF}
+{$ENDIF}
 
 type
   // accepts one connection, runs the TLS server handshake over it and echoes one message
@@ -588,6 +615,70 @@ begin
   end;
 end;
 
+procedure TTestNetSocket.TestWriteToAGonePeerFailsWithoutSigPipe;
+const
+  GiveUpMs = 5000;
+var
+  LListener: ITcpListener;
+  LClient, LServer: ITlsTimedTransport;
+  LClock: ITlsMonotonicClock;
+  LChunk: TBytes;
+  LFailure: TClass;
+  LMessage: string;
+  LEndsAt: Int64;
+begin
+  LListener := Listener;
+  ConnectPair(LListener, LClient, LServer);
+  LServer := nil; // the peer goes
+  SetLength(LChunk, 1024);
+  LFailure := nil;
+  LClock := TSystemMonotonicClock.Create;
+  LEndsAt := LClock.NowMonotonicMillis + GiveUpMs;
+  while (LFailure = nil) and (LClock.NowMonotonicMillis < LEndsAt) do
+  begin
+    try
+      LClient.Write(LChunk, 0, System.Length(LChunk));
+    except
+      on E: ETlsStreamError do
+      begin
+        LFailure := E.ClassType;
+        LMessage := E.Message;
+      end;
+    end;
+    // the peer's reset takes a moment to come back
+    if LFailure = nil then
+      Sleep(20);
+  end;
+  CheckTrue(LFailure = ETlsStreamError, 'a write to a gone peer fails with a stream error');
+  CheckEquals('the socket made no progress sending', LMessage, 'the send itself failed');
+end;
+
+procedure TTestNetSocket.TestRefusedConnectReportsTheRefusal;
+var
+  LListener: ITcpListener;
+  LPort: Word;
+  LHandle: TNetHandle;
+  LError: Integer;
+begin
+  LListener := Listener;
+  LPort := LListener.Port;
+  LListener := nil; // released, so nothing listens on the port
+  LHandle := TNetOs.InvalidHandle;
+  CheckEquals(0, TNetOs.OpenStream(LHandle), 'a socket opens');
+  try
+    CheckEquals(0, TNetOs.SetBlocking(LHandle, False), 'and does not block');
+    LError := TNetOs.BeginConnect(LHandle, TBytes.Create(127, 0, 0, 1), LPort);
+    if LError = 0 then
+    begin
+      CheckTrue(TNetOs.Wait(LHandle, TNetWait.Writable, 5000), 'the refusal arrives');
+      LError := TNetOs.ConnectResult(LHandle);
+    end;
+    CheckEquals(RefusedError, LError, 'the connect reports the refusal');
+  finally
+    TNetOs.Close(LHandle);
+  end;
+end;
+
 {$IFDEF TLSLIB_UNIXLIKE}
 
 { TTestPosixNetSocket }
@@ -615,6 +706,18 @@ begin
   Result := LSet(RLimitNoFile, LLimit) = 0;
 end;
 
+function TTestPosixNetSocket.HasCloseOnExec(AHandle: TPosixSocketHandle): Boolean;
+var
+  LFlags: Integer;
+begin
+{$IFDEF FPC}
+  LFlags := fpFcntl(AHandle, F_GETFD, 0);
+{$ELSE}
+  LFlags := fcntl(AHandle, F_GETFD, 0);
+{$ENDIF}
+  Result := (LFlags >= 0) and ((LFlags and DescriptorCloseOnExec) <> 0);
+end;
+
 procedure TTestPosixNetSocket.TestSocketsPastTheSelectLimitStillWork;
 const
   HeldSockets = 1100;
@@ -623,7 +726,7 @@ const
   // descriptors the runner and the other fixtures already hold
   Spare = 64;
 var
-  LHeld: array of ITcpListener;
+  LHeld: TArray<ITcpListener>;
   LCount: Int32;
   LListener: ITcpListener;
   LClient, LServer: ITlsTimedTransport;
@@ -686,6 +789,64 @@ begin
   finally
     TPosixNetOs.Close(LListener);
   end;
+end;
+
+procedure TTestPosixNetSocket.TestSocketsAreCloseOnExec;
+var
+  LListener, LClient, LAccepted: TPosixSocketHandle;
+begin
+  LListener := TPosixNetOs.InvalidHandle;
+  LClient := TPosixNetOs.InvalidHandle;
+  LAccepted := TPosixNetOs.InvalidHandle;
+  CheckEquals(0, TPosixNetOs.OpenStream(LListener), 'a socket opens');
+  try
+    CheckTrue(HasCloseOnExec(LListener), 'a new socket is close-on-exec');
+    CheckEquals(0, TPosixNetOs.BindAndListen(LListener, TBytes.Create(127, 0, 0, 1), 0, 4),
+      'it listens on the loopback');
+    CheckEquals(0, TPosixNetOs.OpenStream(LClient), 'a second socket opens');
+    try
+      CheckEquals(0, TPosixNetOs.BeginConnect(LClient, TBytes.Create(127, 0, 0, 1),
+        TPosixNetOs.LocalPort(LListener)), 'it connects');
+      CheckTrue(TPosixNetOs.Wait(LListener, TPosixNetWait.Readable, 5000), 'the connection arrives');
+      CheckEquals(0, TPosixNetOs.AcceptConnection(LListener, LAccepted), 'it is accepted');
+      try
+        CheckTrue(HasCloseOnExec(LAccepted), 'an accepted socket is close-on-exec');
+      finally
+        TPosixNetOs.Close(LAccepted);
+      end;
+    finally
+      TPosixNetOs.Close(LClient);
+    end;
+  finally
+    TPosixNetOs.Close(LListener);
+  end;
+end;
+
+procedure TTestPosixNetSocket.TestListenerRebindsAPortHeldInTimeWait;
+var
+  LListener, LRebound: ITcpListener;
+  LClient, LServer: ITlsTimedTransport;
+  LBuffer: TBytes;
+  LPort: Word;
+  LRefused: Boolean;
+begin
+  LListener := Listener;
+  LPort := LListener.Port;
+  ConnectPair(LListener, LClient, LServer);
+  // the server closes first, so the connection it held on the port waits in TIME_WAIT
+  LServer := nil;
+  SetLength(LBuffer, 4);
+  CheckEquals(0, LClient.Read(LBuffer, 0, System.Length(LBuffer)), 'the client sees the close');
+  LClient := nil;
+  LListener := nil;
+  LRefused := False;
+  try
+    LRebound := TTcpListener.Create('127.0.0.1', LPort) as ITcpListener;
+  except
+    on E: ENetSocketError do
+      LRefused := True;
+  end;
+  CheckFalse(LRefused, 'the port is bound again while its old connection waits');
 end;
 
 {$ENDIF TLSLIB_UNIXLIKE}

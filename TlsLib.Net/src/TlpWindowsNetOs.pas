@@ -60,8 +60,6 @@ type
   public
   const
     InvalidHandle = High(NativeUInt);
-    // a send on Windows never raises a signal, so a sender that is not SendBytes passes no flags
-    SendFlags = 0;
   public
     /// <summary>A blocking IPv4 TCP socket. Returns 0 or the OS error.</summary>
     class function OpenStream(out AHandle: TWindowsSocketHandle): Integer; static;
