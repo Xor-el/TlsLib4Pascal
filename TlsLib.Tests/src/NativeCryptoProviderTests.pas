@@ -922,6 +922,10 @@ end;
 
 procedure TTestNativeCryptoProvider.TestEcdhImportRefusesScalarsOutsideTheGroupOrder;
 const
+  Orders: array [0 .. 2] of string = (
+    'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551',
+    'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973',
+    '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
   Algorithms: array [0 .. 2] of TKeyAgreementAlgorithm = (
     TKeyAgreementAlgorithm.SECP256R1, TKeyAgreementAlgorithm.SECP384R1,
     TKeyAgreementAlgorithm.SECP521R1);
@@ -945,10 +949,10 @@ var
   end;
 
 begin
-  for LI := Low(CSec2GroupOrders) to High(CSec2GroupOrders) do
+  for LI := Low(Orders) to High(Orders) do
   begin
     LAgreement := Crypto.Primitives.CreateKeyAgreement(Algorithms[LI]);
-    LN := DecodeHex(CSec2GroupOrders[LI]);
+    LN := DecodeHex(Orders[LI]);
     LZero := nil;
     SetLength(LZero, System.Length(LN));
     LBelow := System.Copy(LN);

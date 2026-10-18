@@ -36,15 +36,6 @@ uses
   TlsLibTestResourceLoader,
   TlsLibTestProviders;
 
-const
-  // SEC 2 n for secp256r1 (2.4.2), secp384r1 (2.5.1) and secp521r1 (2.6.1), kept apart from production
-  CSec2GroupOrders: array[0..2] of string = (
-    'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551',
-    'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' +
-      'C7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973',
-    '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' +
-      'FA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
-
 type
   /// <summary>Shared base fixture. The runner reuses one fixture instance across suite runs, so a
   /// fixture must not free its own object fields (a bare free leaves a dangling field the next run
