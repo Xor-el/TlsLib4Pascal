@@ -513,7 +513,7 @@ var
   LOptions: TTlsOptions;
 begin
   LOptions := Snapshot;
-  // the core refuses an empty host under CheckHostName; name the fcl-net fix (RFC 9525)
+  // no host to check the certificate name against: fail with the adapter's own message
   if FCheckHostName and (AHost = '') and (FClientConfig = nil) then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoHostForNameCheck);
   Result := TTlsConfigComposer.ResolveClientConfig(LOptions, FClientConfigMemo, 'ClientConfig');
