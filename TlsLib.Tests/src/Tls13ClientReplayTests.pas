@@ -532,8 +532,8 @@ begin
     TCipherSuites13.Aes128GcmSha256, TlsWireVersionTls12,
     TNamedGroupCatalog.X25519, Filled($02, 32)), LAlert),
     'a non-1.3 selected version aborts the handshake');
-  CheckTrue(LAlert = TTlsAlertDescription.ProtocolVersion,
-    'a non-1.3 selected version is protocol_version');
+  CheckTrue(LAlert = TTlsAlertDescription.UnsupportedExtension,
+    'a non-1.3 selected version is unsupported_extension');
 end;
 
 procedure TTestTls13ClientReplay.TestServerHelloUnofferedGroupRejected;

@@ -477,9 +477,9 @@ begin
   else
   begin
     // supported_versions in a ServerHello is a TLS 1.3 construct: a server that
-    // negotiates 1.2 or below MUST NOT send it (RFC 9846 4.3.1). Present but
-    // selecting a pre-1.3 version (0 included) is an unpermitted extension, not a 1.2 handshake
-    // (unsupported_extension names the fault; RFC 9846 4.3.1 says illegal_parameter).
+    // negotiates 1.2 or below MUST NOT send it (RFC 9846 4.3.1). Present but selecting a
+    // pre-1.3 version (0 included) is an unpermitted extension, not a 1.2 handshake
+    // (unsupported_extension, matching the direct 1.3 client; 4.3.1 says illegal_parameter).
     if not THandshakeMessages.TryGetServerHelloSelectedVersion(LHello.Extensions,
       LSelectedVersion) then
       LSelectedVersion := LHello.LegacyVersion

@@ -52,10 +52,10 @@ type
     /// <summary>Serializes the extensions vector for AKind from the shared context.</summary>
     function ProduceBlock(const AContext: TExtensionContext;
       AKind: TTlsExtensionContextKind): TBytes;
-    /// <summary>Parses an extensions vector for AKind, applying the 4.2 rules.</summary>
+    /// <summary>Parses an extensions vector for AKind, applying the RFC 9846 4.3 rules.</summary>
     procedure ConsumeBlock(const AContext: TExtensionContext;
       AKind: TTlsExtensionContextKind; const ABlock: TBytes); overload;
-    /// <summary>Applies the 4.2 rules to an already-parsed vector (see the interface).</summary>
+    /// <summary>Applies the RFC 9846 4.3 rules to a parsed vector (see the interface).</summary>
     procedure ConsumeBlock(const AContext: TExtensionContext;
       AKind: TTlsExtensionContextKind; const AVector: TExtensionVector); overload;
   end;
