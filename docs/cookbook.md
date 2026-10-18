@@ -998,7 +998,9 @@ Where a native backend exists, the composed provider also implements `ICryptoBac
 `TSystemCryptoStrictness` can narrow a registry to the natively served
 entries (`NativeNamedGroups`, `NativeCipherSuites`, `NativeSignatureSchemes`) or require them
 (`RequireNamedGroups`, `RequireCipherSuites`, `RequireSignatureSchemes` raise
-`ESystemCryptoRequirementTlsLibException` listing what is missing).
+`ESystemCryptoRequirementTlsLibException` listing what is missing). A narrowed signature registry
+governs what the endpoint advertises and accepts; a server's own signatures follow its credential
+key, so a server accepts a narrowed registry only together with `WithPeerAuth`.
 
 ## The dangerous surface (dev only)
 
