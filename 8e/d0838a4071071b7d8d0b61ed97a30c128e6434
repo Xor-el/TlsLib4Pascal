@@ -1,0 +1,46 @@
+TlsLib.Net/src/TlpPosixNetOs.pas
+  s_4adb7e2edc0c28::t_846845beae9d50 46-53
+  s_4adb7e2edc0c28::t_9d670d75c4f07d 260,262,266
+  s_4adb7e2edc0c28::t_d985ce68344f09 480
+  s_4adb7e2edc0c28::t_ee332926792c44 491
+  s_4adb7e2edc0c28::t_762dd35dc6465d 60
+  s_4adb7e2edc0c28::t_6720626feaa81a 470,472-479,481-490,495,497,504,506,508
+  s_4adb7e2edc0c28::t_82f4f18ca909ea 64
+  s_4adb7e2edc0c28::t_185269b7c1a157 82
+  s_4adb7e2edc0c28::t_31ab1b06a1f6a4 92-105
+  s_4adb7e2edc0c28::t_55f41910570e06 170,174-175,179-181
+  s_4adb7e2edc0c28::t_f96afae3e0eb50 319-320,322-323,325,327,329-333,340
+  s_4adb7e2edc0c28::t_224137adce5fe4 254,264-265
+TlsLib.Tests/src/NetSocketTests.pas
+  s_4adb7e2edc0c28::t_1f3cc2f88733b7 119
+  s_4adb7e2edc0c28::t_dad954a463982e 107
+  s_4adb7e2edc0c28::t_d553ac04a5f561 101-103,108
+  s_4adb7e2edc0c28::t_7c308d13344a4b 620,624,627-628,635-637,643,645-646,653
+  s_4adb7e2edc0c28::t_40e3d5eed8657a 729
+  s_4adb7e2edc0c28::t_6d45de2896c36e 666
+  s_4adb7e2edc0c28::t_5e6497a5a828f8 794-830,832-841,850-851
+  s_4adb7e2edc0c28::t_a08065267acd44 709-720
+  s_4adb7e2edc0c28::t_0608da1be68670 128,132-133
+  s_4adb7e2edc0c28::t_9faa18e99a0ae0 69-70
+  s_4adb7e2edc0c28::t_09f9adc434e485 151-162
+  s_4adb7e2edc0c28::t_a1dbdb45c20e73 28-31,34-36
+  s_4adb7e2edc0c28::t_4ac8870d41367a 95-96
+  s_4adb7e2edc0c28::t_966b32fc9d6046 831,842-849
+  s_4adb7e2edc0c28::t_578b6cc98b2b1b 618-619,621-623,625-626,629-634,638-642,644,647-652,654-665,667-681
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8ed0838a4071071b7d8d0b61ed97a30c128e6434",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
