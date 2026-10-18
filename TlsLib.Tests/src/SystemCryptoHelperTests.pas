@@ -111,7 +111,7 @@ type
   end;
 
   /// <summary>Exposes the bytes a native signer and verifier have accumulated.</summary>
-  TExposedSignatureInput = class(TSignatureInputBuffer)
+  TExposedSignatureInput = class(TSignatureInputBase)
   public
     property Buffered: TBytes read FBuffer;
   end;

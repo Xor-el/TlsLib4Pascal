@@ -523,7 +523,7 @@ type
   // the resolved API table by value, the borrowed algorithm handle, and the owning context
   // that keeps that handle alive; it also stamps the keys it mints with its family and refuses
   // keys of another.
-  TWindowsCngKeyPrimitive = class abstract(TInterfacedObject)
+  TWindowsCngKeyPrimitiveBase = class abstract(TInterfacedObject)
   strict private
   var
     FFamily: TCngKeyFamily;
@@ -552,7 +552,7 @@ type
   // checks, so the two are interchangeable and produce identical shared secrets. The
   // resolved API table is held by value; the CNG algorithm handle is borrowed from and
   // kept alive by the owning context.
-  TWindowsCngKeyAgreement = class(TWindowsCngKeyPrimitive, IKeyAgreement)
+  TWindowsCngKeyAgreement = class(TWindowsCngKeyPrimitiveBase, IKeyAgreement)
   strict private
   var
     FCurve: TCngCurve;
@@ -581,7 +581,7 @@ type
   // subgroup (RFC 9846 sec. 7.4.2 mandates only the all-zero check), and an honest peer's key
   // is never refused. The algorithm handle is borrowed from the owning context, which keeps it
   // alive.
-  TWindowsCngX25519 = class(TWindowsCngKeyPrimitive, IKeyAgreement)
+  TWindowsCngX25519 = class(TWindowsCngKeyPrimitiveBase, IKeyAgreement)
   strict private
     // whether the 32 bytes at AOffset, bit 255 already clear, encode a u >= p = 2^255-19
     class function IsAtLeastFieldPrime(const ABlob: TBytes; AOffset: Int32): Boolean; static;
@@ -603,7 +603,7 @@ type
   // with the portable ML-KEM; the decapsulation key round-trips as CNG's own opaque
   // private blob (re-imported per operation). Same neutral currency as the portable KEM.
   // The algorithm handle is borrowed from and kept alive by the owning context.
-  TWindowsCngKem = class(TWindowsCngKeyPrimitive, IKem)
+  TWindowsCngKem = class(TWindowsCngKeyPrimitiveBase, IKem)
   strict private
     function ExtractPublicKey(const ABlob: TBytes): TBytes;
     function ImportPublic(const APeerPublicKey: TBytes): Pointer;
@@ -927,7 +927,7 @@ type
   end;
 
   // Accumulates the to-be-signed bytes, then hashes (via CNG) and signs (via NCrypt).
-  TWindowsSignatureSigner = class(TSignatureInputBuffer, ISignatureSigner)
+  TWindowsSignatureSigner = class(TSignatureInputBase, ISignatureSigner)
   strict private
   var
     FKeeper: IWindowsNCrypt;
@@ -941,7 +941,7 @@ type
 
   // Accumulates the to-be-verified bytes, then verifies (via crypt32-imported key + BCrypt).
   // Owns the imported public key handle, freed on release. Fail-closed: any fault is False.
-  TWindowsSignatureVerifier = class(TSignatureInputBuffer, ISignatureVerifier)
+  TWindowsSignatureVerifier = class(TSignatureInputBase, ISignatureVerifier)
   strict private
   var
     FKeeper: IWindowsNCrypt;
@@ -1123,9 +1123,9 @@ begin
   Result := FMaterial;
 end;
 
-{ TWindowsCngKeyPrimitive }
+{ TWindowsCngKeyPrimitiveBase }
 
-constructor TWindowsCngKeyPrimitive.Create(const AApi: TCngApi; AAlg: Pointer;
+constructor TWindowsCngKeyPrimitiveBase.Create(const AApi: TCngApi; AAlg: Pointer;
   AFamily: TCngKeyFamily; const AKeeper: IWindowsCng);
 begin
   inherited Create;
@@ -1135,13 +1135,13 @@ begin
   FKeeper := AKeeper; // pins the algorithm-handle / module owner for our lifetime
 end;
 
-function TWindowsCngKeyPrimitive.NewKey(AUsage: TKeyAgreementUsage;
+function TWindowsCngKeyPrimitiveBase.NewKey(AUsage: TKeyAgreementUsage;
   const AScalar, AMaterial: ISecretBuffer): IKeyExchangePrivateKey;
 begin
   Result := TWindowsCngKeyExchangeKey.Create(FFamily, AUsage, AScalar, AMaterial);
 end;
 
-function TWindowsCngKeyPrimitive.OwnMaterial(
+function TWindowsCngKeyPrimitiveBase.OwnMaterial(
   const APrivateKey: IKeyExchangePrivateKey): ISecretBuffer;
 var
   LKey: IWindowsCngKeyExchangeKey;
@@ -1151,7 +1151,7 @@ begin
   Result := LKey.Material;
 end;
 
-function TWindowsCngKeyPrimitive.ExportBlob(AKey: Pointer;
+function TWindowsCngKeyPrimitiveBase.ExportBlob(AKey: Pointer;
   const ABlobType: WideString): TBytes;
 var
   LSize, LWritten: ULONG;
@@ -1166,7 +1166,7 @@ begin
   SetLength(Result, LWritten);
 end;
 
-class function TWindowsCngKeyPrimitive.Reversed(const ASource: TBytes): TBytes;
+class function TWindowsCngKeyPrimitiveBase.Reversed(const ASource: TBytes): TBytes;
 var
   LI, LN: Int32;
 begin

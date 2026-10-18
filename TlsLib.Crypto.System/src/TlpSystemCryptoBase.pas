@@ -93,7 +93,7 @@ type
 
   /// <summary>The accumulate step a native signer and verifier share: Update appends the span to
   /// the bytes to be signed or verified.</summary>
-  TSignatureInputBuffer = class abstract(TInterfacedObject)
+  TSignatureInputBase = class abstract(TInterfacedObject)
   strict protected
   var
     FBuffer: TBytes;
@@ -244,9 +244,9 @@ begin
   Result := FHpke;
 end;
 
-{ TSignatureInputBuffer }
+{ TSignatureInputBase }
 
-procedure TSignatureInputBuffer.Update(const AData: TBytes; AOffset, ALength: Int32);
+procedure TSignatureInputBase.Update(const AData: TBytes; AOffset, ALength: Int32);
 var
   LOld: Int32;
 begin

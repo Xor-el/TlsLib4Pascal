@@ -603,7 +603,7 @@ const
 
 type
   /// <summary>The immutable common settings, shared by the client and server config.</summary>
-  TFrozenCommonConfig = class abstract(TInterfacedObject)
+  TFrozenCommonConfigBase = class abstract(TInterfacedObject)
   protected
   var
     FCrypto: ICryptoProvider;
@@ -665,7 +665,7 @@ type
     function KeyLog: IKeyLog;
   end;
 
-  TFrozenClientConfig = class sealed(TFrozenCommonConfig, ITlsClientConfig)
+  TFrozenClientConfig = class sealed(TFrozenCommonConfigBase, ITlsClientConfig)
   private
   var
     FGrease: Boolean;
@@ -695,7 +695,7 @@ type
     function EncryptedClientHello: IEchClientPolicy;
   end;
 
-  TFrozenServerConfig = class sealed(TFrozenCommonConfig, ITlsServerConfig)
+  TFrozenServerConfig = class sealed(TFrozenCommonConfigBase, ITlsServerConfig)
   private
   var
     FServerNameAck: Boolean;
@@ -887,146 +887,146 @@ type
     function Build: ITlsServerConfig;
   end;
 
-{ TFrozenCommonConfig }
+{ TFrozenCommonConfigBase }
 
-function TFrozenCommonConfig.Crypto: ICryptoProvider;
+function TFrozenCommonConfigBase.Crypto: ICryptoProvider;
 begin
   Result := FCrypto;
 end;
 
-function TFrozenCommonConfig.Pkix: IPkixProvider;
+function TFrozenCommonConfigBase.Pkix: IPkixProvider;
 begin
   Result := FPkix;
 end;
 
-function TFrozenCommonConfig.CipherSuites: ICipherSuiteRegistry;
+function TFrozenCommonConfigBase.CipherSuites: ICipherSuiteRegistry;
 begin
   Result := FCipherSuites;
 end;
 
-function TFrozenCommonConfig.SignatureSchemes: ISignatureSchemeRegistry;
+function TFrozenCommonConfigBase.SignatureSchemes: ISignatureSchemeRegistry;
 begin
   Result := FSignatureSchemes;
 end;
 
-function TFrozenCommonConfig.NamedGroups: INamedGroupRegistry;
+function TFrozenCommonConfigBase.NamedGroups: INamedGroupRegistry;
 begin
   Result := FNamedGroups;
 end;
 
-function TFrozenCommonConfig.SupportedVersions: TArray<UInt16>;
+function TFrozenCommonConfigBase.SupportedVersions: TArray<UInt16>;
 begin
   Result := System.Copy(FSupportedVersions);
 end;
 
-function TFrozenCommonConfig.PreferredGroups: TArray<UInt16>;
+function TFrozenCommonConfigBase.PreferredGroups: TArray<UInt16>;
 begin
   Result := System.Copy(FPreferredGroups);
 end;
 
-function TFrozenCommonConfig.AlpnProtocols: TArray<TBytes>;
+function TFrozenCommonConfigBase.AlpnProtocols: TArray<TBytes>;
 begin
   Result := TArrayUtilities.DeepCopy<Byte>(FAlpnProtocols);
 end;
 
-function TFrozenCommonConfig.RecordSizeLimit: Int32;
+function TFrozenCommonConfigBase.RecordSizeLimit: Int32;
 begin
   Result := FRecordSizeLimit;
 end;
 
-function TFrozenCommonConfig.CertificateCompressors: TArray<ICertificateCompressor>;
+function TFrozenCommonConfigBase.CertificateCompressors: TArray<ICertificateCompressor>;
 begin
   Result := System.Copy(FCertificateCompressors);
 end;
 
-function TFrozenCommonConfig.CertificateDecompressors: TArray<ICertificateDecompressor>;
+function TFrozenCommonConfigBase.CertificateDecompressors: TArray<ICertificateDecompressor>;
 begin
   Result := System.Copy(FCertificateDecompressors);
 end;
 
-function TFrozenCommonConfig.CertificateCompressionCache: ICertificateCompressionCache;
+function TFrozenCommonConfigBase.CertificateCompressionCache: ICertificateCompressionCache;
 begin
   // the shared instance, not a copy: every connection from this config memoizes into the
   // same cache - that cross-connection sharing is the whole point of this seam
   Result := FCertificateCompressionCache;
 end;
 
-function TFrozenCommonConfig.Credential: TTlsCredential;
+function TFrozenCommonConfigBase.Credential: TTlsCredential;
 begin
   Result := TTlsConfigBuilder.CloneCredential(FCredential);
 end;
 
-function TFrozenCommonConfig.TrustStore: ITrustAnchorStore;
+function TFrozenCommonConfigBase.TrustStore: ITrustAnchorStore;
 begin
   Result := FTrustStore;
 end;
 
-function TFrozenCommonConfig.CertificateChainLimits: TCertificateChainLimits;
+function TFrozenCommonConfigBase.CertificateChainLimits: TCertificateChainLimits;
 begin
   Result := FChainLimits;
 end;
 
-function TFrozenCommonConfig.CertificateStrengthPolicy: TCertificateStrengthPolicy;
+function TFrozenCommonConfigBase.CertificateStrengthPolicy: TCertificateStrengthPolicy;
 begin
   Result := FStrengthPolicy;
 end;
 
-function TFrozenCommonConfig.RevocationPosture: TRevocationPosture;
+function TFrozenCommonConfigBase.RevocationPosture: TRevocationPosture;
 begin
   Result := FRevocationPosture;
 end;
 
-function TFrozenCommonConfig.CertificatePins: TArray<TBytes>;
+function TFrozenCommonConfigBase.CertificatePins: TArray<TBytes>;
 begin
   Result := TArrayUtilities.DeepCopy<Byte>(FCertificatePins);
 end;
 
-function TFrozenCommonConfig.IntermediateCertificates: TArray<TBytes>;
+function TFrozenCommonConfigBase.IntermediateCertificates: TArray<TBytes>;
 begin
   Result := TArrayUtilities.DeepCopy<Byte>(FIntermediateCertificates);
 end;
 
-function TFrozenCommonConfig.DangerousTrust: TDangerousTrust;
+function TFrozenCommonConfigBase.DangerousTrust: TDangerousTrust;
 begin
   Result := FDangerousTrust;
 end;
 
-function TFrozenCommonConfig.AsyncCertificateVerdict: TAsyncCertificateVerdict;
+function TFrozenCommonConfigBase.AsyncCertificateVerdict: TAsyncCertificateVerdict;
 begin
   Result := FAsyncVerdict;
 end;
 
-function TFrozenCommonConfig.RequireExtendedMasterSecret: Boolean;
+function TFrozenCommonConfigBase.RequireExtendedMasterSecret: Boolean;
 begin
   Result := FRequireExtendedMasterSecret;
 end;
 
-function TFrozenCommonConfig.Resumption: Boolean;
+function TFrozenCommonConfigBase.Resumption: Boolean;
 begin
   Result := FResumption;
 end;
 
-function TFrozenCommonConfig.ExternalPsks: TArray<TExternalPsk>;
+function TFrozenCommonConfigBase.ExternalPsks: TArray<TExternalPsk>;
 begin
   Result := TTlsConfigBuilder.CloneExternalPsks(FExternalPsks);
 end;
 
-function TFrozenCommonConfig.Tls12Psks: TArray<TTls12Psk>;
+function TFrozenCommonConfigBase.Tls12Psks: TArray<TTls12Psk>;
 begin
   Result := TTlsConfigBuilder.CloneTls12Psks(FTls12Psks);
 end;
 
-function TFrozenCommonConfig.Clock: ITlsClock;
+function TFrozenCommonConfigBase.Clock: ITlsClock;
 begin
   Result := FClock;
 end;
 
-function TFrozenCommonConfig.MonotonicClock: ITlsMonotonicClock;
+function TFrozenCommonConfigBase.MonotonicClock: ITlsMonotonicClock;
 begin
   Result := FMonotonicClock;
 end;
 
-function TFrozenCommonConfig.KeyLog: IKeyLog;
+function TFrozenCommonConfigBase.KeyLog: IKeyLog;
 begin
   Result := FKeyLog;
 end;

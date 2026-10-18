@@ -54,7 +54,7 @@ type
   /// where the full OS policy matters). iOS has no equivalent
   /// enumeration API, so this store is macOS-only. Emits neutral DER.
   /// </summary>
-  TAppleRootSource = class sealed(TSystemRootSource)
+  TAppleRootSource = class sealed(TSystemRootSourceBase)
   strict private
   var
     FDistrusted: TArray<TBytes>;
@@ -1142,7 +1142,7 @@ begin
   // a distrust list that skipped the Admin/User domains would miss every "Never Trust" there
   if AForDistrust and not (FReady and FSettingsReady) then
     raise ESystemTrustUnavailableTlsLibException.CreateRes(@SDistrustNeedsSettings);
-  // tier 0: without the enumeration symbols the harvest cannot run; TSystemRootSource.Harvest
+  // tier 0: without the enumeration symbols the harvest cannot run; TSystemRootSourceBase.Harvest
   // then raises on the empty result (fail closed)
   if (not FReady) or (not FHarvestReady) then
     Exit;

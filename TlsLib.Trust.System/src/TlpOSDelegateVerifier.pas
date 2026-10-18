@@ -173,7 +173,7 @@ type
   /// network fetch on (revocation only, requiring a positive response so an indeterminate surfaces)
   /// off the engine thread in the async park, applies the strength policy over the path it built, and
   /// hands the tri-state outcome to the shared verdict. Bound to one certificate role. Host-owned.</summary>
-  TOSDelegateLiveResolver = class sealed(TOSLiveRevocationResolver)
+  TOSDelegateLiveResolver = class sealed(TOSLiveRevocationResolverBase)
   strict private
     FEngine: IPlatformChainEngine;
     FPolicy: TOSDelegatePolicy;

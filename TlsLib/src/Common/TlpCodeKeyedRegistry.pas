@@ -27,7 +27,7 @@ type
   /// Contains / TryGet - is then uniform across all of them. Insertion order is preserved (it is
   /// the on-wire preference order).
   /// </summary>
-  TCodeKeyedRegistry<T> = class abstract(TInterfacedObject)
+  TCodeKeyedRegistryBase<T> = class abstract(TInterfacedObject)
   strict protected
   var
     FItems: TArray<T>;
@@ -46,7 +46,7 @@ type
   /// A registry that can still change: the base of the registry builders. Add is a no-op when the
   /// code is already present.
   /// </summary>
-  TCodeKeyedRegistryBuilder<T> = class abstract(TCodeKeyedRegistry<T>)
+  TCodeKeyedRegistryBuilderBase<T> = class abstract(TCodeKeyedRegistryBase<T>)
   public
     /// <summary>Appends AItem unless its code is already present.</summary>
     procedure Add(const AItem: T);
@@ -56,9 +56,9 @@ type
 
 implementation
 
-{ TCodeKeyedRegistry<T> }
+{ TCodeKeyedRegistryBase<T> }
 
-constructor TCodeKeyedRegistry<T>.Create(const ACodeOf: TKeyOf<T, UInt16>;
+constructor TCodeKeyedRegistryBase<T>.Create(const ACodeOf: TKeyOf<T, UInt16>;
   const AItems: TArray<T>);
 begin
   inherited Create;
@@ -66,12 +66,12 @@ begin
   FItems := System.Copy(AItems);
 end;
 
-function TCodeKeyedRegistry<T>.Items: TArray<T>;
+function TCodeKeyedRegistryBase<T>.Items: TArray<T>;
 begin
   Result := System.Copy(FItems);
 end;
 
-function TCodeKeyedRegistry<T>.TryGet(ACode: UInt16; out AItem: T): Boolean;
+function TCodeKeyedRegistryBase<T>.TryGet(ACode: UInt16; out AItem: T): Boolean;
 var
   LIndex: Int32;
 begin
@@ -81,23 +81,23 @@ begin
     AItem := FItems[LIndex];
 end;
 
-function TCodeKeyedRegistry<T>.Contains(ACode: UInt16): Boolean;
+function TCodeKeyedRegistryBase<T>.Contains(ACode: UInt16): Boolean;
 var
   LItem: T;
 begin
   Result := TryGet(ACode, LItem);
 end;
 
-{ TCodeKeyedRegistryBuilder<T> }
+{ TCodeKeyedRegistryBuilderBase<T> }
 
-procedure TCodeKeyedRegistryBuilder<T>.Add(const AItem: T);
+procedure TCodeKeyedRegistryBuilderBase<T>.Add(const AItem: T);
 begin
   if Contains(FCodeOf(AItem)) then
     Exit;
   TArrayUtilities.Append<T>(FItems, AItem);
 end;
 
-procedure TCodeKeyedRegistryBuilder<T>.Prune(ACode: UInt16);
+procedure TCodeKeyedRegistryBuilderBase<T>.Prune(ACode: UInt16);
 begin
   TArrayUtilities.RemoveKey<T, UInt16>(FItems, FCodeOf, ACode);
 end;

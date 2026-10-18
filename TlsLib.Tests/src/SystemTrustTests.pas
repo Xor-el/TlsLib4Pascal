@@ -537,7 +537,7 @@ implementation
 type
   /// <summary>A probe over the abstract root source that drives its shared FilterRoots helper
   /// directly, so the well-formed + de-dup filter both harvesters use is tested once.</summary>
-  TFilterRootsProbe = class(TSystemRootSource)
+  TFilterRootsProbe = class(TSystemRootSourceBase)
   strict private
   var
     FRoots: TArray<TBytes>;

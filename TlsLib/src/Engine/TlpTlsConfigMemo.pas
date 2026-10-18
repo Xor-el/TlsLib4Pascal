@@ -45,7 +45,7 @@ type
   /// <summary>The keyed build-once-reuse ring shared by both config variants: a fixed-capacity,
   /// signature-keyed store guarded by a lock. The sealed server/client subclasses only bind T and
   /// the matching interface; all behaviour lives here.</summary>
-  TTlsConfigMemo<T> = class abstract(TInterfacedObject)
+  TTlsConfigMemoBase<T> = class abstract(TInterfacedObject)
   strict private
   var
     FLock: TCriticalSection;
@@ -61,10 +61,10 @@ type
     procedure Clear;
   end;
 
-  TTlsServerConfigMemo = class sealed(TTlsConfigMemo<ITlsServerConfig>, ITlsServerConfigMemo)
+  TTlsServerConfigMemo = class sealed(TTlsConfigMemoBase<ITlsServerConfig>, ITlsServerConfigMemo)
   end;
 
-  TTlsClientConfigMemo = class sealed(TTlsConfigMemo<ITlsClientConfig>, ITlsClientConfigMemo)
+  TTlsClientConfigMemo = class sealed(TTlsConfigMemoBase<ITlsClientConfig>, ITlsClientConfigMemo)
   end;
 
 class function TTlsConfigMemos.NewServer: ITlsServerConfigMemo;
@@ -83,9 +83,9 @@ const
   // mints a fresh default STEK, so headroom here reduces needless ticket-key churn under load.
   MemoCapacity = 16;
 
-{ TTlsConfigMemo<T> }
+{ TTlsConfigMemoBase<T> }
 
-constructor TTlsConfigMemo<T>.Create;
+constructor TTlsConfigMemoBase<T>.Create;
 begin
   inherited Create;
   SetLength(FSignatures, MemoCapacity);
@@ -95,13 +95,13 @@ begin
   FLock := TCriticalSection.Create;
 end;
 
-destructor TTlsConfigMemo<T>.Destroy;
+destructor TTlsConfigMemoBase<T>.Destroy;
 begin
   FLock.Free;
   inherited Destroy;
 end;
 
-function TTlsConfigMemo<T>.TryGet(const ASignature: string;
+function TTlsConfigMemoBase<T>.TryGet(const ASignature: string;
   out AConfig: T): Boolean;
 var
   LI: Int32;
@@ -121,7 +121,7 @@ begin
   end;
 end;
 
-function TTlsConfigMemo<T>.StoreOrAdopt(const ASignature: string;
+function TTlsConfigMemoBase<T>.StoreOrAdopt(const ASignature: string;
   const ABuilt: T): T;
 var
   LI: Int32;
@@ -143,7 +143,7 @@ begin
   end;
 end;
 
-procedure TTlsConfigMemo<T>.Clear;
+procedure TTlsConfigMemoBase<T>.Clear;
 var
   LI: Int32;
 begin

@@ -23,7 +23,7 @@ uses
 
 type
   /// <summary>The default signature-scheme registry: an immutable, ordered list.</summary>
-  TSignatureSchemeRegistry = class sealed(TCodeKeyedRegistry<TSignatureScheme>,
+  TSignatureSchemeRegistry = class sealed(TCodeKeyedRegistryBase<TSignatureScheme>,
     ISignatureSchemeRegistry)
   public
     constructor Create(const ASchemes: TArray<TSignatureScheme>);
@@ -39,7 +39,7 @@ type
   end;
 
   /// <summary>The signature-scheme registry builder: Add and Prune, then Build a snapshot.</summary>
-  TSignatureSchemeRegistryBuilder = class sealed(TCodeKeyedRegistryBuilder<TSignatureScheme>,
+  TSignatureSchemeRegistryBuilder = class sealed(TCodeKeyedRegistryBuilderBase<TSignatureScheme>,
     ISignatureSchemeRegistryBuilder)
   public
     /// <summary>An empty builder.</summary>
