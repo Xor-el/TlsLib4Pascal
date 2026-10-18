@@ -1,0 +1,51 @@
+TlsLib.Crypto.System/src/TlpEcPrivateScalar.pas
+  s_f2c9bd75607afc::t_e8259c7c82fe70 1-31,33-76
+  s_f2c9bd75607afc::t_efd95e9af3b0e5 32
+TlsLib/src/Security/TlpSecureMemory.pas
+  s_f2c9bd75607afc::t_7a85f293d24857 47-50
+  s_f2c9bd75607afc::t_3c581e8796f32a 107-129
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.lpk
+  s_f2c9bd75607afc::t_a2366751b69bb1 24
+  s_f2c9bd75607afc::t_8ca978637cf513 61-64
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.pas
+  s_f2c9bd75607afc::t_c843b4eb3c6b5b 13-14
+TlsLib.Tests/src/SecretTests.pas
+  s_f2c9bd75607afc::t_a18dd6dab21379 39-41
+  s_f2c9bd75607afc::t_0474e7053fbae8 52-62
+  s_f2c9bd75607afc::t_aae3c0d6f5838d 247-273,276-277,280-394
+  s_f2c9bd75607afc::t_278230b5d20820 274-275,278-279
+TlsLib.Crypto.System/Packages/Delphi/TlsLib.Crypto.System.dpk
+  s_f2c9bd75607afc::t_6cc719d275fac8 42
+TlsLib.Tests/src/SystemCryptoHelperTests.pas
+  s_f2c9bd75607afc::t_0060377b32d66b 1761
+  s_f2c9bd75607afc::t_1718e627f5b76d 40
+  s_f2c9bd75607afc::t_cf24cbf66f5b34 266-304
+  s_f2c9bd75607afc::t_4451814b303c29 323-331
+  s_f2c9bd75607afc::t_0f6d904dc3a4ca 1502-1760,1762-1796
+  s_f2c9bd75607afc::t_cb86128cf848b5 1805
+  s_f2c9bd75607afc::t_67ad629530db22 1812
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_f048f5f0a8657f 28
+  s_f2c9bd75607afc::t_6fd0c3ff037596 1769
+  s_f2c9bd75607afc::t_5d4863ba147887 2222
+  s_f2c9bd75607afc::t_2d82231263670e 2204
+  s_f2c9bd75607afc::t_26663e350557c7 2213
+TlsLib/src/Common/TlpArrayUtilities.pas
+  s_f2c9bd75607afc::t_4da7c92a9ab872 43-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d4c14dfb5276157296f866228293bc062644fce2",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
