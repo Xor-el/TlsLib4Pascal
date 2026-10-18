@@ -13,12 +13,16 @@ unit TlsLibTestResourceLoader;
 
 {$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
+{$IF NOT DEFINED(FPC) AND (DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_IOS))}
+  {$DEFINE TESTDATA_IN_DOCUMENTS}
+{$IFEND}
+
 interface
 
 uses
-{$IF DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_IOS)}
+{$IFDEF TESTDATA_IN_DOCUMENTS}
   System.IOUtils,
-{$IFEND}
+{$ENDIF}
   SysUtils;
 
 type
@@ -54,12 +58,12 @@ var
   LStart, LDir, LCandidate, LParent: string;
   LI: Int32;
 begin
-{$IF DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_IOS)}
+{$IFDEF TESTDATA_IN_DOCUMENTS}
   // the app deploy copies the vectors under the documents folder at start-up
   LStart := TPath.GetDocumentsPath;
 {$ELSE}
   LStart := GetCurrentDir;
-{$IFEND}
+{$ENDIF}
   LDir := ExcludeTrailingPathDelimiter(LStart);
   for LI := 0 to 12 do
   begin
