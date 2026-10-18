@@ -30,6 +30,7 @@ uses
   TlpICryptoProvider,
   TlpIKeyExchangePrivateKey,
   TlpICryptoBackendReport,
+  TlpISystemSigningKey,
   TlpISigningKey,
   TlpImportedCredential,
   TlpPkcs12Identity,

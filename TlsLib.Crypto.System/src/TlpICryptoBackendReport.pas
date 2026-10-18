@@ -51,11 +51,6 @@ type
     function Describe: string;
   end;
 
-  /// <summary>Marks a signing key whose operations run on the OS module.</summary>
-  ISystemSigningKey = interface(IInterface)
-    ['{5E03E459-EF8C-45B9-908F-2C31631E7BA8}']
-  end;
-
 implementation
 
 end.

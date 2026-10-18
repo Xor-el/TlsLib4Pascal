@@ -30,6 +30,7 @@ uses
   TlsLibTestProviders,
   TlpOSCryptoProvider,
   TlpICryptoBackendReport,
+  TlpISystemSigningKey,
   TlpSystemCryptoTypes,
   TlpCryptoDomainTypes,
   TlpISigningKey,

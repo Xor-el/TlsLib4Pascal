@@ -29,6 +29,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICryptoBackendReport,
+  TlpISystemSigningKey,
   TlpSystemCryptoTypes,
   TlpISecretBuffer,
   TlpISigningKey,
