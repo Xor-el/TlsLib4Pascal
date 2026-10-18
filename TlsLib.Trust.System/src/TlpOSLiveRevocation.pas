@@ -79,6 +79,7 @@ function TOSLiveRevocationResolver.ResolveVerdict(
 var
   LOutcome: TLiveRevocationOutcome;
   LPosture: TRevocationPosture;
+  LCtx: TCertificateVerdictContext;
 begin
   ARejectAlert := TTlsAlertDescription.BadCertificate;
   // this resolver's trust engine is bound to one certificate role (server-auth vs client-auth
@@ -109,7 +110,12 @@ begin
   // decision table applies the posture (Revoked rejects, Good accepts, Hard rejects an
   // indeterminate with bad_certificate_status_response, Soft/Off accept)
   if (LOutcome = TLiveRevocationOutcome.Indeterminate) and System.Assigned(FFallback) then
-    Result := FFallback(ACtx, ARejectAlert)
+  begin
+    // the fallback decides at the lifted posture, not the one the context alone carries
+    LCtx := ACtx;
+    LCtx.RevocationPosture := LPosture;
+    Result := FFallback(LCtx, ARejectAlert);
+  end
   else
     Result := TRevocationDecision.Decide(LOutcome, LPosture, False, ARejectAlert);
 end;
