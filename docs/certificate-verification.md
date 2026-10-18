@@ -603,7 +603,7 @@ resolver configured.
   and it follows no redirect, treats a 101 or 204 as a failure and cannot reach an IPv6 responder.
 - **Server-side mTLS.** A server requests client certificates with `WithPeerAuth` and verifies them with
   `WithClientVerification(TClientVerification.WebPki(...).Build)`. Without `WithPeerAuth`, the
-  client-verification, pinning, callback, verdict and chain-limit settings are refused at `Build`, and a
+  client-verification, pinning, callback, verdict, chain-limit and changed signature-scheme registry settings are refused at `Build`, and a
   server that shares a session store or ticket keys must also set `WithResumptionScope`.
 
 ---

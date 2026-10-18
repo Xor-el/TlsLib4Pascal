@@ -80,8 +80,12 @@ type
     /// 1.3-only config); a mixed list is accepted and its off-version part is ignored. The
     /// configured set includes the ECDHE_PSK suites a configured TLS 1.2 PSK adds.</summary>
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsClientConfigBuilder;
+    /// <summary>The signature schemes this client offers and accepts from the server. Its own
+    /// client-certificate signatures follow the credential key (ISigningKey.WithPreferredSchemes).</summary>
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsClientConfigBuilder;
+    /// <summary>The named groups this client offers and accepts.</summary>
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsClientConfigBuilder;
+    /// <summary>The protocol versions this client offers.</summary>
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsClientConfigBuilder;
     /// <summary>The groups to prefer, in order, among the registered ones; a code the group
     /// registry lacks is skipped. Build refuses an empty list, a list with no registered group,
@@ -95,7 +99,8 @@ type
     /// <summary>Offers record_size_limit (RFC 8449): the largest record this client accepts inbound,
     /// as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing; otherwise 64..16384.</summary>
     function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
-    /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
+    /// <summary>The certificate-chain resource caps applied before PKIX validation. A Custom
+    /// verifier is bound only by MaxTotalChainLength.</summary>
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
     /// <summary>The client's own credential for mutual TLS, presented when the server
@@ -176,7 +181,8 @@ type
     /// default: it shares rather than isolates.</summary>
     function WithResumptionScope(const AScope: TBytes): ITlsClientConfigBuilder;
     /// <summary>The clock the client reads for a resumption PSK's obfuscated_ticket_age and
-    /// ticket-lifetime expiry (RFC 9846 4.3.11 / 4.7.1); defaults to the system
+    /// ticket-lifetime expiry (RFC 9846 4.3.11 / 4.7.1) and for the server chain's certificate
+    /// validity and stapled-OCSP freshness; defaults to the system
     /// clock, and nil is refused. Injectable primarily so tests can drive a deterministic time.</summary>
     function WithClock(const AClock: ITlsClock): ITlsClientConfigBuilder;
     /// <summary>The elapsed-time source the connection layer measures its handshake read cap on;
@@ -299,8 +305,13 @@ type
     /// 1.3-only config); a mixed list is accepted and its off-version part is ignored. The
     /// configured set includes the ECDHE_PSK suites a configured TLS 1.2 PSK adds.</summary>
     function WithCipherSuiteList(const ASuites: TArray<UInt16>): ITlsServerConfigBuilder;
+    /// <summary>The signature schemes this server advertises in a CertificateRequest and accepts
+    /// from the client. Its own signatures follow the credential key (ISigningKey.WithPreferredSchemes);
+    /// without WithPeerAuth a registry other than the preset's is refused at Build.</summary>
     function WithSignatureSchemes(const ARegistry: ISignatureSchemeRegistry): ITlsServerConfigBuilder;
+    /// <summary>The named groups this server accepts for key exchange.</summary>
     function WithNamedGroups(const ARegistry: INamedGroupRegistry): ITlsServerConfigBuilder;
+    /// <summary>The protocol versions this server accepts.</summary>
     function WithSupportedVersions(const AVersions: TArray<UInt16>): ITlsServerConfigBuilder;
     /// <summary>The groups to prefer, in order, among the registered ones; a code the group
     /// registry lacks is skipped. Build refuses an empty list, a list with no registered group,
@@ -334,7 +345,7 @@ type
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): ITlsServerConfigBuilder;
     /// <summary>The certificate-chain resource caps for a requested client certificate; they bound
     /// that chain only; without WithPeerAuth any value other than the preset's is refused at
-    /// Build.</summary>
+    /// Build. A Custom verifier is bound only by MaxTotalChainLength.</summary>
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsServerConfigBuilder;
     /// <summary>The server credential the Certificate chain is sent from and whose key
@@ -528,6 +539,8 @@ type
   /// <summary>The TLS 1.2-only server settings.</summary>
   ITls12ServerConfigFacet = interface(IInterface)
     ['{A1B2C3D4-1E2F-4A3B-8C5D-6E7F80912A34}']
+    /// <summary>True rejects every client that does not offer extended_master_secret (RFC 7627), which
+    /// makes WithNonEmsResumption moot; combining it with Abort or Resume is refused at Build.</summary>
     function WithExtendedMasterSecret(ARequire: Boolean): ITls12ServerConfigFacet;
     /// <summary>How the server treats a ClientHello that resumes a session established without
     /// extended_master_secret when the hello does not offer it either (RFC 7627 5.3): Decline, the

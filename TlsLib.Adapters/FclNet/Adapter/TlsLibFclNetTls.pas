@@ -316,7 +316,7 @@ resourcestring
     'CertificateData.PFX';
   SNoHostForNameCheck = 'CheckHostName is on but the socket carries no host to verify the ' +
     'certificate identity against (RFC 9525); connect through a TInetSocket that carries the ' +
-    'host, or set CheckHostName := False to verify the chain only';
+    'host, or set CheckHostName := False to skip the host-name check';
   SFclNetTrustSourceHint = 'CertificateData.CertCA / TrustedCertificate, UseSystemTrust, or a ' +
     'CustomTrustStore/CustomVerifier';
   SFclNetClientAuthSourceHint = 'CertificateData.CertCA / TrustedCertificate, or a ' +
@@ -513,10 +513,8 @@ var
   LOptions: TTlsOptions;
 begin
   LOptions := Snapshot;
-  // host-name verification requested but the socket carries no host to check against: fail closed
-  // rather than silently verifying only the chain (RFC 9525). A per-connection check, not baked
-  // into the memoised config, so it never applies to a supplied ClientConfig.
-  if FCheckHostName and VerifyPeerCert and (AHost = '') and (FClientConfig = nil) then
+  // the core refuses an empty host under CheckHostName; name the fcl-net fix (RFC 9525)
+  if FCheckHostName and (AHost = '') and (FClientConfig = nil) then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoHostForNameCheck);
   Result := TTlsConfigComposer.ResolveClientConfig(LOptions, FClientConfigMemo, 'ClientConfig');
 end;

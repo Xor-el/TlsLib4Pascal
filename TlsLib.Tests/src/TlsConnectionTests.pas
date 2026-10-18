@@ -54,6 +54,7 @@ uses
   MockCertificateVerifiers,
   TlpTlsLibExceptions,
   TlpTlsConnection,
+  TlpTlsEngineFactory,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
   TlsLibTestCertificates,
@@ -144,6 +145,7 @@ type
     procedure TestSignatureEqualOptionsEqualKeys;
     procedure TestSignatureEachConcernChangesKey;
     procedure TestConnectionRefusesANilConfigOrTransport;
+    procedure TestConnectionCreateRefusesANilEngineOrTransport;
     procedure TestSignatureKeysSystemTrustByIdentity;
     procedure TestSignatureExcludesResolverAndTimeout;
     procedure TestSignaturePasswordNotInClear;
@@ -1531,6 +1533,36 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client with a transport but no config is refused');
+end;
+
+procedure TTestTlsConnection.TestConnectionCreateRefusesANilEngineOrTransport;
+var
+  LRaised: Boolean;
+  LConnection: TTlsConnection;
+begin
+  // the public constructor takes the same typed refusal as CreateClient/CreateServer
+  LRaised := False;
+  try
+    LConnection := TTlsConnection.Create(nil,
+      TTestMemoryTransport.Create(nil, True) as ITlsTimedTransport, True, 'example.com', nil);
+    LConnection.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := Pos('a connection needs', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a connection with a transport but no engine is refused by the connection');
+  LRaised := False;
+  try
+    LConnection := TTlsConnection.Create(
+      TTlsEngineFactory.CreateClientEngine(
+        TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore), 'example.com'),
+      nil, True, 'example.com', nil);
+    LConnection.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := Pos('a connection needs', E.Message) > 0;
+  end;
+  CheckTrue(LRaised, 'a connection with an engine but no transport is refused by the connection');
 end;
 
 procedure TTestTlsConnection.TestSignatureKeysSystemTrustByIdentity;

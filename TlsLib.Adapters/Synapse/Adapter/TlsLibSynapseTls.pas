@@ -267,6 +267,8 @@ resourcestring
     'or PFX/PFXfile';
   SSynapseInlineTrustUnsupported = 'CertCA, TrustCertificate and TrustCertificateFile are not ' +
     'read; put the CA certificates in a PEM bundle file and set CertCAFile';
+  SSynapseNoSniHost = 'SNIHost is empty, so there is no host to check the certificate ' +
+    'identity against (RFC 9525); set SNIHost to the server name, or supply a ClientConfig';
   SSynapseCiphersHint = 'Ciphers';
   SSynapseTrustSourceHint = 'a CertCAFile bundle and/or UseSystemTrust';
   SSynapseClientAuthSourceHint = 'a CertCAFile bundle';
@@ -543,6 +545,10 @@ begin
     // auth) on the mTLS client's chain - the two bind different EKUs
     if AIsClient then
     begin
+      // the core refuses an empty host under the always-on name check; say which property to set
+      if (AHost = '') and (FClientConfig = nil) then
+        raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+          @SSynapseNoSniHost);
       LClientConfig := BuildClientConfig;
       FConnection := TTlsConnection.CreateClient(LClientConfig, AHost,
         TSynapseSocketTransport.Create(FSocket) as ITlsTimedTransport, FVerdictResolver,

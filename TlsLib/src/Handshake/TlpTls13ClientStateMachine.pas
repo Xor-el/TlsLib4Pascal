@@ -448,6 +448,8 @@ resourcestring
   SBadSessionIdEcho = 'the server echoed a session id that was not offered';
   SDowngradeDetected = 'the ServerHello carries a version downgrade sentinel';
   SUnsupportedSelectedVersion = 'the server did not select TLS 1.3';
+  SSupportedVersionsBelowTls13 =
+    'the ServerHello carries supported_versions selecting a version below TLS 1.3';
   SUnofferedGroup = 'the server selected a key share group that was not offered';
   SMissingServerKeyShare = 'the ServerHello carries no key_share for the asymmetric key exchange';
   SEarlyDataWithoutPsk =
@@ -866,7 +868,8 @@ begin
     LMaxEarlyData, LPeerChain, nil, FSessionPskIdentity, FSessionPskBinding,
     FPeerSignatureScheme, LAuthenticatedAtMs);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
-  // bounded against a server streaming tickets; older ones are not withdrawn (RFC 9846 6, "if possible")
+  // bounded against a server streaming tickets; a dropped ticket escapes the fatal-alert cache
+  // withdrawal (RFC 9846 6, "if possible")
   if System.Length(FStoredSessions) >= MaxRememberedTickets then
     FStoredSessions := System.Copy(FStoredSessions, 1, MaxRememberedTickets - 1);
   TArrayUtilities.Append<IResumableSession>(FStoredSessions, LSession);
@@ -1102,10 +1105,14 @@ begin
   // only TLS 1.3, so any other selection is not one it agreed to - a stamped downgrade is an
   // attack (illegal_parameter, RFC 9846 4.2.3), any other lower version is unsupported and
   // reported as protocol_version (RFC 9846 E.1; a deliberate deviation from 4.3.1's
-  // illegal_parameter), not a cipher/decode error.
+  // illegal_parameter), not a cipher/decode error. supported_versions below 1.3 is
+  // unsupported_extension, as in the dispatcher.
   if THandshakeMessages.TryGetServerHelloSelectedVersion(LHello.Extensions,
     LNegotiatedVersion) then
   begin
+    if LNegotiatedVersion < TlsWireVersionTls13 then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnsupportedExtension, @SSupportedVersionsBelowTls13);
     // a ServerHello that selects its version via supported_versions is a TLS 1.3 construct
     // whose legacy_version MUST be 0x0303 (RFC 9846 4.2.3); any other value is not a version
     // this client agreed to

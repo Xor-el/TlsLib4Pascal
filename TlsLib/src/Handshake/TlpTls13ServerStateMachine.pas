@@ -969,7 +969,7 @@ begin
       (System.Length(LSession.PskIdentity) = 0) then
       Continue;
     // this identity is the selection; a present binder that does not validate is fatal
-    // (RFC 9846 4.3.11.2) - only a decrypted-but-bad-binder ticket aborts, never a decline above
+    // (RFC 9846 4.3.11) - only a decrypted-but-bad-binder ticket aborts, never a decline above
     FSelectedSuite := LSuite; // so HashOf uses the PSK's hash
     LTruncated := System.Copy(ARawClientHello, 0,
       System.Length(ARawClientHello) - BindersVectorLength(AContext.OfferedPskBinders));
@@ -1097,7 +1097,7 @@ begin
     LTemp := TTls13KeySchedule.Create(FParams.Crypto, LOffer.Hash,
       LSuite.Common.KeyLength);
     LTemp.SetPsk(LOffer.Key);
-    // a matched identity whose binder does not validate is fatal (RFC 9846 4.3.11.2)
+    // a matched identity whose binder does not validate is fatal (RFC 9846 4.3.11)
     if not LTemp.VerifyBinder(LOffer.BinderKind, HashOf(LTruncated),
       AContext.OfferedPskBinders[LIndex]) then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -1156,7 +1156,7 @@ begin
   // may prune its PSK list once the cipher (hence hash) is fixed, so re-locate the accepted
   // identity by value: an omitted pre_shared_key is a missing extension, the accepted
   // identity absent from a present offer is PSK_IDENTITY_NOT_FOUND, and a present identity
-  // whose binder does not validate is a decrypt error (RFC 9846 4.2.4 / 4.3.11.2). The
+  // whose binder does not validate is a decrypt error (RFC 9846 4.3.11 / 4.3.11.2). The
   // client also recomputes the binder over the retry transcript, so re-verify it here.
   if System.Length(AContext.OfferedPskIdentities) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
@@ -1485,7 +1485,7 @@ begin
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SEarlyDataInSecondClientHello);
 
-    // the retry must echo a cookie that verifies under the server secret (RFC 9846 4.2.4); the
+    // the retry must echo a cookie that verifies under the server secret (RFC 9846 4.2.2 / 4.3.2); the
     // cookie carries Hash(ClientHello1), the selected suite and group, and CH1's session id
     if System.Length(LContext.Cookie) = 0 then
       raise EFatalAlertTlsLibException.CreateRes(

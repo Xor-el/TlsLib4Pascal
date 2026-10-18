@@ -129,8 +129,9 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 - Beyond `GetSSLVersion` / `GetCipherName`, cast `Sock.SSL` to `TSSLTlsLib` to read
   `NegotiatedCipherSuite`, `NegotiatedGroup`, `PeerServerName`, `EchStatus`, `Resumed` and
   `NegotiatedAlpn` (text; empty when none was agreed) after the handshake.
-- Client configs are cached process-wide. After rotating a certificate or key, call
-  `FlushTlsLibSynapseConfigCache` so the next handshake rebuilds and the retired key is released.
+- Built configs (client and server) are cached process-wide. After rotating a certificate or key,
+  call `FlushTlsLibSynapseConfigCache` so the next handshake rebuilds and the retired key is
+  released.
 
 ## Proven
 

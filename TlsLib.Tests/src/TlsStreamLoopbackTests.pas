@@ -147,6 +147,7 @@ type
     procedure TestHandshakeFailureIsLatchedOnRetry;
     procedure TestNonTerminalHandshakeFailureIsLatched;
     procedure TestForeignHandshakeFailureIsReraisedAsStreamError;
+    procedure TestStreamRefusesANilEngineOrTransport;
     procedure TestHandshakeReadTimeoutIsLatchedAsHandshakeTimeout;
     procedure TestInsecureSkipVerifyAcceptsUntrustedChain;
     procedure TestVerifyCallbackCanOnlyAdditionallyReject;
@@ -1145,6 +1146,35 @@ begin
     LClient.Free; // frees the stream, the transport, and the transport-owned write pipe (LC2S)
     LS2C.Free;    // the read pipe is not owned by the single transport
   end;
+end;
+
+procedure TTestTlsStreamLoopback.TestStreamRefusesANilEngineOrTransport;
+var
+  LEngine: ITlsEngine;
+  LStream: TTlsStream;
+  LRaised: Boolean;
+begin
+  // a missing argument is a typed error, not an access violation on first use
+  LRaised := False;
+  try
+    LStream := TTlsStream.Create(TFailingReadTransport.Create as ITlsTransport, nil, True,
+      'localhost');
+    LStream.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a stream with no engine is refused');
+  LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(False, nil), 'localhost');
+  LRaised := False;
+  try
+    LStream := TTlsStream.Create(nil, LEngine, True, 'localhost');
+    LStream.Free;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a stream with no transport is refused');
 end;
 
 procedure TTestTlsStreamLoopback.TestForeignHandshakeFailureIsReraisedAsStreamError;
