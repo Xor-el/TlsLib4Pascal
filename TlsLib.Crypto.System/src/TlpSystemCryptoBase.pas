@@ -20,6 +20,7 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICryptoBackendReport,
+  TlpSystemCryptoTypes,
   TlpISecretBuffer,
   TlpISigningKey,
   TlpImportedCredential,
@@ -132,6 +133,41 @@ type
       const AKey: ISigningKey): ISignatureSigner; virtual;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier; virtual;
+  end;
+
+  /// <summary>
+  /// The platform-neutral part of an <see cref="ICryptoBackendReport" />. Every per-algorithm
+  /// query defaults to portable, so a platform overrides only what it serves natively; HKDF
+  /// and the TLS 1.2 PRF follow the OS HMAC, a signing key follows the <see
+  /// cref="ISystemSigningKey" /> marker, and the HPKE facet follows the constructor flag. The
+  /// platform supplies <see cref="Describe" />.
+  /// </summary>
+  TSystemBackendReportBase = class abstract(TInterfacedObject, ICryptoBackendReport)
+  strict private
+  var
+    FHpkeComposed: Boolean;
+    // HKDF and the 1.2 PRF are assembled in portable code over the OS HMAC, so they follow it
+    function ComposedOverHmac(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+  strict protected
+    class function Ent(ABackend: TCryptoBackend;
+      AReason: TCryptoBackendReason): TCryptoBackendEntry; static;
+    class function NotNative: TCryptoBackendEntry; static;
+  public
+    /// <param name="AHpkeComposed">True when the provider's HPKE composes over its own
+    /// primitives.</param>
+    constructor Create(AHpkeComposed: Boolean);
+    function RandomBackend: TCryptoBackendEntry; virtual;
+    function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; virtual;
+    function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; virtual;
+    function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry; virtual;
+    function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; virtual;
+    function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry; virtual;
+    function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; virtual;
+    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
+    function FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
+    function Describe: string; virtual; abstract;
   end;
 
 implementation
@@ -356,6 +392,109 @@ function TForwardingSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureSch
   const APublicKeyDer: TBytes): ISignatureVerifier;
 begin
   Result := FInner.CreateSignatureVerifier(AScheme, APublicKeyDer);
+end;
+
+{ TSystemBackendReportBase }
+
+constructor TSystemBackendReportBase.Create(AHpkeComposed: Boolean);
+begin
+  inherited Create;
+  FHpkeComposed := AHpkeComposed;
+end;
+
+class function TSystemBackendReportBase.Ent(ABackend: TCryptoBackend;
+  AReason: TCryptoBackendReason): TCryptoBackendEntry;
+begin
+  Result.Backend := ABackend;
+  Result.Reason := AReason;
+end;
+
+class function TSystemBackendReportBase.NotNative: TCryptoBackendEntry;
+begin
+  Result := Ent(TCryptoBackend.Portable, TCryptoBackendReason.NoNativeImpl);
+end;
+
+function TSystemBackendReportBase.RandomBackend: TCryptoBackendEntry;
+begin
+  Result := NotNative;
+end;
+
+function TSystemBackendReportBase.HashBackend(
+  AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  Result := NotNative;
+end;
+
+function TSystemBackendReportBase.HmacBackend(
+  AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  Result := NotNative;
+end;
+
+function TSystemBackendReportBase.ComposedOverHmac(
+  AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  if HmacBackend(AAlgorithm).Backend = TCryptoBackend.System then
+    Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
+end;
+
+function TSystemBackendReportBase.HkdfBackend(
+  AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  Result := ComposedOverHmac(AAlgorithm);
+end;
+
+function TSystemBackendReportBase.Tls12PrfBackend(
+  AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  Result := ComposedOverHmac(AAlgorithm);
+end;
+
+function TSystemBackendReportBase.AeadBackend(
+  AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
+begin
+  Result := NotNative;
+end;
+
+function TSystemBackendReportBase.KeyAgreementBackend(
+  AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
+begin
+  Result := NotNative;
+end;
+
+function TSystemBackendReportBase.KemBackend(
+  AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
+begin
+  Result := NotNative;
+end;
+
+function TSystemBackendReportBase.SigningBackend(
+  AScheme: TSignatureScheme): TCryptoBackendEntry;
+begin
+  Result := NotNative;
+end;
+
+function TSystemBackendReportBase.SigningKeyBackend(
+  const AKey: ISigningKey): TCryptoBackendEntry;
+begin
+  // per key, not per scheme: only a key the OS module imported carries the marker; one that
+  // fell back to the portable facet signs portable regardless of its scheme
+  if Supports(AKey, ISystemSigningKey) then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
+end;
+
+function TSystemBackendReportBase.FacetBackend(
+  AFacet: TCryptoFacet): TCryptoBackendEntry;
+begin
+  // Primitives and Signing are mixed per algorithm; only Hpke has a whole-facet answer
+  if (AFacet = TCryptoFacet.Hpke) and FHpkeComposed then
+    Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
 end;
 
 end.

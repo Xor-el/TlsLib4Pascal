@@ -221,6 +221,10 @@ type
     procedure TestPkcs12RsaPssCertificateStore;
     // the CNG overlay engages and reports the default HPKE composition as composed
     procedure TestComposeEngagesCngAndReportsDefaultHpkeAsComposed;
+    // a natively imported key answers for the neutral system-key marker
+    procedure TestNativeKeyAnswersSystemSigningKeyMarker;
+    // a key the portable facet imported does not
+    procedure TestPortableKeyDoesNotAnswerSystemSigningKeyMarker;
   end;
 {$IFEND}
 
@@ -975,6 +979,24 @@ begin
     'the overlay engaged and reports its backends');
   CheckTrue(LReport.FacetBackend(TCryptoFacet.Hpke).Backend = TCryptoBackend.Composed,
     'the default HPKE composition is reported as composed over the native primitives');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeKeyAnswersSystemSigningKeyMarker;
+var
+  LKey: ISigningKey;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckTrue(Supports(LKey, ISystemSigningKey), 'a natively imported key carries the marker');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestPortableKeyDoesNotAnswerSystemSigningKeyMarker;
+var
+  LKey: ISigningKey;
+begin
+  LKey := Portable.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckFalse(Supports(LKey, ISystemSigningKey), 'a portable key does not carry the marker');
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestPkcs12ExportedKeyMatchesLeaf;
