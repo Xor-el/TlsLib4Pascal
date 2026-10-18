@@ -101,6 +101,11 @@ type
     procedure TestDoubleArmRejected;
     procedure TestUnknownContentTypeRejected;
     procedure TestPartialHeaderDoesNotOverRead;
+    procedure TestBadHeaderBehindFramedRecordIsRaisedAfterIt;
+    procedure TestBadHeaderWithNothingFramedFailsAtOnce;
+    procedure TestOverflowHeaderBehindFramedRecordIsRaisedAfterIt;
+    procedure TestLayerFailedAfterDeferredBadHeaderRaised;
+    procedure TestDiscardInboundClearsDeferredBadHeader;
     procedure TestTerminalAfterFatal;
     procedure TestTakeOutgoingIntoBufferRetainsRemainder;
     procedure TestTakeOutgoingIntoBufferGuardsBadOffset;
@@ -1383,6 +1388,132 @@ begin
     // three header bytes only: buffered, no exception, no over-read
     LRecv.ProcessInput(DecodeHex('160303'), 0, 3);
     CheckFalse(DrainOne(LRecv, LFrag), 'nothing delivered from a partial header');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestBadHeaderBehindFramedRecordIsRaisedAfterIt;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LRaised: Boolean;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    // a good record then a header with an unknown type: the feed itself does not raise
+    LRecv.ProcessInput(DecodeHex('1603030004aabbccddff03030001'), 0, 14);
+    CheckTrue(DrainOne(LRecv, LFrag), 'the record framed ahead of the bad header is delivered');
+    CheckEqualBytes('its payload is intact', DecodeHex('aabbccdd'), LFrag.Data);
+    LRaised := False;
+    try
+      DrainOne(LRecv, LFrag);
+    except
+      on E: EFatalAlertTlsLibException do
+        LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.UnexpectedMessage);
+    end;
+    CheckTrue(LRaised, 'the bad header is raised once the framed records are drained');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestBadHeaderWithNothingFramedFailsAtOnce;
+var
+  LRecv: TRecordLayer;
+  LRaised: Boolean;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRaised := False;
+    try
+      LRecv.ProcessInput(DecodeHex('ff03030001'), 0, 5);
+    except
+      on E: EFatalAlertTlsLibException do
+        LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.UnexpectedMessage);
+    end;
+    CheckTrue(LRaised, 'the feed itself raises when no record was framed ahead of the header');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestOverflowHeaderBehindFramedRecordIsRaisedAfterIt;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LRaised: Boolean;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    // a good record then a header whose length exceeds the ceiling: deferred like an unknown type
+    LRecv.ProcessInput(DecodeHex('1603030004aabbccdd170303ffff'), 0, 14);
+    CheckTrue(DrainOne(LRecv, LFrag), 'the record framed ahead of the oversized header is delivered');
+    LRaised := False;
+    try
+      DrainOne(LRecv, LFrag);
+    except
+      on E: EFatalAlertTlsLibException do
+        LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.RecordOverflow);
+    end;
+    CheckTrue(LRaised, 'the oversized header is raised as record_overflow once the framed records are drained');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestLayerFailedAfterDeferredBadHeaderRaised;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+  LRaised: Boolean;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.ProcessInput(DecodeHex('1603030004aabbccddff03030001'), 0, 14);
+    DrainOne(LRecv, LFrag);
+    try
+      DrainOne(LRecv, LFrag);
+    except
+      on EFatalAlertTlsLibException do
+        ;
+    end;
+    LRaised := False;
+    try
+      DrainOne(LRecv, LFrag);
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'the layer refuses further reads after the deferred error was raised');
+    LRaised := False;
+    try
+      LRecv.ProcessInput(DecodeHex('1703030000'), 0, 5);
+    except
+      on E: EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'the layer refuses further input after the deferred error was raised');
+  finally
+    LRecv.Free;
+  end;
+end;
+
+procedure TTestRecordLayer.TestDiscardInboundClearsDeferredBadHeader;
+var
+  LRecv: TRecordLayer;
+  LFrag: TTlsRecordFragment;
+begin
+  LRecv := TRecordLayer.Create;
+  try
+    LRecv.ProcessInput(DecodeHex('1603030004aabbccddff03030001'), 0, 14);
+    LRecv.DiscardInbound;
+    CheckFalse(DrainOne(LRecv, LFrag), 'discarding drops the framed record and the deferred error');
+    // the layer stays usable: a good record fed after the discard is delivered
+    LRecv.ProcessInput(DecodeHex('1603030004aabbccdd'), 0, 9);
+    CheckTrue(DrainOne(LRecv, LFrag), 'a record fed after the discard is processed normally');
+    CheckEqualBytes('its payload is intact', DecodeHex('aabbccdd'), LFrag.Data);
+    CheckFalse(DrainOne(LRecv, LFrag), 'no stale deferred error follows it');
   finally
     LRecv.Free;
   end;

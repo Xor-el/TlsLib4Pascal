@@ -174,6 +174,8 @@ type
     procedure TestWriteAfterInboundCloseNotifyHalfCloses;
     procedure TestErrorAfterOurCloseNotifyQueuesNoAlert;
     procedure TestCoalescedFinalDataAndCloseNotifyBothSurface;
+    procedure TestCloseNotifyFollowedByJunkIsACleanClose;
+    procedure TestFatalAlertFollowedByJunkSurfacesThePeerAlert;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
     procedure TestMissingStapleAbortsUnderHardPosture;
     procedure TestSniSelectsHostCredentialAmongMany;
@@ -2018,6 +2020,62 @@ begin
   CheckTrue(LClient.IsInboundClosed,
     'the close_notify coalesced with the final data is observed, not swallowed');
   CheckFalse(LClient.IsTerminal, 'a clean coalesced close is not a fatal termination');
+end;
+
+procedure TTestTls13Loopback.TestCloseNotifyFollowedByJunkIsACleanClose;
+var
+  LClient, LServer: ITlsEngine;
+  LClose, LJunk, LWire: TBytes;
+begin
+  LClient := NewClient;
+  LServer := NewServer;
+  RunHandshake(LClient, LServer);
+  Drain(LClient);
+  Drain(LServer);
+
+  // bytes after a close_notify are ignored even when they are not a valid record (RFC 9846 6.1)
+  LServer.SendClose;
+  LClose := Drain(LServer);
+  LJunk := DecodeHex('ff03030001');
+  SetLength(LWire, System.Length(LClose) + System.Length(LJunk));
+  Move(LClose[0], LWire[0], System.Length(LClose));
+  Move(LJunk[0], LWire[System.Length(LClose)], System.Length(LJunk));
+  CheckFalse(LClient.ProcessInput(LWire, 0, System.Length(LWire)) = TTlsOutcome.Fatal,
+    'a close_notify followed by junk in one feed is not fatal');
+  CheckTrue(LClient.IsInboundClosed, 'the close_notify is observed');
+  CheckFalse(LClient.IsTerminal, 'the trailing junk does not end the connection');
+  CheckEquals(0, System.Length(Drain(LClient)), 'no alert answers the trailing junk');
+end;
+
+procedure TTestTls13Loopback.TestFatalAlertFollowedByJunkSurfacesThePeerAlert;
+var
+  LClient, LServer: ITlsEngine;
+  LByte, LRecord, LAlert, LJunk, LWire: TBytes;
+begin
+  LClient := NewClient;
+  LServer := NewServer;
+  RunHandshake(LClient, LServer);
+  Drain(LClient);
+  Drain(LServer);
+
+  // the server fails on a corrupt record and sends its fatal alert; junk follows it in the feed
+  LByte := DecodeHex('61');
+  LClient.Write(LByte, 0, System.Length(LByte));
+  LRecord := Drain(LClient);
+  LRecord[System.High(LRecord)] := LRecord[System.High(LRecord)] xor $01;
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LServer.ProcessInput(LRecord, 0, System.Length(LRecord))),
+    'the server rejects the corrupt record');
+  LAlert := Drain(LServer);
+  LJunk := DecodeHex('ffffffffff');
+  SetLength(LWire, System.Length(LAlert) + System.Length(LJunk));
+  Move(LAlert[0], LWire[0], System.Length(LAlert));
+  Move(LJunk[0], LWire[System.Length(LAlert)], System.Length(LJunk));
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LClient.ProcessInput(LWire, 0, System.Length(LWire))),
+    'the client fails on the peer alert');
+  CheckEquals(Ord(TTlsErrorOrigin.Peer), Ord(LClient.LastError.Origin),
+    'the failure is the peer''s alert, not a local framing error');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LClient.LastError.Alert.Description),
+    'the recorded alert is the peer''s bad_record_mac');
 end;
 
 procedure TTestTls13Loopback.TestStapledGoodOcspCompletesUnderHardPosture;
