@@ -87,6 +87,9 @@ type
     procedure PrepareReseal(out AServer: IEchServerHandshake; out AOuter: TTlsClientHello;
       out AEntries: TExtensionVector; out AEch: TEchOuterClientHello;
       out ASealer: IHpkeSealer; out AEncoded: TBytes);
+    // the alert a trial-decrypting server raises when the real client's sealed inner has its
+    // AExtType extension replaced by AData (CloseNotify when nothing is raised)
+    function TamperedInnerAlert(AExtType: UInt16; const AData: TBytes): TTlsAlertDescription;
     // a GREASE client's effects on a cookie-only HelloRetryRequest carrying AEchBody as its ech
     function GreaseClientHrrEffects(const AEchBody: TBytes): TArray<THandshakeEffect>;
   protected
@@ -104,6 +107,11 @@ type
     procedure TestServerRetryOuterBeforeAcceptFailsLoud;
     procedure TestServerRetryOuterAfterRejectFailsLoud;
     procedure TestServerProcessOuterEmptyVectorIsNotOffered;
+    procedure TestInnerEchWithTrailingByteIsIllegalParameter;
+    procedure TestInnerEchEmptyBodyIsIllegalParameter;
+    procedure TestInnerEchTruncatedOuterFormIsIllegalParameter;
+    procedure TestWellFormedInnerEchIsAccepted;
+    procedure TestEmptyInnerSupportedVersionsIsDecodeError;
     procedure TestUsableEchWithTls12OfferRejected;
     procedure TestGreaseClientRejectsHrrEchOfWrongLengthWithDecodeError;
     procedure TestGreaseClientIgnoresWellFormedHrrEchAndRetries;
@@ -613,6 +621,86 @@ begin
     System.Copy(OuterClientHello, 4, System.Length(OuterClientHello) - 4));
   CheckTrue(LEch.ProcessOuter(OuterClientHello, LOuter, TExtensionVector.Empty)
     = TEchStatus.NotOffered, 'an empty extension vector offers no ech');
+end;
+
+function TTestEchClientEngine.TamperedInnerAlert(AExtType: UInt16;
+  const AData: TBytes): TTlsAlertDescription;
+var
+  LEncoded, LTampered: TBytes;
+  LOuter: TTlsClientHello;
+  LEntries, LExtensions: TExtensionVector;
+  LOuterEch: TEchOuterClientHello;
+  LSealer: IHpkeSealer;
+  LServer: IEchServerHandshake;
+  LReader: TWireReader;
+  LStart, LTail, LIdx: Int32;
+begin
+  PrepareReseal(LServer, LOuter, LEntries, LOuterEch, LSealer, LEncoded);
+  // skip legacy_version, random, session id, cipher suites and compression to the extensions
+  LReader := TWireReader.Create(LEncoded);
+  LReader.Skip(34);
+  LReader.OpenVector(1);
+  LReader.OpenVector(2);
+  LReader.OpenVector(1);
+  LStart := LReader.Position;
+  LExtensions := TExtensionVector.ParseFrom(LReader);
+  LTail := LReader.Position;
+  // expand the compression so the inner stays complete and only the tampered extension differs
+  LExtensions := TEchOuterExtensions.Reconstruct(LEntries, LExtensions);
+  LIdx := LExtensions.IndexOf(AExtType);
+  if LIdx >= 0 then
+    LExtensions.SetData(LIdx, AData)
+  else
+    LExtensions.Append(TExtensionEntry.Create(AExtType, AData));
+  LTampered := ConcatBytes(ConcatBytes(System.Copy(LEncoded, 0, LStart), LExtensions.Encode),
+    System.Copy(LEncoded, LTail, System.Length(LEncoded) - LTail));
+  Result := TTlsAlertDescription.CloseNotify;
+  try
+    ProcessOuterFramed(LServer, SealOuter(LOuter, LEntries, LOuterEch, LSealer, LTampered,
+      TlsWireVersionTls12));
+  except
+    on E: EFatalAlertTlsLibException do
+      Result := E.AlertDescription;
+  end;
+end;
+
+procedure TTestEchClientEngine.TestInnerEchWithTrailingByteIsIllegalParameter;
+begin
+  // the inner ech is the lone type byte (RFC 9849 sec. 7.1); a trailing byte is not a decode_error
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    Integer(TamperedInnerAlert(TExtensionTypes.EncryptedClientHello, DecodeHex('0100'))),
+    'an inner ech with an extra byte is illegal_parameter');
+end;
+
+procedure TTestEchClientEngine.TestInnerEchEmptyBodyIsIllegalParameter;
+begin
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    Integer(TamperedInnerAlert(TExtensionTypes.EncryptedClientHello, nil)),
+    'an inner ech with no body is illegal_parameter');
+end;
+
+procedure TTestEchClientEngine.TestInnerEchTruncatedOuterFormIsIllegalParameter;
+begin
+  // outer type byte then a cut-off kdf/aead pair: the sealed inner must not surface a decode_error
+  CheckEquals(Integer(TTlsAlertDescription.IllegalParameter),
+    Integer(TamperedInnerAlert(TExtensionTypes.EncryptedClientHello, DecodeHex('0000010001'))),
+    'a truncated outer-form ech inside the inner is illegal_parameter');
+end;
+
+procedure TTestEchClientEngine.TestWellFormedInnerEchIsAccepted;
+begin
+  // positive control: the tampering helper reports no alert for a valid inner ech marker
+  CheckEquals(Integer(TTlsAlertDescription.CloseNotify),
+    Integer(TamperedInnerAlert(TExtensionTypes.EncryptedClientHello, DecodeHex('01'))),
+    'a well-formed inner ech raises no alert');
+end;
+
+procedure TTestEchClientEngine.TestEmptyInnerSupportedVersionsIsDecodeError;
+begin
+  // an empty versions<2..254> list is a syntax error, not an offer of an old version
+  CheckEquals(Integer(TTlsAlertDescription.DecodeError),
+    Integer(TamperedInnerAlert(TExtensionTypes.SupportedVersions, DecodeHex('00'))),
+    'an empty inner supported_versions list is decode_error');
 end;
 
 procedure TTestEchClientEngine.TestUsableEchWithTls12OfferRejected;
