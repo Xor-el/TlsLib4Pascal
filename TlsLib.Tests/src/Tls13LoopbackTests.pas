@@ -2088,7 +2088,7 @@ var
   LEntries: TArray<TSniCredentialEntry>;
 begin
   // the server knows only 'localhost' and has no default credential; a client requesting an
-  // unknown host must be rejected with unrecognized_name(112) per RFC 6066 3, not served some
+  // unknown host is rejected with unrecognized_name(112) (local policy; RFC 6066 3), not served some
   // arbitrary certificate. This is the discriminator that proves the resolver gates on SNI
   SetLength(LEntries, 1);
   LEntries[0].Host := 'localhost';

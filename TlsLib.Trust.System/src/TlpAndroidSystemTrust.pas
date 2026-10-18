@@ -85,9 +85,8 @@ type
 /// <summary>
 /// Hands the library the running JavaVM, which lets Verify attach arbitrary (non-Java)
 /// handshake threads. Idempotent - the first non-nil call wins. On Delphi it is called
-/// automatically from this unit's initialization with System.JavaMachine (the RTL has set
-/// it by then), so a NativeActivity app needs nothing. On FPC it is REQUIRED (no RTL handle
-/// to auto-resolve): call it once with the JavaVM from your JNI_OnLoad, or Verify fails closed.
+/// automatically, so a NativeActivity app needs nothing. On FPC it is REQUIRED: call it once
+/// with the JavaVM from your JNI_OnLoad, or Verify fails closed.
 /// </summary>
 procedure TlsLibAndroidInitTrust(AJavaVM: Pointer);
 
@@ -1181,9 +1180,7 @@ initialization
   TAndroidTrustApi.ResolveDynamicImports;
 
 {$IFNDEF FPC}
-  // Delphi: the RTL sets System.JavaMachine (in ANativeActivity_onCreate) before this unit
-  // initializes, so capturing it here makes a NativeActivity app zero-config. FPC has no
-  // such global - its caller passes the JavaVM from JNI_OnLoad.
+  // Delphi captures the JavaVM automatically; FPC callers pass it from JNI_OnLoad.
   TlsLibAndroidInitTrust(System.JavaMachine);
 {$ENDIF}
 

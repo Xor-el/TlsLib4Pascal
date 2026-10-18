@@ -110,7 +110,7 @@ const
   WinsockVersion = $0202;
   // refuses the same port to every other process, which SO_REUSEADDR would allow on Windows
   SoExclusiveAddrUse = not SO_REUSEADDR;
-  // WSA_FLAG_NO_HANDLE_INHERIT, which neither RTL declares
+  // WSA_FLAG_NO_HANDLE_INHERIT
   WsaFlagNoHandleInherit = $80;
 
 { TWindowsNetOs }
@@ -120,7 +120,6 @@ var
   LData: TWSAData;
   LLibrary: NativeUInt;
 begin
-  // the RTL socket classes started Winsock implicitly, and none is used any longer
   WSAStartup(WinsockVersion, LData);
   // ws2_32 is mapped into every process that started Winsock, so the handle is not closed
   LLibrary := TDynamicLibrary.Open('ws2_32.dll');

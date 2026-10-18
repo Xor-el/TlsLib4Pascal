@@ -43,9 +43,10 @@ A setter refuses a nil entry, the reserved codepoint 0, a codepoint listed twice
 decompressors (all a `compress_certificate` extension can carry). `Build` refuses a non-empty codec
 list the role can never use: client compressors or a cache without `WithCredential`, server
 decompressors without `WithPeerAuth`, and server compressors or a cache with no certificate
-credential (an empty list is always fine). To keep zlib
+credential. A cache beside an empty compressor list is refused too. To keep zlib
 beside your own, include `TZlibCertificateCompression.DefaultCompressors` / `DefaultDecompressors`
-in the array. To turn compression off entirely, pass an empty array in both directions.
+in the array. To turn compression off entirely, pass an empty array in both directions and set no
+cache.
 
 A compressor is chosen in the **sender's** order: the first of its compressors that the peer
 advertised. The message is then sent compressed whether or not it ended up smaller; RFC 8879 sets

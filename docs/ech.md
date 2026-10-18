@@ -37,14 +37,14 @@ LEngine := TTlsEngineFactory.CreateClientEngine(LClient.Build, 'secret.example')
 `WithEch` takes one exclusive mode: `Enable` offers the config list, `Retry` does so for the
 reconnection driven by a reject's `retry_configs` (a second reject is not retried again), and `Grease`
 only sends a decoy. `Enable` and `Retry` need a **TLS 1.3-only** client, because the inner ClientHello
-never offers TLS 1.2 (RFC 9849 §6.1): `Build` refuses a dual-version client with
+never offers TLS 1.2 (RFC 9849 6.1): `Build` refuses a dual-version client with
 `EInvalidOperationTlsLibException` rather than quietly narrowing it, so pin `WithSupportedVersions` first.
 
 The client picks the first HPKE suite it supports from the config, builds the inner and outer, seals
 the inner, and sends the outer. Once the server confirms acceptance the handshake continues on the
 inner — the certificate is verified against the **true** name (`secret.example`), never the public
 name. With `WithServerNameIndication(TServerNameIndication.Omit)` the inner ClientHello carries no SNI at
-all, while the outer one still carries the config's public name (RFC 9849 §6.1).
+all, while the outer one still carries the config's public name (RFC 9849 6.1).
 
 ### What happens on rejection
 
@@ -53,7 +53,7 @@ If the server cannot decrypt ECH (a stale or wrong config), it completes the han
 completes that handshake, then aborts with an `ech_required` alert and surfaces the outcome so the
 application — not the library — decides whether to retry with the new configuration.
 
-The reject handshake is authenticated against the config's **public name** (RFC 9849 §6.1.7), and
+The reject handshake is authenticated against the config's **public name** (RFC 9849 6.1.7), and
 the `retry_configs` are surfaced only after that succeeds. `WithDangerousDisableServerNameCheck`
 turns off the match against your *origin* only; the public-name check stays on. A `Custom`
 verifier receives the public name as the host on a reject and owns that check; the verify callback
@@ -97,7 +97,7 @@ same exception type. Connecting without ECH in that case is your explicit
 choice: catch the error and build again with `Grease`.
 
 To make ECH users indistinguishable from non-users, a client with no usable config can send a decoy
-ECH extension (RFC 9849 §6.2); `Grease` leaves the offered versions alone:
+ECH extension (RFC 9849 6.2); `Grease` leaves the offered versions alone:
 
 ```pascal
 LClient.Tls13.WithEch(TEchClientModes.Grease); // send a decoy ech, offer no real ECH
@@ -136,10 +136,10 @@ configs as `retry_configs`. The second argument, `True`, tries every key (not on
 `config_id` matches), which tolerates a client that hides the id. `WithEchKeyStore` raises on a
 nil store, on a store with no entries or with retry configs that are empty or not a valid list, and
 on a key store entry whose key or advertised cipher suite the crypto provider cannot serve. A server
-that only receives the inner ClientHello a split-mode client-facing server forwards (RFC 9849
-sec. 7.2) is configured with `WithEchBackend` instead; it holds no keys, so it cannot be combined
-with `WithEchKeyStore`. A backend aborts an outer-type ech with `illegal_parameter` (RFC 9849
-sec. 7), so use it only behind the client-facing server, never on a directly reachable port. After
+that only receives the inner ClientHello a split-mode client-facing server forwards (RFC 9849 7.2)
+is configured with `WithEchBackend` instead; it holds no keys, so it cannot be combined with
+`WithEchKeyStore`. A backend aborts an outer-type ech with `illegal_parameter` (RFC 9849 7), so use
+it only behind the client-facing server, never on a directly reachable port. After
 a HelloRetryRequest it also holds the second ClientHello to the first one's inner: the inner marker
 must still be present and the random unchanged, else `illegal_parameter`.
 
@@ -163,7 +163,7 @@ a random id is chosen.
 
 `-public_name` is the client-facing name carried inside the `ECHConfig` (the outer SNI);
 `-origin` is the name clients actually connect to (the inner SNI) and is the owner of the HTTPS
-record where the config is published (RFC 9460 §2.3 and §9, RFC 9848 §3, RFC 9849 §4). It writes an RFC 9934 PEM (a
+record where the config is published (RFC 9460 2.3 and 9, RFC 9848 3, RFC 9849 4). It writes an RFC 9934 PEM (a
 PKCS#8 `PRIVATE KEY` block the server store loads, plus an `ECHCONFIG` block) and prints the DNS
 presentation line, owned by the origin. The `-out` file must not already exist: it is created
 exclusively and is never overwritten or written through a symlink. On POSIX its mode is 0600; on
@@ -174,12 +174,12 @@ secret.example. HTTPS 1 . ech="AD7+DQA6BwAg..."
 ```
 
 Set **`-max_name_len`** to the length of the longest backend name this config serves. The client
-pads the encrypted inner up to that length (RFC 9849 §6.1.3), so every name at or below it produces
+pads the encrypted inner up to that length (RFC 9849 6.1.3), so every name at or below it produces
 the same ciphertext size and its length is hidden. The default is the longer of `64` and the
 `-origin` length (at most `255`), so the origin is always fully padded. `0` is still accepted
-explicitly: RFC 9849 defines it as "longest name not known", and the inner is then only rounded to
-a 32-byte multiple, so a shorter name leaks its length within that bucket. Prefer a value that
-covers all your names when you know them.
+explicitly: RFC 9849 defines it as the longest backend name being unknown, and the inner is then
+only rounded to a 32-byte multiple, so a shorter name leaks its length within that bucket. Prefer a
+value that covers all your names when you know them.
 
 ---
 

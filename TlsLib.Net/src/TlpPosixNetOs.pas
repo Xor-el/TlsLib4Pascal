@@ -186,8 +186,7 @@ const
   ErrAgain = ESysEAGAIN;
   ErrWouldBlock = ESysEWOULDBLOCK;
   ErrConnAborted = ESysECONNABORTED;
-  // the FreeBSD, DragonFly and OpenBSD RTLs name no EPROTO, and their kernels report a connection
-  // that went before it was taken as ECONNABORTED
+  // where EPROTO is undeclared, a connection that went before it was taken is ECONNABORTED
 {$IF DECLARED(ESysEPROTO)}
   ErrProtocol = ESysEPROTO;
 {$ELSE}

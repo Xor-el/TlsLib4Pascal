@@ -54,10 +54,8 @@ hand the peer chain to the platform verifier via JNI. The platform manager does 
 stapled OCSP response, so the delegate decides the staple with the library's own revocation verdict
 (cache-only, no network) after the platform chain check — see the posture note below.
 
-The delegate needs the running JavaVM to attach handshake threads. **On Delphi this is automatic** — the
-unit captures `System.JavaMachine` in its `initialization` (the RTL has set it by then, in
-`ANativeActivity_onCreate`), so a NativeActivity app has nothing to call. **On FPC it must be supplied
-once** — FPC has no such global, and its `JNI_OnLoad` is the natural place to pass it:
+The delegate needs the running JavaVM to attach handshake threads. **On Delphi this is automatic**,
+so a NativeActivity app has nothing to call. **On FPC it must be supplied once**, from `JNI_OnLoad`:
 
 ```pascal
 // Delphi: nothing to do - UseSystemTrust just works on Android.

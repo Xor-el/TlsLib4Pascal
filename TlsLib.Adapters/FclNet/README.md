@@ -106,7 +106,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `Crypto` / `Pkix`                                     | the providers the slot-driven build uses (nil = the shared defaults) |
 | `ClientConfig` / `ServerConfig`                       | a fully built config that replaces the slot-driven build |
 
-**Read timeouts**: the handshake cap (`HandshakeTimeoutMs`) and an application read's `Socket.IOTimeout` are both enforced by waiting on the socket (`poll` on Unix, `select` on Windows) before each receive, not by the kernel's receive timeout, so they hold on every CPU. On Linux PowerPC, MIPS and SPARC, fcl-net numbers its socket-option constants the same as on other Linux CPUs and the kernel refuses that option, so setting `Socket.IOTimeout` itself raises `ESocketError` there; the adapter does not set it. A host that sets it on those CPUs should catch that error: the value is still stored and still bounds reads.
+**Read timeouts**: the adapter waits before each receive, so `HandshakeTimeoutMs` and read timeouts hold on every supported CPU. Do not set `Socket.IOTimeout`; the wait replaces it.
 **Certificate chain**: `CertificateData.Certificate` is the chain the server *presents* — put your leaf
 **followed by any intermediates** (a concatenated PEM, or a multi-cert byte slot) so clients build a
 complete chain. `CertCA` / `TrustedCertificate` are **trust sources** (used to verify the *peer*), never

@@ -49,8 +49,8 @@ principal test units (the fuzz + BoGo + KAT suites cross-cover several).
 | 1 | **Parser safety — no over-read.** One bounds-checked reader mediates all wire parsing; every length-prefixed field is validated against bytes-remaining *before* the read; sub-structures parse over a bounded sub-slice; trailing bytes are rejected (`decode_error`). No raw pointer indexing into borrowed buffers. | Heartbleed / GnuTLS-length buffer over-read | the single wire reader/codec | `WireCodecTests`, `RecordHeaderTests`, `ExtensionCodecTests`; **structure-aware fuzzing** (`TlsFuzzer`) asserts no crash / no over-read on truncated / oversized / reordered / duplicated / wrong-context input |
 | 2 | **Constant-time secret comparison.** Finished `verify_data`, PSK binder, session-ticket MAC/decrypt, HRR-cookie MAC, and AEAD tags use a constant-time compare — never an early-exit `=` on secret-dependent data. | timing oracle / MAC forgery | CT compare helper used at every secret-equality site | key-schedule + handshake + resumption tests (`Tls13KeyScheduleTests`, `Tls12KeyScheduleTests`, `Tls13ResumptionTests`) |
 | 3 | **Certificate decompression cap (RFC 8879).** Output is capped at the peer's `uncompressed_length`; output exceeding it or a length mismatch aborts `bad_certificate`; the same max message size applies as if uncompressed; memory is bounded during decompression. | decompression / zip bomb | centralized bomb defense in the compression policy layer (declared length capped at the configured `MaxTotalChainLength`, ratio guard `100`, exact-length match) | `ResourceLimitTests` (bomb / decompression ceiling) + the compression policy tests |
-| 4 | **Peer key-share / public-key validation.** Incoming key shares are validated before use: NIST-curve points are checked on-curve and non-identity; X25519/X448 are safe by construction (the Windows CNG overlay additionally reduces a non-canonical X25519 u per RFC 7748 sec. 5, and fails closed as a peer-input error on a u the OS module refuses); ML-KEM decapsulation uses constant-time implicit rejection; the hybrid combiner concatenates so no component failure leaks. | invalid-curve / small-subgroup | the KEM-shaped `INamedGroup` seam (`ValidatePeerShare`) | `NamedGroupTests` (incl. hybrid + short-ciphertext rejection) |
-| 5 | **AEAD nonce non-reuse + usage limits.** Per-epoch nonces are monotonic and never repeat within a key; on TLS 1.3 a proactive KeyUpdate rekeys before the AES-GCM record limit (~2^24.5); TLS 1.2 has no rekey, so at the limit (23,726,566 records) the engine sends close_notify and raises `ERecordLimitTlsLibException`; the sequence never wraps without a rekey. | catastrophic GCM nonce reuse | `IRecordProtection` (monotonic sequence → nonce) + the AEAD backend's own nonce-reuse rejection (`SAeadSealRejected`; the CNG overlay checks too) | `RecordProtectionTests`, `ProviderTests` |
+| 4 | **Peer key-share / public-key validation.** Incoming key shares are validated before use: NIST-curve points are checked on-curve and non-identity; X25519 is safe by construction (the OS-native crypto overlay additionally reduces a non-canonical X25519 u per RFC 7748 5, and fails closed as a peer-input error on a u the OS module refuses); ML-KEM decapsulation uses constant-time implicit rejection; the hybrid combiner concatenates so no component failure leaks. | invalid-curve / small-subgroup | the KEM-shaped `INamedGroup` seam (`ValidatePeerShare`) | `NamedGroupTests` (incl. hybrid + short-ciphertext rejection) |
+| 5 | **AEAD nonce non-reuse + usage limits.** Per-epoch nonces are monotonic and never repeat within a key; on TLS 1.3 a proactive KeyUpdate rekeys before the AES-GCM record limit (~2^24.5); TLS 1.2 has no rekey, so at the limit (23,726,566 records) the engine sends close_notify and raises `ERecordLimitTlsLibException`; the sequence never wraps without a rekey. | catastrophic GCM nonce reuse | `IRecordProtection` (monotonic sequence → nonce) + the AEAD backend's own nonce-reuse rejection (`SAeadSealRejected`; the OS-native crypto overlay checks too) | `RecordProtectionTests`, `ProviderTests` |
 | 6 | **DoS / resource limits.** Hard caps on handshake-reassembly size, floods of empty records / warning alerts / KeyUpdate requests, the stateful session store, and the 0-RTT strike register. The reassembly and chain sizes, the session store and the strike register are configurable; the flood caps (consecutive empty records, change_cipher_spec, warning alerts, post-handshake messages) are fixed constants. Secure defaults throughout. A handshake parked on an async verdict buffers inbound under these same caps. | memory exhaustion / infinite-work loops | the record layer + engine bounds; the stateless HRR cookie | record/handshake tests; `TStrikeRegisterAntiReplay` bounds (`Tls13ResumptionTests`) |
 | 7 | **Secret hygiene.** All key material — schedule secrets, traffic keys, PSKs, resumption secrets, STEK/ticket keys, the HRR-cookie secret — lives in a heap-stable `ISecretBuffer`, wiped once at end-of-life with a plain `FillChar` over the buffer (`TSecureMemory.Wipe`; there is no extra barrier against the compiler eliding the store). Provider intermediates (round keys, HKDF PRKs, scratch) are wiped too. | key material recovered from freed memory | `TSecretBuffer` (refcounted, single buffer, wiped in its destructor when the last reference is released) | `SecretTests` (`TestWipeOnLastRelease` asserts the buffer is zeroed when its last reference is released) |
 | 8 | **Single-threaded per connection.** An engine/connection is single-threaded (caller serializes; no internal locks). Config objects are immutable once built and freely shareable across threads. | accidental data races on connection state | stated contract; frozen config objects | design invariant; config-freeze tests |
@@ -82,16 +82,16 @@ one when ECH was accepted). For debugging only — never production.
 - **AEAD-only, forward-secret.** No CBC-HMAC, RC4, 3DES, static-RSA/DH, or TLS-level compression —
   designing out BEAST / Lucky13 / POODLE / padding-oracle / CRIME by construction. TLS 1.2 is a
   hardened ECDHE + AEAD profile that offers Extended Master Secret; a TLS 1.2 keying-material
-  exporter is available only when the session used EMS (RFC 7627 §5.4). A TLS 1.2 server does not
+  exporter is available only when the session used EMS (RFC 7627 5.4). A TLS 1.2 server does not
   resume a session established without EMS by default: it declines to a full handshake and issues
-  no such session (RFC 7627 §5.3). `Tls12.WithNonEmsResumption` can instead abort the handshake
+  no such session (RFC 7627 5.3). `Tls12.WithNonEmsResumption` can instead abort the handshake
   (the literal SHOULD) or resume it for legacy clients; `WithExtendedMasterSecret(True)` rejects
   every non-EMS client.
 - **Opt-in TLS 1.2 pre-shared keys.** Configuring a `TTls12Psk` adds the ECDHE_PSK suites over an AEAD
   (RFC 5489, RFC 7905, RFC 8442); the exchange stays ephemeral, so the posture above holds. Plain PSK
-  (no forward secrecy, RFC 4279 §7.1), DHE_PSK and CBC variants are not implemented. An identity the
-  server does not know proceeds on a stand-in secret and ends like a wrong secret (RFC 4279 §2 permits
-  this), so a probe cannot enumerate identities; the identity itself is sent in the clear (RFC 4279 §7.3).
+  (no forward secrecy, RFC 4279 7.1), DHE_PSK and CBC variants are not implemented. An identity the
+  server does not know proceeds on a stand-in secret and ends like a wrong secret (RFC 4279 2 permits
+  this), so a probe cannot enumerate identities; the identity itself is sent in the clear (RFC 4279 7.3).
   A PSK session resumes only while its identity is configured with the same secret.
 - **Post-quantum hybrid KEX** (X25519MLKEM768, and SecP256r1MLKEM768 in the Compatible and Hardened
   presets) offered by the presets and preferred under Hardened and Strict. X25519MLKEM768 is
@@ -101,11 +101,11 @@ one when ECH was accepted). For debugging only — never production.
   negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
   only as forward-secret as the session store / ticket-key lifetime. Client-cache tickets are single-use; server tickets are single-use with a session
   store. A resumption chain ends seven days after the full handshake that authenticated it, however
-  often its tickets are renewed (RFC 9846 §4.7.1): a renewal keeps the original authentication time
+  often its tickets are renewed (RFC 9846 4.7.1): a renewal keeps the original authentication time
   and advertises only what is left. A connection ended by a fatal alert, sent or received, drops the
-  sessions and stateful tickets it stored (RFC 5246 §7.2.2, RFC 9846 §6); a stateless ticket cannot
+  sessions and stateful tickets it stored (RFC 5246 7.2.2, RFC 9846 6); a stateless ticket cannot
   be recalled. A transport failure (a reset socket) is not a fatal alert and leaves them resumable
-  (RFC 5246 §7.2.1). A server's ticket lifetime defaults to 7200 s and `WithTicketLifetime` accepts at
+  (RFC 5246 7.2.1). A server's ticket lifetime defaults to 7200 s and `WithTicketLifetime` accepts at
   most seven days (604800 s); a client clamps any advertised lifetime to seven days. With resumption
   on and no session store or ticket keys set, `Build` mints a default ticket key (STEK) that rotates on
   that lifetime. **0-RTT is off by default** and, when enabled, is bounded by an anti-replay strategy.
@@ -167,8 +167,8 @@ These are intentional and documented — flagging them up front so they aren't m
   mORMot handshake timeout).
 - **Strict PKCS#1 DigestInfo.** Every RSASSA-PKCS1-v1_5 verification (certificate, CRL and OCSP
   signatures, and TLS 1.2 handshake signatures) re-encodes the DigestInfo with its NULL parameters and
-  compares it exactly (RFC 8017 8.2.2, 9.2 and B.1). The optional Windows native (CNG) verifier,
-  which only verifies handshake signatures, does the same: it names no hash OID and hands CNG the one
+  compares it exactly (RFC 8017 8.2.2, 9.2 and B.1). The optional OS-native crypto overlay,
+  which only verifies handshake signatures, does the same: it names no hash OID and hands the OS the one
   DigestInfo of RFC 8017 9.2 Note 1, so a DigestInfo without the NULL does not verify there either. The
   portable path is always strict as well. One path is outside this: OS
   trust delegate mode (the Default mode of OS trust on Windows, macOS, iOS and Android), where the chain and any

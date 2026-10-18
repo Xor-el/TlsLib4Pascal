@@ -55,10 +55,9 @@ begin
 end;
 ```
 
-Construction is cheap (a CPU-feature probe plus vtable wiring; the CSPRNG seeds lazily). Build a
-config once, then share it lock-free across many connections. (The `TTlsLib` facade in
-[Your first client](#3-your-first-client-fully-verified) uses the shared default instances,
-`TDefaultCryptoProvider.Shared` / `TDefaultPkixProvider.Shared`.)
+Construction is cheap. Build a config once, then share it lock-free across many connections. (The
+`TTlsLib` facade in [Your first client](#3-your-first-client-fully-verified) uses the shared
+default instances, `TDefaultCryptoProvider.Shared` / `TDefaultPkixProvider.Shared`.)
 
 ## 3. Your first client (fully verified)
 

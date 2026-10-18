@@ -57,10 +57,9 @@ uses
 type
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
   /// TlsLib.Net's TNetOs on Socket.Handle, bypassing the SSL-aware handler methods
-  /// (which carry decrypted application data and would otherwise recurse). The handshake read cap
-  /// and an application read's Socket.IOTimeout are both enforced by a wait on the handle before
-  /// each receive, which works on every CPU (the kernel's receive timeout is refused on PowerPC,
-  /// MIPS and SPARC). An expiry is ETlsHandshakeTimeout under the handshake cap and the retryable
+  /// (which carry decrypted application data and would otherwise recurse). A wait before each
+  /// receive enforces the handshake cap and read timeouts on every CPU, so Socket.IOTimeout is not
+  /// needed. An expiry is ETlsHandshakeTimeout under the handshake cap and the retryable
   /// ETlsReadTimeout on an application read, never end of stream.</summary>
   TFclNetSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private

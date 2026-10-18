@@ -11,11 +11,10 @@ network-security-config) reached over JNI.
 
 ## Zero-config trust
 
-There is nothing to call. On Android the delegate captures the JavaVM itself from
-`System.JavaMachine` when its unit initializes, so `UseSystemTrust` just works. The one exception is **Android under FPC**, which has
-no `System.JavaMachine` to auto-resolve - there you call `TlsLibAndroidInitTrust(AJavaVM)` once at
-startup, passing the running JavaVM. This Delphi/FMX project does not need it, which is why the form
-carries no platform-specific trust code.
+There is nothing to call. On Android under Delphi the delegate captures the JavaVM itself, so
+`UseSystemTrust` just works. The one exception is **Android under FPC**: there you call
+`TlsLibAndroidInitTrust(AJavaVM)` once at startup, passing the running JavaVM. This Delphi/FMX project does not need it, which is why the form carries
+no platform-specific trust code.
 
 ## Files here
 

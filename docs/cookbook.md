@@ -71,7 +71,7 @@ A server needs a **credential** (chain + private key). Three ways to supply it:
 ```pascal
 uses TlpTlsPresets, TlpITlsConfigBuilder, TlpITlsConfig, TlpTlsCredential;
 
-// TTlsCredential.Load / LoadPkcs12 take the crypto + pkix providers explicitly
+// TTlsCredential.Load takes the crypto + pkix providers explicitly; LoadPkcs12 takes the crypto provider only
 // (a) separate PEM/DER files — leaf-first chain + unencrypted key
 LCred := TTlsCredential.Load(Crypto, Pkix,
   LoadFile('server-chain.pem'), LoadFile('server-key.pem'));
@@ -198,7 +198,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 ```
 
 If your suites arrive as names (a config file, a host's cipher-list string), `TCipherSuiteCatalog.TryCode`
-(unit `TlpCipherSuiteCatalog`) maps an exact IANA or OpenSSL name to its code; the framework adapters do this for their host's
+(unit `TlpCipherSuiteCatalog`) maps an IANA or OpenSSL name (case-insensitive) to its code; the framework adapters do this for their host's
 cipher-list property. The suite order in the configured registry is
 the single preference authority: the default registries put AES-GCM first only when the CPU has
 AES hardware, and a registry you supply through `WithCipherSuites` is used in the order you gave it.
@@ -261,7 +261,7 @@ The short version — the full treatment is in
 
 // the OS root store plus my private CA (a chain the OS rejects only for lack of a root is
 // judged against my CA; any other OS failure stays final)
-//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore;   // TSystemTrustMode, TTrustAnchorStore
+//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;   // TSystemTrustMode, TTrustAnchorStore, ITrustAnchorStore
 //   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
 //     TTrustAnchorStore.Create(Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore).Build)
 
@@ -345,7 +345,7 @@ handshake-read timeout (`HandshakeTimeoutMs`, `SSLOptions.HandshakeTimeoutMs` on
 `SetTlsLibMormotHandshakeTimeout` for mORMot; `0` = 30 s default; fcl-net falls back to
 `Socket.IOTimeout` first) so a stalled peer can't pin the connecting thread.
 Each also honours its host's cipher-list property (`CipherList` on mORMot, `SSLOptions.CipherList` on Indy, `Ciphers` on
-Synapse, `CertificateData.CipherList` on fcl-net): exact IANA or OpenSSL suite names, in preference
+Synapse, `CertificateData.CipherList` on fcl-net): IANA or OpenSSL suite names (case-insensitive), in preference
 order, narrowing the hardened set exactly as `WithCipherSuiteList` does. Cipher-string expressions
 like `HIGH` or `!aNULL` are refused rather than guessed at. See the package READMEs:
 [mORMot](../TlsLib.Adapters/mORMot/README.md) · [Indy](../TlsLib.Adapters/Indy/README.md) ·
@@ -948,9 +948,9 @@ A server that still accepts non-EMS clients chooses how it treats a resumption o
 offered without EMS (RFC 7627 5.3) with `Tls12.WithNonEmsResumption` (`TNonEmsResumption`, unit
 `TlpTlsCredential`): `Decline` (the default) runs a full handshake, `Abort` ends it with
 `handshake_failure`, and `Resume` performs the legacy abbreviated handshake. `Decline` and `Abort`
-also stop issuing resumable sessions from a non-EMS handshake. `Resume` together with
+also stop issuing resumable sessions from a non-EMS handshake. `Abort` or `Resume` together with
 `WithExtendedMasterSecret(True)` is refused at `Build`. The `Tls12` facet needs TLS 1.2 among the
-offered versions, so it does not apply to the Strict preset.
+offered versions, so it does not apply to the Hardened or Strict preset.
 
 ## Cap the inbound record size
 

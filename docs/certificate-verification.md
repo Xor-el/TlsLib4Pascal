@@ -149,7 +149,7 @@ the pipeline), and so does the verify callback — so
 `DangerousSkip` together with `WithCertificatePinning` is pin-only trust: no CA validation,
 but the peer must still present a pinned key. For tests and pinned development peers only. A
 real Encrypted Client Hello offer is refused at `Build` under it, since nothing would authenticate
-an ECH reject (RFC 9849 §6.1.7).
+an ECH reject (RFC 9849 6.1.7).
 
 ```pascal
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
@@ -357,7 +357,8 @@ The limits are tunable through `TLiveRevocationOptions` (declare one, which alre
 defaults, and set what you need), passed as the last constructor argument: `MaxOcspResponders` and
 `MaxCrlDistributionPoints` (1 to 8, default 3), `MinAttemptMs` (1 to 60000, default 250; never 0,
 which would leave a fetch unbounded), `MaxCrlBytes` (4 KiB to 256 MiB, default 32 MiB) and
-`IssuerCandidates` and `MaxCachedResponses` (0 to 1024, default 64; 0 turns the response cache off).
+`MaxCachedResponses` (0 to 1024, default 64; 0 turns the response cache off). `IssuerCandidates` is a
+list of local issuer certificates for a leaf-only chain (default none; no range).
 A value outside its range, or a nil `Pkix` provider, clock, monotonic clock or fetcher, is refused when the checker is
 created.
 

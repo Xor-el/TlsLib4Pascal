@@ -78,8 +78,7 @@ const
     (Id: 1; Name: 'CLOCK_MONOTONIC'));
 {$IFEND}
 {$IFDEF NETBSD}
-  // the plain name is the 32-bit time_t compat entry point; the RTL's timespec is the current ABI
-  // (on 64-bit targets: a 32-bit NetBSD build would pair a 64-bit time_t with a 32-bit clong)
+  // the plain name is the 32-bit time_t compat entry point; this one is the current ABI
   ClockGetTimeSymbol = '__clock_gettime50';
 {$ELSE}
   ClockGetTimeSymbol = 'clock_gettime';
