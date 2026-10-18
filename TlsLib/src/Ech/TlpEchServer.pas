@@ -141,7 +141,9 @@ resourcestring
   SEncodedInnerNotCanonical = 'the EncodedClientHelloInner legacy_version or ' +
     'legacy_compression_methods is not the TLS 1.3 canonical form';
   SMissingInnerEch = 'the reconstructed inner has no inner-type encrypted_client_hello';
+  SMalformedInnerEch = 'the inner encrypted_client_hello is not the one-byte inner marker';
   SInnerOffersLegacy = 'the inner ClientHello offers TLS 1.2 or below';
+  SEmptyInnerVersions = 'the inner supported_versions list is empty';
   SEchRetryMismatch = 'the retry ech changed config_id/cipher_suite or set a non-empty enc';
   SOuterLegacyVersion = 'the ClientHelloOuter legacy_version is not 0x0303';
   SEchRetryDecrypt = 'the retry ech failed to decrypt at seq=1';
@@ -320,7 +322,7 @@ begin
   LReader := TWireReader.Create(AData);
   LList := LReader.OpenVector(1);
   if LList.EndReached then
-    Exit;
+    raise EDecodeErrorTlsLibException.CreateRes(@SEmptyInnerVersions);
   while not LList.EndReached do
   begin
     LVersion := LList.ReadUInt16;
@@ -338,11 +340,9 @@ var
   LReader, LSession, LSuites, LComp: TWireReader;
   LEncEntries, LReconEntries: TExtensionVector;
   LInner: TTlsClientHello;
-  LType: TEchClientHelloType;
-  LOuterEch: TEchOuterClientHello;
   LPadding, LCompMethods: TBytes;
   LI: Int32;
-  LHasVersions: Boolean;
+  LHasVersions, LHasInnerEch: Boolean;
 begin
   // parse EncodedClientHelloInner: client_hello (extensions bounded by their own length
   // prefix) followed by padding, which must be all zero
@@ -387,12 +387,19 @@ begin
   LReconEntries := TEchOuterExtensions.Reconstruct(AOuterEntries, LEncEntries);
 
   // the inner must carry an inner-type ech marker and must be TLS 1.3-only
-  LType := TEchClientHelloType.Outer;
+  LHasInnerEch := False;
   LHasVersions := False;
   for LI := 0 to LReconEntries.Count - 1 do
   begin
     if LReconEntries.Entries[LI].ExtensionType = TExtensionTypes.EncryptedClientHello then
-      TEchExtension.Decode(LReconEntries.Entries[LI].Data, LType, LOuterEch)
+    begin
+      // the inner form is exactly the type byte (RFC 9849 sec. 7.1), else illegal_parameter
+      if (System.Length(LReconEntries.Entries[LI].Data) <> 1) or
+        (LReconEntries.Entries[LI].Data[0] <> TEchClientHelloType.Inner.ToByte) then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.IllegalParameter, @SMalformedInnerEch);
+      LHasInnerEch := True;
+    end
     else if LReconEntries.Entries[LI].ExtensionType = TExtensionTypes.SupportedVersions then
     begin
       LHasVersions := True;
@@ -401,7 +408,7 @@ begin
           TTlsAlertDescription.IllegalParameter, @SInnerOffersLegacy);
     end;
   end;
-  if LType <> TEchClientHelloType.Inner then
+  if not LHasInnerEch then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.IllegalParameter, @SMissingInnerEch);
   if not LHasVersions then
