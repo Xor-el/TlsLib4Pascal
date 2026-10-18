@@ -24,7 +24,7 @@ type
   TCryptoBackend = (
     /// <summary>The portable implementation.</summary>
     Portable,
-    /// <summary>The OS/system module (e.g. Windows CNG).</summary>
+    /// <summary>The OS/system module.</summary>
     System,
     /// <summary>Assembled in portable code over system primitives - the secret passes
     /// through the module but the construction is not a module service (e.g. HKDF built
@@ -36,7 +36,7 @@ type
   TCryptoBackendReason = (
     /// <summary>It is system-backed (or composed) - not a fallback.</summary>
     NotFallback,
-    /// <summary>The OS module is absent on this host (e.g. no bcrypt.dll).</summary>
+    /// <summary>The OS module is absent on this host.</summary>
     NoModule,
     /// <summary>The module lacks this algorithm on this host/version.</summary>
     NotPresent,

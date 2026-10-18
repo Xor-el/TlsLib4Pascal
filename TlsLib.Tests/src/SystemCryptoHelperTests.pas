@@ -28,6 +28,9 @@ uses
 {$ENDIF FPC}
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
+  TlpICryptoBackendReport,
+  TlpISystemSigningKey,
+  TlpSystemCryptoTypes,
   TlpISecretBuffer,
   TlpISigningKey,
   TlpImportedCredential,
@@ -312,6 +315,31 @@ type
     procedure TestScalarsWithOneNonZeroByteMatchReference;
   end;
 
+  /// <summary>The platform-neutral backend-report base, over fakes that stand in for a
+  /// platform.</summary>
+  TTestSystemBackendReport = class(TTlsLibTestCase)
+  strict private
+    procedure CheckNotNative(const AName: string; const AEntry: TCryptoBackendEntry);
+    procedure CheckComposed(const AName: string; const AEntry: TCryptoBackendEntry);
+  published
+    procedure TestRandomDefaultsToNotNative;
+    procedure TestHashDefaultsToNotNative;
+    procedure TestHmacDefaultsToNotNative;
+    procedure TestAeadDefaultsToNotNative;
+    procedure TestKeyAgreementDefaultsToNotNative;
+    procedure TestKemDefaultsToNotNative;
+    procedure TestSigningDefaultsToNotNative;
+    procedure TestHkdfIsNotNativeWhenHmacDefaults;
+    procedure TestTls12PrfIsNotNativeWhenHmacDefaults;
+    procedure TestHkdfIsComposedExactlyWhereHmacIsSystem;
+    procedure TestTls12PrfIsComposedExactlyWhereHmacIsSystem;
+    procedure TestHpkeFacetIsComposedWhenFlagged;
+    procedure TestHpkeFacetIsNotNativeWhenNotFlagged;
+    procedure TestPrimitivesAndSigningFacetsAreNeverWhole;
+    procedure TestSigningKeyIsSystemWhenMarked;
+    procedure TestSigningKeyIsNotNativeWhenUnmarked;
+  end;
+
 implementation
 
 type
@@ -379,6 +407,32 @@ const
   Prk3 = '19ef24a32c717b167f33a91d6f648bdf' + '96596776afdb6377ac434c1c293ccb04';
   Okm3 = '8da4e775a563c18f715f802a063c5a31' + 'b8a11f5c5ee1879ec3454e5f3c738d2d' +
     '9d201395faa4b61a96c8';
+
+type
+  // a platform that overrides nothing: every per-algorithm answer is the base default
+  TBareBackendReport = class(TSystemBackendReportBase)
+  public
+    function Describe: string; override;
+  end;
+
+  // a platform whose OS HMAC serves only some hashes
+  TFakeBackendReport = class(TBareBackendReport)
+  public
+    function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
+  end;
+
+  TFakePlainSigningKey = class(TInterfacedObject, ISigningKey)
+  public
+    function CapableSchemes: TArray<TSignatureScheme>;
+    function PublicKeyInfo: TBytes;
+    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+  end;
+
+  TFakeSystemSigningKey = class(TFakePlainSigningKey, ISystemSigningKey);
+
+const
+  // the hashes the fake OS HMAC serves
+  HmacSystemHashes = [THashAlgorithm.SHA_256, THashAlgorithm.SHA_512];
 
 { TRecordingHkdf }
 
@@ -1868,6 +1922,220 @@ begin
       end;
 end;
 
+{ TBareBackendReport }
+
+function TBareBackendReport.Describe: string;
+begin
+  Result := '';
+end;
+
+{ TFakeBackendReport }
+
+function TFakeBackendReport.HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  if AAlgorithm in HmacSystemHashes then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := Ent(TCryptoBackend.Portable, TCryptoBackendReason.NotPresent);
+end;
+
+{ TFakePlainSigningKey }
+
+function TFakePlainSigningKey.CapableSchemes: TArray<TSignatureScheme>;
+begin
+  Result := nil;
+end;
+
+function TFakePlainSigningKey.PublicKeyInfo: TBytes;
+begin
+  Result := nil;
+end;
+
+function TFakePlainSigningKey.WithPreferredSchemes(
+  const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+begin
+  Result := Self;
+end;
+
+{ TTestSystemBackendReport }
+
+procedure TTestSystemBackendReport.CheckNotNative(const AName: string;
+  const AEntry: TCryptoBackendEntry);
+begin
+  CheckTrue(AEntry.Backend = TCryptoBackend.Portable, AName + ': portable');
+  CheckTrue(AEntry.Reason = TCryptoBackendReason.NoNativeImpl, AName + ': no native impl');
+end;
+
+procedure TTestSystemBackendReport.CheckComposed(const AName: string;
+  const AEntry: TCryptoBackendEntry);
+begin
+  CheckTrue(AEntry.Backend = TCryptoBackend.Composed, AName + ': composed');
+  CheckTrue(AEntry.Reason = TCryptoBackendReason.NotFallback, AName + ': not a fallback');
+end;
+
+procedure TTestSystemBackendReport.TestRandomDefaultsToNotNative;
+var
+  LReport: ICryptoBackendReport;
+begin
+  LReport := TBareBackendReport.Create(False);
+  CheckNotNative('random', LReport.RandomBackend);
+end;
+
+procedure TTestSystemBackendReport.TestHashDefaultsToNotNative;
+var
+  LReport: ICryptoBackendReport;
+  LHash: THashAlgorithm;
+begin
+  LReport := TBareBackendReport.Create(False);
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    CheckNotNative(Format('hash %d', [Ord(LHash)]), LReport.HashBackend(LHash));
+end;
+
+procedure TTestSystemBackendReport.TestHmacDefaultsToNotNative;
+var
+  LReport: ICryptoBackendReport;
+  LHash: THashAlgorithm;
+begin
+  LReport := TBareBackendReport.Create(False);
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    CheckNotNative(Format('hmac %d', [Ord(LHash)]), LReport.HmacBackend(LHash));
+end;
+
+procedure TTestSystemBackendReport.TestAeadDefaultsToNotNative;
+var
+  LReport: ICryptoBackendReport;
+  LAead: TAeadAlgorithm;
+begin
+  LReport := TBareBackendReport.Create(False);
+  for LAead := Low(TAeadAlgorithm) to High(TAeadAlgorithm) do
+    CheckNotNative(Format('aead %d', [Ord(LAead)]), LReport.AeadBackend(LAead));
+end;
+
+procedure TTestSystemBackendReport.TestKeyAgreementDefaultsToNotNative;
+var
+  LReport: ICryptoBackendReport;
+  LGroup: TKeyAgreementAlgorithm;
+begin
+  LReport := TBareBackendReport.Create(False);
+  for LGroup := Low(TKeyAgreementAlgorithm) to High(TKeyAgreementAlgorithm) do
+    CheckNotNative(Format('key agreement %d', [Ord(LGroup)]),
+      LReport.KeyAgreementBackend(LGroup));
+end;
+
+procedure TTestSystemBackendReport.TestKemDefaultsToNotNative;
+var
+  LReport: ICryptoBackendReport;
+  LKem: TKemAlgorithm;
+begin
+  LReport := TBareBackendReport.Create(False);
+  for LKem := Low(TKemAlgorithm) to High(TKemAlgorithm) do
+    CheckNotNative(Format('kem %d', [Ord(LKem)]), LReport.KemBackend(LKem));
+end;
+
+procedure TTestSystemBackendReport.TestSigningDefaultsToNotNative;
+var
+  LReport: ICryptoBackendReport;
+  LScheme: TSignatureScheme;
+begin
+  LReport := TBareBackendReport.Create(False);
+  for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
+    CheckNotNative(Format('signing %d', [Ord(LScheme)]), LReport.SigningBackend(LScheme));
+end;
+
+procedure TTestSystemBackendReport.TestHkdfIsNotNativeWhenHmacDefaults;
+var
+  LReport: ICryptoBackendReport;
+  LHash: THashAlgorithm;
+begin
+  LReport := TBareBackendReport.Create(True);
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    CheckNotNative(Format('hkdf %d', [Ord(LHash)]), LReport.HkdfBackend(LHash));
+end;
+
+procedure TTestSystemBackendReport.TestTls12PrfIsNotNativeWhenHmacDefaults;
+var
+  LReport: ICryptoBackendReport;
+  LHash: THashAlgorithm;
+begin
+  LReport := TBareBackendReport.Create(True);
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    CheckNotNative(Format('prf %d', [Ord(LHash)]), LReport.Tls12PrfBackend(LHash));
+end;
+
+procedure TTestSystemBackendReport.TestHkdfIsComposedExactlyWhereHmacIsSystem;
+var
+  LReport: ICryptoBackendReport;
+  LHash: THashAlgorithm;
+begin
+  LReport := TFakeBackendReport.Create(False);
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    if LHash in HmacSystemHashes then
+      CheckComposed(Format('hkdf %d', [Ord(LHash)]), LReport.HkdfBackend(LHash))
+    else
+      CheckNotNative(Format('hkdf %d', [Ord(LHash)]), LReport.HkdfBackend(LHash));
+end;
+
+procedure TTestSystemBackendReport.TestTls12PrfIsComposedExactlyWhereHmacIsSystem;
+var
+  LReport: ICryptoBackendReport;
+  LHash: THashAlgorithm;
+begin
+  LReport := TFakeBackendReport.Create(False);
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    if LHash in HmacSystemHashes then
+      CheckComposed(Format('prf %d', [Ord(LHash)]), LReport.Tls12PrfBackend(LHash))
+    else
+      CheckNotNative(Format('prf %d', [Ord(LHash)]), LReport.Tls12PrfBackend(LHash));
+end;
+
+procedure TTestSystemBackendReport.TestHpkeFacetIsComposedWhenFlagged;
+var
+  LReport: ICryptoBackendReport;
+begin
+  LReport := TBareBackendReport.Create(True);
+  CheckComposed('hpke facet', LReport.FacetBackend(TCryptoFacet.Hpke));
+end;
+
+procedure TTestSystemBackendReport.TestHpkeFacetIsNotNativeWhenNotFlagged;
+var
+  LReport: ICryptoBackendReport;
+begin
+  LReport := TBareBackendReport.Create(False);
+  CheckNotNative('hpke facet', LReport.FacetBackend(TCryptoFacet.Hpke));
+end;
+
+procedure TTestSystemBackendReport.TestPrimitivesAndSigningFacetsAreNeverWhole;
+var
+  LReport: ICryptoBackendReport;
+begin
+  LReport := TFakeBackendReport.Create(True);
+  CheckNotNative('primitives facet', LReport.FacetBackend(TCryptoFacet.Primitives));
+  CheckNotNative('signing facet', LReport.FacetBackend(TCryptoFacet.Signing));
+end;
+
+procedure TTestSystemBackendReport.TestSigningKeyIsSystemWhenMarked;
+var
+  LReport: ICryptoBackendReport;
+  LKey: ISigningKey;
+  LEntry: TCryptoBackendEntry;
+begin
+  LReport := TBareBackendReport.Create(False);
+  LKey := TFakeSystemSigningKey.Create;
+  LEntry := LReport.SigningKeyBackend(LKey);
+  CheckTrue(LEntry.Backend = TCryptoBackend.System, 'a marked key is system-backed');
+  CheckTrue(LEntry.Reason = TCryptoBackendReason.NotFallback, 'a marked key is not a fallback');
+end;
+
+procedure TTestSystemBackendReport.TestSigningKeyIsNotNativeWhenUnmarked;
+var
+  LReport: ICryptoBackendReport;
+  LKey: ISigningKey;
+begin
+  LReport := TBareBackendReport.Create(False);
+  LKey := TFakePlainSigningKey.Create;
+  CheckNotNative('an unmarked key', LReport.SigningKeyBackend(LKey));
+end;
+
 initialization
 
 {$IFDEF FPC}
@@ -1877,6 +2145,7 @@ initialization
   RegisterTest(TTestSignatureInputBuffer);
   RegisterTest(TTestForwardingSigningCrypto);
   RegisterTest(TTestEcPrivateScalar);
+  RegisterTest(TTestSystemBackendReport);
 {$ELSE}
   RegisterTest(TTestSystemCryptoHelpers.Suite);
   RegisterTest(TTestEcdsaSignatureEncoding.Suite);
@@ -1884,6 +2153,7 @@ initialization
   RegisterTest(TTestSignatureInputBuffer.Suite);
   RegisterTest(TTestForwardingSigningCrypto.Suite);
   RegisterTest(TTestEcPrivateScalar.Suite);
+  RegisterTest(TTestSystemBackendReport.Suite);
 {$ENDIF FPC}
 
 end.

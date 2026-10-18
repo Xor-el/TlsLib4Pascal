@@ -36,6 +36,7 @@ requires
 contains
   TlpSystemCryptoTypes in '..\..\src\TlpSystemCryptoTypes.pas',
   TlpICryptoBackendReport in '..\..\src\TlpICryptoBackendReport.pas',
+  TlpISystemSigningKey in '..\..\src\TlpISystemSigningKey.pas',
   TlpSystemCryptoExceptions in '..\..\src\TlpSystemCryptoExceptions.pas',
   TlpHkdfComposition in '..\..\src\TlpHkdfComposition.pas',
   TlpSignatureEncoding in '..\..\src\TlpSignatureEncoding.pas',

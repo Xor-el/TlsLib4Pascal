@@ -30,6 +30,7 @@ uses
   TlpICryptoProvider,
   TlpIKeyExchangePrivateKey,
   TlpICryptoBackendReport,
+  TlpISystemSigningKey,
   TlpISigningKey,
   TlpImportedCredential,
   TlpPkcs12Identity,
@@ -815,7 +816,7 @@ type
   // Marks a signing key produced by this backend, so the Signing decorator can route a
   // CreateSignatureSigner to the same backend that imported the key - a native and a
   // portable ISigningKey handle are not interchangeable.
-  IWindowsSigningKey = interface(IInterface)
+  IWindowsSigningKey = interface(ISystemSigningKey)
     ['{2C9E5A17-6B4D-4E88-9A0F-7D3C1B2E5F60}']
     function SigningKeyOwner: INCryptKeyOwner;
   end;
@@ -910,8 +911,10 @@ type
 
   // A native (NCrypt-backed) signing key: an opaque ISigningKey plus the private marker. Its
   // PublicKeyInfo is exported from the signing handle. It shares the key-handle owner with any
-  // preference-narrowed copy.
-  TWindowsSigningKey = class(TInterfacedObject, ISigningKey, IWindowsSigningKey)
+  // preference-narrowed copy. The neutral marker is listed itself: Supports finds only the
+  // interfaces a class names.
+  TWindowsSigningKey = class(TInterfacedObject, ISigningKey, IWindowsSigningKey,
+    ISystemSigningKey)
   strict private
   var
     FOwner: INCryptKeyOwner;
@@ -1056,29 +1059,21 @@ type
   // facet, whether the operation runs on CNG or the portable library - computed once
   // from the construction-time probes. An entry with no native backend on this host
   // reads as Portable.
-  TWindowsBackendReport = class(TInterfacedObject, ICryptoBackendReport)
+  TWindowsBackendReport = class(TSystemBackendReportBase)
   strict private
   var
     FCng: IWindowsCng;
     FSigningNative: Boolean;
-    FHpkeComposed: Boolean;
-    class function Ent(ABackend: TCryptoBackend;
-      AReason: TCryptoBackendReason): TCryptoBackendEntry; static;
-    class function NotNative: TCryptoBackendEntry; static;
   public
     constructor Create(const ACng: IWindowsCng; ASigningNative, AHpkeComposed: Boolean);
-    function RandomBackend: TCryptoBackendEntry;
-    function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
-    function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
-    function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
-    function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
-    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
-    function FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
-    function Describe: string;
+    function RandomBackend: TCryptoBackendEntry; override;
+    function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
+    function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
+    function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry; override;
+    function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; override;
+    function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry; override;
+    function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
+    function Describe: string; override;
   end;
 
 { TCngError }
@@ -2804,22 +2799,9 @@ end;
 constructor TWindowsBackendReport.Create(const ACng: IWindowsCng;
   ASigningNative, AHpkeComposed: Boolean);
 begin
-  inherited Create;
+  inherited Create(AHpkeComposed);
   FCng := ACng;
   FSigningNative := ASigningNative;
-  FHpkeComposed := AHpkeComposed;
-end;
-
-class function TWindowsBackendReport.Ent(ABackend: TCryptoBackend;
-  AReason: TCryptoBackendReason): TCryptoBackendEntry;
-begin
-  Result.Backend := ABackend;
-  Result.Reason := AReason;
-end;
-
-class function TWindowsBackendReport.NotNative: TCryptoBackendEntry;
-begin
-  Result := Ent(TCryptoBackend.Portable, TCryptoBackendReason.NoNativeImpl);
 end;
 
 function TWindowsBackendReport.RandomBackend: TCryptoBackendEntry;
@@ -2844,26 +2826,6 @@ function TWindowsBackendReport.HmacBackend(
 begin
   if FCng.HmacAvailable(AAlgorithm) then
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
-  else
-    Result := NotNative;
-end;
-
-function TWindowsBackendReport.HkdfBackend(
-  AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-begin
-  // HKDF over CNG (HMAC Extract; native or HMAC-loop Expand), reported as Composed
-  if FCng.HmacAvailable(AAlgorithm) then
-    Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
-  else
-    Result := NotNative;
-end;
-
-function TWindowsBackendReport.Tls12PrfBackend(
-  AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-begin
-  // the 1.2 PRF is P_hash assembled over the CNG HMAC: the secret passes through CNG
-  if FCng.HmacAvailable(AAlgorithm) then
-    Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
   else
     Result := NotNative;
 end;
@@ -2912,27 +2874,6 @@ begin
   // native signing covers RSA-PSS/PKCS1 and NIST-curve ECDSA (via NCrypt); EdDSA is portable
   if FSigningNative and TWindowsNCrypt.IsNativeScheme(AScheme) then
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
-  else
-    Result := NotNative;
-end;
-
-function TWindowsBackendReport.SigningKeyBackend(
-  const AKey: ISigningKey): TCryptoBackendEntry;
-begin
-  // per key, not per scheme: only a key this backend natively imported carries the marker;
-  // one that fell back to the portable facet signs portable regardless of its scheme
-  if Supports(AKey, IWindowsSigningKey) then
-    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
-  else
-    Result := NotNative;
-end;
-
-function TWindowsBackendReport.FacetBackend(
-  AFacet: TCryptoFacet): TCryptoBackendEntry;
-begin
-  // Primitives and Signing are mixed per algorithm; only Hpke has a whole-facet answer
-  if (AFacet = TCryptoFacet.Hpke) and FHpkeComposed then
-    Result := Ent(TCryptoBackend.Composed, TCryptoBackendReason.NotFallback)
   else
     Result := NotNative;
 end;
