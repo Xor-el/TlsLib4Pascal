@@ -181,7 +181,11 @@ type
     FClock: ITlsClock;
     FOcsp: TStringList;
     FEngineHold: IPlatformChainEngine;
+    FFallbackCalls: Integer;
     function Ocsp(const AName: string): TBytes;
+    // a fallback that finds the chain indeterminate and decides at the posture it is handed
+    function IndeterminateFallback(const ACtx: TCertificateVerdictContext;
+      out ARejectAlert: TTlsAlertDescription): Boolean;
     // a server delegate over an engine that trusts APath, AExempt being the anchors it reports
     function VerifyEnginePath(const AChain, APath, AExempt: TArray<TBytes>;
       const ACallback: TTlsCertificateVerifyCallback; out AVerified: TVerifiedChain;
@@ -238,6 +242,7 @@ type
     procedure TestLiveResolverWrongRoleRefused;
     procedure TestLiveResolverHoldsToTheConfiguredPosture;
     procedure TestLiveResolverOffPostureStillChecksWhenTheConfigurationAsksForMore;
+    procedure TestLiveResolverFallbackDecidesAtTheLiftedPosture;
     procedure TestEnginePathStartingAtASubCaIsRefused;
     procedure TestEnginePathOfAPinnedSelfSignedCaIsAccepted;
     procedure TestClientEngineReportingNoAnchorAcceptsAConfiguredSelfSignedCa;
@@ -1818,6 +1823,45 @@ begin
     LContext.RevocationPosture := TRevocationPosture.Hard;
     CheckTrue(LResolver.ResolveVerdict(LContext, LAlert), 'a Good live result accepts');
     CheckEquals(1, LFake.ServerCalls, 'the engine was consulted despite the resolver''s own Off');
+  finally
+    LResolver.Free;
+  end;
+end;
+
+function TTestOSDelegateTemplate.IndeterminateFallback(const ACtx: TCertificateVerdictContext;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
+begin
+  System.Inc(FFallbackCalls);
+  ARejectAlert := TTlsAlertDescription.BadCertificate;
+  Result := TRevocationDecision.Decide(TLiveRevocationOutcome.Indeterminate,
+    ACtx.RevocationPosture, False, ARejectAlert);
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveResolverFallbackDecidesAtTheLiftedPosture;
+var
+  LFake: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  FFallbackCalls := 0;
+  LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True,
+    Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+  LEngine := LFake;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
+    Policy(TRevocationPosture.Hard, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation, nil),
+    IndeterminateFallback);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Server;
+    LContext.Chain := OcspChain;
+    LContext.RevocationPosture := TRevocationPosture.Soft;
+    CheckFalse(LResolver.ResolveVerdict(LContext, LAlert),
+      'an indeterminate fallback is refused at the resolver''s stricter Hard posture');
+    CheckEquals(1, FFallbackCalls, 'the portable fallback ran');
+    CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+      'the alert is bad_certificate_status_response');
   finally
     LResolver.Free;
   end;

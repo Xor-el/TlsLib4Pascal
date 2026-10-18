@@ -66,9 +66,10 @@ type
       const AChain, ARoots: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>
-    /// Whether we may send AChain: no certificate other than a self-issued one is signed with MD5,
-    /// or with SHA-1 the peer did not advertise in APeerCertSchemes (RFC 9846 4.5.1.2; MD5 inferred
-    /// from 4.5.1.3). A certificate whose signature cannot be determined is not refused.
+    /// Whether we may send AChain: no certificate other than a self-issued one (treated as a path
+    /// start, as RFC 9846 4.3.3 treats a self-signed one) is signed with MD5, or with SHA-1 the peer
+    /// did not advertise in APeerCertSchemes (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3). A
+    /// certificate whose signature cannot be determined is not refused.
     /// </summary>
     class function SendableTo(const AInspector: ICertificateInspector;
       const AChain: TArray<TBytes>; const APeerCertSchemes: TArray<UInt16>): Boolean; static;
@@ -79,7 +80,7 @@ type
   /// delegates: the certificate at index 0 must not assert basicConstraints cA=TRUE (RFC 5280
   /// 4.2.1.9), so a sub-CA certificate cannot be served as a server or client identity. The one
   /// exception is a leaf that is itself a configured trust anchor (a directly trusted
-  /// self-signed certificate, which tools such as openssl req -x509 mark as a CA). An
+  /// self-signed certificate, which many generators mark as a CA). An
   /// undeterminable answer is refused.
   /// </summary>
   TEndEntityPolicy = class sealed(TObject)
@@ -187,7 +188,7 @@ begin
     end;
     if not LCert.SignatureFacts(LSig) then
       Continue;
-    // a self-issued signature begins a path and is not validated (RFC 9846 4.3.3)
+    // self-issued is treated as a path start, as RFC 9846 4.3.3 treats self-signed
     if LCert.PeerInfo(LSubject, LIssuer, LCommonName, LSerial) and (LSubject = LIssuer) then
       Continue;
     case LSig.Hash.Standing of
