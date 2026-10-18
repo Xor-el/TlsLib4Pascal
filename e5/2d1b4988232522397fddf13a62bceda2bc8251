@@ -1,0 +1,80 @@
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_6baa681a4d1466 1417
+  s_f2c9bd75607afc::t_005c6a0727f47a 1411
+docs/system-trust.md
+  s_f2c9bd75607afc::t_254c89333f9de8 57-58
+docs/security-model.md
+  s_f2c9bd75607afc::t_ad93c5cc628d7e 106
+  s_f2c9bd75607afc::t_b1f770a1f424a1 93
+  s_f2c9bd75607afc::t_c887a23b6613c7 85
+  s_f2c9bd75607afc::t_1564e7fe5afd0e 53
+  s_f2c9bd75607afc::t_3f56e071a85f3c 87
+  s_f2c9bd75607afc::t_a3d9cbf6a8c506 92
+  s_f2c9bd75607afc::t_362896076acafb 52
+  s_f2c9bd75607afc::t_0557e63f64b1f8 108
+  s_f2c9bd75607afc::t_3945d46ece7ab4 170-171
+  s_f2c9bd75607afc::t_3e3cc9cb995d97 94
+  s_f2c9bd75607afc::t_d730eb4a0ebc3b 104
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_f2c9bd75607afc::t_8a8061e98c1c15 2091
+TlsLib.Net/src/TlpWindowsNetOs.pas
+  s_f2c9bd75607afc::t_95a8b24c5bb46a 113
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_81031669851a3a 109
+docs/getting-started.md
+  s_f2c9bd75607afc::t_8245e1ac46b41c 58-60
+TlsLib/src/Common/TlpEnumUtilities.pas
+  s_f2c9bd75607afc::t_4704c81e6db04d 215
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_66634cd9059326 152
+  s_f2c9bd75607afc::t_8e967b4fce2e94 360-361
+TlsLib.Tests/Data/Certs/OcspStapling.txt
+  s_f2c9bd75607afc::t_81f217aaf9d99b 1
+TlsLib.Interop/Data/Certs/OcspStapling.txt
+  s_f2c9bd75607afc::t_1b00e3cffe976c 1
+docs/certificate-compression.md
+  s_f2c9bd75607afc::t_16c08ca20c2dc8 46,48-49
+docs/cookbook.md
+  s_f2c9bd75607afc::t_b5373b116c675e 348
+  s_f2c9bd75607afc::t_66f8083bb95a11 264
+  s_f2c9bd75607afc::t_2f7eb635193fb6 201
+  s_f2c9bd75607afc::t_4cd3ce601f5534 951,953
+  s_f2c9bd75607afc::t_67543fe9c967e3 74
+docs/ech.md
+  s_f2c9bd75607afc::t_c8ac54ada44946 40
+  s_f2c9bd75607afc::t_a203cb23faf331 47
+  s_f2c9bd75607afc::t_0dc076f072f8fa 56
+  s_f2c9bd75607afc::t_add42f4eaea783 177
+  s_f2c9bd75607afc::t_0796304f129368 180-182
+  s_f2c9bd75607afc::t_a23453d4e89854 139-142
+  s_f2c9bd75607afc::t_4a97f121ec5451 166
+  s_f2c9bd75607afc::t_fb0777a75de94a 100
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_fa46653c898517 60-62
+TlsLib/src/Common/TlpPosixSystemTime.pas
+  s_f2c9bd75607afc::t_332bab48809587 81
+TlsLib.Trust.System/Examples/Delphi/README.md
+  s_f2c9bd75607afc::t_86690c16d62e71 16-17
+  s_f2c9bd75607afc::t_44acbd705b1fb0 14-15
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_f2c9bd75607afc::t_9f810f23373bae 88-89
+  s_f2c9bd75607afc::t_f3e133b5517470 1183
+TlsLib.Net/src/TlpPosixNetOs.pas
+  s_f2c9bd75607afc::t_2e6f0abbddb74d 189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e52d1b4988232522397fddf13a62bceda2bc8251",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
