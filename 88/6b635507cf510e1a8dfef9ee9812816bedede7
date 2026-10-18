@@ -1,0 +1,23 @@
+TlsLib.Tests/src/SystemCryptoHelperTests.pas
+  s_f2c9bd75607afc::t_a92a714cf95f48 2111
+  s_f2c9bd75607afc::t_1f2bf3ad481288 45
+  s_f2c9bd75607afc::t_1ffb37eeb627ff 425
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_f2c9bd75607afc::t_65d32d5e6325f0 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "886b635507cf510e1a8dfef9ee9812816bedede7",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
