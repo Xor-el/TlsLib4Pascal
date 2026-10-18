@@ -1,0 +1,45 @@
+TlsLib.Tests/src/SystemCryptoHelperTests.pas
+  s_f2c9bd75607afc::t_f6ae731d4b042f 268-269
+  s_f2c9bd75607afc::t_6e061df6bc27f0 1279-1280,1285-1287
+  s_f2c9bd75607afc::t_d30ca003cdb8fb 1385-1386
+  s_f2c9bd75607afc::t_55be66987160cd 70-73,498-499
+  s_f2c9bd75607afc::t_4ebf61bc44fcc6 1426-1427
+  s_f2c9bd75607afc::t_7476e767974979 1489,1494-1504
+  s_f2c9bd75607afc::t_6b7b4df320ecb4 571-573
+  s_f2c9bd75607afc::t_05069b2c1e665f 223-224
+  s_f2c9bd75607afc::t_24c1890c11f939 547-548
+  s_f2c9bd75607afc::t_c749248fb0ad76 181-182
+  s_f2c9bd75607afc::t_7466be3344caa5 137-139
+  s_f2c9bd75607afc::t_3e0bf354563679 98-99
+  s_f2c9bd75607afc::t_aed59ad0b1d0ab 236
+  s_f2c9bd75607afc::t_2313bfddc31fef 553-555
+  s_f2c9bd75607afc::t_6ec166b14c39c5 482-483,485,489-490,494-497
+  s_f2c9bd75607afc::t_505c6db5d011fe 340-343
+  s_f2c9bd75607afc::t_06838518eb27db 817-834
+TlsLib.Crypto.System/src/TlpSystemCryptoBase.pas
+  s_f2c9bd75607afc::t_db42149e1bf94f 107
+  s_f2c9bd75607afc::t_cf76138bcf5ded 309
+  s_f2c9bd75607afc::t_a390d51bf7b29e 304
+  s_f2c9bd75607afc::t_13f29e149da3ba 307
+  s_f2c9bd75607afc::t_f73cb5b0c01d99 316-317
+  s_f2c9bd75607afc::t_7a59b47a14d0a8 322
+  s_f2c9bd75607afc::t_557fef62ecadb0 299
+TlsLib.Crypto.System/src/TlpHkdfComposition.pas
+  s_f2c9bd75607afc::t_6c330123957c0e 27-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0723e4970a21daef3c41e7961794cb816a363751",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
