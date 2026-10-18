@@ -318,15 +318,10 @@ begin
 end;
 
 procedure TTestSecretBuffer.TestConstantTimeCompareEmptyAndNil;
-var
-  LEmpty: TBytes;
 begin
-  LEmpty := nil;
-  SetLength(LEmpty, 0);
   CheckOrder('nil against nil', nil, nil, 0);
-  CheckOrder('empty against nil', LEmpty, nil, 0);
   CheckOrder('nil against one byte', nil, DecodeHex('00'), -1);
-  CheckOrder('empty against one byte', LEmpty, DecodeHex('00'), -1);
+  CheckOrder('one byte against nil', DecodeHex('00'), nil, 1);
 end;
 
 procedure TTestSecretBuffer.TestConstantTimeCompareMatchesVariableTimeExhaustively;
@@ -387,7 +382,11 @@ begin
     LShared := Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod 67;
     if LShared > 0 then
       Move(LA[0], LB[0], LShared);
-    SetLength(LB, Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod 67);
+    // truncate either side, so both the shorter-first and the shorter-second orders occur
+    if (Crypto.Primitives.GetRandom.GenerateBytes(1)[0] and 1) = 0 then
+      SetLength(LB, Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod 67)
+    else
+      SetLength(LA, Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod 67);
     CheckCompareMatchesVariableTime(Format('sample %d', [LI]), LA, LB);
   end;
 end;

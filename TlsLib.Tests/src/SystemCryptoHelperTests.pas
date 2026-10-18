@@ -301,7 +301,7 @@ type
     procedure TestOrderPlusOneIsRejected;
     procedure TestAllOnesIsRejected;
     procedure TestPowersOfTwoBelowTheOrderBitLengthAreAccepted;
-    procedure TestPowersOfTwoFromTheOrderBitLengthAreRejected;
+    procedure TestScalarsAboveTheOrderAreRejected;
     procedure TestShorterWidthIsRejected;
     procedure TestLongerWidthIsRejected;
     procedure TestNilScalarIsRejected;
@@ -334,13 +334,6 @@ const
   COrderBitLengths: array[0..2] of Int32 = (256, 384, 521);
   CCurves: array[0..2] of TKeyAgreementAlgorithm = (TKeyAgreementAlgorithm.SECP256R1,
     TKeyAgreementAlgorithm.SECP384R1, TKeyAgreementAlgorithm.SECP521R1);
-  // SEC 2 n for secp256r1 (2.4.2), secp384r1 (2.5.1) and secp521r1 (2.6.1)
-  CGroupOrders: array[0..2] of string = (
-    'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551',
-    'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' +
-      'C7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973',
-    '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' +
-      'FA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
   // RFC 6979 A.2.5, NIST P-256, message "sample": the r and s of SHA-1, SHA-224 and SHA-256
   CSha1R = '61340C88C3AAEBEB4F6D667F672CA9759A6CCAA9FA8811313039EE4A35471D32';
   CSha1S = '6D7F147DAC089441BB2E2FE8F7A3FA264B9C475098FDCF6E00D7C996E1B8B7EB';
@@ -1557,7 +1550,7 @@ end;
 
 function TTestEcPrivateScalar.Order(ACurve: Int32): TBytes;
 begin
-  Result := DecodeHex(CGroupOrders[ACurve]);
+  Result := DecodeHex(CSec2GroupOrders[ACurve]);
 end;
 
 function TTestEcPrivateScalar.SmallScalar(ACurve: Int32; ALow: Byte): TBytes;
@@ -1726,14 +1719,34 @@ begin
         Format('2^%d (curve %d)', [LBit, LI]));
 end;
 
-procedure TTestEcPrivateScalar.TestPowersOfTwoFromTheOrderBitLengthAreRejected;
+procedure TTestEcPrivateScalar.TestScalarsAboveTheOrderAreRejected;
 var
-  LI, LBit: Int32;
+  LI, LBit, LPos, LChecked: Int32;
+  LN, LScalar: TBytes;
 begin
   for LI := 0 to 2 do
+  begin
+    LChecked := 0;
+    // the powers of two that fit the width and are not below n (only P-521 has any)
     for LBit := COrderBitLengths[LI] to CFieldSizes[LI] * 8 - 1 do
+    begin
       CheckFalse(TEcPrivateScalar.IsInRange(PowerOfTwo(LI, LBit), Order(LI)),
         Format('2^%d (curve %d)', [LBit, LI]));
+      Inc(LChecked);
+    end;
+    // n's leading bytes then a larger byte, so each byte position decides a comparison above n
+    LN := Order(LI);
+    for LPos := 0 to High(LN) do
+      if LN[LPos] < $FF then
+      begin
+        LScalar := Order(LI);
+        LScalar[LPos] := Byte(LScalar[LPos] + 1);
+        CheckFalse(TEcPrivateScalar.IsInRange(LScalar, Order(LI)),
+          Format('n raised at byte %d (curve %d)', [LPos, LI]));
+        Inc(LChecked);
+      end;
+    CheckTrue(LChecked > 0, Format('values above n were checked (curve %d)', [LI]));
+  end;
 end;
 
 procedure TTestEcPrivateScalar.TestShorterWidthIsRejected;
