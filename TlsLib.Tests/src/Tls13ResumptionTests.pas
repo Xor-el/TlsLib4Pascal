@@ -187,6 +187,7 @@ type
     procedure TestFatalAlertDropsTheClientsCachedTickets;
     procedure TestFatalAlertConsumesTheServersStatefulTickets;
     procedure TestCloseNotifyKeepsTheIssuedTickets;
+    procedure TestCloseNotifyFollowedByJunkKeepsTheIssuedTickets;
     procedure TestResumptionCompletesPskDheKe;
     procedure TestMachinesRequireAClock;
     procedure TestSingleUseTicketReplayRejected;
@@ -3501,6 +3502,31 @@ begin
   CheckTrue(LClient.IsClosed, 'the client saw the close');
   CheckEquals(1, LStore.Count, 'a clean close leaves the server ticket');
   CheckEquals(1, LCache.Count, 'and the client ticket');
+end;
+
+procedure TTestTls13Resumption.TestCloseNotifyFollowedByJunkKeepsTheIssuedTickets;
+var
+  LStore: ISessionStore;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LWire: TBytes;
+  LCached: Int32;
+begin
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(LStore, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  LCached := LCache.Count;
+  CheckTrue(LCached > 0, 'the client cached the issued ticket before the close');
+  LServer.SendClose;
+  // junk after the close_notify is ignored (RFC 9846 6.1), so the tickets must survive it
+  LWire := ConcatBytes(Drain(LServer), DecodeHex('ff03030001'));
+  CheckFalse(LClient.ProcessInput(LWire, 0, System.Length(LWire)) = TTlsOutcome.Fatal,
+    'a close_notify followed by junk in one feed is not fatal');
+  CheckTrue(LClient.IsInboundClosed, 'the close_notify is observed');
+  CheckFalse(LClient.IsTerminal, 'the trailing junk does not end the connection');
+  CheckEquals(LCached, LCache.Count, 'the client ticket survives the junk');
 end;
 
 function TTestTls13Resumption.NewReverifyEarlyClient(const ACache: ISessionCache;
