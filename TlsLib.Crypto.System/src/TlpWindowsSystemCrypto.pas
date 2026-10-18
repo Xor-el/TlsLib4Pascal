@@ -523,7 +523,7 @@ type
   // the resolved API table by value, the borrowed algorithm handle, and the owning context
   // that keeps that handle alive; it also stamps the keys it mints with its family and refuses
   // keys of another.
-  TWindowsCngKeyPrimitive = class(TInterfacedObject)
+  TWindowsCngKeyPrimitive = class abstract(TInterfacedObject)
   strict private
   var
     FFamily: TCngKeyFamily;

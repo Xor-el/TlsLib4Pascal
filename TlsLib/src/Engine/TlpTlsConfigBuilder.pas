@@ -603,7 +603,7 @@ const
 
 type
   /// <summary>The immutable common settings, shared by the client and server config.</summary>
-  TFrozenCommonConfig = class(TInterfacedObject)
+  TFrozenCommonConfig = class abstract(TInterfacedObject)
   protected
   var
     FCrypto: ICryptoProvider;
@@ -738,7 +738,7 @@ type
   /// <summary>Shared view plumbing over the owning builder whose mutators the view forwards to.
   /// FOwner is the builder typed concretely for its same-unit private mutators; FOwnerRef is the
   /// interface reference to the same builder.</summary>
-  TTlsConfigViewBase = class(TInterfacedObject)
+  TTlsConfigViewBase = class abstract(TInterfacedObject)
   strict protected
   var
     FOwner: TTlsConfigBuilder;
