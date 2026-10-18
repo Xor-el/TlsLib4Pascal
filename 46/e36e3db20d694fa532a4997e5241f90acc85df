@@ -1,0 +1,20 @@
+TlsLib.Tests/src/TlsLibTestResourceLoader.pas
+  s_4adb7e2edc0c28::t_4d0fbc671afd34 16-19,23,25
+  s_4adb7e2edc0c28::t_f24802e898cdfe 61,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "46e36e3db20d694fa532a4997e5241f90acc85df",
+  "prompts": {},
+  "sessions": {
+    "s_4adb7e2edc0c28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c581eaad-c17e-426b-bd6e-2854376cc3b7",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
