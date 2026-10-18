@@ -480,7 +480,7 @@ var
   LOffset, LRemaining, LChunk: Int32;
   LSealFault: Boolean;
 begin
-  // a terminal engine reports its recorded failure first, not a closed-write error (RFC 9846 6.2)
+  // a terminal engine reports its recorded failure first, not a closed-write error
   if AEngine.IsTerminal then
     FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);
   // the engine's Write raises once the write side is closed; pre-check so the stream reports a

@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpICryptoProvider,
   TlpIRecordProtection,
+  TlpIKeySchedule,
   TlpTlsVersion,
   TlpRecordProtectionFactory,
   TlpITlsEngine,
@@ -101,8 +102,9 @@ begin
   // until the ServerHello)
   LProtection := TRecordProtectionFactory.Build(AEffect.Version, AEffect.Keys,
     FCrypto.Primitives.CreateAead(AEffect.Aead));
-  // the negotiated version rides every key install; surface it for connection info
-  if FVersionSink <> nil then
+  // the negotiated version rides every key install; surface it for connection info, except on the
+  // early-data install, whose version is not negotiated (the hello effect or handshake install reports it)
+  if (FVersionSink <> nil) and (AEffect.Epoch <> TTlsEpoch.EarlyData) then
     FVersionSink.OnVersionNegotiated(AEffect.Version);
   if AEffect.Side = TRecordSide.ReadSide then
   begin

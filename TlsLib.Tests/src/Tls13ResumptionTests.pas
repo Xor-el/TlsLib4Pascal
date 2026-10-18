@@ -201,6 +201,7 @@ type
     procedure TestStoreUpgradesOverStek;
     procedure TestManySmallRecordsQueueByteForByte;
     procedure TestZeroRttAcceptedDeliversEarlyData;
+    procedure TestZeroRttClientReportsNoVersionBeforeServerHello;
     procedure TestStreamReadRefusesUntilEarlyDataIsDrained;
     procedure TestZeroRttEarlyExporterMatchesAcrossPeers;
     procedure TestZeroRttRejectWithholdsClientEarlyExporter;
@@ -1314,6 +1315,30 @@ begin
   Pump(LClient, LServer);
   CheckEqualBytes('a 1-RTT write follows once the application epoch is in force', LData,
     ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Resumption.TestZeroRttClientReportsNoVersionBeforeServerHello;
+var
+  LStek: ISessionTicketKeyManager;
+  LAnti: IAntiReplayStrategy;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LAnti := TStrikeRegisterAntiReplay.Create;
+  LCache := TInMemorySessionCache.Create;
+
+  LClient := NewClient(LCache, False);
+  LServer := BuildServer(LStek, nil, 1, 7200, True, 2, LAnti);
+  DriveHandshake(LClient, LServer);
+
+  LClient := NewClient(LCache, True);
+  LClient.StartHandshake;
+  // the early write keys are installed (early data is accepted), but no ServerHello has fixed the version yet
+  CheckEquals(2, LClient.WriteEarlyData(DecodeHex('6865'), 0, 2),
+    'the early-data keys are installed once the handshake starts');
+  CheckEquals(0, Int32(LClient.ConnectionInfo.NegotiatedVersion.WireValue),
+    'installing the early-data keys does not publish a negotiated version');
 end;
 
 procedure TTestTls13Resumption.TestWriteEarlyDataReturnsAcceptedCount;

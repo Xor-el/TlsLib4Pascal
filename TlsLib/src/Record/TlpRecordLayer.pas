@@ -44,9 +44,9 @@ type
   /// only frames (a record may span several feeds or several records may be
   /// coalesced in one), while NextIncoming decrypts the head framed record lazily
   /// under the read epoch installed at pull time and classifies a legacy
-  /// change_cipher_spec there. That split lets a
-  /// coalesced flight change epoch mid-buffer: the plaintext record installs the
-  /// next read epoch before the following record is pulled and decrypted under it.
+  /// change_cipher_spec there. That split lets a coalesced flight change epoch
+  /// mid-buffer: the plaintext record installs the next read epoch before the
+  /// following record is pulled and decrypted under it.
   /// Outbound it fragments to 2^14 and protects through the write epoch. Sans-IO
   /// and single-threaded (the caller serializes).
   /// </summary>
@@ -112,6 +112,8 @@ type
     FChangeCipherSpecCount: Int32;
     FHandshakeComplete: Boolean;
     FFailed: Boolean;
+    // a bad header sits behind already-framed records; NextIncoming raises it once they are pulled
+    FFramingStalled: Boolean;
     // 0-RTT reject: bytes still allowed to be dropped as undecryptable early data
     FEarlyDataSkipRemaining: Int32;
     procedure GuardUsable;
@@ -123,6 +125,7 @@ type
     function TryDecodeFramed(const ARecord: TBytes;
       out AFragment: TTlsRecordFragment): Boolean;
     procedure AppendInbound(const AWire: TBytes; AOffset, ALength: Int32);
+    procedure FrameBuffered;
     // once every buffered byte is framed, rewind the cursors and release the buffer if it grew
     // past the retain cap
     procedure ResetInboundIfDrained;
@@ -309,6 +312,7 @@ begin
   FChangeCipherSpecCount := 0;
   FHandshakeComplete := False;
   FFailed := False;
+  FFramingStalled := False;
   FPendingReadProtection := nil;
 end;
 
@@ -460,6 +464,7 @@ procedure TRecordLayer.DiscardInbound;
 begin
   FFramed.Clear;
   FFramedBytes := 0;
+  FFramingStalled := False;
   FInbound := nil;
   FInHead := 0;
   FInTail := 0;
@@ -584,10 +589,6 @@ begin
 end;
 
 procedure TRecordLayer.ProcessInput(const AWire: TBytes; AOffset, ALength: Int32);
-var
-  LReader: TWireReader;
-  LHeader: TTlsRecordHeader;
-  LPos, LAvailable, LRecordLength: Int32;
 begin
   GuardUsable;
   // an out-of-range slice is a caller error, not a peer fault: reject it before the failure
@@ -597,37 +598,55 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SInputSliceOutOfRange);
   try
     AppendInbound(AWire, AOffset, ALength);
-    LPos := FInHead;
-    while (FInTail - LPos) >= TRecordLimits.HeaderLength do
-    begin
-      LAvailable := FInTail - LPos;
-      LReader := TWireReader.Create(FInbound, LPos, LAvailable);
-      LHeader := TTlsRecordHeader.Parse(LReader, FMaxCiphertextLength);
-      LRecordLength := TRecordLimits.HeaderLength + LHeader.Length;
-      // an unknown record type fails at once, judged on the header alone, before the body arrives
-      if not IsKnownRecordType(LHeader.ContentTypeByte) then
-        raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.UnexpectedMessage, @SUnexpectedContentType);
-      if LAvailable < LRecordLength then
-        Break; // the record spans into bytes not yet received
-      // structural framing only; decryption is deferred to the pull side
-      // a plaintext change_cipher_spec is queued like any record and judged at pull time, not
-      // dropped here: its legality (middlebox drop while the handshake runs, fatal
-      // unexpected_message once complete - RFC 9846 5 / E.4) turns on whether the peer's Finished
-      // has been processed, which happens only at the pull side. Dropping it eagerly would clear a
-      // CCS coalesced with the peer's final flight before that Finished flips handshake-complete.
-      FFramed.Enqueue(System.Copy(FInbound, LPos, LRecordLength));
-      Inc(FFramedBytes, LRecordLength);
-      Inc(LPos, LRecordLength);
+    try
+      FrameBuffered;
+    except
+      on EFatalAlertTlsLibException do
+      begin
+        // a bad header behind records already framed must not pre-empt them: a close_notify or fatal
+        // alert ahead of it is delivered first and the bytes after it are ignored (RFC 9846 6.1 / 6.2)
+        if FFramed.Count = 0 then
+          raise;
+        FFramingStalled := True;
+        Exit;
+      end;
     end;
-    // keep the trailing partial record. It needs no explicit cap: Parse rejects any over-ceiling
-    // record length before its bytes are retained, so the un-framed residual is bounded by one
-    // record (< HeaderLength + MaxCiphertextLength).
-    FInHead := LPos;
     ResetInboundIfDrained;
   except
     FFailed := True;
     raise;
+  end;
+end;
+
+procedure TRecordLayer.FrameBuffered;
+var
+  LReader: TWireReader;
+  LHeader: TTlsRecordHeader;
+  LAvailable, LRecordLength: Int32;
+begin
+  while (FInTail - FInHead) >= TRecordLimits.HeaderLength do
+  begin
+    LAvailable := FInTail - FInHead;
+    LReader := TWireReader.Create(FInbound, FInHead, LAvailable);
+    LHeader := TTlsRecordHeader.Parse(LReader, FMaxCiphertextLength);
+    LRecordLength := TRecordLimits.HeaderLength + LHeader.Length;
+    // an unknown record type fails at once, judged on the header alone, before the body arrives
+    if not IsKnownRecordType(LHeader.ContentTypeByte) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.UnexpectedMessage, @SUnexpectedContentType);
+    // keep the trailing partial record. Parse rejects any over-ceiling length before its bytes are
+    // retained, so the residual is bounded by the backlog gate while framing is stalled.
+    if LAvailable < LRecordLength then
+      Break; // the record spans into bytes not yet received
+    // structural framing only; decryption is deferred to the pull side
+    // a plaintext change_cipher_spec is queued like any record and judged at pull time, not
+    // dropped here: its legality (middlebox drop while the handshake runs, fatal
+    // unexpected_message once complete - RFC 9846 5 / E.4) turns on whether the peer's Finished
+    // has been processed, which happens only at the pull side. Dropping it eagerly would clear a
+    // CCS coalesced with the peer's final flight before that Finished flips handshake-complete.
+    FFramed.Enqueue(System.Copy(FInbound, FInHead, LRecordLength));
+    Inc(FFramedBytes, LRecordLength);
+    Inc(FInHead, LRecordLength);
   end;
 end;
 
@@ -722,6 +741,12 @@ begin
       else if TryDecodeFramed(LRecord, AFragment) then
         Exit(True);
       // a dropped or empty record yields nothing; try the next queued record
+    end;
+    // every record framed ahead of a bad header is delivered; now the header fails the connection
+    if FFramingStalled then
+    begin
+      FFramingStalled := False;
+      FrameBuffered;
     end;
   except
     FFailed := True;

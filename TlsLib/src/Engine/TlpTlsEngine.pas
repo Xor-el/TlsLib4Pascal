@@ -80,8 +80,8 @@ type
     FSentClose: Boolean;
     FHandshakeComplete: Boolean;
     /// <summary>Count of tolerated warning-level alerts received, bounded to guard against a
-    /// peer flooding them (RFC 5246 7.2 tolerates warnings, RFC 9846 6 only user_canceled; a flood
-    /// is a DoS).</summary>
+    /// peer flooding them (RFC 5246 7.2 tolerates warnings, RFC 9846 6 / 6.1 only user_canceled; a
+    /// flood is a DoS).</summary>
     FWarningAlertCount: Int32;
     // 0-RTT: a write protection is installed (early or later) and the early-data window is
     // still open until the outcome is known
@@ -219,8 +219,8 @@ const
   PlaintextQueueMinCapacity = Int32(4096);
   PlaintextQueueRetainCapacity = Int32(1 shl 16);
   // the number of warning-level alerts tolerated before a flood is refused; the next one
-  // aborts the connection (RFC 5246 7.2 tolerates warnings, RFC 9846 6 only user_canceled; a
-  // flood is a DoS)
+  // aborts the connection (RFC 5246 7.2 tolerates warnings, RFC 9846 6 / 6.1 only user_canceled;
+  // a flood is a DoS)
   MaxWarningAlerts = Int32(4);
   // the most undrained events kept before the informational kinds are dropped: room for a
   // full handshake's worth plus a long run of post-handshake notices, while a caller that never
@@ -635,8 +635,9 @@ begin
   end;
   // a warning-level alert is advisory: TLS 1.2 tolerates it (RFC 5246 7.2); TLS 1.3 tolerates only
   // user_canceled and rejects any other warning. A fatal user_canceled still ends the connection,
-  // as local policy, although RFC 9846 6.1 says a receiver SHOULD keep reading. Too many warnings
-  // in a row are refused. close_notify is handled above at either level.
+  // as local policy, although RFC 9846 6.1 says a receiver SHOULD keep reading. More than
+  // MaxWarningAlerts warnings on one connection are refused. close_notify is handled above at
+  // either level.
   if LReceived.LevelByte = TTlsAlertLevel.Warning.ToByte then
   begin
     if (FInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
