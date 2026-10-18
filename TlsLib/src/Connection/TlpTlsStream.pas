@@ -111,6 +111,7 @@ resourcestring
   SNotSeekable = 'a TLS stream is a sequential conduit and cannot be sought';
   SReadTruncated = 'the transport closed without close_notify (possible truncation)';
   SWriteAfterClose = 'the stream write side has been closed';
+  SNilStreamArgument = 'a stream needs an engine and a transport (pass both, not nil)';
 
 { TTlsStream }
 
@@ -118,6 +119,8 @@ constructor TTlsStream.Create(const ATransport: ITlsTransport;
   const AEngine: ITlsEngine; AIsClient: Boolean; const AServerName: string);
 begin
   inherited Create;
+  if (AEngine = nil) or (ATransport = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilStreamArgument);
   FTransport := ATransport;
   FEngine := AEngine;
   FIsClient := AIsClient;
