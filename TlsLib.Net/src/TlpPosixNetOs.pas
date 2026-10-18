@@ -43,24 +43,25 @@ type
 
   /// <summary>The IPv4 TCP socket calls on a POSIX target, by file descriptor. Every call returns
   /// the OS error code (0 for none) or a plain result, and raises nothing: the caller decides how
-  /// an error is reported. Each compiler makes the calls through its own RTL declarations, which
-  /// know the names and layouts of the target, and reads the errno of the same RTL. accept4, which
-  /// neither RTL declares, and on Free Pascal getaddrinfo come from the C library at run time. A
-  /// kernel older than Linux 2.6.27, FreeBSD 10, NetBSD 6 or OpenBSD 5.7 refuses SOCK_CLOEXEC and
-  /// is not supported. Linux on MIPS and SPARC is not supported: the Free Pascal RTL gives
-  /// SOL_SOCKET, SO_REUSEADDR and SO_ERROR the values of the other CPUs, which those kernels
-  /// number differently.</summary>
+  /// an error is reported. Each compiler makes the calls through its own RTL and reads that RTL's
+  /// errno; accept4, which neither RTL declares, and on Free Pascal getaddrinfo come from the C
+  /// library at run time. A socket is close-on-exec from birth where the system can do that; on
+  /// Darwin, or a kernel that refuses the flag, it is marked just after, so a process forked on
+  /// another thread in that instant can inherit it. Linux on MIPS and SPARC and Android on MIPS
+  /// are not supported while the Free Pascal RTL gives those CPUs the socket numbers (on SPARC64
+  /// also the errno numbers) of other CPUs: listening and connecting fail there. A Unix this unit
+  /// does not name does not compile.</summary>
   TPosixNetOs = class sealed(TObject)
   strict private
   type
 {$IFDEF FPC}
     TSockAddrIn = TInetSockAddr;
     TNetSockLen = TSockLen;
-    // the C struct addrinfo; netdb.h orders ai_addr and ai_canonname differently
+    // the C struct addrinfo; Linux and OpenBSD put ai_addr first
     TNetAddrInfo = record
       ai_flags, ai_family, ai_socktype, ai_protocol: Int32;
       ai_addrlen: NativeUInt;
-{$IF (DEFINED(TLSLIB_LINUX) AND NOT DEFINED(TLSLIB_ANDROID)) OR DEFINED(OPENBSD)}
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(OPENBSD)}
       ai_addr: Pointer;
       ai_canonname: PAnsiChar;
 {$ELSE}
@@ -70,7 +71,6 @@ type
       ai_next: Pointer;
     end;
     PNetAddrInfo = ^TNetAddrInfo;
-    // the RTL declares no getaddrinfo, so Free Pascal takes it from the C library
     TGetAddrInfoFunc = function(ANode, AService: PAnsiChar; AHints: PNetAddrInfo;
       out AList: PNetAddrInfo): Int32; cdecl;
     TFreeAddrInfoProc = procedure(AList: PNetAddrInfo); cdecl;
@@ -79,7 +79,7 @@ type
     TNetSockLen = socklen_t;
     TNetAddrInfo = addrinfo;
     PNetAddrInfo = Paddrinfo;
-    // the RTL declares no poll, so Delphi takes it from the C library
+    // poll(2), taken from the C library at run time
     TPollFunc = function(AFds: Pointer; ACount: NativeUInt; ATimeoutMs: Integer): Integer; cdecl;
     TPollFd = record
       fd: Integer;
@@ -89,6 +89,20 @@ type
 {$ENDIF}
     TAccept4Func = function(AListener: Integer; AAddr, ALen: Pointer;
       AFlags: Integer): Integer; cdecl;
+  const
+    // a send to a peer that has gone must not raise SIGPIPE: a flag per send, or on Darwin the
+    // per-socket option ArmAgainstSigPipe sets
+{$IF DEFINED(NETBSD) OR DEFINED(OPENBSD) OR DEFINED(DRAGONFLY)}
+    // these kernels define MSG_NOSIGNAL as $400
+    SendFlags = $0400;
+{$ELSEIF DECLARED(SO_NOSIGPIPE)}
+    SendFlags = 0;
+{$ELSEIF DECLARED(MSG_NOSIGNAL)}
+    SendFlags = MSG_NOSIGNAL;
+{$ELSEIF DEFINED(TLSLIB_SOLARIS)}
+    // Solaris 11.4 and illumos define MSG_NOSIGNAL as $200
+    SendFlags = $0200;
+{$IFEND}
   class var
 {$IFDEF FPC}
     FGetAddrInfo: TGetAddrInfoFunc;
@@ -105,25 +119,6 @@ type
   public
   const
     InvalidHandle = -1;
-    // a send to a peer that has gone must not kill the process with SIGPIPE: MSG_NOSIGNAL per send
-    // where the target has it (the flags every sender that is not SendBytes must pass), else the
-    // per-socket SO_NOSIGPIPE option, which only Darwin has
-{$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
-    SendFlags = 0;
-    NoSigPipeOption = $1022;
-{$ELSEIF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
-    SendFlags = $4000;
-    NoSigPipeOption = 0;
-{$ELSEIF DEFINED(FREEBSD)}
-    SendFlags = $20000;
-    NoSigPipeOption = 0;
-{$ELSEIF DEFINED(NETBSD) OR DEFINED(OPENBSD) OR DEFINED(DRAGONFLY)}
-    SendFlags = $400;
-    NoSigPipeOption = 0;
-{$ELSEIF DEFINED(TLSLIB_SOLARIS)}
-    SendFlags = $200;
-    NoSigPipeOption = 0;
-{$IFEND}
   public
     /// <summary>A blocking IPv4 TCP socket, armed against SIGPIPE. Returns 0 or the OS error.</summary>
     class function OpenStream(out AHandle: TPosixSocketHandle): Integer; static;
@@ -172,18 +167,18 @@ implementation
 {$IF DEFINED(TLSLIB_UNIXLIKE)}
 
 const
-  // poll(2) events, and the close-on-exec descriptor flag, the same on every POSIX target
+  // poll(2) events and the close-on-exec flag, the same on every POSIX target
   PollIn = $0001;
   PollOut = $0004;
   CloseOnExec = 1;
-  // SOCK_CLOEXEC for socket() and accept4(); 0 where fcntl must set it afterwards
-{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID)}
+  // SOCK_CLOEXEC; Darwin has none, so fcntl marks its sockets
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_SOLARIS)}
   SocketCloseOnExec = $80000;
-{$ELSEIF DEFINED(FREEBSD) OR DEFINED(NETBSD)}
-  SocketCloseOnExec = $10000000;
 {$ELSEIF DEFINED(OPENBSD)}
   SocketCloseOnExec = $8000;
-{$ELSE}
+{$ELSEIF DEFINED(TLSLIB_BSD)}
+  SocketCloseOnExec = $10000000;
+{$ELSEIF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
   SocketCloseOnExec = 0;
 {$IFEND}
 {$IFDEF FPC}
@@ -256,17 +251,19 @@ begin
 end;
 
 class procedure TPosixNetOs.ArmAgainstSigPipe(AHandle: TPosixSocketHandle);
+{$IF DECLARED(SO_NOSIGPIPE)}
 var
   LOn: Integer;
 begin
-  if NoSigPipeOption = 0 then
-    Exit;
   LOn := 1;
 {$IFDEF FPC}
-  fpSetSockOpt(AHandle, SOL_SOCKET, NoSigPipeOption, @LOn, SizeOf(LOn));
+  fpSetSockOpt(AHandle, SOL_SOCKET, SO_NOSIGPIPE, @LOn, SizeOf(LOn));
 {$ELSE}
-  setsockopt(AHandle, SOL_SOCKET, NoSigPipeOption, LOn, SizeOf(LOn));
+  setsockopt(AHandle, SOL_SOCKET, SO_NOSIGPIPE, LOn, SizeOf(LOn));
 {$ENDIF}
+{$ELSE}
+begin
+{$IFEND}
 end;
 
 class procedure TPosixNetOs.FillAddress(const AAddress: TBytes; APort: Word;
@@ -319,19 +316,28 @@ begin
 end;
 
 class function TPosixNetOs.OpenStream(out AHandle: TPosixSocketHandle): Integer;
+var
+  LFlags: Integer;
 begin
+  LFlags := SocketCloseOnExec;
+  repeat
 {$IFDEF FPC}
-  AHandle := fpSocket(AF_INET, SOCK_STREAM or SocketCloseOnExec, 0);
+    AHandle := fpSocket(AF_INET, SOCK_STREAM or LFlags, 0);
 {$ELSE}
-  AHandle := socket(PF_INET, SOCK_STREAM or SocketCloseOnExec, IPPROTO_TCP);
+    AHandle := socket(PF_INET, SOCK_STREAM or LFlags, IPPROTO_TCP);
 {$ENDIF}
+    // a kernel older than the flag refuses it; a real failure repeats without it
+    if (AHandle >= 0) or (LFlags = 0) then
+      Break;
+    LFlags := 0;
+  until False;
   if AHandle < 0 then
   begin
     AHandle := InvalidHandle;
     Exit(LastError);
   end;
   // a child process this one starts must not inherit the socket
-  if SocketCloseOnExec = 0 then
+  if LFlags = 0 then
 {$IFDEF FPC}
     fpFcntl(AHandle, F_SETFD, CloseOnExec);
 {$ELSE}
@@ -461,35 +467,45 @@ class function TPosixNetOs.AcceptConnection(AListener: TPosixSocketHandle;
 var
   LAddr: TSockAddrIn;
   LLen: TNetSockLen;
-  LAtomic: Boolean;
+  LError: Integer;
 begin
+  if Assigned(FAccept4) then
+  begin
+    LAddr := Default(TSockAddrIn);
+    LLen := SizeOf(LAddr);
+    AHandle := FAccept4(AListener, @LAddr, @LLen, SocketCloseOnExec);
+    if AHandle >= 0 then
+      Exit(0);
+{$IFDEF FPC}
+    // accept4 sets the C library's errno, not the one LastError reads
+    LError := fpgetCerrno;
+{$ELSE}
+    LError := LastError;
+{$ENDIF}
+    if IsTransientAcceptError(LError) then
+    begin
+      AHandle := InvalidHandle;
+      Exit(LError);
+    end;
+  end;
+  // without accept4, or when a kernel refuses it; a real failure repeats here
   LAddr := Default(TSockAddrIn);
   LLen := SizeOf(LAddr);
-  // accept4 sets close-on-exec in the call, closing the race a later fcntl leaves
-  LAtomic := Assigned(FAccept4);
-  if LAtomic then
-    AHandle := FAccept4(AListener, @LAddr, @LLen, SocketCloseOnExec)
-  else
 {$IFDEF FPC}
-    AHandle := fpAccept(AListener, PSockAddr(@LAddr), @LLen);
+  AHandle := fpAccept(AListener, PSockAddr(@LAddr), @LLen);
 {$ELSE}
-    AHandle := accept(AListener, sockaddr(LAddr), LLen);
+  AHandle := accept(AListener, sockaddr(LAddr), LLen);
 {$ENDIF}
   if AHandle < 0 then
   begin
     AHandle := InvalidHandle;
-{$IFDEF FPC}
-    // accept4 sets libc's errno, which this RTL's own errno does not mirror
-    if LAtomic then
-      Exit(fpgetCerrno);
-{$ENDIF}
     Exit(LastError);
   end;
-  if not LAtomic then
+  // a child process this one starts must not inherit the connection
 {$IFDEF FPC}
-    fpFcntl(AHandle, F_SETFD, CloseOnExec);
+  fpFcntl(AHandle, F_SETFD, CloseOnExec);
 {$ELSE}
-    fcntl(AHandle, F_SETFD, CloseOnExec);
+  fcntl(AHandle, F_SETFD, CloseOnExec);
 {$ENDIF}
   Result := 0;
 end;
