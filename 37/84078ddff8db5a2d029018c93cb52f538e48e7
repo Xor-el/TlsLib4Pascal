@@ -1,0 +1,52 @@
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.pas
+  s_f2c9bd75607afc::t_bbefeee86c1d88 13
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.lpk
+  s_f2c9bd75607afc::t_aa9d3544cd8713 24
+  s_f2c9bd75607afc::t_59740d29726be6 53-56
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_f2c9bd75607afc::t_4e9346ba8aaa75 450-453
+  s_f2c9bd75607afc::t_84b74d3da6b5e1 37
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_5137847566948a 235
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_f2c9bd75607afc::t_e76c4a012df30b 578
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_6e9840f0457ea2 686-687,691-693,695-696,1412
+  s_f2c9bd75607afc::t_9360894b467af4 2819
+  s_f2c9bd75607afc::t_2f496df666dbe6 41
+  s_f2c9bd75607afc::t_a53e6f90e7f699 1401-1402,1404,1408-1409,1411,1413,1416,1420,1422,1424
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_f2c9bd75607afc::t_71aa42369f2c0f 77
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_f2c9bd75607afc::t_f007d9749eab92 43
+  s_f2c9bd75607afc::t_6a0735846fe53d 456-459
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_fb0ad6e9417ada 256
+TlsLib.Crypto.System/Packages/Delphi/TlsLib.Crypto.System.dpk
+  s_f2c9bd75607afc::t_f31ea036ce1062 40
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_f2c9bd75607afc::t_d970d5a93d2011 77
+TlsLib.Tests/src/SystemCryptoHelperTests.pas
+  s_f2c9bd75607afc::t_8ac22ee99e4dd7 1-309,311-314,316-319,321,323-341,343-346,348-351,353,355-397,399-401,403-418
+  s_f2c9bd75607afc::t_a391b0a0ecabcf 342,347,352,354
+  s_f2c9bd75607afc::t_507bf88563f80f 310,315,320,322
+  s_f2c9bd75607afc::t_31a4d05d9b4350 398,402
+TlsLib.Crypto.System/src/TlpHkdfComposition.pas
+  s_f2c9bd75607afc::t_d1cc0f52a8c403 1-157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3784078ddff8db5a2d029018c93cb52f538e48e7",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
