@@ -327,50 +327,57 @@ type
   end;
 
 const
-  CPassword = 'tlslib';
+  Password = 'tlslib';
   // the field widths of P-256, P-384 and P-521
-  CFieldSizes: array[0..2] of Int32 = (32, 48, 66);
+  FieldSizes: array[0..2] of Int32 = (32, 48, 66);
   // the bit lengths of the P-256, P-384 and P-521 group orders
-  COrderBitLengths: array[0..2] of Int32 = (256, 384, 521);
-  CCurves: array[0..2] of TKeyAgreementAlgorithm = (TKeyAgreementAlgorithm.SECP256R1,
+  OrderBitLengths: array[0..2] of Int32 = (256, 384, 521);
+  Curves: array[0..2] of TKeyAgreementAlgorithm = (TKeyAgreementAlgorithm.SECP256R1,
     TKeyAgreementAlgorithm.SECP384R1, TKeyAgreementAlgorithm.SECP521R1);
+  // SEC 2 n of secp256r1 (2.4.2), secp384r1 (2.5.1), secp521r1 (2.6.1), apart from production
+  Sec2GroupOrders: array[0..2] of string = (
+    'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551',
+    'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' +
+      'C7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973',
+    '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' +
+      'FA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
   // RFC 6979 A.2.5, NIST P-256, message "sample": the r and s of SHA-1, SHA-224 and SHA-256
-  CSha1R = '61340C88C3AAEBEB4F6D667F672CA9759A6CCAA9FA8811313039EE4A35471D32';
-  CSha1S = '6D7F147DAC089441BB2E2FE8F7A3FA264B9C475098FDCF6E00D7C996E1B8B7EB';
-  CSha224R = '53B2FFF5D1752B2C689DF257C04C40A587FABABB3F6FC2702F1343AF7CA9AA3F';
-  CSha224S = 'B9AFB64FDC03DC1A131C7D2386D11E349F070AA432A4ACC918BEA988BF75C74C';
-  CSha256R = 'EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716';
-  CSha256S = 'F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8';
+  Sha1R = '61340C88C3AAEBEB4F6D667F672CA9759A6CCAA9FA8811313039EE4A35471D32';
+  Sha1S = '6D7F147DAC089441BB2E2FE8F7A3FA264B9C475098FDCF6E00D7C996E1B8B7EB';
+  Sha224R = '53B2FFF5D1752B2C689DF257C04C40A587FABABB3F6FC2702F1343AF7CA9AA3F';
+  Sha224S = 'B9AFB64FDC03DC1A131C7D2386D11E349F070AA432A4ACC918BEA988BF75C74C';
+  Sha256R = 'EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716';
+  Sha256S = 'F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8';
   // RFC 8017 9.2 Note 1: the DigestInfo up to the digest, for SHA-256, SHA-384 and SHA-512
-  CSha256DigestInfoPrefix = '3031300d060960864801650304020105000420';
-  CSha384DigestInfoPrefix = '3041300d060960864801650304020205000430';
-  CSha512DigestInfoPrefix = '3051300d060960864801650304020305000440';
+  Sha256DigestInfoPrefix = '3031300d060960864801650304020105000420';
+  Sha384DigestInfoPrefix = '3041300d060960864801650304020205000430';
+  Sha512DigestInfoPrefix = '3051300d060960864801650304020305000440';
   // the smallest valid Ecdsa-Sig-Value, r = s = 1
-  CMinimalSignature = '3006020101020101';
+  MinimalSignature = '3006020101020101';
 
 const
   // RFC 5869 Appendix A, test cases 1-3 (SHA-256)
-  CIkm22 = '0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b';
-  CSalt13 = '000102030405060708090a0b0c';
-  CInfo10 = 'f0f1f2f3f4f5f6f7f8f9';
-  CPrk1 = '077709362c2e32df0ddc3f0dc47bba63' + '90b6c73bb50f9c3122ec844ad7c2b3e5';
-  COkm1 = '3cb25f25faacd57a90434f64d0362f2a' + '2d2d0a90cf1a5a4c5db02d56ecc4c5bf' +
+  Ikm22 = '0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b';
+  Salt13 = '000102030405060708090a0b0c';
+  Info10 = 'f0f1f2f3f4f5f6f7f8f9';
+  Prk1 = '077709362c2e32df0ddc3f0dc47bba63' + '90b6c73bb50f9c3122ec844ad7c2b3e5';
+  Okm1 = '3cb25f25faacd57a90434f64d0362f2a' + '2d2d0a90cf1a5a4c5db02d56ecc4c5bf' +
     '34007208d5b887185865';
-  CIkm80 = '000102030405060708090a0b0c0d0e0f' + '101112131415161718191a1b1c1d1e1f' +
+  Ikm80 = '000102030405060708090a0b0c0d0e0f' + '101112131415161718191a1b1c1d1e1f' +
     '202122232425262728292a2b2c2d2e2f' + '303132333435363738393a3b3c3d3e3f' +
     '404142434445464748494a4b4c4d4e4f';
-  CSalt80 = '606162636465666768696a6b6c6d6e6f' + '707172737475767778797a7b7c7d7e7f' +
+  Salt80 = '606162636465666768696a6b6c6d6e6f' + '707172737475767778797a7b7c7d7e7f' +
     '808182838485868788898a8b8c8d8e8f' + '909192939495969798999a9b9c9d9e9f' +
     'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf';
-  CInfo80 = 'b0b1b2b3b4b5b6b7b8b9babbbcbdbebf' + 'c0c1c2c3c4c5c6c7c8c9cacbcccdcecf' +
+  Info80 = 'b0b1b2b3b4b5b6b7b8b9babbbcbdbebf' + 'c0c1c2c3c4c5c6c7c8c9cacbcccdcecf' +
     'd0d1d2d3d4d5d6d7d8d9dadbdcdddedf' + 'e0e1e2e3e4e5e6e7e8e9eaebecedeeef' +
     'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
-  CPrk2 = '06a6b88c5853361a06104c9ceb35b45c' + 'ef760014904671014a193f40c15fc244';
-  COkm2 = 'b11e398dc80327a1c8e7f78c596a4934' + '4f012eda2d4efad8a050cc4c19afa97c' +
+  Prk2 = '06a6b88c5853361a06104c9ceb35b45c' + 'ef760014904671014a193f40c15fc244';
+  Okm2 = 'b11e398dc80327a1c8e7f78c596a4934' + '4f012eda2d4efad8a050cc4c19afa97c' +
     '59045a99cac7827271cb41c65e590e09' + 'da3275600c2f09b8367793a9aca3db71' +
     'cc30c58179ec3e87c14c01d5c1f3434f' + '1d87';
-  CPrk3 = '19ef24a32c717b167f33a91d6f648bdf' + '96596776afdb6377ac434c1c293ccb04';
-  COkm3 = '8da4e775a563c18f715f802a063c5a31' + 'b8a11f5c5ee1879ec3454e5f3c738d2d' +
+  Prk3 = '19ef24a32c717b167f33a91d6f648bdf' + '96596776afdb6377ac434c1c293ccb04';
+  Okm3 = '8da4e775a563c18f715f802a063c5a31' + 'b8a11f5c5ee1879ec3454e5f3c738d2d' +
     '9d201395faa4b61a96c8';
 
 { TRecordingHkdf }
@@ -414,8 +421,8 @@ end;
 
 function TTestSystemCryptoHelpers.ReferencePrk(AAlgorithm: THashAlgorithm): ISecretBuffer;
 begin
-  Result := Reference(AAlgorithm).Extract(TSecretBuffer.From(DecodeHex(CSalt13)),
-    TSecretBuffer.From(DecodeHex(CIkm22)));
+  Result := Reference(AAlgorithm).Extract(TSecretBuffer.From(DecodeHex(Salt13)),
+    TSecretBuffer.From(DecodeHex(Ikm22)));
 end;
 
 procedure TTestSystemCryptoHelpers.CheckVector(const ASalt, AIkm, AInfo, APrk,
@@ -446,28 +453,28 @@ begin
   LLengths[3] := AHashLen + 1;
   LLengths[4] := 2 * AHashLen + 1;
   LLengths[5] := 255 * AHashLen;
-  LInfo := DecodeHex(CInfo10);
+  LInfo := DecodeHex(Info10);
   LPrk := ReferencePrk(AAlgorithm);
   for LI := Low(LLengths) to High(LLengths) do
     CheckEqualBytes(Format('HKDF-Expand L=%d', [LLengths[LI]]),
       Reference(AAlgorithm).Expand(LPrk, LInfo, LLengths[LI]).ToBytes,
       Composition(AAlgorithm).Expand(LPrk, LInfo, LLengths[LI]).ToBytes);
   CheckEqualBytes('HKDF-Extract PRK',
-    LPrk.ToBytes, Composition(AAlgorithm).Extract(TSecretBuffer.From(DecodeHex(CSalt13)),
-      TSecretBuffer.From(DecodeHex(CIkm22))).ToBytes);
+    LPrk.ToBytes, Composition(AAlgorithm).Extract(TSecretBuffer.From(DecodeHex(Salt13)),
+      TSecretBuffer.From(DecodeHex(Ikm22))).ToBytes);
 end;
 
 procedure TTestSystemCryptoHelpers.CheckExtractMatchesZeroSalt(const ASalt: ISecretBuffer);
 const
-  CHashLen = 32;
+  HashLen = 32;
 var
   LIkm: ISecretBuffer;
   LExpected: TBytes;
 begin
-  LIkm := TSecretBuffer.From(DecodeHex(CIkm22));
+  LIkm := TSecretBuffer.From(DecodeHex(Ikm22));
   LExpected := Reference(THashAlgorithm.SHA_256).Extract(
-    TSecretBuffer.Allocate(CHashLen), LIkm).ToBytes;
-  CheckEquals(CHashLen, Length(LExpected), 'reference PRK length');
+    TSecretBuffer.Allocate(HashLen), LIkm).ToBytes;
+  CheckEquals(HashLen, Length(LExpected), 'reference PRK length');
   CheckEqualBytes('HKDF-Extract PRK', LExpected,
     Composition(THashAlgorithm.SHA_256).Extract(ASalt, LIkm).ToBytes);
 end;
@@ -477,7 +484,7 @@ function TTestSystemCryptoHelpers.ExpandFailure(AAlgorithm: THashAlgorithm;
 begin
   Result := '';
   try
-    Composition(AAlgorithm).Expand(ReferencePrk(AAlgorithm), DecodeHex(CInfo10), ALength);
+    Composition(AAlgorithm).Expand(ReferencePrk(AAlgorithm), DecodeHex(Info10), ALength);
   except
     on E: Exception do
       Result := E.ClassName + ': ' + E.Message;
@@ -492,17 +499,17 @@ end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfRfc5869Case1;
 begin
-  CheckVector(CSalt13, CIkm22, CInfo10, CPrk1, COkm1, 42);
+  CheckVector(Salt13, Ikm22, Info10, Prk1, Okm1, 42);
 end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfRfc5869Case2;
 begin
-  CheckVector(CSalt80, CIkm80, CInfo80, CPrk2, COkm2, 82);
+  CheckVector(Salt80, Ikm80, Info80, Prk2, Okm2, 82);
 end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfRfc5869Case3;
 begin
-  CheckVector('', CIkm22, '', CPrk3, COkm3, 42);
+  CheckVector('', Ikm22, '', Prk3, Okm3, 42);
 end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfMatchesReferenceSha256;
@@ -553,7 +560,7 @@ var
   LOkm: ISecretBuffer;
 begin
   LOkm := Composition(THashAlgorithm.SHA_256).Expand(ReferencePrk(THashAlgorithm.SHA_256),
-    DecodeHex(CInfo10), 255 * 32);
+    DecodeHex(Info10), 255 * 32);
   CheckEquals(255 * 32, LOkm.Len, 'Expand at the exact cap succeeds');
 end;
 
@@ -565,7 +572,7 @@ begin
     ExpandFailure(THashAlgorithm.SHA_384, 255 * 48 + 1),
     'one past the SHA-384 cap is refused');
   LOkm := Composition(THashAlgorithm.SHA_384).Expand(ReferencePrk(THashAlgorithm.SHA_384),
-    DecodeHex(CInfo10), 255 * 48);
+    DecodeHex(Info10), 255 * 48);
   CheckEquals(255 * 48, LOkm.Len, 'Expand at the exact SHA-384 cap succeeds');
 end;
 
@@ -574,7 +581,7 @@ var
   LOkm: ISecretBuffer;
 begin
   LOkm := Composition(THashAlgorithm.SHA_256).Expand(ReferencePrk(THashAlgorithm.SHA_256),
-    DecodeHex(CInfo10), 0);
+    DecodeHex(Info10), 0);
   CheckEquals(0, LOkm.Len, 'a zero length yields an empty buffer');
 end;
 
@@ -589,7 +596,7 @@ begin
   LRecording.Serve := True;
   LRaised := False;
   try
-    LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(CInfo10), -1);
+    LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(Info10), -1);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -606,7 +613,7 @@ begin
   LRecording := TRecordingHkdf.Create(Crypto.Primitives, THashAlgorithm.SHA_256);
   LHkdf := LRecording;
   LRecording.Serve := True;
-  LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(CInfo10), 0);
+  LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(Info10), 0);
   CheckEquals(0, LRecording.Calls, 'the hook is not consulted for a zero length');
 end;
 
@@ -621,7 +628,7 @@ begin
   LRecording.Serve := True;
   LRaised := False;
   try
-    LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(CInfo10), 255 * 32 + 1);
+    LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(Info10), 255 * 32 + 1);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -637,7 +644,7 @@ var
 begin
   LRecording := TRecordingHkdf.Create(Crypto.Primitives, THashAlgorithm.SHA_256);
   LHkdf := LRecording;
-  LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(CInfo10), 42);
+  LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(Info10), 42);
   CheckEquals(1, LRecording.Calls, 'the hook is consulted once for a valid length');
 end;
 
@@ -650,7 +657,7 @@ begin
   LHkdf := LRecording;
   LRecording.Serve := True;
   CheckEqualBytes('served OKM', TBytes.Create($A5, $5A, $C3),
-    LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(CInfo10), 42).ToBytes);
+    LHkdf.Expand(ReferencePrk(THashAlgorithm.SHA_256), DecodeHex(Info10), 42).ToBytes);
 end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfHookDeclinedFallsBackToHmacLoop;
@@ -663,8 +670,8 @@ begin
   LHkdf := LRecording;
   LPrk := ReferencePrk(THashAlgorithm.SHA_256);
   CheckEqualBytes('fallback OKM',
-    Reference(THashAlgorithm.SHA_256).Expand(LPrk, DecodeHex(CInfo10), 42).ToBytes,
-    LHkdf.Expand(LPrk, DecodeHex(CInfo10), 42).ToBytes);
+    Reference(THashAlgorithm.SHA_256).Expand(LPrk, DecodeHex(Info10), 42).ToBytes,
+    LHkdf.Expand(LPrk, DecodeHex(Info10), 42).ToBytes);
 end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfRefusesNilPrimitives;
@@ -791,38 +798,38 @@ end;
 
 procedure TTestEcdsaSignatureEncoding.TestEncodeRfc6979Sha256Sample;
 begin
-  CheckEncodes('SHA-256 sample', CSha256R + CSha256S,
-    '3046' + '022100' + CSha256R + '022100' + CSha256S);
+  CheckEncodes('SHA-256 sample', Sha256R + Sha256S,
+    '3046' + '022100' + Sha256R + '022100' + Sha256S);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestEncodeRfc6979Sha224Sample;
 begin
-  CheckEncodes('SHA-224 sample', CSha224R + CSha224S,
-    '3045' + '0220' + CSha224R + '022100' + CSha224S);
+  CheckEncodes('SHA-224 sample', Sha224R + Sha224S,
+    '3045' + '0220' + Sha224R + '022100' + Sha224S);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestEncodeRfc6979Sha1Sample;
 begin
-  CheckEncodes('SHA-1 sample', CSha1R + CSha1S,
-    '3044' + '0220' + CSha1R + '0220' + CSha1S);
+  CheckEncodes('SHA-1 sample', Sha1R + Sha1S,
+    '3044' + '0220' + Sha1R + '0220' + Sha1S);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestDecodeRfc6979Sha256Sample;
 begin
-  CheckDecodesTo('SHA-256 sample', '3046' + '022100' + CSha256R + '022100' + CSha256S,
-    CSha256R, CSha256S, 32);
+  CheckDecodesTo('SHA-256 sample', '3046' + '022100' + Sha256R + '022100' + Sha256S,
+    Sha256R, Sha256S, 32);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestDecodeRfc6979Sha224Sample;
 begin
-  CheckDecodesTo('SHA-224 sample', '3045' + '0220' + CSha224R + '022100' + CSha224S,
-    CSha224R, CSha224S, 32);
+  CheckDecodesTo('SHA-224 sample', '3045' + '0220' + Sha224R + '022100' + Sha224S,
+    Sha224R, Sha224S, 32);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestDecodeRfc6979Sha1Sample;
 begin
-  CheckDecodesTo('SHA-1 sample', '3044' + '0220' + CSha1R + '0220' + CSha1S,
-    CSha1R, CSha1S, 32);
+  CheckDecodesTo('SHA-1 sample', '3044' + '0220' + Sha1R + '0220' + Sha1S,
+    Sha1R, Sha1S, 32);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestEncodeDropsLeadingZeroBytes;
@@ -859,12 +866,12 @@ var
   LI: Int32;
   LRaw: TBytes;
 begin
-  for LI := Low(CFieldSizes) to High(CFieldSizes) do
+  for LI := Low(FieldSizes) to High(FieldSizes) do
   begin
-    LRaw := DecodeHex(RepeatHex('5a', 2 * CFieldSizes[LI]));
+    LRaw := DecodeHex(RepeatHex('5a', 2 * FieldSizes[LI]));
     LRaw[0] := 0;
-    LRaw[CFieldSizes[LI]] := 0;
-    CheckRoundTrip(Format('field %d', [CFieldSizes[LI]]), LRaw);
+    LRaw[FieldSizes[LI]] := 0;
+    CheckRoundTrip(Format('field %d', [FieldSizes[LI]]), LRaw);
   end;
 end;
 
@@ -872,9 +879,9 @@ procedure TTestEcdsaSignatureEncoding.TestRoundTripTopBitSet;
 var
   LI: Int32;
 begin
-  for LI := Low(CFieldSizes) to High(CFieldSizes) do
-    CheckRoundTrip(Format('field %d', [CFieldSizes[LI]]),
-      DecodeHex(RepeatHex('ff', 2 * CFieldSizes[LI])));
+  for LI := Low(FieldSizes) to High(FieldSizes) do
+    CheckRoundTrip(Format('field %d', [FieldSizes[LI]]),
+      DecodeHex(RepeatHex('ff', 2 * FieldSizes[LI])));
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestRoundTripSingleLowByte;
@@ -882,12 +889,12 @@ var
   LI: Int32;
   LRaw: TBytes;
 begin
-  for LI := Low(CFieldSizes) to High(CFieldSizes) do
+  for LI := Low(FieldSizes) to High(FieldSizes) do
   begin
-    LRaw := DecodeHex(RepeatHex('00', 2 * CFieldSizes[LI]));
-    LRaw[CFieldSizes[LI] - 1] := 1;
-    LRaw[2 * CFieldSizes[LI] - 1] := 1;
-    CheckRoundTrip(Format('field %d', [CFieldSizes[LI]]), LRaw);
+    LRaw := DecodeHex(RepeatHex('00', 2 * FieldSizes[LI]));
+    LRaw[FieldSizes[LI] - 1] := 1;
+    LRaw[2 * FieldSizes[LI] - 1] := 1;
+    CheckRoundTrip(Format('field %d', [FieldSizes[LI]]), LRaw);
   end;
 end;
 
@@ -908,7 +915,7 @@ end;
 
 procedure TTestEcdsaSignatureEncoding.TestDecodeAcceptsMinimalOnes;
 begin
-  CheckDecodesTo('r = s = 1', CMinimalSignature, '01', '01', 32);
+  CheckDecodesTo('r = s = 1', MinimalSignature, '01', '01', 32);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestDecodeAcceptsSignPaddedHighBit;
@@ -952,7 +959,7 @@ end;
 
 procedure TTestEcdsaSignatureEncoding.TestDecodeRejectsTrailingByte;
 begin
-  CheckRejects('a byte after the SEQUENCE', CMinimalSignature + '00', 32);
+  CheckRejects('a byte after the SEQUENCE', MinimalSignature + '00', 32);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestDecodeRejectsSequenceLengthOneShort;
@@ -1076,17 +1083,17 @@ end;
 
 procedure TTestPkcs1DigestInfo.TestSha256IsNote1Prefixed;
 begin
-  CheckDigestInfo(TSignatureScheme.RSA_PKCS1_SHA256, 32, CSha256DigestInfoPrefix);
+  CheckDigestInfo(TSignatureScheme.RSA_PKCS1_SHA256, 32, Sha256DigestInfoPrefix);
 end;
 
 procedure TTestPkcs1DigestInfo.TestSha384IsNote1Prefixed;
 begin
-  CheckDigestInfo(TSignatureScheme.RSA_PKCS1_SHA384, 48, CSha384DigestInfoPrefix);
+  CheckDigestInfo(TSignatureScheme.RSA_PKCS1_SHA384, 48, Sha384DigestInfoPrefix);
 end;
 
 procedure TTestPkcs1DigestInfo.TestSha512IsNote1Prefixed;
 begin
-  CheckDigestInfo(TSignatureScheme.RSA_PKCS1_SHA512, 64, CSha512DigestInfoPrefix);
+  CheckDigestInfo(TSignatureScheme.RSA_PKCS1_SHA512, 64, Sha512DigestInfoPrefix);
 end;
 
 procedure TTestPkcs1DigestInfo.TestPssSchemeGivesNil;
@@ -1282,19 +1289,19 @@ end;
 
 procedure TTestForwardingSigningCrypto.TestPlainPkcs8PemReachesHookOnce;
 begin
-  FSigning.ImportSigningKey(KeyBytes('ec256_pkcs8_pem'), TSecretBuffer.FromString(CPassword));
+  FSigning.ImportSigningKey(KeyBytes('ec256_pkcs8_pem'), TSecretBuffer.FromString(Password));
   CheckEquals(1, FRecording.Calls, 'the hook is called once');
 end;
 
 procedure TTestForwardingSigningCrypto.TestPlainPkcs8PemHookGetsDecodedBlock;
 begin
-  FSigning.ImportSigningKey(KeyBytes('ec256_pkcs8_pem'), TSecretBuffer.FromString(CPassword));
+  FSigning.ImportSigningKey(KeyBytes('ec256_pkcs8_pem'), TSecretBuffer.FromString(Password));
   CheckEqualBytes('the decoded PKCS#8', KeyBytes('ec256_pkcs8_der'), FRecording.SeenCopy);
 end;
 
 procedure TTestForwardingSigningCrypto.TestPlainPkcs8PemHookGetsNoPassword;
 begin
-  FSigning.ImportSigningKey(KeyBytes('ec256_pkcs8_pem'), TSecretBuffer.FromString(CPassword));
+  FSigning.ImportSigningKey(KeyBytes('ec256_pkcs8_pem'), TSecretBuffer.FromString(Password));
   CheckTrue(FRecording.SeenPassword = nil,
     'a plain block is offered without the caller password');
 end;
@@ -1322,7 +1329,7 @@ procedure TTestForwardingSigningCrypto.TestEncryptedPemHookGetsDecodedBlock;
 var
   LBlocks: TArray<TPemBlock>;
 begin
-  FSigning.ImportSigningKey(KeyBytes('rsa_enc_pem'), TSecretBuffer.FromString(CPassword));
+  FSigning.ImportSigningKey(KeyBytes('rsa_enc_pem'), TSecretBuffer.FromString(Password));
   LBlocks := TPem.ReadBlocks(KeyBytes('rsa_enc_pem'));
   CheckEqualBytes('the decoded EncryptedPrivateKeyInfo', LBlocks[0].Content,
     FRecording.SeenCopy);
@@ -1332,7 +1339,7 @@ procedure TTestForwardingSigningCrypto.TestEncryptedPemHookGetsCallerPassword;
 var
   LPassword: ISecretBuffer;
 begin
-  LPassword := TSecretBuffer.FromString(CPassword);
+  LPassword := TSecretBuffer.FromString(Password);
   FSigning.ImportSigningKey(KeyBytes('rsa_enc_pem'), LPassword);
   CheckTrue(FRecording.SeenPassword = LPassword, 'an encrypted block is offered with the password');
 end;
@@ -1340,13 +1347,13 @@ end;
 procedure TTestForwardingSigningCrypto.TestDeclinedEncryptedPemImportsViaInner;
 begin
   CheckSpki('the inner facet decrypts it', 'rsa_pub',
-    FSigning.ImportSigningKey(KeyBytes('rsa_enc_pem'), TSecretBuffer.FromString(CPassword)));
+    FSigning.ImportSigningKey(KeyBytes('rsa_enc_pem'), TSecretBuffer.FromString(Password)));
 end;
 
 procedure TTestForwardingSigningCrypto.TestMislabelledEncryptedPemSkipsHook;
 begin
   ImportFailure(FSigning, KeyBytes('ec256_mislabelled_pem'),
-    TSecretBuffer.FromString(CPassword));
+    TSecretBuffer.FromString(Password));
   CheckEquals(0, FRecording.Calls,
     'plaintext PKCS#8 under an ENCRYPTED PRIVATE KEY label is not offered');
 end;
@@ -1356,10 +1363,10 @@ var
   LExpected: string;
 begin
   LExpected := ImportFailure(Crypto.Signing, KeyBytes('ec256_mislabelled_pem'),
-    TSecretBuffer.FromString(CPassword));
+    TSecretBuffer.FromString(Password));
   CheckTrue(LExpected <> '', 'the inner facet refuses the block');
   CheckEquals(LExpected, ImportFailure(FSigning, KeyBytes('ec256_mislabelled_pem'),
-    TSecretBuffer.FromString(CPassword)), 'the same failure');
+    TSecretBuffer.FromString(Password)), 'the same failure');
 end;
 
 procedure TTestForwardingSigningCrypto.TestMidLineBoundarySkipsHook;
@@ -1449,7 +1456,7 @@ procedure TTestForwardingSigningCrypto.TestDerHookGetsCallersPassword;
 var
   LPassword: ISecretBuffer;
 begin
-  LPassword := TSecretBuffer.FromString(CPassword);
+  LPassword := TSecretBuffer.FromString(Password);
   FSigning.ImportSigningKey(KeyBytes('ec256_enc_der'), LPassword);
   CheckTrue(FRecording.SeenPassword = LPassword, 'the hook gets the caller password');
 end;
@@ -1489,12 +1496,12 @@ end;
 
 procedure TTestForwardingSigningCrypto.TestBareForwarderPassesPasswordForEncryptedDer;
 begin
-  CheckImportsLikeInner('ec256_enc_der', TSecretBuffer.FromString(CPassword));
+  CheckImportsLikeInner('ec256_enc_der', TSecretBuffer.FromString(Password));
 end;
 
 procedure TTestForwardingSigningCrypto.TestBareForwarderPassesPasswordForEncryptedPem;
 begin
-  CheckImportsLikeInner('rsa_enc_pem', TSecretBuffer.FromString(CPassword));
+  CheckImportsLikeInner('rsa_enc_pem', TSecretBuffer.FromString(Password));
 end;
 
 procedure TTestForwardingSigningCrypto.TestBareForwarderSignatureVerifies;
@@ -1519,9 +1526,9 @@ var
 begin
   LBare := TForwardingSigningCrypto.Create(Crypto.Signing) as ISigningCrypto;
   LExpected := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
-    TSecretBuffer.FromString(CPassword));
+    TSecretBuffer.FromString(Password));
   LActual := LBare.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
-    TSecretBuffer.FromString(CPassword));
+    TSecretBuffer.FromString(Password));
   CheckEquals(Length(LExpected.CertificateChain), Length(LActual.CertificateChain),
     'chain length');
   for LI := 0 to Length(LExpected.CertificateChain) - 1 do
@@ -1550,13 +1557,13 @@ end;
 
 function TTestEcPrivateScalar.Order(ACurve: Int32): TBytes;
 begin
-  Result := DecodeHex(CSec2GroupOrders[ACurve]);
+  Result := DecodeHex(Sec2GroupOrders[ACurve]);
 end;
 
 function TTestEcPrivateScalar.SmallScalar(ACurve: Int32; ALow: Byte): TBytes;
 begin
   Result := nil;
-  SetLength(Result, CFieldSizes[ACurve]);
+  SetLength(Result, FieldSizes[ACurve]);
   Result[High(Result)] := ALow;
 end;
 
@@ -1587,7 +1594,7 @@ end;
 function TTestEcPrivateScalar.PowerOfTwo(ACurve: Int32; ABit: Int32): TBytes;
 begin
   Result := nil;
-  SetLength(Result, CFieldSizes[ACurve]);
+  SetLength(Result, FieldSizes[ACurve]);
   Result[High(Result) - ABit div 8] := Byte(1 shl (ABit mod 8));
 end;
 
@@ -1607,7 +1614,7 @@ end;
 procedure TTestEcPrivateScalar.CheckGroupOrder(ACurve: Int32);
 begin
   CheckEqualBytes(Format('group order of curve %d', [ACurve]), Order(ACurve),
-    TEcPrivateScalar.GroupOrder(CCurves[ACurve]));
+    TEcPrivateScalar.GroupOrder(Curves[ACurve]));
 end;
 
 procedure TTestEcPrivateScalar.TestGroupOrderP256IsSec2;
@@ -1700,7 +1707,7 @@ begin
   for LI := 0 to 2 do
   begin
     LScalar := nil;
-    SetLength(LScalar, CFieldSizes[LI]);
+    SetLength(LScalar, FieldSizes[LI]);
     for LJ := 0 to High(LScalar) do
       LScalar[LJ] := $FF;
     CheckFalse(TEcPrivateScalar.IsInRange(LScalar, Order(LI)),
@@ -1714,7 +1721,7 @@ var
 begin
   // n lies strictly between 2^(bits-1) and 2^bits, so 2^k < n exactly when k < bits
   for LI := 0 to 2 do
-    for LBit := 0 to COrderBitLengths[LI] - 1 do
+    for LBit := 0 to OrderBitLengths[LI] - 1 do
       CheckTrue(TEcPrivateScalar.IsInRange(PowerOfTwo(LI, LBit), Order(LI)),
         Format('2^%d (curve %d)', [LBit, LI]));
 end;
@@ -1728,7 +1735,7 @@ begin
   begin
     LChecked := 0;
     // the powers of two that fit the width and are not below n (only P-521 has any)
-    for LBit := COrderBitLengths[LI] to CFieldSizes[LI] * 8 - 1 do
+    for LBit := OrderBitLengths[LI] to FieldSizes[LI] * 8 - 1 do
     begin
       CheckFalse(TEcPrivateScalar.IsInRange(PowerOfTwo(LI, LBit), Order(LI)),
         Format('2^%d (curve %d)', [LBit, LI]));
@@ -1757,7 +1764,7 @@ begin
   // a one that would be in range at the right width
   for LI := 0 to 2 do
   begin
-    LScalar := System.Copy(SmallScalar(LI, 1), 1, CFieldSizes[LI] - 1);
+    LScalar := System.Copy(SmallScalar(LI, 1), 1, FieldSizes[LI] - 1);
     CheckFalse(TEcPrivateScalar.IsInRange(LScalar, Order(LI)),
       Format('one byte short (curve %d)', [LI]));
   end;
@@ -1792,7 +1799,7 @@ begin
   for LI := 0 to 2 do
     for LJ := 1 to 2000 do
     begin
-      LScalar := Crypto.Primitives.GetRandom.GenerateBytes(CFieldSizes[LI]);
+      LScalar := Crypto.Primitives.GetRandom.GenerateBytes(FieldSizes[LI]);
       // P-521's top byte is 0 or 1 for any in-range value, so keep the draw near that
       if LI = 2 then
         LScalar[0] := LScalar[0] and 1;
@@ -1810,8 +1817,8 @@ begin
     LN := Order(LI);
     for LJ := 1 to 2000 do
     begin
-      LScalar := Crypto.Primitives.GetRandom.GenerateBytes(CFieldSizes[LI]);
-      LShared := Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod (CFieldSizes[LI] + 1);
+      LScalar := Crypto.Primitives.GetRandom.GenerateBytes(FieldSizes[LI]);
+      LShared := Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod (FieldSizes[LI] + 1);
       if LShared > 0 then
         Move(LN[0], LScalar[0], LShared);
       CheckMatchesReference(Format('sample %d, shared %d', [LJ, LShared]), LI, LScalar);
@@ -1834,7 +1841,7 @@ var
   LScalar: TBytes;
 begin
   for LI := 0 to 2 do
-    for LBit := 0 to CFieldSizes[LI] * 8 - 1 do
+    for LBit := 0 to FieldSizes[LI] * 8 - 1 do
     begin
       LScalar := Order(LI);
       LScalar[High(LScalar) - LBit div 8] := LScalar[High(LScalar) - LBit div 8] xor
@@ -1851,11 +1858,11 @@ var
   LScalar: TBytes;
 begin
   for LI := 0 to 2 do
-    for LPos := 0 to CFieldSizes[LI] - 1 do
+    for LPos := 0 to FieldSizes[LI] - 1 do
       for LV := 0 to 2 do
       begin
         LScalar := nil;
-        SetLength(LScalar, CFieldSizes[LI]);
+        SetLength(LScalar, FieldSizes[LI]);
         LScalar[LPos] := Values[LV];
         CheckMatchesReference(Format('byte %d = %d', [LPos, Values[LV]]), LI, LScalar);
       end;
