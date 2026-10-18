@@ -93,7 +93,7 @@ type
 
   /// <summary>The accumulate step a native signer and verifier share: Update appends the span to
   /// the bytes to be signed or verified.</summary>
-  TSignatureInputBuffer = class(TInterfacedObject)
+  TSignatureInputBuffer = class abstract(TInterfacedObject)
   strict protected
   var
     FBuffer: TBytes;
