@@ -336,7 +336,7 @@ resourcestring
   SNilTransportClock =
     'a clock is required (pass a clock, not nil)';
   SNilConnectionArgument =
-    'a connection needs a config and a transport (pass both, not nil)';
+    'a connection needs a config (or engine) and a transport (pass both, not nil)';
   SNoServerCredentialBare =
     'no server certificate/private key was supplied';
   SNoServerCredential =
@@ -1117,6 +1117,8 @@ begin
   inherited Create;
   FEngine := AEngine;
   FTimed := ATransport;
+  if (AEngine = nil) or (ATransport = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   FIsClient := AIsClient;
   FServerName := AServerName;
   FStream := TTlsStream.Create(FTimed, FEngine, AIsClient, AServerName);
