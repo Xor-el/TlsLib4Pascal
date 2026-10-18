@@ -47,7 +47,7 @@ type
   end;
 
   /// <summary>The read side shared by the server and client policies.</summary>
-  TTrustVerificationData = class abstract(TInterfacedObject, ITrustVerification)
+  TTrustVerificationDataBase = class abstract(TInterfacedObject, ITrustVerification)
   strict private
     FDraft: TVerificationDraft;
   strict protected
@@ -61,7 +61,7 @@ type
     function RevocationPosture: TRevocationPosture;
   end;
 
-  TServerVerificationPolicy = class sealed(TTrustVerificationData, IServerVerification)
+  TServerVerificationPolicy = class sealed(TTrustVerificationDataBase, IServerVerification)
   strict private
     FVerifier: IServerCertificateVerifier;
     FSource: IServerCertificateVerifierSource;
@@ -72,7 +72,7 @@ type
     function Source: IServerCertificateVerifierSource;
   end;
 
-  TClientVerificationPolicy = class sealed(TTrustVerificationData, IClientVerification)
+  TClientVerificationPolicy = class sealed(TTrustVerificationDataBase, IClientVerification)
   strict private
     FVerifier: IClientCertificateVerifier;
     FSource: IClientCertificateVerifierSource;
@@ -271,40 +271,40 @@ begin
   Strength := APolicy;
 end;
 
-{ TTrustVerificationData }
+{ TTrustVerificationDataBase }
 
-constructor TTrustVerificationData.Create(const ADraft: TVerificationDraft);
+constructor TTrustVerificationDataBase.Create(const ADraft: TVerificationDraft);
 begin
   inherited Create;
   FDraft := ADraft;
 end;
 
-function TTrustVerificationData.Kind: TVerificationKind;
+function TTrustVerificationDataBase.Kind: TVerificationKind;
 begin
   Result := FDraft.Kind;
 end;
 
-function TTrustVerificationData.AnchorStores: TArray<ITrustAnchorStore>;
+function TTrustVerificationDataBase.AnchorStores: TArray<ITrustAnchorStore>;
 begin
   Result := System.Copy(FDraft.AnchorStores);
 end;
 
-function TTrustVerificationData.AnchorData: TArray<TBytes>;
+function TTrustVerificationDataBase.AnchorData: TArray<TBytes>;
 begin
   Result := TArrayUtilities.DeepCopy<Byte>(FDraft.AnchorData);
 end;
 
-function TTrustVerificationData.IntermediateData: TArray<TBytes>;
+function TTrustVerificationDataBase.IntermediateData: TArray<TBytes>;
 begin
   Result := TArrayUtilities.DeepCopy<Byte>(FDraft.IntermediateData);
 end;
 
-function TTrustVerificationData.StrengthPolicy: TCertificateStrengthPolicy;
+function TTrustVerificationDataBase.StrengthPolicy: TCertificateStrengthPolicy;
 begin
   Result := FDraft.Strength;
 end;
 
-function TTrustVerificationData.RevocationPosture: TRevocationPosture;
+function TTrustVerificationDataBase.RevocationPosture: TRevocationPosture;
 begin
   Result := FDraft.Posture;
 end;

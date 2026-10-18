@@ -37,7 +37,7 @@ type
   /// is the reusable engine every filesystem-based platform builds on (see
   /// TUnixRootSource for the Unix env + path defaults).
   /// </summary>
-  TFileSystemRootSource = class(TSystemRootSource)
+  TFileSystemRootSource = class(TSystemRootSourceBase)
   strict private
     FEnvFile: string;
     FEnvDir: string;

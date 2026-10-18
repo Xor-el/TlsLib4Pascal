@@ -190,7 +190,7 @@ type
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
 
-  TNamedGroupRegistry = class sealed(TCodeKeyedRegistry<INamedGroup>,
+  TNamedGroupRegistry = class sealed(TCodeKeyedRegistryBase<INamedGroup>,
     INamedGroupRegistry)
   public
     constructor Create(const AGroups: TArray<INamedGroup>);
@@ -199,7 +199,7 @@ type
   end;
 
   /// <summary>The named-group registry builder: Add and Prune, then Build a snapshot.</summary>
-  TNamedGroupRegistryBuilder = class sealed(TCodeKeyedRegistryBuilder<INamedGroup>,
+  TNamedGroupRegistryBuilder = class sealed(TCodeKeyedRegistryBuilderBase<INamedGroup>,
     INamedGroupRegistryBuilder)
   public
     /// <summary>An empty builder.</summary>

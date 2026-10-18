@@ -40,7 +40,7 @@ type
   /// "CA" store is deliberately not harvested (its entries are cached intermediates, not
   /// anchors). Emits neutral DER.
   /// </summary>
-  TWindowsRootSource = class sealed(TSystemRootSource)
+  TWindowsRootSource = class sealed(TSystemRootSourceBase)
   strict private
   var
     FDisallowed: TArray<TBytes>;

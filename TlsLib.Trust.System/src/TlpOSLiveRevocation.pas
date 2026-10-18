@@ -34,7 +34,7 @@ type
   /// on the stack, so one instance is reusable across connections and threads; the only shared
   /// mutable is the host's fallback fetcher.
   /// </summary>
-  TOSLiveRevocationResolver = class abstract(TObject)
+  TOSLiveRevocationResolverBase = class abstract(TObject)
   strict protected
     FPosture: TRevocationPosture;
     FExpectedPeer: TPeerRole;
@@ -62,9 +62,9 @@ type
 
 implementation
 
-{ TOSLiveRevocationResolver }
+{ TOSLiveRevocationResolverBase }
 
-constructor TOSLiveRevocationResolver.Create(APosture: TRevocationPosture;
+constructor TOSLiveRevocationResolverBase.Create(APosture: TRevocationPosture;
   AExpectedPeer: TPeerRole; const AFallback: TCertificateVerdictResolver);
 begin
   inherited Create;
@@ -73,7 +73,7 @@ begin
   FFallback := AFallback;
 end;
 
-function TOSLiveRevocationResolver.ResolveVerdict(
+function TOSLiveRevocationResolverBase.ResolveVerdict(
   const ACtx: TCertificateVerdictContext;
   out ARejectAlert: TTlsAlertDescription): Boolean;
 var

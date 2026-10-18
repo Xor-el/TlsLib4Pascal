@@ -420,7 +420,7 @@ var
   LPkix: IPkixProvider;
   LConfig: ITlsClientConfig;
   LEngine: ITlsEngine;
-  LResolver: TOSLiveRevocationResolver;
+  LResolver: TOSLiveRevocationResolverBase;
   LResult: TInteropResult;
   LSent: TBytes;
 begin
@@ -503,7 +503,7 @@ var
   LPkix: IPkixProvider;
   LConfig: ITlsServerConfig;
   LEngine: ITlsEngine;
-  LResolver: TOSLiveRevocationResolver;
+  LResolver: TOSLiveRevocationResolverBase;
   LResult, LEcho: TInteropResult;
   LLiveCaFile: string;
 begin

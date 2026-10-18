@@ -64,7 +64,8 @@ type
     /// over it.</summary>
     class function TryChainEngine(out AEngine: IPlatformChainEngine): Boolean; static;
     /// <summary>The platform root source, or raises where this OS cannot enumerate roots.</summary>
-    class function CreateRootSource(const APkixProvider: IPkixProvider): TSystemRootSource; static;
+    class function CreateRootSource(const APkixProvider: IPkixProvider)
+      : TSystemRootSourceBase; static;
   public
     /// <summary>True if this platform can honor AMode.</summary>
     class function Supports(AMode: TSystemTrustMode): Boolean; static;
@@ -95,9 +96,10 @@ type
     /// indeterminate OS outcome before the posture decides. The caller owns and frees the result.
     /// Raises where the platform has no OS-native live revocation.</summary>
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
-      const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver; overload; static;
+      const AFallback: TCertificateVerdictResolver)
+      : TOSLiveRevocationResolverBase; overload; static;
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig)
-      : TOSLiveRevocationResolver; overload; static;
+      : TOSLiveRevocationResolverBase; overload; static;
     /// <summary>A host-owned OS-native live-revocation resolver for the peer CLIENT certificate an
     /// mTLS server verifies, read from the server config (provider, clock, posture, strength policy,
     /// advertised schemes, resolver fetch budget, and the client-CA anchors as the exclusive trust root):
@@ -105,9 +107,10 @@ type
     /// OS outcome before the posture decides. The caller owns and frees the result. Raises where the
     /// platform has no OS-native live revocation.</summary>
     class function LiveRevocationResolver(const AConfig: ITlsServerConfig;
-      const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver; overload; static;
+      const AFallback: TCertificateVerdictResolver)
+      : TOSLiveRevocationResolverBase; overload; static;
     class function LiveRevocationResolver(const AConfig: ITlsServerConfig)
-      : TOSLiveRevocationResolver; overload; static;
+      : TOSLiveRevocationResolverBase; overload; static;
     /// <summary>The OS client-certificate verifier source for an mTLS server: an exclusive-root
     /// chain engine over the configured client-CA anchors (never the OS/public roots). AFetch fixes
     /// the inline behaviour: CacheOnly (no socket) or Live (defer an indeterminate revocation to the
@@ -176,7 +179,7 @@ begin
 end;
 
 class function TOSSystemTrust.CreateRootSource(const APkixProvider: IPkixProvider)
-  : TSystemRootSource;
+  : TSystemRootSourceBase;
 begin
   Result := nil;
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -199,7 +202,7 @@ end;
 class function TOSSystemTrust.AnchorStore(const APkixProvider: IPkixProvider)
   : ITrustAnchorStore;
 var
-  LSource: TSystemRootSource;
+  LSource: TSystemRootSourceBase;
 begin
   LSource := CreateRootSource(APkixProvider);
   try
@@ -221,7 +224,7 @@ class function TOSSystemTrust.ServerVerifierSource(AFetch: TSystemTrustFetch;
 var
   LEngine: IPlatformChainEngine;
   LExtra, LDistrusted: TArray<TBytes>;
-  LSource: TSystemRootSource;
+  LSource: TSystemRootSourceBase;
 begin
   // where a platform chain engine exists, the generic source over it (the source refuses a Live
   // fetch on an engine without live fetch at construction, matching the per-platform refusal timing)
@@ -251,7 +254,7 @@ begin
 end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig;
-  const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver;
+  const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolverBase;
 var
   LEngine: IPlatformChainEngine;
   LPolicy: TOSDelegatePolicy;
@@ -285,13 +288,13 @@ begin
 end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig)
-  : TOSLiveRevocationResolver;
+  : TOSLiveRevocationResolverBase;
 begin
   Result := LiveRevocationResolver(AConfig, nil);
 end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsServerConfig;
-  const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolver;
+  const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolverBase;
 var
   LEngine: IPlatformChainEngine;
   LPolicy: TOSDelegatePolicy;
@@ -326,7 +329,7 @@ begin
 end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsServerConfig)
-  : TOSLiveRevocationResolver;
+  : TOSLiveRevocationResolverBase;
 begin
   Result := LiveRevocationResolver(AConfig, nil);
 end;

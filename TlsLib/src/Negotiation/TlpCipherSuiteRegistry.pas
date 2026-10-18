@@ -26,7 +26,7 @@ uses
 
 type
   /// <summary>The default cipher-suite registry: an immutable, ordered suite list.</summary>
-  TCipherSuiteRegistry = class sealed(TCodeKeyedRegistry<TTlsCipherSuite>,
+  TCipherSuiteRegistry = class sealed(TCodeKeyedRegistryBase<TTlsCipherSuite>,
     ICipherSuiteRegistry)
   strict private
     /// <summary>Whether the provider can build both the suite's AEAD and hash, so an
@@ -70,7 +70,7 @@ type
   end;
 
   /// <summary>The cipher-suite registry builder: Add and Prune, then Build a registry snapshot.</summary>
-  TCipherSuiteRegistryBuilder = class sealed(TCodeKeyedRegistryBuilder<TTlsCipherSuite>,
+  TCipherSuiteRegistryBuilder = class sealed(TCodeKeyedRegistryBuilderBase<TTlsCipherSuite>,
     ICipherSuiteRegistryBuilder)
   public
     /// <summary>An empty builder.</summary>

@@ -36,7 +36,7 @@ type
   /// arrive is the subclass's: a rotating manager mints them, a fleet manager has them installed.
   /// Guarded by an internal lock, so one instance is safe to share across connections/threads.
   /// </summary>
-  TStekKeyRing = class abstract(TInterfacedObject, ISessionTicketKeyManager)
+  TStekKeyRingBase = class abstract(TInterfacedObject, ISessionTicketKeyManager)
   strict protected
   type
     TStekKey = record
@@ -75,7 +75,7 @@ type
   /// clock, a key also retires once it ages past the window, and the current key rotates after a
   /// per-key seal cap.
   /// </summary>
-  TStekTicketKeyManager = class sealed(TStekKeyRing, IRotatingTicketKeyManager)
+  TStekTicketKeyManager = class sealed(TStekKeyRingBase, IRotatingTicketKeyManager)
   strict private
   var
     FRandom: IRandom;
@@ -121,7 +121,7 @@ type
   /// never mints, auto-rotates or time-retires - the fleet coordinates rotation out of band and
   /// pushes old keys out of the window by installing newer ones.
   /// </summary>
-  TFleetTicketKeyManager = class sealed(TStekKeyRing, IFleetTicketKeyManager)
+  TFleetTicketKeyManager = class sealed(TStekKeyRingBase, IFleetTicketKeyManager)
   strict protected
     function PrepareCurrentLocked: Boolean; override;
   public
@@ -159,9 +159,9 @@ resourcestring
   SStekKeyLength = 'a session-ticket key must be %d bytes (got %d)';
   SStekKeyNil = 'a session-ticket key must not be nil';
 
-{ TStekKeyRing }
+{ TStekKeyRingBase }
 
-constructor TStekKeyRing.CreateRing(AWindowSize: Int32; const AClock: ITlsClock;
+constructor TStekKeyRingBase.CreateRing(AWindowSize: Int32; const AClock: ITlsClock;
   AAgeBoundMillis: UInt64; AMaxSealsPerKey: UInt32);
 begin
   inherited Create;
@@ -179,14 +179,14 @@ begin
   FLock := TCriticalSection.Create;
 end;
 
-destructor TStekKeyRing.Destroy;
+destructor TStekKeyRingBase.Destroy;
 begin
   FKeys.Free;
   FLock.Free;
   inherited Destroy;
 end;
 
-function TStekKeyRing.StampNow: UInt64;
+function TStekKeyRingBase.StampNow: UInt64;
 begin
   if FClock <> nil then
     Result := FClock.NowUnixMillis
@@ -194,7 +194,7 @@ begin
     Result := 0;
 end;
 
-function TStekKeyRing.AddKeyLocked(const AName: TBytes; const AKey: ISecretBuffer): UInt64;
+function TStekKeyRingBase.AddKeyLocked(const AName: TBytes; const AKey: ISecretBuffer): UInt64;
 var
   LEntry: TStekKey;
 begin
@@ -208,7 +208,7 @@ begin
   Result := LEntry.CreatedAt;
 end;
 
-procedure TStekKeyRing.PruneExpiredLocked;
+procedure TStekKeyRingBase.PruneExpiredLocked;
 var
   LNow: UInt64;
 begin
@@ -222,7 +222,7 @@ begin
     FKeys.Delete(0);
 end;
 
-function TStekKeyRing.CurrentKey(out AKeyName: TBytes;
+function TStekKeyRingBase.CurrentKey(out AKeyName: TBytes;
   out AKey: ISecretBuffer): Boolean;
 var
   LEntry: TStekKey;
@@ -244,7 +244,7 @@ begin
   end;
 end;
 
-function TStekKeyRing.KeyByName(const AKeyName: TBytes;
+function TStekKeyRingBase.KeyByName(const AKeyName: TBytes;
   out AKey: ISecretBuffer): Boolean;
 var
   LIndex: Int32;
@@ -267,7 +267,7 @@ begin
   end;
 end;
 
-function TStekKeyRing.KeyNameLength: Int32;
+function TStekKeyRingBase.KeyNameLength: Int32;
 begin
   Result := StekKeyNameLength;
 end;

@@ -191,7 +191,7 @@ type
   /// harvest raises rather than yielding an empty anchor set. Subclasses override
   /// HarvestRoots.
   /// </summary>
-  TSystemRootSource = class abstract(TObject)
+  TSystemRootSourceBase = class abstract(TObject)
   strict private
     FPkix: IPkixProvider;
   strict protected
@@ -389,9 +389,9 @@ begin
   Result := FRoots.ToArray;
 end;
 
-{ TSystemRootSource }
+{ TSystemRootSourceBase }
 
-constructor TSystemRootSource.Create(const APkix: IPkixProvider);
+constructor TSystemRootSourceBase.Create(const APkix: IPkixProvider);
 begin
   inherited Create;
   if APkix = nil then
@@ -399,7 +399,7 @@ begin
   FPkix := APkix;
 end;
 
-procedure TSystemRootSource.AddUnique(const AAccumulator: TSystemRootAccumulator;
+procedure TSystemRootSourceBase.AddUnique(const AAccumulator: TSystemRootAccumulator;
   const ADer: TBytes);
 begin
   if not FPkix.Certificates.IsWellFormed(ADer) then
@@ -407,7 +407,7 @@ begin
   AAccumulator.Add(ADer);
 end;
 
-function TSystemRootSource.FilterRoots(const ARaw: TArray<TBytes>): TArray<TBytes>;
+function TSystemRootSourceBase.FilterRoots(const ARaw: TArray<TBytes>): TArray<TBytes>;
 var
   LAcc: TSystemRootAccumulator;
   LI: Integer;
@@ -423,7 +423,7 @@ begin
   end;
 end;
 
-function TSystemRootSource.Harvest: TArray<TBytes>;
+function TSystemRootSourceBase.Harvest: TArray<TBytes>;
 begin
   Result := HarvestRoots;
   if Length(Result) = 0 then
@@ -431,17 +431,17 @@ begin
       @SSystemTrustEmpty, [SourceName]);
 end;
 
-function TSystemRootSource.HarvestDistrusted: TArray<TBytes>;
+function TSystemRootSourceBase.HarvestDistrusted: TArray<TBytes>;
 begin
   Result := nil;
 end;
 
-function TSystemRootSource.ReadDistrusted: TArray<TBytes>;
+function TSystemRootSourceBase.ReadDistrusted: TArray<TBytes>;
 begin
   Result := nil;
 end;
 
-function TSystemRootSource.Snapshot: ITrustAnchorStore;
+function TSystemRootSourceBase.Snapshot: ITrustAnchorStore;
 var
   LRoots: TArray<TBytes>;
 begin
