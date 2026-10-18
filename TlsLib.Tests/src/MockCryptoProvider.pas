@@ -38,7 +38,7 @@ type
 
   /// <summary>An opaque signing key that holds nothing and signs nothing, for tests that only
   /// route a key (compared by reference) through code that never uses it.</summary>
-  TMockSigningKey = class sealed(TInterfacedObject, ISigningKey)
+  TMockSigningKey = class(TInterfacedObject, ISigningKey)
   public
     function CapableSchemes: TArray<TSignatureScheme>;
     function PublicKeyInfo: TBytes;

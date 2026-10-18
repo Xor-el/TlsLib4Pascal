@@ -42,6 +42,7 @@ uses
   TlpSignatureEncoding,
   TlpEcPrivateScalar,
   TlpSystemCryptoBase,
+  MockCryptoProvider,
   TlsLibTestProviders,
   TlsLibTestBase;
 
@@ -421,14 +422,7 @@ type
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
   end;
 
-  TFakePlainSigningKey = class(TInterfacedObject, ISigningKey)
-  public
-    function CapableSchemes: TArray<TSignatureScheme>;
-    function PublicKeyInfo: TBytes;
-    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
-  end;
-
-  TFakeSystemSigningKey = class(TFakePlainSigningKey, ISystemSigningKey);
+  TFakeSystemSigningKey = class(TMockSigningKey, ISystemSigningKey);
 
 const
   // the hashes the fake OS HMAC serves
@@ -1939,24 +1933,6 @@ begin
     Result := Ent(TCryptoBackend.Portable, TCryptoBackendReason.NotPresent);
 end;
 
-{ TFakePlainSigningKey }
-
-function TFakePlainSigningKey.CapableSchemes: TArray<TSignatureScheme>;
-begin
-  Result := nil;
-end;
-
-function TFakePlainSigningKey.PublicKeyInfo: TBytes;
-begin
-  Result := nil;
-end;
-
-function TFakePlainSigningKey.WithPreferredSchemes(
-  const ASchemes: TArray<TSignatureScheme>): ISigningKey;
-begin
-  Result := Self;
-end;
-
 { TTestSystemBackendReport }
 
 procedure TTestSystemBackendReport.CheckNotNative(const AName: string;
@@ -2132,7 +2108,7 @@ var
   LKey: ISigningKey;
 begin
   LReport := TBareBackendReport.Create(False);
-  LKey := TFakePlainSigningKey.Create;
+  LKey := TMockSigningKey.Create;
   CheckNotNative('an unmarked key', LReport.SigningKeyBackend(LKey));
 end;
 
