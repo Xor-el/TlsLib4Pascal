@@ -20,7 +20,13 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICryptoBackendReport,
+  TlpISecretBuffer,
+  TlpISigningKey,
+  TlpImportedCredential,
   TlpHpkeComposition,
+  TlpPem,
+  TlpDer,
+  TlpSecureMemory,
   TlpTlsLibExceptions;
 
 type
@@ -31,8 +37,7 @@ type
   /// inner (portable) implementation unchanged - so an unaccelerated algorithm always
   /// falls back rather than failing. Every accessor is virtual for that reason. The
   /// decorator adds no state beyond the immutable inner reference, so its thread-safety
-  /// is exactly the inner facet's. Native forwarders for other facets (e.g. signing)
-  /// join this unit as they are added.
+  /// is exactly the inner facet's.
   /// </summary>
   TForwardingCryptoPrimitives = class(TInterfacedObject, ICryptoPrimitives)
   strict private
@@ -86,10 +91,55 @@ type
     function Hpke: IHpkeCrypto;
   end;
 
+  /// <summary>The accumulate step a native signer and verifier share: Update appends the span to
+  /// the bytes to be signed or verified.</summary>
+  TSignatureInputBuffer = class(TInterfacedObject)
+  strict protected
+  var
+    FBuffer: TBytes;
+  public
+    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
+  end;
+
+  /// <summary>
+  /// An <see cref="ISigningCrypto" /> decorator over an inner signing facet, the base for a
+  /// system-native signing facet. Key import tries the subclass's <see cref="TryImportNative" />
+  /// first (DER as given, PEM through the first private-key block the inner reader would pick)
+  /// and hands anything it declines to the inner facet unchanged; every member is virtual and
+  /// forwards to the inner facet otherwise.
+  /// </summary>
+  TForwardingSigningCrypto = class(TInterfacedObject, ISigningCrypto)
+  strict private
+  var
+    FInner: ISigningCrypto;
+    // whether ADer is an EncryptedPrivateKeyInfo: an outer SEQUENCE leading with a SEQUENCE
+    class function IsEncryptedPkcs8(const ADer: TBytes): Boolean; static;
+    function TryImportPem(const AData: TBytes; const APassword: ISecretBuffer;
+      out AKey: ISigningKey): Boolean;
+  strict protected
+    property Inner: ISigningCrypto read FInner;
+    /// <summary>Imports a DER private key (PKCS#8 plain or encrypted, PKCS#1 or SEC1) natively;
+    /// False hands the input to the inner facet, which owns every error.</summary>
+    function TryImportNative(const ADer: TBytes; const APassword: ISecretBuffer;
+      out AKey: ISigningKey): Boolean; virtual;
+  public
+    constructor Create(const AInner: ISigningCrypto);
+    function ImportSigningKey(const AData: TBytes;
+      const APassword: ISecretBuffer): ISigningKey; virtual;
+    function ImportPkcs12(const AData: TBytes;
+      const APassword: ISecretBuffer): TImportedCredential; virtual;
+    function CreateSignatureSigner(AScheme: TSignatureScheme;
+      const AKey: ISigningKey): ISignatureSigner; virtual;
+    function CreateSignatureVerifier(AScheme: TSignatureScheme;
+      const APublicKeyDer: TBytes): ISignatureVerifier; virtual;
+  end;
+
 implementation
 
 resourcestring
   SNilInnerPrimitives = 'the inner primitives facet must not be nil';
+  SNilInnerSigning = 'the inner signing facet must not be nil';
+  SUpdateSpanOutOfRange = 'the Update source span is out of range';
 
 { TForwardingCryptoPrimitives }
 
@@ -192,6 +242,120 @@ end;
 function TOverlayCryptoProvider.Hpke: IHpkeCrypto;
 begin
   Result := FHpke;
+end;
+
+{ TSignatureInputBuffer }
+
+procedure TSignatureInputBuffer.Update(const AData: TBytes; AOffset, ALength: Int32);
+var
+  LOld: Int32;
+begin
+  if (AOffset < 0) or (ALength < 0) or (Int64(AOffset) + ALength > System.Length(AData)) then
+    raise EArgumentTlsLibException.CreateRes(@SUpdateSpanOutOfRange);
+  if ALength <= 0 then
+    Exit;
+  LOld := System.Length(FBuffer);
+  SetLength(FBuffer, LOld + ALength);
+  Move(AData[AOffset], FBuffer[LOld], ALength);
+end;
+
+{ TForwardingSigningCrypto }
+
+constructor TForwardingSigningCrypto.Create(const AInner: ISigningCrypto);
+begin
+  inherited Create;
+  if AInner = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilInnerSigning);
+  FInner := AInner;
+end;
+
+class function TForwardingSigningCrypto.IsEncryptedPkcs8(const ADer: TBytes): Boolean;
+var
+  LTag: Byte;
+  LOfs, LLen, LNext: Int32;
+begin
+  Result := TDer.ReadTlv(ADer, 0, LTag, LOfs, LLen, LNext) and (LTag = $30) and
+    TDer.ReadTlv(ADer, LOfs, LTag, LOfs, LLen, LNext) and (LTag = $30);
+end;
+
+function TForwardingSigningCrypto.TryImportNative(const ADer: TBytes;
+  const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
+begin
+  AKey := nil;
+  Result := False;
+end;
+
+function TForwardingSigningCrypto.TryImportPem(const AData: TBytes;
+  const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
+var
+  LBlocks: TArray<TPemBlock>;
+  LIdx, LI: Int32;
+begin
+  AKey := nil;
+  Result := False;
+  try
+    LBlocks := TPem.ReadBlocks(AData);
+  except
+    // malformed PEM: let the inner facet re-parse and own the canonical error
+    Exit(False);
+  end;
+  try
+    // a boundary this framing did not see (one that follows text on its line) could be read as a
+    // block by the inner facet, which then must pick the key
+    if TPem.BeginTagCount(AData) <> System.Length(LBlocks) then
+      Exit;
+    // the first private-key block is the one the inner facet imports, and it fails closed on
+    // it, so a later block is never tried here: an unsupported or failed first block hands the
+    // whole input to the inner facet, which owns the selection and the errors
+    LIdx := TPem.IndexOfPrivateKey(LBlocks);
+    if LIdx < 0 then
+      Exit;
+    // encrypted PKCS#8 needs the password; plain PKCS#8 and the raw PKCS#1/SEC1 forms
+    // ("RSA/EC PRIVATE KEY") import unkeyed
+    if LBlocks[LIdx].PemType = 'ENCRYPTED PRIVATE KEY' then
+      // the label means EncryptedPrivateKeyInfo (RFC 7468 11); a native hook may take plaintext
+      Result := IsEncryptedPkcs8(LBlocks[LIdx].Content) and
+        TryImportNative(LBlocks[LIdx].Content, APassword, AKey)
+    else if (LBlocks[LIdx].PemType = 'PRIVATE KEY') or
+      (LBlocks[LIdx].PemType = 'RSA PRIVATE KEY') or
+      (LBlocks[LIdx].PemType = 'EC PRIVATE KEY') then
+      Result := TryImportNative(LBlocks[LIdx].Content, nil, AKey);
+  finally
+    // a decoded block may hold plaintext private-key DER
+    for LI := 0 to System.Length(LBlocks) - 1 do
+      TSecureMemory.WipeBytes(LBlocks[LI].Content);
+  end;
+end;
+
+function TForwardingSigningCrypto.ImportSigningKey(const AData: TBytes;
+  const APassword: ISecretBuffer): ISigningKey;
+begin
+  // a declined key goes to the inner facet, which owns the full parse range and every error
+  if TPem.IsArmored(AData) then
+  begin
+    if not TryImportPem(AData, APassword, Result) then
+      Result := FInner.ImportSigningKey(AData, APassword);
+  end
+  else if not TryImportNative(AData, APassword, Result) then
+    Result := FInner.ImportSigningKey(AData, APassword);
+end;
+
+function TForwardingSigningCrypto.ImportPkcs12(const AData: TBytes;
+  const APassword: ISecretBuffer): TImportedCredential;
+begin
+  Result := FInner.ImportPkcs12(AData, APassword);
+end;
+
+function TForwardingSigningCrypto.CreateSignatureSigner(AScheme: TSignatureScheme;
+  const AKey: ISigningKey): ISignatureSigner;
+begin
+  Result := FInner.CreateSignatureSigner(AScheme, AKey);
+end;
+
+function TForwardingSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureScheme;
+  const APublicKeyDer: TBytes): ISignatureVerifier;
+begin
+  Result := FInner.CreateSignatureVerifier(AScheme, APublicKeyDer);
 end;
 
 end.

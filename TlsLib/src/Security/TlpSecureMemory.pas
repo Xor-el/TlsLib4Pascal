@@ -44,6 +44,10 @@ type
     /// <summary>Constant-time all-zero test (OR-accumulate, no early exit) for
     /// secret-dependent data. An empty array counts as all-zero.</summary>
     class function ConstantTimeIsAllZero(const AData: TBytes): Boolean; static;
+    /// <summary>Constant-time twin of <see cref="TArrayUtilities.CompareLexicographic" /> for
+    /// secret data: negative, zero or positive as AA sorts before, equal to or after AB, with no
+    /// early exit over the common prefix. Only the lengths, which are public, decide a tie.</summary>
+    class function ConstantTimeCompareLexicographic(const AA, AB: TBytes): Int32; static;
   end;
 
 implementation
@@ -98,6 +102,29 @@ begin
   for LI := 0 to System.Length(AData) - 1 do
     LAcc := LAcc or AData[LI];
   Result := LAcc = 0;
+end;
+
+class function TSecureMemory.ConstantTimeCompareLexicographic(const AA, AB: TBytes): Int32;
+var
+  LI, LCommon, LLengthOrder: Int32;
+  LLess, LGreater, LOpen: UInt32;
+begin
+  LCommon := System.Length(AA);
+  if System.Length(AB) < LCommon then
+    LCommon := System.Length(AB);
+  LLess := 0;
+  LGreater := 0;
+  for LI := 0 to LCommon - 1 do
+  begin
+    // the first differing byte decides; later bytes fold in under a closed mask
+    LOpen := (LLess or LGreater) xor 1;
+    LLess := LLess or ((UInt32(Int32(AA[LI]) - Int32(AB[LI])) shr 31) and LOpen);
+    LGreater := LGreater or ((UInt32(Int32(AB[LI]) - Int32(AA[LI])) shr 31) and LOpen);
+  end;
+  LLengthOrder := Ord(System.Length(AA) > System.Length(AB)) -
+    Ord(System.Length(AA) < System.Length(AB));
+  Result := Int32(LGreater) - Int32(LLess) +
+    LLengthOrder * Int32((LLess or LGreater) xor 1);
 end;
 
 end.

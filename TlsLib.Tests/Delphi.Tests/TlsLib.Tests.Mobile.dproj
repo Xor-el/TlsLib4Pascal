@@ -575,6 +575,7 @@
         <DCCReference Include="..\src\Pkcs12ImportTests.pas"/>
         <DCCReference Include="..\src\Pkcs12IdentityTests.pas"/>
         <DCCReference Include="..\src\ArrayUtilitiesTests.pas"/>
+        <DCCReference Include="..\src\SystemCryptoHelperTests.pas"/>
         <DCCReference Include="..\src\TlsStreamLoopbackTests.pas"/>
         <DCCReference Include="..\src\EndpointIdentityTests.pas"/>
         <DCCReference Include="..\src\CertificateVerifierTests.pas"/>

@@ -74,6 +74,7 @@ uses
   Pkcs12ImportTests,
   Pkcs12IdentityTests,
   ArrayUtilitiesTests,
+  SystemCryptoHelperTests,
   EndpointIdentityTests,
   PemTests,
   DynamicLibraryTests,

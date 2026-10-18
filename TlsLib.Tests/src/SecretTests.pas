@@ -36,6 +36,9 @@ type
   TTestSecretBuffer = class(TTlsLibAlgorithmTestCase)
   private
     function ReadBack(const ASecret: ISecretBuffer): TBytes;
+    function SignOf(AValue: Int32): Int32;
+    procedure CheckOrder(const AName: string; const AA, AB: TBytes; AExpectedSign: Int32);
+    procedure CheckCompareMatchesVariableTime(const AName: string; const AA, AB: TBytes);
   published
     procedure TestFromHoldsBytes;
     procedure TestToBytesCopiesSecret;
@@ -46,6 +49,17 @@ type
     procedure TestConstantTimeAreEqual;
     procedure TestWipeOnLastRelease;
     procedure TestConstantTimeIsAllZeroMatchesVariableTime;
+    procedure TestConstantTimeCompareEqualArraysAreZero;
+    procedure TestConstantTimeCompareDifferingFirstByteDecides;
+    procedure TestConstantTimeCompareDifferingLastByteDecides;
+    procedure TestConstantTimeCompareFirstDifferenceBeatsLaterOnes;
+    procedure TestConstantTimeCompareBytesAreUnsigned;
+    procedure TestConstantTimeComparePrefixSortsFirst;
+    procedure TestConstantTimeCompareDifferenceBeatsLength;
+    procedure TestConstantTimeCompareEmptyAndNil;
+    procedure TestConstantTimeCompareMatchesVariableTimeExhaustively;
+    procedure TestConstantTimeCompareMatchesVariableTimeOnRandomEqualLengths;
+    procedure TestConstantTimeCompareMatchesVariableTimeOnRandomUnequalLengths;
     procedure TestFromStringHoldsUtf8;
     procedure TestFromStringNonAsciiIsUtf8;
     procedure TestFromStringEmptyIsZeroLength;
@@ -227,6 +241,153 @@ begin
         'non-zero agrees');
       LData[LI] := 0;
     end;
+  end;
+end;
+
+function TTestSecretBuffer.SignOf(AValue: Int32): Int32;
+begin
+  if AValue < 0 then
+    Result := -1
+  else if AValue > 0 then
+    Result := 1
+  else
+    Result := 0;
+end;
+
+procedure TTestSecretBuffer.CheckOrder(const AName: string; const AA, AB: TBytes;
+  AExpectedSign: Int32);
+begin
+  CheckEquals(AExpectedSign, SignOf(TSecureMemory.ConstantTimeCompareLexicographic(AA, AB)),
+    AName + ': A against B');
+  CheckEquals(-AExpectedSign, SignOf(TSecureMemory.ConstantTimeCompareLexicographic(AB, AA)),
+    AName + ': B against A');
+end;
+
+procedure TTestSecretBuffer.CheckCompareMatchesVariableTime(const AName: string;
+  const AA, AB: TBytes);
+begin
+  CheckEquals(SignOf(TArrayUtilities.CompareLexicographic(AA, AB)),
+    SignOf(TSecureMemory.ConstantTimeCompareLexicographic(AA, AB)), AName);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareEqualArraysAreZero;
+var
+  LData: TBytes;
+begin
+  CheckOrder('one byte', DecodeHex('5A'), DecodeHex('5A'), 0);
+  LData := DecodeHex('00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF');
+  CheckOrder('thirty-two bytes', LData, System.Copy(LData), 0);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareDifferingFirstByteDecides;
+begin
+  CheckOrder('first byte smaller', DecodeHex('01FFFFFF'), DecodeHex('02000000'), -1);
+  CheckOrder('first byte larger', DecodeHex('03000000'), DecodeHex('02FFFFFF'), 1);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareDifferingLastByteDecides;
+begin
+  CheckOrder('last byte smaller', DecodeHex('AABBCC01'), DecodeHex('AABBCC02'), -1);
+  CheckOrder('last byte larger', DecodeHex('AABBCC03'), DecodeHex('AABBCC02'), 1);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareFirstDifferenceBeatsLaterOnes;
+begin
+  // the middle byte decides although the last bytes point the other way
+  CheckOrder('middle larger', DecodeHex('01090000'), DecodeHex('01020900'), 1);
+  CheckOrder('middle smaller', DecodeHex('01020900'), DecodeHex('01090000'), -1);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareBytesAreUnsigned;
+begin
+  CheckOrder('0x80 against 0x7F', DecodeHex('80'), DecodeHex('7F'), 1);
+  CheckOrder('0x00 against 0xFF', DecodeHex('00'), DecodeHex('FF'), -1);
+  CheckOrder('0xFF against 0xFE', DecodeHex('FF'), DecodeHex('FE'), 1);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeComparePrefixSortsFirst;
+begin
+  CheckOrder('one byte longer', DecodeHex('0102'), DecodeHex('010203'), -1);
+  CheckOrder('a zero byte longer', DecodeHex('01'), DecodeHex('0100'), -1);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareDifferenceBeatsLength;
+begin
+  CheckOrder('longer but smaller', DecodeHex('010203'), DecodeHex('02'), -1);
+  CheckOrder('shorter but larger', DecodeHex('03'), DecodeHex('010203'), 1);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareEmptyAndNil;
+begin
+  CheckOrder('nil against nil', nil, nil, 0);
+  CheckOrder('nil against one byte', nil, DecodeHex('00'), -1);
+  CheckOrder('one byte against nil', DecodeHex('00'), nil, 1);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareMatchesVariableTimeExhaustively;
+const
+  Values: array [0 .. 7] of Byte = ($00, $01, $7E, $7F, $80, $81, $FE, $FF);
+var
+  LAll: TArray<TBytes>;
+  LCount, LI, LJ, LA, LB: Int32;
+begin
+  // every array of length 0, 1 and 2 over the boundary byte values, then every pair of them
+  LAll := nil;
+  SetLength(LAll, 1 + 8 + 64);
+  LCount := 1;
+  for LI := 0 to 7 do
+  begin
+    LAll[LCount] := TBytes.Create(Values[LI]);
+    Inc(LCount);
+  end;
+  for LI := 0 to 7 do
+    for LJ := 0 to 7 do
+    begin
+      LAll[LCount] := TBytes.Create(Values[LI], Values[LJ]);
+      Inc(LCount);
+    end;
+  for LA := 0 to LCount - 1 do
+    for LB := 0 to LCount - 1 do
+      CheckCompareMatchesVariableTime(Format('pair %d, %d', [LA, LB]), LAll[LA], LAll[LB]);
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareMatchesVariableTimeOnRandomEqualLengths;
+var
+  LA, LB: TBytes;
+  LShared: Int32;
+  LI: Int32;
+begin
+  for LI := 1 to 1000 do
+  begin
+    LA := Crypto.Primitives.GetRandom.GenerateBytes(66);
+    LB := Crypto.Primitives.GetRandom.GenerateBytes(66);
+    // a random-length common prefix, so the deciding byte lands at every position
+    LShared := Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod 67;
+    if LShared > 0 then
+      Move(LA[0], LB[0], LShared);
+    CheckCompareMatchesVariableTime(Format('sample %d', [LI]), LA, LB);
+  end;
+end;
+
+procedure TTestSecretBuffer.TestConstantTimeCompareMatchesVariableTimeOnRandomUnequalLengths;
+var
+  LA, LB: TBytes;
+  LShared: Int32;
+  LI: Int32;
+begin
+  for LI := 1 to 1000 do
+  begin
+    LA := Crypto.Primitives.GetRandom.GenerateBytes(66);
+    LB := Crypto.Primitives.GetRandom.GenerateBytes(66);
+    LShared := Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod 67;
+    if LShared > 0 then
+      Move(LA[0], LB[0], LShared);
+    // truncate either side, so both the shorter-first and the shorter-second orders occur
+    if (Crypto.Primitives.GetRandom.GenerateBytes(1)[0] and 1) = 0 then
+      SetLength(LB, Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod 67)
+    else
+      SetLength(LA, Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod 67);
+    CheckCompareMatchesVariableTime(Format('sample %d', [LI]), LA, LB);
   end;
 end;
 

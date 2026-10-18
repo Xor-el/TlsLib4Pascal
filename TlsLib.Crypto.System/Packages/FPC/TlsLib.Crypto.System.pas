@@ -10,7 +10,8 @@ interface
 uses
   TlpSystemCryptoTypes, TlpICryptoBackendReport, TlpSystemCryptoExceptions, 
   TlpSystemCryptoBase, TlpWindowsSystemCrypto, TlpOSCryptoProvider, 
-  TlpSystemCryptoStrictness;
+  TlpSystemCryptoStrictness, TlpHkdfComposition, TlpSignatureEncoding, 
+  TlpEcPrivateScalar;
 
 implementation
 

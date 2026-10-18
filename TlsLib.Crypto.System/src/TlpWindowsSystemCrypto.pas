@@ -23,10 +23,9 @@ uses
   SyncObjs,
   TlpArrayUtilities,
   TlpDynamicLibrary,
-  TlpDataEncoding,
   TlpCryptoDomainTypes,
-  TlpPem,
   TlpDer,
+  TlpEcPrivateScalar,
   TlpSystemCryptoTypes,
   TlpICryptoProvider,
   TlpIKeyExchangePrivateKey,
@@ -38,6 +37,8 @@ uses
   TlpSecretBuffer,
   TlpSecureMemory,
   TlpTls12PrfComposition,
+  TlpHkdfComposition,
+  TlpSignatureEncoding,
   TlpSystemCryptoBase,
   TlpSystemCryptoExceptions,
   TlpTlsAlert,
@@ -178,8 +179,6 @@ resourcestring
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
   SAeadNonceReused = 'the AEAD nonce was already used under this key';
-  SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
-  SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
   SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
   SScalarOutOfRange = 'the private scalar must be in the range [1, n-1] of the curve order';
   SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
@@ -560,9 +559,6 @@ type
     function IsUncompressed(const APoint: TBytes): Boolean;
     function PeerPublicBlob(const APoint: TBytes): TBytes;
     function ScalarPrivateBlob(const AScalar: TBytes): TBytes;
-    /// <summary>Whether AScalar (big-endian) is a valid private key: non-zero and below the group
-    /// order n, i.e. in [1, n-1].</summary>
-    function ScalarInRange(const AScalar: TBytes): Boolean;
     function ImportPeer(const APeerPublicKey: TBytes): Pointer;
     function DeriveBigEndianSecret(ASecret: Pointer): TBytes;
   public
@@ -684,21 +680,17 @@ type
     function DoFinal: TBytes;
   end;
 
-  // RFC 5869 HKDF over CNG: Extract via HMAC; Expand via the CNG HKDF provider when available, else
-  // the HMAC T-loop. Reports as backend Composed.
-  TWindowsCngHkdf = class(TInterfacedObject, IHkdf)
+  // HKDF whose Expand is served in-module when the OS provider passed its known-answer test
+  TWindowsCngHkdf = class(THkdfComposition)
   strict private
   var
     FCng: IWindowsCng;
-    FAlgorithm: THashAlgorithm;
-    FMacSize: Int32;
-    function NewMac: IHmac;
+  strict protected
+    function TryExpandInModule(const APrk: ISecretBuffer; const AInfo: TBytes;
+      ALength: Int32; out AOkm: ISecretBuffer): Boolean; override;
   public
-    constructor Create(const ACng: IWindowsCng; AAlgorithm: THashAlgorithm;
-      AMacSize: Int32);
-    function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
-    function Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
-      ALength: Int32): ISecretBuffer;
+    constructor Create(const APrimitives: ICryptoPrimitives; const ACng: IWindowsCng;
+      AAlgorithm: THashAlgorithm);
   end;
 
   // A CNG AEAD (AES-GCM, or ChaCha20-Poly1305 where CNG has it). The algorithm-provider
@@ -934,18 +926,8 @@ type
     function SigningKeyOwner: INCryptKeyOwner;
   end;
 
-  // Buffers the to-be-signed / to-be-verified bytes for the signer and verifier below; its
-  // Update satisfies the accumulate step of both ISignatureSigner and ISignatureVerifier.
-  TWindowsSignatureBuffer = class(TInterfacedObject)
-  strict protected
-  var
-    FBuffer: TBytes;
-  public
-    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
-  end;
-
   // Accumulates the to-be-signed bytes, then hashes (via CNG) and signs (via NCrypt).
-  TWindowsSignatureSigner = class(TWindowsSignatureBuffer, ISignatureSigner)
+  TWindowsSignatureSigner = class(TSignatureInputBuffer, ISignatureSigner)
   strict private
   var
     FKeeper: IWindowsNCrypt;
@@ -959,7 +941,7 @@ type
 
   // Accumulates the to-be-verified bytes, then verifies (via crypt32-imported key + BCrypt).
   // Owns the imported public key handle, freed on release. Fail-closed: any fault is False.
-  TWindowsSignatureVerifier = class(TWindowsSignatureBuffer, ISignatureVerifier)
+  TWindowsSignatureVerifier = class(TSignatureInputBuffer, ISignatureVerifier)
   strict private
   var
     FKeeper: IWindowsNCrypt;
@@ -993,11 +975,6 @@ type
     class function HashAlgForScheme(AScheme: TSignatureScheme): THashAlgorithm; static;
     class function HashIdForScheme(AScheme: TSignatureScheme): WideString; static;
     class function HashLenForScheme(AScheme: TSignatureScheme): ULONG; static;
-    /// <summary>The DER DigestInfo T of RFC 8017 9.2 for the scheme's hash and ADigest: the Note 1
-    /// prefix, NULL parameters included, then the digest. It is the only encoding a PKCS#1 v1.5
-    /// signature may carry.</summary>
-    class function Pkcs1DigestInfo(AScheme: TSignatureScheme;
-      const ADigest: TBytes): TBytes; static;
     /// <summary>The RSA modulus length k in octets (RFC 8017 8.2.2 step 1), 0 when unreadable.</summary>
     function RsaModulusBytes(AKeyHandle: Pointer): Int32;
     function KeyFieldSize(AKeyHandle: Pointer): Int32;
@@ -1005,12 +982,6 @@ type
     // an unreadable family is a mismatch
     function KeyFamilyMatchesScheme(AKeyHandle: Pointer;
       AScheme: TSignatureScheme): Boolean;
-    class function IsPssScheme(AScheme: TSignatureScheme): Boolean; static;
-    class function IsEcdsaScheme(AScheme: TSignatureScheme): Boolean; static;
-    // raw r||s (from CNG) to a DER SEQUENCE{ INTEGER r, INTEGER s } as TLS carries it
-    class function DerEncodeEcdsa(const ARaw: TBytes): TBytes; static;
-    class function TryDerDecodeEcdsa(const ADer: TBytes; AFieldSize: Int32;
-      out ARaw: TBytes): Boolean; static;
     class function Sec1CurveOid(const ASec1: TBytes; out ACurveOid: TBytes): Boolean; static;
     // wraps a PKCS#1 (RSAPrivateKey) or SEC1 (ECPrivateKey) DER into a fresh PKCS#8 the KSP
     // imports, which the caller owns and wipes; False (AWrapped nil) for a PKCS#8 (plain or
@@ -1033,8 +1004,6 @@ type
     // both sign and verify; EdDSA has no CNG path) - the single source the report and the
     // signing decorator both consult, so their "native" view cannot drift apart.
     class function IsNativeScheme(AScheme: TSignatureScheme): Boolean; static;
-    // whether ADer is an EncryptedPrivateKeyInfo: an outer SEQUENCE leading with a SEQUENCE
-    class function IsEncryptedPkcs8(const ADer: TBytes): Boolean; static;
     constructor Create(const ACng: IWindowsCng);
     destructor Destroy; override;
     function TryImportKey(const APkcs8: TBytes; const APassword: ISecretBuffer;
@@ -1065,26 +1034,22 @@ type
   // serve delegate to the inner portable facet. The per-key backend is coherent: a key this facet
   // imported carries the IWindowsSigningKey marker, so its signer is native; a foreign handle
   // routes back to the inner facet that made it.
-  TWindowsSigningCrypto = class(TInterfacedObject, ISigningCrypto)
+  TWindowsSigningCrypto = class(TForwardingSigningCrypto)
   strict private
   var
-    FInner: ISigningCrypto;
     FNCrypt: IWindowsNCrypt;
-    // decodes a PEM private-key block (PKCS#8, RSA/EC PRIVATE KEY) to DER and imports it
-    // natively; the decoded bytes are the plain or still-encrypted PKCS#8 the KSP accepts
-    function TryImportPemNative(const AData: TBytes; const APassword: ISecretBuffer;
-      out AKey: ISigningKey): Boolean;
+  strict protected
+    function TryImportNative(const ADer: TBytes; const APassword: ISecretBuffer;
+      out AKey: ISigningKey): Boolean; override;
   public
     constructor Create(const AInner: ISigningCrypto;
       const ANCrypt: IWindowsNCrypt);
-    function ImportSigningKey(const AData: TBytes;
-      const APassword: ISecretBuffer): ISigningKey;
     function ImportPkcs12(const AData: TBytes;
-      const APassword: ISecretBuffer): TImportedCredential;
+      const APassword: ISecretBuffer): TImportedCredential; override;
     function CreateSignatureSigner(AScheme: TSignatureScheme;
-      const AKey: ISigningKey): ISignatureSigner;
+      const AKey: ISigningKey): ISignatureSigner; override;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
-      const APublicKeyDer: TBytes): ISignatureVerifier;
+      const APublicKeyDer: TBytes): ISignatureVerifier; override;
   end;
 
   // The backend map for the composed Windows provider. It answers, per algorithm and
@@ -1403,111 +1368,30 @@ end;
 
 { TWindowsCngHkdf }
 
-constructor TWindowsCngHkdf.Create(const ACng: IWindowsCng;
-  AAlgorithm: THashAlgorithm; AMacSize: Int32);
+constructor TWindowsCngHkdf.Create(const APrimitives: ICryptoPrimitives;
+  const ACng: IWindowsCng; AAlgorithm: THashAlgorithm);
 begin
-  inherited Create;
+  inherited Create(APrimitives, AAlgorithm);
   FCng := ACng;
-  FAlgorithm := AAlgorithm;
-  FMacSize := AMacSize;
 end;
 
-function TWindowsCngHkdf.NewMac: IHmac;
-begin
-  if not FCng.TryCreateHmac(FAlgorithm, Result) then
-    raise ESystemCryptoBackendTlsLibException.CreateRes(@SCngUnavailable);
-end;
-
-function TWindowsCngHkdf.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
+function TWindowsCngHkdf.TryExpandInModule(const APrk: ISecretBuffer;
+  const AInfo: TBytes; ALength: Int32; out AOkm: ISecretBuffer): Boolean;
 var
-  LIkm, LPrk: TBytes;
-  LMac: IHmac;
+  LPrkBytes, LNative: TBytes;
 begin
-  LMac := NewMac;
-  // the salt is secret material used directly as the HMAC key; a nil or empty salt is HashLen
-  // zeros (an allocated secret is zero-filled), so no bare byte copy of the salt is made here
-  if (ASalt <> nil) and (ASalt.Len > 0) then
-    LMac.Init(ASalt)
-  else
-    LMac.Init(TSecretBuffer.Allocate(FMacSize));
-  LIkm := AIkm.ToBytes;
-  try
-    LMac.Update(LIkm, 0, System.Length(LIkm));
-    LPrk := LMac.DoFinal;
-    try
-      Result := TSecretBuffer.From(LPrk);
-    finally
-      TSecureMemory.WipeBytes(LPrk);
-    end;
-  finally
-    TSecureMemory.WipeBytes(LIkm);
-  end;
-end;
-
-function TWindowsCngHkdf.Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
-  ALength: Int32): ISecretBuffer;
-var
-  LMac: IHmac;
-  LOkm, LT, LCtr, LPrkBytes, LNative: TBytes;
-  LPos, LTake: Int32;
-  LCounter: Byte;
-begin
-  // RFC 5869: L must not exceed 255 * HashLen, else the block counter would wrap
-  if ALength < 0 then
-    raise EArgumentTlsLibException.CreateRes(@SHkdfExpandNegative);
-  if ALength > 255 * FMacSize then
-    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong,
-      [ALength, 255 * FMacSize]);
-  if ALength = 0 then
-    Exit(TSecretBuffer.From(nil));
-  // in-module Expand when the CNG HKDF provider is available (self-tested); else the portable
-  // T-loop over the CNG HMAC below
+  AOkm := nil;
   LPrkBytes := APrk.ToBytes;
   try
-    if FCng.TryHkdfExpandNative(FAlgorithm, LPrkBytes, AInfo, ALength, LNative) then
-    begin
-      try
-        Result := TSecretBuffer.From(LNative);
-      finally
-        TSecureMemory.WipeBytes(LNative);
-      end;
-      Exit;
-    end;
+    Result := FCng.TryHkdfExpandNative(Algorithm, LPrkBytes, AInfo, ALength, LNative);
   finally
     TSecureMemory.WipeBytes(LPrkBytes);
   end;
-  LOkm := nil;
-  SetLength(LOkm, ALength);
-  LMac := NewMac;
-  LMac.Init(APrk);
-  LT := nil;
-  LCtr := nil;
-  SetLength(LCtr, 1);
-  LPos := 0;
-  LCounter := 1;
+  if Result then
   try
-    while LPos < ALength do
-    begin
-      // T(i) = HMAC(PRK, T(i-1) || info || i)
-      if System.Length(LT) > 0 then
-        LMac.Update(LT, 0, System.Length(LT));
-      if System.Length(AInfo) > 0 then
-        LMac.Update(AInfo, 0, System.Length(AInfo));
-      LCtr[0] := LCounter;
-      LMac.Update(LCtr, 0, 1);
-      TSecureMemory.WipeBytes(LT); // each T(i) is an OKM prefix; wipe before reassigning
-      LT := LMac.DoFinal; // DoFinal re-keys a fresh HMAC for the next block
-      LTake := System.Length(LT);
-      if LPos + LTake > ALength then
-        LTake := ALength - LPos;
-      System.Move(LT[0], LOkm[LPos], LTake);
-      Inc(LPos, LTake);
-      Inc(LCounter);
-    end;
-    Result := TSecretBuffer.From(LOkm);
+    AOkm := TSecretBuffer.From(LNative);
   finally
-    TSecureMemory.WipeBytes(LOkm);
-    TSecureMemory.WipeBytes(LT);
+    TSecureMemory.WipeBytes(LNative);
   end;
 end;
 
@@ -1867,23 +1751,6 @@ begin
   Move(AScalar[0], Result[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], FCurve.FieldSize);
 end;
 
-function TWindowsCngKeyAgreement.ScalarInRange(const AScalar: TBytes): Boolean;
-var
-  LI: Int32;
-begin
-  if TSecureMemory.ConstantTimeIsAllZero(AScalar) then
-    Exit(False);
-  // big-endian compare against n: the first differing byte decides, and equality is out of range
-  for LI := 0 to System.High(AScalar) do
-  begin
-    if AScalar[LI] < FCurve.Order[LI] then
-      Exit(True);
-    if AScalar[LI] > FCurve.Order[LI] then
-      Exit(False);
-  end;
-  Result := False;
-end;
-
 function TWindowsCngKeyAgreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
   AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
@@ -1899,7 +1766,7 @@ begin
         [System.Length(LScalar), FCurve.FieldSize]);
     // a scalar outside [1, n-1] is not a private key; refuse it here rather than rely on what the
     // OS import happens to do with it
-    if not ScalarInRange(LScalar) then
+    if not TEcPrivateScalar.IsInRange(LScalar, FCurve.Order) then
       raise EArgumentTlsLibException.CreateRes(@SScalarOutOfRange);
     LScalarBlob := ScalarPrivateBlob(LScalar);
     TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE), LKey,
@@ -2334,8 +2201,7 @@ begin
         Result.FieldSize := 32;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P256_MAGIC;
         Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P256_MAGIC;
-        Result.Order := TDataEncoding.HexDecode(
-          'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551');
+        Result.Order := TEcPrivateScalar.GroupOrder(AAlgorithm);
       end;
     TKeyAgreementAlgorithm.SECP384R1:
       begin
@@ -2344,8 +2210,7 @@ begin
         Result.FieldSize := 48;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P384_MAGIC;
         Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P384_MAGIC;
-        Result.Order := TDataEncoding.HexDecode(
-          'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973');
+        Result.Order := TEcPrivateScalar.GroupOrder(AAlgorithm);
       end;
   else
     // SECP521R1
@@ -2354,8 +2219,7 @@ begin
     Result.FieldSize := 66;
     Result.PubMagic := BCRYPT_ECDH_PUBLIC_P521_MAGIC;
     Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P521_MAGIC;
-    Result.Order := TDataEncoding.HexDecode(
-      '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
+    Result.Order := TEcPrivateScalar.GroupOrder(AAlgorithm);
   end;
 end;
 
@@ -2900,23 +2764,9 @@ begin
 end;
 
 function TWindowsCryptoPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
-var
-  LMacSize: Int32;
 begin
   if FCng.HmacAvailable(AAlgorithm) then
-  begin
-    case AAlgorithm of
-      THashAlgorithm.SHA_256:
-        LMacSize := 32;
-      THashAlgorithm.SHA_384:
-        LMacSize := 48;
-      THashAlgorithm.SHA_512:
-        LMacSize := 64;
-    else
-      LMacSize := 0;
-    end;
-    Result := TWindowsCngHkdf.Create(FCng, AAlgorithm, LMacSize);
-  end
+    Result := TWindowsCngHkdf.Create(Self, FCng, AAlgorithm) as IHkdf
   else
     Result := inherited CreateHkdf(AAlgorithm);
 end;
@@ -3280,22 +3130,6 @@ begin
   Result := FOwner;
 end;
 
-{ TWindowsSignatureBuffer }
-
-procedure TWindowsSignatureBuffer.Update(const AData: TBytes;
-  AOffset, ALength: Int32);
-var
-  LOld: Int32;
-begin
-  if (AOffset < 0) or (ALength < 0) or (Int64(AOffset) + ALength > System.Length(AData)) then
-    raise EArgumentTlsLibException.CreateRes(@SUpdateSpanOutOfRange);
-  if ALength <= 0 then
-    Exit;
-  LOld := System.Length(FBuffer);
-  SetLength(FBuffer, LOld + ALength);
-  Move(AData[AOffset], FBuffer[LOld], ALength);
-end;
-
 { TWindowsSignatureSigner }
 
 constructor TWindowsSignatureSigner.Create(const AKeeper: IWindowsNCrypt;
@@ -3401,49 +3235,6 @@ begin
   end;
 end;
 
-class function TWindowsNCrypt.Pkcs1DigestInfo(AScheme: TSignatureScheme;
-  const ADigest: TBytes): TBytes;
-const
-  // RFC 8017 9.2 Note 1: 30 len 30 0d 06 09 60 86 48 01 65 03 04 02 <hash> 05 00 04 <hashlen>
-  Sha256Prefix: array[0..18] of Byte = ($30, $31, $30, $0D, $06, $09, $60, $86, $48, $01, $65,
-    $03, $04, $02, $01, $05, $00, $04, $20);
-  Sha384Prefix: array[0..18] of Byte = ($30, $41, $30, $0D, $06, $09, $60, $86, $48, $01, $65,
-    $03, $04, $02, $02, $05, $00, $04, $30);
-  Sha512Prefix: array[0..18] of Byte = ($30, $51, $30, $0D, $06, $09, $60, $86, $48, $01, $65,
-    $03, $04, $02, $03, $05, $00, $04, $40);
-var
-  LPrefix: PByte;
-  LDigestLength: Int32;
-begin
-  case AScheme of
-    TSignatureScheme.RSA_PKCS1_SHA256:
-      begin
-        LPrefix := @Sha256Prefix[0];
-        LDigestLength := 32;
-      end;
-    TSignatureScheme.RSA_PKCS1_SHA384:
-      begin
-        LPrefix := @Sha384Prefix[0];
-        LDigestLength := 48;
-      end;
-    TSignatureScheme.RSA_PKCS1_SHA512:
-      begin
-        LPrefix := @Sha512Prefix[0];
-        LDigestLength := 64;
-      end;
-  else
-    // no other scheme is an RSASSA-PKCS1-v1_5 one; the caller reads nil as a failed verification
-    Exit(nil);
-  end;
-  if System.Length(ADigest) <> LDigestLength then
-    Exit(nil);
-  Result := nil;
-  SetLength(Result, System.Length(Sha256Prefix) + System.Length(ADigest));
-  Move(LPrefix^, Result[0], System.Length(Sha256Prefix));
-  if System.Length(ADigest) > 0 then
-    Move(ADigest[0], Result[System.Length(Sha256Prefix)], System.Length(ADigest));
-end;
-
 function TWindowsNCrypt.RsaModulusBytes(AKeyHandle: Pointer): Int32;
 var
   LBlob: TBytes;
@@ -3465,48 +3256,13 @@ begin
   Result := Int32(PULONG(@LBlob[12])^);
 end;
 
-class function TWindowsNCrypt.IsPssScheme(AScheme: TSignatureScheme): Boolean;
-begin
-  Result := AScheme in [TSignatureScheme.RSA_PSS_RSAE_SHA256,
-    TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA512];
-end;
-
-class function TWindowsNCrypt.IsEcdsaScheme(AScheme: TSignatureScheme): Boolean;
-begin
-  Result := AScheme in [TSignatureScheme.ECDSA_SECP256R1_SHA256,
-    TSignatureScheme.ECDSA_SECP384R1_SHA384, TSignatureScheme.ECDSA_SECP521R1_SHA512];
-end;
-
-class function TWindowsNCrypt.IsEncryptedPkcs8(const ADer: TBytes): Boolean;
-var
-  LTag: Byte;
-  LOfs, LLen, LNext: Int32;
-begin
-  Result := TDer.ReadTlv(ADer, 0, LTag, LOfs, LLen, LNext) and (LTag = $30) and
-    TDer.ReadTlv(ADer, LOfs, LTag, LOfs, LLen, LNext) and (LTag = $30);
-end;
-
 class function TWindowsNCrypt.IsNativeScheme(AScheme: TSignatureScheme): Boolean;
 begin
-  Result := IsEcdsaScheme(AScheme) or (AScheme in [TSignatureScheme.RSA_PSS_RSAE_SHA256,
+  Result := (AScheme.KeyKind = TSignatureKeyKind.Ecdsa) or
+    (AScheme in [TSignatureScheme.RSA_PSS_RSAE_SHA256,
     TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA512,
     TSignatureScheme.RSA_PKCS1_SHA256, TSignatureScheme.RSA_PKCS1_SHA384,
     TSignatureScheme.RSA_PKCS1_SHA512]);
-end;
-
-class function TWindowsNCrypt.DerEncodeEcdsa(const ARaw: TBytes): TBytes;
-var
-  LHalf: Int32;
-  LR, LS, LBody: TBytes;
-begin
-  // CNG emits the fixed-width r||s; TLS carries SEQUENCE{ INTEGER r, INTEGER s }
-  LHalf := System.Length(ARaw) div 2;
-  LR := TDer.IntegerTlv(Copy(ARaw, 0, LHalf));
-  LS := TDer.IntegerTlv(Copy(ARaw, LHalf, LHalf));
-  SetLength(LBody, System.Length(LR) + System.Length(LS));
-  Move(LR[0], LBody[0], System.Length(LR));
-  Move(LS[0], LBody[System.Length(LR)], System.Length(LS));
-  Result := TDer.Tlv($30, LBody);
 end;
 
 function TWindowsNCrypt.KeyFieldSize(AKeyHandle: Pointer): Int32;
@@ -3541,106 +3297,10 @@ begin
     Exit;
   LAlg := WideString(PWideChar(@LName[0]));
   // an EC public key imports as ECDSA_Pnnn (or ECDH_Pnnn); an RSA one as RSA
-  if IsEcdsaScheme(AScheme) then
+  if AScheme.KeyKind = TSignatureKeyKind.Ecdsa then
     Result := (Copy(LAlg, 1, 5) = 'ECDSA') or (Copy(LAlg, 1, 4) = 'ECDH')
   else
     Result := LAlg = 'RSA';
-end;
-
-// Decodes a DER SEQUENCE{ INTEGER r, INTEGER s } to the fixed-width r||s BCrypt verifies.
-// Strictly bounds-checked and fail-closed: any malformed input returns False.
-class function TWindowsNCrypt.TryDerDecodeEcdsa(const ADer: TBytes;
-  AFieldSize: Int32; out ARaw: TBytes): Boolean;
-var
-  LPos, LEnd, LN: Int32;
-
-  // reads one DER INTEGER at AOffset, returns its content left-padded to AFieldSize in
-  // AValue, and advances LPos past the whole TLV
-  function ReadInt(AOffset: Int32; out AValue: TBytes): Boolean;
-  var
-    LLenOrig, LLen, LStart, LI: Int32;
-    LAllZero: Boolean;
-  begin
-    Result := False;
-    if (AOffset + 2 > LEnd) or (ADer[AOffset] <> $02) then
-      Exit;
-    LLenOrig := ADer[AOffset + 1];
-    if (LLenOrig and $80) <> 0 then // long-form length is not expected for r/s
-      Exit;
-    LStart := AOffset + 2;
-    if LStart + LLenOrig > LEnd then
-      Exit;
-    // strict DER INTEGER: a non-empty, non-negative, minimally-encoded value (r, s are positive)
-    if LLenOrig = 0 then
-      Exit;
-    if (ADer[LStart] and $80) <> 0 then // negative (high bit set) is not a valid r/s
-      Exit;
-    if (LLenOrig > 1) and (ADer[LStart] = 0) and ((ADer[LStart + 1] and $80) = 0) then
-      Exit; // a leading 0x00 is legal only to clear the sign bit of the next byte
-    LLen := LLenOrig;
-    // strip a single leading zero sign byte
-    if (LLen > 1) and (ADer[LStart] = 0) then
-    begin
-      Inc(LStart);
-      Dec(LLen);
-    end;
-    if (LLen = 0) or (LLen > AFieldSize) then
-      Exit;
-    // r and s must be non-zero
-    LAllZero := True;
-    for LI := 0 to LLen - 1 do
-      if ADer[LStart + LI] <> 0 then
-      begin
-        LAllZero := False;
-        Break;
-      end;
-    if LAllZero then
-      Exit;
-    AValue := nil;
-    SetLength(AValue, AFieldSize);
-    System.FillChar(AValue[0], AFieldSize, 0);
-    Move(ADer[LStart], AValue[AFieldSize - LLen], LLen);
-    LPos := AOffset + 2 + LLenOrig; // advance past the full TLV
-    Result := True;
-  end;
-
-var
-  LR, LS: TBytes;
-  LSeqLen: Int32;
-begin
-  ARaw := nil;
-  LN := System.Length(ADer);
-  if (LN < 2) or (ADer[0] <> $30) then
-    Exit(False);
-  LSeqLen := ADer[1];
-  if (LSeqLen and $80) <> 0 then // one long-form length byte (0x81) for larger curves
-  begin
-    if (LSeqLen <> $81) or (LN < 3) then
-      Exit(False);
-    LSeqLen := ADer[2];
-    // long form must be used only when it is required (content length >= 0x80): a value that
-    // fits short form encoded in long form is not DER-minimal
-    if LSeqLen < $80 then
-      Exit(False);
-    LPos := 3;
-  end
-  else
-    LPos := 2;
-  LEnd := LPos + LSeqLen;
-  // the SEQUENCE must span exactly the input: trailing bytes after it are rejected
-  if LEnd <> LN then
-    Exit(False);
-  if not ReadInt(LPos, LR) then
-    Exit(False);
-  if not ReadInt(LPos, LS) then
-    Exit(False);
-  if LPos <> LEnd then
-    Exit(False);
-  ARaw := nil;
-  SetLength(ARaw, 2 * AFieldSize);
-  Move(LR[0], ARaw[0], AFieldSize);
-  Move(LS[0], ARaw[AFieldSize], AFieldSize);
-  Result := True;
 end;
 
 class function TWindowsNCrypt.Sec1CurveOid(const ASec1: TBytes;
@@ -3947,7 +3607,7 @@ var
   LFlags, LSize, LWritten: ULONG;
 begin
   LHashId := HashIdForScheme(AScheme);
-  if IsPssScheme(AScheme) then
+  if AScheme.IsRsaPssRsae then
   begin
     LPss.pszAlgId := PWideChar(LHashId);
     LPss.cbSalt := HashLenForScheme(AScheme); // rsa_pss_rsae_*: salt length = hash length
@@ -3985,7 +3645,7 @@ begin
   TCngError.Check(FApi.SignHash(AKey, nil, PByte(ADigest), System.Length(ADigest),
     PByte(LRaw), LSize, LWritten, NCRYPT_SILENT_FLAG));
   SetLength(LRaw, LWritten);
-  Result := DerEncodeEcdsa(LRaw);
+  Result := TSignatureEncoding.DerEncodeEcdsa(LRaw);
 end;
 
 function TWindowsNCrypt.SignData(const AOwner: INCryptKeyOwner; AScheme: TSignatureScheme;
@@ -3999,7 +3659,7 @@ begin
   LLock := AOwner.SignLock;
   LLock.Enter;
   try
-    if IsEcdsaScheme(AScheme) then
+    if AScheme.KeyKind = TSignatureKeyKind.Ecdsa then
       Result := SignEcdsaDigest(AOwner.Handle, LDigest)
     else
       Result := SignRsaDigest(AOwner.Handle, AScheme, LDigest);
@@ -4129,12 +3789,13 @@ begin
   if not KeyFamilyMatchesScheme(AKeyHandle, AScheme) then
     Exit(False);
   LInput := ADigest;
-  if IsEcdsaScheme(AScheme) then
+  if AScheme.KeyKind = TSignatureKeyKind.Ecdsa then
   begin
     // BCrypt expects the fixed-width r||s (2x the KEY's field width, from the key not the
     // scheme - TLS 1.2 decouples them), not the DER the signature travels as
     LFieldSize := KeyFieldSize(AKeyHandle);
-    if (LFieldSize = 0) or (not TryDerDecodeEcdsa(ASignature, LFieldSize, LSig)) then
+    if (LFieldSize = 0) or
+      (not TSignatureEncoding.TryDerDecodeEcdsa(ASignature, LFieldSize, LSig)) then
       Exit(False);
     LPad := nil;
     LFlags := 0;
@@ -4146,7 +3807,7 @@ begin
     if (LModulusBytes = 0) or (System.Length(ASignature) <> LModulusBytes) then
       Exit(False);
     LHashId := HashIdForScheme(AScheme);
-    if IsPssScheme(AScheme) then
+    if AScheme.IsRsaPssRsae then
     begin
       LPss.pszAlgId := PWideChar(LHashId);
       LPss.cbSalt := HashLenForScheme(AScheme);
@@ -4157,7 +3818,7 @@ begin
     begin
       // only the RFC 8017 9.2 Note 1 DigestInfo may verify (8.2.2 compares the whole block); CNG's
       // own OID handling also accepts one without NULL, so no OID is named and the exact DER is passed
-      LInput := Pkcs1DigestInfo(AScheme, ADigest);
+      LInput := TSignatureEncoding.Pkcs1DigestInfo(AScheme, ADigest);
       if LInput = nil then
         Exit(False);
       LPkcs1.pszAlgId := nil;
@@ -4317,90 +3978,26 @@ end;
 constructor TWindowsSigningCrypto.Create(const AInner: ISigningCrypto;
   const ANCrypt: IWindowsNCrypt);
 begin
-  inherited Create;
-  FInner := AInner;
+  inherited Create(AInner);
   FNCrypt := ANCrypt;
 end;
 
-function TWindowsSigningCrypto.TryImportPemNative(const AData: TBytes;
+function TWindowsSigningCrypto.TryImportNative(const ADer: TBytes;
   const APassword: ISecretBuffer; out AKey: ISigningKey): Boolean;
-var
-  LBlocks: TArray<TPemBlock>;
-  LIdx, LI: Int32;
-  LKey: NativeUInt;
-  LSchemes: TArray<TSignatureScheme>;
-  LSpki: TBytes;
-  LImported: Boolean;
-begin
-  AKey := nil;
-  Result := False;
-  try
-    LBlocks := TPem.ReadBlocks(AData);
-  except
-    // malformed PEM: let the portable facet re-parse and own the canonical error
-    Exit(False);
-  end;
-  try
-    // a boundary this framing did not see (one that follows text on its line) could be read as a
-    // block by the portable facet, which then must pick the key
-    if TPem.BeginTagCount(AData) <> System.Length(LBlocks) then
-      Exit;
-    // the first private-key block is the one the portable provider imports, and it fails closed on
-    // it, so a later block is never tried here: an unsupported or failed first block hands the
-    // whole input to the portable facet, which owns the selection and the errors
-    LIdx := TPem.IndexOfPrivateKey(LBlocks);
-    if LIdx < 0 then
-      Exit;
-    // encrypted PKCS#8 needs the password; plain PKCS#8 and the raw PKCS#1/SEC1 forms
-    // ("RSA/EC PRIVATE KEY", wrapped to PKCS#8 inside TryImportKey) import unkeyed
-    if LBlocks[LIdx].PemType = 'ENCRYPTED PRIVATE KEY' then
-      // the label means EncryptedPrivateKeyInfo (RFC 7468 11) but the KSP imports plaintext too
-      LImported := TWindowsNCrypt.IsEncryptedPkcs8(LBlocks[LIdx].Content) and
-        FNCrypt.TryImportKey(LBlocks[LIdx].Content, APassword, LKey, LSchemes,
-        LSpki)
-    else if (LBlocks[LIdx].PemType = 'PRIVATE KEY') or
-      (LBlocks[LIdx].PemType = 'RSA PRIVATE KEY') or
-      (LBlocks[LIdx].PemType = 'EC PRIVATE KEY') then
-      LImported := FNCrypt.TryImportKey(LBlocks[LIdx].Content, nil, LKey, LSchemes, LSpki)
-    else
-      LImported := False;
-    if LImported then
-    begin
-      AKey := TWindowsSigningKey.Create(TNCryptKeyOwner.Create(FNCrypt, LKey)
-        as INCryptKeyOwner, LSchemes, LSpki);
-      Result := True;
-    end;
-  finally
-    // a decoded block may hold plaintext private-key DER
-    for LI := 0 to System.Length(LBlocks) - 1 do
-      TSecureMemory.WipeBytes(LBlocks[LI].Content);
-  end;
-end;
-
-function TWindowsSigningCrypto.ImportSigningKey(const AData: TBytes;
-  const APassword: ISecretBuffer): ISigningKey;
 var
   LKey: NativeUInt;
   LSchemes: TArray<TSignatureScheme>;
   LSpki: TBytes;
   LOwner: INCryptKeyOwner;
 begin
-  // native path is a PKCS#8 (plain, or an EncryptedPrivateKeyInfo the KSP decrypts) or a
-  // PKCS#1/SEC1 key wrapped into one - DER imported directly, PEM decoded first; an
-  // unsupported-PBE or otherwise unsupported key (or a wrong password) delegates to the
-  // portable facet, which owns the full decrypt/parse range and all error handling
-  if TPem.IsArmored(AData) then
-  begin
-    if not TryImportPemNative(AData, APassword, Result) then
-      Result := FInner.ImportSigningKey(AData, APassword);
-  end
-  else if FNCrypt.TryImportKey(AData, APassword, LKey, LSchemes, LSpki) then
+  AKey := nil;
+  // PKCS#1/SEC1 are wrapped to PKCS#8 inside TryImportKey; a declined key goes to the inner facet
+  Result := FNCrypt.TryImportKey(ADer, APassword, LKey, LSchemes, LSpki);
+  if Result then
   begin
     LOwner := TNCryptKeyOwner.Create(FNCrypt, LKey);
-    Result := TWindowsSigningKey.Create(LOwner, LSchemes, LSpki);
-  end
-  else
-    Result := FInner.ImportSigningKey(AData, APassword);
+    AKey := TWindowsSigningKey.Create(LOwner, LSchemes, LSpki);
+  end;
 end;
 
 function TWindowsSigningCrypto.ImportPkcs12(const AData: TBytes;
@@ -4412,7 +4009,7 @@ begin
   if FNCrypt.TryUnwrapPkcs12(AData, APassword, LContents) then
     Result := TPkcs12Identity.Select(LContents)
   else
-    Result := FInner.ImportPkcs12(AData, APassword);
+    Result := inherited ImportPkcs12(AData, APassword);
 end;
 
 function TWindowsSigningCrypto.CreateSignatureSigner(AScheme: TSignatureScheme;
@@ -4431,7 +4028,7 @@ begin
       AScheme);
   end
   else
-    Result := FInner.CreateSignatureSigner(AScheme, AKey);
+    Result := inherited CreateSignatureSigner(AScheme, AKey);
 end;
 
 function TWindowsSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureScheme;
@@ -4445,7 +4042,7 @@ begin
     FNCrypt.TryImportSpki(APublicKeyDer, LKeyHandle) then
     Result := TWindowsSignatureVerifier.Create(FNCrypt, LKeyHandle, AScheme)
   else
-    Result := FInner.CreateSignatureVerifier(AScheme, APublicKeyDer);
+    Result := inherited CreateSignatureVerifier(AScheme, APublicKeyDer);
 end;
 
 { TWindowsSystemCrypto }
