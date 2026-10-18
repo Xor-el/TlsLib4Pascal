@@ -38,8 +38,10 @@ type
   /// It reads the provider's <see cref="ICryptoBackendReport" /> (a provider with none is
   /// wholly portable, so every entry is dropped) and returns a fresh registry plus the
   /// names it removed, for logging. Install the result with the builder's WithNamedGroups /
-  /// WithCipherSuites / WithSignatureSchemes seams. Native-vs-portable is decided once at
-  /// provider construction, so the filtered set is stable for the provider's lifetime.
+  /// WithCipherSuites / WithSignatureSchemes seams; the signature registry narrows what the
+  /// endpoint offers and accepts, while its own signatures follow the credential key (a server
+  /// accepts a narrowed one only together with WithPeerAuth). Native-vs-portable is decided
+  /// once at provider construction, so the filtered set is stable for the provider's lifetime.
   /// </summary>
   TSystemCryptoStrictness = class sealed(TObject)
   strict private

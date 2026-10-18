@@ -31,6 +31,7 @@ uses
   TlpCipherSuiteCatalog,
   TlpCipherSuiteRegistry,
   TlpNegotiationPolicy,
+  TlpSignatureSchemeRegistry,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
@@ -205,6 +206,9 @@ type
     /// <summary>True when at least one accumulated anchor store yields a root certificate. A store
     /// object is not a trust source; only its roots are (an empty store can trust nothing).</summary>
     function HasAnchorRoots: Boolean;
+    /// <summary>True when the profile baseline carries a signature-scheme registry and the
+    /// configured one lists different scheme codes, compared by content and order.</summary>
+    function SignatureSchemesDifferFromBaseline: Boolean;
     /// <summary>Enforces the trust-composition rule at build: a whole-verifier is exclusive
     /// of any anchor source and of a second verifier (typed error).</summary>
     /// <summary>Derives the anchor, intermediate, strength, posture and skip state from a
@@ -403,6 +407,9 @@ resourcestring
   SServerChainLimitsNeedPeerAuth = 'certificate-chain limits bound only a requested client ' +
     'certificate, but the server requests none: call WithPeerAuth or leave the limits as the ' +
     'preset set them';
+  SServerSchemesNeedPeerAuth = 'a signature-scheme registry other than the profile''s has no ' +
+    'effect unless the server requests a client certificate, but it requests none: call ' +
+    'WithPeerAuth or leave the registry as the preset set it';
   SPskOnlyServerPeerAuth = 'a server holding no certificate credential never sends a ' +
     'CertificateRequest, so WithPeerAuth would have no effect: add a credential or drop it';
   SVerdictSlotConflict = 'WithAsyncCertificateVerdict and WithLiveRevocationVerdict set the same ' +
@@ -2168,6 +2175,23 @@ begin
   Result := (LStore <> nil) and (LStore.AnchorCount > 0);
 end;
 
+function TTlsConfigBuilder.SignatureSchemesDifferFromBaseline: Boolean;
+var
+  LBase, LCurrent: TArray<UInt16>;
+  LI: Int32;
+begin
+  Result := False;
+  if (FBaseline.SignatureSchemes = nil) or (FSignatureSchemes = nil) then
+    Exit;
+  LBase := TSignatureSchemeCodes.FromRegistry(FBaseline.SignatureSchemes);
+  LCurrent := TSignatureSchemeCodes.FromRegistry(FSignatureSchemes);
+  if System.Length(LBase) <> System.Length(LCurrent) then
+    Exit(True);
+  for LI := 0 to System.High(LBase) do
+    if LBase[LI] <> LCurrent[LI] then
+      Exit(True);
+end;
+
 function TTlsConfigBuilder.ComposeTrustStore: ITrustAnchorStore;
 begin
   if System.Length(FAnchorStores) = 0 then
@@ -3183,7 +3207,7 @@ begin
     if (not FEchMode.IsGrease) and
       (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) then
       raise EInvalidOperationTlsLibException.CreateRes(@SEchNeedsTls13Only);
-    // skipped verification authenticates nothing, so retry_configs are untrustworthy (sec. 6.1.7)
+    // skipped verification authenticates nothing, so retry_configs are untrustworthy (sec. 6.1.6)
     if (not FEchMode.IsGrease) and FDangerousTrust.InsecureSkipVerify then
       raise EInvalidOperationTlsLibException.CreateRes(@SEchNeedsVerification);
     LEchPolicy := TEchClientPolicy.Create(FCrypto, FEchMode.ConfigList, FEchMode.IsGrease,
@@ -3314,6 +3338,9 @@ begin
   if (FClientAuth = TClientAuthMode.None) and
     not (FChainLimits = FBaseline.CertificateChainLimits) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerChainLimitsNeedPeerAuth);
+  // the server signs per its key, so the registry acts only on a requested client certificate
+  if (FClientAuth = TClientAuthMode.None) and SignatureSchemesDifferFromBaseline then
+    raise EInvalidOperationTlsLibException.CreateRes(@SServerSchemesNeedPeerAuth);
   if (FClientAuth = TClientAuthMode.None) and FDecompressorsSet and
     (System.Length(FCertificateDecompressors) > 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerDecompressorsNeedPeerAuth);

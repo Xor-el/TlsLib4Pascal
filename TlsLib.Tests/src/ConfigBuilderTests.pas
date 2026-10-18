@@ -49,6 +49,7 @@ uses
   TlpCertificateVerifierSource,
   TlpTrustTypes,
   TlpTlsAlert,
+  TlpINegotiation,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
   TlpNegotiationPolicy,
@@ -458,6 +459,12 @@ type
     procedure TestPskOnlyServerRefusesCompressionCache;
     procedure TestServerChainLimitsNeedPeerAuth;
     procedure TestServerChainLimitsBuildWithPeerAuth;
+    procedure TestServerNarrowedSchemesNeedPeerAuth;
+    procedure TestServerReorderedSchemesNeedPeerAuth;
+    procedure TestHardenedServerNarrowedSchemesNeedPeerAuth;
+    procedure TestServerNarrowedSchemesBuildWithPeerAuth;
+    procedure TestServerEqualContentSchemesBuildWithoutPeerAuth;
+    procedure TestRawServerBuilderWithDefaultSchemesBuilds;
     procedure TestStrictServerBuildsWithItsSeededChainLimits;
     procedure TestPskOnlyServerRefusesPeerAuth;
     procedure TestTicketLifetimeZeroIsRefusedWithResumptionOn;
@@ -5249,6 +5256,72 @@ begin
       TClientVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
     .WithCertificateChainLimits(LLimits).Build,
     'chain limits on a server that requests client certificates');
+end;
+
+procedure TTestConfigBuilder.TestServerNarrowedSchemesNeedPeerAuth;
+var
+  LSchemes: ISignatureSchemeRegistryBuilder;
+begin
+  LSchemes := TSignatureSchemeRegistry.CreateDefault.ToBuilder;
+  LSchemes.Prune(TSignatureSchemes.Ed25519);
+  CheckTrue(BuildRefused(NewServerBuilder.WithSignatureSchemes(LSchemes.Build),
+    'signature-scheme registry'), 'a narrowed registry on a server that requests no client certificate');
+end;
+
+procedure TTestConfigBuilder.TestServerReorderedSchemesNeedPeerAuth;
+var
+  LSchemes: ISignatureSchemeRegistryBuilder;
+begin
+  LSchemes := TSignatureSchemeRegistry.CreateDefault.ToBuilder;
+  LSchemes.Prune(TSignatureSchemes.Ed25519);
+  LSchemes.Add(TSignatureScheme.ED25519);
+  CheckTrue(BuildRefused(NewServerBuilder.WithSignatureSchemes(LSchemes.Build),
+    'signature-scheme registry'), 'a same-set reordered registry on a server that requests no client certificate');
+end;
+
+procedure TTestConfigBuilder.TestHardenedServerNarrowedSchemesNeedPeerAuth;
+var
+  LSchemes: ISignatureSchemeRegistryBuilder;
+begin
+  LSchemes := TSignatureSchemeRegistry.CreateDefault.ToBuilder;
+  LSchemes.Prune(TSignatureSchemes.Ed25519);
+  CheckTrue(BuildRefused(TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential)
+    .WithSignatureSchemes(LSchemes.Build), 'signature-scheme registry'),
+    'a narrowed registry on a Hardened server that requests no client certificate');
+end;
+
+procedure TTestConfigBuilder.TestServerNarrowedSchemesBuildWithPeerAuth;
+var
+  LSchemes: ISignatureSchemeRegistryBuilder;
+begin
+  LSchemes := TSignatureSchemeRegistry.CreateDefault.ToBuilder;
+  LSchemes.Prune(TSignatureSchemes.Ed25519);
+  CheckNotNull(NewServerBuilder.WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(
+      TClientVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+    .WithSignatureSchemes(LSchemes.Build).Build,
+    'a narrowed registry on a server that requests client certificates');
+end;
+
+procedure TTestConfigBuilder.TestServerEqualContentSchemesBuildWithoutPeerAuth;
+begin
+  CheckNotNull(NewServerBuilder.WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault).Build,
+    'a registry equal in content to the preset''s, held by a different instance');
+end;
+
+procedure TTestConfigBuilder.TestRawServerBuilderWithDefaultSchemesBuilds;
+var
+  LBuilder: ITlsConfigBuilder;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default);
+  CheckNotNull(LBuilder.Server
+    .WithCipherSuites(TCipherSuiteRegistry.CreateDefault(Crypto))
+    .WithSignatureSchemes(TSignatureSchemeRegistry.CreateDefault)
+    .WithNamedGroups(TNamedGroups.CreateDefaultRegistry(Crypto))
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13))
+    .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519))
+    .WithCredential(ServerCredential).Build,
+    'a raw server builder carries no baseline registry, so its own registry is never refused');
 end;
 
 procedure TTestConfigBuilder.TestStrictServerBuildsWithItsSeededChainLimits;
