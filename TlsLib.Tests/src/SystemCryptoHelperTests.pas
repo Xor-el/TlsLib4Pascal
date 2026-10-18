@@ -67,8 +67,10 @@ type
     procedure CheckVector(const ASalt, AIkm, AInfo, APrk, AOkm: string; ALength: Int32);
     procedure CheckMatchesReference(AAlgorithm: THashAlgorithm; AHashLen: Int32);
     procedure CheckExtractMatchesZeroSalt(const ASalt: ISecretBuffer);
-    // whether Expand raises exactly EArgumentTlsLibException for ALength
-    function ExpandRaisesArgument(AAlgorithm: THashAlgorithm; ALength: Int32): Boolean;
+    // the class and message of the exception Expand raises for ALength, '' when it raises none
+    function ExpandFailure(AAlgorithm: THashAlgorithm; ALength: Int32): string;
+    // the failure Expand gives for an over-cap length
+    function TooLongFailure(ALength, ACap: Int32): string;
   published
     procedure TestHkdfRfc5869Case1;
     procedure TestHkdfRfc5869Case2;
@@ -93,7 +95,8 @@ type
     procedure TestHkdfRefusesNilPrimitives;
   end;
 
-  /// <summary>Records what the native import hook is handed; Served is its key, nil declines.</summary>
+  /// <summary>Records what the native import hook is handed; Served is its key, nil
+  /// declines.</summary>
   TRecordingSigning = class(TForwardingSigningCrypto)
   public
   var
@@ -131,6 +134,9 @@ type
     procedure TestEncodeRfc6979Sha256Sample;
     procedure TestEncodeRfc6979Sha224Sample;
     procedure TestEncodeRfc6979Sha1Sample;
+    procedure TestDecodeRfc6979Sha256Sample;
+    procedure TestDecodeRfc6979Sha224Sample;
+    procedure TestDecodeRfc6979Sha1Sample;
     procedure TestEncodeDropsLeadingZeroBytes;
     procedure TestEncodeP521UsesSingleByteLongFormLength;
     procedure TestRoundTripRandomP256;
@@ -172,7 +178,8 @@ type
     procedure TestDecodeRejectsIntegerRunningPastEnd;
   end;
 
-  /// <summary>The PKCS#1 v1.5 DigestInfo builder against the RFC 8017 9.2 Note 1 prefixes.</summary>
+  /// <summary>The PKCS#1 v1.5 DigestInfo builder against the RFC 8017 9.2 Note 1
+  /// prefixes.</summary>
   TTestPkcs1DigestInfo = class(TSystemCryptoHelperTestCase)
   strict private
     function AscendingDigest(ALength: Int32): TBytes;
@@ -213,7 +220,8 @@ type
   end;
 
   /// <summary>The key-import routing of the native signing base: the PEM first-block rule, the
-  /// password and wipe handling around the native hook, and the forward-to-inner defaults.</summary>
+  /// password and wipe handling around the native hook, and the forward-to-inner
+  /// defaults.</summary>
   TTestForwardingSigningCrypto = class(TSystemCryptoHelperTestCase)
   strict private
   var
@@ -225,7 +233,7 @@ type
       const APassword: ISecretBuffer): string;
     function SignedAndVerified(const ASigned, AVerified: TBytes): Boolean;
     procedure CheckSpki(const AName, AField: string; const AKey: ISigningKey);
-    procedure CheckImportsLikeInner(const AField: string);
+    procedure CheckImportsLikeInner(const AField: string; const APassword: ISecretBuffer);
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -257,6 +265,8 @@ type
     procedure TestDerCallerBytesStayIntact;
     procedure TestBareForwarderImportsDerLikeInner;
     procedure TestBareForwarderImportsPemLikeInner;
+    procedure TestBareForwarderPassesPasswordForEncryptedDer;
+    procedure TestBareForwarderPassesPasswordForEncryptedPem;
     procedure TestBareForwarderSignatureVerifies;
     procedure TestBareForwarderVerifierRejectsTamperedMessage;
     procedure TestBareForwarderImportsPkcs12LikeInner;
@@ -327,8 +337,10 @@ const
   // SEC 2 n for secp256r1 (2.4.2), secp384r1 (2.5.1) and secp521r1 (2.6.1)
   CGroupOrders: array[0..2] of string = (
     'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551',
-    'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973',
-    '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
+    'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' +
+      'C7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973',
+    '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF' +
+      'FA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
   // RFC 6979 A.2.5, NIST P-256, message "sample": the r and s of SHA-1, SHA-224 and SHA-256
   CSha1R = '61340C88C3AAEBEB4F6D667F672CA9759A6CCAA9FA8811313039EE4A35471D32';
   CSha1S = '6D7F147DAC089441BB2E2FE8F7A3FA264B9C475098FDCF6E00D7C996E1B8B7EB';
@@ -467,16 +479,22 @@ begin
     Composition(THashAlgorithm.SHA_256).Extract(ASalt, LIkm).ToBytes);
 end;
 
-function TTestSystemCryptoHelpers.ExpandRaisesArgument(AAlgorithm: THashAlgorithm;
-  ALength: Int32): Boolean;
+function TTestSystemCryptoHelpers.ExpandFailure(AAlgorithm: THashAlgorithm;
+  ALength: Int32): string;
 begin
-  Result := False;
+  Result := '';
   try
     Composition(AAlgorithm).Expand(ReferencePrk(AAlgorithm), DecodeHex(CInfo10), ALength);
   except
-    on E: EArgumentTlsLibException do
-      Result := E.ClassType = EArgumentTlsLibException;
+    on E: Exception do
+      Result := E.ClassName + ': ' + E.Message;
   end;
+end;
+
+function TTestSystemCryptoHelpers.TooLongFailure(ALength, ACap: Int32): string;
+begin
+  Result := EArgumentTlsLibException.ClassName + ': ' +
+    Format(SHkdfExpandTooLong, [ALength, ACap]);
 end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfRfc5869Case1;
@@ -526,14 +544,15 @@ end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfExpandRejectsNegativeLength;
 begin
-  CheckTrue(ExpandRaisesArgument(THashAlgorithm.SHA_256, -1),
-    'a negative length raises EArgumentTlsLibException');
+  CheckEquals(EArgumentTlsLibException.ClassName + ': ' + SHkdfExpandNegative,
+    ExpandFailure(THashAlgorithm.SHA_256, -1), 'a negative length is refused');
 end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfExpandRejectsLengthOverCap;
 begin
-  CheckTrue(ExpandRaisesArgument(THashAlgorithm.SHA_256, 255 * 32 + 1),
-    'a length beyond 255 * HashLen raises EArgumentTlsLibException');
+  CheckEquals(TooLongFailure(255 * 32 + 1, 255 * 32),
+    ExpandFailure(THashAlgorithm.SHA_256, 255 * 32 + 1),
+    'a length beyond 255 * HashLen is refused');
 end;
 
 procedure TTestSystemCryptoHelpers.TestHkdfExpandAcceptsExactCap;
@@ -549,8 +568,9 @@ procedure TTestSystemCryptoHelpers.TestHkdfExpandCapFollowsHashLength;
 var
   LOkm: ISecretBuffer;
 begin
-  CheckTrue(ExpandRaisesArgument(THashAlgorithm.SHA_384, 255 * 48 + 1),
-    'one past the SHA-384 cap raises EArgumentTlsLibException');
+  CheckEquals(TooLongFailure(255 * 48 + 1, 255 * 48),
+    ExpandFailure(THashAlgorithm.SHA_384, 255 * 48 + 1),
+    'one past the SHA-384 cap is refused');
   LOkm := Composition(THashAlgorithm.SHA_384).Expand(ReferencePrk(THashAlgorithm.SHA_384),
     DecodeHex(CInfo10), 255 * 48);
   CheckEquals(255 * 48, LOkm.Len, 'Expand at the exact SHA-384 cap succeeds');
@@ -792,6 +812,24 @@ procedure TTestEcdsaSignatureEncoding.TestEncodeRfc6979Sha1Sample;
 begin
   CheckEncodes('SHA-1 sample', CSha1R + CSha1S,
     '3044' + '0220' + CSha1R + '0220' + CSha1S);
+end;
+
+procedure TTestEcdsaSignatureEncoding.TestDecodeRfc6979Sha256Sample;
+begin
+  CheckDecodesTo('SHA-256 sample', '3046' + '022100' + CSha256R + '022100' + CSha256S,
+    CSha256R, CSha256S, 32);
+end;
+
+procedure TTestEcdsaSignatureEncoding.TestDecodeRfc6979Sha224Sample;
+begin
+  CheckDecodesTo('SHA-224 sample', '3045' + '0220' + CSha224R + '022100' + CSha224S,
+    CSha224R, CSha224S, 32);
+end;
+
+procedure TTestEcdsaSignatureEncoding.TestDecodeRfc6979Sha1Sample;
+begin
+  CheckDecodesTo('SHA-1 sample', '3044' + '0220' + CSha1R + '0220' + CSha1S,
+    CSha1R, CSha1S, 32);
 end;
 
 procedure TTestEcdsaSignatureEncoding.TestEncodeDropsLeadingZeroBytes;
@@ -1238,13 +1276,15 @@ begin
   CheckEqualBytes(AName, KeyBytes(AField), AKey.PublicKeyInfo);
 end;
 
-procedure TTestForwardingSigningCrypto.CheckImportsLikeInner(const AField: string);
+procedure TTestForwardingSigningCrypto.CheckImportsLikeInner(const AField: string;
+  const APassword: ISecretBuffer);
 var
   LBare: ISigningCrypto;
 begin
   LBare := TForwardingSigningCrypto.Create(Crypto.Signing) as ISigningCrypto;
-  CheckEqualBytes(AField + ' SPKI', Crypto.Signing.ImportSigningKey(KeyBytes(AField), nil)
-    .PublicKeyInfo, LBare.ImportSigningKey(KeyBytes(AField), nil).PublicKeyInfo);
+  CheckEqualBytes(AField + ' SPKI',
+    Crypto.Signing.ImportSigningKey(KeyBytes(AField), APassword).PublicKeyInfo,
+    LBare.ImportSigningKey(KeyBytes(AField), APassword).PublicKeyInfo);
 end;
 
 procedure TTestForwardingSigningCrypto.TestPlainPkcs8PemReachesHookOnce;
@@ -1342,6 +1382,8 @@ var
 begin
   LData := ConcatBytes(TEncoding.ASCII.GetBytes('note '), ConcatBytes(
     KeyBytes('ed25519_pkcs8_pem'), KeyBytes('rsa_pkcs8_pem')));
+  // a hook that would accept the framed block serves a key neither PEM holds
+  FRecording.Served := Crypto.Signing.ImportSigningKey(KeyBytes('ec256_pkcs8_der'), nil);
   CheckEqualBytes('the inner facet picks the key',
     Crypto.Signing.ImportSigningKey(LData, nil).PublicKeyInfo,
     FSigning.ImportSigningKey(LData, nil).PublicKeyInfo);
@@ -1381,6 +1423,8 @@ var
   LExpected: string;
 begin
   LData := TEncoding.ASCII.GetBytes('-----BEGIN PRIVATE KEY-----'#13#10'AAAA'#13#10);
+  // a hook offered the truncated block would serve a key instead of failing
+  FRecording.Served := ServedKey;
   LExpected := ImportFailure(Crypto.Signing, LData, nil);
   CheckTrue(LExpected <> '', 'the inner facet refuses the block');
   CheckEquals(LExpected, ImportFailure(FSigning, LData, nil), 'the same failure');
@@ -1442,12 +1486,22 @@ end;
 
 procedure TTestForwardingSigningCrypto.TestBareForwarderImportsDerLikeInner;
 begin
-  CheckImportsLikeInner('ec256_pkcs8_der');
+  CheckImportsLikeInner('ec256_pkcs8_der', nil);
 end;
 
 procedure TTestForwardingSigningCrypto.TestBareForwarderImportsPemLikeInner;
 begin
-  CheckImportsLikeInner('ec256_pkcs8_pem');
+  CheckImportsLikeInner('ec256_pkcs8_pem', nil);
+end;
+
+procedure TTestForwardingSigningCrypto.TestBareForwarderPassesPasswordForEncryptedDer;
+begin
+  CheckImportsLikeInner('ec256_enc_der', TSecretBuffer.FromString(CPassword));
+end;
+
+procedure TTestForwardingSigningCrypto.TestBareForwarderPassesPasswordForEncryptedPem;
+begin
+  CheckImportsLikeInner('rsa_enc_pem', TSecretBuffer.FromString(CPassword));
 end;
 
 procedure TTestForwardingSigningCrypto.TestBareForwarderSignatureVerifies;

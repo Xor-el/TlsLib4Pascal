@@ -24,6 +24,10 @@ uses
   TlpSecureMemory,
   TlpTlsLibExceptions;
 
+resourcestring
+  SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
+  SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
+
 type
   /// <summary>
   /// HKDF (RFC 5869) over the HMAC that a primitives facet hands back, for a native facet whose
@@ -52,8 +56,6 @@ implementation
 
 resourcestring
   SNilHkdfPrimitives = 'the primitives facet must not be nil';
-  SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
-  SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
 
 { THkdfComposition }
 

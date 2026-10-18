@@ -104,7 +104,7 @@ type
   /// <summary>
   /// An <see cref="ISigningCrypto" /> decorator over an inner signing facet, the base for a
   /// system-native signing facet. Key import tries the subclass's <see cref="TryImportNative" />
-  /// first (DER as given, PEM through the first private-key block the portable reader would pick)
+  /// first (DER as given, PEM through the first private-key block the inner reader would pick)
   /// and hands anything it declines to the inner facet unchanged; every member is virtual and
   /// forwards to the inner facet otherwise.
   /// </summary>
@@ -290,42 +290,36 @@ function TForwardingSigningCrypto.TryImportPem(const AData: TBytes;
 var
   LBlocks: TArray<TPemBlock>;
   LIdx, LI: Int32;
-  LImported: Boolean;
 begin
   AKey := nil;
   Result := False;
   try
     LBlocks := TPem.ReadBlocks(AData);
   except
-    // malformed PEM: let the portable facet re-parse and own the canonical error
+    // malformed PEM: let the inner facet re-parse and own the canonical error
     Exit(False);
   end;
   try
     // a boundary this framing did not see (one that follows text on its line) could be read as a
-    // block by the portable facet, which then must pick the key
+    // block by the inner facet, which then must pick the key
     if TPem.BeginTagCount(AData) <> System.Length(LBlocks) then
       Exit;
-    // the first private-key block is the one the portable provider imports, and it fails closed on
+    // the first private-key block is the one the inner facet imports, and it fails closed on
     // it, so a later block is never tried here: an unsupported or failed first block hands the
-    // whole input to the portable facet, which owns the selection and the errors
+    // whole input to the inner facet, which owns the selection and the errors
     LIdx := TPem.IndexOfPrivateKey(LBlocks);
     if LIdx < 0 then
       Exit;
     // encrypted PKCS#8 needs the password; plain PKCS#8 and the raw PKCS#1/SEC1 forms
     // ("RSA/EC PRIVATE KEY") import unkeyed
     if LBlocks[LIdx].PemType = 'ENCRYPTED PRIVATE KEY' then
-      // the label means EncryptedPrivateKeyInfo (RFC 7468 11), yet a native importer may take plaintext
-      LImported := IsEncryptedPkcs8(LBlocks[LIdx].Content) and
+      // the label means EncryptedPrivateKeyInfo (RFC 7468 11); a native hook may take plaintext
+      Result := IsEncryptedPkcs8(LBlocks[LIdx].Content) and
         TryImportNative(LBlocks[LIdx].Content, APassword, AKey)
     else if (LBlocks[LIdx].PemType = 'PRIVATE KEY') or
       (LBlocks[LIdx].PemType = 'RSA PRIVATE KEY') or
       (LBlocks[LIdx].PemType = 'EC PRIVATE KEY') then
-      LImported := TryImportNative(LBlocks[LIdx].Content, nil, AKey)
-    else
-      LImported := False;
-    if not LImported then
-      AKey := nil;
-    Result := LImported;
+      Result := TryImportNative(LBlocks[LIdx].Content, nil, AKey);
   finally
     // a decoded block may hold plaintext private-key DER
     for LI := 0 to System.Length(LBlocks) - 1 do
