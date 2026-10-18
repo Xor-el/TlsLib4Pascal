@@ -23,9 +23,9 @@ uses
   SyncObjs,
   TlpArrayUtilities,
   TlpDynamicLibrary,
-  TlpDataEncoding,
   TlpCryptoDomainTypes,
   TlpDer,
+  TlpEcPrivateScalar,
   TlpSystemCryptoTypes,
   TlpICryptoProvider,
   TlpIKeyExchangePrivateKey,
@@ -559,9 +559,6 @@ type
     function IsUncompressed(const APoint: TBytes): Boolean;
     function PeerPublicBlob(const APoint: TBytes): TBytes;
     function ScalarPrivateBlob(const AScalar: TBytes): TBytes;
-    /// <summary>Whether AScalar (big-endian) is a valid private key: non-zero and below the group
-    /// order n, i.e. in [1, n-1].</summary>
-    function ScalarInRange(const AScalar: TBytes): Boolean;
     function ImportPeer(const APeerPublicKey: TBytes): Pointer;
     function DeriveBigEndianSecret(ASecret: Pointer): TBytes;
   public
@@ -1754,23 +1751,6 @@ begin
   Move(AScalar[0], Result[ECC_BLOB_HEADER_SIZE + 2 * FCurve.FieldSize], FCurve.FieldSize);
 end;
 
-function TWindowsCngKeyAgreement.ScalarInRange(const AScalar: TBytes): Boolean;
-var
-  LI: Int32;
-begin
-  if TSecureMemory.ConstantTimeIsAllZero(AScalar) then
-    Exit(False);
-  // big-endian compare against n: the first differing byte decides, and equality is out of range
-  for LI := 0 to System.High(AScalar) do
-  begin
-    if AScalar[LI] < FCurve.Order[LI] then
-      Exit(True);
-    if AScalar[LI] > FCurve.Order[LI] then
-      Exit(False);
-  end;
-  Result := False;
-end;
-
 function TWindowsCngKeyAgreement.ImportPrivateKey(const ARawPrivateKey: ISecretBuffer;
   AUsage: TKeyAgreementUsage; out APublicKey: TBytes): IKeyExchangePrivateKey;
 var
@@ -1786,7 +1766,7 @@ begin
         [System.Length(LScalar), FCurve.FieldSize]);
     // a scalar outside [1, n-1] is not a private key; refuse it here rather than rely on what the
     // OS import happens to do with it
-    if not ScalarInRange(LScalar) then
+    if not TEcPrivateScalar.IsInRange(LScalar, FCurve.Order) then
       raise EArgumentTlsLibException.CreateRes(@SScalarOutOfRange);
     LScalarBlob := ScalarPrivateBlob(LScalar);
     TCngError.Check(FApi.ImportKeyPair(FAlg, nil, PWideChar(BLOB_ECCPRIVATE), LKey,
@@ -2221,8 +2201,7 @@ begin
         Result.FieldSize := 32;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P256_MAGIC;
         Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P256_MAGIC;
-        Result.Order := TDataEncoding.HexDecode(
-          'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551');
+        Result.Order := TEcPrivateScalar.GroupOrder(AAlgorithm);
       end;
     TKeyAgreementAlgorithm.SECP384R1:
       begin
@@ -2231,8 +2210,7 @@ begin
         Result.FieldSize := 48;
         Result.PubMagic := BCRYPT_ECDH_PUBLIC_P384_MAGIC;
         Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P384_MAGIC;
-        Result.Order := TDataEncoding.HexDecode(
-          'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973');
+        Result.Order := TEcPrivateScalar.GroupOrder(AAlgorithm);
       end;
   else
     // SECP521R1
@@ -2241,8 +2219,7 @@ begin
     Result.FieldSize := 66;
     Result.PubMagic := BCRYPT_ECDH_PUBLIC_P521_MAGIC;
     Result.PrivMagic := BCRYPT_ECDH_PRIVATE_P521_MAGIC;
-    Result.Order := TDataEncoding.HexDecode(
-      '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
+    Result.Order := TEcPrivateScalar.GroupOrder(AAlgorithm);
   end;
 end;
 

@@ -39,6 +39,7 @@ contains
   TlpSystemCryptoExceptions in '..\..\src\TlpSystemCryptoExceptions.pas',
   TlpHkdfComposition in '..\..\src\TlpHkdfComposition.pas',
   TlpSignatureEncoding in '..\..\src\TlpSignatureEncoding.pas',
+  TlpEcPrivateScalar in '..\..\src\TlpEcPrivateScalar.pas',
   TlpSystemCryptoBase in '..\..\src\TlpSystemCryptoBase.pas',
   TlpWindowsSystemCrypto in '..\..\src\TlpWindowsSystemCrypto.pas',
   TlpSystemCryptoStrictness in '..\..\src\TlpSystemCryptoStrictness.pas',

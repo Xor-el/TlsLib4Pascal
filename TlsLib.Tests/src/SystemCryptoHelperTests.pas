@@ -37,6 +37,7 @@ uses
   TlpTlsLibExceptions,
   TlpHkdfComposition,
   TlpSignatureEncoding,
+  TlpEcPrivateScalar,
   TlpSystemCryptoBase,
   TlsLibTestProviders,
   TlsLibTestBase;
@@ -262,6 +263,45 @@ type
     procedure TestForwardingRefusesNilInner;
   end;
 
+  /// <summary>The NIST private-scalar range and group orders, against SEC 2 text and an
+  /// independent variable-time reference.</summary>
+  TTestEcPrivateScalar = class(TSystemCryptoHelperTestCase)
+  strict private
+    function Order(ACurve: Int32): TBytes;
+    // a ACurve-wide scalar holding only ALow in its last byte
+    function SmallScalar(ACurve: Int32; ALow: Byte): TBytes;
+    // the group order plus ADelta (|ADelta| < 256), carry and borrow propagated
+    function OrderPlus(ACurve: Int32; ADelta: Int32): TBytes;
+    // 2^ABit at the curve's field width
+    function PowerOfTwo(ACurve: Int32; ABit: Int32): TBytes;
+    function Reference(const AScalar: TBytes; ACurve: Int32): Boolean;
+    procedure CheckMatchesReference(const AName: string; ACurve: Int32;
+      const AScalar: TBytes);
+    procedure CheckGroupOrder(ACurve: Int32);
+  published
+    procedure TestGroupOrderP256IsSec2;
+    procedure TestGroupOrderP384IsSec2;
+    procedure TestGroupOrderP521IsSec2;
+    procedure TestGroupOrderRefusesX25519;
+    procedure TestZeroIsRejected;
+    procedure TestOneIsAccepted;
+    procedure TestOrderMinusTwoIsAccepted;
+    procedure TestOrderMinusOneIsAccepted;
+    procedure TestOrderIsRejected;
+    procedure TestOrderPlusOneIsRejected;
+    procedure TestAllOnesIsRejected;
+    procedure TestPowersOfTwoBelowTheOrderBitLengthAreAccepted;
+    procedure TestPowersOfTwoFromTheOrderBitLengthAreRejected;
+    procedure TestShorterWidthIsRejected;
+    procedure TestLongerWidthIsRejected;
+    procedure TestNilScalarIsRejected;
+    procedure TestRandomScalarsMatchReference;
+    procedure TestScalarsSharingAPrefixWithTheOrderMatchReference;
+    procedure TestScalarsNearTheOrderMatchReference;
+    procedure TestScalarsWithOneOrderBitFlippedMatchReference;
+    procedure TestScalarsWithOneNonZeroByteMatchReference;
+  end;
+
 implementation
 
 type
@@ -280,6 +320,15 @@ const
   CPassword = 'tlslib';
   // the field widths of P-256, P-384 and P-521
   CFieldSizes: array[0..2] of Int32 = (32, 48, 66);
+  // the bit lengths of the P-256, P-384 and P-521 group orders
+  COrderBitLengths: array[0..2] of Int32 = (256, 384, 521);
+  CCurves: array[0..2] of TKeyAgreementAlgorithm = (TKeyAgreementAlgorithm.SECP256R1,
+    TKeyAgreementAlgorithm.SECP384R1, TKeyAgreementAlgorithm.SECP521R1);
+  // SEC 2 n for secp256r1 (2.4.2), secp384r1 (2.5.1) and secp521r1 (2.6.1)
+  CGroupOrders: array[0..2] of string = (
+    'FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551',
+    'FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973',
+    '01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409');
   // RFC 6979 A.2.5, NIST P-256, message "sample": the r and s of SHA-1, SHA-224 and SHA-256
   CSha1R = '61340C88C3AAEBEB4F6D667F672CA9759A6CCAA9FA8811313039EE4A35471D32';
   CSha1S = '6D7F147DAC089441BB2E2FE8F7A3FA264B9C475098FDCF6E00D7C996E1B8B7EB';
@@ -1450,6 +1499,301 @@ begin
   CheckTrue(LRaised, 'a nil inner facet raises EArgumentTlsLibException');
 end;
 
+{ TTestEcPrivateScalar }
+
+function TTestEcPrivateScalar.Order(ACurve: Int32): TBytes;
+begin
+  Result := DecodeHex(CGroupOrders[ACurve]);
+end;
+
+function TTestEcPrivateScalar.SmallScalar(ACurve: Int32; ALow: Byte): TBytes;
+begin
+  Result := nil;
+  SetLength(Result, CFieldSizes[ACurve]);
+  Result[High(Result)] := ALow;
+end;
+
+function TTestEcPrivateScalar.OrderPlus(ACurve: Int32; ADelta: Int32): TBytes;
+var
+  LI, LSum, LCarry: Int32;
+begin
+  Result := Order(ACurve);
+  LCarry := ADelta;
+  LI := High(Result);
+  while (LCarry <> 0) and (LI >= 0) do
+  begin
+    LSum := Int32(Result[LI]) + LCarry;
+    if LSum < 0 then
+    begin
+      Result[LI] := Byte(LSum + 256);
+      LCarry := -1;
+    end
+    else
+    begin
+      Result[LI] := Byte(LSum and $FF);
+      LCarry := LSum shr 8;
+    end;
+    Dec(LI);
+  end;
+end;
+
+function TTestEcPrivateScalar.PowerOfTwo(ACurve: Int32; ABit: Int32): TBytes;
+begin
+  Result := nil;
+  SetLength(Result, CFieldSizes[ACurve]);
+  Result[High(Result) - ABit div 8] := Byte(1 shl (ABit mod 8));
+end;
+
+function TTestEcPrivateScalar.Reference(const AScalar: TBytes; ACurve: Int32): Boolean;
+begin
+  Result := (not TArrayUtilities.IsAllZero(AScalar)) and
+    (TArrayUtilities.CompareLexicographic(AScalar, Order(ACurve)) < 0);
+end;
+
+procedure TTestEcPrivateScalar.CheckMatchesReference(const AName: string; ACurve: Int32;
+  const AScalar: TBytes);
+begin
+  CheckTrue(Reference(AScalar, ACurve) = TEcPrivateScalar.IsInRange(AScalar, Order(ACurve)),
+    Format('%s (curve %d, scalar %s)', [AName, ACurve, EncodeHex(AScalar)]));
+end;
+
+procedure TTestEcPrivateScalar.CheckGroupOrder(ACurve: Int32);
+begin
+  CheckEqualBytes(Format('group order of curve %d', [ACurve]), Order(ACurve),
+    TEcPrivateScalar.GroupOrder(CCurves[ACurve]));
+end;
+
+procedure TTestEcPrivateScalar.TestGroupOrderP256IsSec2;
+begin
+  CheckGroupOrder(0);
+end;
+
+procedure TTestEcPrivateScalar.TestGroupOrderP384IsSec2;
+begin
+  CheckGroupOrder(1);
+end;
+
+procedure TTestEcPrivateScalar.TestGroupOrderP521IsSec2;
+begin
+  CheckGroupOrder(2);
+end;
+
+procedure TTestEcPrivateScalar.TestGroupOrderRefusesX25519;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TEcPrivateScalar.GroupOrder(TKeyAgreementAlgorithm.X25519);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := E.ClassType = EArgumentTlsLibException;
+  end;
+  CheckTrue(LRaised, 'a non-NIST algorithm raises EArgumentTlsLibException');
+end;
+
+procedure TTestEcPrivateScalar.TestZeroIsRejected;
+var
+  LI: Int32;
+begin
+  for LI := 0 to 2 do
+    CheckFalse(TEcPrivateScalar.IsInRange(SmallScalar(LI, 0), Order(LI)),
+      Format('zero (curve %d)', [LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestOneIsAccepted;
+var
+  LI: Int32;
+begin
+  for LI := 0 to 2 do
+    CheckTrue(TEcPrivateScalar.IsInRange(SmallScalar(LI, 1), Order(LI)),
+      Format('one (curve %d)', [LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestOrderMinusTwoIsAccepted;
+var
+  LI: Int32;
+begin
+  for LI := 0 to 2 do
+    CheckTrue(TEcPrivateScalar.IsInRange(OrderPlus(LI, -2), Order(LI)),
+      Format('n-2 (curve %d)', [LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestOrderMinusOneIsAccepted;
+var
+  LI: Int32;
+begin
+  for LI := 0 to 2 do
+    CheckTrue(TEcPrivateScalar.IsInRange(OrderPlus(LI, -1), Order(LI)),
+      Format('n-1 (curve %d)', [LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestOrderIsRejected;
+var
+  LI: Int32;
+begin
+  for LI := 0 to 2 do
+    CheckFalse(TEcPrivateScalar.IsInRange(Order(LI), Order(LI)), Format('n (curve %d)', [LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestOrderPlusOneIsRejected;
+var
+  LI: Int32;
+begin
+  for LI := 0 to 2 do
+    CheckFalse(TEcPrivateScalar.IsInRange(OrderPlus(LI, 1), Order(LI)),
+      Format('n+1 (curve %d)', [LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestAllOnesIsRejected;
+var
+  LI, LJ: Int32;
+  LScalar: TBytes;
+begin
+  for LI := 0 to 2 do
+  begin
+    LScalar := nil;
+    SetLength(LScalar, CFieldSizes[LI]);
+    for LJ := 0 to High(LScalar) do
+      LScalar[LJ] := $FF;
+    CheckFalse(TEcPrivateScalar.IsInRange(LScalar, Order(LI)),
+      Format('all 0xFF (curve %d)', [LI]));
+  end;
+end;
+
+procedure TTestEcPrivateScalar.TestPowersOfTwoBelowTheOrderBitLengthAreAccepted;
+var
+  LI, LBit: Int32;
+begin
+  // n lies strictly between 2^(bits-1) and 2^bits, so 2^k < n exactly when k < bits
+  for LI := 0 to 2 do
+    for LBit := 0 to COrderBitLengths[LI] - 1 do
+      CheckTrue(TEcPrivateScalar.IsInRange(PowerOfTwo(LI, LBit), Order(LI)),
+        Format('2^%d (curve %d)', [LBit, LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestPowersOfTwoFromTheOrderBitLengthAreRejected;
+var
+  LI, LBit: Int32;
+begin
+  for LI := 0 to 2 do
+    for LBit := COrderBitLengths[LI] to CFieldSizes[LI] * 8 - 1 do
+      CheckFalse(TEcPrivateScalar.IsInRange(PowerOfTwo(LI, LBit), Order(LI)),
+        Format('2^%d (curve %d)', [LBit, LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestShorterWidthIsRejected;
+var
+  LI: Int32;
+  LScalar: TBytes;
+begin
+  // a one that would be in range at the right width
+  for LI := 0 to 2 do
+  begin
+    LScalar := System.Copy(SmallScalar(LI, 1), 1, CFieldSizes[LI] - 1);
+    CheckFalse(TEcPrivateScalar.IsInRange(LScalar, Order(LI)),
+      Format('one byte short (curve %d)', [LI]));
+  end;
+end;
+
+procedure TTestEcPrivateScalar.TestLongerWidthIsRejected;
+var
+  LI: Int32;
+  LScalar: TBytes;
+begin
+  for LI := 0 to 2 do
+  begin
+    LScalar := TArrayUtilities.Concat(TBytes.Create(0), SmallScalar(LI, 1));
+    CheckFalse(TEcPrivateScalar.IsInRange(LScalar, Order(LI)),
+      Format('one byte long (curve %d)', [LI]));
+  end;
+end;
+
+procedure TTestEcPrivateScalar.TestNilScalarIsRejected;
+var
+  LI: Int32;
+begin
+  for LI := 0 to 2 do
+    CheckFalse(TEcPrivateScalar.IsInRange(nil, Order(LI)), Format('nil (curve %d)', [LI]));
+end;
+
+procedure TTestEcPrivateScalar.TestRandomScalarsMatchReference;
+var
+  LI, LJ: Int32;
+  LScalar: TBytes;
+begin
+  for LI := 0 to 2 do
+    for LJ := 1 to 2000 do
+    begin
+      LScalar := Crypto.Primitives.GetRandom.GenerateBytes(CFieldSizes[LI]);
+      // P-521's top byte is 0 or 1 for any in-range value, so keep the draw near that
+      if LI = 2 then
+        LScalar[0] := LScalar[0] and 1;
+      CheckMatchesReference(Format('sample %d', [LJ]), LI, LScalar);
+    end;
+end;
+
+procedure TTestEcPrivateScalar.TestScalarsSharingAPrefixWithTheOrderMatchReference;
+var
+  LI, LJ, LShared: Int32;
+  LScalar, LN: TBytes;
+begin
+  for LI := 0 to 2 do
+  begin
+    LN := Order(LI);
+    for LJ := 1 to 2000 do
+    begin
+      LScalar := Crypto.Primitives.GetRandom.GenerateBytes(CFieldSizes[LI]);
+      LShared := Crypto.Primitives.GetRandom.GenerateBytes(1)[0] mod (CFieldSizes[LI] + 1);
+      if LShared > 0 then
+        Move(LN[0], LScalar[0], LShared);
+      CheckMatchesReference(Format('sample %d, shared %d', [LJ, LShared]), LI, LScalar);
+    end;
+  end;
+end;
+
+procedure TTestEcPrivateScalar.TestScalarsNearTheOrderMatchReference;
+var
+  LI, LDelta: Int32;
+begin
+  for LI := 0 to 2 do
+    for LDelta := -40 to 40 do
+      CheckMatchesReference(Format('n + (%d)', [LDelta]), LI, OrderPlus(LI, LDelta));
+end;
+
+procedure TTestEcPrivateScalar.TestScalarsWithOneOrderBitFlippedMatchReference;
+var
+  LI, LBit: Int32;
+  LScalar: TBytes;
+begin
+  for LI := 0 to 2 do
+    for LBit := 0 to CFieldSizes[LI] * 8 - 1 do
+    begin
+      LScalar := Order(LI);
+      LScalar[High(LScalar) - LBit div 8] := LScalar[High(LScalar) - LBit div 8] xor
+        Byte(1 shl (LBit mod 8));
+      CheckMatchesReference(Format('bit %d flipped', [LBit]), LI, LScalar);
+    end;
+end;
+
+procedure TTestEcPrivateScalar.TestScalarsWithOneNonZeroByteMatchReference;
+const
+  Values: array [0 .. 2] of Byte = ($01, $80, $FF);
+var
+  LI, LPos, LV: Int32;
+  LScalar: TBytes;
+begin
+  for LI := 0 to 2 do
+    for LPos := 0 to CFieldSizes[LI] - 1 do
+      for LV := 0 to 2 do
+      begin
+        LScalar := nil;
+        SetLength(LScalar, CFieldSizes[LI]);
+        LScalar[LPos] := Values[LV];
+        CheckMatchesReference(Format('byte %d = %d', [LPos, Values[LV]]), LI, LScalar);
+      end;
+end;
+
 initialization
 
 {$IFDEF FPC}
@@ -1458,12 +1802,14 @@ initialization
   RegisterTest(TTestPkcs1DigestInfo);
   RegisterTest(TTestSignatureInputBuffer);
   RegisterTest(TTestForwardingSigningCrypto);
+  RegisterTest(TTestEcPrivateScalar);
 {$ELSE}
   RegisterTest(TTestSystemCryptoHelpers.Suite);
   RegisterTest(TTestEcdsaSignatureEncoding.Suite);
   RegisterTest(TTestPkcs1DigestInfo.Suite);
   RegisterTest(TTestSignatureInputBuffer.Suite);
   RegisterTest(TTestForwardingSigningCrypto.Suite);
+  RegisterTest(TTestEcPrivateScalar.Suite);
 {$ENDIF FPC}
 
 end.

@@ -40,7 +40,8 @@ type
     class function AreEqual(const AA, AB: TBytes): Boolean; static;
     /// <summary>Unsigned byte-wise lexicographic order: negative, zero or positive as AA sorts
     /// before, equal to or after AB. A shorter array that is a prefix of a longer one sorts
-    /// first.</summary>
+    /// first. The constant-time twin is
+    /// <see cref="TSecureMemory.ConstantTimeCompareLexicographic" />.</summary>
     class function CompareLexicographic(const AA, AB: TBytes): Int32; static;
 
     /// <summary>Appends AValue, growing AItems by one.</summary>
