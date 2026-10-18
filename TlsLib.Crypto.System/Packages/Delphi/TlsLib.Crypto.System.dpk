@@ -37,6 +37,7 @@ contains
   TlpSystemCryptoTypes in '..\..\src\TlpSystemCryptoTypes.pas',
   TlpICryptoBackendReport in '..\..\src\TlpICryptoBackendReport.pas',
   TlpSystemCryptoExceptions in '..\..\src\TlpSystemCryptoExceptions.pas',
+  TlpHkdfComposition in '..\..\src\TlpHkdfComposition.pas',
   TlpSystemCryptoBase in '..\..\src\TlpSystemCryptoBase.pas',
   TlpWindowsSystemCrypto in '..\..\src\TlpWindowsSystemCrypto.pas',
   TlpSystemCryptoStrictness in '..\..\src\TlpSystemCryptoStrictness.pas',

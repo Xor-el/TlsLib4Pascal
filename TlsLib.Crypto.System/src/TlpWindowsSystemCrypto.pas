@@ -38,6 +38,7 @@ uses
   TlpSecretBuffer,
   TlpSecureMemory,
   TlpTls12PrfComposition,
+  TlpHkdfComposition,
   TlpSystemCryptoBase,
   TlpSystemCryptoExceptions,
   TlpTlsAlert,
@@ -178,8 +179,6 @@ resourcestring
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
   SAeadNonceReused = 'the AEAD nonce was already used under this key';
-  SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
-  SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
   SInvalidScalarSize = 'private scalar size %d does not match the curve field size %d';
   SScalarOutOfRange = 'the private scalar must be in the range [1, n-1] of the curve order';
   SSchemeNotCapable = 'the signing key cannot sign with the requested signature scheme';
@@ -684,21 +683,17 @@ type
     function DoFinal: TBytes;
   end;
 
-  // RFC 5869 HKDF over CNG: Extract via HMAC; Expand via the CNG HKDF provider when available, else
-  // the HMAC T-loop. Reports as backend Composed.
-  TWindowsCngHkdf = class(TInterfacedObject, IHkdf)
+  // HKDF whose Expand is served in-module when the OS provider passed its known-answer test
+  TWindowsCngHkdf = class(THkdfComposition)
   strict private
   var
     FCng: IWindowsCng;
-    FAlgorithm: THashAlgorithm;
-    FMacSize: Int32;
-    function NewMac: IHmac;
+  strict protected
+    function TryExpandInModule(const APrk: ISecretBuffer; const AInfo: TBytes;
+      ALength: Int32; out AOkm: ISecretBuffer): Boolean; override;
   public
-    constructor Create(const ACng: IWindowsCng; AAlgorithm: THashAlgorithm;
-      AMacSize: Int32);
-    function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
-    function Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
-      ALength: Int32): ISecretBuffer;
+    constructor Create(const APrimitives: ICryptoPrimitives; const ACng: IWindowsCng;
+      AAlgorithm: THashAlgorithm);
   end;
 
   // A CNG AEAD (AES-GCM, or ChaCha20-Poly1305 where CNG has it). The algorithm-provider
@@ -1403,111 +1398,30 @@ end;
 
 { TWindowsCngHkdf }
 
-constructor TWindowsCngHkdf.Create(const ACng: IWindowsCng;
-  AAlgorithm: THashAlgorithm; AMacSize: Int32);
+constructor TWindowsCngHkdf.Create(const APrimitives: ICryptoPrimitives;
+  const ACng: IWindowsCng; AAlgorithm: THashAlgorithm);
 begin
-  inherited Create;
+  inherited Create(APrimitives, AAlgorithm);
   FCng := ACng;
-  FAlgorithm := AAlgorithm;
-  FMacSize := AMacSize;
 end;
 
-function TWindowsCngHkdf.NewMac: IHmac;
-begin
-  if not FCng.TryCreateHmac(FAlgorithm, Result) then
-    raise ESystemCryptoBackendTlsLibException.CreateRes(@SCngUnavailable);
-end;
-
-function TWindowsCngHkdf.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
+function TWindowsCngHkdf.TryExpandInModule(const APrk: ISecretBuffer;
+  const AInfo: TBytes; ALength: Int32; out AOkm: ISecretBuffer): Boolean;
 var
-  LIkm, LPrk: TBytes;
-  LMac: IHmac;
+  LPrkBytes, LNative: TBytes;
 begin
-  LMac := NewMac;
-  // the salt is secret material used directly as the HMAC key; a nil or empty salt is HashLen
-  // zeros (an allocated secret is zero-filled), so no bare byte copy of the salt is made here
-  if (ASalt <> nil) and (ASalt.Len > 0) then
-    LMac.Init(ASalt)
-  else
-    LMac.Init(TSecretBuffer.Allocate(FMacSize));
-  LIkm := AIkm.ToBytes;
-  try
-    LMac.Update(LIkm, 0, System.Length(LIkm));
-    LPrk := LMac.DoFinal;
-    try
-      Result := TSecretBuffer.From(LPrk);
-    finally
-      TSecureMemory.WipeBytes(LPrk);
-    end;
-  finally
-    TSecureMemory.WipeBytes(LIkm);
-  end;
-end;
-
-function TWindowsCngHkdf.Expand(const APrk: ISecretBuffer; const AInfo: TBytes;
-  ALength: Int32): ISecretBuffer;
-var
-  LMac: IHmac;
-  LOkm, LT, LCtr, LPrkBytes, LNative: TBytes;
-  LPos, LTake: Int32;
-  LCounter: Byte;
-begin
-  // RFC 5869: L must not exceed 255 * HashLen, else the block counter would wrap
-  if ALength < 0 then
-    raise EArgumentTlsLibException.CreateRes(@SHkdfExpandNegative);
-  if ALength > 255 * FMacSize then
-    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong,
-      [ALength, 255 * FMacSize]);
-  if ALength = 0 then
-    Exit(TSecretBuffer.From(nil));
-  // in-module Expand when the CNG HKDF provider is available (self-tested); else the portable
-  // T-loop over the CNG HMAC below
+  AOkm := nil;
   LPrkBytes := APrk.ToBytes;
   try
-    if FCng.TryHkdfExpandNative(FAlgorithm, LPrkBytes, AInfo, ALength, LNative) then
-    begin
-      try
-        Result := TSecretBuffer.From(LNative);
-      finally
-        TSecureMemory.WipeBytes(LNative);
-      end;
-      Exit;
-    end;
+    Result := FCng.TryHkdfExpandNative(Algorithm, LPrkBytes, AInfo, ALength, LNative);
   finally
     TSecureMemory.WipeBytes(LPrkBytes);
   end;
-  LOkm := nil;
-  SetLength(LOkm, ALength);
-  LMac := NewMac;
-  LMac.Init(APrk);
-  LT := nil;
-  LCtr := nil;
-  SetLength(LCtr, 1);
-  LPos := 0;
-  LCounter := 1;
+  if Result then
   try
-    while LPos < ALength do
-    begin
-      // T(i) = HMAC(PRK, T(i-1) || info || i)
-      if System.Length(LT) > 0 then
-        LMac.Update(LT, 0, System.Length(LT));
-      if System.Length(AInfo) > 0 then
-        LMac.Update(AInfo, 0, System.Length(AInfo));
-      LCtr[0] := LCounter;
-      LMac.Update(LCtr, 0, 1);
-      TSecureMemory.WipeBytes(LT); // each T(i) is an OKM prefix; wipe before reassigning
-      LT := LMac.DoFinal; // DoFinal re-keys a fresh HMAC for the next block
-      LTake := System.Length(LT);
-      if LPos + LTake > ALength then
-        LTake := ALength - LPos;
-      System.Move(LT[0], LOkm[LPos], LTake);
-      Inc(LPos, LTake);
-      Inc(LCounter);
-    end;
-    Result := TSecretBuffer.From(LOkm);
+    AOkm := TSecretBuffer.From(LNative);
   finally
-    TSecureMemory.WipeBytes(LOkm);
-    TSecureMemory.WipeBytes(LT);
+    TSecureMemory.WipeBytes(LNative);
   end;
 end;
 
@@ -2900,23 +2814,9 @@ begin
 end;
 
 function TWindowsCryptoPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
-var
-  LMacSize: Int32;
 begin
   if FCng.HmacAvailable(AAlgorithm) then
-  begin
-    case AAlgorithm of
-      THashAlgorithm.SHA_256:
-        LMacSize := 32;
-      THashAlgorithm.SHA_384:
-        LMacSize := 48;
-      THashAlgorithm.SHA_512:
-        LMacSize := 64;
-    else
-      LMacSize := 0;
-    end;
-    Result := TWindowsCngHkdf.Create(FCng, AAlgorithm, LMacSize);
-  end
+    Result := TWindowsCngHkdf.Create(Self, FCng, AAlgorithm) as IHkdf
   else
     Result := inherited CreateHkdf(AAlgorithm);
 end;
