@@ -11,7 +11,8 @@ uses
   TlpSystemCryptoTypes, TlpICryptoBackendReport, TlpSystemCryptoExceptions, 
   TlpSystemCryptoBase, TlpWindowsSystemCrypto, TlpOSCryptoProvider, 
   TlpSystemCryptoStrictness, TlpHkdfComposition, TlpSignatureEncoding, 
-  TlpEcPrivateScalar, TlpISystemSigningKey;
+  TlpEcPrivateScalar, TlpISystemSigningKey,
+  TlpISystemSignatureVerifier;
 
 implementation
 

@@ -31,6 +31,7 @@ uses
   TlpOSCryptoProvider,
   TlpICryptoBackendReport,
   TlpISystemSigningKey,
+  TlpISystemSignatureVerifier,
   TlpSystemCryptoTypes,
   TlpCryptoDomainTypes,
   TlpISigningKey,
@@ -226,6 +227,10 @@ type
     procedure TestNativeKeyAnswersSystemSigningKeyMarker;
     // a key the portable facet imported does not
     procedure TestPortableKeyDoesNotAnswerSystemSigningKeyMarker;
+    // a verifier the OS module serves answers for the neutral system-verifier marker
+    procedure TestNativeVerifierCarriesSystemMarker;
+    // the portable verifier the facet falls back to (EdDSA) does not
+    procedure TestFallbackVerifierLacksSystemMarker;
   end;
 {$IFEND}
 
@@ -998,6 +1003,29 @@ var
 begin
   LKey := Portable.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
   CheckFalse(Supports(LKey, ISystemSigningKey), 'a portable key does not carry the marker');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeVerifierCarriesSystemMarker;
+var
+  LVerifier: ISignatureVerifier;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    DecodeHex(FKeys.Values['rsa_pub']));
+  CheckTrue(Supports(LVerifier, ISystemSignatureVerifier),
+    'a natively imported verifier carries the marker');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestFallbackVerifierLacksSystemMarker;
+var
+  LVerifier: ISignatureVerifier;
+begin
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ED25519,
+    DecodeHex(FKeys.Values['ed25519_pub']));
+  CheckTrue(LVerifier <> nil, 'the portable facet serves EdDSA');
+  CheckFalse(Supports(LVerifier, ISystemSignatureVerifier),
+    'a portable verifier does not carry the marker');
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestPkcs12ExportedKeyMatchesLeaf;

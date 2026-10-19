@@ -16,7 +16,7 @@ on:
         description: >-
           Comma-separated list of targets to run (leave empty for the default set).
           Valid IDs: linux-x64, linux-arm64, linux-x64-scalar, linux-arm64-scalar,
-          windows-x64, macos-arm64, macos-x64, linux-arm32, linux-powerpc64-be,
+          windows-x64, windows-2022, macos-arm64, macos-x64, linux-arm32, linux-powerpc64-be,
           freebsd, solaris, netbsd, dragonflybsd
         default: ""
         type: string
@@ -309,6 +309,11 @@ jobs:
           submodules: true
           persist-credentials: false
 
+      # The exact Windows build, to compare with the validated builds in the module certificate.
+      - name: Windows build
+        shell: bash
+        run: bash .github/workflows/ci/os-build-info.sh
+
       - name: Build
         shell: bash
         env:
@@ -342,6 +347,68 @@ jobs:
         with:
           fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_target }}
           artifact-suffix: windows-x64
+          run-interop: ${{ env.MAKE_RUN_INTEROP }}
+          run-bogo: ${{ env.MAKE_RUN_BOGO }}
+          run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
+          crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
+          run-trust: ${{ env.MAKE_RUN_TRUST }}
+          run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
+          bogo-ref: ${{ env.BOGO_REF }}
+
+  # Server 2022 (build 20348) is covered by the Windows module certificate; windows-latest is
+  # Server 2025, which is not.
+  windows-2022:
+    name: "Native: Windows Server 2022"
+    runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].runner }}
+    timeout-minutes: 120
+    needs: [setup, lint]
+    if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',windows-2022,')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+          persist-credentials: false
+
+      # The exact Windows build, to compare with the validated builds in the module certificate.
+      - name: Windows build
+        shell: bash
+        run: bash .github/workflows/ci/os-build-info.sh
+
+      - name: Build
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].fpc_target }}
+          FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].fpc_tarball_target }}
+          TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+        run: bash .github/workflows/ci/native-build.sh
+
+      # The Build step runs the unit suites on the portable providers. When a non-portable
+      # provider is selected, run them again on it with the binary Build just produced.
+      - name: Unit suites (selected providers)
+        if: env.MAKE_CRYPTO_PROVIDER != 'portable' || env.MAKE_PKIX_PROVIDER != 'portable'
+        shell: bash
+        env:
+          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
+        run: bash .github/workflows/ci/provider-suites.sh
+
+      # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
+      # beyond the FPC tarball). Runs after Build so the packages are already compiled.
+      - name: FclNet adapter (build + loopback)
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].fpc_target }}
+          MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
+        run: bash .github/workflows/ci/adapters/fclnet-build.sh
+
+      # Same gating as the other native legs: the harness follows MAKE_RUN_INTEROP, BoGo follows MAKE_RUN_BOGO.
+      - name: Interop harness (BoGo)
+        uses: ./.github/workflows/ci/interop/interop-harness
+        with:
+          fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].fpc_target }}
+          artifact-suffix: windows-2022
           run-interop: ${{ env.MAKE_RUN_INTEROP }}
           run-bogo: ${{ env.MAKE_RUN_BOGO }}
           run-openssl: ${{ env.MAKE_RUN_OPENSSL }}

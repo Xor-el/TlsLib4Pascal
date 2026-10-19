@@ -31,6 +31,7 @@ uses
   TlpIKeyExchangePrivateKey,
   TlpICryptoBackendReport,
   TlpISystemSigningKey,
+  TlpISystemSignatureVerifier,
   TlpISigningKey,
   TlpImportedCredential,
   TlpPkcs12Identity,
@@ -944,7 +945,9 @@ type
 
   // Accumulates the to-be-verified bytes, then verifies (via crypt32-imported key + BCrypt).
   // Owns the imported public key handle, freed on release. Fail-closed: any fault is False.
-  TWindowsSignatureVerifier = class(TSignatureInputBase, ISignatureVerifier)
+  // The neutral marker is listed itself: Supports finds only the interfaces a class names.
+  TWindowsSignatureVerifier = class(TSignatureInputBase, ISignatureVerifier,
+    ISystemSignatureVerifier)
   strict private
   var
     FKeeper: IWindowsNCrypt;
@@ -1064,8 +1067,10 @@ type
   var
     FCng: IWindowsCng;
     FSigningNative: Boolean;
+    FSigningModule: Boolean;
   public
-    constructor Create(const ACng: IWindowsCng; ASigningNative, AHpkeComposed: Boolean);
+    constructor Create(const ACng: IWindowsCng; ASigningModule, ASigningNative,
+      AHpkeComposed: Boolean);
     function RandomBackend: TCryptoBackendEntry; override;
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
@@ -2797,10 +2802,11 @@ end;
 { TWindowsBackendReport }
 
 constructor TWindowsBackendReport.Create(const ACng: IWindowsCng;
-  ASigningNative, AHpkeComposed: Boolean);
+  ASigningModule, ASigningNative, AHpkeComposed: Boolean);
 begin
   inherited Create(AHpkeComposed);
   FCng := ACng;
+  FSigningModule := ASigningModule;
   FSigningNative := ASigningNative;
 end;
 
@@ -2872,7 +2878,12 @@ function TWindowsBackendReport.SigningBackend(
   AScheme: TSignatureScheme): TCryptoBackendEntry;
 begin
   // native signing covers RSA-PSS/PKCS1 and NIST-curve ECDSA (via NCrypt); EdDSA is portable
-  if FSigningNative and TWindowsNCrypt.IsNativeScheme(AScheme) then
+  if not TWindowsNCrypt.IsNativeScheme(AScheme) then
+    Result := NotNative
+  else if not FSigningModule then
+    // ncrypt or its key storage provider could not be opened on this host
+    Result := Ent(TCryptoBackend.Portable, TCryptoBackendReason.NoModule)
+  else if FSigningNative then
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
   else
     Result := NotNative;
@@ -4020,7 +4031,7 @@ begin
     on ESystemCryptoUnsupportedTlsLibException do
       LSigning := nil;
   end;
-  LReport := TWindowsBackendReport.Create(LCng, LSigningNative,
+  LReport := TWindowsBackendReport.Create(LCng, LSigning <> nil, LSigningNative,
     TOverlayCryptoProvider.RebuildsHpke(ABase));
   Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport);
 end;

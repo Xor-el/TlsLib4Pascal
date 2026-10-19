@@ -29,6 +29,7 @@ uses
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
+  TlpISystemVerifierSource,
   TlpSystemTrustBase,
   TlpSystemTrustExceptions,
   TlpIPlatformChainEngine,
@@ -150,7 +151,7 @@ type
   /// verdict, or - for an engine that renders no revocation outcome - a Hard client posture without
   /// it.</summary>
   TOSVerifierSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
-    IOSServerVerifierSource, IClientCertificateVerifierSource)
+    IOSServerVerifierSource, IClientCertificateVerifierSource, ISystemVerifierSource)
   strict private
     FEngine: IPlatformChainEngine;
     FFetch: TSystemTrustFetch;

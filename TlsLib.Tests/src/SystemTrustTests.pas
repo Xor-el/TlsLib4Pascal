@@ -43,6 +43,7 @@ uses
   TlpCertificateVerifierSource,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
+  TlpISystemVerifierSource,
   TlpTrustPolicy,
   TlpCertificateLimits,
   TlpServerName,
@@ -306,6 +307,9 @@ type
     procedure TestSourceCarriesDistrustToTheVerifier;
     procedure TestSourceAcceptsHostRootsOverAnExclusiveAnchorEngine;
     procedure TestSourceRefusesHostRootsOverAnEngineWithNeitherCapability;
+    procedure TestOsServerSourceCarriesSystemMarker;
+    procedure TestOsClientSourceCarriesSystemMarker;
+    procedure TestBuiltInSourceLacksSystemMarker;
     procedure TestLiveResolverRetriesWithHostRoots;
     procedure TestLiveResolverOtherFailureIsFinal;
     procedure TestLiveResolverRefusesDistrustedHostRootPath;
@@ -439,6 +443,7 @@ type
     procedure TestLiveResolverTrustsHostRoots;
     procedure TestFactorySourceReadsOsDistrustBesideHostRoots;
     procedure TestFactorySourceRefusesHostRootsWithoutProvider;
+    procedure TestFactorySourceCarriesSystemMarker;
     procedure TestDefaultModeTrustsHostRootsThroughTheOsEngine;
   end;
 
@@ -2624,6 +2629,41 @@ begin
     'a native-union engine accepts host roots');
 end;
 
+procedure TTestDelegateHostRoots.TestOsServerSourceCarriesSystemMarker;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
+begin
+  LEngine := TMockPlatformChainEngine.Create([], False, Rejected(TPlatformChainFailure.None),
+    TTlsAlertDescription.BadCertificate);
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
+    as IServerCertificateVerifierSource;
+  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
+    'an OS-delegate server source carries the marker');
+end;
+
+procedure TTestDelegateHostRoots.TestOsClientSourceCarriesSystemMarker;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IClientCertificateVerifierSource;
+begin
+  LEngine := TMockPlatformChainEngine.Create([], False, Rejected(TPlatformChainFailure.None),
+    TTlsAlertDescription.BadCertificate);
+  LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly)
+    as IClientCertificateVerifierSource;
+  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
+    'an OS-delegate client source carries the marker');
+end;
+
+procedure TTestDelegateHostRoots.TestBuiltInSourceLacksSystemMarker;
+var
+  LSource: IServerCertificateVerifierSource;
+begin
+  LSource := TBuiltInServerVerifierSource.Create as IServerCertificateVerifierSource;
+  CheckFalse(SysUtils.Supports(LSource, ISystemVerifierSource),
+    'the portable built-in source does not carry the marker');
+end;
+
 procedure TTestDelegateHostRoots.TestLiveResolverRetriesWithHostRoots;
 var
   LMock: TMockPlatformChainEngine;
@@ -3853,6 +3893,15 @@ begin
   CheckEquals(LDisallowed, System.Length(LWith.Distrusted),
     'the OS distrust list is read beside host roots');
   CheckEquals(0, System.Length(LWithout.Distrusted), 'it is not read without host roots');
+end;
+
+procedure TTestWindowsHostRoots.TestFactorySourceCarriesSystemMarker;
+var
+  LSource: IServerCertificateVerifierSource;
+begin
+  LSource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly, nil, Pkix);
+  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
+    'the Windows factory source carries the marker');
 end;
 
 procedure TTestWindowsHostRoots.TestFactorySourceRefusesHostRootsWithoutProvider;

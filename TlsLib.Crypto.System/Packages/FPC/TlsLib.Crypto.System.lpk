@@ -21,7 +21,7 @@
     <Description Value="Optional OS-native crypto facets for TlsLib4Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="11">
+    <Files Count="12">
       <Item1>
         <Filename Value="..\..\src\TlpSystemCryptoTypes.pas"/>
         <UnitName Value="TlpSystemCryptoTypes"/>
@@ -66,6 +66,10 @@
         <Filename Value="..\..\src\TlpISystemSigningKey.pas"/>
         <UnitName Value="TlpISystemSigningKey"/>
       </Item11>
+      <Item12>
+        <Filename Value="..\..\src\TlpISystemSignatureVerifier.pas"/>
+        <UnitName Value="TlpISystemSignatureVerifier"/>
+      </Item12>
     </Files>
     <RequiredPkgs Count="2">
       <Item1>

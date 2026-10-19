@@ -12,7 +12,7 @@ uses
   TlpWindowsSystemTrust, TlpAppleSystemTrust, TlpOSSystemTrust, 
   TlpSystemTrustFacade, TlpFileSystemTrust, TlpAndroidSystemTrust, 
   TlpOSLiveRevocation, TlpIPlatformChainEngine,
-  TlpOSDelegateVerifier, TlpPosixPrivilege;
+  TlpOSDelegateVerifier, TlpPosixPrivilege, TlpISystemVerifierSource;
 
 implementation
 
