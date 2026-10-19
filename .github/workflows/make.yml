@@ -77,7 +77,7 @@ env:
   # against a per-run generated CA on every native leg, plus - on Windows/macOS - the OS trust
   # delegate against a throwaway root installed into the machine store. Set false to skip them.
   MAKE_RUN_TRUST: true
-  # When true, the Windows github-hosted leg also runs the informational root auto-update probe
+  # When true, the Windows github-hosted legs also run the informational root auto-update probe
   # (it removes one public root from the machine stores and restores it). Default false: it answered
   # its question; the probe stays available for re-checking after a Windows image change.
   MAKE_RUN_AUTOROOT: false
@@ -88,7 +88,7 @@ env:
   # does not install and stay out of scope. Read by that job's fclnet-build.sh step. Set false to skip.
   MAKE_RUN_FCLNET: true
   # The crypto and PKIX providers the interop harness (self-test, fuzzer, openssl matrix and BoGo)
-  # and the Windows unit-suite rerun use (TLSLIB_CRYPTO_PROVIDER / TLSLIB_PKIX_PROVIDER): portable,
+  # and the Windows unit-suite reruns use (TLSLIB_CRYPTO_PROVIDER / TLSLIB_PKIX_PROVIDER): portable,
   # or os for this platform's native facets overlaid on the portable base. Only Windows has native
   # crypto facets today, so os equals portable elsewhere, and PKIX has no os provider yet. With
   # both portable the rerun is skipped.
@@ -309,8 +309,10 @@ jobs:
           submodules: true
           persist-credentials: false
 
-      # The exact Windows build, to compare with the validated builds in the module certificate.
+      # The exact Windows build, to compare with the validated builds in the module certificate;
+      # informational, so a failure here never fails the leg.
       - name: Windows build
+        continue-on-error: true
         shell: bash
         run: bash .github/workflows/ci/os-build-info.sh
 
@@ -356,8 +358,8 @@ jobs:
           run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
           bogo-ref: ${{ env.BOGO_REF }}
 
-  # Server 2022 (build 20348) is covered by the Windows module certificate; windows-latest is
-  # Server 2025, which is not.
+  # Server 2022 (build 20348) is the server build the module certificate lists; windows-latest
+  # (Server 2025) is not listed.
   windows-2022:
     name: "Native: Windows Server 2022"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].runner }}
@@ -371,8 +373,10 @@ jobs:
           submodules: true
           persist-credentials: false
 
-      # The exact Windows build, to compare with the validated builds in the module certificate.
+      # The exact Windows build, to compare with the validated builds in the module certificate;
+      # informational, so a failure here never fails the leg.
       - name: Windows build
+        continue-on-error: true
         shell: bash
         run: bash .github/workflows/ci/os-build-info.sh
 

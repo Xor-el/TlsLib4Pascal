@@ -17,6 +17,7 @@ interface
 
 uses
   TlpCryptoDomainTypes,
+  TlpICryptoProvider,
   TlpISigningKey,
   TlpSystemCryptoTypes;
 
@@ -30,7 +31,7 @@ type
   /// config builder at Build.
   /// </summary>
   ICryptoBackendReport = interface(IInterface)
-    ['{B1F7B0C4-8E2A-4D53-9C7E-1A6F2D9B4E80}']
+    ['{C48329E6-48DE-4B8F-97D6-E9E692291DCA}']
     function RandomBackend: TCryptoBackendEntry;
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
@@ -39,11 +40,18 @@ type
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
+    /// <summary>Signing is about keys: the backend that signs with a key of this scheme.</summary>
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
     /// <summary>The backend of a specific signing key. SigningBackend answers per scheme, but a
     /// key of a native scheme can still sign portable when its import fell back (unusual key
     /// parameters, PKCS#12); this is the honest per-key answer.</summary>
     function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
+    /// <summary>Verification is about verifiers: the upper bound for this scheme. A verifier of
+    /// a native scheme can still run portable when its public key was not decodable by the OS
+    /// module; VerifierBackend is the honest per-verifier answer.</summary>
+    function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+    /// <summary>The backend of a specific verifier, as SigningKeyBackend is for a key.</summary>
+    function VerifierBackend(const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
     /// <summary>The backend of a whole facet. Hpke is whole (Portable when the provider forwards
     /// it); Primitives and Signing are mixed, so use the per-algorithm queries for their detail.</summary>
     function FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;

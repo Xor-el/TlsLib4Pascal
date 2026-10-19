@@ -1012,7 +1012,8 @@ TSystemCryptoStrictness.RequireNamedGroups(Crypto, [TNamedGroupCatalog.X25519]);
 ```
 
 Where a native backend exists, the composed provider also implements `ICryptoBackendReport` (unit
-`TlpICryptoBackendReport`), which says per primitive whether the OS or the portable code serves it.
+`TlpICryptoBackendReport`), which says per primitive whether the OS or the portable code serves it;
+signing (per key) and verification (per verifier) are reported separately.
 `TSystemCryptoStrictness` can narrow a registry to the natively served
 entries (`NativeNamedGroups`, `NativeCipherSuites`, `NativeSignatureSchemes`) or require them
 (`RequireNamedGroups`, `RequireCipherSuites`, `RequireSignatureSchemes` raise

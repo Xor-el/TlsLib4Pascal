@@ -36,7 +36,8 @@ type
   TCryptoBackendReason = (
     /// <summary>It is system-backed (or composed) - not a fallback.</summary>
     NotFallback,
-    /// <summary>The OS module is absent on this host.</summary>
+    /// <summary>The OS module, or the part of it serving this facet, is absent on this
+    /// host.</summary>
     NoModule,
     /// <summary>The module lacks this algorithm on this host/version.</summary>
     NotPresent,

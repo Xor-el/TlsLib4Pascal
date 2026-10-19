@@ -2,7 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $version = [System.Environment]::OSVersion.Version
 $key = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
-$primitives = (Get-Item 'C:\Windows\System32\bcryptprimitives.dll').VersionInfo.FileVersion
+$dll = (Get-Item 'C:\Windows\System32\bcryptprimitives.dll').VersionInfo
+$primitives = "$($dll.FileMajorPart).$($dll.FileMinorPart).$($dll.FileBuildPart).$($dll.FilePrivatePart)"
 $lines = @(
   "OSVersion: $version",
   "ProductName: $($key.ProductName)",

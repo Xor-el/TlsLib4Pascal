@@ -171,6 +171,9 @@ type
     procedure TestHpkeCompositionOverOtherPrimitivesIsKept;
     // the default composition is rebuilt over the overlay's own primitives
     procedure TestDefaultHpkeIsRebuiltOverOverlayPrimitives;
+    // a facet handed to the constructor wins over the rebuild rule; nil leaves the rule in force
+    procedure TestHpkeOverrideBeatsTheRebuildRule;
+    procedure TestNilHpkeOverrideKeepsTheRebuildRule;
     // through TOSCryptoProvider.Compose on any platform: a supplied facet comes back as given
     procedure TestComposeKeepsSuppliedHpkeFacet;
     procedure TestComposeKeepsHpkeCompositionOverOtherPrimitives;
@@ -231,6 +234,16 @@ type
     procedure TestNativeVerifierCarriesSystemMarker;
     // the portable verifier the facet falls back to (EdDSA) does not
     procedure TestFallbackVerifierLacksSystemMarker;
+    // nor does the fallback for a native scheme whose public key the OS refuses (id-RSASSA-PSS)
+    procedure TestRsaPssSpkiFallbackVerifierLacksSystemMarker;
+    // an ECDSA verifier the OS module serves carries the marker too
+    procedure TestNativeEcdsaVerifierCarriesSystemMarker;
+    // the per-scheme verification answer is System exactly when a verifier for a valid key is
+    procedure TestVerificationBackendMatchesVerifierMarker;
+    // the per-verifier answer follows the marker: portable for both kinds of fallback
+    procedure TestVerifierBackendIsPortableForEdDsaFallback;
+    procedure TestVerifierBackendIsPortableForRsaPssSpkiFallback;
+    procedure TestVerifierBackendIsSystemForNativeVerifier;
   end;
 {$IFEND}
 
@@ -1021,11 +1034,103 @@ procedure TTestWindowsNativeCryptoProvider.TestFallbackVerifierLacksSystemMarker
 var
   LVerifier: ISignatureVerifier;
 begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
   LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ED25519,
     DecodeHex(FKeys.Values['ed25519_pub']));
   CheckTrue(LVerifier <> nil, 'the portable facet serves EdDSA');
   CheckFalse(Supports(LVerifier, ISystemSignatureVerifier),
     'a portable verifier does not carry the marker');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestRsaPssSpkiFallbackVerifierLacksSystemMarker;
+var
+  LVerifier: ISignatureVerifier;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    DecodeHex(FKeys.Values['rsa_pub_pss']));
+  CheckTrue(LVerifier <> nil, 'the portable facet serves the scheme the OS refused');
+  CheckFalse(Supports(LVerifier, ISystemSignatureVerifier),
+    'the fallback for a key the OS refuses does not carry the marker');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeEcdsaVerifierCarriesSystemMarker;
+var
+  LVerifier: ISignatureVerifier;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.ECDSA_SECP256R1_SHA256) then
+    Exit;
+  LVerifier := Crypto.Signing.CreateSignatureVerifier(TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    DecodeHex(FKeys.Values['ec256_pub']));
+  CheckTrue(Supports(LVerifier, ISystemSignatureVerifier),
+    'a natively imported ECDSA verifier carries the marker');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestVerificationBackendMatchesVerifierMarker;
+const
+  PublicKeyFields: array [TSignatureScheme] of string = ('ec256_pub', 'ec384_pub', 'ec521_pub',
+    'ed25519_pub', 'ed448_pub', 'rsa_pub', 'rsa_pub', 'rsa_pub', 'rsa_pub', 'rsa_pub', 'rsa_pub');
+var
+  LReport: ICryptoBackendReport;
+  LScheme: TSignatureScheme;
+  LVerifier: ISignatureVerifier;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
+    if LScheme.KeyKind in [TSignatureKeyKind.Rsa, TSignatureKeyKind.Ecdsa] then
+    begin
+      LVerifier := Crypto.Signing.CreateSignatureVerifier(LScheme,
+        DecodeHex(FKeys.Values[PublicKeyFields[LScheme]]));
+      CheckEquals(Supports(LVerifier, ISystemSignatureVerifier),
+        LReport.VerificationBackend(LScheme).Backend = TCryptoBackend.System,
+        Format('scheme %d: the report agrees with the verifier a valid key gets', [Ord(LScheme)]));
+    end;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestVerifierBackendIsPortableForEdDsaFallback;
+var
+  LReport: ICryptoBackendReport;
+  LEntry: TCryptoBackendEntry;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  LEntry := LReport.VerifierBackend(Crypto.Signing.CreateSignatureVerifier(
+    TSignatureScheme.ED25519, DecodeHex(FKeys.Values['ed25519_pub'])));
+  CheckTrue(LEntry.Backend = TCryptoBackend.Portable, 'the EdDSA verifier is portable');
+  CheckTrue(LEntry.Reason = TCryptoBackendReason.NoNativeImpl, 'it has no native implementation');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestVerifierBackendIsPortableForRsaPssSpkiFallback;
+var
+  LReport: ICryptoBackendReport;
+  LEntry: TCryptoBackendEntry;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  LEntry := LReport.VerifierBackend(Crypto.Signing.CreateSignatureVerifier(
+    TSignatureScheme.RSA_PSS_RSAE_SHA256, DecodeHex(FKeys.Values['rsa_pub_pss'])));
+  CheckTrue(LEntry.Backend = TCryptoBackend.Portable,
+    'a verifier built after the OS refused the key is portable');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestVerifierBackendIsSystemForNativeVerifier;
+var
+  LReport: ICryptoBackendReport;
+  LEntry: TCryptoBackendEntry;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  LEntry := LReport.VerifierBackend(Crypto.Signing.CreateSignatureVerifier(
+    TSignatureScheme.RSA_PSS_RSAE_SHA256, DecodeHex(FKeys.Values['rsa_pub'])));
+  CheckTrue(LEntry.Backend = TCryptoBackend.System, 'a native verifier is system-backed');
+  CheckTrue(LEntry.Reason = TCryptoBackendReason.NotFallback, 'and is not a fallback');
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestPkcs12ExportedKeyMatchesLeaf;
@@ -1745,6 +1850,37 @@ begin
     'the overlay''s HPKE is still the default composition');
   CheckTrue(LComposition.ComposedOver = LPrimitives,
     'the default composition is rebuilt over the overlay''s primitives');
+end;
+
+procedure TTestOverlayCryptoProvider.TestHpkeOverrideBeatsTheRebuildRule;
+var
+  LSupplied: IHpkeCrypto;
+  LBase, LOverlay: ICryptoProvider;
+  LPrimitives: ICryptoPrimitives;
+begin
+  LSupplied := TStubHpke.Create as IHpkeCrypto;
+  LBase := BaseWithHpke(nil);
+  LPrimitives := TForwardingCryptoPrimitives.Create(LBase.Primitives) as ICryptoPrimitives;
+  LOverlay := TOverlayCryptoProvider.Create(LBase, LPrimitives, nil, nil, LSupplied)
+    as ICryptoProvider;
+  CheckTrue(LOverlay.Hpke = LSupplied,
+    'the override replaces the composition the rule would rebuild');
+end;
+
+procedure TTestOverlayCryptoProvider.TestNilHpkeOverrideKeepsTheRebuildRule;
+var
+  LBase, LOverlay: ICryptoProvider;
+  LPrimitives: ICryptoPrimitives;
+  LComposition: IHpkeComposition;
+begin
+  LBase := BaseWithHpke(nil);
+  LPrimitives := TForwardingCryptoPrimitives.Create(LBase.Primitives) as ICryptoPrimitives;
+  LOverlay := TOverlayCryptoProvider.Create(LBase, LPrimitives, nil, nil, nil)
+    as ICryptoProvider;
+  CheckTrue(Supports(LOverlay.Hpke, IHpkeComposition, LComposition),
+    'with no override the HPKE is still the default composition');
+  CheckTrue(LComposition.ComposedOver = LPrimitives,
+    'with no override the composition is rebuilt over the overlay''s primitives');
 end;
 
 procedure TTestOverlayCryptoProvider.TestComposeKeepsSuppliedHpkeFacet;

@@ -54,7 +54,8 @@ type
 
   /// <summary>A backend report that places every operation in the OS module except the AEADs it
   /// is told to keep portable; a signing key answers by its <see cref="ISystemSigningKey" />
-  /// marker. Never for production use.</summary>
+  /// marker and a verifier by its <see cref="ISystemSignatureVerifier" /> marker. Never for
+  /// production use.</summary>
   TFakeBackendReport = class sealed(TSystemBackendReportBase)
   strict private
   var
@@ -67,6 +68,7 @@ type
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry; override;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; override;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
+    function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
     function Describe: string; override;
   end;
 
@@ -223,6 +225,12 @@ begin
 end;
 
 function TFakeBackendReport.SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+begin
+  Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+end;
+
+function TFakeBackendReport.VerificationBackend(
+  AScheme: TSignatureScheme): TCryptoBackendEntry;
 begin
   Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
 end;

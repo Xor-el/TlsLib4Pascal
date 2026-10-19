@@ -177,8 +177,10 @@ begin
   LDefault := TSignatureSchemeRegistry.CreateDefault;
   LBuilder := LDefault.ToBuilder;
   for LScheme in LDefault.Items do
+    // the registry serves both roles, so a scheme must be native for signing and verifying
     if (LReport = nil) or
-      (LReport.SigningBackend(LScheme).Backend <> TCryptoBackend.System) then
+      (LReport.SigningBackend(LScheme).Backend <> TCryptoBackend.System) or
+      (LReport.VerificationBackend(LScheme).Backend <> TCryptoBackend.System) then
     begin
       TArrayUtilities.Append<string>(ADropped, TEnumUtilities.GetName<TSignatureScheme>(LScheme));
       LBuilder.Prune(LScheme.ToCode);

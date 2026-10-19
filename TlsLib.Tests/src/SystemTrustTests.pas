@@ -86,6 +86,7 @@ uses
   TlpTlsPresets,
   MockPlatformChainEngine,
   MockVerifyHooks,
+  MockCertificateVerifiers,
   TlsLibTestCertificates,
   TlsLibTestBase;
 
@@ -313,6 +314,7 @@ type
     procedure TestOsServerSourceCarriesSystemMarker;
     procedure TestOsClientSourceCarriesSystemMarker;
     procedure TestBuiltInSourceLacksSystemMarker;
+    procedure TestCustomVerifierSourceLacksSystemMarker;
     procedure TestLiveResolverRetriesWithHostRoots;
     procedure TestLiveResolverOtherFailureIsFinal;
     procedure TestLiveResolverRefusesDistrustedHostRootPath;
@@ -540,6 +542,7 @@ type
     procedure TestFactorySourceReadsOsDistrustBesideHostRoots;
     procedure TestFactorySourceRefusesHostRootsWithoutProvider;
     procedure TestFactorySourceCarriesSystemMarker;
+    procedure TestFactoryClientSourceCarriesSystemMarker;
     procedure TestDefaultModeTrustsHostRootsThroughTheOsEngine;
     procedure TestHostRootsTrustsThePrivateLeaf;
     procedure TestHostRootsRefusesAForeignRoot;
@@ -2820,6 +2823,17 @@ begin
     'the portable built-in source does not carry the marker');
 end;
 
+procedure TTestDelegateHostRoots.TestCustomVerifierSourceLacksSystemMarker;
+var
+  LVerifier: IServerCertificateVerifier;
+  LSource: IServerCertificateVerifierSource;
+begin
+  LVerifier := TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier;
+  LSource := TInstanceServerVerifierSource.Create(LVerifier) as IServerCertificateVerifierSource;
+  CheckFalse(SysUtils.Supports(LSource, ISystemVerifierSource),
+    'a caller-supplied verifier source does not carry the marker');
+end;
+
 procedure TTestDelegateHostRoots.TestLiveResolverRetriesWithHostRoots;
 var
   LMock: TMockPlatformChainEngine;
@@ -4934,6 +4948,15 @@ begin
     TSystemTrustRoots.OsRoots, Pkix);
   CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
     'the Windows factory source carries the marker');
+end;
+
+procedure TTestWindowsHostRoots.TestFactoryClientSourceCarriesSystemMarker;
+var
+  LSource: IClientCertificateVerifierSource;
+begin
+  LSource := TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.CacheOnly);
+  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
+    'the Windows factory client source carries the marker');
 end;
 
 procedure TTestWindowsHostRoots.TestFactorySourceRefusesHostRootsWithoutProvider;
