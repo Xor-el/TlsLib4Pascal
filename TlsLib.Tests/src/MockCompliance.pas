@@ -163,8 +163,11 @@ type
   var
     FKey: ISigningKey;
     FNativeVerifiers: Boolean;
+    FImportedInput: TBytes;
   public
     constructor Create(const AKey: ISigningKey; ANativeVerifiers: Boolean);
+    /// <summary>The bytes the last ImportSigningKey call was given.</summary>
+    property ImportedInput: TBytes read FImportedInput;
     function ImportSigningKey(const AData: TBytes;
       const APassword: ISecretBuffer): ISigningKey;
     function ImportPkcs12(const AData: TBytes;
@@ -518,6 +521,7 @@ end;
 function TFakeSigningCrypto.ImportSigningKey(const AData: TBytes;
   const APassword: ISecretBuffer): ISigningKey;
 begin
+  FImportedInput := AData;
   Result := FKey;
 end;
 

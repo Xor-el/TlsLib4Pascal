@@ -292,7 +292,6 @@ type
 
   TTestComplianceRoots = class(TCompliancePolicyTestCase)
   strict private
-    function RootStore: ITrustAnchorStore;
     // builds the Roots client; skips and returns False where the platform has no OS verifier
     function ConfigOrSkip(const APolicy: ICompliancePolicy; const ARoots: TSystemTrustRoots;
       out AConfig: ITlsClientConfig): Boolean;
@@ -316,7 +315,6 @@ type
     procedure TestValidatedRowsCarryTheirStandardLevelAndDates;
     procedure TestNotValidatedRowsHaveNoCertificate;
     procedure TestDescribeNamesNoStandardWhenNotValidated;
-    procedure TestUnlistedBuildsKeepAnEmptyCertificate;
     procedure TestLookupMissesUnlistedBuild;
     procedure TestStatusFollowsTheTable;
     procedure TestDescribeNamesTheOutcome;
@@ -1496,6 +1494,8 @@ begin
   LReport := LPolicy.Evaluate(CredentialBuilder(LPolicy, Rsa2048Credential).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
     '2048 is one of the exact sizes');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyUndetermined),
+    'and the key is determined');
 end;
 
 procedure TTestComplianceAdmit.TestRsaCredentialInsideRangeButUnlistedIsBelowRules;
@@ -1526,6 +1526,8 @@ begin
   LReport := LPolicy.Evaluate(CredentialBuilder(LPolicy, Rsa2048Credential).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
     'the range alone admits 2048');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyUndetermined),
+    'and the key is determined');
 end;
 
 procedure TTestComplianceAdmit.TestWebPkiVerifierChainOutsideModule;
@@ -2370,11 +2372,6 @@ end;
 
 { TTestComplianceRoots }
 
-function TTestComplianceRoots.RootStore: ITrustAnchorStore;
-begin
-  Result := TTlsLibTestCertificates.EcP256RootStore;
-end;
-
 function TTestComplianceRoots.ConfigOrSkip(const APolicy: ICompliancePolicy;
   const ARoots: TSystemTrustRoots; out AConfig: ITlsClientConfig): Boolean;
 begin
@@ -2402,7 +2399,8 @@ var
   LReport: IComplianceReport;
 begin
   LPolicy := RelaxedPolicy;
-  if not ConfigOrSkip(LPolicy, TSystemTrustRoots.HostRoots(RootStore), LConfig) then
+  if not ConfigOrSkip(LPolicy, TSystemTrustRoots.HostRoots(
+    TTlsLibTestCertificates.EcP256RootStore), LConfig) then
     Exit;
   LReport := LPolicy.Evaluate(LConfig);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
@@ -2416,11 +2414,13 @@ var
   LConfig: ITlsClientConfig;
   LSource: ISystemVerifierSource;
 begin
-  if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.HostRoots(RootStore), LConfig) then
+  if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.HostRoots(
+    TTlsLibTestCertificates.EcP256RootStore), LConfig) then
     Exit;
   LSource := SourceOf(LConfig);
   CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive anchor');
-  CheckEqualBytes('the host root', RootStore.RootCertificates[0], LSource.Anchors[0]);
+  CheckEqualBytes('the host root', TTlsLibTestCertificates.EcP256RootStore.RootCertificates[0],
+    LSource.Anchors[0]);
   CheckEquals(0, System.Length(LSource.ExtraAnchors), 'nothing beside the OS roots');
 end;
 
@@ -2429,12 +2429,14 @@ var
   LConfig: ITlsClientConfig;
   LSource: ISystemVerifierSource;
 begin
-  if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.OsAndHostRoots(RootStore), LConfig) then
+  if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.OsAndHostRoots(
+    TTlsLibTestCertificates.EcP256RootStore), LConfig) then
     Exit;
   LSource := SourceOf(LConfig);
   CheckEquals(0, System.Length(LSource.Anchors), 'the OS roots still apply');
   CheckEquals(1, System.Length(LSource.ExtraAnchors), 'the host root beside them');
-  CheckEqualBytes('the host root', RootStore.RootCertificates[0], LSource.ExtraAnchors[0]);
+  CheckEqualBytes('the host root', TTlsLibTestCertificates.EcP256RootStore.RootCertificates[0],
+    LSource.ExtraAnchors[0]);
 end;
 
 procedure TTestComplianceRoots.TestOsRootsSourceCarriesNeither;
@@ -2635,20 +2637,6 @@ begin
     Exit;
   end;
   CheckEquals(0, Pos('FIPS', LAttestation.Describe), 'no standard is claimed');
-end;
-
-procedure TTestWindowsModuleAttestation.TestUnlistedBuildsKeepAnEmptyCertificate;
-var
-  LAttestation: IModuleAttestation;
-  LEntry: TWindowsModuleEntry;
-begin
-  LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
-  if TWindowsModuleAttestation.Lookup(LAttestation.Identity.OsBuild, LEntry) then
-  begin
-    SkipTest('this build is listed');
-    Exit;
-  end;
-  CheckEquals('', LAttestation.Identity.Certificate, 'nothing is attested');
 end;
 
 { TTestWindowsCompliance }

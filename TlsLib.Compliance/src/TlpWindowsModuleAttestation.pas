@@ -46,8 +46,8 @@ type
     var ALength: UINT): BOOL; stdcall;
   TBCryptGetFipsAlgorithmMode = function(out AEnabled: ByteBool): Int32; stdcall;
 
-  /// <summary>One row of the shipped validated-module table. A row that is not Validated has no
-  /// certificate and carries no standard, level or dates.</summary>
+  /// <summary>One row of the shipped validated-module table. Standard, Level and the dates mean
+  /// something only when Validated.</summary>
   TWindowsModuleEntry = record
     Build: UInt32;
     Product: string;

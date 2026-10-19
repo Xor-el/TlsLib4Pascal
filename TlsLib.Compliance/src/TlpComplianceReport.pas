@@ -51,6 +51,9 @@ implementation
 
 resourcestring
   SUnknownModule = 'unknown module';
+  SModulePrefix = 'Module: ';
+  SCertificatePart = ', certificate %s';
+  SStatusPart = ', status %s';
 
 { TComplianceReport }
 
@@ -120,10 +123,10 @@ begin
   LModule := FModule.Describe;
   if LModule = '' then
     LModule := SUnknownModule;
-  Result := Result + 'Module: ' + LModule;
+  Result := Result + SModulePrefix + LModule;
   if FModule.Certificate <> '' then
-    Result := Result + ', certificate ' + FModule.Certificate;
-  Result := Result + Format(', status %s',
+    Result := Result + Format(SCertificatePart, [FModule.Certificate]);
+  Result := Result + Format(SStatusPart,
     [TEnumUtilities.GetName<TModuleStatus>(FModuleStatus)]);
   for LI := 0 to System.Length(FFindings) - 1 do
     Result := Result + sLineBreak + 'Finding: ' + FFindings[LI].Describe;

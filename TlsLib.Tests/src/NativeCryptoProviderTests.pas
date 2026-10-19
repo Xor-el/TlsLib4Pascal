@@ -1928,7 +1928,6 @@ begin
     'the override replaces the composition the rule would rebuild');
 end;
 
-
 procedure TTestOverlayCryptoProvider.TestComposeKeepsSuppliedHpkeFacet;
 var
   LSupplied: IHpkeCrypto;

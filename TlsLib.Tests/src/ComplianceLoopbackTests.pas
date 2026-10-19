@@ -211,8 +211,11 @@ begin
   RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client finished');
   CheckFalse(LServer.IsHandshaking, 'the server finished');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
   CheckEquals(TlsWireVersionTls13, LClient.ConnectionInfo.NegotiatedVersion.WireValue,
     'TLS 1.3');
+  CheckAppDataFlows(LClient, LServer);
 end;
 
 procedure TTestComplianceLoopback.TestTls13ConnectionUsesRuleSuiteAndGroup;
@@ -266,6 +269,8 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig(LPolicy));
   RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client finished');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
   CheckEquals(TlsWireVersionTls12, LClient.ConnectionInfo.NegotiatedVersion.WireValue,
     'TLS 1.2');
   CheckAppDataFlows(LClient, LServer);
@@ -356,7 +361,10 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig(LPolicy));
   RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the OS verifier trusted the host root alone');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
   CheckEquals(TlsWireVersionTls13, LClient.ConnectionInfo.NegotiatedVersion.WireValue, 'TLS 1.3');
+  CheckAppDataFlows(LClient, LServer);
 end;
 
 procedure TTestComplianceLoopback.TestOsRootsClientRefusesPrivateChainWithUnknownCa;

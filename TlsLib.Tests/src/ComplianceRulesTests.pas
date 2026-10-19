@@ -140,6 +140,8 @@ type
     procedure TestIntersectRsaSizesEmptyBUsesA;
     procedure TestIntersectRsaSizesBothEmptyStaysEmpty;
     procedure TestIntersectDisjointRsaSizesRaises;
+    procedure TestIntersectRsaSizesAreCutToTheRange;
+    procedure TestIntersectRsaSizesOutsideTheRangeRaise;
     procedure TestIntersectRsaSizesAreNotAliased;
     procedure TestIntersectCurvesEmptyBIsNotAliased;
     procedure TestIntersectNoncomparableAeads;
@@ -277,9 +279,9 @@ begin
   CheckEquals(2048, LRules.Strength.MinRsaModulusBits, 'min RSA bits');
   CheckEquals(4096, LRules.Strength.MaxRsaModulusBits, 'max RSA bits');
   CheckEquals(3, System.Length(LRules.RsaModulusBits), 'exact RSA size count');
-  CheckEquals(2048, Int32(LRules.RsaModulusBits[0]),'first RSA size');
-  CheckEquals(3072, Int32(LRules.RsaModulusBits[1]),'second RSA size');
-  CheckEquals(4096, Int32(LRules.RsaModulusBits[2]),'third RSA size');
+  CheckEquals(2048, Int32(LRules.RsaModulusBits[0]), 'first RSA size');
+  CheckEquals(3072, Int32(LRules.RsaModulusBits[1]), 'second RSA size');
+  CheckEquals(4096, Int32(LRules.RsaModulusBits[2]), 'third RSA size');
   CheckCodes([TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.Secp384r1,
     TNamedGroupCatalog.Secp521r1], LRules.Strength.AllowedEcCurves, 'curves');
   CheckFalse(LRules.Strength.AllowEdDsa, 'no EdDSA');
@@ -335,8 +337,8 @@ begin
   CheckEquals(3072, LRules.Strength.MinRsaModulusBits, 'min RSA bits');
   CheckEquals(4096, LRules.Strength.MaxRsaModulusBits, 'max RSA bits');
   CheckEquals(2, System.Length(LRules.RsaModulusBits), 'exact RSA size count');
-  CheckEquals(3072, Int32(LRules.RsaModulusBits[0]),'first RSA size');
-  CheckEquals(4096, Int32(LRules.RsaModulusBits[1]),'second RSA size');
+  CheckEquals(3072, Int32(LRules.RsaModulusBits[0]), 'first RSA size');
+  CheckEquals(4096, Int32(LRules.RsaModulusBits[1]), 'second RSA size');
   CheckCodes([TNamedGroupCatalog.Secp384r1], LRules.Strength.AllowedEcCurves, 'curves');
   CheckFalse(LRules.Strength.AllowEdDsa, 'no EdDSA');
   CheckTrue(LRules.Strength.AllowedDeprecatedHashes = [], 'no deprecated hash');
@@ -1189,8 +1191,8 @@ begin
   LB.RsaModulusBits := TArray<UInt32>.Create(3072, 4096);
   LResult := TComplianceRules.Intersect(LA, LB);
   CheckEquals(2, System.Length(LResult.RsaModulusBits), 'count');
-  CheckEquals(4096, Int32(LResult.RsaModulusBits[0]),'A order first');
-  CheckEquals(3072, Int32(LResult.RsaModulusBits[1]),'A order second');
+  CheckEquals(4096, Int32(LResult.RsaModulusBits[0]), 'A order first');
+  CheckEquals(3072, Int32(LResult.RsaModulusBits[1]), 'A order second');
 end;
 
 procedure TTestComplianceRules.TestIntersectRsaSizesEmptyAUsesB;
@@ -1203,7 +1205,7 @@ begin
   LB := TCompliancePresets.Cnsa1;
   LResult := TComplianceRules.Intersect(LA, LB);
   CheckEquals(2, System.Length(LResult.RsaModulusBits), 'count');
-  CheckEquals(3072, Int32(LResult.RsaModulusBits[0]),'first');
+  CheckEquals(3072, Int32(LResult.RsaModulusBits[0]), 'first');
 end;
 
 procedure TTestComplianceRules.TestIntersectRsaSizesEmptyBUsesA;
@@ -1216,7 +1218,7 @@ begin
   LB.RsaModulusBits := nil;
   LResult := TComplianceRules.Intersect(LA, LB);
   CheckEquals(2, System.Length(LResult.RsaModulusBits), 'count');
-  CheckEquals(4096, Int32(LResult.RsaModulusBits[1]),'second');
+  CheckEquals(4096, Int32(LResult.RsaModulusBits[1]), 'second');
 end;
 
 procedure TTestComplianceRules.TestIntersectRsaSizesBothEmptyStaysEmpty;
@@ -1250,6 +1252,38 @@ begin
   CheckTrue(LRaised, 'an empty result would mean the range alone');
 end;
 
+procedure TTestComplianceRules.TestIntersectRsaSizesAreCutToTheRange;
+var
+  LA, LB, LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LB := TCompliancePresets.Cnsa1;
+  LB.RsaModulusBits := nil;
+  LResult := TComplianceRules.Intersect(LA, LB);
+  CheckEquals(2, System.Length(LResult.RsaModulusBits), 'the size under the floor is dropped');
+  CheckEquals(3072, Int32(LResult.RsaModulusBits[0]), 'first kept size');
+  CheckEquals(4096, Int32(LResult.RsaModulusBits[1]), 'second kept size');
+end;
+
+procedure TTestComplianceRules.TestIntersectRsaSizesOutsideTheRangeRaise;
+var
+  LA, LB: TComplianceRules;
+  LRaised: Boolean;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.RsaModulusBits := TArray<UInt32>.Create(2048);
+  LB := TCompliancePresets.Cnsa1;
+  LB.RsaModulusBits := nil;
+  LRaised := False;
+  try
+    TComplianceRules.Intersect(LA, LB);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a listed size below the floor leaves no size');
+end;
+
 procedure TTestComplianceRules.TestIntersectRsaSizesAreNotAliased;
 var
   LA, LB, LResult: TComplianceRules;
@@ -1259,10 +1293,10 @@ begin
   LB := TCompliancePresets.Fips140_3;
   LResult := TComplianceRules.Intersect(LA, LB);
   LResult.RsaModulusBits[0] := 1;
-  CheckEquals(2048, Int32(LB.RsaModulusBits[0]),'the empty-A copy is not aliased');
+  CheckEquals(2048, Int32(LB.RsaModulusBits[0]), 'the empty-A copy is not aliased');
   LResult := TComplianceRules.Intersect(LB, LA);
   LResult.RsaModulusBits[0] := 1;
-  CheckEquals(2048, Int32(LB.RsaModulusBits[0]),'the empty-B copy is not aliased');
+  CheckEquals(2048, Int32(LB.RsaModulusBits[0]), 'the empty-B copy is not aliased');
 end;
 
 procedure TTestComplianceRules.TestIntersectCurvesEmptyBIsNotAliased;
@@ -1371,7 +1405,7 @@ begin
   LOriginal := TCompliancePresets.Fips140_3;
   LClone := LOriginal.Clone;
   LClone.RsaModulusBits[0] := 1;
-  CheckEquals(2048, Int32(LOriginal.RsaModulusBits[0]),'original untouched');
+  CheckEquals(2048, Int32(LOriginal.RsaModulusBits[0]), 'original untouched');
 end;
 
 { TTestComplianceCatalog }

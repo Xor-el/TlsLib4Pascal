@@ -24,7 +24,6 @@ uses
   TlpImportedCredential,
   TlpSystemCryptoTypes,
   TlpICryptoBackendReport,
-  TlpISystemSignatureVerifier,
   TlpSystemCryptoBase,
   TlpComplianceTypes,
   TlpComplianceExceptions,
@@ -39,32 +38,6 @@ type
   TPortableOnlyReport = class sealed(TSystemBackendReportBase)
   public
     function Describe: string; override;
-  end;
-
-  /// <summary>
-  /// A backend report that answers as its inner report except for the HPKE facet, which a
-  /// supplied facet makes portable whatever the inner report says.
-  /// </summary>
-  THpkeSuppliedReport = class sealed(TInterfacedObject, ICryptoBackendReport)
-  strict private
-  var
-    FInner: ICryptoBackendReport;
-  public
-    constructor Create(const AInner: ICryptoBackendReport);
-    function RandomBackend: TCryptoBackendEntry;
-    function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
-    function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
-    function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
-    function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
-    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
-    function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
-    function VerifierBackend(const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
-    function FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
-    function Describe: string;
   end;
 
   /// <summary>
@@ -135,10 +108,9 @@ type
   public
     /// <summary>A provider with ABase's identity, HPKE rebuilt over the refusing primitives when
     /// ABase composes its own and otherwise filtered by the rules, and the backend report ABase
-    /// carries (none if it has none), answering the HPKE facet as portable whenever HPKE is
-    /// filtered. That report describes ABase's backends, not what the rules let through. A base
-    /// with no backend report is treated as wholly portable. Raises EArgumentTlsLibException for
-    /// a nil ABase.</summary>
+    /// carries (none if it has none), unchanged: it describes ABase's backends, including its
+    /// HPKE facet, not what the rules let through. A base with no backend report is treated as
+    /// wholly portable. Raises EArgumentTlsLibException for a nil ABase.</summary>
     class function Compose(const ABase: ICryptoProvider; const ARules: TComplianceRules;
       AEnforcement: TComplianceEnforcement): ICryptoProvider; static;
   end;
@@ -344,7 +316,7 @@ end;
 function TComplianceSigningCrypto.ImportSigningKey(const AData: TBytes;
   const APassword: ISecretBuffer): ISigningKey;
 begin
-  Result := Admitted(inherited ImportSigningKey(AData, APassword));
+  Result := Admitted(Inner.ImportSigningKey(AData, APassword));
 end;
 
 function TComplianceSigningCrypto.ImportPkcs12(const AData: TBytes;
@@ -379,95 +351,6 @@ begin
   RequireInModule(FReport.VerifierBackend(Result), LName);
 end;
 
-{ THpkeSuppliedReport }
-
-constructor THpkeSuppliedReport.Create(const AInner: ICryptoBackendReport);
-begin
-  inherited Create;
-  if AInner = nil then
-    raise EArgumentTlsLibException.CreateRes(@SNilReport);
-  FInner := AInner;
-end;
-
-function THpkeSuppliedReport.RandomBackend: TCryptoBackendEntry;
-begin
-  Result := FInner.RandomBackend;
-end;
-
-function THpkeSuppliedReport.HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-begin
-  Result := FInner.HashBackend(AAlgorithm);
-end;
-
-function THpkeSuppliedReport.HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-begin
-  Result := FInner.HmacBackend(AAlgorithm);
-end;
-
-function THpkeSuppliedReport.HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-begin
-  Result := FInner.HkdfBackend(AAlgorithm);
-end;
-
-function THpkeSuppliedReport.Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-begin
-  Result := FInner.Tls12PrfBackend(AAlgorithm);
-end;
-
-function THpkeSuppliedReport.AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
-begin
-  Result := FInner.AeadBackend(AAlgorithm);
-end;
-
-function THpkeSuppliedReport.KeyAgreementBackend(
-  AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
-begin
-  Result := FInner.KeyAgreementBackend(AAlgorithm);
-end;
-
-function THpkeSuppliedReport.KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
-begin
-  Result := FInner.KemBackend(AAlgorithm);
-end;
-
-function THpkeSuppliedReport.SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
-begin
-  Result := FInner.SigningBackend(AScheme);
-end;
-
-function THpkeSuppliedReport.SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
-begin
-  Result := FInner.SigningKeyBackend(AKey);
-end;
-
-function THpkeSuppliedReport.VerificationBackend(
-  AScheme: TSignatureScheme): TCryptoBackendEntry;
-begin
-  Result := FInner.VerificationBackend(AScheme);
-end;
-
-function THpkeSuppliedReport.VerifierBackend(
-  const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
-begin
-  Result := FInner.VerifierBackend(AVerifier);
-end;
-
-function THpkeSuppliedReport.FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
-begin
-  if AFacet = TCryptoFacet.Hpke then
-  begin
-    Result.Backend := TCryptoBackend.Portable;
-    Result.Reason := TCryptoBackendReason.NoNativeImpl;
-  end
-  else
-    Result := FInner.FacetBackend(AFacet);
-end;
-
-function THpkeSuppliedReport.Describe: string;
-begin
-  Result := FInner.Describe;
-end;
-
 { TComplianceCryptoProvider }
 
 class function TComplianceCryptoProvider.Compose(const ABase: ICryptoProvider;
@@ -492,12 +375,7 @@ begin
     AEnforcement);
   LHpke := nil;
   if not TOverlayCryptoProvider.RebuildsHpke(ABase) then
-  begin
     LHpke := TComplianceHpke.Create(ABase.Hpke, ARules, AEnforcement) as IHpkeCrypto;
-    // the supplied facet wraps a foreign one, so the report cannot call it a composition
-    if LReport <> nil then
-      LReport := THpkeSuppliedReport.Create(LReport) as ICryptoBackendReport;
-  end;
   Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport, LHpke);
 end;
 

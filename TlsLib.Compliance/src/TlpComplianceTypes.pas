@@ -181,6 +181,7 @@ resourcestring
 class function TComplianceRules.Intersect(const A, B: TComplianceRules): TComplianceRules;
 var
   LI: Int32;
+  LSizes: TArray<UInt32>;
 begin
   if A.ModuleStandard <> B.ModuleStandard then
     raise EArgumentTlsLibException.CreateRes(@SModuleStandardMismatch);
@@ -210,19 +211,26 @@ begin
   if (Result.Strength.MaxRsaModulusBits <> 0) and
     (Result.Strength.MinRsaModulusBits > Result.Strength.MaxRsaModulusBits) then
     raise EArgumentTlsLibException.CreateRes(@SEmptyRsaRange);
-  // an empty size list means the range alone, so a shared-size miss must not widen to it
+  // an empty size list means the range alone, so a miss must not widen to it
   if System.Length(A.RsaModulusBits) = 0 then
-    Result.RsaModulusBits := System.Copy(B.RsaModulusBits)
+    LSizes := System.Copy(B.RsaModulusBits)
   else if System.Length(B.RsaModulusBits) = 0 then
-    Result.RsaModulusBits := System.Copy(A.RsaModulusBits)
+    LSizes := System.Copy(A.RsaModulusBits)
   else
   begin
+    LSizes := nil;
     for LI := 0 to System.Length(A.RsaModulusBits) - 1 do
       if TArrayUtilities.Contains<UInt32>(B.RsaModulusBits, A.RsaModulusBits[LI]) then
-        TArrayUtilities.Append<UInt32>(Result.RsaModulusBits, A.RsaModulusBits[LI]);
-    if System.Length(Result.RsaModulusBits) = 0 then
-      raise EArgumentTlsLibException.CreateRes(@SNoCommonRsaSize);
+        TArrayUtilities.Append<UInt32>(LSizes, A.RsaModulusBits[LI]);
   end;
+  for LI := 0 to System.Length(LSizes) - 1 do
+    if (LSizes[LI] >= UInt32(Result.Strength.MinRsaModulusBits)) and
+      ((Result.Strength.MaxRsaModulusBits = 0) or
+      (LSizes[LI] <= UInt32(Result.Strength.MaxRsaModulusBits))) then
+      TArrayUtilities.Append<UInt32>(Result.RsaModulusBits, LSizes[LI]);
+  if ((System.Length(A.RsaModulusBits) > 0) or (System.Length(B.RsaModulusBits) > 0)) and
+    (System.Length(Result.RsaModulusBits) = 0) then
+    raise EArgumentTlsLibException.CreateRes(@SNoCommonRsaSize);
   // an empty curve list means any curve to the core, so a shared-curve miss must not reach it
   if System.Length(A.Strength.AllowedEcCurves) = 0 then
     Result.Strength.AllowedEcCurves := System.Copy(B.Strength.AllowedEcCurves)

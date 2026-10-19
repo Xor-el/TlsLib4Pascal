@@ -162,8 +162,7 @@ type
     procedure TestHpkeHasNoMlKemSuite;
     procedure TestComposeKeepsBaseReportIdentity;
     procedure TestComposeOverBaseWithoutReportClaimsNone;
-    procedure TestSuppliedHpkeFacetIsReportedPortable;
-    procedure TestRebuiltHpkeFacetKeepsTheBaseHpkeAnswer;
+    procedure TestSuppliedHpkeFacetAnswerIsTheBaseReportAnswer;
     procedure TestComposeFacetsAreStable;
     procedure TestPrimitivesRejectNilReport;
     procedure TestStrictFollowsOsReportForAes;
@@ -196,6 +195,7 @@ type
     procedure TestEd25519KeyImportRefusedRelaxed;
     procedure TestEd25519SystemKeyRefusedStrict;
     procedure TestKeyWithNoAllowedSchemeRefusedByEveryImportPath;
+    procedure TestImportHandsTheInputUnchangedToTheInnerFacet;
     procedure TestMixedKeyNarrowedToAllowedSchemes;
     procedure TestNarrowingKeepsKeyOrder;
     procedure TestPortableKeyRefusedStrict;
@@ -933,32 +933,22 @@ begin
   CheckTrue(LFound = LReport, 'and it is the base report itself');
 end;
 
-procedure TTestComplianceCryptoPrimitives.TestSuppliedHpkeFacetIsReportedPortable;
+procedure TTestComplianceCryptoPrimitives.TestSuppliedHpkeFacetAnswerIsTheBaseReportAnswer;
 var
+  LBaseReport, LReport: ICryptoBackendReport;
   LProvider: ICryptoProvider;
-  LReport: ICryptoBackendReport;
+  LExpected, LActual: TCryptoBackendEntry;
 begin
-  // the base report claims a composition, but its HPKE facet is a foreign one
+  // the rules restrict the supplied facet; they do not re-describe what the base reports
+  LBaseReport := TComposedHpkeClaimReport.Create as ICryptoBackendReport;
   LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
-    TComposedHpkeClaimReport.Create as ICryptoBackendReport, nil,
-    TFakeHpke.Create as IHpkeCrypto), TCompliancePresets.Fips140_3,
+    LBaseReport, nil, TFakeHpke.Create as IHpkeCrypto), TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Relaxed);
   CheckTrue(Supports(LProvider, ICryptoBackendReport, LReport), 'the report is offered');
-  CheckTrue(LReport.FacetBackend(TCryptoFacet.Hpke).Backend = TCryptoBackend.Portable,
-    'the supplied facet is not a composition');
-end;
-
-procedure TTestComplianceCryptoPrimitives.TestRebuiltHpkeFacetKeepsTheBaseHpkeAnswer;
-var
-  LProvider: ICryptoProvider;
-  LReport: ICryptoBackendReport;
-begin
-  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
-    TComposedHpkeClaimReport.Create as ICryptoBackendReport, nil, nil),
-    TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
-  CheckTrue(Supports(LProvider, ICryptoBackendReport, LReport), 'the report is offered');
-  CheckTrue(LReport.FacetBackend(TCryptoFacet.Hpke).Backend = TCryptoBackend.Composed,
-    'a rebuilt composition is still one');
+  LExpected := LBaseReport.FacetBackend(TCryptoFacet.Hpke);
+  LActual := LReport.FacetBackend(TCryptoFacet.Hpke);
+  CheckEquals(Ord(LExpected.Backend), Ord(LActual.Backend), 'the backend is the base answer');
+  CheckEquals(Ord(LExpected.Reason), Ord(LActual.Reason), 'the reason is the base answer');
 end;
 
 procedure TTestComplianceCryptoPrimitives.TestComposeOverBaseWithoutReportClaimsNone;
@@ -1509,6 +1499,27 @@ begin
     TComplianceEnforcement.Strict).Signing;
   CheckTrue(ImportRefused(LSigning, FFakeInput), 'the key import path');
   CheckTrue(Pkcs12Refused(LSigning, FFakeInput), 'the PKCS#12 import path');
+end;
+
+procedure TTestComplianceSigningCrypto.TestImportHandsTheInputUnchangedToTheInnerFacet;
+var
+  LInner: TFakeSigningCrypto;
+  LHeld, LSigning: ISigningCrypto;
+  LInput: TBytes;
+begin
+  // an armored input: the decorator must not decode it before the inner facet sees it
+  LInput := TEncoding.ASCII.GetBytes(
+    '-----BEGIN PRIVATE KEY-----' + sLineBreak + 'AQID' + sLineBreak +
+    '-----END PRIVATE KEY-----' + sLineBreak);
+  LInner := TFakeSigningCrypto.Create(SystemKey([TSignatureScheme.ECDSA_SECP256R1_SHA256]), True);
+  LHeld := LInner;
+  LSigning := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, LHeld, nil),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
+  LSigning.ImportSigningKey(LInput, nil);
+  CheckEquals(System.Length(LInput), System.Length(LInner.ImportedInput), 'same length');
+  CheckTrue(CompareMem(@LInput[0], @LInner.ImportedInput[0], System.Length(LInput)),
+    'same bytes');
 end;
 
 procedure TTestComplianceSigningCrypto.TestMixedKeyNarrowedToAllowedSchemes;
