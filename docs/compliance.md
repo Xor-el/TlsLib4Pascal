@@ -32,7 +32,8 @@ The Fips140_3 profiles refuse every ML-KEM and PQ/T hybrid group (including SecP
 ```pascal
 uses TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider, TlpIPkixProvider,
   TlpOSCryptoProvider, TlpTlsCredential, TlpITlsConfig, TlpComplianceTypes, TlpCompliancePresets,
-  TlpICompliancePolicy, TlpCompliancePolicy, TlpOSModuleAttestation, TlpComplianceTls;
+  TlpICompliancePolicy, TlpCompliancePolicy, TlpOSModuleAttestation, TlpOSSystemTrust,
+  TlpComplianceTls;
 
 var
   Policy: ICompliancePolicy;
@@ -44,7 +45,8 @@ begin
     TDefaultPkixProvider.Create as IPkixProvider, TOSModuleAttestation.Current,
     TComplianceEnforcement.Strict);          // raises on a build the table does not validate
   WriteLn(Policy.PlatformReport.Describe);
-  Client := TComplianceTls.BuildClient(Policy, TComplianceTls.Client(Policy));
+  Client := TComplianceTls.BuildClient(Policy,
+    TComplianceTls.Client(Policy, TSystemTrustRoots.OsRoots));
   Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy,
     TTlsCredential.Load(Policy.Crypto, Policy.Pkix, ChainPem, KeyPem)));   // load through Policy
 end;
@@ -55,11 +57,12 @@ verifier, and the Extended Master Secret requirement. `BuildClient` and `BuildSe
 config and pass it to `Admit`. A config built any other way can still be checked with
 `Policy.Evaluate` or `Policy.Admit`; one that skips both loses the non-crypto checks below.
 
-- `Client(Policy)` verifies the server through the OS verifier and raises where the platform has none.
+- `Client(Policy, Roots)` verifies the server through the OS verifier and raises where the platform
+  has none; `Roots` is a `TSystemTrustRoots`.
 - `Client(Policy, Verification)` takes your own `IServerVerificationBuilder`; the strength floors of
   the rules are applied to it.
-- `Client(Policy, Posture, DeadlineMs)` uses the OS verifier with live revocation; run it with the OS
-  live-revocation resolver (see [system-trust.md](system-trust.md)).
+- `Client(Policy, Roots, Posture, DeadlineMs)` uses the OS verifier with live revocation; run it
+  with the OS live-revocation resolver (see [system-trust.md](system-trust.md)).
 - `Server(Policy, Credential)` narrows the credential key to the schemes of the rules. For mutual
   TLS add `WithPeerAuth` and a client verification from the OS source, with
   `WithMinimumStrength(Policy.Rules.Strength)`.
@@ -73,8 +76,8 @@ schemes, certificate strength floors, requirements, and the key-derivation rule.
 
 | Preset | Versions | Suites | Groups | Certificates |
 |---|---|---|---|---|
-| `Fips140_3` | TLS 1.3, 1.2 | AES-GCM (128 and 256) with ECDSA or RSA | secp256r1, secp384r1, secp521r1 | RSA 2048..8192, ECDSA P-256/384/521, no EdDSA |
-| `Cnsa1` | TLS 1.3, 1.2 | AES-256-GCM with SHA-384 | secp384r1 | RSA 3072..4096, ECDSA P-384 |
+| `Fips140_3` | TLS 1.3, 1.2 | AES-GCM (128 and 256) with ECDSA or RSA | secp256r1, secp384r1, secp521r1 | RSA 2048, 3072 or 4096, ECDSA P-256/384/521, no EdDSA |
+| `Cnsa1` | TLS 1.3, 1.2 | AES-256-GCM with SHA-384 | secp384r1 | RSA 3072 or 4096, ECDSA P-384 |
 
 Both presets require extended master secret and refuse early data, Encrypted Client Hello, PSKs,
 key logging and verification bypasses, and require chains to be verified by the OS verifier.
@@ -82,9 +85,11 @@ key logging and verification bypasses, and require chains to be verified by the 
 subset of `Fips140_3`.
 
 `TComplianceRules.Intersect(A, B)` only ever narrows: it keeps what both allow, takes the stricter
-strength floors and the union of the requirements, and raises when no curve is shared. A report is
-`Compliant` only when the rules are a subset of a named preset (`TCompliancePresets.TryMatch`) and
-nothing was found, so rules built by hand that add an algorithm to a preset are never compliant.
+strength floors and the union of the requirements, and raises when no curve or RSA size is shared.
+The exact RSA sizes apply to the policy's own credential; a peer chain is held to the size range.
+A report is `Compliant` only when the rules are a subset of a named preset
+(`TCompliancePresets.TryMatch`), the module is validated and nothing was found, so rules built by
+hand that add an algorithm to a preset are never compliant.
 Rules no config can run raise `EArgumentTlsLibException` in both modes.
 
 ---
@@ -123,7 +128,7 @@ never negotiated (RFC 8701).
 ## Revocation
 
 No OCSP staple is requested, because the OS verifier checks a staple's signature in portable code.
-Check revocation through the OS: use `Client(Policy, Posture, DeadlineMs)` with the OS
+Check revocation through the OS: use `Client(Policy, Roots, Posture, DeadlineMs)` with the OS
 live-revocation resolver, or leave the posture at Soft. A host-owned resolver cannot be seen in the
 config, so the report discloses it; in strict mode a portable resolver still fails closed because
 the policy's revocation facet answers indeterminate.
@@ -153,7 +158,7 @@ breaking it.
 ```
 Verdict: NotCompliant (Relaxed)
 Preset: Fips140_3
-Module: Windows 10.0.19045.n Windows 10 22H2 bcryptprimitives.dll n.n.n.n, certificate Unknown, status NotValidated
-Finding: ModuleNotValidated 10.0.19045.n: Windows 10.0.19045.n: the shipped table records no validated FIPS 140-3 module for this build
+Module: Windows 10.0.19045.n Windows 10 22H2 bcryptprimitives.dll n.n.n.n, status NotValidated
+Finding: ModuleNotValidated 10.0.19045.n: Windows 10.0.19045.n: the shipped table records no validated module for this build
 Disclosure: the TLS key derivations are composed outside the module over its HMAC
 ```

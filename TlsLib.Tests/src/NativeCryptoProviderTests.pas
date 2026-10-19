@@ -139,6 +139,8 @@ type
     procedure TestBuilderAcceptsNativeCredential;
     // a preference-narrowed copy of a native key keeps the same exported public key
     procedure TestPreferredSchemesCopySharesPublicKey;
+    // and stays a module key, so a policy that places keys by the marker still admits it
+    procedure TestPreferredSchemesCopyKeepsSystemMarker;
     // a zero-length passphrase is an empty passphrase on the composed provider too
     procedure TestEmptyPassphraseImportsEncryptedPkcs8Der;
     procedure TestEmptyPassphraseImportsEncryptedPkcs8Pem;
@@ -173,7 +175,6 @@ type
     procedure TestDefaultHpkeIsRebuiltOverOverlayPrimitives;
     // a facet handed to the constructor wins over the rebuild rule; nil leaves the rule in force
     procedure TestHpkeOverrideBeatsTheRebuildRule;
-    procedure TestNilHpkeOverrideKeepsTheRebuildRule;
     // through TOSCryptoProvider.Compose on any platform: a supplied facet comes back as given
     procedure TestComposeKeepsSuppliedHpkeFacet;
     procedure TestComposeKeepsHpkeCompositionOverOtherPrimitives;
@@ -1774,6 +1775,19 @@ begin
     LKey.PublicKeyInfo, LNarrowed.PublicKeyInfo);
 end;
 
+procedure TTestNativeCryptoProvider.TestPreferredSchemesCopyKeepsSystemMarker;
+var
+  LKey, LNarrowed: ISigningKey;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckTrue(Supports(LKey, ISystemSigningKey), 'the imported key carries the marker');
+  LNarrowed := LKey.WithPreferredSchemes(
+    TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256));
+  CheckTrue(Supports(LNarrowed, ISystemSigningKey), 'a narrowed copy carries it too');
+end;
+
 procedure TTestNativeCryptoProvider.TestImportLeavesCallerKeyBytesIntact;
 const
   // native as given (PKCS#8), native after wrapping (PKCS#1, SEC1), and the portable fallback,
@@ -1819,7 +1833,7 @@ var
 begin
   LSupplied := TStubHpke.Create as IHpkeCrypto;
   LBase := BaseWithHpke(LSupplied);
-  LOverlay := TOverlayCryptoProvider.Create(LBase, nil, nil, nil) as ICryptoProvider;
+  LOverlay := TOverlayCryptoProvider.Create(LBase, nil, nil, nil, nil) as ICryptoProvider;
   CheckTrue(LOverlay.Hpke = LSupplied, 'the overlay returns the caller-supplied HPKE facet');
 end;
 
@@ -1832,7 +1846,7 @@ begin
   LOtherProvider := BaseWithHpke(nil);
   LSupplied := THpkeComposition.Create(LOtherProvider.Primitives) as IHpkeCrypto;
   LBase := BaseWithHpke(LSupplied);
-  LOverlay := TOverlayCryptoProvider.Create(LBase, nil, nil, nil) as ICryptoProvider;
+  LOverlay := TOverlayCryptoProvider.Create(LBase, nil, nil, nil, nil) as ICryptoProvider;
   CheckTrue(LOverlay.Hpke = LSupplied,
     'a composition over primitives other than the base''s is the caller''s facet');
 end;
@@ -1845,7 +1859,8 @@ var
 begin
   LBase := BaseWithHpke(nil);
   LPrimitives := TForwardingCryptoPrimitives.Create(LBase.Primitives) as ICryptoPrimitives;
-  LOverlay := TOverlayCryptoProvider.Create(LBase, LPrimitives, nil, nil) as ICryptoProvider;
+  LOverlay := TOverlayCryptoProvider.Create(LBase, LPrimitives, nil, nil, nil)
+    as ICryptoProvider;
   CheckTrue(Supports(LOverlay.Hpke, IHpkeComposition, LComposition),
     'the overlay''s HPKE is still the default composition');
   CheckTrue(LComposition.ComposedOver = LPrimitives,
@@ -1867,21 +1882,6 @@ begin
     'the override replaces the composition the rule would rebuild');
 end;
 
-procedure TTestOverlayCryptoProvider.TestNilHpkeOverrideKeepsTheRebuildRule;
-var
-  LBase, LOverlay: ICryptoProvider;
-  LPrimitives: ICryptoPrimitives;
-  LComposition: IHpkeComposition;
-begin
-  LBase := BaseWithHpke(nil);
-  LPrimitives := TForwardingCryptoPrimitives.Create(LBase.Primitives) as ICryptoPrimitives;
-  LOverlay := TOverlayCryptoProvider.Create(LBase, LPrimitives, nil, nil, nil)
-    as ICryptoProvider;
-  CheckTrue(Supports(LOverlay.Hpke, IHpkeComposition, LComposition),
-    'with no override the HPKE is still the default composition');
-  CheckTrue(LComposition.ComposedOver = LPrimitives,
-    'with no override the composition is rebuilt over the overlay''s primitives');
-end;
 
 procedure TTestOverlayCryptoProvider.TestComposeKeepsSuppliedHpkeFacet;
 var

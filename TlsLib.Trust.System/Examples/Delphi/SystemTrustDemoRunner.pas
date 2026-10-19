@@ -17,8 +17,8 @@
 /// three-tier chain is supplied as bytes, the intermediate reaches the OS engine only through the
 /// context, and the verdicts are read straight from the delegate verifiers. The empty-chain check
 /// is the delegate's own guard and never reaches the engine.
-/// The host-roots cells GET live sites with the host's own root passed with the OS roots and
-/// compare each outcome with what that root should and should not change.
+/// The OS-and-host-roots cells GET live sites with the host's own root passed with the OS roots
+/// and compare each outcome with what that root should and should not change.
 /// </summary>
 unit SystemTrustDemoRunner;
 
@@ -34,7 +34,7 @@ uses
 type
   THostRoot = (hrNone, hrUnrelated, hrBadSsl, hrIsrgX1, hrSelfSigned);
 
-  THostRootCell = record
+  TOsAndHostRootsCell = record
     Title: string;
     Url: string;
     HostRoot: THostRoot;
@@ -54,14 +54,14 @@ type
     /// <summary>One live GET over the OS system trust store. Returns a human line.</summary>
     class function RunSystemTrustGet(const AUrl: string): string; static;
     class function RootBlob(ARoot: THostRoot): TBytes; static;
-    class function HostRootConfig(AMode: TSystemTrustMode; ARoot: THostRoot)
+    class function OsAndHostRootsConfig(AMode: TSystemTrustMode; ARoot: THostRoot)
       : ITlsClientConfig; static;
-    class function HostRootModes: TArray<TSystemTrustMode>; static;
+    class function OsAndHostRootsModes: TArray<TSystemTrustMode>; static;
     class function ModeName(AMode: TSystemTrustMode): string; static;
     /// <summary>One cell in one mode: the GET with the cell's host root, then PASS or FAIL against
     /// what the cell expects. SKIP when the network is unreachable.</summary>
-    class function RunHostRootCell(AMode: TSystemTrustMode;
-      const ACell: THostRootCell): string; static;
+    class function RunOsAndHostRootsCell(AMode: TSystemTrustMode;
+      const ACell: TOsAndHostRootsCell): string; static;
     class function ClientContext(const AIntermediates: TArray<TBytes>): TClientTrustContext; static;
     class function ServerContext(const AIntermediates: TArray<TBytes>): TServerTrustContext; static;
     class function VerifyClient(const AIntermediates, AChain: TArray<TBytes>;
@@ -82,10 +82,10 @@ type
     /// result, a heading, then one "PASS: ...", "FAIL: ..." or "INFO: ..." line per check. Blocks
     /// on the network, so call it off the UI thread.</summary>
     class function Run(const AUrl: string): TArray<string>; static;
-    /// <summary>The host-roots cells in every mode this platform has: a heading per mode, then one
-    /// "PASS: ...", "FAIL: ..." or "SKIP: ..." line per cell. AUrl is the public site for the first
-    /// cell. Blocks on the network, so call it off the UI thread.</summary>
-    class function RunHostRoots(const AUrl: string): TArray<string>; static;
+    /// <summary>The OS-and-host-roots cells in every mode this platform has: a heading per mode,
+    /// then one "PASS: ...", "FAIL: ..." or "SKIP: ..." line per cell. AUrl is the public site for
+    /// the first cell. Blocks on the network, so call it off the UI thread.</summary>
+    class function RunOsAndHostRoots(const AUrl: string): TArray<string>; static;
   end;
 
 implementation
@@ -261,7 +261,7 @@ const
     'emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc='#10 +
     '-----END CERTIFICATE-----'#10;
 
-  HostRootCells: array[0..7] of THostRootCell = (
+  OsAndHostRootsCells: array[0..7] of TOsAndHostRootsCell = (
     (Title: 'public site, unrelated host root'; Url: PublicSiteUrl;
       HostRoot: hrUnrelated; ExpectConnect: True; NeedsNsc: False),
     (Title: 'untrusted-root.badssl.com, its root as host root';
@@ -366,7 +366,7 @@ begin
   end;
 end;
 
-class function TSystemTrustDemoRunner.HostRootConfig(AMode: TSystemTrustMode;
+class function TSystemTrustDemoRunner.OsAndHostRootsConfig(AMode: TSystemTrustMode;
   ARoot: THostRoot): ITlsClientConfig;
 var
   LCrypto: ICryptoProvider;
@@ -385,7 +385,7 @@ begin
     .Build;
 end;
 
-class function TSystemTrustDemoRunner.HostRootModes: TArray<TSystemTrustMode>;
+class function TSystemTrustDemoRunner.OsAndHostRootsModes: TArray<TSystemTrustMode>;
 begin
   // Anchors is a second engine only where Default is the OS one; elsewhere they are the same
   if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) and
@@ -405,8 +405,8 @@ begin
     Result := 'Default = Anchors (own validator over the harvested OS roots)';
 end;
 
-class function TSystemTrustDemoRunner.RunHostRootCell(AMode: TSystemTrustMode;
-  const ACell: THostRootCell): string;
+class function TSystemTrustDemoRunner.RunOsAndHostRootsCell(AMode: TSystemTrustMode;
+  const ACell: TOsAndHostRootsCell): string;
 var
   LOutcome: TGetOutcome;
   LDetail, LExpected, LGot: string;
@@ -417,7 +417,8 @@ begin
     Exit(Format('SKIP: %s: needs the Android network-security-config', [ACell.Title]));
 {$ENDIF}
   try
-    LOutcome := HttpsGet(ACell.Url, HostRootConfig(AMode, ACell.HostRoot), LDetail);
+    LOutcome := HttpsGet(ACell.Url, OsAndHostRootsConfig(AMode, ACell.HostRoot),
+      LDetail);
   except
     on E: Exception do
       Exit(Format('FAIL: %s: %s: %s', [ACell.Title, E.ClassName, E.Message]));
@@ -564,14 +565,14 @@ begin
     Result[LI + 2] := '  ' + LChecks[LI];
 end;
 
-class function TSystemTrustDemoRunner.RunHostRoots(const AUrl: string): TArray<string>;
+class function TSystemTrustDemoRunner.RunOsAndHostRoots(const AUrl: string): TArray<string>;
 var
   LModes: TArray<TSystemTrustMode>;
-  LCell: THostRootCell;
+  LCell: TOsAndHostRootsCell;
   LSteps: TArray<string>;
   LMode, LCellIndex, LLine, LStep: Integer;
 begin
-  LModes := HostRootModes;
+  LModes := OsAndHostRootsModes;
   LSteps := nil;
 {$IFDEF ANDROID}
   LSteps := TArray<string>.Create(
@@ -581,19 +582,19 @@ begin
     '  3. Settings > Security > Encryption & credentials > Install a certificate > CA certificate.',
     '  4. Run these cells again: "untrusted-root.badssl.com, no host root" must still PASS (refused).');
 {$ENDIF}
-  SetLength(Result, System.Length(LModes) * (System.Length(HostRootCells) + 1) +
+  SetLength(Result, System.Length(LModes) * (System.Length(OsAndHostRootsCells) + 1) +
     System.Length(LSteps));
   LLine := 0;
   for LMode := 0 to System.High(LModes) do
   begin
-    Result[LLine] := 'Host roots, mode ' + ModeName(LModes[LMode]) + ':';
+    Result[LLine] := 'OS and host roots, mode ' + ModeName(LModes[LMode]) + ':';
     Inc(LLine);
-    for LCellIndex := 0 to System.High(HostRootCells) do
+    for LCellIndex := 0 to System.High(OsAndHostRootsCells) do
     begin
-      LCell := HostRootCells[LCellIndex];
+      LCell := OsAndHostRootsCells[LCellIndex];
       if LCellIndex = 0 then
         LCell.Url := AUrl;
-      Result[LLine] := '  ' + RunHostRootCell(LModes[LMode], LCell);
+      Result[LLine] := '  ' + RunOsAndHostRootsCell(LModes[LMode], LCell);
       Inc(LLine);
     end;
   end;

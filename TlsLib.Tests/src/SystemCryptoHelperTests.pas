@@ -2267,7 +2267,7 @@ var
   LProvider: ICryptoProvider;
 begin
   LProvider := TOverlayCryptoProvider.Create(Crypto, nil, nil,
-    TSplitBackendReport.Create(ASigningNative, AVerifyNative) as ICryptoBackendReport)
+    TSplitBackendReport.Create(ASigningNative, AVerifyNative) as ICryptoBackendReport, nil)
     as ICryptoProvider;
   Result := TSystemCryptoStrictness.NativeSignatureSchemes(LProvider, ADropped);
 end;

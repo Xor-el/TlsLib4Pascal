@@ -41,19 +41,19 @@ type
     lblUrl: TLabel;
     edtUrl: TEdit;
     btnRun: TButton;
-    btnHostRoots: TButton;
+    btnOsAndHostRoots: TButton;
     memLog: TMemo;
     procedure FormCreate(Sender: TObject);
     procedure btnRunClick(Sender: TObject);
-    procedure btnHostRootsClick(Sender: TObject);
+    procedure btnOsAndHostRootsClick(Sender: TObject);
   private
     procedure AppendLog(const ALine: string);
     procedure SetBusy(ABusy: Boolean);
     /// <summary>Runs the demo off the UI thread (mobile platforms forbid network on it) and hands
-    /// its lines to ShowResults on it. AHostRoots picks the host-roots cells instead of the
-    /// system-trust GET and checks.</summary>
-    procedure RunDemo(const AUrl: string; AHostRoots: Boolean);
-    procedure StartDemo(const AHeading: string; AHostRoots: Boolean);
+    /// its lines to ShowResults on it. AOsAndHostRoots picks the OS-and-host-roots cells instead of
+    /// the system-trust GET and checks.</summary>
+    procedure RunDemo(const AUrl: string; AOsAndHostRoots: Boolean);
+    procedure StartDemo(const AHeading: string; AOsAndHostRoots: Boolean);
     procedure ShowResults(const ALines: TArray<string>);
   public
   end;
@@ -80,7 +80,7 @@ end;
 procedure TSystemTrustDemoForm.SetBusy(ABusy: Boolean);
 begin
   btnRun.Enabled := not ABusy;
-  btnHostRoots.Enabled := not ABusy;
+  btnOsAndHostRoots.Enabled := not ABusy;
 end;
 
 procedure TSystemTrustDemoForm.FormCreate(Sender: TObject);
@@ -90,16 +90,16 @@ begin
   // the JVM is resolved on the first verification; FPC/Android builds would call
   // TlsLibAndroidInitTrust once at startup, which is the only platform that needs it.)
   AppendLog('Enter an https:// URL and tap Verify - the OS system trust store decides. ' +
-    'Host roots runs the extra-root cells against badssl.com.');
+    'OS and host roots runs the extra-root cells against badssl.com.');
 end;
 
-procedure TSystemTrustDemoForm.RunDemo(const AUrl: string; AHostRoots: Boolean);
+procedure TSystemTrustDemoForm.RunDemo(const AUrl: string; AOsAndHostRoots: Boolean);
 var
   LLines: TArray<string>;
 begin
   try
-    if AHostRoots then
-      LLines := TSystemTrustDemoRunner.RunHostRoots(AUrl)
+    if AOsAndHostRoots then
+      LLines := TSystemTrustDemoRunner.RunOsAndHostRoots(AUrl)
     else
       LLines := TSystemTrustDemoRunner.Run(AUrl);
   except
@@ -123,7 +123,7 @@ begin
   SetBusy(False);
 end;
 
-procedure TSystemTrustDemoForm.StartDemo(const AHeading: string; AHostRoots: Boolean);
+procedure TSystemTrustDemoForm.StartDemo(const AHeading: string; AOsAndHostRoots: Boolean);
 var
   LUrl: string;
 begin
@@ -136,7 +136,7 @@ begin
   TTask.Run(
     procedure
     begin
-      RunDemo(LUrl, AHostRoots);
+      RunDemo(LUrl, AOsAndHostRoots);
     end);
 end;
 
@@ -145,9 +145,9 @@ begin
   StartDemo('GET (UseSystemTrust)', False);
 end;
 
-procedure TSystemTrustDemoForm.btnHostRootsClick(Sender: TObject);
+procedure TSystemTrustDemoForm.btnOsAndHostRootsClick(Sender: TObject);
 begin
-  StartDemo('Host roots cells, public site', True);
+  StartDemo('OS and host roots cells, public site', True);
 end;
 
 end.

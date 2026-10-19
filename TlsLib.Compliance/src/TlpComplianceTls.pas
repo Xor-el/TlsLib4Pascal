@@ -18,7 +18,6 @@ interface
 uses
   SysUtils,
   TlpArrayUtilities,
-  TlpCodeKeyedRegistry,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpTlsVersion,
@@ -55,19 +54,21 @@ type
     class function Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile; static;
     class function GroupRegistry(const APolicy: ICompliancePolicy): INamedGroupRegistry; static;
   public
-    /// <summary>A client builder verifying the server through the OS verifier. Raises
+    /// <summary>A client builder verifying the server through the OS verifier, trusting ARoots
+    /// (the OS roots, the OS roots and host roots, or host roots alone). Raises
     /// ESystemTrustUnsupported where the platform has none.</summary>
-    class function Client(const APolicy: ICompliancePolicy): ITlsClientConfigBuilder;
-      overload; static;
+    class function Client(const APolicy: ICompliancePolicy;
+      const ARoots: TSystemTrustRoots): ITlsClientConfigBuilder; overload; static;
     /// <summary>A client builder verifying the server by AVerification, held to the strength floors
     /// of the rules.</summary>
     class function Client(const APolicy: ICompliancePolicy;
       const AVerification: IServerVerificationBuilder): ITlsClientConfigBuilder;
       overload; static;
-    /// <summary>A client builder using the OS verifier with live revocation under APosture; pair
-    /// it with the OS live-revocation resolver on the stream.</summary>
-    class function Client(const APolicy: ICompliancePolicy; APosture: TRevocationPosture;
-      ADeadlineMs: Cardinal): ITlsClientConfigBuilder; overload; static;
+    /// <summary>As the ARoots overload, with live revocation under APosture; pair it with the OS
+    /// live-revocation resolver on the stream.</summary>
+    class function Client(const APolicy: ICompliancePolicy; const ARoots: TSystemTrustRoots;
+      APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
+      overload; static;
     /// <summary>A server builder presenting ACredential, its key narrowed to the schemes of the
     /// rules. Load the credential through the policy's crypto provider.</summary>
     class function Server(const APolicy: ICompliancePolicy;
@@ -87,58 +88,7 @@ implementation
 resourcestring
   SNilPolicy = 'the compliance policy must not be nil';
   SNilVerification = 'the server verification must not be nil';
-
-type
-  // the core registry builds its groups from a default list that includes ones the rules refuse
-  TComplianceGroupRegistry = class sealed(TCodeKeyedRegistryBase<INamedGroup>,
-    INamedGroupRegistry)
-  public
-    constructor Create(const AGroups: TArray<INamedGroup>);
-    class function CodeOf(const AGroup: INamedGroup): UInt16; static;
-    function ToBuilder: INamedGroupRegistryBuilder;
-  end;
-
-  TComplianceGroupRegistryBuilder = class sealed(TCodeKeyedRegistryBuilderBase<INamedGroup>,
-    INamedGroupRegistryBuilder)
-  public
-    constructor Create; overload;
-    constructor Create(const AGroups: TArray<INamedGroup>); overload;
-    function Build: INamedGroupRegistry;
-  end;
-
-{ TComplianceGroupRegistry }
-
-constructor TComplianceGroupRegistry.Create(const AGroups: TArray<INamedGroup>);
-begin
-  inherited Create(CodeOf, AGroups);
-end;
-
-class function TComplianceGroupRegistry.CodeOf(const AGroup: INamedGroup): UInt16;
-begin
-  Result := AGroup.Code;
-end;
-
-function TComplianceGroupRegistry.ToBuilder: INamedGroupRegistryBuilder;
-begin
-  Result := TComplianceGroupRegistryBuilder.Create(FItems) as INamedGroupRegistryBuilder;
-end;
-
-{ TComplianceGroupRegistryBuilder }
-
-constructor TComplianceGroupRegistryBuilder.Create;
-begin
-  inherited Create(TComplianceGroupRegistry.CodeOf, nil);
-end;
-
-constructor TComplianceGroupRegistryBuilder.Create(const AGroups: TArray<INamedGroup>);
-begin
-  inherited Create(TComplianceGroupRegistry.CodeOf, AGroups);
-end;
-
-function TComplianceGroupRegistryBuilder.Build: INamedGroupRegistry;
-begin
-  Result := TComplianceGroupRegistry.Create(FItems) as INamedGroupRegistry;
-end;
+  SNilBuilder = 'the config builder must not be nil';
 
 { TComplianceTls }
 
@@ -146,20 +96,16 @@ class function TComplianceTls.GroupRegistry(const APolicy: ICompliancePolicy)
   : INamedGroupRegistry;
 var
   LRules: TComplianceRules;
-  LBuilder: INamedGroupRegistryBuilder;
-  LGroup: INamedGroup;
+  LGroups: TArray<INamedGroup>;
   LI: Int32;
 begin
   LRules := APolicy.Rules;
-  LBuilder := TComplianceGroupRegistryBuilder.Create as INamedGroupRegistryBuilder;
+  SetLength(LGroups, System.Length(LRules.NamedGroups));
   for LI := 0 to System.Length(LRules.NamedGroups) - 1 do
-  begin
     // built over the policy crypto, so each group's agreement is the refusing one
-    LGroup := TNamedGroups.CreateNistEcdh(APolicy.Crypto,
+    LGroups[LI] := TNamedGroups.CreateNistEcdh(APolicy.Crypto,
       TNamedGroupCatalog.Name(LRules.NamedGroups[LI]));
-    LBuilder.Add(LGroup);
-  end;
-  Result := LBuilder.Build;
+  Result := TNamedGroups.CreateRegistry(LGroups);
 end;
 
 class function TComplianceTls.Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile;
@@ -197,13 +143,14 @@ begin
   Result.Resumption := TAeadAlgorithm.AES_256_GCM in LRules.Aeads;
 end;
 
-class function TComplianceTls.Client(const APolicy: ICompliancePolicy)
-  : ITlsClientConfigBuilder;
+class function TComplianceTls.Client(const APolicy: ICompliancePolicy;
+  const ARoots: TSystemTrustRoots): ITlsClientConfigBuilder;
 begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
+  // the mode is Delegate, never Default, so the OS verifier decides on every platform
   Result := Client(APolicy, TSystemTrust.ServerVerification(APolicy.Pkix,
-    TSystemTrustMode.Delegate, TSystemTrustRoots.OsRoots));
+    TSystemTrustMode.Delegate, ARoots));
 end;
 
 class function TComplianceTls.Client(const APolicy: ICompliancePolicy;
@@ -226,7 +173,8 @@ begin
 end;
 
 class function TComplianceTls.Client(const APolicy: ICompliancePolicy;
-  APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
+  const ARoots: TSystemTrustRoots; APosture: TRevocationPosture;
+  ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
 var
   LVerification: IServerVerificationBuilder;
 begin
@@ -234,7 +182,7 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   // a later WithLiveSystemTrust would replace this verification and drop the strength floors
   LVerification := TServerVerification.VerifierSource(TOSSystemTrust.ServerVerifierSource(
-    TSystemTrustFetch.Live, TSystemTrustRoots.OsRoots, APolicy.Pkix)).WithRevocation(APosture);
+    TSystemTrustFetch.Live, ARoots, APolicy.Pkix)).WithRevocation(APosture);
   Result := Client(APolicy, LVerification).WithLiveRevocationVerdict(ADeadlineMs);
 end;
 
@@ -265,6 +213,8 @@ class function TComplianceTls.BuildClient(const APolicy: ICompliancePolicy;
 begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
+  if ABuilder = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilBuilder);
   Result := ABuilder.Build;
   APolicy.Admit(Result);
 end;
@@ -274,6 +224,8 @@ class function TComplianceTls.BuildServer(const APolicy: ICompliancePolicy;
 begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
+  if ABuilder = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilBuilder);
   Result := ABuilder.Build;
   APolicy.Admit(Result);
 end;

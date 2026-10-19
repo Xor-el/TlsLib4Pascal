@@ -52,16 +52,31 @@ type
     function Describe: string;
   end;
 
-  /// <summary>A backend report that places every operation in the OS module except the AEADs it
-  /// is told to keep portable; a signing key answers by its <see cref="ISystemSigningKey" />
-  /// marker and a verifier by its <see cref="ISystemSignatureVerifier" /> marker. Never for
-  /// production use.</summary>
+  TComplianceHashSet = set of THashAlgorithm;
+
+  /// <summary>A backend report that places every operation in the OS module except the entries
+  /// it is told to keep portable (the AEADs at construction, the rest through the properties,
+  /// all empty by default) and the KEMs, which no module serves; a signing key answers by its
+  /// <see cref="ISystemSigningKey" /> marker and a verifier by its
+  /// <see cref="ISystemSignatureVerifier" /> marker. Never for production use.</summary>
   TFakeBackendReport = class sealed(TSystemBackendReportBase)
   strict private
   var
     FPortableAeads: TComplianceAeadSet;
+    FPortableRandom: Boolean;
+    FPortableHashes: TComplianceHashSet;
+    FPortableHmacs: TComplianceHashSet;
+    FPortableCurves: TComplianceKeyAgreementSet;
+    FPortableVerification: TComplianceSchemeSet;
   public
     constructor Create(APortableAeads: TComplianceAeadSet);
+    property PortableRandom: Boolean read FPortableRandom write FPortableRandom;
+    property PortableHashes: TComplianceHashSet read FPortableHashes write FPortableHashes;
+    property PortableHmacs: TComplianceHashSet read FPortableHmacs write FPortableHmacs;
+    property PortableCurves: TComplianceKeyAgreementSet read FPortableCurves
+      write FPortableCurves;
+    property PortableVerification: TComplianceSchemeSet read FPortableVerification
+      write FPortableVerification;
     function RandomBackend: TCryptoBackendEntry; override;
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
@@ -70,6 +85,32 @@ type
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
     function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
     function Describe: string; override;
+  end;
+
+  /// <summary>A backend report that places everything in the OS module and answers every verifier
+  /// as told, whatever marker it carries, so a test shows a decision follows the report and not
+  /// the marker. Never for production use.</summary>
+  TFakeVerifierReport = class sealed(TInterfacedObject, ICryptoBackendReport)
+  strict private
+  var
+    FVerifiersInModule: Boolean;
+    class function Placed(AInModule: Boolean): TCryptoBackendEntry; static;
+  public
+    constructor Create(AVerifiersInModule: Boolean);
+    function RandomBackend: TCryptoBackendEntry;
+    function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
+    function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
+    function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
+    function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
+    function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+    function VerifierBackend(const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
+    function FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
+    function Describe: string;
   end;
 
   /// <summary>A signing key that reports fixed schemes and a fixed public key, and has no
@@ -149,18 +190,59 @@ type
     function Distrusted: TArray<TBytes>;
   end;
 
+  /// <summary>An HPKE suite that seals nothing; a test only asks whether one was granted.</summary>
+  TFakeHpkeSuite = class sealed(TInterfacedObject, IHpkeSuite)
+  strict private
+  var
+    FKem, FKdf, FAead: UInt16;
+  public
+    constructor Create(AKem, AKdf, AAead: UInt16);
+    function Kem: UInt16;
+    function Kdf: UInt16;
+    function Aead: UInt16;
+    function AeadTagLength: Int32;
+    procedure SetupSealer(const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
+      out ASealer: IHpkeSealer);
+  end;
+
+  /// <summary>A foreign HPKE facet, not composed over any primitives, that offers every KEM and
+  /// the three AEADs and counts the key operations that reach it. Never for production
+  /// use.</summary>
+  TFakeHpke = class sealed(TInterfacedObject, IHpkeCrypto)
+  strict private
+  var
+    FRecipientImports: Int32;
+    FKeyPairs: Int32;
+    FPrivateImports: Int32;
+  public
+    function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
+    function ImportRecipientKey(AKem: UInt16;
+      const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
+    procedure GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
+      out APrivateKey: ISecretBuffer);
+    function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
+    function SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
+    function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
+    function RandomEncapsulation(AKem: UInt16): TBytes;
+    property RecipientImports: Int32 read FRecipientImports;
+    property KeyPairs: Int32 read FKeyPairs;
+    property PrivateImports: Int32 read FPrivateImports;
+  end;
+
   TComplianceFakes = class sealed(TObject)
   public
     /// <summary>A provider over the portable one that reports AReport and, when ASigning is not
-    /// nil, signs through it; its HPKE rides the portable primitives.</summary>
+    /// nil, signs through it; its HPKE is AHpke when given and otherwise rides the portable
+    /// primitives.</summary>
     class function FakeSystemBase(const AReport: ICryptoBackendReport;
-      const ASigning: ISigningCrypto): ICryptoProvider; static;
+      const ASigning: ISigningCrypto; const AHpke: IHpkeCrypto): ICryptoProvider; static;
   end;
 
 implementation
 
 resourcestring
   SFakeVerifierAsked = 'the fake system verifier source builds no verifier';
+  SFakeHpkeSealer = 'the fake HPKE suite seals nothing';
 
 { TFakeModuleAttestation }
 
@@ -197,17 +279,26 @@ end;
 
 function TFakeBackendReport.RandomBackend: TCryptoBackendEntry;
 begin
-  Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+  if FPortableRandom then
+    Result := NotNative
+  else
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
 end;
 
 function TFakeBackendReport.HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
 begin
-  Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+  if AAlgorithm in FPortableHashes then
+    Result := NotNative
+  else
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
 end;
 
 function TFakeBackendReport.HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
 begin
-  Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+  if AAlgorithm in FPortableHmacs then
+    Result := NotNative
+  else
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
 end;
 
 function TFakeBackendReport.AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
@@ -221,7 +312,10 @@ end;
 function TFakeBackendReport.KeyAgreementBackend(
   AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
 begin
-  Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+  if AAlgorithm in FPortableCurves then
+    Result := NotNative
+  else
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
 end;
 
 function TFakeBackendReport.SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
@@ -232,12 +326,110 @@ end;
 function TFakeBackendReport.VerificationBackend(
   AScheme: TSignatureScheme): TCryptoBackendEntry;
 begin
-  Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+  if AScheme in FPortableVerification then
+    Result := NotNative
+  else
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
 end;
 
 function TFakeBackendReport.Describe: string;
 begin
   Result := 'fake backend report';
+end;
+
+{ TFakeVerifierReport }
+
+constructor TFakeVerifierReport.Create(AVerifiersInModule: Boolean);
+begin
+  inherited Create;
+  FVerifiersInModule := AVerifiersInModule;
+end;
+
+class function TFakeVerifierReport.Placed(AInModule: Boolean): TCryptoBackendEntry;
+begin
+  if AInModule then
+  begin
+    Result.Backend := TCryptoBackend.System;
+    Result.Reason := TCryptoBackendReason.NotFallback;
+  end
+  else
+  begin
+    Result.Backend := TCryptoBackend.Portable;
+    Result.Reason := TCryptoBackendReason.NoNativeImpl;
+  end;
+end;
+
+function TFakeVerifierReport.RandomBackend: TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.KeyAgreementBackend(
+  AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
+begin
+  Result := Placed(False);
+end;
+
+function TFakeVerifierReport.SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.VerificationBackend(
+  AScheme: TSignatureScheme): TCryptoBackendEntry;
+begin
+  Result := Placed(FVerifiersInModule);
+end;
+
+function TFakeVerifierReport.VerifierBackend(
+  const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
+begin
+  Result := Placed(FVerifiersInModule);
+end;
+
+function TFakeVerifierReport.FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
+begin
+  Result := Placed(False);
+end;
+
+function TFakeVerifierReport.Describe: string;
+begin
+  Result := 'fake verifier report';
 end;
 
 { TFakeSigningKey }
@@ -380,13 +572,95 @@ begin
   Result := nil;
 end;
 
+{ TFakeHpkeSuite }
+
+constructor TFakeHpkeSuite.Create(AKem, AKdf, AAead: UInt16);
+begin
+  inherited Create;
+  FKem := AKem;
+  FKdf := AKdf;
+  FAead := AAead;
+end;
+
+function TFakeHpkeSuite.Kem: UInt16;
+begin
+  Result := FKem;
+end;
+
+function TFakeHpkeSuite.Kdf: UInt16;
+begin
+  Result := FKdf;
+end;
+
+function TFakeHpkeSuite.Aead: UInt16;
+begin
+  Result := FAead;
+end;
+
+function TFakeHpkeSuite.AeadTagLength: Int32;
+begin
+  Result := 16;
+end;
+
+procedure TFakeHpkeSuite.SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
+  out AEnc: TBytes; out ASealer: IHpkeSealer);
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeHpkeSealer);
+end;
+
+{ TFakeHpke }
+
+function TFakeHpke.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
+begin
+  Result := TFakeHpkeSuite.Create(AKem, AKdf, AAead) as IHpkeSuite;
+end;
+
+function TFakeHpke.ImportRecipientKey(AKem: UInt16;
+  const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
+begin
+  Inc(FRecipientImports);
+  Result := nil;
+end;
+
+procedure TFakeHpke.GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
+  out APrivateKey: ISecretBuffer);
+begin
+  Inc(FKeyPairs);
+  APublicKey := nil;
+  APrivateKey := nil;
+end;
+
+function TFakeHpke.ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
+begin
+  Inc(FPrivateImports);
+  Result := nil;
+end;
+
+function TFakeHpke.SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
+begin
+  Result := TArray<THpkeSuiteId>.Create(
+    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM),
+    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_256_GCM),
+    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.CHACHA20_POLY1305));
+end;
+
+function TFakeHpke.ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
+begin
+  Result := True;
+end;
+
+function TFakeHpke.RandomEncapsulation(AKem: UInt16): TBytes;
+begin
+  Result := TBytes.Create(1);
+end;
+
 { TComplianceFakes }
 
 class function TComplianceFakes.FakeSystemBase(const AReport: ICryptoBackendReport;
-  const ASigning: ISigningCrypto): ICryptoProvider;
+  const ASigning: ISigningCrypto; const AHpke: IHpkeCrypto): ICryptoProvider;
 begin
   Result := TOverlayCryptoProvider.Create(
-    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable), nil, ASigning, AReport);
+    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable), nil, ASigning, AReport, AHpke);
 end;
 
 end.

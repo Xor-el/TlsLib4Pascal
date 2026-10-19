@@ -28,12 +28,14 @@ uses
   TlpSystemCryptoBase,
   TlpComplianceTypes,
   TlpComplianceExceptions,
+  TlpComplianceHpke,
   TlpArrayUtilities,
   TlpEnumUtilities,
   TlpTlsLibExceptions;
 
 type
-  /// <summary>The report of a provider with none: every operation answers portable.</summary>
+  /// <summary>The report of a provider with none: every operation answers portable, so a strict
+  /// signing layer built on it admits no key and no verifier.</summary>
   TPortableOnlyReport = class sealed(TSystemBackendReportBase)
   public
     function Describe: string; override;
@@ -82,7 +84,9 @@ type
   var
     FReport: ICryptoBackendReport;
     FStrict: Boolean;
+    FReportsNothing: Boolean;
     FSchemes: TComplianceSchemeSet;
+    procedure RequireInModule(const AEntry: TCryptoBackendEntry; const ASubject: string);
     function Admitted(const AKey: ISigningKey): ISigningKey;
   public
     /// <param name="AReport">Never nil: the provider's backend report, or a report that
@@ -104,8 +108,10 @@ type
   TComplianceCryptoProvider = class sealed(TObject)
   public
     /// <summary>A provider with ABase's identity, HPKE rebuilt over the refusing primitives when
-    /// ABase composes its own, and the backend report ABase carries (none if it has none).
-    /// A base with no backend report is treated as wholly portable.</summary>
+    /// ABase composes its own and otherwise filtered by the rules, and the backend report ABase
+    /// carries (none if it has none). That report describes ABase's backends, not what the rules
+    /// let through. A base with no backend report is treated as wholly portable. Raises
+    /// EArgumentTlsLibException for a nil ABase.</summary>
     class function Compose(const ABase: ICryptoProvider; const ARules: TComplianceRules;
       AEnforcement: TComplianceEnforcement): ICryptoProvider; static;
   end;
@@ -120,6 +126,7 @@ resourcestring
   SRandomSubject = 'random generator';
   SSigningKeySubject = 'signing key';
   SNilReport = 'the backend report must not be nil';
+  SNilBase = 'the base crypto provider must not be nil';
   SPortableOnlyReport = 'no backend report: every operation is portable';
 
 const
@@ -157,7 +164,7 @@ function TComplianceTls12Prf.Compute(const ASecret: ISecretBuffer; const ALabel:
   const ASeed: TBytes; ALength: Int32): ISecretBuffer;
 begin
   if ALabel = PlainMasterSecretLabel then
-    raise EComplianceRefusedTlsLibException.CreateResFmt(@SPlainMasterSecretRefused, []);
+    raise EComplianceRefusedTlsLibException.CreateRes(@SPlainMasterSecretRefused);
   Result := FInner.Compute(ASecret, ALabel, ASeed, ALength);
 end;
 
@@ -275,7 +282,16 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilReport);
   FReport := AReport;
   FStrict := AEnforcement = TComplianceEnforcement.Strict;
+  FReportsNothing := AReport is TPortableOnlyReport;
   FSchemes := ARules.SignatureSchemes;
+end;
+
+procedure TComplianceSigningCrypto.RequireInModule(const AEntry: TCryptoBackendEntry;
+  const ASubject: string);
+begin
+  // a marker over a report that knows nothing of the base proves nothing
+  if FStrict and (FReportsNothing or (AEntry.Backend <> TCryptoBackend.System)) then
+    raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmOutsideModule, [ASubject]);
 end;
 
 function TComplianceSigningCrypto.Admitted(const AKey: ISigningKey): ISigningKey;
@@ -283,6 +299,9 @@ var
   LCapable, LKept: TArray<TSignatureScheme>;
   LI: Int32;
 begin
+  if AKey = nil then
+    raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused,
+      [SSigningKeySubject]);
   LCapable := AKey.CapableSchemes;
   LKept := nil;
   for LI := 0 to System.Length(LCapable) - 1 do
@@ -291,9 +310,7 @@ begin
   if System.Length(LKept) = 0 then
     raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused,
       [SSigningKeySubject]);
-  if FStrict and (FReport.SigningKeyBackend(AKey).Backend <> TCryptoBackend.System) then
-    raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmOutsideModule,
-      [SSigningKeySubject]);
+  RequireInModule(FReport.SigningKeyBackend(AKey), SSigningKeySubject);
   Result := AKey.WithPreferredSchemes(LKept);
 end;
 
@@ -318,8 +335,7 @@ begin
   LName := TEnumUtilities.GetName<TSignatureScheme>(AScheme);
   if not (AScheme in FSchemes) then
     raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused, [LName]);
-  if FStrict and (FReport.SigningKeyBackend(AKey).Backend <> TCryptoBackend.System) then
-    raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmOutsideModule, [LName]);
+  RequireInModule(FReport.SigningKeyBackend(AKey), LName);
   Result := inherited CreateSignatureSigner(AScheme, AKey);
 end;
 
@@ -333,8 +349,7 @@ begin
     raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused, [LName]);
   Result := inherited CreateSignatureVerifier(AScheme, APublicKeyDer);
   // the native facet falls back to a portable verifier for a key the module cannot import
-  if FStrict and not Supports(Result, ISystemSignatureVerifier) then
-    raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmOutsideModule, [LName]);
+  RequireInModule(FReport.VerifierBackend(Result), LName);
 end;
 
 { TComplianceCryptoProvider }
@@ -345,7 +360,10 @@ var
   LReport, LDecisionReport: ICryptoBackendReport;
   LPrimitives: ICryptoPrimitives;
   LSigning: ISigningCrypto;
+  LHpke: IHpkeCrypto;
 begin
+  if ABase = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilBase);
   LReport := nil;
   Supports(ABase, ICryptoBackendReport, LReport);
   if LReport <> nil then
@@ -356,7 +374,10 @@ begin
     LDecisionReport, AEnforcement);
   LSigning := TComplianceSigningCrypto.Create(ABase.Signing, ARules, LDecisionReport,
     AEnforcement);
-  Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport);
+  LHpke := nil;
+  if not TOverlayCryptoProvider.RebuildsHpke(ABase) then
+    LHpke := TComplianceHpke.Create(ABase.Hpke, ARules, AEnforcement) as IHpkeCrypto;
+  Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport, LHpke);
 end;
 
 end.

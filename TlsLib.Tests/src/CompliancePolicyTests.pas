@@ -68,6 +68,9 @@ uses
   TlpComplianceTls,
   TlpOSModuleAttestation,
   TlpWindowsModuleAttestation,
+  TlpOSSystemTrust,
+  TlpITrustAnchorStore,
+  TlpISystemVerifierSource,
   MockCompliance,
   MockKeyLog,
   MockCertificateVerifiers,
@@ -140,6 +143,14 @@ type
     procedure TestNilBasePkixRaisesArgument;
     procedure TestNilAttestationRaisesArgument;
     procedure TestKdfComposedDisclosed;
+    procedure TestRsaPeerChainRangeDisclosedWithExactSizes;
+    procedure TestNoRsaDisclosureWithoutExactSizes;
+    procedure TestStrictPortableVerificationRaises;
+    procedure TestRelaxedPortableVerificationReportsOnlyThatScheme;
+    procedure TestStrictForeignHpkeRaisesAlgorithmOutsideModule;
+    procedure TestRelaxedForeignHpkeReports;
+    procedure TestForeignHpkeIsNotAFindingWhenRulesForbidEch;
+    procedure TestRebuiltHpkeIsNotAFinding;
     procedure TestKdfRequireModuleRaisesStrictOnComposed;
     procedure TestRulesReturnsClone;
     procedure TestAccessorsReturnConstructionInputs;
@@ -158,6 +169,8 @@ type
       const ACredential: TTlsCredential): ITlsServerConfigBuilder;
     function Ed25519Credential: TTlsCredential;
     function PortableP256Credential: TTlsCredential;
+    // the 2048-bit RSA leaf with an OS-served key that exposes the leaf's public key
+    function Rsa2048Credential: TTlsCredential;
     function AcceptAll(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
     // early data needs resumption and a cache to build, so the violation is the only fault
@@ -190,6 +203,9 @@ type
     procedure TestPortableCredentialOutsideModuleStrict;
     procedure TestPortableCredentialRelaxedDoesNotRaise;
     procedure TestSystemCredentialAdmits;
+    procedure TestRsaCredentialOfListedSizeAdmits;
+    procedure TestRsaCredentialInsideRangeButUnlistedIsBelowRules;
+    procedure TestRsaCredentialFollowsTheRangeWithoutExactSizes;
     procedure TestWebPkiVerifierChainOutsideModule;
     procedure TestInstanceVerifierChainOutsideModule;
     procedure TestSystemVerifierSourceAdmitted;
@@ -228,13 +244,33 @@ type
     procedure TestFacadeBuildRejectsNilPolicy;
   end;
 
+  TTestComplianceRoots = class(TCompliancePolicyTestCase)
+  strict private
+    function RootStore: ITrustAnchorStore;
+    // builds the Roots client; skips and returns False where the platform has no OS verifier
+    function ConfigOrSkip(const APolicy: ICompliancePolicy; const ARoots: TSystemTrustRoots;
+      out AConfig: ITlsClientConfig): Boolean;
+    function SourceOf(const AConfig: ITlsClientConfig): ISystemVerifierSource;
+  published
+    procedure TestHostRootsClientKeepsChainInModuleAndFloors;
+    procedure TestHostRootsSourceCarriesTheRootsAlone;
+    procedure TestOsAndHostRootsSourceCarriesExtraAnchors;
+    procedure TestOsRootsSourceCarriesNeither;
+    procedure TestRootsClientRejectsNilPolicy;
+    procedure TestBuildClientRejectsNilBuilder;
+    procedure TestBuildServerRejectsNilBuilder;
+  end;
+
 {$IFDEF TLSLIB_MSWINDOWS}
   TTestWindowsModuleAttestation = class(TTlsLibAlgorithmTestCase)
   published
     procedure TestReadsBuildAndModuleVersion;
     procedure TestTableValidated22621And20348;
     procedure TestTableNotValidated26100_22631_19045;
-    procedure TestTableWindows10BuildsAreUnknownCertificate;
+    procedure TestValidatedRowsCarryTheirStandardLevelAndDates;
+    procedure TestNotValidatedRowsHaveNoCertificate;
+    procedure TestDescribeNamesNoStandardWhenNotValidated;
+    procedure TestUnlistedBuildsKeepAnEmptyCertificate;
     procedure TestLookupMissesUnlistedBuild;
     procedure TestStatusFollowsTheTable;
     procedure TestDescribeNamesTheOutcome;
@@ -247,6 +283,8 @@ type
     procedure TestRelaxedReportsNotValidatedOnOtherBuilds;
     procedure TestOsVerifierClientKeepsStrengthFloors;
     procedure TestLiveClientKeepsStrengthFloors;
+    procedure TestLiveClientCarriesTheHostRootsAlone;
+    procedure TestLiveClientCarriesNoHostRootsForOsRoots;
   end;
 {$ENDIF TLSLIB_MSWINDOWS}
 
@@ -274,7 +312,7 @@ end;
 function TCompliancePolicyTestCase.SystemBase: ICryptoProvider;
 begin
   Result := TComplianceFakes.FakeSystemBase(
-    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil);
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, nil);
 end;
 
 function TCompliancePolicyTestCase.SystemBaseWithKey: ICryptoProvider;
@@ -288,7 +326,7 @@ begin
     as ISigningKey;
   Result := TComplianceFakes.FakeSystemBase(
     TFakeBackendReport.Create([]) as ICryptoBackendReport,
-    TFakeSigningCrypto.Create(LKey, True) as ISigningCrypto);
+    TFakeSigningCrypto.Create(LKey, True) as ISigningCrypto, nil);
 end;
 
 function TCompliancePolicyTestCase.Attestation(AStatus: TModuleStatus): IModuleAttestation;
@@ -495,7 +533,7 @@ var
   LFindings: TArray<TComplianceFinding>;
 begin
   LBase := TComplianceFakes.FakeSystemBase(TFakeBackendReport.Create(
-    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil);
+    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil, nil);
   CheckTrue(Construct(TCompliancePresets.Fips140_3, LBase, TModuleStatus.Validated,
     TComplianceEnforcement.Strict, LFindings), 'strict refuses');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.AlgorithmOutsideModule),
@@ -510,7 +548,7 @@ var
   LPolicy: ICompliancePolicy;
 begin
   LBase := TComplianceFakes.FakeSystemBase(TFakeBackendReport.Create(
-    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil);
+    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil, nil);
   LPolicy := NewPolicy(TCompliancePresets.Fips140_3, LBase, TModuleStatus.Validated,
     TComplianceEnforcement.Relaxed);
   CheckTrue(ReportHasKind(LPolicy.PlatformReport, TComplianceFindingKind.AlgorithmOutsideModule),
@@ -707,8 +745,116 @@ var
   LDisclosures: TArray<string>;
 begin
   LDisclosures := StrictPolicy.PlatformReport.Disclosures;
-  CheckEquals(1, System.Length(LDisclosures), 'one disclosure, however many derivations');
-  CheckTrue(Pos('composed', LDisclosures[0]) > 0, 'it names the composed derivation');
+  CheckEquals(2, System.Length(LDisclosures), 'one per fact, however many derivations');
+  CheckTrue(Pos('composed', LDisclosures[0]) > 0, 'the first names the composed derivation');
+end;
+
+procedure TTestCompliancePolicy.TestRsaPeerChainRangeDisclosedWithExactSizes;
+var
+  LDisclosures: TArray<string>;
+begin
+  LDisclosures := StrictPolicy.PlatformReport.Disclosures;
+  CheckEquals(2, System.Length(LDisclosures), 'the sizes add a disclosure');
+  CheckTrue(Pos('peer chain', LDisclosures[1]) > 0, 'it names the peer chain');
+  CheckTrue(Pos('size range', LDisclosures[1]) > 0, 'and the range it is held to');
+end;
+
+procedure TTestCompliancePolicy.TestNoRsaDisclosureWithoutExactSizes;
+var
+  LRules: TComplianceRules;
+  LDisclosures: TArray<string>;
+  LI: Int32;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.RsaModulusBits := nil;
+  LDisclosures := NewPolicy(LRules, SystemBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Relaxed).PlatformReport.Disclosures;
+  CheckEquals(1, System.Length(LDisclosures), 'only the derivation disclosure');
+  for LI := 0 to System.Length(LDisclosures) - 1 do
+    CheckEquals(0, Pos('peer chain', LDisclosures[LI]), 'no size-range disclosure');
+end;
+
+procedure TTestCompliancePolicy.TestStrictPortableVerificationRaises;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableVerification := [TSignatureScheme.ECDSA_SECP256R1_SHA256];
+  CheckTrue(Construct(TCompliancePresets.Fips140_3,
+    TComplianceFakes.FakeSystemBase(LRef, nil, nil), TModuleStatus.Validated,
+    TComplianceEnforcement.Strict, LFindings), 'strict refuses a host that cannot verify');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.AlgorithmOutsideModule), 'the kind');
+  CheckEquals('verification ECDSA_SECP256R1_SHA256', LFindings[0].Subject, 'the subject');
+end;
+
+procedure TTestCompliancePolicy.TestRelaxedPortableVerificationReportsOnlyThatScheme;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableVerification := [TSignatureScheme.RSA_PSS_RSAE_SHA384];
+  LFindings := NewPolicy(TCompliancePresets.Fips140_3,
+    TComplianceFakes.FakeSystemBase(LRef, nil, nil), TModuleStatus.Validated,
+    TComplianceEnforcement.Relaxed).PlatformReport.Findings;
+  CheckEquals(1, System.Length(LFindings), 'one scheme, one finding');
+  CheckEquals('verification RSA_PSS_RSAE_SHA384', LFindings[0].Subject, 'the subject');
+end;
+
+procedure TTestCompliancePolicy.TestStrictForeignHpkeRaisesAlgorithmOutsideModule;
+var
+  LRules: TComplianceRules;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  Exclude(LRules.Requirements, TComplianceRequirement.NoEch);
+  CheckTrue(Construct(LRules, TComplianceFakes.FakeSystemBase(
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, TFakeHpke.Create as IHpkeCrypto),
+    TModuleStatus.Validated, TComplianceEnforcement.Strict, LFindings),
+    'strict refuses ECH over a foreign HPKE');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.AlgorithmOutsideModule), 'the kind');
+  CheckEquals('HPKE', LFindings[System.High(LFindings)].Subject, 'the subject');
+end;
+
+procedure TTestCompliancePolicy.TestRelaxedForeignHpkeReports;
+var
+  LRules: TComplianceRules;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  Exclude(LRules.Requirements, TComplianceRequirement.NoEch);
+  LFindings := NewPolicy(LRules, TComplianceFakes.FakeSystemBase(
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, TFakeHpke.Create as IHpkeCrypto),
+    TModuleStatus.Validated, TComplianceEnforcement.Relaxed).PlatformReport.Findings;
+  CheckEquals('HPKE', LFindings[System.High(LFindings)].Subject, 'reported');
+end;
+
+procedure TTestCompliancePolicy.TestForeignHpkeIsNotAFindingWhenRulesForbidEch;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := NewPolicy(TCompliancePresets.Fips140_3, TComplianceFakes.FakeSystemBase(
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, TFakeHpke.Create as IHpkeCrypto),
+    TModuleStatus.Validated, TComplianceEnforcement.Strict);
+  CheckEquals(0, System.Length(LPolicy.PlatformReport.Findings), 'nothing uses HPKE');
+end;
+
+procedure TTestCompliancePolicy.TestRebuiltHpkeIsNotAFinding;
+var
+  LRules: TComplianceRules;
+  LPolicy: ICompliancePolicy;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  Exclude(LRules.Requirements, TComplianceRequirement.NoEch);
+  LPolicy := NewPolicy(LRules, SystemBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Relaxed);
+  CheckFalse(ReportHasKind(LPolicy.PlatformReport, TComplianceFindingKind.AlgorithmOutsideModule),
+    'the refusing primitives already place the composition');
 end;
 
 procedure TTestCompliancePolicy.TestKdfRequireModuleRaisesStrictOnComposed;
@@ -761,7 +907,7 @@ var
   LFindings: TArray<TComplianceFinding>;
 begin
   LBase := TComplianceFakes.FakeSystemBase(TFakeBackendReport.Create(
-    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil);
+    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil, nil);
   LPolicy := NewPolicy(TCompliancePresets.Fips140_3, LBase, TModuleStatus.NotValidated,
     TComplianceEnforcement.Relaxed);
   LFindings := LPolicy.PlatformReport.Findings;
@@ -800,6 +946,9 @@ begin
   CheckTrue(LAttestation <> nil, 'never nil');
 {$IFDEF TLSLIB_MSWINDOWS}
   CheckEquals('Windows', LAttestation.Identity.OsName, 'the Windows arm answers');
+  CheckTrue(LAttestation.Identity.OsBuild > 0, 'it read the build');
+  CheckTrue(LAttestation.Status(TModuleStandard.Fips140_3) <> TModuleStatus.Unknown,
+    'and judged it');
 {$ELSE}
   CheckEquals(Ord(TModuleStatus.Unknown), Ord(LAttestation.Status(TModuleStandard.Fips140_3)),
     'no module table ships here');
@@ -851,6 +1000,15 @@ end;
 function TTestComplianceAdmit.PortableP256Credential: TTlsCredential;
 begin
   Result := Credential(Crypto);
+end;
+
+function TTestComplianceAdmit.Rsa2048Credential: TTlsCredential;
+begin
+  Result.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
+  Result.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.RSA_PSS_RSAE_SHA256), Pkix.Certificates.Parse(
+    Result.CertificateChain[0]).PublicKeyInfo) as ISigningKey;
 end;
 
 function TTestComplianceAdmit.EarlyDataClientBuilder(const APolicy: ICompliancePolicy;
@@ -1188,7 +1346,7 @@ var
   LFindings: TArray<TComplianceFinding>;
 begin
   LBase := TComplianceFakes.FakeSystemBase(
-    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil);
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, nil);
   LPolicy := NewPolicy(TCompliancePresets.Fips140_3, LBase, TModuleStatus.Validated,
     TComplianceEnforcement.Relaxed);
   LConfig := CredentialBuilder(LPolicy, Credential(LPolicy.Crypto)).Build;
@@ -1205,6 +1363,47 @@ begin
   LPolicy := StrictPolicy;
   CheckFalse(ServerAdmit(LPolicy, ServerBuilder(LPolicy).Build, LFindings), 'admitted');
   CheckEquals(0, System.Length(LFindings), 'with no finding');
+end;
+
+procedure TTestComplianceAdmit.TestRsaCredentialOfListedSizeAdmits;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LReport := LPolicy.Evaluate(CredentialBuilder(LPolicy, Rsa2048Credential).Build);
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
+    '2048 is one of the exact sizes');
+end;
+
+procedure TTestComplianceAdmit.TestRsaCredentialInsideRangeButUnlistedIsBelowRules;
+var
+  LRules: TComplianceRules;
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.RsaModulusBits := TArray<UInt32>.Create(3072, 4096);
+  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict);
+  LReport := LPolicy.Evaluate(CredentialBuilder(LPolicy, Rsa2048Credential).Build);
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
+    '2048 is inside the range but not an exact size');
+end;
+
+procedure TTestComplianceAdmit.TestRsaCredentialFollowsTheRangeWithoutExactSizes;
+var
+  LRules: TComplianceRules;
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.RsaModulusBits := nil;
+  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Relaxed);
+  LReport := LPolicy.Evaluate(CredentialBuilder(LPolicy, Rsa2048Credential).Build);
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
+    'the range alone admits 2048');
 end;
 
 procedure TTestComplianceAdmit.TestWebPkiVerifierChainOutsideModule;
@@ -1670,15 +1869,146 @@ begin
   CheckTrue(LRaised, 'nil policy');
 end;
 
+{ TTestComplianceRoots }
+
+function TTestComplianceRoots.RootStore: ITrustAnchorStore;
+begin
+  Result := TTlsLibTestCertificates.EcP256RootStore;
+end;
+
+function TTestComplianceRoots.ConfigOrSkip(const APolicy: ICompliancePolicy;
+  const ARoots: TSystemTrustRoots; out AConfig: ITlsClientConfig): Boolean;
+begin
+  AConfig := nil;
+  Result := TOSSystemTrust.Supports(TSystemTrustMode.Delegate);
+  if not Result then
+  begin
+    SkipTest('this platform has no OS verifier');
+    Exit;
+  end;
+  AConfig := TComplianceTls.Client(APolicy, ARoots).Build;
+end;
+
+function TTestComplianceRoots.SourceOf(const AConfig: ITlsClientConfig): ISystemVerifierSource;
+begin
+  Result := nil;
+  CheckTrue(Supports(AConfig.ServerVerifierSource, ISystemVerifierSource, Result),
+    'the verification is an OS-marked source');
+end;
+
+procedure TTestComplianceRoots.TestHostRootsClientKeepsChainInModuleAndFloors;
+var
+  LPolicy: ICompliancePolicy;
+  LConfig: ITlsClientConfig;
+  LReport: IComplianceReport;
+begin
+  LPolicy := RelaxedPolicy;
+  if not ConfigOrSkip(LPolicy, TSystemTrustRoots.HostRoots(RootStore), LConfig) then
+    Exit;
+  LReport := LPolicy.Evaluate(LConfig);
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
+    'host roots are still verified by the OS verifier');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.StrengthBelowRules),
+    'and the floors are the rules');
+end;
+
+procedure TTestComplianceRoots.TestHostRootsSourceCarriesTheRootsAlone;
+var
+  LConfig: ITlsClientConfig;
+  LSource: ISystemVerifierSource;
+begin
+  if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.HostRoots(RootStore), LConfig) then
+    Exit;
+  LSource := SourceOf(LConfig);
+  CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive anchor');
+  CheckEqualBytes('the host root', RootStore.RootCertificates[0], LSource.Anchors[0]);
+  CheckEquals(0, System.Length(LSource.ExtraAnchors), 'nothing beside the OS roots');
+end;
+
+procedure TTestComplianceRoots.TestOsAndHostRootsSourceCarriesExtraAnchors;
+var
+  LConfig: ITlsClientConfig;
+  LSource: ISystemVerifierSource;
+begin
+  if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.OsAndHostRoots(RootStore), LConfig) then
+    Exit;
+  LSource := SourceOf(LConfig);
+  CheckEquals(0, System.Length(LSource.Anchors), 'the OS roots still apply');
+  CheckEquals(1, System.Length(LSource.ExtraAnchors), 'the host root beside them');
+  CheckEqualBytes('the host root', RootStore.RootCertificates[0], LSource.ExtraAnchors[0]);
+end;
+
+procedure TTestComplianceRoots.TestOsRootsSourceCarriesNeither;
+var
+  LConfig: ITlsClientConfig;
+  LSource: ISystemVerifierSource;
+begin
+  if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.OsRoots, LConfig) then
+    Exit;
+  LSource := SourceOf(LConfig);
+  CheckEquals(0, System.Length(LSource.Anchors), 'no exclusive anchor');
+  CheckEquals(0, System.Length(LSource.ExtraAnchors), 'no extra anchor');
+end;
+
+procedure TTestComplianceRoots.TestRootsClientRejectsNilPolicy;
+var
+  LRaised: Boolean;
+  LNone: ICompliancePolicy;
+begin
+  LRaised := False;
+  LNone := nil;
+  try
+    TComplianceTls.Client(LNone, TSystemTrustRoots.OsRoots);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil policy');
+end;
+
+procedure TTestComplianceRoots.TestBuildClientRejectsNilBuilder;
+var
+  LRaised: Boolean;
+  LNone: ITlsClientConfigBuilder;
+begin
+  LRaised := False;
+  LNone := nil;
+  try
+    TComplianceTls.BuildClient(StrictPolicy, LNone);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil builder');
+end;
+
+procedure TTestComplianceRoots.TestBuildServerRejectsNilBuilder;
+var
+  LRaised: Boolean;
+  LNone: ITlsServerConfigBuilder;
+begin
+  LRaised := False;
+  LNone := nil;
+  try
+    TComplianceTls.BuildServer(StrictPolicy, LNone);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil builder');
+end;
+
 {$IFDEF TLSLIB_MSWINDOWS}
 
 { TTestWindowsModuleAttestation }
 
 procedure TTestWindowsModuleAttestation.TestReadsBuildAndModuleVersion;
 var
+  LAttestation: IModuleAttestation;
   LIdentity: TModuleIdentity;
 begin
-  LIdentity := TWindowsModuleAttestation.Create.Identity;
+  LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
+  LIdentity := LAttestation.Identity;
   CheckTrue(LIdentity.OsBuild > 0, 'the build');
   CheckEquals(1, Pos('10.0.', LIdentity.OsVersion), 'the version starts with 10.0.');
   CheckTrue(LIdentity.ModuleFileVersion <> '', 'the module file version');
@@ -1691,11 +2021,29 @@ var
   LEntry: TWindowsModuleEntry;
 begin
   CheckTrue(TWindowsModuleAttestation.Lookup(22621, LEntry), '22621 listed');
-  CheckTrue(LEntry.Fips140_3, '22621 validated');
+  CheckTrue(LEntry.Validated, '22621 validated');
   CheckEquals('5410', LEntry.Certificate, '22621 certificate');
   CheckTrue(TWindowsModuleAttestation.Lookup(20348, LEntry), '20348 listed');
-  CheckTrue(LEntry.Fips140_3, '20348 validated');
+  CheckTrue(LEntry.Validated, '20348 validated');
   CheckEquals('5410', LEntry.Certificate, '20348 certificate');
+end;
+
+procedure TTestWindowsModuleAttestation.TestValidatedRowsCarryTheirStandardLevelAndDates;
+var
+  LEntry: TWindowsModuleEntry;
+  LBuilds: array [0 .. 1] of UInt32;
+  LI: Int32;
+begin
+  LBuilds[0] := 22621;
+  LBuilds[1] := 20348;
+  for LI := 0 to 1 do
+  begin
+    CheckTrue(TWindowsModuleAttestation.Lookup(LBuilds[LI], LEntry), 'listed ' + IntToStr(LI));
+    CheckEquals(Ord(TModuleStandard.Fips140_3), Ord(LEntry.Standard), 'standard ' + IntToStr(LI));
+    CheckEquals(1, Int32(LEntry.Level), 'level ' + IntToStr(LI));
+    CheckEquals('2026-08-31', LEntry.ValidatedOn, 'validated on ' + IntToStr(LI));
+    CheckEquals('2031-08-30', LEntry.Sunset, 'sunset ' + IntToStr(LI));
+  end;
 end;
 
 procedure TTestWindowsModuleAttestation.TestTableNotValidated26100_22631_19045;
@@ -1703,29 +2051,35 @@ var
   LEntry: TWindowsModuleEntry;
 begin
   CheckTrue(TWindowsModuleAttestation.Lookup(26100, LEntry), '26100 listed');
-  CheckFalse(LEntry.Fips140_3, '26100 not validated');
+  CheckFalse(LEntry.Validated, '26100 not validated');
   CheckTrue(TWindowsModuleAttestation.Lookup(22631, LEntry), '22631 listed');
-  CheckFalse(LEntry.Fips140_3, '22631 not validated');
+  CheckFalse(LEntry.Validated, '22631 not validated');
   CheckTrue(TWindowsModuleAttestation.Lookup(19045, LEntry), '19045 listed');
-  CheckFalse(LEntry.Fips140_3, '19045 not validated');
+  CheckFalse(LEntry.Validated, '19045 not validated');
   CheckTrue(TWindowsModuleAttestation.Lookup(26200, LEntry), '26200 listed');
-  CheckFalse(LEntry.Fips140_3, '26200 not validated');
+  CheckFalse(LEntry.Validated, '26200 not validated');
 end;
 
-procedure TTestWindowsModuleAttestation.TestTableWindows10BuildsAreUnknownCertificate;
+procedure TTestWindowsModuleAttestation.TestNotValidatedRowsHaveNoCertificate;
 var
   LEntry: TWindowsModuleEntry;
-  LBuilds: array [0 .. 3] of UInt32;
+  LBuilds: array [0 .. 6] of UInt32;
   LI: Int32;
 begin
-  LBuilds[0] := 19045;
-  LBuilds[1] := 19044;
-  LBuilds[2] := 17763;
-  LBuilds[3] := 14393;
-  for LI := 0 to 3 do
+  LBuilds[0] := 22631;
+  LBuilds[1] := 26100;
+  LBuilds[2] := 26200;
+  LBuilds[3] := 19045;
+  LBuilds[4] := 19044;
+  LBuilds[5] := 17763;
+  LBuilds[6] := 14393;
+  for LI := 0 to 6 do
   begin
     CheckTrue(TWindowsModuleAttestation.Lookup(LBuilds[LI], LEntry), 'listed ' + IntToStr(LI));
-    CheckEquals('Unknown', LEntry.Certificate, 'certificate ' + IntToStr(LI));
+    CheckFalse(LEntry.Validated, 'not validated ' + IntToStr(LI));
+    CheckEquals('', LEntry.Certificate, 'certificate ' + IntToStr(LI));
+    CheckEquals('', LEntry.ValidatedOn, 'no validation date ' + IntToStr(LI));
+    CheckEquals('', LEntry.Sunset, 'no sunset ' + IntToStr(LI));
   end;
 end;
 
@@ -1734,7 +2088,7 @@ var
   LEntry: TWindowsModuleEntry;
 begin
   CheckFalse(TWindowsModuleAttestation.Lookup(12345, LEntry), 'unlisted');
-  CheckFalse(LEntry.Fips140_3, 'the out entry is cleared');
+  CheckFalse(LEntry.Validated, 'the out entry is cleared');
   CheckEquals('', LEntry.Product, 'with no product');
 end;
 
@@ -1746,7 +2100,7 @@ var
 begin
   LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
   if TWindowsModuleAttestation.Lookup(LAttestation.Identity.OsBuild, LEntry) and
-    LEntry.Fips140_3 then
+    LEntry.Validated then
     LExpected := TModuleStatus.Validated
   else
     LExpected := TModuleStatus.NotValidated;
@@ -1761,6 +2115,41 @@ begin
   LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
   CheckTrue(Pos(LAttestation.Identity.OsVersion, LAttestation.Describe) > 0,
     'the OS version is in the description');
+  if LAttestation.Status(TModuleStandard.Fips140_3) = TModuleStatus.Validated then
+  begin
+    CheckTrue(Pos('FIPS 140-3 Level 1', LAttestation.Describe) > 0, 'the standard and level');
+    CheckTrue(Pos('validated 2026-08-31, sunset 2031-08-30', LAttestation.Describe) > 0,
+      'the row''s own dates');
+  end
+  else
+    CheckTrue(Pos('no validated module', LAttestation.Describe) > 0, 'the outcome');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDescribeNamesNoStandardWhenNotValidated;
+var
+  LAttestation: IModuleAttestation;
+begin
+  LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
+  if LAttestation.Status(TModuleStandard.Fips140_3) = TModuleStatus.Validated then
+  begin
+    SkipTest('this build is validated, so its description names the standard');
+    Exit;
+  end;
+  CheckEquals(0, Pos('FIPS', LAttestation.Describe), 'no standard is claimed');
+end;
+
+procedure TTestWindowsModuleAttestation.TestUnlistedBuildsKeepAnEmptyCertificate;
+var
+  LAttestation: IModuleAttestation;
+  LEntry: TWindowsModuleEntry;
+begin
+  LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
+  if TWindowsModuleAttestation.Lookup(LAttestation.Identity.OsBuild, LEntry) then
+  begin
+    SkipTest('this build is listed');
+    Exit;
+  end;
+  CheckEquals('', LAttestation.Identity.Certificate, 'nothing is attested');
 end;
 
 { TTestWindowsCompliance }
@@ -1838,7 +2227,7 @@ var
   LReport: IComplianceReport;
 begin
   LPolicy := RelaxedPolicy;
-  LReport := LPolicy.Evaluate(TComplianceTls.Client(LPolicy).Build);
+  LReport := LPolicy.Evaluate(TComplianceTls.Client(LPolicy, TSystemTrustRoots.OsRoots).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
     'the OS verifier is in the module');
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.StrengthBelowRules),
@@ -1851,12 +2240,47 @@ var
   LReport: IComplianceReport;
 begin
   LPolicy := RelaxedPolicy;
-  LReport := LPolicy.Evaluate(TComplianceTls.Client(LPolicy, TRevocationPosture.Soft,
-    1000).Build);
+  LReport := LPolicy.Evaluate(TComplianceTls.Client(LPolicy, TSystemTrustRoots.OsRoots,
+    TRevocationPosture.Soft, 1000).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
     'the live OS verifier is in the module');
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.StrengthBelowRules),
     'the strength floors survive the live setup');
+end;
+
+procedure TTestWindowsCompliance.TestLiveClientCarriesTheHostRootsAlone;
+var
+  LPolicy: ICompliancePolicy;
+  LConfig: ITlsClientConfig;
+  LSource: ISystemVerifierSource;
+  LReport: IComplianceReport;
+  LStore: ITrustAnchorStore;
+begin
+  LPolicy := RelaxedPolicy;
+  LStore := TTlsLibTestCertificates.EcP256RootStore;
+  LConfig := TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(LStore),
+    TRevocationPosture.Soft, 1000).Build;
+  CheckTrue(Supports(LConfig.ServerVerifierSource, ISystemVerifierSource, LSource),
+    'the live source is OS-marked');
+  CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive anchor');
+  CheckEqualBytes('the host root', LStore.RootCertificates[0], LSource.Anchors[0]);
+  CheckEquals(0, System.Length(LSource.ExtraAnchors), 'nothing beside the OS roots');
+  LReport := LPolicy.Evaluate(LConfig);
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.StrengthBelowRules),
+    'the strength floors survive the live setup');
+end;
+
+procedure TTestWindowsCompliance.TestLiveClientCarriesNoHostRootsForOsRoots;
+var
+  LConfig: ITlsClientConfig;
+  LSource: ISystemVerifierSource;
+begin
+  LConfig := TComplianceTls.Client(RelaxedPolicy, TSystemTrustRoots.OsRoots,
+    TRevocationPosture.Soft, 1000).Build;
+  CheckTrue(Supports(LConfig.ServerVerifierSource, ISystemVerifierSource, LSource),
+    'the live source is OS-marked');
+  CheckEquals(0, System.Length(LSource.Anchors) + System.Length(LSource.ExtraAnchors),
+    'no host root');
 end;
 
 {$ENDIF TLSLIB_MSWINDOWS}
@@ -1866,9 +2290,11 @@ initialization
 {$IFDEF FPC}
   RegisterTest(TTestCompliancePolicy);
   RegisterTest(TTestComplianceAdmit);
+  RegisterTest(TTestComplianceRoots);
 {$ELSE}
   RegisterTest(TTestCompliancePolicy.Suite);
   RegisterTest(TTestComplianceAdmit.Suite);
+  RegisterTest(TTestComplianceRoots.Suite);
 {$ENDIF FPC}
 
 {$IFDEF TLSLIB_MSWINDOWS}

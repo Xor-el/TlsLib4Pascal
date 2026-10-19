@@ -22,6 +22,7 @@ type
   /// <summary>The immutable outcome of a compliance evaluation.</summary>
   IComplianceReport = interface(IInterface)
     ['{E3BA3D8A-845F-43B9-B429-11B28973E7D2}']
+    /// <summary>Compliant only for a named preset, a validated module and no finding.</summary>
     function Verdict: TComplianceVerdict;
     function Enforcement: TComplianceEnforcement;
     /// <summary>The tightest named preset the rules fit, or empty when none does.</summary>

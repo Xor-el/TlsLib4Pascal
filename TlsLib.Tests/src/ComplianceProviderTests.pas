@@ -30,6 +30,8 @@ uses
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpICryptoProvider,
+  TlpIKeySchedule,
+  TlpTls12KeySchedule,
   TlpICryptoBackendReport,
   TlpISystemSigningKey,
   TlpISigningKey,
@@ -48,6 +50,7 @@ uses
   TlpComplianceExceptions,
   TlpCompliancePresets,
   TlpComplianceCryptoProvider,
+  TlpComplianceHpke,
   TlpCompliancePkixProvider,
   MockCompliance,
   MockPkixProvider,
@@ -72,9 +75,43 @@ type
     function RefusesKem(const AProvider: ICryptoProvider; AAlgorithm: TKemAlgorithm): Boolean;
     function ComputePrf(const AProvider: ICryptoProvider; const ALabel: string): ISecretBuffer;
     function RefusesLabel(const AProvider: ICryptoProvider; const ALabel: string): Boolean;
+    // a provider over a fake base that reports AReport
+    function ProviderOver(const AReport: ICryptoBackendReport; const ARules: TComplianceRules;
+      AEnforcement: TComplianceEnforcement): ICryptoProvider;
+    // a provider over a fake base whose HPKE is the foreign AHpke
+    function HpkeOver(const AHpke: IHpkeCrypto; const ARules: TComplianceRules;
+      AEnforcement: TComplianceEnforcement): ICryptoProvider;
+    // how many of the three key operations of AHpke refuse AKem
+    function RefusedKeyOperations(const AHpke: IHpkeCrypto; AKem: UInt16): Int32;
+    // a TLS 1.2 schedule over AProvider holding a premaster secret and both randoms
+    function NewSchedule(const AProvider: ICryptoProvider): ITls12KeySchedule;
   strict protected
     function CreateCrypto: ICryptoProvider; override;
   published
+    procedure TestStrictRefusesPortableRandomOnSystemBase;
+    procedure TestRelaxedForwardsPortableRandomOnSystemBase;
+    procedure TestStrictRefusesPortableHashBesideSystemOne;
+    procedure TestRelaxedForwardsPortableHashBesideSystemOne;
+    procedure TestStrictRefusesPortableHmacBesideSystemOne;
+    procedure TestStrictRefusesPortableCurveBesideSystemOne;
+    procedure TestKeyScheduleRefusesPlainMasterSecret;
+    procedure TestKeyScheduleDerivesExtendedMasterSecret;
+    procedure TestComposeRejectsNilBase;
+    procedure TestRebuiltHpkeIsNotFiltered;
+    procedure TestForeignHpkeIsNotTheBaseFacet;
+    procedure TestForeignHpkeRelaxedRefusesKemOutsideRules;
+    procedure TestForeignHpkeRelaxedRefusesAeadOutsideRules;
+    procedure TestForeignHpkeRelaxedKeepsAllowedSuite;
+    procedure TestForeignHpkeRelaxedDoesNotFilterHashes;
+    procedure TestForeignHpkeRelaxedRefusesUnknownKemAndAead;
+    procedure TestForeignHpkeRelaxedFiltersSupportedSuites;
+    procedure TestForeignHpkeRelaxedListsNoSuiteForRefusedKem;
+    procedure TestForeignHpkeRelaxedPublicKeyAndEncapsulationFollowKem;
+    procedure TestForeignHpkeRelaxedOtherKemKeyOperationsRefuse;
+    procedure TestForeignHpkeRelaxedAllowedKemReachesBase;
+    procedure TestForeignHpkeStrictOffersNothing;
+    procedure TestForeignHpkeStrictKeyOperationsRefuse;
+    procedure TestComplianceHpkeRejectsNilInner;
     procedure TestChaChaRefusedStrict;
     procedure TestChaChaRefusedRelaxed;
     procedure TestAes256AllowedUnderCnsa1;
@@ -134,16 +171,20 @@ type
   var
     FKeys: TStringList;
     FPfx: TStringList;
+    // input for a fake signing facet, which ignores what it is given
+    FFakeInput: TBytes;
     // a provider over a fake signing facet that hands out AKey; verifiers are OS-served when
     // ANativeVerifiers
     function SigningOver(const AKey: ISigningKey; ANativeVerifiers: Boolean): ICryptoProvider;
+    // as SigningOver, over a base with no backend report
+    function ReportlessOver(const AKey: ISigningKey): ICryptoProvider;
     function SystemKey(const ASchemes: array of TSignatureScheme): ISigningKey;
     function PortableKey(const ASchemes: array of TSignatureScheme): ISigningKey;
-    function ImportRefused(const ASigning: ISigningCrypto; const AKeyName: string): Boolean;
+    function ImportRefused(const ASigning: ISigningCrypto; const AData: TBytes): Boolean;
     function SignerRefused(const ASigning: ISigningCrypto; AScheme: TSignatureScheme;
       const AKey: ISigningKey): Boolean;
     function VerifierRefused(const ASigning: ISigningCrypto; AScheme: TSignatureScheme): Boolean;
-    function Pkcs12Refused(const ASigning: ISigningCrypto; const AName: string): Boolean;
+    function Pkcs12Refused(const ASigning: ISigningCrypto; const AData: TBytes): Boolean;
   strict protected
     function CreateCrypto: ICryptoProvider; override;
   protected
@@ -174,6 +215,13 @@ type
     procedure TestPkcs12Ed25519KeyRefusedRelaxed;
     procedure TestPkcs12SystemKeyAdmittedStrict;
     procedure TestSigningRejectsNilReport;
+    procedure TestStrictRefusesMarkedKeyImportOverBaseWithoutReport;
+    procedure TestStrictRefusesSignerForMarkedKeyOverBaseWithoutReport;
+    procedure TestStrictRefusesMarkedVerifierOverBaseWithoutReport;
+    procedure TestRelaxedAdmitsMarkedKeyOverBaseWithoutReport;
+    procedure TestNilKeyFromBaseRefused;
+    procedure TestStrictVerifierPlacementFollowsReportNotMarker;
+    procedure TestStrictVerifierRefusedWhenReportPlacesItOutside;
   end;
 
   TTestCompliancePkix = class(TTlsLibAlgorithmTestCase)
@@ -216,8 +264,8 @@ type
 implementation
 
 const
-  SPassword = 'tlslib';
-  // the ML-KEM-768 codepoint of the HPKE post-quantum draft
+  Pkcs12Password = 'tlslib';
+  // the ML-KEM-768 codepoint of the IANA HPKE KEM registry
   HpkeKemMlKem768 = UInt16($0041);
 
 { TTestComplianceCryptoPrimitives }
@@ -231,7 +279,7 @@ function TTestComplianceCryptoPrimitives.SystemOver(
   APortableAeads: TComplianceAeadSet): ICryptoProvider;
 begin
   Result := TComplianceFakes.FakeSystemBase(
-    TFakeBackendReport.Create(APortableAeads) as ICryptoBackendReport, nil);
+    TFakeBackendReport.Create(APortableAeads) as ICryptoBackendReport, nil, nil);
 end;
 
 function TTestComplianceCryptoPrimitives.RequireModuleRules: TComplianceRules;
@@ -840,6 +888,7 @@ procedure TTestComplianceCryptoPrimitives.TestHpkeHasNoMlKemSuite;
 var
   LProvider: ICryptoProvider;
 begin
+  // a guard: fails only if a base learns an ML-KEM-768 suite (IANA HPKE KEM registry)
   LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(LProvider.Hpke.Suite(HpkeKemMlKem768, THpkeKdf.HKDF_SHA256,
@@ -854,8 +903,9 @@ var
   LProvider: ICryptoProvider;
 begin
   LReport := TFakeBackendReport.Create([]) as ICryptoBackendReport;
-  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(LReport, nil),
-    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  LProvider := TComplianceCryptoProvider.Compose(
+    TComplianceFakes.FakeSystemBase(LReport, nil, nil), TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict);
   CheckTrue(Supports(LProvider, ICryptoBackendReport, LFound), 'the report is still offered');
   CheckTrue(LFound = LReport, 'and it is the base report itself');
 end;
@@ -915,6 +965,367 @@ begin
       RefusesAead(LProvider, LAead), 'strict mode follows the real report');
 end;
 
+function TTestComplianceCryptoPrimitives.ProviderOver(const AReport: ICryptoBackendReport;
+  const ARules: TComplianceRules; AEnforcement: TComplianceEnforcement): ICryptoProvider;
+begin
+  Result := TComplianceCryptoProvider.Compose(
+    TComplianceFakes.FakeSystemBase(AReport, nil, nil), ARules, AEnforcement);
+end;
+
+function TTestComplianceCryptoPrimitives.HpkeOver(const AHpke: IHpkeCrypto;
+  const ARules: TComplianceRules; AEnforcement: TComplianceEnforcement): ICryptoProvider;
+begin
+  Result := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, AHpke), ARules, AEnforcement);
+end;
+
+function TTestComplianceCryptoPrimitives.RefusedKeyOperations(const AHpke: IHpkeCrypto;
+  AKem: UInt16): Int32;
+var
+  LPublic: TBytes;
+  LPrivate: ISecretBuffer;
+begin
+  Result := 0;
+  try
+    AHpke.ImportRecipientKey(AKem, nil);
+  except
+    on EComplianceRefusedTlsLibException do
+      Inc(Result);
+  end;
+  try
+    AHpke.GenerateKeyPair(AKem, LPublic, LPrivate);
+  except
+    on EComplianceRefusedTlsLibException do
+      Inc(Result);
+  end;
+  try
+    AHpke.ImportPrivateKey(AKem, nil);
+  except
+    on EComplianceRefusedTlsLibException do
+      Inc(Result);
+  end;
+end;
+
+function TTestComplianceCryptoPrimitives.NewSchedule(
+  const AProvider: ICryptoProvider): ITls12KeySchedule;
+begin
+  Result := TTls12KeySchedule.Create(AProvider, THashAlgorithm.SHA_256, 16,
+    TAeadAlgorithm.AES_128_GCM) as ITls12KeySchedule;
+  Result.SetPreMasterSecret(TSecretBuffer.From(DecodeHex('000102030405060708090a0b0c0d0e0f')));
+  Result.SetRandoms(DecodeHex('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'),
+    DecodeHex('ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100'));
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRefusesPortableRandomOnSystemBase;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableRandom := True;
+  CheckTrue(RefusesRandom(ProviderOver(LRef, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict)), 'the report places the random generator outside');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRelaxedForwardsPortableRandomOnSystemBase;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableRandom := True;
+  CheckFalse(RefusesRandom(ProviderOver(LRef, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Relaxed)), 'relaxed mode forwards it');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRefusesPortableHashBesideSystemOne;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+  LProvider: ICryptoProvider;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableHashes := [THashAlgorithm.SHA_384];
+  LProvider := ProviderOver(LRef, TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  CheckTrue(RefusesHash(LProvider, THashAlgorithm.SHA_384), 'the portable SHA-384 is refused');
+  CheckFalse(RefusesHash(LProvider, THashAlgorithm.SHA_256), 'the module SHA-256 is accepted');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRelaxedForwardsPortableHashBesideSystemOne;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableHashes := [THashAlgorithm.SHA_384];
+  CheckFalse(RefusesHash(ProviderOver(LRef, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Relaxed), THashAlgorithm.SHA_384), 'relaxed mode forwards it');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRefusesPortableHmacBesideSystemOne;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+  LProvider: ICryptoProvider;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableHmacs := [THashAlgorithm.SHA_384];
+  LProvider := ProviderOver(LRef, TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  CheckTrue(RefusesHmac(LProvider, THashAlgorithm.SHA_384), 'the portable HMAC is refused');
+  CheckFalse(RefusesHmac(LProvider, THashAlgorithm.SHA_256), 'the module HMAC is accepted');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRefusesPortableCurveBesideSystemOne;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+  LProvider: ICryptoProvider;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableCurves := [TKeyAgreementAlgorithm.SECP384R1];
+  LProvider := ProviderOver(LRef, TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  CheckTrue(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.SECP384R1),
+    'the portable P-384 is refused');
+  CheckFalse(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.SECP256R1),
+    'the module P-256 is accepted');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestKeyScheduleRefusesPlainMasterSecret;
+var
+  LSchedule: ITls12KeySchedule;
+  LRaised: Boolean;
+begin
+  LSchedule := NewSchedule(TComplianceCryptoProvider.Compose(SystemOver([]),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict));
+  LRaised := False;
+  try
+    LSchedule.DeriveMasterSecret;
+  except
+    on EComplianceRefusedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a schedule over the provider cannot derive without the extension');
+  CheckTrue(LSchedule.MasterSecret = nil, 'no master secret exists');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestKeyScheduleDerivesExtendedMasterSecret;
+var
+  LSchedule: ITls12KeySchedule;
+begin
+  LSchedule := NewSchedule(TComplianceCryptoProvider.Compose(SystemOver([]),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict));
+  LSchedule.DeriveExtendedMasterSecret(
+    DecodeHex('0f0e0d0c0b0a09080706050403020100ffeeddccbbaa99887766554433221100'));
+  CheckTrue(LSchedule.MasterSecret <> nil, 'the extended master secret is derived');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestComposeRejectsNilBase;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TComplianceCryptoProvider.Compose(nil, TCompliancePresets.Fips140_3,
+      TComplianceEnforcement.Strict);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil base is rejected');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRebuiltHpkeIsNotFiltered;
+var
+  LProvider: ICryptoProvider;
+  LComposition: IHpkeComposition;
+begin
+  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  CheckTrue(Supports(LProvider.Hpke, IHpkeComposition, LComposition),
+    'the base composition is kept');
+  CheckTrue(LComposition.ComposedOver = LProvider.Primitives,
+    'and composed over the refusing primitives');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeIsNotTheBaseFacet;
+var
+  LFake: IHpkeCrypto;
+begin
+  LFake := TFakeHpke.Create as IHpkeCrypto;
+  CheckFalse(HpkeOver(LFake, TCompliancePresets.Cnsa1, TComplianceEnforcement.Relaxed).Hpke =
+    LFake, 'the foreign facet is decorated');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedRefusesKemOutsideRules;
+var
+  LHpke: IHpkeCrypto;
+begin
+  LHpke := HpkeOver(TFakeHpke.Create as IHpkeCrypto, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Relaxed).Hpke;
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA384,
+    THpkeAead.AES_256_GCM) = nil, 'X25519 is outside the rules');
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256, THpkeKdf.HKDF_SHA384,
+    THpkeAead.AES_256_GCM) = nil, 'P-256 is outside the rules');
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_P521_HKDF_SHA512, THpkeKdf.HKDF_SHA384,
+    THpkeAead.AES_256_GCM) = nil, 'P-521 is outside the rules');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedRefusesAeadOutsideRules;
+var
+  LHpke: IHpkeCrypto;
+begin
+  LHpke := HpkeOver(TFakeHpke.Create as IHpkeCrypto, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Relaxed).Hpke;
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_P384_HKDF_SHA384, THpkeKdf.HKDF_SHA384,
+    THpkeAead.AES_128_GCM) = nil, 'AES-128 is outside the rules');
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_P384_HKDF_SHA384, THpkeKdf.HKDF_SHA384,
+    THpkeAead.CHACHA20_POLY1305) = nil, 'ChaCha is outside the rules');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedKeepsAllowedSuite;
+var
+  LHpke: IHpkeCrypto;
+begin
+  LHpke := HpkeOver(TFakeHpke.Create as IHpkeCrypto, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Relaxed).Hpke;
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_P384_HKDF_SHA384, THpkeKdf.HKDF_SHA384,
+    THpkeAead.AES_256_GCM) <> nil, 'P-384 with AES-256 passes');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedDoesNotFilterHashes;
+var
+  LHpke: IHpkeCrypto;
+begin
+  LHpke := HpkeOver(TFakeHpke.Create as IHpkeCrypto, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Relaxed).Hpke;
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_P384_HKDF_SHA384, THpkeKdf.HKDF_SHA256,
+    THpkeAead.AES_256_GCM) <> nil, 'the suite KDF is the base''s to judge');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedRefusesUnknownKemAndAead;
+var
+  LHpke: IHpkeCrypto;
+begin
+  LHpke := HpkeOver(TFakeHpke.Create as IHpkeCrypto, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Relaxed).Hpke;
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_X448_HKDF_SHA512, THpkeKdf.HKDF_SHA512,
+    THpkeAead.AES_256_GCM) = nil, 'X448 names no allowed group');
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
+    THpkeAead.EXPORT_ONLY) = nil, 'export-only is no allowed AEAD');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedFiltersSupportedSuites;
+var
+  LSuites: TArray<THpkeSuiteId>;
+begin
+  LSuites := HpkeOver(TFakeHpke.Create as IHpkeCrypto, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Relaxed).Hpke.SupportedSuites(THpkeKem.DHKEM_P384_HKDF_SHA384);
+  CheckEquals(1, System.Length(LSuites), 'only the AES-256 suite is left');
+  CheckEquals(THpkeAead.AES_256_GCM, LSuites[0].Aead, 'it is the AES-256 one');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedListsNoSuiteForRefusedKem;
+begin
+  CheckEquals(0, System.Length(HpkeOver(TFakeHpke.Create as IHpkeCrypto,
+    TCompliancePresets.Cnsa1, TComplianceEnforcement.Relaxed).Hpke.SupportedSuites(
+    THpkeKem.DHKEM_X25519_HKDF_SHA256)), 'no X25519 suite is listed');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedPublicKeyAndEncapsulationFollowKem;
+var
+  LHpke: IHpkeCrypto;
+begin
+  LHpke := HpkeOver(TFakeHpke.Create as IHpkeCrypto, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Relaxed).Hpke;
+  CheckTrue(LHpke.ValidatePublicKey(THpkeKem.DHKEM_P384_HKDF_SHA384, TBytes.Create(1)),
+    'an allowed KEM key is judged by the base');
+  CheckFalse(LHpke.ValidatePublicKey(THpkeKem.DHKEM_X25519_HKDF_SHA256, TBytes.Create(1)),
+    'a refused KEM key is invalid');
+  CheckTrue(System.Length(LHpke.RandomEncapsulation(THpkeKem.DHKEM_P384_HKDF_SHA384)) > 0,
+    'an allowed KEM yields an encapsulation');
+  CheckTrue(LHpke.RandomEncapsulation(THpkeKem.DHKEM_X25519_HKDF_SHA256) = nil,
+    'a refused KEM yields none');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedOtherKemKeyOperationsRefuse;
+var
+  LFake: TFakeHpke;
+  LRef: IHpkeCrypto;
+begin
+  LFake := TFakeHpke.Create;
+  LRef := LFake;
+  CheckEquals(3, RefusedKeyOperations(HpkeOver(LRef, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Relaxed).Hpke, THpkeKem.DHKEM_X25519_HKDF_SHA256),
+    'import, generate and private import refuse a KEM outside the rules');
+  CheckEquals(0, LFake.RecipientImports + LFake.KeyPairs + LFake.PrivateImports,
+    'the base was not reached');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeRelaxedAllowedKemReachesBase;
+var
+  LFake: TFakeHpke;
+  LRef: IHpkeCrypto;
+begin
+  LFake := TFakeHpke.Create;
+  LRef := LFake;
+  CheckEquals(0, RefusedKeyOperations(HpkeOver(LRef, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Relaxed).Hpke, THpkeKem.DHKEM_P384_HKDF_SHA384),
+    'an allowed KEM is not refused');
+  CheckEquals(1, LFake.RecipientImports, 'the recipient import reached the base');
+  CheckEquals(1, LFake.KeyPairs, 'the key pair reached the base');
+  CheckEquals(1, LFake.PrivateImports, 'the private import reached the base');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeStrictOffersNothing;
+var
+  LHpke: IHpkeCrypto;
+begin
+  LHpke := HpkeOver(TFakeHpke.Create as IHpkeCrypto, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Strict).Hpke;
+  CheckTrue(LHpke.Suite(THpkeKem.DHKEM_P384_HKDF_SHA384, THpkeKdf.HKDF_SHA384,
+    THpkeAead.AES_256_GCM) = nil, 'not even an allowed suite');
+  CheckEquals(0, System.Length(LHpke.SupportedSuites(THpkeKem.DHKEM_P384_HKDF_SHA384)),
+    'no suite is listed');
+  CheckFalse(LHpke.ValidatePublicKey(THpkeKem.DHKEM_P384_HKDF_SHA384, TBytes.Create(1)),
+    'no public key is valid');
+  CheckTrue(LHpke.RandomEncapsulation(THpkeKem.DHKEM_P384_HKDF_SHA384) = nil,
+    'no encapsulation is made');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestForeignHpkeStrictKeyOperationsRefuse;
+var
+  LFake: TFakeHpke;
+  LRef: IHpkeCrypto;
+begin
+  LFake := TFakeHpke.Create;
+  LRef := LFake;
+  CheckEquals(3, RefusedKeyOperations(HpkeOver(LRef, TCompliancePresets.Cnsa1,
+    TComplianceEnforcement.Strict).Hpke, THpkeKem.DHKEM_P384_HKDF_SHA384),
+    'every key operation refuses, even for an allowed KEM');
+  CheckEquals(0, LFake.RecipientImports + LFake.KeyPairs + LFake.PrivateImports,
+    'the base was not reached');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestComplianceHpkeRejectsNilInner;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TComplianceHpke.Create(nil, TCompliancePresets.Cnsa1, TComplianceEnforcement.Strict).Free;
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil inner facet is rejected');
+end;
+
 { TTestComplianceSigningCrypto }
 
 function TTestComplianceSigningCrypto.CreateCrypto: ICryptoProvider;
@@ -927,6 +1338,7 @@ begin
   inherited SetUp;
   FKeys := Own<TStringList>(LoadVectorFields('Certs/ImportKeys.txt'));
   FPfx := Own<TStringList>(LoadVectorFields('Certs/Pkcs12.txt'));
+  FFakeInput := TBytes.Create(1, 2, 3);
 end;
 
 function TTestComplianceSigningCrypto.SigningOver(const AKey: ISigningKey;
@@ -934,7 +1346,13 @@ function TTestComplianceSigningCrypto.SigningOver(const AKey: ISigningKey;
 begin
   Result := TComplianceFakes.FakeSystemBase(
     TFakeBackendReport.Create([]) as ICryptoBackendReport,
-    TFakeSigningCrypto.Create(AKey, ANativeVerifiers) as ISigningCrypto);
+    TFakeSigningCrypto.Create(AKey, ANativeVerifiers) as ISigningCrypto, nil);
+end;
+
+function TTestComplianceSigningCrypto.ReportlessOver(const AKey: ISigningKey): ICryptoProvider;
+begin
+  Result := TComplianceFakes.FakeSystemBase(nil,
+    TFakeSigningCrypto.Create(AKey, True) as ISigningCrypto, nil);
 end;
 
 function TTestComplianceSigningCrypto.SystemKey(
@@ -964,11 +1382,11 @@ begin
 end;
 
 function TTestComplianceSigningCrypto.ImportRefused(const ASigning: ISigningCrypto;
-  const AKeyName: string): Boolean;
+  const AData: TBytes): Boolean;
 begin
   Result := False;
   try
-    ASigning.ImportSigningKey(DecodeHex(FKeys.Values[AKeyName]), nil);
+    ASigning.ImportSigningKey(AData, nil);
   except
     on EComplianceRefusedTlsLibException do
       Result := True;
@@ -1000,11 +1418,11 @@ begin
 end;
 
 function TTestComplianceSigningCrypto.Pkcs12Refused(const ASigning: ISigningCrypto;
-  const AName: string): Boolean;
+  const AData: TBytes): Boolean;
 begin
   Result := False;
   try
-    ASigning.ImportPkcs12(DecodeHex(FPfx.Values[AName]), TSecretBuffer.FromString(SPassword));
+    ASigning.ImportPkcs12(AData, TSecretBuffer.FromString(Pkcs12Password));
   except
     on EComplianceRefusedTlsLibException do
       Result := True;
@@ -1017,7 +1435,8 @@ var
 begin
   LSigning := TComplianceCryptoProvider.Compose(Crypto, TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Relaxed).Signing;
-  CheckTrue(ImportRefused(LSigning, 'ed25519_pkcs8_der'), 'an EdDSA key has no allowed scheme');
+  CheckTrue(ImportRefused(LSigning, DecodeHex(FKeys.Values['ed25519_pkcs8_der'])),
+    'an EdDSA key has no allowed scheme');
 end;
 
 procedure TTestComplianceSigningCrypto.TestEd25519SystemKeyRefusedStrict;
@@ -1027,8 +1446,7 @@ begin
   LSigning := TComplianceCryptoProvider.Compose(
     SigningOver(SystemKey([TSignatureScheme.ED25519]), True), TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Strict).Signing;
-  CheckTrue(ImportRefused(LSigning, 'ed25519_pkcs8_der'),
-    'the allowlist refuses a module key too');
+  CheckTrue(ImportRefused(LSigning, FFakeInput), 'the allowlist refuses a module key too');
 end;
 
 procedure TTestComplianceSigningCrypto.TestKeyWithNoAllowedSchemeRefusedByEveryImportPath;
@@ -1038,8 +1456,8 @@ begin
   LSigning := TComplianceCryptoProvider.Compose(
     SigningOver(SystemKey([TSignatureScheme.ED448]), True), TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Strict).Signing;
-  CheckTrue(ImportRefused(LSigning, 'ed448_pkcs8_der'), 'the key import path');
-  CheckTrue(Pkcs12Refused(LSigning, 'ed25519_pfx'), 'the PKCS#12 import path');
+  CheckTrue(ImportRefused(LSigning, FFakeInput), 'the key import path');
+  CheckTrue(Pkcs12Refused(LSigning, FFakeInput), 'the PKCS#12 import path');
 end;
 
 procedure TTestComplianceSigningCrypto.TestMixedKeyNarrowedToAllowedSchemes;
@@ -1051,7 +1469,7 @@ begin
   LSigning := TComplianceCryptoProvider.Compose(
     SigningOver(SystemKey([TSignatureScheme.ED25519, TSignatureScheme.ECDSA_SECP256R1_SHA256]),
     True), TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
-  LKey := LSigning.ImportSigningKey(DecodeHex(FKeys.Values['ec256_pkcs8_der']), nil);
+  LKey := LSigning.ImportSigningKey(FFakeInput, nil);
   LSchemes := LKey.CapableSchemes;
   CheckEquals(1, System.Length(LSchemes), 'the disallowed scheme is dropped');
   CheckEquals(Ord(TSignatureScheme.ECDSA_SECP256R1_SHA256), Ord(LSchemes[0]), 'the kept scheme');
@@ -1066,8 +1484,7 @@ begin
     SigningOver(SystemKey([TSignatureScheme.ECDSA_SECP384R1_SHA384,
     TSignatureScheme.ECDSA_SECP256R1_SHA256]), True), TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Strict).Signing;
-  LSchemes := LSigning.ImportSigningKey(DecodeHex(FKeys.Values['ec256_pkcs8_der']), nil)
-    .CapableSchemes;
+  LSchemes := LSigning.ImportSigningKey(FFakeInput, nil).CapableSchemes;
   CheckEquals(2, System.Length(LSchemes), 'both schemes are allowed');
   CheckEquals(Ord(TSignatureScheme.ECDSA_SECP384R1_SHA384), Ord(LSchemes[0]), 'the key order');
   CheckEquals(Ord(TSignatureScheme.ECDSA_SECP256R1_SHA256), Ord(LSchemes[1]), 'and its tail');
@@ -1079,7 +1496,7 @@ var
 begin
   LSigning := TComplianceCryptoProvider.Compose(Crypto, TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Strict).Signing;
-  CheckTrue(ImportRefused(LSigning, 'ec256_pkcs8_der'),
+  CheckTrue(ImportRefused(LSigning, DecodeHex(FKeys.Values['ec256_pkcs8_der'])),
     'a key the module did not import is refused');
 end;
 
@@ -1114,7 +1531,7 @@ begin
   LSigning := TComplianceCryptoProvider.Compose(
     SigningOver(SystemKey([TSignatureScheme.ECDSA_SECP256R1_SHA256]), True),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
-  LKey := LSigning.ImportSigningKey(DecodeHex(FKeys.Values['ec256_pkcs8_der']), nil);
+  LKey := LSigning.ImportSigningKey(FFakeInput, nil);
   CheckEquals(1, System.Length(LKey.CapableSchemes), 'a module key is admitted');
 end;
 
@@ -1126,7 +1543,7 @@ begin
   LSigning := TComplianceCryptoProvider.Compose(
     SigningOver(SystemKey([TSignatureScheme.ED25519, TSignatureScheme.ECDSA_SECP256R1_SHA256]),
     True), TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
-  LKey := LSigning.ImportSigningKey(DecodeHex(FKeys.Values['ec256_pkcs8_der']), nil);
+  LKey := LSigning.ImportSigningKey(FFakeInput, nil);
   CheckTrue(Supports(LKey, ISystemSigningKey), 'the narrowed key is still a module key');
 end;
 
@@ -1243,7 +1660,8 @@ var
 begin
   LSigning := TComplianceCryptoProvider.Compose(Crypto, TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Strict).Signing;
-  CheckTrue(Pkcs12Refused(LSigning, 'ec_pfx'), 'a PKCS#12 key outside the module is refused');
+  CheckTrue(Pkcs12Refused(LSigning, DecodeHex(FPfx.Values['ec_pfx'])),
+    'a PKCS#12 key outside the module is refused');
 end;
 
 procedure TTestComplianceSigningCrypto.TestPkcs12PortableKeyAdmittedRelaxedAndNarrowed;
@@ -1255,7 +1673,7 @@ begin
   LSigning := TComplianceCryptoProvider.Compose(Crypto, TCompliancePresets.Cnsa1,
     TComplianceEnforcement.Relaxed).Signing;
   LCredential := LSigning.ImportPkcs12(DecodeHex(FPfx.Values['rsa_pfx']),
-    TSecretBuffer.FromString(SPassword));
+    TSecretBuffer.FromString(Pkcs12Password));
   LSchemes := LCredential.PrivateKey.CapableSchemes;
   CheckTrue(System.Length(LSchemes) > 0, 'the key keeps the schemes the rules allow');
   CheckTrue(LSchemes[0] in TCompliancePresets.Cnsa1.SignatureSchemes, 'and only those');
@@ -1269,9 +1687,9 @@ begin
   LSigning := TComplianceCryptoProvider.Compose(Crypto, TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Relaxed).Signing;
   LCredential := LSigning.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
-    TSecretBuffer.FromString(SPassword));
+    TSecretBuffer.FromString(Pkcs12Password));
   LExpected := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
-    TSecretBuffer.FromString(SPassword));
+    TSecretBuffer.FromString(Pkcs12Password));
   CheckTrue(System.Length(LExpected.CertificateChain) > 0, 'the fixture holds a chain');
   CheckEquals(System.Length(LExpected.CertificateChain),
     System.Length(LCredential.CertificateChain), 'the chain is returned whole');
@@ -1283,7 +1701,8 @@ var
 begin
   LSigning := TComplianceCryptoProvider.Compose(Crypto, TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Relaxed).Signing;
-  CheckTrue(Pkcs12Refused(LSigning, 'ed25519_pfx'), 'an EdDSA PKCS#12 key has no allowed scheme');
+  CheckTrue(Pkcs12Refused(LSigning, DecodeHex(FPfx.Values['ed25519_pfx'])),
+    'an EdDSA PKCS#12 key has no allowed scheme');
 end;
 
 procedure TTestComplianceSigningCrypto.TestPkcs12SystemKeyAdmittedStrict;
@@ -1293,7 +1712,7 @@ begin
   LSigning := TComplianceCryptoProvider.Compose(
     SigningOver(SystemKey([TSignatureScheme.ECDSA_SECP256R1_SHA256]), True),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
-  CheckFalse(Pkcs12Refused(LSigning, 'ec_pfx'), 'a module PKCS#12 key is admitted');
+  CheckFalse(Pkcs12Refused(LSigning, FFakeInput), 'a module PKCS#12 key is admitted');
 end;
 
 procedure TTestComplianceSigningCrypto.TestSigningRejectsNilReport;
@@ -1309,6 +1728,84 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a nil report is rejected');
+end;
+
+procedure TTestComplianceSigningCrypto.TestStrictRefusesMarkedKeyImportOverBaseWithoutReport;
+var
+  LSigning: ISigningCrypto;
+begin
+  LSigning := TComplianceCryptoProvider.Compose(
+    ReportlessOver(SystemKey([TSignatureScheme.ECDSA_SECP256R1_SHA256])),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
+  CheckTrue(ImportRefused(LSigning, FFakeInput),
+    'a marker proves nothing when the base reports nothing');
+end;
+
+procedure TTestComplianceSigningCrypto.TestStrictRefusesSignerForMarkedKeyOverBaseWithoutReport;
+var
+  LSigning: ISigningCrypto;
+begin
+  LSigning := TComplianceCryptoProvider.Compose(
+    ReportlessOver(SystemKey([TSignatureScheme.ECDSA_SECP256R1_SHA256])),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
+  CheckTrue(SignerRefused(LSigning, TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    SystemKey([TSignatureScheme.ECDSA_SECP256R1_SHA256])), 'no signer is granted');
+end;
+
+procedure TTestComplianceSigningCrypto.TestStrictRefusesMarkedVerifierOverBaseWithoutReport;
+var
+  LSigning: ISigningCrypto;
+begin
+  LSigning := TComplianceCryptoProvider.Compose(ReportlessOver(nil),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
+  CheckTrue(VerifierRefused(LSigning, TSignatureScheme.ECDSA_SECP256R1_SHA256),
+    'a marked verifier proves nothing either');
+end;
+
+procedure TTestComplianceSigningCrypto.TestRelaxedAdmitsMarkedKeyOverBaseWithoutReport;
+var
+  LSigning: ISigningCrypto;
+begin
+  LSigning := TComplianceCryptoProvider.Compose(
+    ReportlessOver(SystemKey([TSignatureScheme.ECDSA_SECP256R1_SHA256])),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed).Signing;
+  CheckFalse(ImportRefused(LSigning, FFakeInput), 'relaxed mode passes the fact through');
+end;
+
+procedure TTestComplianceSigningCrypto.TestNilKeyFromBaseRefused;
+var
+  LStrict, LRelaxed: ISigningCrypto;
+begin
+  LStrict := TComplianceCryptoProvider.Compose(SigningOver(nil, True),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
+  LRelaxed := TComplianceCryptoProvider.Compose(SigningOver(nil, True),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed).Signing;
+  CheckTrue(ImportRefused(LStrict, FFakeInput), 'no key is refused in strict mode');
+  CheckTrue(ImportRefused(LRelaxed, FFakeInput), 'and in relaxed mode');
+end;
+
+procedure TTestComplianceSigningCrypto.TestStrictVerifierPlacementFollowsReportNotMarker;
+var
+  LSigning: ISigningCrypto;
+begin
+  LSigning := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
+    TFakeVerifierReport.Create(True) as ICryptoBackendReport,
+    TFakeSigningCrypto.Create(nil, False) as ISigningCrypto, nil),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
+  CheckFalse(VerifierRefused(LSigning, TSignatureScheme.ECDSA_SECP256R1_SHA256),
+    'the report places the verifier in the module');
+end;
+
+procedure TTestComplianceSigningCrypto.TestStrictVerifierRefusedWhenReportPlacesItOutside;
+var
+  LSigning: ISigningCrypto;
+begin
+  LSigning := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
+    TFakeVerifierReport.Create(False) as ICryptoBackendReport,
+    TFakeSigningCrypto.Create(nil, True) as ISigningCrypto, nil),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Signing;
+  CheckTrue(VerifierRefused(LSigning, TSignatureScheme.ECDSA_SECP256R1_SHA256),
+    'the report places the verifier outside, whatever marker it carries');
 end;
 
 { TTestCompliancePkix }
@@ -1401,8 +1898,12 @@ var
 begin
   LThis := 1;
   LNext := 1;
+  LStatus := TOcspStatus.Good;
   CheckFalse(Provider(TComplianceEnforcement.Strict).Revocation.ValidateOcspStaple(FLeaf, FRoot,
     nil, NowUtc, LStatus, LThis, LNext), 'indeterminate');
+  CheckEquals(Ord(TOcspStatus.Unknown), Ord(LStatus), 'the status out is Unknown');
+  CheckTrue(LThis = 0, 'the thisUpdate out is cleared');
+  CheckTrue(LNext = 0, 'the nextUpdate out is cleared');
   CheckEquals(0, FSpy.OcspParseCount, 'the base was not asked');
 end;
 
@@ -1426,6 +1927,7 @@ begin
   CheckFalse(Provider(TComplianceEnforcement.Strict).Revocation.TryGetOcspResponderUrls(FLeaf,
     LUrls), 'indeterminate although the base knows URLs');
   CheckEquals(0, System.Length(LUrls), 'the out is cleared');
+  CheckEquals(0, FSpy.OcspUrlsCount, 'the base was not asked');
 end;
 
 procedure TTestCompliancePkix.TestStrictCrlDistributionPointsIndeterminate;
@@ -1437,6 +1939,7 @@ begin
   CheckFalse(Provider(TComplianceEnforcement.Strict).Revocation.TryGetCrlDistributionPoints(
     FLeaf, LUrls), 'indeterminate although the base knows URLs');
   CheckEquals(0, System.Length(LUrls), 'the out is cleared');
+  CheckEquals(0, FSpy.CrlUrlsCount, 'the base was not asked');
 end;
 
 procedure TTestCompliancePkix.TestStrictCrlRevocationIndeterminate;
@@ -1450,6 +1953,8 @@ begin
   CheckFalse(Provider(TComplianceEnforcement.Strict).Revocation.CheckCrlRevocation(FLeaf, FRoot,
     nil, NowUtc, LRevoked, LThis, LNext), 'indeterminate');
   CheckFalse(LRevoked, 'the revoked out is cleared');
+  CheckTrue(LThis = 0, 'the thisUpdate out is cleared');
+  CheckTrue(LNext = 0, 'the nextUpdate out is cleared');
   CheckEquals(0, FSpy.CrlParseCount, 'the base was not asked');
 end;
 
@@ -1492,6 +1997,7 @@ begin
   CheckTrue(Provider(TComplianceEnforcement.Relaxed).Revocation.TryGetOcspResponderUrls(FLeaf,
     LUrls), 'the base answers');
   CheckEquals(1, System.Length(LUrls), 'with its URL');
+  CheckEquals(1, FSpy.OcspUrlsCount, 'from the base');
 end;
 
 procedure TTestCompliancePkix.TestRelaxedCrlDistributionPointsForward;
@@ -1502,6 +2008,7 @@ begin
   CheckTrue(Provider(TComplianceEnforcement.Relaxed).Revocation.TryGetCrlDistributionPoints(
     FLeaf, LUrls), 'the base answers');
   CheckEquals(1, System.Length(LUrls), 'with its URL');
+  CheckEquals(1, FSpy.CrlUrlsCount, 'from the base');
 end;
 
 procedure TTestCompliancePkix.TestRelaxedCrlRevocationForwards;

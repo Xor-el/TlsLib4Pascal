@@ -1,4 +1,4 @@
-# Wire the SystemTrustDemo network-security-config into the Android build (pin cell of the host-roots demo).
+# Wire the SystemTrustDemo network-security-config into the Android build (pin cell of the OS-and-host-roots demo).
 # Usage:
 #   .\sync-trust-demo-nsc.ps1            apply (idempotent)
 #   .\sync-trust-demo-nsc.ps1 -Remove    undo

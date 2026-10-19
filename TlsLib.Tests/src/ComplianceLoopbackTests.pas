@@ -55,6 +55,7 @@ uses
   TlpCompliancePolicy,
   TlpCompliancePresets,
   TlpComplianceTls,
+  TlpOSSystemTrust,
   MockCompliance,
   TlsLibTestCertificates,
   TlsLibHandshakeTestBase;
@@ -76,13 +77,16 @@ type
     procedure TestTls13ConnectionUsesRuleSuiteAndGroup;
     procedure TestTls13AppDataFlowsRelaxed;
     procedure TestAdmitReportOfTls13ClientHasOnlyPlatformFindings;
-    procedure TestAdmitReportOfServerHasNoConfigurationFinding;
     procedure TestTls12EmsHandshakeRelaxed;
     procedure TestTls12ConnectionUsesEmsAndAesGcm;
     procedure TestNonEmsPeerRefused;
     procedure TestNonEmsPeerRefusedWithHandshakeFailure;
     procedure TestX25519OnlyPeerRefused;
     procedure TestChaChaOnlyPeerRefused;
+{$IFDEF TLSLIB_MSWINDOWS}
+    procedure TestHostRootsClientHandshakesWithPrivateChain;
+    procedure TestOsRootsClientRefusesPrivateChainWithUnknownCa;
+{$ENDIF TLSLIB_MSWINDOWS}
   end;
 
 implementation
@@ -252,16 +256,6 @@ begin
   CheckTrue(NoConfigurationFinding(LReport), 'and nothing else is configuration');
 end;
 
-procedure TTestComplianceLoopback.TestAdmitReportOfServerHasNoConfigurationFinding;
-var
-  LPolicy: ICompliancePolicy;
-  LReport: IComplianceReport;
-begin
-  LPolicy := NewPolicy;
-  LReport := LPolicy.Admit(ServerConfig(LPolicy));
-  CheckTrue(NoConfigurationFinding(LReport), 'no configuration finding');
-end;
-
 procedure TTestComplianceLoopback.TestTls12EmsHandshakeRelaxed;
 var
   LPolicy: ICompliancePolicy;
@@ -329,6 +323,8 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig(LPolicy));
   RunHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'no shared group, so no handshake');
+  CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
+    Ord(LServer.LastError.Alert.Description), 'a fatal handshake_failure');
 end;
 
 procedure TTestComplianceLoopback.TestChaChaOnlyPeerRefused;
@@ -342,7 +338,43 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig(LPolicy));
   RunHandshake(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'no shared suite, so no handshake');
+  CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
+    Ord(LServer.LastError.Alert.Description), 'a fatal handshake_failure');
 end;
+
+{$IFDEF TLSLIB_MSWINDOWS}
+
+procedure TTestComplianceLoopback.TestHostRootsClientHandshakesWithPrivateChain;
+var
+  LPolicy: ICompliancePolicy;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LClient := TTlsEngineFactory.CreateClientEngine(TComplianceTls.BuildClient(LPolicy,
+    TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(
+    TTlsLibTestCertificates.EcP256RootStore))), Host);
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig(LPolicy));
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the OS verifier trusted the host root alone');
+  CheckEquals(TlsWireVersionTls13, LClient.ConnectionInfo.NegotiatedVersion.WireValue, 'TLS 1.3');
+end;
+
+procedure TTestComplianceLoopback.TestOsRootsClientRefusesPrivateChainWithUnknownCa;
+var
+  LPolicy: ICompliancePolicy;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LClient := TTlsEngineFactory.CreateClientEngine(TComplianceTls.BuildClient(LPolicy,
+    TComplianceTls.Client(LPolicy, TSystemTrustRoots.OsRoots)), Host);
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig(LPolicy));
+  RunHandshake(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the OS roots do not vouch for the private root');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LClient.LastError.Alert.Description),
+    'unknown_ca');
+end;
+
+{$ENDIF TLSLIB_MSWINDOWS}
 
 initialization
 

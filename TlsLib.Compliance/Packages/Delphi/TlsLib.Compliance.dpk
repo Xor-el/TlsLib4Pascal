@@ -42,6 +42,7 @@ contains
   TlpIComplianceReport in '..\..\src\TlpIComplianceReport.pas',
   TlpCompliancePresets in '..\..\src\TlpCompliancePresets.pas',
   TlpComplianceReport in '..\..\src\TlpComplianceReport.pas',
+  TlpComplianceHpke in '..\..\src\TlpComplianceHpke.pas',
   TlpComplianceCryptoProvider in '..\..\src\TlpComplianceCryptoProvider.pas',
   TlpCompliancePkixProvider in '..\..\src\TlpCompliancePkixProvider.pas',
   TlpWindowsModuleAttestation in '..\..\src\TlpWindowsModuleAttestation.pas',

@@ -116,7 +116,7 @@ procedure TCompliancePathValidator.ValidateCertificatePath(const AChain: TArray<
   var AEffectiveChain: TArray<TBytes>);
 begin
   if FStrict then
-    raise EComplianceRefusedTlsLibException.CreateResFmt(@SChainOutsideModule, []);
+    raise EComplianceRefusedTlsLibException.CreateRes(@SChainOutsideModule);
   FInner.ValidateCertificatePath(AChain, ATrustAnchors, AIntermediates, AValidationTimeUtc,
     AKeyPurpose, AEffectiveChain);
 end;

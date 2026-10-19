@@ -4048,7 +4048,7 @@ begin
   end;
   LReport := TWindowsBackendReport.Create(LCng, LSigning <> nil, LSigningNative,
     LVerifyNative, TOverlayCryptoProvider.RebuildsHpke(ABase));
-  Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport);
+  Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport, nil);
 end;
 
 {$ENDIF}

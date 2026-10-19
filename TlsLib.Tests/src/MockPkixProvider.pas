@@ -50,6 +50,8 @@ type
     FOcspUrlsOverridden, FCrlUrlsOverridden, FOcspRequestFails: Boolean;
     FBuildRequestCount: Integer;
     FFindIssuerCount: Integer;
+    FOcspUrlsCount: Integer;
+    FCrlUrlsCount: Integer;
     FOcspUrls, FCrlUrls: TArray<string>;
     FPathValidator: TCountingPathValidator;
     FPathValidatorRef: ICertificatePathValidator;
@@ -86,6 +88,8 @@ type
     function PathBuildCount: Integer;
     property BuildRequestCount: Integer read FBuildRequestCount;
     property FindIssuerCount: Integer read FFindIssuerCount;
+    property OcspUrlsCount: Integer read FOcspUrlsCount;
+    property CrlUrlsCount: Integer read FCrlUrlsCount;
     property OcspParseCount: Integer read FOcspParseCount;
     property CrlParseCount: Integer read FCrlParseCount;
   end;
@@ -181,6 +185,7 @@ end;
 function TMockPkixProvider.TryGetOcspResponderUrls(const ACert: TBytes;
   out AUrls: TArray<string>): Boolean;
 begin
+  Inc(FOcspUrlsCount);
   if FOcspUrlsOverridden then
   begin
     AUrls := System.Copy(FOcspUrls);
@@ -192,6 +197,7 @@ end;
 function TMockPkixProvider.TryGetCrlDistributionPoints(const ACert: TBytes;
   out AUrls: TArray<string>): Boolean;
 begin
+  Inc(FCrlUrlsCount);
   if FCrlUrlsOverridden then
   begin
     AUrls := System.Copy(FCrlUrls);

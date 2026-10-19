@@ -26,9 +26,10 @@
 /// GUI variant must call TlsLibAndroidInitTrust(vm) once at startup (see docs/system-trust.md) -
 /// this console demo targets the desktop.
 ///
-/// "host-roots" mode (first command-line argument) instead runs the host-roots cells: live sites
-/// fetched with the host's own root passed with the OS roots, each outcome compared with what
-/// that root should and should not change, in every trust mode this platform has.
+/// "os-and-host-roots" mode (first command-line argument) instead runs the OS-and-host-roots
+/// cells: live sites fetched with the host's own root passed with the OS roots, each outcome
+/// compared with what that root should and should not change, in every trust mode this platform
+/// has.
 /// </summary>
 unit SystemTrustExample;
 
@@ -45,7 +46,7 @@ uses
 type
   THostRoot = (hrNone, hrUnrelated, hrBadSsl);
 
-  THostRootCell = record
+  TOsAndHostRootsCell = record
     Title: string;
     Host: string;
     Url: string;
@@ -63,20 +64,20 @@ type
     /// default; False takes the per-connection OnGetSocketHandler supplier. 0 PASS, 1 FAIL, 2 SKIP.</summary>
     class function RunOnce(AUseOptIn: Boolean; const ALabel: string): Integer; static;
     class function RootPem(ARoot: THostRoot): string; static;
-    class function HostRootConfig(AMode: TSystemTrustMode; ARoot: THostRoot)
+    class function OsAndHostRootsConfig(AMode: TSystemTrustMode; ARoot: THostRoot)
       : ITlsClientConfig; static;
-    class function HostRootModes: TArray<TSystemTrustMode>; static;
+    class function OsAndHostRootsModes: TArray<TSystemTrustMode>; static;
     class function ModeName(AMode: TSystemTrustMode): string; static;
     /// <summary>One cell in one mode: the GET with the cell's host root, then PASS or FAIL against
     /// what the cell expects. 0 PASS, 1 FAIL, 2 SKIP (network unreachable).</summary>
-    class function RunHostRootCell(AMode: TSystemTrustMode;
-      const ACell: THostRootCell): Integer; static;
+    class function RunOsAndHostRootsCell(AMode: TSystemTrustMode;
+      const ACell: TOsAndHostRootsCell): Integer; static;
   public
     /// <summary>Runs both legs; 0 PASS, 1 FAIL, 2 network-unreachable (SKIP).</summary>
     class function Run: Integer; static;
-    /// <summary>Runs the host-roots cells in every mode; 0 all PASS, 1 any FAIL, 2 nothing ran
-    /// (network unreachable).</summary>
-    class function RunHostRoots: Integer; static;
+    /// <summary>Runs the OS-and-host-roots cells in every mode; 0 all PASS, 1 any FAIL, 2 nothing
+    /// ran (network unreachable).</summary>
+    class function RunOsAndHostRoots: Integer; static;
   end;
 
 implementation
@@ -150,7 +151,7 @@ const
     '2O2tSqU8Ri3XRdgpNPDWp8ZL49KhYGYo3R/k98gnMHiY5g=='#10 +
     '-----END CERTIFICATE-----'#10;
 
-  HostRootCells: array[0..5] of THostRootCell = (
+  OsAndHostRootsCells: array[0..5] of TOsAndHostRootsCell = (
     (Title: 'public site, unrelated host root'; Host: 'postman-echo.com';
       Url: 'https://postman-echo.com/get'; HostRoot: hrUnrelated; ExpectConnect: True),
     (Title: 'untrusted-root.badssl.com, its root as host root';
@@ -300,7 +301,7 @@ begin
   end;
 end;
 
-class function TSystemTrustExample.HostRootConfig(AMode: TSystemTrustMode;
+class function TSystemTrustExample.OsAndHostRootsConfig(AMode: TSystemTrustMode;
   ARoot: THostRoot): ITlsClientConfig;
 var
   LCrypto: ICryptoProvider;
@@ -321,7 +322,7 @@ begin
     .Build;
 end;
 
-class function TSystemTrustExample.HostRootModes: TArray<TSystemTrustMode>;
+class function TSystemTrustExample.OsAndHostRootsModes: TArray<TSystemTrustMode>;
 begin
   // Anchors is a second engine only where Default is the OS one; elsewhere they are the same
   if TOSSystemTrust.Supports(TSystemTrustMode.Anchors) and
@@ -341,8 +342,8 @@ begin
     Result := 'Default = Anchors (own validator over the harvested OS roots)';
 end;
 
-class function TSystemTrustExample.RunHostRootCell(AMode: TSystemTrustMode;
-  const ACell: THostRootCell): Integer;
+class function TSystemTrustExample.RunOsAndHostRootsCell(AMode: TSystemTrustMode;
+  const ACell: TOsAndHostRootsCell): Integer;
 var
   LClient: TFPHTTPClient;
   LSupplier: TSystemTrustSupplier;
@@ -351,7 +352,7 @@ var
 begin
   LConnected := True;
   LDetail := 'connected';
-  LSupplier := TSystemTrustSupplier.Create(HostRootConfig(AMode, ACell.HostRoot));
+  LSupplier := TSystemTrustSupplier.Create(OsAndHostRootsConfig(AMode, ACell.HostRoot));
   try
     LClient := TFPHTTPClient.Create(nil);
     try
@@ -395,21 +396,21 @@ begin
     BoolToStr(ACell.ExpectConnect, 'connect', 'refuse'), ', ', LDetail);
 end;
 
-class function TSystemTrustExample.RunHostRoots: Integer;
+class function TSystemTrustExample.RunOsAndHostRoots: Integer;
 var
   LModes: TArray<TSystemTrustMode>;
   LMode, LCell, LCellResult: Integer;
   LAnyFail, LAnyRan: Boolean;
 begin
-  LModes := HostRootModes;
+  LModes := OsAndHostRootsModes;
   LAnyFail := False;
   LAnyRan := False;
   for LMode := 0 to High(LModes) do
   begin
-    WriteLn('Host roots, mode ', ModeName(LModes[LMode]), ':');
-    for LCell := 0 to High(HostRootCells) do
+    WriteLn('OS and host roots, mode ', ModeName(LModes[LMode]), ':');
+    for LCell := 0 to High(OsAndHostRootsCells) do
     begin
-      LCellResult := RunHostRootCell(LModes[LMode], HostRootCells[LCell]);
+      LCellResult := RunOsAndHostRootsCell(LModes[LMode], OsAndHostRootsCells[LCell]);
       LAnyFail := LAnyFail or (LCellResult = 1);
       LAnyRan := LAnyRan or (LCellResult <> 2);
     end;

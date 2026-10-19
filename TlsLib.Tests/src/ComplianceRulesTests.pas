@@ -67,6 +67,11 @@ type
     procedure TestTryMatchNamesTightestForNarrowerRules;
     procedure TestHandBuiltWithEd25519NotSubsetOfAnyPreset;
     procedure TestTryMatchClearsNameOnMiss;
+    procedure TestFips140_3WireCodes;
+    procedure TestCnsa1WireCodes;
+    procedure TestCnsa1RsaSizesAreFips140_3Sizes;
+    procedure TestNamedLaterIsNeverSubsetOfEarlier;
+    procedure TestTryMatchNamesCnsa1NarrowedToTls13;
   end;
 
   TTestComplianceRules = class(TTlsLibAlgorithmTestCase)
@@ -126,6 +131,24 @@ type
     procedure TestCloneDoesNotShareCurves;
     procedure TestDescribeCnsa1ListsEveryField;
     procedure TestDescribeNamesGroupsInOrder;
+    procedure TestDescribeListsDeprecatedHashes;
+    procedure TestDescribeListsRsaSizes;
+    procedure TestIntersectMinAboveMaxRaises;
+    procedure TestIntersectMinEqualMaxIsKept;
+    procedure TestIntersectRsaSizesIntersectInAOrder;
+    procedure TestIntersectRsaSizesEmptyAUsesB;
+    procedure TestIntersectRsaSizesEmptyBUsesA;
+    procedure TestIntersectRsaSizesBothEmptyStaysEmpty;
+    procedure TestIntersectDisjointRsaSizesRaises;
+    procedure TestIntersectRsaSizesAreNotAliased;
+    procedure TestIntersectCurvesEmptyBIsNotAliased;
+    procedure TestIntersectNoncomparableAeads;
+    procedure TestIntersectNoncomparableEdDsaAndHashes;
+    procedure TestSubsetRsaSizesBoundaries;
+    procedure TestSubsetKdfBothRequireModule;
+    procedure TestSubsetKdfBothComposed;
+    procedure TestSubsetBothCurveListsEmpty;
+    procedure TestCloneDoesNotShareRsaSizes;
   end;
 
   TTestComplianceCatalog = class(TTlsLibAlgorithmTestCase)
@@ -150,6 +173,13 @@ type
     procedure TestKeyMeetsEdDsaFollowsFlag;
     procedure TestSchemesInEnumOrder;
     procedure TestSchemesEmptySet;
+    procedure TestRsaSizesWithinBoundaries;
+    procedure TestKeyMeetsRsaExactSizesListed;
+    procedure TestKeyMeetsRsaExactSizesRefuseOthers;
+    procedure TestKeyMeetsRsaExactSizesStillHonourRange;
+    procedure TestKeyMeetsRsaExactSizesRefuseZeroBits;
+    procedure TestKeyMeetsExactSizesLeaveEcdsaAlone;
+    procedure TestStandardNameIsFips140_3;
   end;
 
   TTestComplianceReport = class(TTlsLibAlgorithmTestCase)
@@ -173,12 +203,23 @@ type
     procedure TestUnmetExceptionCopiesFindings;
     procedure TestRefusedExceptionIsFatalInternalError;
     procedure TestFakeAttestationAnswersGivenValues;
+    procedure TestVerdictNotCompliantWhenModuleNotValidated;
+    procedure TestVerdictNotCompliantWhenModuleUnknown;
+    procedure TestReportCopiesDisclosuresOnCreate;
+    procedure TestReportReturnsCopyOfDisclosures;
+    procedure TestFindingDescribeWithoutSubject;
+    procedure TestIdentityDescribeSkipsEmptyParts;
+    procedure TestIdentityDescribeEmpty;
+    procedure TestReportDescribeWithoutCertificate;
+    procedure TestUnmetExceptionReturnsCopyOfFindings;
+    procedure TestRefusedExceptionCreateRes;
   end;
 
 implementation
 
 resourcestring
   SRefusedProbe = 'refused %s';
+  SRefusedNoArgument = 'refused without an argument';
 
 { TTestCompliancePresets }
 
@@ -234,7 +275,11 @@ var
 begin
   LRules := TCompliancePresets.Fips140_3;
   CheckEquals(2048, LRules.Strength.MinRsaModulusBits, 'min RSA bits');
-  CheckEquals(8192, LRules.Strength.MaxRsaModulusBits, 'max RSA bits');
+  CheckEquals(4096, LRules.Strength.MaxRsaModulusBits, 'max RSA bits');
+  CheckEquals(3, System.Length(LRules.RsaModulusBits), 'exact RSA size count');
+  CheckEquals(2048, Int32(LRules.RsaModulusBits[0]),'first RSA size');
+  CheckEquals(3072, Int32(LRules.RsaModulusBits[1]),'second RSA size');
+  CheckEquals(4096, Int32(LRules.RsaModulusBits[2]),'third RSA size');
   CheckCodes([TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.Secp384r1,
     TNamedGroupCatalog.Secp521r1], LRules.Strength.AllowedEcCurves, 'curves');
   CheckFalse(LRules.Strength.AllowEdDsa, 'no EdDSA');
@@ -289,6 +334,9 @@ begin
   LRules := TCompliancePresets.Cnsa1;
   CheckEquals(3072, LRules.Strength.MinRsaModulusBits, 'min RSA bits');
   CheckEquals(4096, LRules.Strength.MaxRsaModulusBits, 'max RSA bits');
+  CheckEquals(2, System.Length(LRules.RsaModulusBits), 'exact RSA size count');
+  CheckEquals(3072, Int32(LRules.RsaModulusBits[0]),'first RSA size');
+  CheckEquals(4096, Int32(LRules.RsaModulusBits[1]),'second RSA size');
   CheckCodes([TNamedGroupCatalog.Secp384r1], LRules.Strength.AllowedEcCurves, 'curves');
   CheckFalse(LRules.Strength.AllowEdDsa, 'no EdDSA');
   CheckTrue(LRules.Strength.AllowedDeprecatedHashes = [], 'no deprecated hash');
@@ -377,6 +425,72 @@ begin
   LName := 'stale';
   CheckFalse(TCompliancePresets.TryMatch(LRules, LName), 'a 1024-bit floor fits no preset');
   CheckEquals('', LName, 'the out name is cleared');
+end;
+
+procedure TTestCompliancePresets.TestFips140_3WireCodes;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  CheckCodes([$0304, $0303], LRules.Versions, 'versions');
+  CheckCodes([$1301, $1302, $C02B, $C02C, $C02F, $C030], LRules.CipherSuites, 'suites');
+  CheckCodes([$0017, $0018, $0019], LRules.NamedGroups, 'groups');
+  CheckCodes([$0017, $0018, $0019], LRules.Strength.AllowedEcCurves, 'curves');
+end;
+
+procedure TTestCompliancePresets.TestCnsa1WireCodes;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Cnsa1;
+  CheckCodes([$0304, $0303], LRules.Versions, 'versions');
+  CheckCodes([$1302, $C02C, $C030], LRules.CipherSuites, 'suites');
+  CheckCodes([$0018], LRules.NamedGroups, 'groups');
+  CheckCodes([$0018], LRules.Strength.AllowedEcCurves, 'curves');
+end;
+
+procedure TTestCompliancePresets.TestCnsa1RsaSizesAreFips140_3Sizes;
+var
+  LCnsa, LFips: TComplianceRules;
+  LI, LJ: Int32;
+  LFound: Boolean;
+begin
+  LCnsa := TCompliancePresets.Cnsa1;
+  LFips := TCompliancePresets.Fips140_3;
+  CheckTrue(System.Length(LCnsa.RsaModulusBits) > 0, 'not vacuous');
+  for LI := 0 to System.Length(LCnsa.RsaModulusBits) - 1 do
+  begin
+    LFound := False;
+    for LJ := 0 to System.Length(LFips.RsaModulusBits) - 1 do
+      if LFips.RsaModulusBits[LJ] = LCnsa.RsaModulusBits[LI] then
+        LFound := True;
+    CheckTrue(LFound, 'size ' + IntToStr(LCnsa.RsaModulusBits[LI]));
+  end;
+end;
+
+procedure TTestCompliancePresets.TestNamedLaterIsNeverSubsetOfEarlier;
+var
+  LNamed: TArray<TCompliancePreset>;
+  LI, LJ: Int32;
+begin
+  LNamed := TCompliancePresets.Named;
+  CheckEquals(2, System.Length(LNamed), 'not vacuous');
+  for LI := 0 to System.Length(LNamed) - 1 do
+    for LJ := LI + 1 to System.Length(LNamed) - 1 do
+      CheckFalse(LNamed[LJ].Rules.IsSubsetOf(LNamed[LI].Rules),
+        LNamed[LJ].Name + ' is not inside the tighter ' + LNamed[LI].Name);
+end;
+
+procedure TTestCompliancePresets.TestTryMatchNamesCnsa1NarrowedToTls13;
+var
+  LRules: TComplianceRules;
+  LName: string;
+begin
+  LRules := TCompliancePresets.Cnsa1;
+  LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  LRules.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384);
+  CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'a narrowed Cnsa1 matches');
+  CheckEquals('Cnsa1', LName, 'still the tightest preset');
 end;
 
 { TTestComplianceRules }
@@ -810,9 +924,9 @@ begin
   LSelf := TCompliancePresets.Fips140_3;
   LOther := TCompliancePresets.Fips140_3;
   CheckTrue(LSelf.IsSubsetOf(LOther), 'equal caps fit');
-  LSelf.Strength.MaxRsaModulusBits := 8193;
+  LSelf.Strength.MaxRsaModulusBits := 4097;
   CheckFalse(LSelf.IsSubsetOf(LOther), 'one bit over the other cap is outside');
-  LSelf.Strength.MaxRsaModulusBits := 8191;
+  LSelf.Strength.MaxRsaModulusBits := 4095;
   CheckTrue(LSelf.IsSubsetOf(LOther), 'a lower cap fits');
 end;
 
@@ -999,7 +1113,8 @@ const
     'NamedGroups: secp384r1' + sLineBreak +
     'SignatureSchemes: ECDSA_SECP384R1_SHA384 RSA_PSS_RSAE_SHA384 RSA_PKCS1_SHA384' +
     sLineBreak +
-    'Strength: RsaBits 3072..4096, EdDsa=no, curves: secp384r1' + sLineBreak +
+    'Strength: RsaBits 3072..4096, RsaSizes: 3072 4096, EdDsa=no, DeprecatedHashes:, ' +
+    'curves: secp384r1' + sLineBreak +
     'Requirements: ExtendedMasterSecret NoEarlyData NoEch NoExternalPsk NoTls12Psk NoKeyLog ' +
     'NoDangerousTrust InModuleChainVerification' + sLineBreak +
     'Kdf: AllowComposed' + sLineBreak +
@@ -1012,6 +1127,251 @@ procedure TTestComplianceRules.TestDescribeNamesGroupsInOrder;
 begin
   CheckTrue(Pos('NamedGroups: secp256r1 secp384r1 secp521r1',
     TCompliancePresets.Fips140_3.Describe) > 0, 'the groups line');
+end;
+
+procedure TTestComplianceRules.TestDescribeListsDeprecatedHashes;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1, TCertSignatureHash.Sha224];
+  CheckTrue(Pos('DeprecatedHashes: Sha1 Sha224, curves:', LRules.Describe) > 0,
+    'the admitted hashes in enum order');
+end;
+
+procedure TTestComplianceRules.TestDescribeListsRsaSizes;
+begin
+  CheckTrue(Pos('RsaSizes: 2048 3072 4096, EdDsa=no', TCompliancePresets.Fips140_3.Describe) > 0,
+    'the exact sizes');
+end;
+
+procedure TTestComplianceRules.TestIntersectMinAboveMaxRaises;
+var
+  LA, LB: TComplianceRules;
+  LRaised: Boolean;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.Strength.MinRsaModulusBits := 4096;
+  LB := TCompliancePresets.Fips140_3;
+  LB.Strength.MaxRsaModulusBits := 3072;
+  LRaised := False;
+  try
+    TComplianceRules.Intersect(LA, LB);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a floor above the cap holds no modulus');
+end;
+
+procedure TTestComplianceRules.TestIntersectMinEqualMaxIsKept;
+var
+  LA, LB: TComplianceRules;
+  LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.Strength.MinRsaModulusBits := 3072;
+  LB := TCompliancePresets.Fips140_3;
+  LB.Strength.MaxRsaModulusBits := 3072;
+  LResult := TComplianceRules.Intersect(LA, LB);
+  CheckEquals(3072, LResult.Strength.MinRsaModulusBits, 'floor');
+  CheckEquals(3072, LResult.Strength.MaxRsaModulusBits, 'cap');
+end;
+
+procedure TTestComplianceRules.TestIntersectRsaSizesIntersectInAOrder;
+var
+  LA, LB: TComplianceRules;
+  LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.RsaModulusBits := TArray<UInt32>.Create(4096, 2048, 3072);
+  LB := TCompliancePresets.Fips140_3;
+  LB.RsaModulusBits := TArray<UInt32>.Create(3072, 4096);
+  LResult := TComplianceRules.Intersect(LA, LB);
+  CheckEquals(2, System.Length(LResult.RsaModulusBits), 'count');
+  CheckEquals(4096, Int32(LResult.RsaModulusBits[0]),'A order first');
+  CheckEquals(3072, Int32(LResult.RsaModulusBits[1]),'A order second');
+end;
+
+procedure TTestComplianceRules.TestIntersectRsaSizesEmptyAUsesB;
+var
+  LA, LB: TComplianceRules;
+  LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.RsaModulusBits := nil;
+  LB := TCompliancePresets.Cnsa1;
+  LResult := TComplianceRules.Intersect(LA, LB);
+  CheckEquals(2, System.Length(LResult.RsaModulusBits), 'count');
+  CheckEquals(3072, Int32(LResult.RsaModulusBits[0]),'first');
+end;
+
+procedure TTestComplianceRules.TestIntersectRsaSizesEmptyBUsesA;
+var
+  LA, LB: TComplianceRules;
+  LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Cnsa1;
+  LB := TCompliancePresets.Fips140_3;
+  LB.RsaModulusBits := nil;
+  LResult := TComplianceRules.Intersect(LA, LB);
+  CheckEquals(2, System.Length(LResult.RsaModulusBits), 'count');
+  CheckEquals(4096, Int32(LResult.RsaModulusBits[1]),'second');
+end;
+
+procedure TTestComplianceRules.TestIntersectRsaSizesBothEmptyStaysEmpty;
+var
+  LA, LB: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.RsaModulusBits := nil;
+  LB := TCompliancePresets.Fips140_3;
+  LB.RsaModulusBits := nil;
+  CheckEquals(0, System.Length(TComplianceRules.Intersect(LA, LB).RsaModulusBits),
+    'the range alone');
+end;
+
+procedure TTestComplianceRules.TestIntersectDisjointRsaSizesRaises;
+var
+  LA, LB: TComplianceRules;
+  LRaised: Boolean;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.RsaModulusBits := TArray<UInt32>.Create(2048);
+  LB := TCompliancePresets.Fips140_3;
+  LB.RsaModulusBits := TArray<UInt32>.Create(3072);
+  LRaised := False;
+  try
+    TComplianceRules.Intersect(LA, LB);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty result would mean the range alone');
+end;
+
+procedure TTestComplianceRules.TestIntersectRsaSizesAreNotAliased;
+var
+  LA, LB, LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.RsaModulusBits := nil;
+  LB := TCompliancePresets.Fips140_3;
+  LResult := TComplianceRules.Intersect(LA, LB);
+  LResult.RsaModulusBits[0] := 1;
+  CheckEquals(2048, Int32(LB.RsaModulusBits[0]),'the empty-A copy is not aliased');
+  LResult := TComplianceRules.Intersect(LB, LA);
+  LResult.RsaModulusBits[0] := 1;
+  CheckEquals(2048, Int32(LB.RsaModulusBits[0]),'the empty-B copy is not aliased');
+end;
+
+procedure TTestComplianceRules.TestIntersectCurvesEmptyBIsNotAliased;
+var
+  LA, LB, LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LB := TCompliancePresets.Fips140_3;
+  LB.Strength.AllowedEcCurves := nil;
+  LResult := TComplianceRules.Intersect(LA, LB);
+  LResult.Strength.AllowedEcCurves[0] := TNamedGroupCatalog.Secp521r1;
+  CheckEquals(TNamedGroupCatalog.Secp256r1, LA.Strength.AllowedEcCurves[0],
+    'the empty-B copy is not aliased');
+end;
+
+procedure TTestComplianceRules.TestIntersectNoncomparableAeads;
+var
+  LA, LB, LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.Aeads := [TAeadAlgorithm.AES_128_GCM];
+  LB := TCompliancePresets.Fips140_3;
+  LB.Aeads := [TAeadAlgorithm.AES_256_GCM];
+  CheckFalse(LA.IsSubsetOf(LB), 'A is not inside B');
+  CheckFalse(LB.IsSubsetOf(LA), 'B is not inside A');
+  LResult := TComplianceRules.Intersect(LA, LB);
+  CheckTrue(LResult.IsSubsetOf(LA), 'inside A');
+  CheckTrue(LResult.IsSubsetOf(LB), 'inside B');
+  CheckFalse(LResult = LA, 'strictly narrower than A');
+  CheckFalse(LResult = LB, 'strictly narrower than B');
+  CheckTrue(LResult.Aeads = [], 'nothing shared');
+end;
+
+procedure TTestComplianceRules.TestIntersectNoncomparableEdDsaAndHashes;
+var
+  LA, LB, LResult: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.Strength.AllowEdDsa := True;
+  LB := TCompliancePresets.Fips140_3;
+  LB.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+  CheckFalse(LA.IsSubsetOf(LB), 'A admits EdDSA, B does not');
+  CheckFalse(LB.IsSubsetOf(LA), 'B admits SHA-1, A does not');
+  LResult := TComplianceRules.Intersect(LA, LB);
+  CheckTrue(LResult.IsSubsetOf(LA), 'inside A');
+  CheckTrue(LResult.IsSubsetOf(LB), 'inside B');
+  CheckFalse(LResult.Strength.AllowEdDsa, 'EdDSA only where both allow');
+  CheckTrue(LResult.Strength.AllowedDeprecatedHashes = [], 'SHA-1 only where both admit');
+end;
+
+procedure TTestComplianceRules.TestSubsetRsaSizesBoundaries;
+var
+  LSelf, LOther: TComplianceRules;
+begin
+  LSelf := TCompliancePresets.Fips140_3;
+  LOther := TCompliancePresets.Fips140_3;
+  CheckTrue(LSelf.IsSubsetOf(LOther), 'equal sizes fit');
+  LOther.RsaModulusBits := nil;
+  CheckTrue(LSelf.IsSubsetOf(LOther), 'no sizes on the other side admit a list');
+  CheckTrue(LOther.IsSubsetOf(LOther), 'both without sizes fit');
+  LSelf.RsaModulusBits := nil;
+  LOther := TCompliancePresets.Fips140_3;
+  CheckFalse(LSelf.IsSubsetOf(LOther), 'the range alone is wider than a list');
+  LSelf.RsaModulusBits := TArray<UInt32>.Create(2048, 3072, 4096, 8192);
+  CheckFalse(LSelf.IsSubsetOf(LOther), 'a size the other lacks is outside');
+  LSelf.RsaModulusBits := TArray<UInt32>.Create(4096, 3072);
+  CheckTrue(LSelf.IsSubsetOf(LOther), 'a shorter list in any order fits');
+end;
+
+procedure TTestComplianceRules.TestSubsetKdfBothRequireModule;
+var
+  LSelf, LOther: TComplianceRules;
+begin
+  LSelf := TCompliancePresets.Fips140_3;
+  LSelf.Kdf := TKdfRule.RequireModule;
+  LOther := TCompliancePresets.Fips140_3;
+  LOther.Kdf := TKdfRule.RequireModule;
+  CheckTrue(LSelf.IsSubsetOf(LOther), 'equal rules fit');
+end;
+
+procedure TTestComplianceRules.TestSubsetKdfBothComposed;
+var
+  LSelf, LOther: TComplianceRules;
+begin
+  LSelf := TCompliancePresets.Fips140_3;
+  LOther := TCompliancePresets.Fips140_3;
+  CheckEquals(Ord(TKdfRule.AllowComposed), Ord(LSelf.Kdf), 'precondition');
+  CheckTrue(LSelf.IsSubsetOf(LOther), 'equal rules fit');
+end;
+
+procedure TTestComplianceRules.TestSubsetBothCurveListsEmpty;
+var
+  LSelf, LOther: TComplianceRules;
+begin
+  LSelf := TCompliancePresets.Fips140_3;
+  LSelf.Strength.AllowedEcCurves := nil;
+  LOther := TCompliancePresets.Fips140_3;
+  LOther.Strength.AllowedEcCurves := nil;
+  CheckTrue(LSelf.IsSubsetOf(LOther), 'any curve fits under any curve');
+end;
+
+procedure TTestComplianceRules.TestCloneDoesNotShareRsaSizes;
+var
+  LOriginal, LClone: TComplianceRules;
+begin
+  LOriginal := TCompliancePresets.Fips140_3;
+  LClone := LOriginal.Clone;
+  LClone.RsaModulusBits[0] := 1;
+  CheckEquals(2048, Int32(LOriginal.RsaModulusBits[0]),'original untouched');
 end;
 
 { TTestComplianceCatalog }
@@ -1134,10 +1494,10 @@ begin
   LFacts := Default(TCertKeyFacts);
   LFacts.Kind := TSignatureKeyKind.Rsa;
   LFacts.Bits := 2048;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength),
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
     'at the floor');
   LFacts.Bits := 2047;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength),
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
     'one bit under');
 end;
 
@@ -1147,11 +1507,11 @@ var
 begin
   LFacts := Default(TCertKeyFacts);
   LFacts.Kind := TSignatureKeyKind.Rsa;
-  LFacts.Bits := 8192;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength),
+  LFacts.Bits := 4096;
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
     'at the cap');
-  LFacts.Bits := 8193;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength),
+  LFacts.Bits := 4097;
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
     'one bit over');
 end;
 
@@ -1165,7 +1525,7 @@ begin
   LFacts.Bits := 16384;
   LStrength := TCompliancePresets.Fips140_3.Strength;
   LStrength.MaxRsaModulusBits := 0;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength), 'zero means no cap');
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'zero means no cap');
 end;
 
 procedure TTestComplianceCatalog.TestKeyMeetsEcdsaListed;
@@ -1175,7 +1535,7 @@ begin
   LFacts := Default(TCertKeyFacts);
   LFacts.Kind := TSignatureKeyKind.Ecdsa;
   LFacts.EcNamedGroup := TNamedGroupCatalog.Secp384r1;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength),
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
     'a listed curve');
 end;
 
@@ -1186,7 +1546,7 @@ begin
   LFacts := Default(TCertKeyFacts);
   LFacts.Kind := TSignatureKeyKind.Ecdsa;
   LFacts.EcNamedGroup := TNamedGroupCatalog.Secp256r1;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Cnsa1.Strength),
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Cnsa1.Strength, nil),
     'P-256 is outside Cnsa1');
 end;
 
@@ -1200,7 +1560,7 @@ begin
   LFacts.EcNamedGroup := TNamedGroupCatalog.Secp521r1;
   LStrength := TCompliancePresets.Fips140_3.Strength;
   LStrength.AllowedEcCurves := nil;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength), 'any recognised curve');
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'any recognised curve');
 end;
 
 procedure TTestComplianceCatalog.TestKeyMeetsEcdsaEmptyListRefusesUnknownCurve;
@@ -1213,7 +1573,7 @@ begin
   LFacts.EcNamedGroup := 0;
   LStrength := TCompliancePresets.Fips140_3.Strength;
   LStrength.AllowedEcCurves := nil;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength), 'code 0 is not recognised');
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'code 0 is not recognised');
 end;
 
 procedure TTestComplianceCatalog.TestKeyMeetsEdDsaFollowsFlag;
@@ -1224,13 +1584,13 @@ begin
   LStrength := TCompliancePresets.Fips140_3.Strength;
   LFacts := Default(TCertKeyFacts);
   LFacts.Kind := TSignatureKeyKind.Ed25519;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength), 'Ed25519 refused');
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'Ed25519 refused');
   LFacts.Kind := TSignatureKeyKind.Ed448;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength), 'Ed448 refused');
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'Ed448 refused');
   LStrength.AllowEdDsa := True;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength), 'Ed448 admitted');
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'Ed448 admitted');
   LFacts.Kind := TSignatureKeyKind.Ed25519;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength), 'Ed25519 admitted');
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'Ed25519 admitted');
 end;
 
 procedure TTestComplianceCatalog.TestSchemesInEnumOrder;
@@ -1248,6 +1608,115 @@ end;
 procedure TTestComplianceCatalog.TestSchemesEmptySet;
 begin
   CheckEquals(0, System.Length(TComplianceCatalog.Schemes([])), 'nothing');
+end;
+
+procedure TTestComplianceCatalog.TestRsaSizesWithinBoundaries;
+begin
+  CheckTrue(TComplianceCatalog.RsaSizesWithin(nil, nil), 'empty in empty');
+  CheckTrue(TComplianceCatalog.RsaSizesWithin(TArray<UInt32>.Create(1), nil),
+    'any list under no list');
+  CheckFalse(TComplianceCatalog.RsaSizesWithin(nil, TArray<UInt32>.Create(1)),
+    'no list is wider than a list');
+  CheckTrue(TComplianceCatalog.RsaSizesWithin(TArray<UInt32>.Create(2, 1),
+    TArray<UInt32>.Create(1, 2)), 'order does not count');
+  CheckFalse(TComplianceCatalog.RsaSizesWithin(TArray<UInt32>.Create(1, 3),
+    TArray<UInt32>.Create(1, 2)), 'a missing last entry');
+  CheckFalse(TComplianceCatalog.RsaSizesWithin(TArray<UInt32>.Create(3, 1),
+    TArray<UInt32>.Create(1, 2)), 'a missing first entry');
+end;
+
+procedure TTestComplianceCatalog.TestKeyMeetsRsaExactSizesListed;
+var
+  LFacts: TCertKeyFacts;
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Cnsa1;
+  LFacts := Default(TCertKeyFacts);
+  LFacts.Kind := TSignatureKeyKind.Rsa;
+  LFacts.Bits := 3072;
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    '3072 is listed');
+  LFacts.Bits := 4096;
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    '4096 is listed');
+  LRules := TCompliancePresets.Fips140_3;
+  LFacts.Bits := 2048;
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    '2048 is listed for Fips140_3');
+end;
+
+procedure TTestComplianceCatalog.TestKeyMeetsRsaExactSizesRefuseOthers;
+var
+  LFacts: TCertKeyFacts;
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Cnsa1;
+  LFacts := Default(TCertKeyFacts);
+  LFacts.Kind := TSignatureKeyKind.Rsa;
+  LFacts.Bits := 3200;
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    '3200 is inside the range but not listed');
+  LFacts.Bits := 3584;
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    '3584 is inside the range but not listed');
+  LRules := TCompliancePresets.Fips140_3;
+  LFacts.Bits := 2560;
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    '2560 is inside the range but not listed');
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, nil),
+    'the range alone admits 2560');
+end;
+
+procedure TTestComplianceCatalog.TestKeyMeetsRsaExactSizesStillHonourRange;
+var
+  LFacts: TCertKeyFacts;
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LFacts := Default(TCertKeyFacts);
+  LFacts.Kind := TSignatureKeyKind.Rsa;
+  LFacts.Bits := 4097;
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    '4097 is over the cap');
+  LFacts.Bits := 8192;
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    '8192 is over the cap');
+  LRules.RsaModulusBits := TArray<UInt32>.Create(1024, 4096);
+  LFacts.Bits := 1024;
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    'a listed size under the floor is still refused');
+end;
+
+procedure TTestComplianceCatalog.TestKeyMeetsRsaExactSizesRefuseZeroBits;
+var
+  LFacts: TCertKeyFacts;
+  LStrength: TCertificateStrengthPolicy;
+begin
+  LStrength := TCompliancePresets.Fips140_3.Strength;
+  LStrength.MinRsaModulusBits := 0;
+  LFacts := Default(TCertKeyFacts);
+  LFacts.Kind := TSignatureKeyKind.Rsa;
+  LFacts.Bits := 0;
+  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength, TArray<UInt32>.Create(0)),
+    'an unreadable modulus is never listed');
+end;
+
+procedure TTestComplianceCatalog.TestKeyMeetsExactSizesLeaveEcdsaAlone;
+var
+  LFacts: TCertKeyFacts;
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Cnsa1;
+  LFacts := Default(TCertKeyFacts);
+  LFacts.Kind := TSignatureKeyKind.Ecdsa;
+  LFacts.EcNamedGroup := TNamedGroupCatalog.Secp384r1;
+  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
+    'the RSA sizes do not apply to a curve key');
+end;
+
+procedure TTestComplianceCatalog.TestStandardNameIsFips140_3;
+begin
+  CheckEquals('FIPS 140-3', TComplianceCatalog.StandardName(TModuleStandard.Fips140_3), 'name');
 end;
 
 { TTestComplianceReport }
@@ -1396,7 +1865,7 @@ begin
     TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
     TComplianceFindingKind.ModuleNotValidated, '10.0.1', 'no table')), nil);
   CheckEquals('Verdict: NotCompliant (Relaxed)' + sLineBreak + 'Preset: none' + sLineBreak +
-    'Module:     , certificate , status NotValidated' + sLineBreak +
+    'Module: unknown module, status NotValidated' + sLineBreak +
     'Finding: ModuleNotValidated 10.0.1: no table', LReport.Describe, 'description');
 end;
 
@@ -1538,6 +2007,128 @@ begin
   CheckEquals(Ord(TModuleStatus.NotValidated), Ord(LAttestation.Status(TModuleStandard.Fips140_3)),
     'status');
   CheckTrue(LAttestation.Describe <> '', 'describes itself');
+end;
+
+procedure TTestComplianceReport.TestVerdictNotCompliantWhenModuleNotValidated;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.NotValidated, nil, nil);
+  CheckEquals(0, System.Length(LReport.Findings), 'no finding stands');
+  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict),
+    'a preset and no finding are not enough without a validated module');
+end;
+
+procedure TTestComplianceReport.TestVerdictNotCompliantWhenModuleUnknown;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, 'Cnsa1',
+    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil);
+  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
+end;
+
+procedure TTestComplianceReport.TestReportCopiesDisclosuresOnCreate;
+var
+  LDisclosures: TArray<string>;
+  LReport: IComplianceReport;
+begin
+  LDisclosures := TArray<string>.Create('one');
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, LDisclosures);
+  LDisclosures[0] := 'changed';
+  CheckEquals('one', LReport.Disclosures[0], 'the caller edit does not reach the report');
+end;
+
+procedure TTestComplianceReport.TestReportReturnsCopyOfDisclosures;
+var
+  LReport: IComplianceReport;
+  LDisclosures: TArray<string>;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, TArray<string>.Create('one'));
+  LDisclosures := LReport.Disclosures;
+  LDisclosures[0] := 'changed';
+  CheckEquals('one', LReport.Disclosures[0], 'the returned array is a copy');
+end;
+
+procedure TTestComplianceReport.TestFindingDescribeWithoutSubject;
+begin
+  CheckEquals('EchConfigured: GREASE counts',
+    TComplianceFinding.Create(TComplianceFindingKind.EchConfigured, '',
+    'GREASE counts').Describe, 'Kind: Message');
+end;
+
+procedure TTestComplianceReport.TestIdentityDescribeSkipsEmptyParts;
+var
+  LIdentity: TModuleIdentity;
+begin
+  LIdentity := Default(TModuleIdentity);
+  LIdentity.OsName := 'Windows';
+  LIdentity.OsVersion := '10.0.1';
+  LIdentity.ModuleName := 'module.dll';
+  CheckEquals('Windows 10.0.1 module.dll', LIdentity.Describe, 'no gap for the empty product');
+end;
+
+procedure TTestComplianceReport.TestIdentityDescribeEmpty;
+var
+  LIdentity: TModuleIdentity;
+begin
+  LIdentity := Default(TModuleIdentity);
+  CheckEquals('', LIdentity.Describe, 'nothing attested');
+end;
+
+procedure TTestComplianceReport.TestReportDescribeWithoutCertificate;
+var
+  LIdentity: TModuleIdentity;
+  LReport: IComplianceReport;
+begin
+  LIdentity := Default(TModuleIdentity);
+  LIdentity.OsName := 'Windows';
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '', LIdentity,
+    TModuleStatus.NotValidated, nil, nil);
+  CheckTrue(Pos('Module: Windows, status NotValidated', LReport.Describe) > 0,
+    'no certificate clause');
+end;
+
+procedure TTestComplianceReport.TestUnmetExceptionReturnsCopyOfFindings;
+var
+  LRaised: Boolean;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LRaised := False;
+  try
+    raise EComplianceUnmetTlsLibException.Create(TArray<TComplianceFinding>.Create(
+      TComplianceFinding.Create(TComplianceFindingKind.EchConfigured, 'c', 'd')));
+  except
+    on E: EComplianceUnmetTlsLibException do
+    begin
+      LRaised := True;
+      LFindings := E.Findings;
+      LFindings[0].Subject := 'changed';
+      CheckEquals('c', E.Findings[0].Subject, 'the returned array is a copy');
+    end;
+  end;
+  CheckTrue(LRaised, 'raised');
+end;
+
+procedure TTestComplianceReport.TestRefusedExceptionCreateRes;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    raise EComplianceRefusedTlsLibException.CreateRes(@SRefusedNoArgument);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(E.AlertDescription), 'alert');
+      CheckEquals('refused without an argument', E.Message, 'message');
+    end;
+  end;
+  CheckTrue(LRaised, 'raised');
 end;
 
 initialization

@@ -87,13 +87,10 @@ type
   public
     /// <summary>True only for the default HPKE composition over ABase's own primitives.</summary>
     class function RebuildsHpke(const ABase: ICryptoProvider): Boolean; static;
+    /// <summary>AHpke is a caller-supplied HPKE facet; nil keeps the rule above.</summary>
     constructor Create(const ABase: ICryptoProvider;
       const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;
-      const AReport: ICryptoBackendReport); overload;
-    /// <summary>As above, with a caller-supplied HPKE facet; nil keeps the rule above.</summary>
-    constructor Create(const ABase: ICryptoProvider;
-      const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;
-      const AReport: ICryptoBackendReport; const AHpke: IHpkeCrypto); overload;
+      const AReport: ICryptoBackendReport; const AHpke: IHpkeCrypto);
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
     function Hpke: IHpkeCrypto;
@@ -249,13 +246,6 @@ begin
 end;
 
 { TOverlayCryptoProvider }
-
-constructor TOverlayCryptoProvider.Create(const ABase: ICryptoProvider;
-  const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;
-  const AReport: ICryptoBackendReport);
-begin
-  Create(ABase, APrimitives, ASigning, AReport, nil);
-end;
 
 constructor TOverlayCryptoProvider.Create(const ABase: ICryptoProvider;
   const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;

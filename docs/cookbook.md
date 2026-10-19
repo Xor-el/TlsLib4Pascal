@@ -1032,7 +1032,8 @@ is in [compliance.md](compliance.md).
 ```pascal
 uses TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider, TlpIPkixProvider,
   TlpOSCryptoProvider, TlpTlsCredential, TlpITlsConfig, TlpComplianceTypes, TlpCompliancePresets,
-  TlpICompliancePolicy, TlpCompliancePolicy, TlpOSModuleAttestation, TlpComplianceTls;
+  TlpICompliancePolicy, TlpCompliancePolicy, TlpOSModuleAttestation, TlpOSSystemTrust,
+  TlpComplianceTls;
 
 var
   Policy: ICompliancePolicy;
@@ -1044,7 +1045,8 @@ begin
     TDefaultPkixProvider.Create as IPkixProvider, TOSModuleAttestation.Current,
     TComplianceEnforcement.Strict);          // raises on a build the table does not validate
   WriteLn(Policy.PlatformReport.Describe);
-  Client := TComplianceTls.BuildClient(Policy, TComplianceTls.Client(Policy));
+  Client := TComplianceTls.BuildClient(Policy,
+    TComplianceTls.Client(Policy, TSystemTrustRoots.OsRoots));
   Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy,
     TTlsCredential.Load(Policy.Crypto, Policy.Pkix, ChainPem, KeyPem)));
 end;

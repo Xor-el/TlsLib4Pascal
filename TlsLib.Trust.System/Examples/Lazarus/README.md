@@ -42,7 +42,8 @@ lazbuild --cpu=x86_64 --os=win64 TlsLib.Trust.System/Examples/Lazarus/SystemTrus
 It is a **network-gated demo, not a test gate**: it needs outbound HTTPS and exits 0 (PASS) /
 2 (SKIP, offline) / 1 (FAIL).
 
-Pass `host-roots` to run the host-roots cells instead (`./SystemTrustDemo host-roots`); see below.
+Pass `os-and-host-roots` to run the OS-and-host-roots cells instead
+(`./SystemTrustDemo os-and-host-roots`); see below.
 
 ## What to look for
 
@@ -52,9 +53,9 @@ Pass `host-roots` to run the host-roots cells instead (`./SystemTrustDemo host-r
 - Edit those constants to point at a host with an untrusted/self-signed chain → verification
   **fails closed** (system trust is never implicit).
 
-## Host roots cells
+## OS and host roots cells
 
-`SystemTrustDemo host-roots` passes the demo's own root with the OS roots (the rule is in
+`SystemTrustDemo os-and-host-roots` passes the demo's own root with the OS roots (the rule is in
 `docs/system-trust.md`, "OS and host roots") and prints one `PASS:` / `FAIL:` /
 `SKIP:` line per cell, per mode. The modes are `Default` and, where `Default` is the OS engine
 (Windows, macOS), `Anchors`. Exit code 0 / 1 / 2 as above.

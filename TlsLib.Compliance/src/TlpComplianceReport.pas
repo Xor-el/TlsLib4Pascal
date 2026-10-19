@@ -22,8 +22,8 @@ uses
   TlpEnumUtilities;
 
 type
-  /// <summary>The immutable report: Compliant only when a named preset contains the rules and
-  /// nothing was found.</summary>
+  /// <summary>The immutable report: Compliant only when a named preset contains the rules, the
+  /// module is validated and nothing was found.</summary>
   TComplianceReport = class sealed(TInterfacedObject, IComplianceReport)
   strict private
   var
@@ -49,6 +49,9 @@ type
 
 implementation
 
+resourcestring
+  SUnknownModule = 'unknown module';
+
 { TComplianceReport }
 
 constructor TComplianceReport.Create(AEnforcement: TComplianceEnforcement;
@@ -66,7 +69,8 @@ end;
 
 function TComplianceReport.Verdict: TComplianceVerdict;
 begin
-  if (FPreset <> '') and (System.Length(FFindings) = 0) then
+  if (FPreset <> '') and (FModuleStatus = TModuleStatus.Validated) and
+    (System.Length(FFindings) = 0) then
     Result := TComplianceVerdict.Compliant
   else
     Result := TComplianceVerdict.NotCompliant;
@@ -105,6 +109,7 @@ end;
 function TComplianceReport.Describe: string;
 var
   LI: Int32;
+  LModule: string;
 begin
   Result := Format('Verdict: %s (%s)', [TEnumUtilities.GetName<TComplianceVerdict>(Verdict),
     TEnumUtilities.GetName<TComplianceEnforcement>(FEnforcement)]) + sLineBreak;
@@ -112,10 +117,14 @@ begin
     Result := Result + 'Preset: none' + sLineBreak
   else
     Result := Result + 'Preset: ' + FPreset + sLineBreak;
-  Result := Result + Format('Module: %s %s %s %s %s, certificate %s, status %s',
-    [FModule.OsName, FModule.OsVersion, FModule.Product, FModule.ModuleName,
-    FModule.ModuleFileVersion, FModule.Certificate,
-    TEnumUtilities.GetName<TModuleStatus>(FModuleStatus)]);
+  LModule := FModule.Describe;
+  if LModule = '' then
+    LModule := SUnknownModule;
+  Result := Result + 'Module: ' + LModule;
+  if FModule.Certificate <> '' then
+    Result := Result + ', certificate ' + FModule.Certificate;
+  Result := Result + Format(', status %s',
+    [TEnumUtilities.GetName<TModuleStatus>(FModuleStatus)]);
   for LI := 0 to System.Length(FFindings) - 1 do
     Result := Result + sLineBreak + 'Finding: ' + FFindings[LI].Describe;
   for LI := 0 to System.Length(FDisclosures) - 1 do

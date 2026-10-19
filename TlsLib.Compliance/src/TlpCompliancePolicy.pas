@@ -35,6 +35,7 @@ uses
   TlpTrustTypes,
   TlpSystemCryptoTypes,
   TlpICryptoBackendReport,
+  TlpSystemCryptoBase,
   TlpISystemVerifierSource,
   TlpComplianceTypes,
   TlpComplianceExceptions,
@@ -71,7 +72,8 @@ type
       const AEntry: TCryptoBackendEntry; const ASubject: string);
     procedure CheckKdf(var AFindings: TArray<TComplianceFinding>;
       const AEntry: TCryptoBackendEntry; const ASubject: string);
-    procedure CollectPlatform(var AFindings: TArray<TComplianceFinding>);
+    procedure CollectPlatform(const ABaseCrypto: ICryptoProvider;
+      var AFindings: TArray<TComplianceFinding>);
     procedure CheckCommon(const AConfig: ITlsCommonConfig;
       var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
     procedure CheckCredential(const ACredential: TTlsCredential;
@@ -150,6 +152,13 @@ resourcestring
   SPrfSubject = 'TLS 1.2 PRF %s';
   SAgreementSubject = 'key agreement %s';
   SSigningSubject = 'signing %s';
+  SVerificationSubject = 'verification %s';
+  SHpkeSubject = 'HPKE';
+  SHpkeOutside =
+    'the base HPKE is not composed over its primitives, so Encrypted Client Hello runs outside ' +
+    'the module';
+  SRsaPeerChainRange =
+    'a peer chain is held to the RSA size range, not to the exact sizes of the rules';
 
 { TCompliancePolicy }
 
@@ -234,7 +243,8 @@ begin
   end;
 end;
 
-procedure TCompliancePolicy.CollectPlatform(var AFindings: TArray<TComplianceFinding>);
+procedure TCompliancePolicy.CollectPlatform(const ABaseCrypto: ICryptoProvider;
+  var AFindings: TArray<TComplianceFinding>);
 var
   LI: Int32;
   LSuite: TTlsCipherSuite;
@@ -293,8 +303,16 @@ begin
   end;
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
     if LScheme in FRules.SignatureSchemes then
-      CheckBackend(AFindings, FReport.SigningBackend(LScheme),
-        Format(SSigningSubject, [TEnumUtilities.GetName<TSignatureScheme>(LScheme)]));
+    begin
+      LName := TEnumUtilities.GetName<TSignatureScheme>(LScheme);
+      CheckBackend(AFindings, FReport.SigningBackend(LScheme), Format(SSigningSubject, [LName]));
+      CheckBackend(AFindings, FReport.VerificationBackend(LScheme),
+        Format(SVerificationSubject, [LName]));
+    end;
+  if not (TComplianceRequirement.NoEch in FRules.Requirements) and
+    not TOverlayCryptoProvider.RebuildsHpke(ABaseCrypto) then
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.AlgorithmOutsideModule, SHpkeSubject, SHpkeOutside));
   if FAttestation.Status(FRules.ModuleStandard) <> TModuleStatus.Validated then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.ModuleNotValidated, FAttestation.Identity.OsVersion,
@@ -335,7 +353,9 @@ begin
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.NoBackendReport, '', SNoBackendReport));
   end;
-  CollectPlatform(LFindings);
+  CollectPlatform(ABaseCrypto, LFindings);
+  if System.Length(FRules.RsaModulusBits) > 0 then
+    TArrayUtilities.Append<string>(FDisclosures, SRsaPeerChainRange);
   if (AEnforcement = TComplianceEnforcement.Strict) and (System.Length(LFindings) > 0) then
     raise EComplianceUnmetTlsLibException.Create(LFindings);
   FPlatformFindings := LFindings;
@@ -360,7 +380,7 @@ begin
       TComplianceFindingKind.CredentialKeyUndetermined, '', SKeyUndetermined))
   else
   begin
-    LMeets := TComplianceCatalog.KeyMeets(LFacts, FRules.Strength);
+    LMeets := TComplianceCatalog.KeyMeets(LFacts, FRules.Strength, FRules.RsaModulusBits);
     if not LMeets then
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
         TComplianceFindingKind.CredentialKeyBelowRules, '', SKeyBelow));

@@ -46,12 +46,18 @@ type
     var ALength: UINT): BOOL; stdcall;
   TBCryptGetFipsAlgorithmMode = function(out AEnabled: ByteBool): Int32; stdcall;
 
-  /// <summary>One row of the shipped validated-module table.</summary>
+  /// <summary>One row of the shipped validated-module table. A row that is not Validated has no
+  /// certificate and carries no standard, level or dates.</summary>
   TWindowsModuleEntry = record
     Build: UInt32;
     Product: string;
     Certificate: string;
-    Fips140_3: Boolean;
+    Validated: Boolean;
+    Standard: TModuleStandard;
+    Level: UInt32;
+    /// <summary>Validation and sunset dates, ISO 8601.</summary>
+    ValidatedOn: string;
+    Sunset: string;
   end;
 
   /// <summary>
@@ -65,7 +71,7 @@ type
   var
     FIdentity: TModuleIdentity;
     FBuildKnown: Boolean;
-    FFips140_3: Boolean;
+    FEntry: TWindowsModuleEntry;
     class function ReadBuild(out ABuild: UInt32; out AVersion: string): Boolean; static;
     class function ReadRevision: UInt32; static;
     class function ReadModuleVersion(const APath: WideString): string; static;
@@ -86,16 +92,15 @@ implementation
 {$IFDEF TLSLIB_MSWINDOWS}
 
 resourcestring
-  SValidatedModule = '%s %s: %s, CMVP certificate %s, FIPS 140-3 Level 1, ' +
-    'validated 2026-08-31, sunset 2031-08-30';
-  SNotValidatedModule = '%s %s: the shipped table records no validated FIPS 140-3 module ' +
-    'for this build';
+  SValidatedModule = '%s %s: %s, CMVP certificate %s, %s Level %d, validated %s, sunset %s';
+  SNotValidatedModule = '%s %s: the shipped table records no validated module for this build';
   SUnreadableBuild = 'the OS build could not be read';
 
 const
   ModuleFileName = 'bcryptprimitives.dll';
   ValidatedCertificate = '5410';
-  UnknownCertificate = 'Unknown';
+  CertificateValidatedOn = '2026-08-31';
+  CertificateSunset = '2031-08-30';
   VersionKey = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion';
   RevisionValue = 'UBR';
 
@@ -106,21 +111,25 @@ class function TWindowsModuleAttestation.Lookup(ABuild: UInt32;
 const
   Table: array [0 .. 8] of TWindowsModuleEntry = (
     (Build: 22621; Product: 'Windows 11 22H2'; Certificate: ValidatedCertificate;
-    Fips140_3: True),
+    Validated: True; Standard: TModuleStandard.Fips140_3; Level: 1;
+    ValidatedOn: CertificateValidatedOn; Sunset: CertificateSunset),
     (Build: 20348; Product: 'Windows Server 2022'; Certificate: ValidatedCertificate;
-    Fips140_3: True),
-    (Build: 22631; Product: 'Windows 11 23H2'; Certificate: ''; Fips140_3: False),
-    (Build: 26100; Product: 'Windows 11 24H2 / Server 2025'; Certificate: '';
-    Fips140_3: False),
-    (Build: 26200; Product: 'Windows 11 25H2'; Certificate: ''; Fips140_3: False),
-    (Build: 19045; Product: 'Windows 10 22H2'; Certificate: UnknownCertificate;
-    Fips140_3: False),
-    (Build: 19044; Product: 'Windows 10 21H2'; Certificate: UnknownCertificate;
-    Fips140_3: False),
-    (Build: 17763; Product: 'Windows 10 1809 / Server 2019'; Certificate: UnknownCertificate;
-    Fips140_3: False),
-    (Build: 14393; Product: 'Windows 10 1607 / Server 2016'; Certificate: UnknownCertificate;
-    Fips140_3: False));
+    Validated: True; Standard: TModuleStandard.Fips140_3; Level: 1;
+    ValidatedOn: CertificateValidatedOn; Sunset: CertificateSunset),
+    (Build: 22631; Product: 'Windows 11 23H2'; Certificate: ''; Validated: False;
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''),
+    (Build: 26100; Product: 'Windows 11 24H2 / Server 2025'; Certificate: ''; Validated: False;
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''),
+    (Build: 26200; Product: 'Windows 11 25H2'; Certificate: ''; Validated: False;
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''),
+    (Build: 19045; Product: 'Windows 10 22H2'; Certificate: ''; Validated: False;
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''),
+    (Build: 19044; Product: 'Windows 10 21H2'; Certificate: ''; Validated: False;
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''),
+    (Build: 17763; Product: 'Windows 10 1809 / Server 2019'; Certificate: ''; Validated: False;
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''),
+    (Build: 14393; Product: 'Windows 10 1607 / Server 2016'; Certificate: ''; Validated: False;
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''));
 var
   LI: Int32;
 begin
@@ -273,6 +282,7 @@ var
 begin
   inherited Create;
   FIdentity := Default(TModuleIdentity);
+  FEntry := Default(TWindowsModuleEntry);
   FIdentity.OsName := 'Windows';
   FIdentity.ModuleName := ModuleFileName;
   FIdentity.LegacyFipsPolicy := ReadLegacyPolicy;
@@ -289,12 +299,10 @@ begin
   end;
   if Lookup(FIdentity.OsBuild, LEntry) then
   begin
+    FEntry := LEntry;
     FIdentity.Product := LEntry.Product;
     FIdentity.Certificate := LEntry.Certificate;
-    FFips140_3 := LEntry.Fips140_3;
-  end
-  else
-    FIdentity.Certificate := UnknownCertificate;
+  end;
 end;
 
 function TWindowsModuleAttestation.Identity: TModuleIdentity;
@@ -306,7 +314,7 @@ function TWindowsModuleAttestation.Status(AStandard: TModuleStandard): TModuleSt
 begin
   if not FBuildKnown then
     Result := TModuleStatus.Unknown
-  else if FFips140_3 then
+  else if FEntry.Validated and (FEntry.Standard = AStandard) then
     Result := TModuleStatus.Validated
   else
     Result := TModuleStatus.NotValidated;
@@ -316,9 +324,11 @@ function TWindowsModuleAttestation.Describe: string;
 begin
   if not FBuildKnown then
     Result := SUnreadableBuild
-  else if FFips140_3 then
+  else if FEntry.Validated then
     Result := Format(SValidatedModule, [FIdentity.OsName, FIdentity.OsVersion,
-      FIdentity.ModuleName, FIdentity.Certificate])
+      FIdentity.ModuleName, FIdentity.Certificate,
+      TComplianceCatalog.StandardName(FEntry.Standard), FEntry.Level, FEntry.ValidatedOn,
+      FEntry.Sunset])
   else
     Result := Format(SNotValidatedModule, [FIdentity.OsName, FIdentity.OsVersion]);
 end;

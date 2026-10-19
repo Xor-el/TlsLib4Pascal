@@ -26,17 +26,20 @@ type
   EComplianceUnmetTlsLibException = class(EBaseTlsLibException)
   strict private
     FFindings: TArray<TComplianceFinding>;
+    function GetFindings: TArray<TComplianceFinding>;
   public
     constructor Create(const AFindings: TArray<TComplianceFinding>);
-    property Findings: TArray<TComplianceFinding> read FFindings;
+    /// <summary>A copy of the findings, so the exception stays unchanged.</summary>
+    property Findings: TArray<TComplianceFinding> read GetFindings;
   end;
 
   /// <summary>A refusing provider declined an operation outside the rules or the module; the
   /// handshake ends with internal_error (RFC 9846 6.2).</summary>
   EComplianceRefusedTlsLibException = class(EFatalAlertTlsLibException)
   public
+    constructor CreateRes(AResStringRec: PResStringRec); reintroduce; overload;
     constructor CreateResFmt(AResStringRec: PResStringRec;
-      const AArgs: array of const); reintroduce;
+      const AArgs: array of const); reintroduce; overload;
   end;
 
 implementation
@@ -63,7 +66,17 @@ begin
   FFindings := System.Copy(AFindings);
 end;
 
+function EComplianceUnmetTlsLibException.GetFindings: TArray<TComplianceFinding>;
+begin
+  Result := System.Copy(FFindings);
+end;
+
 { EComplianceRefusedTlsLibException }
+
+constructor EComplianceRefusedTlsLibException.CreateRes(AResStringRec: PResStringRec);
+begin
+  inherited CreateRes(TTlsAlertDescription.InternalError, AResStringRec);
+end;
 
 constructor EComplianceRefusedTlsLibException.CreateResFmt(AResStringRec: PResStringRec;
   const AArgs: array of const);
