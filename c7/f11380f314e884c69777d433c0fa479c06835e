@@ -1,0 +1,64 @@
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_1fca90bbd61364 214,216,218,221,224,226,230-231,233
+  s_f2c9bd75607afc::t_3376aec55c1a06 232
+  s_f2c9bd75607afc::t_61fa8f172e4719 184
+  s_f2c9bd75607afc::t_5625b2e0bfd11a 227-229
+TlsLib.Compliance/src/TlpComplianceCryptoProvider.pas
+  s_f2c9bd75607afc::t_4816d08d4549e6 319
+  s_f2c9bd75607afc::t_2950c6f1b855c4 111-113
+TlsLib.Compliance/src/TlpWindowsModuleAttestation.pas
+  s_f2c9bd75607afc::t_7d026c9964f45d 49-50
+TlsLib.Tests/src/ComplianceLoopbackTests.pas
+  s_f2c9bd75607afc::t_c90a91dbe43d84 272-273
+  s_f2c9bd75607afc::t_63d34f9a3b4da6 364-365,367
+  s_f2c9bd75607afc::t_041500d96a8ef1 214-215,218
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_5a91c876cb00c5 524
+  s_f2c9bd75607afc::t_da5f965096c220 166,169-170
+TlsLib.Tests/src/ComplianceProviderTests.pas
+  s_f2c9bd75607afc::t_2e210350741bfe 936,938,940,942-943,945,948-951
+  s_f2c9bd75607afc::t_bb915ad9243167 165
+  s_f2c9bd75607afc::t_0a7a2302cd246a 1515,1517
+  s_f2c9bd75607afc::t_65a69286a34417 1504-1506,1508-1514,1516,1518-1524
+  s_f2c9bd75607afc::t_70c3d063642777 198
+  s_f2c9bd75607afc::t_1d5a94db284b5c 1507
+TlsLib.Compliance/src/TlpComplianceReport.pas
+  s_f2c9bd75607afc::t_64d16ce2f2844f 126,128-129
+  s_f2c9bd75607afc::t_db3a91107136d6 56
+  s_f2c9bd75607afc::t_5830cdc701769f 54-55
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_c8b3e0581cdecf 2402-2403
+  s_f2c9bd75607afc::t_0dde97fd211ebe 2422-2423
+  s_f2c9bd75607afc::t_93806dfe4bb041 2432-2433
+  s_f2c9bd75607afc::t_a42064de43dfc6 2417-2418
+  s_f2c9bd75607afc::t_f31c5b71756829 2438-2439
+  s_f2c9bd75607afc::t_b0b4c3582e70fc 1497-1498
+  s_f2c9bd75607afc::t_b88e947d9f3377 1529-1530
+TlsLib.Tests/src/ComplianceRulesTests.pas
+  s_f2c9bd75607afc::t_318d56d0f859bf 1408
+  s_f2c9bd75607afc::t_2c6c71b751d90a 143-144
+  s_f2c9bd75607afc::t_3e519a7dfbf25d 1208
+  s_f2c9bd75607afc::t_079b44e55da3df 1194-1195
+  s_f2c9bd75607afc::t_71da6a0bd199c8 1255-1286
+  s_f2c9bd75607afc::t_a5f4d3f6c2e4b4 340-341
+  s_f2c9bd75607afc::t_45f30e7fb54bfd 1296
+  s_f2c9bd75607afc::t_8348352173825e 1299
+  s_f2c9bd75607afc::t_42cf64f29e0fe9 1221
+  s_f2c9bd75607afc::t_96c656538c5e3a 282-284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c7f11380f314e884c69777d433c0fa479c06835e",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
