@@ -1,0 +1,231 @@
+TlsLib.Compliance/src/TlpComplianceReport.pas
+  s_f2c9bd75607afc::t_cd4a74861a8d59 21-22
+docs/getting-started.md
+  s_f2c9bd75607afc::t_512ff1dbaa92d2 3
+  s_f2c9bd75607afc::t_b4b8d2765e16aa 32
+TlsLib.Tests/src/ComplianceLoopbackTests.pas
+  s_f2c9bd75607afc::t_54705ec58ef22a 242,249-252,255,262
+  s_f2c9bd75607afc::t_337a2f01c8d098 1-40,42-71,74-77,80-172,188-192,194,196-241,243-248,253-254,256-261,263-355
+  s_f2c9bd75607afc::t_45e7e1158b3985 41
+  s_f2c9bd75607afc::t_ebab5382665d06 78-79
+  s_f2c9bd75607afc::t_fb5e3e6ad32409 72-73
+  s_f2c9bd75607afc::t_082d224e982a76 173-185
+  s_f2c9bd75607afc::t_cfaf75678d6f22 186-187,193,195
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_5f7c055a407c44 24-28
+  s_f2c9bd75607afc::t_c6b26e40394adc 310
+  s_f2c9bd75607afc::t_d0f8fb67eedc24 172
+  s_f2c9bd75607afc::t_439d2a31bc32b5 132,135-136
+  s_f2c9bd75607afc::t_aead7f8210418d 90
+  s_f2c9bd75607afc::t_adbfbb92af7643 210-213,216
+  s_f2c9bd75607afc::t_5f9871f4065222 368,372,376-382
+  s_f2c9bd75607afc::t_2bcd31b19e3c31 393
+TlsLib.Compliance/src/TlpComplianceCryptoProvider.pas
+  s_f2c9bd75607afc::t_a8a85d6987dbce 30-33
+  s_f2c9bd75607afc::t_29f5f50321c940 36-41
+TlsLib.Compliance/Packages/FPC/TlsLib.Compliance.pas
+  s_f2c9bd75607afc::t_ddcb383d17f73e 13-14
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_b953117aac8de0 445
+  s_f2c9bd75607afc::t_0720349209738e 464
+  s_f2c9bd75607afc::t_2793fefd493fa5 378
+  s_f2c9bd75607afc::t_27fe544c1aa020 565
+  s_f2c9bd75607afc::t_f1855ac0930845 79-81
+  s_f2c9bd75607afc::t_29e2685ca14d0f 503
+  s_f2c9bd75607afc::t_cd5a08f025f45b 593
+  s_f2c9bd75607afc::t_88b3935f433873 1-28,30-31,33-78,82-180,182-196,198-199,201,203-297,299-324,326-338,340-363,365-374,376-377,379-392,394-395,397-404,406-413,415-422,424-431,433-439,441-444,446-448,450-452,454-455,457-459,461-463,465-469,482-496,498-502,504-510,512-549,551-556,558-560,562-564,566-581,584,586-592,594-596,598-599,601-617
+  s_f2c9bd75607afc::t_372f0354c0073a 582
+  s_f2c9bd75607afc::t_213a723511ef11 393
+  s_f2c9bd75607afc::t_49e2730da7aec2 561
+  s_f2c9bd75607afc::t_ddb6a10e87310c 432
+  s_f2c9bd75607afc::t_e2420b6bddbe0e 470-476,478-481
+  s_f2c9bd75607afc::t_fa00c5f0b48977 477
+  s_f2c9bd75607afc::t_85d7313d1722c3 414
+  s_f2c9bd75607afc::t_8ace809ae98c9e 497
+  s_f2c9bd75607afc::t_1c552a0a55df55 325
+  s_f2c9bd75607afc::t_3df101fb9b0564 29,32
+  s_f2c9bd75607afc::t_c100d7716a40d5 202
+  s_f2c9bd75607afc::t_5ca23c9b5b4c63 396
+  s_f2c9bd75607afc::t_b85a4c6a38d370 440
+  s_f2c9bd75607afc::t_48430b95b84f72 364
+  s_f2c9bd75607afc::t_8b49fd1409b306 423
+  s_f2c9bd75607afc::t_060789107411d7 456
+  s_f2c9bd75607afc::t_d38c91003c8542 511
+  s_f2c9bd75607afc::t_889a330595ec5b 583
+  s_f2c9bd75607afc::t_ab188ca8afebc6 550
+  s_f2c9bd75607afc::t_8a48f098b6fd80 585
+  s_f2c9bd75607afc::t_94fb339d4d1aab 181
+  s_f2c9bd75607afc::t_5ebebba3b4e27b 298
+  s_f2c9bd75607afc::t_d505e8e5cfe2b1 597,600
+  s_f2c9bd75607afc::t_fffa12abd8bcfe 339
+  s_f2c9bd75607afc::t_8c5fea610b1fd5 453
+  s_f2c9bd75607afc::t_3a06871efa51d1 197
+  s_f2c9bd75607afc::t_08595900668205 405
+  s_f2c9bd75607afc::t_85141043329733 449
+  s_f2c9bd75607afc::t_7b4cb403fe3e57 557
+  s_f2c9bd75607afc::t_7b52470ec4bf65 460
+  s_f2c9bd75607afc::t_077af29c8b064f 375
+  s_f2c9bd75607afc::t_d0bfc1f4c3d0e3 200
+TlsLib.Compliance/Packages/Delphi/TlsLib.Compliance.dpk
+  s_f2c9bd75607afc::t_91e60c801ba07f 46-51
+  s_f2c9bd75607afc::t_b42ccc2654ab8b 28
+TlsLib.Tests/src/ComplianceRulesTests.pas
+  s_f2c9bd75607afc::t_36db58f769e403 1011,1013-1014
+  s_f2c9bd75607afc::t_b0e888376b146f 947-948
+  s_f2c9bd75607afc::t_35ddfd7d677f88 345
+  s_f2c9bd75607afc::t_2bebe9ecaaf8d0 139-140
+  s_f2c9bd75607afc::t_e42b5f4f9b4aef 1091,1096-1097,1100,1102-1111
+  s_f2c9bd75607afc::t_0538839376b0b9 314,316-317,325
+  s_f2c9bd75607afc::t_0df42072cfecd9 419
+  s_f2c9bd75607afc::t_2daac4c76a026d 53
+  s_f2c9bd75607afc::t_8e9df852aad968 215,218
+  s_f2c9bd75607afc::t_f8de8169e2fa99 1428
+  s_f2c9bd75607afc::t_51f6c148961c33 128
+  s_f2c9bd75607afc::t_ee05ff69707c71 63
+  s_f2c9bd75607afc::t_88a6a937f4609f 431
+  s_f2c9bd75607afc::t_3db5e251a638ce 906
+  s_f2c9bd75607afc::t_fe956dff6b1abb 401
+TlsLib.Compliance/src/TlpCompliancePresets.pas
+  s_f2c9bd75607afc::t_ee09c2809405bf 98
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_f2c9bd75607afc::t_4c7a87461e5071 107-108
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_eb80c6009b43be 1443-1444
+  s_f2c9bd75607afc::t_8615c686f89b0c 163-165
+  s_f2c9bd75607afc::t_2203a421a2f129 856-863
+  s_f2c9bd75607afc::t_e2c57a98fbdb74 149
+  s_f2c9bd75607afc::t_b825a6f11f2398 864-869
+  s_f2c9bd75607afc::t_e2d765e8744b6e 1119
+  s_f2c9bd75607afc::t_34aba371e1af31 1165-1166
+  s_f2c9bd75607afc::t_036e9a15612bad 1387-1389
+  s_f2c9bd75607afc::t_4e64c7f5fd0a04 1484-1485
+  s_f2c9bd75607afc::t_6fac88ebba6f73 284,286-288
+  s_f2c9bd75607afc::t_e37ebc22c085c4 56
+  s_f2c9bd75607afc::t_2949cbf0cd878f 213,216-228
+  s_f2c9bd75607afc::t_516e9ba18d1e1f 1035-1037
+  s_f2c9bd75607afc::t_5b38f7ee141207 955-960
+  s_f2c9bd75607afc::t_da6919dbf214dd 1399-1400
+  s_f2c9bd75607afc::t_a770f833241761 1439
+  s_f2c9bd75607afc::t_823f2f99e6c929 795-809
+  s_f2c9bd75607afc::t_6437af28bf092f 46,49-50
+  s_f2c9bd75607afc::t_f116c4f7e3e37c 1447,1455-1474,1476-1479,1481-1483,1486-1489,1493-1818,1820-1832,1835-1838,1840-1845,1848-1851,1853-1859,1861-1882
+  s_f2c9bd75607afc::t_587dabfa521f52 79
+  s_f2c9bd75607afc::t_96bc3e27b9015b 946,950
+  s_f2c9bd75607afc::t_35118fbf521002 248-249
+  s_f2c9bd75607afc::t_6b5cd747c76028 1-45,47-48,51-55,57-78,80-148,150-160,166-212,214-215,229-247,250-283,285,289-794,810-855,870-945,947-949,951-954,961-1034,1038-1118,1120-1164,1167-1289,1292-1386,1390-1398,1401-1438,1440-1442,1445-1446,1448-1454,1475,1480,1490-1492,1819,1833-1834,1839,1846-1847,1852,1860,1883-1884
+  s_f2c9bd75607afc::t_d6de95188ccdec 1290-1291
+  s_f2c9bd75607afc::t_54ab3c9e0df9f3 161-162
+TlsLib.Compliance/src/TlpCompliancePkixProvider.pas
+  s_f2c9bd75607afc::t_bc304d50ca9538 24-25
+TlsLib.Compliance/src/TlpICompliancePolicy.pas
+  s_f2c9bd75607afc::t_e196b52e04fad1 1-56
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_f2c9bd75607afc::t_18a9fb9229b151 107-108
+README.md
+  s_f2c9bd75607afc::t_a4f98adf8d9523 170
+docs/compliance.md
+  s_f2c9bd75607afc::t_b1dedd43d87b61 136-137
+  s_f2c9bd75607afc::t_834ce075e45cf9 143
+  s_f2c9bd75607afc::t_d888b03c7b76df 82
+  s_f2c9bd75607afc::t_517ba910583bb4 1
+  s_f2c9bd75607afc::t_381c3e3728104d 2-81,83-127,130-135,138-142,144-159
+  s_f2c9bd75607afc::t_d976ee5144f6fa 128-129
+docs/cookbook.md
+  s_f2c9bd75607afc::t_3fce51ce9f3d1d 1006
+  s_f2c9bd75607afc::t_d7f9dadbcc5afa 3
+  s_f2c9bd75607afc::t_ba473e3bb24ac7 1007-1034
+  s_f2c9bd75607afc::t_09666e9a7d9e54 39
+docs/system-trust.md
+  s_f2c9bd75607afc::t_75f971bcdd1223 3
+TlsLib.Compliance/src/TlpComplianceTls.pas
+  s_f2c9bd75607afc::t_cc0507c13716fe 224
+  s_f2c9bd75607afc::t_94c000a8977f0d 237
+  s_f2c9bd75607afc::t_b6de71a01445a7 160
+  s_f2c9bd75607afc::t_04f54e9886830f 253,259
+  s_f2c9bd75607afc::t_9c7e793f04aae4 206
+  s_f2c9bd75607afc::t_a723ac6acecec5 192
+  s_f2c9bd75607afc::t_2d5f2c8e5e7764 195
+  s_f2c9bd75607afc::t_8552eb98554cd8 1-74,77-78,81-159,161-180,182-187,189-191,193-194,196,198-205,207-221,223,225-236,238-252,254-258,260-281
+  s_f2c9bd75607afc::t_bb8350ef8ad65d 188
+  s_f2c9bd75607afc::t_70efdcb7cf8a0a 79-80
+  s_f2c9bd75607afc::t_b7569347db9dc5 197
+  s_f2c9bd75607afc::t_09206f490b515c 222
+  s_f2c9bd75607afc::t_6a04938f536bcc 75-76
+  s_f2c9bd75607afc::t_0e58cf5a7e7573 181
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_6ecd264f82f5f3 31-32,38
+  s_f2c9bd75607afc::t_9cac7a81f0aa73 259
+  s_f2c9bd75607afc::t_605852c1d15f56 33-36
+  s_f2c9bd75607afc::t_1c0d07b7cf4a81 73-74,79,83-85
+  s_f2c9bd75607afc::t_147605f832f07d 281
+  s_f2c9bd75607afc::t_23cc2663c580b4 157-158
+  s_f2c9bd75607afc::t_f9fd0398b28f15 235
+  s_f2c9bd75607afc::t_a659dbe1a515c5 236-240,244,249
+  s_f2c9bd75607afc::t_01964be22d5b00 343-347,349-353,355-356
+  s_f2c9bd75607afc::t_248ccfbfc0f2a5 348,354
+  s_f2c9bd75607afc::t_550e591bd438a8 135-146
+  s_f2c9bd75607afc::t_5ca2a053e97ee8 37
+TlsLib.Compliance/src/TlpOSModuleAttestation.pas
+  s_f2c9bd75607afc::t_167b5452309cb2 1-84
+docs/security-model.md
+  s_f2c9bd75607afc::t_516c39ca5d9d9b 161-164
+  s_f2c9bd75607afc::t_1fa0912ea784c5 100-106
+  s_f2c9bd75607afc::t_51aeaf587357fc 3
+docs/ech.md
+  s_f2c9bd75607afc::t_5c895af2102fca 3
+docs/certificate-compression.md
+  s_f2c9bd75607afc::t_ccb3dabfe86357 3
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_dea4b4ef35afd0 266-267
+TlsLib.Compliance/Packages/FPC/TlsLib.Compliance.lpk
+  s_f2c9bd75607afc::t_f91ba350832be7 24
+  s_f2c9bd75607afc::t_0ecc067bb692ee 21
+  s_f2c9bd75607afc::t_04c420f674ad82 57-76
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_c19909f7989f92 287-288
+docs/README.md
+  s_f2c9bd75607afc::t_58c7245d7e29fd 3
+  s_f2c9bd75607afc::t_f48b714b4bf2f1 24
+  s_f2c9bd75607afc::t_7ad7b564f49539 91
+TlsLib.Compliance/src/TlpWindowsModuleAttestation.pas
+  s_f2c9bd75607afc::t_d385fd4dcb380c 1-88,90,93-108,110-159,161-306,308-319,321-322,324-328
+  s_f2c9bd75607afc::t_047c980f4df95f 320,323
+  s_f2c9bd75607afc::t_88848b5352f3c5 89,91-92
+  s_f2c9bd75607afc::t_b2b7a32737082f 160
+  s_f2c9bd75607afc::t_be0cb87307e4d4 307
+  s_f2c9bd75607afc::t_47bfb8cbad3867 109
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_f2c9bd75607afc::t_74dddb8027e3ef 475-482
+  s_f2c9bd75607afc::t_88528a203cd731 46
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_d54ade60a474c3 3
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_f2c9bd75607afc::t_5874937649e35c 469-476
+  s_f2c9bd75607afc::t_49b91781670c73 40
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_fcef3bb3204600::t_b10f2d3c027a83 609-610
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eee535d90ddd6c02993d45e0d3a393ba0d737ec1",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_fcef3bb3204600": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ac8f71a704004e675",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
