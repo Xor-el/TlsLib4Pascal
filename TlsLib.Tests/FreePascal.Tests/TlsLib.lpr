@@ -103,6 +103,7 @@ uses
   NativeCryptoProviderTests,
   MockCompliance,
   ComplianceRulesTests,
+  ComplianceProviderTests,
   AppleAlertMapTests,
   RootGenKeyingTests,
   EchToolingTests,

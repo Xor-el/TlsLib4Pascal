@@ -21,7 +21,7 @@
     <Description Value="Optional FIPS 140-3 / CNSA policy over the OS crypto module for TlsLib4Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="6">
+    <Files Count="8">
       <Item1>
         <Filename Value="..\..\src\TlpComplianceTypes.pas"/>
         <UnitName Value="TlpComplianceTypes"/>
@@ -46,6 +46,14 @@
         <Filename Value="..\..\src\TlpComplianceReport.pas"/>
         <UnitName Value="TlpComplianceReport"/>
       </Item6>
+      <Item7>
+        <Filename Value="..\..\src\TlpComplianceCryptoProvider.pas"/>
+        <UnitName Value="TlpComplianceCryptoProvider"/>
+      </Item7>
+      <Item8>
+        <Filename Value="..\..\src\TlpCompliancePkixProvider.pas"/>
+        <UnitName Value="TlpCompliancePkixProvider"/>
+      </Item8>
     </Files>
     <RequiredPkgs Count="4">
       <Item1>

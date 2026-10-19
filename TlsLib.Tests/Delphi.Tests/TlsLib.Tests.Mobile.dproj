@@ -605,6 +605,7 @@
         <DCCReference Include="..\src\NativeCryptoProviderTests.pas"/>
         <DCCReference Include="..\src\MockCompliance.pas"/>
         <DCCReference Include="..\src\ComplianceRulesTests.pas"/>
+        <DCCReference Include="..\src\ComplianceProviderTests.pas"/>
         <DCCReference Include="..\src\AppleAlertMapTests.pas"/>
         <DCCReference Include="..\src\RootGenKeyingTests.pas"/>
         <DCCReference Include="..\src\EchToolingTests.pas"/>

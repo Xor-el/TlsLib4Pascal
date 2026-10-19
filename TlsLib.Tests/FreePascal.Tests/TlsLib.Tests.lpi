@@ -43,7 +43,7 @@
         <PackageName Value="FCL"/>
       </Item8>
     </RequiredPackages>
-    <Units Count="106">
+    <Units Count="107">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -468,6 +468,10 @@
         <Filename Value="..\src\ComplianceRulesTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit105>
+      <Unit106>
+        <Filename Value="..\src\ComplianceProviderTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit106>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
