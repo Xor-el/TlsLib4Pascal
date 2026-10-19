@@ -1,0 +1,70 @@
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.pas
+  s_f2c9bd75607afc::t_e665f0cb29f5d9 15
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_2f8a55a63a66df 231,233
+  s_f2c9bd75607afc::t_e895d3f1777671 1020
+  s_f2c9bd75607afc::t_248a126eac084a 230,232
+  s_f2c9bd75607afc::t_28ce46923fd5f4 34
+  s_f2c9bd75607afc::t_db92827323176a 1008
+  s_f2c9bd75607afc::t_f335084ff41276 1009-1019,1021-1030
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.pas
+  s_f2c9bd75607afc::t_6722aadf31a1ee 14-15
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_23a44d4600b995 1070,1072-1073
+  s_f2c9bd75607afc::t_46dce2bd59eb60 2881-2886
+  s_f2c9bd75607afc::t_0f98aa081db914 4034
+  s_f2c9bd75607afc::t_8b60510d39b328 949-950
+  s_f2c9bd75607afc::t_7b06de38a2347b 2805,2809
+  s_f2c9bd75607afc::t_2fc99efe097971 34
+  s_f2c9bd75607afc::t_ebdf683755f2f0 948
+.github/workflows/ci/os-build-info.ps1
+  s_f2c9bd75607afc::t_874d1bd7d4f8a1 1-19
+TlsLib.Crypto.System/src/TlpISystemSignatureVerifier.pas
+  s_f2c9bd75607afc::t_82b7049d5d6ae7 1-29
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_a94387f5a4923f 314-315,376-377
+  s_f2c9bd75607afc::t_5f475fd9589137 19
+  s_f2c9bd75607afc::t_22782fb41b18c4 312-313,316
+  s_f2c9bd75607afc::t_af762a7c57db46 359-375,378-420
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_46b622c74a1eef 310-312
+  s_f2c9bd75607afc::t_4dbe6036d7cc7a 3898-3906
+  s_f2c9bd75607afc::t_7d40a1ea00066a 446
+  s_f2c9bd75607afc::t_5774477f14459a 2632-2666
+  s_f2c9bd75607afc::t_b0d6ba5b4de2d4 46
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_6e0e887eac647a 32
+  s_f2c9bd75607afc::t_fd96da77e43c02 154
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.lpk
+  s_f2c9bd75607afc::t_d1c4303eb14599 24
+  s_f2c9bd75607afc::t_08483cc7e89dab 69-72
+.github/workflows/ci/os-build-info.sh
+  s_f2c9bd75607afc::t_da2c7554b31cc3 1-22
+TlsLib.Trust.System/Packages/Delphi/TlsLib.Trust.System.dpk
+  s_f2c9bd75607afc::t_c6caea617b6f08 41
+TlsLib.Trust.System/src/TlpISystemVerifierSource.pas
+  s_f2c9bd75607afc::t_f04291163c9d6e 1-28
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.lpk
+  s_f2c9bd75607afc::t_7470466624dcf3 24
+  s_f2c9bd75607afc::t_e2a2059f95748d 77-80
+.github/workflows/ci/targets.json
+  s_f2c9bd75607afc::t_56e35aa9673273 9
+TlsLib.Crypto.System/Packages/Delphi/TlsLib.Crypto.System.dpk
+  s_f2c9bd75607afc::t_f7317d4682aada 40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2713fc5d86755b4c268e124722bdaf30a976de58",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
