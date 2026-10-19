@@ -31,6 +31,7 @@ uses
   TlpCertificateVerifierSource,
   TlpICertificateVerifierSource,
   TlpTlsCredential,
+  TlpITlsCredentialResolver,
   TlpTrustPolicy,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -53,6 +54,8 @@ type
   strict private
     class function Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile; static;
     class function GroupRegistry(const APolicy: ICompliancePolicy): INamedGroupRegistry; static;
+    class function ServerBase(const APolicy: ICompliancePolicy)
+      : ITlsServerConfigBuilder; static;
   public
     /// <summary>A client builder verifying the server through the OS verifier, trusting ARoots
     /// (the OS roots, the OS roots and host roots, or host roots alone). Raises
@@ -70,9 +73,16 @@ type
       APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
       overload; static;
     /// <summary>A server builder presenting ACredential, its key narrowed to the schemes of the
-    /// rules. Load the credential through the policy's crypto provider.</summary>
+    /// rules. Load the credential through the policy's crypto provider. Session resumption is
+    /// off unless the rules allow AES-256-GCM, which seals the tickets.</summary>
     class function Server(const APolicy: ICompliancePolicy;
-      const ACredential: TTlsCredential): ITlsServerConfigBuilder; static;
+      const ACredential: TTlsCredential): ITlsServerConfigBuilder; overload; static;
+    /// <summary>As the credential overload, selecting the credential per handshake through
+    /// AResolver wrapped by the policy's CheckedCredentialResolver. Raises
+    /// EArgumentTlsLibException for a nil AResolver.</summary>
+    class function Server(const APolicy: ICompliancePolicy;
+      const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
+      overload; static;
     /// <summary>Builds the client config and admits it, raising
     /// EComplianceUnmetTlsLibException when the policy refuses it.</summary>
     class function BuildClient(const APolicy: ICompliancePolicy;
@@ -88,6 +98,7 @@ implementation
 resourcestring
   SNilPolicy = 'the compliance policy must not be nil';
   SNilVerification = 'the server verification must not be nil';
+  SNilResolver = 'the credential resolver must not be nil';
   SNilBuilder = 'the config builder must not be nil';
 
 { TComplianceTls }
@@ -139,8 +150,25 @@ begin
   Result.PreferredGroups := LRules.NamedGroups;
   Result.CertificateChainLimits := TCertificateChainLimits.Defaults;
   Result.RequestOcspStapling := False;
-  // session tickets are always sealed with AES-256-GCM
-  Result.Resumption := TAeadAlgorithm.AES_256_GCM in LRules.Aeads;
+end;
+
+class function TComplianceTls.ServerBase(const APolicy: ICompliancePolicy)
+  : ITlsServerConfigBuilder;
+var
+  LRules: TComplianceRules;
+  LOffers12: Boolean;
+begin
+  if APolicy = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
+  LRules := APolicy.Rules;
+  Result := TTlsConfigBuilder.CreateFromProfile(APolicy.Crypto, APolicy.Pkix,
+    Profile(APolicy)).Server;
+  LOffers12 := TArrayUtilities.Contains<UInt16>(LRules.Versions, TlsWireVersionTls12);
+  if LOffers12 and (TComplianceRequirement.ExtendedMasterSecret in LRules.Requirements) then
+    Result.Tls12.WithExtendedMasterSecret(True);
+  // only a server seals tickets, and always with AES-256-GCM
+  if not (TAeadAlgorithm.AES_256_GCM in LRules.Aeads) then
+    Result.WithResumption(False);
 end;
 
 class function TComplianceTls.Client(const APolicy: ICompliancePolicy;
@@ -188,24 +216,19 @@ end;
 
 class function TComplianceTls.Server(const APolicy: ICompliancePolicy;
   const ACredential: TTlsCredential): ITlsServerConfigBuilder;
-var
-  LRules: TComplianceRules;
-  LCredential: TTlsCredential;
-  LOffers12: Boolean;
 begin
-  if APolicy = nil then
-    raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
-  LRules := APolicy.Rules;
-  LCredential := ACredential;
+  Result := ServerBase(APolicy);
   // a server signs with its credential key, so the key itself must be narrowed
-  if LCredential.PrivateKey <> nil then
-    LCredential.PrivateKey := LCredential.PrivateKey.WithPreferredSchemes(
-      TComplianceCatalog.Schemes(LRules.SignatureSchemes));
-  Result := TTlsConfigBuilder.CreateFromProfile(APolicy.Crypto, APolicy.Pkix,
-    Profile(APolicy)).Server.WithCredential(LCredential);
-  LOffers12 := TArrayUtilities.Contains<UInt16>(LRules.Versions, TlsWireVersionTls12);
-  if LOffers12 and (TComplianceRequirement.ExtendedMasterSecret in LRules.Requirements) then
-    Result.Tls12.WithExtendedMasterSecret(True);
+  Result.WithCredential(TComplianceCatalog.NarrowedCredential(ACredential, APolicy.Rules));
+end;
+
+class function TComplianceTls.Server(const APolicy: ICompliancePolicy;
+  const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
+begin
+  if AResolver = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilResolver);
+  Result := ServerBase(APolicy);
+  Result.WithCredentialResolver(APolicy.CheckedCredentialResolver(AResolver));
 end;
 
 class function TComplianceTls.BuildClient(const APolicy: ICompliancePolicy;

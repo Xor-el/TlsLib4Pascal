@@ -47,7 +47,7 @@ type
     /// parameters, PKCS#12); this is the honest per-key answer.</summary>
     function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
     /// <summary>Verification is about verifiers: the upper bound for this scheme. A verifier of
-    /// a native scheme can still run portable when its public key was not decodable by the OS
+    /// a native scheme can still run portable when its public key was not importable by the OS
     /// module; VerifierBackend is the honest per-verifier answer.</summary>
     function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
     /// <summary>The backend of a specific verifier, as SigningKeyBackend is for a key.</summary>

@@ -1013,9 +1013,10 @@ TSystemCryptoStrictness.RequireNamedGroups(Crypto, [TNamedGroupCatalog.X25519]);
 
 Where a native backend exists, the composed provider also implements `ICryptoBackendReport` (unit
 `TlpICryptoBackendReport`), which says per primitive whether the OS or the portable code serves it;
-signing (per key) and verification (per verifier) are reported separately.
+signing and verification are reported separately, per scheme and per key or verifier.
 `TSystemCryptoStrictness` can narrow a registry to the natively served
-entries (`NativeNamedGroups`, `NativeCipherSuites`, `NativeSignatureSchemes`) or require them
+entries (`NativeNamedGroups`, `NativeCipherSuites`, `NativeSignatureSchemes`, which keeps a scheme
+only when both signing and verification are OS-served) or require them
 (`RequireNamedGroups`, `RequireCipherSuites`, `RequireSignatureSchemes` raise
 `ESystemCryptoRequirementTlsLibException` listing what is missing). A narrowed signature registry
 governs what the endpoint advertises and accepts; a server's own signatures follow its credential
@@ -1050,6 +1051,21 @@ begin
   Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy,
     TTlsCredential.Load(Policy.Crypto, Policy.Pkix, ChainPem, KeyPem)));
 end;
+```
+
+A private CA is passed with the roots, so it need not be installed in the OS store:
+`TComplianceTls.Client(Policy, TSystemTrustRoots.OsAndHostRoots(Store))` trusts `Store` with the OS
+roots, `TSystemTrustRoots.HostRoots(Store)` trusts it alone.
+
+A server that picks its credential per handshake passes its own resolver; the policy wraps it so
+every credential it returns is checked (a resolver that is not wrapped is reported as unchecked, and
+`TSniCredentialResolver` and the builder's `WithSniCredential` list their credentials, so the policy
+checks them directly):
+
+```pascal
+Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy, MyResolver));
+// for a builder you assemble yourself, wrap the resolver with the policy that will admit it
+Resolver := Policy.CheckedCredentialResolver(MyResolver);
 ```
 
 ## The dangerous surface (dev only)

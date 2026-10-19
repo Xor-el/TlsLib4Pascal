@@ -162,8 +162,8 @@ These are intentional and documented — flagging them up front so they aren't m
   BoringSSL's multi-key_share prediction, and the corresponding BoGo cases are disabled by policy.
 - **No cryptographic-module claim.** TlsLib is not a validated module. `TlsLib.Compliance` reports
   which validated OS module serves the primitives, from a shipped table keyed on the OS build, and
-  refuses a build the table does not list; the key derivations stay composed outside the module
-  and are disclosed.
+  in strict mode refuses any build the table does not mark validated; the key derivations stay
+  composed outside the module and are disclosed.
 - **Augment-only custom verification** (vs the rustls/.NET "replace validation" model) — a callback can
   only tighten, never loosen.
 - **A cipher list narrows, and a host's list is read by exact name only.** A cipher list

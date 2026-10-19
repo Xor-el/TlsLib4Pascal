@@ -351,6 +351,8 @@ type
     procedure TestModuleFacetAbsentModuleIsNoModule;
     procedure TestModuleFacetNativeIsSystem;
     procedure TestModuleFacetNotNativeIsPortable;
+    // a scheme the module does not serve is NotNative before the module is judged absent
+    procedure TestModuleFacetSchemeNotServedAndModuleAbsentIsNotNative;
   end;
 
   /// <summary>The strict-registry derivation over backend reports whose signing and
@@ -358,12 +360,13 @@ type
   TTestSystemCryptoStrictness = class(TSystemCryptoHelperTestCase)
   strict private
     // the signature schemes left and the names dropped for a report with this coverage
-    function Remaining(ASigningNative, AVerifyNative: Boolean;
+    function Remaining(const AReport: ICryptoBackendReport;
       out ADropped: TArray<string>): ISignatureSchemeRegistry;
   published
     procedure TestSigningWithoutVerificationDropsEveryScheme;
     procedure TestVerificationWithoutSigningDropsEveryScheme;
     procedure TestFullCoverageKeepsEveryScheme;
+    procedure TestMixedCoverageKeepsOnlyTheSchemesServedInBothRoles;
   end;
 
 implementation
@@ -459,6 +462,14 @@ type
     function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
   end;
 
+  // a platform that signs every scheme natively but verifies only ECDSA natively
+  TEcdsaVerifyOnlyReport = class(TBareBackendReport)
+  public
+    constructor Create; reintroduce;
+    function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
+    function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
+  end;
+
   TFakeSystemSigningKey = class(TMockSigningKey, ISystemSigningKey);
 
   // a verifier built by no OS module, as the portable facet's
@@ -473,6 +484,8 @@ type
 const
   // the hashes the fake OS HMAC serves
   HmacSystemHashes = [THashAlgorithm.SHA_256, THashAlgorithm.SHA_512];
+  EcdsaSchemes = [TSignatureScheme.ECDSA_SECP256R1_SHA256, TSignatureScheme.ECDSA_SECP384R1_SHA384,
+    TSignatureScheme.ECDSA_SECP521R1_SHA512];
 
 { TRecordingHkdf }
 
@@ -2005,6 +2018,27 @@ begin
     Result := NotNative;
 end;
 
+{ TEcdsaVerifyOnlyReport }
+
+constructor TEcdsaVerifyOnlyReport.Create;
+begin
+  inherited Create(False);
+end;
+
+function TEcdsaVerifyOnlyReport.SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+begin
+  Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+end;
+
+function TEcdsaVerifyOnlyReport.VerificationBackend(
+  AScheme: TSignatureScheme): TCryptoBackendEntry;
+begin
+  if AScheme in EcdsaSchemes then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
+end;
+
 { TUnmarkedVerifier }
 
 procedure TUnmarkedVerifier.Update(const AData: TBytes; AOffset, ALength: Int32);
@@ -2259,16 +2293,22 @@ begin
     TSystemBackendReportBase.ModuleFacetBackend(True, True, False));
 end;
 
+procedure TTestSystemBackendReport.TestModuleFacetSchemeNotServedAndModuleAbsentIsNotNative;
+begin
+  CheckNotNative('an unserved scheme on a host with no module',
+    TSystemBackendReportBase.ModuleFacetBackend(False, False, False));
+end;
+
 { TTestSystemCryptoStrictness }
 
-function TTestSystemCryptoStrictness.Remaining(ASigningNative, AVerifyNative: Boolean;
+function TTestSystemCryptoStrictness.Remaining(const AReport: ICryptoBackendReport;
   out ADropped: TArray<string>): ISignatureSchemeRegistry;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TOverlayCryptoProvider.Create(Crypto, nil, nil,
-    TSplitBackendReport.Create(ASigningNative, AVerifyNative) as ICryptoBackendReport, nil)
-    as ICryptoProvider;
+  CheckTrue(System.Length(TSignatureSchemeRegistry.CreateDefault.Items) > 0,
+    'the default registry offers schemes, so none of the checks below is vacuous');
+  LProvider := TOverlayCryptoProvider.Create(Crypto, nil, nil, AReport, nil) as ICryptoProvider;
   Result := TSystemCryptoStrictness.NativeSignatureSchemes(LProvider, ADropped);
 end;
 
@@ -2276,7 +2316,8 @@ procedure TTestSystemCryptoStrictness.TestSigningWithoutVerificationDropsEverySc
 var
   LDropped: TArray<string>;
 begin
-  CheckEquals(0, System.Length(Remaining(True, False, LDropped).Items),
+  CheckEquals(0, System.Length(Remaining(TSplitBackendReport.Create(True, False)
+    as ICryptoBackendReport, LDropped).Items),
     'a scheme with no native verification is not offered');
   CheckEquals(System.Length(TSignatureSchemeRegistry.CreateDefault.Items),
     System.Length(LDropped), 'each one is reported dropped');
@@ -2286,7 +2327,8 @@ procedure TTestSystemCryptoStrictness.TestVerificationWithoutSigningDropsEverySc
 var
   LDropped: TArray<string>;
 begin
-  CheckEquals(0, System.Length(Remaining(False, True, LDropped).Items),
+  CheckEquals(0, System.Length(Remaining(TSplitBackendReport.Create(False, True)
+    as ICryptoBackendReport, LDropped).Items),
     'a scheme with no native signing is not offered');
   CheckEquals(System.Length(TSignatureSchemeRegistry.CreateDefault.Items),
     System.Length(LDropped), 'each one is reported dropped');
@@ -2297,8 +2339,23 @@ var
   LDropped: TArray<string>;
 begin
   CheckEquals(System.Length(TSignatureSchemeRegistry.CreateDefault.Items),
-    System.Length(Remaining(True, True, LDropped).Items), 'native in both roles is kept');
+    System.Length(Remaining(TSplitBackendReport.Create(True, True) as ICryptoBackendReport,
+    LDropped).Items), 'native in both roles is kept');
   CheckEquals(0, System.Length(LDropped), 'nothing is dropped');
+end;
+
+procedure TTestSystemCryptoStrictness.TestMixedCoverageKeepsOnlyTheSchemesServedInBothRoles;
+var
+  LDropped: TArray<string>;
+  LKept: TArray<TSignatureScheme>;
+  LI: Int32;
+begin
+  LKept := Remaining(TEcdsaVerifyOnlyReport.Create as ICryptoBackendReport, LDropped).Items;
+  CheckTrue(System.Length(LKept) > 0, 'the ECDSA schemes are served in both roles');
+  for LI := 0 to System.Length(LKept) - 1 do
+    CheckTrue(LKept[LI] in EcdsaSchemes, 'only an ECDSA scheme is kept');
+  CheckEquals(System.Length(TSignatureSchemeRegistry.CreateDefault.Items),
+    System.Length(LKept) + System.Length(LDropped), 'every other scheme is reported dropped');
 end;
 
 initialization

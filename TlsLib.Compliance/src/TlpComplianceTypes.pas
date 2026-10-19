@@ -25,7 +25,8 @@ uses
   TlpArrayUtilities,
   TlpEnumUtilities,
   TlpCipherSuiteCatalog,
-  TlpTlsLibExceptions;
+  TlpTlsLibExceptions,
+  TlpTlsCredential;
 
 type
   /// <summary>The standard a cryptographic module is attested against.</summary>
@@ -97,7 +98,8 @@ type
     NamedGroupNotAllowed, SignatureSchemeNotAllowed, ExtendedMasterSecretNotRequired,
     EarlyDataEnabled, EchConfigured, ExternalPskConfigured, Tls12PskConfigured,
     KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
-    CredentialKeyUndetermined, CredentialKeyBelowRules, CredentialSchemesNotAllowed);
+    CredentialKeyUndetermined, CredentialKeyBelowRules, CredentialSchemesNotAllowed,
+    TicketAeadNotAllowed, CredentialResolverUnchecked);
 
   TComplianceFinding = record
     Kind: TComplianceFindingKind;
@@ -156,6 +158,13 @@ type
     class function StandardName(AStandard: TModuleStandard): string; static;
     /// <summary>The members of ASet in enum order.</summary>
     class function Schemes(const ASet: TComplianceSchemeSet): TArray<TSignatureScheme>; static;
+    /// <summary>ACredential with its key narrowed to the signature schemes of ARules.</summary>
+    class function NarrowedCredential(const ACredential: TTlsCredential;
+      const ARules: TComplianceRules): TTlsCredential; static;
+    /// <summary>The findings AEnforcement refuses: all of them in strict mode, the configuration
+    /// ones in relaxed mode.</summary>
+    class function Refusals(AEnforcement: TComplianceEnforcement;
+      const AFindings: TArray<TComplianceFinding>): TArray<TComplianceFinding>; static;
   end;
 
 implementation
@@ -527,6 +536,27 @@ begin
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
     if LScheme in ASet then
       TArrayUtilities.Append<TSignatureScheme>(Result, LScheme);
+end;
+
+class function TComplianceCatalog.NarrowedCredential(const ACredential: TTlsCredential;
+  const ARules: TComplianceRules): TTlsCredential;
+begin
+  Result := ACredential;
+  if Result.PrivateKey <> nil then
+    Result.PrivateKey := Result.PrivateKey.WithPreferredSchemes(
+      Schemes(ARules.SignatureSchemes));
+end;
+
+class function TComplianceCatalog.Refusals(AEnforcement: TComplianceEnforcement;
+  const AFindings: TArray<TComplianceFinding>): TArray<TComplianceFinding>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  for LI := 0 to System.Length(AFindings) - 1 do
+    if (AEnforcement = TComplianceEnforcement.Strict) or
+      (AFindings[LI].Category = TComplianceFindingCategory.Configuration) then
+      TArrayUtilities.Append<TComplianceFinding>(Result, AFindings[LI]);
 end;
 
 end.

@@ -37,6 +37,7 @@ uses
   TlpISigningKey,
   TlpImportedCredential,
   TlpSystemCryptoTypes,
+  TlpSystemCryptoBase,
   TlpOSCryptoProvider,
   TlpSecretBuffer,
   TlpISecretBuffer,
@@ -161,6 +162,8 @@ type
     procedure TestHpkeHasNoMlKemSuite;
     procedure TestComposeKeepsBaseReportIdentity;
     procedure TestComposeOverBaseWithoutReportClaimsNone;
+    procedure TestSuppliedHpkeFacetIsReportedPortable;
+    procedure TestRebuiltHpkeFacetKeepsTheBaseHpkeAnswer;
     procedure TestComposeFacetsAreStable;
     procedure TestPrimitivesRejectNilReport;
     procedure TestStrictFollowsOsReportForAes;
@@ -263,10 +266,30 @@ type
 
 implementation
 
+type
+  // a report that claims the HPKE facet is composed over the primitives and nothing else native
+  TComposedHpkeClaimReport = class sealed(TSystemBackendReportBase)
+  public
+    constructor Create; reintroduce;
+    function Describe: string; override;
+  end;
+
 const
   Pkcs12Password = 'tlslib';
   // the ML-KEM-768 codepoint of the IANA HPKE KEM registry
   HpkeKemMlKem768 = UInt16($0041);
+
+{ TComposedHpkeClaimReport }
+
+constructor TComposedHpkeClaimReport.Create;
+begin
+  inherited Create(True);
+end;
+
+function TComposedHpkeClaimReport.Describe: string;
+begin
+  Result := 'claims a composed HPKE';
+end;
 
 { TTestComplianceCryptoPrimitives }
 
@@ -908,6 +931,34 @@ begin
     TComplianceEnforcement.Strict);
   CheckTrue(Supports(LProvider, ICryptoBackendReport, LFound), 'the report is still offered');
   CheckTrue(LFound = LReport, 'and it is the base report itself');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestSuppliedHpkeFacetIsReportedPortable;
+var
+  LProvider: ICryptoProvider;
+  LReport: ICryptoBackendReport;
+begin
+  // the base report claims a composition, but its HPKE facet is a foreign one
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
+    TComposedHpkeClaimReport.Create as ICryptoBackendReport, nil,
+    TFakeHpke.Create as IHpkeCrypto), TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Relaxed);
+  CheckTrue(Supports(LProvider, ICryptoBackendReport, LReport), 'the report is offered');
+  CheckTrue(LReport.FacetBackend(TCryptoFacet.Hpke).Backend = TCryptoBackend.Portable,
+    'the supplied facet is not a composition');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRebuiltHpkeFacetKeepsTheBaseHpkeAnswer;
+var
+  LProvider: ICryptoProvider;
+  LReport: ICryptoBackendReport;
+begin
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
+    TComposedHpkeClaimReport.Create as ICryptoBackendReport, nil, nil),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
+  CheckTrue(Supports(LProvider, ICryptoBackendReport, LReport), 'the report is offered');
+  CheckTrue(LReport.FacetBackend(TCryptoFacet.Hpke).Backend = TCryptoBackend.Composed,
+    'a rebuilt composition is still one');
 end;
 
 procedure TTestComplianceCryptoPrimitives.TestComposeOverBaseWithoutReportClaimsNone;

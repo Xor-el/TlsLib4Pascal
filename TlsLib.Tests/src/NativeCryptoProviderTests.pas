@@ -30,6 +30,8 @@ uses
   TlsLibTestProviders,
   TlpOSCryptoProvider,
   TlpICryptoBackendReport,
+  TlpSystemCryptoStrictness,
+  TlpArrayUtilities,
   TlpISystemSigningKey,
   TlpISystemSignatureVerifier,
   TlpSystemCryptoTypes,
@@ -235,7 +237,8 @@ type
     procedure TestNativeVerifierCarriesSystemMarker;
     // the portable verifier the facet falls back to (EdDSA) does not
     procedure TestFallbackVerifierLacksSystemMarker;
-    // nor does the fallback for a native scheme whose public key the OS refuses (id-RSASSA-PSS)
+    // nor does the fallback for a native scheme whose key the OS module does not import
+    // (the library declines id-RSASSA-PSS public keys itself)
     procedure TestRsaPssSpkiFallbackVerifierLacksSystemMarker;
     // an ECDSA verifier the OS module serves carries the marker too
     procedure TestNativeEcdsaVerifierCarriesSystemMarker;
@@ -245,6 +248,11 @@ type
     procedure TestVerifierBackendIsPortableForEdDsaFallback;
     procedure TestVerifierBackendIsPortableForRsaPssSpkiFallback;
     procedure TestVerifierBackendIsSystemForNativeVerifier;
+    // EdDSA verification has no native implementation, whatever the keys
+    procedure TestVerificationBackendIsPortableForEdDsa;
+    procedure TestDescribeNamesNativeVerification;
+    // only RSA and ECDSA are served in both roles, so the strict signature registry keeps them
+    procedure TestNativeSignatureSchemesKeepRsaAndEcdsaOnly;
   end;
 {$IFEND}
 
@@ -1132,6 +1140,44 @@ begin
     TSignatureScheme.RSA_PSS_RSAE_SHA256, DecodeHex(FKeys.Values['rsa_pub'])));
   CheckTrue(LEntry.Backend = TCryptoBackend.System, 'a native verifier is system-backed');
   CheckTrue(LEntry.Reason = TCryptoBackendReason.NotFallback, 'and is not a fallback');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestVerificationBackendIsPortableForEdDsa;
+var
+  LReport: ICryptoBackendReport;
+  LEntry: TCryptoBackendEntry;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  LEntry := LReport.VerificationBackend(TSignatureScheme.ED25519);
+  CheckTrue(LEntry.Backend = TCryptoBackend.Portable, 'EdDSA verification is portable');
+  CheckTrue(LEntry.Reason = TCryptoBackendReason.NoNativeImpl, 'it has no native implementation');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestDescribeNamesNativeVerification;
+var
+  LReport: ICryptoBackendReport;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  CheckTrue(Pos('verify RSA ECDSA', LReport.Describe) > 0, LReport.Describe);
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeSignatureSchemesKeepRsaAndEcdsaOnly;
+var
+  LDropped: TArray<string>;
+  LKept: TArray<TSignatureScheme>;
+  LScheme: TSignatureScheme;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LKept := TSystemCryptoStrictness.NativeSignatureSchemes(Crypto, LDropped).Items;
+  for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
+    CheckEquals(LScheme.KeyKind in [TSignatureKeyKind.Rsa, TSignatureKeyKind.Ecdsa],
+      TArrayUtilities.Contains<TSignatureScheme>(LKept, LScheme),
+      Format('scheme %d is kept exactly when it is RSA or ECDSA', [Ord(LScheme)]));
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestPkcs12ExportedKeyMatchesLeaf;

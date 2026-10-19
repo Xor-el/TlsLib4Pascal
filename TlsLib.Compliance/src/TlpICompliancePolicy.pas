@@ -20,6 +20,8 @@ uses
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpITlsConfig,
+  TlpITlsCredentialResolver,
+  TlpTlsCredential,
   TlpIComplianceReport,
   TlpIModuleAttestation;
 
@@ -30,7 +32,7 @@ type
   /// raises for what the enforcement mode does not tolerate.
   /// </summary>
   ICompliancePolicy = interface(IInterface)
-    ['{7F7447FD-5BBF-4BAA-8E89-2B2456AAFAB4}']
+    ['{371DAE23-8791-4A91-978B-24F7E0AFA042}']
     /// <summary>A copy of the rules; the policy itself never changes.</summary>
     function Rules: TComplianceRules;
     function Enforcement: TComplianceEnforcement;
@@ -49,6 +51,17 @@ type
     /// report.</summary>
     function Admit(const AConfig: ITlsClientConfig): IComplianceReport; overload;
     function Admit(const AConfig: ITlsServerConfig): IComplianceReport; overload;
+    /// <summary>The platform findings plus those of one credential: its key against the strength
+    /// floors and exact RSA sizes, its schemes against the rules, and its key's backend. Never
+    /// raises; a certificate that cannot be read is reported as a finding.</summary>
+    function EvaluateCredential(const ACredential: TTlsCredential): IComplianceReport;
+    /// <summary>A resolver that asks AInner and then refuses, by returning False, every credential
+    /// the enforcement mode does not tolerate (as Admit does), narrowing the key it admits to the
+    /// schemes of the rules. A server config holding it needs no CredentialResolverUnchecked
+    /// finding. It parses each credential per handshake, so it is for a host that picks
+    /// credentials at run time. Raises EArgumentTlsLibException for a nil AInner.</summary>
+    function CheckedCredentialResolver(
+      const AInner: ITlsServerCredentialResolver): ITlsServerCredentialResolver;
   end;
 
 implementation

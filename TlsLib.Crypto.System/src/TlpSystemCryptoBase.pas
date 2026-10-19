@@ -64,13 +64,12 @@ type
   end;
 
   /// <summary>
-  /// An <see cref="ICryptoProvider" /> that overlays a substituted Primitives and/or
-  /// Signing facet on a base provider - so a native overlay preserves the
-  /// base's identity and its same-reference-every-call contract. A nil override takes that
-  /// facet from the base. The base's HPKE is kept unless it is the default composition over the
-  /// base's own primitives, which is rebuilt over the overlay's, unless the caller supplies one.
-  /// A platform composer builds this;
-  /// the OS factory only dispatches.
+  /// An <see cref="ICryptoProvider" /> that overlays a substituted Primitives and/or Signing
+  /// facet on a base provider, so a native overlay preserves the base's identity and its
+  /// same-reference-every-call contract. A nil override takes that facet from the base. The
+  /// base's HPKE is kept unless it is the default composition over the base's own primitives,
+  /// which is rebuilt over the overlay's, unless the caller supplies one. A platform composer
+  /// builds this; the OS factory only dispatches.
   /// </summary>
   TOverlayCryptoProvider = class(TInterfacedObject, ICryptoProvider, ICryptoBackendReport)
   strict private
@@ -87,7 +86,9 @@ type
   public
     /// <summary>True only for the default HPKE composition over ABase's own primitives.</summary>
     class function RebuildsHpke(const ABase: ICryptoProvider): Boolean; static;
-    /// <summary>AHpke is a caller-supplied HPKE facet; nil keeps the rule above.</summary>
+    /// <summary>AHpke is a caller-supplied HPKE facet; nil keeps the rule above. The overlay
+    /// exposes AReport unchanged, so its HPKE answer must describe AHpke: build the report with
+    /// AHpkeComposed False for a facet that is not a composition.</summary>
     constructor Create(const ABase: ICryptoProvider;
       const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;
       const AReport: ICryptoBackendReport; const AHpke: IHpkeCrypto);
@@ -141,10 +142,11 @@ type
 
   /// <summary>
   /// The platform-neutral part of an <see cref="ICryptoBackendReport" />. Every per-algorithm
-  /// query defaults to portable, so a platform overrides only what it serves natively; HKDF
-  /// and the TLS 1.2 PRF follow the OS HMAC, a signing key follows the <see
-  /// cref="ISystemSigningKey" /> marker, and the HPKE facet follows the constructor flag. The
-  /// platform supplies <see cref="Describe" />.
+  /// query defaults to portable, so a platform overrides only what it serves natively; signing
+  /// and verification default to portable per scheme, HKDF and the TLS 1.2 PRF follow the OS
+  /// HMAC, a signing key follows the <see cref="ISystemSigningKey" /> marker, a verifier the
+  /// <see cref="ISystemSignatureVerifier" /> marker, and the HPKE facet follows the constructor
+  /// flag. The platform supplies <see cref="Describe" />.
   /// </summary>
   TSystemBackendReportBase = class abstract(TInterfacedObject, ICryptoBackendReport)
   strict private

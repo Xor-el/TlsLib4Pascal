@@ -848,8 +848,8 @@ type
     function SignData(const AOwner: INCryptKeyOwner; AScheme: TSignatureScheme;
       const AData: TBytes): TBytes;
     procedure FreeKey(AKey: NativeUInt);
-    /// <summary>Whether native verification (crypt32 SPKI import + BCryptVerifySignature)
-    /// is usable on this host.</summary>
+    /// <summary>Whether native verification (public-key import and signature check) is usable
+    /// on this host.</summary>
     function CanVerify: Boolean;
     /// <summary>Imports an X.509 SubjectPublicKeyInfo into a BCrypt public key handle;
     /// False when it cannot (the caller then verifies portably).</summary>
@@ -2955,7 +2955,7 @@ var
 
   function Signings: string;
   begin
-    if FSigningNative then
+    if FSigningModule and FSigningNative then
       Result := 'sign RSA ECDSA'
     else
       Result := '';
@@ -4030,7 +4030,7 @@ begin
       Exit(ABase);
   end;
   LPrimitives := TWindowsCryptoPrimitives.Create(ABase.Primitives, LCng);
-  // signing is a separate capability (ncrypt.dll + the KSP); if it is unavailable the
+  // signing is a separate capability (the key-storage layer); if it is unavailable the
   // Signing facet stays portable while the native primitives above still apply
   LSigning := nil;
   LSigningNative := False;

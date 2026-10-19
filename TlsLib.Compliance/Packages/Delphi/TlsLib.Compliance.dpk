@@ -48,6 +48,8 @@ contains
   TlpWindowsModuleAttestation in '..\..\src\TlpWindowsModuleAttestation.pas',
   TlpOSModuleAttestation in '..\..\src\TlpOSModuleAttestation.pas',
   TlpICompliancePolicy in '..\..\src\TlpICompliancePolicy.pas',
+  TlpIComplianceCredentialResolver in '..\..\src\TlpIComplianceCredentialResolver.pas',
+  TlpComplianceCredentialResolver in '..\..\src\TlpComplianceCredentialResolver.pas',
   TlpCompliancePolicy in '..\..\src\TlpCompliancePolicy.pas',
   TlpComplianceTls in '..\..\src\TlpComplianceTls.pas';
 
