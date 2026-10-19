@@ -1,0 +1,89 @@
+.github/workflows/ci/os-build-info.ps1
+  s_f2c9bd75607afc::t_08eb245af7666c 5-6
+TlsLib.Crypto.System/src/TlpICryptoBackendReport.pas
+  s_f2c9bd75607afc::t_075fd66a2f02dd 43,49-54
+  s_f2c9bd75607afc::t_5a2a5eafc6c5c1 34
+  s_f2c9bd75607afc::t_af2fdac3df1326 20
+TlsLib.Crypto.System/src/TlpSystemCryptoBase.pas
+  s_f2c9bd75607afc::t_191a1c481064e1 526-528,530-535,537-541
+  s_f2c9bd75607afc::t_4694992b02f41d 24
+  s_f2c9bd75607afc::t_ed27232793339c 181-182
+  s_f2c9bd75607afc::t_547d4f80a2960e 443
+  s_f2c9bd75607afc::t_f02110abd2a62f 271
+  s_f2c9bd75607afc::t_6165d91d3d8190 256-262,270
+  s_f2c9bd75607afc::t_a672c2afef2600 536
+  s_f2c9bd75607afc::t_e638e63537920a 269
+  s_f2c9bd75607afc::t_bee730c59e2126 446,448,450
+  s_f2c9bd75607afc::t_3b45e55b132c7a 440-442,444-445,447,449,451-452
+  s_f2c9bd75607afc::t_7d966c2d925ca4 92,94-96
+  s_f2c9bd75607afc::t_d7848b2c96b5c4 163-167
+  s_f2c9bd75607afc::t_677f5593a60b19 71-72
+  s_f2c9bd75607afc::t_a29d4aea4946ac 93
+  s_f2c9bd75607afc::t_8dc2c76fc2a7d3 529
+TlsLib.Tests/src/SystemCryptoHelperTests.pas
+  s_f2c9bd75607afc::t_89cd6d1584e810 33,35-37,472
+  s_f2c9bd75607afc::t_afa6d79a642b2f 1982-2018
+  s_f2c9bd75607afc::t_f6047dcad5d142 347-366
+  s_f2c9bd75607afc::t_5193cb86666354 2104-2113
+  s_f2c9bd75607afc::t_7c2d31b4300cdf 2208-2303
+  s_f2c9bd75607afc::t_9a0e4207610cda 337
+  s_f2c9bd75607afc::t_3aff17aff5b7b2 2323
+  s_f2c9bd75607afc::t_33d4f791b75421 450-461,464-471
+  s_f2c9bd75607afc::t_7603da231a7537 2314
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_433310f2167609 1070,1074
+  s_f2c9bd75607afc::t_84b99483a0c59b 4044
+  s_f2c9bd75607afc::t_b36963967ad20b 2981
+  s_f2c9bd75607afc::t_c8f19977b05a51 4037,4042
+  s_f2c9bd75607afc::t_cda1ead4b7e395 2964-2971
+  s_f2c9bd75607afc::t_69dac49b04d5f6 1082
+  s_f2c9bd75607afc::t_add096d1e6b3c1 2807,2813
+  s_f2c9bd75607afc::t_74da98c18fd344 4022
+  s_f2c9bd75607afc::t_7b745542ee6ab4 4050
+  s_f2c9bd75607afc::t_cd46fe0ef165fa 2883-2893
+TlsLib.Crypto.System/src/TlpSystemCryptoTypes.pas
+  s_f2c9bd75607afc::t_6f2b4e8c96b891 39-40
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_02bff2cb293be3 317
+  s_f2c9bd75607afc::t_750ebffd5aec54 89
+  s_f2c9bd75607afc::t_a084d4d9ba8b54 545
+  s_f2c9bd75607afc::t_eaecae6aea8185 4953-4961
+  s_f2c9bd75607afc::t_ef9120d77f8b24 2826-2836
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_63f5a9268546e5 237-246
+  s_f2c9bd75607afc::t_841d50d585165e 1037-1038,1046-1133
+  s_f2c9bd75607afc::t_51d0eb95bc211d 174-176,1134-1135,1854
+  s_f2c9bd75607afc::t_a2e58e5804eb90 1855-1884
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_d49472c249ac5b 232-237
+  s_f2c9bd75607afc::t_f3e27a53bc8f08 57-58
+  s_f2c9bd75607afc::t_9cdb0ae7831427 71
+SECURITY.md
+  s_f2c9bd75607afc::t_ce44d30a5e9f78 60
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_f029e58790f2e4 91
+  s_f2c9bd75607afc::t_fefe9b162bcbd5 361-362
+  s_f2c9bd75607afc::t_7815b048cde2d0 80
+  s_f2c9bd75607afc::t_1c8d418ef9e047 312-313,315,376-377,379
+TlsLib.Crypto.System/src/TlpSystemCryptoStrictness.pas
+  s_f2c9bd75607afc::t_275fcd0a9286a7 182-183
+  s_f2c9bd75607afc::t_045a8cd3a8921c 180
+docs/cookbook.md
+  s_f2c9bd75607afc::t_8d2c425c07cd01 1015-1016
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dbcf77d910d748fa184f98b89d0a6791bf2e4284",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
