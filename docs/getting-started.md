@@ -1,6 +1,6 @@
 # Getting started
 
-**TlsLib4Pascal docs** · [Home](README.md) · Getting started · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
+**TlsLib4Pascal docs** · [Home](README.md) · Getting started · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Compliance](compliance.md) · [Security model](security-model.md)
 
 This gets you from an empty project to a working, fully-verified TLS connection — a client and a
 server — in a few minutes, on either Delphi or FPC/Lazarus. Every snippet here compiles on **both**
@@ -29,6 +29,7 @@ Add an **optional** package only when you use its feature:
 | Verify against the OS root store | `TlsLib.Trust.System` |
 | An offline PEM CA bundle (loader) | `TlsLib.Trust.Bundle` |
 | OS-native crypto primitives for the handshake | `TlsLib.Crypto.System` |
+| A FIPS / CNSA policy over the OS crypto module | `TlsLib.Compliance` (needs `TlsLib.Crypto.System` and `TlsLib.Trust.System`) |
 | Live OCSP/CRL over real sockets | the `TlpSocketHttpFetcher` unit (package `TlsLib.Net`) |
 | A TCP client or listener to run a `TTlsConnection` over | the `TlpNetSocket` unit (package `TlsLib.Net`) |
 | An ECH config list from a DNS HTTPS/SVCB record | the `TlpEchConfigFromSvcb` unit (package `TlsLib.Net`) |

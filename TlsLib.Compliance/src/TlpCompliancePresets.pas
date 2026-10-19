@@ -33,8 +33,6 @@ type
     /// <summary>The approved algorithms of the validated OS module, classical key exchange
     /// only.</summary>
     class function Fips140_3: TComplianceRules; static;
-    /// <summary>Fips140_3 plus the P-256 hybrid group, admitted only classical leg first.</summary>
-    class function Fips140_3WithHybrid: TComplianceRules; static;
     /// <summary>The CNSA 1.0 suite (RFC 9151): AES-256, P-384, SHA-384, RSA 3072..4096.</summary>
     class function Cnsa1: TComplianceRules; static;
     /// <summary>The named presets, most specific first, so a match names the tightest.</summary>
@@ -58,7 +56,6 @@ begin
   Result.Aeads := [TAeadAlgorithm.AES_128_GCM, TAeadAlgorithm.AES_256_GCM];
   Result.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1);
-  Result.HybridRules := nil;
   Result.SignatureSchemes := [TSignatureScheme.ECDSA_SECP256R1_SHA256,
     TSignatureScheme.ECDSA_SECP384R1_SHA384, TSignatureScheme.ECDSA_SECP521R1_SHA512,
     TSignatureScheme.RSA_PSS_RSAE_SHA256, TSignatureScheme.RSA_PSS_RSAE_SHA384,
@@ -75,16 +72,6 @@ begin
   Result.ModuleStandard := TModuleStandard.Fips140_3;
 end;
 
-class function TCompliancePresets.Fips140_3WithHybrid: TComplianceRules;
-begin
-  Result := Fips140_3;
-  Result.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.SecP256r1MlKem768,
-    TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1);
-  Result.HybridRules := TArray<THybridRule>.Create(
-    THybridRule.Create(TNamedGroupCatalog.SecP256r1MlKem768, TNamedGroupCatalog.Secp256r1,
-    True));
-end;
-
 class function TCompliancePresets.Cnsa1: TComplianceRules;
 begin
   Result := Default(TComplianceRules);
@@ -93,7 +80,6 @@ begin
     TCipherSuites12.EcdheEcdsaAes256GcmSha384, TCipherSuites12.EcdheRsaAes256GcmSha384);
   Result.Aeads := [TAeadAlgorithm.AES_256_GCM];
   Result.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
-  Result.HybridRules := nil;
   Result.SignatureSchemes := [TSignatureScheme.ECDSA_SECP384R1_SHA384,
     TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PKCS1_SHA384];
   Result.Strength.MinRsaModulusBits := 3072;
@@ -109,13 +95,11 @@ end;
 class function TCompliancePresets.Named: TArray<TCompliancePreset>;
 begin
   Result := nil;
-  SetLength(Result, 3);
+  SetLength(Result, 2);
   Result[0].Name := 'Cnsa1';
   Result[0].Rules := Cnsa1;
   Result[1].Name := 'Fips140_3';
   Result[1].Rules := Fips140_3;
-  Result[2].Name := 'Fips140_3WithHybrid';
-  Result[2].Rules := Fips140_3WithHybrid;
 end;
 
 class function TCompliancePresets.TryMatch(const ARules: TComplianceRules;

@@ -28,7 +28,14 @@ uses
   TlpSystemCryptoTypes,
   TlpSystemCryptoBase,
   TlpComplianceTypes,
-  TlpIModuleAttestation;
+  TlpIModuleAttestation,
+  TlpArrayUtilities,
+  TlpICertificateTrust,
+  TlpICertificateVerifierSource,
+  TlpTrustPolicy,
+  TlpISystemVerifierSource,
+  TlpTlsLibExceptions,
+  TlsLibTestProviders;
 
 type
   /// <summary>An <see cref="IModuleAttestation" /> that answers a fixed status and identity, so a
@@ -63,16 +70,19 @@ type
     function Describe: string; override;
   end;
 
-  /// <summary>A signing key that reports fixed schemes and has no key material; it carries no OS
-  /// marker, as a key the portable facet imported.</summary>
+  /// <summary>A signing key that reports fixed schemes and a fixed public key, and has no
+  /// private key material; it carries no OS marker, as a key the portable facet imported.</summary>
   TFakeSigningKey = class(TInterfacedObject, ISigningKey)
   strict private
   var
     FSchemes: TArray<TSignatureScheme>;
+    FPublicKeyInfo: TBytes;
   strict protected
     function Narrowed(const ASchemes: TArray<TSignatureScheme>): ISigningKey; virtual;
   public
-    constructor Create(const ASchemes: TArray<TSignatureScheme>);
+    constructor Create(const ASchemes: TArray<TSignatureScheme>); overload;
+    constructor Create(const ASchemes: TArray<TSignatureScheme>;
+      const APublicKeyInfo: TBytes); overload;
     function CapableSchemes: TArray<TSignatureScheme>;
     function PublicKeyInfo: TBytes;
     function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
@@ -122,6 +132,18 @@ type
       const APublicKeyDer: TBytes): ISignatureVerifier;
   end;
 
+  /// <summary>A verifier source that carries the OS marker and builds no verifier, so a config
+  /// can hold one on any host; a connection that asks it for a verifier fails. Never for
+  /// production use.</summary>
+  TFakeSystemVerifierSource = class sealed(TInterfacedObject,
+    IServerCertificateVerifierSource, IClientCertificateVerifierSource, ISystemVerifierSource)
+  public
+    function CreateServerVerifier(const AContext: TServerTrustContext)
+      : IServerCertificateVerifier;
+    function CreateClientVerifier(const AContext: TClientTrustContext)
+      : IClientCertificateVerifier;
+  end;
+
   TComplianceFakes = class sealed(TObject)
   public
     /// <summary>A provider over the portable one that reports AReport and, when ASigning is not
@@ -132,9 +154,8 @@ type
 
 implementation
 
-uses
-  TlpArrayUtilities,
-  TlsLibTestProviders;
+resourcestring
+  SFakeVerifierAsked = 'the fake system verifier source builds no verifier';
 
 { TFakeModuleAttestation }
 
@@ -212,13 +233,20 @@ end;
 
 constructor TFakeSigningKey.Create(const ASchemes: TArray<TSignatureScheme>);
 begin
+  Create(ASchemes, nil);
+end;
+
+constructor TFakeSigningKey.Create(const ASchemes: TArray<TSignatureScheme>;
+  const APublicKeyInfo: TBytes);
+begin
   inherited Create;
   FSchemes := ASchemes;
+  FPublicKeyInfo := APublicKeyInfo;
 end;
 
 function TFakeSigningKey.Narrowed(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
 begin
-  Result := TFakeSigningKey.Create(ASchemes) as ISigningKey;
+  Result := TFakeSigningKey.Create(ASchemes, FPublicKeyInfo) as ISigningKey;
 end;
 
 function TFakeSigningKey.CapableSchemes: TArray<TSignatureScheme>;
@@ -228,7 +256,7 @@ end;
 
 function TFakeSigningKey.PublicKeyInfo: TBytes;
 begin
-  Result := nil;
+  Result := FPublicKeyInfo;
 end;
 
 function TFakeSigningKey.WithPreferredSchemes(
@@ -250,7 +278,7 @@ end;
 
 function TFakeSystemSigningKey.Narrowed(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
 begin
-  Result := TFakeSystemSigningKey.Create(ASchemes) as ISigningKey;
+  Result := TFakeSystemSigningKey.Create(ASchemes, PublicKeyInfo) as ISigningKey;
 end;
 
 { TFakeSigner }
@@ -310,6 +338,20 @@ begin
     Result := TFakeSystemVerifier.Create as ISignatureVerifier
   else
     Result := TFakeVerifier.Create as ISignatureVerifier;
+end;
+
+{ TFakeSystemVerifierSource }
+
+function TFakeSystemVerifierSource.CreateServerVerifier(const AContext: TServerTrustContext)
+  : IServerCertificateVerifier;
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
+end;
+
+function TFakeSystemVerifierSource.CreateClientVerifier(const AContext: TClientTrustContext)
+  : IClientCertificateVerifier;
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
 end;
 
 { TComplianceFakes }

@@ -25,7 +25,7 @@ package TlsLib.Compliance;
 {$IMAGEBASE $400000}
 {$DEFINE RELEASE}
 {$ENDIF IMPLICITBUILDING}
-{$DESCRIPTION 'Optional FIPS 140-3 / CNSA policy over the OS crypto module for TlsLib4Pascal'}
+{$DESCRIPTION 'Optional FIPS / CNSA policy over the OS crypto module for TlsLib4Pascal'}
 {$RUNONLY}
 {$IMPLICITBUILD ON}
 
@@ -43,6 +43,11 @@ contains
   TlpCompliancePresets in '..\..\src\TlpCompliancePresets.pas',
   TlpComplianceReport in '..\..\src\TlpComplianceReport.pas',
   TlpComplianceCryptoProvider in '..\..\src\TlpComplianceCryptoProvider.pas',
-  TlpCompliancePkixProvider in '..\..\src\TlpCompliancePkixProvider.pas';
+  TlpCompliancePkixProvider in '..\..\src\TlpCompliancePkixProvider.pas',
+  TlpWindowsModuleAttestation in '..\..\src\TlpWindowsModuleAttestation.pas',
+  TlpOSModuleAttestation in '..\..\src\TlpOSModuleAttestation.pas',
+  TlpICompliancePolicy in '..\..\src\TlpICompliancePolicy.pas',
+  TlpCompliancePolicy in '..\..\src\TlpCompliancePolicy.pas',
+  TlpComplianceTls in '..\..\src\TlpComplianceTls.pas';
 
 end.

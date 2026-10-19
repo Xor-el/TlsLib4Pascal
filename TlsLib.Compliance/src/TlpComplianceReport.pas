@@ -18,7 +18,8 @@ interface
 uses
   SysUtils,
   TlpComplianceTypes,
-  TlpIComplianceReport;
+  TlpIComplianceReport,
+  TlpEnumUtilities;
 
 type
   /// <summary>The immutable report: Compliant only when a named preset contains the rules and
@@ -47,9 +48,6 @@ type
   end;
 
 implementation
-
-uses
-  TlpEnumUtilities;
 
 { TComplianceReport }
 

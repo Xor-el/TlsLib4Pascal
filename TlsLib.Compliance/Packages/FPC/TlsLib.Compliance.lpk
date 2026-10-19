@@ -18,10 +18,10 @@
         </Optimizations>
       </CodeGeneration>
     </CompilerOptions>
-    <Description Value="Optional FIPS 140-3 / CNSA policy over the OS crypto module for TlsLib4Pascal"/>
+    <Description Value="Optional FIPS / CNSA policy over the OS crypto module for TlsLib4Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="8">
+    <Files Count="13">
       <Item1>
         <Filename Value="..\..\src\TlpComplianceTypes.pas"/>
         <UnitName Value="TlpComplianceTypes"/>
@@ -54,6 +54,26 @@
         <Filename Value="..\..\src\TlpCompliancePkixProvider.pas"/>
         <UnitName Value="TlpCompliancePkixProvider"/>
       </Item8>
+      <Item9>
+        <Filename Value="..\..\src\TlpWindowsModuleAttestation.pas"/>
+        <UnitName Value="TlpWindowsModuleAttestation"/>
+      </Item9>
+      <Item10>
+        <Filename Value="..\..\src\TlpOSModuleAttestation.pas"/>
+        <UnitName Value="TlpOSModuleAttestation"/>
+      </Item10>
+      <Item11>
+        <Filename Value="..\..\src\TlpICompliancePolicy.pas"/>
+        <UnitName Value="TlpICompliancePolicy"/>
+      </Item11>
+      <Item12>
+        <Filename Value="..\..\src\TlpCompliancePolicy.pas"/>
+        <UnitName Value="TlpCompliancePolicy"/>
+      </Item12>
+      <Item13>
+        <Filename Value="..\..\src\TlpComplianceTls.pas"/>
+        <UnitName Value="TlpComplianceTls"/>
+      </Item13>
     </Files>
     <RequiredPkgs Count="4">
       <Item1>

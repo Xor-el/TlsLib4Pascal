@@ -104,6 +104,8 @@ uses
   MockCompliance,
   ComplianceRulesTests,
   ComplianceProviderTests,
+  CompliancePolicyTests,
+  ComplianceLoopbackTests,
   AppleAlertMapTests,
   RootGenKeyingTests,
   EchToolingTests,

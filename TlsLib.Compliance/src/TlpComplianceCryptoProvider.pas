@@ -27,9 +27,18 @@ uses
   TlpISystemSignatureVerifier,
   TlpSystemCryptoBase,
   TlpComplianceTypes,
-  TlpComplianceExceptions;
+  TlpComplianceExceptions,
+  TlpArrayUtilities,
+  TlpEnumUtilities,
+  TlpTlsLibExceptions;
 
 type
+  /// <summary>The report of a provider with none: every operation answers portable.</summary>
+  TPortableOnlyReport = class sealed(TSystemBackendReportBase)
+  public
+    function Describe: string; override;
+  end;
+
   /// <summary>
   /// A primitives decorator that refuses every algorithm outside the rules (in both modes), every
   /// key encapsulation, and, in strict mode, every algorithm the backend report does not place
@@ -103,11 +112,6 @@ type
 
 implementation
 
-uses
-  TlpArrayUtilities,
-  TlpEnumUtilities,
-  TlpTlsLibExceptions;
-
 resourcestring
   SAlgorithmRefused = 'the %s is not allowed by the compliance rules';
   SAlgorithmOutsideModule = 'the %s does not run in the OS crypto module';
@@ -122,12 +126,6 @@ const
   PlainMasterSecretLabel = 'master secret';
 
 type
-  /// <summary>The report of a provider with none: every operation answers portable.</summary>
-  TPortableOnlyReport = class sealed(TSystemBackendReportBase)
-  public
-    function Describe: string; override;
-  end;
-
   /// <summary>A TLS 1.2 PRF that refuses the plain master secret label (RFC 5246 8.1), so a
   /// session without Extended Master Secret (RFC 7627) can never be keyed.</summary>
   TComplianceTls12Prf = class sealed(TInterfacedObject, ITls12Prf)

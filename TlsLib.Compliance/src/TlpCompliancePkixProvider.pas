@@ -21,7 +21,8 @@ uses
   TlpIPkixProvider,
   TlpITrustAnchorStore,
   TlpComplianceTypes,
-  TlpComplianceExceptions;
+  TlpComplianceExceptions,
+  TlpTlsLibExceptions;
 
 type
   /// <summary>
@@ -90,9 +91,6 @@ type
   end;
 
 implementation
-
-uses
-  TlpTlsLibExceptions;
 
 resourcestring
   SChainOutsideModule = 'certificate path validation runs outside the OS crypto module';

@@ -606,6 +606,8 @@
         <DCCReference Include="..\src\MockCompliance.pas"/>
         <DCCReference Include="..\src\ComplianceRulesTests.pas"/>
         <DCCReference Include="..\src\ComplianceProviderTests.pas"/>
+        <DCCReference Include="..\src\CompliancePolicyTests.pas"/>
+        <DCCReference Include="..\src\ComplianceLoopbackTests.pas"/>
         <DCCReference Include="..\src\AppleAlertMapTests.pas"/>
         <DCCReference Include="..\src\RootGenKeyingTests.pas"/>
         <DCCReference Include="..\src\EchToolingTests.pas"/>

@@ -50,7 +50,7 @@ type
     procedure TestFips140_3Versions;
     procedure TestFips140_3CipherSuites;
     procedure TestFips140_3Aeads;
-    procedure TestFips140_3NamedGroupsAndNoHybrid;
+    procedure TestFips140_3NamedGroups;
     procedure TestFips140_3SignatureSchemes;
     procedure TestFips140_3Strength;
     procedure TestFips140_3RequirementsAndKdf;
@@ -60,18 +60,13 @@ type
     procedure TestCnsa1Strength;
     procedure TestCnsa1RequirementsAndKdf;
     procedure TestCnsa1IsSubsetOfFips140_3;
-    procedure TestFips140_3IsSubsetOfWithHybrid;
-    procedure TestWithHybridIsNotSubsetOfFips140_3;
-    procedure TestWithHybridOnlyAdds11EBClassicalFirst;
-    procedure TestHybridRuleFields;
+    procedure TestFips140_3IsNotSubsetOfCnsa1;
     procedure TestNamedListsMostSpecificFirst;
     procedure TestTryMatchNamesCnsa1;
     procedure TestTryMatchNamesFips140_3;
-    procedure TestTryMatchNamesFips140_3WithHybrid;
     procedure TestTryMatchNamesTightestForNarrowerRules;
     procedure TestHandBuiltWithEd25519NotSubsetOfAnyPreset;
     procedure TestTryMatchClearsNameOnMiss;
-    procedure TestHybridRuleEqualComparesEveryField;
   end;
 
   TTestComplianceRules = class(TTlsLibAlgorithmTestCase)
@@ -105,15 +100,10 @@ type
     procedure TestIntersectKdfRequireModuleWinsFromB;
     procedure TestIntersectKdfBothComposedStaysComposed;
     procedure TestIntersectKeepsModuleStandard;
-    procedure TestIntersectDropsHybridWithoutRuleInB;
-    procedure TestIntersectDropsHybridWhoseRuleDiffers;
-    procedure TestIntersectKeepsHybridWithEqualRule;
     procedure TestIntersectDoesNotShareArraysWithOperands;
     procedure TestSubsetExtraVersion;
     procedure TestSubsetExtraCipherSuite;
     procedure TestSubsetExtraNamedGroup;
-    procedure TestSubsetHybridRuleMissingInOther;
-    procedure TestSubsetHybridRuleDiffersInOther;
     procedure TestSubsetExtraAead;
     procedure TestSubsetExtraScheme;
     procedure TestSubsetMinBitsBoundary;
@@ -133,10 +123,9 @@ type
     procedure TestCloneDoesNotShareVersions;
     procedure TestCloneDoesNotShareCipherSuites;
     procedure TestCloneDoesNotShareNamedGroups;
-    procedure TestCloneDoesNotShareHybridRules;
     procedure TestCloneDoesNotShareCurves;
     procedure TestDescribeCnsa1ListsEveryField;
-    procedure TestDescribeNamesHybridRule;
+    procedure TestDescribeNamesGroupsInOrder;
   end;
 
   TTestComplianceCatalog = class(TTlsLibAlgorithmTestCase)
@@ -145,13 +134,10 @@ type
     procedure TestTryKeyAgreementRejectsHybridAndKem;
     procedure TestSchemeHashPerScheme;
     procedure TestKeyAgreementsFips140_3;
-    procedure TestKeyAgreementsWithHybridAddsNothing;
     procedure TestKeyAgreementsCnsa1;
     procedure TestKeyAgreementsIncludesX25519Group;
-    procedure TestKeyAgreementsIncludesHybridClassicalGroup;
-    procedure TestKemAllowedFalseWithoutHybrid;
-    procedure TestKemAllowedTrueWithHybrid;
-    procedure TestKemAllowedFalseWhenRuleCodeNotAGroup;
+    procedure TestKeyAgreementsIgnoreNonClassicalGroup;
+    procedure TestIsSubsetOfListBoundaries;
     procedure TestStrengthWithinEqualFloors;
     procedure TestStrengthWithinLowerMinFails;
     procedure TestKeyMeetsRsaMinBoundary;
@@ -226,14 +212,10 @@ begin
     [TAeadAlgorithm.AES_128_GCM, TAeadAlgorithm.AES_256_GCM], 'AES-GCM only, no ChaCha');
 end;
 
-procedure TTestCompliancePresets.TestFips140_3NamedGroupsAndNoHybrid;
-var
-  LRules: TComplianceRules;
+procedure TTestCompliancePresets.TestFips140_3NamedGroups;
 begin
-  LRules := TCompliancePresets.Fips140_3;
   CheckCodes([TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.Secp384r1,
-    TNamedGroupCatalog.Secp521r1], LRules.NamedGroups, 'groups');
-  CheckEquals(0, System.Length(LRules.HybridRules), 'no hybrid rule');
+    TNamedGroupCatalog.Secp521r1], TCompliancePresets.Fips140_3.NamedGroups, 'groups');
 end;
 
 procedure TTestCompliancePresets.TestFips140_3SignatureSchemes;
@@ -295,7 +277,6 @@ var
 begin
   LRules := TCompliancePresets.Cnsa1;
   CheckCodes([TNamedGroupCatalog.Secp384r1], LRules.NamedGroups, 'groups');
-  CheckEquals(0, System.Length(LRules.HybridRules), 'no hybrid rule');
   CheckTrue(LRules.SignatureSchemes = [TSignatureScheme.ECDSA_SECP384R1_SHA384,
     TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PKCS1_SHA384],
     'SHA-384 schemes only');
@@ -330,40 +311,10 @@ begin
     'Cnsa1 narrows Fips140_3');
 end;
 
-procedure TTestCompliancePresets.TestFips140_3IsSubsetOfWithHybrid;
+procedure TTestCompliancePresets.TestFips140_3IsNotSubsetOfCnsa1;
 begin
-  CheckTrue(TCompliancePresets.Fips140_3.IsSubsetOf(TCompliancePresets.Fips140_3WithHybrid),
-    'Fips140_3 fits inside the hybrid preset');
-end;
-
-procedure TTestCompliancePresets.TestWithHybridIsNotSubsetOfFips140_3;
-begin
-  CheckFalse(TCompliancePresets.Fips140_3WithHybrid.IsSubsetOf(TCompliancePresets.Fips140_3),
-    'the hybrid group is outside Fips140_3');
-end;
-
-procedure TTestCompliancePresets.TestWithHybridOnlyAdds11EBClassicalFirst;
-var
-  LHybrid, LStripped: TComplianceRules;
-begin
-  LHybrid := TCompliancePresets.Fips140_3WithHybrid;
-  CheckEquals(4, System.Length(LHybrid.NamedGroups), 'one group added');
-  CheckEquals(TNamedGroupCatalog.SecP256r1MlKem768, LHybrid.NamedGroups[0], 'hybrid first');
-  CheckEquals(1, System.Length(LHybrid.HybridRules), 'one rule');
-  LStripped := LHybrid.Clone;
-  LStripped.NamedGroups := TCompliancePresets.Fips140_3.NamedGroups;
-  LStripped.HybridRules := nil;
-  CheckTrue(LStripped = TCompliancePresets.Fips140_3, 'nothing else differs from Fips140_3');
-end;
-
-procedure TTestCompliancePresets.TestHybridRuleFields;
-var
-  LRule: THybridRule;
-begin
-  LRule := TCompliancePresets.Fips140_3WithHybrid.HybridRules[0];
-  CheckEquals(TNamedGroupCatalog.SecP256r1MlKem768, LRule.Code, 'code');
-  CheckEquals(TNamedGroupCatalog.Secp256r1, LRule.ClassicalGroup, 'classical group');
-  CheckTrue(LRule.ClassicalLegFirst, 'classical first');
+  CheckFalse(TCompliancePresets.Fips140_3.IsSubsetOf(TCompliancePresets.Cnsa1),
+    'Cnsa1 is the narrower preset');
 end;
 
 procedure TTestCompliancePresets.TestNamedListsMostSpecificFirst;
@@ -371,13 +322,11 @@ var
   LNamed: TArray<TCompliancePreset>;
 begin
   LNamed := TCompliancePresets.Named;
-  CheckEquals(3, System.Length(LNamed), 'three presets');
+  CheckEquals(2, System.Length(LNamed), 'two presets');
   CheckEquals('Cnsa1', LNamed[0].Name, 'first');
   CheckEquals('Fips140_3', LNamed[1].Name, 'second');
-  CheckEquals('Fips140_3WithHybrid', LNamed[2].Name, 'third');
   CheckTrue(LNamed[0].Rules = TCompliancePresets.Cnsa1, 'Cnsa1 rules');
   CheckTrue(LNamed[1].Rules = TCompliancePresets.Fips140_3, 'Fips140_3 rules');
-  CheckTrue(LNamed[2].Rules = TCompliancePresets.Fips140_3WithHybrid, 'hybrid rules');
 end;
 
 procedure TTestCompliancePresets.TestTryMatchNamesCnsa1;
@@ -393,16 +342,7 @@ var
   LName: string;
 begin
   CheckTrue(TCompliancePresets.TryMatch(TCompliancePresets.Fips140_3, LName), 'matches');
-  CheckEquals('Fips140_3', LName, 'not the wider hybrid preset');
-end;
-
-procedure TTestCompliancePresets.TestTryMatchNamesFips140_3WithHybrid;
-var
-  LName: string;
-begin
-  CheckTrue(TCompliancePresets.TryMatch(TCompliancePresets.Fips140_3WithHybrid, LName),
-    'matches');
-  CheckEquals('Fips140_3WithHybrid', LName, 'only the hybrid preset holds it');
+  CheckEquals('Fips140_3', LName, 'not the narrower Cnsa1');
 end;
 
 procedure TTestCompliancePresets.TestTryMatchNamesTightestForNarrowerRules;
@@ -439,26 +379,6 @@ begin
   CheckEquals('', LName, 'the out name is cleared');
 end;
 
-procedure TTestCompliancePresets.TestHybridRuleEqualComparesEveryField;
-var
-  LBase, LOther: THybridRule;
-begin
-  LBase := THybridRule.Create(TNamedGroupCatalog.SecP256r1MlKem768,
-    TNamedGroupCatalog.Secp256r1, True);
-  LOther := THybridRule.Create(TNamedGroupCatalog.SecP256r1MlKem768,
-    TNamedGroupCatalog.Secp256r1, True);
-  CheckTrue(LBase = LOther, 'identical rules are equal');
-  LOther := THybridRule.Create(TNamedGroupCatalog.X25519MlKem768,
-    TNamedGroupCatalog.Secp256r1, True);
-  CheckFalse(LBase = LOther, 'code differs');
-  LOther := THybridRule.Create(TNamedGroupCatalog.SecP256r1MlKem768,
-    TNamedGroupCatalog.Secp384r1, True);
-  CheckFalse(LBase = LOther, 'classical group differs');
-  LOther := THybridRule.Create(TNamedGroupCatalog.SecP256r1MlKem768,
-    TNamedGroupCatalog.Secp256r1, False);
-  CheckFalse(LBase = LOther, 'leg order differs');
-end;
-
 { TTestComplianceRules }
 
 procedure TTestComplianceRules.CheckCodes(const AExpected: array of UInt16;
@@ -478,7 +398,7 @@ var
   LResult: TComplianceRules;
 begin
   LNamed := TCompliancePresets.Named;
-  CheckEquals(3, System.Length(LNamed), 'the pairs are not vacuous');
+  CheckEquals(2, System.Length(LNamed), 'the pairs are not vacuous');
   for LA := 0 to System.Length(LNamed) - 1 do
     for LB := 0 to System.Length(LNamed) - 1 do
     begin
@@ -496,7 +416,7 @@ var
   LI: Int32;
 begin
   LNamed := TCompliancePresets.Named;
-  CheckEquals(3, System.Length(LNamed), 'not vacuous');
+  CheckEquals(2, System.Length(LNamed), 'not vacuous');
   for LI := 0 to System.Length(LNamed) - 1 do
     CheckTrue(TComplianceRules.Intersect(LNamed[LI].Rules, LNamed[LI].Rules) =
       LNamed[LI].Rules, LNamed[LI].Name);
@@ -508,7 +428,7 @@ var
   LA, LB: Int32;
 begin
   LNamed := TCompliancePresets.Named;
-  CheckEquals(3, System.Length(LNamed), 'not vacuous');
+  CheckEquals(2, System.Length(LNamed), 'not vacuous');
   for LA := 0 to System.Length(LNamed) - 1 do
     for LB := 0 to System.Length(LNamed) - 1 do
       CheckTrue(TComplianceRules.Intersect(LNamed[LA].Rules, LNamed[LB].Rules) =
@@ -798,43 +718,6 @@ begin
     TCompliancePresets.Cnsa1).ModuleStandard), 'standard');
 end;
 
-procedure TTestComplianceRules.TestIntersectDropsHybridWithoutRuleInB;
-var
-  LB, LResult: TComplianceRules;
-begin
-  LB := TCompliancePresets.Fips140_3WithHybrid;
-  LB.HybridRules := nil;
-  LResult := TComplianceRules.Intersect(TCompliancePresets.Fips140_3WithHybrid, LB);
-  CheckEquals(0, System.Length(LResult.HybridRules), 'no rule survives');
-  CheckCodes([TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.Secp384r1,
-    TNamedGroupCatalog.Secp521r1], LResult.NamedGroups, 'the ruleless hybrid group is dropped');
-  LResult := TComplianceRules.Intersect(LB, TCompliancePresets.Fips140_3WithHybrid);
-  CheckCodes([TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.Secp384r1,
-    TNamedGroupCatalog.Secp521r1], LResult.NamedGroups, 'also when only B holds the rule');
-end;
-
-procedure TTestComplianceRules.TestIntersectDropsHybridWhoseRuleDiffers;
-var
-  LB, LResult: TComplianceRules;
-begin
-  LB := TCompliancePresets.Fips140_3WithHybrid;
-  LB.HybridRules := TArray<THybridRule>.Create(THybridRule.Create(
-    TNamedGroupCatalog.SecP256r1MlKem768, TNamedGroupCatalog.Secp256r1, False));
-  LResult := TComplianceRules.Intersect(TCompliancePresets.Fips140_3WithHybrid, LB);
-  CheckEquals(0, System.Length(LResult.HybridRules), 'a rule that differs is not shared');
-  CheckEquals(3, System.Length(LResult.NamedGroups), 'its group goes with it');
-end;
-
-procedure TTestComplianceRules.TestIntersectKeepsHybridWithEqualRule;
-var
-  LResult: TComplianceRules;
-begin
-  LResult := TComplianceRules.Intersect(TCompliancePresets.Fips140_3WithHybrid,
-    TCompliancePresets.Fips140_3WithHybrid);
-  CheckEquals(1, System.Length(LResult.HybridRules), 'the rule survives');
-  CheckEquals(TNamedGroupCatalog.SecP256r1MlKem768, LResult.NamedGroups[0], 'and its group');
-end;
-
 procedure TTestComplianceRules.TestIntersectDoesNotShareArraysWithOperands;
 var
   LA, LB, LResult: TComplianceRules;
@@ -883,27 +766,6 @@ begin
   LOther.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1);
   CheckFalse(LSelf.IsSubsetOf(LOther), 'extra groups are outside');
   CheckTrue(LOther.IsSubsetOf(LSelf), 'the narrower side fits');
-end;
-
-procedure TTestComplianceRules.TestSubsetHybridRuleMissingInOther;
-var
-  LOther: TComplianceRules;
-begin
-  LOther := TCompliancePresets.Fips140_3WithHybrid;
-  LOther.HybridRules := nil;
-  CheckFalse(TCompliancePresets.Fips140_3WithHybrid.IsSubsetOf(LOther),
-    'a rule the other lacks is outside');
-end;
-
-procedure TTestComplianceRules.TestSubsetHybridRuleDiffersInOther;
-var
-  LOther: TComplianceRules;
-begin
-  LOther := TCompliancePresets.Fips140_3WithHybrid;
-  LOther.HybridRules := TArray<THybridRule>.Create(THybridRule.Create(
-    TNamedGroupCatalog.SecP256r1MlKem768, TNamedGroupCatalog.Secp256r1, False));
-  CheckFalse(TCompliancePresets.Fips140_3WithHybrid.IsSubsetOf(LOther),
-    'an unequal rule is outside');
 end;
 
 procedure TTestComplianceRules.TestSubsetExtraAead;
@@ -1041,7 +903,7 @@ var
   LI: Int32;
 begin
   LNamed := TCompliancePresets.Named;
-  CheckEquals(3, System.Length(LNamed), 'not vacuous');
+  CheckEquals(2, System.Length(LNamed), 'not vacuous');
   for LI := 0 to System.Length(LNamed) - 1 do
     CheckTrue(LNamed[LI].Rules.IsSubsetOf(LNamed[LI].Rules), LNamed[LI].Name);
 end;
@@ -1082,8 +944,8 @@ end;
 
 procedure TTestComplianceRules.TestCloneEqualsOriginal;
 begin
-  CheckTrue(TCompliancePresets.Fips140_3WithHybrid.Clone =
-    TCompliancePresets.Fips140_3WithHybrid, 'a clone is the same rules');
+  CheckTrue(TCompliancePresets.Fips140_3.Clone = TCompliancePresets.Fips140_3,
+    'a clone is the same rules');
 end;
 
 procedure TTestComplianceRules.TestCloneDoesNotShareVersions;
@@ -1116,16 +978,6 @@ begin
   CheckEquals(TNamedGroupCatalog.Secp256r1, LOriginal.NamedGroups[0], 'original untouched');
 end;
 
-procedure TTestComplianceRules.TestCloneDoesNotShareHybridRules;
-var
-  LOriginal, LClone: TComplianceRules;
-begin
-  LOriginal := TCompliancePresets.Fips140_3WithHybrid;
-  LClone := LOriginal.Clone;
-  LClone.HybridRules[0].ClassicalLegFirst := False;
-  CheckTrue(LOriginal.HybridRules[0].ClassicalLegFirst, 'original untouched');
-end;
-
 procedure TTestComplianceRules.TestCloneDoesNotShareCurves;
 var
   LOriginal, LClone: TComplianceRules;
@@ -1145,7 +997,6 @@ const
     'TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384' + sLineBreak +
     'Aeads: AES_256_GCM' + sLineBreak +
     'NamedGroups: secp384r1' + sLineBreak +
-    'HybridRules:' + sLineBreak +
     'SignatureSchemes: ECDSA_SECP384R1_SHA384 RSA_PSS_RSAE_SHA384 RSA_PKCS1_SHA384' +
     sLineBreak +
     'Strength: RsaBits 3072..4096, EdDsa=no, curves: secp384r1' + sLineBreak +
@@ -1157,12 +1008,10 @@ begin
   CheckEquals(Expected, TCompliancePresets.Cnsa1.Describe, 'Cnsa1 description');
 end;
 
-procedure TTestComplianceRules.TestDescribeNamesHybridRule;
+procedure TTestComplianceRules.TestDescribeNamesGroupsInOrder;
 begin
-  CheckTrue(Pos('HybridRules: SecP256r1MLKEM768(classical secp256r1, first=yes)',
-    TCompliancePresets.Fips140_3WithHybrid.Describe) > 0, 'the hybrid rule line');
-  CheckTrue(Pos('NamedGroups: SecP256r1MLKEM768 secp256r1 secp384r1 secp521r1',
-    TCompliancePresets.Fips140_3WithHybrid.Describe) > 0, 'the groups line');
+  CheckTrue(Pos('NamedGroups: secp256r1 secp384r1 secp521r1',
+    TCompliancePresets.Fips140_3.Describe) > 0, 'the groups line');
 end;
 
 { TTestComplianceCatalog }
@@ -1223,13 +1072,6 @@ begin
     TKeyAgreementAlgorithm.SECP521R1], 'the three NIST curves, no X25519');
 end;
 
-procedure TTestComplianceCatalog.TestKeyAgreementsWithHybridAddsNothing;
-begin
-  CheckTrue(TComplianceCatalog.KeyAgreements(TCompliancePresets.Fips140_3WithHybrid) =
-    [TKeyAgreementAlgorithm.SECP256R1, TKeyAgreementAlgorithm.SECP384R1,
-    TKeyAgreementAlgorithm.SECP521R1], 'the hybrid code maps to its classical leg only');
-end;
-
 procedure TTestComplianceCatalog.TestKeyAgreementsCnsa1;
 begin
   CheckTrue(TComplianceCatalog.KeyAgreements(TCompliancePresets.Cnsa1) =
@@ -1246,36 +1088,27 @@ begin
     'a listed X25519 group is called for');
 end;
 
-procedure TTestComplianceCatalog.TestKeyAgreementsIncludesHybridClassicalGroup;
+procedure TTestComplianceCatalog.TestKeyAgreementsIgnoreNonClassicalGroup;
 var
   LRules: TComplianceRules;
 begin
   LRules := TCompliancePresets.Cnsa1;
-  LRules.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768);
-  LRules.HybridRules := TArray<THybridRule>.Create(THybridRule.Create(
-    TNamedGroupCatalog.X25519MlKem768, TNamedGroupCatalog.X25519, True));
-  CheckTrue(TComplianceCatalog.KeyAgreements(LRules) = [TKeyAgreementAlgorithm.X25519],
-    'the rule names X25519 as the classical leg');
+  LRules.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.SecP256r1MlKem768);
+  CheckTrue(TComplianceCatalog.KeyAgreements(LRules) = [], 'a hybrid code calls for nothing');
 end;
 
-procedure TTestComplianceCatalog.TestKemAllowedFalseWithoutHybrid;
+procedure TTestComplianceCatalog.TestIsSubsetOfListBoundaries;
 begin
-  CheckFalse(TComplianceCatalog.KemAllowed(TCompliancePresets.Fips140_3), 'Fips140_3');
-  CheckFalse(TComplianceCatalog.KemAllowed(TCompliancePresets.Cnsa1), 'Cnsa1');
-end;
-
-procedure TTestComplianceCatalog.TestKemAllowedTrueWithHybrid;
-begin
-  CheckTrue(TComplianceCatalog.KemAllowed(TCompliancePresets.Fips140_3WithHybrid), 'hybrid');
-end;
-
-procedure TTestComplianceCatalog.TestKemAllowedFalseWhenRuleCodeNotAGroup;
-var
-  LRules: TComplianceRules;
-begin
-  LRules := TCompliancePresets.Fips140_3WithHybrid;
-  LRules.NamedGroups := TCompliancePresets.Fips140_3.NamedGroups;
-  CheckFalse(TComplianceCatalog.KemAllowed(LRules), 'a rule for an absent group allows no KEM');
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(nil, nil), 'empty in empty');
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(nil, TArray<UInt16>.Create(1)), 'empty in any');
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(TArray<UInt16>.Create(2, 1),
+    TArray<UInt16>.Create(1, 2)), 'order does not count');
+  CheckFalse(TComplianceCatalog.IsSubsetOfList(TArray<UInt16>.Create(1, 3),
+    TArray<UInt16>.Create(1, 2)), 'a missing last entry');
+  CheckFalse(TComplianceCatalog.IsSubsetOfList(TArray<UInt16>.Create(3, 1),
+    TArray<UInt16>.Create(1, 2)), 'a missing first entry');
+  CheckFalse(TComplianceCatalog.IsSubsetOfList(TArray<UInt16>.Create(1), nil),
+    'nothing holds an entry');
 end;
 
 procedure TTestComplianceCatalog.TestStrengthWithinEqualFloors;
@@ -1592,7 +1425,7 @@ const
     TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
     TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
     TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
+    TComplianceFindingCategory.Platform,
     TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
     TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
     TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,

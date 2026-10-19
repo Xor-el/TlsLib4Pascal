@@ -1,6 +1,6 @@
 # Encrypted Client Hello (RFC 9849)
 
-**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · ECH · [Security model](security-model.md)
+**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · ECH · [Compliance](compliance.md) · [Security model](security-model.md)
 
 Encrypted Client Hello (ECH, RFC 9849) hides the parts of the TLS 1.3 `ClientHello` that leak the
 site you are visiting — most importantly the Server Name Indication (SNI). The client sends a

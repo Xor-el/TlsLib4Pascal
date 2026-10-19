@@ -167,6 +167,7 @@ Add one only when you use its feature; the core references none of them:
 | `TlsLib.Trust.System` | OS system-trust harvest + verifier delegate |
 | `TlsLib.Trust.Bundle` | A PEM/DER CA-bundle loader (`FromPem` / `FromPemFile`) |
 | `TlsLib.Crypto.System` | Opt-in OS-native crypto primitives for the handshake |
+| `TlsLib.Compliance` | An optional FIPS / CNSA policy over the OS crypto module (see [docs/compliance.md](docs/compliance.md)) |
 | `TlsLib.Net` | TCP connector/listener, the HTTP/OCSP/CRL fetcher (`TSocketHttpFetcher`), and the DNS/SVCB ECH config helper; the fcl-net adapter requires it |
 | `TlsLib.Adapter.mORMot` / `.Indy` / `.Synapse` / `.FclNet` | Drop-in adapters for those networking stacks |
 

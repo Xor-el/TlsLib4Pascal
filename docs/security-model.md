@@ -1,6 +1,6 @@
 # Security model
 
-**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · Security model
+**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Compliance](compliance.md) · Security model
 
 This document is the map of what TlsLib4Pascal defends against, **where each defense is enforced, and
 how it is tested.** It serves two audiences: users deciding how much to trust the library, and
@@ -97,6 +97,13 @@ one when ECH was accepted). For debugging only — never production.
   presets) offered by the presets and preferred under Hardened and Strict. X25519MLKEM768 is
   interop-verified against OpenSSL 3.5+ and BoringSSL; SecP256r1MLKEM768 against OpenSSL where the
   installed build supports it.
+- **Compliance mode (optional).** The `TlsLib.Compliance` package routes every crypto operation of a
+  policy-built config through refusing providers: an algorithm outside the rules is refused in both
+  enforcement modes, and in strict mode so is one the OS module does not serve. Refusal raises a
+  fatal `internal_error`. Rules are `Compliant` only as a subset of a named preset, and `Admit`
+  checks the non-crypto settings (early data, ECH, PSKs, key log, verification bypass, strength
+  floors, credential keys). It makes no module validation claim of its own; see
+  [compliance.md](compliance.md).
 - **Resumption.** TLS 1.3 resumes with `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
   negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
   only as forward-secret as the session store / ticket-key lifetime. Client-cache tickets are single-use; server tickets are single-use with a session
@@ -151,6 +158,10 @@ These are intentional and documented — flagging them up front so they aren't m
   classical+PQ pair. The observable consequence is an extra HelloRetryRequest when the peer's selected
   group differs — verified to interop (direct and HRR) against OpenSSL 3.5+ / BoringSSL. This is *not*
   BoringSSL's multi-key_share prediction, and the corresponding BoGo cases are disabled by policy.
+- **No cryptographic-module claim.** TlsLib is not a validated module. `TlsLib.Compliance` reports
+  which validated OS module serves the primitives, from a shipped table keyed on the OS build, and
+  refuses a build the table does not list; the key derivations stay composed outside the module
+  and are disclosed.
 - **Augment-only custom verification** (vs the rustls/.NET "replace validation" model) — a callback can
   only tighten, never loosen.
 - **A cipher list narrows, and a host's list is read by exact name only.** A cipher list

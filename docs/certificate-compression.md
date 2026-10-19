@@ -1,6 +1,6 @@
 # Certificate compression (RFC 8879)
 
-**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · Compression · [ECH](ech.md) · [Security model](security-model.md)
+**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · Compression · [ECH](ech.md) · [Compliance](compliance.md) · [Security model](security-model.md)
 
 TlsLib4Pascal supports TLS 1.3 certificate compression (`compress_certificate`, RFC 8879) in both
 directions of a handshake and in both roles. An endpoint advertises the algorithms it can

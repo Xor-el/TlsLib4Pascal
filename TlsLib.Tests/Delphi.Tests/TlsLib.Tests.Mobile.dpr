@@ -263,6 +263,8 @@ uses
   MockCompliance in '..\src\MockCompliance.pas',
   ComplianceRulesTests in '..\src\ComplianceRulesTests.pas',
   ComplianceProviderTests in '..\src\ComplianceProviderTests.pas',
+  CompliancePolicyTests in '..\src\CompliancePolicyTests.pas',
+  ComplianceLoopbackTests in '..\src\ComplianceLoopbackTests.pas',
   AppleAlertMapTests in '..\src\AppleAlertMapTests.pas',
   RootGenKeyingTests in '..\src\RootGenKeyingTests.pas',
   EchToolingTests in '..\src\EchToolingTests.pas',

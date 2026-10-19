@@ -1,6 +1,6 @@
 # Cookbook
 
-**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · Cookbook · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Security model](security-model.md)
+**TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · Cookbook · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Compliance](compliance.md) · [Security model](security-model.md)
 
 Task-oriented recipes. Each is self-contained — copy one without reading the rest. Throughout, `Crypto`
 is an `ICryptoProvider` and `Pkix` an `IPkixProvider` (`TDefaultCryptoProvider.Create as ICryptoProvider`
@@ -36,6 +36,7 @@ Read [Getting started](getting-started.md) first.
 - [Cap the inbound record size](#cap-the-inbound-record-size)
 - [Turn off GREASE](#turn-off-grease)
 - [Use the OS-native crypto overlay](#use-the-os-native-crypto-overlay)
+- [Run under a FIPS or CNSA policy](#run-under-a-fips-or-cnsa-policy)
 - [The dangerous surface (dev only)](#the-dangerous-surface-dev-only)
 
 ---
@@ -1001,6 +1002,35 @@ entries (`NativeNamedGroups`, `NativeCipherSuites`, `NativeSignatureSchemes`) or
 `ESystemCryptoRequirementTlsLibException` listing what is missing). A narrowed signature registry
 governs what the endpoint advertises and accepts; a server's own signatures follow its credential
 key, so a server accepts a narrowed registry only together with `WithPeerAuth`.
+
+## Run under a FIPS or CNSA policy
+
+The optional `TlsLib.Compliance` package routes every crypto operation to the OS cryptographic
+module and refuses the rest. `Strict` raises when the platform is not a validated build;
+`Relaxed` reports instead. Load the credential through `Policy.Crypto`, and build through
+`TComplianceTls` so the frozen config is checked by `Admit`. What this claims, and what it does not,
+is in [compliance.md](compliance.md).
+
+```pascal
+uses TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider, TlpIPkixProvider,
+  TlpOSCryptoProvider, TlpTlsCredential, TlpITlsConfig, TlpComplianceTypes, TlpCompliancePresets,
+  TlpICompliancePolicy, TlpCompliancePolicy, TlpOSModuleAttestation, TlpComplianceTls;
+
+var
+  Policy: ICompliancePolicy;
+  Client: ITlsClientConfig;
+  Server: ITlsServerConfig;
+begin
+  Policy := TCompliancePolicy.Create(TCompliancePresets.Cnsa1,
+    TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider),
+    TDefaultPkixProvider.Create as IPkixProvider, TOSModuleAttestation.Current,
+    TComplianceEnforcement.Strict);          // raises on a build the table does not validate
+  WriteLn(Policy.PlatformReport.Describe);
+  Client := TComplianceTls.BuildClient(Policy, TComplianceTls.Client(Policy));
+  Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy,
+    TTlsCredential.Load(Policy.Crypto, Policy.Pkix, ChainPem, KeyPem)));
+end;
+```
 
 ## The dangerous surface (dev only)
 

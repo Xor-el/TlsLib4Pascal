@@ -21,7 +21,11 @@ uses
   TlpNegotiationTypes,
   TlpTlsVersion,
   TlpPkixDomainTypes,
-  TlpCertificateStrengthPolicy;
+  TlpCertificateStrengthPolicy,
+  TlpArrayUtilities,
+  TlpEnumUtilities,
+  TlpCipherSuiteCatalog,
+  TlpTlsLibExceptions;
 
 type
   /// <summary>The standard a cryptographic module is attested against.</summary>
@@ -53,17 +57,6 @@ type
 
   TComplianceKeyAgreementSet = set of TKeyAgreementAlgorithm;
 
-  /// <summary>A hybrid group admitted only when its approved classical secret comes first
-  /// (SP 800-56Cr2, RFC 10024).</summary>
-  THybridRule = record
-    Code: UInt16;
-    ClassicalGroup: UInt16;
-    ClassicalLegFirst: Boolean;
-    class function Create(ACode, AClassicalGroup: UInt16;
-      AClassicalLegFirst: Boolean): THybridRule; static;
-    class operator Equal(const A, B: THybridRule): Boolean;
-  end;
-
   /// <summary>The allowlists and requirements a policy enforces. Rules only ever narrow:
   /// Intersect never widens either operand.</summary>
   TComplianceRules = record
@@ -71,7 +64,6 @@ type
     CipherSuites: TArray<UInt16>;
     Aeads: TComplianceAeadSet;
     NamedGroups: TArray<UInt16>;
-    HybridRules: TArray<THybridRule>;
     SignatureSchemes: TComplianceSchemeSet;
     Strength: TCertificateStrengthPolicy;
     Requirements: TComplianceRequirements;
@@ -95,8 +87,7 @@ type
   TComplianceFindingKind = (
     RulesOutsidePresets,
     ModuleNotValidated, NoBackendReport, AlgorithmOutsideModule, KdfOutsideModule,
-    KemLegInModule, CredentialKeyOutsideModule, ChainVerifiedOutsideModule,
-    StapleVerifiedOutsideModule,
+    CredentialKeyOutsideModule, ChainVerifiedOutsideModule, StapleVerifiedOutsideModule,
     ForeignCryptoProvider, ForeignPkixProvider, VersionNotAllowed, CipherSuiteNotAllowed,
     NamedGroupNotAllowed, SignatureSchemeNotAllowed, ExtendedMasterSecretNotRequired,
     EarlyDataEnabled, EchConfigured, ExternalPskConfigured, Tls12PskConfigured,
@@ -138,11 +129,11 @@ type
     /// <summary>The hash a scheme digests with; EdDSA hashes internally, so SHA-512 stands
     /// in.</summary>
     class function SchemeHash(AScheme: TSignatureScheme): THashAlgorithm; static;
-    /// <summary>The classical agreements the groups and hybrid rules call for.</summary>
+    /// <summary>The agreements the groups call for.</summary>
     class function KeyAgreements(const ARules: TComplianceRules): TComplianceKeyAgreementSet;
       static;
-    /// <summary>Whether some hybrid rule's code is among the groups.</summary>
-    class function KemAllowed(const ARules: TComplianceRules): Boolean; static;
+    /// <summary>Whether every entry of ASub is in ASuper.</summary>
+    class function IsSubsetOfList(const ASub, ASuper: TArray<UInt16>): Boolean; static;
     /// <summary>Whether AStrength is at least as strict as AFloor.</summary>
     class function StrengthWithin(const AStrength,
       AFloor: TCertificateStrengthPolicy): Boolean; static;
@@ -155,71 +146,15 @@ type
 
 implementation
 
-uses
-  TlpArrayUtilities,
-  TlpEnumUtilities,
-  TlpCipherSuiteCatalog,
-  TlpTlsLibExceptions;
-
 resourcestring
   SNoCommonCurve = 'the two rule sets share no elliptic curve';
   SModuleStandardMismatch = 'the two rule sets target different module standards';
 
-{ THybridRule }
-
-class function THybridRule.Create(ACode, AClassicalGroup: UInt16;
-  AClassicalLegFirst: Boolean): THybridRule;
-begin
-  Result.Code := ACode;
-  Result.ClassicalGroup := AClassicalGroup;
-  Result.ClassicalLegFirst := AClassicalLegFirst;
-end;
-
-class operator THybridRule.Equal(const A, B: THybridRule): Boolean;
-begin
-  Result := (A.Code = B.Code) and (A.ClassicalGroup = B.ClassicalGroup) and
-    (A.ClassicalLegFirst = B.ClassicalLegFirst);
-end;
-
 { TComplianceRules }
-
-function HasRule(const ARules: TArray<THybridRule>; const ARule: THybridRule): Boolean;
-var
-  LI: Int32;
-begin
-  Result := False;
-  for LI := 0 to System.Length(ARules) - 1 do
-    if ARules[LI] = ARule then
-      Exit(True);
-end;
-
-function HasRuleFor(const ARules: TArray<THybridRule>; ACode: UInt16): Boolean;
-var
-  LI: Int32;
-begin
-  Result := False;
-  for LI := 0 to System.Length(ARules) - 1 do
-    if ARules[LI].Code = ACode then
-      Exit(True);
-end;
-
-function IsSubsetOfList(const ASub, ASuper: TArray<UInt16>): Boolean;
-var
-  LI: Int32;
-begin
-  Result := True;
-  for LI := 0 to System.Length(ASub) - 1 do
-  begin
-    Result := TArrayUtilities.Contains<UInt16>(ASuper, ASub[LI]);
-    if not Result then
-      Exit;
-  end;
-end;
 
 class function TComplianceRules.Intersect(const A, B: TComplianceRules): TComplianceRules;
 var
   LI: Int32;
-  LKept: TArray<UInt16>;
 begin
   if A.ModuleStandard <> B.ModuleStandard then
     raise EArgumentTlsLibException.CreateRes(@SModuleStandardMismatch);
@@ -232,18 +167,9 @@ begin
       TArrayUtilities.Append<UInt16>(Result.CipherSuites, A.CipherSuites[LI]);
   Result.Aeads := A.Aeads * B.Aeads;
   Result.SignatureSchemes := A.SignatureSchemes * B.SignatureSchemes;
-  LKept := nil;
   for LI := 0 to System.Length(A.NamedGroups) - 1 do
     if TArrayUtilities.Contains<UInt16>(B.NamedGroups, A.NamedGroups[LI]) then
-      TArrayUtilities.Append<UInt16>(LKept, A.NamedGroups[LI]);
-  for LI := 0 to System.Length(A.HybridRules) - 1 do
-    if HasRule(B.HybridRules, A.HybridRules[LI]) then
-      if TArrayUtilities.Contains<UInt16>(LKept, A.HybridRules[LI].Code) then
-        TArrayUtilities.Append<THybridRule>(Result.HybridRules, A.HybridRules[LI]);
-  for LI := 0 to System.Length(LKept) - 1 do
-    if HasRuleFor(Result.HybridRules, LKept[LI]) or
-      not (HasRuleFor(A.HybridRules, LKept[LI]) or HasRuleFor(B.HybridRules, LKept[LI])) then
-      TArrayUtilities.Append<UInt16>(Result.NamedGroups, LKept[LI]);
+      TArrayUtilities.Append<UInt16>(Result.NamedGroups, A.NamedGroups[LI]);
   Result.Strength.MinRsaModulusBits := A.Strength.MinRsaModulusBits;
   if B.Strength.MinRsaModulusBits > Result.Strength.MinRsaModulusBits then
     Result.Strength.MinRsaModulusBits := B.Strength.MinRsaModulusBits;
@@ -280,23 +206,14 @@ begin
 end;
 
 function TComplianceRules.IsSubsetOf(const AOther: TComplianceRules): Boolean;
-var
-  LI: Int32;
 begin
-  Result := False;
-  if not (IsSubsetOfList(Versions, AOther.Versions) and
-    IsSubsetOfList(CipherSuites, AOther.CipherSuites) and
-    IsSubsetOfList(NamedGroups, AOther.NamedGroups)) then
-    Exit;
-  for LI := 0 to System.Length(HybridRules) - 1 do
-    if not HasRule(AOther.HybridRules, HybridRules[LI]) then
-      Exit;
-  if not ((Aeads <= AOther.Aeads) and (SignatureSchemes <= AOther.SignatureSchemes) and
+  Result := TComplianceCatalog.IsSubsetOfList(Versions, AOther.Versions) and
+    TComplianceCatalog.IsSubsetOfList(CipherSuites, AOther.CipherSuites) and
+    TComplianceCatalog.IsSubsetOfList(NamedGroups, AOther.NamedGroups) and
+    (Aeads <= AOther.Aeads) and (SignatureSchemes <= AOther.SignatureSchemes) and
     TComplianceCatalog.StrengthWithin(Strength, AOther.Strength) and
     (AOther.Requirements <= Requirements) and (Kdf >= AOther.Kdf) and
-    (ModuleStandard = AOther.ModuleStandard)) then
-    Exit;
-  Result := True;
+    (ModuleStandard = AOther.ModuleStandard);
 end;
 
 class operator TComplianceRules.Equal(const A, B: TComplianceRules): Boolean;
@@ -310,7 +227,6 @@ begin
   Result.Versions := System.Copy(Versions);
   Result.CipherSuites := System.Copy(CipherSuites);
   Result.NamedGroups := System.Copy(NamedGroups);
-  Result.HybridRules := System.Copy(HybridRules);
   Result.Strength.AllowedEcCurves := System.Copy(Strength.AllowedEcCurves);
 end;
 
@@ -343,18 +259,6 @@ begin
   for LI := 0 to System.Length(NamedGroups) - 1 do
     LList := LList + ' ' + TNamedGroupCatalog.Name(NamedGroups[LI]);
   Result := Result + 'NamedGroups:' + LList + sLineBreak;
-  LList := '';
-  for LI := 0 to System.Length(HybridRules) - 1 do
-  begin
-    if HybridRules[LI].ClassicalLegFirst then
-      LFlag := 'yes'
-    else
-      LFlag := 'no';
-    LList := LList + Format(' %s(classical %s, first=%s)',
-      [TNamedGroupCatalog.Name(HybridRules[LI].Code),
-      TNamedGroupCatalog.Name(HybridRules[LI].ClassicalGroup), LFlag]);
-  end;
-  Result := Result + 'HybridRules:' + LList + sLineBreak;
   LList := '';
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
     if LScheme in SignatureSchemes then
@@ -403,7 +307,7 @@ begin
       Result := TComplianceFindingCategory.Rules;
     TComplianceFindingKind.ModuleNotValidated, TComplianceFindingKind.NoBackendReport,
       TComplianceFindingKind.AlgorithmOutsideModule, TComplianceFindingKind.KdfOutsideModule,
-      TComplianceFindingKind.KemLegInModule, TComplianceFindingKind.CredentialKeyOutsideModule,
+      TComplianceFindingKind.CredentialKeyOutsideModule,
       TComplianceFindingKind.ChainVerifiedOutsideModule,
       TComplianceFindingKind.StapleVerifiedOutsideModule:
       Result := TComplianceFindingCategory.Platform;
@@ -461,22 +365,21 @@ var
 begin
   Result := [];
   for LI := 0 to System.Length(ARules.NamedGroups) - 1 do
-    if not HasRuleFor(ARules.HybridRules, ARules.NamedGroups[LI]) and
-      TryKeyAgreement(ARules.NamedGroups[LI], LAlgorithm) then
-      Include(Result, LAlgorithm);
-  for LI := 0 to System.Length(ARules.HybridRules) - 1 do
-    if TryKeyAgreement(ARules.HybridRules[LI].ClassicalGroup, LAlgorithm) then
+    if TryKeyAgreement(ARules.NamedGroups[LI], LAlgorithm) then
       Include(Result, LAlgorithm);
 end;
 
-class function TComplianceCatalog.KemAllowed(const ARules: TComplianceRules): Boolean;
+class function TComplianceCatalog.IsSubsetOfList(const ASub, ASuper: TArray<UInt16>): Boolean;
 var
   LI: Int32;
 begin
-  Result := False;
-  for LI := 0 to System.Length(ARules.HybridRules) - 1 do
-    if TArrayUtilities.Contains<UInt16>(ARules.NamedGroups, ARules.HybridRules[LI].Code) then
-      Exit(True);
+  Result := True;
+  for LI := 0 to System.Length(ASub) - 1 do
+  begin
+    Result := TArrayUtilities.Contains<UInt16>(ASuper, ASub[LI]);
+    if not Result then
+      Exit;
+  end;
 end;
 
 class function TComplianceCatalog.StrengthWithin(const AStrength,
@@ -487,7 +390,7 @@ begin
     (AStrength.MaxRsaModulusBits <= AFloor.MaxRsaModulusBits))) and
     ((System.Length(AFloor.AllowedEcCurves) = 0) or
     ((System.Length(AStrength.AllowedEcCurves) > 0) and
-    IsSubsetOfList(AStrength.AllowedEcCurves, AFloor.AllowedEcCurves))) and
+    TComplianceCatalog.IsSubsetOfList(AStrength.AllowedEcCurves, AFloor.AllowedEcCurves))) and
     (not AStrength.AllowEdDsa or AFloor.AllowEdDsa) and
     (AStrength.AllowedDeprecatedHashes <= AFloor.AllowedDeprecatedHashes);
 end;

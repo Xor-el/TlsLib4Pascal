@@ -10,7 +10,8 @@ interface
 uses
   TlpComplianceTypes, TlpComplianceExceptions, TlpIModuleAttestation,
   TlpIComplianceReport, TlpCompliancePresets, TlpComplianceReport,
-  TlpComplianceCryptoProvider, TlpCompliancePkixProvider;
+  TlpComplianceCryptoProvider, TlpCompliancePkixProvider, TlpWindowsModuleAttestation,
+  TlpOSModuleAttestation, TlpICompliancePolicy, TlpCompliancePolicy, TlpComplianceTls;
 
 implementation
 
