@@ -257,14 +257,23 @@ The short version — the full treatment is in
   TArray<TBytes>.Create(caPemA, caPemB)).Build)
 
 // the OS root store (needs the TlsLib.Trust.System package)
-//   uses TlpSystemTrustFacade;
-//   .WithServerVerification(TSystemTrust.ServerVerification(Pkix).Build)
+//   uses TlpSystemTrustFacade, TlpOSSystemTrust;   // TSystemTrustMode, TSystemTrustRoots
+//   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
+//     TSystemTrustRoots.OsRoots).Build)
 
 // the OS root store plus my private CA (a chain the OS rejects only for lack of a root is
 // judged against my CA; any other OS failure stays final)
-//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;   // TSystemTrustMode, TTrustAnchorStore, ITrustAnchorStore
+//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;   // TSystemTrustMode, TSystemTrustRoots, TTrustAnchorStore, ITrustAnchorStore
 //   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
-//     TTrustAnchorStore.Create(Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore).Build)
+//     TSystemTrustRoots.BesideOsRoots(TTrustAnchorStore.Create(
+//     Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore)).Build)
+
+// private PKI only, through the OS engine: my CA is the only root, so no public root vouches
+// (a chain to a public root fails with unknown_ca; the OS distrust list still applies)
+//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;   // TSystemTrustMode, TSystemTrustRoots, TTrustAnchorStore, ITrustAnchorStore
+//   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
+//     TSystemTrustRoots.HostRootsOnly(TTrustAnchorStore.Create(
+//     Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore)).Build)
 
 // a fixed offline root bundle (needs TlsLib.Trust.Bundle)
 //   uses TlpBundleTrust;
@@ -767,7 +776,8 @@ TLS client, on every compiler and OS. Configure it with a `TSocketHttpFetcherSet
 ```pascal
 LSettings := TSocketHttpFetcherSettings.Defaults;
 LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
-  .WithServerVerification(TSystemTrust.ServerVerification(Pkix).Build).Build;
+  .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
+    TSystemTrustRoots.OsRoots).Build).Build;
 LFetcher := TSocketHttpFetcher.Create(LSettings);
 ```
 

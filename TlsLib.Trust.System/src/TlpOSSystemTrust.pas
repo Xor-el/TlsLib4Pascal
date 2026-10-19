@@ -22,6 +22,7 @@ uses
   TlpIPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpITlsConfig,
   TlpTrustPolicy,
@@ -49,6 +50,27 @@ type
   /// mode the platform cannot honor is a typed exception.
   /// </summary>
   TSystemTrustMode = (Default, Anchors, Delegate);
+
+  /// <summary>
+  /// Which roots vouch for a server chain. OsRoots (also Default(TSystemTrustRoots)) is the OS
+  /// roots alone. BesideOsRoots trusts the host's roots in addition to the OS roots. HostRootsOnly
+  /// trusts the host's roots and nothing else (a private PKI): the OS roots never vouch, though the
+  /// OS distrust list still applies.
+  /// </summary>
+  TSystemTrustRoots = record
+  strict private
+    FHostRoots: ITrustAnchorStore;
+    FScope: TSystemTrustRootScope;
+  public
+    class function OsRoots: TSystemTrustRoots; static;
+    /// <summary>AHostRoots (nil for none, which is OsRoots) trusted beside the OS roots.</summary>
+    class function BesideOsRoots(const AHostRoots: ITrustAnchorStore): TSystemTrustRoots; static;
+    /// <summary>AHostRoots trusted alone. Raises EArgumentTlsLibException for nil or a store with
+    /// no root certificate.</summary>
+    class function HostRootsOnly(const AHostRoots: ITrustAnchorStore): TSystemTrustRoots; static;
+    property HostRoots: ITrustAnchorStore read FHostRoots;
+    property Scope: TSystemTrustRootScope read FScope;
+  end;
 
   /// <summary>
   /// Factory for the platform trust sources: an anchor store (OS roots fed to our
@@ -79,15 +101,18 @@ type
     /// context. AFetch fixes the inline behaviour: CacheOnly (no socket) or Live (defer an
     /// indeterminate revocation to the async park). Raises where the platform exposes no system
     /// verifier, or where Live is asked of a platform without OS-native live revocation.</summary>
-    class function ServerVerifierSource(AFetch: TSystemTrustFetch)
-      : IServerCertificateVerifierSource; overload; static;
-    /// <summary>As above, also trusting AExtraAnchors (nil for none) beside the OS roots inside the
-    /// OS evaluation, so the platform's own policy still runs, and refusing a path through a
-    /// certificate the OS distrusts (read with APkix where the platform exposes that list) or that
-    /// AExtraAnchors distrusts. Both lists are snapshotted when the source is built.</summary>
+    /// <summary>The roots in ARoots are trusted inside the OS evaluation, so the platform's own
+    /// policy still runs: beside the OS roots, or alone (one pass, the OS roots never vouch; raises
+    /// where the engine cannot trust host roots alone). A path through a certificate the OS
+    /// distrusts (read with APkix where the platform exposes that list) or that the host store
+    /// distrusts is refused. Both lists are snapshotted when the source is built.</summary>
     class function ServerVerifierSource(AFetch: TSystemTrustFetch;
-      const AExtraAnchors: ITrustAnchorStore; const APkix: IPkixProvider):
-      IServerCertificateVerifierSource; overload; static;
+      const ARoots: TSystemTrustRoots; const APkix: IPkixProvider):
+      IServerCertificateVerifierSource; static;
+    /// <summary>The certificates the OS distrusts, as a store with no root (an empty distrust
+    /// set where the platform exposes no list). Raises where the platform has no OS roots to
+    /// read.</summary>
+    class function DistrustStore(const APkix: IPkixProvider): ITrustAnchorStore; static;
     /// <summary>A host-owned OS-native live-revocation resolver read from the client config
     /// (provider, clock, posture, strength policy, advertised schemes, resolver fetch budget, and the
     /// roots of its OS verifier source, else its trust-store anchors as the exclusive trust root,
@@ -98,8 +123,6 @@ type
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
       const AFallback: TCertificateVerdictResolver)
       : TOSLiveRevocationResolverBase; overload; static;
-    class function LiveRevocationResolver(const AConfig: ITlsClientConfig)
-      : TOSLiveRevocationResolverBase; overload; static;
     /// <summary>A host-owned OS-native live-revocation resolver for the peer CLIENT certificate an
     /// mTLS server verifies, read from the server config (provider, clock, posture, strength policy,
     /// advertised schemes, resolver fetch budget, and the client-CA anchors as the exclusive trust root):
@@ -108,8 +131,6 @@ type
     /// platform has no OS-native live revocation.</summary>
     class function LiveRevocationResolver(const AConfig: ITlsServerConfig;
       const AFallback: TCertificateVerdictResolver)
-      : TOSLiveRevocationResolverBase; overload; static;
-    class function LiveRevocationResolver(const AConfig: ITlsServerConfig)
       : TOSLiveRevocationResolverBase; overload; static;
     /// <summary>The OS client-certificate verifier source for an mTLS server: an exclusive-root
     /// chain engine over the configured client-CA anchors (never the OS/public roots). AFetch fixes
@@ -130,11 +151,35 @@ resourcestring
     'this platform exposes no root-enumeration API; use the OS delegate verifier';
   SNoDelegate =
     'this platform exposes no system certificate verifier; harvest OS anchors instead';
-  SHostRootsNeedProvider =
-    'a PKIX provider is required to read the OS distrust list beside host roots';
+  SDistrustNeedsProvider =
+    'a PKIX provider is required to read the OS distrust list';
   SNoClientDelegate =
     'this platform exposes no OS client-certificate verifier; use the built-in verifier over ' +
     'the configured client-CA anchors';
+
+{ TSystemTrustRoots }
+
+class function TSystemTrustRoots.OsRoots: TSystemTrustRoots;
+begin
+  Result.FHostRoots := nil;
+  Result.FScope := TSystemTrustRootScope.BesideOsRoots;
+end;
+
+class function TSystemTrustRoots.BesideOsRoots(const AHostRoots: ITrustAnchorStore)
+  : TSystemTrustRoots;
+begin
+  Result.FHostRoots := AHostRoots;
+  Result.FScope := TSystemTrustRootScope.BesideOsRoots;
+end;
+
+class function TSystemTrustRoots.HostRootsOnly(const AHostRoots: ITrustAnchorStore)
+  : TSystemTrustRoots;
+begin
+  if (AHostRoots = nil) or (AHostRoots.AnchorCount = 0) then
+    raise EArgumentTlsLibException.CreateRes(@SHostRootsOnlyNeedsRoots);
+  Result.FHostRoots := AHostRoots;
+  Result.FScope := TSystemTrustRootScope.HostRootsOnly;
+end;
 
 { TOSSystemTrust }
 
@@ -212,44 +257,43 @@ begin
   end;
 end;
 
-class function TOSSystemTrust.ServerVerifierSource(AFetch: TSystemTrustFetch)
-  : IServerCertificateVerifierSource;
+class function TOSSystemTrust.DistrustStore(const APkix: IPkixProvider): ITrustAnchorStore;
+var
+  LSource: TSystemRootSourceBase;
 begin
-  Result := ServerVerifierSource(AFetch, nil, nil);
+  if APkix = nil then
+    raise EArgumentTlsLibException.CreateRes(@SDistrustNeedsProvider);
+  LSource := CreateRootSource(APkix);
+  try
+    Result := TTrustAnchorStore.Create(nil, LSource.ReadDistrusted) as ITrustAnchorStore;
+  finally
+    LSource.Free;
+  end;
 end;
 
 class function TOSSystemTrust.ServerVerifierSource(AFetch: TSystemTrustFetch;
-  const AExtraAnchors: ITrustAnchorStore; const APkix: IPkixProvider):
+  const ARoots: TSystemTrustRoots; const APkix: IPkixProvider):
   IServerCertificateVerifierSource;
 var
   LEngine: IPlatformChainEngine;
-  LExtra, LDistrusted: TArray<TBytes>;
-  LSource: TSystemRootSourceBase;
+  LHostRoots, LDistrusted: TArray<TBytes>;
 begin
   // where a platform chain engine exists, the generic source over it (the source refuses a Live
   // fetch on an engine without live fetch at construction, matching the per-platform refusal timing)
   if not TryChainEngine(LEngine) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoDelegate);
-  LExtra := nil;
+  LHostRoots := nil;
   LDistrusted := nil;
-  if AExtraAnchors <> nil then
+  if ARoots.HostRoots <> nil then
   begin
-    LExtra := AExtraAnchors.RootCertificates;
-    LDistrusted := AExtraAnchors.DistrustedCertificates;
+    LHostRoots := ARoots.HostRoots.RootCertificates;
+    LDistrusted := ARoots.HostRoots.DistrustedCertificates;
   end;
-  // the OS list matters only beside host roots, and only where the OS exposes it
-  if (System.Length(LExtra) > 0) and Supports(TSystemTrustMode.Anchors) then
-  begin
-    if APkix = nil then
-      raise EArgumentTlsLibException.CreateRes(@SHostRootsNeedProvider);
-    LSource := CreateRootSource(APkix);
-    try
-      LDistrusted := TArrayUtilities.Concat<TBytes>(LDistrusted, LSource.ReadDistrusted);
-    finally
-      LSource.Free;
-    end;
-  end;
-  Result := TOSVerifierSource.Create(LEngine, AFetch, TSystemTrustRootScope.BesideOsRoots, LExtra,
+  // the OS list matters only with host roots, and only where the OS exposes it
+  if (System.Length(LHostRoots) > 0) and Supports(TSystemTrustMode.Anchors) then
+    LDistrusted := TArrayUtilities.Concat<TBytes>(LDistrusted,
+      DistrustStore(APkix).DistrustedCertificates);
+  Result := TOSVerifierSource.Create(LEngine, AFetch, ARoots.Scope, LHostRoots,
     LDistrusted) as IServerCertificateVerifierSource;
 end;
 
@@ -264,12 +308,6 @@ begin
     TOSDelegatePolicy.FromClientConfig(AConfig), AFallback);
 end;
 
-class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig)
-  : TOSLiveRevocationResolverBase;
-begin
-  Result := LiveRevocationResolver(AConfig, nil);
-end;
-
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsServerConfig;
   const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolverBase;
 var
@@ -279,12 +317,6 @@ begin
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
   Result := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Client,
     TOSDelegatePolicy.FromServerConfig(AConfig), AFallback);
-end;
-
-class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsServerConfig)
-  : TOSLiveRevocationResolverBase;
-begin
-  Result := LiveRevocationResolver(AConfig, nil);
 end;
 
 class function TOSSystemTrust.ClientVerifierSource(AFetch: TSystemTrustFetch)

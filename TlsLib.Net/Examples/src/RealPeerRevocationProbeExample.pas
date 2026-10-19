@@ -47,6 +47,7 @@ uses
   TlpTlsConnection,
   TlpIHttpFetcher,
   TlpSocketHttpFetcher,
+  TlpOSSystemTrust,
   TlpSystemTrustFacade,
   TlpTrustPolicy,
   TlpLiveRevocation;
@@ -93,7 +94,8 @@ begin
   LSettings := TSocketHttpFetcherSettings.Defaults;
   // the fetcher's own TLS must not defer to live revocation, so it verifies inline
   LSettings.TlsConfig := TTlsPresets.Compatible(TDefaultCryptoProvider.Shared, APkix).Client
-    .WithServerVerification(TSystemTrust.ServerVerification(APkix).Build).Build;
+    .WithServerVerification(TSystemTrust.ServerVerification(APkix, TSystemTrustMode.Default,
+      TSystemTrustRoots.OsRoots).Build).Build;
   Result := TSocketHttpFetcher.Create(LSettings);
 end;
 

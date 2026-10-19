@@ -203,7 +203,7 @@ begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   Result := Client(APolicy, TSystemTrust.ServerVerification(APolicy.Pkix,
-    TSystemTrustMode.Delegate, nil));
+    TSystemTrustMode.Delegate, TSystemTrustRoots.OsRoots));
 end;
 
 class function TComplianceTls.Client(const APolicy: ICompliancePolicy;
@@ -234,7 +234,7 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   // a later WithLiveSystemTrust would replace this verification and drop the strength floors
   LVerification := TServerVerification.VerifierSource(TOSSystemTrust.ServerVerifierSource(
-    TSystemTrustFetch.Live, nil, APolicy.Pkix)).WithRevocation(APosture);
+    TSystemTrustFetch.Live, TSystemTrustRoots.OsRoots, APolicy.Pkix)).WithRevocation(APosture);
   Result := Client(APolicy, LVerification).WithLiveRevocationVerdict(ADeadlineMs);
 end;
 

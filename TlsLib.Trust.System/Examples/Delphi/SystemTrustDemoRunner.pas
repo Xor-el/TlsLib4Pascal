@@ -380,7 +380,8 @@ begin
     LHostRoots := TTrustAnchorStore.Create(LPkix.Certificates.LoadChain(RootBlob(ARoot)))
       as ITrustAnchorStore;
   Result := TTlsPresets.Compatible(LCrypto, LPkix).Client
-    .WithServerVerification(TSystemTrust.ServerVerification(LPkix, AMode, LHostRoots).Build)
+    .WithServerVerification(TSystemTrust.ServerVerification(LPkix, AMode,
+      TSystemTrustRoots.BesideOsRoots(LHostRoots)).Build)
     .Build;
 end;
 
@@ -522,7 +523,8 @@ begin
     Exit('FAIL: empty chain: a client verification of an empty chain succeeded');
   if LAlert <> TTlsAlertDescription.BadCertificate then
     Exit(Format('FAIL: empty chain: client alert %d, expected bad_certificate', [Ord(LAlert)]));
-  LServer := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly);
+  LServer := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
+    TSystemTrustRoots.OsRoots, nil);
   LVerifier := LServer.CreateServerVerifier(ServerContext(LInter));
   if LVerifier.VerifyServerCertificate(nil, TServerName.DnsName('localhost'), nil, LVerified,
     LAlert) then

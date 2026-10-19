@@ -316,7 +316,8 @@ begin
     LHostRoots := TTrustAnchorStore.Create(
       LPkix.Certificates.LoadChain(TBytes(BytesOf(LPem)))) as ITrustAnchorStore;
   Result := TTlsPresets.Compatible(LCrypto, LPkix).Client
-    .WithServerVerification(TSystemTrust.ServerVerification(LPkix, AMode, LHostRoots).Build)
+    .WithServerVerification(TSystemTrust.ServerVerification(LPkix, AMode,
+      TSystemTrustRoots.BesideOsRoots(LHostRoots)).Build)
     .Build;
 end;
 

@@ -17,7 +17,9 @@ This guide covers, from safest to most dangerous:
 7. [Other knobs](#7-other-knobs) — chain limits, key-strength floors, stapling
 
 > To verify against the **OS system trust store** (the way a browser does) instead of your own
-> anchors, see [system-trust.md](system-trust.md).
+> anchors, see [system-trust.md](system-trust.md). To run your private CA through the OS chain
+> engine with no public root ever vouching, see
+> [Host roots alone](system-trust.md#host-roots-alone-a-private-pki).
 
 Throughout, `Crypto` is an `ICryptoProvider` and `Pkix` an `IPkixProvider` (e.g.
 `TDefaultCryptoProvider.Create as ICryptoProvider` and `TDefaultPkixProvider.Create as IPkixProvider`).
@@ -430,9 +432,12 @@ thread and the verdict resolves the park.
 //    async park. The deadline must be non-zero (0 raises) so the Windows resolver can bound its
 //    fetch (Apple has no per-evaluation timeout). It replaces any earlier WithServerVerification.
 //    Windows + Apple only; other platforms raise.
-client := TSystemTrust.WithLiveSystemTrust(client, TRevocationPosture.Hard, deadlineMs);
+//    The roots say which roots vouch: TSystemTrustRoots.OsRoots, BesideOsRoots(Store) or
+//    HostRootsOnly(Store).
+client := TSystemTrust.WithLiveSystemTrust(client, Pkix, TSystemTrustRoots.OsRoots,
+  TRevocationPosture.Hard, deadlineMs);
 // 2. wire the OS-native resolver, built from the frozen config, to the stream/adapter:
-resolver := TOSSystemTrust.LiveRevocationResolver(clientConfig);   // caller owns + frees it
+resolver := TOSSystemTrust.LiveRevocationResolver(clientConfig, nil);   // caller owns + frees it
 stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);   // @resolver.ResolveVerdict under FPC {$mode objfpc}
 ```
 
@@ -440,7 +445,7 @@ The OS engine returns a tri-state: a definitive **Revoked** aborts with `certifi
 **Good** accepts; an **indeterminate** (the OS could not fetch or decide) follows the posture —
 `Soft`/`Off` accept, `Hard` rejects with `bad_certificate_status_response`. A handshake staple is
 attached to the live evaluation, so a server that already stapled a current Good is not re-fetched.
-Pass an optional fallback resolver to `LiveRevocationResolver(config, fallback)` (typically a
+Pass a fallback resolver (nil for none) as `LiveRevocationResolver(config, fallback)` (typically a
 `TLiveRevocationChecker.ResolveVerdict`) to run the **portable** OCSP/CRL over your `IHttpFetcher`
 on an indeterminate OS outcome before the posture decides.
 
@@ -460,7 +465,7 @@ then aborts the handshake with `certificate_revoked`. This works with both the *
 `TLiveRevocationChecker` (give it the configured client-CA anchors as `TLiveRevocationOptions.IssuerCandidates`, so it can
 recover the issuer of a leaf-only client credential) and the **OS-native** delegate on Windows/Apple
 (`TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live)` +
-`TOSSystemTrust.LiveRevocationResolver(serverConfig)` + `WithLiveRevocationVerdict(deadlineMs)` on the
+`TOSSystemTrust.LiveRevocationResolver(serverConfig, nil)` + `WithLiveRevocationVerdict(deadlineMs)` on the
 server builder, since no server facade arms it — see the OS-native subsection above and
 [system-trust.md](system-trust.md)).
 

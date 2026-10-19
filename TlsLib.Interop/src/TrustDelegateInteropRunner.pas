@@ -370,16 +370,19 @@ begin
   if ACell.Anchors then
     // the OS root set and its distrust set, harvested into our own verifier
     LClient.WithServerVerification(TSystemTrust.ServerVerification(APkix,
-      TSystemTrustMode.Anchors, LHostRoots).WithRevocation(ACell.Posture).Build)
+      TSystemTrustMode.Anchors, TSystemTrustRoots.BesideOsRoots(LHostRoots))
+      .WithRevocation(ACell.Posture).Build)
   else if ACell.Delegate then
   begin
     // verify the server certificate through the OS trust engine against the real machine store;
     // live arms the async park the OS-native resolver decides in
     if ACell.Live then
-      TSystemTrust.WithLiveSystemTrust(LClient, ACell.Posture, LiveDeadlineMs)
+      TSystemTrust.WithLiveSystemTrust(LClient, APkix, TSystemTrustRoots.OsRoots, ACell.Posture,
+        LiveDeadlineMs)
     else
       LClient.WithServerVerification(TSystemTrust.ServerVerification(APkix,
-        TSystemTrustMode.Delegate, LHostRoots).WithRevocation(ACell.Posture).Build);
+        TSystemTrustMode.Delegate, TSystemTrustRoots.BesideOsRoots(LHostRoots))
+        .WithRevocation(ACell.Posture).Build);
   end
   else
     LClient.WithServerVerification(TServerVerification.WebPki(
@@ -435,7 +438,7 @@ begin
     if ACell.Live then
     begin
       // the host resolves the async park by re-running the OS engine live (network on)
-      LResolver := TOSSystemTrust.LiveRevocationResolver(LConfig);
+      LResolver := TOSSystemTrust.LiveRevocationResolver(LConfig, nil);
       try
         LResult := TInteropPump.DriveHandshake(LEngine, LSocket,
           LResolver.ResolveVerdict, True);
@@ -527,7 +530,7 @@ begin
         if LLiveCaFile = '' then
           LLiveCaFile := ACell.ClientCaFile;
         LResolver := TOSSystemTrust.LiveRevocationResolver(
-          BuildServerConfig(LCrypto, LPkix, ACell, LLiveCaFile));
+          BuildServerConfig(LCrypto, LPkix, ACell, LLiveCaFile), nil);
         try
           LResult := TInteropPump.DriveHandshake(LEngine, LServerSocket,
             LResolver.ResolveVerdict, False);

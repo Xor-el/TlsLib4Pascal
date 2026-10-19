@@ -38,9 +38,11 @@ type
   /// checks revocation from the OS cache and the staple unless the live-revocation verdict is
   /// armed (see WithLiveSystemTrust). Anchors also honour OS distrust of an exact certificate
   /// anywhere on a path (Windows Disallowed, macOS Deny), as far as the platform lets it be read;
-  /// a delegate applies the full OS policy. Host roots passed as extra anchors join the harvested
+  /// a delegate applies the full OS policy. Host roots beside the OS roots join the harvested
   /// ones, and distrust from either wins; a delegate trusts them beside the OS roots and
-  /// distrust from the OS or the host store still wins on a path through them. A delegate reads
+  /// distrust from the OS or the host store still wins on a path through them. Host roots alone
+  /// are the only trust root: Anchors harvests nothing, a delegate evaluates in one pass, and the
+  /// OS distrust list still applies. A delegate reads
   /// the distrust lists once, when the verifier source is built. System trust verifies server
   /// certificates only; an mTLS server's client-CA is never the OS store - supply it with
   /// TClientVerification (see TOSSystemTrust.ClientVerifierSource for the OS engine over that
@@ -49,20 +51,17 @@ type
   TSystemTrust = class sealed(TObject)
   strict private
     class procedure ResolveSource(const APkixProvider: IPkixProvider;
-      AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
-      out ASource: IServerCertificateVerifierSource;
-      const AExtraAnchors: ITrustAnchorStore); static;
+      AMode: TSystemTrustMode; const ARoots: TSystemTrustRoots;
+      out AStores: TArray<ITrustAnchorStore>;
+      out ASource: IServerCertificateVerifierSource); static;
   public
-    /// <summary>OS trust in the Default mode: the OS verifier where the platform has one, else
-    /// the harvested OS anchors (see the class summary).</summary>
-    class function ServerVerification(const APkixProvider: IPkixProvider)
-      : IServerVerificationBuilder; overload; static;
-    /// <summary>OS trust in the given mode, with the host's own roots (nil for none) beside the OS
-    /// ones. Anchors also honours OS distrust of any certificate (an intermediate or a leaf, not
-    /// only a root) by exact match; Delegate applies the full OS policy.</summary>
+    /// <summary>OS trust in the given mode, with ARoots deciding which roots vouch: the OS roots
+    /// alone, the host's beside them, or the host's alone. Anchors also honours OS distrust of any
+    /// certificate (an intermediate or a leaf, not only a root) by exact match, and with host roots
+    /// alone it harvests nothing from the OS; Delegate applies the full OS policy.</summary>
     class function ServerVerification(const APkixProvider: IPkixProvider;
-      AMode: TSystemTrustMode; const AExtraAnchors: ITrustAnchorStore)
-      : IServerVerificationBuilder; overload; static;
+      AMode: TSystemTrustMode; const ARoots: TSystemTrustRoots)
+      : IServerVerificationBuilder; static;
     /// <summary>Installs OS trust that checks revocation live: the OS delegate under APosture, plus
     /// the async certificate-verdict park (deadline ADeadlineMs, which must be non-zero) that the
     /// host-side OS-native resolver resolves in. Both are set together because a live source
@@ -70,6 +69,7 @@ type
     /// TOSSystemTrust.LiveRevocationResolver on the stream/adapter. Raises where the platform has
     /// no OS-native live revocation.</summary>
     class function WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+      const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
       APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder; static;
   end;
 
@@ -104,12 +104,12 @@ resourcestring
 { TSystemTrust }
 
 class procedure TSystemTrust.ResolveSource(const APkixProvider: IPkixProvider;
-  AMode: TSystemTrustMode; out AStore: ITrustAnchorStore;
-  out ASource: IServerCertificateVerifierSource; const AExtraAnchors: ITrustAnchorStore);
+  AMode: TSystemTrustMode; const ARoots: TSystemTrustRoots;
+  out AStores: TArray<ITrustAnchorStore>; out ASource: IServerCertificateVerifierSource);
 var
   LMode: TSystemTrustMode;
 begin
-  AStore := nil;
+  AStores := nil;
   ASource := nil;
   LMode := AMode;
   if LMode = TSystemTrustMode.Default then
@@ -121,42 +121,41 @@ begin
   end;
   // A forced mode the platform cannot honor raises a typed error inside these.
   if LMode = TSystemTrustMode.Delegate then
-    ASource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly, AExtraAnchors,
+    ASource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly, ARoots,
       APkixProvider)
+  else if ARoots.Scope = TSystemTrustRootScope.HostRootsOnly then
+    // harvests nothing, so a host without a CA bundle works; OS distrust still filters the roots
+    AStores := TArray<ITrustAnchorStore>.Create(ARoots.HostRoots,
+      TOSSystemTrust.DistrustStore(APkixProvider))
+  else if ARoots.HostRoots <> nil then
+    // the harvested roots and the host's join in one union, so OS distrust still filters the host's
+    AStores := TArray<ITrustAnchorStore>.Create(TOSSystemTrust.AnchorStore(APkixProvider),
+      ARoots.HostRoots)
   else
-    AStore := TOSSystemTrust.AnchorStore(APkixProvider);
-end;
-
-class function TSystemTrust.ServerVerification(const APkixProvider: IPkixProvider)
-  : IServerVerificationBuilder;
-begin
-  Result := ServerVerification(APkixProvider, TSystemTrustMode.Default, nil);
+    AStores := TArray<ITrustAnchorStore>.Create(TOSSystemTrust.AnchorStore(APkixProvider));
 end;
 
 class function TSystemTrust.ServerVerification(const APkixProvider: IPkixProvider;
-  AMode: TSystemTrustMode; const AExtraAnchors: ITrustAnchorStore): IServerVerificationBuilder;
+  AMode: TSystemTrustMode; const ARoots: TSystemTrustRoots): IServerVerificationBuilder;
 var
-  LStore: ITrustAnchorStore;
+  LStores: TArray<ITrustAnchorStore>;
   LSource: IServerCertificateVerifierSource;
 begin
-  ResolveSource(APkixProvider, AMode, LStore, LSource, AExtraAnchors);
+  ResolveSource(APkixProvider, AMode, ARoots, LStores, LSource);
   if LSource <> nil then
     Exit(TServerVerification.VerifierSource(LSource));
-  // the harvested roots and the host's join in one union, so OS distrust still filters the host's
-  if AExtraAnchors <> nil then
-    Result := TServerVerification.WebPki(
-      TArray<ITrustAnchorStore>.Create(LStore, AExtraAnchors), nil)
-  else
-    Result := TServerVerification.WebPki(LStore);
+  Result := TServerVerification.WebPki(LStores, nil);
 end;
 
 class function TSystemTrust.WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+  const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
   APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
 begin
   if ADeadlineMs = 0 then
     raise EArgumentTlsLibException.CreateRes(@SLiveNeedsDeadline);
   ABuilder.WithServerVerification(TServerVerification.VerifierSource(
-    TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.Live)).WithRevocation(APosture).Build);
+    TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.Live, ARoots, APkixProvider))
+    .WithRevocation(APosture).Build);
   Result := ABuilder.WithLiveRevocationVerdict(ADeadlineMs);
 end;
 
@@ -172,7 +171,7 @@ function TSystemTrustInstaller.ServerVerification(const APkix: IPkixProvider;
   const AExtraAnchors: ITrustAnchorStore): IServerVerification;
 begin
   Result := TSystemTrust.ServerVerification(APkix, TSystemTrustMode.Default,
-    AExtraAnchors).Build;
+    TSystemTrustRoots.BesideOsRoots(AExtraAnchors)).Build;
 end;
 
 constructor TSystemTrustInstaller.Create;
