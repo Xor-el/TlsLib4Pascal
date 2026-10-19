@@ -158,9 +158,9 @@ type
     class function StandardName(AStandard: TModuleStandard): string; static;
     /// <summary>The members of ASet in enum order.</summary>
     class function Schemes(const ASet: TComplianceSchemeSet): TArray<TSignatureScheme>; static;
-    /// <summary>ACredential with its key narrowed to the signature schemes of ARules.</summary>
+    /// <summary>ACredential with its key narrowed to ASchemes.</summary>
     class function NarrowedCredential(const ACredential: TTlsCredential;
-      const ARules: TComplianceRules): TTlsCredential; static;
+      const ASchemes: TArray<TSignatureScheme>): TTlsCredential; static;
     /// <summary>The findings AEnforcement refuses: all of them in strict mode, the configuration
     /// ones in relaxed mode.</summary>
     class function Refusals(AEnforcement: TComplianceEnforcement;
@@ -547,12 +547,11 @@ begin
 end;
 
 class function TComplianceCatalog.NarrowedCredential(const ACredential: TTlsCredential;
-  const ARules: TComplianceRules): TTlsCredential;
+  const ASchemes: TArray<TSignatureScheme>): TTlsCredential;
 begin
   Result := ACredential;
   if Result.PrivateKey <> nil then
-    Result.PrivateKey := Result.PrivateKey.WithPreferredSchemes(
-      Schemes(ARules.SignatureSchemes));
+    Result.PrivateKey := Result.PrivateKey.WithPreferredSchemes(ASchemes);
 end;
 
 class function TComplianceCatalog.Refusals(AEnforcement: TComplianceEnforcement;

@@ -51,15 +51,19 @@ type
     /// report.</summary>
     function Admit(const AConfig: ITlsClientConfig): IComplianceReport; overload;
     function Admit(const AConfig: ITlsServerConfig): IComplianceReport; overload;
-    /// <summary>The platform findings plus those of one credential: its key against the strength
-    /// floors and exact RSA sizes, its schemes against the rules, and its key's backend. Never
-    /// raises; a certificate that cannot be read is reported as a finding.</summary>
+    /// <summary>The platform findings plus those of one credential as given: its key against the
+    /// strength floors and exact RSA sizes, its schemes against the rules, and its key's backend.
+    /// The checked resolver judges a credential after narrowing its key to the schemes of the
+    /// rules, so a key with extra schemes is a finding here and admitted there. Never raises; a
+    /// certificate that cannot be read is reported as a finding.</summary>
     function EvaluateCredential(const ACredential: TTlsCredential): IComplianceReport;
     /// <summary>A resolver that asks AInner and then refuses, by returning False, every credential
     /// the enforcement mode does not tolerate (as Admit does), narrowing the key it admits to the
     /// schemes of the rules. A server config holding it needs no CredentialResolverUnchecked
-    /// finding. It parses each credential per handshake, so it is for a host that picks
-    /// credentials at run time. Raises EArgumentTlsLibException for a nil AInner.</summary>
+    /// finding. It reads the chosen credential's certificate on every handshake, so it is for a
+    /// host that picks credentials at run time. A refusal reaches the client as unrecognized_name
+    /// (SNI) or handshake_failure and the host gets no reason: run EvaluateCredential over the
+    /// credentials at startup. Raises EArgumentTlsLibException for a nil AInner.</summary>
     function CheckedCredentialResolver(
       const AInner: ITlsServerCredentialResolver): ITlsServerCredentialResolver;
   end;

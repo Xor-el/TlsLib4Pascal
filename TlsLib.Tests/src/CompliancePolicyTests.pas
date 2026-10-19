@@ -57,6 +57,8 @@ uses
   TlpInMemorySessionStore,
   TlpSessionTicketKeys,
   TlpITlsCredentialResolver,
+  TlpITlsServerCredentialSet,
+  TlpCredentialResolvers,
   TlpAntiReplay,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -66,6 +68,7 @@ uses
   TlpIComplianceReport,
   TlpIModuleAttestation,
   TlpICompliancePolicy,
+  TlpIComplianceCredentialResolver,
   TlpCompliancePolicy,
   TlpCompliancePresets,
   TlpComplianceTls,
@@ -100,6 +103,11 @@ type
       AKind: TComplianceFindingKind): Boolean;
     function ReportHasKind(const AReport: IComplianceReport;
       AKind: TComplianceFindingKind): Boolean;
+    // the first finding of AKind; fails the test when there is none
+    function FindingOfKind(const AFindings: TArray<TComplianceFinding>;
+      AKind: TComplianceFindingKind): TComplianceFinding;
+    function CountOfKind(const AFindings: TArray<TComplianceFinding>;
+      AKind: TComplianceFindingKind): Int32;
     function ClientBuilder(const APolicy: ICompliancePolicy): ITlsClientConfigBuilder;
     function ServerBuilder(const APolicy: ICompliancePolicy): ITlsServerConfigBuilder;
     function Credential(const ACrypto: ICryptoProvider): TTlsCredential;
@@ -191,6 +199,12 @@ type
     function LargeRsaPolicy: ICompliancePolicy;
     function Resolved(const AResolver: ITlsServerCredentialResolver;
       out ACredential: TTlsCredential): Boolean;
+    // a relaxed Fips140_3 policy that offers only AVersions
+    function VersionPolicy(const AVersions: TArray<UInt16>): ICompliancePolicy;
+    function Tls12Psk: TTls12Psk;
+    function HasServerNameFinding(const AReport: IComplianceReport): Boolean;
+    // a key that signs only with ED25519 beside the P-256 certificate of Credential
+    function Ed25519OnlyKeyCredential(const ACrypto: ICryptoProvider): TTlsCredential;
   published
     procedure TestBaselineClientAdmitsStrict;
     procedure TestBaselineServerAdmitsStrict;
@@ -236,6 +250,8 @@ type
     procedure TestClientHasNoRsaDisclosureWithoutExactSizes;
     procedure TestPlainServerHasNoDisclosure;
     procedure TestWeakSniEntryIsBelowRules;
+    procedure TestListedResolverWeakEntryIsBelowRulesNotUnchecked;
+    procedure TestDefaultSharedWithAnSniEntryIsReportedOnce;
     procedure TestRawCustomResolverIsUnchecked;
     procedure TestRawCustomResolverIsRefusedEvenInRelaxed;
     procedure TestCheckedResolverIsNotReportedUnchecked;
@@ -248,20 +264,38 @@ type
     procedure TestCheckedResolverAdmitsAPortableKeyInRelaxed;
     procedure TestCheckedResolverAnswersFalseWhenTheInnerDoes;
     procedure TestCheckedResolverNarrowsTheKey;
+    procedure TestCheckedResolverRefusesAnEmptyChain;
+    procedure TestCheckedResolverRefusesAKeyWithNoAllowedScheme;
+    procedure TestCheckedResolverRefusesAChainWithNoKey;
+    procedure TestCheckedResolverPropagatesAnInnerFault;
     procedure TestCheckedResolverRejectsNilInner;
+    procedure TestCheckedResolverExposesItsInner;
     procedure TestFacadeServerResolverRejectsNilResolver;
+    procedure TestFacadeServerResolverRejectsNilPolicy;
     procedure TestFacadeServerResolverBuildsAdmittedConfig;
+    procedure TestFacadeServerResolverChecksListedEntries;
+    procedure TestFacadeServerResolverNarrowsListedEntriesBeforeChecking;
+    procedure TestFacadeServerCredentialSubjectIsNumbered;
     procedure TestEvaluateCredentialUnreadableCertificateIsUndetermined;
     procedure TestEvaluateCredentialWithoutChainIsUndetermined;
+    procedure TestEvaluateCredentialWithoutKeyIsUndetermined;
     procedure TestEvaluateCredentialReportsExtraSchemes;
     procedure TestEvaluateCredentialOfAGoodCredentialHasNoFinding;
     procedure TestTicketAeadNotAllowedWhenServerSealsWithoutAes256;
+    procedure TestExplicitTicketKeysUnderAes128AreRefused;
+    procedure TestStoreWithDefaultTicketKeysUnderAes128IsRefused;
     procedure TestStoreOnlyServerGetsNoTicketFinding;
     procedure TestClientGetsNoTicketFinding;
     procedure TestFleetTicketKeysDisclosed;
+    procedure TestMtlsServerDisclosesAHostOwnedRevocationResolver;
     procedure TestClientWithoutServerNameCheckIsRefused;
-    procedure TestClientWithPskNeedsNoServerNameFinding;
-    procedure TestServerNameCheckedByDefault;
+    procedure TestRequiredPskClientNeedsNoServerNameFinding;
+    procedure TestRequiredTls12PskClientNeedsNoServerNameFinding;
+    procedure TestPskClientWithCertificatePathGetsServerNameFinding;
+    procedure TestOptionalPskClientGetsServerNameFinding;
+    procedure TestOptionalTls12PskClientGetsServerNameFinding;
+    procedure TestRequiredPskClientIsNotHeldToStrengthFloors;
+    procedure TestRequiredPskClientHasNoRsaPeerChainDisclosure;
     procedure TestEvaluateNeverRaises;
     procedure TestEvaluateRejectsNilConfig;
     procedure TestAdmitStrictRaisesPlatformFinding;
@@ -347,7 +381,28 @@ type
       out ACredential: TTlsCredential): Boolean;
   end;
 
+  // a host-written resolver that lists the credentials it may select
+  TListedCredentialResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver,
+    ITlsServerCredentialSet)
+  strict private
+  var
+    FCredentials: TArray<TTlsCredential>;
+  public
+    constructor Create(const ACredentials: TArray<TTlsCredential>);
+    function TryResolve(const AClientHello: TTlsClientHelloInfo;
+      out ACredential: TTlsCredential): Boolean;
+    function Credentials: TArray<TTlsCredential>;
+  end;
+
+  // a resolver whose lookup fails, as a host resolver backed by a store that is down
+  TFailingCredentialResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver)
+  public
+    function TryResolve(const AClientHello: TTlsClientHelloInfo;
+      out ACredential: TTlsCredential): Boolean;
+  end;
+
 resourcestring
+  SResolverStoreDown = 'the credential store is down';
   SBranchNotValidated = 'build %d is not validated; the validated branch does not apply';
   SBranchValidated = 'build %d is validated; the not-validated branch does not apply';
 
@@ -366,6 +421,35 @@ function TPlainCredentialResolver.TryResolve(const AClientHello: TTlsClientHello
 begin
   ACredential := FCredential;
   Result := FResolves;
+end;
+
+{ TListedCredentialResolver }
+
+constructor TListedCredentialResolver.Create(const ACredentials: TArray<TTlsCredential>);
+begin
+  inherited Create;
+  FCredentials := ACredentials;
+end;
+
+function TListedCredentialResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
+  out ACredential: TTlsCredential): Boolean;
+begin
+  ACredential := FCredentials[0];
+  Result := True;
+end;
+
+function TListedCredentialResolver.Credentials: TArray<TTlsCredential>;
+begin
+  Result := FCredentials;
+end;
+
+{ TFailingCredentialResolver }
+
+function TFailingCredentialResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
+  out ACredential: TTlsCredential): Boolean;
+begin
+  ACredential := Default(TTlsCredential);
+  raise EInvalidOperationTlsLibException.CreateRes(@SResolverStoreDown);
 end;
 
 { TCompliancePolicyTestCase }
@@ -443,6 +527,34 @@ function TCompliancePolicyTestCase.ReportHasKind(const AReport: IComplianceRepor
   AKind: TComplianceFindingKind): Boolean;
 begin
   Result := HasKind(AReport.Findings, AKind);
+end;
+
+function TCompliancePolicyTestCase.FindingOfKind(const AFindings: TArray<TComplianceFinding>;
+  AKind: TComplianceFindingKind): TComplianceFinding;
+var
+  LI: Int32;
+  LFound: Boolean;
+begin
+  Result := Default(TComplianceFinding);
+  LFound := False;
+  for LI := 0 to System.Length(AFindings) - 1 do
+    if not LFound and (AFindings[LI].Kind = AKind) then
+    begin
+      Result := AFindings[LI];
+      LFound := True;
+    end;
+  CheckTrue(LFound, 'a finding of the expected kind');
+end;
+
+function TCompliancePolicyTestCase.CountOfKind(const AFindings: TArray<TComplianceFinding>;
+  AKind: TComplianceFindingKind): Int32;
+var
+  LI: Int32;
+begin
+  Result := 0;
+  for LI := 0 to System.Length(AFindings) - 1 do
+    if AFindings[LI].Kind = AKind then
+      Inc(Result);
 end;
 
 function TCompliancePolicyTestCase.ClientBuilder(
@@ -1145,6 +1257,43 @@ begin
   Result := AResolver.TryResolve(Default(TTlsClientHelloInfo), ACredential);
 end;
 
+function TTestComplianceAdmit.VersionPolicy(const AVersions: TArray<UInt16>): ICompliancePolicy;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Versions := AVersions;
+  Result := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Relaxed);
+end;
+
+function TTestComplianceAdmit.Tls12Psk: TTls12Psk;
+begin
+  Result.Identity := TBytes.Create($61, $62);
+  Result.Secret := TSecretBuffer.From(TBytes.Create($00, $11, $22, $33, $44, $55, $66, $77));
+end;
+
+function TTestComplianceAdmit.HasServerNameFinding(const AReport: IComplianceReport): Boolean;
+var
+  LFindings: TArray<TComplianceFinding>;
+  LI: Int32;
+begin
+  Result := False;
+  LFindings := AReport.Findings;
+  for LI := 0 to System.Length(LFindings) - 1 do
+    if (LFindings[LI].Kind = TComplianceFindingKind.DangerousTrustConfigured) and
+      (LFindings[LI].Subject = 'ServerName') then
+      Result := True;
+end;
+
+function TTestComplianceAdmit.Ed25519OnlyKeyCredential(
+  const ACrypto: ICryptoProvider): TTlsCredential;
+begin
+  Result := Credential(ACrypto);
+  Result.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ED25519), Result.PrivateKey.PublicKeyInfo) as ISigningKey;
+end;
+
 procedure TTestComplianceAdmit.TestBaselineClientAdmitsStrict;
 var
   LPolicy: ICompliancePolicy;
@@ -1702,9 +1851,38 @@ begin
   LPolicy := RelaxedPolicy;
   LFindings := LPolicy.Evaluate(ServerBuilder(LPolicy).WithSniCredential('localhost',
     Ed25519Credential).Build).Findings;
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules),
-    'the SNI credential is checked too');
-  CheckEquals('credential 2', LFindings[0].Subject, 'and named by its place in the set');
+  CheckEquals('credential 2 (CN=localhost)',
+    FindingOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules).Subject,
+    'the SNI credential is checked too, named by its place in the set and its common name');
+end;
+
+procedure TTestComplianceAdmit.TestListedResolverWeakEntryIsBelowRulesNotUnchecked;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := RelaxedPolicy;
+  LReport := LPolicy.Evaluate(RawResolverConfig(LPolicy, TListedCredentialResolver.Create(
+    TArray<TTlsCredential>.Create(Credential(LPolicy.Crypto), Ed25519Credential))
+    as ITlsServerCredentialResolver));
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
+    'a resolver that lists its credentials is checked entry by entry');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialResolverUnchecked),
+    'and is not reported as uninspectable');
+end;
+
+procedure TTestComplianceAdmit.TestDefaultSharedWithAnSniEntryIsReportedOnce;
+var
+  LPolicy: ICompliancePolicy;
+  LWeak: TTlsCredential;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  LWeak := Ed25519Credential;
+  LFindings := LPolicy.Evaluate(RawServer(LPolicy).WithCredential(LWeak)
+    .WithSniCredential('localhost', LWeak).Build).Findings;
+  CheckEquals(1, CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules),
+    'the credential the default shares with an entry is listed once');
 end;
 
 procedure TTestComplianceAdmit.TestRawCustomResolverIsUnchecked;
@@ -1861,6 +2039,60 @@ begin
   CheckEquals(1, System.Length(LResolved.PrivateKey.CapableSchemes), 'only the allowed scheme');
 end;
 
+procedure TTestComplianceAdmit.TestCheckedResolverRefusesAnEmptyChain;
+var
+  LPolicy: ICompliancePolicy;
+  LResolved: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  CheckFalse(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(
+    Default(TTlsCredential), True) as ITlsServerCredentialResolver), LResolved),
+    'an inner answer that holds no certificate is refused');
+  CheckEquals(0, System.Length(LResolved.CertificateChain), 'and nothing is handed out');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedResolverRefusesAKeyWithNoAllowedScheme;
+var
+  LPolicy: ICompliancePolicy;
+  LResolved: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  CheckFalse(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(
+    Ed25519OnlyKeyCredential(LPolicy.Crypto), True) as ITlsServerCredentialResolver),
+    LResolved), 'a key whose schemes miss the rules is refused once narrowed');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedResolverRefusesAChainWithNoKey;
+var
+  LPolicy: ICompliancePolicy;
+  LGiven, LResolved: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  LGiven := Credential(LPolicy.Crypto);
+  LGiven.PrivateKey := nil;
+  CheckFalse(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(LGiven,
+    True) as ITlsServerCredentialResolver), LResolved),
+    'a certificate with no private key can sign nothing');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedResolverPropagatesAnInnerFault;
+var
+  LPolicy: ICompliancePolicy;
+  LResolved: TTlsCredential;
+  LRaised: Boolean;
+begin
+  LPolicy := StrictPolicy;
+  LRaised := False;
+  try
+    Resolved(LPolicy.CheckedCredentialResolver(TFailingCredentialResolver.Create
+      as ITlsServerCredentialResolver), LResolved);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a fault of the host resolver is not swallowed into a refusal');
+end;
+
 procedure TTestComplianceAdmit.TestCheckedResolverRejectsNilInner;
 var
   LRaised: Boolean;
@@ -1875,32 +2107,124 @@ begin
   CheckTrue(LRaised, 'nil inner');
 end;
 
+procedure TTestComplianceAdmit.TestCheckedResolverExposesItsInner;
+var
+  LPolicy: ICompliancePolicy;
+  LInner: ITlsServerCredentialResolver;
+  LChecked: IComplianceCredentialResolver;
+begin
+  LPolicy := StrictPolicy;
+  LInner := TPlainCredentialResolver.Create(Credential(LPolicy.Crypto), True)
+    as ITlsServerCredentialResolver;
+  CheckTrue(Supports(LPolicy.CheckedCredentialResolver(LInner), IComplianceCredentialResolver,
+    LChecked), 'the wrapper is marked');
+  CheckTrue(LChecked.Inner = LInner, 'and answers the resolver it checks');
+  CheckTrue(LChecked.Policy = LPolicy, 'for the policy that made it');
+end;
+
 procedure TTestComplianceAdmit.TestFacadeServerResolverRejectsNilResolver;
 var
-  LRaised: Boolean;
+  LMessage: string;
   LNone: ITlsServerCredentialResolver;
 begin
-  LRaised := False;
+  LMessage := '';
   LNone := nil;
   try
     TComplianceTls.Server(StrictPolicy, LNone);
   except
-    on EArgumentTlsLibException do
-      LRaised := True;
+    on E: EArgumentTlsLibException do
+      LMessage := E.Message;
   end;
-  CheckTrue(LRaised, 'nil resolver');
+  CheckEquals('the credential resolver must not be nil', LMessage,
+    'the facade names the resolver it was given, not the wrapper''s inner');
+end;
+
+procedure TTestComplianceAdmit.TestFacadeServerResolverRejectsNilPolicy;
+var
+  LMessage: string;
+  LNone: ITlsServerCredentialResolver;
+  LPolicy: ICompliancePolicy;
+begin
+  LMessage := '';
+  LNone := nil;
+  LPolicy := nil;
+  try
+    TComplianceTls.Server(LPolicy, LNone);
+  except
+    on E: EArgumentTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckEquals('the compliance policy must not be nil', LMessage,
+    'the policy is checked before the resolver');
 end;
 
 procedure TTestComplianceAdmit.TestFacadeServerResolverBuildsAdmittedConfig;
 var
   LPolicy: ICompliancePolicy;
   LConfig: ITlsServerConfig;
+  LChecked: IComplianceCredentialResolver;
 begin
   LPolicy := StrictPolicy;
   LConfig := TComplianceTls.BuildServer(LPolicy, TComplianceTls.Server(LPolicy,
     TPlainCredentialResolver.Create(Credential(LPolicy.Crypto), True)
     as ITlsServerCredentialResolver));
-  CheckTrue(LConfig.CredentialResolver <> nil, 'built and admitted with no finding');
+  CheckTrue(Supports(LConfig.CredentialResolver, IComplianceCredentialResolver, LChecked),
+    'the built config holds the checking wrapper');
+  CheckTrue(LChecked.Policy = LPolicy, 'of this policy');
+end;
+
+procedure TTestComplianceAdmit.TestFacadeServerResolverChecksListedEntries;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+  LRefused: Boolean;
+begin
+  LPolicy := RelaxedPolicy;
+  LRefused := False;
+  try
+    TComplianceTls.BuildServer(LPolicy, TComplianceTls.Server(LPolicy,
+      TSniCredentialResolver.ForCredential(Ed25519Credential)));
+  except
+    on E: EComplianceUnmetTlsLibException do
+    begin
+      LRefused := True;
+      LFindings := E.Findings;
+    end;
+  end;
+  CheckTrue(LRefused, 'a weak static entry behind the wrapper fails the build');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules), 'for its key');
+  CheckFalse(HasKind(LFindings, TComplianceFindingKind.CredentialResolverUnchecked),
+    'and not as an uninspectable resolver');
+end;
+
+procedure TTestComplianceAdmit.TestFacadeServerResolverNarrowsListedEntriesBeforeChecking;
+var
+  LPolicy: ICompliancePolicy;
+  LGiven: TTlsCredential;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LGiven := Credential(LPolicy.Crypto);
+  LGiven.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ED25519, TSignatureScheme.ECDSA_SECP256R1_SHA256),
+    LGiven.PrivateKey.PublicKeyInfo) as ISigningKey;
+  LReport := LPolicy.Evaluate(TComplianceTls.Server(LPolicy,
+    TSniCredentialResolver.ForCredential(LGiven)).Build);
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialSchemesNotAllowed),
+    'the wrapper narrows this key before it judges it, so the build check does too');
+end;
+
+procedure TTestComplianceAdmit.TestFacadeServerCredentialSubjectIsNumbered;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  LFindings := LPolicy.Evaluate(TComplianceTls.Server(LPolicy, Ed25519Credential).Build)
+    .Findings;
+  CheckEquals('credential 1 (CN=localhost)',
+    FindingOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules).Subject,
+    'the facade credential is the first of the set');
 end;
 
 procedure TTestComplianceAdmit.TestEvaluateCredentialUnreadableCertificateIsUndetermined;
@@ -1923,6 +2247,18 @@ begin
     TComplianceFindingKind.CredentialKeyUndetermined), 'a credential with no certificate');
 end;
 
+procedure TTestComplianceAdmit.TestEvaluateCredentialWithoutKeyIsUndetermined;
+var
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  LCredential := Credential(LPolicy.Crypto);
+  LCredential.PrivateKey := nil;
+  CheckTrue(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
+    TComplianceFindingKind.CredentialKeyUndetermined), 'a certificate with no private key');
+end;
+
 procedure TTestComplianceAdmit.TestEvaluateCredentialReportsExtraSchemes;
 var
   LPolicy: ICompliancePolicy;
@@ -1935,15 +2271,16 @@ begin
     TSignatureScheme.ED25519, TSignatureScheme.ECDSA_SECP256R1_SHA256),
     LCredential.PrivateKey.PublicKeyInfo) as ISigningKey;
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CredentialSchemesNotAllowed),
-    'an allowed scheme beside a forbidden one is not enough');
-  CheckTrue(Pos('ED25519', LFindings[0].Message) > 0, 'and the extra is named');
+  CheckTrue(Pos('ED25519', FindingOfKind(LFindings,
+    TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
+    'an allowed scheme beside a forbidden one is not enough, and the extra is named');
 end;
 
 procedure TTestComplianceAdmit.TestEvaluateCredentialOfAGoodCredentialHasNoFinding;
 var
   LPolicy: ICompliancePolicy;
 begin
+  // a guard: it also passes without the checks and pins only the clean case
   LPolicy := StrictPolicy;
   CheckEquals(0, System.Length(LPolicy.EvaluateCredential(Credential(LPolicy.Crypto)).Findings),
     'none');
@@ -1960,6 +2297,33 @@ begin
   LBuilder := ServerBuilder(LPolicy).WithResumption(True);
   CheckTrue(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
     TComplianceFindingKind.TicketAeadNotAllowed), 'the default ticket keys seal with AES-256');
+end;
+
+procedure TTestComplianceAdmit.TestExplicitTicketKeysUnderAes128AreRefused;
+var
+  LPolicy: ICompliancePolicy;
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LPolicy := Aes128Policy;
+  LBuilder := ServerBuilder(LPolicy).WithResumption(True).WithSessionTicketKeys(
+    TStekTicketKeyManager.Create(LPolicy.Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager);
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
+    TComplianceFindingKind.TicketAeadNotAllowed), 'keys the host supplies seal with AES-256 too');
+end;
+
+procedure TTestComplianceAdmit.TestStoreWithDefaultTicketKeysUnderAes128IsRefused;
+var
+  LPolicy: ICompliancePolicy;
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LPolicy := Aes128Policy;
+  LBuilder := ServerBuilder(LPolicy).WithResumption(True).WithSessionStore(
+    TInMemorySessionStore.Create(LPolicy.Crypto.Primitives.GetRandom) as ISessionStore)
+    .WithDefaultSessionTicketKeys;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
+    TComplianceFindingKind.TicketAeadNotAllowed),
+    'a store beside the default ticket keys still seals tickets');
 end;
 
 procedure TTestComplianceAdmit.TestStoreOnlyServerGetsNoTicketFinding;
@@ -1996,6 +2360,20 @@ begin
     'the default keys are');
 end;
 
+procedure TTestComplianceAdmit.TestMtlsServerDisclosesAHostOwnedRevocationResolver;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(Disclosed(LPolicy.Evaluate(MtlsServerBuilder(LPolicy, TRevocationPosture.Soft)
+    .WithLiveRevocationVerdict(1000).Build), 'host-owned'),
+    'a live-revocation resolver of the host cannot be inspected');
+  CheckFalse(Disclosed(LPolicy.Evaluate(MtlsServerBuilder(LPolicy,
+    TRevocationPosture.Soft).Build), 'host-owned'), 'control: no resolver, no disclosure');
+  CheckFalse(Disclosed(LPolicy.Evaluate(ServerBuilder(LPolicy).Build), 'host-owned'),
+    'a server that verifies no client chain has none');
+end;
+
 procedure TTestComplianceAdmit.TestClientWithoutServerNameCheckIsRefused;
 var
   LPolicy: ICompliancePolicy;
@@ -2004,34 +2382,91 @@ begin
   LPolicy := StrictPolicy;
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy)
     .WithDangerousDisableServerNameCheck.Build, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.DangerousTrustConfigured), 'the kind');
-  CheckEquals('ServerName', LFindings[0].Subject, 'named for the host-name match');
+  CheckEquals('ServerName', FindingOfKind(LFindings,
+    TComplianceFindingKind.DangerousTrustConfigured).Subject, 'named for the host-name match');
 end;
 
-procedure TTestComplianceAdmit.TestClientWithPskNeedsNoServerNameFinding;
-var
-  LRules: TComplianceRules;
-  LPolicy: ICompliancePolicy;
-  LFindings: TArray<TComplianceFinding>;
-  LI: Int32;
-begin
-  LRules := TCompliancePresets.Fips140_3;
-  LRules.Requirements := LRules.Requirements - [TComplianceRequirement.NoExternalPsk];
-  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
-    TComplianceEnforcement.Relaxed);
-  LFindings := LPolicy.Evaluate(ClientBuilder(LPolicy).WithDangerousDisableServerNameCheck
-    .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(Psk)).Build).Findings;
-  for LI := 0 to System.Length(LFindings) - 1 do
-    CheckTrue(LFindings[LI].Subject <> 'ServerName', 'a PSK client has no certificate to match');
-end;
-
-procedure TTestComplianceAdmit.TestServerNameCheckedByDefault;
+procedure TTestComplianceAdmit.TestRequiredPskClientNeedsNoServerNameFinding;
 var
   LPolicy: ICompliancePolicy;
 begin
-  LPolicy := StrictPolicy;
-  CheckEquals(0, System.Length(LPolicy.Evaluate(ClientBuilder(LPolicy).Build).Findings),
-    'the facade default needs no finding');
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls13));
+  CheckFalse(HasServerNameFinding(LPolicy.Evaluate(ClientBuilder(LPolicy)
+    .WithDangerousDisableServerNameCheck.Tls13.WithExternalPreSharedKeys(
+    TArray<TExternalPsk>.Create(Psk)).Build)),
+    'a TLS 1.3 client that requires its PSK reaches no certificate to match');
+end;
+
+procedure TTestComplianceAdmit.TestRequiredTls12PskClientNeedsNoServerNameFinding;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls12));
+  CheckFalse(HasServerNameFinding(LPolicy.Evaluate(ClientBuilder(LPolicy)
+    .WithDangerousDisableServerNameCheck.Tls12.WithPreSharedKey(Tls12Psk).Build)),
+    'a TLS 1.2 client that requires its PSK reaches no certificate to match');
+end;
+
+procedure TTestComplianceAdmit.TestPskClientWithCertificatePathGetsServerNameFinding;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12));
+  CheckTrue(HasServerNameFinding(LPolicy.Evaluate(ClientBuilder(LPolicy)
+    .WithDangerousDisableServerNameCheck.Tls13.WithExternalPreSharedKeys(
+    TArray<TExternalPsk>.Create(Psk)).Build)),
+    'TLS 1.2 ignores an external PSK, so that handshake ends in a certificate');
+end;
+
+procedure TTestComplianceAdmit.TestOptionalPskClientGetsServerNameFinding;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls13));
+  CheckTrue(HasServerNameFinding(LPolicy.Evaluate(ClientBuilder(LPolicy)
+    .WithDangerousDisableServerNameCheck.Tls13.WithExternalPreSharedKeys(
+    TArray<TExternalPsk>.Create(Psk)).WithExternalPskRequired(False).Build)),
+    'a PSK the server may skip falls back to a certificate');
+end;
+
+procedure TTestComplianceAdmit.TestOptionalTls12PskClientGetsServerNameFinding;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls12));
+  CheckTrue(HasServerNameFinding(LPolicy.Evaluate(ClientBuilder(LPolicy)
+    .WithDangerousDisableServerNameCheck.Tls12.WithPreSharedKey(Tls12Psk)
+    .WithPreSharedKeyRequired(False).Build)),
+    'a TLS 1.2 PSK offered beside the certificate suites falls back to a certificate');
+end;
+
+procedure TTestComplianceAdmit.TestRequiredPskClientIsNotHeldToStrengthFloors;
+var
+  LPolicy: ICompliancePolicy;
+  LLoose: IServerVerification;
+begin
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls13));
+  LLoose := TServerVerification.VerifierSource(TFakeSystemVerifierSource.Create
+    as IServerCertificateVerifierSource).WithMinimumStrength(
+    TCertificateStrengthPolicy.Defaults).Build;
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
+    LLoose).Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(Psk)).Build),
+    TComplianceFindingKind.StrengthBelowRules), 'a client that verifies no chain has no floors');
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
+    LLoose).Build), TComplianceFindingKind.StrengthBelowRules),
+    'control: the same verification without the PSK is held to them');
+end;
+
+procedure TTestComplianceAdmit.TestRequiredPskClientHasNoRsaPeerChainDisclosure;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls13));
+  CheckFalse(Disclosed(LPolicy.Evaluate(ClientBuilder(LPolicy).Tls13.WithExternalPreSharedKeys(
+    TArray<TExternalPsk>.Create(Psk)).Build), 'size range'),
+    'a client that verifies no chain holds no chain to a range');
+  CheckTrue(Disclosed(LPolicy.Evaluate(ClientBuilder(LPolicy).Build), 'size range'),
+    'control: the client without the PSK does');
 end;
 
 procedure TTestComplianceAdmit.TestEvaluateNeverRaises;

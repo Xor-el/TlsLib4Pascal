@@ -98,9 +98,11 @@ Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy, MyRes
 `Policy.CheckedCredentialResolver(MyResolver)` returns a resolver that asks yours and then refuses
 (`TryResolve` answers `False`, which aborts the handshake) any credential the policy does not
 tolerate, narrowing the key it admits to the schemes of the rules. Strict mode refuses on any
-finding, relaxed mode on a configuration finding. It parses each credential per handshake, so keep
-the credential set small. `Policy.EvaluateCredential(Credential)` gives the same verdict as a
-report and never raises.
+finding, relaxed mode on a configuration finding. It reads the chosen credential's certificate on
+every handshake. A refusal reaches the client as `unrecognized_name` (SNI) or `handshake_failure`
+and the host gets no reason, so run `Policy.EvaluateCredential(Credential)` over your credentials at
+startup. It judges the credential as given and never raises; the wrapper judges it after narrowing
+the key, so a key with extra schemes is a finding in the report and admitted by the wrapper.
 
 ---
 
@@ -163,14 +165,17 @@ OS verifier, and so must a server's client chain.
 - **Resolver.** A custom `ITlsServerCredentialResolver` that does not list its credentials
   (`ITlsServerCredentialSet`) cannot be inspected: `CredentialResolverUnchecked` is a configuration
   finding. Wrap it with `Policy.CheckedCredentialResolver`, or use `Server(Policy, Resolver)`. A
-  wrapper made by another policy instance is not trusted.
+  wrapper made by another policy instance is not trusted. When the wrapped resolver lists its
+  credentials, Admit checks them too, so a weak static entry fails the build. Each finding names
+  its credential by place and common name, such as `credential 2 (CN=host)`.
 - **Session tickets.** A server that issues tickets from ticket keys without AES-256-GCM among the
   allowed AEADs is `TicketAeadNotAllowed`; the facade turns resumption off for such rules. A server
   with a session store and no ticket keys seals nothing and a client never does, so neither gets
   the finding.
-- **Server name.** A client with the server-name check disabled, and no PSK to authenticate
-  instead, is `DangerousTrustConfigured` with the subject `ServerName`. A client with a PSK that
-  also verifies a certificate as a fallback is not examined further.
+- **Server name.** A client with the server-name check disabled is `DangerousTrustConfigured` with
+  the subject `ServerName`, unless every version it offers must end in a PSK (TLS 1.3 with a
+  required external PSK, TLS 1.2 with a required TLS 1.2 PSK). Such a client verifies no chain, so
+  the strength floors and revocation posture are not examined for it either.
 - **Fleet ticket keys.** Keys installed by the host (`IFleetTicketKeyManager`) are disclosed: the
   policy cannot see how they were generated. Neither can it see a random generator supplied by the
   caller to a ticket-key manager.

@@ -219,12 +219,15 @@ class function TComplianceTls.Server(const APolicy: ICompliancePolicy;
 begin
   Result := ServerBase(APolicy);
   // a server signs with its credential key, so the key itself must be narrowed
-  Result.WithCredential(TComplianceCatalog.NarrowedCredential(ACredential, APolicy.Rules));
+  Result.WithCredential(TComplianceCatalog.NarrowedCredential(ACredential,
+    TComplianceCatalog.Schemes(APolicy.Rules.SignatureSchemes)));
 end;
 
 class function TComplianceTls.Server(const APolicy: ICompliancePolicy;
   const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
 begin
+  if APolicy = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   if AResolver = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilResolver);
   Result := ServerBase(APolicy);

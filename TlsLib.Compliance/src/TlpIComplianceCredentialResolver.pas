@@ -16,6 +16,7 @@ unit TlpIComplianceCredentialResolver;
 interface
 
 uses
+  TlpITlsCredentialResolver,
   TlpICompliancePolicy;
 
 type
@@ -25,9 +26,11 @@ type
   /// trusted.
   /// </summary>
   IComplianceCredentialResolver = interface(IInterface)
-    ['{2B3587AF-0705-4395-B8B4-D9A747CA8F22}']
+    ['{9FB03C9D-4BA1-4F21-AF5F-8D95B0CE5DB7}']
     /// <summary>The policy the resolver checks against.</summary>
     function Policy: ICompliancePolicy;
+    /// <summary>The resolver being checked, so a policy can list its credentials.</summary>
+    function Inner: ITlsServerCredentialResolver;
   end;
 
 implementation

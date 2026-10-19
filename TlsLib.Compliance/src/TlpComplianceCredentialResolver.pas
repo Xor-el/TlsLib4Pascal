@@ -16,7 +16,7 @@ unit TlpComplianceCredentialResolver;
 interface
 
 uses
-  SysUtils,
+  TlpCryptoDomainTypes,
   TlpTlsLibExceptions,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
@@ -28,8 +28,12 @@ type
   /// <summary>
   /// A credential resolver that asks an inner resolver and admits its answer only when the policy
   /// tolerates the credential: strict mode refuses any finding, relaxed mode a configuration
-  /// finding. A refusal answers False, which aborts the handshake. The admitted key is narrowed to
-  /// the schemes of the rules. It keeps no state, so it is as thread-safe as the inner resolver.
+  /// finding. A refusal answers False, which aborts the handshake; the client sees
+  /// unrecognized_name (SNI) or handshake_failure and the host gets no reason, so run
+  /// EvaluateCredential over the credentials at startup. The check reads the chosen credential's
+  /// certificate on every handshake. The admitted key is narrowed to the schemes of the rules,
+  /// which are read once at construction. It keeps no other state, so it is as thread-safe as the
+  /// inner resolver.
   /// </summary>
   TComplianceCredentialResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver,
     IComplianceCredentialResolver)
@@ -37,6 +41,8 @@ type
   var
     FPolicy: ICompliancePolicy;
     FInner: ITlsServerCredentialResolver;
+    FEnforcement: TComplianceEnforcement;
+    FSchemes: TArray<TSignatureScheme>;
   public
     /// <summary>Raises EArgumentTlsLibException for a nil argument.</summary>
     constructor Create(const APolicy: ICompliancePolicy;
@@ -44,6 +50,7 @@ type
     function TryResolve(const AClientHello: TTlsClientHelloInfo;
       out ACredential: TTlsCredential): Boolean;
     function Policy: ICompliancePolicy;
+    function Inner: ITlsServerCredentialResolver;
   end;
 
 implementation
@@ -64,6 +71,8 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilInner);
   FPolicy := APolicy;
   FInner := AInner;
+  FEnforcement := APolicy.Enforcement;
+  FSchemes := TComplianceCatalog.Schemes(APolicy.Rules.SignatureSchemes);
 end;
 
 function TComplianceCredentialResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
@@ -76,8 +85,8 @@ begin
   Result := FInner.TryResolve(AClientHello, LCredential);
   if not Result then
     Exit;
-  LCredential := TComplianceCatalog.NarrowedCredential(LCredential, FPolicy.Rules);
-  LRefused := TComplianceCatalog.Refusals(FPolicy.Enforcement,
+  LCredential := TComplianceCatalog.NarrowedCredential(LCredential, FSchemes);
+  LRefused := TComplianceCatalog.Refusals(FEnforcement,
     FPolicy.EvaluateCredential(LCredential).Findings);
   Result := System.Length(LRefused) = 0;
   if Result then
@@ -87,6 +96,11 @@ end;
 function TComplianceCredentialResolver.Policy: ICompliancePolicy;
 begin
   Result := FPolicy;
+end;
+
+function TComplianceCredentialResolver.Inner: ITlsServerCredentialResolver;
+begin
+  Result := FInner;
 end;
 
 end.

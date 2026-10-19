@@ -82,6 +82,9 @@ type
     procedure CheckCommon(const AConfig: ITlsCommonConfig;
       var AFindings: TArray<TComplianceFinding>);
     function TryKeyFacts(const ACertificate: TBytes; out AFacts: TCertKeyFacts): Boolean;
+    function CredentialSubject(AIndex: Int32; const ACredential: TTlsCredential): string;
+    // whether some offered version can end in a certificate the client verifies
+    function ClientHasCertificatePath(const AConfig: ITlsClientConfig): Boolean;
     procedure CheckCredential(const ACredential: TTlsCredential; const ASubject: string;
       var AFindings: TArray<TComplianceFinding>);
     procedure CheckCredentialResolver(const AConfig: ITlsServerConfig;
@@ -150,11 +153,13 @@ resourcestring
   SServerNameUnchecked = 'the server certificate is not matched to the host name';
   SStrengthBelow = 'the certificate strength policy is looser than the rules';
   SKeyUndetermined = 'the credential key could not be read from its certificate';
+  SNoPrivateKey = 'the credential holds a certificate and no private key';
   SKeyBelow = 'the credential key is below the strength floors of the rules';
   SCredentialSchemes = 'the credential key signs with no scheme the rules allow';
   SCredentialExtraSchemes =
     'the credential key can sign with schemes the rules do not allow: %s';
   SCredentialSubject = 'credential %d';
+  SCredentialNamedSubject = 'credential %d (CN=%s)';
   SResolverUnchecked =
     'the credential resolver is not checked by the policy; wrap it with CheckedCredentialResolver';
   STicketAead = 'session tickets are sealed with AES-256-GCM, which the rules do not allow';
@@ -386,13 +391,41 @@ end;
 function TCompliancePolicy.TryKeyFacts(const ACertificate: TBytes;
   out AFacts: TCertKeyFacts): Boolean;
 begin
-  try
+  // Parse raises on a malformed certificate, so screen it with the fail-closed query first
+  Result := FPkix.Certificates.IsWellFormed(ACertificate);
+  if Result then
     Result := FPkix.Certificates.Parse(ACertificate).KeyFacts(AFacts);
-  except
-    // Parse raises on bytes that are no certificate; that is an unreadable key, not a fault
-    on Exception do
-      Result := False;
-  end;
+end;
+
+function TCompliancePolicy.CredentialSubject(AIndex: Int32;
+  const ACredential: TTlsCredential): string;
+var
+  LSubject, LIssuer, LCommonName, LSerial: string;
+  LNamed: Boolean;
+begin
+  Result := Format(SCredentialSubject, [AIndex]);
+  if System.Length(ACredential.CertificateChain) = 0 then
+    Exit;
+  LNamed := FPkix.Certificates.PeerInfo(ACredential.CertificateChain[0], LSubject, LIssuer,
+    LCommonName, LSerial);
+  if LNamed and (LCommonName <> '') then
+    Result := Format(SCredentialNamedSubject, [AIndex, LCommonName]);
+end;
+
+function TCompliancePolicy.ClientHasCertificatePath(const AConfig: ITlsClientConfig): Boolean;
+var
+  LVersions: TArray<UInt16>;
+  LOffers13, LOffers12, LExternalPath, LTls12Path: Boolean;
+begin
+  LVersions := AConfig.SupportedVersions;
+  LOffers13 := TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls13);
+  LOffers12 := TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls12);
+  // a required PSK ends a version's handshake without a certificate
+  LExternalPath := (System.Length(AConfig.ExternalPsks) = 0) or
+    not AConfig.ExternalPskRequired;
+  LTls12Path := (System.Length(AConfig.Tls12Psks) = 0) or
+    not AConfig.Tls12PreSharedKeyRequired;
+  Result := (LOffers13 and LExternalPath) or (LOffers12 and LTls12Path);
 end;
 
 procedure TCompliancePolicy.CheckCredential(const ACredential: TTlsCredential;
@@ -417,7 +450,13 @@ begin
         TComplianceFindingKind.CredentialKeyBelowRules, ASubject, SKeyBelow));
   end;
   if ACredential.PrivateKey = nil then
+  begin
+    // an empty chain was reported above; a chain with no key can sign nothing
+    if System.Length(ACredential.CertificateChain) > 0 then
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CredentialKeyUndetermined, ASubject, SNoPrivateKey));
     Exit;
+  end;
   LCapable := ACredential.PrivateKey.CapableSchemes;
   LAnyAllowed := False;
   LExtras := '';
@@ -446,24 +485,39 @@ end;
 procedure TCompliancePolicy.CheckCredentialResolver(const AConfig: ITlsServerConfig;
   var AFindings: TArray<TComplianceFinding>);
 var
+  LResolver: ITlsServerCredentialResolver;
   LSet: ITlsServerCredentialSet;
   LChecked: IComplianceCredentialResolver;
   LCredentials: TArray<TTlsCredential>;
+  LCredential: TTlsCredential;
+  LSchemes: TArray<TSignatureScheme>;
   LOwn: Boolean;
   LI: Int32;
 begin
+  LResolver := AConfig.CredentialResolver;
   // a PSK-only server presents no certificate, so it has no resolver
-  if AConfig.CredentialResolver = nil then
+  if LResolver = nil then
     Exit;
-  if Supports(AConfig.CredentialResolver, ITlsServerCredentialSet, LSet) then
+  LOwn := False;
+  if Supports(LResolver, IComplianceCredentialResolver, LChecked) then
+  begin
+    LOwn := LChecked.Policy = (Self as ICompliancePolicy);
+    LResolver := LChecked.Inner;
+  end;
+  if Supports(LResolver, ITlsServerCredentialSet, LSet) then
   begin
     LCredentials := LSet.Credentials;
+    LSchemes := TComplianceCatalog.Schemes(FRules.SignatureSchemes);
     for LI := 0 to System.Length(LCredentials) - 1 do
-      CheckCredential(LCredentials[LI], Format(SCredentialSubject, [LI + 1]), AFindings);
+    begin
+      LCredential := LCredentials[LI];
+      // the wrapper narrows a key before it judges it, so the build check does too
+      if LOwn then
+        LCredential := TComplianceCatalog.NarrowedCredential(LCredential, LSchemes);
+      CheckCredential(LCredential, CredentialSubject(LI + 1, LCredential), AFindings);
+    end;
     Exit;
   end;
-  LOwn := Supports(AConfig.CredentialResolver, IComplianceCredentialResolver, LChecked) and
-    (LChecked.Policy = (Self as ICompliancePolicy));
   if not LOwn then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialResolverUnchecked, '', SResolverUnchecked));
@@ -632,20 +686,22 @@ function TCompliancePolicy.Evaluate(const AConfig: ITlsClientConfig): IComplianc
 var
   LFindings: TArray<TComplianceFinding>;
   LDisclosures: TArray<string>;
-  LOutside: Boolean;
+  LOutside, LCertPath: Boolean;
 begin
   if AConfig = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilConfig);
   LFindings := System.Copy(FPlatformFindings);
   LDisclosures := System.Copy(FDisclosures);
+  LCertPath := ClientHasCertificatePath(AConfig);
   CheckCommon(AConfig, LFindings);
-  CheckPeerVerification(AConfig, LFindings, LDisclosures);
+  // a client that can only end in a PSK verifies no chain, so the floors and postures are idle
+  if LCertPath then
+    CheckPeerVerification(AConfig, LFindings, LDisclosures);
   // a client without a certificate holds an empty credential
   if System.Length(AConfig.Credential.CertificateChain) > 0 then
     CheckCredential(AConfig.Credential, '', LFindings);
   if (TComplianceRequirement.NoDangerousTrust in FRules.Requirements) and
-    not AConfig.CheckServerName and (System.Length(AConfig.ExternalPsks) = 0) and
-    (System.Length(AConfig.Tls12Psks) = 0) then
+    not AConfig.CheckServerName and LCertPath then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.DangerousTrustConfigured, SServerNameSubject, SServerNameUnchecked));
   if TComplianceRequirement.InModuleChainVerification in FRules.Requirements then

@@ -163,6 +163,7 @@ type
     procedure TestComposeKeepsBaseReportIdentity;
     procedure TestComposeOverBaseWithoutReportClaimsNone;
     procedure TestSuppliedHpkeFacetAnswerIsTheBaseReportAnswer;
+    procedure TestRebuiltHpkeFacetAnswerIsTheBaseReportAnswer;
     procedure TestComposeFacetsAreStable;
     procedure TestPrimitivesRejectNilReport;
     procedure TestStrictFollowsOsReportForAes;
@@ -949,6 +950,27 @@ begin
   LActual := LReport.FacetBackend(TCryptoFacet.Hpke);
   CheckEquals(Ord(LExpected.Backend), Ord(LActual.Backend), 'the backend is the base answer');
   CheckEquals(Ord(LExpected.Reason), Ord(LActual.Reason), 'the reason is the base answer');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRebuiltHpkeFacetAnswerIsTheBaseReportAnswer;
+var
+  LBaseReport, LReport: ICryptoBackendReport;
+  LProvider: ICryptoProvider;
+  LComposition: IHpkeComposition;
+  LActual: TCryptoBackendEntry;
+begin
+  // the rebuilt composition runs over the refusing primitives; its report line stays the base's
+  LBaseReport := TComposedHpkeClaimReport.Create as ICryptoBackendReport;
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
+    LBaseReport, nil, nil), TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
+  CheckTrue(Supports(LProvider.Hpke, IHpkeComposition, LComposition),
+    'the base HPKE is rebuilt, not wrapped');
+  CheckTrue(Supports(LProvider, ICryptoBackendReport, LReport), 'the report is offered');
+  LActual := LReport.FacetBackend(TCryptoFacet.Hpke);
+  CheckEquals(Ord(TCryptoBackend.Composed), Ord(LActual.Backend),
+    'the facet is still reported composed');
+  CheckEquals(Ord(LBaseReport.FacetBackend(TCryptoFacet.Hpke).Reason), Ord(LActual.Reason),
+    'with the base reason');
 end;
 
 procedure TTestComplianceCryptoPrimitives.TestComposeOverBaseWithoutReportClaimsNone;

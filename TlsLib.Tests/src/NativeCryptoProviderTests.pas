@@ -1158,10 +1158,16 @@ end;
 procedure TTestWindowsNativeCryptoProvider.TestDescribeNamesNativeVerification;
 var
   LReport: ICryptoBackendReport;
+  LNative: Boolean;
 begin
-  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+  LNative := Supports(Crypto, ICryptoBackendReport, LReport) and
+    (LReport.VerificationBackend(TSignatureScheme.RSA_PSS_RSAE_SHA256).Backend =
+    TCryptoBackend.System);
+  if not LNative then
+  begin
+    SkipTest('the platform serves this verification from no native module');
     Exit;
-  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  end;
   CheckTrue(Pos('verify RSA ECDSA', LReport.Describe) > 0, LReport.Describe);
 end;
 
@@ -1173,6 +1179,7 @@ var
 begin
   if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
     Exit;
+  // assumes the registry lists every RSA and ECDSA scheme the module serves
   LKept := TSystemCryptoStrictness.NativeSignatureSchemes(Crypto, LDropped).Items;
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
     CheckEquals(LScheme.KeyKind in [TSignatureKeyKind.Rsa, TSignatureKeyKind.Ecdsa],
