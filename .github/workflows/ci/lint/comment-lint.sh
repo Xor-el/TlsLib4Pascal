@@ -13,7 +13,7 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." || exit 2
 
 CORE="TlsLib/src"
-PROD=("TlsLib/src" "TlsLib.Trust.System/src" "TlsLib.Crypto.System/src" "TlsLib.Net/src" "TlsLib.Trust.Bundle/src"
+PROD=("TlsLib/src" "TlsLib.Trust.System/src" "TlsLib.Crypto.System/src" "TlsLib.Compliance/src" "TlsLib.Net/src" "TlsLib.Trust.Bundle/src"
       "TlsLib.Tools/EchKeyGen/src" "TlsLib.Tools/RootGen/src")
 # shellcheck disable=SC2207
 ADAPTERS=($(ls -d TlsLib.Adapters/*/Adapter 2>/dev/null))

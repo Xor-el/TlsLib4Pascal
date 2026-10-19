@@ -101,6 +101,8 @@ uses
   TrustCompositionTests,
   SystemTrustTests,
   NativeCryptoProviderTests,
+  MockCompliance,
+  ComplianceRulesTests,
   AppleAlertMapTests,
   RootGenKeyingTests,
   EchToolingTests,

@@ -281,6 +281,8 @@ uses
   TrustCompositionTests in '..\src\TrustCompositionTests.pas',
   SystemTrustTests in '..\src\SystemTrustTests.pas',
   NativeCryptoProviderTests in '..\src\NativeCryptoProviderTests.pas',
+  MockCompliance in '..\src\MockCompliance.pas',
+  ComplianceRulesTests in '..\src\ComplianceRulesTests.pas',
   AppleAlertMapTests in '..\src\AppleAlertMapTests.pas',
   RootGenKeyingTests in '..\src\RootGenKeyingTests.pas',
   EchToolingTests in '..\src\EchToolingTests.pas',

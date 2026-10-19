@@ -17,7 +17,7 @@
     <PublishOptions>
       <Version Value="2"/>
     </PublishOptions>
-    <RequiredPackages Count="5">
+    <RequiredPackages Count="6">
       <Item1>
         <PackageName Value="TlsLib4PascalPackage"/>
       </Item1>
@@ -31,10 +31,13 @@
         <PackageName Value="TlsLib.Crypto.System"/>
       </Item4>
       <Item5>
-        <PackageName Value="FCL"/>
+        <PackageName Value="TlsLib.Compliance"/>
       </Item5>
+      <Item6>
+        <PackageName Value="FCL"/>
+      </Item6>
     </RequiredPackages>
-    <Units Count="104">
+    <Units Count="106">
       <Unit0>
         <Filename Value="TlsLibConsole.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -451,6 +454,14 @@
         <Filename Value="..\src\SystemCryptoHelperTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit103>
+      <Unit104>
+        <Filename Value="..\src\MockCompliance.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit104>
+      <Unit105>
+        <Filename Value="..\src\ComplianceRulesTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit105>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
