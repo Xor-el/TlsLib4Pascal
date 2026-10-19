@@ -395,13 +395,14 @@ begin
     if System.Length(LPlain) > MaxSerializedSessionLength then
       Exit;
     LNonce := FCrypto.Primitives.GetRandom.GenerateBytes(TicketNonceLength);
-    LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
     try
+      LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
       LAead.Init(LKey);
       // the key name is authenticated as associated data (it is not secret)
       LCipher := TAeadUtilities.Seal(LAead, LNonce, LKeyName, LPlain);
     except
-      // a custom manager that hands over an unusable key must not fault the handshake; decline to seal
+      // a provider without the ticket AEAD, or a manager handing over an unusable key, must not
+      // fault the handshake; decline to seal
       on E: EBaseTlsLibException do
         Exit;
     end;
@@ -434,7 +435,13 @@ begin
   ASession := nil;
   Result := False;
   LNameLen := FKeys.KeyNameLength;
-  LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
+  try
+    LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
+  except
+    // a provider without the ticket AEAD reads every ticket as unreadable -> full handshake
+    on E: EBaseTlsLibException do
+      Exit;
+  end;
   // key_name || nonce || ciphertext+tag; reject anything shorter than the framing
   if System.Length(ATicket) < LNameLen + TicketNonceLength + LAead.TagSize then
     Exit;

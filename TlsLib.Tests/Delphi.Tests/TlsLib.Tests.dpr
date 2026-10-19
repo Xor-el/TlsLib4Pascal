@@ -145,6 +145,7 @@ uses
   TlpChainAlgorithmPolicy in '..\..\TlsLib\src\Trust\TlpChainAlgorithmPolicy.pas',
   TlpTlsCredential in '..\..\TlsLib\src\Handshake\TlpTlsCredential.pas',
   TlpITlsCredentialResolver in '..\..\TlsLib\src\Interfaces\Handshake\TlpITlsCredentialResolver.pas',
+  TlpITlsServerCredentialSet in '..\..\TlsLib\src\Interfaces\Handshake\TlpITlsServerCredentialSet.pas',
   TlpCredentialResolvers in '..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas',
   TlpEchConfig in '..\..\TlsLib\src\Ech\TlpEchConfig.pas',
   TlpEchExtension in '..\..\TlsLib\src\Ech\TlpEchExtension.pas',

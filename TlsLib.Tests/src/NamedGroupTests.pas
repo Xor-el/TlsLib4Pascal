@@ -88,6 +88,11 @@ type
     procedure TestMlKemDecapsulateRejectsWrongLengthCiphertext;
     procedure TestMlKemBackendDecapsulationFaultIsInternalError;
     procedure TestRegistry;
+    procedure TestCreateRegistryPreservesGivenOrder;
+    procedure TestCreateRegistryLooksUpByCode;
+    procedure TestCreateRegistryKeepsFirstOfDuplicateCode;
+    procedure TestCreateRegistryEmptyArrayGivesEmptyRegistry;
+    procedure TestDefaultRegistryUnchangedByCreateRegistry;
     procedure TestClassicalRegistryOmitsPostQuantum;
     procedure TestGroupKindClassifiesEcdheKemHybrid;
     procedure TestOnlyEcdheGroupsAreTls12Eligible;
@@ -605,6 +610,63 @@ begin
   LReg := LBuilder.Build;
   CheckTrue(LReg.Contains(TNamedGroupCatalog.Secp521r1), 're-added');
   CheckFalse(LReg.TryGet($FFFF, LGroup), 'unknown code is not found');
+end;
+
+procedure TTestNamedGroups.TestCreateRegistryPreservesGivenOrder;
+var
+  LReg: INamedGroupRegistry;
+  LItems: TArray<INamedGroup>;
+begin
+  LReg := TNamedGroups.CreateRegistry(TArray<INamedGroup>.Create(
+    TNamedGroups.CreateNistEcdh(Crypto, 'secp384r1'), TNamedGroups.CreateX25519(Crypto)));
+  LItems := LReg.Items;
+  CheckEquals(2, System.Length(LItems), 'exactly the given groups');
+  CheckEquals(TNamedGroupCatalog.Secp384r1, LItems[0].Code, 'first given group first');
+  CheckEquals(TNamedGroupCatalog.X25519, LItems[1].Code, 'second given group second');
+end;
+
+procedure TTestNamedGroups.TestCreateRegistryLooksUpByCode;
+var
+  LReg: INamedGroupRegistry;
+  LGroup: INamedGroup;
+begin
+  LReg := TNamedGroups.CreateRegistry(TArray<INamedGroup>.Create(
+    TNamedGroups.CreateX25519(Crypto)));
+  CheckTrue(LReg.TryGet(TNamedGroupCatalog.X25519, LGroup), 'given code found');
+  CheckEquals('X25519', LGroup.Name, 'lookup returns the group');
+  CheckFalse(LReg.Contains(TNamedGroupCatalog.Secp256r1), 'a group not given is absent');
+end;
+
+procedure TTestNamedGroups.TestCreateRegistryKeepsFirstOfDuplicateCode;
+var
+  LReg: INamedGroupRegistry;
+  LFirst, LSecond, LFound: INamedGroup;
+begin
+  LFirst := TNamedGroups.CreateX25519(Crypto);
+  LSecond := TNamedGroups.CreateX25519(Crypto);
+  LReg := TNamedGroups.CreateRegistry(TArray<INamedGroup>.Create(LFirst, LSecond));
+  CheckEquals(1, System.Length(LReg.Items), 'one entry for the repeated code');
+  CheckTrue(LReg.TryGet(TNamedGroupCatalog.X25519, LFound), 'code present');
+  CheckTrue(LFound = LFirst, 'the first entry wins');
+end;
+
+procedure TTestNamedGroups.TestCreateRegistryEmptyArrayGivesEmptyRegistry;
+var
+  LReg: INamedGroupRegistry;
+begin
+  LReg := TNamedGroups.CreateRegistry(nil);
+  CheckEquals(0, System.Length(LReg.Items), 'no groups');
+  CheckFalse(LReg.Contains(TNamedGroupCatalog.X25519), 'nothing registered');
+end;
+
+procedure TTestNamedGroups.TestDefaultRegistryUnchangedByCreateRegistry;
+var
+  LItems: TArray<INamedGroup>;
+begin
+  TNamedGroups.CreateRegistry(TArray<INamedGroup>.Create(TNamedGroups.CreateX25519(Crypto)));
+  LItems := TNamedGroups.CreateDefaultRegistry(Crypto).Items;
+  CheckEquals(7, System.Length(LItems), 'default registry keeps all seven groups');
+  CheckEquals(TNamedGroupCatalog.X25519, LItems[0].Code, 'default order unchanged');
 end;
 
 procedure TTestNamedGroups.TestClassicalRegistryOmitsPostQuantum;

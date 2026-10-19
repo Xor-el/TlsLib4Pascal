@@ -59,6 +59,9 @@ type
     /// trades post-quantum protection for a smaller ClientHello there. Install it with
     /// WithNamedGroups.</summary>
     class function CreateClassicalRegistry(const ACryptoProvider: ICryptoProvider): INamedGroupRegistry; static;
+    /// <summary>A registry holding exactly AGroups in the given order; a repeated code keeps its
+    /// first entry and an empty array gives an empty registry.</summary>
+    class function CreateRegistry(const AGroups: TArray<INamedGroup>): INamedGroupRegistry; static;
   end;
 
 implementation
@@ -622,6 +625,17 @@ begin
   for LGroup in CreateDefaultRegistry(ACryptoProvider).Items do
     if LGroup.Kind = TNamedGroupKind.Ecdhe then
       LBuilder.Add(LGroup);
+  Result := LBuilder.Build;
+end;
+
+class function TNamedGroups.CreateRegistry(const AGroups: TArray<INamedGroup>): INamedGroupRegistry;
+var
+  LBuilder: INamedGroupRegistryBuilder;
+  LGroup: INamedGroup;
+begin
+  LBuilder := TNamedGroupRegistryBuilder.Create as INamedGroupRegistryBuilder;
+  for LGroup in AGroups do
+    LBuilder.Add(LGroup);
   Result := LBuilder.Build;
 end;
 

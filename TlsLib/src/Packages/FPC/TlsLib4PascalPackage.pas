@@ -55,8 +55,9 @@ uses
   TlpISystemTrustInstaller, TlpExporterArgs, TlpEchConfirmation, 
   TlpITrustAnchorStore, TlpTrustAnchorStore, TlpDynamicLibrary, 
   TlpSystemTimeUtilities, TlpWindowsSystemTime, TlpPosixSystemTime, 
-  TlpCipherSuiteCatalog, TlpIpLiteral, TlpHttpUrl, TlpWindowsDynamicLibrary,
-  TlpPosixDynamicLibrary, TlpAlpnProtocols, TlpPkcs12Identity;
+  TlpCipherSuiteCatalog, TlpIpLiteral, TlpHttpUrl, TlpWindowsDynamicLibrary, 
+  TlpPosixDynamicLibrary, TlpAlpnProtocols, TlpPkcs12Identity, 
+  TlpITlsServerCredentialSet;
 
 implementation
 

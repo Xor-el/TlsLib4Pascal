@@ -17,8 +17,10 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
+  TlpITlsServerCredentialSet,
   TlpEndpointIdentity,
   TlpServerName;
 
@@ -40,11 +42,13 @@ type
   /// machine then aborts). Immutable after construction, so concurrent use across the peers of
   /// one frozen configuration needs no lock.
   /// </summary>
-  TSniCredentialResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver)
+  TSniCredentialResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver,
+    ITlsServerCredentialSet)
   strict private
     FEntries: TArray<TSniCredentialEntry>;
     FDefault: TTlsCredential;
     FHasDefault: Boolean;
+    class function SameCredential(const AA, AB: TTlsCredential): Boolean; static;
   public
     constructor Create(const AEntries: TArray<TSniCredentialEntry>); overload;
     /// <summary>ADefault is returned when a client's SNI matches no entry (the WithCredential
@@ -62,6 +66,9 @@ type
       const AEntries: TArray<TSniCredentialEntry>): ITlsServerCredentialResolver; static;
     function TryResolve(const AClientHello: TTlsClientHelloInfo;
       out ACredential: TTlsCredential): Boolean;
+    /// <summary>The default (when one was supplied) then each entry in order, a copy; an entry
+    /// that is the default itself is listed once.</summary>
+    function Credentials: TArray<TTlsCredential>;
   end;
 
 implementation
@@ -134,6 +141,25 @@ begin
     Exit(True);
   end;
   Result := False;
+end;
+
+class function TSniCredentialResolver.SameCredential(const AA, AB: TTlsCredential): Boolean;
+begin
+  Result := (AA.PrivateKey = AB.PrivateKey) and (System.Length(AA.CertificateChain) > 0) and
+    (System.Length(AB.CertificateChain) > 0) and
+    TArrayUtilities.AreEqual(AA.CertificateChain[0], AB.CertificateChain[0]);
+end;
+
+function TSniCredentialResolver.Credentials: TArray<TTlsCredential>;
+var
+  LI: Integer;
+begin
+  Result := nil;
+  if FHasDefault then
+    TArrayUtilities.Append<TTlsCredential>(Result, FDefault);
+  for LI := 0 to System.High(FEntries) do
+    if not (FHasDefault and SameCredential(FEntries[LI].Credential, FDefault)) then
+      TArrayUtilities.Append<TTlsCredential>(Result, FEntries[LI].Credential);
 end;
 
 end.

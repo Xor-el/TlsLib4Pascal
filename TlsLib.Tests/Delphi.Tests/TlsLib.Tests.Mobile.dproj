@@ -467,6 +467,7 @@
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpChainAlgorithmPolicy.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpTlsCredential.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpITlsCredentialResolver.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Handshake\TlpITlsServerCredentialSet.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpCredentialResolvers.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchConfig.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchExtension.pas"/>

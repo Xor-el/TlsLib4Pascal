@@ -126,6 +126,7 @@ contains
   TlpCertificateVerifier in '..\..\Trust\TlpCertificateVerifier.pas',
   TlpTlsCredential in '..\..\Handshake\TlpTlsCredential.pas',
   TlpITlsCredentialResolver in '..\..\Interfaces\Handshake\TlpITlsCredentialResolver.pas',
+  TlpITlsServerCredentialSet in '..\..\Interfaces\Handshake\TlpITlsServerCredentialSet.pas',
   TlpCredentialResolvers in '..\..\Handshake\TlpCredentialResolvers.pas',
   TlpEchConfig in '..\..\Ech\TlpEchConfig.pas',
   TlpEchExtension in '..\..\Ech\TlpEchExtension.pas',

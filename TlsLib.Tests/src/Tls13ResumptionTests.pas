@@ -88,6 +88,7 @@ type
     var
       // per-test overrides the builders below honor when set: the peers' clocks and ALPN lists
       FClientClock, FServerClock: ITlsClock;
+      FServerCrypto: ICryptoProvider;
       FClientAlpn, FServerAlpn: TArray<TBytes>;
     function ClientParams(const ACache: ISessionCache;
       AEarlyData: Boolean): TClientHandshakeParams;
@@ -199,6 +200,8 @@ type
     procedure TestStatelessStekResumptionCompletes;
     procedure TestStekRetiredKeyNotAccepted;
     procedure TestStekInvalidTicketFallsBackToFullHandshake;
+    procedure TestStekServerWithoutTicketAeadIssuesNoTicket;
+    procedure TestStekServerWithoutTicketAeadFallsBackToFullHandshake;
     procedure TestStoreUpgradesOverStek;
     procedure TestManySmallRecordsQueueByteForByte;
     procedure TestZeroRttAcceptedDeliversEarlyData;
@@ -394,19 +397,23 @@ function TTestTls13Resumption.BuildServer(const AStek: ISessionTicketKeyManager;
   const AAntiReplay: IAntiReplayStrategy): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
+  LCrypto: ICryptoProvider;
 begin
+  LCrypto := Crypto;
+  if FServerCrypto <> nil then
+    LCrypto := FServerCrypto;
   LParams := Default(TServerHandshakeParams);
   LParams.Clock := TSystemClock.Create;
   if FServerClock <> nil then
     LParams.Clock := FServerClock;
   LParams.AlpnProtocols := FServerAlpn;
-  LParams.Crypto := Crypto;
+  LParams.Crypto := LCrypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(LCrypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(LCrypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Crypto);
-  LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LParams.Group := TNamedGroups.CreateX25519(LCrypto);
+  LParams.ServerRandom := LCrypto.Primitives.GetRandom.GenerateBytes(32);
   if AWithCredential then
     LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
   LParams.SessionTicketKeys := AStek;
@@ -417,7 +424,7 @@ begin
   LParams.AntiReplay := AAntiReplay;
 
   Result := TTlsEngine.CreateConfigured(
-    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, LCrypto);
 end;
 
 function TTestTls13Resumption.NewRetryClient(const ACache: ISessionCache;
@@ -823,6 +830,53 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the client completed a full handshake');
   CheckFalse(LServer.IsHandshaking, 'the server completed a full handshake');
   CheckFalse(LServer.IsTerminal, 'an unopenable ticket is not fatal');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestStekServerWithoutTicketAeadIssuesNoTicket;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  FServerCrypto := TMissingAeadProvider.Create(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider;
+
+  LClient := NewClient(LCache, False);
+  LServer := NewStekServer(LStek, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'a provider without the ticket AEAD does not abort the server');
+  CheckFalse(LServer.IsHandshaking, 'the handshake completed on the server');
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed on the client');
+  CheckEquals(0, LCache.Count, 'no ticket was issued');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestStekServerWithoutTicketAeadFallsBackToFullHandshake;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, False);
+  LServer := NewStekServer(LStek, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'a valid STEK ticket is held for the second connection');
+
+  FServerCrypto := TMissingAeadProvider.Create(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider;
+  LClient := NewClient(LCache, False);
+  LServer := NewStekServer(LStek, 0, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'an unreadable ticket does not abort the server');
+  CheckFalse(LServer.IsHandshaking, 'the handshake completed on the server');
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed on the client');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the server ran a full handshake');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the client saw a full handshake');
   CheckAppDataFlows(LClient, LServer);
 end;
 
