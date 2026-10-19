@@ -18,19 +18,9 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
-  TlpICertificateVerifierSource,
   TlpSystemTrustBase;
 
 type
-  /// <summary>An OS server-certificate source that also trusts host roots beside the OS ones, so the
-  /// live re-check can build against the same roots, and apply the same OS distrust, as the inline
-  /// pass.</summary>
-  IOSServerVerifierSource = interface(IServerCertificateVerifierSource)
-    ['{BF76E00D-DBFF-4B19-9BF5-65893CF191AF}']
-    function ExtraAnchors: TArray<TBytes>;
-    function Distrusted: TArray<TBytes>;
-  end;
-
   /// <summary>
   /// The platform chain engine behind an OS trust delegate: it builds and trusts a certificate path
   /// with the OS (crypt32, Security.framework, the Android TrustManager) and reports a revocation

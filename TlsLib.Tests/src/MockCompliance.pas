@@ -142,6 +142,9 @@ type
       : IServerCertificateVerifier;
     function CreateClientVerifier(const AContext: TClientTrustContext)
       : IClientCertificateVerifier;
+    function Anchors: TArray<TBytes>;
+    function ExtraAnchors: TArray<TBytes>;
+    function Distrusted: TArray<TBytes>;
   end;
 
   TComplianceFakes = class sealed(TObject)
@@ -352,6 +355,21 @@ function TFakeSystemVerifierSource.CreateClientVerifier(const AContext: TClientT
   : IClientCertificateVerifier;
 begin
   raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
+end;
+
+function TFakeSystemVerifierSource.Anchors: TArray<TBytes>;
+begin
+  Result := nil;
+end;
+
+function TFakeSystemVerifierSource.ExtraAnchors: TArray<TBytes>;
+begin
+  Result := nil;
+end;
+
+function TFakeSystemVerifierSource.Distrusted: TArray<TBytes>;
+begin
+  Result := nil;
 end;
 
 { TComplianceFakes }

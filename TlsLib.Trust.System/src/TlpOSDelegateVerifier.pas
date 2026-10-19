@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpArrayUtilities,
+  TlpTlsLibExceptions,
   TlpTlsAlert,
   TlpIPkixProvider,
   TlpIClock,
@@ -28,6 +29,8 @@ uses
   TlpChainAlgorithmPolicy,
   TlpICertificateTrust,
   TlpTrustTypes,
+  TlpITlsConfig,
+  TlpSignatureSchemeRegistry,
   TlpICertificateVerifierSource,
   TlpISystemVerifierSource,
   TlpSystemTrustBase,
@@ -37,10 +40,11 @@ uses
 
 type
   /// <summary>The connection-scoped policy an OS delegate applies around its platform engine. Built
-  /// from the trust context by the source; Anchors is the exclusive trust root (empty = the OS
-  /// roots, server role only; the client role always needs anchors); CheckHostName mirrors the
-  /// client config so a delegate honours a disabled name check the same way the built-in verifier
-  /// does (server role only; a client cert has no name to match).</summary>
+  /// from the trust context by the source; Anchors is the exclusive trust root (the client role
+  /// always needs anchors; the server role has them only for a host-roots-only source, else empty =
+  /// the OS roots); CheckHostName mirrors the client config so a delegate honours a disabled name
+  /// check the same way the built-in verifier does (server role only; a client cert has no name to
+  /// match).</summary>
   TOSDelegatePolicy = record
     Pkix: IPkixProvider;
     Clock: ITlsClock;
@@ -70,6 +74,14 @@ type
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
     class function FromClientContext(const AContext: TClientTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
+    /// <summary>The live re-check policy for the server certificate a client verifies: the roots
+    /// come from its OS verifier source when it has one, else from its trust store.</summary>
+    class function FromClientConfig(const AConfig: ITlsClientConfig): TOSDelegatePolicy; static;
+    /// <summary>The live re-check policy for the client certificate a server verifies: the
+    /// client-CA store is the exclusive root.</summary>
+    class function FromServerConfig(const AConfig: ITlsServerConfig): TOSDelegatePolicy; static;
+  strict private
+    class function FromCommonConfig(const AConfig: ITlsCommonConfig): TOSDelegatePolicy; static;
   end;
 
   /// <summary>The server evaluation with host roots beside the OS roots, the same on every engine. An
@@ -77,7 +89,10 @@ type
   /// OS roots and, only when that failed for want of a trust anchor, again with the host roots as the
   /// exclusive root, whose verdict then stands (its alert too, unless it also found no anchor). A path
   /// that holds an ADistrusted certificate is refused on every accepted path, whichever root ended it
-  /// (a host distrust entry must bind OS-rooted paths as well as host-rooted ones).</summary>
+  /// (a host distrust entry must bind OS-rooted paths as well as host-rooted ones). A request with
+  /// Anchors on an engine that cannot honour them as the exclusive root is refused with
+  /// internal_error before the engine is called, so it is never judged against the OS
+  /// roots.</summary>
   TDelegateEvaluation = class sealed(TObject)
   public
     class function EvaluateServer(const AEngine: IPlatformChainEngine;
@@ -146,25 +161,26 @@ type
   /// a client certificate) the exclusive client-CA anchors are injected the same way the built-in
   /// verifier receives them. AFetch fixes the inline behaviour: CacheOnly (no socket) or Live (an
   /// indeterminate revocation defers to the async park; so does a cache-only one when the
-  /// live-revocation verdict is armed). Refuses at construction a Live fetch on an
-  /// engine without live fetch, and at verifier creation a Live fetch without the live-revocation
-  /// verdict, or - for an engine that renders no revocation outcome - a Hard client posture without
-  /// it.</summary>
+  /// live-revocation verdict is armed). The server role trusts AHostRoots beside the OS roots
+  /// (BesideOsRoots) or alone (HostRootsOnly: one pass, the OS roots never vouch; OS distrust still
+  /// applies), refusing a path through any ADistrusted certificate. Refuses at construction a Live
+  /// fetch on an engine without live fetch, host roots on an engine that can trust neither beside
+  /// nor alone, HostRootsOnly without roots or on an engine without exclusive server roots, and at
+  /// verifier creation a Live fetch without the live-revocation verdict, or - for an engine that
+  /// renders no revocation outcome - a Hard client posture without it.</summary>
   TOSVerifierSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
-    IOSServerVerifierSource, IClientCertificateVerifierSource, ISystemVerifierSource)
+    IClientCertificateVerifierSource, ISystemVerifierSource)
   strict private
     FEngine: IPlatformChainEngine;
     FFetch: TSystemTrustFetch;
+    FAnchors: TArray<TBytes>;
     FExtraAnchors: TArray<TBytes>;
     FDistrusted: TArray<TBytes>;
   public
-    constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch);
-      overload;
-    /// <summary>As above, for a server-certificate source that also trusts AExtraAnchors beside the
-    /// OS roots, refusing a path through any ADistrusted certificate.</summary>
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
-      const AExtraAnchors, ADistrusted: TArray<TBytes>); overload;
+      AScope: TSystemTrustRootScope; const AHostRoots, ADistrusted: TArray<TBytes>);
     function CreateServerVerifier(const AContext: TServerTrustContext): IServerCertificateVerifier;
+    function Anchors: TArray<TBytes>;
     function ExtraAnchors: TArray<TBytes>;
     function Distrusted: TArray<TBytes>;
     function CreateClientVerifier(const AContext: TClientTrustContext): IClientCertificateVerifier;
@@ -209,7 +225,7 @@ begin
   // carry the must-staple binding inputs so the delegate enforces RFC 7633 as the built-in does
   Result.StatusRequestOffered := AContext.StatusRequestOffered;
   Result.Occasion := AContext.Occasion;
-  // the server path trusts the OS roots, so no exclusive anchor set
+  // the source overlays its own roots; the context carries none
   Result.Anchors := nil;
   Result.DeadlineMs := 0;
 end;
@@ -244,6 +260,52 @@ begin
   Result.DeadlineMs := 0;
 end;
 
+class function TOSDelegatePolicy.FromCommonConfig(const AConfig: ITlsCommonConfig)
+  : TOSDelegatePolicy;
+begin
+  Result := Default(TOSDelegatePolicy);
+  Result.Pkix := AConfig.Pkix;
+  Result.Clock := AConfig.Clock;
+  Result.Posture := AConfig.RevocationPosture;
+  Result.Fetch := TSystemTrustFetch.Live;
+  Result.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+  Result.ChainLimits := AConfig.CertificateChainLimits;
+  Result.AdvertisedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
+  Result.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
+end;
+
+class function TOSDelegatePolicy.FromClientConfig(const AConfig: ITlsClientConfig)
+  : TOSDelegatePolicy;
+var
+  LSource: ISystemVerifierSource;
+begin
+  Result := FromCommonConfig(AConfig);
+  Result.CheckHostName := AConfig.CheckServerName;
+  Result.Intermediates := AConfig.IntermediateCertificates;
+  // the live pass must build against the same roots as the inline one
+  if Supports(AConfig.ServerVerifierSource, ISystemVerifierSource, LSource) then
+  begin
+    Result.Anchors := LSource.Anchors;
+    Result.ExtraAnchors := LSource.ExtraAnchors;
+    Result.Distrusted := LSource.Distrusted;
+  end
+  else if AConfig.TrustStore <> nil then
+    Result.Anchors := AConfig.TrustStore.RootCertificates;
+end;
+
+class function TOSDelegatePolicy.FromServerConfig(const AConfig: ITlsServerConfig)
+  : TOSDelegatePolicy;
+begin
+  Result := FromCommonConfig(AConfig);
+  // a client certificate carries no server name to match
+  Result.CheckHostName := False;
+  if AConfig.TrustStore <> nil then
+  begin
+    Result.Anchors := AConfig.TrustStore.RootCertificates;
+    Result.Distrusted := AConfig.TrustStore.DistrustedCertificates;
+  end;
+end;
+
 { TDelegateEvaluation }
 
 class function TDelegateEvaluation.EvaluateServer(const AEngine: IPlatformChainEngine;
@@ -255,12 +317,20 @@ var
   LExclusiveResult: TPlatformChainResult;
   LExclusiveAlert: TTlsAlertDescription;
 begin
+  LCapabilities := AEngine.Capabilities;
+  // an engine that ignores Anchors would judge the chain against the OS roots instead
+  if (System.Length(ARequest.Anchors) > 0) and
+    not (TPlatformChainCapability.ExclusiveServerAnchors in LCapabilities) then
+  begin
+    AResult := Default(TPlatformChainResult);
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit(False);
+  end;
   // an exclusive Anchors already is the host's choice of roots, so only the OS-roots case has a union
   if (System.Length(ARequest.ExtraAnchors) = 0) or (System.Length(ARequest.Anchors) > 0) then
     Result := AEngine.EvaluateServer(ARequest, AResult, AAlert)
   else
   begin
-    LCapabilities := AEngine.Capabilities;
     Result := AEngine.EvaluateServer(ARequest, AResult, AAlert);
     if (not Result) and (AResult.Failure = TPlatformChainFailure.NoTrustAnchor) and
       (TPlatformChainCapability.ExclusiveServerAnchors in LCapabilities) and
@@ -522,25 +592,33 @@ end;
 { TOSVerifierSource }
 
 constructor TOSVerifierSource.Create(const AEngine: IPlatformChainEngine;
-  AFetch: TSystemTrustFetch);
-begin
-  Create(AEngine, AFetch, nil, nil);
-end;
-
-constructor TOSVerifierSource.Create(const AEngine: IPlatformChainEngine;
-  AFetch: TSystemTrustFetch; const AExtraAnchors, ADistrusted: TArray<TBytes>);
+  AFetch: TSystemTrustFetch; AScope: TSystemTrustRootScope;
+  const AHostRoots, ADistrusted: TArray<TBytes>);
 begin
   inherited Create;
   if (AFetch = TSystemTrustFetch.Live) and
     not (TPlatformChainCapability.LiveFetch in AEngine.Capabilities) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
-  if (System.Length(AExtraAnchors) > 0) and
-    (AEngine.Capabilities * [TPlatformChainCapability.NativeAnchorUnion,
-    TPlatformChainCapability.ExclusiveServerAnchors] = []) then
-    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustHostRoots);
+  FAnchors := nil;
+  FExtraAnchors := nil;
+  if AScope = TSystemTrustRootScope.HostRootsOnly then
+  begin
+    if System.Length(AHostRoots) = 0 then
+      raise EArgumentTlsLibException.CreateRes(@SHostRootsOnlyNeedsRoots);
+    if not (TPlatformChainCapability.ExclusiveServerAnchors in AEngine.Capabilities) then
+      raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustHostRootsAlone);
+    FAnchors := AHostRoots;
+  end
+  else
+  begin
+    if (System.Length(AHostRoots) > 0) and
+      (AEngine.Capabilities * [TPlatformChainCapability.NativeAnchorUnion,
+      TPlatformChainCapability.ExclusiveServerAnchors] = []) then
+      raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustHostRoots);
+    FExtraAnchors := AHostRoots;
+  end;
   FEngine := AEngine;
   FFetch := AFetch;
-  FExtraAnchors := AExtraAnchors;
   FDistrusted := ADistrusted;
 end;
 
@@ -552,9 +630,15 @@ begin
   if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
   LPolicy := TOSDelegatePolicy.FromServerContext(AContext, FFetch);
+  LPolicy.Anchors := FAnchors;
   LPolicy.ExtraAnchors := FExtraAnchors;
   LPolicy.Distrusted := FDistrusted;
   Result := TOSDelegateServerVerifier.Create(FEngine, LPolicy) as IServerCertificateVerifier;
+end;
+
+function TOSVerifierSource.Anchors: TArray<TBytes>;
+begin
+  Result := FAnchors;
 end;
 
 function TOSVerifierSource.ExtraAnchors: TArray<TBytes>;
