@@ -34,7 +34,7 @@ type
     /// caches key on it, so two installers that install different roots must not share one.</summary>
     function Identity: string;
     /// <summary>The OS server-certificate trust policy. AExtraAnchors (nil for none) are the
-    /// host's own roots to trust beside the OS ones; a platform that cannot union them raises
+    /// host's own roots to trust with the OS ones; a platform that cannot union them raises
     /// instead of ignoring them.</summary>
     function ServerVerification(const APkix: IPkixProvider;
       const AExtraAnchors: ITrustAnchorStore): IServerVerification;

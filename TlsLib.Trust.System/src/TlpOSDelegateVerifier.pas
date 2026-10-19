@@ -41,7 +41,7 @@ uses
 type
   /// <summary>The connection-scoped policy an OS delegate applies around its platform engine. Built
   /// from the trust context by the source; Anchors is the exclusive trust root (always set for the
-  /// client role; for the server role set by a host-roots-only source, by the live re-check of a
+  /// client role; for the server role set by a HostRoots source, by the live re-check of a
   /// client config that trusts its store roots (WebPki), and by the retry that tries the host roots
   /// alone, else empty = the OS roots); CheckHostName mirrors the client config so a delegate
   /// honours a disabled name check the same way the built-in verifier does (server role only; a
@@ -56,7 +56,7 @@ type
     ChainLimits: TCertificateChainLimits;
     AdvertisedSchemes: TArray<UInt16>;
     Anchors: TArray<TBytes>;
-    // host roots trusted beside the OS roots, server role only (see TPlatformChainRequest)
+    // host roots trusted with the OS roots, server role only (see TPlatformChainRequest)
     ExtraAnchors: TArray<TBytes>;
     // the OS and host distrust sets, refused on any accepted path
     Distrusted: TArray<TBytes>;
@@ -86,7 +86,7 @@ type
     class function FromCommonConfig(const AConfig: ITlsCommonConfig): TOSDelegatePolicy; static;
   end;
 
-  /// <summary>The server evaluation with host roots beside the OS roots, the same on every engine. An
+  /// <summary>The server evaluation with OS and host roots, the same on every engine. An
   /// engine with NativeAnchorUnion is asked once with the roots; any other first evaluates against the
   /// OS roots and, only when that failed for want of a trust anchor, again with the host roots as the
   /// exclusive root, whose verdict then stands (its alert too, unless it also found no anchor). A path
@@ -163,15 +163,15 @@ type
   /// a client certificate) the exclusive client-CA anchors are injected the same way the built-in
   /// verifier receives them. AFetch fixes the inline behaviour: CacheOnly (no socket) or Live (an
   /// indeterminate revocation defers to the async park; so does a cache-only one when the
-  /// live-revocation verdict is armed). The server role trusts AHostRoots beside the OS roots
-  /// (BesideOsRoots) or alone (HostRootsOnly: one pass, the OS roots never vouch; OS distrust still
+  /// live-revocation verdict is armed). The server role trusts AHostRoots with the OS roots
+  /// (OsAndHostRoots) or alone (HostRoots: one pass, the OS roots never vouch; OS distrust still
   /// applies), refusing a path through any ADistrusted certificate (the full set: the factory adds
   /// the OS list to the host's). The source holds its own copy of the arrays and hands out copies.
   /// Refuses at construction a Live fetch on an engine without live fetch, host roots on an engine
-  /// that can trust neither beside nor alone, HostRootsOnly without roots or on an engine without
-  /// exclusive server roots, and at verifier creation a Live fetch without the live-revocation
-  /// verdict, or - for an engine that renders no revocation outcome - a Hard client posture
-  /// without it.</summary>
+  /// that can trust neither with the OS roots nor alone, HostRoots without roots or on an engine
+  /// without exclusive server roots, and at verifier creation a Live fetch without the
+  /// live-revocation verdict, or - for an engine that renders no revocation outcome - a Hard client
+  /// posture without it.</summary>
   TOSVerifierSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
     IClientCertificateVerifierSource, ISystemVerifierSource)
   strict private
@@ -608,10 +608,10 @@ begin
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
   FAnchors := nil;
   FExtraAnchors := nil;
-  if AScope = TSystemTrustRootScope.HostRootsOnly then
+  if AScope = TSystemTrustRootScope.HostRoots then
   begin
     if System.Length(AHostRoots) = 0 then
-      raise EArgumentTlsLibException.CreateRes(@SHostRootsOnlyNeedsRoots);
+      raise EArgumentTlsLibException.CreateRes(@SHostRootsNeedRoots);
     if not (TPlatformChainCapability.ExclusiveServerAnchors in AEngine.Capabilities) then
       raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustHostRootsAlone);
     FAnchors := TArrayUtilities.DeepCopy<Byte>(AHostRoots);
@@ -621,7 +621,7 @@ begin
     if (System.Length(AHostRoots) > 0) and
       (AEngine.Capabilities * [TPlatformChainCapability.NativeAnchorUnion,
       TPlatformChainCapability.ExclusiveServerAnchors] = []) then
-      raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustHostRoots);
+      raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustOsAndHostRoots);
     FExtraAnchors := TArrayUtilities.DeepCopy<Byte>(AHostRoots);
   end;
   FEngine := AEngine;

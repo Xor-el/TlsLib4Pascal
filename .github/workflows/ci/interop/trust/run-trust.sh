@@ -18,7 +18,7 @@
 #                 path through it (os-anchors with bad_certificate), a non-distrusted intermediate
 #                 and a twin of the distrusted one still verify. Before the root install, the same
 #                 distrust is applied to a path that relied on a --host-root (the run root passed
-#                 beside the OS roots), where it must win too.
+#                 with the OS roots), where it must win too.
 #
 # The server-cert delegate reject cells whose alert is a per-OS status-map code (hostname, EKU,
 # expired) assert only that the handshake aborts with a fatal alert, not the exact code: the two OS

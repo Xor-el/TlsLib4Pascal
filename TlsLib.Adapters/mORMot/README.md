@@ -63,8 +63,8 @@ production. It is client-only: a server ignores it. With it
 off (the default), an untrusted chain fails through our pipeline. `CASystemStores` is the OS
 server-certificate store: a client verifies a server against it, but a server never authenticates
 clients against it — a server's client-CA is `CACertificatesFile`. On Android, `CACertificatesFile`
-roots beside it do not apply to hosts a network-security-config `<domain-config>` names
-([rule](../../docs/system-trust.md#host-roots-beside-the-os-roots)).
+roots with it do not apply to hosts a network-security-config `<domain-config>` names
+([rule](../../docs/system-trust.md#os-and-host-roots)).
 
 mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify` /
 `OnAfterPeerValidate`) are **not** bridged, by design: their signatures hand the app an OpenSSL

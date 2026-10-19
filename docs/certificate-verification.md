@@ -432,8 +432,8 @@ thread and the verdict resolves the park.
 //    async park. The deadline must be non-zero (0 raises) so the Windows resolver can bound its
 //    fetch (Apple has no per-evaluation timeout). It replaces any earlier WithServerVerification.
 //    Windows + Apple only; other platforms raise.
-//    The roots say which roots vouch: TSystemTrustRoots.OsRoots, BesideOsRoots(Store) or
-//    HostRootsOnly(Store).
+//    The roots say which roots vouch: TSystemTrustRoots.OsRoots, OsAndHostRoots(Store) or
+//    HostRoots(Store).
 client := TSystemTrust.WithLiveSystemTrust(client, Pkix, TSystemTrustRoots.OsRoots,
   TRevocationPosture.Hard, deadlineMs);
 // 2. wire the OS-native resolver, built from the frozen config, to the stream/adapter:

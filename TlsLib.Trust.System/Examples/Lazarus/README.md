@@ -54,8 +54,8 @@ Pass `host-roots` to run the host-roots cells instead (`./SystemTrustDemo host-r
 
 ## Host roots cells
 
-`SystemTrustDemo host-roots` passes the demo's own root beside the OS roots (the rule is in
-`docs/system-trust.md`, "Host roots beside the OS roots") and prints one `PASS:` / `FAIL:` /
+`SystemTrustDemo host-roots` passes the demo's own root with the OS roots (the rule is in
+`docs/system-trust.md`, "OS and host roots") and prints one `PASS:` / `FAIL:` /
 `SKIP:` line per cell, per mode. The modes are `Default` and, where `Default` is the OS engine
 (Windows, macOS), `Anchors`. Exit code 0 / 1 / 2 as above.
 

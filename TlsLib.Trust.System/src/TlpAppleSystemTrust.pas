@@ -338,7 +338,7 @@ type
     /// are the owning delegate's.
     /// AServer selects the role: the server path binds the host in the SSL policy and consumes the
     /// handshake staple, against the OS/public roots or, when AAnchors is non-empty, against those
-    /// anchors alone; AExtraAnchors (server path, no AAnchors) are trusted beside the OS roots. The
+    /// anchors alone; AExtraAnchors (server path, no AAnchors) are trusted with the OS roots. The
     /// client path always builds an anchors-only SecTrust over AAnchors (never the
     /// OS roots), takes no host and no staple, and rejects zero usable anchors before building any
     /// trust.</summary>
@@ -830,7 +830,7 @@ begin
       Exit;
     end;
 
-    // exclusive anchors are the ONLY trusted roots; extra anchors are trusted beside the system roots
+    // exclusive anchors are the ONLY trusted roots; extra anchors are trusted with the system roots
     if LAnchored or LUnion then
     begin
       if FSecTrustSetAnchorCertificates(LTrust, LAnchorArray) <> ErrSecSuccess then

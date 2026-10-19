@@ -53,22 +53,22 @@ type
 
   /// <summary>
   /// Which roots vouch for a server chain. OsRoots (also Default(TSystemTrustRoots)) is the OS
-  /// roots alone. BesideOsRoots trusts the host's roots in addition to the OS roots. HostRootsOnly
+  /// roots alone. OsAndHostRoots trusts the host's roots in addition to the OS roots. HostRoots
   /// trusts the host's roots and nothing else (a private PKI): the OS roots never vouch, though the
   /// OS distrust list still applies.
   /// </summary>
   TSystemTrustRoots = record
   strict private
-    FHostRoots: ITrustAnchorStore;
+    FStore: ITrustAnchorStore;
     FScope: TSystemTrustRootScope;
   public
     class function OsRoots: TSystemTrustRoots; static;
-    /// <summary>AHostRoots (nil for none, which is OsRoots) trusted beside the OS roots.</summary>
-    class function BesideOsRoots(const AHostRoots: ITrustAnchorStore): TSystemTrustRoots; static;
-    /// <summary>AHostRoots trusted alone. Raises EArgumentTlsLibException for nil or a store with
+    /// <summary>AStore (nil for none, which is OsRoots) trusted with the OS roots.</summary>
+    class function OsAndHostRoots(const AStore: ITrustAnchorStore): TSystemTrustRoots; static;
+    /// <summary>AStore trusted alone. Raises EArgumentTlsLibException for nil or a store with
     /// no root certificate.</summary>
-    class function HostRootsOnly(const AHostRoots: ITrustAnchorStore): TSystemTrustRoots; static;
-    property HostRoots: ITrustAnchorStore read FHostRoots;
+    class function HostRoots(const AStore: ITrustAnchorStore): TSystemTrustRoots; static;
+    property Store: ITrustAnchorStore read FStore;
     property Scope: TSystemTrustRootScope read FScope;
   end;
 
@@ -100,9 +100,9 @@ type
     /// <summary>The OS server-certificate verifier source, built per connection from the trust
     /// context. AFetch fixes the inline behaviour: CacheOnly (no socket) or Live (defer an
     /// indeterminate revocation to the async park). The roots in ARoots are trusted inside the OS
-    /// evaluation, so the platform's own policy still runs: beside the OS roots, or alone (one
-    /// pass, the OS roots never vouch; raises where the engine cannot trust host roots alone). A
-    /// path through a certificate the OS distrusts (read with APkix where the platform exposes
+    /// evaluation, so the platform's own policy still runs: OS and host roots, or host roots alone
+    /// (one pass, the OS roots never vouch; raises where the engine cannot trust host roots alone).
+    /// A path through a certificate the OS distrusts (read with APkix where the platform exposes
     /// that list) or that the host store distrusts is refused. Both lists are snapshotted when
     /// the source is built. Raises where the platform exposes no system verifier, or where Live is
     /// asked of a platform without OS-native live revocation.</summary>
@@ -161,24 +161,24 @@ resourcestring
 
 class function TSystemTrustRoots.OsRoots: TSystemTrustRoots;
 begin
-  Result.FHostRoots := nil;
-  Result.FScope := TSystemTrustRootScope.BesideOsRoots;
+  Result.FStore := nil;
+  Result.FScope := TSystemTrustRootScope.OsAndHostRoots;
 end;
 
-class function TSystemTrustRoots.BesideOsRoots(const AHostRoots: ITrustAnchorStore)
+class function TSystemTrustRoots.OsAndHostRoots(const AStore: ITrustAnchorStore)
   : TSystemTrustRoots;
 begin
-  Result.FHostRoots := AHostRoots;
-  Result.FScope := TSystemTrustRootScope.BesideOsRoots;
+  Result.FStore := AStore;
+  Result.FScope := TSystemTrustRootScope.OsAndHostRoots;
 end;
 
-class function TSystemTrustRoots.HostRootsOnly(const AHostRoots: ITrustAnchorStore)
+class function TSystemTrustRoots.HostRoots(const AStore: ITrustAnchorStore)
   : TSystemTrustRoots;
 begin
-  if (AHostRoots = nil) or (AHostRoots.AnchorCount = 0) then
-    raise EArgumentTlsLibException.CreateRes(@SHostRootsOnlyNeedsRoots);
-  Result.FHostRoots := AHostRoots;
-  Result.FScope := TSystemTrustRootScope.HostRootsOnly;
+  if (AStore = nil) or (AStore.AnchorCount = 0) then
+    raise EArgumentTlsLibException.CreateRes(@SHostRootsNeedRoots);
+  Result.FStore := AStore;
+  Result.FScope := TSystemTrustRootScope.HostRoots;
 end;
 
 { TOSSystemTrust }
@@ -284,10 +284,10 @@ begin
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoDelegate);
   LHostRoots := nil;
   LDistrusted := nil;
-  if ARoots.HostRoots <> nil then
+  if ARoots.Store <> nil then
   begin
-    LHostRoots := ARoots.HostRoots.RootCertificates;
-    LDistrusted := ARoots.HostRoots.DistrustedCertificates;
+    LHostRoots := ARoots.Store.RootCertificates;
+    LDistrusted := ARoots.Store.DistrustedCertificates;
   end;
   // the OS list matters only with host roots, and only where the OS exposes it
   if (System.Length(LHostRoots) > 0) and Supports(TSystemTrustMode.Anchors) then
@@ -325,7 +325,7 @@ var
   LEngine: IPlatformChainEngine;
 begin
   if TryChainEngine(LEngine) then
-    Exit(TOSVerifierSource.Create(LEngine, AFetch, TSystemTrustRootScope.BesideOsRoots, nil, nil)
+    Exit(TOSVerifierSource.Create(LEngine, AFetch, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
       as IClientCertificateVerifierSource);
   raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoClientDelegate);
 end;

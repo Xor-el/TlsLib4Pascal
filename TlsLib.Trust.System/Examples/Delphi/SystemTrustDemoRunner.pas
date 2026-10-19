@@ -17,7 +17,7 @@
 /// three-tier chain is supplied as bytes, the intermediate reaches the OS engine only through the
 /// context, and the verdicts are read straight from the delegate verifiers. The empty-chain check
 /// is the delegate's own guard and never reaches the engine.
-/// The host-roots cells GET live sites with the host's own root passed beside the OS roots and
+/// The host-roots cells GET live sites with the host's own root passed with the OS roots and
 /// compare each outcome with what that root should and should not change.
 /// </summary>
 unit SystemTrustDemoRunner;
@@ -381,7 +381,7 @@ begin
       as ITrustAnchorStore;
   Result := TTlsPresets.Compatible(LCrypto, LPkix).Client
     .WithServerVerification(TSystemTrust.ServerVerification(LPkix, AMode,
-      TSystemTrustRoots.BesideOsRoots(LHostRoots)).Build)
+      TSystemTrustRoots.OsAndHostRoots(LHostRoots)).Build)
     .Build;
 end;
 

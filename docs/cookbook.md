@@ -271,7 +271,7 @@ The short version — the full treatment is in
 //   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;
 //   // TSystemTrustMode, TSystemTrustRoots, TTrustAnchorStore, ITrustAnchorStore
 //   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
-//     TSystemTrustRoots.BesideOsRoots(TTrustAnchorStore.Create(
+//     TSystemTrustRoots.OsAndHostRoots(TTrustAnchorStore.Create(
 //     Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore)).Build)
 
 // private PKI only, through the OS engine: my CA is the only root, so no public root vouches
@@ -279,7 +279,7 @@ The short version — the full treatment is in
 //   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;
 //   // TSystemTrustMode, TSystemTrustRoots, TTrustAnchorStore, ITrustAnchorStore
 //   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
-//     TSystemTrustRoots.HostRootsOnly(TTrustAnchorStore.Create(
+//     TSystemTrustRoots.HostRoots(TTrustAnchorStore.Create(
 //     Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore)).Build)
 
 // a fixed offline root bundle (needs TlsLib.Trust.Bundle)

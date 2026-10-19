@@ -87,7 +87,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 - **PKIX path validation** (PKITS-verified) with a bounded path build; other RFC 5280 behaviour plugs in as a custom `ICertificatePathValidator`.
 - **Endpoint identity** -- RFC 9525 host-name / SAN matching (subject alternative names only).
 - **Revocation** -- stapled OCSP, live OCSP/CRL over an injected fetcher, soft/hard/off posture, and RFC 7633 must-staple.
-- **OS system trust** (opt-in) -- the OS verifier on Windows / macOS / iOS / Android, an OS root harvest on Linux / BSD / Solaris; your own CA can sit beside the OS roots.
+- **OS system trust** (opt-in) -- the OS verifier on Windows / macOS / iOS / Android, an OS root harvest on Linux / BSD / Solaris; your own CA can be trusted with the OS roots.
 - **CA bundles** -- a PEM/DER bundle loader (`TlsLib.Trust.Bundle`).
 - **Pinning**, **mutual TLS**, and **OCSP stapling** (sent by servers, enforced by clients).
 - One composable, fail-closed pipeline; custom verification **augments** (can only reject further), and every bypass is behind the `dangerous` surface.

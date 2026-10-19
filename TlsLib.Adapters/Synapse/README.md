@@ -43,7 +43,7 @@ peer.SSLAcceptConnection;             // handshake
 | `OnVerifyCert` (native hook)                         | augment-only bridge (see below)          |
 | `SSLType`                                            | `LT_all` offers TLS 1.3 and 1.2; `LT_TLSv1_2` / `LT_TLSv1_3` offer that version alone; any other value fails the handshake |
 | `HandshakeTimeoutMs` (extension)                     | bounds the handshake read (ms); `0` = 30 s default |
-| `UseSystemTrust` (extension)                         | OS roots plus `CertCAFile` (server-cert trust only); the OS engine on Windows, macOS, iOS and Android, harvested roots on Unix ([rule](../../docs/system-trust.md#host-roots-beside-the-os-roots)); on Android, `CertCAFile` roots do not apply to hosts a network-security-config `<domain-config>` names |
+| `UseSystemTrust` (extension)                         | OS roots plus `CertCAFile` (server-cert trust only); the OS engine on Windows, macOS, iOS and Android, harvested roots on Unix ([rule](../../docs/system-trust.md#os-and-host-roots)); on Android, `CertCAFile` roots do not apply to hosts a network-security-config `<domain-config>` names |
 | `ClientConfig` / `ServerConfig` (extension)          | a fully built config that replaces the property-driven build |
 | `SessionResumption` (extension)                      | `WithResumption` (0-RTT is never enabled) |
 | `Crypto` / `Pkix` (extension)                        | the providers the property-driven build uses (nil = the shared defaults) |

@@ -47,7 +47,7 @@ object SystemTrustDemoForm: TSystemTrustDemoForm
     Size.Height = 44.000000000000000000
     Size.PlatformDefault = False
     TabOrder = 1
-    Text = 'Host roots beside OS roots'
+    Text = 'OS and host roots'
     OnClick = btnHostRootsClick
   end
   object memLog: TMemo

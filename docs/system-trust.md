@@ -116,7 +116,7 @@ end;
 (`Default` / `Anchors` / `Delegate`) forces harvest-vs-delegate; `Default` picks the engine as in
 the table above and is what you want. A forced mode the platform cannot honour raises
 `ESystemTrustUnsupportedTlsLibException`. Its `TSystemTrustRoots` says which roots vouch:
-`OsRoots` (the OS roots alone), `BesideOsRoots(Store)` (yours as well) or `HostRootsOnly(Store)`
+`OsRoots` (the OS roots alone), `OsAndHostRoots(Store)` (yours as well) or `HostRoots(Store)`
 (yours alone).
 
 > **An mTLS server's client-CA is never the OS store.** The OS roots are the public web PKI (harvested
@@ -130,7 +130,7 @@ the table above and is what you want. A forced mode the platform cannot honour r
 > `TClientVerification.WebPki(TOSSystemTrust.AnchorStore(Pkix))` — and know it authenticates clients
 > against the public PKI.
 
-### Host roots beside the OS roots
+### OS and host roots
 
 Host anchors go in as an argument. The rule is the same on every OS engine: *my CA plus the OS
 roots.* "Trust the public web PKI **and** my private CA" is simply:
@@ -138,9 +138,9 @@ roots.* "Trust the public web PKI **and** my private CA" is simply:
 ```pascal
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
-    TSystemTrustRoots.BesideOsRoots(TTrustAnchorStore.Create(
+    TSystemTrustRoots.OsAndHostRoots(TTrustAnchorStore.Create(
     Pkix.Certificates.LoadChain(LoadFile('my-private-ca.pem'))) as ITrustAnchorStore)).Build)
-  .Build;   // the private CA beside the OS roots
+  .Build;   // the private CA with the OS roots
 ```
 
 What happens:
@@ -149,7 +149,7 @@ What happens:
 - If it fails **only** for lack of a trusted root, the same OS engine judges the chain against the
   host roots alone. Any other failure (revoked, expired, distrusted, wrong usage, name) is final
   and the host roots never rescue it.
-- Apple does this natively in one evaluation: `SecTrust` takes the host roots as extra anchors beside
+- Apple does this natively in one evaluation: `SecTrust` takes the host roots as extra anchors with
   the system roots. Windows and Android do two passes: the OS roots first, then the host roots as the
   exclusive root.
 - When both passes fail, the alert of the pass that reached a root is reported, else the first
@@ -187,12 +187,12 @@ LPrivateCa := TTrustAnchorStore.Create(
   Pkix.Certificates.LoadChain(LoadFile('my-private-ca.pem'))) as ITrustAnchorStore;
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
-    TSystemTrustRoots.HostRootsOnly(LPrivateCa)).Build)
+    TSystemTrustRoots.HostRoots(LPrivateCa)).Build)
   .Build;
 ```
 
-- **Union vs. exclusive.** `BesideOsRoots` is a union: a chain to a public root or to yours is
-  trusted. `HostRootsOnly` is exclusive: a chain to a public root fails with `unknown_ca`.
+- **Union vs. exclusive.** `OsAndHostRoots` is a union: a chain to a public root or to yours is
+  trusted. `HostRoots` is exclusive: a chain to a public root fails with `unknown_ca`.
 - **One pass.** The OS engine judges the path with its own policy (usage, validity, name,
   revocation) against your roots as the only root. There is no first pass against the OS roots and
   no retry, and no OS root is ever consulted.
@@ -204,7 +204,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 - **When the OS distrusts your root.** A delegate refuses the handshake with `bad_certificate`;
   Anchors mode filters the root out of the trust set, so the chain has no anchor and fails with
   `unknown_ca` (or the config fails closed at `Build` when no anchor is left).
-- **Refusals.** `HostRootsOnly` raises `EArgumentTlsLibException` for a nil store or one with no
+- **Refusals.** `HostRoots` raises `EArgumentTlsLibException` for a nil store or one with no
   root (a store that distrusts its only root has none). A platform engine that cannot trust host
   roots alone raises `ESystemTrustUnsupportedTlsLibException` (see
   [Writing your own platform engine](#writing-your-own-platform-engine)).
@@ -222,7 +222,7 @@ resulting config, which reads them back so the live pass never consults the OS r
 
 ```pascal
 LBuilder := TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
-  TSystemTrustRoots.HostRootsOnly(LPrivateCa), TRevocationPosture.Hard, deadlineMs);
+  TSystemTrustRoots.HostRoots(LPrivateCa), TRevocationPosture.Hard, deadlineMs);
 LConfig := LBuilder.Build;
 resolver := TOSSystemTrust.LiveRevocationResolver(LConfig, nil);   // caller owns + frees it
 stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);
@@ -235,7 +235,7 @@ not only as a root:
 
 - **What counts:** the certificates the platform lets us read as distrusted — Windows `Disallowed`
   and macOS trust settings with a Deny result. They travel with the anchor snapshot, or, with
-  `HostRootsOnly`, in a root-less store beside your roots (`TOSSystemTrust.DistrustStore`).
+  `HostRoots`, in a root-less store beside your roots (`TOSSystemTrust.DistrustStore`).
 - **Exact certificate only:** the match is on the whole certificate. A re-issued certificate with
   the same key or name is a different certificate and is not caught; a Disallowed entry known only
   by hash (no certificate in the store) and the OS's built-in blocklists are not visible. Use
@@ -315,13 +315,13 @@ LMyCa := TTrustAnchorStore.Create(
   Pkix.Certificates.LoadChain(LoadFile('my-private-ca.pem'))) as ITrustAnchorStore;
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Anchors,
-    TSystemTrustRoots.BesideOsRoots(LMyCa)).Build)
+    TSystemTrustRoots.OsAndHostRoots(LMyCa)).Build)
   .Build;
 
 // your private CA alone: no OS root is harvested or trusted
 LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Anchors,
-    TSystemTrustRoots.HostRootsOnly(LMyCa)).Build)
+    TSystemTrustRoots.HostRoots(LMyCa)).Build)
   .Build;
 ```
 
@@ -468,7 +468,7 @@ A verification policy is one choice, and the anchors are arguments of the factor
 - **`VerifierSource`** — a source that owns its roots (the OS delegate: the `Delegate` mode, the
   default on Windows, macOS, iOS and Android). The pipeline knobs (revocation, intermediates, minimum
   strength) still apply. Host roots reach it as a factory argument and are applied as described in
-  [Host roots beside the OS roots](#host-roots-beside-the-os-roots) or
+  [OS and host roots](#os-and-host-roots) or
   [Host roots alone](#host-roots-alone-a-private-pki).
 - **`Custom`** — a whole verifier instance (below). It **replaces** the built-in pipeline, so it
   takes no anchors, intermediates or skip-verify: nothing it would ignore can be set beside it.
@@ -477,8 +477,8 @@ A verification policy is one choice, and the anchors are arguments of the factor
 Who supplies the roots:
 
 - A whole verifier brings its own roots and takes none of yours.
-- The OS **server** delegate brings the OS roots and takes your host roots beside them
-  (`BesideOsRoots`, a union), or in place of them (`HostRootsOnly`, exclusive: the OS roots
+- The OS **server** delegate brings the OS roots and takes your host roots with them
+  (`OsAndHostRoots`, a union), or in place of them (`HostRoots`, exclusive: the OS roots
   never vouch).
 - The OS **client** delegate uses the client-CA anchors you pass to
   `TClientVerification.VerifierSource` as its exclusive root. Because it has nothing to consume
@@ -527,7 +527,7 @@ never-implicit / fail-closed rule.
 ### Indy
 
 The IO-handler's `SSLOptions` carry a `UseSystemTrust` flag. It unions with a `RootCertFile` bundle
-and any `CustomTrustStore` (the union rule is [Host roots beside the OS roots](#host-roots-beside-the-os-roots));
+and any `CustomTrustStore` (the union rule is [OS and host roots](#os-and-host-roots));
 a custom verifier replaces the pipeline. Verifying with no source named fails closed. The flag uses
 the `Default` mode.
 
@@ -608,9 +608,9 @@ the implementation the four adapters use: a stateless, process-wide instance.
 
 - `ServerVerification(Pkix, ExtraAnchors)` returns the OS server-certificate policy, the same as
   `TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
-  TSystemTrustRoots.BesideOsRoots(ExtraAnchors)).Build`.
-  `ExtraAnchors` (nil for none) are the host's own roots, trusted beside the OS ones on every
-  platform (see [Host roots beside the OS roots](#host-roots-beside-the-os-roots)). The seam has no
+  TSystemTrustRoots.OsAndHostRoots(ExtraAnchors)).Build`.
+  `ExtraAnchors` (nil for none) are the host's own roots, trusted with the OS ones on every
+  platform (see [OS and host roots](#os-and-host-roots)). The seam has no
   host-roots-alone form; build that policy with `TSystemTrust` directly.
 - `Identity` names the trust it installs (`'os-system-trust'` for the shared instance). Adapter
   config caches key on it (`TTlsConfigComposer.ClientSignature`), so an installer that installs
@@ -637,13 +637,13 @@ identity and the host-roots rule. The contract:
   is non-empty. A rejection fills `AResult.Failure` with `NoTrustAnchor` when the only fault is that no
   trusted root was reached, and `Other` for anything else. An engine that does not classify leaves
   `None`, which counts as `Other` (host roots are then never tried).
-- An engine that can trust host roots beside its own roots in one evaluation declares
+- An engine that can trust host roots with its own roots in one evaluation declares
   `NativeAnchorUnion` and reads `ExtraAnchors`.
 - Any other engine must honour `Anchors` as the exclusive root on the server path and declare
   `ExclusiveServerAnchors`. The delegate then retries a `NoTrustAnchor` failure with the host roots as
-  the exclusive root, and `HostRootsOnly` evaluates once with them. This is required for host roots
+  the exclusive root, and `HostRoots` evaluates once with them. This is required for host roots
   to work; there is no fallback to our own validator. `NativeAnchorUnion` alone does not qualify for
-  `HostRootsOnly`.
+  `HostRoots`.
 - A server request that carries `Anchors` on an engine without `ExclusiveServerAnchors` is refused
   (`internal_error`) before the engine is called, so it is never judged against the OS roots.
 - A path that relied on the host roots is refused when it holds a certificate in the OS distrust set

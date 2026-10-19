@@ -27,7 +27,7 @@
 /// this console demo targets the desktop.
 ///
 /// "host-roots" mode (first command-line argument) instead runs the host-roots cells: live sites
-/// fetched with the host's own root passed beside the OS roots, each outcome compared with what
+/// fetched with the host's own root passed with the OS roots, each outcome compared with what
 /// that root should and should not change, in every trust mode this platform has.
 /// </summary>
 unit SystemTrustExample;
@@ -317,7 +317,7 @@ begin
       LPkix.Certificates.LoadChain(TBytes(BytesOf(LPem)))) as ITrustAnchorStore;
   Result := TTlsPresets.Compatible(LCrypto, LPkix).Client
     .WithServerVerification(TSystemTrust.ServerVerification(LPkix, AMode,
-      TSystemTrustRoots.BesideOsRoots(LHostRoots)).Build)
+      TSystemTrustRoots.OsAndHostRoots(LHostRoots)).Build)
     .Build;
 end;
 

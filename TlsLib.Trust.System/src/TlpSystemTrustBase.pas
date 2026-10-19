@@ -45,10 +45,10 @@ resourcestring
   SNoLiveRevocation =
     'this platform has no OS-native live revocation (only Windows and Apple do); keep cache-only ' +
     'trust and compose the portable live-revocation checker for a live check here';
-  SEngineCannotTrustHostRoots =
-    'this platform engine cannot trust host roots beside the OS roots';
-  SHostRootsOnlyNeedsRoots =
-    'host roots alone need at least one root certificate';
+  SEngineCannotTrustOsAndHostRoots =
+    'this platform engine cannot trust OS and host roots together';
+  SHostRootsNeedRoots =
+    'HostRoots needs at least one root certificate';
   SEngineCannotTrustHostRootsAlone =
     'this platform engine cannot trust host roots alone (no exclusive server roots)';
 
@@ -62,9 +62,9 @@ type
   /// </summary>
   TSystemTrustFetch = (CacheOnly, Live);
 
-  /// <summary>Whether host roots are trusted beside the OS roots (BesideOsRoots) or alone, so
-  /// the OS roots never vouch for a chain (HostRootsOnly).</summary>
-  TSystemTrustRootScope = (BesideOsRoots, HostRootsOnly);
+  /// <summary>Whether host roots are trusted with the OS roots (OsAndHostRoots) or alone, so
+  /// the OS roots never vouch for a chain (HostRoots).</summary>
+  TSystemTrustRootScope = (OsAndHostRoots, HostRoots);
 
   /// <summary>What a platform chain engine can do beyond building and trusting a path. LiveFetch: it
   /// can re-evaluate with network revocation fetch on (the async park's live check). CachedRevocation:
@@ -88,11 +88,11 @@ type
   TPlatformRevocationCheck = (None, BestEffort, RequirePositive);
 
   /// <summary>One platform chain evaluation. Chain is the peer chain (leaf first, DER). Anchors is the
-  /// exclusive trust root: a client-certificate evaluation, a host-roots-only server source, the
+  /// exclusive trust root: a client-certificate evaluation, a HostRoots server source, the
   /// live re-check of a client config that trusts its store roots (WebPki), or the retry with the
   /// host roots alone (empty on the other server paths, where the OS roots apply). Intermediates are the
   /// configured extra certificates, offered to path building as untrusted candidates beside the
-  /// presented chain. ExtraAnchors are host roots trusted beside the OS roots on the server path
+  /// presented chain. ExtraAnchors are host roots trusted with the OS roots on the server path
   /// (read only by an engine with the NativeAnchorUnion capability; ignored when Anchors is set).
   /// ServerName is the server-path identity (the engine reads AsDns or ToString as its platform
   /// requires; empty on the client path). OcspStaple is consumed as cached revocation data where

@@ -29,7 +29,7 @@ type
     ['{0DE1F07C-D1E4-41A9-BF68-5F115CDA14C9}']
     /// <summary>The exclusive server trust root (empty = the OS roots apply).</summary>
     function Anchors: TArray<TBytes>;
-    /// <summary>Host roots trusted beside the OS roots.</summary>
+    /// <summary>Host roots trusted with the OS roots.</summary>
     function ExtraAnchors: TArray<TBytes>;
     /// <summary>The distrust set the source was built with (the host's plus the OS list from the
     /// factory), refused on any accepted path.</summary>

@@ -58,9 +58,9 @@ type
     // delegate, and a client presenter offers the certificate
     IsServer: Boolean;
     RootFile: string;
-    // client OS modes only: a root trusted beside the OS roots, or alone when HostRootsOnly is set
+    // client OS modes only: a root trusted with the OS roots, or alone when HostRootOnly is set
     HostRootFile: string;
-    HostRootsOnly: Boolean;
+    HostRootOnly: Boolean;
     // client only: dial this dotted-IPv4 peer instead of the in-process server (--connect ip:port)
     ConnectHost: string;
     ConnectPort: Word;
@@ -362,11 +362,11 @@ begin
   LRoots := TSystemTrustRoots.OsRoots;
   if ACell.HostRootFile <> '' then
   begin
-    if ACell.HostRootsOnly then
-      LRoots := TSystemTrustRoots.HostRootsOnly(
+    if ACell.HostRootOnly then
+      LRoots := TSystemTrustRoots.HostRoots(
         TInteropCredentials.TrustFromPem(APkix, ACell.HostRootFile))
     else
-      LRoots := TSystemTrustRoots.BesideOsRoots(
+      LRoots := TSystemTrustRoots.OsAndHostRoots(
         TInteropCredentials.TrustFromPem(APkix, ACell.HostRootFile));
   end;
   LBuilder := TTlsPresets.Compatible(ACryptoProvider, APkix);
@@ -634,10 +634,10 @@ begin
     end;
     LCell.RootFile := ArgValue('--root', '');
     LCell.HostRootFile := ArgValue('--host-root', '');
-    LCell.HostRootsOnly := HasArg('--host-root-only');
+    LCell.HostRootOnly := HasArg('--host-root-only');
     if (LCell.HostRootFile <> '') and LCell.IsServer then
       raise Exception.Create('--host-root applies to the client OS modes only');
-    if LCell.HostRootsOnly and (LCell.HostRootFile = '') then
+    if LCell.HostRootOnly and (LCell.HostRootFile = '') then
       raise Exception.Create('--host-root-only needs --host-root');
     if (LCell.HostRootFile <> '') and not (LCell.Delegate or LCell.Anchors) then
       raise Exception.Create('--host-root needs --trust-mode os-delegate or os-anchors');
