@@ -1,0 +1,97 @@
+TlsLib.Trust.System/src/TlpISystemVerifierSource.pas
+  s_f2c9bd75607afc::t_be213b41e53fbf 22-27
+  s_f2c9bd75607afc::t_e8e1fd094c34fa 18-20,29-35
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_f2c9bd75607afc::t_f4962a2e6cfcb1 252-253
+  s_f2c9bd75607afc::t_e8ace78b7b322b 278-281
+  s_f2c9bd75607afc::t_26ff4c5e725bc6 93-96
+  s_f2c9bd75607afc::t_e62b0b48c153ac 261-264
+  s_f2c9bd75607afc::t_aa66258632378c 296-297
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_d5d84205fe68ab 360-374
+  s_f2c9bd75607afc::t_ba69f634c8ccb6 145-147
+TlsLib.Tests/src/MockPlatformChainEngine.pas
+  s_f2c9bd75607afc::t_bd0662d8d599ed 158-219
+  s_f2c9bd75607afc::t_fb903a66ede224 22
+  s_f2c9bd75607afc::t_8ade7e5a2d6268 24
+  s_f2c9bd75607afc::t_c51654e8bea3a0 72,75-101
+  s_f2c9bd75607afc::t_b219f6054b4710 73-74
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_4ff282e2a6ca74 92
+  s_f2c9bd75607afc::t_463eae2ea85fac 293
+  s_f2c9bd75607afc::t_0e286153294c66 270
+  s_f2c9bd75607afc::t_6bd90b2bfe4d7d 268
+  s_f2c9bd75607afc::t_c0d6cd1e5f5437 604
+  s_f2c9bd75607afc::t_0136a7e127339c 93
+  s_f2c9bd75607afc::t_f74c918d925127 77-79,82-84
+  s_f2c9bd75607afc::t_21a000e35aee2c 322-323
+  s_f2c9bd75607afc::t_9cf9a3b613e8cf 305
+  s_f2c9bd75607afc::t_f85da18cb2c7fc 595-596,602-603,605,610-619
+  s_f2c9bd75607afc::t_c1f71a7101929d 606-607,609
+  s_f2c9bd75607afc::t_57a95b23c0cadc 32-33,43-47,642-643
+  s_f2c9bd75607afc::t_adbb8d45553b0d 164-170,172,176,181,183
+  s_f2c9bd75607afc::t_5e688ad6753136 21
+  s_f2c9bd75607afc::t_9c01dbe1e5564d 633
+  s_f2c9bd75607afc::t_4f2f639ecd5d17 608
+  s_f2c9bd75607afc::t_19e6c0dbf187d2 94-95
+  s_f2c9bd75607afc::t_7250d7172d50d6 263-267,269,271-287,289-292,294-304,306-308,320-321,324-328
+  s_f2c9bd75607afc::t_0447620d225517 228
+  s_f2c9bd75607afc::t_97c3ab96d4eb5f 288
+  s_f2c9bd75607afc::t_1d8d26c08db472 80-81
+  s_f2c9bd75607afc::t_076295ca22ca72 639-641
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_f2c9bd75607afc::t_17dc3ae4545e4a 66-67
+  s_f2c9bd75607afc::t_7409f1ae1c671b 49-50
+  s_f2c9bd75607afc::t_20176635aee420 64-65
+  s_f2c9bd75607afc::t_0edb6ec125d257 77-78
+  s_f2c9bd75607afc::t_75a62accfcc97d 90-91
+  s_f2c9bd75607afc::t_0e375590884860 51-52
+  s_f2c9bd75607afc::t_92642e2cf5b0a4 92-93
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_f2c9bd75607afc::t_461f893acab8bc 1198-1199
+  s_f2c9bd75607afc::t_b937deb5748419 1201-1202
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_8ef984452af8d9 1680-1681
+  s_f2c9bd75607afc::t_49ead18045f83f 2184-2185
+  s_f2c9bd75607afc::t_8fc666528240fc 4783
+  s_f2c9bd75607afc::t_5f2b32a2629adc 318-362
+  s_f2c9bd75607afc::t_5b0ce717d3251b 2586
+  s_f2c9bd75607afc::t_6a97e117c2acda 4350,4355,4357
+  s_f2c9bd75607afc::t_02d5ad8c253c2f 4395,4402
+  s_f2c9bd75607afc::t_ef2a733a49b27f 2702-2703
+  s_f2c9bd75607afc::t_14daa0e37b2ab1 2928-2929
+  s_f2c9bd75607afc::t_b0d78809c037dc 2221-2222
+  s_f2c9bd75607afc::t_134d752594d5b6 1759-1760
+  s_f2c9bd75607afc::t_50ee0561ec0ba7 4791
+  s_f2c9bd75607afc::t_aa25c15edf0a31 4889
+  s_f2c9bd75607afc::t_682751d234aede 2676-2678
+  s_f2c9bd75607afc::t_fb8c5692084385 3015
+  s_f2c9bd75607afc::t_56bfe89c8d07bc 1030-1031
+  s_f2c9bd75607afc::t_887bdf49912b09 1698-1699
+  s_f2c9bd75607afc::t_c2f4ab21877a2b 2624-2627
+  s_f2c9bd75607afc::t_a82e5acbb699e9 1731-1732
+  s_f2c9bd75607afc::t_84bc09e9a6d49d 2651-2653
+  s_f2c9bd75607afc::t_92c371d367b3fd 2689-2690
+  s_f2c9bd75607afc::t_3a160605de0cc6 2769-2927,2930-2995,2997-3014,3016-3185
+  s_f2c9bd75607afc::t_a6b9f8d1dc1d81 1648-1649
+  s_f2c9bd75607afc::t_9a05c71a2f5750 2667-2668
+  s_f2c9bd75607afc::t_eff42eaeb51846 1742
+  s_f2c9bd75607afc::t_a31766356ba9e9 2996
+  s_f2c9bd75607afc::t_819897fe5c1ebf 4896
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dbf7272edecf97bd840b00df91b04f9623ecdce8",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
