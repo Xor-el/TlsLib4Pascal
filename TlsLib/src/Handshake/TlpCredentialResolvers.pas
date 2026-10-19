@@ -66,8 +66,9 @@ type
       const AEntries: TArray<TSniCredentialEntry>): ITlsServerCredentialResolver; static;
     function TryResolve(const AClientHello: TTlsClientHelloInfo;
       out ACredential: TTlsCredential): Boolean;
-    /// <summary>The default (when one was supplied) then each entry in order, a copy; an entry
-    /// that is the default itself is listed once.</summary>
+    /// <summary>The default (when one was supplied) then each entry in order, in a new array; an
+    /// entry identical to the default (same key, same chain) is listed once. The credentials share
+    /// their chain bytes and keys with the resolver and are read-only.</summary>
     function Credentials: TArray<TTlsCredential>;
   end;
 
@@ -144,10 +145,17 @@ begin
 end;
 
 class function TSniCredentialResolver.SameCredential(const AA, AB: TTlsCredential): Boolean;
+var
+  LI: Integer;
 begin
-  Result := (AA.PrivateKey = AB.PrivateKey) and (System.Length(AA.CertificateChain) > 0) and
-    (System.Length(AB.CertificateChain) > 0) and
-    TArrayUtilities.AreEqual(AA.CertificateChain[0], AB.CertificateChain[0]);
+  Result := (AA.PrivateKey = AB.PrivateKey) and
+    (System.Length(AA.CertificateChain) > 0) and
+    (System.Length(AA.CertificateChain) = System.Length(AB.CertificateChain));
+  if not Result then
+    Exit;
+  for LI := 0 to System.High(AA.CertificateChain) do
+    if not TArrayUtilities.AreEqual(AA.CertificateChain[LI], AB.CertificateChain[LI]) then
+      Exit(False);
 end;
 
 function TSniCredentialResolver.Credentials: TArray<TTlsCredential>;

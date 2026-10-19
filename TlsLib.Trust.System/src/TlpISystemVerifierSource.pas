@@ -22,16 +22,17 @@ type
   /// <summary>The role-neutral marker of a certificate verifier source that validates chains
   /// through the OS delegate rather than the portable verifier; the source class lists it, so a
   /// config check can tell the two apart without naming the platform. It also carries the
-  /// server-role roots, so the live re-check builds against the same ones as the inline pass
-  /// (staple revocation may be decided by the configured PKIX provider). All three are empty for
-  /// a client-only source.</summary>
+  /// server-role roots, so the live re-check builds against the same ones as the inline pass. A
+  /// stapled revocation response may be decided by the configured PKIX provider instead of the OS.
+  /// All three are empty for a client-only source.</summary>
   ISystemVerifierSource = interface(IInterface)
     ['{0DE1F07C-D1E4-41A9-BF68-5F115CDA14C9}']
     /// <summary>The exclusive server trust root (empty = the OS roots apply).</summary>
     function Anchors: TArray<TBytes>;
     /// <summary>Host roots trusted beside the OS roots.</summary>
     function ExtraAnchors: TArray<TBytes>;
-    /// <summary>The OS and host distrust set, refused on any accepted path.</summary>
+    /// <summary>The distrust set the source was built with (the host's plus the OS list from the
+    /// factory), refused on any accepted path.</summary>
     function Distrusted: TArray<TBytes>;
   end;
 

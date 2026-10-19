@@ -61,6 +61,7 @@ uses
   TlpSessionTicketKeys,
   TlpSessionTicketStrategy,
   MockClock,
+  MockCryptoProvider,
   MockSessionStores,
   MockCertificateVerifiers,
   TlpTlsPresets,
@@ -87,6 +88,7 @@ type
     // per-test overrides the builders below honor when set: the peers' clocks, and a Reverify
     // client whose resumption-occasion verifier is FResumeVerifier (nil falls back to the primary)
     FClientClock, FServerClock: ITlsClock;
+    FServerCrypto: ICryptoProvider;
     FReverify: Boolean;
     FResumeVerifier: IServerCertificateVerifier;
     /// <summary>Drains the engine's event queue, returning how many SessionTicketReceived it held.</summary>
@@ -174,6 +176,9 @@ type
     procedure TestMachinesRequireAClock;
     procedure TestDispatchersRequireAClock;
     procedure TestTicketResumeIsAbbreviated;
+    procedure TestStekServerWithoutTicketAeadIssuesNoTicket;
+    procedure TestStekServerWithoutTicketAeadFallsBackToFullHandshake;
+    procedure TestStekServerWhoseTicketAeadRaisesPlainExceptionIssuesNoTicket;
     procedure TestTls12ServerReportsProtocolVersionAsEarlyDataReason;
     procedure TestDualClientOnTls12ReportsItsOfferReason;
     procedure TestResumptionWithoutNewSessionTicketKeepsTheCachedTicket;
@@ -390,20 +395,24 @@ function TTestTls12Resumption.NewServerWith(const AStore: ISessionStore;
   ARequireEms: Boolean): ITlsEngine;
 var
   LParams: TServer12HandshakeParams;
+  LCrypto: ICryptoProvider;
 begin
+  LCrypto := Crypto;
+  if FServerCrypto <> nil then
+    LCrypto := FServerCrypto;
   LParams := Default(TServer12HandshakeParams);
-  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.Policy := TNegotiationPolicy.CreateDefault(LCrypto);
   LParams.NonEmsResumption := AMode;
   LParams.RequireExtendedMasterSecret := ARequireEms;
   LParams.Clock := TSystemClock.Create;
   if FServerClock <> nil then
     LParams.Clock := FServerClock;
-  LParams.Crypto := Crypto;
+  LParams.Crypto := LCrypto;
   LParams.Inspector := Pkix.Certificates;
-  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDualVersion(LCrypto);
   LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  LParams.Group := TNamedGroups.CreateX25519(Crypto);
-  LParams.ServerRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
+  LParams.Group := TNamedGroups.CreateX25519(LCrypto);
+  LParams.ServerRandom := LCrypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.EmitDowngradeSentinel := AEmitSentinel;
   if AWithCredential then
     LParams.CredentialResolver := TSniCredentialResolver.ForCredential(ServerCredential);
@@ -412,7 +421,7 @@ begin
   LParams.TicketLifetimeSeconds := ALifetime;
   LParams.AlpnProtocols := FServerAlpn;
   Result := TTlsEngine.CreateConfigured(
-    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+    TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine, LCrypto);
 end;
 
 procedure TTestTls12Resumption.MintNonEmsSession(const ACache: ISessionCache;
@@ -614,6 +623,67 @@ begin
     (TSystemClock.Create as ITlsClock).NowUnixMillis, LAfter), 'the renewed session was re-cached');
   CheckTrue(LAfter.IssuedAtMillis > LAged.IssuedAtMillis + AgeMillis div 2,
     'a renewed ticket carries a fresh issue time');
+end;
+
+procedure TTestTls12Resumption.TestStekServerWithoutTicketAeadIssuesNoTicket;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  FServerCrypto := TMissingAeadProvider.Create(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'a provider without the ticket AEAD does not abort the server');
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed on the client');
+  CheckEquals(0, LCache.Count, 'no ticket was issued');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Resumption.TestStekServerWithoutTicketAeadFallsBackToFullHandshake;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  RunHandshake(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'a valid STEK ticket is held for the second connection');
+
+  FServerCrypto := TMissingAeadProvider.Create(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'an unreadable ticket does not abort the server');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the server ran a full handshake');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the client saw a full handshake');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Resumption.TestStekServerWhoseTicketAeadRaisesPlainExceptionIssuesNoTicket;
+var
+  LStek: ISessionTicketKeyManager;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+begin
+  LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LCache := TInMemorySessionCache.Create;
+  FServerCrypto := TMissingAeadProvider.CreatePlainFault(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider;
+  LClient := NewClient(LCache, True);
+  LServer := NewServer(nil, LStek, 7200, True);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'a plain exception from the provider does not abort the server');
+  CheckEquals(0, LCache.Count, 'no ticket was issued');
+  CheckAppDataFlows(LClient, LServer);
 end;
 
 procedure TTestTls12Resumption.TestTicketResumeIsAbbreviated;

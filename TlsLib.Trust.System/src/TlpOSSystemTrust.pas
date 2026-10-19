@@ -99,13 +99,13 @@ type
       : ITrustAnchorStore; static;
     /// <summary>The OS server-certificate verifier source, built per connection from the trust
     /// context. AFetch fixes the inline behaviour: CacheOnly (no socket) or Live (defer an
-    /// indeterminate revocation to the async park). Raises where the platform exposes no system
-    /// verifier, or where Live is asked of a platform without OS-native live revocation.</summary>
-    /// <summary>The roots in ARoots are trusted inside the OS evaluation, so the platform's own
-    /// policy still runs: beside the OS roots, or alone (one pass, the OS roots never vouch; raises
-    /// where the engine cannot trust host roots alone). A path through a certificate the OS
-    /// distrusts (read with APkix where the platform exposes that list) or that the host store
-    /// distrusts is refused. Both lists are snapshotted when the source is built.</summary>
+    /// indeterminate revocation to the async park). The roots in ARoots are trusted inside the OS
+    /// evaluation, so the platform's own policy still runs: beside the OS roots, or alone (one
+    /// pass, the OS roots never vouch; raises where the engine cannot trust host roots alone). A
+    /// path through a certificate the OS distrusts (read with APkix where the platform exposes
+    /// that list) or that the host store distrusts is refused. Both lists are snapshotted when
+    /// the source is built. Raises where the platform exposes no system verifier, or where Live is
+    /// asked of a platform without OS-native live revocation.</summary>
     class function ServerVerifierSource(AFetch: TSystemTrustFetch;
       const ARoots: TSystemTrustRoots; const APkix: IPkixProvider):
       IServerCertificateVerifierSource; static;

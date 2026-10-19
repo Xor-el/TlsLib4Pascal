@@ -59,6 +59,7 @@ uses
   TlpTlsCredential,
   TlpTrustPolicy,
   TlpITlsConfig,
+  TlpITlsServerCredentialSet,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
   TlpInMemoryCertificateCompressionCache,
@@ -478,6 +479,7 @@ type
     procedure TestServerCompressorsBuildWithOnlyAnSniCredential;
     procedure TestServerCompressorsBuildWithOnlyACredentialResolver;
     procedure TestTicketCountZeroOnTls13OnlyWithNothingSharedStillBuilds;
+    procedure TestComposedCredentialResolverListsDefaultAndSniCredentials;
   end;
 
 implementation
@@ -5430,6 +5432,21 @@ begin
     TSniCredentialResolver.ForCredential(ServerCredential)).Tls13
     .WithCertificateCompressors(TZlibCertificateCompression.DefaultCompressors).Build,
     'compressors on a server holding only a credential resolver');
+end;
+
+procedure TTestConfigBuilder.TestComposedCredentialResolverListsDefaultAndSniCredentials;
+var
+  LCredential: TTlsCredential;
+  LConfig: ITlsServerConfig;
+  LSet: ITlsServerCredentialSet;
+begin
+  LCredential := ServerCredential;
+  LConfig := NewPskOnlyServerBuilder.WithCredential(LCredential)
+    .WithSniCredential('localhost', LCredential).Tls13.Build;
+  CheckTrue(Supports(LConfig.CredentialResolver, ITlsServerCredentialSet, LSet),
+    'the composed resolver lists its credentials');
+  CheckEquals(1, System.Length(LSet.Credentials),
+    'the default and the identical SNI credential are listed once');
 end;
 
 procedure TTestConfigBuilder.TestTicketCountZeroOnTls13OnlyWithNothingSharedStillBuilds;

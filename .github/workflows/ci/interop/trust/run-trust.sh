@@ -329,8 +329,17 @@ if [ "$HAS_DELEGATE" = 1 ]; then
   cell "anchors host root baseline -> accept" --trust-mode os-anchors \
     --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
     --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
+  cell "delegate host root alone baseline -> accept" --trust-mode os-delegate \
+    --host-root "$CA/root.pem" --host-root-only --server-cert "$CA/distrust_leaf_fullchain.pem" \
+    --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
+  cell "anchors host root alone baseline -> accept" --trust-mode os-anchors \
+    --host-root "$CA/root.pem" --host-root-only --server-cert "$CA/distrust_leaf_fullchain.pem" \
+    --server-key "$CA/distrust_leaf.key" --posture soft --expect accept
   if ci_store_mutation_allowed && { DISTRUSTED=1; install_distrust; }; then
     echo "  (distrusted intermediate $DTHUMB, host root only)"
+    cell "delegate host root alone + distrusted intermediate -> reject" --trust-mode os-delegate \
+      --host-root "$CA/root.pem" --host-root-only --server-cert "$CA/distrust_leaf_fullchain.pem" \
+      --server-key "$CA/distrust_leaf.key" --posture soft --expect reject
     cell "delegate host root + distrusted intermediate -> reject" --trust-mode os-delegate \
       --host-root "$CA/root.pem" --server-cert "$CA/distrust_leaf_fullchain.pem" \
       --server-key "$CA/distrust_leaf.key" --posture soft --expect reject

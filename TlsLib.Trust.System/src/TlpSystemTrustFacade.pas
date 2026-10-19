@@ -42,11 +42,10 @@ type
   /// ones, and distrust from either wins; a delegate trusts them beside the OS roots and
   /// distrust from the OS or the host store still wins on a path through them. Host roots alone
   /// are the only trust root: Anchors harvests nothing, a delegate evaluates in one pass, and the
-  /// OS distrust list still applies. A delegate reads
-  /// the distrust lists once, when the verifier source is built. System trust verifies server
-  /// certificates only; an mTLS server's client-CA is never the OS store - supply it with
-  /// TClientVerification (see TOSSystemTrust.ClientVerifierSource for the OS engine over that
-  /// private CA).
+  /// OS distrust list still applies. A delegate reads the distrust lists once, when the verifier
+  /// source is built. System trust verifies server certificates only; an mTLS server's client-CA
+  /// is never the OS store - supply it with TClientVerification (see
+  /// TOSSystemTrust.ClientVerifierSource for the OS engine over that private CA).
   /// </summary>
   TSystemTrust = class sealed(TObject)
   strict private
@@ -65,9 +64,10 @@ type
     /// <summary>Installs OS trust that checks revocation live: the OS delegate under APosture, plus
     /// the async certificate-verdict park (deadline ADeadlineMs, which must be non-zero) that the
     /// host-side OS-native resolver resolves in. Both are set together because a live source
-    /// without the park would let a Hard posture behave as Soft. Pair it with
-    /// TOSSystemTrust.LiveRevocationResolver on the stream/adapter. Raises where the platform has
-    /// no OS-native live revocation.</summary>
+    /// without the park would let a Hard posture behave as Soft. ARoots decides which roots vouch,
+    /// as for ServerVerification; APkixProvider reads the OS distrust list where the platform
+    /// exposes one. Pair it with TOSSystemTrust.LiveRevocationResolver on the stream/adapter.
+    /// Raises where the platform has no OS-native live revocation.</summary>
     class function WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
       const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
       APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder; static;

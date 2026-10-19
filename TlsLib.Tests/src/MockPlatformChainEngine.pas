@@ -72,10 +72,11 @@ type
   /// <summary>
   /// An <see cref="IPlatformChainEngine" /> that decides by roots like a platform engine: a chain
   /// is trusted when its last certificate is a root of the set the request selects - the server
-  /// Anchors as the exclusive root when non-empty, else the OS roots it was built with (plus the
-  /// ExtraAnchors under NativeAnchorUnion); a client request only ever uses its Anchors. A trusted
-  /// chain is returned as its own path; an untrusted one fails with NoTrustAnchor / unknown_ca.
-  /// Records every request. Never for production use.
+  /// Anchors as the exclusive root when non-empty and the engine declares ExclusiveServerAnchors
+  /// (without it they are ignored, as a real engine would), else the OS roots it was built with
+  /// (plus the ExtraAnchors under NativeAnchorUnion); a client request only ever uses its Anchors.
+  /// A trusted chain is returned as its own path; an untrusted one fails with NoTrustAnchor /
+  /// unknown_ca. Records every request. Never for production use.
   /// </summary>
   TAnchorAwarePlatformChainEngine = class sealed(TInterfacedObject, IPlatformChainEngine)
   strict private
@@ -201,7 +202,8 @@ var
   LRoots: TArray<TBytes>;
 begin
   Inc(FServerCalls);
-  if Length(ARequest.Anchors) > 0 then
+  if (Length(ARequest.Anchors) > 0) and
+    (TPlatformChainCapability.ExclusiveServerAnchors in FCaps) then
     LRoots := ARequest.Anchors
   else if TPlatformChainCapability.NativeAnchorUnion in FCaps then
     LRoots := TArrayUtilities.Concat<TBytes>(FOsRoots, ARequest.ExtraAnchors)

@@ -61,6 +61,7 @@ type
   var
     FCrypto: ICryptoProvider;
     FKeys: ISessionTicketKeyManager;
+    FAeadAvailable: Boolean;
     class function SerializeSession(const ASession: IResumableSession): TBytes; static;
     class function DeserializeSession(const AData: TBytes;
       out ASession: IResumableSession): Boolean; static;
@@ -138,6 +139,14 @@ begin
   inherited Create;
   FCrypto := ACryptoProvider;
   FKeys := AKeys;
+  FAeadAvailable := True;
+  try
+    FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
+  except
+    // a provider that cannot build the ticket AEAD, whatever it raises, issues no tickets
+    on E: Exception do
+      FAeadAvailable := False;
+  end;
 end;
 
 class function TStekTicketStrategy.HashToCode(AHash: THashAlgorithm): Byte;
@@ -383,6 +392,8 @@ var
   LAead: IAead;
 begin
   Result := nil;
+  if not FAeadAvailable then
+    Exit;
   if not FKeys.CurrentKey(LKeyName, LKey) then
     Exit;
   LPlain := SerializeSession(ASession);
@@ -434,6 +445,8 @@ var
 begin
   ASession := nil;
   Result := False;
+  if not FAeadAvailable then
+    Exit;
   LNameLen := FKeys.KeyNameLength;
   try
     LAead := FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);

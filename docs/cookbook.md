@@ -158,6 +158,10 @@ end;
 never on a resumed or PSK handshake), concurrently across connections that share the config, so it
 must be thread-safe and must not do network I/O.
 
+A resolver that can list every credential it may select also implements `ITlsServerCredentialSet`
+(unit `TlpITlsServerCredentialSet`), as the built-in SNI resolver does; one that builds its
+credential per handshake leaves it out.
+
 A chain with a certificate (other than a self-issued one) signed with MD5, or with SHA-1 the client
 did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3), independent of
 `AllowedDeprecatedHashes`; a SHA-256 chain is still sent. `AClientHello.CertificateSignatureSchemes`
@@ -218,6 +222,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 
 The registries behind those lists are replaceable as a whole: `WithNamedGroups` (the groups the
 config can use), `WithSignatureSchemes` and `WithCipherSuites` take a registry, while
+`TNamedGroups.CreateRegistry` builds a registry from the groups you list, and
 `WithPreferredGroups` orders the groups (a code the registry lacks is skipped; an empty list, or
 a list with no registered group, is refused at `Build`; a repeated group is refused by `WithPreferredGroups`). A server
 acknowledges a client's `server_name` with an empty extension by default; `WithServerNameAcknowledgement(False)`
@@ -263,14 +268,16 @@ The short version — the full treatment is in
 
 // the OS root store plus my private CA (a chain the OS rejects only for lack of a root is
 // judged against my CA; any other OS failure stays final)
-//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;   // TSystemTrustMode, TSystemTrustRoots, TTrustAnchorStore, ITrustAnchorStore
+//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;
+//   // TSystemTrustMode, TSystemTrustRoots, TTrustAnchorStore, ITrustAnchorStore
 //   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
 //     TSystemTrustRoots.BesideOsRoots(TTrustAnchorStore.Create(
 //     Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore)).Build)
 
 // private PKI only, through the OS engine: my CA is the only root, so no public root vouches
 // (a chain to a public root fails with unknown_ca; the OS distrust list still applies)
-//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;   // TSystemTrustMode, TSystemTrustRoots, TTrustAnchorStore, ITrustAnchorStore
+//   uses TlpSystemTrustFacade, TlpOSSystemTrust, TlpTrustAnchorStore, TlpITrustAnchorStore;
+//   // TSystemTrustMode, TSystemTrustRoots, TTrustAnchorStore, ITrustAnchorStore
 //   .WithServerVerification(TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
 //     TSystemTrustRoots.HostRootsOnly(TTrustAnchorStore.Create(
 //     Pkix.Certificates.LoadChain(LoadFile('my-ca.pem'))) as ITrustAnchorStore)).Build)

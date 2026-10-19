@@ -31,6 +31,7 @@ uses
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpTrustTypes,
+  TlpTlsLibExceptions,
   TlpSystemTrustExceptions;
 
 resourcestring
@@ -87,14 +88,15 @@ type
   TPlatformRevocationCheck = (None, BestEffort, RequirePositive);
 
   /// <summary>One platform chain evaluation. Chain is the peer chain (leaf first, DER). Anchors is the
-  /// exclusive trust root: a client-certificate evaluation, or a host-roots-only server source
-  /// (empty on the other server paths, where the OS roots apply). Intermediates are the configured
-  /// extra certificates, offered to path building as untrusted candidates beside the presented
-  /// chain. ExtraAnchors are host roots trusted beside the
-  /// OS roots on the server path (read only by an engine with the NativeAnchorUnion capability;
-  /// ignored when Anchors is set). ServerName is the server-path identity (the
-  /// engine reads AsDns or ToString as its platform requires; empty on the client path). OcspStaple is consumed as cached revocation data
-  /// where the platform can. NetworkAllowed is False inline (no socket) and True only from the
+  /// exclusive trust root: a client-certificate evaluation, a host-roots-only server source, the
+  /// live re-check of a client config that trusts its store roots (WebPki), or the retry with the
+  /// host roots alone (empty on the other server paths, where the OS roots apply). Intermediates are the
+  /// configured extra certificates, offered to path building as untrusted candidates beside the
+  /// presented chain. ExtraAnchors are host roots trusted beside the OS roots on the server path
+  /// (read only by an engine with the NativeAnchorUnion capability; ignored when Anchors is set).
+  /// ServerName is the server-path identity (the engine reads AsDns or ToString as its platform
+  /// requires; empty on the client path). OcspStaple is consumed as cached revocation data where
+  /// the platform can. NetworkAllowed is False inline (no socket) and True only from the
   /// off-engine-thread park. Clock nil means platform time; Android ignores it and validates at device
   /// time. DeadlineMs bounds a network fetch where the platform honours one.</summary>
   TPlatformChainRequest = record
@@ -405,7 +407,7 @@ constructor TSystemRootSourceBase.Create(const APkix: IPkixProvider);
 begin
   inherited Create;
   if APkix = nil then
-    raise ESystemTrustUnavailableTlsLibException.CreateRes(@SNoProvider);
+    raise EArgumentTlsLibException.CreateRes(@SNoProvider);
   FPkix := APkix;
 end;
 

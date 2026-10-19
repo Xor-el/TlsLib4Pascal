@@ -115,7 +115,9 @@ one when ECH was accepted). For debugging only — never production.
   (RFC 5246 7.2.1). A server's ticket lifetime defaults to 7200 s and `WithTicketLifetime` accepts at
   most seven days (604800 s); a client clamps any advertised lifetime to seven days. With resumption
   on and no session store or ticket keys set, `Build` mints a default ticket key (STEK) that rotates on
-  that lifetime. **0-RTT is off by default** and, when enabled, is bounded by an anti-replay strategy.
+  that lifetime. A crypto provider that cannot build AES-256-GCM, the ticket cipher, issues no
+  stateless tickets and reads every offered one as unreadable, so those connections run a full
+  handshake. **0-RTT is off by default** and, when enabled, is bounded by an anti-replay strategy.
   A server `WithEarlyData` budget must be below 1 MiB and needs resumption; with explicit
   `WithSessionTicketKeys` and no session store it also needs `WithAntiReplay`, and `WithAntiReplay`
   needs a positive budget; with `Tls13.WithTicketCount(0)` it also needs a session store or ticket

@@ -30,6 +30,7 @@ uses
   TlpTlsVersion,
   TlpIClock,
   MockClock,
+  MockCryptoProvider,
   MockSessionStores,
   TlpICryptoProvider,
   TlpAeadUtilities,
@@ -102,6 +103,10 @@ type
     procedure TestStekOpenWithUnbindableKeyFallsBack;
     procedure TestStekSealOpenRoundTripTls13;
     procedure TestStekSealOpenRoundTripTls12;
+    procedure TestStekSealDeclinesWhenProviderLacksTicketAead;
+    procedure TestStekOpenUnreadableWhenProviderLacksTicketAead;
+    procedure TestStekSealDeclinesWhenTicketAeadRaisesPlainException;
+    procedure TestStekOpenUnreadableWhenTicketAeadRaisesPlainException;
     procedure TestStekSealOpenCarriesTls12Group;
     procedure TestStekSealOpenCarriesTls12PeerSignatureScheme;
     procedure TestLargestSealedTicketIsTheCachedLimit;
@@ -1095,6 +1100,62 @@ begin
   CheckEquals(0, System.Length(L12.SessionId), 'the session id is not carried in a STEK ticket');
   CheckEquals(0, System.Length(L12.SessionTicket),
     'the session ticket is not carried in a STEK ticket');
+end;
+
+procedure TTestSessionStore.TestStekSealDeclinesWhenProviderLacksTicketAead;
+var
+  LStrategy: ISessionTicketStrategy;
+begin
+  LStrategy := TStekTicketStrategy.Create(TMissingAeadProvider.Create(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  CheckEquals(0, System.Length(LStrategy.Seal(MakeTls12Session(Tag($01, 4)))),
+    'no ticket is sealed');
+end;
+
+procedure TTestSessionStore.TestStekOpenUnreadableWhenProviderLacksTicketAead;
+var
+  LKeys: ISessionTicketKeyManager;
+  LHealthy, LLacking: ISessionTicketStrategy;
+  LTicket: TBytes;
+  LOpened: IResumableSession;
+begin
+  LKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LHealthy := TStekTicketStrategy.Create(Crypto, LKeys);
+  LLacking := TStekTicketStrategy.Create(TMissingAeadProvider.Create(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider, LKeys);
+  LTicket := LHealthy.Seal(MakeTls12Session(Tag($01, 4)));
+  CheckTrue(System.Length(LTicket) > 0, 'a healthy provider sealed the ticket');
+  CheckFalse(LLacking.Open(LTicket, LOpened), 'the ticket is unreadable');
+  CheckTrue(LOpened = nil, 'no session is returned');
+end;
+
+procedure TTestSessionStore.TestStekSealDeclinesWhenTicketAeadRaisesPlainException;
+var
+  LStrategy: ISessionTicketStrategy;
+begin
+  LStrategy := TStekTicketStrategy.Create(TMissingAeadProvider.CreatePlainFault(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider,
+    TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  CheckEquals(0, System.Length(LStrategy.Seal(MakeTls12Session(Tag($01, 4)))),
+    'no ticket is sealed');
+end;
+
+procedure TTestSessionStore.TestStekOpenUnreadableWhenTicketAeadRaisesPlainException;
+var
+  LKeys: ISessionTicketKeyManager;
+  LHealthy, LFaulting: ISessionTicketStrategy;
+  LTicket: TBytes;
+  LOpened: IResumableSession;
+begin
+  LKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+  LHealthy := TStekTicketStrategy.Create(Crypto, LKeys);
+  LFaulting := TStekTicketStrategy.Create(TMissingAeadProvider.CreatePlainFault(Crypto,
+    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider, LKeys);
+  LTicket := LHealthy.Seal(MakeTls12Session(Tag($01, 4)));
+  CheckTrue(System.Length(LTicket) > 0, 'a healthy provider sealed the ticket');
+  CheckFalse(LFaulting.Open(LTicket, LOpened), 'the ticket is unreadable');
+  CheckTrue(LOpened = nil, 'no session is returned');
 end;
 
 function TTestSessionStore.SealedTls12WithGroupAndScheme(

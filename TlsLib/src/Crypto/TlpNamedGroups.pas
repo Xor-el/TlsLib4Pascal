@@ -60,7 +60,8 @@ type
     /// WithNamedGroups.</summary>
     class function CreateClassicalRegistry(const ACryptoProvider: ICryptoProvider): INamedGroupRegistry; static;
     /// <summary>A registry holding exactly AGroups in the given order; a repeated code keeps its
-    /// first entry and an empty array gives an empty registry.</summary>
+    /// first entry and an empty array gives an empty registry. A nil group raises
+    /// EArgumentTlsLibException.</summary>
     class function CreateRegistry(const AGroups: TArray<INamedGroup>): INamedGroupRegistry; static;
   end;
 
@@ -83,6 +84,7 @@ resourcestring
     'a hybrid key-exchange key has no single raw scalar to export';
   SForeignHybridKey =
     'the hybrid key-exchange private key was not produced by this group';
+  SNilNamedGroup = 'a named-group registry cannot hold a nil group';
 
 type
   // wraps a key agreement (Diffie-Hellman) as a KEM-shaped group: the ciphertext
@@ -635,7 +637,11 @@ var
 begin
   LBuilder := TNamedGroupRegistryBuilder.Create as INamedGroupRegistryBuilder;
   for LGroup in AGroups do
+  begin
+    if LGroup = nil then
+      raise EArgumentTlsLibException.CreateRes(@SNilNamedGroup);
     LBuilder.Add(LGroup);
+  end;
   Result := LBuilder.Build;
 end;
 

@@ -1195,8 +1195,7 @@ end;
 
 function TAppleChainEngine.Capabilities: TPlatformChainCapabilities;
 begin
-  // fetches live, renders cached revocation, matches the DNS host, unions extra anchors and
-  // honours server anchors as the exclusive root
+  // the evaluator provides each natively, so the delegate emulates none
   Result := [TPlatformChainCapability.LiveFetch, TPlatformChainCapability.CachedRevocation,
     TPlatformChainCapability.DnsIdentity, TPlatformChainCapability.NativeAnchorUnion,
     TPlatformChainCapability.ExclusiveServerAnchors];

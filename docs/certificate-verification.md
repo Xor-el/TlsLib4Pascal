@@ -465,8 +465,8 @@ then aborts the handshake with `certificate_revoked`. This works with both the *
 `TLiveRevocationChecker` (give it the configured client-CA anchors as `TLiveRevocationOptions.IssuerCandidates`, so it can
 recover the issuer of a leaf-only client credential) and the **OS-native** delegate on Windows/Apple
 (`TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live)` +
-`TOSSystemTrust.LiveRevocationResolver(serverConfig, nil)` + `WithLiveRevocationVerdict(deadlineMs)` on the
-server builder, since no server facade arms it — see the OS-native subsection above and
+`TOSSystemTrust.LiveRevocationResolver(serverConfig, nil)` +
+`WithLiveRevocationVerdict(deadlineMs)` on the server builder, since no server facade arms it — see the OS-native subsection above and
 [system-trust.md](system-trust.md)).
 
 ### Time source: one injected clock

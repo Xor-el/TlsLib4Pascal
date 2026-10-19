@@ -197,19 +197,25 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   revocation) against your roots as the only root. There is no first pass against the OS roots and
   no retry, and no OS root is ever consulted.
 - **Distrust still applies.** A path through a certificate the OS distrusts (Windows `Disallowed`,
-  macOS Deny) is refused even though it ends at your root, and so is one through a certificate your
-  store distrusts (`bad_certificate`). Both lists are read once, when the verifier source is built.
+  macOS Deny; iOS and Android expose no readable list) is refused even though it ends at your root,
+  and so is one through a certificate your store distrusts (`bad_certificate`). Both lists are read
+  once, when the verifier source is built. `TOSSystemTrust.DistrustStore(Pkix)` returns the OS list
+  as a store with no root.
+- **When the OS distrusts your root.** A delegate refuses the handshake with `bad_certificate`;
+  Anchors mode filters the root out of the trust set, so the chain has no anchor and fails with
+  `unknown_ca` (or the config fails closed at `Build` when no anchor is left).
 - **Refusals.** `HostRootsOnly` raises `EArgumentTlsLibException` for a nil store or one with no
   root (a store that distrusts its only root has none). A platform engine that cannot trust host
   roots alone raises `ESystemTrustUnsupportedTlsLibException` (see
   [Writing your own platform engine](#writing-your-own-platform-engine)).
 - **Anchors mode** validates in our own pipeline against your roots only. Nothing is harvested from
   the OS, so Linux, BSD and Solaris need no `ca-certificates` package or CA bundle.
-- **Apple.** The rules that exist only for system roots (CT and validity caps) do not apply to a
-  chain that ends at your root.
+- **Apple.** CT and the 398-day cap apply only to system roots; Apple's general TLS server rules
+  (serverAuth EKU, DNS SAN, key size, at most 825 days) still apply. This path is not yet tested on
+  a device.
 - **Android.** The exclusive roots bypass `network_security_config.xml` for every host: domain pins,
-  `<trust-anchors>`, the CT requirement and user-installed CAs are not consulted, so your roots alone
-  decide.
+  `<trust-anchors>`, the CT requirement and user-installed CAs are not consulted, so your roots
+  alone decide.
 
 For live revocation, pass the same roots to `WithLiveSystemTrust` and build the resolver from the
 resulting config, which reads them back so the live pass never consults the OS roots either:
@@ -228,7 +234,8 @@ An OS-distrusted certificate is refused by the built-in verifier wherever it app
 not only as a root:
 
 - **What counts:** the certificates the platform lets us read as distrusted — Windows `Disallowed`
-  and macOS trust settings with a Deny result. They travel with the anchor snapshot.
+  and macOS trust settings with a Deny result. They travel with the anchor snapshot, or, with
+  `HostRootsOnly`, in a root-less store beside your roots (`TOSSystemTrust.DistrustStore`).
 - **Exact certificate only:** the match is on the whole certificate. A re-issued certificate with
   the same key or name is a different certificate and is not caught; a Disallowed entry known only
   by hash (no certificate in the store) and the OS's built-in blocklists are not visible. Use
@@ -367,7 +374,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     as ITrustAnchorStore).WithRevocation(TRevocationPosture.Hard).Build)
   .WithLiveRevocationVerdict(deadlineMs)             // the park the live check runs in (non-zero)
   .Build;
-resolver := TOSSystemTrust.LiveRevocationResolver(LConfig, nil);   // reads the client-CA anchors + posture
+// reads the client-CA anchors + posture
+resolver := TOSSystemTrust.LiveRevocationResolver(LConfig, nil);
 serverStream.SetCertificateVerdictResolver(resolver.ResolveVerdict);  // caller owns + frees it
 ```
 
@@ -378,9 +386,9 @@ the posture (`Soft`/`Off` accept, `Hard` rejects `bad_certificate_status_respons
 path roots against an **in-memory exclusive client-CA store** (never the machine store), this needs no
 store install and is exercisable locally. `Live` requires `WithLiveRevocationVerdict` (the park is
 where it runs) — a server built `Live` without it raises before any IO. Pass a portable fallback
-(nil for none) as `LiveRevocationResolver(config, fallback)` to run `TLiveRevocationChecker` over your
-`IHttpFetcher` on an indeterminate OS outcome. **Windows and Apple only** — Android/Unix `Live` raises
-`ESystemTrustUnsupportedTlsLibException` (compose the portable checker there instead).
+(nil for none) as `LiveRevocationResolver(config, fallback)` to run `TLiveRevocationChecker` over
+your `IHttpFetcher` on an indeterminate OS outcome. **Windows and Apple only** — Android/Unix `Live`
+raises `ESystemTrustUnsupportedTlsLibException` (compose the portable checker there instead).
 
 ### Policy differences vs. the built-in verifier
 

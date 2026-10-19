@@ -77,13 +77,6 @@ uses
   TlsLibTestHandshakeDecoder;
 
 type
-  // builds its credential per handshake, so it cannot list what it may select
-  TOpaqueCredentialResolver = class(TInterfacedObject, ITlsServerCredentialResolver)
-  public
-    function TryResolve(const AClientHello: TTlsClientHelloInfo;
-      out ACredential: TTlsCredential): Boolean;
-  end;
-
   TTestTls13Loopback = class(TTlsLibHandshakeTestCase)
   private
     // opt-in NSS key-log sinks: nil by default (helpers skip injection); a test sets them to
@@ -195,22 +188,15 @@ type
     procedure TestCredentialSetListsDefaultThenEntriesInOrder;
     procedure TestCredentialSetWithoutDefaultListsEntriesOnly;
     procedure TestCredentialSetListsADefaultThatIsAlsoAnEntryOnce;
-    procedure TestCredentialSetIsACopy;
-    procedure TestResolverThatCannotEnumerateDoesNotClaimCredentialSet;
+    procedure TestCredentialSetIsAFreshArray;
+    procedure TestCredentialSetOfASingleCredentialListsOne;
+    procedure TestCredentialSetListsSameLeafWithDifferentIntermediates;
+    procedure TestCredentialSetListsSameLeafWithADifferentKeyReference;
     procedure TestEd448ServerCredentialHandshake;
     procedure TestEd25519ServerCredentialHandshake;
   end;
 
 implementation
-
-{ TOpaqueCredentialResolver }
-
-function TOpaqueCredentialResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
-  out ACredential: TTlsCredential): Boolean;
-begin
-  ACredential := Default(TTlsCredential);
-  Result := False;
-end;
 
 { TTestTls13Loopback }
 
@@ -2327,7 +2313,7 @@ begin
     LListed[1].CertificateChain[0]);
 end;
 
-procedure TTestTls13Loopback.TestCredentialSetIsACopy;
+procedure TTestTls13Loopback.TestCredentialSetIsAFreshArray;
 var
   LEntries: TArray<TSniCredentialEntry>;
   LCredential: TTlsCredential;
@@ -2349,13 +2335,49 @@ begin
   CheckTrue(LListed[0].PrivateKey <> nil, 'the key is untouched');
 end;
 
-procedure TTestTls13Loopback.TestResolverThatCannotEnumerateDoesNotClaimCredentialSet;
+procedure TTestTls13Loopback.TestCredentialSetOfASingleCredentialListsOne;
 var
-  LResolver: ITlsServerCredentialResolver;
+  LSet: ITlsServerCredentialSet;
+  LListed: TArray<TTlsCredential>;
 begin
-  LResolver := TOpaqueCredentialResolver.Create as ITlsServerCredentialResolver;
-  CheckFalse(Supports(LResolver, ITlsServerCredentialSet),
-    'a resolver that builds credentials per handshake does not claim to list them');
+  CheckTrue(Supports(TSniCredentialResolver.ForCredential(ServerCredential),
+    ITlsServerCredentialSet, LSet), 'the single-credential resolver lists its set');
+  LListed := LSet.Credentials;
+  CheckEquals(1, System.Length(LListed), 'only the default');
+end;
+
+procedure TTestTls13Loopback.TestCredentialSetListsSameLeafWithDifferentIntermediates;
+var
+  LEntries: TArray<TSniCredentialEntry>;
+  LDefault, LEntry: TTlsCredential;
+  LSet: ITlsServerCredentialSet;
+  LListed: TArray<TTlsCredential>;
+begin
+  LDefault := ServerCredential;
+  LEntry := LDefault;
+  LEntry.CertificateChain := TArray<TBytes>.Create(LDefault.CertificateChain[0],
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
+  LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', LEntry));
+  CheckTrue(Supports(TSniCredentialResolver.Create(LEntries, LDefault) as
+    ITlsServerCredentialResolver, ITlsServerCredentialSet, LSet), 'resolver lists its set');
+  LListed := LSet.Credentials;
+  CheckEquals(2, System.Length(LListed), 'a different chain behind the same leaf is listed');
+end;
+
+procedure TTestTls13Loopback.TestCredentialSetListsSameLeafWithADifferentKeyReference;
+var
+  LEntries: TArray<TSniCredentialEntry>;
+  LDefault, LEntry: TTlsCredential;
+  LSet: ITlsServerCredentialSet;
+  LListed: TArray<TTlsCredential>;
+begin
+  LDefault := ServerCredential;
+  LEntry := ServerCredential;
+  LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', LEntry));
+  CheckTrue(Supports(TSniCredentialResolver.Create(LEntries, LDefault) as
+    ITlsServerCredentialResolver, ITlsServerCredentialSet, LSet), 'resolver lists its set');
+  LListed := LSet.Credentials;
+  CheckEquals(2, System.Length(LListed), 'the same leaf under another key reference is listed');
 end;
 
 procedure TTestTls13Loopback.TestEd448ServerCredentialHandshake;

@@ -180,7 +180,8 @@ type
   /// Vends the raw crypto primitives by descriptor and reports machine-checkable
   /// capabilities. It does not select or fall back between algorithms - that is
   /// the negotiation policy's job; it only reports capability and returns correct
-  /// results.
+  /// results. A Create call for an algorithm the provider cannot build raises
+  /// ENotSupportedTlsLibException.
   /// </summary>
   ICryptoPrimitives = interface(IInterface)
     ['{55A260D5-E22D-4876-894B-5FB957433E38}']

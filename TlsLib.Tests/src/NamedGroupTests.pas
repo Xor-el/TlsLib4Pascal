@@ -92,7 +92,7 @@ type
     procedure TestCreateRegistryLooksUpByCode;
     procedure TestCreateRegistryKeepsFirstOfDuplicateCode;
     procedure TestCreateRegistryEmptyArrayGivesEmptyRegistry;
-    procedure TestDefaultRegistryUnchangedByCreateRegistry;
+    procedure TestCreateRegistryRejectsNilGroup;
     procedure TestClassicalRegistryOmitsPostQuantum;
     procedure TestGroupKindClassifiesEcdheKemHybrid;
     procedure TestOnlyEcdheGroupsAreTls12Eligible;
@@ -659,14 +659,19 @@ begin
   CheckFalse(LReg.Contains(TNamedGroupCatalog.X25519), 'nothing registered');
 end;
 
-procedure TTestNamedGroups.TestDefaultRegistryUnchangedByCreateRegistry;
+procedure TTestNamedGroups.TestCreateRegistryRejectsNilGroup;
 var
-  LItems: TArray<INamedGroup>;
+  LRaised: Boolean;
 begin
-  TNamedGroups.CreateRegistry(TArray<INamedGroup>.Create(TNamedGroups.CreateX25519(Crypto)));
-  LItems := TNamedGroups.CreateDefaultRegistry(Crypto).Items;
-  CheckEquals(7, System.Length(LItems), 'default registry keeps all seven groups');
-  CheckEquals(TNamedGroupCatalog.X25519, LItems[0].Code, 'default order unchanged');
+  LRaised := False;
+  try
+    TNamedGroups.CreateRegistry(TArray<INamedGroup>.Create(
+      TNamedGroups.CreateX25519(Crypto), nil));
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil group is an argument error');
 end;
 
 procedure TTestNamedGroups.TestClassicalRegistryOmitsPostQuantum;

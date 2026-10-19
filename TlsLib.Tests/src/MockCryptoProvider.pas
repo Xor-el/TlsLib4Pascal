@@ -137,8 +137,12 @@ type
     FMissingAgreement: TKeyAgreementAlgorithm;
     FHasMissingAgreement: Boolean;
     FLenientKem: Boolean;
+    FPlainFault: Boolean;
   public
     constructor Create(const AInner: ICryptoPrimitives; AMissing: TAeadAlgorithm); overload;
+    /// <summary>From now on the missing AEAD fails with a plain Exception, as a third party's
+    /// might, instead of the library's not-supported one.</summary>
+    procedure ArmPlainFault;
     /// <summary>Models a facet that cannot build one key agreement instead.</summary>
     constructor Create(const AInner: ICryptoPrimitives;
       AMissingAgreement: TKeyAgreementAlgorithm); overload;
@@ -183,6 +187,9 @@ type
     constructor Create(const AInner: ICryptoProvider;
       AMissingAgreement: TKeyAgreementAlgorithm); overload;
     constructor CreateLenientKem(const AInner: ICryptoProvider);
+    /// <summary>Once built, the missing AEAD fails with a plain Exception, as a third party's
+    /// might (the builder itself tolerates only the library's not-supported error).</summary>
+    constructor CreatePlainFault(const AInner: ICryptoProvider; AMissing: TAeadAlgorithm);
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
     function Hpke: IHpkeCrypto;
@@ -468,6 +475,11 @@ begin
   FHasMissingAgreement := True;
 end;
 
+procedure TMissingAeadPrimitives.ArmPlainFault;
+begin
+  FPlainFault := True;
+end;
+
 function TMissingAeadPrimitives.GetRandom: IRandom;
 begin
   Result := FInner.GetRandom;
@@ -496,7 +508,11 @@ end;
 function TMissingAeadPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
   if FHasMissingAead and (AAlgorithm = FMissing) then
+  begin
+    if FPlainFault then
+      raise Exception.CreateRes(@SMissingAead);
     raise ENotSupportedTlsLibException.CreateRes(@SMissingAead);
+  end;
   Result := FInner.CreateAead(AAlgorithm);
 end;
 
@@ -599,6 +615,24 @@ begin
       as ICryptoPrimitives)
     .WithSigning(AInner.Signing)
     .Build;
+end;
+
+constructor TMissingAeadProvider.CreatePlainFault(const AInner: ICryptoProvider;
+  AMissing: TAeadAlgorithm);
+var
+  LBuilder: ICryptoProviderBuilder;
+  LPrimitives: TMissingAeadPrimitives;
+  LHeld: ICryptoPrimitives;
+begin
+  inherited Create;
+  LPrimitives := TMissingAeadPrimitives.Create(AInner.Primitives, AMissing);
+  LHeld := LPrimitives as ICryptoPrimitives;
+  LBuilder := TCryptoProviderBuilder.Create;
+  FComposed := LBuilder
+    .WithPrimitives(LHeld)
+    .WithSigning(AInner.Signing)
+    .Build;
+  LPrimitives.ArmPlainFault;
 end;
 
 function TMissingAeadProvider.Primitives: ICryptoPrimitives;
