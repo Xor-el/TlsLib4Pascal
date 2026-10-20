@@ -652,6 +652,7 @@ resourcestring
   SResolverStoreDown = 'the credential store is down';
   SBranchNotValidated = 'build %d is not validated; the validated branch does not apply';
   SBranchValidated = 'build %d is validated; the not-validated branch does not apply';
+  SExpectedValidated = 'build %d is not validated but this leg must run the validated path';
 
 { TPlainCredentialResolver }
 
@@ -5517,6 +5518,8 @@ begin
   LAttestation := TOSModuleAttestation.Current;
   if LAttestation.Status(TModuleStandard.Fips140_3) <> TModuleStatus.Validated then
   begin
+    if SwitchEnabled('TLSLIB_EXPECT_VALIDATED_MODULE') then
+      Fail(Format(SExpectedValidated, [LAttestation.Identity.OsBuild]));
     SkipTest(Format(SBranchNotValidated, [LAttestation.Identity.OsBuild]));
     Exit;
   end;

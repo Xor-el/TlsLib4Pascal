@@ -47,6 +47,12 @@ report "OpenSSL name-drop in core" \
 report "CryptoLib name-drop in a core comment" \
   "$(grep -rnE '//.*\bCryptoLib' --include='*.pas' "$CORE" 2>/dev/null | noh)"
 
+# compliance policy lives only in TlsLib.Compliance; the FIPS 203/204 citations and the plain
+# adjective "compliant server" are not policy
+report "compliance wording in a core, crypto or trust unit (fips / cnsa / cmvp / compliance)" \
+  "$(grep -rniP --include='*.pas' 'fips(?! 20[34]\b)|cnsa|cmvp|complian(ce|t(?! server))' \
+     TlsLib/src TlsLib.Crypto.System/src TlsLib.Trust.System/src 2>/dev/null | noh)"
+
 if [ "$fail" -ne 0 ]; then
   printf '\nA production comment reintroduced a banned reference. Describe the behaviour in our\n'
   printf 'own terms (RFC citations are fine); do not cite an internal codename or an\n'

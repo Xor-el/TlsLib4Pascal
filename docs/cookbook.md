@@ -158,10 +158,10 @@ end;
 never on a resumed or PSK handshake), concurrently across connections that share the config, so it
 must be thread-safe and must not do network I/O.
 
-A resolver that can list every credential it may select also implements `ITlsServerCredentialSet`
-(unit `TlpITlsServerCredentialSet`), as the built-in SNI resolver does; one that builds its
-credential per handshake leaves it out. The set hands every credential, private key handle
-included, to any code that holds the frozen config.
+The built-in SNI resolver and `WithSniCredential` expose their credentials through
+`ITlsServerCredentialSet` (unit `TlpITlsServerCredentialSet`); a host resolver need not implement
+it. The set hands every credential, private key handle included, to any code that holds the frozen
+config.
 
 A chain with a certificate (other than a self-issued one) signed with MD5, or with SHA-1 the client
 did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3), independent of
@@ -1027,71 +1027,21 @@ key, so a server accepts a narrowed registry only together with `WithPeerAuth`.
 
 The optional `TlsLib.Compliance` package runs the negotiated cryptography in the OS cryptographic
 module and refuses what the rules do not allow. `Strict` raises when the platform is not a
-validated build; `Relaxed` reports instead. Load the credential through `Policy.Crypto`, and build through
-`TComplianceTls` so the frozen config is checked by `Admit`. What this claims, and what it does not,
-is in [compliance.md](compliance.md).
+validated build; `Relaxed` reports instead. Load the credential through `Policy.Crypto`, and
+build through `TComplianceTls` so the frozen config is checked by `Admit`. What this claims, and
+what it does not, is in [compliance.md](compliance.md).
 
 ```pascal
-uses TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider, TlpIPkixProvider,
-  TlpOSCryptoProvider, TlpTlsCredential, TlpITlsConfig, TlpComplianceTypes, TlpCompliancePresets,
-  TlpICompliancePolicy, TlpCompliancePolicy, TlpOSModuleAttestation, TlpOSSystemTrust,
-  TlpComplianceTls;
-
-var
-  Policy: ICompliancePolicy;
-  Client: ITlsClientConfig;
-  Server: ITlsServerConfig;
-begin
-  Policy := TCompliancePolicy.Create(TCompliancePresets.Cnsa1,
-    TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider),
-    TDefaultPkixProvider.Create as IPkixProvider, TOSModuleAttestation.Current,
-    TComplianceEnforcement.Strict);          // raises on a build the table does not validate
-  WriteLn(Policy.PlatformReport.Describe);
-  Client := TComplianceTls.BuildClient(Policy,
-    TComplianceTls.Client(Policy, TSystemTrustRoots.OsRoots));
-  Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy,
-    TTlsCredential.Load(Policy.Crypto, Policy.Pkix, ChainPem, KeyPem)));
-end;
+Policy := TCompliancePolicy.Create(TCompliancePresets.Cnsa1,
+  TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider),
+  TDefaultPkixProvider.Create as IPkixProvider, TOSModuleAttestation.Current,
+  TComplianceEnforcement.Strict);
+Client := TComplianceTls.BuildClient(Policy,
+  TComplianceTls.Client(Policy, TSystemTrustRoots.OsRoots));
 ```
 
-A private CA is passed with the roots, so it need not be installed in the OS store:
-`TComplianceTls.Client(Policy, TSystemTrustRoots.OsAndHostRoots(Store))` trusts `Store` with the OS
-roots, `TSystemTrustRoots.HostRoots(Store)` trusts it alone.
-
-The facade's groups come from `Policy.NamedGroups`, and `Admit` refuses any other group object. A
-host that changes the groups starts from `Policy.NamedGroups.ToBuilder`, prunes, and passes the
-built registry to `WithNamedGroups`.
-
-A server that picks its credential per handshake passes its own resolver; the policy wraps it so
-every credential it returns is checked (a resolver that is not wrapped is reported as unchecked, and
-`TSniCredentialResolver` and the builder's `WithSniCredential` list their credentials, so the policy
-checks them directly):
-
-```pascal
-Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy, MyResolver));
-// for a builder you assemble yourself, wrap the resolver with the policy that will admit it
-Resolver := Policy.CheckedCredentialResolver(MyResolver);
-```
-
-A facade server carries the policy's resumption scope and ticket keys, so a store, cache or ticket
-key it shares with a config the policy never admitted does not resume across the two. A builder you
-assemble yourself needs the same, or `Admit` reports `ResumptionStateUnchecked` or
-`TicketKeysUnchecked`; a client cache needs the scope too, as the builder's own random scope cannot
-be told from one you chose. Keys you install yourself go behind `CheckedTicketKeys` with a scope
-you choose for the fleet; they stay disclosed and must come from the approved mode. Every server
-that shares the fleet carries exactly that scope, so they resume across each other:
-
-```pascal
-ServerBuilder.WithResumptionScope(Policy.SessionScope)
-  .WithSessionTicketKeys(Policy.TicketKeys(TSystemClock.Create as ITlsClock, 7200));
-ServerBuilder.WithResumptionScope(FleetScope)
-  .WithSessionTicketKeys(Policy.CheckedTicketKeys(MyFleet, FleetScope));
-ClientBuilder.WithSessionCache(Cache).WithResumptionScope(Policy.SessionScope);
-```
-
-To turn resumption off on a facade server, use `TComplianceTls.WithoutResumption(ServerBuilder)`:
-it also clears the ticket keys and the scope the facade set, which a bare `WithResumption(False)`
-leaves in place and `Build` then refuses.
+The full sample, servers, private CAs, per-handshake credential resolvers and resumption are in
+[compliance.md](compliance.md#use-it).
 
 ## The dangerous surface (dev only)
 

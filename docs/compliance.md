@@ -4,8 +4,8 @@
 
 The optional `TlsLib.Compliance` package is a policy over the OS cryptographic module. It runs the
 cryptography a handshake negotiates in that module and refuses what the rules do not allow: a
-negotiated algorithm outside the rules, an operation the module does not serve, a config that
-weakens the rules. Hashes and HMACs are checked against the module, not the rules, and a few
+negotiated algorithm outside the rules, a config that weakens the rules and, in strict mode, an
+operation the module does not serve. Hashes and HMACs are checked against the module, not the rules, and a few
 internal SHA-256 uses are disclosed (see [What Admit checks](#what-admit-checks)). It adds no
 cryptography of its own and the core does not depend on it.
 
@@ -19,9 +19,8 @@ a PKIX provider from `TDefaultPkixProvider.Create as IPkixProvider`.
 TlsLib is not a validated cryptographic module and claims no CMVP validation. On Windows 11 22H2
 (build 22621) and Windows Server 2022 (build 20348), its primitives run in Microsoft's Cryptographic
 Primitives Library (`bcryptprimitives.dll`), CMVP certificate #5410, FIPS 140-3 Level 1, validated
-2026-08-31, sunset 2031-08-30. Other builds, including 23H2, 24H2, 25H2 and Server 2025, are not
-covered; strict mode refuses them. A platform with no validated-module table is refused the same
-way.
+2026-08-31, sunset 2031-08-30. Every other build is not covered; strict mode refuses it. A platform with no
+validated-module table is refused the same way.
 
 | Release | Build | Product type | Module version listed |
 | --- | --- | --- | --- |
@@ -57,9 +56,8 @@ The TLS 1.2 and TLS 1.3 key derivations are composed outside the module; every H
 TLS 1.2 is allowed only with Extended Master Secret (RFC 7627).
 
 The `Fips140_3` preset refuses every ML-KEM and PQ/T hybrid group (including
-SecP256r1MLKEM768): the OS module (CMVP #5410) has no validated ML-KEM, and current CMVP
-guidance (IG D.S Scenario 2) approves hybrids only when ML-KEM runs inside a validated module, so
-hybrids will be added once such a module is available.
+SecP256r1MLKEM768): the OS module has no validated ML-KEM, and a hybrid is approved only when its
+ML-KEM runs inside a validated module.
 
 ---
 
@@ -387,8 +385,8 @@ Disclosure: a peer chain is held to the RSA size range, not to the exact sizes o
 
 The module line gives the OS, edition, product type, firmware, module file version, the listed
 version (validated releases only), the loaded path, the native machine (`0x8664` is x64; the
-process machine follows when it is not native) and the legacy FIPS policy. The finding carries the reason the status is not
-Validated, for example `the process is 32-bit; the certificate covers the 64-bit module only`. On a
-validated release whose revision differs from the listed one the report adds
+process machine follows when it is not native) and the legacy FIPS policy. The finding carries
+the reason the status is not Validated, for example `the process is 32-bit; the certificate covers
+the 64-bit module only`. On a validated release whose revision differs from the listed one the report adds
 `Disclosure: the module file version 10.0.20348.2113 differs from the 10.0.20348.30000 the
 certificate lists; only the build is checked`.
