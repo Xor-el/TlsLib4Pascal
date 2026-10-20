@@ -286,9 +286,10 @@ var
 begin
   Result := FromCommonConfig(AConfig);
   Result.CheckHostName := AConfig.CheckServerName;
-  // the live pass must build against the same roots as the inline one
-  if Supports(AConfig.ServerVerifierSource, ISystemVerifierSource, LSource) then
+  // the live pass uses the roots of the inline one, which only the OS source has
+  if AConfig.ServerVerifierSource is TOSVerifierSource then
   begin
+    LSource := AConfig.ServerVerifierSource as ISystemVerifierSource;
     Result.Anchors := LSource.Anchors;
     Result.ExtraAnchors := LSource.ExtraAnchors;
     Result.Distrusted := LSource.Distrusted;

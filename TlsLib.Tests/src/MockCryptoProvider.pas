@@ -137,12 +137,12 @@ type
     FMissingAgreement: TKeyAgreementAlgorithm;
     FHasMissingAgreement: Boolean;
     FLenientKem: Boolean;
-    FPlainFault: Boolean;
+    FFault: ExceptClass;
   public
     constructor Create(const AInner: ICryptoPrimitives; AMissing: TAeadAlgorithm); overload;
-    /// <summary>From now on the missing AEAD fails with a plain Exception, as a third party's
-    /// might, instead of the library's not-supported one.</summary>
-    procedure ArmPlainFault;
+    /// <summary>From now on the missing AEAD fails with AFault, a plain Exception as a third
+    /// party's might or a fatal one, instead of the library's not-supported error.</summary>
+    procedure ArmFault(AFault: ExceptClass);
     /// <summary>Models a facet that cannot build one key agreement instead.</summary>
     constructor Create(const AInner: ICryptoPrimitives;
       AMissingAgreement: TKeyAgreementAlgorithm); overload;
@@ -187,9 +187,10 @@ type
     constructor Create(const AInner: ICryptoProvider;
       AMissingAgreement: TKeyAgreementAlgorithm); overload;
     constructor CreateLenientKem(const AInner: ICryptoProvider);
-    /// <summary>Once built, the missing AEAD fails with a plain Exception, as a third party's
-    /// might (the builder itself tolerates only the library's not-supported error).</summary>
-    constructor CreatePlainFault(const AInner: ICryptoProvider; AMissing: TAeadAlgorithm);
+    /// <summary>Once built, the missing AEAD fails with AFault, as a third party's might (the
+    /// builder itself tolerates only the library's not-supported error).</summary>
+    constructor CreateFault(const AInner: ICryptoProvider; AMissing: TAeadAlgorithm;
+      AFault: ExceptClass);
     function Primitives: ICryptoPrimitives;
     function Signing: ISigningCrypto;
     function Hpke: IHpkeCrypto;
@@ -475,9 +476,9 @@ begin
   FHasMissingAgreement := True;
 end;
 
-procedure TMissingAeadPrimitives.ArmPlainFault;
+procedure TMissingAeadPrimitives.ArmFault(AFault: ExceptClass);
 begin
-  FPlainFault := True;
+  FFault := AFault;
 end;
 
 function TMissingAeadPrimitives.GetRandom: IRandom;
@@ -509,8 +510,8 @@ function TMissingAeadPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
   if FHasMissingAead and (AAlgorithm = FMissing) then
   begin
-    if FPlainFault then
-      raise Exception.CreateRes(@SMissingAead);
+    if FFault <> nil then
+      raise FFault.CreateRes(@SMissingAead);
     raise ENotSupportedTlsLibException.CreateRes(@SMissingAead);
   end;
   Result := FInner.CreateAead(AAlgorithm);
@@ -617,8 +618,8 @@ begin
     .Build;
 end;
 
-constructor TMissingAeadProvider.CreatePlainFault(const AInner: ICryptoProvider;
-  AMissing: TAeadAlgorithm);
+constructor TMissingAeadProvider.CreateFault(const AInner: ICryptoProvider;
+  AMissing: TAeadAlgorithm; AFault: ExceptClass);
 var
   LBuilder: ICryptoProviderBuilder;
   LPrimitives: TMissingAeadPrimitives;
@@ -632,7 +633,7 @@ begin
     .WithPrimitives(LHeld)
     .WithSigning(AInner.Signing)
     .Build;
-  LPrimitives.ArmPlainFault;
+  LPrimitives.ArmFault(AFault);
 end;
 
 function TMissingAeadProvider.Primitives: ICryptoPrimitives;

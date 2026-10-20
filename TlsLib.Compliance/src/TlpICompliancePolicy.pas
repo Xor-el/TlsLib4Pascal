@@ -36,7 +36,7 @@ type
   /// raises for what the enforcement mode does not tolerate.
   /// </summary>
   ICompliancePolicy = interface(IInterface)
-    ['{97F7D0DE-23CC-4FA4-BAC2-C795048A2492}']
+    ['{83222211-E7CC-4E63-BB9A-D87F08445130}']
     /// <summary>A copy of the rules; the policy itself never changes.</summary>
     function Rules: TComplianceRules;
     function Enforcement: TComplianceEnforcement;
@@ -57,7 +57,8 @@ type
     function Evaluate(const AConfig: ITlsServerConfig): IComplianceReport; overload;
     /// <summary>Evaluates AConfig and raises EComplianceUnmetTlsLibException for any finding in
     /// strict mode, or for a configuration finding in relaxed mode; otherwise returns the
-    /// report.</summary>
+    /// report. A custom verifier source is a configuration finding, so it is refused in both
+    /// modes whatever the rules say.</summary>
     function Admit(const AConfig: ITlsClientConfig): IComplianceReport; overload;
     function Admit(const AConfig: ITlsServerConfig): IComplianceReport; overload;
     /// <summary>The platform findings plus those of one credential as given: its key against the
@@ -83,13 +84,21 @@ type
     function SessionScope: TBytes;
     /// <summary>Default session-ticket keys minted from the policy crypto provider's random
     /// generator, rotating on ALifetimeSeconds, for WithSessionTicketKeys. Only keys the policy
-    /// issued, or wrapped with CheckedTicketKeys, are admitted. Raises EArgumentTlsLibException
-    /// for a nil AClock.</summary>
+    /// issued, or wrapped with CheckedTicketKeys, are admitted. The keys seal with AES-256-GCM,
+    /// so the rules must allow it. They run on AClock, not on a clock the builder holds: a host
+    /// that sets a builder clock passes the same clock here. Raises EArgumentTlsLibException for
+    /// a nil AClock, a zero ALifetimeSeconds, or rules without AES-256-GCM.</summary>
     function TicketKeys(const AClock: ITlsClock;
-      ALifetimeSeconds: UInt32): ISessionTicketKeyManager;
+      ALifetimeSeconds: UInt32): IRotatingTicketKeyManager;
     /// <summary>AFleet, whose keys the host enters, marked as checked by this policy; the fleet
-    /// is still disclosed. Raises EArgumentTlsLibException for a nil AFleet.</summary>
-    function CheckedTicketKeys(const AFleet: IFleetTicketKeyManager): ISessionTicketKeyManager;
+    /// is still disclosed. AFleetScope is the resumption scope the host gives every server of the
+    /// fleet: a server holding the wrapper is admitted only with exactly that scope, so the
+    /// servers resume across each other and a config with another scope does not resume with
+    /// them. Rebuilding a fleet with another scope drops the tickets outstanding. Raises
+    /// EArgumentTlsLibException for a nil AFleet, or a scope that is empty or longer than the 32
+    /// bytes the builder accepts.</summary>
+    function CheckedTicketKeys(const AFleet: IFleetTicketKeyManager;
+      const AFleetScope: TBytes): ISessionTicketKeyManager;
   end;
 
 implementation

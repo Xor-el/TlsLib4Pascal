@@ -35,6 +35,7 @@ uses
   TlpIPkixProvider,
   TlpICryptoBackendReport,
   TlpISigningKey,
+  TlpISystemSigningKey,
   TlpSecretBuffer,
   TlpSession,
   TlpCertificateStrengthPolicy,
@@ -53,6 +54,10 @@ uses
   TlpCertificateVerifierSource,
   TlpIEch,
   TlpEchClient,
+  TlpEchConfig,
+  TlpInMemoryEchKeyStore,
+  TlpEchKeyGen,
+  TlpSystemCryptoBase,
   TlpISession,
   TlpISecretBuffer,
   TlpIClock,
@@ -84,6 +89,8 @@ uses
   TlpITrustAnchorStore,
   TlpISystemVerifierSource,
   MockCompliance,
+  MockCryptoProvider,
+  MockRandom,
   MockKeyLog,
   MockCertificateVerifiers,
   TlsLibTestCertificates,
@@ -187,6 +194,10 @@ type
     procedure TestListedModuleVersionMatchingIsNotDisclosed;
     procedure TestNoListedModuleVersionIsNotDisclosed;
     procedure TestNotValidatedModuleVersionIsNotDisclosed;
+    procedure TestCnsa1DisclosesTheInternalSha256;
+    procedure TestFips140_3DoesNotDiscloseTheInternalSha256;
+    procedure TestStrictCnsa1Sha256OutsideTheModuleRaises;
+    procedure TestStrictCnsa1Sha256HmacOutsideTheModuleRaises;
   end;
 
   TTestComplianceAdmit = class(TCompliancePolicyTestCase)
@@ -202,10 +213,10 @@ type
     function Rsa2048Credential: TTlsCredential;
     function AcceptAll(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
-    // early data needs resumption and a cache to build, so the violation is the only fault
+    // early data needs resumption and a policy-scoped cache, so the violation is the only fault
     function EarlyDataClientBuilder(const APolicy: ICompliancePolicy;
       const AVerification: IServerVerificationBuilder): ITlsClientConfigBuilder;
-    // a server config holding AResolver exactly as given, the policy's wrapper not applied
+    // AResolver as given, unwrapped, on a server with no resumption state: the only fault
     function RawResolverConfig(const APolicy: ICompliancePolicy;
       const AResolver: ITlsServerCredentialResolver): ITlsServerConfig;
     // a relaxed policy whose RSA key must be 3072 or 4096 bits
@@ -224,6 +235,12 @@ type
     // whether a strict policy refuses a client whose suites are the rules' with ASuite for its code
     function SuiteAdmit(const ASuite: TTlsCipherSuite;
       out AFindings: TArray<TComplianceFinding>): Boolean;
+    // AFindings name the CatalogSuite code as differing from its catalog record, and only that
+    procedure CheckDiffersFromCatalog(const AFindings: TArray<TComplianceFinding>);
+    // a relaxed Fips140_3 policy whose rules do not refuse Encrypted Client Hello
+    function EchAllowedPolicy: ICompliancePolicy;
+    // an ECH key store of one P-256 / AES-256-GCM entry the policy crypto can serve
+    function EchKeyStore(const APolicy: ICompliancePolicy): IEchServerKeyStore;
   published
     procedure TestBaselineClientAdmitsStrict;
     procedure TestBaselineServerAdmitsStrict;
@@ -255,6 +272,10 @@ type
     procedure TestEarlyDataClientRefused;
     procedure TestEarlyDataServerRefused;
     procedure TestEchGreaseRefused;
+    procedure TestKeyedEchServerWithoutNoEchIsUnattributed;
+    procedure TestKeyedEchServerUnattributedIsRefusedInRelaxed;
+    procedure TestBackendEchServerWithoutNoEchIsNotUnattributed;
+    procedure TestKeyedEchServerUnderNoEchIsEchConfiguredOnly;
     procedure TestExternalPskRefused;
     procedure TestTls12PskRefused;
     procedure TestKeyLogRefused;
@@ -280,8 +301,9 @@ type
     procedure TestRequiredPskClientIgnoresCustomVerifier;
     procedure TestSystemVerifierSourceAdmitted;
     procedure TestStapleRequestedRefused;
+    procedure TestStapleRequestedByRequiredPskClientIsNotAFinding;
     procedure TestMtlsServerWebPkiClientVerifierRefused;
-    procedure TestMtlsServerFakeSystemSourceAdmits;
+    procedure TestMtlsServerOsVerifierSourceAdmits;
     procedure TestMtlsServerInstanceVerifierIsCustom;
     procedure TestMtlsServerInstanceVerifierRefusedInRelaxed;
     procedure TestMtlsServerBuiltInVerifierIsPlatformOnlyInRelaxed;
@@ -331,7 +353,7 @@ type
     procedure TestEvaluateCredentialOfAGoodCredentialHasNoFinding;
     procedure TestTicketAeadNotAllowedWhenServerSealsWithoutAes256;
     procedure TestExplicitTicketKeysUnderAes128AreRefused;
-    procedure TestStoreWithDefaultTicketKeysUnderAes128IsRefused;
+    procedure TestStoreWithDefaultTicketKeysUnderAes128IsNotRefused;
     procedure TestStoreOnlyServerGetsNoTicketFinding;
     procedure TestClientGetsNoTicketFinding;
     procedure TestFleetTicketKeysDisclosed;
@@ -377,6 +399,15 @@ type
     function ClientWithCache(const APolicy: ICompliancePolicy): ITlsClientConfigBuilder;
     function NewStore(const APolicy: ICompliancePolicy): ISessionStore;
     function HasPrefixOf(const AScope: TBytes; const APolicy: ICompliancePolicy): Boolean;
+    // the scope a host gives every server of a fleet: no policy prefix, so only equality admits it
+    function FleetScope: TBytes;
+    function NewFleet: IFleetTicketKeyManager;
+    function Filled(AByte: Byte; ACount: Int32): TBytes;
+    // a facade server holding AFleet behind the policy wrapper and AScope as its resumption scope
+    function FleetServerBuilder(const APolicy: ICompliancePolicy;
+      const AFleet: IFleetTicketKeyManager; const AScope: TBytes): ITlsServerConfigBuilder;
+    // a strict policy over a base whose random generator yields only AByte
+    function PolicyOverFilledRandom(AByte: Byte): ICompliancePolicy;
   published
     procedure TestSessionScopeIs32BytesWithThePolicyPrefix;
     procedure TestSessionScopePrefixIsStableForOnePolicy;
@@ -394,7 +425,6 @@ type
     procedure TestFacadeServerIsAdmitted;
     procedure TestFacadeServerKeysRotateOnTheTicketLifetime;
     procedure TestFacadeServerWithoutAes256HoldsNoTicketState;
-    procedure TestFacadeServerResumptionCanBeSwitchedOff;
     procedure TestMtlsFacadeServerIsAdmitted;
     procedure TestServerStoreWithPolicyScopeIsAdmitted;
     procedure TestServerStoreWithForeignScopeIsUnchecked;
@@ -409,17 +439,32 @@ type
     procedure TestTicketKeysLifetimeMismatchIsDisclosed;
     procedure TestTicketKeysLifetimeMatchIsNotDisclosed;
     procedure TestFleetKeysWithoutWrapperAreUnchecked;
-    procedure TestCheckedFleetKeysAreAdmitted;
+    procedure TestCheckedFleetKeysWithTheFleetScopeAreAdmitted;
+    procedure TestCheckedFleetKeysWithAnotherScopeAreUnchecked;
+    procedure TestCheckedFleetKeysWithAPolicyScopeAreUnchecked;
+    procedure TestCheckedFleetOfAnotherPolicyIsUnchecked;
     procedure TestCheckedFleetKeysAreDisclosed;
-    procedure TestTicketKeysForwardTheirKeys;
+    procedure TestCheckedFleetScopeIsDisclosed;
+    procedure TestKeysBesideAStoreAreNotChecked;
+    procedure TestFleetBesideAStoreIsNotDisclosed;
+    procedure TestTicketKeysAreMintedFromThePolicyRandom;
     procedure TestTicketKeysRotateForwards;
     procedure TestCheckedFleetInstallKeyForwards;
     procedure TestTicketKeysRejectNilClock;
+    procedure TestTicketKeysRejectZeroLifetime;
+    procedure TestTicketKeysRefusedWithoutAes256;
     procedure TestCheckedTicketKeysRejectNilFleet;
+    procedure TestCheckedTicketKeysRejectEmptyScope;
+    procedure TestCheckedTicketKeysAcceptTheLongestScope;
+    procedure TestCheckedTicketKeysRejectAScopeOneByteTooLong;
     procedure TestTicketKeysWrapperRejectsNilPolicy;
-    procedure TestTicketKeysWrapperRejectsNilInner;
+    procedure TestTicketKeysWrapperRejectsNilClock;
+    procedure TestTicketKeysWrapperRejectsZeroLifetime;
     procedure TestFleetWrapperRejectsNilPolicy;
     procedure TestFleetWrapperRejectsNilInner;
+    procedure TestWithoutResumptionTurnsResumptionOff;
+    procedure TestWithResumptionFalseAloneStillRaises;
+    procedure TestWithoutResumptionRejectsNilBuilder;
   end;
 
   TTestComplianceRoots = class(TCompliancePolicyTestCase)
@@ -501,6 +546,8 @@ type
     procedure TestLiveClientKeepsStrengthFloors;
     procedure TestLiveClientCarriesTheHostRootsAlone;
     procedure TestLiveClientCarriesNoHostRootsForOsRoots;
+    procedure TestHostKeyListingTheMarkerIsOutsideTheModule;
+    procedure TestOsImportedKeyIsInsideTheModule;
   end;
 {$ENDIF TLSLIB_MSWINDOWS}
 
@@ -552,6 +599,7 @@ type
     function KeyNameLength: Int32;
     function Policy: ICompliancePolicy;
     function LifetimeSeconds: UInt32;
+    function FleetScope: TBytes;
   end;
 
   // a host class that lists the checked-resolver marker and names a policy, without checking
@@ -646,6 +694,11 @@ end;
 function TClaimingTicketKeys.LifetimeSeconds: UInt32;
 begin
   Result := 7200;
+end;
+
+function TClaimingTicketKeys.FleetScope: TBytes;
+begin
+  Result := nil;
 end;
 
 { TClaimingResolver }
@@ -960,6 +1013,52 @@ procedure TTestCompliancePolicy.TestNotValidatedModuleVersionIsNotDisclosed;
 begin
   CheckFalse(DisclosesRevision(TModuleStatus.NotValidated, '10.0.20348.2000',
     '10.0.20348.30000'), 'the finding says it; a disclosure would be noise');
+end;
+
+procedure TTestCompliancePolicy.TestCnsa1DisclosesTheInternalSha256;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := NewPolicy(TCompliancePresets.Cnsa1, SystemBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict);
+  CheckTrue(Disclosed(LPolicy.PlatformReport, 'SHA-256 runs in the module'),
+    'the rules hold SHA-384 only, so the engine''s own SHA-256 is stated');
+  CheckTrue(Disclosed(LPolicy.PlatformReport, 'HelloRetryRequest cookie'), 'with its uses');
+end;
+
+procedure TTestCompliancePolicy.TestFips140_3DoesNotDiscloseTheInternalSha256;
+begin
+  CheckFalse(Disclosed(StrictPolicy.PlatformReport, 'SHA-256 runs in the module'),
+    'the rules already hold SHA-256');
+end;
+
+procedure TTestCompliancePolicy.TestStrictCnsa1Sha256OutsideTheModuleRaises;
+var
+  LReport: TFakeBackendReport;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LReport.PortableHashes := [THashAlgorithm.SHA_256];
+  CheckTrue(Construct(TCompliancePresets.Cnsa1, TComplianceFakes.FakeSystemBase(
+    LReport as ICryptoBackendReport, nil, nil), TModuleStatus.Validated,
+    TComplianceEnforcement.Strict, LFindings),
+    'the rules never name SHA-256, but the engine uses it');
+  CheckEquals('hash SHA_256', FindingOfKind(LFindings,
+    TComplianceFindingKind.AlgorithmOutsideModule).Subject, 'which one');
+end;
+
+procedure TTestCompliancePolicy.TestStrictCnsa1Sha256HmacOutsideTheModuleRaises;
+var
+  LReport: TFakeBackendReport;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LReport.PortableHmacs := [THashAlgorithm.SHA_256];
+  CheckTrue(Construct(TCompliancePresets.Cnsa1, TComplianceFakes.FakeSystemBase(
+    LReport as ICryptoBackendReport, nil, nil), TModuleStatus.Validated,
+    TComplianceEnforcement.Strict, LFindings), 'the cookie MAC is an HMAC');
+  CheckEquals('HMAC SHA_256', FindingOfKind(LFindings,
+    TComplianceFindingKind.AlgorithmOutsideModule).Subject, 'which one');
 end;
 
 procedure TTestCompliancePolicy.TestStrictFakeValidatedSystemConstructs;
@@ -1497,7 +1596,7 @@ function TTestComplianceAdmit.EarlyDataClientBuilder(const APolicy: IComplianceP
   const AVerification: IServerVerificationBuilder): ITlsClientConfigBuilder;
 begin
   Result := TComplianceTls.Client(APolicy, AVerification).WithSessionCache(
-    TInMemorySessionCache.Create as ISessionCache);
+    TInMemorySessionCache.Create as ISessionCache).WithResumptionScope(APolicy.SessionScope);
   Result.Tls13.WithEarlyData(True);
 end;
 
@@ -1510,7 +1609,7 @@ end;
 function TTestComplianceAdmit.RawResolverConfig(const APolicy: ICompliancePolicy;
   const AResolver: ITlsServerCredentialResolver): ITlsServerConfig;
 begin
-  Result := RawServer(APolicy).WithCredentialResolver(AResolver).Build;
+  Result := RawServer(APolicy).WithResumption(False).WithCredentialResolver(AResolver).Build;
 end;
 
 function TTestComplianceAdmit.LargeRsaPolicy: ICompliancePolicy;
@@ -1685,8 +1784,7 @@ begin
   LRules.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1);
   LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
     TComplianceEnforcement.Strict);
-  // the registry is the policy's own, so only the preference list can name a group outside
-  // the rules
+  // the registry is the policy's own, so only the preference list can name an outside group
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithNamedGroups(LPolicy.NamedGroups)
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.Secp384r1)).Build, LFindings), 'refused');
@@ -1717,8 +1815,8 @@ begin
     end;
   end;
   CheckTrue(LRaised, 'BuildClient refuses');
-  CheckEquals(6, CountOfKind(LFindings, TComplianceFindingKind.ForeignNamedGroup),
-    'each of the 3 groups is found listed and preferred');
+  CheckEquals(3, CountOfKind(LFindings, TComplianceFindingKind.ForeignNamedGroup),
+    'each of the 3 groups is found once, though it is listed and preferred');
   CheckFalse(HasKind(LFindings, TComplianceFindingKind.NamedGroupNotAllowed),
     'every code is allowed');
 end;
@@ -1731,8 +1829,8 @@ begin
   LPolicy := StrictPolicy;
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithNamedGroups(
     OwnCryptoGroups(LPolicy)).Build, LFindings), 'refused');
-  CheckEquals(6, CountOfKind(LFindings, TComplianceFindingKind.ForeignNamedGroup),
-    'the identity is the objects, not the provider');
+  CheckEquals(3, CountOfKind(LFindings, TComplianceFindingKind.ForeignNamedGroup),
+    'the identity is the objects, not the provider, and each group is found once');
 end;
 
 procedure TTestComplianceAdmit.TestListedForeignGroupBesideThePolicysRefused;
@@ -1831,6 +1929,19 @@ begin
     AFindings);
 end;
 
+procedure TTestComplianceAdmit.CheckDiffersFromCatalog(
+  const AFindings: TArray<TComplianceFinding>);
+var
+  LFinding: TComplianceFinding;
+begin
+  LFinding := FindingOfKind(AFindings, TComplianceFindingKind.CipherSuiteDiffersFromCatalog);
+  CheckEquals(TCipherSuiteCatalog.Name(CatalogSuite.Common.Code), LFinding.Subject,
+    'names the suite');
+  CheckTrue(Pos('catalog', LFinding.Message) > 0, 'says it differs from the catalog');
+  CheckFalse(HasKind(AFindings, TComplianceFindingKind.CipherSuiteNotAllowed),
+    'the code itself is allowed');
+end;
+
 procedure TTestComplianceAdmit.TestCatalogSuiteRecordAdmitted;
 var
   LFindings: TArray<TComplianceFinding>;
@@ -1846,7 +1957,7 @@ begin
   LSuite := CatalogSuite;
   LSuite.Common.Hash := THashAlgorithm.SHA_256;
   CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CipherSuiteNotAllowed), 'names the suite');
+  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestSuiteWithAlteredPrfRefused;
@@ -1857,7 +1968,7 @@ begin
   LSuite := CatalogSuite;
   LSuite.Prf := THashAlgorithm.SHA_256;
   CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CipherSuiteNotAllowed), 'names the suite');
+  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestSuiteWithAlteredKeyLengthRefused;
@@ -1868,7 +1979,7 @@ begin
   LSuite := CatalogSuite;
   LSuite.Common.KeyLength := 16;
   CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CipherSuiteNotAllowed), 'names the suite');
+  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestSuiteWithAlteredAeadRefused;
@@ -1879,7 +1990,7 @@ begin
   LSuite := CatalogSuite;
   LSuite.Common.Aead := TAeadAlgorithm.AES_128_GCM;
   CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CipherSuiteNotAllowed), 'names the suite');
+  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestSuiteWithAlteredProtocolRefused;
@@ -1890,7 +2001,7 @@ begin
   LSuite := CatalogSuite;
   LSuite.Protocol := TSuiteProtocol.Tls13;
   CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CipherSuiteNotAllowed), 'names the suite');
+  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestSuiteWithAlteredKeyExchangeRefused;
@@ -1901,7 +2012,7 @@ begin
   LSuite := CatalogSuite;
   LSuite.KeyExchange := TKeyExchangeMethod.Decoupled;
   CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CipherSuiteNotAllowed), 'names the suite');
+  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestSuiteWithAlteredAuthRefused;
@@ -1912,7 +2023,7 @@ begin
   LSuite := CatalogSuite;
   LSuite.Auth := TAuthMethod.Rsa;
   CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CipherSuiteNotAllowed), 'names the suite');
+  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestRelaxedRefusesForeignGroup;
@@ -1937,8 +2048,8 @@ begin
   LPolicy := StrictPolicy;
   CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithNamedGroups(
     OwnCryptoGroups(LPolicy)).Build, LFindings), 'refused');
-  CheckEquals(6, CountOfKind(LFindings, TComplianceFindingKind.ForeignNamedGroup),
-    'each of the 3 groups is found listed and preferred');
+  CheckEquals(3, CountOfKind(LFindings, TComplianceFindingKind.ForeignNamedGroup),
+    'each of the 3 groups is found once, though it is listed and preferred');
 end;
 
 procedure TTestComplianceAdmit.TestPreferredGroupResolvedToForeignObjectRefused;
@@ -2016,6 +2127,74 @@ begin
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).Tls13.WithEch(TEchClientModes.Grease)
     .Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.EchConfigured), 'GREASE ECH counts');
+end;
+
+function TTestComplianceAdmit.EchAllowedPolicy: ICompliancePolicy;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Requirements := LRules.Requirements - [TComplianceRequirement.NoEch];
+  Result := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Relaxed);
+end;
+
+function TTestComplianceAdmit.EchKeyStore(const APolicy: ICompliancePolicy): IEchServerKeyStore;
+var
+  LGen: TEchKeyGenResult;
+begin
+  LGen := TEchKeyGenerator.Generate(APolicy.Crypto, 'public.example', 'origin.example', $AA,
+    THpkeKem.DHKEM_P256_HKDF_SHA256, THpkeKdf.HKDF_SHA256, THpkeAead.AES_256_GCM, 0);
+  Result := TInMemoryEchKeyStore.FromPem(LGen.Pem, APolicy.Crypto);
+end;
+
+procedure TTestComplianceAdmit.TestKeyedEchServerWithoutNoEchIsUnattributed;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := EchAllowedPolicy;
+  LReport := LPolicy.Evaluate(ServerBuilder(LPolicy).Tls13.WithEchKeyStore(
+    EchKeyStore(LPolicy)).Build);
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.EchKeysUnattributed),
+    'the ECH keys of the host are not inspected');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.EchConfigured),
+    'the rules allow ECH');
+end;
+
+procedure TTestComplianceAdmit.TestKeyedEchServerUnattributedIsRefusedInRelaxed;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := EchAllowedPolicy;
+  CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).Tls13.WithEchKeyStore(
+    EchKeyStore(LPolicy)).Build, LFindings), 'a configuration finding is never relaxed');
+  CheckEquals(Ord(TComplianceFindingCategory.Configuration), Ord(FindingOfKind(LFindings,
+    TComplianceFindingKind.EchKeysUnattributed).Category), 'which');
+end;
+
+procedure TTestComplianceAdmit.TestBackendEchServerWithoutNoEchIsNotUnattributed;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := EchAllowedPolicy;
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).Tls13.WithEchBackend.Build),
+    TComplianceFindingKind.EchKeysUnattributed), 'a split-mode backend holds no ECH keys');
+end;
+
+procedure TTestComplianceAdmit.TestKeyedEchServerUnderNoEchIsEchConfiguredOnly;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LReport := LPolicy.Evaluate(ServerBuilder(LPolicy).Tls13.WithEchKeyStore(
+    EchKeyStore(LPolicy)).Build);
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.EchConfigured),
+    'the presets refuse ECH outright');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.EchKeysUnattributed),
+    'so the keys need no separate finding');
 end;
 
 procedure TTestComplianceAdmit.TestExternalPskRefused;
@@ -2328,7 +2507,7 @@ begin
   LPolicy := StrictPolicy;
   LReport := LPolicy.Evaluate(ClientBuilder(LPolicy).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
-    'an OS-marked source is in the module');
+    'the library OS verifier source, judged by its class, is in the module');
 end;
 
 procedure TTestComplianceAdmit.TestStapleRequestedRefused;
@@ -2341,6 +2520,20 @@ begin
     LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.StapleVerifiedOutsideModule),
     'names the staple');
+end;
+
+procedure TTestComplianceAdmit.TestStapleRequestedByRequiredPskClientIsNotAFinding;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls13));
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(ClientBuilder(LPolicy).WithOcspStaplingRequest(True)
+    .Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(Psk)).Build),
+    TComplianceFindingKind.StapleVerifiedOutsideModule),
+    'a client that verifies no chain checks no staple');
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ClientBuilder(LPolicy).WithOcspStaplingRequest(True)
+    .Build), TComplianceFindingKind.StapleVerifiedOutsideModule),
+    'control: the same request without the PSK is found');
 end;
 
 procedure TTestComplianceAdmit.TestMtlsServerWebPkiClientVerifierRefused;
@@ -2356,7 +2549,7 @@ begin
     'the client chain check is portable');
 end;
 
-procedure TTestComplianceAdmit.TestMtlsServerFakeSystemSourceAdmits;
+procedure TTestComplianceAdmit.TestMtlsServerOsVerifierSourceAdmits;
 var
   LPolicy: ICompliancePolicy;
   LFindings: TArray<TComplianceFinding>;
@@ -2578,13 +2771,17 @@ end;
 procedure TTestComplianceAdmit.TestCheckedWrapperOverHostListedResolverIsNotUnchecked;
 var
   LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
 begin
   LPolicy := StrictPolicy;
-  CheckFalse(ReportHasKind(LPolicy.Evaluate(RawResolverConfig(LPolicy,
+  LReport := LPolicy.Evaluate(RawResolverConfig(LPolicy,
     LPolicy.CheckedCredentialResolver(TListedCredentialResolver.Create(
-    TArray<TTlsCredential>.Create(Credential(LPolicy.Crypto))) as ITlsServerCredentialResolver))),
-    TComplianceFindingKind.CredentialResolverUnchecked),
+    TArray<TTlsCredential>.Create(Credential(LPolicy.Crypto), Ed25519Credential))
+    as ITlsServerCredentialResolver)));
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialResolverUnchecked),
     'the handshake-time check of the policy wrapper is the enforcement');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
+    'and the entries of a host list behind it are not read at build');
 end;
 
 procedure TTestComplianceAdmit.TestDefaultSharedWithAnSniEntryIsReportedOnce;
@@ -3028,7 +3225,7 @@ begin
     TComplianceFindingKind.TicketAeadNotAllowed), 'keys the host supplies seal with AES-256 too');
 end;
 
-procedure TTestComplianceAdmit.TestStoreWithDefaultTicketKeysUnderAes128IsRefused;
+procedure TTestComplianceAdmit.TestStoreWithDefaultTicketKeysUnderAes128IsNotRefused;
 var
   LPolicy: ICompliancePolicy;
   LBuilder: ITlsServerConfigBuilder;
@@ -3037,9 +3234,9 @@ begin
   LBuilder := ServerBuilder(LPolicy).WithResumption(True).WithSessionStore(
     TInMemorySessionStore.Create(LPolicy.Crypto.Primitives.GetRandom) as ISessionStore)
     .WithDefaultSessionTicketKeys;
-  CheckTrue(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
     TComplianceFindingKind.TicketAeadNotAllowed),
-    'a store beside the default ticket keys still seals tickets');
+    'the engine seals with the store alone, so the keys beside it are idle');
 end;
 
 procedure TTestComplianceAdmit.TestStoreOnlyServerGetsNoTicketFinding;
@@ -3541,6 +3738,41 @@ begin
     AreEqual(System.Copy(AScope, 0, 16), System.Copy(APolicy.SessionScope, 0, 16));
 end;
 
+function TTestComplianceResumption.FleetScope: TBytes;
+begin
+  Result := Crypto.Primitives.GetRandom.GenerateBytes(32);
+end;
+
+function TTestComplianceResumption.NewFleet: IFleetTicketKeyManager;
+begin
+  Result := TFleetTicketKeyManager.Create as IFleetTicketKeyManager;
+end;
+
+function TTestComplianceResumption.Filled(AByte: Byte; ACount: Int32): TBytes;
+begin
+  Result := nil;
+  System.SetLength(Result, ACount);
+  FillChar(Result[0], ACount, AByte);
+end;
+
+function TTestComplianceResumption.FleetServerBuilder(const APolicy: ICompliancePolicy;
+  const AFleet: IFleetTicketKeyManager; const AScope: TBytes): ITlsServerConfigBuilder;
+begin
+  Result := ServerBuilder(APolicy).WithResumptionScope(AScope).WithSessionTicketKeys(
+    APolicy.CheckedTicketKeys(AFleet, AScope));
+end;
+
+function TTestComplianceResumption.PolicyOverFilledRandom(AByte: Byte): ICompliancePolicy;
+var
+  LBase: ICryptoProvider;
+begin
+  LBase := TOverlayCryptoProvider.Create(TMockCryptoProvider.Create(
+    TFilledRandom.Create(AByte) as IRandom) as ICryptoProvider, nil, nil,
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil);
+  Result := NewPolicy(TCompliancePresets.Fips140_3, LBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict);
+end;
+
 procedure TTestComplianceResumption.TestSessionScopeIs32BytesWithThePolicyPrefix;
 var
   LPolicy: ICompliancePolicy;
@@ -3549,6 +3781,7 @@ begin
   LPolicy := StrictPolicy;
   LScope := LPolicy.SessionScope;
   CheckEquals(32, System.Length(LScope), 'the prefix and 16 random bytes');
+  CheckTrue(HasPrefixOf(LScope, LPolicy), 'it starts with the prefix of every scope of the policy');
 end;
 
 procedure TTestComplianceResumption.TestSessionScopePrefixIsStableForOnePolicy;
@@ -3701,18 +3934,50 @@ begin
   CheckEquals(0, System.Length(LConfig.ResumptionScope), 'no scope');
 end;
 
-procedure TTestComplianceResumption.TestFacadeServerResumptionCanBeSwitchedOff;
+procedure TTestComplianceResumption.TestWithoutResumptionTurnsResumptionOff;
 var
   LPolicy: ICompliancePolicy;
   LConfig: ITlsServerConfig;
   LFindings: TArray<TComplianceFinding>;
 begin
-  // a guard for the documented recipe: the builder refuses ticket settings with resumption off
   LPolicy := StrictPolicy;
-  LConfig := ServerBuilder(LPolicy).WithResumption(False).WithSessionTicketKeys(nil)
-    .WithResumptionScope(nil).Build;
+  LConfig := TComplianceTls.WithoutResumption(ServerBuilder(LPolicy)).Build;
   CheckFalse(LConfig.Resumption, 'resumption is off');
+  CheckTrue(LConfig.SessionTicketKeys = nil, 'the facade ticket keys are cleared');
+  CheckEquals(0, System.Length(LConfig.ResumptionScope), 'and so is the scope');
   CheckFalse(ServerAdmit(LPolicy, LConfig, LFindings), 'and the config is admitted');
+  CheckEquals(0, System.Length(LFindings), 'with no finding');
+end;
+
+procedure TTestComplianceResumption.TestWithResumptionFalseAloneStillRaises;
+var
+  LRaised: Boolean;
+begin
+  // the builder refuses ticket settings while resumption is off, and the facade set both
+  LRaised := False;
+  try
+    ServerBuilder(StrictPolicy).WithResumption(False).Build;
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the facade ticket keys and scope remain');
+end;
+
+procedure TTestComplianceResumption.TestWithoutResumptionRejectsNilBuilder;
+var
+  LRaised: Boolean;
+  LNone: ITlsServerConfigBuilder;
+begin
+  LRaised := False;
+  LNone := nil;
+  try
+    TComplianceTls.WithoutResumption(LNone);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil builder');
 end;
 
 procedure TTestComplianceResumption.TestMtlsFacadeServerIsAdmitted;
@@ -3859,48 +4124,125 @@ begin
     TComplianceFindingKind.TicketKeysUnchecked), 'a fleet the policy never checked');
 end;
 
-procedure TTestComplianceResumption.TestCheckedFleetKeysAreAdmitted;
+procedure TTestComplianceResumption.TestCheckedFleetKeysWithTheFleetScopeAreAdmitted;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  CheckFalse(ServerAdmit(LPolicy, FleetServerBuilder(LPolicy, NewFleet, FleetScope).Build,
+    LFindings), 'a fleet behind the policy wrapper, under the scope the host gave it');
+  CheckEquals(0, System.Length(LFindings), 'with no finding');
+end;
+
+procedure TTestComplianceResumption.TestCheckedFleetKeysWithAnotherScopeAreUnchecked;
 var
   LPolicy: ICompliancePolicy;
 begin
   LPolicy := StrictPolicy;
-  CheckFalse(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(
-    LPolicy.CheckedTicketKeys(TFleetTicketKeyManager.Create as IFleetTicketKeyManager)).Build),
-    TComplianceFindingKind.TicketKeysUnchecked), 'a fleet behind the policy wrapper');
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).WithResumptionScope(FleetScope)
+    .WithSessionTicketKeys(LPolicy.CheckedTicketKeys(NewFleet, FleetScope)).Build),
+    TComplianceFindingKind.ResumptionStateUnchecked), 'a scope other than the fleet scope');
+end;
+
+procedure TTestComplianceResumption.TestCheckedFleetKeysWithAPolicyScopeAreUnchecked;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(
+    LPolicy.CheckedTicketKeys(NewFleet, FleetScope)).Build),
+    TComplianceFindingKind.ResumptionStateUnchecked),
+    'the policy prefix does not stand for the fleet scope');
+end;
+
+procedure TTestComplianceResumption.TestCheckedFleetOfAnotherPolicyIsUnchecked;
+var
+  LPolicy, LOther: ICompliancePolicy;
+  LScope: TBytes;
+begin
+  LPolicy := StrictPolicy;
+  LOther := StrictPolicy;
+  LScope := FleetScope;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).WithResumptionScope(LScope)
+    .WithSessionTicketKeys(LOther.CheckedTicketKeys(NewFleet, LScope)).Build),
+    TComplianceFindingKind.TicketKeysUnchecked), 'a fleet another policy wrapped');
 end;
 
 procedure TTestComplianceResumption.TestCheckedFleetKeysAreDisclosed;
 var
   LPolicy: ICompliancePolicy;
+  LScope: TBytes;
 begin
   LPolicy := StrictPolicy;
-  CheckTrue(Disclosed(LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(
-    LPolicy.CheckedTicketKeys(TFleetTicketKeyManager.Create as IFleetTicketKeyManager)).Build),
-    'entered by the host'), 'the host still chose the keys');
+  LScope := FleetScope;
+  CheckTrue(Disclosed(LPolicy.Evaluate(FleetServerBuilder(LPolicy, NewFleet, LScope).Build),
+    'keys are entered by the host'), 'the host still chose the keys');
 end;
 
-procedure TTestComplianceResumption.TestTicketKeysForwardTheirKeys;
+procedure TTestComplianceResumption.TestCheckedFleetScopeIsDisclosed;
+var
+  LPolicy: ICompliancePolicy;
+  LScope: TBytes;
+begin
+  LPolicy := StrictPolicy;
+  LScope := FleetScope;
+  CheckTrue(Disclosed(LPolicy.Evaluate(FleetServerBuilder(LPolicy, NewFleet, LScope).Build),
+    'the fleet scope is entered by the host'), 'and so did the scope');
+  CheckFalse(Disclosed(LPolicy.Evaluate(ServerBuilder(LPolicy).Build), 'fleet scope'),
+    'control: the policy keys disclose no scope');
+end;
+
+procedure TTestComplianceResumption.TestKeysBesideAStoreAreNotChecked;
+var
+  LPolicy: ICompliancePolicy;
+  LHostKeys: ISessionTicketKeyManager;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LHostKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager;
+  LReport := LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(LHostKeys)
+    .WithSessionStore(NewStore(LPolicy)).Build);
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.TicketKeysUnchecked),
+    'the engine seals with the store alone, so the keys beside it are idle');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ResumptionStateUnchecked),
+    'and the store runs under the policy scope');
+end;
+
+procedure TTestComplianceResumption.TestFleetBesideAStoreIsNotDisclosed;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckFalse(Disclosed(LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(NewFleet)
+    .WithSessionStore(NewStore(LPolicy)).Build), 'entered by the host'),
+    'keys the engine never uses are not the host''s choice');
+end;
+
+procedure TTestComplianceResumption.TestTicketKeysAreMintedFromThePolicyRandom;
 var
   LKeys: ISessionTicketKeyManager;
   LName: TBytes;
   LKey, LFound: ISecretBuffer;
 begin
-  LKeys := StrictPolicy.TicketKeys(TSystemClock.Create as ITlsClock, 7200);
+  LKeys := PolicyOverFilledRandom($5A).TicketKeys(TSystemClock.Create as ITlsClock, 7200);
   CheckTrue(LKeys.CurrentKey(LName, LKey), 'a current key');
-  CheckEquals(16, System.Length(LName), 'its name');
+  CheckEqualBytes('its name comes from the policy random', Filled($5A, 16), LName);
+  CheckEqualBytes('and so does the key', Filled($5A, 32), LKey.ToBytes);
   CheckEquals(16, LKeys.KeyNameLength, 'the name length');
   CheckTrue(LKeys.KeyByName(LName, LFound), 'found by name');
 end;
 
 procedure TTestComplianceResumption.TestTicketKeysRotateForwards;
 var
-  LKeys: ISessionTicketKeyManager;
+  LKeys: IRotatingTicketKeyManager;
   LBefore, LAfter: TBytes;
   LKey: ISecretBuffer;
 begin
   LKeys := StrictPolicy.TicketKeys(TSystemClock.Create as ITlsClock, 7200);
   LKeys.CurrentKey(LBefore, LKey);
-  (LKeys as IRotatingTicketKeyManager).Rotate;
+  LKeys.Rotate;
   LKeys.CurrentKey(LAfter, LKey);
   CheckFalse(AreEqual(LBefore, LAfter), 'a fresh current key');
 end;
@@ -3913,9 +4255,9 @@ var
   LKey: ISecretBuffer;
 begin
   LPolicy := StrictPolicy;
-  LFleet := TFleetTicketKeyManager.Create as IFleetTicketKeyManager;
+  LFleet := NewFleet;
   LName := Crypto.Primitives.GetRandom.GenerateBytes(16);
-  (LPolicy.CheckedTicketKeys(LFleet) as IFleetTicketKeyManager).InstallKey(LName,
+  (LPolicy.CheckedTicketKeys(LFleet, FleetScope) as IFleetTicketKeyManager).InstallKey(LName,
     TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32)));
   CheckTrue(LFleet.CurrentKey(LCurrent, LKey), 'the fleet holds the key');
   CheckTrue(AreEqual(LName, LCurrent), 'under the installed name');
@@ -3935,13 +4277,41 @@ begin
   CheckTrue(LRaised, 'nil clock');
 end;
 
+procedure TTestComplianceResumption.TestTicketKeysRejectZeroLifetime;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    StrictPolicy.TicketKeys(TSystemClock.Create as ITlsClock, 0);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a zero lifetime would rotate on a fallback the keys do not record');
+end;
+
+procedure TTestComplianceResumption.TestTicketKeysRefusedWithoutAes256;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    Aes128Policy.TicketKeys(TSystemClock.Create as ITlsClock, 7200);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the keys seal with AES-256-GCM');
+end;
+
 procedure TTestComplianceResumption.TestCheckedTicketKeysRejectNilFleet;
 var
   LRaised: Boolean;
 begin
   LRaised := False;
   try
-    StrictPolicy.CheckedTicketKeys(nil);
+    StrictPolicy.CheckedTicketKeys(nil, FleetScope);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -3949,16 +4319,47 @@ begin
   CheckTrue(LRaised, 'nil fleet');
 end;
 
+procedure TTestComplianceResumption.TestCheckedTicketKeysRejectEmptyScope;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    StrictPolicy.CheckedTicketKeys(NewFleet, nil);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty scope partitions nothing');
+end;
+
+procedure TTestComplianceResumption.TestCheckedTicketKeysAcceptTheLongestScope;
+begin
+  CheckTrue(StrictPolicy.CheckedTicketKeys(NewFleet, Filled($01, 32)) <> nil,
+    'the builder accepts 32 bytes');
+end;
+
+procedure TTestComplianceResumption.TestCheckedTicketKeysRejectAScopeOneByteTooLong;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    StrictPolicy.CheckedTicketKeys(NewFleet, Filled($01, 33));
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the builder would refuse 33 bytes');
+end;
+
 procedure TTestComplianceResumption.TestTicketKeysWrapperRejectsNilPolicy;
 var
   LRaised: Boolean;
-  LInner: IRotatingTicketKeyManager;
 begin
-  LInner := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
-    as IRotatingTicketKeyManager;
   LRaised := False;
   try
-    TComplianceTicketKeys.Create(nil, LInner, 7200);
+    TComplianceTicketKeys.Create(nil, TSystemClock.Create as ITlsClock, 7200);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -3966,18 +4367,34 @@ begin
   CheckTrue(LRaised, 'nil policy');
 end;
 
-procedure TTestComplianceResumption.TestTicketKeysWrapperRejectsNilInner;
+procedure TTestComplianceResumption.TestTicketKeysWrapperRejectsNilClock;
+var
+  LRaised: Boolean;
+  LNone: ITlsClock;
+begin
+  LRaised := False;
+  LNone := nil;
+  try
+    TComplianceTicketKeys.Create(StrictPolicy, LNone, 7200);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil clock');
+end;
+
+procedure TTestComplianceResumption.TestTicketKeysWrapperRejectsZeroLifetime;
 var
   LRaised: Boolean;
 begin
   LRaised := False;
   try
-    TComplianceTicketKeys.Create(StrictPolicy, nil, 7200);
+    TComplianceTicketKeys.Create(StrictPolicy, TSystemClock.Create as ITlsClock, 0);
   except
     on EArgumentTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'nil inner keys');
+  CheckTrue(LRaised, 'zero lifetime');
 end;
 
 procedure TTestComplianceResumption.TestFleetWrapperRejectsNilPolicy;
@@ -3986,7 +4403,7 @@ var
 begin
   LRaised := False;
   try
-    TComplianceFleetTicketKeys.Create(nil, TFleetTicketKeyManager.Create as IFleetTicketKeyManager);
+    TComplianceFleetTicketKeys.Create(nil, NewFleet, FleetScope);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -4000,7 +4417,7 @@ var
 begin
   LRaised := False;
   try
-    TComplianceFleetTicketKeys.Create(StrictPolicy, nil);
+    TComplianceFleetTicketKeys.Create(StrictPolicy, nil, FleetScope);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -4918,6 +5335,37 @@ begin
     'the live source is OS-marked');
   CheckEquals(0, System.Length(LSource.Anchors) + System.Length(LSource.ExtraAnchors),
     'no host root');
+end;
+
+procedure TTestWindowsCompliance.TestHostKeyListingTheMarkerIsOutsideTheModule;
+var
+  LOs: ICryptoProvider;
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+begin
+  LOs := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
+  LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, LOs, Pkix,
+    TOSModuleAttestation.Current, TComplianceEnforcement.Relaxed) as ICompliancePolicy;
+  LCredential := Credential(LOs);
+  LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256), LCredential.PrivateKey.PublicKeyInfo)
+    as ISigningKey;
+  CheckTrue(Supports(LCredential.PrivateKey, ISystemSigningKey), 'the host key lists the marker');
+  CheckTrue(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
+    TComplianceFindingKind.CredentialKeyOutsideModule),
+    'the real Windows report judges the class, not the marker');
+end;
+
+procedure TTestWindowsCompliance.TestOsImportedKeyIsInsideTheModule;
+var
+  LOs: ICryptoProvider;
+  LPolicy: ICompliancePolicy;
+begin
+  LOs := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
+  LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, LOs, Pkix,
+    TOSModuleAttestation.Current, TComplianceEnforcement.Relaxed) as ICompliancePolicy;
+  CheckFalse(ReportHasKind(LPolicy.EvaluateCredential(Credential(LOs)),
+    TComplianceFindingKind.CredentialKeyOutsideModule), 'a key the OS module imported');
 end;
 
 {$ENDIF TLSLIB_MSWINDOWS}

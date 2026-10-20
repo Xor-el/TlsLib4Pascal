@@ -1076,18 +1076,21 @@ A facade server carries the policy's resumption scope and ticket keys, so a stor
 key it shares with a config the policy never admitted does not resume across the two. A builder you
 assemble yourself needs the same, or `Admit` reports `ResumptionStateUnchecked` or
 `TicketKeysUnchecked`; a client cache needs the scope too, as the builder's own random scope cannot
-be told from one you chose. Keys you install yourself go behind `CheckedTicketKeys` and stay
-disclosed; they must come from the approved mode:
+be told from one you chose. Keys you install yourself go behind `CheckedTicketKeys` with a scope
+you choose for the fleet; they stay disclosed and must come from the approved mode. Every server
+that shares the fleet carries exactly that scope, so they resume across each other:
 
 ```pascal
 ServerBuilder.WithResumptionScope(Policy.SessionScope)
   .WithSessionTicketKeys(Policy.TicketKeys(TSystemClock.Create as ITlsClock, 7200));
-ServerBuilder.WithSessionTicketKeys(Policy.CheckedTicketKeys(MyFleet));
+ServerBuilder.WithResumptionScope(FleetScope)
+  .WithSessionTicketKeys(Policy.CheckedTicketKeys(MyFleet, FleetScope));
 ClientBuilder.WithSessionCache(Cache).WithResumptionScope(Policy.SessionScope);
 ```
 
-To turn resumption off on a facade server, also clear what it set:
-`WithResumption(False).WithSessionTicketKeys(nil).WithResumptionScope(nil)`.
+To turn resumption off on a facade server, use `TComplianceTls.WithoutResumption(ServerBuilder)`:
+it also clears the ticket keys and the scope the facade set, which a bare `WithResumption(False)`
+leaves in place and `Build` then refuses.
 
 ## The dangerous surface (dev only)
 

@@ -143,8 +143,12 @@ begin
   try
     FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   except
-    // a provider that cannot build the ticket AEAD, whatever it raises, issues no tickets
-    on E: Exception do
+    // memory exhaustion and hardware faults must surface; any other failure means no tickets
+    on EOutOfMemory do
+      raise;
+    on EExternal do
+      raise;
+    on Exception do
       FAeadAvailable := False;
   end;
 end;

@@ -378,6 +378,8 @@ type
     procedure TestFromClientConfigCarriesHostRoots;
     procedure TestFromClientConfigCarriesOsAndHostRoots;
     procedure TestFromClientConfigWithoutAnOsSourceTakesTheTrustStore;
+    // a host class that lists the marker is not the OS source, so its roots are not read
+    procedure TestFromClientConfigIgnoresAHostClassListingTheMarker;
     procedure TestFromServerConfigTakesTheClientCaStore;
     procedure TestLiveResolverAcceptsThePrivateChainUnderHostRoots;
     procedure TestLiveResolverRejectsAPublicRootedChainUnderHostRoots;
@@ -692,6 +694,22 @@ type
 implementation
 
 type
+  /// <summary>A host verifier source that lists the OS marker and carries one root, without being
+  /// the library's OS source; it builds no verifier.</summary>
+  THostMarkedSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
+    ISystemVerifierSource)
+  strict private
+  var
+    FAnchors: TArray<TBytes>;
+  public
+    constructor Create(const AAnchors: TArray<TBytes>);
+    function CreateServerVerifier(const AContext: TServerTrustContext)
+      : IServerCertificateVerifier;
+    function Anchors: TArray<TBytes>;
+    function ExtraAnchors: TArray<TBytes>;
+    function Distrusted: TArray<TBytes>;
+  end;
+
   /// <summary>A probe over the abstract root source that drives its shared FilterRoots helper
   /// directly, so the well-formed + de-dup filter both harvesters use is tested once.</summary>
   TFilterRootsProbe = class(TSystemRootSourceBase)
@@ -708,6 +726,35 @@ type
     /// <summary>What a Snapshot of this probe harvests.</summary>
     procedure Harvests(const ARoots, ADistrusted: TArray<TBytes>);
   end;
+
+{ THostMarkedSource }
+
+constructor THostMarkedSource.Create(const AAnchors: TArray<TBytes>);
+begin
+  inherited Create;
+  FAnchors := AAnchors;
+end;
+
+function THostMarkedSource.CreateServerVerifier(const AContext: TServerTrustContext)
+  : IServerCertificateVerifier;
+begin
+  Result := nil;
+end;
+
+function THostMarkedSource.Anchors: TArray<TBytes>;
+begin
+  Result := FAnchors;
+end;
+
+function THostMarkedSource.ExtraAnchors: TArray<TBytes>;
+begin
+  Result := nil;
+end;
+
+function THostMarkedSource.Distrusted: TArray<TBytes>;
+begin
+  Result := nil;
+end;
 
 { TTestDelegatePostChecks }
 
@@ -3513,6 +3560,15 @@ begin
   CheckEquals(1, System.Length(LPolicy.Anchors), 'the store roots are the exclusive root');
   CheckEquals(Ord(TSystemTrustFetch.Live), Ord(LPolicy.Fetch), 'the live pass fetches');
   CheckTrue(LPolicy.CheckHostName, 'the host name is matched as the config asks');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestFromClientConfigIgnoresAHostClassListingTheMarker;
+var
+  LPolicy: TOSDelegatePolicy;
+begin
+  LPolicy := TOSDelegatePolicy.FromClientConfig(ClientConfig(THostMarkedSource.Create(
+    PrivateRoot) as IServerCertificateVerifierSource));
+  CheckEquals(0, System.Length(LPolicy.Anchors), 'the roots of a host class are not the OS ones');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestFromServerConfigTakesTheClientCaStore;

@@ -38,6 +38,20 @@ type
   end;
 
   /// <summary>
+  /// An <see cref="IRandom" /> whose every byte is the same, so a test can tell bytes drawn from
+  /// it from bytes drawn from any other generator. Never for production use.
+  /// </summary>
+  TFilledRandom = class sealed(TInterfacedObject, IRandom)
+  strict private
+  var
+    FByte: Byte;
+  public
+    constructor Create(AByte: Byte);
+    procedure NextBytes(const ABuffer: TBytes);
+    function GenerateBytes(ALength: Int32): TBytes;
+  end;
+
+  /// <summary>
   /// A faulty <see cref="IRandom" /> that hands back one byte fewer than asked, to prove a
   /// consumer refuses a short read instead of using memory beyond it.
   /// </summary>
@@ -48,6 +62,27 @@ type
   end;
 
 implementation
+
+{ TFilledRandom }
+
+constructor TFilledRandom.Create(AByte: Byte);
+begin
+  inherited Create;
+  FByte := AByte;
+end;
+
+procedure TFilledRandom.NextBytes(const ABuffer: TBytes);
+begin
+  if System.Length(ABuffer) > 0 then
+    FillChar(ABuffer[0], System.Length(ABuffer), FByte);
+end;
+
+function TFilledRandom.GenerateBytes(ALength: Int32): TBytes;
+begin
+  Result := nil;
+  SetLength(Result, ALength);
+  NextBytes(Result);
+end;
 
 { TShortRandom }
 

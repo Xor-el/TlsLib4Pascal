@@ -914,7 +914,7 @@ type
   // PublicKeyInfo is exported from the signing handle. It shares the key-handle owner with any
   // preference-narrowed copy. The neutral marker is listed itself: Supports finds only the
   // interfaces a class names.
-  TWindowsSigningKey = class(TInterfacedObject, ISigningKey, IWindowsSigningKey,
+  TWindowsSigningKey = class sealed(TInterfacedObject, ISigningKey, IWindowsSigningKey,
     ISystemSigningKey)
   strict private
   var
@@ -946,7 +946,7 @@ type
   // Accumulates the to-be-verified bytes, then verifies (via crypt32-imported key + BCrypt).
   // Owns the imported public key handle, freed on release. Fail-closed: any fault is False.
   // The neutral marker is listed itself: Supports finds only the interfaces a class names.
-  TWindowsSignatureVerifier = class(TSignatureInputBase, ISignatureVerifier,
+  TWindowsSignatureVerifier = class sealed(TSignatureInputBase, ISignatureVerifier,
     ISystemSignatureVerifier)
   strict private
   var

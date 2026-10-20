@@ -189,7 +189,11 @@ OS verifier, and so must a server's client chain.
   over the policy's crypto provider. The facade already uses them; to change the set, start from
   `Policy.NamedGroups.ToBuilder` and prune.
 - **Cipher suites.** A suite must be the catalog definition of its code, so a hand-built record
-  that reuses an allowed code with another hash, AEAD or key length is `CipherSuiteNotAllowed`.
+  that reuses an allowed code with any other field is `CipherSuiteDiffersFromCatalog`; a code the
+  rules do not list is `CipherSuiteNotAllowed`.
+- **Encrypted Client Hello keys.** Rules that allow ECH do not cover the keys of a server that
+  holds them, which the policy does not inspect: such a server is `EchKeysUnattributed`, a
+  configuration finding. A server in the rules that refuse ECH (both presets) is `EchConfigured`.
 - **Credentials.** For every server credential (the default and each server-name entry) and a
   client's own, Admit checks the key size and curve against the floors, that the key can sign with
   no scheme outside the rules, and that the module serves the key. A key that can sign with a
@@ -206,18 +210,24 @@ OS verifier, and so must a server's client chain.
   as `credential 2 (CN=host)`.
 - **Markers.** `ISystemSigningKey` and `ISystemSignatureVerifier` are not trusted on their own: on
   Windows the backend report confirms the class of the key or verifier, so a host class that lists
-  them is reported as portable.
+  them is reported as portable. A report that does not check classes reports every key and
+  verifier as portable.
 - **Session tickets.** A server that issues tickets from ticket keys without AES-256-GCM among the
   allowed AEADs is `TicketAeadNotAllowed`; the facade turns resumption off for such rules. A server
-  with a session store and no ticket keys seals nothing and a client never does, so neither gets
-  the finding. Where the ticket keys and the resumption scope come from is judged separately: see
-  [Resumption state](#resumption-state).
+  with a session store seals with the store alone, so the ticket keys beside it are idle and are
+  not checked; a client never seals. Where the ticket keys and the resumption scope come from is
+  judged separately: see [Resumption state](#resumption-state).
 - **Server name.** A client with the server-name check disabled is `DangerousTrustConfigured` with
   the subject `ServerName`, unless every version it offers must end in a PSK (TLS 1.3 with a
   required external PSK, TLS 1.2 with a required TLS 1.2 PSK). Such a client verifies no chain, so
   the strength floors and revocation posture are not examined for it either.
 - **Fleet ticket keys.** Keys installed by the host (`IFleetTicketKeyManager`) are disclosed even
-  behind `CheckedTicketKeys`: the policy cannot see how they were generated.
+  behind `CheckedTicketKeys`: the policy cannot see how they were generated. So is the fleet scope,
+  which the host enters.
+- **Internal SHA-256.** The engine hashes a few values nobody negotiates with SHA-256 (the
+  HelloRetryRequest cookie, certificate pins, the certificate-compression cache, the config
+  fingerprint). The module must serve SHA-256 and HMAC-SHA-256 whatever the rules list, and rules
+  without SHA-256 (such as `Cnsa1`) carry a disclosure saying so.
 
 A verification callback is allowed: it can only add rejections. GREASE is allowed: its values are
 never negotiated (RFC 8701).
@@ -236,22 +246,34 @@ carry them across. The policy binds the state to itself:
   resumption; a client keys its cache by it. A store, cache or fleet key shared with a config that
   has another scope never resumes across the two: the engine runs a full handshake.
 - `Policy.TicketKeys(Clock, LifetimeSeconds)` mints default ticket keys from the policy crypto
-  provider's random generator, rotating on the ticket lifetime.
-  `Policy.CheckedTicketKeys(Fleet)` marks a fleet whose keys you install as checked; it stays
-  disclosed. Install only keys generated in the approved mode.
-- A facade server whose rules allow AES-256-GCM carries both, so it is admitted. The facade client
-  holds no cache; add one with the scope, as below.
+  provider's random generator, rotating on the ticket lifetime, and returns them as
+  `IRotatingTicketKeyManager`. It raises `EArgumentTlsLibException` for a nil clock, a zero
+  lifetime, or rules without AES-256-GCM, which seals the tickets. The keys run on the clock you
+  pass: a host that gives the builder a clock passes the same one here (the facade uses the system
+  clock).
+- `Policy.CheckedTicketKeys(Fleet, FleetScope)` marks a fleet whose keys you install as checked;
+  it stays disclosed, and so does the scope, which you enter. Install only keys generated in the
+  approved mode. Servers of one fleet resume across each other only under one scope, so you give
+  the fleet its own (1 to 32 bytes, kept with the keys) and every server holding the wrapper must
+  carry exactly that scope: Admit does not accept the policy prefix for them. Rebuilding a fleet
+  with another scope drops its outstanding tickets.
+- A facade server whose rules allow AES-256-GCM carries a policy scope and policy ticket keys, so
+  it is admitted. The facade client holds no cache; add one with the scope, as below.
 
 ```pascal
 ServerBuilder.WithResumptionScope(Policy.SessionScope)
   .WithSessionTicketKeys(Policy.TicketKeys(TSystemClock.Create as ITlsClock, 7200));  // 7200 s
 ClientBuilder.WithSessionCache(Cache).WithResumptionScope(Policy.SessionScope);
+// servers sharing a fleet of keys you install: one scope for the fleet, on keys and servers alike
+ServerBuilder.WithResumptionScope(FleetScope)
+  .WithSessionTicketKeys(Policy.CheckedTicketKeys(Fleet, FleetScope));
 ```
 
 Findings, both configuration findings that Admit refuses in both modes:
 
 - `ResumptionStateUnchecked`: resumption is on, a client holds a session cache or a server holds a
-  session store or ticket keys, and the scope does not start with the policy prefix. Set
+  session store or ticket keys, and the scope does not start with the policy prefix (for keys
+  behind `CheckedTicketKeys`: is not the fleet scope). Set
   `WithResumptionScope(Policy.SessionScope)` or turn resumption off. A hand-built client cache
   without a scope gets a fresh random one from the builder, which cannot be told from a scope you
   chose, so it is reported although nothing else shares it.
@@ -259,11 +281,14 @@ Findings, both configuration findings that Admit refuses in both modes:
   wrapper classes of `TicketKeys` and `CheckedTicketKeys` count, judged by class; the builder's
   default keys, a `TStekTicketKeyManager` you create, a marker-listing host class and the keys of
   another policy are all unchecked. Use `Policy.TicketKeys`, or `CheckedTicketKeys` for a fleet.
+  A server that holds a session store seals with the store alone, so the keys beside it are not
+  judged.
 
 Keys that rotate on a lifetime other than the config's `TicketLifetimeSeconds` are disclosed. To
-turn resumption off on a facade server, also clear what it set:
-`WithResumption(False).WithSessionTicketKeys(nil).WithResumptionScope(nil)`; the builder refuses
-ticket settings while resumption is off.
+turn resumption off on a facade server, use `TComplianceTls.WithoutResumption(ServerBuilder)`: it
+clears the ticket keys and the scope the facade set and then switches resumption off. A bare
+`WithResumption(False)` makes `Build` raise, because the builder refuses ticket settings while
+resumption is off.
 
 Residual: a host that copies a policy scope onto a config the policy never admitted, or reads it
 from an admitted config, defeats the separation. That is forgery by code in the process.

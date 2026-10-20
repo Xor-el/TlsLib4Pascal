@@ -266,9 +266,12 @@ end;
 
 procedure TTestTls12Resumption.TearDown;
 begin
+  FClientAlpn := nil;
+  FServerAlpn := nil;
   FClientClock := nil;
   FServerClock := nil;
   FServerCrypto := nil;
+  FReverify := False;
   FResumeVerifier := nil;
   inherited TearDown;
 end;
@@ -701,8 +704,8 @@ var
 begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
-  FServerCrypto := TMissingAeadProvider.CreatePlainFault(Crypto,
-    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider;
+  FServerCrypto := TMissingAeadProvider.CreateFault(Crypto, TAeadAlgorithm.AES_256_GCM,
+    Exception) as ICryptoProvider;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
   RunHandshake(LClient, LServer);

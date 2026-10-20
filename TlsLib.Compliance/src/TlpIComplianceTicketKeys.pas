@@ -16,6 +16,7 @@ unit TlpIComplianceTicketKeys;
 interface
 
 uses
+  SysUtils,
   TlpICompliancePolicy;
 
 type
@@ -25,11 +26,14 @@ type
   /// policy or of the host are reported as unchecked.
   /// </summary>
   IComplianceTicketKeys = interface(IInterface)
-    ['{3C0ABF54-98D7-4352-AB63-AEFF17A959A0}']
+    ['{C06E45CC-C73F-4589-ABB9-2B88AD030CFB}']
     /// <summary>The policy that issued or checked the keys.</summary>
     function Policy: ICompliancePolicy;
     /// <summary>The rotation lifetime the keys were minted for; 0 for host-entered keys.</summary>
     function LifetimeSeconds: UInt32;
+    /// <summary>The resumption scope the host entered for a fleet; empty for keys the policy
+    /// minted.</summary>
+    function FleetScope: TBytes;
   end;
 
 implementation

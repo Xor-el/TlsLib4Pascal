@@ -82,6 +82,11 @@ type
     class function Server(const APolicy: ICompliancePolicy;
       const AResolver: ITlsServerCredentialResolver): ITlsServerConfigBuilder;
       overload; static;
+    /// <summary>ABuilder, a facade server builder, with resumption off: it clears the ticket keys
+    /// and the resumption scope the facade set, which the builder otherwise refuses while
+    /// resumption is off. Raises EArgumentTlsLibException for a nil ABuilder.</summary>
+    class function WithoutResumption(
+      const ABuilder: ITlsServerConfigBuilder): ITlsServerConfigBuilder; static;
     /// <summary>Builds the client config and admits it, raising
     /// EComplianceUnmetTlsLibException when the policy refuses it.</summary>
     class function BuildClient(const APolicy: ICompliancePolicy;
@@ -222,6 +227,14 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilResolver);
   Result := ServerBase(APolicy);
   Result.WithCredentialResolver(APolicy.CheckedCredentialResolver(AResolver));
+end;
+
+class function TComplianceTls.WithoutResumption(
+  const ABuilder: ITlsServerConfigBuilder): ITlsServerConfigBuilder;
+begin
+  if ABuilder = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilBuilder);
+  Result := ABuilder.WithSessionTicketKeys(nil).WithResumptionScope(nil).WithResumption(False);
 end;
 
 class function TComplianceTls.BuildClient(const APolicy: ICompliancePolicy;

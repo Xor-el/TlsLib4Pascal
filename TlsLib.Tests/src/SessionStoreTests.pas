@@ -58,6 +58,8 @@ type
     function Tag(AValue: Byte; ALength: Int32): TBytes;
     function SealedTls12WithGroupAndScheme(
       const AStrategy: ISessionTicketStrategy): IResumableSession;
+    // whether building the STEK strategy lets AFault out when the ticket AEAD raises it
+    function StrategyRaisedFrom(AFault: ExceptClass): Boolean;
   published
     procedure TestCacheStoreAndTakeSingleUse;
     procedure TestCacheKeyedByServerAndSni;
@@ -106,6 +108,8 @@ type
     procedure TestStekSealDeclinesWhenProviderLacksTicketAead;
     procedure TestStekOpenUnreadableWhenProviderLacksTicketAead;
     procedure TestStekSealDeclinesWhenTicketAeadRaisesPlainException;
+    procedure TestStekProbeLetsOutOfMemoryThrough;
+    procedure TestStekProbeLetsAHardwareFaultThrough;
     procedure TestStekOpenUnreadableWhenTicketAeadRaisesPlainException;
     procedure TestStekSealOpenCarriesTls12Group;
     procedure TestStekSealOpenCarriesTls12PeerSignatureScheme;
@@ -1134,11 +1138,36 @@ procedure TTestSessionStore.TestStekSealDeclinesWhenTicketAeadRaisesPlainExcepti
 var
   LStrategy: ISessionTicketStrategy;
 begin
-  LStrategy := TStekTicketStrategy.Create(TMissingAeadProvider.CreatePlainFault(Crypto,
-    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider,
+  LStrategy := TStekTicketStrategy.Create(TMissingAeadProvider.CreateFault(Crypto,
+    TAeadAlgorithm.AES_256_GCM, Exception) as ICryptoProvider,
     TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
   CheckEquals(0, System.Length(LStrategy.Seal(MakeTls12Session(Tag($01, 4)))),
     'no ticket is sealed');
+end;
+
+function TTestSessionStore.StrategyRaisedFrom(AFault: ExceptClass): Boolean;
+var
+  LStrategy: ISessionTicketStrategy;
+begin
+  Result := False;
+  try
+    LStrategy := TStekTicketStrategy.Create(TMissingAeadProvider.CreateFault(Crypto,
+      TAeadAlgorithm.AES_256_GCM, AFault) as ICryptoProvider,
+      TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
+  except
+    on E: Exception do
+      Result := E.ClassType = AFault;
+  end;
+end;
+
+procedure TTestSessionStore.TestStekProbeLetsOutOfMemoryThrough;
+begin
+  CheckTrue(StrategyRaisedFrom(EOutOfMemory), 'memory exhaustion is not a missing AEAD');
+end;
+
+procedure TTestSessionStore.TestStekProbeLetsAHardwareFaultThrough;
+begin
+  CheckTrue(StrategyRaisedFrom(EAccessViolation), 'a hardware fault is not a missing AEAD');
 end;
 
 procedure TTestSessionStore.TestStekOpenUnreadableWhenTicketAeadRaisesPlainException;
@@ -1150,8 +1179,8 @@ var
 begin
   LKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LHealthy := TStekTicketStrategy.Create(Crypto, LKeys);
-  LFaulting := TStekTicketStrategy.Create(TMissingAeadProvider.CreatePlainFault(Crypto,
-    TAeadAlgorithm.AES_256_GCM) as ICryptoProvider, LKeys);
+  LFaulting := TStekTicketStrategy.Create(TMissingAeadProvider.CreateFault(Crypto,
+    TAeadAlgorithm.AES_256_GCM, Exception) as ICryptoProvider, LKeys);
   LTicket := LHealthy.Seal(MakeTls12Session(Tag($01, 4)));
   CheckTrue(System.Length(LTicket) > 0, 'a healthy provider sealed the ticket');
   CheckFalse(LFaulting.Open(LTicket, LOpened), 'the ticket is unreadable');

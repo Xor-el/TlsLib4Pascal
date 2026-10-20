@@ -342,9 +342,9 @@ type
     procedure TestHpkeFacetIsComposedWhenFlagged;
     procedure TestHpkeFacetIsNotNativeWhenNotFlagged;
     procedure TestPrimitivesAndSigningFacetsAreNeverWhole;
-    procedure TestSigningKeyIsSystemWhenMarked;
+    procedure TestSigningKeyIsNotNativeEvenWhenMarked;
     procedure TestSigningKeyIsNotNativeWhenUnmarked;
-    procedure TestVerifierIsSystemWhenMarked;
+    procedure TestVerifierIsNotNativeEvenWhenMarked;
     procedure TestVerifierIsNotNativeWhenUnmarked;
     // the per-scheme decision of a facet served by a separate OS module, one case each
     procedure TestModuleFacetSchemeNotServedIsNotNative;
@@ -2216,17 +2216,14 @@ begin
   CheckNotNative('signing facet', LReport.FacetBackend(TCryptoFacet.Signing));
 end;
 
-procedure TTestSystemBackendReport.TestSigningKeyIsSystemWhenMarked;
+procedure TTestSystemBackendReport.TestSigningKeyIsNotNativeEvenWhenMarked;
 var
   LReport: ICryptoBackendReport;
   LKey: ISigningKey;
-  LEntry: TCryptoBackendEntry;
 begin
   LReport := TBareBackendReport.Create(False);
   LKey := TFakeSystemSigningKey.Create;
-  LEntry := LReport.SigningKeyBackend(LKey);
-  CheckTrue(LEntry.Backend = TCryptoBackend.System, 'a marked key is system-backed');
-  CheckTrue(LEntry.Reason = TCryptoBackendReason.NotFallback, 'a marked key is not a fallback');
+  CheckNotNative('a marker any class can list', LReport.SigningKeyBackend(LKey));
 end;
 
 procedure TTestSystemBackendReport.TestSigningKeyIsNotNativeWhenUnmarked;
@@ -2239,18 +2236,14 @@ begin
   CheckNotNative('an unmarked key', LReport.SigningKeyBackend(LKey));
 end;
 
-procedure TTestSystemBackendReport.TestVerifierIsSystemWhenMarked;
+procedure TTestSystemBackendReport.TestVerifierIsNotNativeEvenWhenMarked;
 var
   LReport: ICryptoBackendReport;
   LVerifier: ISignatureVerifier;
-  LEntry: TCryptoBackendEntry;
 begin
   LReport := TBareBackendReport.Create(False);
   LVerifier := TMarkedVerifier.Create as ISignatureVerifier;
-  LEntry := LReport.VerifierBackend(LVerifier);
-  CheckTrue(LEntry.Backend = TCryptoBackend.System, 'a marked verifier is system-backed');
-  CheckTrue(LEntry.Reason = TCryptoBackendReason.NotFallback,
-    'a marked verifier is not a fallback');
+  CheckNotNative('a marker any class can list', LReport.VerifierBackend(LVerifier));
 end;
 
 procedure TTestSystemBackendReport.TestVerifierIsNotNativeWhenUnmarked;

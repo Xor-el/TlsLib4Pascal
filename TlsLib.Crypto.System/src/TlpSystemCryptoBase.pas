@@ -20,8 +20,6 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICryptoBackendReport,
-  TlpISystemSigningKey,
-  TlpISystemSignatureVerifier,
   TlpSystemCryptoTypes,
   TlpISecretBuffer,
   TlpISigningKey,
@@ -144,11 +142,10 @@ type
   /// The platform-neutral part of an <see cref="ICryptoBackendReport" />. Every per-algorithm
   /// query defaults to portable, so a platform overrides only what it serves natively; signing
   /// and verification default to portable per scheme, HKDF and the TLS 1.2 PRF follow the OS
-  /// HMAC, a signing key follows the <see cref="ISystemSigningKey" /> marker, a verifier the
-  /// <see cref="ISystemSignatureVerifier" /> marker, and the HPKE facet follows the constructor
-  /// flag. A marker is claimable by any class, so a platform report that must not be fooled
-  /// overrides both queries with a class check. The platform supplies
-  /// <see cref="Describe" />.
+  /// HMAC, a signing key and a verifier are portable, and the HPKE facet follows the constructor
+  /// flag. A marker interface is claimable by any class, so the base trusts none: a platform that
+  /// serves keys and verifiers natively overrides both queries with a check of its own classes.
+  /// The platform supplies <see cref="Describe" />.
   /// </summary>
   TSystemBackendReportBase = class abstract(TInterfacedObject, ICryptoBackendReport)
   strict private
@@ -509,12 +506,7 @@ end;
 function TSystemBackendReportBase.SigningKeyBackend(
   const AKey: ISigningKey): TCryptoBackendEntry;
 begin
-  // per key, not per scheme: only a key the OS module imported carries the marker; one that
-  // fell back to the portable facet signs portable regardless of its scheme
-  if Supports(AKey, ISystemSigningKey) then
-    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
-  else
-    Result := NotNative;
+  Result := NotNative;
 end;
 
 function TSystemBackendReportBase.VerificationBackend(
@@ -526,11 +518,7 @@ end;
 function TSystemBackendReportBase.VerifierBackend(
   const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
 begin
-  // per verifier, not per scheme: only a verifier the OS module built carries the marker
-  if Supports(AVerifier, ISystemSignatureVerifier) then
-    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
-  else
-    Result := NotNative;
+  Result := NotNative;
 end;
 
 function TSystemBackendReportBase.FacetBackend(

@@ -28,6 +28,7 @@ uses
   TlpIPkixProvider,
   TlpPkixDomainTypes,
   TlpITlsConfig,
+  TlpEchConfig,
   TlpINegotiation,
   TlpINamedGroup,
   TlpNamedGroups,
@@ -36,7 +37,6 @@ uses
   TlpITlsServerCredentialSet,
   TlpISession,
   TlpIClock,
-  TlpSessionTicketKeys,
   TlpTrustPolicy,
   TlpTrustTypes,
   TlpSystemCryptoTypes,
@@ -105,6 +105,8 @@ type
       var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
     // only the policy's own scope keeps sessions of a config it did not admit from resuming
     function HasOwnScope(const AScope: TBytes): Boolean;
+    // keys the policy wrapped for a fleet answer to the scope the host gave that fleet
+    function ScopeFitsKeys(const AScope: TBytes; const AKeys: ISessionTicketKeyManager): Boolean;
     // judged by class, as any host class can list a marker interface
     procedure CheckTicketKeys(const AKeys: ISessionTicketKeyManager;
       const AConfig: ITlsServerConfig; var AFindings: TArray<TComplianceFinding>;
@@ -141,8 +143,9 @@ type
       const AInner: ITlsServerCredentialResolver): ITlsServerCredentialResolver;
     function SessionScope: TBytes;
     function TicketKeys(const AClock: ITlsClock;
-      ALifetimeSeconds: UInt32): ISessionTicketKeyManager;
-    function CheckedTicketKeys(const AFleet: IFleetTicketKeyManager): ISessionTicketKeyManager;
+      ALifetimeSeconds: UInt32): IRotatingTicketKeyManager;
+    function CheckedTicketKeys(const AFleet: IFleetTicketKeyManager;
+      const AFleetScope: TBytes): ISessionTicketKeyManager;
   end;
 
 implementation
@@ -193,6 +196,12 @@ resourcestring
     'the credential resolver is not checked by the policy; wrap it with CheckedCredentialResolver';
   STicketAead = 'session tickets are sealed with AES-256-GCM, which the rules do not allow';
   SFleetTicketKeys = 'session-ticket keys are entered by the host';
+  SFleetScopeEntered = 'the fleet scope is entered by the host';
+  SSha256Internal =
+    'SHA-256 runs in the module for non-negotiated integrity values: HelloRetryRequest cookie, ' +
+    'certificate pins, certificate-compression cache, config fingerprint';
+  SEchKeysUnattributed =
+    'the server holds Encrypted Client Hello keys, which the policy does not inspect';
   STicketKeysUnchecked =
     'the session-ticket keys were not issued by the policy; use ICompliancePolicy.TicketKeys, ' +
     'or CheckedTicketKeys for keys the host enters';
@@ -202,8 +211,6 @@ resourcestring
     'the resumption scope is not one of the policy, so state shared with a config the policy ' +
     'did not admit could resume here; use WithResumptionScope(policy.SessionScope), or turn ' +
     'resumption off';
-  SNilClock = 'the clock must not be nil';
-  SNilFleet = 'the fleet ticket keys must not be nil';
   SKeyOutside = 'the credential key is not served by the OS module';
   SChainOutside = 'the peer chain is not verified by the OS verifier';
   SCustomVerifier = 'the certificate verifier is host-supplied; use the OS verifier source';
@@ -328,7 +335,7 @@ var
   LScheme: TSignatureScheme;
   LAlgorithm: TKeyAgreementAlgorithm;
   LName: string;
-  LKnown: Boolean;
+  LKnown, LSha256Listed: Boolean;
   LIdentity: TModuleIdentity;
 begin
   LHashes := [];
@@ -350,6 +357,11 @@ begin
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
     if LScheme in FRules.SignatureSchemes then
       Include(LHashes, TComplianceCatalog.SchemeHash(LScheme));
+  // the engine hashes values nobody negotiates with SHA-256, so the module must serve it
+  LSha256Listed := THashAlgorithm.SHA_256 in LHashes;
+  Include(LHashes, THashAlgorithm.SHA_256);
+  if not LSha256Listed then
+    TArrayUtilities.Append<string>(FDisclosures, SSha256Internal);
   for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
     if LHash in LHashes then
     begin
@@ -592,16 +604,22 @@ end;
 
 procedure TCompliancePolicy.CheckTickets(const AConfig: ITlsServerConfig;
   var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
+var
+  LKeys: ISessionTicketKeyManager;
 begin
+  // the engine seals with a configured store alone, so keys beside one are idle
+  LKeys := AConfig.SessionTicketKeys;
+  if AConfig.SessionStore <> nil then
+    LKeys := nil;
   // a store-only server seals nothing, and a client never seals
-  if AConfig.Resumption and (AConfig.SessionTicketKeys <> nil) and
+  if AConfig.Resumption and (LKeys <> nil) and
     not (TAeadAlgorithm.AES_256_GCM in FRules.Aeads) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.TicketAeadNotAllowed, '', STicketAead));
-  if AConfig.SessionTicketKeys <> nil then
-    CheckTicketKeys(AConfig.SessionTicketKeys, AConfig, AFindings, ADisclosures);
-  if AConfig.Resumption and ((AConfig.SessionStore <> nil) or
-    (AConfig.SessionTicketKeys <> nil)) and not HasOwnScope(AConfig.ResumptionScope) then
+  if LKeys <> nil then
+    CheckTicketKeys(LKeys, AConfig, AFindings, ADisclosures);
+  if AConfig.Resumption and ((AConfig.SessionStore <> nil) or (LKeys <> nil)) and
+    not ScopeFitsKeys(AConfig.ResumptionScope, LKeys) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.ResumptionStateUnchecked, '', SResumptionStateUnchecked));
 end;
@@ -610,6 +628,19 @@ function TCompliancePolicy.HasOwnScope(const AScope: TBytes): Boolean;
 begin
   Result := (System.Length(AScope) >= ScopePrefixLength) and
     TArrayUtilities.AreEqual(System.Copy(AScope, 0, ScopePrefixLength), FScopePrefix);
+end;
+
+function TCompliancePolicy.ScopeFitsKeys(const AScope: TBytes;
+  const AKeys: ISessionTicketKeyManager): Boolean;
+var
+  LChecked: IComplianceTicketKeys;
+begin
+  if (AKeys is TComplianceFleetTicketKeys) and
+    Supports(AKeys, IComplianceTicketKeys, LChecked) and
+    (LChecked.Policy = (Self as ICompliancePolicy)) then
+    Result := TArrayUtilities.AreEqual(AScope, LChecked.FleetScope)
+  else
+    Result := HasOwnScope(AScope);
 end;
 
 procedure TCompliancePolicy.CheckTicketKeys(const AKeys: ISessionTicketKeyManager;
@@ -632,7 +663,9 @@ begin
       TComplianceFindingKind.TicketKeysUnchecked, '', STicketKeysUnchecked))
   else if (AKeys is TComplianceTicketKeys) and
     (LChecked.LifetimeSeconds <> AConfig.TicketLifetimeSeconds) then
-    TArrayUtilities.Append<string>(ADisclosures, STicketLifetimeDiffers);
+    TArrayUtilities.Append<string>(ADisclosures, STicketLifetimeDiffers)
+  else if AKeys is TComplianceFleetTicketKeys then
+    TArrayUtilities.Append<string>(ADisclosures, SFleetScopeEntered);
   if Supports(AKeys, IFleetTicketKeyManager) then
     TArrayUtilities.Append<string>(ADisclosures, SFleetTicketKeys);
 end;
@@ -640,12 +673,12 @@ end;
 procedure TCompliancePolicy.CheckGroups(const AConfig: ITlsCommonConfig;
   var AFindings: TArray<TComplianceFinding>);
 var
-  LI: Int32;
+  LI, LJ: Int32;
   LCode: UInt16;
   LGroups: TArray<INamedGroup>;
   LCodes: TArray<UInt16>;
   LOwn, LConfigured: INamedGroup;
-  LAllowed: Boolean;
+  LAllowed, LListed: Boolean;
 begin
   LGroups := AConfig.NamedGroups.Items;
   for LI := 0 to System.Length(LGroups) - 1 do
@@ -671,9 +704,17 @@ begin
         TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LCodes[LI]),
         SNotAllowed))
     else if AConfig.NamedGroups.TryGet(LCodes[LI], LConfigured) and (LConfigured <> LOwn) then
-      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LCodes[LI]),
-        SForeignNamedGroup));
+    begin
+      // a group Items lists was reported above
+      LListed := False;
+      for LJ := 0 to System.Length(LGroups) - 1 do
+        if LGroups[LJ] = LConfigured then
+          LListed := True;
+      if not LListed then
+        TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+          TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LCodes[LI]),
+          SForeignNamedGroup));
+    end;
   end;
 end;
 
@@ -715,7 +756,7 @@ begin
     else if not TComplianceCatalog.IsCatalogSuite(LSuites[LI]) then
       // the engine builds its hash, AEAD and PRF from the record, not from its code
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.CipherSuiteNotAllowed,
+        TComplianceFindingKind.CipherSuiteDiffersFromCatalog,
         TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SSuiteDiffers));
   end;
   CheckGroups(AConfig, AFindings);
@@ -855,7 +896,7 @@ begin
       TComplianceFindingKind.DangerousTrustConfigured, SServerNameSubject, SServerNameUnchecked));
   if LCertPath then
     CheckVerifierSource(AConfig.ServerVerifierSource, LFindings);
-  if (TComplianceRequirement.InModuleChainVerification in FRules.Requirements) and
+  if LCertPath and (TComplianceRequirement.InModuleChainVerification in FRules.Requirements) and
     AConfig.RequestOcspStapling then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.StapleVerifiedOutsideModule, '', SStapleOutside));
@@ -897,7 +938,13 @@ begin
   if (TComplianceRequirement.NoEch in FRules.Requirements) and
     (AConfig.EncryptedClientHello <> nil) then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.EchConfigured, '', SEch));
+      TComplianceFindingKind.EchConfigured, '', SEch))
+  else if not (TComplianceRequirement.NoEch in FRules.Requirements) and
+    (AConfig.EncryptedClientHello <> nil) and
+    (AConfig.EncryptedClientHello.Role = TEchServerRole.Keyed) then
+    // the keys and their store are the host's, whatever provider the policy composed
+    TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.EchKeysUnattributed, '', SEchKeysUnattributed));
   Result := Report(LFindings, LDisclosures);
 end;
 
@@ -937,24 +984,16 @@ begin
 end;
 
 function TCompliancePolicy.TicketKeys(const AClock: ITlsClock;
-  ALifetimeSeconds: UInt32): ISessionTicketKeyManager;
-var
-  LKeys: IRotatingTicketKeyManager;
+  ALifetimeSeconds: UInt32): IRotatingTicketKeyManager;
 begin
-  if AClock = nil then
-    raise EArgumentTlsLibException.CreateRes(@SNilClock);
-  LKeys := TStekTicketKeyManager.CreateDefault(FCrypto, AClock, ALifetimeSeconds)
+  Result := TComplianceTicketKeys.Create(Self as ICompliancePolicy, AClock, ALifetimeSeconds)
     as IRotatingTicketKeyManager;
-  Result := TComplianceTicketKeys.Create(Self as ICompliancePolicy, LKeys, ALifetimeSeconds)
-    as ISessionTicketKeyManager;
 end;
 
-function TCompliancePolicy.CheckedTicketKeys(
-  const AFleet: IFleetTicketKeyManager): ISessionTicketKeyManager;
+function TCompliancePolicy.CheckedTicketKeys(const AFleet: IFleetTicketKeyManager;
+  const AFleetScope: TBytes): ISessionTicketKeyManager;
 begin
-  if AFleet = nil then
-    raise EArgumentTlsLibException.CreateRes(@SNilFleet);
-  Result := TComplianceFleetTicketKeys.Create(Self as ICompliancePolicy, AFleet)
+  Result := TComplianceFleetTicketKeys.Create(Self as ICompliancePolicy, AFleet, AFleetScope)
     as ISessionTicketKeyManager;
 end;
 

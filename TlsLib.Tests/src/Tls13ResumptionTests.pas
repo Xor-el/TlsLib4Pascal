@@ -373,6 +373,8 @@ begin
   FClientClock := nil;
   FServerClock := nil;
   FServerCrypto := nil;
+  FClientAlpn := nil;
+  FServerAlpn := nil;
   inherited TearDown;
 end;
 

@@ -269,7 +269,7 @@ implementation
 
 type
   // a report that claims the HPKE facet is composed over the primitives and nothing else native
-  TComposedHpkeClaimReport = class sealed(TSystemBackendReportBase)
+  TComposedHpkeClaimReport = class sealed(TMarkedBackendReportBase)
   public
     constructor Create; reintroduce;
     function Describe: string; override;

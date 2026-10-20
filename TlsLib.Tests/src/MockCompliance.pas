@@ -61,12 +61,20 @@ type
 
   TComplianceHashSet = set of THashAlgorithm;
 
+  /// <summary>A backend report whose signing keys and verifiers answer by their
+  /// <see cref="ISystemSigningKey" /> and <see cref="ISystemSignatureVerifier" /> markers, which
+  /// the production base no longer trusts. Never for production use.</summary>
+  TMarkedBackendReportBase = class abstract(TSystemBackendReportBase)
+  public
+    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry; override;
+    function VerifierBackend(const AVerifier: ISignatureVerifier): TCryptoBackendEntry; override;
+  end;
+
   /// <summary>A backend report that places every operation in the OS module except the entries
   /// it is told to keep portable (the AEADs at construction, the rest through the properties,
-  /// all empty by default) and the KEMs, which no module serves; a signing key answers by its
-  /// <see cref="ISystemSigningKey" /> marker and a verifier by its
-  /// <see cref="ISystemSignatureVerifier" /> marker. Never for production use.</summary>
-  TFakeBackendReport = class sealed(TSystemBackendReportBase)
+  /// all empty by default) and the KEMs, which no module serves. Never for production
+  /// use.</summary>
+  TFakeBackendReport = class sealed(TMarkedBackendReportBase)
   strict private
   var
     FPortableAeads: TComplianceAeadSet;
@@ -269,8 +277,9 @@ type
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
 
-  /// <summary>A registry that lists the groups of AListed and resolves AResolved for its code
-  /// through TryGet, so the two disagree. Never for production use.</summary>
+  /// <summary>A registry that lists the groups of AListed and resolves only AResolved through
+  /// TryGet, so every other code resolves to nothing and the two disagree. Never for production
+  /// use.</summary>
   TFakeGroupRegistry = class sealed(TInterfacedObject, INamedGroupRegistry)
   strict private
   var
@@ -323,6 +332,25 @@ end;
 function TFakeModuleAttestation.Describe: string;
 begin
   Result := 'fake module attestation';
+end;
+
+{ TMarkedBackendReportBase }
+
+function TMarkedBackendReportBase.SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
+begin
+  if Supports(AKey, ISystemSigningKey) then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
+end;
+
+function TMarkedBackendReportBase.VerifierBackend(
+  const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
+begin
+  if Supports(AVerifier, ISystemSignatureVerifier) then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
 end;
 
 { TFakeBackendReport }
@@ -755,8 +783,13 @@ begin
 end;
 
 function TFakeNamedGroup.Composition: TNamedGroupComposition;
+var
+  LAlgorithm: TKeyAgreementAlgorithm;
 begin
-  Result := TNamedGroupComposition.From(TKeyAgreementAlgorithm.SECP256R1);
+  // the key agreement the code names, P-256 for a code the compliance catalog does not map
+  if not TComplianceCatalog.TryKeyAgreement(FCode, LAlgorithm) then
+    LAlgorithm := TKeyAgreementAlgorithm.SECP256R1;
+  Result := TNamedGroupComposition.From(LAlgorithm);
 end;
 
 procedure TFakeNamedGroup.GenerateKeyPair(out APriv: IKeyExchangePrivateKey;
