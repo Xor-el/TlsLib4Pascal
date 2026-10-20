@@ -201,6 +201,8 @@ type
     procedure TestFips140_3DoesNotDiscloseTheInternalSha256;
     procedure TestStrictCnsa1Sha256OutsideTheModuleRaises;
     procedure TestStrictCnsa1Sha256HmacOutsideTheModuleRaises;
+    procedure TestStrictEdDsaSchemeHoldsTheModuleToSha512;
+    procedure TestStrictCnsa1IgnoresSha512OutsideTheModule;
   end;
 
   TTestComplianceAdmit = class(TCompliancePolicyTestCase)
@@ -1097,6 +1099,35 @@ begin
     TComplianceEnforcement.Strict, LFindings), 'the cookie MAC is an HMAC');
   CheckEquals('HMAC SHA_256', FindingOfKind(LFindings,
     TComplianceFindingKind.AlgorithmOutsideModule).Subject, 'which one');
+end;
+
+procedure TTestCompliancePolicy.TestStrictEdDsaSchemeHoldsTheModuleToSha512;
+var
+  LRules: TComplianceRules;
+  LReport: TFakeBackendReport;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LRules := TCompliancePresets.Cnsa1;
+  Include(LRules.SignatureSchemes, TSignatureScheme.ED25519);
+  LReport := TFakeBackendReport.Create([]);
+  LReport.PortableHashes := [THashAlgorithm.SHA_512];
+  CheckTrue(Construct(LRules, TComplianceFakes.FakeSystemBase(LReport as ICryptoBackendReport,
+    nil, nil), TModuleStatus.Validated, TComplianceEnforcement.Strict, LFindings),
+    'EdDSA hashes internally, so the module must serve SHA-512 for it');
+  CheckEquals('hash SHA_512', FindingOfKind(LFindings,
+    TComplianceFindingKind.AlgorithmOutsideModule).Subject, 'which one');
+end;
+
+procedure TTestCompliancePolicy.TestStrictCnsa1IgnoresSha512OutsideTheModule;
+var
+  LReport: TFakeBackendReport;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LReport.PortableHashes := [THashAlgorithm.SHA_512];
+  CheckFalse(Construct(TCompliancePresets.Cnsa1, TComplianceFakes.FakeSystemBase(
+    LReport as ICryptoBackendReport, nil, nil), TModuleStatus.Validated,
+    TComplianceEnforcement.Strict, LFindings), 'no listed scheme or suite digests with SHA-512');
 end;
 
 procedure TTestCompliancePolicy.TestStrictFakeValidatedSystemConstructs;

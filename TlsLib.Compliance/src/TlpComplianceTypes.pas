@@ -151,9 +151,6 @@ type
     /// others.</summary>
     class function TryKeyAgreement(AGroup: UInt16;
       out AAlgorithm: TKeyAgreementAlgorithm): Boolean; static;
-    /// <summary>The hash a scheme digests with; EdDSA hashes internally, so SHA-512 stands
-    /// in.</summary>
-    class function SchemeHash(AScheme: TSignatureScheme): THashAlgorithm; static;
     /// <summary>The agreements the groups call for.</summary>
     class function KeyAgreements(const ARules: TComplianceRules): TComplianceKeyAgreementSet;
       static;
@@ -463,35 +460,16 @@ end;
 
 class function TComplianceCatalog.TryKeyAgreement(AGroup: UInt16;
   out AAlgorithm: TKeyAgreementAlgorithm): Boolean;
+var
+  LComposition: TNamedGroupComposition;
 begin
-  Result := True;
-  AAlgorithm := TKeyAgreementAlgorithm.X25519;
-  case AGroup of
-    TNamedGroupCatalog.X25519:
-      AAlgorithm := TKeyAgreementAlgorithm.X25519;
-    TNamedGroupCatalog.Secp256r1:
-      AAlgorithm := TKeyAgreementAlgorithm.SECP256R1;
-    TNamedGroupCatalog.Secp384r1:
-      AAlgorithm := TKeyAgreementAlgorithm.SECP384R1;
-    TNamedGroupCatalog.Secp521r1:
-      AAlgorithm := TKeyAgreementAlgorithm.SECP521R1;
+  // a hybrid or a KEM-only group is not a classical agreement
+  Result := TNamedGroupCatalog.TryComposition(AGroup, LComposition) and
+    (LComposition.Kind = TNamedGroupKind.Ecdhe);
+  if Result then
+    AAlgorithm := LComposition.KeyAgreement
   else
-    Result := False;
-  end;
-end;
-
-class function TComplianceCatalog.SchemeHash(AScheme: TSignatureScheme): THashAlgorithm;
-begin
-  case AScheme of
-    TSignatureScheme.ECDSA_SECP256R1_SHA256, TSignatureScheme.RSA_PSS_RSAE_SHA256,
-      TSignatureScheme.RSA_PKCS1_SHA256:
-      Result := THashAlgorithm.SHA_256;
-    TSignatureScheme.ECDSA_SECP384R1_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA384,
-      TSignatureScheme.RSA_PKCS1_SHA384:
-      Result := THashAlgorithm.SHA_384;
-  else
-    Result := THashAlgorithm.SHA_512;
-  end;
+    AAlgorithm := TKeyAgreementAlgorithm.X25519;
 end;
 
 class function TComplianceCatalog.KeyAgreements(
@@ -575,28 +553,13 @@ end;
 class function TComplianceCatalog.KeyMeets(const AFacts: TCertKeyFacts;
   const AStrength: TCertificateStrengthPolicy; const ARsaSizes: TArray<UInt32>): Boolean;
 begin
-  case AFacts.Kind of
-    TSignatureKeyKind.Rsa:
-    begin
-      Result := (AFacts.Bits >= AStrength.MinRsaModulusBits) and
-        ((AStrength.MaxRsaModulusBits = 0) or (AFacts.Bits <= AStrength.MaxRsaModulusBits));
-      if Result and (System.Length(ARsaSizes) > 0) then
-      begin
-        Result := AFacts.Bits > 0;
-        if Result then
-          Result := TArrayUtilities.Contains<UInt32>(ARsaSizes, UInt32(AFacts.Bits));
-      end;
-    end;
-    TSignatureKeyKind.Ecdsa:
-      if System.Length(AStrength.AllowedEcCurves) = 0 then
-        Result := AFacts.EcNamedGroup <> 0
-      else
-        Result := TArrayUtilities.Contains<UInt16>(AStrength.AllowedEcCurves,
-          AFacts.EcNamedGroup);
-    TSignatureKeyKind.Ed25519, TSignatureKeyKind.Ed448:
-      Result := AStrength.AllowEdDsa;
-  else
-    Result := False;
+  Result := AStrength.KeyMeetsFloors(AFacts);
+  // the exact sizes only ever narrow the range, and only for RSA
+  if Result and (AFacts.Kind = TSignatureKeyKind.Rsa) and (System.Length(ARsaSizes) > 0) then
+  begin
+    Result := AFacts.Bits > 0;
+    if Result then
+      Result := TArrayUtilities.Contains<UInt32>(ARsaSizes, UInt32(AFacts.Bits));
   end;
 end;
 

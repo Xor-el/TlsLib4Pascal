@@ -81,33 +81,17 @@ begin
 end;
 
 function TComplianceHpke.KemGroupAllowed(AKem: UInt16): Boolean;
+var
+  LAgreement: TKeyAgreementAlgorithm;
 begin
-  case AKem of
-    THpkeKem.DHKEM_P256_HKDF_SHA256:
-      Result := TKeyAgreementAlgorithm.SECP256R1 in FKeyAgreements;
-    THpkeKem.DHKEM_P384_HKDF_SHA384:
-      Result := TKeyAgreementAlgorithm.SECP384R1 in FKeyAgreements;
-    THpkeKem.DHKEM_P521_HKDF_SHA512:
-      Result := TKeyAgreementAlgorithm.SECP521R1 in FKeyAgreements;
-    THpkeKem.DHKEM_X25519_HKDF_SHA256:
-      Result := TKeyAgreementAlgorithm.X25519 in FKeyAgreements;
-  else
-    Result := False;
-  end;
+  Result := THpkeKem.TryKeyAgreement(AKem, LAgreement) and (LAgreement in FKeyAgreements);
 end;
 
 function TComplianceHpke.AeadAllowed(AAead: UInt16): Boolean;
+var
+  LAead: TAeadAlgorithm;
 begin
-  case AAead of
-    THpkeAead.AES_128_GCM:
-      Result := TAeadAlgorithm.AES_128_GCM in FAeads;
-    THpkeAead.AES_256_GCM:
-      Result := TAeadAlgorithm.AES_256_GCM in FAeads;
-    THpkeAead.CHACHA20_POLY1305:
-      Result := TAeadAlgorithm.CHACHA20_POLY1305 in FAeads;
-  else
-    Result := False;
-  end;
+  Result := THpkeAead.TryAlgorithm(AAead, LAead) and (LAead in FAeads);
 end;
 
 procedure TComplianceHpke.RequireKem(AKem: UInt16);

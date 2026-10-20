@@ -36,6 +36,7 @@ uses
   TlpITlsCredentialResolver,
   TlpITlsServerCredentialSet,
   TlpISession,
+  TlpSessionTicketStrategy,
   TlpIClock,
   TlpTrustPolicy,
   TlpTrustTypes,
@@ -356,7 +357,12 @@ begin
   end;
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
     if LScheme in FRules.SignatureSchemes then
-      Include(LHashes, TComplianceCatalog.SchemeHash(LScheme));
+    begin
+      // EdDSA hashes internally; the module is held to SHA-512 for it
+      if not LScheme.TryHash(LHash) then
+        LHash := THashAlgorithm.SHA_512;
+      Include(LHashes, LHash);
+    end;
   // the engine hashes values nobody negotiates with SHA-256, so the module must serve it
   LSha256Listed := THashAlgorithm.SHA_256 in LHashes;
   Include(LHashes, THashAlgorithm.SHA_256);
@@ -606,16 +612,17 @@ procedure TCompliancePolicy.CheckTickets(const AConfig: ITlsServerConfig;
   var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
 var
   LKeys: ISessionTicketKeyManager;
-  LOffers12: Boolean;
+  LI: Int32;
 begin
-  // keys beside a store are idle only without TLS 1.2, which always seals with the keys
-  LOffers12 := TArrayUtilities.Contains<UInt16>(AConfig.SupportedVersions, TlsWireVersionTls12);
-  LKeys := AConfig.SessionTicketKeys;
-  if (AConfig.SessionStore <> nil) and not LOffers12 then
-    LKeys := nil;
+  // keys count only when some offered version seals tickets with them
+  LKeys := nil;
+  for LI := 0 to System.Length(AConfig.SupportedVersions) - 1 do
+    if TSessionTicketStrategies.SealsWithKeys(AConfig.SupportedVersions[LI],
+      AConfig.SessionTicketKeys, AConfig.SessionStore) then
+      LKeys := AConfig.SessionTicketKeys;
   // a store-only server seals nothing, and a client never seals
   if AConfig.Resumption and (LKeys <> nil) and
-    not (TAeadAlgorithm.AES_256_GCM in FRules.Aeads) then
+    not (TSessionTicketStrategies.TicketAead in FRules.Aeads) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.TicketAeadNotAllowed, '', STicketAead));
   if LKeys <> nil then

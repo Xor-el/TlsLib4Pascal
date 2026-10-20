@@ -36,6 +36,7 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsConfigBuilder,
+  TlpSessionTicketStrategy,
   TlpSystemTrustBase,
   TlpOSSystemTrust,
   TlpSystemTrustFacade,
@@ -101,10 +102,6 @@ type
 
 implementation
 
-const
-  // the lifetime the config builder gives tickets until WithTicketLifetime says otherwise
-  DefaultTicketLifetimeSeconds = UInt32(7200);
-
 resourcestring
   SNilPolicy = 'the compliance policy must not be nil';
   SNilVerification = 'the server verification must not be nil';
@@ -167,10 +164,11 @@ begin
     Profile(APolicy)).Server;
   if RequiresExtendedMasterSecret(LRules) then
     Result.Tls12.WithExtendedMasterSecret(True);
-  // only a server seals tickets, and always with AES-256-GCM
-  if TAeadAlgorithm.AES_256_GCM in LRules.Aeads then
+  // only a server seals tickets, and always with the ticket AEAD
+  if TSessionTicketStrategies.TicketAead in LRules.Aeads then
     Result.WithResumptionScope(APolicy.SessionScope).WithSessionTicketKeys(
-      APolicy.TicketKeys(TSystemClock.Create as ITlsClock, DefaultTicketLifetimeSeconds))
+      APolicy.TicketKeys(TSystemClock.Create as ITlsClock,
+      TTlsConfigBuilder.DefaultTicketLifetimeSeconds))
   else
     Result.WithResumption(False);
 end;

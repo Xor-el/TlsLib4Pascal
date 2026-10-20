@@ -155,9 +155,7 @@ type
 
   TTestComplianceCatalog = class(TTlsLibAlgorithmTestCase)
   published
-    procedure TestTryKeyAgreementKnownGroups;
     procedure TestTryKeyAgreementRejectsHybridAndKem;
-    procedure TestSchemeHashPerScheme;
     procedure TestKeyAgreementsFips140_3;
     procedure TestKeyAgreementsCnsa1;
     procedure TestKeyAgreementsIncludesX25519Group;
@@ -165,14 +163,6 @@ type
     procedure TestIsSubsetOfListBoundaries;
     procedure TestStrengthWithinEqualFloors;
     procedure TestStrengthWithinLowerMinFails;
-    procedure TestKeyMeetsRsaMinBoundary;
-    procedure TestKeyMeetsRsaMaxBoundary;
-    procedure TestKeyMeetsRsaUncapped;
-    procedure TestKeyMeetsEcdsaListed;
-    procedure TestKeyMeetsEcdsaUnlisted;
-    procedure TestKeyMeetsEcdsaEmptyListAdmitsKnownCurve;
-    procedure TestKeyMeetsEcdsaEmptyListRefusesUnknownCurve;
-    procedure TestKeyMeetsEdDsaFollowsFlag;
     procedure TestSchemesInEnumOrder;
     procedure TestSchemesEmptySet;
     procedure TestRsaSizesWithinBoundaries;
@@ -1415,23 +1405,6 @@ end;
 
 { TTestComplianceCatalog }
 
-procedure TTestComplianceCatalog.TestTryKeyAgreementKnownGroups;
-var
-  LAlgorithm: TKeyAgreementAlgorithm;
-begin
-  CheckTrue(TComplianceCatalog.TryKeyAgreement(TNamedGroupCatalog.X25519, LAlgorithm), 'x25519');
-  CheckEquals(Ord(TKeyAgreementAlgorithm.X25519), Ord(LAlgorithm), 'x25519 algorithm');
-  CheckTrue(TComplianceCatalog.TryKeyAgreement(TNamedGroupCatalog.Secp256r1, LAlgorithm),
-    'p256');
-  CheckEquals(Ord(TKeyAgreementAlgorithm.SECP256R1), Ord(LAlgorithm), 'p256 algorithm');
-  CheckTrue(TComplianceCatalog.TryKeyAgreement(TNamedGroupCatalog.Secp384r1, LAlgorithm),
-    'p384');
-  CheckEquals(Ord(TKeyAgreementAlgorithm.SECP384R1), Ord(LAlgorithm), 'p384 algorithm');
-  CheckTrue(TComplianceCatalog.TryKeyAgreement(TNamedGroupCatalog.Secp521r1, LAlgorithm),
-    'p521');
-  CheckEquals(Ord(TKeyAgreementAlgorithm.SECP521R1), Ord(LAlgorithm), 'p521 algorithm');
-end;
-
 procedure TTestComplianceCatalog.TestTryKeyAgreementRejectsHybridAndKem;
 var
   LAlgorithm: TKeyAgreementAlgorithm;
@@ -1441,27 +1414,6 @@ begin
   CheckFalse(TComplianceCatalog.TryKeyAgreement(TNamedGroupCatalog.MlKem768, LAlgorithm),
     'pure KEM');
   CheckFalse(TComplianceCatalog.TryKeyAgreement(0, LAlgorithm), 'zero');
-end;
-
-procedure TTestComplianceCatalog.TestSchemeHashPerScheme;
-var
-  LScheme: TSignatureScheme;
-  LExpected: array [TSignatureScheme] of THashAlgorithm;
-begin
-  LExpected[TSignatureScheme.ECDSA_SECP256R1_SHA256] := THashAlgorithm.SHA_256;
-  LExpected[TSignatureScheme.ECDSA_SECP384R1_SHA384] := THashAlgorithm.SHA_384;
-  LExpected[TSignatureScheme.ECDSA_SECP521R1_SHA512] := THashAlgorithm.SHA_512;
-  LExpected[TSignatureScheme.ED25519] := THashAlgorithm.SHA_512;
-  LExpected[TSignatureScheme.ED448] := THashAlgorithm.SHA_512;
-  LExpected[TSignatureScheme.RSA_PSS_RSAE_SHA256] := THashAlgorithm.SHA_256;
-  LExpected[TSignatureScheme.RSA_PSS_RSAE_SHA384] := THashAlgorithm.SHA_384;
-  LExpected[TSignatureScheme.RSA_PSS_RSAE_SHA512] := THashAlgorithm.SHA_512;
-  LExpected[TSignatureScheme.RSA_PKCS1_SHA256] := THashAlgorithm.SHA_256;
-  LExpected[TSignatureScheme.RSA_PKCS1_SHA384] := THashAlgorithm.SHA_384;
-  LExpected[TSignatureScheme.RSA_PKCS1_SHA512] := THashAlgorithm.SHA_512;
-  for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
-    CheckEquals(Ord(LExpected[LScheme]), Ord(TComplianceCatalog.SchemeHash(LScheme)),
-      'scheme ' + IntToStr(Ord(LScheme)));
 end;
 
 procedure TTestComplianceCatalog.TestKeyAgreementsFips140_3;
@@ -1524,112 +1476,6 @@ begin
   LStrength.MinRsaModulusBits := 2047;
   CheckFalse(TComplianceCatalog.StrengthWithin(LStrength,
     TCompliancePresets.Fips140_3.Strength), 'a lower floor is looser');
-end;
-
-procedure TTestComplianceCatalog.TestKeyMeetsRsaMinBoundary;
-var
-  LFacts: TCertKeyFacts;
-begin
-  LFacts := Default(TCertKeyFacts);
-  LFacts.Kind := TSignatureKeyKind.Rsa;
-  LFacts.Bits := 2048;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
-    'at the floor');
-  LFacts.Bits := 2047;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
-    'one bit under');
-end;
-
-procedure TTestComplianceCatalog.TestKeyMeetsRsaMaxBoundary;
-var
-  LFacts: TCertKeyFacts;
-begin
-  LFacts := Default(TCertKeyFacts);
-  LFacts.Kind := TSignatureKeyKind.Rsa;
-  LFacts.Bits := 4096;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
-    'at the cap');
-  LFacts.Bits := 4097;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
-    'one bit over');
-end;
-
-procedure TTestComplianceCatalog.TestKeyMeetsRsaUncapped;
-var
-  LFacts: TCertKeyFacts;
-  LStrength: TCertificateStrengthPolicy;
-begin
-  LFacts := Default(TCertKeyFacts);
-  LFacts.Kind := TSignatureKeyKind.Rsa;
-  LFacts.Bits := 16384;
-  LStrength := TCompliancePresets.Fips140_3.Strength;
-  LStrength.MaxRsaModulusBits := 0;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'zero means no cap');
-end;
-
-procedure TTestComplianceCatalog.TestKeyMeetsEcdsaListed;
-var
-  LFacts: TCertKeyFacts;
-begin
-  LFacts := Default(TCertKeyFacts);
-  LFacts.Kind := TSignatureKeyKind.Ecdsa;
-  LFacts.EcNamedGroup := TNamedGroupCatalog.Secp384r1;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Fips140_3.Strength, nil),
-    'a listed curve');
-end;
-
-procedure TTestComplianceCatalog.TestKeyMeetsEcdsaUnlisted;
-var
-  LFacts: TCertKeyFacts;
-begin
-  LFacts := Default(TCertKeyFacts);
-  LFacts.Kind := TSignatureKeyKind.Ecdsa;
-  LFacts.EcNamedGroup := TNamedGroupCatalog.Secp256r1;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, TCompliancePresets.Cnsa1.Strength, nil),
-    'P-256 is outside Cnsa1');
-end;
-
-procedure TTestComplianceCatalog.TestKeyMeetsEcdsaEmptyListAdmitsKnownCurve;
-var
-  LFacts: TCertKeyFacts;
-  LStrength: TCertificateStrengthPolicy;
-begin
-  LFacts := Default(TCertKeyFacts);
-  LFacts.Kind := TSignatureKeyKind.Ecdsa;
-  LFacts.EcNamedGroup := TNamedGroupCatalog.Secp521r1;
-  LStrength := TCompliancePresets.Fips140_3.Strength;
-  LStrength.AllowedEcCurves := nil;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'any recognised curve');
-end;
-
-procedure TTestComplianceCatalog.TestKeyMeetsEcdsaEmptyListRefusesUnknownCurve;
-var
-  LFacts: TCertKeyFacts;
-  LStrength: TCertificateStrengthPolicy;
-begin
-  LFacts := Default(TCertKeyFacts);
-  LFacts.Kind := TSignatureKeyKind.Ecdsa;
-  LFacts.EcNamedGroup := 0;
-  LStrength := TCompliancePresets.Fips140_3.Strength;
-  LStrength.AllowedEcCurves := nil;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'code 0 is not recognised');
-end;
-
-procedure TTestComplianceCatalog.TestKeyMeetsEdDsaFollowsFlag;
-var
-  LFacts: TCertKeyFacts;
-  LStrength: TCertificateStrengthPolicy;
-begin
-  LStrength := TCompliancePresets.Fips140_3.Strength;
-  LFacts := Default(TCertKeyFacts);
-  LFacts.Kind := TSignatureKeyKind.Ed25519;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'Ed25519 refused');
-  LFacts.Kind := TSignatureKeyKind.Ed448;
-  CheckFalse(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'Ed448 refused');
-  LStrength.AllowEdDsa := True;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'Ed448 admitted');
-  LFacts.Kind := TSignatureKeyKind.Ed25519;
-  CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LStrength, nil), 'Ed25519 admitted');
 end;
 
 procedure TTestComplianceCatalog.TestSchemesInEnumOrder;

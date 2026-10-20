@@ -23,6 +23,8 @@ uses
   TlpIClock,
   TlpISession,
   TlpSessionTicketKeys,
+  TlpSessionTicketStrategy,
+  TlpTlsConfigBuilder,
   TlpICompliancePolicy,
   TlpIComplianceTicketKeys;
 
@@ -83,17 +85,13 @@ type
 
 implementation
 
-const
-  // the longest resumption scope the config builder accepts
-  MaxFleetScopeLength = Int32(32);
-
 resourcestring
   SNilPolicy = 'the compliance policy must not be nil';
   SNilClock = 'the clock must not be nil';
   SNilInner = 'the inner ticket keys must not be nil';
   SLifetimeZero = 'the ticket-key lifetime must not be zero';
   SKeysNeedAes256 = 'the ticket keys seal with AES-256-GCM, which the rules do not allow';
-  SFleetScopeInvalid = 'the fleet scope must be 1 to 32 bytes';
+  SFleetScopeInvalid = 'the fleet scope must be 1 to %d bytes';
 
 { TComplianceTicketKeys }
 
@@ -108,7 +106,7 @@ begin
   // the inner manager would fall back to its own interval for 0 and leave the lifetime unstated
   if ALifetimeSeconds = 0 then
     raise EArgumentTlsLibException.CreateRes(@SLifetimeZero);
-  if not (TAeadAlgorithm.AES_256_GCM in APolicy.Rules.Aeads) then
+  if not (TSessionTicketStrategies.TicketAead in APolicy.Rules.Aeads) then
     raise EArgumentTlsLibException.CreateRes(@SKeysNeedAes256);
   FPolicy := APolicy;
   FLifetimeSeconds := ALifetimeSeconds;
@@ -163,8 +161,10 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   if AInner = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilInner);
-  if (System.Length(AFleetScope) = 0) or (System.Length(AFleetScope) > MaxFleetScopeLength) then
-    raise EArgumentTlsLibException.CreateRes(@SFleetScopeInvalid);
+  if (System.Length(AFleetScope) = 0) or
+    (System.Length(AFleetScope) > TTlsConfigBuilder.MaxResumptionScopeLength) then
+    raise EArgumentTlsLibException.CreateResFmt(@SFleetScopeInvalid,
+      [TTlsConfigBuilder.MaxResumptionScopeLength]);
   FPolicy := APolicy;
   FInner := AInner;
   FFleetScope := System.Copy(AFleetScope);
