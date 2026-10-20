@@ -97,10 +97,13 @@ one when ECH was accepted). For debugging only — never production.
   presets) offered by the presets and preferred under Hardened and Strict. X25519MLKEM768 is
   interop-verified against OpenSSL 3.5+ and BoringSSL; SecP256r1MLKEM768 against OpenSSL where the
   installed build supports it.
-- **Compliance mode (optional).** The `TlsLib.Compliance` package routes every crypto operation of a
-  policy-built config through refusing providers: an algorithm outside the rules is refused in both
-  enforcement modes, and in strict mode so is one the OS module does not serve. Refusal raises a
-  fatal `internal_error`. Rules are `Compliant` only as a subset of a named preset, and `Admit`
+- **Compliance mode (optional).** The `TlsLib.Compliance` package routes the negotiated
+  cryptography of a policy-built config through refusing providers: a negotiated algorithm outside
+  the rules is refused in both enforcement modes, and in strict mode so is one the OS module does
+  not serve. Hashes and HMACs are checked against the module only, and a few internal SHA-256 uses
+  are disclosed. A refusal ends the handshake with a fatal `internal_error`, except where the
+  engine absorbs it (a session ticket that is not issued). Rules are `Compliant` only as a subset
+  of a named preset, and `Admit`
   checks the non-crypto settings (early data, ECH, PSKs, key log, verification bypass, strength
   floors, credential keys). It makes no module validation claim of its own; see
   [compliance.md](compliance.md).

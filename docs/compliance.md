@@ -2,10 +2,12 @@
 
 **TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · Compliance · [Security model](security-model.md)
 
-The optional `TlsLib.Compliance` package is a policy over the OS cryptographic module. It sends
-every TLS crypto operation to that module and refuses anything else: an algorithm outside the rules,
-an operation the module does not serve, a config that weakens the rules. It adds no cryptography of
-its own and the core does not depend on it.
+The optional `TlsLib.Compliance` package is a policy over the OS cryptographic module. It runs the
+cryptography a handshake negotiates in that module and refuses what the rules do not allow: a
+negotiated algorithm outside the rules, an operation the module does not serve, a config that
+weakens the rules. Hashes and HMACs are checked against the module, not the rules, and a few
+internal SHA-256 uses are disclosed (see [What Admit checks](#what-admit-checks)). It adds no
+cryptography of its own and the core does not depend on it.
 
 The samples build a crypto provider from `TDefaultCryptoProvider.Create as ICryptoProvider` and
 a PKIX provider from `TDefaultPkixProvider.Create as IPkixProvider`.
@@ -32,11 +34,24 @@ names the first one, and a fact the OS cannot supply makes it *Unknown*, which s
 - the OS is Windows NT 10.0 and its build is a row of the table, with that row's product type;
 - the process is a native 64-bit x64 process. A 32-bit process (it would load the 32-bit module),
   an x64 process emulated on ARM64 and Windows on ARM are not covered by the certificate;
+- the firmware is UEFI, the only kind the Security Policy lists for x64 computers;
 - the module in the process is the system copy, `bcryptprimitives.dll` under the system directory;
 - its file version is `10.0.<OS build>`.
 
 The fourth component of the file version (the update revision) is reported but not gated. When it
 differs from the version the certificate lists, the report carries a disclosure, not a finding.
+
+The Security Policy names the editions in scope (Windows 11: Pro, Enterprise, IoT Enterprise,
+Education, Home; Server 2022: Standard, Datacenter) and states that editions of one product share
+the module, so the edition is reported in the identity and never gated. Any other Microsoft
+operating system built on one of these releases is covered only as a vendor-affirmed relabel,
+without assurance of the strength of generated keys; the policy cannot tell such a system apart.
+
+The facts are read once when the attestation is created. They come from the OS version query, the
+process, the firmware kind and the module file on disk, not from the image in memory. Residuals:
+a compatibility layer can only make the build look older, which fails closed; code in the process
+that alters what these queries return, or replaces the module in memory, is out of scope; and a
+compatibility runtime such as Wine reports Windows facts it does not implement.
 
 The TLS 1.2 and TLS 1.3 key derivations are composed outside the module; every HMAC runs in-module.
 TLS 1.2 is allowed only with Extended Master Secret (RFC 7627).
@@ -162,8 +177,11 @@ Rules no config can run raise `EArgumentTlsLibException` in both modes.
 - `Evaluate` never raises for a finding. `Admit` evaluates and then raises
   `EComplianceUnmetTlsLibException` carrying the findings.
 - Relaxed is never silent: its report is `NotCompliant` while any finding stands. Relaxed passes
-  platform facts through (a portable chain check, a portable key) and keeps every allowlist.
-- A refusal inside a handshake ends it with a fatal `internal_error` (RFC 9846 6.2).
+  platform facts through (a portable chain check, a portable key) and keeps every allowlist; rules
+  built by hand outside every preset are only reported.
+- A refusal inside a handshake ends it with a fatal `internal_error` (RFC 9846 6.2), except where
+  the engine absorbs it (a session ticket that is not issued) and the resolver refusals described
+  above, which reach the client as `unrecognized_name` or `handshake_failure`.
 
 ---
 
@@ -180,17 +198,17 @@ OS verifier, and so must a server's client chain.
   which any host class can list. The OS verifier source is in the module and gives no finding. The
   built-in verifier is portable PKIX, a platform fact: `ChainVerifiedOutsideModule`. Anything else
   (an instance verifier, a host source, a host class that lists `ISystemVerifierSource`) is
-  `CustomVerifierConfigured`, a configuration finding that Admit refuses in both modes; use the OS
-  verifier source.
-
+  `CustomVerifierConfigured`, a configuration finding that Admit refuses in both modes whatever the
+  rules say; use the OS verifier source. A chain engine the host supplies and wraps in the OS
+  verifier source is outside what the policy sees: that is deliberate forgery.
 - **Named groups.** A group carries the key-agreement provider it was built over, so a code in the
   rules is not enough: every group in the config, and every preferred group the config resolves,
-  must be an object of `Policy.NamedGroups`. Any other group is `ForeignNamedGroup`, even one built
-  over the policy's crypto provider. The facade already uses them; to change the set, start from
-  `Policy.NamedGroups.ToBuilder` and prune.
+  must be an object of `Policy.NamedGroups`. Any other group with an allowed code is
+  `ForeignNamedGroup`, even one built over the policy's crypto provider. The facade already uses
+  them; to change the set, start from `Policy.NamedGroups.ToBuilder` and prune.
 - **Cipher suites.** A suite must be the catalog definition of its code, so a hand-built record
-  that reuses an allowed code with any other field is `CipherSuiteDiffersFromCatalog`; a code the
-  rules do not list is `CipherSuiteNotAllowed`.
+  that reuses an allowed code with any field that differs is `CipherSuiteDiffersFromCatalog`; a
+  code the rules do not list is `CipherSuiteNotAllowed`.
 - **Encrypted Client Hello keys.** Rules that allow ECH do not cover the keys of a server that
   holds them, which the policy does not inspect: such a server is `EchKeysUnattributed`, a
   configuration finding. A server in the rules that refuse ECH (both presets) is `EchConfigured`.
@@ -302,7 +320,8 @@ allow it. A base provider whose HPKE is the default composition is rebuilt over 
 primitives, so it runs in the module like everything else. A foreign HPKE is wrapped: in relaxed
 mode it keeps only the KEMs whose group the rules allow and the AEADs the rules allow (hashes are
 not filtered), and in strict mode it refuses everything, because where it runs cannot be known. A
-foreign HPKE also produces a platform finding when the rules allow ECH.
+foreign HPKE also produces a platform finding when the rules allow ECH. Rules that allow ECH also
+leave the providers behind an ECH key store or client unchecked; see the ECH keys bullet above.
 
 ---
 
@@ -320,10 +339,10 @@ posture of Off is disclosed. A server reports these only when it requests client
 ## Limits
 
 - Skipping `Admit` loses the non-crypto checks.
-- Every honest misconfiguration through the public API is found. Deliberate forgery by code in the
-  same process, such as fake config or registry objects or a stateful lying registry, is out of
-  scope, as in comparable TLS libraries. A marker interface, a resolver that lists credentials or
-  a verifier source that claims the OS is not taken at its word: the policy checks the class.
+- Admit finds misconfigurations made through the public API, except those listed here. Code in
+  the same process that forges config, registry or group objects, or hands the OS verifier source
+  a chain engine of its own, is out of scope. A marker interface, a resolver that lists credentials
+  or a verifier source that claims the OS is not taken at its word: the policy checks the class.
 - Chains are verified by the OS verifier. A private CA does not need to be installed in the OS
   store: pass it as `TSystemTrustRoots.OsAndHostRoots(Store)` (trusted with the OS roots) or
   `TSystemTrustRoots.HostRoots(Store)` (trusted alone; the OS roots never vouch). Strict mode has
@@ -333,12 +352,11 @@ posture of Off is disclosed. A server reports these only when it requests client
 - The module table is shipped data and needs an update per Windows release; the sunset date is
   reported, not enforced.
 - The legacy FIPS policy flag is read and reported only.
-- The module is identified by the OS facts above, not by its signature or its self-test state;
-  the OS exposes neither to a program.
+- The module is identified by the OS facts above, read once when the attestation is created, not
+  by its signature or its self-test state; the OS exposes neither to a program.
 - A base provider with its own HPKE composition is wrapped, not trusted: see HPKE above.
-- Ticket keys a host installs and random generators a caller supplies are outside what the policy
-  can inspect; a fleet is disclosed. Shared resumption state is kept apart by the policy scope, which
-  a host can copy onto a config the policy never admitted.
+- Ticket keys a host installs are outside what the policy can inspect; a fleet is disclosed. Shared resumption state is kept apart by the policy scope,
+  which a host can copy onto a config the policy never admitted.
 
 ---
 
@@ -351,15 +369,15 @@ breaking it. The sample is the report of `Evaluate` over a client config.
 ```
 Verdict: NotCompliant (Relaxed)
 Preset: Fips140_3
-Module: Windows 10.0.19045.n Windows 10 22H2 product type 1 bcryptprimitives.dll n.n.n.n C:\Windows\system32\bcryptprimitives.dll machine 0x8664 legacy FIPS policy Disabled, status NotValidated
+Module: Windows 10.0.19045.n Windows 10 22H2 edition Core product type 1 firmware UEFI bcryptprimitives.dll n.n.n.n C:\Windows\system32\bcryptprimitives.dll machine 0x8664 legacy FIPS policy Disabled, status NotValidated
 Finding: ModuleNotValidated 10.0.19045.n: Windows 10.0.19045.n: the shipped table records no validated module for this build
 Disclosure: the TLS key derivations are composed outside the module over its HMAC
 Disclosure: a peer chain is held to the RSA size range, not to the exact sizes of the rules
 ```
 
-The module line gives the OS, product type, module file version, the listed version (validated
-releases only), the loaded path, the native machine (`0x8664` is x64; the process machine follows
-when it is not native) and the legacy FIPS policy. The finding carries the reason the status is not
+The module line gives the OS, edition, product type, firmware, module file version, the listed
+version (validated releases only), the loaded path, the native machine (`0x8664` is x64; the
+process machine follows when it is not native) and the legacy FIPS policy. The finding carries the reason the status is not
 Validated, for example `the process is 32-bit; the certificate covers the 64-bit module only`. On a
 validated release whose revision differs from the listed one the report adds
 `Disclosure: the module file version 10.0.20348.2113 differs from the 10.0.20348.30000 the

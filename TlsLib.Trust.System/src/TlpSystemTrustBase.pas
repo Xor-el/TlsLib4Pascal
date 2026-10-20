@@ -73,7 +73,7 @@ type
   /// revocation source. DnsIdentity: it matches a DNS host itself, so the host is withheld when the
   /// name check is off; the library matches the SAN identity (SAN-only, RFC 9525) regardless, for
   /// both DnsIdentity and chain-only engines. NativeAnchorUnion: one server evaluation trusts
-  /// ExtraAnchors beside the platform's own roots; without it the delegate retries a no-trust-anchor
+  /// ExtraAnchors with the platform's own roots; without it the delegate retries a no-trust-anchor
   /// failure with the host roots as the exclusive root. ExclusiveServerAnchors: the server evaluation
   /// honours Anchors as its exclusive root, so host roots can be retried there or trusted alone; a
   /// server request with Anchors is refused on an engine without it.</summary>
@@ -90,9 +90,9 @@ type
   /// <summary>One platform chain evaluation. Chain is the peer chain (leaf first, DER). Anchors is the
   /// exclusive trust root: a client-certificate evaluation, a HostRoots server source, the
   /// live re-check of a client config that trusts its store roots (WebPki), or the retry with the
-  /// host roots alone (empty on the other server paths, where the OS roots apply). Intermediates are the
-  /// configured extra certificates, offered to path building as untrusted candidates beside the
-  /// presented chain. ExtraAnchors are host roots trusted with the OS roots on the server path
+  /// host roots alone (empty on the other server paths, where the OS roots apply). Intermediates
+  /// are the configured extra certificates, offered to path building as untrusted candidates
+  /// beside the presented chain. ExtraAnchors are host roots trusted with the OS roots on the server path
   /// (read only by an engine with the NativeAnchorUnion capability; ignored when Anchors is set).
   /// ServerName is the server-path identity (the engine reads AsDns or ToString as its platform
   /// requires; empty on the client path). OcspStaple is consumed as cached revocation data where

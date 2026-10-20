@@ -80,7 +80,8 @@ type
     /// Give it to WithResumptionScope on a server, or on a client that holds a session cache; a
     /// config whose scope lacks the prefix is a ResumptionStateUnchecked finding. A store, cache
     /// or ticket key shared with a config that has another scope never resumes across the two.
-    /// Use one value per config, or one shared value for configs that trust identically.</summary>
+    /// Use one value per config, or one shared value for configs that trust identically, each
+    /// admitted by this policy.</summary>
     function SessionScope: TBytes;
     /// <summary>Default session-ticket keys minted from the policy crypto provider's random
     /// generator, rotating on ALifetimeSeconds, for WithSessionTicketKeys. Only keys the policy

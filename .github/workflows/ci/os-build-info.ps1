@@ -15,9 +15,23 @@ try {
   $osArch = "n/a (PROCESSOR_ARCHITEW6432=$($env:PROCESSOR_ARCHITEW6432))"
   $procArch = "n/a (PROCESSOR_ARCHITECTURE=$($env:PROCESSOR_ARCHITECTURE))"
 }
+$firmware = 'n/a'
+try {
+  Add-Type -Namespace TlsLibCi -Name Firmware -MemberDefinition `
+    '[DllImport("kernel32.dll")] public static extern bool GetFirmwareType(out uint type);'
+  $type = [uint32]0
+  if ([TlsLibCi.Firmware]::GetFirmwareType([ref]$type)) {
+    $firmware = @{ 1 = 'BIOS'; 2 = 'UEFI' }[[int]$type]
+    if (-not $firmware) { $firmware = "other ($type)" }
+  }
+} catch {
+  $firmware = 'n/a (no firmware query)'
+}
 $lines = @(
   "OSVersion: $version",
   "ProductName: $($key.ProductName)",
+  "EditionID: $($key.EditionID)",
+  "Firmware: $firmware",
   "CurrentBuild: $($key.CurrentBuild)",
   "UBR: $($key.UBR)",
   "DisplayVersion: $($key.DisplayVersion)",

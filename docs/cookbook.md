@@ -160,7 +160,8 @@ must be thread-safe and must not do network I/O.
 
 A resolver that can list every credential it may select also implements `ITlsServerCredentialSet`
 (unit `TlpITlsServerCredentialSet`), as the built-in SNI resolver does; one that builds its
-credential per handshake leaves it out.
+credential per handshake leaves it out. The set hands every credential, private key handle
+included, to any code that holds the frozen config.
 
 A chain with a certificate (other than a self-issued one) signed with MD5, or with SHA-1 the client
 did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3), independent of
@@ -1024,9 +1025,9 @@ key, so a server accepts a narrowed registry only together with `WithPeerAuth`.
 
 ## Run under a FIPS or CNSA policy
 
-The optional `TlsLib.Compliance` package routes every crypto operation to the OS cryptographic
-module and refuses the rest. `Strict` raises when the platform is not a validated build;
-`Relaxed` reports instead. Load the credential through `Policy.Crypto`, and build through
+The optional `TlsLib.Compliance` package runs the negotiated cryptography in the OS cryptographic
+module and refuses what the rules do not allow. `Strict` raises when the platform is not a
+validated build; `Relaxed` reports instead. Load the credential through `Policy.Crypto`, and build through
 `TComplianceTls` so the frozen config is checked by `Admit`. What this claims, and what it does not,
 is in [compliance.md](compliance.md).
 

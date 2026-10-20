@@ -3,8 +3,8 @@
 # section reference, or an implementation name-drop describing our own behaviour. A fast CI
 # guard so the lean-comment conventions do not regress.
 #
-# Scope: the production source - TlsLib/src, the OS-trust, OS-crypto, Net, bundled-trust and
-# tool packages, and the four adapter units. The interop and benchmark trees are deliberately
+# Scope: the production source - TlsLib/src, the OS-trust, OS-crypto, compliance, Net,
+# bundled-trust and tool packages, and the four adapter units. The interop and benchmark trees are deliberately
 # excluded: there the OpenSSL / BoGo peer is the test subject, not a description of our own
 # behaviour. Backend/host-framework names are handled per-pattern (OpenSSL is fine in an
 # adapter, which bridges it; CryptoLib is fine as a code identifier in a provider unit, but not

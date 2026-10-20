@@ -23,7 +23,7 @@ type
   /// verifier's class.
   /// </summary>
   ISystemSignatureVerifier = interface(IInterface)
-    ['{B7A3C1D4-6E52-4F08-9A1B-3D84E0F2C617}']
+    ['{D6258B91-347C-454D-9CF6-1831CB44C90D}']
   end;
 
 implementation

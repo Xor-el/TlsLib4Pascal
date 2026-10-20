@@ -26,8 +26,9 @@ type
   /// strength policy, staple and identity post-checks are applied by the delegate that owns it.
   /// Both methods return True when the platform built and trusted a path (AResult filled; the
   /// revocation question is answered by AResult.Outcome), and False with AAlert on a definitive
-  /// non-revocation failure (untrusted root, expiry, wrong usage, name mismatch, a platform runtime that is not
-  /// ready - internal_error). Fail-closed: an engine never accepts what the platform rejected.
+  /// non-revocation failure (untrusted root, expiry, wrong usage, name mismatch, a platform runtime
+  /// that is not ready - internal_error). Fail-closed: an engine never accepts what the platform
+  /// rejected.
   /// Instances are stateless and reusable across connections and threads.
   /// </summary>
   IPlatformChainEngine = interface(IInterface)

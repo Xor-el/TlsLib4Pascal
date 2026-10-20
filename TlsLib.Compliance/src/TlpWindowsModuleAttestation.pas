@@ -22,7 +22,8 @@ uses
   SysUtils,
   TlpDynamicLibrary,
   TlpComplianceTypes,
-  TlpIModuleAttestation;
+  TlpIModuleAttestation,
+  TlpWindowsModuleDecision;
 
 type
   TRtlOsVersionInfoW = record
@@ -31,14 +32,6 @@ type
     wServicePackMajor, wServicePackMinor, wSuiteMask: Word;
     wProductType, wReserved: Byte;
   end;
-
-  TVsFixedFileInfo = record
-    dwSignature, dwStrucVersion, dwFileVersionMS, dwFileVersionLS, dwProductVersionMS,
-      dwProductVersionLS, dwFileFlagsMask, dwFileFlags, dwFileOS, dwFileType, dwFileSubtype,
-      dwFileDateMS, dwFileDateLS: DWORD;
-  end;
-
-  PVsFixedFileInfo = ^TVsFixedFileInfo;
 
   TRtlGetVersion = function(var AInfo: TRtlOsVersionInfoW): Int32; stdcall;
   TGetFileVersionInfoSizeW = function(AFileName: PWideChar; var AHandle: DWORD): DWORD; stdcall;
@@ -49,56 +42,15 @@ type
   TBCryptGetFipsAlgorithmMode = function(out AEnabled: ByteBool): Int32; stdcall;
   TIsWow64Process2 = function(AProcess: THandle; out AProcessMachine,
     ANativeMachine: Word): BOOL; stdcall;
-
-  /// <summary>One row of the shipped validated-module table. Standard, Level, the dates, the
-  /// product types and the listed module version mean something only when Validated.</summary>
-  TWindowsModuleEntry = record
-    Build: UInt32;
-    Product: string;
-    Certificate: string;
-    Validated: Boolean;
-    Standard: TModuleStandard;
-    Level: UInt32;
-    /// <summary>Validation and sunset dates, ISO 8601.</summary>
-    ValidatedOn: string;
-    Sunset: string;
-    /// <summary>The OS product types the certificate was issued for.</summary>
-    ProductTypes: set of Byte;
-    /// <summary>The module file version the certificate lists.</summary>
-    ListedVersion: string;
-  end;
-
-  /// <summary>Everything the decision reads. The Read flags say whether a fact could be
-  /// obtained; a fact that was not read decides nothing but Unknown.</summary>
-  TWindowsModuleFacts = record
-    OsRead: Boolean;
-    Major: UInt32;
-    Minor: UInt32;
-    Build: UInt32;
-    PlatformId: UInt32;
-    Revision: UInt32;
-    ProductType: Byte;
-    Process64Bit: Boolean;
-    MachineRead: Boolean;
-    ProcessMachine: UInt16;
-    NativeMachine: UInt16;
-    PathRead: Boolean;
-    ModulePath: WideString;
-    SystemModulePath: WideString;
-    VersionRead: Boolean;
-    ModuleMajor: UInt16;
-    ModuleMinor: UInt16;
-    ModuleBuild: UInt16;
-    ModuleRevision: UInt16;
-    LegacyFipsPolicy: TLegacyFipsPolicy;
-  end;
+  TGetFirmwareType = function(out AType: UInt32): BOOL; stdcall;
 
   /// <summary>
-  /// Attests the OS cryptographic module. The status is validated only for a listed release
-  /// run as a native 64-bit x64 process with the system copy of the module at that release's
-  /// build; every other combination is NotValidated and a fact that cannot be read is Unknown.
-  /// The update revision and the legacy FIPS switch are reported but never decide the status.
-  /// Facts are read once at construction.
+  /// Attests the OS cryptographic module from facts read once at construction: the status is
+  /// the decision of TWindowsModuleDecision over them, so a later change to the process or the
+  /// machine is not seen. The facts come from the OS version query, the process, the firmware
+  /// kind and the module file on disk, not from the image in memory; code that alters any of them
+  /// inside the process is out of scope. The update revision, the edition and the legacy FIPS
+  /// switch are reported but never decide the status.
   /// </summary>
   TWindowsModuleAttestation = class sealed(TInterfacedObject, IModuleAttestation)
   strict private
@@ -107,28 +59,21 @@ type
     FIdentity: TModuleIdentity;
     FEntry: TWindowsModuleEntry;
     class function ReadOs(var AFacts: TWindowsModuleFacts): Boolean; static;
-    class function ReadRevision: UInt32; static;
+    class procedure ReadRegistry(var AFacts: TWindowsModuleFacts); static;
     class function ReadMachines(out AProcessMachine, ANativeMachine: Word): Boolean; static;
+    class function ReadFirmware(out AType: UInt32): Boolean; static;
     class function ReadSystemPath: WideString; static;
-    class function ReadLoadedPath(out APath: WideString): Boolean; static;
-    class function ReadModuleVersion(const APath: WideString;
-      var AFacts: TWindowsModuleFacts): Boolean; static;
+    class function ReadLoadedPath(var AFacts: TWindowsModuleFacts): Boolean; static;
+    class function ReadModuleVersion(var AFacts: TWindowsModuleFacts): Boolean; static;
     class function ReadLegacyPolicy: TLegacyFipsPolicy; static;
-    // the reason of the first fact that contradicts validation, else empty
-    class function Mismatch(const AFacts: TWindowsModuleFacts;
-      AStandard: TModuleStandard): string; static;
-    // the reason of the first fact the decision needs and could not be read, else empty
-    class function Unreadable(const AFacts: TWindowsModuleFacts): string; static;
     procedure Apply(const AFacts: TWindowsModuleFacts);
   public
-    /// <summary>The shipped validated-module table, matched on the OS build alone.</summary>
-    class function Lookup(ABuild: UInt32; out AEntry: TWindowsModuleEntry): Boolean; static;
+    /// <summary>Reads the four numbers a file version string starts with into the module
+    /// version facts; False, leaving them alone, for any other text.</summary>
+    class function ParseFileVersion(const AText: WideString;
+      var AFacts: TWindowsModuleFacts): Boolean; static;
     /// <summary>Reads the facts of this process and machine.</summary>
     class function Gather: TWindowsModuleFacts; static;
-    /// <summary>The status the facts give for AStandard, and the reason when it is not
-    /// Validated.</summary>
-    class function Decide(const AFacts: TWindowsModuleFacts; AStandard: TModuleStandard;
-      out AReason: string): TModuleStatus; static;
     constructor Create;
     /// <summary>Attests the given facts instead of the ones this process reads.</summary>
     constructor CreateFromFacts(const AFacts: TWindowsModuleFacts);
@@ -146,82 +91,16 @@ implementation
 resourcestring
   SValidatedModule = '%s %s: %s, CMVP certificate %s, %s Level %d, validated %s, sunset %s';
   SNotValidatedModule = '%s %s: %s';
-  SUnreadableBuild = 'the OS build could not be read';
-  SNotNtTen = 'the OS is %d.%d (platform %d), not a Windows NT 10.0 release';
-  SNoValidatedBuild = 'the shipped table records no validated module for this build';
-  SProductTypeNotCovered = 'the OS product type %d is not one the certificate covers for build %d';
-  SProcess32Bit = 'the process is 32-bit; the certificate covers the 64-bit module only';
-  SProcessEmulated = 'the process runs under emulation (process machine 0x%.4x); the certificate ' +
-    'covers a native x64 process';
-  SNativeNotX64 = 'the native machine is 0x%.4x, not x64; the certificate covers x64 hardware';
-  SModuleNotSystemCopy = 'the loaded module is %s, not the system copy %s';
-  SModuleBuildMismatch = 'the module file version is %d.%d.%d.%d, not 10.0.%d';
-  SMachineUnreadable = 'the process and machine architectures could not be read';
-  SModulePathUnreadable = 'the path of the loaded module could not be read';
-  SModuleVersionUnreadable = 'the file version of the loaded module could not be read';
 
 const
   ModuleFileName = 'bcryptprimitives.dll';
-  NtMajor = 10;
-  NtMinor = 0;
-  NtPlatformId = 2;
-  MachineAmd64 = $8664;
-  ProductWorkstation = 1;
-  ProductDomainController = 2;
-  ProductServer = 3;
-  ValidatedCertificate = '5410';
-  CertificateValidatedOn = '2026-08-31';
-  CertificateSunset = '2031-08-30';
+  FirmwareUnknown = 0;
   VersionKey = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion';
   RevisionValue = 'UBR';
+  EditionValue = 'EditionID';
+  EditionChars = 64;
 
 { TWindowsModuleAttestation }
-
-class function TWindowsModuleAttestation.Lookup(ABuild: UInt32;
-  out AEntry: TWindowsModuleEntry): Boolean;
-const
-  Table: array [0 .. 8] of TWindowsModuleEntry = (
-    (Build: 22621; Product: 'Windows 11 22H2'; Certificate: ValidatedCertificate;
-    Validated: True; Standard: TModuleStandard.Fips140_3; Level: 1;
-    ValidatedOn: CertificateValidatedOn; Sunset: CertificateSunset;
-    ProductTypes: [ProductWorkstation]; ListedVersion: '10.0.22621.30001'),
-    (Build: 20348; Product: 'Windows Server 2022'; Certificate: ValidatedCertificate;
-    Validated: True; Standard: TModuleStandard.Fips140_3; Level: 1;
-    ValidatedOn: CertificateValidatedOn; Sunset: CertificateSunset;
-    ProductTypes: [ProductDomainController, ProductServer]; ListedVersion: '10.0.20348.30000'),
-    (Build: 22631; Product: 'Windows 11 23H2'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
-    ProductTypes: []; ListedVersion: ''),
-    (Build: 26100; Product: 'Windows 11 24H2 / Server 2025'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
-    ProductTypes: []; ListedVersion: ''),
-    (Build: 26200; Product: 'Windows 11 25H2'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
-    ProductTypes: []; ListedVersion: ''),
-    (Build: 19045; Product: 'Windows 10 22H2'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
-    ProductTypes: []; ListedVersion: ''),
-    (Build: 19044; Product: 'Windows 10 21H2'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
-    ProductTypes: []; ListedVersion: ''),
-    (Build: 17763; Product: 'Windows 10 1809 / Server 2019'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
-    ProductTypes: []; ListedVersion: ''),
-    (Build: 14393; Product: 'Windows 10 1607 / Server 2016'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
-    ProductTypes: []; ListedVersion: ''));
-var
-  LI: Int32;
-begin
-  AEntry := Default(TWindowsModuleEntry);
-  Result := False;
-  for LI := Low(Table) to High(Table) do
-    if Table[LI].Build = ABuild then
-    begin
-      AEntry := Table[LI];
-      Exit(True);
-    end;
-end;
 
 class function TWindowsModuleAttestation.ReadOs(var AFacts: TWindowsModuleFacts): Boolean;
 var
@@ -234,7 +113,7 @@ begin
   if LModule = 0 then
     Exit;
   try
-    // unlike the compatibility-shimmed query, this reports the true build
+    // not subject to the manifest-based version shim of the Win32 version query
     LGetVersion := TRtlGetVersion(TDynamicLibrary.Resolve(LModule, 'RtlGetVersion'));
     if not Assigned(LGetVersion) then
       Exit;
@@ -276,6 +155,27 @@ begin
   end;
 end;
 
+class function TWindowsModuleAttestation.ReadFirmware(out AType: UInt32): Boolean;
+var
+  LModule: NativeUInt;
+  LGetFirmwareType: TGetFirmwareType;
+begin
+  AType := FirmwareUnknown;
+  Result := False;
+  LModule := TDynamicLibrary.Open('kernel32.dll');
+  if LModule = 0 then
+    Exit;
+  try
+    // Windows 8 and later; the validated releases all have it
+    LGetFirmwareType := TGetFirmwareType(TDynamicLibrary.Resolve(LModule, 'GetFirmwareType'));
+    if not Assigned(LGetFirmwareType) then
+      Exit;
+    Result := LGetFirmwareType(AType) and (AType <> FirmwareUnknown);
+  finally
+    TDynamicLibrary.Close(LModule);
+  end;
+end;
+
 class function TWindowsModuleAttestation.ReadSystemPath: WideString;
 var
   LDirectory: array [0 .. MAX_PATH] of WideChar;
@@ -287,7 +187,8 @@ begin
     Result := WideString(PWideChar(@LDirectory[0])) + '\' + ModuleFileName;
 end;
 
-class function TWindowsModuleAttestation.ReadLoadedPath(out APath: WideString): Boolean;
+class function TWindowsModuleAttestation.ReadLoadedPath(
+  var AFacts: TWindowsModuleFacts): Boolean;
 var
   LHandle: NativeUInt;
   LLoaded: Boolean;
@@ -295,7 +196,8 @@ var
   LBuffer: array [0 .. MAX_PATH] of WideChar;
   LLength: DWORD;
 begin
-  APath := '';
+  AFacts.ModulePath := '';
+  AFacts.SystemCopy := False;
   Result := False;
   LName := ModuleFileName;
   LHandle := NativeUInt(GetModuleHandleW(PWideChar(LName)));
@@ -311,40 +213,89 @@ begin
     LLength := GetModuleFileNameW(HMODULE(LHandle), @LBuffer[0], Length(LBuffer));
     if (LLength > 0) and (LLength < DWORD(Length(LBuffer))) then
     begin
-      APath := WideString(PWideChar(@LBuffer[0]));
+      AFacts.ModulePath := WideString(PWideChar(@LBuffer[0]));
       Result := True;
     end;
+    // the loader resolves a full path to the module loaded from it, whatever the spelling of
+    // case or directory, so one handle for both names is the system copy
+    AFacts.SystemCopy := (AFacts.SystemModulePath <> '') and
+      (NativeUInt(GetModuleHandleW(PWideChar(AFacts.SystemModulePath))) = LHandle);
   finally
     if LLoaded then
       TDynamicLibrary.Close(LHandle);
   end;
 end;
 
-class function TWindowsModuleAttestation.ReadRevision: UInt32;
+class procedure TWindowsModuleAttestation.ReadRegistry(var AFacts: TWindowsModuleFacts);
 var
   LKey: HKEY;
   LSubKey, LName: WideString;
   LType, LValue, LSize: DWORD;
+  LEdition: array [0 .. EditionChars] of WideChar;
 begin
-  Result := 0;
   LSubKey := VersionKey;
-  LName := RevisionValue;
   if RegOpenKeyExW(HKEY_LOCAL_MACHINE, PWideChar(LSubKey), 0,
     KEY_QUERY_VALUE or KEY_WOW64_64KEY, LKey) <> ERROR_SUCCESS then
     Exit;
   try
+    LName := RevisionValue;
     LType := 0;
     LValue := 0;
     LSize := SizeOf(LValue);
     if (RegQueryValueExW(LKey, PWideChar(LName), nil, @LType, PByte(@LValue), @LSize) =
       ERROR_SUCCESS) and (LType = REG_DWORD) then
-      Result := LValue;
+      AFacts.Revision := LValue;
+    LName := EditionValue;
+    LType := 0;
+    FillChar(LEdition, SizeOf(LEdition), 0);
+    LSize := EditionChars * SizeOf(WideChar);
+    if (RegQueryValueExW(LKey, PWideChar(LName), nil, @LType, PByte(@LEdition[0]), @LSize) =
+      ERROR_SUCCESS) and (LType = REG_SZ) then
+      AFacts.Edition := WideString(PWideChar(@LEdition[0]));
   finally
     RegCloseKey(LKey);
   end;
 end;
 
-class function TWindowsModuleAttestation.ReadModuleVersion(const APath: WideString;
+class function TWindowsModuleAttestation.ParseFileVersion(const AText: WideString;
+  var AFacts: TWindowsModuleFacts): Boolean;
+var
+  LParts: array [0 .. 3] of UInt32;
+  LPart, LI: Int32;
+  LDigits: Boolean;
+begin
+  Result := False;
+  LPart := 0;
+  LDigits := False;
+  LParts[0] := 0;
+  for LI := 1 to Length(AText) do
+  begin
+    if (AText[LI] >= '0') and (AText[LI] <= '9') then
+    begin
+      LParts[LPart] := LParts[LPart] * 10 + UInt32(Ord(AText[LI]) - Ord('0'));
+      if LParts[LPart] > $FFFF then
+        Exit;
+      LDigits := True;
+    end
+    else if (AText[LI] = '.') and LDigits and (LPart < 3) then
+    begin
+      Inc(LPart);
+      LParts[LPart] := 0;
+      LDigits := False;
+    end
+    else
+      Break;
+  end;
+  if (LPart <> 3) or not LDigits then
+    Exit;
+  AFacts.ModuleMajor := UInt16(LParts[0]);
+  AFacts.ModuleMinor := UInt16(LParts[1]);
+  AFacts.ModuleBuild := UInt16(LParts[2]);
+  AFacts.ModuleRevision := UInt16(LParts[3]);
+  Result := True;
+end;
+
+class function TWindowsModuleAttestation.ReadModuleVersion(
   var AFacts: TWindowsModuleFacts): Boolean;
 var
   LModule: NativeUInt;
@@ -355,8 +306,8 @@ var
   LData: TBytes;
   LBuffer: Pointer;
   LLength: UINT;
-  LRoot: WideString;
-  LInfo: PVsFixedFileInfo;
+  LSubBlock: WideString;
+  LTranslation: PDWORD;
 begin
   Result := False;
   LModule := TDynamicLibrary.Open('version.dll');
@@ -370,25 +321,31 @@ begin
     if not (Assigned(LGetSize) and Assigned(LGetInfo) and Assigned(LQuery)) then
       Exit;
     LHandle := 0;
-    LSize := LGetSize(PWideChar(APath), LHandle);
+    LSize := LGetSize(PWideChar(AFacts.ModulePath), LHandle);
     if LSize = 0 then
       Exit;
     SetLength(LData, LSize);
-    if not LGetInfo(PWideChar(APath), 0, LSize, @LData[0]) then
+    if not LGetInfo(PWideChar(AFacts.ModulePath), 0, LSize, @LData[0]) then
       Exit;
-    LRoot := '\';
+    // the fixed numeric version of a system file reads 6.2 to a process without a Windows 10
+    // manifest, so the version string, which is not shimmed, is the source
+    LSubBlock := '\VarFileInfo\Translation';
     LBuffer := nil;
     LLength := 0;
-    if not LQuery(@LData[0], PWideChar(LRoot), LBuffer, LLength) then
+    if not LQuery(@LData[0], PWideChar(LSubBlock), LBuffer, LLength) then
       Exit;
-    if (LBuffer = nil) or (LLength < SizeOf(TVsFixedFileInfo)) then
+    if (LBuffer = nil) or (LLength < SizeOf(DWORD)) then
       Exit;
-    LInfo := PVsFixedFileInfo(LBuffer);
-    AFacts.ModuleMajor := UInt16(LInfo^.dwFileVersionMS shr 16);
-    AFacts.ModuleMinor := UInt16(LInfo^.dwFileVersionMS and $FFFF);
-    AFacts.ModuleBuild := UInt16(LInfo^.dwFileVersionLS shr 16);
-    AFacts.ModuleRevision := UInt16(LInfo^.dwFileVersionLS and $FFFF);
-    Result := True;
+    LTranslation := PDWORD(LBuffer);
+    LSubBlock := WideString(Format('\StringFileInfo\%.4x%.4x\FileVersion',
+      [LTranslation^ and $FFFF, LTranslation^ shr 16]));
+    LBuffer := nil;
+    LLength := 0;
+    if not LQuery(@LData[0], PWideChar(LSubBlock), LBuffer, LLength) then
+      Exit;
+    if LBuffer = nil then
+      Exit;
+    Result := ParseFileVersion(WideString(PWideChar(LBuffer)), AFacts);
   finally
     TDynamicLibrary.Close(LModule);
   end;
@@ -427,72 +384,14 @@ begin
   Result.LegacyFipsPolicy := ReadLegacyPolicy;
   Result.OsRead := ReadOs(Result);
   if Result.OsRead then
-    Result.Revision := ReadRevision;
+    ReadRegistry(Result);
   Result.Process64Bit := SizeOf(Pointer) = 8;
   Result.MachineRead := ReadMachines(Result.ProcessMachine, Result.NativeMachine);
+  Result.FirmwareRead := ReadFirmware(Result.FirmwareType);
   Result.SystemModulePath := ReadSystemPath;
-  Result.PathRead := (Result.SystemModulePath <> '') and
-    ReadLoadedPath(Result.ModulePath);
+  Result.PathRead := ReadLoadedPath(Result);
   if Result.PathRead then
-    Result.VersionRead := ReadModuleVersion(Result.ModulePath, Result);
-end;
-
-class function TWindowsModuleAttestation.Mismatch(const AFacts: TWindowsModuleFacts;
-  AStandard: TModuleStandard): string;
-var
-  LEntry: TWindowsModuleEntry;
-  LListed: Boolean;
-begin
-  Result := '';
-  if (AFacts.Major <> NtMajor) or (AFacts.Minor <> NtMinor) or
-    (AFacts.PlatformId <> NtPlatformId) then
-    Exit(Format(SNotNtTen, [AFacts.Major, AFacts.Minor, AFacts.PlatformId]));
-  LListed := Lookup(AFacts.Build, LEntry);
-  if not LListed or not LEntry.Validated or (LEntry.Standard <> AStandard) then
-    Exit(SNoValidatedBuild);
-  if not (AFacts.ProductType in LEntry.ProductTypes) then
-    Exit(Format(SProductTypeNotCovered, [AFacts.ProductType, AFacts.Build]));
-  if not AFacts.Process64Bit then
-    Exit(SProcess32Bit);
-  if AFacts.ProcessMachine <> 0 then
-    Exit(Format(SProcessEmulated, [AFacts.ProcessMachine]));
-  if AFacts.MachineRead and (AFacts.NativeMachine <> MachineAmd64) then
-    Exit(Format(SNativeNotX64, [AFacts.NativeMachine]));
-  if AFacts.PathRead and not WideSameText(AFacts.ModulePath, AFacts.SystemModulePath) then
-    Exit(Format(SModuleNotSystemCopy, [string(AFacts.ModulePath),
-      string(AFacts.SystemModulePath)]));
-  if AFacts.VersionRead and ((AFacts.ModuleMajor <> NtMajor) or
-    (AFacts.ModuleMinor <> NtMinor) or (AFacts.ModuleBuild <> AFacts.Build)) then
-    Exit(Format(SModuleBuildMismatch, [AFacts.ModuleMajor, AFacts.ModuleMinor,
-      AFacts.ModuleBuild, AFacts.ModuleRevision, AFacts.Build]));
-end;
-
-class function TWindowsModuleAttestation.Unreadable(const AFacts: TWindowsModuleFacts): string;
-begin
-  Result := '';
-  if not AFacts.MachineRead then
-    Exit(SMachineUnreadable);
-  if not AFacts.PathRead then
-    Exit(SModulePathUnreadable);
-  if not AFacts.VersionRead then
-    Exit(SModuleVersionUnreadable);
-end;
-
-class function TWindowsModuleAttestation.Decide(const AFacts: TWindowsModuleFacts;
-  AStandard: TModuleStandard; out AReason: string): TModuleStatus;
-begin
-  if not AFacts.OsRead then
-  begin
-    AReason := SUnreadableBuild;
-    Exit(TModuleStatus.Unknown);
-  end;
-  AReason := Mismatch(AFacts, AStandard);
-  if AReason <> '' then
-    Exit(TModuleStatus.NotValidated);
-  AReason := Unreadable(AFacts);
-  if AReason <> '' then
-    Exit(TModuleStatus.Unknown);
-  Result := TModuleStatus.Validated;
+    Result.VersionRead := ReadModuleVersion(Result);
 end;
 
 procedure TWindowsModuleAttestation.Apply(const AFacts: TWindowsModuleFacts);
@@ -503,6 +402,14 @@ begin
   FIdentity.OsName := 'Windows';
   FIdentity.ModuleName := ModuleFileName;
   FIdentity.LegacyFipsPolicy := AFacts.LegacyFipsPolicy;
+  FIdentity.ProcessMachine := AFacts.ProcessMachine;
+  FIdentity.NativeMachine := AFacts.NativeMachine;
+  FIdentity.ModulePath := string(AFacts.ModulePath);
+  if AFacts.FirmwareRead then
+    FIdentity.Firmware := TWindowsModuleDecision.FirmwareName(AFacts.FirmwareType);
+  if AFacts.VersionRead then
+    FIdentity.ModuleFileVersion := Format('%d.%d.%d.%d', [AFacts.ModuleMajor,
+      AFacts.ModuleMinor, AFacts.ModuleBuild, AFacts.ModuleRevision]);
   if not AFacts.OsRead then
     Exit;
   FIdentity.OsBuild := AFacts.Build;
@@ -510,13 +417,8 @@ begin
   FIdentity.OsVersion := Format('%d.%d.%d.%d', [AFacts.Major, AFacts.Minor, AFacts.Build,
     AFacts.Revision]);
   FIdentity.ProductType := AFacts.ProductType;
-  FIdentity.ProcessMachine := AFacts.ProcessMachine;
-  FIdentity.NativeMachine := AFacts.NativeMachine;
-  FIdentity.ModulePath := string(AFacts.ModulePath);
-  if AFacts.VersionRead then
-    FIdentity.ModuleFileVersion := Format('%d.%d.%d.%d', [AFacts.ModuleMajor,
-      AFacts.ModuleMinor, AFacts.ModuleBuild, AFacts.ModuleRevision]);
-  if Lookup(AFacts.Build, FEntry) then
+  FIdentity.Edition := AFacts.Edition;
+  if TWindowsModuleDecision.Lookup(AFacts.Build, FEntry) then
   begin
     FIdentity.Product := FEntry.Product;
     FIdentity.Certificate := FEntry.Certificate;
@@ -545,14 +447,15 @@ function TWindowsModuleAttestation.Status(AStandard: TModuleStandard): TModuleSt
 var
   LReason: string;
 begin
-  Result := Decide(FFacts, AStandard, LReason);
+  Result := TWindowsModuleDecision.Decide(FFacts, AStandard, LReason);
 end;
 
 function TWindowsModuleAttestation.Describe: string;
 var
   LReason: string;
 begin
-  if Decide(FFacts, FEntry.Standard, LReason) = TModuleStatus.Validated then
+  if TWindowsModuleDecision.Decide(FFacts, FEntry.Standard, LReason) =
+    TModuleStatus.Validated then
     Result := Format(SValidatedModule, [FIdentity.OsName, FIdentity.OsVersion,
       FIdentity.ModuleName, FIdentity.Certificate,
       TComplianceCatalog.StandardName(FEntry.Standard), FEntry.Level, FEntry.ValidatedOn,

@@ -316,6 +316,7 @@ end;
 function TComplianceSigningCrypto.ImportSigningKey(const AData: TBytes;
   const APassword: ISecretBuffer): ISigningKey;
 begin
+  // the inherited path would decode the PEM and copy the plaintext key before the inner provider
   Result := Admitted(Inner.ImportSigningKey(AData, APassword));
 end;
 

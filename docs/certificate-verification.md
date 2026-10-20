@@ -466,8 +466,8 @@ then aborts the handshake with `certificate_revoked`. This works with both the *
 recover the issuer of a leaf-only client credential) and the **OS-native** delegate on Windows/Apple
 (`TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live)` +
 `TOSSystemTrust.LiveRevocationResolver(serverConfig, nil)` +
-`WithLiveRevocationVerdict(deadlineMs)` on the server builder, since no server facade arms it — see the OS-native subsection above and
-[system-trust.md](system-trust.md)).
+`WithLiveRevocationVerdict(deadlineMs)` on the server builder, since no server facade arms it —
+see the OS-native subsection above and [system-trust.md](system-trust.md)).
 
 ### Time source: one injected clock
 

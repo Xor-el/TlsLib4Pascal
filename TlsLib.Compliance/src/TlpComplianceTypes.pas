@@ -132,6 +132,10 @@ type
     NativeMachine: UInt16;
     /// <summary>The OS product type (workstation, domain controller, server); 0 unread.</summary>
     ProductType: Byte;
+    /// <summary>The OS edition as the OS names it; reported, never decided on.</summary>
+    Edition: string;
+    /// <summary>The firmware kind (for example UEFI); empty when it was not read.</summary>
+    Firmware: string;
     /// <summary>Where the module was loaded from.</summary>
     ModulePath: string;
     /// <summary>The module version the certificate lists for this build; empty when none.</summary>
@@ -189,9 +193,13 @@ resourcestring
   SNoCommonRsaSize = 'the two rule sets share no RSA modulus size';
   SEmptyRsaRange = 'the two rule sets share no RSA modulus range';
   SFips140_3Name = 'FIPS 140-3';
+  SFindingLine = '%s: %s';
+  SFindingSubjectLine = '%s %s: %s';
   SNativeMachinePart = 'machine 0x%.4x';
-  SProcessMachinePart = ' process 0x%.4x';
+  SProcessMachinePart = 'process 0x%.4x';
   SProductTypePart = 'product type %d';
+  SEditionPart = 'edition %s';
+  SFirmwarePart = 'firmware %s';
   SListedVersionPart = 'listed %s';
   SLegacyPolicyPart = 'legacy FIPS policy %s';
 
@@ -402,9 +410,10 @@ end;
 function TComplianceFinding.Describe: string;
 begin
   if Subject = '' then
-    Result := Format('%s: %s', [TEnumUtilities.GetName<TComplianceFindingKind>(Kind), Message])
+    Result := Format(SFindingLine, [TEnumUtilities.GetName<TComplianceFindingKind>(Kind),
+      Message])
   else
-    Result := Format('%s %s: %s', [TEnumUtilities.GetName<TComplianceFindingKind>(Kind),
+    Result := Format(SFindingSubjectLine, [TEnumUtilities.GetName<TComplianceFindingKind>(Kind),
       Subject, Message]);
 end;
 
@@ -414,16 +423,23 @@ function TModuleIdentity.Describe: string;
 var
   LParts: TArray<string>;
   LI: Int32;
-  LMachine, LProductType, LListed, LLegacy: string;
+  LNative, LProcess, LProductType, LEdition, LFirmware, LListed, LLegacy: string;
 begin
-  LMachine := '';
+  LNative := '';
   if NativeMachine <> 0 then
-    LMachine := Format(SNativeMachinePart, [NativeMachine]);
+    LNative := Format(SNativeMachinePart, [NativeMachine]);
+  LProcess := '';
   if ProcessMachine <> 0 then
-    LMachine := LMachine + Format(SProcessMachinePart, [ProcessMachine]);
+    LProcess := Format(SProcessMachinePart, [ProcessMachine]);
   LProductType := '';
   if ProductType <> 0 then
     LProductType := Format(SProductTypePart, [ProductType]);
+  LEdition := '';
+  if Edition <> '' then
+    LEdition := Format(SEditionPart, [Edition]);
+  LFirmware := '';
+  if Firmware <> '' then
+    LFirmware := Format(SFirmwarePart, [Firmware]);
   LListed := '';
   if ListedModuleVersion <> '' then
     LListed := Format(SListedVersionPart, [ListedModuleVersion]);
@@ -431,8 +447,8 @@ begin
   if LegacyFipsPolicy <> TLegacyFipsPolicy.Unknown then
     LLegacy := Format(SLegacyPolicyPart, [TEnumUtilities.GetName<TLegacyFipsPolicy>(
       LegacyFipsPolicy)]);
-  LParts := TArray<string>.Create(OsName, OsVersion, Product, LProductType, ModuleName,
-    ModuleFileVersion, LListed, ModulePath, LMachine, LLegacy);
+  LParts := TArray<string>.Create(OsName, OsVersion, Product, LEdition, LProductType, LFirmware,
+    ModuleName, ModuleFileVersion, LListed, ModulePath, LNative, LProcess, LLegacy);
   Result := '';
   for LI := 0 to System.Length(LParts) - 1 do
     if LParts[LI] <> '' then

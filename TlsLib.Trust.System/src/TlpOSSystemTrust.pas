@@ -55,7 +55,7 @@ type
   /// Which roots vouch for a server chain. OsRoots (also Default(TSystemTrustRoots)) is the OS
   /// roots alone. OsAndHostRoots trusts the host's roots in addition to the OS roots. HostRoots
   /// trusts the host's roots and nothing else (a private PKI): the OS roots never vouch, though the
-  /// OS distrust list still applies.
+  /// OS distrust list still applies where the platform exposes one.
   /// </summary>
   TSystemTrustRoots = record
   strict private

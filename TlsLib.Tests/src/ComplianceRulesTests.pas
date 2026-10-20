@@ -215,6 +215,8 @@ type
     procedure TestIdentityDescribeEmpty;
     procedure TestIdentityDescribePrintsTheArchitectureAndLegacyPolicy;
     procedure TestIdentityDescribeHidesAnUnreadMachine;
+    procedure TestIdentityDescribeProcessMachineAloneHasNoDoubleSpace;
+    procedure TestIdentityDescribePrintsEditionAndFirmware;
     procedure TestReportDescribeWithoutCertificate;
     procedure TestUnmetExceptionReturnsCopyOfFindings;
     procedure TestRefusedExceptionCreateRes;
@@ -2158,6 +2160,30 @@ begin
   LIdentity.LegacyFipsPolicy := TLegacyFipsPolicy.Disabled;
   CheckEquals('Windows legacy FIPS policy Disabled', LIdentity.Describe,
     'no machine, product type or path');
+end;
+
+procedure TTestComplianceReport.TestIdentityDescribeProcessMachineAloneHasNoDoubleSpace;
+var
+  LIdentity: TModuleIdentity;
+begin
+  LIdentity := Default(TModuleIdentity);
+  LIdentity.OsName := 'Windows';
+  LIdentity.ProcessMachine := $014C;
+  CheckEquals('Windows process 0x014C', LIdentity.Describe, 'no gap for the unread native machine');
+end;
+
+procedure TTestComplianceReport.TestIdentityDescribePrintsEditionAndFirmware;
+var
+  LIdentity: TModuleIdentity;
+begin
+  LIdentity := Default(TModuleIdentity);
+  LIdentity.OsName := 'Windows';
+  LIdentity.OsVersion := '10.0.1';
+  LIdentity.Edition := 'Core';
+  LIdentity.ProductType := 1;
+  LIdentity.Firmware := 'UEFI';
+  CheckEquals('Windows 10.0.1 edition Core product type 1 firmware UEFI', LIdentity.Describe,
+    'the facts in order');
 end;
 
 procedure TTestComplianceReport.TestReportDescribeWithoutCertificate;

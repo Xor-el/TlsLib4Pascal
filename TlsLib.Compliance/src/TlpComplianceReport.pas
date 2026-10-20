@@ -50,6 +50,11 @@ type
 implementation
 
 resourcestring
+  SVerdictLine = 'Verdict: %s (%s)';
+  SPresetLine = 'Preset: %s';
+  SNoPreset = 'none';
+  SFindingPrefix = 'Finding: ';
+  SDisclosurePrefix = 'Disclosure: ';
   SUnknownModule = 'unknown module';
   SModulePrefix = 'Module: ';
   SCertificatePart = ', certificate %s';
@@ -114,12 +119,12 @@ var
   LI: Int32;
   LModule: string;
 begin
-  Result := Format('Verdict: %s (%s)', [TEnumUtilities.GetName<TComplianceVerdict>(Verdict),
+  Result := Format(SVerdictLine, [TEnumUtilities.GetName<TComplianceVerdict>(Verdict),
     TEnumUtilities.GetName<TComplianceEnforcement>(FEnforcement)]) + sLineBreak;
   if FPreset = '' then
-    Result := Result + 'Preset: none' + sLineBreak
+    Result := Result + Format(SPresetLine, [SNoPreset]) + sLineBreak
   else
-    Result := Result + 'Preset: ' + FPreset + sLineBreak;
+    Result := Result + Format(SPresetLine, [FPreset]) + sLineBreak;
   LModule := FModule.Describe;
   if LModule = '' then
     LModule := SUnknownModule;
@@ -129,9 +134,9 @@ begin
   Result := Result + Format(SStatusPart,
     [TEnumUtilities.GetName<TModuleStatus>(FModuleStatus)]);
   for LI := 0 to System.Length(FFindings) - 1 do
-    Result := Result + sLineBreak + 'Finding: ' + FFindings[LI].Describe;
+    Result := Result + sLineBreak + SFindingPrefix + FFindings[LI].Describe;
   for LI := 0 to System.Length(FDisclosures) - 1 do
-    Result := Result + sLineBreak + 'Disclosure: ' + FDisclosures[LI];
+    Result := Result + sLineBreak + SDisclosurePrefix + FDisclosures[LI];
 end;
 
 end.

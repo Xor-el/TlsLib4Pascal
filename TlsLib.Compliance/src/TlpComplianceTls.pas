@@ -52,13 +52,15 @@ type
   /// </summary>
   TComplianceTls = class sealed(TObject)
   strict private
+    class function RequiresExtendedMasterSecret(
+      const ARules: TComplianceRules): Boolean; static;
     class function Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile; static;
     class function ServerBase(const APolicy: ICompliancePolicy)
       : ITlsServerConfigBuilder; static;
   public
     /// <summary>A client builder verifying the server through the OS verifier, trusting ARoots
     /// (the OS roots, the OS roots and host roots, or host roots alone). Raises
-    /// ESystemTrustUnsupported where the platform has none.</summary>
+    /// ESystemTrustUnsupportedTlsLibException where the platform has none.</summary>
     class function Client(const APolicy: ICompliancePolicy;
       const ARoots: TSystemTrustRoots): ITlsClientConfigBuilder; overload; static;
     /// <summary>A client builder verifying the server by AVerification, held to the strength floors
@@ -111,6 +113,15 @@ resourcestring
 
 { TComplianceTls }
 
+class function TComplianceTls.RequiresExtendedMasterSecret(
+  const ARules: TComplianceRules): Boolean;
+var
+  LOffers12: Boolean;
+begin
+  LOffers12 := TArrayUtilities.Contains<UInt16>(ARules.Versions, TlsWireVersionTls12);
+  Result := LOffers12 and (TComplianceRequirement.ExtendedMasterSecret in ARules.Requirements);
+end;
+
 class function TComplianceTls.Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile;
 var
   LRules: TComplianceRules;
@@ -148,15 +159,13 @@ class function TComplianceTls.ServerBase(const APolicy: ICompliancePolicy)
   : ITlsServerConfigBuilder;
 var
   LRules: TComplianceRules;
-  LOffers12: Boolean;
 begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   LRules := APolicy.Rules;
   Result := TTlsConfigBuilder.CreateFromProfile(APolicy.Crypto, APolicy.Pkix,
     Profile(APolicy)).Server;
-  LOffers12 := TArrayUtilities.Contains<UInt16>(LRules.Versions, TlsWireVersionTls12);
-  if LOffers12 and (TComplianceRequirement.ExtendedMasterSecret in LRules.Requirements) then
+  if RequiresExtendedMasterSecret(LRules) then
     Result.Tls12.WithExtendedMasterSecret(True);
   // only a server seals tickets, and always with AES-256-GCM
   if TAeadAlgorithm.AES_256_GCM in LRules.Aeads then
@@ -180,7 +189,6 @@ class function TComplianceTls.Client(const APolicy: ICompliancePolicy;
   const AVerification: IServerVerificationBuilder): ITlsClientConfigBuilder;
 var
   LRules: TComplianceRules;
-  LOffers12: Boolean;
 begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
@@ -190,8 +198,7 @@ begin
   Result := TTlsConfigBuilder.CreateFromProfile(APolicy.Crypto, APolicy.Pkix,
     Profile(APolicy)).Client.WithServerVerification(
     AVerification.WithMinimumStrength(LRules.Strength).Build);
-  LOffers12 := TArrayUtilities.Contains<UInt16>(LRules.Versions, TlsWireVersionTls12);
-  if LOffers12 and (TComplianceRequirement.ExtendedMasterSecret in LRules.Requirements) then
+  if RequiresExtendedMasterSecret(LRules) then
     Result.Tls12.WithExtendedMasterSecret(True);
 end;
 

@@ -42,7 +42,7 @@ type
     FStrict: Boolean;
     FKeyAgreements: TComplianceKeyAgreementSet;
     FAeads: TComplianceAeadSet;
-    function KemAllowed(AKem: UInt16): Boolean;
+    function KemGroupAllowed(AKem: UInt16): Boolean;
     function AeadAllowed(AAead: UInt16): Boolean;
     procedure RequireKem(AKem: UInt16);
   public
@@ -81,7 +81,7 @@ begin
   FAeads := ARules.Aeads;
 end;
 
-function TComplianceHpke.KemAllowed(AKem: UInt16): Boolean;
+function TComplianceHpke.KemGroupAllowed(AKem: UInt16): Boolean;
 begin
   case AKem of
     THpkeKem.DHKEM_P256_HKDF_SHA256:
@@ -115,13 +115,13 @@ procedure TComplianceHpke.RequireKem(AKem: UInt16);
 begin
   if FStrict then
     raise EComplianceRefusedTlsLibException.CreateRes(@SHpkeOutsideModule);
-  if not KemAllowed(AKem) then
+  if not KemGroupAllowed(AKem) then
     raise EComplianceRefusedTlsLibException.CreateResFmt(@SHpkeKemRefused, [AKem]);
 end;
 
 function TComplianceHpke.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
 begin
-  if FStrict or not KemAllowed(AKem) or not AeadAllowed(AAead) then
+  if FStrict or not KemGroupAllowed(AKem) or not AeadAllowed(AAead) then
     Result := nil
   else
     Result := FInner.Suite(AKem, AKdf, AAead);
@@ -154,7 +154,7 @@ var
   LI: Int32;
 begin
   Result := nil;
-  if FStrict or not KemAllowed(AKem) then
+  if FStrict or not KemGroupAllowed(AKem) then
     Exit;
   LSuites := FInner.SupportedSuites(AKem);
   for LI := 0 to System.Length(LSuites) - 1 do
@@ -164,12 +164,12 @@ end;
 
 function TComplianceHpke.ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
 begin
-  Result := not FStrict and KemAllowed(AKem) and FInner.ValidatePublicKey(AKem, APublicKey);
+  Result := not FStrict and KemGroupAllowed(AKem) and FInner.ValidatePublicKey(AKem, APublicKey);
 end;
 
 function TComplianceHpke.RandomEncapsulation(AKem: UInt16): TBytes;
 begin
-  if FStrict or not KemAllowed(AKem) then
+  if FStrict or not KemGroupAllowed(AKem) then
     Result := nil
   else
     Result := FInner.RandomEncapsulation(AKem);
