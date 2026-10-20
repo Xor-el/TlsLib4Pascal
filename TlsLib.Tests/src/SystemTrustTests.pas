@@ -506,8 +506,8 @@ type
       out AResult: TPlatformChainResult): Boolean;
     function VerifyThroughSource(const ASource: IServerCertificateVerifierSource;
       out AAlert: TTlsAlertDescription): Boolean;
-    // the first OS root the engine accepts as a chain of its own, else empty
-    function TrustedOsRoot(ANetworkAllowed: Boolean): TBytes;
+    // the first OS root the engine accepts offline as a chain of its own, else empty
+    function TrustedOsRoot: TBytes;
     function EvaluateChain(const AChain, AAnchors: TArray<TBytes>; ANetworkAllowed: Boolean;
       out AResult: TPlatformChainResult): Boolean;
     function ResolveLive(const ARoots: TSystemTrustRoots;
@@ -611,7 +611,7 @@ type
   /// the host root only.</summary>
   TTestAppleHostRoots = class(TTlsLibAlgorithmTestCase)
   strict private
-    FChain: TStringList;    // ClientAuthChain fields (private CA + dual-EKU leaf)
+    FChain: TStringList;    // PrivateServerChain fields (private CA + serverAuth-only leaf)
     FForeign: TStringList;  // an unrelated private root
     function VerifyAlone(const ARoot: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
   protected
@@ -669,6 +669,7 @@ type
 
   TPosixSetenvFunc = function(AName, AValue: PAnsiChar; AOverwrite: Integer): Integer; cdecl;
   TPosixUnsetenvFunc = function(AName: PAnsiChar): Integer; cdecl;
+  TPosixEnviron = ^PPAnsiChar;
 
   /// <summary>The Unix harvest with SSL_CERT_FILE / SSL_CERT_DIR naming nothing: the OS roots
   /// cannot be read, so Anchors with the OS roots fails closed, while Anchors over the host
@@ -678,6 +679,12 @@ type
   strict private
     FSavedFile, FSavedDir: string;
     FRoots: ITrustAnchorStore;
+    FLibrary: NativeUInt;
+    FSetenv: TPosixSetenvFunc;
+    FUnsetenv: TPosixUnsetenvFunc;
+{$IFDEF FPC}
+    FEnviron: TPosixEnviron;
+{$ENDIF FPC}
     procedure SetVariable(const AName, AValue: string);
     /// <summary>Points both overrides at nothing; False (the test is skipped) when the process is
     /// elevated, which ignores them.</summary>
@@ -5181,7 +5188,7 @@ begin
   Result := LEngine.EvaluateServer(LRequest, AResult, LAlert);
 end;
 
-function TTestWindowsHostRoots.TrustedOsRoot(ANetworkAllowed: Boolean): TBytes;
+function TTestWindowsHostRoots.TrustedOsRoot: TBytes;
 var
   LRoots: TArray<TBytes>;
   LResult: TPlatformChainResult;
@@ -5190,7 +5197,7 @@ begin
   Result := nil;
   LRoots := TOSSystemTrust.AnchorStore(Pkix).RootCertificates;
   for LI := 0 to System.High(LRoots) do
-    if EvaluateChain(TArray<TBytes>.Create(LRoots[LI]), nil, ANetworkAllowed, LResult) then
+    if EvaluateChain(TArray<TBytes>.Create(LRoots[LI]), nil, False, LResult) then
       Exit(LRoots[LI]);
 end;
 
@@ -5241,7 +5248,7 @@ var
   LRoot: TBytes;
   LResult: TPlatformChainResult;
 begin
-  LRoot := TrustedOsRoot(False);
+  LRoot := TrustedOsRoot;
   if System.Length(LRoot) = 0 then
   begin
     SkipTest('no OS root is accepted as a chain of its own, so there is no positive control');
@@ -5258,10 +5265,10 @@ var
   LRoot: TBytes;
   LResult: TPlatformChainResult;
 begin
-  LRoot := TrustedOsRoot(True);
+  LRoot := TrustedOsRoot;
   if System.Length(LRoot) = 0 then
   begin
-    SkipTest('no OS root is accepted live as a chain of its own, so there is no positive control');
+    SkipTest('no OS root is accepted as a chain of its own, so there is no positive control');
     Exit;
   end;
   CheckFalse(EvaluateChain(TArray<TBytes>.Create(LRoot), CaRoot, True, LResult),
@@ -5768,30 +5775,17 @@ end;
 
 procedure TTestUnixAnchorsWithoutABundle.SetVariable(const AName, AValue: string);
 var
-  LHandle: NativeUInt;
   LName, LValue: AnsiString;
-  LSet: TPosixSetenvFunc;
-  LUnset: TPosixUnsetenvFunc;
-{$IFDEF FPC}
-  LEnviron: ^PPAnsiChar;
-{$ENDIF FPC}
 begin
-  LHandle := TDynamicLibrary.Open('');
-  CheckTrue(LHandle <> 0, 'the C library is reachable');
   LName := AnsiString(AName);
   LValue := AnsiString(AValue);
-  LSet := TPosixSetenvFunc(TDynamicLibrary.Resolve(LHandle, 'setenv'));
-  LUnset := TPosixUnsetenvFunc(TDynamicLibrary.Resolve(LHandle, 'unsetenv'));
-  CheckTrue(Assigned(LSet) and Assigned(LUnset), 'the environment setters resolve');
   if AValue = '' then
-    LUnset(PAnsiChar(LName))
+    FUnsetenv(PAnsiChar(LName))
   else
-    LSet(PAnsiChar(LName), PAnsiChar(LValue), 1);
+    FSetenv(PAnsiChar(LName), PAnsiChar(LValue), 1);
 {$IFDEF FPC}
   // the RTL reads a copy of the environ pointer taken at startup, which setenv may reallocate
-  LEnviron := TDynamicLibrary.Resolve(LHandle, 'environ');
-  CheckTrue(LEnviron <> nil, 'the environment block resolves');
-  envp := LEnviron^;
+  envp := FEnviron^;
 {$ENDIF FPC}
 end;
 
@@ -5812,6 +5806,15 @@ var
   LEc: TStringList;
 begin
   inherited SetUp;
+  FLibrary := TDynamicLibrary.Open('');
+  CheckTrue(FLibrary <> 0, 'the C library is reachable');
+  FSetenv := TPosixSetenvFunc(TDynamicLibrary.Resolve(FLibrary, 'setenv'));
+  FUnsetenv := TPosixUnsetenvFunc(TDynamicLibrary.Resolve(FLibrary, 'unsetenv'));
+  CheckTrue(Assigned(FSetenv) and Assigned(FUnsetenv), 'the environment setters resolve');
+{$IFDEF FPC}
+  FEnviron := TDynamicLibrary.Resolve(FLibrary, 'environ');
+  CheckTrue(FEnviron <> nil, 'the environment block resolves');
+{$ENDIF FPC}
   FSavedFile := GetEnvironmentVariable('SSL_CERT_FILE');
   FSavedDir := GetEnvironmentVariable('SSL_CERT_DIR');
   LEc := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
@@ -5821,8 +5824,16 @@ end;
 
 procedure TTestUnixAnchorsWithoutABundle.TearDown;
 begin
-  SetVariable('SSL_CERT_FILE', FSavedFile);
-  SetVariable('SSL_CERT_DIR', FSavedDir);
+  if FLibrary <> 0 then
+  begin
+    if Assigned(FSetenv) and Assigned(FUnsetenv) then
+    begin
+      SetVariable('SSL_CERT_FILE', FSavedFile);
+      SetVariable('SSL_CERT_DIR', FSavedDir);
+    end;
+    TDynamicLibrary.Close(FLibrary);
+    FLibrary := 0;
+  end;
   inherited TearDown;
 end;
 
