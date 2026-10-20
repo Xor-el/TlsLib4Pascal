@@ -1,0 +1,25 @@
+TlsLib.Tests/src/NegotiationTests.pas
+  s_f2c9bd75607afc::t_eed606ab4218bc 61-69
+  s_f2c9bd75607afc::t_655a20e1aaee14 47
+  s_f2c9bd75607afc::t_b58039eeee1c0f 272-358
+TlsLib/src/Negotiation/TlpCipherSuiteCatalog.pas
+  s_f2c9bd75607afc::t_71f700fa6de46c 32-34
+  s_f2c9bd75607afc::t_cf8f3e6125fe6d 154-157,165-166
+  s_f2c9bd75607afc::t_a75fe655d57328 158-164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5043533567a35baacb2f6c8e915cca61fc2a6155",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
