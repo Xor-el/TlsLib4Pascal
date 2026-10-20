@@ -88,7 +88,7 @@ uses
   TlpWindowsModuleAttestation,
   TlpOSSystemTrust,
   TlpITrustAnchorStore,
-  TlpISystemVerifierSource,
+  TlpOSDelegateVerifier,
   MockCompliance,
   MockCryptoProvider,
   MockRandom,
@@ -302,8 +302,8 @@ type
     procedure TestInstanceVerifierRefusedInRelaxed;
     procedure TestBuiltInVerifierIsPlatformOnlyInRelaxed;
     procedure TestOsVerifierSourceHasNoVerifierFinding;
-    procedure TestHostSourceListingSystemMarkerIsCustom;
-    procedure TestHostSourceListingSystemMarkerRefusedInRelaxed;
+    procedure TestHostSourceIsCustom;
+    procedure TestHostSourceRefusedInRelaxed;
     procedure TestRequiredPskClientIgnoresCustomVerifier;
     procedure TestSystemVerifierSourceAdmitted;
     procedure TestStapleRequestedRefused;
@@ -313,7 +313,7 @@ type
     procedure TestMtlsServerInstanceVerifierIsCustom;
     procedure TestMtlsServerInstanceVerifierRefusedInRelaxed;
     procedure TestMtlsServerBuiltInVerifierIsPlatformOnlyInRelaxed;
-    procedure TestMtlsServerHostSourceListingSystemMarkerIsCustom;
+    procedure TestMtlsServerHostSourceIsCustom;
     procedure TestServerWithoutClientAuthNeedsNoClientVerifier;
     procedure TestRevocationOffDisclosed;
     procedure TestServerWithoutClientAuthHasNoPeerDisclosure;
@@ -483,7 +483,7 @@ type
     // builds the Roots client; skips and returns False where the platform has no OS verifier
     function ConfigOrSkip(const APolicy: ICompliancePolicy; const ARoots: TSystemTrustRoots;
       out AConfig: ITlsClientConfig): Boolean;
-    function SourceOf(const AConfig: ITlsClientConfig): ISystemVerifierSource;
+    function SourceOf(const AConfig: ITlsClientConfig): TOSVerifierSource;
   published
     procedure TestHostRootsClientKeepsChainInModuleAndFloors;
     procedure TestHostRootsSourceCarriesTheRootsAlone;
@@ -2538,27 +2538,27 @@ begin
     'and is in the module');
 end;
 
-procedure TTestComplianceAdmit.TestHostSourceListingSystemMarkerIsCustom;
+procedure TTestComplianceAdmit.TestHostSourceIsCustom;
 var
   LPolicy: ICompliancePolicy;
   LFindings: TArray<TComplianceFinding>;
 begin
   LPolicy := StrictPolicy;
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithServerVerification(
-    TServerVerification.VerifierSource(TFakeSystemVerifierSource.Create
+    TServerVerification.VerifierSource(TFakeHostVerifierSource.Create
     as IServerCertificateVerifierSource).Build).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
-    'a marker interface any host class can list does not put a source in the module');
+    'a host source is not the OS source, so it is not in the module');
 end;
 
-procedure TTestComplianceAdmit.TestHostSourceListingSystemMarkerRefusedInRelaxed;
+procedure TTestComplianceAdmit.TestHostSourceRefusedInRelaxed;
 var
   LPolicy: ICompliancePolicy;
   LFindings: TArray<TComplianceFinding>;
 begin
   LPolicy := RelaxedPolicy;
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithServerVerification(
-    TServerVerification.VerifierSource(TFakeSystemVerifierSource.Create
+    TServerVerification.VerifierSource(TFakeHostVerifierSource.Create
     as IServerCertificateVerifierSource).Build).Build, LFindings),
     'a configuration finding is never relaxed');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
@@ -2690,7 +2690,7 @@ begin
     'and the built-in source is not host-supplied');
 end;
 
-procedure TTestComplianceAdmit.TestMtlsServerHostSourceListingSystemMarkerIsCustom;
+procedure TTestComplianceAdmit.TestMtlsServerHostSourceIsCustom;
 var
   LPolicy: ICompliancePolicy;
   LFindings: TArray<TComplianceFinding>;
@@ -2698,11 +2698,11 @@ begin
   LPolicy := StrictPolicy;
   CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.VerifierSource(
-    TFakeSystemVerifierSource.Create as IClientCertificateVerifierSource,
+    TFakeHostVerifierSource.Create as IClientCertificateVerifierSource,
     TTlsLibTestCertificates.EcP256RootStore).WithMinimumStrength(LPolicy.Rules.Strength)
     .Build).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
-    'a marker interface any host class can list does not put a source in the module');
+    'a host source is not the OS source, so it is not in the module');
 end;
 
 procedure TTestComplianceAdmit.TestServerWithoutClientAuthNeedsNoClientVerifier;
@@ -4597,11 +4597,11 @@ begin
   AConfig := TComplianceTls.Client(APolicy, ARoots).Build;
 end;
 
-function TTestComplianceRoots.SourceOf(const AConfig: ITlsClientConfig): ISystemVerifierSource;
+function TTestComplianceRoots.SourceOf(const AConfig: ITlsClientConfig): TOSVerifierSource;
 begin
   Result := nil;
-  CheckTrue(Supports(AConfig.ServerVerifierSource, ISystemVerifierSource, Result),
-    'the verification is an OS-marked source');
+  CheckTrue(AConfig.ServerVerifierSource is TOSVerifierSource, 'the verification is the OS source');
+  Result := AConfig.ServerVerifierSource as TOSVerifierSource;
 end;
 
 procedure TTestComplianceRoots.TestHostRootsClientKeepsChainInModuleAndFloors;
@@ -4624,7 +4624,7 @@ end;
 procedure TTestComplianceRoots.TestHostRootsSourceCarriesTheRootsAlone;
 var
   LConfig: ITlsClientConfig;
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.HostRoots(
     TTlsLibTestCertificates.EcP256RootStore), LConfig) then
@@ -4639,7 +4639,7 @@ end;
 procedure TTestComplianceRoots.TestOsAndHostRootsSourceCarriesExtraAnchors;
 var
   LConfig: ITlsClientConfig;
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.OsAndHostRoots(
     TTlsLibTestCertificates.EcP256RootStore), LConfig) then
@@ -4654,7 +4654,7 @@ end;
 procedure TTestComplianceRoots.TestOsRootsSourceCarriesNeither;
 var
   LConfig: ITlsClientConfig;
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.OsRoots, LConfig) then
     Exit;
@@ -5610,7 +5610,7 @@ procedure TTestWindowsCompliance.TestLiveClientCarriesTheHostRootsAlone;
 var
   LPolicy: ICompliancePolicy;
   LConfig: ITlsClientConfig;
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
   LReport: IComplianceReport;
   LStore: ITrustAnchorStore;
 begin
@@ -5618,8 +5618,8 @@ begin
   LStore := TTlsLibTestCertificates.EcP256RootStore;
   LConfig := TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(LStore),
     TRevocationPosture.Soft, 1000).Build;
-  CheckTrue(Supports(LConfig.ServerVerifierSource, ISystemVerifierSource, LSource),
-    'the live source is OS-marked');
+  CheckTrue(LConfig.ServerVerifierSource is TOSVerifierSource, 'the live source is the OS source');
+  LSource := LConfig.ServerVerifierSource as TOSVerifierSource;
   CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive anchor');
   CheckEqualBytes('the host root', LStore.RootCertificates[0], LSource.Anchors[0]);
   CheckEquals(0, System.Length(LSource.ExtraAnchors), 'nothing beside the OS roots');
@@ -5631,12 +5631,12 @@ end;
 procedure TTestWindowsCompliance.TestLiveClientCarriesNoHostRootsForOsRoots;
 var
   LConfig: ITlsClientConfig;
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   LConfig := TComplianceTls.Client(RelaxedPolicy, TSystemTrustRoots.OsRoots,
     TRevocationPosture.Soft, 1000).Build;
-  CheckTrue(Supports(LConfig.ServerVerifierSource, ISystemVerifierSource, LSource),
-    'the live source is OS-marked');
+  CheckTrue(LConfig.ServerVerifierSource is TOSVerifierSource, 'the live source is the OS source');
+  LSource := LConfig.ServerVerifierSource as TOSVerifierSource;
   CheckEquals(0, System.Length(LSource.Anchors) + System.Length(LSource.ExtraAnchors),
     'no host root');
 end;

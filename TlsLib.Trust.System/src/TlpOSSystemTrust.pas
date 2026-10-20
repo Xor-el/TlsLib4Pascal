@@ -122,8 +122,18 @@ type
     /// the result.
     /// Raises where the platform has no OS-native live revocation, or when the config's server
     /// verifier source is neither the OS source nor backed by a trust store (a wrapped source's
-    /// roots cannot be read, so the re-check would use the OS roots instead).</summary>
+    /// roots cannot be read, so the re-check would use the OS roots instead); for a host source
+    /// that decorates the OS source, pass the OS source it wraps to the overload below.</summary>
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
+      const AFallback: TCertificateVerdictResolver)
+      : TOSLiveRevocationResolverBase; overload; static;
+    /// <summary>The resolver above for a host that decorates the OS source: the roots, extra
+    /// anchors and OS distrust come from ARootsOf, the OS verifier source the decorator wraps and
+    /// is configured with, as that source was built, so the live pass equals the inline one.
+    /// Raises EArgumentTlsLibException unless ARootsOf is the library's OS verifier source, and
+    /// where the platform has no OS-native live revocation.</summary>
+    class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
+      const ARootsOf: IServerCertificateVerifierSource;
       const AFallback: TCertificateVerdictResolver)
       : TOSLiveRevocationResolverBase; overload; static;
     /// <summary>A host-owned OS-native live-revocation resolver for the peer CLIENT certificate an
@@ -316,7 +326,21 @@ begin
   if not TryChainEngine(LEngine) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
   Result := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
-    TOSDelegatePolicy.FromClientConfig(AConfig), AFallback);
+    TOSDelegatePolicy.FromClientConfig(AConfig, AConfig.ServerVerifierSource), AFallback);
+end;
+
+class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsClientConfig;
+  const ARootsOf: IServerCertificateVerifierSource;
+  const AFallback: TCertificateVerdictResolver): TOSLiveRevocationResolverBase;
+var
+  LEngine: IPlatformChainEngine;
+begin
+  if not (ARootsOf is TOSVerifierSource) then
+    raise EArgumentTlsLibException.CreateRes(@SLiveRootsOfNeedsOsSource);
+  if not TryChainEngine(LEngine) then
+    raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
+  Result := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
+    TOSDelegatePolicy.FromClientConfig(AConfig, ARootsOf), AFallback);
 end;
 
 class function TOSSystemTrust.LiveRevocationResolver(const AConfig: ITlsServerConfig;

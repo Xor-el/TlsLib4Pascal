@@ -38,7 +38,6 @@ contains
   TlpSystemTrustBase in '..\..\src\TlpSystemTrustBase.pas',
   TlpOSLiveRevocation in '..\..\src\TlpOSLiveRevocation.pas',
   TlpIPlatformChainEngine in '..\..\src\TlpIPlatformChainEngine.pas',
-  TlpISystemVerifierSource in '..\..\src\TlpISystemVerifierSource.pas',
   TlpOSDelegateVerifier in '..\..\src\TlpOSDelegateVerifier.pas',
   TlpFileSystemTrust in '..\..\src\TlpFileSystemTrust.pas',
   TlpPosixPrivilege in '..\..\src\TlpPosixPrivilege.pas',

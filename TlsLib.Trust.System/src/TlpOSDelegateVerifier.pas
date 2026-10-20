@@ -32,7 +32,6 @@ uses
   TlpITlsConfig,
   TlpSignatureSchemeRegistry,
   TlpICertificateVerifierSource,
-  TlpISystemVerifierSource,
   TlpSystemTrustBase,
   TlpSystemTrustExceptions,
   TlpIPlatformChainEngine,
@@ -75,10 +74,12 @@ type
     class function FromClientContext(const AContext: TClientTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
     /// <summary>The live re-check policy for the server certificate a client verifies: the roots
-    /// and the distrust set come from its OS verifier source when it has one, else from its trust
-    /// store. Raises when the configured server verifier source is neither the OS source nor
-    /// backed by a trust store, since the roots it trusts cannot be read.</summary>
-    class function FromClientConfig(const AConfig: ITlsClientConfig): TOSDelegatePolicy; static;
+    /// and the distrust set come from ARootsOf when it is the OS verifier source (the config's
+    /// own, or the one a host source decorates), else from the config's trust store. Raises when
+    /// ARootsOf is neither the OS source nor backed by a trust store, since the roots it trusts
+    /// cannot be read.</summary>
+    class function FromClientConfig(const AConfig: ITlsClientConfig;
+      const ARootsOf: IServerCertificateVerifierSource): TOSDelegatePolicy; static;
     /// <summary>The live re-check policy for the client certificate a server verifies: the
     /// client-CA store is the exclusive root.</summary>
     class function FromServerConfig(const AConfig: ITlsServerConfig): TOSDelegatePolicy; static;
@@ -173,7 +174,7 @@ type
   /// the live-revocation verdict, or - for an engine that renders no revocation outcome - a Hard
   /// client posture without it.</summary>
   TOSVerifierSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
-    IClientCertificateVerifierSource, ISystemVerifierSource)
+    IClientCertificateVerifierSource)
   strict private
     FEngine: IPlatformChainEngine;
     FFetch: TSystemTrustFetch;
@@ -184,8 +185,15 @@ type
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
       AScope: TSystemTrustRootScope; const AHostRoots, ADistrusted: TArray<TBytes>);
     function CreateServerVerifier(const AContext: TServerTrustContext): IServerCertificateVerifier;
+    /// <summary>The exclusive server trust root (empty = the OS roots apply). The three roots
+    /// accessors let the live re-check build against the same roots as the inline pass; all are
+    /// empty for a client-only source. A stapled revocation response may be decided by the
+    /// configured PKIX provider instead of the OS.</summary>
     function Anchors: TArray<TBytes>;
+    /// <summary>Host roots trusted with the OS roots.</summary>
     function ExtraAnchors: TArray<TBytes>;
+    /// <summary>The distrust set the source was built with (the host's, plus the OS list where the
+    /// platform exposes one and the factory read it), refused on any accepted path.</summary>
     function Distrusted: TArray<TBytes>;
     function CreateClientVerifier(const AContext: TClientTrustContext): IClientCertificateVerifier;
   end;
@@ -279,17 +287,17 @@ begin
   Result.Intermediates := AConfig.IntermediateCertificates;
 end;
 
-class function TOSDelegatePolicy.FromClientConfig(const AConfig: ITlsClientConfig)
-  : TOSDelegatePolicy;
+class function TOSDelegatePolicy.FromClientConfig(const AConfig: ITlsClientConfig;
+  const ARootsOf: IServerCertificateVerifierSource): TOSDelegatePolicy;
 var
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   Result := FromCommonConfig(AConfig);
   Result.CheckHostName := AConfig.CheckServerName;
   // the live pass uses the roots of the inline one, which only the OS source has
-  if AConfig.ServerVerifierSource is TOSVerifierSource then
+  if ARootsOf is TOSVerifierSource then
   begin
-    LSource := AConfig.ServerVerifierSource as ISystemVerifierSource;
+    LSource := ARootsOf as TOSVerifierSource;
     Result.Anchors := LSource.Anchors;
     Result.ExtraAnchors := LSource.ExtraAnchors;
     Result.Distrusted := LSource.Distrusted;
@@ -300,7 +308,7 @@ begin
     Result.Distrusted := AConfig.TrustStore.DistrustedCertificates;
   end
   // a wrapped source would be re-checked against the OS roots while it trusted others
-  else if AConfig.ServerVerifierSource <> nil then
+  else if ARootsOf <> nil then
     raise EArgumentTlsLibException.CreateRes(@SLiveNeedsKnownRoots);
 end;
 

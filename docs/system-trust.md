@@ -231,6 +231,15 @@ stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);
 
 The resolver raises `EArgumentTlsLibException` when the config's server verifier source is a
 wrapped one (neither the OS source nor backed by a trust store): its roots cannot be read back.
+A host that decorates the OS source passes the OS source it wraps, whose roots, extra anchors and
+distrust set the live pass then uses as the inline pass does:
+
+```pascal
+// LOsSource is the OS source the decorator wraps
+resolver := TOSSystemTrust.LiveRevocationResolver(LConfig, LOsSource, nil);
+```
+
+It raises `EArgumentTlsLibException` unless that source is the library's OS verifier source.
 
 ### OS distrust in Anchors mode
 

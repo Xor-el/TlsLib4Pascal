@@ -51,7 +51,10 @@ resourcestring
     'HostRoots needs at least one root certificate (after the OS distrust list is applied)';
   SLiveNeedsKnownRoots =
     'the live revocation resolver cannot tell which roots the configured server verifier source ' +
-    'trusts; use the OS verifier source or a trust store instead of a wrapped source';
+    'trusts; use the OS verifier source or a trust store, or pass the OS source it wraps';
+  SLiveRootsOfNeedsOsSource =
+    'the live revocation resolver reads its roots off the OS verifier source; the roots source ' +
+    'passed is not one';
   SEngineCannotTrustHostRootsAlone =
     'this platform engine cannot trust host roots alone (no exclusive server roots)';
 
