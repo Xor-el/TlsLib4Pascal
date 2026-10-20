@@ -27,6 +27,26 @@ try {
 } catch {
   $firmware = 'n/a (no firmware query)'
 }
+$indicator = @()
+try {
+  Add-Type -Namespace TlsLibCi -Name Cng -MemberDefinition @'
+[DllImport("bcrypt.dll", CharSet = CharSet.Unicode)]
+public static extern int BCryptOpenAlgorithmProvider(out IntPtr h, string a, string i, uint f);
+[DllImport("bcrypt.dll", CharSet = CharSet.Unicode)]
+public static extern int BCryptGetProperty(IntPtr h, string p, byte[] o, int c, out int r, uint f);
+'@
+  $alg = [IntPtr]::Zero
+  $open = [TlsLibCi.Cng]::BCryptOpenAlgorithmProvider([ref]$alg, 'TLS1_2_KDF', $null, 0)
+  foreach ($name in 'Key Derivation', 'KeyDerivation', 'ServiceIndicator', 'FIPS', 'ObjectLength') {
+    $buf = New-Object byte[] 64
+    $res = 0
+    $st = [TlsLibCi.Cng]::BCryptGetProperty($alg, $name, $buf, 64, [ref]$res, 0)
+    $indicator += ('Property {0} (open 0x{1:X8}): status 0x{2:X8} len {3}' -f
+      $name, $open, $st, $res)
+  }
+} catch {
+  $indicator = @("Property probe: n/a ($($_.Exception.Message))")
+}
 $lines = @(
   "OSVersion: $version",
   "ProductName: $($key.ProductName)",
@@ -41,7 +61,7 @@ $lines = @(
   "ProcessArchitecture: $procArch",
   "Is64BitOperatingSystem: $([System.Environment]::Is64BitOperatingSystem)",
   "Is64BitProcess: $([System.Environment]::Is64BitProcess)"
-)
+) + $indicator
 $lines | ForEach-Object { Write-Host $_ }
 if ($env:GITHUB_STEP_SUMMARY) {
   Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '### Windows build'
