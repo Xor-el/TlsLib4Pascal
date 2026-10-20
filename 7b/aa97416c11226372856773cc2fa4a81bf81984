@@ -1,0 +1,84 @@
+TlsLib.Tests/src/Tls12ResumptionTests.pas
+  s_f2c9bd75607afc::t_a983d8d79a0bac 262
+  s_f2c9bd75607afc::t_b6f9152678271f 254-261,263-270,272-275
+  s_f2c9bd75607afc::t_d6b01b43ae5c18 271
+  s_f2c9bd75607afc::t_792aa6fa2fa209 172-174
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_526be4ce05b0e1 726
+  s_f2c9bd75607afc::t_46a41133d26c75 580
+  s_f2c9bd75607afc::t_d9310efab5d467 575
+  s_f2c9bd75607afc::t_e25263c95224cc 117
+  s_f2c9bd75607afc::t_aabd37567e1b53 71
+  s_f2c9bd75607afc::t_0c70f2d7f9c280 150-152
+  s_f2c9bd75607afc::t_dfa8cd14b609d8 585
+  s_f2c9bd75607afc::t_c04d27a6695d33 630-632,634-635,637
+  s_f2c9bd75607afc::t_ae645fa02bf709 402
+  s_f2c9bd75607afc::t_4e98a3bd631151 398,400-401,403
+  s_f2c9bd75607afc::t_f05649041e2491 571
+  s_f2c9bd75607afc::t_41e8dabb2c2d74 86-88
+  s_f2c9bd75607afc::t_e452febfdf3098 33
+  s_f2c9bd75607afc::t_1a558a8f870f37 589
+  s_f2c9bd75607afc::t_4d5b33e2a3a70b 724-725,727-728
+  s_f2c9bd75607afc::t_ec36ae44f2a3f3 556-570,572-574,576-579,581-584,586-588,590-595
+  s_f2c9bd75607afc::t_1982a595f6e9ca 363-364
+  s_f2c9bd75607afc::t_4dd35111bfd5f7 399
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_f2c9bd75607afc::t_ede60e14306207 175-177
+  s_f2c9bd75607afc::t_8038aa504343d8 360-365,367-374,376-378
+  s_f2c9bd75607afc::t_247b0a22626ccc 375
+  s_f2c9bd75607afc::t_ef913921469a91 366
+TlsLib.Compliance/src/TlpComplianceTls.pas
+  s_f2c9bd75607afc::t_3131d420abb036 129
+TlsLib.Tests/src/ComplianceRulesTests.pas
+  s_f2c9bd75607afc::t_9dd1a0096c6a70 1941
+TlsLib.Tests/src/ComplianceLoopbackTests.pas
+  s_f2c9bd75607afc::t_dbb74a4658da49 86
+  s_f2c9bd75607afc::t_13094754b2bdd3 351-381
+docs/cookbook.md
+  s_f2c9bd75607afc::t_ac49e5c70c8149 1060,1063
+  s_f2c9bd75607afc::t_99916f9f3bb4b5 1061-1062
+docs/compliance.md
+  s_f2c9bd75607afc::t_48b4d7696c7fe7 160-166
+  s_f2c9bd75607afc::t_ee796c1619a681 220-222
+TlsLib.Compliance/src/TlpICompliancePolicy.pas
+  s_f2c9bd75607afc::t_01a9b4c53e24ff 45-47
+  s_f2c9bd75607afc::t_56a4987a1962d6 22
+  s_f2c9bd75607afc::t_ac25deb4efef3c 36
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_3efd7660e44f23 699-783
+  s_f2c9bd75607afc::t_ebebea4fc1056a 286
+  s_f2c9bd75607afc::t_0189b3585705d0 237-271
+  s_f2c9bd75607afc::t_9aca64a53c3018 23-24
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_a13cc138332552 508,510-512
+  s_f2c9bd75607afc::t_6412b336423592 157-158
+  s_f2c9bd75607afc::t_c5f257566ff9e3 507,509
+  s_f2c9bd75607afc::t_51f27c0ddbd643 502-506,513-514
+  s_f2c9bd75607afc::t_74f75ba13754b2 102
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_08767786d618c3 1489-1508
+  s_f2c9bd75607afc::t_1d60c78888455a 1471-1472
+  s_f2c9bd75607afc::t_615e13fa9c48c6 1485
+  s_f2c9bd75607afc::t_b4d975cf98d55e 1691-1692
+  s_f2c9bd75607afc::t_0b59107e061a1c 227
+  s_f2c9bd75607afc::t_5d5bfebdd56bfc 225-226,228-240
+  s_f2c9bd75607afc::t_be3da3d4fe80f8 34
+  s_f2c9bd75607afc::t_0bbf47b48ada97 1439-1441,1446-1470,1473-1484,1486-1488,1509-1690,1693-1710
+  s_f2c9bd75607afc::t_a0e273b04eefd0 209-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7baa97416c11226372856773cc2fa4a81bf81984",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
