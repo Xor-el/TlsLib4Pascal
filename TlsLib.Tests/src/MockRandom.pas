@@ -39,16 +39,19 @@ type
 
   /// <summary>
   /// An <see cref="IRandom" /> whose every byte is the same, so a test can tell bytes drawn from
-  /// it from bytes drawn from any other generator. Never for production use.
+  /// it from bytes drawn from any other generator, and which counts the bytes drawn.
+  /// Never for production use.
   /// </summary>
   TFilledRandom = class sealed(TInterfacedObject, IRandom)
   strict private
   var
     FByte: Byte;
+    FDrawn: Int32;
   public
     constructor Create(AByte: Byte);
     procedure NextBytes(const ABuffer: TBytes);
     function GenerateBytes(ALength: Int32): TBytes;
+    property Drawn: Int32 read FDrawn;
   end;
 
   /// <summary>
@@ -75,6 +78,7 @@ procedure TFilledRandom.NextBytes(const ABuffer: TBytes);
 begin
   if System.Length(ABuffer) > 0 then
     FillChar(ABuffer[0], System.Length(ABuffer), FByte);
+  FDrawn := FDrawn + System.Length(ABuffer);
 end;
 
 function TFilledRandom.GenerateBytes(ALength: Int32): TBytes;

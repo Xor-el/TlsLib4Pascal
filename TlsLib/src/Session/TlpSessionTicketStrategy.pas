@@ -143,7 +143,7 @@ begin
   try
     FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
   except
-    // memory exhaustion and hardware faults must surface; any other failure means no tickets
+    // memory exhaustion and CPU/runtime faults (EExternal) surface; any other failure: no tickets
     on EOutOfMemory do
       raise;
     on EExternal do

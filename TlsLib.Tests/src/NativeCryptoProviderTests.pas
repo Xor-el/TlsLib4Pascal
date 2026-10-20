@@ -1236,7 +1236,7 @@ var
   LReport: ICryptoBackendReport;
   LCredential: TImportedCredential;
 begin
-  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.ECDSA_SECP256R1_SHA256) then
     Exit;
   CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
   LCredential := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['ec_pfx']),

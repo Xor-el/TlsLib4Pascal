@@ -62,8 +62,8 @@ type
   TComplianceHashSet = set of THashAlgorithm;
 
   /// <summary>A backend report whose signing keys and verifiers answer by their
-  /// <see cref="ISystemSigningKey" /> and <see cref="ISystemSignatureVerifier" /> markers, which
-  /// the production base no longer trusts. Never for production use.</summary>
+  /// <see cref="ISystemSigningKey" /> and <see cref="ISystemSignatureVerifier" /> markers alone,
+  /// where a production report judges the class. Never for production use.</summary>
   TMarkedBackendReportBase = class abstract(TSystemBackendReportBase)
   public
     function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry; override;

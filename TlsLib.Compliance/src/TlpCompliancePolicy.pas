@@ -606,10 +606,12 @@ procedure TCompliancePolicy.CheckTickets(const AConfig: ITlsServerConfig;
   var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
 var
   LKeys: ISessionTicketKeyManager;
+  LOffers12: Boolean;
 begin
-  // the engine seals with a configured store alone, so keys beside one are idle
+  // keys beside a store are idle only without TLS 1.2, which always seals with the keys
+  LOffers12 := TArrayUtilities.Contains<UInt16>(AConfig.SupportedVersions, TlsWireVersionTls12);
   LKeys := AConfig.SessionTicketKeys;
-  if AConfig.SessionStore <> nil then
+  if (AConfig.SessionStore <> nil) and not LOffers12 then
     LKeys := nil;
   // a store-only server seals nothing, and a client never seals
   if AConfig.Resumption and (LKeys <> nil) and
@@ -699,22 +701,24 @@ begin
   for LI := 0 to System.Length(LCodes) - 1 do
   begin
     LAllowed := FGroups.TryGet(LCodes[LI], LOwn);
-    if not LAllowed then
+    LConfigured := nil;
+    AConfig.NamedGroups.TryGet(LCodes[LI], LConfigured);
+    // a group Items lists was reported above
+    LListed := False;
+    for LJ := 0 to System.Length(LGroups) - 1 do
+      if (LGroups[LJ].Code = LCodes[LI]) and (not LAllowed or (LGroups[LJ] = LConfigured)) then
+      begin
+        LListed := True;
+        Break;
+      end;
+    if not LListed and not LAllowed then
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
         TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LCodes[LI]),
         SNotAllowed))
-    else if AConfig.NamedGroups.TryGet(LCodes[LI], LConfigured) and (LConfigured <> LOwn) then
-    begin
-      // a group Items lists was reported above
-      LListed := False;
-      for LJ := 0 to System.Length(LGroups) - 1 do
-        if LGroups[LJ] = LConfigured then
-          LListed := True;
-      if not LListed then
-        TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-          TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LCodes[LI]),
-          SForeignNamedGroup));
-    end;
+    else if not LListed and (LConfigured <> nil) and (LConfigured <> LOwn) then
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LCodes[LI]),
+        SForeignNamedGroup));
   end;
 end;
 
@@ -939,8 +943,7 @@ begin
     (AConfig.EncryptedClientHello <> nil) then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.EchConfigured, '', SEch))
-  else if not (TComplianceRequirement.NoEch in FRules.Requirements) and
-    (AConfig.EncryptedClientHello <> nil) and
+  else if (AConfig.EncryptedClientHello <> nil) and
     (AConfig.EncryptedClientHello.Role = TEchServerRole.Keyed) then
     // the keys and their store are the host's, whatever provider the policy composed
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(

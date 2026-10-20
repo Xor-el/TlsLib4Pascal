@@ -1167,7 +1167,7 @@ end;
 
 procedure TTestSessionStore.TestStekProbeLetsAHardwareFaultThrough;
 begin
-  CheckTrue(StrategyRaisedFrom(EAccessViolation), 'a hardware fault is not a missing AEAD');
+  CheckTrue(StrategyRaisedFrom(EAccessViolation), 'a CPU/runtime fault is not a missing AEAD');
 end;
 
 procedure TTestSessionStore.TestStekOpenUnreadableWhenTicketAeadRaisesPlainException;

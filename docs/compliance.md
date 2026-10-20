@@ -232,9 +232,11 @@ OS verifier, and so must a server's client chain.
   verifier as portable.
 - **Session tickets.** A server that issues tickets from ticket keys without AES-256-GCM among the
   allowed AEADs is `TicketAeadNotAllowed`; the facade turns resumption off for such rules. A server
-  with a session store seals with the store alone, so the ticket keys beside it are idle and are
-  not checked; a client never seals. Where the ticket keys and the resumption scope come from is
-  judged separately: see [Resumption state](#resumption-state).
+  with a session store that offers TLS 1.3 only seals with the store alone, so the ticket keys
+  beside it are idle and are not checked. TLS 1.2 always seals its tickets with the ticket keys,
+  store or not, so a server that offers TLS 1.2 has its keys checked beside a store; a client never
+  seals. Where the ticket keys and the resumption scope come from is judged separately: see
+  [Resumption state](#resumption-state).
 - **Server name.** A client with the server-name check disabled is `DangerousTrustConfigured` with
   the subject `ServerName`, unless every version it offers must end in a PSK (TLS 1.3 with a
   required external PSK, TLS 1.2 with a required TLS 1.2 PSK). Such a client verifies no chain, so
@@ -299,8 +301,8 @@ Findings, both configuration findings that Admit refuses in both modes:
   wrapper classes of `TicketKeys` and `CheckedTicketKeys` count, judged by class; the builder's
   default keys, a `TStekTicketKeyManager` you create, a marker-listing host class and the keys of
   another policy are all unchecked. Use `Policy.TicketKeys`, or `CheckedTicketKeys` for a fleet.
-  A server that holds a session store seals with the store alone, so the keys beside it are not
-  judged.
+  A server that holds a session store and offers TLS 1.3 only seals with the store alone, so the
+  keys beside it are not judged; one that offers TLS 1.2 seals with the keys, so they are.
 
 Keys that rotate on a lifetime other than the config's `TicketLifetimeSeconds` are disclosed. To
 turn resumption off on a facade server, use `TComplianceTls.WithoutResumption(ServerBuilder)`: it
@@ -311,6 +313,10 @@ resumption is off.
 Residual: a host that copies a policy scope onto a config the policy never admitted, or reads it
 from an admitted config, defeats the separation. That is forgery by code in the process.
 
+A fleet scope carries no policy prefix, so it does not tie the fleet to the policy. Never give a
+fleet scope to a config the policy did not admit, and never share one between policies with
+different rules: the tickets would resume across them. This is disclosed, not enforced.
+
 ---
 
 ## HPKE
@@ -320,7 +326,9 @@ allow it. A base provider whose HPKE is the default composition is rebuilt over 
 primitives, so it runs in the module like everything else. A foreign HPKE is wrapped: in relaxed
 mode it keeps only the KEMs whose group the rules allow and the AEADs the rules allow (hashes are
 not filtered), and in strict mode it refuses everything, because where it runs cannot be known. A
-foreign HPKE also produces a platform finding when the rules allow ECH. Rules that allow ECH also
+foreign HPKE also produces a platform finding when the rules allow ECH. HPKE also runs
+HKDF-SHA256, whatever hashes the rules list, so rules that allow ECH need the module to serve
+SHA-256 for it (the internal SHA-256 disclosure above applies). Rules that allow ECH also
 leave the providers behind an ECH key store or client unchecked; see the ECH keys bullet above.
 
 ---
@@ -355,8 +363,10 @@ posture of Off is disclosed. A server reports these only when it requests client
 - The module is identified by the OS facts above, read once when the attestation is created, not
   by its signature or its self-test state; the OS exposes neither to a program.
 - A base provider with its own HPKE composition is wrapped, not trusted: see HPKE above.
-- Ticket keys a host installs are outside what the policy can inspect; a fleet is disclosed. Shared resumption state is kept apart by the policy scope,
-  which a host can copy onto a config the policy never admitted.
+- Ticket keys a host installs are outside what the policy can inspect; a fleet is disclosed.
+  Shared resumption state is kept apart by the policy scope, which a host can copy onto a config
+  the policy never admitted. A fleet scope has no policy prefix and so ties nothing to the policy:
+  keep it off configs the policy did not admit and off other policies.
 
 ---
 

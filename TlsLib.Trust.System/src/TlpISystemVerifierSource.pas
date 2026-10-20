@@ -20,8 +20,8 @@ uses
 
 type
   /// <summary>The role-neutral marker of a certificate verifier source that validates chains
-  /// through the OS delegate rather than the portable verifier; the source class lists it, so a
-  /// config check can tell the two apart without naming the platform. It also carries the
+  /// through the OS delegate rather than the portable verifier; the source class lists it. Any
+  /// class can list it, so a config check judges the class, not the marker. It also carries the
   /// server-role roots, so the live re-check builds against the same ones as the inline pass. A
   /// stapled revocation response may be decided by the configured PKIX provider instead of the OS.
   /// All three are empty for a client-only source.</summary>

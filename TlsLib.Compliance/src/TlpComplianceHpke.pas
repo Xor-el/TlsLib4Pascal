@@ -20,7 +20,6 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpISecretBuffer,
-  TlpArrayUtilities,
   TlpComplianceTypes,
   TlpComplianceExceptions,
   TlpTlsLibExceptions;
@@ -151,15 +150,22 @@ end;
 function TComplianceHpke.SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
 var
   LSuites: TArray<THpkeSuiteId>;
-  LI: Int32;
+  LI, LN: Int32;
 begin
   Result := nil;
   if FStrict or not KemGroupAllowed(AKem) then
     Exit;
   LSuites := FInner.SupportedSuites(AKem);
+  System.SetLength(Result, System.Length(LSuites));
+  LN := 0;
+  // a 6-byte record passed as a parameter is misread on big-endian ppc64, so copy by assignment
   for LI := 0 to System.Length(LSuites) - 1 do
     if AeadAllowed(LSuites[LI].Aead) then
-      TArrayUtilities.Append<THpkeSuiteId>(Result, LSuites[LI]);
+    begin
+      Result[LN] := LSuites[LI];
+      System.Inc(LN);
+    end;
+  System.SetLength(Result, LN);
 end;
 
 function TComplianceHpke.ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;

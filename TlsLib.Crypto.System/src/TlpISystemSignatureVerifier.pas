@@ -16,11 +16,9 @@ unit TlpISystemSignatureVerifier;
 interface
 
 type
-  /// <summary>Marks a signature verifier whose operations run on the OS module. A platform's
-  /// verifier class lists it, so a caller can tell a native verifier from the portable one the
-  /// facet falls back to for a key the module cannot import, without naming the platform. Any
-  /// class can list it, so it is not authoritative on its own: a platform report confirms the
-  /// verifier's class.
+  /// <summary>Informational: marks a signature verifier whose operations run on the OS module. A
+  /// platform's verifier class lists it. Any class can list it, so nothing decides on it: a
+  /// backend report judges the verifier's class instead.
   /// </summary>
   ISystemSignatureVerifier = interface(IInterface)
     ['{D6258B91-347C-454D-9CF6-1831CB44C90D}']

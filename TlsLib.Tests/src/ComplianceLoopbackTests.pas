@@ -93,6 +93,8 @@ type
     // a server on the default provider with no policy that shares the same state under AScope
     function PlainServer(const AStore: ISessionStore; const AFleet: IFleetTicketKeyManager;
       const AScope: TBytes): ITlsServerConfig;
+    // drains the events of AEngine, returning how many were a received session ticket
+    function CountTicketEvents(const AEngine: ITlsEngine): Int32;
     // a handshake whose post-handshake tickets have reached the client
     procedure Connect(const AClientConfig: ITlsClientConfig;
       const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
@@ -122,6 +124,9 @@ type
     procedure TestFleetServerWithAnotherFleetScopeDoesNotResume;
     procedure TestTls12CompliantServerResumesItsOwnSessionThroughTheStore;
     procedure TestTls12PlainSessionDoesNotResumeOnCompliantServer;
+    procedure TestTls12CopiedScopeResumesAcrossPlainAndCompliantServers;
+    procedure TestTls12ServerWithStoreAndKeysIssuesATicket;
+    procedure TestTls12ServerWithStoreAloneIssuesNoTicket;
 {$IFDEF TLSLIB_MSWINDOWS}
     procedure TestHostRootsClientHandshakesWithPrivateChain;
     procedure TestOsRootsClientRefusesPrivateChainWithUnknownCa;
@@ -515,6 +520,64 @@ begin
   CheckEquals(TlsWireVersionTls12, LClient.ConnectionInfo.NegotiatedVersion.WireValue, 'TLS 1.2');
   CheckFalse(LServer.IsTerminal, 'the second handshake did not fail');
   CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed its own session');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'and the client saw the resumption');
+end;
+
+procedure TTestComplianceLoopback.TestTls12CopiedScopeResumesAcrossPlainAndCompliantServers;
+var
+  LPolicy: ICompliancePolicy;
+  LStore: ISessionStore;
+  LScope: TBytes;
+  LClientConfig: ITlsClientConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore;
+  LScope := LPolicy.SessionScope;
+  LClientConfig := Tls12ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache);
+  Connect(LClientConfig, PlainServer(LStore, nil, LScope), LClient, LServer);
+  Connect(LClientConfig, CompliantServer(LPolicy, LStore, nil, LScope), LClient, LServer);
+  CheckEquals(TlsWireVersionTls12, LClient.ConnectionInfo.NegotiatedVersion.WireValue, 'TLS 1.2');
+  CheckFalse(LServer.IsTerminal, 'the second handshake did not fail');
+  CheckTrue(LServer.ConnectionInfo.Resumed,
+    'control: with one scope on both servers the store is shared, which the scope exists to stop');
+  CheckTrue(LClient.ConnectionInfo.Resumed, 'and the client saw the resumption');
+end;
+
+function TTestComplianceLoopback.CountTicketEvents(const AEngine: ITlsEngine): Int32;
+var
+  LEvent: ITlsEvent;
+begin
+  Result := 0;
+  while AEngine.NextEvent(LEvent) do
+    if LEvent.Kind = TTlsEventKind.SessionTicketReceived then
+      System.Inc(Result);
+end;
+
+procedure TTestComplianceLoopback.TestTls12ServerWithStoreAndKeysIssuesATicket;
+var
+  LPolicy: ICompliancePolicy;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  Connect(Tls12ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache),
+    CompliantServer(LPolicy, TInMemorySessionStore.Create(Crypto.Primitives.GetRandom)
+    as ISessionStore, SharedFleet, LPolicy.SessionScope), LClient, LServer);
+  CheckEquals(TlsWireVersionTls12, LClient.ConnectionInfo.NegotiatedVersion.WireValue, 'TLS 1.2');
+  CheckEquals(1, CountTicketEvents(LClient), 'the TLS 1.2 server seals a ticket with its keys');
+end;
+
+procedure TTestComplianceLoopback.TestTls12ServerWithStoreAloneIssuesNoTicket;
+var
+  LPolicy: ICompliancePolicy;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  Connect(Tls12ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache),
+    CompliantServer(LPolicy, TInMemorySessionStore.Create(Crypto.Primitives.GetRandom)
+    as ISessionStore, nil, LPolicy.SessionScope), LClient, LServer);
+  CheckEquals(0, CountTicketEvents(LClient),
+    'control: without keys the TLS 1.2 server resumes by session id and seals nothing');
 end;
 
 procedure TTestComplianceLoopback.TestTls12PlainSessionDoesNotResumeOnCompliantServer;

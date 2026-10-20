@@ -131,6 +131,8 @@ type
     function Aes128Policy: ICompliancePolicy;
     function ClientBuilder(const APolicy: ICompliancePolicy): ITlsClientConfigBuilder;
     function ServerBuilder(const APolicy: ICompliancePolicy): ITlsServerConfigBuilder;
+    // the facade server offering TLS 1.3 only, with the TLS 1.2 setting it made taken back
+    function Tls13OnlyServerBuilder(const APolicy: ICompliancePolicy): ITlsServerConfigBuilder;
     function Credential(const ACrypto: ICryptoProvider): TTlsCredential;
     // whether Admit raised; AFindings holds what the exception carried, else the report's
     function ClientAdmit(const APolicy: ICompliancePolicy; const AConfig: ITlsClientConfig;
@@ -250,6 +252,7 @@ type
     procedure TestFacadeConfigHoldsPolicyProviders;
     procedure TestVersionNotAllowedRefused;
     procedure TestCipherSuiteNotAllowedRefused;
+    procedure TestListedAndPreferredDisallowedGroupIsReportedOnce;
     procedure TestNamedGroupNotAllowedRefused;
     procedure TestPreferredGroupNotAllowedRefused;
     procedure TestForeignClassicalRegistryRefused;
@@ -355,6 +358,7 @@ type
     procedure TestTicketAeadNotAllowedWhenServerSealsWithoutAes256;
     procedure TestExplicitTicketKeysUnderAes128AreRefused;
     procedure TestStoreWithDefaultTicketKeysUnderAes128IsNotRefused;
+    procedure TestStoreWithDefaultTicketKeysUnderTls12Aes128IsRefused;
     procedure TestStoreOnlyServerGetsNoTicketFinding;
     procedure TestClientGetsNoTicketFinding;
     procedure TestFleetTicketKeysDisclosed;
@@ -407,8 +411,8 @@ type
     // a facade server holding AFleet behind the policy wrapper and AScope as its resumption scope
     function FleetServerBuilder(const APolicy: ICompliancePolicy;
       const AFleet: IFleetTicketKeyManager; const AScope: TBytes): ITlsServerConfigBuilder;
-    // a strict policy over a base whose random generator yields only AByte
-    function PolicyOverFilledRandom(AByte: Byte): ICompliancePolicy;
+    // a strict policy over a base whose random generator is ARandom
+    function PolicyOverRandom(const ARandom: IRandom): ICompliancePolicy;
   published
     procedure TestSessionScopeIs32BytesWithThePolicyPrefix;
     procedure TestSessionScopePrefixIsStableForOnePolicy;
@@ -447,7 +451,11 @@ type
     procedure TestCheckedFleetKeysAreDisclosed;
     procedure TestCheckedFleetScopeIsDisclosed;
     procedure TestKeysBesideAStoreAreNotChecked;
+    procedure TestKeysBesideAStoreUnderTls12AreChecked;
     procedure TestFleetBesideAStoreIsNotDisclosed;
+    procedure TestFleetBesideAStoreUnderTls12IsDisclosed;
+    procedure TestCheckedFleetBesideAStoreUnderTls12KeepsTheFleetScope;
+    procedure TestCheckedFleetBesideAStoreUnderTls12RefusesThePolicyScope;
     procedure TestTicketKeysAreMintedFromThePolicyRandom;
     procedure TestTicketKeysRotateForwards;
     procedure TestCheckedFleetInstallKeyForwards;
@@ -458,6 +466,8 @@ type
     procedure TestCheckedTicketKeysRejectEmptyScope;
     procedure TestCheckedTicketKeysAcceptTheLongestScope;
     procedure TestCheckedTicketKeysRejectAScopeOneByteTooLong;
+    procedure TestServerBuilderAcceptsTheLongestFleetScope;
+    procedure TestServerBuilderRefusesAScopeOneByteOverTheFleetLimit;
     procedure TestTicketKeysWrapperRejectsNilPolicy;
     procedure TestTicketKeysWrapperRejectsNilClock;
     procedure TestTicketKeysWrapperRejectsZeroLifetime;
@@ -922,6 +932,14 @@ function TCompliancePolicyTestCase.ServerBuilder(
   const APolicy: ICompliancePolicy): ITlsServerConfigBuilder;
 begin
   Result := TComplianceTls.Server(APolicy, Credential(APolicy.Crypto));
+end;
+
+function TCompliancePolicyTestCase.Tls13OnlyServerBuilder(
+  const APolicy: ICompliancePolicy): ITlsServerConfigBuilder;
+begin
+  Result := ServerBuilder(APolicy);
+  Result.Tls12.WithExtendedMasterSecret(False);
+  Result.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
 end;
 
 function TCompliancePolicyTestCase.Credential(const ACrypto: ICryptoProvider): TTlsCredential;
@@ -1781,6 +1799,21 @@ begin
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithCipherSuites(LBuilder.Build).Build,
     LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.CipherSuiteNotAllowed), 'names AES-128');
+end;
+
+procedure TTestComplianceAdmit.TestListedAndPreferredDisallowedGroupIsReportedOnce;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithNamedGroups(
+    TNamedGroups.CreateRegistry(TArray<INamedGroup>.Create(
+    TFakeNamedGroup.Create(TNamedGroupCatalog.X25519) as INamedGroup)))
+    .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519)).Build,
+    LFindings), 'refused');
+  CheckEquals(1, CountOfKind(LFindings, TComplianceFindingKind.NamedGroupNotAllowed),
+    'X25519 is both listed and preferred but found once');
 end;
 
 procedure TTestComplianceAdmit.TestNamedGroupNotAllowedRefused;
@@ -3251,12 +3284,26 @@ var
   LBuilder: ITlsServerConfigBuilder;
 begin
   LPolicy := Aes128Policy;
-  LBuilder := ServerBuilder(LPolicy).WithResumption(True).WithSessionStore(
+  LBuilder := Tls13OnlyServerBuilder(LPolicy).WithResumption(True).WithSessionStore(
     TInMemorySessionStore.Create(LPolicy.Crypto.Primitives.GetRandom) as ISessionStore)
     .WithDefaultSessionTicketKeys;
   CheckFalse(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
     TComplianceFindingKind.TicketAeadNotAllowed),
-    'the engine seals with the store alone, so the keys beside it are idle');
+    'TLS 1.3 seals with the store alone, so the keys beside it are idle');
+end;
+
+procedure TTestComplianceAdmit.TestStoreWithDefaultTicketKeysUnderTls12Aes128IsRefused;
+var
+  LPolicy: ICompliancePolicy;
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LPolicy := Aes128Policy;
+  LBuilder := ServerBuilder(LPolicy).WithResumption(True).WithSessionStore(
+    TInMemorySessionStore.Create(LPolicy.Crypto.Primitives.GetRandom) as ISessionStore)
+    .WithDefaultSessionTicketKeys;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
+    TComplianceFindingKind.TicketAeadNotAllowed),
+    'TLS 1.2 seals with the keys even beside a store');
 end;
 
 procedure TTestComplianceAdmit.TestStoreOnlyServerGetsNoTicketFinding;
@@ -3782,12 +3829,12 @@ begin
     APolicy.CheckedTicketKeys(AFleet, AScope));
 end;
 
-function TTestComplianceResumption.PolicyOverFilledRandom(AByte: Byte): ICompliancePolicy;
+function TTestComplianceResumption.PolicyOverRandom(const ARandom: IRandom): ICompliancePolicy;
 var
   LBase: ICryptoProvider;
 begin
-  LBase := TOverlayCryptoProvider.Create(TMockCryptoProvider.Create(
-    TFilledRandom.Create(AByte) as IRandom) as ICryptoProvider, nil, nil,
+  LBase := TOverlayCryptoProvider.Create(TMockCryptoProvider.Create(ARandom)
+    as ICryptoProvider, nil, nil,
     TFakeBackendReport.Create([]) as ICryptoBackendReport, nil);
   Result := NewPolicy(TCompliancePresets.Fips140_3, LBase, TModuleStatus.Validated,
     TComplianceEnforcement.Strict);
@@ -4180,13 +4227,17 @@ procedure TTestComplianceResumption.TestCheckedFleetOfAnotherPolicyIsUnchecked;
 var
   LPolicy, LOther: ICompliancePolicy;
   LScope: TBytes;
+  LReport: IComplianceReport;
 begin
   LPolicy := StrictPolicy;
   LOther := StrictPolicy;
   LScope := FleetScope;
-  CheckTrue(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).WithResumptionScope(LScope)
-    .WithSessionTicketKeys(LOther.CheckedTicketKeys(NewFleet, LScope)).Build),
-    TComplianceFindingKind.TicketKeysUnchecked), 'a fleet another policy wrapped');
+  LReport := LPolicy.Evaluate(ServerBuilder(LPolicy).WithResumptionScope(LScope)
+    .WithSessionTicketKeys(LOther.CheckedTicketKeys(NewFleet, LScope)).Build);
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.TicketKeysUnchecked),
+    'a fleet another policy wrapped');
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.ResumptionStateUnchecked),
+    'and its scope is not the policy''s either');
 end;
 
 procedure TTestComplianceResumption.TestCheckedFleetKeysAreDisclosed;
@@ -4222,12 +4273,25 @@ begin
   LPolicy := StrictPolicy;
   LHostKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
     as ISessionTicketKeyManager;
-  LReport := LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(LHostKeys)
+  LReport := LPolicy.Evaluate(Tls13OnlyServerBuilder(LPolicy).WithSessionTicketKeys(LHostKeys)
     .WithSessionStore(NewStore(LPolicy)).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.TicketKeysUnchecked),
-    'the engine seals with the store alone, so the keys beside it are idle');
+    'TLS 1.3 seals with the store alone, so the keys beside it are idle');
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ResumptionStateUnchecked),
     'and the store runs under the policy scope');
+end;
+
+procedure TTestComplianceResumption.TestKeysBesideAStoreUnderTls12AreChecked;
+var
+  LPolicy: ICompliancePolicy;
+  LHostKeys: ISessionTicketKeyManager;
+begin
+  LPolicy := StrictPolicy;
+  LHostKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(LHostKeys)
+    .WithSessionStore(NewStore(LPolicy)).Build), TComplianceFindingKind.TicketKeysUnchecked),
+    'TLS 1.2 seals with the keys even beside a store');
 end;
 
 procedure TTestComplianceResumption.TestFleetBesideAStoreIsNotDisclosed;
@@ -4235,19 +4299,62 @@ var
   LPolicy: ICompliancePolicy;
 begin
   LPolicy := StrictPolicy;
-  CheckFalse(Disclosed(LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(NewFleet)
+  CheckFalse(Disclosed(LPolicy.Evaluate(Tls13OnlyServerBuilder(LPolicy)
+    .WithSessionTicketKeys(NewFleet).WithSessionStore(NewStore(LPolicy)).Build),
+    'entered by the host'),
+    'keys the TLS 1.3 engine never uses are not the host''s choice');
+end;
+
+procedure TTestComplianceResumption.TestFleetBesideAStoreUnderTls12IsDisclosed;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(Disclosed(LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(NewFleet)
     .WithSessionStore(NewStore(LPolicy)).Build), 'entered by the host'),
-    'keys the engine never uses are not the host''s choice');
+    'the TLS 1.2 engine seals with the fleet keys');
+end;
+
+procedure TTestComplianceResumption.TestCheckedFleetBesideAStoreUnderTls12KeepsTheFleetScope;
+var
+  LPolicy: ICompliancePolicy;
+  LScope: TBytes;
+begin
+  LPolicy := StrictPolicy;
+  LScope := FleetScope;
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(FleetServerBuilder(LPolicy, NewFleet, LScope)
+    .WithSessionStore(NewStore(LPolicy)).Build),
+    TComplianceFindingKind.ResumptionStateUnchecked), 'the fleet scope is the one that fits');
+end;
+
+procedure TTestComplianceResumption.TestCheckedFleetBesideAStoreUnderTls12RefusesThePolicyScope;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).WithSessionTicketKeys(
+    LPolicy.CheckedTicketKeys(NewFleet, FleetScope)).WithSessionStore(NewStore(LPolicy)).Build),
+    TComplianceFindingKind.ResumptionStateUnchecked),
+    'the policy scope does not stand for the fleet keys');
 end;
 
 procedure TTestComplianceResumption.TestTicketKeysAreMintedFromThePolicyRandom;
 var
+  LRandom: TFilledRandom;
   LKeys: ISessionTicketKeyManager;
   LName: TBytes;
   LKey, LFound: ISecretBuffer;
+  LBefore: Int32;
+  LHold: IRandom;
+  LPolicy: ICompliancePolicy;
 begin
-  LKeys := PolicyOverFilledRandom($5A).TicketKeys(TSystemClock.Create as ITlsClock, 7200);
+  LRandom := TFilledRandom.Create($5A);
+  LHold := LRandom as IRandom;
+  LPolicy := PolicyOverRandom(LHold);
+  LBefore := LRandom.Drawn;
+  LKeys := LPolicy.TicketKeys(TSystemClock.Create as ITlsClock, 7200);
   CheckTrue(LKeys.CurrentKey(LName, LKey), 'a current key');
+  CheckEquals(LBefore + 48, LRandom.Drawn, 'a name and a key came out of the policy random');
   CheckEqualBytes('its name comes from the policy random', Filled($5A, 16), LName);
   CheckEqualBytes('and so does the key', Filled($5A, 32), LKey.ToBytes);
   CheckEquals(16, LKeys.KeyNameLength, 'the name length');
@@ -4371,6 +4478,29 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'the builder would refuse 33 bytes');
+end;
+
+procedure TTestComplianceResumption.TestServerBuilderAcceptsTheLongestFleetScope;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(FleetServerBuilder(LPolicy, NewFleet, Filled($01, 32)).Build <> nil,
+    'the wrapper limit is not above the builder limit');
+end;
+
+procedure TTestComplianceResumption.TestServerBuilderRefusesAScopeOneByteOverTheFleetLimit;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    ServerBuilder(StrictPolicy).WithResumptionScope(Filled($01, 33));
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the wrapper limit is not below the builder limit');
 end;
 
 procedure TTestComplianceResumption.TestTicketKeysWrapperRejectsNilPolicy;
