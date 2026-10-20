@@ -48,6 +48,10 @@ type
     /// concrete provider, keeping the portable provider's construction at the composition
     /// root that already references it.</summary>
     class function Compose(const ABase: ICryptoProvider): ICryptoProvider; static;
+    /// <summary>Whether AProvider is unchanged from what <see cref="Compose" /> returned, so its
+    /// backend report describes its own facets. False for nil, for any other provider, for one
+    /// rebuilt from other facets, and on a platform with no native facets.</summary>
+    class function IsComposition(const AProvider: ICryptoProvider): Boolean; static;
   end;
 
 implementation
@@ -76,9 +80,19 @@ class function TOSCryptoProvider.Compose(
   const ABase: ICryptoProvider): ICryptoProvider;
 begin
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  Result := TWindowsSystemCrypto.Compose(ABase);
+  Result := TWindowsSystemCrypto.Compose(ABase, TWindowsSystemCrypto.PrimitiveProvider,
+    TWindowsSystemCrypto.KeyStorageProvider);
 {$ELSE}
   Result := ABase;
+{$IFEND}
+end;
+
+class function TOSCryptoProvider.IsComposition(const AProvider: ICryptoProvider): Boolean;
+begin
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+  Result := TWindowsSystemCrypto.IsComposition(AProvider);
+{$ELSE}
+  Result := False;
 {$IFEND}
 end;
 

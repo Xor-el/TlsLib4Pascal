@@ -940,8 +940,9 @@ var
   LProvider: ICryptoProvider;
   LExpected, LActual: TCryptoBackendEntry;
 begin
-  // the rules restrict the supplied facet; they do not re-describe what the base reports
-  LBaseReport := TComposedHpkeClaimReport.Create as ICryptoBackendReport;
+  // the rules restrict the supplied facet; they do not re-describe what the base reports, which
+  // for a facet that is no composition over the base's primitives is portable
+  LBaseReport := TFakeBackendReport.Create([]) as ICryptoBackendReport;
   LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
     LBaseReport, nil, TFakeHpke.Create as IHpkeCrypto), TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Relaxed);

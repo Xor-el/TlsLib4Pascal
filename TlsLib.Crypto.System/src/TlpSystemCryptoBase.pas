@@ -84,9 +84,13 @@ type
   public
     /// <summary>True only for the default HPKE composition over ABase's own primitives.</summary>
     class function RebuildsHpke(const ABase: ICryptoProvider): Boolean; static;
+    /// <summary>Whether AHpke is an HPKE composition over exactly APrimitives.</summary>
+    class function ComposesHpkeOver(const AHpke: IHpkeCrypto;
+      const APrimitives: ICryptoPrimitives): Boolean; static;
     /// <summary>AHpke is a caller-supplied HPKE facet; nil keeps the rule above. The overlay
-    /// exposes AReport unchanged, so its HPKE answer must describe AHpke: build the report with
-    /// AHpkeComposed False for a facet that is not a composition.</summary>
+    /// exposes AReport unchanged, so its HPKE answer must describe AHpke: a report that names
+    /// any backend but portable for HPKE is accepted with a caller-supplied AHpke only when AHpke
+    /// is a composition over the overlay's primitives, otherwise the constructor raises.</summary>
     constructor Create(const ABase: ICryptoProvider;
       const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;
       const AReport: ICryptoBackendReport; const AHpke: IHpkeCrypto);
@@ -157,20 +161,24 @@ type
     class function Ent(ABackend: TCryptoBackend;
       AReason: TCryptoBackendReason): TCryptoBackendEntry; static;
     class function NotNative: TCryptoBackendEntry; static;
-  public
     /// <summary>The per-scheme answer for a facet served by a separate OS module: a scheme the
     /// module does not serve is NotNative, an absent module is NoModule, and a present one is
     /// System only when the facet works on it.</summary>
     class function ModuleFacetBackend(ASchemeServed, AModulePresent,
       AFacetNative: Boolean): TCryptoBackendEntry; static;
+  public
     /// <param name="AHpkeComposed">True when the provider's HPKE composes over its own
     /// primitives.</param>
     constructor Create(AHpkeComposed: Boolean);
     function RandomBackend: TCryptoBackendEntry; virtual;
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; virtual;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; virtual;
+    /// <summary>Composed when the HMAC is native: Extract runs over the OS HMAC, and a
+    /// platform that serves Expand natively still reports the derivation as composed.</summary>
     function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
-    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+    /// <summary>Composed when the HMAC is native; a platform whose OS module serves the PRF
+    /// itself overrides it.</summary>
+    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; virtual;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry; virtual;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; virtual;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry; virtual;
@@ -187,6 +195,8 @@ implementation
 resourcestring
   SNilInnerPrimitives = 'the inner primitives facet must not be nil';
   SNilInnerSigning = 'the inner signing facet must not be nil';
+  SHpkeReportMismatch = 'the backend report names a backend for HPKE but the HPKE facet is ' +
+    'not a composition over the overlay''s primitives';
   SUpdateSpanOutOfRange = 'the Update source span is out of range';
 
 { TForwardingCryptoPrimitives }
@@ -258,7 +268,13 @@ begin
   FSigning := ASigning;
   FReport := AReport;
   if AHpke <> nil then
-    FHpke := AHpke
+  begin
+    if (AReport <> nil) and
+      (AReport.FacetBackend(TCryptoFacet.Hpke).Backend <> TCryptoBackend.Portable) and
+      (not ComposesHpkeOver(AHpke, Primitives)) then
+      raise EArgumentTlsLibException.CreateRes(@SHpkeReportMismatch);
+    FHpke := AHpke;
+  end
   else if RebuildsHpke(ABase) then
     FHpke := THpkeComposition.Create(Primitives) as IHpkeCrypto
   else
@@ -266,11 +282,17 @@ begin
 end;
 
 class function TOverlayCryptoProvider.RebuildsHpke(const ABase: ICryptoProvider): Boolean;
+begin
+  Result := ComposesHpkeOver(ABase.Hpke, ABase.Primitives);
+end;
+
+class function TOverlayCryptoProvider.ComposesHpkeOver(const AHpke: IHpkeCrypto;
+  const APrimitives: ICryptoPrimitives): Boolean;
 var
   LComposition: IHpkeComposition;
 begin
-  Result := Supports(ABase.Hpke, IHpkeComposition, LComposition) and
-    (LComposition.ComposedOver = ABase.Primitives);
+  Result := Supports(AHpke, IHpkeComposition, LComposition) and
+    (LComposition.ComposedOver = APrimitives);
 end;
 
 function TOverlayCryptoProvider.Primitives: ICryptoPrimitives;
