@@ -259,11 +259,21 @@ type
     procedure TestRsaCredentialInsideRangeButUnlistedIsBelowRules;
     procedure TestRsaCredentialFollowsTheRangeWithoutExactSizes;
     procedure TestWebPkiVerifierChainOutsideModule;
-    procedure TestInstanceVerifierChainOutsideModule;
+    procedure TestInstanceVerifierIsCustomNotChainOutside;
+    procedure TestInstanceVerifierRefusedInRelaxed;
+    procedure TestBuiltInVerifierIsPlatformOnlyInRelaxed;
+    procedure TestOsVerifierSourceHasNoVerifierFinding;
+    procedure TestHostSourceListingSystemMarkerIsCustom;
+    procedure TestHostSourceListingSystemMarkerRefusedInRelaxed;
+    procedure TestRequiredPskClientIgnoresCustomVerifier;
     procedure TestSystemVerifierSourceAdmitted;
     procedure TestStapleRequestedRefused;
     procedure TestMtlsServerWebPkiClientVerifierRefused;
     procedure TestMtlsServerFakeSystemSourceAdmits;
+    procedure TestMtlsServerInstanceVerifierIsCustom;
+    procedure TestMtlsServerInstanceVerifierRefusedInRelaxed;
+    procedure TestMtlsServerBuiltInVerifierIsPlatformOnlyInRelaxed;
+    procedure TestMtlsServerHostSourceListingSystemMarkerIsCustom;
     procedure TestServerWithoutClientAuthNeedsNoClientVerifier;
     procedure TestRevocationOffDisclosed;
     procedure TestServerWithoutClientAuthHasNoPeerDisclosure;
@@ -273,7 +283,10 @@ type
     procedure TestClientHasNoRsaDisclosureWithoutExactSizes;
     procedure TestPlainServerHasNoDisclosure;
     procedure TestWeakSniEntryIsBelowRules;
-    procedure TestListedResolverWeakEntryIsBelowRulesNotUnchecked;
+    procedure TestHostListedResolverIsUnchecked;
+    procedure TestSniResolverIsEnumerated;
+    procedure TestHostClassClaimingCheckedMarkerIsUnchecked;
+    procedure TestCheckedWrapperOverHostListedResolverIsNotUnchecked;
     procedure TestDefaultSharedWithAnSniEntryIsReportedOnce;
     procedure TestRawCustomResolverIsUnchecked;
     procedure TestRawCustomResolverIsRefusedEvenInRelaxed;
@@ -424,6 +437,22 @@ type
       out ACredential: TTlsCredential): Boolean;
   end;
 
+  // a host class that lists the checked-resolver marker and names a policy, without checking
+  TClaimingResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver,
+    IComplianceCredentialResolver)
+  strict private
+  var
+    FPolicy: ICompliancePolicy;
+    FInner: ITlsServerCredentialResolver;
+  public
+    constructor Create(const APolicy: ICompliancePolicy;
+      const AInner: ITlsServerCredentialResolver);
+    function TryResolve(const AClientHello: TTlsClientHelloInfo;
+      out ACredential: TTlsCredential): Boolean;
+    function Policy: ICompliancePolicy;
+    function Inner: ITlsServerCredentialResolver;
+  end;
+
 resourcestring
   SResolverStoreDown = 'the credential store is down';
   SBranchNotValidated = 'build %d is not validated; the validated branch does not apply';
@@ -464,6 +493,33 @@ end;
 function TListedCredentialResolver.Credentials: TArray<TTlsCredential>;
 begin
   Result := FCredentials;
+end;
+
+{ TClaimingResolver }
+
+constructor TClaimingResolver.Create(const APolicy: ICompliancePolicy;
+  const AInner: ITlsServerCredentialResolver);
+begin
+  inherited Create;
+  FPolicy := APolicy;
+  FInner := AInner;
+end;
+
+function TClaimingResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
+  out ACredential: TTlsCredential): Boolean;
+begin
+  ACredential := Default(TTlsCredential);
+  Result := False;
+end;
+
+function TClaimingResolver.Policy: ICompliancePolicy;
+begin
+  Result := FPolicy;
+end;
+
+function TClaimingResolver.Inner: ITlsServerCredentialResolver;
+begin
+  Result := FInner;
 end;
 
 { TFailingCredentialResolver }
@@ -584,7 +640,7 @@ function TCompliancePolicyTestCase.ClientBuilder(
   const APolicy: ICompliancePolicy): ITlsClientConfigBuilder;
 begin
   Result := TComplianceTls.Client(APolicy, TServerVerification.VerifierSource(
-    TFakeSystemVerifierSource.Create as IServerCertificateVerifierSource));
+    TFakeOsVerifierSources.Server));
 end;
 
 function TCompliancePolicyTestCase.ServerBuilder(
@@ -1155,7 +1211,7 @@ begin
   LProfile.PreferredGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1);
   Result := TTlsConfigBuilder.CreateFromProfile(ACrypto, APkix, LProfile).Client
     .WithServerVerification(TServerVerification.VerifierSource(
-    TFakeSystemVerifierSource.Create as IServerCertificateVerifierSource).Build).Build;
+    TFakeOsVerifierSources.Server).Build).Build;
 end;
 
 function TTestComplianceAdmit.Psk: TExternalPsk;
@@ -1234,7 +1290,7 @@ function TTestComplianceAdmit.MtlsServerBuilder(const APolicy: ICompliancePolicy
 begin
   Result := ServerBuilder(APolicy).WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.VerifierSource(
-    TFakeSystemVerifierSource.Create as IClientCertificateVerifierSource,
+    TFakeOsVerifierSources.Client,
     TTlsLibTestCertificates.EcP256RootStore).WithMinimumStrength(APolicy.Rules.Strength)
     .WithRevocation(APosture).Build);
 end;
@@ -1741,7 +1797,7 @@ var
 begin
   LPolicy := StrictPolicy;
   CheckTrue(ClientAdmit(LPolicy, EarlyDataClientBuilder(LPolicy, TServerVerification
-    .VerifierSource(TFakeSystemVerifierSource.Create as IServerCertificateVerifierSource))
+    .VerifierSource(TFakeOsVerifierSources.Server))
     .Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.EarlyDataEnabled), 'names early data');
 end;
@@ -1834,8 +1890,7 @@ var
 begin
   LPolicy := StrictPolicy;
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithServerVerification(
-    TServerVerification.VerifierSource(TFakeSystemVerifierSource.Create
-    as IServerCertificateVerifierSource).WithMinimumStrength(
+    TServerVerification.VerifierSource(TFakeOsVerifierSources.Server).WithMinimumStrength(
     TCertificateStrengthPolicy.Defaults).Build).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.StrengthBelowRules), 'names the floors');
 end;
@@ -1972,7 +2027,7 @@ begin
     'the portable chain check is outside the module');
 end;
 
-procedure TTestComplianceAdmit.TestInstanceVerifierChainOutsideModule;
+procedure TTestComplianceAdmit.TestInstanceVerifierIsCustomNotChainOutside;
 var
   LPolicy: ICompliancePolicy;
   LFindings: TArray<TComplianceFinding>;
@@ -1981,8 +2036,95 @@ begin
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithServerVerification(
     TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting(False)
     as IServerCertificateVerifier)).Build, LFindings), 'refused');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
     'where a custom verifier runs cannot be seen');
+  CheckFalse(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
+    'and it is not the built-in portable check');
+end;
+
+procedure TTestComplianceAdmit.TestInstanceVerifierRefusedInRelaxed;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithServerVerification(
+    TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting(False)
+    as IServerCertificateVerifier)).Build, LFindings), 'a configuration finding is never relaxed');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured), 'which');
+end;
+
+procedure TTestComplianceAdmit.TestBuiltInVerifierIsPlatformOnlyInRelaxed;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  CheckFalse(ClientAdmit(LPolicy, TComplianceTls.Client(LPolicy, TServerVerification.WebPki(
+    TTlsLibTestCertificates.EcP256RootStore)).Build, LFindings), 'relaxed does not raise');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
+    'the portable check is a platform fact');
+  CheckFalse(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
+    'and the built-in source is not host-supplied');
+end;
+
+procedure TTestComplianceAdmit.TestOsVerifierSourceHasNoVerifierFinding;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LReport := LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
+    TServerVerification.VerifierSource(TFakeOsVerifierSources.Server)
+    .WithMinimumStrength(LPolicy.Rules.Strength).Build).Build);
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CustomVerifierConfigured),
+    'the OS source is not custom');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
+    'and is in the module');
+end;
+
+procedure TTestComplianceAdmit.TestHostSourceListingSystemMarkerIsCustom;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithServerVerification(
+    TServerVerification.VerifierSource(TFakeSystemVerifierSource.Create
+    as IServerCertificateVerifierSource).Build).Build, LFindings), 'refused');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
+    'a marker interface any host class can list does not put a source in the module');
+end;
+
+procedure TTestComplianceAdmit.TestHostSourceListingSystemMarkerRefusedInRelaxed;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithServerVerification(
+    TServerVerification.VerifierSource(TFakeSystemVerifierSource.Create
+    as IServerCertificateVerifierSource).Build).Build, LFindings),
+    'a configuration finding is never relaxed');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
+    'and the raised findings name the verifier');
+end;
+
+procedure TTestComplianceAdmit.TestRequiredPskClientIgnoresCustomVerifier;
+var
+  LPolicy: ICompliancePolicy;
+  LCustom: IServerVerification;
+begin
+  LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls13));
+  LCustom := TServerVerification.Custom(TFixedVerdictVerifier.CreateAccepting(False)
+    as IServerCertificateVerifier);
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
+    LCustom).Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(Psk)).Build),
+    TComplianceFindingKind.CustomVerifierConfigured),
+    'a client that verifies no chain runs no verifier');
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
+    LCustom).Build), TComplianceFindingKind.CustomVerifierConfigured),
+    'control: the same verifier without the PSK is found');
 end;
 
 procedure TTestComplianceAdmit.TestSystemVerifierSourceAdmitted;
@@ -2029,9 +2171,69 @@ begin
   LPolicy := StrictPolicy;
   CheckFalse(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.VerifierSource(
-    TFakeSystemVerifierSource.Create as IClientCertificateVerifierSource,
+    TFakeOsVerifierSources.Client,
     TTlsLibTestCertificates.EcP256RootStore).WithMinimumStrength(LPolicy.Rules.Strength)
     .Build).Build, LFindings), 'admitted');
+end;
+
+procedure TTestComplianceAdmit.TestMtlsServerInstanceVerifierIsCustom;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(TClientVerification.Custom(TFixedVerdictVerifier.CreateAccepting(
+    False) as IClientCertificateVerifier)).Build, LFindings), 'refused');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
+    'a custom client verifier is host-supplied');
+  CheckFalse(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
+    'and is not the built-in portable check');
+end;
+
+procedure TTestComplianceAdmit.TestMtlsServerInstanceVerifierRefusedInRelaxed;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(TClientVerification.Custom(TFixedVerdictVerifier.CreateAccepting(
+    False) as IClientCertificateVerifier)).Build, LFindings),
+    'a configuration finding is never relaxed');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
+    'and the raised findings name the verifier');
+end;
+
+procedure TTestComplianceAdmit.TestMtlsServerBuiltInVerifierIsPlatformOnlyInRelaxed;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  CheckFalse(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(TClientVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore)
+    .WithMinimumStrength(LPolicy.Rules.Strength).Build).Build, LFindings),
+    'relaxed does not raise');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
+    'the portable check is a platform fact');
+  CheckFalse(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
+    'and the built-in source is not host-supplied');
+end;
+
+procedure TTestComplianceAdmit.TestMtlsServerHostSourceListingSystemMarkerIsCustom;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(TClientVerification.VerifierSource(
+    TFakeSystemVerifierSource.Create as IClientCertificateVerifierSource,
+    TTlsLibTestCertificates.EcP256RootStore).WithMinimumStrength(LPolicy.Rules.Strength)
+    .Build).Build, LFindings), 'refused');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
+    'a marker interface any host class can list does not put a source in the module');
 end;
 
 procedure TTestComplianceAdmit.TestServerWithoutClientAuthNeedsNoClientVerifier;
@@ -2052,9 +2254,9 @@ begin
   LPolicy := StrictPolicy;
   LBase := LPolicy.Evaluate(ClientBuilder(LPolicy).Build);
   LOff := LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
-    TServerVerification.VerifierSource(TFakeSystemVerifierSource.Create
-    as IServerCertificateVerifierSource).WithMinimumStrength(LPolicy.Rules.Strength)
-    .WithRevocation(TRevocationPosture.Off).Build).Build);
+    TServerVerification.VerifierSource(TFakeOsVerifierSources.Server)
+    .WithMinimumStrength(LPolicy.Rules.Strength).WithRevocation(TRevocationPosture.Off)
+    .Build).Build);
   CheckEquals(System.Length(LBase.Disclosures) + 1, System.Length(LOff.Disclosures),
     'revocation off adds one disclosure');
   CheckEquals(0, System.Length(LOff.Findings), 'and no finding');
@@ -2137,7 +2339,7 @@ begin
     'the SNI credential is checked too, named by its place in the set and its common name');
 end;
 
-procedure TTestComplianceAdmit.TestListedResolverWeakEntryIsBelowRulesNotUnchecked;
+procedure TTestComplianceAdmit.TestHostListedResolverIsUnchecked;
 var
   LPolicy: ICompliancePolicy;
   LReport: IComplianceReport;
@@ -2146,10 +2348,50 @@ begin
   LReport := LPolicy.Evaluate(RawResolverConfig(LPolicy, TListedCredentialResolver.Create(
     TArray<TTlsCredential>.Create(Credential(LPolicy.Crypto), Ed25519Credential))
     as ITlsServerCredentialResolver));
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.CredentialResolverUnchecked),
+    'a host list can name credentials it never serves, so it is not trusted');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
+    'and its entries are not read');
+end;
+
+procedure TTestComplianceAdmit.TestSniResolverIsEnumerated;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := RelaxedPolicy;
+  LReport := LPolicy.Evaluate(RawResolverConfig(LPolicy,
+    TSniCredentialResolver.ForCredential(Ed25519Credential)));
   CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
-    'a resolver that lists its credentials is checked entry by entry');
+    'the library resolver is immutable, so its entries are checked');
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialResolverUnchecked),
-    'and is not reported as uninspectable');
+    'and it is not reported as uninspectable');
+end;
+
+procedure TTestComplianceAdmit.TestHostClassClaimingCheckedMarkerIsUnchecked;
+var
+  LPolicy: ICompliancePolicy;
+  LInner: ITlsServerCredentialResolver;
+begin
+  LPolicy := StrictPolicy;
+  LInner := TPlainCredentialResolver.Create(Credential(LPolicy.Crypto), True)
+    as ITlsServerCredentialResolver;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(RawResolverConfig(LPolicy,
+    TClaimingResolver.Create(LPolicy, LInner) as ITlsServerCredentialResolver)),
+    TComplianceFindingKind.CredentialResolverUnchecked),
+    'a host class that lists the checked marker and names this policy is not the wrapper');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedWrapperOverHostListedResolverIsNotUnchecked;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(RawResolverConfig(LPolicy,
+    LPolicy.CheckedCredentialResolver(TListedCredentialResolver.Create(
+    TArray<TTlsCredential>.Create(Credential(LPolicy.Crypto))) as ITlsServerCredentialResolver))),
+    TComplianceFindingKind.CredentialResolverUnchecked),
+    'the handshake-time check of the policy wrapper is the enforcement');
 end;
 
 procedure TTestComplianceAdmit.TestDefaultSharedWithAnSniEntryIsReportedOnce;
@@ -2727,8 +2969,7 @@ var
   LLoose: IServerVerification;
 begin
   LPolicy := VersionPolicy(TArray<UInt16>.Create(TlsWireVersionTls13));
-  LLoose := TServerVerification.VerifierSource(TFakeSystemVerifierSource.Create
-    as IServerCertificateVerifierSource).WithMinimumStrength(
+  LLoose := TServerVerification.VerifierSource(TFakeOsVerifierSources.Server).WithMinimumStrength(
     TCertificateStrengthPolicy.Defaults).Build;
   CheckFalse(ReportHasKind(LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
     LLoose).Tls13.WithExternalPreSharedKeys(TArray<TExternalPsk>.Create(Psk)).Build),
@@ -2807,7 +3048,7 @@ var
 begin
   LPolicy := RelaxedPolicy;
   CheckTrue(ClientAdmit(LPolicy, EarlyDataClientBuilder(LPolicy, TServerVerification
-    .VerifierSource(TFakeSystemVerifierSource.Create as IServerCertificateVerifierSource))
+    .VerifierSource(TFakeOsVerifierSources.Server))
     .Build, LFindings), 'a configuration finding is never relaxed');
 end;
 
@@ -2863,7 +3104,7 @@ var
 begin
   LPolicy := StrictPolicy;
   LBuilder := EarlyDataClientBuilder(LPolicy, TServerVerification.VerifierSource(
-    TFakeSystemVerifierSource.Create as IServerCertificateVerifierSource));
+    TFakeOsVerifierSources.Server));
   LRaised := False;
   try
     TComplianceTls.BuildClient(LPolicy, LBuilder);
@@ -3030,7 +3271,7 @@ begin
   LNone := nil;
   try
     TComplianceTls.Client(LNone, TServerVerification.VerifierSource(
-      TFakeSystemVerifierSource.Create as IServerCertificateVerifierSource));
+      TFakeOsVerifierSources.Server));
   except
     on EArgumentTlsLibException do
       LRaised := True;

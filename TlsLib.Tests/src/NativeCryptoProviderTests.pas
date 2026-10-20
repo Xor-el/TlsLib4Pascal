@@ -55,6 +55,7 @@ uses
   TlpTlsLibExceptions,
   TlpHpkeComposition,
   TlpSystemCryptoBase,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type
@@ -248,6 +249,12 @@ type
     procedure TestVerifierBackendIsPortableForEdDsaFallback;
     procedure TestVerifierBackendIsPortableForRsaPssSpkiFallback;
     procedure TestVerifierBackendIsSystemForNativeVerifier;
+    // the report confirms the class: a host class listing the marker is not System
+    procedure TestHostVerifierListingMarkerIsNotReportedSystem;
+    procedure TestHostKeyListingMarkerIsNotReportedSystem;
+    // the platform's own key is System, whole or narrowed
+    procedure TestNativeKeyBackendIsSystem;
+    procedure TestNarrowedNativeKeyBackendIsSystem;
     // EdDSA verification has no native implementation, whatever the keys
     procedure TestVerificationBackendIsPortableForEdDsa;
     procedure TestDescribeNamesNativeVerification;
@@ -318,6 +325,17 @@ type
     function RandomEncapsulation(AKem: UInt16): TBytes;
   end;
 
+  // a host key that lists the OS marker without being the platform's key
+  THostMarkedKey = class sealed(TMockSigningKey, ISystemSigningKey);
+
+  // a host verifier that lists the OS marker without being the platform's verifier
+  THostMarkedVerifier = class sealed(TInterfacedObject, ISignatureVerifier,
+    ISystemSignatureVerifier)
+  public
+    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
+    function Verify(const ASignature: TBytes): Boolean;
+  end;
+
   // signs and verifies repeatedly with one shared key, recording how many signatures verified
   // and the first failure
   TSharedKeySignWorker = class(TThread)
@@ -340,6 +358,17 @@ type
 
 resourcestring
   SPortableUsed = 'a portable facet ran where the native one must';
+
+{ THostMarkedVerifier }
+
+procedure THostMarkedVerifier.Update(const AData: TBytes; AOffset, ALength: Int32);
+begin
+end;
+
+function THostMarkedVerifier.Verify(const ASignature: TBytes): Boolean;
+begin
+  Result := False;
+end;
 
 { TStubHpke }
 
@@ -1140,6 +1169,63 @@ begin
     TSignatureScheme.RSA_PSS_RSAE_SHA256, DecodeHex(FKeys.Values['rsa_pub'])));
   CheckTrue(LEntry.Backend = TCryptoBackend.System, 'a native verifier is system-backed');
   CheckTrue(LEntry.Reason = TCryptoBackendReason.NotFallback, 'and is not a fallback');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestHostVerifierListingMarkerIsNotReportedSystem;
+var
+  LReport: ICryptoBackendReport;
+  LVerifier: ISignatureVerifier;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  LVerifier := THostMarkedVerifier.Create as ISignatureVerifier;
+  CheckTrue(Supports(LVerifier, ISystemSignatureVerifier), 'the host verifier lists the marker');
+  CheckTrue(LReport.VerifierBackend(LVerifier).Backend = TCryptoBackend.Portable,
+    'the marker alone does not make a verifier System');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestHostKeyListingMarkerIsNotReportedSystem;
+var
+  LReport: ICryptoBackendReport;
+  LKey: ISigningKey;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  LKey := THostMarkedKey.Create as ISigningKey;
+  CheckTrue(Supports(LKey, ISystemSigningKey), 'the host key lists the marker');
+  CheckTrue(LReport.SigningKeyBackend(LKey).Backend = TCryptoBackend.Portable,
+    'the marker alone does not make a key System');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeKeyBackendIsSystem;
+var
+  LReport: ICryptoBackendReport;
+  LKey: ISigningKey;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckTrue(LReport.SigningKeyBackend(LKey).Backend = TCryptoBackend.System,
+    'a natively imported key is system-backed');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNarrowedNativeKeyBackendIsSystem;
+var
+  LReport: ICryptoBackendReport;
+  LKey, LNarrowed: ISigningKey;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  LNarrowed := LKey.WithPreferredSchemes(
+    TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256));
+  CheckTrue(LNarrowed <> LKey, 'narrowing yields a new key object');
+  CheckTrue(LReport.SigningKeyBackend(LNarrowed).Backend = TCryptoBackend.System,
+    'a narrowed native key is still system-backed');
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestVerificationBackendIsPortableForEdDsa;

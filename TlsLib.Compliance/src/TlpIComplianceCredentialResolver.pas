@@ -22,8 +22,8 @@ uses
 type
   /// <summary>
   /// Marks a credential resolver that checks every credential it selects against a compliance
-  /// policy, so that policy need not report it as unchecked. A resolver of another policy is not
-  /// trusted.
+  /// policy. The policy trusts only its own wrapper class, not this interface, which any class
+  /// can list, so a resolver of another policy or of the host is reported as unchecked.
   /// </summary>
   IComplianceCredentialResolver = interface(IInterface)
     ['{9FB03C9D-4BA1-4F21-AF5F-8D95B0CE5DB7}']

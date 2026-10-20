@@ -157,6 +157,14 @@ external and TLS 1.2 PSKs, key logging, verification bypass, and the certificate
 (clients, and servers that request a client certificate). A client's chain must be verified by the
 OS verifier, and so must a server's client chain.
 
+- **Verifier source.** Only a client that can end in a certificate, and a server that requests a
+  client certificate, are examined. The source is judged by its class, not by a marker interface,
+  which any host class can list. The OS verifier source is in the module and gives no finding. The
+  built-in verifier is portable PKIX, a platform fact: `ChainVerifiedOutsideModule`. Anything else
+  (an instance verifier, a host source, a host class that lists `ISystemVerifierSource`) is
+  `CustomVerifierConfigured`, a configuration finding that Admit refuses in both modes; use the OS
+  verifier source.
+
 - **Named groups.** A group carries the key-agreement provider it was built over, so a code in the
   rules is not enough: every group in the config, and every preferred group the config resolves,
   must be an object of `Policy.NamedGroups`. Any other group is `ForeignNamedGroup`, even one built
@@ -169,12 +177,18 @@ OS verifier, and so must a server's client chain.
   no scheme outside the rules, and that the module serves the key. A key that can sign with a
   scheme the rules do not allow is a finding that names the extras; credentials loaded through the
   policy's crypto provider are already narrowed.
-- **Resolver.** A custom `ITlsServerCredentialResolver` that does not list its credentials
-  (`ITlsServerCredentialSet`) cannot be inspected: `CredentialResolverUnchecked` is a configuration
-  finding. Wrap it with `Policy.CheckedCredentialResolver`, or use `Server(Policy, Resolver)`. A
-  wrapper made by another policy instance is not trusted. When the wrapped resolver lists its
-  credentials, Admit checks them too, so a weak static entry fails the build. Each finding names
-  its credential by place and common name, such as `credential 2 (CN=host)`.
+- **Resolver.** Only the library's own SNI resolver (`TSniCredentialResolver`, immutable) is
+  enumerated at build time. Any other resolver, even one that lists its credentials
+  (`ITlsServerCredentialSet`) or claims to be checked (`IComplianceCredentialResolver`), cannot be
+  inspected: `CredentialResolverUnchecked` is a configuration finding. Wrap it with
+  `Policy.CheckedCredentialResolver`, or use `Server(Policy, Resolver)`; the wrapper's check at
+  each handshake is the enforcement. A wrapper made by another policy instance is not trusted.
+  When the wrapped resolver is the library's SNI resolver, Admit checks its entries too, so a weak
+  static entry fails the build. Each finding names its credential by place and common name, such
+  as `credential 2 (CN=host)`.
+- **Markers.** `ISystemSigningKey` and `ISystemSignatureVerifier` are not trusted on their own: on
+  Windows the backend report confirms the class of the key or verifier, so a host class that lists
+  them is reported as portable.
 - **Session tickets.** A server that issues tickets from ticket keys without AES-256-GCM among the
   allowed AEADs is `TicketAeadNotAllowed`; the facade turns resumption off for such rules. A server
   with a session store and no ticket keys seals nothing and a client never does, so neither gets
@@ -218,8 +232,9 @@ posture of Off is disclosed. A server reports these only when it requests client
 
 - Skipping `Admit` loses the non-crypto checks.
 - Every honest misconfiguration through the public API is found. Deliberate forgery by code in the
-  same process, such as fake config or registry objects, is out of scope, as in comparable TLS
-  libraries.
+  same process, such as fake config or registry objects or a stateful lying registry, is out of
+  scope, as in comparable TLS libraries. A marker interface, a resolver that lists credentials or
+  a verifier source that claims the OS is not taken at its word: the policy checks the class.
 - Chains are verified by the OS verifier. A private CA does not need to be installed in the OS
   store: pass it as `TSystemTrustRoots.OsAndHostRoots(Store)` (trusted with the OS roots) or
   `TSystemTrustRoots.HostRoots(Store)` (trusted alone; the OS roots never vouch). Strict mode has

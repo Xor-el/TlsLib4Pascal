@@ -146,7 +146,9 @@ type
   /// and verification default to portable per scheme, HKDF and the TLS 1.2 PRF follow the OS
   /// HMAC, a signing key follows the <see cref="ISystemSigningKey" /> marker, a verifier the
   /// <see cref="ISystemSignatureVerifier" /> marker, and the HPKE facet follows the constructor
-  /// flag. The platform supplies <see cref="Describe" />.
+  /// flag. A marker is claimable by any class, so a platform report that must not be fooled
+  /// overrides both queries with a class check. The platform supplies
+  /// <see cref="Describe" />.
   /// </summary>
   TSystemBackendReportBase = class abstract(TInterfacedObject, ICryptoBackendReport)
   strict private
@@ -176,9 +178,9 @@ type
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; virtual;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry; virtual;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; virtual;
-    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
+    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry; virtual;
     function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; virtual;
-    function VerifierBackend(const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
+    function VerifierBackend(const AVerifier: ISignatureVerifier): TCryptoBackendEntry; virtual;
     function FacetBackend(AFacet: TCryptoFacet): TCryptoBackendEntry;
     function Describe: string; virtual; abstract;
   end;

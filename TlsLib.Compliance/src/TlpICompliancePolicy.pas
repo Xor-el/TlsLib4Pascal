@@ -47,7 +47,9 @@ type
     function NamedGroups: INamedGroupRegistry;
     /// <summary>The platform findings alone: the module, the backends and the rules.</summary>
     function PlatformReport: IComplianceReport;
-    /// <summary>The platform findings plus those of AConfig; never raises for a finding.</summary>
+    /// <summary>The platform findings plus those of AConfig; never raises for a finding. A
+    /// verifier source is judged by its class: the OS source is in the module, the built-in one is
+    /// a platform finding, and any other is a configuration finding.</summary>
     function Evaluate(const AConfig: ITlsClientConfig): IComplianceReport; overload;
     function Evaluate(const AConfig: ITlsServerConfig): IComplianceReport; overload;
     /// <summary>Evaluates AConfig and raises EComplianceUnmetTlsLibException for any finding in

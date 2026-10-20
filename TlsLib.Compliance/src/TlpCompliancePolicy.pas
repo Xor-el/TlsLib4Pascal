@@ -40,7 +40,9 @@ uses
   TlpSystemCryptoTypes,
   TlpICryptoBackendReport,
   TlpSystemCryptoBase,
-  TlpISystemVerifierSource,
+  TlpCredentialResolvers,
+  TlpCertificateVerifierSource,
+  TlpOSDelegateVerifier,
   TlpComplianceTypes,
   TlpComplianceExceptions,
   TlpIComplianceReport,
@@ -99,6 +101,9 @@ type
     // the floors and the revocation posture apply to the peer certificate a config verifies
     procedure CheckPeerVerification(const AConfig: ITlsCommonConfig;
       var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
+    // judged by class, as any host class can list a marker interface
+    procedure CheckVerifierSource(const ASource: IInterface;
+      var AFindings: TArray<TComplianceFinding>);
     function Report(const AFindings: TArray<TComplianceFinding>;
       const ADisclosures: TArray<string>): IComplianceReport;
     procedure Enforce(const AReport: IComplianceReport);
@@ -175,6 +180,7 @@ resourcestring
   SFleetTicketKeys = 'session-ticket keys are entered by the host';
   SKeyOutside = 'the credential key is not served by the OS module';
   SChainOutside = 'the peer chain is not verified by the OS verifier';
+  SCustomVerifier = 'the certificate verifier is host-supplied; use the OS verifier source';
   SStapleOutside = 'a requested OCSP staple would be verified outside the module';
   SKdfComposed = 'the TLS key derivations are composed outside the module over its HMAC';
   SRevocationOff = 'revocation checking is off';
@@ -516,12 +522,16 @@ begin
   if LResolver = nil then
     Exit;
   LOwn := False;
-  if Supports(LResolver, IComplianceCredentialResolver, LChecked) then
+  // a marker interface is claimable by any host class, so only the sealed wrapper counts
+  if LResolver is TComplianceCredentialResolver then
   begin
+    LChecked := LResolver as IComplianceCredentialResolver;
     LOwn := LChecked.Policy = (Self as ICompliancePolicy);
     LResolver := LChecked.Inner;
   end;
-  if Supports(LResolver, ITlsServerCredentialSet, LSet) then
+  // a host set can list credentials it never serves, so only the library's resolver is read
+  if (LResolver is TSniCredentialResolver) and
+    Supports(LResolver, ITlsServerCredentialSet, LSet) then
   begin
     LCredentials := LSet.Credentials;
     LSchemes := TComplianceCatalog.Schemes(FRules.SignatureSchemes);
@@ -680,6 +690,22 @@ begin
     TArrayUtilities.Append<string>(ADisclosures, SHostResolver);
 end;
 
+procedure TCompliancePolicy.CheckVerifierSource(const ASource: IInterface;
+  var AFindings: TArray<TComplianceFinding>);
+begin
+  if ASource is TOSVerifierSource then
+    Exit;
+  if (ASource is TBuiltInServerVerifierSource) or (ASource is TBuiltInClientVerifierSource) then
+  begin
+    if TComplianceRequirement.InModuleChainVerification in FRules.Requirements then
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.ChainVerifiedOutsideModule, '', SChainOutside));
+    Exit;
+  end;
+  TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+    TComplianceFindingKind.CustomVerifierConfigured, '', SCustomVerifier));
+end;
+
 function TCompliancePolicy.Report(const AFindings: TArray<TComplianceFinding>;
   const ADisclosures: TArray<string>): IComplianceReport;
 begin
@@ -735,7 +761,7 @@ function TCompliancePolicy.Evaluate(const AConfig: ITlsClientConfig): IComplianc
 var
   LFindings: TArray<TComplianceFinding>;
   LDisclosures: TArray<string>;
-  LOutside, LCertPath: Boolean;
+  LCertPath: Boolean;
 begin
   if AConfig = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilConfig);
@@ -753,16 +779,12 @@ begin
     not AConfig.CheckServerName and LCertPath then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.DangerousTrustConfigured, SServerNameSubject, SServerNameUnchecked));
-  if TComplianceRequirement.InModuleChainVerification in FRules.Requirements then
-  begin
-    LOutside := not Supports(AConfig.ServerVerifierSource, ISystemVerifierSource);
-    if LOutside then
-      TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.ChainVerifiedOutsideModule, '', SChainOutside));
-    if AConfig.RequestOcspStapling then
-      TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.StapleVerifiedOutsideModule, '', SStapleOutside));
-  end;
+  if LCertPath then
+    CheckVerifierSource(AConfig.ServerVerifierSource, LFindings);
+  if (TComplianceRequirement.InModuleChainVerification in FRules.Requirements) and
+    AConfig.RequestOcspStapling then
+    TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.StapleVerifiedOutsideModule, '', SStapleOutside));
   if (TComplianceRequirement.NoEarlyData in FRules.Requirements) and AConfig.EarlyData then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.EarlyDataEnabled, '', SEarlyData));
@@ -777,7 +799,6 @@ function TCompliancePolicy.Evaluate(const AConfig: ITlsServerConfig): IComplianc
 var
   LFindings: TArray<TComplianceFinding>;
   LDisclosures: TArray<string>;
-  LOutside: Boolean;
 begin
   if AConfig = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilConfig);
@@ -787,14 +808,9 @@ begin
   CheckCredentialResolver(AConfig, LFindings);
   CheckTickets(AConfig, LFindings, LDisclosures);
   if AConfig.ClientAuth <> TClientAuthMode.None then
-    CheckPeerVerification(AConfig, LFindings, LDisclosures);
-  if (TComplianceRequirement.InModuleChainVerification in FRules.Requirements) and
-    (AConfig.ClientAuth <> TClientAuthMode.None) then
   begin
-    LOutside := not Supports(AConfig.ClientVerifierSource, ISystemVerifierSource);
-    if LOutside then
-      TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.ChainVerifiedOutsideModule, '', SChainOutside));
+    CheckPeerVerification(AConfig, LFindings, LDisclosures);
+    CheckVerifierSource(AConfig.ClientVerifierSource, LFindings);
   end;
   if (TComplianceRequirement.NoEarlyData in FRules.Requirements) and
     (AConfig.MaxEarlyData > 0) then

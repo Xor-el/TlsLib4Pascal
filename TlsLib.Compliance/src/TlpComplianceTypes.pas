@@ -99,7 +99,8 @@ type
     EarlyDataEnabled, EchConfigured, ExternalPskConfigured, Tls12PskConfigured,
     KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
     CredentialKeyUndetermined, CredentialKeyBelowRules, CredentialSchemesNotAllowed,
-    TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup);
+    TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup,
+    CustomVerifierConfigured);
 
   TComplianceFinding = record
     Kind: TComplianceFindingKind;

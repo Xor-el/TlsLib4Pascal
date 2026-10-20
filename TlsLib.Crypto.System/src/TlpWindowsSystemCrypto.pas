@@ -1079,7 +1079,9 @@ type
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; override;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry; override;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
+    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry; override;
     function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
+    function VerifierBackend(const AVerifier: ISignatureVerifier): TCryptoBackendEntry; override;
     function Describe: string; override;
   end;
 
@@ -2891,6 +2893,26 @@ begin
   // verification needs the OS signing module but not key export, so it can be native alone
   Result := ModuleFacetBackend(TWindowsNCrypt.IsNativeScheme(AScheme), FSigningModule,
     FVerifyNative);
+end;
+
+function TWindowsBackendReport.SigningKeyBackend(
+  const AKey: ISigningKey): TCryptoBackendEntry;
+begin
+  // the class, not the marker: any host key can list ISystemSigningKey
+  if AKey is TWindowsSigningKey then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
+end;
+
+function TWindowsBackendReport.VerifierBackend(
+  const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
+begin
+  // the class, not the marker: any host verifier can list ISystemSignatureVerifier
+  if AVerifier is TWindowsSignatureVerifier then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := NotNative;
 end;
 
 function TWindowsBackendReport.Describe: string;

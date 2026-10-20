@@ -18,7 +18,8 @@ interface
 type
   /// <summary>Marks a signing key whose operations run on the OS module. A platform's key
   /// class lists it beside its own marker, so a backend report can tell native keys from
-  /// portable ones without naming the platform.</summary>
+  /// portable ones without naming the platform. Any class can list it, so it is not
+  /// authoritative on its own: a platform report confirms the key's class.</summary>
   ISystemSigningKey = interface(IInterface)
     ['{5E03E459-EF8C-45B9-908F-2C31631E7BA8}']
   end;
