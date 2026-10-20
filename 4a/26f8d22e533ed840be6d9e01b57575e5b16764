@@ -1,0 +1,146 @@
+TlsLib.Compliance/src/TlpComplianceReport.pas
+  s_f2c9bd75607afc::t_0138577e012ecf 53-54,56
+  s_f2c9bd75607afc::t_b9dddd72f2aaf8 137,139
+  s_f2c9bd75607afc::t_19905ca56171a1 57
+  s_f2c9bd75607afc::t_f1bfb65aeb62ae 55
+  s_f2c9bd75607afc::t_82cbbf9303c062 122,125,127
+TlsLib.Compliance/Packages/FPC/TlsLib.Compliance.lpk
+  s_f2c9bd75607afc::t_0d2f766877451a 97-100
+  s_f2c9bd75607afc::t_d1cac1d00e8f33 24
+TlsLib.Compliance/Packages/FPC/TlsLib.Compliance.pas
+  s_f2c9bd75607afc::t_b0999b94e39278 13-14
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_f2c9bd75607afc::t_5527dee6aba35a 365
+  s_f2c9bd75607afc::t_f4f5b4eee0f288 61,63
+  s_f2c9bd75607afc::t_285c06d3222e64 637,640-641
+TlsLib.Compliance/src/TlpComplianceTls.pas
+  s_f2c9bd75607afc::t_7bf1a1590a05c3 168
+  s_f2c9bd75607afc::t_b378106af332d6 201
+  s_f2c9bd75607afc::t_5c5b41d694cc18 116-117,120,123-124
+  s_f2c9bd75607afc::t_15a523106f775f 55-56
+  s_f2c9bd75607afc::t_390f71237e88ac 63
+  s_f2c9bd75607afc::t_f1961804bffc14 118-119,121-122
+TlsLib.Compliance/src/TlpWindowsModuleDecision.pas
+  s_f2c9bd75607afc::t_74e81b214aea28 206
+  s_f2c9bd75607afc::t_a8b8bee0facc1a 119-120
+  s_f2c9bd75607afc::t_fd9c3a3ea28489 1-118,121-203,205,207-219,221,223-233,235-265
+  s_f2c9bd75607afc::t_878800420a6c88 220,222
+  s_f2c9bd75607afc::t_ce77a2911c02dc 234
+  s_f2c9bd75607afc::t_e6cd3c1c55013c 204
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_f2c9bd75607afc::t_e48d999773ee1a 342,344-347
+  s_f2c9bd75607afc::t_35579b1ab59f2b 21-22
+  s_f2c9bd75607afc::t_8b8e032f85d7d4 340
+  s_f2c9bd75607afc::t_d9bbf5c93a70eb 334,337
+TlsLib.Tests/src/ComplianceRulesTests.pas
+  s_f2c9bd75607afc::t_203485cb1e39f2 2165-2188
+  s_f2c9bd75607afc::t_4df4a402528718 218-219
+TlsLib.Compliance/src/TlpWindowsModuleAttestation.pas
+  s_f2c9bd75607afc::t_2482bfc37bb4f3 253
+  s_f2c9bd75607afc::t_a6fc244a386dfa 71-74
+  s_f2c9bd75607afc::t_f0d547813d93f8 260-275,277-297,309-310
+  s_f2c9bd75607afc::t_bc08ebd689da3d 222
+  s_f2c9bd75607afc::t_efc734847a3c14 276
+  s_f2c9bd75607afc::t_30bb17bdc537bc 25-26,45,48-53,62,64,66-67,97,100-101,116,158-178,190-191,199-200,216,219-221,229,234,241,247-252,254,298,324,328,387,390,392,394,405-412,420-421,450,457-458
+  s_f2c9bd75607afc::t_a5510690b649ee 330-332,335,337,339-348
+TlsLib.Crypto.System/src/TlpISystemSignatureVerifier.pas
+  s_f2c9bd75607afc::t_fbb202250c3f60 26
+TlsLib.Compliance/Packages/Delphi/TlsLib.Compliance.dpk
+  s_f2c9bd75607afc::t_fa8c0f3fbb3172 48
+TlsLib.Compliance/src/TlpComplianceCryptoProvider.pas
+  s_f2c9bd75607afc::t_fd0b339dbd6dae 319
+docs/compliance.md
+  s_f2c9bd75607afc::t_47f94feb171b0e 355-356
+  s_f2c9bd75607afc::t_858bfe553d0280 207-208
+  s_f2c9bd75607afc::t_6096249fe81b87 372
+  s_f2c9bd75607afc::t_11acce1df7e9de 378-380
+  s_f2c9bd75607afc::t_83f0718a5fd5ea 37,44-54
+  s_f2c9bd75607afc::t_46ab1f8537f47c 210-211
+  s_f2c9bd75607afc::t_d1641c962bfac4 323-324
+  s_f2c9bd75607afc::t_2201cd3ba4f6e0 201-203,206
+  s_f2c9bd75607afc::t_0a32109b0e68a3 180-184
+  s_f2c9bd75607afc::t_c6e29c3c443293 5-10,55
+  s_f2c9bd75607afc::t_cc001e639dd501 359
+  s_f2c9bd75607afc::t_6662ad8671b0ec 342-345
+  s_f2c9bd75607afc::t_bdf7fa0001fbf4 358
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_4bca5babfbb700 199
+  s_f2c9bd75607afc::t_e753604dd8f409 197
+  s_f2c9bd75607afc::t_c4c12218735dc0 201-202
+  s_f2c9bd75607afc::t_d3ad9d6ad54b75 196
+  s_f2c9bd75607afc::t_8696ba06bd8dd4 413-414,416
+  s_f2c9bd75607afc::t_c3612b649ff116 135-138
+  s_f2c9bd75607afc::t_01839bb106bf24 450-451
+  s_f2c9bd75607afc::t_27d13ae458feb9 426,428,430-431,433,437-442
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_d27c70dae21fc5 487-492,494-496,506-507,509-510,514,523,528,530-540,545,551-552
+  s_f2c9bd75607afc::t_678de33810a829 4678-4691,4697,4699-4700,4703,4706,4712-4713,4715-4716,4719-4741
+  s_f2c9bd75607afc::t_e2775854ae3ec9 549-550
+  s_f2c9bd75607afc::t_a96f9fe18496c1 4973,4975-4983,4985-4986,4988-4989,4992,4998,5000,5005-5009
+  s_f2c9bd75607afc::t_55a23c1c3b6b6c 5545,5551
+  s_f2c9bd75607afc::t_3d3a77d74e3557 5152-5154
+  s_f2c9bd75607afc::t_9c52d3d241d2a2 4577,4586-4587,4589,4600,4605-4606,4610
+  s_f2c9bd75607afc::t_d85544efd64d4d 5334-5339
+  s_f2c9bd75607afc::t_a90b84d9df1e90 4906-4918
+  s_f2c9bd75607afc::t_65c723c7b82b63 4619-4620
+  s_f2c9bd75607afc::t_774a195050f472 87,4742-4743,4987,5287-5288
+  s_f2c9bd75607afc::t_52fbec50e212f3 4956
+  s_f2c9bd75607afc::t_f3ad8c6f0be97d 5018-5104
+  s_f2c9bd75607afc::t_5426afcef1d8a8 5166,5178-5182
+  s_f2c9bd75607afc::t_a783a9ac7ef41f 4621,4631,4640,4649,4659,4668,4744,4756,4768,4781,4792,4817,4829,4840,4851,4861,4871,4881,4893,4919,4932,4949,4961,4984
+  s_f2c9bd75607afc::t_f26f00387a8559 5212-5213,5261-5286
+  s_f2c9bd75607afc::t_b8ce669ac30c7f 4625,4635,4644,4653,4663,4672,4701,4714,4751,4763,4775,4788,4799,4811,4824,4836,4847,4855,4865,4875,4888,4901,4927,4943,4957,4969,5011,5305,5308
+  s_f2c9bd75607afc::t_f4bc72a104aa9e 5332
+  s_f2c9bd75607afc::t_5911d4ec073bcf 5215
+  s_f2c9bd75607afc::t_c7f5337382aba9 4803,4809-4810,4813-4814
+  s_f2c9bd75607afc::t_7a497c48da5003 5233-5260
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_ced78b3296e28d 314,378
+.github/workflows/ci/lint/comment-lint.sh
+  s_f2c9bd75607afc::t_7bcd2d255b5306 6-7
+docs/cookbook.md
+  s_f2c9bd75607afc::t_5c49bcc4a836e5 1029-1030
+  s_f2c9bd75607afc::t_b6bf55d7ec9b61 163-164
+  s_f2c9bd75607afc::t_c1289551cd3884 1028
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_f2c9bd75607afc::t_0f8e8a43d12de2 93-95
+  s_f2c9bd75607afc::t_568c9ee4c813d2 76
+TlsLib.Compliance/src/TlpComplianceHpke.pas
+  s_f2c9bd75607afc::t_2900c0c6f6d59e 167
+  s_f2c9bd75607afc::t_377077b6f9229c 45
+  s_f2c9bd75607afc::t_e471c738392363 124
+  s_f2c9bd75607afc::t_c9adcec73f1fc6 84
+  s_f2c9bd75607afc::t_c0e64159f12910 172
+  s_f2c9bd75607afc::t_2c4352e672b88f 118
+  s_f2c9bd75607afc::t_581a136ce6e650 157
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_f2c9bd75607afc::t_12653be71e03d7 58
+.github/workflows/ci/os-build-info.sh
+  s_f2c9bd75607afc::t_a2325fcb491912 9
+docs/security-model.md
+  s_f2c9bd75607afc::t_98b8f918168c3e 100-106
+TlsLib.Compliance/src/TlpICompliancePolicy.pas
+  s_f2c9bd75607afc::t_dfe20e6ed12e86 83-84
+TlsLib.Trust.System/src/TlpIPlatformChainEngine.pas
+  s_f2c9bd75607afc::t_f0f352c6ad369a 29-31
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_c4b15f5d759fd3 469-470
+.github/workflows/ci/os-build-info.ps1
+  s_f2c9bd75607afc::t_be5f6e392e64ce 18-29,33-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4a26f8d22e533ed840be6d9e01b57575e5b16764",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
