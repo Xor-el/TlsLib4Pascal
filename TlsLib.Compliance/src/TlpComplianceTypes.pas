@@ -32,9 +32,10 @@ type
   /// <summary>The standard a cryptographic module is attested against.</summary>
   TModuleStandard = (Fips140_3);
 
-  /// <summary>Strict refuses every finding. Relaxed reports a platform finding instead of
-  /// refusing it and still refuses a configuration finding, so it never relaxes what the rules
-  /// allow.</summary>
+  /// <summary>Strict refuses every finding. Relaxed refuses a configuration finding (the
+  /// allowlists, the requirement flags) and reports a platform finding, a fact about where
+  /// the cryptography runs, instead of refusing it, including a derivation, chain
+  /// verification or key the rules want inside the module.</summary>
   TComplianceEnforcement = (Strict, Relaxed);
 
   /// <summary>PrimitivesInModule: every negotiated primitive is a service of a validated module
@@ -100,9 +101,9 @@ type
     ModuleNotValidated, NoBackendReport, AlgorithmOutsideModule, KdfOutsideModule,
     CredentialKeyOutsideModule, ChainVerifiedOutsideModule, StapleVerifiedOutsideModule,
     CryptoNotCovered, ForeignCryptoProvider, ForeignPkixProvider, VersionNotAllowed,
-    CipherSuiteNotAllowed, NamedGroupNotAllowed, SignatureSchemeNotAllowed, ExtendedMasterSecretNotRequired,
-    EarlyDataEnabled, EchConfigured, ExternalPskConfigured, Tls12PskConfigured,
-    KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
+    CipherSuiteNotAllowed, NamedGroupNotAllowed, SignatureSchemeNotAllowed,
+    ExtendedMasterSecretNotRequired, EarlyDataEnabled, EchConfigured, ExternalPskConfigured,
+    Tls12PskConfigured, KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
     CredentialKeyUndetermined, CredentialKeyMissing, CredentialKeyMismatch,
     CredentialKeyBelowRules, CredentialSchemesNotAllowed,
     TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup,
@@ -130,7 +131,8 @@ type
     Product: string;
     ModuleName: string;
     ModuleFileVersion: string;
-    /// <summary>The certificate number; empty unless the module is Validated.</summary>
+    /// <summary>The certificate number; the policy keeps it and a report prints it only while
+    /// the module is Validated.</summary>
     Certificate: string;
     /// <summary>Whether the library's own platform attestation produced this identity; False
     /// for one the host supplies.</summary>
@@ -157,8 +159,8 @@ type
   /// <summary>Lookups the policy and the refusing providers share.</summary>
   TComplianceCatalog = class sealed(TObject)
   public
-    /// <summary>The classical agreement a NIST or X25519 group code names; False for
-    /// others.</summary>
+    /// <summary>The classical agreement a NIST or X25519 group code names; False for others,
+    /// where AAlgorithm is unspecified.</summary>
     class function TryKeyAgreement(AGroup: UInt16;
       out AAlgorithm: TKeyAgreementAlgorithm): Boolean; static;
     /// <summary>The agreements the groups call for.</summary>
@@ -177,11 +179,12 @@ type
     class function KeyMeets(const AFacts: TCertKeyFacts;
       const AStrength: TCertificateStrengthPolicy;
       const ARsaSizes: TArray<UInt32>): Boolean; static;
-    /// <summary>Whether a certificate signature made with AHash is one the rules allow: a hash
-    /// of one of the rule signature schemes, a deprecated hash the strength policy admits, or
-    /// EdDSA where the strength policy admits it.</summary>
-    class function SignatureMeets(AHash: TCertSignatureHash;
-      const ARules: TComplianceRules): Boolean; static;
+    /// <summary>Whether a certificate signature is one the rules allow: a rule signature scheme
+    /// of its family and hash (RSA-PSS only with canonical parameters), a deprecated hash the
+    /// strength policy admits, or EdDSA where the strength policy admits it. Takes the
+    /// scalars of a TCertSignatureFacts.</summary>
+    class function SignatureMeets(AFamily: TCertSignatureFamily; AHash: TCertSignatureHash;
+      APssCanonical: Boolean; const ARules: TComplianceRules): Boolean; static;
     /// <summary>Whether A and B are one credential: the same private key object and the same
     /// certificate chain, byte for byte.</summary>
     class function SameCredential(const A, B: TTlsCredential): Boolean; static;
@@ -497,12 +500,11 @@ var
   LComposition: TNamedGroupComposition;
 begin
   // a hybrid or a KEM-only group is not a classical agreement
+  AAlgorithm := Default(TKeyAgreementAlgorithm);
   Result := TNamedGroupCatalog.TryComposition(AGroup, LComposition) and
     (LComposition.Kind = TNamedGroupKind.Ecdhe);
   if Result then
-    AAlgorithm := LComposition.KeyAgreement
-  else
-    AAlgorithm := TKeyAgreementAlgorithm.X25519;
+    AAlgorithm := LComposition.KeyAgreement;
 end;
 
 class function TComplianceCatalog.KeyAgreements(
@@ -561,14 +563,19 @@ begin
   end;
 end;
 
-class function TComplianceCatalog.SignatureMeets(AHash: TCertSignatureHash;
+class function TComplianceCatalog.SignatureMeets(AFamily: TCertSignatureFamily;
+  AHash: TCertSignatureHash; APssCanonical: Boolean;
   const ARules: TComplianceRules): Boolean;
 var
   LHash, LSchemeHash: THashAlgorithm;
   LScheme: TSignatureScheme;
+  LFamilyMatch: Boolean;
 begin
   if AHash = TCertSignatureHash.Implicit then
     Exit(ARules.Strength.AllowEdDsa);
+  // a PSS signature must be canonical whatever hash admits it, as in the core
+  if (AFamily = TCertSignatureFamily.RsaPss) and not APssCanonical then
+    Exit(False);
   if AHash in ARules.Strength.AllowedDeprecatedHashes then
     Exit(True);
   case AHash of
@@ -583,9 +590,23 @@ begin
   end;
   Result := False;
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
-    if (LScheme in ARules.SignatureSchemes) and LScheme.TryHash(LSchemeHash) and
-      (LSchemeHash = LHash) then
+  begin
+    if not (LScheme in ARules.SignatureSchemes) or not LScheme.TryHash(LSchemeHash) or
+      (LSchemeHash <> LHash) then
+      Continue;
+    case AFamily of
+      TCertSignatureFamily.RsaPkcs1:
+        LFamilyMatch := LScheme.IsRsaPkcs1;
+      TCertSignatureFamily.RsaPss:
+        LFamilyMatch := LScheme.IsRsaPssRsae;
+      TCertSignatureFamily.Ecdsa:
+        LFamilyMatch := LScheme.KeyKind = TSignatureKeyKind.Ecdsa;
+    else
+      LFamilyMatch := False;
+    end;
+    if LFamilyMatch then
       Exit(True);
+  end;
 end;
 
 class function TComplianceCatalog.SameCredential(const A, B: TTlsCredential): Boolean;

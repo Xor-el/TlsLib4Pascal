@@ -34,14 +34,14 @@ type
     FModuleStatus: TModuleStatus;
     FFindings: TArray<TComplianceFinding>;
     FDisclosures: TArray<string>;
-    FKdfComposed: Boolean;
+    FKdfOutside: Boolean;
   public
-    /// <param name="AKdfComposed">Whether a key derivation the evaluated rules or config can run
-    /// is composed outside the module.</param>
+    /// <param name="AKdfOutside">Whether a key derivation the evaluated rules or config can run
+    /// is not a module service: composed over the module, portable or without a module.</param>
     constructor Create(AEnforcement: TComplianceEnforcement; const APreset: string;
       const AModule: TModuleIdentity; AModuleStatus: TModuleStatus;
       const AFindings: TArray<TComplianceFinding>; const ADisclosures: TArray<string>;
-      AKdfComposed: Boolean);
+      AKdfOutside: Boolean);
     function Verdict: TComplianceVerdict;
     function Enforcement: TComplianceEnforcement;
     function Preset: string;
@@ -71,7 +71,7 @@ resourcestring
 constructor TComplianceReport.Create(AEnforcement: TComplianceEnforcement;
   const APreset: string; const AModule: TModuleIdentity; AModuleStatus: TModuleStatus;
   const AFindings: TArray<TComplianceFinding>; const ADisclosures: TArray<string>;
-  AKdfComposed: Boolean);
+  AKdfOutside: Boolean);
 begin
   inherited Create;
   FEnforcement := AEnforcement;
@@ -80,7 +80,7 @@ begin
   FModuleStatus := AModuleStatus;
   FFindings := System.Copy(AFindings);
   FDisclosures := System.Copy(ADisclosures);
-  FKdfComposed := AKdfComposed;
+  FKdfOutside := AKdfOutside;
 end;
 
 function TComplianceReport.Verdict: TComplianceVerdict;
@@ -88,7 +88,7 @@ begin
   if (FPreset = '') or (FModuleStatus <> TModuleStatus.Validated) or
     (System.Length(FFindings) > 0) then
     Result := TComplianceVerdict.NotCompliant
-  else if FKdfComposed then
+  else if FKdfOutside then
     Result := TComplianceVerdict.PrimitivesInModule
   else
     Result := TComplianceVerdict.Compliant;
@@ -96,7 +96,7 @@ end;
 
 function TComplianceReport.KeyDerivationInModule: Boolean;
 begin
-  Result := not FKdfComposed;
+  Result := not FKdfOutside;
 end;
 
 function TComplianceReport.Enforcement: TComplianceEnforcement;
@@ -144,7 +144,7 @@ begin
   if LModule = '' then
     LModule := SUnknownModule;
   Result := Result + SModulePrefix + LModule;
-  if FModule.Certificate <> '' then
+  if (FModule.Certificate <> '') and (FModuleStatus = TModuleStatus.Validated) then
     Result := Result + Format(SCertificatePart, [FModule.Certificate]);
   Result := Result + Format(SStatusPart,
     [TEnumUtilities.GetName<TModuleStatus>(FModuleStatus)]);

@@ -66,7 +66,8 @@ type
     class function Client(const APolicy: ICompliancePolicy;
       const ARoots: TSystemTrustRoots): ITlsClientConfigBuilder; overload; static;
     /// <summary>A client builder verifying the server by AVerification, held to the strength floors
-    /// of the rules.</summary>
+    /// of the rules. AVerification itself is changed, not copied, and any minimum strength set on
+    /// it is replaced by the floors of the rules, as the builder cannot be read back.</summary>
     class function Client(const APolicy: ICompliancePolicy;
       const AVerification: IServerVerificationBuilder): ITlsClientConfigBuilder;
       overload; static;
@@ -245,24 +246,31 @@ end;
 
 class function TComplianceTls.BuildClient(const APolicy: ICompliancePolicy;
   const ABuilder: ITlsClientConfigBuilder): ITlsClientConfig;
+var
+  LConfig: ITlsClientConfig;
 begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   if ABuilder = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilBuilder);
-  Result := ABuilder.Build;
-  APolicy.Admit(Result);
+  // a refused config must not reach the caller's variable
+  LConfig := ABuilder.Build;
+  APolicy.Admit(LConfig);
+  Result := LConfig;
 end;
 
 class function TComplianceTls.BuildServer(const APolicy: ICompliancePolicy;
   const ABuilder: ITlsServerConfigBuilder): ITlsServerConfig;
+var
+  LConfig: ITlsServerConfig;
 begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   if ABuilder = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilBuilder);
-  Result := ABuilder.Build;
-  APolicy.Admit(Result);
+  LConfig := ABuilder.Build;
+  APolicy.Admit(LConfig);
+  Result := LConfig;
 end;
 
 end.

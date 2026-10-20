@@ -1025,7 +1025,7 @@ key, so a server accepts a narrowed registry only together with `WithPeerAuth`.
 
 ## Run under a FIPS or CNSA policy
 
-The optional `TlsLib.Compliance` package runs the negotiated cryptography in the OS cryptographic
+The optional `TlsLib.Compliance` package holds the negotiated cryptography to the OS cryptographic
 module and refuses what the rules do not allow. `Strict` raises when the platform is not a
 validated build; `Relaxed` reports instead. The rules must lie within `Fips140_3` or `Cnsa1`.
 Load the credential through `Policy.Crypto`, and build through `TComplianceTls` so the frozen
@@ -1034,12 +1034,22 @@ verifier source are enforced by nothing else. What this claims, and what it does
 [compliance.md](compliance.md).
 
 ```pascal
-Policy := TCompliancePolicy.Create(TCompliancePresets.Cnsa1,
-  TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider),
-  TDefaultPkixProvider.Create as IPkixProvider, TOSModuleAttestation.Current,
-  TComplianceEnforcement.Strict);
-Client := TComplianceTls.BuildClient(Policy,
-  TComplianceTls.Client(Policy, TSystemTrustRoots.OsRoots));
+uses TlpDefaultCryptoProvider, TlpDefaultPkixProvider, TlpICryptoProvider, TlpIPkixProvider,
+  TlpOSCryptoProvider, TlpITlsConfig, TlpComplianceTypes, TlpCompliancePresets,
+  TlpICompliancePolicy, TlpCompliancePolicy, TlpOSModuleAttestation, TlpOSSystemTrust,
+  TlpComplianceTls;
+
+var
+  Policy: ICompliancePolicy;
+  Client: ITlsClientConfig;
+begin
+  Policy := TCompliancePolicy.Create(TCompliancePresets.Cnsa1,
+    TOSCryptoProvider.Compose(TDefaultCryptoProvider.Create as ICryptoProvider),
+    TDefaultPkixProvider.Create as IPkixProvider, TOSModuleAttestation.Current,
+    TComplianceEnforcement.Strict);
+  Client := TComplianceTls.BuildClient(Policy,
+    TComplianceTls.Client(Policy, TSystemTrustRoots.OsRoots));
+end;
 ```
 
 The full sample, servers, private CAs, per-handshake credential resolvers and resumption are in

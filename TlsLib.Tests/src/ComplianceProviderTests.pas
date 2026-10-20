@@ -1215,11 +1215,13 @@ end;
 procedure TTestComplianceCryptoPrimitives.TestHkdfNeverReachesTheInnerFacetStrict;
 var
   LInner: TCountingKdfPrimitives;
+  LRef: ICryptoPrimitives;
   LProvider: ICryptoProvider;
   LBefore: Int32;
 begin
   LInner := TCountingKdfPrimitives.Create(Crypto.Primitives);
-  LProvider := KdfProviderOver(LInner, TFakeBackendReport.Create([]) as ICryptoBackendReport,
+  LRef := LInner;
+  LProvider := KdfProviderOver(LRef, TFakeBackendReport.Create([]) as ICryptoBackendReport,
     TComplianceEnforcement.Strict);
   // building the base probes its HPKE suites through the inner HKDF
   LBefore := LInner.Hkdfs;
@@ -1231,11 +1233,13 @@ end;
 procedure TTestComplianceCryptoPrimitives.TestHkdfNeverReachesTheInnerFacetRelaxed;
 var
   LInner: TCountingKdfPrimitives;
+  LRef: ICryptoPrimitives;
   LProvider: ICryptoProvider;
   LBefore: Int32;
 begin
   LInner := TCountingKdfPrimitives.Create(Crypto.Primitives);
-  LProvider := KdfProviderOver(LInner, TFakeBackendReport.Create([]) as ICryptoBackendReport,
+  LRef := LInner;
+  LProvider := KdfProviderOver(LRef, TFakeBackendReport.Create([]) as ICryptoBackendReport,
     TComplianceEnforcement.Relaxed);
   LBefore := LInner.Hkdfs;
   CheckHkdfVector(LProvider, Rfc5869Salt13, Rfc5869Ikm22, Rfc5869Info10, Rfc5869Prk1,
@@ -1261,15 +1265,17 @@ end;
 procedure TTestComplianceCryptoPrimitives.TestPrfIsServedByTheInnerFacetWhenTheReportSaysSystem;
 var
   LInner: TCountingKdfPrimitives;
+  LInnerRef: ICryptoPrimitives;
   LReport: TFakeBackendReport;
   LRef: ICryptoBackendReport;
   LProvider: ICryptoProvider;
 begin
   LInner := TCountingKdfPrimitives.Create(Crypto.Primitives);
+  LInnerRef := LInner;
   LReport := TFakeBackendReport.Create([]);
   LRef := LReport;
   LReport.NativePrf := True;
-  LProvider := KdfProviderOver(LInner, LRef, TComplianceEnforcement.Strict);
+  LProvider := KdfProviderOver(LInnerRef, LRef, TComplianceEnforcement.Strict);
   LProvider.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256);
   CheckEquals(1, LInner.Prfs, 'the module PRF is the one handed back');
 end;
@@ -1277,10 +1283,12 @@ end;
 procedure TTestComplianceCryptoPrimitives.TestPrfIsComposedWhenTheReportSaysComposed;
 var
   LInner: TCountingKdfPrimitives;
+  LRef: ICryptoPrimitives;
   LProvider: ICryptoProvider;
 begin
   LInner := TCountingKdfPrimitives.Create(Crypto.Primitives);
-  LProvider := KdfProviderOver(LInner, TFakeBackendReport.Create([]) as ICryptoBackendReport,
+  LRef := LInner;
+  LProvider := KdfProviderOver(LRef, TFakeBackendReport.Create([]) as ICryptoBackendReport,
     TComplianceEnforcement.Strict);
   LProvider.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256);
   CheckEquals(0, LInner.Prfs, 'a PRF the module does not serve is assembled over the HMAC');
