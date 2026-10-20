@@ -1,0 +1,67 @@
+TlsLib.Trust.System/src/TlpSystemTrustFacade.pas
+  s_f2c9bd75607afc::t_e3193fd18ff268 41-44
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_f2c9bd75607afc::t_8002984c8b6531 107-109
+  s_f2c9bd75607afc::t_af7d030c6f7d6c 123-125
+  s_f2c9bd75607afc::t_311a2cddae690c 300-306
+  s_f2c9bd75607afc::t_2688a5a3019173 283
+docs/system-trust.md
+  s_f2c9bd75607afc::t_bc1dfc83172105 206-208
+  s_f2c9bd75607afc::t_fef23b47d23411 216
+  s_f2c9bd75607afc::t_45213afffe51ee 232-234
+  s_f2c9bd75607afc::t_86eba7c79698a8 217-219
+TlsLib.Trust.System/src/TlpISystemVerifierSource.pas
+  s_f2c9bd75607afc::t_45c7999353c522 33-34
+  s_f2c9bd75607afc::t_7caed68fda2b65 22-24
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_f2c9bd75607afc::t_4f353eafdb0f00 242-244
+  s_f2c9bd75607afc::t_46c562ba31f51c 51-54
+  s_f2c9bd75607afc::t_6a0a80ea58461d 219-221,466-467
+  s_f2c9bd75607afc::t_272a59063a608a 465
+  s_f2c9bd75607afc::t_2e267cf7a54230 458,463-464
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_f2c9bd75607afc::t_f3bf8a84cf9831 437-446
+  s_f2c9bd75607afc::t_5ae7eae54cbe33 416-426
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_f2c9bd75607afc::t_264265eb5f4973 64
+  s_f2c9bd75607afc::t_edfd19dd6a19c1 1182
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_f2c9bd75607afc::t_bddef8ced2c98a 584,586
+  s_f2c9bd75607afc::t_9135d6aba576bd 50
+  s_f2c9bd75607afc::t_6fd12117425e2c 955
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_36c124f25c4995 301-303
+  s_f2c9bd75607afc::t_1d9dbc2cbd68b4 79-80
+  s_f2c9bd75607afc::t_06499aacb49273 168
+  s_f2c9bd75607afc::t_7b3b824ab2fd6a 170-174
+  s_f2c9bd75607afc::t_4a747211b6d637 45-47
+  s_f2c9bd75607afc::t_da47859821d650 169
+  s_f2c9bd75607afc::t_03ee8f186e511a 304
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_bfa74ccdeb0894 3606-3607
+  s_f2c9bd75607afc::t_aa98e29325012d 383,1000-1001
+  s_f2c9bd75607afc::t_ac85761aba49a5 722,726,732-733
+  s_f2c9bd75607afc::t_75927a79d52448 3601,3603-3604,3608-3616
+  s_f2c9bd75607afc::t_663a4fe2803846 405
+  s_f2c9bd75607afc::t_5a2fd4628a6b43 3800-3826,3829-3830
+  s_f2c9bd75607afc::t_8d169d341be80a 267
+  s_f2c9bd75607afc::t_7a06a3714289bf 986-990,997-999
+  s_f2c9bd75607afc::t_3b46a0af1ad6c6 3827-3828
+  s_f2c9bd75607afc::t_6a68a748ab58b1 2459-2478
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0ee702d73f5acfac14bea4ac7f2dd203690137e5",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
