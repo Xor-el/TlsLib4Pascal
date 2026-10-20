@@ -415,11 +415,12 @@ posture of Off is disclosed. A server reports these only when it requests client
 - Trust anchors are held to the key floors, so an anchor key below them is refused; an anchor's
   own signature and hash are not judged.
 - A peer chain is held to the RSA size range, not to the exact sizes of the rules.
-- The AES-GCM nonce is built by the library and handed to the module, not generated inside it. The
-  Security Policy describes the module's own IV generation (section 2.7.1) and IG C.H governs an IV
-  the caller imports.
-- The Security Policy deprecates RSA-2048 from 2031-01-01, before the certificate's sunset date,
-  while `Fips140_3` allows 2048-bit RSA.
+- The AES-GCM nonce is built by the library and imported into the module, not generated inside
+  it. The Security Policy (section 2.7.1) accepts an imported IV only when it is constructed as
+  IG C.H scenario 1 describes; that construction is the library's, outside the module.
+- The Security Policy deprecates RSA of less than 128 bits of security strength, which includes
+  2048-bit moduli, from 2031-01-01, before the certificate's sunset date, while `Fips140_3` allows
+  2048-bit RSA.
 - PKCS#12 keys can fall back to portable code, which strict mode refuses; import PEM or DER keys.
 - The module table is shipped data and needs an update per Windows release.
 - The legacy FIPS policy flag is read and reported only.
