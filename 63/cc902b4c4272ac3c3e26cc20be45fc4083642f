@@ -1,0 +1,27 @@
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_5abc9e90f9f7ce 180,183
+  s_f2c9bd75607afc::t_9b76996dbfdedb 564,570,572,574
+TlsLib.Tests/src/ComplianceRulesTests.pas
+  s_f2c9bd75607afc::t_e7ff49147e664d 1789
+  s_f2c9bd75607afc::t_73058dc7a3edbc 1811,1814
+  s_f2c9bd75607afc::t_5a4145e90107f8 1767,1769,1771,1773,1775,1777
+  s_f2c9bd75607afc::t_ebd2436650ae73 1800,1802
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_c6fbd024692810 544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "63cc902b4c4272ac3c3e26cc20be45fc4083642f",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
