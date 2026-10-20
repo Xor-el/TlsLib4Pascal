@@ -65,6 +65,10 @@ type
     procedure TestTryMatchNamesCnsa1;
     procedure TestTryMatchNamesFips140_3;
     procedure TestTryMatchNamesTightestForNarrowerRules;
+    procedure TestTryMatchNamesTheTightestPresetThatHoldsNarrowerRules;
+    procedure TestTryMatchLabelsRulesBetweenTheTwoPresets;
+    procedure TestEveryPresetHoldsAnchorsToTheKeyFloors;
+    procedure TestCnsa1IsSubsetOfFips140_3FieldByField;
     procedure TestHandBuiltWithEd25519NotSubsetOfAnyPreset;
     procedure TestTryMatchClearsNameOnMiss;
     procedure TestFips140_3WireCodes;
@@ -151,6 +155,12 @@ type
     procedure TestSubsetKdfBothComposed;
     procedure TestSubsetBothCurveListsEmpty;
     procedure TestCloneDoesNotShareRsaSizes;
+    procedure TestIntersectAnchorKeyFloorsFromAWins;
+    procedure TestIntersectAnchorKeyFloorsFromBWins;
+    procedure TestIntersectAnchorKeyFloorsBothOffStaysOff;
+    procedure TestSubsetWithoutAnchorKeyFloorsIsNotWithinAPresetThatHasThem;
+    procedure TestSubsetWithAnchorKeyFloorsIsWithinRulesThatLackThem;
+    procedure TestEqualDetectsDifferentAnchorKeyFloors;
   end;
 
   TTestComplianceCatalog = class(TTlsLibAlgorithmTestCase)
@@ -163,6 +173,8 @@ type
     procedure TestIsSubsetOfListBoundaries;
     procedure TestStrengthWithinEqualFloors;
     procedure TestStrengthWithinLowerMinFails;
+    procedure TestStrengthWithinNeedsAnchorFloorsWhereTheFloorHasThem;
+    procedure TestStrengthWithinAcceptsAnchorFloorsBeyondTheFloor;
     procedure TestSchemesInEnumOrder;
     procedure TestSchemesEmptySet;
     procedure TestRsaSizesWithinBoundaries;
@@ -183,7 +195,6 @@ type
     procedure TestVerdictNotCompliantWhenModuleNotValidatedAndKdfInModule;
     procedure TestVerdictNotCompliantWithFinding;
     procedure TestVerdictNotCompliantWithoutPreset;
-    procedure TestVerdictNotCompliantWithoutPresetAndWithFinding;
     procedure TestReportCarriesEnforcementAndPreset;
     procedure TestReportCarriesModuleFromAttestation;
     procedure TestReportFindingsAndDisclosuresRoundTrip;
@@ -383,7 +394,7 @@ var
   LName: string;
 begin
   CheckTrue(TCompliancePresets.TryMatch(TCompliancePresets.Cnsa1, LName), 'matches');
-  CheckEquals('Cnsa1', LName, 'the tightest preset');
+  CheckEquals('Cnsa1', LName, 'equal rules carry the bare name');
 end;
 
 procedure TTestCompliancePresets.TestTryMatchNamesFips140_3;
@@ -391,7 +402,7 @@ var
   LName: string;
 begin
   CheckTrue(TCompliancePresets.TryMatch(TCompliancePresets.Fips140_3, LName), 'matches');
-  CheckEquals('Fips140_3', LName, 'not the narrower Cnsa1');
+  CheckEquals('Fips140_3', LName, 'equal rules carry the bare name, not the narrower Cnsa1');
 end;
 
 procedure TTestCompliancePresets.TestTryMatchNamesTightestForNarrowerRules;
@@ -402,7 +413,7 @@ begin
   LRules := TCompliancePresets.Fips140_3;
   LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls13);
   CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'a narrowed Fips140_3 matches');
-  CheckEquals('Fips140_3', LName, 'names the tightest preset that holds it');
+  CheckEquals('within Fips140_3', LName, 'narrower rules are labelled as within the preset');
 end;
 
 procedure TTestCompliancePresets.TestHandBuiltWithEd25519NotSubsetOfAnyPreset;
@@ -482,6 +493,62 @@ begin
         LNamed[LJ].Name + ' is not inside the tighter ' + LNamed[LI].Name);
 end;
 
+procedure TTestCompliancePresets.TestTryMatchNamesTheTightestPresetThatHoldsNarrowerRules;
+var
+  LRules: TComplianceRules;
+  LName: string;
+begin
+  LRules := TCompliancePresets.Cnsa1;
+  LRules.Strength.MinRsaModulusBits := 4096;
+  LRules.RsaModulusBits := TArray<UInt32>.Create(4096);
+  CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'narrower than Cnsa1');
+  CheckEquals('within Cnsa1', LName, 'the tightest preset is named, not Fips140_3');
+end;
+
+procedure TTestCompliancePresets.TestTryMatchLabelsRulesBetweenTheTwoPresets;
+var
+  LRules: TComplianceRules;
+  LName: string;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384,
+    TCipherSuites12.EcdheEcdsaAes256GcmSha384, TCipherSuites12.EcdheRsaAes256GcmSha384,
+    TCipherSuites13.Aes128GcmSha256, TCipherSuites12.EcdheEcdsaAes128GcmSha256);
+  CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'inside Fips140_3');
+  CheckEquals('within Fips140_3', LName, 'wider than Cnsa1, so not labelled by it');
+end;
+
+procedure TTestCompliancePresets.TestEveryPresetHoldsAnchorsToTheKeyFloors;
+var
+  LNamed: TArray<TCompliancePreset>;
+  LI: Int32;
+begin
+  LNamed := TCompliancePresets.Named;
+  CheckEquals(2, System.Length(LNamed), 'not vacuous');
+  for LI := 0 to System.Length(LNamed) - 1 do
+    CheckTrue(LNamed[LI].Rules.Strength.AnchorKeyFloors, LNamed[LI].Name);
+end;
+
+procedure TTestCompliancePresets.TestCnsa1IsSubsetOfFips140_3FieldByField;
+var
+  LCnsa, LFips: TComplianceRules;
+begin
+  LCnsa := TCompliancePresets.Cnsa1;
+  LFips := TCompliancePresets.Fips140_3;
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(LCnsa.Versions, LFips.Versions), 'versions');
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(LCnsa.CipherSuites, LFips.CipherSuites), 'suites');
+  CheckTrue(LCnsa.Aeads <= LFips.Aeads, 'aeads');
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(LCnsa.NamedGroups, LFips.NamedGroups), 'groups');
+  CheckTrue(LCnsa.SignatureSchemes <= LFips.SignatureSchemes, 'schemes');
+  CheckTrue(TComplianceCatalog.StrengthWithin(LCnsa.Strength, LFips.Strength), 'strength');
+  CheckTrue(TComplianceCatalog.RsaSizesWithin(LCnsa.RsaModulusBits, LFips.RsaModulusBits),
+    'RSA sizes');
+  CheckTrue(LFips.Requirements <= LCnsa.Requirements, 'requirements');
+  CheckEquals(Ord(LFips.Kdf), Ord(LCnsa.Kdf), 'the key-derivation rule');
+  CheckEquals(Ord(LFips.ModuleStandard), Ord(LCnsa.ModuleStandard), 'the standard');
+  CheckTrue(LCnsa.IsSubsetOf(LFips), 'and as a whole');
+end;
+
 procedure TTestCompliancePresets.TestTryMatchNamesCnsa1NarrowedToTls13;
 var
   LRules: TComplianceRules;
@@ -491,7 +558,7 @@ begin
   LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls13);
   LRules.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384);
   CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'a narrowed Cnsa1 matches');
-  CheckEquals('Cnsa1', LName, 'still the tightest preset');
+  CheckEquals('within Cnsa1', LName, 'still the tightest preset');
 end;
 
 { TTestComplianceRules }
@@ -1114,8 +1181,8 @@ const
     'NamedGroups: secp384r1' + sLineBreak +
     'SignatureSchemes: ECDSA_SECP384R1_SHA384 RSA_PSS_RSAE_SHA384 RSA_PKCS1_SHA384' +
     sLineBreak +
-    'Strength: RsaBits 3072..4096, RsaSizes: 3072 4096, EdDsa=no, DeprecatedHashes:, ' +
-    'curves: secp384r1' + sLineBreak +
+    'Strength: RsaBits 3072..4096, RsaSizes: 3072 4096, EdDsa=no, AnchorFloors=yes, ' +
+    'DeprecatedHashes:, curves: secp384r1' + sLineBreak +
     'Requirements: ExtendedMasterSecret NoEarlyData NoEch NoExternalPsk NoTls12Psk NoKeyLog ' +
     'NoDangerousTrust InModuleChainVerification' + sLineBreak +
     'Kdf: AllowComposed' + sLineBreak +
@@ -1407,6 +1474,67 @@ begin
   CheckEquals(2048, Int32(LOriginal.RsaModulusBits[0]), 'original untouched');
 end;
 
+procedure TTestComplianceRules.TestIntersectAnchorKeyFloorsFromAWins;
+var
+  LA, LB: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LB := TCompliancePresets.Fips140_3;
+  LB.Strength.AnchorKeyFloors := False;
+  CheckTrue(TComplianceRules.Intersect(LA, LB).Strength.AnchorKeyFloors,
+    'narrowing only ever adds the flag');
+end;
+
+procedure TTestComplianceRules.TestIntersectAnchorKeyFloorsFromBWins;
+var
+  LA, LB: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.Strength.AnchorKeyFloors := False;
+  LB := TCompliancePresets.Fips140_3;
+  CheckTrue(TComplianceRules.Intersect(LA, LB).Strength.AnchorKeyFloors,
+    'in either operand');
+end;
+
+procedure TTestComplianceRules.TestIntersectAnchorKeyFloorsBothOffStaysOff;
+var
+  LA, LB: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.Strength.AnchorKeyFloors := False;
+  LB := LA.Clone;
+  CheckFalse(TComplianceRules.Intersect(LA, LB).Strength.AnchorKeyFloors,
+    'the flag is not invented');
+end;
+
+procedure TTestComplianceRules.TestSubsetWithoutAnchorKeyFloorsIsNotWithinAPresetThatHasThem;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AnchorKeyFloors := False;
+  CheckFalse(LRules.IsSubsetOf(TCompliancePresets.Fips140_3),
+    'rules that exempt anchors are looser than a preset that holds them');
+end;
+
+procedure TTestComplianceRules.TestSubsetWithAnchorKeyFloorsIsWithinRulesThatLackThem;
+var
+  LLoose: TComplianceRules;
+begin
+  LLoose := TCompliancePresets.Fips140_3;
+  LLoose.Strength.AnchorKeyFloors := False;
+  CheckTrue(TCompliancePresets.Fips140_3.IsSubsetOf(LLoose), 'holding anchors is stricter');
+end;
+
+procedure TTestComplianceRules.TestEqualDetectsDifferentAnchorKeyFloors;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AnchorKeyFloors := False;
+  CheckFalse(LRules = TCompliancePresets.Fips140_3, 'the flag counts');
+end;
+
 { TTestComplianceCatalog }
 
 procedure TTestComplianceCatalog.TestTryKeyAgreementRejectsHybridAndKem;
@@ -1480,6 +1608,26 @@ begin
   LStrength.MinRsaModulusBits := 2047;
   CheckFalse(TComplianceCatalog.StrengthWithin(LStrength,
     TCompliancePresets.Fips140_3.Strength), 'a lower floor is looser');
+end;
+
+procedure TTestComplianceCatalog.TestStrengthWithinNeedsAnchorFloorsWhereTheFloorHasThem;
+var
+  LStrength: TCertificateStrengthPolicy;
+begin
+  LStrength := TCompliancePresets.Fips140_3.Strength;
+  LStrength.AnchorKeyFloors := False;
+  CheckFalse(TComplianceCatalog.StrengthWithin(LStrength,
+    TCompliancePresets.Fips140_3.Strength), 'an exempt anchor is looser');
+end;
+
+procedure TTestComplianceCatalog.TestStrengthWithinAcceptsAnchorFloorsBeyondTheFloor;
+var
+  LFloor: TCertificateStrengthPolicy;
+begin
+  LFloor := TCompliancePresets.Fips140_3.Strength;
+  LFloor.AnchorKeyFloors := False;
+  CheckTrue(TComplianceCatalog.StrengthWithin(TCompliancePresets.Fips140_3.Strength, LFloor),
+    'holding anchors where the floor does not is stricter');
 end;
 
 procedure TTestComplianceCatalog.TestSchemesInEnumOrder;
@@ -1685,17 +1833,6 @@ begin
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
 end;
 
-procedure TTestComplianceReport.TestVerdictNotCompliantWithoutPresetAndWithFinding;
-var
-  LReport: IComplianceReport;
-begin
-  LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '',
-    Default(TModuleIdentity), TModuleStatus.Validated,
-    TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.RulesOutsidePresets, 'rules', 'outside')), nil, False);
-  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
-end;
-
 procedure TTestComplianceReport.TestReportCarriesEnforcementAndPreset;
 var
   LReport: IComplianceReport;
@@ -1847,9 +1984,7 @@ begin
   for LKind := Low(TComplianceFindingKind) to High(TComplianceFindingKind) do
   begin
     LFinding := TComplianceFinding.Create(LKind, '', '');
-    if LKind = TComplianceFindingKind.RulesOutsidePresets then
-      LExpected := TComplianceFindingCategory.Rules
-    else if LKind in PlatformKinds then
+    if LKind in PlatformKinds then
       LExpected := TComplianceFindingCategory.Platform
     else
       LExpected := TComplianceFindingCategory.Configuration;

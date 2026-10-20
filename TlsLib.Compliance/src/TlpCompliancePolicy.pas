@@ -28,7 +28,6 @@ uses
   TlpIPkixProvider,
   TlpPkixDomainTypes,
   TlpITlsConfig,
-  TlpEchConfig,
   TlpINegotiation,
   TlpINamedGroup,
   TlpNamedGroups,
@@ -43,7 +42,6 @@ uses
   TlpTrustTypes,
   TlpSystemCryptoTypes,
   TlpICryptoBackendReport,
-  TlpSystemCryptoBase,
   TlpCredentialResolvers,
   TlpCertificateVerifierSource,
   TlpOSDelegateVerifier,
@@ -67,7 +65,8 @@ type
   /// The compliance policy. Construction checks the rules, the backends and the module, then
   /// builds the refusing providers; everything is fixed afterwards, so the policy is safe to share
   /// between threads. Strict refuses at construction and at Admit for any finding; Relaxed
-  /// reports platform and rule findings and still refuses a configuration finding at Admit.
+  /// reports platform findings and still refuses a configuration finding at Admit. Rules outside
+  /// every named preset raise EArgumentTlsLibException in both modes.
   /// </summary>
   TCompliancePolicy = class sealed(TInterfacedObject, ICompliancePolicy)
   strict private
@@ -89,7 +88,8 @@ type
     FScopePrefix: TBytes;
     FHkdfComposed: Boolean;
     FPrfComposed: Boolean;
-    class procedure CheckUsable(const ARules: TComplianceRules); static;
+    // rules must be runnable and inside a named preset; APreset labels the match
+    class procedure CheckUsable(const ARules: TComplianceRules; out APreset: string); static;
     procedure CheckBackend(var AFindings: TArray<TComplianceFinding>;
       const AEntry: TCryptoBackendEntry; const ASubject: string);
     // whether the derivation is composed outside the module, which the rules may refuse
@@ -97,8 +97,7 @@ type
       const AEntry: TCryptoBackendEntry; const ASubject: string): Boolean;
     // whether a derivation the offered versions run is composed outside the module
     function KdfComposedFor(const AVersions: TArray<UInt16>): Boolean;
-    procedure CollectPlatform(const ABaseCrypto: ICryptoProvider;
-      var AFindings: TArray<TComplianceFinding>);
+    procedure CollectPlatform(var AFindings: TArray<TComplianceFinding>);
     procedure CheckCommon(const AConfig: ITlsCommonConfig;
       var AFindings: TArray<TComplianceFinding>);
     // every group a config can resolve must be one the policy built over its own crypto
@@ -133,8 +132,8 @@ type
     procedure Enforce(const AReport: IComplianceReport);
   public
     /// <summary>A policy over ABaseCrypto and ABasePkix. Raises EArgumentTlsLibException for a nil
-    /// argument or rules no config can run, and, in Strict, EComplianceUnmetTlsLibException for
-    /// any platform or rule finding.</summary>
+    /// argument, rules no config can run or rules outside every named preset, and, in Strict,
+    /// EComplianceUnmetTlsLibException for any platform finding.</summary>
     constructor Create(const ARules: TComplianceRules; const ABaseCrypto: ICryptoProvider;
       const ABasePkix: IPkixProvider; const AAttestation: IModuleAttestation;
       AEnforcement: TComplianceEnforcement);
@@ -173,7 +172,7 @@ resourcestring
   SGroupsInvalid = 'the rules must list only the secp256r1, secp384r1 and secp521r1 groups';
   SSchemesEmpty = 'the rules must allow at least one signature scheme';
   SCurvesEmpty = 'the rules must list the certificate curves; an empty list would allow any';
-  SRulesOutsidePresets = 'the rules fit no named preset';
+  SRulesOutsidePresets = 'the rules allow or omit something no named preset does';
   SCryptoNotCovered =
     'the crypto provider is not the OS composition the attestation covers, so every operation ' +
     'counts as outside the module';
@@ -215,8 +214,6 @@ resourcestring
   SSha256Internal =
     'SHA-256 runs in the module for non-negotiated integrity values: HelloRetryRequest cookie, ' +
     'certificate pins, certificate-compression cache, config fingerprint';
-  SEchKeysUnattributed =
-    'the server holds Encrypted Client Hello keys, which the policy does not inspect';
   STicketKeysUnchecked =
     'the session-ticket keys were not issued by the policy; use ICompliancePolicy.TicketKeys, ' +
     'or CheckedTicketKeys for keys the host enters';
@@ -244,10 +241,6 @@ resourcestring
   SAgreementSubject = 'key agreement %s';
   SSigningSubject = 'signing %s';
   SVerificationSubject = 'verification %s';
-  SHpkeSubject = 'HPKE';
-  SHpkeOutside =
-    'the base HPKE is not composed over its primitives, so Encrypted Client Hello runs outside ' +
-    'the module';
   SRsaPeerChainRange =
     'a peer chain is held to the RSA size range, not to the exact sizes of the rules';
 
@@ -257,7 +250,8 @@ const
 
 { TCompliancePolicy }
 
-class procedure TCompliancePolicy.CheckUsable(const ARules: TComplianceRules);
+class procedure TCompliancePolicy.CheckUsable(const ARules: TComplianceRules;
+  out APreset: string);
 var
   LI: Int32;
   LSuite: TTlsCipherSuite;
@@ -305,6 +299,10 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SSchemesEmpty);
   if System.Length(ARules.Strength.AllowedEcCurves) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SCurvesEmpty);
+  // rules only ever narrow a preset, in both modes: an algorithm or a flag outside every one is
+  // refused here rather than relaxed
+  if not TCompliancePresets.TryMatch(ARules, APreset) then
+    raise EArgumentTlsLibException.CreateRes(@SRulesOutsidePresets);
 end;
 
 procedure TCompliancePolicy.CheckBackend(var AFindings: TArray<TComplianceFinding>;
@@ -344,8 +342,7 @@ begin
   Result := (LOffers13 and FHkdfComposed) or (LOffers12 and FPrfComposed);
 end;
 
-procedure TCompliancePolicy.CollectPlatform(const ABaseCrypto: ICryptoProvider;
-  var AFindings: TArray<TComplianceFinding>);
+procedure TCompliancePolicy.CollectPlatform(var AFindings: TArray<TComplianceFinding>);
 var
   LI: Int32;
   LSuite: TTlsCipherSuite;
@@ -379,13 +376,9 @@ begin
     end;
   end;
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
-    if LScheme in FRules.SignatureSchemes then
-    begin
-      // EdDSA hashes internally; the module is held to SHA-512 for it
-      if not LScheme.TryHash(LHash) then
-        LHash := THashAlgorithm.SHA_512;
+    // no preset holds an EdDSA scheme, so every scheme in the rules names its hash
+    if (LScheme in FRules.SignatureSchemes) and LScheme.TryHash(LHash) then
       Include(LHashes, LHash);
-    end;
   // the engine hashes values nobody negotiates with SHA-256, so the module must serve it
   LSha256Listed := THashAlgorithm.SHA_256 in LHashes;
   Include(LHashes, THashAlgorithm.SHA_256);
@@ -427,10 +420,6 @@ begin
       CheckBackend(AFindings, FReport.VerificationBackend(LScheme),
         Format(SVerificationSubject, [LName]));
     end;
-  if not (TComplianceRequirement.NoEch in FRules.Requirements) and
-    not TOverlayCryptoProvider.RebuildsHpke(ABaseCrypto) then
-    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.AlgorithmOutsideModule, SHpkeSubject, SHpkeOutside));
   if FStatus <> TModuleStatus.Validated then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.ModuleNotValidated, FIdentity.OsVersion, FAttestationText))
@@ -448,7 +437,7 @@ var
   LReport: ICryptoBackendReport;
   LGroups: TArray<INamedGroup>;
   LI: Int32;
-  LMatched, LHasReport, LCovered: Boolean;
+  LHasReport, LCovered: Boolean;
 begin
   inherited Create;
   if ABaseCrypto = nil then
@@ -457,7 +446,7 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilBasePkix);
   if AAttestation = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilAttestation);
-  CheckUsable(ARules);
+  CheckUsable(ARules, FPreset);
   FRules := ARules.Clone;
   FEnforcement := AEnforcement;
   FAttestation := AAttestation;
@@ -472,10 +461,6 @@ begin
   end;
   LCovered := AAttestation.Covers(ABaseCrypto);
   LFindings := nil;
-  LMatched := TCompliancePresets.TryMatch(FRules, FPreset);
-  if not LMatched then
-    TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.RulesOutsidePresets, '', SRulesOutsidePresets));
   LReport := nil;
   LHasReport := Supports(ABaseCrypto, ICryptoBackendReport, LReport);
   // one report decides everything: a provider the attestation does not cover has none to trust
@@ -489,7 +474,7 @@ begin
   if not LCovered then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CryptoNotCovered, '', SCryptoNotCovered));
-  CollectPlatform(ABaseCrypto, LFindings);
+  CollectPlatform(LFindings);
   if (AEnforcement = TComplianceEnforcement.Strict) and (System.Length(LFindings) > 0) then
     raise EComplianceUnmetTlsLibException.Create(LFindings);
   FPlatformFindings := LFindings;
@@ -994,12 +979,7 @@ begin
   if (TComplianceRequirement.NoEch in FRules.Requirements) and
     (AConfig.EncryptedClientHello <> nil) then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.EchConfigured, '', SEch))
-  else if (AConfig.EncryptedClientHello <> nil) and
-    (AConfig.EncryptedClientHello.Role = TEchServerRole.Keyed) then
-    // the keys and their store are the host's, whatever provider the policy composed
-    TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.EchKeysUnattributed, '', SEchKeysUnattributed));
+      TComplianceFindingKind.EchConfigured, '', SEch));
   Result := Report(LFindings, LDisclosures, KdfComposedFor(AConfig.SupportedVersions));
 end;
 

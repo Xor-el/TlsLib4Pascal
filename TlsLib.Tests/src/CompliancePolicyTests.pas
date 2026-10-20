@@ -39,6 +39,8 @@ uses
   TlpSecretBuffer,
   TlpSession,
   TlpCertificateStrengthPolicy,
+  TlpPkixDomainTypes,
+  TlpEnumUtilities,
   TlpCipherSuiteCatalog,
   TlpCipherSuiteRegistry,
   TlpSignatureSchemeRegistry,
@@ -90,6 +92,13 @@ uses
   TlpOSSystemTrust,
   TlpITrustAnchorStore,
   TlpISystemVerifierSource,
+  TlpIPlatformChainEngine,
+  TlpSystemTrustBase,
+  TlpOSDelegateVerifier,
+  TlpTrustTypes,
+  TlpServerName,
+  TlpTlsAlert,
+  MockPlatformChainEngine,
   MockCompliance,
   MockCryptoProvider,
   MockRandom,
@@ -178,8 +187,12 @@ type
     procedure TestRelaxedPortableBaseReportsNoBackendReport;
     procedure TestStrictPortableAeadRaisesAlgorithmOutsideModule;
     procedure TestRelaxedPortableAeadReports;
-    procedure TestStrictHandBuiltEd25519Raises;
-    procedure TestRelaxedHandBuiltEd25519NotCompliant;
+    procedure TestStrictHandBuiltEd25519RaisesArgument;
+    procedure TestRelaxedHandBuiltEd25519RaisesArgument;
+    procedure TestRulesWiderThanAPresetRaiseArgumentInBothModes;
+    procedure TestDroppedRequirementRaisesArgumentInBothModes;
+    procedure TestNarrowerRulesAreAcceptedInBothModes;
+    procedure TestPolicyOverNarrowerRulesNamesThePreset;
     procedure TestEmptyVersionsRaiseArgument;
     procedure TestUnknownVersionRaisesArgument;
     procedure TestEmptySuitesRaiseArgument;
@@ -205,10 +218,7 @@ type
     procedure TestRequireModuleIgnoresTheTls12SuitesOfRulesThatOfferNoTls12;
     procedure TestStrictPortableVerificationRaises;
     procedure TestRelaxedPortableVerificationReportsOnlyThatScheme;
-    procedure TestStrictForeignHpkeRaisesAlgorithmOutsideModule;
-    procedure TestRelaxedForeignHpkeReports;
     procedure TestForeignHpkeIsNotAFindingWhenRulesForbidEch;
-    procedure TestRebuiltHpkeIsNotAFinding;
     procedure TestKdfRequireModuleRaisesStrictOnComposed;
     procedure TestRulesReturnsClone;
     procedure TestAccessorsReturnConstructionInputs;
@@ -224,7 +234,6 @@ type
     procedure TestFips140_3DoesNotDiscloseTheInternalSha256;
     procedure TestStrictCnsa1Sha256OutsideTheModuleRaises;
     procedure TestStrictCnsa1Sha256HmacOutsideTheModuleRaises;
-    procedure TestStrictEdDsaSchemeHoldsTheModuleToSha512;
     procedure TestStrictCnsa1IgnoresSha512OutsideTheModule;
   end;
 
@@ -265,8 +274,6 @@ type
       out AFindings: TArray<TComplianceFinding>): Boolean;
     // AFindings name the CatalogSuite code as differing from its catalog record, and only that
     procedure CheckDiffersFromCatalog(const AFindings: TArray<TComplianceFinding>);
-    // a relaxed Fips140_3 policy whose rules do not refuse Encrypted Client Hello
-    function EchAllowedPolicy: ICompliancePolicy;
     // an ECH key store of one P-256 / AES-256-GCM entry the policy crypto can serve
     function EchKeyStore(const APolicy: ICompliancePolicy): IEchServerKeyStore;
   published
@@ -304,10 +311,7 @@ type
     procedure TestEarlyDataClientRefused;
     procedure TestEarlyDataServerRefused;
     procedure TestEchGreaseRefused;
-    procedure TestKeyedEchServerWithoutNoEchIsUnattributed;
-    procedure TestKeyedEchServerUnattributedIsRefusedInRelaxed;
-    procedure TestBackendEchServerWithoutNoEchIsNotUnattributed;
-    procedure TestKeyedEchServerUnderNoEchIsEchConfiguredOnly;
+    procedure TestKeyedEchServerIsEchConfigured;
     procedure TestExternalPskRefused;
     procedure TestTls12PskRefused;
     procedure TestKeyLogRefused;
@@ -322,7 +326,7 @@ type
     procedure TestSystemCredentialAdmits;
     procedure TestRsaCredentialOfListedSizeAdmits;
     procedure TestRsaCredentialInsideRangeButUnlistedIsBelowRules;
-    procedure TestRsaCredentialFollowsTheRangeWithoutExactSizes;
+    procedure TestRulesWithoutExactSizesAreRefusedAtConstruction;
     procedure TestWebPkiVerifierChainOutsideModule;
     procedure TestInstanceVerifierIsCustomNotChainOutside;
     procedure TestInstanceVerifierRefusedInRelaxed;
@@ -346,7 +350,6 @@ type
     procedure TestMtlsServerDisclosesRevocationOff;
     procedure TestMtlsServerDisclosesRsaPeerChainRange;
     procedure TestClientDisclosesRsaPeerChainRange;
-    procedure TestClientHasNoRsaDisclosureWithoutExactSizes;
     procedure TestPlainServerHasNoDisclosure;
     procedure TestWeakSniEntryIsBelowRules;
     procedure TestHostListedResolverIsUnchecked;
@@ -518,6 +521,28 @@ type
     procedure TestRootsClientRejectsNilPolicy;
     procedure TestBuildClientRejectsNilBuilder;
     procedure TestBuildServerRejectsNilBuilder;
+  end;
+
+  TTestComplianceAnchorFloors = class(TCompliancePolicyTestCase)
+  strict private
+    // whether the OS delegate accepts a path of ALeaf and ARoot under the strength policy of a
+    // facade client of APolicy; AFlag replaces the anchor flag when AOverride
+    function AcceptsAnchor(const APolicy: ICompliancePolicy; const ALeaf, ARoot: TBytes;
+      AOverride, AFlag: Boolean; out AAlert: TTlsAlertDescription): Boolean;
+    // Fips140_3 narrowed to an RSA floor of 3072
+    function Rsa3072Policy: ICompliancePolicy;
+    // Fips140_3 narrowed to the secp384r1 curve alone
+    function P384Policy: ICompliancePolicy;
+  published
+    procedure TestFacadeClientCarriesTheAnchorFlagIntoTheConfig;
+    procedure TestFacadeMtlsServerClientVerificationCarriesTheAnchorFlag;
+    procedure TestClientWhoseAnchorsAreExemptIsBelowTheRules;
+    procedure TestRsa2048AnchorIsRefusedUnderARulesFloorOf3072;
+    procedure TestRsa2048AnchorPassesWhenTheFlagIsCleared;
+    procedure TestFips140_3AcceptsAnRsa2048Anchor;
+    procedure TestAnchorOnACurveOutsideTheListIsRefused;
+    procedure TestAnchorOnACurveOutsideTheListPassesWhenTheFlagIsCleared;
+    procedure TestFips140_3AcceptsAP256Anchor;
   end;
 
   /// <summary>The facts the Windows module suites share; it has no tests and is not
@@ -1207,23 +1232,6 @@ begin
     TComplianceFindingKind.AlgorithmOutsideModule).Subject, 'which one');
 end;
 
-procedure TTestCompliancePolicy.TestStrictEdDsaSchemeHoldsTheModuleToSha512;
-var
-  LRules: TComplianceRules;
-  LReport: TFakeBackendReport;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LRules := TCompliancePresets.Cnsa1;
-  Include(LRules.SignatureSchemes, TSignatureScheme.ED25519);
-  LReport := TFakeBackendReport.Create([]);
-  LReport.PortableHashes := [THashAlgorithm.SHA_512];
-  CheckTrue(Construct(LRules, TComplianceFakes.FakeSystemBase(LReport as ICryptoBackendReport,
-    nil, nil), TModuleStatus.Validated, TComplianceEnforcement.Strict, LFindings),
-    'EdDSA hashes internally, so the module must serve SHA-512 for it');
-  CheckEquals('hash SHA_512', FindingOfKind(LFindings,
-    TComplianceFindingKind.AlgorithmOutsideModule).Subject, 'which one');
-end;
-
 procedure TTestCompliancePolicy.TestStrictCnsa1IgnoresSha512OutsideTheModule;
 var
   LReport: TFakeBackendReport;
@@ -1469,32 +1477,87 @@ begin
     'reported');
 end;
 
-procedure TTestCompliancePolicy.TestStrictHandBuiltEd25519Raises;
+procedure TTestCompliancePolicy.TestStrictHandBuiltEd25519RaisesArgument;
 var
   LRules: TComplianceRules;
-  LFindings: TArray<TComplianceFinding>;
 begin
   LRules := TCompliancePresets.Fips140_3;
   Include(LRules.SignatureSchemes, TSignatureScheme.ED25519);
-  CheckTrue(Construct(LRules, SystemBase, TModuleStatus.Validated,
-    TComplianceEnforcement.Strict, LFindings), 'strict refuses rules outside every preset');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.RulesOutsidePresets), 'names the rules');
+  CheckTrue(ArgumentRefused(LRules, TComplianceEnforcement.Strict),
+    'rules outside every preset are not runnable');
 end;
 
-procedure TTestCompliancePolicy.TestRelaxedHandBuiltEd25519NotCompliant;
+procedure TTestCompliancePolicy.TestRelaxedHandBuiltEd25519RaisesArgument;
 var
   LRules: TComplianceRules;
-  LPolicy: ICompliancePolicy;
 begin
   LRules := TCompliancePresets.Fips140_3;
   Include(LRules.SignatureSchemes, TSignatureScheme.ED25519);
-  LPolicy := NewPolicy(LRules, SystemBase, TModuleStatus.Validated,
-    TComplianceEnforcement.Relaxed);
-  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LPolicy.PlatformReport.Verdict),
-    'never compliant');
-  CheckEquals('', LPolicy.PlatformReport.Preset, 'no preset holds it');
-  CheckTrue(ReportHasKind(LPolicy.PlatformReport, TComplianceFindingKind.RulesOutsidePresets),
-    'reported');
+  CheckTrue(ArgumentRefused(LRules, TComplianceEnforcement.Relaxed),
+    'relaxed never relaxes what the rules allow');
+end;
+
+procedure TTestCompliancePolicy.TestRulesWiderThanAPresetRaiseArgumentInBothModes;
+var
+  LRules: TComplianceRules;
+  LMode: TComplianceEnforcement;
+begin
+  for LMode := Low(TComplianceEnforcement) to High(TComplianceEnforcement) do
+  begin
+    LRules := TCompliancePresets.Fips140_3;
+    LRules.Strength.AllowEdDsa := True;
+    CheckTrue(ArgumentRefused(LRules, LMode), 'EdDSA certificates');
+    LRules := TCompliancePresets.Fips140_3;
+    LRules.Strength.MinRsaModulusBits := 1024;
+    CheckTrue(ArgumentRefused(LRules, LMode), 'a lower RSA floor');
+    LRules := TCompliancePresets.Fips140_3;
+    LRules.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+    CheckTrue(ArgumentRefused(LRules, LMode), 'a deprecated hash');
+    LRules := TCompliancePresets.Fips140_3;
+    LRules.Strength.AnchorKeyFloors := False;
+    CheckTrue(ArgumentRefused(LRules, LMode), 'anchors left out of the key floors');
+    LRules := TCompliancePresets.Fips140_3;
+    LRules.Aeads := LRules.Aeads + [TAeadAlgorithm.CHACHA20_POLY1305];
+    CheckTrue(ArgumentRefused(LRules, LMode), 'ChaCha');
+  end;
+end;
+
+procedure TTestCompliancePolicy.TestDroppedRequirementRaisesArgumentInBothModes;
+var
+  LRules: TComplianceRules;
+  LMode: TComplianceEnforcement;
+  LRequirement: TComplianceRequirement;
+begin
+  for LMode := Low(TComplianceEnforcement) to High(TComplianceEnforcement) do
+    for LRequirement := Low(TComplianceRequirement) to High(TComplianceRequirement) do
+    begin
+      LRules := TCompliancePresets.Fips140_3;
+      Exclude(LRules.Requirements, LRequirement);
+      CheckTrue(ArgumentRefused(LRules, LMode),
+        TEnumUtilities.GetName<TComplianceRequirement>(LRequirement));
+    end;
+end;
+
+procedure TTestCompliancePolicy.TestNarrowerRulesAreAcceptedInBothModes;
+var
+  LRules: TComplianceRules;
+  LMode: TComplianceEnforcement;
+begin
+  for LMode := Low(TComplianceEnforcement) to High(TComplianceEnforcement) do
+  begin
+    LRules := TCompliancePresets.Fips140_3;
+    LRules.Strength.MinRsaModulusBits := 3072;
+    LRules.RsaModulusBits := TArray<UInt32>.Create(3072, 4096);
+    CheckFalse(ArgumentRefused(LRules, LMode), 'a higher RSA floor narrows');
+    CheckFalse(ArgumentRefused(Tls12OnlyRules, LMode), 'TLS 1.2 alone narrows');
+  end;
+end;
+
+procedure TTestCompliancePolicy.TestPolicyOverNarrowerRulesNamesThePreset;
+begin
+  CheckEquals('within Fips140_3', NewPolicy(Tls12OnlyRules, SystemBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict).PlatformReport.Preset, 'narrower than Fips140_3');
+  CheckEquals('Fips140_3', StrictPolicy.PlatformReport.Preset, 'equal to Fips140_3');
 end;
 
 procedure TTestCompliancePolicy.TestEmptyVersionsRaiseArgument;
@@ -1781,34 +1844,6 @@ begin
   CheckEquals('verification RSA_PSS_RSAE_SHA384', LFindings[0].Subject, 'the subject');
 end;
 
-procedure TTestCompliancePolicy.TestStrictForeignHpkeRaisesAlgorithmOutsideModule;
-var
-  LRules: TComplianceRules;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LRules := TCompliancePresets.Fips140_3;
-  Exclude(LRules.Requirements, TComplianceRequirement.NoEch);
-  CheckTrue(Construct(LRules, TComplianceFakes.FakeSystemBase(
-    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, TFakeHpke.Create as IHpkeCrypto),
-    TModuleStatus.Validated, TComplianceEnforcement.Strict, LFindings),
-    'strict refuses ECH over a foreign HPKE');
-  CheckTrue(HasKind(LFindings, TComplianceFindingKind.AlgorithmOutsideModule), 'the kind');
-  CheckEquals('HPKE', LFindings[System.High(LFindings)].Subject, 'the subject');
-end;
-
-procedure TTestCompliancePolicy.TestRelaxedForeignHpkeReports;
-var
-  LRules: TComplianceRules;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LRules := TCompliancePresets.Fips140_3;
-  Exclude(LRules.Requirements, TComplianceRequirement.NoEch);
-  LFindings := NewPolicy(LRules, TComplianceFakes.FakeSystemBase(
-    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, TFakeHpke.Create as IHpkeCrypto),
-    TModuleStatus.Validated, TComplianceEnforcement.Relaxed).PlatformReport.Findings;
-  CheckEquals('HPKE', LFindings[System.High(LFindings)].Subject, 'reported');
-end;
-
 procedure TTestCompliancePolicy.TestForeignHpkeIsNotAFindingWhenRulesForbidEch;
 var
   LPolicy: ICompliancePolicy;
@@ -1817,19 +1852,6 @@ begin
     TFakeBackendReport.Create([]) as ICryptoBackendReport, nil, TFakeHpke.Create as IHpkeCrypto),
     TModuleStatus.Validated, TComplianceEnforcement.Strict);
   CheckEquals(0, System.Length(LPolicy.PlatformReport.Findings), 'nothing uses HPKE');
-end;
-
-procedure TTestCompliancePolicy.TestRebuiltHpkeIsNotAFinding;
-var
-  LRules: TComplianceRules;
-  LPolicy: ICompliancePolicy;
-begin
-  LRules := TCompliancePresets.Fips140_3;
-  Exclude(LRules.Requirements, TComplianceRequirement.NoEch);
-  LPolicy := NewPolicy(LRules, SystemBase, TModuleStatus.Validated,
-    TComplianceEnforcement.Relaxed);
-  CheckFalse(ReportHasKind(LPolicy.PlatformReport, TComplianceFindingKind.AlgorithmOutsideModule),
-    'the refusing primitives already place the composition');
 end;
 
 procedure TTestCompliancePolicy.TestKdfRequireModuleRaisesStrictOnComposed;
@@ -2580,16 +2602,6 @@ begin
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.EchConfigured), 'GREASE ECH counts');
 end;
 
-function TTestComplianceAdmit.EchAllowedPolicy: ICompliancePolicy;
-var
-  LRules: TComplianceRules;
-begin
-  LRules := TCompliancePresets.Fips140_3;
-  LRules.Requirements := LRules.Requirements - [TComplianceRequirement.NoEch];
-  Result := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
-    TComplianceEnforcement.Relaxed);
-end;
-
 function TTestComplianceAdmit.EchKeyStore(const APolicy: ICompliancePolicy): IEchServerKeyStore;
 var
   LGen: TEchKeyGenResult;
@@ -2599,53 +2611,14 @@ begin
   Result := TInMemoryEchKeyStore.FromPem(LGen.Pem, APolicy.Crypto);
 end;
 
-procedure TTestComplianceAdmit.TestKeyedEchServerWithoutNoEchIsUnattributed;
+procedure TTestComplianceAdmit.TestKeyedEchServerIsEchConfigured;
 var
   LPolicy: ICompliancePolicy;
-  LReport: IComplianceReport;
-begin
-  LPolicy := EchAllowedPolicy;
-  LReport := LPolicy.Evaluate(ServerBuilder(LPolicy).Tls13.WithEchKeyStore(
-    EchKeyStore(LPolicy)).Build);
-  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.EchKeysUnattributed),
-    'the ECH keys of the host are not inspected');
-  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.EchConfigured),
-    'the rules allow ECH');
-end;
-
-procedure TTestComplianceAdmit.TestKeyedEchServerUnattributedIsRefusedInRelaxed;
-var
-  LPolicy: ICompliancePolicy;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LPolicy := EchAllowedPolicy;
-  CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).Tls13.WithEchKeyStore(
-    EchKeyStore(LPolicy)).Build, LFindings), 'a configuration finding is never relaxed');
-  CheckEquals(Ord(TComplianceFindingCategory.Configuration), Ord(FindingOfKind(LFindings,
-    TComplianceFindingKind.EchKeysUnattributed).Category), 'which');
-end;
-
-procedure TTestComplianceAdmit.TestBackendEchServerWithoutNoEchIsNotUnattributed;
-var
-  LPolicy: ICompliancePolicy;
-begin
-  LPolicy := EchAllowedPolicy;
-  CheckFalse(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).Tls13.WithEchBackend.Build),
-    TComplianceFindingKind.EchKeysUnattributed), 'a split-mode backend holds no ECH keys');
-end;
-
-procedure TTestComplianceAdmit.TestKeyedEchServerUnderNoEchIsEchConfiguredOnly;
-var
-  LPolicy: ICompliancePolicy;
-  LReport: IComplianceReport;
 begin
   LPolicy := StrictPolicy;
-  LReport := LPolicy.Evaluate(ServerBuilder(LPolicy).Tls13.WithEchKeyStore(
-    EchKeyStore(LPolicy)).Build);
-  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.EchConfigured),
-    'the presets refuse ECH outright');
-  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.EchKeysUnattributed),
-    'so the keys need no separate finding');
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy).Tls13.WithEchKeyStore(
+    EchKeyStore(LPolicy)).Build), TComplianceFindingKind.EchConfigured),
+    'the presets refuse ECH outright, keys and all');
 end;
 
 procedure TTestComplianceAdmit.TestExternalPskRefused;
@@ -2821,21 +2794,21 @@ begin
     '2048 is inside the range but not an exact size');
 end;
 
-procedure TTestComplianceAdmit.TestRsaCredentialFollowsTheRangeWithoutExactSizes;
+procedure TTestComplianceAdmit.TestRulesWithoutExactSizesAreRefusedAtConstruction;
 var
   LRules: TComplianceRules;
-  LPolicy: ICompliancePolicy;
-  LReport: IComplianceReport;
+  LRaised: Boolean;
 begin
   LRules := TCompliancePresets.Fips140_3;
   LRules.RsaModulusBits := nil;
-  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
-    TComplianceEnforcement.Relaxed);
-  LReport := LPolicy.Evaluate(CredentialBuilder(LPolicy, Rsa2048Credential).Build);
-  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyBelowRules),
-    'the range alone admits 2048');
-  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyUndetermined),
-    'and the key is determined');
+  LRaised := False;
+  try
+    NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated, TComplianceEnforcement.Relaxed);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a range alone is looser than the exact sizes of the presets');
 end;
 
 procedure TTestComplianceAdmit.TestWebPkiVerifierChainOutsideModule;
@@ -3138,19 +3111,6 @@ begin
   CheckFalse(Disclosed(LPolicy.PlatformReport, 'size range'), 'the platform report has none');
 end;
 
-procedure TTestComplianceAdmit.TestClientHasNoRsaDisclosureWithoutExactSizes;
-var
-  LRules: TComplianceRules;
-  LPolicy: ICompliancePolicy;
-begin
-  LRules := TCompliancePresets.Fips140_3;
-  LRules.RsaModulusBits := nil;
-  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
-    TComplianceEnforcement.Relaxed);
-  CheckFalse(Disclosed(LPolicy.Evaluate(ClientBuilder(LPolicy).Build), 'size range'),
-    'the range alone is enforced everywhere');
-end;
-
 procedure TTestComplianceAdmit.TestPlainServerHasNoDisclosure;
 var
   LPolicy: ICompliancePolicy;
@@ -3301,13 +3261,9 @@ end;
 procedure TTestComplianceAdmit.TestPskOnlyServerHasNoResolverFinding;
 var
   LPolicy: ICompliancePolicy;
-  LRules: TComplianceRules;
   LReport: IComplianceReport;
 begin
-  LRules := TCompliancePresets.Fips140_3;
-  LRules.Requirements := LRules.Requirements - [TComplianceRequirement.NoExternalPsk];
-  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
-    TComplianceEnforcement.Relaxed);
+  LPolicy := RelaxedPolicy;
   LReport := LPolicy.Evaluate(RawServer(LPolicy).Tls13.WithExternalPreSharedKeys(
     TArray<TExternalPsk>.Create(Psk)).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialResolverUnchecked),
@@ -5079,6 +5035,145 @@ begin
   CheckTrue(LRaised, 'nil builder');
 end;
 
+{ TTestComplianceAnchorFloors }
+
+function TTestComplianceAnchorFloors.AcceptsAnchor(const APolicy: ICompliancePolicy;
+  const ALeaf, ARoot: TBytes; AOverride, AFlag: Boolean;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LConfig: ITlsClientConfig;
+  LResult: TPlatformChainResult;
+  LEngine: IPlatformChainEngine;
+  LDelegate: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LConfig := ClientBuilder(APolicy).Build;
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Good;
+  LResult.Path := TArray<TBytes>.Create(ALeaf, ARoot);
+  LResult.PolicyExempt := TArray<TBytes>.Create(ARoot);
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.DnsIdentity], True, LResult, TTlsAlertDescription.BadCertificate);
+  LDelegate := TOSDelegatePolicy.FromClientConfig(LConfig);
+  if AOverride then
+    LDelegate.StrengthPolicy.AnchorKeyFloors := AFlag;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LDelegate) as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(ALeaf),
+    TServerName.DnsName('localhost'), nil, LVerified, AAlert);
+end;
+
+function TTestComplianceAnchorFloors.Rsa3072Policy: ICompliancePolicy;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.MinRsaModulusBits := 3072;
+  LRules.RsaModulusBits := TArray<UInt32>.Create(3072, 4096);
+  Result := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict);
+end;
+
+function TTestComplianceAnchorFloors.P384Policy: ICompliancePolicy;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
+  Result := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict);
+end;
+
+procedure TTestComplianceAnchorFloors.TestFacadeClientCarriesTheAnchorFlagIntoTheConfig;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ClientBuilder(LPolicy).Build.CertificateStrengthPolicy.AnchorKeyFloors,
+    'the verifier policy holds anchors to the floors');
+end;
+
+procedure TTestComplianceAnchorFloors.TestFacadeMtlsServerClientVerificationCarriesTheAnchorFlag;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(MtlsServerBuilder(LPolicy, TRevocationPosture.Soft).Build
+    .CertificateStrengthPolicy.AnchorKeyFloors, 'the client-certificate verifier does too');
+end;
+
+procedure TTestComplianceAnchorFloors.TestClientWhoseAnchorsAreExemptIsBelowTheRules;
+var
+  LPolicy: ICompliancePolicy;
+  LBuilder: ITlsClientConfigBuilder;
+  LStrength: TCertificateStrengthPolicy;
+begin
+  LPolicy := StrictPolicy;
+  LStrength := LPolicy.Rules.Strength;
+  LStrength.AnchorKeyFloors := False;
+  LBuilder := ClientBuilder(LPolicy);
+  LBuilder.WithServerVerification(TServerVerification.VerifierSource(
+    TFakeOsVerifierSources.Server).WithMinimumStrength(LStrength).Build);
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
+    TComplianceFindingKind.StrengthBelowRules), 'the flag is the only difference');
+end;
+
+procedure TTestComplianceAnchorFloors.TestRsa2048AnchorIsRefusedUnderARulesFloorOf3072;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(AcceptsAnchor(Rsa3072Policy, TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt',
+    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), False,
+    False, LAlert), 'the anchor key is below the floor');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert), 'the alert');
+end;
+
+procedure TTestComplianceAnchorFloors.TestRsa2048AnchorPassesWhenTheFlagIsCleared;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(AcceptsAnchor(Rsa3072Policy, TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt',
+    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), True,
+    False, LAlert), 'control: the same path with anchors exempt');
+end;
+
+procedure TTestComplianceAnchorFloors.TestFips140_3AcceptsAnRsa2048Anchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(AcceptsAnchor(StrictPolicy, TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt',
+    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), False,
+    False, LAlert), '2048 bits is inside the Fips140_3 range');
+end;
+
+procedure TTestComplianceAnchorFloors.TestAnchorOnACurveOutsideTheListIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(AcceptsAnchor(P384Policy, TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt',
+    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), False,
+    False, LAlert), 'a P-256 anchor where only P-384 is listed');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert), 'the alert');
+end;
+
+procedure TTestComplianceAnchorFloors.TestAnchorOnACurveOutsideTheListPassesWhenTheFlagIsCleared;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(AcceptsAnchor(P384Policy, TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt',
+    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), True,
+    False, LAlert), 'control: the same path with anchors exempt');
+end;
+
+procedure TTestComplianceAnchorFloors.TestFips140_3AcceptsAP256Anchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(AcceptsAnchor(StrictPolicy, TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt',
+    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), False,
+    False, LAlert), 'P-256 is in the Fips140_3 list');
+end;
+
 { TWindowsModuleTestBase }
 
 const
@@ -6174,12 +6269,14 @@ initialization
   RegisterTest(TTestComplianceAdmit);
   RegisterTest(TTestComplianceResumption);
   RegisterTest(TTestComplianceRoots);
+  RegisterTest(TTestComplianceAnchorFloors);
   RegisterTest(TTestWindowsModuleDecision);
 {$ELSE}
   RegisterTest(TTestCompliancePolicy.Suite);
   RegisterTest(TTestComplianceAdmit.Suite);
   RegisterTest(TTestComplianceResumption.Suite);
   RegisterTest(TTestComplianceRoots.Suite);
+  RegisterTest(TTestComplianceAnchorFloors.Suite);
   RegisterTest(TTestWindowsModuleDecision.Suite);
 {$ENDIF FPC}
 

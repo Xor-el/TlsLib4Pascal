@@ -32,8 +32,9 @@ type
   /// <summary>The standard a cryptographic module is attested against.</summary>
   TModuleStandard = (Fips140_3);
 
-  /// <summary>Strict refuses a platform fact that falls short; Relaxed reports it
-  /// instead.</summary>
+  /// <summary>Strict refuses every finding. Relaxed reports a platform finding instead of
+  /// refusing it and still refuses a configuration finding, so it never relaxes what the rules
+  /// allow.</summary>
   TComplianceEnforcement = (Strict, Relaxed);
 
   /// <summary>PrimitivesInModule: every negotiated primitive is a service of a validated module
@@ -78,7 +79,8 @@ type
     Requirements: TComplianceRequirements;
     Kdf: TKdfRule;
     ModuleStandard: TModuleStandard;
-    /// <summary>The rules both operands allow, in A's order. Raises when the result would hold
+    /// <summary>The rules both operands allow, in A's order; anchors are held to the key floors
+    /// when either operand does. Raises when the result would hold
     /// no curve, no RSA size (both operands list sizes, none shared) or an empty RSA range, or
     /// when the operands target different standards.</summary>
     class function Intersect(const A, B: TComplianceRules): TComplianceRules; static;
@@ -92,10 +94,9 @@ type
     function Describe: string;
   end;
 
-  TComplianceFindingCategory = (Rules, Configuration, Platform);
+  TComplianceFindingCategory = (Configuration, Platform);
 
   TComplianceFindingKind = (
-    RulesOutsidePresets,
     ModuleNotValidated, NoBackendReport, AlgorithmOutsideModule, KdfOutsideModule,
     CredentialKeyOutsideModule, ChainVerifiedOutsideModule, StapleVerifiedOutsideModule,
     CryptoNotCovered, ForeignCryptoProvider, ForeignPkixProvider, VersionNotAllowed,
@@ -105,7 +106,7 @@ type
     CredentialKeyUndetermined, CredentialKeyBelowRules, CredentialSchemesNotAllowed,
     TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup,
     CustomVerifierConfigured, ResumptionStateUnchecked, TicketKeysUnchecked,
-    CipherSuiteDiffersFromCatalog, EchKeysUnattributed);
+    CipherSuiteDiffersFromCatalog);
 
   TComplianceFinding = record
     Kind: TComplianceFindingKind;
@@ -277,6 +278,7 @@ begin
   if System.Length(Result.Strength.AllowedEcCurves) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoCommonCurve);
   Result.Strength.AllowEdDsa := A.Strength.AllowEdDsa and B.Strength.AllowEdDsa;
+  Result.Strength.AnchorKeyFloors := A.Strength.AnchorKeyFloors or B.Strength.AnchorKeyFloors;
   Result.Strength.AllowedDeprecatedHashes := A.Strength.AllowedDeprecatedHashes *
     B.Strength.AllowedDeprecatedHashes;
   Result.Requirements := A.Requirements + B.Requirements;
@@ -318,7 +320,7 @@ end;
 function TComplianceRules.Describe: string;
 var
   LI: Int32;
-  LList, LFlag, LName, LSizes, LHashes: string;
+  LList, LFlag, LAnchor, LName, LSizes, LHashes: string;
   LHash: TCertSignatureHash;
   LAead: TAeadAlgorithm;
   LScheme: TSignatureScheme;
@@ -360,6 +362,10 @@ begin
     LFlag := 'yes'
   else
     LFlag := 'no';
+  if Strength.AnchorKeyFloors then
+    LAnchor := 'yes'
+  else
+    LAnchor := 'no';
   LSizes := '';
   for LI := 0 to System.Length(RsaModulusBits) - 1 do
     LSizes := LSizes + ' ' + IntToStr(RsaModulusBits[LI]);
@@ -369,9 +375,9 @@ begin
       LHashes := LHashes + ' ' + TEnumUtilities.GetName(TypeInfo(TCertSignatureHash),
         Ord(LHash));
   Result := Result + Format(
-    'Strength: RsaBits %d..%d, RsaSizes:%s, EdDsa=%s, DeprecatedHashes:%s, curves:%s',
-    [Strength.MinRsaModulusBits, Strength.MaxRsaModulusBits, LSizes, LFlag, LHashes, LList]) +
-    sLineBreak;
+    'Strength: RsaBits %d..%d, RsaSizes:%s, EdDsa=%s, AnchorFloors=%s, DeprecatedHashes:%s, ' +
+    'curves:%s', [Strength.MinRsaModulusBits, Strength.MaxRsaModulusBits, LSizes, LFlag, LAnchor,
+    LHashes, LList]) + sLineBreak;
   LList := '';
   for LRequirement := Low(TComplianceRequirement) to High(TComplianceRequirement) do
     if LRequirement in Requirements then
@@ -399,8 +405,6 @@ end;
 function TComplianceFinding.Category: TComplianceFindingCategory;
 begin
   case Kind of
-    TComplianceFindingKind.RulesOutsidePresets:
-      Result := TComplianceFindingCategory.Rules;
     TComplianceFindingKind.ModuleNotValidated, TComplianceFindingKind.NoBackendReport,
       TComplianceFindingKind.AlgorithmOutsideModule, TComplianceFindingKind.KdfOutsideModule,
       TComplianceFindingKind.CredentialKeyOutsideModule,
@@ -516,6 +520,7 @@ begin
     ((System.Length(AStrength.AllowedEcCurves) > 0) and
     TComplianceCatalog.IsSubsetOfList(AStrength.AllowedEcCurves, AFloor.AllowedEcCurves))) and
     (not AStrength.AllowEdDsa or AFloor.AllowEdDsa) and
+    (not AFloor.AnchorKeyFloors or AStrength.AnchorKeyFloors) and
     (AStrength.AllowedDeprecatedHashes <= AFloor.AllowedDeprecatedHashes);
 end;
 
