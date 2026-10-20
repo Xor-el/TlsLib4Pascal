@@ -32,7 +32,6 @@ uses
   TlpITlsConfig,
   TlpSignatureSchemeRegistry,
   TlpICertificateVerifierSource,
-  TlpISystemVerifierSource,
   TlpSystemTrustBase,
   TlpSystemTrustExceptions,
   TlpIPlatformChainEngine,
@@ -173,7 +172,7 @@ type
   /// the live-revocation verdict, or - for an engine that renders no revocation outcome - a Hard
   /// client posture without it.</summary>
   TOSVerifierSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
-    IClientCertificateVerifierSource, ISystemVerifierSource)
+    IClientCertificateVerifierSource)
   strict private
     FEngine: IPlatformChainEngine;
     FFetch: TSystemTrustFetch;
@@ -184,8 +183,15 @@ type
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
       AScope: TSystemTrustRootScope; const AHostRoots, ADistrusted: TArray<TBytes>);
     function CreateServerVerifier(const AContext: TServerTrustContext): IServerCertificateVerifier;
+    /// <summary>The exclusive server trust root (empty = the OS roots apply). The three roots
+    /// accessors let the live re-check build against the same roots as the inline pass; all are
+    /// empty for a client-only source. A stapled revocation response may be decided by the
+    /// configured PKIX provider instead of the OS.</summary>
     function Anchors: TArray<TBytes>;
+    /// <summary>Host roots trusted with the OS roots.</summary>
     function ExtraAnchors: TArray<TBytes>;
+    /// <summary>The distrust set the source was built with (the host's, plus the OS list where the
+    /// platform exposes one and the factory read it), refused on any accepted path.</summary>
     function Distrusted: TArray<TBytes>;
     function CreateClientVerifier(const AContext: TClientTrustContext): IClientCertificateVerifier;
   end;
@@ -282,14 +288,14 @@ end;
 class function TOSDelegatePolicy.FromClientConfig(const AConfig: ITlsClientConfig)
   : TOSDelegatePolicy;
 var
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   Result := FromCommonConfig(AConfig);
   Result.CheckHostName := AConfig.CheckServerName;
   // the live pass uses the roots of the inline one, which only the OS source has
   if AConfig.ServerVerifierSource is TOSVerifierSource then
   begin
-    LSource := AConfig.ServerVerifierSource as ISystemVerifierSource;
+    LSource := AConfig.ServerVerifierSource as TOSVerifierSource;
     Result.Anchors := LSource.Anchors;
     Result.ExtraAnchors := LSource.ExtraAnchors;
     Result.Distrusted := LSource.Distrusted;

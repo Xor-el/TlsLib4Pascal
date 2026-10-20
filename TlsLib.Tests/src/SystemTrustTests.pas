@@ -43,7 +43,6 @@ uses
   TlpCertificateVerifierSource,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
-  TlpISystemVerifierSource,
   TlpTrustPolicy,
   TlpCertificateLimits,
   TlpServerName,
@@ -323,10 +322,10 @@ type
     procedure TestSourceCarriesDistrustToTheVerifier;
     procedure TestSourceAcceptsHostRootsOverAnExclusiveAnchorEngine;
     procedure TestSourceRefusesHostRootsOverAnEngineWithNeitherCapability;
-    procedure TestOsServerSourceCarriesSystemMarker;
-    procedure TestOsClientSourceCarriesSystemMarker;
-    procedure TestBuiltInSourceLacksSystemMarker;
-    procedure TestCustomVerifierSourceLacksSystemMarker;
+    procedure TestOsServerSourceIsTheOsSource;
+    procedure TestOsClientSourceIsTheOsSource;
+    procedure TestBuiltInSourceIsNotTheOsSource;
+    procedure TestCustomVerifierSourceIsNotTheOsSource;
     procedure TestLiveResolverRetriesWithHostRoots;
     procedure TestLiveResolverOtherFailureIsFinal;
     procedure TestLiveResolverRefusesDistrustedHostRootPath;
@@ -390,8 +389,8 @@ type
     procedure TestFromClientConfigCarriesHostRoots;
     procedure TestFromClientConfigCarriesOsAndHostRoots;
     procedure TestFromClientConfigWithoutAnOsSourceTakesTheTrustStore;
-    // a host class that lists the marker is not the OS source, so its roots are not read
-    procedure TestFromClientConfigRefusesAHostClassListingTheMarker;
+    // a host source is not the OS source, so its roots are not read
+    procedure TestFromClientConfigRefusesAHostSource;
     procedure TestFromServerConfigTakesTheClientCaStore;
     procedure TestLiveResolverAcceptsThePrivateChainUnderHostRoots;
     procedure TestLiveResolverRejectsAPublicRootedChainUnderHostRoots;
@@ -556,8 +555,8 @@ type
     procedure TestLiveResolverTrustsHostRoots;
     procedure TestFactorySourceReadsOsDistrustBesideHostRoots;
     procedure TestFactorySourceRefusesHostRootsWithoutProvider;
-    procedure TestFactorySourceCarriesSystemMarker;
-    procedure TestFactoryClientSourceCarriesSystemMarker;
+    procedure TestFactorySourceIsTheOsSource;
+    procedure TestFactoryClientSourceIsTheOsSource;
     procedure TestDefaultModeTrustsHostRootsThroughTheOsEngine;
     procedure TestHostRootsTrustsThePrivateLeaf;
     procedure TestHostRootsRefusesAForeignRoot;
@@ -714,20 +713,12 @@ type
 implementation
 
 type
-  /// <summary>A host verifier source that lists the OS marker and carries one root, without being
-  /// the library's OS source; it builds no verifier.</summary>
-  THostMarkedSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
-    ISystemVerifierSource)
-  strict private
-  var
-    FAnchors: TArray<TBytes>;
+  /// <summary>A host verifier source that is not the library's OS source (the stand-in for one
+  /// that decorates it); it builds no verifier.</summary>
+  THostSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource)
   public
-    constructor Create(const AAnchors: TArray<TBytes>);
     function CreateServerVerifier(const AContext: TServerTrustContext)
       : IServerCertificateVerifier;
-    function Anchors: TArray<TBytes>;
-    function ExtraAnchors: TArray<TBytes>;
-    function Distrusted: TArray<TBytes>;
   end;
 
   /// <summary>A probe over the abstract root source that drives its shared FilterRoots helper
@@ -751,31 +742,10 @@ type
     procedure Collects(const ADistrusted: TArray<TBytes>);
   end;
 
-{ THostMarkedSource }
+{ THostSource }
 
-constructor THostMarkedSource.Create(const AAnchors: TArray<TBytes>);
-begin
-  inherited Create;
-  FAnchors := AAnchors;
-end;
-
-function THostMarkedSource.CreateServerVerifier(const AContext: TServerTrustContext)
+function THostSource.CreateServerVerifier(const AContext: TServerTrustContext)
   : IServerCertificateVerifier;
-begin
-  Result := nil;
-end;
-
-function THostMarkedSource.Anchors: TArray<TBytes>;
-begin
-  Result := FAnchors;
-end;
-
-function THostMarkedSource.ExtraAnchors: TArray<TBytes>;
-begin
-  Result := nil;
-end;
-
-function THostMarkedSource.Distrusted: TArray<TBytes>;
 begin
   Result := nil;
 end;
@@ -1961,7 +1931,7 @@ begin
   LVerifier := LSource.CreateServerVerifier(LContext);
   LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil, LVerified,
     LAlert);
-  CheckEquals(1, System.Length((LSource as ISystemVerifierSource).ExtraAnchors),
+  CheckEquals(1, System.Length((LSource as TOSVerifierSource).ExtraAnchors),
     'the source exposes its extras for the live re-check');
   CheckEquals(1, System.Length(LMock.Last.ExtraAnchors), 'the engine is handed the extra anchor');
   CheckEquals(0, System.Length(LMock.Last.Anchors),
@@ -2951,7 +2921,7 @@ begin
   end;
   LSource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
     TSystemTrustRoots.OsAndHostRoots(LStore), Pkix);
-  LDistrusted := (LSource as ISystemVerifierSource).Distrusted;
+  LDistrusted := (LSource as TOSVerifierSource).Distrusted;
   LFound := False;
   for LIndex := 0 to System.High(LDistrusted) do
     if TArrayUtilities.AreEqual(LDistrusted[LIndex], Ocsp('issuer_cert')) then
@@ -2992,7 +2962,7 @@ begin
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.OsAndHostRoots, HostRoots, TArray<TBytes>.Create(Ocsp('issuer_cert')))
     as IServerCertificateVerifierSource;
-  CheckEquals(1, System.Length((LSource as ISystemVerifierSource).Distrusted),
+  CheckEquals(1, System.Length((LSource as TOSVerifierSource).Distrusted),
     'the source exposes its distrust set for the live re-check');
   LContext := Default(TServerTrustContext);
   LContext.ChainLimits := TCertificateChainLimits.Defaults;
@@ -3018,7 +2988,7 @@ begin
     False, Rejected(TPlatformChainFailure.None), TTlsAlertDescription.BadCertificate);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.OsAndHostRoots, HostRoots, nil) as IServerCertificateVerifierSource;
-  CheckEquals(1, System.Length((LSource as ISystemVerifierSource).ExtraAnchors),
+  CheckEquals(1, System.Length((LSource as TOSVerifierSource).ExtraAnchors),
     'host roots are accepted at construction');
 end;
 
@@ -3043,11 +3013,11 @@ begin
     Rejected(TPlatformChainFailure.None), TTlsAlertDescription.BadCertificate);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.OsAndHostRoots, HostRoots, nil) as IServerCertificateVerifierSource;
-  CheckEquals(1, System.Length((LSource as ISystemVerifierSource).ExtraAnchors),
+  CheckEquals(1, System.Length((LSource as TOSVerifierSource).ExtraAnchors),
     'a native-union engine accepts host roots');
 end;
 
-procedure TTestDelegateHostRoots.TestOsServerSourceCarriesSystemMarker;
+procedure TTestDelegateHostRoots.TestOsServerSourceIsTheOsSource;
 var
   LEngine: IPlatformChainEngine;
   LSource: IServerCertificateVerifierSource;
@@ -3056,11 +3026,10 @@ begin
     TTlsAlertDescription.BadCertificate);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IServerCertificateVerifierSource;
-  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
-    'an OS-delegate server source carries the marker');
+  CheckTrue(LSource is TOSVerifierSource, 'an OS-delegate server source is the OS source');
 end;
 
-procedure TTestDelegateHostRoots.TestOsClientSourceCarriesSystemMarker;
+procedure TTestDelegateHostRoots.TestOsClientSourceIsTheOsSource;
 var
   LEngine: IPlatformChainEngine;
   LSource: IClientCertificateVerifierSource;
@@ -3069,28 +3038,25 @@ begin
     TTlsAlertDescription.BadCertificate);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IClientCertificateVerifierSource;
-  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
-    'an OS-delegate client source carries the marker');
+  CheckTrue(LSource is TOSVerifierSource, 'an OS-delegate client source is the OS source');
 end;
 
-procedure TTestDelegateHostRoots.TestBuiltInSourceLacksSystemMarker;
+procedure TTestDelegateHostRoots.TestBuiltInSourceIsNotTheOsSource;
 var
   LSource: IServerCertificateVerifierSource;
 begin
   LSource := TBuiltInServerVerifierSource.Create as IServerCertificateVerifierSource;
-  CheckFalse(SysUtils.Supports(LSource, ISystemVerifierSource),
-    'the portable built-in source does not carry the marker');
+  CheckFalse(LSource is TOSVerifierSource, 'the portable built-in source is not the OS source');
 end;
 
-procedure TTestDelegateHostRoots.TestCustomVerifierSourceLacksSystemMarker;
+procedure TTestDelegateHostRoots.TestCustomVerifierSourceIsNotTheOsSource;
 var
   LVerifier: IServerCertificateVerifier;
   LSource: IServerCertificateVerifierSource;
 begin
   LVerifier := TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier;
   LSource := TInstanceServerVerifierSource.Create(LVerifier) as IServerCertificateVerifierSource;
-  CheckFalse(SysUtils.Supports(LSource, ISystemVerifierSource),
-    'a caller-supplied verifier source does not carry the marker');
+  CheckFalse(LSource is TOSVerifierSource, 'a caller-supplied verifier source is not the OS source');
 end;
 
 procedure TTestDelegateHostRoots.TestLiveResolverRetriesWithHostRoots;
@@ -3565,24 +3531,27 @@ begin
   LDistrusted[0][0] := LDistrusted[0][0] xor $FF;
   LExtras[0][0] := LExtras[0][0] xor $FF;
   CheckEqualBytes('the anchors are unchanged', PrivateRoot[0],
-    (LAlone as ISystemVerifierSource).Anchors[0]);
+    (LAlone as TOSVerifierSource).Anchors[0]);
   CheckEqualBytes('the distrust set is unchanged', PublicRoot[0],
-    (LAlone as ISystemVerifierSource).Distrusted[0]);
+    (LAlone as TOSVerifierSource).Distrusted[0]);
   CheckEqualBytes('the extra anchors are unchanged', PrivateRoot[0],
-    (LOsAndHost as ISystemVerifierSource).ExtraAnchors[0]);
+    (LOsAndHost as TOSVerifierSource).ExtraAnchors[0]);
 end;
 
 procedure TTestDelegateHostRootsAlone.TestSourceGettersReturnCopies;
 var
   LEngine: IPlatformChainEngine;
-  LAlone, LOsAndHost: ISystemVerifierSource;
+  LAloneHolder, LOsAndHostHolder: IServerCertificateVerifierSource;
+  LAlone, LOsAndHost: TOSVerifierSource;
   LGot: TArray<TBytes>;
 begin
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot);
-  LAlone := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
-    TSystemTrustRootScope.HostRoots, PrivateRoot, PublicRoot) as ISystemVerifierSource;
-  LOsAndHost := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
-    TSystemTrustRootScope.OsAndHostRoots, PrivateRoot, nil) as ISystemVerifierSource;
+  LAloneHolder := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
+    TSystemTrustRootScope.HostRoots, PrivateRoot, PublicRoot) as IServerCertificateVerifierSource;
+  LOsAndHostHolder := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
+    TSystemTrustRootScope.OsAndHostRoots, PrivateRoot, nil) as IServerCertificateVerifierSource;
+  LAlone := LAloneHolder as TOSVerifierSource;
+  LOsAndHost := LOsAndHostHolder as TOSVerifierSource;
   LGot := LAlone.Anchors;
   LGot[0][0] := LGot[0][0] xor $FF;
   CheckEqualBytes('the anchors are unchanged', PrivateRoot[0], LAlone.Anchors[0]);
@@ -3705,31 +3674,33 @@ procedure TTestDelegateHostRootsAlone.TestHostRootsSourceCarriesItsRootsAsAnchor
 var
   LEngine: IPlatformChainEngine;
   LSource: IServerCertificateVerifierSource;
-  LMarker: ISystemVerifierSource;
+  LOs: TOSVerifierSource;
 begin
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.HostRoots, PrivateRoot, PublicRoot)
     as IServerCertificateVerifierSource;
-  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource, LMarker), 'the source is the marker');
-  CheckEquals(1, System.Length(LMarker.Anchors), 'the host roots are the anchors');
-  CheckEqualBytes('the anchor is the host root', PrivateRoot[0], LMarker.Anchors[0]);
-  CheckEquals(0, System.Length(LMarker.ExtraAnchors), 'there are no extras');
-  CheckEquals(1, System.Length(LMarker.Distrusted), 'the distrust set is carried');
+  CheckTrue(LSource is TOSVerifierSource, 'the source is the OS source');
+  LOs := LSource as TOSVerifierSource;
+  CheckEquals(1, System.Length(LOs.Anchors), 'the host roots are the anchors');
+  CheckEqualBytes('the anchor is the host root', PrivateRoot[0], LOs.Anchors[0]);
+  CheckEquals(0, System.Length(LOs.ExtraAnchors), 'there are no extras');
+  CheckEquals(1, System.Length(LOs.Distrusted), 'the distrust set is carried');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestOsAndHostRootsSourceCarriesNoAnchors;
 var
   LEngine: IPlatformChainEngine;
   LSource: IServerCertificateVerifierSource;
-  LMarker: ISystemVerifierSource;
+  LOs: TOSVerifierSource;
 begin
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot);
   LSource := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.OsAndHostRoots, PrivateRoot, nil) as IServerCertificateVerifierSource;
-  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource, LMarker), 'the source is the marker');
-  CheckEquals(0, System.Length(LMarker.Anchors), 'the OS roots stay the root');
-  CheckEquals(1, System.Length(LMarker.ExtraAnchors), 'the host roots are extras');
+  CheckTrue(LSource is TOSVerifierSource, 'the source is the OS source');
+  LOs := LSource as TOSVerifierSource;
+  CheckEquals(0, System.Length(LOs.Anchors), 'the OS roots stay the root');
+  CheckEquals(1, System.Length(LOs.ExtraAnchors), 'the host roots are extras');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestFromClientConfigCarriesHostRoots;
@@ -3774,13 +3745,12 @@ begin
   CheckTrue(LPolicy.CheckHostName, 'the host name is matched as the config asks');
 end;
 
-procedure TTestDelegateHostRootsAlone.TestFromClientConfigRefusesAHostClassListingTheMarker;
+procedure TTestDelegateHostRootsAlone.TestFromClientConfigRefusesAHostSource;
 var
   LConfig: ITlsClientConfig;
   LMessage: string;
 begin
-  LConfig := ClientConfig(THostMarkedSource.Create(PrivateRoot)
-    as IServerCertificateVerifierSource);
+  LConfig := ClientConfig(THostSource.Create as IServerCertificateVerifierSource);
   LMessage := '';
   try
     TOSDelegatePolicy.FromClientConfig(LConfig);
@@ -3789,7 +3759,7 @@ begin
       LMessage := E.Message;
   end;
   CheckEquals(SLiveNeedsKnownRoots, LMessage,
-    'a host class with no trust store hides the roots the live pass must use');
+    'a host source with no trust store hides the roots the live pass must use');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestFromServerConfigTakesTheClientCaStore;
@@ -5233,38 +5203,38 @@ end;
 procedure TTestWindowsHostRoots.TestFactorySourceReadsOsDistrustBesideHostRoots;
 var
   LHostRoots: ITrustAnchorStore;
-  LWith, LWithout: ISystemVerifierSource;
+  LWith, LWithout: IServerCertificateVerifierSource;
   LDisallowed: Int32;
 begin
   LHostRoots := TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore;
   LWith := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
-    TSystemTrustRoots.OsAndHostRoots(LHostRoots), Pkix) as ISystemVerifierSource;
+    TSystemTrustRoots.OsAndHostRoots(LHostRoots), Pkix);
   LWithout := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
-    TSystemTrustRoots.OsRoots, Pkix) as ISystemVerifierSource;
+    TSystemTrustRoots.OsRoots, Pkix);
   LDisallowed := System.Length(TOSSystemTrust.AnchorStore(Pkix).DistrustedCertificates);
-  CheckEquals(1, System.Length(LWith.ExtraAnchors), 'the host roots are carried');
-  CheckEquals(LDisallowed, System.Length(LWith.Distrusted),
+  CheckEquals(1, System.Length((LWith as TOSVerifierSource).ExtraAnchors),
+    'the host roots are carried');
+  CheckEquals(LDisallowed, System.Length((LWith as TOSVerifierSource).Distrusted),
     'the OS distrust list is read beside host roots');
-  CheckEquals(0, System.Length(LWithout.Distrusted), 'it is not read without host roots');
+  CheckEquals(0, System.Length((LWithout as TOSVerifierSource).Distrusted),
+    'it is not read without host roots');
 end;
 
-procedure TTestWindowsHostRoots.TestFactorySourceCarriesSystemMarker;
+procedure TTestWindowsHostRoots.TestFactorySourceIsTheOsSource;
 var
   LSource: IServerCertificateVerifierSource;
 begin
   LSource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
     TSystemTrustRoots.OsRoots, Pkix);
-  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
-    'the Windows factory source carries the marker');
+  CheckTrue(LSource is TOSVerifierSource, 'the Windows factory source is the OS source');
 end;
 
-procedure TTestWindowsHostRoots.TestFactoryClientSourceCarriesSystemMarker;
+procedure TTestWindowsHostRoots.TestFactoryClientSourceIsTheOsSource;
 var
   LSource: IClientCertificateVerifierSource;
 begin
   LSource := TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.CacheOnly);
-  CheckTrue(SysUtils.Supports(LSource, ISystemVerifierSource),
-    'the Windows factory client source carries the marker');
+  CheckTrue(LSource is TOSVerifierSource, 'the Windows factory client source is the OS source');
 end;
 
 procedure TTestWindowsHostRoots.TestFactorySourceRefusesHostRootsWithoutProvider;
@@ -5289,14 +5259,13 @@ procedure TTestWindowsHostRoots.TestDefaultModeTrustsHostRootsThroughTheOsEngine
   function DefaultVerifies(const AHostRoots: ITrustAnchorStore): Boolean;
   var
     LVerification: IServerVerification;
-    LSource: ISystemVerifierSource;
     LContext: TServerTrustContext;
     LVerified: TVerifiedChain;
     LAlert: TTlsAlertDescription;
   begin
     LVerification := TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
       TSystemTrustRoots.OsAndHostRoots(AHostRoots)).WithRevocation(TRevocationPosture.Off).Build;
-    CheckTrue(SysUtils.Supports(LVerification.Source, ISystemVerifierSource, LSource),
+    CheckTrue(LVerification.Source is TOSVerifierSource,
       'Default on Windows is the OS verifier source');
     LContext := Default(TServerTrustContext);
     LContext.ChainLimits := TCertificateChainLimits.Defaults;
@@ -5466,23 +5435,25 @@ end;
 
 procedure TTestWindowsHostRoots.TestHostRootsSourceCarriesTheHostRootAsTheOnlyAnchor;
 var
-  LSource: ISystemVerifierSource;
+  LHolder: IServerCertificateVerifierSource;
+  LSource: TOSVerifierSource;
 begin
-  LSource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
-    TSystemTrustRoots.HostRoots(TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore), Pkix)
-    as ISystemVerifierSource;
+  LHolder := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
+    TSystemTrustRoots.HostRoots(TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore), Pkix);
+  LSource := LHolder as TOSVerifierSource;
   CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive root');
   CheckEquals(0, System.Length(LSource.ExtraAnchors), 'it is not also an extra');
 end;
 
 procedure TTestWindowsHostRoots.TestHostRootsSourceReadsTheOsDistrustList;
 var
-  LSource: ISystemVerifierSource;
+  LHolder: IServerCertificateVerifierSource;
+  LSource: TOSVerifierSource;
   LDisallowed: Int32;
 begin
-  LSource := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
-    TSystemTrustRoots.HostRoots(TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore), Pkix)
-    as ISystemVerifierSource;
+  LHolder := TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly,
+    TSystemTrustRoots.HostRoots(TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore), Pkix);
+  LSource := LHolder as TOSVerifierSource;
   LDisallowed := System.Length(TOSSystemTrust.AnchorStore(Pkix).DistrustedCertificates);
   if LDisallowed = 0 then
   begin
@@ -5510,12 +5481,13 @@ end;
 procedure TTestWindowsHostRoots.TestDefaultModeHostRootsYieldsASourceWithAnchors;
 var
   LVerification: IServerVerification;
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   LVerification := TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
     TSystemTrustRoots.HostRoots(TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore)).Build;
-  CheckTrue(SysUtils.Supports(LVerification.Source, ISystemVerifierSource, LSource),
+  CheckTrue(LVerification.Source is TOSVerifierSource,
     'Default on Windows is the OS verifier source');
+  LSource := LVerification.Source as TOSVerifierSource;
   CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive root');
   CheckEquals(0, System.Length(LSource.ExtraAnchors), 'and not an extra');
 end;
@@ -5523,25 +5495,27 @@ end;
 procedure TTestWindowsHostRoots.TestWithLiveSystemTrustCarriesTheHostRoots;
 var
   LConfig: ITlsClientConfig;
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   LConfig := TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
     TSystemTrustRoots.HostRoots(TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore),
     TRevocationPosture.Soft, 2000).Build;
-  CheckTrue(SysUtils.Supports(LConfig.ServerVerifierSource, ISystemVerifierSource, LSource),
+  CheckTrue(LConfig.ServerVerifierSource is TOSVerifierSource,
     'the live source is the OS verifier source');
+  LSource := LConfig.ServerVerifierSource as TOSVerifierSource;
   CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive root');
 end;
 
 procedure TTestWindowsHostRoots.TestInstallerTrustsItsExtraAnchorsWithTheOsRoots;
 var
   LVerification: IServerVerification;
-  LSource: ISystemVerifierSource;
+  LSource: TOSVerifierSource;
 begin
   LVerification := TSystemTrustInstaller.Shared.ServerVerification(Pkix,
     TTrustAnchorStore.Create(CaRoot) as ITrustAnchorStore);
-  CheckTrue(SysUtils.Supports(LVerification.Source, ISystemVerifierSource, LSource),
+  CheckTrue(LVerification.Source is TOSVerifierSource,
     'the installed source is the OS verifier source');
+  LSource := LVerification.Source as TOSVerifierSource;
   CheckEquals(1, System.Length(LSource.ExtraAnchors), 'the extra anchors sit with the OS roots');
   CheckEquals(0, System.Length(LSource.Anchors), 'they are not the exclusive root');
 end;
@@ -6091,7 +6065,6 @@ end;
 procedure TTestSystemTrustInstaller.TestDefaultResolvesToTheOsEngineWhereThePlatformHasOne;
 var
   LFacade, LInstalled: IServerVerification;
-  LSource: ISystemVerifierSource;
 begin
   LFacade := TSystemTrust.ServerVerification(Pkix, TSystemTrustMode.Default,
     TSystemTrustRoots.OsRoots).Build;
@@ -6100,8 +6073,7 @@ begin
   begin
     CheckEquals(Ord(TVerificationKind.VerifierSource), Ord(LFacade.Kind),
       'Default is the OS engine where the platform has one');
-    CheckTrue(SysUtils.Supports(LFacade.Source, ISystemVerifierSource, LSource),
-      'the Default source is the OS verifier source');
+    CheckTrue(LFacade.Source is TOSVerifierSource, 'the Default source is the OS verifier source');
     CheckEquals(Ord(TVerificationKind.VerifierSource), Ord(LInstalled.Kind),
       'the installer resolves Default the same way');
   end

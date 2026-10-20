@@ -192,10 +192,10 @@ external and TLS 1.2 PSKs, key logging, verification bypass, and the certificate
 OS verifier, and so must a server's client chain.
 
 - **Verifier source.** Only a client that can end in a certificate, and a server that requests a
-  client certificate, are examined. The source is judged by its class, not by a marker interface,
-  which any host class can list. The OS verifier source is in the module and gives no finding. The
-  built-in verifier is portable PKIX, a platform fact: `ChainVerifiedOutsideModule`. Anything else
-  (an instance verifier, a host source, a host class that lists `ISystemVerifierSource`) is
+  client certificate, are examined. The source is judged by its class. The OS verifier source
+  is in the module and gives no finding. The built-in verifier is portable PKIX, a platform fact:
+  `ChainVerifiedOutsideModule`. Anything else (an instance verifier, a host source, one that
+  decorates the OS source) is
   `CustomVerifierConfigured`, a configuration finding that Admit refuses in both modes whatever the
   rules say; use the OS verifier source. A chain engine the host supplies and wraps in the OS
   verifier source is outside what the policy sees: that is deliberate forgery.

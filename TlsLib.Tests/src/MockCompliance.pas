@@ -35,7 +35,6 @@ uses
   TlpICertificateTrust,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
-  TlpISystemVerifierSource,
   TlpTlsAlert,
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,
@@ -203,19 +202,15 @@ type
     class function Client: IClientCertificateVerifierSource; static;
   end;
 
-  /// <summary>A host verifier source that lists the OS marker but is not the library's OS
-  /// source, and builds no verifier; a connection that asks it for a verifier fails. Never for
-  /// production use.</summary>
-  TFakeSystemVerifierSource = class sealed(TInterfacedObject,
-    IServerCertificateVerifierSource, IClientCertificateVerifierSource, ISystemVerifierSource)
+  /// <summary>A host verifier source that is not the library's OS source, and builds no
+  /// verifier; a connection that asks it for a verifier fails. Never for production use.</summary>
+  TFakeHostVerifierSource = class sealed(TInterfacedObject,
+    IServerCertificateVerifierSource, IClientCertificateVerifierSource)
   public
     function CreateServerVerifier(const AContext: TServerTrustContext)
       : IServerCertificateVerifier;
     function CreateClientVerifier(const AContext: TClientTrustContext)
       : IClientCertificateVerifier;
-    function Anchors: TArray<TBytes>;
-    function ExtraAnchors: TArray<TBytes>;
-    function Distrusted: TArray<TBytes>;
   end;
 
   /// <summary>An HPKE suite that seals nothing; a test only asks whether one was granted.</summary>
@@ -648,33 +643,18 @@ begin
     TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IClientCertificateVerifierSource;
 end;
 
-{ TFakeSystemVerifierSource }
+{ TFakeHostVerifierSource }
 
-function TFakeSystemVerifierSource.CreateServerVerifier(const AContext: TServerTrustContext)
+function TFakeHostVerifierSource.CreateServerVerifier(const AContext: TServerTrustContext)
   : IServerCertificateVerifier;
 begin
   raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
 end;
 
-function TFakeSystemVerifierSource.CreateClientVerifier(const AContext: TClientTrustContext)
+function TFakeHostVerifierSource.CreateClientVerifier(const AContext: TClientTrustContext)
   : IClientCertificateVerifier;
 begin
   raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
-end;
-
-function TFakeSystemVerifierSource.Anchors: TArray<TBytes>;
-begin
-  Result := nil;
-end;
-
-function TFakeSystemVerifierSource.ExtraAnchors: TArray<TBytes>;
-begin
-  Result := nil;
-end;
-
-function TFakeSystemVerifierSource.Distrusted: TArray<TBytes>;
-begin
-  Result := nil;
 end;
 
 { TFakeHpkeSuite }
