@@ -268,12 +268,10 @@ begin
 end;
 
 class function THpkeCore.IsKnownKem(AKem: UInt16): Boolean;
+var
+  LAgreement: TKeyAgreementAlgorithm;
 begin
-  // X448 (33) is intentionally excluded (no OS backend, no ECH use)
-  Result := (AKem = THpkeKem.DHKEM_P256_HKDF_SHA256) or
-    (AKem = THpkeKem.DHKEM_P384_HKDF_SHA384) or
-    (AKem = THpkeKem.DHKEM_P521_HKDF_SHA512) or
-    (AKem = THpkeKem.DHKEM_X25519_HKDF_SHA256);
+  Result := THpkeKem.TryKeyAgreement(AKem, LAgreement);
 end;
 
 class function THpkeCore.IsKnownKdf(AKdf: UInt16): Boolean;
@@ -283,26 +281,16 @@ begin
 end;
 
 class function THpkeCore.IsRealAead(AAead: UInt16): Boolean;
+var
+  LAlgorithm: TAeadAlgorithm;
 begin
-  // every AEAD except export-only (0xFFFF), which cannot seal/open
-  Result := (AAead = THpkeAead.AES_128_GCM) or (AAead = THpkeAead.AES_256_GCM) or
-    (AAead = THpkeAead.CHACHA20_POLY1305);
+  Result := THpkeAead.TryAlgorithm(AAead, LAlgorithm);
 end;
 
 class function THpkeCore.KemKeyAgreement(AKem: UInt16): TKeyAgreementAlgorithm;
 begin
-  case AKem of
-    THpkeKem.DHKEM_P256_HKDF_SHA256:
-      Result := TKeyAgreementAlgorithm.SECP256R1;
-    THpkeKem.DHKEM_P384_HKDF_SHA384:
-      Result := TKeyAgreementAlgorithm.SECP384R1;
-    THpkeKem.DHKEM_P521_HKDF_SHA512:
-      Result := TKeyAgreementAlgorithm.SECP521R1;
-    THpkeKem.DHKEM_X25519_HKDF_SHA256:
-      Result := TKeyAgreementAlgorithm.X25519;
-  else
+  if not THpkeKem.TryKeyAgreement(AKem, Result) then
     raise ENotSupportedTlsLibException.CreateRes(@SHpkeUnsupportedKem);
-  end;
 end;
 
 class function THpkeCore.KemKdfHash(AKem: UInt16): THashAlgorithm;
@@ -356,14 +344,9 @@ end;
 
 class function THpkeCore.AeadAlgorithm(AAead: UInt16): TAeadAlgorithm;
 begin
-  case AAead of
-    THpkeAead.AES_256_GCM:
-      Result := TAeadAlgorithm.AES_256_GCM;
-    THpkeAead.CHACHA20_POLY1305:
-      Result := TAeadAlgorithm.CHACHA20_POLY1305;
-  else
+  // the Suite seam has already refused an unknown AEAD; the fallback only keeps Result defined
+  if not THpkeAead.TryAlgorithm(AAead, Result) then
     Result := TAeadAlgorithm.AES_128_GCM;
-  end;
 end;
 
 class function THpkeCore.KemSuiteId(AKem: UInt16): TBytes;

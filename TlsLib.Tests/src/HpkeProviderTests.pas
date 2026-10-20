@@ -103,6 +103,10 @@ type
     // a suite the provider's primitives cannot build is reported as nil, not a live suite
     procedure TestSuiteIsNilWhenAeadUnavailable;
     procedure TestOpenerRefusesUnknownKdfOrAead;
+    procedure TestKemCodesNameTheirKeyAgreement;
+    procedure TestKemCodesWithoutAKeyAgreementAreRefused;
+    procedure TestAeadCodesNameTheirAlgorithm;
+    procedure TestAeadCodesWithoutAnAlgorithmAreRefused;
   end;
 
 implementation
@@ -763,6 +767,51 @@ begin
   CheckTrue(LCrypto.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256,
     THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM) <> nil,
     'a suite whose primitives are all available stays usable');
+end;
+
+procedure TTestHpkeProvider.TestKemCodesNameTheirKeyAgreement;
+var
+  LAlgorithm: TKeyAgreementAlgorithm;
+begin
+  CheckTrue(THpkeKem.TryKeyAgreement(THpkeKem.DHKEM_P256_HKDF_SHA256, LAlgorithm), 'P-256');
+  CheckTrue(LAlgorithm = TKeyAgreementAlgorithm.SECP256R1, 'P-256 agreement');
+  CheckTrue(THpkeKem.TryKeyAgreement(THpkeKem.DHKEM_P384_HKDF_SHA384, LAlgorithm), 'P-384');
+  CheckTrue(LAlgorithm = TKeyAgreementAlgorithm.SECP384R1, 'P-384 agreement');
+  CheckTrue(THpkeKem.TryKeyAgreement(THpkeKem.DHKEM_P521_HKDF_SHA512, LAlgorithm), 'P-521');
+  CheckTrue(LAlgorithm = TKeyAgreementAlgorithm.SECP521R1, 'P-521 agreement');
+  CheckTrue(THpkeKem.TryKeyAgreement(THpkeKem.DHKEM_X25519_HKDF_SHA256, LAlgorithm), 'X25519');
+  CheckTrue(LAlgorithm = TKeyAgreementAlgorithm.X25519, 'X25519 agreement');
+end;
+
+procedure TTestHpkeProvider.TestKemCodesWithoutAKeyAgreementAreRefused;
+var
+  LAlgorithm: TKeyAgreementAlgorithm;
+begin
+  CheckFalse(THpkeKem.TryKeyAgreement(THpkeKem.DHKEM_X448_HKDF_SHA512, LAlgorithm),
+    'X448 has no agreement here');
+  CheckFalse(THpkeKem.TryKeyAgreement(0, LAlgorithm), 'code zero');
+  CheckFalse(THpkeKem.TryKeyAgreement($FFFF, LAlgorithm), 'a code outside the registry');
+end;
+
+procedure TTestHpkeProvider.TestAeadCodesNameTheirAlgorithm;
+var
+  LAlgorithm: TAeadAlgorithm;
+begin
+  CheckTrue(THpkeAead.TryAlgorithm(THpkeAead.AES_128_GCM, LAlgorithm), 'AES-128-GCM');
+  CheckTrue(LAlgorithm = TAeadAlgorithm.AES_128_GCM, 'AES-128-GCM algorithm');
+  CheckTrue(THpkeAead.TryAlgorithm(THpkeAead.AES_256_GCM, LAlgorithm), 'AES-256-GCM');
+  CheckTrue(LAlgorithm = TAeadAlgorithm.AES_256_GCM, 'AES-256-GCM algorithm');
+  CheckTrue(THpkeAead.TryAlgorithm(THpkeAead.CHACHA20_POLY1305, LAlgorithm), 'ChaCha20');
+  CheckTrue(LAlgorithm = TAeadAlgorithm.CHACHA20_POLY1305, 'ChaCha20 algorithm');
+end;
+
+procedure TTestHpkeProvider.TestAeadCodesWithoutAnAlgorithmAreRefused;
+var
+  LAlgorithm: TAeadAlgorithm;
+begin
+  CheckFalse(THpkeAead.TryAlgorithm(THpkeAead.EXPORT_ONLY, LAlgorithm),
+    'export-only seals nothing');
+  CheckFalse(THpkeAead.TryAlgorithm(0, LAlgorithm), 'code zero');
 end;
 
 initialization

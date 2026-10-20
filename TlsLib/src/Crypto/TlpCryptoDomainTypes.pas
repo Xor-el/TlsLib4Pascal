@@ -73,6 +73,11 @@ type
     DHKEM_P521_HKDF_SHA512 = UInt16(18);
     DHKEM_X25519_HKDF_SHA256 = UInt16(32);
     DHKEM_X448_HKDF_SHA512 = UInt16(33);
+  public
+    /// <summary>The key agreement a KEM runs; False for a codepoint without one here (X448
+    /// included: no OS backend, no ECH use), where AAlgorithm is unspecified.</summary>
+    class function TryKeyAgreement(ACode: UInt16;
+      out AAlgorithm: TKeyAgreementAlgorithm): Boolean; static;
   end;
 
   /// <summary>HPKE KDF identifiers (RFC 9180 sec. 7.2); an open UInt16 registry.</summary>
@@ -94,6 +99,11 @@ type
     AES_256_GCM = UInt16(2);
     CHACHA20_POLY1305 = UInt16(3);
     EXPORT_ONLY = UInt16($FFFF);
+  public
+    /// <summary>The AEAD a codepoint names; False for export-only and for a codepoint this
+    /// library has no AEAD for, where AAlgorithm is unspecified.</summary>
+    class function TryAlgorithm(ACode: UInt16;
+      out AAlgorithm: TAeadAlgorithm): Boolean; static;
   end;
 
   /// <summary>
@@ -265,6 +275,46 @@ begin
   Result.FKind := TNamedGroupKind.Hybrid;
   Result.FKeyAgreement := AKeyAgreement;
   Result.FKem := AKem;
+end;
+
+{ THpkeKem }
+
+class function THpkeKem.TryKeyAgreement(ACode: UInt16;
+  out AAlgorithm: TKeyAgreementAlgorithm): Boolean;
+begin
+  Result := True;
+  case ACode of
+    DHKEM_P256_HKDF_SHA256:
+      AAlgorithm := TKeyAgreementAlgorithm.SECP256R1;
+    DHKEM_P384_HKDF_SHA384:
+      AAlgorithm := TKeyAgreementAlgorithm.SECP384R1;
+    DHKEM_P521_HKDF_SHA512:
+      AAlgorithm := TKeyAgreementAlgorithm.SECP521R1;
+    DHKEM_X25519_HKDF_SHA256:
+      AAlgorithm := TKeyAgreementAlgorithm.X25519;
+  else
+    AAlgorithm := TKeyAgreementAlgorithm.X25519;
+    Result := False;
+  end;
+end;
+
+{ THpkeAead }
+
+class function THpkeAead.TryAlgorithm(ACode: UInt16;
+  out AAlgorithm: TAeadAlgorithm): Boolean;
+begin
+  Result := True;
+  case ACode of
+    AES_128_GCM:
+      AAlgorithm := TAeadAlgorithm.AES_128_GCM;
+    AES_256_GCM:
+      AAlgorithm := TAeadAlgorithm.AES_256_GCM;
+    CHACHA20_POLY1305:
+      AAlgorithm := TAeadAlgorithm.CHACHA20_POLY1305;
+  else
+    AAlgorithm := TAeadAlgorithm.AES_128_GCM;
+    Result := False;
+  end;
 end;
 
 { THpkeSuiteId }
