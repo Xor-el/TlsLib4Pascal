@@ -1,0 +1,40 @@
+docs/security-model.md
+  s_f2c9bd75607afc::t_e2cc36ff40871a 174-177
+  s_f2c9bd75607afc::t_2dcf6ceb32b63c 172
+  s_f2c9bd75607afc::t_7c791826338504 106-114
+  s_f2c9bd75607afc::t_fb17a6503eb21e 173
+docs/cookbook.md
+  s_f2c9bd75607afc::t_bfc6d7c3fef479 1028,1037-1045
+  s_f2c9bd75607afc::t_c8630b6eb18564 1046-1052
+docs/compliance.md
+  s_f2c9bd75607afc::t_70e04a84fc58a6 238,243-250
+  s_f2c9bd75607afc::t_c2bc111544219c 337-338
+  s_f2c9bd75607afc::t_bc5b47c5fdfcdc 40-41,44-48
+  s_f2c9bd75607afc::t_804f5c46626f07 450-453,456-458
+  s_f2c9bd75607afc::t_fb56972bb2f144 503-505
+  s_f2c9bd75607afc::t_a892e21f79ba10 287-288
+  s_f2c9bd75607afc::t_6a28b4686dcbcb 19-25
+  s_f2c9bd75607afc::t_f90b8cefd5c183 284-286
+  s_f2c9bd75607afc::t_5913f42f0639eb 150-153,159-160
+  s_f2c9bd75607afc::t_a9d7e2e9aaeed8 54-66
+  s_f2c9bd75607afc::t_dae440e8f87500 73-75,77-78,82-85
+  s_f2c9bd75607afc::t_aa289d2982ffd4 92-99
+  s_f2c9bd75607afc::t_782c6f9958dc11 481-483,486-492,496-498
+  s_f2c9bd75607afc::t_301bdbc6e786cf 116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "10cf17dc4a5d433face77ddabc9f508d59391e34",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
