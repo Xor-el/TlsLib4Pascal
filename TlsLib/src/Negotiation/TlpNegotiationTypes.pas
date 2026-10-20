@@ -142,6 +142,10 @@ type
     X25519MlKem768 = UInt16($11EC);
   public
     class function TryCode(const AName: string; out ACode: UInt16): Boolean; static;
+    /// <summary>What a built-in group is made of; False for a code that is not one of the
+    /// built-in groups.</summary>
+    class function TryComposition(ACode: UInt16;
+      out AComposition: TNamedGroupComposition): Boolean; static;
     /// <summary>The canonical provider group name for a codepoint (the spelling TryCode maps
     /// back), so a group's name is authoritative here rather than taken from a backend handle
     /// (whose spelling can differ between providers). The bare hex codepoint for an unknown code.</summary>
@@ -189,6 +193,33 @@ begin
   else
   begin
     ACode := 0;
+    Result := False;
+  end;
+end;
+
+class function TNamedGroupCatalog.TryComposition(ACode: UInt16;
+  out AComposition: TNamedGroupComposition): Boolean;
+begin
+  Result := True;
+  case ACode of
+    X25519:
+      AComposition := TNamedGroupComposition.From(TKeyAgreementAlgorithm.X25519);
+    Secp256r1:
+      AComposition := TNamedGroupComposition.From(TKeyAgreementAlgorithm.SECP256R1);
+    Secp384r1:
+      AComposition := TNamedGroupComposition.From(TKeyAgreementAlgorithm.SECP384R1);
+    Secp521r1:
+      AComposition := TNamedGroupComposition.From(TKeyAgreementAlgorithm.SECP521R1);
+    MlKem768:
+      AComposition := TNamedGroupComposition.From(TKemAlgorithm.ML_KEM_768);
+    SecP256r1MlKem768:
+      AComposition := TNamedGroupComposition.From(TKeyAgreementAlgorithm.SECP256R1,
+        TKemAlgorithm.ML_KEM_768);
+    X25519MlKem768:
+      AComposition := TNamedGroupComposition.From(TKeyAgreementAlgorithm.X25519,
+        TKemAlgorithm.ML_KEM_768);
+  else
+    AComposition := Default(TNamedGroupComposition);
     Result := False;
   end;
 end;
