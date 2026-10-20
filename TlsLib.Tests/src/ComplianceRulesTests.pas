@@ -1834,33 +1834,26 @@ end;
 
 procedure TTestComplianceReport.TestFindingCategoryPerKind;
 const
-  Expected: array [TComplianceFindingKind] of TComplianceFindingCategory = (
-    TComplianceFindingCategory.Rules,
-    TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration);
+  PlatformKinds = [TComplianceFindingKind.ModuleNotValidated,
+    TComplianceFindingKind.NoBackendReport, TComplianceFindingKind.AlgorithmOutsideModule,
+    TComplianceFindingKind.KdfOutsideModule, TComplianceFindingKind.CredentialKeyOutsideModule,
+    TComplianceFindingKind.ChainVerifiedOutsideModule,
+    TComplianceFindingKind.StapleVerifiedOutsideModule, TComplianceFindingKind.CryptoNotCovered];
 var
   LKind: TComplianceFindingKind;
   LFinding: TComplianceFinding;
+  LExpected: TComplianceFindingCategory;
 begin
   for LKind := Low(TComplianceFindingKind) to High(TComplianceFindingKind) do
   begin
     LFinding := TComplianceFinding.Create(LKind, '', '');
-    CheckEquals(Ord(Expected[LKind]), Ord(LFinding.Category), 'kind ' + IntToStr(Ord(LKind)));
+    if LKind = TComplianceFindingKind.RulesOutsidePresets then
+      LExpected := TComplianceFindingCategory.Rules
+    else if LKind in PlatformKinds then
+      LExpected := TComplianceFindingCategory.Platform
+    else
+      LExpected := TComplianceFindingCategory.Configuration;
+    CheckEquals(Ord(LExpected), Ord(LFinding.Category), 'kind ' + IntToStr(Ord(LKind)));
   end;
 end;
 

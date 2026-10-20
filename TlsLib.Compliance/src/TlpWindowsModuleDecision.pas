@@ -32,6 +32,8 @@ type
     /// <summary>Validation and sunset dates, ISO 8601.</summary>
     ValidatedOn: string;
     Sunset: string;
+    /// <summary>The sunset date as yyyymmdd (0 when none); Historical after it.</summary>
+    SunsetDay: UInt32;
     /// <summary>The OS product types the certificate was issued for.</summary>
     ProductTypes: set of Byte;
     /// <summary>The module file version the certificate lists.</summary>
@@ -68,15 +70,18 @@ type
     ModuleMinor: UInt16;
     ModuleBuild: UInt16;
     ModuleRevision: UInt16;
+    /// <summary>The current UTC date as yyyymmdd; 0 when it could not be read.</summary>
+    Today: UInt32;
     LegacyFipsPolicy: TLegacyFipsPolicy;
   end;
 
   /// <summary>
   /// The shipped table of validated Windows modules and the decision over gathered facts. The
   /// status is validated only for a listed release run as a native 64-bit x64 process on UEFI
-  /// firmware with the system copy of the module at that release's build; every other
-  /// combination is NotValidated and a fact that cannot be read is Unknown. Pure data and logic,
-  /// so every platform runs it.
+  /// firmware with the system copy of the module at that release's build, on or before the
+  /// sunset date of the certificate and Historical after it; every other combination is
+  /// NotValidated and a fact that cannot be read is Unknown. Pure data and logic, so every
+  /// platform runs it.
   /// </summary>
   TWindowsModuleDecision = class sealed(TObject)
   strict private
@@ -115,6 +120,8 @@ resourcestring
   SFirmwareUnreadable = 'the firmware kind could not be read';
   SSystemDirectoryUnreadable = 'the system directory could not be read';
   SModulePathUnreadable = 'the path of the loaded module could not be read';
+  SDateUnreadable = 'the current date could not be read';
+  SSunsetPassed = 'the certificate passed its sunset date %s and is historical';
   SModuleVersionUnreadable = 'the file version of the loaded module could not be read';
   SFirmwareBios = 'BIOS';
   SFirmwareUefi = 'UEFI';
@@ -133,6 +140,7 @@ const
   ValidatedCertificate = '5410';
   CertificateValidatedOn = '2026-08-31';
   CertificateSunset = '2031-08-30';
+  CertificateSunsetDay = UInt32(20310830);
 
 { TWindowsModuleDecision }
 
@@ -143,31 +151,33 @@ const
     (Build: 22621; Product: 'Windows 11 22H2'; Certificate: ValidatedCertificate;
     Validated: True; Standard: TModuleStandard.Fips140_3; Level: 1;
     ValidatedOn: CertificateValidatedOn; Sunset: CertificateSunset;
+    SunsetDay: CertificateSunsetDay;
     ProductTypes: [ProductWorkstation]; ListedVersion: '10.0.22621.30001'),
     (Build: 20348; Product: 'Windows Server 2022'; Certificate: ValidatedCertificate;
     Validated: True; Standard: TModuleStandard.Fips140_3; Level: 1;
     ValidatedOn: CertificateValidatedOn; Sunset: CertificateSunset;
+    SunsetDay: CertificateSunsetDay;
     ProductTypes: [ProductDomainController, ProductServer]; ListedVersion: '10.0.20348.30000'),
     (Build: 22631; Product: 'Windows 11 23H2'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
     ProductTypes: []; ListedVersion: ''),
     (Build: 26100; Product: 'Windows 11 24H2 / Server 2025'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
     ProductTypes: []; ListedVersion: ''),
     (Build: 26200; Product: 'Windows 11 25H2'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
     ProductTypes: []; ListedVersion: ''),
     (Build: 19045; Product: 'Windows 10 22H2'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
     ProductTypes: []; ListedVersion: ''),
     (Build: 19044; Product: 'Windows 10 21H2'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
     ProductTypes: []; ListedVersion: ''),
     (Build: 17763; Product: 'Windows 10 1809 / Server 2019'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
     ProductTypes: []; ListedVersion: ''),
     (Build: 14393; Product: 'Windows 10 1607 / Server 2016'; Certificate: ''; Validated: False;
-    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: '';
+    Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
     ProductTypes: []; ListedVersion: ''));
 var
   LI: Int32;
@@ -225,10 +235,15 @@ begin
     Exit(SModulePathUnreadable);
   if not AFacts.VersionRead then
     Exit(SModuleVersionUnreadable);
+  if AFacts.Today = 0 then
+    Exit(SDateUnreadable);
 end;
 
 class function TWindowsModuleDecision.Decide(const AFacts: TWindowsModuleFacts;
   AStandard: TModuleStandard; out AReason: string): TModuleStatus;
+var
+  LEntry: TWindowsModuleEntry;
+  LListed: Boolean;
 begin
   // a 32-bit process loads the 32-bit module whatever else is known
   if not AFacts.Process64Bit then
@@ -247,6 +262,12 @@ begin
   AReason := Unreadable(AFacts);
   if AReason <> '' then
     Exit(TModuleStatus.Unknown);
+  LListed := Lookup(AFacts.Build, LEntry);
+  if LListed and (LEntry.SunsetDay <> 0) and (AFacts.Today > LEntry.SunsetDay) then
+  begin
+    AReason := Format(SSunsetPassed, [LEntry.Sunset]);
+    Exit(TModuleStatus.Historical);
+  end;
   Result := TModuleStatus.Validated;
 end;
 

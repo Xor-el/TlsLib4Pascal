@@ -167,6 +167,9 @@ type
     procedure TestHpkeP256SuiteAvailable;
     procedure TestHpkeHasNoMlKemSuite;
     procedure TestComposeKeepsBaseReportIdentity;
+    procedure TestComposeDecidesByTheGivenReport;
+    procedure TestComposeWithAGivenReportKeepsTheBaseReport;
+    procedure TestComposeRejectsNilDecisionReport;
     procedure TestComposeOverBaseWithoutReportClaimsNone;
     procedure TestSuppliedHpkeFacetAnswerIsTheBaseReportAnswer;
     procedure TestRebuiltHpkeFacetAnswerIsTheBaseReportAnswer;
@@ -1036,6 +1039,46 @@ begin
     'the facet is still reported composed');
   CheckEquals(Ord(LBaseReport.FacetBackend(TCryptoFacet.Hpke).Reason), Ord(LActual.Reason),
     'with the base reason');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestComposeDecidesByTheGivenReport;
+var
+  LBase, LProvider: ICryptoProvider;
+begin
+  LBase := SystemOver([]);
+  CheckFalse(RefusesRandom(TComplianceCryptoProvider.Compose(LBase, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict)), 'control: the base report places it in the module');
+  LProvider := TComplianceCryptoProvider.Compose(LBase, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict, TPortableOnlyReport.Create(False) as ICryptoBackendReport);
+  CheckTrue(RefusesRandom(LProvider), 'the given report decides, not the base');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestComposeWithAGivenReportKeepsTheBaseReport;
+var
+  LBaseReport, LFound: ICryptoBackendReport;
+  LProvider: ICryptoProvider;
+begin
+  LBaseReport := TFakeBackendReport.Create([]) as ICryptoBackendReport;
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(LBaseReport, nil,
+    nil), TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict,
+    TPortableOnlyReport.Create(False) as ICryptoBackendReport);
+  CheckTrue(Supports(LProvider, ICryptoBackendReport, LFound), 'a report is offered');
+  CheckTrue(LFound = LBaseReport, 'it still describes the base');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestComposeRejectsNilDecisionReport;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TComplianceCryptoProvider.Compose(Crypto, TCompliancePresets.Fips140_3,
+      TComplianceEnforcement.Strict, nil);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil decision report');
 end;
 
 procedure TTestComplianceCryptoPrimitives.TestComposeOverBaseWithoutReportClaimsNone;

@@ -41,7 +41,8 @@ type
   /// the module. Compliant: additionally every key derivation is a module service.</summary>
   TComplianceVerdict = (NotCompliant, PrimitivesInModule, Compliant);
 
-  TModuleStatus = (Unknown, NotValidated, Validated);
+  /// <summary>Historical: the module's certificate has passed its sunset date.</summary>
+  TModuleStatus = (Unknown, NotValidated, Validated, Historical);
 
   /// <summary>The OS-wide legacy FIPS switch; informational only.</summary>
   TLegacyFipsPolicy = (Unknown, Disabled, Enabled);
@@ -97,8 +98,8 @@ type
     RulesOutsidePresets,
     ModuleNotValidated, NoBackendReport, AlgorithmOutsideModule, KdfOutsideModule,
     CredentialKeyOutsideModule, ChainVerifiedOutsideModule, StapleVerifiedOutsideModule,
-    ForeignCryptoProvider, ForeignPkixProvider, VersionNotAllowed, CipherSuiteNotAllowed,
-    NamedGroupNotAllowed, SignatureSchemeNotAllowed, ExtendedMasterSecretNotRequired,
+    CryptoNotCovered, ForeignCryptoProvider, ForeignPkixProvider, VersionNotAllowed,
+    CipherSuiteNotAllowed, NamedGroupNotAllowed, SignatureSchemeNotAllowed, ExtendedMasterSecretNotRequired,
     EarlyDataEnabled, EchConfigured, ExternalPskConfigured, Tls12PskConfigured,
     KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
     CredentialKeyUndetermined, CredentialKeyBelowRules, CredentialSchemesNotAllowed,
@@ -127,7 +128,11 @@ type
     Product: string;
     ModuleName: string;
     ModuleFileVersion: string;
+    /// <summary>The certificate number; empty unless the module is Validated.</summary>
     Certificate: string;
+    /// <summary>Whether the library's own platform attestation produced this identity; False
+    /// for one the host supplies.</summary>
+    Attested: Boolean;
     LegacyFipsPolicy: TLegacyFipsPolicy;
     /// <summary>The process and machine architectures as the OS reports them (0 for the
     /// process when it is native); NativeMachine 0 means they were not read.</summary>
@@ -400,7 +405,8 @@ begin
       TComplianceFindingKind.AlgorithmOutsideModule, TComplianceFindingKind.KdfOutsideModule,
       TComplianceFindingKind.CredentialKeyOutsideModule,
       TComplianceFindingKind.ChainVerifiedOutsideModule,
-      TComplianceFindingKind.StapleVerifiedOutsideModule:
+      TComplianceFindingKind.StapleVerifiedOutsideModule,
+      TComplianceFindingKind.CryptoNotCovered:
       Result := TComplianceFindingCategory.Platform;
   else
     Result := TComplianceFindingCategory.Configuration;

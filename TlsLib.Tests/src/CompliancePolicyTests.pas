@@ -84,6 +84,7 @@ uses
   TlpCompliancePresets,
   TlpComplianceTls,
   TlpOSModuleAttestation,
+  TlpOSCryptoProvider,
   TlpWindowsModuleDecision,
   TlpWindowsModuleAttestation,
   TlpOSSystemTrust,
@@ -112,6 +113,8 @@ type
     // rules of Fips140_3 narrowed to TLS 1.2 and its suites
     function Tls12OnlyRules: TComplianceRules;
     function Attestation(AStatus: TModuleStatus): IModuleAttestation;
+    // a validated attestation that covers no crypto provider
+    function UncoveredAttestation: IModuleAttestation;
     function NewPolicy(const ARules: TComplianceRules; const ABase: ICryptoProvider;
       AStatus: TModuleStatus; AEnforcement: TComplianceEnforcement): ICompliancePolicy;
     function StrictPolicy: ICompliancePolicy;
@@ -160,6 +163,16 @@ type
     procedure TestCnsa1NamesItsPreset;
     procedure TestStrictNotValidatedRaises;
     procedure TestRelaxedNotValidatedReports;
+    procedure TestRelaxedUncoveredCryptoReportsItAndEverythingOutside;
+    procedure TestStrictUncoveredCryptoRaises;
+    procedure TestCoveredCryptoHasNoCoverageFinding;
+    procedure TestHostAttestationIsDisclosedAndNotAttested;
+    procedure TestPlatformAttestationIsNotDisclosedAsHost;
+    procedure TestIsPlatformIsAClassCheck;
+    procedure TestOsAttestationAttestsOnlyWhereATableShips;
+    procedure TestPolicyReadsTheAttestationOnce;
+    procedure TestStrictHistoricalModuleRaises;
+    procedure TestRelaxedHistoricalModuleReports;
     procedure TestStrictUnknownStatusRaises;
     procedure TestStrictPortableBaseRaisesNoBackendReport;
     procedure TestRelaxedPortableBaseReportsNoBackendReport;
@@ -546,6 +559,10 @@ type
     procedure TestDecideUnreadableSystemDirectoryIsUnknown;
     procedure TestDecideUnreadablePathIsUnknown;
     procedure TestDecideUnreadableVersionIsUnknown;
+    procedure TestDecideOnTheSunsetDayIsStillValidated;
+    procedure TestDecideAfterTheSunsetDayIsHistorical;
+    procedure TestDecideUnreadableDateIsUnknown;
+    procedure TestDecideSunsetDoesNotOutweighAMismatch;
     procedure TestDecideMismatchBeatsUnreadable;
     procedure TestDecideModuleRevisionDoesNotDecide;
     procedure TestDecideEditionDoesNotDecide;
@@ -568,6 +585,11 @@ type
     procedure TestIdentityOfUnreadableOsKeepsTheOtherFacts;
     procedure TestIdentityOfUnreadVersionHasNoFileVersion;
     procedure TestIdentityOfNotValidatedRowHasNoListedVersion;
+    procedure TestIdentityNamesTheCertificateOnlyWhenValidated;
+    procedure TestHistoricalModuleCitesNoCertificate;
+    procedure TestAttestedIdentityIsMarkedAttested;
+    procedure TestGatheredDateIsToday;
+    procedure TestCoversTheOsCompositionOnly;
     procedure TestGatheredFactsDescribeThisProcess;
     procedure TestParseFileVersionReadsTheLeadingNumbers;
     procedure TestParseFileVersionRefusesOtherText;
@@ -649,6 +671,24 @@ type
     function FleetScope: TBytes;
   end;
 
+  // a host attestation that is validated on the first read and not validated after it, and counts
+  // what it is asked
+  TFlippingAttestation = class sealed(TInterfacedObject, IModuleAttestation)
+  strict private
+  var
+    FIdentityReads: Int32;
+    FStatusReads: Int32;
+    FDescribeReads: Int32;
+  public
+    function Identity: TModuleIdentity;
+    function Status(AStandard: TModuleStandard): TModuleStatus;
+    function Describe: string;
+    function Covers(const ACrypto: ICryptoProvider): Boolean;
+    property IdentityReads: Int32 read FIdentityReads;
+    property StatusReads: Int32 read FStatusReads;
+    property DescribeReads: Int32 read FDescribeReads;
+  end;
+
   // a host class that lists the checked-resolver marker and names a policy, without checking
   TClaimingResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver,
     IComplianceCredentialResolver)
@@ -706,6 +746,35 @@ end;
 function TListedCredentialResolver.Credentials: TArray<TTlsCredential>;
 begin
   Result := FCredentials;
+end;
+
+{ TFlippingAttestation }
+
+function TFlippingAttestation.Identity: TModuleIdentity;
+begin
+  Inc(FIdentityReads);
+  Result := Default(TModuleIdentity);
+  Result.OsVersion := '10.0.1';
+end;
+
+function TFlippingAttestation.Status(AStandard: TModuleStandard): TModuleStatus;
+begin
+  Inc(FStatusReads);
+  if FStatusReads = 1 then
+    Result := TModuleStatus.Validated
+  else
+    Result := TModuleStatus.NotValidated;
+end;
+
+function TFlippingAttestation.Describe: string;
+begin
+  Inc(FDescribeReads);
+  Result := 'flipping attestation';
+end;
+
+function TFlippingAttestation.Covers(const ACrypto: ICryptoProvider): Boolean;
+begin
+  Result := True;
 end;
 
 { TClaimingTicketKeys }
@@ -835,6 +904,15 @@ end;
 function TCompliancePolicyTestCase.Attestation(AStatus: TModuleStatus): IModuleAttestation;
 begin
   Result := TFakeModuleAttestation.Create(AStatus, Identity) as IModuleAttestation;
+end;
+
+function TCompliancePolicyTestCase.UncoveredAttestation: IModuleAttestation;
+var
+  LFake: TFakeModuleAttestation;
+begin
+  LFake := TFakeModuleAttestation.Create(TModuleStatus.Validated, Identity);
+  LFake.Covered := False;
+  Result := LFake as IModuleAttestation;
 end;
 
 function TCompliancePolicyTestCase.NewPolicy(const ARules: TComplianceRules;
@@ -1200,6 +1278,139 @@ begin
     'the status is carried');
 end;
 
+procedure TTestCompliancePolicy.TestRelaxedUncoveredCryptoReportsItAndEverythingOutside;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, SystemBase, Pkix,
+    UncoveredAttestation, TComplianceEnforcement.Relaxed) as ICompliancePolicy;
+  LReport := LPolicy.PlatformReport;
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.CryptoNotCovered), 'the kind');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.NoBackendReport),
+    'the base does report');
+  CheckEquals('random generator', FindingOfKind(LReport.Findings,
+    TComplianceFindingKind.AlgorithmOutsideModule).Subject,
+    'the base report is not believed, so one portable report decides');
+  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
+end;
+
+procedure TTestCompliancePolicy.TestStrictUncoveredCryptoRaises;
+var
+  LFindings: TArray<TComplianceFinding>;
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  LFindings := nil;
+  try
+    TCompliancePolicy.Create(TCompliancePresets.Fips140_3, SystemBase, Pkix, UncoveredAttestation,
+      TComplianceEnforcement.Strict);
+  except
+    on E: EComplianceUnmetTlsLibException do
+    begin
+      LRaised := True;
+      LFindings := E.Findings;
+    end;
+  end;
+  CheckTrue(LRaised, 'strict refuses a provider the module does not serve');
+  CheckEquals(Ord(TComplianceFindingCategory.Platform), Ord(FindingOfKind(LFindings,
+    TComplianceFindingKind.CryptoNotCovered).Category), 'it is a platform finding');
+end;
+
+procedure TTestCompliancePolicy.TestCoveredCryptoHasNoCoverageFinding;
+begin
+  CheckFalse(ReportHasKind(StrictPolicy.PlatformReport, TComplianceFindingKind.CryptoNotCovered),
+    'a covered provider');
+end;
+
+procedure TTestCompliancePolicy.TestHostAttestationIsDisclosedAndNotAttested;
+var
+  LIdentity: TModuleIdentity;
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LIdentity := Identity;
+  LIdentity.Attested := True;
+  LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, SystemBase, Pkix,
+    TFakeModuleAttestation.Create(TModuleStatus.Validated, LIdentity) as IModuleAttestation,
+    TComplianceEnforcement.Relaxed) as ICompliancePolicy;
+  LReport := LPolicy.PlatformReport;
+  CheckTrue(Disclosed(LReport, 'attestation is supplied by the host'), 'disclosed');
+  CheckFalse(LReport.Module.Attested, 'the host cannot claim the library attested it');
+end;
+
+procedure TTestCompliancePolicy.TestPlatformAttestationIsNotDisclosedAsHost;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, SystemBase, Pkix,
+    TOSModuleAttestation.Current, TComplianceEnforcement.Relaxed) as ICompliancePolicy;
+  CheckFalse(Disclosed(LPolicy.PlatformReport, 'supplied by the host'),
+    'the library''s own class');
+end;
+
+procedure TTestCompliancePolicy.TestIsPlatformIsAClassCheck;
+begin
+  CheckTrue(TOSModuleAttestation.IsPlatform(TOSModuleAttestation.Current), 'the platform class');
+  CheckFalse(TOSModuleAttestation.IsPlatform(Attestation(TModuleStatus.Validated)),
+    'a host class, whatever it claims');
+  CheckFalse(TOSModuleAttestation.IsPlatform(nil), 'nothing');
+end;
+
+procedure TTestCompliancePolicy.TestOsAttestationAttestsOnlyWhereATableShips;
+var
+  LAttestation: IModuleAttestation;
+begin
+  LAttestation := TOSModuleAttestation.Current;
+{$IFDEF TLSLIB_MSWINDOWS}
+  CheckTrue(LAttestation.Identity.Attested, 'the Windows table is shipped');
+{$ELSE}
+  CheckFalse(LAttestation.Identity.Attested, 'no table is shipped');
+  CheckFalse(LAttestation.Covers(SystemBase), 'so it covers no provider');
+{$ENDIF}
+end;
+
+procedure TTestCompliancePolicy.TestPolicyReadsTheAttestationOnce;
+var
+  LAttestation: TFlippingAttestation;
+  LRef: IModuleAttestation;
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LAttestation := TFlippingAttestation.Create;
+  LRef := LAttestation;
+  LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, SystemBaseWithKey, Pkix,
+    LRef, TComplianceEnforcement.Relaxed) as ICompliancePolicy;
+  LReport := LPolicy.Evaluate(ClientBuilder(LPolicy).Build);
+  LPolicy.Evaluate(ServerBuilder(LPolicy).Build);
+  LPolicy.EvaluateCredential(Credential(LPolicy.Crypto));
+  CheckEquals(1, LAttestation.IdentityReads, 'the identity is read at construction');
+  CheckEquals(1, LAttestation.StatusReads, 'and so is the status');
+  CheckEquals(1, LAttestation.DescribeReads, 'and the description');
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(LReport.ModuleStatus),
+    'a later answer of the attestation does not reach a report');
+end;
+
+procedure TTestCompliancePolicy.TestStrictHistoricalModuleRaises;
+var
+  LFindings: TArray<TComplianceFinding>;
+begin
+  CheckTrue(Construct(TCompliancePresets.Fips140_3, SystemBase, TModuleStatus.Historical,
+    TComplianceEnforcement.Strict, LFindings), 'a module past its sunset date is refused');
+  CheckTrue(HasKind(LFindings, TComplianceFindingKind.ModuleNotValidated), 'names the module');
+end;
+
+procedure TTestCompliancePolicy.TestRelaxedHistoricalModuleReports;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := NewPolicy(TCompliancePresets.Fips140_3, SystemBase, TModuleStatus.Historical,
+    TComplianceEnforcement.Relaxed).PlatformReport;
+  CheckEquals(Ord(TModuleStatus.Historical), Ord(LReport.ModuleStatus), 'the status is carried');
+  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'never compliant');
+  CheckTrue(HasKind(LReport.Findings, TComplianceFindingKind.ModuleNotValidated), 'reported');
+end;
+
 procedure TTestCompliancePolicy.TestStrictUnknownStatusRaises;
 var
   LFindings: TArray<TComplianceFinding>;
@@ -1452,7 +1663,7 @@ begin
   CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict), 'verdict');
   CheckFalse(LReport.KeyDerivationInModule, 'a derivation runs outside the module');
   CheckEquals(0, System.Length(LReport.Findings), 'a composed derivation is no finding');
-  CheckEquals(0, System.Length(LReport.Disclosures), 'and no longer a disclosure');
+  CheckFalse(Disclosed(LReport, 'composed'), 'and no longer a disclosure');
 end;
 
 procedure TTestCompliancePolicy.TestTls12OnlyRulesWithTheModulePrfAreCompliant;
@@ -4907,6 +5118,7 @@ begin
   Result.ModuleMinor := 0;
   Result.ModuleBuild := UInt16(ABuild);
   Result.ModuleRevision := 30001;
+  Result.Today := 20270615;
   Result.LegacyFipsPolicy := TLegacyFipsPolicy.Disabled;
 end;
 
@@ -5240,6 +5452,53 @@ begin
     'the reason says what was unread');
 end;
 
+procedure TTestWindowsModuleDecision.TestDecideOnTheSunsetDayIsStillValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Today := 20310830;
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(TWindowsModuleDecision.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the sunset date itself is inside the certificate');
+end;
+
+procedure TTestWindowsModuleDecision.TestDecideAfterTheSunsetDayIsHistorical;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Today := 20310831;
+  CheckEquals(Ord(TModuleStatus.Historical), Ord(TWindowsModuleDecision.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the day after the sunset date');
+  CheckTrue(Pos('2031-08-30', LReason) > 0, 'the reason names the sunset date');
+end;
+
+procedure TTestWindowsModuleDecision.TestDecideUnreadableDateIsUnknown;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Today := 0;
+  CheckEquals(Ord(TModuleStatus.Unknown), Ord(TWindowsModuleDecision.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'no clock to compare with the sunset date');
+  CheckTrue(Pos('current date', LReason) > 0, 'the reason says what was unread');
+end;
+
+procedure TTestWindowsModuleDecision.TestDecideSunsetDoesNotOutweighAMismatch;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Today := 20400101;
+  LFacts.NativeMachine := MachineArm64;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleDecision.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'a module that never applied is not historical');
+end;
+
 procedure TTestWindowsModuleDecision.TestDecideMismatchBeatsUnreadable;
 var
   LFacts: TWindowsModuleFacts;
@@ -5277,7 +5536,7 @@ end;
 
 procedure TTestWindowsModuleDecision.TestDecideReasonsAreDistinct;
 const
-  CaseCount = 15;
+  CaseCount = 17;
 var
   LCases: array [0 .. CaseCount - 1] of TWindowsModuleFacts;
   LReasons: array [0 .. CaseCount - 1] of string;
@@ -5300,6 +5559,8 @@ begin
   LCases[12].FirmwareRead := False;
   LCases[13].SystemModulePath := '';
   LCases[14].OsRead := False;
+  LCases[15].Today := 0;
+  LCases[16].Today := 20310831;
   for LI := 0 to CaseCount - 1 do
   begin
     TWindowsModuleDecision.Decide(LCases[LI], TModuleStandard.Fips140_3, LReasons[LI]);
@@ -5343,6 +5604,7 @@ begin
     CheckEquals(1, Int32(LEntry.Level), 'level ' + IntToStr(LI));
     CheckEquals('2026-08-31', LEntry.ValidatedOn, 'validated on ' + IntToStr(LI));
     CheckEquals('2031-08-30', LEntry.Sunset, 'sunset ' + IntToStr(LI));
+    CheckEquals(20310830, Int32(LEntry.SunsetDay), 'sunset day ' + IntToStr(LI));
   end;
 end;
 
@@ -5380,6 +5642,7 @@ begin
     CheckEquals('', LEntry.Certificate, 'certificate ' + IntToStr(LI));
     CheckEquals('', LEntry.ValidatedOn, 'no validation date ' + IntToStr(LI));
     CheckEquals('', LEntry.Sunset, 'no sunset ' + IntToStr(LI));
+    CheckEquals(0, Int32(LEntry.SunsetDay), 'no sunset day ' + IntToStr(LI));
   end;
 end;
 
@@ -5399,50 +5662,43 @@ end;
 procedure TTestWindowsModuleAttestation.TestDescribePrintsTheReason;
 var
   LFacts: TWindowsModuleFacts;
-  LAttestation: IModuleAttestation;
+  LAttested: TWindowsAttestation;
 begin
   LFacts := ValidFacts(22621, ProductWorkstation);
   LFacts.Process64Bit := False;
-  LAttestation := TWindowsModuleAttestation.CreateFromFacts(LFacts) as IModuleAttestation;
-  CheckEquals(Ord(TModuleStatus.NotValidated),
-    Ord(LAttestation.Status(TModuleStandard.Fips140_3)), 'the status');
-  CheckTrue(Pos('the process is 32-bit', LAttestation.Describe) > 0, 'the reason is printed');
-  CheckEquals(0, Pos('FIPS', LAttestation.Describe), 'no standard is claimed');
+  LAttested := TWindowsModuleAttestation.Attest(LFacts);
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(LAttested.Status), 'the status');
+  CheckTrue(Pos('the process is 32-bit', LAttested.Description) > 0, 'the reason is printed');
+  CheckEquals(0, Pos('FIPS', LAttested.Description), 'no standard is claimed');
 end;
 
 procedure TTestWindowsModuleAttestation.TestDescribeOfUnreadableOsIsTheReason;
 var
   LFacts: TWindowsModuleFacts;
-  LAttestation: IModuleAttestation;
+  LAttested: TWindowsAttestation;
 begin
   LFacts := ValidFacts(22621, ProductWorkstation);
   LFacts.OsRead := False;
-  LAttestation := TWindowsModuleAttestation.CreateFromFacts(LFacts) as IModuleAttestation;
-  CheckEquals(Ord(TModuleStatus.Unknown), Ord(LAttestation.Status(TModuleStandard.Fips140_3)),
-    'the status');
-  CheckEquals('the OS build could not be read', LAttestation.Describe, 'the reason alone');
+  LAttested := TWindowsModuleAttestation.Attest(LFacts);
+  CheckEquals(Ord(TModuleStatus.Unknown), Ord(LAttested.Status), 'the status');
+  CheckEquals('the OS build could not be read', LAttested.Description, 'the reason alone');
 end;
 
 procedure TTestWindowsModuleAttestation.TestDescribeOfValidatedFacts;
 var
-  LAttestation: IModuleAttestation;
+  LAttested: TWindowsAttestation;
 begin
-  LAttestation := TWindowsModuleAttestation.CreateFromFacts(ValidFacts(20348, ProductServer))
-    as IModuleAttestation;
-  CheckEquals(Ord(TModuleStatus.Validated), Ord(LAttestation.Status(TModuleStandard.Fips140_3)),
-    'the status');
-  CheckTrue(Pos('CMVP certificate 5410, FIPS 140-3 Level 1', LAttestation.Describe) > 0,
+  LAttested := TWindowsModuleAttestation.Attest(ValidFacts(20348, ProductServer));
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(LAttested.Status), 'the status');
+  CheckTrue(Pos('CMVP certificate 5410, FIPS 140-3 Level 1', LAttested.Description) > 0,
     'the certificate');
 end;
 
 procedure TTestWindowsModuleAttestation.TestIdentityCarriesTheFacts;
 var
-  LAttestation: IModuleAttestation;
   LIdentity: TModuleIdentity;
 begin
-  LAttestation := TWindowsModuleAttestation.CreateFromFacts(ValidFacts(20348, ProductServer))
-    as IModuleAttestation;
-  LIdentity := LAttestation.Identity;
+  LIdentity := TWindowsModuleAttestation.Attest(ValidFacts(20348, ProductServer)).Identity;
   CheckEquals('10.0.20348.3', LIdentity.OsVersion, 'the OS version with its revision');
   CheckEquals('Professional', LIdentity.Edition, 'the edition');
   CheckEquals('UEFI', LIdentity.Firmware, 'the firmware');
@@ -5460,13 +5716,11 @@ end;
 procedure TTestWindowsModuleAttestation.TestIdentityOfUnreadableOsKeepsTheOtherFacts;
 var
   LFacts: TWindowsModuleFacts;
-  LAttestation: IModuleAttestation;
   LIdentity: TModuleIdentity;
 begin
   LFacts := ValidFacts(22621, ProductWorkstation);
   LFacts.OsRead := False;
-  LAttestation := TWindowsModuleAttestation.CreateFromFacts(LFacts) as IModuleAttestation;
-  LIdentity := LAttestation.Identity;
+  LIdentity := TWindowsModuleAttestation.Attest(LFacts).Identity;
   CheckEquals(Ord(TLegacyFipsPolicy.Disabled), Ord(LIdentity.LegacyFipsPolicy), 'the flag');
   CheckEquals('', LIdentity.ListedModuleVersion, 'no listed version without a build');
   CheckEquals('', LIdentity.OsVersion, 'no OS version');
@@ -5479,22 +5733,84 @@ end;
 procedure TTestWindowsModuleAttestation.TestIdentityOfUnreadVersionHasNoFileVersion;
 var
   LFacts: TWindowsModuleFacts;
-  LAttestation: IModuleAttestation;
 begin
   LFacts := ValidFacts(22621, ProductWorkstation);
   LFacts.VersionRead := False;
-  LAttestation := TWindowsModuleAttestation.CreateFromFacts(LFacts) as IModuleAttestation;
-  CheckEquals('', LAttestation.Identity.ModuleFileVersion, 'no zeroed version is invented');
+  CheckEquals('', TWindowsModuleAttestation.Attest(LFacts).Identity.ModuleFileVersion,
+    'no zeroed version is invented');
 end;
 
 procedure TTestWindowsModuleAttestation.TestIdentityOfNotValidatedRowHasNoListedVersion;
 var
-  LAttestation: IModuleAttestation;
+  LIdentity: TModuleIdentity;
 begin
-  LAttestation := TWindowsModuleAttestation.CreateFromFacts(ValidFacts(22631,
-    ProductWorkstation)) as IModuleAttestation;
-  CheckEquals('', LAttestation.Identity.ListedModuleVersion, 'the row lists none');
-  CheckEquals('', LAttestation.Identity.Certificate, 'and no certificate');
+  LIdentity := TWindowsModuleAttestation.Attest(ValidFacts(22631, ProductWorkstation)).Identity;
+  CheckEquals('', LIdentity.ListedModuleVersion, 'the row lists none');
+  CheckEquals('', LIdentity.Certificate, 'and no certificate');
+end;
+
+procedure TTestWindowsModuleAttestation.TestIdentityNamesTheCertificateOnlyWhenValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LIdentity: TModuleIdentity;
+begin
+  CheckEquals('5410', TWindowsModuleAttestation.Attest(ValidFacts(22621,
+    ProductWorkstation)).Identity.Certificate, 'a validated module names its certificate');
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Process64Bit := False;
+  LIdentity := TWindowsModuleAttestation.Attest(LFacts).Identity;
+  CheckEquals('Windows 11 22H2', LIdentity.Product, 'the listed build is still named');
+  CheckEquals('', LIdentity.Certificate, 'but a module that is not validated cites no certificate');
+end;
+
+procedure TTestWindowsModuleAttestation.TestHistoricalModuleCitesNoCertificate;
+var
+  LFacts: TWindowsModuleFacts;
+  LAttested: TWindowsAttestation;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Today := 20310831;
+  LAttested := TWindowsModuleAttestation.Attest(LFacts);
+  CheckEquals(Ord(TModuleStatus.Historical), Ord(LAttested.Status), 'past the sunset date');
+  CheckEquals('', LAttested.Identity.Certificate, 'no certificate is cited for it');
+  CheckTrue(Pos('sunset date 2031-08-30', LAttested.Description) > 0,
+    'and the description says why');
+end;
+
+procedure TTestWindowsModuleAttestation.TestAttestedIdentityIsMarkedAttested;
+begin
+  CheckTrue(TWindowsModuleAttestation.Attest(ValidFacts(22621,
+    ProductWorkstation)).Identity.Attested, 'the library produced it');
+end;
+
+procedure TTestWindowsModuleAttestation.TestGatheredDateIsToday;
+var
+  LToday, LMonth, LDay: UInt32;
+begin
+  LToday := TWindowsModuleAttestation.Gather.Today;
+  LMonth := (LToday div 100) mod 100;
+  LDay := LToday mod 100;
+  CheckTrue((LToday > 20260101) and (LToday < 21000101), 'a plausible yyyymmdd date');
+  CheckTrue((LMonth >= 1) and (LMonth <= 12), 'with a month');
+  CheckTrue((LDay >= 1) and (LDay <= 31), 'and a day');
+end;
+
+procedure TTestWindowsModuleAttestation.TestCoversTheOsCompositionOnly;
+var
+  LAttestation: IModuleAttestation;
+  LBase, LOs: ICryptoProvider;
+begin
+  LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
+  LBase := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  CheckFalse(LAttestation.Covers(LBase), 'the portable provider is not what was attested');
+  CheckFalse(LAttestation.Covers(nil), 'nor is nothing');
+  LOs := TOSCryptoProvider.Compose(LBase);
+  if not TOSCryptoProvider.IsComposition(LOs) then
+  begin
+    SkipTest('no OS composition is engaged on this host');
+    Exit;
+  end;
+  CheckTrue(LAttestation.Covers(LOs), 'the OS composition is');
 end;
 
 procedure TTestWindowsModuleAttestation.TestGatheredFactsDescribeThisProcess;

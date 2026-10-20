@@ -46,17 +46,22 @@ uses
 
 type
   /// <summary>An <see cref="IModuleAttestation" /> that answers a fixed status and identity, so a
-  /// test drives the module verdict on any host. Never for production use.</summary>
+  /// test drives the module verdict on any host. It covers every crypto provider unless told
+  /// not to. Never for production use.</summary>
   TFakeModuleAttestation = class sealed(TInterfacedObject, IModuleAttestation)
   strict private
   var
     FStatus: TModuleStatus;
     FIdentity: TModuleIdentity;
+    FCovered: Boolean;
   public
     constructor Create(AStatus: TModuleStatus; const AIdentity: TModuleIdentity);
+    /// <summary>Whether Covers answers True; True by default.</summary>
+    property Covered: Boolean read FCovered write FCovered;
     function Identity: TModuleIdentity;
     function Status(AStandard: TModuleStandard): TModuleStatus;
     function Describe: string;
+    function Covers(const ACrypto: ICryptoProvider): Boolean;
   end;
 
   TComplianceHashSet = set of THashAlgorithm;
@@ -322,6 +327,12 @@ begin
   inherited Create;
   FStatus := AStatus;
   FIdentity := AIdentity;
+  FCovered := True;
+end;
+
+function TFakeModuleAttestation.Covers(const ACrypto: ICryptoProvider): Boolean;
+begin
+  Result := FCovered;
 end;
 
 function TFakeModuleAttestation.Identity: TModuleIdentity;

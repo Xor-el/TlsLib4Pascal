@@ -51,6 +51,7 @@ uses
   TlpComplianceExceptions,
   TlpIComplianceReport,
   TlpIModuleAttestation,
+  TlpOSModuleAttestation,
   TlpICompliancePolicy,
   TlpIComplianceCredentialResolver,
   TlpComplianceReport,
@@ -78,6 +79,9 @@ type
     FPkix: IPkixProvider;
     FGroups: INamedGroupRegistry;
     FAttestation: IModuleAttestation;
+    FIdentity: TModuleIdentity;
+    FStatus: TModuleStatus;
+    FAttestationText: string;
     FPreset: string;
     FPlatformFindings: TArray<TComplianceFinding>;
     FDisclosures: TArray<string>;
@@ -170,6 +174,10 @@ resourcestring
   SSchemesEmpty = 'the rules must allow at least one signature scheme';
   SCurvesEmpty = 'the rules must list the certificate curves; an empty list would allow any';
   SRulesOutsidePresets = 'the rules fit no named preset';
+  SCryptoNotCovered =
+    'the crypto provider is not the OS composition the attestation covers, so every operation ' +
+    'counts as outside the module';
+  SAttestationFromHost = 'the module attestation is supplied by the host';
   SNoBackendReport =
     'the crypto provider has no backend report, so every operation counts as outside the module';
   SBackendOutside = 'runs %s (%s), not in the OS module';
@@ -348,7 +356,6 @@ var
   LAlgorithm: TKeyAgreementAlgorithm;
   LName: string;
   LKnown, LSha256Listed, LOffers13, LOffers12: Boolean;
-  LIdentity: TModuleIdentity;
 begin
   LHashes := [];
   LHkdfHashes := [];
@@ -424,15 +431,13 @@ begin
     not TOverlayCryptoProvider.RebuildsHpke(ABaseCrypto) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.AlgorithmOutsideModule, SHpkeSubject, SHpkeOutside));
-  LIdentity := FAttestation.Identity;
-  if FAttestation.Status(FRules.ModuleStandard) <> TModuleStatus.Validated then
+  if FStatus <> TModuleStatus.Validated then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.ModuleNotValidated, LIdentity.OsVersion,
-      FAttestation.Describe))
-  else if (LIdentity.ListedModuleVersion <> '') and
-    (LIdentity.ModuleFileVersion <> LIdentity.ListedModuleVersion) then
+      TComplianceFindingKind.ModuleNotValidated, FIdentity.OsVersion, FAttestationText))
+  else if (FIdentity.ListedModuleVersion <> '') and
+    (FIdentity.ModuleFileVersion <> FIdentity.ListedModuleVersion) then
     TArrayUtilities.Append<string>(FDisclosures, Format(SModuleRevisionDiffers,
-      [LIdentity.ModuleFileVersion, LIdentity.ListedModuleVersion]));
+      [FIdentity.ModuleFileVersion, FIdentity.ListedModuleVersion]));
 end;
 
 constructor TCompliancePolicy.Create(const ARules: TComplianceRules;
@@ -443,7 +448,7 @@ var
   LReport: ICryptoBackendReport;
   LGroups: TArray<INamedGroup>;
   LI: Int32;
-  LMatched, LHasReport: Boolean;
+  LMatched, LHasReport, LCovered: Boolean;
 begin
   inherited Create;
   if ABaseCrypto = nil then
@@ -456,6 +461,16 @@ begin
   FRules := ARules.Clone;
   FEnforcement := AEnforcement;
   FAttestation := AAttestation;
+  // read once: a host attestation may change its answer, and a report must not follow it
+  FIdentity := AAttestation.Identity;
+  FStatus := AAttestation.Status(FRules.ModuleStandard);
+  FAttestationText := AAttestation.Describe;
+  if not TOSModuleAttestation.IsPlatform(AAttestation) then
+  begin
+    FIdentity.Attested := False;
+    TArrayUtilities.Append<string>(FDisclosures, SAttestationFromHost);
+  end;
+  LCovered := AAttestation.Covers(ABaseCrypto);
   LFindings := nil;
   LMatched := TCompliancePresets.TryMatch(FRules, FPreset);
   if not LMatched then
@@ -463,19 +478,22 @@ begin
       TComplianceFindingKind.RulesOutsidePresets, '', SRulesOutsidePresets));
   LReport := nil;
   LHasReport := Supports(ABaseCrypto, ICryptoBackendReport, LReport);
-  if LHasReport then
+  // one report decides everything: a provider the attestation does not cover has none to trust
+  if LHasReport and LCovered then
     FReport := LReport
   else
-  begin
     FReport := TPortableOnlyReport.Create(False) as ICryptoBackendReport;
+  if not LHasReport then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.NoBackendReport, '', SNoBackendReport));
-  end;
+  if not LCovered then
+    TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.CryptoNotCovered, '', SCryptoNotCovered));
   CollectPlatform(ABaseCrypto, LFindings);
   if (AEnforcement = TComplianceEnforcement.Strict) and (System.Length(LFindings) > 0) then
     raise EComplianceUnmetTlsLibException.Create(LFindings);
   FPlatformFindings := LFindings;
-  FCrypto := TComplianceCryptoProvider.Compose(ABaseCrypto, FRules, AEnforcement);
+  FCrypto := TComplianceCryptoProvider.Compose(ABaseCrypto, FRules, AEnforcement, FReport);
   FScopePrefix := FCrypto.Primitives.GetRandom.GenerateBytes(ScopePrefixLength);
   System.SetLength(LGroups, System.Length(FRules.NamedGroups));
   for LI := 0 to System.Length(FRules.NamedGroups) - 1 do
@@ -862,9 +880,8 @@ end;
 function TCompliancePolicy.Report(const AFindings: TArray<TComplianceFinding>;
   const ADisclosures: TArray<string>; AKdfComposed: Boolean): IComplianceReport;
 begin
-  Result := TComplianceReport.Create(FEnforcement, FPreset, FAttestation.Identity,
-    FAttestation.Status(FRules.ModuleStandard), AFindings, ADisclosures, AKdfComposed)
-    as IComplianceReport;
+  Result := TComplianceReport.Create(FEnforcement, FPreset, FIdentity, FStatus, AFindings,
+    ADisclosures, AKdfComposed) as IComplianceReport;
 end;
 
 procedure TCompliancePolicy.Enforce(const AReport: IComplianceReport);

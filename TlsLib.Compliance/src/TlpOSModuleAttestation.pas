@@ -16,6 +16,7 @@ unit TlpOSModuleAttestation;
 interface
 
 uses
+  TlpICryptoProvider,
   TlpComplianceTypes,
   TlpIModuleAttestation
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -33,6 +34,9 @@ type
   public
     /// <summary>The attestation of this platform's module; never nil.</summary>
     class function Current: IModuleAttestation; static;
+    /// <summary>Whether AAttestation is one of the library's platform classes. Judged by class,
+    /// as any host class can implement the interface and claim a validated module.</summary>
+    class function IsPlatform(const AAttestation: IModuleAttestation): Boolean; static;
   end;
 
 implementation
@@ -49,6 +53,7 @@ type
     function Identity: TModuleIdentity;
     function Status(AStandard: TModuleStandard): TModuleStatus;
     function Describe: string;
+    function Covers(const ACrypto: ICryptoProvider): Boolean;
   end;
 
 { TUnattestedModule }
@@ -68,6 +73,12 @@ begin
   Result := SNoModuleTable;
 end;
 
+function TUnattestedModule.Covers(const ACrypto: ICryptoProvider): Boolean;
+begin
+  // nothing is attested, so no provider is covered
+  Result := False;
+end;
+
 {$IFEND}
 
 { TOSModuleAttestation }
@@ -78,6 +89,15 @@ begin
   Result := TWindowsModuleAttestation.Create as IModuleAttestation;
 {$ELSE}
   Result := TUnattestedModule.Create as IModuleAttestation;
+{$IFEND}
+end;
+
+class function TOSModuleAttestation.IsPlatform(const AAttestation: IModuleAttestation): Boolean;
+begin
+{$IF DEFINED(TLSLIB_MSWINDOWS)}
+  Result := AAttestation is TWindowsModuleAttestation;
+{$ELSE}
+  Result := AAttestation is TUnattestedModule;
 {$IFEND}
 end;
 

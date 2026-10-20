@@ -116,7 +116,13 @@ type
     /// HPKE facet, not what the rules let through. A base with no backend report is treated as
     /// wholly portable. Raises EArgumentTlsLibException for a nil ABase.</summary>
     class function Compose(const ABase: ICryptoProvider; const ARules: TComplianceRules;
-      AEnforcement: TComplianceEnforcement): ICryptoProvider; static;
+      AEnforcement: TComplianceEnforcement): ICryptoProvider; overload; static;
+    /// <summary>As above, but the refusing layers decide by ADecisionReport instead of the report
+    /// of ABase, which still describes ABase's backends. Raises EArgumentTlsLibException for a
+    /// nil ABase or ADecisionReport.</summary>
+    class function Compose(const ABase: ICryptoProvider; const ARules: TComplianceRules;
+      AEnforcement: TComplianceEnforcement;
+      const ADecisionReport: ICryptoBackendReport): ICryptoProvider; overload; static;
   end;
 
 implementation
@@ -367,9 +373,6 @@ class function TComplianceCryptoProvider.Compose(const ABase: ICryptoProvider;
   const ARules: TComplianceRules; AEnforcement: TComplianceEnforcement): ICryptoProvider;
 var
   LReport, LDecisionReport: ICryptoBackendReport;
-  LPrimitives: ICryptoPrimitives;
-  LSigning: ISigningCrypto;
-  LHpke: IHpkeCrypto;
 begin
   if ABase = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilBase);
@@ -379,9 +382,27 @@ begin
     LDecisionReport := LReport
   else
     LDecisionReport := TPortableOnlyReport.Create(False) as ICryptoBackendReport;
+  Result := Compose(ABase, ARules, AEnforcement, LDecisionReport);
+end;
+
+class function TComplianceCryptoProvider.Compose(const ABase: ICryptoProvider;
+  const ARules: TComplianceRules; AEnforcement: TComplianceEnforcement;
+  const ADecisionReport: ICryptoBackendReport): ICryptoProvider;
+var
+  LReport: ICryptoBackendReport;
+  LPrimitives: ICryptoPrimitives;
+  LSigning: ISigningCrypto;
+  LHpke: IHpkeCrypto;
+begin
+  if ABase = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilBase);
+  if ADecisionReport = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilReport);
+  LReport := nil;
+  Supports(ABase, ICryptoBackendReport, LReport);
   LPrimitives := TComplianceCryptoPrimitives.Create(ABase.Primitives, ARules,
-    LDecisionReport, AEnforcement);
-  LSigning := TComplianceSigningCrypto.Create(ABase.Signing, ARules, LDecisionReport,
+    ADecisionReport, AEnforcement);
+  LSigning := TComplianceSigningCrypto.Create(ABase.Signing, ARules, ADecisionReport,
     AEnforcement);
   LHpke := nil;
   if not TOverlayCryptoProvider.RebuildsHpke(ABase) then
