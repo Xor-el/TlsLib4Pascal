@@ -31,6 +31,10 @@ uses
   TlpTlsAlert,
   TlpPkixDomainTypes,
   TlpCertificateStrengthPolicy,
+  TlpArrayUtilities,
+  TlpEnumUtilities,
+  TlpISigningKey,
+  TlpTlsCredential,
   TlpTlsLibExceptions,
   TlpComplianceTypes,
   TlpComplianceExceptions,
@@ -164,7 +168,15 @@ type
   end;
 
   TTestComplianceCatalog = class(TTlsLibAlgorithmTestCase)
+  strict private
+    function Signed(AHash: TCertSignatureHash): TCertSignatureFacts;
+    function Held(const AKey: ISigningKey; const AChain: array of TBytes): TTlsCredential;
   published
+    procedure TestSignatureMeetsFollowsTheSchemeHashes;
+    procedure TestSignatureMeetsRefusesTheHashesNoSchemeUses;
+    procedure TestSignatureMeetsAdmitsADeprecatedHashTheStrengthAdmits;
+    procedure TestSignatureMeetsFollowsTheEdDsaFlagForAnImplicitHash;
+    procedure TestSameCredentialNeedsTheSameKeyObjectAndChainBytes;
     procedure TestTryKeyAgreementRejectsHybridAndKem;
     procedure TestKeyAgreementsFips140_3;
     procedure TestKeyAgreementsCnsa1;
@@ -1749,6 +1761,97 @@ begin
   LFacts.EcNamedGroup := TNamedGroupCatalog.Secp384r1;
   CheckTrue(TComplianceCatalog.KeyMeets(LFacts, LRules.Strength, LRules.RsaModulusBits),
     'the RSA sizes do not apply to a curve key');
+end;
+
+function TTestComplianceCatalog.Signed(AHash: TCertSignatureHash): TCertSignatureFacts;
+begin
+  Result := Default(TCertSignatureFacts);
+  Result.Family := TCertSignatureFamily.Ecdsa;
+  Result.Hash := AHash;
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsFollowsTheSchemeHashes;
+begin
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha256),
+    TCompliancePresets.Fips140_3), 'SHA-256 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha384),
+    TCompliancePresets.Fips140_3), 'SHA-384 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha512),
+    TCompliancePresets.Fips140_3), 'SHA-512 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha384),
+    TCompliancePresets.Cnsa1), 'SHA-384 under Cnsa1');
+  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha256),
+    TCompliancePresets.Cnsa1), 'SHA-256 under Cnsa1');
+  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha512),
+    TCompliancePresets.Cnsa1), 'SHA-512 under Cnsa1');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsRefusesTheHashesNoSchemeUses;
+const
+  Refused: array [0 .. 3] of TCertSignatureHash = (TCertSignatureHash.Md5,
+    TCertSignatureHash.Sha1, TCertSignatureHash.Sha224, TCertSignatureHash.Sha3);
+var
+  LI: Int32;
+begin
+  for LI := Low(Refused) to High(Refused) do
+    CheckFalse(TComplianceCatalog.SignatureMeets(Signed(Refused[LI]),
+      TCompliancePresets.Fips140_3), TEnumUtilities.GetName(TypeInfo(TCertSignatureHash),
+      Ord(Refused[LI])));
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsAdmitsADeprecatedHashTheStrengthAdmits;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha1), LRules),
+    'admitted');
+  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Md5), LRules),
+    'only the hash that was admitted');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsFollowsTheEdDsaFlagForAnImplicitHash;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Implicit), LRules),
+    'EdDSA is off in the presets');
+  LRules.Strength.AllowEdDsa := True;
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Implicit), LRules),
+    'and on when the strength policy admits it');
+end;
+
+function TTestComplianceCatalog.Held(const AKey: ISigningKey;
+  const AChain: array of TBytes): TTlsCredential;
+var
+  LI: Int32;
+begin
+  Result := Default(TTlsCredential);
+  Result.PrivateKey := AKey;
+  for LI := 0 to System.High(AChain) do
+    TArrayUtilities.Append<TBytes>(Result.CertificateChain, AChain[LI]);
+end;
+
+procedure TTestComplianceCatalog.TestSameCredentialNeedsTheSameKeyObjectAndChainBytes;
+var
+  LKey: ISigningKey;
+begin
+  LKey := TFakeSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256)) as ISigningKey;
+  CheckTrue(TComplianceCatalog.SameCredential(Held(LKey, [TBytes.Create(1, 2), TBytes.Create(3)]),
+    Held(LKey, [TBytes.Create(1, 2), TBytes.Create(3)])), 'one key, equal bytes');
+  CheckFalse(TComplianceCatalog.SameCredential(Held(LKey, [TBytes.Create(1, 2)]),
+    Held(LKey, [TBytes.Create(1, 2), TBytes.Create(3)])), 'a longer chain');
+  CheckFalse(TComplianceCatalog.SameCredential(Held(LKey, [TBytes.Create(1, 2)]),
+    Held(LKey, [TBytes.Create(1, 9)])), 'other bytes');
+  CheckFalse(TComplianceCatalog.SameCredential(Held(LKey, [TBytes.Create(1, 2)]),
+    Held(TFakeSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256)) as ISigningKey, [TBytes.Create(1, 2)])),
+    'another key object');
+  CheckTrue(TComplianceCatalog.SameCredential(Held(nil, [TBytes.Create(1)]),
+    Held(nil, [TBytes.Create(1)])), 'two credentials with no key and the same chain');
 end;
 
 procedure TTestComplianceCatalog.TestStandardNameIsFips140_3;

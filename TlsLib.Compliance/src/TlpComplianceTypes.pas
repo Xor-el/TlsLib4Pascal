@@ -103,7 +103,8 @@ type
     CipherSuiteNotAllowed, NamedGroupNotAllowed, SignatureSchemeNotAllowed, ExtendedMasterSecretNotRequired,
     EarlyDataEnabled, EchConfigured, ExternalPskConfigured, Tls12PskConfigured,
     KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
-    CredentialKeyUndetermined, CredentialKeyBelowRules, CredentialSchemesNotAllowed,
+    CredentialKeyUndetermined, CredentialKeyMissing, CredentialKeyMismatch,
+    CredentialKeyBelowRules, CredentialSchemesNotAllowed,
     TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup,
     CustomVerifierConfigured, ResumptionStateUnchecked, TicketKeysUnchecked,
     CipherSuiteDiffersFromCatalog);
@@ -176,6 +177,14 @@ type
     class function KeyMeets(const AFacts: TCertKeyFacts;
       const AStrength: TCertificateStrengthPolicy;
       const ARsaSizes: TArray<UInt32>): Boolean; static;
+    /// <summary>Whether a certificate signature of AFacts is one the rules allow: made with a hash
+    /// of one of the rule signature schemes, a deprecated hash the strength policy admits, or
+    /// EdDSA where the strength policy admits it.</summary>
+    class function SignatureMeets(const AFacts: TCertSignatureFacts;
+      const ARules: TComplianceRules): Boolean; static;
+    /// <summary>Whether A and B are one credential: the same private key object and the same
+    /// certificate chain, byte for byte.</summary>
+    class function SameCredential(const A, B: TTlsCredential): Boolean; static;
     /// <summary>Whether ASuite is, field for field, the catalog definition of its code.</summary>
     class function IsCatalogSuite(const ASuite: TTlsCipherSuite): Boolean; static;
     /// <summary>The display name of a module standard.</summary>
@@ -208,6 +217,19 @@ resourcestring
   SFirmwarePart = 'firmware %s';
   SListedVersionPart = 'listed %s';
   SLegacyPolicyPart = 'legacy FIPS policy %s';
+  SVersionPart = ' 0x%.4X';
+  SVersionsLine = 'Versions:%s';
+  SCipherSuitesLine = 'CipherSuites:%s';
+  SAeadsLine = 'Aeads:%s';
+  SNamedGroupsLine = 'NamedGroups:%s';
+  SSchemesLine = 'SignatureSchemes:%s';
+  SStrengthLine = 'Strength: RsaBits %d..%d, RsaSizes:%s, EdDsa=%s, AnchorFloors=%s, ' +
+    'DeprecatedHashes:%s, curves:%s';
+  SRequirementsLine = 'Requirements:%s';
+  SKdfLine = 'Kdf: %s';
+  SStandardLine = 'ModuleStandard: %s';
+  SYes = 'yes';
+  SNo = 'no';
 
 { TComplianceRules }
 
@@ -329,12 +351,12 @@ begin
   Result := '';
   LList := '';
   for LI := 0 to System.Length(Versions) - 1 do
-    LList := LList + Format(' 0x%.4X', [Versions[LI]]);
-  Result := Result + 'Versions:' + LList + sLineBreak;
+    LList := LList + Format(SVersionPart, [Versions[LI]]);
+  Result := Result + Format(SVersionsLine, [LList]) + sLineBreak;
   LList := '';
   for LI := 0 to System.Length(CipherSuites) - 1 do
     LList := LList + ' ' + TCipherSuiteCatalog.Name(CipherSuites[LI]);
-  Result := Result + 'CipherSuites:' + LList + sLineBreak;
+  Result := Result + Format(SCipherSuitesLine, [LList]) + sLineBreak;
   LList := '';
   for LAead := Low(TAeadAlgorithm) to High(TAeadAlgorithm) do
     if LAead in Aeads then
@@ -342,11 +364,11 @@ begin
       LName := TEnumUtilities.GetName<TAeadAlgorithm>(LAead);
       LList := LList + ' ' + LName;
     end;
-  Result := Result + 'Aeads:' + LList + sLineBreak;
+  Result := Result + Format(SAeadsLine, [LList]) + sLineBreak;
   LList := '';
   for LI := 0 to System.Length(NamedGroups) - 1 do
     LList := LList + ' ' + TNamedGroupCatalog.Name(NamedGroups[LI]);
-  Result := Result + 'NamedGroups:' + LList + sLineBreak;
+  Result := Result + Format(SNamedGroupsLine, [LList]) + sLineBreak;
   LList := '';
   for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
     if LScheme in SignatureSchemes then
@@ -354,18 +376,18 @@ begin
       LName := TEnumUtilities.GetName<TSignatureScheme>(LScheme);
       LList := LList + ' ' + LName;
     end;
-  Result := Result + 'SignatureSchemes:' + LList + sLineBreak;
+  Result := Result + Format(SSchemesLine, [LList]) + sLineBreak;
   LList := '';
   for LI := 0 to System.Length(Strength.AllowedEcCurves) - 1 do
     LList := LList + ' ' + TNamedGroupCatalog.Name(Strength.AllowedEcCurves[LI]);
   if Strength.AllowEdDsa then
-    LFlag := 'yes'
+    LFlag := SYes
   else
-    LFlag := 'no';
+    LFlag := SNo;
   if Strength.AnchorKeyFloors then
-    LAnchor := 'yes'
+    LAnchor := SYes
   else
-    LAnchor := 'no';
+    LAnchor := SNo;
   LSizes := '';
   for LI := 0 to System.Length(RsaModulusBits) - 1 do
     LSizes := LSizes + ' ' + IntToStr(RsaModulusBits[LI]);
@@ -374,10 +396,8 @@ begin
     if LHash in Strength.AllowedDeprecatedHashes then
       LHashes := LHashes + ' ' + TEnumUtilities.GetName(TypeInfo(TCertSignatureHash),
         Ord(LHash));
-  Result := Result + Format(
-    'Strength: RsaBits %d..%d, RsaSizes:%s, EdDsa=%s, AnchorFloors=%s, DeprecatedHashes:%s, ' +
-    'curves:%s', [Strength.MinRsaModulusBits, Strength.MaxRsaModulusBits, LSizes, LFlag, LAnchor,
-    LHashes, LList]) + sLineBreak;
+  Result := Result + Format(SStrengthLine, [Strength.MinRsaModulusBits,
+    Strength.MaxRsaModulusBits, LSizes, LFlag, LAnchor, LHashes, LList]) + sLineBreak;
   LList := '';
   for LRequirement := Low(TComplianceRequirement) to High(TComplianceRequirement) do
     if LRequirement in Requirements then
@@ -385,11 +405,11 @@ begin
       LName := TEnumUtilities.GetName<TComplianceRequirement>(LRequirement);
       LList := LList + ' ' + LName;
     end;
-  Result := Result + 'Requirements:' + LList + sLineBreak;
+  Result := Result + Format(SRequirementsLine, [LList]) + sLineBreak;
   LName := TEnumUtilities.GetName<TKdfRule>(Kdf);
-  Result := Result + 'Kdf: ' + LName + sLineBreak;
+  Result := Result + Format(SKdfLine, [LName]) + sLineBreak;
   LName := TEnumUtilities.GetName<TModuleStandard>(ModuleStandard);
-  Result := Result + 'ModuleStandard: ' + LName;
+  Result := Result + Format(SStandardLine, [LName]);
 end;
 
 { TComplianceFinding }
@@ -539,6 +559,44 @@ begin
     if not LListed then
       Exit(False);
   end;
+end;
+
+class function TComplianceCatalog.SignatureMeets(const AFacts: TCertSignatureFacts;
+  const ARules: TComplianceRules): Boolean;
+var
+  LHash, LSchemeHash: THashAlgorithm;
+  LScheme: TSignatureScheme;
+begin
+  if AFacts.Hash = TCertSignatureHash.Implicit then
+    Exit(ARules.Strength.AllowEdDsa);
+  if AFacts.Hash in ARules.Strength.AllowedDeprecatedHashes then
+    Exit(True);
+  case AFacts.Hash of
+    TCertSignatureHash.Sha256:
+      LHash := THashAlgorithm.SHA_256;
+    TCertSignatureHash.Sha384:
+      LHash := THashAlgorithm.SHA_384;
+    TCertSignatureHash.Sha512:
+      LHash := THashAlgorithm.SHA_512;
+  else
+    Exit(False);
+  end;
+  Result := False;
+  for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
+    if (LScheme in ARules.SignatureSchemes) and LScheme.TryHash(LSchemeHash) and
+      (LSchemeHash = LHash) then
+      Exit(True);
+end;
+
+class function TComplianceCatalog.SameCredential(const A, B: TTlsCredential): Boolean;
+var
+  LI: Int32;
+begin
+  Result := (A.PrivateKey = B.PrivateKey) and
+    (System.Length(A.CertificateChain) = System.Length(B.CertificateChain));
+  for LI := 0 to System.Length(A.CertificateChain) - 1 do
+    if Result then
+      Result := TArrayUtilities.AreEqual(A.CertificateChain[LI], B.CertificateChain[LI]);
 end;
 
 class function TComplianceCatalog.IsCatalogSuite(const ASuite: TTlsCipherSuite): Boolean;

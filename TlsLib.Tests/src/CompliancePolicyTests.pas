@@ -202,6 +202,8 @@ type
     procedure TestEmptyGroupsRaiseArgument;
     procedure TestX25519GroupRaisesArgument;
     procedure TestHybridGroupRaisesArgument;
+    procedure TestDuplicateSuiteRaisesArgument;
+    procedure TestDuplicateGroupRaisesArgument;
     procedure TestEmptySchemesRaiseArgument;
     procedure TestEmptyCurvesRaiseArgument;
     procedure TestUnusableRulesRaiseArgumentInRelaxedToo;
@@ -356,7 +358,11 @@ type
     procedure TestSniResolverIsEnumerated;
     procedure TestHostClassClaimingCheckedMarkerIsUnchecked;
     procedure TestCheckedWrapperOverHostListedResolverIsNotUnchecked;
-    procedure TestDefaultSharedWithAnSniEntryIsReportedForEachListing;
+    procedure TestDefaultSharedWithAnSniEntryIsReportedOnce;
+    procedure TestTwoCredentialsAreReportedEach;
+    procedure TestSameKeyWithAnotherChainIsAnotherCredential;
+    procedure TestWrapperOfAnotherPolicyAroundTheSniResolverIsUnchecked;
+    procedure TestWrapperOfThisPolicyAroundTheSniResolverIsChecked;
     procedure TestRawCustomResolverIsUnchecked;
     procedure TestRawCustomResolverIsRefusedEvenInRelaxed;
     procedure TestCheckedResolverIsNotReportedUnchecked;
@@ -383,7 +389,16 @@ type
     procedure TestFacadeServerCredentialSubjectIsNumbered;
     procedure TestEvaluateCredentialUnreadableCertificateIsUndetermined;
     procedure TestEvaluateCredentialWithoutChainIsUndetermined;
-    procedure TestEvaluateCredentialWithoutKeyIsUndetermined;
+    procedure TestEvaluateCredentialWithoutKeyIsMissing;
+    procedure TestIntermediateKeyBelowTheFloorsIsAFinding;
+    procedure TestUnreadableIntermediateIsUndetermined;
+    procedure TestChainSignatureHashOutsideTheRulesIsAFinding;
+    procedure TestChainSignatureHashInsideTheRulesIsNoFinding;
+    procedure TestSelfSignedLastCertificateSignatureIsNotChecked;
+    procedure TestKeyOfAnotherCertificateIsMismatched;
+    procedure TestKeyOfTheLeafIsNotMismatched;
+    procedure TestKeyThatExposesNoPublicKeyIsNotMismatched;
+    procedure TestCheckedResolverRefusesAKeyOfAnotherCertificate;
     procedure TestEvaluateCredentialReportsExtraSchemes;
     procedure TestEvaluateCredentialOfAGoodCredentialHasNoFinding;
     procedure TestTicketAeadNotAllowedWhenServerSealsWithoutAes256;
@@ -484,6 +499,9 @@ type
     procedure TestKeysBesideAStoreAreNotChecked;
     procedure TestKeysBesideAStoreUnderTls12AreChecked;
     procedure TestFleetBesideAStoreIsNotDisclosed;
+    procedure TestIdleCheckedFleetBesideAStoreAcceptsTheFleetScope;
+    procedure TestIdleCheckedFleetBesideAStoreAcceptsThePolicyScope;
+    procedure TestIdleCheckedFleetBesideAStoreRefusesAnotherScope;
     procedure TestFleetBesideAStoreUnderTls12IsDisclosed;
     procedure TestCheckedFleetBesideAStoreUnderTls12KeepsTheFleetScope;
     procedure TestCheckedFleetBesideAStoreUnderTls12RefusesThePolicyScope;
@@ -1642,6 +1660,29 @@ begin
   LRules.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.SecP256r1MlKem768,
     TNamedGroupCatalog.Secp256r1);
   CheckTrue(ArgumentRefused(LRules, TComplianceEnforcement.Strict), 'no hybrid group');
+end;
+
+procedure TTestCompliancePolicy.TestDuplicateSuiteRaisesArgument;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256,
+    TCipherSuites13.Aes256GcmSha384, TCipherSuites13.Aes128GcmSha256,
+    TCipherSuites12.EcdheEcdsaAes128GcmSha256);
+  CheckTrue(ArgumentRefused(LRules, TComplianceEnforcement.Strict), 'a suite listed twice');
+  CheckTrue(ArgumentRefused(LRules, TComplianceEnforcement.Relaxed), 'in relaxed mode too');
+end;
+
+procedure TTestCompliancePolicy.TestDuplicateGroupRaisesArgument;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
+    TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp256r1);
+  CheckTrue(ArgumentRefused(LRules, TComplianceEnforcement.Strict), 'a group listed twice');
+  CheckTrue(ArgumentRefused(LRules, TComplianceEnforcement.Relaxed), 'in relaxed mode too');
 end;
 
 procedure TTestCompliancePolicy.TestEmptySchemesRaiseArgument;
@@ -3195,7 +3236,7 @@ begin
     'and the entries of a host list behind it are not read at build');
 end;
 
-procedure TTestComplianceAdmit.TestDefaultSharedWithAnSniEntryIsReportedForEachListing;
+procedure TTestComplianceAdmit.TestDefaultSharedWithAnSniEntryIsReportedOnce;
 var
   LPolicy: ICompliancePolicy;
   LWeak: TTlsCredential;
@@ -3205,8 +3246,37 @@ begin
   LWeak := Ed25519Credential;
   LFindings := LPolicy.Evaluate(RawServer(LPolicy).WithCredential(LWeak)
     .WithSniCredential('localhost', LWeak).Build).Findings;
+  CheckEquals(1, CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules),
+    'the credential the default shares with an entry is one credential');
+end;
+
+procedure TTestComplianceAdmit.TestTwoCredentialsAreReportedEach;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  LFindings := LPolicy.Evaluate(RawServer(LPolicy).WithCredential(Ed25519Credential)
+    .WithSniCredential('localhost', Ed25519Credential).Build).Findings;
   CheckEquals(2, CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules),
-    'the credential the default shares with an entry is listed, and so reported, twice');
+    'two key objects are two credentials, whatever their material');
+end;
+
+procedure TTestComplianceAdmit.TestSameKeyWithAnotherChainIsAnotherCredential;
+var
+  LPolicy: ICompliancePolicy;
+  LWeak, LOther: TTlsCredential;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := RelaxedPolicy;
+  LWeak := Ed25519Credential;
+  LOther := LWeak;
+  LOther.CertificateChain := TArray<TBytes>.Create(LWeak.CertificateChain[0],
+    TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert'));
+  LFindings := LPolicy.Evaluate(RawServer(LPolicy).WithCredential(LWeak)
+    .WithSniCredential('localhost', LOther).Build).Findings;
+  CheckTrue(CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules) >= 2,
+    'a chain that differs is a credential that differs');
 end;
 
 procedure TTestComplianceAdmit.TestRawCustomResolverIsUnchecked;
@@ -3567,16 +3637,197 @@ begin
     TComplianceFindingKind.CredentialKeyUndetermined), 'a credential with no certificate');
 end;
 
-procedure TTestComplianceAdmit.TestEvaluateCredentialWithoutKeyIsUndetermined;
+procedure TTestComplianceAdmit.TestEvaluateCredentialWithoutKeyIsMissing;
+var
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LCredential := Credential(LPolicy.Crypto);
+  LCredential.PrivateKey := nil;
+  LReport := LPolicy.EvaluateCredential(LCredential);
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyMissing),
+    'a certificate with no private key');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyUndetermined),
+    'which is not an unreadable key');
+end;
+
+procedure TTestComplianceAdmit.TestIntermediateKeyBelowTheFloorsIsAFinding;
+var
+  LRules: TComplianceRules;
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.MinRsaModulusBits := 3072;
+  LRules.RsaModulusBits := TArray<UInt32>.Create(3072, 4096);
+  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict);
+  LCredential := Credential(LPolicy.Crypto);
+  // the P-256 leaf is inside the rules; the RSA-2048 certificate after it is not
+  LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
+  LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
+  CheckEquals(1, CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules),
+    'only the second certificate');
+  CheckTrue(Pos('certificate 2', FindingOfKind(LFindings,
+    TComplianceFindingKind.CredentialKeyBelowRules).Message) > 0, 'and it is named');
+end;
+
+procedure TTestComplianceAdmit.TestUnreadableIntermediateIsUndetermined;
+var
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  LCredential := Credential(LPolicy.Crypto);
+  LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
+    TBytes.Create(1, 2, 3));
+  LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
+  CheckTrue(Pos('certificate 2', FindingOfKind(LFindings,
+    TComplianceFindingKind.CredentialKeyUndetermined).Message) > 0, 'the second certificate');
+end;
+
+procedure TTestComplianceAdmit.TestChainSignatureHashOutsideTheRulesIsAFinding;
+var
+  LRules: TComplianceRules;
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LFacts: TCertSignatureFacts;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LCredential := Credential(Crypto);
+  CheckTrue(Pkix.Certificates.Parse(LCredential.CertificateChain[0]).SignatureFacts(LFacts),
+    'the fixture signature is readable');
+  CheckEquals(Ord(TCertSignatureHash.Sha256), Ord(LFacts.Hash), 'and is made with SHA-256');
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.SignatureSchemes := [TSignatureScheme.ECDSA_SECP384R1_SHA384,
+    TSignatureScheme.RSA_PSS_RSAE_SHA384];
+  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict);
+  LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
+  CheckTrue(Pos('certificate 1', FindingOfKind(LFindings,
+    TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
+    'a SHA-256 signature where only SHA-384 schemes are allowed');
+end;
+
+procedure TTestComplianceAdmit.TestChainSignatureHashInsideTheRulesIsNoFinding;
+var
+  LPolicy: ICompliancePolicy;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  LFindings := LPolicy.EvaluateCredential(Credential(LPolicy.Crypto)).Findings;
+  CheckEquals(0, CountOfKind(LFindings, TComplianceFindingKind.CredentialSchemesNotAllowed),
+    'SHA-256 is inside the Fips140_3 schemes');
+end;
+
+procedure TTestComplianceAdmit.TestSelfSignedLastCertificateSignatureIsNotChecked;
+var
+  LRules: TComplianceRules;
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LFindings: TArray<TComplianceFinding>;
+  LI: Int32;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.SignatureSchemes := [TSignatureScheme.ECDSA_SECP384R1_SHA384,
+    TSignatureScheme.RSA_PSS_RSAE_SHA384];
+  LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict);
+  LCredential := Credential(Crypto);
+  LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
+  LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
+  CheckTrue(Pos('certificate 1', FindingOfKind(LFindings,
+    TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
+    'not vacuous: the leaf signature is reported');
+  for LI := 0 to System.Length(LFindings) - 1 do
+    CheckEquals(0, Pos('certificate 2', LFindings[LI].Message),
+      'the self-signed root signature is not judged');
+end;
+
+procedure TTestComplianceAdmit.TestKeyOfAnotherCertificateIsMismatched;
+var
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  LCredential := Credential(LPolicy.Crypto);
+  LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256), Pkix.Certificates.Parse(
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert')).PublicKeyInfo)
+    as ISigningKey;
+  LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
+  CheckEquals(Ord(TComplianceFindingCategory.Configuration), Ord(FindingOfKind(LFindings,
+    TComplianceFindingKind.CredentialKeyMismatch).Category), 'a configuration finding');
+end;
+
+procedure TTestComplianceAdmit.TestKeyOfTheLeafIsNotMismatched;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckFalse(ReportHasKind(LPolicy.EvaluateCredential(Credential(LPolicy.Crypto)),
+    TComplianceFindingKind.CredentialKeyMismatch), 'the leaf''s own key');
+end;
+
+procedure TTestComplianceAdmit.TestKeyThatExposesNoPublicKeyIsNotMismatched;
 var
   LPolicy: ICompliancePolicy;
   LCredential: TTlsCredential;
 begin
   LPolicy := StrictPolicy;
   LCredential := Credential(LPolicy.Crypto);
-  LCredential.PrivateKey := nil;
-  CheckTrue(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
-    TComplianceFindingKind.CredentialKeyUndetermined), 'a certificate with no private key');
+  LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256)) as ISigningKey;
+  CheckFalse(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
+    TComplianceFindingKind.CredentialKeyMismatch), 'nothing to compare is no mismatch');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedResolverRefusesAKeyOfAnotherCertificate;
+var
+  LPolicy: ICompliancePolicy;
+  LGiven, LResolved: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  LGiven := Credential(LPolicy.Crypto);
+  LGiven.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256), Pkix.Certificates.Parse(
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert')).PublicKeyInfo)
+    as ISigningKey;
+  CheckFalse(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(LGiven,
+    True) as ITlsServerCredentialResolver), LResolved),
+    'a resolver cannot hand a handshake a key for a certificate it was never judged with');
+end;
+
+procedure TTestComplianceAdmit.TestWrapperOfAnotherPolicyAroundTheSniResolverIsUnchecked;
+var
+  LOwner, LPolicy: ICompliancePolicy;
+  LInner: ITlsServerCredentialResolver;
+begin
+  LOwner := StrictPolicy;
+  LPolicy := StrictPolicy;
+  LInner := TSniCredentialResolver.ForCredential(Credential(LOwner.Crypto));
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(RawResolverConfig(LPolicy,
+    LOwner.CheckedCredentialResolver(LInner))), TComplianceFindingKind.CredentialResolverUnchecked),
+    'the other policy''s rules, not these, judge each handshake');
+end;
+
+procedure TTestComplianceAdmit.TestWrapperOfThisPolicyAroundTheSniResolverIsChecked;
+var
+  LPolicy: ICompliancePolicy;
+  LInner: ITlsServerCredentialResolver;
+begin
+  LPolicy := StrictPolicy;
+  LInner := TSniCredentialResolver.ForCredential(Credential(LPolicy.Crypto));
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(RawResolverConfig(LPolicy,
+    LPolicy.CheckedCredentialResolver(LInner))),
+    TComplianceFindingKind.CredentialResolverUnchecked), 'control: its own wrapper is');
 end;
 
 procedure TTestComplianceAdmit.TestEvaluateCredentialReportsExtraSchemes;
@@ -4657,6 +4908,43 @@ begin
     .WithSessionTicketKeys(NewFleet).WithSessionStore(NewStore(LPolicy)).Build),
     'entered by the host'),
     'keys the TLS 1.3 engine never uses are not the host''s choice');
+end;
+
+procedure TTestComplianceResumption.TestIdleCheckedFleetBesideAStoreAcceptsTheFleetScope;
+var
+  LPolicy: ICompliancePolicy;
+  LScope: TBytes;
+begin
+  LPolicy := StrictPolicy;
+  LScope := FleetScope;
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(Tls13OnlyServerBuilder(LPolicy)
+    .WithResumptionScope(LScope).WithSessionTicketKeys(LPolicy.CheckedTicketKeys(NewFleet,
+    LScope)).WithSessionStore(NewStore(LPolicy)).Build),
+    TComplianceFindingKind.ResumptionStateUnchecked),
+    'the store runs under the scope the host gave the fleet');
+end;
+
+procedure TTestComplianceResumption.TestIdleCheckedFleetBesideAStoreAcceptsThePolicyScope;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(Tls13OnlyServerBuilder(LPolicy)
+    .WithSessionTicketKeys(LPolicy.CheckedTicketKeys(NewFleet, FleetScope))
+    .WithSessionStore(NewStore(LPolicy)).Build),
+    TComplianceFindingKind.ResumptionStateUnchecked),
+    'the store is as well kept apart by the policy scope');
+end;
+
+procedure TTestComplianceResumption.TestIdleCheckedFleetBesideAStoreRefusesAnotherScope;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(Tls13OnlyServerBuilder(LPolicy)
+    .WithResumptionScope(Filled($42, 32)).WithSessionTicketKeys(LPolicy.CheckedTicketKeys(
+    NewFleet, FleetScope)).WithSessionStore(NewStore(LPolicy)).Build),
+    TComplianceFindingKind.ResumptionStateUnchecked), 'neither the fleet scope nor the policy''s');
 end;
 
 procedure TTestComplianceResumption.TestFleetBesideAStoreUnderTls12IsDisclosed;

@@ -103,7 +103,9 @@ type
     // every group a config can resolve must be one the policy built over its own crypto
     procedure CheckGroups(const AConfig: ITlsCommonConfig;
       var AFindings: TArray<TComplianceFinding>);
-    function TryKeyFacts(const ACertificate: TBytes; out AFacts: TCertKeyFacts): Boolean;
+    // the key and the signature of one certificate of a credential chain, AIndex counted from 1
+    procedure CheckChainCertificate(const ACertificate: TBytes; AIndex: Int32;
+      const ASubject: string; var AFindings: TArray<TComplianceFinding>);
     function CredentialSubject(AIndex: Int32; const ACredential: TTlsCredential): string;
     // whether some offered version can end in a certificate the client verifies
     function ClientHasCertificatePath(const AConfig: ITlsClientConfig): Boolean;
@@ -111,6 +113,8 @@ type
       var AFindings: TArray<TComplianceFinding>);
     procedure CheckCredentialResolver(const AConfig: ITlsServerConfig;
       var AFindings: TArray<TComplianceFinding>);
+    // whether an earlier entry of ACredentials is the credential at AIndex
+    function ListedBefore(const ACredentials: TArray<TTlsCredential>; AIndex: Int32): Boolean;
     procedure CheckTickets(const AConfig: ITlsServerConfig;
       var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
     // only the policy's own scope keeps sessions of a config it did not admit from resuming
@@ -167,9 +171,10 @@ resourcestring
   SNilConfig = 'the config must not be nil';
   SVersionsInvalid = 'the rules must offer TLS 1.2, TLS 1.3 or both';
   SSuitesInvalid =
-    'the rules must list known cipher suites, each with an AEAD the rules allow';
+    'the rules must list known cipher suites once each, each with an AEAD the rules allow';
   SVersionWithoutSuite = 'the rules offer a TLS version that has no cipher suite';
-  SGroupsInvalid = 'the rules must list only the secp256r1, secp384r1 and secp521r1 groups';
+  SGroupsInvalid = 'the rules must list only the secp256r1, secp384r1 and secp521r1 groups, ' +
+    'once each';
   SSchemesEmpty = 'the rules must allow at least one signature scheme';
   SCurvesEmpty = 'the rules must list the certificate curves; an empty list would allow any';
   SRulesOutsidePresets = 'the rules allow or omit something no named preset does';
@@ -198,9 +203,15 @@ resourcestring
   SServerNameSubject = 'ServerName';
   SServerNameUnchecked = 'the server certificate is not matched to the host name';
   SStrengthBelow = 'the certificate strength policy is looser than the rules';
-  SKeyUndetermined = 'the credential key could not be read from its certificate';
+  SNoCertificate = 'the credential holds no certificate';
+  SKeyUndetermined = 'the key of certificate %d of the credential could not be read';
+  SSignatureUndetermined = 'the signature of certificate %d of the credential could not be read';
+  SSignatureNotAllowed = 'certificate %d of the credential is signed with a hash the rules ' +
+    'do not allow';
   SNoPrivateKey = 'the credential holds a certificate and no private key';
-  SKeyBelow = 'the credential key is below the strength floors of the rules';
+  SKeyMismatch = 'the credential key is not the key of its leaf certificate';
+  SKeyBelow = 'the key of certificate %d of the credential is below the strength floors of ' +
+    'the rules';
   SCredentialSchemes = 'the credential key signs with no scheme the rules allow';
   SCredentialExtraSchemes =
     'the credential key can sign with schemes the rules do not allow: %s';
@@ -278,6 +289,9 @@ begin
     LKnown := TCipherSuiteCatalog.TryGet(ARules.CipherSuites[LI], LSuite);
     if not LKnown then
       raise EArgumentTlsLibException.CreateRes(@SSuitesInvalid);
+    if TArrayUtilities.Contains<UInt16>(System.Copy(ARules.CipherSuites, 0, LI),
+      ARules.CipherSuites[LI]) then
+      raise EArgumentTlsLibException.CreateRes(@SSuitesInvalid);
     if not (LSuite.Common.Aead in ARules.Aeads) then
       raise EArgumentTlsLibException.CreateRes(@SSuitesInvalid);
     if LSuite.Protocol = TSuiteProtocol.Tls13 then
@@ -293,6 +307,9 @@ begin
   begin
     LKnown := TComplianceCatalog.TryKeyAgreement(ARules.NamedGroups[LI], LAlgorithm);
     if not LKnown or (LAlgorithm = TKeyAgreementAlgorithm.X25519) then
+      raise EArgumentTlsLibException.CreateRes(@SGroupsInvalid);
+    if TArrayUtilities.Contains<UInt16>(System.Copy(ARules.NamedGroups, 0, LI),
+      ARules.NamedGroups[LI]) then
       raise EArgumentTlsLibException.CreateRes(@SGroupsInvalid);
   end;
   if ARules.SignatureSchemes = [] then
@@ -490,13 +507,44 @@ begin
   FPlatformReport := Report(FPlatformFindings, FDisclosures, KdfComposedFor(FRules.Versions));
 end;
 
-function TCompliancePolicy.TryKeyFacts(const ACertificate: TBytes;
-  out AFacts: TCertKeyFacts): Boolean;
+procedure TCompliancePolicy.CheckChainCertificate(const ACertificate: TBytes; AIndex: Int32;
+  const ASubject: string; var AFindings: TArray<TComplianceFinding>);
+var
+  LCert: IInspectedCertificate;
+  LKey: TCertKeyFacts;
+  LSignature: TCertSignatureFacts;
+  LSubject, LIssuer, LCommonName, LSerial: string;
+  LSelfSigned: Boolean;
 begin
   // Parse raises on a malformed certificate, so screen it with the fail-closed query first
-  Result := FPkix.Certificates.IsWellFormed(ACertificate);
-  if Result then
-    Result := FPkix.Certificates.Parse(ACertificate).KeyFacts(AFacts);
+  if not FPkix.Certificates.IsWellFormed(ACertificate) then
+  begin
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.CredentialKeyUndetermined, ASubject,
+      Format(SKeyUndetermined, [AIndex])));
+    Exit;
+  end;
+  LCert := FPkix.Certificates.Parse(ACertificate);
+  if not LCert.KeyFacts(LKey) then
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.CredentialKeyUndetermined, ASubject,
+      Format(SKeyUndetermined, [AIndex])))
+  else if not TComplianceCatalog.KeyMeets(LKey, FRules.Strength, FRules.RsaModulusBits) then
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.CredentialKeyBelowRules, ASubject, Format(SKeyBelow, [AIndex])));
+  // a self-signature binds nothing a peer relies on, so only a signature by an issuer counts
+  LSelfSigned := LCert.PeerInfo(LSubject, LIssuer, LCommonName, LSerial) and
+    (LSubject = LIssuer);
+  if LSelfSigned then
+    Exit;
+  if not LCert.SignatureFacts(LSignature) then
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.CredentialKeyUndetermined, ASubject,
+      Format(SSignatureUndetermined, [AIndex])))
+  else if not TComplianceCatalog.SignatureMeets(LSignature, FRules) then
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.CredentialSchemesNotAllowed, ASubject,
+      Format(SSignatureNotAllowed, [AIndex])));
 end;
 
 function TCompliancePolicy.CredentialSubject(AIndex: Int32;
@@ -533,32 +581,35 @@ end;
 procedure TCompliancePolicy.CheckCredential(const ACredential: TTlsCredential;
   const ASubject: string; var AFindings: TArray<TComplianceFinding>);
 var
-  LFacts: TCertKeyFacts;
   LCapable: TArray<TSignatureScheme>;
+  LPublic: TBytes;
   LExtras, LName: string;
   LI: Int32;
-  LKnown, LAnyAllowed, LMeets: Boolean;
+  LAnyAllowed: Boolean;
 begin
-  LKnown := (System.Length(ACredential.CertificateChain) > 0) and
-    TryKeyFacts(ACredential.CertificateChain[0], LFacts);
-  if not LKnown then
+  if System.Length(ACredential.CertificateChain) = 0 then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.CredentialKeyUndetermined, ASubject, SKeyUndetermined))
-  else
-  begin
-    LMeets := TComplianceCatalog.KeyMeets(LFacts, FRules.Strength, FRules.RsaModulusBits);
-    if not LMeets then
-      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.CredentialKeyBelowRules, ASubject, SKeyBelow));
-  end;
+      TComplianceFindingKind.CredentialKeyUndetermined, ASubject, SNoCertificate));
+  // every certificate the credential presents is judged, not only the leaf
+  for LI := 0 to System.Length(ACredential.CertificateChain) - 1 do
+    CheckChainCertificate(ACredential.CertificateChain[LI], LI + 1, ASubject, AFindings);
   if ACredential.PrivateKey = nil then
   begin
     // an empty chain was reported above; a chain with no key can sign nothing
     if System.Length(ACredential.CertificateChain) > 0 then
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.CredentialKeyUndetermined, ASubject, SNoPrivateKey));
+        TComplianceFindingKind.CredentialKeyMissing, ASubject, SNoPrivateKey));
     Exit;
   end;
+  // a key that exposes its public half must be the leaf's, or the handshake signs for a
+  // certificate that was never judged
+  LPublic := ACredential.PrivateKey.PublicKeyInfo;
+  if (System.Length(LPublic) > 0) and (System.Length(ACredential.CertificateChain) > 0) and
+    FPkix.Certificates.IsWellFormed(ACredential.CertificateChain[0]) and
+    not TArrayUtilities.AreEqual(LPublic, FPkix.Certificates.Parse(
+    ACredential.CertificateChain[0]).PublicKeyInfo) then
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.CredentialKeyMismatch, ASubject, SKeyMismatch));
   LCapable := ACredential.PrivateKey.CapableSchemes;
   LAnyAllowed := False;
   LExtras := '';
@@ -607,6 +658,13 @@ begin
     LChecked := LResolver as IComplianceCredentialResolver;
     LOwn := LChecked.Policy = (Self as ICompliancePolicy);
     LResolver := LChecked.Inner;
+    // the wrapper of another policy judges by that policy's rules, not these
+    if not LOwn then
+    begin
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CredentialResolverUnchecked, '', SResolverUnchecked));
+      Exit;
+    end;
   end;
   // a host set can list credentials it never serves, so only the library's resolver is read
   if (LResolver is TSniCredentialResolver) and
@@ -616,6 +674,9 @@ begin
     LSchemes := TComplianceCatalog.Schemes(FRules.SignatureSchemes);
     for LI := 0 to System.Length(LCredentials) - 1 do
     begin
+      // the default may also be a server-name entry: one finding per distinct credential
+      if ListedBefore(LCredentials, LI) then
+        Continue;
       LCredential := LCredentials[LI];
       // the wrapper narrows a key before it judges it, so the build check does too
       if LOwn then
@@ -629,6 +690,17 @@ begin
       TComplianceFindingKind.CredentialResolverUnchecked, '', SResolverUnchecked));
 end;
 
+function TCompliancePolicy.ListedBefore(const ACredentials: TArray<TTlsCredential>;
+  AIndex: Int32): Boolean;
+var
+  LI: Int32;
+begin
+  Result := False;
+  for LI := 0 to AIndex - 1 do
+    if TComplianceCatalog.SameCredential(ACredentials[LI], ACredentials[AIndex]) then
+      Exit(True);
+end;
+
 procedure TCompliancePolicy.CheckTickets(const AConfig: ITlsServerConfig;
   var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
 var
@@ -636,6 +708,7 @@ var
   LVersions: TArray<UInt16>;
   LAeadName: string;
   LI: Int32;
+  LFits: Boolean;
 begin
   // keys count only when some offered version seals tickets with them
   LKeys := nil;
@@ -657,8 +730,12 @@ begin
   end;
   if LKeys <> nil then
     CheckTicketKeys(LKeys, AConfig, AFindings, ADisclosures);
+  LFits := ScopeFitsKeys(AConfig.ResumptionScope, LKeys);
+  // keys left idle beside a store may be the policy's fleet, and then its scope names the store
+  if not LFits and (LKeys = nil) then
+    LFits := ScopeFitsKeys(AConfig.ResumptionScope, AConfig.SessionTicketKeys);
   if AConfig.Resumption and ((AConfig.SessionStore <> nil) or (LKeys <> nil)) and
-    not ScopeFitsKeys(AConfig.ResumptionScope, LKeys) then
+    not LFits then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.ResumptionStateUnchecked, '', SResumptionStateUnchecked));
 end;
