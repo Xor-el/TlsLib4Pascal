@@ -1,0 +1,93 @@
+docs/system-trust.md
+  s_f2c9bd75607afc::t_e82e625294aff3 246-247
+  s_f2c9bd75607afc::t_5dbf7957cd4ebf 368-370
+  s_f2c9bd75607afc::t_ef5da7dfd4c216 670-671
+  s_f2c9bd75607afc::t_d9980d233bf720 204-208
+  s_f2c9bd75607afc::t_c45938673f729d 235-236
+  s_f2c9bd75607afc::t_9ac47c4380b49a 237
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_62f64a877c734d 340-346,348-368
+  s_f2c9bd75607afc::t_dde24899705a10 320
+  s_f2c9bd75607afc::t_de00a6eb6308da 670,675,679,683,687
+  s_f2c9bd75607afc::t_a654f86490fabb 177-178
+  s_f2c9bd75607afc::t_dc7015044ee99f 183-184
+  s_f2c9bd75607afc::t_2f6d2adf5bff56 38
+  s_f2c9bd75607afc::t_d12c8fbd9d93a3 725-727
+  s_f2c9bd75607afc::t_be5bb730dfe73c 660-662
+  s_f2c9bd75607afc::t_b7fd06c8993559 90-92
+  s_f2c9bd75607afc::t_650f5ce611934d 647
+  s_f2c9bd75607afc::t_fcbd2034ead692 31-32
+  s_f2c9bd75607afc::t_49d0f889f1b99f 347
+  s_f2c9bd75607afc::t_086c8a55bc24f4 671
+  s_f2c9bd75607afc::t_263f1acf6d1c02 672
+  s_f2c9bd75607afc::t_8a375bd6510823 737,739-740
+  s_f2c9bd75607afc::t_70377fdcf87f69 319,321
+  s_f2c9bd75607afc::t_043d71bd01b0dd 738
+  s_f2c9bd75607afc::t_6e57443bec57aa 33
+  s_f2c9bd75607afc::t_62d41c08ef880d 646,648
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_f2c9bd75607afc::t_9fcdd6f804af58 55-56
+  s_f2c9bd75607afc::t_d6f1276650c0d6 249-251
+  s_f2c9bd75607afc::t_e0bf9387ca189b 508
+  s_f2c9bd75607afc::t_45affa6893f09a 61-62
+  s_f2c9bd75607afc::t_29e2f40ba4950d 57-60
+  s_f2c9bd75607afc::t_015a87ffcb642b 233
+  s_f2c9bd75607afc::t_ca07edf643a2d2 461-476
+  s_f2c9bd75607afc::t_ead9210de4322e 497
+  s_f2c9bd75607afc::t_99ea40e8b32eeb 138-140
+  s_f2c9bd75607afc::t_288b703c732162 505
+  s_f2c9bd75607afc::t_144349accc4e1c 258
+TlsLib.Tests/src/MockPlatformChainEngine.pas
+  s_f2c9bd75607afc::t_3ca9fb5ce6df4f 194
+  s_f2c9bd75607afc::t_7882c5ba2b1c0b 78-79
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_f2c9bd75607afc::t_1320b7c687d704 337
+  s_f2c9bd75607afc::t_d7584f9ee39b98 125-127
+  s_f2c9bd75607afc::t_f9f449148355c6 135-138
+  s_f2c9bd75607afc::t_cff6f927fdf17f 336,338
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_a2b219bc7a5c57 342,347-349,355-361
+  s_f2c9bd75607afc::t_35ff57d01c0f88 425,4130
+  s_f2c9bd75607afc::t_476367ab5372d6 713
+  s_f2c9bd75607afc::t_874d743eb9a002 3554,3591-3596,3729,3733-3734,3737-3742,6260
+  s_f2c9bd75607afc::t_314adbd7f70808 422,4110
+  s_f2c9bd75607afc::t_26b46f5c56de61 381,600,3403,5807
+  s_f2c9bd75607afc::t_6ec820edaa1e98 3553,3555-3573,3581-3590,3597-3602
+  s_f2c9bd75607afc::t_f020c00660030b 6314-6315
+  s_f2c9bd75607afc::t_22fd079c3af5fd 427,4148
+  s_f2c9bd75607afc::t_5079b1e7b316db 3409-3411
+  s_f2c9bd75607afc::t_69edb0790d81ee 2642,2648,2658-2660
+  s_f2c9bd75607afc::t_ae25f1a9d094da 6259,6261-6268,6274-6275,6277
+  s_f2c9bd75607afc::t_d006c7b9223a42 418-420
+  s_f2c9bd75607afc::t_17b14ecd046d7b 2615,2621-2622
+  s_f2c9bd75607afc::t_3e67677d9e051e 276-277
+  s_f2c9bd75607afc::t_1674791a9ff463 385-387
+  s_f2c9bd75607afc::t_a1bcd1d26b67b2 423-424,426
+  s_f2c9bd75607afc::t_e1314e637847d8 723,728,732-734
+  s_f2c9bd75607afc::t_6b466343b9aebd 2633-2634,2636
+  s_f2c9bd75607afc::t_c8a7a5fc18d198 3001
+  s_f2c9bd75607afc::t_f46d6eecb621ec 5813,5816
+  s_f2c9bd75607afc::t_43c21eedacead1 6292-6293
+  s_f2c9bd75607afc::t_7dfc1f822a5857 421,4104
+  s_f2c9bd75607afc::t_3381ce3c30c1bb 6305-6307
+  s_f2c9bd75607afc::t_ae9a1f722346b6 6325,6327-6328
+  s_f2c9bd75607afc::t_d9bdda21c3951e 3159-3227
+  s_f2c9bd75607afc::t_508a73f1aec463 4039-4103,4105-4109,4111-4129,4131-4147,4149-4154
+  s_f2c9bd75607afc::t_2ca7478cfabe17 350-352
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "599618a999c0fe2c4b1ffc273c0497239e3a0a70",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
