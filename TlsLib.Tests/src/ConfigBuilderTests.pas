@@ -374,6 +374,8 @@ type
     // RFC 9846 4.7.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
     procedure TestTicketLifetimeAboveCapIsRejected;
     procedure TestTicketLifetimeAtCapIsAccepted;
+    procedure TestPublishedLimitsKeepTheirValues;
+    procedure TestServerConfigCarriesTheDefaultTicketLifetime;
     procedure TestResumptionScopeAboveCapIsRejected;
     procedure TestResumptionScopeAtCapIsAccepted;
     procedure TestClientResumptionScopeAboveCapIsRejected;
@@ -2673,7 +2675,8 @@ begin
     .Tls12.WithNonEmsResumption(TNonEmsResumption.Resume), 'resumption is off'),
     'a non-EMS resumption mode');
   // restating a default is not a setting
-  CheckTrue(NewServerBuilder.WithResumption(False).WithTicketLifetime(7200)
+  CheckTrue(NewServerBuilder.WithResumption(False)
+    .WithTicketLifetime(TTlsConfigBuilder.DefaultTicketLifetimeSeconds)
     .Tls13.WithTicketCount(2).Build <> nil, 'the default ticket settings build with resumption off');
   // controls: nothing supplied builds, and the same settings build with resumption on
   CheckTrue(NewClientBuilder.WithResumption(False).Build <> nil,
@@ -4235,6 +4238,20 @@ begin
   CheckNotNull(LConfig, 'the boundary ticket lifetime (604800) is accepted');
 end;
 
+procedure TTestConfigBuilder.TestPublishedLimitsKeepTheirValues;
+begin
+  CheckEquals(7200, Integer(TTlsConfigBuilder.DefaultTicketLifetimeSeconds),
+    'default ticket lifetime');
+  CheckEquals(32, Integer(TTlsConfigBuilder.MaxResumptionScopeLength), 'longest scope');
+end;
+
+procedure TTestConfigBuilder.TestServerConfigCarriesTheDefaultTicketLifetime;
+begin
+  CheckEquals(TTlsConfigBuilder.DefaultTicketLifetimeSeconds,
+    TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(ServerCredential).Build
+    .TicketLifetimeSeconds, 'a server config that never set a lifetime carries the default');
+end;
+
 procedure TTestConfigBuilder.TestResumptionScopeAboveCapIsRejected;
 var
   LServer: ITlsServerConfigBuilder;
@@ -4243,7 +4260,7 @@ var
 begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server;
   LScope := nil;
-  SetLength(LScope, 33); // one over the 32-byte cap
+  SetLength(LScope, TTlsConfigBuilder.MaxResumptionScopeLength + 1);
   LRaised := False;
   try
     LServer.WithResumptionScope(LScope);
@@ -4260,8 +4277,8 @@ var
   LScope: TBytes;
 begin
   LScope := nil;
-  SetLength(LScope, 32); // the boundary value is legal
-  FillChar(LScope[0], 32, $5C);
+  SetLength(LScope, TTlsConfigBuilder.MaxResumptionScopeLength);
+  FillChar(LScope[0], System.Length(LScope), $5C);
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential)
     .WithResumptionScope(LScope)
@@ -4278,7 +4295,7 @@ var
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client;
   LScope := nil;
-  SetLength(LScope, 33); // one over the 32-byte cap
+  SetLength(LScope, TTlsConfigBuilder.MaxResumptionScopeLength + 1);
   LRaised := False;
   try
     LClient.WithResumptionScope(LScope);
@@ -4295,8 +4312,8 @@ var
   LScope: TBytes;
 begin
   LScope := nil;
-  SetLength(LScope, 32); // the boundary value is legal
-  FillChar(LScope[0], 32, $5C);
+  SetLength(LScope, TTlsConfigBuilder.MaxResumptionScopeLength);
+  FillChar(LScope[0], System.Length(LScope), $5C);
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(
       TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)

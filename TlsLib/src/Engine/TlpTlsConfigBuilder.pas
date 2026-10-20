@@ -98,6 +98,12 @@ type
   /// and a version facet touched for a version that is not offered is refused at build.
   /// </summary>
   TTlsConfigBuilder = class(TInterfacedObject, ITlsConfigBuilder)
+  public const
+    /// <summary>The session-ticket lifetime in seconds a server config carries until
+    /// WithTicketLifetime sets another.</summary>
+    DefaultTicketLifetimeSeconds = UInt32(7200);
+    /// <summary>The longest session or resumption scope, in bytes, the builder accepts.</summary>
+    MaxResumptionScopeLength = Int32(32);
   strict private
   var
     FFrozen: Boolean;
@@ -581,11 +587,9 @@ resourcestring
   SSniCredentialInvalid = 'the SNI credential for host "%s" is invalid: %s';
 
 const
-  DefaultTicketLifetimeSeconds = UInt32(7200);
   DefaultTicketCount = Int32(2);
   MaxTicketCount = Int32(8);
   SessionScopeLength = Int32(16);
-  MaxResumptionScopeLength = Int32(32);
   MaxServerEarlyData = UInt32(1 shl 20);
   MaxAlpnListBytes = Int32(16384);
   // the names ride one list with a 2-byte length in both versions (RFC 5246 7.4.4, RFC 9846 4.3.4)
