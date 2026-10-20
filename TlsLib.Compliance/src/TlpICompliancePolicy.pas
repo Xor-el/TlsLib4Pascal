@@ -19,6 +19,7 @@ uses
   TlpComplianceTypes,
   TlpICryptoProvider,
   TlpIPkixProvider,
+  TlpINamedGroup,
   TlpITlsConfig,
   TlpITlsCredentialResolver,
   TlpTlsCredential,
@@ -32,7 +33,7 @@ type
   /// raises for what the enforcement mode does not tolerate.
   /// </summary>
   ICompliancePolicy = interface(IInterface)
-    ['{371DAE23-8791-4A91-978B-24F7E0AFA042}']
+    ['{6D1B0C58-2F47-4E93-A8D5-7C3E91B4F062}']
     /// <summary>A copy of the rules; the policy itself never changes.</summary>
     function Rules: TComplianceRules;
     function Enforcement: TComplianceEnforcement;
@@ -41,6 +42,9 @@ type
     /// <summary>The refusing PKIX provider every admitted config must hold.</summary>
     function Pkix: IPkixProvider;
     function Attestation: IModuleAttestation;
+    /// <summary>The groups of the rules, built over Crypto. A config is admitted only with these
+    /// group objects; derive a changed set with ToBuilder.</summary>
+    function NamedGroups: INamedGroupRegistry;
     /// <summary>The platform findings alone: the module, the backends and the rules.</summary>
     function PlatformReport: IComplianceReport;
     /// <summary>The platform findings plus those of AConfig; never raises for a finding.</summary>

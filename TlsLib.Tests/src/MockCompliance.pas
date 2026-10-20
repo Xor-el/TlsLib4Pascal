@@ -20,6 +20,8 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpISecretBuffer,
+  TlpIKeyExchangePrivateKey,
+  TlpINamedGroup,
   TlpISigningKey,
   TlpImportedCredential,
   TlpISystemSigningKey,
@@ -232,6 +234,41 @@ type
     property PrivateImports: Int32 read FPrivateImports;
   end;
 
+  /// <summary>A classical group a host wrote, answering ACode; it agrees nothing. Never for
+  /// production use.</summary>
+  TFakeNamedGroup = class sealed(TInterfacedObject, INamedGroup)
+  strict private
+  var
+    FCode: UInt16;
+  public
+    constructor Create(ACode: UInt16);
+    function Code: UInt16;
+    function Name: string;
+    function Kind: TNamedGroupKind;
+    function Composition: TNamedGroupComposition;
+    procedure GenerateKeyPair(out APriv: IKeyExchangePrivateKey; out APubShare: TBytes);
+    procedure Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
+      out ASharedSecret: ISecretBuffer);
+    procedure Decapsulate(const APriv: IKeyExchangePrivateKey; const ACiphertext: TBytes;
+      out ASharedSecret: ISecretBuffer);
+    function ValidatePeerShare(const AShare: TBytes): Boolean;
+  end;
+
+  /// <summary>A registry that lists the groups of AListed and resolves AResolved for its code
+  /// through TryGet, so the two disagree. Never for production use.</summary>
+  TFakeGroupRegistry = class sealed(TInterfacedObject, INamedGroupRegistry)
+  strict private
+  var
+    FListed: INamedGroupRegistry;
+    FResolved: INamedGroup;
+  public
+    constructor Create(const AListed: INamedGroupRegistry; const AResolved: INamedGroup);
+    function Items: TArray<INamedGroup>;
+    function Contains(ACode: UInt16): Boolean;
+    function TryGet(ACode: UInt16; out AGroup: INamedGroup): Boolean;
+    function ToBuilder: INamedGroupRegistryBuilder;
+  end;
+
   TComplianceFakes = class sealed(TObject)
   public
     /// <summary>A provider over the portable one that reports AReport and, when ASigning is not
@@ -246,6 +283,7 @@ implementation
 resourcestring
   SFakeVerifierAsked = 'the fake system verifier source builds no verifier';
   SFakeHpkeSealer = 'the fake HPKE suite seals nothing';
+  SFakeGroupAgrees = 'the fake group agrees nothing';
 
 { TFakeModuleAttestation }
 
@@ -656,6 +694,91 @@ end;
 function TFakeHpke.RandomEncapsulation(AKem: UInt16): TBytes;
 begin
   Result := TBytes.Create(1);
+end;
+
+{ TFakeNamedGroup }
+
+constructor TFakeNamedGroup.Create(ACode: UInt16);
+begin
+  inherited Create;
+  FCode := ACode;
+end;
+
+function TFakeNamedGroup.Code: UInt16;
+begin
+  Result := FCode;
+end;
+
+function TFakeNamedGroup.Name: string;
+begin
+  Result := 'fake';
+end;
+
+function TFakeNamedGroup.Kind: TNamedGroupKind;
+begin
+  Result := TNamedGroupKind.Ecdhe;
+end;
+
+function TFakeNamedGroup.Composition: TNamedGroupComposition;
+begin
+  Result := TNamedGroupComposition.From(TKeyAgreementAlgorithm.SECP256R1);
+end;
+
+procedure TFakeNamedGroup.GenerateKeyPair(out APriv: IKeyExchangePrivateKey;
+  out APubShare: TBytes);
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeGroupAgrees);
+end;
+
+procedure TFakeNamedGroup.Encapsulate(const APeerPub: TBytes; out ACiphertext: TBytes;
+  out ASharedSecret: ISecretBuffer);
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeGroupAgrees);
+end;
+
+procedure TFakeNamedGroup.Decapsulate(const APriv: IKeyExchangePrivateKey;
+  const ACiphertext: TBytes; out ASharedSecret: ISecretBuffer);
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeGroupAgrees);
+end;
+
+function TFakeNamedGroup.ValidatePeerShare(const AShare: TBytes): Boolean;
+begin
+  Result := False;
+end;
+
+{ TFakeGroupRegistry }
+
+constructor TFakeGroupRegistry.Create(const AListed: INamedGroupRegistry;
+  const AResolved: INamedGroup);
+begin
+  inherited Create;
+  FListed := AListed;
+  FResolved := AResolved;
+end;
+
+function TFakeGroupRegistry.Items: TArray<INamedGroup>;
+begin
+  Result := FListed.Items;
+end;
+
+function TFakeGroupRegistry.Contains(ACode: UInt16): Boolean;
+begin
+  Result := FListed.Contains(ACode);
+end;
+
+function TFakeGroupRegistry.TryGet(ACode: UInt16; out AGroup: INamedGroup): Boolean;
+begin
+  Result := ACode = FResolved.Code;
+  if Result then
+    AGroup := FResolved
+  else
+    AGroup := nil;
+end;
+
+function TFakeGroupRegistry.ToBuilder: INamedGroupRegistryBuilder;
+begin
+  Result := FListed.ToBuilder;
 end;
 
 { TComplianceFakes }

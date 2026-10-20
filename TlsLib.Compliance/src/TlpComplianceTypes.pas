@@ -99,7 +99,7 @@ type
     EarlyDataEnabled, EchConfigured, ExternalPskConfigured, Tls12PskConfigured,
     KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
     CredentialKeyUndetermined, CredentialKeyBelowRules, CredentialSchemesNotAllowed,
-    TicketAeadNotAllowed, CredentialResolverUnchecked);
+    TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup);
 
   TComplianceFinding = record
     Kind: TComplianceFindingKind;
@@ -154,6 +154,8 @@ type
     class function KeyMeets(const AFacts: TCertKeyFacts;
       const AStrength: TCertificateStrengthPolicy;
       const ARsaSizes: TArray<UInt32>): Boolean; static;
+    /// <summary>Whether ASuite is, field for field, the catalog definition of its code.</summary>
+    class function IsCatalogSuite(const ASuite: TTlsCipherSuite): Boolean; static;
     /// <summary>The display name of a module standard.</summary>
     class function StandardName(AStandard: TModuleStandard): string; static;
     /// <summary>The members of ASet in enum order.</summary>
@@ -495,6 +497,19 @@ begin
     if not LListed then
       Exit(False);
   end;
+end;
+
+class function TComplianceCatalog.IsCatalogSuite(const ASuite: TTlsCipherSuite): Boolean;
+var
+  LCatalog: TTlsCipherSuite;
+begin
+  Result := TCipherSuiteCatalog.TryGet(ASuite.Common.Code, LCatalog) and
+    (ASuite.Common.Hash = LCatalog.Common.Hash) and
+    (ASuite.Common.Aead = LCatalog.Common.Aead) and
+    (ASuite.Common.KeyLength = LCatalog.Common.KeyLength) and
+    (ASuite.Protocol = LCatalog.Protocol) and
+    (ASuite.KeyExchange = LCatalog.KeyExchange) and (ASuite.Auth = LCatalog.Auth) and
+    (ASuite.Prf = LCatalog.Prf);
 end;
 
 class function TComplianceCatalog.StandardName(AStandard: TModuleStandard): string;

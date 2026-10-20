@@ -172,6 +172,9 @@ type
     /// <summary>A ticket resumption where the server's sealed copy was authenticated AServerAgeMs ago
     /// and the client's cached copy AClientAgeMs ago; True when the server ran a full handshake.</summary>
     function ResumesAsFullHandshake(AServerAgeMs, AClientAgeMs: UInt64): Boolean;
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
   published
     procedure TestRenewedTicketKeepsTheAuthenticationTimeOnTheClient;
     procedure TestRenewedTicketKeepsTheAuthenticationTimeOnTheServer;
@@ -353,6 +356,25 @@ begin
 end;
 
 { TTestTls13Resumption }
+
+procedure TTestTls13Resumption.SetUp;
+begin
+  inherited SetUp;
+  // the fixture instance is reused by --repeat, so a test's override must not outlive it
+  FClientClock := nil;
+  FServerClock := nil;
+  FServerCrypto := nil;
+  FClientAlpn := nil;
+  FServerAlpn := nil;
+end;
+
+procedure TTestTls13Resumption.TearDown;
+begin
+  FClientClock := nil;
+  FServerClock := nil;
+  FServerCrypto := nil;
+  inherited TearDown;
+end;
 
 function TTestTls13Resumption.NewClient(const ACache: ISessionCache;
   AEarlyData: Boolean): ITlsEngine;

@@ -30,6 +30,7 @@ uses
   TlpITlsConfig,
   TlpINegotiation,
   TlpINamedGroup,
+  TlpNamedGroups,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpITlsServerCredentialSet,
@@ -67,6 +68,7 @@ type
     FReport: ICryptoBackendReport;
     FCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
+    FGroups: INamedGroupRegistry;
     FAttestation: IModuleAttestation;
     FPreset: string;
     FPlatformFindings: TArray<TComplianceFinding>;
@@ -80,6 +82,9 @@ type
     procedure CollectPlatform(const ABaseCrypto: ICryptoProvider;
       var AFindings: TArray<TComplianceFinding>);
     procedure CheckCommon(const AConfig: ITlsCommonConfig;
+      var AFindings: TArray<TComplianceFinding>);
+    // every group a config can resolve must be one the policy built over its own crypto
+    procedure CheckGroups(const AConfig: ITlsCommonConfig;
       var AFindings: TArray<TComplianceFinding>);
     function TryKeyFacts(const ACertificate: TBytes; out AFacts: TCertKeyFacts): Boolean;
     function CredentialSubject(AIndex: Int32; const ACredential: TTlsCredential): string;
@@ -109,6 +114,7 @@ type
     function Crypto: ICryptoProvider;
     function Pkix: IPkixProvider;
     function Attestation: IModuleAttestation;
+    function NamedGroups: INamedGroupRegistry;
     function PlatformReport: IComplianceReport;
     function Evaluate(const AConfig: ITlsClientConfig): IComplianceReport; overload;
     function Evaluate(const AConfig: ITlsServerConfig): IComplianceReport; overload;
@@ -141,6 +147,9 @@ resourcestring
     'the derivation is composed outside the module and the rules require it inside';
   SForeignCrypto = 'the config does not use the policy crypto provider';
   SForeignPkix = 'the config does not use the policy PKIX provider';
+  SForeignNamedGroup =
+    'the group was not built by the policy; use ICompliancePolicy.NamedGroups';
+  SSuiteDiffers = 'differs from the catalog definition of its code';
   SNotAllowed = 'is not allowed by the rules';
   SEmsNotRequired = 'TLS 1.2 is offered without requiring extended master secret (RFC 7627)';
   SEarlyData = 'early data is enabled';
@@ -351,6 +360,8 @@ constructor TCompliancePolicy.Create(const ARules: TComplianceRules;
 var
   LFindings: TArray<TComplianceFinding>;
   LReport: ICryptoBackendReport;
+  LGroups: TArray<INamedGroup>;
+  LI: Int32;
   LMatched, LHasReport: Boolean;
 begin
   inherited Create;
@@ -384,6 +395,12 @@ begin
     raise EComplianceUnmetTlsLibException.Create(LFindings);
   FPlatformFindings := LFindings;
   FCrypto := TComplianceCryptoProvider.Compose(ABaseCrypto, FRules, AEnforcement);
+  System.SetLength(LGroups, System.Length(FRules.NamedGroups));
+  for LI := 0 to System.Length(FRules.NamedGroups) - 1 do
+    // over the policy crypto, so each group's agreement is the refusing one
+    LGroups[LI] := TNamedGroups.CreateNistEcdh(FCrypto,
+      TNamedGroupCatalog.Name(FRules.NamedGroups[LI]));
+  FGroups := TNamedGroups.CreateRegistry(LGroups);
   FPkix := TCompliancePkixProvider.Create(ABasePkix, AEnforcement) as IPkixProvider;
   FPlatformReport := Report(FPlatformFindings, FDisclosures);
 end;
@@ -536,13 +553,52 @@ begin
     TArrayUtilities.Append<string>(ADisclosures, SFleetTicketKeys);
 end;
 
+procedure TCompliancePolicy.CheckGroups(const AConfig: ITlsCommonConfig;
+  var AFindings: TArray<TComplianceFinding>);
+var
+  LI: Int32;
+  LCode: UInt16;
+  LGroups: TArray<INamedGroup>;
+  LCodes: TArray<UInt16>;
+  LOwn, LConfigured: INamedGroup;
+  LAllowed: Boolean;
+begin
+  LGroups := AConfig.NamedGroups.Items;
+  for LI := 0 to System.Length(LGroups) - 1 do
+  begin
+    LCode := LGroups[LI].Code;
+    LAllowed := FGroups.TryGet(LCode, LOwn);
+    if not LAllowed then
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LCode),
+        SNotAllowed))
+    else if LGroups[LI] <> LOwn then
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LCode),
+        SForeignNamedGroup));
+  end;
+  // the engine resolves a preferred code through the config registry, whatever Items lists
+  LCodes := AConfig.PreferredGroups;
+  for LI := 0 to System.Length(LCodes) - 1 do
+  begin
+    LAllowed := FGroups.TryGet(LCodes[LI], LOwn);
+    if not LAllowed then
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LCodes[LI]),
+        SNotAllowed))
+    else if AConfig.NamedGroups.TryGet(LCodes[LI], LConfigured) and (LConfigured <> LOwn) then
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LCodes[LI]),
+        SForeignNamedGroup));
+  end;
+end;
+
 procedure TCompliancePolicy.CheckCommon(const AConfig: ITlsCommonConfig;
   var AFindings: TArray<TComplianceFinding>);
 var
   LI: Int32;
   LCodes: TArray<UInt16>;
   LSuites: TArray<TTlsCipherSuite>;
-  LGroups: TArray<INamedGroup>;
   LSchemes: TArray<TSignatureScheme>;
   LAllowed, LOffers12: Boolean;
 begin
@@ -571,26 +627,14 @@ begin
     if not LAllowed then
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
         TComplianceFindingKind.CipherSuiteNotAllowed,
-        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SNotAllowed));
-  end;
-  LGroups := AConfig.NamedGroups.Items;
-  for LI := 0 to System.Length(LGroups) - 1 do
-  begin
-    LAllowed := TArrayUtilities.Contains<UInt16>(FRules.NamedGroups, LGroups[LI].Code);
-    if not LAllowed then
+        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SNotAllowed))
+    else if not TComplianceCatalog.IsCatalogSuite(LSuites[LI]) then
+      // the engine builds its hash, AEAD and PRF from the record, not from its code
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LGroups[LI].Code),
-        SNotAllowed));
+        TComplianceFindingKind.CipherSuiteNotAllowed,
+        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SSuiteDiffers));
   end;
-  LCodes := AConfig.PreferredGroups;
-  for LI := 0 to System.Length(LCodes) - 1 do
-  begin
-    LAllowed := TArrayUtilities.Contains<UInt16>(FRules.NamedGroups, LCodes[LI]);
-    if not LAllowed then
-      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LCodes[LI]),
-        SNotAllowed));
-  end;
+  CheckGroups(AConfig, AFindings);
   LSchemes := AConfig.SignatureSchemes.Items;
   for LI := 0 to System.Length(LSchemes) - 1 do
     if not (LSchemes[LI] in FRules.SignatureSchemes) then
@@ -675,6 +719,11 @@ end;
 function TCompliancePolicy.Attestation: IModuleAttestation;
 begin
   Result := FAttestation;
+end;
+
+function TCompliancePolicy.NamedGroups: INamedGroupRegistry;
+begin
+  Result := FGroups;
 end;
 
 function TCompliancePolicy.PlatformReport: IComplianceReport;

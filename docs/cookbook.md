@@ -1057,6 +1057,10 @@ A private CA is passed with the roots, so it need not be installed in the OS sto
 `TComplianceTls.Client(Policy, TSystemTrustRoots.OsAndHostRoots(Store))` trusts `Store` with the OS
 roots, `TSystemTrustRoots.HostRoots(Store)` trusts it alone.
 
+The facade's groups come from `Policy.NamedGroups`, and `Admit` refuses any other group object. A
+host that changes the groups starts from `Policy.NamedGroups.ToBuilder`, prunes, and passes the
+built registry to `WithNamedGroups`.
+
 A server that picks its credential per handshake passes its own resolver; the policy wraps it so
 every credential it returns is checked (a resolver that is not wrapped is reported as unchecked, and
 `TSniCredentialResolver` and the builder's `WithSniCredential` list their credentials, so the policy

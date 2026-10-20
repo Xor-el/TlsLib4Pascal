@@ -169,6 +169,9 @@ type
     /// <summary>A full session-id handshake, leaving the session in AStore and ACache.</summary>
     procedure EstablishSessionIdSession(const AStore: ISessionStore; const ACache: ISessionCache;
       out AClient, AServer: ITlsEngine);
+  protected
+    procedure SetUp; override;
+    procedure TearDown; override;
   published
     procedure TestSessionIdResumeIsAbbreviated;
     procedure TestResumeWithoutNewTicketKeepsIssueTime;
@@ -247,6 +250,28 @@ type
 implementation
 
 { TTestTls12Resumption }
+
+procedure TTestTls12Resumption.SetUp;
+begin
+  inherited SetUp;
+  // the fixture instance is reused by --repeat, so a test's override must not outlive it
+  FClientAlpn := nil;
+  FServerAlpn := nil;
+  FClientClock := nil;
+  FServerClock := nil;
+  FServerCrypto := nil;
+  FReverify := False;
+  FResumeVerifier := nil;
+end;
+
+procedure TTestTls12Resumption.TearDown;
+begin
+  FClientClock := nil;
+  FServerClock := nil;
+  FServerCrypto := nil;
+  FResumeVerifier := nil;
+  inherited TearDown;
+end;
 
 function TTestTls12Resumption.NewClient(const ACache: ISessionCache;
   AOfferEms: Boolean): ITlsEngine;

@@ -24,9 +24,7 @@ uses
   TlpCipherSuiteCatalog,
   TlpCipherSuiteRegistry,
   TlpSignatureSchemeRegistry,
-  TlpINamedGroup,
   TlpINegotiation,
-  TlpNamedGroups,
   TlpCertificateLimits,
   TlpCertificateVerifierSource,
   TlpICertificateVerifierSource,
@@ -53,7 +51,6 @@ type
   TComplianceTls = class sealed(TObject)
   strict private
     class function Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile; static;
-    class function GroupRegistry(const APolicy: ICompliancePolicy): INamedGroupRegistry; static;
     class function ServerBase(const APolicy: ICompliancePolicy)
       : ITlsServerConfigBuilder; static;
   public
@@ -103,22 +100,6 @@ resourcestring
 
 { TComplianceTls }
 
-class function TComplianceTls.GroupRegistry(const APolicy: ICompliancePolicy)
-  : INamedGroupRegistry;
-var
-  LRules: TComplianceRules;
-  LGroups: TArray<INamedGroup>;
-  LI: Int32;
-begin
-  LRules := APolicy.Rules;
-  SetLength(LGroups, System.Length(LRules.NamedGroups));
-  for LI := 0 to System.Length(LRules.NamedGroups) - 1 do
-    // built over the policy crypto, so each group's agreement is the refusing one
-    LGroups[LI] := TNamedGroups.CreateNistEcdh(APolicy.Crypto,
-      TNamedGroupCatalog.Name(LRules.NamedGroups[LI]));
-  Result := TNamedGroups.CreateRegistry(LGroups);
-end;
-
 class function TComplianceTls.Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile;
 var
   LRules: TComplianceRules;
@@ -145,7 +126,7 @@ begin
     if LDefaults[LI] in LRules.SignatureSchemes then
       LSchemes.Add(LDefaults[LI]);
   Result.SignatureSchemes := LSchemes.Build;
-  Result.NamedGroups := GroupRegistry(APolicy);
+  Result.NamedGroups := APolicy.NamedGroups;
   Result.SupportedVersions := LRules.Versions;
   Result.PreferredGroups := LRules.NamedGroups;
   Result.CertificateChainLimits := TCertificateChainLimits.Defaults;

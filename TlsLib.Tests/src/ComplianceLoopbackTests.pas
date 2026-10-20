@@ -83,6 +83,7 @@ type
     procedure TestNonEmsPeerRefusedWithHandshakeFailure;
     procedure TestX25519OnlyPeerRefused;
     procedure TestChaChaOnlyPeerRefused;
+    procedure TestEachRuleGroupHandshakes;
 {$IFDEF TLSLIB_MSWINDOWS}
     procedure TestHostRootsClientHandshakesWithPrivateChain;
     procedure TestOsRootsClientRefusesPrivateChainWithUnknownCa;
@@ -345,6 +346,37 @@ begin
   CheckTrue(LServer.IsTerminal, 'no shared suite, so no handshake');
   CheckEquals(Ord(TTlsAlertDescription.HandshakeFailure),
     Ord(LServer.LastError.Alert.Description), 'a fatal handshake_failure');
+end;
+
+procedure TTestComplianceLoopback.TestEachRuleGroupHandshakes;
+var
+  LPolicy: ICompliancePolicy;
+  LGroups: TArray<UInt16>;
+  LClientBuilder: ITlsClientConfigBuilder;
+  LServerBuilder: ITlsServerConfigBuilder;
+  LClient, LServer: ITlsEngine;
+  LI: Int32;
+begin
+  LPolicy := NewPolicy;
+  LGroups := LPolicy.Rules.NamedGroups;
+  CheckTrue(System.Length(LGroups) > 0, 'the rules list groups');
+  for LI := 0 to System.Length(LGroups) - 1 do
+  begin
+    LClientBuilder := TComplianceTls.Client(LPolicy, TServerVerification.WebPki(
+      TTlsLibTestCertificates.EcP256RootStore));
+    LClientBuilder.WithPreferredGroups(TArray<UInt16>.Create(LGroups[LI]));
+    LServerBuilder := TComplianceTls.Server(LPolicy, ServerCredential(LPolicy.Crypto));
+    LServerBuilder.WithPreferredGroups(TArray<UInt16>.Create(LGroups[LI]));
+    LClient := TTlsEngineFactory.CreateClientEngine(TComplianceTls.BuildClient(LPolicy,
+      LClientBuilder), Host);
+    LServer := TTlsEngineFactory.CreateServerEngine(TComplianceTls.BuildServer(LPolicy,
+      LServerBuilder));
+    RunHandshake(LClient, LServer);
+    CheckFalse(LClient.IsTerminal, TNamedGroupCatalog.Name(LGroups[LI]) + ' client');
+    CheckFalse(LServer.IsTerminal, TNamedGroupCatalog.Name(LGroups[LI]) + ' server');
+    CheckEquals(LGroups[LI], LClient.ConnectionInfo.NamedGroup,
+      TNamedGroupCatalog.Name(LGroups[LI]));
+  end;
 end;
 
 {$IFDEF TLSLIB_MSWINDOWS}

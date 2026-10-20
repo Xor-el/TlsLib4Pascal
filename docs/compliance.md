@@ -157,6 +157,13 @@ external and TLS 1.2 PSKs, key logging, verification bypass, and the certificate
 (clients, and servers that request a client certificate). A client's chain must be verified by the
 OS verifier, and so must a server's client chain.
 
+- **Named groups.** A group carries the key-agreement provider it was built over, so a code in the
+  rules is not enough: every group in the config, and every preferred group the config resolves,
+  must be an object of `Policy.NamedGroups`. Any other group is `ForeignNamedGroup`, even one built
+  over the policy's crypto provider. The facade already uses them; to change the set, start from
+  `Policy.NamedGroups.ToBuilder` and prune.
+- **Cipher suites.** A suite must be the catalog definition of its code, so a hand-built record
+  that reuses an allowed code with another hash, AEAD or key length is `CipherSuiteNotAllowed`.
 - **Credentials.** For every server credential (the default and each server-name entry) and a
   client's own, Admit checks the key size and curve against the floors, that the key can sign with
   no scheme outside the rules, and that the module serves the key. A key that can sign with a
@@ -210,6 +217,9 @@ posture of Off is disclosed. A server reports these only when it requests client
 ## Limits
 
 - Skipping `Admit` loses the non-crypto checks.
+- Every honest misconfiguration through the public API is found. Deliberate forgery by code in the
+  same process, such as fake config or registry objects, is out of scope, as in comparable TLS
+  libraries.
 - Chains are verified by the OS verifier. A private CA does not need to be installed in the OS
   store: pass it as `TSystemTrustRoots.OsAndHostRoots(Store)` (trusted with the OS roots) or
   `TSystemTrustRoots.HostRoots(Store)` (trusted alone; the OS roots never vouch). Strict mode has
