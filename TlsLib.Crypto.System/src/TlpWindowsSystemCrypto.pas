@@ -56,7 +56,9 @@ type
   /// unusable on this host (bcrypt.dll or an entry point missing, or the provider cannot be
   /// opened); signing stays portable when ncrypt.dll or the KSP is unavailable. All
   /// Windows composition and the CNG bindings live in this unit's implementation, so the
-  /// factory only dispatches and nothing outside sees a CNG type.
+  /// factory only dispatches and nothing outside sees a CNG type. The TLS 1.2 PRF is reported as
+  /// System for every label: the key-schedule labels run in the module's KDF and exporter labels
+  /// are composed over the module HMAC.
   /// </summary>
   TWindowsSystemCrypto = class sealed(TObject)
   public
@@ -69,12 +71,15 @@ type
     /// <summary>ABase with CNG-backed facets opened on AImplementation (the CNG implementation
     /// name) and keys held on AKeyStorage, or ABase unchanged when bcrypt is unusable. An
     /// algorithm AImplementation cannot open stays portable; signing stays portable when
-    /// AKeyStorage cannot be opened.</summary>
+    /// AKeyStorage cannot be opened. Randomness is always the system-preferred generator, whatever
+    /// AImplementation names.</summary>
     class function Compose(const ABase: ICryptoProvider;
       const AImplementation, AKeyStorage: WideString): ICryptoProvider; static;
-    /// <summary>Whether AProvider is unchanged from what <see cref="Compose" /> returned, so its
-    /// backend report describes its own facets. False for nil, for a provider this composer did not
-    /// return, and for one rebuilt from other facets.</summary>
+    /// <summary>Whether AProvider is unchanged from what <see cref="Compose" /> returned on
+    /// <see cref="PrimitiveProvider" /> and <see cref="KeyStorageProvider" />, so its backend
+    /// report describes its own facets. False for nil, for a provider this composer did not
+    /// return, for one rebuilt from other facets, and for one composed on other providers.
+    /// </summary>
     class function IsComposition(const AProvider: ICryptoProvider): Boolean; static;
   end;
 
@@ -476,7 +481,7 @@ type
 
   // whether native ECDH is usable and, if so, the factory for its per-curve agreements.
   IWindowsCng = interface(IInterface)
-    ['{E5A0C37D-2B91-4D68-A4F3-91C7B6D02E58}']
+    ['{3C9E71B4-A6D2-4F05-8B1E-5D27C0F94A63}']
     function TryCreateAgreement(AAlgorithm: TKeyAgreementAlgorithm;
       out AAgreement: IKeyAgreement): Boolean;
     /// <summary>Whether the given NIST curve is served from CNG on this host (its
@@ -502,8 +507,10 @@ type
       ALength: Int32; out AOkm: TBytes): Boolean;
     /// <summary>The TLS 1.2 PRF for AAlgorithm served in-module by the CNG TLS1_2_KDF provider,
     /// gated on startup known answers for SHA-256 and SHA-384; False when unavailable, so the
-    /// caller composes the PRF over the CNG HMAC instead.</summary>
-    function TryCreateTls12Prf(AAlgorithm: THashAlgorithm; out APrf: ITls12Prf): Boolean;
+    /// caller composes the PRF over the CNG HMAC instead. Labels outside the TLS key schedule
+    /// (exporters) are computed by AExporter.</summary>
+    function TryCreateTls12Prf(AAlgorithm: THashAlgorithm; const AExporter: ITls12Prf;
+      out APrf: ITls12Prf): Boolean;
     /// <summary>Whether the given hash's TLS 1.2 PRF is served in-module on this host.</summary>
     function Tls12PrfAvailable(AAlgorithm: THashAlgorithm): Boolean;
     /// <summary>A CNG AEAD for AAlgorithm, or False when CNG cannot serve it here (e.g.
@@ -516,8 +523,8 @@ type
     function TryCreateKem(AAlgorithm: TKemAlgorithm; out AKem: IKem): Boolean;
     /// <summary>Whether the given KEM is served from CNG on this host.</summary>
     function KemAvailable(AAlgorithm: TKemAlgorithm): Boolean;
-    /// <summary>The resolved bcrypt entry-point table, so the signing engine can verify a
-    /// signature (BCryptVerifySignature) over a crypt32-imported public key.</summary>
+    /// <summary>The resolved bcrypt entry-point table, so the signing engine can import a public
+    /// key (BCryptImportKeyPair) and verify a signature (BCryptVerifySignature).</summary>
     function BcryptApi: TCngApi;
     /// <summary>The algorithm handle a public key of the given kind imports under, opened on the
     /// same pinned implementation as every other handle; nil when it could not be opened.</summary>
@@ -733,6 +740,9 @@ type
   // derivation key, the hash, label and seed travel as derive parameters. The provider handle is
   // borrowed from and kept alive by the context, which opens it only after SelfTest passed.
   // Unlike HKDF there is no per-call fallback: once the provider serves, a CNG failure raises.
+  // The provider bounds label and seed at 256 octets, which RFC 5705 exporter input exceeds, so
+  // only the TLS key-schedule labels reach it; any other label (an exporter) is computed by the
+  // composition over the module HMAC, chosen by label alone and never by a failure.
   TWindowsCngTls12Prf = class(TInterfacedObject, ITls12Prf)
   strict private
   var
@@ -740,16 +750,19 @@ type
     FAlg: Pointer;
     FHash: THashAlgorithm;
     FKeeper: IWindowsCng;
+    FExporter: ITls12Prf;
+    class function IsKeyScheduleLabel(const ALabel: string): Boolean; static;
   public
     constructor Create(const AApi: TCngApi; AAlg: Pointer; AHash: THashAlgorithm;
-      const AKeeper: IWindowsCng);
+      const AKeeper: IWindowsCng; const AExporter: ITls12Prf);
     /// <summary>Derives ALength octets into AOut; the NTSTATUS, success only when all came out.
     /// AHash is SHA-384 or SHA-256, the PRF hashes of TLS 1.2.</summary>
     class function Derive(const AApi: TCngApi; AAlg: Pointer; AHash: THashAlgorithm;
       ASecret: PByte; ASecretLength: Int32; const ALabel: string; const ASeed: TBytes;
       AOut: PByte; ALength: Int32): Integer; static;
     /// <summary>Whether the provider reproduces known answers for both PRF hashes in the
-    /// master-secret, extended-master-secret and key-block shapes.</summary>
+    /// master-secret and extended-master-secret (48 and 66 octet premaster), key-block and
+    /// Finished shapes.</summary>
     class function SelfTest(const AApi: TCngApi; AAlg: Pointer): Boolean; static;
     function Compute(const ASecret: ISecretBuffer; const ALabel: string;
       const ASeed: TBytes; ALength: Int32): ISecretBuffer;
@@ -842,7 +855,8 @@ type
     function HmacAvailable(AAlgorithm: THashAlgorithm): Boolean;
     function TryHkdfExpandNative(AAlgorithm: THashAlgorithm; const APrk, AInfo: TBytes;
       ALength: Int32; out AOkm: TBytes): Boolean;
-    function TryCreateTls12Prf(AAlgorithm: THashAlgorithm; out APrf: ITls12Prf): Boolean;
+    function TryCreateTls12Prf(AAlgorithm: THashAlgorithm; const AExporter: ITls12Prf;
+      out APrf: ITls12Prf): Boolean;
     function Tls12PrfAvailable(AAlgorithm: THashAlgorithm): Boolean;
     function TryCreateAead(AAlgorithm: TAeadAlgorithm; out AAead: IAead): Boolean;
     function AeadAvailable(AAlgorithm: TAeadAlgorithm): Boolean;
@@ -874,11 +888,13 @@ type
   // Owns one ephemeral NCrypt key handle shared by a signing key and its
   // preference-narrowed copies.
   INCryptKeyOwner = interface(IInterface)
-    ['{3B6E0C85-D142-4A7F-9E58-71C0F2A4B963}']
+    ['{9D41F3A6-0B7E-4C52-A8D9-62E5B1C07F34}']
     function Handle: NativeUInt;
     /// <summary>Serializes signing on the handle: concurrent use of one NCrypt key handle is
     /// not documented as safe.</summary>
     function SignLock: TCriticalSection;
+    /// <summary>The NCrypt instance that imported the key, as its canonical interface.</summary>
+    function Keeper: IInterface;
   end;
 
   // Marks a signing key produced by this backend, so the Signing decorator can route a
@@ -945,19 +961,19 @@ type
   var
     FHandle: NativeUInt;
     FSignLock: TCriticalSection;
-  public
-    constructor Create(AHandle: NativeUInt);
-    destructor Destroy; override;
-    function Handle: NativeUInt;
-    function SignLock: TCriticalSection;
-  end;
-
-  TNCryptKeyOwner = class(TNCryptKeyOwnerBase)
-  strict private
+  strict protected
   var
     FKeeper: IWindowsNCrypt;
   public
     constructor Create(const AKeeper: IWindowsNCrypt; AHandle: NativeUInt);
+    destructor Destroy; override;
+    function Handle: NativeUInt;
+    function SignLock: TCriticalSection;
+    function Keeper: IInterface;
+  end;
+
+  TNCryptKeyOwner = class(TNCryptKeyOwnerBase)
+  public
     destructor Destroy; override;
   end;
 
@@ -967,7 +983,6 @@ type
   TPfxKeyOwner = class(TNCryptKeyOwnerBase)
   strict private
   var
-    FKeeper: IWindowsNCrypt;
     FStore: Pointer;
     FCert: Pointer;
     FCallerFree: Boolean;
@@ -1010,7 +1025,8 @@ type
     function Sign: TBytes;
   end;
 
-  // Accumulates the to-be-verified bytes, then verifies (via crypt32-imported key + BCrypt).
+  // Accumulates the to-be-verified bytes, then verifies (BCrypt, on a key parsed from its SPKI and
+  // imported on the pinned implementation).
   // Owns the imported public key handle, freed on release. Fail-closed: any fault is False.
   // The neutral marker is listed itself: Supports finds only the interfaces a class names.
   TWindowsSignatureVerifier = class sealed(TSignatureInputBase, ISignatureVerifier,
@@ -1061,7 +1077,8 @@ type
     // AlgorithmIdentifier and the whole-octet key bits of an X.509 SubjectPublicKeyInfo
     class function SplitSpki(const ASpki: TBytes; out AOidOfs, AOidLen, AParamsOfs, AAlgEnd,
       AKeyOfs, AKeyLen: Int32): Boolean; static;
-    // the unsigned big-endian value of an INTEGER without its sign octet; nil for zero or negative
+    // the unsigned big-endian value of an INTEGER without its sign octet; nil for zero, negative
+    // or not minimally encoded
     class function IntegerMagnitude(const ADer: TBytes; AOfs, ALen: Int32): TBytes; static;
     // the BCRYPT_RSAKEY_BLOB public blob of the RSAPublicKey filling the key bits
     class function RsaPublicBlob(const ASpki: TBytes; AKeyOfs, AKeyLen: Int32;
@@ -1143,10 +1160,13 @@ type
   // The facet check of the report above, kept off the report's class so the caller needs no
   // interface-to-class cast.
   IWindowsReportFacets = interface(IInterface)
-    ['{C41E7B92-5D0A-4F36-8B1C-A2E9D07F6384}']
+    ['{57A8E2D0-91C4-4B3F-8E6A-0D1F7C25B948}']
     /// <summary>Whether AProvider exposes exactly the primitives and signing facets this report
     /// was built for, and an HPKE facet that agrees with the report's HPKE answer.</summary>
     function Describes(const AProvider: ICryptoProvider): Boolean;
+    /// <summary>Whether the report was built on the published implementation and key storage
+    /// names, not on whichever providers the composition was pointed at.</summary>
+    function Pinned: Boolean;
   end;
 
   // The backend map for the composed Windows provider. It answers, per algorithm and
@@ -1158,16 +1178,21 @@ type
   strict private
   var
     FCng: IWindowsCng;
+    FNCrypt: IInterface;
+    FImplementation: WideString;
+    FKeyStorage: WideString;
     FPrimitives: IInterface;
     FSigning: IInterface;
     FSigningNative: Boolean;
     FVerifyNative: Boolean;
     FSigningModule: Boolean;
   public
-    constructor Create(const ACng: IWindowsCng; const APrimitives: ICryptoPrimitives;
+    constructor Create(const ACng: IWindowsCng; const ANCrypt: IWindowsNCrypt;
+      const AImplementation, AKeyStorage: WideString; const APrimitives: ICryptoPrimitives;
       const ASigning: ISigningCrypto; ASigningModule, ASigningNative, AVerifyNative,
       AHpkeComposed: Boolean);
     function Describes(const AProvider: ICryptoProvider): Boolean;
+    function Pinned: Boolean;
     function RandomBackend: TCryptoBackendEntry; override;
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
@@ -1499,13 +1524,27 @@ end;
 { TWindowsCngTls12Prf }
 
 constructor TWindowsCngTls12Prf.Create(const AApi: TCngApi; AAlg: Pointer;
-  AHash: THashAlgorithm; const AKeeper: IWindowsCng);
+  AHash: THashAlgorithm; const AKeeper: IWindowsCng; const AExporter: ITls12Prf);
 begin
   inherited Create;
   FApi := AApi;
   FAlg := AAlg;
   FHash := AHash;
   FKeeper := AKeeper;
+  FExporter := AExporter;
+end;
+
+class function TWindowsCngTls12Prf.IsKeyScheduleLabel(const ALabel: string): Boolean;
+const
+  Labels: array [0 .. 4] of string = ('master secret', 'extended master secret',
+    'key expansion', 'client finished', 'server finished');
+var
+  LI: Int32;
+begin
+  Result := False;
+  for LI := Low(Labels) to High(Labels) do
+    if ALabel = Labels[LI] then
+      Exit(True);
 end;
 
 class function TWindowsCngTls12Prf.Derive(const AApi: TCngApi; AAlg: Pointer;
@@ -1562,7 +1601,7 @@ type
     Expected: string;
   end;
 const
-  Kats: array [0 .. 5] of TKat = (
+  Kats: array [0 .. 11] of TKat = (
     (Hash: THashAlgorithm.SHA_256; KdfLabel: 'master secret'; SecretLength: 48; SeedLength: 64;
     Expected: 'c2d8c85b4c2617bb55f44798d2060bb47109b3eb3be5d88e00082be9f9ec2e74' +
     'f6974d20dacd86fe6fe4bafe6ccc9e1a'),
@@ -1580,7 +1619,23 @@ const
     'e8a97dd9c0afeb1caa1abfd6871af642'),
     (Hash: THashAlgorithm.SHA_384; KdfLabel: 'key expansion'; SecretLength: 48; SeedLength: 64;
     Expected: '2d3815afd74492b47d7d4877424b0b9a9acf1a4c5bdf92f79fbd22bdf740ebeb' +
-    '6c80dcf48791b56eb9de0fb6496baebeeba54436a893b075106343a1a4ea1967' + 'b23f9a6d97ef91e8'));
+    '6c80dcf48791b56eb9de0fb6496baebeeba54436a893b075106343a1a4ea1967' + 'b23f9a6d97ef91e8'),
+    (Hash: THashAlgorithm.SHA_256; KdfLabel: 'master secret'; SecretLength: 66; SeedLength: 64;
+    Expected: '5c24d54262a5d4183f9533e36061cb024ac413be0a586be3ab5d3414707d3435' +
+    '8f66b63156fa40bbd28eec2e7c24b1ca'),
+    (Hash: THashAlgorithm.SHA_256; KdfLabel: 'extended master secret'; SecretLength: 66;
+    SeedLength: 32; Expected: '7ead57e927028268e32f5024fc49ab6184d794f3a0e76fb933f67d61a033514f' +
+    '89ec7762316580106055a8d850af1fee'),
+    (Hash: THashAlgorithm.SHA_256; KdfLabel: 'client finished'; SecretLength: 48; SeedLength: 32;
+    Expected: '93bcbe2d54453ff5a981f12d'),
+    (Hash: THashAlgorithm.SHA_384; KdfLabel: 'master secret'; SecretLength: 66; SeedLength: 64;
+    Expected: '58a49c028f18f2b5c4b6ef0de0a848f3beaabc11184a296c0679e98696c7b5f5' +
+    '84242a5fe5e798f04b8f735c587da834'),
+    (Hash: THashAlgorithm.SHA_384; KdfLabel: 'extended master secret'; SecretLength: 66;
+    SeedLength: 48; Expected: 'bc1916d95ae78ffe75affae9dc507443e9aef09135d52682adc3c06c13ad0e71' +
+    '1850ab0c6df046a2f07427de8a9f4c69'),
+    (Hash: THashAlgorithm.SHA_384; KdfLabel: 'server finished'; SecretLength: 48; SeedLength: 48;
+    Expected: 'faaa2b61609b8848ce133a9b'));
 var
   LSecret, LSeed, LExpected, LOutput: TBytes;
   LI: Int32;
@@ -1615,6 +1670,11 @@ end;
 function TWindowsCngTls12Prf.Compute(const ASecret: ISecretBuffer; const ALabel: string;
   const ASeed: TBytes; ALength: Int32): ISecretBuffer;
 begin
+  if not IsKeyScheduleLabel(ALabel) then
+  begin
+    Result := FExporter.Compute(ASecret, ALabel, ASeed, ALength);
+    Exit;
+  end;
   // the output is key material, so it lands in a wiped buffer; a negative length raises there
   Result := TSecretBuffer.Allocate(ALength);
   // CNG derives at least one octet; a zero length is an empty buffer, as in the composition
@@ -2934,11 +2994,12 @@ begin
 end;
 
 function TWindowsCng.TryCreateTls12Prf(AAlgorithm: THashAlgorithm;
-  out APrf: ITls12Prf): Boolean;
+  const AExporter: ITls12Prf; out APrf: ITls12Prf): Boolean;
 begin
   Result := Tls12PrfAvailable(AAlgorithm);
   if Result then
-    APrf := TWindowsCngTls12Prf.Create(FApi, FTls12Kdf, AAlgorithm, Self as IWindowsCng)
+    APrf := TWindowsCngTls12Prf.Create(FApi, FTls12Kdf, AAlgorithm, Self as IWindowsCng,
+      AExporter)
   else
     APrf := nil;
 end;
@@ -3057,13 +3118,15 @@ end;
 
 function TWindowsCryptoPrimitives.CreateTls12Prf(
   AAlgorithm: THashAlgorithm): ITls12Prf;
+var
+  LComposed: ITls12Prf;
 begin
-  if FCng.TryCreateTls12Prf(AAlgorithm, Result) then
-    Exit;
   if FCng.HmacAvailable(AAlgorithm) then
-    Result := TTls12PrfComposition.Create(Self, AAlgorithm) as ITls12Prf
+    LComposed := TTls12PrfComposition.Create(Self, AAlgorithm) as ITls12Prf
   else
-    Result := inherited CreateTls12Prf(AAlgorithm);
+    LComposed := inherited CreateTls12Prf(AAlgorithm);
+  if not FCng.TryCreateTls12Prf(AAlgorithm, LComposed, Result) then
+    Result := LComposed;
 end;
 
 function TWindowsCryptoPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
@@ -3087,12 +3150,16 @@ end;
 
 { TWindowsBackendReport }
 
-constructor TWindowsBackendReport.Create(const ACng: IWindowsCng;
-  const APrimitives: ICryptoPrimitives; const ASigning: ISigningCrypto;
-  ASigningModule, ASigningNative, AVerifyNative, AHpkeComposed: Boolean);
+constructor TWindowsBackendReport.Create(const ACng: IWindowsCng; const ANCrypt: IWindowsNCrypt;
+  const AImplementation, AKeyStorage: WideString; const APrimitives: ICryptoPrimitives;
+  const ASigning: ISigningCrypto; ASigningModule, ASigningNative, AVerifyNative,
+  AHpkeComposed: Boolean);
 begin
   inherited Create(AHpkeComposed);
   FCng := ACng;
+  FNCrypt := ANCrypt as IInterface;
+  FImplementation := AImplementation;
+  FKeyStorage := AKeyStorage;
   // the canonical interface of each object, so Describes compares what it asks the provider for
   FPrimitives := APrimitives as IInterface;
   FSigning := ASigning as IInterface;
@@ -3109,6 +3176,12 @@ begin
     (AProvider.Signing as IInterface = FSigning) and
     ((FacetBackend(TCryptoFacet.Hpke).Backend <> TCryptoBackend.Composed) or
     TOverlayCryptoProvider.ComposesHpkeOver(AProvider.Hpke, AProvider.Primitives));
+end;
+
+function TWindowsBackendReport.Pinned: Boolean;
+begin
+  Result := (FImplementation = TWindowsSystemCrypto.PrimitiveProvider) and
+    (FKeyStorage = TWindowsSystemCrypto.KeyStorageProvider);
 end;
 
 function TWindowsBackendReport.RandomBackend: TCryptoBackendEntry;
@@ -3203,9 +3276,13 @@ end;
 
 function TWindowsBackendReport.SigningKeyBackend(
   const AKey: ISigningKey): TCryptoBackendEntry;
+var
+  LNative: IWindowsSigningKey;
 begin
-  // the class, not the marker: any host key can list ISystemSigningKey
-  if AKey is TWindowsSigningKey then
+  // the class, not the marker: any host key can list ISystemSigningKey; and the key must have been
+  // imported by this composition's own key storage, not by another one
+  if (AKey is TWindowsSigningKey) and (FNCrypt <> nil) and
+    Supports(AKey, IWindowsSigningKey, LNative) and (LNative.SigningKeyOwner.Keeper = FNCrypt) then
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
   else
     Result := NotNative;
@@ -3315,9 +3392,10 @@ end;
 
 { TNCryptKeyOwnerBase }
 
-constructor TNCryptKeyOwnerBase.Create(AHandle: NativeUInt);
+constructor TNCryptKeyOwnerBase.Create(const AKeeper: IWindowsNCrypt; AHandle: NativeUInt);
 begin
   inherited Create;
+  FKeeper := AKeeper;
   FHandle := AHandle;
   FSignLock := TCriticalSection.Create;
 end;
@@ -3338,14 +3416,12 @@ begin
   Result := FSignLock;
 end;
 
-{ TNCryptKeyOwner }
-
-constructor TNCryptKeyOwner.Create(const AKeeper: IWindowsNCrypt;
-  AHandle: NativeUInt);
+function TNCryptKeyOwnerBase.Keeper: IInterface;
 begin
-  inherited Create(AHandle);
-  FKeeper := AKeeper;
+  Result := FKeeper as IInterface;
 end;
+
+{ TNCryptKeyOwner }
 
 destructor TNCryptKeyOwner.Destroy;
 begin
@@ -3359,8 +3435,7 @@ end;
 constructor TPfxKeyOwner.Create(const AKeeper: IWindowsNCrypt; AStore, ACert: Pointer;
   AHandle: NativeUInt; ACallerFree: Boolean);
 begin
-  inherited Create(AHandle);
-  FKeeper := AKeeper;
+  inherited Create(AKeeper, AHandle);
   FStore := AStore;
   FCert := ACert;
   FCallerFree := ACallerFree;
@@ -3702,6 +3777,7 @@ begin
   // it with BCryptVerifySignature; if any part is absent, verification falls back to portable
   FVerifyReady := System.Assigned(FBcrypt.ImportKeyPair) and
     System.Assigned(FBcrypt.VerifySignature) and System.Assigned(FBcrypt.DestroyKey) and
+    System.Assigned(FBcrypt.GetProperty) and
     (ACng.VerifyAlgorithm(TCngVerifyKey.Rsa) <> nil) and
     (ACng.VerifyAlgorithm(TCngVerifyKey.EcdsaP256) <> nil) and
     (ACng.VerifyAlgorithm(TCngVerifyKey.EcdsaP384) <> nil) and
@@ -4012,13 +4088,15 @@ begin
   // a negative INTEGER is no key component; the sign octet of a positive one is not part of it
   if (ALen < 1) or (ADer[AOfs] >= $80) then
     Exit;
-  while (ALen > 0) and (ADer[AOfs] = 0) do
+  // DER allows one leading 00, and only to keep a high bit from reading as a sign
+  if ADer[AOfs] = 0 then
   begin
+    if (ALen < 2) or (ADer[AOfs + 1] < $80) then
+      Exit;
     Inc(AOfs);
     Dec(ALen);
   end;
-  if ALen > 0 then
-    Result := System.Copy(ADer, AOfs, ALen);
+  Result := System.Copy(ADer, AOfs, ALen);
 end;
 
 class function TWindowsNCrypt.RsaPublicBlob(const ASpki: TBytes; AKeyOfs, AKeyLen: Int32;
@@ -4132,9 +4210,9 @@ begin
   begin
     LKind := TCngVerifyKey.Rsa;
     LBlobType := BCRYPT_RSAPUBLIC_BLOB;
-    // the parameters are NULL or absent (RFC 8017 A.1)
-    if not ((LParamsOfs = LAlgEnd) or ((LAlgEnd - LParamsOfs = 2) and (ASpki[LParamsOfs] = $05) and
-      (ASpki[LParamsOfs + 1] = 0))) then
+    // the parameters are NULL (RFC 3279 2.3.1, RFC 8017 A.1); absent ones are left to portable
+    if not ((LAlgEnd - LParamsOfs = 2) and (ASpki[LParamsOfs] = $05) and
+      (ASpki[LParamsOfs + 1] = 0)) then
       Exit(False);
     if not RsaPublicBlob(ASpki, LKeyOfs, LKeyLen, LBlob) then
       Exit(False);
@@ -4482,8 +4560,8 @@ function TWindowsSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureScheme
 var
   LKeyHandle: Pointer;
 begin
-  // RSA/ECDSA verify natively when the SPKI imports; EdDSA, an unsupported scheme, or a
-  // key crypt32 cannot decode falls back to the portable verifier (which owns the error)
+  // RSA/ECDSA verify natively when the SPKI parses and BCryptImportKeyPair takes it; EdDSA, an
+  // unsupported scheme, or any other key falls back to the portable verifier (which owns the error)
   if TWindowsNCrypt.IsNativeScheme(AScheme) and FNCrypt.CanVerify and
     FNCrypt.TryImportSpki(APublicKeyDer, LKeyHandle) then
     Result := TWindowsSignatureVerifier.Create(FNCrypt, LKeyHandle, AScheme)
@@ -4532,8 +4610,9 @@ begin
     LExposedSigning := LSigning
   else
     LExposedSigning := ABase.Signing;
-  LReport := TWindowsBackendReport.Create(LCng, LPrimitives, LExposedSigning, LSigning <> nil,
-    LSigningNative, LVerifyNative, TOverlayCryptoProvider.RebuildsHpke(ABase));
+  LReport := TWindowsBackendReport.Create(LCng, LNCrypt, AImplementation, AKeyStorage,
+    LPrimitives, LExposedSigning, LSigning <> nil, LSigningNative, LVerifyNative,
+    TOverlayCryptoProvider.RebuildsHpke(ABase));
   Result := TOverlayCryptoProvider.Create(ABase, LPrimitives, LSigning, LReport, nil);
 end;
 
@@ -4545,7 +4624,8 @@ begin
   // the class checks, not the interfaces: any host class can list either one
   Result := (AProvider <> nil) and (AProvider is TOverlayCryptoProvider) and
     Supports(AProvider, ICryptoBackendReport, LReport) and (LReport is TWindowsBackendReport) and
-    Supports(LReport, IWindowsReportFacets, LFacets) and LFacets.Describes(AProvider);
+    Supports(LReport, IWindowsReportFacets, LFacets) and LFacets.Pinned and
+    LFacets.Describes(AProvider);
 end;
 
 {$ENDIF}

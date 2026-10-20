@@ -198,6 +198,9 @@ type
     procedure TestReportNamingHpkeRefusesForeignHpkeFacet;
     procedure TestReportNamingHpkeRefusesCompositionOverOtherPrimitives;
     procedure TestReportNamingHpkeAcceptsCompositionOverOverlayPrimitives;
+    // the check runs on the facet the overlay ends up with, supplied or taken from the base
+    procedure TestReportNamingHpkeRefusesForeignBaseHpkeFacet;
+    procedure TestReportNamingHpkeAcceptsDefaultBaseHpkeFacet;
     procedure TestPortableHpkeReportAcceptsForeignHpkeFacet;
     // no provider other than what Compose returned is a composition, on any platform
     procedure TestNilIsNotAComposition;
@@ -211,6 +214,13 @@ type
     // Whether the verifier for ASpki under AScheme is the OS module's; a key the facets refuse
     // outright counts as not native.
     function VerifierIsNative(AScheme: TSignatureScheme; const ASpki: TBytes): Boolean;
+    // One DER element of up to 65535 content octets.
+    function DerElement(ATag: Byte; const AContent: TBytes): TBytes;
+    // The RSA modulus (no sign octet) of the rsa_pub SubjectPublicKeyInfo fixture.
+    function FixtureModulus: TBytes;
+    // An rsaEncryption SubjectPublicKeyInfo over AModulus behind AZeros leading 00 octets, with
+    // NULL parameters or none.
+    function RsaSpki(const AModulus: TBytes; AZeros: Int32; AWithNull: Boolean): TBytes;
     // The import outcome as text: chain and key SPKI on success, exception class and message else.
     function Pkcs12Outcome(const AProvider: ICryptoProvider; const AField: string;
       const APassword: ISecretBuffer): string;
@@ -296,6 +306,12 @@ type
     procedure TestPkcs12KeyOnAnotherKeyStorageIsLeftToPortable;
     // the composition check
     procedure TestComposedProviderIsAComposition;
+    // only the published provider names make the unchanged OS composition
+    procedure TestCompositionOnThePublishedProvidersIsAComposition;
+    procedure TestCompositionOnAnotherImplementationIsNotAComposition;
+    procedure TestCompositionOnAnotherKeyStorageIsNotAComposition;
+    // a key another composition imported is no System key under this report
+    procedure TestKeyOfAnotherCompositionIsNotReportedSystem;
     procedure TestCopiedReportOverPortableFacetsIsNotAComposition;
     procedure TestSubstitutedPrimitivesAreNotAComposition;
     procedure TestSubstitutedSigningIsNotAComposition;
@@ -304,11 +320,18 @@ type
     procedure TestHostClassBorrowingTheReportIsNotAComposition;
     procedure TestHybridPointSpkiIsNotImportedNatively;
     procedure TestRsaSpkiWithNonNullParametersIsNotImportedNatively;
+    // the rebuilt SPKI is the control for the two refusals that follow
+    procedure TestRebuiltRsaSpkiIsImportedNatively;
+    procedure TestRsaSpkiWithAbsentParametersIsNotImportedNatively;
+    procedure TestRsaSpkiWithNonMinimalModulusIsNotImportedNatively;
     // the TLS 1.2 PRF is served in-module and agrees with the portable composition in every
     // shape the key schedule asks for
     procedure TestTls12PrfIsServedInModule;
     procedure TestTls12PrfMatchesThePublishedVectors;
     procedure TestTls12PrfMatchesPortableInEveryKeyScheduleShape;
+    // exporter labels and seeds beyond the module's bounds are composed, not refused
+    procedure TestTls12PrfMatchesPortableInExporterShapes;
+    procedure TestTls12PrfExporterSeedBeyondTheModuleBoundIsServed;
     procedure TestTls12PrfZeroLengthIsEmptyAndNegativeRaises;
     procedure TestTls12KeyScheduleMatchesPortable;
   end;
@@ -1734,6 +1757,72 @@ begin
     (LReport.VerifierBackend(LVerifier).Backend = TCryptoBackend.System);
 end;
 
+function TTestWindowsNativeCryptoProvider.DerElement(ATag: Byte;
+  const AContent: TBytes): TBytes;
+var
+  LHeader: TBytes;
+begin
+  if System.Length(AContent) < $80 then
+    LHeader := TBytes.Create(ATag, Byte(System.Length(AContent)))
+  else if System.Length(AContent) < $100 then
+    LHeader := TBytes.Create(ATag, $81, Byte(System.Length(AContent)))
+  else
+    LHeader := TBytes.Create(ATag, $82, Byte(System.Length(AContent) shr 8),
+      Byte(System.Length(AContent)));
+  Result := TArrayUtilities.Concat(LHeader, AContent);
+end;
+
+function TTestWindowsNativeCryptoProvider.FixtureModulus: TBytes;
+var
+  LSpki: TBytes;
+  LSize: Int32;
+begin
+  LSpki := DecodeHex(FKeys.Values['rsa_pub']);
+  // the key ends with the modulus then publicExponent 65537 as 02 03 01 00 01
+  LSize := System.Length(LSpki);
+  CheckEquals($010001, (Int32(LSpki[LSize - 3]) shl 16) or (Int32(LSpki[LSize - 2]) shl 8) or
+    LSpki[LSize - 1], 'the fixture exponent');
+  Result := System.Copy(LSpki, LSize - 5 - 256, 256);
+  CheckTrue(Result[0] >= $80, 'the fixture modulus is a full 2048 bits');
+end;
+
+function TTestWindowsNativeCryptoProvider.RsaSpki(const AModulus: TBytes; AZeros: Int32;
+  AWithNull: Boolean): TBytes;
+var
+  LOid, LAlgorithm, LModulus, LKey: TBytes;
+begin
+  LOid := DerElement($06, DecodeHex('2a864886f70d010101'));
+  if AWithNull then
+    LAlgorithm := DerElement($30, TArrayUtilities.Concat(LOid, TBytes.Create($05, $00)))
+  else
+    LAlgorithm := DerElement($30, LOid);
+  LModulus := nil;
+  SetLength(LModulus, AZeros);
+  LModulus := TArrayUtilities.Concat(LModulus, AModulus);
+  LKey := DerElement($30, TArrayUtilities.Concat(DerElement($02, LModulus),
+    DerElement($02, TBytes.Create($01, $00, $01))));
+  Result := DerElement($30, TArrayUtilities.Concat(LAlgorithm,
+    DerElement($03, TArrayUtilities.Concat(TBytes.Create($00), LKey))));
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestRebuiltRsaSpkiIsImportedNatively;
+begin
+  CheckTrue(VerifierIsNative(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    RsaSpki(FixtureModulus, 1, True)), 'the minimal encoding with NULL parameters');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestRsaSpkiWithAbsentParametersIsNotImportedNatively;
+begin
+  CheckFalse(VerifierIsNative(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    RsaSpki(FixtureModulus, 1, False)), 'rsaEncryption parameters are NULL, not absent');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestRsaSpkiWithNonMinimalModulusIsNotImportedNatively;
+begin
+  CheckFalse(VerifierIsNative(TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    RsaSpki(FixtureModulus, 2, True)), 'a second leading 00 is no DER INTEGER');
+end;
+
 procedure TTestWindowsNativeCryptoProvider.TestNativeSigningAndVerificationAreEngaged;
 const
   Schemes: array [0 .. 1] of TSignatureScheme = (TSignatureScheme.RSA_PSS_RSAE_SHA256,
@@ -1797,6 +1886,8 @@ begin
     'AES-GCM');
   CheckTrue(LReport.Tls12PrfBackend(THashAlgorithm.SHA_256).Backend = TCryptoBackend.Portable,
     'TLS 1.2 PRF');
+  // the generator is the system-preferred one, so no implementation name can make it portable
+  CheckTrue(LReport.RandomBackend.Backend = TCryptoBackend.System, 'randomness');
   for LI := Low(Curves) to High(Curves) do
     CheckTrue(LReport.KeyAgreementBackend(Curves[LI]).Backend = TCryptoBackend.Portable,
       Format('key agreement %d', [Ord(Curves[LI])]));
@@ -1883,6 +1974,50 @@ end;
 procedure TTestWindowsNativeCryptoProvider.TestComposedProviderIsAComposition;
 begin
   CheckTrue(TOSCryptoProvider.IsComposition(Crypto), 'what Compose returned');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestCompositionOnThePublishedProvidersIsAComposition;
+begin
+  CheckTrue(TOSCryptoProvider.IsComposition(TWindowsSystemCrypto.Compose(Portable,
+    TWindowsSystemCrypto.PrimitiveProvider, TWindowsSystemCrypto.KeyStorageProvider)),
+    'a fresh composition on the published names');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestCompositionOnAnotherImplementationIsNotAComposition;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := TWindowsSystemCrypto.Compose(Portable, 'No Such Implementation',
+    TWindowsSystemCrypto.KeyStorageProvider);
+  CheckTrue(LProvider is TOverlayCryptoProvider, 'the overlay engaged');
+  CheckFalse(TOSCryptoProvider.IsComposition(LProvider), 'another CNG implementation');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestCompositionOnAnotherKeyStorageIsNotAComposition;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := TWindowsSystemCrypto.Compose(Portable, TWindowsSystemCrypto.PrimitiveProvider,
+    'Microsoft Smart Card Key Storage Provider');
+  CheckTrue(LProvider is TOverlayCryptoProvider, 'the overlay engaged');
+  CheckFalse(TOSCryptoProvider.IsComposition(LProvider), 'another key storage provider');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestKeyOfAnotherCompositionIsNotReportedSystem;
+var
+  LOther: ICryptoProvider;
+  LReport: ICryptoBackendReport;
+  LKey: ISigningKey;
+begin
+  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+    Exit;
+  LOther := TWindowsSystemCrypto.Compose(Portable, TWindowsSystemCrypto.PrimitiveProvider,
+    TWindowsSystemCrypto.KeyStorageProvider);
+  LKey := LOther.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckTrue(IsNativeKey(LOther, LKey), 'the other composition imported the key natively');
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
+  CheckTrue(LReport.SigningKeyBackend(LKey).Backend = TCryptoBackend.Portable,
+    'a key held by another composition is not this one''s System key');
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestCopiedReportOverPortableFacetsIsNotAComposition;
@@ -2048,6 +2183,61 @@ begin
       end;
     end;
   end;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestTls12PrfMatchesPortableInExporterShapes;
+const
+  Hashes: array [0 .. 1] of THashAlgorithm = (THashAlgorithm.SHA_256, THashAlgorithm.SHA_384);
+  // randoms, the context length, the context: 256 octets at 190, one past the bound at 191
+  ContextLengths: array [0 .. 3] of Int32 = (0, 190, 191, 65535);
+  OutputLengths: array [0 .. 1] of Int32 = (32, 136);
+var
+  LNative, LPortable: ITls12Prf;
+  LSecret: ISecretBuffer;
+  LSeed: TBytes;
+  LLabels: array [0 .. 3] of string;
+  LH, LL, LC, LO, LI: Int32;
+begin
+  LLabels[0] := '';
+  LLabels[1] := 'EXPORTER-x';
+  LLabels[2] := StringOfChar('L', 300);
+  LLabels[3] := 'EXPERIMENTAL mine';
+  LSecret := TSecretBuffer.Allocate(48);
+  for LI := 0 to 47 do
+    (LSecret.DataPtr + LI)^ := Byte(LI * 7 + 1);
+  for LH := Low(Hashes) to High(Hashes) do
+  begin
+    LNative := Crypto.Primitives.CreateTls12Prf(Hashes[LH]);
+    LPortable := Portable.Primitives.CreateTls12Prf(Hashes[LH]);
+    for LC := Low(ContextLengths) to High(ContextLengths) do
+    begin
+      LSeed := nil;
+      SetLength(LSeed, 64 + 2 + ContextLengths[LC]);
+      for LI := 0 to System.Length(LSeed) - 1 do
+        LSeed[LI] := Byte(LI * 11 + LC);
+      for LL := Low(LLabels) to High(LLabels) do
+        for LO := Low(OutputLengths) to High(OutputLengths) do
+          CheckEqualBytes(Format('hash %d context %d label %d output %d',
+            [Ord(Hashes[LH]), ContextLengths[LC], LL, OutputLengths[LO]]),
+            LPortable.Compute(LSecret, LLabels[LL], LSeed, OutputLengths[LO]).ToBytes,
+            LNative.Compute(LSecret, LLabels[LL], LSeed, OutputLengths[LO]).ToBytes);
+    end;
+  end;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestTls12PrfExporterSeedBeyondTheModuleBoundIsServed;
+var
+  LPrf: ITls12Prf;
+  LSecret: ISecretBuffer;
+  LSeed: TBytes;
+begin
+  // the module KDF refuses a seed over 256 octets, so this succeeds only if the label routes away
+  LPrf := Crypto.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256);
+  LSecret := TSecretBuffer.From(DecodeHex('0102030405060708'));
+  LSeed := nil;
+  SetLength(LSeed, 300);
+  CheckEquals(16, LPrf.Compute(LSecret, 'EXPORTER-x', LSeed, 16).Len,
+    'a seed past 256 octets is derived');
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestTls12PrfZeroLengthIsEmptyAndNegativeRaises;
@@ -2644,6 +2834,34 @@ begin
   LOverlay := TOverlayCryptoProvider.Create(LBase, LPrimitives, nil,
     THpkeFlagReport.Create(True) as ICryptoBackendReport, LSupplied) as ICryptoProvider;
   CheckTrue(LOverlay.Hpke = LSupplied, 'a composition over the overlay''s primitives is kept');
+end;
+
+procedure TTestOverlayCryptoProvider.TestReportNamingHpkeRefusesForeignBaseHpkeFacet;
+var
+  LBase: ICryptoProvider;
+  LRaised: Boolean;
+begin
+  LBase := BaseWithHpke(TStubHpke.Create as IHpkeCrypto);
+  LRaised := False;
+  try
+    TOverlayCryptoProvider.Create(LBase, nil, nil,
+      THpkeFlagReport.Create(True) as ICryptoBackendReport, nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a foreign HPKE facet taken from the base is refused under such a report');
+end;
+
+procedure TTestOverlayCryptoProvider.TestReportNamingHpkeAcceptsDefaultBaseHpkeFacet;
+var
+  LOverlay: ICryptoProvider;
+  LComposition: IHpkeComposition;
+begin
+  LOverlay := TOverlayCryptoProvider.Create(BaseWithHpke(nil), nil, nil,
+    THpkeFlagReport.Create(True) as ICryptoBackendReport, nil) as ICryptoProvider;
+  CheckTrue(Supports(LOverlay.Hpke, IHpkeComposition, LComposition),
+    'the default composition is kept under a report that names it');
 end;
 
 procedure TTestOverlayCryptoProvider.TestPortableHpkeReportAcceptsForeignHpkeFacet;
