@@ -419,11 +419,11 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "delegate host root alone (unrelated) + OS-installed root -> reject" \
       --trust-mode os-delegate --host-root "$CA/foreign_root.pem" --host-roots-alone \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
-      --staple "$CA/ocsp_good.der" --posture soft --expect reject
+      --staple "$CA/ocsp_good.der" --posture soft --expect reject:48
     cell "anchors host root alone (unrelated) + OS-installed root -> reject" \
       --trust-mode os-anchors --host-root "$CA/foreign_root.pem" --host-roots-alone \
       --server-cert "$CA/leaf_fullchain.pem" --server-key "$CA/leaf.key" \
-      --staple "$CA/ocsp_good.der" --posture soft --expect reject
+      --staple "$CA/ocsp_good.der" --posture soft --expect reject:48
     # OS-native LIVE revocation: the OS engine fetches the loopback responder off the engine
     # thread in the async park. Good -> accept under Hard; a definitive Revoked -> reject. No
     # --now-ms: a live response is produced at wall-clock time, so a fixed verify date would push
@@ -434,8 +434,8 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
       --revocation-fetch live --server-cert "$CA/live_revoked_leaf_fullchain.pem" \
       --server-key "$CA/live_revoked_leaf.key" --posture hard --expect reject:44
-    # the live pass honours host roots alone too: the run root alone accepts, and an unrelated host
-    # root rejects although the OS trusts the installed run root (the live pass never consults it)
+    # with live fetch, host roots alone still decide: the run root alone accepts, and an unrelated
+    # host root rejects although the OS trusts the installed run root (the OS roots never vouch)
     cell "delegate live host root alone -> accept" --trust-mode os-delegate \
       --revocation-fetch live --host-root "$CA/root.pem" --host-roots-alone \
       --server-cert "$CA/live_leaf_fullchain.pem" --server-key "$CA/live_leaf.key" \
@@ -443,7 +443,7 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     cell "delegate live host root alone (unrelated) + OS-installed root -> reject" \
       --trust-mode os-delegate --revocation-fetch live --host-root "$CA/foreign_root.pem" \
       --host-roots-alone --server-cert "$CA/live_leaf_fullchain.pem" \
-      --server-key "$CA/live_leaf.key" --posture hard --expect reject
+      --server-key "$CA/live_leaf.key" --posture hard --expect reject:48
     # the same live accept/revoked pair over TLS 1.2: the 1.2 client cert-verdict park is a separate
     # code path from the 1.3 one and is otherwise unexercised on the client side
     cell "[12] delegate live accept (2-tier, good/Hard)" --trust-mode os-delegate \
