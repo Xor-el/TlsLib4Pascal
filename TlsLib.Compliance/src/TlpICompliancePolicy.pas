@@ -61,11 +61,13 @@ type
     /// modes whatever the rules say.</summary>
     function Admit(const AConfig: ITlsClientConfig): IComplianceReport; overload;
     function Admit(const AConfig: ITlsServerConfig): IComplianceReport; overload;
-    /// <summary>The platform findings plus those of one credential as given: its key against the
-    /// strength floors and exact RSA sizes, its schemes against the rules, and its key's backend.
-    /// The checked resolver judges a credential after narrowing its key to the schemes of the
-    /// rules, so a key with extra schemes is a finding here and admitted there. Never raises; a
-    /// certificate that cannot be read is reported as a finding.</summary>
+    /// <summary>The platform findings plus those of one credential as given: the key and the
+    /// signature hash of every certificate in its chain against the strength floors, exact RSA
+    /// sizes and schemes of the rules (a self-signature is not judged), that its private key is
+    /// the leaf's, its key's schemes, and its key's backend. The checked resolver judges a
+    /// credential after narrowing its key to the schemes of the rules, so a key with extra
+    /// schemes is a finding here and admitted there. Never raises; a certificate that cannot be
+    /// read is reported as a finding.</summary>
     function EvaluateCredential(const ACredential: TTlsCredential): IComplianceReport;
     /// <summary>A resolver that asks AInner and then refuses, by returning False, every credential
     /// the enforcement mode does not tolerate (as Admit does), narrowing the key it admits to the

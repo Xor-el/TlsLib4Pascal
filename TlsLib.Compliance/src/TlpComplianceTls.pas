@@ -48,8 +48,9 @@ type
   /// <summary>
   /// Config builders seeded from a compliance policy: the policy's providers and allowlists, the
   /// OS verifier, and the extended-master-secret requirement. Build through BuildClient or
-  /// BuildServer so the frozen config is admitted by the policy; a config built any other way
-  /// skips the checks that are not crypto.
+  /// BuildServer so the frozen config is admitted by the policy. Only Admit holds a config to the
+  /// groups and the verifier source it carries: a key agreement runs inside its group object, and
+  /// a chain is verified by the source, neither through the policy providers.
   /// </summary>
   TComplianceTls = class sealed(TObject)
   strict private

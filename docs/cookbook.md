@@ -1027,9 +1027,11 @@ key, so a server accepts a narrowed registry only together with `WithPeerAuth`.
 
 The optional `TlsLib.Compliance` package runs the negotiated cryptography in the OS cryptographic
 module and refuses what the rules do not allow. `Strict` raises when the platform is not a
-validated build; `Relaxed` reports instead. Load the credential through `Policy.Crypto`, and
-build through `TComplianceTls` so the frozen config is checked by `Admit`. What this claims, and
-what it does not, is in [compliance.md](compliance.md).
+validated build; `Relaxed` reports instead. The rules must lie within `Fips140_3` or `Cnsa1`.
+Load the credential through `Policy.Crypto`, and build through `TComplianceTls` so the frozen
+config is checked by `Admit`; key agreement through group objects and chain verification through a
+verifier source are enforced by nothing else. What this claims, and what it does not, is in
+[compliance.md](compliance.md).
 
 ```pascal
 Policy := TCompliancePolicy.Create(TCompliancePresets.Cnsa1,
