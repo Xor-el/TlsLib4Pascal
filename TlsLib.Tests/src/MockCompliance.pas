@@ -83,8 +83,12 @@ type
     FPortableHmacs: TComplianceHashSet;
     FPortableCurves: TComplianceKeyAgreementSet;
     FPortableVerification: TComplianceSchemeSet;
+    FNativePrf: Boolean;
   public
     constructor Create(APortableAeads: TComplianceAeadSet);
+    /// <summary>Whether the module serves the TLS 1.2 PRF itself; off, it is composed over the
+    /// HMAC.</summary>
+    property NativePrf: Boolean read FNativePrf write FNativePrf;
     property PortableRandom: Boolean read FPortableRandom write FPortableRandom;
     property PortableHashes: TComplianceHashSet read FPortableHashes write FPortableHashes;
     property PortableHmacs: TComplianceHashSet read FPortableHmacs write FPortableHmacs;
@@ -96,6 +100,7 @@ type
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry; override;
+    function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; override;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
     function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
@@ -391,6 +396,14 @@ begin
     Result := NotNative
   else
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+end;
+
+function TFakeBackendReport.Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+begin
+  if FNativePrf then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else
+    Result := inherited Tls12PrfBackend(AAlgorithm);
 end;
 
 function TFakeBackendReport.KeyAgreementBackend(

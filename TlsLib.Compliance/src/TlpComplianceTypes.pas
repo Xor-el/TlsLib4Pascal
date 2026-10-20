@@ -36,7 +36,10 @@ type
   /// instead.</summary>
   TComplianceEnforcement = (Strict, Relaxed);
 
-  TComplianceVerdict = (Compliant, NotCompliant);
+  /// <summary>PrimitivesInModule: every negotiated primitive is a service of a validated module
+  /// and nothing was found, but a key derivation the configuration can run is composed outside
+  /// the module. Compliant: additionally every key derivation is a module service.</summary>
+  TComplianceVerdict = (NotCompliant, PrimitivesInModule, Compliant);
 
   TModuleStatus = (Unknown, NotValidated, Validated);
 

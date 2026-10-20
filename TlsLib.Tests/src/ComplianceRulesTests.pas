@@ -178,6 +178,9 @@ type
   TTestComplianceReport = class(TTlsLibAlgorithmTestCase)
   published
     procedure TestVerdictCompliantWithPresetAndNoFindings;
+    procedure TestVerdictPrimitivesInModuleWithComposedKeyDerivation;
+    procedure TestVerdictNotCompliantWithFindingAndComposedKeyDerivation;
+    procedure TestVerdictNotCompliantWhenModuleNotValidatedAndKdfInModule;
     procedure TestVerdictNotCompliantWithFinding;
     procedure TestVerdictNotCompliantWithoutPreset;
     procedure TestVerdictNotCompliantWithoutPresetAndWithFinding;
@@ -188,6 +191,7 @@ type
     procedure TestReportReturnsCopyOfFindings;
     procedure TestReportDescribeCompliant;
     procedure TestReportDescribeNotCompliant;
+    procedure TestReportDescribeNamesThePrimitivesInModuleLevel;
     procedure TestFindingCreateSetsFields;
     procedure TestFindingDescribeFormat;
     procedure TestFindingCategoryPerKind;
@@ -1624,8 +1628,41 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil, False);
   CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'verdict');
+  CheckTrue(LReport.KeyDerivationInModule, 'every derivation is a module service');
+end;
+
+procedure TTestComplianceReport.TestVerdictPrimitivesInModuleWithComposedKeyDerivation;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil, True);
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict), 'verdict');
+  CheckFalse(LReport.KeyDerivationInModule, 'a derivation runs outside the module');
+end;
+
+procedure TTestComplianceReport.TestVerdictNotCompliantWithFindingAndComposedKeyDerivation;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.Validated,
+    TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
+    TComplianceFindingKind.EchConfigured, 'ech', 'configured')), nil, True);
+  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict),
+    'a finding outweighs the middle level');
+end;
+
+procedure TTestComplianceReport.TestVerdictNotCompliantWhenModuleNotValidatedAndKdfInModule;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.NotValidated, nil, nil, False);
+  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict),
+    'no module claim without a validated module');
 end;
 
 procedure TTestComplianceReport.TestVerdictNotCompliantWithFinding;
@@ -1635,7 +1672,7 @@ begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
     Default(TModuleIdentity), TModuleStatus.Validated,
     TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.EchConfigured, 'ech', 'configured')), nil);
+    TComplianceFindingKind.EchConfigured, 'ech', 'configured')), nil, False);
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
 end;
 
@@ -1644,7 +1681,7 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '',
-    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil, False);
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
 end;
 
@@ -1655,7 +1692,7 @@ begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '',
     Default(TModuleIdentity), TModuleStatus.Validated,
     TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.RulesOutsidePresets, 'rules', 'outside')), nil);
+    TComplianceFindingKind.RulesOutsidePresets, 'rules', 'outside')), nil, False);
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
 end;
 
@@ -1664,7 +1701,7 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, 'Cnsa1',
-    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil, False);
   CheckEquals(Ord(TComplianceEnforcement.Relaxed), Ord(LReport.Enforcement), 'enforcement');
   CheckEquals('Cnsa1', LReport.Preset, 'preset');
 end;
@@ -1682,7 +1719,7 @@ begin
   LIdentity.Certificate := '5410';
   LAttestation := TFakeModuleAttestation.Create(TModuleStatus.Validated, LIdentity);
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    LAttestation.Identity, LAttestation.Status(TModuleStandard.Fips140_3), nil, nil);
+    LAttestation.Identity, LAttestation.Status(TModuleStandard.Fips140_3), nil, nil, False);
   CheckEquals('Windows', LReport.Module.OsName, 'os name');
   CheckEquals(22621, Int32(LReport.Module.OsBuild), 'os build');
   CheckEquals('10.0.22621.1', LReport.Module.OsVersion, 'os version');
@@ -1699,7 +1736,7 @@ begin
     TArray<TComplianceFinding>.Create(
     TComplianceFinding.Create(TComplianceFindingKind.EchConfigured, 'ech', 'one'),
     TComplianceFinding.Create(TComplianceFindingKind.KeyLogConfigured, 'log', 'two')),
-    TArray<string>.Create('first', 'second', 'third'));
+    TArray<string>.Create('first', 'second', 'third'), False);
   CheckEquals(2, System.Length(LReport.Findings), 'finding count');
   CheckEquals(Ord(TComplianceFindingKind.KeyLogConfigured), Ord(LReport.Findings[1].Kind),
     'second finding');
@@ -1715,7 +1752,7 @@ begin
   LFindings := TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
     TComplianceFindingKind.EchConfigured, 'ech', 'one'));
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.Validated, LFindings, nil);
+    Default(TModuleIdentity), TModuleStatus.Validated, LFindings, nil, False);
   LFindings[0].Subject := 'changed';
   CheckEquals('ech', LReport.Findings[0].Subject, 'the caller edit does not reach the report');
 end;
@@ -1728,7 +1765,7 @@ begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
     Default(TModuleIdentity), TModuleStatus.Validated,
     TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.EchConfigured, 'ech', 'one')), nil);
+    TComplianceFindingKind.EchConfigured, 'ech', 'one')), nil, False);
   LFindings := LReport.Findings;
   LFindings[0].Subject := 'changed';
   CheckEquals('ech', LReport.Findings[0].Subject, 'the returned array is a copy');
@@ -1747,11 +1784,21 @@ begin
   LIdentity.ModuleFileVersion := '10.0.22621.2';
   LIdentity.Certificate := '5410';
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3', LIdentity,
-    TModuleStatus.Validated, nil, TArray<string>.Create('composed KDF'));
+    TModuleStatus.Validated, nil, TArray<string>.Create('a disclosure'), False);
   CheckEquals('Verdict: Compliant (Strict)' + sLineBreak + 'Preset: Fips140_3' + sLineBreak +
     'Module: Windows 10.0.22621.1 Windows 11 22H2 bcryptprimitives.dll 10.0.22621.2, ' +
-    'certificate 5410, status Validated' + sLineBreak + 'Disclosure: composed KDF',
+    'certificate 5410, status Validated' + sLineBreak + 'Disclosure: a disclosure',
     LReport.Describe, 'description');
+end;
+
+procedure TTestComplianceReport.TestReportDescribeNamesThePrimitivesInModuleLevel;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Cnsa1',
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil, True);
+  CheckTrue(Pos('Verdict: PrimitivesInModule (Strict)', LReport.Describe) = 1,
+    'the verdict line prints the level name');
 end;
 
 procedure TTestComplianceReport.TestReportDescribeNotCompliant;
@@ -1761,7 +1808,7 @@ begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '',
     Default(TModuleIdentity), TModuleStatus.NotValidated,
     TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.ModuleNotValidated, '10.0.1', 'no table')), nil);
+    TComplianceFindingKind.ModuleNotValidated, '10.0.1', 'no table')), nil, False);
   CheckEquals('Verdict: NotCompliant (Relaxed)' + sLineBreak + 'Preset: none' + sLineBreak +
     'Module: unknown module, status NotValidated' + sLineBreak +
     'Finding: ModuleNotValidated 10.0.1: no table', LReport.Describe, 'description');
@@ -1916,7 +1963,7 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.NotValidated, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.NotValidated, nil, nil, False);
   CheckEquals(0, System.Length(LReport.Findings), 'no finding stands');
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict),
     'a preset and no finding are not enough without a validated module');
@@ -1927,7 +1974,7 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, 'Cnsa1',
-    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil, False);
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
 end;
 
@@ -1938,7 +1985,7 @@ var
 begin
   LDisclosures := TArray<string>.Create('one');
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.Validated, nil, LDisclosures);
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, LDisclosures, False);
   LDisclosures[0] := 'changed';
   CheckEquals('one', LReport.Disclosures[0], 'the caller edit does not reach the report');
 end;
@@ -1949,7 +1996,7 @@ var
   LDisclosures: TArray<string>;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.Validated, nil, TArray<string>.Create('one'));
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, TArray<string>.Create('one'), False);
   LDisclosures := LReport.Disclosures;
   LDisclosures[0] := 'changed';
   CheckEquals('one', LReport.Disclosures[0], 'the returned array is a copy');
@@ -2040,7 +2087,7 @@ begin
   LIdentity := Default(TModuleIdentity);
   LIdentity.OsName := 'Windows';
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '', LIdentity,
-    TModuleStatus.NotValidated, nil, nil);
+    TModuleStatus.NotValidated, nil, nil, False);
   CheckTrue(Pos('Module: Windows, status NotValidated', LReport.Describe) > 0,
     'no certificate clause');
 end;

@@ -106,8 +106,11 @@ type
     function Identity: TModuleIdentity;
     // every operation in the OS module, signing left to the portable facet
     function SystemBase: ICryptoProvider;
-    // as SystemBase, and an imported key is an OS-served P-256 key
+    // as SystemBase with the module serving the TLS 1.2 PRF, and an imported key is an OS-served
+    // P-256 key
     function SystemBaseWithKey: ICryptoProvider;
+    // rules of Fips140_3 narrowed to TLS 1.2 and its suites
+    function Tls12OnlyRules: TComplianceRules;
     function Attestation(AStatus: TModuleStatus): IModuleAttestation;
     function NewPolicy(const ARules: TComplianceRules; const ABase: ICryptoProvider;
       AStatus: TModuleStatus; AEnforcement: TComplianceEnforcement): ICompliancePolicy;
@@ -179,7 +182,14 @@ type
     procedure TestNilBaseCryptoRaisesArgument;
     procedure TestNilBasePkixRaisesArgument;
     procedure TestNilAttestationRaisesArgument;
-    procedure TestKdfComposedDisclosed;
+    procedure TestComposedKdfCapsTheVerdictAtPrimitivesInModule;
+    procedure TestTls12OnlyRulesWithTheModulePrfAreCompliant;
+    procedure TestTls12OnlyRulesWithAComposedPrfArePrimitivesInModule;
+    procedure TestTls13OnlyRulesAreCappedWhateverThePrfIs;
+    procedure TestRequireModuleAcceptsTls12OnlyRulesWithTheModulePrf;
+    procedure TestRequireModuleRefusesTls12OnlyRulesWithAComposedPrf;
+    procedure TestRequireModuleIgnoresTheTls13SuitesOfRulesThatOfferNoTls13;
+    procedure TestRequireModuleIgnoresTheTls12SuitesOfRulesThatOfferNoTls12;
     procedure TestStrictPortableVerificationRaises;
     procedure TestRelaxedPortableVerificationReportsOnlyThatScheme;
     procedure TestStrictForeignHpkeRaisesAlgorithmOutsideModule;
@@ -249,6 +259,9 @@ type
   published
     procedure TestBaselineClientAdmitsStrict;
     procedure TestBaselineServerAdmitsStrict;
+    procedure TestTls12OnlyClientIsCompliantWhenTheModuleServesThePrf;
+    procedure TestTls12OnlyServerIsCompliantWhenTheModuleServesThePrf;
+    procedure TestTls13OnlyClientIsCappedWhenTheModuleServesThePrf;
     procedure TestForeignCryptoRefused;
     procedure TestForeignPkixRefused;
     procedure TestFacadeConfigHoldsPolicyProviders;
@@ -568,8 +581,12 @@ type
   end;
 
   TTestWindowsCompliance = class(TCompliancePolicyTestCase)
+  strict private
+    // whether the build is validated; otherwise skips, or fails where the leg must validate
+    function ValidatedAttestationOrSkip(out AAttestation: IModuleAttestation): Boolean;
   published
     procedure TestStrictPassesOnValidatedBuild;
+    procedure TestStrictTls12OnlyRulesAreCompliantOnValidatedBuild;
     procedure TestStrictRaisesNotValidatedOnOtherBuilds;
     procedure TestRelaxedReportsNotValidatedOnOtherBuilds;
     procedure TestOsVerifierClientKeepsStrengthFloors;
@@ -792,15 +809,27 @@ end;
 function TCompliancePolicyTestCase.SystemBaseWithKey: ICryptoProvider;
 var
   LKey: ISigningKey;
+  LReport: TFakeBackendReport;
 begin
   // the key must expose the public key of the leaf it signs for
   LKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.ECDSA_SECP256R1_SHA256), Pkix.Certificates.Parse(
     TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')).PublicKeyInfo)
     as ISigningKey;
-  Result := TComplianceFakes.FakeSystemBase(
-    TFakeBackendReport.Create([]) as ICryptoBackendReport,
+  // the module serves the TLS 1.2 PRF, as the Windows module does
+  LReport := TFakeBackendReport.Create([]);
+  LReport.NativePrf := True;
+  Result := TComplianceFakes.FakeSystemBase(LReport as ICryptoBackendReport,
     TFakeSigningCrypto.Create(LKey, True) as ISigningCrypto, nil);
+end;
+
+function TCompliancePolicyTestCase.Tls12OnlyRules: TComplianceRules;
+begin
+  Result := TCompliancePresets.Fips140_3;
+  Result.Versions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  Result.CipherSuites := TArray<UInt16>.Create(TCipherSuites12.EcdheEcdsaAes128GcmSha256,
+    TCipherSuites12.EcdheEcdsaAes256GcmSha384, TCipherSuites12.EcdheRsaAes128GcmSha256,
+    TCipherSuites12.EcdheRsaAes256GcmSha384);
 end;
 
 function TCompliancePolicyTestCase.Attestation(AStatus: TModuleStatus): IModuleAttestation;
@@ -1134,8 +1163,8 @@ var
   LPolicy: ICompliancePolicy;
 begin
   LPolicy := StrictPolicy;
-  CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LPolicy.PlatformReport.Verdict),
-    'the platform is compliant');
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LPolicy.PlatformReport.Verdict),
+    'TLS 1.3 key derivation is composed outside the module');
   CheckEquals('Fips140_3', LPolicy.PlatformReport.Preset, 'the rules name their preset');
 end;
 
@@ -1414,13 +1443,99 @@ begin
   CheckTrue(LRaised, 'nil attestation');
 end;
 
-procedure TTestCompliancePolicy.TestKdfComposedDisclosed;
+procedure TTestCompliancePolicy.TestComposedKdfCapsTheVerdictAtPrimitivesInModule;
 var
-  LDisclosures: TArray<string>;
+  LReport: IComplianceReport;
 begin
-  LDisclosures := StrictPolicy.PlatformReport.Disclosures;
-  CheckEquals(1, System.Length(LDisclosures), 'one per fact, however many derivations');
-  CheckTrue(Pos('composed', LDisclosures[0]) > 0, 'it names the composed derivation');
+  LReport := NewPolicy(TCompliancePresets.Fips140_3, SystemBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict).PlatformReport;
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict), 'verdict');
+  CheckFalse(LReport.KeyDerivationInModule, 'a derivation runs outside the module');
+  CheckEquals(0, System.Length(LReport.Findings), 'a composed derivation is no finding');
+  CheckEquals(0, System.Length(LReport.Disclosures), 'and no longer a disclosure');
+end;
+
+procedure TTestCompliancePolicy.TestTls12OnlyRulesWithTheModulePrfAreCompliant;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := NewPolicy(Tls12OnlyRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict).PlatformReport;
+  CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'verdict');
+  CheckTrue(LReport.KeyDerivationInModule, 'the PRF is a module service');
+end;
+
+procedure TTestCompliancePolicy.TestTls12OnlyRulesWithAComposedPrfArePrimitivesInModule;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := NewPolicy(Tls12OnlyRules, SystemBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict).PlatformReport;
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict), 'verdict');
+end;
+
+procedure TTestCompliancePolicy.TestTls13OnlyRulesAreCappedWhateverThePrfIs;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(NewPolicy(LRules, SystemBaseWithKey,
+    TModuleStatus.Validated, TComplianceEnforcement.Strict).PlatformReport.Verdict),
+    'HKDF is composed on every module');
+end;
+
+procedure TTestCompliancePolicy.TestRequireModuleAcceptsTls12OnlyRulesWithTheModulePrf;
+var
+  LRules: TComplianceRules;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LRules := Tls12OnlyRules;
+  LRules.Kdf := TKdfRule.RequireModule;
+  CheckFalse(Construct(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict, LFindings), 'the PRF is already a module service');
+end;
+
+procedure TTestCompliancePolicy.TestRequireModuleRefusesTls12OnlyRulesWithAComposedPrf;
+var
+  LRules: TComplianceRules;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LRules := Tls12OnlyRules;
+  LRules.Kdf := TKdfRule.RequireModule;
+  CheckTrue(Construct(LRules, SystemBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict, LFindings), 'strict refuses');
+  CheckEquals('TLS 1.2 PRF SHA_256', FindingOfKind(LFindings,
+    TComplianceFindingKind.KdfOutsideModule).Subject, 'the PRF is named');
+end;
+
+procedure TTestCompliancePolicy.TestRequireModuleIgnoresTheTls13SuitesOfRulesThatOfferNoTls13;
+var
+  LRules: TComplianceRules;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  // the TLS 1.3 suites stay listed, but no offered version runs the HKDF they name
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls12);
+  LRules.Kdf := TKdfRule.RequireModule;
+  CheckFalse(Construct(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict, LFindings), 'the module serves the only derivation that runs');
+end;
+
+procedure TTestCompliancePolicy.TestRequireModuleIgnoresTheTls12SuitesOfRulesThatOfferNoTls12;
+var
+  LRules: TComplianceRules;
+  LFindings: TArray<TComplianceFinding>;
+  LI: Int32;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  LRules.Kdf := TKdfRule.RequireModule;
+  CheckTrue(Construct(LRules, SystemBase, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict, LFindings), 'the HKDF of TLS 1.3 is composed');
+  CheckTrue(CountOfKind(LFindings, TComplianceFindingKind.KdfOutsideModule) > 0, 'not vacuous');
+  for LI := 0 to System.Length(LFindings) - 1 do
+    CheckEquals(0, Pos('TLS 1.2 PRF', LFindings[LI].Subject), 'the PRF is not named');
 end;
 
 procedure TTestCompliancePolicy.TestStrictPortableVerificationRaises;
@@ -1740,7 +1855,8 @@ var
 begin
   LPolicy := StrictPolicy;
   LReport := LPolicy.Admit(ClientBuilder(LPolicy).Build);
-  CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'compliant');
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict),
+    'the config can run TLS 1.3 key derivation');
   CheckEquals(0, System.Length(LReport.Findings), 'no finding');
 end;
 
@@ -1751,9 +1867,50 @@ var
 begin
   LPolicy := StrictPolicy;
   LReport := LPolicy.Admit(ServerBuilder(LPolicy).Build);
-  CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'compliant');
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict),
+    'the config can run TLS 1.3 key derivation');
   CheckEquals(0, System.Length(LReport.Findings), 'no finding');
 end;
+
+procedure TTestComplianceAdmit.TestTls12OnlyClientIsCompliantWhenTheModuleServesThePrf;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LReport := LPolicy.Admit(ClientBuilder(LPolicy).WithSupportedVersions(
+    TArray<UInt16>.Create(TlsWireVersionTls12)).Build);
+  CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'verdict');
+  CheckTrue(LReport.KeyDerivationInModule, 'the PRF is the only derivation');
+end;
+
+procedure TTestComplianceAdmit.TestTls12OnlyServerIsCompliantWhenTheModuleServesThePrf;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LReport := LPolicy.Admit(ServerBuilder(LPolicy).WithSupportedVersions(
+    TArray<UInt16>.Create(TlsWireVersionTls12)).Build);
+  CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'verdict');
+end;
+
+procedure TTestComplianceAdmit.TestTls13OnlyClientIsCappedWhenTheModuleServesThePrf;
+var
+  LPolicy: ICompliancePolicy;
+  LBuilder: ITlsClientConfigBuilder;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LBuilder := ClientBuilder(LPolicy);
+  // the facade's TLS 1.2 setting is taken back, as the builder refuses it without TLS 1.2
+  LBuilder.Tls12.WithExtendedMasterSecret(False);
+  LReport := LPolicy.Admit(LBuilder.WithSupportedVersions(
+    TArray<UInt16>.Create(TlsWireVersionTls13)).Build);
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict), 'verdict');
+  CheckFalse(LReport.KeyDerivationInModule, 'HKDF runs outside the module');
+end;
+
 
 procedure TTestComplianceAdmit.TestForeignCryptoRefused;
 var
@@ -5510,24 +5667,44 @@ end;
 
 { TTestWindowsCompliance }
 
+function TTestWindowsCompliance.ValidatedAttestationOrSkip(
+  out AAttestation: IModuleAttestation): Boolean;
+begin
+  AAttestation := TOSModuleAttestation.Current;
+  Result := AAttestation.Status(TModuleStandard.Fips140_3) = TModuleStatus.Validated;
+  if Result then
+    Exit;
+  if SwitchEnabled('TLSLIB_EXPECT_VALIDATED_MODULE') then
+    Fail(Format(SExpectedValidated, [AAttestation.Identity.OsBuild]));
+  SkipTest(Format(SBranchNotValidated, [AAttestation.Identity.OsBuild]));
+end;
+
 procedure TTestWindowsCompliance.TestStrictPassesOnValidatedBuild;
 var
   LAttestation: IModuleAttestation;
   LPolicy: ICompliancePolicy;
 begin
-  LAttestation := TOSModuleAttestation.Current;
-  if LAttestation.Status(TModuleStandard.Fips140_3) <> TModuleStatus.Validated then
-  begin
-    if SwitchEnabled('TLSLIB_EXPECT_VALIDATED_MODULE') then
-      Fail(Format(SExpectedValidated, [LAttestation.Identity.OsBuild]));
-    SkipTest(Format(SBranchNotValidated, [LAttestation.Identity.OsBuild]));
+  if not ValidatedAttestationOrSkip(LAttestation) then
     Exit;
-  end;
   LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3,
     TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
     TComplianceEnforcement.Strict) as ICompliancePolicy;
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LPolicy.PlatformReport.Verdict),
+    'the validated build runs HKDF outside the module');
+end;
+
+procedure TTestWindowsCompliance.TestStrictTls12OnlyRulesAreCompliantOnValidatedBuild;
+var
+  LAttestation: IModuleAttestation;
+  LPolicy: ICompliancePolicy;
+begin
+  if not ValidatedAttestationOrSkip(LAttestation) then
+    Exit;
+  LPolicy := TCompliancePolicy.Create(Tls12OnlyRules,
+    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
+    TComplianceEnforcement.Strict) as ICompliancePolicy;
   CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LPolicy.PlatformReport.Verdict),
-    'the validated build is compliant');
+    'the module serves the TLS 1.2 PRF');
 end;
 
 procedure TTestWindowsCompliance.TestStrictRaisesNotValidatedOnOtherBuilds;

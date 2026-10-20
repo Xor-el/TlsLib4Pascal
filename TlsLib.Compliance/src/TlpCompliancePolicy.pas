@@ -83,11 +83,16 @@ type
     FDisclosures: TArray<string>;
     FPlatformReport: IComplianceReport;
     FScopePrefix: TBytes;
+    FHkdfComposed: Boolean;
+    FPrfComposed: Boolean;
     class procedure CheckUsable(const ARules: TComplianceRules); static;
     procedure CheckBackend(var AFindings: TArray<TComplianceFinding>;
       const AEntry: TCryptoBackendEntry; const ASubject: string);
-    procedure CheckKdf(var AFindings: TArray<TComplianceFinding>;
-      const AEntry: TCryptoBackendEntry; const ASubject: string);
+    // whether the derivation is composed outside the module, which the rules may refuse
+    function CheckKdf(var AFindings: TArray<TComplianceFinding>;
+      const AEntry: TCryptoBackendEntry; const ASubject: string): Boolean;
+    // whether a derivation the offered versions run is composed outside the module
+    function KdfComposedFor(const AVersions: TArray<UInt16>): Boolean;
     procedure CollectPlatform(const ABaseCrypto: ICryptoProvider;
       var AFindings: TArray<TComplianceFinding>);
     procedure CheckCommon(const AConfig: ITlsCommonConfig;
@@ -120,7 +125,7 @@ type
     procedure CheckVerifierSource(const ASource: IInterface;
       var AFindings: TArray<TComplianceFinding>);
     function Report(const AFindings: TArray<TComplianceFinding>;
-      const ADisclosures: TArray<string>): IComplianceReport;
+      const ADisclosures: TArray<string>; AKdfComposed: Boolean): IComplianceReport;
     procedure Enforce(const AReport: IComplianceReport);
   public
     /// <summary>A policy over ABaseCrypto and ABasePkix. Raises EArgumentTlsLibException for a nil
@@ -217,7 +222,6 @@ resourcestring
   SChainOutside = 'the peer chain is not verified by the OS verifier';
   SCustomVerifier = 'the certificate verifier is host-supplied; use the OS verifier source';
   SStapleOutside = 'a requested OCSP staple would be verified outside the module';
-  SKdfComposed = 'the TLS key derivations are composed outside the module over its HMAC';
   SModuleRevisionDiffers =
     'the module file version %s differs from the %s the certificate lists; only the build is ' +
     'checked';
@@ -306,24 +310,30 @@ begin
     TEnumUtilities.GetName<TCryptoBackendReason>(AEntry.Reason)])));
 end;
 
-procedure TCompliancePolicy.CheckKdf(var AFindings: TArray<TComplianceFinding>;
-  const AEntry: TCryptoBackendEntry; const ASubject: string);
-var
-  LDisclosed: Boolean;
+function TCompliancePolicy.CheckKdf(var AFindings: TArray<TComplianceFinding>;
+  const AEntry: TCryptoBackendEntry; const ASubject: string): Boolean;
 begin
+  Result := False;
   if AEntry.Backend = TCryptoBackend.System then
     Exit;
   if AEntry.Backend = TCryptoBackend.Portable then
-    CheckBackend(AFindings, AEntry, ASubject)
-  else if FRules.Kdf = TKdfRule.RequireModule then
-    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.KdfOutsideModule, ASubject, SKdfRequiresModule))
-  else
   begin
-    LDisclosed := TArrayUtilities.Contains<string>(FDisclosures, SKdfComposed);
-    if not LDisclosed then
-      TArrayUtilities.Append<string>(FDisclosures, SKdfComposed);
+    CheckBackend(AFindings, AEntry, ASubject);
+    Exit;
   end;
+  Result := True;
+  if FRules.Kdf = TKdfRule.RequireModule then
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.KdfOutsideModule, ASubject, SKdfRequiresModule));
+end;
+
+function TCompliancePolicy.KdfComposedFor(const AVersions: TArray<UInt16>): Boolean;
+var
+  LOffers13, LOffers12: Boolean;
+begin
+  LOffers13 := TArrayUtilities.Contains<UInt16>(AVersions, TlsWireVersionTls13);
+  LOffers12 := TArrayUtilities.Contains<UInt16>(AVersions, TlsWireVersionTls12);
+  Result := (LOffers13 and FHkdfComposed) or (LOffers12 and FPrfComposed);
 end;
 
 procedure TCompliancePolicy.CollectPlatform(const ABaseCrypto: ICryptoProvider;
@@ -337,12 +347,16 @@ var
   LScheme: TSignatureScheme;
   LAlgorithm: TKeyAgreementAlgorithm;
   LName: string;
-  LKnown, LSha256Listed: Boolean;
+  LKnown, LSha256Listed, LOffers13, LOffers12: Boolean;
   LIdentity: TModuleIdentity;
 begin
   LHashes := [];
   LHkdfHashes := [];
   LPrfHashes := [];
+  FHkdfComposed := False;
+  FPrfComposed := False;
+  LOffers13 := TArrayUtilities.Contains<UInt16>(FRules.Versions, TlsWireVersionTls13);
+  LOffers12 := TArrayUtilities.Contains<UInt16>(FRules.Versions, TlsWireVersionTls12);
   CheckBackend(AFindings, FReport.RandomBackend, SRandomSubject);
   for LI := 0 to System.Length(FRules.CipherSuites) - 1 do
   begin
@@ -350,9 +364,10 @@ begin
     if LKnown then
     begin
       Include(LHashes, LSuite.Common.Hash);
-      if LSuite.Protocol = TSuiteProtocol.Tls13 then
+      // a derivation counts only when some offered version runs it
+      if (LSuite.Protocol = TSuiteProtocol.Tls13) and LOffers13 then
         Include(LHkdfHashes, LSuite.Common.Hash)
-      else
+      else if (LSuite.Protocol <> TSuiteProtocol.Tls13) and LOffers12 then
         Include(LPrfHashes, LSuite.Prf);
     end;
   end;
@@ -384,9 +399,11 @@ begin
   begin
     LName := TEnumUtilities.GetName<THashAlgorithm>(LHash);
     if LHash in LHkdfHashes then
-      CheckKdf(AFindings, FReport.HkdfBackend(LHash), Format(SHkdfSubject, [LName]));
+      if CheckKdf(AFindings, FReport.HkdfBackend(LHash), Format(SHkdfSubject, [LName])) then
+        FHkdfComposed := True;
     if LHash in LPrfHashes then
-      CheckKdf(AFindings, FReport.Tls12PrfBackend(LHash), Format(SPrfSubject, [LName]));
+      if CheckKdf(AFindings, FReport.Tls12PrfBackend(LHash), Format(SPrfSubject, [LName])) then
+        FPrfComposed := True;
   end;
   for LI := 0 to System.Length(FRules.NamedGroups) - 1 do
   begin
@@ -467,7 +484,7 @@ begin
       TNamedGroupCatalog.Name(FRules.NamedGroups[LI]));
   FGroups := TNamedGroups.CreateRegistry(LGroups);
   FPkix := TCompliancePkixProvider.Create(ABasePkix, AEnforcement) as IPkixProvider;
-  FPlatformReport := Report(FPlatformFindings, FDisclosures);
+  FPlatformReport := Report(FPlatformFindings, FDisclosures, KdfComposedFor(FRules.Versions));
 end;
 
 function TCompliancePolicy.TryKeyFacts(const ACertificate: TBytes;
@@ -843,10 +860,11 @@ begin
 end;
 
 function TCompliancePolicy.Report(const AFindings: TArray<TComplianceFinding>;
-  const ADisclosures: TArray<string>): IComplianceReport;
+  const ADisclosures: TArray<string>; AKdfComposed: Boolean): IComplianceReport;
 begin
   Result := TComplianceReport.Create(FEnforcement, FPreset, FAttestation.Identity,
-    FAttestation.Status(FRules.ModuleStandard), AFindings, ADisclosures) as IComplianceReport;
+    FAttestation.Status(FRules.ModuleStandard), AFindings, ADisclosures, AKdfComposed)
+    as IComplianceReport;
 end;
 
 procedure TCompliancePolicy.Enforce(const AReport: IComplianceReport);
@@ -932,7 +950,7 @@ begin
     (AConfig.EncryptedClientHello <> nil) then
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.EchConfigured, '', SEch));
-  Result := Report(LFindings, LDisclosures);
+  Result := Report(LFindings, LDisclosures, KdfComposedFor(AConfig.SupportedVersions));
 end;
 
 function TCompliancePolicy.Evaluate(const AConfig: ITlsServerConfig): IComplianceReport;
@@ -965,7 +983,7 @@ begin
     // the keys and their store are the host's, whatever provider the policy composed
     TArrayUtilities.Append<TComplianceFinding>(LFindings, TComplianceFinding.Create(
       TComplianceFindingKind.EchKeysUnattributed, '', SEchKeysUnattributed));
-  Result := Report(LFindings, LDisclosures);
+  Result := Report(LFindings, LDisclosures, KdfComposedFor(AConfig.SupportedVersions));
 end;
 
 function TCompliancePolicy.Admit(const AConfig: ITlsClientConfig): IComplianceReport;
@@ -987,7 +1005,7 @@ var
 begin
   LFindings := System.Copy(FPlatformFindings);
   CheckCredential(ACredential, '', LFindings);
-  Result := Report(LFindings, FDisclosures);
+  Result := Report(LFindings, FDisclosures, KdfComposedFor(FRules.Versions));
 end;
 
 function TCompliancePolicy.CheckedCredentialResolver(

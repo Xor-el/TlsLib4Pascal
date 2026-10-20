@@ -22,8 +22,9 @@ uses
   TlpEnumUtilities;
 
 type
-  /// <summary>The immutable report: Compliant only when a named preset contains the rules, the
-  /// module is validated and nothing was found.</summary>
+  /// <summary>The immutable report: not compliant unless a named preset contains the rules, the
+  /// module is validated and nothing was found; then compliant only when no key derivation runs
+  /// outside the module.</summary>
   TComplianceReport = class sealed(TInterfacedObject, IComplianceReport)
   strict private
   var
@@ -33,13 +34,18 @@ type
     FModuleStatus: TModuleStatus;
     FFindings: TArray<TComplianceFinding>;
     FDisclosures: TArray<string>;
+    FKdfComposed: Boolean;
   public
+    /// <param name="AKdfComposed">Whether a key derivation the evaluated rules or config can run
+    /// is composed outside the module.</param>
     constructor Create(AEnforcement: TComplianceEnforcement; const APreset: string;
       const AModule: TModuleIdentity; AModuleStatus: TModuleStatus;
-      const AFindings: TArray<TComplianceFinding>; const ADisclosures: TArray<string>);
+      const AFindings: TArray<TComplianceFinding>; const ADisclosures: TArray<string>;
+      AKdfComposed: Boolean);
     function Verdict: TComplianceVerdict;
     function Enforcement: TComplianceEnforcement;
     function Preset: string;
+    function KeyDerivationInModule: Boolean;
     function Module: TModuleIdentity;
     function ModuleStatus: TModuleStatus;
     function Findings: TArray<TComplianceFinding>;
@@ -64,7 +70,8 @@ resourcestring
 
 constructor TComplianceReport.Create(AEnforcement: TComplianceEnforcement;
   const APreset: string; const AModule: TModuleIdentity; AModuleStatus: TModuleStatus;
-  const AFindings: TArray<TComplianceFinding>; const ADisclosures: TArray<string>);
+  const AFindings: TArray<TComplianceFinding>; const ADisclosures: TArray<string>;
+  AKdfComposed: Boolean);
 begin
   inherited Create;
   FEnforcement := AEnforcement;
@@ -73,15 +80,23 @@ begin
   FModuleStatus := AModuleStatus;
   FFindings := System.Copy(AFindings);
   FDisclosures := System.Copy(ADisclosures);
+  FKdfComposed := AKdfComposed;
 end;
 
 function TComplianceReport.Verdict: TComplianceVerdict;
 begin
-  if (FPreset <> '') and (FModuleStatus = TModuleStatus.Validated) and
-    (System.Length(FFindings) = 0) then
-    Result := TComplianceVerdict.Compliant
+  if (FPreset = '') or (FModuleStatus <> TModuleStatus.Validated) or
+    (System.Length(FFindings) > 0) then
+    Result := TComplianceVerdict.NotCompliant
+  else if FKdfComposed then
+    Result := TComplianceVerdict.PrimitivesInModule
   else
-    Result := TComplianceVerdict.NotCompliant;
+    Result := TComplianceVerdict.Compliant;
+end;
+
+function TComplianceReport.KeyDerivationInModule: Boolean;
+begin
+  Result := not FKdfComposed;
 end;
 
 function TComplianceReport.Enforcement: TComplianceEnforcement;

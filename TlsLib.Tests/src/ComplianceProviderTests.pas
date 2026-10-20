@@ -86,6 +86,12 @@ type
     function RefusedKeyOperations(const AHpke: IHpkeCrypto; AKem: UInt16): Int32;
     // a TLS 1.2 schedule over AProvider holding a premaster secret and both randoms
     function NewSchedule(const AProvider: ICryptoProvider): ITls12KeySchedule;
+    // a provider over a base that has APrimitives and reports AReport, under Fips140_3
+    function KdfProviderOver(const APrimitives: ICryptoPrimitives;
+      const AReport: ICryptoBackendReport; AEnforcement: TComplianceEnforcement): ICryptoProvider;
+    function HkdfExpandRefused(const AProvider: ICryptoProvider): Boolean;
+    procedure CheckHkdfVector(const AProvider: ICryptoProvider; const ASalt, AIkm, AInfo, APrk,
+      AOkm: string; ALength: Int32);
   strict protected
     function CreateCrypto: ICryptoProvider; override;
   published
@@ -167,6 +173,14 @@ type
     procedure TestComposeFacetsAreStable;
     procedure TestPrimitivesRejectNilReport;
     procedure TestStrictFollowsOsReportForAes;
+    procedure TestHkdfNeverReachesTheInnerFacetStrict;
+    procedure TestHkdfNeverReachesTheInnerFacetRelaxed;
+    procedure TestStrictHkdfOverAPortableHmacIsRefused;
+    procedure TestPrfIsServedByTheInnerFacetWhenTheReportSaysSystem;
+    procedure TestPrfIsComposedWhenTheReportSaysComposed;
+    procedure TestComposedPrfComputesTheReferenceOutput;
+    procedure TestStrictComposedPrfRefusesAPortableHmac;
+    procedure TestHkdfRfc5869VectorsThroughTheOsProvider;
   end;
 
   TTestComplianceSigningCrypto = class(TTlsLibAlgorithmTestCase)
@@ -275,10 +289,46 @@ type
     function Describe: string; override;
   end;
 
+  // primitives that count the key derivations asked of them
+  TCountingKdfPrimitives = class sealed(TForwardingCryptoPrimitives)
+  strict private
+  var
+    FHkdfs: Int32;
+    FPrfs: Int32;
+  public
+    function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf; override;
+    function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf; override;
+    property Hkdfs: Int32 read FHkdfs;
+    property Prfs: Int32 read FPrfs;
+  end;
+
 const
   Pkcs12Password = 'tlslib';
   // the ML-KEM-768 codepoint of the IANA HPKE KEM registry
   HpkeKemMlKem768 = UInt16($0041);
+  // RFC 5869 appendix A, test cases 1 to 3 (SHA-256)
+  Rfc5869Ikm22 = '0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b';
+  Rfc5869Salt13 = '000102030405060708090a0b0c';
+  Rfc5869Info10 = 'f0f1f2f3f4f5f6f7f8f9';
+  Rfc5869Prk1 = '077709362c2e32df0ddc3f0dc47bba63' + '90b6c73bb50f9c3122ec844ad7c2b3e5';
+  Rfc5869Okm1 = '3cb25f25faacd57a90434f64d0362f2a' + '2d2d0a90cf1a5a4c5db02d56ecc4c5bf' +
+    '34007208d5b887185865';
+  Rfc5869Ikm80 = '000102030405060708090a0b0c0d0e0f' + '101112131415161718191a1b1c1d1e1f' +
+    '202122232425262728292a2b2c2d2e2f' + '303132333435363738393a3b3c3d3e3f' +
+    '404142434445464748494a4b4c4d4e4f';
+  Rfc5869Salt80 = '606162636465666768696a6b6c6d6e6f' + '707172737475767778797a7b7c7d7e7f' +
+    '808182838485868788898a8b8c8d8e8f' + '909192939495969798999a9b9c9d9e9f' +
+    'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf';
+  Rfc5869Info80 = 'b0b1b2b3b4b5b6b7b8b9babbbcbdbebf' + 'c0c1c2c3c4c5c6c7c8c9cacbcccdcecf' +
+    'd0d1d2d3d4d5d6d7d8d9dadbdcdddedf' + 'e0e1e2e3e4e5e6e7e8e9eaebecedeeef' +
+    'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff';
+  Rfc5869Prk2 = '06a6b88c5853361a06104c9ceb35b45c' + 'ef760014904671014a193f40c15fc244';
+  Rfc5869Okm2 = 'b11e398dc80327a1c8e7f78c596a4934' + '4f012eda2d4efad8a050cc4c19afa97c' +
+    '59045a99cac7827271cb41c65e590e09' + 'da3275600c2f09b8367793a9aca3db71' +
+    'cc30c58179ec3e87c14c01d5c1f3434f' + '1d87';
+  Rfc5869Prk3 = '19ef24a32c717b167f33a91d6f648bdf' + '96596776afdb6377ac434c1c293ccb04';
+  Rfc5869Okm3 = '8da4e775a563c18f715f802a063c5a31' + 'b8a11f5c5ee1879ec3454e5f3c738d2d' +
+    '9d201395faa4b61a96c8';
 
 { TComposedHpkeClaimReport }
 
@@ -290,6 +340,20 @@ end;
 function TComposedHpkeClaimReport.Describe: string;
 begin
   Result := 'claims a composed HPKE';
+end;
+
+{ TCountingKdfPrimitives }
+
+function TCountingKdfPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
+begin
+  Inc(FHkdfs);
+  Result := inherited CreateHkdf(AAlgorithm);
+end;
+
+function TCountingKdfPrimitives.CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
+begin
+  Inc(FPrfs);
+  Result := inherited CreateTls12Prf(AAlgorithm);
 end;
 
 { TTestComplianceCryptoPrimitives }
@@ -1068,6 +1132,156 @@ begin
     on EComplianceRefusedTlsLibException do
       Inc(Result);
   end;
+end;
+
+function TTestComplianceCryptoPrimitives.KdfProviderOver(const APrimitives: ICryptoPrimitives;
+  const AReport: ICryptoBackendReport; AEnforcement: TComplianceEnforcement): ICryptoProvider;
+var
+  LBase: ICryptoProvider;
+begin
+  LBase := TOverlayCryptoProvider.Create(Crypto, APrimitives, nil, AReport, nil);
+  Result := TComplianceCryptoProvider.Compose(LBase, TCompliancePresets.Fips140_3, AEnforcement);
+end;
+
+function TTestComplianceCryptoPrimitives.HkdfExpandRefused(
+  const AProvider: ICryptoProvider): Boolean;
+begin
+  Result := False;
+  try
+    AProvider.Primitives.CreateHkdf(THashAlgorithm.SHA_256).Expand(
+      TSecretBuffer.From(DecodeHex(Rfc5869Prk1)), DecodeHex(Rfc5869Info10), 42);
+  except
+    on EComplianceRefusedTlsLibException do
+      Result := True;
+  end;
+end;
+
+procedure TTestComplianceCryptoPrimitives.CheckHkdfVector(const AProvider: ICryptoProvider;
+  const ASalt, AIkm, AInfo, APrk, AOkm: string; ALength: Int32);
+var
+  LHkdf: IHkdf;
+  LPrk: ISecretBuffer;
+begin
+  LHkdf := AProvider.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  LPrk := LHkdf.Extract(TSecretBuffer.From(DecodeHex(ASalt)), TSecretBuffer.From(DecodeHex(AIkm)));
+  CheckEqualBytes('HKDF-Extract PRK', DecodeHex(APrk), LPrk.ToBytes);
+  CheckEqualBytes('HKDF-Expand OKM', DecodeHex(AOkm),
+    LHkdf.Expand(LPrk, DecodeHex(AInfo), ALength).ToBytes);
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestHkdfNeverReachesTheInnerFacetStrict;
+var
+  LInner: TCountingKdfPrimitives;
+  LProvider: ICryptoProvider;
+  LBefore: Int32;
+begin
+  LInner := TCountingKdfPrimitives.Create(Crypto.Primitives);
+  LProvider := KdfProviderOver(LInner, TFakeBackendReport.Create([]) as ICryptoBackendReport,
+    TComplianceEnforcement.Strict);
+  // building the base probes its HPKE suites through the inner HKDF
+  LBefore := LInner.Hkdfs;
+  CheckHkdfVector(LProvider, Rfc5869Salt13, Rfc5869Ikm22, Rfc5869Info10, Rfc5869Prk1,
+    Rfc5869Okm1, 42);
+  CheckEquals(LBefore, LInner.Hkdfs, 'the inner HKDF, which may expand natively, is not asked');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestHkdfNeverReachesTheInnerFacetRelaxed;
+var
+  LInner: TCountingKdfPrimitives;
+  LProvider: ICryptoProvider;
+  LBefore: Int32;
+begin
+  LInner := TCountingKdfPrimitives.Create(Crypto.Primitives);
+  LProvider := KdfProviderOver(LInner, TFakeBackendReport.Create([]) as ICryptoBackendReport,
+    TComplianceEnforcement.Relaxed);
+  LBefore := LInner.Hkdfs;
+  CheckHkdfVector(LProvider, Rfc5869Salt13, Rfc5869Ikm22, Rfc5869Info10, Rfc5869Prk1,
+    Rfc5869Okm1, 42);
+  CheckEquals(LBefore, LInner.Hkdfs, 'relaxed mode composes it too');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictHkdfOverAPortableHmacIsRefused;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableHmacs := [THashAlgorithm.SHA_256];
+  CheckTrue(HkdfExpandRefused(ProviderOver(LRef, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict)), 'the derivation is only as good as its HMAC');
+  CheckFalse(HkdfExpandRefused(ProviderOver(TFakeBackendReport.Create([])
+    as ICryptoBackendReport, TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict)),
+    'control: the same derivation over a module HMAC runs');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestPrfIsServedByTheInnerFacetWhenTheReportSaysSystem;
+var
+  LInner: TCountingKdfPrimitives;
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+  LProvider: ICryptoProvider;
+begin
+  LInner := TCountingKdfPrimitives.Create(Crypto.Primitives);
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.NativePrf := True;
+  LProvider := KdfProviderOver(LInner, LRef, TComplianceEnforcement.Strict);
+  LProvider.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256);
+  CheckEquals(1, LInner.Prfs, 'the module PRF is the one handed back');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestPrfIsComposedWhenTheReportSaysComposed;
+var
+  LInner: TCountingKdfPrimitives;
+  LProvider: ICryptoProvider;
+begin
+  LInner := TCountingKdfPrimitives.Create(Crypto.Primitives);
+  LProvider := KdfProviderOver(LInner, TFakeBackendReport.Create([]) as ICryptoBackendReport,
+    TComplianceEnforcement.Strict);
+  LProvider.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256);
+  CheckEquals(0, LInner.Prfs, 'a PRF the module does not serve is assembled over the HMAC');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestComposedPrfComputesTheReferenceOutput;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := ProviderOver(TFakeBackendReport.Create([]) as ICryptoBackendReport,
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  CheckTrue(ComputePrf(LProvider, 'key expansion').ConstantTimeAreEqual(
+    ComputePrf(Crypto, 'key expansion')), 'the composition agrees with the portable PRF');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictComposedPrfRefusesAPortableHmac;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableHmacs := [THashAlgorithm.SHA_256];
+  CheckTrue(RefusesPrf(ProviderOver(LRef, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict), THashAlgorithm.SHA_256), 'no PRF over a portable HMAC');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestHkdfRfc5869VectorsThroughTheOsProvider;
+var
+  LBase, LProvider: ICryptoProvider;
+begin
+  LBase := TOSCryptoProvider.Compose(Crypto);
+  if not TOSCryptoProvider.HasNativeFacets or not Supports(LBase, ICryptoBackendReport) then
+  begin
+    SkipTest('no OS overlay engaged');
+    Exit;
+  end;
+  LProvider := TComplianceCryptoProvider.Compose(LBase, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict);
+  CheckHkdfVector(LProvider, Rfc5869Salt13, Rfc5869Ikm22, Rfc5869Info10, Rfc5869Prk1,
+    Rfc5869Okm1, 42);
+  CheckHkdfVector(LProvider, Rfc5869Salt80, Rfc5869Ikm80, Rfc5869Info80, Rfc5869Prk2,
+    Rfc5869Okm2, 82);
+  CheckHkdfVector(LProvider, '', Rfc5869Ikm22, '', Rfc5869Prk3, Rfc5869Okm3, 42);
 end;
 
 function TTestComplianceCryptoPrimitives.NewSchedule(
