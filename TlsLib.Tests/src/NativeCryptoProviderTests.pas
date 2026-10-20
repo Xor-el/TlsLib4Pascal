@@ -59,6 +59,7 @@ uses
   TlpHpkeComposition,
   TlpIKeySchedule,
   TlpTls12KeySchedule,
+  TlpTls12PrfComposition,
   TlpSystemCryptoBase,
   MockCryptoProvider,
   TlsLibTestBase;
@@ -299,6 +300,10 @@ type
     procedure TestSubstitutedPrimitivesAreNotAComposition;
     procedure TestSubstitutedSigningIsNotAComposition;
     procedure TestRewrappingTheSameFacetsIsStillAComposition;
+    // a host class borrowing the real report and the real facets is no composition either
+    procedure TestHostClassBorrowingTheReportIsNotAComposition;
+    procedure TestHybridPointSpkiIsNotImportedNatively;
+    procedure TestRsaSpkiWithNonNullParametersIsNotImportedNatively;
     // the TLS 1.2 PRF is served in-module and agrees with the portable composition in every
     // shape the key schedule asks for
     procedure TestTls12PrfIsServedInModule;
@@ -388,6 +393,20 @@ type
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Verify(const ASignature: TBytes): Boolean;
   end;
+
+  // a host class that hands out another provider's facets and a backend report as its own
+  TReportBorrowingProvider = class sealed(TInterfacedObject, ICryptoProvider, ICryptoBackendReport)
+  strict private
+  var
+    FProvider: ICryptoProvider;
+    FReport: ICryptoBackendReport;
+    property BackendReport: ICryptoBackendReport read FReport implements ICryptoBackendReport;
+  public
+    constructor Create(const AProvider: ICryptoProvider; const AReport: ICryptoBackendReport);
+    function Primitives: ICryptoPrimitives;
+    function Signing: ISigningCrypto;
+    function Hpke: IHpkeCrypto;
+  end;
 {$IFEND}
 
   // signs and verifies repeatedly with one shared key, recording how many signatures verified
@@ -423,6 +442,31 @@ end;
 function THostMarkedVerifier.Verify(const ASignature: TBytes): Boolean;
 begin
   Result := False;
+end;
+
+{ TReportBorrowingProvider }
+
+constructor TReportBorrowingProvider.Create(const AProvider: ICryptoProvider;
+  const AReport: ICryptoBackendReport);
+begin
+  inherited Create;
+  FProvider := AProvider;
+  FReport := AReport;
+end;
+
+function TReportBorrowingProvider.Primitives: ICryptoPrimitives;
+begin
+  Result := FProvider.Primitives;
+end;
+
+function TReportBorrowingProvider.Signing: ISigningCrypto;
+begin
+  Result := FProvider.Signing;
+end;
+
+function TReportBorrowingProvider.Hpke: IHpkeCrypto;
+begin
+  Result := FProvider.Hpke;
 end;
 {$IFEND}
 
@@ -1889,6 +1933,41 @@ begin
     'the report still describes the facets it was built for');
 end;
 
+procedure TTestWindowsNativeCryptoProvider.TestHostClassBorrowingTheReportIsNotAComposition;
+var
+  LReport: ICryptoBackendReport;
+  LBorrower: ICryptoProvider;
+begin
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay engaged');
+  LBorrower := TReportBorrowingProvider.Create(Crypto, LReport) as ICryptoProvider;
+  CheckFalse(TOSCryptoProvider.IsComposition(LBorrower),
+    'the report and facets are the real ones, but the provider is not what Compose returned');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestHybridPointSpkiIsNotImportedNatively;
+var
+  LSpki: TBytes;
+begin
+  LSpki := DecodeHex(FKeys.Values['ec256_pub']);
+  // the point prefix is 04 (uncompressed); 06 is the hybrid form of SEC1 2.3.3
+  CheckEquals($04, LSpki[System.Length(LSpki) - 65], 'the point prefix sits ahead of X and Y');
+  LSpki[System.Length(LSpki) - 65] := $06;
+  CheckFalse(VerifierIsNative(TSignatureScheme.ECDSA_SECP256R1_SHA256, LSpki),
+    'only the uncompressed form is imported by the OS module');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestRsaSpkiWithNonNullParametersIsNotImportedNatively;
+var
+  LSpki: TBytes;
+begin
+  LSpki := DecodeHex(FKeys.Values['rsa_pub']);
+  // the AlgorithmIdentifier carries rsaEncryption then NULL (05 00); 04 00 is an empty OCTET STRING
+  CheckEquals($05, LSpki[17], 'the parameters follow the algorithm OID');
+  LSpki[17] := $04;
+  CheckFalse(VerifierIsNative(TSignatureScheme.RSA_PSS_RSAE_SHA256, LSpki),
+    'rsaEncryption parameters other than NULL are no RSA key for the OS module');
+end;
+
 procedure TTestWindowsNativeCryptoProvider.TestTls12PrfIsServedInModule;
 const
   Hashes: array [0 .. 1] of THashAlgorithm = (THashAlgorithm.SHA_256, THashAlgorithm.SHA_384);
@@ -1898,8 +1977,12 @@ var
 begin
   CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay engaged');
   for LI := Low(Hashes) to High(Hashes) do
+  begin
     CheckTrue(LReport.Tls12PrfBackend(Hashes[LI]).Backend = TCryptoBackend.System,
-      Format('the PRF over hash %d runs in the OS module', [Ord(Hashes[LI])]));
+      Format('the PRF over hash %d is reported as run in the OS module', [Ord(Hashes[LI])]));
+    CheckFalse(Crypto.Primitives.CreateTls12Prf(Hashes[LI]) is TTls12PrfComposition,
+      Format('and the PRF over hash %d is not the composition over the HMAC', [Ord(Hashes[LI])]));
+  end;
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestTls12PrfMatchesThePublishedVectors;
