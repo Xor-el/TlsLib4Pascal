@@ -1,0 +1,55 @@
+TlsLib.Tests/src/ChainAlgorithmPolicyTests.pas
+  s_f2c9bd75607afc::t_ae8ce5fca7e050 82-95
+  s_f2c9bd75607afc::t_994a1416ca18b6 629,633
+  s_f2c9bd75607afc::t_f07612bbd14ea6 110-206
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_f2c9bd75607afc::t_d31e0c9686b919 258
+TlsLib/src/Trust/TlpCertificateStrengthPolicy.pas
+  s_f2c9bd75607afc::t_c8e6d5f85ac92f 53
+  s_f2c9bd75607afc::t_b8672ea889c491 71-88
+  s_f2c9bd75607afc::t_9fb3182f7e1a28 19-20
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_f2c9bd75607afc::t_c4ef193285bb0f 224
+  s_f2c9bd75607afc::t_ae108271d3bec4 216-223,225-227,229-230
+  s_f2c9bd75607afc::t_ed324f2f894728 31-35
+  s_f2c9bd75607afc::t_8ca4e6b07ea686 428-432,435
+  s_f2c9bd75607afc::t_ebf53fc4170f72 197-199
+  s_f2c9bd75607afc::t_2f02498b070cc5 388-390,392-393,395,397-398,400-401,407,409-411,416
+  s_f2c9bd75607afc::t_138f2047b8fe81 394,396,399
+  s_f2c9bd75607afc::t_ff5f91d794aaec 231
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_f2c9bd75607afc::t_f140ae386d044b 2084
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_f4dc09da8f4bb2 3187
+TlsLib.Tests/src/SignatureTests.pas
+  s_f2c9bd75607afc::t_ea7c7d025dc363 58-59
+  s_f2c9bd75607afc::t_ee06cd89e0c414 497-541
+  s_f2c9bd75607afc::t_f608e377d8603c 75-79
+TlsLib/src/Negotiation/TlpNegotiationTypes.pas
+  s_f2c9bd75607afc::t_1904ff9accc401 210,213-214,219,223
+  s_f2c9bd75607afc::t_c243d6f7d97a19 200-209,211-212,215-218,220-222,224-226
+  s_f2c9bd75607afc::t_74a816002153ab 145-148
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  s_f2c9bd75607afc::t_5a6232c56a9489 572
+TlsLib.Tests/src/NamedGroupTests.pas
+  s_f2c9bd75607afc::t_ab394aa788972f 809-818,820,822-823,825
+  s_f2c9bd75607afc::t_139d7a4797be60 100-104
+  s_f2c9bd75607afc::t_7ea8eeb437cf1e 51
+  s_f2c9bd75607afc::t_75397c5f19c997 729-780,785-808,819,821,824,826-827
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "df62692398c1bc0269139800bb3e105cd456abab",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
