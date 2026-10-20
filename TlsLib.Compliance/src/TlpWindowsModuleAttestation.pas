@@ -70,7 +70,11 @@ type
     class procedure ReadRegistry(var AFacts: TWindowsModuleFacts); static;
     class function ReadMachines(out AProcessMachine, ANativeMachine: Word): Boolean; static;
     class function ReadFirmware(out AType: UInt32): Boolean; static;
-    class function ReadSystemPath: WideString; static;
+    class function ReadSystemFile(const AFileName: WideString): WideString; static;
+    // whether the module the process resolves AFileName to is the system copy; False when it
+    // could not be told
+    class function ReadSystemCopy(const AFileName: string;
+      out ASystemCopy: Boolean): Boolean; static;
     class function ReadLoadedPath(var AFacts: TWindowsModuleFacts): Boolean; static;
     class function ReadModuleVersion(var AFacts: TWindowsModuleFacts): Boolean; static;
     class function ReadLegacyPolicy: TLegacyFipsPolicy; static;
@@ -104,6 +108,8 @@ resourcestring
 
 const
   ModuleFileName = 'bcryptprimitives.dll';
+  BcryptFileName = 'bcrypt.dll';
+  NcryptFileName = 'ncrypt.dll';
   FirmwareUnknown = 0;
   VersionKey = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion';
   RevisionValue = 'UBR';
@@ -186,7 +192,8 @@ begin
   end;
 end;
 
-class function TWindowsModuleAttestation.ReadSystemPath: WideString;
+class function TWindowsModuleAttestation.ReadSystemFile(
+  const AFileName: WideString): WideString;
 var
   LDirectory: array [0 .. MAX_PATH] of WideChar;
   LLength: UINT;
@@ -194,7 +201,39 @@ begin
   Result := '';
   LLength := GetSystemDirectoryW(@LDirectory[0], Length(LDirectory));
   if (LLength > 0) and (LLength < UINT(Length(LDirectory))) then
-    Result := WideString(PWideChar(@LDirectory[0])) + '\' + ModuleFileName;
+    Result := WideString(PWideChar(@LDirectory[0])) + '\' + AFileName;
+end;
+
+class function TWindowsModuleAttestation.ReadSystemCopy(const AFileName: string;
+  out ASystemCopy: Boolean): Boolean;
+var
+  LHandle: NativeUInt;
+  LLoaded: Boolean;
+  LName, LSystemFile: WideString;
+begin
+  ASystemCopy := False;
+  Result := False;
+  LName := AFileName;
+  LSystemFile := ReadSystemFile(LName);
+  if LSystemFile = '' then
+    Exit;
+  LHandle := NativeUInt(GetModuleHandleW(PWideChar(LName)));
+  LLoaded := False;
+  if LHandle = 0 then
+  begin
+    LHandle := TDynamicLibrary.Open(AFileName);
+    LLoaded := LHandle <> 0;
+  end;
+  if LHandle = 0 then
+    Exit;
+  try
+    // one handle for the bare name and the full system path is the system copy
+    ASystemCopy := NativeUInt(GetModuleHandleW(PWideChar(LSystemFile))) = LHandle;
+    Result := True;
+  finally
+    if LLoaded then
+      TDynamicLibrary.Close(LHandle);
+  end;
 end;
 
 class function TWindowsModuleAttestation.ReadLoadedPath(
@@ -407,7 +446,9 @@ begin
   Result.Process64Bit := SizeOf(Pointer) = 8;
   Result.MachineRead := ReadMachines(Result.ProcessMachine, Result.NativeMachine);
   Result.FirmwareRead := ReadFirmware(Result.FirmwareType);
-  Result.SystemModulePath := ReadSystemPath;
+  Result.SystemModulePath := ReadSystemFile(ModuleFileName);
+  Result.ImportsRead := ReadSystemCopy(BcryptFileName, Result.BcryptSystemCopy) and
+    ReadSystemCopy(NcryptFileName, Result.NcryptSystemCopy);
   Result.PathRead := ReadLoadedPath(Result);
   if Result.PathRead then
     Result.VersionRead := ReadModuleVersion(Result);

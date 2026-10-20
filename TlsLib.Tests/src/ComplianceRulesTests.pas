@@ -175,6 +175,11 @@ type
     procedure TestSignatureMeetsRefusesTheHashesNoSchemeUses;
     procedure TestSignatureMeetsAdmitsADeprecatedHashTheStrengthAdmits;
     procedure TestSignatureMeetsFollowsTheEdDsaFlagForAnImplicitHash;
+    procedure TestSignatureMeetsRefusesAFamilyTheSchemesDoNotName;
+    procedure TestSignatureMeetsKeepsEcdsaOutOfRsaOnlyRules;
+    procedure TestSignatureMeetsAdmitsCanonicalPssAsRsae;
+    procedure TestSignatureMeetsRefusesNonCanonicalPss;
+    procedure TestSignatureMeetsRefusesNonCanonicalPssWithAnAdmittedHash;
     procedure TestSameCredentialNeedsTheSameKeyObjectAndChainBytes;
     procedure TestTryKeyAgreementRejectsHybridAndKem;
     procedure TestKeyAgreementsFips140_3;
@@ -1764,18 +1769,18 @@ end;
 
 procedure TTestComplianceCatalog.TestSignatureMeetsFollowsTheSchemeHashes;
 begin
-  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha256,
-    TCompliancePresets.Fips140_3), 'SHA-256 under Fips140_3');
-  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha384,
-    TCompliancePresets.Fips140_3), 'SHA-384 under Fips140_3');
-  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha512,
-    TCompliancePresets.Fips140_3), 'SHA-512 under Fips140_3');
-  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha384,
-    TCompliancePresets.Cnsa1), 'SHA-384 under Cnsa1');
-  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha256,
-    TCompliancePresets.Cnsa1), 'SHA-256 under Cnsa1');
-  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha512,
-    TCompliancePresets.Cnsa1), 'SHA-512 under Cnsa1');
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Sha256, False, TCompliancePresets.Fips140_3), 'SHA-256 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Sha384, False, TCompliancePresets.Fips140_3), 'SHA-384 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Sha512, False, TCompliancePresets.Fips140_3), 'SHA-512 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Sha384, False, TCompliancePresets.Cnsa1), 'SHA-384 under Cnsa1');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Sha256, False, TCompliancePresets.Cnsa1), 'SHA-256 under Cnsa1');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Sha512, False, TCompliancePresets.Cnsa1), 'SHA-512 under Cnsa1');
 end;
 
 procedure TTestComplianceCatalog.TestSignatureMeetsRefusesTheHashesNoSchemeUses;
@@ -1786,8 +1791,8 @@ var
   LI: Int32;
 begin
   for LI := Low(Refused) to High(Refused) do
-    CheckFalse(TComplianceCatalog.SignatureMeets(Refused[LI],
-      TCompliancePresets.Fips140_3), TEnumUtilities.GetName(TypeInfo(TCertSignatureHash),
+    CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPkcs1, Refused[LI],
+      False, TCompliancePresets.Fips140_3), TEnumUtilities.GetName(TypeInfo(TCertSignatureHash),
       Ord(Refused[LI])));
 end;
 
@@ -1797,10 +1802,10 @@ var
 begin
   LRules := TCompliancePresets.Fips140_3;
   LRules.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
-  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha1, LRules),
-    'admitted');
-  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Md5, LRules),
-    'only the hash that was admitted');
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPkcs1,
+    TCertSignatureHash.Sha1, False, LRules), 'admitted');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPkcs1,
+    TCertSignatureHash.Md5, False, LRules), 'only the hash that was admitted');
 end;
 
 procedure TTestComplianceCatalog.TestSignatureMeetsFollowsTheEdDsaFlagForAnImplicitHash;
@@ -1808,11 +1813,71 @@ var
   LRules: TComplianceRules;
 begin
   LRules := TCompliancePresets.Fips140_3;
-  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Implicit, LRules),
-    'EdDSA is off in the presets');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed25519,
+    TCertSignatureHash.Implicit, False, LRules), 'EdDSA is off in the presets');
   LRules.Strength.AllowEdDsa := True;
-  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Implicit, LRules),
-    'and on when the strength policy admits it');
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed25519,
+    TCertSignatureHash.Implicit, False, LRules), 'and on when the strength policy admits it');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsRefusesAFamilyTheSchemesDoNotName;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.SignatureSchemes := [TSignatureScheme.ECDSA_SECP256R1_SHA256,
+    TSignatureScheme.ECDSA_SECP384R1_SHA384];
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Sha384, False, LRules), 'ECDSA with SHA-384 is listed');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPkcs1,
+    TCertSignatureHash.Sha384, False, LRules), 'RSA PKCS#1 with a hash an ECDSA scheme uses');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPss,
+    TCertSignatureHash.Sha384, True, LRules), 'canonical RSA-PSS with such a hash');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsKeepsEcdsaOutOfRsaOnlyRules;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.SignatureSchemes := [TSignatureScheme.RSA_PKCS1_SHA384];
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPkcs1,
+    TCertSignatureHash.Sha384, False, LRules), 'RSA PKCS#1 with SHA-384 is listed');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Sha384, False, LRules), 'ECDSA is a family the rules lack');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPss,
+    TCertSignatureHash.Sha384, True, LRules), 'and so is RSA-PSS');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsAdmitsCanonicalPssAsRsae;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.SignatureSchemes := [TSignatureScheme.RSA_PSS_RSAE_SHA256];
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPss,
+    TCertSignatureHash.Sha256, True, LRules), 'canonical parameters');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsRefusesNonCanonicalPss;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPss,
+    TCertSignatureHash.Sha256, False, LRules), 'the scheme is listed, the parameters are not');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsRefusesNonCanonicalPssWithAnAdmittedHash;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPss,
+    TCertSignatureHash.Sha1, False, LRules), 'an admitted hash does not excuse the parameters');
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPss,
+    TCertSignatureHash.Sha1, True, LRules), 'canonical, it is admitted');
 end;
 
 function TTestComplianceCatalog.Held(const AKey: ISigningKey;

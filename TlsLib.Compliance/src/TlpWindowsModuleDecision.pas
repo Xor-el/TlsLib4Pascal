@@ -38,7 +38,14 @@ type
     ProductTypes: set of Byte;
     /// <summary>The module file version the certificate lists.</summary>
     ListedVersion: string;
+    /// <summary>The OS editions the Security Policy lists for the release, as the OS names them
+    /// (EditionID), each between bars; empty when none is listed.</summary>
+    Editions: string;
   end;
+
+  /// <summary>How an OS edition stands against the editions the Security Policy lists for its
+  /// release.</summary>
+  TEditionCoverage = (NoTestedList, Tested, Untested, Unread);
 
   /// <summary>Everything the decision reads. The Read flags say whether a fact could be
   /// obtained; a fact that was not read decides nothing but Unknown. Edition and Revision are
@@ -65,6 +72,11 @@ type
     /// <summary>The loaded module is the one at SystemModulePath; the gatherer decides, so the
     /// platform's path equivalence stays with it.</summary>
     SystemCopy: Boolean;
+    /// <summary>Whether the loaded bcrypt.dll and ncrypt.dll were identified; each is the system
+    /// copy when its flag is set.</summary>
+    ImportsRead: Boolean;
+    BcryptSystemCopy: Boolean;
+    NcryptSystemCopy: Boolean;
     VersionRead: Boolean;
     ModuleMajor: UInt16;
     ModuleMinor: UInt16;
@@ -99,6 +111,11 @@ type
       out AReason: string): TModuleStatus; static;
     /// <summary>The name of a firmware kind as the OS numbers it.</summary>
     class function FirmwareName(AType: UInt32): string; static;
+    /// <summary>Whether AEdition, as the OS names it, is one the Security Policy lists for
+    /// ABuild's release; Unread for an empty AEdition and NoTestedList where the release lists
+    /// none. Never decides the status.</summary>
+    class function EditionCoverage(ABuild: UInt32; const AEdition: string): TEditionCoverage;
+      static;
   end;
 
 implementation
@@ -109,8 +126,10 @@ resourcestring
   SNoValidatedBuild = 'the shipped table records no validated module for this build';
   SProductTypeNotCovered = 'the OS product type %d is not one the certificate covers for build %d';
   SProcess32Bit = 'the process is 32-bit; the certificate covers the 64-bit module only';
-  SProcessEmulated = 'the process runs under WOW64 or x64 emulation (process machine 0x%.4x); ' +
+  SProcessEmulated = 'the process runs under WOW64 (process machine 0x%.4x); ' +
     'the certificate covers a native x64 process';
+  SImportNotSystemCopy = 'the loaded %s is not the system copy';
+  SImportsUnreadable = 'the identity of the loaded bcrypt.dll and ncrypt.dll could not be read';
   SNativeNotX64 = 'the native machine is 0x%.4x, not x64; the certificate covers x64 hardware';
   SFirmwareNotUefi = 'the firmware is %s, not UEFI; the certificate covers UEFI-based x64 ' +
     'computers';
@@ -121,7 +140,7 @@ resourcestring
   SSystemDirectoryUnreadable = 'the system directory could not be read';
   SModulePathUnreadable = 'the path of the loaded module could not be read';
   SDateUnreadable = 'the current date could not be read';
-  SSunsetPassed = 'the certificate passed its sunset date %s and is historical';
+  SSunsetPassed = 'certificate %s passed its sunset date %s and is historical';
   SModuleVersionUnreadable = 'the file version of the loaded module could not be read';
   SFirmwareBios = 'BIOS';
   SFirmwareUefi = 'UEFI';
@@ -137,6 +156,9 @@ const
   ProductServer = 3;
   FirmwareBios = 1;
   FirmwareUefi = 2;
+  BcryptName = 'bcrypt.dll';
+  NcryptName = 'ncrypt.dll';
+  EditionSeparator = '|';
   ValidatedCertificate = '5410';
   CertificateValidatedOn = '2026-08-31';
   CertificateSunset = '2031-08-30';
@@ -152,33 +174,35 @@ const
     Validated: True; Standard: TModuleStandard.Fips140_3; Level: 1;
     ValidatedOn: CertificateValidatedOn; Sunset: CertificateSunset;
     SunsetDay: CertificateSunsetDay;
-    ProductTypes: [ProductWorkstation]; ListedVersion: '10.0.22621.30001'),
+    ProductTypes: [ProductWorkstation]; ListedVersion: '10.0.22621.30001';
+    Editions: '|Core|Professional|Enterprise|IoTEnterprise|Education|'),
     (Build: 20348; Product: 'Windows Server 2022'; Certificate: ValidatedCertificate;
     Validated: True; Standard: TModuleStandard.Fips140_3; Level: 1;
     ValidatedOn: CertificateValidatedOn; Sunset: CertificateSunset;
     SunsetDay: CertificateSunsetDay;
-    ProductTypes: [ProductDomainController, ProductServer]; ListedVersion: '10.0.20348.30000'),
+    ProductTypes: [ProductDomainController, ProductServer]; ListedVersion: '10.0.20348.30000';
+    Editions: '|ServerStandard|ServerDatacenter|'),
     (Build: 22631; Product: 'Windows 11 23H2'; Certificate: ''; Validated: False;
     Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
-    ProductTypes: []; ListedVersion: ''),
+    ProductTypes: []; ListedVersion: ''; Editions: ''),
     (Build: 26100; Product: 'Windows 11 24H2 / Server 2025'; Certificate: ''; Validated: False;
     Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
-    ProductTypes: []; ListedVersion: ''),
+    ProductTypes: []; ListedVersion: ''; Editions: ''),
     (Build: 26200; Product: 'Windows 11 25H2'; Certificate: ''; Validated: False;
     Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
-    ProductTypes: []; ListedVersion: ''),
+    ProductTypes: []; ListedVersion: ''; Editions: ''),
     (Build: 19045; Product: 'Windows 10 22H2'; Certificate: ''; Validated: False;
     Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
-    ProductTypes: []; ListedVersion: ''),
+    ProductTypes: []; ListedVersion: ''; Editions: ''),
     (Build: 19044; Product: 'Windows 10 21H2'; Certificate: ''; Validated: False;
     Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
-    ProductTypes: []; ListedVersion: ''),
+    ProductTypes: []; ListedVersion: ''; Editions: ''),
     (Build: 17763; Product: 'Windows 10 1809 / Server 2019'; Certificate: ''; Validated: False;
     Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
-    ProductTypes: []; ListedVersion: ''),
+    ProductTypes: []; ListedVersion: ''; Editions: ''),
     (Build: 14393; Product: 'Windows 10 1607 / Server 2016'; Certificate: ''; Validated: False;
     Standard: TModuleStandard.Fips140_3; Level: 0; ValidatedOn: ''; Sunset: ''; SunsetDay: 0;
-    ProductTypes: []; ListedVersion: ''));
+    ProductTypes: []; ListedVersion: ''; Editions: ''));
 var
   LI: Int32;
 begin
@@ -207,15 +231,20 @@ begin
     Exit(SNoValidatedBuild);
   if not (AFacts.ProductType in LEntry.ProductTypes) then
     Exit(Format(SProductTypeNotCovered, [AFacts.ProductType, AFacts.Build]));
-  if AFacts.ProcessMachine <> 0 then
-    Exit(Format(SProcessEmulated, [AFacts.ProcessMachine]));
+  // first, so an x64 process emulated on other hardware is named by the machine it runs on
   if AFacts.MachineRead and (AFacts.NativeMachine <> MachineAmd64) then
     Exit(Format(SNativeNotX64, [AFacts.NativeMachine]));
+  if AFacts.ProcessMachine <> 0 then
+    Exit(Format(SProcessEmulated, [AFacts.ProcessMachine]));
   if AFacts.FirmwareRead and (AFacts.FirmwareType <> FirmwareUefi) then
     Exit(Format(SFirmwareNotUefi, [FirmwareName(AFacts.FirmwareType)]));
   if AFacts.PathRead and (AFacts.SystemModulePath <> '') and not AFacts.SystemCopy then
     Exit(Format(SModuleNotSystemCopy, [string(AFacts.ModulePath),
       string(AFacts.SystemModulePath)]));
+  if AFacts.ImportsRead and not AFacts.BcryptSystemCopy then
+    Exit(Format(SImportNotSystemCopy, [BcryptName]));
+  if AFacts.ImportsRead and not AFacts.NcryptSystemCopy then
+    Exit(Format(SImportNotSystemCopy, [NcryptName]));
   if AFacts.VersionRead and ((AFacts.ModuleMajor <> NtMajor) or
     (AFacts.ModuleMinor <> NtMinor) or (AFacts.ModuleBuild <> AFacts.Build)) then
     Exit(Format(SModuleBuildMismatch, [AFacts.ModuleMajor, AFacts.ModuleMinor,
@@ -235,6 +264,8 @@ begin
     Exit(SModulePathUnreadable);
   if not AFacts.VersionRead then
     Exit(SModuleVersionUnreadable);
+  if not AFacts.ImportsRead then
+    Exit(SImportsUnreadable);
   if AFacts.Today = 0 then
     Exit(SDateUnreadable);
 end;
@@ -265,7 +296,7 @@ begin
   LListed := Lookup(AFacts.Build, LEntry);
   if LListed and (LEntry.SunsetDay <> 0) and (AFacts.Today > LEntry.SunsetDay) then
   begin
-    AReason := Format(SSunsetPassed, [LEntry.Sunset]);
+    AReason := Format(SSunsetPassed, [LEntry.Certificate, LEntry.Sunset]);
     Exit(TModuleStatus.Historical);
   end;
   Result := TModuleStatus.Validated;
@@ -281,6 +312,25 @@ begin
   else
     Result := Format(SFirmwareOther, [AType]);
   end;
+end;
+
+class function TWindowsModuleDecision.EditionCoverage(ABuild: UInt32;
+  const AEdition: string): TEditionCoverage;
+var
+  LEntry: TWindowsModuleEntry;
+  LListed: Boolean;
+begin
+  LListed := Lookup(ABuild, LEntry);
+  if not LListed or (LEntry.Editions = '') then
+    Exit(TEditionCoverage.NoTestedList);
+  if AEdition = '' then
+    Exit(TEditionCoverage.Unread);
+  // a name holding the separator could match across two listed editions
+  if (Pos(EditionSeparator, AEdition) = 0) and
+    (Pos(EditionSeparator + AEdition + EditionSeparator, LEntry.Editions) > 0) then
+    Result := TEditionCoverage.Tested
+  else
+    Result := TEditionCoverage.Untested;
 end;
 
 end.

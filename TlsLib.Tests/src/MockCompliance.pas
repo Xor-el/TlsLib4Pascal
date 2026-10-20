@@ -88,11 +88,15 @@ type
     FPortableCurves: TComplianceKeyAgreementSet;
     FPortableVerification: TComplianceSchemeSet;
     FNativePrf: Boolean;
+    FComposedPrfHashes: TComplianceHashSet;
   public
     constructor Create(APortableAeads: TComplianceAeadSet);
     /// <summary>Whether the module serves the TLS 1.2 PRF itself; off, it is composed over the
     /// HMAC.</summary>
     property NativePrf: Boolean read FNativePrf write FNativePrf;
+    /// <summary>The PRF hashes composed over the HMAC even while NativePrf is on.</summary>
+    property ComposedPrfHashes: TComplianceHashSet read FComposedPrfHashes
+      write FComposedPrfHashes;
     property PortableRandom: Boolean read FPortableRandom write FPortableRandom;
     property PortableHashes: TComplianceHashSet read FPortableHashes write FPortableHashes;
     property PortableHmacs: TComplianceHashSet read FPortableHmacs write FPortableHmacs;
@@ -406,7 +410,7 @@ end;
 
 function TFakeBackendReport.Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
 begin
-  if FNativePrf then
+  if FNativePrf and not (AAlgorithm in FComposedPrfHashes) then
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
   else
     Result := inherited Tls12PrfBackend(AAlgorithm);
