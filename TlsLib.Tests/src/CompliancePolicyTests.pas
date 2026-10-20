@@ -468,8 +468,6 @@ type
     procedure TestCheckedTicketKeysRejectEmptyScope;
     procedure TestCheckedTicketKeysAcceptTheLongestScope;
     procedure TestCheckedTicketKeysRejectAScopeOneByteTooLong;
-    procedure TestServerBuilderAcceptsTheLongestFleetScope;
-    procedure TestServerBuilderRefusesAScopeOneByteOverTheFleetLimit;
     procedure TestTicketKeysWrapperRejectsNilPolicy;
     procedure TestTicketKeysWrapperRejectsNilClock;
     procedure TestTicketKeysWrapperRejectsZeroLifetime;
@@ -4509,29 +4507,6 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'the builder would refuse 33 bytes');
-end;
-
-procedure TTestComplianceResumption.TestServerBuilderAcceptsTheLongestFleetScope;
-var
-  LPolicy: ICompliancePolicy;
-begin
-  LPolicy := StrictPolicy;
-  CheckTrue(FleetServerBuilder(LPolicy, NewFleet, Filled($01, 32)).Build <> nil,
-    'the wrapper limit is not above the builder limit');
-end;
-
-procedure TTestComplianceResumption.TestServerBuilderRefusesAScopeOneByteOverTheFleetLimit;
-var
-  LRaised: Boolean;
-begin
-  LRaised := False;
-  try
-    ServerBuilder(StrictPolicy).WithResumptionScope(Filled($01, 33));
-  except
-    on EArgumentTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'the wrapper limit is not below the builder limit');
 end;
 
 procedure TTestComplianceResumption.TestTicketKeysWrapperRejectsNilPolicy;

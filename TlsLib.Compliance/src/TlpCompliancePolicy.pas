@@ -37,6 +37,7 @@ uses
   TlpITlsServerCredentialSet,
   TlpISession,
   TlpSessionTicketStrategy,
+  TlpTlsConfigBuilder,
   TlpIClock,
   TlpTrustPolicy,
   TlpTrustTypes,
@@ -195,7 +196,7 @@ resourcestring
   SCredentialNamedSubject = 'credential %d (CN=%s)';
   SResolverUnchecked =
     'the credential resolver is not checked by the policy; wrap it with CheckedCredentialResolver';
-  STicketAead = 'session tickets are sealed with AES-256-GCM, which the rules do not allow';
+  STicketAead = 'session tickets are sealed with %s, which the rules do not allow';
   SFleetTicketKeys = 'session-ticket keys are entered by the host';
   SFleetScopeEntered = 'the fleet scope is entered by the host';
   SSha256Internal =
@@ -240,7 +241,7 @@ resourcestring
 
 const
   ScopePrefixLength = Int32(16);
-  ScopeRandomLength = Int32(16);
+  ScopeRandomLength = TTlsConfigBuilder.MaxResumptionScopeLength - ScopePrefixLength;
 
 { TCompliancePolicy }
 
@@ -612,19 +613,28 @@ procedure TCompliancePolicy.CheckTickets(const AConfig: ITlsServerConfig;
   var AFindings: TArray<TComplianceFinding>; var ADisclosures: TArray<string>);
 var
   LKeys: ISessionTicketKeyManager;
+  LVersions: TArray<UInt16>;
+  LAeadName: string;
   LI: Int32;
 begin
   // keys count only when some offered version seals tickets with them
   LKeys := nil;
-  for LI := 0 to System.Length(AConfig.SupportedVersions) - 1 do
-    if TSessionTicketStrategies.SealsWithKeys(AConfig.SupportedVersions[LI],
-      AConfig.SessionTicketKeys, AConfig.SessionStore) then
+  LVersions := AConfig.SupportedVersions;
+  for LI := 0 to System.Length(LVersions) - 1 do
+    if TSessionTicketStrategies.SealsWithKeys(LVersions[LI], AConfig.SessionTicketKeys,
+      AConfig.SessionStore) then
+    begin
       LKeys := AConfig.SessionTicketKeys;
+      Break;
+    end;
   // a store-only server seals nothing, and a client never seals
   if AConfig.Resumption and (LKeys <> nil) and
     not (TSessionTicketStrategies.TicketAead in FRules.Aeads) then
+  begin
+    LAeadName := TEnumUtilities.GetName<TAeadAlgorithm>(TSessionTicketStrategies.TicketAead);
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.TicketAeadNotAllowed, '', STicketAead));
+      TComplianceFindingKind.TicketAeadNotAllowed, '', Format(STicketAead, [LAeadName])));
+  end;
   if LKeys <> nil then
     CheckTicketKeys(LKeys, AConfig, AFindings, ADisclosures);
   if AConfig.Resumption and ((AConfig.SessionStore <> nil) or (LKeys <> nil)) and

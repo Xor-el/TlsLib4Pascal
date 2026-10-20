@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpEnumUtilities,
   TlpCryptoDomainTypes,
   TlpTlsLibExceptions,
   TlpISecretBuffer,
@@ -90,7 +91,7 @@ resourcestring
   SNilClock = 'the clock must not be nil';
   SNilInner = 'the inner ticket keys must not be nil';
   SLifetimeZero = 'the ticket-key lifetime must not be zero';
-  SKeysNeedAes256 = 'the ticket keys seal with AES-256-GCM, which the rules do not allow';
+  SKeysNeedAes256 = 'the ticket keys seal with %s, which the rules do not allow';
   SFleetScopeInvalid = 'the fleet scope must be 1 to %d bytes';
 
 { TComplianceTicketKeys }
@@ -107,7 +108,8 @@ begin
   if ALifetimeSeconds = 0 then
     raise EArgumentTlsLibException.CreateRes(@SLifetimeZero);
   if not (TSessionTicketStrategies.TicketAead in APolicy.Rules.Aeads) then
-    raise EArgumentTlsLibException.CreateRes(@SKeysNeedAes256);
+    raise EArgumentTlsLibException.CreateResFmt(@SKeysNeedAes256,
+      [TEnumUtilities.GetName<TAeadAlgorithm>(TSessionTicketStrategies.TicketAead)]);
   FPolicy := APolicy;
   FLifetimeSeconds := ALifetimeSeconds;
   FInner := TStekTicketKeyManager.CreateDefault(APolicy.Crypto, AClock, ALifetimeSeconds)
