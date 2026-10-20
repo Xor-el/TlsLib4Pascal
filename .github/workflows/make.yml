@@ -366,6 +366,8 @@ jobs:
     timeout-minutes: 120
     needs: [setup, lint]
     if: contains(format(',{0},', needs.setup.outputs.enabled_targets), ',windows-2022,')
+    env:
+      TLSLIB_EXPECT_VALIDATED_MODULE: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
