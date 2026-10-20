@@ -8,12 +8,13 @@ unit TlsLib.Compliance;
 interface
 
 uses
-  TlpComplianceTypes, TlpComplianceExceptions, TlpIModuleAttestation,
-  TlpIComplianceReport, TlpCompliancePresets, TlpComplianceReport, TlpComplianceHpke,
-  TlpComplianceCryptoProvider, TlpCompliancePkixProvider, TlpWindowsModuleDecision,
-  TlpWindowsModuleAttestation, TlpOSModuleAttestation, TlpICompliancePolicy, TlpCompliancePolicy, TlpComplianceTls,
-  TlpIComplianceCredentialResolver, TlpComplianceCredentialResolver, TlpIComplianceTicketKeys,
-  TlpComplianceTicketKeys;
+  TlpComplianceTypes, TlpComplianceExceptions, TlpIModuleAttestation, 
+  TlpIComplianceReport, TlpCompliancePresets, TlpComplianceReport, 
+  TlpComplianceCryptoProvider, TlpCompliancePkixProvider, 
+  TlpWindowsModuleAttestation, TlpOSModuleAttestation, TlpICompliancePolicy, 
+  TlpCompliancePolicy, TlpComplianceTls, TlpComplianceHpke, 
+  TlpIComplianceCredentialResolver, TlpComplianceCredentialResolver, 
+  TlpIComplianceTicketKeys, TlpComplianceTicketKeys, TlpWindowsModuleDecision;
 
 implementation
 
