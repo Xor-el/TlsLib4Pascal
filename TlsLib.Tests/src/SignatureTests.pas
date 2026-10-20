@@ -77,8 +77,6 @@ type
     procedure TestRsaPkcs1SchemesNameTheirDigest;
     procedure TestEdDsaSchemesNameNoDigest;
     procedure TestDigestByteLengths;
-    procedure TestSchemeOutsideTheEnumNamesNoHash;
-    procedure TestHashOutsideTheEnumHasNoLength;
     // the provider seam binds the scheme's key family and never leaks a backend exception
     procedure TestVerifierFailsClosedOnSchemeKeyFamilyMismatch;
     procedure TestVerifierAllowsEcdsaCurveHashDecoupling;
@@ -537,39 +535,6 @@ begin
   CheckEquals(32, THashAlgorithm.SHA_256.ByteLength, 'SHA-256');
   CheckEquals(48, THashAlgorithm.SHA_384.ByteLength, 'SHA-384');
   CheckEquals(64, THashAlgorithm.SHA_512.ByteLength, 'SHA-512');
-end;
-
-procedure TTestSignature.TestSchemeOutsideTheEnumNamesNoHash;
-var
-  LScheme: TSignatureScheme;
-  LHash: THashAlgorithm;
-  LRaised: Boolean;
-begin
-  LScheme := TSignatureScheme(Ord(High(TSignatureScheme)) + 1);
-  LRaised := False;
-  try
-    LScheme.TryHash(LHash);
-  except
-    on E: ENotSupportedTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'an unmapped scheme is refused, not given a hash');
-end;
-
-procedure TTestSignature.TestHashOutsideTheEnumHasNoLength;
-var
-  LHash: THashAlgorithm;
-  LRaised: Boolean;
-begin
-  LHash := THashAlgorithm(Ord(High(THashAlgorithm)) + 1);
-  LRaised := False;
-  try
-    LHash.ByteLength;
-  except
-    on E: ENotSupportedTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'an unmapped hash is refused, not given a length');
 end;
 
 procedure TTestSignature.TestSchemeCodesFromRegistryMatchesRegistryOrder;

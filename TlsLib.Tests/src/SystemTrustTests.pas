@@ -5696,6 +5696,9 @@ var
   LName, LValue: AnsiString;
   LSet: TPosixSetenvFunc;
   LUnset: TPosixUnsetenvFunc;
+{$IFDEF FPC}
+  LEnviron: ^PPAnsiChar;
+{$ENDIF FPC}
 begin
   LHandle := TDynamicLibrary.Open('');
   CheckTrue(LHandle <> 0, 'the C library is reachable');
@@ -5708,6 +5711,12 @@ begin
     LUnset(PAnsiChar(LName))
   else
     LSet(PAnsiChar(LName), PAnsiChar(LValue), 1);
+{$IFDEF FPC}
+  // the RTL reads a copy of the environ pointer taken at startup, which setenv may reallocate
+  LEnviron := TDynamicLibrary.Resolve(LHandle, 'environ');
+  CheckTrue(LEnviron <> nil, 'the environment block resolves');
+  envp := LEnviron^;
+{$ENDIF FPC}
 end;
 
 function TTestUnixAnchorsWithoutABundle.PointAtNothing: Boolean;
