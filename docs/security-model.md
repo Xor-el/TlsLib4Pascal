@@ -103,10 +103,9 @@ one when ECH was accepted). For debugging only — never production.
   not serve. Hashes and HMACs are checked against the module only, and a few internal SHA-256 uses
   are disclosed. A refusal ends the handshake with a fatal `internal_error`, except where the
   engine absorbs it (a session ticket that is not issued). Rules are `Compliant` only as a subset
-  of a named preset, and `Admit`
-  checks the non-crypto settings (early data, ECH, PSKs, key log, verification bypass, strength
-  floors, credential keys). It makes no module validation claim of its own; see
-  [compliance.md](compliance.md).
+  of a named preset, and `Admit` checks the non-crypto settings (early data, ECH, PSKs, key log,
+  verification bypass, strength floors, credential keys). It makes no module validation claim of
+  its own; see [compliance.md](compliance.md).
 - **Resumption.** TLS 1.3 resumes with `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
   negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
   only as forward-secret as the session store / ticket-key lifetime. Client-cache tickets are single-use; server tickets are single-use with a session
