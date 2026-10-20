@@ -1,0 +1,28 @@
+TlsLib.Compliance/src/TlpComplianceTls.pas
+  s_f2c9bd75607afc::t_722fb4a64989be 51-53
+docs/security-model.md
+  s_f2c9bd75607afc::t_f863f2ae5fdae8 100-110
+  s_f2c9bd75607afc::t_e1f5e96f87845a 170-172
+docs/cookbook.md
+  s_f2c9bd75607afc::t_2621cef3b4c4dc 1030-1034
+TlsLib.Compliance/src/TlpICompliancePolicy.pas
+  s_f2c9bd75607afc::t_f20e3757c1ea1b 64-70
+docs/compliance.md
+  s_f2c9bd75607afc::t_7fef0d8fc68bed 5-10,22-24,31-51,62-66,73-76,79-88,94-95,127-129,135,158-159,170,189-199,219-220,241,250-260,266-270,299-309,331-333,369-371,377-382,399-402,404-408,412-416,418-422,424,445-447,455-457
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7e6d58ea9a9c073ed42a25e2613de0357c5daa0e",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
