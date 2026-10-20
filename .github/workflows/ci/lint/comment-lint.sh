@@ -4,8 +4,8 @@
 # guard so the lean-comment conventions do not regress.
 #
 # Scope: the production source - TlsLib/src, the OS-trust, OS-crypto, compliance, Net,
-# bundled-trust and tool packages, and the four adapter units. The interop and benchmark trees are deliberately
-# excluded: there the OpenSSL / BoGo peer is the test subject, not a description of our own
+# bundled-trust and tool packages, and the four adapter units. The interop and benchmark trees
+# are deliberately excluded: there the OpenSSL / BoGo peer is the test subject, not a description of our own
 # behaviour. Backend/host-framework names are handled per-pattern (OpenSSL is fine in an
 # adapter, which bridges it; CryptoLib is fine as a code identifier in a provider unit, but not
 # in a comment).
@@ -46,6 +46,12 @@ report "OpenSSL name-drop in core" \
 # identifier (Clp*, ECryptoLibException), which is allowed; a // or /// comment mention is not
 report "CryptoLib name-drop in a core comment" \
   "$(grep -rnE '//.*\bCryptoLib' --include='*.pas' "$CORE" 2>/dev/null | noh)"
+
+# the guard below needs PCRE lookaheads: fail rather than pass silently without them
+if ! printf 'x' | grep -qP 'x' 2>/dev/null; then
+  printf '\ncomment-lint FAIL: grep -P (PCRE) is required for the compliance wording guard\n'
+  fail=1
+fi
 
 # compliance policy lives only in TlsLib.Compliance; the FIPS 203/204 citations and the plain
 # adjective "compliant server" are not policy

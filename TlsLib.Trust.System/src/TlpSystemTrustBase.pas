@@ -52,6 +52,14 @@ resourcestring
   SLiveNeedsKnownRoots =
     'the live revocation resolver cannot tell which roots the configured server verifier source ' +
     'trusts; use the OS verifier source or a trust store, or pass the OS source it wraps';
+  SClientAnchorBelowKeyFloors =
+    'a configured client-CA anchor has a key below the certificate strength policy floors';
+  SLiveNeedsServerVerification =
+    'the live revocation resolver needs a client config that verifies the server certificate; ' +
+    'this one has no trust store or OS verifier source (a PSK-only or skip-verify config)';
+  SLiveRootsOfSourceDiffers =
+    'the live revocation resolver roots source is a different OS verifier source from the one ' +
+    'the client config uses';
   SLiveRootsOfNeedsOsSource =
     'the live revocation resolver reads its roots off the OS verifier source; the roots source ' +
     'passed is not one';
@@ -127,8 +135,9 @@ type
   /// rendered (Indeterminate for an engine without CachedRevocation), the leaf-first path it built
   /// (empty where the platform reports none), and the trust anchors whose signature and hash the
   /// strength policy skips (the OS anchor, or the configured client-CA anchors where the path is
-  /// the presented chain); their keys are checked when the policy sets AnchorKeyFloors. On a
-  /// rejection only Failure is meaningful.</summary>
+  /// the presented chain); an exempt anchor's key is checked when the policy sets AnchorKeyFloors.
+  /// An engine that reports none leaves the configured client-CA anchors to be key-checked by the
+  /// delegate instead. On a rejection only Failure is meaningful.</summary>
   TPlatformChainResult = record
     Outcome: TLiveRevocationOutcome;
     Path: TArray<TBytes>;
@@ -221,7 +230,7 @@ type
     /// Snapshot as HarvestRoots and possibly collected by that read. Default none.</summary>
     function HarvestDistrusted: TArray<TBytes>; virtual;
     /// <summary>The platform's distrusted certificates (raw DER) read without a harvest, which
-    /// ReadDistrusted filters. Default none.</summary>
+    /// ReadDistrusted de-duplicates. Default none.</summary>
     function CollectDistrusted: TArray<TBytes>; virtual;
     /// <summary>Human-readable source label, used in the fail-closed message.</summary>
     function SourceName: string; virtual; abstract;
@@ -237,13 +246,16 @@ type
     /// accumulator and returns the filtered anchors; the whole-array harvesters share it
     /// (a streaming source calls AddUnique directly instead).</summary>
     function FilterRoots(const ARaw: TArray<TBytes>): TArray<TBytes>;
+    /// <summary>ARaw with exact duplicates dropped and nothing else: distrust is matched by exact
+    /// bytes, so an entry the provider cannot parse must still be kept.</summary>
+    function DistinctDistrusted(const ARaw: TArray<TBytes>): TArray<TBytes>;
   public
     constructor Create(const APkix: IPkixProvider);
     /// <summary>Reads the source now. Fail-closed: an empty or unreadable source
     /// raises ESystemTrustUnavailableTlsLibException; a non-empty result is returned
     /// as harvested.</summary>
     function Harvest: TArray<TBytes>;
-    /// <summary>The distrusted certificates alone, read without parsing the roots and filtered
+    /// <summary>The distrusted certificates alone, read without parsing the roots and de-duplicated
     /// like a snapshot's distrust set.</summary>
     function ReadDistrusted: TArray<TBytes>;
     /// <summary>Harvests now and freezes the result into an immutable anchor store.</summary>
@@ -446,6 +458,22 @@ begin
   end;
 end;
 
+function TSystemRootSourceBase.DistinctDistrusted(const ARaw: TArray<TBytes>): TArray<TBytes>;
+var
+  LAcc: TSystemRootAccumulator;
+  LI: Integer;
+begin
+  Result := nil;
+  LAcc := TSystemRootAccumulator.Create;
+  try
+    for LI := 0 to Length(ARaw) - 1 do
+      LAcc.Add(ARaw[LI]);
+    Result := LAcc.ToArray;
+  finally
+    LAcc.Free;
+  end;
+end;
+
 function TSystemRootSourceBase.Harvest: TArray<TBytes>;
 begin
   Result := HarvestRoots;
@@ -466,7 +494,7 @@ end;
 
 function TSystemRootSourceBase.ReadDistrusted: TArray<TBytes>;
 begin
-  Result := FilterRoots(CollectDistrusted);
+  Result := DistinctDistrusted(CollectDistrusted);
 end;
 
 function TSystemRootSourceBase.Snapshot: ITrustAnchorStore;
@@ -474,10 +502,10 @@ var
   LRoots: TArray<TBytes>;
 begin
   // a failed harvest raises here, before any store is built; the distrust set is read after the
-  // roots so a source that collects it while harvesting has it ready, and is filtered the same way
+  // roots so a source that collects it while harvesting has it ready, and is de-duplicated
   LRoots := Harvest;
   Result := TTrustAnchorStore.Create(LRoots,
-    FilterRoots(HarvestDistrusted)) as ITrustAnchorStore;
+    DistinctDistrusted(HarvestDistrusted)) as ITrustAnchorStore;
   // a source whose every root is also distrusted would leave no anchor at all: fail closed here
   // rather than hand back a store that only ever answers unknown_ca
   if Result.AnchorCount = 0 then

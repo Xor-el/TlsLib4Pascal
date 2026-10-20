@@ -201,9 +201,11 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   and so is one through a certificate your store distrusts (`bad_certificate`). Both lists are read
   once, when the verifier source is built. `TOSSystemTrust.DistrustStore(Pkix)` returns the OS list
   as a store with no root.
-- **When the OS distrusts your root.** A delegate refuses the handshake with `bad_certificate`;
-  Anchors mode filters the root out of the trust set, so the chain has no anchor and fails with
-  `unknown_ca` (or the config fails closed at `Build` when no anchor is left). When the OS
+- **When the OS distrusts your root.** A delegate does not hand that root to the OS engine, and
+  refuses a path through it with `bad_certificate` when the engine still builds one (through the
+  OS roots); otherwise the chain has no anchor and fails with `unknown_ca`. Anchors mode filters
+  the root out of the trust set the same way (the config fails closed at `Build` when no anchor
+  is left). When the OS
   distrusts every root you gave, the delegate source refuses at build with
   `EArgumentTlsLibException`.
 - **Refusals.** `HostRoots` raises `EArgumentTlsLibException` for a nil store or one with no
@@ -230,7 +232,9 @@ stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);
 ```
 
 The resolver raises `EArgumentTlsLibException` when the config's server verifier source is a
-wrapped one (neither the OS source nor backed by a trust store): its roots cannot be read back.
+wrapped one (neither the OS source nor backed by a trust store): its roots cannot be read back. It
+also raises for a PSK-only or skip-verify config, which has no server certificate to re-check. The
+resolver evaluates with a fresh platform engine, not the one inside the config's source.
 A host that decorates the OS source passes the OS source it wraps, whose roots, extra anchors and
 distrust set the live pass then uses as the inline pass does:
 
@@ -239,7 +243,8 @@ distrust set the live pass then uses as the inline pass does:
 resolver := TOSSystemTrust.LiveRevocationResolver(LConfig, LOsSource, nil);
 ```
 
-It raises `EArgumentTlsLibException` unless that source is the library's OS verifier source.
+It raises `EArgumentTlsLibException` unless that source is the library's OS verifier source, or when
+the config's own source is a different OS verifier source.
 
 ### OS distrust in Anchors mode
 
@@ -359,6 +364,9 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     as ITrustAnchorStore).Build)
   .Build;
 ```
+
+When the strength policy sets `AnchorKeyFloors`, a client-CA anchor whose key is below the floors
+is refused with `EArgumentTlsLibException` when the verifier is built, on every platform.
 
 The delegate uses the `clientAuth` EKU + the OS client-auth policy (a client certificate is never
 stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Apple apply the same
@@ -659,9 +667,8 @@ identity and the host-roots rule. The contract:
   `HostRoots`.
 - A server request that carries `Anchors` on an engine without `ExclusiveServerAnchors` is refused
   (`internal_error`) before the engine is called, so it is never judged against the OS roots.
-- A path that relied on the host roots is refused when it holds a certificate in the OS distrust set
-  the source read. Under a native union every accepted path is checked, since which root ended it
-  is not known.
+- Every accepted server path, on every engine, is refused when it holds a certificate in the
+  distrust set the source read (the OS list and the host store's).
 
 ---
 
