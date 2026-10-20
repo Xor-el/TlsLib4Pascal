@@ -74,10 +74,12 @@ type
     class function FromClientContext(const AContext: TClientTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
     /// <summary>The live re-check policy for the server certificate a client verifies: the roots
-    /// and the distrust set come from its OS verifier source when it has one, else from its trust
-    /// store. Raises when the configured server verifier source is neither the OS source nor
-    /// backed by a trust store, since the roots it trusts cannot be read.</summary>
-    class function FromClientConfig(const AConfig: ITlsClientConfig): TOSDelegatePolicy; static;
+    /// and the distrust set come from ARootsOf when it is the OS verifier source (the config's
+    /// own, or the one a host source decorates), else from the config's trust store. Raises when
+    /// ARootsOf is neither the OS source nor backed by a trust store, since the roots it trusts
+    /// cannot be read.</summary>
+    class function FromClientConfig(const AConfig: ITlsClientConfig;
+      const ARootsOf: IServerCertificateVerifierSource): TOSDelegatePolicy; static;
     /// <summary>The live re-check policy for the client certificate a server verifies: the
     /// client-CA store is the exclusive root.</summary>
     class function FromServerConfig(const AConfig: ITlsServerConfig): TOSDelegatePolicy; static;
@@ -285,17 +287,17 @@ begin
   Result.Intermediates := AConfig.IntermediateCertificates;
 end;
 
-class function TOSDelegatePolicy.FromClientConfig(const AConfig: ITlsClientConfig)
-  : TOSDelegatePolicy;
+class function TOSDelegatePolicy.FromClientConfig(const AConfig: ITlsClientConfig;
+  const ARootsOf: IServerCertificateVerifierSource): TOSDelegatePolicy;
 var
   LSource: TOSVerifierSource;
 begin
   Result := FromCommonConfig(AConfig);
   Result.CheckHostName := AConfig.CheckServerName;
   // the live pass uses the roots of the inline one, which only the OS source has
-  if AConfig.ServerVerifierSource is TOSVerifierSource then
+  if ARootsOf is TOSVerifierSource then
   begin
-    LSource := AConfig.ServerVerifierSource as TOSVerifierSource;
+    LSource := ARootsOf as TOSVerifierSource;
     Result.Anchors := LSource.Anchors;
     Result.ExtraAnchors := LSource.ExtraAnchors;
     Result.Distrusted := LSource.Distrusted;
@@ -306,7 +308,7 @@ begin
     Result.Distrusted := AConfig.TrustStore.DistrustedCertificates;
   end
   // a wrapped source would be re-checked against the OS roots while it trusted others
-  else if AConfig.ServerVerifierSource <> nil then
+  else if ARootsOf <> nil then
     raise EArgumentTlsLibException.CreateRes(@SLiveNeedsKnownRoots);
 end;
 
