@@ -177,10 +177,10 @@ type
     class function KeyMeets(const AFacts: TCertKeyFacts;
       const AStrength: TCertificateStrengthPolicy;
       const ARsaSizes: TArray<UInt32>): Boolean; static;
-    /// <summary>Whether a certificate signature of AFacts is one the rules allow: made with a hash
+    /// <summary>Whether a certificate signature made with AHash is one the rules allow: a hash
     /// of one of the rule signature schemes, a deprecated hash the strength policy admits, or
     /// EdDSA where the strength policy admits it.</summary>
-    class function SignatureMeets(const AFacts: TCertSignatureFacts;
+    class function SignatureMeets(AHash: TCertSignatureHash;
       const ARules: TComplianceRules): Boolean; static;
     /// <summary>Whether A and B are one credential: the same private key object and the same
     /// certificate chain, byte for byte.</summary>
@@ -561,17 +561,17 @@ begin
   end;
 end;
 
-class function TComplianceCatalog.SignatureMeets(const AFacts: TCertSignatureFacts;
+class function TComplianceCatalog.SignatureMeets(AHash: TCertSignatureHash;
   const ARules: TComplianceRules): Boolean;
 var
   LHash, LSchemeHash: THashAlgorithm;
   LScheme: TSignatureScheme;
 begin
-  if AFacts.Hash = TCertSignatureHash.Implicit then
+  if AHash = TCertSignatureHash.Implicit then
     Exit(ARules.Strength.AllowEdDsa);
-  if AFacts.Hash in ARules.Strength.AllowedDeprecatedHashes then
+  if AHash in ARules.Strength.AllowedDeprecatedHashes then
     Exit(True);
-  case AFacts.Hash of
+  case AHash of
     TCertSignatureHash.Sha256:
       LHash := THashAlgorithm.SHA_256;
     TCertSignatureHash.Sha384:

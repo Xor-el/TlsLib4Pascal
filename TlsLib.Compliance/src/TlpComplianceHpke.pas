@@ -142,7 +142,6 @@ begin
   LSuites := FInner.SupportedSuites(AKem);
   System.SetLength(Result, System.Length(LSuites));
   LN := 0;
-  // a 6-byte record passed as a parameter is misread on big-endian ppc64, so copy by assignment
   for LI := 0 to System.Length(LSuites) - 1 do
     if AeadAllowed(LSuites[LI].Aead) then
     begin

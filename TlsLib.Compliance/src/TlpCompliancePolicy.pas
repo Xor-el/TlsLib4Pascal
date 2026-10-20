@@ -541,7 +541,7 @@ begin
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialKeyUndetermined, ASubject,
       Format(SSignatureUndetermined, [AIndex])))
-  else if not TComplianceCatalog.SignatureMeets(LSignature, FRules) then
+  else if not TComplianceCatalog.SignatureMeets(LSignature.Hash, FRules) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialSchemesNotAllowed, ASubject,
       Format(SSignatureNotAllowed, [AIndex])));

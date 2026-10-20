@@ -169,7 +169,6 @@ type
 
   TTestComplianceCatalog = class(TTlsLibAlgorithmTestCase)
   strict private
-    function Signed(AHash: TCertSignatureHash): TCertSignatureFacts;
     function Held(const AKey: ISigningKey; const AChain: array of TBytes): TTlsCredential;
   published
     procedure TestSignatureMeetsFollowsTheSchemeHashes;
@@ -1763,26 +1762,19 @@ begin
     'the RSA sizes do not apply to a curve key');
 end;
 
-function TTestComplianceCatalog.Signed(AHash: TCertSignatureHash): TCertSignatureFacts;
-begin
-  Result := Default(TCertSignatureFacts);
-  Result.Family := TCertSignatureFamily.Ecdsa;
-  Result.Hash := AHash;
-end;
-
 procedure TTestComplianceCatalog.TestSignatureMeetsFollowsTheSchemeHashes;
 begin
-  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha256),
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha256,
     TCompliancePresets.Fips140_3), 'SHA-256 under Fips140_3');
-  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha384),
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha384,
     TCompliancePresets.Fips140_3), 'SHA-384 under Fips140_3');
-  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha512),
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha512,
     TCompliancePresets.Fips140_3), 'SHA-512 under Fips140_3');
-  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha384),
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha384,
     TCompliancePresets.Cnsa1), 'SHA-384 under Cnsa1');
-  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha256),
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha256,
     TCompliancePresets.Cnsa1), 'SHA-256 under Cnsa1');
-  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha512),
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha512,
     TCompliancePresets.Cnsa1), 'SHA-512 under Cnsa1');
 end;
 
@@ -1794,7 +1786,7 @@ var
   LI: Int32;
 begin
   for LI := Low(Refused) to High(Refused) do
-    CheckFalse(TComplianceCatalog.SignatureMeets(Signed(Refused[LI]),
+    CheckFalse(TComplianceCatalog.SignatureMeets(Refused[LI],
       TCompliancePresets.Fips140_3), TEnumUtilities.GetName(TypeInfo(TCertSignatureHash),
       Ord(Refused[LI])));
 end;
@@ -1805,9 +1797,9 @@ var
 begin
   LRules := TCompliancePresets.Fips140_3;
   LRules.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
-  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha1), LRules),
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Sha1, LRules),
     'admitted');
-  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Md5), LRules),
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Md5, LRules),
     'only the hash that was admitted');
 end;
 
@@ -1816,10 +1808,10 @@ var
   LRules: TComplianceRules;
 begin
   LRules := TCompliancePresets.Fips140_3;
-  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Implicit), LRules),
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Implicit, LRules),
     'EdDSA is off in the presets');
   LRules.Strength.AllowEdDsa := True;
-  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Implicit), LRules),
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureHash.Implicit, LRules),
     'and on when the strength policy admits it');
 end;
 
