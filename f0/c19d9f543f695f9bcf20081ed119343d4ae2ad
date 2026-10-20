@@ -1,0 +1,87 @@
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_37bee964b31e64 186-189
+  s_f2c9bd75607afc::t_c7fcf77e80de62 4597
+  s_f2c9bd75607afc::t_b4c8b7700c107a 4758
+  s_f2c9bd75607afc::t_5e4e70bed051a8 4586-4596,4598-4606
+  s_f2c9bd75607afc::t_f4328e33adb134 4775-4776
+  s_f2c9bd75607afc::t_94d73f609f38de 4575,4580-4581
+  s_f2c9bd75607afc::t_e7e2cf251c396c 142-144
+  s_f2c9bd75607afc::t_8659e1d9d50abe 4751
+  s_f2c9bd75607afc::t_8b784057345203 4753
+  s_f2c9bd75607afc::t_dc7ddf9c6ec496 480
+  s_f2c9bd75607afc::t_cc07ffd6244e6e 925-948,951-964
+  s_f2c9bd75607afc::t_f26b62e3c69003 467
+  s_f2c9bd75607afc::t_220912cb5baca3 4393-4403
+  s_f2c9bd75607afc::t_e43382304625d5 443-445,447-466,468-479,482-483
+  s_f2c9bd75607afc::t_9da313eaba1e7d 949-950
+  s_f2c9bd75607afc::t_70bcd76417d368 4144-4392,4404-4450,4455-4553,4555-4556,4561-4574,4576-4579,4582-4585,4607-4632,4634-4635,4638-4643,4646-4653
+  s_f2c9bd75607afc::t_b3a89ca2f76ca6 4554,4557-4560
+  s_f2c9bd75607afc::t_de80b02095c6b5 4633,4636-4637,4644-4645
+  s_f2c9bd75607afc::t_52bf0771a541a1 4451-4454
+  s_f2c9bd75607afc::t_06ecd94b3d9f01 481
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_a5db2c0b8fce6c 391,394
+  s_f2c9bd75607afc::t_4e10467c00d2ae 395-399
+  s_f2c9bd75607afc::t_7d5c0d60588d37 332
+  s_f2c9bd75607afc::t_b3014173f6cfac 212-214
+TlsLib.Tests/src/ComplianceRulesTests.pas
+  s_f2c9bd75607afc::t_97abee172606e7 2121-2147
+  s_f2c9bd75607afc::t_0243010253f4f5 215-216
+docs/compliance.md
+  s_f2c9bd75607afc::t_69e231ddb4de95 24-40
+  s_f2c9bd75607afc::t_03beaaedc4b085 329,334-341
+  s_f2c9bd75607afc::t_8e1f6e0f12d5a6 311-312
+TlsLib.Compliance/src/TlpWindowsModuleAttestation.pas
+  s_f2c9bd75607afc::t_a754e83109cad0 424-441,446,452,468-472,479-483,487,489-491,495-500,502,505-506,508-512,517-519,521-522,527-536,545-546,548,552-553,555,560-561,563
+  s_f2c9bd75607afc::t_3972c67f80acce 451
+  s_f2c9bd75607afc::t_9ad1d932016e54 457,459,461,464
+  s_f2c9bd75607afc::t_d0cc57f43d2a09 347-348
+  s_f2c9bd75607afc::t_1a68cb79d3585b 462-463,465-467
+  s_f2c9bd75607afc::t_2029ff589fc6ff 148,150-161,165-171
+  s_f2c9bd75607afc::t_41b25cb6c94fc0 447-449,453-456,458,460
+  s_f2c9bd75607afc::t_3af9c51605c2ea 361
+  s_f2c9bd75607afc::t_8d3f67451e7911 245-249,256-268,270-319
+  s_f2c9bd75607afc::t_de2f4be2b43119 50-51,53-54,65-68,71-93,97-101,106,109,111-115,117-122,126-131,133-134
+  s_f2c9bd75607afc::t_a868d737931327 391
+  s_f2c9bd75607afc::t_d7836e845586e7 387-390
+  s_f2c9bd75607afc::t_a2472b5b2a4b0d 450
+  s_f2c9bd75607afc::t_dff5699a8b0237 484-486,488,492-494
+  s_f2c9bd75607afc::t_c876fc212f03eb 516
+  s_f2c9bd75607afc::t_45d9404e503fd3 513-515,523
+  s_f2c9bd75607afc::t_c1124300765f08 473-478
+  s_f2c9bd75607afc::t_aa8531232124ab 226
+  s_f2c9bd75607afc::t_356035d68c0524 444
+  s_f2c9bd75607afc::t_e397b6ee45194c 186-187,190-191,193-194,196-197,199-200,202-203,205-206,208-209,211-212
+  s_f2c9bd75607afc::t_f306d472684858 269
+  s_f2c9bd75607afc::t_2de22e6659c229 31-32,69-70,320-322,537-538
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_1c6f483c8e2317 191-195
+  s_f2c9bd75607afc::t_ee834fd7a82c9b 133
+  s_f2c9bd75607afc::t_b4f8fe014b5483 419-420,424-425,427-428,430-431
+  s_f2c9bd75607afc::t_cf6654431a13df 434
+  s_f2c9bd75607afc::t_d6c21ac4105bda 416,418,423,426,429,432-433
+  s_f2c9bd75607afc::t_b5883a516329af 128-131,134-137
+  s_f2c9bd75607afc::t_5dbcf50e0165f0 421-422
+  s_f2c9bd75607afc::t_069ad4183f2263 132
+docs/security-model.md
+  s_f2c9bd75607afc::t_4d1c741b0bfe58 164-167
+.github/workflows/ci/os-build-info.ps1
+  s_f2c9bd75607afc::t_29b4ce2de51362 8-17
+  s_f2c9bd75607afc::t_ae9c99a0a02187 25-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f0c19d9f543f695f9bcf20081ed119343d4ae2ad",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
