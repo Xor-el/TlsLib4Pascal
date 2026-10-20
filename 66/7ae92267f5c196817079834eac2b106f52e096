@@ -1,0 +1,34 @@
+TlsLib.Tests/src/HpkeProviderTests.pas
+  s_f2c9bd75607afc::t_ecaf306b0a9434 771-810,813-815
+  s_f2c9bd75607afc::t_810ac1c61a7579 109
+  s_f2c9bd75607afc::t_01002e8694b629 811-812
+  s_f2c9bd75607afc::t_1edbe25d591e7d 106-108
+TlsLib/src/Crypto/TlpHpkeComposition.pas
+  s_f2c9bd75607afc::t_93f136cd19a4a4 347-348
+  s_f2c9bd75607afc::t_1107b6d3e22cda 271-272,274
+  s_f2c9bd75607afc::t_968b8f40682d63 284-285,287,292
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_f2c9bd75607afc::t_5e278786ff3e47 77-80
+  s_f2c9bd75607afc::t_b200a06f25054e 311
+  s_f2c9bd75607afc::t_bc32504832a645 278-287,289-290,292-310,312-317
+  s_f2c9bd75607afc::t_bcf3ac2ade1dc7 102
+  s_f2c9bd75607afc::t_8384ec55093e40 103-106
+  s_f2c9bd75607afc::t_2db0a545fd70be 288,291
+  s_f2c9bd75607afc::t_9f9479ce620985 76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "667ae92267f5c196817079834eac2b106f52e096",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
