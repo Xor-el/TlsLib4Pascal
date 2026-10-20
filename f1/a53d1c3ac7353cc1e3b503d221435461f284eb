@@ -1,0 +1,27 @@
+.github/workflows/ci/lint/comment-lint.sh
+  s_f2c9bd75607afc::t_6c1f96a8c4fd6c 7-8
+  s_f2c9bd75607afc::t_c275d2c9bf7f0d 50-54
+  s_f2c9bd75607afc::t_921401290bd59f 55
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_ddf056522d7e42 361-362
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_f2c9bd75607afc::t_15356675275997 446
+  s_f2c9bd75607afc::t_a4070c36d91f72 437-438
+  s_f2c9bd75607afc::t_48a4291a202f50 422,426
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f1a53d1c3ac7353cc1e3b503d221435461f284eb",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
