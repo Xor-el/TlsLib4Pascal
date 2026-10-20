@@ -378,9 +378,9 @@ begin
   FSelectedGroup := AParams.Group;
   if AParams.Group <> nil then
     FGroupCode := AParams.Group.Code;
-  // TLS 1.2 tickets are stateless STEK only; the session-id path uses SessionStore
-  FTicketStrategy := TSessionTicketStrategies.ForServer(AParams.Crypto,
-    AParams.SessionTicketKeys, nil);
+  // the store here serves session-id resumption; tickets stay stateless
+  FTicketStrategy := TSessionTicketStrategies.ForServer(TlsWireVersionTls12, AParams.Crypto,
+    AParams.SessionTicketKeys, AParams.SessionStore);
   FHandshakeLog := TBytesStream.Create;
 end;
 

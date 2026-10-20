@@ -573,7 +573,7 @@ begin
   if FParams.CookieSecret <> nil then
     FCookie := THelloRetryCookie.Create(FParams.Crypto, FParams.CookieSecret);
   // a configured store upgrades the stateless STEK default to single-use handles
-  FTicketStrategy := TSessionTicketStrategies.ForServer(FParams.Crypto,
+  FTicketStrategy := TSessionTicketStrategies.ForServer(TlsWireVersionTls13, FParams.Crypto,
     FParams.SessionTicketKeys, FParams.SessionStore);
   // each configured external PSK imported once per supported KDF hash, in server preference
   // order, so an offered identity for either hash can be matched (RFC 9258)

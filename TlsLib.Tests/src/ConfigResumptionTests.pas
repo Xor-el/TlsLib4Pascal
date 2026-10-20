@@ -47,6 +47,7 @@ uses
   MockCertificateVerifiers,
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
+  TlpSessionTicketKeys,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -128,6 +129,9 @@ type
     function NewReverifyAsyncClient12(const ACache: ISessionCache;
       const AScope: TBytes): ITlsEngine;
     function NewServer12(const AStore: ISessionStore): ITlsEngine;
+    /// <summary>A TLS 1.2 server holding both a session store and ticket keys.</summary>
+    function NewServer12WithTicketKeys(const AStore: ISessionStore;
+      const AKeys: ISessionTicketKeyManager): ITlsEngine;
     /// <summary>A client and server that both speak TLS 1.2 and 1.3, so each runs behind its
     /// version dispatcher.</summary>
     function NewDualClient(const ACache: ISessionCache): ITlsEngine;
@@ -145,6 +149,7 @@ type
     procedure TestTls13BadBinderReplayDoesNotConsumeStoreTicket;
     procedure TestTls13DeclinedTicketIsNotConsumed;
     procedure TestTls13LostCommitRaceFallsBackToFullHandshake;
+    procedure TestTls12TicketKeysBesideAStoreSealTheTicketAndStoreNothing;
     procedure TestTls12SessionIdResumptionKeepsStoredSession;
     procedure TestTls12ResumptionViaConfig;
     procedure TestDefaultServerIssuesTicketsOutOfBox;
@@ -619,6 +624,20 @@ begin
   Result := TTlsEngineFactory.CreateServerEngine(LConfig);
 end;
 
+function TTestConfigResumption.NewServer12WithTicketKeys(const AStore: ISessionStore;
+  const AKeys: ISessionTicketKeyManager): ITlsEngine;
+var
+  LConfig: ITlsServerConfig;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+    .WithCredential(ServerCredential)
+    .WithSessionStore(AStore)
+    .WithSessionTicketKeys(AKeys)
+    .Build;
+  Result := TTlsEngineFactory.CreateServerEngine(LConfig);
+end;
+
 function TTestConfigResumption.NewDualClient(const ACache: ISessionCache): ITlsEngine;
 var
   LConfig: ITlsClientConfig;
@@ -818,6 +837,37 @@ begin
   CheckFalse(LServer.IsTerminal, 'losing the commit is a decline, not a failure');
   CheckFalse(LServer.ConnectionInfo.Resumed, 'the ticket was not resumed twice');
   CheckClientDataReachesServer(LClient, LServer);
+end;
+
+procedure TTestConfigResumption.TestTls12TicketKeysBesideAStoreSealTheTicketAndStoreNothing;
+var
+  LCache: ISessionCache;
+  LScope: TBytes;
+  LStoreImpl: TMockSessionStore;
+  LStore: ISessionStore;
+  LKeys: ISessionTicketKeyManager;
+  LClient, LServer: ITlsEngine;
+begin
+  // TLS 1.2 seals its ticket with the keys even when a store is configured; the store would
+  // only serve a session id, and none is kept once the ticket carries the session
+  LCache := TInMemorySessionCache.Create;
+  LScope := Crypto.Primitives.GetRandom.GenerateBytes(16);
+  LStoreImpl := TMockSessionStore.Create;
+  LStore := LStoreImpl;
+  LKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
+
+  LClient := NewClient12(LCache, LScope);
+  LServer := NewServer12WithTicketKeys(LStore, LKeys);
+  PumpToCompletion(LClient, LServer);
+  CheckEquals(1, LCache.Count, 'the client received one ticket');
+  CheckEquals(0, LStore.Count, 'the ticket carries the session, so the store holds none');
+
+  LClient := NewClient12(LCache, LScope);
+  LServer := NewServer12WithTicketKeys(LStore, LKeys);
+  CheckFalse(DriveObservingServerCert(LClient, LServer), 'the second handshake resumed');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed from the ticket');
+  CheckEquals(0, LStoreImpl.TakeCount, 'resumption never touched the store');
+  CheckEquals(0, LStore.Count, 'and the store is still empty');
 end;
 
 procedure TTestConfigResumption.TestTls12SessionIdResumptionKeepsStoredSession;
