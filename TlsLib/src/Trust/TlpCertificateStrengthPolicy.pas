@@ -16,6 +16,8 @@ unit TlpCertificateStrengthPolicy;
 interface
 
 uses
+  TlpArrayUtilities,
+  TlpCryptoDomainTypes,
   TlpPkixDomainTypes,
   TlpNegotiationTypes;
 
@@ -46,6 +48,9 @@ type
     /// <summary>The default floors, applied by every preset: RSA 2048..8192, the NIST P-curves,
     /// EdDSA admitted, no deprecated hash.</summary>
     class function Defaults: TCertificateStrengthPolicy; static;
+    /// <summary>Whether a certificate's subject key meets these floors; an empty AllowedEcCurves
+    /// admits any curve the provider recognises (EcNamedGroup 0 = unknown).</summary>
+    function KeyMeetsFloors(const AFacts: TCertKeyFacts): Boolean;
   end;
 
 implementation
@@ -61,6 +66,24 @@ begin
     TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1);
   Result.AllowEdDsa := True;
   Result.AllowedDeprecatedHashes := [];
+end;
+
+function TCertificateStrengthPolicy.KeyMeetsFloors(const AFacts: TCertKeyFacts): Boolean;
+begin
+  case AFacts.Kind of
+    TSignatureKeyKind.Rsa:
+      Result := (AFacts.Bits >= MinRsaModulusBits) and
+        ((MaxRsaModulusBits = 0) or (AFacts.Bits <= MaxRsaModulusBits));
+    TSignatureKeyKind.Ecdsa:
+      if System.Length(AllowedEcCurves) = 0 then
+        Result := AFacts.EcNamedGroup <> 0
+      else
+        Result := TArrayUtilities.Contains<UInt16>(AllowedEcCurves, AFacts.EcNamedGroup);
+    TSignatureKeyKind.Ed25519, TSignatureKeyKind.Ed448:
+      Result := AllowEdDsa;
+  else
+    Result := False;
+  end;
 end;
 
 end.

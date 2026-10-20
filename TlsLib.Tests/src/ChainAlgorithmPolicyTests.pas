@@ -79,6 +79,20 @@ type
     procedure TestSendableToRefusesPssSha1WhateverIsAdvertised;
   end;
 
+  TTestCertificateStrengthPolicy = class(TTlsLibAlgorithmTestCase)
+  private
+    function Facts(AKind: TSignatureKeyKind; ABits: Int32; ACurve: UInt16): TCertKeyFacts;
+  published
+    procedure TestRsaFloorIsInclusive;
+    procedure TestRsaCapIsInclusive;
+    procedure TestRsaCapOfZeroIsNoCap;
+    procedure TestListedCurveIsAdmitted;
+    procedure TestUnlistedCurveIsRefused;
+    procedure TestEmptyCurveListAdmitsARecognisedCurve;
+    procedure TestEmptyCurveListRefusesAnUnrecognisedCurve;
+    procedure TestEdDsaFollowsTheFlag;
+  end;
+
   /// <summary>The end-entity rule both verifiers share: a CA certificate is no identity unless the
   /// operator trusts that very certificate as an anchor.</summary>
   TTestEndEntityPolicy = class(TTlsLibAlgorithmTestCase)
@@ -92,6 +106,103 @@ type
   end;
 
 implementation
+
+{ TTestCertificateStrengthPolicy }
+
+function TTestCertificateStrengthPolicy.Facts(AKind: TSignatureKeyKind; ABits: Int32;
+  ACurve: UInt16): TCertKeyFacts;
+begin
+  Result.Kind := AKind;
+  Result.Bits := ABits;
+  Result.EcNamedGroup := ACurve;
+end;
+
+procedure TTestCertificateStrengthPolicy.TestRsaFloorIsInclusive;
+var
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 2048, 0)),
+    'a modulus at the floor is admitted');
+  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 2047, 0)),
+    'a modulus one bit under the floor is refused');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestRsaCapIsInclusive;
+var
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 8192, 0)),
+    'a modulus at the cap is admitted');
+  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 8193, 0)),
+    'a modulus one bit over the cap is refused');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestRsaCapOfZeroIsNoCap;
+var
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.MaxRsaModulusBits := 0;
+  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 16384, 0)),
+    'a zero cap admits any size above the floor');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestListedCurveIsAdmitted;
+begin
+  CheckTrue(TCertificateStrengthPolicy.Defaults.KeyMeetsFloors(
+    Facts(TSignatureKeyKind.Ecdsa, 384, TNamedGroupCatalog.Secp384r1)),
+    'a curve on the allowlist is admitted');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestUnlistedCurveIsRefused;
+var
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1);
+  CheckFalse(LPolicy.KeyMeetsFloors(
+    Facts(TSignatureKeyKind.Ecdsa, 384, TNamedGroupCatalog.Secp384r1)),
+    'a recognised curve missing from the allowlist is refused');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestEmptyCurveListAdmitsARecognisedCurve;
+var
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowedEcCurves := nil;
+  CheckTrue(LPolicy.KeyMeetsFloors(
+    Facts(TSignatureKeyKind.Ecdsa, 521, TNamedGroupCatalog.Secp521r1)),
+    'an empty allowlist admits a recognised curve');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestEmptyCurveListRefusesAnUnrecognisedCurve;
+var
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowedEcCurves := nil;
+  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ecdsa, 256, 0)),
+    'an empty allowlist still refuses a curve with no code');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestEdDsaFollowsTheFlag;
+var
+  LPolicy: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ed25519, 0, 0)),
+    'Ed25519 is admitted when EdDSA is allowed');
+  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ed448, 0, 0)),
+    'Ed448 is admitted when EdDSA is allowed');
+  LPolicy.AllowEdDsa := False;
+  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ed25519, 0, 0)),
+    'Ed25519 is refused when EdDSA is not allowed');
+  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ed448, 0, 0)),
+    'Ed448 is refused when EdDSA is not allowed');
+end;
 
 { TTestEndEntityPolicy }
 
@@ -515,9 +626,11 @@ initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestChainAlgorithmPolicy);
+  RegisterTest(TTestCertificateStrengthPolicy);
   RegisterTest(TTestEndEntityPolicy);
 {$ELSE}
   RegisterTest(TTestChainAlgorithmPolicy.Suite);
+  RegisterTest(TTestCertificateStrengthPolicy.Suite);
   RegisterTest(TTestEndEntityPolicy.Suite);
 {$ENDIF FPC}
 

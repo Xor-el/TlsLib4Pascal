@@ -43,8 +43,6 @@ type
       AHash: TCertSignatureHash; APssCanonical: Boolean;
       AIssuerKeyIsPss: Boolean): UInt16; static;
     class function LegacySha1Scheme(AFamily: TCertSignatureFamily): UInt16; static;
-    class function KeyMeetsPolicy(const AFacts: TCertKeyFacts;
-      const APolicy: TCertificateStrengthPolicy): Boolean; static;
     class function CheckCertificate(const AInspector: ICertificateInspector;
       const ADer: TBytes; AIssuerKeyIsPss: Boolean;
       const APolicy: TCertificateStrengthPolicy; AFilterSchemes: Boolean;
@@ -205,27 +203,6 @@ begin
   end;
 end;
 
-class function TChainAlgorithmPolicy.KeyMeetsPolicy(const AFacts: TCertKeyFacts;
-  const APolicy: TCertificateStrengthPolicy): Boolean;
-begin
-  case AFacts.Kind of
-    TSignatureKeyKind.Rsa:
-      Result := (AFacts.Bits >= APolicy.MinRsaModulusBits) and
-        ((APolicy.MaxRsaModulusBits = 0) or (AFacts.Bits <= APolicy.MaxRsaModulusBits));
-    TSignatureKeyKind.Ecdsa:
-      // an empty allowlist admits any curve the provider recognises (a code of 0 is unknown)
-      if System.Length(APolicy.AllowedEcCurves) = 0 then
-        Result := AFacts.EcNamedGroup <> 0
-      else
-        Result := TArrayUtilities.Contains<UInt16>(APolicy.AllowedEcCurves,
-          AFacts.EcNamedGroup);
-    TSignatureKeyKind.Ed25519, TSignatureKeyKind.Ed448:
-      Result := APolicy.AllowEdDsa;
-  else
-    Result := False;
-  end;
-end;
-
 class function TChainAlgorithmPolicy.CheckCertificate(
   const AInspector: ICertificateInspector; const ADer: TBytes;
   AIssuerKeyIsPss: Boolean; const APolicy: TCertificateStrengthPolicy;
@@ -278,7 +255,7 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  if not KeyMeetsPolicy(LKey, APolicy) then
+  if not APolicy.KeyMeetsFloors(LKey) then
   begin
     AAlert := TTlsAlertDescription.UnsupportedCertificate;
     Exit(False);
