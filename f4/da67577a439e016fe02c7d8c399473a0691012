@@ -1,0 +1,36 @@
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_f2c9bd75607afc::t_669b77b8a7bdfa 576
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  s_f2c9bd75607afc::t_df512eb7079617 514
+  s_f2c9bd75607afc::t_09562e583b0089 90
+  s_f2c9bd75607afc::t_6bf1cdc346a799 510-513,515-519,521-524,527,529-530
+  s_f2c9bd75607afc::t_5e6ab17eb3472b 467
+  s_f2c9bd75607afc::t_9bd0ae1de233f3 84-86,88-89,91-93,95-101
+  s_f2c9bd75607afc::t_899d0fafc18f56 155
+  s_f2c9bd75607afc::t_355125e1c9f10b 425
+  s_f2c9bd75607afc::t_b47a108cbe6f9f 520
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_f2c9bd75607afc::t_b7e4707b6c988b 81-88
+  s_f2c9bd75607afc::t_1d2529e9d28d33 555
+  s_f2c9bd75607afc::t_2341863f0c9abe 59-60
+  s_f2c9bd75607afc::t_44e137328f7ad4 512-554,556-602
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_f2c9bd75607afc::t_ed86f94ba70325 382
+  s_f2c9bd75607afc::t_da7a13e9f3e078 381,383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4da67577a439e016fe02c7d8c399473a0691012",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
