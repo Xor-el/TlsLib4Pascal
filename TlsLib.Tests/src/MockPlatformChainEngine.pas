@@ -75,8 +75,8 @@ type
   /// Anchors as the exclusive root when non-empty and the engine declares ExclusiveServerAnchors
   /// (without it they are ignored, as a real engine would), else the OS roots it was built with
   /// (plus the ExtraAnchors under NativeAnchorUnion); a client request only ever uses its Anchors.
-  /// A trusted chain is returned as its own path; an untrusted one fails with NoTrustAnchor /
-  /// unknown_ca. Records every request. Never for production use.
+  /// A trusted chain is returned as its own path with only the matched root exempt, as a real
+  /// engine reports; an untrusted one fails with NoTrustAnchor / unknown_ca. Records every request. Never for production use.
   /// </summary>
   TAnchorAwarePlatformChainEngine = class sealed(TInterfacedObject, IPlatformChainEngine)
   strict private
@@ -191,7 +191,7 @@ begin
       AResult.Failure := TPlatformChainFailure.None;
       AResult.Outcome := TLiveRevocationOutcome.Good;
       AResult.Path := ARequest.Chain;
-      AResult.PolicyExempt := ARequest.Chain;
+      AResult.PolicyExempt := TArray<TBytes>.Create(ARoots[LRoot]);
       Exit(True);
     end;
 end;
