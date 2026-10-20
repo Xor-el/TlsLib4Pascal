@@ -16,6 +16,7 @@ unit TlpCompliancePresets;
 interface
 
 uses
+  SysUtils,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpTlsVersion,
@@ -27,7 +28,7 @@ type
     Rules: TComplianceRules;
   end;
 
-  /// <summary>The named rule sets, and the match that makes a verdict.</summary>
+  /// <summary>The named rule sets. Both hold trust anchors to the key floors.</summary>
   TCompliancePresets = class sealed(TObject)
   public
     /// <summary>The approved algorithms of the validated OS module, classical key exchange
@@ -38,11 +39,15 @@ type
     /// <summary>The named presets, each inside the ones after it, so the first match is the
     /// tightest.</summary>
     class function Named: TArray<TCompliancePreset>; static;
-    /// <summary>Whether ARules fits inside a named preset; AName is the tightest one.</summary>
+    /// <summary>Whether ARules fits inside a named preset. AName is that preset's name when the
+    /// rules equal it, else 'within' and the name of the tightest preset that holds them.</summary>
     class function TryMatch(const ARules: TComplianceRules; out AName: string): Boolean; static;
   end;
 
 implementation
+
+resourcestring
+  SWithinPreset = 'within %s';
 
 { TCompliancePresets }
 
@@ -68,6 +73,7 @@ begin
   Result.Strength.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1);
   Result.Strength.AllowEdDsa := False;
+  Result.Strength.AnchorKeyFloors := True;
   Result.Strength.AllowedDeprecatedHashes := [];
   Result.Requirements := [Low(TComplianceRequirement) .. High(TComplianceRequirement)];
   Result.Kdf := TKdfRule.AllowComposed;
@@ -89,6 +95,7 @@ begin
   Result.RsaModulusBits := TArray<UInt32>.Create(3072, 4096);
   Result.Strength.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
   Result.Strength.AllowEdDsa := False;
+  Result.Strength.AnchorKeyFloors := True;
   Result.Strength.AllowedDeprecatedHashes := [];
   Result.Requirements := [Low(TComplianceRequirement) .. High(TComplianceRequirement)];
   Result.Kdf := TKdfRule.AllowComposed;
@@ -116,7 +123,10 @@ begin
   for LI := 0 to System.Length(LPresets) - 1 do
     if ARules.IsSubsetOf(LPresets[LI].Rules) then
     begin
-      AName := LPresets[LI].Name;
+      if LPresets[LI].Rules.IsSubsetOf(ARules) then
+        AName := LPresets[LI].Name
+      else
+        AName := Format(SWithinPreset, [LPresets[LI].Name]);
       Exit(True);
     end;
   Result := False;

@@ -31,6 +31,10 @@ uses
   TlpTlsAlert,
   TlpPkixDomainTypes,
   TlpCertificateStrengthPolicy,
+  TlpArrayUtilities,
+  TlpEnumUtilities,
+  TlpISigningKey,
+  TlpTlsCredential,
   TlpTlsLibExceptions,
   TlpComplianceTypes,
   TlpComplianceExceptions,
@@ -65,6 +69,10 @@ type
     procedure TestTryMatchNamesCnsa1;
     procedure TestTryMatchNamesFips140_3;
     procedure TestTryMatchNamesTightestForNarrowerRules;
+    procedure TestTryMatchNamesTheTightestPresetThatHoldsNarrowerRules;
+    procedure TestTryMatchLabelsRulesBetweenTheTwoPresets;
+    procedure TestEveryPresetHoldsAnchorsToTheKeyFloors;
+    procedure TestCnsa1IsSubsetOfFips140_3FieldByField;
     procedure TestHandBuiltWithEd25519NotSubsetOfAnyPreset;
     procedure TestTryMatchClearsNameOnMiss;
     procedure TestFips140_3WireCodes;
@@ -151,10 +159,24 @@ type
     procedure TestSubsetKdfBothComposed;
     procedure TestSubsetBothCurveListsEmpty;
     procedure TestCloneDoesNotShareRsaSizes;
+    procedure TestIntersectAnchorKeyFloorsFromAWins;
+    procedure TestIntersectAnchorKeyFloorsFromBWins;
+    procedure TestIntersectAnchorKeyFloorsBothOffStaysOff;
+    procedure TestSubsetWithoutAnchorKeyFloorsIsNotWithinAPresetThatHasThem;
+    procedure TestSubsetWithAnchorKeyFloorsIsWithinRulesThatLackThem;
+    procedure TestEqualDetectsDifferentAnchorKeyFloors;
   end;
 
   TTestComplianceCatalog = class(TTlsLibAlgorithmTestCase)
+  strict private
+    function Signed(AHash: TCertSignatureHash): TCertSignatureFacts;
+    function Held(const AKey: ISigningKey; const AChain: array of TBytes): TTlsCredential;
   published
+    procedure TestSignatureMeetsFollowsTheSchemeHashes;
+    procedure TestSignatureMeetsRefusesTheHashesNoSchemeUses;
+    procedure TestSignatureMeetsAdmitsADeprecatedHashTheStrengthAdmits;
+    procedure TestSignatureMeetsFollowsTheEdDsaFlagForAnImplicitHash;
+    procedure TestSameCredentialNeedsTheSameKeyObjectAndChainBytes;
     procedure TestTryKeyAgreementRejectsHybridAndKem;
     procedure TestKeyAgreementsFips140_3;
     procedure TestKeyAgreementsCnsa1;
@@ -163,6 +185,8 @@ type
     procedure TestIsSubsetOfListBoundaries;
     procedure TestStrengthWithinEqualFloors;
     procedure TestStrengthWithinLowerMinFails;
+    procedure TestStrengthWithinNeedsAnchorFloorsWhereTheFloorHasThem;
+    procedure TestStrengthWithinAcceptsAnchorFloorsBeyondTheFloor;
     procedure TestSchemesInEnumOrder;
     procedure TestSchemesEmptySet;
     procedure TestRsaSizesWithinBoundaries;
@@ -178,9 +202,11 @@ type
   TTestComplianceReport = class(TTlsLibAlgorithmTestCase)
   published
     procedure TestVerdictCompliantWithPresetAndNoFindings;
+    procedure TestVerdictPrimitivesInModuleWithComposedKeyDerivation;
+    procedure TestVerdictNotCompliantWithFindingAndComposedKeyDerivation;
+    procedure TestVerdictNotCompliantWhenModuleNotValidatedAndKdfInModule;
     procedure TestVerdictNotCompliantWithFinding;
     procedure TestVerdictNotCompliantWithoutPreset;
-    procedure TestVerdictNotCompliantWithoutPresetAndWithFinding;
     procedure TestReportCarriesEnforcementAndPreset;
     procedure TestReportCarriesModuleFromAttestation;
     procedure TestReportFindingsAndDisclosuresRoundTrip;
@@ -188,6 +214,7 @@ type
     procedure TestReportReturnsCopyOfFindings;
     procedure TestReportDescribeCompliant;
     procedure TestReportDescribeNotCompliant;
+    procedure TestReportDescribeNamesThePrimitivesInModuleLevel;
     procedure TestFindingCreateSetsFields;
     procedure TestFindingDescribeFormat;
     procedure TestFindingCategoryPerKind;
@@ -379,7 +406,7 @@ var
   LName: string;
 begin
   CheckTrue(TCompliancePresets.TryMatch(TCompliancePresets.Cnsa1, LName), 'matches');
-  CheckEquals('Cnsa1', LName, 'the tightest preset');
+  CheckEquals('Cnsa1', LName, 'equal rules carry the bare name');
 end;
 
 procedure TTestCompliancePresets.TestTryMatchNamesFips140_3;
@@ -387,7 +414,7 @@ var
   LName: string;
 begin
   CheckTrue(TCompliancePresets.TryMatch(TCompliancePresets.Fips140_3, LName), 'matches');
-  CheckEquals('Fips140_3', LName, 'not the narrower Cnsa1');
+  CheckEquals('Fips140_3', LName, 'equal rules carry the bare name, not the narrower Cnsa1');
 end;
 
 procedure TTestCompliancePresets.TestTryMatchNamesTightestForNarrowerRules;
@@ -398,7 +425,7 @@ begin
   LRules := TCompliancePresets.Fips140_3;
   LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls13);
   CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'a narrowed Fips140_3 matches');
-  CheckEquals('Fips140_3', LName, 'names the tightest preset that holds it');
+  CheckEquals('within Fips140_3', LName, 'narrower rules are labelled as within the preset');
 end;
 
 procedure TTestCompliancePresets.TestHandBuiltWithEd25519NotSubsetOfAnyPreset;
@@ -478,6 +505,62 @@ begin
         LNamed[LJ].Name + ' is not inside the tighter ' + LNamed[LI].Name);
 end;
 
+procedure TTestCompliancePresets.TestTryMatchNamesTheTightestPresetThatHoldsNarrowerRules;
+var
+  LRules: TComplianceRules;
+  LName: string;
+begin
+  LRules := TCompliancePresets.Cnsa1;
+  LRules.Strength.MinRsaModulusBits := 4096;
+  LRules.RsaModulusBits := TArray<UInt32>.Create(4096);
+  CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'narrower than Cnsa1');
+  CheckEquals('within Cnsa1', LName, 'the tightest preset is named, not Fips140_3');
+end;
+
+procedure TTestCompliancePresets.TestTryMatchLabelsRulesBetweenTheTwoPresets;
+var
+  LRules: TComplianceRules;
+  LName: string;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384,
+    TCipherSuites12.EcdheEcdsaAes256GcmSha384, TCipherSuites12.EcdheRsaAes256GcmSha384,
+    TCipherSuites13.Aes128GcmSha256, TCipherSuites12.EcdheEcdsaAes128GcmSha256);
+  CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'inside Fips140_3');
+  CheckEquals('within Fips140_3', LName, 'wider than Cnsa1, so not labelled by it');
+end;
+
+procedure TTestCompliancePresets.TestEveryPresetHoldsAnchorsToTheKeyFloors;
+var
+  LNamed: TArray<TCompliancePreset>;
+  LI: Int32;
+begin
+  LNamed := TCompliancePresets.Named;
+  CheckEquals(2, System.Length(LNamed), 'not vacuous');
+  for LI := 0 to System.Length(LNamed) - 1 do
+    CheckTrue(LNamed[LI].Rules.Strength.AnchorKeyFloors, LNamed[LI].Name);
+end;
+
+procedure TTestCompliancePresets.TestCnsa1IsSubsetOfFips140_3FieldByField;
+var
+  LCnsa, LFips: TComplianceRules;
+begin
+  LCnsa := TCompliancePresets.Cnsa1;
+  LFips := TCompliancePresets.Fips140_3;
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(LCnsa.Versions, LFips.Versions), 'versions');
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(LCnsa.CipherSuites, LFips.CipherSuites), 'suites');
+  CheckTrue(LCnsa.Aeads <= LFips.Aeads, 'aeads');
+  CheckTrue(TComplianceCatalog.IsSubsetOfList(LCnsa.NamedGroups, LFips.NamedGroups), 'groups');
+  CheckTrue(LCnsa.SignatureSchemes <= LFips.SignatureSchemes, 'schemes');
+  CheckTrue(TComplianceCatalog.StrengthWithin(LCnsa.Strength, LFips.Strength), 'strength');
+  CheckTrue(TComplianceCatalog.RsaSizesWithin(LCnsa.RsaModulusBits, LFips.RsaModulusBits),
+    'RSA sizes');
+  CheckTrue(LFips.Requirements <= LCnsa.Requirements, 'requirements');
+  CheckEquals(Ord(LFips.Kdf), Ord(LCnsa.Kdf), 'the key-derivation rule');
+  CheckEquals(Ord(LFips.ModuleStandard), Ord(LCnsa.ModuleStandard), 'the standard');
+  CheckTrue(LCnsa.IsSubsetOf(LFips), 'and as a whole');
+end;
+
 procedure TTestCompliancePresets.TestTryMatchNamesCnsa1NarrowedToTls13;
 var
   LRules: TComplianceRules;
@@ -487,7 +570,7 @@ begin
   LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls13);
   LRules.CipherSuites := TArray<UInt16>.Create(TCipherSuites13.Aes256GcmSha384);
   CheckTrue(TCompliancePresets.TryMatch(LRules, LName), 'a narrowed Cnsa1 matches');
-  CheckEquals('Cnsa1', LName, 'still the tightest preset');
+  CheckEquals('within Cnsa1', LName, 'still the tightest preset');
 end;
 
 { TTestComplianceRules }
@@ -1110,8 +1193,8 @@ const
     'NamedGroups: secp384r1' + sLineBreak +
     'SignatureSchemes: ECDSA_SECP384R1_SHA384 RSA_PSS_RSAE_SHA384 RSA_PKCS1_SHA384' +
     sLineBreak +
-    'Strength: RsaBits 3072..4096, RsaSizes: 3072 4096, EdDsa=no, DeprecatedHashes:, ' +
-    'curves: secp384r1' + sLineBreak +
+    'Strength: RsaBits 3072..4096, RsaSizes: 3072 4096, EdDsa=no, AnchorFloors=yes, ' +
+    'DeprecatedHashes:, curves: secp384r1' + sLineBreak +
     'Requirements: ExtendedMasterSecret NoEarlyData NoEch NoExternalPsk NoTls12Psk NoKeyLog ' +
     'NoDangerousTrust InModuleChainVerification' + sLineBreak +
     'Kdf: AllowComposed' + sLineBreak +
@@ -1403,6 +1486,67 @@ begin
   CheckEquals(2048, Int32(LOriginal.RsaModulusBits[0]), 'original untouched');
 end;
 
+procedure TTestComplianceRules.TestIntersectAnchorKeyFloorsFromAWins;
+var
+  LA, LB: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LB := TCompliancePresets.Fips140_3;
+  LB.Strength.AnchorKeyFloors := False;
+  CheckTrue(TComplianceRules.Intersect(LA, LB).Strength.AnchorKeyFloors,
+    'narrowing only ever adds the flag');
+end;
+
+procedure TTestComplianceRules.TestIntersectAnchorKeyFloorsFromBWins;
+var
+  LA, LB: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.Strength.AnchorKeyFloors := False;
+  LB := TCompliancePresets.Fips140_3;
+  CheckTrue(TComplianceRules.Intersect(LA, LB).Strength.AnchorKeyFloors,
+    'in either operand');
+end;
+
+procedure TTestComplianceRules.TestIntersectAnchorKeyFloorsBothOffStaysOff;
+var
+  LA, LB: TComplianceRules;
+begin
+  LA := TCompliancePresets.Fips140_3;
+  LA.Strength.AnchorKeyFloors := False;
+  LB := LA.Clone;
+  CheckFalse(TComplianceRules.Intersect(LA, LB).Strength.AnchorKeyFloors,
+    'the flag is not invented');
+end;
+
+procedure TTestComplianceRules.TestSubsetWithoutAnchorKeyFloorsIsNotWithinAPresetThatHasThem;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AnchorKeyFloors := False;
+  CheckFalse(LRules.IsSubsetOf(TCompliancePresets.Fips140_3),
+    'rules that exempt anchors are looser than a preset that holds them');
+end;
+
+procedure TTestComplianceRules.TestSubsetWithAnchorKeyFloorsIsWithinRulesThatLackThem;
+var
+  LLoose: TComplianceRules;
+begin
+  LLoose := TCompliancePresets.Fips140_3;
+  LLoose.Strength.AnchorKeyFloors := False;
+  CheckTrue(TCompliancePresets.Fips140_3.IsSubsetOf(LLoose), 'holding anchors is stricter');
+end;
+
+procedure TTestComplianceRules.TestEqualDetectsDifferentAnchorKeyFloors;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AnchorKeyFloors := False;
+  CheckFalse(LRules = TCompliancePresets.Fips140_3, 'the flag counts');
+end;
+
 { TTestComplianceCatalog }
 
 procedure TTestComplianceCatalog.TestTryKeyAgreementRejectsHybridAndKem;
@@ -1476,6 +1620,26 @@ begin
   LStrength.MinRsaModulusBits := 2047;
   CheckFalse(TComplianceCatalog.StrengthWithin(LStrength,
     TCompliancePresets.Fips140_3.Strength), 'a lower floor is looser');
+end;
+
+procedure TTestComplianceCatalog.TestStrengthWithinNeedsAnchorFloorsWhereTheFloorHasThem;
+var
+  LStrength: TCertificateStrengthPolicy;
+begin
+  LStrength := TCompliancePresets.Fips140_3.Strength;
+  LStrength.AnchorKeyFloors := False;
+  CheckFalse(TComplianceCatalog.StrengthWithin(LStrength,
+    TCompliancePresets.Fips140_3.Strength), 'an exempt anchor is looser');
+end;
+
+procedure TTestComplianceCatalog.TestStrengthWithinAcceptsAnchorFloorsBeyondTheFloor;
+var
+  LFloor: TCertificateStrengthPolicy;
+begin
+  LFloor := TCompliancePresets.Fips140_3.Strength;
+  LFloor.AnchorKeyFloors := False;
+  CheckTrue(TComplianceCatalog.StrengthWithin(TCompliancePresets.Fips140_3.Strength, LFloor),
+    'holding anchors where the floor does not is stricter');
 end;
 
 procedure TTestComplianceCatalog.TestSchemesInEnumOrder;
@@ -1599,6 +1763,97 @@ begin
     'the RSA sizes do not apply to a curve key');
 end;
 
+function TTestComplianceCatalog.Signed(AHash: TCertSignatureHash): TCertSignatureFacts;
+begin
+  Result := Default(TCertSignatureFacts);
+  Result.Family := TCertSignatureFamily.Ecdsa;
+  Result.Hash := AHash;
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsFollowsTheSchemeHashes;
+begin
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha256),
+    TCompliancePresets.Fips140_3), 'SHA-256 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha384),
+    TCompliancePresets.Fips140_3), 'SHA-384 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha512),
+    TCompliancePresets.Fips140_3), 'SHA-512 under Fips140_3');
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha384),
+    TCompliancePresets.Cnsa1), 'SHA-384 under Cnsa1');
+  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha256),
+    TCompliancePresets.Cnsa1), 'SHA-256 under Cnsa1');
+  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha512),
+    TCompliancePresets.Cnsa1), 'SHA-512 under Cnsa1');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsRefusesTheHashesNoSchemeUses;
+const
+  Refused: array [0 .. 3] of TCertSignatureHash = (TCertSignatureHash.Md5,
+    TCertSignatureHash.Sha1, TCertSignatureHash.Sha224, TCertSignatureHash.Sha3);
+var
+  LI: Int32;
+begin
+  for LI := Low(Refused) to High(Refused) do
+    CheckFalse(TComplianceCatalog.SignatureMeets(Signed(Refused[LI]),
+      TCompliancePresets.Fips140_3), TEnumUtilities.GetName(TypeInfo(TCertSignatureHash),
+      Ord(Refused[LI])));
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsAdmitsADeprecatedHashTheStrengthAdmits;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Sha1), LRules),
+    'admitted');
+  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Md5), LRules),
+    'only the hash that was admitted');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsFollowsTheEdDsaFlagForAnImplicitHash;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  CheckFalse(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Implicit), LRules),
+    'EdDSA is off in the presets');
+  LRules.Strength.AllowEdDsa := True;
+  CheckTrue(TComplianceCatalog.SignatureMeets(Signed(TCertSignatureHash.Implicit), LRules),
+    'and on when the strength policy admits it');
+end;
+
+function TTestComplianceCatalog.Held(const AKey: ISigningKey;
+  const AChain: array of TBytes): TTlsCredential;
+var
+  LI: Int32;
+begin
+  Result := Default(TTlsCredential);
+  Result.PrivateKey := AKey;
+  for LI := 0 to System.High(AChain) do
+    TArrayUtilities.Append<TBytes>(Result.CertificateChain, AChain[LI]);
+end;
+
+procedure TTestComplianceCatalog.TestSameCredentialNeedsTheSameKeyObjectAndChainBytes;
+var
+  LKey: ISigningKey;
+begin
+  LKey := TFakeSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256)) as ISigningKey;
+  CheckTrue(TComplianceCatalog.SameCredential(Held(LKey, [TBytes.Create(1, 2), TBytes.Create(3)]),
+    Held(LKey, [TBytes.Create(1, 2), TBytes.Create(3)])), 'one key, equal bytes');
+  CheckFalse(TComplianceCatalog.SameCredential(Held(LKey, [TBytes.Create(1, 2)]),
+    Held(LKey, [TBytes.Create(1, 2), TBytes.Create(3)])), 'a longer chain');
+  CheckFalse(TComplianceCatalog.SameCredential(Held(LKey, [TBytes.Create(1, 2)]),
+    Held(LKey, [TBytes.Create(1, 9)])), 'other bytes');
+  CheckFalse(TComplianceCatalog.SameCredential(Held(LKey, [TBytes.Create(1, 2)]),
+    Held(TFakeSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256)) as ISigningKey, [TBytes.Create(1, 2)])),
+    'another key object');
+  CheckTrue(TComplianceCatalog.SameCredential(Held(nil, [TBytes.Create(1)]),
+    Held(nil, [TBytes.Create(1)])), 'two credentials with no key and the same chain');
+end;
+
 procedure TTestComplianceCatalog.TestStandardNameIsFips140_3;
 begin
   CheckEquals('FIPS 140-3', TComplianceCatalog.StandardName(TModuleStandard.Fips140_3), 'name');
@@ -1624,8 +1879,41 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil, False);
   CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'verdict');
+  CheckTrue(LReport.KeyDerivationInModule, 'every derivation is a module service');
+end;
+
+procedure TTestComplianceReport.TestVerdictPrimitivesInModuleWithComposedKeyDerivation;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil, True);
+  CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict), 'verdict');
+  CheckFalse(LReport.KeyDerivationInModule, 'a derivation runs outside the module');
+end;
+
+procedure TTestComplianceReport.TestVerdictNotCompliantWithFindingAndComposedKeyDerivation;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.Validated,
+    TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
+    TComplianceFindingKind.EchConfigured, 'ech', 'configured')), nil, True);
+  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict),
+    'a finding outweighs the middle level');
+end;
+
+procedure TTestComplianceReport.TestVerdictNotCompliantWhenModuleNotValidatedAndKdfInModule;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
+    Default(TModuleIdentity), TModuleStatus.NotValidated, nil, nil, False);
+  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict),
+    'no module claim without a validated module');
 end;
 
 procedure TTestComplianceReport.TestVerdictNotCompliantWithFinding;
@@ -1635,7 +1923,7 @@ begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
     Default(TModuleIdentity), TModuleStatus.Validated,
     TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.EchConfigured, 'ech', 'configured')), nil);
+    TComplianceFindingKind.EchConfigured, 'ech', 'configured')), nil, False);
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
 end;
 
@@ -1644,18 +1932,7 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '',
-    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil);
-  CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
-end;
-
-procedure TTestComplianceReport.TestVerdictNotCompliantWithoutPresetAndWithFinding;
-var
-  LReport: IComplianceReport;
-begin
-  LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '',
-    Default(TModuleIdentity), TModuleStatus.Validated,
-    TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.RulesOutsidePresets, 'rules', 'outside')), nil);
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil, False);
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
 end;
 
@@ -1664,7 +1941,7 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, 'Cnsa1',
-    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil, False);
   CheckEquals(Ord(TComplianceEnforcement.Relaxed), Ord(LReport.Enforcement), 'enforcement');
   CheckEquals('Cnsa1', LReport.Preset, 'preset');
 end;
@@ -1682,7 +1959,7 @@ begin
   LIdentity.Certificate := '5410';
   LAttestation := TFakeModuleAttestation.Create(TModuleStatus.Validated, LIdentity);
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    LAttestation.Identity, LAttestation.Status(TModuleStandard.Fips140_3), nil, nil);
+    LAttestation.Identity, LAttestation.Status(TModuleStandard.Fips140_3), nil, nil, False);
   CheckEquals('Windows', LReport.Module.OsName, 'os name');
   CheckEquals(22621, Int32(LReport.Module.OsBuild), 'os build');
   CheckEquals('10.0.22621.1', LReport.Module.OsVersion, 'os version');
@@ -1699,7 +1976,7 @@ begin
     TArray<TComplianceFinding>.Create(
     TComplianceFinding.Create(TComplianceFindingKind.EchConfigured, 'ech', 'one'),
     TComplianceFinding.Create(TComplianceFindingKind.KeyLogConfigured, 'log', 'two')),
-    TArray<string>.Create('first', 'second', 'third'));
+    TArray<string>.Create('first', 'second', 'third'), False);
   CheckEquals(2, System.Length(LReport.Findings), 'finding count');
   CheckEquals(Ord(TComplianceFindingKind.KeyLogConfigured), Ord(LReport.Findings[1].Kind),
     'second finding');
@@ -1715,7 +1992,7 @@ begin
   LFindings := TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
     TComplianceFindingKind.EchConfigured, 'ech', 'one'));
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.Validated, LFindings, nil);
+    Default(TModuleIdentity), TModuleStatus.Validated, LFindings, nil, False);
   LFindings[0].Subject := 'changed';
   CheckEquals('ech', LReport.Findings[0].Subject, 'the caller edit does not reach the report');
 end;
@@ -1728,7 +2005,7 @@ begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
     Default(TModuleIdentity), TModuleStatus.Validated,
     TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.EchConfigured, 'ech', 'one')), nil);
+    TComplianceFindingKind.EchConfigured, 'ech', 'one')), nil, False);
   LFindings := LReport.Findings;
   LFindings[0].Subject := 'changed';
   CheckEquals('ech', LReport.Findings[0].Subject, 'the returned array is a copy');
@@ -1747,11 +2024,21 @@ begin
   LIdentity.ModuleFileVersion := '10.0.22621.2';
   LIdentity.Certificate := '5410';
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3', LIdentity,
-    TModuleStatus.Validated, nil, TArray<string>.Create('composed KDF'));
+    TModuleStatus.Validated, nil, TArray<string>.Create('a disclosure'), False);
   CheckEquals('Verdict: Compliant (Strict)' + sLineBreak + 'Preset: Fips140_3' + sLineBreak +
     'Module: Windows 10.0.22621.1 Windows 11 22H2 bcryptprimitives.dll 10.0.22621.2, ' +
-    'certificate 5410, status Validated' + sLineBreak + 'Disclosure: composed KDF',
+    'certificate 5410, status Validated' + sLineBreak + 'Disclosure: a disclosure',
     LReport.Describe, 'description');
+end;
+
+procedure TTestComplianceReport.TestReportDescribeNamesThePrimitivesInModuleLevel;
+var
+  LReport: IComplianceReport;
+begin
+  LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Cnsa1',
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, nil, True);
+  CheckTrue(Pos('Verdict: PrimitivesInModule (Strict)', LReport.Describe) = 1,
+    'the verdict line prints the level name');
 end;
 
 procedure TTestComplianceReport.TestReportDescribeNotCompliant;
@@ -1761,7 +2048,7 @@ begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '',
     Default(TModuleIdentity), TModuleStatus.NotValidated,
     TArray<TComplianceFinding>.Create(TComplianceFinding.Create(
-    TComplianceFindingKind.ModuleNotValidated, '10.0.1', 'no table')), nil);
+    TComplianceFindingKind.ModuleNotValidated, '10.0.1', 'no table')), nil, False);
   CheckEquals('Verdict: NotCompliant (Relaxed)' + sLineBreak + 'Preset: none' + sLineBreak +
     'Module: unknown module, status NotValidated' + sLineBreak +
     'Finding: ModuleNotValidated 10.0.1: no table', LReport.Describe, 'description');
@@ -1787,33 +2074,24 @@ end;
 
 procedure TTestComplianceReport.TestFindingCategoryPerKind;
 const
-  Expected: array [TComplianceFindingKind] of TComplianceFindingCategory = (
-    TComplianceFindingCategory.Rules,
-    TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Platform, TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Platform,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
-    TComplianceFindingCategory.Configuration);
+  PlatformKinds = [TComplianceFindingKind.ModuleNotValidated,
+    TComplianceFindingKind.NoBackendReport, TComplianceFindingKind.AlgorithmOutsideModule,
+    TComplianceFindingKind.KdfOutsideModule, TComplianceFindingKind.CredentialKeyOutsideModule,
+    TComplianceFindingKind.ChainVerifiedOutsideModule,
+    TComplianceFindingKind.StapleVerifiedOutsideModule, TComplianceFindingKind.CryptoNotCovered];
 var
   LKind: TComplianceFindingKind;
   LFinding: TComplianceFinding;
+  LExpected: TComplianceFindingCategory;
 begin
   for LKind := Low(TComplianceFindingKind) to High(TComplianceFindingKind) do
   begin
     LFinding := TComplianceFinding.Create(LKind, '', '');
-    CheckEquals(Ord(Expected[LKind]), Ord(LFinding.Category), 'kind ' + IntToStr(Ord(LKind)));
+    if LKind in PlatformKinds then
+      LExpected := TComplianceFindingCategory.Platform
+    else
+      LExpected := TComplianceFindingCategory.Configuration;
+    CheckEquals(Ord(LExpected), Ord(LFinding.Category), 'kind ' + IntToStr(Ord(LKind)));
   end;
 end;
 
@@ -1916,7 +2194,7 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.NotValidated, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.NotValidated, nil, nil, False);
   CheckEquals(0, System.Length(LReport.Findings), 'no finding stands');
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict),
     'a preset and no finding are not enough without a validated module');
@@ -1927,7 +2205,7 @@ var
   LReport: IComplianceReport;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, 'Cnsa1',
-    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil);
+    Default(TModuleIdentity), TModuleStatus.Unknown, nil, nil, False);
   CheckEquals(Ord(TComplianceVerdict.NotCompliant), Ord(LReport.Verdict), 'verdict');
 end;
 
@@ -1938,7 +2216,7 @@ var
 begin
   LDisclosures := TArray<string>.Create('one');
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.Validated, nil, LDisclosures);
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, LDisclosures, False);
   LDisclosures[0] := 'changed';
   CheckEquals('one', LReport.Disclosures[0], 'the caller edit does not reach the report');
 end;
@@ -1949,7 +2227,7 @@ var
   LDisclosures: TArray<string>;
 begin
   LReport := TComplianceReport.Create(TComplianceEnforcement.Strict, 'Fips140_3',
-    Default(TModuleIdentity), TModuleStatus.Validated, nil, TArray<string>.Create('one'));
+    Default(TModuleIdentity), TModuleStatus.Validated, nil, TArray<string>.Create('one'), False);
   LDisclosures := LReport.Disclosures;
   LDisclosures[0] := 'changed';
   CheckEquals('one', LReport.Disclosures[0], 'the returned array is a copy');
@@ -2040,7 +2318,7 @@ begin
   LIdentity := Default(TModuleIdentity);
   LIdentity.OsName := 'Windows';
   LReport := TComplianceReport.Create(TComplianceEnforcement.Relaxed, '', LIdentity,
-    TModuleStatus.NotValidated, nil, nil);
+    TModuleStatus.NotValidated, nil, nil, False);
   CheckTrue(Pos('Module: Windows, status NotValidated', LReport.Describe) > 0,
     'no certificate clause');
 end;

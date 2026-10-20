@@ -25,6 +25,8 @@ uses
   TlpSystemCryptoTypes,
   TlpICryptoBackendReport,
   TlpSystemCryptoBase,
+  TlpHkdfComposition,
+  TlpTls12PrfComposition,
   TlpComplianceTypes,
   TlpComplianceExceptions,
   TlpComplianceHpke,
@@ -44,8 +46,10 @@ type
   /// A primitives decorator that refuses every algorithm outside the rules (in both modes), every
   /// key encapsulation, and, in strict mode, every algorithm the backend report does not place
   /// in the OS module. A refusal raises <see cref="EComplianceRefusedTlsLibException" />, so an
-  /// HPKE probe over these primitives treats a refused algorithm as unavailable. It holds only
-  /// immutable state, so its thread-safety is the inner facet's.
+  /// HPKE probe over these primitives treats a refused algorithm as unavailable. HKDF, and the
+  /// TLS 1.2 PRF unless the module serves it, are assembled over this decorator's own HMAC, so
+  /// they never reach a native Expand. It holds only immutable state, so its thread-safety is
+  /// the inner facet's.
   /// </summary>
   TComplianceCryptoPrimitives = class sealed(TForwardingCryptoPrimitives)
   strict private
@@ -112,7 +116,13 @@ type
     /// HPKE facet, not what the rules let through. A base with no backend report is treated as
     /// wholly portable. Raises EArgumentTlsLibException for a nil ABase.</summary>
     class function Compose(const ABase: ICryptoProvider; const ARules: TComplianceRules;
-      AEnforcement: TComplianceEnforcement): ICryptoProvider; static;
+      AEnforcement: TComplianceEnforcement): ICryptoProvider; overload; static;
+    /// <summary>As above, but the refusing layers decide by ADecisionReport instead of the report
+    /// of ABase, which still describes ABase's backends. Raises EArgumentTlsLibException for a
+    /// nil ABase or ADecisionReport.</summary>
+    class function Compose(const ABase: ICryptoProvider; const ARules: TComplianceRules;
+      AEnforcement: TComplianceEnforcement;
+      const ADecisionReport: ICryptoBackendReport): ICryptoProvider; overload; static;
   end;
 
 implementation
@@ -224,7 +234,8 @@ function TComplianceCryptoPrimitives.CreateHkdf(AAlgorithm: THashAlgorithm): IHk
 begin
   RequireKdfInModule(FReport.HkdfBackend(AAlgorithm),
     TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm));
-  Result := inherited CreateHkdf(AAlgorithm);
+  // over Self, so every HMAC it makes passes the refusing layer and a native Expand never runs
+  Result := THkdfComposition.Create(Self, AAlgorithm) as IHkdf;
 end;
 
 function TComplianceCryptoPrimitives.CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
@@ -233,7 +244,11 @@ var
 begin
   RequireKdfInModule(FReport.Tls12PrfBackend(AAlgorithm),
     TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm));
-  LPrf := inherited CreateTls12Prf(AAlgorithm);
+  // only the module's own PRF is forwarded; any other is assembled over the refusing HMAC
+  if FReport.Tls12PrfBackend(AAlgorithm).Backend = TCryptoBackend.System then
+    LPrf := inherited CreateTls12Prf(AAlgorithm)
+  else
+    LPrf := TTls12PrfComposition.Create(Self, AAlgorithm) as ITls12Prf;
   if FRequireEms then
     Result := TComplianceTls12Prf.Create(LPrf) as ITls12Prf
   else
@@ -358,9 +373,6 @@ class function TComplianceCryptoProvider.Compose(const ABase: ICryptoProvider;
   const ARules: TComplianceRules; AEnforcement: TComplianceEnforcement): ICryptoProvider;
 var
   LReport, LDecisionReport: ICryptoBackendReport;
-  LPrimitives: ICryptoPrimitives;
-  LSigning: ISigningCrypto;
-  LHpke: IHpkeCrypto;
 begin
   if ABase = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilBase);
@@ -370,9 +382,27 @@ begin
     LDecisionReport := LReport
   else
     LDecisionReport := TPortableOnlyReport.Create(False) as ICryptoBackendReport;
+  Result := Compose(ABase, ARules, AEnforcement, LDecisionReport);
+end;
+
+class function TComplianceCryptoProvider.Compose(const ABase: ICryptoProvider;
+  const ARules: TComplianceRules; AEnforcement: TComplianceEnforcement;
+  const ADecisionReport: ICryptoBackendReport): ICryptoProvider;
+var
+  LReport: ICryptoBackendReport;
+  LPrimitives: ICryptoPrimitives;
+  LSigning: ISigningCrypto;
+  LHpke: IHpkeCrypto;
+begin
+  if ABase = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilBase);
+  if ADecisionReport = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilReport);
+  LReport := nil;
+  Supports(ABase, ICryptoBackendReport, LReport);
   LPrimitives := TComplianceCryptoPrimitives.Create(ABase.Primitives, ARules,
-    LDecisionReport, AEnforcement);
-  LSigning := TComplianceSigningCrypto.Create(ABase.Signing, ARules, LDecisionReport,
+    ADecisionReport, AEnforcement);
+  LSigning := TComplianceSigningCrypto.Create(ABase.Signing, ARules, ADecisionReport,
     AEnforcement);
   LHpke := nil;
   if not TOverlayCryptoProvider.RebuildsHpke(ABase) then

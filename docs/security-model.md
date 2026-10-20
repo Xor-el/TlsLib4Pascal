@@ -97,15 +97,17 @@ one when ECH was accepted). For debugging only — never production.
   presets) offered by the presets and preferred under Hardened and Strict. X25519MLKEM768 is
   interop-verified against OpenSSL 3.5+ and BoringSSL; SecP256r1MLKEM768 against OpenSSL where the
   installed build supports it.
-- **Compliance mode (optional).** The `TlsLib.Compliance` package routes the negotiated
-  cryptography of a policy-built config through refusing providers: a negotiated algorithm outside
-  the rules is refused in both enforcement modes, and in strict mode so is one the OS module does
-  not serve. Hashes and HMACs are checked against the module only, and a few internal SHA-256 uses
-  are disclosed. A refusal ends the handshake with a fatal `internal_error`, except where the
-  engine absorbs it (a session ticket that is not issued). Rules are `Compliant` only as a subset
-  of a named preset, and `Admit` checks the non-crypto settings (early data, ECH, PSKs, key log,
-  verification bypass, strength floors, credential keys). It makes no module validation claim of
-  its own; see [compliance.md](compliance.md).
+- **Compliance mode (optional).** The `TlsLib.Compliance` package routes the cryptography a
+  policy-built config negotiates through refusing providers: an algorithm outside the rules is
+  refused in both enforcement modes, and in strict mode so is one the OS module does not serve.
+  Hashes and HMACs are checked against the module only, and a few internal SHA-256 uses are
+  disclosed. A refusal ends the handshake with a fatal `internal_error`, except where the engine
+  absorbs it (a session ticket that is not issued) and where a credential resolver answers `False`.
+  Rules must lie within a named preset in both modes. `Admit` checks the non-crypto settings (early
+  data, ECH, PSKs, key log, verification bypass, strength floors including trust anchors,
+  credential chains and keys) and, for key agreement through group objects and chain verification
+  through a verifier source, is the only enforcement: they do not run through the policy
+  providers. It makes no module validation claim of its own; see [compliance.md](compliance.md).
 - **Resumption.** TLS 1.3 resumes with `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
   negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
   only as forward-secret as the session store / ticket-key lifetime. Client-cache tickets are single-use; server tickets are single-use with a session
@@ -165,8 +167,9 @@ These are intentional and documented — flagging them up front so they aren't m
 - **No cryptographic-module claim.** TlsLib is not a validated module. `TlsLib.Compliance` reports
   which validated OS module serves the primitives, from a shipped table keyed on the OS build plus
   the process architecture and the loaded module, and in strict mode refuses any combination the
-  table does not mark validated; the key derivations stay composed outside the module and are
-  disclosed.
+  table does not mark validated. Its verdict has three levels: `Compliant` when every key
+  derivation is a module service, `PrimitivesInModule` when one is composed outside the module
+  (HKDF, for TLS 1.3), `NotCompliant` otherwise.
 - **Augment-only custom verification** (vs the rustls/.NET "replace validation" model) — a callback can
   only tighten, never loosen.
 - **A cipher list narrows, and a host's list is read by exact name only.** A cipher list

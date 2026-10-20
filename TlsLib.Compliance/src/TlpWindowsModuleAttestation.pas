@@ -21,6 +21,8 @@ uses
   Windows,
   SysUtils,
   TlpDynamicLibrary,
+  TlpICryptoProvider,
+  TlpOSCryptoProvider,
   TlpComplianceTypes,
   TlpIModuleAttestation,
   TlpWindowsModuleDecision;
@@ -44,20 +46,26 @@ type
     ANativeMachine: Word): BOOL; stdcall;
   TGetFirmwareType = function(out AType: UInt32): BOOL; stdcall;
 
+  /// <summary>What Attest derives from a set of facts.</summary>
+  TWindowsAttestation = record
+    Identity: TModuleIdentity;
+    Status: TModuleStatus;
+    Description: string;
+  end;
+
   /// <summary>
   /// Attests the OS cryptographic module from facts read once at construction: the status is
-  /// the decision of TWindowsModuleDecision over them, so a later change to the process or the
-  /// machine is not seen. The facts come from the OS version query, the process, the firmware
-  /// kind and the module file on disk, not from the image in memory; code that alters any of them
-  /// inside the process is out of scope. The update revision, the edition and the legacy FIPS
-  /// switch are reported but never decide the status.
+  /// the decision of TWindowsModuleDecision over them, so a later change to the process, the
+  /// machine or the date is not seen. The facts come from the OS version query, the process, the
+  /// firmware kind, the clock and the module file on disk, not from the image in memory; code that
+  /// alters any of them inside the process is out of scope. The update revision, the edition and
+  /// the legacy FIPS switch are reported but never decide the status.
   /// </summary>
   TWindowsModuleAttestation = class sealed(TInterfacedObject, IModuleAttestation)
   strict private
   var
     FFacts: TWindowsModuleFacts;
-    FIdentity: TModuleIdentity;
-    FEntry: TWindowsModuleEntry;
+    FAttested: TWindowsAttestation;
     class function ReadOs(var AFacts: TWindowsModuleFacts): Boolean; static;
     class procedure ReadRegistry(var AFacts: TWindowsModuleFacts); static;
     class function ReadMachines(out AProcessMachine, ANativeMachine: Word): Boolean; static;
@@ -66,7 +74,7 @@ type
     class function ReadLoadedPath(var AFacts: TWindowsModuleFacts): Boolean; static;
     class function ReadModuleVersion(var AFacts: TWindowsModuleFacts): Boolean; static;
     class function ReadLegacyPolicy: TLegacyFipsPolicy; static;
-    procedure Apply(const AFacts: TWindowsModuleFacts);
+    class function ReadToday: UInt32; static;
   public
     /// <summary>Reads the four numbers a file version string starts with into the module
     /// version facts; False, leaving them alone, for any other text.</summary>
@@ -74,12 +82,14 @@ type
       var AFacts: TWindowsModuleFacts): Boolean; static;
     /// <summary>Reads the facts of this process and machine.</summary>
     class function Gather: TWindowsModuleFacts; static;
+    /// <summary>The identity, status and description the given facts give; reads nothing.</summary>
+    class function Attest(const AFacts: TWindowsModuleFacts): TWindowsAttestation; static;
     constructor Create;
-    /// <summary>Attests the given facts instead of the ones this process reads.</summary>
-    constructor CreateFromFacts(const AFacts: TWindowsModuleFacts);
     function Identity: TModuleIdentity;
     function Status(AStandard: TModuleStandard): TModuleStatus;
     function Describe: string;
+    /// <summary>Whether ACrypto is the OS composition this attestation describes.</summary>
+    function Covers(const ACrypto: ICryptoProvider): Boolean;
   end;
 
 {$ENDIF}
@@ -378,9 +388,18 @@ begin
   end;
 end;
 
+class function TWindowsModuleAttestation.ReadToday: UInt32;
+var
+  LTime: TSystemTime;
+begin
+  GetSystemTime(LTime);
+  Result := UInt32(LTime.wYear) * 10000 + UInt32(LTime.wMonth) * 100 + UInt32(LTime.wDay);
+end;
+
 class function TWindowsModuleAttestation.Gather: TWindowsModuleFacts;
 begin
   Result := Default(TWindowsModuleFacts);
+  Result.Today := ReadToday;
   Result.LegacyFipsPolicy := ReadLegacyPolicy;
   Result.OsRead := ReadOs(Result);
   if Result.OsRead then
@@ -394,53 +413,69 @@ begin
     Result.VersionRead := ReadModuleVersion(Result);
 end;
 
-procedure TWindowsModuleAttestation.Apply(const AFacts: TWindowsModuleFacts);
+class function TWindowsModuleAttestation.Attest(
+  const AFacts: TWindowsModuleFacts): TWindowsAttestation;
+var
+  LEntry: TWindowsModuleEntry;
+  LReason: string;
+  LListed: Boolean;
 begin
-  FFacts := AFacts;
-  FEntry := Default(TWindowsModuleEntry);
-  FIdentity := Default(TModuleIdentity);
-  FIdentity.OsName := 'Windows';
-  FIdentity.ModuleName := ModuleFileName;
-  FIdentity.LegacyFipsPolicy := AFacts.LegacyFipsPolicy;
-  FIdentity.ProcessMachine := AFacts.ProcessMachine;
-  FIdentity.NativeMachine := AFacts.NativeMachine;
-  FIdentity.ModulePath := string(AFacts.ModulePath);
+  Result := Default(TWindowsAttestation);
+  LEntry := Default(TWindowsModuleEntry);
+  Result.Identity.Attested := True;
+  Result.Identity.OsName := 'Windows';
+  Result.Identity.ModuleName := ModuleFileName;
+  Result.Identity.LegacyFipsPolicy := AFacts.LegacyFipsPolicy;
+  Result.Identity.ProcessMachine := AFacts.ProcessMachine;
+  Result.Identity.NativeMachine := AFacts.NativeMachine;
+  Result.Identity.ModulePath := string(AFacts.ModulePath);
   if AFacts.FirmwareRead then
-    FIdentity.Firmware := TWindowsModuleDecision.FirmwareName(AFacts.FirmwareType);
+    Result.Identity.Firmware := TWindowsModuleDecision.FirmwareName(AFacts.FirmwareType);
   if AFacts.VersionRead then
-    FIdentity.ModuleFileVersion := Format('%d.%d.%d.%d', [AFacts.ModuleMajor,
+    Result.Identity.ModuleFileVersion := Format('%d.%d.%d.%d', [AFacts.ModuleMajor,
       AFacts.ModuleMinor, AFacts.ModuleBuild, AFacts.ModuleRevision]);
-  if not AFacts.OsRead then
-    Exit;
-  FIdentity.OsBuild := AFacts.Build;
-  FIdentity.OsRevision := AFacts.Revision;
-  FIdentity.OsVersion := Format('%d.%d.%d.%d', [AFacts.Major, AFacts.Minor, AFacts.Build,
-    AFacts.Revision]);
-  FIdentity.ProductType := AFacts.ProductType;
-  FIdentity.Edition := AFacts.Edition;
-  if TWindowsModuleDecision.Lookup(AFacts.Build, FEntry) then
+  if AFacts.OsRead then
   begin
-    FIdentity.Product := FEntry.Product;
-    FIdentity.Certificate := FEntry.Certificate;
-    FIdentity.ListedModuleVersion := FEntry.ListedVersion;
+    Result.Identity.OsBuild := AFacts.Build;
+    Result.Identity.OsRevision := AFacts.Revision;
+    Result.Identity.OsVersion := Format('%d.%d.%d.%d', [AFacts.Major, AFacts.Minor,
+      AFacts.Build, AFacts.Revision]);
+    Result.Identity.ProductType := AFacts.ProductType;
+    Result.Identity.Edition := AFacts.Edition;
+    LListed := TWindowsModuleDecision.Lookup(AFacts.Build, LEntry);
+    if LListed then
+    begin
+      Result.Identity.Product := LEntry.Product;
+      Result.Identity.ListedModuleVersion := LEntry.ListedVersion;
+    end;
   end;
+  Result.Status := TWindowsModuleDecision.Decide(AFacts, LEntry.Standard, LReason);
+  // a certificate number means something only while the module is validated
+  if Result.Status = TModuleStatus.Validated then
+  begin
+    Result.Identity.Certificate := LEntry.Certificate;
+    Result.Description := Format(SValidatedModule, [Result.Identity.OsName,
+      Result.Identity.OsVersion, Result.Identity.ModuleName, LEntry.Certificate,
+      TComplianceCatalog.StandardName(LEntry.Standard), LEntry.Level, LEntry.ValidatedOn,
+      LEntry.Sunset]);
+  end
+  else if AFacts.OsRead then
+    Result.Description := Format(SNotValidatedModule, [Result.Identity.OsName,
+      Result.Identity.OsVersion, LReason])
+  else
+    Result.Description := LReason;
 end;
 
 constructor TWindowsModuleAttestation.Create;
 begin
   inherited Create;
-  Apply(Gather);
-end;
-
-constructor TWindowsModuleAttestation.CreateFromFacts(const AFacts: TWindowsModuleFacts);
-begin
-  inherited Create;
-  Apply(AFacts);
+  FFacts := Gather;
+  FAttested := Attest(FFacts);
 end;
 
 function TWindowsModuleAttestation.Identity: TModuleIdentity;
 begin
-  Result := FIdentity;
+  Result := FAttested.Identity;
 end;
 
 function TWindowsModuleAttestation.Status(AStandard: TModuleStandard): TModuleStatus;
@@ -451,19 +486,13 @@ begin
 end;
 
 function TWindowsModuleAttestation.Describe: string;
-var
-  LReason: string;
 begin
-  if TWindowsModuleDecision.Decide(FFacts, FEntry.Standard, LReason) =
-    TModuleStatus.Validated then
-    Result := Format(SValidatedModule, [FIdentity.OsName, FIdentity.OsVersion,
-      FIdentity.ModuleName, FIdentity.Certificate,
-      TComplianceCatalog.StandardName(FEntry.Standard), FEntry.Level, FEntry.ValidatedOn,
-      FEntry.Sunset])
-  else if FFacts.OsRead then
-    Result := Format(SNotValidatedModule, [FIdentity.OsName, FIdentity.OsVersion, LReason])
-  else
-    Result := LReason;
+  Result := FAttested.Description;
+end;
+
+function TWindowsModuleAttestation.Covers(const ACrypto: ICryptoProvider): Boolean;
+begin
+  Result := TOSCryptoProvider.IsComposition(ACrypto);
 end;
 
 {$ENDIF}
