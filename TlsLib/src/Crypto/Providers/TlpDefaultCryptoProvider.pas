@@ -561,9 +561,6 @@ type
   var
     FRandom: ISecureRandom;
     class function SignerMechanismForScheme(AScheme: TSignatureScheme): string; static;
-    /// <summary>True for the three ECDSA schemes, with the scheme's hash.</summary>
-    class function EcdsaHashForScheme(AScheme: TSignatureScheme;
-      out AHash: THashAlgorithm): Boolean; static;
     /// <summary>An ECDSA signer whose per-signature nonce is derived from the key and the
     /// message hash (RFC 6979), so a weak or repeated RNG draw cannot leak the key.</summary>
     class function CreateDeterministicEcdsaSigner(AHash: THashAlgorithm): ISigner; static;
@@ -1972,23 +1969,6 @@ begin
   end;
 end;
 
-class function TSigningCrypto.EcdsaHashForScheme(AScheme: TSignatureScheme;
-  out AHash: THashAlgorithm): Boolean;
-begin
-  Result := True;
-  case AScheme of
-    TSignatureScheme.ECDSA_SECP256R1_SHA256:
-      AHash := THashAlgorithm.SHA_256;
-    TSignatureScheme.ECDSA_SECP384R1_SHA384:
-      AHash := THashAlgorithm.SHA_384;
-    TSignatureScheme.ECDSA_SECP521R1_SHA512:
-      AHash := THashAlgorithm.SHA_512;
-  else
-    AHash := THashAlgorithm.SHA_256; // unused when Result is False; keeps the out param assigned
-    Result := False;
-  end;
-end;
-
 class function TSigningCrypto.CreateDeterministicEcdsaSigner(
   AHash: THashAlgorithm): ISigner;
 var
@@ -2101,7 +2081,7 @@ begin
   // state, so concurrent handshakes stay independent
   LKey := LProviderKey.KeyParameter;
   try
-    if EcdsaHashForScheme(AScheme, LHash) then
+    if (AScheme.KeyKind = TSignatureKeyKind.Ecdsa) and AScheme.TryHash(LHash) then
     begin
       LSigner := CreateDeterministicEcdsaSigner(LHash);
       LSigner.Init(True, LKey);

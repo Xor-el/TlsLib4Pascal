@@ -980,7 +980,6 @@ type
     class function NoPersistKeySupported: Boolean; static;
     class function HashAlgForScheme(AScheme: TSignatureScheme): THashAlgorithm; static;
     class function HashIdForScheme(AScheme: TSignatureScheme): WideString; static;
-    class function HashLenForScheme(AScheme: TSignatureScheme): ULONG; static;
     /// <summary>The RSA modulus length k in octets (RFC 8017 8.2.2 step 1), 0 when unreadable.</summary>
     function RsaModulusBytes(AKeyHandle: Pointer): Int32;
     function KeyFieldSize(AKeyHandle: Pointer): Int32;
@@ -3184,41 +3183,21 @@ end;
 class function TWindowsNCrypt.HashAlgForScheme(
   AScheme: TSignatureScheme): THashAlgorithm;
 begin
-  case AScheme of
-    TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PKCS1_SHA384,
-    TSignatureScheme.ECDSA_SECP384R1_SHA384:
-      Result := THashAlgorithm.SHA_384;
-    TSignatureScheme.RSA_PSS_RSAE_SHA512, TSignatureScheme.RSA_PKCS1_SHA512,
-    TSignatureScheme.ECDSA_SECP521R1_SHA512:
-      Result := THashAlgorithm.SHA_512;
-  else
+  // EdDSA names no hash and never reaches CNG; SHA-256 keeps Result defined
+  if not AScheme.TryHash(Result) then
     Result := THashAlgorithm.SHA_256;
-  end;
 end;
 
 class function TWindowsNCrypt.HashIdForScheme(
   AScheme: TSignatureScheme): WideString;
 begin
-  case AScheme of
-    TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PKCS1_SHA384:
+  case HashAlgForScheme(AScheme) of
+    THashAlgorithm.SHA_384:
       Result := HASH_ALG_SHA384;
-    TSignatureScheme.RSA_PSS_RSAE_SHA512, TSignatureScheme.RSA_PKCS1_SHA512:
+    THashAlgorithm.SHA_512:
       Result := HASH_ALG_SHA512;
   else
     Result := HASH_ALG_SHA256;
-  end;
-end;
-
-class function TWindowsNCrypt.HashLenForScheme(
-  AScheme: TSignatureScheme): ULONG;
-begin
-  case AScheme of
-    TSignatureScheme.RSA_PSS_RSAE_SHA384, TSignatureScheme.RSA_PKCS1_SHA384:
-      Result := 48;
-    TSignatureScheme.RSA_PSS_RSAE_SHA512, TSignatureScheme.RSA_PKCS1_SHA512:
-      Result := 64;
-  else
-    Result := 32;
   end;
 end;
 
@@ -3597,7 +3576,8 @@ begin
   if AScheme.IsRsaPssRsae then
   begin
     LPss.pszAlgId := PWideChar(LHashId);
-    LPss.cbSalt := HashLenForScheme(AScheme); // rsa_pss_rsae_*: salt length = hash length
+    // rsa_pss_rsae_*: salt length = hash length
+    LPss.cbSalt := ULONG(HashAlgForScheme(AScheme).ByteLength);
     LPad := @LPss;
     LFlags := NCRYPT_PAD_PSS_FLAG or NCRYPT_SILENT_FLAG;
   end
@@ -3797,7 +3777,7 @@ begin
     if AScheme.IsRsaPssRsae then
     begin
       LPss.pszAlgId := PWideChar(LHashId);
-      LPss.cbSalt := HashLenForScheme(AScheme);
+      LPss.cbSalt := ULONG(HashAlgForScheme(AScheme).ByteLength);
       LPad := @LPss;
       LFlags := BCRYPT_PAD_PSS;
     end

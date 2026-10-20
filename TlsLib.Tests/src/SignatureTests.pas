@@ -55,6 +55,8 @@ type
     function HashOf(const ANames: array of string): TBytes;
     function ServerCertVerifyContent(const ATranscriptHash: TBytes): TBytes;
     function CertVerifySignature: TBytes;
+    procedure CheckNamedDigest(AScheme: TSignatureScheme; AExpected: THashAlgorithm;
+      const AMsg: string);
   protected
     procedure SetUp; override;
   published
@@ -70,6 +72,13 @@ type
     procedure TestRsaPssRejectsWrongTranscript;
     procedure TestSignatureSchemeCodesMatchCatalog;
     procedure TestSchemeCodesFromRegistryMatchesRegistryOrder;
+    procedure TestEcdsaSchemesNameTheirDigest;
+    procedure TestRsaPssSchemesNameTheirDigest;
+    procedure TestRsaPkcs1SchemesNameTheirDigest;
+    procedure TestEdDsaSchemesNameNoDigest;
+    procedure TestDigestByteLengths;
+    procedure TestSchemeOutsideTheEnumNamesNoHash;
+    procedure TestHashOutsideTheEnumHasNoLength;
     // the provider seam binds the scheme's key family and never leaks a backend exception
     procedure TestVerifierFailsClosedOnSchemeKeyFamilyMismatch;
     procedure TestVerifierAllowsEcdsaCurveHashDecoupling;
@@ -483,6 +492,84 @@ begin
     TSignatureScheme.RSA_PKCS1_SHA384.ToCode, 'rsa_pkcs1_sha384');
   CheckEquals(TSignatureSchemes.RsaPkcs1Sha512,
     TSignatureScheme.RSA_PKCS1_SHA512.ToCode, 'rsa_pkcs1_sha512');
+end;
+
+procedure TTestSignature.CheckNamedDigest(AScheme: TSignatureScheme;
+  AExpected: THashAlgorithm; const AMsg: string);
+var
+  LHash: THashAlgorithm;
+begin
+  CheckTrue(AScheme.TryHash(LHash), AMsg + ' names a digest');
+  CheckTrue(AExpected = LHash, AMsg + ' names the expected digest');
+end;
+
+procedure TTestSignature.TestEcdsaSchemesNameTheirDigest;
+begin
+  CheckNamedDigest(TSignatureScheme.ECDSA_SECP256R1_SHA256, THashAlgorithm.SHA_256, 'p256');
+  CheckNamedDigest(TSignatureScheme.ECDSA_SECP384R1_SHA384, THashAlgorithm.SHA_384, 'p384');
+  CheckNamedDigest(TSignatureScheme.ECDSA_SECP521R1_SHA512, THashAlgorithm.SHA_512, 'p521');
+end;
+
+procedure TTestSignature.TestRsaPssSchemesNameTheirDigest;
+begin
+  CheckNamedDigest(TSignatureScheme.RSA_PSS_RSAE_SHA256, THashAlgorithm.SHA_256, 'pss256');
+  CheckNamedDigest(TSignatureScheme.RSA_PSS_RSAE_SHA384, THashAlgorithm.SHA_384, 'pss384');
+  CheckNamedDigest(TSignatureScheme.RSA_PSS_RSAE_SHA512, THashAlgorithm.SHA_512, 'pss512');
+end;
+
+procedure TTestSignature.TestRsaPkcs1SchemesNameTheirDigest;
+begin
+  CheckNamedDigest(TSignatureScheme.RSA_PKCS1_SHA256, THashAlgorithm.SHA_256, 'pkcs1-256');
+  CheckNamedDigest(TSignatureScheme.RSA_PKCS1_SHA384, THashAlgorithm.SHA_384, 'pkcs1-384');
+  CheckNamedDigest(TSignatureScheme.RSA_PKCS1_SHA512, THashAlgorithm.SHA_512, 'pkcs1-512');
+end;
+
+procedure TTestSignature.TestEdDsaSchemesNameNoDigest;
+var
+  LHash: THashAlgorithm;
+begin
+  CheckFalse(TSignatureScheme.ED25519.TryHash(LHash), 'Ed25519 hashes intrinsically');
+  CheckFalse(TSignatureScheme.ED448.TryHash(LHash), 'Ed448 hashes intrinsically');
+end;
+
+procedure TTestSignature.TestDigestByteLengths;
+begin
+  CheckEquals(32, THashAlgorithm.SHA_256.ByteLength, 'SHA-256');
+  CheckEquals(48, THashAlgorithm.SHA_384.ByteLength, 'SHA-384');
+  CheckEquals(64, THashAlgorithm.SHA_512.ByteLength, 'SHA-512');
+end;
+
+procedure TTestSignature.TestSchemeOutsideTheEnumNamesNoHash;
+var
+  LScheme: TSignatureScheme;
+  LHash: THashAlgorithm;
+  LRaised: Boolean;
+begin
+  LScheme := TSignatureScheme(Ord(High(TSignatureScheme)) + 1);
+  LRaised := False;
+  try
+    LScheme.TryHash(LHash);
+  except
+    on E: ENotSupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an unmapped scheme is refused, not given a hash');
+end;
+
+procedure TTestSignature.TestHashOutsideTheEnumHasNoLength;
+var
+  LHash: THashAlgorithm;
+  LRaised: Boolean;
+begin
+  LHash := THashAlgorithm(Ord(High(THashAlgorithm)) + 1);
+  LRaised := False;
+  try
+    LHash.ByteLength;
+  except
+    on E: ENotSupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an unmapped hash is refused, not given a length');
 end;
 
 procedure TTestSignature.TestSchemeCodesFromRegistryMatchesRegistryOrder;

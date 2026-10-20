@@ -28,6 +28,11 @@ type
   /// </summary>
   THashAlgorithm = (SHA_256, SHA_384, SHA_512);
 
+  /// <summary>The digest size of a hash algorithm.</summary>
+  THashAlgorithmHelper = record helper for THashAlgorithm
+    function ByteLength: Int32;
+  end;
+
   /// <summary>The AEAD ciphers the library selects between (internal identifiers).</summary>
   TAeadAlgorithm = (AES_128_GCM, AES_256_GCM, CHACHA20_POLY1305);
 
@@ -189,6 +194,9 @@ type
     /// <summary>The leaf key family a signature under this scheme must come from (RFC 9846
     /// 4.3.3): ecdsa_* -> Ecdsa, ed25519 -> Ed25519, ed448 -> Ed448, all rsa_* -> Rsa.</summary>
     function KeyKind: TSignatureKeyKind;
+    /// <summary>The hash the scheme names (the digest of the signed content); False for a scheme
+    /// that hashes intrinsically (Ed25519, Ed448), where AHash is unspecified.</summary>
+    function TryHash(out AHash: THashAlgorithm): Boolean;
     /// <summary>Drops each rsa_pss_rsae_* scheme whose encoded message cannot fit an RSA
     /// modulus of AModulusBits (RFC 8017 9.1.1: emLen >= 2*hLen + 2), so a key never offers an
     /// RSA-PSS scheme it cannot sign, and each rsa_pkcs1_* scheme whose modulus is below
@@ -202,6 +210,24 @@ implementation
 resourcestring
   SNoSchemeCode = 'signature scheme enum value %d has no wire codepoint';
   SNoSchemeKeyKind = 'signature scheme enum value %d has no mapped key family';
+  SNoSchemeHash = 'signature scheme enum value %d has no mapped hash';
+  SNoHashLength = 'hash algorithm enum value %d has no mapped digest length';
+
+{ THashAlgorithmHelper }
+
+function THashAlgorithmHelper.ByteLength: Int32;
+begin
+  case Self of
+    THashAlgorithm.SHA_256:
+      Result := 32;
+    THashAlgorithm.SHA_384:
+      Result := 48;
+    THashAlgorithm.SHA_512:
+      Result := 64;
+  else
+    raise ENotSupportedTlsLibException.CreateResFmt(@SNoHashLength, [Ord(Self)]);
+  end;
+end;
 
 { TAeadUsageCategoryHelper }
 
@@ -359,10 +385,35 @@ begin
   end;
 end;
 
+function TSignatureSchemeHelper.TryHash(out AHash: THashAlgorithm): Boolean;
+begin
+  Result := True;
+  // every scheme is mapped explicitly (no catch-all), as in KeyKind
+  case Self of
+    TSignatureScheme.ECDSA_SECP256R1_SHA256, TSignatureScheme.RSA_PSS_RSAE_SHA256,
+    TSignatureScheme.RSA_PKCS1_SHA256:
+      AHash := THashAlgorithm.SHA_256;
+    TSignatureScheme.ECDSA_SECP384R1_SHA384, TSignatureScheme.RSA_PSS_RSAE_SHA384,
+    TSignatureScheme.RSA_PKCS1_SHA384:
+      AHash := THashAlgorithm.SHA_384;
+    TSignatureScheme.ECDSA_SECP521R1_SHA512, TSignatureScheme.RSA_PSS_RSAE_SHA512,
+    TSignatureScheme.RSA_PKCS1_SHA512:
+      AHash := THashAlgorithm.SHA_512;
+    TSignatureScheme.ED25519, TSignatureScheme.ED448:
+    begin
+      AHash := THashAlgorithm.SHA_256;
+      Result := False;
+    end;
+  else
+    raise ENotSupportedTlsLibException.CreateResFmt(@SNoSchemeHash, [Ord(Self)]);
+  end;
+end;
+
 class function TSignatureSchemeHelper.FitRsaModulus(
   const ASchemes: TArray<TSignatureScheme>; AModulusBits: Int32): TArray<TSignatureScheme>;
 var
   LScheme: TSignatureScheme;
+  LHash: THashAlgorithm;
   LHashLen, LEmLen, LModulusBytes, LPkcs1MinBytes, LCount: Int32;
 begin
   Result := nil;
@@ -374,21 +425,14 @@ begin
   begin
     LHashLen := 0;
     LPkcs1MinBytes := 0;
-    case LScheme of
-      TSignatureScheme.RSA_PSS_RSAE_SHA256:
-        LHashLen := 32;
-      TSignatureScheme.RSA_PSS_RSAE_SHA384:
-        LHashLen := 48;
-      TSignatureScheme.RSA_PSS_RSAE_SHA512:
-        LHashLen := 64;
-      // RSASSA-PKCS1-v1_5 needs emLen >= tLen + 11 (RFC 8017 9.2; emLen = k), tLen being the
-      // 19-byte DigestInfo prefix plus the digest
-      TSignatureScheme.RSA_PKCS1_SHA256:
-        LPkcs1MinBytes := 19 + 32 + 11;
-      TSignatureScheme.RSA_PKCS1_SHA384:
-        LPkcs1MinBytes := 19 + 48 + 11;
-      TSignatureScheme.RSA_PKCS1_SHA512:
-        LPkcs1MinBytes := 19 + 64 + 11;
+    if LScheme.TryHash(LHash) then
+    begin
+      if LScheme.IsRsaPssRsae then
+        LHashLen := LHash.ByteLength
+      else if LScheme.IsRsaPkcs1 then
+        // RSASSA-PKCS1-v1_5 needs emLen >= tLen + 11 (RFC 8017 9.2; emLen = k), tLen being the
+        // 19-byte DigestInfo prefix plus the digest
+        LPkcs1MinBytes := 19 + LHash.ByteLength + 11;
     end;
     if (LHashLen > 0) and (LEmLen < 2 * LHashLen + 2) then
       Continue;

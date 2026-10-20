@@ -50,9 +50,6 @@ type
     /// <summary>The RFC 9258 (IANA TLS KDF Identifiers, sec. 10) id for a hash: HKDF-SHA256 = 1,
     /// HKDF-SHA384 = 2.</summary>
     class function KdfId(AHash: THashAlgorithm): UInt16; static;
-    /// <summary>The output length in bytes of a supported KDF hash; a table, as the builder holds no
-    /// crypto provider to ask.</summary>
-    class function DigestLength(AHash: THashAlgorithm): Int32; static;
   public
     /// <summary>The byte length of the pre_shared_key extension body that offers ASpecs for
     /// ATargetProtocol once per supported KDF hash: both vectors, with each identity's obfuscated age
@@ -104,18 +101,6 @@ begin
   end;
 end;
 
-class function TExternalPskImporter.DigestLength(AHash: THashAlgorithm): Int32;
-begin
-  case AHash of
-    THashAlgorithm.SHA_256:
-      Result := 32;
-    THashAlgorithm.SHA_384:
-      Result := 48;
-  else
-    raise EArgumentTlsLibException.CreateRes(@SUnsupportedImporterKdf);
-  end;
-end;
-
 class function TExternalPskImporter.OfferedExtensionLength(
   const ASpecs: TArray<TExternalPsk>; ATargetProtocol: UInt16): Int64;
 var
@@ -127,7 +112,7 @@ begin
     for LHash := 0 to System.High(SupportedKdfHashes) do
       Result := Result + 2 + System.Length(ImportedIdentity(ASpecs[LSpec].Identity,
         ASpecs[LSpec].Context, ATargetProtocol, KdfId(SupportedKdfHashes[LHash]))) + 4 + 1 +
-        DigestLength(SupportedKdfHashes[LHash]);
+        SupportedKdfHashes[LHash].ByteLength;
 end;
 
 class function TExternalPskImporter.ImportedIdentity(const AExternalIdentity,
