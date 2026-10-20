@@ -1,0 +1,35 @@
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_f2c9bd75607afc::t_c4ef193285bb0f 222
+  s_f2c9bd75607afc::t_ae108271d3bec4 214-221,223-228
+  s_f2c9bd75607afc::t_ed324f2f894728 31-35
+  s_f2c9bd75607afc::t_8ca4e6b07ea686 423-428
+  s_f2c9bd75607afc::t_ebf53fc4170f72 197-199
+  s_f2c9bd75607afc::t_2f02498b070cc5 386-390,392,394-395,397-404,409
+  s_f2c9bd75607afc::t_138f2047b8fe81 391,393,396
+  s_f2c9bd75607afc::t_7784887b160949 421-422
+  s_f2c9bd75607afc::t_ff5f91d794aaec 229
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_f2c9bd75607afc::t_f140ae386d044b 2084
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_f4dc09da8f4bb2 3187-3188
+TlsLib.Tests/src/SignatureTests.pas
+  s_f2c9bd75607afc::t_ea7c7d025dc363 58-59
+  s_f2c9bd75607afc::t_ee06cd89e0c414 495-539
+  s_f2c9bd75607afc::t_f608e377d8603c 75-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c85f997c90b738e264a72a75c5a5a2c2fb2b30c0",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
