@@ -1,0 +1,81 @@
+TlsLib.Crypto.System/src/TlpISystemSigningKey.pas
+  s_f2c9bd75607afc::t_d2e4da692e4e51 19-21
+TlsLib.Tests/src/MockRandom.pas
+  s_f2c9bd75607afc::t_87dcfe80aa7ada 81
+  s_f2c9bd75607afc::t_463331c5272161 42-43,49,54
+TlsLib/src/Session/TlpSessionTicketStrategy.pas
+  s_f2c9bd75607afc::t_52e15fbd324e75 146
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_c48fc16e55654c 4343,4347-4349,4351-4355
+  s_f2c9bd75607afc::t_90a0b2a4ec7143 469-470
+  s_f2c9bd75607afc::t_b60773c5677e93 4328-4334
+  s_f2c9bd75607afc::t_56d1affa04239a 3292-3306,4309-4312
+  s_f2c9bd75607afc::t_25cedd52ec11a4 4302-4304
+  s_f2c9bd75607afc::t_5b68af3988f1ce 134-135
+  s_f2c9bd75607afc::t_b3f440a452bb1e 937-944
+  s_f2c9bd75607afc::t_eeb73ab13df8e5 4279,4284-4296,4305-4308,4313,4315-4327,4335,4337-4338
+  s_f2c9bd75607afc::t_36db9f26c68b0e 4483-4505
+  s_f2c9bd75607afc::t_3c8d3e43591673 4357
+  s_f2c9bd75607afc::t_49f1defd837040 361
+  s_f2c9bd75607afc::t_27996ece6389ce 458
+  s_f2c9bd75607afc::t_40e3196756569c 414-415
+  s_f2c9bd75607afc::t_27ed65cb50c49c 3287
+  s_f2c9bd75607afc::t_45d1b2cea538f9 454,456-457
+  s_f2c9bd75607afc::t_20768a4e141ada 3832,3836-3837
+  s_f2c9bd75607afc::t_bc316c1a095ff8 4230
+  s_f2c9bd75607afc::t_46efe1c7c1269b 1804-1818
+  s_f2c9bd75607afc::t_5c018524e0abf4 255
+  s_f2c9bd75607afc::t_5577fbb3eb76df 4276
+  s_f2c9bd75607afc::t_1daf0e2d99caf9 4336
+  s_f2c9bd75607afc::t_7b542d9a34fe26 4235-4240
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_b2c8e3714e3dfd 714
+  s_f2c9bd75607afc::t_bf04bb7c036909 704-708,711,719-721
+  s_f2c9bd75607afc::t_9c2ffb54a33300 718
+  s_f2c9bd75607afc::t_99003bb592a18a 612
+  s_f2c9bd75607afc::t_8f0df7da4a7be1 946
+  s_f2c9bd75607afc::t_2eb26113c6c335 709-710,712-713
+  s_f2c9bd75607afc::t_137e769f2d3838 614
+  s_f2c9bd75607afc::t_9f85f086733f2f 611
+  s_f2c9bd75607afc::t_428a6b913a8098 609
+TlsLib.Crypto.System/src/TlpISystemSignatureVerifier.pas
+  s_f2c9bd75607afc::t_680c8249926031 19-21
+TlsLib.Trust.System/src/TlpISystemVerifierSource.pas
+  s_f2c9bd75607afc::t_e0e8d3f664160e 23-24
+TlsLib.Compliance/src/TlpComplianceHpke.pas
+  s_f2c9bd75607afc::t_4acb060b7e1d84 153,159-161,164-168
+docs/compliance.md
+  s_f2c9bd75607afc::t_b53b569db0732e 316-319
+  s_f2c9bd75607afc::t_1529815802345e 329-331
+  s_f2c9bd75607afc::t_8952b245d48181 366-369
+  s_f2c9bd75607afc::t_67e84e7a8de9ab 304-305
+  s_f2c9bd75607afc::t_40be1f2f61440f 235-239
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_f2c9bd75607afc::t_4110909dab31be 1170
+TlsLib.Tests/src/ComplianceLoopbackTests.pas
+  s_f2c9bd75607afc::t_0b9fe384b572dd 127-129
+  s_f2c9bd75607afc::t_dfce6a8592bc91 523-538,540-569,574
+  s_f2c9bd75607afc::t_9a6436043bfea6 539
+  s_f2c9bd75607afc::t_c38e16a1feb3dd 96-97
+  s_f2c9bd75607afc::t_e4b55d8780fd83 570-573,575-580
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_8faea845fe3d1b 65-66
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_b33c1aef085c30 1239
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "811fd288c1c53b99f311a847f2da26ff99b8ea12",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
