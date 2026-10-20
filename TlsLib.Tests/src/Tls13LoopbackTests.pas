@@ -189,6 +189,7 @@ type
     procedure TestCredentialSetWithoutDefaultListsEntriesOnly;
     procedure TestCredentialSetListsEveryCredentialWithoutDeduplication;
     procedure TestCredentialSetIsAFreshArray;
+    procedure TestCredentialSetChainsAreCopies;
     procedure TestCredentialSetOfASingleCredentialListsOne;
     procedure TestEd448ServerCredentialHandshake;
     procedure TestEd25519ServerCredentialHandshake;
@@ -2333,6 +2334,29 @@ begin
   CheckEquals(System.Length(LCredential.CertificateChain),
     System.Length(LListed[0].CertificateChain), 'the chain is untouched');
   CheckTrue(LListed[0].PrivateKey <> nil, 'the key is untouched');
+end;
+
+procedure TTestTls13Loopback.TestCredentialSetChainsAreCopies;
+var
+  LEntries: TArray<TSniCredentialEntry>;
+  LResolver: ITlsServerCredentialResolver;
+  LSet: ITlsServerCredentialSet;
+  LListed: TArray<TTlsCredential>;
+  LHello: TTlsClientHelloInfo;
+  LResolved: TTlsCredential;
+  LFirst: Byte;
+begin
+  LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', ServerCredential));
+  LResolver := TSniCredentialResolver.ForEntries(LEntries);
+  CheckTrue(Supports(LResolver, ITlsServerCredentialSet, LSet), 'resolver lists its set');
+  LHello := Default(TTlsClientHelloInfo);
+  LHello.ServerName := 'a.example';
+  CheckTrue(LResolver.TryResolve(LHello, LResolved), 'the entry resolves');
+  LFirst := LResolved.CertificateChain[0][0];
+  LListed := LSet.Credentials;
+  LListed[0].CertificateChain[0][0] := LFirst xor $FF;
+  CheckTrue(LResolver.TryResolve(LHello, LResolved), 'the entry still resolves');
+  CheckEquals(LFirst, LResolved.CertificateChain[0][0], 'the listed chain was a copy');
 end;
 
 procedure TTestTls13Loopback.TestCredentialSetOfASingleCredentialListsOne;

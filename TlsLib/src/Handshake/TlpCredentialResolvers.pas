@@ -66,8 +66,8 @@ type
     function TryResolve(const AClientHello: TTlsClientHelloInfo;
       out ACredential: TTlsCredential): Boolean;
     /// <summary>The default (when one was supplied) then each entry in order, in a new array, with
-    /// no deduplication. The credentials share their chain bytes and keys with the resolver and
-    /// are read-only.</summary>
+    /// no deduplication. The chains and staples are copies the caller may change; the keys are
+    /// shared with the resolver.</summary>
     function Credentials: TArray<TTlsCredential>;
   end;
 
@@ -146,12 +146,25 @@ end;
 function TSniCredentialResolver.Credentials: TArray<TTlsCredential>;
 var
   LI: Integer;
+
+  function Copied(const ACredential: TTlsCredential): TTlsCredential;
+  var
+    LJ: Integer;
+  begin
+    Result := ACredential;
+    Result.CertificateChain := nil;
+    SetLength(Result.CertificateChain, System.Length(ACredential.CertificateChain));
+    for LJ := 0 to System.High(ACredential.CertificateChain) do
+      Result.CertificateChain[LJ] := System.Copy(ACredential.CertificateChain[LJ]);
+    Result.OcspStaple := System.Copy(ACredential.OcspStaple);
+  end;
+
 begin
   Result := nil;
   if FHasDefault then
-    TArrayUtilities.Append<TTlsCredential>(Result, FDefault);
+    TArrayUtilities.Append<TTlsCredential>(Result, Copied(FDefault));
   for LI := 0 to System.High(FEntries) do
-    TArrayUtilities.Append<TTlsCredential>(Result, FEntries[LI].Credential);
+    TArrayUtilities.Append<TTlsCredential>(Result, Copied(FEntries[LI].Credential));
 end;
 
 end.
