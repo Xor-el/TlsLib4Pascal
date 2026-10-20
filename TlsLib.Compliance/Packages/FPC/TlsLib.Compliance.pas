@@ -12,7 +12,8 @@ uses
   TlpIComplianceReport, TlpCompliancePresets, TlpComplianceReport, TlpComplianceHpke,
   TlpComplianceCryptoProvider, TlpCompliancePkixProvider, TlpWindowsModuleAttestation,
   TlpOSModuleAttestation, TlpICompliancePolicy, TlpCompliancePolicy, TlpComplianceTls,
-  TlpIComplianceCredentialResolver, TlpComplianceCredentialResolver;
+  TlpIComplianceCredentialResolver, TlpComplianceCredentialResolver, TlpIComplianceTicketKeys,
+  TlpComplianceTicketKeys;
 
 implementation
 

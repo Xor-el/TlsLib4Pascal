@@ -56,6 +56,11 @@ uses
   TlpCompliancePresets,
   TlpComplianceTls,
   TlpOSSystemTrust,
+  TlpISession,
+  TlpSecretBuffer,
+  TlpSessionTicketKeys,
+  TlpInMemorySessionCache,
+  TlpInMemorySessionStore,
   MockCompliance,
   TlsLibTestCertificates,
   TlsLibHandshakeTestBase;
@@ -72,6 +77,20 @@ type
     function NonEmsClient: ITlsEngine;
     function NoConfigurationFinding(const AReport: IComplianceReport): Boolean;
     function ReportHasChainFinding(const AReport: IComplianceReport): Boolean;
+    // a fleet holding one installed key, as a shared STEK would
+    function SharedFleet: IFleetTicketKeyManager;
+    // a client the policy admits that keeps its sessions in ACache under the policy scope
+    function ResumingClient(const APolicy: ICompliancePolicy;
+      const ACache: ISessionCache): ITlsClientConfig;
+    // a facade server sharing AFleet, and AStore when it is not nil
+    function CompliantServer(const APolicy: ICompliancePolicy; const AStore: ISessionStore;
+      const AFleet: IFleetTicketKeyManager): ITlsServerConfig;
+    // a server on the default provider with no policy that shares the same state
+    function PlainServer(const AStore: ISessionStore;
+      const AFleet: IFleetTicketKeyManager): ITlsServerConfig;
+    // a handshake whose post-handshake tickets have reached the client
+    procedure Connect(const AClientConfig: ITlsClientConfig;
+      const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
   published
     procedure TestTls13HandshakeRelaxed;
     procedure TestTls13ConnectionUsesRuleSuiteAndGroup;
@@ -84,6 +103,12 @@ type
     procedure TestX25519OnlyPeerRefused;
     procedure TestChaChaOnlyPeerRefused;
     procedure TestEachRuleGroupHandshakes;
+    procedure TestCompliantServerResumesItsOwnTicket;
+    procedure TestCompliantFleetOnlyServerResumesItsOwnTicket;
+    procedure TestPlainServerResumesItsOwnTicket;
+    procedure TestPlainServerTicketDoesNotResumeOnCompliantServer;
+    procedure TestCompliantServerTicketDoesNotResumeOnPlainServer;
+    procedure TestPlainTicketDoesNotResumeOnCompliantFleetOnly;
 {$IFDEF TLSLIB_MSWINDOWS}
     procedure TestHostRootsClientHandshakesWithPrivateChain;
     procedure TestOsRootsClientRefusesPrivateChainWithUnknownCa;
@@ -199,6 +224,157 @@ begin
   for LI := 0 to System.Length(LFindings) - 1 do
     if LFindings[LI].Category = TComplianceFindingCategory.Configuration then
       Result := False;
+end;
+
+function TTestComplianceLoopback.SharedFleet: IFleetTicketKeyManager;
+begin
+  Result := TFleetTicketKeyManager.Create as IFleetTicketKeyManager;
+  Result.InstallKey(Crypto.Primitives.GetRandom.GenerateBytes(16),
+    TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32)));
+end;
+
+function TTestComplianceLoopback.ResumingClient(const APolicy: ICompliancePolicy;
+  const ACache: ISessionCache): ITlsClientConfig;
+begin
+  Result := TComplianceTls.BuildClient(APolicy, TComplianceTls.Client(APolicy,
+    TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore))
+    .WithSessionCache(ACache).WithResumptionScope(APolicy.SessionScope));
+end;
+
+function TTestComplianceLoopback.CompliantServer(const APolicy: ICompliancePolicy;
+  const AStore: ISessionStore; const AFleet: IFleetTicketKeyManager): ITlsServerConfig;
+begin
+  Result := TComplianceTls.BuildServer(APolicy, TComplianceTls.Server(APolicy,
+    ServerCredential(APolicy.Crypto)).WithSessionStore(AStore)
+    .WithSessionTicketKeys(APolicy.CheckedTicketKeys(AFleet)));
+end;
+
+function TTestComplianceLoopback.PlainServer(const AStore: ISessionStore;
+  const AFleet: IFleetTicketKeyManager): ITlsServerConfig;
+begin
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(ServerCredential)
+    .WithResumption(True).WithSessionStore(AStore).WithSessionTicketKeys(AFleet).Build;
+end;
+
+procedure TTestComplianceLoopback.Connect(const AClientConfig: ITlsClientConfig;
+  const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
+begin
+  AClient := TTlsEngineFactory.CreateClientEngine(AClientConfig, Host);
+  AServer := TTlsEngineFactory.CreateServerEngine(AServerConfig);
+  RunHandshake(AClient, AServer);
+  Pump(AServer, AClient);
+end;
+
+procedure TTestComplianceLoopback.TestCompliantServerResumesItsOwnTicket;
+var
+  LPolicy: ICompliancePolicy;
+  LStore: ISessionStore;
+  LFleet: IFleetTicketKeyManager;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore;
+  LFleet := SharedFleet;
+  LClientConfig := ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache);
+  LServerConfig := CompliantServer(LPolicy, LStore, LFleet);
+  Connect(LClientConfig, LServerConfig, LClient, LServer);
+  Connect(LClientConfig, LServerConfig, LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the second handshake did not fail');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed its own ticket');
+end;
+
+procedure TTestComplianceLoopback.TestCompliantFleetOnlyServerResumesItsOwnTicket;
+var
+  LPolicy: ICompliancePolicy;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LClientConfig := ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache);
+  LServerConfig := CompliantServer(LPolicy, nil, SharedFleet);
+  Connect(LClientConfig, LServerConfig, LClient, LServer);
+  Connect(LClientConfig, LServerConfig, LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the second handshake did not fail');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the ticket opened under the shared key');
+end;
+
+procedure TTestComplianceLoopback.TestPlainServerResumesItsOwnTicket;
+var
+  LPolicy: ICompliancePolicy;
+  LStore: ISessionStore;
+  LFleet: IFleetTicketKeyManager;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore;
+  LFleet := SharedFleet;
+  LClientConfig := ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache);
+  LServerConfig := PlainServer(LStore, LFleet);
+  Connect(LClientConfig, LServerConfig, LClient, LServer);
+  Connect(LClientConfig, LServerConfig, LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the second handshake did not fail');
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the setup resumes when the scopes agree');
+end;
+
+procedure TTestComplianceLoopback.TestPlainServerTicketDoesNotResumeOnCompliantServer;
+var
+  LPolicy: ICompliancePolicy;
+  LStore: ISessionStore;
+  LFleet: IFleetTicketKeyManager;
+  LClientConfig: ITlsClientConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore;
+  LFleet := SharedFleet;
+  LClientConfig := ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache);
+  Connect(LClientConfig, PlainServer(LStore, LFleet), LClient, LServer);
+  Connect(LClientConfig, CompliantServer(LPolicy, LStore, LFleet), LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the server fell back to a full handshake');
+  CheckFalse(LClient.IsHandshaking, 'the full handshake completed');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the server did not resume the foreign ticket');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the client saw a full handshake');
+end;
+
+procedure TTestComplianceLoopback.TestCompliantServerTicketDoesNotResumeOnPlainServer;
+var
+  LPolicy: ICompliancePolicy;
+  LStore: ISessionStore;
+  LFleet: IFleetTicketKeyManager;
+  LClientConfig: ITlsClientConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore;
+  LFleet := SharedFleet;
+  LClientConfig := ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache);
+  Connect(LClientConfig, CompliantServer(LPolicy, LStore, LFleet), LClient, LServer);
+  Connect(LClientConfig, PlainServer(LStore, LFleet), LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the server fell back to a full handshake');
+  CheckFalse(LClient.IsHandshaking, 'the full handshake completed');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the server did not resume the compliant ticket');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the client saw a full handshake');
+end;
+
+procedure TTestComplianceLoopback.TestPlainTicketDoesNotResumeOnCompliantFleetOnly;
+var
+  LPolicy: ICompliancePolicy;
+  LFleet: IFleetTicketKeyManager;
+  LClientConfig: ITlsClientConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LFleet := SharedFleet;
+  LClientConfig := ResumingClient(LPolicy, TInMemorySessionCache.Create as ISessionCache);
+  Connect(LClientConfig, PlainServer(nil, LFleet), LClient, LServer);
+  Connect(LClientConfig, CompliantServer(LPolicy, nil, LFleet), LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the server fell back to a full handshake');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'a ticket sealed under the shared key alone');
 end;
 
 procedure TTestComplianceLoopback.TestTls13HandshakeRelaxed;

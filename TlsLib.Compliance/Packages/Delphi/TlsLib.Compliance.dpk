@@ -50,6 +50,8 @@ contains
   TlpICompliancePolicy in '..\..\src\TlpICompliancePolicy.pas',
   TlpIComplianceCredentialResolver in '..\..\src\TlpIComplianceCredentialResolver.pas',
   TlpComplianceCredentialResolver in '..\..\src\TlpComplianceCredentialResolver.pas',
+  TlpIComplianceTicketKeys in '..\..\src\TlpIComplianceTicketKeys.pas',
+  TlpComplianceTicketKeys in '..\..\src\TlpComplianceTicketKeys.pas',
   TlpCompliancePolicy in '..\..\src\TlpCompliancePolicy.pas',
   TlpComplianceTls in '..\..\src\TlpComplianceTls.pas';
 

@@ -16,6 +16,9 @@ unit TlpICompliancePolicy;
 interface
 
 uses
+  SysUtils,
+  TlpIClock,
+  TlpISession,
   TlpComplianceTypes,
   TlpICryptoProvider,
   TlpIPkixProvider,
@@ -33,7 +36,7 @@ type
   /// raises for what the enforcement mode does not tolerate.
   /// </summary>
   ICompliancePolicy = interface(IInterface)
-    ['{6D1B0C58-2F47-4E93-A8D5-7C3E91B4F062}']
+    ['{97F7D0DE-23CC-4FA4-BAC2-C795048A2492}']
     /// <summary>A copy of the rules; the policy itself never changes.</summary>
     function Rules: TComplianceRules;
     function Enforcement: TComplianceEnforcement;
@@ -72,6 +75,21 @@ type
     /// credentials at startup. Raises EArgumentTlsLibException for a nil AInner.</summary>
     function CheckedCredentialResolver(
       const AInner: ITlsServerCredentialResolver): ITlsServerCredentialResolver;
+    /// <summary>A fresh 32-byte session scope: the policy's 16-byte prefix and 16 random bytes.
+    /// Give it to WithResumptionScope on a server, or on a client that holds a session cache; a
+    /// config whose scope lacks the prefix is a ResumptionStateUnchecked finding. A store, cache
+    /// or ticket key shared with a config that has another scope never resumes across the two.
+    /// Use one value per config, or one shared value for configs that trust identically.</summary>
+    function SessionScope: TBytes;
+    /// <summary>Default session-ticket keys minted from the policy crypto provider's random
+    /// generator, rotating on ALifetimeSeconds, for WithSessionTicketKeys. Only keys the policy
+    /// issued, or wrapped with CheckedTicketKeys, are admitted. Raises EArgumentTlsLibException
+    /// for a nil AClock.</summary>
+    function TicketKeys(const AClock: ITlsClock;
+      ALifetimeSeconds: UInt32): ISessionTicketKeyManager;
+    /// <summary>AFleet, whose keys the host enters, marked as checked by this policy; the fleet
+    /// is still disclosed. Raises EArgumentTlsLibException for a nil AFleet.</summary>
+    function CheckedTicketKeys(const AFleet: IFleetTicketKeyManager): ISessionTicketKeyManager;
   end;
 
 implementation

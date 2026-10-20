@@ -1072,6 +1072,23 @@ Server := TComplianceTls.BuildServer(Policy, TComplianceTls.Server(Policy, MyRes
 Resolver := Policy.CheckedCredentialResolver(MyResolver);
 ```
 
+A facade server carries the policy's resumption scope and ticket keys, so a store, cache or ticket
+key it shares with a config the policy never admitted does not resume across the two. A builder you
+assemble yourself needs the same, or `Admit` reports `ResumptionStateUnchecked` or
+`TicketKeysUnchecked`; a client cache needs the scope too, as the builder's own random scope cannot
+be told from one you chose. Keys you install yourself go behind `CheckedTicketKeys` and stay
+disclosed; they must come from the approved mode:
+
+```pascal
+ServerBuilder.WithResumptionScope(Policy.SessionScope)
+  .WithSessionTicketKeys(Policy.TicketKeys(TSystemClock.Create as ITlsClock, 7200));
+ServerBuilder.WithSessionTicketKeys(Policy.CheckedTicketKeys(MyFleet));
+ClientBuilder.WithSessionCache(Cache).WithResumptionScope(Policy.SessionScope);
+```
+
+To turn resumption off on a facade server, also clear what it set:
+`WithResumption(False).WithSessionTicketKeys(nil).WithResumptionScope(nil)`.
+
 ## The dangerous surface (dev only)
 
 Everything that weakens authentication lives behind one loudly-named surface, and even then the

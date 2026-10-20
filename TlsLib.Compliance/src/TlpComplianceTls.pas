@@ -23,6 +23,8 @@ uses
   TlpTlsVersion,
   TlpCipherSuiteCatalog,
   TlpCipherSuiteRegistry,
+  TlpIClock,
+  TlpClock,
   TlpSignatureSchemeRegistry,
   TlpINegotiation,
   TlpCertificateLimits,
@@ -92,6 +94,10 @@ type
 
 implementation
 
+const
+  // the lifetime the config builder gives tickets until WithTicketLifetime says otherwise
+  DefaultTicketLifetimeSeconds = UInt32(7200);
+
 resourcestring
   SNilPolicy = 'the compliance policy must not be nil';
   SNilVerification = 'the server verification must not be nil';
@@ -148,7 +154,10 @@ begin
   if LOffers12 and (TComplianceRequirement.ExtendedMasterSecret in LRules.Requirements) then
     Result.Tls12.WithExtendedMasterSecret(True);
   // only a server seals tickets, and always with AES-256-GCM
-  if not (TAeadAlgorithm.AES_256_GCM in LRules.Aeads) then
+  if TAeadAlgorithm.AES_256_GCM in LRules.Aeads then
+    Result.WithResumptionScope(APolicy.SessionScope).WithSessionTicketKeys(
+      APolicy.TicketKeys(TSystemClock.Create as ITlsClock, DefaultTicketLifetimeSeconds))
+  else
     Result.WithResumption(False);
 end;
 

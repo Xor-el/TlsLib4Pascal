@@ -100,7 +100,7 @@ type
     KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
     CredentialKeyUndetermined, CredentialKeyBelowRules, CredentialSchemesNotAllowed,
     TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup,
-    CustomVerifierConfigured);
+    CustomVerifierConfigured, ResumptionStateUnchecked, TicketKeysUnchecked);
 
   TComplianceFinding = record
     Kind: TComplianceFindingKind;

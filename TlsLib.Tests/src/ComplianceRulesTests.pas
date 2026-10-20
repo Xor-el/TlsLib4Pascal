@@ -1939,6 +1939,7 @@ const
     TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
     TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
     TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
+    TComplianceFindingCategory.Configuration, TComplianceFindingCategory.Configuration,
     TComplianceFindingCategory.Configuration);
 var
   LKind: TComplianceFindingKind;
