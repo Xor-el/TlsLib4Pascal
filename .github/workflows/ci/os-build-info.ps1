@@ -47,6 +47,17 @@ public static extern int BCryptGetProperty(IntPtr h, string p, byte[] o, int c, 
 } catch {
   $indicator = @("Property probe: n/a ($($_.Exception.Message))")
 }
+try {
+  $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Include'
+  $hdrs = Get-ChildItem -Path $kits -Recurse -Include 'bcrypt.h', 'ncrypt.h' -ErrorAction Stop |
+    Select-Object -First 4
+  $hits = $hdrs | Select-String -Pattern 'FIPS|INDICATOR|APPROVED' | Select-Object -First 20
+  $indicator += @($hits | ForEach-Object { 'Header {0}:{1}: {2}' -f $_.Filename, $_.LineNumber,
+    $_.Line.Trim() })
+  if (-not $hits) { $indicator += 'Header scan: no FIPS/INDICATOR/APPROVED matches' }
+} catch {
+  $indicator += "Header scan: n/a ($($_.Exception.Message))"
+}
 $lines = @(
   "OSVersion: $version",
   "ProductName: $($key.ProductName)",
