@@ -48,7 +48,6 @@ type
     FEntries: TArray<TSniCredentialEntry>;
     FDefault: TTlsCredential;
     FHasDefault: Boolean;
-    class function SameCredential(const AA, AB: TTlsCredential): Boolean; static;
   public
     constructor Create(const AEntries: TArray<TSniCredentialEntry>); overload;
     /// <summary>ADefault is returned when a client's SNI matches no entry (the WithCredential
@@ -66,9 +65,9 @@ type
       const AEntries: TArray<TSniCredentialEntry>): ITlsServerCredentialResolver; static;
     function TryResolve(const AClientHello: TTlsClientHelloInfo;
       out ACredential: TTlsCredential): Boolean;
-    /// <summary>The default (when one was supplied) then each entry in order, in a new array; an
-    /// entry identical to the default (same key, same chain) is listed once. The credentials share
-    /// their chain bytes and keys with the resolver and are read-only.</summary>
+    /// <summary>The default (when one was supplied) then each entry in order, in a new array, with
+    /// no deduplication. The credentials share their chain bytes and keys with the resolver and
+    /// are read-only.</summary>
     function Credentials: TArray<TTlsCredential>;
   end;
 
@@ -144,20 +143,6 @@ begin
   Result := False;
 end;
 
-class function TSniCredentialResolver.SameCredential(const AA, AB: TTlsCredential): Boolean;
-var
-  LI: Integer;
-begin
-  Result := (AA.PrivateKey = AB.PrivateKey) and
-    (System.Length(AA.CertificateChain) > 0) and
-    (System.Length(AA.CertificateChain) = System.Length(AB.CertificateChain));
-  if not Result then
-    Exit;
-  for LI := 0 to System.High(AA.CertificateChain) do
-    if not TArrayUtilities.AreEqual(AA.CertificateChain[LI], AB.CertificateChain[LI]) then
-      Exit(False);
-end;
-
 function TSniCredentialResolver.Credentials: TArray<TTlsCredential>;
 var
   LI: Integer;
@@ -166,8 +151,7 @@ begin
   if FHasDefault then
     TArrayUtilities.Append<TTlsCredential>(Result, FDefault);
   for LI := 0 to System.High(FEntries) do
-    if not (FHasDefault and SameCredential(FEntries[LI].Credential, FDefault)) then
-      TArrayUtilities.Append<TTlsCredential>(Result, FEntries[LI].Credential);
+    TArrayUtilities.Append<TTlsCredential>(Result, FEntries[LI].Credential);
 end;
 
 end.

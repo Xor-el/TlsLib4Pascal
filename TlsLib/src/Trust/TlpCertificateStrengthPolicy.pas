@@ -24,7 +24,8 @@ uses
 type
   /// <summary>
   /// The minimum-strength floors a peer certificate chain's keys must meet, applied to the
-  /// leaf and intermediates (a configured trust anchor is exempt). MinRsaModulusBits sets the
+  /// leaf and intermediates (a configured trust anchor is exempt unless AnchorKeyFloors is set,
+  /// which holds a trust anchor's key to the same floors). MinRsaModulusBits sets the
   /// smallest accepted RSA modulus; MaxRsaModulusBits caps it as a verify-cost defence (0 = no
   /// cap); AllowedEcCurves is the accepted ECDSA named-group codes (empty = any curve the
   /// provider recognises); AllowEdDsa admits Ed25519/Ed448 keys; AllowedDeprecatedHashes admits
@@ -45,12 +46,17 @@ type
     /// forbidden hash (MD5) is refused regardless; the key floors, PSS parameter checks, and the
     /// fixed floor on OCSP responses, CRLs and responder certificates are unaffected.</summary>
     AllowedDeprecatedHashes: TCertSignatureHashes;
+    /// <summary>Holds a trust anchor's public key to the same floors as the leaf and
+    /// intermediates; the anchor's own self-signature and hash are still not checked (False =
+    /// the anchor is exempt).</summary>
+    AnchorKeyFloors: Boolean;
     /// <summary>The default floors, applied by every preset: RSA 2048..8192, the NIST P-curves,
-    /// EdDSA admitted, no deprecated hash.</summary>
+    /// EdDSA admitted, no deprecated hash, trust anchors exempt.</summary>
     class function Defaults: TCertificateStrengthPolicy; static;
-    /// <summary>Whether a certificate's subject key meets these floors; an empty AllowedEcCurves
-    /// admits any curve the provider recognises (EcNamedGroup 0 = unknown).</summary>
-    function KeyMeetsFloors(const AFacts: TCertKeyFacts): Boolean;
+    /// <summary>Whether a certificate's subject key is admitted by these floors, the RSA modulus
+    /// range, the curve allowlist and the EdDSA flag; an empty AllowedEcCurves admits any curve
+    /// the provider recognises (EcNamedGroup 0 = unknown).</summary>
+    function AdmitsKey(const AFacts: TCertKeyFacts): Boolean;
   end;
 
 implementation
@@ -66,9 +72,10 @@ begin
     TNamedGroupCatalog.Secp384r1, TNamedGroupCatalog.Secp521r1);
   Result.AllowEdDsa := True;
   Result.AllowedDeprecatedHashes := [];
+  Result.AnchorKeyFloors := False;
 end;
 
-function TCertificateStrengthPolicy.KeyMeetsFloors(const AFacts: TCertKeyFacts): Boolean;
+function TCertificateStrengthPolicy.AdmitsKey(const AFacts: TCertKeyFacts): Boolean;
 begin
   case AFacts.Kind of
     TSignatureKeyKind.Rsa:

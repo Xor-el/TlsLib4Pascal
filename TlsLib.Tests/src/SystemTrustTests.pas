@@ -193,8 +193,12 @@ type
       out ARejectAlert: TTlsAlertDescription): Boolean;
     // a server delegate over an engine that trusts APath, AExempt being the anchors it reports
     function VerifyEnginePath(const AChain, APath, AExempt: TArray<TBytes>;
+      const AStrength: TCertificateStrengthPolicy;
       const ACallback: TTlsCertificateVerifyCallback; out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
+    // the live re-check form: the engine's Good path is judged by the same strength policy
+    function ResolveLiveEnginePath(const AChain, APath, AExempt: TArray<TBytes>;
+      const AStrength: TCertificateStrengthPolicy; out AAlert: TTlsAlertDescription): Boolean;
     // the client form: the engine reports no anchor, AAnchors are the configured client-CA roots
     function VerifyClientEnginePath(const AChain, APath, AAnchors: TArray<TBytes>;
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
@@ -253,6 +257,13 @@ type
     procedure TestClientEngineReportingNoAnchorAcceptsAConfiguredSelfSignedCa;
     procedure TestClientEngineReportingNoAnchorRefusesAnUnconfiguredCa;
     procedure TestEnginePathOfAPlainLeafIsAccepted;
+    procedure TestEnginePathAnchorKeyBelowTheFloorIsAcceptedWhenNotFlagged;
+    procedure TestEnginePathAnchorKeyBelowTheFloorIsRefusedWhenFlagged;
+    procedure TestEnginePathAnchorOnAnUnlistedCurveIsRefusedWhenFlagged;
+    procedure TestEnginePathAnchorEdDsaKeyIsRefusedWhenFlagged;
+    procedure TestEnginePathAnchorWithinTheFloorsIsAcceptedWhenFlagged;
+    procedure TestLiveEnginePathAnchorKeyBelowTheFloorIsAcceptedWhenNotFlagged;
+    procedure TestLiveEnginePathAnchorKeyBelowTheFloorIsRefusedWhenFlagged;
     procedure TestVerifyCallbackSeesThePresentedChainAndTheEnginePath;
     procedure TestClientRoutesByStapleWithoutCachedRevocation;
     procedure TestStapledRevokedRejectsWithoutCachedRevocation;
@@ -1024,8 +1035,9 @@ begin
 end;
 
 function TTestOSDelegateTemplate.VerifyEnginePath(const AChain, APath,
-  AExempt: TArray<TBytes>; const ACallback: TTlsCertificateVerifyCallback;
-  out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+  AExempt: TArray<TBytes>; const AStrength: TCertificateStrengthPolicy;
+  const ACallback: TTlsCertificateVerifyCallback; out AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LEngine: IPlatformChainEngine;
   LResult: TPlatformChainResult;
@@ -1039,10 +1051,42 @@ begin
   LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
     TPlatformChainCapability.DnsIdentity], True, LResult, TTlsAlertDescription.BadCertificate);
   LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, nil);
+  LPolicy.StrengthPolicy := AStrength;
   LPolicy.Dangerous.VerifyCallback := ACallback;
   LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName('localhost'), nil,
     AVerified, AAlert);
+end;
+
+function TTestOSDelegateTemplate.ResolveLiveEnginePath(const AChain, APath,
+  AExempt: TArray<TBytes>; const AStrength: TCertificateStrengthPolicy;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Good;
+  LResult.Path := APath;
+  LResult.PolicyExempt := AExempt;
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True,
+    LResult, TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.Live,
+    TVerdictDeferral.LiveRevocation, nil);
+  LPolicy.StrengthPolicy := AStrength;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Server;
+    LContext.Chain := AChain;
+    LContext.HostName := 'localhost';
+    Result := LResolver.ResolveVerdict(LContext, AAlert);
+  finally
+    LResolver.Free;
+  end;
 end;
 
 function TTestOSDelegateTemplate.VerifyClientEnginePath(const AChain, APath,
@@ -2101,7 +2145,8 @@ begin
   LCaLeaf := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert');
   LRoot := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
   CheckFalse(VerifyEnginePath(TArray<TBytes>.Create(LCaLeaf),
-    TArray<TBytes>.Create(LCaLeaf, LRoot), TArray<TBytes>.Create(LRoot), nil, LVerified, LAlert),
+    TArray<TBytes>.Create(LCaLeaf, LRoot), TArray<TBytes>.Create(LRoot),
+    TCertificateStrengthPolicy.Defaults, nil, LVerified, LAlert),
     'a CA certificate presented as the end-entity is refused');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
   CheckEquals(0, System.Length(LVerified.Path), 'no validated path is reported');
@@ -2115,7 +2160,7 @@ var
 begin
   LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LSelfCa), TArray<TBytes>.Create(LSelfCa),
-    TArray<TBytes>.Create(LSelfCa), nil, LVerified, LAlert),
+    TArray<TBytes>.Create(LSelfCa), TCertificateStrengthPolicy.Defaults, nil, LVerified, LAlert),
     'the directly trusted self-signed CA certificate is accepted');
 end;
 
@@ -2155,9 +2200,133 @@ begin
     'inter_serverauth_cert');
   LRoot := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf, LInter),
-    TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot), nil, LVerified,
-    LAlert), 'an end-entity certificate under a CA is unaffected');
+    TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot),
+    TCertificateStrengthPolicy.Defaults, nil, LVerified, LAlert),
+    'an end-entity certificate under a CA is unaffected');
   CheckEquals(3, System.Length(LVerified.Path), 'the engine path is reported');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathAnchorKeyBelowTheFloorIsAcceptedWhenNotFlagged;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LStrength: TCertificateStrengthPolicy;
+  LLeaf, LRoot: TBytes;
+begin
+  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.MinRsaModulusBits := 4096;
+  CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf), TArray<TBytes>.Create(LLeaf, LRoot),
+    TArray<TBytes>.Create(LRoot), LStrength, nil, LVerified, LAlert),
+    'an RSA-2048 engine anchor passes a 4096-bit floor while the flag is off');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathAnchorKeyBelowTheFloorIsRefusedWhenFlagged;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LStrength: TCertificateStrengthPolicy;
+  LLeaf, LRoot: TBytes;
+begin
+  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.MinRsaModulusBits := 4096;
+  LStrength.AnchorKeyFloors := True;
+  CheckFalse(VerifyEnginePath(TArray<TBytes>.Create(LLeaf), TArray<TBytes>.Create(LLeaf, LRoot),
+    TArray<TBytes>.Create(LRoot), LStrength, nil, LVerified, LAlert),
+    'an RSA-2048 engine anchor is refused under a 4096-bit floor');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a weak anchor key is unsupported_certificate');
+  CheckEquals(0, System.Length(LVerified.Path), 'no validated path is reported');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathAnchorOnAnUnlistedCurveIsRefusedWhenFlagged;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LStrength: TCertificateStrengthPolicy;
+  LLeaf, LRoot: TBytes;
+begin
+  LLeaf := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
+  LStrength.AnchorKeyFloors := True;
+  CheckFalse(VerifyEnginePath(TArray<TBytes>.Create(LLeaf), TArray<TBytes>.Create(LLeaf, LRoot),
+    TArray<TBytes>.Create(LRoot), LStrength, nil, LVerified, LAlert),
+    'a P-256 engine anchor is refused when the list admits only P-384');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a disallowed anchor curve is unsupported_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathAnchorEdDsaKeyIsRefusedWhenFlagged;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LStrength: TCertificateStrengthPolicy;
+  LLeaf, LRoot: TBytes;
+begin
+  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.AllowEdDsa := False;
+  LStrength.AnchorKeyFloors := True;
+  CheckFalse(VerifyEnginePath(TArray<TBytes>.Create(LLeaf), TArray<TBytes>.Create(LLeaf, LRoot),
+    TArray<TBytes>.Create(LRoot), LStrength, nil, LVerified, LAlert),
+    'an Ed25519 engine anchor is refused when EdDSA is disallowed');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a disallowed anchor key type is unsupported_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathAnchorWithinTheFloorsIsAcceptedWhenFlagged;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LStrength: TCertificateStrengthPolicy;
+  LLeaf, LRoot: TBytes;
+begin
+  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.AnchorKeyFloors := True;
+  CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf), TArray<TBytes>.Create(LLeaf, LRoot),
+    TArray<TBytes>.Create(LRoot), LStrength, nil, LVerified, LAlert),
+    'a P-256 engine anchor within the floors is accepted');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveEnginePathAnchorKeyBelowTheFloorIsAcceptedWhenNotFlagged;
+var
+  LAlert: TTlsAlertDescription;
+  LStrength: TCertificateStrengthPolicy;
+  LLeaf, LRoot: TBytes;
+begin
+  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.MinRsaModulusBits := 4096;
+  CheckTrue(ResolveLiveEnginePath(TArray<TBytes>.Create(LLeaf),
+    TArray<TBytes>.Create(LLeaf, LRoot), TArray<TBytes>.Create(LRoot), LStrength, LAlert),
+    'an RSA-2048 engine anchor passes a 4096-bit floor on the live path while the flag is off');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveEnginePathAnchorKeyBelowTheFloorIsRefusedWhenFlagged;
+var
+  LAlert: TTlsAlertDescription;
+  LStrength: TCertificateStrengthPolicy;
+  LLeaf, LRoot: TBytes;
+begin
+  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.MinRsaModulusBits := 4096;
+  LStrength.AnchorKeyFloors := True;
+  CheckFalse(ResolveLiveEnginePath(TArray<TBytes>.Create(LLeaf),
+    TArray<TBytes>.Create(LLeaf, LRoot), TArray<TBytes>.Create(LRoot), LStrength, LAlert),
+    'an RSA-2048 engine anchor is refused on the live path under a 4096-bit floor');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a weak anchor key is unsupported_certificate');
 end;
 
 procedure TTestOSDelegateTemplate.TestVerifyCallbackSeesThePresentedChainAndTheEnginePath;
@@ -2174,8 +2343,8 @@ begin
   LExtra := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf, LInter, LExtra),
-    TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot), LSpy.Callback,
-    LVerified, LAlert), 'accepted');
+    TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot),
+    TCertificateStrengthPolicy.Defaults, LSpy.Callback, LVerified, LAlert), 'accepted');
   CheckEquals(3, System.Length(LSpy.Presented), 'the callback sees every presented certificate');
   CheckEquals(3, System.Length(LSpy.Validated), 'and the path the engine built');
   CheckEqualBytes('the validated path ends at the engine''s root', LRoot, LSpy.Validated[2]);

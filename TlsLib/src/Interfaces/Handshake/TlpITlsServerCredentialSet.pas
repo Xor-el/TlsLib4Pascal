@@ -25,7 +25,7 @@ type
   /// </summary>
   ITlsServerCredentialSet = interface(IInterface)
     ['{CF098290-4B3D-43D7-ABEA-978523360FAB}']
-    /// <summary>Every credential the resolver can select, the default included.</summary>
+    /// <summary>Every credential the resolver can return, default first.</summary>
     function Credentials: TArray<TTlsCredential>;
   end;
 

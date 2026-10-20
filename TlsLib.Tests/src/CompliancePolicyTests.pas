@@ -327,7 +327,7 @@ type
     procedure TestSniResolverIsEnumerated;
     procedure TestHostClassClaimingCheckedMarkerIsUnchecked;
     procedure TestCheckedWrapperOverHostListedResolverIsNotUnchecked;
-    procedure TestDefaultSharedWithAnSniEntryIsReportedOnce;
+    procedure TestDefaultSharedWithAnSniEntryIsReportedForEachListing;
     procedure TestRawCustomResolverIsUnchecked;
     procedure TestRawCustomResolverIsRefusedEvenInRelaxed;
     procedure TestCheckedResolverIsNotReportedUnchecked;
@@ -2866,7 +2866,7 @@ begin
     'and the entries of a host list behind it are not read at build');
 end;
 
-procedure TTestComplianceAdmit.TestDefaultSharedWithAnSniEntryIsReportedOnce;
+procedure TTestComplianceAdmit.TestDefaultSharedWithAnSniEntryIsReportedForEachListing;
 var
   LPolicy: ICompliancePolicy;
   LWeak: TTlsCredential;
@@ -2876,8 +2876,8 @@ begin
   LWeak := Ed25519Credential;
   LFindings := LPolicy.Evaluate(RawServer(LPolicy).WithCredential(LWeak)
     .WithSniCredential('localhost', LWeak).Build).Findings;
-  CheckEquals(1, CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules),
-    'the credential the default shares with an entry is listed once');
+  CheckEquals(2, CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules),
+    'the credential the default shares with an entry is listed, and so reported, twice');
 end;
 
 procedure TTestComplianceAdmit.TestRawCustomResolverIsUnchecked;

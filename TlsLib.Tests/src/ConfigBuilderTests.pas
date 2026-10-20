@@ -5462,8 +5462,8 @@ begin
     .WithSniCredential('localhost', LCredential).Tls13.Build;
   CheckTrue(Supports(LConfig.CredentialResolver, ITlsServerCredentialSet, LSet),
     'the composed resolver lists its credentials');
-  CheckEquals(1, System.Length(LSet.Credentials),
-    'the default and the identical SNI credential are listed once');
+  CheckEquals(2, System.Length(LSet.Credentials),
+    'the default and the identical SNI credential are both listed');
 end;
 
 procedure TTestConfigBuilder.TestTicketCountZeroOnTls13OnlyWithNothingSharedStillBuilds;

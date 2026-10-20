@@ -63,6 +63,16 @@ type
     procedure TestRejectsDisallowedCurve;
     procedure TestAcceptsRsaPssPssIssuerWhenAdvertised;
     procedure TestRejectsRsaPssPssIssuerWhenOnlyRsaeAdvertised;
+    procedure TestDefaultsExemptTheTrustAnchorKey;
+    procedure TestAnchorRsaBelowFloorIsExemptWhenNotFlagged;
+    procedure TestAnchorRsaBelowFloorIsRefusedWhenFlagged;
+    procedure TestAnchorCurveOutsideTheListIsExemptWhenNotFlagged;
+    procedure TestAnchorCurveOutsideTheListIsRefusedWhenFlagged;
+    procedure TestAnchorEdDsaIsExemptWhenNotFlagged;
+    procedure TestAnchorEdDsaIsRefusedWhenFlagged;
+    procedure TestAnchorSignatureHashIsNotCheckedWhenFlagged;
+    procedure TestFlaggedPolicyAcceptsAStandardChainWithItsAnchor;
+    procedure TestFlaggedPolicyStillRefusesAWeakNonAnchor;
     procedure TestSignatureHashStandings;
     procedure TestDefaultsAdmitNoDeprecatedHash;
     procedure TestAdmittedSha1KeepsTheKeyFloors;
@@ -122,9 +132,9 @@ var
   LPolicy: TCertificateStrengthPolicy;
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
-  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 2048, 0)),
+  CheckTrue(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Rsa, 2048, 0)),
     'a modulus at the floor is admitted');
-  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 2047, 0)),
+  CheckFalse(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Rsa, 2047, 0)),
     'a modulus one bit under the floor is refused');
 end;
 
@@ -133,9 +143,9 @@ var
   LPolicy: TCertificateStrengthPolicy;
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
-  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 8192, 0)),
+  CheckTrue(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Rsa, 8192, 0)),
     'a modulus at the cap is admitted');
-  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 8193, 0)),
+  CheckFalse(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Rsa, 8193, 0)),
     'a modulus one bit over the cap is refused');
 end;
 
@@ -145,13 +155,13 @@ var
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.MaxRsaModulusBits := 0;
-  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Rsa, 16384, 0)),
+  CheckTrue(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Rsa, 16384, 0)),
     'a zero cap admits any size above the floor');
 end;
 
 procedure TTestCertificateStrengthPolicy.TestListedCurveIsAdmitted;
 begin
-  CheckTrue(TCertificateStrengthPolicy.Defaults.KeyMeetsFloors(
+  CheckTrue(TCertificateStrengthPolicy.Defaults.AdmitsKey(
     Facts(TSignatureKeyKind.Ecdsa, 384, TNamedGroupCatalog.Secp384r1)),
     'a curve on the allowlist is admitted');
 end;
@@ -162,7 +172,7 @@ var
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1);
-  CheckFalse(LPolicy.KeyMeetsFloors(
+  CheckFalse(LPolicy.AdmitsKey(
     Facts(TSignatureKeyKind.Ecdsa, 384, TNamedGroupCatalog.Secp384r1)),
     'a recognised curve missing from the allowlist is refused');
 end;
@@ -173,7 +183,7 @@ var
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.AllowedEcCurves := nil;
-  CheckTrue(LPolicy.KeyMeetsFloors(
+  CheckTrue(LPolicy.AdmitsKey(
     Facts(TSignatureKeyKind.Ecdsa, 521, TNamedGroupCatalog.Secp521r1)),
     'an empty allowlist admits a recognised curve');
 end;
@@ -184,7 +194,7 @@ var
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.AllowedEcCurves := nil;
-  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ecdsa, 256, 0)),
+  CheckFalse(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Ecdsa, 256, 0)),
     'an empty allowlist still refuses a curve with no code');
 end;
 
@@ -193,14 +203,14 @@ var
   LPolicy: TCertificateStrengthPolicy;
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
-  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ed25519, 0, 0)),
+  CheckTrue(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Ed25519, 0, 0)),
     'Ed25519 is admitted when EdDSA is allowed');
-  CheckTrue(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ed448, 0, 0)),
+  CheckTrue(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Ed448, 0, 0)),
     'Ed448 is admitted when EdDSA is allowed');
   LPolicy.AllowEdDsa := False;
-  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ed25519, 0, 0)),
+  CheckFalse(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Ed25519, 0, 0)),
     'Ed25519 is refused when EdDSA is not allowed');
-  CheckFalse(LPolicy.KeyMeetsFloors(Facts(TSignatureKeyKind.Ed448, 0, 0)),
+  CheckFalse(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Ed448, 0, 0)),
     'Ed448 is refused when EdDSA is not allowed');
 end;
 
@@ -620,6 +630,143 @@ begin
     'a PSS-restricted issuer is rejected when only rsa_pss_rsae_* is advertised');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'an unmatched pss_pss requirement is unsupported_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestDefaultsExemptTheTrustAnchorKey;
+begin
+  CheckFalse(TCertificateStrengthPolicy.Defaults.AnchorKeyFloors,
+    'the defaults leave a trust anchor exempt');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorRsaBelowFloorIsExemptWhenNotFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.MinRsaModulusBits := 4096; // the EC leaf is unaffected, the RSA-2048 anchor is below it
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), RsaCert('root_cert')),
+    TArray<TBytes>.Create(RsaCert('root_cert')), LPolicy, Advertised, LAlert),
+    'a weak anchor key passes while the flag is off');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorRsaBelowFloorIsRefusedWhenFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.MinRsaModulusBits := 4096;
+  LPolicy.AnchorKeyFloors := True;
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), RsaCert('root_cert')),
+    TArray<TBytes>.Create(RsaCert('root_cert')), LPolicy, Advertised, LAlert),
+    'an RSA-2048 anchor is refused under a 4096-bit floor');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a weak anchor key is unsupported_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorCurveOutsideTheListIsExemptWhenNotFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(RsaCert('leaf_cert'), EcCert('root_cert')),
+    TArray<TBytes>.Create(EcCert('root_cert')), LPolicy, Advertised, LAlert),
+    'a P-256 anchor outside the curve list passes while the flag is off');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorCurveOutsideTheListIsRefusedWhenFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
+  LPolicy.AnchorKeyFloors := True;
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(RsaCert('leaf_cert'), EcCert('root_cert')),
+    TArray<TBytes>.Create(EcCert('root_cert')), LPolicy, Advertised, LAlert),
+    'a P-256 anchor is refused when the list admits only P-384');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a disallowed anchor curve is unsupported_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorEdDsaIsExemptWhenNotFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+  LRoot: TBytes;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowEdDsa := False;
+  LRoot := TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
+    LPolicy, Advertised, LAlert), 'an Ed25519 anchor passes while the flag is off');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorEdDsaIsRefusedWhenFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+  LRoot: TBytes;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AllowEdDsa := False;
+  LPolicy.AnchorKeyFloors := True;
+  LRoot := TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
+    LPolicy, Advertised, LAlert), 'an Ed25519 anchor is refused when EdDSA is disallowed');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a disallowed anchor key type is unsupported_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorSignatureHashIsNotCheckedWhenFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AnchorKeyFloors := True;
+  // the SHA-1-signed issuer is the configured anchor: its key is checked, its signature is not
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(LegacyCert('leaf_cert'), LegacyCert('issuer_sha1_cert')),
+    TArray<TBytes>.Create(LegacyCert('issuer_sha1_cert')), LPolicy, Advertised, LAlert),
+    'a flagged policy still skips the anchor signature hash');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestFlaggedPolicyAcceptsAStandardChainWithItsAnchor;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AnchorKeyFloors := True;
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), EcCert('root_cert')),
+    TArray<TBytes>.Create(EcCert('root_cert')), LPolicy, Advertised, LAlert),
+    'an anchor within the floors is accepted');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestFlaggedPolicyStillRefusesAWeakNonAnchor;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.MinRsaModulusBits := 4096;
+  LPolicy.AnchorKeyFloors := True;
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), RsaCert('root_cert')), nil, LPolicy,
+    Advertised, LAlert), 'a weak certificate that is not an anchor is refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a weak non-anchor key is unsupported_certificate');
 end;
 
 initialization

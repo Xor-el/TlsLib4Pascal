@@ -187,11 +187,9 @@ type
     procedure TestSniResolverSupportsCredentialSet;
     procedure TestCredentialSetListsDefaultThenEntriesInOrder;
     procedure TestCredentialSetWithoutDefaultListsEntriesOnly;
-    procedure TestCredentialSetListsADefaultThatIsAlsoAnEntryOnce;
+    procedure TestCredentialSetListsEveryCredentialWithoutDeduplication;
     procedure TestCredentialSetIsAFreshArray;
     procedure TestCredentialSetOfASingleCredentialListsOne;
-    procedure TestCredentialSetListsSameLeafWithDifferentIntermediates;
-    procedure TestCredentialSetListsSameLeafWithADifferentKeyReference;
     procedure TestEd448ServerCredentialHandshake;
     procedure TestEd25519ServerCredentialHandshake;
   end;
@@ -2291,7 +2289,7 @@ begin
   CheckEquals(1, System.Length(LListed), 'only the entry, no phantom default');
 end;
 
-procedure TTestTls13Loopback.TestCredentialSetListsADefaultThatIsAlsoAnEntryOnce;
+procedure TTestTls13Loopback.TestCredentialSetListsEveryCredentialWithoutDeduplication;
 var
   LEntries: TArray<TSniCredentialEntry>;
   LShared, LOther: TTlsCredential;
@@ -2306,11 +2304,13 @@ begin
   CheckTrue(Supports(TSniCredentialResolver.Create(LEntries, LShared) as
     ITlsServerCredentialResolver, ITlsServerCredentialSet, LSet), 'resolver lists its set');
   LListed := LSet.Credentials;
-  CheckEquals(2, System.Length(LListed), 'the shared credential appears once');
+  CheckEquals(3, System.Length(LListed), 'the default and every entry, repeats included');
   CheckEqualBytes('shared credential listed as the default', LShared.CertificateChain[0],
     LListed[0].CertificateChain[0]);
+  CheckEqualBytes('the same credential listed again as the first entry',
+    LShared.CertificateChain[0], LListed[1].CertificateChain[0]);
   CheckEqualBytes('the other entry follows', LOther.CertificateChain[0],
-    LListed[1].CertificateChain[0]);
+    LListed[2].CertificateChain[0]);
 end;
 
 procedure TTestTls13Loopback.TestCredentialSetIsAFreshArray;
@@ -2344,40 +2344,6 @@ begin
     ITlsServerCredentialSet, LSet), 'the single-credential resolver lists its set');
   LListed := LSet.Credentials;
   CheckEquals(1, System.Length(LListed), 'only the default');
-end;
-
-procedure TTestTls13Loopback.TestCredentialSetListsSameLeafWithDifferentIntermediates;
-var
-  LEntries: TArray<TSniCredentialEntry>;
-  LDefault, LEntry: TTlsCredential;
-  LSet: ITlsServerCredentialSet;
-  LListed: TArray<TTlsCredential>;
-begin
-  LDefault := ServerCredential;
-  LEntry := LDefault;
-  LEntry.CertificateChain := TArray<TBytes>.Create(LDefault.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
-  LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', LEntry));
-  CheckTrue(Supports(TSniCredentialResolver.Create(LEntries, LDefault) as
-    ITlsServerCredentialResolver, ITlsServerCredentialSet, LSet), 'resolver lists its set');
-  LListed := LSet.Credentials;
-  CheckEquals(2, System.Length(LListed), 'a different chain behind the same leaf is listed');
-end;
-
-procedure TTestTls13Loopback.TestCredentialSetListsSameLeafWithADifferentKeyReference;
-var
-  LEntries: TArray<TSniCredentialEntry>;
-  LDefault, LEntry: TTlsCredential;
-  LSet: ITlsServerCredentialSet;
-  LListed: TArray<TTlsCredential>;
-begin
-  LDefault := ServerCredential;
-  LEntry := ServerCredential;
-  LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', LEntry));
-  CheckTrue(Supports(TSniCredentialResolver.Create(LEntries, LDefault) as
-    ITlsServerCredentialResolver, ITlsServerCredentialSet, LSet), 'resolver lists its set');
-  LListed := LSet.Credentials;
-  CheckEquals(2, System.Length(LListed), 'the same leaf under another key reference is listed');
 end;
 
 procedure TTestTls13Loopback.TestEd448ServerCredentialHandshake;

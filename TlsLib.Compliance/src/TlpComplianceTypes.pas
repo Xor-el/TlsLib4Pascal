@@ -553,7 +553,7 @@ end;
 class function TComplianceCatalog.KeyMeets(const AFacts: TCertKeyFacts;
   const AStrength: TCertificateStrengthPolicy; const ARsaSizes: TArray<UInt32>): Boolean;
 begin
-  Result := AStrength.KeyMeetsFloors(AFacts);
+  Result := AStrength.AdmitsKey(AFacts);
   // the exact sizes only ever narrow the range, and only for RSA
   if Result and (AFacts.Kind = TSignatureKeyKind.Rsa) and (System.Length(ARsaSizes) > 0) then
   begin

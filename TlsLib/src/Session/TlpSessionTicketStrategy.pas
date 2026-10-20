@@ -61,7 +61,6 @@ type
   var
     FCrypto: ICryptoProvider;
     FKeys: ISessionTicketKeyManager;
-    FAeadAvailable: Boolean;
     class function SerializeSession(const ASession: IResumableSession): TBytes; static;
     class function DeserializeSession(const AData: TBytes;
       out ASession: IResumableSession): Boolean; static;
@@ -97,7 +96,7 @@ type
     class function SealsWithKeys(AVersion: UInt16; const AKeys: ISessionTicketKeyManager;
       const AStore: ISessionStore): Boolean; static;
     /// <summary>The STEK strategy when SealsWithKeys, else the store strategy when AStore holds
-    /// this version's tickets, else nil (resumption disabled).</summary>
+    /// this version's tickets, else nil (no tickets).</summary>
     class function ForServer(AVersion: UInt16; const ACryptoProvider: ICryptoProvider;
       const AKeys: ISessionTicketKeyManager;
       const AStore: ISessionStore): ISessionTicketStrategy; static;
@@ -150,18 +149,6 @@ begin
   inherited Create;
   FCrypto := ACryptoProvider;
   FKeys := AKeys;
-  FAeadAvailable := True;
-  try
-    FCrypto.Primitives.CreateAead(TSessionTicketStrategies.TicketAead);
-  except
-    // memory exhaustion and CPU/runtime faults (EExternal) surface; any other failure: no tickets
-    on EOutOfMemory do
-      raise;
-    on EExternal do
-      raise;
-    on Exception do
-      FAeadAvailable := False;
-  end;
 end;
 
 class function TStekTicketStrategy.HashToCode(AHash: THashAlgorithm): Byte;
@@ -407,8 +394,6 @@ var
   LAead: IAead;
 begin
   Result := nil;
-  if not FAeadAvailable then
-    Exit;
   if not FKeys.CurrentKey(LKeyName, LKey) then
     Exit;
   LPlain := SerializeSession(ASession);
@@ -460,8 +445,6 @@ var
 begin
   ASession := nil;
   Result := False;
-  if not FAeadAvailable then
-    Exit;
   LNameLen := FKeys.KeyNameLength;
   try
     LAead := FCrypto.Primitives.CreateAead(TSessionTicketStrategies.TicketAead);

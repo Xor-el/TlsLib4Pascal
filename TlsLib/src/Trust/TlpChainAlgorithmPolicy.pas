@@ -32,9 +32,10 @@ type
   /// 4.5.1.2, RFC 5246 7.4.2 / 7.4.4 / 7.4.6), an MD5-signed certificate is refused
   /// outright and a SHA-1-signed one unless the policy admits it (RFC 9846 4.5.1.3), and each
   /// subject key must meet the configured minimum-strength floors. A configured trust anchor is
-  /// exempt (its self-signature is not a validated edge and its key
-  /// is the operator's trust); the leaf never is. Verdict-only: it decides accept/reject and the
-  /// alert, reading facts from the provider's certificate inspector so no ASN.1 is handled here.
+  /// exempt (its self-signature is not a validated edge and its key is the operator's trust)
+  /// unless the policy's AnchorKeyFloors holds its key to the floors; the leaf never is exempt.
+  /// It only decides accept/reject and the alert, reading facts from the provider's certificate
+  /// inspector so no ASN.1 is handled here.
   /// </summary>
   TChainAlgorithmPolicy = class sealed(TObject)
   strict private
@@ -47,6 +48,12 @@ type
       const ADer: TBytes; AIssuerKeyIsPss: Boolean;
       const APolicy: TCertificateStrengthPolicy; AFilterSchemes: Boolean;
       const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean; static;
+    class function CheckKey(const ACert: IInspectedCertificate;
+      const APolicy: TCertificateStrengthPolicy;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+    class function CheckAnchorKey(const AInspector: ICertificateInspector;
+      const ADer: TBytes; const APolicy: TCertificateStrengthPolicy;
+      out AAlert: TTlsAlertDescription): Boolean; static;
     class function Walk(const AInspector: ICertificateInspector;
       const AChain, ARoots: TArray<TBytes>;
       const APolicy: TCertificateStrengthPolicy; AFilterSchemes: Boolean;
@@ -211,7 +218,6 @@ class function TChainAlgorithmPolicy.CheckCertificate(
 var
   LCert: IInspectedCertificate;
   LSig: TCertSignatureFacts;
-  LKey: TCertKeyFacts;
   LRequired: UInt16;
   LStanding: TCertSignatureHashStanding;
   LAdmitted: Boolean;
@@ -250,17 +256,40 @@ begin
       Exit(False);
     end;
   end;
-  if not LCert.KeyFacts(LKey) then
+  Result := CheckKey(LCert, APolicy, AAlert);
+end;
+
+class function TChainAlgorithmPolicy.CheckKey(const ACert: IInspectedCertificate;
+  const APolicy: TCertificateStrengthPolicy; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LKey: TCertKeyFacts;
+begin
+  if not ACert.KeyFacts(LKey) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  if not APolicy.KeyMeetsFloors(LKey) then
+  if not APolicy.AdmitsKey(LKey) then
   begin
     AAlert := TTlsAlertDescription.UnsupportedCertificate;
     Exit(False);
   end;
   Result := True;
+end;
+
+class function TChainAlgorithmPolicy.CheckAnchorKey(const AInspector: ICertificateInspector;
+  const ADer: TBytes; const APolicy: TCertificateStrengthPolicy;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LCert: IInspectedCertificate;
+begin
+  try
+    LCert := AInspector.Parse(ADer);
+  except
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit(False);
+  end;
+  Result := CheckKey(LCert, APolicy, AAlert);
 end;
 
 class function TChainAlgorithmPolicy.Check(const AInspector: ICertificateInspector;
@@ -290,9 +319,15 @@ begin
   AAlert := TTlsAlertDescription.BadCertificate;
   for LI := 0 to System.Length(AChain) - 1 do
   begin
-    // a configured trust anchor is not a validated edge (RFC 9846 4.3.3); the leaf never is
+    // a configured trust anchor is not a validated edge (RFC 9846 4.3.3), so at most its key is
+    // held to the floors; the leaf is always checked in full
     if (LI > 0) and IsAnchor(AChain[LI], ARoots) then
+    begin
+      if APolicy.AnchorKeyFloors and
+        not CheckAnchorKey(AInspector, AChain[LI], APolicy, AAlert) then
+        Exit(False);
       Continue;
+    end;
     // the signature on this certificate was made by its issuer (the next element); a PSS-restricted
     // issuer key means a rsa_pss_pss_* signature. A missing issuer resolves conservatively to False.
     LIssuerKeyIsPss := (LI + 1 < System.Length(AChain)) and

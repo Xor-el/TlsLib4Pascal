@@ -181,7 +181,7 @@ type
     procedure TestTicketResumeIsAbbreviated;
     procedure TestStekServerWithoutTicketAeadIssuesNoTicket;
     procedure TestStekServerWithoutTicketAeadFallsBackToFullHandshake;
-    procedure TestStekServerWhoseTicketAeadRaisesPlainExceptionIssuesNoTicket;
+    procedure TestStekServerWhoseTicketAeadRaisesATlsLibErrorIssuesNoTicket;
     procedure TestTls12ServerReportsProtocolVersionAsEarlyDataReason;
     procedure TestDualClientOnTls12ReportsItsOfferReason;
     procedure TestResumptionWithoutNewSessionTicketKeepsTheCachedTicket;
@@ -696,7 +696,7 @@ begin
   CheckAppDataFlows(LClient, LServer);
 end;
 
-procedure TTestTls12Resumption.TestStekServerWhoseTicketAeadRaisesPlainExceptionIssuesNoTicket;
+procedure TTestTls12Resumption.TestStekServerWhoseTicketAeadRaisesATlsLibErrorIssuesNoTicket;
 var
   LStek: ISessionTicketKeyManager;
   LCache: ISessionCache;
@@ -705,11 +705,12 @@ begin
   LStek := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom);
   LCache := TInMemorySessionCache.Create;
   FServerCrypto := TMissingAeadProvider.CreateFault(Crypto, TAeadAlgorithm.AES_256_GCM,
-    Exception) as ICryptoProvider;
+    EBaseTlsLibException) as ICryptoProvider;
   LClient := NewClient(LCache, True);
   LServer := NewServer(nil, LStek, 7200, True);
   RunHandshake(LClient, LServer);
-  CheckFalse(LServer.IsTerminal, 'a plain exception from the provider does not abort the server');
+  CheckFalse(LServer.IsTerminal, 'a library error from the provider does not abort the server');
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed on the client');
   CheckEquals(0, LCache.Count, 'no ticket was issued');
   CheckAppDataFlows(LClient, LServer);
 end;

@@ -122,8 +122,9 @@ type
 
   /// <summary>What the engine reports when the platform built a path: the revocation outcome it
   /// rendered (Indeterminate for an engine without CachedRevocation), the leaf-first path it built
-  /// (empty where the platform reports none), and the certificates the strength policy skips (the OS
-  /// anchor, or the configured client-CA anchors where the path is the presented chain). On a
+  /// (empty where the platform reports none), and the trust anchors whose signature and hash the
+  /// strength policy skips (the OS anchor, or the configured client-CA anchors where the path is
+  /// the presented chain); their keys are checked when the policy sets AnchorKeyFloors. On a
   /// rejection only Failure is meaningful.</summary>
   TPlatformChainResult = record
     Outcome: TLiveRevocationOutcome;
