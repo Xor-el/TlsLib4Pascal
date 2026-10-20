@@ -70,6 +70,10 @@ type
     procedure TestAnchorCurveOutsideTheListIsRefusedWhenFlagged;
     procedure TestAnchorEdDsaIsExemptWhenNotFlagged;
     procedure TestAnchorEdDsaIsRefusedWhenFlagged;
+    procedure TestAnchorOfUnknownKeyKindIsExemptWhenNotFlagged;
+    procedure TestAnchorOfUnknownKeyKindIsRefusedWhenFlagged;
+    procedure TestUnparseableAnchorIsExemptWhenNotFlagged;
+    procedure TestUnparseableAnchorIsBadCertificateWhenFlagged;
     procedure TestAnchorSignatureHashIsNotCheckedWhenFlagged;
     procedure TestFlaggedPolicyAcceptsAStandardChainWithItsAnchor;
     procedure TestFlaggedPolicyStillRefusesAWeakNonAnchor;
@@ -725,6 +729,62 @@ begin
     LPolicy, Advertised, LAlert), 'an Ed25519 anchor is refused when EdDSA is disallowed');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'a disallowed anchor key type is unsupported_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorOfUnknownKeyKindIsExemptWhenNotFlagged;
+var
+  LAlert: TTlsAlertDescription;
+  LRoot: TBytes;
+begin
+  LRoot := TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert');
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
+    TCertificateStrengthPolicy.Defaults, Advertised, LAlert),
+    'a DSA anchor passes while the flag is off');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorOfUnknownKeyKindIsRefusedWhenFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+  LRoot: TBytes;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AnchorKeyFloors := True;
+  LRoot := TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert');
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
+    LPolicy, Advertised, LAlert), 'a DSA anchor key has no floor to meet');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'an anchor key of unknown kind is unsupported_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestUnparseableAnchorIsExemptWhenNotFlagged;
+var
+  LAlert: TTlsAlertDescription;
+  LRoot: TBytes;
+begin
+  LRoot := TBytes.Create($30, $03, $02, $01, $00);
+  CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
+    TCertificateStrengthPolicy.Defaults, Advertised, LAlert),
+    'an anchor that does not parse is not looked at while the flag is off');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestUnparseableAnchorIsBadCertificateWhenFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+  LRoot: TBytes;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AnchorKeyFloors := True;
+  LRoot := TBytes.Create($30, $03, $02, $01, $00);
+  CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
+    LPolicy, Advertised, LAlert), 'an anchor that does not parse is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'an unparseable anchor is bad_certificate');
 end;
 
 procedure TTestChainAlgorithmPolicy.TestAnchorSignatureHashIsNotCheckedWhenFlagged;

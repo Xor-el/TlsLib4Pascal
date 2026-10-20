@@ -49,7 +49,7 @@ type
       const APolicy: TCertificateStrengthPolicy; AFilterSchemes: Boolean;
       const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean; static;
     class function CheckKey(const ACert: IInspectedCertificate;
-      const APolicy: TCertificateStrengthPolicy;
+      const APolicy: TCertificateStrengthPolicy; AUnreadable: TTlsAlertDescription;
       out AAlert: TTlsAlertDescription): Boolean; static;
     class function CheckAnchorKey(const AInspector: ICertificateInspector;
       const ADer: TBytes; const APolicy: TCertificateStrengthPolicy;
@@ -256,17 +256,18 @@ begin
       Exit(False);
     end;
   end;
-  Result := CheckKey(LCert, APolicy, AAlert);
+  Result := CheckKey(LCert, APolicy, TTlsAlertDescription.BadCertificate, AAlert);
 end;
 
 class function TChainAlgorithmPolicy.CheckKey(const ACert: IInspectedCertificate;
-  const APolicy: TCertificateStrengthPolicy; out AAlert: TTlsAlertDescription): Boolean;
+  const APolicy: TCertificateStrengthPolicy; AUnreadable: TTlsAlertDescription;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LKey: TCertKeyFacts;
 begin
   if not ACert.KeyFacts(LKey) then
   begin
-    AAlert := TTlsAlertDescription.BadCertificate;
+    AAlert := AUnreadable;
     Exit(False);
   end;
   if not APolicy.AdmitsKey(LKey) then
@@ -289,7 +290,8 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  Result := CheckKey(LCert, APolicy, AAlert);
+  // a key of a kind the inspector cannot describe is as unusable as a weak one
+  Result := CheckKey(LCert, APolicy, TTlsAlertDescription.UnsupportedCertificate, AAlert);
 end;
 
 class function TChainAlgorithmPolicy.Check(const AInspector: ICertificateInspector;
