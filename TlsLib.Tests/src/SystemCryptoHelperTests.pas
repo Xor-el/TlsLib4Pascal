@@ -326,6 +326,9 @@ type
   strict private
     procedure CheckNotNative(const AName: string; const AEntry: TCryptoBackendEntry);
     procedure CheckComposed(const AName: string; const AEntry: TCryptoBackendEntry);
+    // the signing answer of a platform whose module decision is these three facts
+    function ModuleFacet(ASchemeServed, AModulePresent,
+      AFacetNative: Boolean): TCryptoBackendEntry;
   published
     procedure TestRandomDefaultsToNotNative;
     procedure TestHashDefaultsToNotNative;
@@ -460,6 +463,18 @@ type
     constructor Create(ASigningNative, AVerifyNative: Boolean); reintroduce;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
     function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
+  end;
+
+  // a platform whose signing is served by a separate OS module, as the base helper decides it
+  TModuleFacetReport = class(TBareBackendReport)
+  strict private
+  var
+    FSchemeServed: Boolean;
+    FModulePresent: Boolean;
+    FFacetNative: Boolean;
+  public
+    constructor Create(ASchemeServed, AModulePresent, AFacetNative: Boolean); reintroduce;
+    function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
   end;
 
   // a platform that signs every scheme natively but verifies only ECDSA natively
@@ -2018,6 +2033,21 @@ begin
     Result := NotNative;
 end;
 
+{ TModuleFacetReport }
+
+constructor TModuleFacetReport.Create(ASchemeServed, AModulePresent, AFacetNative: Boolean);
+begin
+  inherited Create(False);
+  FSchemeServed := ASchemeServed;
+  FModulePresent := AModulePresent;
+  FFacetNative := AFacetNative;
+end;
+
+function TModuleFacetReport.SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
+begin
+  Result := ModuleFacetBackend(FSchemeServed, FModulePresent, FFacetNative);
+end;
+
 { TEcdsaVerifyOnlyReport }
 
 constructor TEcdsaVerifyOnlyReport.Create;
@@ -2064,6 +2094,16 @@ procedure TTestSystemBackendReport.CheckComposed(const AName: string;
 begin
   CheckTrue(AEntry.Backend = TCryptoBackend.Composed, AName + ': composed');
   CheckTrue(AEntry.Reason = TCryptoBackendReason.NotFallback, AName + ': not a fallback');
+end;
+
+function TTestSystemBackendReport.ModuleFacet(ASchemeServed, AModulePresent,
+  AFacetNative: Boolean): TCryptoBackendEntry;
+var
+  LReport: ICryptoBackendReport;
+begin
+  LReport := TModuleFacetReport.Create(ASchemeServed, AModulePresent, AFacetNative)
+    as ICryptoBackendReport;
+  Result := LReport.SigningBackend(TSignatureScheme.ECDSA_SECP256R1_SHA256);
 end;
 
 procedure TTestSystemBackendReport.TestRandomDefaultsToNotNative;
@@ -2258,15 +2298,14 @@ end;
 
 procedure TTestSystemBackendReport.TestModuleFacetSchemeNotServedIsNotNative;
 begin
-  CheckNotNative('a scheme the module does not serve',
-    TSystemBackendReportBase.ModuleFacetBackend(False, True, True));
+  CheckNotNative('a scheme the module does not serve', ModuleFacet(False, True, True));
 end;
 
 procedure TTestSystemBackendReport.TestModuleFacetAbsentModuleIsNoModule;
 var
   LEntry: TCryptoBackendEntry;
 begin
-  LEntry := TSystemBackendReportBase.ModuleFacetBackend(True, False, True);
+  LEntry := ModuleFacet(True, False, True);
   CheckTrue(LEntry.Backend = TCryptoBackend.Portable, 'an absent module is portable');
   CheckTrue(LEntry.Reason = TCryptoBackendReason.NoModule, 'and the reason is the module');
 end;
@@ -2275,21 +2314,19 @@ procedure TTestSystemBackendReport.TestModuleFacetNativeIsSystem;
 var
   LEntry: TCryptoBackendEntry;
 begin
-  LEntry := TSystemBackendReportBase.ModuleFacetBackend(True, True, True);
+  LEntry := ModuleFacet(True, True, True);
   CheckTrue(LEntry.Backend = TCryptoBackend.System, 'a working facet is system-backed');
   CheckTrue(LEntry.Reason = TCryptoBackendReason.NotFallback, 'and is not a fallback');
 end;
 
 procedure TTestSystemBackendReport.TestModuleFacetNotNativeIsPortable;
 begin
-  CheckNotNative('a present module whose facet is not native',
-    TSystemBackendReportBase.ModuleFacetBackend(True, True, False));
+  CheckNotNative('a present module whose facet is not native', ModuleFacet(True, True, False));
 end;
 
 procedure TTestSystemBackendReport.TestModuleFacetSchemeNotServedAndModuleAbsentIsNotNative;
 begin
-  CheckNotNative('an unserved scheme on a host with no module',
-    TSystemBackendReportBase.ModuleFacetBackend(False, False, False));
+  CheckNotNative('an unserved scheme on a host with no module', ModuleFacet(False, False, False));
 end;
 
 { TTestSystemCryptoStrictness }
@@ -2344,7 +2381,7 @@ var
   LI: Int32;
 begin
   LKept := Remaining(TEcdsaVerifyOnlyReport.Create as ICryptoBackendReport, LDropped).Items;
-  CheckTrue(System.Length(LKept) > 0, 'the ECDSA schemes are served in both roles');
+  CheckEquals(3, System.Length(LKept), 'the three ECDSA schemes are served in both roles');
   for LI := 0 to System.Length(LKept) - 1 do
     CheckTrue(LKept[LI] in EcdsaSchemes, 'only an ECDSA scheme is kept');
   CheckEquals(System.Length(TSignatureSchemeRegistry.CreateDefault.Items),
