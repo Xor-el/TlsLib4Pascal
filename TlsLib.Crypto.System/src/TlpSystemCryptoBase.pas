@@ -268,17 +268,15 @@ begin
   FSigning := ASigning;
   FReport := AReport;
   if AHpke <> nil then
-  begin
-    if (AReport <> nil) and
-      (AReport.FacetBackend(TCryptoFacet.Hpke).Backend <> TCryptoBackend.Portable) and
-      (not ComposesHpkeOver(AHpke, Primitives)) then
-      raise EArgumentTlsLibException.CreateRes(@SHpkeReportMismatch);
-    FHpke := AHpke;
-  end
+    FHpke := AHpke
   else if RebuildsHpke(ABase) then
     FHpke := THpkeComposition.Create(Primitives) as IHpkeCrypto
   else
     FHpke := ABase.Hpke;
+  if (AReport <> nil) and
+    (AReport.FacetBackend(TCryptoFacet.Hpke).Backend <> TCryptoBackend.Portable) and
+    (not ComposesHpkeOver(FHpke, Primitives)) then
+    raise EArgumentTlsLibException.CreateRes(@SHpkeReportMismatch);
 end;
 
 class function TOverlayCryptoProvider.RebuildsHpke(const ABase: ICryptoProvider): Boolean;
