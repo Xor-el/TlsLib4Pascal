@@ -1,0 +1,23 @@
+.github/workflows/ci/os-build-info.ps1
+  s_f2c9bd75607afc::t_892150793dda7d 64
+  s_f2c9bd75607afc::t_7eb44a6eaa5dac 36
+  s_f2c9bd75607afc::t_97497faf1dc44d 34
+  s_f2c9bd75607afc::t_73b751a65d3a02 44-45
+  s_f2c9bd75607afc::t_688d7195bbdce7 30-33,35,37-43,46-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6d30a327296b007d5fcf0c6126bab3b7e3d876e5",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
