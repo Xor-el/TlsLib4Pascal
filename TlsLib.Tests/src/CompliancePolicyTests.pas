@@ -5342,7 +5342,7 @@ begin
   LResult.PolicyExempt := TArray<TBytes>.Create(ARoot);
   LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
     TPlatformChainCapability.DnsIdentity], True, LResult, TTlsAlertDescription.BadCertificate);
-  LDelegate := TOSDelegatePolicy.FromClientConfig(LConfig);
+  LDelegate := TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
   if AOverride then
     LDelegate.StrengthPolicy.AnchorKeyFloors := AFlag;
   LVerifier := TOSDelegateServerVerifier.Create(LEngine, LDelegate) as IServerCertificateVerifier;
