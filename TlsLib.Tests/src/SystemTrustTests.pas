@@ -264,6 +264,7 @@ type
     procedure TestClientSourceCarriesVerifyCallbackFromContext;
     procedure TestFilterRootsDeDupsAndDropsMalformed;
     procedure TestSnapshotCarriesFilteredDistrustSet;
+    procedure TestReadDistrustedFiltersLikeTheSnapshot;
     // RFC 7633 must-staple + TLS Feature well-formedness, enforced by the OS delegate
     procedure TestMustStapleLeafWithoutStapleRejects;
     procedure TestMustStapleLeafWithGoodStapleAccepts;
@@ -379,7 +380,7 @@ type
     procedure TestFromClientConfigCarriesOsAndHostRoots;
     procedure TestFromClientConfigWithoutAnOsSourceTakesTheTrustStore;
     // a host class that lists the marker is not the OS source, so its roots are not read
-    procedure TestFromClientConfigIgnoresAHostClassListingTheMarker;
+    procedure TestFromClientConfigRefusesAHostClassListingTheMarker;
     procedure TestFromServerConfigTakesTheClientCaStore;
     procedure TestLiveResolverAcceptsThePrivateChainUnderHostRoots;
     procedure TestLiveResolverRejectsAPublicRootedChainUnderHostRoots;
@@ -401,6 +402,7 @@ type
     procedure TestHostRootsOfAStoreDistrustingItsOnlyRootIsRefused;
     procedure TestDistrustStoreCarriesNoRoot;
     procedure TestDistrustStoreRefusesANilProvider;
+    procedure TestHostRootsTheOsDistrustsAreRefusedByTheDelegateSource;
     procedure TestAnchorStoreRefusesANilProvider;
     procedure TestAnchorsModeHostRootsComposesExactlyTheHostRoots;
     procedure TestAnchorsModeOsAndHostRootsAddsTheHostRootsToTheHarvest;
@@ -717,14 +719,18 @@ type
   var
     FRoots: TArray<TBytes>;
     FDistrusted: TArray<TBytes>;
+    FCollected: TArray<TBytes>;
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
     function HarvestDistrusted: TArray<TBytes>; override;
+    function CollectDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
   public
     function Filter(const ARaw: TArray<TBytes>): TArray<TBytes>;
     /// <summary>What a Snapshot of this probe harvests.</summary>
     procedure Harvests(const ARoots, ADistrusted: TArray<TBytes>);
+    /// <summary>What ReadDistrusted of this probe collects before filtering.</summary>
+    procedure Collects(const ADistrusted: TArray<TBytes>);
   end;
 
 { THostMarkedSource }
@@ -977,10 +983,20 @@ begin
   Result := FDistrusted;
 end;
 
+function TFilterRootsProbe.CollectDistrusted: TArray<TBytes>;
+begin
+  Result := FCollected;
+end;
+
 procedure TFilterRootsProbe.Harvests(const ARoots, ADistrusted: TArray<TBytes>);
 begin
   FRoots := ARoots;
   FDistrusted := ADistrusted;
+end;
+
+procedure TFilterRootsProbe.Collects(const ADistrusted: TArray<TBytes>);
+begin
+  FCollected := ADistrusted;
 end;
 
 function TFilterRootsProbe.SourceName: string;
@@ -2440,6 +2456,26 @@ begin
   CheckEqualBytes('the surviving anchor', LRoot, LStore.RootCertificates[0]);
 end;
 
+procedure TTestOSDelegateTemplate.TestReadDistrustedFiltersLikeTheSnapshot;
+var
+  LProbe: TFilterRootsProbe;
+  LDistrusted: TBytes;
+  LResult: TArray<TBytes>;
+begin
+  // the distrust-only read drops junk and duplicates exactly as the snapshot's set does
+  LDistrusted := OcspChain[1];
+  LProbe := TFilterRootsProbe.Create(Pkix);
+  try
+    LProbe.Collects(TArray<TBytes>.Create(LDistrusted, System.Copy(LDistrusted),
+      TBytes.Create(1, 2, 3)));
+    LResult := LProbe.ReadDistrusted;
+  finally
+    LProbe.Free;
+  end;
+  CheckEquals(1, System.Length(LResult), 'the duplicate is collapsed and the junk dropped');
+  CheckEqualBytes('the survivor is the well-formed certificate', LDistrusted, LResult[0]);
+end;
+
 { TTestDelegateHostRoots }
 
 procedure TTestDelegateHostRoots.SetUp;
@@ -3562,13 +3598,22 @@ begin
   CheckTrue(LPolicy.CheckHostName, 'the host name is matched as the config asks');
 end;
 
-procedure TTestDelegateHostRootsAlone.TestFromClientConfigIgnoresAHostClassListingTheMarker;
+procedure TTestDelegateHostRootsAlone.TestFromClientConfigRefusesAHostClassListingTheMarker;
 var
-  LPolicy: TOSDelegatePolicy;
+  LConfig: ITlsClientConfig;
+  LMessage: string;
 begin
-  LPolicy := TOSDelegatePolicy.FromClientConfig(ClientConfig(THostMarkedSource.Create(
-    PrivateRoot) as IServerCertificateVerifierSource));
-  CheckEquals(0, System.Length(LPolicy.Anchors), 'the roots of a host class are not the OS ones');
+  LConfig := ClientConfig(THostMarkedSource.Create(PrivateRoot)
+    as IServerCertificateVerifierSource);
+  LMessage := '';
+  try
+    TOSDelegatePolicy.FromClientConfig(LConfig);
+  except
+    on E: EArgumentTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckEquals(SLiveNeedsKnownRoots, LMessage,
+    'a host class with no trust store hides the roots the live pass must use');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestFromServerConfigTakesTheClientCaStore;
@@ -3750,6 +3795,37 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'reading the distrust list needs a PKIX provider');
+end;
+
+procedure TTestSystemTrustRoots.TestHostRootsTheOsDistrustsAreRefusedByTheDelegateSource;
+var
+  LDistrusted: TArray<TBytes>;
+  LRoots: TSystemTrustRoots;
+  LMessage: string;
+begin
+  if not (TOSSystemTrust.Supports(TSystemTrustMode.Delegate) and
+    TOSSystemTrust.Supports(TSystemTrustMode.Anchors)) then
+  begin
+    SkipTest('this platform has no delegate with a readable OS distrust list');
+    Exit;
+  end;
+  LDistrusted := TOSSystemTrust.DistrustStore(Pkix).DistrustedCertificates;
+  if System.Length(LDistrusted) = 0 then
+  begin
+    SkipTest('the OS distrust list is empty, so there is no distrusted root to hand in');
+    Exit;
+  end;
+  LRoots := TSystemTrustRoots.HostRoots(TTrustAnchorStore.Create(
+    TArray<TBytes>.Create(LDistrusted[0])) as ITrustAnchorStore);
+  LMessage := '';
+  try
+    TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.CacheOnly, LRoots, Pkix);
+  except
+    on E: EArgumentTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckEquals(SHostRootsNeedRoots, LMessage,
+    'a host root the OS distrusts leaves nothing to trust');
 end;
 
 procedure TTestSystemTrustRoots.TestAnchorStoreRefusesANilProvider;

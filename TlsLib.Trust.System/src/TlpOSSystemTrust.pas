@@ -104,8 +104,9 @@ type
     /// (one pass, the OS roots never vouch; raises where the engine cannot trust host roots alone).
     /// A path through a certificate the OS distrusts (read with APkix where the platform exposes
     /// that list) or that the host store distrusts is refused. Both lists are snapshotted when
-    /// the source is built. Raises where the platform exposes no system verifier, or where Live is
-    /// asked of a platform without OS-native live revocation.</summary>
+    /// the source is built. Raises where the platform exposes no system verifier, where Live is
+    /// asked of a platform without OS-native live revocation, or when HostRoots is left with no
+    /// root once the distrust lists are applied.</summary>
     class function ServerVerifierSource(AFetch: TSystemTrustFetch;
       const ARoots: TSystemTrustRoots; const APkix: IPkixProvider):
       IServerCertificateVerifierSource; static;
@@ -119,7 +120,9 @@ type
     /// else the OS roots): assign its ResolveVerdict to the verdict seam. AFallback (may be nil)
     /// runs on an indeterminate OS outcome before the posture decides. The caller owns and frees
     /// the result.
-    /// Raises where the platform has no OS-native live revocation.</summary>
+    /// Raises where the platform has no OS-native live revocation, or when the config's server
+    /// verifier source is neither the OS source nor backed by a trust store (a wrapped source's
+    /// roots cannot be read, so the re-check would use the OS roots instead).</summary>
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
       const AFallback: TCertificateVerdictResolver)
       : TOSLiveRevocationResolverBase; overload; static;
@@ -277,6 +280,7 @@ class function TOSSystemTrust.ServerVerifierSource(AFetch: TSystemTrustFetch;
 var
   LEngine: IPlatformChainEngine;
   LHostRoots, LDistrusted: TArray<TBytes>;
+  LUsable: ITrustAnchorStore;
 begin
   // where a platform chain engine exists, the generic source over it (the source refuses a Live
   // fetch on an engine without live fetch at construction, matching the per-platform refusal timing)
@@ -293,6 +297,13 @@ begin
   if (System.Length(LHostRoots) > 0) and Supports(TSystemTrustMode.Anchors) then
     LDistrusted := TArrayUtilities.Concat<TBytes>(LDistrusted,
       DistrustStore(APkix).DistrustedCertificates);
+  // the Anchors path fails when the distrust list removes every host root: refuse it here too
+  if ARoots.Scope = TSystemTrustRootScope.HostRoots then
+  begin
+    LUsable := TTrustAnchorStore.Create(LHostRoots, LDistrusted) as ITrustAnchorStore;
+    if LUsable.AnchorCount = 0 then
+      raise EArgumentTlsLibException.CreateRes(@SHostRootsNeedRoots);
+  end;
   Result := TOSVerifierSource.Create(LEngine, AFetch, ARoots.Scope, LHostRoots,
     LDistrusted) as IServerCertificateVerifierSource;
 end;

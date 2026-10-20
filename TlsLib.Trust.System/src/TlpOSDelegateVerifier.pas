@@ -42,10 +42,9 @@ type
   /// <summary>The connection-scoped policy an OS delegate applies around its platform engine. Built
   /// from the trust context by the source; Anchors is the exclusive trust root (always set for the
   /// client role; for the server role set by a HostRoots source, by the live re-check of a
-  /// client config that trusts its store roots (WebPki), and by the retry that tries the host roots
-  /// alone, else empty = the OS roots); CheckHostName mirrors the client config so a delegate
-  /// honours a disabled name check the same way the built-in verifier does (server role only; a
-  /// client cert has no name to match).</summary>
+  /// client config that trusts its store roots (WebPki), else empty = the OS roots); CheckHostName
+  /// mirrors the client config so a delegate honours a disabled name check the same way the
+  /// built-in verifier does (server role only; a client cert has no name to match).</summary>
   TOSDelegatePolicy = record
     Pkix: IPkixProvider;
     Clock: ITlsClock;
@@ -77,7 +76,8 @@ type
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
     /// <summary>The live re-check policy for the server certificate a client verifies: the roots
     /// and the distrust set come from its OS verifier source when it has one, else from its trust
-    /// store.</summary>
+    /// store. Raises when the configured server verifier source is neither the OS source nor
+    /// backed by a trust store, since the roots it trusts cannot be read.</summary>
     class function FromClientConfig(const AConfig: ITlsClientConfig): TOSDelegatePolicy; static;
     /// <summary>The live re-check policy for the client certificate a server verifies: the
     /// client-CA store is the exclusive root.</summary>
@@ -165,13 +165,13 @@ type
   /// indeterminate revocation defers to the async park; so does a cache-only one when the
   /// live-revocation verdict is armed). The server role trusts AHostRoots with the OS roots
   /// (OsAndHostRoots) or alone (HostRoots: one pass, the OS roots never vouch; OS distrust still
-  /// applies), refusing a path through any ADistrusted certificate (the full set: the factory adds
-  /// the OS list to the host's). The source holds its own copy of the arrays and hands out copies.
-  /// Refuses at construction a Live fetch on an engine without live fetch, host roots on an engine
-  /// that can trust neither with the OS roots nor alone, HostRoots without roots or on an engine
-  /// without exclusive server roots, and at verifier creation a Live fetch without the
-  /// live-revocation verdict, or - for an engine that renders no revocation outcome - a Hard client
-  /// posture without it.</summary>
+  /// applies), refusing a path through any ADistrusted certificate (the factory adds the OS list to
+  /// the host's where the platform exposes one). The source holds its own copy of the arrays and
+  /// hands out copies. Refuses at construction a Live fetch on an engine without live fetch, host
+  /// roots on an engine that can trust neither with the OS roots nor alone, HostRoots without roots
+  /// or on an engine without exclusive server roots, and at verifier creation a Live fetch without
+  /// the live-revocation verdict, or - for an engine that renders no revocation outcome - a Hard
+  /// client posture without it.</summary>
   TOSVerifierSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource,
     IClientCertificateVerifierSource, ISystemVerifierSource)
   strict private
@@ -298,7 +298,10 @@ begin
   begin
     Result.Anchors := AConfig.TrustStore.RootCertificates;
     Result.Distrusted := AConfig.TrustStore.DistrustedCertificates;
-  end;
+  end
+  // a wrapped source would be re-checked against the OS roots while it trusted others
+  else if AConfig.ServerVerifierSource <> nil then
+    raise EArgumentTlsLibException.CreateRes(@SLiveNeedsKnownRoots);
 end;
 
 class function TOSDelegatePolicy.FromServerConfig(const AConfig: ITlsServerConfig)

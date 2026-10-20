@@ -48,7 +48,10 @@ resourcestring
   SEngineCannotTrustOsAndHostRoots =
     'this platform engine cannot trust OS and host roots together';
   SHostRootsNeedRoots =
-    'HostRoots needs at least one root certificate';
+    'HostRoots needs at least one root certificate (after the OS distrust list is applied)';
+  SLiveNeedsKnownRoots =
+    'the live revocation resolver cannot tell which roots the configured server verifier source ' +
+    'trusts; use the OS verifier source or a trust store instead of a wrapped source';
   SEngineCannotTrustHostRootsAlone =
     'this platform engine cannot trust host roots alone (no exclusive server roots)';
 
@@ -213,6 +216,9 @@ type
     /// <summary>The certificates the platform explicitly distrusts (raw DER), read in the same
     /// Snapshot as HarvestRoots and possibly collected by that read. Default none.</summary>
     function HarvestDistrusted: TArray<TBytes>; virtual;
+    /// <summary>The platform's distrusted certificates (raw DER) read without a harvest, which
+    /// ReadDistrusted filters. Default none.</summary>
+    function CollectDistrusted: TArray<TBytes>; virtual;
     /// <summary>Human-readable source label, used in the fail-closed message.</summary>
     function SourceName: string; virtual; abstract;
     /// <summary>The PKIX provider, for subclasses that must parse (e.g. PEM).</summary>
@@ -233,8 +239,9 @@ type
     /// raises ESystemTrustUnavailableTlsLibException; a non-empty result is returned
     /// as harvested.</summary>
     function Harvest: TArray<TBytes>;
-    /// <summary>The distrusted certificates alone, read without parsing the roots. Default none.</summary>
-    function ReadDistrusted: TArray<TBytes>; virtual;
+    /// <summary>The distrusted certificates alone, read without parsing the roots and filtered
+    /// like a snapshot's distrust set.</summary>
+    function ReadDistrusted: TArray<TBytes>;
     /// <summary>Harvests now and freezes the result into an immutable anchor store.</summary>
     function Snapshot: ITrustAnchorStore;
   end;
@@ -448,9 +455,14 @@ begin
   Result := nil;
 end;
 
-function TSystemRootSourceBase.ReadDistrusted: TArray<TBytes>;
+function TSystemRootSourceBase.CollectDistrusted: TArray<TBytes>;
 begin
   Result := nil;
+end;
+
+function TSystemRootSourceBase.ReadDistrusted: TArray<TBytes>;
+begin
+  Result := FilterRoots(CollectDistrusted);
 end;
 
 function TSystemRootSourceBase.Snapshot: ITrustAnchorStore;

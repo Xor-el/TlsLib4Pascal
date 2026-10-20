@@ -38,9 +38,10 @@ type
   /// checks revocation from the OS cache and the staple unless the live-revocation verdict is
   /// armed (see WithLiveSystemTrust). Anchors also honour OS distrust of an exact certificate
   /// anywhere on a path (Windows Disallowed, macOS Deny), as far as the platform lets it be read;
-  /// a delegate applies the full OS policy. OS and host roots join the harvested
-  /// ones, and distrust from either wins; a delegate trusts them with the OS roots and
-  /// distrust from the OS or the host store still wins on a path through them. Host roots alone
+  /// a delegate applies the full OS policy. With OsAndHostRoots, Anchors unions the host roots with
+  /// the harvested OS roots and distrust from either wins; a delegate trusts the host roots with
+  /// the OS roots and distrust from the OS or the host store still wins on a path through
+  /// them. Host roots alone
   /// are the only trust root: Anchors harvests nothing, a delegate evaluates in one pass, and the
   /// OS distrust list still applies. A delegate reads the distrust lists once, when the verifier
   /// source is built. System trust verifies server certificates only; an mTLS server's client-CA

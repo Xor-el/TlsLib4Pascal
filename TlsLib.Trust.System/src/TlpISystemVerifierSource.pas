@@ -19,10 +19,9 @@ uses
   SysUtils;
 
 type
-  /// <summary>The role-neutral marker of a certificate verifier source that validates chains
-  /// through the OS delegate rather than the portable verifier; the source class lists it. Any
-  /// class can list it, so a config check judges the class, not the marker. It also carries the
-  /// server-role roots, so the live re-check builds against the same ones as the inline pass. A
+  /// <summary>The roots facet of the OS verifier source: the server-role roots and distrust set,
+  /// so the live re-check builds against the same ones as the inline pass. The source class
+  /// lists it, but any class can, so a config check judges the class, not this interface. A
   /// stapled revocation response may be decided by the configured PKIX provider instead of the OS.
   /// All three are empty for a client-only source.</summary>
   ISystemVerifierSource = interface(IInterface)
@@ -31,8 +30,8 @@ type
     function Anchors: TArray<TBytes>;
     /// <summary>Host roots trusted with the OS roots.</summary>
     function ExtraAnchors: TArray<TBytes>;
-    /// <summary>The distrust set the source was built with (the host's plus the OS list from the
-    /// factory), refused on any accepted path.</summary>
+    /// <summary>The distrust set the source was built with (the host's, plus the OS list where the
+    /// platform exposes one and the factory read it), refused on any accepted path.</summary>
     function Distrusted: TArray<TBytes>;
   end;
 

@@ -47,9 +47,8 @@ type
   strict protected
     function HarvestRoots: TArray<TBytes>; override;
     function HarvestDistrusted: TArray<TBytes>; override;
+    function CollectDistrusted: TArray<TBytes>; override;
     function SourceName: string; override;
-  public
-    function ReadDistrusted: TArray<TBytes>; override;
   end;
 
   /// <summary>
@@ -582,8 +581,9 @@ var
   LDisallowed: TList<TBytes>;
 begin
   Result := nil;
+  // an empty list from a missing API would read as "nothing distrusted": fail closed instead
   if not FReady then
-    Exit;
+    raise ESystemTrustUnavailableTlsLibException.CreateRes(@SDisallowedUnreadable);
   LDisallowed := TList<TBytes>.Create;
   try
     if not CollectStore('Disallowed', nil, LDisallowed, False) then
@@ -952,7 +952,7 @@ begin
   Result := FDisallowed;
 end;
 
-function TWindowsRootSource.ReadDistrusted: TArray<TBytes>;
+function TWindowsRootSource.CollectDistrusted: TArray<TBytes>;
 begin
   Result := TWindowsTrustApi.ReadDisallowed;
 end;

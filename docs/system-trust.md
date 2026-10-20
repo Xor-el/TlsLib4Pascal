@@ -203,7 +203,9 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   as a store with no root.
 - **When the OS distrusts your root.** A delegate refuses the handshake with `bad_certificate`;
   Anchors mode filters the root out of the trust set, so the chain has no anchor and fails with
-  `unknown_ca` (or the config fails closed at `Build` when no anchor is left).
+  `unknown_ca` (or the config fails closed at `Build` when no anchor is left). When the OS
+  distrusts every root you gave, the delegate source refuses at build with
+  `EArgumentTlsLibException`.
 - **Refusals.** `HostRoots` raises `EArgumentTlsLibException` for a nil store or one with no
   root (a store that distrusts its only root has none). A platform engine that cannot trust host
   roots alone raises `ESystemTrustUnsupportedTlsLibException` (see
@@ -211,11 +213,10 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 - **Anchors mode** validates in our own pipeline against your roots only. Nothing is harvested from
   the OS, so Linux, BSD and Solaris need no `ca-certificates` package or CA bundle.
 - **Apple.** CT and the 398-day cap apply only to system roots; Apple's general TLS server rules
-  (serverAuth EKU, DNS SAN, key size, at most 825 days) still apply. This path is not yet tested on
-  a device.
-- **Android.** The exclusive roots bypass `network_security_config.xml` for every host: domain pins,
-  `<trust-anchors>`, the CT requirement and user-installed CAs are not consulted, so your roots
-  alone decide.
+  (serverAuth EKU, DNS SAN, key size, at most 825 days) still apply.
+- **Android.** Unlike `OsAndHostRoots`, `HostRoots` does not apply `network_security_config.xml`:
+  its pins, `<domain-config>`, `<trust-anchors>`, the CT requirement and user-installed CAs are not
+  consulted for any host, so your roots alone decide.
 
 For live revocation, pass the same roots to `WithLiveSystemTrust` and build the resolver from the
 resulting config, which reads them back so the live pass never consults the OS roots either:
@@ -227,6 +228,9 @@ LConfig := LBuilder.Build;
 resolver := TOSSystemTrust.LiveRevocationResolver(LConfig, nil);   // caller owns + frees it
 stream.SetCertificateVerdictResolver(resolver.ResolveVerdict);
 ```
+
+The resolver raises `EArgumentTlsLibException` when the config's server verifier source is a
+wrapped one (neither the OS source nor backed by a trust store): its roots cannot be read back.
 
 ### OS distrust in Anchors mode
 
