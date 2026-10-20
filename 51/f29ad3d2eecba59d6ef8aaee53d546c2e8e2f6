@@ -1,0 +1,93 @@
+TlsLib.Compliance/src/TlpComplianceCryptoProvider.pas
+  s_f2c9bd75607afc::t_95d63451ac35f5 28-29
+  s_f2c9bd75607afc::t_8b05bfba56aade 242
+  s_f2c9bd75607afc::t_98b4a958d4d386 231,241,243-245
+  s_f2c9bd75607afc::t_271af9cf003ed3 232
+  s_f2c9bd75607afc::t_ac0b6086ed56ad 49-52
+TlsLib.Compliance/src/TlpComplianceReport.pas
+  s_f2c9bd75607afc::t_477753bbc84f64 25-27,37,39-40,43-44,48
+  s_f2c9bd75607afc::t_7be20f649dc03e 73-74,83,88-90,92,94-99
+  s_f2c9bd75607afc::t_2946f19f6528eb 91
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_c9cb7c70d3acb6 39-42
+TlsLib.Tests/src/ComplianceProviderTests.pas
+  s_f2c9bd75607afc::t_5a284efc88b4a0 176-183
+  s_f2c9bd75607afc::t_23772e8977f3ad 292-304
+  s_f2c9bd75607afc::t_f3c730e538f388 89-94
+  s_f2c9bd75607afc::t_6202e2d504433a 345-358
+  s_f2c9bd75607afc::t_911fca2dc5d3d6 1137-1175,1177-1180,1183-1184,1186-1191,1193-1196,1198-1199,1201-1286
+  s_f2c9bd75607afc::t_e4b03926aa6e66 1192,1197,1200
+  s_f2c9bd75607afc::t_1f6d3747a34d4f 309-331
+  s_f2c9bd75607afc::t_561d70f364f6df 1176,1181-1182,1185
+TlsLib.Compliance/src/TlpIComplianceReport.pas
+  s_f2c9bd75607afc::t_e82de330d49497 24-27,30-31,33-35
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_31b118b95908e4 1008
+  s_f2c9bd75607afc::t_0d4e68439a744e 91-95
+  s_f2c9bd75607afc::t_a15ba67bb5f24d 402-403,405-406
+  s_f2c9bd75607afc::t_608271f37a99cb 367
+  s_f2c9bd75607afc::t_775b435375db78 86-87
+  s_f2c9bd75607afc::t_b027edb1287f7b 336
+  s_f2c9bd75607afc::t_22b135618b9e19 313-314,316,321-322,324-335
+  s_f2c9bd75607afc::t_0d71e32afc460f 863,866-867
+  s_f2c9bd75607afc::t_62164d508cd096 487
+  s_f2c9bd75607afc::t_439a6fe3406be5 986
+  s_f2c9bd75607afc::t_a364fcc1cd4a5c 350,356-359
+  s_f2c9bd75607afc::t_9f4068453d2dd2 368,370
+  s_f2c9bd75607afc::t_271debe895ba06 953
+  s_f2c9bd75607afc::t_ad562e4abb9378 128
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_ae4a5615993174 86,89-91
+  s_f2c9bd75607afc::t_09002c3b934985 103
+  s_f2c9bd75607afc::t_96bf360243a78e 401-408
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_baa4a19d6950b5 1166-1167
+  s_f2c9bd75607afc::t_5f6c37eaaab017 1858-1859,1870-1871,1875-1900,1902-1904,1909-1913
+  s_f2c9bd75607afc::t_d5c275428df0b2 826-834
+  s_f2c9bd75607afc::t_2556241c6b153c 262-264
+  s_f2c9bd75607afc::t_5b24fafe52841f 584-586,589
+  s_f2c9bd75607afc::t_e097c18c65e80b 812,819-822,1449,1914,5704-5705
+  s_f2c9bd75607afc::t_7c4b6bf651028c 1446,1448,1450-1511,1513-1516,1520
+  s_f2c9bd75607afc::t_b083f1f7259bd7 191-192
+  s_f2c9bd75607afc::t_59c4662e22bee8 1512,1517-1519,1521-1528,1531-1533,1535
+  s_f2c9bd75607afc::t_be3e04cc315c65 1529,1534,1536-1538
+  s_f2c9bd75607afc::t_98a3f23643fe31 1901,1905-1908
+  s_f2c9bd75607afc::t_7717fdeb9a8a4e 5670-5681,5687,5692-5703,5707
+  s_f2c9bd75607afc::t_529f93918a7b5e 109-110,112-113
+  s_f2c9bd75607afc::t_54382818adc73a 185-190
+TlsLib.Tests/src/ComplianceRulesTests.pas
+  s_f2c9bd75607afc::t_edd99639062409 1787
+  s_f2c9bd75607afc::t_049af3f7b42b2f 2090
+  s_f2c9bd75607afc::t_4bcdfe9c05c972 1704
+  s_f2c9bd75607afc::t_7a3ca3fc1b0435 1695
+  s_f2c9bd75607afc::t_e3daf5870cbb70 194
+  s_f2c9bd75607afc::t_ff3f7adc918489 1675,1684
+  s_f2c9bd75607afc::t_3c07a2521300fd 1768
+  s_f2c9bd75607afc::t_b54ecb12ec9717 1790,1794-1801
+  s_f2c9bd75607afc::t_584bf574546bf5 1722
+  s_f2c9bd75607afc::t_88b1c6adfb2c55 1966
+  s_f2c9bd75607afc::t_67bf047b815ef1 181-183
+  s_f2c9bd75607afc::t_b17c67cc0e27e6 1977
+  s_f2c9bd75607afc::t_73a16ce9be08b2 1988
+  s_f2c9bd75607afc::t_d62c4e479e0d12 1999
+  s_f2c9bd75607afc::t_e2991892ff1220 1631,1633-1665,1802-1803
+  s_f2c9bd75607afc::t_78ca7cdf2ca6ea 1755
+  s_f2c9bd75607afc::t_b82cecc8d2b7ad 1811
+  s_f2c9bd75607afc::t_18a5d97d4f5da7 1739
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "51f29ad3d2eecba59d6ef8aaee53d546c2e8e2f6",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
