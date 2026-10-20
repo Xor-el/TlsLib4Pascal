@@ -1,0 +1,22 @@
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_9b88b1517c1849 5521-5522
+  s_f2c9bd75607afc::t_50192998c3d825 655
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_9cf30db34f1ab2 369-370
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "455a0b1820eede28d580b62875caa22601651055",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
