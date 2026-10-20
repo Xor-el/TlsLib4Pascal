@@ -212,6 +212,8 @@ type
     procedure TestFindingDescribeWithoutSubject;
     procedure TestIdentityDescribeSkipsEmptyParts;
     procedure TestIdentityDescribeEmpty;
+    procedure TestIdentityDescribePrintsTheArchitectureAndLegacyPolicy;
+    procedure TestIdentityDescribeHidesAnUnreadMachine;
     procedure TestReportDescribeWithoutCertificate;
     procedure TestUnmetExceptionReturnsCopyOfFindings;
     procedure TestRefusedExceptionCreateRes;
@@ -2114,6 +2116,33 @@ var
 begin
   LIdentity := Default(TModuleIdentity);
   CheckEquals('', LIdentity.Describe, 'nothing attested');
+end;
+
+procedure TTestComplianceReport.TestIdentityDescribePrintsTheArchitectureAndLegacyPolicy;
+var
+  LIdentity: TModuleIdentity;
+begin
+  LIdentity := Default(TModuleIdentity);
+  LIdentity.OsName := 'Windows';
+  LIdentity.ProductType := 3;
+  LIdentity.NativeMachine := $8664;
+  LIdentity.ProcessMachine := $014C;
+  LIdentity.ModulePath := 'C:\m.dll';
+  LIdentity.ListedModuleVersion := '10.0.1.2';
+  LIdentity.LegacyFipsPolicy := TLegacyFipsPolicy.Enabled;
+  CheckEquals('Windows product type 3 listed 10.0.1.2 C:\m.dll machine 0x8664 process 0x014C ' +
+    'legacy FIPS policy Enabled', LIdentity.Describe, 'every fact, compactly');
+end;
+
+procedure TTestComplianceReport.TestIdentityDescribeHidesAnUnreadMachine;
+var
+  LIdentity: TModuleIdentity;
+begin
+  LIdentity := Default(TModuleIdentity);
+  LIdentity.OsName := 'Windows';
+  LIdentity.LegacyFipsPolicy := TLegacyFipsPolicy.Disabled;
+  CheckEquals('Windows legacy FIPS policy Disabled', LIdentity.Describe,
+    'no machine, product type or path');
 end;
 
 procedure TTestComplianceReport.TestReportDescribeWithoutCertificate;

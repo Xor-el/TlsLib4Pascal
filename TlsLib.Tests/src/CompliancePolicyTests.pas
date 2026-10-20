@@ -139,6 +139,9 @@ type
       out AFindings: TArray<TComplianceFinding>): Boolean;
     function ArgumentRefused(const ARules: TComplianceRules;
       AEnforcement: TComplianceEnforcement): Boolean;
+    // whether a relaxed policy over an attestation with these module versions discloses them
+    function DisclosesRevision(AStatus: TModuleStatus;
+      const AFileVersion, AListedVersion: string): Boolean;
   published
     procedure TestStrictFakeValidatedSystemConstructs;
     procedure TestCnsa1NamesItsPreset;
@@ -180,6 +183,10 @@ type
     procedure TestPolicyCryptoRefusesChaCha;
     procedure TestPolicyPkixKeepsBaseInspector;
     procedure TestOsAttestationMatchesPlatform;
+    procedure TestListedModuleVersionDifferingIsDisclosed;
+    procedure TestListedModuleVersionMatchingIsNotDisclosed;
+    procedure TestNoListedModuleVersionIsNotDisclosed;
+    procedure TestNotValidatedModuleVersionIsNotDisclosed;
   end;
 
   TTestComplianceAdmit = class(TCompliancePolicyTestCase)
@@ -433,7 +440,47 @@ type
 
 {$IFDEF TLSLIB_MSWINDOWS}
   TTestWindowsModuleAttestation = class(TTlsLibAlgorithmTestCase)
+  strict private
+    // facts of a native x64 process on a listed release with the system copy of the module
+    function ValidFacts(ABuild: UInt32; AProductType: Byte): TWindowsModuleFacts;
   published
+    procedure TestDecide22621WorkstationValidated;
+    procedure TestDecide20348ServerValidated;
+    procedure TestDecide20348DomainControllerValidated;
+    procedure TestDecide22621ServerNotValidated;
+    procedure TestDecide22621DomainControllerNotValidated;
+    procedure TestDecide20348WorkstationNotValidated;
+    procedure TestDecideWow64NotValidated;
+    procedure TestDecideEmulatedProcessNotValidated;
+    procedure TestDecide32BitProcessNotValidated;
+    procedure TestDecideNativeArm64NotValidated;
+    procedure TestDecideModuleBuildMismatchNotValidated;
+    procedure TestDecideModuleMajorMismatchNotValidated;
+    procedure TestDecideModuleMinorMismatchNotValidated;
+    procedure TestDecideModulePathNotSystemNotValidated;
+    procedure TestDecideModulePathCaseDiffersValidated;
+    procedure TestDecideWrongMajorNotValidated;
+    procedure TestDecideWrongMinorNotValidated;
+    procedure TestDecideWrongPlatformNotValidated;
+    procedure TestDecide26100NotValidated;
+    procedure TestDecide22631NotValidated;
+    procedure TestDecideUnlistedBuildNotValidated;
+    procedure TestDecideUnreadableOsIsUnknown;
+    procedure TestDecideUnreadableMachinesIsUnknown;
+    procedure TestDecideUnreadablePathIsUnknown;
+    procedure TestDecideUnreadableVersionIsUnknown;
+    procedure TestDecideMismatchBeatsUnreadable;
+    procedure TestDecideModuleRevisionDoesNotDecide;
+    procedure TestDecideReasonsAreDistinct;
+    procedure TestDescribePrintsTheReason;
+    procedure TestDescribeOfUnreadableOsIsTheReason;
+    procedure TestDescribeOfValidatedFacts;
+    procedure TestIdentityCarriesTheFacts;
+    procedure TestIdentityOfUnreadableOsKeepsLegacyPolicy;
+    procedure TestIdentityOfUnreadVersionHasNoFileVersion;
+    procedure TestIdentityOfNotValidatedRowHasNoListedVersion;
+    procedure TestGatheredFactsDescribeThisProcess;
+    procedure TestRealProcessFactsDecideByProcess;
     procedure TestReadsBuildAndModuleVersion;
     procedure TestTableValidated22621And20348;
     procedure TestTableNotValidated26100_22631_19045;
@@ -873,6 +920,46 @@ begin
     on EArgumentTlsLibException do
       Result := True;
   end;
+end;
+
+function TTestCompliancePolicy.DisclosesRevision(AStatus: TModuleStatus;
+  const AFileVersion, AListedVersion: string): Boolean;
+var
+  LIdentity: TModuleIdentity;
+  LPolicy: ICompliancePolicy;
+begin
+  LIdentity := Identity;
+  LIdentity.ModuleFileVersion := AFileVersion;
+  LIdentity.ListedModuleVersion := AListedVersion;
+  LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, SystemBase, Pkix,
+    TFakeModuleAttestation.Create(AStatus, LIdentity) as IModuleAttestation,
+    TComplianceEnforcement.Relaxed) as ICompliancePolicy;
+  Result := Disclosed(LPolicy.PlatformReport, AFileVersion + ' differs from the ' +
+    AListedVersion);
+end;
+
+procedure TTestCompliancePolicy.TestListedModuleVersionDifferingIsDisclosed;
+begin
+  CheckTrue(DisclosesRevision(TModuleStatus.Validated, '10.0.20348.2000', '10.0.20348.30000'),
+    'the revision is disclosed');
+end;
+
+procedure TTestCompliancePolicy.TestListedModuleVersionMatchingIsNotDisclosed;
+begin
+  CheckFalse(DisclosesRevision(TModuleStatus.Validated, '10.0.20348.30000',
+    '10.0.20348.30000'), 'nothing to disclose');
+end;
+
+procedure TTestCompliancePolicy.TestNoListedModuleVersionIsNotDisclosed;
+begin
+  CheckFalse(DisclosesRevision(TModuleStatus.Validated, '10.0.20348.2000', ''),
+    'a module with no listed version has nothing to differ from');
+end;
+
+procedure TTestCompliancePolicy.TestNotValidatedModuleVersionIsNotDisclosed;
+begin
+  CheckFalse(DisclosesRevision(TModuleStatus.NotValidated, '10.0.20348.2000',
+    '10.0.20348.30000'), 'the finding says it; a disclosure would be noise');
 end;
 
 procedure TTestCompliancePolicy.TestStrictFakeValidatedSystemConstructs;
@@ -4054,6 +4141,516 @@ end;
 
 { TTestWindowsModuleAttestation }
 
+const
+  ProductWorkstation = 1;
+  ProductDomainController = 2;
+  ProductServer = 3;
+  MachineI386 = $014C;
+  MachineAmd64 = $8664;
+  MachineArm64 = $AA64;
+
+function TTestWindowsModuleAttestation.ValidFacts(ABuild: UInt32;
+  AProductType: Byte): TWindowsModuleFacts;
+begin
+  Result := Default(TWindowsModuleFacts);
+  Result.OsRead := True;
+  Result.Major := 10;
+  Result.Minor := 0;
+  Result.Build := ABuild;
+  Result.PlatformId := 2;
+  Result.Revision := 3;
+  Result.ProductType := AProductType;
+  Result.Process64Bit := True;
+  Result.MachineRead := True;
+  Result.ProcessMachine := 0;
+  Result.NativeMachine := MachineAmd64;
+  Result.PathRead := True;
+  Result.ModulePath := 'C:\Windows\System32\bcryptprimitives.dll';
+  Result.SystemModulePath := 'C:\Windows\System32\bcryptprimitives.dll';
+  Result.VersionRead := True;
+  Result.ModuleMajor := 10;
+  Result.ModuleMinor := 0;
+  Result.ModuleBuild := UInt16(ABuild);
+  Result.ModuleRevision := 30001;
+  Result.LegacyFipsPolicy := TLegacyFipsPolicy.Disabled;
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide22621WorkstationValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(22621, ProductWorkstation), TModuleStandard.Fips140_3, LReason)),
+    '22621 workstation, native x64');
+  CheckEquals('', LReason, 'no reason when validated');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide20348ServerValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(20348, ProductServer), TModuleStandard.Fips140_3, LReason)),
+    '20348 server, native x64');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide20348DomainControllerValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(20348, ProductDomainController), TModuleStandard.Fips140_3, LReason)),
+    '20348 domain controller');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide22621ServerNotValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(22621, ProductServer), TModuleStandard.Fips140_3, LReason)),
+    '22621 is the workstation release');
+  CheckTrue(Pos('product type 3', LReason) > 0, 'the reason names the product type');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide22621DomainControllerNotValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(22621, ProductDomainController), TModuleStandard.Fips140_3, LReason)),
+    '22621 is the workstation release');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide20348WorkstationNotValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(20348, ProductWorkstation), TModuleStandard.Fips140_3, LReason)),
+    '20348 is the server release');
+  CheckTrue(Pos('product type 1', LReason) > 0, 'the reason names the product type');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideWow64NotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.ProcessMachine := MachineI386;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'a 32-bit process on 64-bit Windows');
+  CheckTrue(Pos('emulation', LReason) > 0, 'the reason names the emulation');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideEmulatedProcessNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.ProcessMachine := MachineAmd64;
+  LFacts.NativeMachine := MachineArm64;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'an x64 process emulated on ARM64');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide32BitProcessNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Process64Bit := False;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'a process that is not 64-bit');
+  CheckTrue(Pos('32-bit', LReason) > 0, 'the reason names the bitness');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideNativeArm64NotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.NativeMachine := MachineArm64;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'a native ARM64 process');
+  CheckTrue(Pos('not x64', LReason) > 0, 'the reason names the machine');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideModuleBuildMismatchNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.ModuleBuild := 19041;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the module is another build');
+  CheckTrue(Pos('file version is 10.0.19041.30001, not 10.0.22621', LReason) > 0,
+    'the reason names both versions');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideModuleMajorMismatchNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.ModuleMajor := 6;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the module major version');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideModuleMinorMismatchNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.ModuleMinor := 1;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the module minor version');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideModulePathNotSystemNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.ModulePath := 'C:\Windows\SysWOW64\bcryptprimitives.dll';
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'a module from another directory');
+  CheckTrue(Pos('SysWOW64', LReason) > 0, 'the reason names the loaded path');
+  CheckTrue(Pos('system copy', LReason) > 0, 'and the system copy');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideModulePathCaseDiffersValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.ModulePath := 'c:\WINDOWS\system32\BCryptPrimitives.dll';
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'file names are not case sensitive');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideWrongMajorNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Major := 6;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the OS major version');
+  CheckTrue(Pos('NT 10.0', LReason) > 0, 'the reason names the release family');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideWrongMinorNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Minor := 1;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the OS minor version');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideWrongPlatformNotValidated;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.PlatformId := 1;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the platform id');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide26100NotValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(26100, ProductWorkstation), TModuleStandard.Fips140_3, LReason)),
+    '26100 is not validated');
+  CheckTrue(Pos('no validated module', LReason) > 0, 'the table says so');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecide22631NotValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(22631, ProductWorkstation), TModuleStandard.Fips140_3, LReason)),
+    '22631 is not validated');
+  CheckTrue(Pos('no validated module', LReason) > 0, 'the table says so');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideUnlistedBuildNotValidated;
+var
+  LReason: string;
+begin
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(
+    ValidFacts(12345, ProductWorkstation), TModuleStandard.Fips140_3, LReason)),
+    'a build the table does not list');
+  CheckTrue(Pos('no validated module', LReason) > 0, 'the table says so');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideUnreadableOsIsUnknown;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.OsRead := False;
+  CheckEquals(Ord(TModuleStatus.Unknown), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'an OS that could not be read');
+  CheckTrue(Pos('OS build', LReason) > 0, 'the reason says what was unread');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideUnreadableMachinesIsUnknown;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.MachineRead := False;
+  LFacts.NativeMachine := 0;
+  CheckEquals(Ord(TModuleStatus.Unknown), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'no architecture query');
+  CheckTrue(Pos('architectures', LReason) > 0, 'the reason says what was unread');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideUnreadablePathIsUnknown;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.PathRead := False;
+  LFacts.ModulePath := '';
+  CheckEquals(Ord(TModuleStatus.Unknown), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'no module path');
+  CheckTrue(Pos('path of the loaded module', LReason) > 0, 'the reason says what was unread');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideUnreadableVersionIsUnknown;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.VersionRead := False;
+  LFacts.ModuleMajor := 0;
+  LFacts.ModuleMinor := 0;
+  LFacts.ModuleBuild := 0;
+  LFacts.ModuleRevision := 0;
+  CheckEquals(Ord(TModuleStatus.Unknown), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'no module file version');
+  CheckTrue(Pos('file version of the loaded module', LReason) > 0,
+    'the reason says what was unread');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideMismatchBeatsUnreadable;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.VersionRead := False;
+  LFacts.Process64Bit := False;
+  CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'a fact that contradicts outweighs one unread');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideModuleRevisionDoesNotDecide;
+var
+  LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.ModuleRevision := 5;
+  LFacts.Revision := 9999;
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+    TModuleStandard.Fips140_3, LReason)), 'the revisions are reported, not gated');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDecideReasonsAreDistinct;
+var
+  LCases: array [0 .. 10] of TWindowsModuleFacts;
+  LReasons: array [0 .. 10] of string;
+  LI, LJ: Int32;
+begin
+  for LI := 0 to 10 do
+    LCases[LI] := ValidFacts(22621, ProductWorkstation);
+  LCases[0].Major := 6;
+  LCases[1].Build := 26100;
+  LCases[2].ProductType := ProductServer;
+  LCases[3].Process64Bit := False;
+  LCases[4].ProcessMachine := MachineI386;
+  LCases[5].NativeMachine := MachineArm64;
+  LCases[6].ModulePath := 'C:\Windows\SysWOW64\bcryptprimitives.dll';
+  LCases[7].ModuleBuild := 19041;
+  LCases[8].MachineRead := False;
+  LCases[9].PathRead := False;
+  LCases[10].VersionRead := False;
+  for LI := 0 to 10 do
+  begin
+    TWindowsModuleAttestation.Decide(LCases[LI], TModuleStandard.Fips140_3, LReasons[LI]);
+    CheckTrue(LReasons[LI] <> '', 'a reason for case ' + IntToStr(LI));
+    for LJ := 0 to LI - 1 do
+      CheckTrue(LReasons[LI] <> LReasons[LJ], Format('cases %d and %d differ', [LJ, LI]));
+  end;
+end;
+
+procedure TTestWindowsModuleAttestation.TestDescribePrintsTheReason;
+var
+  LFacts: TWindowsModuleFacts;
+  LAttestation: IModuleAttestation;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Process64Bit := False;
+  LAttestation := TWindowsModuleAttestation.CreateFromFacts(LFacts) as IModuleAttestation;
+  CheckEquals(Ord(TModuleStatus.NotValidated),
+    Ord(LAttestation.Status(TModuleStandard.Fips140_3)), 'the status');
+  CheckTrue(Pos('the process is 32-bit', LAttestation.Describe) > 0, 'the reason is printed');
+  CheckEquals(0, Pos('FIPS', LAttestation.Describe), 'no standard is claimed');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDescribeOfUnreadableOsIsTheReason;
+var
+  LFacts: TWindowsModuleFacts;
+  LAttestation: IModuleAttestation;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.OsRead := False;
+  LAttestation := TWindowsModuleAttestation.CreateFromFacts(LFacts) as IModuleAttestation;
+  CheckEquals(Ord(TModuleStatus.Unknown), Ord(LAttestation.Status(TModuleStandard.Fips140_3)),
+    'the status');
+  CheckEquals('the OS build could not be read', LAttestation.Describe, 'the reason alone');
+end;
+
+procedure TTestWindowsModuleAttestation.TestDescribeOfValidatedFacts;
+var
+  LAttestation: IModuleAttestation;
+begin
+  LAttestation := TWindowsModuleAttestation.CreateFromFacts(ValidFacts(20348, ProductServer))
+    as IModuleAttestation;
+  CheckEquals(Ord(TModuleStatus.Validated), Ord(LAttestation.Status(TModuleStandard.Fips140_3)),
+    'the status');
+  CheckTrue(Pos('CMVP certificate 5410, FIPS 140-3 Level 1', LAttestation.Describe) > 0,
+    'the certificate');
+end;
+
+procedure TTestWindowsModuleAttestation.TestIdentityCarriesTheFacts;
+var
+  LAttestation: IModuleAttestation;
+  LIdentity: TModuleIdentity;
+begin
+  LAttestation := TWindowsModuleAttestation.CreateFromFacts(ValidFacts(20348, ProductServer))
+    as IModuleAttestation;
+  LIdentity := LAttestation.Identity;
+  CheckEquals('10.0.20348.3',LIdentity.OsVersion, 'the OS version with its revision');
+  CheckEquals(ProductServer, Int32(LIdentity.ProductType), 'the product type');
+  CheckEquals(0, Int32(LIdentity.ProcessMachine), 'the process machine');
+  CheckEquals(MachineAmd64, Int32(LIdentity.NativeMachine), 'the native machine');
+  CheckEquals('C:\Windows\System32\bcryptprimitives.dll', LIdentity.ModulePath, 'the path');
+  CheckEquals('10.0.20348.30001', LIdentity.ModuleFileVersion, 'the file version');
+  CheckEquals('10.0.20348.30000', LIdentity.ListedModuleVersion, 'the listed version');
+  CheckEquals(Ord(TLegacyFipsPolicy.Disabled), Ord(LIdentity.LegacyFipsPolicy), 'the legacy flag');
+  CheckTrue(Pos('legacy FIPS policy Disabled', LIdentity.Describe) > 0, 'printed');
+  CheckTrue(Pos('machine 0x8664', LIdentity.Describe) > 0, 'printed');
+end;
+
+procedure TTestWindowsModuleAttestation.TestIdentityOfUnreadableOsKeepsLegacyPolicy;
+var
+  LFacts: TWindowsModuleFacts;
+  LAttestation: IModuleAttestation;
+  LIdentity: TModuleIdentity;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.OsRead := False;
+  LAttestation := TWindowsModuleAttestation.CreateFromFacts(LFacts) as IModuleAttestation;
+  LIdentity := LAttestation.Identity;
+  CheckEquals(Ord(TLegacyFipsPolicy.Disabled), Ord(LIdentity.LegacyFipsPolicy), 'the flag');
+  CheckEquals('', LIdentity.ListedModuleVersion, 'no listed version without a build');
+end;
+
+procedure TTestWindowsModuleAttestation.TestIdentityOfUnreadVersionHasNoFileVersion;
+var
+  LFacts: TWindowsModuleFacts;
+  LAttestation: IModuleAttestation;
+begin
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.VersionRead := False;
+  LAttestation := TWindowsModuleAttestation.CreateFromFacts(LFacts) as IModuleAttestation;
+  CheckEquals('', LAttestation.Identity.ModuleFileVersion, 'no zeroed version is invented');
+end;
+
+procedure TTestWindowsModuleAttestation.TestIdentityOfNotValidatedRowHasNoListedVersion;
+var
+  LAttestation: IModuleAttestation;
+begin
+  LAttestation := TWindowsModuleAttestation.CreateFromFacts(ValidFacts(22631,
+    ProductWorkstation)) as IModuleAttestation;
+  CheckEquals('', LAttestation.Identity.ListedModuleVersion, 'the row lists none');
+  CheckEquals('', LAttestation.Identity.Certificate, 'and no certificate');
+end;
+
+procedure TTestWindowsModuleAttestation.TestGatheredFactsDescribeThisProcess;
+var
+  LFacts: TWindowsModuleFacts;
+begin
+  LFacts := TWindowsModuleAttestation.Gather;
+  CheckTrue(LFacts.OsRead, 'the OS was read');
+  CheckEquals(SizeOf(Pointer) = 8, LFacts.Process64Bit, 'the process bitness');
+  if not LFacts.MachineRead then
+  begin
+    SkipTest('the system has no architecture query');
+    Exit;
+  end;
+  CheckTrue(LFacts.NativeMachine <> 0, 'the native machine');
+  if LFacts.NativeMachine <> MachineAmd64 then
+  begin
+    SkipTest('this machine is not x64');
+    Exit;
+  end;
+  if LFacts.Process64Bit then
+    CheckEquals(0, Int32(LFacts.ProcessMachine), 'a 64-bit process is native')
+  else
+    CheckEquals(MachineI386, Int32(LFacts.ProcessMachine), 'a 32-bit process is emulated');
+end;
+
+procedure TTestWindowsModuleAttestation.TestRealProcessFactsDecideByProcess;
+var
+  LReal, LFacts: TWindowsModuleFacts;
+  LReason: string;
+begin
+  LReal := TWindowsModuleAttestation.Gather;
+  if not LReal.MachineRead or (LReal.NativeMachine <> MachineAmd64) then
+  begin
+    SkipTest('no x64 machine to judge');
+    Exit;
+  end;
+  // the OS and module facts of a listed release, the process facts of this process
+  LFacts := ValidFacts(22621, ProductWorkstation);
+  LFacts.Process64Bit := LReal.Process64Bit;
+  LFacts.ProcessMachine := LReal.ProcessMachine;
+  if LFacts.Process64Bit then
+    CheckEquals(Ord(TModuleStatus.Validated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+      TModuleStandard.Fips140_3, LReason)), 'a native 64-bit process')
+  else
+    CheckEquals(Ord(TModuleStatus.NotValidated), Ord(TWindowsModuleAttestation.Decide(LFacts,
+      TModuleStandard.Fips140_3, LReason)), 'a 32-bit process is outside the certificate');
+end;
+
 procedure TTestWindowsModuleAttestation.TestReadsBuildAndModuleVersion;
 var
   LAttestation: IModuleAttestation;
@@ -4151,13 +4748,14 @@ var
   LExpected: TModuleStatus;
 begin
   LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
+  // on a listed release only a 64-bit process is validated
   if TWindowsModuleAttestation.Lookup(LAttestation.Identity.OsBuild, LEntry) and
-    LEntry.Validated then
+    LEntry.Validated and (SizeOf(Pointer) = 8) then
     LExpected := TModuleStatus.Validated
   else
     LExpected := TModuleStatus.NotValidated;
   CheckEquals(Ord(LExpected), Ord(LAttestation.Status(TModuleStandard.Fips140_3)),
-    'the status is the table row for the detected build');
+    'a build outside the table, or a 32-bit process, is never validated');
 end;
 
 procedure TTestWindowsModuleAttestation.TestDescribeNamesTheOutcome;
@@ -4174,7 +4772,8 @@ begin
       'the row''s own dates');
   end
   else
-    CheckTrue(Pos('no validated module', LAttestation.Describe) > 0, 'the outcome');
+    CheckTrue(Pos('the process is 32-bit', LAttestation.Describe) +
+      Pos('no validated module', LAttestation.Describe) > 0, 'the outcome');
 end;
 
 procedure TTestWindowsModuleAttestation.TestDescribeNamesNoStandardWhenNotValidated;

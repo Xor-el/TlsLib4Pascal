@@ -209,6 +209,9 @@ resourcestring
   SCustomVerifier = 'the certificate verifier is host-supplied; use the OS verifier source';
   SStapleOutside = 'a requested OCSP staple would be verified outside the module';
   SKdfComposed = 'the TLS key derivations are composed outside the module over its HMAC';
+  SModuleRevisionDiffers =
+    'the module file version %s differs from the %s the certificate lists; only the build is ' +
+    'checked';
   SRevocationOff = 'revocation checking is off';
   SHostResolver = 'a live-revocation resolver is host-owned and cannot be inspected';
   SRandomSubject = 'random generator';
@@ -326,6 +329,7 @@ var
   LAlgorithm: TKeyAgreementAlgorithm;
   LName: string;
   LKnown: Boolean;
+  LIdentity: TModuleIdentity;
 begin
   LHashes := [];
   LHkdfHashes := [];
@@ -384,10 +388,15 @@ begin
     not TOverlayCryptoProvider.RebuildsHpke(ABaseCrypto) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.AlgorithmOutsideModule, SHpkeSubject, SHpkeOutside));
+  LIdentity := FAttestation.Identity;
   if FAttestation.Status(FRules.ModuleStandard) <> TModuleStatus.Validated then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.ModuleNotValidated, FAttestation.Identity.OsVersion,
-      FAttestation.Describe));
+      TComplianceFindingKind.ModuleNotValidated, LIdentity.OsVersion,
+      FAttestation.Describe))
+  else if (LIdentity.ListedModuleVersion <> '') and
+    (LIdentity.ModuleFileVersion <> LIdentity.ListedModuleVersion) then
+    TArrayUtilities.Append<string>(FDisclosures, Format(SModuleRevisionDiffers,
+      [LIdentity.ModuleFileVersion, LIdentity.ListedModuleVersion]));
 end;
 
 constructor TCompliancePolicy.Create(const ARules: TComplianceRules;

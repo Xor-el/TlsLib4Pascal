@@ -21,6 +21,23 @@ Primitives Library (`bcryptprimitives.dll`), CMVP certificate #5410, FIPS 140-3 
 covered; strict mode refuses them. A platform with no validated-module table is refused the same
 way.
 
+| Release | Build | Product type | Module version listed |
+| --- | --- | --- | --- |
+| Windows 11 22H2 | 22621 | workstation | 10.0.22621.30001 |
+| Windows Server 2022 | 20348 | server or domain controller | 10.0.20348.30000 |
+
+The status is *Validated* only when all of these hold; any mismatch is *NotValidated* and the report
+names the first one, and a fact the OS cannot supply makes it *Unknown*, which strict mode refuses:
+
+- the OS is Windows NT 10.0 and its build is a row of the table, with that row's product type;
+- the process is a native 64-bit x64 process. A 32-bit process (it would load the 32-bit module),
+  an x64 process emulated on ARM64 and Windows on ARM are not covered by the certificate;
+- the module in the process is the system copy, `bcryptprimitives.dll` under the system directory;
+- its file version is `10.0.<OS build>`.
+
+The fourth component of the file version (the update revision) is reported but not gated. When it
+differs from the version the certificate lists, the report carries a disclosure, not a finding.
+
 The TLS 1.2 and TLS 1.3 key derivations are composed outside the module; every HMAC runs in-module.
 TLS 1.2 is allowed only with Extended Master Secret (RFC 7627).
 
@@ -291,6 +308,8 @@ posture of Off is disclosed. A server reports these only when it requests client
 - The module table is shipped data and needs an update per Windows release; the sunset date is
   reported, not enforced.
 - The legacy FIPS policy flag is read and reported only.
+- The module is identified by the OS facts above, not by its signature or its self-test state;
+  the OS exposes neither to a program.
 - A base provider with its own HPKE composition is wrapped, not trusted: see HPKE above.
 - Ticket keys a host installs and random generators a caller supplies are outside what the policy
   can inspect; a fleet is disclosed. Shared resumption state is kept apart by the policy scope, which
@@ -307,8 +326,16 @@ breaking it. The sample is the report of `Evaluate` over a client config.
 ```
 Verdict: NotCompliant (Relaxed)
 Preset: Fips140_3
-Module: Windows 10.0.19045.n Windows 10 22H2 bcryptprimitives.dll n.n.n.n, status NotValidated
+Module: Windows 10.0.19045.n Windows 10 22H2 product type 1 bcryptprimitives.dll n.n.n.n C:\Windows\system32\bcryptprimitives.dll machine 0x8664 legacy FIPS policy Disabled, status NotValidated
 Finding: ModuleNotValidated 10.0.19045.n: Windows 10.0.19045.n: the shipped table records no validated module for this build
 Disclosure: the TLS key derivations are composed outside the module over its HMAC
 Disclosure: a peer chain is held to the RSA size range, not to the exact sizes of the rules
 ```
+
+The module line gives the OS, product type, module file version, the listed version (validated
+releases only), the loaded path, the native machine (`0x8664` is x64; the process machine follows
+when it is not native) and the legacy FIPS policy. The finding carries the reason the status is not
+Validated, for example `the process is 32-bit; the certificate covers the 64-bit module only`. On a
+validated release whose revision differs from the listed one the report adds
+`Disclosure: the module file version 10.0.20348.2113 differs from the 10.0.20348.30000 the
+certificate lists; only the build is checked`.
