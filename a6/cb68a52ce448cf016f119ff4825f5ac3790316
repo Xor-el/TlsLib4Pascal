@@ -1,0 +1,40 @@
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_f2c9bd75607afc::t_208ba918cd4594 54-57
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_a989534f455c30 290-291
+  s_f2c9bd75607afc::t_569de1733b09a9 311
+  s_f2c9bd75607afc::t_985bb5d4ad1e4b 77-82
+  s_f2c9bd75607afc::t_36bdf9cd64b96b 298,300
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_0f7ed2c608a40d 3714,3718-3720
+  s_f2c9bd75607afc::t_4b22d634b4fe47 3226
+  s_f2c9bd75607afc::t_d9d5fb6d11c33f 3763,3770-3838
+  s_f2c9bd75607afc::t_1fac58ea52592f 3730,3734-3736
+  s_f2c9bd75607afc::t_1ef8f1fd25cadd 3627
+  s_f2c9bd75607afc::t_73d0165646a234 3749
+  s_f2c9bd75607afc::t_d320414c63e52a 394-398
+  s_f2c9bd75607afc::t_d57845589d97cd 3605
+docs/system-trust.md
+  s_f2c9bd75607afc::t_03b3d37d1cc71f 238-239
+  s_f2c9bd75607afc::t_f952110b641ae4 234-237,240-242
+TlsLib.Trust.System/src/TlpOSSystemTrust.pas
+  s_f2c9bd75607afc::t_33865b5c51a079 125-126,130-138
+  s_f2c9bd75607afc::t_d54f5881d038bc 338-339
+  s_f2c9bd75607afc::t_85b16c25c62823 329-337,340-343
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6cb68a52ce448cf016f119ff4825f5ac3790316",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
