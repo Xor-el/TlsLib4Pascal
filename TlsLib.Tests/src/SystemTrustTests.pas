@@ -426,6 +426,7 @@ type
     procedure TestClientSourceRefusesAWeakAnchorWithFloorsOn;
     procedure TestClientSourceKeepsAWeakAnchorWithFloorsOff;
     procedure TestClientSourceKeepsAnAnchorThatMeetsTheFloors;
+    procedure TestClientSourceRefusalLeavesTheCallersVariableNil;
     procedure TestClientDelegateRefusesAWeakAnchorAnEngineReportsAsExempt;
     procedure TestClientDelegateAcceptsAWeakExemptAnchorWithFloorsOff;
     procedure TestClientDelegateRefusesAWeakAnchorWhenTheEngineReportsNone;
@@ -4151,6 +4152,25 @@ begin
   CheckEquals('', ClientSourceMessage(True, PrivateRoot), 'a P-256 anchor meets the floors');
 end;
 
+procedure TTestDelegateHostRootsAlone.TestClientSourceRefusalLeavesTheCallersVariableNil;
+var
+  LSource: IClientCertificateVerifierSource;
+  LVerifier: IClientCertificateVerifier;
+begin
+  LSource := TOSVerifierSource.Create(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps,
+    PublicRoot) as IPlatformChainEngine, TSystemTrustFetch.CacheOnly,
+    TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IClientCertificateVerifierSource;
+  LVerifier := nil;
+  try
+    LVerifier := LSource.CreateClientVerifier(ClientContext(WeakRoot, True));
+  except
+    on EArgumentTlsLibException do
+      ;
+  end;
+  // guards that a refused verifier never reaches the caller's variable
+  CheckTrue(LVerifier = nil, 'a refused client verifier is not handed back');
+end;
+
 procedure TTestDelegateHostRootsAlone.TestClientDelegateRefusesAWeakAnchorAnEngineReportsAsExempt;
 var
   LAlert: TTlsAlertDescription;
@@ -4262,6 +4282,7 @@ begin
   end;
   CheckEquals(SEngineCannotTrustOsAndHostRoots, LMessage,
     'the refusal does not depend on the distrust set');
+  CheckTrue(LSource = nil, 'a refused source is not handed back');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestOsAndHostRootsWithAllHostRootsDistrustedIsOsRootsOnly;

@@ -250,7 +250,7 @@ type
     FSecTrustSetVerifyDate: TSecTrustSetVerifyDateFunc;
     FSecTrustSetOCSPResponse: TSecTrustSetOCSPResponseFunc;
     FSecTrustSetPolicies: TSecTrustSetPoliciesFunc;
-    FSecTrustSetAnchorCertificates:TSecTrustSetAnchorCertificatesFunc;
+    FSecTrustSetAnchorCertificates: TSecTrustSetAnchorCertificatesFunc;
     FSecTrustSetAnchorCertificatesOnly: TSecTrustSetAnchorCertificatesOnlyFunc;
     FSecTrustCopyCertificateChain: TSecTrustCopyCertificateChainFunc;
     FSecTrustGetCertificateCount: TSecTrustGetCertificateCountFunc;
@@ -331,9 +331,10 @@ type
     class function UnixMillisToCFAbsoluteTime(AMillisUtc: UInt64): Double; static;
     /// <summary>Re-evaluates ATrust under the SSL policy alone and reports whether it is trusted,
     /// so an incomplete-revocation error is known to be the only fault. False when the policies
-    /// cannot be replaced.</summary>
-    class function TrustedWithoutRevocation(ATrust: SecTrustRef;
-      ASslPolicy: SecPolicyRef): Boolean; static;
+    /// cannot be replaced. AStatusCode is the OSStatus of the failed re-evaluation, 0 when it is
+    /// trusted or the error carries none.</summary>
+    class function TrustedWithoutRevocation(ATrust: SecTrustRef; ASslPolicy: SecPolicyRef;
+      out AStatusCode: Int32): Boolean; static;
   private
     class procedure ResolveDynamicImports; static;
     /// <summary>The shared SecTrust evaluation: builds the SSL trust (adding a revocation policy
@@ -444,7 +445,7 @@ begin
       'SecTrustSetOCSPResponse'));
     FSecTrustSetPolicies := TSecTrustSetPoliciesFunc(TDynamicLibrary.Resolve(LHandle,
       'SecTrustSetPolicies'));
-    FSecTrustSetAnchorCertificates :=TSecTrustSetAnchorCertificatesFunc(TDynamicLibrary.Resolve(
+    FSecTrustSetAnchorCertificates := TSecTrustSetAnchorCertificatesFunc(TDynamicLibrary.Resolve(
       LHandle, 'SecTrustSetAnchorCertificates'));
     FSecTrustSetAnchorCertificatesOnly := TSecTrustSetAnchorCertificatesOnlyFunc(
       TDynamicLibrary.Resolve(LHandle, 'SecTrustSetAnchorCertificatesOnly'));
@@ -681,13 +682,14 @@ begin
 end;
 
 class function TAppleTrustApi.TrustedWithoutRevocation(ATrust: SecTrustRef;
-  ASslPolicy: SecPolicyRef): Boolean;
+  ASslPolicy: SecPolicyRef; out AStatusCode: Int32): Boolean;
 var
   LRefs: array [0 .. 0] of Pointer;
   LPolicies: CFArrayRef;
   LError: CFErrorRef;
 begin
   Result := False;
+  AStatusCode := 0;
   if not System.Assigned(FSecTrustSetPolicies) then
     Exit;
   LRefs[0] := ASslPolicy;
@@ -698,6 +700,9 @@ begin
   try
     if FSecTrustSetPolicies(ATrust, LPolicies) = ErrSecSuccess then
       Result := FSecTrustEvaluateWithError(ATrust, @LError);
+    if (not Result) and (LError <> nil) and FCanDecodeError and
+      FCFEqual(FCFErrorGetDomain(LError), FkCFErrorDomainOSStatus) then
+      AStatusCode := Int32(FCFErrorGetCode(LError));
   finally
     if LError <> nil then
       FCFRelease(LError);
@@ -712,7 +717,7 @@ class function TAppleTrustApi.EvaluateWithPolicy(AServer: Boolean;
   out AResult: TPlatformChainResult;
   out AAlert: TTlsAlertDescription): Boolean;
 var
-  LStatusCode: Int32;
+  LStatusCode, LSecondStatus: Int32;
   LCertArray, LAnchorArray, LPolicyArray: CFArrayRef;
   LSslPolicy, LRevPolicy: SecPolicyRef;
   LTrust: SecTrustRef;
@@ -953,11 +958,13 @@ begin
       FCFEqual(FCFErrorGetDomain(LError), FkCFErrorDomainOSStatus) then
     begin
       LStatusCode := Int32(FCFErrorGetCode(LError));
+      LSecondStatus := 0;
       // the error names one fault: an incomplete revocation is indeterminate only when the chain
-      // is otherwise trusted, else the rejection stands
+      // is otherwise trusted, else the rejection stands; without a library revocation policy the
+      // re-evaluation would repeat the first, so the OS's own requirement stands
       if (LStatusCode = ErrSecCertificateRevoked) or
-        ((LStatusCode = ErrSecIncompleteCertRevocationCheck) and
-        TrustedWithoutRevocation(LTrust, LSslPolicy)) then
+        ((LStatusCode = ErrSecIncompleteCertRevocationCheck) and (LRevPolicy <> nil) and
+        TrustedWithoutRevocation(LTrust, LSslPolicy, LSecondStatus)) then
       begin
         // a revocation outcome the delegate decides: report the OS-built path (readable even on a
         // rejected evaluation) so the shared pipeline renders the precise revocation alert
@@ -975,9 +982,11 @@ begin
         Result := True;
         Exit;
       end;
-      // an incomplete revocation that was not the only fault keeps unknown_ca
+      // an incomplete revocation that was not the only fault reports the other fault, else unknown_ca
       if LStatusCode <> ErrSecIncompleteCertRevocationCheck then
-        AAlert := TAppleAlertMap.OsStatusToAlert(LStatusCode);
+        AAlert := TAppleAlertMap.OsStatusToAlert(LStatusCode)
+      else if LSecondStatus <> 0 then
+        AAlert := TAppleAlertMap.OsStatusToAlert(LSecondStatus);
     end;
   finally
     if LError <> nil then

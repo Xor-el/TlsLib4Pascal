@@ -226,6 +226,8 @@ type
   strict private
     FEngine: IPlatformChainEngine;
     FPolicy: TOSDelegatePolicy;
+    FAnchorsMeetFloors: Boolean;
+    FAnchorAlert: TTlsAlertDescription;
   strict protected
     function EvaluateLive(const AChain: TArray<TBytes>; const AHostName: string;
       const AStaple: TBytes; ADeadlineMs: Cardinal; out AOutcome: TLiveRevocationOutcome;
@@ -749,6 +751,7 @@ function TOSVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 var
   LPolicy: TOSDelegatePolicy;
+  LVerifier: IClientCertificateVerifier;
 begin
   if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
@@ -759,9 +762,10 @@ begin
     AContext.Deferral = TVerdictDeferral.LiveRevocation) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SHardNeedsLiveRevocationVerdict);
   LPolicy := TOSDelegatePolicy.FromClientContext(AContext, FFetch);
-  Result := TOSDelegateClientVerifier.Create(FEngine, LPolicy) as IClientCertificateVerifier;
-  if not (Result as TOSDelegateClientVerifier).AnchorsMeetFloors then
+  LVerifier := TOSDelegateClientVerifier.Create(FEngine, LPolicy) as IClientCertificateVerifier;
+  if not (LVerifier as TOSDelegateClientVerifier).AnchorsMeetFloors then
     raise EArgumentTlsLibException.CreateRes(@SClientAnchorBelowKeyFloors);
+  Result := LVerifier;
 end;
 
 { TOSDelegateLiveResolver }
@@ -775,6 +779,7 @@ begin
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SNoLiveRevocation);
   FEngine := AEngine;
   FPolicy := APolicy;
+  FAnchorsMeetFloors := APolicy.AnchorsMeetKeyFloors(FAnchorAlert);
 end;
 
 function TOSDelegateLiveResolver.EvaluateLive(const AChain: TArray<TBytes>;
@@ -824,9 +829,11 @@ begin
       LTrusted := False;
     end;
     // same gate as the inline pass: an engine reporting no anchor never shows the walk one
-    if LTrusted and (System.Length(LResult.PolicyExempt) = 0) and
-      not FPolicy.AnchorsMeetKeyFloors(ARejectAlert) then
+    if LTrusted and (System.Length(LResult.PolicyExempt) = 0) and not FAnchorsMeetFloors then
+    begin
+      ARejectAlert := FAnchorAlert;
       LTrusted := False;
+    end;
   end;
   if not LTrusted then
     Exit(False);

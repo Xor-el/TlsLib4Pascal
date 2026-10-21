@@ -38,6 +38,7 @@ uses
   TlpISystemSigningKey,
   TlpISystemSignatureVerifier,
   TlpSystemCryptoTypes,
+  TlpSystemCryptoExceptions,
   TlpCryptoDomainTypes,
   TlpISigningKey,
   TlpImportedCredential,
@@ -2261,7 +2262,7 @@ begin
   try
     LPrf.Compute(LSecret, 'master secret', LSeed, 48);
   except
-    on E: Exception do
+    on ESystemCryptoBackendTlsLibException do
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a key-schedule label over the module bound is refused, not rerouted');
@@ -2878,6 +2879,7 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a foreign HPKE facet taken from the base is refused under such a report');
+  CheckTrue(LOverlay = nil, 'a refused overlay is not handed back');
 end;
 
 procedure TTestOverlayCryptoProvider.TestReportNamingHpkeAcceptsDefaultBaseHpkeFacet;

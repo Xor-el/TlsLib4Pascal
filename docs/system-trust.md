@@ -156,9 +156,9 @@ What happens:
   pass's.
 - In Anchors mode the host roots join the harvested OS roots in our own validator and any anchor ends
   a path.
-- Host roots are judged as private PKI. Rules that exist only for system roots (Apple CT and validity
-  caps) do not apply to a chain that ends at one. Android's CT requirement does: when the app opts
-  in through its network security config (Android 16+), the host-root pass is refused for a
+- Apple's documentation exempts chains anchored at host-supplied roots from Certificate Transparency
+  and the validity cap; the general TLS server rules still apply. Android's CT requirement applies
+  to host roots: when the app opts in through its network security config (Android 16+), the host-root pass is refused for a
   private-root chain, which carries no SCTs, so an app that requires CT for a host cannot use host
   roots for that host.
 - OS distrust (Windows `Disallowed`, macOS trust-settings Deny) also refuses a path that ended at a
@@ -207,8 +207,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   no anchor is left). When the OS distrusts every root you gave, the delegate source refuses at
   build with `EArgumentTlsLibException`. Under `OsAndHostRoots`, a delegate drops the root and
   trusts the remaining host roots with the OS roots; when none remains it trusts the OS roots
-  only. An engine that can trust host roots with the OS roots in neither way is refused
-  whatever the distrust set holds.
+  only. An engine with neither `NativeAnchorUnion` nor `ExclusiveServerAnchors` is refused at build
+  when host roots are given, whatever the distrust set holds.
 - **Refusals.** `HostRoots` raises `EArgumentTlsLibException` for a nil store or one with no
   root (a store that distrusts its only root has none). A platform engine that cannot trust host
   roots alone raises `ESystemTrustUnsupportedTlsLibException` (see
@@ -287,7 +287,8 @@ On **Windows** the server delegate runs crypt32's SSL server policy with URL ret
 settings the built-in verifier does:
 
 - **Revocation posture** — `WithRevocation(Soft|Hard|Off)` governs an *indeterminate* outcome
-  (no cached CRL/OCSP reachable): `Soft` accepts, `Hard` rejects, `Off` skips the check. A definitive
+  (no cached CRL/OCSP reachable): `Soft` accepts, `Hard` rejects, `Off` skips the library's revocation check; revocation the OS itself requires still
+  applies. A definitive
   *revoked* always rejects. On Windows an inline `Hard` check covers the leaf (the staple's scope), so
   a cached intermediate status is not required; `Soft` and the live pass still check every non-root element.
 - **The stapled OCSP response** from the handshake is fed to the engine as cached revocation data.
@@ -671,8 +672,8 @@ identity and the host-roots rule. The contract:
   (`internal_error`) before the engine is called, so it is never judged against the OS roots.
 - Every accepted server path, on every engine, is refused when it holds a certificate in the
   distrust set the source read (the OS list and the host store's).
-- `PolicyExempt` is the anchor that ends the path, or empty. When it is empty the delegate
-  key-checks every configured client-CA anchor against the strength policy floors. An engine that
+- `PolicyExempt` is the anchor that ends the path, or empty. When it is empty and
+  `AnchorKeyFloors` is set the delegate key-checks every configured client-CA anchor against the strength policy floors. An engine that
   reports the whole presented chain there exempts its intermediates from the strength policy.
 
 ---
