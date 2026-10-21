@@ -331,8 +331,7 @@ type
     // the rules' suites as the catalog defines them, and with ASuite swapped in for its code
     procedure SuiteSets(const APolicy: ICompliancePolicy; const ASuite: TTlsCipherSuite;
       out AClean, AAltered: TArray<TTlsCipherSuite>);
-    // AFindings name the CatalogSuite code as differing from its catalog record and do not
-    // refuse its code
+    // AFindings name the CatalogSuite record as off-catalog and leave its code allowed
     procedure CheckDiffersFromCatalog(const AFindings: TArray<TComplianceFinding>);
     // an ECH key store of one P-256 / AES-256-GCM entry the policy crypto can serve
     function EchKeyStore(const APolicy: ICompliancePolicy): IEchServerKeyStore;

@@ -331,7 +331,7 @@ type
     procedure TestTls12PrfIsServedInModule;
     procedure TestTls12PrfMatchesThePublishedVectors;
     procedure TestTls12PrfMatchesPortableInEveryKeyScheduleShape;
-    // exporter labels and seeds beyond the module's bounds are composed, not refused
+    // exporter labels and seeds beyond the CNG KDF's bounds are composed, not refused
     procedure TestTls12PrfMatchesPortableInExporterShapes;
     procedure TestTls12PrfExporterSeedBeyondTheModuleBoundIsServed;
     procedure TestTls12PrfEveryKeyScheduleLabelReachesTheCngKdf;
@@ -2235,7 +2235,7 @@ var
   LSecret: ISecretBuffer;
   LSeed: TBytes;
 begin
-  // the module KDF refuses a seed over 256 octets, so this succeeds only if the label routes away
+  // the CNG KDF refuses a seed over 256 octets, so this succeeds only if the label routes away
   LPrf := Crypto.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256);
   LSecret := TSecretBuffer.From(DecodeHex('0102030405060708'));
   LSeed := nil;
