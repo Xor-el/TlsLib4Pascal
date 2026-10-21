@@ -179,7 +179,7 @@ end;
 function TComplianceTls12Prf.Compute(const ASecret: ISecretBuffer; const ALabel: string;
   const ASeed: TBytes; ALength: Int32): ISecretBuffer;
 begin
-  if FRefusePlainMaster and (ALabel = Tls12PrfLabelMasterSecret) then
+  if FRefusePlainMaster and (ALabel = TTls12PrfLabels.MasterSecret) then
     raise EComplianceRefusedTlsLibException.CreateRes(@SPlainMasterSecretRefused);
   if FKeyScheduleOnly and not TTls12PrfLabels.IsKeyScheduleLabel(ALabel) then
     raise EComplianceRefusedTlsLibException.CreateRes(@SNotKeyScheduleLabelRefused);

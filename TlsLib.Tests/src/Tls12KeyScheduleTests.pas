@@ -208,22 +208,24 @@ end;
 
 procedure TTestTls12KeySchedule.TestPrfLabelsArePinned;
 begin
-  CheckEquals('master secret', Tls12PrfLabelMasterSecret, 'master secret');
-  CheckEquals('extended master secret', Tls12PrfLabelExtendedMasterSecret,
+  CheckEquals('master secret', TTls12PrfLabels.MasterSecret, 'master secret');
+  CheckEquals('extended master secret', TTls12PrfLabels.ExtendedMasterSecret,
     'extended master secret');
-  CheckEquals('key expansion', Tls12PrfLabelKeyExpansion, 'key expansion');
-  CheckEquals('client finished', Tls12PrfLabelClientFinished, 'client finished');
-  CheckEquals('server finished', Tls12PrfLabelServerFinished, 'server finished');
+  CheckEquals('key expansion', TTls12PrfLabels.KeyExpansion, 'key expansion');
+  CheckEquals('client finished', TTls12PrfLabels.ClientFinished, 'client finished');
+  CheckEquals('server finished', TTls12PrfLabels.ServerFinished, 'server finished');
 end;
 
 procedure TTestTls12KeySchedule.TestOnlyTheFiveLabelsAreKeyScheduleLabels;
 begin
-  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(Tls12PrfLabelMasterSecret), 'master secret');
-  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(Tls12PrfLabelExtendedMasterSecret),
+  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(TTls12PrfLabels.MasterSecret), 'master secret');
+  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(TTls12PrfLabels.ExtendedMasterSecret),
     'extended master secret');
-  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(Tls12PrfLabelKeyExpansion), 'key expansion');
-  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(Tls12PrfLabelClientFinished), 'client finished');
-  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(Tls12PrfLabelServerFinished), 'server finished');
+  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(TTls12PrfLabels.KeyExpansion), 'key expansion');
+  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(TTls12PrfLabels.ClientFinished),
+    'client finished');
+  CheckTrue(TTls12PrfLabels.IsKeyScheduleLabel(TTls12PrfLabels.ServerFinished),
+    'server finished');
   CheckFalse(TTls12PrfLabels.IsKeyScheduleLabel(''), 'the empty label');
   CheckFalse(TTls12PrfLabels.IsKeyScheduleLabel('EXPORTER-test'), 'an exporter label');
   CheckFalse(TTls12PrfLabels.IsKeyScheduleLabel('Master Secret'), 'labels are case-sensitive');
@@ -232,9 +234,9 @@ end;
 
 procedure TTestTls12KeySchedule.TestExporterRefusesEveryKeyScheduleLabel;
 const
-  Labels: array [0 .. 4] of string = (Tls12PrfLabelMasterSecret,
-    Tls12PrfLabelExtendedMasterSecret, Tls12PrfLabelKeyExpansion, Tls12PrfLabelClientFinished,
-    Tls12PrfLabelServerFinished);
+  Labels: array [0 .. 4] of string = (TTls12PrfLabels.MasterSecret,
+    TTls12PrfLabels.ExtendedMasterSecret, TTls12PrfLabels.KeyExpansion,
+    TTls12PrfLabels.ClientFinished, TTls12PrfLabels.ServerFinished);
 var
   LI: Int32;
   LRaised: Boolean;

@@ -54,6 +54,7 @@ uses
   TlpComplianceHpke,
   TlpCompliancePkixProvider,
   MockCompliance,
+  MockCryptoProvider,
   MockPkixProvider,
   TlsLibTestCertificates,
   TlsLibTestProviders,

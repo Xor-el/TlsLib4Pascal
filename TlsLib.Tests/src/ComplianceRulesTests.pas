@@ -43,6 +43,7 @@ uses
   TlpCompliancePresets,
   TlpIModuleAttestation,
   MockCompliance,
+  MockCryptoProvider,
   TlsLibTestBase;
 
 type

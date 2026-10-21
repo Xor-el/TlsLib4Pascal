@@ -204,13 +204,13 @@ end;
 
 procedure TTls12KeySchedule.DeriveMasterSecret;
 begin
-  DeriveMaster(Tls12PrfLabelMasterSecret,
+  DeriveMaster(TTls12PrfLabels.MasterSecret,
     TArrayUtilities.Concat(FClientRandom, FServerRandom));
 end;
 
 procedure TTls12KeySchedule.DeriveExtendedMasterSecret(const ASessionHash: TBytes);
 begin
-  DeriveMaster(Tls12PrfLabelExtendedMasterSecret, ASessionHash);
+  DeriveMaster(TTls12PrfLabels.ExtendedMasterSecret, ASessionHash);
 end;
 
 procedure TTls12KeySchedule.DeriveKeyBlock;
@@ -233,7 +233,7 @@ begin
     end;
   end;
   // AEAD suites have no MAC keys: client_key || server_key || client_salt || server_salt
-  LBlock := FPrf.Compute(FMasterSecret, Tls12PrfLabelKeyExpansion,
+  LBlock := FPrf.Compute(FMasterSecret, TTls12PrfLabels.KeyExpansion,
     TArrayUtilities.Concat(FServerRandom, FClientRandom),
     2 * (FKeyLength + FSaltLength));
   FClientKey := TSecretBuffer.Slice(LBlock, 0, FKeyLength);
@@ -287,9 +287,9 @@ begin
   Result := nil;
   GuardMaster;
   if ADirection = TTlsDirection.ClientWrite then
-    LLabel := Tls12PrfLabelClientFinished
+    LLabel := TTls12PrfLabels.ClientFinished
   else
-    LLabel := Tls12PrfLabelServerFinished;
+    LLabel := TTls12PrfLabels.ServerFinished;
   // verify_data is a public wire value (RFC 5246 7.4.9)
   Result := FPrf.Compute(FMasterSecret, LLabel, ATranscriptHash, Tls12VerifyDataLength).ToBytes;
 end;
