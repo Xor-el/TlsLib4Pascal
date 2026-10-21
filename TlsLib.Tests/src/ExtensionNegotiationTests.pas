@@ -69,6 +69,7 @@ uses
   TlpTls12ServerStateMachine,
   TlpTlsVersion,
   MockCertificateCompression,
+  MockCredentialResolvers,
   TlsLibHandshakeTestBase,
   TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
@@ -174,33 +175,6 @@ implementation
 const
   // a private RFC 8879 codepoint standing in for a non-built-in backend
   CustomCertCompressionAlgo = UInt16($FF01);
-
-type
-  // hands out one credential and keeps the ClientHello facts it was asked about
-  TRecordingCredentialResolver = class(TInterfacedObject, ITlsServerCredentialResolver)
-  strict private
-    FCredential: TTlsCredential;
-    FHello: TTlsClientHelloInfo;
-  public
-    constructor Create(const ACredential: TTlsCredential);
-    function TryResolve(const AClientHello: TTlsClientHelloInfo;
-      out ACredential: TTlsCredential): Boolean;
-    property Hello: TTlsClientHelloInfo read FHello;
-  end;
-
-constructor TRecordingCredentialResolver.Create(const ACredential: TTlsCredential);
-begin
-  inherited Create;
-  FCredential := ACredential;
-end;
-
-function TRecordingCredentialResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
-  out ACredential: TTlsCredential): Boolean;
-begin
-  FHello := AClientHello;
-  ACredential := FCredential;
-  Result := True;
-end;
 
 { TTestExtensionNegotiation }
 
@@ -1191,10 +1165,10 @@ end;
 
 procedure TTestExtensionNegotiation.TestResolverSeesSignatureAlgorithmsWhenNoCertVariantIsSent;
 var
-  LResolver: TRecordingCredentialResolver;
+  LResolver: TFixedCredentialResolver;
   LResolverRef: ITlsServerCredentialResolver;
 begin
-  LResolver := TRecordingCredentialResolver.Create(ServerCredential);
+  LResolver := TFixedCredentialResolver.Create(ServerCredential, True);
   LResolverRef := LResolver;
   NewServerMachineForResolver(LResolverRef).ProcessMessage(
     TTlsLibTestHandshakeDecoder.HandshakeMessage(
@@ -1207,10 +1181,10 @@ end;
 
 procedure TTestExtensionNegotiation.TestResolverSeesSignatureAlgorithmsCertWhenPresent;
 var
-  LResolver: TRecordingCredentialResolver;
+  LResolver: TFixedCredentialResolver;
   LResolverRef: ITlsServerCredentialResolver;
 begin
-  LResolver := TRecordingCredentialResolver.Create(ServerCredential);
+  LResolver := TFixedCredentialResolver.Create(ServerCredential, True);
   LResolverRef := LResolver;
   NewServerMachineForResolver(LResolverRef).ProcessMessage(
     TTlsLibTestHandshakeDecoder.HandshakeMessage(ClientHelloWithCertSchemes(

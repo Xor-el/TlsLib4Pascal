@@ -209,6 +209,7 @@ uses
   MockPlatformChainEngine in '..\src\MockPlatformChainEngine.pas',
   MockCryptoProvider in '..\src\MockCryptoProvider.pas',
   MockSystemCrypto in '..\src\MockSystemCrypto.pas',
+  MockCredentialResolvers in '..\src\MockCredentialResolvers.pas',
   MockHttpFetcher in '..\src\MockHttpFetcher.pas',
   MockPkixProvider in '..\src\MockPkixProvider.pas',
   MockSink in '..\src\MockSink.pas',

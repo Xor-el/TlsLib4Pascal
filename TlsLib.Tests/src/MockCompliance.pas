@@ -183,6 +183,10 @@ type
     /// primitives.</summary>
     class function FakeSystemBase(const AReport: ICryptoBackendReport;
       const ASigning: ISigningCrypto; const AHpke: IHpkeCrypto): ICryptoProvider; static;
+    /// <summary>A FakeSystemBase reporting every operation in the OS module except the AEADs in
+    /// APortableAeads, which stay portable; signing and HPKE ride the portable
+    /// primitives.</summary>
+    class function SystemOver(APortableAeads: TComplianceAeadSet): ICryptoProvider; static;
   end;
 
 implementation
@@ -509,6 +513,12 @@ class function TComplianceFakes.FakeSystemBase(const AReport: ICryptoBackendRepo
 begin
   Result := TOverlayCryptoProvider.Create(
     TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable), nil, ASigning, AReport, AHpke);
+end;
+
+class function TComplianceFakes.SystemOver(APortableAeads: TComplianceAeadSet): ICryptoProvider;
+begin
+  Result := FakeSystemBase(TFakeBackendReport.Create(APortableAeads) as ICryptoBackendReport, nil,
+    nil);
 end;
 
 end.
