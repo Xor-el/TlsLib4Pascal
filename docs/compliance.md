@@ -55,7 +55,8 @@ of `Evaluate` or `Admit` is judged by the versions and cipher suites of that con
 A TLS 1.2 exporter derivation (RFC 5705) is not a key-schedule derivation. It is composed over the
 module HMAC, so every report whose offered versions include TLS 1.2 carries a disclosure saying
 that only the key-schedule derivations are module services. A strict policy whose `Kdf` is
-`RequireModule` refuses an exporter label instead; relaxed mode and `AllowComposed` allow it.
+`RequireModule` refuses an exporter label instead, and its report discloses the refusal; relaxed
+mode and `AllowComposed` allow it.
 
 ### The GCM nonce
 
@@ -293,9 +294,11 @@ OS verifier, and so must a server's client chain.
   chain: its key against the floors, the curves and the exact RSA sizes, and its signature (family
   and hash, RSA-PSS only with canonical parameters, EdDSA only where the rules list its scheme and
   admit EdDSA) against the schemes of the rules. A signature made under an RSASSA-PSS issuer key is
-  refused, as no scheme of the rules covers it. The last certificate's signature is not judged when
-  it verifies under its own key; a self-issued link that does not, or one before the last, is
-  judged. It checks that
+  refused, as no scheme of the rules covers it; the issuer is found in the chain whatever its
+  position, and one whose key cannot be read is a finding. The last certificate's signature is not
+  judged when it verifies under its own key; a self-issued link that does not, or one before the
+  last, is judged. The issuer search for the self-signed test runs on the host's base provider; a
+  base that cannot verify the root's self-signature makes the root be judged. It checks that
   the private key is the leaf's when the key exposes its public half, that the key can sign with no
   scheme outside the rules, and that the module serves the key. A certificate chain with no key is
   `CredentialKeyMissing`, a key that is not the leaf's `CredentialKeyMismatch`. A key that can sign
@@ -349,7 +352,7 @@ either is refused when the HMAC is not the module's. The plain master secret der
 whenever the rules require Extended Master Secret. A TLS 1.2 label other than the key-schedule
 labels (master secret, extended master secret, key expansion, client finished and server finished)
 is an exporter derivation: it is composed over the module HMAC and disclosed, and a strict policy
-whose `Kdf` is `RequireModule` refuses it.
+whose `Kdf` is `RequireModule` refuses it and discloses the refusal instead.
 
 ---
 
@@ -507,6 +510,13 @@ Disclosure: relaxed mode reports platform facts but does not refuse portable cod
 Disclosure: a peer chain is held to the RSA size range, not to the exact sizes of the rules
 Disclosure: TLS 1.2 exporter derivations (RFC 5705) are composed over the module HMAC; only the
   key-schedule derivations are module services
+```
+
+A strict policy whose `Kdf` is `RequireModule` discloses the refusal in its place:
+
+```
+Disclosure: TLS 1.2 exporter derivations (RFC 5705) are refused: the rules require every key
+  derivation to be a module service
 ```
 
 The module line is one line, wrapped here. It gives the OS name and version, the product the table

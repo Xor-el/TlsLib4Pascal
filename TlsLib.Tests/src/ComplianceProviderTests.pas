@@ -76,6 +76,8 @@ type
     function RefusesKem(const AProvider: ICryptoProvider; AAlgorithm: TKemAlgorithm): Boolean;
     function ComputePrf(const AProvider: ICryptoProvider; const ALabel: string): ISecretBuffer;
     function RefusesLabel(const AProvider: ICryptoProvider; const ALabel: string): Boolean;
+    // the refusal message of a label, empty when the label is computed
+    function LabelRefusal(const AProvider: ICryptoProvider; const ALabel: string): string;
     // a provider over a fake base that reports AReport
     function ProviderOver(const AReport: ICryptoBackendReport; const ARules: TComplianceRules;
       AEnforcement: TComplianceEnforcement): ICryptoProvider;
@@ -164,6 +166,8 @@ type
     procedure TestPrfLabelMatchIsExact;
     procedure TestPrfPlainLabelPassesWithoutEmsRequirement;
     procedure TestStrictRequireModuleRefusesAnExporterLabel;
+    procedure TestStrictRequireModuleWithoutEmsPassesMasterSecret;
+    procedure TestStrictRequireModuleWithoutEmsRefusesAnExporterLabelAsNotKeySchedule;
     procedure TestStrictRequireModuleAllowsTheOtherKeyScheduleLabels;
     procedure TestStrictRequireModuleKeyScheduleLabelMatchIsExact;
     procedure TestStrictAllowComposedAllowsAnExporterLabel;
@@ -499,6 +503,18 @@ begin
   except
     on EComplianceRefusedTlsLibException do
       Result := True;
+  end;
+end;
+
+function TTestComplianceCryptoPrimitives.LabelRefusal(const AProvider: ICryptoProvider;
+  const ALabel: string): string;
+begin
+  Result := '';
+  try
+    ComputePrf(AProvider, ALabel);
+  except
+    on E: EComplianceRefusedTlsLibException do
+      Result := E.Message;
   end;
 end;
 
@@ -933,6 +949,30 @@ begin
   CheckTrue(RefusesLabel(LProvider, 'EXPORTER-my-app'),
     'an exporter label would be composed over the module HMAC');
   CheckTrue(RefusesLabel(LProvider, ''), 'and so would an empty one');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRequireModuleWithoutEmsPassesMasterSecret;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := RequireModuleRules;
+  LRules.Requirements := LRules.Requirements - [TComplianceRequirement.ExtendedMasterSecret];
+  CheckEquals('', LabelRefusal(ModulePrfProvider(LRules, TComplianceEnforcement.Strict),
+    'master secret'), 'master secret is a key-schedule label');
+end;
+
+procedure TTestComplianceCryptoPrimitives.
+  TestStrictRequireModuleWithoutEmsRefusesAnExporterLabelAsNotKeySchedule;
+var
+  LRules: TComplianceRules;
+  LMessage: string;
+begin
+  LRules := RequireModuleRules;
+  LRules.Requirements := LRules.Requirements - [TComplianceRequirement.ExtendedMasterSecret];
+  LMessage := LabelRefusal(ModulePrfProvider(LRules, TComplianceEnforcement.Strict),
+    'EXPORTER-my-app');
+  CheckTrue(Pos('not a key-schedule label', LMessage) > 0, 'refused as not a key-schedule label');
+  CheckEquals(0, Pos('plain master secret', LMessage), 'and not as the plain master secret');
 end;
 
 procedure TTestComplianceCryptoPrimitives.TestStrictRequireModuleAllowsTheOtherKeyScheduleLabels;

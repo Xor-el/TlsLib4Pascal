@@ -141,7 +141,8 @@ resourcestring
   SProcessEmulated = 'the process runs under WOW64 (process machine 0x%.4x); ' +
     'the certificate covers a native x64 process';
   SImportNotSystemCopy = 'the loaded %s is not the system copy';
-  SImportsUnreadable = 'the identity of the loaded bcrypt.dll and ncrypt.dll could not be read';
+  SImportsUnreadable = 'the identity of the loaded %s could not be read';
+  SBothImports = '%s and %s';
   SNativeNotX64 = 'the native machine is 0x%.4x, not x64; the certificate covers x64 hardware';
   SFirmwareNotUefi = 'the firmware is %s, not UEFI; the certificate covers UEFI-based x64 ' +
     'computers';
@@ -280,8 +281,12 @@ begin
     Exit(SModulePathUnreadable);
   if not AFacts.VersionRead then
     Exit(SModuleVersionUnreadable);
-  if not (AFacts.BcryptRead and AFacts.NcryptRead) then
-    Exit(SImportsUnreadable);
+  if not AFacts.BcryptRead and not AFacts.NcryptRead then
+    Exit(Format(SImportsUnreadable, [Format(SBothImports, [BcryptName, NcryptName])]));
+  if not AFacts.BcryptRead then
+    Exit(Format(SImportsUnreadable, [BcryptName]));
+  if not AFacts.NcryptRead then
+    Exit(Format(SImportsUnreadable, [NcryptName]));
   if AFacts.Today = 0 then
     Exit(SDateUnreadable);
 end;

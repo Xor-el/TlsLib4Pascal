@@ -42,7 +42,7 @@ type
   /// and nothing was found, but a key-schedule derivation the configuration can run is composed
   /// outside the module. Compliant: additionally every key-schedule derivation the configuration
   /// can run is a module service; a TLS 1.2 exporter derivation (RFC 5705) is composed over the
-  /// module HMAC and disclosed.</summary>
+  /// module HMAC and disclosed, or refused under a strict RequireModule rule.</summary>
   TComplianceVerdict = (NotCompliant, PrimitivesInModule, Compliant);
 
   /// <summary>Historical: the module's certificate has passed its sunset date.</summary>
