@@ -678,7 +678,7 @@
         <UnitName Value="TlpTls12PrfLabels"/>
       </Item162>
       <Item163>
-        <Filename Value="..\..\Engine\TlpClientPskPath.pas"/>
+        <Filename Value="..\..\Negotiation\TlpClientPskPath.pas"/>
         <UnitName Value="TlpClientPskPath"/>
       </Item163>
     </Files>
