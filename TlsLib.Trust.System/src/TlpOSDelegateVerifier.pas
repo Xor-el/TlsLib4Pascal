@@ -30,7 +30,6 @@ uses
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
-  TlpPkixDomainTypes,
   TlpTrustTypes,
   TlpITlsConfig,
   TlpSignatureSchemeRegistry,
@@ -87,6 +86,11 @@ type
     /// <summary>The live re-check policy for the client certificate a server verifies: the
     /// client-CA store is the exclusive root.</summary>
     class function FromServerConfig(const AConfig: ITlsServerConfig): TOSDelegatePolicy; static;
+    /// <summary>Whether the configured anchors meet the key floors: True when the strength policy
+    /// does not set AnchorKeyFloors or there are no anchors; False, with AAlert, for anchors that
+    /// fail the floors or cannot be inspected for want of a PKIX provider; AAlert is meaningful
+    /// only then.</summary>
+    function AnchorsHeldToFloors(out AAlert: TTlsAlertDescription): Boolean;
   strict private
     class function FromCommonConfig(const AConfig: ITlsCommonConfig): TOSDelegatePolicy; static;
   end;
@@ -335,6 +339,16 @@ begin
     Result.Anchors := AConfig.TrustStore.RootCertificates;
     Result.Distrusted := AConfig.TrustStore.DistrustedCertificates;
   end;
+end;
+
+function TOSDelegatePolicy.AnchorsHeldToFloors(out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AAlert := TTlsAlertDescription.BadCertificate;
+  if not StrengthPolicy.AnchorKeyFloors or (System.Length(Anchors) = 0) then
+    Exit(True);
+  Result := (Pkix <> nil) and
+    TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Pkix.Certificates, Anchors, StrengthPolicy,
+    AAlert);
 end;
 
 { TDelegateEvaluation }
@@ -615,11 +629,7 @@ begin
     Exit(False);
   end;
   // an engine that reports no anchor never shows the walk one, so the configured ones are keyed here
-  AAlert := TTlsAlertDescription.BadCertificate;
-  if (System.Length(LResult.PolicyExempt) = 0) and Policy.StrengthPolicy.AnchorKeyFloors and
-    (System.Length(Policy.Anchors) > 0) and ((Policy.Pkix = nil) or
-    not TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Policy.Pkix.Certificates, Policy.Anchors,
-    Policy.StrengthPolicy, AAlert)) then
+  if (System.Length(LResult.PolicyExempt) = 0) and not Policy.AnchorsHeldToFloors(AAlert) then
     Exit(False);
   if not Complete(LResult, LNoName, nil, AVerified, AAlert) then
     Exit(False);
@@ -733,6 +743,7 @@ var
   LRequest: TPlatformChainRequest;
   LResult: TPlatformChainResult;
   LTrusted, LWithheld: Boolean;
+  LFloorAlert: TTlsAlertDescription;
 begin
   LRequest := Default(TPlatformChainRequest);
   LRequest.Chain := AChain;
@@ -774,12 +785,10 @@ begin
     end;
     // same gate as the inline pass: an engine reporting no anchor never shows the walk one
     if LTrusted and (System.Length(LResult.PolicyExempt) = 0) and
-      FPolicy.StrengthPolicy.AnchorKeyFloors and (System.Length(FPolicy.Anchors) > 0) then
+      not FPolicy.AnchorsHeldToFloors(LFloorAlert) then
     begin
-      ARejectAlert := TTlsAlertDescription.BadCertificate;
-      if (FPolicy.Pkix = nil) or not TChainAlgorithmPolicy.AnchorsMeetKeyFloors(
-        FPolicy.Pkix.Certificates, FPolicy.Anchors, FPolicy.StrengthPolicy, ARejectAlert) then
-        LTrusted := False;
+      ARejectAlert := LFloorAlert;
+      LTrusted := False;
     end;
   end;
   if not LTrusted then

@@ -3370,7 +3370,7 @@ begin
       raise EInvalidOperationTlsLibException.CreateRes(@SEmptyTrustStore);
     raise EInvalidOperationTlsLibException.CreateRes(@SNoClientAuthTrustStore);
   end;
-  // the client-CA anchors are the exclusive root, so a weak one would otherwise fail only per handshake
+  // with AnchorKeyFloors set, every client-CA anchor is held to the floors, used or not
   if (FClientAuth <> TClientAuthMode.None) and HasAnchorRoots and
     not TChainAlgorithmPolicy.AnchorsMeetKeyFloors(FPkix.Certificates,
     ComposeTrustStore.RootCertificates, FStrengthPolicy, LAlert) then

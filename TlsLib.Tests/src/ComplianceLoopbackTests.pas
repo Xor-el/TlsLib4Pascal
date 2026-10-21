@@ -102,6 +102,12 @@ type
     // a handshake whose post-handshake tickets have reached the client
     procedure Connect(const AClientConfig: ITlsClientConfig;
       const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
+{$IFDEF TLSLIB_MSWINDOWS}
+    // a handshake of a client presenting the ClientAuthChain leaf to a facade mTLS server whose
+    // client CA is AClientCa
+    procedure MtlsHandshake(const AClientCa: ITrustAnchorStore;
+      out AClient, AServer: ITlsEngine);
+{$ENDIF TLSLIB_MSWINDOWS}
   published
     procedure TestTls13HandshakeRelaxed;
     procedure TestTls13ConnectionUsesRuleSuiteAndGroup;
@@ -135,6 +141,9 @@ type
     procedure TestHostRootsClientHandshakesWithPrivateChain;
     procedure TestOsRootsClientRefusesPrivateChainWithUnknownCa;
     procedure TestMtlsServerAdmitsACompliantClientChain;
+    procedure TestMtlsServerAdmitsTheClientChainOfItsClientCa;
+    procedure TestMtlsServerRefusesAClientChainOutsideItsClientCa;
+    procedure TestMtlsServerRefusalOutsideItsClientCaCarriesUnknownCa;
 {$ENDIF TLSLIB_MSWINDOWS}
   end;
 
@@ -887,6 +896,53 @@ begin
   CheckFalse(LServer.IsHandshaking, 'the server finished');
   CheckFalse(LClient.IsTerminal, 'the client did not fail');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestComplianceLoopback.MtlsHandshake(const AClientCa: ITrustAnchorStore;
+  out AClient, AServer: ITlsEngine);
+var
+  LPolicy: ICompliancePolicy;
+  LClientCa: TBytes;
+  LCredential: TTlsCredential;
+begin
+  LPolicy := NewPolicy;
+  LCredential := ClientAuthCredential(LClientCa);
+  AServer := TTlsEngineFactory.CreateServerEngine(TComplianceTls.BuildServer(LPolicy,
+    TComplianceTls.WithPeerAuth(LPolicy, TComplianceTls.Server(LPolicy,
+    ServerCredential(LPolicy.Crypto)), TClientAuthMode.Required, AClientCa)));
+  AClient := TTlsEngineFactory.CreateClientEngine(TComplianceTls.BuildClient(LPolicy,
+    TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(
+    TTlsLibTestCertificates.EcP256RootStore)).WithCredential(LCredential)), Host);
+  RunHandshake(AClient, AServer);
+end;
+
+procedure TTestComplianceLoopback.TestMtlsServerAdmitsTheClientChainOfItsClientCa;
+var
+  LClientCa: TBytes;
+  LClient, LServer: ITlsEngine;
+begin
+  ClientAuthCredential(LClientCa);
+  MtlsHandshake(TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientCa)) as ITrustAnchorStore,
+    LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'control: the server did not fail');
+  CheckFalse(LServer.IsHandshaking, 'control: the server finished');
+end;
+
+procedure TTestComplianceLoopback.TestMtlsServerRefusesAClientChainOutsideItsClientCa;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  MtlsHandshake(TTlsLibTestCertificates.EcP256RootStore, LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the client chain does not reach the client CA');
+end;
+
+procedure TTestComplianceLoopback.TestMtlsServerRefusalOutsideItsClientCaCarriesUnknownCa;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  MtlsHandshake(TTlsLibTestCertificates.EcP256RootStore, LClient, LServer);
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LServer.LastError.Alert.Description),
+    'unknown_ca');
 end;
 
 {$ENDIF TLSLIB_MSWINDOWS}

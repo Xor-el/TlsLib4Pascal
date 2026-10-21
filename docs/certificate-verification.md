@@ -543,7 +543,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 
 `WithMinimumStrength` on a `WebPki` or `VerifierSource` policy (server or client verification) sets
 the floors the leaf and intermediates must meet; a configured trust anchor is exempt unless
-`AnchorKeyFloors` is set, which holds its key to the floors too. The fields of
+`AnchorKeyFloors` is set, which holds its key to the floors too; with it set, all of a server's
+client-CA anchors are checked at `Build` (`EInvalidOperationTlsLibException`). The fields of
 `TCertificateStrengthPolicy` (unit `TlpCertificateStrengthPolicy`) and their `Defaults`, used by
 every preset:
 
@@ -566,7 +567,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 
 ### The chain-algorithm policy (always on)
 
-Over the validated path (the anchor exempt unless `AnchorKeyFloors` is set), the built-in pipeline and the OS delegates always check:
+Over the validated path (the anchor exempt unless `AnchorKeyFloors` is set), the built-in pipeline
+and the OS delegates always check:
 
 - every leaf and intermediate is signed with a signature scheme this endpoint advertised, else
   `unsupported_certificate`;
@@ -608,7 +610,9 @@ resolver configured.
   RealPeerRevocationProbe); a timeout of 0 means 60 s, the response head is capped at 64 KiB,
   and it follows no redirect, treats a 101 or 204 as a failure and cannot reach an IPv6 responder.
 - **Server-side mTLS.** A server requests client certificates with `WithPeerAuth` and verifies them with
-  `WithClientVerification(TClientVerification.WebPki(...).Build)`. Without `WithPeerAuth`, the
+  `WithClientVerification(TClientVerification.WebPki(...).Build)`. With `AnchorKeyFloors` set, every
+  client-CA anchor is checked against the floors at `Build` (`EInvalidOperationTlsLibException`).
+  Without `WithPeerAuth`, the
   client-verification, pinning, callback, verdict, chain-limit and changed signature-scheme registry settings are refused at `Build`, and a
   server that shares a session store or ticket keys must also set `WithResumptionScope`.
 

@@ -642,6 +642,16 @@ type
     procedure TestLiveOverloadDisclosesTheHostResolver;
     procedure TestLiveOverloadBuildsUnderHard;
     procedure TestLiveOverloadRejectsEmptyStore;
+    procedure TestClientCaOverloadRejectsNilPolicyBeforeTheOsSource;
+    procedure TestClientCaOverloadRejectsNilBuilderBeforeTheOsSource;
+    procedure TestClientCaOverloadRejectsModeNoneBeforeTheOsSource;
+    procedure TestLiveOverloadRejectsNilPolicyBeforeTheOsSource;
+    procedure TestLiveOverloadRejectsNilBuilderBeforeTheOsSource;
+    procedure TestLiveOverloadRejectsModeNoneBeforeTheOsSource;
+    procedure TestVerificationOverloadChangesTheCallersBuilderInPlace;
+    procedure TestClientCaOverloadSourceNeedsNoLiveVerdict;
+    procedure TestLiveOverloadSourceRefusesWithoutTheLiveVerdict;
+    procedure TestLiveOverloadSourceAcceptsTheLiveVerdict;
   end;
 
   TTestComplianceAnchorFloors = class(TCompliancePolicyTestCase)
@@ -6652,6 +6662,170 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client CA with no roots');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadRejectsNilPolicyBeforeTheOsSource;
+var
+  LNone: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  LNone := nil;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LNone, ServerBuilder(StrictPolicy), TClientAuthMode.Required,
+      TTlsLibTestCertificates.EcP256RootStore);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an argument error on every platform');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadRejectsNilBuilderBeforeTheOsSource;
+var
+  LNone: ITlsServerConfigBuilder;
+  LRaised: Boolean;
+begin
+  LNone := nil;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(StrictPolicy, LNone, TClientAuthMode.Required,
+      TTlsLibTestCertificates.EcP256RootStore);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an argument error on every platform');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadRejectsModeNoneBeforeTheOsSource;
+var
+  LPolicy: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  LPolicy := StrictPolicy;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.None,
+      TTlsLibTestCertificates.EcP256RootStore);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an argument error on every platform');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadRejectsNilPolicyBeforeTheOsSource;
+var
+  LNone: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  LNone := nil;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LNone, ServerBuilder(StrictPolicy), TClientAuthMode.Required,
+      TTlsLibTestCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an argument error on every platform');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadRejectsNilBuilderBeforeTheOsSource;
+var
+  LNone: ITlsServerConfigBuilder;
+  LRaised: Boolean;
+begin
+  LNone := nil;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(StrictPolicy, LNone, TClientAuthMode.Required,
+      TTlsLibTestCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an argument error on every platform');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadRejectsModeNoneBeforeTheOsSource;
+var
+  LPolicy: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  LPolicy := StrictPolicy;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.None,
+      TTlsLibTestCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an argument error on every platform');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadChangesTheCallersBuilderInPlace;
+var
+  LPolicy: ICompliancePolicy;
+  LVerification: IClientVerificationBuilder;
+begin
+  LPolicy := Rsa3072Policy;
+  LVerification := LooseClientVerification;
+  CheckEquals(2048, Int32(LVerification.Build.StrengthPolicy.MinRsaModulusBits),
+    'control: the builder starts looser than the rules');
+  TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.Required,
+    LVerification);
+  CheckEquals(Int32(LPolicy.Rules.Strength.MinRsaModulusBits),
+    Int32(LVerification.Build.StrengthPolicy.MinRsaModulusBits),
+    'the caller''s builder now carries the floors of the rules');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadSourceNeedsNoLiveVerdict;
+var
+  LBuilder: ITlsServerConfigBuilder;
+  LContext: TClientTrustContext;
+begin
+  if not ClientCaOrSkip(StrictPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+    Exit;
+  LContext := Default(TClientTrustContext);
+  LContext.Deferral := TVerdictDeferral.None;
+  CheckTrue(LBuilder.Build.ClientVerifierSource.CreateClientVerifier(LContext) <> nil,
+    'a cache-only source builds its verifier without the live verdict');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadSourceRefusesWithoutTheLiveVerdict;
+var
+  LBuilder: ITlsServerConfigBuilder;
+  LContext: TClientTrustContext;
+  LRaised: Boolean;
+begin
+  if not LiveOrSkip(TRevocationPosture.Soft, LBuilder) then
+    Exit;
+  LContext := Default(TClientTrustContext);
+  LContext.Deferral := TVerdictDeferral.None;
+  LRaised := False;
+  try
+    LBuilder.Build.ClientVerifierSource.CreateClientVerifier(LContext);
+  except
+    on ESystemTrustUnsupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a live source refuses a context that defers nothing to the live verdict');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadSourceAcceptsTheLiveVerdict;
+var
+  LBuilder: ITlsServerConfigBuilder;
+  LContext: TClientTrustContext;
+begin
+  if not LiveOrSkip(TRevocationPosture.Soft, LBuilder) then
+    Exit;
+  LContext := Default(TClientTrustContext);
+  LContext.Deferral := TVerdictDeferral.LiveRevocation;
+  CheckTrue(LBuilder.Build.ClientVerifierSource.CreateClientVerifier(LContext) <> nil,
+    'control: the same source builds once the live verdict is deferred to');
 end;
 
 { TTestComplianceAnchorFloors }

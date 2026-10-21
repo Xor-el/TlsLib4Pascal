@@ -61,6 +61,11 @@ type
     class function Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile; static;
     class function ServerBase(const APolicy: ICompliancePolicy)
       : ITlsServerConfigBuilder; static;
+    class procedure CheckPeerAuth(const APolicy: ICompliancePolicy;
+      const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode); static;
+    class function ApplyPeerAuth(const APolicy: ICompliancePolicy;
+      const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
+      const AVerification: IClientVerificationBuilder): ITlsServerConfigBuilder; static;
   public
     /// <summary>A client builder verifying the server through the OS verifier, trusting ARoots
     /// (the OS roots, the OS roots and host roots, or host roots alone). Raises
@@ -276,9 +281,10 @@ class function TComplianceTls.WithPeerAuth(const APolicy: ICompliancePolicy;
   const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
   const AClientCa: ITrustAnchorStore): ITlsServerConfigBuilder;
 begin
+  CheckPeerAuth(APolicy, ABuilder, AMode);
   if (AClientCa = nil) or (AClientCa.AnchorCount = 0) then
     raise EArgumentTlsLibException.CreateRes(@SClientCaNeedsRoots);
-  Result := WithPeerAuth(APolicy, ABuilder, AMode, TClientVerification.VerifierSource(
+  Result := ApplyPeerAuth(APolicy, ABuilder, AMode, TClientVerification.VerifierSource(
     TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.CacheOnly), AClientCa));
 end;
 
@@ -286,14 +292,27 @@ class function TComplianceTls.WithPeerAuth(const APolicy: ICompliancePolicy;
   const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
   const AVerification: IClientVerificationBuilder): ITlsServerConfigBuilder;
 begin
+  CheckPeerAuth(APolicy, ABuilder, AMode);
+  if AVerification = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilClientVerification);
+  Result := ApplyPeerAuth(APolicy, ABuilder, AMode, AVerification);
+end;
+
+class procedure TComplianceTls.CheckPeerAuth(const APolicy: ICompliancePolicy;
+  const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode);
+begin
   if APolicy = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
   if ABuilder = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilBuilder);
-  if AVerification = nil then
-    raise EArgumentTlsLibException.CreateRes(@SNilClientVerification);
   if AMode = TClientAuthMode.None then
     raise EArgumentTlsLibException.CreateRes(@SClientAuthNone);
+end;
+
+class function TComplianceTls.ApplyPeerAuth(const APolicy: ICompliancePolicy;
+  const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
+  const AVerification: IClientVerificationBuilder): ITlsServerConfigBuilder;
+begin
   // a later WithClientVerification would replace this verification and drop the strength floors
   Result := ABuilder.WithPeerAuth(AMode).WithClientVerification(
     AVerification.WithMinimumStrength(APolicy.Rules.Strength).Build);
@@ -306,12 +325,13 @@ class function TComplianceTls.WithPeerAuth(const APolicy: ICompliancePolicy;
 var
   LVerification: IClientVerificationBuilder;
 begin
+  CheckPeerAuth(APolicy, ABuilder, AMode);
   if (AClientCa = nil) or (AClientCa.AnchorCount = 0) then
     raise EArgumentTlsLibException.CreateRes(@SClientCaNeedsRoots);
   LVerification := TClientVerification.VerifierSource(
     TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live), AClientCa)
     .WithRevocation(APosture);
-  Result := WithPeerAuth(APolicy, ABuilder, AMode, LVerification)
+  Result := ApplyPeerAuth(APolicy, ABuilder, AMode, LVerification)
     .WithLiveRevocationVerdict(ADeadlineMs);
 end;
 
