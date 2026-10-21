@@ -1,0 +1,30 @@
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_f2c9bd75607afc::t_b6133f0a75ae40 870-884
+  s_f2c9bd75607afc::t_1ffd9bfeb072ee 124-125
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_f2c9bd75607afc::t_3513a543fc0cea 2275
+  s_f2c9bd75607afc::t_beedd14f9dcd97 966
+  s_f2c9bd75607afc::t_7b261668f5cafe 2263
+TlsLib/src/Handshake/TlpCredentialResolvers.pas
+  s_f2c9bd75607afc::t_006d16141ab0ed 152,154
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_f2c9bd75607afc::t_3da86ed83a14ae 149-155
+  s_f2c9bd75607afc::t_3fcd3890067d45 20
+  s_f2c9bd75607afc::t_1deffa362992c5 65-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c0c19941e03694ff2c6798bae9ef9018a32ddf94",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
