@@ -86,10 +86,10 @@ type
       const AAnchors: TArray<TBytes>; const APolicy: TCertificateStrengthPolicy;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>
-    /// Whether we may send AChain: no certificate other than a self-issued one (treated as a path
-    /// start, as RFC 9846 4.3.3 treats a self-signed one) is signed with MD5, or with SHA-1 the peer
-    /// did not advertise in APeerCertSchemes (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3). A
-    /// certificate whose signature cannot be determined is not refused.
+    /// Whether we may send AChain: no certificate other than a self-signed one (verifies under its
+    /// own key, RFC 5280 3.2; treated as a path start, as RFC 9846 4.3.3 does) is signed with MD5,
+    /// or with SHA-1 the peer did not advertise in APeerCertSchemes (RFC 9846 4.5.1.2; MD5
+    /// inferred from 4.5.1.3). A certificate whose signature cannot be determined is not refused.
     /// </summary>
     class function SendableTo(const AInspector: ICertificateInspector;
       const AChain: TArray<TBytes>; const APeerCertSchemes: TArray<UInt16>): Boolean; static;
@@ -195,8 +195,8 @@ var
   LI: Int32;
   LCert: IInspectedCertificate;
   LSig: TCertSignatureFacts;
-  LSubject, LIssuer, LCommonName, LSerial: string;
   LScheme: UInt16;
+  LSendable: Boolean;
 begin
   Result := True;
   for LI := 0 to System.High(AChain) do
@@ -208,20 +208,20 @@ begin
     end;
     if not LCert.SignatureFacts(LSig) then
       Continue;
-    // self-issued is treated as a path start, as RFC 9846 4.3.3 treats self-signed
-    if LCert.PeerInfo(LSubject, LIssuer, LCommonName, LSerial) and (LSubject = LIssuer) then
-      Continue;
+    LSendable := True;
     case LSig.Hash.Standing of
       TCertSignatureHashStanding.Forbidden:
-        Exit(False);
+        LSendable := False;
       TCertSignatureHashStanding.Deprecated:
         begin
           LScheme := LegacySha1Scheme(LSig.Family);
-          if (LScheme = 0) or
-            not (TArrayUtilities.Contains<UInt16>(APeerCertSchemes, LScheme)) then
-            Exit(False);
+          LSendable := (LScheme <> 0) and
+            (TArrayUtilities.Contains<UInt16>(APeerCertSchemes, LScheme));
         end;
     end;
+    // a self-signed certificate (verifies under its own key, RFC 5280 3.2) starts the path
+    if not LSendable and (LCert.IsSelfSigned <> TCertAnswer.Yes) then
+      Exit(False);
   end;
 end;
 

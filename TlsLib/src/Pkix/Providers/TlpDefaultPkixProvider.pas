@@ -106,6 +106,7 @@ type
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
     function IsCertificateAuthority: TCertAnswer;
+    function IsSelfSigned: TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
@@ -195,6 +196,16 @@ type
 
   // IRevocationChecker - stapled-OCSP verification and the live OCSP/CRL primitives.
   TRevocationChecker = class(TInterfacedObject, IRevocationChecker)
+  private
+    // read by the inspected certificate in this unit for its self-signature test
+    /// <summary>
+    /// Whether AIssuer's key verifies ALeaf's signature. A matching distinguished name alone does not
+    /// make a certificate the issuer, so every revocation primitive that authenticates a response
+    /// under AIssuer's key first requires this (RFC 6960 4.2.2.2; RFC 5280 6.3.3 (f)). Any
+    /// verification failure, including an algorithm the backend cannot verify, counts as not
+    /// signed: the outcome is indeterminate.
+    /// </summary>
+    class function IssuerSignedLeaf(const ALeaf, AIssuer: IX509Certificate): Boolean; static;
   strict private
     /// <summary>
     /// Whether a revocation artifact signed with ASignature is too weak to authenticate:
@@ -223,14 +234,6 @@ type
       const ACrl: IX509Crl): Boolean; static;
     class function IdpNameMatchesLeafDistributionPoint(
       const AIdpName: IDistributionPointName; const ALeaf: IX509Certificate): Boolean; static;
-    /// <summary>
-    /// Whether AIssuer's key verifies ALeaf's signature. A matching distinguished name alone does not
-    /// make a certificate the issuer, so every revocation primitive that authenticates a response
-    /// under AIssuer's key first requires this (RFC 6960 4.2.2.2; RFC 5280 6.3.3 (f)). Any
-    /// verification failure, including an algorithm the backend cannot verify, counts as not
-    /// signed: the outcome is indeterminate.
-    /// </summary>
-    class function IssuerSignedLeaf(const ALeaf, AIssuer: IX509Certificate): Boolean; static;
     /// <summary>
     /// Whether any entry of ACrl carries a critical extension; none is processed here, and RFC 5280
     /// 5.3 forbids using such a CRL to determine the status of any certificate.
@@ -1813,6 +1816,21 @@ begin
   except
     Result := TCertAnswer.Undetermined;
   end;
+end;
+
+function TInspectedCertificate.IsSelfSigned: TCertAnswer;
+var
+  LSelfIssued: Boolean;
+begin
+  try
+    LSelfIssued := FCert.IssuerDN.Equivalent(FCert.SubjectDN, True);
+  except
+    Exit(TCertAnswer.Undetermined);
+  end;
+  if LSelfIssued and TRevocationChecker.IssuerSignedLeaf(FCert, FCert) then
+    Result := TCertAnswer.Yes
+  else
+    Result := TCertAnswer.No;
 end;
 
 function TInspectedCertificate.PeerInfo(out ASubject, AIssuer, ACommonName,

@@ -53,6 +53,10 @@ type
     procedure TestSelfSignedCaCertificateIsAnAuthority;
     procedure TestEndEntityCertificateIsNotAnAuthority;
     procedure TestMalformedCertIsNotDeterminedAsAuthority;
+    // self-signed (IsSelfSigned)
+    procedure TestSelfSignedRootIsSelfSigned;
+    procedure TestIssuedCertificateIsNotSelfSigned;
+    procedure TestSelfIssuedCertificateSignedByAnotherKeyIsNotSelfSigned;
     // keyUsage (CertificateKeyUsagePermits)
     procedure TestDigitalSignatureCertPermitsSigning;
     procedure TestKeyEnciphermentCertForbidsSigning;
@@ -113,6 +117,30 @@ begin
   CheckEquals(Ord(TCertAnswer.Undetermined),
     Ord(Pkix.Certificates.IsCertificateAuthority(TBytes.Create(7, 7, 7))),
     'a malformed certificate cannot be determined');
+end;
+
+procedure TTestCertificateChecks.TestSelfSignedRootIsSelfSigned;
+begin
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Pkix.Certificates.Parse(
+      TTlsLibTestCertificates.Field('Certs/ReissuedRoot.txt', 'root_cert')).IsSelfSigned),
+    'a root verifying under its own key is self-signed');
+end;
+
+procedure TTestCertificateChecks.TestIssuedCertificateIsNotSelfSigned;
+begin
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Pkix.Certificates.Parse(
+      TTlsLibTestCertificates.Field('Certs/ReissuedRoot.txt', 'issuer_cert')).IsSelfSigned),
+    'a certificate whose issuer name differs from its subject is not self-signed');
+end;
+
+procedure TTestCertificateChecks.TestSelfIssuedCertificateSignedByAnotherKeyIsNotSelfSigned;
+begin
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/ReissuedRoot.txt',
+      'root_rollover_sha1_cert')).IsSelfSigned),
+    'matching names are not enough: the signature must verify under its own key');
 end;
 
 function TTestCertificateChecks.Permits(const ACertName: string;

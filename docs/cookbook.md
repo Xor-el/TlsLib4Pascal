@@ -163,7 +163,7 @@ The built-in SNI resolver and `WithSniCredential` expose their credentials throu
 it. The set hands every credential, private key handle included, to any code that holds the frozen
 config.
 
-A chain with a certificate (other than a self-issued one) signed with MD5, or with SHA-1 the client
+A chain with a certificate (other than a self-signed one) signed with MD5, or with SHA-1 the client
 did not advertise, is refused with `handshake_failure` (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3), independent of
 `AllowedDeprecatedHashes`; a SHA-256 chain is still sent. `AClientHello.CertificateSignatureSchemes`
 lists what the client advertised, so a resolver can pick another chain. A client credential in that

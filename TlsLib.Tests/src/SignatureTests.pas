@@ -106,6 +106,7 @@ type
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
     function IsCertificateAuthority: TCertAnswer;
+    function IsSelfSigned: TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
@@ -148,6 +149,11 @@ end;
 function TUndecodableKeyUsageLeaf.IsCertificateAuthority: TCertAnswer;
 begin
   Result := FInner.IsCertificateAuthority;
+end;
+
+function TUndecodableKeyUsageLeaf.IsSelfSigned: TCertAnswer;
+begin
+  Result := FInner.IsSelfSigned;
 end;
 
 function TUndecodableKeyUsageLeaf.KeyKind(out AKind: TSignatureKeyKind;

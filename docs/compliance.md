@@ -328,8 +328,8 @@ OS verifier, and so must a server's client chain.
   refused, as no scheme of the rules covers it; the issuer is found in the chain whatever its
   position, and one whose key cannot be read is a finding. The last certificate's signature is not
   judged when it verifies under its own key; a self-issued link that does not, or one before the
-  last, is judged. The issuer search for the self-signed test runs on the host's base provider; a
-  base that cannot verify the root's self-signature makes the root be judged. It checks that
+  last, is judged. The self-signed test runs on the certificate inspector; one that cannot verify
+  the root's self-signature makes the root be judged. It checks that
   the credential is one the config builder accepts (`TTlsCredential.Consistency`), that the key can
   sign with no scheme outside the rules, and that the module serves the key. A certificate chain
   with no key is `CredentialKeyMissing`, a key that is not the leaf's (compared by key value)

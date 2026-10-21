@@ -78,7 +78,7 @@ type
     FReport: ICryptoBackendReport;
     FCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
-    // the base provider runs the self-signed test; a strict facet refuses the issuer search
+    // the base provider runs the issuer search; a strict facet refuses it
     FBasePkix: IPkixProvider;
     FGroups: INamedGroupRegistry;
     FAttestation: IModuleAttestation;
@@ -591,11 +591,10 @@ var
   LCert: IInspectedCertificate;
   LKey: TCertKeyFacts;
   LSignature: TCertSignatureFacts;
-  LSubject, LIssuer, LCommonName, LSerial: string;
   LIssuerDer: TBytes;
   LIndex: Int32;
   LIssuerKey: TCertAnswer;
-  LLast, LSelfSigned: Boolean;
+  LLast: Boolean;
 begin
   LIndex := APosition + 1;
   LLast := APosition = System.Length(AChain) - 1;
@@ -615,11 +614,8 @@ begin
   else if not TComplianceCatalog.KeyMeets(LKey, FRules.Strength, FRules.RsaModulusBits) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialKeyBelowRules, ASubject, Format(SKeyBelow, [LIndex])));
-  // the base provider runs the self-signed test; a strict facet refuses the issuer search
-  LSelfSigned := LLast and LCert.PeerInfo(LSubject, LIssuer, LCommonName, LSerial) and
-    (LSubject = LIssuer) and FBasePkix.Revocation.TryFindIssuer(AChain[APosition],
-    TArray<TBytes>.Create(AChain[APosition]), LIssuerDer);
-  if LSelfSigned then
+  // the last certificate is not judged when it verifies under its own key
+  if LLast and (LCert.IsSelfSigned = TCertAnswer.Yes) then
     Exit;
   // the core covers an RSASSA-PSS issuer key only with the rsa_pss_pss schemes
   LIssuerKey := TCertAnswer.No;

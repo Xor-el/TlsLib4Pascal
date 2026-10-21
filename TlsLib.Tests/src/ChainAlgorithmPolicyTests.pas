@@ -91,7 +91,9 @@ type
     procedure TestSendableToRefusesEcdsaSha1WhenOnlyRsaSha1Advertised;
     procedure TestSendableToAdmitsEcdsaSha1WhenAdvertised;
     procedure TestSendableToRefusesMd5WhateverIsAdvertised;
-    procedure TestSendableToExemptsASelfIssuedSha1Certificate;
+    procedure TestSendableToExemptsASelfSignedSha1Certificate;
+    procedure TestSendableToRefusesARolloverSha1Certificate;
+    procedure TestSendableToExemptsASelfSignedMd5Root;
     procedure TestSendableToAdmitsACurrentHashChainWithNoAdvertisement;
     procedure TestSendableToDoesNotRefuseAnUndeterminableCertificate;
     procedure TestSendableToSkipsACertificateWithAnUnknownSignatureAlgorithm;
@@ -542,12 +544,27 @@ begin
     'an MD5-signed issuer is never sent');
 end;
 
-procedure TTestChainAlgorithmPolicy.TestSendableToExemptsASelfIssuedSha1Certificate;
+procedure TTestChainAlgorithmPolicy.TestSendableToExemptsASelfSignedSha1Certificate;
 begin
   CheckTrue(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
     TArray<TBytes>.Create(ReissuedCert('leaf_cert'), ReissuedCert('issuer_cert'),
     ReissuedCert('root_reissued_sha1_cert')), nil),
-    'a self-issued SHA-1 certificate begins the path and is not judged');
+    'a self-signed SHA-1 certificate begins the path and is not judged');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToRefusesARolloverSha1Certificate;
+begin
+  CheckFalse(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(ReissuedCert('leaf_cert'), ReissuedCert('issuer_cert'),
+    ReissuedCert('root_rollover_sha1_cert')), nil),
+    'a self-issued SHA-1 certificate signed by another key is judged');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestSendableToExemptsASelfSignedMd5Root;
+begin
+  CheckTrue(TChainAlgorithmPolicy.SendableTo(Pkix.Certificates,
+    TArray<TBytes>.Create(LegacyCert('root_md5_cert')), nil),
+    'a self-signed MD5 certificate begins the path and is not judged');
 end;
 
 procedure TTestChainAlgorithmPolicy.TestSendableToAdmitsACurrentHashChainWithNoAdvertisement;

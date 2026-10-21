@@ -33,7 +33,7 @@ type
   /// shared across threads.
   /// </summary>
   IInspectedCertificate = interface(IInterface)
-    ['{6E69C0FB-F1B3-49F6-A5BD-D135DF2B2631}']
+    ['{C2DDBEB1-7FEA-4F46-A944-C27F3FD4E389}']
     function PublicKeyInfo: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
@@ -55,6 +55,13 @@ type
     /// the extension is absent or cA is FALSE, Undetermined on a malformed certificate.
     /// </summary>
     function IsCertificateAuthority: TCertAnswer;
+    /// <summary>
+    /// Whether the certificate is self-signed (RFC 5280 3.2): Yes when the issuer name equals the
+    /// subject name and the signature verifies under the certificate's own public key; No when
+    /// the names differ or the signature does not verify, including an algorithm the backend
+    /// cannot verify; Undetermined when the names cannot be read.
+    /// </summary>
+    function IsSelfSigned: TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     /// <summary>
     /// The subject public key's strength facts (family, size, curve). Returns False (facts
