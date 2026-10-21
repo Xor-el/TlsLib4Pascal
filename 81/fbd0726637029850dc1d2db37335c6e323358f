@@ -1,0 +1,24 @@
+TlsLib/src/KeySchedule/TlpExporterArgs.pas
+  s_f2c9bd75607afc::t_98fd30d0a0e19b 39-40
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_77bb0813388235 4608-4611
+  s_f2c9bd75607afc::t_6873082ea87912 2992,2994-2995
+  s_f2c9bd75607afc::t_4556085cbe8747 765
+  s_f2c9bd75607afc::t_1d0108a88ee556 743-746
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "81fbd0726637029850dc1d2db37335c6e323358f",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
