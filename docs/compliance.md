@@ -329,9 +329,9 @@ OS verifier, and so must a server's client chain.
   position, and one whose key cannot be read is a finding. The last certificate's signature is not
   judged when it verifies under its own key; a self-issued link that does not, or one before the
   last, is judged. The self-signed test runs on the certificate inspector; one that cannot verify
-  the root's self-signature makes the root be judged. It checks that
-  the credential is one the config builder accepts (`TTlsCredential.Consistency`), that the key can
-  sign with no scheme outside the rules, and that the module serves the key. A certificate chain
+  the root's self-signature makes the root be judged. It checks that the credential is one the
+  config builder accepts (`TTlsCredential.Consistency`), that the key can sign with no scheme
+  outside the rules, and that the module serves the key. A certificate chain
   with no key is `CredentialKeyMissing`, a key that is not the leaf's (compared by key value)
   `CredentialKeyMismatch`, and a leaf that forbids digitalSignature, an RSASSA-PSS leaf key or a key
   that cannot export its public half `CredentialKeyUnusable`. A key that can sign
