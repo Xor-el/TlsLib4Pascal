@@ -332,6 +332,7 @@ type
     // exporter labels and seeds beyond the module's bounds are composed, not refused
     procedure TestTls12PrfMatchesPortableInExporterShapes;
     procedure TestTls12PrfExporterSeedBeyondTheModuleBoundIsServed;
+    procedure TestTls12PrfKeyScheduleLabelReachesTheModuleKdf;
     procedure TestTls12PrfZeroLengthIsEmptyAndNegativeRaises;
     procedure TestTls12KeyScheduleMatchesPortable;
   end;
@@ -2240,6 +2241,32 @@ begin
     'a seed past 256 octets is derived');
 end;
 
+procedure TTestWindowsNativeCryptoProvider.TestTls12PrfKeyScheduleLabelReachesTheModuleKdf;
+var
+  LReport: ICryptoBackendReport;
+  LPrf: ITls12Prf;
+  LSecret: ISecretBuffer;
+  LSeed: TBytes;
+  LRaised: Boolean;
+begin
+  if not (Supports(Crypto, ICryptoBackendReport, LReport) and
+    (LReport.Tls12PrfBackend(THashAlgorithm.SHA_256).Backend = TCryptoBackend.System)) then
+    SkipTest('the module KDF does not serve the TLS 1.2 PRF on this host');
+  // the module KDF refuses a seed over 256 octets; a failure never falls back to the portable PRF
+  LPrf := Crypto.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256);
+  LSecret := TSecretBuffer.From(DecodeHex('0102030405060708'));
+  LSeed := nil;
+  SetLength(LSeed, 300);
+  LRaised := False;
+  try
+    LPrf.Compute(LSecret, 'master secret', LSeed, 48);
+  except
+    on E: Exception do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a key-schedule label over the module bound is refused, not rerouted');
+end;
+
 procedure TTestWindowsNativeCryptoProvider.TestTls12PrfZeroLengthIsEmptyAndNegativeRaises;
 var
   LPrf: ITls12Prf;
@@ -2838,14 +2865,14 @@ end;
 
 procedure TTestOverlayCryptoProvider.TestReportNamingHpkeRefusesForeignBaseHpkeFacet;
 var
-  LBase: ICryptoProvider;
+  LBase, LOverlay: ICryptoProvider;
   LRaised: Boolean;
 begin
   LBase := BaseWithHpke(TStubHpke.Create as IHpkeCrypto);
   LRaised := False;
   try
-    TOverlayCryptoProvider.Create(LBase, nil, nil,
-      THpkeFlagReport.Create(True) as ICryptoBackendReport, nil);
+    LOverlay := TOverlayCryptoProvider.Create(LBase, nil, nil,
+      THpkeFlagReport.Create(True) as ICryptoBackendReport, nil) as ICryptoProvider;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
