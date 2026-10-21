@@ -61,6 +61,7 @@ uses
   TlpIKeySchedule,
   TlpTls12KeySchedule,
   TlpTls12PrfComposition,
+  TlpTls12PrfLabels,
   TlpSystemCryptoBase,
   MockCryptoProvider,
   TlsLibTestBase;
@@ -2148,8 +2149,9 @@ end;
 procedure TTestWindowsNativeCryptoProvider.TestTls12PrfMatchesPortableInEveryKeyScheduleShape;
 const
   Hashes: array [0 .. 1] of THashAlgorithm = (THashAlgorithm.SHA_256, THashAlgorithm.SHA_384);
-  Labels: array [0 .. 4] of string = ('master secret', 'extended master secret',
-    'key expansion', 'client finished', 'server finished');
+  Labels: array [0 .. 4] of string = (Tls12PrfLabelMasterSecret,
+    Tls12PrfLabelExtendedMasterSecret, Tls12PrfLabelKeyExpansion, Tls12PrfLabelClientFinished,
+    Tls12PrfLabelServerFinished);
   // master secret, ECDH premaster (P-256, P-384, P-521)
   SecretLengths: array [0 .. 3] of Int32 = (48, 32, 48, 66);
   // randoms, session hash (SHA-256, SHA-384), handshake hash

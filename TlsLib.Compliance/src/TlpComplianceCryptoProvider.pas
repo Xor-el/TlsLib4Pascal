@@ -27,6 +27,7 @@ uses
   TlpSystemCryptoBase,
   TlpHkdfComposition,
   TlpTls12PrfComposition,
+  TlpTls12PrfLabels,
   TlpComplianceTypes,
   TlpComplianceExceptions,
   TlpComplianceHpke,
@@ -140,12 +141,6 @@ resourcestring
   SNilBase = 'the base crypto provider must not be nil';
   SPortableOnlyReport = 'no backend report: every operation is portable';
 
-const
-  PlainMasterSecretLabel = 'master secret';
-  // the TLS 1.2 key-schedule labels of RFC 5246 and RFC 7627; any other label is an exporter
-  KeyScheduleLabels: array [0 .. 4] of string = ('master secret', 'extended master secret',
-    'key expansion', 'client finished', 'server finished');
-
 type
   /// <summary>A TLS 1.2 PRF that can refuse the plain master secret label (RFC 5246 8.1), so a
   /// session without Extended Master Secret (RFC 7627) can never be keyed, and any label that
@@ -183,21 +178,11 @@ end;
 
 function TComplianceTls12Prf.Compute(const ASecret: ISecretBuffer; const ALabel: string;
   const ASeed: TBytes; ALength: Int32): ISecretBuffer;
-var
-  LI: Int32;
-  LKeySchedule: Boolean;
 begin
-  if FRefusePlainMaster and (ALabel = PlainMasterSecretLabel) then
+  if FRefusePlainMaster and (ALabel = Tls12PrfLabelMasterSecret) then
     raise EComplianceRefusedTlsLibException.CreateRes(@SPlainMasterSecretRefused);
-  if FKeyScheduleOnly then
-  begin
-    LKeySchedule := False;
-    for LI := System.Low(KeyScheduleLabels) to System.High(KeyScheduleLabels) do
-      if ALabel = KeyScheduleLabels[LI] then
-        LKeySchedule := True;
-    if not LKeySchedule then
-      raise EComplianceRefusedTlsLibException.CreateRes(@SNotKeyScheduleLabelRefused);
-  end;
+  if FKeyScheduleOnly and not TTls12PrfLabels.IsKeyScheduleLabel(ALabel) then
+    raise EComplianceRefusedTlsLibException.CreateRes(@SNotKeyScheduleLabelRefused);
   Result := FInner.Compute(ASecret, ALabel, ASeed, ALength);
 end;
 

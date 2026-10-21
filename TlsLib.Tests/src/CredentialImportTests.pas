@@ -32,12 +32,28 @@ uses
   TlpPkixDomainTypes,
   TlpISigningKey,
   TlpTlsCredential,
+  TlpArrayUtilities,
   TlpTlsLibExceptions,
   MockRandom,
   MockCryptoProvider,
+  TlsLibTestCertificates,
   TlsLibTestBase;
 
 type
+  /// <summary>A signing key that reports fixed schemes and a fixed public key and cannot
+  /// sign.</summary>
+  TFixedPublicKeySigningKey = class sealed(TInterfacedObject, ISigningKey)
+  strict private
+  var
+    FSchemes: TArray<TSignatureScheme>;
+    FPublicKeyInfo: TBytes;
+  public
+    constructor Create(const ASchemes: TArray<TSignatureScheme>; const APublicKeyInfo: TBytes);
+    function CapableSchemes: TArray<TSignatureScheme>;
+    function PublicKeyInfo: TBytes;
+    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+  end;
+
   /// <summary>Covers the credential import seam: multi-format signing keys import to a
   /// key whose CapableSchemes are correct and whose signatures verify, and PEM/DER
   /// certificate chains load to the right DER; bad input raises typed exceptions.</summary>
@@ -59,6 +75,8 @@ type
     // Asserts the public key derived from the private vector APrivField equals the known-good
     // public vector APubField by value (via the inspector's SamePublicKey).
     procedure CheckDerivedPublicKey(const APrivField, APubField: string);
+    // The RSA credential of the 2048-bit test chain: its leaf and the key that owns it.
+    function RsaLeafCredential: TTlsCredential;
   protected
     procedure SetUp; override;
   published
@@ -117,6 +135,17 @@ type
     // the canonical-DER tail for families without a value comparator (X25519): equal keys match,
     // a different family does not
     procedure TestSamePublicKeyTailFamily;
+    // TTlsCredential.Consistency: one test per outcome
+    procedure TestConsistencyOfAKeyThatOwnsItsLeafIsConsistent;
+    procedure TestConsistencyOfAnEmptyChainIsChainEmpty;
+    procedure TestConsistencyChecksTheChainBeforeTheKey;
+    procedure TestConsistencyOfAMissingKeyIsKeyMissing;
+    procedure TestConsistencyOfALeafBarringDigitalSignatureIsLeafCannotSign;
+    procedure TestConsistencyOfAnRsaKeyOverAnRsaPssLeafIsLeafKeyRsaPss;
+    procedure TestConsistencyOfAKeyThatCannotExportIsKeyNotExportable;
+    procedure TestConsistencyOfAMalformedLeafIsLeafMalformed;
+    procedure TestConsistencyOfAnotherKeyIsKeyLeafMismatch;
+    procedure TestConsistencyComparesKeysByValue;
   end;
 
 implementation
@@ -840,6 +869,149 @@ begin
   CheckTrue(Pkix.Certificates.SamePublicKey(DecodeHex(FV.Values['ec256_pub_explicit']),
     DecodeHex(FV.Values['ec256_pub'])) = TCertAnswer.Yes,
     'explicit-parameter and namedCurve encodings of one EC key match');
+end;
+
+function TTestCredentialImport.RsaLeafCredential: TTlsCredential;
+begin
+  Result.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
+  Result.PrivateKey := Crypto.Signing.ImportSigningKey(
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_key'), nil);
+end;
+
+procedure TTestCredentialImport.TestConsistencyOfAKeyThatOwnsItsLeafIsConsistent;
+begin
+  CheckEquals(Ord(TCredentialConsistency.Consistent),
+    Ord(RsaLeafCredential.Consistency(Pkix.Certificates)), 'a key that owns its leaf');
+end;
+
+procedure TTestCredentialImport.TestConsistencyOfAnEmptyChainIsChainEmpty;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential := RsaLeafCredential;
+  LCredential.CertificateChain := nil;
+  CheckEquals(Ord(TCredentialConsistency.ChainEmpty),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'no certificate');
+end;
+
+procedure TTestCredentialImport.TestConsistencyChecksTheChainBeforeTheKey;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential := RsaLeafCredential;
+  LCredential.CertificateChain := nil;
+  LCredential.PrivateKey := nil;
+  CheckEquals(Ord(TCredentialConsistency.ChainEmpty),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'no certificate and no key');
+end;
+
+procedure TTestCredentialImport.TestConsistencyOfAMissingKeyIsKeyMissing;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential := RsaLeafCredential;
+  LCredential.PrivateKey := nil;
+  CheckEquals(Ord(TCredentialConsistency.KeyMissing),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'a chain with no key');
+end;
+
+procedure TTestCredentialImport.TestConsistencyOfALeafBarringDigitalSignatureIsLeafCannotSign;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential := RsaLeafCredential;
+  LCredential.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'ku_keyenc_cert'));
+  CheckEquals(Ord(TCredentialConsistency.LeafCannotSign),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'a keyUsage without digitalSignature');
+end;
+
+procedure TTestCredentialImport.TestConsistencyOfAnRsaKeyOverAnRsaPssLeafIsLeafKeyRsaPss;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential := RsaLeafCredential;
+  LCredential.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
+  CheckEquals(Ord(TCredentialConsistency.LeafKeyRsaPss),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'an RSA key over an id-RSASSA-PSS leaf');
+end;
+
+procedure TTestCredentialImport.TestConsistencyOfAKeyThatCannotExportIsKeyNotExportable;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential := RsaLeafCredential;
+  LCredential.PrivateKey := TFixedPublicKeySigningKey.Create(
+    LCredential.PrivateKey.CapableSchemes, nil) as ISigningKey;
+  CheckEquals(Ord(TCredentialConsistency.KeyNotExportable),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'a key with no public half');
+end;
+
+procedure TTestCredentialImport.TestConsistencyOfAMalformedLeafIsLeafMalformed;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential := RsaLeafCredential;
+  LCredential.CertificateChain := TArray<TBytes>.Create(TBytes.Create(1, 2, 3));
+  CheckEquals(Ord(TCredentialConsistency.LeafMalformed),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'a leaf that is not a certificate');
+end;
+
+procedure TTestCredentialImport.TestConsistencyOfAnotherKeyIsKeyLeafMismatch;
+var
+  LCredential: TTlsCredential;
+begin
+  LCredential := RsaLeafCredential;
+  LCredential.PrivateKey := Import('ec256_pkcs8_der');
+  CheckEquals(Ord(TCredentialConsistency.KeyLeafMismatch),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'a key of another family');
+  LCredential.PrivateKey := Import('rsa_pkcs8_der');
+  CheckEquals(Ord(TCredentialConsistency.KeyLeafMismatch),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'another RSA key');
+end;
+
+procedure TTestCredentialImport.TestConsistencyComparesKeysByValue;
+var
+  LCredential: TTlsCredential;
+  LReencoded: TBytes;
+begin
+  LCredential := RsaLeafCredential;
+  LReencoded := TTlsLibTestCertificates.RsaSpkiWithoutNullParameters(
+    LCredential.PrivateKey.PublicKeyInfo);
+  CheckFalse(TArrayUtilities.AreEqual(LReencoded, LCredential.PrivateKey.PublicKeyInfo),
+    'the two encodings differ in bytes');
+  LCredential.PrivateKey := TFixedPublicKeySigningKey.Create(
+    LCredential.PrivateKey.CapableSchemes, LReencoded) as ISigningKey;
+  CheckEquals(Ord(TCredentialConsistency.Consistent),
+    Ord(LCredential.Consistency(Pkix.Certificates)), 'the same key in another encoding');
+end;
+
+{ TFixedPublicKeySigningKey }
+
+constructor TFixedPublicKeySigningKey.Create(const ASchemes: TArray<TSignatureScheme>;
+  const APublicKeyInfo: TBytes);
+begin
+  inherited Create;
+  FSchemes := ASchemes;
+  FPublicKeyInfo := APublicKeyInfo;
+end;
+
+function TFixedPublicKeySigningKey.CapableSchemes: TArray<TSignatureScheme>;
+begin
+  Result := FSchemes;
+end;
+
+function TFixedPublicKeySigningKey.PublicKeyInfo: TBytes;
+begin
+  Result := FPublicKeyInfo;
+end;
+
+function TFixedPublicKeySigningKey.WithPreferredSchemes(
+  const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+begin
+  Result := Self;
 end;
 
 initialization

@@ -411,6 +411,7 @@
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngineEvents.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngine.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpHkdfLabel.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls12PrfLabels.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpExporterArgs.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\KeySchedule\TlpIKeySchedule.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTrafficKeys.pas"/>

@@ -327,9 +327,11 @@ OS verifier, and so must a server's client chain.
   judged when it verifies under its own key; a self-issued link that does not, or one before the
   last, is judged. The issuer search for the self-signed test runs on the host's base provider; a
   base that cannot verify the root's self-signature makes the root be judged. It checks that
-  the private key is the leaf's when the key exposes its public half, that the key can sign with no
-  scheme outside the rules, and that the module serves the key. A certificate chain with no key is
-  `CredentialKeyMissing`, a key that is not the leaf's `CredentialKeyMismatch`. A key that can sign
+  the credential is one the config builder accepts (`TTlsCredential.Consistency`), that the key can
+  sign with no scheme outside the rules, and that the module serves the key. A certificate chain
+  with no key is `CredentialKeyMissing`, a key that is not the leaf's (compared by key value)
+  `CredentialKeyMismatch`, and a leaf that forbids digitalSignature, an RSASSA-PSS leaf key or a key
+  that cannot export its public half `CredentialKeyUnusable`. A key that can sign
   with a scheme the rules do not allow is a finding that names the extras; credentials loaded
   through the policy's crypto provider are already narrowed.
 - **Resolver.** Only the library's own SNI resolver (`TSniCredentialResolver`, immutable) is

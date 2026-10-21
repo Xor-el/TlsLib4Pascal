@@ -57,7 +57,7 @@ uses
   TlpSystemTimeUtilities, TlpWindowsSystemTime, TlpPosixSystemTime, 
   TlpCipherSuiteCatalog, TlpIpLiteral, TlpHttpUrl, TlpWindowsDynamicLibrary, 
   TlpPosixDynamicLibrary, TlpAlpnProtocols, TlpPkcs12Identity, 
-  TlpITlsServerCredentialSet;
+  TlpITlsServerCredentialSet, TlpTls12PrfLabels;
 
 implementation
 

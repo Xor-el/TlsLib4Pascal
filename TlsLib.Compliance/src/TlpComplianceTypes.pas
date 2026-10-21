@@ -107,7 +107,7 @@ type
     ExtendedMasterSecretNotRequired, EarlyDataEnabled, EchConfigured, ExternalPskConfigured,
     Tls12PskConfigured, KeyLogConfigured, DangerousTrustConfigured, StrengthBelowRules,
     CredentialKeyUndetermined, CredentialKeyMissing, CredentialKeyMismatch,
-    CredentialKeyBelowRules, CredentialSchemesNotAllowed,
+    CredentialKeyBelowRules, CredentialSchemesNotAllowed, CredentialKeyUnusable,
     TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup,
     CustomVerifierConfigured, ResumptionStateUnchecked, TicketKeysUnchecked,
     CipherSuiteDiffersFromCatalog);

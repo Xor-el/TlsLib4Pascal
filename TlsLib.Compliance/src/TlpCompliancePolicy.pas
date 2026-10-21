@@ -223,6 +223,11 @@ resourcestring
     'which no scheme of the rules covers';
   SNoPrivateKey = 'the credential holds a certificate and no private key';
   SKeyMismatch = 'the credential key is not the key of its leaf certificate';
+  SLeafCannotSign = 'the leaf certificate of the credential forbids digitalSignature';
+  SLeafKeyRsaPss = 'the leaf certificate of the credential holds an RSASSA-PSS key, which the ' +
+    'credential cannot sign with';
+  SKeyNotExportable = 'the credential key cannot export its public key, so it cannot be ' +
+    'matched to its leaf certificate';
   SKeyBelow = 'the key of certificate %d of the credential is below the strength floors of ' +
     'the rules';
   SCredentialSchemes = 'the credential key signs with no scheme the rules allow';
@@ -679,7 +684,6 @@ procedure TCompliancePolicy.CheckCredential(const ACredential: TTlsCredential;
   const ASubject: string; var AFindings: TArray<TComplianceFinding>);
 var
   LCapable: TArray<TSignatureScheme>;
-  LPublic: TBytes;
   LExtras, LName: string;
   LI: Int32;
   LAnyAllowed: Boolean;
@@ -690,22 +694,29 @@ begin
   // every certificate the credential presents is judged, not only the leaf
   for LI := 0 to System.Length(ACredential.CertificateChain) - 1 do
     CheckChainCertificate(ACredential.CertificateChain, LI, ASubject, AFindings);
-  if ACredential.PrivateKey = nil then
-  begin
-    // an empty chain was reported above; a chain with no key can sign nothing
-    if System.Length(ACredential.CertificateChain) > 0 then
+  // an empty chain was reported above; the credential must be one the builder would accept
+  case ACredential.Consistency(FPkix.Certificates) of
+    TCredentialConsistency.KeyMissing:
+      begin
+        TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+          TComplianceFindingKind.CredentialKeyMissing, ASubject, SNoPrivateKey));
+        Exit;
+      end;
+    TCredentialConsistency.ChainEmpty:
+      Exit;
+    TCredentialConsistency.LeafCannotSign:
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.CredentialKeyMissing, ASubject, SNoPrivateKey));
-    Exit;
+        TComplianceFindingKind.CredentialKeyUnusable, ASubject, SLeafCannotSign));
+    TCredentialConsistency.LeafKeyRsaPss:
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CredentialKeyUnusable, ASubject, SLeafKeyRsaPss));
+    TCredentialConsistency.KeyNotExportable:
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CredentialKeyUnusable, ASubject, SKeyNotExportable));
+    TCredentialConsistency.KeyLeafMismatch:
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CredentialKeyMismatch, ASubject, SKeyMismatch));
   end;
-  // a key that exposes its public half must be the leaf's, or the handshake signs unjudged
-  LPublic := ACredential.PrivateKey.PublicKeyInfo;
-  if (System.Length(LPublic) > 0) and (System.Length(ACredential.CertificateChain) > 0) and
-    FPkix.Certificates.IsWellFormed(ACredential.CertificateChain[0]) and
-    not TArrayUtilities.AreEqual(LPublic, FPkix.Certificates.Parse(
-    ACredential.CertificateChain[0]).PublicKeyInfo) then
-    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.CredentialKeyMismatch, ASubject, SKeyMismatch));
   LCapable := ACredential.PrivateKey.CapableSchemes;
   LAnyAllowed := False;
   LExtras := '';

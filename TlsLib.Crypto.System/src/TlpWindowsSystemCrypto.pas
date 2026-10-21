@@ -40,6 +40,7 @@ uses
   TlpSecretBuffer,
   TlpSecureMemory,
   TlpTls12PrfComposition,
+  TlpTls12PrfLabels,
   TlpHkdfComposition,
   TlpSignatureEncoding,
   TlpSystemCryptoBase,
@@ -743,7 +744,6 @@ type
   // The provider rejects a label or a seed over 256 octets, which RFC 5705 exporter input can
   // exceed, so only the five TLS key-schedule labels reach it. Any other label (an exporter) is
   // computed by the composition over the module HMAC, chosen by label alone, never by a failure.
-  // The label list must agree with the reserved PRF labels in TlpExporterArgs.
   TWindowsCngTls12Prf = class(TInterfacedObject, ITls12Prf)
   strict private
   var
@@ -752,7 +752,6 @@ type
     FHash: THashAlgorithm;
     FKeeper: IWindowsCng;
     FExporter: ITls12Prf;
-    class function IsKeyScheduleLabel(const ALabel: string): Boolean; static;
   public
     constructor Create(const AApi: TCngApi; AAlg: Pointer; AHash: THashAlgorithm;
       const AKeeper: IWindowsCng; const AExporter: ITls12Prf);
@@ -1535,19 +1534,6 @@ begin
   FExporter := AExporter;
 end;
 
-class function TWindowsCngTls12Prf.IsKeyScheduleLabel(const ALabel: string): Boolean;
-const
-  Labels: array [0 .. 4] of string = ('master secret', 'extended master secret',
-    'key expansion', 'client finished', 'server finished');
-var
-  LI: Int32;
-begin
-  Result := False;
-  for LI := Low(Labels) to High(Labels) do
-    if ALabel = Labels[LI] then
-      Exit(True);
-end;
-
 class function TWindowsCngTls12Prf.Derive(const AApi: TCngApi; AAlg: Pointer;
   AHash: THashAlgorithm; ASecret: PByte; ASecretLength: Int32; const ALabel: string;
   const ASeed: TBytes; AOut: PByte; ALength: Int32): Integer;
@@ -1671,7 +1657,7 @@ end;
 function TWindowsCngTls12Prf.Compute(const ASecret: ISecretBuffer; const ALabel: string;
   const ASeed: TBytes; ALength: Int32): ISecretBuffer;
 begin
-  if not IsKeyScheduleLabel(ALabel) then
+  if not TTls12PrfLabels.IsKeyScheduleLabel(ALabel) then
   begin
     Result := FExporter.Compute(ASecret, ALabel, ASeed, ALength);
     Exit;

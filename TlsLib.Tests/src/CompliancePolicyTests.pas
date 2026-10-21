@@ -462,7 +462,13 @@ type
     procedure TestBuildServerLeavesTheCallersVariableAloneWhenRefused;
     procedure TestKeyOfAnotherCertificateIsMismatched;
     procedure TestKeyOfTheLeafIsNotMismatched;
-    procedure TestKeyThatExposesNoPublicKeyIsNotMismatched;
+    procedure TestKeyThatExposesNoPublicKeyIsUnusableNotMismatched;
+    procedure TestKeyInAnotherEncodingOfTheLeafKeyIsNotMismatched;
+    procedure TestLeafBarringDigitalSignatureIsUnusable;
+    procedure TestRsaKeyOverAnRsaPssLeafIsUnusable;
+    procedure TestCheckedResolverRefusesAKeyThatExposesNoPublicKey;
+    procedure TestCheckedResolverRefusesALeafBarringDigitalSignature;
+    procedure TestCheckedResolverRefusesAnRsaPssLeaf;
     procedure TestCheckedResolverRefusesAKeyOfAnotherCertificate;
     procedure TestEvaluateCredentialReportsExtraSchemes;
     procedure TestEvaluateCredentialOfAGoodCredentialHasNoFinding;
@@ -4703,17 +4709,113 @@ begin
     TComplianceFindingKind.CredentialKeyMismatch), 'the leaf''s own key');
 end;
 
-procedure TTestComplianceAdmit.TestKeyThatExposesNoPublicKeyIsNotMismatched;
+procedure TTestComplianceAdmit.TestKeyThatExposesNoPublicKeyIsUnusableNotMismatched;
+var
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LReport: IComplianceReport;
+begin
+  // the builder refuses a key that cannot be matched to its leaf, so it is not admitted
+  LPolicy := StrictPolicy;
+  LCredential := Credential(LPolicy.Crypto);
+  LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256)) as ISigningKey;
+  LReport := LPolicy.EvaluateCredential(LCredential);
+  CheckTrue(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyUnusable),
+    'a key with no public half cannot be matched to its leaf');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialKeyMismatch),
+    'and is not reported as a mismatch');
+end;
+
+procedure TTestComplianceAdmit.TestKeyInAnotherEncodingOfTheLeafKeyIsNotMismatched;
+var
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LSpki: TBytes;
+begin
+  // the builder compares keys by value, so a re-encoding of the leaf's own key is the leaf's
+  LPolicy := StrictPolicy;
+  LCredential := Rsa2048Credential;
+  LSpki := LCredential.PrivateKey.PublicKeyInfo;
+  LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.RSA_PSS_RSAE_SHA256),
+    TTlsLibTestCertificates.RsaSpkiWithoutNullParameters(LSpki)) as ISigningKey;
+  CheckFalse(TArrayUtilities.AreEqual(LSpki, LCredential.PrivateKey.PublicKeyInfo),
+    'the encodings differ in bytes');
+  CheckFalse(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
+    TComplianceFindingKind.CredentialKeyMismatch), 'the same key in another encoding');
+end;
+
+procedure TTestComplianceAdmit.TestLeafBarringDigitalSignatureIsUnusable;
 var
   LPolicy: ICompliancePolicy;
   LCredential: TTlsCredential;
 begin
   LPolicy := StrictPolicy;
   LCredential := Credential(LPolicy.Crypto);
+  LCredential.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'ku_keyenc_cert'));
+  CheckTrue(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
+    TComplianceFindingKind.CredentialKeyUnusable), 'a leaf that cannot sign a handshake');
+end;
+
+procedure TTestComplianceAdmit.TestRsaKeyOverAnRsaPssLeafIsUnusable;
+var
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  LCredential := Rsa2048Credential;
+  LCredential.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
   LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.RSA_PSS_RSAE_SHA256), Pkix.Certificates.PublicKeyInfo(
+    LCredential.CertificateChain[0])) as ISigningKey;
+  CheckTrue(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
+    TComplianceFindingKind.CredentialKeyUnusable),
+    'an RSA key over an id-RSASSA-PSS leaf, though the key matches it');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedResolverRefusesAKeyThatExposesNoPublicKey;
+var
+  LPolicy: ICompliancePolicy;
+  LGiven, LResolved: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  LGiven := Credential(LPolicy.Crypto);
+  LGiven.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.ECDSA_SECP256R1_SHA256)) as ISigningKey;
-  CheckFalse(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
-    TComplianceFindingKind.CredentialKeyMismatch), 'nothing to compare is no mismatch');
+  CheckFalse(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(LGiven,
+    True) as ITlsServerCredentialResolver), LResolved), 'a key that cannot be matched');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedResolverRefusesALeafBarringDigitalSignature;
+var
+  LPolicy: ICompliancePolicy;
+  LGiven, LResolved: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  LGiven := Credential(LPolicy.Crypto);
+  LGiven.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'ku_keyenc_cert'));
+  CheckFalse(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(LGiven,
+    True) as ITlsServerCredentialResolver), LResolved), 'a leaf that cannot sign');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedResolverRefusesAnRsaPssLeaf;
+var
+  LPolicy: ICompliancePolicy;
+  LGiven, LResolved: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  LGiven := Rsa2048Credential;
+  LGiven.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
+  LGiven.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.RSA_PSS_RSAE_SHA256), Pkix.Certificates.PublicKeyInfo(
+    LGiven.CertificateChain[0])) as ISigningKey;
+  CheckFalse(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(LGiven,
+    True) as ITlsServerCredentialResolver), LResolved), 'an RSA key over an RSA-PSS leaf');
 end;
 
 procedure TTestComplianceAdmit.TestCheckedResolverRefusesAKeyOfAnotherCertificate;

@@ -2327,37 +2327,23 @@ end;
 
 procedure TTlsConfigBuilder.ValidateCredentialConsistency(
   const ACredential: TTlsCredential);
-var
-  LLeaf, LKeyPublicKeyInfo: TBytes;
-  LSchemes: TArray<TSignatureScheme>;
 begin
   // an empty chain would emit an empty certificate_list (RFC 9846 4.5.1) and a missing key
   // cannot sign, so either is refused here rather than failing mid-handshake
-  if System.Length(ACredential.CertificateChain) = 0 then
-    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialChainEmpty);
-  if ACredential.PrivateKey = nil then
-    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyMissing);
-  LLeaf := ACredential.CertificateChain[0];
-  // a definite No means the leaf may not sign a CertificateVerify; an absent or unreadable
-  // keyUsage passes (the peer-side signing-policy check is the backstop)
-  if FPkix.Certificates.KeyUsagePermits(LLeaf, TCertKeyUsage.DigitalSignature) = TCertAnswer.No
-  then
-    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafCannotSign);
-  // an id-RSASSA-PSS leaf key pairs only with rsa_pss_pss_*, which this library does not offer,
-  // so it is unusable even when the private key matches it (the key-value match below would pass)
-  LSchemes := ACredential.PrivateKey.CapableSchemes;
-  if (System.Length(LSchemes) > 0) and (LSchemes[0].KeyKind = TSignatureKeyKind.Rsa) and
-    (FPkix.Certificates.KeyIsRsaPss(LLeaf) = TCertAnswer.Yes) then
-    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafRsaPssUnsupported);
-  // the private key must own the leaf: match the key's public half against the leaf's, with no
-  // signing operation. A key that cannot export its public half fails closed. The value compare
-  // also catches a mis-ordered chain whose first certificate is not the one that pairs with the key
-  LKeyPublicKeyInfo := ACredential.PrivateKey.PublicKeyInfo;
-  if System.Length(LKeyPublicKeyInfo) = 0 then
-    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyNotExportable);
-  if FPkix.Certificates.SamePublicKey(FPkix.Certificates.PublicKeyInfo(LLeaf),
-    LKeyPublicKeyInfo) <> TCertAnswer.Yes then
-    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
+  case ACredential.Consistency(FPkix.Certificates) of
+    TCredentialConsistency.ChainEmpty:
+      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialChainEmpty);
+    TCredentialConsistency.KeyMissing:
+      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyMissing);
+    TCredentialConsistency.LeafCannotSign:
+      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafCannotSign);
+    TCredentialConsistency.LeafKeyRsaPss:
+      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafRsaPssUnsupported);
+    TCredentialConsistency.KeyNotExportable:
+      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyNotExportable);
+    TCredentialConsistency.LeafMalformed, TCredentialConsistency.KeyLeafMismatch:
+      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
+  end;
 end;
 
 function TTlsConfigBuilder.ComposeCredentialResolver: ITlsServerCredentialResolver;
