@@ -52,7 +52,7 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
-  MockCompliance,
+  MockNamedGroups,
   TlpNegotiationPolicy,
   TlpSignatureSchemeRegistry,
   TlpINamedGroup,
@@ -392,6 +392,9 @@ type
     // a host registry skips the default registry's own catalog check, so Build repeats it
     procedure TestServerCustomSuiteRegistryWithNonCatalogRecordRefused;
     procedure TestClientCustomSuiteRegistryWithNonCatalogRecordRefused;
+    procedure TestClientCustomSuiteRegistryOfCatalogRecordsBuilds;
+    procedure TestCustomSuiteRegistryWithNonCatalogRecordInListRefused;
+    procedure TestCustomSuiteRegistryWithNonCatalogRecordBesideTls12PskRefused;
     procedure TestCustomSuiteRegistryOfCatalogRecordsBuilds;
     procedure TestMalformedTrustAnchorIsRefusedAtBuild;
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
@@ -4271,7 +4274,8 @@ var
   LMessage: string;
 begin
   LCredential := ServerCredential;
-  LCredential.CertificateChain := TArray<TBytes>.Create(TArray<Byte>.Create($30, $03, $01, $01, $00));
+  LCredential.CertificateChain := TArray<TBytes>.Create(
+    TArray<Byte>.Create($30, $03, $01, $01, $00));
   LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
   LMessage := '';
   try
@@ -4294,30 +4298,86 @@ end;
 
 procedure TTestConfigBuilder.TestServerCustomSuiteRegistryWithNonCatalogRecordRefused;
 var
-  LRaised: Boolean;
+  LRegistry: ICipherSuiteRegistry;
+  LMessage: string;
 begin
-  LRaised := False;
+  LRegistry := NonCatalogSuiteRegistry;
+  LMessage := '';
   try
-    NewServerBuilder.WithCipherSuites(NonCatalogSuiteRegistry).Build;
+    NewServerBuilder.WithCipherSuites(LRegistry).Build;
   except
     on E: EArgumentTlsLibException do
-      LRaised := True;
+      LMessage := E.Message;
   end;
-  CheckTrue(LRaised, 'a host registry holding a record the catalog defines otherwise is refused');
+  CheckTrue(Pos('differs from the catalog', LMessage) > 0,
+    'a host registry holding a record the catalog defines otherwise is refused');
+  CheckTrue(Pos('0x' + IntToHex(LRegistry.Items[0].Common.Code, 4), LMessage) > 0,
+    'the refusal names the record');
 end;
 
 procedure TTestConfigBuilder.TestClientCustomSuiteRegistryWithNonCatalogRecordRefused;
 var
-  LRaised: Boolean;
+  LRegistry: ICipherSuiteRegistry;
+  LMessage: string;
 begin
-  LRaised := False;
+  LRegistry := NonCatalogSuiteRegistry;
+  LMessage := '';
   try
-    NewClientBuilder.WithCipherSuites(NonCatalogSuiteRegistry).Build;
+    NewClientBuilder.WithCipherSuites(LRegistry).Build;
   except
     on E: EArgumentTlsLibException do
-      LRaised := True;
+      LMessage := E.Message;
   end;
-  CheckTrue(LRaised, 'a host registry holding a record the catalog defines otherwise is refused');
+  CheckTrue(Pos('differs from the catalog', LMessage) > 0,
+    'a host registry holding a record the catalog defines otherwise is refused');
+  CheckTrue(Pos('0x' + IntToHex(LRegistry.Items[0].Common.Code, 4), LMessage) > 0,
+    'the refusal names the record');
+end;
+
+procedure TTestConfigBuilder.TestClientCustomSuiteRegistryOfCatalogRecordsBuilds;
+begin
+  CheckNotNull(NewClientBuilder.WithCipherSuites(TFakeSuiteRegistry.Create(
+    TCipherSuiteRegistry.CreateDualVersion(Crypto).Items) as ICipherSuiteRegistry).Build,
+    'the refusal case''s suites with the record as the catalog defines it build');
+end;
+
+procedure TTestConfigBuilder.TestCustomSuiteRegistryWithNonCatalogRecordInListRefused;
+var
+  LRegistry: ICipherSuiteRegistry;
+  LMessage: string;
+begin
+  LRegistry := NonCatalogSuiteRegistry;
+  LMessage := '';
+  try
+    NewServerBuilder.WithCipherSuites(LRegistry).WithCipherSuiteList(
+      TArray<UInt16>.Create(LRegistry.Items[0].Common.Code)).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('differs from the catalog', LMessage) > 0,
+    'a list over a host registry holding such a record is refused');
+end;
+
+procedure TTestConfigBuilder.TestCustomSuiteRegistryWithNonCatalogRecordBesideTls12PskRefused;
+var
+  LPsk: TTls12Psk;
+  LMessage: string;
+begin
+  LPsk.Identity := TBytes.Create($61, $62);
+  LPsk.Secret := TSecretBuffer.From(TBytes.Create($00, $11, $22, $33, $44, $55, $66, $77,
+    $88, $99, $AA, $BB, $CC, $DD, $EE, $FF));
+  LMessage := '';
+  try
+    NewServerBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
+      .WithCipherSuites(NonCatalogSuiteRegistry).Tls12.WithPreSharedKeys(
+      TArray<TTls12Psk>.Create(LPsk)).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('differs from the catalog', LMessage) > 0,
+    'the suites joined for a TLS 1.2 PSK are checked too');
 end;
 
 procedure TTestConfigBuilder.TestCustomSuiteRegistryOfCatalogRecordsBuilds;

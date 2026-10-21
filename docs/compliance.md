@@ -316,7 +316,8 @@ OS verifier, and so must a server's client chain.
   them; to change the set, start from `Policy.NamedGroups.ToBuilder` and prune.
 - **Cipher suites.** A code the rules do not list is `CipherSuiteNotAllowed`. A record that reuses
   a catalog code with a different definition is `CipherSuiteDiffersFromCatalog`; the core builder
-  refuses it at Build, so the finding arises only for a config the builder did not produce.
+  refuses it at Build, so the finding arises only for a config the builder did not produce, or
+  whose registry changed after Build.
 - **Encrypted Client Hello.** Both presets refuse it, keys and GREASE included: a config that holds
   an ECH client mode, a key store or a backend is `EchConfigured`.
 - **Credentials.** For every server credential (the default and each server-name entry, a

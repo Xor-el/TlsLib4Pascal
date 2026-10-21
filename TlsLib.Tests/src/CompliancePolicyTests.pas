@@ -101,6 +101,7 @@ uses
   TlpTlsAlert,
   MockPlatformChainEngine,
   MockCompliance,
+  MockNamedGroups,
   MockCryptoProvider,
   MockRandom,
   MockKeyLog,
@@ -324,7 +325,14 @@ type
     // swaps in ASuite for its code
     function SuiteAdmit(const ASuite: TTlsCipherSuite;
       out AFindings: TArray<TComplianceFinding>): Boolean;
-    // AFindings name the CatalogSuite code as differing from its catalog record, and only that
+    // the same for a server
+    function ServerSuiteAdmit(const ASuite: TTlsCipherSuite;
+      out AFindings: TArray<TComplianceFinding>): Boolean;
+    // the rules' suites as the catalog defines them, and with ASuite swapped in for its code
+    procedure SuiteSets(const APolicy: ICompliancePolicy; const ASuite: TTlsCipherSuite;
+      out AClean, AAltered: TArray<TTlsCipherSuite>);
+    // AFindings name the CatalogSuite code as differing from its catalog record and do not
+    // refuse its code
     procedure CheckDiffersFromCatalog(const AFindings: TArray<TComplianceFinding>);
     // an ECH key store of one P-256 / AES-256-GCM entry the policy crypto can serve
     function EchKeyStore(const APolicy: ICompliancePolicy): IEchServerKeyStore;
@@ -365,6 +373,7 @@ type
     procedure TestSuiteWithAlteredProtocolRefused;
     procedure TestSuiteWithAlteredKeyExchangeRefused;
     procedure TestSuiteWithAlteredAuthRefused;
+    procedure TestServerSuiteWithAlteredHashRefused;
     procedure TestSignatureSchemeNotAllowedRefused;
     procedure TestEmsNotRequiredRefused;
     procedure TestEarlyDataClientRefused;
@@ -3092,37 +3101,62 @@ begin
     'catalog');
 end;
 
+procedure TTestComplianceAdmit.SuiteSets(const APolicy: ICompliancePolicy;
+  const ASuite: TTlsCipherSuite; out AClean, AAltered: TArray<TTlsCipherSuite>);
+var
+  LRules: TComplianceRules;
+  LSuite: TTlsCipherSuite;
+  LI: Int32;
+begin
+  LRules := APolicy.Rules;
+  System.SetLength(AClean, System.Length(LRules.CipherSuites));
+  System.SetLength(AAltered, System.Length(LRules.CipherSuites));
+  for LI := 0 to System.Length(LRules.CipherSuites) - 1 do
+  begin
+    CheckTrue(TCipherSuiteCatalog.TryGet(LRules.CipherSuites[LI], LSuite), 'catalog');
+    AClean[LI] := LSuite;
+    if LSuite.Common.Code = ASuite.Common.Code then
+      AAltered[LI] := ASuite
+    else
+      AAltered[LI] := LSuite;
+  end;
+end;
+
 function TTestComplianceAdmit.SuiteAdmit(const ASuite: TTlsCipherSuite;
   out AFindings: TArray<TComplianceFinding>): Boolean;
 var
   LPolicy: ICompliancePolicy;
-  LRules: TComplianceRules;
   LHeld: TFakeSuiteRegistry;
   LRegistry: ICipherSuiteRegistry;
   LConfig: ITlsClientConfig;
   LClean, LAltered: TArray<TTlsCipherSuite>;
-  LSuite: TTlsCipherSuite;
-  LI: Int32;
 begin
   LPolicy := StrictPolicy;
-  LRules := LPolicy.Rules;
-  System.SetLength(LClean, System.Length(LRules.CipherSuites));
-  System.SetLength(LAltered, System.Length(LRules.CipherSuites));
-  for LI := 0 to System.Length(LRules.CipherSuites) - 1 do
-  begin
-    CheckTrue(TCipherSuiteCatalog.TryGet(LRules.CipherSuites[LI], LSuite), 'catalog');
-    LClean[LI] := LSuite;
-    if LSuite.Common.Code = ASuite.Common.Code then
-      LAltered[LI] := ASuite
-    else
-      LAltered[LI] := LSuite;
-  end;
+  SuiteSets(LPolicy, ASuite, LClean, LAltered);
   // the core builder refuses a non-catalog record, so a host registry swaps it in after Build
   LHeld := TFakeSuiteRegistry.Create(LClean);
   LRegistry := LHeld;
   LConfig := ClientBuilder(LPolicy).WithCipherSuites(LRegistry).Build;
   LHeld.Replace(LAltered);
   Result := ClientAdmit(LPolicy, LConfig, AFindings);
+end;
+
+function TTestComplianceAdmit.ServerSuiteAdmit(const ASuite: TTlsCipherSuite;
+  out AFindings: TArray<TComplianceFinding>): Boolean;
+var
+  LPolicy: ICompliancePolicy;
+  LHeld: TFakeSuiteRegistry;
+  LRegistry: ICipherSuiteRegistry;
+  LConfig: ITlsServerConfig;
+  LClean, LAltered: TArray<TTlsCipherSuite>;
+begin
+  LPolicy := StrictPolicy;
+  SuiteSets(LPolicy, ASuite, LClean, LAltered);
+  LHeld := TFakeSuiteRegistry.Create(LClean);
+  LRegistry := LHeld;
+  LConfig := ServerBuilder(LPolicy).WithCipherSuites(LRegistry).Build;
+  LHeld.Replace(LAltered);
+  Result := ServerAdmit(LPolicy, LConfig, AFindings);
 end;
 
 procedure TTestComplianceAdmit.CheckDiffersFromCatalog(
@@ -3234,6 +3268,17 @@ begin
   LSuite := CatalogSuite;
   LSuite.Auth := TAuthMethod.Rsa;
   CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
+  CheckDiffersFromCatalog(LFindings);
+end;
+
+procedure TTestComplianceAdmit.TestServerSuiteWithAlteredHashRefused;
+var
+  LSuite: TTlsCipherSuite;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Hash := THashAlgorithm.SHA_256;
+  CheckTrue(ServerSuiteAdmit(LSuite, LFindings), 'refused');
   CheckDiffersFromCatalog(LFindings);
 end;
 

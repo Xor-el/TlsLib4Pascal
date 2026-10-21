@@ -71,7 +71,8 @@ type
   ITlsClientConfigBuilder = interface(IInterface)
     ['{29AF3A6C-72D0-4EC3-803D-28C8EC0D8632}']
     /// <summary>The cipher-suite registry offered. A configured TLS 1.2 PSK adds its ECDHE_PSK
-    /// suites to it.</summary>
+    /// suites to it. Build refuses a record that differs from the catalog entry for its code,
+    /// from any registry.</summary>
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsClientConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
@@ -296,7 +297,8 @@ type
   ITlsServerConfigBuilder = interface(IInterface)
     ['{CB741560-7E47-4C87-ABBB-A90E087ED9B0}']
     /// <summary>The cipher-suite registry offered. A configured TLS 1.2 PSK adds its ECDHE_PSK
-    /// suites to it.</summary>
+    /// suites to it. Build refuses a record that differs from the catalog entry for its code,
+    /// from any registry.</summary>
     function WithCipherSuites(const ARegistry: ICipherSuiteRegistry): ITlsServerConfigBuilder;
     /// <summary>Narrows the configured cipher suites to ASuites, in that order, per protocol: a
     /// protocol ASuites names keeps exactly the listed suites; one it does not name is unchanged.
