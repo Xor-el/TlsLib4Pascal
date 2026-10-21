@@ -91,8 +91,10 @@ uses
   TlpWindowsModuleAttestation,
   TlpOSSystemTrust,
   TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpIPlatformChainEngine,
   TlpSystemTrustBase,
+  TlpSystemTrustExceptions,
   TlpOSDelegateVerifier,
   TlpTrustTypes,
   TlpServerName,
@@ -143,6 +145,8 @@ type
     function Disclosed(const AReport: IComplianceReport; const AFragment: string): Boolean;
     // strict rules whose only AEAD is AES-128-GCM, so tickets could not be sealed
     function Aes128Policy: ICompliancePolicy;
+    // Fips140_3 narrowed to an RSA floor of 3072
+    function Rsa3072Policy: ICompliancePolicy;
     function ClientBuilder(const APolicy: ICompliancePolicy): ITlsClientConfigBuilder;
     function ServerBuilder(const APolicy: ICompliancePolicy): ITlsServerConfigBuilder;
     // the facade server offering TLS 1.3 only, with the TLS 1.2 setting it made taken back
@@ -602,14 +606,50 @@ type
     procedure TestBuildServerRejectsNilBuilder;
   end;
 
+  TTestComplianceMtls = class(TCompliancePolicyTestCase)
+  strict private
+    // the fake-OS client verification over the test root
+    function FakeClientVerification: IClientVerificationBuilder;
+    // a verification whose own minimum strength is looser than the rules
+    function LooseClientVerification: IClientVerificationBuilder;
+    // a store holding a root of the RSA-2048 vector chain
+    function WeakClientCa: ITrustAnchorStore;
+    // the client-CA builder; skips and returns False without an OS verifier
+    function ClientCaOrSkip(const APolicy: ICompliancePolicy; const AClientCa: ITrustAnchorStore;
+      out ABuilder: ITlsServerConfigBuilder): Boolean;
+    // the live builder; skips and returns False without OS live revocation
+    function LiveOrSkip(APosture: TRevocationPosture;
+      out ABuilder: ITlsServerConfigBuilder): Boolean;
+  published
+    procedure TestVerificationOverloadReplacesALooseMinimumStrength;
+    procedure TestVerificationOverloadLeavesNoStrengthFinding;
+    procedure TestVerificationOverloadCarriesRequired;
+    procedure TestVerificationOverloadCarriesRequested;
+    procedure TestVerificationOverloadStrictBuildServerAdmits;
+    procedure TestVerificationOverloadRejectsModeNone;
+    procedure TestVerificationOverloadRejectsNilPolicy;
+    procedure TestVerificationOverloadRejectsNilBuilder;
+    procedure TestVerificationOverloadRejectsNilVerification;
+    procedure TestClientCaOverloadUsesTheOsVerifierSource;
+    procedure TestClientCaOverloadKeepsTheChainInModule;
+    procedure TestClientCaOverloadLeavesNoStrengthFinding;
+    procedure TestClientCaOverloadRejectsNilStore;
+    procedure TestClientCaOverloadRejectsEmptyStore;
+    procedure TestClientCaOverloadRefusesAWeakCaAtBuild;
+    procedure TestClientCaOverloadRaisesWithoutAnOsDelegate;
+    procedure TestLiveOverloadDefersToLiveRevocation;
+    procedure TestLiveOverloadKeepsThePosture;
+    procedure TestLiveOverloadDisclosesTheHostResolver;
+    procedure TestLiveOverloadBuildsUnderHard;
+    procedure TestLiveOverloadRejectsEmptyStore;
+  end;
+
   TTestComplianceAnchorFloors = class(TCompliancePolicyTestCase)
   strict private
     // whether the OS delegate accepts a path of ALeaf and ARoot under the strength policy of a
     // facade client of APolicy; AFlag replaces the anchor flag when AOverride
     function AcceptsAnchor(const APolicy: ICompliancePolicy; const ALeaf, ARoot: TBytes;
       AOverride, AFlag: Boolean; out AAlert: TTlsAlertDescription): Boolean;
-    // Fips140_3 narrowed to an RSA floor of 3072
-    function Rsa3072Policy: ICompliancePolicy;
     // Fips140_3 narrowed to the secp384r1 curve alone
     function P384Policy: ICompliancePolicy;
   published
@@ -1230,11 +1270,10 @@ end;
 function TCompliancePolicyTestCase.MtlsServerBuilder(const APolicy: ICompliancePolicy;
   APosture: TRevocationPosture): ITlsServerConfigBuilder;
 begin
-  Result := ServerBuilder(APolicy).WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(TClientVerification.VerifierSource(
+  Result := TComplianceTls.WithPeerAuth(APolicy, ServerBuilder(APolicy),
+    TClientAuthMode.Required, TClientVerification.VerifierSource(
     TFakeOsVerifierSources.Client,
-    TTlsLibTestCertificates.EcP256RootStore).WithMinimumStrength(APolicy.Rules.Strength)
-    .WithRevocation(APosture).Build);
+    TTlsLibTestCertificates.EcP256RootStore).WithRevocation(APosture));
 end;
 
 function TCompliancePolicyTestCase.Disclosed(const AReport: IComplianceReport;
@@ -3647,11 +3686,10 @@ var
   LFindings: TArray<TComplianceFinding>;
 begin
   LPolicy := StrictPolicy;
-  CheckFalse(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(TClientVerification.VerifierSource(
-    TFakeOsVerifierSources.Client,
-    TTlsLibTestCertificates.EcP256RootStore).WithMinimumStrength(LPolicy.Rules.Strength)
-    .Build).Build, LFindings), 'admitted');
+  CheckFalse(ServerAdmit(LPolicy, TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
+    TClientAuthMode.Required, TClientVerification.VerifierSource(
+    TFakeOsVerifierSources.Client, TTlsLibTestCertificates.EcP256RootStore)).Build,
+    LFindings), 'admitted');
 end;
 
 procedure TTestComplianceAdmit.TestMtlsServerInstanceVerifierIsCustom;
@@ -3705,11 +3743,10 @@ var
   LFindings: TArray<TComplianceFinding>;
 begin
   LPolicy := StrictPolicy;
-  CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(TClientVerification.VerifierSource(
+  CheckTrue(ServerAdmit(LPolicy, TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
+    TClientAuthMode.Required, TClientVerification.VerifierSource(
     TFakeHostVerifierSource.Create as IClientCertificateVerifierSource,
-    TTlsLibTestCertificates.EcP256RootStore).WithMinimumStrength(LPolicy.Rules.Strength)
-    .Build).Build, LFindings), 'refused');
+    TTlsLibTestCertificates.EcP256RootStore)).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
     'a host source is not the OS source, so it is not in the module');
 end;
@@ -6259,6 +6296,364 @@ begin
   CheckTrue(LRaised, 'nil builder');
 end;
 
+{ TTestComplianceMtls }
+
+function TTestComplianceMtls.FakeClientVerification: IClientVerificationBuilder;
+begin
+  Result := TClientVerification.VerifierSource(TFakeOsVerifierSources.Client,
+    TTlsLibTestCertificates.EcP256RootStore);
+end;
+
+function TTestComplianceMtls.LooseClientVerification: IClientVerificationBuilder;
+var
+  LStrength: TCertificateStrengthPolicy;
+begin
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.AnchorKeyFloors := False;
+  Result := FakeClientVerification.WithMinimumStrength(LStrength);
+end;
+
+function TTestComplianceMtls.WeakClientCa: ITrustAnchorStore;
+begin
+  Result := TTrustAnchorStore.Create(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'))) as ITrustAnchorStore;
+end;
+
+function TTestComplianceMtls.ClientCaOrSkip(const APolicy: ICompliancePolicy;
+  const AClientCa: ITrustAnchorStore; out ABuilder: ITlsServerConfigBuilder): Boolean;
+begin
+  ABuilder := nil;
+  Result := TOSSystemTrust.Supports(TSystemTrustMode.Delegate);
+  if not Result then
+  begin
+    SkipTest('this platform has no OS verifier');
+    Exit;
+  end;
+  ABuilder := TComplianceTls.WithPeerAuth(APolicy, ServerBuilder(APolicy),
+    TClientAuthMode.Required, AClientCa);
+end;
+
+function TTestComplianceMtls.LiveOrSkip(APosture: TRevocationPosture;
+  out ABuilder: ITlsServerConfigBuilder): Boolean;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  ABuilder := nil;
+  Result := TOSSystemTrust.Supports(TSystemTrustMode.Delegate);
+  if not Result then
+  begin
+    SkipTest('this platform has no OS verifier');
+    Exit;
+  end;
+  LPolicy := StrictPolicy;
+  try
+    ABuilder := TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
+      TClientAuthMode.Required, TTlsLibTestCertificates.EcP256RootStore, APosture, 1000);
+  except
+    on ESystemTrustUnsupportedTlsLibException do
+    begin
+      Result := False;
+      SkipTest('this platform has no OS live revocation');
+    end;
+  end;
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadReplacesALooseMinimumStrength;
+var
+  LPolicy: ICompliancePolicy;
+  LConfig: ITlsServerConfig;
+begin
+  LPolicy := Rsa3072Policy;
+  LConfig := TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
+    TClientAuthMode.Required, LooseClientVerification).Build;
+  CheckEquals(Int32(LPolicy.Rules.Strength.MinRsaModulusBits),
+    Int32(LConfig.CertificateStrengthPolicy.MinRsaModulusBits),
+    'the config strength is the rules, not the looser one set first');
+  CheckTrue(LConfig.CertificateStrengthPolicy.AnchorKeyFloors, 'and the anchors are held to it');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadLeavesNoStrengthFinding;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(ReportHasKind(LPolicy.Evaluate(ServerBuilder(LPolicy)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(LooseClientVerification.Build).Build),
+    TComplianceFindingKind.StrengthBelowRules), 'control: hand-wired with the loose strength');
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(TComplianceTls.WithPeerAuth(LPolicy,
+    ServerBuilder(LPolicy), TClientAuthMode.Required, LooseClientVerification).Build),
+    TComplianceFindingKind.StrengthBelowRules), 'the floors are the rules');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadCarriesRequired;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckEquals(Ord(TClientAuthMode.Required), Ord(TComplianceTls.WithPeerAuth(LPolicy,
+    ServerBuilder(LPolicy), TClientAuthMode.Required, FakeClientVerification).Build.ClientAuth),
+    'the mode');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadCarriesRequested;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckEquals(Ord(TClientAuthMode.Requested), Ord(TComplianceTls.WithPeerAuth(LPolicy,
+    ServerBuilder(LPolicy), TClientAuthMode.Requested, FakeClientVerification).Build.ClientAuth),
+    'the mode');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadStrictBuildServerAdmits;
+var
+  LPolicy: ICompliancePolicy;
+begin
+  LPolicy := StrictPolicy;
+  CheckTrue(TComplianceTls.BuildServer(LPolicy, TComplianceTls.WithPeerAuth(LPolicy,
+    ServerBuilder(LPolicy), TClientAuthMode.Required, FakeClientVerification)) <> nil,
+    'admitted');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadRejectsModeNone;
+var
+  LPolicy: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  LPolicy := StrictPolicy;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.None,
+      FakeClientVerification);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'no client certificate is not mutual TLS');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadRejectsNilPolicy;
+var
+  LNone: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  LNone := nil;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LNone, ServerBuilder(StrictPolicy), TClientAuthMode.Required,
+      FakeClientVerification);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil policy');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadRejectsNilBuilder;
+var
+  LNone: ITlsServerConfigBuilder;
+  LRaised: Boolean;
+begin
+  LNone := nil;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(StrictPolicy, LNone, TClientAuthMode.Required,
+      FakeClientVerification);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil builder');
+end;
+
+procedure TTestComplianceMtls.TestVerificationOverloadRejectsNilVerification;
+var
+  LPolicy: ICompliancePolicy;
+  LNone: IClientVerificationBuilder;
+  LRaised: Boolean;
+begin
+  LPolicy := StrictPolicy;
+  LNone := nil;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.Required,
+      LNone);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil verification');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadUsesTheOsVerifierSource;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  if not ClientCaOrSkip(StrictPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+    Exit;
+  CheckTrue(LBuilder.Build.ClientVerifierSource is TOSVerifierSource,
+    'the client chain is verified by the OS source');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadKeepsTheChainInModule;
+var
+  LPolicy: ICompliancePolicy;
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LPolicy := StrictPolicy;
+  if not ClientCaOrSkip(LPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+    Exit;
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
+    TComplianceFindingKind.ChainVerifiedOutsideModule), 'the OS verifier decides');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadLeavesNoStrengthFinding;
+var
+  LPolicy: ICompliancePolicy;
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LPolicy := StrictPolicy;
+  if not ClientCaOrSkip(LPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+    Exit;
+  CheckFalse(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
+    TComplianceFindingKind.StrengthBelowRules), 'the floors are the rules');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadRejectsNilStore;
+var
+  LPolicy: ICompliancePolicy;
+  LNone: ITrustAnchorStore;
+  LRaised: Boolean;
+begin
+  LPolicy := StrictPolicy;
+  LNone := nil;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.Required, LNone);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'nil client CA');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadRejectsEmptyStore;
+var
+  LPolicy: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  LPolicy := StrictPolicy;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.Required,
+      TTrustAnchorStore.Create(nil) as ITrustAnchorStore);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client CA with no roots');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadRefusesAWeakCaAtBuild;
+var
+  LPolicy: ICompliancePolicy;
+  LBuilder: ITlsServerConfigBuilder;
+  LRaised: Boolean;
+begin
+  LPolicy := Rsa3072Policy;
+  if not ClientCaOrSkip(LPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+    Exit;
+  CheckTrue(LBuilder.Build <> nil, 'control: a strong CA builds');
+  if not ClientCaOrSkip(LPolicy, WeakClientCa, LBuilder) then
+    Exit;
+  LRaised := False;
+  try
+    TComplianceTls.BuildServer(LPolicy, LBuilder);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an RSA-2048 client CA is below a 3072-bit floor');
+end;
+
+procedure TTestComplianceMtls.TestClientCaOverloadRaisesWithoutAnOsDelegate;
+var
+  LPolicy: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  if TOSSystemTrust.Supports(TSystemTrustMode.Delegate) then
+  begin
+    SkipTest('this platform has an OS verifier');
+    Exit;
+  end;
+  LPolicy := StrictPolicy;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.Required,
+      TTlsLibTestCertificates.EcP256RootStore);
+  except
+    on ESystemTrustUnsupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'no fallback to the built-in verifier');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadDefersToLiveRevocation;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  if not LiveOrSkip(TRevocationPosture.Soft, LBuilder) then
+    Exit;
+  CheckEquals(Ord(TVerdictDeferral.LiveRevocation),
+    Ord(LBuilder.Build.AsyncCertificateVerdict.Deferral), 'the deferral');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadKeepsThePosture;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  if not LiveOrSkip(TRevocationPosture.Hard, LBuilder) then
+    Exit;
+  CheckEquals(Ord(TRevocationPosture.Hard), Ord(LBuilder.Build.RevocationPosture), 'the posture');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadDisclosesTheHostResolver;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  if not LiveOrSkip(TRevocationPosture.Soft, LBuilder) then
+    Exit;
+  CheckTrue(Disclosed(StrictPolicy.Evaluate(LBuilder.Build), 'host-owned'),
+    'the resolver of the host cannot be inspected');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadBuildsUnderHard;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  if not LiveOrSkip(TRevocationPosture.Hard, LBuilder) then
+    Exit;
+  CheckTrue(LBuilder.Build <> nil, 'Hard needs the live verdict, which the overload sets');
+end;
+
+procedure TTestComplianceMtls.TestLiveOverloadRejectsEmptyStore;
+var
+  LPolicy: ICompliancePolicy;
+  LRaised: Boolean;
+begin
+  LPolicy := StrictPolicy;
+  LRaised := False;
+  try
+    TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.Required,
+      TTrustAnchorStore.Create(nil) as ITrustAnchorStore, TRevocationPosture.Soft, 1000);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a client CA with no roots');
+end;
+
 { TTestComplianceAnchorFloors }
 
 function TTestComplianceAnchorFloors.AcceptsAnchor(const APolicy: ICompliancePolicy;
@@ -6287,7 +6682,7 @@ begin
     TServerName.DnsName('localhost'), nil, LVerified, AAlert);
 end;
 
-function TTestComplianceAnchorFloors.Rsa3072Policy: ICompliancePolicy;
+function TCompliancePolicyTestCase.Rsa3072Policy: ICompliancePolicy;
 var
   LRules: TComplianceRules;
 begin
@@ -7784,6 +8179,7 @@ initialization
   RegisterTest(TTestComplianceAdmit);
   RegisterTest(TTestComplianceResumption);
   RegisterTest(TTestComplianceRoots);
+  RegisterTest(TTestComplianceMtls);
   RegisterTest(TTestComplianceAnchorFloors);
   RegisterTest(TTestWindowsModuleDecision);
 {$ELSE}
@@ -7791,6 +8187,7 @@ initialization
   RegisterTest(TTestComplianceAdmit.Suite);
   RegisterTest(TTestComplianceResumption.Suite);
   RegisterTest(TTestComplianceRoots.Suite);
+  RegisterTest(TTestComplianceMtls.Suite);
   RegisterTest(TTestComplianceAnchorFloors.Suite);
   RegisterTest(TTestWindowsModuleDecision.Suite);
 {$ENDIF FPC}

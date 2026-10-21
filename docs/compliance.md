@@ -172,11 +172,19 @@ not through `Policy.Crypto`, so a config from `Build` without `BuildClient`, `Bu
   with the OS live-revocation resolver (see [system-trust.md](system-trust.md)).
 - `Server(Policy, Credential)` narrows the credential key to the schemes of the rules. Session
   resumption stays on only where the rules allow AES-256-GCM, which seals the tickets, under the
-  policy's scope and ticket keys ([Resumption state](#resumption-state)). For mutual
-  TLS add `WithPeerAuth` and a client verification from the OS source, with
-  `WithMinimumStrength(Policy.Rules.Strength)`.
+  policy's scope and ticket keys ([Resumption state](#resumption-state)). For mutual TLS pass the
+  server builder through one of the three `WithPeerAuth` overloads below.
 - `Server(Policy, Resolver)` selects the credential per handshake through your
   `ITlsServerCredentialResolver`, wrapped by `Policy.CheckedCredentialResolver` (below).
+- `WithPeerAuth(Policy, Builder, Mode, ClientCa)` requests a client certificate (`Requested` or
+  `Required`) and verifies it through the OS verifier with `ClientCa` as its only root, using
+  cached revocation data only. It raises where the platform has no OS client verifier.
+- `WithPeerAuth(Policy, Builder, Mode, Verification)` takes your own `IClientVerificationBuilder`;
+  the strength floors of the rules, trust anchors included, are applied to it. The builder is
+  changed, not copied, and a minimum strength set on it is replaced by the floors of the rules.
+- `WithPeerAuth(Policy, Builder, Mode, ClientCa, Posture, DeadlineMs)` is the `ClientCa` overload
+  with live revocation; run it with the OS live-revocation resolver (see
+  [Mutual TLS](#mutual-tls)).
 
 ### A private CA
 
@@ -192,6 +200,25 @@ Client := TComplianceTls.BuildClient(Policy, TComplianceTls.Client(Policy,
 `Store` is an `ITrustAnchorStore` holding the CA certificates. The chain is still verified by the
 OS verifier, so strict mode accepts both. The keys of the CA certificates are held to the key
 floors of the rules.
+
+### Mutual TLS
+
+```pascal
+Builder := TComplianceTls.WithPeerAuth(Policy, TComplianceTls.Server(Policy, Credential),
+  TClientAuthMode.Required, ClientCa);
+Server := TComplianceTls.BuildServer(Policy, Builder);
+```
+
+`ClientCa` is an `ITrustAnchorStore` holding the client CA certificates, and it is the only root of
+the client chain: the OS roots are never consulted. The strength floors come from the rules, and the
+keys of the CA certificates are held to them, so building a server with a CA key below the floors
+raises. A later `WithClientVerification` on the builder replaces the verification and drops the
+floors, so call the overloads last.
+
+For live revocation use the overload with `Posture` and `DeadlineMs`, then assign the OS resolver
+from `TOSSystemTrust.LiveRevocationResolver(ServerConfig, nil)` to the verdict seam (see
+[system-trust.md](system-trust.md)). A live-revocation resolver is host-owned and cannot be
+inspected, so the report discloses it.
 
 ### Checking credentials chosen at run time
 

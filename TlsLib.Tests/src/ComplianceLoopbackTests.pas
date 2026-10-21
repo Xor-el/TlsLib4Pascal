@@ -56,6 +56,10 @@ uses
   TlpCompliancePresets,
   TlpComplianceTls,
   TlpOSSystemTrust,
+  TlpOSDelegateVerifier,
+  TlpTlsCredential,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
   TlpISession,
   TlpSecretBuffer,
   TlpSessionTicketKeys,
@@ -130,6 +134,7 @@ type
 {$IFDEF TLSLIB_MSWINDOWS}
     procedure TestHostRootsClientHandshakesWithPrivateChain;
     procedure TestOsRootsClientRefusesPrivateChainWithUnknownCa;
+    procedure TestMtlsServerAdmitsACompliantClientChain;
 {$ENDIF TLSLIB_MSWINDOWS}
   end;
 
@@ -856,6 +861,32 @@ begin
   CheckTrue(LClient.IsTerminal, 'the OS roots do not vouch for the private root');
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LClient.LastError.Alert.Description),
     'unknown_ca');
+end;
+
+procedure TTestComplianceLoopback.TestMtlsServerAdmitsACompliantClientChain;
+var
+  LPolicy: ICompliancePolicy;
+  LClientCa: TBytes;
+  LCredential: TTlsCredential;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LPolicy := NewPolicy;
+  LCredential := ClientAuthCredential(LClientCa);
+  LServerConfig := TComplianceTls.BuildServer(LPolicy, TComplianceTls.WithPeerAuth(LPolicy,
+    TComplianceTls.Server(LPolicy, ServerCredential(LPolicy.Crypto)), TClientAuthMode.Required,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(LClientCa)) as ITrustAnchorStore));
+  CheckTrue(LServerConfig.ClientVerifierSource is TOSVerifierSource,
+    'the OS verifier checks the client chain');
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  LClient := TTlsEngineFactory.CreateClientEngine(TComplianceTls.BuildClient(LPolicy,
+    TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(
+    TTlsLibTestCertificates.EcP256RootStore)).WithCredential(LCredential)), Host);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LServer.IsTerminal, 'the server did not fail');
+  CheckFalse(LServer.IsHandshaking, 'the server finished');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckAppDataFlows(LClient, LServer);
 end;
 
 {$ENDIF TLSLIB_MSWINDOWS}

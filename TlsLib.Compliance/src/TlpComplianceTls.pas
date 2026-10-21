@@ -34,6 +34,7 @@ uses
   TlpITlsCredentialResolver,
   TlpTrustPolicy,
   TlpITlsConfig,
+  TlpITrustAnchorStore,
   TlpITlsConfigBuilder,
   TlpTlsConfigBuilder,
   TlpSessionTicketStrategy,
@@ -47,7 +48,8 @@ uses
 type
   /// <summary>
   /// Config builders seeded from a compliance policy: the policy's providers and allowlists, the
-  /// OS verifier, and the extended-master-secret requirement. Build through BuildClient or
+  /// OS verifier for the server chain and, through WithPeerAuth, for a client chain, and the
+  /// extended-master-secret requirement. Build through BuildClient or
   /// BuildServer so the frozen config is admitted by the policy. Only Admit holds a config to the
   /// groups and the verifier source it carries: a key agreement runs inside its group object, and
   /// a chain is verified by the source, neither through the policy providers.
@@ -92,6 +94,29 @@ type
     /// resumption is off. Raises EArgumentTlsLibException for a nil ABuilder.</summary>
     class function WithoutResumption(
       const ABuilder: ITlsServerConfigBuilder): ITlsServerConfigBuilder; static;
+    /// <summary>ABuilder requesting a client certificate per AMode, verified by the OS verifier
+    /// with AClientCa as its only root (the OS roots are never consulted), cache-only
+    /// revocation, and the strength floors of the rules. Raises EArgumentTlsLibException for a
+    /// nil argument, AMode None, or an AClientCa with no root certificates, and
+    /// ESystemTrustUnsupportedTlsLibException where the platform has no OS client verifier.</summary>
+    class function WithPeerAuth(const APolicy: ICompliancePolicy;
+      const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
+      const AClientCa: ITrustAnchorStore): ITlsServerConfigBuilder; overload; static;
+    /// <summary>ABuilder requesting a client certificate per AMode, verified by AVerification, held
+    /// to the strength floors of the rules. AVerification itself is changed, not copied, and any
+    /// minimum strength set on it is replaced by the floors of the rules. Raises
+    /// EArgumentTlsLibException for a nil argument or AMode None.</summary>
+    class function WithPeerAuth(const APolicy: ICompliancePolicy;
+      const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
+      const AVerification: IClientVerificationBuilder): ITlsServerConfigBuilder;
+      overload; static;
+    /// <summary>As the AClientCa overload, with live revocation under APosture; the result defers
+    /// to the live-revocation verdict, so pair it with the OS live-revocation resolver on the
+    /// server config.</summary>
+    class function WithPeerAuth(const APolicy: ICompliancePolicy;
+      const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
+      const AClientCa: ITrustAnchorStore; APosture: TRevocationPosture;
+      ADeadlineMs: Cardinal): ITlsServerConfigBuilder; overload; static;
     /// <summary>Builds the client config and admits it, raising
     /// EComplianceUnmetTlsLibException when the policy refuses it.</summary>
     class function BuildClient(const APolicy: ICompliancePolicy;
@@ -109,6 +134,9 @@ resourcestring
   SNilVerification = 'the server verification must not be nil';
   SNilResolver = 'the credential resolver must not be nil';
   SNilBuilder = 'the config builder must not be nil';
+  SNilClientVerification = 'the client verification must not be nil';
+  SClientAuthNone = 'the client authentication mode must request a client certificate';
+  SClientCaNeedsRoots = 'the client CA store must hold at least one root certificate';
 
 { TComplianceTls }
 
@@ -242,6 +270,49 @@ begin
   if ABuilder = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilBuilder);
   Result := ABuilder.WithSessionTicketKeys(nil).WithResumptionScope(nil).WithResumption(False);
+end;
+
+class function TComplianceTls.WithPeerAuth(const APolicy: ICompliancePolicy;
+  const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
+  const AClientCa: ITrustAnchorStore): ITlsServerConfigBuilder;
+begin
+  if (AClientCa = nil) or (AClientCa.AnchorCount = 0) then
+    raise EArgumentTlsLibException.CreateRes(@SClientCaNeedsRoots);
+  Result := WithPeerAuth(APolicy, ABuilder, AMode, TClientVerification.VerifierSource(
+    TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.CacheOnly), AClientCa));
+end;
+
+class function TComplianceTls.WithPeerAuth(const APolicy: ICompliancePolicy;
+  const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
+  const AVerification: IClientVerificationBuilder): ITlsServerConfigBuilder;
+begin
+  if APolicy = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilPolicy);
+  if ABuilder = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilBuilder);
+  if AVerification = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilClientVerification);
+  if AMode = TClientAuthMode.None then
+    raise EArgumentTlsLibException.CreateRes(@SClientAuthNone);
+  // a later WithClientVerification would replace this verification and drop the strength floors
+  Result := ABuilder.WithPeerAuth(AMode).WithClientVerification(
+    AVerification.WithMinimumStrength(APolicy.Rules.Strength).Build);
+end;
+
+class function TComplianceTls.WithPeerAuth(const APolicy: ICompliancePolicy;
+  const ABuilder: ITlsServerConfigBuilder; AMode: TClientAuthMode;
+  const AClientCa: ITrustAnchorStore; APosture: TRevocationPosture;
+  ADeadlineMs: Cardinal): ITlsServerConfigBuilder;
+var
+  LVerification: IClientVerificationBuilder;
+begin
+  if (AClientCa = nil) or (AClientCa.AnchorCount = 0) then
+    raise EArgumentTlsLibException.CreateRes(@SClientCaNeedsRoots);
+  LVerification := TClientVerification.VerifierSource(
+    TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live), AClientCa)
+    .WithRevocation(APosture);
+  Result := WithPeerAuth(APolicy, ABuilder, AMode, LVerification)
+    .WithLiveRevocationVerdict(ADeadlineMs);
 end;
 
 class function TComplianceTls.BuildClient(const APolicy: ICompliancePolicy;
