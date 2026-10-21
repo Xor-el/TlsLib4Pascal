@@ -360,7 +360,6 @@ end;
 procedure TTestTls13Resumption.SetUp;
 begin
   inherited SetUp;
-  // the fixture instance is reused by --repeat, so a test's override must not outlive it
   FClientClock := nil;
   FServerClock := nil;
   FServerCrypto := nil;
