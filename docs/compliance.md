@@ -36,20 +36,26 @@ A report has one of three verdicts, printed by name in `Describe`:
 - `NotCompliant`: a finding stands, the module is not `Validated`, or the rules fit no preset.
 - `PrimitivesInModule`: the module is `Validated`, nothing was found, and every negotiated
   primitive (random generator, hash, HMAC, AEAD, key agreement, signatures) is a service of the
-  module, but a key derivation the configuration can run is composed outside it.
-- `Compliant`: additionally, every key derivation the configuration can run is a module service,
-  with the GCM disclosure below attached.
+  module, but a key-schedule derivation the configuration can run is composed outside it.
+- `Compliant`: additionally, every key-schedule derivation the configuration can run is a module
+  service, with the GCM disclosure below attached, and the exporter disclosure when TLS 1.2 is
+  offered.
 
-A key derivation counts when an offered version runs it: TLS 1.3 derives with HKDF and TLS 1.2 with
-its PRF. The Windows module serves the TLS 1.2 PRF. It lists an SP 800-56C HKDF (shared-secret
-input) but no TLS 1.3 key-schedule KDF, so the library composes HKDF over the module HMAC. A
-derivation that runs in portable code is outside the module too. So rules or a config that offer
-TLS 1.2 alone can be `Compliant`, and any that offer TLS 1.3 reach `PrimitivesInModule` at most.
-`IComplianceReport.KeyDerivationInModule` says which. The rules'
+A key-schedule derivation counts when an offered version runs it: TLS 1.3 derives with HKDF and
+TLS 1.2 with its PRF. The Windows module serves the TLS 1.2 PRF. It lists an SP 800-56C HKDF
+(shared-secret input) but no TLS 1.3 key-schedule KDF, so the library composes HKDF over the module
+HMAC. A derivation that runs in portable code is outside the module too. So rules or a config that
+offer TLS 1.2 alone can be `Compliant`, and any that offer TLS 1.3 reach `PrimitivesInModule` at
+most. `IComplianceReport.KeyDerivationInModule` says which. The rules'
 `Kdf` field decides what a composed derivation does: `AllowComposed` (both presets) caps the
 verdict, `RequireModule` makes it a `KdfOutsideModule` finding, which strict mode refuses. A report
-of `Evaluate` or `Admit` is judged by the versions of that config; `PlatformReport` by the versions
-of the rules.
+of `Evaluate` or `Admit` is judged by the versions and cipher suites of that config;
+`PlatformReport` by those of the rules.
+
+A TLS 1.2 exporter derivation (RFC 5705) is not a key-schedule derivation. It is composed over the
+module HMAC, so every report whose offered versions include TLS 1.2 carries a disclosure saying
+that only the key-schedule derivations are module services. A strict policy whose `Kdf` is
+`RequireModule` refuses an exporter label instead; relaxed mode and `AllowComposed` allow it.
 
 ### The GCM nonce
 
@@ -61,8 +67,8 @@ offers no interface to generate or check the counter (IG C.H scenario 1(a)). Cou
 forces a key update or a close, and keys are ephemeral per session.
 
 Every report whose rules list a GCM suite, which both presets do, carries a disclosure that says
-this. It leaves the verdict alone: `Compliant` means every primitive and key derivation is a module
-service, with that disclosure attached.
+this. It leaves the verdict alone: `Compliant` means every primitive and every key-schedule
+derivation is a module service, with that disclosure attached.
 
 ### The module
 
@@ -94,9 +100,11 @@ the edition ID the OS reports: `Core` (Home), `Professional`, `Enterprise`, `IoT
 `Education`, `ServerStandard` and `ServerDatacenter`. An edition outside that list for its release
 (Windows 11 SE, Server 2022 Azure Edition, Azure Stack HCI) is covered only as a vendor-affirmed
 relabel, and the report says so in a disclosure, as it does when the edition could not be read.
-The same holds for hardware and virtual machines the Security Policy did not test: the module is
-vendor-affirmed there, without assurance of the minimum strength of generated keys, and every
-validated report carries a disclosure saying the hardware and any hypervisor are not checked.
+The same holds for hardware and virtual machines the Security Policy did not test: on any other
+platform the module is vendor-affirmed, without assurance of the minimum strength of generated
+keys, and every validated report carries a disclosure saying the hardware and any hypervisor are
+not checked. These disclosures come from the attestation, so one a host supplies carries only what
+it supplies.
 
 The facts are read once when the attestation is created. They come from the OS version query, the
 process, the firmware kind, the clock and the module file on disk, not from the image in memory.
@@ -241,9 +249,10 @@ chain is held to the size range of `Strength` only, and the report says so.
 - `Evaluate` never raises for a finding. `Admit` evaluates and then raises
   `EComplianceUnmetTlsLibException` carrying the findings.
 - Relaxed enforces the allowlists, the requirement flags and the configuration findings. The
-  in-module requirements (`KdfOutsideModule`, `ChainVerifiedOutsideModule`,
-  `StapleVerifiedOutsideModule`, `CredentialKeyOutsideModule` and the other platform findings) are
-  facts about where the cryptography runs: relaxed reports them and does not refuse portable code.
+  platform findings are facts about where the cryptography runs: `KdfOutsideModule` (from the `Kdf`
+  field), `ChainVerifiedOutsideModule` and `StapleVerifiedOutsideModule` (from the
+  `InModuleChainVerification` requirement), `CredentialKeyOutsideModule` and the others. Relaxed
+  reports them and does not refuse portable code.
   Its report is `NotCompliant` while any finding stands, and every relaxed report carries a
   disclosure that relaxed mode does not refuse portable code and that per-connection fallbacks to
   portable code are not reflected in the verdict. Strict reports do not carry it. The rules must lie
@@ -282,8 +291,11 @@ OS verifier, and so must a server's client chain.
 - **Credentials.** For every server credential (the default and each server-name entry, a
   credential listed twice counting once) and a client's own, Admit checks every certificate of the
   chain: its key against the floors, the curves and the exact RSA sizes, and its signature (family
-  and hash, RSA-PSS only with canonical parameters) against the schemes of the rules. The last
-  certificate is not judged when it is self-issued; a self-issued link before it is. It checks that
+  and hash, RSA-PSS only with canonical parameters, EdDSA only where the rules list its scheme and
+  admit EdDSA) against the schemes of the rules. A signature made under an RSASSA-PSS issuer key is
+  refused, as no scheme of the rules covers it. The last certificate's signature is not judged when
+  it verifies under its own key; a self-issued link that does not, or one before the last, is
+  judged. It checks that
   the private key is the leaf's when the key exposes its public half, that the key can sign with no
   scheme outside the rules, and that the module serves the key. A certificate chain with no key is
   `CredentialKeyMissing`, a key that is not the leaf's `CredentialKeyMismatch`. A key that can sign
@@ -334,8 +346,10 @@ the same checks as any other and the native HKDF-Expand of the OS provider never
 shortcut stays available outside a policy. The TLS 1.2 PRF is the module's own where the backend
 report says the module serves it and is otherwise assembled over the policy HMAC. In strict mode
 either is refused when the HMAC is not the module's. The plain master secret derivation is refused
-whenever the rules require Extended Master Secret. Exporter-label derivations are composed over the
-module HMAC.
+whenever the rules require Extended Master Secret. A TLS 1.2 label other than the key-schedule
+labels (master secret, extended master secret, key expansion, client finished and server finished)
+is an exporter derivation: it is composed over the module HMAC and disclosed, and a strict policy
+whose `Kdf` is `RequireModule` refuses it.
 
 ---
 
@@ -449,7 +463,7 @@ posture of Off is disclosed. A server reports these only when it requests client
 - A peer chain is held to the RSA size range, not to the exact sizes of the rules.
 - The AES-GCM IV is built by the library and imported into the module, not generated inside it;
   see [The GCM nonce](#the-gcm-nonce). The Security Policy (section 2.7.1) accepts an imported IV
-  only when it is constructed as IG C.H scenario 1 describes; that construction is the library's,
+  only when it is constructed as IG C.H scenario 1(a) describes; that construction is the library's,
   outside the module.
 - The Security Policy deprecates RSA of less than 128 bits of security strength, which includes
   2048-bit moduli, from 2031-01-01, before the certificate's sunset date, while `Fips140_3` allows
@@ -483,23 +497,27 @@ Module: Windows 10.0.19045.n Windows 10 22H2 edition Core product type 1 firmwar
   legacy FIPS policy Disabled, status NotValidated
 Finding: ModuleNotValidated 10.0.19045.n: Windows 10.0.19045.n: the shipped table records no
   validated module for this build
-Disclosure: The GCM IV fixed field and counter (TLS 1.2 nonce_explicit = record sequence number;
+Disclosure: the GCM IV fixed field and counter (TLS 1.2 nonce_explicit = record sequence number;
   TLS 1.3 write_iv XOR sequence number) are built by the library outside the module boundary per
-  RFC 5288 / RFC 8446 section 5.3; the module offers no interface to generate or check the counter
-  (IG C.H scenario 1(a), SP section 2.7.1). Counter exhaustion forces a key update or close; keys
-  are ephemeral per session.
+  RFC 5288 / RFC 8446 section 5.3 (IG C.H scenario 1(a), SP section 2.7.1); the module offers no
+  interface to generate or check the counter; counter exhaustion forces a key update or close, and
+  keys are ephemeral per session
 Disclosure: relaxed mode reports platform facts but does not refuse portable code; per-connection
   fallbacks to portable code are not reflected in the verdict
 Disclosure: a peer chain is held to the RSA size range, not to the exact sizes of the rules
+Disclosure: TLS 1.2 exporter derivations (RFC 5705) are composed over the module HMAC; only the
+  key-schedule derivations are module services
 ```
 
 The module line is one line, wrapped here. It gives the OS name and version, the product the table
 lists for the build, the edition, product type, firmware, the module file name and version, the
 listed version (validated releases only), the loaded path, the native machine (`0x8664` is x64; the
-process machine follows when it is not native) and the legacy FIPS policy. The finding carries
-the reason the status is not Validated, for example `the process is 32-bit; the certificate covers
-the 64-bit module only`. On a validated release whose revision differs from the listed one the
-report adds `Disclosure: the module file version 10.0.20348.2113 differs from the 10.0.20348.30000
-the certificate lists; only the build is checked`. A validated report also says the hardware and
-any hypervisor are not checked against the tested platforms, and, for an edition outside the tested
-list, `edition X is outside the tested list; coverage is vendor-affirmed`.
+process machine follows when it is not native) and the legacy FIPS policy; it prints the
+certificate number only while the status is Validated. The finding carries the reason the status
+is not Validated, for example `the process is 32-bit; the policy covers the 64-bit module only, and
+the tested environments are 64-bit`. On a validated release whose revision differs from the listed
+one the report adds `Disclosure: the module file version 10.0.20348.2113 differs from the
+10.0.20348.30000 the certificate lists; only the build is checked`. A validated report on Windows
+also says the hardware and any hypervisor are not checked against the tested platforms, and, for an
+edition outside the tested list, `edition X is outside the tested list; coverage is
+vendor-affirmed`.

@@ -54,6 +54,7 @@ type
     function Status(AStandard: TModuleStandard): TModuleStatus;
     function Describe: string;
     function Covers(const ACrypto: ICryptoProvider): Boolean;
+    function Disclosures: TArray<string>;
   end;
 
 { TUnattestedModule }
@@ -77,6 +78,11 @@ function TUnattestedModule.Covers(const ACrypto: ICryptoProvider): Boolean;
 begin
   // nothing is attested, so no provider is covered
   Result := False;
+end;
+
+function TUnattestedModule.Disclosures: TArray<string>;
+begin
+  Result := nil;
 end;
 
 {$IFEND}

@@ -175,6 +175,8 @@ type
     procedure TestSignatureMeetsRefusesTheHashesNoSchemeUses;
     procedure TestSignatureMeetsAdmitsADeprecatedHashTheStrengthAdmits;
     procedure TestSignatureMeetsFollowsTheEdDsaFlagForAnImplicitHash;
+    procedure TestSignatureMeetsNeedsTheEdDsaSchemeInTheRules;
+    procedure TestSignatureMeetsAdmitsOnlyHashesTheCoreDeprecates;
     procedure TestSignatureMeetsRefusesAFamilyTheSchemesDoNotName;
     procedure TestSignatureMeetsKeepsEcdsaOutOfRsaOnlyRules;
     procedure TestSignatureMeetsAdmitsCanonicalPssAsRsae;
@@ -1816,8 +1818,45 @@ begin
   CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed25519,
     TCertSignatureHash.Implicit, False, LRules), 'EdDSA is off in the presets');
   LRules.Strength.AllowEdDsa := True;
+  LRules.SignatureSchemes := LRules.SignatureSchemes + [TSignatureScheme.ED25519];
   CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed25519,
     TCertSignatureHash.Implicit, False, LRules), 'and on when the strength policy admits it');
+  LRules.Strength.AllowEdDsa := False;
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed25519,
+    TCertSignatureHash.Implicit, False, LRules), 'the scheme alone is not the admission');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsNeedsTheEdDsaSchemeInTheRules;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Strength.AllowEdDsa := True;
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed25519,
+    TCertSignatureHash.Implicit, False, LRules), 'Ed25519 with no EdDSA scheme listed');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed448,
+    TCertSignatureHash.Implicit, False, LRules), 'Ed448 with no EdDSA scheme listed');
+  LRules.SignatureSchemes := LRules.SignatureSchemes + [TSignatureScheme.ED25519];
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed25519,
+    TCertSignatureHash.Implicit, False, LRules), 'Ed25519 with its scheme');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed448,
+    TCertSignatureHash.Implicit, False, LRules), 'Ed448 needs its own scheme');
+  LRules.SignatureSchemes := LRules.SignatureSchemes + [TSignatureScheme.ED448];
+  CheckTrue(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.Ed448,
+    TCertSignatureHash.Implicit, False, LRules), 'Ed448 with its scheme');
+end;
+
+procedure TTestComplianceCatalog.TestSignatureMeetsAdmitsOnlyHashesTheCoreDeprecates;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.SignatureSchemes := [TSignatureScheme.RSA_PKCS1_SHA384];
+  LRules.Strength.AllowedDeprecatedHashes := [TCertSignatureHash.Sha256, TCertSignatureHash.Md5];
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPkcs1,
+    TCertSignatureHash.Sha256, False, LRules), 'a current hash is not admitted as deprecated');
+  CheckFalse(TComplianceCatalog.SignatureMeets(TCertSignatureFamily.RsaPkcs1,
+    TCertSignatureHash.Md5, False, LRules), 'a forbidden hash is never admitted');
 end;
 
 procedure TTestComplianceCatalog.TestSignatureMeetsRefusesAFamilyTheSchemesDoNotName;

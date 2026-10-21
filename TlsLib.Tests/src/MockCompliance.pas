@@ -53,14 +53,18 @@ type
     FStatus: TModuleStatus;
     FIdentity: TModuleIdentity;
     FCovered: Boolean;
+    FDisclosed: TArray<string>;
   public
     constructor Create(AStatus: TModuleStatus; const AIdentity: TModuleIdentity);
     /// <summary>Whether Covers answers True; True by default.</summary>
     property Covered: Boolean read FCovered write FCovered;
+    /// <summary>What Disclosures answers; none by default.</summary>
+    property Disclosed: TArray<string> read FDisclosed write FDisclosed;
     function Identity: TModuleIdentity;
     function Status(AStandard: TModuleStandard): TModuleStatus;
     function Describe: string;
     function Covers(const ACrypto: ICryptoProvider): Boolean;
+    function Disclosures: TArray<string>;
   end;
 
   TComplianceHashSet = set of THashAlgorithm;
@@ -347,6 +351,11 @@ end;
 function TFakeModuleAttestation.Describe: string;
 begin
   Result := 'fake module attestation';
+end;
+
+function TFakeModuleAttestation.Disclosures: TArray<string>;
+begin
+  Result := System.Copy(FDisclosed);
 end;
 
 { TMarkedBackendReportBase }

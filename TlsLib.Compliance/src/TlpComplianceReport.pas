@@ -23,8 +23,8 @@ uses
 
 type
   /// <summary>The immutable report: not compliant unless a named preset contains the rules, the
-  /// module is validated and nothing was found; then compliant only when no key derivation runs
-  /// outside the module.</summary>
+  /// module is validated and nothing was found; then compliant only when no key-schedule
+  /// derivation runs outside the module.</summary>
   TComplianceReport = class sealed(TInterfacedObject, IComplianceReport)
   strict private
   var
@@ -36,8 +36,9 @@ type
     FDisclosures: TArray<string>;
     FKdfOutside: Boolean;
   public
-    /// <param name="AKdfOutside">Whether a key derivation the evaluated rules or config can run
-    /// is not a module service: composed over the module, portable or without a module.</param>
+    /// <param name="AKdfOutside">Whether a key-schedule derivation the evaluated rules or config
+    /// can run is not a module service: composed over the module, portable or without a
+    /// module.</param>
     constructor Create(AEnforcement: TComplianceEnforcement; const APreset: string;
       const AModule: TModuleIdentity; AModuleStatus: TModuleStatus;
       const AFindings: TArray<TComplianceFinding>; const ADisclosures: TArray<string>;

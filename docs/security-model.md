@@ -103,14 +103,16 @@ one when ECH was accepted). For debugging only — never production.
   Hashes and HMACs are checked against the module only, and a few internal SHA-256 uses are
   disclosed. A refusal ends the handshake with a fatal `internal_error`, except where the engine
   absorbs it (a session ticket that is not issued) and where a credential resolver answers `False`.
-  Rules must lie within a named preset in both modes. Relaxed mode refuses what the allowlists and
-  requirement flags forbid and reports where the cryptography runs without refusing portable code.
+  Rules must lie within a named preset in both modes. Relaxed mode refuses the allowlists and the
+  configuration requirements, and reports the in-module requirements (`InModuleChainVerification`,
+  `Kdf` of `RequireModule`) and where the cryptography runs without refusing portable code.
   `Admit` checks the non-crypto settings (early data, ECH, PSKs, key log, verification bypass,
   strength floors including trust anchors, credential chains and keys) and, for key agreement
   through group objects and chain verification through a verifier source, is the only enforcement:
   they do not run through the policy providers, so a config from `Build` without `BuildClient`,
-  `BuildServer` or `Admit` is not policy-enforced for them. Exporter-label derivations are composed
-  over the module HMAC. It makes no module validation claim of its own; see
+  `BuildServer` or `Admit` is not policy-enforced for them. TLS 1.2 exporter derivations
+  (RFC 5705) are composed over the module HMAC; they are disclosed, and a strict policy whose `Kdf`
+  is `RequireModule` refuses them. It makes no module validation claim of its own; see
   [compliance.md](compliance.md).
 - **Resumption.** TLS 1.3 resumes with `psk_dhe_ke` only; `psk_ke` (no forward secrecy) is never
   negotiated. TLS 1.2 resumption (session ID / ticket) reuses the original master secret, so it is
@@ -169,11 +171,12 @@ These are intentional and documented — flagging them up front so they aren't m
   group differs — verified to interop (direct and HRR) against OpenSSL 3.5+ / BoringSSL. This is *not*
   BoringSSL's multi-key_share prediction, and the corresponding BoGo cases are disabled by policy.
 - **No cryptographic-module claim.** TlsLib is not a validated module. `TlsLib.Compliance` reports
-  which validated OS module serves the primitives, from a shipped table keyed on the OS build,
-  product type, firmware, process architecture and loaded module, and in strict mode refuses any
-  combination the table does not mark validated. Its verdict has three levels: `Compliant` when
-  every primitive and key derivation is a module service, with the GCM IV disclosure attached (the
-  library builds the IV counter outside the module), `PrimitivesInModule` when a derivation is
+  which validated OS module serves the primitives, from a shipped table keyed on the OS build and
+  product type, and checked against the process architecture, native machine, firmware and loaded
+  modules, and in strict mode refuses any combination the table does not mark validated. Its
+  verdict has three levels: `Compliant` when every primitive and every key-schedule derivation the
+  configuration can run is a module service, with the GCM IV disclosure attached (the library
+  builds the IV counter outside the module), `PrimitivesInModule` when a key-schedule derivation is
   composed outside the module (HKDF, for TLS 1.3), `NotCompliant` otherwise.
 - **Augment-only custom verification** (vs the rustls/.NET "replace validation" model) — a callback can
   only tighten, never loosen.

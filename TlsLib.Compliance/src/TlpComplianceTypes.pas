@@ -39,8 +39,10 @@ type
   TComplianceEnforcement = (Strict, Relaxed);
 
   /// <summary>PrimitivesInModule: every negotiated primitive is a service of a validated module
-  /// and nothing was found, but a key derivation the configuration can run is composed outside
-  /// the module. Compliant: additionally every key derivation is a module service.</summary>
+  /// and nothing was found, but a key-schedule derivation the configuration can run is composed
+  /// outside the module. Compliant: additionally every key-schedule derivation the configuration
+  /// can run is a module service; a TLS 1.2 exporter derivation (RFC 5705) is composed over the
+  /// module HMAC and disclosed.</summary>
   TComplianceVerdict = (NotCompliant, PrimitivesInModule, Compliant);
 
   /// <summary>Historical: the module's certificate has passed its sunset date.</summary>
@@ -131,8 +133,8 @@ type
     Product: string;
     ModuleName: string;
     ModuleFileVersion: string;
-    /// <summary>The certificate number; the policy keeps it and a report prints it only while
-    /// the module is Validated.</summary>
+    /// <summary>The certificate number; the policy clears it unless the module is Validated, and
+    /// the module line of a report prints it only then.</summary>
     Certificate: string;
     /// <summary>Whether the library's own platform attestation produced this identity; False
     /// for one the host supplies.</summary>
@@ -181,8 +183,8 @@ type
       const ARsaSizes: TArray<UInt32>): Boolean; static;
     /// <summary>Whether a certificate signature is one the rules allow: a rule signature scheme
     /// of its family and hash (RSA-PSS only with canonical parameters), a deprecated hash the
-    /// strength policy admits, or EdDSA where the strength policy admits it. Takes the
-    /// scalars of a TCertSignatureFacts.</summary>
+    /// strength policy admits, or EdDSA where the strength policy admits it and the rules list
+    /// its scheme.</summary>
     class function SignatureMeets(AFamily: TCertSignatureFamily; AHash: TCertSignatureHash;
       APssCanonical: Boolean; const ARules: TComplianceRules): Boolean; static;
     /// <summary>Whether A and B are one credential: the same private key object and the same
@@ -572,11 +574,24 @@ var
   LFamilyMatch: Boolean;
 begin
   if AHash = TCertSignatureHash.Implicit then
-    Exit(ARules.Strength.AllowEdDsa);
+  begin
+    // EdDSA needs its scheme in the rules as well as the strength policy's admission
+    case AFamily of
+      TCertSignatureFamily.Ed25519:
+        LScheme := TSignatureScheme.ED25519;
+      TCertSignatureFamily.Ed448:
+        LScheme := TSignatureScheme.ED448;
+    else
+      Exit(False);
+    end;
+    Exit(ARules.Strength.AllowEdDsa and (LScheme in ARules.SignatureSchemes));
+  end;
   // a PSS signature must be canonical whatever hash admits it, as in the core
   if (AFamily = TCertSignatureFamily.RsaPss) and not APssCanonical then
     Exit(False);
-  if AHash in ARules.Strength.AllowedDeprecatedHashes then
+  // the strength policy admits only a hash the core regards as deprecated
+  if (AHash.Standing = TCertSignatureHashStanding.Deprecated) and
+    (AHash in ARules.Strength.AllowedDeprecatedHashes) then
     Exit(True);
   case AHash of
     TCertSignatureHash.Sha256:

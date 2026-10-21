@@ -132,6 +132,8 @@ resourcestring
   SAlgorithmOutsideModule = 'the %s does not run in the OS crypto module';
   SPlainMasterSecretRefused =
     'the plain master secret derivation is refused; Extended Master Secret is required';
+  SNotKeyScheduleLabelRefused = 'the TLS 1.2 derivation is refused: its label is not a ' +
+    'key-schedule label and the rules require every derivation inside the module';
   SRandomSubject = 'random generator';
   SSigningKeySubject = 'signing key';
   SNilReport = 'the backend report must not be nil';
@@ -140,16 +142,23 @@ resourcestring
 
 const
   PlainMasterSecretLabel = 'master secret';
+  // the TLS 1.2 key-schedule labels of RFC 5246 and RFC 7627; any other label is an exporter
+  KeyScheduleLabels: array [0 .. 4] of string = ('master secret', 'extended master secret',
+    'key expansion', 'client finished', 'server finished');
 
 type
-  /// <summary>A TLS 1.2 PRF that refuses the plain master secret label (RFC 5246 8.1), so a
-  /// session without Extended Master Secret (RFC 7627) can never be keyed.</summary>
+  /// <summary>A TLS 1.2 PRF that can refuse the plain master secret label (RFC 5246 8.1), so a
+  /// session without Extended Master Secret (RFC 7627) can never be keyed, and any label that
+  /// is not a key-schedule label, so no exporter derivation is composed outside the
+  /// module.</summary>
   TComplianceTls12Prf = class sealed(TInterfacedObject, ITls12Prf)
   strict private
   var
     FInner: ITls12Prf;
+    FRefusePlainMaster: Boolean;
+    FKeyScheduleOnly: Boolean;
   public
-    constructor Create(const AInner: ITls12Prf);
+    constructor Create(const AInner: ITls12Prf; ARefusePlainMaster, AKeyScheduleOnly: Boolean);
     function Compute(const ASecret: ISecretBuffer; const ALabel: string;
       const ASeed: TBytes; ALength: Int32): ISecretBuffer;
   end;
@@ -163,17 +172,32 @@ end;
 
 { TComplianceTls12Prf }
 
-constructor TComplianceTls12Prf.Create(const AInner: ITls12Prf);
+constructor TComplianceTls12Prf.Create(const AInner: ITls12Prf;
+  ARefusePlainMaster, AKeyScheduleOnly: Boolean);
 begin
   inherited Create;
   FInner := AInner;
+  FRefusePlainMaster := ARefusePlainMaster;
+  FKeyScheduleOnly := AKeyScheduleOnly;
 end;
 
 function TComplianceTls12Prf.Compute(const ASecret: ISecretBuffer; const ALabel: string;
   const ASeed: TBytes; ALength: Int32): ISecretBuffer;
+var
+  LI: Int32;
+  LKeySchedule: Boolean;
 begin
-  if ALabel = PlainMasterSecretLabel then
+  if FRefusePlainMaster and (ALabel = PlainMasterSecretLabel) then
     raise EComplianceRefusedTlsLibException.CreateRes(@SPlainMasterSecretRefused);
+  if FKeyScheduleOnly then
+  begin
+    LKeySchedule := False;
+    for LI := System.Low(KeyScheduleLabels) to System.High(KeyScheduleLabels) do
+      if ALabel = KeyScheduleLabels[LI] then
+        LKeySchedule := True;
+    if not LKeySchedule then
+      raise EComplianceRefusedTlsLibException.CreateRes(@SNotKeyScheduleLabelRefused);
+  end;
   Result := FInner.Compute(ASecret, ALabel, ASeed, ALength);
 end;
 
@@ -241,6 +265,7 @@ end;
 function TComplianceCryptoPrimitives.CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
 var
   LPrf: ITls12Prf;
+  LKeyScheduleOnly: Boolean;
 begin
   RequireKdfInModule(FReport.Tls12PrfBackend(AAlgorithm),
     TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm));
@@ -249,8 +274,10 @@ begin
     LPrf := inherited CreateTls12Prf(AAlgorithm)
   else
     LPrf := TTls12PrfComposition.Create(Self, AAlgorithm) as ITls12Prf;
-  if FRequireEms then
-    Result := TComplianceTls12Prf.Create(LPrf) as ITls12Prf
+  // an exporter label runs over the module HMAC, which the rules forbid for a derivation
+  LKeyScheduleOnly := FStrict and (FKdf = TKdfRule.RequireModule);
+  if FRequireEms or LKeyScheduleOnly then
+    Result := TComplianceTls12Prf.Create(LPrf, FRequireEms, LKeyScheduleOnly) as ITls12Prf
   else
     Result := LPrf;
 end;
