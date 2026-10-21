@@ -40,9 +40,6 @@ type
   TChainAlgorithmPolicy = class sealed(TObject)
   strict private
     class function IsAnchor(const ADer: TBytes; const ARoots: TArray<TBytes>): Boolean; static;
-    class function RequiredScheme(AFamily: TCertSignatureFamily;
-      AHash: TCertSignatureHash; APssCanonical: Boolean;
-      AIssuerKeyIsPss: Boolean): UInt16; static;
     class function LegacySha1Scheme(AFamily: TCertSignatureFamily): UInt16; static;
     class function CheckCertificate(const AInspector: ICertificateInspector;
       const ADer: TBytes; AIssuerKeyIsPss: Boolean;
@@ -59,6 +56,16 @@ type
       const APolicy: TCertificateStrengthPolicy; AFilterSchemes: Boolean;
       const AAdvertised: TArray<UInt16>; out AAlert: TTlsAlertDescription): Boolean; static;
   public
+    /// <summary>
+    /// The one signature scheme that can have signed a certificate with this family and hash, or 0
+    /// when none can: a non-canonical RSA-PSS signature, a hash no scheme names, or a family
+    /// outside the schemes. The hash is ignored for EdDSA. A canonical RSA-PSS signature under a
+    /// PSS-restricted issuer key (AIssuerKeyIsPss) is an rsa_pss_pss_* scheme, otherwise
+    /// rsa_pss_rsae_*; ECDSA is keyed on the hash alone, whatever the issuer curve.
+    /// </summary>
+    class function RequiredScheme(AFamily: TCertSignatureFamily;
+      AHash: TCertSignatureHash; APssCanonical: Boolean;
+      AIssuerKeyIsPss: Boolean): UInt16; static;
     class function Check(const AInspector: ICertificateInspector;
       const AChain, ARoots: TArray<TBytes>;
       const APolicy: TCertificateStrengthPolicy;
