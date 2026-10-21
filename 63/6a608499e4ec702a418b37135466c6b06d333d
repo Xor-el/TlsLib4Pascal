@@ -1,0 +1,71 @@
+TlsLib/src/Trust/TlpChainAlgorithmPolicy.pas
+  s_f2c9bd75607afc::t_fa5af033a7c324 211,214,218,224
+  s_f2c9bd75607afc::t_424a028b1915d2 89
+  s_f2c9bd75607afc::t_415703864f2bd6 222
+  s_f2c9bd75607afc::t_12dbefede24a74 223
+  s_f2c9bd75607afc::t_8a5f01f5ddeb32 219
+  s_f2c9bd75607afc::t_7cef8b9553accf 90-92
+  s_f2c9bd75607afc::t_dff1d26f44ff02 199
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_f3fa01a0ed81ff 597
+  s_f2c9bd75607afc::t_e67dba7672d02e 617-618
+  s_f2c9bd75607afc::t_e59af615239088 81
+TlsLib.Tests/src/SignatureTests.pas
+  s_f2c9bd75607afc::t_47491f32f743a5 109
+  s_f2c9bd75607afc::t_b96078ab041602 154-158
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_f2c9bd75607afc::t_63ff09b7954efc 58-64
+  s_f2c9bd75607afc::t_ae389e4a671c39 36
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_f2c9bd75607afc::t_ffca6319d6a2e3 109
+  s_f2c9bd75607afc::t_e98467c0751ecf 199-208
+  s_f2c9bd75607afc::t_021f597836a278 1830
+  s_f2c9bd75607afc::t_d2ed7006d12d71 1821-1829,1831-1835
+docs/security-model.md
+  s_f2c9bd75607afc::t_1c14bf0f4d33a9 57
+TlsLib.Tests/Data/Certs/ReissuedRoot.txt
+  s_f2c9bd75607afc::t_2e9f5b692f8486 37-39
+  s_f2c9bd75607afc::t_ce1c01820f511c 11
+  s_26641ac13b898f::t_ed446bb58f95ea 53
+docs/cookbook.md
+  s_f2c9bd75607afc::t_bc88bab42ed6ad 166
+docs/compliance.md
+  s_f2c9bd75607afc::t_379a952f3a6fef 331-332
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_f2c9bd75607afc::t_46a4c61c3605ee 116
+TlsLib.Tests/src/CertificateCheckTests.pas
+  s_f2c9bd75607afc::t_0577f236b94938 56-59
+  s_f2c9bd75607afc::t_38251b8bf10d75 122-145
+TlsLib.Tests/Data/Certs/LegacyHashChain.txt
+  s_f2c9bd75607afc::t_4187b311d6283d 16-20
+  s_26641ac13b898f::t_8f1972233f1dfd 26
+TlsLib.Tests/src/ChainAlgorithmPolicyTests.pas
+  s_f2c9bd75607afc::t_ef7a24951cb8b4 94,96
+  s_f2c9bd75607afc::t_08081ee59079e2 95
+  s_f2c9bd75607afc::t_a70056c0f89a9b 547,552-554,556-567
+  s_f2c9bd75607afc::t_3b5aa71f0a7602 555
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "636a608499e4ec702a418b37135466c6b06d333d",
+  "prompts": {},
+  "sessions": {
+    "s_26641ac13b898f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a51fc20c632bc7072",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
