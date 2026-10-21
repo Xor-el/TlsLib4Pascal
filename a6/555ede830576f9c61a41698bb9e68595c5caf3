@@ -1,0 +1,24 @@
+TlsLib.Crypto.System/src/TlpSystemCryptoBase.pas
+  s_f2c9bd75607afc::t_ac91e3b9e18fdc 83-84
+  s_f2c9bd75607afc::t_4f7ea0d4e5ed62 268-275,279-297
+  s_f2c9bd75607afc::t_b5a5284b67ada1 317,322
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_9fd2c8944fdaab 2726-2737
+  s_f2c9bd75607afc::t_7e02aff7e20f83 181-182
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6555ede830576f9c61a41698bb9e68595c5caf3",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
