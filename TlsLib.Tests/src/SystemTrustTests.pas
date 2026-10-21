@@ -764,14 +764,6 @@ type
 implementation
 
 type
-  /// <summary>A host verifier source that is not the library's OS source (the stand-in for one
-  /// that decorates it); it builds no verifier.</summary>
-  THostSource = class sealed(TInterfacedObject, IServerCertificateVerifierSource)
-  public
-    function CreateServerVerifier(const AContext: TServerTrustContext)
-      : IServerCertificateVerifier;
-  end;
-
   /// <summary>A probe over the abstract root source that drives its shared FilterRoots helper
   /// directly, so the well-formed + de-dup filter both harvesters use is tested once.</summary>
   TFilterRootsProbe = class(TSystemRootSourceBase)
@@ -792,14 +784,6 @@ type
     /// <summary>What ReadDistrusted of this probe collects before filtering.</summary>
     procedure Collects(const ADistrusted: TArray<TBytes>);
   end;
-
-{ THostSource }
-
-function THostSource.CreateServerVerifier(const AContext: TServerTrustContext)
-  : IServerCertificateVerifier;
-begin
-  Result := nil;
-end;
 
 { TTestDelegatePostChecks }
 
@@ -3951,7 +3935,7 @@ var
   LConfig: ITlsClientConfig;
   LMessage: string;
 begin
-  LConfig := ClientConfig(THostSource.Create as IServerCertificateVerifierSource);
+  LConfig := ClientConfig(TFakeHostVerifierSource.Create as IServerCertificateVerifierSource);
   LMessage := '';
   try
     TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
@@ -3975,7 +3959,7 @@ begin
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot);
   LRootsOf := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.HostRoots, PrivateRoot, PublicRoot) as IServerCertificateVerifierSource;
-  LConfig := ClientConfig(THostSource.Create as IServerCertificateVerifierSource);
+  LConfig := ClientConfig(TFakeHostVerifierSource.Create as IServerCertificateVerifierSource);
   LPolicy := TOSDelegatePolicy.FromClientConfig(LConfig, LRootsOf);
   CheckEquals(1, System.Length(LPolicy.Anchors), 'the decorated source''s anchor is carried');
   CheckEqualBytes('it is the host root', PrivateRoot[0], LPolicy.Anchors[0]);
@@ -3993,7 +3977,7 @@ begin
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot);
   LRootsOf := TOSVerifierSource.Create(LEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.OsAndHostRoots, PrivateRoot, nil) as IServerCertificateVerifierSource;
-  LConfig := ClientConfig(THostSource.Create as IServerCertificateVerifierSource);
+  LConfig := ClientConfig(TFakeHostVerifierSource.Create as IServerCertificateVerifierSource);
   LPolicy := TOSDelegatePolicy.FromClientConfig(LConfig, LRootsOf);
   CheckEquals(0, System.Length(LPolicy.Anchors), 'the OS roots stay the root');
   CheckEquals(1, System.Length(LPolicy.ExtraAnchors), 'the decorated source''s extra is carried');
@@ -4004,10 +3988,10 @@ var
   LConfig: ITlsClientConfig;
   LMessage: string;
 begin
-  LConfig := ClientConfig(THostSource.Create as IServerCertificateVerifierSource);
+  LConfig := ClientConfig(TFakeHostVerifierSource.Create as IServerCertificateVerifierSource);
   LMessage := '';
   try
-    TOSSystemTrust.LiveRevocationResolver(LConfig, THostSource.Create
+    TOSSystemTrust.LiveRevocationResolver(LConfig, TFakeHostVerifierSource.Create
       as IServerCertificateVerifierSource, nil).Free;
   except
     on E: EArgumentTlsLibException do
@@ -4021,7 +4005,7 @@ var
   LConfig: ITlsClientConfig;
   LMessage: string;
 begin
-  LConfig := ClientConfig(THostSource.Create as IServerCertificateVerifierSource);
+  LConfig := ClientConfig(TFakeHostVerifierSource.Create as IServerCertificateVerifierSource);
   LMessage := '';
   try
     TOSSystemTrust.LiveRevocationResolver(LConfig, nil, nil).Free;

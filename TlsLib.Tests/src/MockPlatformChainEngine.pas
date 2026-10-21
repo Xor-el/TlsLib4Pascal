@@ -23,6 +23,8 @@ uses
   TlpTlsAlert,
   TlpTrustPolicy,
   TlpSystemTrustBase,
+  TlpICertificateVerifierSource,
+  TlpOSDelegateVerifier,
   TlpIPlatformChainEngine;
 
 type
@@ -98,6 +100,16 @@ type
     property Requests: TArray<TPlatformChainRequest> read FRequests;
     property ServerCalls: Integer read FServerCalls;
     property ClientCalls: Integer read FClientCalls;
+  end;
+
+  /// <summary>The library's OS verifier source over an engine that is never asked, so a config
+  /// can hold an in-module verifier on any host. Never for production use.</summary>
+  TFakeOsVerifierSources = class sealed(TObject)
+  strict private
+    class function Engine: IPlatformChainEngine; static;
+  public
+    class function Server: IServerCertificateVerifierSource; static;
+    class function Client: IClientCertificateVerifierSource; static;
   end;
 
 implementation
@@ -217,6 +229,26 @@ function TAnchorAwarePlatformChainEngine.EvaluateClient(const ARequest: TPlatfor
 begin
   Inc(FClientCalls);
   Result := Judge(ARequest, ARequest.Anchors, AResult, AAlert);
+end;
+
+{ TFakeOsVerifierSources }
+
+class function TFakeOsVerifierSources.Engine: IPlatformChainEngine;
+begin
+  Result := TMockPlatformChainEngine.Create([], False, Default(TPlatformChainResult),
+    TTlsAlertDescription.BadCertificate) as IPlatformChainEngine;
+end;
+
+class function TFakeOsVerifierSources.Server: IServerCertificateVerifierSource;
+begin
+  Result := TOSVerifierSource.Create(Engine, TSystemTrustFetch.CacheOnly,
+    TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IServerCertificateVerifierSource;
+end;
+
+class function TFakeOsVerifierSources.Client: IClientCertificateVerifierSource;
+begin
+  Result := TOSVerifierSource.Create(Engine, TSystemTrustFetch.CacheOnly,
+    TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IClientCertificateVerifierSource;
 end;
 
 end.

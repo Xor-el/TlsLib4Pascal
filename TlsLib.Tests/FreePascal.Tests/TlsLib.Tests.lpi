@@ -43,7 +43,7 @@
         <PackageName Value="FCL"/>
       </Item8>
     </RequiredPackages>
-    <Units Count="109">
+    <Units Count="110">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -480,6 +480,10 @@
         <Filename Value="..\src\ComplianceLoopbackTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit108>
+      <Unit109>
+        <Filename Value="..\src\MockSystemCrypto.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit109>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

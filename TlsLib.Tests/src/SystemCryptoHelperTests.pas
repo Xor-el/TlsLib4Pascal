@@ -29,8 +29,6 @@ uses
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
   TlpICryptoBackendReport,
-  TlpISystemSigningKey,
-  TlpISystemSignatureVerifier,
   TlpSystemCryptoTypes,
   TlpSystemCryptoStrictness,
   TlpINegotiation,
@@ -47,6 +45,7 @@ uses
   TlpEcPrivateScalar,
   TlpSystemCryptoBase,
   MockCryptoProvider,
+  MockSystemCrypto,
   TlsLibTestProviders,
   TlsLibTestBase;
 
@@ -441,14 +440,8 @@ const
     '9d201395faa4b61a96c8';
 
 type
-  // a platform that overrides nothing: every per-algorithm answer is the base default
-  TBareBackendReport = class(TSystemBackendReportBase)
-  public
-    function Describe: string; override;
-  end;
-
   // a platform whose OS HMAC serves only some hashes
-  TFakeBackendReport = class(TBareBackendReport)
+  TPartialHmacReport = class(TBareBackendReport)
   public
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
   end;
@@ -484,17 +477,6 @@ type
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
     function VerificationBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
   end;
-
-  TFakeSystemSigningKey = class(TMockSigningKey, ISystemSigningKey);
-
-  // a verifier built by no OS module, as the portable facet's
-  TUnmarkedVerifier = class(TInterfacedObject, ISignatureVerifier)
-  public
-    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
-    function Verify(const ASignature: TBytes): Boolean;
-  end;
-
-  TMarkedVerifier = class(TUnmarkedVerifier, ISystemSignatureVerifier);
 
 const
   // the hashes the fake OS HMAC serves
@@ -1990,16 +1972,9 @@ begin
       end;
 end;
 
-{ TBareBackendReport }
+{ TPartialHmacReport }
 
-function TBareBackendReport.Describe: string;
-begin
-  Result := '';
-end;
-
-{ TFakeBackendReport }
-
-function TFakeBackendReport.HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
+function TPartialHmacReport.HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
 begin
   if AAlgorithm in HmacSystemHashes then
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
@@ -2067,17 +2042,6 @@ begin
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
   else
     Result := NotNative;
-end;
-
-{ TUnmarkedVerifier }
-
-procedure TUnmarkedVerifier.Update(const AData: TBytes; AOffset, ALength: Int32);
-begin
-end;
-
-function TUnmarkedVerifier.Verify(const ASignature: TBytes): Boolean;
-begin
-  Result := False;
 end;
 
 { TTestSystemBackendReport }
@@ -2210,7 +2174,7 @@ var
   LReport: ICryptoBackendReport;
   LHash: THashAlgorithm;
 begin
-  LReport := TFakeBackendReport.Create(False);
+  LReport := TPartialHmacReport.Create(False);
   for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
     if LHash in HmacSystemHashes then
       CheckComposed(Format('hkdf %d', [Ord(LHash)]), LReport.HkdfBackend(LHash))
@@ -2223,7 +2187,7 @@ var
   LReport: ICryptoBackendReport;
   LHash: THashAlgorithm;
 begin
-  LReport := TFakeBackendReport.Create(False);
+  LReport := TPartialHmacReport.Create(False);
   for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
     if LHash in HmacSystemHashes then
       CheckComposed(Format('prf %d', [Ord(LHash)]), LReport.Tls12PrfBackend(LHash))
@@ -2251,7 +2215,7 @@ procedure TTestSystemBackendReport.TestPrimitivesAndSigningFacetsAreNeverWhole;
 var
   LReport: ICryptoBackendReport;
 begin
-  LReport := TFakeBackendReport.Create(True);
+  LReport := TPartialHmacReport.Create(True);
   CheckNotNative('primitives facet', LReport.FacetBackend(TCryptoFacet.Primitives));
   CheckNotNative('signing facet', LReport.FacetBackend(TCryptoFacet.Signing));
 end;
@@ -2262,7 +2226,7 @@ var
   LKey: ISigningKey;
 begin
   LReport := TBareBackendReport.Create(False);
-  LKey := TFakeSystemSigningKey.Create;
+  LKey := TFakeSystemSigningKey.Create(nil);
   CheckNotNative('a marker any class can list', LReport.SigningKeyBackend(LKey));
 end;
 
@@ -2282,7 +2246,7 @@ var
   LVerifier: ISignatureVerifier;
 begin
   LReport := TBareBackendReport.Create(False);
-  LVerifier := TMarkedVerifier.Create as ISignatureVerifier;
+  LVerifier := TFakeSystemVerifier.Create as ISignatureVerifier;
   CheckNotNative('a marker any class can list', LReport.VerifierBackend(LVerifier));
 end;
 
@@ -2292,7 +2256,7 @@ var
   LVerifier: ISignatureVerifier;
 begin
   LReport := TBareBackendReport.Create(False);
-  LVerifier := TUnmarkedVerifier.Create as ISignatureVerifier;
+  LVerifier := TRejectingSignatureVerifier.Create as ISignatureVerifier;
   CheckNotNative('an unmarked verifier', LReport.VerifierBackend(LVerifier));
 end;
 

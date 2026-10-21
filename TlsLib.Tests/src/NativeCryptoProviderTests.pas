@@ -64,6 +64,7 @@ uses
   TlpTls12PrfLabels,
   TlpSystemCryptoBase,
   MockCryptoProvider,
+  MockSystemCrypto,
   TlsLibTestBase;
 
 type
@@ -390,38 +391,7 @@ type
       const APublicKeyDer: TBytes): ISignatureVerifier;
   end;
 
-  // an HPKE facet that is not the library's composition; none of its operations is ever reached
-  TStubHpke = class(TInterfacedObject, IHpkeCrypto)
-  public
-    function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
-    function ImportRecipientKey(AKem: UInt16;
-      const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
-    procedure GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
-      out APrivateKey: ISecretBuffer);
-    function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
-    function SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
-    function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
-    function RandomEncapsulation(AKem: UInt16): TBytes;
-  end;
-
-  // a backend report whose only claim is the HPKE answer its constructor flag selects
-  THpkeFlagReport = class sealed(TSystemBackendReportBase)
-  public
-    function Describe: string; override;
-  end;
-
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-  // a host key that lists the OS marker without being the platform's key
-  THostMarkedKey = class sealed(TMockSigningKey, ISystemSigningKey);
-
-  // a host verifier that lists the OS marker without being the platform's verifier
-  THostMarkedVerifier = class sealed(TInterfacedObject, ISignatureVerifier,
-    ISystemSignatureVerifier)
-  public
-    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
-    function Verify(const ASignature: TBytes): Boolean;
-  end;
-
   // a host class that hands out another provider's facets and a backend report as its own
   TReportBorrowingProvider = class sealed(TInterfacedObject, ICryptoProvider, ICryptoBackendReport)
   strict private
@@ -461,17 +431,6 @@ resourcestring
   SPortableUsed = 'a portable facet ran where the native one must';
 
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
-{ THostMarkedVerifier }
-
-procedure THostMarkedVerifier.Update(const AData: TBytes; AOffset, ALength: Int32);
-begin
-end;
-
-function THostMarkedVerifier.Verify(const ASignature: TBytes): Boolean;
-begin
-  Result := False;
-end;
-
 { TReportBorrowingProvider }
 
 constructor TReportBorrowingProvider.Create(const AProvider: ICryptoProvider;
@@ -497,53 +456,6 @@ begin
   Result := FProvider.Hpke;
 end;
 {$IFEND}
-
-{ THpkeFlagReport }
-
-function THpkeFlagReport.Describe: string;
-begin
-  Result := '';
-end;
-
-{ TStubHpke }
-
-function TStubHpke.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
-begin
-  Result := nil;
-end;
-
-function TStubHpke.ImportRecipientKey(AKem: UInt16;
-  const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
-begin
-  Result := nil;
-end;
-
-procedure TStubHpke.GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
-  out APrivateKey: ISecretBuffer);
-begin
-  APublicKey := nil;
-  APrivateKey := nil;
-end;
-
-function TStubHpke.ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
-begin
-  Result := nil;
-end;
-
-function TStubHpke.SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
-begin
-  Result := nil;
-end;
-
-function TStubHpke.ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
-begin
-  Result := False;
-end;
-
-function TStubHpke.RandomEncapsulation(AKem: UInt16): TBytes;
-begin
-  Result := nil;
-end;
 
 { TSharedKeySignWorker }
 
@@ -1312,7 +1224,7 @@ var
   LVerifier: ISignatureVerifier;
 begin
   CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
-  LVerifier := THostMarkedVerifier.Create as ISignatureVerifier;
+  LVerifier := TFakeSystemVerifier.Create as ISignatureVerifier;
   CheckTrue(Supports(LVerifier, ISystemSignatureVerifier), 'the host verifier lists the marker');
   CheckTrue(LReport.VerifierBackend(LVerifier).Backend = TCryptoBackend.Portable,
     'the marker alone does not make a verifier System');
@@ -1324,7 +1236,7 @@ var
   LKey: ISigningKey;
 begin
   CheckTrue(Supports(Crypto, ICryptoBackendReport, LReport), 'the overlay reports its backends');
-  LKey := THostMarkedKey.Create as ISigningKey;
+  LKey := TFakeSystemSigningKey.Create(nil) as ISigningKey;
   CheckTrue(Supports(LKey, ISystemSigningKey), 'the host key lists the marker');
   CheckTrue(LReport.SigningKeyBackend(LKey).Backend = TCryptoBackend.Portable,
     'the marker alone does not make a key System');
@@ -2740,7 +2652,7 @@ var
   LSupplied: IHpkeCrypto;
   LBase, LOverlay: ICryptoProvider;
 begin
-  LSupplied := TStubHpke.Create as IHpkeCrypto;
+  LSupplied := TFakeHpke.Create as IHpkeCrypto;
   LBase := BaseWithHpke(LSupplied);
   LOverlay := TOverlayCryptoProvider.Create(LBase, nil, nil, nil, nil) as ICryptoProvider;
   CheckTrue(LOverlay.Hpke = LSupplied, 'the overlay returns the caller-supplied HPKE facet');
@@ -2782,7 +2694,7 @@ var
   LBase, LOverlay: ICryptoProvider;
   LPrimitives: ICryptoPrimitives;
 begin
-  LSupplied := TStubHpke.Create as IHpkeCrypto;
+  LSupplied := TFakeHpke.Create as IHpkeCrypto;
   LBase := BaseWithHpke(nil);
   LPrimitives := TForwardingCryptoPrimitives.Create(LBase.Primitives) as ICryptoPrimitives;
   LOverlay := TOverlayCryptoProvider.Create(LBase, LPrimitives, nil, nil, LSupplied)
@@ -2795,7 +2707,7 @@ procedure TTestOverlayCryptoProvider.TestComposeKeepsSuppliedHpkeFacet;
 var
   LSupplied: IHpkeCrypto;
 begin
-  LSupplied := TStubHpke.Create as IHpkeCrypto;
+  LSupplied := TFakeHpke.Create as IHpkeCrypto;
   CheckTrue(Composed(BaseWithHpke(LSupplied)).Hpke = LSupplied,
     'Compose keeps a supplied HPKE facet');
 end;
@@ -2823,7 +2735,7 @@ end;
 
 procedure TTestOverlayCryptoProvider.TestComposedReportMatchesSuppliedHpkeFacet;
 begin
-  CheckHpkeFacetReport(Composed(BaseWithHpke(TStubHpke.Create as IHpkeCrypto)));
+  CheckHpkeFacetReport(Composed(BaseWithHpke(TFakeHpke.Create as IHpkeCrypto)));
 end;
 
 procedure TTestOverlayCryptoProvider.TestComposedReportMatchesHpkeCompositionOverOtherPrimitives;
@@ -2846,7 +2758,7 @@ begin
   LRaised := False;
   try
     TOverlayCryptoProvider.Create(LBase, nil, nil,
-      THpkeFlagReport.Create(True) as ICryptoBackendReport, TStubHpke.Create as IHpkeCrypto);
+      TBareBackendReport.Create(True) as ICryptoBackendReport, TFakeHpke.Create as IHpkeCrypto);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -2865,7 +2777,7 @@ begin
   LRaised := False;
   try
     TOverlayCryptoProvider.Create(LBase, nil, nil,
-      THpkeFlagReport.Create(True) as ICryptoBackendReport,
+      TBareBackendReport.Create(True) as ICryptoBackendReport,
       THpkeComposition.Create(LOther.Primitives) as IHpkeCrypto);
   except
     on E: EArgumentTlsLibException do
@@ -2884,7 +2796,7 @@ begin
   LPrimitives := TForwardingCryptoPrimitives.Create(LBase.Primitives) as ICryptoPrimitives;
   LSupplied := THpkeComposition.Create(LPrimitives) as IHpkeCrypto;
   LOverlay := TOverlayCryptoProvider.Create(LBase, LPrimitives, nil,
-    THpkeFlagReport.Create(True) as ICryptoBackendReport, LSupplied) as ICryptoProvider;
+    TBareBackendReport.Create(True) as ICryptoBackendReport, LSupplied) as ICryptoProvider;
   CheckTrue(LOverlay.Hpke = LSupplied, 'a composition over the overlay''s primitives is kept');
 end;
 
@@ -2893,11 +2805,11 @@ var
   LBase, LOverlay: ICryptoProvider;
   LRaised: Boolean;
 begin
-  LBase := BaseWithHpke(TStubHpke.Create as IHpkeCrypto);
+  LBase := BaseWithHpke(TFakeHpke.Create as IHpkeCrypto);
   LRaised := False;
   try
     LOverlay := TOverlayCryptoProvider.Create(LBase, nil, nil,
-      THpkeFlagReport.Create(True) as ICryptoBackendReport, nil) as ICryptoProvider;
+      TBareBackendReport.Create(True) as ICryptoBackendReport, nil) as ICryptoProvider;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
@@ -2912,7 +2824,7 @@ var
   LComposition: IHpkeComposition;
 begin
   LOverlay := TOverlayCryptoProvider.Create(BaseWithHpke(nil), nil, nil,
-    THpkeFlagReport.Create(True) as ICryptoBackendReport, nil) as ICryptoProvider;
+    TBareBackendReport.Create(True) as ICryptoBackendReport, nil) as ICryptoProvider;
   CheckTrue(Supports(LOverlay.Hpke, IHpkeComposition, LComposition),
     'the default composition is kept under a report that names it');
 end;
@@ -2922,9 +2834,9 @@ var
   LSupplied: IHpkeCrypto;
   LOverlay: ICryptoProvider;
 begin
-  LSupplied := TStubHpke.Create as IHpkeCrypto;
-  LOverlay := TOverlayCryptoProvider.Create(BaseWithHpke(nil), nil, nil,
-    THpkeFlagReport.Create(False) as ICryptoBackendReport, LSupplied) as ICryptoProvider;
+  LSupplied := TFakeHpke.Create as IHpkeCrypto;
+  LOverlay :=TOverlayCryptoProvider.Create(BaseWithHpke(nil), nil, nil,
+    TBareBackendReport.Create(False) as ICryptoBackendReport, LSupplied) as ICryptoProvider;
   CheckTrue(LOverlay.Hpke = LSupplied, 'a report that says portable describes any facet');
 end;
 

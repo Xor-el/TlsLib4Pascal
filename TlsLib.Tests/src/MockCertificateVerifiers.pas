@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpTlsLibExceptions,
   TlpServerName,
   TlpTrustTypes,
   TlpTrustPolicy,
@@ -85,7 +86,21 @@ type
       : IClientCertificateVerifier;
   end;
 
+  /// <summary>A host verifier source that is not the library's OS source, and builds no
+  /// verifier; a connection that asks it for a verifier fails. Never for production use.</summary>
+  TFakeHostVerifierSource = class sealed(TInterfacedObject,
+    IServerCertificateVerifierSource, IClientCertificateVerifierSource)
+  public
+    function CreateServerVerifier(const AContext: TServerTrustContext)
+      : IServerCertificateVerifier;
+    function CreateClientVerifier(const AContext: TClientTrustContext)
+      : IClientCertificateVerifier;
+  end;
+
 implementation
+
+resourcestring
+  SFakeVerifierAsked = 'the fake system verifier source builds no verifier';
 
 { TFixedVerdictVerifier }
 
@@ -172,6 +187,20 @@ function TAcceptingClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 begin
   Result := TFixedVerdictVerifier.CreateAccepting(False) as IClientCertificateVerifier;
+end;
+
+{ TFakeHostVerifierSource }
+
+function TFakeHostVerifierSource.CreateServerVerifier(const AContext: TServerTrustContext)
+  : IServerCertificateVerifier;
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
+end;
+
+function TFakeHostVerifierSource.CreateClientVerifier(const AContext: TClientTrustContext)
+  : IClientCertificateVerifier;
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
 end;
 
 end.

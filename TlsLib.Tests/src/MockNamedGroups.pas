@@ -71,6 +71,22 @@ type
     function ToBuilder: ICipherSuiteRegistryBuilder;
   end;
 
+  /// <summary>A registry that lists the groups of AListed and resolves only AResolved through
+  /// TryGet, so every other code resolves to nothing and the two disagree. Never for production
+  /// use.</summary>
+  TFakeGroupRegistry = class sealed(TInterfacedObject, INamedGroupRegistry)
+  strict private
+  var
+    FListed: INamedGroupRegistry;
+    FResolved: INamedGroup;
+  public
+    constructor Create(const AListed: INamedGroupRegistry; const AResolved: INamedGroup);
+    function Items: TArray<INamedGroup>;
+    function Contains(ACode: UInt16): Boolean;
+    function TryGet(ACode: UInt16; out AGroup: INamedGroup): Boolean;
+    function ToBuilder: INamedGroupRegistryBuilder;
+  end;
+
 implementation
 
 { TFixedSecretKey }
@@ -181,6 +197,40 @@ end;
 function TFakeSuiteRegistry.ToBuilder: ICipherSuiteRegistryBuilder;
 begin
   Result := TCipherSuiteRegistryBuilder.Create(FSuites) as ICipherSuiteRegistryBuilder;
+end;
+
+{ TFakeGroupRegistry }
+
+constructor TFakeGroupRegistry.Create(const AListed: INamedGroupRegistry;
+  const AResolved: INamedGroup);
+begin
+  inherited Create;
+  FListed := AListed;
+  FResolved := AResolved;
+end;
+
+function TFakeGroupRegistry.Items: TArray<INamedGroup>;
+begin
+  Result := FListed.Items;
+end;
+
+function TFakeGroupRegistry.Contains(ACode: UInt16): Boolean;
+begin
+  Result := FListed.Contains(ACode);
+end;
+
+function TFakeGroupRegistry.TryGet(ACode: UInt16; out AGroup: INamedGroup): Boolean;
+begin
+  Result := ACode = FResolved.Code;
+  if Result then
+    AGroup := FResolved
+  else
+    AGroup := nil;
+end;
+
+function TFakeGroupRegistry.ToBuilder: INamedGroupRegistryBuilder;
+begin
+  Result := FListed.ToBuilder;
 end;
 
 end.

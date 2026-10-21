@@ -17,6 +17,7 @@ uses
   MockClock,
   MockKeyLog,
   MockCryptoProvider,
+  MockSystemCrypto,
   MockHttpFetcher,
   MockPkixProvider,
   MockSink,

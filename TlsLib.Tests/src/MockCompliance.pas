@@ -22,26 +22,15 @@ uses
   TlpISecretBuffer,
   TlpIKeyExchangePrivateKey,
   TlpINamedGroup,
-  TlpINegotiation,
-  TlpNegotiationTypes,
   TlpISigningKey,
   TlpImportedCredential,
-  TlpISystemSigningKey,
-  TlpISystemSignatureVerifier,
   TlpICryptoBackendReport,
   TlpSystemCryptoTypes,
   TlpSystemCryptoBase,
   TlpComplianceTypes,
   TlpIModuleAttestation,
-  TlpICertificateTrust,
-  TlpICertificateVerifierSource,
-  TlpTrustPolicy,
-  TlpTlsAlert,
-  TlpSystemTrustBase,
-  TlpIPlatformChainEngine,
-  TlpOSDelegateVerifier,
-  MockPlatformChainEngine,
   MockCryptoProvider,
+  MockSystemCrypto,
   TlpTlsLibExceptions,
   TlsLibTestProviders;
 
@@ -70,15 +59,6 @@ type
   end;
 
   TComplianceHashSet = set of THashAlgorithm;
-
-  /// <summary>A backend report whose signing keys and verifiers answer by their
-  /// <see cref="ISystemSigningKey" /> and <see cref="ISystemSignatureVerifier" /> markers alone,
-  /// where a production report judges the class. Never for production use.</summary>
-  TMarkedBackendReportBase = class abstract(TSystemBackendReportBase)
-  public
-    function SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry; override;
-    function VerifierBackend(const AVerifier: ISignatureVerifier): TCryptoBackendEntry; override;
-  end;
 
   /// <summary>A backend report that places every operation in the OS module except the entries
   /// it is told to keep portable (the AEADs at construction, the rest through the properties,
@@ -147,30 +127,12 @@ type
     function Describe: string;
   end;
 
-  /// <summary>A <see cref="TFakeSigningKey" /> that carries the OS marker and keeps it when
-  /// narrowed.</summary>
-  TFakeSystemSigningKey = class sealed(TFakeSigningKey, ISystemSigningKey)
-  strict protected
-    function Narrowed(const ASchemes: TArray<TSignatureScheme>): ISigningKey; override;
-  end;
-
   /// <summary>A signer that signs nothing; a test only asks whether one was granted.</summary>
   TFakeSigner = class sealed(TInterfacedObject, ISignatureSigner)
   public
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Sign: TBytes;
   end;
-
-  /// <summary>A verifier that verifies nothing and carries no OS marker, as the portable
-  /// fallback does.</summary>
-  TFakeVerifier = class(TInterfacedObject, ISignatureVerifier)
-  public
-    procedure Update(const AData: TBytes; AOffset, ALength: Int32);
-    function Verify(const ASignature: TBytes): Boolean;
-  end;
-
-  /// <summary>A <see cref="TFakeVerifier" /> that carries the OS marker.</summary>
-  TFakeSystemVerifier = class sealed(TFakeVerifier, ISystemSignatureVerifier);
 
   /// <summary>A signing facet that hands out one given key and fixed-shape signers and
   /// verifiers, the verifiers marked as OS-served or not as told.</summary>
@@ -194,66 +156,6 @@ type
       const APublicKeyDer: TBytes): ISignatureVerifier;
   end;
 
-  /// <summary>The library's OS verifier source over an engine that is never asked, so a config
-  /// can hold an in-module verifier on any host. Never for production use.</summary>
-  TFakeOsVerifierSources = class sealed(TObject)
-  strict private
-    class function Engine: IPlatformChainEngine; static;
-  public
-    class function Server: IServerCertificateVerifierSource; static;
-    class function Client: IClientCertificateVerifierSource; static;
-  end;
-
-  /// <summary>A host verifier source that is not the library's OS source, and builds no
-  /// verifier; a connection that asks it for a verifier fails. Never for production use.</summary>
-  TFakeHostVerifierSource = class sealed(TInterfacedObject,
-    IServerCertificateVerifierSource, IClientCertificateVerifierSource)
-  public
-    function CreateServerVerifier(const AContext: TServerTrustContext)
-      : IServerCertificateVerifier;
-    function CreateClientVerifier(const AContext: TClientTrustContext)
-      : IClientCertificateVerifier;
-  end;
-
-  /// <summary>An HPKE suite that seals nothing; a test only asks whether one was granted.</summary>
-  TFakeHpkeSuite = class sealed(TInterfacedObject, IHpkeSuite)
-  strict private
-  var
-    FKem, FKdf, FAead: UInt16;
-  public
-    constructor Create(AKem, AKdf, AAead: UInt16);
-    function Kem: UInt16;
-    function Kdf: UInt16;
-    function Aead: UInt16;
-    function AeadTagLength: Int32;
-    procedure SetupSealer(const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
-      out ASealer: IHpkeSealer);
-  end;
-
-  /// <summary>A foreign HPKE facet, not composed over any primitives, that offers every KEM and
-  /// the three AEADs and counts the key operations that reach it. Never for production
-  /// use.</summary>
-  TFakeHpke = class sealed(TInterfacedObject, IHpkeCrypto)
-  strict private
-  var
-    FRecipientImports: Int32;
-    FKeyPairs: Int32;
-    FPrivateImports: Int32;
-  public
-    function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
-    function ImportRecipientKey(AKem: UInt16;
-      const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
-    procedure GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
-      out APrivateKey: ISecretBuffer);
-    function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
-    function SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
-    function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
-    function RandomEncapsulation(AKem: UInt16): TBytes;
-    property RecipientImports: Int32 read FRecipientImports;
-    property KeyPairs: Int32 read FKeyPairs;
-    property PrivateImports: Int32 read FPrivateImports;
-  end;
-
   /// <summary>A classical group a host wrote, answering ACode; it agrees nothing. Never for
   /// production use.</summary>
   TFakeNamedGroup = class sealed(TInterfacedObject, INamedGroup)
@@ -274,22 +176,6 @@ type
     function ValidatePeerShare(const AShare: TBytes): Boolean;
   end;
 
-  /// <summary>A registry that lists the groups of AListed and resolves only AResolved through
-  /// TryGet, so every other code resolves to nothing and the two disagree. Never for production
-  /// use.</summary>
-  TFakeGroupRegistry = class sealed(TInterfacedObject, INamedGroupRegistry)
-  strict private
-  var
-    FListed: INamedGroupRegistry;
-    FResolved: INamedGroup;
-  public
-    constructor Create(const AListed: INamedGroupRegistry; const AResolved: INamedGroup);
-    function Items: TArray<INamedGroup>;
-    function Contains(ACode: UInt16): Boolean;
-    function TryGet(ACode: UInt16; out AGroup: INamedGroup): Boolean;
-    function ToBuilder: INamedGroupRegistryBuilder;
-  end;
-
   TComplianceFakes = class sealed(TObject)
   public
     /// <summary>A provider over the portable one that reports AReport and, when ASigning is not
@@ -302,8 +188,6 @@ type
 implementation
 
 resourcestring
-  SFakeVerifierAsked = 'the fake system verifier source builds no verifier';
-  SFakeHpkeSealer = 'the fake HPKE suite seals nothing';
   SFakeGroupAgrees = 'the fake group agrees nothing';
 
 { TFakeModuleAttestation }
@@ -340,25 +224,6 @@ end;
 function TFakeModuleAttestation.Disclosures: TArray<string>;
 begin
   Result := System.Copy(FDisclosed);
-end;
-
-{ TMarkedBackendReportBase }
-
-function TMarkedBackendReportBase.SigningKeyBackend(const AKey: ISigningKey): TCryptoBackendEntry;
-begin
-  if Supports(AKey, ISystemSigningKey) then
-    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
-  else
-    Result := NotNative;
-end;
-
-function TMarkedBackendReportBase.VerifierBackend(
-  const AVerifier: ISignatureVerifier): TCryptoBackendEntry;
-begin
-  if Supports(AVerifier, ISystemSignatureVerifier) then
-    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
-  else
-    Result := NotNative;
 end;
 
 { TFakeBackendReport }
@@ -532,13 +397,6 @@ begin
   Result := 'fake verifier report';
 end;
 
-{ TFakeSystemSigningKey }
-
-function TFakeSystemSigningKey.Narrowed(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
-begin
-  Result := TFakeSystemSigningKey.Create(ASchemes, PublicKeyInfo) as ISigningKey;
-end;
-
 { TFakeSigner }
 
 procedure TFakeSigner.Update(const AData: TBytes; AOffset, ALength: Int32);
@@ -548,17 +406,6 @@ end;
 function TFakeSigner.Sign: TBytes;
 begin
   Result := nil;
-end;
-
-{ TFakeVerifier }
-
-procedure TFakeVerifier.Update(const AData: TBytes; AOffset, ALength: Int32);
-begin
-end;
-
-function TFakeVerifier.Verify(const ASignature: TBytes): Boolean;
-begin
-  Result := False;
 end;
 
 { TFakeSigningCrypto }
@@ -596,123 +443,7 @@ begin
   if FNativeVerifiers then
     Result := TFakeSystemVerifier.Create as ISignatureVerifier
   else
-    Result := TFakeVerifier.Create as ISignatureVerifier;
-end;
-
-{ TFakeOsVerifierSources }
-
-class function TFakeOsVerifierSources.Engine: IPlatformChainEngine;
-begin
-  Result := TMockPlatformChainEngine.Create([], False, Default(TPlatformChainResult),
-    TTlsAlertDescription.BadCertificate) as IPlatformChainEngine;
-end;
-
-class function TFakeOsVerifierSources.Server: IServerCertificateVerifierSource;
-begin
-  Result := TOSVerifierSource.Create(Engine, TSystemTrustFetch.CacheOnly,
-    TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IServerCertificateVerifierSource;
-end;
-
-class function TFakeOsVerifierSources.Client: IClientCertificateVerifierSource;
-begin
-  Result := TOSVerifierSource.Create(Engine, TSystemTrustFetch.CacheOnly,
-    TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IClientCertificateVerifierSource;
-end;
-
-{ TFakeHostVerifierSource }
-
-function TFakeHostVerifierSource.CreateServerVerifier(const AContext: TServerTrustContext)
-  : IServerCertificateVerifier;
-begin
-  raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
-end;
-
-function TFakeHostVerifierSource.CreateClientVerifier(const AContext: TClientTrustContext)
-  : IClientCertificateVerifier;
-begin
-  raise EInvalidOperationTlsLibException.CreateRes(@SFakeVerifierAsked);
-end;
-
-{ TFakeHpkeSuite }
-
-constructor TFakeHpkeSuite.Create(AKem, AKdf, AAead: UInt16);
-begin
-  inherited Create;
-  FKem := AKem;
-  FKdf := AKdf;
-  FAead := AAead;
-end;
-
-function TFakeHpkeSuite.Kem: UInt16;
-begin
-  Result := FKem;
-end;
-
-function TFakeHpkeSuite.Kdf: UInt16;
-begin
-  Result := FKdf;
-end;
-
-function TFakeHpkeSuite.Aead: UInt16;
-begin
-  Result := FAead;
-end;
-
-function TFakeHpkeSuite.AeadTagLength: Int32;
-begin
-  Result := 16;
-end;
-
-procedure TFakeHpkeSuite.SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
-  out AEnc: TBytes; out ASealer: IHpkeSealer);
-begin
-  raise EInvalidOperationTlsLibException.CreateRes(@SFakeHpkeSealer);
-end;
-
-{ TFakeHpke }
-
-function TFakeHpke.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
-begin
-  Result := TFakeHpkeSuite.Create(AKem, AKdf, AAead) as IHpkeSuite;
-end;
-
-function TFakeHpke.ImportRecipientKey(AKem: UInt16;
-  const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
-begin
-  Inc(FRecipientImports);
-  Result := nil;
-end;
-
-procedure TFakeHpke.GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
-  out APrivateKey: ISecretBuffer);
-begin
-  Inc(FKeyPairs);
-  APublicKey := nil;
-  APrivateKey := nil;
-end;
-
-function TFakeHpke.ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
-begin
-  Inc(FPrivateImports);
-  Result := nil;
-end;
-
-function TFakeHpke.SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
-begin
-  Result := TArray<THpkeSuiteId>.Create(
-    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM),
-    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_256_GCM),
-    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.CHACHA20_POLY1305));
-end;
-
-function TFakeHpke.ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
-begin
-  Result := True;
-end;
-
-function TFakeHpke.RandomEncapsulation(AKem: UInt16): TBytes;
-begin
-  Result := TBytes.Create(1);
+    Result := TRejectingSignatureVerifier.Create as ISignatureVerifier;
 end;
 
 { TFakeNamedGroup }
@@ -769,40 +500,6 @@ end;
 function TFakeNamedGroup.ValidatePeerShare(const AShare: TBytes): Boolean;
 begin
   Result := False;
-end;
-
-{ TFakeGroupRegistry }
-
-constructor TFakeGroupRegistry.Create(const AListed: INamedGroupRegistry;
-  const AResolved: INamedGroup);
-begin
-  inherited Create;
-  FListed := AListed;
-  FResolved := AResolved;
-end;
-
-function TFakeGroupRegistry.Items: TArray<INamedGroup>;
-begin
-  Result := FListed.Items;
-end;
-
-function TFakeGroupRegistry.Contains(ACode: UInt16): Boolean;
-begin
-  Result := FListed.Contains(ACode);
-end;
-
-function TFakeGroupRegistry.TryGet(ACode: UInt16; out AGroup: INamedGroup): Boolean;
-begin
-  Result := ACode = FResolved.Code;
-  if Result then
-    AGroup := FResolved
-  else
-    AGroup := nil;
-end;
-
-function TFakeGroupRegistry.ToBuilder: INamedGroupRegistryBuilder;
-begin
-  Result := FListed.ToBuilder;
 end;
 
 { TComplianceFakes }
