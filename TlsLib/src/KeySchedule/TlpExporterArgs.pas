@@ -36,7 +36,8 @@ resourcestring
 
 const
   // exporter labels can collide with the TLS PRF's own labels (RFC 5705 4); refuse the reserved
-  // ones so an export can never equal a handshake secret
+  // ones so an export can never equal a handshake secret; a provider that routes the PRF by
+  // label must keep its own list of these labels in agreement
   ReservedPrfLabels: array [0 .. 4] of string = ('client finished', 'server finished',
     'master secret', 'key expansion', 'extended master secret');
 

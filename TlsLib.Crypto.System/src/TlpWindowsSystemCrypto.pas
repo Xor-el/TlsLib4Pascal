@@ -740,9 +740,10 @@ type
   // derivation key, the hash, label and seed travel as derive parameters. The provider handle is
   // borrowed from and kept alive by the context, which opens it only after SelfTest passed.
   // Unlike HKDF there is no per-call fallback: once the provider serves, a CNG failure raises.
-  // The provider bounds label and seed at 256 octets, which RFC 5705 exporter input exceeds, so
-  // only the TLS key-schedule labels reach it; any other label (an exporter) is computed by the
-  // composition over the module HMAC, chosen by label alone and never by a failure.
+  // The provider rejects a label or a seed over 256 octets, which RFC 5705 exporter input can
+  // exceed, so only the five TLS key-schedule labels reach it. Any other label (an exporter) is
+  // computed by the composition over the module HMAC, chosen by label alone, never by a failure.
+  // The label list must agree with the reserved PRF labels in TlpExporterArgs.
   TWindowsCngTls12Prf = class(TInterfacedObject, ITls12Prf)
   strict private
   var
@@ -761,7 +762,7 @@ type
       ASecret: PByte; ASecretLength: Int32; const ALabel: string; const ASeed: TBytes;
       AOut: PByte; ALength: Int32): Integer; static;
     /// <summary>Whether the provider reproduces known answers for both PRF hashes in the
-    /// master-secret and extended-master-secret (48 and 66 octet premaster), key-block and
+    /// master-secret and extended-master-secret (32/48 and 66 octet premaster), key-block and
     /// Finished shapes.</summary>
     class function SelfTest(const AApi: TCngApi; AAlg: Pointer): Boolean; static;
     function Compute(const ASecret: ISecretBuffer; const ALabel: string;
@@ -2988,9 +2989,10 @@ end;
 
 function TWindowsCng.Tls12PrfAvailable(AAlgorithm: THashAlgorithm): Boolean;
 begin
-  // the known answers cover the two PRF hashes of TLS 1.2
+  // the known answers cover the two PRF hashes of TLS 1.2; exporter labels run over the HMAC
   Result := (FTls12Kdf <> nil) and
-    (AAlgorithm in [THashAlgorithm.SHA_256, THashAlgorithm.SHA_384]);
+    (AAlgorithm in [THashAlgorithm.SHA_256, THashAlgorithm.SHA_384]) and
+    HmacAvailable(AAlgorithm);
 end;
 
 function TWindowsCng.TryCreateTls12Prf(AAlgorithm: THashAlgorithm;
@@ -4603,7 +4605,10 @@ begin
     LVerifyNative := LNCrypt.CanVerify;
   except
     on ESystemCryptoUnsupportedTlsLibException do
-      LSigning := nil;
+      begin
+        LSigning := nil;
+        LNCrypt := nil;
+      end;
   end;
   // the signing facet the provider will expose: the base's when the OS one is unavailable
   if LSigning <> nil then
