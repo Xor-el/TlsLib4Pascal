@@ -48,8 +48,7 @@ begin
   for LI := 1 to System.Length(ALabel) do
     if Ord(ALabel[LI]) > 127 then
       raise EArgumentTlsLibException.CreateRes(@SExportLabelNotAscii);
-  // exporter labels can collide with the TLS PRF's own labels (RFC 5705 4); refuse them so an
-  // export can never equal a handshake secret
+  // an export must never equal a handshake secret (RFC 5705 4)
   if TTls12PrfLabels.IsKeyScheduleLabel(ALabel) then
     raise EArgumentTlsLibException.CreateRes(@SExportLabelReserved);
 end;

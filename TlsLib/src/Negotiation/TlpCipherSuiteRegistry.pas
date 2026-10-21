@@ -97,16 +97,9 @@ resourcestring
 constructor TCipherSuiteRegistry.Create(const ASuites: TArray<TTlsCipherSuite>);
 var
   LI: Int32;
-  LCatalog: TTlsCipherSuite;
 begin
   for LI := 0 to System.Length(ASuites) - 1 do
-    if TCipherSuiteCatalog.TryGet(ASuites[LI].Common.Code, LCatalog) and
-      not ((ASuites[LI].Common.Hash = LCatalog.Common.Hash) and
-      (ASuites[LI].Common.Aead = LCatalog.Common.Aead) and
-      (ASuites[LI].Common.KeyLength = LCatalog.Common.KeyLength) and
-      (ASuites[LI].Protocol = LCatalog.Protocol) and
-      (ASuites[LI].KeyExchange = LCatalog.KeyExchange) and (ASuites[LI].Auth = LCatalog.Auth) and
-      (ASuites[LI].Prf = LCatalog.Prf)) then
+    if not TCipherSuiteCatalog.MatchesCatalog(ASuites[LI]) then
       raise EArgumentTlsLibException.CreateResFmt(@SSuiteDiffersFromCatalog,
         [ASuites[LI].Common.Code]);
   inherited Create(CodeOf, ASuites);

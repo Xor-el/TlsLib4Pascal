@@ -160,15 +160,13 @@ begin
     Exit;
   end;
   LLeaf := CertificateChain[0];
-  // a definite No means the leaf may not sign a CertificateVerify; an absent or unreadable
-  // keyUsage passes (the peer-side signing-policy check is the backstop)
+  // only a definite No refuses; an absent or unreadable keyUsage passes
   if ACertificates.KeyUsagePermits(LLeaf, TCertKeyUsage.DigitalSignature) = TCertAnswer.No then
   begin
     Result := TCredentialConsistency.LeafCannotSign;
     Exit;
   end;
-  // an id-RSASSA-PSS leaf key pairs only with rsa_pss_pss_*, which this library does not offer,
-  // so it is unusable even when the private key matches it (the key-value match below would pass)
+  // an id-RSASSA-PSS leaf pairs only with rsa_pss_pss_*, which is not offered, key match or not
   LSchemes := PrivateKey.CapableSchemes;
   if (System.Length(LSchemes) > 0) and (LSchemes[0].KeyKind = TSignatureKeyKind.Rsa) and
     (ACertificates.KeyIsRsaPss(LLeaf) = TCertAnswer.Yes) then
@@ -176,9 +174,7 @@ begin
     Result := TCredentialConsistency.LeafKeyRsaPss;
     Exit;
   end;
-  // the private key must own the leaf: match the key's public half against the leaf's, with no
-  // signing operation. The value compare also catches a mis-ordered chain whose first
-  // certificate is not the one that pairs with the key
+  // value-compare the key's public half with the leaf's, which also catches a mis-ordered chain
   LKeyPublicKeyInfo := PrivateKey.PublicKeyInfo;
   if System.Length(LKeyPublicKeyInfo) = 0 then
     Result := TCredentialConsistency.KeyNotExportable

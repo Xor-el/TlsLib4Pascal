@@ -426,6 +426,7 @@ resourcestring
     'verdict slot: call only one';
   SDefaultKeysBesideExplicitKeys = 'WithDefaultSessionTicketKeys can never take effect beside ' +
     'WithSessionTicketKeys: call only one';
+  SSuiteDiffersFromCatalog = 'cipher suite 0x%.4x differs from the catalog definition of its code';
   SCipherSuiteListNotOffered = 'the cipher-suite list names only suites of a protocol version ' +
     'that is not offered, so it would change nothing: list a suite of an offered version or drop ' +
     'WithCipherSuiteList';
@@ -582,6 +583,8 @@ resourcestring
   SCredentialKeyLeafMismatch = 'the credential''s private key does not match the public key in ' +
     'its end-entity certificate (CertificateChain[0]); load a leaf-first chain (from PEM) whose ' +
     'first certificate pairs with the key';
+  SCredentialLeafMalformed = 'the credential''s end-entity certificate (CertificateChain[0]) ' +
+    'cannot be parsed';
   SCredentialLeafCannotSign = 'the credential''s end-entity certificate has a keyUsage extension ' +
     'that forbids digitalSignature, so it cannot sign a handshake (RFC 5280 4.2.1.3)';
   SCredentialLeafRsaPssUnsupported = 'the credential''s end-entity certificate carries an ' +
@@ -2343,7 +2346,9 @@ begin
       raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafRsaPssUnsupported);
     TCredentialConsistency.KeyNotExportable:
       raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyNotExportable);
-    TCredentialConsistency.LeafMalformed, TCredentialConsistency.KeyLeafMismatch:
+    TCredentialConsistency.LeafMalformed:
+      raise EInvalidOperationTlsLibException.CreateRes(@SCredentialLeafMalformed);
+    TCredentialConsistency.KeyLeafMismatch:
       raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
   end;
 end;
@@ -3054,10 +3059,17 @@ var
   LGroup: INamedGroup;
   LResolved: TArray<INamedGroup>;
   LEcdheRegistered: Boolean;
+  LSuites: ICipherSuiteRegistry;
+  LSuite: TTlsCipherSuite;
 begin
   if (FCipherSuites = nil) or (FSignatureSchemes = nil) or (FNamedGroups = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilNegotiationRegistry);
-  ValidateOfferedVersionsHaveSuites(EffectiveCipherSuites);
+  LSuites := EffectiveCipherSuites;
+  // a custom registry skips the default registry's own check, and the engine runs the record
+  for LSuite in LSuites.Items do
+    if not TCipherSuiteCatalog.MatchesCatalog(LSuite) then
+      raise EArgumentTlsLibException.CreateResFmt(@SSuiteDiffersFromCatalog, [LSuite.Common.Code]);
+  ValidateOfferedVersionsHaveSuites(LSuites);
   if System.Length(FPreferredGroups) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoPreferredGroups);
   // a preferred group the registry lacks is skipped (the registry is authoritative, so a pruned

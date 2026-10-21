@@ -316,6 +316,16 @@ type
     function Ed25519OnlyKeyCredential(const ACrypto: ICryptoProvider): TTlsCredential;
     // the groups of the rules built over the policy crypto, none of them the policy's objects
     function OwnCryptoGroups(const APolicy: ICompliancePolicy): INamedGroupRegistry;
+    // a credential of the KeyUsagePss leaf ACertField with a key holding that leaf's public key
+    function KeyUsageCredential(const APolicy: ICompliancePolicy;
+      const ACertField: string): TTlsCredential;
+    function CatalogSuite: TTlsCipherSuite;
+    // whether a strict policy refuses a client built over the rules' suites once a host registry
+    // swaps in ASuite for its code
+    function SuiteAdmit(const ASuite: TTlsCipherSuite;
+      out AFindings: TArray<TComplianceFinding>): Boolean;
+    // AFindings name the CatalogSuite code as differing from its catalog record, and only that
+    procedure CheckDiffersFromCatalog(const AFindings: TArray<TComplianceFinding>);
     // an ECH key store of one P-256 / AES-256-GCM entry the policy crypto can serve
     function EchKeyStore(const APolicy: ICompliancePolicy): IEchServerKeyStore;
     // a strict Fips140_3 policy whose module serves the TLS 1.2 PRF of every hash but SHA-256
@@ -347,6 +357,14 @@ type
     procedure TestRelaxedRefusesForeignGroup;
     procedure TestServerForeignGroupRefused;
     procedure TestPreferredGroupResolvedToForeignObjectRefused;
+    procedure TestCatalogSuiteRecordAdmitted;
+    procedure TestSuiteWithAlteredHashRefused;
+    procedure TestSuiteWithAlteredPrfRefused;
+    procedure TestSuiteWithAlteredKeyLengthRefused;
+    procedure TestSuiteWithAlteredAeadRefused;
+    procedure TestSuiteWithAlteredProtocolRefused;
+    procedure TestSuiteWithAlteredKeyExchangeRefused;
+    procedure TestSuiteWithAlteredAuthRefused;
     procedure TestSignatureSchemeNotAllowedRefused;
     procedure TestEmsNotRequiredRefused;
     procedure TestEarlyDataClientRefused;
@@ -454,6 +472,7 @@ type
     procedure TestRsaKeyOverAnRsaPssLeafIsUnusable;
     procedure TestCheckedResolverRefusesAKeyThatExposesNoPublicKey;
     procedure TestCheckedResolverRefusesALeafBarringDigitalSignature;
+    procedure TestCheckedResolverAdmitsALeafPermittingDigitalSignature;
     procedure TestCheckedResolverRefusesAnRsaPssLeaf;
     procedure TestCheckedResolverRefusesAKeyOfAnotherCertificate;
     procedure TestEvaluateCredentialReportsExtraSchemes;
@@ -3067,6 +3086,58 @@ begin
   CheckTrue(Pos('ICompliancePolicy.NamedGroups', LFinding.Message) > 0, 'says where to get them');
 end;
 
+function TTestComplianceAdmit.CatalogSuite: TTlsCipherSuite;
+begin
+  CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites12.EcdheEcdsaAes256GcmSha384, Result),
+    'catalog');
+end;
+
+function TTestComplianceAdmit.SuiteAdmit(const ASuite: TTlsCipherSuite;
+  out AFindings: TArray<TComplianceFinding>): Boolean;
+var
+  LPolicy: ICompliancePolicy;
+  LRules: TComplianceRules;
+  LHeld: TFakeSuiteRegistry;
+  LRegistry: ICipherSuiteRegistry;
+  LConfig: ITlsClientConfig;
+  LClean, LAltered: TArray<TTlsCipherSuite>;
+  LSuite: TTlsCipherSuite;
+  LI: Int32;
+begin
+  LPolicy := StrictPolicy;
+  LRules := LPolicy.Rules;
+  System.SetLength(LClean, System.Length(LRules.CipherSuites));
+  System.SetLength(LAltered, System.Length(LRules.CipherSuites));
+  for LI := 0 to System.Length(LRules.CipherSuites) - 1 do
+  begin
+    CheckTrue(TCipherSuiteCatalog.TryGet(LRules.CipherSuites[LI], LSuite), 'catalog');
+    LClean[LI] := LSuite;
+    if LSuite.Common.Code = ASuite.Common.Code then
+      LAltered[LI] := ASuite
+    else
+      LAltered[LI] := LSuite;
+  end;
+  // the core builder refuses a non-catalog record, so a host registry swaps it in after Build
+  LHeld := TFakeSuiteRegistry.Create(LClean);
+  LRegistry := LHeld;
+  LConfig := ClientBuilder(LPolicy).WithCipherSuites(LRegistry).Build;
+  LHeld.Replace(LAltered);
+  Result := ClientAdmit(LPolicy, LConfig, AFindings);
+end;
+
+procedure TTestComplianceAdmit.CheckDiffersFromCatalog(
+  const AFindings: TArray<TComplianceFinding>);
+var
+  LFinding: TComplianceFinding;
+begin
+  LFinding := FindingOfKind(AFindings, TComplianceFindingKind.CipherSuiteDiffersFromCatalog);
+  CheckEquals(TCipherSuiteCatalog.Name(CatalogSuite.Common.Code), LFinding.Subject,
+    'names the suite');
+  CheckTrue(Pos('catalog', LFinding.Message) > 0, 'says it differs from the catalog');
+  CheckFalse(HasKind(AFindings, TComplianceFindingKind.CipherSuiteNotAllowed),
+    'the code itself is allowed');
+end;
+
 function TTestComplianceAdmit.OwnCryptoGroups(
   const APolicy: ICompliancePolicy): INamedGroupRegistry;
 var
@@ -3080,6 +3151,90 @@ begin
     LGroups[LI] := TNamedGroups.CreateNistEcdh(APolicy.Crypto,
       TNamedGroupCatalog.Name(LRules.NamedGroups[LI]));
   Result := TNamedGroups.CreateRegistry(LGroups);
+end;
+
+procedure TTestComplianceAdmit.TestCatalogSuiteRecordAdmitted;
+var
+  LFindings: TArray<TComplianceFinding>;
+begin
+  CheckFalse(SuiteAdmit(CatalogSuite, LFindings), 'the catalog record is admitted');
+end;
+
+procedure TTestComplianceAdmit.TestSuiteWithAlteredHashRefused;
+var
+  LSuite: TTlsCipherSuite;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Hash := THashAlgorithm.SHA_256;
+  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
+  CheckDiffersFromCatalog(LFindings);
+end;
+
+procedure TTestComplianceAdmit.TestSuiteWithAlteredPrfRefused;
+var
+  LSuite: TTlsCipherSuite;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Prf := THashAlgorithm.SHA_256;
+  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
+  CheckDiffersFromCatalog(LFindings);
+end;
+
+procedure TTestComplianceAdmit.TestSuiteWithAlteredKeyLengthRefused;
+var
+  LSuite: TTlsCipherSuite;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.KeyLength := 16;
+  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
+  CheckDiffersFromCatalog(LFindings);
+end;
+
+procedure TTestComplianceAdmit.TestSuiteWithAlteredAeadRefused;
+var
+  LSuite: TTlsCipherSuite;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Aead := TAeadAlgorithm.AES_128_GCM;
+  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
+  CheckDiffersFromCatalog(LFindings);
+end;
+
+procedure TTestComplianceAdmit.TestSuiteWithAlteredProtocolRefused;
+var
+  LSuite: TTlsCipherSuite;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Protocol := TSuiteProtocol.Tls13;
+  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
+  CheckDiffersFromCatalog(LFindings);
+end;
+
+procedure TTestComplianceAdmit.TestSuiteWithAlteredKeyExchangeRefused;
+var
+  LSuite: TTlsCipherSuite;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LSuite := CatalogSuite;
+  LSuite.KeyExchange := TKeyExchangeMethod.Decoupled;
+  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
+  CheckDiffersFromCatalog(LFindings);
+end;
+
+procedure TTestComplianceAdmit.TestSuiteWithAlteredAuthRefused;
+var
+  LSuite: TTlsCipherSuite;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Auth := TAuthMethod.Rsa;
+  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
+  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestRelaxedRefusesForeignGroup;
@@ -4649,17 +4804,42 @@ begin
     True) as ITlsServerCredentialResolver), LResolved), 'a key that cannot be matched');
 end;
 
+function TTestComplianceAdmit.KeyUsageCredential(const APolicy: ICompliancePolicy;
+  const ACertField: string): TTlsCredential;
+begin
+  // the key is the leaf's own, so keyUsage is the only thing that can set the credential apart
+  Result := Credential(APolicy.Crypto);
+  Result.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', ACertField));
+  Result.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.ECDSA_SECP256R1_SHA256), Pkix.Certificates.PublicKeyInfo(
+    Result.CertificateChain[0])) as ISigningKey;
+end;
+
 procedure TTestComplianceAdmit.TestCheckedResolverRefusesALeafBarringDigitalSignature;
 var
   LPolicy: ICompliancePolicy;
   LGiven, LResolved: TTlsCredential;
 begin
   LPolicy := StrictPolicy;
-  LGiven := Credential(LPolicy.Crypto);
-  LGiven.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'ku_keyenc_cert'));
+  LGiven := KeyUsageCredential(LPolicy, 'ku_keyenc_cert');
+  CheckTrue(ReportHasKind(LPolicy.EvaluateCredential(LGiven),
+    TComplianceFindingKind.CredentialKeyUnusable), 'the leaf is what is wrong');
   CheckFalse(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(LGiven,
     True) as ITlsServerCredentialResolver), LResolved), 'a leaf that cannot sign');
+end;
+
+procedure TTestComplianceAdmit.TestCheckedResolverAdmitsALeafPermittingDigitalSignature;
+var
+  LPolicy: ICompliancePolicy;
+  LGiven, LResolved: TTlsCredential;
+begin
+  LPolicy := StrictPolicy;
+  LGiven := KeyUsageCredential(LPolicy, 'ku_digsig_cert');
+  CheckFalse(ReportHasKind(LPolicy.EvaluateCredential(LGiven),
+    TComplianceFindingKind.CredentialKeyUnusable), 'control: nothing unusable');
+  CheckTrue(Resolved(LPolicy.CheckedCredentialResolver(TPlainCredentialResolver.Create(LGiven,
+    True) as ITlsServerCredentialResolver), LResolved), 'control: the same shape is handed out');
 end;
 
 procedure TTestComplianceAdmit.TestCheckedResolverRefusesAnRsaPssLeaf;

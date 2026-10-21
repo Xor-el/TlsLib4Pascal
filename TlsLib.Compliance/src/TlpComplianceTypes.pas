@@ -110,7 +110,8 @@ type
     CredentialKeyUndetermined, CredentialKeyMissing, CredentialKeyMismatch,
     CredentialKeyBelowRules, CredentialSchemesNotAllowed, CredentialKeyUnusable,
     TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup,
-    CustomVerifierConfigured, ResumptionStateUnchecked, TicketKeysUnchecked);
+    CustomVerifierConfigured, ResumptionStateUnchecked, TicketKeysUnchecked,
+    CipherSuiteDiffersFromCatalog);
 
   TComplianceFinding = record
     Kind: TComplianceFindingKind;
@@ -558,8 +559,7 @@ begin
   LRequired := TChainAlgorithmPolicy.RequiredScheme(AFamily, AHash, APssCanonical,
     AIssuerKeyIsPss);
   LKnown := TSignatureScheme.TryFromCode(LRequired, LScheme);
-  // a PSS signature must be canonical whatever hash admits it, and no rule scheme covers a
-  // PSS-restricted issuer key
+  // PSS must be canonical whatever the hash, and no rule scheme covers a PSS-restricted issuer
   if (AFamily = TCertSignatureFamily.RsaPss) and
     (not APssCanonical or (AIssuerKeyIsPss and not LKnown)) then
     Exit(False);

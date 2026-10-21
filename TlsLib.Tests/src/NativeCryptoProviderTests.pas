@@ -335,6 +335,7 @@ type
     procedure TestTls12PrfMatchesPortableInExporterShapes;
     procedure TestTls12PrfExporterSeedBeyondTheModuleBoundIsServed;
     procedure TestTls12PrfKeyScheduleLabelReachesTheModuleKdf;
+    procedure TestTls12PrfEveryKeyScheduleLabelReachesTheModuleKdf;
     procedure TestTls12PrfZeroLengthIsEmptyAndNegativeRaises;
     procedure TestTls12KeyScheduleMatchesPortable;
   end;
@@ -2268,6 +2269,40 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a key-schedule label over the module bound is refused, not rerouted');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestTls12PrfEveryKeyScheduleLabelReachesTheModuleKdf;
+const
+  Labels: array [0 .. 4] of string = (Tls12PrfLabelMasterSecret,
+    Tls12PrfLabelExtendedMasterSecret, Tls12PrfLabelKeyExpansion, Tls12PrfLabelClientFinished,
+    Tls12PrfLabelServerFinished);
+var
+  LReport: ICryptoBackendReport;
+  LPrf: ITls12Prf;
+  LSecret: ISecretBuffer;
+  LSeed: TBytes;
+  LRaised: Boolean;
+  LI: Int32;
+begin
+  if not (Supports(Crypto, ICryptoBackendReport, LReport) and
+    (LReport.Tls12PrfBackend(THashAlgorithm.SHA_256).Backend = TCryptoBackend.System)) then
+    SkipTest('the module KDF does not serve the TLS 1.2 PRF on this host');
+  LPrf := Crypto.Primitives.CreateTls12Prf(THashAlgorithm.SHA_256);
+  LSecret := TSecretBuffer.From(DecodeHex('0102030405060708'));
+  LSeed := nil;
+  SetLength(LSeed, 300);
+  for LI := Low(Labels) to High(Labels) do
+  begin
+    // the module KDF refuses a seed over 256 octets, so only a natively routed label raises
+    LRaised := False;
+    try
+      LPrf.Compute(LSecret, Labels[LI], LSeed, 48);
+    except
+      on ESystemCryptoBackendTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'label ' + Labels[LI] + ' reaches the module KDF');
+  end;
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestTls12PrfZeroLengthIsEmptyAndNegativeRaises;

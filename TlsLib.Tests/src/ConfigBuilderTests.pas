@@ -52,6 +52,7 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
+  MockCompliance,
   TlpNegotiationPolicy,
   TlpSignatureSchemeRegistry,
   TlpINamedGroup,
@@ -112,6 +113,8 @@ type
     // the EcP256 leaf paired with a foreign private key from ImportKeys.txt (never its own key),
     // so the key does not own the leaf
     function CredentialWithForeignKey(const AKeyField: string): TTlsCredential;
+    // the dual-version suites with the first one's hash altered, held by a host registry
+    function NonCatalogSuiteRegistry: ICipherSuiteRegistry;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes; overload;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
@@ -385,6 +388,11 @@ type
     procedure TestServerCredentialWithMismatchedKeyRejected;
     procedure TestServerCredentialWithWrongKeyFamilyRejected;
     procedure TestIncompleteCredentialsAreRefusedAtBuild;
+    procedure TestMalformedLeafCredentialIsRefusedAtBuild;
+    // a host registry skips the default registry's own catalog check, so Build repeats it
+    procedure TestServerCustomSuiteRegistryWithNonCatalogRecordRefused;
+    procedure TestClientCustomSuiteRegistryWithNonCatalogRecordRefused;
+    procedure TestCustomSuiteRegistryOfCatalogRecordsBuilds;
     procedure TestMalformedTrustAnchorIsRefusedAtBuild;
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
     procedure TestClientCredentialWithMismatchedKeyRejected;
@@ -4254,6 +4262,78 @@ begin
       LRaised := Pos('leaf certificate', E.Message) > 0;
   end;
   CheckTrue(LRaised, 'a client credential with a key but no chain is refused');
+end;
+
+procedure TTestConfigBuilder.TestMalformedLeafCredentialIsRefusedAtBuild;
+var
+  LCredential: TTlsCredential;
+  LBuilder: ITlsConfigBuilder;
+  LMessage: string;
+begin
+  LCredential := ServerCredential;
+  LCredential.CertificateChain := TArray<TBytes>.Create(TArray<Byte>.Create($30, $03, $01, $01, $00));
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LMessage := '';
+  try
+    LBuilder.Server.WithCredential(LCredential).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('cannot be parsed', LMessage) > 0, 'a leaf that does not parse is named as such');
+end;
+
+function TTestConfigBuilder.NonCatalogSuiteRegistry: ICipherSuiteRegistry;
+var
+  LSuites: TArray<TTlsCipherSuite>;
+begin
+  LSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto).Items;
+  LSuites[0].Common.Hash := THashAlgorithm.SHA_384;
+  Result := TFakeSuiteRegistry.Create(LSuites) as ICipherSuiteRegistry;
+end;
+
+procedure TTestConfigBuilder.TestServerCustomSuiteRegistryWithNonCatalogRecordRefused;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewServerBuilder.WithCipherSuites(NonCatalogSuiteRegistry).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a host registry holding a record the catalog defines otherwise is refused');
+end;
+
+procedure TTestConfigBuilder.TestClientCustomSuiteRegistryWithNonCatalogRecordRefused;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    NewClientBuilder.WithCipherSuites(NonCatalogSuiteRegistry).Build;
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a host registry holding a record the catalog defines otherwise is refused');
+end;
+
+procedure TTestConfigBuilder.TestCustomSuiteRegistryOfCatalogRecordsBuilds;
+var
+  LSuites: TArray<TTlsCipherSuite>;
+  LUnknown: TTlsCipherSuite;
+  LConfig: ITlsServerConfig;
+begin
+  LSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto).Items;
+  LUnknown := LSuites[0];
+  LUnknown.Common.Code := $C013;
+  TArrayUtilities.Append<TTlsCipherSuite>(LSuites, LUnknown);
+  LConfig := NewServerBuilder.WithCipherSuites(
+    TFakeSuiteRegistry.Create(LSuites) as ICipherSuiteRegistry).Build;
+  CheckEquals(System.Length(LSuites), System.Length(LConfig.CipherSuites.Items),
+    'catalog records and a code the catalog does not know pass through');
 end;
 
 procedure TTestConfigBuilder.TestMalformedTrustAnchorIsRefusedAtBuild;

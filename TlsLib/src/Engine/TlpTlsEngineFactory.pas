@@ -99,6 +99,10 @@ type
 
 implementation
 
+const
+  AnyGroupKind = False;
+  EcdheGroupsOnly = True;
+
 resourcestring
   SNoPreferredGroup = 'the config lists no preferred key-exchange groups';
   SUnconfiguredGroup =
@@ -304,7 +308,7 @@ begin
   // advertise every preferred group the registry holds (a pruned/absent group is dropped, not
   // advertised-then-unresolvable) and carry the registry, so the server may retry the client
   // onto any offered group it prefers (HelloRetryRequest)
-  L13.OfferedGroups := OfferedGroupCodes(AConfig, False);
+  L13.OfferedGroups := OfferedGroupCodes(AConfig, AnyGroupKind);
   L13.GroupRegistry := AConfig.NamedGroups;
   L13.CipherSuites := AConfig.CipherSuites;
   // the extension registry (its ~20 handlers) is built only for a version whose machine is
@@ -362,7 +366,7 @@ begin
     L12.ClientPsk := AConfig.Tls12Psks[0];
   // TLS 1.2 key exchange is ECDHE-only: a 1.2 supported_groups carries no KEM/hybrid group,
   // so a client that reaches the 1.2 path (never offering 1.3) does not advertise one
-  L12.OfferedGroups := OfferedGroupCodes(AConfig, True);
+  L12.OfferedGroups := OfferedGroupCodes(AConfig, EcdheGroupsOnly);
   L12.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L12.AlpnProtocols := AConfig.AlpnProtocols;
   L12.RecordSizeLimit := AConfig.RecordSizeLimit;

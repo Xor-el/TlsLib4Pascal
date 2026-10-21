@@ -85,6 +85,8 @@ type
     procedure TestBuildRefusesAlteredKeyExchange;
     procedure TestBuildRefusesAlteredAuth;
     procedure TestCipherSuiteRecordsHoldOnlyTheFieldsBuildCompares;
+    procedure TestMatchesCatalogAcceptsCatalogRecordAndUnknownCode;
+    procedure TestMatchesCatalogRefusesEachAlteredField;
     procedure TestDowngradeSentinelEmittedAndDetected;
     procedure TestDualVersionRegistryHoldsHardenedTls12Suites;
     procedure TestDualVersionRegistryKeepsTls13SuitesDecoupled;
@@ -602,13 +604,51 @@ procedure TTestNegotiation.TestCipherSuiteRecordsHoldOnlyTheFieldsBuildCompares;
 var
   LSuite: TTlsCipherSuite;
 begin
-  // the registry compares each field by hand, so a new field must reach it and this sum
+  // MatchesCatalog compares each field by hand, so a new field must reach it and this sum
   CheckEquals(SizeOf(LSuite.Common.Code) + SizeOf(LSuite.Common.Hash) +
     SizeOf(LSuite.Common.Aead) + SizeOf(LSuite.Common.KeyLength), SizeOf(TCipherSuiteCommon),
-    'the common record holds a field the registry does not compare');
+    'the common record holds a field MatchesCatalog does not compare');
   CheckEquals(SizeOf(LSuite.Common) + SizeOf(LSuite.Protocol) + SizeOf(LSuite.KeyExchange) +
     SizeOf(LSuite.Auth) + SizeOf(LSuite.Prf), SizeOf(TTlsCipherSuite),
-    'the suite record holds a field the registry does not compare');
+    'the suite record holds a field MatchesCatalog does not compare');
+end;
+
+procedure TTestNegotiation.TestMatchesCatalogAcceptsCatalogRecordAndUnknownCode;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  CheckTrue(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'the catalog record');
+  LSuite.Common.Code := $C013;
+  LSuite.Common.Hash := THashAlgorithm.SHA_256;
+  CheckTrue(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'a code the catalog does not know');
+end;
+
+procedure TTestNegotiation.TestMatchesCatalogRefusesEachAlteredField;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Hash := THashAlgorithm.SHA_256;
+  CheckFalse(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'hash');
+  LSuite := CatalogSuite;
+  LSuite.Prf := THashAlgorithm.SHA_256;
+  CheckFalse(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'prf');
+  LSuite := CatalogSuite;
+  LSuite.Common.KeyLength := 16;
+  CheckFalse(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'key length');
+  LSuite := CatalogSuite;
+  LSuite.Common.Aead := TAeadAlgorithm.AES_128_GCM;
+  CheckFalse(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'aead');
+  LSuite := CatalogSuite;
+  LSuite.Protocol := TSuiteProtocol.Tls13;
+  CheckFalse(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'protocol');
+  LSuite := CatalogSuite;
+  LSuite.KeyExchange := TKeyExchangeMethod.Decoupled;
+  CheckFalse(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'key exchange');
+  LSuite := CatalogSuite;
+  LSuite.Auth := TAuthMethod.Rsa;
+  CheckFalse(TCipherSuiteCatalog.MatchesCatalog(LSuite), 'auth');
 end;
 
 procedure TTestNegotiation.TestDowngradeSentinelEmittedAndDetected;

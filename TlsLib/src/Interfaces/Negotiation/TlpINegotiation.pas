@@ -38,7 +38,8 @@ type
     function ToBuilder: ICipherSuiteRegistryBuilder;
   end;
 
-  /// <summary>Assembles a cipher-suite registry; Build snapshots the entries.</summary>
+  /// <summary>Assembles a cipher-suite registry; Build snapshots the entries and refuses a record
+  /// that differs from the catalog entry for its code.</summary>
   ICipherSuiteRegistryBuilder = interface(IInterface)
     ['{367573DA-4CFD-4342-8605-47EBA95E6069}']
     /// <summary>Appends ASuite unless its code is already present.</summary>

@@ -29,6 +29,9 @@ type
     class function All: TArray<TTlsCipherSuite>; static;
     /// <summary>The suite for a codepoint; False for one outside the catalog.</summary>
     class function TryGet(ACode: UInt16; out ASuite: TTlsCipherSuite): Boolean; static;
+    /// <summary>Whether ASuite is, field for field, the catalog definition of its code; True for a
+    /// code outside the catalog.</summary>
+    class function MatchesCatalog(const ASuite: TTlsCipherSuite): Boolean; static;
     /// <summary>The IANA registered name of a negotiated cipher-suite codepoint, for display and
     /// logging. Empty for 0 (nothing negotiated yet); the bare hex codepoint for a suite this
     /// library never offers.</summary>
@@ -131,6 +134,17 @@ begin
   SetLength(Result, System.Length(CipherSuiteTable));
   for LI := Low(CipherSuiteTable) to High(CipherSuiteTable) do
     Result[LI] := CipherSuiteTable[LI].Suite;
+end;
+
+class function TCipherSuiteCatalog.MatchesCatalog(const ASuite: TTlsCipherSuite): Boolean;
+var
+  LCatalog: TTlsCipherSuite;
+begin
+  Result := not TryGet(ASuite.Common.Code, LCatalog) or
+    ((ASuite.Common.Hash = LCatalog.Common.Hash) and (ASuite.Common.Aead = LCatalog.Common.Aead) and
+    (ASuite.Common.KeyLength = LCatalog.Common.KeyLength) and
+    (ASuite.Protocol = LCatalog.Protocol) and (ASuite.KeyExchange = LCatalog.KeyExchange) and
+    (ASuite.Auth = LCatalog.Auth) and (ASuite.Prf = LCatalog.Prf));
 end;
 
 class function TCipherSuiteCatalog.TryGet(ACode: UInt16;

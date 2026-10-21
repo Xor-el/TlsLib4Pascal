@@ -115,8 +115,6 @@ type
     procedure CheckChainCertificate(const AChain: TArray<TBytes>; APosition: Int32;
       const ASubject: string; var AFindings: TArray<TComplianceFinding>);
     function CredentialSubject(AIndex: Int32; const ACredential: TTlsCredential): string;
-    // whether some offered version can end in a certificate the client verifies
-    function ClientHasCertificatePath(const AConfig: ITlsClientConfig): Boolean;
     procedure CheckCredential(const ACredential: TTlsCredential; const ASubject: string;
       var AFindings: TArray<TComplianceFinding>);
     procedure CheckCredentialResolver(const AConfig: ITlsServerConfig;
@@ -201,6 +199,7 @@ resourcestring
   SForeignPkix = 'the config does not use the policy PKIX provider';
   SForeignNamedGroup =
     'the group was not built by the policy; use ICompliancePolicy.NamedGroups';
+  SSuiteDiffers = 'differs from the catalog definition of its code';
   SNotAllowed = 'is not allowed by the rules';
   SEmsNotRequired = 'TLS 1.2 is offered without requiring extended master secret (RFC 7627)';
   SEarlyData = 'early data is enabled';
@@ -668,18 +667,6 @@ begin
     Result := Format(SCredentialNamedSubject, [AIndex, LCommonName]);
 end;
 
-function TCompliancePolicy.ClientHasCertificatePath(const AConfig: ITlsClientConfig): Boolean;
-var
-  LVersions: TArray<UInt16>;
-begin
-  LVersions := AConfig.SupportedVersions;
-  Result := TClientPskPath.HasCertificatePath(
-    TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls13),
-    TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls12),
-    System.Length(AConfig.ExternalPsks), AConfig.ExternalPskRequired,
-    System.Length(AConfig.Tls12Psks), AConfig.Tls12PreSharedKeyRequired);
-end;
-
 procedure TCompliancePolicy.CheckCredential(const ACredential: TTlsCredential;
   const ASubject: string; var AFindings: TArray<TComplianceFinding>);
 var
@@ -697,13 +684,8 @@ begin
   // an empty chain was reported above; the credential must be one the builder would accept
   case ACredential.Consistency(FPkix.Certificates) of
     TCredentialConsistency.KeyMissing:
-      begin
-        TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-          TComplianceFindingKind.CredentialKeyMissing, ASubject, SNoPrivateKey));
-        Exit;
-      end;
-    TCredentialConsistency.ChainEmpty:
-      Exit;
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CredentialKeyMissing, ASubject, SNoPrivateKey));
     TCredentialConsistency.LeafCannotSign:
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
         TComplianceFindingKind.CredentialKeyUnusable, ASubject, SLeafCannotSign));
@@ -717,6 +699,8 @@ begin
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
         TComplianceFindingKind.CredentialKeyMismatch, ASubject, SKeyMismatch));
   end;
+  if ACredential.PrivateKey = nil then
+    Exit;
   LCapable := ACredential.PrivateKey.CapableSchemes;
   LAnyAllowed := False;
   LExtras := '';
@@ -944,7 +928,12 @@ begin
     if not LAllowed then
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
         TComplianceFindingKind.CipherSuiteNotAllowed,
-        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SNotAllowed));
+        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SNotAllowed))
+    else if not TCipherSuiteCatalog.MatchesCatalog(LSuites[LI]) then
+      // the engine builds its hash, AEAD and PRF from the record, not from its code
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CipherSuiteDiffersFromCatalog,
+        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SSuiteDiffers));
   end;
   CheckGroups(AConfig, AFindings);
   LSchemes := AConfig.SignatureSchemes.Items;
@@ -1079,12 +1068,18 @@ var
   LFindings: TArray<TComplianceFinding>;
   LDisclosures: TArray<string>;
   LCertPath: Boolean;
+  LVersions: TArray<UInt16>;
 begin
   if AConfig = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilConfig);
   LFindings := System.Copy(FPlatformFindings);
   LDisclosures := System.Copy(FDisclosures);
-  LCertPath := ClientHasCertificatePath(AConfig);
+  LVersions := AConfig.SupportedVersions;
+  LCertPath := TClientPskPath.HasCertificatePath(
+    TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls13),
+    TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls12),
+    System.Length(AConfig.ExternalPsks), AConfig.ExternalPskRequired,
+    System.Length(AConfig.Tls12Psks), AConfig.Tls12PreSharedKeyRequired);
   CheckCommon(AConfig, LFindings);
   // a client that can only end in a PSK verifies no chain, so the floors and postures are idle
   if LCertPath then
