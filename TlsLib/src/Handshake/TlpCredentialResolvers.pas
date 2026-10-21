@@ -66,8 +66,8 @@ type
     function TryResolve(const AClientHello: TTlsClientHelloInfo;
       out ACredential: TTlsCredential): Boolean;
     /// <summary>The default (when one was supplied) then each entry in order, in a new array, with
-    /// no deduplication. The chains and staples are copies the caller may change; the keys are
-    /// shared with the resolver.</summary>
+    /// no deduplication. The chains and staples are copies the caller may change; the keys and
+    /// the OcspStapleCallback are shared with the resolver.</summary>
     function Credentials: TArray<TTlsCredential>;
   end;
 
@@ -148,14 +148,9 @@ var
   LI: Integer;
 
   function Copied(const ACredential: TTlsCredential): TTlsCredential;
-  var
-    LJ: Integer;
   begin
     Result := ACredential;
-    Result.CertificateChain := nil;
-    SetLength(Result.CertificateChain, System.Length(ACredential.CertificateChain));
-    for LJ := 0 to System.High(ACredential.CertificateChain) do
-      Result.CertificateChain[LJ] := System.Copy(ACredential.CertificateChain[LJ]);
+    Result.CertificateChain := TArrayUtilities.DeepCopy<Byte>(ACredential.CertificateChain);
     Result.OcspStaple := System.Copy(ACredential.OcspStaple);
   end;
 

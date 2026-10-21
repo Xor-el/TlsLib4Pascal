@@ -2345,8 +2345,11 @@ var
   LHello: TTlsClientHelloInfo;
   LResolved: TTlsCredential;
   LFirst: Byte;
+  LCredential: TTlsCredential;
 begin
-  LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', ServerCredential));
+  LCredential := ServerCredential;
+  LCredential.OcspStaple := TBytes.Create($30, $03, $0A, $01, $00);
+  LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', LCredential));
   LResolver := TSniCredentialResolver.ForEntries(LEntries);
   CheckTrue(Supports(LResolver, ITlsServerCredentialSet, LSet), 'resolver lists its set');
   LHello := Default(TTlsClientHelloInfo);
@@ -2357,6 +2360,9 @@ begin
   LListed[0].CertificateChain[0][0] := LFirst xor $FF;
   CheckTrue(LResolver.TryResolve(LHello, LResolved), 'the entry still resolves');
   CheckEquals(LFirst, LResolved.CertificateChain[0][0], 'the listed chain was a copy');
+  LListed[0].OcspStaple[0] := $00;
+  CheckTrue(LResolver.TryResolve(LHello, LResolved), 'the entry resolves after the staple edit');
+  CheckEquals($30, LResolved.OcspStaple[0], 'the listed staple was a copy');
 end;
 
 procedure TTestTls13Loopback.TestCredentialSetOfASingleCredentialListsOne;
