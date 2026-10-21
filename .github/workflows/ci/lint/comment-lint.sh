@@ -5,10 +5,10 @@
 #
 # Scope: the production source - TlsLib/src, the OS-trust, OS-crypto, compliance, Net,
 # bundled-trust and tool packages, and the four adapter units. The interop and benchmark trees
-# are deliberately excluded: there the OpenSSL / BoGo peer is the test subject, not a description of our own
-# behaviour. Backend/host-framework names are handled per-pattern (OpenSSL is fine in an
-# adapter, which bridges it; CryptoLib is fine as a code identifier in a provider unit, but not
-# in a comment).
+# are deliberately excluded: there the OpenSSL / BoGo peer is the test subject, not a
+# description of our own behaviour. Backend/host-framework names are handled per-pattern
+# (OpenSSL is fine in an adapter, which bridges it; CryptoLib is fine as a code identifier in a
+# provider unit, but not in a comment).
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." || exit 2
 

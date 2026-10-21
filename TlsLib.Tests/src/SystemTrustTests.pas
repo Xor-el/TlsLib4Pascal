@@ -356,7 +356,12 @@ type
     /// AAnchorFloors holds an anchor's key to it.</summary>
     function ClientContext(const AAnchors: TArray<TBytes>;
       AAnchorFloors: Boolean): TClientTrustContext;
-    function VerifyClient(const AEngine: IPlatformChainEngine; AAnchorFloors: Boolean;
+    function VerifyClient(const AEngine: IPlatformChainEngine;
+      const AAnchors, AChain: TArray<TBytes>; AAnchorFloors: Boolean;
+      out AAlert: TTlsAlertDescription): Boolean;
+    /// <summary>The live re-check of a client certificate chain over AEngine.</summary>
+    function ResolveClient(const AEngine: IPlatformChainEngine;
+      const AAnchors, AChain: TArray<TBytes>; AAnchorFloors: Boolean;
       out AAlert: TTlsAlertDescription): Boolean;
     function ClientSourceMessage(AAnchorFloors: Boolean; const AAnchors: TArray<TBytes>): string;
     function Verify(const AEngine: IPlatformChainEngine; AScope: TSystemTrustRootScope;
@@ -425,6 +430,14 @@ type
     procedure TestClientDelegateAcceptsAWeakExemptAnchorWithFloorsOff;
     procedure TestClientDelegateRefusesAWeakAnchorWhenTheEngineReportsNone;
     procedure TestClientDelegateAcceptsAWeakUnreportedAnchorWithFloorsOff;
+    procedure TestClientDelegateAcceptsAStrongExemptAnchorBesideAWeakOne;
+    procedure TestClientDelegateRefusesAnAnchorWithAnUndescribableKey;
+    procedure TestClientDelegateReportsAnUnparseableAnchorAsBadCertificate;
+    procedure TestLiveResolverRefusesAWeakAnchorWhenTheEngineReportsNone;
+    procedure TestLiveResolverAcceptsAWeakAnchorWithFloorsOff;
+    procedure TestLiveResolverAcceptsAStrongExemptAnchorBesideAWeakOne;
+    procedure TestOsAndHostRootsRefusesANonUnionEngineWhateverTheDistrust;
+    procedure TestOsAndHostRootsWithAllHostRootsDistrustedIsOsRootsOnly;
   end;
 
   /// <summary>Platform-neutral tests for the root-scope value (OsRoots, OsAndHostRoots,
@@ -3188,15 +3201,36 @@ begin
 end;
 
 function TTestDelegateHostRootsAlone.VerifyClient(const AEngine: IPlatformChainEngine;
-  AAnchorFloors: Boolean; out AAlert: TTlsAlertDescription): Boolean;
+  const AAnchors, AChain: TArray<TBytes>; AAnchorFloors: Boolean;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
   LVerifier := TOSDelegateClientVerifier.Create(AEngine, TOSDelegatePolicy.FromClientContext(
-    ClientContext(WeakRoot, AAnchorFloors), TSystemTrustFetch.CacheOnly))
+    ClientContext(AAnchors, AAnchorFloors), TSystemTrustFetch.CacheOnly))
     as IClientCertificateVerifier;
-  Result := LVerifier.VerifyClientCertificate(WeakRootChain, LVerified, AAlert);
+  Result := LVerifier.VerifyClientCertificate(AChain, LVerified, AAlert);
+end;
+
+function TTestDelegateHostRootsAlone.ResolveClient(const AEngine: IPlatformChainEngine;
+  const AAnchors, AChain: TArray<TBytes>; AAnchorFloors: Boolean;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+begin
+  LResolver := TOSDelegateLiveResolver.Create(AEngine, TPeerRole.Client,
+    TOSDelegatePolicy.FromClientContext(ClientContext(AAnchors, AAnchorFloors),
+    TSystemTrustFetch.Live), nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Client;
+    LContext.Chain := AChain;
+    Result := LResolver.ResolveVerdict(LContext, AAlert);
+  finally
+    LResolver.Free;
+  end;
 end;
 
 function TTestDelegateHostRootsAlone.NoAnchorEngine: IPlatformChainEngine;
@@ -3206,8 +3240,8 @@ begin
   LResult := Default(TPlatformChainResult);
   LResult.Outcome := TLiveRevocationOutcome.Good;
   LResult.Path := TArray<TBytes>.Create(WeakRootChain[0]);
-  Result := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], True,
-    LResult, TTlsAlertDescription.BadCertificate);
+  Result := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation,
+    TPlatformChainCapability.LiveFetch], True, LResult, TTlsAlertDescription.BadCertificate);
 end;
 
 function TTestDelegateHostRootsAlone.ClientSourceMessage(AAnchorFloors: Boolean;
@@ -4122,7 +4156,8 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(VerifyClient(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot)
-    as IPlatformChainEngine, True, LAlert), 'the walk holds the reported anchor to the floors');
+    as IPlatformChainEngine, WeakRoot, WeakRootChain, True, LAlert),
+    'the walk holds the reported anchor to the floors');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'a weak anchor key is unsupported_certificate');
 end;
@@ -4132,14 +4167,15 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(VerifyClient(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot)
-    as IPlatformChainEngine, False, LAlert), 'the anchor is exempt while the flag is off');
+    as IPlatformChainEngine, WeakRoot, WeakRootChain, False, LAlert),
+    'the anchor is exempt while the flag is off');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestClientDelegateRefusesAWeakAnchorWhenTheEngineReportsNone;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(VerifyClient(NoAnchorEngine, True, LAlert),
+  CheckFalse(VerifyClient(NoAnchorEngine, WeakRoot, WeakRootChain, True, LAlert),
     'the configured anchors are key-checked when the walk never sees one');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'a weak anchor key is unsupported_certificate');
@@ -4149,7 +4185,97 @@ procedure TTestDelegateHostRootsAlone.TestClientDelegateAcceptsAWeakUnreportedAn
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(VerifyClient(NoAnchorEngine, False, LAlert), 'the anchor is exempt while the flag is off');
+  CheckTrue(VerifyClient(NoAnchorEngine, WeakRoot, WeakRootChain, False, LAlert),
+    'the anchor is exempt while the flag is off');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestClientDelegateAcceptsAStrongExemptAnchorBesideAWeakOne;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(VerifyClient(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot)
+    as IPlatformChainEngine, TArray<TBytes>.Create(PrivateRoot[0], WeakRoot[0]), PrivateChain,
+    True, LAlert), 'a reported exempt anchor means the configured anchors are not key-checked');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestClientDelegateRefusesAnAnchorWithAnUndescribableKey;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyClient(NoAnchorEngine, TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert')), WeakRootChain, True, LAlert),
+    'a DSA anchor key has no floor to meet');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'an anchor key that cannot be described is unsupported_certificate');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestClientDelegateReportsAnUnparseableAnchorAsBadCertificate;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyClient(NoAnchorEngine, TArray<TBytes>.Create(TBytes.Create($30, $03, $02, $01,
+    $00)), WeakRootChain, True, LAlert), 'an anchor that does not parse fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'a parse failure stays bad_certificate');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestLiveResolverRefusesAWeakAnchorWhenTheEngineReportsNone;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ResolveClient(NoAnchorEngine, WeakRoot, WeakRootChain, True, LAlert),
+    'the live pass key-checks the configured anchors when the walk never sees one');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a weak anchor key is unsupported_certificate');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestLiveResolverAcceptsAWeakAnchorWithFloorsOff;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ResolveClient(NoAnchorEngine, WeakRoot, WeakRootChain, False, LAlert),
+    'the anchor is exempt while the flag is off');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestLiveResolverAcceptsAStrongExemptAnchorBesideAWeakOne;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ResolveClient(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot)
+    as IPlatformChainEngine, TArray<TBytes>.Create(PrivateRoot[0], WeakRoot[0]), PrivateChain,
+    True, LAlert), 'a reported exempt anchor means the configured anchors are not key-checked');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestOsAndHostRootsRefusesANonUnionEngineWhateverTheDistrust;
+var
+  LMessage: string;
+  LSource: IServerCertificateVerifierSource;
+begin
+  LMessage := '';
+  try
+    LSource := TOSVerifierSource.Create(TAnchorAwarePlatformChainEngine.Create([], PublicRoot)
+      as IPlatformChainEngine, TSystemTrustFetch.CacheOnly, TSystemTrustRootScope.OsAndHostRoots,
+      PrivateRoot, PrivateRoot) as IServerCertificateVerifierSource;
+  except
+    on E: ESystemTrustUnsupportedTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckEquals(SEngineCannotTrustOsAndHostRoots, LMessage,
+    'the refusal does not depend on the distrust set');
+end;
+
+procedure TTestDelegateHostRootsAlone.TestOsAndHostRootsWithAllHostRootsDistrustedIsOsRootsOnly;
+var
+  LSource: TOSVerifierSource;
+  LIntf: IServerCertificateVerifierSource;
+begin
+  LIntf := TOSVerifierSource.Create(TAnchorAwarePlatformChainEngine.Create(
+    [TPlatformChainCapability.NativeAnchorUnion], PublicRoot) as IPlatformChainEngine,
+    TSystemTrustFetch.CacheOnly, TSystemTrustRootScope.OsAndHostRoots, PrivateRoot, PrivateRoot)
+    as IServerCertificateVerifierSource;
+  LSource := LIntf as TOSVerifierSource;
+  CheckEquals(0, System.Length(LSource.ExtraAnchors), 'no host root is left to trust');
+  CheckEquals(0, System.Length(LSource.Anchors), 'the OS roots stand alone');
 end;
 
 { TTestSystemTrustRoots }

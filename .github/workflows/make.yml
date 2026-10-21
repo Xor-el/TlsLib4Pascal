@@ -358,8 +358,8 @@ jobs:
           run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
           bogo-ref: ${{ env.BOGO_REF }}
 
-  # Server 2022 (build 20348) is the server build the module certificate lists; other Windows
-  # images are not pinned here.
+  # Sets TLSLIB_EXPECT_VALIDATED_MODULE, which makes the tests require the validated module, on
+  # the windows-2022 runner image only; the other Windows images leave it unset.
   windows-2022:
     name: "Native: Windows Server 2022"
     runs-on: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].runner }}
