@@ -1,0 +1,103 @@
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_d5a96f869167b1 2967
+  s_f2c9bd75607afc::t_e8b034e0da9298 2965-2966,2968
+  s_f2c9bd75607afc::t_bb6bc8c18057f5 344
+  s_f2c9bd75607afc::t_88e4eecbfd1e31 2949-2950
+  s_f2c9bd75607afc::t_3cae6af01df757 3016,3023,3027,3029
+  s_f2c9bd75607afc::t_4663e6667d088f 2958
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_2ce9428b3fc632 112
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  s_f2c9bd75607afc::t_74cbbc293e64c5 647-654,656-658
+  s_f2c9bd75607afc::t_e98f74d5410d55 655
+  s_f2c9bd75607afc::t_ff90be9fd4a144 65-69
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_f2c9bd75607afc::t_1da71b6d1bd834 60
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_f2c9bd75607afc::t_3b141ca72cc9e2 676-679
+  s_f2c9bd75607afc::t_1ee79b34146d15 31
+TlsLib/src/Negotiation/TlpSignatureSchemeRegistry.pas
+  s_f2c9bd75607afc::t_ea83ca958a1cad 40-44
+  s_f2c9bd75607afc::t_49cab93c5b91ae 20
+  s_f2c9bd75607afc::t_49d1946e39a78a 144
+  s_f2c9bd75607afc::t_4c89e387b0dbac 136-143,145-148
+TlsLib.Compliance/src/TlpComplianceTls.pas
+  s_f2c9bd75607afc::t_8c73280b52cceb 162-164
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_f2c9bd75607afc::t_ecc04f88441438 61
+  s_f2c9bd75607afc::t_004fe0a0b3e283 5595-5636
+  s_f2c9bd75607afc::t_df0595d9adec4f 317-321
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_3e80e1ef4b6e3a 170
+TlsLib/src/Negotiation/TlpCipherSuiteRegistry.pas
+  s_f2c9bd75607afc::t_29a8b47376ae5a 79-81
+  s_f2c9bd75607afc::t_5f29d66849f859 94-96,98-100,102-107,110-111
+  s_f2c9bd75607afc::t_b2a75f8cb58559 194-202,204-207
+  s_f2c9bd75607afc::t_84a41164d94a22 203
+  s_f2c9bd75607afc::t_4cf1a2d560240d 73-76
+  s_f2c9bd75607afc::t_06a7589ce7b711 25-26,29-31
+  s_f2c9bd75607afc::t_62b3b85a2517d2 108-109
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_f2c9bd75607afc::t_6198174981d2c7 30
+  s_f2c9bd75607afc::t_09fb6b7629e310 3069-3070
+  s_f2c9bd75607afc::t_99c75a75270875 3136
+  s_f2c9bd75607afc::t_c07ae94f707e33 3080,3082-3085
+  s_f2c9bd75607afc::t_53bcfd796c4179 3143
+  s_f2c9bd75607afc::t_66378356c2eb27 3137,3141,3144,3148
+  s_f2c9bd75607afc::t_2fe6925c11b5d6 29
+docs/compliance.md
+  s_f2c9bd75607afc::t_44e55f34d6d6bf 317-319
+  s_f2c9bd75607afc::t_e7431506da127d 311-316
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_26a94114db4314 149
+TlsLib/src/Engine/TlpClientPskPath.pas
+  s_f2c9bd75607afc::t_e44d1eae1ef3ea 42
+  s_f2c9bd75607afc::t_8bd4c6b3b6de11 1-41,43-53
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_4c64fdc43f67f0 40
+  s_f2c9bd75607afc::t_9e856591187477 667-671
+  s_f2c9bd75607afc::t_69addd41606408 884,886-888,890,894
+  s_f2c9bd75607afc::t_f1d52c9d28b3d5 892
+  s_f2c9bd75607afc::t_bce4f2ce093d8f 932
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_f2c9bd75607afc::t_32746a9d33df01 190,197-202,210-211,216-217,222-224
+  s_f2c9bd75607afc::t_3ba57302ba8ac8 26
+  s_f2c9bd75607afc::t_f5816c7c7d1009 69-76
+  s_f2c9bd75607afc::t_988575f996bc4d 307
+  s_f2c9bd75607afc::t_3576a8ade84337 27
+  s_f2c9bd75607afc::t_c5ab6d91c5d9cb 168-169
+  s_f2c9bd75607afc::t_cb436adaa6daa5 417-418
+  s_f2c9bd75607afc::t_56bcc9a74271cc 365
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_f2c9bd75607afc::t_188dcf3f4ca1d9 151
+TlsLib/src/Negotiation/TlpNegotiationPolicy.pas
+  s_f2c9bd75607afc::t_fd1ec7d1d3be45 232-233,235
+TlsLib.Tests/src/NegotiationTests.pas
+  s_f2c9bd75607afc::t_1c84ea5119d946 484-517,519-523
+  s_f2c9bd75607afc::t_12687f0195ba36 73-76
+  s_f2c9bd75607afc::t_9471165a979e10 524-613
+  s_f2c9bd75607afc::t_ef693dab351496 121-141
+  s_f2c9bd75607afc::t_e639522eb0e948 77
+  s_f2c9bd75607afc::t_ce925f6e4d77af 70-72
+  s_f2c9bd75607afc::t_31e22d29cf4740 78-87
+  s_f2c9bd75607afc::t_a30c8bff08bf32 518
+  s_f2c9bd75607afc::t_782d4f33229a9d 455-459,461-462,464-483
+  s_f2c9bd75607afc::t_a3290e139ae1fe 51-52
+  s_f2c9bd75607afc::t_824184d9650550 460,463
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e1ac6b35fe7d63cc764febf4df09bb5f17509d3c",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
