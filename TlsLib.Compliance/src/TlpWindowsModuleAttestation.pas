@@ -51,6 +51,7 @@ type
     Identity: TModuleIdentity;
     Status: TModuleStatus;
     Description: string;
+    Disclosures: TArray<string>;
   end;
 
   /// <summary>
@@ -94,6 +95,7 @@ type
     function Describe: string;
     /// <summary>Whether ACrypto is the OS composition this attestation describes.</summary>
     function Covers(const ACrypto: ICryptoProvider): Boolean;
+    function Disclosures: TArray<string>;
   end;
 
 {$ENDIF}
@@ -108,8 +110,6 @@ resourcestring
 
 const
   ModuleFileName = 'bcryptprimitives.dll';
-  BcryptFileName = 'bcrypt.dll';
-  NcryptFileName = 'ncrypt.dll';
   FirmwareUnknown = 0;
   VersionKey = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion';
   RevisionValue = 'UBR';
@@ -407,7 +407,7 @@ var
   LEnabled: ByteBool;
 begin
   Result := TLegacyFipsPolicy.Unknown;
-  LModule := TDynamicLibrary.Open('bcrypt.dll');
+  LModule := TDynamicLibrary.Open(TWindowsModuleDecision.BcryptName);
   if LModule = 0 then
     Exit;
   try
@@ -447,8 +447,10 @@ begin
   Result.MachineRead := ReadMachines(Result.ProcessMachine, Result.NativeMachine);
   Result.FirmwareRead := ReadFirmware(Result.FirmwareType);
   Result.SystemModulePath := ReadSystemFile(ModuleFileName);
-  Result.ImportsRead := ReadSystemCopy(BcryptFileName, Result.BcryptSystemCopy) and
-    ReadSystemCopy(NcryptFileName, Result.NcryptSystemCopy);
+  Result.BcryptRead := ReadSystemCopy(TWindowsModuleDecision.BcryptName,
+    Result.BcryptSystemCopy);
+  Result.NcryptRead := ReadSystemCopy(TWindowsModuleDecision.NcryptName,
+    Result.NcryptSystemCopy);
   Result.PathRead := ReadLoadedPath(Result);
   if Result.PathRead then
     Result.VersionRead := ReadModuleVersion(Result);
@@ -505,6 +507,8 @@ begin
       Result.Identity.OsVersion, LReason])
   else
     Result.Description := LReason;
+  Result.Disclosures := TWindowsModuleDecision.Disclosures(AFacts.Build, AFacts.Edition,
+    Result.Status);
 end;
 
 constructor TWindowsModuleAttestation.Create;
@@ -534,6 +538,11 @@ end;
 function TWindowsModuleAttestation.Covers(const ACrypto: ICryptoProvider): Boolean;
 begin
   Result := TOSCryptoProvider.IsComposition(ACrypto);
+end;
+
+function TWindowsModuleAttestation.Disclosures: TArray<string>;
+begin
+  Result := System.Copy(FAttested.Disclosures);
 end;
 
 {$ENDIF}

@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpComplianceTypes;
 
 type
@@ -72,10 +73,12 @@ type
     /// <summary>The loaded module is the one at SystemModulePath; the gatherer decides, so the
     /// platform's path equivalence stays with it.</summary>
     SystemCopy: Boolean;
-    /// <summary>Whether the loaded bcrypt.dll and ncrypt.dll were identified; each is the system
-    /// copy when its flag is set.</summary>
-    ImportsRead: Boolean;
+    /// <summary>Whether the loaded bcrypt.dll was identified, and whether it is the system
+    /// copy.</summary>
+    BcryptRead: Boolean;
     BcryptSystemCopy: Boolean;
+    /// <summary>The same for the loaded ncrypt.dll.</summary>
+    NcryptRead: Boolean;
     NcryptSystemCopy: Boolean;
     VersionRead: Boolean;
     ModuleMajor: UInt16;
@@ -96,6 +99,10 @@ type
   /// platform runs it.
   /// </summary>
   TWindowsModuleDecision = class sealed(TObject)
+  public
+  const
+    BcryptName = 'bcrypt.dll';
+    NcryptName = 'ncrypt.dll';
   strict private
     // the reason of the first fact that contradicts validation, else empty
     class function Mismatch(const AFacts: TWindowsModuleFacts;
@@ -116,6 +123,10 @@ type
     /// none. Never decides the status.</summary>
     class function EditionCoverage(ABuild: UInt32; const AEdition: string): TEditionCoverage;
       static;
+    /// <summary>What a Validated status leaves to the vendor: an edition outside the tested
+    /// list and hardware the Security Policy did not test. None for any other status.</summary>
+    class function Disclosures(ABuild: UInt32; const AEdition: string;
+      AStatus: TModuleStatus): TArray<string>; static;
   end;
 
 implementation
@@ -125,7 +136,8 @@ resourcestring
   SNotNtTen = 'the OS is %d.%d (platform %d), not a Windows NT 10.0 release';
   SNoValidatedBuild = 'the shipped table records no validated module for this build';
   SProductTypeNotCovered = 'the OS product type %d is not one the certificate covers for build %d';
-  SProcess32Bit = 'the process is 32-bit; the certificate covers the 64-bit module only';
+  SProcess32Bit = 'the process is 32-bit; the policy covers the 64-bit module only, and the ' +
+    'tested environments are 64-bit';
   SProcessEmulated = 'the process runs under WOW64 (process machine 0x%.4x); ' +
     'the certificate covers a native x64 process';
   SImportNotSystemCopy = 'the loaded %s is not the system copy';
@@ -145,6 +157,12 @@ resourcestring
   SFirmwareBios = 'BIOS';
   SFirmwareUefi = 'UEFI';
   SFirmwareOther = 'type %d';
+  SHardwareVendorAffirmed = 'the hardware and any hypervisor are not checked against the ' +
+    'tested platforms; on any other platform coverage is vendor-affirmed, with no assurance of ' +
+    'the minimum strength of generated keys';
+  SEditionUntested = 'edition %s is outside the tested list; coverage is vendor-affirmed';
+  SEditionUnread = 'the edition could not be read; coverage is vendor-affirmed for any edition ' +
+    'outside the tested list';
 
 const
   NtMajor = 10;
@@ -156,8 +174,6 @@ const
   ProductServer = 3;
   FirmwareBios = 1;
   FirmwareUefi = 2;
-  BcryptName = 'bcrypt.dll';
-  NcryptName = 'ncrypt.dll';
   EditionSeparator = '|';
   ValidatedCertificate = '5410';
   CertificateValidatedOn = '2026-08-31';
@@ -231,7 +247,7 @@ begin
     Exit(SNoValidatedBuild);
   if not (AFacts.ProductType in LEntry.ProductTypes) then
     Exit(Format(SProductTypeNotCovered, [AFacts.ProductType, AFacts.Build]));
-  // first, so an x64 process emulated on other hardware is named by the machine it runs on
+  // the native machine is named first, whatever the process reports
   if AFacts.MachineRead and (AFacts.NativeMachine <> MachineAmd64) then
     Exit(Format(SNativeNotX64, [AFacts.NativeMachine]));
   if AFacts.ProcessMachine <> 0 then
@@ -241,9 +257,9 @@ begin
   if AFacts.PathRead and (AFacts.SystemModulePath <> '') and not AFacts.SystemCopy then
     Exit(Format(SModuleNotSystemCopy, [string(AFacts.ModulePath),
       string(AFacts.SystemModulePath)]));
-  if AFacts.ImportsRead and not AFacts.BcryptSystemCopy then
+  if AFacts.BcryptRead and not AFacts.BcryptSystemCopy then
     Exit(Format(SImportNotSystemCopy, [BcryptName]));
-  if AFacts.ImportsRead and not AFacts.NcryptSystemCopy then
+  if AFacts.NcryptRead and not AFacts.NcryptSystemCopy then
     Exit(Format(SImportNotSystemCopy, [NcryptName]));
   if AFacts.VersionRead and ((AFacts.ModuleMajor <> NtMajor) or
     (AFacts.ModuleMinor <> NtMinor) or (AFacts.ModuleBuild <> AFacts.Build)) then
@@ -264,7 +280,7 @@ begin
     Exit(SModulePathUnreadable);
   if not AFacts.VersionRead then
     Exit(SModuleVersionUnreadable);
-  if not AFacts.ImportsRead then
+  if not (AFacts.BcryptRead and AFacts.NcryptRead) then
     Exit(SImportsUnreadable);
   if AFacts.Today = 0 then
     Exit(SDateUnreadable);
@@ -331,6 +347,22 @@ begin
     Result := TEditionCoverage.Tested
   else
     Result := TEditionCoverage.Untested;
+end;
+
+class function TWindowsModuleDecision.Disclosures(ABuild: UInt32; const AEdition: string;
+  AStatus: TModuleStatus): TArray<string>;
+begin
+  Result := nil;
+  if AStatus <> TModuleStatus.Validated then
+    Exit;
+  // the edition never decides, but coverage beyond the tested list rests on the vendor
+  case EditionCoverage(ABuild, AEdition) of
+    TEditionCoverage.Untested:
+      TArrayUtilities.Append<string>(Result, Format(SEditionUntested, [AEdition]));
+    TEditionCoverage.Unread:
+      TArrayUtilities.Append<string>(Result, SEditionUnread);
+  end;
+  TArrayUtilities.Append<string>(Result, SHardwareVendorAffirmed);
 end;
 
 end.

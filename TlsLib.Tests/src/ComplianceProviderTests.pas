@@ -90,6 +90,9 @@ type
     function KdfProviderOver(const APrimitives: ICryptoPrimitives;
       const AReport: ICryptoBackendReport; AEnforcement: TComplianceEnforcement): ICryptoProvider;
     function HkdfExpandRefused(const AProvider: ICryptoProvider): Boolean;
+    // a provider whose module serves the TLS 1.2 PRF, under ARules
+    function ModulePrfProvider(const ARules: TComplianceRules;
+      AEnforcement: TComplianceEnforcement): ICryptoProvider;
     procedure CheckHkdfVector(const AProvider: ICryptoProvider; const ASalt, AIkm, AInfo, APrk,
       AOkm: string; ALength: Int32);
   strict protected
@@ -160,6 +163,11 @@ type
     procedure TestPrfAllowsOtherLabels;
     procedure TestPrfLabelMatchIsExact;
     procedure TestPrfPlainLabelPassesWithoutEmsRequirement;
+    procedure TestStrictRequireModuleRefusesAnExporterLabel;
+    procedure TestStrictRequireModuleAllowsTheOtherKeyScheduleLabels;
+    procedure TestStrictRequireModuleKeyScheduleLabelMatchIsExact;
+    procedure TestStrictAllowComposedAllowsAnExporterLabel;
+    procedure TestRelaxedRequireModuleAllowsAnExporterLabel;
     procedure TestRefusalIsFatalInternalError;
     procedure TestRefusalIsCaughtAsBaseException;
     procedure TestHpkeX25519SuiteUnavailable;
@@ -905,6 +913,64 @@ begin
     LRules, TComplianceEnforcement.Strict);
   CheckFalse(RefusesLabel(LProvider, 'master secret'),
     'the label is refused only when the rules require Extended Master Secret');
+end;
+
+function TTestComplianceCryptoPrimitives.ModulePrfProvider(const ARules: TComplianceRules;
+  AEnforcement: TComplianceEnforcement): ICryptoProvider;
+var
+  LReport: TFakeBackendReport;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LReport.NativePrf := True;
+  Result := ProviderOver(LReport as ICryptoBackendReport, ARules, AEnforcement);
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRequireModuleRefusesAnExporterLabel;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := ModulePrfProvider(RequireModuleRules, TComplianceEnforcement.Strict);
+  CheckTrue(RefusesLabel(LProvider, 'EXPORTER-my-app'),
+    'an exporter label would be composed over the module HMAC');
+  CheckTrue(RefusesLabel(LProvider, ''), 'and so would an empty one');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRequireModuleAllowsTheOtherKeyScheduleLabels;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := ModulePrfProvider(RequireModuleRules, TComplianceEnforcement.Strict);
+  CheckFalse(RefusesLabel(LProvider, 'extended master secret'), 'extended master secret');
+  CheckFalse(RefusesLabel(LProvider, 'key expansion'), 'key expansion');
+  CheckFalse(RefusesLabel(LProvider, 'client finished'), 'client finished');
+  CheckFalse(RefusesLabel(LProvider, 'server finished'), 'server finished');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRequireModuleKeyScheduleLabelMatchIsExact;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := ModulePrfProvider(RequireModuleRules, TComplianceEnforcement.Strict);
+  CheckTrue(RefusesLabel(LProvider, 'key expansion '), 'a trailing space is an exporter label');
+  CheckTrue(RefusesLabel(LProvider, 'Client Finished'), 'the label is case sensitive');
+  CheckTrue(RefusesLabel(LProvider, 'server finishe'), 'a prefix is an exporter label');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictAllowComposedAllowsAnExporterLabel;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := ModulePrfProvider(TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  CheckFalse(RefusesLabel(LProvider, 'EXPORTER-my-app'),
+    'the rules accept a derivation composed over the module HMAC');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRelaxedRequireModuleAllowsAnExporterLabel;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := ModulePrfProvider(RequireModuleRules, TComplianceEnforcement.Relaxed);
+  CheckFalse(RefusesLabel(LProvider, 'EXPORTER-my-app'), 'relaxed mode refuses no derivation');
 end;
 
 procedure TTestComplianceCryptoPrimitives.TestRefusalIsFatalInternalError;
