@@ -48,6 +48,8 @@ type
     function SelectSuiteRaises(const APolicy: INegotiationPolicy;
       const AClientSuites: TArray<UInt16>;
       ADescription: TTlsAlertDescription): Boolean;
+    function CatalogSuite: TTlsCipherSuite;
+    function BuildRefuses(const ASuite: TTlsCipherSuite): Boolean;
   published
     procedure TestCipherSuiteServerPreferenceHonored;
     procedure TestCipherSuiteHonorClientOrderWhenEnabled;
@@ -65,6 +67,24 @@ type
     procedure TestNoCommonSuiteIsHandshakeFailure;
     procedure TestRegistryPruningRemovesOption;
     procedure TestBuiltRegistryIgnoresLaterBuilderChanges;
+    procedure TestResolvedGroupsKeepPreferenceOrderAndDropUnregistered;
+    procedure TestResolvedGroupsEmptyWhenNothingIsRegistered;
+    procedure TestResolvedGroupsRepeatARepeatedCode;
+    procedure TestSuitesFromCodesKeepGivenOrderAndSkipUnknown;
+    procedure TestSuitesFromCodesKeepFirstOfARepeatedCode;
+    procedure TestSuitesFromNoCodesIsEmpty;
+    procedure TestRestrictedDefaultSchemesKeepDefaultOrder;
+    procedure TestRestrictedDefaultSchemesWithNothingAllowedIsEmpty;
+    procedure TestBuildAcceptsCatalogSuiteRecord;
+    procedure TestBuildAcceptsSuiteOutsideCatalog;
+    procedure TestBuildRefusesAlteredHash;
+    procedure TestBuildRefusesAlteredPrf;
+    procedure TestBuildRefusesAlteredKeyLength;
+    procedure TestBuildRefusesAlteredAead;
+    procedure TestBuildRefusesAlteredProtocol;
+    procedure TestBuildRefusesAlteredKeyExchange;
+    procedure TestBuildRefusesAlteredAuth;
+    procedure TestCipherSuiteRecordsHoldOnlyTheFieldsBuildCompares;
     procedure TestDowngradeSentinelEmittedAndDetected;
     procedure TestDualVersionRegistryHoldsHardenedTls12Suites;
     procedure TestDualVersionRegistryKeepsTls13SuitesDecoupled;
@@ -95,6 +115,27 @@ begin
   except
     on E: EFatalAlertTlsLibException do
       Result := E.AlertDescription = ADescription;
+  end;
+end;
+
+function TTestNegotiation.CatalogSuite: TTlsCipherSuite;
+begin
+  CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites12.EcdheEcdsaAes256GcmSha384, Result),
+    'catalog');
+end;
+
+function TTestNegotiation.BuildRefuses(const ASuite: TTlsCipherSuite): Boolean;
+var
+  LBuilder: ICipherSuiteRegistryBuilder;
+begin
+  Result := False;
+  LBuilder := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
+  LBuilder.Add(ASuite);
+  try
+    LBuilder.Build;
+  except
+    on E: EArgumentTlsLibException do
+      Result := True;
   end;
 end;
 
@@ -409,6 +450,165 @@ begin
   LItems[0].Common.Code := LFirstCode xor $FFFF;
   CheckEquals(Integer(LFirstCode), Integer(LBuilt.Items[0].Common.Code),
     'the registry hands out copies of its entries');
+end;
+
+procedure TTestNegotiation.TestResolvedGroupsKeepPreferenceOrderAndDropUnregistered;
+var
+  LGroups: TArray<INamedGroup>;
+begin
+  LGroups := TNamedGroups.ResolvedGroups(TNamedGroups.CreateDefaultRegistry(Crypto),
+    TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1, $9999, TNamedGroupCatalog.X25519MlKem768));
+  CheckEquals(2, System.Length(LGroups), 'the unregistered code is dropped');
+  CheckEquals(TNamedGroupCatalog.Secp384r1, LGroups[0].Code, 'preference order, first');
+  CheckEquals(TNamedGroupCatalog.X25519MlKem768, LGroups[1].Code, 'a hybrid group resolves too');
+end;
+
+procedure TTestNegotiation.TestResolvedGroupsEmptyWhenNothingIsRegistered;
+var
+  LRegistry: INamedGroupRegistry;
+begin
+  LRegistry := TNamedGroups.CreateClassicalRegistry(Crypto);
+  CheckEquals(0, System.Length(TNamedGroups.ResolvedGroups(LRegistry,
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519MlKem768, $9999))),
+    'no preferred code is registered');
+  CheckEquals(0, System.Length(TNamedGroups.ResolvedGroups(LRegistry, nil)), 'no preference');
+end;
+
+procedure TTestNegotiation.TestResolvedGroupsRepeatARepeatedCode;
+begin
+  CheckEquals(2, System.Length(TNamedGroups.ResolvedGroups(
+    TNamedGroups.CreateDefaultRegistry(Crypto), TArray<UInt16>.Create(
+    TNamedGroupCatalog.X25519, TNamedGroupCatalog.X25519))), 'a repeated code repeats');
+end;
+
+procedure TTestNegotiation.TestSuitesFromCodesKeepGivenOrderAndSkipUnknown;
+var
+  LSuites: TArray<TTlsCipherSuite>;
+begin
+  LSuites := TCipherSuiteRegistry.CreateFromCodes(TArray<UInt16>.Create(
+    TCipherSuites13.Aes256GcmSha384, $C013, TCipherSuites13.Aes128GcmSha256)).Items;
+  CheckEquals(2, System.Length(LSuites), 'the code outside the catalog is skipped');
+  CheckEquals(TCipherSuites13.Aes256GcmSha384, LSuites[0].Common.Code, 'given order, first');
+  CheckEquals(TCipherSuites13.Aes128GcmSha256, LSuites[1].Common.Code, 'given order, second');
+end;
+
+procedure TTestNegotiation.TestSuitesFromCodesKeepFirstOfARepeatedCode;
+begin
+  CheckEquals(1, System.Length(TCipherSuiteRegistry.CreateFromCodes(TArray<UInt16>.Create(
+    TCipherSuites13.Aes128GcmSha256, TCipherSuites13.Aes128GcmSha256)).Items),
+    'a repeated code is held once');
+end;
+
+procedure TTestNegotiation.TestSuitesFromNoCodesIsEmpty;
+begin
+  CheckEquals(0, System.Length(TCipherSuiteRegistry.CreateFromCodes(nil).Items), 'empty');
+end;
+
+procedure TTestNegotiation.TestRestrictedDefaultSchemesKeepDefaultOrder;
+var
+  LSchemes: TArray<TSignatureScheme>;
+begin
+  LSchemes := TSignatureSchemeRegistry.CreateDefaultRestricted(TArray<TSignatureScheme>.Create(
+    TSignatureScheme.RSA_PSS_RSAE_SHA256, TSignatureScheme.ECDSA_SECP256R1_SHA256)).Items;
+  CheckEquals(2, System.Length(LSchemes), 'only the allowed schemes');
+  CheckTrue(LSchemes[0] = TSignatureScheme.ECDSA_SECP256R1_SHA256, 'default order, first');
+  CheckTrue(LSchemes[1] = TSignatureScheme.RSA_PSS_RSAE_SHA256, 'default order, second');
+end;
+
+procedure TTestNegotiation.TestRestrictedDefaultSchemesWithNothingAllowedIsEmpty;
+begin
+  CheckEquals(0, System.Length(TSignatureSchemeRegistry.CreateDefaultRestricted(nil).Items),
+    'nothing allowed, nothing held');
+end;
+
+procedure TTestNegotiation.TestBuildAcceptsCatalogSuiteRecord;
+begin
+  CheckFalse(BuildRefuses(CatalogSuite), 'the catalog record is accepted');
+end;
+
+procedure TTestNegotiation.TestBuildAcceptsSuiteOutsideCatalog;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Code := $C013;
+  CheckFalse(BuildRefuses(LSuite), 'a code the catalog does not know is accepted');
+end;
+
+procedure TTestNegotiation.TestBuildRefusesAlteredHash;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Hash := THashAlgorithm.SHA_256;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestBuildRefusesAlteredPrf;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Prf := THashAlgorithm.SHA_256;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestBuildRefusesAlteredKeyLength;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.KeyLength := 16;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestBuildRefusesAlteredAead;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Aead := TAeadAlgorithm.AES_128_GCM;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestBuildRefusesAlteredProtocol;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Protocol := TSuiteProtocol.Tls13;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestBuildRefusesAlteredKeyExchange;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.KeyExchange := TKeyExchangeMethod.Decoupled;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestBuildRefusesAlteredAuth;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Auth := TAuthMethod.Rsa;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestCipherSuiteRecordsHoldOnlyTheFieldsBuildCompares;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  // the registry compares each field by hand, so a new field must reach it and this sum
+  CheckEquals(SizeOf(LSuite.Common.Code) + SizeOf(LSuite.Common.Hash) +
+    SizeOf(LSuite.Common.Aead) + SizeOf(LSuite.Common.KeyLength), SizeOf(TCipherSuiteCommon),
+    'the common record holds a field the registry does not compare');
+  CheckEquals(SizeOf(LSuite.Common) + SizeOf(LSuite.Protocol) + SizeOf(LSuite.KeyExchange) +
+    SizeOf(LSuite.Auth) + SizeOf(LSuite.Prf), SizeOf(TTlsCipherSuite),
+    'the suite record holds a field the registry does not compare');
 end;
 
 procedure TTestNegotiation.TestDowngradeSentinelEmittedAndDetected;

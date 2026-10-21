@@ -21,7 +21,6 @@ uses
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpTlsVersion,
-  TlpCipherSuiteCatalog,
   TlpCipherSuiteRegistry,
   TlpIClock,
   TlpClock,
@@ -157,29 +156,12 @@ end;
 class function TComplianceTls.Profile(const APolicy: ICompliancePolicy): TTlsConfigProfile;
 var
   LRules: TComplianceRules;
-  LSuites: ICipherSuiteRegistryBuilder;
-  LSchemes: ISignatureSchemeRegistryBuilder;
-  LSuite: TTlsCipherSuite;
-  LDefaults: TArray<TSignatureScheme>;
-  LI: Int32;
-  LKnown: Boolean;
 begin
   LRules := APolicy.Rules;
   Result := TTlsConfigProfile.Default;
-  LSuites := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
-  for LI := 0 to System.Length(LRules.CipherSuites) - 1 do
-  begin
-    LKnown := TCipherSuiteCatalog.TryGet(LRules.CipherSuites[LI], LSuite);
-    if LKnown then
-      LSuites.Add(LSuite);
-  end;
-  Result.CipherSuites := LSuites.Build;
-  LSchemes := TSignatureSchemeRegistryBuilder.Create as ISignatureSchemeRegistryBuilder;
-  LDefaults := TSignatureSchemeRegistry.CreateDefault.Items;
-  for LI := 0 to System.Length(LDefaults) - 1 do
-    if LDefaults[LI] in LRules.SignatureSchemes then
-      LSchemes.Add(LDefaults[LI]);
-  Result.SignatureSchemes := LSchemes.Build;
+  Result.CipherSuites := TCipherSuiteRegistry.CreateFromCodes(LRules.CipherSuites);
+  Result.SignatureSchemes := TSignatureSchemeRegistry.CreateDefaultRestricted(
+    TComplianceCatalog.Schemes(LRules.SignatureSchemes));
   Result.NamedGroups := APolicy.NamedGroups;
   Result.SupportedVersions := LRules.Versions;
   Result.PreferredGroups := LRules.NamedGroups;

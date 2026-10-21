@@ -199,7 +199,6 @@ type
     procedure TestKeyMeetsRsaExactSizesRefuseZeroBits;
     procedure TestKeyMeetsExactSizesLeaveEcdsaAlone;
     procedure TestStandardNameIsFips140_3;
-    procedure TestCipherSuiteRecordsHoldOnlyTheFieldsIsCatalogSuiteCompares;
   end;
 
   TTestComplianceReport = class(TTlsLibAlgorithmTestCase)
@@ -1932,19 +1931,6 @@ end;
 procedure TTestComplianceCatalog.TestStandardNameIsFips140_3;
 begin
   CheckEquals('FIPS 140-3', TComplianceCatalog.StandardName(TModuleStandard.Fips140_3), 'name');
-end;
-
-procedure TTestComplianceCatalog.TestCipherSuiteRecordsHoldOnlyTheFieldsIsCatalogSuiteCompares;
-var
-  LSuite: TTlsCipherSuite;
-begin
-  // IsCatalogSuite compares each field by hand, so a new field must reach it and this sum
-  CheckEquals(SizeOf(LSuite.Common.Code) + SizeOf(LSuite.Common.Hash) +
-    SizeOf(LSuite.Common.Aead) + SizeOf(LSuite.Common.KeyLength), SizeOf(TCipherSuiteCommon),
-    'the common record holds a field IsCatalogSuite does not compare');
-  CheckEquals(SizeOf(LSuite.Common) + SizeOf(LSuite.Protocol) + SizeOf(LSuite.KeyExchange) +
-    SizeOf(LSuite.Auth) + SizeOf(LSuite.Prf), SizeOf(TTlsCipherSuite),
-    'the suite record holds a field IsCatalogSuite does not compare');
 end;
 
 { TTestComplianceReport }

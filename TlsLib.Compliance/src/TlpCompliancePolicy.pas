@@ -37,6 +37,7 @@ uses
   TlpISession,
   TlpSessionTicketStrategy,
   TlpTlsConfigBuilder,
+  TlpClientPskPath,
   TlpIClock,
   TlpTrustPolicy,
   TlpTrustTypes,
@@ -200,7 +201,6 @@ resourcestring
   SForeignPkix = 'the config does not use the policy PKIX provider';
   SForeignNamedGroup =
     'the group was not built by the policy; use ICompliancePolicy.NamedGroups';
-  SSuiteDiffers = 'differs from the catalog definition of its code';
   SNotAllowed = 'is not allowed by the rules';
   SEmsNotRequired = 'TLS 1.2 is offered without requiring extended master secret (RFC 7627)';
   SEarlyData = 'early data is enabled';
@@ -671,17 +671,13 @@ end;
 function TCompliancePolicy.ClientHasCertificatePath(const AConfig: ITlsClientConfig): Boolean;
 var
   LVersions: TArray<UInt16>;
-  LOffers13, LOffers12, LExternalPath, LTls12Path: Boolean;
 begin
   LVersions := AConfig.SupportedVersions;
-  LOffers13 := TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls13);
-  LOffers12 := TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls12);
-  // a required PSK ends a version's handshake without a certificate
-  LExternalPath := (System.Length(AConfig.ExternalPsks) = 0) or
-    not AConfig.ExternalPskRequired;
-  LTls12Path := (System.Length(AConfig.Tls12Psks) = 0) or
-    not AConfig.Tls12PreSharedKeyRequired;
-  Result := (LOffers13 and LExternalPath) or (LOffers12 and LTls12Path);
+  Result := TClientPskPath.HasCertificatePath(
+    TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls13),
+    TArrayUtilities.Contains<UInt16>(LVersions, TlsWireVersionTls12),
+    System.Length(AConfig.ExternalPsks), AConfig.ExternalPskRequired,
+    System.Length(AConfig.Tls12Psks), AConfig.Tls12PreSharedKeyRequired);
 end;
 
 procedure TCompliancePolicy.CheckCredential(const ACredential: TTlsCredential;
@@ -900,51 +896,18 @@ end;
 procedure TCompliancePolicy.CheckGroups(const AConfig: ITlsCommonConfig;
   var AFindings: TArray<TComplianceFinding>);
 var
-  LI, LJ: Int32;
-  LCode: UInt16;
-  LGroups: TArray<INamedGroup>;
-  LCodes: TArray<UInt16>;
-  LOwn, LConfigured: INamedGroup;
-  LAllowed, LListed: Boolean;
+  LGroup, LOwn: INamedGroup;
 begin
-  LGroups := AConfig.NamedGroups.Items;
-  for LI := 0 to System.Length(LGroups) - 1 do
-  begin
-    LCode := LGroups[LI].Code;
-    LAllowed := FGroups.TryGet(LCode, LOwn);
-    if not LAllowed then
+  // the groups the engine would offer: the preferred codes the config registry holds
+  for LGroup in TNamedGroups.ResolvedGroups(AConfig.NamedGroups, AConfig.PreferredGroups) do
+    if not FGroups.TryGet(LGroup.Code, LOwn) then
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LCode),
+        TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LGroup.Code),
         SNotAllowed))
-    else if LGroups[LI] <> LOwn then
+    else if LGroup <> LOwn then
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LCode),
+        TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LGroup.Code),
         SForeignNamedGroup));
-  end;
-  // the engine resolves a preferred code through the config registry, whatever Items lists
-  LCodes := AConfig.PreferredGroups;
-  for LI := 0 to System.Length(LCodes) - 1 do
-  begin
-    LAllowed := FGroups.TryGet(LCodes[LI], LOwn);
-    LConfigured := nil;
-    AConfig.NamedGroups.TryGet(LCodes[LI], LConfigured);
-    // a group Items lists was reported above
-    LListed := False;
-    for LJ := 0 to System.Length(LGroups) - 1 do
-      if (LGroups[LJ].Code = LCodes[LI]) and (not LAllowed or (LGroups[LJ] = LConfigured)) then
-      begin
-        LListed := True;
-        Break;
-      end;
-    if not LListed and not LAllowed then
-      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.NamedGroupNotAllowed, TNamedGroupCatalog.Name(LCodes[LI]),
-        SNotAllowed))
-    else if not LListed and (LConfigured <> nil) and (LConfigured <> LOwn) then
-      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.ForeignNamedGroup, TNamedGroupCatalog.Name(LCodes[LI]),
-        SForeignNamedGroup));
-  end;
 end;
 
 procedure TCompliancePolicy.CheckCommon(const AConfig: ITlsCommonConfig;
@@ -981,12 +944,7 @@ begin
     if not LAllowed then
       TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
         TComplianceFindingKind.CipherSuiteNotAllowed,
-        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SNotAllowed))
-    else if not TComplianceCatalog.IsCatalogSuite(LSuites[LI]) then
-      // the engine builds its hash, AEAD and PRF from the record, not from its code
-      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-        TComplianceFindingKind.CipherSuiteDiffersFromCatalog,
-        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SSuiteDiffers));
+        TCipherSuiteCatalog.Name(LSuites[LI].Common.Code), SNotAllowed));
   end;
   CheckGroups(AConfig, AFindings);
   LSchemes := AConfig.SignatureSchemes.Items;

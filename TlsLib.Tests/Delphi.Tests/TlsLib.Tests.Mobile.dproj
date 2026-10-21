@@ -490,6 +490,7 @@
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsConfigMemo.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsSignatureBuilder.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngineFactory.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpClientPskPath.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Extensions\TlpExtensionContext.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Extensions\TlpExtensionVector.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Ech\TlpEchRegistryExtension.pas"/>

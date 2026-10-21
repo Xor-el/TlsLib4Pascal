@@ -22,10 +22,13 @@ uses
   TlpICryptoProvider,
   TlpNegotiationTypes,
   TlpCipherSuiteCatalog,
-  TlpINegotiation;
+  TlpINegotiation,
+  TlpTlsLibExceptions;
 
 type
-  /// <summary>The default cipher-suite registry: an immutable, ordered suite list.</summary>
+  /// <summary>The default cipher-suite registry: an immutable, ordered suite list. A suite whose
+  /// code is in the catalog must equal the catalog definition in every field, else the
+  /// constructor raises EArgumentTlsLibException; codes outside the catalog are accepted.</summary>
   TCipherSuiteRegistry = class sealed(TCodeKeyedRegistryBase<TTlsCipherSuite>,
     ICipherSuiteRegistry)
   strict private
@@ -67,9 +70,15 @@ type
     /// </summary>
     class function CreateTls12Psk(const ACryptoProvider: ICryptoProvider)
       : ICipherSuiteRegistry; static;
+
+    /// <summary>The catalog suites for ACodes, in the order given; a code outside the catalog is
+    /// skipped and a repeated code keeps its first place.</summary>
+    class function CreateFromCodes(const ACodes: TArray<UInt16>): ICipherSuiteRegistry; static;
   end;
 
-  /// <summary>The cipher-suite registry builder: Add and Prune, then Build a registry snapshot.</summary>
+  /// <summary>The cipher-suite registry builder: Add and Prune, then Build a registry snapshot.
+  /// Build raises EArgumentTlsLibException for a suite that reuses a catalog code with a
+  /// different definition.</summary>
   TCipherSuiteRegistryBuilder = class sealed(TCodeKeyedRegistryBuilderBase<TTlsCipherSuite>,
     ICipherSuiteRegistryBuilder)
   public
@@ -82,8 +91,24 @@ type
 
 implementation
 
+resourcestring
+  SSuiteDiffersFromCatalog = 'cipher suite 0x%.4x differs from the catalog definition of its code';
+
 constructor TCipherSuiteRegistry.Create(const ASuites: TArray<TTlsCipherSuite>);
+var
+  LI: Int32;
+  LCatalog: TTlsCipherSuite;
 begin
+  for LI := 0 to System.Length(ASuites) - 1 do
+    if TCipherSuiteCatalog.TryGet(ASuites[LI].Common.Code, LCatalog) and
+      not ((ASuites[LI].Common.Hash = LCatalog.Common.Hash) and
+      (ASuites[LI].Common.Aead = LCatalog.Common.Aead) and
+      (ASuites[LI].Common.KeyLength = LCatalog.Common.KeyLength) and
+      (ASuites[LI].Protocol = LCatalog.Protocol) and
+      (ASuites[LI].KeyExchange = LCatalog.KeyExchange) and (ASuites[LI].Auth = LCatalog.Auth) and
+      (ASuites[LI].Prf = LCatalog.Prf)) then
+      raise EArgumentTlsLibException.CreateResFmt(@SSuiteDiffersFromCatalog,
+        [ASuites[LI].Common.Code]);
   inherited Create(CodeOf, ASuites);
 end;
 
@@ -163,6 +188,20 @@ var
 begin
   LBuilder := CreateDefault(ACryptoProvider).ToBuilder;
   AddRunnable(LBuilder, ACryptoProvider, TKeyExchangeMethod.Ecdhe);
+  Result := LBuilder.Build;
+end;
+
+class function TCipherSuiteRegistry.CreateFromCodes(
+  const ACodes: TArray<UInt16>): ICipherSuiteRegistry;
+var
+  LBuilder: ICipherSuiteRegistryBuilder;
+  LCode: UInt16;
+  LSuite: TTlsCipherSuite;
+begin
+  LBuilder := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
+  for LCode in ACodes do
+    if TCipherSuiteCatalog.TryGet(LCode, LSuite) then
+      LBuilder.Add(LSuite);
   Result := LBuilder.Build;
 end;
 

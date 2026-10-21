@@ -26,6 +26,8 @@ uses
   TlpCryptoDomainTypes,
   TlpPkixDomainTypes,
   TlpINamedGroup,
+  TlpNamedGroups,
+  TlpClientPskPath,
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpCipherSuiteCatalog,
@@ -3049,9 +3051,9 @@ end;
 
 procedure TTlsConfigBuilder.ValidateRequiredCollaborators;
 var
-  LI: Int32;
   LGroup: INamedGroup;
-  LAnyRegistered, LEcdheRegistered: Boolean;
+  LResolved: TArray<INamedGroup>;
+  LEcdheRegistered: Boolean;
 begin
   if (FCipherSuites = nil) or (FSignatureSchemes = nil) or (FNamedGroups = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilNegotiationRegistry);
@@ -3061,16 +3063,12 @@ begin
   // a preferred group the registry lacks is skipped (the registry is authoritative, so a pruned
   // registry may keep a wider preference list), but with none registered no group could ever be
   // selected and every handshake would fail
-  LAnyRegistered := False;
+  LResolved := TNamedGroups.ResolvedGroups(FNamedGroups, FPreferredGroups);
   LEcdheRegistered := False;
-  for LI := 0 to System.High(FPreferredGroups) do
-    if FNamedGroups.TryGet(FPreferredGroups[LI], LGroup) then
-    begin
-      LAnyRegistered := True;
-      if LGroup.Kind = TNamedGroupKind.Ecdhe then
-        LEcdheRegistered := True;
-    end;
-  if not LAnyRegistered then
+  for LGroup in LResolved do
+    if LGroup.Kind = TNamedGroupKind.Ecdhe then
+      LEcdheRegistered := True;
+  if System.Length(LResolved) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoRegisteredPreferredGroup);
   // TLS 1.2 key exchange is classical ECDHE only (KEM and hybrid groups are 1.3-only)
   if (not LEcdheRegistered) and
@@ -3121,19 +3119,19 @@ begin
   begin
     // each version the client offers needs a PSK of that version, required, or it would reach a
     // certificate path with nothing to verify against
-    if TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13) then
+    if (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls13)) and
+      not TClientPskPath.RequiresPsk(System.Length(FExternalPsks), FExternalPskRequired) then
     begin
       if System.Length(FExternalPsks) = 0 then
         raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls12Only);
-      if not FExternalPskRequired then
-        raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsPskRequired);
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsPskRequired);
     end;
-    if TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12) then
+    if (TArrayUtilities.Contains<UInt16>(FSupportedVersions, TlsWireVersionTls12)) and
+      not TClientPskPath.RequiresPsk(System.Length(FTls12Psks), FTls12PskRequired) then
     begin
       if System.Length(FTls12Psks) = 0 then
         raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls13Only);
-      if not FTls12PskRequired then
-        raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls12PskRequired);
+      raise EInvalidOperationTlsLibException.CreateRes(@SPskOnlyClientNeedsTls12PskRequired);
     end;
     ValidatePskOnlyClientSettings;
   end;

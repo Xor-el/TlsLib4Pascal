@@ -62,6 +62,11 @@ type
     /// first entry and an empty array gives an empty registry. A nil group raises
     /// EArgumentTlsLibException.</summary>
     class function CreateRegistry(const AGroups: TArray<INamedGroup>): INamedGroupRegistry; static;
+    /// <summary>The groups ARegistry holds for APreferred, in preference order: a code the
+    /// registry lacks is dropped, so a pruned registry may sit under a wider preference list.
+    /// A repeated code repeats its group.</summary>
+    class function ResolvedGroups(const ARegistry: INamedGroupRegistry;
+      const APreferred: TArray<UInt16>): TArray<INamedGroup>; static;
   end;
 
 implementation
@@ -637,6 +642,18 @@ begin
     LBuilder.Add(LGroup);
   end;
   Result := LBuilder.Build;
+end;
+
+class function TNamedGroups.ResolvedGroups(const ARegistry: INamedGroupRegistry;
+  const APreferred: TArray<UInt16>): TArray<INamedGroup>;
+var
+  LCode: UInt16;
+  LGroup: INamedGroup;
+begin
+  Result := nil;
+  for LCode in APreferred do
+    if ARegistry.TryGet(LCode, LGroup) then
+      TArrayUtilities.Append<INamedGroup>(Result, LGroup);
 end;
 
 end.

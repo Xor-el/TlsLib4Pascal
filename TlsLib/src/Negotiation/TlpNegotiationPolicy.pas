@@ -224,17 +224,15 @@ end;
 function TNegotiationPolicy.SelectGroup(
   const AClientGroups: TArray<UInt16>; ANegotiatedVersion: UInt16): UInt16;
 var
-  LCode: UInt16;
   LGroup: INamedGroup;
   LEcdheOnly: Boolean;
 begin
   // TLS 1.2 excludes KEM and hybrid groups: only classical ECDHE is eligible
   LEcdheOnly := ProtocolOf(ANegotiatedVersion) = TSuiteProtocol.Tls12;
-  for LCode in FPreferredGroups do
-    if (TArrayUtilities.Contains<UInt16>(AClientGroups, LCode)) and
-      FGroups.TryGet(LCode, LGroup) and
+  for LGroup in TNamedGroups.ResolvedGroups(FGroups, FPreferredGroups) do
+    if (TArrayUtilities.Contains<UInt16>(AClientGroups, LGroup.Code)) and
       (not LEcdheOnly or (LGroup.Kind = TNamedGroupKind.Ecdhe)) then
-      Exit(LCode);
+      Exit(LGroup.Code);
   raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.HandshakeFailure,
     @SNoCommonGroup);
 end;
