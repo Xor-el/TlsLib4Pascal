@@ -1,0 +1,44 @@
+TlsLib.Compliance/src/TlpComplianceTls.pas
+  s_f2c9bd75607afc::t_03542e693b9ae6 328,334
+  s_f2c9bd75607afc::t_381b8c7120f0be 64-68,294
+  s_f2c9bd75607afc::t_a2de7a7a523f04 284,287,295-302,310-315
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_b1aabfa7172563 91-92
+  s_f2c9bd75607afc::t_8331920bc45e45 344-353
+  s_f2c9bd75607afc::t_3ba795708c53ce 89-90,93
+  s_f2c9bd75607afc::t_6795280c591f1e 632
+  s_f2c9bd75607afc::t_17a3f3ec550c81 788,790-791
+  s_f2c9bd75607afc::t_af40f20107a875 746
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_f2c9bd75607afc::t_97a848ce6d6077 3373
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_41d63fa46af05d 546-547
+  s_f2c9bd75607afc::t_11f6c0359f0ff1 570-571
+  s_f2c9bd75607afc::t_53715c9f546ee2 613-615
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_6a45db5f1db890 645-651
+  s_f2c9bd75607afc::t_637cb81349e393 6785-6830
+  s_f2c9bd75607afc::t_63698f93632916 652-654
+  s_f2c9bd75607afc::t_ed1e78c351eddc 6667-6784
+TlsLib.Tests/src/ComplianceLoopbackTests.pas
+  s_f2c9bd75607afc::t_c788dd7c5ed630 144-146
+  s_f2c9bd75607afc::t_9c2d4113f4e2bd 105-110
+  s_f2c9bd75607afc::t_4ebe2c3f10c5b8 901-911,913-947
+  s_f2c9bd75607afc::t_22638fb4b7f7a2 912
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c203c34bb7a252cedf849af3a8cdd04efe84e99c",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
