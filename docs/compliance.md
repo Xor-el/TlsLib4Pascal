@@ -308,13 +308,15 @@ OS verifier, and so must a server's client chain.
   `CustomVerifierConfigured`, a configuration finding that Admit refuses in both modes whatever the
   rules say; use the OS verifier source.
 - **Named groups.** A group carries the key-agreement provider it was built over, so a code in the
-  rules is not enough: every group in the config, and every preferred group the config resolves,
-  must be an object of `Policy.NamedGroups`. Any other group with an allowed code is
-  `ForeignNamedGroup`, even one built over the policy's crypto provider. The facade already uses
-  them; to change the set, start from `Policy.NamedGroups.ToBuilder` and prune.
-- **Cipher suites.** A suite must be the catalog definition of its code, so a hand-built record
-  that reuses an allowed code with any field that differs is `CipherSuiteDiffersFromCatalog`; a
-  code the rules do not list is `CipherSuiteNotAllowed`.
+  rules is not enough: every preferred group the config registry holds, the groups the handshake
+  can offer, must be an object of `Policy.NamedGroups`. Any other group with an allowed code is
+  `ForeignNamedGroup`, even one built over the policy's crypto provider; a code the rules do not
+  list is `NamedGroupNotAllowed`. A group the registry holds that no preferred code names is never
+  offered and is not judged. The facade already uses them; to change the set, start from
+  `Policy.NamedGroups.ToBuilder` and prune.
+- **Cipher suites.** A code the rules do not list is `CipherSuiteNotAllowed`. The cipher-suite
+  registry builder already refuses a record that reuses a catalog code with a different
+  definition, so an allowed code always carries its catalog definition.
 - **Encrypted Client Hello.** Both presets refuse it, keys and GREASE included: a config that holds
   an ECH client mode, a key store or a backend is `EchConfigured`.
 - **Credentials.** For every server credential (the default and each server-name entry, a

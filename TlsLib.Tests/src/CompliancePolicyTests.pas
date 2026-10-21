@@ -316,12 +316,6 @@ type
     function Ed25519OnlyKeyCredential(const ACrypto: ICryptoProvider): TTlsCredential;
     // the groups of the rules built over the policy crypto, none of them the policy's objects
     function OwnCryptoGroups(const APolicy: ICompliancePolicy): INamedGroupRegistry;
-    function CatalogSuite: TTlsCipherSuite;
-    // whether a strict policy refuses a client whose suites are the rules' with ASuite for its code
-    function SuiteAdmit(const ASuite: TTlsCipherSuite;
-      out AFindings: TArray<TComplianceFinding>): Boolean;
-    // AFindings name the CatalogSuite code as differing from its catalog record, and only that
-    procedure CheckDiffersFromCatalog(const AFindings: TArray<TComplianceFinding>);
     // an ECH key store of one P-256 / AES-256-GCM entry the policy crypto can serve
     function EchKeyStore(const APolicy: ICompliancePolicy): IEchServerKeyStore;
     // a strict Fips140_3 policy whose module serves the TLS 1.2 PRF of every hash but SHA-256
@@ -347,20 +341,12 @@ type
     procedure TestPreferredGroupNotAllowedRefused;
     procedure TestForeignClassicalRegistryRefused;
     procedure TestGroupsOverPolicyCryptoButNotItsObjectsRefused;
-    procedure TestListedForeignGroupBesideThePolicysRefused;
+    procedure TestListedForeignGroupNoPreferenceNamesIsAdmitted;
     procedure TestPrunedPolicyGroupsAdmitted;
     procedure TestHostGroupWithAllowedCodeRefused;
     procedure TestRelaxedRefusesForeignGroup;
     procedure TestServerForeignGroupRefused;
     procedure TestPreferredGroupResolvedToForeignObjectRefused;
-    procedure TestCatalogSuiteRecordAdmitted;
-    procedure TestSuiteWithAlteredHashRefused;
-    procedure TestSuiteWithAlteredPrfRefused;
-    procedure TestSuiteWithAlteredKeyLengthRefused;
-    procedure TestSuiteWithAlteredAeadRefused;
-    procedure TestSuiteWithAlteredProtocolRefused;
-    procedure TestSuiteWithAlteredKeyExchangeRefused;
-    procedure TestSuiteWithAlteredAuthRefused;
     procedure TestSignatureSchemeNotAllowedRefused;
     procedure TestEmsNotRequiredRefused;
     procedure TestEarlyDataClientRefused;
@@ -2960,7 +2946,8 @@ var
 begin
   LPolicy := StrictPolicy;
   CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithNamedGroups(
-    TNamedGroups.CreateDefaultRegistry(Crypto)).Build, LFindings), 'refused');
+    TNamedGroups.CreateDefaultRegistry(Crypto)).WithPreferredGroups(
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519)).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.NamedGroupNotAllowed), 'names X25519');
 end;
 
@@ -2968,14 +2955,17 @@ procedure TTestComplianceAdmit.TestPreferredGroupNotAllowedRefused;
 var
   LRules: TComplianceRules;
   LPolicy: ICompliancePolicy;
+  LBuilder: INamedGroupRegistryBuilder;
   LFindings: TArray<TComplianceFinding>;
 begin
   LRules := TCompliancePresets.Fips140_3;
   LRules.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1);
   LPolicy := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
     TComplianceEnforcement.Strict);
-  // the registry is the policy's own, so only the preference list can name an outside group
-  CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithNamedGroups(LPolicy.NamedGroups)
+  // the registry holds the policy's own P-256 and a P-384 the rules do not list; both are preferred
+  LBuilder := LPolicy.NamedGroups.ToBuilder;
+  LBuilder.Add(TFakeNamedGroup.Create(TNamedGroupCatalog.Secp384r1) as INamedGroup);
+  CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithNamedGroups(LBuilder.Build)
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
     TNamedGroupCatalog.Secp384r1)).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.NamedGroupNotAllowed),
@@ -3023,24 +3013,20 @@ begin
     'the identity is the objects, not the provider, and each group is found once');
 end;
 
-procedure TTestComplianceAdmit.TestListedForeignGroupBesideThePolicysRefused;
+procedure TTestComplianceAdmit.TestListedForeignGroupNoPreferenceNamesIsAdmitted;
 var
   LPolicy: ICompliancePolicy;
   LBuilder: INamedGroupRegistryBuilder;
   LFindings: TArray<TComplianceFinding>;
 begin
   LPolicy := StrictPolicy;
-  // the preference list names the policy's own P-256 only, so just the listing is foreign
+  // the preference list names the policy's own P-256 only, so the foreign P-384 is never offered
   LBuilder := LPolicy.NamedGroups.ToBuilder;
   LBuilder.Prune(TNamedGroupCatalog.Secp384r1);
   LBuilder.Add(TNamedGroups.CreateNistEcdh(LPolicy.Crypto, 'secp384r1'));
-  CheckTrue(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithNamedGroups(LBuilder.Build)
+  CheckFalse(ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithNamedGroups(LBuilder.Build)
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1)).Build,
-    LFindings), 'refused');
-  CheckEquals(1, CountOfKind(LFindings, TComplianceFindingKind.ForeignNamedGroup),
-    'only the foreign P-384');
-  CheckEquals('secp384r1', FindingOfKind(LFindings,
-    TComplianceFindingKind.ForeignNamedGroup).Subject, 'names P-384');
+    LFindings), 'admitted');
 end;
 
 procedure TTestComplianceAdmit.TestPrunedPolicyGroupsAdmitted;
@@ -3088,132 +3074,6 @@ begin
     LGroups[LI] := TNamedGroups.CreateNistEcdh(APolicy.Crypto,
       TNamedGroupCatalog.Name(LRules.NamedGroups[LI]));
   Result := TNamedGroups.CreateRegistry(LGroups);
-end;
-
-function TTestComplianceAdmit.CatalogSuite: TTlsCipherSuite;
-begin
-  CheckTrue(TCipherSuiteCatalog.TryGet(TCipherSuites12.EcdheEcdsaAes256GcmSha384, Result),
-    'catalog');
-end;
-
-function TTestComplianceAdmit.SuiteAdmit(const ASuite: TTlsCipherSuite;
-  out AFindings: TArray<TComplianceFinding>): Boolean;
-var
-  LPolicy: ICompliancePolicy;
-  LRules: TComplianceRules;
-  LBuilder: ICipherSuiteRegistryBuilder;
-  LSuite: TTlsCipherSuite;
-  LI: Int32;
-begin
-  LPolicy := StrictPolicy;
-  LRules := LPolicy.Rules;
-  // ASuite first, so it stands for its code and the rule suites fill the other versions
-  LBuilder := TCipherSuiteRegistryBuilder.Create as ICipherSuiteRegistryBuilder;
-  LBuilder.Add(ASuite);
-  for LI := 0 to System.Length(LRules.CipherSuites) - 1 do
-  begin
-    CheckTrue(TCipherSuiteCatalog.TryGet(LRules.CipherSuites[LI], LSuite), 'catalog');
-    LBuilder.Add(LSuite);
-  end;
-  Result := ClientAdmit(LPolicy, ClientBuilder(LPolicy).WithCipherSuites(LBuilder.Build).Build,
-    AFindings);
-end;
-
-procedure TTestComplianceAdmit.CheckDiffersFromCatalog(
-  const AFindings: TArray<TComplianceFinding>);
-var
-  LFinding: TComplianceFinding;
-begin
-  LFinding := FindingOfKind(AFindings, TComplianceFindingKind.CipherSuiteDiffersFromCatalog);
-  CheckEquals(TCipherSuiteCatalog.Name(CatalogSuite.Common.Code), LFinding.Subject,
-    'names the suite');
-  CheckTrue(Pos('catalog', LFinding.Message) > 0, 'says it differs from the catalog');
-  CheckFalse(HasKind(AFindings, TComplianceFindingKind.CipherSuiteNotAllowed),
-    'the code itself is allowed');
-end;
-
-procedure TTestComplianceAdmit.TestCatalogSuiteRecordAdmitted;
-var
-  LFindings: TArray<TComplianceFinding>;
-begin
-  CheckFalse(SuiteAdmit(CatalogSuite, LFindings), 'the catalog record is admitted');
-end;
-
-procedure TTestComplianceAdmit.TestSuiteWithAlteredHashRefused;
-var
-  LSuite: TTlsCipherSuite;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LSuite := CatalogSuite;
-  LSuite.Common.Hash := THashAlgorithm.SHA_256;
-  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckDiffersFromCatalog(LFindings);
-end;
-
-procedure TTestComplianceAdmit.TestSuiteWithAlteredPrfRefused;
-var
-  LSuite: TTlsCipherSuite;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LSuite := CatalogSuite;
-  LSuite.Prf := THashAlgorithm.SHA_256;
-  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckDiffersFromCatalog(LFindings);
-end;
-
-procedure TTestComplianceAdmit.TestSuiteWithAlteredKeyLengthRefused;
-var
-  LSuite: TTlsCipherSuite;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LSuite := CatalogSuite;
-  LSuite.Common.KeyLength := 16;
-  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckDiffersFromCatalog(LFindings);
-end;
-
-procedure TTestComplianceAdmit.TestSuiteWithAlteredAeadRefused;
-var
-  LSuite: TTlsCipherSuite;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LSuite := CatalogSuite;
-  LSuite.Common.Aead := TAeadAlgorithm.AES_128_GCM;
-  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckDiffersFromCatalog(LFindings);
-end;
-
-procedure TTestComplianceAdmit.TestSuiteWithAlteredProtocolRefused;
-var
-  LSuite: TTlsCipherSuite;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LSuite := CatalogSuite;
-  LSuite.Protocol := TSuiteProtocol.Tls13;
-  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckDiffersFromCatalog(LFindings);
-end;
-
-procedure TTestComplianceAdmit.TestSuiteWithAlteredKeyExchangeRefused;
-var
-  LSuite: TTlsCipherSuite;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LSuite := CatalogSuite;
-  LSuite.KeyExchange := TKeyExchangeMethod.Decoupled;
-  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckDiffersFromCatalog(LFindings);
-end;
-
-procedure TTestComplianceAdmit.TestSuiteWithAlteredAuthRefused;
-var
-  LSuite: TTlsCipherSuite;
-  LFindings: TArray<TComplianceFinding>;
-begin
-  LSuite := CatalogSuite;
-  LSuite.Auth := TAuthMethod.Rsa;
-  CheckTrue(SuiteAdmit(LSuite, LFindings), 'refused');
-  CheckDiffersFromCatalog(LFindings);
 end;
 
 procedure TTestComplianceAdmit.TestRelaxedRefusesForeignGroup;

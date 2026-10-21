@@ -167,6 +167,7 @@ uses
   TlpTlsConfigMemo in '..\..\TlsLib\src\Engine\TlpTlsConfigMemo.pas',
   TlpTlsSignatureBuilder in '..\..\TlsLib\src\Engine\TlpTlsSignatureBuilder.pas',
   TlpTlsEngineFactory in '..\..\TlsLib\src\Engine\TlpTlsEngineFactory.pas',
+  TlpClientPskPath in '..\..\TlsLib\src\Engine\TlpClientPskPath.pas',
   TlpExtensionContext in '..\..\TlsLib\src\Extensions\TlpExtensionContext.pas',
   TlpExtensionVector in '..\..\TlsLib\src\Extensions\TlpExtensionVector.pas',
   TlpEchRegistryExtension in '..\..\TlsLib\src\Ech\TlpEchRegistryExtension.pas',

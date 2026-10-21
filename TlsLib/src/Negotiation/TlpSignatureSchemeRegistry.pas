@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpCodeKeyedRegistry,
   TlpCryptoDomainTypes,
   TlpINegotiation;
@@ -36,6 +37,11 @@ type
     /// the default set is the full modern list here.
     /// </summary>
     class function CreateDefault: ISignatureSchemeRegistry; static;
+
+    /// <summary>The default set narrowed to the schemes in AAllowed, in the default preference
+    /// order whatever AAllowed's order.</summary>
+    class function CreateDefaultRestricted(
+      const AAllowed: TArray<TSignatureScheme>): ISignatureSchemeRegistry; static;
   end;
 
   /// <summary>The signature-scheme registry builder: Add and Prune, then Build a snapshot.</summary>
@@ -125,6 +131,19 @@ begin
   LRegistry.Add(TSignatureScheme.RSA_PKCS1_SHA384);
   LRegistry.Add(TSignatureScheme.RSA_PKCS1_SHA512);
   Result := LRegistry.Build;
+end;
+
+class function TSignatureSchemeRegistry.CreateDefaultRestricted(
+  const AAllowed: TArray<TSignatureScheme>): ISignatureSchemeRegistry;
+var
+  LBuilder: ISignatureSchemeRegistryBuilder;
+  LScheme: TSignatureScheme;
+begin
+  LBuilder := TSignatureSchemeRegistryBuilder.Create as ISignatureSchemeRegistryBuilder;
+  for LScheme in CreateDefault.Items do
+    if TArrayUtilities.Contains<TSignatureScheme>(AAllowed, LScheme) then
+      LBuilder.Add(LScheme);
+  Result := LBuilder.Build;
 end;
 
 end.

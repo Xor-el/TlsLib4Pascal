@@ -148,6 +148,7 @@ contains
   TlpTlsConfigMemo in '..\..\Engine\TlpTlsConfigMemo.pas',
   TlpTlsSignatureBuilder in '..\..\Engine\TlpTlsSignatureBuilder.pas',
   TlpTlsEngineFactory in '..\..\Engine\TlpTlsEngineFactory.pas',
+  TlpClientPskPath in '..\..\Engine\TlpClientPskPath.pas',
   TlpExtensionContext in '..\..\Extensions\TlpExtensionContext.pas',
   TlpExtensionVector in '..\..\Extensions\TlpExtensionVector.pas',
   TlpEchRegistryExtension in '..\..\Ech\TlpEchRegistryExtension.pas',

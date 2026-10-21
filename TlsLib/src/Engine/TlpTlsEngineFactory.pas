@@ -23,6 +23,8 @@ uses
   TlpCryptoDomainTypes,
   TlpSecretBuffer,
   TlpINamedGroup,
+  TlpNamedGroups,
+  TlpClientPskPath,
   TlpINegotiation,
   TlpICertificateTrust,
   TlpTrustTypes,
@@ -64,18 +66,14 @@ type
       out ACode: UInt16): INamedGroup; static;
     /// <summary>The first preferred classical ECDHE group (TLS 1.2 excludes KEM/hybrid).</summary>
     class function PreferredEcdheGroup(const AConfig: ITlsCommonConfig): INamedGroup; static;
-    /// <summary>The subset of ACodes that name classical ECDHE groups, in order. TLS 1.2
-    /// key exchange is ECDHE-only, so a client that does not offer 1.3 must not advertise
-    /// KEM/hybrid (post-quantum) groups in supported_groups.</summary>
-    class function EcdheGroupCodes(const AConfig: ITlsCommonConfig;
-      const ACodes: TArray<UInt16>): TArray<UInt16>; static;
-    /// <summary>The subset of ACodes that name a group present in the config's registry, in
-    /// order - the registry is the source of capability truth, so a preferred codepoint that
-    /// was pruned (or never registered) is silently dropped rather than advertised and then
-    /// failing to resolve when selected. This is what a restricted registry (e.g. classical-only)
-    /// composes through, whatever a preset's preferred order still names.</summary>
-    class function RegisteredGroupCodes(const AConfig: ITlsCommonConfig;
-      const ACodes: TArray<UInt16>): TArray<UInt16>; static;
+    /// <summary>The preferred groups the config's registry holds, as codes in order - the
+    /// registry is the source of capability truth, so a preferred codepoint that was pruned (or
+    /// never registered) is silently dropped rather than advertised and then failing to resolve
+    /// when selected. AEcdheOnly keeps only classical ECDHE groups: TLS 1.2 key exchange is
+    /// ECDHE-only, so a client that does not offer 1.3 must not advertise KEM/hybrid
+    /// (post-quantum) groups in supported_groups.</summary>
+    class function OfferedGroupCodes(const AConfig: ITlsCommonConfig;
+      AEcdheOnly: Boolean): TArray<UInt16>; static;
     class function Offers(const AConfig: ITlsCommonConfig;
       AVersion: UInt16): Boolean; static;
     /// <summary>The host_name a client sends in server_name: the DNS host, else empty (an IP
@@ -167,7 +165,8 @@ begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
   LHasPsk := System.Length(AConfig.Tls12Psks) > 0;
-  LPskOnly12 := LHasPsk and AConfig.Tls12PreSharedKeyRequired;
+  LPskOnly12 := TClientPskPath.RequiresPsk(System.Length(AConfig.Tls12Psks),
+    AConfig.Tls12PreSharedKeyRequired);
   // registry order is kept; a suite of a version the config does not offer is not advertised, so a
   // single-version hello carries no suite it could never complete. The PSK suites are offered only
   // with a PSK to present, and a client that requires its PSK offers no certificate suite for 1.2
@@ -188,69 +187,41 @@ end;
 class function TTlsEngineFactory.PreferredGroup(const AConfig: ITlsCommonConfig;
   out ACode: UInt16): INamedGroup;
 var
-  LCode: UInt16;
+  LGroups: TArray<INamedGroup>;
 begin
   if System.Length(AConfig.PreferredGroups) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoPreferredGroup);
   // the registry is authoritative: pick the first preferred group it actually holds, so a
   // preferred order that still names a pruned group (a preset lists the hybrid first) resolves
   // to the top registered group instead of failing
-  for LCode in AConfig.PreferredGroups do
-    if AConfig.NamedGroups.TryGet(LCode, Result) then
-    begin
-      ACode := LCode;
-      Exit;
-    end;
-  raise EArgumentTlsLibException.CreateResFmt(@SUnconfiguredGroup,
-    [AConfig.PreferredGroups[0]]);
+  LGroups := TNamedGroups.ResolvedGroups(AConfig.NamedGroups, AConfig.PreferredGroups);
+  if System.Length(LGroups) = 0 then
+    raise EArgumentTlsLibException.CreateResFmt(@SUnconfiguredGroup,
+      [AConfig.PreferredGroups[0]]);
+  Result := LGroups[0];
+  ACode := Result.Code;
 end;
 
 class function TTlsEngineFactory.PreferredEcdheGroup(
   const AConfig: ITlsCommonConfig): INamedGroup;
 var
-  LCode: UInt16;
   LGroup: INamedGroup;
 begin
-  for LCode in AConfig.PreferredGroups do
-    if AConfig.NamedGroups.TryGet(LCode, LGroup) and
-      (LGroup.Kind = TNamedGroupKind.Ecdhe) then
+  for LGroup in TNamedGroups.ResolvedGroups(AConfig.NamedGroups, AConfig.PreferredGroups) do
+    if LGroup.Kind = TNamedGroupKind.Ecdhe then
       Exit(LGroup);
   raise EArgumentTlsLibException.CreateRes(@SNoEcdheGroup);
 end;
 
-class function TTlsEngineFactory.EcdheGroupCodes(const AConfig: ITlsCommonConfig;
-  const ACodes: TArray<UInt16>): TArray<UInt16>;
+class function TTlsEngineFactory.OfferedGroupCodes(const AConfig: ITlsCommonConfig;
+  AEcdheOnly: Boolean): TArray<UInt16>;
 var
-  LCode: UInt16;
   LGroup: INamedGroup;
-  LN: Int32;
 begin
   Result := nil;
-  for LCode in ACodes do
-    if AConfig.NamedGroups.TryGet(LCode, LGroup) and
-      (LGroup.Kind = TNamedGroupKind.Ecdhe) then
-    begin
-      LN := System.Length(Result);
-      SetLength(Result, LN + 1);
-      Result[LN] := LCode;
-    end;
-end;
-
-class function TTlsEngineFactory.RegisteredGroupCodes(const AConfig: ITlsCommonConfig;
-  const ACodes: TArray<UInt16>): TArray<UInt16>;
-var
-  LCode: UInt16;
-  LGroup: INamedGroup;
-  LN: Int32;
-begin
-  Result := nil;
-  for LCode in ACodes do
-    if AConfig.NamedGroups.TryGet(LCode, LGroup) then
-    begin
-      LN := System.Length(Result);
-      SetLength(Result, LN + 1);
-      Result[LN] := LCode;
-    end;
+  for LGroup in TNamedGroups.ResolvedGroups(AConfig.NamedGroups, AConfig.PreferredGroups) do
+    if (not AEcdheOnly) or (LGroup.Kind = TNamedGroupKind.Ecdhe) then
+      TArrayUtilities.Append<UInt16>(Result, LGroup.Code);
 end;
 
 class function TTlsEngineFactory.Offers(const AConfig: ITlsCommonConfig;
@@ -333,7 +304,7 @@ begin
   // advertise every preferred group the registry holds (a pruned/absent group is dropped, not
   // advertised-then-unresolvable) and carry the registry, so the server may retry the client
   // onto any offered group it prefers (HelloRetryRequest)
-  L13.OfferedGroups := RegisteredGroupCodes(AConfig, AConfig.PreferredGroups);
+  L13.OfferedGroups := OfferedGroupCodes(AConfig, False);
   L13.GroupRegistry := AConfig.NamedGroups;
   L13.CipherSuites := AConfig.CipherSuites;
   // the extension registry (its ~20 handlers) is built only for a version whose machine is
@@ -391,7 +362,7 @@ begin
     L12.ClientPsk := AConfig.Tls12Psks[0];
   // TLS 1.2 key exchange is ECDHE-only: a 1.2 supported_groups carries no KEM/hybrid group,
   // so a client that reaches the 1.2 path (never offering 1.3) does not advertise one
-  L12.OfferedGroups := EcdheGroupCodes(AConfig, AConfig.PreferredGroups);
+  L12.OfferedGroups := OfferedGroupCodes(AConfig, True);
   L12.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   L12.AlpnProtocols := AConfig.AlpnProtocols;
   L12.RecordSizeLimit := AConfig.RecordSizeLimit;
@@ -443,8 +414,8 @@ begin
   if LOffers13 then
   begin
     L13.ExternalPsks := AConfig.ExternalPsks;
-    L13.RequirePsk := (System.Length(AConfig.ExternalPsks) > 0) and
-      AConfig.ExternalPskRequired;
+    L13.RequirePsk := TClientPskPath.RequiresPsk(System.Length(AConfig.ExternalPsks),
+      AConfig.ExternalPskRequired);
   end;
 
   // the inner hello never offers TLS 1.2 (RFC 9849 sec. 6.1), and this client also offers only

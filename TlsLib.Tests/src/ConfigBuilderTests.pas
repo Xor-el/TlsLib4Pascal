@@ -58,6 +58,7 @@ uses
   TlpNamedGroups,
   TlpTlsCredential,
   TlpTrustPolicy,
+  TlpClientPskPath,
   TlpITlsConfig,
   TlpITlsServerCredentialSet,
   TlpICertificateCompression,
@@ -313,6 +314,11 @@ type
     procedure TestPskOnlyClientOfferingTls12IsRefused;
     procedure TestPskOnlyClientWithPskOptionalIsRefused;
     procedure TestPskOnlyTls13ClientBuilds;
+    procedure TestRequiresPskNeedsAKeyAndTheFlag;
+    procedure TestCertificatePathTls13OnlyFollowsTheExternalKeys;
+    procedure TestCertificatePathTls12OnlyFollowsTheTls12Keys;
+    procedure TestCertificatePathBothVersionsNeedBothKeysRequired;
+    procedure TestCertificatePathNoVersionOffered;
     procedure TestServerConfigRequiresCredential;
     procedure TestServerClientAuthRequiresTrustStore;
     // an empty trust store is not a trust source: it must be refused (with a distinct message),
@@ -5584,6 +5590,48 @@ begin
   // documented, not refused: count 0 issues no tickets, so nothing resumes without shared state
   CheckNotNull(NewServerBuilder.Tls13.WithTicketCount(0).Build,
     'count 0 on a TLS 1.3-only server with resumption on and nothing shared');
+end;
+
+procedure TTestConfigBuilder.TestRequiresPskNeedsAKeyAndTheFlag;
+begin
+  CheckTrue(TClientPskPath.RequiresPsk(1, True), 'a key and the flag');
+  CheckFalse(TClientPskPath.RequiresPsk(1, False), 'a key, flag clear');
+  CheckFalse(TClientPskPath.RequiresPsk(0, True), 'flag with no key');
+  CheckFalse(TClientPskPath.RequiresPsk(0, False), 'neither');
+end;
+
+procedure TTestConfigBuilder.TestCertificatePathTls13OnlyFollowsTheExternalKeys;
+begin
+  CheckTrue(TClientPskPath.HasCertificatePath(True, False, 0, False, 0, False), 'no key');
+  CheckTrue(TClientPskPath.HasCertificatePath(True, False, 1, False, 0, False), 'optional key');
+  CheckTrue(TClientPskPath.HasCertificatePath(True, False, 0, True, 0, False), 'flag, no key');
+  CheckFalse(TClientPskPath.HasCertificatePath(True, False, 1, True, 0, False), 'required key');
+  CheckTrue(TClientPskPath.HasCertificatePath(True, False, 0, False, 1, True),
+    'a required TLS 1.2 key does not bind TLS 1.3');
+end;
+
+procedure TTestConfigBuilder.TestCertificatePathTls12OnlyFollowsTheTls12Keys;
+begin
+  CheckTrue(TClientPskPath.HasCertificatePath(False, True, 0, False, 0, False), 'no key');
+  CheckTrue(TClientPskPath.HasCertificatePath(False, True, 0, False, 1, False), 'optional key');
+  CheckFalse(TClientPskPath.HasCertificatePath(False, True, 0, False, 1, True), 'required key');
+  CheckTrue(TClientPskPath.HasCertificatePath(False, True, 1, True, 0, False),
+    'a required external key does not bind TLS 1.2');
+end;
+
+procedure TTestConfigBuilder.TestCertificatePathBothVersionsNeedBothKeysRequired;
+begin
+  CheckTrue(TClientPskPath.HasCertificatePath(True, True, 1, True, 1, False),
+    'TLS 1.2 key optional');
+  CheckTrue(TClientPskPath.HasCertificatePath(True, True, 1, False, 1, True),
+    'external key optional');
+  CheckFalse(TClientPskPath.HasCertificatePath(True, True, 1, True, 1, True), 'both required');
+end;
+
+procedure TTestConfigBuilder.TestCertificatePathNoVersionOffered;
+begin
+  CheckFalse(TClientPskPath.HasCertificatePath(False, False, 0, False, 0, False),
+    'no version, no path');
 end;
 
 initialization

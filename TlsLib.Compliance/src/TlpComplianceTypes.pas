@@ -109,8 +109,7 @@ type
     CredentialKeyUndetermined, CredentialKeyMissing, CredentialKeyMismatch,
     CredentialKeyBelowRules, CredentialSchemesNotAllowed,
     TicketAeadNotAllowed, CredentialResolverUnchecked, ForeignNamedGroup,
-    CustomVerifierConfigured, ResumptionStateUnchecked, TicketKeysUnchecked,
-    CipherSuiteDiffersFromCatalog);
+    CustomVerifierConfigured, ResumptionStateUnchecked, TicketKeysUnchecked);
 
   TComplianceFinding = record
     Kind: TComplianceFindingKind;
@@ -190,8 +189,6 @@ type
     /// <summary>Whether A and B are one credential: the same private key object and the same
     /// certificate chain, byte for byte.</summary>
     class function SameCredential(const A, B: TTlsCredential): Boolean; static;
-    /// <summary>Whether ASuite is, field for field, the catalog definition of its code.</summary>
-    class function IsCatalogSuite(const ASuite: TTlsCipherSuite): Boolean; static;
     /// <summary>The display name of a module standard.</summary>
     class function StandardName(AStandard: TModuleStandard): string; static;
     /// <summary>The members of ASet in enum order.</summary>
@@ -633,19 +630,6 @@ begin
   for LI := 0 to System.Length(A.CertificateChain) - 1 do
     if Result then
       Result := TArrayUtilities.AreEqual(A.CertificateChain[LI], B.CertificateChain[LI]);
-end;
-
-class function TComplianceCatalog.IsCatalogSuite(const ASuite: TTlsCipherSuite): Boolean;
-var
-  LCatalog: TTlsCipherSuite;
-begin
-  Result := TCipherSuiteCatalog.TryGet(ASuite.Common.Code, LCatalog) and
-    (ASuite.Common.Hash = LCatalog.Common.Hash) and
-    (ASuite.Common.Aead = LCatalog.Common.Aead) and
-    (ASuite.Common.KeyLength = LCatalog.Common.KeyLength) and
-    (ASuite.Protocol = LCatalog.Protocol) and
-    (ASuite.KeyExchange = LCatalog.KeyExchange) and (ASuite.Auth = LCatalog.Auth) and
-    (ASuite.Prf = LCatalog.Prf);
 end;
 
 class function TComplianceCatalog.StandardName(AStandard: TModuleStandard): string;
