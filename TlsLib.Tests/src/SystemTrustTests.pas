@@ -363,7 +363,9 @@ type
     function ResolveClient(const AEngine: IPlatformChainEngine;
       const AAnchors, AChain: TArray<TBytes>; AAnchorFloors: Boolean;
       out AAlert: TTlsAlertDescription): Boolean;
-    function ClientSourceMessage(AAnchorFloors: Boolean; const AAnchors: TArray<TBytes>): string;
+    /// <summary>The message of the Build refusal for a server whose client-CA anchors are
+    /// AAnchors, or '' when it builds.</summary>
+    function ServerBuildMessage(AAnchorFloors: Boolean; const AAnchors: TArray<TBytes>): string;
     function Verify(const AEngine: IPlatformChainEngine; AScope: TSystemTrustRootScope;
       const AHostRoots, ADistrusted, AChain: TArray<TBytes>; const AName: string;
       out AAlert: TTlsAlertDescription): Boolean;
@@ -423,10 +425,9 @@ type
     procedure TestLiveResolverOverloadRefusesADifferentOsRootsSource;
     procedure TestLiveResolverOverloadAcceptsTheConfigsOwnOsSource;
     procedure TestFromClientConfigRefusesAConfigWithoutAServerCertificate;
-    procedure TestClientSourceRefusesAWeakAnchorWithFloorsOn;
-    procedure TestClientSourceKeepsAWeakAnchorWithFloorsOff;
-    procedure TestClientSourceKeepsAnAnchorThatMeetsTheFloors;
-    procedure TestClientSourceRefusalLeavesTheCallersVariableNil;
+    procedure TestServerBuildRefusesAWeakClientAnchorWithFloorsOn;
+    procedure TestServerBuildKeepsAWeakClientAnchorWithFloorsOff;
+    procedure TestServerBuildKeepsAClientAnchorThatMeetsTheFloors;
     procedure TestClientDelegateRefusesAWeakAnchorAnEngineReportsAsExempt;
     procedure TestClientDelegateAcceptsAWeakExemptAnchorWithFloorsOff;
     procedure TestClientDelegateRefusesAWeakAnchorWhenTheEngineReportsNone;
@@ -3245,19 +3246,29 @@ begin
     TPlatformChainCapability.LiveFetch], True, LResult, TTlsAlertDescription.BadCertificate);
 end;
 
-function TTestDelegateHostRootsAlone.ClientSourceMessage(AAnchorFloors: Boolean;
+function TTestDelegateHostRootsAlone.ServerBuildMessage(AAnchorFloors: Boolean;
   const AAnchors: TArray<TBytes>): string;
 var
   LSource: IClientCertificateVerifierSource;
+  LStrength: TCertificateStrengthPolicy;
 begin
   Result := '';
   LSource := TOSVerifierSource.Create(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps,
     PublicRoot) as IPlatformChainEngine, TSystemTrustFetch.CacheOnly,
     TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IClientCertificateVerifierSource;
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.MinRsaModulusBits := 4096;
+  LStrength.AnchorKeyFloors := AAnchorFloors;
   try
-    LSource.CreateClientVerifier(ClientContext(AAnchors, AAnchorFloors));
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(TTlsCredential.Load(Crypto, Pkix, DecodeHex(FEc.Values['leaf_cert']),
+      DecodeHex(FEc.Values['leaf_key'])))
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithClientVerification(TClientVerification.VerifierSource(LSource,
+      TTrustAnchorStore.Create(AAnchors) as ITrustAnchorStore)
+      .WithMinimumStrength(LStrength).Build).Build;
   except
-    on E: EArgumentTlsLibException do
+    on E: EInvalidOperationTlsLibException do
       Result := E.Message;
   end;
 end;
@@ -4136,39 +4147,20 @@ begin
     'a skip-verify config has no server certificate to re-check');
 end;
 
-procedure TTestDelegateHostRootsAlone.TestClientSourceRefusesAWeakAnchorWithFloorsOn;
+procedure TTestDelegateHostRootsAlone.TestServerBuildRefusesAWeakClientAnchorWithFloorsOn;
 begin
-  CheckEquals(SClientAnchorBelowKeyFloors, ClientSourceMessage(True, WeakRoot),
+  CheckTrue(Pos('AnchorKeyFloors', ServerBuildMessage(True, WeakRoot)) > 0,
     'an RSA-2048 client-CA anchor is below a 4096-bit floor');
 end;
 
-procedure TTestDelegateHostRootsAlone.TestClientSourceKeepsAWeakAnchorWithFloorsOff;
+procedure TTestDelegateHostRootsAlone.TestServerBuildKeepsAWeakClientAnchorWithFloorsOff;
 begin
-  CheckEquals('', ClientSourceMessage(False, WeakRoot), 'the anchor is exempt from the floors');
+  CheckEquals('', ServerBuildMessage(False, WeakRoot), 'the anchor is exempt from the floors');
 end;
 
-procedure TTestDelegateHostRootsAlone.TestClientSourceKeepsAnAnchorThatMeetsTheFloors;
+procedure TTestDelegateHostRootsAlone.TestServerBuildKeepsAClientAnchorThatMeetsTheFloors;
 begin
-  CheckEquals('', ClientSourceMessage(True, PrivateRoot), 'a P-256 anchor meets the floors');
-end;
-
-procedure TTestDelegateHostRootsAlone.TestClientSourceRefusalLeavesTheCallersVariableNil;
-var
-  LSource: IClientCertificateVerifierSource;
-  LVerifier: IClientCertificateVerifier;
-begin
-  LSource := TOSVerifierSource.Create(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps,
-    PublicRoot) as IPlatformChainEngine, TSystemTrustFetch.CacheOnly,
-    TSystemTrustRootScope.OsAndHostRoots, nil, nil) as IClientCertificateVerifierSource;
-  LVerifier := nil;
-  try
-    LVerifier := LSource.CreateClientVerifier(ClientContext(WeakRoot, True));
-  except
-    on EArgumentTlsLibException do
-      ;
-  end;
-  // guards that a refused verifier never reaches the caller's variable
-  CheckTrue(LVerifier = nil, 'a refused client verifier is not handed back');
+  CheckEquals('', ServerBuildMessage(True, PrivateRoot), 'a P-256 anchor meets the floors');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestClientDelegateRefusesAWeakAnchorAnEngineReportsAsExempt;

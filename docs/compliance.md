@@ -462,8 +462,9 @@ posture of Off is disclosed. A server reports these only when it requests client
   no other chain verifier. The OS chain engine is not the validated module: it calls the module for
   the signature math, and the path building, name matching and revocation logic around it are the
   OS's.
-- Trust anchors are held to the key floors, so an anchor key below them is refused; an anchor's
-  own signature and hash are not judged.
+- Trust anchors are held to the key floors, so an anchor key below them is refused: a server's
+  client-CA anchors at `Build`, the root ending a server-certificate path at the handshake. An
+  anchor's own signature and hash are not judged.
 - A peer chain is held to the RSA size range, not to the exact sizes of the rules.
 - The AES-GCM IV is built by the library and imported into the module, not generated inside it;
   see [The GCM nonce](#the-gcm-nonce). The Security Policy (section 2.7.1) accepts an imported IV

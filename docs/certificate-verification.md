@@ -542,7 +542,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 ### Key-strength floors
 
 `WithMinimumStrength` on a `WebPki` or `VerifierSource` policy (server or client verification) sets
-the floors the leaf and intermediates must meet; a configured trust anchor is exempt. The fields of
+the floors the leaf and intermediates must meet; a configured trust anchor is exempt unless
+`AnchorKeyFloors` is set, which holds its key to the floors too. The fields of
 `TCertificateStrengthPolicy` (unit `TlpCertificateStrengthPolicy`) and their `Defaults`, used by
 every preset:
 
@@ -565,7 +566,7 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
 
 ### The chain-algorithm policy (always on)
 
-Over the validated path (the anchor exempt), the built-in pipeline and the OS delegates always check:
+Over the validated path (the anchor exempt unless `AnchorKeyFloors` is set), the built-in pipeline and the OS delegates always check:
 
 - every leaf and intermediate is signed with a signature scheme this endpoint advertised, else
   `unsupported_certificate`;

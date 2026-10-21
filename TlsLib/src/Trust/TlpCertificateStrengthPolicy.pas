@@ -49,7 +49,8 @@ type
     /// <summary>Holds a trust anchor's public key to the same floors as the leaf and
     /// intermediates; the anchor's own self-signature and hash are still not checked (False =
     /// the anchor is exempt). An anchor whose key kind is unknown is refused with
-    /// unsupported_certificate; one that does not parse, with bad_certificate.</summary>
+    /// unsupported_certificate; one that does not parse, with bad_certificate. A server's
+    /// client-CA anchors are all checked at Build.</summary>
     AnchorKeyFloors: Boolean;
     /// <summary>The default floors, applied by every preset: RSA 2048..8192, the NIST P-curves,
     /// EdDSA admitted, no deprecated hash, trust anchors exempt.</summary>

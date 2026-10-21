@@ -46,6 +46,8 @@ uses
   TlpCertificateLimits,
   TlpTrustPolicy,
   TlpCertificateStrengthPolicy,
+  TlpChainAlgorithmPolicy,
+  TlpTlsAlert,
   TlpTlsCredential,
   TlpITlsCredentialResolver,
   TlpCredentialResolvers,
@@ -478,6 +480,9 @@ resourcestring
     'configured client-CA anchors as its exclusive trust root and can trust nothing without them; ' +
     'give the TClientVerification.VerifierSource store at least one root certificate (a verifier ' +
     'that brings its own roots is installed with TClientVerification.Custom instead)';
+  SClientAnchorBelowKeyFloors = 'a client-CA trust anchor''s key is below the certificate ' +
+    'strength floors or cannot be read, and the strength policy holds anchors to the floors ' +
+    '(AnchorKeyFloors)';
   SMtlsSharedResumptionNeedsScope = 'client authentication with a supplied session store or ' +
     'ticket-key manager requires WithResumptionScope: a key or store may be shared across ' +
     'configurations, and a resumed handshake reuses the stored client identity unverified';
@@ -3276,6 +3281,7 @@ end;
 function TTlsConfigBuilder.BuildServer: ITlsServerConfig;
 var
   LConfig: TFrozenServerConfig;
+  LAlert: TTlsAlertDescription;
 begin
   // a builder is single-use
   GuardMutable;
@@ -3364,6 +3370,11 @@ begin
       raise EInvalidOperationTlsLibException.CreateRes(@SEmptyTrustStore);
     raise EInvalidOperationTlsLibException.CreateRes(@SNoClientAuthTrustStore);
   end;
+  // the client-CA anchors are the exclusive root, so a weak one would otherwise fail only per handshake
+  if (FClientAuth <> TClientAuthMode.None) and HasAnchorRoots and
+    not TChainAlgorithmPolicy.AnchorsMeetKeyFloors(FPkix.Certificates,
+    ComposeTrustStore.RootCertificates, FStrengthPolicy, LAlert) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SClientAnchorBelowKeyFloors);
   // a Hard revocation posture on the client certificate rejects a client whose cert carries no
   // definite non-revoked status. A client cannot staple, so the only status source is a live
   // OCSP/CRL verdict resolver; without one, Hard would reject every client. Fail fast at Build

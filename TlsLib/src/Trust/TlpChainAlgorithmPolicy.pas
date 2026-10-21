@@ -71,6 +71,14 @@ type
       const AChain, ARoots: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>
+    /// Whether every anchor's key meets the key-strength floors; True when APolicy does not set
+    /// AnchorKeyFloors or AAnchors is empty. An anchor that cannot be parsed is bad_certificate;
+    /// one whose key cannot be described or is below the floors is unsupported_certificate.
+    /// </summary>
+    class function AnchorsMeetKeyFloors(const AInspector: ICertificateInspector;
+      const AAnchors: TArray<TBytes>; const APolicy: TCertificateStrengthPolicy;
+      out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>
     /// Whether we may send AChain: no certificate other than a self-issued one (treated as a path
     /// start, as RFC 9846 4.3.3 treats a self-signed one) is signed with MD5, or with SHA-1 the peer
     /// did not advertise in APeerCertSchemes (RFC 9846 4.5.1.2; MD5 inferred from 4.5.1.3). A
@@ -292,6 +300,21 @@ begin
   end;
   // a key of a kind the inspector cannot describe is as unusable as a weak one
   Result := CheckKey(LCert, APolicy, TTlsAlertDescription.UnsupportedCertificate, AAlert);
+end;
+
+class function TChainAlgorithmPolicy.AnchorsMeetKeyFloors(const AInspector: ICertificateInspector;
+  const AAnchors: TArray<TBytes>; const APolicy: TCertificateStrengthPolicy;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LI: Int32;
+begin
+  AAlert := TTlsAlertDescription.BadCertificate;
+  if not APolicy.AnchorKeyFloors then
+    Exit(True);
+  for LI := 0 to System.High(AAnchors) do
+    if not CheckAnchorKey(AInspector, AAnchors[LI], APolicy, AAlert) then
+      Exit(False);
+  Result := True;
 end;
 
 class function TChainAlgorithmPolicy.Check(const AInspector: ICertificateInspector;

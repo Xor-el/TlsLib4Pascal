@@ -52,9 +52,6 @@ resourcestring
   SLiveNeedsKnownRoots =
     'the live revocation resolver cannot tell which roots the configured server verifier source ' +
     'trusts; use the OS verifier source or a trust store, or pass the OS source it wraps';
-  SClientAnchorBelowKeyFloors =
-    'a client-CA anchor is not a certificate whose key meets the certificate strength policy ' +
-    'floors';
   SLiveNeedsServerVerification =
     'the live revocation resolver needs a client config that verifies the server certificate; ' +
     'this one has no trust store or OS verifier source (a PSK-only or skip-verify config)';

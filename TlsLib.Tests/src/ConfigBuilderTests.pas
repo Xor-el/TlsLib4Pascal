@@ -133,6 +133,10 @@ type
       const ANames: TArray<TBytes>): string;
     function HardWebPkiServer: IServerVerification;
     function HardWebPkiClient: IClientVerification;
+    // the message of the Build refusal for a server with these client-CA anchors, '' when it builds
+    function ClientAnchorBuildMessage(AUseSource, AFloors: Boolean;
+      const AStore: ITrustAnchorStore): string;
+    function WeakClientAnchor: TBytes;
     function ClientBuildNeedsTls13(const AFacet: ITls13ClientConfigFacet): Boolean;
     function ServerBuildNeedsTls13(const AFacet: ITls13ServerConfigFacet): Boolean;
     /// <summary>Whether Build is refused as invalid operation with AReason in its message.</summary>
@@ -324,6 +328,14 @@ type
     procedure TestServerClientAuthVerifierSourceWithEmptyStoreIsRefused;
     procedure TestServerClientAuthVerifierSourceWithAnchorsBuilds;
     procedure TestServerClientAuthVerifierSourceWithEmptyStoreAndRealRootBuilds;
+    procedure TestServerWebPkiRefusesAWeakClientAnchorWithFloorsOn;
+    procedure TestServerVerifierSourceRefusesAWeakClientAnchorWithFloorsOn;
+    procedure TestServerBuildsAWeakClientAnchorWithFloorsOff;
+    procedure TestServerBuildsAStrongClientAnchorWithFloorsOn;
+    procedure TestServerBuildsWhenTheWeakClientAnchorIsDistrustedBesideAStrongOne;
+    procedure TestServerRefusesAClientAnchorWithAnUndescribableKey;
+    procedure TestServerMalformedClientAnchorIsReportedBeforeTheFloors;
+    procedure TestClientBuildsWithAWeakRootWhenFloorsAreOn;
     procedure TestServerVerifierSourceWithoutPeerAuthIsRefused;
     procedure TestServerTrustInputsWithoutPeerAuthAreRefused;
     procedure TestMtlsServerWithSuppliedTicketKeysRequiresScope;
@@ -3241,6 +3253,107 @@ begin
         TTlsLibTestCertificates.EcP256RootStore))).Build).Build;
   CheckEquals(1, System.Length(LConfig.TrustStore.RootCertificates),
     'the union carries the one real root; the empty store contributes none');
+end;
+
+function TTestConfigBuilder.WeakClientAnchor: TBytes;
+begin
+  Result := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+end;
+
+function TTestConfigBuilder.ClientAnchorBuildMessage(AUseSource, AFloors: Boolean;
+  const AStore: ITrustAnchorStore): string;
+var
+  LStrength: TCertificateStrengthPolicy;
+  LVerification: IClientVerification;
+begin
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.MinRsaModulusBits := 3072;
+  LStrength.AnchorKeyFloors := AFloors;
+  if AUseSource then
+    LVerification := TClientVerification.VerifierSource(
+      TAcceptingClientVerifierSource.Create as IClientCertificateVerifierSource, AStore)
+      .WithMinimumStrength(LStrength).Build
+  else
+    LVerification := TClientVerification.WebPki(AStore).WithMinimumStrength(LStrength).Build;
+  Result := '';
+  try
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+      .WithCredential(ServerCredential)
+      .WithPeerAuth(TClientAuthMode.Required)
+      .WithClientVerification(LVerification).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      Result := E.Message;
+  end;
+end;
+
+procedure TTestConfigBuilder.TestServerWebPkiRefusesAWeakClientAnchorWithFloorsOn;
+begin
+  CheckTrue(Pos('AnchorKeyFloors', ClientAnchorBuildMessage(False, True,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(WeakClientAnchor)) as ITrustAnchorStore)) > 0,
+    'an RSA-2048 client-CA anchor is below a 3072-bit floor');
+end;
+
+procedure TTestConfigBuilder.TestServerVerifierSourceRefusesAWeakClientAnchorWithFloorsOn;
+begin
+  CheckTrue(Pos('AnchorKeyFloors', ClientAnchorBuildMessage(True, True,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(WeakClientAnchor)) as ITrustAnchorStore)) > 0,
+    'the source consumes the same anchors, so it is refused the same way');
+end;
+
+procedure TTestConfigBuilder.TestServerBuildsAWeakClientAnchorWithFloorsOff;
+begin
+  CheckEquals('', ClientAnchorBuildMessage(False, False,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(WeakClientAnchor)) as ITrustAnchorStore),
+    'the anchor is exempt while the flag is off');
+end;
+
+procedure TTestConfigBuilder.TestServerBuildsAStrongClientAnchorWithFloorsOn;
+begin
+  CheckEquals('', ClientAnchorBuildMessage(False, True, TTlsLibTestCertificates.EcP256RootStore),
+    'a P-256 anchor meets the floors');
+end;
+
+procedure TTestConfigBuilder.TestServerBuildsWhenTheWeakClientAnchorIsDistrustedBesideAStrongOne;
+var
+  LStore: ITrustAnchorStore;
+begin
+  LStore := TTrustAnchorStore.Create(TArray<TBytes>.Create(WeakClientAnchor,
+    TTlsLibTestCertificates.EcP256RootStore.RootCertificates[0]),
+    TArray<TBytes>.Create(WeakClientAnchor)) as ITrustAnchorStore;
+  CheckEquals('', ClientAnchorBuildMessage(False, True, LStore),
+    'a distrusted root is not an anchor, so the floors do not see it');
+end;
+
+procedure TTestConfigBuilder.TestServerRefusesAClientAnchorWithAnUndescribableKey;
+begin
+  CheckTrue(Pos('AnchorKeyFloors', ClientAnchorBuildMessage(False, True,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TTlsLibTestCertificates.Field(
+    'Certs/DsaRoot.txt', 'root_cert'))) as ITrustAnchorStore)) > 0,
+    'a DSA anchor key has no floor to meet');
+end;
+
+procedure TTestConfigBuilder.TestServerMalformedClientAnchorIsReportedBeforeTheFloors;
+var
+  LMessage: string;
+begin
+  LMessage := ClientAnchorBuildMessage(False, True, TTrustAnchorStore.Create(
+    TArray<TBytes>.Create(TBytes.Create(1, 2, 3))) as ITrustAnchorStore);
+  CheckTrue(Pos('anchor 0 of trust store 0', LMessage) > 0,
+    'an unparseable anchor gets the malformed-anchor error; got: ' + LMessage);
+end;
+
+procedure TTestConfigBuilder.TestClientBuildsWithAWeakRootWhenFloorsAreOn;
+var
+  LStrength: TCertificateStrengthPolicy;
+begin
+  LStrength := TCertificateStrengthPolicy.Defaults;
+  LStrength.MinRsaModulusBits := 3072;
+  LStrength.AnchorKeyFloors := True;
+  CheckTrue(TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(TTrustAnchorStore.Create(TArray<TBytes>.Create(WeakClientAnchor))
+    as ITrustAnchorStore).WithMinimumStrength(LStrength).Build).Build <> nil,
+    'a client holds each path to the floors at the handshake, not its roots at Build');
 end;
 
 function TTestConfigBuilder.HardWebPkiServer: IServerVerification;

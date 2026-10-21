@@ -213,6 +213,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   root (a store that distrusts its only root has none). A platform engine that cannot trust host
   roots alone raises `ESystemTrustUnsupportedTlsLibException` (see
   [Writing your own platform engine](#writing-your-own-platform-engine)).
+- **Key floors.** Under `AnchorKeyFloors`, a host or OS root is held to the floors per handshake
+  when it ends the path, not at `Build`.
 - **Anchors mode** validates in our own pipeline against your roots only. Nothing is harvested from
   the OS, so Linux, BSD and Solaris need no `ca-certificates` package or CA bundle.
 - **Apple.** CT and the 398-day cap apply only to system roots; Apple's general TLS server rules
@@ -368,8 +370,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 ```
 
 When the strength policy sets `AnchorKeyFloors`, a client-CA anchor whose key is below the floors
-(or one whose key cannot be read) is refused with `EArgumentTlsLibException` when the server
-creates the client verifier for a connection, not at `Build`, on every platform.
+(or one whose key cannot be read) is refused with `EInvalidOperationTlsLibException` at `Build`, on
+every platform.
 
 The delegate uses the `clientAuth` EKU + the OS client-auth policy (a client certificate is never
 stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Apple apply the same

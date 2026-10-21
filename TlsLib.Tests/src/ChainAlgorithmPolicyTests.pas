@@ -74,6 +74,11 @@ type
     procedure TestAnchorOfUnknownKeyKindIsRefusedWhenFlagged;
     procedure TestUnparseableAnchorIsExemptWhenNotFlagged;
     procedure TestUnparseableAnchorIsBadCertificateWhenFlagged;
+    procedure TestAnchorsMeetKeyFloorsPassesAWeakAnchorWhenNotFlagged;
+    procedure TestAnchorsMeetKeyFloorsPassesAnEmptySet;
+    procedure TestAnchorsMeetKeyFloorsRefusesAWeakAnchorBesideAStrongOne;
+    procedure TestAnchorsMeetKeyFloorsReportsAnUnparseableAnchorAsBadCertificate;
+    procedure TestAnchorsMeetKeyFloorsReportsAnUndescribableKeyAsUnsupported;
     procedure TestAnchorSignatureHashIsNotCheckedWhenFlagged;
     procedure TestFlaggedPolicyAcceptsAStandardChainWithItsAnchor;
     procedure TestFlaggedPolicyStillRefusesAWeakNonAnchor;
@@ -741,6 +746,72 @@ begin
     TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
     TCertificateStrengthPolicy.Defaults, Advertised, LAlert),
     'a DSA anchor passes while the flag is off');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorsMeetKeyFloorsPassesAWeakAnchorWhenNotFlagged;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.MinRsaModulusBits := 4096;
+  CheckTrue(TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Pkix.Certificates,
+    TArray<TBytes>.Create(RsaCert('root_cert')), LPolicy, LAlert),
+    'an RSA-2048 anchor is exempt while the flag is off');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorsMeetKeyFloorsPassesAnEmptySet;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AnchorKeyFloors := True;
+  CheckTrue(TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Pkix.Certificates, nil, LPolicy, LAlert),
+    'no anchors, nothing to refuse');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorsMeetKeyFloorsRefusesAWeakAnchorBesideAStrongOne;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.MinRsaModulusBits := 4096;
+  LPolicy.AnchorKeyFloors := True;
+  CheckFalse(TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Pkix.Certificates,
+    TArray<TBytes>.Create(EcCert('root_cert'), RsaCert('root_cert')), LPolicy, LAlert),
+    'one weak anchor fails the set');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'a weak anchor key is unsupported_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorsMeetKeyFloorsReportsAnUnparseableAnchorAsBadCertificate;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AnchorKeyFloors := True;
+  CheckFalse(TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Pkix.Certificates,
+    TArray<TBytes>.Create(TBytes.Create($30, $03, $02, $01, $00)), LPolicy, LAlert),
+    'an anchor that does not parse fails closed');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'a parse failure is bad_certificate');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestAnchorsMeetKeyFloorsReportsAnUndescribableKeyAsUnsupported;
+var
+  LPolicy: TCertificateStrengthPolicy;
+  LAlert: TTlsAlertDescription;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AnchorKeyFloors := True;
+  CheckFalse(TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Pkix.Certificates,
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert')),
+    LPolicy, LAlert), 'a DSA anchor key has no floor to meet');
+  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
+    'an anchor key of unknown kind is unsupported_certificate');
 end;
 
 procedure TTestChainAlgorithmPolicy.TestAnchorOfUnknownKeyKindIsRefusedWhenFlagged;
