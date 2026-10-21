@@ -1,4 +1,4 @@
-# Certificates for issuer-key-type tests: an RSA-2048 leaf signed with RSASSA-PSS, and two self-signed RSA-2048 roots that differ only in the key type.
+# Certificates for issuer-key-type tests: an RSA-2048 leaf signed with RSASSA-PSS, and two self-signed RSA-2048 roots, one with an id-RSASSA-PSS key and one with an rsaEncryption key.
 #   pss_signed_leaf_cert: "CN=localhost", serial 2, issuer "CN=TlsLib Pss Key Root", rsaEncryption key, no keyUsage; signature
 #     rsassaPss (SHA-256, MGF1 with SHA-256, salt length 32), made by the key of pss_key_root_cert and verifying under it.
 #   pss_key_root_cert: "CN=TlsLib Pss Key Root", serial 1, CA:TRUE critical, an id-RSASSA-PSS public key (no parameters),

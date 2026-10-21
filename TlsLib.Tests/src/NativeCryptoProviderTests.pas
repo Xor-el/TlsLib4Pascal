@@ -2835,7 +2835,7 @@ var
   LOverlay: ICryptoProvider;
 begin
   LSupplied := TFakeHpke.Create as IHpkeCrypto;
-  LOverlay :=TOverlayCryptoProvider.Create(BaseWithHpke(nil), nil, nil,
+  LOverlay := TOverlayCryptoProvider.Create(BaseWithHpke(nil), nil, nil,
     TBareBackendReport.Create(False) as ICryptoBackendReport, LSupplied) as ICryptoProvider;
   CheckTrue(LOverlay.Hpke = LSupplied, 'a report that says portable describes any facet');
 end;

@@ -120,8 +120,7 @@ type
   strict protected
     function CreateCrypto: ICryptoProvider; override;
     function Identity: TModuleIdentity;
-    // every operation in the OS module and signing left to the portable facet, with the module
-    // serving the TLS 1.2 PRF, and an imported key is an OS-served P-256 key
+    // the OS module serves every operation and the TLS 1.2 PRF; an imported key is OS-served
     function SystemBaseWithKey: ICryptoProvider;
     // rules of Fips140_3 narrowed to TLS 1.2 and its suites
     function Tls12OnlyRules: TComplianceRules;
@@ -156,8 +155,7 @@ type
     function ServerBuilder(const APolicy: ICompliancePolicy): ITlsServerConfigBuilder;
     // the facade server offering TLS 1.3 only, with the TLS 1.2 setting it made taken back
     function Tls13OnlyServerBuilder(const APolicy: ICompliancePolicy): ITlsServerConfigBuilder;
-    // the P-256 server credential whose key is an OS-served one holding ASchemes and the leaf's own
-    // public key
+    // the P-256 server credential with an OS-served key of ASchemes over the leaf's public key
     function MarkedKeyCredential(const ACrypto: ICryptoProvider;
       const ASchemes: TArray<TSignatureScheme>): TTlsCredential;
     // whether Admit raised; AFindings holds what the exception carried, else the report's
@@ -2003,8 +2001,7 @@ var
   LBase: ICryptoProvider;
   LFindings: TArray<TComplianceFinding>;
 begin
-  LBase := TComplianceFakes.FakeSystemBase(TFakeBackendReport.Create(
-    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil, nil);
+  LBase := TComplianceFakes.SystemOver([TAeadAlgorithm.AES_128_GCM]);
   CheckTrue(Construct(TCompliancePresets.Fips140_3, LBase, TModuleStatus.Validated,
     TComplianceEnforcement.Strict, LFindings), 'strict refuses');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.AlgorithmOutsideModule),
@@ -2018,8 +2015,7 @@ var
   LBase: ICryptoProvider;
   LPolicy: ICompliancePolicy;
 begin
-  LBase := TComplianceFakes.FakeSystemBase(TFakeBackendReport.Create(
-    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil, nil);
+  LBase := TComplianceFakes.SystemOver([TAeadAlgorithm.AES_128_GCM]);
   LPolicy := NewPolicy(TCompliancePresets.Fips140_3, LBase, TModuleStatus.Validated,
     TComplianceEnforcement.Relaxed);
   CheckTrue(ReportHasKind(LPolicy.PlatformReport, TComplianceFindingKind.AlgorithmOutsideModule),
@@ -2486,8 +2482,7 @@ var
   LPolicy: ICompliancePolicy;
   LFindings: TArray<TComplianceFinding>;
 begin
-  LBase := TComplianceFakes.FakeSystemBase(TFakeBackendReport.Create(
-    [TAeadAlgorithm.AES_128_GCM]) as ICryptoBackendReport, nil, nil);
+  LBase := TComplianceFakes.SystemOver([TAeadAlgorithm.AES_128_GCM]);
   LPolicy := NewPolicy(TCompliancePresets.Fips140_3, LBase, TModuleStatus.NotValidated,
     TComplianceEnforcement.Relaxed);
   LFindings := LPolicy.PlatformReport.Findings;
@@ -3333,7 +3328,7 @@ begin
   LBase := TComplianceFakes.SystemOver([]);
   LPolicy := NewPolicy(TCompliancePresets.Fips140_3, LBase, TModuleStatus.Validated,
     TComplianceEnforcement.Relaxed);
-  LConfig :=TComplianceTls.Server(LPolicy, ServerCredential(LPolicy.Crypto)).Build;
+  LConfig := TComplianceTls.Server(LPolicy, ServerCredential(LPolicy.Crypto)).Build;
   CheckFalse(ServerAdmit(LPolicy, LConfig, LFindings), 'a platform finding does not raise');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.CredentialKeyOutsideModule),
     'but it is reported');
@@ -3940,7 +3935,8 @@ begin
   LPolicy := RelaxedPolicy;
   CheckTrue(LPolicy.CheckedCredentialResolver(TFixedCredentialResolver.Create(
     ServerCredential(Crypto), True) as ITlsServerCredentialResolver).TryResolve(
-    Default(TTlsClientHelloInfo), LResolved), 'relaxed reports a platform finding and still admits');
+    Default(TTlsClientHelloInfo), LResolved),
+    'relaxed reports a platform finding and still admits');
 end;
 
 procedure TTestComplianceAdmit.TestCheckedResolverAnswersFalseWhenTheInnerDoes;
@@ -4139,7 +4135,7 @@ begin
   LPolicy := StrictPolicy;
   LGiven := MarkedKeyCredential(LPolicy.Crypto, TArray<TSignatureScheme>.Create(
     TSignatureScheme.ED25519, TSignatureScheme.ECDSA_SECP256R1_SHA256));
-  LReport :=LPolicy.Evaluate(TComplianceTls.Server(LPolicy,
+  LReport := LPolicy.Evaluate(TComplianceTls.Server(LPolicy,
     TSniCredentialResolver.ForCredential(LGiven)).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CredentialSchemesNotAllowed),
     'the wrapper narrows this key before it judges it, so the build check does too');
@@ -5175,7 +5171,7 @@ begin
   LPolicy := StrictPolicy;
   LCredential := MarkedKeyCredential(LPolicy.Crypto, TArray<TSignatureScheme>.Create(
     TSignatureScheme.ED25519, TSignatureScheme.ECDSA_SECP256R1_SHA256));
-  LSchemes :=TComplianceTls.Server(LPolicy, LCredential).Build.Credential.PrivateKey
+  LSchemes := TComplianceTls.Server(LPolicy, LCredential).Build.Credential.PrivateKey
     .CapableSchemes;
   CheckEquals(1, System.Length(LSchemes), 'only the allowed scheme is left');
   CheckEquals(Ord(TSignatureScheme.ECDSA_SECP256R1_SHA256), Ord(LSchemes[0]), 'which one');
