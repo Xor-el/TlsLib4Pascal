@@ -1,0 +1,21 @@
+docs/compliance.md
+  s_f2c9bd75607afc::t_9de1b0e21c7223 332-334
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_f2c9bd75607afc::t_4b52139113b464 202-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4678b852c81e8067ccce33f18e51e93d7de8233e",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
