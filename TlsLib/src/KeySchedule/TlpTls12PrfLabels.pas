@@ -30,7 +30,6 @@ type
     ClientFinished = 'client finished';
     /// <summary>The TLS 1.2 PRF label of the server Finished verify_data (RFC 5246 7.4.9).</summary>
     ServerFinished = 'server finished';
-  public
     /// <summary>Whether ALabel is one of the five key-schedule PRF labels.</summary>
     class function IsKeyScheduleLabel(const ALabel: string): Boolean; static;
   end;
