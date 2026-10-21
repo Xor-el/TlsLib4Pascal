@@ -1,0 +1,58 @@
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_f2c9bd75607afc::t_850ef3859ff7ef 680-683
+  s_f2c9bd75607afc::t_f6fefca6add972 31
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_f2c9bd75607afc::t_8296b0d0215446 60
+TlsLib.Compliance/src/TlpCompliancePolicy.pas
+  s_f2c9bd75607afc::t_fc21f51edd2819 40,676-680,899,901-903,905,907,909,947
+TlsLib.Compliance/src/TlpComplianceTls.pas
+  s_f2c9bd75607afc::t_90ef76ea73c479 162-164
+TlsLib.Compliance/src/TlpComplianceTypes.pas
+  s_f2c9bd75607afc::t_eb76e072d53b78 113
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_443e36cfd6b08f 150
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_f2c9bd75607afc::t_31d8092590efb4 387-393,493,504,586,590-592
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_e210e2ee582734 171
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_a3dc012f878f3a 344,2955-2956,2964,2971-2974,3022,3029,3033,3035
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_f2c9bd75607afc::t_f1aafe56592adb 61,317-321,5595-5636
+TlsLib.Tests/src/NegotiationTests.pas
+  s_f2c9bd75607afc::t_65215a3e59b1f2 51-52,70-87,121-141,455-613
+TlsLib/src/Crypto/TlpNamedGroups.pas
+  s_f2c9bd75607afc::t_c1fe785e0b8f12 65-69,647-658
+TlsLib/src/Engine/TlpClientPskPath.pas
+  s_f2c9bd75607afc::t_b13fdb6c0dea08 1-53
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_f2c9bd75607afc::t_a0aeee6a3f8bf0 29-30,3055-3056,3066,3068-3071,3122-3123,3127,3129-3130,3134
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_f2c9bd75607afc::t_f595eebf35aee6 26-27,69-76,168-169,190,197-202,210-211,216-217,222-224,307,365,417-418
+TlsLib/src/Negotiation/TlpCipherSuiteRegistry.pas
+  s_f2c9bd75607afc::t_f4ffee93c3293b 25-26,29-31,73-76,79-81,94-96,98-100,102-111,194-207
+TlsLib/src/Negotiation/TlpNegotiationPolicy.pas
+  s_f2c9bd75607afc::t_017843f085c511 232-233,235
+TlsLib/src/Negotiation/TlpSignatureSchemeRegistry.pas
+  s_f2c9bd75607afc::t_9fa45d25f976bc 20,40-44,136-148
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_f2c9bd75607afc::t_07d3d0417b4242 152
+docs/compliance.md
+  s_f2c9bd75607afc::t_cee722ccc44451 311-319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d9e82db652c72a9ff36abe774c294f07bb3ab505",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
