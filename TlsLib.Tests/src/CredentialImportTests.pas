@@ -40,20 +40,6 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>A signing key that reports fixed schemes and a fixed public key and cannot
-  /// sign.</summary>
-  TFixedPublicKeySigningKey = class sealed(TInterfacedObject, ISigningKey)
-  strict private
-  var
-    FSchemes: TArray<TSignatureScheme>;
-    FPublicKeyInfo: TBytes;
-  public
-    constructor Create(const ASchemes: TArray<TSignatureScheme>; const APublicKeyInfo: TBytes);
-    function CapableSchemes: TArray<TSignatureScheme>;
-    function PublicKeyInfo: TBytes;
-    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
-  end;
-
   /// <summary>Covers the credential import seam: multi-format signing keys import to a
   /// key whose CapableSchemes are correct and whose signatures verify, and PEM/DER
   /// certificate chains load to the right DER; bad input raises typed exceptions.</summary>
@@ -943,7 +929,7 @@ var
   LCredential: TTlsCredential;
 begin
   LCredential := RsaLeafCredential;
-  LCredential.PrivateKey := TFixedPublicKeySigningKey.Create(
+  LCredential.PrivateKey := TFakeSigningKey.Create(
     LCredential.PrivateKey.CapableSchemes, nil) as ISigningKey;
   CheckEquals(Ord(TCredentialConsistency.KeyNotExportable),
     Ord(LCredential.Consistency(Pkix.Certificates)), 'a key with no public half');
@@ -982,36 +968,10 @@ begin
     LCredential.PrivateKey.PublicKeyInfo);
   CheckFalse(TArrayUtilities.AreEqual(LReencoded, LCredential.PrivateKey.PublicKeyInfo),
     'the two encodings differ in bytes');
-  LCredential.PrivateKey := TFixedPublicKeySigningKey.Create(
+  LCredential.PrivateKey := TFakeSigningKey.Create(
     LCredential.PrivateKey.CapableSchemes, LReencoded) as ISigningKey;
   CheckEquals(Ord(TCredentialConsistency.Consistent),
     Ord(LCredential.Consistency(Pkix.Certificates)), 'the same key in another encoding');
-end;
-
-{ TFixedPublicKeySigningKey }
-
-constructor TFixedPublicKeySigningKey.Create(const ASchemes: TArray<TSignatureScheme>;
-  const APublicKeyInfo: TBytes);
-begin
-  inherited Create;
-  FSchemes := ASchemes;
-  FPublicKeyInfo := APublicKeyInfo;
-end;
-
-function TFixedPublicKeySigningKey.CapableSchemes: TArray<TSignatureScheme>;
-begin
-  Result := FSchemes;
-end;
-
-function TFixedPublicKeySigningKey.PublicKeyInfo: TBytes;
-begin
-  Result := FPublicKeyInfo;
-end;
-
-function TFixedPublicKeySigningKey.WithPreferredSchemes(
-  const ASchemes: TArray<TSignatureScheme>): ISigningKey;
-begin
-  Result := Self;
 end;
 
 initialization

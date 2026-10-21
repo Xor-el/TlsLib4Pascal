@@ -25,6 +25,7 @@ uses
   TlpImportedCredential,
   TlpIKeyExchangePrivateKey,
   TlpICryptoProvider,
+  TlpArrayUtilities,
   TlpTlsLibExceptions,
   TlpDefaultCryptoProvider;
 
@@ -40,6 +41,25 @@ type
   /// route a key (compared by reference) through code that never uses it.</summary>
   TMockSigningKey = class(TInterfacedObject, ISigningKey)
   public
+    function CapableSchemes: TArray<TSignatureScheme>;
+    function PublicKeyInfo: TBytes;
+    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+  end;
+
+  /// <summary>A signing key that reports fixed schemes and a fixed public key and has no
+  /// private key material; WithPreferredSchemes keeps the requested schemes the key can
+  /// sign.</summary>
+  TFakeSigningKey = class(TInterfacedObject, ISigningKey)
+  strict private
+  var
+    FSchemes: TArray<TSignatureScheme>;
+    FPublicKeyInfo: TBytes;
+  strict protected
+    function Narrowed(const ASchemes: TArray<TSignatureScheme>): ISigningKey; virtual;
+  public
+    constructor Create(const ASchemes: TArray<TSignatureScheme>); overload;
+    constructor Create(const ASchemes: TArray<TSignatureScheme>;
+      const APublicKeyInfo: TBytes); overload;
     function CapableSchemes: TArray<TSignatureScheme>;
     function PublicKeyInfo: TBytes;
     function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
@@ -309,6 +329,51 @@ function TMockSigningKey.WithPreferredSchemes(
   const ASchemes: TArray<TSignatureScheme>): ISigningKey;
 begin
   Result := Self;
+end;
+
+{ TFakeSigningKey }
+
+constructor TFakeSigningKey.Create(const ASchemes: TArray<TSignatureScheme>);
+begin
+  Create(ASchemes, nil);
+end;
+
+constructor TFakeSigningKey.Create(const ASchemes: TArray<TSignatureScheme>;
+  const APublicKeyInfo: TBytes);
+begin
+  inherited Create;
+  FSchemes := ASchemes;
+  FPublicKeyInfo := APublicKeyInfo;
+end;
+
+function TFakeSigningKey.Narrowed(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+begin
+  Result := TFakeSigningKey.Create(ASchemes, FPublicKeyInfo) as ISigningKey;
+end;
+
+function TFakeSigningKey.CapableSchemes: TArray<TSignatureScheme>;
+begin
+  Result := FSchemes;
+end;
+
+function TFakeSigningKey.PublicKeyInfo: TBytes;
+begin
+  Result := FPublicKeyInfo;
+end;
+
+function TFakeSigningKey.WithPreferredSchemes(
+  const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+var
+  LKept: TArray<TSignatureScheme>;
+  LI: Int32;
+begin
+  if System.Length(ASchemes) = 0 then
+    Exit(Self as ISigningKey);
+  LKept := nil;
+  for LI := 0 to System.Length(ASchemes) - 1 do
+    if TArrayUtilities.Contains<TSignatureScheme>(FSchemes, ASchemes[LI]) then
+      TArrayUtilities.Append<TSignatureScheme>(LKept, ASchemes[LI]);
+  Result := Narrowed(LKept);
 end;
 
 { TRejectingVerifierSigning }
