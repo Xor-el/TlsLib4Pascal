@@ -77,7 +77,7 @@ type
     FReport: ICryptoBackendReport;
     FCrypto: ICryptoProvider;
     FPkix: IPkixProvider;
-    // the host's own provider: the policy's refuses the issuer search a self-signed test needs
+    // the base provider runs the self-signed test; a strict facet refuses the issuer search
     FBasePkix: IPkixProvider;
     FGroups: INamedGroupRegistry;
     FAttestation: IModuleAttestation;
@@ -213,6 +213,8 @@ resourcestring
   SStrengthBelow = 'the certificate strength policy is looser than the rules';
   SNoCertificate = 'the credential holds no certificate';
   SKeyUndetermined = 'the key of certificate %d of the credential could not be read';
+  SIssuerKeyUndetermined =
+    'the key of the issuer of certificate %d of the credential could not be read';
   SSignatureUndetermined = 'the signature of certificate %d of the credential could not be read';
   SSignatureNotAllowed = 'certificate %d of the credential is signed with an algorithm the ' +
     'rules do not allow';
@@ -277,6 +279,8 @@ resourcestring
     'forces a key update or close, and keys are ephemeral per session';
   SExporterComposed = 'TLS 1.2 exporter derivations (RFC 5705) are composed over the module ' +
     'HMAC; only the key-schedule derivations are module services';
+  SExporterRefused = 'TLS 1.2 exporter derivations (RFC 5705) are refused: the rules require ' +
+    'every key derivation to be a module service';
 
 const
   ScopePrefixLength = Int32(16);
@@ -581,7 +585,8 @@ var
   LSubject, LIssuer, LCommonName, LSerial: string;
   LIssuerDer: TBytes;
   LIndex: Int32;
-  LLast, LSelfSigned, LUnderPssKey: Boolean;
+  LIssuerKey: TCertAnswer;
+  LLast, LSelfSigned: Boolean;
 begin
   LIndex := APosition + 1;
   LLast := APosition = System.Length(AChain) - 1;
@@ -601,16 +606,19 @@ begin
   else if not TComplianceCatalog.KeyMeets(LKey, FRules.Strength, FRules.RsaModulusBits) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialKeyBelowRules, ASubject, Format(SKeyBelow, [LIndex])));
-  // the last certificate ends the chain only when it verifies under its own key, so a key
-  // rollover link is judged; the policy's facet refuses the issuer search, so the host's runs it
+  // the base provider runs the self-signed test; a strict facet refuses the issuer search
   LSelfSigned := LLast and LCert.PeerInfo(LSubject, LIssuer, LCommonName, LSerial) and
     (LSubject = LIssuer) and FBasePkix.Revocation.TryFindIssuer(AChain[APosition],
     TArray<TBytes>.Create(AChain[APosition]), LIssuerDer);
   if LSelfSigned then
     Exit;
   // the core covers an RSASSA-PSS issuer key only with the rsa_pss_pss schemes
-  LUnderPssKey := not LLast and FPkix.Certificates.IsWellFormed(AChain[APosition + 1]) and
-    (FPkix.Certificates.KeyIsRsaPss(AChain[APosition + 1]) = TCertAnswer.Yes);
+  LIssuerKey := TCertAnswer.No;
+  if FBasePkix.Revocation.TryFindIssuer(AChain[APosition], AChain, LIssuerDer) then
+    if FPkix.Certificates.IsWellFormed(LIssuerDer) then
+      LIssuerKey := FPkix.Certificates.KeyIsRsaPss(LIssuerDer)
+    else
+      LIssuerKey := TCertAnswer.Undetermined;
   if not LCert.SignatureFacts(LSignature) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialKeyUndetermined, ASubject,
@@ -620,7 +628,12 @@ begin
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialSchemesNotAllowed, ASubject,
       Format(SSignatureNotAllowed, [LIndex])))
-  else if LUnderPssKey and (LSignature.Family = TCertSignatureFamily.RsaPss) then
+  else if LIssuerKey = TCertAnswer.Undetermined then
+    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+      TComplianceFindingKind.CredentialKeyUndetermined, ASubject,
+      Format(SIssuerKeyUndetermined, [LIndex])))
+  else if (LIssuerKey = TCertAnswer.Yes) and
+    (LSignature.Family = TCertSignatureFamily.RsaPss) then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialSchemesNotAllowed, ASubject,
       Format(SSignatureUnderPssKey, [LIndex])));
@@ -1025,7 +1038,11 @@ var
 begin
   LDisclosures := System.Copy(ADisclosures);
   if TArrayUtilities.Contains<UInt16>(AVersions, TlsWireVersionTls12) then
-    TArrayUtilities.Append<string>(LDisclosures, SExporterComposed);
+    // the provider refuses an exporter label exactly when strict meets RequireModule
+    if (FEnforcement = TComplianceEnforcement.Strict) and (FRules.Kdf = TKdfRule.RequireModule) then
+      TArrayUtilities.Append<string>(LDisclosures, SExporterRefused)
+    else
+      TArrayUtilities.Append<string>(LDisclosures, SExporterComposed);
   Result := TComplianceReport.Create(FEnforcement, FPreset, FIdentity, FStatus, AFindings,
     LDisclosures, KdfOutsideFor(AVersions, ASuites)) as IComplianceReport;
 end;

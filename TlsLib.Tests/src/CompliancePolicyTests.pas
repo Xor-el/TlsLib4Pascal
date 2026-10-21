@@ -263,6 +263,11 @@ type
     procedure TestExporterDisclosureIsOnACredentialReport;
     procedure TestExporterDisclosureIsAbsentWhenTls12IsNotOffered;
     procedure TestExporterDisclosureLeavesTheVerdictAlone;
+    procedure TestExporterIsDisclosedRefusedUnderStrictRequireModule;
+    procedure TestExporterIsNotDisclosedComposedUnderStrictRequireModule;
+    procedure TestExporterIsDisclosedComposedUnderRelaxedRequireModule;
+    procedure TestExporterIsDisclosedComposedUnderStrictAllowComposed;
+    procedure TestExporterDisclosureIsAbsentUnderRelaxedRequireModuleWithoutTls12;
     procedure TestPortableKdfIsNotAModuleService;
     procedure TestModulePrfBesidePortableHmacIsAModuleService;
     procedure TestHkdfIsOutsideTheModuleWhateverTheReportNames;
@@ -445,6 +450,7 @@ type
     procedure TestSelfIssuedLastCertificateSignedByItsOwnKeyIsNotChecked;
     procedure TestPssSignatureUnderAPssIssuerKeyIsAFinding;
     procedure TestPssSignatureUnderAnRsaIssuerKeyIsNoFinding;
+    procedure TestPssSignatureUnderAPssIssuerKeyIsAFindingWhateverTheChainOrder;
     procedure TestRsaSignatureUnderEcdsaOnlyRulesIsAFinding;
     procedure TestEcdsaSignatureUnderEcdsaOnlyRulesIsNoFinding;
     procedure TestKdfOutsideTheModuleIsJudgedByTheConfigSuites;
@@ -1684,6 +1690,68 @@ begin
   CheckTrue(Disclosed(LReport, 'TLS 1.2 exporter derivations'), 'disclosed');
   CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'and still Compliant');
   CheckTrue(LReport.KeyDerivationInModule, 'and the key-schedule derivations are in the module');
+end;
+
+procedure TTestCompliancePolicy.TestExporterIsDisclosedRefusedUnderStrictRequireModule;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := Tls12OnlyRules;
+  LRules.Kdf := TKdfRule.RequireModule;
+  CheckTrue(Disclosed(NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict).PlatformReport, 'TLS 1.2 exporter derivations (RFC 5705) ' +
+    'are refused: the rules require every key derivation to be a module service'),
+    'the exporter is refused, and the report says so');
+end;
+
+procedure TTestCompliancePolicy.TestExporterIsNotDisclosedComposedUnderStrictRequireModule;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := Tls12OnlyRules;
+  LRules.Kdf := TKdfRule.RequireModule;
+  CheckFalse(Disclosed(NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict).PlatformReport, 'are composed over the module HMAC'),
+    'a refused exporter is not composed');
+end;
+
+procedure TTestCompliancePolicy.TestExporterIsDisclosedComposedUnderRelaxedRequireModule;
+var
+  LRules: TComplianceRules;
+begin
+  LRules := Tls12OnlyRules;
+  LRules.Kdf := TKdfRule.RequireModule;
+  CheckTrue(Disclosed(NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Relaxed).PlatformReport, 'are composed over the module HMAC'),
+    'relaxed mode refuses no exporter');
+end;
+
+procedure TTestCompliancePolicy.TestExporterIsDisclosedComposedUnderStrictAllowComposed;
+var
+  LRules: TComplianceRules;
+  LReport: IComplianceReport;
+begin
+  LRules := Tls12OnlyRules;
+  LRules.Kdf := TKdfRule.AllowComposed;
+  LReport := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Strict).PlatformReport;
+  CheckTrue(Disclosed(LReport, 'are composed over the module HMAC'), 'composed');
+  CheckFalse(Disclosed(LReport, 'are refused'), 'and not refused');
+end;
+
+procedure TTestCompliancePolicy.
+  TestExporterDisclosureIsAbsentUnderRelaxedRequireModuleWithoutTls12;
+var
+  LRules: TComplianceRules;
+  LReport: IComplianceReport;
+begin
+  LRules := TCompliancePresets.Fips140_3;
+  LRules.Versions := TArray<UInt16>.Create(TlsWireVersionTls13);
+  LRules.Kdf := TKdfRule.RequireModule;
+  LReport := NewPolicy(LRules, SystemBaseWithKey, TModuleStatus.Validated,
+    TComplianceEnforcement.Relaxed).PlatformReport;
+  CheckFalse(Disclosed(LReport, 'are composed over the module HMAC'), 'not composed');
+  CheckFalse(Disclosed(LReport, 'are refused'), 'and not refused');
 end;
 
 procedure TTestCompliancePolicy.TestPortableKdfIsNotAModuleService;
@@ -4452,6 +4520,24 @@ begin
       'the control: the same signature beside an rsaEncryption issuer key');
 end;
 
+procedure TTestComplianceAdmit.
+  TestPssSignatureUnderAPssIssuerKeyIsAFindingWhateverTheChainOrder;
+var
+  LPolicy: ICompliancePolicy;
+  LCredential: TTlsCredential;
+  LFindings: TArray<TComplianceFinding>;
+begin
+  LPolicy := StrictPolicy;
+  LCredential := Credential(LPolicy.Crypto);
+  // the issuer of certificate 1 is listed last, behind a certificate that does not issue it
+  LCredential.CertificateChain := TArray<TBytes>.Create(DecodeHex(PssSignedLeafHex),
+    DecodeHex(RsaKeyRootHex), DecodeHex(PssKeyRootHex));
+  LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
+  CheckTrue(Pos('certificate 1 of the credential is signed under an RSASSA-PSS key',
+    FindingOfKind(LFindings, TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
+    'the issuer is found by name, not by position');
+end;
+
 function TTestComplianceAdmit.EcdsaOnlyPolicy: ICompliancePolicy;
 var
   LRules: TComplianceRules;
@@ -4994,7 +5080,7 @@ var
   LConfig: ITlsClientConfig;
   LRaised: Boolean;
 begin
-  // the aliasing shows on Delphi only; elsewhere this guards the behaviour
+  // guards that a refused config never reaches the caller's variable
   LPolicy := StrictPolicy;
   LBuilder := EarlyDataClientBuilder(LPolicy, TServerVerification.VerifierSource(
     TFakeOsVerifierSources.Server));
@@ -5017,7 +5103,7 @@ var
   LConfig: ITlsServerConfig;
   LRaised: Boolean;
 begin
-  // the aliasing shows on Delphi only; elsewhere this guards the behaviour
+  // guards that a refused config never reaches the caller's variable
   LPolicy := StrictPolicy;
   LBuilder := ServerBuilder(LPolicy);
   LBuilder.Tls13.WithEarlyData(1024).WithAntiReplay(
@@ -6629,6 +6715,8 @@ begin
   LFacts.NcryptSystemCopy := False;
   CheckEquals(Ord(TModuleStatus.Unknown), Ord(TWindowsModuleDecision.Decide(LFacts,
     TModuleStandard.Fips140_3, LReason)), 'bcrypt.dll is the system copy, ncrypt.dll is unread');
+  CheckTrue(Pos('ncrypt.dll', LReason) > 0, 'the reason names the unread file');
+  CheckFalse(Pos('bcrypt.dll', LReason) > 0, 'and not the one that was read');
 end;
 
 procedure TTestWindowsModuleDecision.TestDecideOtherBcryptWithUnreadableNcryptIsNotValidated;
@@ -7467,6 +7555,7 @@ procedure TTestWindowsModuleAttestation.TestCreatedAttestationDisclosesWhenItIsV
 var
   LAttestation: IModuleAttestation;
 begin
+  // a guard, not evidence: the disclosure follows the status the host reports
   LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
   CheckEquals(Ord(LAttestation.Status(TModuleStandard.Fips140_3) = TModuleStatus.Validated),
     Ord(Lists(LAttestation.Disclosures, 'any hypervisor')),
