@@ -178,6 +178,8 @@ type
   /// <summary>The overlay's HPKE contract, directly and through Compose, so every platform is covered.</summary>
   TTestOverlayCryptoProvider = class(TNativeCryptoProviderTestBase)
   published
+    // a nil primitives or signing override is the base's facet, the same object on every call
+    procedure TestNilOverridesTakeTheBaseFacets;
     // a caller-supplied facet that is not the library's composition is returned as given
     procedure TestSuppliedHpkeFacetIsKept;
     // a composition over primitives other than the base's is caller-supplied too
@@ -2720,6 +2722,18 @@ begin
 end;
 
 { TTestOverlayCryptoProvider }
+
+procedure TTestOverlayCryptoProvider.TestNilOverridesTakeTheBaseFacets;
+var
+  LBase, LOverlay: ICryptoProvider;
+begin
+  LBase := BaseWithHpke(nil);
+  LOverlay := TOverlayCryptoProvider.Create(LBase, nil, nil, nil, nil) as ICryptoProvider;
+  CheckTrue(LOverlay.Primitives = LBase.Primitives, 'a nil primitives override is the base''s');
+  CheckTrue(LOverlay.Signing = LBase.Signing, 'a nil signing override is the base''s');
+  CheckTrue(LOverlay.Primitives = LOverlay.Primitives, 'the same primitives on every call');
+  CheckTrue(LOverlay.Signing = LOverlay.Signing, 'the same signing facet on every call');
+end;
 
 procedure TTestOverlayCryptoProvider.TestSuppliedHpkeFacetIsKept;
 var

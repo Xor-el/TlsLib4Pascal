@@ -72,7 +72,6 @@ type
   TOverlayCryptoProvider = class(TInterfacedObject, ICryptoProvider, ICryptoBackendReport)
   strict private
   var
-    FInner: ICryptoProvider;
     FPrimitives: ICryptoPrimitives;
     FSigning: ISigningCrypto;
     FReport: ICryptoBackendReport;
@@ -81,6 +80,8 @@ type
     // (Supports returns False), so a provider with no backend map reads as wholly portable
     property BackendReport: ICryptoBackendReport read FReport
       implements ICryptoBackendReport;
+    function DefaultHpke(const ABase: ICryptoProvider): IHpkeCrypto;
+    procedure CheckHpkeMatchesReport;
   public
     /// <summary>True only for the default HPKE composition over ABase's own primitives.</summary>
     class function RebuildsHpke(const ABase: ICryptoProvider): Boolean; static;
@@ -263,19 +264,37 @@ constructor TOverlayCryptoProvider.Create(const ABase: ICryptoProvider;
   const AReport: ICryptoBackendReport; const AHpke: IHpkeCrypto);
 begin
   inherited Create;
-  FInner := ABase;
-  FPrimitives := APrimitives;
-  FSigning := ASigning;
   FReport := AReport;
+  if APrimitives <> nil then
+    FPrimitives := APrimitives
+  else
+    FPrimitives := ABase.Primitives;
+  if ASigning <> nil then
+    FSigning := ASigning
+  else
+    FSigning := ABase.Signing;
   if AHpke <> nil then
     FHpke := AHpke
-  else if RebuildsHpke(ABase) then
-    FHpke := THpkeComposition.Create(Primitives) as IHpkeCrypto
   else
-    FHpke := ABase.Hpke;
-  if (AReport <> nil) and
-    (AReport.FacetBackend(TCryptoFacet.Hpke).Backend <> TCryptoBackend.Portable) and
-    (not ComposesHpkeOver(FHpke, Primitives)) then
+    FHpke := DefaultHpke(ABase);
+  CheckHpkeMatchesReport;
+end;
+
+function TOverlayCryptoProvider.DefaultHpke(const ABase: ICryptoProvider): IHpkeCrypto;
+begin
+  if RebuildsHpke(ABase) then
+    Result := THpkeComposition.Create(FPrimitives) as IHpkeCrypto
+  else
+    Result := ABase.Hpke;
+end;
+
+procedure TOverlayCryptoProvider.CheckHpkeMatchesReport;
+begin
+  // a nil report claims nothing, so there is nothing to match
+  if FReport = nil then
+    Exit;
+  if (FReport.FacetBackend(TCryptoFacet.Hpke).Backend <> TCryptoBackend.Portable) and
+    (not ComposesHpkeOver(FHpke, FPrimitives)) then
     raise EArgumentTlsLibException.CreateRes(@SHpkeReportMismatch);
 end;
 
@@ -295,18 +314,12 @@ end;
 
 function TOverlayCryptoProvider.Primitives: ICryptoPrimitives;
 begin
-  if FPrimitives <> nil then
-    Result := FPrimitives
-  else
-    Result := FInner.Primitives;
+  Result := FPrimitives;
 end;
 
 function TOverlayCryptoProvider.Signing: ISigningCrypto;
 begin
-  if FSigning <> nil then
-    Result := FSigning
-  else
-    Result := FInner.Signing;
+  Result := FSigning;
 end;
 
 function TOverlayCryptoProvider.Hpke: IHpkeCrypto;
