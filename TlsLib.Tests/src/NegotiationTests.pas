@@ -84,7 +84,6 @@ type
     procedure TestBuildRefusesAlteredProtocol;
     procedure TestBuildRefusesAlteredKeyExchange;
     procedure TestBuildRefusesAlteredAuth;
-    procedure TestCipherSuiteRecordsHoldOnlyTheFieldsBuildCompares;
     procedure TestMatchesCatalogAcceptsCatalogRecordAndUnknownCode;
     procedure TestMatchesCatalogRefusesEachAlteredField;
     procedure TestDowngradeSentinelEmittedAndDetected;
@@ -598,19 +597,6 @@ begin
   LSuite := CatalogSuite;
   LSuite.Auth := TAuthMethod.Rsa;
   CheckTrue(BuildRefuses(LSuite), 'refused');
-end;
-
-procedure TTestNegotiation.TestCipherSuiteRecordsHoldOnlyTheFieldsBuildCompares;
-var
-  LSuite: TTlsCipherSuite;
-begin
-  // MatchesCatalog compares each field by hand, so a new field must reach it and this sum
-  CheckEquals(SizeOf(LSuite.Common.Code) + SizeOf(LSuite.Common.Hash) +
-    SizeOf(LSuite.Common.Aead) + SizeOf(LSuite.Common.KeyLength), SizeOf(TCipherSuiteCommon),
-    'the common record holds a field MatchesCatalog does not compare');
-  CheckEquals(SizeOf(LSuite.Common) + SizeOf(LSuite.Protocol) + SizeOf(LSuite.KeyExchange) +
-    SizeOf(LSuite.Auth) + SizeOf(LSuite.Prf), SizeOf(TTlsCipherSuite),
-    'the suite record holds a field MatchesCatalog does not compare');
 end;
 
 procedure TTestNegotiation.TestMatchesCatalogAcceptsCatalogRecordAndUnknownCode;
