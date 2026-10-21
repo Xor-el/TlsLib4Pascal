@@ -59,6 +59,11 @@ type
     /// range, the curve allowlist and the EdDSA flag; an empty AllowedEcCurves admits any curve
     /// the provider recognises (EcNamedGroup 0 = unknown).</summary>
     function AdmitsKey(const AFacts: TCertKeyFacts): Boolean;
+    /// <summary>Whether this policy admits nothing AFloor does not: a modulus range inside
+    /// AFloor's (a zero cap in AFloor is no cap), a curve list inside AFloor's (an empty list in
+    /// AFloor is any curve), EdDSA only where AFloor admits it, anchor key floors wherever AFloor
+    /// has them, and deprecated hashes within AFloor's.</summary>
+    function IsAtLeastAsStrictAs(const AFloor: TCertificateStrengthPolicy): Boolean;
   end;
 
 implementation
@@ -92,6 +97,26 @@ begin
       Result := AllowEdDsa;
   else
     Result := False;
+  end;
+end;
+
+function TCertificateStrengthPolicy.IsAtLeastAsStrictAs(
+  const AFloor: TCertificateStrengthPolicy): Boolean;
+var
+  LI: Int32;
+begin
+  Result := (MinRsaModulusBits >= AFloor.MinRsaModulusBits) and
+    ((AFloor.MaxRsaModulusBits = 0) or ((MaxRsaModulusBits <> 0) and
+    (MaxRsaModulusBits <= AFloor.MaxRsaModulusBits))) and
+    (not AllowEdDsa or AFloor.AllowEdDsa) and
+    (not AFloor.AnchorKeyFloors or AnchorKeyFloors) and
+    (AllowedDeprecatedHashes <= AFloor.AllowedDeprecatedHashes);
+  if Result and (System.Length(AFloor.AllowedEcCurves) > 0) then
+  begin
+    Result := System.Length(AllowedEcCurves) > 0;
+    for LI := 0 to System.Length(AllowedEcCurves) - 1 do
+      if not (TArrayUtilities.Contains<UInt16>(AFloor.AllowedEcCurves, AllowedEcCurves[LI])) then
+        Exit(False);
   end;
 end;
 

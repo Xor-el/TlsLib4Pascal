@@ -96,6 +96,13 @@ type
     procedure TestSendableToDoesNotRefuseAnUndeterminableCertificate;
     procedure TestSendableToSkipsACertificateWithAnUnknownSignatureAlgorithm;
     procedure TestSendableToRefusesPssSha1WhateverIsAdvertised;
+    procedure TestRequiredSchemeNamesTheRsaPkcs1Schemes;
+    procedure TestRequiredSchemeNamesTheEcdsaSchemesWhateverTheIssuerKey;
+    procedure TestRequiredSchemeNamesRsaeUnderAnRsaEncryptionIssuer;
+    procedure TestRequiredSchemeNamesPssUnderAPssRestrictedIssuer;
+    procedure TestRequiredSchemeHasNoneForNonCanonicalPss;
+    procedure TestRequiredSchemeIgnoresTheHashForEdDsa;
+    procedure TestRequiredSchemeHasNoneForAHashNoSchemeNames;
   end;
 
   TTestCertificateStrengthPolicy = class(TTlsLibAlgorithmTestCase)
@@ -110,6 +117,16 @@ type
     procedure TestEmptyCurveListAdmitsARecognisedCurve;
     procedure TestEmptyCurveListRefusesAnUnrecognisedCurve;
     procedure TestEdDsaFollowsTheFlag;
+    procedure TestEqualPoliciesAreEachAtLeastAsStrict;
+    procedure TestLowerRsaMinimumIsLooser;
+    procedure TestRsaCapBeyondTheFloorCapIsLooser;
+    procedure TestNoRsaCapIsLooserThanACappedFloor;
+    procedure TestCurveOutsideTheFloorListIsLooser;
+    procedure TestAnyCurveIsLooserThanAListedFloor;
+    procedure TestEdDsaWhereTheFloorRefusesItIsLooser;
+    procedure TestExemptAnchorsWhereTheFloorHoldsThemAreLooser;
+    procedure TestDeprecatedHashOutsideTheFloorIsLooser;
+    procedure TestStricterOnEveryFieldIsAtLeastAsStrict;
   end;
 
   /// <summary>The end-entity rule both verifiers share: a CA certificate is no identity unless the
@@ -221,6 +238,127 @@ begin
     'Ed25519 is refused when EdDSA is not allowed');
   CheckFalse(LPolicy.AdmitsKey(Facts(TSignatureKeyKind.Ed448, 0, 0)),
     'Ed448 is refused when EdDSA is not allowed');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestEqualPoliciesAreEachAtLeastAsStrict;
+var
+  LA, LB: TCertificateStrengthPolicy;
+begin
+  LA := TCertificateStrengthPolicy.Defaults;
+  LB := TCertificateStrengthPolicy.Defaults;
+  CheckTrue(LA.IsAtLeastAsStrictAs(LB), 'A against B');
+  CheckTrue(LB.IsAtLeastAsStrictAs(LA), 'B against A');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestLowerRsaMinimumIsLooser;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LFloor := TCertificateStrengthPolicy.Defaults;
+  LPolicy := LFloor;
+  LPolicy.MinRsaModulusBits := LFloor.MinRsaModulusBits - 1;
+  CheckFalse(LPolicy.IsAtLeastAsStrictAs(LFloor), 'one bit below the floor minimum');
+  LPolicy.MinRsaModulusBits := LFloor.MinRsaModulusBits + 1;
+  CheckTrue(LPolicy.IsAtLeastAsStrictAs(LFloor), 'one bit above the floor minimum');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestRsaCapBeyondTheFloorCapIsLooser;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LFloor := TCertificateStrengthPolicy.Defaults;
+  LPolicy := LFloor;
+  LPolicy.MaxRsaModulusBits := LFloor.MaxRsaModulusBits + 1;
+  CheckFalse(LPolicy.IsAtLeastAsStrictAs(LFloor), 'one bit above the floor cap');
+  LPolicy.MaxRsaModulusBits := LFloor.MaxRsaModulusBits - 1;
+  CheckTrue(LPolicy.IsAtLeastAsStrictAs(LFloor), 'one bit below the floor cap');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestNoRsaCapIsLooserThanACappedFloor;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LFloor := TCertificateStrengthPolicy.Defaults;
+  LPolicy := LFloor;
+  LPolicy.MaxRsaModulusBits := 0;
+  CheckFalse(LPolicy.IsAtLeastAsStrictAs(LFloor), 'no cap against a capped floor');
+  CheckTrue(LFloor.IsAtLeastAsStrictAs(LPolicy), 'a cap against a floor with none');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestCurveOutsideTheFloorListIsLooser;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LFloor := TCertificateStrengthPolicy.Defaults;
+  LPolicy := LFloor;
+  LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
+    TNamedGroupCatalog.X25519);
+  CheckFalse(LPolicy.IsAtLeastAsStrictAs(LFloor), 'a curve the floor lacks');
+  LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
+  CheckTrue(LPolicy.IsAtLeastAsStrictAs(LFloor), 'a subset of the floor list');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestAnyCurveIsLooserThanAListedFloor;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LFloor := TCertificateStrengthPolicy.Defaults;
+  LPolicy := LFloor;
+  LPolicy.AllowedEcCurves := nil;
+  CheckFalse(LPolicy.IsAtLeastAsStrictAs(LFloor), 'any curve against a listed floor');
+  CheckTrue(LFloor.IsAtLeastAsStrictAs(LPolicy), 'a list against a floor admitting any');
+  CheckTrue(LPolicy.IsAtLeastAsStrictAs(LPolicy), 'any curve against any curve');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestEdDsaWhereTheFloorRefusesItIsLooser;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LFloor := LPolicy;
+  LFloor.AllowEdDsa := False;
+  CheckFalse(LPolicy.IsAtLeastAsStrictAs(LFloor), 'EdDSA admitted against a floor without it');
+  CheckTrue(LFloor.IsAtLeastAsStrictAs(LPolicy), 'EdDSA refused against a floor with it');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestExemptAnchorsWhereTheFloorHoldsThemAreLooser;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LFloor := LPolicy;
+  LFloor.AnchorKeyFloors := True;
+  CheckFalse(LPolicy.IsAtLeastAsStrictAs(LFloor), 'exempt anchors against held anchors');
+  CheckTrue(LFloor.IsAtLeastAsStrictAs(LPolicy), 'held anchors against exempt anchors');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestDeprecatedHashOutsideTheFloorIsLooser;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LFloor := LPolicy;
+  LPolicy.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+  CheckFalse(LPolicy.IsAtLeastAsStrictAs(LFloor), 'a hash the floor does not admit');
+  CheckTrue(LFloor.IsAtLeastAsStrictAs(LPolicy), 'no hash against a floor admitting one');
+  LFloor.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+  CheckTrue(LPolicy.IsAtLeastAsStrictAs(LFloor), 'the same hash');
+end;
+
+procedure TTestCertificateStrengthPolicy.TestStricterOnEveryFieldIsAtLeastAsStrict;
+var
+  LPolicy, LFloor: TCertificateStrengthPolicy;
+begin
+  LFloor := TCertificateStrengthPolicy.Defaults;
+  LFloor.AllowedDeprecatedHashes := [TCertSignatureHash.Sha1];
+  LPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.MinRsaModulusBits := 3072;
+  LPolicy.MaxRsaModulusBits := 4096;
+  LPolicy.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
+  LPolicy.AllowEdDsa := False;
+  LPolicy.AnchorKeyFloors := True;
+  CheckTrue(LPolicy.IsAtLeastAsStrictAs(LFloor), 'stricter');
+  CheckFalse(LFloor.IsAtLeastAsStrictAs(LPolicy), 'and not the other way');
 end;
 
 { TTestEndEntityPolicy }
@@ -460,6 +598,72 @@ begin
   finally
     LVec.Free;
   end;
+end;
+
+procedure TTestChainAlgorithmPolicy.TestRequiredSchemeNamesTheRsaPkcs1Schemes;
+begin
+  CheckEquals(TSignatureSchemes.RsaPkcs1Sha256, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPkcs1, TCertSignatureHash.Sha256, False, False), 'SHA-256');
+  CheckEquals(TSignatureSchemes.RsaPkcs1Sha384, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPkcs1, TCertSignatureHash.Sha384, False, False), 'SHA-384');
+  CheckEquals(TSignatureSchemes.RsaPkcs1Sha512, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPkcs1, TCertSignatureHash.Sha512, False, False), 'SHA-512');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestRequiredSchemeNamesTheEcdsaSchemesWhateverTheIssuerKey;
+begin
+  CheckEquals(TSignatureSchemes.EcdsaSecp256r1Sha256, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.Ecdsa, TCertSignatureHash.Sha256, False, False), 'SHA-256');
+  CheckEquals(TSignatureSchemes.EcdsaSecp384r1Sha384, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.Ecdsa, TCertSignatureHash.Sha384, False, False), 'SHA-384');
+  CheckEquals(TSignatureSchemes.EcdsaSecp521r1Sha512, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.Ecdsa, TCertSignatureHash.Sha512, False, True), 'SHA-512, PSS issuer');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestRequiredSchemeNamesRsaeUnderAnRsaEncryptionIssuer;
+begin
+  CheckEquals(TSignatureSchemes.RsaPssRsaeSha256, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPss, TCertSignatureHash.Sha256, True, False), 'SHA-256');
+  CheckEquals(TSignatureSchemes.RsaPssRsaeSha384, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPss, TCertSignatureHash.Sha384, True, False), 'SHA-384');
+  CheckEquals(TSignatureSchemes.RsaPssRsaeSha512, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPss, TCertSignatureHash.Sha512, True, False), 'SHA-512');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestRequiredSchemeNamesPssUnderAPssRestrictedIssuer;
+begin
+  CheckEquals(TSignatureSchemes.RsaPssPssSha256, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPss, TCertSignatureHash.Sha256, True, True), 'SHA-256');
+  CheckEquals(TSignatureSchemes.RsaPssPssSha384, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPss, TCertSignatureHash.Sha384, True, True), 'SHA-384');
+  CheckEquals(TSignatureSchemes.RsaPssPssSha512, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.RsaPss, TCertSignatureHash.Sha512, True, True), 'SHA-512');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestRequiredSchemeHasNoneForNonCanonicalPss;
+begin
+  CheckEquals(0, TChainAlgorithmPolicy.RequiredScheme(TCertSignatureFamily.RsaPss,
+    TCertSignatureHash.Sha256, False, False), 'rsaEncryption issuer');
+  CheckEquals(0, TChainAlgorithmPolicy.RequiredScheme(TCertSignatureFamily.RsaPss,
+    TCertSignatureHash.Sha256, False, True), 'PSS issuer');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestRequiredSchemeIgnoresTheHashForEdDsa;
+begin
+  CheckEquals(TSignatureSchemes.Ed25519, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.Ed25519, TCertSignatureHash.Implicit, False, False), 'Ed25519');
+  CheckEquals(TSignatureSchemes.Ed448, TChainAlgorithmPolicy.RequiredScheme(
+    TCertSignatureFamily.Ed448, TCertSignatureHash.Sha256, False, False), 'Ed448');
+end;
+
+procedure TTestChainAlgorithmPolicy.TestRequiredSchemeHasNoneForAHashNoSchemeNames;
+begin
+  CheckEquals(0, TChainAlgorithmPolicy.RequiredScheme(TCertSignatureFamily.RsaPkcs1,
+    TCertSignatureHash.Sha1, False, False), 'SHA-1');
+  CheckEquals(0, TChainAlgorithmPolicy.RequiredScheme(TCertSignatureFamily.Ecdsa,
+    TCertSignatureHash.Md5, False, False), 'MD5');
+  CheckEquals(0, TChainAlgorithmPolicy.RequiredScheme(TCertSignatureFamily.RsaPkcs1,
+    TCertSignatureHash.Implicit, False, False), 'no hash');
 end;
 
 procedure TTestChainAlgorithmPolicy.SetUp;

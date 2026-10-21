@@ -629,19 +629,23 @@ begin
       TComplianceFindingKind.CredentialKeyUndetermined, ASubject,
       Format(SSignatureUndetermined, [LIndex])))
   else if not TComplianceCatalog.SignatureMeets(LSignature.Family, LSignature.Hash,
-    LSignature.PssCanonical, FRules) then
-    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.CredentialSchemesNotAllowed, ASubject,
-      Format(SSignatureNotAllowed, [LIndex])))
+    LSignature.PssCanonical, LIssuerKey = TCertAnswer.Yes, FRules) then
+  begin
+    // the refusal is the issuer key's when the signature would meet the rules under another key
+    if (LIssuerKey = TCertAnswer.Yes) and TComplianceCatalog.SignatureMeets(LSignature.Family,
+      LSignature.Hash, LSignature.PssCanonical, False, FRules) then
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CredentialSchemesNotAllowed, ASubject,
+        Format(SSignatureUnderPssKey, [LIndex])))
+    else
+      TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
+        TComplianceFindingKind.CredentialSchemesNotAllowed, ASubject,
+        Format(SSignatureNotAllowed, [LIndex])));
+  end
   else if LIssuerKey = TCertAnswer.Undetermined then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.CredentialKeyUndetermined, ASubject,
-      Format(SIssuerKeyUndetermined, [LIndex])))
-  else if (LIssuerKey = TCertAnswer.Yes) and
-    (LSignature.Family = TCertSignatureFamily.RsaPss) then
-    TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
-      TComplianceFindingKind.CredentialSchemesNotAllowed, ASubject,
-      Format(SSignatureUnderPssKey, [LIndex])));
+      Format(SIssuerKeyUndetermined, [LIndex])));
 end;
 
 function TCompliancePolicy.CredentialSubject(AIndex: Int32;
@@ -1006,8 +1010,7 @@ procedure TCompliancePolicy.CheckPeerVerification(const AConfig: ITlsCommonConfi
 var
   LWithin: Boolean;
 begin
-  LWithin := TComplianceCatalog.StrengthWithin(AConfig.CertificateStrengthPolicy,
-    FRules.Strength);
+  LWithin := AConfig.CertificateStrengthPolicy.IsAtLeastAsStrictAs(FRules.Strength);
   if not LWithin then
     TArrayUtilities.Append<TComplianceFinding>(AFindings, TComplianceFinding.Create(
       TComplianceFindingKind.StrengthBelowRules, '', SStrengthBelow));

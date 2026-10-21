@@ -22,6 +22,7 @@ uses
   TlpTlsVersion,
   TlpPkixDomainTypes,
   TlpCertificateStrengthPolicy,
+  TlpChainAlgorithmPolicy,
   TlpArrayUtilities,
   TlpEnumUtilities,
   TlpCipherSuiteCatalog,
@@ -170,9 +171,6 @@ type
       static;
     /// <summary>Whether every entry of ASub is in ASuper.</summary>
     class function IsSubsetOfList(const ASub, ASuper: TArray<UInt16>): Boolean; static;
-    /// <summary>Whether AStrength is at least as strict as AFloor.</summary>
-    class function StrengthWithin(const AStrength,
-      AFloor: TCertificateStrengthPolicy): Boolean; static;
     /// <summary>Whether ASizes lists no size outside AAllowed, an empty AAllowed allowing any;
     /// a list that names no size is not within a non-empty AAllowed.</summary>
     class function RsaSizesWithin(const ASizes, AAllowed: TArray<UInt32>): Boolean; static;
@@ -181,12 +179,13 @@ type
     class function KeyMeets(const AFacts: TCertKeyFacts;
       const AStrength: TCertificateStrengthPolicy;
       const ARsaSizes: TArray<UInt32>): Boolean; static;
-    /// <summary>Whether a certificate signature is one the rules allow: a rule signature scheme
-    /// of its family and hash (RSA-PSS only with canonical parameters), a deprecated hash the
-    /// strength policy admits, or EdDSA where the strength policy admits it and the rules list
-    /// its scheme.</summary>
+    /// <summary>Whether a certificate signature is one the rules allow: the rule signature scheme
+    /// the core requires for its family and hash (RSA-PSS only with canonical parameters and
+    /// never under a PSS-restricted issuer key, AIssuerKeyIsPss), a deprecated hash the strength
+    /// policy admits, or EdDSA where the strength policy admits it and the rules list its
+    /// scheme.</summary>
     class function SignatureMeets(AFamily: TCertSignatureFamily; AHash: TCertSignatureHash;
-      APssCanonical: Boolean; const ARules: TComplianceRules): Boolean; static;
+      APssCanonical, AIssuerKeyIsPss: Boolean; const ARules: TComplianceRules): Boolean; static;
     /// <summary>Whether A and B are one credential: the same private key object and the same
     /// certificate chain, byte for byte.</summary>
     class function SameCredential(const A, B: TTlsCredential): Boolean; static;
@@ -322,7 +321,7 @@ begin
     TComplianceCatalog.IsSubsetOfList(CipherSuites, AOther.CipherSuites) and
     TComplianceCatalog.IsSubsetOfList(NamedGroups, AOther.NamedGroups) and
     (Aeads <= AOther.Aeads) and (SignatureSchemes <= AOther.SignatureSchemes) and
-    TComplianceCatalog.StrengthWithin(Strength, AOther.Strength) and
+    Strength.IsAtLeastAsStrictAs(AOther.Strength) and
     TComplianceCatalog.RsaSizesWithin(RsaModulusBits, AOther.RsaModulusBits) and
     (AOther.Requirements <= Requirements) and
     ((AOther.Kdf = TKdfRule.AllowComposed) or (Kdf = TKdfRule.RequireModule)) and
@@ -534,20 +533,6 @@ begin
   end;
 end;
 
-class function TComplianceCatalog.StrengthWithin(const AStrength,
-  AFloor: TCertificateStrengthPolicy): Boolean;
-begin
-  Result := (AStrength.MinRsaModulusBits >= AFloor.MinRsaModulusBits) and
-    ((AFloor.MaxRsaModulusBits = 0) or ((AStrength.MaxRsaModulusBits <> 0) and
-    (AStrength.MaxRsaModulusBits <= AFloor.MaxRsaModulusBits))) and
-    ((System.Length(AFloor.AllowedEcCurves) = 0) or
-    ((System.Length(AStrength.AllowedEcCurves) > 0) and
-    TComplianceCatalog.IsSubsetOfList(AStrength.AllowedEcCurves, AFloor.AllowedEcCurves))) and
-    (not AStrength.AllowEdDsa or AFloor.AllowEdDsa) and
-    (not AFloor.AnchorKeyFloors or AStrength.AnchorKeyFloors) and
-    (AStrength.AllowedDeprecatedHashes <= AFloor.AllowedDeprecatedHashes);
-end;
-
 class function TComplianceCatalog.RsaSizesWithin(const ASizes,
   AAllowed: TArray<UInt32>): Boolean;
 var
@@ -566,62 +551,31 @@ begin
 end;
 
 class function TComplianceCatalog.SignatureMeets(AFamily: TCertSignatureFamily;
-  AHash: TCertSignatureHash; APssCanonical: Boolean;
+  AHash: TCertSignatureHash; APssCanonical, AIssuerKeyIsPss: Boolean;
   const ARules: TComplianceRules): Boolean;
 var
-  LHash, LSchemeHash: THashAlgorithm;
+  LRequired: UInt16;
   LScheme: TSignatureScheme;
-  LFamilyMatch: Boolean;
+  LKnown: Boolean;
 begin
-  if AHash = TCertSignatureHash.Implicit then
-  begin
-    // EdDSA needs its scheme in the rules as well as the strength policy's admission
-    case AFamily of
-      TCertSignatureFamily.Ed25519:
-        LScheme := TSignatureScheme.ED25519;
-      TCertSignatureFamily.Ed448:
-        LScheme := TSignatureScheme.ED448;
-    else
-      Exit(False);
-    end;
-    Exit(ARules.Strength.AllowEdDsa and (LScheme in ARules.SignatureSchemes));
-  end;
-  // a PSS signature must be canonical whatever hash admits it, as in the core
-  if (AFamily = TCertSignatureFamily.RsaPss) and not APssCanonical then
+  LRequired := TChainAlgorithmPolicy.RequiredScheme(AFamily, AHash, APssCanonical,
+    AIssuerKeyIsPss);
+  LKnown := TSignatureScheme.TryFromCode(LRequired, LScheme);
+  // a PSS signature must be canonical whatever hash admits it, and no rule scheme covers a
+  // PSS-restricted issuer key
+  if (AFamily = TCertSignatureFamily.RsaPss) and
+    (not APssCanonical or (AIssuerKeyIsPss and not LKnown)) then
     Exit(False);
   // the strength policy admits only a hash the core regards as deprecated
   if (AHash.Standing = TCertSignatureHashStanding.Deprecated) and
     (AHash in ARules.Strength.AllowedDeprecatedHashes) then
     Exit(True);
-  case AHash of
-    TCertSignatureHash.Sha256:
-      LHash := THashAlgorithm.SHA_256;
-    TCertSignatureHash.Sha384:
-      LHash := THashAlgorithm.SHA_384;
-    TCertSignatureHash.Sha512:
-      LHash := THashAlgorithm.SHA_512;
-  else
+  if not LKnown then
     Exit(False);
-  end;
-  Result := False;
-  for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
-  begin
-    if not (LScheme in ARules.SignatureSchemes) or not LScheme.TryHash(LSchemeHash) or
-      (LSchemeHash <> LHash) then
-      Continue;
-    case AFamily of
-      TCertSignatureFamily.RsaPkcs1:
-        LFamilyMatch := LScheme.IsRsaPkcs1;
-      TCertSignatureFamily.RsaPss:
-        LFamilyMatch := LScheme.IsRsaPssRsae;
-      TCertSignatureFamily.Ecdsa:
-        LFamilyMatch := LScheme.KeyKind = TSignatureKeyKind.Ecdsa;
-    else
-      LFamilyMatch := False;
-    end;
-    if LFamilyMatch then
-      Exit(True);
-  end;
+  // EdDSA needs its scheme in the rules as well as the strength policy's admission
+  Result := (LScheme in ARules.SignatureSchemes) and
+    (ARules.Strength.AllowEdDsa or ((LScheme <> TSignatureScheme.ED25519) and
+    (LScheme <> TSignatureScheme.ED448)));
 end;
 
 class function TComplianceCatalog.SameCredential(const A, B: TTlsCredential): Boolean;
