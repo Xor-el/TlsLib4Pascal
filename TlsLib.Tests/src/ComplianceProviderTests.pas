@@ -55,6 +55,7 @@ uses
   TlpCompliancePkixProvider,
   MockCompliance,
   MockCryptoProvider,
+  MockSystemCrypto,
   MockPkixProvider,
   TlsLibTestCertificates,
   TlsLibTestProviders,
@@ -298,13 +299,6 @@ type
 implementation
 
 type
-  // a report that claims the HPKE facet is composed over the primitives and nothing else native
-  TComposedHpkeClaimReport = class sealed(TMarkedBackendReportBase)
-  public
-    constructor Create; reintroduce;
-    function Describe: string; override;
-  end;
-
   // primitives that count the key derivations asked of them
   TCountingKdfPrimitives = class sealed(TForwardingCryptoPrimitives)
   strict private
@@ -345,18 +339,6 @@ const
   Rfc5869Prk3 = '19ef24a32c717b167f33a91d6f648bdf' + '96596776afdb6377ac434c1c293ccb04';
   Rfc5869Okm3 = '8da4e775a563c18f715f802a063c5a31' + 'b8a11f5c5ee1879ec3454e5f3c738d2d' +
     '9d201395faa4b61a96c8';
-
-{ TComposedHpkeClaimReport }
-
-constructor TComposedHpkeClaimReport.Create;
-begin
-  inherited Create(True);
-end;
-
-function TComposedHpkeClaimReport.Describe: string;
-begin
-  Result := 'claims a composed HPKE';
-end;
 
 { TCountingKdfPrimitives }
 
@@ -1135,7 +1117,7 @@ var
   LActual: TCryptoBackendEntry;
 begin
   // the rebuilt composition runs over the refusing primitives; its report line stays the base's
-  LBaseReport := TComposedHpkeClaimReport.Create as ICryptoBackendReport;
+  LBaseReport := TBareBackendReport.Create(True) as ICryptoBackendReport;
   LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.FakeSystemBase(
     LBaseReport, nil, nil), TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
   CheckTrue(Supports(LProvider.Hpke, IHpkeComposition, LComposition),

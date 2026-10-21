@@ -31,7 +31,7 @@ uses
 
 type
   /// <summary>A signature verifier that rejects every signature.</summary>
-  TRejectingSignatureVerifier = class sealed(TInterfacedObject, ISignatureVerifier)
+  TRejectingSignatureVerifier = class(TInterfacedObject, ISignatureVerifier)
   public
     procedure Update(const AData: TBytes; AOffset, ALength: Int32);
     function Verify(const ASignature: TBytes): Boolean;
@@ -63,6 +63,45 @@ type
     function CapableSchemes: TArray<TSignatureScheme>;
     function PublicKeyInfo: TBytes;
     function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+  end;
+
+  /// <summary>An HPKE suite that seals nothing; a test only asks whether one was granted.</summary>
+  TFakeHpkeSuite = class sealed(TInterfacedObject, IHpkeSuite)
+  strict private
+  var
+    FKem, FKdf, FAead: UInt16;
+  public
+    constructor Create(AKem, AKdf, AAead: UInt16);
+    function Kem: UInt16;
+    function Kdf: UInt16;
+    function Aead: UInt16;
+    function AeadTagLength: Int32;
+    procedure SetupSealer(const ARecipientPublicKey, AInfo: TBytes; out AEnc: TBytes;
+      out ASealer: IHpkeSealer);
+  end;
+
+  /// <summary>A foreign HPKE facet, not composed over any primitives, that offers every KEM and
+  /// the three AEADs and counts the key operations that reach it. Never for production
+  /// use.</summary>
+  TFakeHpke = class sealed(TInterfacedObject, IHpkeCrypto)
+  strict private
+  var
+    FRecipientImports: Int32;
+    FKeyPairs: Int32;
+    FPrivateImports: Int32;
+  public
+    function Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
+    function ImportRecipientKey(AKem: UInt16;
+      const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
+    procedure GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
+      out APrivateKey: ISecretBuffer);
+    function ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
+    function SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
+    function ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
+    function RandomEncapsulation(AKem: UInt16): TBytes;
+    property RecipientImports: Int32 read FRecipientImports;
+    property KeyPairs: Int32 read FKeyPairs;
+    property PrivateImports: Int32 read FPrivateImports;
   end;
 
   /// <summary>An <see cref="ISigningCrypto" /> that signs and imports through an inner facet but
@@ -300,6 +339,7 @@ resourcestring
   SMissingAead = 'this primitives facet does not provide the requested AEAD';
   SInjectedSealFault = 'the AEAD seal was made to fail by the test';
   SMissingAgreement = 'this primitives facet does not provide the requested key agreement';
+  SFakeHpkeSealer = 'the fake HPKE suite seals nothing';
 
 { TRejectingSignatureVerifier }
 
@@ -311,6 +351,88 @@ end;
 function TRejectingSignatureVerifier.Verify(const ASignature: TBytes): Boolean;
 begin
   Result := False;
+end;
+
+{ TFakeHpkeSuite }
+
+constructor TFakeHpkeSuite.Create(AKem, AKdf, AAead: UInt16);
+begin
+  inherited Create;
+  FKem := AKem;
+  FKdf := AKdf;
+  FAead := AAead;
+end;
+
+function TFakeHpkeSuite.Kem: UInt16;
+begin
+  Result := FKem;
+end;
+
+function TFakeHpkeSuite.Kdf: UInt16;
+begin
+  Result := FKdf;
+end;
+
+function TFakeHpkeSuite.Aead: UInt16;
+begin
+  Result := FAead;
+end;
+
+function TFakeHpkeSuite.AeadTagLength: Int32;
+begin
+  Result := 16;
+end;
+
+procedure TFakeHpkeSuite.SetupSealer(const ARecipientPublicKey, AInfo: TBytes;
+  out AEnc: TBytes; out ASealer: IHpkeSealer);
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SFakeHpkeSealer);
+end;
+
+{ TFakeHpke }
+
+function TFakeHpke.Suite(AKem, AKdf, AAead: UInt16): IHpkeSuite;
+begin
+  Result := TFakeHpkeSuite.Create(AKem, AKdf, AAead) as IHpkeSuite;
+end;
+
+function TFakeHpke.ImportRecipientKey(AKem: UInt16;
+  const APrivateKey: ISecretBuffer): IHpkeRecipientKey;
+begin
+  Inc(FRecipientImports);
+  Result := nil;
+end;
+
+procedure TFakeHpke.GenerateKeyPair(AKem: UInt16; out APublicKey: TBytes;
+  out APrivateKey: ISecretBuffer);
+begin
+  Inc(FKeyPairs);
+  APublicKey := nil;
+  APrivateKey := nil;
+end;
+
+function TFakeHpke.ImportPrivateKey(AKem: UInt16; const APkcs8Der: TBytes): ISecretBuffer;
+begin
+  Inc(FPrivateImports);
+  Result := nil;
+end;
+
+function TFakeHpke.SupportedSuites(AKem: UInt16): TArray<THpkeSuiteId>;
+begin
+  Result := TArray<THpkeSuiteId>.Create(
+    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_128_GCM),
+    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.AES_256_GCM),
+    THpkeSuiteId.Create(AKem, THpkeKdf.HKDF_SHA256, THpkeAead.CHACHA20_POLY1305));
+end;
+
+function TFakeHpke.ValidatePublicKey(AKem: UInt16; const APublicKey: TBytes): Boolean;
+begin
+  Result := True;
+end;
+
+function TFakeHpke.RandomEncapsulation(AKem: UInt16): TBytes;
+begin
+  Result := TBytes.Create(1);
 end;
 
 { TMockSigningKey }
