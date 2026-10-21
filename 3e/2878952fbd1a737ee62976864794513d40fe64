@@ -1,0 +1,23 @@
+TlsLib/src/Handshake/TlpCredentialResolvers.pas
+  s_f2c9bd75607afc::t_c0e9818db8ed35 69-70
+  s_f2c9bd75607afc::t_99b3eafcc49169 153
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_f2c9bd75607afc::t_33a8665f5405d5 2348,2350-2352
+  s_f2c9bd75607afc::t_8f7d14fd8a5101 2363-2365
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3e2878952fbd1a737ee62976864794513d40fe64",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
