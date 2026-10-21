@@ -1,0 +1,47 @@
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_36f977c044db2f 44
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_f2c9bd75607afc::t_4291564b2fe84e 971
+  s_f2c9bd75607afc::t_bd350b22c81848 932
+TlsLib.Tests/src/ComplianceRulesTests.pas
+  s_f2c9bd75607afc::t_daa9a81526dd54 46
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_f2c9bd75607afc::t_521bc8cfc72d88 334-378
+  s_f2c9bd75607afc::t_e6d476818ae09c 49-67
+  s_f2c9bd75607afc::t_5514d4b3b9fd18 28
+TlsLib.Tests/src/Tls12KeyScheduleTests.pas
+  s_f2c9bd75607afc::t_3e59ee81471224 237-239
+  s_f2c9bd75607afc::t_947044cb9fe416 211-212,214-216
+  s_f2c9bd75607afc::t_ae568e308f5cb8 221-222,224-228
+TlsLib/src/KeySchedule/TlpTls12PrfLabels.pas
+  s_f2c9bd75607afc::t_b755294f407b5f 42-43
+  s_f2c9bd75607afc::t_0dde0b735f6c0f 22-32
+TlsLib/src/KeySchedule/TlpTls12KeySchedule.pas
+  s_f2c9bd75607afc::t_5f6c29aea2e4ac 290,292
+  s_f2c9bd75607afc::t_f3d60b6a792b90 207
+  s_f2c9bd75607afc::t_83168db794de4c 236
+  s_f2c9bd75607afc::t_f5dbc0b83174a9 213
+TlsLib.Tests/src/ComplianceProviderTests.pas
+  s_f2c9bd75607afc::t_40f2a4af5d5395 57
+TlsLib.Compliance/src/TlpComplianceCryptoProvider.pas
+  s_f2c9bd75607afc::t_59bac234eb2aaf 182
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_9f3351c7cc350a 2249-2251
+  s_f2c9bd75607afc::t_c2cb727996bb5a 2152-2154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7f1bd1a098d98d5eaa8196ed41b3b49a2d7a1bc2",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
