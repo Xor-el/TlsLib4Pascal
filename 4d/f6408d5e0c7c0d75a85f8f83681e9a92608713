@@ -1,0 +1,23 @@
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_ce1713eaa55117 2244-2254,2256-2269
+  s_f2c9bd75607afc::t_d63b3239775d11 2874-2875
+  s_f2c9bd75607afc::t_7ab5a092de4e6d 2255
+  s_f2c9bd75607afc::t_d28d6a551fc331 2868
+  s_f2c9bd75607afc::t_0b16a3cde8bf4d 335
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4df6408d5e0c7c0d75a85f8f83681e9a92608713",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
