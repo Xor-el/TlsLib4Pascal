@@ -1,0 +1,27 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_f1669d58797df4 150
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_05a098af2b3352 171
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_f2c9bd75607afc::t_b0f6b31dd0aaf2 152
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_f2c9bd75607afc::t_a833b0d0cb1cba 681
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_f2c9bd75607afc::t_881109f4213a84 493
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5701cfde4b7e98533445f95d978dcccab4d80007",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
