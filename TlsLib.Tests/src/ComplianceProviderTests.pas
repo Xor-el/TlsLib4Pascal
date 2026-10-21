@@ -64,8 +64,6 @@ uses
 type
   TTestComplianceCryptoPrimitives = class(TTlsLibAlgorithmTestCase)
   strict private
-    // every operation in the OS module except the AEADs kept portable
-    function SystemOver(APortableAeads: TComplianceAeadSet): ICryptoProvider;
     function RequireModuleRules: TComplianceRules;
     function RefusesRandom(const AProvider: ICryptoProvider): Boolean;
     function RefusesHash(const AProvider: ICryptoProvider; AAlgorithm: THashAlgorithm): Boolean;
@@ -361,13 +359,6 @@ begin
   Result := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
 end;
 
-function TTestComplianceCryptoPrimitives.SystemOver(
-  APortableAeads: TComplianceAeadSet): ICryptoProvider;
-begin
-  Result := TComplianceFakes.FakeSystemBase(
-    TFakeBackendReport.Create(APortableAeads) as ICryptoBackendReport, nil, nil);
-end;
-
 function TTestComplianceCryptoPrimitives.RequireModuleRules: TComplianceRules;
 begin
   Result := TCompliancePresets.Fips140_3;
@@ -505,7 +496,7 @@ procedure TTestComplianceCryptoPrimitives.TestChaChaRefusedStrict;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(RefusesAead(LProvider, TAeadAlgorithm.CHACHA20_POLY1305), 'ChaCha is not allowed');
 end;
@@ -514,7 +505,7 @@ procedure TTestComplianceCryptoPrimitives.TestChaChaRefusedRelaxed;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
   CheckTrue(RefusesAead(LProvider, TAeadAlgorithm.CHACHA20_POLY1305),
     'an allowlist refuses in relaxed mode too');
@@ -524,7 +515,7 @@ procedure TTestComplianceCryptoPrimitives.TestAes256AllowedUnderCnsa1;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Cnsa1, TComplianceEnforcement.Strict);
   CheckFalse(RefusesAead(LProvider, TAeadAlgorithm.AES_256_GCM), 'AES-256 is the CNSA AEAD');
 end;
@@ -533,7 +524,7 @@ procedure TTestComplianceCryptoPrimitives.TestAes128RefusedUnderCnsa1Strict;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Cnsa1, TComplianceEnforcement.Strict);
   CheckTrue(RefusesAead(LProvider, TAeadAlgorithm.AES_128_GCM), 'AES-128 is outside CNSA');
 end;
@@ -542,7 +533,7 @@ procedure TTestComplianceCryptoPrimitives.TestAes128RefusedUnderCnsa1Relaxed;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Cnsa1, TComplianceEnforcement.Relaxed);
   CheckTrue(RefusesAead(LProvider, TAeadAlgorithm.AES_128_GCM),
     'the rules refuse AES-128 in relaxed mode too');
@@ -552,7 +543,7 @@ procedure TTestComplianceCryptoPrimitives.TestAesAllowedUnderFips;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesAead(LProvider, TAeadAlgorithm.AES_128_GCM), 'AES-128 is allowed');
   CheckFalse(RefusesAead(LProvider, TAeadAlgorithm.AES_256_GCM), 'AES-256 is allowed');
@@ -562,7 +553,7 @@ procedure TTestComplianceCryptoPrimitives.TestX25519RefusedStrict;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.X25519),
     'X25519 is not allowed');
@@ -572,7 +563,7 @@ procedure TTestComplianceCryptoPrimitives.TestX25519RefusedRelaxed;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
   CheckTrue(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.X25519),
     'an allowlist refuses in relaxed mode too');
@@ -582,7 +573,7 @@ procedure TTestComplianceCryptoPrimitives.TestP256AllowedFips;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.SECP256R1),
     'P-256 is allowed');
@@ -592,7 +583,7 @@ procedure TTestComplianceCryptoPrimitives.TestP384AllowedCnsa1;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Cnsa1, TComplianceEnforcement.Strict);
   CheckFalse(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.SECP384R1),
     'P-384 is the CNSA curve');
@@ -602,7 +593,7 @@ procedure TTestComplianceCryptoPrimitives.TestP256RefusedCnsa1Strict;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Cnsa1, TComplianceEnforcement.Strict);
   CheckTrue(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.SECP256R1),
     'P-256 is outside CNSA');
@@ -612,7 +603,7 @@ procedure TTestComplianceCryptoPrimitives.TestP256RefusedCnsa1Relaxed;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Cnsa1, TComplianceEnforcement.Relaxed);
   CheckTrue(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.SECP256R1),
     'the rules refuse P-256 in relaxed mode too');
@@ -625,7 +616,7 @@ var
 begin
   LRules := TCompliancePresets.Fips140_3;
   LRules.NamedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1);
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     LRules, TComplianceEnforcement.Strict);
   CheckTrue(RefusesKeyAgreement(LProvider, TKeyAgreementAlgorithm.SECP384R1),
     'a curve no group names is refused');
@@ -635,9 +626,9 @@ procedure TTestComplianceCryptoPrimitives.TestKemAlwaysRefusedBothModes;
 var
   LStrict, LRelaxed: ICryptoProvider;
 begin
-  LStrict := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LStrict := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
-  LRelaxed := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LRelaxed := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
   CheckTrue(RefusesKem(LStrict, TKemAlgorithm.ML_KEM_768), 'no KEM in strict mode');
   CheckTrue(RefusesKem(LRelaxed, TKemAlgorithm.ML_KEM_768), 'no KEM in relaxed mode');
@@ -648,7 +639,7 @@ var
   LProvider: ICryptoProvider;
 begin
   LProvider := TComplianceCryptoProvider.Compose(
-    SystemOver([TAeadAlgorithm.AES_128_GCM]),
+    TComplianceFakes.SystemOver([TAeadAlgorithm.AES_128_GCM]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(RefusesAead(LProvider, TAeadAlgorithm.AES_128_GCM),
     'an allowed AEAD the module does not serve is refused');
@@ -659,7 +650,7 @@ var
   LProvider: ICryptoProvider;
 begin
   LProvider := TComplianceCryptoProvider.Compose(
-    SystemOver([TAeadAlgorithm.AES_128_GCM]),
+    TComplianceFakes.SystemOver([TAeadAlgorithm.AES_128_GCM]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesAead(LProvider, TAeadAlgorithm.AES_256_GCM),
     'only the portable AEAD is refused');
@@ -670,7 +661,7 @@ var
   LProvider: ICryptoProvider;
 begin
   LProvider := TComplianceCryptoProvider.Compose(
-    SystemOver([TAeadAlgorithm.AES_128_GCM]),
+    TComplianceFakes.SystemOver([TAeadAlgorithm.AES_128_GCM]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
   CheckFalse(RefusesAead(LProvider, TAeadAlgorithm.AES_128_GCM),
     'relaxed mode passes a platform fact through');
@@ -698,7 +689,7 @@ procedure TTestComplianceCryptoPrimitives.TestStrictAcceptsRandomOnSystemBase;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesRandom(LProvider), 'a module random generator is accepted');
 end;
@@ -743,7 +734,7 @@ procedure TTestComplianceCryptoPrimitives.TestStrictAcceptsHashAndHmacOnSystemBa
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesHash(LProvider, THashAlgorithm.SHA_512), 'a module hash is accepted');
   CheckFalse(RefusesHmac(LProvider, THashAlgorithm.SHA_512), 'a module HMAC is accepted');
@@ -773,7 +764,7 @@ procedure TTestComplianceCryptoPrimitives.TestStrictAcceptsComposedHkdfUnderAllo
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesHkdf(LProvider, THashAlgorithm.SHA_256),
     'HKDF over the module HMAC is accepted');
@@ -783,7 +774,7 @@ procedure TTestComplianceCryptoPrimitives.TestStrictRefusesComposedHkdfUnderRequ
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     RequireModuleRules, TComplianceEnforcement.Strict);
   CheckTrue(RefusesHkdf(LProvider, THashAlgorithm.SHA_256),
     'a composed HKDF is refused when the module must serve it');
@@ -803,7 +794,7 @@ procedure TTestComplianceCryptoPrimitives.TestRelaxedForwardsComposedHkdfUnderRe
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     RequireModuleRules, TComplianceEnforcement.Relaxed);
   CheckFalse(RefusesHkdf(LProvider, THashAlgorithm.SHA_256),
     'relaxed mode forwards the composed HKDF');
@@ -813,7 +804,7 @@ procedure TTestComplianceCryptoPrimitives.TestStrictAcceptsComposedPrfUnderAllow
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesPrf(LProvider, THashAlgorithm.SHA_256),
     'the PRF over the module HMAC is accepted');
@@ -823,7 +814,7 @@ procedure TTestComplianceCryptoPrimitives.TestStrictRefusesComposedPrfUnderRequi
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     RequireModuleRules, TComplianceEnforcement.Strict);
   CheckTrue(RefusesPrf(LProvider, THashAlgorithm.SHA_256),
     'a composed PRF is refused when the module must serve it');
@@ -843,7 +834,7 @@ procedure TTestComplianceCryptoPrimitives.TestRelaxedForwardsComposedPrfUnderReq
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     RequireModuleRules, TComplianceEnforcement.Relaxed);
   CheckFalse(RefusesPrf(LProvider, THashAlgorithm.SHA_256),
     'relaxed mode forwards the composed PRF');
@@ -853,7 +844,7 @@ procedure TTestComplianceCryptoPrimitives.TestPrfRefusesPlainMasterSecretLabelSt
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(RefusesLabel(LProvider, 'master secret'),
     'the plain master secret is not approved without Extended Master Secret');
@@ -873,7 +864,7 @@ procedure TTestComplianceCryptoPrimitives.TestPrfAllowsExtendedMasterSecretLabel
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(ComputePrf(LProvider, 'extended master secret').ConstantTimeAreEqual(
     ComputePrf(Crypto, 'extended master secret')),
@@ -884,7 +875,7 @@ procedure TTestComplianceCryptoPrimitives.TestPrfAllowsOtherLabels;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesLabel(LProvider, 'key expansion'), 'key expansion is allowed');
   CheckFalse(RefusesLabel(LProvider, 'client finished'), 'the finished label is allowed');
@@ -894,7 +885,7 @@ procedure TTestComplianceCryptoPrimitives.TestPrfLabelMatchIsExact;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckFalse(RefusesLabel(LProvider, 'master secret '), 'a trailing space is another label');
   CheckFalse(RefusesLabel(LProvider, 'Master Secret'), 'the label is case sensitive');
@@ -908,7 +899,7 @@ var
 begin
   LRules := TCompliancePresets.Fips140_3;
   LRules.Requirements := LRules.Requirements - [TComplianceRequirement.ExtendedMasterSecret];
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     LRules, TComplianceEnforcement.Strict);
   CheckFalse(RefusesLabel(LProvider, 'master secret'),
     'the label is refused only when the rules require Extended Master Secret');
@@ -1001,7 +992,7 @@ var
   LProvider: ICryptoProvider;
   LRaised: Boolean;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   LRaised := False;
   try
@@ -1022,7 +1013,7 @@ var
   LProvider: ICryptoProvider;
   LRaised: Boolean;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   LRaised := False;
   try
@@ -1038,7 +1029,7 @@ procedure TTestComplianceCryptoPrimitives.TestHpkeX25519SuiteUnavailable;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_X25519_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM) = nil, 'the X25519 KEM is not instantiable');
@@ -1048,7 +1039,7 @@ procedure TTestComplianceCryptoPrimitives.TestHpkeChaChaSuiteUnavailable;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.CHACHA20_POLY1305) = nil, 'the ChaCha AEAD is not instantiable');
@@ -1058,7 +1049,7 @@ procedure TTestComplianceCryptoPrimitives.TestHpkeP256SuiteAvailable;
 var
   LProvider: ICryptoProvider;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(LProvider.Hpke.Suite(THpkeKem.DHKEM_P256_HKDF_SHA256, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM) <> nil, 'an allowed suite is still instantiable');
@@ -1069,7 +1060,7 @@ var
   LProvider: ICryptoProvider;
 begin
   // a guard: fails only if a base learns an ML-KEM-768 suite (IANA HPKE KEM registry)
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(LProvider.Hpke.Suite(HpkeKemMlKem768, THpkeKdf.HKDF_SHA256,
     THpkeAead.AES_128_GCM) = nil, 'no suite is built over ML-KEM');
@@ -1134,7 +1125,7 @@ procedure TTestComplianceCryptoPrimitives.TestComposeDecidesByTheGivenReport;
 var
   LBase, LProvider: ICryptoProvider;
 begin
-  LBase := SystemOver([]);
+  LBase := TComplianceFakes.SystemOver([]);
   CheckFalse(RefusesRandom(TComplianceCryptoProvider.Compose(LBase, TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Strict)), 'control: the base report places it in the module');
   LProvider := TComplianceCryptoProvider.Compose(LBase, TCompliancePresets.Fips140_3,
@@ -1519,7 +1510,7 @@ var
   LSchedule: ITls12KeySchedule;
   LRaised: Boolean;
 begin
-  LSchedule := NewSchedule(TComplianceCryptoProvider.Compose(SystemOver([]),
+  LSchedule := NewSchedule(TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict));
   LRaised := False;
   try
@@ -1536,7 +1527,7 @@ procedure TTestComplianceCryptoPrimitives.TestKeyScheduleDerivesExtendedMasterSe
 var
   LSchedule: ITls12KeySchedule;
 begin
-  LSchedule := NewSchedule(TComplianceCryptoProvider.Compose(SystemOver([]),
+  LSchedule := NewSchedule(TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict));
   LSchedule.DeriveExtendedMasterSecret(
     DecodeHex('0f0e0d0c0b0a09080706050403020100ffeeddccbbaa99887766554433221100'));
@@ -1563,7 +1554,7 @@ var
   LProvider: ICryptoProvider;
   LComposition: IHpkeComposition;
 begin
-  LProvider := TComplianceCryptoProvider.Compose(SystemOver([]),
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
   CheckTrue(Supports(LProvider.Hpke, IHpkeComposition, LComposition),
     'the base composition is kept');

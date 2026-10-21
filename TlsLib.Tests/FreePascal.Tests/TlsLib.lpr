@@ -18,6 +18,7 @@ uses
   MockKeyLog,
   MockCryptoProvider,
   MockSystemCrypto,
+  MockCredentialResolvers,
   MockHttpFetcher,
   MockPkixProvider,
   MockSink,
