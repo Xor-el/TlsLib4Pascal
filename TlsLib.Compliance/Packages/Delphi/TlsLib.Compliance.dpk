@@ -47,6 +47,7 @@ contains
   TlpCompliancePkixProvider in '..\..\src\TlpCompliancePkixProvider.pas',
   TlpWindowsModuleDecision in '..\..\src\TlpWindowsModuleDecision.pas',
   TlpWindowsModuleAttestation in '..\..\src\TlpWindowsModuleAttestation.pas',
+  TlpUnattestedModule in '..\..\src\TlpUnattestedModule.pas',
   TlpOSModuleAttestation in '..\..\src\TlpOSModuleAttestation.pas',
   TlpICompliancePolicy in '..\..\src\TlpICompliancePolicy.pas',
   TlpIComplianceCredentialResolver in '..\..\src\TlpIComplianceCredentialResolver.pas',

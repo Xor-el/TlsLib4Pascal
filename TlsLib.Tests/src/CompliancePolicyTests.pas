@@ -86,6 +86,7 @@ uses
   TlpCompliancePresets,
   TlpComplianceTls,
   TlpOSModuleAttestation,
+  TlpUnattestedModule,
   TlpOSCryptoProvider,
   TlpWindowsModuleDecision,
   TlpWindowsModuleAttestation,
@@ -192,6 +193,7 @@ type
     procedure TestHostAttestationIsDisclosedAndNotAttested;
     procedure TestPlatformAttestationIsNotDisclosedAsHost;
     procedure TestIsPlatformIsAClassCheck;
+    procedure TestUnattestedModuleAttestsNothing;
     procedure TestOsAttestationAttestsOnlyWhereATableShips;
     procedure TestPolicyReadsTheAttestationOnce;
     procedure TestStrictHistoricalModuleRaises;
@@ -1975,6 +1977,20 @@ begin
   CheckFalse(TOSModuleAttestation.IsPlatform(Attestation(TModuleStatus.Validated)),
     'a host class, whatever it claims');
   CheckFalse(TOSModuleAttestation.IsPlatform(nil), 'nothing');
+end;
+
+procedure TTestCompliancePolicy.TestUnattestedModuleAttestsNothing;
+var
+  LAttestation: IModuleAttestation;
+begin
+  LAttestation := TUnattestedModule.Create as IModuleAttestation;
+  CheckEquals(Ord(TModuleStatus.Unknown),
+    Ord(LAttestation.Status(TModuleStandard.Fips140_3)), 'no status');
+  CheckEquals('', LAttestation.Identity.Describe, 'no identity');
+  CheckTrue(LAttestation.Describe <> '', 'the reason is given');
+  CheckFalse(LAttestation.Covers(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable)),
+    'no provider is covered');
+  CheckEquals(0, System.Length(LAttestation.Disclosures), 'nothing to disclose');
 end;
 
 procedure TTestCompliancePolicy.TestOsAttestationAttestsOnlyWhereATableShips;

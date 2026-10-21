@@ -14,7 +14,8 @@ uses
   TlpWindowsModuleAttestation, TlpOSModuleAttestation, TlpICompliancePolicy, 
   TlpCompliancePolicy, TlpComplianceTls, TlpComplianceHpke, 
   TlpIComplianceCredentialResolver, TlpComplianceCredentialResolver, 
-  TlpIComplianceTicketKeys, TlpComplianceTicketKeys, TlpWindowsModuleDecision;
+  TlpIComplianceTicketKeys, TlpComplianceTicketKeys, TlpWindowsModuleDecision,
+  TlpUnattestedModule;
 
 implementation
 

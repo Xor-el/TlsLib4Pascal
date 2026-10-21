@@ -16,11 +16,11 @@ unit TlpOSModuleAttestation;
 interface
 
 uses
-  TlpICryptoProvider,
-  TlpComplianceTypes,
   TlpIModuleAttestation
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   , TlpWindowsModuleAttestation
+{$ELSE}
+  , TlpUnattestedModule
 {$IFEND}
   ;
 
@@ -40,52 +40,6 @@ type
   end;
 
 implementation
-
-{$IF NOT DEFINED(TLSLIB_MSWINDOWS)}
-
-resourcestring
-  SNoModuleTable = 'no validated-module table ships for this platform';
-
-type
-  /// <summary>The attestation of a platform with no validated-module table.</summary>
-  TUnattestedModule = class sealed(TInterfacedObject, IModuleAttestation)
-  public
-    function Identity: TModuleIdentity;
-    function Status(AStandard: TModuleStandard): TModuleStatus;
-    function Describe: string;
-    function Covers(const ACrypto: ICryptoProvider): Boolean;
-    function Disclosures: TArray<string>;
-  end;
-
-{ TUnattestedModule }
-
-function TUnattestedModule.Identity: TModuleIdentity;
-begin
-  Result := Default(TModuleIdentity);
-end;
-
-function TUnattestedModule.Status(AStandard: TModuleStandard): TModuleStatus;
-begin
-  Result := TModuleStatus.Unknown;
-end;
-
-function TUnattestedModule.Describe: string;
-begin
-  Result := SNoModuleTable;
-end;
-
-function TUnattestedModule.Covers(const ACrypto: ICryptoProvider): Boolean;
-begin
-  // nothing is attested, so no provider is covered
-  Result := False;
-end;
-
-function TUnattestedModule.Disclosures: TArray<string>;
-begin
-  Result := nil;
-end;
-
-{$IFEND}
 
 { TOSModuleAttestation }
 
