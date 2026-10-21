@@ -1,0 +1,26 @@
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_f2c9bd75607afc::t_33f9046ac8e2d1 200-201
+  s_f2c9bd75607afc::t_a58f22b828aae7 252-253
+  s_f2c9bd75607afc::t_b6026f2a700a00 956-957,959-960
+  s_f2c9bd75607afc::t_4b61fdcc79eff5 978-980
+  s_f2c9bd75607afc::t_688bae1052f73b 445-447
+  s_f2c9bd75607afc::t_cc8638a341f059 332-336
+  s_f2c9bd75607afc::t_45ba1947f776bf 683-705
+  s_f2c9bd75607afc::t_c45dbb268eda0b 706-707
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5fe86dd91866fcab3d9b6784bcb240a64196c422",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
