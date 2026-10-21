@@ -46,7 +46,8 @@ TLS 1.2 with its PRF. The Windows module serves the TLS 1.2 PRF. It lists an SP 
 (shared-secret input) but no TLS 1.3 key-schedule KDF, so the library composes HKDF over the module
 HMAC. A derivation that runs in portable code is outside the module too. So rules or a config that
 offer TLS 1.2 alone can be `Compliant`, and any that offer TLS 1.3 reach `PrimitivesInModule` at
-most. `IComplianceReport.KeyDerivationInModule` says which. The rules'
+most. `IComplianceReport.KeyDerivationInModule` says whether any runs outside, and a disclosure names
+each that does (the TLS 1.3 HKDF, the TLS 1.2 PRF). The rules'
 `Kdf` field decides what a composed derivation does: `AllowComposed` (both presets) caps the
 verdict, `RequireModule` makes it a `KdfOutsideModule` finding, which strict mode refuses. A report
 of `Evaluate` or `Admit` is judged by the versions and cipher suites of that config;
@@ -508,6 +509,7 @@ Disclosure: the GCM IV fixed field and counter (TLS 1.2 nonce_explicit = record 
 Disclosure: relaxed mode reports platform facts but does not refuse portable code; per-connection
   fallbacks to portable code are not reflected in the verdict
 Disclosure: a peer chain is held to the RSA size range, not to the exact sizes of the rules
+Disclosure: the TLS 1.3 key schedule (HKDF) does not run as a module service
 Disclosure: TLS 1.2 exporter derivations (RFC 5705) are composed over the module HMAC; only the
   key-schedule derivations are module services
 ```

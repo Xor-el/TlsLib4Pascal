@@ -2390,7 +2390,8 @@ begin
   CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict), 'verdict');
   CheckFalse(LReport.KeyDerivationInModule, 'a derivation runs outside the module');
   CheckEquals(0, System.Length(LReport.Findings), 'a composed derivation is no finding');
-  CheckFalse(Disclosed(LReport, 'HKDF'), 'and no longer a disclosure');
+  CheckTrue(Disclosed(LReport, 'TLS 1.3 key schedule (HKDF)'), 'the derivation is named');
+  CheckTrue(Disclosed(LReport, 'TLS 1.2 key schedule (PRF)'), 'both versions are offered');
 end;
 
 procedure TTestCompliancePolicy.TestTls12OnlyRulesWithTheModulePrfAreCompliant;
@@ -2401,6 +2402,7 @@ begin
     TComplianceEnforcement.Strict).PlatformReport;
   CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LReport.Verdict), 'verdict');
   CheckTrue(LReport.KeyDerivationInModule, 'the PRF is a module service');
+  CheckFalse(Disclosed(LReport, 'key schedule'), 'nothing runs outside the module');
 end;
 
 procedure TTestCompliancePolicy.TestTls12OnlyRulesWithAComposedPrfArePrimitivesInModule;
@@ -2410,6 +2412,8 @@ begin
   LReport := NewPolicy(Tls12OnlyRules, SystemBase, TModuleStatus.Validated,
     TComplianceEnforcement.Strict).PlatformReport;
   CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LReport.Verdict), 'verdict');
+  CheckTrue(Disclosed(LReport, 'TLS 1.2 key schedule (PRF)'), 'the derivation is named');
+  CheckFalse(Disclosed(LReport, 'TLS 1.3 key schedule (HKDF)'), 'TLS 1.3 is not offered');
 end;
 
 procedure TTestCompliancePolicy.TestTls13OnlyRulesAreCappedWhateverThePrfIs;

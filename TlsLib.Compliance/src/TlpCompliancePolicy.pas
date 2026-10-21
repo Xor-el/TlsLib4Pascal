@@ -100,9 +100,10 @@ type
     // whether the derivation runs outside the module, which the rules may refuse
     function CheckKdf(var AFindings: TArray<TComplianceFinding>;
       const AEntry: TCryptoBackendEntry; const ASubject: string): Boolean;
-    // whether a derivation that ASuites run under the offered versions is outside the module
+    // whether a derivation that ASuites run under the offered versions is outside the module,
+    // split into the TLS 1.3 HKDF and the TLS 1.2 PRF
     function KdfOutsideFor(const AVersions: TArray<UInt16>;
-      const ASuites: TArray<TTlsCipherSuite>): Boolean;
+      const ASuites: TArray<TTlsCipherSuite>; out AHkdf, APrf: Boolean): Boolean;
     procedure CollectPlatform(var AFindings: TArray<TComplianceFinding>);
     procedure CheckCommon(const AConfig: ITlsCommonConfig;
       var AFindings: TArray<TComplianceFinding>);
@@ -281,6 +282,8 @@ resourcestring
     'HMAC; only the key-schedule derivations are module services';
   SExporterRefused = 'TLS 1.2 exporter derivations (RFC 5705) are refused: the rules require ' +
     'every key derivation to be a module service';
+  SHkdfOutside = 'the TLS 1.3 key schedule (HKDF) does not run as a module service';
+  SPrfOutside = 'the TLS 1.2 key schedule (PRF) does not run as a module service';
 
 const
   ScopePrefixLength = Int32(16);
@@ -389,19 +392,21 @@ begin
 end;
 
 function TCompliancePolicy.KdfOutsideFor(const AVersions: TArray<UInt16>;
-  const ASuites: TArray<TTlsCipherSuite>): Boolean;
+  const ASuites: TArray<TTlsCipherSuite>; out AHkdf, APrf: Boolean): Boolean;
 var
   LOffers13, LOffers12: Boolean;
   LI: Int32;
 begin
   LOffers13 := TArrayUtilities.Contains<UInt16>(AVersions, TlsWireVersionTls13);
   LOffers12 := TArrayUtilities.Contains<UInt16>(AVersions, TlsWireVersionTls12);
-  Result := False;
+  AHkdf := False;
+  APrf := False;
   for LI := 0 to System.Length(ASuites) - 1 do
     if ASuites[LI].Protocol = TSuiteProtocol.Tls13 then
-      Result := Result or (LOffers13 and (ASuites[LI].Common.Hash in FHkdfOutside))
+      AHkdf := AHkdf or (LOffers13 and (ASuites[LI].Common.Hash in FHkdfOutside))
     else
-      Result := Result or (LOffers12 and (ASuites[LI].Prf in FPrfOutside));
+      APrf := APrf or (LOffers12 and (ASuites[LI].Prf in FPrfOutside));
+  Result := AHkdf or APrf;
 end;
 
 procedure TCompliancePolicy.CollectPlatform(var AFindings: TArray<TComplianceFinding>);
@@ -1035,8 +1040,14 @@ function TCompliancePolicy.Report(const AFindings: TArray<TComplianceFinding>;
   const ASuites: TArray<TTlsCipherSuite>): IComplianceReport;
 var
   LDisclosures: TArray<string>;
+  LKdfOutside, LHkdf, LPrf: Boolean;
 begin
   LDisclosures := System.Copy(ADisclosures);
+  LKdfOutside := KdfOutsideFor(AVersions, ASuites, LHkdf, LPrf);
+  if LHkdf then
+    TArrayUtilities.Append<string>(LDisclosures, SHkdfOutside);
+  if LPrf then
+    TArrayUtilities.Append<string>(LDisclosures, SPrfOutside);
   if TArrayUtilities.Contains<UInt16>(AVersions, TlsWireVersionTls12) then
     // the provider refuses an exporter label exactly when strict meets RequireModule
     if (FEnforcement = TComplianceEnforcement.Strict) and (FRules.Kdf = TKdfRule.RequireModule) then
@@ -1044,7 +1055,7 @@ begin
     else
       TArrayUtilities.Append<string>(LDisclosures, SExporterComposed);
   Result := TComplianceReport.Create(FEnforcement, FPreset, FIdentity, FStatus, AFindings,
-    LDisclosures, KdfOutsideFor(AVersions, ASuites)) as IComplianceReport;
+    LDisclosures, LKdfOutside) as IComplianceReport;
 end;
 
 procedure TCompliancePolicy.Enforce(const AReport: IComplianceReport);
