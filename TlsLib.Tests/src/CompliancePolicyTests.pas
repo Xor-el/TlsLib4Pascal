@@ -907,100 +907,6 @@ type
     function Inner: ITlsServerCredentialResolver;
   end;
 
-const
-  // CN=TlsLib Rollover Root, EC P-256, self-signed (OpenSSL 3.2.1)
-  RolloverOldRootHex =
-    '3082018230820128a003020102020101300a06082a8648ce3d040302301f311d301b06035504030c1454' +
-    '6c734c696220526f6c6c6f76657220526f6f743020170d3236313032313030313332335a180f32313236' +
-    '303932373030313332335a301f311d301b06035504030c14546c734c696220526f6c6c6f76657220526f' +
-    '6f743059301306072a8648ce3d020106082a8648ce3d0301070342000430e86362d670a3480fbd9fb735' +
-    '99c252dc4935ccf776bd06b234a30d10c627e3d617cf54cc60c292821b5bbf763259e246bcccf01310c0' +
-    '468f4c9ed50cf2d38ca3533051301d0603551d0e04160414623c1a6c610d256591baf180ddd12dc583d5' +
-    '7e9d301f0603551d23041830168014623c1a6c610d256591baf180ddd12dc583d57e9d300f0603551d13' +
-    '0101ff040530030101ff300a06082a8648ce3d0403020348003045022000f37f34e5925ce616932fcfb5' +
-    'd27d882765594d6260466869245a24f1b6f3da022100e767abf35be44c2edf5464a898d94bbc6413cba5' +
-    '194b3c422cbe068d39703e35';
-  // the same subject and issuer name over a second key, signed by the old root's key
-  RolloverNewRootHex =
-    '3082019230820138a003020102020102300a06082a8648ce3d040302301f311d301b06035504030c1454' +
-    '6c734c696220526f6c6c6f76657220526f6f743020170d3236313032313030313332355a180f32313236' +
-    '303932373030313332355a301f311d301b06035504030c14546c734c696220526f6c6c6f76657220526f' +
-    '6f743059301306072a8648ce3d020106082a8648ce3d03010703420004679392a50ff61c87ff26674a58' +
-    '8b68b881f4e5fad8bf227d821e94b2fae969744c67a2db9dd9e7c5f6912353d71b74ad8b3be4b88f8959' +
-    '4e6cfae1a562aa3745a3633061300f0603551d130101ff040530030101ff300e0603551d0f0101ff0404' +
-    '03020106301d0603551d0e04160414b2b3c891eb3bce2b63eaf541b5f5f711d1620c87301f0603551d23' +
-    '041830168014623c1a6c610d256591baf180ddd12dc583d57e9d300a06082a8648ce3d04030203480030' +
-    '450221009e783f51094ac291e2fab448f1182bb43e8016fb86366983e4e8875385280ab202202cf6e01f' +
-    '77c489aea0a7c930292ae9839698c857a0b37a60783868bb5051e5e8';
-  // RSA-2048 leaf signed with RSASSA-PSS (SHA-256, MGF1-SHA-256, salt 32) by the PSS key root
-  PssSignedLeafHex =
-    '308203593082020da003020102020102304106092a864886f70d01010a3034a00f300d06096086480165' +
-    '030402010500a11c301a06092a864886f70d010108300d06096086480165030402010500a20302012030' +
-    '1e311c301a06035504030c13546c734c696220507373204b657920526f6f743020170d32363130323130' +
-    '30313332395a180f32313236303932373030313332395a30143112301006035504030c096c6f63616c68' +
-    '6f737430820122300d06092a864886f70d01010105000382010f003082010a0282010100d8cd191aaa71' +
-    'e5e790afc65c3ae3633f95fc4f1fda6486a8385bdcfbf181db8a729eebd720869e1798ca28f41162c710' +
-    '628dfa25ee90f6738ceff9144005463c6627ff8f882587b8966b049dc05e136d73455a78f201341754dc' +
-    '2658f315be98602830d4e170468601b665c903399609e07ef6c4be365c6e3c99af217613056fd6b548ea' +
-    'ba7312cb4d002aa0a0746f115f784b425323cec130133f445ea1bd8146510c8296e529abd405c3e63143' +
-    '641496b2af1fdf0ac364f7cbbcfa1b0d80f0785544c0f8f65840fea49d7ed80c7596b20690a5f2e9c128' +
-    '8cef7f8f81beaab39e93dbc458f73952f5fc90597abdedace01a2487cc89bfe87e705f7b7f8fb5d90203' +
-    '010001a3423040301d0603551d0e04160414b5e595acf52ff29a00e75107ca4bee32283eb24a301f0603' +
-    '551d2304183016801432a42f12528a33469cf37b9c3234cb8eb01a4f65304106092a864886f70d01010a' +
-    '3034a00f300d06096086480165030402010500a11c301a06092a864886f70d010108300d060960864801' +
-    '65030402010500a2030201200382010100263fc5aff8136f79ac2abfac6f01d1505626d5a7d33dedb66d' +
-    '7ee761697f796cdca062757a9fec098a5af5d83fb0f18793defa8ee4db48e3f374479ecac0bcb5170cbf' +
-    '637944a0ff4f0badc4cb15cb44ae3d1e1c49d3324ab76bc26948185a3d0c4bffeb0091c41e363072ab57' +
-    '7e59ef4f561fa34d99dde203c0495059b91f92c28888e68d52cdf5677cc03882ff8625e35143c312503c' +
-    '5ce3a7a2666120f9b4b822a41ae40ae55e826f346bd67d3f3a3eed367cb0de1c13056c8ee51985770aaf' +
-    '851fe8b3feecef6f72a620e05a57e5cf1a735b1dc3073bcd93409dcd0b3778d0e93978dc654e7c04819b' +
-    '4385f5ee56decc47ad30959cad34f65c9a273f0908';
-  // CN=TlsLib Pss Key Root: an id-RSASSA-PSS public key, self-signed
-  PssKeyRootHex =
-    '3082037230820226a003020102020101304106092a864886f70d01010a3034a00f300d06096086480165' +
-    '030402010500a11c301a06092a864886f70d010108300d06096086480165030402010500a20302012030' +
-    '1e311c301a06035504030c13546c734c696220507373204b657920526f6f743020170d32363130323130' +
-    '30313332375a180f32313236303932373030313332375a301e311c301a06035504030c13546c734c6962' +
-    '20507373204b657920526f6f7430820120300b06092a864886f70d01010a0382010f003082010a028201' +
-    '01008f835c428af4d29e111a1ddc3fc6c520efbfe43d538094ca6fe69b3d7ad13c2d8ff6f610194ba7dc' +
-    'f15bb6815857c02d8f39db3c8eca8cbbbe0cbd9e95983a42997f47a768ebd033f070d21a20bdb0bc110a' +
-    'fdf4ab245dfec69bfe9d215bf351a2d82a7b8c8b3825615d5f80120903d3d04536a78f6dec25cc518f2e' +
-    '6c49ce64c20ab34f820f80fb327642dae74ab45c81700abea317bd85a7c297c2926d13a49ae10d415bde' +
-    '22de20b87ae39ca80e95eb838c1e887d39376753a7dfa1225cc6909084196a6cb8f0416bd86c65d419c2' +
-    'fec16a8cf2818a24c53f36aef5cc71b465823a7e705b904e4ae79fcad15142db9622f97d585a44c6a8ab' +
-    '86caec9648370203010001a3533051301d0603551d0e0416041432a42f12528a33469cf37b9c3234cb8e' +
-    'b01a4f65301f0603551d2304183016801432a42f12528a33469cf37b9c3234cb8eb01a4f65300f060355' +
-    '1d130101ff040530030101ff304106092a864886f70d01010a3034a00f300d0609608648016503040201' +
-    '0500a11c301a06092a864886f70d010108300d06096086480165030402010500a2030201200382010100' +
-    '27fedf2c31b37780a332420e944575be93c7e9371bf2691d754150131d7555b032b34d7431c81d053039' +
-    '721e0f79e6fa8deafe57b1562f56df53967ccdc36fb963b960960cc7fe9a34c419c5ff7fda1f881fa1cc' +
-    '22ff03ca6cbc1e5e57f661ef155e655c411a3df5e4b2fdfd1a9754af1f7be44ddc48b76219f91b13406d' +
-    '6c16c21f08df38a5fdb45c18762cb6906bad0e9270948f23c2ea8ef63336ce899d65744c26a5f6cfd33f' +
-    '3cb340e161d55a408285ecc5cf7a63bb2da260f21b53b4299a818e63612d5039274415616bee5e990858' +
-    '32c18b07e397d3a9765d2f96edeaa05361d4222b31a75910fb66919beff92bf0be0733f5a9512f3272c2' +
-    'af406f0d';
-  // CN=TlsLib Rsa Key Root: an rsaEncryption public key, self-signed
-  RsaKeyRootHex =
-    '3082030c308201f4a003020102020101300d06092a864886f70d01010b0500301e311c301a0603550403' +
-    '0c13546c734c696220527361204b657920526f6f743020170d3236313032313030313332375a180f3231' +
-    '3236303932373030313332375a301e311c301a06035504030c13546c734c696220527361204b65792052' +
-    '6f6f7430820122300d06092a864886f70d01010105000382010f003082010a028201010095b3898657e0' +
-    '0745b5b111d508fdabf53fd8ebbfb3c6a8802bc288df46c72ff405ddbfeaf4b748520b64001a769b9a0c' +
-    '049f3c62a5055d337f1862ddf79b33fd06f7e62c298e1eef8fbc275098ebf05b22f6eaba0180c28442b7' +
-    '81b185dfd8a2e2fbb9b0485b0c821d1653b4356aa2d4ab55a34c156169acabc39be40b5157e47471ae13' +
-    '9c36ec1fc63e7434dd0ad665866db56facd1617e9144b5f8880b939b624dcbb90fba6fe33bc9fbdb05d5' +
-    '61c9b8486ed16a17c9c42690292ad6adfb9ea74b39bcfa454a0df9f8d3b78edc16318b1704469c4ad760' +
-    'f3239cb729350fabeb9fe357e8ed4a7951e7666bc72c254a66e855a85ad275f79d5eff9293a3b4170203' +
-    '010001a3533051301d0603551d0e04160414148b94c1bc7b25482cee0305caed3f6853804fdf301f0603' +
-    '551d23041830168014148b94c1bc7b25482cee0305caed3f6853804fdf300f0603551d130101ff040530' +
-    '030101ff300d06092a864886f70d01010b0500038201010003d42eecf8a6acd55abe79c5f5c939981d84' +
-    'f54f0224979debb2da5aeb5337584a78838a6a6f745886c110b77fddc8e8c168f9dfc0fa4571958924f2' +
-    '8dc9590a2bf4d10745eee0bf7f5b65854704a6667a1c5377502af04d8c44893fdfcb471ce8cdc7106b7e' +
-    'a09ed2ddb71ec4612335929e0920a87a6b2f986dccdce7227410962ce9ff61ea231fd29e217439fc169f' +
-    'ca5a394e36018ad1e4b70605fb588b563373f5a7a4cc4a84d7b803f932f17403618451b522762cb888cd' +
-    '6eddc8dd90ae9e9cb403657d7614214e9511766b9cacf467ff9c1f74e8133f84b758dc50f17575b30ebe' +
-    'd6e2d8ef6b758060b5ccc6101319a3b201c3d7c67ee460a9e800c381';
-
 resourcestring
   SResolverStoreDown = 'the credential store is down';
   SBranchNotValidated = 'build %d is not validated; the validated branch does not apply';
@@ -4562,7 +4468,7 @@ begin
   LCredential := Credential(Crypto);
   // a key rollover: the subject and the issuer name are one, and the old key signed it
   LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
-    DecodeHex(RolloverNewRootHex));
+    TTlsLibTestCertificates.Field('Certs/RolloverRoot.txt', 'rollover_new_root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   LSecond := False;
   for LI := 0 to System.Length(LFindings) - 1 do
@@ -4587,7 +4493,7 @@ begin
     TComplianceEnforcement.Strict);
   LCredential := Credential(Crypto);
   LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
-    DecodeHex(RolloverOldRootHex));
+    TTlsLibTestCertificates.Field('Certs/RolloverRoot.txt', 'rollover_old_root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckTrue(Pos('certificate 1', FindingOfKind(LFindings,
     TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
@@ -4606,8 +4512,9 @@ var
 begin
   LPolicy := StrictPolicy;
   LCredential := Credential(LPolicy.Crypto);
-  LCredential.CertificateChain := TArray<TBytes>.Create(DecodeHex(PssSignedLeafHex),
-    DecodeHex(PssKeyRootHex));
+  LCredential.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_key_root_cert'));
   CheckTrue(Pkix.Certificates.Parse(LCredential.CertificateChain[0]).SignatureFacts(LFacts),
     'the fixture signature is readable');
   CheckEquals(Ord(TCertSignatureFamily.RsaPss), Ord(LFacts.Family), 'it is RSA-PSS');
@@ -4627,8 +4534,9 @@ var
 begin
   LPolicy := StrictPolicy;
   LCredential := Credential(LPolicy.Crypto);
-  LCredential.CertificateChain := TArray<TBytes>.Create(DecodeHex(PssSignedLeafHex),
-    DecodeHex(RsaKeyRootHex));
+  LCredential.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'rsa_key_root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckTrue(System.Length(LFindings) > 0, 'not vacuous: the key of the credential draws findings');
   for LI := 0 to System.Length(LFindings) - 1 do
@@ -4646,8 +4554,10 @@ begin
   LPolicy := StrictPolicy;
   LCredential := Credential(LPolicy.Crypto);
   // the issuer of certificate 1 is listed last, behind a certificate that does not issue it
-  LCredential.CertificateChain := TArray<TBytes>.Create(DecodeHex(PssSignedLeafHex),
-    DecodeHex(RsaKeyRootHex), DecodeHex(PssKeyRootHex));
+  LCredential.CertificateChain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'rsa_key_root_cert'),
+    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_key_root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckTrue(Pos('certificate 1 of the credential is signed under an RSASSA-PSS key',
     FindingOfKind(LFindings, TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
