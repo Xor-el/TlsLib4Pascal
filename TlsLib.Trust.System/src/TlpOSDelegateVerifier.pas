@@ -88,7 +88,9 @@ type
     /// client-CA store is the exclusive root.</summary>
     class function FromServerConfig(const AConfig: ITlsServerConfig): TOSDelegatePolicy; static;
     /// <summary>Whether every configured anchor's key meets the strength floors; True when the
-    /// policy does not set AnchorKeyFloors. Fails closed on an anchor that cannot be parsed.</summary>
+    /// policy does not set AnchorKeyFloors. Fails closed: an anchor that cannot be parsed is
+    /// bad_certificate, one whose key cannot be described or is below the floors is
+    /// unsupported_certificate.</summary>
     function AnchorsMeetKeyFloors(out AAlert: TTlsAlertDescription): Boolean;
   strict private
     class function FromCommonConfig(const AConfig: ITlsCommonConfig): TOSDelegatePolicy; static;
@@ -160,10 +162,17 @@ type
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
   end;
 
+  /// <summary>The configured client-CA anchors are held to the key floors once, at construction;
+  /// a handshake whose engine reports no exempt anchor is refused when they are not met.</summary>
   TOSDelegateClientVerifier = class sealed(TOSDelegateVerifierBase, IClientCertificateVerifier)
+  strict private
+    FAnchorsMeetFloors: Boolean;
+    FAnchorAlert: TTlsAlertDescription;
   public
+    constructor Create(const AEngine: IPlatformChainEngine; const APolicy: TOSDelegatePolicy);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+    property AnchorsMeetFloors: Boolean read FAnchorsMeetFloors;
   end;
 
   /// <summary>The OS delegate's verifier source for either role: builds a delegate verifier around the
@@ -176,7 +185,9 @@ type
   /// applies), refusing a path through any ADistrusted certificate (the factory adds the OS list to
   /// the host's where the platform exposes one); a distrusted host root is not handed to the engine.
   /// The source holds its own copy of the arrays and
-  /// hands out copies. Refuses at construction a Live fetch on an engine without live fetch, host
+  /// hands out copies. Under OsAndHostRoots the engine is checked against the host roots as given,
+  /// and when the distrust set then removes every one the source trusts the OS roots only. Refuses
+  /// at construction a Live fetch on an engine without live fetch, host
   /// roots on an engine that can trust neither with the OS roots nor alone, HostRoots without roots
   /// or on an engine without exclusive server roots, and at verifier creation a Live fetch without
   /// the live-revocation verdict, or - for an engine that renders no revocation outcome - a Hard
@@ -356,7 +367,10 @@ begin
       Exit(False);
     end;
     if not LCert.KeyFacts(LKey) then
+    begin
+      AAlert := TTlsAlertDescription.UnsupportedCertificate;
       Exit(False);
+    end;
     if not StrengthPolicy.AdmitsKey(LKey) then
     begin
       AAlert := TTlsAlertDescription.UnsupportedCertificate;
@@ -610,6 +624,13 @@ end;
 
 { TOSDelegateClientVerifier }
 
+constructor TOSDelegateClientVerifier.Create(const AEngine: IPlatformChainEngine;
+  const APolicy: TOSDelegatePolicy);
+begin
+  inherited Create(AEngine, APolicy);
+  FAnchorsMeetFloors := APolicy.AnchorsMeetKeyFloors(FAnchorAlert);
+end;
+
 function TOSDelegateClientVerifier.VerifyClientCertificate(const AChain: TArray<TBytes>;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
 var
@@ -644,8 +665,11 @@ begin
     Exit(False);
   end;
   // an engine that reports no anchor never shows the walk one, so the configured ones are keyed here
-  if (System.Length(LResult.PolicyExempt) = 0) and not Policy.AnchorsMeetKeyFloors(AAlert) then
+  if (System.Length(LResult.PolicyExempt) = 0) and not FAnchorsMeetFloors then
+  begin
+    AAlert := FAnchorAlert;
     Exit(False);
+  end;
   if not Complete(LResult, LNoName, nil, AVerified, AAlert) then
     Exit(False);
   // a client certificate carries no host, so the augment hook sees an empty name (built-in parity)
@@ -680,7 +704,8 @@ begin
   end
   else
   begin
-    if (System.Length(LUsable) > 0) and
+    // judged on the raw roots so the refusal does not depend on the host's runtime distrust list
+    if (System.Length(AHostRoots) > 0) and
       (AEngine.Capabilities * [TPlatformChainCapability.NativeAnchorUnion,
       TPlatformChainCapability.ExclusiveServerAnchors] = []) then
       raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustOsAndHostRoots);
@@ -724,7 +749,6 @@ function TOSVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 var
   LPolicy: TOSDelegatePolicy;
-  LAlert: TTlsAlertDescription;
 begin
   if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
@@ -735,9 +759,9 @@ begin
     AContext.Deferral = TVerdictDeferral.LiveRevocation) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SHardNeedsLiveRevocationVerdict);
   LPolicy := TOSDelegatePolicy.FromClientContext(AContext, FFetch);
-  if not LPolicy.AnchorsMeetKeyFloors(LAlert) then
-    raise EArgumentTlsLibException.CreateRes(@SClientAnchorBelowKeyFloors);
   Result := TOSDelegateClientVerifier.Create(FEngine, LPolicy) as IClientCertificateVerifier;
+  if not (Result as TOSDelegateClientVerifier).AnchorsMeetFloors then
+    raise EArgumentTlsLibException.CreateRes(@SClientAnchorBelowKeyFloors);
 end;
 
 { TOSDelegateLiveResolver }
@@ -799,6 +823,10 @@ begin
       ARejectAlert := TTlsAlertDescription.BadCertificate;
       LTrusted := False;
     end;
+    // same gate as the inline pass: an engine reporting no anchor never shows the walk one
+    if LTrusted and (System.Length(LResult.PolicyExempt) = 0) and
+      not FPolicy.AnchorsMeetKeyFloors(ARejectAlert) then
+      LTrusted := False;
   end;
   if not LTrusted then
     Exit(False);

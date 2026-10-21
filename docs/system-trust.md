@@ -160,8 +160,7 @@ What happens:
   caps) do not apply to a chain that ends at one. Android's CT requirement does: when the app opts
   in through its network security config (Android 16+), the host-root pass is refused for a
   private-root chain, which carries no SCTs, so an app that requires CT for a host cannot use host
-  roots for that host. (The Apple exemption above comes from Apple's documentation and is not
-  device-tested here.)
+  roots for that host.
 - OS distrust (Windows `Disallowed`, macOS trust-settings Deny) also refuses a path that ended at a
   host root. iOS and Android expose no readable distrust list, so there is nothing to apply. A host
   store's own distrusted certificates are refused on every platform and on every path, host-rooted or
@@ -201,13 +200,15 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   and so is one through a certificate your store distrusts (`bad_certificate`). Both lists are read
   once, when the verifier source is built. `TOSSystemTrust.DistrustStore(Pkix)` returns the OS list
   as a store with no root.
-- **When the OS distrusts your root.** A delegate does not hand that root to the OS engine, and
-  refuses a path through it with `bad_certificate` when the engine still builds one (through the
-  OS roots); otherwise the chain has no anchor and fails with `unknown_ca`. Anchors mode filters
-  the root out of the trust set the same way (the config fails closed at `Build` when no anchor
-  is left). When the OS
-  distrusts every root you gave, the delegate source refuses at build with
-  `EArgumentTlsLibException`.
+- **When the OS distrusts your root.** Under `HostRoots`, a delegate does not hand that root to the
+  OS engine, and refuses a path through it with `bad_certificate` when the engine still builds one
+  (through the OS roots); otherwise the chain has no anchor and fails with `unknown_ca`. Anchors
+  mode filters the root out of the trust set the same way (the config fails closed at `Build` when
+  no anchor is left). When the OS distrusts every root you gave, the delegate source refuses at
+  build with `EArgumentTlsLibException`. Under `OsAndHostRoots`, a delegate drops the root and
+  trusts the remaining host roots with the OS roots; when none remains it trusts the OS roots
+  only. An engine that can trust host roots with the OS roots in neither way is refused
+  whatever the distrust set holds.
 - **Refusals.** `HostRoots` raises `EArgumentTlsLibException` for a nil store or one with no
   root (a store that distrusts its only root has none). A platform engine that cannot trust host
   roots alone raises `ESystemTrustUnsupportedTlsLibException` (see
@@ -366,7 +367,8 @@ LConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
 ```
 
 When the strength policy sets `AnchorKeyFloors`, a client-CA anchor whose key is below the floors
-is refused with `EArgumentTlsLibException` when the verifier is built, on every platform.
+(or one whose key cannot be read) is refused with `EArgumentTlsLibException` when the server
+creates the client verifier for a connection, not at `Build`, on every platform.
 
 The delegate uses the `clientAuth` EKU + the OS client-auth policy (a client certificate is never
 stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Apple apply the same
@@ -669,6 +671,9 @@ identity and the host-roots rule. The contract:
   (`internal_error`) before the engine is called, so it is never judged against the OS roots.
 - Every accepted server path, on every engine, is refused when it holds a certificate in the
   distrust set the source read (the OS list and the host store's).
+- `PolicyExempt` is the anchor that ends the path, or empty. When it is empty the delegate
+  key-checks every configured client-CA anchor against the strength policy floors. An engine that
+  reports the whole presented chain there exempts its intermediates from the strength policy.
 
 ---
 
