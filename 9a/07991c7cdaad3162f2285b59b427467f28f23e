@@ -1,0 +1,125 @@
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_f2c9bd75607afc::t_65d9ecff4bc89e 46
+  s_f2c9bd75607afc::t_bc6d46d6d22ae4 487-490
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_5c56b1b018cca3 518-523
+  s_f2c9bd75607afc::t_da1bf2baca43bd 186-188
+  s_f2c9bd75607afc::t_0d7cfe18caf78a 189
+TlsLib.Tests/src/ComplianceProviderTests.pas
+  s_f2c9bd75607afc::t_c9acbf7ad615d0 642,653,664
+  s_f2c9bd75607afc::t_c7f9b129d480a7 1128
+  s_f2c9bd75607afc::t_a0e6df49a6447f 499,508,518,527,536,546,556,566,576,586,596,606,619,629,631,692,737,767,777,797,807,817,837,847,867,878,888,902,995,1016,1032,1042,1052,1063,1513,1530,1557
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_f2c9bd75607afc::t_e3956c371644ff 481-484
+  s_f2c9bd75607afc::t_30f71e4ff7f263 40
+TlsLib.Tests/src/CompliancePolicyTests.pas
+  s_f2c9bd75607afc::t_e38bf3a88715a6 1841
+  s_f2c9bd75607afc::t_17f1fcbce5ff17 1938-1939
+  s_f2c9bd75607afc::t_a4b90bddb98329 3317,3320
+  s_f2c9bd75607afc::t_77c62862439cad 1253-1254,1819-1820,1870-1871,1883-1884,2457-2458
+  s_f2c9bd75607afc::t_ca31976e218bd3 3936-3938
+  s_f2c9bd75607afc::t_4c9fd084c8f4a4 3739,3812,3823,3836,3849,4034,4086
+  s_f2c9bd75607afc::t_9de704c2e51839 4677-4679
+  s_f2c9bd75607afc::t_16dfe4e90e355c 4637-4639
+  s_f2c9bd75607afc::t_110b35a8e778a4 1412
+  s_f2c9bd75607afc::t_5f29a72f1f9ace 2255
+  s_f2c9bd75607afc::t_7c3582feae903a 3874-3876
+  s_f2c9bd75607afc::t_d68501666f8617 3976-3977
+  s_f2c9bd75607afc::t_ccf2681757300f 4694-4696
+  s_f2c9bd75607afc::t_765a7d32febd73 1937
+  s_f2c9bd75607afc::t_b73049a9ef8f8d 118
+  s_f2c9bd75607afc::t_b95e23957c5365 2286
+  s_f2c9bd75607afc::t_aaac590d418d3c 4663-4665
+  s_f2c9bd75607afc::t_0cc0dd06b42f6f 4748-4749
+  s_f2c9bd75607afc::t_14ca39e52e12ac 3726,4103
+  s_f2c9bd75607afc::t_a1899116bbb653 1404-1405
+  s_f2c9bd75607afc::t_7c1b8e3b73eec3 2272
+  s_f2c9bd75607afc::t_51bc4f87bc32d0 3342,3359
+  s_f2c9bd75607afc::t_e07197ac2aaeb1 3914-3916
+  s_f2c9bd75607afc::t_3fa8771210f950 1410-1411
+  s_f2c9bd75607afc::t_b79ebbfe6f9a15 1162,3824,3850,3873,3988,4149,4159,4172,4193,4211,4227,4266,4292,4324,4348,4374,4394,4416,4435,4466,4542,4569,4604,4634,4646,4705,5319,5658,5668
+  s_f2c9bd75607afc::t_8f01f6e296f79f 3962-3964
+  s_f2c9bd75607afc::t_85574c37150894 2528
+  s_f2c9bd75607afc::t_aaea29f66e96b6 1842-1843
+  s_f2c9bd75607afc::t_1098a1c1e81eed 4762-4763
+  s_f2c9bd75607afc::t_79fa09eed9ea18 1795
+  s_f2c9bd75607afc::t_3211cf6661fd83 3783-3784
+  s_f2c9bd75607afc::t_8f0e908ea0330e 3770,3796
+  s_f2c9bd75607afc::t_a23e95b023bdb2 1290,1787,2287
+  s_f2c9bd75607afc::t_a50c0c2f41108d 1289,1786
+  s_f2c9bd75607afc::t_29f7a5d9533069 5160-5162
+  s_f2c9bd75607afc::t_ccc958cede8b34 1407-1408
+  s_f2c9bd75607afc::t_8c2dbc4d38fc85 110
+  s_f2c9bd75607afc::t_1534d9824e0a23 2091
+  s_f2c9bd75607afc::t_2680fd394f9294 1959-1960
+  s_f2c9bd75607afc::t_4b7ca9d996ab2a 3303
+  s_f2c9bd75607afc::t_c71ddb21ffcb4e 1958
+  s_f2c9bd75607afc::t_76cb02288e9678 109
+  s_f2c9bd75607afc::t_0e58e53230c365 1750,1760,1804
+  s_f2c9bd75607afc::t_e6db105b13fdb3 1403,1409
+  s_f2c9bd75607afc::t_119cf509884eef 158-161
+  s_f2c9bd75607afc::t_cc9bca609366e6 1796
+  s_f2c9bd75607afc::t_d59e67e08f78c3 3925-3927
+  s_f2c9bd75607afc::t_d2848dcb2ecbcd 3950-3952
+  s_f2c9bd75607afc::t_f391ba37f25558 3990-3992
+  s_f2c9bd75607afc::t_0fb076a64a8be2 1173-1174,1176-1178
+  s_f2c9bd75607afc::t_1a50c7e8594c7e 1948
+  s_f2c9bd75607afc::t_7fca2a5015ef24 113-114
+  s_f2c9bd75607afc::t_059a397e43b26e 1413-1414
+  s_f2c9bd75607afc::t_372603e5543099 3887-3889
+  s_f2c9bd75607afc::t_35f8058e38691a 1458,1499,1546,1924,4248,4485,4557,4723,4735,8308,8311
+  s_f2c9bd75607afc::t_6886cad1670fee 1406
+  s_f2c9bd75607afc::t_0d01d7cc11fc17 3242,3245,3247
+  s_f2c9bd75607afc::t_a82fac71d31e9b 4138
+  s_f2c9bd75607afc::t_bd3e9453c6dbbd 4710-4712
+  s_f2c9bd75607afc::t_0732b96176f972 1237,2310,2346,2374,2430
+  s_f2c9bd75607afc::t_86ba43c0eb2da3 4124-4126
+  s_f2c9bd75607afc::t_ebe57b85184a7f 2256-2257
+  s_f2c9bd75607afc::t_8d132333a0b670 143-144
+  s_f2c9bd75607afc::t_2b84c771c588d5 8292-8293
+  s_f2c9bd75607afc::t_a3cfe91fe6b729 3698
+  s_f2c9bd75607afc::t_8500cbcdc53740 1751,1761,1805
+  s_f2c9bd75607afc::t_1bfa3d467319f9 3948-3949
+  s_f2c9bd75607afc::t_631d60f836567b 1101-1110,1114-1115
+  s_f2c9bd75607afc::t_7ea04c2860b0fe 1907
+  s_f2c9bd75607afc::t_cf32e89bfbb53e 3268,3279,3291
+  s_f2c9bd75607afc::t_ceba5bc4d05be0 3903-3905
+  s_f2c9bd75607afc::t_e6862b03535abd 1947
+  s_f2c9bd75607afc::t_2160363a18c0f8 1736-1737
+  s_f2c9bd75607afc::t_d670c48244aee4 2092-2093
+  s_f2c9bd75607afc::t_945667b5693cdc 2273
+  s_f2c9bd75607afc::t_290eda8112a4ac 3711,3755
+  s_f2c9bd75607afc::t_a2ab596346ee0c 3975,3978-3979
+  s_f2c9bd75607afc::t_3c69368bbc7665 122-123
+  s_f2c9bd75607afc::t_c8cc29144e02ce 4004-4005
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_57305e96bb31ce 191
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_0d6e8b82aebf30 212
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_f2c9bd75607afc::t_4b6bc029ad8a63 21
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_f2c9bd75607afc::t_08b7a68994ebf7 21
+TlsLib.Tests/src/MockCredentialResolvers.pas
+  s_f2c9bd75607afc::t_7d129d3759ff15 1-118
+TlsLib.Tests/src/ExtensionNegotiationTests.pas
+  s_f2c9bd75607afc::t_fd890b8f845ad7 72
+  s_f2c9bd75607afc::t_d8053092dbb1e2 1168,1184
+  s_f2c9bd75607afc::t_ec19c979e4455f 1171,1187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9a07991c7cdaad3162f2285b59b427467f28f23e",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
