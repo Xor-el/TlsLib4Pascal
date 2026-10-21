@@ -531,6 +531,7 @@
         <DCCReference Include="..\src\MockPlatformChainEngine.pas"/>
         <DCCReference Include="..\src\MockCryptoProvider.pas"/>
         <DCCReference Include="..\src\MockSystemCrypto.pas"/>
+        <DCCReference Include="..\src\MockCredentialResolvers.pas"/>
         <DCCReference Include="..\src\MockHttpFetcher.pas"/>
         <DCCReference Include="..\src\MockPkixProvider.pas"/>
         <DCCReference Include="..\src\MockSink.pas"/>
