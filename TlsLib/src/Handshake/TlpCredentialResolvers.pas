@@ -146,20 +146,12 @@ end;
 function TSniCredentialResolver.Credentials: TArray<TTlsCredential>;
 var
   LI: Integer;
-
-  function Copied(const ACredential: TTlsCredential): TTlsCredential;
-  begin
-    Result := ACredential;
-    Result.CertificateChain := TArrayUtilities.DeepCopy<Byte>(ACredential.CertificateChain);
-    Result.OcspStaple := System.Copy(ACredential.OcspStaple);
-  end;
-
 begin
   Result := nil;
   if FHasDefault then
-    TArrayUtilities.Append<TTlsCredential>(Result, Copied(FDefault));
+    TArrayUtilities.Append<TTlsCredential>(Result, FDefault.Clone);
   for LI := 0 to System.High(FEntries) do
-    TArrayUtilities.Append<TTlsCredential>(Result, Copied(FEntries[LI].Credential));
+    TArrayUtilities.Append<TTlsCredential>(Result, FEntries[LI].Credential.Clone);
 end;
 
 end.

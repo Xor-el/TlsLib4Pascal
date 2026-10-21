@@ -261,10 +261,6 @@ type
     constructor Create(const ACryptoProvider: ICryptoProvider;
       const APkixProvider: IPkixProvider; const AProfile: TTlsConfigProfile);
   private
-    /// <summary>A credential sharing no mutable byte array (chain, staple) with ACredential, so a
-    /// caller reusing its buffers after Build cannot change what a built config sends or validated.
-    /// The signing key handle is shared by reference.</summary>
-    class function CloneCredential(const ACredential: TTlsCredential): TTlsCredential; static;
     /// <summary>The PSKs with their identity and context copied (the secret is an immutable
     /// buffer, shared by reference).</summary>
     class function CloneExternalPsks(
@@ -967,7 +963,7 @@ end;
 
 function TFrozenCommonConfigBase.Credential: TTlsCredential;
 begin
-  Result := TTlsConfigBuilder.CloneCredential(FCredential);
+  Result := FCredential.Clone;
 end;
 
 function TFrozenCommonConfigBase.TrustStore: ITrustAnchorStore;
@@ -2247,14 +2243,6 @@ begin
   Result := Self;
 end;
 
-class function TTlsConfigBuilder.CloneCredential(
-  const ACredential: TTlsCredential): TTlsCredential;
-begin
-  Result := ACredential;
-  Result.CertificateChain := TArrayUtilities.DeepCopy<Byte>(ACredential.CertificateChain);
-  Result.OcspStaple := System.Copy(ACredential.OcspStaple);
-end;
-
 class function TTlsConfigBuilder.CloneExternalPsks(
   const APsks: TArray<TExternalPsk>): TArray<TExternalPsk>;
 var
@@ -2272,7 +2260,7 @@ function TTlsConfigBuilder.WithCredential(
   const ACredential: TTlsCredential): TTlsConfigBuilder;
 begin
   GuardMutable;
-  FCredential := TTlsConfigBuilder.CloneCredential(ACredential);
+  FCredential := ACredential.Clone;
   FHasCredential := True;
   Result := Self;
 end;
@@ -2284,7 +2272,7 @@ var
 begin
   GuardMutable;
   LEntry.Host := AHost;
-  LEntry.Credential := TTlsConfigBuilder.CloneCredential(ACredential);
+  LEntry.Credential := ACredential.Clone;
   TArrayUtilities.Append<TSniCredentialEntry>(FSniCredentialEntries, LEntry);
   Result := Self;
 end;

@@ -121,6 +121,8 @@ type
     // the canonical-DER tail for families without a value comparator (X25519): equal keys match,
     // a different family does not
     procedure TestSamePublicKeyTailFamily;
+    // TTlsCredential.Clone: its own chain and staple bytes, the same key
+    procedure TestCloneOwnsTheChainAndStapleAndSharesTheKey;
     // TTlsCredential.Consistency: one test per outcome
     procedure TestConsistencyOfAKeyThatOwnsItsLeafIsConsistent;
     procedure TestConsistencyOfAnEmptyChainIsChainEmpty;
@@ -863,6 +865,21 @@ begin
     TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
   Result.PrivateKey := Crypto.Signing.ImportSigningKey(
     TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_key'), nil);
+end;
+
+procedure TTestCredentialImport.TestCloneOwnsTheChainAndStapleAndSharesTheKey;
+var
+  LOriginal, LClone: TTlsCredential;
+begin
+  LOriginal.CertificateChain := TArray<TBytes>.Create(DecodeHex('010203'));
+  LOriginal.OcspStaple := DecodeHex('0a0b');
+  LOriginal.PrivateKey := TFakeSigningKey.Create(nil, nil) as ISigningKey;
+  LClone := LOriginal.Clone;
+  LClone.CertificateChain[0][0] := $FF;
+  LClone.OcspStaple[0] := $FF;
+  CheckEquals(1, LOriginal.CertificateChain[0][0], 'the chain is copied');
+  CheckEquals($0A, LOriginal.OcspStaple[0], 'the staple is copied');
+  CheckTrue(LClone.PrivateKey = LOriginal.PrivateKey, 'the key is shared');
 end;
 
 procedure TTestCredentialImport.TestConsistencyOfAKeyThatOwnsItsLeafIsConsistent;

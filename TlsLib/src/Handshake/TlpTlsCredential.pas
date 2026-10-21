@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpTlsVersion,
   TlpISigningKey,
   TlpImportedCredential,
@@ -61,6 +62,9 @@ type
     /// when a callback is set (it refreshes an expiring staple), else the static OcspStaple;
     /// empty declines stapling.</summary>
     function CurrentOcspStaple: TBytes;
+    /// <summary>A copy that owns its certificate chain and staple bytes; the signing key and the
+    /// staple callback are shared with this credential.</summary>
+    function Clone: TTlsCredential;
     /// <summary>Whether this credential can sign a handshake as presented, judged by
     /// ACertificates without a signing operation. The leaf and the key's public half are
     /// compared by key value, so equal keys that differ in encoding match. Never raises on a
@@ -140,6 +144,13 @@ begin
     Result := OcspStapleCallback
   else
     Result := OcspStaple;
+end;
+
+function TTlsCredential.Clone: TTlsCredential;
+begin
+  Result := Self;
+  Result.CertificateChain := TArrayUtilities.DeepCopy<Byte>(CertificateChain);
+  Result.OcspStaple := System.Copy(OcspStaple);
 end;
 
 function TTlsCredential.Consistency(
