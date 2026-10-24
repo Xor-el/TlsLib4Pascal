@@ -61,7 +61,7 @@ type
     TNetAddrInfo = record
       ai_flags, ai_family, ai_socktype, ai_protocol: Int32;
       ai_addrlen: NativeUInt;
-{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(OPENBSD)}
+{$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_OPENBSD)}
       ai_addr: Pointer;
       ai_canonname: PAnsiChar;
 {$ELSE}
@@ -92,7 +92,7 @@ type
   const
     // a send to a peer that has gone must not raise SIGPIPE: a flag per send, or on Darwin the
     // per-socket option ArmAgainstSigPipe sets
-{$IF DEFINED(NETBSD) OR DEFINED(OPENBSD) OR DEFINED(DRAGONFLY)}
+{$IF DEFINED(TLSLIB_NETBSD) OR DEFINED(TLSLIB_OPENBSD) OR DEFINED(TLSLIB_DRAGONFLY)}
     // these kernels define MSG_NOSIGNAL as $400
     SendFlags = $0400;
 {$ELSEIF DECLARED(SO_NOSIGPIPE)}
@@ -174,7 +174,7 @@ const
   // SOCK_CLOEXEC; Darwin has none, so fcntl marks its sockets
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_ANDROID) OR DEFINED(TLSLIB_SOLARIS)}
   SocketCloseOnExec = $80000;
-{$ELSEIF DEFINED(OPENBSD)}
+{$ELSEIF DEFINED(TLSLIB_OPENBSD)}
   SocketCloseOnExec = $8000;
 {$ELSEIF DEFINED(TLSLIB_BSD)}
   SocketCloseOnExec = $10000000;

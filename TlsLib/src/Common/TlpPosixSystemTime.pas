@@ -19,14 +19,17 @@ interface
 
 uses
 {$IFDEF FPC}
+  Unix,
   UnixType,
 {$ELSE}
+  Posix.SysTime,
   Posix.Time,
 {$ENDIF}
   TlpDynamicLibrary;
 
 type
-  /// <summary>The libc clock_gettime time sources, resolved once at unit initialization.</summary>
+  /// <summary>The OS UTC time, and the libc clock_gettime monotonic source resolved once at unit
+  /// initialization.</summary>
   TPosixSystemTime = class sealed(TObject)
   strict private
   type
@@ -58,31 +61,26 @@ type
 const
   // clock ids are kernel ABI, from each OS's <time.h>; the monotonic candidates are tried in
   // order and the first the kernel accepts is kept (CLOCK_BOOTTIME counts suspend, but a
-  // pre-2.6.39 Linux kernel refuses it)
+  // pre-2.6.39 Linux kernel refuses it). Suspend is counted by CLOCK_BOOTTIME and by Darwin's and
+  // OpenBSD's CLOCK_MONOTONIC; the FreeBSD, DragonFly and NetBSD kernels derive it from the
+  // timecounter alone and illumos caps its resume adjustment, so there it can fall short.
 {$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
-  ClockRealtime = 0;
-  // Darwin's CLOCK_MONOTONIC keeps counting while the system sleeps
   MonotonicClocks: array [0 .. 0] of TClockChoice = ((Id: 6; Name: 'CLOCK_MONOTONIC'));
-{$ELSEIF DEFINED(NETBSD) OR DEFINED(OPENBSD)}
-  ClockRealtime = 0;
+{$ELSEIF DEFINED(TLSLIB_NETBSD) OR DEFINED(TLSLIB_OPENBSD)}
   MonotonicClocks: array [0 .. 0] of TClockChoice = ((Id: 3; Name: 'CLOCK_MONOTONIC'));
-{$ELSEIF DEFINED(TLSLIB_BSD)}
-  ClockRealtime = 0;
-  MonotonicClocks: array [0 .. 0] of TClockChoice = ((Id: 4; Name: 'CLOCK_MONOTONIC'));
-{$ELSEIF DEFINED(TLSLIB_SOLARIS)}
-  ClockRealtime = 3;
+{$ELSEIF DEFINED(TLSLIB_FREEBSD) OR DEFINED(TLSLIB_DRAGONFLY) OR DEFINED(TLSLIB_SOLARIS)}
   MonotonicClocks: array [0 .. 0] of TClockChoice = ((Id: 4; Name: 'CLOCK_MONOTONIC'));
 {$ELSE}
-  ClockRealtime = 0;
   MonotonicClocks: array [0 .. 1] of TClockChoice = ((Id: 7; Name: 'CLOCK_BOOTTIME'),
     (Id: 1; Name: 'CLOCK_MONOTONIC'));
 {$IFEND}
-{$IFDEF NETBSD}
-  // the plain name is the 32-bit time_t compat entry point; this one is the current ABI
+{$IF DEFINED(TLSLIB_NETBSD) AND DEFINED(CPU64)}
+  // the plain name is the 32-bit time_t compat entry point, which FPC's timespec matches on a
+  // 32-bit CPU; a 64-bit CPU uses the current ABI
   ClockGetTimeSymbol = '__clock_gettime50';
 {$ELSE}
   ClockGetTimeSymbol = 'clock_gettime';
-{$ENDIF}
+{$IFEND}
 
 { TPosixSystemTime }
 
@@ -114,8 +112,17 @@ begin
 end;
 
 class function TPosixSystemTime.TryUtcUnixMs(out AMs: Int64): Boolean;
+var
+  LTime: timeval;
 begin
-  Result := TryRead(ClockRealtime, AMs);
+  AMs := 0;
+{$IFDEF FPC}
+  Result := fpgettimeofday(@LTime, nil) = 0;
+{$ELSE}
+  Result := gettimeofday(LTime, nil) = 0;
+{$ENDIF}
+  if Result then
+    AMs := Int64(LTime.tv_sec) * 1000 + Int64(LTime.tv_usec) div 1000;
 end;
 
 class function TPosixSystemTime.TryMonotonicMs(out AMs: Int64): Boolean;
