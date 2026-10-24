@@ -19,17 +19,14 @@ interface
 
 uses
 {$IFDEF FPC}
-  Unix,
   UnixType,
 {$ELSE}
-  Posix.SysTime,
   Posix.Time,
 {$ENDIF}
   TlpDynamicLibrary;
 
 type
-  /// <summary>The OS UTC time, and the libc clock_gettime monotonic source resolved once at unit
-  /// initialization.</summary>
+  /// <summary>The libc clock_gettime time sources, resolved once at unit initialization.</summary>
   TPosixSystemTime = class sealed(TObject)
   strict private
   type
@@ -63,6 +60,11 @@ const
   // order and the first the kernel accepts is kept (CLOCK_BOOTTIME counts suspend, but a
   // pre-2.6.39 Linux kernel refuses it); only CLOCK_BOOTTIME and the Darwin and OpenBSD
   // CLOCK_MONOTONIC are known to count suspend
+{$IFDEF TLSLIB_SOLARIS}
+  ClockRealtime = 3;
+{$ELSE}
+  ClockRealtime = 0;
+{$ENDIF}
 {$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
   MonotonicClocks: array [0 .. 0] of TClockChoice = ((Id: 6; Name: 'CLOCK_MONOTONIC'));
 {$ELSEIF DEFINED(TLSLIB_NETBSD) OR DEFINED(TLSLIB_OPENBSD)}
@@ -110,17 +112,8 @@ begin
 end;
 
 class function TPosixSystemTime.TryUtcUnixMs(out AMs: Int64): Boolean;
-var
-  LTime: timeval;
 begin
-  AMs := 0;
-{$IFDEF FPC}
-  Result := fpgettimeofday(@LTime, nil) = 0;
-{$ELSE}
-  Result := gettimeofday(LTime, nil) = 0;
-{$ENDIF}
-  if Result then
-    AMs := Int64(LTime.tv_sec) * 1000 + Int64(LTime.tv_usec) div 1000;
+  Result := TryRead(ClockRealtime, AMs);
 end;
 
 class function TPosixSystemTime.TryMonotonicMs(out AMs: Int64): Boolean;
