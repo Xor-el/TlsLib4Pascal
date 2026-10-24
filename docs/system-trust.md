@@ -270,8 +270,8 @@ not only as a root:
 - **Immutable stores:** an `ITrustAnchorStore` is a snapshot, and the union of several is built once
   at `Build`. Verification caches work by store identity, so a custom store must never change after
   it is handed to a config — build a new store (and a new config) to change trust.
-- **No distrust input:** Unix. **Not applicable:** Android and iOS, which are delegate-only (the
-  platform already applies its own distrust).
+- **No OS distrust input:** Unix. Android and iOS are delegate-only, so the platform applies its own
+  distrust; a distrust list you supply still applies there.
 - **macOS Deny scope:** a Deny whose scope cannot be read is treated as a Deny, so it can also
   block a certificate that was only denied for another purpose.
 
