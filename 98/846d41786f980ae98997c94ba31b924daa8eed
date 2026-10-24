@@ -1,0 +1,22 @@
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_e9c89bc8b2e448 497-501
+TlsLib/src/Common/TlpPosixSystemTime.pas
+  s_f2c9bd75607afc::t_05989fb56485ac 64-65
+  s_f2c9bd75607afc::t_3eef699d0dba77 77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "98846d41786f980ae98997c94ba31b924daa8eed",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
