@@ -1,0 +1,30 @@
+TlsLib/src/Common/TlpPosixSystemTime.pas
+  s_f2c9bd75607afc::t_3b5a6e8cb7acff 115-116,118-125
+  s_f2c9bd75607afc::t_25851b82739f9b 64-66,69,71,77-79,83
+  s_f2c9bd75607afc::t_cd02d92f550010 22,25,31-32
+TlsLib.Net/src/TlpPosixNetOs.pas
+  s_f2c9bd75607afc::t_c31254cc076c12 64
+  s_f2c9bd75607afc::t_5f79909a4b9b1d 95
+  s_f2c9bd75607afc::t_a897928d4fa0b1 177
+TlsLib/src/Include/TlsLibFPC.inc
+  s_f2c9bd75607afc::t_848502ea7265f1 75-90
+  s_f2c9bd75607afc::t_f7a1a7b908ada7 91-94
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_5f6577f5c38184 497-501
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e6ea0679d26101d781c7f252e1e4e52f6e7ca013",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
