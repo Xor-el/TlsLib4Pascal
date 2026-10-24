@@ -494,10 +494,11 @@ handshake cap's clock with `WithMonotonicClock`; the `TLiveRevocationChecker` co
 clock explicitly, like its other inputs (pass `Config.MonotonicClock` to share the connection's).
 Neither affects certificate, OCSP or ticket time, which stay on `ITlsClock`.
 
-`TSystemMonotonicClock` reads `GetTickCount64` on Windows, `CLOCK_BOOTTIME` on Linux and Android, and
-the OS monotonic clock elsewhere. It counts system suspend on those and on macOS, iOS and OpenBSD. The
-FreeBSD, DragonFly, NetBSD and Solaris/illumos kernels do not guarantee that, so a deadline that spans
-a suspend there can run longer than its nominal time.
+`TSystemMonotonicClock` reads `GetTickCount64` on Windows, `CLOCK_BOOTTIME` on Linux and Android
+(`CLOCK_MONOTONIC` before Linux 2.6.39), and the OS monotonic clock elsewhere. It counts system
+suspend on Windows, Linux and Android from 2.6.39, macOS, iOS and OpenBSD. FreeBSD, DragonFly,
+NetBSD and Solaris/illumos do not guarantee it, so a deadline that spans a suspend there can run
+longer than its nominal time.
 
 ### The live-check budget over `TTlsStream`
 

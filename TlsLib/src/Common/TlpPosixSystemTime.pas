@@ -61,9 +61,8 @@ type
 const
   // clock ids are kernel ABI, from each OS's <time.h>; the monotonic candidates are tried in
   // order and the first the kernel accepts is kept (CLOCK_BOOTTIME counts suspend, but a
-  // pre-2.6.39 Linux kernel refuses it). Suspend is counted by CLOCK_BOOTTIME and by Darwin's and
-  // OpenBSD's CLOCK_MONOTONIC; the FreeBSD, DragonFly and NetBSD kernels derive it from the
-  // timecounter alone and illumos caps its resume adjustment, so there it can fall short.
+  // pre-2.6.39 Linux kernel refuses it); only CLOCK_BOOTTIME and the Darwin and OpenBSD
+  // CLOCK_MONOTONIC are known to count suspend
 {$IF DEFINED(TLSLIB_MACOS) OR DEFINED(TLSLIB_IOS)}
   MonotonicClocks: array [0 .. 0] of TClockChoice = ((Id: 6; Name: 'CLOCK_MONOTONIC'));
 {$ELSEIF DEFINED(TLSLIB_NETBSD) OR DEFINED(TLSLIB_OPENBSD)}
@@ -75,8 +74,7 @@ const
     (Id: 1; Name: 'CLOCK_MONOTONIC'));
 {$IFEND}
 {$IF DEFINED(TLSLIB_NETBSD) AND DEFINED(CPU64)}
-  // the plain name is the 32-bit time_t compat entry point, which FPC's timespec matches on a
-  // 32-bit CPU; a 64-bit CPU uses the current ABI
+  // the plain name is the 32-bit time_t entry point; a 64-bit CPU uses the current ABI
   ClockGetTimeSymbol = '__clock_gettime50';
 {$ELSE}
   ClockGetTimeSymbol = 'clock_gettime';
