@@ -1,0 +1,34 @@
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_f2c9bd75607afc::t_6e439e372895b6 260
+  s_f2c9bd75607afc::t_d872c0ee87d288 206
+  s_f2c9bd75607afc::t_9060d372b33511 471
+  s_f2c9bd75607afc::t_843bfbe8c5662e 162
+  s_f2c9bd75607afc::t_0dd4c75b0f18cc 362
+  s_f2c9bd75607afc::t_61ce87a1914f5d 225
+  s_f2c9bd75607afc::t_b97deb40c09ac4 145
+  s_f2c9bd75607afc::t_9d447d2871fa93 192
+  s_f2c9bd75607afc::t_98687c45ac0a15 326
+  s_f2c9bd75607afc::t_0b9fb02e66fa8c 457
+  s_f2c9bd75607afc::t_449cad7eaca929 62-64
+  s_f2c9bd75607afc::t_0481b2441bad89 527
+  s_f2c9bd75607afc::t_b2f792367f40bb 127
+  s_f2c9bd75607afc::t_adbb0db28fa34b 573
+  s_f2c9bd75607afc::t_518463a914efe4 419
+  s_f2c9bd75607afc::t_71c900fdf650cd 404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0fd4b4224ca31034565d5dac8fdab806d7b127bc",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
