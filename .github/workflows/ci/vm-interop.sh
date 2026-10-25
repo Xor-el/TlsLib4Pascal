@@ -30,24 +30,44 @@ install_first() {  # <install command...> -- <candidate>...
   return 1
 }
 
+# The latest stable Go from the official archive for this OS (go.dev ships amd64 builds for these
+# systems; their package repositories carry an old Go or none), unpacked under $HOME and put on PATH.
+install_official_go() {  # <go.dev OS name>
+  local dir="$HOME/go-dist" ver archive list
+  mkdir -p "$dir"
+  ci_download "https://go.dev/VERSION?m=text" "$dir/version"
+  ver="$(head -1 "$dir/version" | tr -d '\015')"
+  archive="$ver.$1-amd64.tar.gz"
+  ci_download "https://go.dev/dl/$archive" "$dir/$archive"
+  ci_download "https://go.dev/dl/$archive.sha256" "$dir/$archive.sha256"
+  list="$dir/sha256.list"
+  printf '%s  %s\n' "$(tr -d '\015\012' < "$dir/$archive.sha256")" "$archive" > "$list"
+  ci_verify_sha256 "$dir/$archive" "$list"
+  (cd "$dir" && gzip -dc "$archive" | tar xf -)
+  export PATH="$dir/go/bin:$PATH"
+  go version
+}
+
 provision_tools() {
   case "$(uname -s)" in
-    FreeBSD|DragonFly)
+    FreeBSD)
       pkg install -y go python3 || true
+      ;;
+    DragonFly)
+      pkg install -y python3 || true
+      install_official_go dragonfly
       ;;
     NetBSD)
       export PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -p)/$(uname -r | cut -d_ -f1)/All"
-      pkg_add -u go || true
       install_first pkg_add -u -- python313 python312 python311 python310 || true
+      install_official_go netbsd
+      ;;
+    SunOS)
+      command -v python3 >/dev/null 2>&1 || pkg install --accept python-39 || true
+      install_official_go solaris
       ;;
   esac
 }
-
-# Solaris offers Go 1.7 (obsolete) and gccgo (Go 1.18), and the BoGo runner needs a far newer Go
-if [ "$(uname -s)" = "SunOS" ] && [ "${MAKE_RUN_BOGO:-true}" = "true" ]; then
-  echo "BoGo skipped on SunOS: no Go new enough for the BoGo runner is available."
-  export MAKE_RUN_BOGO=false
-fi
 
 if [ "${MAKE_RUN_BOGO:-true}" = "true" ]; then
   provision_tools
