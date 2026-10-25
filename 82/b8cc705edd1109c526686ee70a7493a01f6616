@@ -1,0 +1,34 @@
+TlsLib.Net/src/TlpPosixNetOs.pas
+  s_f2c9bd75607afc::t_5254c08bd86b79 59
+TlsLib.Tests/src/SocketHttpExchangeTests.pas
+  s_f2c9bd75607afc::t_916d00a09f4beb 234
+  s_f2c9bd75607afc::t_9bb0758a9b2a82 391-395
+  s_f2c9bd75607afc::t_09554f5daadefd 290-294
+  s_f2c9bd75607afc::t_9f4ceb84ec5725 192
+TlsLib/src/Include/TlsLibFPC.inc
+  s_f2c9bd75607afc::t_8e7c1cdc47f427 99
+TlsLib.Tests/src/SocketHttpFetcherTests.pas
+  s_f2c9bd75607afc::t_ab2d9d103f1ef2 158-162
+  s_f2c9bd75607afc::t_120ee81b45eeac 114
+TlsLib.Tests/src/NetSocketTests.pas
+  s_f2c9bd75607afc::t_54fbeba14c147e 162-163
+TlsLib.Tests/src/SystemTimeUtilitiesTests.pas
+  s_f2c9bd75607afc::t_037c3d0f1377c0 90-91
+  s_f2c9bd75607afc::t_584bb34c1bc8ee 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "82b8cc705edd1109c526686ee70a7493a01f6616",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
