@@ -12,3 +12,5 @@ if [ -n "${LD_LIBRARY_PATH_EXTRA:-}" ]; then
 fi
 
 ci_build_standard
+
+bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vm-interop.sh"

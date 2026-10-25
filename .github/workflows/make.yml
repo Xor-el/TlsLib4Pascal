@@ -273,7 +273,29 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64-scalar'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64-scalar'].fpc_tarball_target }}
           MAKE_DEFINES: 'CRYPTOLIB_FORCE_SCALAR HASHLIB_FORCE_SCALAR'
+          TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         run: bash .github/workflows/ci/native-build.sh
+
+      - name: FclNet adapter (build + loopback)
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64-scalar'].fpc_target }}
+          MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
+        run: bash .github/workflows/ci/adapters/fclnet-build.sh
+
+      - name: Interop harness
+        uses: ./.github/workflows/ci/interop/interop-harness
+        with:
+          fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64-scalar'].fpc_target }}
+          artifact-suffix: linux-x64-scalar
+          run-interop: ${{ env.MAKE_RUN_INTEROP }}
+          run-bogo: ${{ env.MAKE_RUN_BOGO }}
+          run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
+          crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
+          run-trust: ${{ env.MAKE_RUN_TRUST }}
+          run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
+          bogo-ref: ${{ env.BOGO_REF }}
 
   linux-arm64-scalar:
     name: "Native: Linux AArch64 (FORCE_SCALAR)"
@@ -294,7 +316,29 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64-scalar'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64-scalar'].fpc_tarball_target }}
           MAKE_DEFINES: 'CRYPTOLIB_FORCE_SCALAR HASHLIB_FORCE_SCALAR'
+          TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         run: bash .github/workflows/ci/native-build.sh
+
+      - name: FclNet adapter (build + loopback)
+        shell: bash
+        env:
+          FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64-scalar'].fpc_target }}
+          MAKE_RUN_FCLNET: ${{ env.MAKE_RUN_FCLNET }}
+        run: bash .github/workflows/ci/adapters/fclnet-build.sh
+
+      - name: Interop harness
+        uses: ./.github/workflows/ci/interop/interop-harness
+        with:
+          fpc-target: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64-scalar'].fpc_target }}
+          artifact-suffix: linux-arm64-scalar
+          run-interop: ${{ env.MAKE_RUN_INTEROP }}
+          run-bogo: ${{ env.MAKE_RUN_BOGO }}
+          run-openssl: ${{ env.MAKE_RUN_OPENSSL }}
+          crypto-provider: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          pkix-provider: ${{ env.MAKE_PKIX_PROVIDER }}
+          run-trust: ${{ env.MAKE_RUN_TRUST }}
+          run-autoroot: ${{ env.MAKE_RUN_AUTOROOT }}
+          bogo-ref: ${{ env.BOGO_REF }}
 
   windows-x64:
     name: "Native: Windows x86_64"
@@ -598,8 +642,11 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['freebsd'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['freebsd'].fpc_tarball_target }}
           FREEBSD_INSTALL_MODE: interim
+          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
+          TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         with:
-          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG
+          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET TLSLIB_CRYPTO_PROVIDER TLSLIB_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           release: "15.0"
           usesh: true
           prepare: sh .github/workflows/ci/vm-freebsd-prepare.sh
@@ -623,8 +670,11 @@ jobs:
         env:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].fpc_tarball_target }}
+          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
+          TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET TLSLIB_CRYPTO_PROVIDER TLSLIB_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           prepare: sh .github/workflows/ci/vm-netbsd-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
 
@@ -647,8 +697,11 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['dragonflybsd'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['dragonflybsd'].fpc_tarball_target }}
           LD_LIBRARY_PATH_EXTRA: /usr/local/lib
+          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
+          TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET TLSLIB_CRYPTO_PROVIDER TLSLIB_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           usesh: true
           prepare: sh .github/workflows/ci/vm-dragonfly-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
@@ -671,8 +724,11 @@ jobs:
         env:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_tarball_target }}
+          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
+          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
+          TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET TLSLIB_CRYPTO_PROVIDER TLSLIB_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           release: "11.4-gcc"
           usesh: true
           prepare: sh .github/workflows/ci/vm-solaris-prepare.sh
