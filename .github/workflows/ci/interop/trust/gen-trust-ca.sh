@@ -47,9 +47,12 @@ LIVE_CRL_URL="${5:-http://127.0.0.1:8890/root.crl}"
 OPENSSL="${OPENSSL:-openssl}"
 mkdir -p "$OUTDIR"
 
-# YYMMDDHHMMSSZ, N days from now - GNU date (Linux / Git Bash) and BSD date (macOS) differ
+# YYMMDDHHMMSSZ, N days from now - GNU date (Linux / Git Bash) and BSD date (macOS) differ,
+# and Solaris date has neither form, so perl is the last resort
 asn1_date() { # <days-from-now>
-  date -u -d "+$1 days" +%y%m%d%H%M%SZ 2>/dev/null || date -u -v+"$1"d +%y%m%d%H%M%SZ
+  date -u -d "+$1 days" +%y%m%d%H%M%SZ 2>/dev/null ||
+    date -u -v+"$1"d +%y%m%d%H%M%SZ 2>/dev/null ||
+    perl -MPOSIX -e 'print strftime("%y%m%d%H%M%SZ", gmtime(time + $ARGV[0] * 86400))' -- "$1"
 }
 newkey() { "$OPENSSL" ecparam -name prime256v1 -genkey -noout -out "$1"; }
 newkey_rsa() { "$OPENSSL" genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$1"; }

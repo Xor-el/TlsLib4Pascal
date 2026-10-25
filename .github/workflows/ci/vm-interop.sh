@@ -41,7 +41,8 @@ provision_tools() {
       install_first pkg_add -u -- python313 python312 python311 python310 || true
       ;;
     SunOS)
-      pkg install --accept golang || pkg install --accept developer/golang || pkgutil -y -i go || true
+      # the bare name also matches legacy/developer/golang, so name the package in full
+      pkg install --accept pkg://solaris/developer/golang || pkgutil -y -i go || true
       command -v python3 >/dev/null 2>&1 || pkg install --accept python-39 || true
       ;;
   esac
