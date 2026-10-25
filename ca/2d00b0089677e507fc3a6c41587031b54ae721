@@ -1,0 +1,16 @@
+TlsLib.Net/src/TlpPosixNetOs.pas
+  h_878efc035442cc 58-67,69,283-285
+TlsLib/src/Include/TlsLibFPC.inc
+  h_878efc035442cc 99-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ca2d00b0089677e507fc3a6c41587031b54ae721",
+  "prompts": {},
+  "humans": {
+    "h_878efc035442cc": {
+      "author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
