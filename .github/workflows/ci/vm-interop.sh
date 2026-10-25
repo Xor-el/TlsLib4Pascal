@@ -44,9 +44,10 @@ provision_tools() {
       # the bare name also matches legacy/developer/golang, so name the package in full; pkg exits
       # non-zero when it is already installed, and its go is not on PATH
       pkg install --accept pkg://solaris/developer/golang || true
-      gobin="$(pkg contents -H -o path pkg:/developer/golang 2>/dev/null | grep -E '(^|/)bin/go$' | head -1 || true)"
-      echo "golang package go: ${gobin:-not found}"
-      if [ -n "$gobin" ]; then export PATH="/${gobin%/*}:$PATH"; fi
+      pkg list -H 'golang*' 'developer/golang*' 2>&1 || true
+      gobin="$(find /usr /opt -maxdepth 5 -type f -name go -perm -100 2>/dev/null | grep '/bin/go$' | head -1 || true)"
+      echo "go binary: ${gobin:-not found}"
+      if [ -n "$gobin" ]; then export PATH="${gobin%/*}:$PATH"; fi
       command -v python3 >/dev/null 2>&1 || pkg install --accept python-39 || true
       ;;
   esac
