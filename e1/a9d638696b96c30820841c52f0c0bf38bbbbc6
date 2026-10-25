@@ -1,0 +1,23 @@
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_77f6b55cbdedbe 58-59
+.github/workflows/ci/interop/interop-harness/action.yml
+  s_f2c9bd75607afc::t_c767e933576c9c 6-7
+.github/workflows/ci/interop/interop-build.sh
+  s_f2c9bd75607afc::t_71cc112c7c4558 2-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e1a9d638696b96c30820841c52f0c0bf38bbbbc6",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
