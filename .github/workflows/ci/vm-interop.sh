@@ -33,7 +33,7 @@ install_first() {  # <install command...> -- <candidate>...
 # The latest stable Go from the official archive for this OS (go.dev ships amd64 builds for these
 # systems; their package repositories carry an old Go or none), unpacked under $HOME and put on PATH.
 install_official_go() {  # <go.dev OS name>
-  local dir="$HOME/go-dist" ver archive list
+  local dir="$HOME/go-dist" ver archive list tarbin
   mkdir -p "$dir"
   ci_download "https://go.dev/VERSION?m=text" "$dir/version"
   ver="$(head -1 "$dir/version" | tr -d '\015')"
@@ -44,7 +44,12 @@ install_official_go() {  # <go.dev OS name>
   list="$dir/sha256.list"
   printf '%s  %s\n' "$(tr -d '\015\012' < "$dir/$archive.sha256")" "$archive" > "$list"
   ci_verify_sha256 "$dir/$archive" "$list"
-  (cd "$dir" && gzip -dc "$archive" | tar xf -)
+  # Solaris tar does not read the PAX headers in the archive, so prefer GNU tar where there is one
+  tarbin=tar
+  for tarbin in gtar /usr/gnu/bin/tar tar; do
+    if command -v "$tarbin" >/dev/null 2>&1; then break; fi
+  done
+  (cd "$dir" && gzip -dc "$archive" | "$tarbin" xf -)
   export PATH="$dir/go/bin:$PATH"
   go version
 }
@@ -65,6 +70,7 @@ provision_tools() {
       ;;
     SunOS)
       command -v python3 >/dev/null 2>&1 || pkg install --accept python-39 || true
+      [ -x /usr/gnu/bin/tar ] || pkg install --accept archiver/gnu-tar || true
       install_official_go solaris
       ;;
   esac
