@@ -1,0 +1,23 @@
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_f2c9bd75607afc::t_86aac7b6d8a287 62-64,127,145,162,192,206,225,260,326,362,404,419,457,471,527,573
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_75bb7c845e68ff 712-713
+TlsLib.Interop/src/InteropSocket.pas
+  s_f2c9bd75607afc::t_a7ab52a12b3463 18-22,114-126,128,138-140,147-156,163,170-175,179,202,294-295,336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "144af36860fe25e4e2acfb5976995e25a1f587ef",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
