@@ -1,0 +1,22 @@
+TlsLib.Tests/src/NetSocketTests.pas
+  s_f2c9bd75607afc::t_acd89fac0d72dc 675,677-691,693-694
+  s_f2c9bd75607afc::t_385949c1352f34 61-65,68-69
+  s_f2c9bd75607afc::t_04960f77fff9da 237-244
+  s_f2c9bd75607afc::t_2736698e879157 323,328-337
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4bfa8b779cd4d9f9099051441a351f7ee4ae6a5c",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
