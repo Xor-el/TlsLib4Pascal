@@ -1,0 +1,20 @@
+.github/workflows/ci/vm-interop.sh
+  s_f2c9bd75607afc::t_f0ccb1db3a4d6a 46-50
+  s_f2c9bd75607afc::t_590a8bbe3cabe9 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4dd988acbd1ce20890e6cccaf4d77b92b1cff668",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
