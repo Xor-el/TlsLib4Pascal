@@ -44,7 +44,11 @@ provision_tools() {
       # the bare name also matches legacy/developer/golang, so name the package in full; pkg exits
       # non-zero when it is already installed, and its go is not on PATH
       pkg install --accept pkg://solaris/developer/golang || true
-      pkg list -H 'golang*' 'developer/golang*' 2>&1 || true
+      echo "--- go candidates in the IPS repository"
+      pkg list -a -H '*golang*' '*gcc-go*' 2>&1 || true
+      echo "--- go candidates in the OpenCSW catalog"
+      pkgutil -a 2>/dev/null | grep -i -E 'golang|[[:space:]]go[[:space:]]' | head -5 || true
+      pkg install --accept developer/gcc/gcc-go-11 2>&1 | tail -3 || true
       gobin="$(find /usr /opt -maxdepth 5 -type f -name go -perm -100 2>/dev/null | grep '/bin/go$' | head -1 || true)"
       echo "go binary: ${gobin:-not found}"
       if [ -n "$gobin" ]; then export PATH="${gobin%/*}:$PATH"; fi
