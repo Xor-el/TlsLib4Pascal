@@ -59,10 +59,6 @@ type
   /// an ephemeral port, a connector, and an accepted pair. Never registered on its own.</summary>
   TNetSocketTestBase = class abstract(TTlsLibAlgorithmTestCase)
   strict protected
-  const
-    // nothing listens here, and a client is never given it, so a connect to it cannot reach itself
-    ClosedPort = 1;
-  strict protected
     function Listener: ITcpListener;
     function Connector: ITcpConnector;
     procedure ConnectPair(const AListener: ITcpListener; out AClient, AServer: ITlsTimedTransport);
@@ -163,6 +159,8 @@ const
   RefusedError = ECONNREFUSED;
 {$ENDIF}
 {$ENDIF}
+  // nothing listens here, and it is never an ephemeral port, so a connect cannot reach itself
+  ClosedPort = 1;
 
 type
   // accepts one connection, runs the TLS server handshake over it and echoes one message

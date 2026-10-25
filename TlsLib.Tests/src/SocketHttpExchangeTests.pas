@@ -189,6 +189,7 @@ type
     procedure Execute; override;
   public
     constructor Create(const AScript: string);
+    procedure AfterConstruction; override;
     destructor Destroy; override;
     function Port: Word;
     function Url: string;
@@ -230,6 +231,7 @@ type
     // AProxyReply '' serves TLS at once; else it answers the CONNECT and goes on only after a 200
     constructor Create(const AConfig: ITlsServerConfig; const AProxyReply, AScript: string;
       AMode: TTlsResponderMode);
+    procedure AfterConstruction; override;
     destructor Destroy; override;
     function Port: Word;
     // stops the responder; the request it read over TLS
@@ -285,6 +287,11 @@ begin
   SetLength(FScript, System.Length(AScript));
   for LI := 1 to System.Length(AScript) do
     FScript[LI - 1] := Byte(Ord(AScript[LI]));
+end;
+
+procedure TScriptedResponder.AfterConstruction;
+begin
+  inherited AfterConstruction;
   FStarted := True;
   Start;
 end;
@@ -381,6 +388,11 @@ begin
   FStop := TEvent.Create(nil, True, False, '');
   FAcceptedEvent := TEvent.Create(nil, True, False, '');
   FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+end;
+
+procedure TTlsResponder.AfterConstruction;
+begin
+  inherited AfterConstruction;
   FStarted := True;
   Start;
 end;

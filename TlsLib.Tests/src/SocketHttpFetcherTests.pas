@@ -111,6 +111,7 @@ type
     procedure Execute; override;
   public
     constructor Create(ABodySize: Int32; AMode: TResponderMode);
+    procedure AfterConstruction; override;
     destructor Destroy; override;
     function Url: string;
     // the request reached the responder (within AWaitMs), so a failed fetch was not a failed connect
@@ -154,6 +155,11 @@ begin
   FRequestSeen := TEvent.Create(nil, True, False, '');
   FAccepted := TEvent.Create(nil, True, False, '');
   FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+end;
+
+procedure TResponder.AfterConstruction;
+begin
+  inherited AfterConstruction;
   FStarted := True;
   Start;
 end;

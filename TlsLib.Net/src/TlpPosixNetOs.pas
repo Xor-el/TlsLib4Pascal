@@ -56,7 +56,7 @@ type
   type
 {$IFDEF FPC}
 {$IFDEF TLSLIB_SOCKADDR_NEEDS_LEN}
-    // these systems start the address with a length byte, which FPC's record leaves out
+    // starts with the length byte these systems expect
     TSockAddrIn = packed record
       sin_len: UInt8;
       sin_family: UInt8;

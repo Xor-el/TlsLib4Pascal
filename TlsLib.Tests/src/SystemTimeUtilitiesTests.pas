@@ -48,6 +48,7 @@ const
   SpinCeilingMs = 3000;
   WallToleranceMs = 100;
   UtcToleranceMs = 2000;
+  OriginToleranceMs = 2000;
   // 2001-09-09 in Unix milliseconds: a wall reading is beyond it
   UnixEpochMagnitudeMs = Int64(1000000000000);
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -86,8 +87,8 @@ var
 begin
   LWallStart := TSystemTimeUtilities.UtcUnixMs;
   LMonoStart := TSystemTimeUtilities.MonotonicMs;
-  // a since-boot reading differs from the wall clock by the boot time, however long the uptime
-  CheckTrue(Abs(LWallStart - LMonoStart) > UtcToleranceMs,
+  // a since-boot reading differs from the wall clock by the time of boot, however long the uptime
+  CheckTrue(Abs(LWallStart - LMonoStart) > OriginToleranceMs,
     'the monotonic origin is not the Unix epoch');
   // a bounded spin on the wall clock, so no Sleep is needed
   repeat

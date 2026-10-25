@@ -96,7 +96,7 @@
   {$UNDEF TLSLIB_UNIX}
 {$IFEND}
 
-// FPC adds the length byte to sockaddr_in on FreeBSD and Darwin only
+// NetBSD, OpenBSD and DragonFly need a sockaddr_in that starts with its length
 {$IF DEFINED(TLSLIB_NETBSD)
    OR DEFINED(TLSLIB_OPENBSD)
    OR DEFINED(TLSLIB_DRAGONFLY)}
