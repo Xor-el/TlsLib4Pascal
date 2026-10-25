@@ -38,8 +38,9 @@ install_official_go() {  # <go.dev OS name>
   ci_download "https://go.dev/VERSION?m=text" "$dir/version"
   ver="$(head -1 "$dir/version" | tr -d '\015')"
   archive="$ver.$1-amd64.tar.gz"
-  ci_download "https://go.dev/dl/$archive" "$dir/$archive"
-  ci_download "https://go.dev/dl/$archive.sha256" "$dir/$archive.sha256"
+  # go.dev/dl/<file>.sha256 is an HTML redirect page; the raw checksum is served from dl.google.com
+  ci_download "https://dl.google.com/go/$archive" "$dir/$archive"
+  ci_download "https://dl.google.com/go/$archive.sha256" "$dir/$archive.sha256"
   list="$dir/sha256.list"
   printf '%s  %s\n' "$(tr -d '\015\012' < "$dir/$archive.sha256")" "$archive" > "$list"
   ci_verify_sha256 "$dir/$archive" "$list"
