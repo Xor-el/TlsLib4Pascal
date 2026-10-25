@@ -100,6 +100,7 @@ type
     FStop: TEvent;
     FRequestSeen: TEvent;
     FAccepted: TEvent;
+    FStarted: Boolean;
     function SendText(const AText: string): Boolean;
     function ReadRequest: Boolean;
     procedure SendHeadTrickled;
@@ -145,21 +146,27 @@ end;
 
 constructor TResponder.Create(ABodySize: Int32; AMode: TResponderMode);
 begin
-  FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+  // suspended until the listener is up, so a failed setup leaves a thread that never ran
+  inherited Create(True);
   FBodySize := ABodySize;
   FMode := AMode;
   FStop := TEvent.Create(nil, True, False, '');
   FRequestSeen := TEvent.Create(nil, True, False, '');
   FAccepted := TEvent.Create(nil, True, False, '');
-  inherited Create(False);
+  FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+  FStarted := True;
+  Start;
 end;
 
 destructor TResponder.Destroy;
 begin
-  // the event frees a response pause, and the accept loop ends on Terminated
-  Terminate;
-  FStop.SetEvent;
-  WaitFor;
+  if FStarted then
+  begin
+    // the event frees a response pause, and the accept loop ends on Terminated
+    Terminate;
+    FStop.SetEvent;
+    WaitFor;
+  end;
   FStop.Free;
   FRequestSeen.Free;
   FAccepted.Free;

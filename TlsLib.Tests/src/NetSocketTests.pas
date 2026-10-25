@@ -59,6 +59,10 @@ type
   /// an ephemeral port, a connector, and an accepted pair. Never registered on its own.</summary>
   TNetSocketTestBase = class abstract(TTlsLibAlgorithmTestCase)
   strict protected
+  const
+    // nothing listens here, and a client is never given it, so a connect to it cannot reach itself
+    ClosedPort = 1;
+  strict protected
     function Listener: ITcpListener;
     function Connector: ITcpConnector;
     procedure ConnectPair(const AListener: ITcpListener; out AClient, AServer: ITlsTimedTransport);
@@ -304,18 +308,13 @@ end;
 
 procedure TTestNetSocket.TestConnectToAClosedPortRaisesConnectError;
 var
-  LListener: ITcpListener;
   LConnector: ITcpConnector;
-  LPort: Word;
   LRaised: Boolean;
 begin
-  LListener := Listener;
-  LPort := LListener.Port;
-  LListener := nil; // released, so nothing listens on the port
   LConnector := TTcpConnector.Create(1000) as ITcpConnector;
   LRaised := False;
   try
-    LConnector.Connect('127.0.0.1', LPort);
+    LConnector.Connect('127.0.0.1', ClosedPort);
   except
     on E: ENetConnectError do
       LRaised := True;
@@ -655,19 +654,14 @@ end;
 
 procedure TTestNetSocket.TestRefusedConnectReportsTheRefusal;
 var
-  LListener: ITcpListener;
-  LPort: Word;
   LHandle: TNetHandle;
   LError: Integer;
 begin
-  LListener := Listener;
-  LPort := LListener.Port;
-  LListener := nil; // released, so nothing listens on the port
   LHandle := TNetOs.InvalidHandle;
   CheckEquals(0, TNetOs.OpenStream(LHandle), 'a socket opens');
   try
     CheckEquals(0, TNetOs.SetBlocking(LHandle, False), 'and does not block');
-    LError := TNetOs.BeginConnect(LHandle, TBytes.Create(127, 0, 0, 1), LPort);
+    LError := TNetOs.BeginConnect(LHandle, TBytes.Create(127, 0, 0, 1), ClosedPort);
     if LError = 0 then
     begin
       CheckTrue(TNetOs.Wait(LHandle, TNetWait.Writable, 5000), 'the refusal arrives');
