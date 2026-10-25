@@ -1,0 +1,32 @@
+.github/workflows/ci/vm-interop.sh
+  s_f2c9bd75607afc::t_98e1774a0b9624 1-83
+.github/workflows/ci/vm-freebsd-run.sh
+  s_f2c9bd75607afc::t_ecea02d0baa995 24-25
+.github/workflows/ci/vm-run-shared.sh
+  s_f2c9bd75607afc::t_873cb254f71f55 15-16
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_6b6c6c2238e85c 673-675,677
+  s_f2c9bd75607afc::t_2e8ac25c2ac95b 700-702,704
+  s_f2c9bd75607afc::t_a5c4de5f1ef0fc 727-729,731
+  s_f2c9bd75607afc::t_5eb8b165bd0f87 319,322-341
+  s_f2c9bd75607afc::t_4d627fdea11d80 276,279-298
+  s_f2c9bd75607afc::t_7f85cd4f3ebb67 645-647,649
+  s_f2c9bd75607afc::t_d0f72927515922 299
+  s_f2c9bd75607afc::t_66a54165b5f199 342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ceeb6d655c71bb395209070bb261fb4183e45d40",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
