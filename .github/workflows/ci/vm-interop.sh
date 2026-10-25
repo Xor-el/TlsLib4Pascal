@@ -66,6 +66,11 @@ provision_tools() {
     NetBSD)
       export PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -p)/$(uname -r | cut -d_ -f1)/All"
       install_first pkg_add -u -- python313 python312 python311 python310 || true
+      # pkgsrc installs only the versioned name, python3.13 and the like
+      for py in /usr/pkg/bin/python3.[0-9][0-9]; do
+        if [ -x "$py" ] && ! command -v python3 >/dev/null 2>&1; then ln -s "$py" /usr/pkg/bin/python3; fi
+      done
+      ls /usr/pkg/bin/python* 2>/dev/null || echo "no python in /usr/pkg/bin"
       install_official_go netbsd
       ;;
     SunOS)
