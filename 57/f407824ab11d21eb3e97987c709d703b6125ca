@@ -1,0 +1,22 @@
+.github/workflows/ci/diag-ocsp.sh
+  s_f2c9bd75607afc::t_6f469b98c8ae96 1-25
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_dc97b30d429913 606
+  s_f2c9bd75607afc::t_3bcdc1c5a21b22 654
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "57f407824ab11d21eb3e97987c709d703b6125ca",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
