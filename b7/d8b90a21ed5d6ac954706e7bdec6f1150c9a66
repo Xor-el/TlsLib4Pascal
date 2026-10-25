@@ -1,0 +1,22 @@
+TlsLib/src/Include/TlsLibFPC.inc
+  s_f2c9bd75607afc::t_3c53553fcc9a3e 99-105
+TlsLib.Net/src/TlpPosixNetOs.pas
+  s_f2c9bd75607afc::t_a08e6f2c4aabbc 283,285
+  s_f2c9bd75607afc::t_c2c6981cb45fdc 58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b7d8b90a21ed5d6ac954706e7bdec6f1150c9a66",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
