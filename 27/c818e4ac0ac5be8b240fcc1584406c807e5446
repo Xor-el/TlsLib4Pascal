@@ -1,0 +1,25 @@
+.github/workflows/ci/interop/trust/gen-trust-ca.sh
+  s_f2c9bd75607afc::t_16917b1e1854a5 50-51,53-54
+  s_f2c9bd75607afc::t_54d58fc2fd45b6 55
+.github/workflows/ci/vm-interop.sh
+  s_f2c9bd75607afc::t_e7c6225e17d2c2 44-45
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_50cc22c1abbac0 412-427
+  s_f2c9bd75607afc::t_9eb8a8e78b4dfa 164-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "27c818e4ac0ac5be8b240fcc1584406c807e5446",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
