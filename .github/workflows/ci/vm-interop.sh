@@ -40,17 +40,14 @@ provision_tools() {
       pkg_add -u go || true
       install_first pkg_add -u -- python313 python312 python311 python310 || true
       ;;
-    SunOS)
-      # the repository's developer/golang is Go 1.7 and obsolete, so the newest Go is gccgo
-      pkg install --accept developer/gcc/gcc-go-15 || true
-      gobin="$(find /usr /opt -maxdepth 5 -type f -name go -perm -100 2>/dev/null | grep '/bin/go$' | head -1 || true)"
-      echo "go binary: ${gobin:-not found}"
-      if [ -n "$gobin" ]; then export PATH="${gobin%/*}:$PATH"; fi
-      go version || true
-      command -v python3 >/dev/null 2>&1 || pkg install --accept python-39 || true
-      ;;
   esac
 }
+
+# Solaris offers Go 1.7 (obsolete) and gccgo (Go 1.18), and the BoGo runner needs a far newer Go
+if [ "$(uname -s)" = "SunOS" ] && [ "${MAKE_RUN_BOGO:-true}" = "true" ]; then
+  echo "BoGo skipped on SunOS: no Go new enough for the BoGo runner is available."
+  export MAKE_RUN_BOGO=false
+fi
 
 if [ "${MAKE_RUN_BOGO:-true}" = "true" ]; then
   provision_tools
