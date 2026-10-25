@@ -213,7 +213,7 @@ DTHUMB="$("$OPENSSL" x509 -in "$CA/distrust_issuer.pem" -noout -fingerprint -sha
 # below use it WITHOUT a store install, so it is load-bearing - wait for it to accept connections.
 "$OPENSSL" ocsp -index "$CA/index_live.txt" -CA "$CA/root.pem" \
   -rsigner "$CA/ocsp_signer.pem" -rkey "$CA/ocsp_signer.key" \
-  -port "127.0.0.1:$OCSP_PORT" -rmd sha256 >/dev/null 2>&1 &
+  -port "$OCSP_PORT" -rmd sha256 >/dev/null 2>&1 &
 OCSP_PID=$!
 # readiness probe: a REAL OCSP query (live_leaf is serial 4001, Valid in the index). A raw TCP
 # connect would be read by the single-threaded responder as a malformed request and disturb it; a
