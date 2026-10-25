@@ -1,0 +1,40 @@
+TlsLib.Interop/src/InteropSocket.pas
+  s_f2c9bd75607afc::t_bb05f072baf3f1 148
+  s_f2c9bd75607afc::t_1e8e4a10aacb6d 167
+  s_f2c9bd75607afc::t_143db36f03944a 18
+  s_f2c9bd75607afc::t_4cf99dda7cdc6a 157,160
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_f2c9bd75607afc::t_b910cb87268179 221,224,227-230
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_f4bdfcc8afd64c 83
+  s_f2c9bd75607afc::t_7d8f169b519323 658,690,726,760
+  s_f2c9bd75607afc::t_9a09a8b474be7c 76-77
+  s_f2c9bd75607afc::t_8145e4a70c68d5 712
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_f2c9bd75607afc::t_810f1c4f7773b0 30
+.github/workflows/ci/vm-interop.sh
+  s_f2c9bd75607afc::t_cb80794cb5d0e2 112
+  s_f2c9bd75607afc::t_c59ad78fae1173 22,26,28,32-37
+  s_f2c9bd75607afc::t_2bf1019cb397c8 125,130-135
+  s_f2c9bd75607afc::t_89d88cc03f3469 74-76
+  s_f2c9bd75607afc::t_af43a9b49cdabb 45
+  s_f2c9bd75607afc::t_edce4300f6e3a6 136-137
+.github/workflows/ci/vm-freebsd-run.sh
+  s_f2c9bd75607afc::t_96a3ae3049a79f 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "05f55b6bfaa3c8330280c52d2c78a6f8b0912859",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
