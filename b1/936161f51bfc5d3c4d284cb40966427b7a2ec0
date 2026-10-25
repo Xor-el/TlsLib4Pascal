@@ -1,0 +1,19 @@
+TlsLib.Tests/src/SystemTimeUtilitiesTests.pas
+  s_f2c9bd75607afc::t_1f025af6f0e185 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b1936161f51bfc5d3c4d284cb40966427b7a2ec0",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
