@@ -41,17 +41,12 @@ provision_tools() {
       install_first pkg_add -u -- python313 python312 python311 python310 || true
       ;;
     SunOS)
-      # the bare name also matches legacy/developer/golang, so name the package in full; pkg exits
-      # non-zero when it is already installed, and its go is not on PATH
-      pkg install --accept pkg://solaris/developer/golang || true
-      echo "--- go candidates in the IPS repository"
-      pkg list -a -H '*golang*' '*gcc-go*' 2>&1 || true
-      echo "--- go candidates in the OpenCSW catalog"
-      pkgutil -a 2>/dev/null | grep -i -E 'golang|[[:space:]]go[[:space:]]' | head -5 || true
-      pkg install --accept developer/gcc/gcc-go-11 2>&1 | tail -3 || true
+      # the repository's developer/golang is Go 1.7 and obsolete, so the newest Go is gccgo
+      pkg install --accept developer/gcc/gcc-go-15 || true
       gobin="$(find /usr /opt -maxdepth 5 -type f -name go -perm -100 2>/dev/null | grep '/bin/go$' | head -1 || true)"
       echo "go binary: ${gobin:-not found}"
       if [ -n "$gobin" ]; then export PATH="${gobin%/*}:$PATH"; fi
+      go version || true
       command -v python3 >/dev/null 2>&1 || pkg install --accept python-39 || true
       ;;
   esac
