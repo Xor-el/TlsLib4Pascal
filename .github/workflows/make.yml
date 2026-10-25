@@ -73,14 +73,14 @@ env:
   # per-job override.
   MAKE_RUN_OPENSSL: true
   # When true (default), the interop step runs the native-trust cells: the portable verifier
-  # against a per-run generated CA on every native, scalar and VM leg, plus - on Windows/macOS - the OS trust
-  # delegate against a throwaway root installed into the machine store. Set false to skip them.
+  # against a per-run generated CA on every native, scalar and VM leg, plus - on Windows/macOS - the
+  # OS trust delegate against a throwaway root installed into the machine store. Set false to skip.
   MAKE_RUN_TRUST: true
   # When true, the Windows github-hosted legs also run the informational root auto-update probe
   # (it removes one public root from the machine stores and restores it). Default false: it answered
   # its question; the probe stays available for re-checking after a Windows image change.
   MAKE_RUN_AUTOROOT: false
-  # When true (default), the native, scalar and VM legs compile the fcl-net adapter package
+  # When true (default), the native, scalar and VM legs (not DragonFly) compile the fcl-net adapter package
   # + its six examples against the prebuilt packages and run its four in-process loopback examples (no
   # network; the real-world example is compile-only, the wedge demo compile-only). fcl-net ships in the
   # FPC tarball, so this needs no extra deps; the other three adapters need third-party frameworks CI
@@ -655,7 +655,7 @@ jobs:
         with:
           name: bogo-coverage-boundary-freebsd
           path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   netbsd:
     name: "VM: NetBSD x86_64"
@@ -687,7 +687,7 @@ jobs:
         with:
           name: bogo-coverage-boundary-netbsd
           path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   dragonflybsd:
     name: "VM: DragonFlyBSD x86_64"
@@ -709,7 +709,7 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['dragonflybsd'].fpc_tarball_target }}
           LD_LIBRARY_PATH_EXTRA: /usr/local/lib
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
-          # the FclNet loopback cannot bind on this OS
+          # the FclNet loopback does not run on this OS
           MAKE_RUN_FCLNET: false
         with:
           envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
@@ -723,7 +723,7 @@ jobs:
         with:
           name: bogo-coverage-boundary-dragonflybsd
           path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   solaris:
     name: "VM: Solaris x86_64"
@@ -757,4 +757,4 @@ jobs:
         with:
           name: bogo-coverage-boundary-solaris
           path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
-          if-no-files-found: ignore
+          if-no-files-found: warn

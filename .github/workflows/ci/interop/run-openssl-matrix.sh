@@ -27,6 +27,7 @@ OSSL_VER="$(command -v "$OPENSSL" >/dev/null 2>&1 && "$OPENSSL" version 2>/dev/n
 case "$OSSL_VER" in
   OpenSSL\ [3-9].* | OpenSSL\ [1-9][0-9].*) : ;;
   *)
+    echo "::warning::openssl matrix skipped: no suitable OpenSSL (found: ${OSSL_VER:-none})"
     echo "SKIPPED: no suitable OpenSSL (need real OpenSSL >= 3.x; found: ${OSSL_VER:-none})"
     exit 0 ;;
 esac

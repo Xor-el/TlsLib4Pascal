@@ -218,11 +218,16 @@ OCSP_PID=$!
 # readiness probe: a REAL OCSP query (live_leaf is serial 4001, Valid in the index). A raw TCP
 # connect would be read by the single-threaded responder as a malformed request and disturb it; a
 # valid query it answers and loops. The new server cells run before the cells that used to warm it up.
+OCSP_READY=0
 for _ in $(seq 1 50); do
   if ci_run_bounded 10 "$OPENSSL" ocsp -CAfile "$CA/root.pem" -issuer "$CA/root.pem" \
-    -cert "$CA/live_leaf.pem" -url "$OCSP_URL" >/dev/null 2>&1; then break; fi
+    -cert "$CA/live_leaf.pem" -url "$OCSP_URL" >/dev/null 2>&1; then OCSP_READY=1; break; fi
   sleep 0.2
 done
+if [ "$OCSP_READY" -ne 1 ]; then
+  echo "ERROR: the OCSP responder never answered on $OCSP_URL" >&2
+  exit 1
+fi
 # a loopback HTTP server for the root-signed CRL (the Windows-only CRL-source cell). Serves ONLY the
 # CRL from a dedicated dir (never the CA dir with its keys). Threaded server tolerates raw probes;
 # curl-probe until it answers. A missing or non-running python leaves CRL_READY=0 - the Windows cell

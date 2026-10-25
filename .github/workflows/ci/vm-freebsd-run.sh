@@ -22,4 +22,4 @@ else
   ci_build_prebuilt
 fi
 
-bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vm-interop.sh"
+bash "$CI_ROOT/vm-interop.sh"

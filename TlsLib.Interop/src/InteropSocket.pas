@@ -15,7 +15,7 @@ unit InteropSocket;
 {$MODE DELPHI}
 {$ENDIF FPC}
 
-// these systems start a socket address with a length byte, which FPC's records leave out
+// these systems start a socket address with a length byte
 {$IF DEFINED(NETBSD) OR DEFINED(OPENBSD) OR DEFINED(DRAGONFLY)}
   {$DEFINE ADDR_NEEDS_LEN}
 {$IFEND}
@@ -145,7 +145,7 @@ end;
 
 type
 {$IFDEF ADDR_NEEDS_LEN}
-  TConnectAddr6 = packed record
+  TSockAddrV6 = packed record
     sin6_len: UInt8;
     sin6_family: UInt8;
     sin6_port: UInt16;
@@ -154,17 +154,17 @@ type
     sin6_scope_id: UInt32;
   end;
 {$ELSE}
-  TConnectAddr6 = record
+  TSockAddrV6 = record
     Addr: TInetSockAddr6;
 {$IFDEF SOLARIS}
-    SrcId: UInt32;   // Solaris ends its sockaddr_in6 with a source-id word
+    SrcId: UInt32;
 {$ENDIF}
   end;
 {$ENDIF}
 
 function ConnectIpv6(const AHost: string; APort: Word): TSocketHandle;
 var
-  LAddr: TConnectAddr6;
+  LAddr: TSockAddrV6;
 begin
   FillChar(LAddr, SizeOf(LAddr), 0);
 {$IFDEF ADDR_NEEDS_LEN}

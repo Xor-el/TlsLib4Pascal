@@ -19,21 +19,22 @@ export TLSLIB_PKIX_PROVIDER="${MAKE_PKIX_PROVIDER:-portable}"
 
 # fcl-net ships with the FPC tarball but not with every pkg-installed FPC
 fclnet_available() {
-  local dir rc
+  local dir out rc
   dir="$(mktemp -d)"
   printf 'uses ssockets;\nbegin\nend.\n' > "$dir/probe.pas"
   rc=0
-  fpc -FE"$dir" -FU"$dir" "$dir/probe.pas" >/dev/null 2>&1 || rc=$?
+  out="$(fpc -Cn -FE"$dir" -FU"$dir" "$dir/probe.pas" 2>&1)" || rc=$?
   rm -rf "$dir"
+  [ "$rc" -eq 0 ] || printf '%s\n' "$out" | tail -5
   return "$rc"
 }
 
-if [ "${MAKE_RUN_FCLNET:-true}" = "true" ]; then
-  if fclnet_available; then
-    bash "$HERE/adapters/fclnet-build.sh"
-  else
-    echo "::warning::fcl-net is not installed with this FPC - skipping the FclNet adapter step."
-  fi
+if [ "${MAKE_RUN_FCLNET:-true}" != "true" ]; then
+  echo "MAKE_RUN_FCLNET != true - skipping the FclNet adapter step."
+elif fclnet_available; then
+  bash "$HERE/adapters/fclnet-build.sh"
+else
+  echo "::warning::fcl-net is not installed with this FPC - skipping the FclNet adapter step."
 fi
 
 if [ "${MAKE_RUN_INTEROP:-true}" != "true" ]; then
@@ -41,20 +42,7 @@ if [ "${MAKE_RUN_INTEROP:-true}" != "true" ]; then
   exit 0
 fi
 
-# Install the first package name in the list that the manager accepts.
-install_first() {  # <install command...> -- <candidate>...
-  local cmd=() pkg
-  while [ "$1" != "--" ]; do cmd+=("$1"); shift; done
-  shift
-  for pkg in "$@"; do
-    if "${cmd[@]}" "$pkg"; then return 0; fi
-  done
-  echo "WARN(vm-interop): none of: $* could be installed"
-  return 1
-}
-
-# The latest stable Go from the official archive for this OS (go.dev ships amd64 builds for these
-# systems; their package repositories carry an old Go or none), unpacked under $HOME and put on PATH.
+# The latest stable Go from the official archive, as the package repositories carry an old Go or none.
 install_official_go() {  # <go.dev OS name>
   local dir="$HOME/go-dist" ver archive list tarbin
   mkdir -p "$dir"
@@ -83,7 +71,9 @@ provision_python() {
       ;;
     NetBSD)
       export PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -p)/$(uname -r | cut -d_ -f1)/All"
-      install_first pkg_add -u -- python313 python312 python311 python310 || true
+      for py in python313 python312 python311 python310; do
+        pkg_add -u "$py" && break
+      done || true
       # pkgsrc installs only the versioned name, python3.13 and the like
       for py in /usr/pkg/bin/python3.[0-9][0-9]; do
         if [ -x "$py" ] && ! command -v python3 >/dev/null 2>&1; then
@@ -119,10 +109,10 @@ provision_go() {
 provision_python
 
 if [ "${MAKE_RUN_BOGO:-true}" = "true" ]; then
+  : "${BOGO_REF:?BOGO_REF is required}"
   provision_go
   export BOGO_WORKERS="${BOGO_WORKERS:-4}"
   export BOGO_SRC="${BOGO_SRC:-$HOME/boringssl}"
-  : "${BOGO_REF:?BOGO_REF is required}"
   if [ ! -d "$BOGO_SRC/.git" ]; then
     git init -q "$BOGO_SRC"
     git -C "$BOGO_SRC" remote add origin https://boringssl.googlesource.com/boringssl
@@ -132,9 +122,17 @@ if [ "${MAKE_RUN_BOGO:-true}" = "true" ]; then
   git -C "$BOGO_SRC" checkout -q FETCH_HEAD
 fi
 
-# DragonFly's base openssl is LibreSSL; dports installs a real one here
+# use the packaged openssl where there is one, as the base one may be LibreSSL
 if [ -x /usr/local/bin/openssl ] && [ -z "${OPENSSL:-}" ]; then
   export OPENSSL=/usr/local/bin/openssl
+fi
+
+# a leg without OpenSSL 3.x would drop the whole matrix and still be green
+if [ "${MAKE_RUN_OPENSSL:-true}" = "true" ]; then
+  case "$("${OPENSSL:-openssl}" version 2>/dev/null || true)" in
+    OpenSSL\ [3-9].* | OpenSSL\ [1-9][0-9].*) ;;
+    *) echo "::error::the openssl matrix needs OpenSSL 3.x on this leg"; exit 1 ;;
+  esac
 fi
 
 # NetBSD's base openssl has no config file and `openssl req` refuses to run without one
