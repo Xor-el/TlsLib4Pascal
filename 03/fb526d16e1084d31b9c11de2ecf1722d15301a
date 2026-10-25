@@ -1,0 +1,29 @@
+.github/workflows/ci/vm-interop.sh
+  s_f2c9bd75607afc::t_651bff3d43a54e 44-49
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_f2c9bd75607afc::t_e45c1a710f2263 598
+  s_f2c9bd75607afc::t_ce72462a3c8eb4 351
+  s_f2c9bd75607afc::t_6afa27988eb030 594
+  s_f2c9bd75607afc::t_d2ff5f369c5df1 344
+  s_f2c9bd75607afc::t_4ff66edc59dfff 596
+  s_f2c9bd75607afc::t_5d12f4be1e803b 92
+  s_f2c9bd75607afc::t_ebb91a1a79136e 294
+  s_f2c9bd75607afc::t_e915c913f39859 348
+  s_f2c9bd75607afc::t_0d9099a664f07f 47-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "03fb526d16e1084d31b9c11de2ecf1722d15301a",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
