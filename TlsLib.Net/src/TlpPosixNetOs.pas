@@ -55,7 +55,18 @@ type
   strict private
   type
 {$IFDEF FPC}
+{$IFDEF TLSLIB_SOCKADDR_NEEDS_LEN}
+    // starts with the length byte these systems expect
+    TSockAddrIn = packed record
+      sin_len: UInt8;
+      sin_family: UInt8;
+      sin_port: UInt16;
+      sin_addr: array [0 .. 3] of Byte;
+      sin_zero: array [0 .. 7] of Byte;
+    end;
+{$ELSE}
     TSockAddrIn = TInetSockAddr;
+{$ENDIF}
     TNetSockLen = TSockLen;
     // the C struct addrinfo; Linux and OpenBSD put ai_addr first
     TNetAddrInfo = record
@@ -269,6 +280,9 @@ class procedure TPosixNetOs.FillAddress(const AAddress: TBytes; APort: Word;
   out AAddr: TSockAddrIn);
 begin
   AAddr := Default(TSockAddrIn);
+{$IFDEF TLSLIB_SOCKADDR_NEEDS_LEN}
+  AAddr.sin_len := SizeOf(TSockAddrIn);
+{$ENDIF}
   AAddr.sin_family := AF_INET;
   Move(AAddress[0], AAddr.sin_addr, 4);
   // the port goes out in network order whatever the byte order of the CPU

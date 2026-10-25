@@ -183,11 +183,13 @@ type
     FScript: TBytes;
     FRequest: string;
     FAccepted: Boolean;
+    FStarted: Boolean;
     function ReadRequest(const AStream: ITlsTimedTransport): string;
   protected
     procedure Execute; override;
   public
     constructor Create(const AScript: string);
+    procedure AfterConstruction; override;
     destructor Destroy; override;
     function Port: Word;
     function Url: string;
@@ -214,6 +216,7 @@ type
     FMode: TTlsResponderMode;
     FStop: TEvent;
     FAcceptedEvent: TEvent;
+    FStarted: Boolean;
     FTunnelRequest: string;
     FRequest: string;
     FReplySent: Boolean;
@@ -228,6 +231,7 @@ type
     // AProxyReply '' serves TLS at once; else it answers the CONNECT and goes on only after a 200
     constructor Create(const AConfig: ITlsServerConfig; const AProxyReply, AScript: string;
       AMode: TTlsResponderMode);
+    procedure AfterConstruction; override;
     destructor Destroy; override;
     function Port: Word;
     // stops the responder; the request it read over TLS
@@ -277,17 +281,28 @@ constructor TScriptedResponder.Create(const AScript: string);
 var
   LI: Int32;
 begin
+  // suspended until the listener is up, so a failed setup leaves a thread that never ran
+  inherited Create(True);
   FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
   SetLength(FScript, System.Length(AScript));
   for LI := 1 to System.Length(AScript) do
     FScript[LI - 1] := Byte(Ord(AScript[LI]));
-  inherited Create(False);
+end;
+
+procedure TScriptedResponder.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  FStarted := True;
+  Start;
 end;
 
 destructor TScriptedResponder.Destroy;
 begin
-  Terminate;
-  WaitFor;
+  if FStarted then
+  begin
+    Terminate;
+    WaitFor;
+  end;
   FListener := nil;
   inherited Destroy;
 end;
@@ -364,21 +379,32 @@ end;
 constructor TTlsResponder.Create(const AConfig: ITlsServerConfig; const AProxyReply,
   AScript: string; AMode: TTlsResponderMode);
 begin
-  FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+  // suspended until the listener is up, so a failed setup leaves a thread that never ran
+  inherited Create(True);
   FConfig := AConfig;
   FProxyReply := AProxyReply;
   FScript := AScript;
   FMode := AMode;
   FStop := TEvent.Create(nil, True, False, '');
   FAcceptedEvent := TEvent.Create(nil, True, False, '');
-  inherited Create(False);
+  FListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+end;
+
+procedure TTlsResponder.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  FStarted := True;
+  Start;
 end;
 
 destructor TTlsResponder.Destroy;
 begin
-  Terminate;
-  FStop.SetEvent;
-  WaitFor;
+  if FStarted then
+  begin
+    Terminate;
+    FStop.SetEvent;
+    WaitFor;
+  end;
   FStop.Free;
   FAcceptedEvent.Free;
   FListener := nil;
