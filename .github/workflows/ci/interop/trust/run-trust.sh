@@ -207,26 +207,34 @@ fi
 OPENSSL="$OPENSSL" bash "$HERE/gen-trust-ca.sh" "$CA" "$RUNID" "$OCSP_URL" "$DEAD_URL" "$CRL_URL"
 THUMB="$("$OPENSSL" x509 -in "$CA/root.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
 DTHUMB="$("$OPENSSL" x509 -in "$CA/distrust_issuer.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g')"
+case "$OSNAME" in
+  MINGW*|MSYS*|CYGWIN*|Windows*|Darwin) HAS_DELEGATE=1 ;;
+  *) HAS_DELEGATE=0 ;;
+esac
+
 # a loopback OCSP responder for the live cells: serves the live index (accept leaves Valid, revoked
 # leaves Revoked) signed by the root-delegated OCSPSigning responder both crypt32 and trustd accept.
-# It runs for the whole bracket and is killed by the EXIT trap. The server-verifies-client live cells
-# below use it WITHOUT a store install, so it is load-bearing - wait for it to accept connections.
-"$OPENSSL" ocsp -index "$CA/index_live.txt" -CA "$CA/root.pem" \
-  -rsigner "$CA/ocsp_signer.pem" -rkey "$CA/ocsp_signer.key" \
-  -port "$OCSP_PORT" -rmd sha256 >/dev/null 2>&1 &
-OCSP_PID=$!
-# readiness probe: a REAL OCSP query (live_leaf is serial 4001, Valid in the index). A raw TCP
-# connect would be read by the single-threaded responder as a malformed request and disturb it; a
-# valid query it answers and loops. The new server cells run before the cells that used to warm it up.
-OCSP_READY=0
-for _ in $(seq 1 50); do
-  if ci_run_bounded 10 "$OPENSSL" ocsp -CAfile "$CA/root.pem" -issuer "$CA/root.pem" \
-    -cert "$CA/live_leaf.pem" -url "$OCSP_URL" >/dev/null 2>&1; then OCSP_READY=1; break; fi
-  sleep 0.2
-done
-if [ "$OCSP_READY" -ne 1 ]; then
-  echo "ERROR: the OCSP responder never answered on $OCSP_URL" >&2
-  exit 1
+# Only the OS-delegate cells fetch from it, so it runs only where they do. It runs for the whole
+# bracket and is killed by the EXIT trap. The server-verifies-client live cells below use it WITHOUT
+# a store install, so it is load-bearing - wait for it to accept connections.
+if [ "$HAS_DELEGATE" = 1 ]; then
+  "$OPENSSL" ocsp -index "$CA/index_live.txt" -CA "$CA/root.pem" \
+    -rsigner "$CA/ocsp_signer.pem" -rkey "$CA/ocsp_signer.key" \
+    -port "$OCSP_PORT" -rmd sha256 >/dev/null 2>&1 &
+  OCSP_PID=$!
+  # readiness probe: a REAL OCSP query (live_leaf is serial 4001, Valid in the index). A raw TCP
+  # connect would be read by the single-threaded responder as a malformed request and disturb it; a
+  # valid query it answers and loops. The new server cells run before the cells that used to warm it up.
+  OCSP_READY=0
+  for _ in $(seq 1 50); do
+    if ci_run_bounded 10 "$OPENSSL" ocsp -CAfile "$CA/root.pem" -issuer "$CA/root.pem" \
+      -cert "$CA/live_leaf.pem" -url "$OCSP_URL" >/dev/null 2>&1; then OCSP_READY=1; break; fi
+    sleep 0.2
+  done
+  if [ "$OCSP_READY" -ne 1 ]; then
+    echo "ERROR: the OCSP responder never answered on $OCSP_URL" >&2
+    exit 1
+  fi
 fi
 # a loopback HTTP server for the root-signed CRL (the Windows-only CRL-source cell). Serves ONLY the
 # CRL from a dedicated dir (never the CA dir with its keys). Threaded server tolerates raw probes;
@@ -288,11 +296,6 @@ for V in 13 12; do
     --root "$CA/root.pem" --server-cert "$CA/foreign_fullchain.pem" \
     --server-key "$CA/foreign_leaf.key" --posture off --expect reject
 done
-
-case "$OSNAME" in
-  MINGW*|MSYS*|CYGWIN*|Windows*|Darwin) HAS_DELEGATE=1 ;;
-  *) HAS_DELEGATE=0 ;;
-esac
 
 if [ "$HAS_DELEGATE" = 1 ]; then
   echo "=== OS trust delegate (real machine store) ==="
