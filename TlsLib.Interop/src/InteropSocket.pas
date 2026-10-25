@@ -154,29 +154,27 @@ type
     sin6_scope_id: UInt32;
   end;
 {$ELSE}
-  TSockAddrV6 = record
-    Addr: TInetSockAddr6;
+  TSockAddrV6 = TInetSockAddr6;
+{$ENDIF}
+
+  TConnectAddr6 = record
+    Addr: TSockAddrV6;
 {$IFDEF SOLARIS}
     SrcId: UInt32;
 {$ENDIF}
   end;
-{$ENDIF}
 
 function ConnectIpv6(const AHost: string; APort: Word): TSocketHandle;
 var
-  LAddr: TSockAddrV6;
+  LAddr: TConnectAddr6;
 begin
   FillChar(LAddr, SizeOf(LAddr), 0);
 {$IFDEF ADDR_NEEDS_LEN}
-  LAddr.sin6_len := SizeOf(LAddr);
-  LAddr.sin6_family := AF_INET6;
-  LAddr.sin6_port := htons(APort);
-  LAddr.sin6_addr := StrToHostAddr6(AHost);
-{$ELSE}
+  LAddr.Addr.sin6_len := SizeOf(LAddr.Addr);
+{$ENDIF}
   LAddr.Addr.sin6_family := AF_INET6;
   LAddr.Addr.sin6_port := htons(APort);
   LAddr.Addr.sin6_addr := StrToHostAddr6(AHost);
-{$ENDIF}
   Result := fpSocket(AF_INET6, SOCK_STREAM, 0);
   if Result < 0 then
     raise EInteropSocket.CreateRes(@SSocketCreate);
