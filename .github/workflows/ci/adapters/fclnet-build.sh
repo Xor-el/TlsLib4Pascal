@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# FclNet adapter coverage for the native legs. Platform/architecture-generic: keys off
-# FPC_TARGET, so one script serves every native job.
+# FclNet adapter coverage for the native, scalar and VM legs. Platform/architecture-generic: keys
+# off FPC_TARGET, so one script serves every job.
 #
 # Runs AFTER the standard build step, so CryptoLib / HashLib / SimpleBase / TlsLib are
 # already compiled into their lib/<target> unit dirs. make.pas only builds+runs the
@@ -49,9 +49,8 @@ INCLUDE_DIR="$REPO_ROOT/TlsLib/src/Include"
 mkdir -p "$BIN_DIR"
 
 # fcl-net (ssockets/sslsockets/sslbase) ships in the FPC tarball CI installs, so it resolves
-# from the FPC unit path like any RTL/FCL unit - no -Fu for it. A leg whose FPC lacks it (a
-# split-package distro FPC, e.g. FreeBSD - which is not wired for this step) fails the compile
-# below with a clear "Can't find unit ssockets".
+# from the FPC unit path like any RTL/FCL unit - no -Fu for it. vm-interop.sh probes for it and
+# skips this step with a warning when the installed FPC lacks it.
 
 # Locate the prebuilt package unit dirs by a known .ppu (each package -> <pkg>/lib/<target>).
 find_units_dir() {

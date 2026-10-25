@@ -122,27 +122,26 @@ begin
   AAddr.sin_addr := LNetAddr;
 end;
 
-function ConnectIpv6(const AHost: string; APort: Word): TSocketHandle;
-const
+type
+  TConnectAddr6 = record
+    Addr: TInetSockAddr6;
 {$IFDEF SOLARIS}
-  // Solaris ends its sockaddr_in6 with a source-id word and refuses the shorter length
-  Addr6Size = SizeOf(TInetSockAddr6) + SizeOf(UInt32);
-{$ELSE}
-  Addr6Size = SizeOf(TInetSockAddr6);
+    SrcId: UInt32;   // Solaris ends its sockaddr_in6 with a source-id word
 {$ENDIF}
+  end;
+
+function ConnectIpv6(const AHost: string; APort: Word): TSocketHandle;
 var
-  LBuffer: array [0 .. Addr6Size - 1] of Byte;
-  LAddr: PInetSockAddr6;
+  LAddr: TConnectAddr6;
 begin
-  FillChar(LBuffer, SizeOf(LBuffer), 0);
-  LAddr := PInetSockAddr6(@LBuffer);
-  LAddr^.sin6_family := AF_INET6;
-  LAddr^.sin6_port := htons(APort);
-  LAddr^.sin6_addr := StrToHostAddr6(AHost);
+  FillChar(LAddr, SizeOf(LAddr), 0);
+  LAddr.Addr.sin6_family := AF_INET6;
+  LAddr.Addr.sin6_port := htons(APort);
+  LAddr.Addr.sin6_addr := StrToHostAddr6(AHost);
   Result := fpSocket(AF_INET6, SOCK_STREAM, 0);
   if Result < 0 then
     raise EInteropSocket.CreateRes(@SSocketCreate);
-  if fpConnect(Result, @LBuffer, Addr6Size) <> 0 then
+  if fpConnect(Result, @LAddr, SizeOf(LAddr)) <> 0 then
   begin
     CloseSocket(Result);
     raise EInteropSocket.CreateResFmt(@SSocketConnect, [AHost, APort]);

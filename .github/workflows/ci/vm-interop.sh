@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Interop phase for the VM legs. Runs inside the VM after the build and does what the
-# interop-harness action does for the native legs: provisions Go and the pinned BoGo peer,
-# then runs interop-build.sh (self-test, fuzzer, trust cells, openssl matrix, BoGo).
-# Also runs the FclNet adapter step where the installed FPC ships fcl-net.
+# interop-harness action does for the native legs: runs the FclNet adapter step where the
+# installed FPC ships fcl-net, installs python3, then (with BoGo) provisions Go and the pinned
+# BoGo peer and runs interop-build.sh (self-test, fuzzer, trust cells, openssl matrix, BoGo).
 #
-# Opt out with MAKE_RUN_INTEROP=false, of BoGo alone with MAKE_RUN_BOGO=false.
+# MAKE_RUN_FCLNET=false skips the FclNet step; MAKE_RUN_INTEROP=false skips the rest, and
+# MAKE_RUN_BOGO=false skips BoGo alone.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +13,28 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/shared/common.sh"
 ci_init_paths
 ci_export_toolchain_path
+
+export TLSLIB_CRYPTO_PROVIDER="${MAKE_CRYPTO_PROVIDER:-portable}"
+export TLSLIB_PKIX_PROVIDER="${MAKE_PKIX_PROVIDER:-portable}"
+
+# fcl-net ships with the FPC tarball but not with every pkg-installed FPC
+fclnet_available() {
+  local dir rc
+  dir="$(mktemp -d)"
+  printf 'uses ssockets;\nbegin\nend.\n' > "$dir/probe.pas"
+  rc=0
+  fpc -FE"$dir" -FU"$dir" "$dir/probe.pas" >/dev/null 2>&1 || rc=$?
+  rm -rf "$dir"
+  return "$rc"
+}
+
+if [ "${MAKE_RUN_FCLNET:-true}" = "true" ]; then
+  if fclnet_available; then
+    bash "$HERE/adapters/fclnet-build.sh"
+  else
+    echo "::warning::fcl-net is not installed with this FPC - skipping the FclNet adapter step."
+  fi
+fi
 
 if [ "${MAKE_RUN_INTEROP:-true}" != "true" ]; then
   echo "MAKE_RUN_INTEROP != true - skipping the interop phase."
@@ -45,7 +68,6 @@ install_official_go() {  # <go.dev OS name>
   printf '%s  %s\n' "$(tr -d '\015\012' < "$dir/$archive.sha256")" "$archive" > "$list"
   ci_verify_sha256 "$dir/$archive" "$list"
   # Solaris tar does not read the PAX headers in the archive, so prefer GNU tar where there is one
-  tarbin=tar
   for tarbin in gtar /usr/gnu/bin/tar tar; do
     if command -v "$tarbin" >/dev/null 2>&1; then break; fi
   done
@@ -54,36 +76,51 @@ install_official_go() {  # <go.dev OS name>
   go version
 }
 
-provision_tools() {
+provision_python() {
   case "$(uname -s)" in
-    FreeBSD)
-      pkg install -y go python3 || true
-      ;;
-    DragonFly)
+    FreeBSD|DragonFly)
       pkg install -y python3 || true
-      install_official_go dragonfly
       ;;
     NetBSD)
       export PKG_PATH="https://cdn.NetBSD.org/pub/pkgsrc/packages/NetBSD/$(uname -p)/$(uname -r | cut -d_ -f1)/All"
       install_first pkg_add -u -- python313 python312 python311 python310 || true
       # pkgsrc installs only the versioned name, python3.13 and the like
       for py in /usr/pkg/bin/python3.[0-9][0-9]; do
-        if [ -x "$py" ] && ! command -v python3 >/dev/null 2>&1; then ln -s "$py" /usr/pkg/bin/python3; fi
+        if [ -x "$py" ] && ! command -v python3 >/dev/null 2>&1; then
+          ln -s "$py" /usr/pkg/bin/python3
+          break
+        fi
       done
-      ls /usr/pkg/bin/python* 2>/dev/null || echo "no python in /usr/pkg/bin"
-      install_official_go netbsd
       ;;
     SunOS)
       command -v python3 >/dev/null 2>&1 || pkg install --accept python-39 || true
+      ;;
+  esac
+}
+
+provision_go() {
+  case "$(uname -s)" in
+    FreeBSD)
+      install_official_go freebsd
+      ;;
+    DragonFly)
+      install_official_go dragonfly
+      ;;
+    NetBSD)
+      install_official_go netbsd
+      ;;
+    SunOS)
       [ -x /usr/gnu/bin/tar ] || pkg install --accept archiver/gnu-tar || true
       install_official_go solaris
       ;;
   esac
 }
 
+provision_python
+
 if [ "${MAKE_RUN_BOGO:-true}" = "true" ]; then
-  provision_tools
-  command -v go >/dev/null 2>&1 || echo "::warning::no go on $(uname -s); BoGo will fail"
+  provision_go
+  export BOGO_WORKERS="${BOGO_WORKERS:-4}"
   export BOGO_SRC="${BOGO_SRC:-$HOME/boringssl}"
   : "${BOGO_REF:?BOGO_REF is required}"
   if [ ! -d "$BOGO_SRC/.git" ]; then
@@ -95,27 +132,13 @@ if [ "${MAKE_RUN_BOGO:-true}" = "true" ]; then
   git -C "$BOGO_SRC" checkout -q FETCH_HEAD
 fi
 
-# fcl-net ships with the FPC tarball but not with every pkg-installed FPC
-fclnet_available() {
-  local dir rc
-  dir="$(mktemp -d)"
-  printf 'uses ssockets;\nbegin\nend.\n' > "$dir/probe.pas"
-  rc=0
-  fpc -FE"$dir" -FU"$dir" "$dir/probe.pas" >/dev/null 2>&1 || rc=$?
-  rm -rf "$dir"
-  return "$rc"
-}
-
-if [ "${MAKE_RUN_FCLNET:-true}" = "true" ]; then
-  if fclnet_available; then
-    bash "$HERE/adapters/fclnet-build.sh"
-  else
-    echo "fcl-net is not installed with this FPC - skipping the FclNet adapter step."
-  fi
+# DragonFly's base openssl is LibreSSL; dports installs a real one here
+if [ -x /usr/local/bin/openssl ] && [ -z "${OPENSSL:-}" ]; then
+  export OPENSSL=/usr/local/bin/openssl
 fi
 
 # NetBSD's base openssl has no config file and `openssl req` refuses to run without one
-ossl_dir="$(openssl version -d 2>/dev/null | sed -e 's/^OPENSSLDIR: "//' -e 's/"$//')"
+ossl_dir="$("${OPENSSL:-openssl}" version -d 2>/dev/null | sed -e 's/^OPENSSLDIR: "//' -e 's/"$//' || true)"
 if [ -z "${OPENSSL_CONF:-}" ] && [ -n "$ossl_dir" ] && [ ! -r "$ossl_dir/openssl.cnf" ]; then
   printf '[req]\ndistinguished_name = req_dn\n[req_dn]\n' > "$HOME/openssl-minimal.cnf"
   export OPENSSL_CONF="$HOME/openssl-minimal.cnf"

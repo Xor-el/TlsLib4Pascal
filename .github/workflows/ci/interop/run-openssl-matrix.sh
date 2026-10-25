@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The lighter interop matrix: our engine against an openssl s_client / s_server peer, both
 # directions, for the core TLS 1.3 (and hardened 1.2) cases. No Go needed. Runs locally (Git
-# Bash) and on every native CI leg (Linux, Windows, macOS). It needs a real OpenSSL >= 3.x
+# Bash) and on the native and VM CI legs. It needs a real OpenSSL >= 3.x
 # (the cells use OpenSSL-specific s_client/s_server flags); anything else is skipped cleanly,
 # never failing the leg. Also needs a built OpenSslInterop binary (interop-build.sh compiles it).
 set -euo pipefail
@@ -51,6 +51,10 @@ unhex() {
   elif command -v perl >/dev/null 2>&1; then
     perl -ne 'chomp; print pack("H*", $_)'
   else
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "unhex: needs xxd, perl or python3" >&2
+      return 127
+    fi
     python3 -c 'import sys, binascii; sys.stdout.buffer.write(binascii.unhexlify(sys.stdin.read().strip()))'
   fi
 }

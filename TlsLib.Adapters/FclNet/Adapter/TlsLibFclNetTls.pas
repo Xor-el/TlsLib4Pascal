@@ -417,11 +417,8 @@ end;
 
 function TTlsLibSocketHandler.GetLastSSLErrorCode: Integer;
 begin
-  // 1 when the last operation failed, 0 when it did not: a failure here carries no numeric code
-  if FLastErrorDesc <> '' then
-    Result := 1
-  else
-    Result := 0;
+  // no numeric code; the text is in GetLastSSLErrorString
+  Result := 0;
 end;
 {$IFEND}
 

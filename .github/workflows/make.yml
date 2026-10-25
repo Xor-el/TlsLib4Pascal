@@ -55,11 +55,10 @@ env:
   # a run that leaves state behind for the next fails the leg. Override per job below, like
   # MAKE_BUILD_BACKEND.
   MAKE_TEST_REPEAT: 1
-  # When true (default), every native and VM job runs the interop harness after its build (the
-  # emulated QEMU legs do not): the loopback self-test, the two-tier structure-aware parser fuzzer
-  # (regression-corpus replay + a fixed-seed mutation smoke), and the always-on openssl
-  # s_client/s_server matrix. Read only by that job's interop-build.sh step. Set false to
-  # skip the whole harness.
+  # When true (default), every native, scalar and VM job runs the interop harness after its build
+  # (the emulated QEMU legs do not): the loopback self-test, the two-tier structure-aware parser
+  # fuzzer (regression-corpus replay + a fixed-seed mutation smoke), and the always-on openssl
+  # s_client/s_server matrix. Read by that job's interop step. Set false to skip the whole harness.
   MAKE_RUN_INTEROP: true
   # When true (default), the interop step additionally runs the full-suite hard-gate BoGo
   # conformance run (needs Go + the BOGO_REF-pinned BoringSSL checkout, set up in the harness
@@ -74,14 +73,14 @@ env:
   # per-job override.
   MAKE_RUN_OPENSSL: true
   # When true (default), the interop step runs the native-trust cells: the portable verifier
-  # against a per-run generated CA on every native leg, plus - on Windows/macOS - the OS trust
+  # against a per-run generated CA on every native, scalar and VM leg, plus - on Windows/macOS - the OS trust
   # delegate against a throwaway root installed into the machine store. Set false to skip them.
   MAKE_RUN_TRUST: true
   # When true, the Windows github-hosted legs also run the informational root auto-update probe
   # (it removes one public root from the machine stores and restores it). Default false: it answered
   # its question; the probe stays available for re-checking after a Windows image change.
   MAKE_RUN_AUTOROOT: false
-  # When true (default), the native legs (Linux, Windows, macOS) compile the fcl-net adapter package
+  # When true (default), the native, scalar and VM legs compile the fcl-net adapter package
   # + its six examples against the prebuilt packages and run its four in-process loopback examples (no
   # network; the real-world example is compile-only, the wedge demo compile-only). fcl-net ships in the
   # FPC tarball, so this needs no extra deps; the other three adapters need third-party frameworks CI
@@ -94,7 +93,7 @@ env:
   # both portable the rerun is skipped.
   MAKE_CRYPTO_PROVIDER: os
   MAKE_PKIX_PROVIDER: portable
-  # When true (default), the native legs also run the unit tests that need live DNS
+  # When true (default), the native, scalar and VM legs also run the unit tests that need live DNS
   # (TLSLIB_TEST_NETWORK). Set false to skip them.
   MAKE_TEST_NETWORK: true
   # The BoringSSL/BoGo peer commit the disable ledger is reconciled against (pins the
@@ -642,15 +641,21 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['freebsd'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['freebsd'].fpc_tarball_target }}
           FREEBSD_INSTALL_MODE: interim
-          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
-          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         with:
-          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET TLSLIB_CRYPTO_PROVIDER TLSLIB_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
+          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           release: "15.0"
           usesh: true
           prepare: sh .github/workflows/ci/vm-freebsd-prepare.sh
           run: bash .github/workflows/ci/vm-freebsd-run.sh
+
+      - name: Upload BoGo coverage boundary
+        if: always() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bogo-coverage-boundary-freebsd
+          path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
+          if-no-files-found: ignore
 
   netbsd:
     name: "VM: NetBSD x86_64"
@@ -670,13 +675,19 @@ jobs:
         env:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].fpc_tarball_target }}
-          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
-          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET TLSLIB_CRYPTO_PROVIDER TLSLIB_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           prepare: sh .github/workflows/ci/vm-netbsd-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
+
+      - name: Upload BoGo coverage boundary
+        if: always() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bogo-coverage-boundary-netbsd
+          path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
+          if-no-files-found: ignore
 
   dragonflybsd:
     name: "VM: DragonFlyBSD x86_64"
@@ -697,14 +708,20 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['dragonflybsd'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['dragonflybsd'].fpc_tarball_target }}
           LD_LIBRARY_PATH_EXTRA: /usr/local/lib
-          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
-          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET TLSLIB_CRYPTO_PROVIDER TLSLIB_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           usesh: true
           prepare: sh .github/workflows/ci/vm-dragonfly-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
+
+      - name: Upload BoGo coverage boundary
+        if: always() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bogo-coverage-boundary-dragonflybsd
+          path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
+          if-no-files-found: ignore
 
   solaris:
     name: "VM: Solaris x86_64"
@@ -724,12 +741,18 @@ jobs:
         env:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_tarball_target }}
-          TLSLIB_CRYPTO_PROVIDER: ${{ env.MAKE_CRYPTO_PROVIDER }}
-          TLSLIB_PKIX_PROVIDER: ${{ env.MAKE_PKIX_PROVIDER }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET TLSLIB_CRYPTO_PROVIDER TLSLIB_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           release: "11.4-gcc"
           usesh: true
           prepare: sh .github/workflows/ci/vm-solaris-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
+
+      - name: Upload BoGo coverage boundary
+        if: always() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bogo-coverage-boundary-solaris
+          path: TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
+          if-no-files-found: ignore
