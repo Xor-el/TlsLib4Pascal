@@ -1,0 +1,22 @@
+TlsLib.Interop/src/InteropSocket.pas
+  s_f2c9bd75607afc::t_faf5fc6f3e3062 272-273
+  s_f2c9bd75607afc::t_ae776b0758d434 109-122,124,134-136
+  s_f2c9bd75607afc::t_fedb51a2dd28e5 180
+  s_f2c9bd75607afc::t_9dd4c51fc389c4 314
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c43fe2ed66bb6cfcb6980d38c3fbd915cee962d3",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
