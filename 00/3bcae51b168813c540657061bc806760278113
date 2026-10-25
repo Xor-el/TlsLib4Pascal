@@ -1,0 +1,19 @@
+.github/workflows/ci/diag-dragonfly.sh
+  s_f2c9bd75607afc::t_dff5b997877bbe 2,30-32,34-36,38-40,42-56,59-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "003bcae51b168813c540657061bc806760278113",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
