@@ -1,0 +1,41 @@
+.github/workflows/ci/adapters/fclnet-build.sh
+  s_f2c9bd75607afc::t_a91dc30a723904 2-3
+  s_f2c9bd75607afc::t_7181a8974eac4b 52-53
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_4583b21354920c 76
+  s_f2c9bd75607afc::t_df7ce375eb874a 680,684-690
+  s_f2c9bd75607afc::t_fe31f5a8782f2a 746,751-758
+  s_f2c9bd75607afc::t_904d4c44438d18 646,652-658
+  s_f2c9bd75607afc::t_9c6887d3def480 58-61
+  s_f2c9bd75607afc::t_bf6a826f0fd15e 96
+  s_f2c9bd75607afc::t_2b1cd8a35868bc 83
+  s_f2c9bd75607afc::t_947779b76edb67 713,718-724
+  s_f2c9bd75607afc::t_6bbdb18e71e544 659
+  s_f2c9bd75607afc::t_037a9c434216d4 691
+  s_f2c9bd75607afc::t_9ab360a669a51d 725
+TlsLib.Interop/src/InteropSocket.pas
+  s_f2c9bd75607afc::t_c500e81641e15c 125-127,129,131-133,135,137-140,144
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_1e9aa22683a5c8 420-421
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_f2c9bd75607afc::t_261691f86ec073 54-57
+  s_f2c9bd75607afc::t_3ce8a73e8bf4ea 4
+.github/workflows/ci/vm-interop.sh
+  s_f2c9bd75607afc::t_b42417d3daba8e 3-5,7-8,17-38,79,81,89-92,97-112,119-120,122-123,135-137,141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d7e653539299b5c51d4ab857704cc31153fff428",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
