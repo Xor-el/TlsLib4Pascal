@@ -109,4 +109,11 @@ if [ "${MAKE_RUN_FCLNET:-true}" = "true" ]; then
   fi
 fi
 
+# NetBSD's base openssl has no config file and `openssl req` refuses to run without one
+ossl_dir="$(openssl version -d 2>/dev/null | sed -e 's/^OPENSSLDIR: "//' -e 's/"$//')"
+if [ -z "${OPENSSL_CONF:-}" ] && [ -n "$ossl_dir" ] && [ ! -r "$ossl_dir/openssl.cnf" ]; then
+  printf '[req]\ndistinguished_name = req_dn\n[req_dn]\n' > "$HOME/openssl-minimal.cnf"
+  export OPENSSL_CONF="$HOME/openssl-minimal.cnf"
+fi
+
 bash "$HERE/interop/interop-build.sh"
