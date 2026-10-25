@@ -44,6 +44,17 @@ source "$HERE/../shared/common.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"; kill $(jobs -p) 2>/dev/null || true' EXIT
 
+# hex text on stdin to raw bytes on stdout; xxd is not installed on every OS
+unhex() {
+  if command -v xxd >/dev/null 2>&1; then
+    xxd -r -p
+  elif command -v perl >/dev/null 2>&1; then
+    perl -ne 'chomp; print pack("H*", $_)'
+  else
+    python3 -c 'import sys, binascii; sys.stdout.buffer.write(binascii.unhexlify(sys.stdin.read().strip()))'
+  fi
+}
+
 reap_cell() { # a peer stuck in accept must not outlive its cell
   local _
   for _ in $(seq 1 30); do [ -z "$(jobs -rp)" ] && break; sleep 0.1; done
@@ -78,7 +89,7 @@ fi
 # --- Cell 1: our server  <-  openssl s_client (openssl strictly verifies our cert) ---
 echo "=== cell 1: our server  <-  openssl s_client ==="
 ROOTHEX="$(grep '^root_cert=' "$DATA_DIR/Certs/EcP256Chain.txt" | cut -d= -f2)"
-echo -n "$ROOTHEX" | xxd -r -p > "$TMP/root.der"
+echo -n "$ROOTHEX" | unhex > "$TMP/root.der"
 "$OPENSSL" x509 -inform DER -in "$TMP/root.der" -outform PEM -out "$TMP/root.pem"
 P1=14501
 "$DRIVER" --role server --port $P1 --data-dir "$DATA_DIR" > "$TMP/s1.log" 2>&1 &
@@ -280,7 +291,7 @@ echo "=== cell 7: our server (stapled OCSP)  <-  openssl s_client -status ==="
 # our server serves the leaf+issuer chain and staples a current Good OCSP response; the
 # OCSP hierarchy's own root is the trust anchor here (a separate hierarchy from cell 1's)
 OCSPROOTHEX="$(grep '^root_cert=' "$DATA_DIR/Certs/OcspStapling.txt" | cut -d= -f2)"
-echo -n "$OCSPROOTHEX" | xxd -r -p > "$TMP/ocsp_root.der"
+echo -n "$OCSPROOTHEX" | unhex > "$TMP/ocsp_root.der"
 "$OPENSSL" x509 -inform DER -in "$TMP/ocsp_root.der" -outform PEM -out "$TMP/ocsp_root.pem"
 P7=14507
 "$DRIVER" --role server --port $P7 --ocsp-staple ocsp_good --data-dir "$DATA_DIR" \
@@ -330,14 +341,14 @@ if "$OPENSSL" s_server -help 2>&1 | grep -q 'status_file'; then
   # as unknown_ca before ever reaching the staple.
   for f in leaf_cert issuer_cert root_cert; do
     H="$(grep "^${f}=" "$DATA_DIR/Certs/OcspStapling.txt" | cut -d= -f2)"
-    echo -n "$H" | xxd -r -p > "$TMP/o_${f}.der"
+    echo -n "$H" | unhex > "$TMP/o_${f}.der"
     "$OPENSSL" x509 -inform DER -in "$TMP/o_${f}.der" -outform PEM -out "$TMP/o_${f}.pem"
   done
   LKHEX="$(grep '^leaf_key=' "$DATA_DIR/Certs/OcspStapling.txt" | cut -d= -f2)"
-  echo -n "$LKHEX" | xxd -r -p > "$TMP/o_leaf_key.der"
+  echo -n "$LKHEX" | unhex > "$TMP/o_leaf_key.der"
   "$OPENSSL" pkey -inform DER -in "$TMP/o_leaf_key.der" -out "$TMP/o_leaf_key.pem"
   REVHEX="$(grep '^ocsp_revoked=' "$DATA_DIR/Certs/OcspStapling.txt" | cut -d= -f2)"
-  echo -n "$REVHEX" | xxd -r -p > "$TMP/ocsp_revoked.der"
+  echo -n "$REVHEX" | unhex > "$TMP/ocsp_revoked.der"
   P9=14509
   # -rev keeps s_server out of its interactive stdin-relay mode (which would close each
   # connection at EOF under CI); -status_file staples the revoked response on status_request
@@ -580,11 +591,11 @@ if [ "$COMP_OK" -eq 1 ]; then
   CLEAF="$(grep '^leaf_cert=' "$DATA_DIR/Certs/ClientAuthChain.txt" | cut -d= -f2)"
   CKEY="$(grep '^leaf_key=' "$DATA_DIR/Certs/ClientAuthChain.txt" | cut -d= -f2)"
   CROOT="$(grep '^root_cert=' "$DATA_DIR/Certs/ClientAuthChain.txt" | cut -d= -f2)"
-  echo -n "$CROOT" | xxd -r -p > "$TMP/cli_root.der"
+  echo -n "$CROOT" | unhex > "$TMP/cli_root.der"
   "$OPENSSL" x509 -inform DER -in "$TMP/cli_root.der" -outform PEM -out "$TMP/cli_root.pem"
-  echo -n "$CLEAF" | xxd -r -p > "$TMP/cli_leaf.der"
+  echo -n "$CLEAF" | unhex > "$TMP/cli_leaf.der"
   "$OPENSSL" x509 -inform DER -in "$TMP/cli_leaf.der" -outform PEM -out "$TMP/cli_cert.pem"
-  echo -n "$CKEY" | xxd -r -p > "$TMP/cli_key.der"
+  echo -n "$CKEY" | unhex > "$TMP/cli_key.der"
   "$OPENSSL" pkey -inform DER -in "$TMP/cli_key.der" -outform PEM -out "$TMP/cli_key.pem" 2>/dev/null \
     || "$OPENSSL" ec -inform DER -in "$TMP/cli_key.der" -outform PEM -out "$TMP/cli_key.pem"
   "$DRIVER" --role server --port $PC2 --data-dir "$DATA_DIR" --client-auth required \
