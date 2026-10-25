@@ -1,0 +1,22 @@
+TlsLib.Tests/src/NetSocketTests.pas
+  s_f2c9bd75607afc::t_5037e4c7955b57 661-663
+  s_f2c9bd75607afc::t_a258a3f8e03c40 665-673,675-676,679,682-683
+.github/workflows/ci/diag-dragonfly.sh
+  s_f2c9bd75607afc::t_ea65714e9933e8 2,18-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d87dc0d87205d1a3f3363631e92ecdbec8c0e01",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
