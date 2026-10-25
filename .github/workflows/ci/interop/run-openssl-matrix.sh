@@ -59,6 +59,9 @@ unhex() {
   fi
 }
 
+# the cells connect over IPv4, and a bare -accept listens on IPv6 only on some systems
+ossl_server() { "$OPENSSL" s_server -4 "$@"; }
+
 reap_cell() { # a peer stuck in accept must not outlive its cell
   local _
   for _ in $(seq 1 30); do [ -z "$(jobs -rp)" ] && break; sleep 0.1; done
@@ -121,7 +124,7 @@ MSYS2_ARG_CONV_EXCL='/CN=' "$OPENSSL" req -x509 -newkey ec \
   -keyout "$TMP/srv_key.pem" -out "$TMP/srv_cert.pem" -days 2 \
   -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 2>/dev/null
 P2=14502
-"$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
   -accept $P2 -rev -naccept 1 > "$TMP/s2.log" 2>&1 &
 # wait until s_server is accepting (it prints ACCEPT) rather than a fixed sleep
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s2.log" && break; sleep 0.1; done
@@ -139,7 +142,7 @@ MSYS2_ARG_CONV_EXCL='/CN=' "$OPENSSL" req -x509 -newkey ed25519 -nodes \
   -keyout "$TMP/ed25519_key.pem" -out "$TMP/ed25519_cert.pem" -days 2 \
   -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 2>/dev/null
 P2A=14520
-"$OPENSSL" s_server -cert "$TMP/ed25519_cert.pem" -key "$TMP/ed25519_key.pem" -tls1_3 \
+ossl_server -cert "$TMP/ed25519_cert.pem" -key "$TMP/ed25519_key.pem" -tls1_3 \
   -accept $P2A -rev -naccept 1 > "$TMP/s2a.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s2a.log" && break; sleep 0.1; done
 if ci_run_bounded 120 "$DRIVER" --role client --port $P2A --host localhost --ca "$TMP/ed25519_cert.pem" \
@@ -156,7 +159,7 @@ MSYS2_ARG_CONV_EXCL='/CN=' "$OPENSSL" req -x509 -newkey ed448 -nodes \
   -keyout "$TMP/ed448_key.pem" -out "$TMP/ed448_cert.pem" -days 2 \
   -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost" 2>/dev/null
 P2B=14521
-"$OPENSSL" s_server -cert "$TMP/ed448_cert.pem" -key "$TMP/ed448_key.pem" -tls1_3 \
+ossl_server -cert "$TMP/ed448_cert.pem" -key "$TMP/ed448_key.pem" -tls1_3 \
   -accept $P2B -rev -naccept 1 > "$TMP/s2b.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s2b.log" && break; sleep 0.1; done
 if ci_run_bounded 120 "$DRIVER" --role client --port $P2B --host localhost --ca "$TMP/ed448_cert.pem" \
@@ -186,7 +189,7 @@ reap_cell
 # --- Cell 4: our client  ->  openssl s_server over TLS 1.2 ---
 echo "=== cell 4: our client  ->  openssl s_server (TLS 1.2) ==="
 P4=14504
-"$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
+ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
   -accept $P4 -rev -naccept 1 > "$TMP/s4.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s4.log" && break; sleep 0.1; done
 if ci_run_bounded 120 "$DRIVER" --role client --port $P4 --host localhost --ca "$TMP/srv_cert.pem" \
@@ -200,7 +203,7 @@ reap_cell
 # --- Cell G12: our TLS 1.2-only client (GREASE on by default) -> openssl s_server over TLS 1.2 ---
 echo "=== cell G12: our TLS 1.2-only client  ->  openssl s_server (TLS 1.2) ==="
 PG=14530
-"$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
+ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
   -accept $PG -rev -naccept 1 > "$TMP/sg12.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sg12.log" && break; sleep 0.1; done
 if ci_run_bounded 120 "$DRIVER" --role client --port $PG --host localhost --ca "$TMP/srv_cert.pem" --tls12-only \
@@ -219,7 +222,7 @@ if "$OPENSSL" s_server -help 2>&1 | grep -q -- '-psk '; then
   TOTAL=$((TOTAL+2))
   echo "=== cell PSK1: our client  ->  openssl s_server -psk (TLS 1.2 ECDHE_PSK) ==="
   PP1=14531
-  "$OPENSSL" s_server -nocert -tls1_2 -psk "$PSKHEX" -psk_identity luggage \
+  ossl_server -nocert -tls1_2 -psk "$PSKHEX" -psk_identity luggage \
     -cipher ECDHE-PSK-CHACHA20-POLY1305 -accept $PP1 -rev -naccept 1 > "$TMP/spsk1.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/spsk1.log" && break; sleep 0.1; done
   if ci_run_bounded 120 "$DRIVER" --role client --port $PP1 --host localhost --psk "$PSKHEX" --psk-identity luggage \
@@ -254,7 +257,7 @@ P5=14505
 # openssl requests + verifies a client cert against our test root; our client presents
 # the EcP256 leaf. -Verify with the test leaf's key usage yields a benign purpose note
 # but openssl still completes (verify return:1).
-"$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
+ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
   -Verify 1 -CAfile "$TMP/root.pem" -accept $P5 -rev -naccept 1 > "$TMP/s5.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s5.log" && break; sleep 0.1; done
 if ci_run_bounded 120 "$DRIVER" --role client --port $P5 --host localhost --ca "$TMP/srv_cert.pem" \
@@ -320,7 +323,7 @@ echo "=== cell 8: our client (TLS 1.2 resumption)  ->  openssl s_server ==="
 # (RFC 5077 tickets). This exercises the ec_point_formats offer a strict server needs to
 # negotiate ECDHE at all on the resumed ClientHello. The EC server cert from cell 2 is reused.
 P8=14508
-"$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
+ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 \
   -accept $P8 -rev -naccept 2 > "$TMP/s8.log" 2>&1 &
 for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s8.log" && break; sleep 0.1; done
 if ci_run_bounded 120 "$DRIVER" --role client --port $P8 --host localhost --ca "$TMP/srv_cert.pem" \
@@ -356,7 +359,7 @@ if "$OPENSSL" s_server -help 2>&1 | grep -q 'status_file'; then
   P9=14509
   # -rev keeps s_server out of its interactive stdin-relay mode (which would close each
   # connection at EOF under CI); -status_file staples the revoked response on status_request
-  "$OPENSSL" s_server -cert "$TMP/o_leaf_cert.pem" -key "$TMP/o_leaf_key.pem" \
+  ossl_server -cert "$TMP/o_leaf_cert.pem" -key "$TMP/o_leaf_key.pem" \
     -cert_chain "$TMP/o_issuer_cert.pem" -tls1_3 -rev -status_file "$TMP/ocsp_revoked.der" \
     -accept $P9 -naccept 1 > "$TMP/s9.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s9.log" && break; sleep 0.1; done
@@ -398,7 +401,7 @@ if [ "$HYBRID_OK" -eq 1 ]; then
   # --- Cell H2: our client (direct)  ->  openssl s_server -groups X25519MLKEM768 ---
   echo "=== cell H2: our client (direct)  ->  openssl s_server (X25519MLKEM768) ==="
   PH2=14592
-  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+  ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -groups X25519MLKEM768 -accept $PH2 -rev -naccept 1 > "$TMP/sh2.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sh2.log" && break; sleep 0.1; done
   # our client offers only the hybrid, so it key-shares it directly (no HRR)
@@ -413,7 +416,7 @@ if [ "$HYBRID_OK" -eq 1 ]; then
   # --- Cell H3: our client (classical key_share first)  ->  hybrid-only s_server = HRR ---
   echo "=== cell H3: our client (HRR)  ->  openssl s_server (X25519MLKEM768) ==="
   PH3=14593
-  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+  ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -groups X25519MLKEM768 -accept $PH3 -rev -naccept 1 > "$TMP/sh3.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sh3.log" && break; sleep 0.1; done
   # our client key-shares X25519 first but also offers the hybrid; the hybrid-only server
@@ -451,7 +454,7 @@ if [ "$PHYBRID_OK" -eq 1 ]; then
   # --- Cell P2: our client (direct)  ->  openssl s_server -groups SecP256r1MLKEM768 ---
   echo "=== cell P2: our client (direct)  ->  openssl s_server (SecP256r1MLKEM768) ==="
   PP2=14595
-  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+  ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -groups SecP256r1MLKEM768 -accept $PP2 -rev -naccept 1 > "$TMP/sp2.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sp2.log" && break; sleep 0.1; done
   if ci_run_bounded 120 "$DRIVER" --role client --port $PP2 --host localhost --ca "$TMP/srv_cert.pem" \
@@ -465,7 +468,7 @@ if [ "$PHYBRID_OK" -eq 1 ]; then
   # --- Cell P3: our client (classical key_share first)  ->  hybrid-only s_server = HRR ---
   echo "=== cell P3: our client (HRR)  ->  openssl s_server (SecP256r1MLKEM768) ==="
   PP3=14596
-  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+  ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -groups SecP256r1MLKEM768 -accept $PP3 -rev -naccept 1 > "$TMP/sp3.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sp3.log" && break; sleep 0.1; done
   if ci_run_bounded 120 "$DRIVER" --role client --port $PP3 --host localhost --ca "$TMP/srv_cert.pem" \
@@ -521,7 +524,7 @@ if [ "$ECH_OK" -eq 1 ]; then
   # --- Cell E2: our client (ECH)  ->  openssl s_server (ECH key) ---
   echo "=== cell E2: our client (ECH)  ->  openssl s_server ==="
   PE2=14572
-  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+  ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -ech_key "$TMP/ech.pem" -accept $PE2 -rev -naccept 1 > "$TMP/se2.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/se2.log" && break; sleep 0.1; done
   # our client seals the inner ClientHello (real SNI localhost) under the ECHConfigList; openssl
@@ -567,7 +570,7 @@ if [ "$COMP_OK" -eq 1 ]; then
   # --- Cell C1: our client (mutual TLS)  ->  openssl s_server requesting a client certificate ---
   echo "=== cell C1: our client (mTLS, zlib)  ->  openssl s_server ==="
   PC1=14597
-  "$OPENSSL" s_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
+  ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_3 \
     -Verify 1 -CAfile "$TMP/root.pem" -trace -accept $PC1 -rev -naccept 1 > "$TMP/sc1.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/sc1.log" && break; sleep 0.1; done
   if ci_run_bounded 120 "$DRIVER" --role client --port $PC1 --host localhost --ca "$TMP/srv_cert.pem" \
