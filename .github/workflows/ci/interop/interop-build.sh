@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Interop harness for the native legs. Platform- and architecture-generic: keys off
-# FPC_TARGET, so the same script serves every native job (Linux, Windows, macOS).
+# Interop harness for the native and VM legs. Platform- and architecture-generic: keys off
+# FPC_TARGET, so the same script serves every native job and, through vm-interop.sh, every VM job.
 #
 # Runs AFTER that job's standard build step, so the CryptoLib / HashLib / SimpleBase /
 # TlsLib packages are already compiled into their lib/<target> unit dirs. We compile

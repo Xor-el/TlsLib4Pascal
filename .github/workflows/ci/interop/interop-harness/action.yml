@@ -3,8 +3,8 @@ description: >-
   Compile the interop programs against the already-built packages and run the loopback
   self-test, the structure-aware parser fuzzer, the openssl s_client/s_server matrix, and
   the full-suite hard-gate BoGo run. Provisions Go and the pinned BoringSSL peer when the
-  BoGo run is enabled. Shared by the Linux, Windows and macOS native jobs (not the
-  FORCE_SCALAR legs) so the harness lives in one place, not duplicated per job.
+  BoGo run is enabled. Shared by the native jobs so the harness lives in one place, not
+  duplicated per job. The VM jobs run the same script inside the VM through vm-interop.sh.
 
 inputs:
   fpc-target:

@@ -55,8 +55,8 @@ env:
   # a run that leaves state behind for the next fails the leg. Override per job below, like
   # MAKE_BUILD_BACKEND.
   MAKE_TEST_REPEAT: 1
-  # When true (default), the native jobs (not the FORCE_SCALAR legs) run the interop harness after their
-  # build: the loopback self-test, the two-tier structure-aware parser fuzzer
+  # When true (default), every native and VM job runs the interop harness after its build (the
+  # emulated QEMU legs do not): the loopback self-test, the two-tier structure-aware parser fuzzer
   # (regression-corpus replay + a fixed-seed mutation smoke), and the always-on openssl
   # s_client/s_server matrix. Read only by that job's interop-build.sh step. Set false to
   # skip the whole harness.
