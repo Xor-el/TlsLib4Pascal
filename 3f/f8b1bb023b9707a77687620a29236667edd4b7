@@ -1,0 +1,22 @@
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_f2c9bd75607afc::t_b27f9713651160 10
+  s_f2c9bd75607afc::t_e44d171400a74e 183-184,186
+.gitignore
+  s_f2c9bd75607afc::t_970bec8cf55fbc 84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3ff8b1bb023b9707a77687620a29236667edd4b7",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
