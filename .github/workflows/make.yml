@@ -649,6 +649,13 @@ jobs:
           prepare: sh .github/workflows/ci/vm-freebsd-prepare.sh
           run: bash .github/workflows/ci/vm-freebsd-run.sh
 
+      # a failed run is not copied back, so pull the files out of the VM, which is still up
+      - name: Pull BoGo coverage boundary from the VM
+        if: failure() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
+        continue-on-error: true
+        shell: freebsd {0}
+        run: ls -l TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
+
       - name: Upload BoGo coverage boundary
         if: always() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
         uses: actions/upload-artifact@v7
@@ -680,6 +687,12 @@ jobs:
           envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
           prepare: sh .github/workflows/ci/vm-netbsd-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
+
+      - name: Pull BoGo coverage boundary from the VM
+        if: failure() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
+        continue-on-error: true
+        shell: netbsd {0}
+        run: ls -l TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
 
       - name: Upload BoGo coverage boundary
         if: always() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
@@ -717,6 +730,12 @@ jobs:
           prepare: sh .github/workflows/ci/vm-dragonfly-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
 
+      - name: Pull BoGo coverage boundary from the VM
+        if: failure() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
+        continue-on-error: true
+        shell: dragonflybsd {0}
+        run: ls -l TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
+
       - name: Upload BoGo coverage boundary
         if: always() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
         uses: actions/upload-artifact@v7
@@ -750,6 +769,12 @@ jobs:
           usesh: true
           prepare: sh .github/workflows/ci/vm-solaris-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
+
+      - name: Pull BoGo coverage boundary from the VM
+        if: failure() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
+        continue-on-error: true
+        shell: solaris {0}
+        run: ls -l TlsLib.Interop/FreePascal.Interop/bin/bogo-boundary
 
       - name: Upload BoGo coverage boundary
         if: always() && env.MAKE_RUN_INTEROP == 'true' && env.MAKE_RUN_BOGO == 'true'
