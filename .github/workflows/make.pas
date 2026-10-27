@@ -2403,14 +2403,11 @@ begin
 end;
 
 function TMakeRunner.IsLibraryProject(const ALpiPath: string): Boolean;
-var
-  LprPath: string;
 begin
   Result := False;
-  LprPath := ChangeFileExt(ALpiPath, '.lpr');
-  if not FileExists(LprPath) then
+  if not FileExists(ALpiPath) then
     Exit;
-  Result := Pos(#10 + 'library ', #10 + LowerCase(StringReplace(TLazXml.ReadFile(LprPath), #13, '', [rfReplaceAll]))) > 0;
+  Result := Pos('<ExecutableType Value="Library"/>', TLazXml.ReadFile(ALpiPath)) > 0;
 end;
 
 function TMakeRunner.IsBenchmarkProject(const ALpiPath: string): Boolean;

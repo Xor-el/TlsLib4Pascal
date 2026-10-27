@@ -1,4 +1,6 @@
 import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -9,8 +11,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -18,25 +22,16 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/**
- * Packages libTlsLibAndroidTests.so and the Java host into a signed APK (arm64-v8a only).
- * Run from TlsLib.Tests/FreePascal.Tests (or pass --project-dir): java Mobile/Android/BuildApk.java
- * Options (each falls back to the environment): --jdk (JAVA_HOME), --build-tools (ANDROID_BUILD_TOOLS,
- * else the newest under ANDROID_HOME), --android-jar and --strip (ANDROID_HOME, ANDROID_NDK_ROOT),
- * --keystore (TLSLIB_ANDROID_KEYSTORE), --version-code, --install, --target-os (not android: do nothing).
- */
+/** Packages an FPC test library and the Java host into a signed arm64-v8a APK (JDK 11+): java BuildApk.java --library NAME --app-id ID [options]. */
 public final class BuildApk {
-    private static final String Library = "libTlsLibAndroidTests.so";
     private static final String DebugPassword = "android";
-    private static final List<String> Known = List.of("jdk", "build-tools", "android-jar", "strip", "keystore",
-        "version-code", "install", "target-os", "project-dir");
+    private static final List<String> Known = List.of("library", "app-id", "title", "jdk", "build-tools",
+        "android-jar", "strip", "keystore", "version-code", "install", "target-os", "project-dir");
 
     private final boolean windows = System.getProperty("os.name").toLowerCase().contains("win");
+    private final boolean mac = System.getProperty("os.name").toLowerCase().contains("mac");
     private final Map<String, String> env = System.getenv();
-    private final Map<String, String> options = new java.util.HashMap<>();
-    private Path projectDir;
-    private Path hostDir;
-    private Path build;
+    private final Map<String, String> options = new HashMap<>();
 
     public static void main(String[] args) {
         try {
@@ -54,7 +49,8 @@ public final class BuildApk {
             }
             String name = args[i].substring(2);
             if (!Known.contains(name)) {
-                throw new IllegalArgumentException("unknown option " + args[i]);
+                throw new IllegalArgumentException("unknown option " + args[i] + " (options: --"
+                    + String.join(", --", Known) + ")");
             }
             options.put(name, name.equals("install") ? "true" : value(args, ++i));
         }
@@ -62,24 +58,38 @@ public final class BuildApk {
             return;
         }
 
-        projectDir = Paths.get(options.getOrDefault("project-dir", ".")).toAbsolutePath().normalize();
-        hostDir = projectDir.resolve("Mobile").resolve("Android");
+        String libraryName = required("library");
+        String appId = required("app-id");
+        if (!appId.matches("[a-z][a-z0-9_]*")) {
+            throw new IllegalArgumentException("--app-id must be lower case letters, digits and underscores: " + appId);
+        }
+        String title = options.getOrDefault("title", libraryName);
+        String libraryFile = "lib" + libraryName + ".so";
+
+        Path projectDir = Paths.get(options.getOrDefault("project-dir", ".")).toAbsolutePath().normalize();
+        Path hostDir = projectDir.resolve("Mobile").resolve("Android");
         if (!Files.exists(hostDir.resolve("AndroidManifest.xml"))) {
-            throw new IllegalStateException("run from TlsLib.Tests/FreePascal.Tests or pass --project-dir; no "
+            throw new IllegalStateException("run from the FreePascal.Tests folder or pass --project-dir; no "
                 + hostDir.resolve("AndroidManifest.xml"));
         }
-        build = hostDir.resolve("build");
+        Path build = hostDir.resolve("build");
 
         Path jdk = jdk();
-        Path sdk = sdk();
+        Path java = require(tool(jdk.resolve("bin"), "java"), "java was not found in the JDK; pass --jdk or set JAVA_HOME");
+        Path sdk = fromEnv("ANDROID_HOME", "ANDROID_SDK_ROOT");
         Path buildTools = buildTools(sdk);
+        Path aapt2 = require(tool(buildTools, "aapt2"), "aapt2 was not found in build-tools");
+        Path zipalign = require(tool(buildTools, "zipalign"), "zipalign was not found in build-tools");
+        Path d8Jar = require(buildTools.resolve("lib").resolve("d8.jar"), "lib/d8.jar was not found in build-tools");
+        Path apksignerJar = require(buildTools.resolve("lib").resolve("apksigner.jar"),
+            "lib/apksigner.jar was not found in build-tools");
         Path androidJar = androidJar(sdk);
         Path strip = strip(sdk);
         Path keystore = keystore();
-        Path library = projectDir.resolve("bin").resolve(Library);
-        Path dataRoot = projectDir.getParent().resolve("Data");
+        Path library = projectDir.resolve("bin").resolve(libraryFile);
+        Path testsRoot = projectDir.getParent();
+        Path dataRoot = testsRoot.resolve("Data");
         require(library, "the library was not found; build it first");
-        require(dataRoot, "the test data folder was not found");
 
         deleteTree(build);
         Path classes = Files.createDirectories(build.resolve("classes"));
@@ -87,10 +97,16 @@ public final class BuildApk {
         Path assets = Files.createDirectories(build.resolve("assets"));
         Path libFolder = Files.createDirectories(build.resolve("lib").resolve("arm64-v8a"));
 
-        // the test data goes in as one archive; the app unpacks it to TlsLib.Tests/Data on the phone
+        // the test data goes in as one archive; the app unpacks it beside the tests' own folder name
         zipTestData(dataRoot, assets.resolve("testdata.zip"));
-        Path stripped = libFolder.resolve(Library);
-        exec(strip.toString(), "--strip-unneeded", "-o", stripped.toString(), library.toString());
+        Properties host = new Properties();
+        host.setProperty("library", libraryName);
+        host.setProperty("title", title);
+        try (OutputStream out = Files.newOutputStream(assets.resolve("host.properties"))) {
+            host.store(out, null);
+        }
+        Path stripped = libFolder.resolve(libraryFile);
+        exec(List.of(strip.toString(), "--strip-unneeded", "-o", stripped.toString(), library.toString()));
 
         List<String> javac = new ArrayList<>(List.of(tool(jdk.resolve("bin"), "javac").toString(),
             "--release", "8", "-Xlint:-options", "-cp", androidJar.toString(), "-d", classes.toString()));
@@ -99,47 +115,56 @@ public final class BuildApk {
         }
         exec(javac);
 
-        List<String> d8 = new ArrayList<>(List.of(java(jdk), "-cp", buildTools.resolve("lib").resolve("d8.jar").toString(),
+        List<String> d8 = new ArrayList<>(List.of(java.toString(), "-cp", d8Jar.toString(),
             "com.android.tools.r8.D8", "--lib", androidJar.toString(), "--min-api", "24", "--output", dex.toString()));
         try (Stream<Path> files = Files.walk(classes)) {
             files.filter(p -> p.toString().endsWith(".class")).forEach(p -> d8.add(p.toString()));
         }
         exec(d8);
 
-        int versionCode = options.containsKey("version-code") ? Integer.parseInt(options.get("version-code"))
-            : (int) Duration.between(Instant.parse("2026-01-01T00:00:00Z"), Instant.now()).toMinutes();
+        Path manifest = build.resolve("AndroidManifest.xml");
+        String template = new String(Files.readAllBytes(hostDir.resolve("AndroidManifest.xml")), StandardCharsets.UTF_8);
+        Files.write(manifest, template.replace("@PACKAGE@", "org.fpctests." + appId)
+            .replace("@LABEL@", escapeXml(title)).getBytes(StandardCharsets.UTF_8));
+
+        int versionCode = (int) Duration.between(Instant.parse("2026-01-01T00:00:00Z"), Instant.now()).toMinutes();
+        if (options.containsKey("version-code")) {
+            try {
+                versionCode = Integer.parseInt(options.get("version-code"));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("--version-code must be an integer");
+            }
+        }
         Path unsigned = build.resolve("unsigned.apk");
-        exec(tool(buildTools, "aapt2").toString(), "link", "-o", unsigned.toString(),
-            "--manifest", hostDir.resolve("AndroidManifest.xml").toString(), "-I", androidJar.toString(),
+        exec(List.of(aapt2.toString(), "link", "-o", unsigned.toString(),
+            "--manifest", manifest.toString(), "-I", androidJar.toString(),
             "-A", assets.toString(), "--min-sdk-version", "24", "--target-sdk-version", "35",
-            "--version-code", String.valueOf(versionCode), "--version-name", "1." + versionCode);
+            "--version-code", String.valueOf(versionCode), "--version-name", "1." + versionCode));
 
         addToZip(unsigned, "classes.dex", dex.resolve("classes.dex"));
-        addToZip(unsigned, "lib/arm64-v8a/" + Library, stripped);
+        addToZip(unsigned, "lib/arm64-v8a/" + libraryFile, stripped);
 
         Path aligned = build.resolve("aligned.apk");
-        exec(tool(buildTools, "zipalign").toString(), "-f", "-p", "4", unsigned.toString(), aligned.toString());
+        exec(List.of(zipalign.toString(), "-f", "-p", "4", unsigned.toString(), aligned.toString()));
 
         if (!Files.exists(keystore)) {
+            Path keytool = require(tool(jdk.resolve("bin"), "keytool"), "keytool was not found in the JDK");
             Files.createDirectories(keystore.getParent());
-            exec(tool(jdk.resolve("bin"), "keytool").toString(), "-genkeypair", "-keystore", keystore.toString(),
-                "-alias", "tlslibdebug", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
-                "-storepass", DebugPassword, "-keypass", DebugPassword, "-dname", "CN=TlsLib Tests Debug");
+            exec(List.of(keytool.toString(), "-genkeypair", "-keystore", keystore.toString(),
+                "-alias", "fpctestsdebug", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
+                "-storepass", DebugPassword, "-keypass", DebugPassword, "-dname", "CN=FPC Tests Debug"));
         }
-        Path apk = build.resolve("TlsLibTests.apk");
-        List<String> sign = apksigner(jdk, buildTools);
-        sign.addAll(List.of("sign", "--ks", keystore.toString(), "--ks-pass", "pass:" + DebugPassword,
-            "--key-pass", "pass:" + DebugPassword, "--out", apk.toString(), aligned.toString()));
-        exec(sign);
-        List<String> verify = apksigner(jdk, buildTools);
-        verify.addAll(List.of("verify", "--verbose", apk.toString()));
-        exec(verify);
+        Path apk = build.resolve(appId + ".apk");
+        exec(List.of(java.toString(), "-jar", apksignerJar.toString(), "sign", "--ks", keystore.toString(),
+            "--ks-pass", "pass:" + DebugPassword, "--key-pass", "pass:" + DebugPassword,
+            "--out", apk.toString(), aligned.toString()));
+        exec(List.of(java.toString(), "-jar", apksignerJar.toString(), "verify", "--verbose", apk.toString()));
 
         System.out.println(apk + " " + Files.size(apk) + " bytes");
 
         if (options.containsKey("install")) {
             Path adb = sdk == null ? null : sdk.resolve("platform-tools").resolve(windows ? "adb.exe" : "adb");
-            exec(adb != null && Files.exists(adb) ? adb.toString() : "adb", "install", "-r", apk.toString());
+            exec(List.of(adb != null && Files.exists(adb) ? adb.toString() : "adb", "install", "-r", apk.toString()));
         }
     }
 
@@ -148,6 +173,14 @@ public final class BuildApk {
             throw new IllegalArgumentException("missing value for " + args[index - 1]);
         }
         return args[index];
+    }
+
+    private String required(String option) {
+        String given = options.get(option);
+        if (given == null || given.isEmpty()) {
+            throw new IllegalArgumentException("--" + option + " is required");
+        }
+        return given;
     }
 
     private String setting(String option, String environment) {
@@ -166,8 +199,9 @@ public final class BuildApk {
         return jdk;
     }
 
-    private Path sdk() {
-        for (String name : List.of("ANDROID_HOME", "ANDROID_SDK_ROOT")) {
+    // the folder named by the first of these variables that is set
+    private Path fromEnv(String... names) {
+        for (String name : names) {
             String given = env.get(name);
             if (given != null && !given.isEmpty()) {
                 return Paths.get(given);
@@ -197,39 +231,33 @@ public final class BuildApk {
         if (given != null) {
             return require(Paths.get(given), "llvm-strip was not found");
         }
-        String ndkRoot = env.get("ANDROID_NDK_ROOT");
-        Path ndk = ndkRoot != null && !ndkRoot.isEmpty() ? Paths.get(ndkRoot)
-            : newest(sdk == null ? null : sdk.resolve("ndk"), null);
+        Path ndk = fromEnv("ANDROID_NDK_ROOT", "ANDROID_NDK_HOME");
+        if (ndk == null) {
+            ndk = newest(sdk == null ? null : sdk.resolve("ndk"), null);
+        }
         Path strip = ndk == null ? null : tool(ndk.resolve("toolchains").resolve("llvm").resolve("prebuilt")
             .resolve(hostTag()).resolve("bin"), "llvm-strip");
-        return require(strip, "no llvm-strip; pass --strip, or set ANDROID_NDK_ROOT (or ANDROID_HOME with an ndk folder)");
+        return require(strip,
+            "no llvm-strip; pass --strip, or set ANDROID_NDK_ROOT or ANDROID_NDK_HOME (or ANDROID_HOME with an ndk folder)");
     }
 
     private Path keystore() {
-        String given = setting("keystore", "TLSLIB_ANDROID_KEYSTORE");
-        return given != null ? Paths.get(given)
-            : Paths.get(System.getProperty("user.home"), ".android", "tlslib-debug.keystore");
+        String given = setting("keystore", "FPCTESTS_ANDROID_KEYSTORE");
+        Path keystore = given != null ? Paths.get(given)
+            : Paths.get(System.getProperty("user.home"), ".android", "fpctests-debug.keystore");
+        return keystore.toAbsolutePath();
     }
 
     // the NDK ships one prebuilt folder per host; macOS has a single one for both CPUs
     private String hostTag() {
-        String os = System.getProperty("os.name").toLowerCase();
         if (windows) {
             return "windows-x86_64";
         }
-        return os.contains("mac") ? "darwin-x86_64" : "linux-x86_64";
+        return mac ? "darwin-x86_64" : "linux-x86_64";
     }
 
     private Path tool(Path folder, String name) {
         return folder.resolve(windows ? name + ".exe" : name);
-    }
-
-    private String java(Path jdk) {
-        return tool(jdk.resolve("bin"), "java").toString();
-    }
-
-    private List<String> apksigner(Path jdk, Path buildTools) {
-        return new ArrayList<>(List.of(java(jdk), "-jar", buildTools.resolve("lib").resolve("apksigner.jar").toString()));
     }
 
     /** The folder under parent with the highest version in its name; one holding the given file if named. */
@@ -273,21 +301,33 @@ public final class BuildApk {
         return path;
     }
 
+    // aapt2 reads a leading @ or ? in an attribute value as a resource reference
+    private static String escapeXml(String text) {
+        String escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+        return escaped.startsWith("@") || escaped.startsWith("?") ? "\\" + escaped : escaped;
+    }
+
     private static void zipTestData(Path dataRoot, Path target) throws IOException {
         Path testsRoot = dataRoot.getParent();
-        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(target));
-             Stream<Path> files = Files.walk(dataRoot)) {
-            for (Path file : files.filter(Files::isRegularFile).collect(Collectors.toList())) {
-                String name = "TlsLib.Tests/" + testsRoot.relativize(file).toString().replace('\\', '/');
-                zip.putNextEntry(new ZipEntry(name));
-                Files.copy(file, zip);
-                zip.closeEntry();
+        String prefix = testsRoot.getFileName() + "/";
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(target))) {
+            // a library whose tests carry no data folder gets an empty archive
+            if (!Files.isDirectory(dataRoot)) {
+                return;
+            }
+            try (Stream<Path> files = Files.walk(dataRoot)) {
+                for (Path file : files.filter(Files::isRegularFile).collect(Collectors.toList())) {
+                    String name = prefix + testsRoot.relativize(file).toString().replace('\\', '/');
+                    zip.putNextEntry(new ZipEntry(name));
+                    Files.copy(file, zip);
+                    zip.closeEntry();
+                }
             }
         }
     }
 
     private static void addToZip(Path zip, String entry, Path file) throws IOException {
-        try (FileSystem fs = FileSystems.newFileSystem(zip)) {
+        try (FileSystem fs = FileSystems.newFileSystem(zip, (ClassLoader) null)) {
             Path inside = fs.getPath(entry);
             if (inside.getParent() != null) {
                 Files.createDirectories(inside.getParent());
@@ -307,16 +347,14 @@ public final class BuildApk {
         }
     }
 
-    private static void exec(String... command) throws IOException, InterruptedException {
-        exec(new ArrayList<>(List.of(command)));
-    }
-
     // a tool's stderr is not an error in itself; the exit code decides
     private static void exec(List<String> command) throws IOException, InterruptedException {
         Process process = new ProcessBuilder(command).inheritIO().start();
         int code = process.waitFor();
         if (code != 0) {
-            throw new IllegalStateException("failed (" + code + "): " + String.join(" ", command));
+            throw new IllegalStateException("failed (" + code + "): " + command.stream()
+                .map(argument -> argument.contains(" ") ? "\"" + argument + "\"" : argument)
+                .collect(Collectors.joining(" ")));
         }
     }
 }

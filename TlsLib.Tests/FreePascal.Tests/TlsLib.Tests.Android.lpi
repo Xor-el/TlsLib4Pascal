@@ -58,7 +58,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="..\src;..\..\TlsLib.Tools\RootGen\src;..\..\TlsLib.Tools\EchKeyGen\src;..\..\TlsLib.Net\src"/>
+      <OtherUnitFiles Value="..\src;..\..\TlsLib.Tools\RootGen\src;..\..\TlsLib.Tools\EchKeyGen\src;..\..\TlsLib.Net\src;Mobile\Android"/>
       <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <CodeGeneration>
@@ -76,7 +76,7 @@
         <ConfigFilePath Value="..\..\BuildConfig\FPC\TlsLibFPCMessages.cfg"/>
       </ConfigFile>
       <ExecuteAfter>
-        <Command Value="java &quot;$(ProjPath)Mobile/Android/BuildApk.java&quot; --project-dir &quot;$(ProjPath).&quot; --target-os $(TargetOS)"/>
+        <Command Value="java &quot;$(ProjPath)Mobile/Android/BuildApk.java&quot; --project-dir &quot;$(ProjPath).&quot; --library TlsLibAndroidTests --app-id tlslib --title &quot;TlsLib Tests&quot; --target-os $(TargetOS)"/>
       </ExecuteAfter>
     </Other>
   </CompilerOptions>
