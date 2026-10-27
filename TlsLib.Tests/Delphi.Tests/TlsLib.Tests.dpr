@@ -6,7 +6,7 @@ program TlsLib.Tests;
   This project contains the DUnit test framework and the GUI/Console test
   runners. Add "CONSOLE_TESTRUNNER" to the conditional defines entry in the
   project options to use the console test runner. Otherwise the GUI test runner
-  will be used by default.
+  will be used by default. "TESTINSIGHT" runs only under the TestInsight IDE plugin.
 
 }
 
@@ -20,7 +20,7 @@ program TlsLib.Tests;
 
 uses
 
- {$IFDEF TESTINSIGHT}
+  {$IFDEF TESTINSIGHT}
   TestInsight.DUnit,
   {$ELSE}
   SysUtils,
@@ -28,7 +28,7 @@ uses
   TestFramework,
   GUITestRunner,
   TextTestRunner,
-  {$ENDIF }
+  {$ENDIF}
   TlpTlsAlert in '..\..\TlsLib\src\Common\TlpTlsAlert.pas',
   TlpTlsContentType in '..\..\TlsLib\src\Common\TlpTlsContentType.pas',
   TlpTlsVersion in '..\..\TlsLib\src\Common\TlpTlsVersion.pas',
@@ -303,20 +303,17 @@ uses
 
 {$R *.res}
 
-{$IFDEF TESTINSIGHT}
-
-begin
-  TestInsight.DUnit.RunRegisteredTests;
-end.
-
-{$ELSE}
-
+{$IFNDEF TESTINSIGHT}
 var
   LPasses, LPass, LI: Integer;
   LResult: TTestResult;
   LAllPassed: Boolean;
+{$ENDIF}
 
 begin
+{$IFDEF TESTINSIGHT}
+  TestInsight.DUnit.RunRegisteredTests;
+{$ELSE}
   Application.Initialize;
   if IsConsole then
   begin
@@ -345,6 +342,5 @@ begin
   end
   else
     GUITestRunner.RunRegisteredTests;
-end.
-
 {$ENDIF}
+end.
