@@ -303,6 +303,14 @@ uses
 
 {$R *.res}
 
+{$IFDEF TESTINSIGHT}
+
+begin
+  TestInsight.DUnit.RunRegisteredTests;
+end.
+
+{$ELSE}
+
 var
   LPasses, LPass, LI: Integer;
   LResult: TTestResult;
@@ -338,3 +346,5 @@ begin
   else
     GUITestRunner.RunRegisteredTests;
 end.
+
+{$ENDIF}
