@@ -38,6 +38,7 @@
 *.dcp
 *.so
 *.apk
+TlsLib.Tests/FreePascal.Tests/Mobile/Android/build/
 *.drc
 *.map
 *.dres
