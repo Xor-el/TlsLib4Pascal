@@ -1,0 +1,49 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_7f1c502bd2d070 1582-1590
+  s_f2c9bd75607afc::t_554c01a1558788 243
+TlsLib.Net/src/TlpPosixNetOs.pas
+  s_f2c9bd75607afc::t_e2d8ad6f504ca7 572
+  s_f2c9bd75607afc::t_9e5f8d0e0e25dc 266-274
+  s_f2c9bd75607afc::t_fcfaad37246af1 425
+  s_f2c9bd75607afc::t_cf6ba099d95a9c 173-174
+  s_f2c9bd75607afc::t_3145681ff60914 505
+  s_f2c9bd75607afc::t_3c6423bf6d838e 527
+  s_f2c9bd75607afc::t_0836f371ec7954 467
+  s_f2c9bd75607afc::t_c99ab8fdddd277 47-49
+  s_f2c9bd75607afc::t_70d8729aaed787 362
+  s_f2c9bd75607afc::t_3028d23df1b4a4 445
+  s_f2c9bd75607afc::t_c05766d13a49ff 558
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_f2c9bd75607afc::t_052ff4cc10fade 608-621
+  s_f2c9bd75607afc::t_3ca345ca280159 100
+TlsLib.Tests/src/SocketHttpExchangeTests.pas
+  s_f2c9bd75607afc::t_44e0f58e86afe9 402
+  s_f2c9bd75607afc::t_cd4adea5bd0263 301
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_f2c9bd75607afc::t_a85d45c82bd8a4 1326-1327
+  s_f2c9bd75607afc::t_b069ab09fe11cf 899-903
+  s_f2c9bd75607afc::t_b0d2cd8a0272d4 1618-1619,1625-1626
+  s_f2c9bd75607afc::t_196e33c5ab7ee7 1676-1677
+  s_f2c9bd75607afc::t_b07027cfa4dc95 1168-1169
+  s_f2c9bd75607afc::t_d29dcf084010bd 1239-1240
+  s_f2c9bd75607afc::t_f98d76ecb8568f 1275-1276
+  s_f2c9bd75607afc::t_5294fd3ea9b41b 1553-1554
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_f2c9bd75607afc::t_2c5843d2b57ca6 1544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e596df7318e72b64bcf6f66a6e9ee7af8a6b4c22",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
