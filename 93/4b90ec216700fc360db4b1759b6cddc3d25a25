@@ -1,0 +1,41 @@
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.Android.lpr
+  s_f2c9bd75607afc::t_88f79ee543a10f 125
+  s_4df3ed1e8f8003::t_d3e1895f718d1e 9
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.Android.lpi
+  s_f2c9bd75607afc::t_4b66c67e7bc983 61
+  s_f2c9bd75607afc::t_7f06d6c98231bd 79
+.github/workflows/make.pas
+  s_f2c9bd75607afc::t_edf929cebd411c 2408,2410
+TlsLib.Tests/FreePascal.Tests/Mobile/Android/AndroidManifest.xml
+  s_f2c9bd75607afc::t_d75612c31037f3 2,4,10,14
+TlsLib.Tests/FreePascal.Tests/Mobile/Android/AndroidTestHost.pas
+  s_f2c9bd75607afc::t_09f26e2b150749 1-414
+TlsLib.Tests/FreePascal.Tests/Mobile/Android/BuildApk.java
+  s_f2c9bd75607afc::t_e28c4550ab7b63 2-3,14,17,25,28-29,32,34,52-53,61-70,72,75,78-79,81-85,89-91,100,102-109,118,125-137,139-140,142,145,148,151,153-155,157-161,167,178-185,202-204,234-237,240-241,245-248,256,304-309,312-324,330,355-357
+TlsLib.Tests/FreePascal.Tests/Mobile/Android/src/org/fpctests/host/MainActivity.java
+  s_f2c9bd75607afc::t_38a527ba04268c 1,4,6,14,19-22,27,29,32-35,37-42,46-47,51,57-70,83,91-92,100,115-127,129-135,137-139,141-147,168,182,185,188-191,194-195,199,202,204,210,215,218-225,240,248-271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "934b90ec216700fc360db4b1759b6cddc3d25a25",
+  "prompts": {},
+  "sessions": {
+    "s_4df3ed1e8f8003": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-aabb475f05e081e37",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
