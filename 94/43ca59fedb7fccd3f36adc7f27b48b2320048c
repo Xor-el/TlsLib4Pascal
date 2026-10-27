@@ -1,0 +1,22 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_79261c65a40a53 346
+  s_f2c9bd75607afc::t_8bfdf92ab47c03 23,31
+  s_f2c9bd75607afc::t_55668fa98a7e85 9
+  s_f2c9bd75607afc::t_e0efc3fc10d90f 306,311,314-316
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9443ca59fedb7fccd3f36adc7f27b48b2320048c",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
