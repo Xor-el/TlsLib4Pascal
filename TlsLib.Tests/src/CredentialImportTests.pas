@@ -97,6 +97,7 @@ type
     procedure TestConcatenatedDerRejected;
     procedure TestLoadCertificateChainFromPkcs7;
     procedure TestMalformedKeyRaisesTypedException;
+    procedure TestEmptyKeyRaisesTypedException;
     procedure TestUnsupportedAlgorithmRaisesTypedException;
     procedure TestWrongPasswordRaisesTypedException;
     procedure TestEncryptedKeyWithoutPasswordReportsPasswordRequired;
@@ -602,6 +603,20 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'malformed key bytes raise EArgumentTlsLibException');
+end;
+
+procedure TTestCredentialImport.TestEmptyKeyRaisesTypedException;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    Crypto.Signing.ImportSigningKey(nil, nil);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty key raises EArgumentTlsLibException');
 end;
 
 procedure TTestCredentialImport.TestUnsupportedAlgorithmRaisesTypedException;

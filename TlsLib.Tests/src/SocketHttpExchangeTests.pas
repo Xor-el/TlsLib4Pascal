@@ -298,7 +298,7 @@ end;
 
 destructor TScriptedResponder.Destroy;
 begin
-  if FStarted then
+  if FStarted and not Finished then
   begin
     Terminate;
     WaitFor;
@@ -399,7 +399,7 @@ end;
 
 destructor TTlsResponder.Destroy;
 begin
-  if FStarted then
+  if FStarted and not Finished then
   begin
     Terminate;
     FStop.SetEvent;

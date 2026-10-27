@@ -896,6 +896,11 @@ begin
   // (below) replaces it with the assembled leaf-to-anchor path
   AEffectiveChain := AChain;
 
+  // an empty chain has no leaf to build a path for
+  if System.Length(AChain) = 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.BadCertificate, @SBadCertificate);
+
   LParser := TX509CertificateParser.Create;
   try
     SetLength(LCerts, System.Length(AChain));
@@ -1160,6 +1165,8 @@ begin
     LParser := TX509CertificateParser.Create;
     LLeaf := LParser.ReadCertificate(ALeafCert);
     LIssuer := LParser.ReadCertificate(AIssuerCert);
+    if (LLeaf = nil) or (LIssuer = nil) then
+      Exit;
     // a response signed under a key that did not issue the leaf says nothing about it
     if not IssuerSignedLeaf(LLeaf, LIssuer) then
       Exit;
@@ -1229,6 +1236,8 @@ begin
     LParser := TX509CertificateParser.Create;
     LLeaf := LParser.ReadCertificate(ALeafCert);
     LIssuer := LParser.ReadCertificate(AIssuerCert);
+    if (LLeaf = nil) or (LIssuer = nil) then
+      Exit;
     // the CertID is the SHA-1 issuer name/key hash plus the leaf serial (RFC 6960 4.1.1)
     LCertId := TCertificateID.Create(TCertificateID.DigestSha1, LIssuer,
       LLeaf.SerialNumber) as ICertificateID;
@@ -1263,6 +1272,8 @@ begin
   try
     LParser := TX509CertificateParser.Create;
     LCert := LParser.ReadCertificate(ACert);
+    if LCert = nil then
+      Exit;
     LExt := LCert.GetExtensionValue(TX509Extensions.AuthorityInfoAccess);
     if LExt = nil then
       Exit;
@@ -1312,6 +1323,8 @@ begin
   try
     LParser := TX509CertificateParser.Create;
     LCert := LParser.ReadCertificate(ACert);
+    if LCert = nil then
+      Exit;
     LExt := LCert.GetExtensionValue(TX509Extensions.CrlDistributionPoints);
     if LExt = nil then
       Exit;
@@ -1537,6 +1550,8 @@ begin
     LParser := TX509CertificateParser.Create;
     LLeaf := LParser.ReadCertificate(ALeafCert);
     LIssuer := LParser.ReadCertificate(AIssuerCert);
+    if (LLeaf = nil) or (LIssuer = nil) then
+      Exit;
     // a CRL signed under a key that did not issue the leaf says nothing about it
     if not IssuerSignedLeaf(LLeaf, LIssuer) then
       Exit;
@@ -1600,11 +1615,15 @@ begin
   try
     LParser := TX509CertificateParser.Create;
     LLeaf := LParser.ReadCertificate(ALeafCert);
+    if LLeaf = nil then
+      Exit;
     for LI := 0 to System.High(ACandidates) do
     begin
       if System.Length(ACandidates[LI]) = 0 then
         Continue;
       LCandidate := LParser.ReadCertificate(ACandidates[LI]);
+      if LCandidate = nil then
+        Continue;
       // name match is a prefilter only; the candidate is the issuer solely when its key verifies the
       // leaf's signature, so a same-name/wrong-key candidate is rejected - that keeps the OCSP CertID
       // issuerKeyHash bound to the true signer (a wrong pick could otherwise mis-key the request)
@@ -1654,6 +1673,8 @@ begin
   try
     LParser := TX509CertificateParser.Create;
     LCert := LParser.ReadCertificate(ACert);
+    if LCert = nil then
+      Exit;
     LExtValue := LCert.GetExtensionValue(
       TDerObjectIdentifier.Create(TlsFeatureExtensionOid) as IDerObjectIdentifier);
     if LExtValue = nil then

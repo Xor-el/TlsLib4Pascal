@@ -44,8 +44,9 @@ type
   /// <summary>The IPv4 TCP socket calls on a POSIX target, by file descriptor. Every call returns
   /// the OS error code (0 for none) or a plain result, and raises nothing: the caller decides how
   /// an error is reported. Each compiler makes the calls through its own RTL and reads that RTL's
-  /// errno; accept4, which neither RTL declares, and on Free Pascal getaddrinfo come from the C
-  /// library at run time. A socket is close-on-exec from birth where the system can do that; on
+  /// errno, except Free Pascal on Android, whose sockets unit calls the C library and so sets the C
+  /// library's errno; accept4, which neither RTL declares, and on Free Pascal getaddrinfo come from
+  /// the C library at run time. A socket is close-on-exec from birth where the system can do that; on
   /// Darwin, or a kernel that refuses the flag, it is marked just after, so a process forked on
   /// another thread in that instant can inherit it. Linux on MIPS and SPARC and Android on MIPS
   /// are not supported while the Free Pascal RTL gives those CPUs the socket numbers (on SPARC64
@@ -169,6 +170,8 @@ type
     class function LookupIPv4(const AHost: AnsiString; out AAddress: TBytes): Boolean; static;
     /// <summary>The errno of the last call on this thread.</summary>
     class function LastError: Integer; static;
+    /// <summary>The errno of the last call into the sockets unit on this thread.</summary>
+    class function SocketError: Integer; static;
   end;
 
 {$IFEND}
@@ -260,6 +263,15 @@ begin
 {$ENDIF}
 end;
 
+class function TPosixNetOs.SocketError: Integer;
+begin
+{$IF DEFINED(FPC) AND DEFINED(TLSLIB_ANDROID)}
+  Result := fpgetCerrno;
+{$ELSE}
+  Result := LastError;
+{$IFEND}
+end;
+
 class procedure TPosixNetOs.ArmAgainstSigPipe(AHandle: TPosixSocketHandle);
 {$IF DECLARED(SO_NOSIGPIPE)}
 var
@@ -347,7 +359,7 @@ begin
   if AHandle < 0 then
   begin
     AHandle := InvalidHandle;
-    Exit(LastError);
+    Exit(SocketError);
   end;
   // a child process this one starts must not inherit the socket
   if LFlags = 0 then
@@ -410,7 +422,7 @@ begin
 {$ENDIF}
   Result := 0;
   if LFailed then
-    Result := LastError;
+    Result := SocketError;
   // a connect that is under way, or that a signal interrupted, carries on in the background
   if (Result = ErrInProgress) or (Result = ErrInterrupted) then
     Result := 0;
@@ -430,7 +442,7 @@ begin
   LFailed := getsockopt(AHandle, SOL_SOCKET, SO_ERROR, LError, LLen) <> 0;
 {$ENDIF}
   if LFailed then
-    Exit(LastError);
+    Exit(SocketError);
   Result := LError;
 end;
 
@@ -452,7 +464,7 @@ begin
     (bind(AHandle, sockaddr(LAddr), SizeOf(LAddr)) <> 0) or (listen(AHandle, ABacklog) <> 0);
 {$ENDIF}
   if LFailed then
-    Result := LastError
+    Result := SocketError
   else
     Result := 0;
 end;
@@ -490,7 +502,7 @@ begin
     if AHandle >= 0 then
       Exit(0);
 {$IFDEF FPC}
-    // accept4 sets the C library's errno, not the one LastError reads
+    // accept4 comes from the C library, so only the C library's errno is set
     LError := fpgetCerrno;
 {$ELSE}
     LError := LastError;
@@ -512,7 +524,7 @@ begin
   if AHandle < 0 then
   begin
     AHandle := InvalidHandle;
-    Exit(LastError);
+    Exit(SocketError);
   end;
   // a child process this one starts must not inherit the connection
 {$IFDEF FPC}
@@ -543,7 +555,7 @@ begin
 {$ELSE}
     Result := recv(AHandle, ABuffer[AOffset], ALength, 0);
 {$ENDIF}
-  until (Result >= 0) or (LastError <> ErrInterrupted);
+  until (Result >= 0) or (SocketError <> ErrInterrupted);
   if Result < 0 then
     Result := -1;
 end;
@@ -557,7 +569,7 @@ begin
 {$ELSE}
     Result := send(AHandle, ABuffer[AOffset], ALength, SendFlags);
 {$ENDIF}
-  until (Result >= 0) or (LastError <> ErrInterrupted);
+  until (Result >= 0) or (SocketError <> ErrInterrupted);
   if Result < 0 then
     Result := -1;
 end;

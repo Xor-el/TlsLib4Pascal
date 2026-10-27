@@ -1541,7 +1541,7 @@ begin
     on E: Exception do
       Exit;
   end;
-  if LSeq.Count < 2 then
+  if (LSeq = nil) or (LSeq.Count < 2) then
     Exit;
   LFirst := LSeq[0].ToAsn1Object;
   if Supports(LFirst, IAsn1Sequence, LSeqRef) then

@@ -240,6 +240,7 @@ type
     // nil parse result gets the right alert
     procedure TestSelfIssuedFillerFloodFailsFast;
     procedure TestRingOfSameNamedCertificatesFailsFast;
+    procedure TestEmptyChainIsBadCertificate;
     procedure TestPerSubjectPoolKeepsFirstPresented;
     procedure TestEmptyOrNonDerEntryIsBadCertificate;
     procedure TestChainOverEntryCapRefused;
@@ -1576,6 +1577,15 @@ begin
     Ord(PathAlert(RingChain, Flood('ring_anchor'), LElapsed)),
     'a ring that reaches no trusted anchor is unknown_ca');
   CheckTrue(LElapsed < 1500, 'path building gives up promptly (' + IntToStr(LElapsed) + ' ms)');
+end;
+
+procedure TTestCertificateVerifier.TestEmptyChainIsBadCertificate;
+var
+  LElapsed: Int64;
+begin
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate),
+    Ord(PathAlert(nil, Flood('anchor'), LElapsed)),
+    'a chain with no certificate has no leaf to build a path for');
 end;
 
 procedure TTestCertificateVerifier.TestPerSubjectPoolKeepsFirstPresented;
