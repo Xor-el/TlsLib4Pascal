@@ -1,0 +1,24 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_44b5bc5bb6376f 281
+docs/system-trust.md
+  s_f2c9bd75607afc::t_f8d5a55ea9cd9e 445-446
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_f2c9bd75607afc::t_ed5f1eacfcb178 220-223
+  s_f2c9bd75607afc::t_7b482d736482ab 218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e47f5b1fc1f66d8e6e9172c87cd54ad912a0a224",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
