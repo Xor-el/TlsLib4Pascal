@@ -1,0 +1,28 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_debb1fb2c431a5 139-154
+  s_f2c9bd75607afc::t_bdbf015eff8941 178-195
+  s_f2c9bd75607afc::t_b4089916c33905 1851-1900
+  s_f2c9bd75607afc::t_c54a0830c1d7e5 2021-2080,2088-2090,2096-2098
+  s_f2c9bd75607afc::t_9ab85c557a1729 49-53
+  s_f2c9bd75607afc::t_8cc53876abd6de 14,16
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_f2c9bd75607afc::t_ce392dbd394542 46
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_f2c9bd75607afc::t_6e8801ff11846f 40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a61c577cf8ea24141c9f709cf765c5d64a20c756",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
