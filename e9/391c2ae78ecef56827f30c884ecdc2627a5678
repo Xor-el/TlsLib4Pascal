@@ -1,0 +1,45 @@
+TlsLib.Compliance/src/TlpCompliancePkixProvider.pas
+  s_f2c9bd75607afc::t_d2639648b7a373 126-131
+  s_f2c9bd75607afc::t_b53ec48526e556 31-32,46
+TlsLib.Tests/src/MockPkixProvider.pas
+  s_f2c9bd75607afc::t_288831681f290c 118-122
+  s_f2c9bd75607afc::t_c08b3219e7a2d7 39
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_f2c9bd75607afc::t_c3f9da2780a4e5 215-225
+  s_f2c9bd75607afc::t_1c7ea51c72241d 186
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_e62b30266e4f90 211-214
+  s_f2c9bd75607afc::t_0a6de39e92043c 266-275
+  s_f2c9bd75607afc::t_cb2f4ff7a18b87 1380
+  s_f2c9bd75607afc::t_a59e96ec216a86 210
+  s_f2c9bd75607afc::t_64ffa30acbf873 1388-1390
+  s_f2c9bd75607afc::t_649ee72dbcacf7 1323-1379,1381-1387,1391-1408
+  s_f2c9bd75607afc::t_c6c4b871d87d32 840-851
+TlsLib.Tests/src/ComplianceProviderTests.pas
+  s_f2c9bd75607afc::t_00d24e335a1aed 2328-2351
+  s_f2c9bd75607afc::t_40e31ede698825 270-271,280-281
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_f2c9bd75607afc::t_e5258551e57590 57-58
+  s_f2c9bd75607afc::t_f3523503ea47e7 1083-1123
+  s_f2c9bd75607afc::t_7c54e87ffb01b2 198
+TlsLib.Tests/Data/Certs/NameConstrainedChain.txt
+  s_f2c9bd75607afc::t_0098077fbb2934 1-43
+TlsLib.Tests/Data/Certs/WeakAnchorClientChain.txt
+  s_f2c9bd75607afc::t_85733ebb2891c8 1-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e9391c2ae78ecef56827f30c884ecdc2627a5678",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
