@@ -25,10 +25,12 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.Types,
   System.Threading,
   FMX.Types,
   FMX.Controls,
   FMX.Forms,
+  FMX.Layouts,
   FMX.StdCtrls,
   FMX.Controls.Presentation,
   FMX.Edit,
@@ -38,12 +40,15 @@ uses
 
 type
   TSystemTrustDemoForm = class(TForm)
+    layRoot: TLayout;
+    layContent: TLayout;
     lblUrl: TLabel;
     edtUrl: TEdit;
     btnRun: TButton;
     btnOsAndHostRoots: TButton;
     memLog: TMemo;
     procedure FormCreate(Sender: TObject);
+    procedure FormSafeAreaChanged(Sender: TObject; const AInsets: TRectF);
     procedure btnRunClick(Sender: TObject);
     procedure btnOsAndHostRootsClick(Sender: TObject);
   private
@@ -70,6 +75,11 @@ uses
 
 const
   DefaultUrl = 'https://postman-echo.com/get';
+
+procedure TSystemTrustDemoForm.FormSafeAreaChanged(Sender: TObject; const AInsets: TRectF);
+begin
+  layRoot.Padding.Rect := AInsets;
+end;
 
 procedure TSystemTrustDemoForm.AppendLog(const ALine: string);
 begin

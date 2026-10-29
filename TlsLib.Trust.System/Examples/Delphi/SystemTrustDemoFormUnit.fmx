@@ -8,61 +8,80 @@ object SystemTrustDemoForm: TSystemTrustDemoForm
   FormFactor.Height = 640
   FormFactor.Devices = [Desktop]
   OnCreate = FormCreate
+  OnSafeAreaChanged = FormSafeAreaChanged
   DesignerMasterStyle = 0
-  object lblUrl: TLabel
-    AutoSize = True
-    Position.X = 8.000000000000000000
-    Position.Y = 32.000000000000000000
-    Size.Width = 336.000000000000000000
-    Size.Height = 16.000000000000000000
+  object layRoot: TLayout
+    Align = Client
+    Size.Width = 360.000000000000000000
+    Size.Height = 640.000000000000000000
     Size.PlatformDefault = False
-    Text = 'HTTPS URL to verify against the OS trust store:'
-    TabOrder = 4
-  end
-  object edtUrl: TEdit
-    Touch.InteractiveGestures = [LongTap, DoubleTap]
-    Anchors = [akLeft, akTop, akRight, akBottom]
     TabOrder = 0
-    Text = 'https://postman-echo.com/get'
-    Position.X = 8.000000000000000000
-    Position.Y = 68.000000000000000000
-    Size.Width = 336.000000000000000000
-    Size.Height = 40.000000000000000000
-    Size.PlatformDefault = False
-  end
-  object btnRun: TButton
-    Position.X = 8.000000000000000000
-    Position.Y = 124.000000000000000000
-    Size.Width = 336.000000000000000000
-    Size.Height = 44.000000000000000000
-    Size.PlatformDefault = False
-    TabOrder = 2
-    Text = 'Verify via OS system trust'
-    OnClick = btnRunClick
-  end
-  object btnOsAndHostRoots: TButton
-    Position.X = 8.000000000000000000
-    Position.Y = 176.000000000000000000
-    Size.Width = 336.000000000000000000
-    Size.Height = 44.000000000000000000
-    Size.PlatformDefault = False
-    TabOrder = 1
-    Text = 'OS and host roots'
-    OnClick = btnOsAndHostRootsClick
-  end
-  object memLog: TMemo
-    Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
-    DataDetectorTypes = []
-    ReadOnly = True
-    StyledSettings = [Family, Style, FontColor]
-    TextSettings.Font.Size = 13.000000000000000000
-    Position.X = 8.000000000000000000
-    Position.Y = 232.000000000000000000
-    Size.Width = 336.000000000000000000
-    Size.Height = 396.000000000000000000
-    Size.PlatformDefault = False
-    TabOrder = 3
-    Viewport.Width = 332.000000000000000000
-    Viewport.Height = 392.000000000000000000
+    object layContent: TLayout
+      Align = Client
+      Padding.Left = 16.000000000000000000
+      Padding.Top = 16.000000000000000000
+      Padding.Right = 16.000000000000000000
+      Padding.Bottom = 16.000000000000000000
+      Size.Width = 360.000000000000000000
+      Size.Height = 640.000000000000000000
+      Size.PlatformDefault = False
+      TabOrder = 0
+      object lblUrl: TLabel
+        Align = Top
+        AutoSize = True
+        Margins.Bottom = 8.000000000000000000
+        Size.Width = 328.000000000000000000
+        Size.Height = 16.000000000000000000
+        Size.PlatformDefault = False
+        Text = 'HTTPS URL to verify against the OS trust store:'
+        TabOrder = 0
+      end
+      object edtUrl: TEdit
+        Touch.InteractiveGestures = [LongTap, DoubleTap]
+        Align = Top
+        TabOrder = 1
+        Text = 'https://postman-echo.com/get'
+        Margins.Bottom = 12.000000000000000000
+        Size.Width = 328.000000000000000000
+        Size.Height = 44.000000000000000000
+        Size.PlatformDefault = False
+      end
+      object btnRun: TButton
+        Align = Top
+        Margins.Bottom = 8.000000000000000000
+        Size.Width = 328.000000000000000000
+        Size.Height = 44.000000000000000000
+        Size.PlatformDefault = False
+        TabOrder = 2
+        Text = 'Verify via OS system trust'
+        OnClick = btnRunClick
+      end
+      object btnOsAndHostRoots: TButton
+        Align = Top
+        Margins.Bottom = 12.000000000000000000
+        Size.Width = 328.000000000000000000
+        Size.Height = 44.000000000000000000
+        Size.PlatformDefault = False
+        TabOrder = 3
+        Text = 'OS and host roots'
+        OnClick = btnOsAndHostRootsClick
+      end
+      object memLog: TMemo
+        Touch.InteractiveGestures = [Pan, LongTap, DoubleTap]
+        DataDetectorTypes = []
+        ReadOnly = True
+        StyledSettings = [Style, FontColor]
+        TextSettings.Font.Family = 'monospace'
+        TextSettings.Font.Size = 13.000000000000000000
+        WordWrap = True
+        Align = Client
+        Size.Width = 328.000000000000000000
+        Size.Height = 420.000000000000000000
+        Size.PlatformDefault = False
+        TabOrder = 4
+        Viewport.Width = 324.000000000000000000
+        Viewport.Height = 416.000000000000000000
+      end
+    end
   end
 end
