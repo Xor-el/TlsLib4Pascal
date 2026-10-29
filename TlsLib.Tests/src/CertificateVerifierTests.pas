@@ -1354,27 +1354,27 @@ end;
 procedure TTestCertificateVerifier.TestNameConstraintsIntersectIntermediate;
 begin
   CheckTrue(Pkix.PathValidation.NameConstraintsAdmit(
-    NcPath(['in_scope_leaf', 'inter', 'root'])), 'inside the anchor and the intermediate');
+    NcPath(['in_scope_leaf', 'issuer', 'root'])), 'inside the anchor and the intermediate');
   CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
-    NcPath(['root_scope_leaf', 'inter', 'root'])), 'inside the anchor, outside the intermediate');
+    NcPath(['root_scope_leaf', 'issuer', 'root'])), 'inside the anchor, outside the intermediate');
   CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
-    NcPath(['out_of_scope_leaf', 'inter', 'root'])), 'outside both');
+    NcPath(['out_of_scope_leaf', 'issuer', 'root'])), 'outside both');
 end;
 
 procedure TTestCertificateVerifier.TestNameConstraintsSurviveAnOpenIntermediate;
 begin
   CheckTrue(Pkix.PathValidation.NameConstraintsAdmit(
-    NcPath(['open_in_scope_leaf', 'inter_open', 'root'])),
+    NcPath(['open_in_scope_leaf', 'issuer_open', 'root'])),
     'an unconstrained intermediate passes an in-scope leaf');
   CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
-    NcPath(['open_out_of_scope_leaf', 'inter_open', 'root'])),
+    NcPath(['open_out_of_scope_leaf', 'issuer_open', 'root'])),
     'only the anchor refuses a leaf outside its permitted subtree');
 end;
 
 procedure TTestCertificateVerifier.TestNameConstraintsHonourExcludedSubtrees;
 begin
   CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
-    NcPath(['excluded_leaf', 'inter_open', 'root'])),
+    NcPath(['excluded_leaf', 'issuer_open', 'root'])),
     'a leaf inside the permitted subtree and inside the excluded one');
 end;
 
@@ -1402,7 +1402,7 @@ var
   LRefused: TArray<string>;
   LName: string;
 begin
-  LVerifier := IntermediateVerifierFor(NcPath(['root'])[0], NcPath(['inter', 'inter_open']));
+  LVerifier := IntermediateVerifierFor(NcPath(['root'])[0], NcPath(['issuer', 'issuer_open']));
   CheckTrue(LVerifier.VerifyServerCertificate(NcPath(['in_scope_leaf']),
     TServerName.DnsName(''), nil, LVerified, LAlert), 'inside the anchor and the intermediate');
   CheckTrue(LVerifier.VerifyServerCertificate(NcPath(['open_in_scope_leaf']),
@@ -2283,11 +2283,11 @@ procedure TTestAndroidChainFailureAlerts.TestAnchorNameConstraintsSurviveAnOpenI
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(NcServerVerdict(['open_out_of_scope_leaf', 'inter_open'], LAlert),
+  CheckFalse(NcServerVerdict(['open_out_of_scope_leaf', 'issuer_open'], LAlert),
     'the open intermediate carries no constraint, so the library holds the leaf to the anchor');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the alert is certificate_unknown');
-  CheckTrue(NcServerVerdict(['open_in_scope_leaf', 'inter_open'], LAlert),
+  CheckTrue(NcServerVerdict(['open_in_scope_leaf', 'issuer_open'], LAlert),
     'a leaf inside the anchor name constraints under the open intermediate is accepted');
 end;
 
@@ -2310,11 +2310,11 @@ var
   LAlert: TTlsAlertDescription;
   LPathLength: Int32;
 begin
-  CheckFalse(NcClientVerdict('open_out_of_scope_leaf', ['inter_open'], LPathLength, LAlert),
+  CheckFalse(NcClientVerdict('open_out_of_scope_leaf', ['issuer_open'], LPathLength, LAlert),
     'a client leaf under the open intermediate is held to the anchor constraints');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the alert is certificate_unknown');
-  CheckTrue(NcClientVerdict('open_in_scope_leaf', ['inter_open'], LPathLength, LAlert),
+  CheckTrue(NcClientVerdict('open_in_scope_leaf', ['issuer_open'], LPathLength, LAlert),
     'a client leaf inside the anchor name constraints under the open intermediate is accepted');
   CheckEquals(3, LPathLength, 'the built path is the leaf, the intermediate and the anchor');
 end;

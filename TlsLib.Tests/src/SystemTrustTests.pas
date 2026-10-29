@@ -2441,8 +2441,8 @@ begin
     TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
     'a leaf inside the anchor constraints is accepted');
   CheckTrue(VerifyNcServer(Pkix, TLiveRevocationOutcome.Good,
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('inter_open')),
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('inter_open'), Nc('root')), LAlert),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('issuer_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('issuer_open'), Nc('root')), LAlert),
     'so is one through an unconstrained intermediate');
 end;
 
@@ -2463,14 +2463,14 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(VerifyNcServer(Pkix, TLiveRevocationOutcome.Good,
-    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open')),
-    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open'), Nc('root')), LAlert),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('issuer_open')),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('issuer_open'), Nc('root')), LAlert),
     'only the anchor permitted subtree refuses this leaf');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the permitted-subtree alert is certificate_unknown');
   CheckFalse(VerifyNcServer(Pkix, TLiveRevocationOutcome.Good,
-    TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('inter_open')),
-    TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('inter_open'), Nc('root')), LAlert),
+    TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('issuer_open')),
+    TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('issuer_open'), Nc('root')), LAlert),
     'a leaf in an excluded subtree is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the excluded-subtree alert is certificate_unknown');
@@ -2523,8 +2523,8 @@ begin
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the alert is certificate_unknown');
   CheckFalse(ResolveNcLive(Pkix,
-    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open')),
-    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open'), Nc('root')), LAlert),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('issuer_open')),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('issuer_open'), Nc('root')), LAlert),
     'only the anchor permitted subtree refuses this leaf live');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the alert is certificate_unknown');
@@ -2551,13 +2551,13 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('issuer_open')),
     TArray<TBytes>.Create(Nc('root')), nil, FClock, LVerified, LAlert),
     'a leaf the configured intermediate links to the anchor is accepted');
   CheckEquals(3, System.Length(LVerified.Path), 'the built path replaces the engine leaf');
   CheckTrue(TArrayUtilities.AreEqual(Nc('root'), LVerified.Path[2]), 'it ends at the anchor');
   CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('in_scope_leaf')),
-    TArray<TBytes>.Create(Nc('in_scope_leaf')), TArray<TBytes>.Create(Nc('inter')),
+    TArray<TBytes>.Create(Nc('in_scope_leaf')), TArray<TBytes>.Create(Nc('issuer')),
     TArray<TBytes>.Create(Nc('root')), nil, FClock, LVerified, LAlert),
     'a leaf inside both the anchor and the intermediate constraints is accepted');
   CheckEquals(3, System.Length(LVerified.Path), 'through the constrained intermediate');
@@ -2569,7 +2569,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')),
-    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')), TArray<TBytes>.Create(Nc('issuer_open')),
     TArray<TBytes>.Create(Nc('root')), nil, FClock, LVerified, LAlert),
     'only the anchor permitted subtree refuses this leaf');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
@@ -2587,7 +2587,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('issuer_open')),
     TArray<TBytes>.Create(TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')),
     nil, FClock, LVerified, LAlert), 'the configured anchor is not the leaf''s issuer line');
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
@@ -2604,9 +2604,9 @@ begin
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
     'nothing was withheld, so it is a genuine unknown CA');
   CheckFalse(VerifyClientEnginePath(
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('issuer_open')),
     TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
-    TArray<TBytes>.Create(Nc('inter_open')), FClock, LVerified, LAlert),
+    TArray<TBytes>.Create(Nc('issuer_open')), FClock, LVerified, LAlert),
     'a distrusted intermediate is withheld from the path builder');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'built-in parity once a certificate was withheld');
@@ -2618,13 +2618,13 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(VerifyClientEnginePath(
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('inter_open'))),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('issuer_open'))),
     TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
     FClock, LVerified, LAlert), 'control: the re-encoded chain verifies when nothing is distrusted');
   CheckFalse(VerifyClientEnginePath(
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('inter_open'))),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('issuer_open'))),
     TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
-    TArray<TBytes>.Create(Nc('inter_open')), FClock, LVerified, LAlert),
+    TArray<TBytes>.Create(Nc('issuer_open')), FClock, LVerified, LAlert),
     'the byte filter misses the re-encoded copy, so the built path is checked');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
@@ -2652,7 +2652,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(ResolveClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('issuer_open')),
     TArray<TBytes>.Create(Nc('root')), nil, FClock, LAlert),
     'a leaf the configured intermediate links to the anchor is accepted live');
 end;
@@ -2662,7 +2662,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(ResolveClientEnginePath(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')),
-    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')), TArray<TBytes>.Create(Nc('issuer_open')),
     TArray<TBytes>.Create(Nc('root')), nil, FClock, LAlert),
     'only the anchor permitted subtree refuses this leaf live');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
@@ -2674,13 +2674,13 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(ResolveClientEnginePath(
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('inter_open'))),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('issuer_open'))),
     TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
     FClock, LAlert), 'control: the re-encoded chain verifies when nothing is distrusted');
   CheckFalse(ResolveClientEnginePath(
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('inter_open'))),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('issuer_open'))),
     TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
-    TArray<TBytes>.Create(Nc('inter_open')), FClock, LAlert),
+    TArray<TBytes>.Create(Nc('issuer_open')), FClock, LAlert),
     'the byte filter misses the re-encoded copy, so the built path is checked live');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'the alert is bad_certificate');
@@ -2696,9 +2696,9 @@ begin
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
     'nothing was withheld, so it is a genuine unknown CA');
   CheckFalse(ResolveClientEnginePath(
-    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('issuer_open')),
     TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
-    TArray<TBytes>.Create(Nc('inter_open')), FClock, LAlert),
+    TArray<TBytes>.Create(Nc('issuer_open')), FClock, LAlert),
     'a distrusted intermediate is withheld from the live path builder');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
     'built-in parity once a certificate was withheld');
@@ -5605,20 +5605,20 @@ var
 begin
   // whether crypt32 or the library refuses it, the alert is the same
   CheckFalse(VerifyNcClient(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')),
-    TArray<TBytes>.Create(Nc('inter_open')), LAlert),
+    TArray<TBytes>.Create(Nc('issuer_open')), LAlert),
     'a client leaf under an open intermediate is still held to the anchor constraints');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the client alert is certificate_unknown');
-  CheckFalse(VerifyNcServer(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open')),
+  CheckFalse(VerifyNcServer(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('issuer_open')),
     LAlert), 'a server leaf under an open intermediate is still held to the anchor constraints');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the server alert is certificate_unknown');
   CheckFalse(VerifyNcClient(TArray<TBytes>.Create(Nc('excluded_leaf')),
-    TArray<TBytes>.Create(Nc('inter_open')), LAlert),
+    TArray<TBytes>.Create(Nc('issuer_open')), LAlert),
     'a client leaf in an excluded subtree is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the client excluded-subtree alert is certificate_unknown');
-  CheckFalse(VerifyNcServer(TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('inter_open')), LAlert),
+  CheckFalse(VerifyNcServer(TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('issuer_open')), LAlert),
     'a server leaf in an excluded subtree is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
     'the server excluded-subtree alert is certificate_unknown');
