@@ -188,10 +188,10 @@ type
     /// Validates the DER chain (leaf first) to one of the store's trust anchors (RFC
     /// 5280 path validation; revocation is out of band). A nil store or one with no anchors
     /// raises unknown_ca. The store is immutable, so an implementation may cache work derived
-    /// from it by identity. Returns normally when the
-    /// chain is trusted; on failure it raises a fatal-alert exception carrying the
-    /// reason (certificate_expired / unknown_ca / bad_certificate). Every validity
-    /// check (chain notBefore/notAfter and the PKIX path date) is evaluated at
+    /// from it by identity. Returns normally when the chain is trusted; on failure it
+    /// raises a fatal-alert exception carrying the reason (certificate_expired / unknown_ca /
+    /// bad_certificate / decrypt_error / certificate_unknown). Every validity check (chain
+    /// notBefore/notAfter and the PKIX path date) is evaluated at
     /// AValidationTimeUtc, so the caller's injected clock drives the whole time-based
     /// trust decision from one source. AIntermediates are extra untrusted DER
     /// certificates seeded into path building for a peer that sends an incomplete

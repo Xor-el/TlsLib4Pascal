@@ -46,6 +46,7 @@ uses
   TlpIPkixProvider,
   MockVerifyHooks,
   MockPkixProvider,
+  MockClock,
   MockCertificateVerifiers,
   TlsLibTestCertificates,
   TlsLibTestBase;
@@ -130,6 +131,32 @@ type
     procedure TestPinningVerifierWithNoPinsIsRefused;
     procedure TestClientPinningVerifierWithNoPinsIsRefused;
     procedure TestDistrustClassificationBuildsThePathOnce;
+  end;
+
+  /// <summary>The alert a refused chain maps to when the cause is a bad signature, an unhandled
+  /// critical extension or a certificate outside its validity window.</summary>
+  TTestChainFailureAlerts = class(TTlsLibAlgorithmTestCase)
+  strict private
+    // the fixture certificates named, in order
+    function Chain(const ANames: array of string): TArray<TBytes>;
+    // the verdict of a verifier trusting chain_root for the named chain at AUnixMillis, with the alert
+    function Verdict(const AChain: array of string; AUnixMillis: UInt64;
+      out AAlert: TTlsAlertDescription): Boolean;
+    // the same for the client-certificate role
+    function ClientVerdict(const AChain: array of string; AUnixMillis: UInt64;
+      out AAlert: TTlsAlertDescription): Boolean;
+  published
+    procedure TestValidChainIsAccepted;
+    procedure TestBadSignatureUnderAPooledIntermediateIsDecryptError;
+    procedure TestBadSignatureAsClientCertificateIsDecryptError;
+    procedure TestExpiryOutranksABadSignature;
+    procedure TestNameConstraintViolationIsCertificateUnknown;
+    procedure TestBadSignatureDirectlyUnderTheAnchorIsDecryptError;
+    procedure TestCriticalPrivateExtensionOnTheLeafIsCertificateUnknown;
+    procedure TestCriticalPrivateExtensionOnAnIntermediateIsCertificateUnknown;
+    procedure TestNotYetValidChainIsCertificateExpired;
+    procedure TestNotYetValidIntermediateIsCertificateExpired;
+    procedure TestIntermediateInsideItsValidityWindowIsAccepted;
   end;
 
   TTestCertificateVerifier = class(TTlsLibAlgorithmTestCase)
@@ -578,7 +605,8 @@ var
 begin
   CheckFalse(ServerVerdict('root_cert', ['mustaple_v2_leaf_cert'], False, LAlert),
     'a critical feature list beyond status_request stays refused');
-  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'as an unresolved critical extension');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'as an unhandled critical extension');
 end;
 
 procedure TTestCriticalExtensionsAndEndEntity.TestCriticalUnenforcedFeatureLeafIsRefused;
@@ -587,7 +615,8 @@ var
 begin
   CheckFalse(ServerVerdict('root_cert', ['other_feature_leaf_cert'], False, LAlert),
     'a critical feature the library does not enforce is refused');
-  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'as an unresolved critical extension');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'as an unhandled critical extension');
 end;
 
 procedure TTestCriticalExtensionsAndEndEntity.TestCriticalTlsFeatureOnAnIntermediateIsRefused;
@@ -596,7 +625,8 @@ var
 begin
   CheckFalse(ServerVerdict('root_cert', ['feature_inter_leaf_cert', 'feature_inter_cert'], True,
     LAlert), 'a critical TLS Feature on an intermediate is not handled');
-  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'as an unresolved critical extension');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'as an unhandled critical extension');
 end;
 
 procedure TTestCriticalExtensionsAndEndEntity.TestCaCertificateAsServerLeafIsRefused;
@@ -1784,16 +1814,178 @@ begin
     Reissued('root_cert'), LVerified.Path[System.High(LVerified.Path)]);
 end;
 
+{ TTestChainFailureAlerts }
+
+const
+  // 2019-06-01, before every fixture certificate is valid
+  UnixMillisBeforeValidity = UInt64(1559347200000);
+  // 2030-01-01, inside the leaf and the root windows but before chain_future_inter begins
+  UnixMillisBeforeFutureIssuer = UInt64(1893456000000);
+  // 2045-01-01, inside every fixture window
+  UnixMillisInsideAllWindows = UInt64(2366841600000);
+
+function TTestChainFailureAlerts.Chain(const ANames: array of string): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(ANames));
+  for LI := 0 to System.High(ANames) do
+    Result[LI] := TTlsLibTestCertificates.Field('Certs/ChainFailures.txt', ANames[LI]);
+end;
+
+function TTestChainFailureAlerts.Verdict(const AChain: array of string;
+  AUnixMillis: UInt64; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(AUnixMillis) as ITlsClock,
+    TTrustAnchorStore.Create(Chain(['chain_root'])) as ITrustAnchorStore, True)
+    as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(Chain(AChain), TServerName.DnsName('localhost'),
+    nil, LVerified, AAlert);
+end;
+
+function TTestChainFailureAlerts.ClientVerdict(const AChain: array of string;
+  AUnixMillis: UInt64; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(AUnixMillis) as ITlsClock,
+    TTrustAnchorStore.Create(Chain(['chain_root'])) as ITrustAnchorStore, False)
+    as IClientCertificateVerifier;
+  Result := LVerifier.VerifyClientCertificate(Chain(AChain), LVerified, AAlert);
+end;
+
+procedure TTestChainFailureAlerts.TestValidChainIsAccepted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(Verdict(['chain_leaf', 'chain_inter'], UnixMillisInsideAllWindows, LAlert),
+    'the fixture chain the bad-signature cases imitate is valid');
+end;
+
+procedure TTestChainFailureAlerts.TestBadSignatureUnderAPooledIntermediateIsDecryptError;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_badsig_leaf', 'chain_inter'], UnixMillisInsideAllWindows, LAlert),
+    'a leaf not signed by its named intermediate is refused');
+  CheckEquals(Ord(TTlsAlertDescription.DecryptError), Ord(LAlert),
+    'an invalid certificate signature is decrypt_error');
+end;
+
+procedure TTestChainFailureAlerts.TestBadSignatureAsClientCertificateIsDecryptError;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ClientVerdict(['chain_badsig_leaf', 'chain_inter'], UnixMillisInsideAllWindows, LAlert),
+    'a client chain with an invalid signature is refused');
+  CheckEquals(Ord(TTlsAlertDescription.DecryptError), Ord(LAlert),
+    'an invalid certificate signature is decrypt_error');
+end;
+
+procedure TTestChainFailureAlerts.TestExpiryOutranksABadSignature;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_badsig_leaf', 'chain_inter'], UnixMillisBeforeValidity, LAlert),
+    'a not-yet-valid chain with an invalid signature is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the validity window is reported before the signature');
+end;
+
+procedure TTestChainFailureAlerts.TestNameConstraintViolationIsCertificateUnknown;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LVerifier := TCertificateVerifier.Create(Pkix,
+    TMockClock.Create(UnixMillisInsideAllWindows) as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TTlsLibTestCertificates.Field(
+    'Certs/NameConstrainedRoot.txt', 'root_cert'))) as ITrustAnchorStore, True)
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/NameConstrainedRoot.txt', 'out_of_scope_leaf_cert')),
+    TServerName.DnsName(''), nil, LVerified, LAlert),
+    'a leaf outside the anchor name constraints is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'a name-constraint violation is certificate_unknown');
+end;
+
+procedure TTestChainFailureAlerts.TestBadSignatureDirectlyUnderTheAnchorIsDecryptError;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_anchor_badsig_leaf'], UnixMillisInsideAllWindows, LAlert),
+    'a leaf not signed by the anchor it names is refused');
+  CheckEquals(Ord(TTlsAlertDescription.DecryptError), Ord(LAlert),
+    'an invalid certificate signature is decrypt_error');
+end;
+
+procedure TTestChainFailureAlerts.TestCriticalPrivateExtensionOnTheLeafIsCertificateUnknown;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_crit_leaf'], UnixMillisInsideAllWindows, LAlert),
+    'a leaf with an unrecognized critical extension is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'an unhandled critical extension is certificate_unknown');
+end;
+
+procedure TTestChainFailureAlerts.TestCriticalPrivateExtensionOnAnIntermediateIsCertificateUnknown;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_crit_inter_leaf', 'chain_crit_inter'], UnixMillisInsideAllWindows,
+    LAlert), 'an intermediate with an unrecognized critical extension is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'an unhandled critical extension is certificate_unknown');
+end;
+
+procedure TTestChainFailureAlerts.TestNotYetValidChainIsCertificateExpired;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_leaf', 'chain_inter'], UnixMillisBeforeValidity, LAlert),
+    'a chain not yet valid is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'a not-yet-valid certificate is certificate_expired');
+end;
+
+procedure TTestChainFailureAlerts.TestNotYetValidIntermediateIsCertificateExpired;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_future_leaf', 'chain_future_inter'], UnixMillisBeforeFutureIssuer,
+    LAlert), 'a chain whose intermediate is not yet valid is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'a not-yet-valid intermediate is certificate_expired');
+end;
+
+procedure TTestChainFailureAlerts.TestIntermediateInsideItsValidityWindowIsAccepted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(Verdict(['chain_future_leaf', 'chain_future_inter'], UnixMillisInsideAllWindows,
+    LAlert), 'the same chain is accepted once the intermediate is valid');
+end;
+
 initialization
 
 {$IFDEF FPC}
   RegisterTest(TTestCertificateVerifier);
   RegisterTest(TTestVerifyCallbackVerifier);
   RegisterTest(TTestCriticalExtensionsAndEndEntity);
+  RegisterTest(TTestChainFailureAlerts);
 {$ELSE}
   RegisterTest(TTestCertificateVerifier.Suite);
   RegisterTest(TTestVerifyCallbackVerifier.Suite);
   RegisterTest(TTestCriticalExtensionsAndEndEntity.Suite);
+  RegisterTest(TTestChainFailureAlerts.Suite);
 {$ENDIF FPC}
 
 end.

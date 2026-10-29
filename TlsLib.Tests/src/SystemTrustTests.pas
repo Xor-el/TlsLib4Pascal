@@ -5506,8 +5506,16 @@ begin
     TPlatformChainFailure.NoTrustAnchor, 'CERT_E_CHAINING');
   CheckMapping($800B0112,TTlsAlertDescription.UnknownCa,
     TPlatformChainFailure.Other, 'CERT_E_UNTRUSTEDCA');
-  CheckMapping($80096004,TTlsAlertDescription.UnknownCa,
+  CheckMapping($80096004,TTlsAlertDescription.DecryptError,
     TPlatformChainFailure.Other, 'TRUST_E_CERT_SIGNATURE');
+  CheckMapping($800B0105,TTlsAlertDescription.CertificateUnknown,
+    TPlatformChainFailure.Other, 'CERT_E_CRITICAL');
+  CheckMapping($800B0114,TTlsAlertDescription.CertificateUnknown,
+    TPlatformChainFailure.Other, 'CERT_E_INVALID_NAME');
+  CheckMapping($800B0104,TTlsAlertDescription.UnknownCa,
+    TPlatformChainFailure.Other, 'CERT_E_PATHLENCONST');
+  CheckMapping($80096019,TTlsAlertDescription.UnknownCa,
+    TPlatformChainFailure.Other, 'TRUST_E_BASIC_CONSTRAINTS');
   CheckMapping($800B0101,TTlsAlertDescription.CertificateExpired,
     TPlatformChainFailure.Other, 'CERT_E_EXPIRED');
   CheckMapping($800B0110,TTlsAlertDescription.UnsupportedCertificate,

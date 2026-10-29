@@ -70,9 +70,10 @@ type
   /// The ordered certificate-trust pipeline (RFC 9846 4.5.1 / RFC 5280 / RFC 9525),
   /// fail-closed: the provider validates the chain to a trusted root for the role's
   /// extendedKeyUsage (certificate_expired / unknown_ca / bad_certificate /
-  /// unsupported_certificate), then - for a server certificate - matches the leaf's SANs
-  /// against the connected name (bad_certificate). One instance serves both roles: it
-  /// verifies a server certificate for a client and a client certificate for a server.
+  /// unsupported_certificate / decrypt_error / certificate_unknown), then - for a server
+  /// certificate - matches the leaf's SANs against the connected name (bad_certificate).
+  /// One instance serves both roles: it verifies a server certificate for a client and a
+  /// client certificate for a server.
   /// </summary>
   TCertificateVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier,
     IClientCertificateVerifier)

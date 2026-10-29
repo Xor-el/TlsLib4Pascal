@@ -162,12 +162,16 @@ const
   // CertVerifyCertificateChainPolicy dwError values worth mapping precisely.
   CERT_E_EXPIRED = DWORD($800B0101);
   CERT_E_VALIDITYPERIODNESTING = DWORD($800B0102);
+  CERT_E_PATHLENCONST = DWORD($800B0104);
+  CERT_E_CRITICAL = DWORD($800B0105);
   CERT_E_UNTRUSTEDROOT = DWORD($800B0109);
   CERT_E_CHAINING = DWORD($800B010A);
   CERT_E_REVOKED = DWORD($800B010C);
   CERT_E_WRONG_USAGE = DWORD($800B0110);
   CERT_E_UNTRUSTEDCA = DWORD($800B0112);
+  CERT_E_INVALID_NAME = DWORD($800B0114);
   TRUST_E_CERT_SIGNATURE = DWORD($80096004);
+  TRUST_E_BASIC_CONSTRAINTS = DWORD($80096019);
   // a definitive revocation from the chain engine: crypt32 reports CRYPT_E_REVOKED, while the
   // wintrust/authenticode path uses CERT_E_REVOKED - map both so a revoked leaf is never generic
   CERT_E_REVOKED_ALT = DWORD($80092010); // CRYPT_E_REVOKED
@@ -998,8 +1002,12 @@ begin
       AAlert := TTlsAlertDescription.UnknownCa;
       AFailure := TPlatformChainFailure.NoTrustAnchor;
     end;
-    CERT_E_UNTRUSTEDCA, TRUST_E_CERT_SIGNATURE:
+    CERT_E_UNTRUSTEDCA, CERT_E_PATHLENCONST, TRUST_E_BASIC_CONSTRAINTS:
       AAlert := TTlsAlertDescription.UnknownCa;
+    TRUST_E_CERT_SIGNATURE:
+      AAlert := TTlsAlertDescription.DecryptError;
+    CERT_E_CRITICAL, CERT_E_INVALID_NAME:
+      AAlert := TTlsAlertDescription.CertificateUnknown;
     CERT_E_WRONG_USAGE:
       AAlert := TTlsAlertDescription.UnsupportedCertificate;
   else

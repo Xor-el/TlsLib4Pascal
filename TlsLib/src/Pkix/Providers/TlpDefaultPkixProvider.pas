@@ -75,6 +75,7 @@ uses
   ClpNullable,
   ClpValueHelper,
   ClpCryptoLibExceptions,
+  ClpPkixCertPathValidatorReason,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpPem,
@@ -320,6 +321,9 @@ resourcestring
   SBadCertificate = 'a certificate in the chain could not be parsed';
   SCertificateExpired = 'a certificate in the chain is outside its validity window';
   SUntrustedChain = 'the certificate chain does not reach a trusted anchor';
+  SInvalidChainSignature = 'a certificate in the chain has an invalid signature';
+  SUnrecognizedCriticalExtension = 'a certificate in the chain has an unrecognized critical extension';
+  SNameConstraintViolated = 'a certificate in the chain violates a name constraint';
   SWrongCertificatePurpose = 'a certificate in the chain has an extended key usage that excludes the required TLS role';
   SMalformedCertificate = 'a certificate could not be parsed as PEM or DER';
   SNoCertificatesFound = 'no certificates were found in the input';
@@ -1044,6 +1048,18 @@ begin
       if ExpiredOnIssuerLine(LPool, AValidationTimeUtc) then
         raise EFatalAlertTlsLibException.CreateRes(
           TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
+      if E is EPkixCertPathBuilderCryptoLibException then
+        case EPkixCertPathBuilderCryptoLibException(E).Reason of
+          TPkixCertPathValidatorReason.InvalidSignature:
+            raise EFatalAlertTlsLibException.CreateRes(
+              TTlsAlertDescription.DecryptError, @SInvalidChainSignature);
+          TPkixCertPathValidatorReason.UnrecognizedCriticalExtension:
+            raise EFatalAlertTlsLibException.CreateRes(
+              TTlsAlertDescription.CertificateUnknown, @SUnrecognizedCriticalExtension);
+          TPkixCertPathValidatorReason.InvalidName:
+            raise EFatalAlertTlsLibException.CreateRes(
+              TTlsAlertDescription.CertificateUnknown, @SNameConstraintViolated);
+        end;
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.UnknownCa, @SUntrustedChain);
     end;
