@@ -24,15 +24,13 @@ uses
   TlsLibTestBase;
 
 type
-  /// <summary>The chain-failure alerts every chain verifier must send over the chain-failure fixture
-  /// chains anchored at chain_root. A subclass supplies the verdict of its verifier for a named chain and
-  /// adds the cases that are its own; the published tests are inherited and discovered
-  /// automatically. Never registered on its own.</summary>
+  /// <summary>The chain-failure alerts every verifier must send over the fixture chains
+  /// anchored at chain_root.</summary>
   TChainFailureAlertTestBase = class abstract(TTlsLibAlgorithmTestCase)
   strict protected
     // the fixture certificates named, in order
     function Chain(const ANames: array of string): TArray<TBytes>;
-    // whether the verifier accepts the named chain as a server chain, with the alert when it refuses
+    // whether the verifier accepts the named server chain, with the alert when it refuses
     function Verdict(const AChain: array of string;
       out AAlert: TTlsAlertDescription): Boolean; virtual; abstract;
   published

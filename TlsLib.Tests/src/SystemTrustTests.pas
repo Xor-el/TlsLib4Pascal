@@ -66,6 +66,7 @@ uses
 {$ENDIF TLSLIB_MACOS}
 {$IFDEF TLSLIB_ANDROID}
   TlpAndroidSystemTrust,
+  ChainFailureAlertTestBase,
 {$ENDIF TLSLIB_ANDROID}
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
   TlpUnixSystemTrust,
@@ -86,7 +87,6 @@ uses
   MockPlatformChainEngine,
   MockVerifyHooks,
   MockCertificateVerifiers,
-  ChainFailureAlertTestBase,
   TlsLibTestCertificates,
   TlsLibTestBase;
 
@@ -701,6 +701,7 @@ type
     procedure TestUnrecognizedCriticalExtensionReasonIsCertificateUnknown;
     procedure TestInvalidNameReasonIsCertificateUnknown;
     procedure TestSubtreeCheckMessageIsCertificateUnknown;
+    procedure TestNameConstraintsCheckFailedMessageIsCertificateUnknown;
     procedure TestMissingAnchorOutranksASignatureReason;
     procedure TestOtherReasonWithUnrelatedMessageIsOther;
     procedure TestCriticalExtensionWithoutPathValidatorCauseIsOther;
@@ -715,13 +716,12 @@ type
     procedure TestNonCertificateExceptionIsInternalError;
   end;
 
-  /// <summary>The chain-failure alerts of the real Android trust manager over an exclusive anchor
-  /// (the system-roots path is not exercised); a bad signature directly under the anchor reads there
-  /// as a missing anchor.</summary>
+  /// <summary>The chain-failure alerts of the real Android trust manager over an exclusive
+  /// anchor; a bad signature directly under the anchor reads there as a missing anchor.</summary>
   TTestAndroidChainFailureAlerts = class(TChainFailureAlertTestBase)
   strict private
     FFailure: TPlatformChainFailure;
-    // the request for the first certificate as the chain, the rest as intermediates, and the one anchor
+    // the first certificate as the chain, the rest as intermediates, under the one anchor
     function RequestFor(const ACerts: TArray<TBytes>; const AAnchor: TBytes): TPlatformChainRequest;
   strict protected
     function Verdict(const AChain: array of string;
@@ -6370,6 +6370,12 @@ begin
     TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other, 'name constraints');
 end;
 
+procedure TTestJavaTrustClassifier.TestNameConstraintsCheckFailedMessageIsCertificateUnknown;
+begin
+  CheckClass(Facts(True, False, True, 0, 'name constraints check failed'),
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other, 'name constraints');
+end;
+
 procedure TTestJavaTrustClassifier.TestMissingAnchorOutranksASignatureReason;
 var
   LFacts: TJavaTrustFacts;
@@ -6392,7 +6398,7 @@ end;
 
 procedure TTestJavaTrustClassifier.TestCriticalExtensionWithoutPathValidatorCauseIsOther;
 begin
-  CheckClass(Facts(True, False, False, 0, 'Certificate has unsupported critical extension'),
+  CheckClass(Facts(True, False, False, 0, 'unrecognized critical extension(s)'),
     TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other, 'no path validator cause');
 end;
 

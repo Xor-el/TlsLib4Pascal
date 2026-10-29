@@ -138,13 +138,13 @@ type
   /// critical extension or a certificate outside its validity window.</summary>
   TTestChainFailureAlerts = class(TChainFailureAlertTestBase)
   strict private
-    // the verdict of a verifier trusting chain_root for the named chain at AUnixMillis, with the alert
-    function VerdictAt(const AChain: array of string; AUnixMillis: UInt64;
-      out AAlert: TTlsAlertDescription): Boolean;
-    // the same for the client-certificate role
-    function ClientVerdict(const AChain: array of string; AUnixMillis: UInt64;
+    // the time the verifiers run at; every test starts inside all the fixture windows
+    FUnixMillis: UInt64;
+    // the verdict of a client-certificate verifier trusting chain_root for the named chain
+    function ClientVerdict(const AChain: array of string;
       out AAlert: TTlsAlertDescription): Boolean;
   strict protected
+    procedure SetUp; override;
     function Verdict(const AChain: array of string;
       out AAlert: TTlsAlertDescription): Boolean; override;
   published
@@ -1822,19 +1822,19 @@ const
   // 2045-01-01, inside every fixture window
   UnixMillisInsideAllWindows = UInt64(2366841600000);
 
-function TTestChainFailureAlerts.Verdict(const AChain: array of string;
-  out AAlert: TTlsAlertDescription): Boolean;
+procedure TTestChainFailureAlerts.SetUp;
 begin
-  Result := VerdictAt(AChain, UnixMillisInsideAllWindows, AAlert);
+  inherited SetUp;
+  FUnixMillis := UnixMillisInsideAllWindows;
 end;
 
-function TTestChainFailureAlerts.VerdictAt(const AChain: array of string;
-  AUnixMillis: UInt64; out AAlert: TTlsAlertDescription): Boolean;
+function TTestChainFailureAlerts.Verdict(const AChain: array of string;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IServerCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
-  LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(AUnixMillis) as ITlsClock,
+  LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(FUnixMillis) as ITlsClock,
     TTrustAnchorStore.Create(Chain(['chain_root'])) as ITrustAnchorStore, True)
     as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(Chain(AChain), TServerName.DnsName('localhost'),
@@ -1842,12 +1842,12 @@ begin
 end;
 
 function TTestChainFailureAlerts.ClientVerdict(const AChain: array of string;
-  AUnixMillis: UInt64; out AAlert: TTlsAlertDescription): Boolean;
+  out AAlert: TTlsAlertDescription): Boolean;
 var
   LVerifier: IClientCertificateVerifier;
   LVerified: TVerifiedChain;
 begin
-  LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(AUnixMillis) as ITlsClock,
+  LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(FUnixMillis) as ITlsClock,
     TTrustAnchorStore.Create(Chain(['chain_root'])) as ITrustAnchorStore, False)
     as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(Chain(AChain), LVerified, AAlert);
@@ -1857,7 +1857,7 @@ procedure TTestChainFailureAlerts.TestBadSignatureAsClientCertificateIsDecryptEr
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(ClientVerdict(['chain_badsig_leaf', 'chain_inter'], UnixMillisInsideAllWindows, LAlert),
+  CheckFalse(ClientVerdict(['chain_badsig_leaf', 'chain_inter'], LAlert),
     'a client chain with an invalid signature is refused');
   CheckEquals(Ord(TTlsAlertDescription.DecryptError), Ord(LAlert),
     'an invalid certificate signature is decrypt_error');
@@ -1867,7 +1867,8 @@ procedure TTestChainFailureAlerts.TestExpiryOutranksABadSignature;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(VerdictAt(['chain_badsig_leaf', 'chain_inter'], UnixMillisBeforeValidity, LAlert),
+  FUnixMillis := UnixMillisBeforeValidity;
+  CheckFalse(Verdict(['chain_badsig_leaf', 'chain_inter'], LAlert),
     'a not-yet-valid chain with an invalid signature is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
     'the validity window is reported before the signature');
@@ -1906,8 +1907,8 @@ procedure TTestChainFailureAlerts.TestNotYetValidChainIsCertificateExpired;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(VerdictAt(['chain_leaf', 'chain_inter'], UnixMillisBeforeValidity, LAlert),
-    'a chain not yet valid is refused');
+  FUnixMillis := UnixMillisBeforeValidity;
+  CheckFalse(Verdict(['chain_leaf', 'chain_inter'], LAlert), 'a chain not yet valid is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
     'a not-yet-valid certificate is certificate_expired');
 end;
@@ -1916,8 +1917,9 @@ procedure TTestChainFailureAlerts.TestNotYetValidIntermediateIsCertificateExpire
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(VerdictAt(['chain_future_leaf', 'chain_future_inter'], UnixMillisBeforeFutureIssuer,
-    LAlert), 'a chain whose intermediate is not yet valid is refused');
+  FUnixMillis := UnixMillisBeforeFutureIssuer;
+  CheckFalse(Verdict(['chain_future_leaf', 'chain_future_inter'], LAlert),
+    'a chain whose intermediate is not yet valid is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
     'a not-yet-valid intermediate is certificate_expired');
 end;

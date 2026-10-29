@@ -34,8 +34,8 @@ uses
 type
   /// <summary>What a Java trust-manager rejection exposes: whether it is a CertificateException, a
   /// time-validity one, and whether its cause is a CertPathValidatorException with that cause's path
-  /// index, message and reason name; and whether a network-security-config domain-config governs the
-  /// host.</summary>
+  /// index, message and reason name; and whether a network-security-config domain-config governs
+  /// the host.</summary>
   TJavaTrustFacts = record
     CertificateException: Boolean;
     TimeInvalid: Boolean;
@@ -50,10 +50,12 @@ type
   /// is a peer trust failure (anything else is an internal error); it is NoTrustAnchor only when its
   /// cause is a path-validation failure at index -1 whose message names the missing trust anchor
   /// and no domain-config governs the host (that config alone decides, so a missing anchor there is
-  /// final), and every other shape (pin, expiry, revocation, unrecognised) is Other. A missing anchor
-  /// outranks the rest, so a bad signature directly under a trust anchor reads as one and stays
-  /// unknown_ca. Otherwise a failed signature check is decrypt_error, and an unrecognised critical
-  /// extension or a name constraint failure is certificate_unknown.</summary>
+  /// final), and every other shape (pin, expiry, revocation, unrecognised) is Other. A missing
+  /// anchor outranks the rest, so a bad signature directly under a trust anchor reads as one and
+  /// stays unknown_ca. Otherwise a failed signature check is decrypt_error, and an unrecognised
+  /// critical extension or a name constraint failure is certificate_unknown. Expiry is decided
+  /// first, but the platform may check a signature before validity, so a certificate that is both
+  /// badly signed and expired can still read as decrypt_error.</summary>
   TJavaTrustClassifier = class sealed(TObject)
   public
     class procedure Classify(const AFacts: TJavaTrustFacts; out AAlert: TTlsAlertDescription;
@@ -247,7 +249,8 @@ begin
     (Pos('could not validate certificate signature', LMessage) > 0) then
     AAlert := TTlsAlertDescription.DecryptError
   else if (AFacts.CauseReason = 'UNRECOGNIZED_CRIT_EXT') or (AFacts.CauseReason = 'INVALID_NAME') or
-    (Pos('critical extension', LMessage) > 0) or (Pos('subtree check', LMessage) > 0) then
+    (Pos('critical extension', LMessage) > 0) or (Pos('subtree check', LMessage) > 0) or
+    (Pos('name constraints check failed', LMessage) > 0) then
     AAlert := TTlsAlertDescription.CertificateUnknown;
 end;
 
