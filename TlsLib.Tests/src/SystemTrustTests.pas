@@ -696,6 +696,7 @@ type
     procedure TestInvalidSignatureReasonIsDecryptError;
     procedure TestFailedIntermediateSignatureMessageIsDecryptError;
     procedure TestCriticalExtensionMessageIsCertificateUnknown;
+    procedure TestUnrecognizedCriticalExtensionReasonIsCertificateUnknown;
     procedure TestSubtreeCheckMessageIsCertificateUnknown;
     procedure TestOtherReasonWithUnrelatedMessageIsOther;
     procedure TestCriticalExtensionWithoutPathValidatorCauseIsOther;
@@ -708,6 +709,19 @@ type
     procedure TestDomainScopedNoAnchorIsFinal;
     procedure TestDomainScopedPinFailureIsUnchanged;
     procedure TestNonCertificateExceptionIsInternalError;
+  end;
+
+  /// <summary>The chain-failure alerts of the real Android trust manager, over the chain-failure
+  /// fixture chains anchored at its root.</summary>
+  TTestAndroidChainFailureAlerts = class(TTlsLibAlgorithmTestCase)
+  strict private
+    function Rejection(const AChain: array of string): TTlsAlertDescription;
+  published
+    procedure TestValidChainIsAccepted;
+    procedure TestBadIntermediateSignatureIsDecryptError;
+    procedure TestBadSignatureUnderTheAnchorIsUnknownCa;
+    procedure TestCriticalExtensionOnTheLeafIsCertificateUnknown;
+    procedure TestCriticalExtensionOnAnIntermediateIsCertificateUnknown;
   end;
 
 {$ENDIF TLSLIB_ANDROID}
@@ -6298,7 +6312,7 @@ procedure TTestJavaTrustClassifier.TestInvalidSignatureReasonIsDecryptError;
 var
   LFacts: TJavaTrustFacts;
 begin
-  LFacts := Facts(True, False, True, 0, 'signature check failed');
+  LFacts := Facts(True, False, True, 0, '');
   LFacts.CauseReason := 'INVALID_SIGNATURE';
   CheckClass(LFacts, TTlsAlertDescription.DecryptError, TPlatformChainFailure.Other,
     'invalid signature');
@@ -6306,14 +6320,24 @@ end;
 
 procedure TTestJavaTrustClassifier.TestFailedIntermediateSignatureMessageIsDecryptError;
 begin
-  CheckClass(Facts(True, False, True, 0, 'Could not validate certificate signature.'),
+  CheckClass(Facts(True, False, True, 0, 'signature check failed'),
     TTlsAlertDescription.DecryptError, TPlatformChainFailure.Other, 'intermediate signature');
 end;
 
 procedure TTestJavaTrustClassifier.TestCriticalExtensionMessageIsCertificateUnknown;
 begin
-  CheckClass(Facts(True, False, True, 0, 'Certificate has unsupported critical extension: [1.2.3.4]'),
+  CheckClass(Facts(True, False, True, 0, 'unrecognized critical extension(s)'),
     TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other, 'critical extension');
+end;
+
+procedure TTestJavaTrustClassifier.TestUnrecognizedCriticalExtensionReasonIsCertificateUnknown;
+var
+  LFacts: TJavaTrustFacts;
+begin
+  LFacts := Facts(True, False, True, 0, '');
+  LFacts.CauseReason := 'UNRECOGNIZED_CRIT_EXT';
+  CheckClass(LFacts, TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other,
+    'critical extension reason');
 end;
 
 procedure TTestJavaTrustClassifier.TestSubtreeCheckMessageIsCertificateUnknown;
@@ -6408,6 +6432,74 @@ procedure TTestJavaTrustClassifier.TestNonCertificateExceptionIsInternalError;
 begin
   CheckClass(Facts(False, False, True, -1, 'Trust anchor for certification path not found.'),
     TTlsAlertDescription.InternalError, TPlatformChainFailure.Other, 'not a CertificateException');
+end;
+
+{ TTestAndroidChainFailureAlerts }
+
+function TTestAndroidChainFailureAlerts.Rejection(
+  const AChain: array of string): TTlsAlertDescription;
+const
+  FixtureFile = 'Certs/ChainFailures.txt';
+var
+  LEngine: IPlatformChainEngine;
+  LRequest: TPlatformChainRequest;
+  LResult: TPlatformChainResult;
+  LLen, LI: Int32;
+begin
+  LLen := System.Length(AChain);
+  LRequest := Default(TPlatformChainRequest);
+  LRequest.Chain := TArray<TBytes>.Create(TTlsLibTestCertificates.Field(FixtureFile, AChain[0]));
+  SetLength(LRequest.Intermediates, LLen - 1);
+  for LI := 1 to LLen - 1 do
+    LRequest.Intermediates[LI - 1] := TTlsLibTestCertificates.Field(FixtureFile, AChain[LI]);
+  LRequest.Anchors := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field(FixtureFile, 'chain_root'));
+  CheckTrue(TServerName.TryParse('localhost', LRequest.ServerName));
+  LEngine := TAndroidChainEngine.Create as IPlatformChainEngine;
+  CheckFalse(LEngine.EvaluateServer(LRequest, LResult, Result), 'the chain is rejected');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestValidChainIsAccepted;
+var
+  LEngine: IPlatformChainEngine;
+  LRequest: TPlatformChainRequest;
+  LResult: TPlatformChainResult;
+  LAlert: TTlsAlertDescription;
+begin
+  LRequest := Default(TPlatformChainRequest);
+  LRequest.Chain := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/ChainFailures.txt', 'chain_leaf'));
+  LRequest.Intermediates := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/ChainFailures.txt', 'chain_inter'));
+  LRequest.Anchors := TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/ChainFailures.txt', 'chain_root'));
+  CheckTrue(TServerName.TryParse('localhost', LRequest.ServerName));
+  LEngine := TAndroidChainEngine.Create as IPlatformChainEngine;
+  CheckTrue(LEngine.EvaluateServer(LRequest, LResult, LAlert), 'the valid chain is accepted');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestBadIntermediateSignatureIsDecryptError;
+begin
+  CheckEquals(Ord(TTlsAlertDescription.DecryptError),
+    Ord(Rejection(['chain_badsig_leaf', 'chain_inter'])), 'alert');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestBadSignatureUnderTheAnchorIsUnknownCa;
+begin
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa),
+    Ord(Rejection(['chain_anchor_badsig_leaf'])), 'alert');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestCriticalExtensionOnTheLeafIsCertificateUnknown;
+begin
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown),
+    Ord(Rejection(['chain_crit_leaf'])), 'alert');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestCriticalExtensionOnAnIntermediateIsCertificateUnknown;
+begin
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown),
+    Ord(Rejection(['chain_crit_inter_leaf', 'chain_crit_inter'])), 'alert');
 end;
 
 {$ENDIF TLSLIB_ANDROID}
@@ -6757,8 +6849,10 @@ initialization
 {$IFDEF TLSLIB_ANDROID}
 {$IFDEF FPC}
   RegisterTest(TTestJavaTrustClassifier);
+  RegisterTest(TTestAndroidChainFailureAlerts);
 {$ELSE}
   RegisterTest(TTestJavaTrustClassifier.Suite);
+  RegisterTest(TTestAndroidChainFailureAlerts.Suite);
 {$ENDIF FPC}
 {$ENDIF TLSLIB_ANDROID}
 

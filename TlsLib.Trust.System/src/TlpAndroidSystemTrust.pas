@@ -233,13 +233,13 @@ begin
   end;
   LMessage := LowerCase(AFacts.CauseMessage);
   if AFacts.PathValidatorCause and ((AFacts.CauseReason = 'INVALID_SIGNATURE') or
-    (Pos('could not validate certificate signature', LMessage) > 0)) then
+    (Pos('signature check failed', LMessage) > 0)) then
   begin
     AAlert := TTlsAlertDescription.DecryptError;
     Exit;
   end;
-  if AFacts.PathValidatorCause and ((Pos('critical extension', LMessage) > 0) or
-    (Pos('subtree check', LMessage) > 0)) then
+  if AFacts.PathValidatorCause and ((AFacts.CauseReason = 'UNRECOGNIZED_CRIT_EXT') or
+    (Pos('critical extension', LMessage) > 0) or (Pos('subtree check', LMessage) > 0)) then
   begin
     AAlert := TTlsAlertDescription.CertificateUnknown;
     Exit;
