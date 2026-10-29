@@ -66,7 +66,6 @@ uses
 {$ENDIF TLSLIB_MACOS}
 {$IFDEF TLSLIB_ANDROID}
   TlpAndroidSystemTrust,
-  ChainFailureAlertTestBase,
 {$ENDIF TLSLIB_ANDROID}
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
   TlpUnixSystemTrust,
@@ -714,22 +713,6 @@ type
     procedure TestDomainScopedNoAnchorIsFinal;
     procedure TestDomainScopedPinFailureIsUnchanged;
     procedure TestNonCertificateExceptionIsInternalError;
-  end;
-
-  /// <summary>The chain-failure alerts of the real Android trust manager over an exclusive
-  /// anchor; a bad signature directly under the anchor reads there as a missing anchor.</summary>
-  TTestAndroidChainFailureAlerts = class(TChainFailureAlertTestBase)
-  strict private
-    FFailure: TPlatformChainFailure;
-    // the first certificate as the chain, the rest as intermediates, under the one anchor
-    function RequestFor(const ACerts: TArray<TBytes>; const AAnchor: TBytes): TPlatformChainRequest;
-  strict protected
-    function Verdict(const AChain: array of string;
-      out AAlert: TTlsAlertDescription): Boolean; override;
-  published
-    procedure TestBadSignatureAsClientCertificateIsDecryptError;
-    procedure TestBadSignatureUnderTheAnchorIsUnknownCa;
-    procedure TestBadSignatureUnderAPooledIntermediateIsNotAMissingAnchor;
   end;
 
 {$ENDIF TLSLIB_ANDROID}
@@ -6474,62 +6457,6 @@ begin
     TTlsAlertDescription.InternalError, TPlatformChainFailure.Other, 'not a CertificateException');
 end;
 
-{ TTestAndroidChainFailureAlerts }
-
-function TTestAndroidChainFailureAlerts.RequestFor(const ACerts: TArray<TBytes>;
-  const AAnchor: TBytes): TPlatformChainRequest;
-begin
-  Result := Default(TPlatformChainRequest);
-  Result.Chain := TArray<TBytes>.Create(ACerts[0]);
-  Result.Intermediates := System.Copy(ACerts, 1, System.Length(ACerts) - 1);
-  Result.Anchors := TArray<TBytes>.Create(AAnchor);
-  CheckTrue(TServerName.TryParse('localhost', Result.ServerName));
-end;
-
-function TTestAndroidChainFailureAlerts.Verdict(const AChain: array of string;
-  out AAlert: TTlsAlertDescription): Boolean;
-var
-  LEngine: IPlatformChainEngine;
-  LResult: TPlatformChainResult;
-begin
-  LEngine := TAndroidChainEngine.Create as IPlatformChainEngine;
-  Result := LEngine.EvaluateServer(RequestFor(Chain(AChain), Chain(['chain_root'])[0]), LResult,
-    AAlert);
-  FFailure := LResult.Failure;
-end;
-
-procedure TTestAndroidChainFailureAlerts.TestBadSignatureAsClientCertificateIsDecryptError;
-var
-  LEngine: IPlatformChainEngine;
-  LResult: TPlatformChainResult;
-  LAlert: TTlsAlertDescription;
-begin
-  LEngine := TAndroidChainEngine.Create as IPlatformChainEngine;
-  CheckFalse(LEngine.EvaluateClient(RequestFor(Chain(['chain_badsig_leaf', 'chain_inter']),
-    Chain(['chain_root'])[0]), LResult, LAlert), 'the client chain is refused');
-  CheckEquals(Ord(TTlsAlertDescription.DecryptError), Ord(LAlert),
-    'an invalid certificate signature is decrypt_error');
-end;
-
-procedure TTestAndroidChainFailureAlerts.TestBadSignatureUnderTheAnchorIsUnknownCa;
-var
-  LAlert: TTlsAlertDescription;
-begin
-  CheckFalse(Verdict(['chain_anchor_badsig_leaf'], LAlert),
-    'a leaf not signed by the anchor it names is refused');
-  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
-    'the platform reads it as a missing anchor');
-  CheckEquals(Ord(TPlatformChainFailure.NoTrustAnchor), Ord(FFailure), 'failure class');
-end;
-
-procedure TTestAndroidChainFailureAlerts.TestBadSignatureUnderAPooledIntermediateIsNotAMissingAnchor;
-var
-  LAlert: TTlsAlertDescription;
-begin
-  CheckFalse(Verdict(['chain_badsig_leaf', 'chain_inter'], LAlert), 'the chain is refused');
-  CheckEquals(Ord(TPlatformChainFailure.Other), Ord(FFailure), 'failure class');
-end;
-
 {$ENDIF TLSLIB_ANDROID}
 
 {$IF DEFINED(TLSLIB_LINUX) OR DEFINED(TLSLIB_BSD) OR DEFINED(TLSLIB_SOLARIS)}
@@ -6877,10 +6804,8 @@ initialization
 {$IFDEF TLSLIB_ANDROID}
 {$IFDEF FPC}
   RegisterTest(TTestJavaTrustClassifier);
-  RegisterTest(TTestAndroidChainFailureAlerts);
 {$ELSE}
   RegisterTest(TTestJavaTrustClassifier.Suite);
-  RegisterTest(TTestAndroidChainFailureAlerts.Suite);
 {$ENDIF FPC}
 {$ENDIF TLSLIB_ANDROID}
 

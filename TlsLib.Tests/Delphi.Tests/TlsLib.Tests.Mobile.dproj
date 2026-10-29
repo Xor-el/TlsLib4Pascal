@@ -529,7 +529,6 @@
         <DCCReference Include="..\src\MockClock.pas"/>
         <DCCReference Include="..\src\MockKeyLog.pas"/>
         <DCCReference Include="..\src\MockPlatformChainEngine.pas"/>
-        <DCCReference Include="..\src\ChainFailureAlertTestBase.pas"/>
         <DCCReference Include="..\src\MockCryptoProvider.pas"/>
         <DCCReference Include="..\src\MockSystemCrypto.pas"/>
         <DCCReference Include="..\src\MockCredentialResolvers.pas"/>

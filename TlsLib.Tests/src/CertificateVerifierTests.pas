@@ -11,11 +11,9 @@
 
 unit CertificateVerifierTests;
 
-interface
+{$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
-{$IFDEF FPC}
-{$MODE DELPHI}
-{$ENDIF FPC}
+interface
 
 uses
   TlpIClock,
@@ -48,8 +46,12 @@ uses
   MockPkixProvider,
   MockClock,
   MockCertificateVerifiers,
+{$IFDEF TLSLIB_ANDROID}
+  TlpSystemTrustBase,
+  TlpIPlatformChainEngine,
+  TlpAndroidSystemTrust,
+{$ENDIF TLSLIB_ANDROID}
   TlsLibTestCertificates,
-  ChainFailureAlertTestBase,
   TlsLibTestBase;
 
 type
@@ -134,6 +136,22 @@ type
     procedure TestDistrustClassificationBuildsThePathOnce;
   end;
 
+  /// <summary>The chain-failure alerts every verifier must send over the fixture chains
+  /// anchored at chain_root.</summary>
+  TChainFailureAlertTestBase = class abstract(TTlsLibAlgorithmTestCase)
+  strict protected
+    // the fixture certificates named, in order
+    function Chain(const ANames: array of string): TArray<TBytes>;
+    // whether the verifier accepts the named server chain, with the alert when it refuses
+    function Verdict(const AChain: array of string;
+      out AAlert: TTlsAlertDescription): Boolean; virtual; abstract;
+  published
+    procedure TestValidChainIsAccepted;
+    procedure TestBadSignatureUnderAPooledIntermediateIsDecryptError;
+    procedure TestCriticalPrivateExtensionOnTheLeafIsCertificateUnknown;
+    procedure TestCriticalPrivateExtensionOnAnIntermediateIsCertificateUnknown;
+  end;
+
   /// <summary>The alert a refused chain maps to when the cause is a bad signature, an unhandled
   /// critical extension or a certificate outside its validity window.</summary>
   TTestChainFailureAlerts = class(TChainFailureAlertTestBase)
@@ -156,6 +174,24 @@ type
     procedure TestNotYetValidIntermediateIsCertificateExpired;
     procedure TestIntermediateInsideItsValidityWindowIsAccepted;
   end;
+
+{$IFDEF TLSLIB_ANDROID}
+  /// <summary>The chain-failure alerts of the real Android trust manager over an exclusive
+  /// anchor; a bad signature directly under the anchor reads there as a missing anchor.</summary>
+  TTestAndroidChainFailureAlerts = class(TChainFailureAlertTestBase)
+  strict private
+    FFailure: TPlatformChainFailure;
+    // the first certificate as the chain, the rest as intermediates, under the one anchor
+    function RequestFor(const ACerts: TArray<TBytes>; const AAnchor: TBytes): TPlatformChainRequest;
+  strict protected
+    function Verdict(const AChain: array of string;
+      out AAlert: TTlsAlertDescription): Boolean; override;
+  published
+    procedure TestBadSignatureAsClientCertificateIsDecryptError;
+    procedure TestBadSignatureUnderTheAnchorIsUnknownCa;
+    procedure TestBadSignatureUnderAPooledIntermediateIsNotAMissingAnchor;
+  end;
+{$ENDIF TLSLIB_ANDROID}
 
   TTestCertificateVerifier = class(TTlsLibAlgorithmTestCase)
   private
@@ -1812,6 +1848,56 @@ begin
     Reissued('root_cert'), LVerified.Path[System.High(LVerified.Path)]);
 end;
 
+{ TChainFailureAlertTestBase }
+
+function TChainFailureAlertTestBase.Chain(const ANames: array of string): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(ANames));
+  for LI := 0 to System.High(ANames) do
+    Result[LI] := TTlsLibTestCertificates.Field('Certs/ChainFailures.txt', ANames[LI]);
+end;
+
+procedure TChainFailureAlertTestBase.TestValidChainIsAccepted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(Verdict(['chain_leaf', 'chain_inter'], LAlert),
+    'the fixture chain the bad-signature cases imitate is valid');
+end;
+
+procedure TChainFailureAlertTestBase.TestBadSignatureUnderAPooledIntermediateIsDecryptError;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_badsig_leaf', 'chain_inter'], LAlert),
+    'a leaf not signed by its named intermediate is refused');
+  CheckEquals(Ord(TTlsAlertDescription.DecryptError), Ord(LAlert),
+    'an invalid certificate signature is decrypt_error');
+end;
+
+procedure TChainFailureAlertTestBase.TestCriticalPrivateExtensionOnTheLeafIsCertificateUnknown;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_crit_leaf'], LAlert),
+    'a leaf with an unrecognized critical extension is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'an unhandled critical extension is certificate_unknown');
+end;
+
+procedure TChainFailureAlertTestBase.TestCriticalPrivateExtensionOnAnIntermediateIsCertificateUnknown;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_crit_inter_leaf', 'chain_crit_inter'], LAlert),
+    'an intermediate with an unrecognized critical extension is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'an unhandled critical extension is certificate_unknown');
+end;
+
 { TTestChainFailureAlerts }
 
 const
@@ -1932,6 +2018,66 @@ begin
     'the same chain is accepted once the intermediate is valid');
 end;
 
+{$IFDEF TLSLIB_ANDROID}
+
+{ TTestAndroidChainFailureAlerts }
+
+function TTestAndroidChainFailureAlerts.RequestFor(const ACerts: TArray<TBytes>;
+  const AAnchor: TBytes): TPlatformChainRequest;
+begin
+  Result := Default(TPlatformChainRequest);
+  Result.Chain := TArray<TBytes>.Create(ACerts[0]);
+  Result.Intermediates := System.Copy(ACerts, 1, System.Length(ACerts) - 1);
+  Result.Anchors := TArray<TBytes>.Create(AAnchor);
+  CheckTrue(TServerName.TryParse('localhost', Result.ServerName));
+end;
+
+function TTestAndroidChainFailureAlerts.Verdict(const AChain: array of string;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+begin
+  LEngine := TAndroidChainEngine.Create as IPlatformChainEngine;
+  Result := LEngine.EvaluateServer(RequestFor(Chain(AChain), Chain(['chain_root'])[0]), LResult,
+    AAlert);
+  FFailure := LResult.Failure;
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestBadSignatureAsClientCertificateIsDecryptError;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LAlert: TTlsAlertDescription;
+begin
+  LEngine := TAndroidChainEngine.Create as IPlatformChainEngine;
+  CheckFalse(LEngine.EvaluateClient(RequestFor(Chain(['chain_badsig_leaf', 'chain_inter']),
+    Chain(['chain_root'])[0]), LResult, LAlert), 'the client chain is refused');
+  CheckEquals(Ord(TTlsAlertDescription.DecryptError), Ord(LAlert),
+    'an invalid certificate signature is decrypt_error');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestBadSignatureUnderTheAnchorIsUnknownCa;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_anchor_badsig_leaf'], LAlert),
+    'a leaf not signed by the anchor it names is refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'the platform reads it as a missing anchor');
+  CheckEquals(Ord(TPlatformChainFailure.NoTrustAnchor), Ord(FFailure), 'failure class');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestBadSignatureUnderAPooledIntermediateIsNotAMissingAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict(['chain_badsig_leaf', 'chain_inter'], LAlert), 'the chain is refused');
+  CheckEquals(Ord(TPlatformChainFailure.Other), Ord(FFailure), 'failure class');
+end;
+
+{$ENDIF TLSLIB_ANDROID}
+
 initialization
 
 {$IFDEF FPC}
@@ -1939,11 +2085,17 @@ initialization
   RegisterTest(TTestVerifyCallbackVerifier);
   RegisterTest(TTestCriticalExtensionsAndEndEntity);
   RegisterTest(TTestChainFailureAlerts);
+{$IFDEF TLSLIB_ANDROID}
+  RegisterTest(TTestAndroidChainFailureAlerts);
+{$ENDIF TLSLIB_ANDROID}
 {$ELSE}
   RegisterTest(TTestCertificateVerifier.Suite);
   RegisterTest(TTestVerifyCallbackVerifier.Suite);
   RegisterTest(TTestCriticalExtensionsAndEndEntity.Suite);
   RegisterTest(TTestChainFailureAlerts.Suite);
+{$IFDEF TLSLIB_ANDROID}
+  RegisterTest(TTestAndroidChainFailureAlerts.Suite);
+{$ENDIF TLSLIB_ANDROID}
 {$ENDIF FPC}
 
 end.
