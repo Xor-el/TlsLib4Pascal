@@ -1,0 +1,37 @@
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_68cc6566c53c42 704
+  s_f2c9bd75607afc::t_3c7806ee519510 69
+  s_f2c9bd75607afc::t_5ee7dacac557f3 724
+  s_f2c9bd75607afc::t_3842872f379a5f 6373-6378
+  s_f2c9bd75607afc::t_38eaf862361d8e 719-720
+  s_f2c9bd75607afc::t_6b7fc8a5fe589a 6401
+TlsLib.Tests/src/ChainFailureAlertTestBase.pas
+  s_f2c9bd75607afc::t_5ddcd5783f9ced 27-28,33
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_1654d5f24a0ac3 1870-1871
+  s_f2c9bd75607afc::t_489143833430fe 1825,1827-1828,1831-1832,1837,1845,1850
+  s_f2c9bd75607afc::t_92085093a8993b 1910-1911
+  s_f2c9bd75607afc::t_65aaf377856a4a 1920-1922
+  s_f2c9bd75607afc::t_f428fc6b180371 141-144,147
+  s_f2c9bd75607afc::t_a50e4ed27ed8b5 1860
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_f2c9bd75607afc::t_e5348c50fa88c2 252-253
+  s_f2c9bd75607afc::t_f6b2630b258bb3 53-58
+  s_f2c9bd75607afc::t_f3bab0a688379f 37-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0df167f01f1e15632bbd93119077bc68915234aa",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
