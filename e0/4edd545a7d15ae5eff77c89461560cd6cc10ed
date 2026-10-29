@@ -1,0 +1,64 @@
+TlsLib.Trust.System/src/TlpWindowsSystemTrust.pas
+  s_f2c9bd75607afc::t_fd6574c3e2b1c2 1007-1008,1010
+  s_f2c9bd75607afc::t_59b9c9051d0970 166
+  s_f2c9bd75607afc::t_88e1d88e95adae 172
+  s_f2c9bd75607afc::t_54d36b430b1511 174
+  s_f2c9bd75607afc::t_c3607a0f4b96d9 1005,1009
+  s_f2c9bd75607afc::t_e9d8bcadc22ab8 165
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_f2c9bd75607afc::t_ae7c879c6253b5 191-194
+TlsLib/src/Interfaces/Trust/TlpICertificateTrust.pas
+  s_f2c9bd75607afc::t_c4329f88221936 31
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_34d5f0c679266d 5509,5511-5512
+  s_f2c9bd75607afc::t_6dd9a39132be67 5513-5518
+TlsLib.Tests/Data/Certs/ChainFailures.txt
+  s_f2c9bd75607afc::t_b1a7cdfbddb296 1-14
+  s_f2c9bd75607afc::t_80d29266d9251d 15-17
+  s_1bf855993e6fb3::t_ba7ceaa3b58d77 18-24
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_f2c9bd75607afc::t_1bc53bfe272589 73-76
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_f2c9bd75607afc::t_b91c536eae9caf 1052-1058,1062
+  s_f2c9bd75607afc::t_4bcbdbd02231ac 1059-1061
+  s_f2c9bd75607afc::t_12b04e37d3d744 78
+  s_f2c9bd75607afc::t_09110d5e5014fa 324
+  s_f2c9bd75607afc::t_c17c9e95e53980 1051
+  s_f2c9bd75607afc::t_263ff7583cd3de 325-326
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_b5cb6b99b55a55 1880-1918
+  s_f2c9bd75607afc::t_ff990eb5d4a71a 1944
+  s_f2c9bd75607afc::t_cd9f3d4be35b81 145-147,151-153
+  s_f2c9bd75607afc::t_a8d04a7f7a4739 49
+  s_f2c9bd75607afc::t_bfcf004f31800b 136-144,148-150,154-161
+  s_f2c9bd75607afc::t_2c3556e5e061b3 1817-1843,1845-1847,1860-1879,1919-1933,1935-1943,1945-1976,1983,1988
+  s_f2c9bd75607afc::t_a2f6fa913cfaa2 1934
+  s_f2c9bd75607afc::t_b3fceb5e29455a 608-609
+  s_f2c9bd75607afc::t_a5ac4155c6a29c 1844,1848-1859
+  s_f2c9bd75607afc::t_854ef8afd2a44b 618-619
+  s_f2c9bd75607afc::t_0f0add31793ee8 628-629
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e04edd545a7d15ae5eff77c89461560cd6cc10ed",
+  "prompts": {},
+  "sessions": {
+    "s_1bf855993e6fb3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a9215f69afacb2207",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
