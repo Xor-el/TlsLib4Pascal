@@ -78,6 +78,8 @@ begin
   CheckMap(-67820, TTlsAlertDescription.CertificateRevoked);     // errSecCertificateRevoked
   CheckMap(-67609, TTlsAlertDescription.UnsupportedCertificate); // errSecInvalidExtendedKeyUsage
   CheckMap(-67602, TTlsAlertDescription.BadCertificate);         // errSecHostNameMismatch
+  CheckMap(-67603, TTlsAlertDescription.CertificateUnknown);     // errSecUnknownCriticalExtensionFlag
+  CheckMap(-67689, TTlsAlertDescription.CertificateUnknown);     // errSecInvalidName
   CheckMap(-67843, TTlsAlertDescription.UnknownCa);              // errSecNotTrusted
   CheckMap(-67654, TTlsAlertDescription.UnknownCa);              // errSecTrustSettingDeny
   CheckMap(-25318, TTlsAlertDescription.UnknownCa);              // errSecCreateChainFailed

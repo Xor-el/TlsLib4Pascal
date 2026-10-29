@@ -101,6 +101,8 @@ const
   ErrSecIncompleteCertRevocationCheck = -67635;
   ErrSecInvalidExtendedKeyUsage = -67609;
   ErrSecHostNameMismatch = -67602;
+  ErrSecUnknownCriticalExtensionFlag = -67603;
+  ErrSecInvalidName = -67689;
 
 const
   KCFStringEncodingUTF8 = $08000100;
@@ -385,6 +387,8 @@ begin
       Result := TTlsAlertDescription.UnsupportedCertificate;
     ErrSecHostNameMismatch:
       Result := TTlsAlertDescription.BadCertificate;
+    ErrSecUnknownCriticalExtensionFlag, ErrSecInvalidName:
+      Result := TTlsAlertDescription.CertificateUnknown;
   else
     // errSecNotTrusted (-67843), errSecTrustSettingDeny (-67654),
     // errSecCreateChainFailed (-25318) and any other status collapse to the safe

@@ -41,6 +41,7 @@ type
     PathValidatorCause: Boolean;
     CauseIndex: Int32;
     CauseMessage: string;
+    CauseReason: string;
     DomainScoped: Boolean;
   end;
 
@@ -48,7 +49,10 @@ type
   /// is a peer trust failure (anything else is an internal error); it is NoTrustAnchor only when its
   /// cause is a path-validation failure at index -1 whose message names the missing trust anchor
   /// and no domain-config governs the host (that config alone decides, so a missing anchor there is
-  /// final), and every other shape (pin, expiry, revocation, unrecognised) is Other.</summary>
+  /// final), and every other shape (pin, expiry, revocation, unrecognised) is Other. A cause with an
+  /// invalid-signature reason or a failed intermediate signature is decrypt_error, and one naming a
+  /// critical extension or a failed name-constraint subtree check is certificate_unknown; a bad
+  /// signature directly under a trust anchor reads as a missing anchor and stays unknown_ca.</summary>
   TJavaTrustClassifier = class sealed(TObject)
   public
     class procedure Classify(const AFacts: TJavaTrustFacts; out AAlert: TTlsAlertDescription;
@@ -169,6 +173,10 @@ type
     /// <summary>True when the exception or one of its bounded causes is an expired or
     /// not-yet-valid certificate; any lookup failure answers False.</summary>
     class function HasTimeInvalidInChain(AEnv: PJNIEnv; AExc: TJThrowable): Boolean; static;
+    /// <summary>The name of a CertPathValidatorException's Reason (API 24+); any lookup
+    /// failure answers an empty string.</summary>
+    class function ReadReasonName(AEnv: PJNIEnv; ACause: TJObject;
+      ACpvClass: TJClass): string; static;
     /// <summary>The facts of a trust-manager exception that the classifier decides on; a lookup
     /// that fails leaves its fact unset, so the rejection classifies as Other.</summary>
     class function ReadExceptionFacts(AEnv: PJNIEnv; AExc: TJThrowable)
@@ -209,6 +217,8 @@ type
 
 class procedure TJavaTrustClassifier.Classify(const AFacts: TJavaTrustFacts;
   out AAlert: TTlsAlertDescription; out AFailure: TPlatformChainFailure);
+var
+  LMessage: string;
 begin
   AFailure := TPlatformChainFailure.Other;
   if not AFacts.CertificateException then
@@ -221,9 +231,22 @@ begin
     AAlert := TTlsAlertDescription.CertificateExpired;
     Exit;
   end;
+  LMessage := LowerCase(AFacts.CauseMessage);
+  if AFacts.PathValidatorCause and ((AFacts.CauseReason = 'INVALID_SIGNATURE') or
+    (Pos('could not validate certificate signature', LMessage) > 0)) then
+  begin
+    AAlert := TTlsAlertDescription.DecryptError;
+    Exit;
+  end;
+  if AFacts.PathValidatorCause and ((Pos('critical extension', LMessage) > 0) or
+    (Pos('subtree check', LMessage) > 0)) then
+  begin
+    AAlert := TTlsAlertDescription.CertificateUnknown;
+    Exit;
+  end;
   AAlert := TTlsAlertDescription.UnknownCa;
   if AFacts.PathValidatorCause and (AFacts.CauseIndex = -1) and
-    (Pos('trust anchor', LowerCase(AFacts.CauseMessage)) > 0) and (not AFacts.DomainScoped) then
+    (Pos('trust anchor', LMessage) > 0) and (not AFacts.DomainScoped) then
     AFailure := TPlatformChainFailure.NoTrustAnchor;
 end;
 
@@ -596,6 +619,59 @@ begin
   end;
 end;
 
+class function TAndroidTrustApi.ReadReasonName(AEnv: PJNIEnv; ACause: TJObject;
+  ACpvClass: TJClass): string;
+var
+  LObjectClass: TJClass;
+  LGetReason, LToString: TJMethodID;
+  LReason, LName: TJObject;
+  LChars: PAnsiChar;
+begin
+  Result := '';
+  LGetReason := AEnv^^.GetMethodID(AEnv, ACpvClass, 'getReason',
+    '()Ljava/security/cert/CertPathValidatorException$Reason;');
+  if LGetReason = nil then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LObjectClass := AEnv^^.FindClass(AEnv, 'java/lang/Object');
+  if LObjectClass = nil then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LToString := AEnv^^.GetMethodID(AEnv, LObjectClass, 'toString', '()Ljava/lang/String;');
+  if LToString = nil then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LReason := AEnv^^.CallObjectMethodA(AEnv, ACause, LGetReason, nil);
+  if (LReason = nil) or (AEnv^^.ExceptionCheck(AEnv) <> 0) then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LName := AEnv^^.CallObjectMethodA(AEnv, LReason, LToString, nil);
+  if (LName = nil) or (AEnv^^.ExceptionCheck(AEnv) <> 0) then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  LChars := AEnv^^.GetStringUTFChars(AEnv, LName, nil);
+  if LChars = nil then
+  begin
+    ClearPending(AEnv);
+    Exit;
+  end;
+  try
+    Result := string(AnsiString(LChars));
+  finally
+    AEnv^^.ReleaseStringUTFChars(AEnv, LName, LChars);
+  end;
+end;
+
 class function TAndroidTrustApi.ReadExceptionFacts(AEnv: PJNIEnv;
   AExc: TJThrowable): TJavaTrustFacts;
 var
@@ -646,6 +722,7 @@ begin
     Exit;
   end;
   Result.PathValidatorCause := True;
+  Result.CauseReason := ReadReasonName(AEnv, LCause, LCpvClass);
   LMessage := AEnv^^.CallObjectMethodA(AEnv, LCause, LGetMessage, nil);
   if AEnv^^.ExceptionCheck(AEnv) <> 0 then
   begin

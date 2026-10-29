@@ -693,6 +693,13 @@ type
   published
     procedure TestNoTrustAnchorShapeIsNoTrustAnchor;
     procedure TestPathDoesNotChainMessageIsNoTrustAnchor;
+    procedure TestInvalidSignatureReasonIsDecryptError;
+    procedure TestFailedIntermediateSignatureMessageIsDecryptError;
+    procedure TestCriticalExtensionMessageIsCertificateUnknown;
+    procedure TestSubtreeCheckMessageIsCertificateUnknown;
+    procedure TestOtherReasonWithUnrelatedMessageIsOther;
+    procedure TestCriticalExtensionWithoutPathValidatorCauseIsOther;
+    procedure TestTimeInvalidOutranksInvalidSignature;
     procedure TestPinFailureWithoutCauseIsOther;
     procedure TestPathFailureAtACertificateIndexIsOther;
     procedure TestUnrelatedPathMessageIsOther;
@@ -6285,6 +6292,60 @@ procedure TTestJavaTrustClassifier.TestPathDoesNotChainMessageIsNoTrustAnchor;
 begin
   CheckClass(Facts(True, False, True, -1, 'Path does not chain with any of the trust anchors'),
     TTlsAlertDescription.UnknownCa, TPlatformChainFailure.NoTrustAnchor, 'PKIX');
+end;
+
+procedure TTestJavaTrustClassifier.TestInvalidSignatureReasonIsDecryptError;
+var
+  LFacts: TJavaTrustFacts;
+begin
+  LFacts := Facts(True, False, True, 0, 'signature check failed');
+  LFacts.CauseReason := 'INVALID_SIGNATURE';
+  CheckClass(LFacts, TTlsAlertDescription.DecryptError, TPlatformChainFailure.Other,
+    'invalid signature');
+end;
+
+procedure TTestJavaTrustClassifier.TestFailedIntermediateSignatureMessageIsDecryptError;
+begin
+  CheckClass(Facts(True, False, True, 0, 'Could not validate certificate signature.'),
+    TTlsAlertDescription.DecryptError, TPlatformChainFailure.Other, 'intermediate signature');
+end;
+
+procedure TTestJavaTrustClassifier.TestCriticalExtensionMessageIsCertificateUnknown;
+begin
+  CheckClass(Facts(True, False, True, 0, 'Certificate has unsupported critical extension: [1.2.3.4]'),
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other, 'critical extension');
+end;
+
+procedure TTestJavaTrustClassifier.TestSubtreeCheckMessageIsCertificateUnknown;
+begin
+  CheckClass(Facts(True, False, True, 0, 'Subtree check for certificate subject failed.'),
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other, 'name constraints');
+end;
+
+procedure TTestJavaTrustClassifier.TestOtherReasonWithUnrelatedMessageIsOther;
+var
+  LFacts: TJavaTrustFacts;
+begin
+  LFacts := Facts(True, False, True, 0, 'revocation check failed');
+  LFacts.CauseReason := 'UNSPECIFIED';
+  CheckClass(LFacts, TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other,
+    'other reason');
+end;
+
+procedure TTestJavaTrustClassifier.TestCriticalExtensionWithoutPathValidatorCauseIsOther;
+begin
+  CheckClass(Facts(True, False, False, 0, 'Certificate has unsupported critical extension'),
+    TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other, 'no path validator cause');
+end;
+
+procedure TTestJavaTrustClassifier.TestTimeInvalidOutranksInvalidSignature;
+var
+  LFacts: TJavaTrustFacts;
+begin
+  LFacts := Facts(True, True, True, 0, '');
+  LFacts.CauseReason := 'INVALID_SIGNATURE';
+  CheckClass(LFacts, TTlsAlertDescription.CertificateExpired, TPlatformChainFailure.Other,
+    'expiry first');
 end;
 
 procedure TTestJavaTrustClassifier.TestPinFailureWithoutCauseIsOther;
