@@ -12,7 +12,7 @@
 #   apple_in_scope_leaf_cert      root        mac.corp.example         accepted; valid 2020-01-01..2022-03-01 (790 days, inside Apple's 825-day leaf cap)
 #   apple_out_of_scope_leaf_cert  root        bank.example             refused; same 790-day window
 # Every other certificate is valid 2020-01-01..2099-12-31. All ecdsa-with-SHA256, P-256, keys not stored.
-# Generated with OpenSSL 3.6.1 (C:\Strawberry\c\bin\openssl.exe; NB=20200101000000Z, NA=20991231000000Z, NA2=20220301000000Z; MSYS2_ARG_CONV_EXCL='*'):
+# Generated with OpenSSL 3.6.1 (NB=20200101000000Z, NA=20991231000000Z, NA2=20220301000000Z; MSYS2_ARG_CONV_EXCL='*'):
 #   openssl ecparam -name prime256v1 -genkey -noout -out X.key   (each certificate)
 #   openssl req -new -x509 -key root.key -sha256 -subj "/CN=TlsLib NC Root" -set_serial 1 -not_before NB -not_after NA
 #     -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -addext "subjectKeyIdentifier=hash"

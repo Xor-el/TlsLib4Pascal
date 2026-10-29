@@ -1,6 +1,6 @@
 # A client chain whose anchor is a weak RSA key: root_cert (RSA-2048, self-signed, serial 1, CA:TRUE) -> leaf_cert (EC P-256 key, CN/SAN=localhost,
 # EKU serverAuth+clientAuth, serial 2, sha256WithRSAEncryption). Validity 2020-01-01..2099-12-31 for both. Keys not stored.
-# Generated with OpenSSL 3.6.1 (C:\Strawberry\c\bin\openssl.exe; NB=20200101000000Z, NA=20991231000000Z; MSYS2_ARG_CONV_EXCL='*'):
+# Generated with OpenSSL 3.6.1 (NB=20200101000000Z, NA=20991231000000Z; MSYS2_ARG_CONV_EXCL='*'):
 #   openssl genrsa -out root.key 2048;  openssl ecparam -name prime256v1 -genkey -noout -out leaf.key
 #   openssl req -new -x509 -key root.key -sha256 -subj "/CN=TlsLib Weak Anchor Root" -set_serial 1 -not_before NB -not_after NA
 #     -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -addext "subjectKeyIdentifier=hash" -out root.pem
