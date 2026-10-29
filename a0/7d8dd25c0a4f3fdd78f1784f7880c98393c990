@@ -1,0 +1,65 @@
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_f2c9bd75607afc::t_bc94fa8bef48f9 26
+TlsLib.Tests/src/ChainFailureAlertTestBase.pas
+  s_f2c9bd75607afc::t_5a592f8d993582 1-97
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_f2c9bd75607afc::t_171db0ed82ee04 491-494
+  s_f2c9bd75607afc::t_d6c3aa2d796061 46
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.Android.lpr
+  s_f2c9bd75607afc::t_9e1491dd1387b6 27
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_5e8ecd1a37a5d7 1870
+  s_f2c9bd75607afc::t_5abe6ee600a109 1909
+  s_f2c9bd75607afc::t_3829fda0f6f935 1825-1826,1828,1831
+  s_f2c9bd75607afc::t_1641d30c7b65b0 139,142,147-149
+  s_f2c9bd75607afc::t_1025563840b801 52
+  s_f2c9bd75607afc::t_0d091012b317c6 1899
+  s_f2c9bd75607afc::t_e8ad1557d74027 1919
+  s_f2c9bd75607afc::t_7fc2d691447807 1929-1930
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_f2c9bd75607afc::t_a8b309988712ca 26
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_d6acce68f09cf7 6310
+  s_f2c9bd75607afc::t_600ab9b628719a 723
+  s_f2c9bd75607afc::t_9d3670078602c0 724-725,730
+  s_f2c9bd75607afc::t_195e96ac337d4e 6316
+  s_f2c9bd75607afc::t_585fc33657836a 6329,6332-6338
+  s_f2c9bd75607afc::t_3e138a25d7f08d 6473-6482,6490-6491,6495,6502-6505
+  s_f2c9bd75607afc::t_fc634fd3852503 6492,6516,6519-6521,6523-6524
+  s_f2c9bd75607afc::t_8dccfdc63d1b82 732
+  s_f2c9bd75607afc::t_49eb6e69b23570 6357-6366,6373-6380
+  s_f2c9bd75607afc::t_7bac928760871a 721,726-728,6381-6382,6509-6510
+  s_f2c9bd75607afc::t_f30da20babe7da 6483-6484,6512-6515
+  s_f2c9bd75607afc::t_b83f02d2fbebfe 698-699,702,704
+  s_f2c9bd75607afc::t_77271735c3d010 718-720
+  s_f2c9bd75607afc::t_05467f45432db7 89
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_d69b0f7d5be983 210
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_032476daefe574 189
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_f2c9bd75607afc::t_faf1190a2567a5 40
+  s_f2c9bd75607afc::t_055e94dab15424 485-488
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_f2c9bd75607afc::t_412eab473bf9a7 532
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_f2c9bd75607afc::t_ad342817480fe8 239,241-251
+  s_f2c9bd75607afc::t_82581d7b36d7cd 37-38
+  s_f2c9bd75607afc::t_72b70563106292 53-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a07d8dd25c0a4f3fdd78f1784f7880c98393c990",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
