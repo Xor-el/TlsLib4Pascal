@@ -34,7 +34,8 @@ uses
 type
   /// <summary>What a Java trust-manager rejection exposes: whether it is a CertificateException, a
   /// time-validity one, and whether its cause is a CertPathValidatorException with that cause's path
-  /// index and message; and whether a network-security-config domain-config governs the host.</summary>
+  /// index, message and reason name; and whether a network-security-config domain-config governs the
+  /// host.</summary>
   TJavaTrustFacts = record
     CertificateException: Boolean;
     TimeInvalid: Boolean;
@@ -49,10 +50,10 @@ type
   /// is a peer trust failure (anything else is an internal error); it is NoTrustAnchor only when its
   /// cause is a path-validation failure at index -1 whose message names the missing trust anchor
   /// and no domain-config governs the host (that config alone decides, so a missing anchor there is
-  /// final), and every other shape (pin, expiry, revocation, unrecognised) is Other. A cause with an
-  /// invalid-signature reason or a failed intermediate signature is decrypt_error, and one naming a
-  /// critical extension or a failed name-constraint subtree check is certificate_unknown; a bad
-  /// signature directly under a trust anchor reads as a missing anchor and stays unknown_ca.</summary>
+  /// final), and every other shape (pin, expiry, revocation, unrecognised) is Other. A missing anchor
+  /// outranks the rest, so a bad signature directly under a trust anchor reads as one and stays
+  /// unknown_ca. Otherwise a failed signature check is decrypt_error, and an unrecognised critical
+  /// extension or a name constraint failure is certificate_unknown.</summary>
   TJavaTrustClassifier = class sealed(TObject)
   public
     class procedure Classify(const AFacts: TJavaTrustFacts; out AAlert: TTlsAlertDescription;
@@ -232,22 +233,22 @@ begin
     Exit;
   end;
   LMessage := LowerCase(AFacts.CauseMessage);
-  if AFacts.PathValidatorCause and ((AFacts.CauseReason = 'INVALID_SIGNATURE') or
-    (Pos('signature check failed', LMessage) > 0)) then
-  begin
-    AAlert := TTlsAlertDescription.DecryptError;
-    Exit;
-  end;
-  if AFacts.PathValidatorCause and ((AFacts.CauseReason = 'UNRECOGNIZED_CRIT_EXT') or
-    (Pos('critical extension', LMessage) > 0) or (Pos('subtree check', LMessage) > 0)) then
-  begin
-    AAlert := TTlsAlertDescription.CertificateUnknown;
-    Exit;
-  end;
   AAlert := TTlsAlertDescription.UnknownCa;
   if AFacts.PathValidatorCause and (AFacts.CauseIndex = -1) and
     (Pos('trust anchor', LMessage) > 0) and (not AFacts.DomainScoped) then
+  begin
     AFailure := TPlatformChainFailure.NoTrustAnchor;
+    Exit;
+  end;
+  if not AFacts.PathValidatorCause then
+    Exit;
+  if (AFacts.CauseReason = 'INVALID_SIGNATURE') or
+    (Pos('signature check failed', LMessage) > 0) or
+    (Pos('could not validate certificate signature', LMessage) > 0) then
+    AAlert := TTlsAlertDescription.DecryptError
+  else if (AFacts.CauseReason = 'UNRECOGNIZED_CRIT_EXT') or (AFacts.CauseReason = 'INVALID_NAME') or
+    (Pos('critical extension', LMessage) > 0) or (Pos('subtree check', LMessage) > 0) then
+    AAlert := TTlsAlertDescription.CertificateUnknown;
 end;
 
 { TAndroidTrustApi }

@@ -24,6 +24,7 @@ uses
   MockPkixProvider,
   MockSink,
   MockPlatformChainEngine,
+  ChainFailureAlertTestBase,
   MockVerifyHooks,
   MockRecordInstaller,
   MockTransport,

@@ -207,6 +207,7 @@ uses
   MockClock in '..\src\MockClock.pas',
   MockKeyLog in '..\src\MockKeyLog.pas',
   MockPlatformChainEngine in '..\src\MockPlatformChainEngine.pas',
+  ChainFailureAlertTestBase in '..\src\ChainFailureAlertTestBase.pas',
   MockCryptoProvider in '..\src\MockCryptoProvider.pas',
   MockSystemCrypto in '..\src\MockSystemCrypto.pas',
   MockCredentialResolvers in '..\src\MockCredentialResolvers.pas',
