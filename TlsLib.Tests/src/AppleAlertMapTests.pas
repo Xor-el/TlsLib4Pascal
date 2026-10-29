@@ -39,6 +39,12 @@ uses
   TlpCertificateStrengthPolicy,
   TlpIPlatformChainEngine,
   TlpOSDelegateVerifier,
+  TlpIClock,
+  TlpITrustAnchorStore,
+  TlpTrustAnchorStore,
+  TlpNegotiationTypes,
+  MockClock,
+  TlsLibTestCertificates,
 {$ENDIF TLSLIB_MACOS}
   TlpTlsAlert,
   TlpAppleSystemTrust,
@@ -53,6 +59,7 @@ type
     procedure TestOsStatusToAlertMapping;
 {$IFDEF TLSLIB_MACOS}
     procedure TestDelegateRejectsUntrustedExpiredChain;
+    procedure TestAnchorNameConstraintsAreEnforcedByTheServerDelegate;
 {$ENDIF TLSLIB_MACOS}
   end;
 
@@ -128,6 +135,44 @@ begin
   CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName('localhost'), nil,
     LVerified, LAlert),
     'an untrusted/expired chain must be rejected by the OS delegate');
+end;
+
+procedure TTestAppleAlertMap.TestAnchorNameConstraintsAreEnforcedByTheServerDelegate;
+var
+  LRoot: TBytes;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  LRoot := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'root_cert');
+  LPolicy := Default(TOSDelegatePolicy);
+  LPolicy.ChainLimits := TCertificateChainLimits.Defaults;
+  LPolicy.Pkix := Pkix;
+  // inside the 790-day window of the Apple leaves
+  LPolicy.Clock := TMockClock.Create(1609459200000) as ITlsClock;
+  LPolicy.Posture := TRevocationPosture.Off;
+  LPolicy.Fetch := TSystemTrustFetch.CacheOnly;
+  LPolicy.Deferral := TVerdictDeferral.None;
+  LPolicy.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  LPolicy.AdvertisedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LPolicy.Anchors := TArray<TBytes>.Create(LRoot);
+  LPolicy.AnchorStore := TTrustAnchorStore.Create(LPolicy.Anchors) as ITrustAnchorStore;
+  LPolicy.CheckHostName := False;
+  LPolicy.DeadlineMs := 2000;
+  LVerifier := TOSDelegateServerVerifier.Create(
+    TAppleChainEngine.Create as IPlatformChainEngine, LPolicy) as IServerCertificateVerifier;
+  CheckTrue(LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'apple_in_scope_leaf_cert'),
+    LRoot), TServerName.DnsName('mac.corp.example'), nil, LVerified, LAlert),
+    'a leaf inside the anchor name constraints is accepted');
+  // the status trustd reports for a violation is unverifiable offline, so only the refusal is pinned
+  CheckFalse(LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'apple_out_of_scope_leaf_cert'),
+    LRoot), TServerName.DnsName('bank.example'), nil, LVerified, LAlert),
+    'a leaf outside the anchor name constraints is refused');
+  CheckTrue(LAlert in [TTlsAlertDescription.CertificateUnknown, TTlsAlertDescription.UnknownCa],
+    'alert ' + IntToStr(Ord(LAlert)));
 end;
 {$ENDIF TLSLIB_MACOS}
 

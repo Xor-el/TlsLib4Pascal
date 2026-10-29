@@ -74,6 +74,7 @@ uses
 {$IFEND}
   TlpOSSystemTrust,
   TlpSystemTrustBase,
+  TlpIPkixProvider,
   TlpIPlatformChainEngine,
   TlpOSDelegateVerifier,
   TlpOSLiveRevocation,
@@ -84,6 +85,7 @@ uses
   TlpTlsCredential,
   TlpTlsPresets,
   MockPlatformChainEngine,
+  MockPkixProvider,
   MockVerifyHooks,
   MockCertificateVerifiers,
   TlsLibTestCertificates,
@@ -157,6 +159,7 @@ type
     function OcspChain: TArray<TBytes>;
     function Ocsp(const AName: string): TBytes;
     function Ec(const AName: string): TBytes;
+    function Nc(const AName: string): TBytes;
   protected
     procedure SetUp; override;
   published
@@ -175,6 +178,10 @@ type
     procedure TestNameMismatchRejectsWrongName;
     procedure TestNameMismatchEmptyNameIsNotChecked;
     procedure TestNameMismatchNilProviderFailsClosed;
+    procedure TestNameConstraintViolationIsCertificateUnknown;
+    procedure TestNameConstraintViolationNilProviderFailsClosed;
+    procedure TestNameConstraintViolationEmptyPathFailsClosed;
+    procedure TestNameConstraintViolationProviderFailureFailsClosed;
   end;
 
   /// <summary>Platform-neutral tests for the OS delegate template over a fake platform engine: the
@@ -199,8 +206,21 @@ type
     function ResolveLiveEnginePath(const AChain, APath, AExempt: TArray<TBytes>;
       const AStrength: TCertificateStrengthPolicy; out AAlert: TTlsAlertDescription): Boolean;
     // the client form: the engine reports no anchor, AAnchors are the configured client-CA roots
-    function VerifyClientEnginePath(const AChain, APath, AAnchors: TArray<TBytes>;
-      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyClientEnginePath(const AChain, APath, AIntermediates, AAnchors,
+      ADistrusted: TArray<TBytes>; const AClock: ITlsClock; out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
+    // the live form of the client no-anchor engine, judged by the same policy
+    function ResolveClientEnginePath(const AChain, APath, AIntermediates, AAnchors,
+      ADistrusted: TArray<TBytes>; const AClock: ITlsClock;
+      out AAlert: TTlsAlertDescription): Boolean;
+    // a server delegate with the name check off over an engine that trusts APath at AOutcome
+    function VerifyNcServer(const APkix: IPkixProvider; AOutcome: TLiveRevocationOutcome;
+      const AChain, APath: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+    function ResolveNcLive(const APkix: IPkixProvider; const AChain, APath: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function Nc(const AName: string): TBytes;
+    // the certificate with a non-minimal outer length: the same certificate in another encoding
+    function Reencoded(const ACert: TBytes): TBytes;
     function OcspChain: TArray<TBytes>;
     function Result_(AOutcome: TLiveRevocationOutcome;
       const APath: TArray<TBytes>): TPlatformChainResult;
@@ -255,6 +275,26 @@ type
     procedure TestEnginePathOfAPinnedSelfSignedCaIsAccepted;
     procedure TestClientEngineReportingNoAnchorAcceptsAConfiguredSelfSignedCa;
     procedure TestClientEngineReportingNoAnchorRefusesAnUnconfiguredCa;
+    // name constraints of the anchor and of every intermediate bind the OS-built path
+    procedure TestEnginePathInsideTheAnchorNameConstraintsIsAccepted;
+    procedure TestEnginePathOutsideTheAnchorNameConstraintsIsRefused;
+    procedure TestEnginePathThroughAnOpenIntermediateStillHonoursTheAnchorConstraints;
+    procedure TestNameConstraintsAreDecidedBeforeRevocation;
+    procedure TestNameConstraintProviderFailureRefusesTheEnginePath;
+    procedure TestLiveEnginePathNameConstraintsAreEnforced;
+    procedure TestLiveNameConstraintProviderFailureRefusesTheEnginePath;
+    // a client engine that reports no anchor has the path built to the configured anchors
+    procedure TestClientEngineReportingNoAnchorGetsThePathToTheConfiguredAnchor;
+    procedure TestClientEngineReportingNoAnchorRefusesAnOutOfScopeLeaf;
+    procedure TestClientEngineReportingNoAnchorRefusesWhenNoAnchorEndsThePath;
+    procedure TestClientEngineReportingNoAnchorRefusesAWithheldIntermediateAsBadCertificate;
+    procedure TestClientEngineReportingNoAnchorRefusesAReencodedDistrustedIntermediate;
+    procedure TestClientEngineReportingNoAnchorBuildsThePathAtThePolicyClock;
+    procedure TestLiveClientEngineReportingNoAnchorGetsThePathToTheConfiguredAnchor;
+    procedure TestLiveClientEngineReportingNoAnchorRefusesAnOutOfScopeLeaf;
+    procedure TestLiveClientEngineReportingNoAnchorRefusesAReencodedDistrustedIntermediate;
+    procedure TestLiveClientEngineReportingNoAnchorRefusesAWithheldIntermediateAsBadCertificate;
+    procedure TestLiveClientEngineReportingNoAnchorBuildsThePathAtThePolicyClock;
     procedure TestEnginePathOfAPlainLeafIsAccepted;
     procedure TestEnginePathAnchorKeyBelowTheFloorIsAcceptedWhenNotFlagged;
     procedure TestEnginePathAnchorKeyBelowTheFloorIsRefusedWhenFlagged;
@@ -339,7 +379,7 @@ type
   strict private
     FEc: TStringList;
     FOcsp: TStringList;
-    FRsa: TStringList;
+    FWeak: TStringList;
     function PrivateChain: TArray<TBytes>;
     function PrivateRoot: TArray<TBytes>;
     function PublicChain: TArray<TBytes>;
@@ -433,8 +473,8 @@ type
     procedure TestClientDelegateRefusesAWeakAnchorWhenTheEngineReportsNone;
     procedure TestClientDelegateAcceptsAWeakUnreportedAnchorWithFloorsOff;
     procedure TestClientDelegateAcceptsAStrongExemptAnchorBesideAWeakOne;
-    procedure TestClientDelegateRefusesAnAnchorWithAnUndescribableKey;
-    procedure TestClientDelegateReportsAnUnparseableAnchorAsBadCertificate;
+    procedure TestServerBuildRefusesAnUndescribableClientAnchorWithFloorsOn;
+    procedure TestClientDelegateReportsAnUnparseableAnchorAsUnknownCa;
     procedure TestLiveResolverRefusesAWeakAnchorWhenTheEngineReportsNone;
     procedure TestLiveResolverAcceptsAWeakAnchorWithFloorsOff;
     procedure TestLiveResolverAcceptsAStrongExemptAnchorBesideAWeakOne;
@@ -527,9 +567,20 @@ type
     /// before any revocation fetch, so this needs no responder.</summary>
     function VerifyLive(const AAnchors: TArray<TBytes>; APosture: TRevocationPosture;
       out AAlert: TTlsAlertDescription): Boolean;
+    function Nc(const AName: string): TBytes;
+    /// <summary>The policy over the name-constrained root as the one exclusive anchor, no host
+    /// name check, and AIntermediates configured.</summary>
+    function NcPolicy(const AIntermediates: TArray<TBytes>): TOSDelegatePolicy;
+    function VerifyNcClient(const AChain, AIntermediates: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function VerifyNcServer(const AChain: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
   protected
     procedure SetUp; override;
   published
+    procedure TestDirectLeafInsideTheAnchorNameConstraintsIsAccepted;
+    procedure TestDirectLeafOutsideTheAnchorNameConstraintsIsCertificateUnknown;
+    procedure TestOpenIntermediateLeafOutsideTheAnchorNameConstraintsIsCertificateUnknown;
     procedure TestAcceptsClientChainToConfiguredAnchor;
     procedure TestRejectsClientChainToForeignAnchor;
     procedure TestInjectedClockRejectsChainOutsideValidity;
@@ -587,6 +638,7 @@ type
     procedure TestExpiryPolicyErrorBesideMissingAnchorKeepsItsAlert;
     procedure TestNameMismatchBesideMissingAnchorKeepsItsAlert;
     procedure TestDistrustOrBadSignatureIsFinal;
+    procedure TestChainBitsDecideTheAlert;
     procedure TestZeroPolicyErrorIsTheOsVerdict;
     procedure TestRevocationOutcomesNeedACleanChain;
     procedure TestPolicyErrorMapping;
@@ -817,6 +869,11 @@ begin
   Result := DecodeHex(FEc.Values[AName]);
 end;
 
+function TTestDelegatePostChecks.Nc(const AName: string): TBytes;
+begin
+  Result := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
+end;
+
 function TTestDelegatePostChecks.OcspChain: TArray<TBytes>;
 begin
   // leaf first, then its issuer (needed to authenticate the staple)
@@ -1006,6 +1063,57 @@ begin
     'the fail-closed alert is bad_certificate');
 end;
 
+procedure TTestDelegatePostChecks.TestNameConstraintViolationIsCertificateUnknown;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TDelegatePostChecks.RejectNameConstraintViolation(Pkix,
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
+    'a leaf inside the anchor constraints is not refused');
+  CheckTrue(TDelegatePostChecks.RejectNameConstraintViolation(Pkix,
+    TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf'), Nc('root')), LAlert),
+    'a leaf outside them is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+end;
+
+procedure TTestDelegatePostChecks.TestNameConstraintViolationNilProviderFailsClosed;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TDelegatePostChecks.RejectNameConstraintViolation(nil,
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
+    'a nil provider cannot vouch for the path');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+    'the fail-closed alert is internal_error');
+end;
+
+procedure TTestDelegatePostChecks.TestNameConstraintViolationEmptyPathFailsClosed;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TDelegatePostChecks.RejectNameConstraintViolation(Pkix, nil, LAlert),
+    'an empty path is refused');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+    'the fail-closed alert is internal_error');
+end;
+
+procedure TTestDelegatePostChecks.TestNameConstraintViolationProviderFailureFailsClosed;
+var
+  LSpy: TMockPkixProvider;
+  LSpyRef: IPkixProvider;
+  LAlert: TTlsAlertDescription;
+begin
+  LSpy := TMockPkixProvider.Create(Pkix);
+  LSpyRef := LSpy as IPkixProvider;
+  LSpy.PathValidatorSpy.NameConstraintsRaise := True;
+  CheckTrue(TDelegatePostChecks.RejectNameConstraintViolation(LSpyRef,
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
+    'a provider that raises never admits the path');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+    'the fail-closed alert is internal_error');
+end;
+
 { TFilterRootsProbe }
 
 function TFilterRootsProbe.HarvestRoots: TArray<TBytes>;
@@ -1113,22 +1221,127 @@ begin
   end;
 end;
 
-function TTestOSDelegateTemplate.VerifyClientEnginePath(const AChain, APath,
-  AAnchors: TArray<TBytes>; out AVerified: TVerifiedChain;
+function TTestOSDelegateTemplate.VerifyClientEnginePath(const AChain, APath, AIntermediates,
+  AAnchors, ADistrusted: TArray<TBytes>; const AClock: ITlsClock; out AVerified: TVerifiedChain;
   out AAlert: TTlsAlertDescription): Boolean;
 var
   LEngine: IPlatformChainEngine;
   LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
   LVerifier: IClientCertificateVerifier;
 begin
   LResult := Default(TPlatformChainResult);
   LResult.Outcome := TLiveRevocationOutcome.Indeterminate;
   LResult.Path := APath;
   LEngine := TMockPlatformChainEngine.Create([], True, LResult, TTlsAlertDescription.BadCertificate);
-  LVerifier := TOSDelegateClientVerifier.Create(LEngine,
-    Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, AAnchors))
-    as IClientCertificateVerifier;
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None,
+    AAnchors);
+  LPolicy.Clock := AClock;
+  LPolicy.CheckHostName := False;
+  LPolicy.Intermediates := AIntermediates;
+  LPolicy.Distrusted := ADistrusted;
+  LVerifier := TOSDelegateClientVerifier.Create(LEngine, LPolicy) as IClientCertificateVerifier;
   Result := LVerifier.VerifyClientCertificate(AChain, AVerified, AAlert);
+end;
+
+function TTestOSDelegateTemplate.ResolveClientEnginePath(const AChain, APath, AIntermediates,
+  AAnchors, ADistrusted: TArray<TBytes>; const AClock: ITlsClock;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Good;
+  LResult.Path := APath;
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True, LResult,
+    TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.Live,
+    TVerdictDeferral.LiveRevocation, AAnchors);
+  LPolicy.Clock := AClock;
+  LPolicy.Intermediates := AIntermediates;
+  LPolicy.Distrusted := ADistrusted;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Client, LPolicy, nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Client;
+    LContext.Chain := AChain;
+    Result := LResolver.ResolveVerdict(LContext, AAlert);
+  finally
+    LResolver.Free;
+  end;
+end;
+
+function TTestOSDelegateTemplate.VerifyNcServer(const APkix: IPkixProvider;
+  AOutcome: TLiveRevocationOutcome; const AChain, APath: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := AOutcome;
+  LResult.Path := APath;
+  LResult.PolicyExempt := TArray<TBytes>.Create(APath[System.High(APath)]);
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], True,
+    LResult, TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None,
+    nil);
+  LPolicy.Pkix := APkix;
+  // the fixture leaves carry names of their own, so only the constraints are under test
+  LPolicy.CheckHostName := False;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName('localhost'), nil,
+    LVerified, AAlert);
+end;
+
+function TTestOSDelegateTemplate.ResolveNcLive(const APkix: IPkixProvider;
+  const AChain, APath: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Good;
+  LResult.Path := APath;
+  LResult.PolicyExempt := TArray<TBytes>.Create(APath[System.High(APath)]);
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True, LResult,
+    TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.Live,
+    TVerdictDeferral.LiveRevocation, nil);
+  LPolicy.Pkix := APkix;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Server;
+    LContext.Chain := AChain;
+    LContext.HostName := 'localhost';
+    Result := LResolver.ResolveVerdict(LContext, AAlert);
+  finally
+    LResolver.Free;
+  end;
+end;
+
+function TTestOSDelegateTemplate.Nc(const AName: string): TBytes;
+begin
+  Result := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
+end;
+
+function TTestOSDelegateTemplate.Reencoded(const ACert: TBytes): TBytes;
+begin
+  // 30 82 hh ll -> 30 83 00 hh ll: the outer SEQUENCE is not signed, so a peer can re-encode it
+  CheckEquals($30, ACert[0], 'the certificate is a SEQUENCE');
+  CheckEquals($82, ACert[1], 'the outer length is the two-byte form');
+  Result := ConcatBytes(DecodeHex('308300'), System.Copy(ACert, 2, System.Length(ACert) - 2));
 end;
 
 function TTestOSDelegateTemplate.OcspChain: TArray<TBytes>;
@@ -1170,6 +1383,8 @@ begin
   // the delegate matches the leaf SANs itself (SAN-only) even for a DnsIdentity engine, so the
   // templates use the fixture leaf's real identity (SAN dNSName = localhost)
   Result.Anchors := AAnchors;
+  if System.Length(AAnchors) > 0 then
+    Result.AnchorStore := TTrustAnchorStore.Create(AAnchors) as ITrustAnchorStore;
 end;
 
 procedure TTestOSDelegateTemplate.TestRequestShapingRevocationLevels;
@@ -1328,6 +1543,8 @@ begin
   CheckEquals(1, System.Length(
     TOSDelegatePolicy.FromClientContext(LClient, TSystemTrustFetch.CacheOnly).Distrusted),
     'the client policy carries the client-CA store''s distrust list');
+  CheckTrue(TOSDelegatePolicy.FromClientContext(LClient, TSystemTrustFetch.CacheOnly).AnchorStore =
+    LClient.TrustStore, 'and the store itself for the path builder');
 end;
 
 function TTestOSDelegateTemplate.ClientVerify(const AChain, AIntermediates: TArray<TBytes>;
@@ -2196,8 +2413,9 @@ var
 begin
   LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(LSelfCa),
-    TArray<TBytes>.Create(LSelfCa), TArray<TBytes>.Create(LSelfCa), LVerified, LAlert),
-    'a leaf equal to a configured anchor is admitted though the engine named no anchor');
+    TArray<TBytes>.Create(LSelfCa), nil, TArray<TBytes>.Create(LSelfCa), nil, FClock, LVerified,
+    LAlert), 'a leaf equal to a configured anchor is admitted though the engine named no anchor');
+  CheckEquals(1, System.Length(LVerified.Path), 'the path is the anchor alone');
 end;
 
 procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorRefusesAnUnconfiguredCa;
@@ -2208,9 +2426,298 @@ var
 begin
   LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(LSelfCa),
-    TArray<TBytes>.Create(LSelfCa), nil, LVerified, LAlert),
+    TArray<TBytes>.Create(LSelfCa), nil, nil, nil, FClock, LVerified, LAlert),
     'the same CA leaf is refused when it is not a configured anchor');
-  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'no configured anchor can end the path');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathInsideTheAnchorNameConstraintsIsAccepted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(VerifyNcServer(Pkix, TLiveRevocationOutcome.Good,
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
+    'a leaf inside the anchor constraints is accepted');
+  CheckTrue(VerifyNcServer(Pkix, TLiveRevocationOutcome.Good,
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('inter_open'), Nc('root')), LAlert),
+    'so is one through an unconstrained intermediate');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathOutsideTheAnchorNameConstraintsIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyNcServer(Pkix, TLiveRevocationOutcome.Good,
+    TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf'), Nc('root')), LAlert),
+    'a leaf outside the anchor constraints is refused though the engine trusted it');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+end;
+
+procedure TTestOSDelegateTemplate.TestEnginePathThroughAnOpenIntermediateStillHonoursTheAnchorConstraints;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyNcServer(Pkix, TLiveRevocationOutcome.Good,
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open'), Nc('root')), LAlert),
+    'only the anchor permitted subtree refuses this leaf');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the permitted-subtree alert is certificate_unknown');
+  CheckFalse(VerifyNcServer(Pkix, TLiveRevocationOutcome.Good,
+    TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('inter_open'), Nc('root')), LAlert),
+    'a leaf in an excluded subtree is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the excluded-subtree alert is certificate_unknown');
+end;
+
+procedure TTestOSDelegateTemplate.TestNameConstraintsAreDecidedBeforeRevocation;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyNcServer(Pkix, TLiveRevocationOutcome.Revoked,
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
+    'an in-scope leaf the engine found revoked is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
+    'the control reports the revocation');
+  CheckFalse(VerifyNcServer(Pkix, TLiveRevocationOutcome.Revoked,
+    TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf'), Nc('root')), LAlert),
+    'an out-of-scope leaf the engine found revoked is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the constraint violation is reported before the revocation');
+end;
+
+procedure TTestOSDelegateTemplate.TestNameConstraintProviderFailureRefusesTheEnginePath;
+var
+  LSpy: TMockPkixProvider;
+  LSpyRef: IPkixProvider;
+  LAlert: TTlsAlertDescription;
+begin
+  LSpy := TMockPkixProvider.Create(Pkix);
+  LSpyRef := LSpy as IPkixProvider;
+  LSpy.PathValidatorSpy.NameConstraintsRaise := True;
+  CheckFalse(VerifyNcServer(LSpyRef, TLiveRevocationOutcome.Good,
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
+    'a provider that raises never admits the path');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert), 'the alert is internal_error');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveEnginePathNameConstraintsAreEnforced;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ResolveNcLive(Pkix, TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
+    'a leaf inside the anchor constraints is accepted live');
+  CheckFalse(ResolveNcLive(Pkix, TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf'), Nc('root')), LAlert),
+    'a leaf outside them is refused live');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+  CheckFalse(ResolveNcLive(Pkix,
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open'), Nc('root')), LAlert),
+    'only the anchor permitted subtree refuses this leaf live');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveNameConstraintProviderFailureRefusesTheEnginePath;
+var
+  LSpy: TMockPkixProvider;
+  LSpyRef: IPkixProvider;
+  LAlert: TTlsAlertDescription;
+begin
+  LSpy := TMockPkixProvider.Create(Pkix);
+  LSpyRef := LSpy as IPkixProvider;
+  LSpy.PathValidatorSpy.NameConstraintsRaise := True;
+  CheckFalse(ResolveNcLive(LSpyRef, TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
+    'a provider that raises never admits the live path');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert), 'the alert is internal_error');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorGetsThePathToTheConfiguredAnchor;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('root')), nil, FClock, LVerified, LAlert),
+    'a leaf the configured intermediate links to the anchor is accepted');
+  CheckEquals(3, System.Length(LVerified.Path), 'the built path replaces the engine leaf');
+  CheckTrue(TArrayUtilities.AreEqual(Nc('root'), LVerified.Path[2]), 'it ends at the anchor');
+  CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('in_scope_leaf')), TArray<TBytes>.Create(Nc('inter')),
+    TArray<TBytes>.Create(Nc('root')), nil, FClock, LVerified, LAlert),
+    'a leaf inside both the anchor and the intermediate constraints is accepted');
+  CheckEquals(3, System.Length(LVerified.Path), 'through the constrained intermediate');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorRefusesAnOutOfScopeLeaf;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('root')), nil, FClock, LVerified, LAlert),
+    'only the anchor permitted subtree refuses this leaf');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+  CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
+    nil, FClock, LVerified, LAlert), 'a leaf under the anchor outside its subtree is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorRefusesWhenNoAnchorEndsThePath;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')),
+    nil, FClock, LVerified, LAlert), 'the configured anchor is not the leaf''s issuer line');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorRefusesAWithheldIntermediateAsBadCertificate;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
+    FClock, LVerified, LAlert), 'control: without the intermediate no path builds');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'nothing was withheld, so it is a genuine unknown CA');
+  CheckFalse(VerifyClientEnginePath(
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
+    TArray<TBytes>.Create(Nc('inter_open')), FClock, LVerified, LAlert),
+    'a distrusted intermediate is withheld from the path builder');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'built-in parity once a certificate was withheld');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorRefusesAReencodedDistrustedIntermediate;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(VerifyClientEnginePath(
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('inter_open'))),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
+    FClock, LVerified, LAlert), 'control: the re-encoded chain verifies when nothing is distrusted');
+  CheckFalse(VerifyClientEnginePath(
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('inter_open'))),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
+    TArray<TBytes>.Create(Nc('inter_open')), FClock, LVerified, LAlert),
+    'the byte filter misses the re-encoded copy, so the built path is checked');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the alert is bad_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorBuildsThePathAtThePolicyClock;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
+    TMockClock.Create(1559347200000) as ITlsClock, LVerified, LAlert),
+    'a clock before the certificates are valid refuses the path');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+  CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
+    TMockClock.Create(1609459200000) as ITlsClock, LVerified, LAlert),
+    'control: a clock inside the validity window accepts it');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveClientEngineReportingNoAnchorGetsThePathToTheConfiguredAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ResolveClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('root')), nil, FClock, LAlert),
+    'a leaf the configured intermediate links to the anchor is accepted live');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveClientEngineReportingNoAnchorRefusesAnOutOfScopeLeaf;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ResolveClientEnginePath(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')),
+    TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')), TArray<TBytes>.Create(Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('root')), nil, FClock, LAlert),
+    'only the anchor permitted subtree refuses this leaf live');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveClientEngineReportingNoAnchorRefusesAReencodedDistrustedIntermediate;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ResolveClientEnginePath(
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('inter_open'))),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
+    FClock, LAlert), 'control: the re-encoded chain verifies when nothing is distrusted');
+  CheckFalse(ResolveClientEnginePath(
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Reencoded(Nc('inter_open'))),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
+    TArray<TBytes>.Create(Nc('inter_open')), FClock, LAlert),
+    'the byte filter misses the re-encoded copy, so the built path is checked live');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the alert is bad_certificate');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveClientEngineReportingNoAnchorRefusesAWithheldIntermediateAsBadCertificate;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ResolveClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
+    FClock, LAlert), 'control: without the intermediate no path builds live');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'nothing was withheld, so it is a genuine unknown CA');
+  CheckFalse(ResolveClientEnginePath(
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf'), Nc('inter_open')),
+    TArray<TBytes>.Create(Nc('open_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')),
+    TArray<TBytes>.Create(Nc('inter_open')), FClock, LAlert),
+    'a distrusted intermediate is withheld from the live path builder');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'built-in parity once a certificate was withheld');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveClientEngineReportingNoAnchorBuildsThePathAtThePolicyClock;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(ResolveClientEnginePath(TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
+    TMockClock.Create(1559347200000) as ITlsClock, LAlert),
+    'a clock before the certificates are valid refuses the live path');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+  CheckTrue(ResolveClientEnginePath(TArray<TBytes>.Create(Nc('direct_in_scope_leaf')),
+    TArray<TBytes>.Create(Nc('direct_in_scope_leaf')), nil, TArray<TBytes>.Create(Nc('root')), nil,
+    TMockClock.Create(1609459200000) as ITlsClock, LAlert),
+    'control: a clock inside the validity window accepts it live');
 end;
 
 procedure TTestOSDelegateTemplate.TestEnginePathOfAPlainLeafIsAccepted;
@@ -3167,17 +3674,17 @@ begin
   inherited SetUp;
   FEc := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
   FOcsp := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
-  FRsa := Own<TStringList>(LoadVectorFields('Certs/Rsa2048Chain.txt'));
+  FWeak := Own<TStringList>(LoadVectorFields('Certs/WeakAnchorClientChain.txt'));
 end;
 
 function TTestDelegateHostRootsAlone.WeakRoot: TArray<TBytes>;
 begin
-  Result := TArray<TBytes>.Create(DecodeHex(FRsa.Values['root_cert']));
+  Result := TArray<TBytes>.Create(DecodeHex(FWeak.Values['root_cert']));
 end;
 
 function TTestDelegateHostRootsAlone.WeakRootChain: TArray<TBytes>;
 begin
-  Result := TArray<TBytes>.Create(DecodeHex(FEc.Values['leaf_cert']), WeakRoot[0]);
+  Result := TArray<TBytes>.Create(DecodeHex(FWeak.Values['leaf_cert']), WeakRoot[0]);
 end;
 
 function TTestDelegateHostRootsAlone.ClientContext(const AAnchors: TArray<TBytes>;
@@ -3195,7 +3702,7 @@ begin
   Result.StrengthPolicy.AnchorKeyFloors := AAnchorFloors;
   Result.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
     TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
-    TSignatureSchemes.EcdsaSecp521r1Sha512);
+    TSignatureSchemes.EcdsaSecp521r1Sha512, TSignatureSchemes.RsaPkcs1Sha256);
 end;
 
 function TTestDelegateHostRootsAlone.VerifyClient(const AEngine: IPlatformChainEngine;
@@ -4041,6 +4548,7 @@ begin
     TTrustAnchorStore.Create(PrivateRoot, PublicRoot) as ITrustAnchorStore).Build).Build;
   LPolicy := TOSDelegatePolicy.FromServerConfig(LConfig);
   CheckEquals(1, System.Length(LPolicy.Anchors), 'the client-CA roots are the exclusive root');
+  CheckTrue(LPolicy.AnchorStore = LConfig.TrustStore, 'the client-CA store is the path builder''s');
   CheckEquals(1, System.Length(LPolicy.Distrusted), 'its distrust set is carried');
   CheckFalse(LPolicy.CheckHostName, 'a client certificate has no name to match');
 end;
@@ -4184,7 +4692,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(VerifyClient(NoAnchorEngine, WeakRoot, WeakRootChain, True, LAlert),
-    'the configured anchors are key-checked when the walk never sees one');
+    'the anchor the delegate built the path to is held to the floors');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'a weak anchor key is unsupported_certificate');
 end;
@@ -4203,28 +4711,24 @@ var
 begin
   CheckTrue(VerifyClient(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot)
     as IPlatformChainEngine, TArray<TBytes>.Create(PrivateRoot[0], WeakRoot[0]), PrivateChain,
-    True, LAlert), 'a reported exempt anchor means the configured anchors are not key-checked');
+    True, LAlert), 'a reported exempt anchor is the only one held to the key floors');
 end;
 
-procedure TTestDelegateHostRootsAlone.TestClientDelegateRefusesAnAnchorWithAnUndescribableKey;
-var
-  LAlert: TTlsAlertDescription;
+procedure TTestDelegateHostRootsAlone.TestServerBuildRefusesAnUndescribableClientAnchorWithFloorsOn;
 begin
-  CheckFalse(VerifyClient(NoAnchorEngine, TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert')), WeakRootChain, True, LAlert),
-    'a DSA anchor key has no floor to meet');
-  CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
-    'an anchor key that cannot be described is unsupported_certificate');
+  CheckTrue(Pos('AnchorKeyFloors', ServerBuildMessage(True, TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert')))) > 0,
+    'a DSA client-CA anchor has no floor to meet');
 end;
 
-procedure TTestDelegateHostRootsAlone.TestClientDelegateReportsAnUnparseableAnchorAsBadCertificate;
+procedure TTestDelegateHostRootsAlone.TestClientDelegateReportsAnUnparseableAnchorAsUnknownCa;
 var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(VerifyClient(NoAnchorEngine, TArray<TBytes>.Create(TBytes.Create($30, $03, $02, $01,
     $00)), WeakRootChain, True, LAlert), 'an anchor that does not parse fails closed');
-  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
-    'a parse failure stays bad_certificate');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'no path reaches an anchor that does not parse');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestLiveResolverRefusesAWeakAnchorWhenTheEngineReportsNone;
@@ -4232,7 +4736,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckFalse(ResolveClient(NoAnchorEngine, WeakRoot, WeakRootChain, True, LAlert),
-    'the live pass key-checks the configured anchors when the walk never sees one');
+    'the live pass holds the anchor of the path it built to the floors');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'a weak anchor key is unsupported_certificate');
 end;
@@ -4251,7 +4755,7 @@ var
 begin
   CheckTrue(ResolveClient(TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, PublicRoot)
     as IPlatformChainEngine, TArray<TBytes>.Create(PrivateRoot[0], WeakRoot[0]), PrivateChain,
-    True, LAlert), 'a reported exempt anchor means the configured anchors are not key-checked');
+    True, LAlert), 'a reported exempt anchor is the only one held to the key floors');
 end;
 
 procedure TTestDelegateHostRootsAlone.TestOsAndHostRootsRefusesANonUnionEngineWhateverTheDistrust;
@@ -5032,6 +5536,94 @@ begin
     TCertificateStrengthPolicy.Defaults, Advertised, AAlert);
 end;
 
+function TTestWindowsClientDelegate.Nc(const AName: string): TBytes;
+begin
+  Result := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
+end;
+
+function TTestWindowsClientDelegate.NcPolicy(const AIntermediates: TArray<TBytes>): TOSDelegatePolicy;
+begin
+  Result := MakePolicy(TArray<TBytes>.Create(Nc('root')), TRevocationPosture.Off,
+    TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, TSystemClock.Create as ITlsClock,
+    TCertificateStrengthPolicy.Defaults, Advertised);
+  Result.AnchorStore := TTrustAnchorStore.Create(Result.Anchors) as ITrustAnchorStore;
+  Result.CheckHostName := False;
+  Result.Intermediates := AIntermediates;
+end;
+
+function TTestWindowsClientDelegate.VerifyNcClient(const AChain, AIntermediates: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LVerifier := TOSDelegateClientVerifier.Create(
+    TWindowsChainEngine.Create as IPlatformChainEngine, NcPolicy(AIntermediates))
+    as IClientCertificateVerifier;
+  Result := LVerifier.VerifyClientCertificate(AChain, LVerified, AAlert);
+end;
+
+function TTestWindowsClientDelegate.VerifyNcServer(const AChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LVerifier := TOSDelegateServerVerifier.Create(
+    TWindowsChainEngine.Create as IPlatformChainEngine, NcPolicy(nil))
+    as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(AChain, Default(TServerName), nil, LVerified, AAlert);
+end;
+
+procedure TTestWindowsClientDelegate.TestDirectLeafInsideTheAnchorNameConstraintsIsAccepted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(VerifyNcClient(TArray<TBytes>.Create(Nc('direct_in_scope_leaf')), nil, LAlert),
+    'a client leaf inside the anchor name constraints is accepted');
+  CheckTrue(VerifyNcServer(TArray<TBytes>.Create(Nc('direct_in_scope_leaf')), LAlert),
+    'a server leaf inside the anchor name constraints is accepted');
+end;
+
+procedure TTestWindowsClientDelegate.TestDirectLeafOutsideTheAnchorNameConstraintsIsCertificateUnknown;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(VerifyNcClient(TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf')), nil, LAlert),
+    'a client leaf outside the anchor name constraints is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the client alert is certificate_unknown');
+  CheckFalse(VerifyNcServer(TArray<TBytes>.Create(Nc('direct_out_of_scope_leaf')), LAlert),
+    'a server leaf outside the anchor name constraints is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the server alert is certificate_unknown');
+end;
+
+procedure TTestWindowsClientDelegate.TestOpenIntermediateLeafOutsideTheAnchorNameConstraintsIsCertificateUnknown;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // whether crypt32 or the library refuses it, the alert is the same
+  CheckFalse(VerifyNcClient(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf')),
+    TArray<TBytes>.Create(Nc('inter_open')), LAlert),
+    'a client leaf under an open intermediate is still held to the anchor constraints');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the client alert is certificate_unknown');
+  CheckFalse(VerifyNcServer(TArray<TBytes>.Create(Nc('open_out_of_scope_leaf'), Nc('inter_open')),
+    LAlert), 'a server leaf under an open intermediate is still held to the anchor constraints');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the server alert is certificate_unknown');
+  CheckFalse(VerifyNcClient(TArray<TBytes>.Create(Nc('excluded_leaf')),
+    TArray<TBytes>.Create(Nc('inter_open')), LAlert),
+    'a client leaf in an excluded subtree is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the client excluded-subtree alert is certificate_unknown');
+  CheckFalse(VerifyNcServer(TArray<TBytes>.Create(Nc('excluded_leaf'), Nc('inter_open')), LAlert),
+    'a server leaf in an excluded subtree is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the server excluded-subtree alert is certificate_unknown');
+end;
+
 procedure TTestWindowsClientDelegate.TestConfiguredIntermediateCompletesLeafOnlyClientChain;
 var
   LVec: TStringList;
@@ -5389,16 +5981,30 @@ end;
 const
   WtsCertEUntrustedRoot = Cardinal($800B0109);
   WtsCertEExpired = Cardinal($800B0101);
+  WtsCertEChaining = Cardinal($800B010A);
   WtsCertECnNoMatch = Cardinal($800B010F);
   WtsCertERevoked = Cardinal($800B010C);
+  WtsCertETrustCertSignature = Cardinal($80096004);
   WtsNoRevocationCheck = Cardinal($80092012);
   WtsNotTimeValid = Cardinal($00000001);
   WtsIsRevoked = Cardinal($00000004);
   WtsNotSignatureValid = Cardinal($00000008);
+  WtsNotValidForUsage = Cardinal($00000010);
   WtsUntrustedRoot = Cardinal($00000020);
   WtsRevocationUnknown = Cardinal($00000040);
+  WtsIsCyclic = Cardinal($00000080);
+  WtsInvalidExtension = Cardinal($00000100);
+  WtsInvalidPolicyConstraints = Cardinal($00000200);
+  WtsInvalidBasicConstraints = Cardinal($00000400);
+  WtsInvalidNameConstraints = Cardinal($00000800);
+  WtsNotSupportedNameConstraint = Cardinal($00001000);
+  WtsNotDefinedNameConstraint = Cardinal($00002000);
+  WtsNotPermittedNameConstraint = Cardinal($00004000);
+  WtsExcludedNameConstraint = Cardinal($00008000);
   WtsPartialChain = Cardinal($00010000);
+  WtsHasWeakSignature = Cardinal($00100000);
   WtsExplicitDistrust = Cardinal($04000000);
+  WtsNotSupportedCriticalExt = Cardinal($08000000);
 
 procedure TTestWindowsHostRoots.CheckMapping(ADwError: Cardinal;
   AExpectedAlert: TTlsAlertDescription; AExpectedFailure: TPlatformChainFailure;
@@ -5491,8 +6097,70 @@ begin
   CheckClassified(WtsNoRevocationCheck, WtsUntrustedRoot or WtsExplicitDistrust,
     TTlsAlertDescription.BadCertificate, TPlatformChainFailure.Other,
     'revocation-shaped error on a distrusted untrusted chain');
-  CheckClassified(WtsCertERevoked, WtsIsRevoked or WtsNotSignatureValid, TTlsAlertDescription.BadCertificate,
-    TPlatformChainFailure.Other, 'revoked beside a bad signature');
+  CheckClassified(WtsCertERevoked, WtsIsRevoked or WtsNotSignatureValid,
+    TTlsAlertDescription.DecryptError, TPlatformChainFailure.Other,
+    'revoked beside a bad signature');
+end;
+
+procedure TTestWindowsHostRoots.TestChainBitsDecideTheAlert;
+begin
+  CheckClassified(WtsCertECnNoMatch, WtsNotPermittedNameConstraint,
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other,
+    'a name-constraint bit beside a name mismatch');
+  CheckClassified(WtsCertECnNoMatch, WtsRevocationUnknown, TTlsAlertDescription.BadCertificate,
+    TPlatformChainFailure.Other, 'no chain bit beyond revocation leaves the dwError alert');
+  CheckClassified(WtsCertEExpired, WtsHasWeakSignature, TTlsAlertDescription.CertificateExpired,
+    TPlatformChainFailure.Other, 'a bit no row decides leaves the dwError alert');
+  CheckClassified(WtsCertETrustCertSignature, WtsNotSignatureValid,
+    TTlsAlertDescription.DecryptError, TPlatformChainFailure.Other, 'bad signature');
+  CheckClassified(WtsCertECnNoMatch, WtsNotSignatureValid, TTlsAlertDescription.DecryptError,
+    TPlatformChainFailure.Other, 'bad signature beside a neutral error');
+  CheckClassified(WtsCertEChaining, WtsPartialChain or WtsNotPermittedNameConstraint,
+    TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other,
+    'a partial chain beside a name-constraint bit defers to the dwError');
+  CheckClassified(WtsCertECnNoMatch, WtsInvalidExtension, TTlsAlertDescription.CertificateUnknown,
+    TPlatformChainFailure.Other, 'an invalid extension');
+  CheckClassified(WtsCertECnNoMatch, WtsInvalidNameConstraints,
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other,
+    'invalid name constraints');
+  CheckClassified(WtsCertECnNoMatch, WtsNotSupportedNameConstraint,
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other,
+    'an unsupported name constraint');
+  CheckClassified(WtsCertECnNoMatch, WtsNotDefinedNameConstraint,
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other,
+    'an undefined name constraint');
+  CheckClassified(WtsCertECnNoMatch, WtsExcludedNameConstraint,
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other,
+    'an excluded name constraint');
+  CheckClassified(WtsCertECnNoMatch, WtsIsCyclic, TTlsAlertDescription.UnknownCa,
+    TPlatformChainFailure.Other, 'a cyclic chain');
+  CheckClassified(WtsCertECnNoMatch, WtsInvalidPolicyConstraints, TTlsAlertDescription.UnknownCa,
+    TPlatformChainFailure.Other, 'invalid policy constraints');
+  CheckClassified(WtsCertECnNoMatch, WtsNotSignatureValid or WtsNotPermittedNameConstraint,
+    TTlsAlertDescription.DecryptError, TPlatformChainFailure.Other,
+    'a bad signature outranks a name-constraint bit');
+  CheckClassified(WtsCertECnNoMatch, WtsNotPermittedNameConstraint or WtsNotValidForUsage,
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other,
+    'a name-constraint bit outranks wrong usage');
+  CheckClassified(WtsCertECnNoMatch, WtsNotValidForUsage or WtsInvalidBasicConstraints,
+    TTlsAlertDescription.UnsupportedCertificate, TPlatformChainFailure.Other,
+    'wrong usage outranks invalid basic constraints');
+  CheckClassified(WtsCertECnNoMatch, WtsNotSignatureValid or WtsNotTimeValid,
+    TTlsAlertDescription.CertificateExpired, TPlatformChainFailure.Other,
+    'expiry beside a bad signature');
+  CheckClassified(WtsCertECnNoMatch, WtsNotSupportedCriticalExt,
+    TTlsAlertDescription.CertificateUnknown, TPlatformChainFailure.Other,
+    'an unsupported critical extension');
+  CheckClassified(WtsCertECnNoMatch, WtsNotValidForUsage,
+    TTlsAlertDescription.UnsupportedCertificate, TPlatformChainFailure.Other, 'wrong usage');
+  CheckClassified(WtsCertECnNoMatch, WtsInvalidBasicConstraints, TTlsAlertDescription.UnknownCa,
+    TPlatformChainFailure.Other, 'invalid basic constraints');
+  CheckClassified(WtsCertEUntrustedRoot, WtsUntrustedRoot or WtsNotValidForUsage or
+    WtsNotPermittedNameConstraint, TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other,
+    'a missing anchor beside other faults keeps unknown_ca');
+  CheckClassified(WtsCertEUntrustedRoot, WtsExplicitDistrust or WtsNotPermittedNameConstraint,
+    TTlsAlertDescription.UnknownCa, TPlatformChainFailure.Other,
+    'distrust beside a name-constraint bit defers to the dwError');
 end;
 
 procedure TTestWindowsHostRoots.TestZeroPolicyErrorIsTheOsVerdict;

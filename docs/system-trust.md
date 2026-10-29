@@ -376,8 +376,9 @@ every platform.
 The delegate uses the `clientAuth` EKU + the OS client-auth policy (a client certificate is never
 stapled). It is available on **Windows, macOS, iOS and Android**: Windows and Apple apply the same
 posture/clock revocation as the server delegate; the Android client delegate is an
-anchors-only KeyStore chain check with no OS revocation and no verify-date seam: revocation is
-decided by the posture alone, and the chain is validated at the platform's own time. Note it **consumes**
+anchors-only KeyStore chain check with no OS revocation: revocation is decided by the posture
+alone, the OS checks the chain at its own time, and the delegate also builds and validates the path
+at the injected clock (see the Android paragraph below). Note it **consumes**
 the anchors you pass to `TClientVerification.VerifierSource` (they are its exclusive root); `Build`
 refuses it when those anchors yield no root (it would trust nothing). The `AFetch` argument selects cache-only
 (no socket) or live revocation — see the next section.
@@ -421,9 +422,10 @@ raises `ESystemTrustUnsupportedTlsLibException` (compose the portable checker th
 The OS chain engine is not a byte-for-byte replacement for the built-in PKIX pipeline — choosing a
 delegate is choosing the OS's behaviour, which differs in a few security-relevant ways. Every delegate
 runs **one shared pipeline over a per-OS chain engine**: the OS builds and trusts the path and reports
-a revocation outcome, then the same chain-strength policy, revocation-posture decision, stapled-OCSP
-check and endpoint-identity match run over it. So the library-side post-checks below are identical on
-every platform; only the chain build/trust, the OS's own distrust inputs and its alert codes differ.
+a revocation outcome, then the same name-constraint check, chain-strength policy, revocation-posture
+decision, stapled-OCSP check and endpoint-identity match run over it. So the library-side
+post-checks below are identical on every platform; only the chain build/trust, the OS's own
+distrust inputs and its alert codes differ.
 
 **Shared by every delegate** — the same code on Windows, Apple and Android (and, unlike the built-in
 verifier, all **cache-only**: no network revocation during the handshake; the async resolver runs only
@@ -437,6 +439,15 @@ the async park instead):
   `AllowedDeprecatedHashes`; that only stops this library refusing it, so a platform engine that
   rejects SHA-1 itself still does. A whole-verifier instance you inject as the trust source is
   *not* policy-checked (you replaced the trust decision wholesale).
+- **Name constraints** are enforced in-library over the OS-built path on every delegate: the anchor's
+  own `nameConstraints` and every intermediate's, `certificate_unknown` on a violation. No platform is
+  trusted to seed the anchor's constraints. The library matcher is RFC 5280 4.2.1.10: the subject DN
+  against `directoryName`, the subject `emailAddress` against `rfc822Name` (always, where RFC 5280
+  requires it only for a certificate without a subjectAltName), and an `otherName` (UPN) by
+  exact value (RFC 5280 leaves `otherName` matching undefined), so a private PKI that relied on a
+  platform's looser matching, such as a UPN constraint applied as a suffix, now sees
+  `certificate_unknown`. A SAN-less leaf's CN is not
+  matched against `dNSName` constraints (SAN-only, as in the built-in verifier).
 - **RFC 9525 identity** is matched in-library on every delegate, SAN-only: the library checks the leaf's
   dNSName / iPAddress SANs itself rather than trust an engine's own host match, so no platform's
   deprecated subject-CN fallback is honoured. The host is still handed to a host-matching engine (for OS
@@ -460,26 +471,23 @@ the async park instead):
 |---|---|---|---|
 | **Revocation mechanism** | chain revocation flags + cache-only URL retrieval, plus the staple | `SecPolicyCreateRevocation`, network fetch disabled | none of its own — the library's staple verdict |
 | **OS distrust inputs** | the **Disallowed** store + CTLs (Anchors mode reads the Disallowed certificates only) | SecTrust settings (Anchors mode reads the Deny results only) | the platform trust store |
-| **Alert mapping** | crypt32 codes → a specific alert, else `bad_certificate` | `OSStatus` → a specific alert, else `unknown_ca` | mapped from the `X509TrustManager` exception |
-| **Injected clock** | chain validity + staple freshness | chain validity + staple freshness | staple freshness only — no verify-date seam, so the chain validates at the platform's own time (the one documented Android limitation) |
+| **Alert mapping** | chain status bits, then crypt32 codes → a specific alert, else `bad_certificate` | `OSStatus` → a specific alert, else `unknown_ca` | mapped from the `X509TrustManager` exception |
+| **Injected clock** | chain validity + staple freshness | chain validity + staple freshness | staple freshness, and chain validity on the client-certificate path; the server path has no verify-date seam, so it validates at the platform's own time (the one documented Android limitation) |
 | **Host handed to the OS** | the DNS host (an IP literal is stripped) | the DNS host (IP stripped) | the connected host as-is — the network-security-config domain key, not a name check |
 | **Issuer discovery for Hard** | discovers the issuer itself | discovers it itself | needs the peer to send its issuer (a leaf-only chain is indeterminate → Hard rejects, unless `WithLiveRevocationVerdict` defers it to the park) |
 | **A weak *and* revoked leaf** | `certificate_revoked` (revocation is folded into the OS verdict, before our policy) | `certificate_revoked` | `unsupported_certificate` (the staple is a post-check *after* our strength policy) |
 | **An uncached valid root** | installed by Windows root auto-update; may surface as `unknown_ca` only where policy disables auto-update | n/a — the OS ships its root store | n/a — the OS ships its root store |
 
 On Android the **client-certificate** path is a special case: `checkClientTrusted` reports no validated
-path, so the delegate takes the presented leaf alone as the validated path (the rest of the presented
-chain has no guaranteed order). Live-revocation issuer discovery therefore uses the configured client-CA
-candidates rather than a peer-sent intermediate, and only a leaf-key SPKI pin can match on this path.
-The chain-algorithm and key-strength floor is applied to the leaf only: a client-certificate chain's
-intermediates are validated by the platform but not held to that floor, so on this path the floor is
-lower than on the server path and in the portable pipeline. If a deployment needs it on the whole
-chain, use `TClientVerification.WebPki` over the client-CA anchors instead of the OS source, which
-selects the portable pipeline for client certificates.
+path, so the delegate builds one with the portable validator from the presented chain and the
+configured intermediates to the configured client-CA anchors (at the injected clock, the `clientAuth`
+extended key usage on the whole path, the strength floors on every certificate, the anchor exempt
+unless `AnchorKeyFloors` is set). The verdict is the OS's and the portable validator's together. CA-
+and intermediate-level pins match on this path, and live-revocation issuer discovery uses it. An
+intermediate Android fetched or cached itself must be configured, or the handshake ends `unknown_ca`.
 
-Apart from that leaf-only floor, none of these differences weaken the trust decision relative to a
-correctly-configured OS; they are behavioural *differences* to weigh when you pick Delegate over the
-portable pipeline.
+None of these differences weaken the trust decision relative to a correctly-configured OS; they are
+behavioural *differences* to weigh when you pick Delegate over the portable pipeline.
 
 ---
 
@@ -656,8 +664,8 @@ LConfig := TTlsConfigComposer.BuildClientConfig(LOptions);
 ### Writing your own platform engine
 
 An OS delegate is a generic verifier over an `IPlatformChainEngine` (unit `TlpIPlatformChainEngine`).
-The engine builds and trusts a path with the OS; the delegate adds posture, strength policy, staple,
-identity and the host-roots rule. The contract:
+The engine builds and trusts a path with the OS; the delegate adds name constraints, posture, strength
+policy, staple, identity and the host-roots rule. The contract:
 
 - `EvaluateServer` judges against the OS roots, or against `Anchors` as the exclusive root when that
   is non-empty. A rejection fills `AResult.Failure` with `NoTrustAnchor` when the only fault is that no
@@ -674,9 +682,9 @@ identity and the host-roots rule. The contract:
   (`internal_error`) before the engine is called, so it is never judged against the OS roots.
 - Every accepted server path, on every engine, is refused when it holds a certificate in the
   distrust set the source read (the OS list and the host store's).
-- `PolicyExempt` is the anchor that ends the path, or empty. When it is empty and
-  `AnchorKeyFloors` is set the delegate key-checks every configured client-CA anchor against the strength policy floors. An engine that
-  reports the whole presented chain there exempts its intermediates from the strength policy.
+- `Path` is leaf first and ends at the trust anchor; `PolicyExempt` is that anchor. A client engine
+  that reports no anchor leaves `PolicyExempt` empty, and the delegate builds the path to the
+  configured client-CA anchors with the portable validator.
 
 ---
 

@@ -20,8 +20,11 @@ uses
   TlpArrayUtilities,
   TlpTlsLibExceptions,
   TlpTlsAlert,
+  TlpPkixDomainTypes,
+  TlpDateTimeUtilities,
   TlpIPkixProvider,
   TlpIClock,
+  TlpClock,
   TlpServerName,
   TlpTrustPolicy,
   TlpCertificateLimits,
@@ -57,6 +60,8 @@ type
     ChainLimits: TCertificateChainLimits;
     AdvertisedSchemes: TArray<UInt16>;
     Anchors: TArray<TBytes>;
+    // the store Anchors come from when there is one, read by the portable path builder for a client path
+    AnchorStore: ITrustAnchorStore;
     // host roots trusted with the OS roots, server role only (see TPlatformChainRequest)
     ExtraAnchors: TArray<TBytes>;
     // the OS and host distrust sets, refused on any accepted path
@@ -86,11 +91,6 @@ type
     /// <summary>The live re-check policy for the client certificate a server verifies: the
     /// client-CA store is the exclusive root.</summary>
     class function FromServerConfig(const AConfig: ITlsServerConfig): TOSDelegatePolicy; static;
-    /// <summary>Whether the configured anchors meet the key floors: True when the strength policy
-    /// does not set AnchorKeyFloors or there are no anchors; False, with AAlert, for anchors that
-    /// fail the floors or cannot be inspected for want of a PKIX provider; AAlert is meaningful
-    /// only then.</summary>
-    function AnchorsHeldToFloors(out AAlert: TTlsAlertDescription): Boolean;
   strict private
     class function FromCommonConfig(const AConfig: ITlsCommonConfig): TOSDelegatePolicy; static;
   end;
@@ -118,17 +118,30 @@ type
     /// ever set to True: the caller initialises it.</summary>
     class function WithoutDistrusted(const ACerts, ADistrusted: TArray<TBytes>; AFirst: Int32;
       var AWithheld: Boolean): TArray<TBytes>; static;
+    /// <summary>Gives a client result whose engine reported no anchor (PolicyExempt empty) the path
+    /// the portable validator builds from the distrust-filtered AChain and AIntermediates to the
+    /// policy's AnchorStore at the policy clock (system time when nil), ending at the anchor, which
+    /// becomes the one exempt certificate (the leaf itself when it is the anchor); a result that
+    /// already carries an anchor is returned as is. False with the validator's alert when no path
+    /// builds (unknown_ca read as bad_certificate when AWithheld, the built-in rule) or when the
+    /// built path holds a distrusted certificate (bad_certificate: the built path is re-encoded, so
+    /// the byte filter alone cannot be trusted); internal_error without a provider.</summary>
+    class function AnchorClientPath(const APolicy: TOSDelegatePolicy;
+      const AChain, AIntermediates: TArray<TBytes>; AWithheld: Boolean;
+      var AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean; static;
   end;
 
   /// <summary>What every OS delegate does around its platform engine, matching each platform's order:
-  /// the platform builds and trusts the path; an engine that renders its own revocation outcome has it
-  /// decided (by the one revocation-decision table at the configured posture) before the chain-algorithm/
-  /// key-strength policy, so a chain that is both revoked and weak reports the revocation alert; an
-  /// engine that renders none runs strength first and decides revocation from the handshake staple. A
-  /// definitive stapled Revoked always wins under every posture, and an indeterminate case defers to the
-  /// async park only when a live fetch will decide it there. RFC 7633 must-staple is enforced, then the
-  /// leaf SANs are matched here (SAN-only, RFC 9525) for every engine - the platform's own host match is
-  /// never trusted to stand in for it. Fail-closed throughout.</summary>
+  /// the platform builds and trusts the path; the name constraints of its anchor and intermediates
+  /// are enforced first, as no platform is trusted to seed the anchor's own; an engine that renders
+  /// its own revocation outcome has it decided (by the one revocation-decision table at the
+  /// configured posture) before the chain-algorithm/key-strength policy, so a chain that is both
+  /// revoked and weak reports the revocation alert; an engine that renders none runs strength first
+  /// and decides revocation from the handshake staple. A definitive stapled Revoked always wins under
+  /// every posture, and an indeterminate case defers to the async park only when a live fetch will
+  /// decide it there. RFC 7633 must-staple is enforced, then the leaf SANs are matched here (SAN-only,
+  /// RFC 9525) for every engine - the platform's own host match is never trusted to stand in for it.
+  /// Fail-closed throughout.</summary>
   TOSDelegateVerifierBase = class abstract(TInterfacedObject)
   strict private
     FEngine: IPlatformChainEngine;
@@ -138,7 +151,8 @@ type
   strict protected
     function BuildRequest(const AChain: TArray<TBytes>; const AServerName: TServerName;
       const AStaple: TBytes): TPlatformChainRequest;
-    /// <summary>The shared tail after a True engine result: strength -> revocation -> identity.</summary>
+    /// <summary>The shared tail after a True engine result: name constraints -> engine revocation ->
+    /// strength -> end entity -> staple -> identity.</summary>
     function Complete(const AResult: TPlatformChainResult; const AServerName: TServerName;
       const AStaple: TBytes; out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
@@ -161,8 +175,8 @@ type
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
   end;
 
-  /// <summary>A handshake whose engine reports no exempt anchor is refused when the configured
-  /// client-CA anchors do not meet the key floors.</summary>
+  /// <summary>A handshake whose engine reports no anchor has its path built by the portable
+  /// validator to the configured client-CA anchors.</summary>
   TOSDelegateClientVerifier = class sealed(TOSDelegateVerifierBase, IClientCertificateVerifier)
   public
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
@@ -213,8 +227,10 @@ type
 
   /// <summary>The OS-native live-revocation resolver over a platform engine: re-runs the engine with
   /// network fetch on (revocation only, requiring a positive response so an indeterminate surfaces)
-  /// off the engine thread in the async park, applies the strength policy over the path it built, and
-  /// hands the tri-state outcome to the shared verdict. Bound to one certificate role. Host-owned.</summary>
+  /// off the engine thread in the async park, enforces the name constraints and applies the strength
+  /// policy over the path it built (for a client engine that reports no anchor, the path the portable
+  /// validator builds to the configured anchors), and hands the tri-state outcome to the shared
+  /// verdict. Bound to one certificate role. Host-owned.</summary>
   TOSDelegateLiveResolver = class sealed(TOSLiveRevocationResolverBase)
   strict private
     FEngine: IPlatformChainEngine;
@@ -279,6 +295,7 @@ begin
   Result.Distrusted := nil;
   if AContext.TrustStore <> nil then
   begin
+    Result.AnchorStore := AContext.TrustStore;
     Result.Anchors := AContext.TrustStore.RootCertificates;
     Result.Distrusted := AContext.TrustStore.DistrustedCertificates;
   end;
@@ -336,19 +353,10 @@ begin
   Result.CheckHostName := False;
   if AConfig.TrustStore <> nil then
   begin
+    Result.AnchorStore := AConfig.TrustStore;
     Result.Anchors := AConfig.TrustStore.RootCertificates;
     Result.Distrusted := AConfig.TrustStore.DistrustedCertificates;
   end;
-end;
-
-function TOSDelegatePolicy.AnchorsHeldToFloors(out AAlert: TTlsAlertDescription): Boolean;
-begin
-  AAlert := TTlsAlertDescription.BadCertificate;
-  if not StrengthPolicy.AnchorKeyFloors or (System.Length(Anchors) = 0) then
-    Exit(True);
-  Result := (Pkix <> nil) and
-    TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Pkix.Certificates, Anchors, StrengthPolicy,
-    AAlert);
 end;
 
 { TDelegateEvaluation }
@@ -440,6 +448,47 @@ begin
   SetLength(Result, LCount);
 end;
 
+class function TDelegateEvaluation.AnchorClientPath(const APolicy: TOSDelegatePolicy;
+  const AChain, AIntermediates: TArray<TBytes>; AWithheld: Boolean;
+  var AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LClock: ITlsClock;
+  LPath: TArray<TBytes>;
+begin
+  if System.Length(AResult.PolicyExempt) > 0 then
+    Exit(True);
+  if APolicy.Pkix = nil then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit(False);
+  end;
+  LClock := APolicy.Clock;
+  if LClock = nil then
+    LClock := TSystemClock.Create as ITlsClock;
+  LPath := AChain;
+  try
+    APolicy.Pkix.PathValidation.ValidateCertificatePath(AChain, APolicy.AnchorStore,
+      AIntermediates, TDateTimeUtilities.UnixMsToDateTime(Int64(LClock.NowUnixMillis)),
+      TCertKeyPurpose.ClientAuth, LPath);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      AAlert := E.AlertDescription;
+      if AWithheld and (AAlert = TTlsAlertDescription.UnknownCa) then
+        AAlert := TTlsAlertDescription.BadCertificate;
+      Exit(False);
+    end;
+  end;
+  if PathIsDistrusted(LPath, APolicy.Distrusted) then
+  begin
+    AAlert := TTlsAlertDescription.BadCertificate;
+    Exit(False);
+  end;
+  AResult.Path := LPath;
+  AResult.PolicyExempt := TArray<TBytes>.Create(LPath[System.High(LPath)]);
+  Result := True;
+end;
+
 { TOSDelegateVerifierBase }
 
 constructor TOSDelegateVerifierBase.Create(const AEngine: IPlatformChainEngine;
@@ -505,6 +554,9 @@ begin
     AAlert := TTlsAlertDescription.InternalError;
     Exit(False);
   end;
+  // path validity (name constraints) precedes revocation and strength, as in the built-in verifier
+  if TDelegatePostChecks.RejectNameConstraintViolation(FPolicy.Pkix, AResult.Path, AAlert) then
+    Exit(False);
   // an engine that renders its own revocation outcome (the OS folds revocation into its chain
   // verdict) decides it before the strength policy, so a chain that is both revoked and weak still
   // reports the revocation alert; an engine that renders none defers revocation to the staple below
@@ -515,7 +567,7 @@ begin
   if not TChainAlgorithmPolicy.Check(FPolicy.Pkix.Certificates, AResult.Path,
     AResult.PolicyExempt, FPolicy.StrengthPolicy, FPolicy.AdvertisedSchemes, AAlert) then
     Exit(False);
-  // an engine that reports no anchor (Android client) still has the configured ones to match
+  // a CA certificate is admitted as the end entity only when it is itself one of these roots
   LRoots := TArrayUtilities.Concat<TBytes>(AResult.PolicyExempt, FPolicy.Anchors);
   LRoots := TArrayUtilities.Concat<TBytes>(LRoots, FPolicy.ExtraAnchors);
   if not TEndEntityPolicy.Admits(FPolicy.Pkix.Certificates, AResult.Path, LRoots, AAlert) then
@@ -628,8 +680,8 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(False);
   end;
-  // an engine that reports no anchor never shows the walk one, so the configured ones are keyed here
-  if (System.Length(LResult.PolicyExempt) = 0) and not Policy.AnchorsHeldToFloors(AAlert) then
+  if not TDelegateEvaluation.AnchorClientPath(Policy, LRequest.Chain, LRequest.Intermediates,
+    LWithheld, LResult, AAlert) then
     Exit(False);
   if not Complete(LResult, LNoName, nil, AVerified, AAlert) then
     Exit(False);
@@ -743,7 +795,6 @@ var
   LRequest: TPlatformChainRequest;
   LResult: TPlatformChainResult;
   LTrusted, LWithheld: Boolean;
-  LFloorAlert: TTlsAlertDescription;
 begin
   LRequest := Default(TPlatformChainRequest);
   LRequest.Chain := AChain;
@@ -783,15 +834,14 @@ begin
       ARejectAlert := TTlsAlertDescription.BadCertificate;
       LTrusted := False;
     end;
-    // same gate as the inline pass: an engine reporting no anchor never shows the walk one
-    if LTrusted and (System.Length(LResult.PolicyExempt) = 0) and
-      not FPolicy.AnchorsHeldToFloors(LFloorAlert) then
-    begin
-      ARejectAlert := LFloorAlert;
+    if LTrusted and not TDelegateEvaluation.AnchorClientPath(FPolicy, LRequest.Chain,
+      LRequest.Intermediates, LWithheld, LResult, ARejectAlert) then
       LTrusted := False;
-    end;
   end;
   if not LTrusted then
+    Exit(False);
+  if TDelegatePostChecks.RejectNameConstraintViolation(FPolicy.Pkix, LResult.Path,
+    ARejectAlert) then
     Exit(False);
   // apply the strength policy over the live-built path when the platform trusted revocation too
   if LResult.Outcome = TLiveRevocationOutcome.Good then

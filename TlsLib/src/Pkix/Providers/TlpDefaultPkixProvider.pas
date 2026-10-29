@@ -54,6 +54,8 @@ uses
   ClpPkixParameters,
   ClpPkixCertPathValidator,
   ClpPkixCertPathBuilder,
+  ClpPkixNameConstraintValidator,
+  ClpRfc3280CertPathUtilities,
   ClpPkixBuilderParameters,
   ClpX509StoreSelectors,
   ClpIX509StoreSelectors,
@@ -193,6 +195,7 @@ type
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
       var AEffectiveChain: TArray<TBytes>);
+    function NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
   end;
 
   // IRevocationChecker - stapled-OCSP verification and the live OCSP/CRL primitives.
@@ -1075,6 +1078,47 @@ begin
   EnforcePurpose(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
   EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert,
     ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors, LEntry.Ders));
+end;
+
+function TCertificatePathValidator.NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
+var
+  LParser: IX509CertificateParser;
+  LCerts: TArray<IX509Certificate>;
+  LAnchor: ITrustAnchor;
+  LPath: IPkixCertPath;
+  LNameConstraints: IPkixNameConstraintValidator;
+  LI: Int32;
+begin
+  Result := False;
+  if System.Length(APath) = 0 then
+    Exit;
+  try
+    LParser := TX509CertificateParser.Create;
+    SetLength(LCerts, System.Length(APath));
+    for LI := 0 to High(LCerts) do
+    begin
+      LCerts[LI] := LParser.ReadCertificate(APath[LI]);
+      if LCerts[LI] = nil then
+        Exit;
+    end;
+    if System.Length(LCerts) = 1 then
+      Exit(True);
+    LAnchor := TTrustAnchor.Create(LCerts[High(LCerts)], nil);
+    // the anchor is the seed (RFC 5280 6.1.1 (d)), so the path holds the certificates below it
+    LPath := TPkixCertPath.Create(System.Copy(LCerts, 0, High(LCerts))) as IPkixCertPath;
+    LNameConstraints := TPkixNameConstraintValidator.Create as IPkixNameConstraintValidator;
+    TRfc3280CertPathUtilities.PrepareAnchorNameConstraints(LAnchor, LNameConstraints);
+    for LI := High(LCerts) - 1 downto 0 do
+    begin
+      TRfc3280CertPathUtilities.ProcessCertBC(LPath, LI, LNameConstraints, False);
+      if LI <> 0 then
+        TRfc3280CertPathUtilities.PrepareNextCertG(LPath, LI, LNameConstraints);
+    end;
+    Result := True;
+  except
+    on E: ECryptoLibException do
+      Result := False;
+  end;
 end;
 
 class function TRevocationChecker.SignatureIsWeak(

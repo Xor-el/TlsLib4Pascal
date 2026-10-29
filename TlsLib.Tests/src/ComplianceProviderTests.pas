@@ -267,6 +267,8 @@ type
     function Provider(AEnforcement: TComplianceEnforcement): IPkixProvider;
     function PathAlert(AEnforcement: TComplianceEnforcement; const AAnchor: TBytes;
       out AFailed: Boolean): TTlsAlertDescription;
+    // checks the provider's name-constraint answers over the name-constrained fixture root
+    procedure CheckNameConstraintAnswers(AEnforcement: TComplianceEnforcement);
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -275,6 +277,8 @@ type
     procedure TestStrictPathValidationDoesNotReachBase;
     procedure TestRelaxedPathValidationForwards;
     procedure TestRelaxedPathValidationPropagatesBaseFailure;
+    procedure TestStrictNameConstraintsAdmitAnswersAsTheBaseDoes;
+    procedure TestRelaxedNameConstraintsAdmitAnswersAsTheBaseDoes;
     procedure TestStrictOcspStapleIndeterminate;
     procedure TestStrictBuildOcspRequestIndeterminate;
     procedure TestStrictOcspResponderUrlsIndeterminate;
@@ -2319,6 +2323,30 @@ begin
     TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root2_cert'), LFailed);
   CheckTrue(LFailed, 'a chain to another root fails');
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'with the base alert');
+end;
+
+procedure TTestCompliancePkix.CheckNameConstraintAnswers(AEnforcement: TComplianceEnforcement);
+var
+  LRoot: TBytes;
+begin
+  LRoot := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'root_cert');
+  CheckTrue(Provider(AEnforcement).PathValidation.NameConstraintsAdmit(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'direct_in_scope_leaf_cert'),
+    LRoot)), 'a leaf inside the anchor constraints is admitted');
+  CheckFalse(Provider(AEnforcement).PathValidation.NameConstraintsAdmit(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt',
+    'direct_out_of_scope_leaf_cert'), LRoot)), 'a leaf outside them is refused');
+end;
+
+procedure TTestCompliancePkix.TestStrictNameConstraintsAdmitAnswersAsTheBaseDoes;
+begin
+  CheckNameConstraintAnswers(TComplianceEnforcement.Strict);
+  CheckEquals(0, FSpy.PathBuildCount, 'no portable path build ran');
+end;
+
+procedure TTestCompliancePkix.TestRelaxedNameConstraintsAdmitAnswersAsTheBaseDoes;
+begin
+  CheckNameConstraintAnswers(TComplianceEnforcement.Relaxed);
 end;
 
 procedure TTestCompliancePkix.TestStrictOcspStapleIndeterminate;

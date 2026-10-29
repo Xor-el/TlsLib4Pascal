@@ -28,7 +28,8 @@ type
   /// <summary>
   /// A path validator that, in strict mode, refuses every chain: the portable validation runs
   /// outside the OS module, so a chain check must come from a source the module serves.
-  /// Relaxed mode forwards.
+  /// Relaxed mode forwards. Name-constraint matching over an already-built path is the exception:
+  /// it forwards in both modes.
   /// </summary>
   TCompliancePathValidator = class sealed(TInterfacedObject, ICertificatePathValidator)
   strict private
@@ -42,6 +43,7 @@ type
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
       var AEffectiveChain: TArray<TBytes>);
+    function NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
   end;
 
   /// <summary>
@@ -119,6 +121,12 @@ begin
     raise EComplianceRefusedTlsLibException.CreateRes(@SChainOutsideModule);
   FInner.ValidateCertificatePath(AChain, ATrustAnchors, AIntermediates, AValidationTimeUtc,
     AKeyPurpose, AEffectiveChain);
+end;
+
+function TCompliancePathValidator.NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
+begin
+  // name matching over parsed DER runs no algorithm; trust was already settled by the module
+  Result := FInner.NameConstraintsAdmit(APath);
 end;
 
 { TComplianceRevocationChecker }

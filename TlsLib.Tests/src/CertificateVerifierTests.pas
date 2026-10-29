@@ -50,6 +50,7 @@ uses
   TlpSystemTrustBase,
   TlpIPlatformChainEngine,
   TlpAndroidSystemTrust,
+  TlpOSDelegateVerifier,
 {$ENDIF TLSLIB_ANDROID}
   TlsLibTestCertificates,
   TlsLibTestBase;
@@ -183,6 +184,16 @@ type
     FFailure: TPlatformChainFailure;
     // the first certificate as the chain, the rest as intermediates, under the one anchor
     function RequestFor(const ACerts: TArray<TBytes>; const AAnchor: TBytes): TPlatformChainRequest;
+    // the name-constrained fixture certificates named, in order
+    function NcChain(const ANames: array of string): TArray<TBytes>;
+    // the policy of a delegate trusting only AAnchor: no host-name check, no revocation
+    function PolicyFor(const AAnchor: TBytes): TOSDelegatePolicy;
+    // the server delegate over the Android engine, trusting the name-constrained root
+    function NcServerVerdict(const AChain: array of string;
+      out AAlert: TTlsAlertDescription): Boolean;
+    // the client delegate, with the named intermediates configured; the validated path length
+    function NcClientVerdict(const ALeaf: string; const AIntermediates: array of string;
+      out APathLength: Int32; out AAlert: TTlsAlertDescription): Boolean;
   strict protected
     function Verdict(const AChain: array of string;
       out AAlert: TTlsAlertDescription): Boolean; override;
@@ -190,6 +201,10 @@ type
     procedure TestBadSignatureAsClientCertificateIsDecryptError;
     procedure TestBadSignatureUnderTheAnchorIsUnknownCa;
     procedure TestBadSignatureUnderAPooledIntermediateIsNotAMissingAnchor;
+    procedure TestAnchorNameConstraintsAreEnforcedByTheServerDelegate;
+    procedure TestAnchorNameConstraintsSurviveAnOpenIntermediateOnTheServerDelegate;
+    procedure TestAnchorNameConstraintsAreEnforcedByTheClientDelegate;
+    procedure TestAnchorNameConstraintsSurviveAnOpenIntermediateOnTheClientDelegate;
   end;
 {$ENDIF TLSLIB_ANDROID}
 
@@ -207,6 +222,11 @@ type
     FReissued: TStringList;
     // a leaf issued by name X plus self-issued fillers all named X, for the path-building bound
     FFlood: TStringList;
+    // a name-constrained root, two intermediates (one constrained) and leaves in and out of scope
+    FNameConstrained: TStringList;
+    // a root with a 2048-bit RSA key and an EC leaf it signed
+    FWeakAnchor: TStringList;
+    function NcPath(const ANames: array of string): TArray<TBytes>;
     function Flood(const AName: string): TBytes;
     // the alert the path validator raises for AChain against AAnchor, and how long it took;
     // CloseNotify when it raised none (the chain validated)
@@ -258,6 +278,16 @@ type
     // a trust anchor's own nameConstraints bound every path under it (applying an anchor's
     // constraints is RFC 5937, permitted by RFC 5280 6.2)
     procedure TestAnchorNameConstraintsAreEnforced;
+    // name constraints over a built path (RFC 5280 6.1.1 (h)(i), 6.1.4 (g); RFC 5937 3)
+    procedure TestNameConstraintsAdmitInScopePath;
+    procedure TestNameConstraintsRefuseOutOfScopePath;
+    procedure TestNameConstraintsIntersectIntermediate;
+    procedure TestNameConstraintsSurviveAnOpenIntermediate;
+    procedure TestNameConstraintsHonourExcludedSubtrees;
+    procedure TestNameConstraintsAdmitDirectlyTrustedLeaf;
+    procedure TestNameConstraintsRefuseUnusablePaths;
+    procedure TestNameConstrainedChainIsValidatedByTheBuiltInVerifier;
+    procedure TestWeakAnchorChainIsValidatedByTheBuiltInVerifier;
     // extendedKeyUsage role enforcement (RFC 5280 4.2.1.12, required-if-present)
     procedure TestServerCertWithClientAuthOnlyEkuRejected;
     procedure TestServerCertWithNoEkuAccepted;
@@ -822,6 +852,18 @@ begin
   FEkuEdge := Own<TStringList>(LoadVectorFields('Certs/SelfSignedEkuEdge.txt'));
   FReissued := Own<TStringList>(LoadVectorFields('Certs/ReissuedRoot.txt'));
   FFlood := Own<TStringList>(LoadVectorFields('Certs/PathBuildFlood.txt'));
+  FNameConstrained := Own<TStringList>(LoadVectorFields('Certs/NameConstrainedChain.txt'));
+  FWeakAnchor := Own<TStringList>(LoadVectorFields('Certs/WeakAnchorClientChain.txt'));
+end;
+
+function TTestCertificateVerifier.NcPath(const ANames: array of string): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(ANames));
+  for LI := 0 to High(ANames) do
+    Result[LI] := DecodeHex(FNameConstrained.Values[ANames[LI] + '_cert']);
 end;
 
 function TTestCertificateVerifier.Reissued(const AName: string): TBytes;
@@ -1291,6 +1333,99 @@ begin
   finally
     LVec.Free;
   end;
+end;
+
+procedure TTestCertificateVerifier.TestNameConstraintsAdmitInScopePath;
+begin
+  CheckTrue(Pkix.PathValidation.NameConstraintsAdmit(NcPath(['direct_in_scope_leaf', 'root'])),
+    'a leaf inside the anchor permitted subtree');
+  CheckTrue(Pkix.PathValidation.NameConstraintsAdmit(NcPath(['apple_in_scope_leaf', 'root'])),
+    'a leaf inside the anchor permitted subtree, short validity');
+end;
+
+procedure TTestCertificateVerifier.TestNameConstraintsRefuseOutOfScopePath;
+begin
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
+    NcPath(['direct_out_of_scope_leaf', 'root'])), 'a leaf outside the anchor permitted subtree');
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
+    NcPath(['apple_out_of_scope_leaf', 'root'])), 'a short-validity leaf outside the subtree');
+end;
+
+procedure TTestCertificateVerifier.TestNameConstraintsIntersectIntermediate;
+begin
+  CheckTrue(Pkix.PathValidation.NameConstraintsAdmit(
+    NcPath(['in_scope_leaf', 'inter', 'root'])), 'inside the anchor and the intermediate');
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
+    NcPath(['root_scope_leaf', 'inter', 'root'])), 'inside the anchor, outside the intermediate');
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
+    NcPath(['out_of_scope_leaf', 'inter', 'root'])), 'outside both');
+end;
+
+procedure TTestCertificateVerifier.TestNameConstraintsSurviveAnOpenIntermediate;
+begin
+  CheckTrue(Pkix.PathValidation.NameConstraintsAdmit(
+    NcPath(['open_in_scope_leaf', 'inter_open', 'root'])),
+    'an unconstrained intermediate passes an in-scope leaf');
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
+    NcPath(['open_out_of_scope_leaf', 'inter_open', 'root'])),
+    'only the anchor refuses a leaf outside its permitted subtree');
+end;
+
+procedure TTestCertificateVerifier.TestNameConstraintsHonourExcludedSubtrees;
+begin
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(
+    NcPath(['excluded_leaf', 'inter_open', 'root'])),
+    'a leaf inside the permitted subtree and inside the excluded one');
+end;
+
+procedure TTestCertificateVerifier.TestNameConstraintsAdmitDirectlyTrustedLeaf;
+begin
+  CheckTrue(Pkix.PathValidation.NameConstraintsAdmit(NcPath(['direct_out_of_scope_leaf'])),
+    'a one-certificate path has no constraint above it');
+end;
+
+procedure TTestCertificateVerifier.TestNameConstraintsRefuseUnusablePaths;
+begin
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(nil), 'an empty path');
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(TArray<TBytes>.Create(
+    TBytes.Create(1, 2, 3), NcPath(['root'])[0])), 'a certificate that is not DER');
+  CheckFalse(Pkix.PathValidation.NameConstraintsAdmit(TArray<TBytes>.Create(
+    TBytes.Create($30, $03, $02, $01), NcPath(['root'])[0])),
+    'a certificate whose DER is truncated');
+end;
+
+procedure TTestCertificateVerifier.TestNameConstrainedChainIsValidatedByTheBuiltInVerifier;
+var
+  LVerifier: IServerCertificateVerifier;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LRefused: TArray<string>;
+  LName: string;
+begin
+  LVerifier := IntermediateVerifierFor(NcPath(['root'])[0], NcPath(['inter', 'inter_open']));
+  CheckTrue(LVerifier.VerifyServerCertificate(NcPath(['in_scope_leaf']),
+    TServerName.DnsName(''), nil, LVerified, LAlert), 'inside the anchor and the intermediate');
+  CheckTrue(LVerifier.VerifyServerCertificate(NcPath(['open_in_scope_leaf']),
+    TServerName.DnsName(''), nil, LVerified, LAlert), 'through the unconstrained intermediate');
+  LRefused := TArray<string>.Create('root_scope_leaf', 'open_out_of_scope_leaf',
+    'excluded_leaf');
+  for LName in LRefused do
+  begin
+    CheckFalse(LVerifier.VerifyServerCertificate(NcPath([LName]), TServerName.DnsName(''), nil,
+      LVerified, LAlert), LName + ' is refused');
+    CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+      LName + ' is certificate_unknown');
+  end;
+end;
+
+procedure TTestCertificateVerifier.TestWeakAnchorChainIsValidatedByTheBuiltInVerifier;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  CheckTrue(VerifierFor(DecodeHex(FWeakAnchor.Values['root_cert']), False).VerifyServerCertificate(
+    TArray<TBytes>.Create(DecodeHex(FWeakAnchor.Values['leaf_cert'])), TServerName.DnsName(''),
+    nil, LVerified, LAlert), 'the EC leaf chains to the RSA-2048 root');
 end;
 
 procedure TTestCertificateVerifier.TestCompleteChainStillTrustedWithIntermediates;
@@ -2074,6 +2209,114 @@ var
 begin
   CheckFalse(Verdict(['chain_badsig_leaf', 'chain_inter'], LAlert), 'the chain is refused');
   CheckEquals(Ord(TPlatformChainFailure.Other), Ord(FFailure), 'failure class');
+end;
+
+function TTestAndroidChainFailureAlerts.NcChain(const ANames: array of string): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(ANames));
+  for LI := 0 to System.High(ANames) do
+    Result[LI] := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt',
+      ANames[LI] + '_cert');
+end;
+
+function TTestAndroidChainFailureAlerts.PolicyFor(const AAnchor: TBytes): TOSDelegatePolicy;
+begin
+  Result := Default(TOSDelegatePolicy);
+  Result.ChainLimits := TCertificateChainLimits.Defaults;
+  Result.Pkix := Pkix;
+  Result.Clock := TSystemClock.Create as ITlsClock;
+  Result.Posture := TRevocationPosture.Off;
+  Result.Fetch := TSystemTrustFetch.CacheOnly;
+  Result.Deferral := TVerdictDeferral.None;
+  Result.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  Result.AdvertisedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  Result.Anchors := TArray<TBytes>.Create(AAnchor);
+  Result.AnchorStore := TTrustAnchorStore.Create(Result.Anchors) as ITrustAnchorStore;
+  Result.CheckHostName := False;
+  Result.DeadlineMs := 2000;
+end;
+
+function TTestAndroidChainFailureAlerts.NcServerVerdict(const AChain: array of string;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LVerifier := TOSDelegateServerVerifier.Create(TAndroidChainEngine.Create as IPlatformChainEngine,
+    PolicyFor(NcChain(['root'])[0])) as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(NcChain(AChain), TServerName.DnsName('localhost'),
+    nil, LVerified, AAlert);
+end;
+
+function TTestAndroidChainFailureAlerts.NcClientVerdict(const ALeaf: string;
+  const AIntermediates: array of string; out APathLength: Int32;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IClientCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LPolicy := PolicyFor(NcChain(['root'])[0]);
+  LPolicy.Intermediates := NcChain(AIntermediates);
+  LVerifier := TOSDelegateClientVerifier.Create(TAndroidChainEngine.Create as IPlatformChainEngine,
+    LPolicy) as IClientCertificateVerifier;
+  Result := LVerifier.VerifyClientCertificate(NcChain([ALeaf]), LVerified, AAlert);
+  APathLength := System.Length(LVerified.Path);
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestAnchorNameConstraintsAreEnforcedByTheServerDelegate;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(NcServerVerdict(['direct_out_of_scope_leaf'], LAlert),
+    'a leaf outside the anchor name constraints is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+  CheckTrue(NcServerVerdict(['direct_in_scope_leaf'], LAlert),
+    'a leaf inside the anchor name constraints is accepted');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestAnchorNameConstraintsSurviveAnOpenIntermediateOnTheServerDelegate;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(NcServerVerdict(['open_out_of_scope_leaf', 'inter_open'], LAlert),
+    'the open intermediate carries no constraint, so the library holds the leaf to the anchor');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+  CheckTrue(NcServerVerdict(['open_in_scope_leaf', 'inter_open'], LAlert),
+    'a leaf inside the anchor name constraints under the open intermediate is accepted');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestAnchorNameConstraintsAreEnforcedByTheClientDelegate;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckFalse(NcClientVerdict('direct_out_of_scope_leaf', [], LPathLength, LAlert),
+    'a client leaf outside the anchor name constraints is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+  CheckTrue(NcClientVerdict('direct_in_scope_leaf', [], LPathLength, LAlert),
+    'a client leaf inside the anchor name constraints is accepted');
+  CheckEquals(2, LPathLength, 'the built path is the leaf and the anchor');
+end;
+
+procedure TTestAndroidChainFailureAlerts.TestAnchorNameConstraintsSurviveAnOpenIntermediateOnTheClientDelegate;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckFalse(NcClientVerdict('open_out_of_scope_leaf', ['inter_open'], LPathLength, LAlert),
+    'a client leaf under the open intermediate is held to the anchor constraints');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+  CheckTrue(NcClientVerdict('open_in_scope_leaf', ['inter_open'], LPathLength, LAlert),
+    'a client leaf inside the anchor name constraints under the open intermediate is accepted');
+  CheckEquals(3, LPathLength, 'the built path is the leaf, the intermediate and the anchor');
 end;
 
 {$ENDIF TLSLIB_ANDROID}

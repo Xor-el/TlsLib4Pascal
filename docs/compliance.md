@@ -286,6 +286,8 @@ chain is held to the size range of `Strength` only, and the report says so.
   disclosure that relaxed mode does not refuse portable code and that per-connection fallbacks to
   portable code are not reflected in the verdict. Strict reports do not carry it. The rules must lie
   within a preset in both modes.
+- Name-constraint matching over a module-built path runs in portable code, uses no algorithm and is
+  not refused in strict mode.
 - A refusal inside a handshake ends it with a fatal `internal_error` (RFC 9846 6.2), except where
   the engine absorbs it (a session ticket that is not issued) and the resolver refusals described
   above, which reach the client as `unrecognized_name` or `handshake_failure`.
@@ -492,8 +494,7 @@ posture of Off is disclosed. A server reports these only when it requests client
   store: pass it as `TSystemTrustRoots.OsAndHostRoots(Store)` (trusted with the OS roots) or
   `TSystemTrustRoots.HostRoots(Store)` (trusted alone; the OS roots never vouch). Strict mode has
   no other chain verifier. The OS chain engine is not the validated module: it calls the module for
-  the signature math, and the path building, name matching and revocation logic around it are the
-  OS's.
+  the signature math, and the path building and revocation logic around it are the OS's.
 - Trust anchors are held to the key floors, so an anchor key below them is refused: a server's
   client-CA anchors at `Build`, the root ending a server-certificate path at the handshake. An
   anchor's own signature and hash are not judged.

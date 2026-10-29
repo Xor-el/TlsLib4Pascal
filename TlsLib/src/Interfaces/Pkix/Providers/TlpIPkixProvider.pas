@@ -183,7 +183,7 @@ type
   /// boolean.
   /// </summary>
   ICertificatePathValidator = interface(IInterface)
-    ['{7F7CB2B2-C167-452E-9166-A01BDBDA5FF1}']
+    ['{B89D4446-026C-4F06-AC16-DEC035711D95}']
     /// <summary>
     /// Validates the DER chain (leaf first) to one of the store's trust anchors (RFC
     /// 5280 path validation; revocation is out of band). A nil store or one with no anchors
@@ -212,6 +212,17 @@ type
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
       var AEffectiveChain: TArray<TBytes>);
+    /// <summary>
+    /// Whether every certificate of the leaf-first APath below its last element, the trust
+    /// anchor, satisfies the name constraints in force: the anchor's own nameConstraints (RFC
+    /// 5280 6.1.1 (h)(i), RFC 5937 3) intersected with each intermediate's (RFC 5280 6.1.4 (g)),
+    /// each certificate's subject, subject emailAddress and subjectAltName checked against them
+    /// (RFC 5280 6.1.3 (b)(c), a self-issued intermediate excepted). No signature, validity or
+    /// purpose is judged: APath is a path a trust engine already built and trusted. A
+    /// one-certificate path (a directly trusted leaf) is admitted; an empty path, a certificate
+    /// that does not parse, or a malformed constraint is not.
+    /// </summary>
+    function NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
   end;
 
   /// <summary>

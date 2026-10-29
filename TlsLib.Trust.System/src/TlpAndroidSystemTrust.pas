@@ -73,12 +73,13 @@ type
   /// checkClientTrusted (never the OS or public-web-PKI roots). The platform TrustManager owns
   /// revocation and exposes no cached outcome and no network-revocation knob, so the engine renders
   /// an indeterminate revocation outcome and matches no host - posture, the strength policy, the
-  /// staple decision and the RFC 9525 identity belong to the delegate that owns it. The server host
-  /// is passed as the network-security-config domain key (a null host throws once a per-domain
-  /// config exists), never a name check. The platform validates at device time: the request's clock
-  /// is not used. Construction is init-independent; the JVM is acquired lazily inside the
-  /// evaluation (Delphi resolves it automatically, FPC needs TlsLibAndroidInitTrust). Stateless and
-  /// thread-reusable. Fail-closed.
+  /// staple decision and the RFC 9525 identity belong to the delegate that owns it, as do the name
+  /// constraints and, for a client certificate, the path build. The server host is passed as the
+  /// network-security-config domain key (a null host throws once a per-domain config exists), never
+  /// a name check. The platform validates at device time: the request's clock is not used.
+  /// Construction is init-independent; the JVM is acquired lazily inside the evaluation (Delphi
+  /// resolves it automatically, FPC needs TlsLibAndroidInitTrust). Stateless and thread-reusable.
+  /// Fail-closed.
   /// </summary>
   TAndroidChainEngine = class sealed(TInterfacedObject, IPlatformChainEngine)
   public
@@ -1236,11 +1237,7 @@ function TAndroidChainEngine.EvaluateClient(const ARequest: TPlatformChainReques
   out AResult: TPlatformChainResult; out AAlert: TTlsAlertDescription): Boolean;
 begin
   AResult := Default(TPlatformChainResult);
-  // anchors-only over the configured client-CA anchors (never the system roots). checkClientTrusted
-  // reports no path and the presented chain is peer-ordered beyond index 0 (RFC 9846 4.5.1 only fixes
-  // the leaf), so only the leaf is a reliable validated path; issuer recovery for revocation comes from
-  // the configured candidates rather than a spoofable chain entry. Never stapled. The strength floor
-  // therefore covers the leaf only; the platform still validates the whole chain.
+  // checkClientTrusted reports no path, so the delegate builds one to the configured anchors
   Result := TAndroidTrustApi.EvaluateClient(
     TArrayUtilities.Concat<TBytes>(ARequest.Chain, ARequest.Intermediates),
     ARequest.Anchors, AAlert);

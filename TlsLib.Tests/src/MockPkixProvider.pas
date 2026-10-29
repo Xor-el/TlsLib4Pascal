@@ -30,13 +30,17 @@ type
   var
     FInner: ICertificatePathValidator;
     FCount: Integer;
+    FNameConstraintsRaise: Boolean;
   public
     constructor Create(const AInner: ICertificatePathValidator);
     procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
       var AEffectiveChain: TArray<TBytes>);
+    function NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
     property Count: Integer read FCount;
+    /// <summary>Makes NameConstraintsAdmit raise instead of answering.</summary>
+    property NameConstraintsRaise: Boolean read FNameConstraintsRaise write FNameConstraintsRaise;
   end;
 
   /// <summary>Delegates to a real provider, counting the revocation and path calls, with
@@ -86,6 +90,8 @@ type
     procedure FailOcspRequest;
     /// <summary>How many path builds PathValidation has been asked for.</summary>
     function PathBuildCount: Integer;
+    /// <summary>The counting validator behind PathValidation, for scripting its failures.</summary>
+    property PathValidatorSpy: TCountingPathValidator read FPathValidator;
     property BuildRequestCount: Integer read FBuildRequestCount;
     property FindIssuerCount: Integer read FFindIssuerCount;
     property OcspUrlsCount: Integer read FOcspUrlsCount;
@@ -112,6 +118,13 @@ begin
   Inc(FCount);
   FInner.ValidateCertificatePath(AChain, ATrustAnchors, AIntermediates, AValidationTimeUtc,
     AKeyPurpose, AEffectiveChain);
+end;
+
+function TCountingPathValidator.NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
+begin
+  if FNameConstraintsRaise then
+    raise Exception.Create('name constraints unavailable');
+  Result := FInner.NameConstraintsAdmit(APath);
 end;
 
 { TMockPkixProvider }

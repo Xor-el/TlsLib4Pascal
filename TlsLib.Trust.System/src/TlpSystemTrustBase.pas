@@ -130,12 +130,12 @@ type
   TPlatformChainFailure = (None, NoTrustAnchor, Other);
 
   /// <summary>What the engine reports when the platform built a path: the revocation outcome it
-  /// rendered (Indeterminate for an engine without CachedRevocation), the leaf-first path it built
-  /// (empty where the platform reports none), and the trust anchors whose signature and hash the
-  /// strength policy skips (the OS anchor, or the configured client-CA anchors where the path is
-  /// the presented chain); an exempt anchor's key is checked when the policy sets AnchorKeyFloors.
-  /// An engine that reports none leaves the configured client-CA anchors to be key-checked by the
-  /// delegate instead. On a rejection only Failure is meaningful.</summary>
+  /// rendered (Indeterminate for an engine without CachedRevocation), the path it built, leaf
+  /// first and ending at the trust anchor (the leaf alone where the platform reports no anchor), and
+  /// the trust anchors whose signature and hash the strength policy skips; an exempt anchor's key is
+  /// checked when the policy sets AnchorKeyFloors. An engine that reports no anchor (a client path) has the
+  /// delegate build the path to the configured client-CA anchors itself. On a rejection only
+  /// Failure is meaningful.</summary>
   TPlatformChainResult = record
     Outcome: TLiveRevocationOutcome;
     Path: TArray<TBytes>;
@@ -147,13 +147,20 @@ type
   /// The post-checks every OS trust delegate applies once the OS engine has accepted the peer:
   /// they can only reject a peer or refuse a configuration, never turn an OS rejection into an
   /// acceptance. Centralized so the Windows, Apple and Android delegates decide these the same way:
-  /// a definitive stapled Revoked always wins (RFC 6960), the endpoint identity is matched in the
+  /// a definitive stapled Revoked always wins (RFC 6960), the name constraints of the anchor and of
+  /// every intermediate are enforced over the OS-built path, the endpoint identity is matched in the
   /// library against the leaf SANs (SAN-only, so no engine's subject-CN fallback is trusted), RFC 7633
   /// must-staple + TLS Feature well-formedness are enforced, and a cache-only delegate cannot satisfy a
   /// Hard posture without the live-revocation verdict.
   /// </summary>
   TDelegatePostChecks = class sealed(TObject)
   public
+    /// <summary>True (with AAlert = certificate_unknown) when the OS-built path violates the name
+    /// constraints of its anchor or of any intermediate (RFC 5280 6.1.3 (b)(c), 6.1.4 (g)); no
+    /// platform is trusted to have seeded the anchor's own constraints (RFC 5937 3). Fail-closed
+    /// (internal_error) on a nil provider, an empty path or a provider that raises.</summary>
+    class function RejectNameConstraintViolation(const APkix: IPkixProvider;
+      const AOsPath: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>True (with AAlert = certificate_revoked) when the handshake staple is a definitive,
     /// authenticated Revoked over the OS-validated path - honored under every posture. A missing,
     /// Good or indeterminate staple does not fire here (the posture governs those). AOsPath carries
@@ -305,6 +312,28 @@ class function TDelegatePostChecks.LiveNeedsLiveRevocation(
 begin
   Result := (AFetch = TSystemTrustFetch.Live) and
     (ADeferral <> TVerdictDeferral.LiveRevocation);
+end;
+
+class function TDelegatePostChecks.RejectNameConstraintViolation(const APkix: IPkixProvider;
+  const AOsPath: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+begin
+  if (APkix = nil) or (System.Length(AOsPath) = 0) then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit(True);
+  end;
+  try
+    Result := not APkix.PathValidation.NameConstraintsAdmit(AOsPath);
+    if Result then
+      AAlert := TTlsAlertDescription.CertificateUnknown;
+  except
+    // a provider that raises cannot vouch for the path
+    on Exception do
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Result := True;
+    end;
+  end;
 end;
 
 class function TDelegatePostChecks.OsHostName(const AHostName: string): string;

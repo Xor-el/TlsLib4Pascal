@@ -61,6 +61,13 @@ type
   /// identity post-checks belong to the delegate that owns it. Stateless and thread-reusable.
   /// </summary>
   TWindowsChainEngine = class sealed(TInterfacedObject, IPlatformChainEngine)
+  strict private
+    /// <summary>True when a chain error bit decides the alert. Distrust and a missing anchor defer to
+    /// the policy dwError (the portable verifier decides distrust first and reports no anchor as
+    /// unknown_ca whatever else is wrong); otherwise the first matching row, in the portable
+    /// verifier's alert priority where one bit alone decides it.</summary>
+    class function AlertFromChainStatus(AOtherBits: DWORD;
+      out AAlert: TTlsAlertDescription): Boolean; static;
   public
     /// <summary>Maps a definitive non-revocation chain-policy dwError to the fatal alert (expiry,
     /// untrusted root, wrong usage, name mismatch, catch-all bad_certificate) and to its failure
@@ -72,7 +79,8 @@ type
     /// <summary>Turns the chain-policy dwError into the platform result: 0 is Good, a definitive
     /// revocation is Revoked, an unreachable/undecided revocation is Indeterminate (each with the
     /// OS-built path and the anchor exempt), and any other error is a False rejection with the
-    /// mapped alert. Given a policy error, a revocation outcome is reported only when the chain
+    /// mapped alert, where the chain bits decide the alert first except beside distrust or a
+    /// missing anchor. Given a policy error, a revocation outcome is reported only when the chain
     /// carries no other error bit (an explicitly distrusted chain is a bad_certificate rejection, not
     /// a revocation), and NoTrustAnchor is read from the chain bits: an untrusted root or partial
     /// chain with nothing else but expiry (which the host-root pass re-judges). A policy error of 0
@@ -130,11 +138,23 @@ const
   // CERT_TRUST_STATUS.dwErrorStatus bits inspected alongside the policy dwError in live mode
   CERT_TRUST_IS_NOT_TIME_VALID = $00000001;
   CERT_TRUST_IS_REVOKED = $00000004;
+  CERT_TRUST_IS_NOT_SIGNATURE_VALID = $00000008;
+  CERT_TRUST_IS_NOT_VALID_FOR_USAGE = $00000010;
   CERT_TRUST_IS_UNTRUSTED_ROOT = $00000020;
   CERT_TRUST_REVOCATION_STATUS_UNKNOWN = $00000040;
+  CERT_TRUST_IS_CYCLIC = $00000080;
+  CERT_TRUST_INVALID_EXTENSION = $00000100;
+  CERT_TRUST_INVALID_POLICY_CONSTRAINTS = $00000200;
+  CERT_TRUST_INVALID_BASIC_CONSTRAINTS = $00000400;
+  CERT_TRUST_INVALID_NAME_CONSTRAINTS = $00000800;
+  CERT_TRUST_HAS_NOT_SUPPORTED_NAME_CONSTRAINT = $00001000;
+  CERT_TRUST_HAS_NOT_DEFINED_NAME_CONSTRAINT = $00002000;
+  CERT_TRUST_HAS_NOT_PERMITTED_NAME_CONSTRAINT = $00004000;
+  CERT_TRUST_HAS_EXCLUDED_NAME_CONSTRAINT = $00008000;
   CERT_TRUST_IS_PARTIAL_CHAIN = $00010000;
   CERT_TRUST_IS_OFFLINE_REVOCATION = $01000000;
   CERT_TRUST_IS_EXPLICIT_DISTRUST = $04000000;
+  CERT_TRUST_HAS_NOT_SUPPORTED_CRITICAL_EXT = $08000000;
   // the leaf property crypt32 reads a stapled OCSP response from, so revocation is decided
   // from the handshake staple without a network fetch
   CERT_OCSP_RESPONSE_PROP_ID = 70;
@@ -675,7 +695,8 @@ begin
     CERT_TRUST_REVOCATION_STATUS_UNKNOWN or CERT_TRUST_IS_OFFLINE_REVOCATION));
   if (ADwError <> 0) and (LOtherBits <> 0) then
   begin
-    MapPolicyError(ADwError, AAlert, AResult.Failure);
+    if not AlertFromChainStatus(LOtherBits, AAlert) then
+      MapPolicyError(ADwError, AAlert, AResult.Failure);
     // no anchor only when nothing but root/expiry bits are set; the host-root pass re-judges expiry
     if ((LOtherBits and (CERT_TRUST_IS_UNTRUSTED_ROOT or CERT_TRUST_IS_PARTIAL_CHAIN)) <> 0) and
       ((LOtherBits and (not DWORD(CERT_TRUST_IS_UNTRUSTED_ROOT or CERT_TRUST_IS_PARTIAL_CHAIN or
@@ -990,6 +1011,32 @@ begin
   end;
 end;
 
+class function TWindowsChainEngine.AlertFromChainStatus(AOtherBits: DWORD;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  Result := True;
+  AAlert := TTlsAlertDescription.BadCertificate;
+  if (AOtherBits and (CERT_TRUST_IS_EXPLICIT_DISTRUST or CERT_TRUST_IS_UNTRUSTED_ROOT or
+    CERT_TRUST_IS_PARTIAL_CHAIN)) <> 0 then
+    Result := False
+  else if (AOtherBits and CERT_TRUST_IS_NOT_TIME_VALID) <> 0 then
+    AAlert := TTlsAlertDescription.CertificateExpired
+  else if (AOtherBits and CERT_TRUST_IS_NOT_SIGNATURE_VALID) <> 0 then
+    AAlert := TTlsAlertDescription.DecryptError
+  else if (AOtherBits and (CERT_TRUST_HAS_NOT_SUPPORTED_CRITICAL_EXT or
+    CERT_TRUST_INVALID_EXTENSION or CERT_TRUST_INVALID_NAME_CONSTRAINTS or
+    CERT_TRUST_HAS_NOT_SUPPORTED_NAME_CONSTRAINT or CERT_TRUST_HAS_NOT_DEFINED_NAME_CONSTRAINT or
+    CERT_TRUST_HAS_NOT_PERMITTED_NAME_CONSTRAINT or CERT_TRUST_HAS_EXCLUDED_NAME_CONSTRAINT)) <> 0 then
+    AAlert := TTlsAlertDescription.CertificateUnknown
+  else if (AOtherBits and CERT_TRUST_IS_NOT_VALID_FOR_USAGE) <> 0 then
+    AAlert := TTlsAlertDescription.UnsupportedCertificate
+  else if (AOtherBits and (CERT_TRUST_INVALID_BASIC_CONSTRAINTS or CERT_TRUST_IS_CYCLIC or
+    CERT_TRUST_INVALID_POLICY_CONSTRAINTS)) <> 0 then
+    AAlert := TTlsAlertDescription.UnknownCa
+  else
+    Result := False;
+end;
+
 class procedure TWindowsChainEngine.MapPolicyError(ADwError: DWORD;
   out AAlert: TTlsAlertDescription; out AFailure: TPlatformChainFailure);
 begin
@@ -1011,7 +1058,7 @@ begin
     CERT_E_WRONG_USAGE:
       AAlert := TTlsAlertDescription.UnsupportedCertificate;
   else
-    // CERT_E_CN_NO_MATCH and everything else map to bad_certificate.
+    // CERT_E_CN_NO_MATCH and everything the chain bits did not decide map to bad_certificate.
     AAlert := TTlsAlertDescription.BadCertificate;
   end;
 end;
