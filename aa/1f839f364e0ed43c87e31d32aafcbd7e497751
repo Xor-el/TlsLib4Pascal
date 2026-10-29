@@ -1,0 +1,38 @@
+TlsLib.Tests/src/AppleAlertMapTests.pas
+  s_f2c9bd75607afc::t_23de5ee2127388 81-82
+TlsLib.Trust.System/src/TlpAppleSystemTrust.pas
+  s_f2c9bd75607afc::t_04f58a3f84c0b2 104-105
+  s_f2c9bd75607afc::t_6f0011c1cfc012 390-391
+TlsLib.Trust.System/src/TlpAndroidSystemTrust.pas
+  s_f2c9bd75607afc::t_80947a785c66ff 44
+  s_f2c9bd75607afc::t_3ce63be420baef 176
+  s_f2c9bd75607afc::t_389b47df5ddbcd 631-637,645
+  s_f2c9bd75607afc::t_889d99a6ba5cdd 622-630,638-644,646-674
+  s_f2c9bd75607afc::t_1139381c209b7b 725
+  s_f2c9bd75607afc::t_a6b0969f5371d8 234-236,241-242,249
+  s_f2c9bd75607afc::t_2fd7babd6ca84c 177-179
+  s_f2c9bd75607afc::t_5d76ea717ede3a 237-240,243-246
+  s_f2c9bd75607afc::t_bde21ebd50a0cb 52-55
+  s_f2c9bd75607afc::t_f97de0fe811e98 220-221
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_cba01e469713c9 696-701
+  s_f2c9bd75607afc::t_d1276af291f1c9 6307-6312,6315,6317-6338
+  s_f2c9bd75607afc::t_d41c69ecab6b98 6297-6306,6313-6314,6316,6339-6350
+  s_f2c9bd75607afc::t_897b2a26f2cc0c 702
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aa1f839f364e0ed43c87e31d32aafcbd7e497751",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
