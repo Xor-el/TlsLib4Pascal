@@ -1,0 +1,32 @@
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_b6e8f8565c1526 2560
+  s_f2c9bd75607afc::t_c47436ca9693e1 2444-2445,2466-2467,2472-2473,2526-2527,2554,2572,2590,2607,2609,2621,2625,2627,2655,2665,2677,2681,2683,2699,2701,5608,5612,5617,5621
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_cd4f17a9d1bfea 1357,1359,1361,1405
+  s_f2c9bd75607afc::t_ffab7e7992d420 1367,1370,1377,2286,2290,2313,2317
+TlsLib.Tests/Data/Certs/NameConstrainedChain.txt
+  s_f2c9bd75607afc::t_78cc92dd8eb10f 22
+  s_f2c9bd75607afc::t_dd393d4b3ffba5 27
+  s_f2c9bd75607afc::t_542f63a11a9f5f 3
+  s_f2c9bd75607afc::t_d022c911cd8cfb 7-9,24,33
+  s_f2c9bd75607afc::t_3e0039624fdbfb 2,32
+  s_f2c9bd75607afc::t_659e46b05268db 4,6
+  s_f2c9bd75607afc::t_4cbb052f0339be 5
+  s_f2c9bd75607afc::t_6bd1fdf0a0d319 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "30152f608a4d4d73a4c95f2c3719817880ccf2e7",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
