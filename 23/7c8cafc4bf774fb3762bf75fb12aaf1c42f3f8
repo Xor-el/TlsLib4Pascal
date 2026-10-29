@@ -1,0 +1,37 @@
+TlsLib.Tests/Delphi.Tests/Mobile/MobileTestHostFormUnit.pas
+  s_f2c9bd75607afc::t_49f6a5644f0c06 57
+  s_f2c9bd75607afc::t_79c0d1392c7bef 26
+  s_f2c9bd75607afc::t_a397550588943e 19
+  s_f2c9bd75607afc::t_4351ba94089d2c 36
+  s_f2c9bd75607afc::t_0fb0206ba8296f 25,29
+  s_f2c9bd75607afc::t_3d848ad65434b1 55-56,58-59
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.fmx
+  s_f2c9bd75607afc::t_a136dacb5398f6 74
+  s_f2c9bd75607afc::t_db61363bab3cf9 11,13-16,19-73,75-85
+TlsLib.Trust.System/Examples/Delphi/SystemTrustDemoFormUnit.pas
+  s_f2c9bd75607afc::t_e33b21d0618753 51
+  s_f2c9bd75607afc::t_d66a47877ad453 43
+  s_f2c9bd75607afc::t_15e8c840f7af66 81
+  s_f2c9bd75607afc::t_92d5c8558d6752 79-80,82
+  s_f2c9bd75607afc::t_51615682771450 44
+  s_f2c9bd75607afc::t_805453118469a7 28,33,83
+TlsLib.Tests/Delphi.Tests/Mobile/MobileTestHostFormUnit.fmx
+  s_f2c9bd75607afc::t_9d93d88bb126b9 12,14-17,20-117,119-129
+  s_f2c9bd75607afc::t_649f1b9b00a980 118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "237c8cafc4bf774fb3762bf75fb12aaf1c42f3f8",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
