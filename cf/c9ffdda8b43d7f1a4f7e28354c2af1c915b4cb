@@ -1,0 +1,22 @@
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_153a7adf2c1073 15
+  s_f2c9bd75607afc::t_45d8db16d7cff7 120-122
+  s_f2c9bd75607afc::t_312e00dbb91fe7 158-159
+  s_f2c9bd75607afc::t_f7414944535265 133-136,138-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cfc9ffdda8b43d7f1a4f7e28354c2af1c915b4cb",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
