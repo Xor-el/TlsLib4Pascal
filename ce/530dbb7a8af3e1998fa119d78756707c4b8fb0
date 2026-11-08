@@ -1,0 +1,28 @@
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_9b41999645d212 15-16
+  s_f2c9bd75607afc::t_53b68493766ab3 97
+  s_f2c9bd75607afc::t_a6fc5e86693464 117-120
+  s_f2c9bd75607afc::t_084e17b9dc2141 129-133,135-138
+docs/system-trust.md
+  s_f2c9bd75607afc::t_96690cbec5d744 633-634
+TlsLib.Adapters/mORMot/README.md
+  s_f2c9bd75607afc::t_8fc3943f2258a7 63-70
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_3afc244d532ad9 275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ce530dbb7a8af3e1998fa119d78756707c4b8fb0",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
