@@ -107,8 +107,7 @@ end;
 procedure TTrustConfigurator.ConfigurePinnedRoot(Sender: TObject;
   AHandler: TSocketHandler);
 begin
-  // the handler fcl-net auto-created for us: pin it to the bundled root via the native CertCA slot
-  // (VerifyPeerCert defaults True, so this really verifies)
+  // the handler fcl-net auto-created for us, pinned to the bundled root via the native CertCA slot
   if AHandler is TTlsLibSocketHandler then
     TTlsLibSocketHandler(AHandler).CertificateData.CertCA.FileName := FPinnedRoot;
 end;

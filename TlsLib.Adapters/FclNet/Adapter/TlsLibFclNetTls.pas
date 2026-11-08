@@ -115,9 +115,9 @@ type
   /// native CertificateData slots (CertCA / TrustedCertificate -> anchors, Certificate +
   /// PrivateKey -> our own credential) plus the extension properties fcl-net lacks (UseSystemTrust,
   /// a custom store/verifier, ALPN, the augment / async verdict hooks). Verification is governed by
-  /// fcl-net's native VerifyPeerCert: this adapter defaults it True (secure by default, overriding
-  /// fcl-net's own False), so real verification runs and fails closed when no trust source is named.
-  /// Set VerifyPeerCert := False for the loud dangerous bypass (system trust is never implicit).
+  /// our own VerifyPeerCert, defaulted True, so verification fails closed when no trust source is
+  /// named and False is the loud dangerous bypass (system trust is never implicit). fcl-web
+  /// clients reset the switch through the base type, which this handler ignores.
   /// fcl-net's SSLType pins the version: stAny offers TLS 1.3 and 1.2, stTLSv1_2 only 1.2, and any
   /// other value fails the handshake.
   /// </summary>
@@ -145,6 +145,7 @@ type
     FClientConfig: ITlsClientConfig;
     FServerConfig: ITlsServerConfig;
     FHandshakeTimeoutMs: Integer;
+    FVerifyPeerCert: Boolean;
     /// <summary>A fcl-net cert slot as a host-neutral blob source: its inline bytes when present,
     /// else its file path, else empty.</summary>
     class function SslDataBlob(const AData: TSSLData): TTlsBlobSource; static;
@@ -292,6 +293,10 @@ type
     /// that is set, else the 30 s library default; a positive value overrides both. The cap is
     /// enforced by a wait before each receive.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
+  published
+    /// <summary>Hides fcl-net's switch, which fcl-web clients reset through the base type; set it
+    /// through this class. True (the default) verifies, False is the dangerous bypass.</summary>
+    property VerifyPeerCert: Boolean read FVerifyPeerCert write FVerifyPeerCert;
   end;
 
 var
@@ -325,6 +330,9 @@ resourcestring
     'host, or set CheckHostName := False to skip the host-name check';
   SFclNetTrustSourceHint = 'CertificateData.CertCA / TrustedCertificate, UseSystemTrust, or a ' +
     'CustomTrustStore/CustomVerifier';
+  SFclNetBaseVerifyIgnored = '(a VerifyPeerCert write through TSSLSocketHandler, such as ' +
+    'fcl-web''s VerifySSLCertificate, does not switch verification off; set it on a ' +
+    'TTlsLibSocketHandler)';
   SFclNetClientAuthSourceHint = 'CertificateData.CertCA / TrustedCertificate, or a ' +
     'CustomTrustStore/CustomVerifier';
 
@@ -396,10 +404,9 @@ begin
   FUserCrypto := TlsLibFclNetTrustDefaults.Crypto;
   FUserPkix := TlsLibFclNetTrustDefaults.Pkix;
   FSessionResumption := TlsLibFclNetTrustDefaults.SessionResumption;
-  // secure by default: fcl-net's own handler leaves VerifyPeerCert False (so stock TFPHTTPClient
-  // does NOT verify), we default it True and fail closed without a trust source. Opt OUT with
-  // VerifyPeerCert := False for the loud dangerous bypass.
+  // verify by default; the base switch also starts True so the failure hint fires only on a reset
   VerifyPeerCert := True;
+  inherited VerifyPeerCert := True;
 end;
 
 destructor TTlsLibSocketHandler.Destroy;
@@ -606,6 +613,9 @@ begin
     begin
       FLastError := 1;
       FLastErrorDesc := E.Message;
+      if AIsClient and VerifyPeerCert and (not inherited VerifyPeerCert) and
+        (FClientConfig = nil) then
+        FLastErrorDesc := FLastErrorDesc + ' ' + SFclNetBaseVerifyIgnored;
     end;
   end;
 end;
