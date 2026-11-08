@@ -12,8 +12,7 @@ request (or any `TInetSocket`) speaks our managed TLS instead of OpenSSL.
 fcl-net picks its SSL backend by a **default handler class** registered at unit
 `initialization`. `uses` the adapter unit and `TTlsLibSocketHandler` becomes that default —
 `TFPHTTPClient`, `TInetSocket`, and friends now handshake through TlsLib4Pascal. Do *not*
-also link another fcl-net SSL unit (`opensslsockets`, `gnutlssockets`, `schannelsslsockets`,
-`networkframeworksslsockets`, or `smartsslsockets` on FPC main): its `initialization` would
+also link another fcl-net SSL unit (for example `opensslsockets`): its `initialization` would
 register its own handler and whichever unit initialises last wins.
 
 ```pascal
@@ -118,9 +117,9 @@ clients to fetch the missing CA.
 
 **Verification is on by default — safer than fcl-net.** fcl-net's own OpenSSL handler leaves
 `VerifyPeerCert` at `False`, so a stock `TFPHTTPClient` does **not** verify — a well-known footgun
-(FPC 3.2.4 and later, and main, also write their own `VerifySSLCertificate`, default `False`, over
-it). This handler's own `VerifyPeerCert` defaults to **`True`** and an fcl-web write cannot reach it
-(see below). Trust is therefore **fail-closed**: a client that names **no** trust source
+(fcl-web's clients also write their own `VerifySSLCertificate`, default `False`, over it). This
+handler's own `VerifyPeerCert` defaults to **`True`** and an fcl-web write cannot reach it (see
+below). Trust is therefore **fail-closed**: a client that names **no** trust source
 (`CertCA`/`TrustedCertificate`, `UseSystemTrust`, `CustomTrustStore`,
 a custom verifier) **refuses to connect** — system trust is never implicit. Anchor sources UNION; a
 custom verifier is exclusive. A server requires `CertificateData.Certificate`/`.PrivateKey`; it
@@ -131,16 +130,14 @@ source (a client verifying a server) and is **not** a valid client-CA: a mode wh
 fails the build — name a private `CertCA` (or a `CustomTrustStore`) for the client-CA.
 
 **Which handler honours `VerifyPeerCert`.** `TTlsLibSocketHandler` declares its own
-`VerifyPeerCert`, which hides fcl-net's. FPC 3.2.4 and later, and main, have fcl-web clients
-(`TFPHTTPClient` when no `OnGetSocketHandler` hook returns a handler, and the WebSocket client,
-which exists on main only) copy their `VerifySSLCertificate` onto the handler through the generic
-`TSSLSocketHandler` type; that write does not reach ours, so `VerifySSLCertificate` cannot switch
-verification off. FPC 3.2.2's `TFPHTTPClient` never writes it. `VerifyPeerCert := False` set through a
-`TTlsLibSocketHandler` reference (one you create, return from `OnGetSocketHandler`, or cast in
+`VerifyPeerCert`, which hides fcl-net's. fcl-web's clients copy their `VerifySSLCertificate` onto
+the handler they create through the generic `TSSLSocketHandler` type; that write does not reach
+ours, so `VerifySSLCertificate` cannot switch verification off. `VerifyPeerCert := False` set through
+a `TTlsLibSocketHandler` reference (one you create, return from `OnGetSocketHandler`, or cast in
 `AfterSocketHandlerCreate`) is the loud, deliberate bypass (no PKIX/host/pinning checks), for tests
-and pinned dev peers, never production. Unless a `ClientConfig` is set, every failed connect where
-fcl-net's switch reads `False` and ours `True` says so in `LastErrorDesc`, timeouts and server
-alerts included, so a stock 3.2.4+ client at its default carries that note on any failure.
+and pinned dev peers, never production. Unless a `ClientConfig` is set, a failed connect where
+fcl-net's switch reads `False` and ours `True` says so in `LastErrorDesc`, whatever the cause of the
+failure.
 
 To skip verification from a stock `TFPHTTPClient`, return your own handler from `OnGetSocketHandler`
 (add it to the hook above, after its `if not UseSSL then Exit` guard):
@@ -158,9 +155,8 @@ auto-created handler (see `ClientConfig` above for what may not be set beside it
 The WebSocket client has no such hook: trust the server instead, through the client's
 `CertCAFileName` (a file holding the CA, or the server's own self-signed certificate,
 which is its own anchor but is still checked against the host name) or
-`TlsLibFclNetTrustDefaults.UseSystemTrust`. On FPC main `TFPHTTPClient.CertCAFileName` does the
-same without a hook. `TrustedCertsDir`, which FPC main's fcl-web clients copy into
-`CertificateData`, is not read by this adapter.
+`TlsLibFclNetTrustDefaults.UseSystemTrust`. `CertificateData.TrustedCertsDir` is not read by this
+adapter.
 
 > The other TlsLib adapters honour their host's native verify switch (Indy's `VerifyPeer`, mORMot's
 > `IgnoreCertificateErrors`, Synapse's `VerifyCert`) — `False` wires straight to the dangerous
