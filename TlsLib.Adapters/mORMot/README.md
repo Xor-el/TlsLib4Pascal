@@ -60,18 +60,14 @@ supplied through `SetTlsLibMormotClientConfig` / `SetTlsLibMormotServerConfig`.
 `IgnoreCertificateErrors` reaches **only** our loud `DangerousSkip` — a full, deliberate
 bypass of PKIX/OCSP/host for tests and dev peers, **never**
 production. It is client-only: a server ignores it. With it
-off (the default), an untrusted chain fails through our pipeline.
+off (the default), an untrusted chain fails through our pipeline. `CASystemStores` is the OS
+server-certificate store: a client verifies a server against it, but a server never authenticates
+clients against it — a server's client-CA is `CACertificatesFile`. On Android, `CACertificatesFile`
+roots with it do not apply to hosts a network-security-config `<domain-config>` names
+([rule](../../docs/system-trust.md#os-and-host-roots)).
 
-> **LDAPS is unverified by default.** mORMot's own `TLdapClient.Create` sets
-> `TlsContext^.IgnoreCertificateErrors := true` (documented in mORMot), so an LDAP client reaches
-> our `DangerousSkip` unless you turn it off before connecting:
-> `Ldap.TlsContext^.IgnoreCertificateErrors := False;` Other mORMot clients set it only through an
-> explicit option you choose (for example `hpoClientIgnoreTlsError`).
-
-`CASystemStores` is the OS server-certificate store: a client verifies a server against it, but a
-server never authenticates clients against it — a server's client-CA is `CACertificatesFile`. On
-Android, `CACertificatesFile` roots with it do not apply to hosts a network-security-config
-`<domain-config>` names ([rule](../../docs/system-trust.md#os-and-host-roots)).
+> mORMot's `TLdapClient` sets `IgnoreCertificateErrors` to true by default: set
+> `Ldap.TlsContext^.IgnoreCertificateErrors := False;` before connecting to verify the server.
 
 mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify` /
 `OnAfterPeerValidate`) are **not** bridged, by design: their signatures hand the app an OpenSSL
