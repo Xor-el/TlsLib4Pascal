@@ -1,0 +1,57 @@
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_ccaf280d7f28ae::t_537dfd3c6a4e1e 280-288,293-296,298-299,308-310,314-316
+  s_ccaf280d7f28ae::t_ee068827c07803 38-40
+  s_ccaf280d7f28ae::t_76264d2193f092 58-59
+  s_ccaf280d7f28ae::t_7d08cce7d5b22e 520
+  s_ccaf280d7f28ae::t_27b490d6fea425 523
+  s_ccaf280d7f28ae::t_9059a1ad856186 568
+  s_ccaf280d7f28ae::t_884bdf00feb904 374-380
+  s_ccaf280d7f28ae::t_0379e62a1fc7ab 359-361,363
+  s_ccaf280d7f28ae::t_6a0f23947eadcd 645-656
+  s_ccaf280d7f28ae::t_fe5acfaf0e88f6 368
+  s_ccaf280d7f28ae::t_e488919c5b1e8a 529
+  s_ccaf280d7f28ae::t_8994d428e60186 491,494-505
+  s_ccaf280d7f28ae::t_a61b899cd06d65 289-292,297,300-307,311-313
+  s_ccaf280d7f28ae::t_bb66bb3b13ffbf 563
+  s_ccaf280d7f28ae::t_35574e864f98ba 510
+  s_ccaf280d7f28ae::t_822ed121bdc768 532
+TlsLib.Interop/src/TrustDelegateInteropRunner.pas
+  s_ccaf280d7f28ae::t_8563b14fb1df03 379
+  s_ccaf280d7f28ae::t_5b3ef7e4931ab8 28-31
+  s_ccaf280d7f28ae::t_e042aa90d60f2d 110,113-115
+  s_ccaf280d7f28ae::t_ff21d7820d5a88 102-104
+  s_ccaf280d7f28ae::t_17c56689a0fd22 111-112
+  s_ccaf280d7f28ae::t_bdcd891a1a2654 573,575-595,598
+  s_ccaf280d7f28ae::t_24cde2e009a67c 476,478-487,489
+  s_ccaf280d7f28ae::t_4edf7baf53da45 61-62
+  s_ccaf280d7f28ae::t_248a2516c14fc3 366-378,380-381
+  s_ccaf280d7f28ae::t_f51fc4772c9cdb 679-686
+  s_ccaf280d7f28ae::t_52558399ac3f74 549-550
+  s_ccaf280d7f28ae::t_011e60d6403f46 460-461
+.github/workflows/ci/interop/interop-build.sh
+  s_ccaf280d7f28ae::t_45d6b97024415b 48-49
+  s_ccaf280d7f28ae::t_e42688904b96bd 89
+docs/certificate-verification.md
+  s_ccaf280d7f28ae::t_8ae6627874f8aa 452
+  s_ccaf280d7f28ae::t_e1242124dae834 450-451
+TlsLib.Interop/FreePascal.Interop/TrustDelegateInterop.lpi
+  s_ccaf280d7f28ae::t_6f37f2438fa026 73
+docs/system-trust.md
+  s_ccaf280d7f28ae::t_71520f36263ab5 417-419
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ab6b59a697fce4c6efa53dd27a838ced5dfc86ca",
+  "prompts": {},
+  "sessions": {
+    "s_ccaf280d7f28ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0d44fae8-f3ba-4aab-b38d-88bc7c4f9195",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
