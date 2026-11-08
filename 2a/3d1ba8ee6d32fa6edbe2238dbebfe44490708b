@@ -1,0 +1,21 @@
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_ccaf280d7f28ae::t_ad2daead3a5153 280-321
+  s_ccaf280d7f28ae::t_2350e9ef270908 519
+  s_ccaf280d7f28ae::t_d04069636bcf0a 238-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2a3d1ba8ee6d32fa6edbe2238dbebfe44490708b",
+  "prompts": {},
+  "sessions": {
+    "s_ccaf280d7f28ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0d44fae8-f3ba-4aab-b38d-88bc7c4f9195",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
