@@ -115,9 +115,9 @@ type
   /// native CertificateData slots (CertCA / TrustedCertificate -> anchors, Certificate +
   /// PrivateKey -> our own credential) plus the extension properties fcl-net lacks (UseSystemTrust,
   /// a custom store/verifier, ALPN, the augment / async verdict hooks). Verification is governed by
-  /// our own VerifyPeerCert, defaulted True, so verification fails closed when no trust source is
-  /// named and False is the loud dangerous bypass (system trust is never implicit). fcl-web
-  /// clients reset the switch through the base type, which this handler ignores.
+  /// VerifyPeerCert: this adapter defaults it True (secure by default, overriding fcl-net's own
+  /// False), so real verification runs and fails closed when no trust source is named.
+  /// Set VerifyPeerCert := False for the loud dangerous bypass (system trust is never implicit).
   /// fcl-net's SSLType pins the version: stAny offers TLS 1.3 and 1.2, stTLSv1_2 only 1.2, and any
   /// other value fails the handshake.
   /// </summary>
@@ -294,8 +294,7 @@ type
     /// enforced by a wait before each receive.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
   published
-    /// <summary>Hides fcl-net's switch, which fcl-web clients reset through the base type; set it
-    /// through this class. True (the default) verifies, False is the dangerous bypass.</summary>
+    /// <summary>True (the default) verifies the server; False is the dangerous bypass.</summary>
     property VerifyPeerCert: Boolean read FVerifyPeerCert write FVerifyPeerCert;
   end;
 
