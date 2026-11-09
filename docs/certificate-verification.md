@@ -272,7 +272,7 @@ IO.SSLOptions.InsecureSkipVerify := True;        // or SSLOptions.VerifyPeer := 
 //           plugin flips Synapse's insecure base default. Set it False for the accept-any bypass
 sock.SSL.VerifyCert := False;
 
-// fcl-net  (TTlsLibSocketHandler)
+// fcl-net  (set through a TTlsLibSocketHandler, or in a unit whose uses names TlsLibFclNetTls)
 Handler.VerifyPeerCert := False;
 ```
 

@@ -66,6 +66,9 @@ clients against it — a server's client-CA is `CACertificatesFile`. On Android,
 roots with it do not apply to hosts a network-security-config `<domain-config>` names
 ([rule](../../docs/system-trust.md#os-and-host-roots)).
 
+> mORMot's `TLdapClient` sets `IgnoreCertificateErrors` to true by default: set
+> `Ldap.TlsContext^.IgnoreCertificateErrors := False;` before connecting to verify the server.
+
 mORMot's native peer-verify callbacks (`OnPeerValidate` / `OnEachPeerVerify` /
 `OnAfterPeerValidate`) are **not** bridged, by design: their signatures hand the app an OpenSSL
 `PSSL` / `PX509` pointer to dereference, so honouring them would re-couple the adapter to OpenSSL —
