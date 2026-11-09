@@ -133,8 +133,7 @@ unit whose `uses` names `TlsLibFclNetTls`; any other write, such as fcl-web's, i
 > This matches the other TlsLib adapters: each honours its host's native verify switch (Indy's
 > `VerifyPeer`, mORMot's `IgnoreCertificateErrors`, Synapse's `VerifyCert`) — `False` wires straight
 > to the dangerous bypass — and each defaults that switch to the **secure** position in its own
-> constructor, regardless of the host library's own (often insecure) default. fcl-web's own
-> `VerifySSLCertificate` is not that switch and is ignored.
+> constructor, regardless of the host library's own (often insecure) default.
 
 For the full trust picture — trusting a private CA, public-key pinning, host-name-only
 relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
