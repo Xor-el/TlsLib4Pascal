@@ -117,7 +117,8 @@ type
   /// a custom store/verifier, ALPN, the augment / async verdict hooks). Verification is governed by
   /// VerifyPeerCert: this adapter defaults it True (secure by default, overriding fcl-net's own
   /// False), so real verification runs and fails closed when no trust source is named.
-  /// Set VerifyPeerCert := False for the loud dangerous bypass (system trust is never implicit).
+  /// Set VerifyPeerCert := False for the loud dangerous bypass (system trust is never implicit);
+  /// a write through the generic handler type counts only in units that use this one.
   /// fcl-net's SSLType pins the version: stAny offers TLS 1.3 and 1.2, stTLSv1_2 only 1.2, and any
   /// other value fails the handshake.
   /// </summary>
@@ -298,6 +299,18 @@ type
     property VerifyPeerCert: Boolean read FVerifyPeerCert write FVerifyPeerCert;
   end;
 
+  /// <summary>Carries a VerifyPeerCert write through the generic handler type to our switch, in
+  /// units that use this one.</summary>
+  TFclNetVerifyPeerCertHelper = class helper for TSSLSocketHandler
+  strict private
+    function GetVerifyPeerCert: Boolean;
+    procedure SetVerifyPeerCert(AValue: Boolean);
+  private
+    function BaseVerifyPeerCert: Boolean;
+  public
+    property VerifyPeerCert: Boolean read GetVerifyPeerCert write SetVerifyPeerCert;
+  end;
+
 var
   /// <summary>The process-wide handler defaults (see TFclNetTrustDefaults). Off by default; set a
   /// field once at startup to make the common case need no per-connection hook.</summary>
@@ -329,9 +342,8 @@ resourcestring
     'host, or set CheckHostName := False to skip the host-name check';
   SFclNetTrustSourceHint = 'CertificateData.CertCA / TrustedCertificate, UseSystemTrust, or a ' +
     'CustomTrustStore/CustomVerifier';
-  SFclNetBaseVerifyIgnored = '(a VerifyPeerCert write through TSSLSocketHandler, such as ' +
-    'fcl-web''s VerifySSLCertificate, does not switch verification off; set it on a ' +
-    'TTlsLibSocketHandler)';
+  SFclNetBaseVerifyIgnored = '(VerifyPeerCert was set False by code that does not use ' +
+    'TlsLibFclNetTls, such as fcl-web''s VerifySSLCertificate; that write is ignored)';
   SFclNetClientAuthSourceHint = 'CertificateData.CertCA / TrustedCertificate, or a ' +
     'CustomTrustStore/CustomVerifier';
 
@@ -612,7 +624,7 @@ begin
     begin
       FLastError := 1;
       FLastErrorDesc := E.Message;
-      if AIsClient and VerifyPeerCert and (not inherited VerifyPeerCert) and
+      if AIsClient and VerifyPeerCert and (not BaseVerifyPeerCert) and
         (FClientConfig = nil) then
         FLastErrorDesc := FLastErrorDesc + ' ' + SFclNetBaseVerifyIgnored;
     end;
@@ -731,6 +743,28 @@ function TTlsLibSocketHandler.NegotiatedAlpn: string;
 begin
   if not TAlpnProtocols.TryToText(TTlsConnection.InfoOf(FConnection).AlpnProtocol, Result) then
     Result := '';
+end;
+
+{ TFclNetVerifyPeerCertHelper }
+
+function TFclNetVerifyPeerCertHelper.BaseVerifyPeerCert: Boolean;
+begin
+  Result := inherited VerifyPeerCert;
+end;
+
+function TFclNetVerifyPeerCertHelper.GetVerifyPeerCert: Boolean;
+begin
+  if Self is TTlsLibSocketHandler then
+    Result := TTlsLibSocketHandler(Self).VerifyPeerCert
+  else
+    Result := BaseVerifyPeerCert;
+end;
+
+procedure TFclNetVerifyPeerCertHelper.SetVerifyPeerCert(AValue: Boolean);
+begin
+  if Self is TTlsLibSocketHandler then
+    TTlsLibSocketHandler(Self).VerifyPeerCert := AValue;
+  inherited VerifyPeerCert := AValue;
 end;
 
 procedure FlushTlsLibFclNetConfigCache;

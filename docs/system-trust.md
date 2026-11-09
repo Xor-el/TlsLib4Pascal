@@ -632,8 +632,8 @@ H.UseSystemTrust := True;                                // OS roots
 
 `VerifyPeerCert` defaults to **True** here (stock fcl-net defaults it to `False`). With
 `UseSystemTrust` it uses the OS store; with `CertCA` / `TrustedCertificate` it pins to those
-anchors; with both it unions them; with neither it fails closed. `VerifyPeerCert := False` on a
-`TTlsLibSocketHandler` is the loud verification bypass.
+anchors; with both it unions them; with neither it fails closed. `VerifyPeerCert := False` set
+through a `TTlsLibSocketHandler` is the loud verification bypass.
 
 ### Writing your own adapter
 

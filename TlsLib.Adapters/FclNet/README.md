@@ -94,7 +94,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `SendHostAsSNI` (fcl-net native, default True)        | `WithServerNameIndication(Send / Omit)`; False sends no SNI but the certificate is still verified against the host |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols` (ASCII names, converted with `TAlpnProtocols.FromText`) |
-| `VerifyPeerCert` (fcl-net native, default **True** here) | verify on/off; **False** → `dangerous` `DangerousSkip` |
+| `VerifyPeerCert` (default **True**) | verify on/off; **False** → `dangerous` `DangerousSkip` |
 | `SSLType` (fcl-net native)                            | `stAny` offers TLS 1.3 and 1.2; `stTLSv1_2` offers 1.2 alone; any other value fails the handshake |
 | `VerifyCallback` | augment-only hook, runs last (presented chain + validated path + host → Boolean) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
@@ -127,15 +127,14 @@ source (a client verifying a server) and is **not** a valid client-CA: a mode wh
 fails the build — name a private `CertCA` (or a `CustomTrustStore`) for the client-CA.
 
 Setting `VerifyPeerCert := False` is the loud, deliberate bypass (no PKIX/host/pinning checks) —
-for tests and pinned dev peers, never production. Set it on a `TTlsLibSocketHandler` you create or
-return from `OnGetSocketHandler`; a write through fcl-net's generic `TSSLSocketHandler` type, which
-is how fcl-web's clients set theirs, is ignored. The WebSocket client has no such hook: trust the
-server instead (`CertCAFileName` or `UseSystemTrust`).
+for tests and pinned dev peers, never production. Set it through a `TTlsLibSocketHandler`, or in a
+unit whose `uses` names `TlsLibFclNetTls`; any other write, such as fcl-web's, is ignored.
 
 > This matches the other TlsLib adapters: each honours its host's native verify switch (Indy's
 > `VerifyPeer`, mORMot's `IgnoreCertificateErrors`, Synapse's `VerifyCert`) — `False` wires straight
 > to the dangerous bypass — and each defaults that switch to the **secure** position in its own
-> constructor, regardless of the host library's own (often insecure) default.
+> constructor, regardless of the host library's own (often insecure) default. fcl-web's own
+> `VerifySSLCertificate` is not that switch and is ignored.
 
 For the full trust picture — trusting a private CA, public-key pinning, host-name-only
 relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see

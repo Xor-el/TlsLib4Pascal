@@ -16,9 +16,9 @@
 /// class. The server runs on a background thread, the client on the caller's thread. It asserts a
 /// full TLS 1.3 handshake, a round-tripped line and a read bounded by IOTimeout when the peer
 /// stalls mid-record - proving the fcl-net adapter end to end. Further checks cover a client
-/// identity (mutual TLS), an early-closing client, VerifyPeerCert (a False written through
-/// fcl-net's base type is ignored, one written through our type is honoured) and a self-signed
-/// leaf trusted as its own anchor.
+/// identity (mutual TLS), an early-closing client, VerifyPeerCert (a False written by fcl-web's
+/// compiled code is ignored, one written by code that uses the adapter is honoured) and a
+/// self-signed leaf trusted as its own anchor.
 /// </summary>
 unit FclNetLoopbackExample;
 
@@ -62,6 +62,7 @@ uses
   TlpITlsConfigBuilder,
   TlpCertificateVerifierSource,
   TlpTlsPresets,
+  FclNetFclWebMimic,
   TlsLibFclNetTls;
 
 const
@@ -70,7 +71,7 @@ const
   EARLY_CLOSE_PORT = 28457;
   VERIFY_PORT = 28458;
   VERIFY_SELF_PORT = 28459;
-  BASE_WRITE_HINT = 'does not switch verification off';
+  BASE_WRITE_HINT = 'that write is ignored';
   UNTRUSTED_CHAIN = 'chain was not trusted'; // the one message any certificate rejection carries
   EARLY_CLOSE_LIMIT_MS = 2000;
   STALL_HOLD_MS = 4000; // how long the server stays silent after the partial record
@@ -198,17 +199,23 @@ type
   TVerifySubclassHandler = class(TTlsLibSocketHandler)
   end;
 
+  /// <summary>A handler class that is none of ours, only to hold a switch.</summary>
+  TVerifyStockHandler = class(TSSLSocketHandler)
+  public
+    function CreateCertGenerator: TX509Certificate; override;
+  end;
+
   TVerifyIgnoredCheck = class sealed(TObject)
   public
-    /// <summary>A VerifyPeerCert False written through fcl-net's base handler type, as fcl-web
+    /// <summary>A VerifyPeerCert False written by code that does not use this adapter, as fcl-web
     /// clients do, does not switch verification off, and the refusal says so.</summary>
     class procedure Run; static;
   end;
 
   TVerifyHonouredCheck = class sealed(TObject)
   public
-    /// <summary>A VerifyPeerCert False written through TTlsLibSocketHandler skips verification,
-    /// by property, by name and on the default handler, and an untouched handler verifies.</summary>
+    /// <summary>A VerifyPeerCert False written by code that uses this adapter skips verification,
+    /// by property, by name and through the generic type, and an untouched handler verifies.</summary>
     class procedure Run; static;
   end;
 
@@ -616,6 +623,13 @@ begin
   end;
 end;
 
+{ TVerifyStockHandler }
+
+function TVerifyStockHandler.CreateCertGenerator: TX509Certificate;
+begin
+  Result := TFclNetNoCertGenerator.Create;
+end;
+
 { TVerifyClient }
 
 class function TVerifyClient.Echo(const AHandler: TTlsLibSocketHandler; APort: Integer;
@@ -673,9 +687,10 @@ begin
   try
     LServer.StartListening;
 
-    // what fcl-web clients do: fetch the default handler as the base type and write False on it
-    LBase := TSSLSocketHandler.GetDefaultHandler;
-    LBase.VerifyPeerCert := False;
+    // what fcl-web clients do, from code compiled without this adapter in scope
+    LBase := TFclNetFclWebMimic.NewDefaultHandler(False, '');
+    if not LBase.VerifyPeerCert then
+      raise Exception.Create('the switch read through the generic type does not show ours');
     if TVerifyClient.Echo(LBase as TTlsLibSocketHandler, VERIFY_PORT, LError) <> '' then
       raise Exception.Create('an untrusted server was served after a base-typed False');
     if Pos('no trust source was named', LError) = 0 then
@@ -683,9 +698,7 @@ begin
     if Pos(BASE_WRITE_HINT, LError) = 0 then
       raise Exception.Create('the refusal does not carry the base-write hint: ' + LError);
 
-    LBase := TSSLSocketHandler.GetDefaultHandler;
-    LBase.VerifyPeerCert := False;
-    LBase.CertificateData.CertCA.FileName := LWrongRoot;
+    LBase := TFclNetFclWebMimic.NewDefaultHandler(False, LWrongRoot);
     if TVerifyClient.Echo(LBase as TTlsLibSocketHandler, VERIFY_PORT, LError) <> '' then
       raise Exception.Create('a server outside the pinned root was served after a base-typed False');
     if Pos(UNTRUSTED_CHAIN, LError) = 0 then
@@ -693,9 +706,7 @@ begin
     if Pos(BASE_WRITE_HINT, LError) = 0 then
       raise Exception.Create('the chain refusal does not carry the base-write hint: ' + LError);
 
-    LBase := TSSLSocketHandler.GetDefaultHandler;
-    LBase.VerifyPeerCert := False;
-    LBase.CertificateData.CertCA.FileName := LRoot;
+    LBase := TFclNetFclWebMimic.NewDefaultHandler(False, LRoot);
     if TVerifyClient.Echo(LBase as TTlsLibSocketHandler, VERIFY_PORT, LError) <> 'verify' then
       raise Exception.Create('a server under the pinned root was not served: ' + LError);
 
@@ -703,8 +714,7 @@ begin
     LPreviousClass := TSSLSocketHandler.GetDefaultHandlerClass;
     TSSLSocketHandler.SetDefaultHandlerClass(TVerifySubclassHandler);
     try
-      LBase := TSSLSocketHandler.GetDefaultHandler;
-      LBase.VerifyPeerCert := False;
+      LBase := TFclNetFclWebMimic.NewDefaultHandler(False, '');
       if TVerifyClient.Echo(LBase as TTlsLibSocketHandler, VERIFY_PORT, LError) <> '' then
         raise Exception.Create('an untrusted server was served to a registered subclass');
       if Pos('no trust source was named', LError) = 0 then
@@ -715,16 +725,14 @@ begin
     end;
 
     // a config supplied on the default handler is not in conflict with the base-typed False
-    LBase := TSSLSocketHandler.GetDefaultHandler;
-    LBase.VerifyPeerCert := False;
+    LBase := TFclNetFclWebMimic.NewDefaultHandler(False, '');
     (LBase as TTlsLibSocketHandler).ClientConfig := TTlsPresets.Compatible(LCrypto, LPkix).Client
       .WithServerVerification(TServerVerification.WebPki(LRootDer).Build).Build;
     if TVerifyClient.Echo(LBase as TTlsLibSocketHandler, VERIFY_PORT, LError) <> 'verify' then
       raise Exception.Create('a supplied client config was not served: ' + LError);
 
     // the config decides, so a refusal under it is not blamed on the base-typed write
-    LBase := TSSLSocketHandler.GetDefaultHandler;
-    LBase.VerifyPeerCert := False;
+    LBase := TFclNetFclWebMimic.NewDefaultHandler(False, '');
     (LBase as TTlsLibSocketHandler).ClientConfig := TTlsPresets.Compatible(LCrypto, LPkix).Client
       .WithServerVerification(TServerVerification.WebPki(LWrongRootDer).Build).Build;
     if TVerifyClient.Echo(LBase as TTlsLibSocketHandler, VERIFY_PORT, LError) <> '' then
@@ -734,8 +742,7 @@ begin
         LError);
 
     // a failure unrelated to trust is not blamed on the base-typed write once the user set False
-    LBase := TSSLSocketHandler.GetDefaultHandler;
-    LBase.VerifyPeerCert := False;
+    LBase := TFclNetFclWebMimic.NewDefaultHandler(False, '');
     LHandler := LBase as TTlsLibSocketHandler;
     LHandler.VerifyPeerCert := False;
     LHandler.SSLType := stSSLv3;
@@ -755,6 +762,7 @@ class procedure TVerifyHonouredCheck.Run;
 var
   LServer: TVerifyServerThread;
   LHandler: TTlsLibSocketHandler;
+  LBase, LStock: TSSLSocketHandler;
   LError: string;
 begin
   LServer := TVerifyServerThread.Create(
@@ -788,6 +796,36 @@ begin
     SetOrdProp(LHandler, 'VerifyPeerCert', 0);
     if TVerifyClient.Echo(LHandler, VERIFY_PORT, LError) <> 'verify' then
       raise Exception.Create('a write of VerifyPeerCert by name was not honoured: ' + LError);
+
+    // code that uses this unit is honoured through the generic type too, and the last write wins
+    LBase := TSSLSocketHandler.GetDefaultHandler;
+    LBase.VerifyPeerCert := False;
+    if TVerifyClient.Echo(LBase as TTlsLibSocketHandler, VERIFY_PORT, LError) <> 'verify' then
+      raise Exception.Create('a base-typed False in scope of the adapter was not honoured: ' +
+        LError);
+
+    LBase := TSSLSocketHandler.GetDefaultHandler;
+    LBase.VerifyPeerCert := False;
+    LBase.VerifyPeerCert := True;
+    if TVerifyClient.Echo(LBase as TTlsLibSocketHandler, VERIFY_PORT, LError) <> '' then
+      raise Exception.Create('an untrusted server was served after a later base-typed True');
+    if Pos('no trust source was named', LError) = 0 then
+      raise Exception.Create('the refusal does not say no trust source was named: ' + LError);
+    if Pos(BASE_WRITE_HINT, LError) > 0 then
+      raise Exception.Create('a handler with both switches True carries the hint: ' + LError);
+
+    // a handler class that is none of ours keeps its own switch
+    LStock := TVerifyStockHandler.Create;
+    try
+      LStock.VerifyPeerCert := True;
+      if not LStock.VerifyPeerCert then
+        raise Exception.Create('a stock handler lost a True written through the generic type');
+      LStock.VerifyPeerCert := False;
+      if LStock.VerifyPeerCert then
+        raise Exception.Create('a stock handler lost a False written through the generic type');
+    finally
+      LStock.Free;
+    end;
   finally
     LServer.Terminate;
     LServer.Free;
@@ -830,7 +868,8 @@ begin
       raise Exception.Create('a trusted leaf was served under a host it does not name');
     // the core reports a rejected name as it reports any rejected certificate
     if Pos(UNTRUSTED_CHAIN, LError) = 0 then
-      raise Exception.Create('the refusal of a leaf under a host it does not name: ' + LError);
+      raise Exception.Create('the refusal of a leaf under a host it does not name does not say ' +
+        'the chain was refused: ' + LError);
   finally
     LServer.Terminate;
     LServer.Free;
