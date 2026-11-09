@@ -447,7 +447,9 @@ The OS engine returns a tri-state: a definitive **Revoked** aborts with `certifi
 attached to the live evaluation, so a server that already stapled a current Good is not re-fetched.
 Pass a fallback resolver (nil for none) as `LiveRevocationResolver(config, fallback)` (typically a
 `TLiveRevocationChecker.ResolveVerdict`) to run the **portable** OCSP/CRL over your `IHttpFetcher`
-on an indeterminate OS outcome before the posture decides.
+on an indeterminate OS outcome before the posture decides. An OS may refuse by its own policy to fetch
+from loopback or private-address responders; that is an indeterminate outcome, so wire the fallback
+when a responder may sit on such an address.
 
 **Android and Linux/BSD have no OS-native live revocation** (Android's platform TrustManager owns
 revocation with no network knob; Unix has no OS delegate). Compose the **portable**

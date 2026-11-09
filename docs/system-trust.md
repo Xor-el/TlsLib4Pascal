@@ -414,7 +414,9 @@ path roots against an **in-memory exclusive client-CA store** (never the machine
 store install and is exercisable locally. `Live` requires `WithLiveRevocationVerdict` (the park is
 where it runs) — a server built `Live` without it raises before any IO. Pass a portable fallback
 (nil for none) as `LiveRevocationResolver(config, fallback)` to run `TLiveRevocationChecker` over
-your `IHttpFetcher` on an indeterminate OS outcome. **Windows and Apple only** — Android/Unix `Live`
+your `IHttpFetcher` on an indeterminate OS outcome. An OS may refuse by its own policy to fetch from
+loopback or private-address responders; that is an indeterminate outcome, so wire the fallback when a
+responder may sit on such an address. **Windows and Apple only** — Android/Unix `Live`
 raises `ESystemTrustUnsupportedTlsLibException` (compose the portable checker there instead).
 
 ### Policy differences vs. the built-in verifier

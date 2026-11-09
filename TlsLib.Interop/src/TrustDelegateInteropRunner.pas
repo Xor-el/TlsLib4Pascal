@@ -25,6 +25,10 @@ uses
   TlpTrustPolicy,
   TlpTlsAlert,
   TlpIClock,
+  TlpClock,
+  TlpIHttpFetcher,
+  TlpLiveRevocation,
+  TlpSocketHttpFetcher,
   TlpICryptoProvider,
   TlpIPkixProvider,
   TlpITlsEngine,
@@ -54,6 +58,8 @@ type
     Delegate: Boolean;
     Anchors: Boolean;
     Live: Boolean;
+    // live cells only: the OS resolver defers an indeterminate outcome to the portable live checker
+    LiveFallback: Boolean;
     // server-mode (mTLS): our server verifies the peer CLIENT certificate live through the OS
     // delegate, and a client presenter offers the certificate
     IsServer: Boolean;
@@ -93,11 +99,20 @@ type
   /// </summary>
   TTrustDelegateInteropRunner = class sealed(TObject)
   strict private
+  const
+    // the resolver fetch budget for the live cells; the fetch over loopback settles well within it
+    LiveDeadlineMs = Cardinal(10000);
     class function ArgValue(const AName, ADefault: string): string; static;
     class function HasArg(const AName: string): Boolean; static;
     class function ParsePosture(const ASpec: string): TRevocationPosture; static;
     /// <summary>Parses --expect accept | reject | reject:&lt;alertnum&gt; into ACell.</summary>
     class procedure ParseExpect(const ASpec: string; var ACell: TTrustCell); static;
+    /// <summary>The portable live checker the OS resolver falls back to, or nil without
+    /// --live-fallback. ACaFile (may be empty) is the issuer candidate for a parked context that
+    /// carries only the presented leaf (a client certificate whose CA is not sent). The caller frees it
+    /// after the resolver.</summary>
+    class function CreateFallbackChecker(const APkix: IPkixProvider; const ACell: TTrustCell;
+      const ACaFile: string): TLiveRevocationChecker; static;
     class function BuildClientConfig(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const ACell: TTrustCell): ITlsClientConfig; static;
     /// <summary>Maps a handshake outcome to '' (matched --expect) or a failure message. Shared by
@@ -348,12 +363,25 @@ begin
   raise Exception.Create('--expect takes accept, reject or reject:<alert>, got ''' + ASpec + '''');
 end;
 
+class function TTrustDelegateInteropRunner.CreateFallbackChecker(const APkix: IPkixProvider;
+  const ACell: TTrustCell; const ACaFile: string): TLiveRevocationChecker;
+var
+  LOptions: TLiveRevocationOptions;
+begin
+  Result := nil;
+  if not ACell.LiveFallback then
+    Exit;
+  if ACaFile <> '' then
+    LOptions.IssuerCandidates := TArray<TBytes>.Create(
+      TInteropUtils.PemToDer(TInteropUtils.ReadAllText(ACaFile)));
+  Result := TLiveRevocationChecker.Create(APkix, TSystemClock.Create as ITlsClock,
+    TSystemMonotonicClock.Create as ITlsMonotonicClock, TSocketHttpFetcher.Create as IHttpFetcher,
+    ACell.Posture, TLiveRevocationMethod.Ocsp, LiveDeadlineMs, LOptions);
+end;
+
 class function TTrustDelegateInteropRunner.BuildClientConfig(
   const ACryptoProvider: ICryptoProvider; const APkix: IPkixProvider;
   const ACell: TTrustCell): ITlsClientConfig;
-const
-  // the resolver fetch budget for the live cells; the OS fetch over loopback settles well within it
-  LiveDeadlineMs = Cardinal(10000);
 var
   LBuilder: ITlsConfigBuilder;
   LClient: ITlsClientConfigBuilder;
@@ -429,6 +457,8 @@ var
   LConfig: ITlsClientConfig;
   LEngine: ITlsEngine;
   LResolver: TOSLiveRevocationResolverBase;
+  LChecker: TLiveRevocationChecker;
+  LFallback: TCertificateVerdictResolver;
   LResult: TInteropResult;
   LSent: TBytes;
 begin
@@ -443,12 +473,20 @@ begin
     if ACell.Live then
     begin
       // the host resolves the async park by re-running the OS engine live (network on)
-      LResolver := TOSSystemTrust.LiveRevocationResolver(LConfig, nil);
+      LChecker := CreateFallbackChecker(LPkix, ACell, '');
       try
-        LResult := TInteropPump.DriveHandshake(LEngine, LSocket,
-          LResolver.ResolveVerdict, True);
+        LFallback := nil;
+        if LChecker <> nil then
+          LFallback := LChecker.ResolveVerdict;
+        LResolver := TOSSystemTrust.LiveRevocationResolver(LConfig, LFallback);
+        try
+          LResult := TInteropPump.DriveHandshake(LEngine, LSocket,
+            LResolver.ResolveVerdict, True);
+        finally
+          LResolver.Free;
+        end;
       finally
-        LResolver.Free;
+        LChecker.Free;
       end;
     end
     else
@@ -477,10 +515,6 @@ end;
 class function TTrustDelegateInteropRunner.BuildServerConfig(
   const ACryptoProvider: ICryptoProvider; const APkix: IPkixProvider;
   const ACell: TTrustCell; const ACaFile: string): ITlsServerConfig;
-const
-  // the resolver fetch budget for the live client-cert check; the OS fetch over loopback settles
-  // well within it
-  LiveDeadlineMs = Cardinal(10000);
 var
   LBuilder: ITlsConfigBuilder;
   LServer: ITlsServerConfigBuilder;
@@ -512,6 +546,8 @@ var
   LConfig: ITlsServerConfig;
   LEngine: ITlsEngine;
   LResolver: TOSLiveRevocationResolverBase;
+  LChecker: TLiveRevocationChecker;
+  LFallback: TCertificateVerdictResolver;
   LResult, LEcho: TInteropResult;
   LLiveCaFile: string;
 begin
@@ -534,24 +570,32 @@ begin
         LLiveCaFile := ACell.LiveClientCaFile;
         if LLiveCaFile = '' then
           LLiveCaFile := ACell.ClientCaFile;
-        LResolver := TOSSystemTrust.LiveRevocationResolver(
-          BuildServerConfig(LCrypto, LPkix, ACell, LLiveCaFile), nil);
+        LChecker := CreateFallbackChecker(LPkix, ACell, LLiveCaFile);
         try
-          LResult := TInteropPump.DriveHandshake(LEngine, LServerSocket,
-            LResolver.ResolveVerdict, False);
-          // accept path: echo the presenter's app data so both sides complete cleanly
-          if LResult.Status = TInteropStatus.Ok then
-          begin
-            repeat
-              LEcho := TInteropPump.PumpAppData(LEngine, LServerSocket);
-              if System.Length(LEcho.Data) > 0 then
-                TInteropPump.WriteAppData(LEngine, LServerSocket, LEcho.Data);
-            until LEcho.Status <> TInteropStatus.Ok;
-            if LEcho.Status = TInteropStatus.PeerClosed then
-              TInteropPump.Close(LEngine, LServerSocket);
+          LFallback := nil;
+          if LChecker <> nil then
+            LFallback := LChecker.ResolveVerdict;
+          LResolver := TOSSystemTrust.LiveRevocationResolver(
+            BuildServerConfig(LCrypto, LPkix, ACell, LLiveCaFile), LFallback);
+          try
+            LResult := TInteropPump.DriveHandshake(LEngine, LServerSocket,
+              LResolver.ResolveVerdict, False);
+            // accept path: echo the presenter's app data so both sides complete cleanly
+            if LResult.Status = TInteropStatus.Ok then
+            begin
+              repeat
+                LEcho := TInteropPump.PumpAppData(LEngine, LServerSocket);
+                if System.Length(LEcho.Data) > 0 then
+                  TInteropPump.WriteAppData(LEngine, LServerSocket, LEcho.Data);
+              until LEcho.Status <> TInteropStatus.Ok;
+              if LEcho.Status = TInteropStatus.PeerClosed then
+                TInteropPump.Close(LEngine, LServerSocket);
+            end;
+          finally
+            LResolver.Free;
           end;
         finally
-          LResolver.Free;
+          LChecker.Free;
         end;
       finally
         // free the server socket BEFORE WaitFor: it sends the FIN the presenter's drain-close is
@@ -631,6 +675,14 @@ begin
         raise Exception.Create('--role server verifies through the OS delegate, not os-anchors');
       LCell.Delegate := True;
       LCell.Live := True;
+    end;
+    LCell.LiveFallback := HasArg('--live-fallback');
+    if LCell.LiveFallback then
+    begin
+      if not SameText(ArgValue('--live-fallback', ''), 'portable') then
+        raise Exception.Create('--live-fallback takes portable');
+      if not LCell.Live then
+        raise Exception.Create('--live-fallback needs a live cell');
     end;
     LCell.RootFile := ArgValue('--root', '');
     LCell.HostRootFile := ArgValue('--host-root', '');
