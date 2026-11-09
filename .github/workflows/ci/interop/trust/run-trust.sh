@@ -35,6 +35,9 @@
 #                 exclusivity cell (foreign resolver CA) runs inside the install bracket, where it can
 #                 discriminate. Its revoked(44)/indeterminate(113) alerts come from our resolver, not
 #                 the OS map, so they are asserted exactly on both platforms.
+#   * live fallback - where the OS refuses the loopback OCSP responder by policy (detected at run
+#                 time from trustd's log), the live cells run with the portable fallback instead and
+#                 the no-fallback cells pin the posture verdict; the degraded mode is announced.
 #   * Windows AUTOROOT - informational, off unless MAKE_RUN_AUTOROOT=true, github-hosted CI only: removes one public root (and only it)
 #                 from the stores, builds a chain for its public intermediate under our inline/live
 #                 flags vs a control, and reports whether crypt32 re-installs the root. Always restored.
@@ -52,6 +55,8 @@ CA="$TMP/ca"
 RUNID="tlslib-trust-$(date +%s)-$$"
 INSTALLED=0
 FAILURES=0
+# 1 once the OS has been seen refusing the loopback responder by policy (see live_os_fetch_probe)
+LIVE_FALLBACK=0
 OSNAME="$(uname -s)"
 # a per-run loopback port + URL for the live OCSP responder (the live cells fetch it)
 OCSP_PORT=$(( 20000 + (RANDOM % 20000) ))
@@ -272,6 +277,43 @@ cell() { # <label> <shim-args...>
   fi
 }
 
+live_cell() { # <label> <shim-args...>: a cell that has the OS fetch OCSP from the loopback responder
+  local label="$1"; shift
+  if [ "$LIVE_FALLBACK" = 1 ]; then
+    cell "$label (portable fallback)" "$@" --live-fallback portable
+  else
+    cell "$label" "$@"
+  fi
+}
+
+live_os_fetch_probe() {
+  # the server role needs no root install, so this can run before the bracket
+  local log_start trustd_log
+  log_start="$(date '+%Y-%m-%d %H:%M:%S')"
+  if ci_run_bounded 120 "$SHIM" --role server --tls-version 13 \
+    --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+    --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_revoked.pem" \
+    --client-key "$CA/live_client_revoked.key" --client-ca "$CA/root.pem" \
+    --posture hard --expect reject:44 > "$TMP/probe" 2>&1; then
+    return 0
+  fi
+  trustd_log="$(ci_run_bounded 120 sudo -n log show --start "$log_start" --info --debug \
+    --predicate 'process == "trustd" AND eventMessage CONTAINS "SSRF-denied destination for OCSPFetchDelegate"' \
+    2>/dev/null || true)"
+  if [ -z "$trustd_log" ]; then
+    trustd_log="$(ci_run_bounded 120 log show --start "$log_start" --info --debug \
+      --predicate 'process == "trustd" AND eventMessage CONTAINS "SSRF-denied destination for OCSPFetchDelegate"' \
+      2>/dev/null || true)"
+  fi
+  case "$trustd_log" in
+    *SSRF-denied*)
+      LIVE_FALLBACK=1
+      echo "::warning::LIVE-OS-FETCH: UNVERIFIED (the OS refused the loopback responder by policy); live cells run with the portable fallback" ;;
+    *)
+      echo "  live-fetch probe failed without an OS refusal: $(cat "$TMP/probe")" ;;
+  esac
+}
+
 echo "=== portable verifier (generated CA, no OS store) ==="
 for V in 13 12; do
   cell "[$V] accept (good/Hard)" --tls-version $V --trust-mode portable --root "$CA/root.pem" \
@@ -314,18 +356,28 @@ if [ "$HAS_DELEGATE" = 1 ]; then
   # platforms. The server presents a root-signed server cert the in-process client presenter trusts;
   # the presenter offers the client leaf, whose AIA the OS server re-checks against the responder.
   echo "=== OS trust delegate: server verifies client certificate (live) ==="
+  if [ "$OSNAME" = "Darwin" ]; then
+    live_os_fetch_probe
+  fi
   for V in 13 12; do
-    cell "[$V] server live good client -> accept" --role server --tls-version $V \
+    live_cell "[$V] server live good client -> accept" --role server --tls-version $V \
       --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
       --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
       --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
       --posture hard --expect accept
-    cell "[$V] server live revoked client -> certificate_revoked" --role server --tls-version $V \
+    live_cell "[$V] server live revoked client -> certificate_revoked" --role server --tls-version $V \
       --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
       --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_revoked.pem" \
       --client-key "$CA/live_client_revoked.key" --client-ca "$CA/root.pem" \
       --posture hard --expect reject:44
   done
+  if [ "$LIVE_FALLBACK" = 1 ]; then
+    cell "server live good client (no fallback, Hard) -> bad_certificate_status_response" \
+      --role server --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+      --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
+      --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
+      --posture hard --expect reject:113
+  fi
 
   # OS distrust beats a host root: the run root is NOT installed here, only passed as --host-root, so a
   # path through the OS-distrusted intermediate relies on the host root and must still be refused. The
@@ -436,15 +488,26 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     # thread in the async park. Good -> accept under Hard; a definitive Revoked -> reject. No
     # --now-ms: a live response is produced at wall-clock time, so a fixed verify date would push
     # it outside its validity window.
-    cell "delegate live accept (2-tier, good/Hard)" --trust-mode os-delegate \
+    live_cell "delegate live accept (2-tier, good/Hard)" --trust-mode os-delegate \
       --revocation-fetch live --server-cert "$CA/live_leaf_fullchain.pem" \
       --server-key "$CA/live_leaf.key" --posture hard --expect accept
-    cell "delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
+    # where the OS refuses the responder, the designed degradation without a fallback is the posture
+    # verdict: Hard rejects, Soft accepts
+    if [ "$LIVE_FALLBACK" = 1 ]; then
+      cell "delegate live good (no fallback, Hard) -> bad_certificate_status_response" \
+        --trust-mode os-delegate --revocation-fetch live \
+        --server-cert "$CA/live_leaf_fullchain.pem" --server-key "$CA/live_leaf.key" \
+        --posture hard --expect reject:113
+      cell "delegate live good (no fallback, Soft) -> accept" --trust-mode os-delegate \
+        --revocation-fetch live --server-cert "$CA/live_leaf_fullchain.pem" \
+        --server-key "$CA/live_leaf.key" --posture soft --expect accept
+    fi
+    live_cell "delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
       --revocation-fetch live --server-cert "$CA/live_revoked_leaf_fullchain.pem" \
       --server-key "$CA/live_revoked_leaf.key" --posture hard --expect reject:44
     # with live fetch, host roots alone still decide: the run root alone accepts, and an unrelated
     # host root rejects although the OS trusts the installed run root (the OS roots never vouch)
-    cell "delegate live host root alone -> accept" --trust-mode os-delegate \
+    live_cell "delegate live host root alone -> accept" --trust-mode os-delegate \
       --revocation-fetch live --host-root "$CA/root.pem" --host-roots-alone \
       --server-cert "$CA/live_leaf_fullchain.pem" --server-key "$CA/live_leaf.key" \
       --posture hard --expect accept
@@ -454,19 +517,19 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --server-key "$CA/live_leaf.key" --posture hard --expect reject:48
     # the same live accept/revoked pair over TLS 1.2: the 1.2 client cert-verdict park is a separate
     # code path from the 1.3 one and is otherwise unexercised on the client side
-    cell "[12] delegate live accept (2-tier, good/Hard)" --trust-mode os-delegate \
+    live_cell "[12] delegate live accept (2-tier, good/Hard)" --trust-mode os-delegate \
       --revocation-fetch live --tls-version 12 --server-cert "$CA/live_leaf_fullchain.pem" \
       --server-key "$CA/live_leaf.key" --posture hard --expect accept
-    cell "[12] delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
+    live_cell "[12] delegate live revoked -> certificate_revoked" --trust-mode os-delegate \
       --revocation-fetch live --tls-version 12 --server-cert "$CA/live_revoked_leaf_fullchain.pem" \
       --server-key "$CA/live_revoked_leaf.key" --posture hard --expect reject:44
     # an RSA-2048 revoked leaf over the same live path: the OS engine renders Revoked from the fetched
     # OCSP before any key-type-dependent check, so an RSA leaf must still surface 44 (not divert to the
     # library key-strength alert). Both engines are algorithm-agnostic on revocation, so it runs on both.
-    cell "delegate live revoked RSA leaf -> certificate_revoked" --trust-mode os-delegate \
+    live_cell "delegate live revoked RSA leaf -> certificate_revoked" --trust-mode os-delegate \
       --revocation-fetch live --server-cert "$CA/live_revoked_leaf_rsa_fullchain.pem" \
       --server-key "$CA/live_revoked_leaf_rsa.key" --posture hard --expect reject:44
-    cell "[12] delegate live revoked RSA leaf -> certificate_revoked" --trust-mode os-delegate \
+    live_cell "[12] delegate live revoked RSA leaf -> certificate_revoked" --trust-mode os-delegate \
       --revocation-fetch live --tls-version 12 --server-cert "$CA/live_revoked_leaf_rsa_fullchain.pem" \
       --server-key "$CA/live_revoked_leaf_rsa.key" --posture hard --expect reject:44
     # revocation sourced from a CRL, not OCSP (Windows only). The leaf has no OCSP AIA and a reachable
@@ -497,12 +560,12 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     # would then find it and accept; without the install both a sound and a broken path reject (vacuous),
     # which is why this pair runs inside the bracket. A baseline good->accept with the identical inline
     # config runs first, so a reject is attributable to the resolver's foreign anchor, not the inline pass.
-    cell "server live exclusivity baseline -> accept" --role server \
+    live_cell "server live exclusivity baseline -> accept" --role server \
       --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
       --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
       --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
       --posture hard --expect accept
-    cell "server live exclusivity (foreign resolver CA) -> reject" --role server \
+    live_cell "server live exclusivity (foreign resolver CA) -> reject" --role server \
       --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
       --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
       --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
@@ -579,6 +642,18 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
     --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
     --posture hard --expect reject:113
+  # the same dead port with the portable fallback wired: it dials the port too, and the posture
+  # still decides, so the fallback wiring and lifetimes run on every OS-delegate platform
+  cell "server live unreachable client (Soft, portable fallback) -> accept" --role server \
+    --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+    --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
+    --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
+    --posture soft --expect accept --live-fallback portable
+  cell "server live unreachable client (Hard, portable fallback) -> bad_certificate_status_response" \
+    --role server --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
+    --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
+    --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
+    --posture hard --expect reject:113 --live-fallback portable
 else
   echo "=== OS trust delegate: SKIPPED (no OS delegate on $OSNAME) ==="
 fi

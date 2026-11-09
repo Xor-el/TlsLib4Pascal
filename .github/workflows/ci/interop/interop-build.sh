@@ -45,6 +45,8 @@ SRC="$INTEROP/src"
 CRYPTO_SYSTEM_SRC="$REPO_ROOT/TlsLib.Crypto.System/src"
 # the OS-trust package is likewise layered from source (the TrustDelegateInterop shim needs it)
 TRUST_SYSTEM_SRC="$REPO_ROOT/TlsLib.Trust.System/src"
+# the socket HTTP fetcher the trust shim's portable live-revocation fallback uses
+NET_SRC="$REPO_ROOT/TlsLib.Net/src"
 # the provider selector shared with the unit suites
 TEST_SRC="$REPO_ROOT/TlsLib.Tests/src"
 LPR_DIR="$INTEROP/FreePascal.Interop"
@@ -84,7 +86,7 @@ compile() {  # <program-name>
   fpc "-T$OS" "-P$CPU" -MDelphi -O2 -B \
     -Fu"$(to_native "$CRYPTO_UNITS")" -Fu"$(to_native "$HASH_UNITS")" \
     -Fu"$(to_native "$SB_UNITS")" -Fu"$(to_native "$TLS_UNITS")" \
-    -Fu"$(to_native "$CRYPTO_SYSTEM_SRC")" -Fu"$(to_native "$TRUST_SYSTEM_SRC")" \
+    -Fu"$(to_native "$CRYPTO_SYSTEM_SRC")" -Fu"$(to_native "$TRUST_SYSTEM_SRC")" -Fu"$(to_native "$NET_SRC")" \
     -Fu"$(to_native "$SRC")" -Fu"$(to_native "$TEST_SRC")" \
     -FU"$(to_native "$BUILD_DIR")" -o"$(to_native "$BIN_DIR/$1$EXE")" "$(to_native "$LPR_DIR/$1.lpr")"
 }
