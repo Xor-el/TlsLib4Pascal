@@ -208,6 +208,9 @@ type
     FAnchors: TArray<TBytes>;
     FExtraAnchors: TArray<TBytes>;
     FDistrusted: TArray<TBytes>;
+    /// <summary>The roots AStore holds beyond the ones the source carries: those the source
+    /// distrusts or already trusts are left out, and each root is taken once.</summary>
+    function ContextRoots(const AStore: ITrustAnchorStore): TArray<TBytes>;
   public
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
       AScope: TSystemTrustRootScope; const AHostRoots, ADistrusted: TArray<TBytes>);
@@ -266,7 +269,7 @@ begin
   // carry the must-staple binding inputs so the delegate enforces RFC 7633 as the built-in does
   Result.StatusRequestOffered := AContext.StatusRequestOffered;
   Result.Occasion := AContext.Occasion;
-  // the source overlays its own roots; the context carries none
+  // the source overlays its own roots and those the context adds
   Result.Anchors := nil;
   Result.DeadlineMs := 0;
 end;
@@ -557,6 +560,10 @@ begin
   // path validity (name constraints) precedes revocation and strength, as in the built-in verifier
   if TDelegatePostChecks.RejectNameConstraintViolation(FPolicy.Pkix, AResult.Path, AAlert) then
     Exit(False);
+  // a self-signed anchor is trusted whatever its dates; any other is held to its validity window
+  if TDelegatePostChecks.RejectExpiredAnchor(FPolicy.Pkix, FPolicy.Clock, AResult.PolicyExempt,
+    AAlert) then
+    Exit(False);
   // an engine that renders its own revocation outcome (the OS folds revocation into its chain
   // verdict) decides it before the strength policy, so a chain that is both revoked and weak still
   // reports the revocation alert; an engine that renders none defers revocation to the staple below
@@ -729,10 +736,30 @@ begin
   FDistrusted := TArrayUtilities.DeepCopy<Byte>(ADistrusted);
 end;
 
+function TOSVerifierSource.ContextRoots(const AStore: ITrustAnchorStore): TArray<TBytes>;
+var
+  LRoots, LHeld: TArray<TBytes>;
+  LI: Int32;
+begin
+  Result := nil;
+  if AStore = nil then
+    Exit;
+  LHeld := TArrayUtilities.Concat<TBytes>(TArrayUtilities.Concat<TBytes>(FDistrusted, FAnchors),
+    FExtraAnchors);
+  LRoots := AStore.RootCertificates;
+  for LI := 0 to System.High(LRoots) do
+    if not TDelegateEvaluation.PathIsDistrusted(TArray<TBytes>.Create(LRoots[LI]), LHeld) then
+    begin
+      TArrayUtilities.Append<TBytes>(Result, LRoots[LI]);
+      TArrayUtilities.Append<TBytes>(LHeld, LRoots[LI]);
+    end;
+end;
+
 function TOSVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 var
   LPolicy: TOSDelegatePolicy;
+  LContextRoots: TArray<TBytes>;
 begin
   if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
@@ -740,6 +767,19 @@ begin
   LPolicy.Anchors := FAnchors;
   LPolicy.ExtraAnchors := FExtraAnchors;
   LPolicy.Distrusted := FDistrusted;
+  // roots the connection adds (issuers found for this peer) are trusted beside the source's own
+  LContextRoots := ContextRoots(AContext.TrustStore);
+  if System.Length(LContextRoots) > 0 then
+  begin
+    if FEngine.Capabilities * [TPlatformChainCapability.NativeAnchorUnion,
+      TPlatformChainCapability.ExclusiveServerAnchors] = [] then
+      raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustOsAndHostRoots);
+    // beside an exclusive Anchors the engine ignores ExtraAnchors, so the roots join that set
+    if System.Length(FAnchors) > 0 then
+      LPolicy.Anchors := TArrayUtilities.Concat<TBytes>(FAnchors, LContextRoots)
+    else
+      LPolicy.ExtraAnchors := TArrayUtilities.Concat<TBytes>(FExtraAnchors, LContextRoots);
+  end;
   Result := TOSDelegateServerVerifier.Create(FEngine, LPolicy) as IServerCertificateVerifier;
 end;
 
@@ -841,6 +881,9 @@ begin
   if not LTrusted then
     Exit(False);
   if TDelegatePostChecks.RejectNameConstraintViolation(FPolicy.Pkix, LResult.Path,
+    ARejectAlert) then
+    Exit(False);
+  if TDelegatePostChecks.RejectExpiredAnchor(FPolicy.Pkix, FPolicy.Clock, LResult.PolicyExempt,
     ARejectAlert) then
     Exit(False);
   // apply the strength policy over the live-built path when the platform trusted revocation too

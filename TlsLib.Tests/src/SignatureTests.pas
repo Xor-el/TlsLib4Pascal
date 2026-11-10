@@ -112,6 +112,7 @@ type
     function KeyIsRsaPss: TCertAnswer;
     function IsCertificateAuthority: TCertAnswer;
     function IsSelfSigned: TCertAnswer;
+    function IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
@@ -169,6 +170,11 @@ end;
 function TUndecodableKeyUsageLeaf.IsSelfSigned: TCertAnswer;
 begin
   Result := FInner.IsSelfSigned;
+end;
+
+function TUndecodableKeyUsageLeaf.IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
+begin
+  Result := FInner.IsValidAt(AValidationTimeUtc);
 end;
 
 function TUndecodableKeyUsageLeaf.KeyKind(out AKind: TSignatureKeyKind;

@@ -33,7 +33,7 @@ type
   /// shared across threads.
   /// </summary>
   IInspectedCertificate = interface(IInterface)
-    ['{A814FAE5-8749-4E37-B664-01D67BBBF420}']
+    ['{3F6B0C7A-52D1-4E8B-9A64-C1D7E0B2A915}']
     function PublicKeyInfo: TBytes;
     /// <summary>The DER Name of the certificate's issuer.</summary>
     function IssuerName: TBytes;
@@ -66,6 +66,12 @@ type
     /// cannot verify; Undetermined when the names cannot be read.
     /// </summary>
     function IsSelfSigned: TCertAnswer;
+    /// <summary>
+    /// Whether AValidationTimeUtc lies within the certificate's validity window (RFC 5280 4.1.2.5,
+    /// notBefore and notAfter inclusive): Yes inside it, No before notBefore or after notAfter,
+    /// Undetermined when the dates cannot be read.
+    /// </summary>
+    function IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     /// <summary>
     /// The subject public key's strength facts (family, size, curve). Returns False (facts

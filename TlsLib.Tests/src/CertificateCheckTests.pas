@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpPkixDomainTypes,
+  TlpDateTimeUtilities,
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
   MockPkixProvider,
@@ -65,6 +66,10 @@ type
     procedure TestDifferentNamesAreNotTheSameName;
     procedure TestRdnOrderMakesADifferentName;
     procedure TestUndecodableNamesAreNotDetermined;
+    // validity window (IsValidAt)
+    procedure TestInstantInsideTheWindowIsValid;
+    procedure TestInstantAfterTheEndIsNotValid;
+    procedure TestInstantBeforeTheStartIsNotValid;
     // keyUsage (CertificateKeyUsagePermits)
     procedure TestDigitalSignatureCertPermitsSigning;
     procedure TestKeyEnciphermentCertForbidsSigning;
@@ -222,6 +227,33 @@ begin
     Ord(Pkix.Certificates.SameName(TBytes.Create(7, 7, 7), LName)), 'garbage as the first name');
   CheckEquals(Ord(TCertAnswer.Undetermined),
     Ord(Pkix.Certificates.SameName(LName, nil)), 'nothing as the second name');
+end;
+
+procedure TTestCertificateChecks.TestInstantInsideTheWindowIsValid;
+begin
+  // ae_inter is valid 2020-01-01T00:00:00Z to 2030-01-01T00:00:00Z; this is 2025-01-01
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1735689600000))),
+    'a certificate is valid inside its window');
+end;
+
+procedure TTestCertificateChecks.TestInstantAfterTheEndIsNotValid;
+begin
+  // one second after 2030-01-01T00:00:00Z
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1893456001000))),
+    'a certificate is not valid after its end');
+end;
+
+procedure TTestCertificateChecks.TestInstantBeforeTheStartIsNotValid;
+begin
+  // one second before 2020-01-01T00:00:00Z
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1577836799000))),
+    'a certificate is not valid before its start');
 end;
 
 function TTestCertificateChecks.Permits(const ACertName: string;

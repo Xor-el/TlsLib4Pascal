@@ -113,6 +113,7 @@ type
     function KeyIsRsaPss: TCertAnswer;
     function IsCertificateAuthority: TCertAnswer;
     function IsSelfSigned: TCertAnswer;
+    function IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
@@ -2077,6 +2078,18 @@ begin
     Result := TCertAnswer.Yes
   else
     Result := TCertAnswer.No;
+end;
+
+function TInspectedCertificate.IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
+begin
+  try
+    if FCert.IsValid(AValidationTimeUtc) then
+      Result := TCertAnswer.Yes
+    else
+      Result := TCertAnswer.No;
+  except
+    Result := TCertAnswer.Undetermined;
+  end;
 end;
 
 function TInspectedCertificate.PeerInfo(out ASubject, AIssuer, ACommonName,
