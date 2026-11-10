@@ -458,13 +458,10 @@ resourcestring
     'certificate whose subject cannot be hashed';
   SFclNetTrustedCertsDirEmpty = 'CertificateData.TrustedCertsDir ''%s'' holds no hashed ' +
     'certificate files (<hash>.0, <hash>.1, ...); run openssl rehash on it';
-  SFclNetTrustedCertsDirFileTooLarge = 'CertificateData.TrustedCertsDir file ''%s'' is larger ' +
-    'than %d bytes';
 
 const
   ShutdownReadWrite = 2;
   CancelPollMs = 100;
-  MaxHashedFileBytes = 1048576;
 
 type
   /// <summary>The directory scan behind CertificateData.TrustedCertsDir.</summary>
@@ -491,8 +488,7 @@ type
     /// <summary>Whether a listed entry, followed once through a link, is a regular file; a link
     /// hands its target's attributes to AEntry.</summary>
     class function ProbeHashedFile(const APath: string; AEntry: TListedEntry): Boolean; static;
-    /// <summary>The bytes of a hashed file; a file that cannot be read, or is larger than
-    /// MaxHashedFileBytes, refuses.</summary>
+    /// <summary>The bytes of a hashed file; a file that cannot be read refuses.</summary>
     class function ReadHashedFile(const APath: string): TBytes; static;
     /// <summary>Appends to AAnchors the certificates of the PEM file APath, whose content is
     /// AContent, that belong under APrefix, and returns how many. A file that is not PEM or holds
@@ -1054,9 +1050,6 @@ begin
     LStream := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
     try
       LSize := LStream.Size;
-      if LSize > MaxHashedFileBytes then
-        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-          @SFclNetTrustedCertsDirFileTooLarge, [APath, MaxHashedFileBytes]);
       SetLength(Result, LSize);
       if LSize > 0 then
         LStream.ReadBuffer(Result[0], LSize);

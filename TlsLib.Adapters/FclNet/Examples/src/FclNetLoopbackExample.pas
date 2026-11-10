@@ -100,7 +100,7 @@ const
   RECV_CYCLES = 50;
   LONG_IO_TIMEOUT_MS = 10000;
   TEARDOWN_LIMIT_MS = 6000; // ending a read must not wait for the read timeout, which is longer
-  HASHED_FILE_LIMIT = 1048576;
+  PADDED_FILE_BYTES = 1048577;
   PARK_MS = 100; // time for the worker to reach its blocking call after it announces itself
   WATCHDOG_MS = 5000;
   DESTROY_GRACE_MS = 300;
@@ -2439,21 +2439,12 @@ begin
   ExpectRefused('an empty hashed file', LEcho, LError, LHashed);
   AServer.WaitSettled;
 
-  // a file is read whole before it is parsed, so its size is bounded
-  LDir := NewDir(ABase, 'atlimit');
+  LDir := NewDir(ABase, 'padded');
   LHashed := LDir + LRootName + '.0';
   TVectorLocator.WritePemTo(LHashed, 'CERTIFICATE', [ARootHex]);
-  TVectorLocator.PadTo(LHashed, HASHED_FILE_LIMIT);
+  TVectorLocator.PadTo(LHashed, PADDED_FILE_BYTES);
   LEcho := Echo(LDir, '', LError);
-  ExpectEquals('a hashed file of the largest size', 'verify', LEcho, LError);
-
-  LDir := NewDir(ABase, 'overlimit');
-  LHashed := LDir + LRootName + '.0';
-  TVectorLocator.WritePemTo(LHashed, 'CERTIFICATE', [ARootHex]);
-  TVectorLocator.PadTo(LHashed, HASHED_FILE_LIMIT + 1);
-  LEcho := Echo(LDir, '', LError);
-  ExpectRefused('a hashed file over the size limit', LEcho, LError, 'is larger than');
-  AServer.WaitSettled;
+  ExpectEquals('a hashed file larger than a megabyte', 'verify', LEcho, LError);
 end;
 
 class procedure TTrustedCertsDirCheck.Run;
