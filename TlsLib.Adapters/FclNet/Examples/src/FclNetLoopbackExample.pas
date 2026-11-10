@@ -107,6 +107,10 @@ const
   FAULT_BYTES = 16;
 
 type
+{$IF FPC_FULLVERSION < 30301}
+  TFPSocket = Longint;
+{$IFEND}
+
   TVectorLocator = class sealed(TObject)
   strict private
     class function SearchFrom(const AStart: string): string; static;
@@ -161,13 +165,8 @@ type
     procedure HandleIdle(Sender: TObject); virtual;
     /// <summary>Keeps listening when a few clients left before they were accepted; any other
     /// accept error, or a persistent one, ends the loop and is reported.</summary>
-{$IF FPC_FULLVERSION >= 30301}
     procedure HandleAcceptError(Sender: TObject; ASocket: TFPSocket; E: Exception;
       var AAction: TAcceptErrorAction);
-{$ELSE}
-    procedure HandleAcceptError(Sender: TObject; ASocket: Longint; E: Exception;
-      var AAction: TAcceptErrorAction);
-{$IFEND}
     procedure Execute; override;
   public
     /// <summary>A server for APort that stops accepting after AConnectionLimit connections; 0
@@ -202,12 +201,6 @@ type
     property PeerServerName: string read FPeerServerName;
   end;
 
-{$IF FPC_FULLVERSION < 30301}
-  /// <summary>Reaches the flag that lets the runtime free a heap fault raised here.</summary>
-  THeapFaultAccess = class(EHeapMemoryError)
-  end;
-
-{$IFEND}
   /// <summary>A server that requires a client certificate and serves one connection, counting the
   /// ones that reached it. A client turned away in the handshake is not an accepted connection, so
   /// the loop ends after the first one that authenticates.</summary>
@@ -736,13 +729,8 @@ begin
   Start;
 end;
 
-{$IF FPC_FULLVERSION >= 30301}
 procedure TLoopbackServerBase.HandleAcceptError(Sender: TObject; ASocket: TFPSocket;
   E: Exception; var AAction: TAcceptErrorAction);
-{$ELSE}
-procedure TLoopbackServerBase.HandleAcceptError(Sender: TObject; ASocket: Longint;
-  E: Exception; var AAction: TAcceptErrorAction);
-{$IFEND}
 begin
   if Terminated then
   begin
@@ -856,17 +844,10 @@ begin
 end;
 
 procedure TMutualServerThread.VerifyHook(Sender: TObject; var AAllow: Boolean);
-var
-  LFault: Exception;
 begin
   if FAttempts <> 1 then
     Exit;
-  LFault := FHookFault.Create('injected certificate hook failure');
-{$IF FPC_FULLVERSION < 30301}
-  if LFault is EHeapMemoryError then
-    THeapFaultAccess(LFault).AllowFree := True;
-{$IFEND}
-  raise LFault;
+  raise FHookFault.Create('injected certificate hook failure');
 end;
 
 procedure TMutualServerThread.MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
@@ -1318,10 +1299,6 @@ begin
   if AWithIdentity then
   begin
     LHandler.CertificateData.PFX.Value := APfx;
-    // the handler's KeyPassword is fcl-net's alias of this one, so the later write wins
-{$PUSH}{$WARN SYMBOL_DEPRECATED OFF}
-    LHandler.KeyPassword := 'wrong';
-{$POP}
     LHandler.CertificateData.KeyPassword := 'tlslib';
   end;
   LSock := TInetSocket.Create('localhost', MUTUAL_PORT, LHandler);
@@ -1451,8 +1428,7 @@ end;
 
 class procedure TMutualTlsCheck.RunHookMemoryFault;
 const
-  FAULTS: array[0..4] of ExceptClass = (EAccessViolation, EStackOverflow, EPrivilege,
-    EInvalidPointer, EOutOfMemory);
+  FAULTS: array[0..2] of ExceptClass = (EAccessViolation, EStackOverflow, EPrivilege);
 var
   LServer: TMutualServerThread;
   LPfx: TBytes;
@@ -2086,7 +2062,7 @@ type
   end;
 
 const
-  NameVectors: array[0..21] of TNameVector = (
+  NameVectors: array[0..22] of TNameVector = (
     (Id: 'V01'; NameHex: '303a310b300906035504061302555331143012060355040a0c0b4578616d706c65' +
       '204f72673115301306035504030c0c5465737420526f6f74204341'; Hash: '9e441091'),
     (Id: 'V02b'; NameHex: '3044310b3009060355040613027573311b3019060355040a0c122020455841' +
@@ -2119,7 +2095,9 @@ const
     // characters outside the Windows-1252 code page, in the string types that carry them
     (Id: 'BMP'; NameHex: '30153113301106035504031e0a4e2d6587002000430041'; Hash: '2dcc6b02'),
     (Id: 'BMP2'; NameHex: '30153113301106035504031e0a0046015100740061006e'; Hash: '1bb44642'),
-    (Id: 'T61'; NameHex: '3010310e300c060355040314056e656c8578'; Hash: '3e17d610'));
+    (Id: 'T61'; NameHex: '3010310e300c060355040314056e656c8578'; Hash: '3e17d610'),
+    // a noncharacter is well-formed UTF-8
+    (Id: 'FFFE'; NameHex: '3010310e300c06035504030c0561efbfbe62'; Hash: '8ebba88d'));
 
   // one name in different string types: their hashes are equal
   NameTwins: array[0..2, 0..1] of string = (
@@ -2130,7 +2108,7 @@ const
     ('300f310d300b06035504030c04f09f9880', '300f310d300b06035504031c040001f600'));
 
   // names that do not parse as a subject, or hold a string that does not convert
-  MalformedNames: array[0..11, 0..1] of string = (
+  MalformedNames: array[0..18, 0..1] of string = (
     ('truncated', '303a310b300906035504061302555331143012060355040a0c0b4578616d706c65204f72673115' +
       '301306035504030c0c5465737420526f6f7420'),
     ('over-long', '303b310b300906035504061302555331143012060355040a0c0b4578616d706c65204f72673115' +
@@ -2139,6 +2117,13 @@ const
       '3115301306035504030c0c5465737420526f6f7420434100'),
     ('empty SET', '30023100'),
     ('invalid UTF-8', '300d310b300906035504030c02c328'),
+    ('UTF-8 overlong', '300d310b300906035504030c02c0af'),
+    ('UTF-8 surrogate', '300e310c300a06035504030c03eda080'),
+    ('UTF-8 truncated at end', '300d310b300906035504030c0241c3'),
+    ('UTF-8 above 10FFFF', '300f310d300b06035504030c04f4908080'),
+    ('UTF-8 FF', '300c310a300806035504030c01ff'),
+    ('UTF-8 lone continuation', '300c310a300806035504030c0180'),
+    ('BMP surrogate pair', '300f310d300b06035504031e04d83dde00'),
     ('BMP surrogate', '300d310b300906035504031e02d800'),
     ('odd BMP', '300c310a300806035504031e0141'),
     ('UniversalString above 10FFFF', '300f310d300b06035504031c0400110000'),

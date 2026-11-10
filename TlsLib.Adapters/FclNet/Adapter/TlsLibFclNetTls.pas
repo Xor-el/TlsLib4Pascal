@@ -88,6 +88,9 @@ type
     /// when AParent is anything else.</summary>
     class function ChildContents(const AParent: TBytes; ATag: Byte;
       out AChildren: TArray<TBytes>): Boolean; static;
+    /// <summary>Whether AData is well-formed UTF-8: no overlong form, surrogate, code point above
+    /// 10FFFF or truncated sequence; noncharacters are accepted.</summary>
+    class function IsValidUtf8(const AData: TBytes): Boolean; static;
     /// <summary>A string value as UTF-8; False for a string type outside the supported set, a
     /// UTF-8 string that is not valid, or a surrogate or code point above 10FFFF.</summary>
     class function ToUtf8(ATag: Byte; const AValue: TBytes;
@@ -461,7 +464,6 @@ resourcestring
     'certificate files (<hash>.0, <hash>.1, ...); run openssl rehash on it';
 
 const
-  ShutdownReadWrite = 2;
   CancelPollMs = 100;
 
 type
@@ -532,11 +534,77 @@ begin
   Result := True;
 end;
 
+class function TOpenSslNameHash.IsValidUtf8(const AData: TBytes): Boolean;
+var
+  LPos, LNeed: Int32;
+  LLow, LHigh: Byte;
+begin
+  Result := False;
+  LPos := 0;
+  while LPos < System.Length(AData) do
+  begin
+    LLow := $80;
+    LHigh := $BF;
+    case AData[LPos] of
+      $00..$7F:
+        LNeed := 0;
+      $C2..$DF:
+        LNeed := 1;
+      $E0:
+        begin
+          LNeed := 2;
+          LLow := $A0;
+        end;
+      $E1..$EC, $EE..$EF:
+        LNeed := 2;
+      $ED:
+        begin
+          LNeed := 2;
+          LHigh := $9F;
+        end;
+      $F0:
+        begin
+          LNeed := 3;
+          LLow := $90;
+        end;
+      $F1..$F3:
+        LNeed := 3;
+      $F4:
+        begin
+          LNeed := 3;
+          LHigh := $8F;
+        end;
+    else
+      Exit;
+    end;
+    Inc(LPos);
+    if System.Length(AData) - LPos < LNeed then
+      Exit;
+    if LNeed > 0 then
+    begin
+      if (AData[LPos] < LLow) or (AData[LPos] > LHigh) then
+        Exit;
+      Inc(LPos);
+      Dec(LNeed);
+      while LNeed > 0 do
+      begin
+        if (AData[LPos] and $C0) <> $80 then
+          Exit;
+        Inc(LPos);
+        Dec(LNeed);
+      end;
+    end;
+  end;
+  Result := True;
+end;
+
 class function TOpenSslNameHash.ToUtf8(ATag: Byte; const AValue: TBytes;
   out AUtf8: TBytes): Boolean;
 var
   LText: UnicodeString;
-  LI, LUnits: Int32;
+  LUcs4: UCS4String;
+  LLatin1: TEncoding;
+  LI: Int32;
   LCode: UInt32;
 begin
   Result := False;
@@ -544,9 +612,10 @@ begin
   case ATag of
     TagUtf8String:
       begin
-        AUtf8 := TEncoding.UTF8.GetBytes(TEncoding.UTF8.GetString(AValue));
-        // a sequence that was not valid UTF-8 does not survive the round trip
-        Exit(TArrayUtilities.AreEqual(AUtf8, AValue));
+        if not IsValidUtf8(AValue) then
+          Exit;
+        AUtf8 := AValue;
+        Exit(True);
       end;
     TagBmpString:
       begin
@@ -564,39 +633,31 @@ begin
       begin
         if (System.Length(AValue) mod 4) <> 0 then
           Exit;
-        SetLength(LText, System.Length(AValue) div 4 * 2);
-        LUnits := 0;
+        // the code points and the terminating zero an UCS4String carries
+        SetLength(LUcs4, System.Length(AValue) div 4 + 1);
         for LI := 0 to System.Length(AValue) div 4 - 1 do
         begin
           LCode := TBinaryPrimitives.ReadUInt32BigEndian(AValue, LI * 4);
           if (LCode > $10FFFF) or ((LCode >= $D800) and (LCode <= $DFFF)) then
             Exit;
-          if LCode < $10000 then
-          begin
-            Inc(LUnits);
-            LText[LUnits] := WideChar(LCode);
-          end
-          else
-          begin
-            Dec(LCode, $10000);
-            LText[LUnits + 1] := WideChar($D800 + (LCode shr 10));
-            LText[LUnits + 2] := WideChar($DC00 + (LCode and $3FF));
-            Inc(LUnits, 2);
-          end;
+          LUcs4[LI] := LCode;
         end;
-        SetLength(LText, LUnits);
+        LText := UCS4StringToUnicodeString(LUcs4);
       end;
     // one byte per character, read as Latin-1
     TagPrintableString, TagT61String, TagIa5String:
       begin
-        SetLength(LText, System.Length(AValue));
-        for LI := 0 to System.High(AValue) do
-          LText[LI + 1] := WideChar(AValue[LI]);
+        LLatin1 := TEncoding.GetEncoding(28591);
+        try
+          LText := LLatin1.GetString(AValue);
+        finally
+          LLatin1.Free;
+        end;
       end;
   else
     Exit;
   end;
-  AUtf8 := TEncoding.UTF8.GetBytes(LText);
+  AUtf8 := BytesOf(UTF8Encode(LText));
   Result := True;
 end;
 
@@ -910,7 +971,7 @@ begin
   if Result then
     Exit;
   if Socket <> nil then
-    fpShutdown(Socket.Handle, ShutdownReadWrite);
+    fpShutdown(Socket.Handle, SHUT_RDWR);
   // the reader's own thread would never see the count fall
   if FReaderThread = GetCurrentThreadId then
     Exit;
@@ -1424,7 +1485,7 @@ begin
     FConnection.CloseNotifyQuietly;
   SetSSLActive(False);
   if BiDirectional and (Socket <> nil) then
-    fpShutdown(Socket.Handle, 1);
+    fpShutdown(Socket.Handle, SHUT_WR);
   Result := True;
 end;
 
