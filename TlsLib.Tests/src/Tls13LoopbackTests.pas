@@ -1855,7 +1855,7 @@ begin
     TCipherSuiteRegistry.CreateDefault(Crypto), TNamedGroups.CreateDefaultRegistry(Crypto),
     TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1, TNamedGroupCatalog.X25519),
     TArray<UInt16>.Create(TlsWireVersionTls13, TlsWireVersionTls12),
-    TServerCipherPreference.ServerOrder));
+    TServerCipherPreference.ServerOrder) as INegotiationPolicy);
   LClient.StartHandshake;
   Pump(LClient, LServer);
   Pump(LServer, LClient);

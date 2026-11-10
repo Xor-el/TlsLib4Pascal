@@ -2284,8 +2284,9 @@ procedure TTestTls12Resumption.TestReverifyFailureOffersNoSessionAndRunsFullHand
 var
   LClient: ITlsEngine;
 begin
-  CheckTrue(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom),
-    False, True, LClient), 'a declined session is not offered, so the server runs a full one');
+  CheckTrue(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, False, True, LClient),
+    'a declined session is not offered, so the server runs a full one');
   CheckFalse(LClient.ConnectionInfo.Resumed, 'the distrusted session was not resumed');
 end;
 
@@ -2328,8 +2329,9 @@ procedure TTestTls12Resumption.TestReverifyPassResumesTheSessionWithItsValidated
 var
   LClient: ITlsEngine;
 begin
-  CheckFalse(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom),
-    False, False, LClient), 'a session that passes the check is offered and resumed');
+  CheckFalse(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, False, False, LClient),
+    'a session that passes the check is offered and resumed');
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the session resumed');
   CheckTrue(System.Length(LClient.ConnectionInfo.ValidatedPath) > 0,
     'the offer-time check validated a path that the resumed connection reports');
@@ -2339,8 +2341,9 @@ procedure TTestTls12Resumption.TestDualVersionReverifyFailureOffersNoSessionAndR
 var
   LClient: ITlsEngine;
 begin
-  CheckTrue(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom),
-    True, True, LClient), 'a declined session is not offered, so the server runs a full one');
+  CheckTrue(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, True, True, LClient),
+    'a declined session is not offered, so the server runs a full one');
   CheckFalse(LClient.ConnectionInfo.Resumed, 'the distrusted session was not resumed');
 end;
 
@@ -2348,8 +2351,9 @@ procedure TTestTls12Resumption.TestDualVersionReverifyPassHandsItsValidatedPathT
 var
   LClient: ITlsEngine;
 begin
-  CheckFalse(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom),
-    True, False, LClient), 'a session that passes the check is offered and resumed');
+  CheckFalse(ReverifyResumeIsFull(TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom)
+    as ISessionTicketKeyManager, True, False, LClient),
+    'a session that passes the check is offered and resumed');
   CheckTrue(LClient.ConnectionInfo.Resumed, 'the session resumed');
   CheckTrue(System.Length(LClient.ConnectionInfo.ValidatedPath) > 0,
     'the parent''s validated path reached the 1.2 machine through the hand-off');

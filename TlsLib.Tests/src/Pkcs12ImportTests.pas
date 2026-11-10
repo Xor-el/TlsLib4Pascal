@@ -38,6 +38,7 @@ uses
   TlpITlsConfigBuilder,
   TlpITlsConfig,
   TlpICertificateTrust,
+  TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpServerName,
@@ -176,7 +177,8 @@ begin
   // feed the imported chain through the real certificate-verifier path: it must validate
   // to the test CA (leaf-first ordering + the CA present prove the chain wired through)
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(Blob('ca_cert_der'))), False);
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Blob('ca_cert_der'))) as ITrustAnchorStore,
+    False);
   LAlert := TTlsAlertDescription.InternalError;
   CheckTrue(LVerifier.VerifyServerCertificate(LCredential.CertificateChain, TServerName.DnsName(''), nil,
     LVerified, LAlert),
@@ -267,7 +269,8 @@ begin
   CheckTrue(KeyPairsLeaf(LCredential),
     AField + ': the private key pairs the selected leaf (CertificateChain[0])');
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(Blob('ca_cert_der'))), False);
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Blob('ca_cert_der'))) as ITrustAnchorStore,
+    False);
   LAlert := TTlsAlertDescription.InternalError;
   CheckTrue(LVerifier.VerifyServerCertificate(LCredential.CertificateChain,
     TServerName.DnsName(''), nil, LVerified, LAlert),
