@@ -1,0 +1,31 @@
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_f2c9bd75607afc::t_a1f789aab77c1e 2111
+  s_f2c9bd75607afc::t_70e3b7b880126d 110-113
+  s_f2c9bd75607afc::t_4dfc53209b42d1 2120-2126
+  s_f2c9bd75607afc::t_e1734b85023f3b 850
+  s_f2c9bd75607afc::t_f8d09350096ed0 2065
+  s_f2c9bd75607afc::t_d040bc614c10ea 2098-2100
+  s_f2c9bd75607afc::t_de071ed10edec6 1431
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_1ab7b39592c71d 91-93
+  s_f2c9bd75607afc::t_3ffd40f915888e 974
+  s_f2c9bd75607afc::t_aa39928c893f77 537-600,605-607,615-618
+  s_f2c9bd75607afc::t_ccef968121902f 1488
+  s_f2c9bd75607afc::t_95ed9960765b2c 636-637,643,645,650-655,660
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f6149c8a3a670c282bed83c5de703a0e12532ffb",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
