@@ -634,7 +634,7 @@ begin
     TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_1,
     TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32)), nil, ServerHost,
     Crypto.Primitives.GetRandom.GenerateBytes(32), 7200, 0,
-    UInt64(TSystemTimeUtilities.UtcUnixMs), 0, nil, nil));
+    UInt64(TSystemTimeUtilities.UtcUnixMs), 0, nil, nil) as IResumableSession);
   LClient := NewClient(LCache, False);
   LServer := NewServer(LStore, 1, 7200, True);
   DriveHandshake(LClient, LServer);

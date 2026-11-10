@@ -19,6 +19,7 @@ uses
   SysUtils,
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
+  TlpEnumUtilities,
   TlpICryptoProvider,
   TlpISecretBuffer,
   TlpSecretBuffer,
@@ -47,7 +48,7 @@ type
 implementation
 
 resourcestring
-  SNotProtocolHash = 'hash algorithm enum value %d is not a protocol hash';
+  SNotProtocolHash = 'hash algorithm %s is not a protocol hash';
 
 { TTls12PrfComposition }
 
@@ -56,7 +57,8 @@ constructor TTls12PrfComposition.Create(const APrimitives: ICryptoPrimitives;
 begin
   inherited Create;
   if not AHash.IsProtocolHash then
-    raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash, [Ord(AHash)]);
+    raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash,
+      [TEnumUtilities.GetName<THashAlgorithm>(AHash)]);
   FPrimitives := APrimitives;
   FHash := AHash;
 end;

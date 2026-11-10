@@ -2775,6 +2775,11 @@ var
   LHashSize: Int32;
 begin
   case AAlgorithm of
+    THashAlgorithm.SHA_1:
+      begin
+        LAlg := FHashSha1;
+        LHashSize := 20;
+      end;
     THashAlgorithm.SHA_256:
       begin
         LAlg := FHashSha256;
@@ -2789,11 +2794,6 @@ begin
       begin
         LAlg := FHashSha512;
         LHashSize := 64;
-      end;
-    THashAlgorithm.SHA_1:
-      begin
-        LAlg := FHashSha1;
-        LHashSize := 20;
       end;
   else
     LAlg := nil;
@@ -2812,14 +2812,14 @@ end;
 function TWindowsCng.HashAvailable(AAlgorithm: THashAlgorithm): Boolean;
 begin
   case AAlgorithm of
+    THashAlgorithm.SHA_1:
+      Result := FHashSha1 <> nil;
     THashAlgorithm.SHA_256:
       Result := FHashSha256 <> nil;
     THashAlgorithm.SHA_384:
       Result := FHashSha384 <> nil;
     THashAlgorithm.SHA_512:
       Result := FHashSha512 <> nil;
-    THashAlgorithm.SHA_1:
-      Result := FHashSha1 <> nil;
   else
     Result := False;
   end;

@@ -26,7 +26,7 @@ type
   /// carry separators so they round-trip to the provider backend by name (e.g.
   /// SHA_256 -> "SHA-256"); they are internal identifiers, never on the wire.
   /// </summary>
-  THashAlgorithm = (SHA_256, SHA_384, SHA_512, SHA_1);
+  THashAlgorithm = (SHA_1, SHA_256, SHA_384, SHA_512);
 
   /// <summary>The digest size and protocol standing of a hash algorithm.</summary>
   THashAlgorithmHelper = record helper for THashAlgorithm
@@ -231,14 +231,14 @@ resourcestring
 function THashAlgorithmHelper.ByteLength: Int32;
 begin
   case Self of
+    THashAlgorithm.SHA_1:
+      Result := 20;
     THashAlgorithm.SHA_256:
       Result := 32;
     THashAlgorithm.SHA_384:
       Result := 48;
     THashAlgorithm.SHA_512:
       Result := 64;
-    THashAlgorithm.SHA_1:
-      Result := 20;
   else
     raise ENotSupportedTlsLibException.CreateResFmt(@SNoHashLength, [Ord(Self)]);
   end;

@@ -238,7 +238,7 @@ resourcestring
   SMalformedPkcs12 = 'the PKCS#12 blob could not be read (wrong password, bad MAC, or malformed)';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
-  SNotProtocolHash = 'hash algorithm enum value %d is not a protocol hash';
+  SNotProtocolHash = 'hash algorithm %s is not a protocol hash';
 
 type
   TAeadKind = (AesGcm, ChaChaPoly);
@@ -1854,7 +1854,8 @@ end;
 class function TDigestResolver.Resolve(AAlgorithm: THashAlgorithm): IDigest;
 begin
   if not AAlgorithm.IsProtocolHash then
-    raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash, [Ord(AAlgorithm)]);
+    raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash,
+      [TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm)]);
   Result := TDigestUtilities.GetDigest(
     TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm));
 end;
