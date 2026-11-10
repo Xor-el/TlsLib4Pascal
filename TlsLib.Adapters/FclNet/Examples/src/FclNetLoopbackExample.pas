@@ -386,15 +386,15 @@ type
     /// <summary>A name of one common name, ASCII AText held in a string of
     /// AStringType.</summary>
     class function CommonName(AStringType: Byte; const AText: string): TBytes; static;
-    class procedure RunVectors; static;
-    class procedure RunMalformed; static;
+    class procedure RunVectors(const ACrypto: ICryptoProvider); static;
+    class procedure RunMalformed(const ACrypto: ICryptoProvider); static;
     /// <summary>Names that differ in case, in spacing and in string type share a hash.</summary>
-    class procedure RunEquivalent; static;
+    class procedure RunEquivalent(const ACrypto: ICryptoProvider); static;
     /// <summary>A corruption never raises, and some but not all corrupted names still
     /// hash.</summary>
-    class procedure RunCorruptions; static;
+    class procedure RunCorruptions(const ACrypto: ICryptoProvider); static;
   public
-    class procedure Run; static;
+    class procedure Run(const ACrypto: ICryptoProvider); static;
   end;
 
   /// <summary>The verdicts the checks that connect a client and compare what came back
@@ -2147,33 +2147,34 @@ const
     ('not a SEQUENCE', '310d310b300906035504030c02c328'),
     ('empty', ''));
 
-class procedure TNameHashCheck.RunVectors;
+class procedure TNameHashCheck.RunVectors(const ACrypto: ICryptoProvider);
 var
   LI: Integer;
   LGot: string;
 begin
   for LI := 0 to System.High(NameVectors) do
   begin
-    LGot := TOpenSslNameHash.OfName(TDataEncoding.HexDecode(NameVectors[LI].NameHex));
+    LGot := TOpenSslNameHash.OfName(ACrypto, TDataEncoding.HexDecode(NameVectors[LI].NameHex));
     if LGot <> NameVectors[LI].Hash then
       raise Exception.CreateFmt('name hash %s is "%s", not "%s"',
         [NameVectors[LI].Id, LGot, NameVectors[LI].Hash]);
   end;
   for LI := 0 to System.High(NameTwins) do
   begin
-    LGot := TOpenSslNameHash.OfName(TDataEncoding.HexDecode(NameTwins[LI, 0]));
-    if (LGot = '') or (LGot <> TOpenSslNameHash.OfName(TDataEncoding.HexDecode(NameTwins[LI, 1])))
-    then
+    LGot := TOpenSslNameHash.OfName(ACrypto, TDataEncoding.HexDecode(NameTwins[LI, 0]));
+    if (LGot = '') or
+      (LGot <> TOpenSslNameHash.OfName(ACrypto, TDataEncoding.HexDecode(NameTwins[LI, 1]))) then
       raise Exception.CreateFmt('the twin names %d do not share a hash', [LI]);
   end;
 end;
 
-class procedure TNameHashCheck.RunMalformed;
+class procedure TNameHashCheck.RunMalformed(const ACrypto: ICryptoProvider);
 var
   LI: Integer;
 begin
   for LI := 0 to System.High(MalformedNames) do
-    if TOpenSslNameHash.OfName(TDataEncoding.HexDecode(MalformedNames[LI, 1])) <> '' then
+    if TOpenSslNameHash.OfName(ACrypto, TDataEncoding.HexDecode(MalformedNames[LI, 1])) <> ''
+    then
       raise Exception.Create('the malformed name "' + MalformedNames[LI, 0] + '" got a hash');
 end;
 
@@ -2214,7 +2215,7 @@ begin
   Move(LValue[0], Result[13], System.Length(LValue));
 end;
 
-class procedure TNameHashCheck.RunEquivalent;
+class procedure TNameHashCheck.RunEquivalent(const ACrypto: ICryptoProvider);
 const
   ROUNDS = 20000;
   LETTERS = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -2247,8 +2248,8 @@ begin
       LLoud := LLoud + UpperCase(LText);
     end;
     LLoud := LLoud + StringOfChar(' ', Integer(NextRandom(LState) mod 3));
-    LPlainHash := TOpenSslNameHash.OfName(CommonName($0C, LPlain));
-    LLoudHash := TOpenSslNameHash.OfName(
+    LPlainHash := TOpenSslNameHash.OfName(ACrypto, CommonName($0C, LPlain));
+    LLoudHash := TOpenSslNameHash.OfName(ACrypto,
       CommonName(STRING_TYPES[NextRandom(LState) mod 3], LLoud));
     if (LPlainHash = '') or (LPlainHash <> LLoudHash) then
       raise Exception.CreateFmt('the names "%s" and "%s" hash as "%s" and "%s"',
@@ -2256,7 +2257,7 @@ begin
   end;
 end;
 
-class procedure TNameHashCheck.RunCorruptions;
+class procedure TNameHashCheck.RunCorruptions(const ACrypto: ICryptoProvider);
 const
   ROUNDS = 100000;
 var
@@ -2277,7 +2278,7 @@ begin
     end;
     if (LState and 7) = 0 then
       SetLength(LMutant, (LState shr 8) mod UInt32(System.Length(LMutant)));
-    if TOpenSslNameHash.OfName(LMutant) <> '' then
+    if TOpenSslNameHash.OfName(ACrypto, LMutant) <> '' then
       Inc(LHashed);
   end;
   // a corruption inside a string still hashes, one inside the structure does not
@@ -2285,12 +2286,12 @@ begin
     raise Exception.CreateFmt('%d of %d corrupted names were hashed', [LHashed, ROUNDS]);
 end;
 
-class procedure TNameHashCheck.Run;
+class procedure TNameHashCheck.Run(const ACrypto: ICryptoProvider);
 begin
-  RunVectors;
-  RunMalformed;
-  RunEquivalent;
-  RunCorruptions;
+  RunVectors(ACrypto);
+  RunMalformed(ACrypto);
+  RunEquivalent(ACrypto);
+  RunCorruptions(ACrypto);
 end;
 
 { TConnectCheckBase }
@@ -2877,7 +2878,7 @@ begin
   LVersion := '';
   TVectorLocator.Locate;
   try
-    TNameHashCheck.Run;
+    TNameHashCheck.Run(TDefaultCryptoProvider.Create as ICryptoProvider);
     LRoot := TVectorLocator.WriteDer('root', TVectorLocator.FieldHex('root_cert'));
 
     LServer := TServerThread.Create(TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_pfx')));

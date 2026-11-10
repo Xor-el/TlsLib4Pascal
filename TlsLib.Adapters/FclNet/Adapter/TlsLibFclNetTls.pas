@@ -52,7 +52,7 @@ uses
   TlpArrayUtilities,
   TlpBinaryPrimitives,
   TlpDataEncoding,
-  sha1,
+  TlpCryptoDomainTypes,
   TlpTlsCredential,
   TlpITlsTransport,
   TlpAlpnProtocols,
@@ -105,10 +105,11 @@ type
     /// <summary>The hash of the DER Name AName; empty when it does not parse strictly, is larger
     /// than 16 KiB, uses a string type outside the supported set or holds a string that does not
     /// convert.</summary>
-    class function OfName(const AName: TBytes): string; static;
+    class function OfName(const ACrypto: ICryptoProvider; const AName: TBytes): string; static;
     /// <summary>The file-name prefix of the DER certificate ACertificate; empty when its subject
     /// has no hash (see OfName).</summary>
-    class function OfCertificate(const ACertificate: TBytes): string; static;
+    class function OfCertificate(const ACrypto: ICryptoProvider;
+      const ACertificate: TBytes): string; static;
   end;
 
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
@@ -493,15 +494,15 @@ type
     /// <summary>Appends to AAnchors the certificates of the PEM file APath, whose content is
     /// AContent, that belong under APrefix, and returns how many. A file that is not PEM or holds
     /// no certificate, and a certificate that cannot be named, refuse.</summary>
-    class function AppendCertificates(const APath, APrefix: string; const AContent: TBytes;
-      var AAnchors: TArray<TTlsBlobSource>): Integer; static;
+    class function AppendCertificates(const ACrypto: ICryptoProvider; const APath, APrefix: string;
+      const AContent: TBytes; var AAnchors: TArray<TTlsBlobSource>): Integer; static;
   public
     /// <summary>Adds the trust anchors of a directory list the way a hashed certificate directory
     /// is read: per directory, each lowercase hex prefix's files prefix.0, prefix.1, ... up to the
     /// first missing number, all answered from one listing of the directory, each usable file read
     /// once. A certificate is an anchor only when the hash of its subject is the prefix it was
     /// found under.</summary>
-    class procedure AppendAnchors(const ADirs: string;
+    class procedure AppendAnchors(const ACrypto: ICryptoProvider; const ADirs: string;
       var AAnchors: TArray<TTlsBlobSource>); static;
   end;
 
@@ -693,14 +694,14 @@ begin
   Result := True;
 end;
 
-class function TOpenSslNameHash.OfName(const AName: TBytes): string;
+class function TOpenSslNameHash.OfName(const ACrypto: ICryptoProvider;
+  const AName: TBytes): string;
 var
   LTag: Byte;
   LContent, LLength, LNext, LI: Int32;
   LSets, LCanonical: TArray<TBytes>;
-  LAll, LPrefix: TBytes;
-  LContext: TSHA1Context;
-  LDigest: TSHA1Digest;
+  LAll, LDigest, LPrefix: TBytes;
+  LHash: IHash;
 begin
   Result := '';
   if (System.Length(AName) > MaxNameLength) or
@@ -714,10 +715,9 @@ begin
     if not CanonicalSet(LSets[LI], LCanonical[LI]) then
       Exit;
   LAll := TArrayUtilities.Concat(LCanonical);
-  SHA1Init(LContext);
-  if System.Length(LAll) > 0 then
-    SHA1Update(LContext, LAll[0], System.Length(LAll));
-  SHA1Final(LContext, LDigest);
+  LHash := ACrypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+  LHash.Update(LAll, 0, System.Length(LAll));
+  LDigest := LHash.DoFinal;
   LPrefix := TBytes.Create(LDigest[3], LDigest[2], LDigest[1], LDigest[0]);
   Result := TDataEncoding.HexEncode(LPrefix);
 end;
@@ -761,13 +761,14 @@ begin
   Result := True;
 end;
 
-class function TOpenSslNameHash.OfCertificate(const ACertificate: TBytes): string;
+class function TOpenSslNameHash.OfCertificate(const ACrypto: ICryptoProvider;
+  const ACertificate: TBytes): string;
 var
   LName: TBytes;
 begin
   Result := '';
   if SubjectName(ACertificate, LName) then
-    Result := OfName(LName);
+    Result := OfName(ACrypto, LName);
 end;
 
 { TFclNetSocketTransport }
@@ -1063,8 +1064,9 @@ begin
   end;
 end;
 
-class function THashedCertsDirectory.AppendCertificates(const APath, APrefix: string;
-  const AContent: TBytes; var AAnchors: TArray<TTlsBlobSource>): Integer;
+class function THashedCertsDirectory.AppendCertificates(const ACrypto: ICryptoProvider;
+  const APath, APrefix: string; const AContent: TBytes;
+  var AAnchors: TArray<TTlsBlobSource>): Integer;
 var
   LBlocks: TArray<TPemBlock>;
   LI: Integer;
@@ -1085,7 +1087,7 @@ begin
     if LBlocks[LI].PemType <> 'CERTIFICATE' then
       Continue;
     LHasCertificate := True;
-    LHashedName := TOpenSslNameHash.OfCertificate(LBlocks[LI].Content);
+    LHashedName := TOpenSslNameHash.OfCertificate(ACrypto, LBlocks[LI].Content);
     if LHashedName = '' then
       raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
         @SFclNetTrustedCertsDirFileUnnamed, [APath]);
@@ -1116,8 +1118,8 @@ begin
   Result := (AEntry.Attr and (faDirectory or faSysFile)) = 0;
 end;
 
-class procedure THashedCertsDirectory.AppendAnchors(const ADirs: string;
-  var AAnchors: TArray<TTlsBlobSource>);
+class procedure THashedCertsDirectory.AppendAnchors(const ACrypto: ICryptoProvider;
+  const ADirs: string; var AAnchors: TArray<TTlsBlobSource>);
 var
   LSegments: TArray<string>;
   LSeen, LPrefixes, LEntries: TStringList;
@@ -1172,8 +1174,8 @@ begin
             LPath := LDir + LName;
             if ProbeHashedFile(LPath, LEntry) then
             begin
-              Inc(LFound, AppendCertificates(LPath, LPrefixes[LP], ReadHashedFile(LPath),
-                AAnchors));
+              Inc(LFound, AppendCertificates(ACrypto, LPath, LPrefixes[LP],
+                ReadHashedFile(LPath), AAnchors));
             end;
             Inc(LNumber);
           end;
@@ -1207,7 +1209,8 @@ begin
     TArrayUtilities.Append<TTlsBlobSource>(AOptions.TrustAnchors,
       TTlsBlobSource.FromFile(LCertsDir))
   else
-    THashedCertsDirectory.AppendAnchors(LCertsDir, AOptions.TrustAnchors);
+    THashedCertsDirectory.AppendAnchors(TTlsConfigComposer.EffectiveCrypto(AOptions), LCertsDir,
+      AOptions.TrustAnchors);
 end;
 
 function TTlsLibSocketHandler.Snapshot: TTlsOptions;
