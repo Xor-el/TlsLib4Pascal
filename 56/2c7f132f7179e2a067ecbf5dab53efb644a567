@@ -1,0 +1,36 @@
+TlsLib.Crypto.System/src/TlpHkdfComposition.pas
+  s_f2c9bd75607afc::t_936714bea8b284 60
+  s_f2c9bd75607afc::t_afe65e625651d7 71-72
+  s_f2c9bd75607afc::t_2cd7ec5278dfc9 21
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_f2c9bd75607afc::t_818bd33feae76a 637
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_118eb2a59d2817 2778-2782
+  s_f2c9bd75607afc::t_424aa01e3da9c3 2815-2816
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_f2c9bd75607afc::t_a9261c1b1b25e9 1857-1858
+  s_f2c9bd75607afc::t_5295164b373a43 241
+TlsLib/src/Crypto/TlpCryptoDomainTypes.pas
+  s_f2c9bd75607afc::t_f95c5748c958c8 29
+  s_f2c9bd75607afc::t_b9dce05960357c 234-235
+TlsLib/src/Crypto/TlpTls12PrfComposition.pas
+  s_f2c9bd75607afc::t_da17996f2a5e24 51
+  s_f2c9bd75607afc::t_ab01516cdab640 60-61
+  s_f2c9bd75607afc::t_0500582ccb729f 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "562c7f132f7179e2a067ecbf5dab53efb644a567",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
