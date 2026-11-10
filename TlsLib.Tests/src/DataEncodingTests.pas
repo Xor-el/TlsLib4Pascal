@@ -36,6 +36,9 @@ type
     procedure TestHexDecodeRoundTripEitherCase;
     procedure TestHexDecodeOddLengthRaises;
     procedure TestHexDecodeNonHexRaises;
+    procedure TestTryHexDecodeEitherCase;
+    procedure TestTryHexDecodeOddLengthFails;
+    procedure TestTryHexDecodeNonHexFails;
     procedure TestBase64KnownVectors;
     procedure TestBase64RoundTripAllLengths;
     procedure TestBase64ToleratesWhitespace;
@@ -74,15 +77,21 @@ end;
 procedure TTestDataEncoding.TestHexDecodeOddLengthRaises;
 var
   LRaised: Boolean;
+  LMessage: string;
 begin
   LRaised := False;
+  LMessage := '';
   try
     TDataEncoding.HexDecode('abc');
   except
     on E: EArgumentTlsLibException do
+    begin
       LRaised := True;
+      LMessage := E.Message;
+    end;
   end;
   CheckTrue(LRaised, 'an odd-length hex string is rejected');
+  CheckTrue(Pos('even number', LMessage) > 0, 'the odd length is named: ' + LMessage);
 end;
 
 procedure TTestDataEncoding.TestHexDecodeNonHexRaises;
@@ -97,6 +106,36 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a non-hex character is rejected');
+end;
+
+procedure TTestDataEncoding.TestTryHexDecodeEitherCase;
+var
+  LBytes: TBytes;
+begin
+  CheckTrue(TDataEncoding.TryHexDecode('aBcD09', LBytes), 'mixed case decodes');
+  CheckEqualBytes('mixed case bytes', TBytes.Create($AB, $CD, $09), LBytes);
+  CheckTrue(TDataEncoding.TryHexDecode('', LBytes), 'empty decodes');
+  CheckEquals(0, System.Length(LBytes), 'empty decodes to no bytes');
+end;
+
+procedure TTestDataEncoding.TestTryHexDecodeOddLengthFails;
+var
+  LBytes: TBytes;
+begin
+  LBytes := TBytes.Create($01);
+  CheckFalse(TDataEncoding.TryHexDecode('abc', LBytes), 'an odd-length hex string fails');
+  CheckEquals(0, System.Length(LBytes), 'a failure leaves no bytes');
+end;
+
+procedure TTestDataEncoding.TestTryHexDecodeNonHexFails;
+var
+  LBytes: TBytes;
+begin
+  CheckFalse(TDataEncoding.TryHexDecode('0g', LBytes), 'a non-hex low digit fails');
+  CheckFalse(TDataEncoding.TryHexDecode('g0', LBytes), 'a non-hex high digit fails');
+  CheckFalse(TDataEncoding.TryHexDecode('00:1', LBytes),
+    'a non-hex character in a later byte fails');
+  CheckEquals(0, System.Length(LBytes), 'a failure leaves no bytes');
 end;
 
 procedure TTestDataEncoding.TestBase64KnownVectors;

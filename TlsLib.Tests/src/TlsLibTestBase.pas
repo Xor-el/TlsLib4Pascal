@@ -51,6 +51,8 @@ type
     /// <summary>A path for a scratch file in a directory unique to this test run; the directory
     /// and its files are removed at TearDown.</summary>
     function TempPath(const AName: string): string;
+    /// <summary>Writes AData to the file APath, replacing it.</summary>
+    procedure WriteBytes(const APath: string; const AData: TBytes);
     /// <summary>Registers AInstance for disposal at TearDown and returns it, so a field reads
     /// FThing := Own&lt;TThing&gt;(TThing.Create(...)).</summary>
     function Own<T: class>(const AInstance: T): T;
@@ -134,6 +136,19 @@ begin
     ForceDirectories(FTempDir);
   end;
   Result := IncludeTrailingPathDelimiter(FTempDir) + AName;
+end;
+
+procedure TTlsLibTestCase.WriteBytes(const APath: string; const AData: TBytes);
+var
+  LStream: TFileStream;
+begin
+  LStream := TFileStream.Create(APath, fmCreate);
+  try
+    if System.Length(AData) > 0 then
+      LStream.WriteBuffer(AData[0], System.Length(AData));
+  finally
+    LStream.Free;
+  end;
 end;
 
 procedure TTlsLibTestCase.RemoveTree(const APath: string);

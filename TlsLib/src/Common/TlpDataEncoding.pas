@@ -41,6 +41,9 @@ type
     /// EArgumentTlsLibException on an odd length or a non-hex character.
     /// </summary>
     class function HexDecode(const AHex: string): TBytes; static;
+    /// <summary>The bytes of a Base16 (hex) string (either case); False, with ABytes nil, on an
+    /// odd length or a non-hex character.</summary>
+    class function TryHexDecode(const AHex: string; out ABytes: TBytes): Boolean; static;
     /// <summary>The standard Base64 (RFC 4648, '+' and '/', padded) encoding of AData,
     /// as a single line with no embedded newlines.</summary>
     class function Base64Encode(const AData: TBytes): string; static;
@@ -106,22 +109,35 @@ begin
   end;
 end;
 
-class function TDataEncoding.HexDecode(const AHex: string): TBytes;
+class function TDataEncoding.TryHexDecode(const AHex: string; out ABytes: TBytes): Boolean;
 var
   LI, LHi, LLo: Int32;
 begin
-  Result := nil;
+  ABytes := nil;
+  Result := False;
   if System.Length(AHex) mod 2 <> 0 then
-    raise EArgumentTlsLibException.CreateRes(@SOddHexLength);
-  SetLength(Result, System.Length(AHex) div 2);
-  for LI := 0 to System.Length(Result) - 1 do
+    Exit;
+  SetLength(ABytes, System.Length(AHex) div 2);
+  for LI := 0 to System.Length(ABytes) - 1 do
   begin
     LHi := NibbleValue(AHex[(LI * 2) + 1]);
     LLo := NibbleValue(AHex[(LI * 2) + 2]);
     if (LHi < 0) or (LLo < 0) then
-      raise EArgumentTlsLibException.CreateRes(@SNonHexCharacter);
-    Result[LI] := Byte((LHi shl 4) or LLo);
+    begin
+      ABytes := nil;
+      Exit;
+    end;
+    ABytes[LI] := Byte((LHi shl 4) or LLo);
   end;
+  Result := True;
+end;
+
+class function TDataEncoding.HexDecode(const AHex: string): TBytes;
+begin
+  if System.Length(AHex) mod 2 <> 0 then
+    raise EArgumentTlsLibException.CreateRes(@SOddHexLength);
+  if not TryHexDecode(AHex, Result) then
+    raise EArgumentTlsLibException.CreateRes(@SNonHexCharacter);
 end;
 
 class function TDataEncoding.Base64Value(AChar: Char): Int32;

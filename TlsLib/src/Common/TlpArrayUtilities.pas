@@ -37,7 +37,7 @@ type
     /// <summary>Variable-time byte-array equality; use only on public (non-secret)
     /// data. The constant-time twin is
     /// <see cref="TSecureMemory.ConstantTimeAreEqual" />.</summary>
-    class function AreEqual(const AA, AB: TBytes): Boolean; static;
+    class function AreEqual(const AA, AB: TBytes): Boolean; overload; static;
     /// <summary>Unsigned byte-wise lexicographic order: negative, zero or positive as AA sorts
     /// before, equal to or after AB. A shorter array that is a prefix of a longer one sorts
     /// first. The constant-time twin is
@@ -55,6 +55,8 @@ type
     /// <summary>Removes every element whose key equals AKey, compacting in place.</summary>
     class procedure RemoveKey<T, TKey>(var AItems: TArray<T>;
       const AKeyOf: TKeyOf<T, TKey>; const AKey: TKey); static;
+    /// <summary>Whether AA and AB hold equal elements in the same order.</summary>
+    class function AreEqual<T>(const AA, AB: TArray<T>): Boolean; overload; static;
     /// <summary>Whether AItems holds AValue.</summary>
     class function Contains<T>(const AItems: TArray<T>; const AValue: T): Boolean;
       static;
@@ -163,6 +165,21 @@ begin
       Inc(LOut);
     end;
   SetLength(AItems, LOut);
+end;
+
+class function TArrayUtilities.AreEqual<T>(const AA, AB: TArray<T>): Boolean;
+var
+  LI: Int32;
+  LComparer: IEqualityComparer<T>;
+begin
+  Result := False;
+  if Length(AA) <> Length(AB) then
+    Exit;
+  LComparer := TEqualityComparer<T>.Default;
+  for LI := 0 to Length(AA) - 1 do
+    if not LComparer.Equals(AA[LI], AB[LI]) then
+      Exit;
+  Result := True;
 end;
 
 class function TArrayUtilities.Contains<T>(const AItems: TArray<T>;

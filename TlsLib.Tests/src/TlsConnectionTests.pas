@@ -75,6 +75,10 @@ type
     function ServerOptsWithCredential: TTlsOptions;
     function RaisesStreamError(const AOpts: TTlsOptions;
       AIsClient: Boolean; out AMessage: string): Boolean;
+    // the refusal text from building a client config over these anchors, '' when it builds
+    function AnchorRefusal(const AAnchors: TArray<TTlsBlobSource>): string;
+    // the client config identity over one trust anchor source
+    function AnchorSignature(const ASource: TTlsBlobSource): string;
     function PemChain: TBytes;
     function Pkcs12Options(const AField: string): TTlsOptions;
   published
@@ -114,6 +118,11 @@ type
     procedure TestClientSystemTrustInstallerCalledForClientRole;
     procedure TestClientVerifierComposesAndBuilds;
     procedure TestClientVerifierWithAnchorConflictPropagates;
+    procedure TestUnparseableAnchorFileIsNamedInTheError;
+    procedure TestUnparseableInlineAnchorIsNamedInTheError;
+    procedure TestFileContentAnchorIsNamedByItsFile;
+    procedure TestFileContentWithAnUnreadablePathBuilds;
+    procedure TestSecondAnchorFailureCarriesItsIndex;
     procedure TestClientDelegateSystemTrustWithHostStoreNamesTheKnobs;
     procedure TestClientHostVerifierConflictIsNotBlamedOnSystemTrust;
     procedure TestHostServerConfigWithEarlyDataIsRefused;
@@ -149,6 +158,9 @@ type
     procedure TestSignatureKeysSystemTrustByIdentity;
     procedure TestSignatureExcludesResolverAndTimeout;
     procedure TestSignaturePasswordNotInClear;
+    procedure TestFileContentChangeChangesTheSignatureWithTheFileUntouched;
+    procedure TestFileContentSignatureIgnoresThePath;
+    procedure TestFilePathSignatureFollowsTheFile;
     // resolve + memo + config-in + guard
     procedure TestResolveMemoisesBuildOnce;
     procedure TestResolveConfigInReturnedAsIs;
@@ -399,6 +411,21 @@ begin
   Result.TrustSourceHint := 'a trust anchor bundle, system trust, or a custom store';
 end;
 
+function TTestTlsConnection.AnchorRefusal(const AAnchors: TArray<TTlsBlobSource>): string;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := ClientOptsWithStore;
+  LOpts.TrustAnchors := AAnchors;
+  Result := '';
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
+  except
+    on E: EArgumentTlsLibException do
+      Result := E.Message;
+  end;
+end;
+
 function TTestTlsConnection.ServerOptsWithCredential: TTlsOptions;
 begin
   Result := TTlsOptions.Default;
@@ -504,25 +531,12 @@ procedure TTestTlsConnection.TestServerBuildsFromCredentialFiles;
 var
   LOpts: TTlsOptions;
   LCertPath, LKeyPath: string;
-
-  procedure WriteFile(const APath: string; const AData: TBytes);
-  var
-    LStream: TFileStream;
-  begin
-    LStream := TFileStream.Create(APath, fmCreate);
-    try
-      LStream.WriteBuffer(AData[0], System.Length(AData));
-    finally
-      LStream.Free;
-    end;
-  end;
-
 begin
   LCertPath := TempPath('credential_fixture.crt');
   LKeyPath := TempPath('credential_fixture.key');
-  WriteFile(LCertPath,
+  WriteBytes(LCertPath,
     TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
-  WriteFile(LKeyPath,
+  WriteBytes(LKeyPath,
     TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   LOpts := TTlsOptions.Default;
   LOpts.Crypto := Crypto;
@@ -937,6 +951,67 @@ begin
     'the conflict carries internal_error');
   CheckTrue(Pos('cannot be combined with anchors', LMessage) > 0,
     'the refusal names the verifier-versus-trust-source conflict');
+end;
+
+procedure TTestTlsConnection.TestUnparseableAnchorFileIsNamedInTheError;
+var
+  LPath, LMessage: string;
+begin
+  LPath := TempPath('tlslib_garbage_anchor.crt');
+  WriteBytes(LPath, TBytes.Create($01, $02, $03, $04, $05));
+  LMessage := AnchorRefusal(TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromFile(LPath)));
+  CheckTrue(LMessage <> '', 'an anchor file that is not a certificate is refused');
+  CheckTrue(Pos(LPath, LMessage) > 0, 'the refusal names the anchor file: ' + LMessage);
+  CheckTrue(Pos('trust anchor 0 (', LMessage) > 0,
+    'the refusal carries the anchor index: ' + LMessage);
+  CheckTrue(Pos('certificate', Copy(LMessage, Pos('could not be loaded: ', LMessage), MaxInt)) > 0,
+    'the refusal keeps the underlying reason: ' + LMessage);
+end;
+
+procedure TTestTlsConnection.TestUnparseableInlineAnchorIsNamedInTheError;
+var
+  LMessage: string;
+begin
+  LMessage := AnchorRefusal(TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(TBytes.Create($01, $02, $03, $04, $05))));
+  CheckTrue(LMessage <> '', 'inline anchor bytes that are not a certificate are refused');
+  CheckTrue(Pos('(inline bytes)', LMessage) > 0,
+    'the refusal marks the anchor as inline bytes: ' + LMessage);
+  CheckTrue(Pos('0102030405', LMessage) = 0, 'the refusal does not echo the anchor bytes');
+  CheckTrue(Pos('certificate', Copy(LMessage, Pos('could not be loaded: ', LMessage), MaxInt)) > 0,
+    'the refusal keeps the underlying reason: ' + LMessage);
+end;
+
+procedure TTestTlsConnection.TestFileContentAnchorIsNamedByItsFile;
+var
+  LMessage: string;
+begin
+  LMessage := AnchorRefusal(TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromFileContent('tlslib_read_anchor.crt',
+      TBytes.Create($01, $02, $03, $04, $05))));
+  CheckTrue(Pos('tlslib_read_anchor.crt', LMessage) > 0,
+    'a source holding the bytes of a file is named by that file: ' + LMessage);
+  CheckTrue(Pos('(inline bytes)', LMessage) = 0,
+    'the file is not called inline bytes: ' + LMessage);
+end;
+
+procedure TTestTlsConnection.TestFileContentWithAnUnreadablePathBuilds;
+begin
+  CheckEquals('', AnchorRefusal(TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromFileContent(TempPath('tlslib_no_such_content_anchor.crt'),
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')))),
+    'the bytes are used and the path is never opened');
+end;
+
+procedure TTestTlsConnection.TestSecondAnchorFailureCarriesItsIndex;
+var
+  LMessage: string;
+begin
+  LMessage := AnchorRefusal(TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')),
+    TTlsBlobSource.FromBytes(TBytes.Create($01, $02, $03, $04, $05))));
+  CheckTrue(Pos('trust anchor 1 (', LMessage) > 0,
+    'the failing second anchor is named by its index: ' + LMessage);
 end;
 
 procedure TTestTlsConnection.TestClientDelegateSystemTrustWithHostStoreNamesTheKnobs;
@@ -1633,6 +1708,51 @@ begin
   CheckTrue(Pos('sup3r-s3cret-passphrase',
     TTlsConfigComposer.ClientSignature(LOpts)) = 0,
     'the key password never appears in clear in the signature');
+end;
+
+function TTestTlsConnection.AnchorSignature(const ASource: TTlsBlobSource): string;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := Crypto;
+  LOpts.Pkix := Pkix;
+  LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(ASource);
+  Result := TTlsConfigComposer.ClientSignature(LOpts);
+end;
+
+procedure TTestTlsConnection.TestFileContentChangeChangesTheSignatureWithTheFileUntouched;
+var
+  LPath: string;
+begin
+  LPath := TempPath('tlslib_content_anchor.crt');
+  WriteBytes(LPath, TBytes.Create($01, $02, $03));
+  CheckFalse(
+    AnchorSignature(TTlsBlobSource.FromFileContent(LPath, TBytes.Create($01, $02, $03))) =
+    AnchorSignature(TTlsBlobSource.FromFileContent(LPath, TBytes.Create($01, $02, $04))),
+    'other bytes of the same length under the same untouched file are another signature');
+end;
+
+procedure TTestTlsConnection.TestFileContentSignatureIgnoresThePath;
+begin
+  CheckEquals(
+    AnchorSignature(TTlsBlobSource.FromFileContent(TempPath('tlslib_content_one.crt'),
+      TBytes.Create($01, $02, $03))),
+    AnchorSignature(TTlsBlobSource.FromFileContent(TempPath('tlslib_content_two.crt'),
+      TBytes.Create($01, $02, $03))),
+    'the same bytes under another path are the same signature');
+end;
+
+procedure TTestTlsConnection.TestFilePathSignatureFollowsTheFile;
+var
+  LPath, LBefore: string;
+begin
+  LPath := TempPath('tlslib_path_anchor.crt');
+  WriteBytes(LPath, TBytes.Create($01, $02, $03));
+  LBefore := AnchorSignature(TTlsBlobSource.FromFile(LPath));
+  WriteBytes(LPath, TBytes.Create($01, $02, $03, $04, $05, $06));
+  CheckFalse(LBefore = AnchorSignature(TTlsBlobSource.FromFile(LPath)),
+    'a rewritten file named by path changes the signature');
 end;
 
 procedure TTestTlsConnection.TestResolveMemoisesBuildOnce;
