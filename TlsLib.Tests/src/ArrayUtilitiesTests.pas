@@ -41,6 +41,12 @@ type
     procedure TestCompareFirstDifferingByteDecides;
     procedure TestCompareIsUnsigned;
     procedure TestCompareIsAntisymmetric;
+    procedure TestAreEqualSameElements;
+    procedure TestAreEqualDifferentLength;
+    procedure TestAreEqualDifferentElement;
+    procedure TestAreEqualBothEmpty;
+    procedure TestAreEqualNilAndEmpty;
+    procedure TestAreEqualBytesStillCompares;
   end;
 
 implementation
@@ -106,6 +112,56 @@ begin
     TBytes.Create($01, $7F)) > 0, 'forward direction is positive');
   Check(TArrayUtilities.CompareLexicographic(TBytes.Create($01, $7F),
     TBytes.Create($01, $80)) < 0, 'reverse direction is negative');
+end;
+
+procedure TTestArrayUtilities.TestAreEqualSameElements;
+begin
+  Check(TArrayUtilities.AreEqual<string>(TArray<string>.Create('h2', 'http/1.1'),
+    TArray<string>.Create('h2', 'http/1.1')), 'same elements in the same order');
+end;
+
+procedure TTestArrayUtilities.TestAreEqualDifferentLength;
+begin
+  Check(TArrayUtilities.AreEqual<string>(TArray<string>.Create('h2'),
+    TArray<string>.Create('h2', 'http/1.1')) = False, 'a prefix is not equal');
+  Check(TArrayUtilities.AreEqual<string>(TArray<string>.Create('h2', 'http/1.1'),
+    TArray<string>.Create('h2')) = False, 'a longer array is not equal to its prefix');
+end;
+
+procedure TTestArrayUtilities.TestAreEqualDifferentElement;
+begin
+  Check(TArrayUtilities.AreEqual<string>(TArray<string>.Create('h2', 'http/1.1'),
+    TArray<string>.Create('h2', 'http/1.0')) = False, 'the last element differs');
+  Check(TArrayUtilities.AreEqual<string>(TArray<string>.Create('h2', 'http/1.1'),
+    TArray<string>.Create('http/1.1', 'h2')) = False, 'the order differs');
+end;
+
+procedure TTestArrayUtilities.TestAreEqualBothEmpty;
+var
+  LFirst, LSecond: TArray<string>;
+begin
+  SetLength(LFirst, 0);
+  SetLength(LSecond, 0);
+  Check(TArrayUtilities.AreEqual<string>(LFirst, LSecond), 'two empty arrays');
+end;
+
+procedure TTestArrayUtilities.TestAreEqualNilAndEmpty;
+var
+  LNil, LEmpty: TArray<string>;
+begin
+  LNil := nil;
+  SetLength(LEmpty, 0);
+  Check(TArrayUtilities.AreEqual<string>(LNil, LEmpty), 'nil equals an empty array');
+  Check(TArrayUtilities.AreEqual<string>(LNil, TArray<string>.Create('h2')) = False,
+    'nil differs from a one-element array');
+end;
+
+procedure TTestArrayUtilities.TestAreEqualBytesStillCompares;
+begin
+  Check(TArrayUtilities.AreEqual(TBytes.Create($01, $02), TBytes.Create($01, $02)),
+    'equal byte arrays');
+  Check(TArrayUtilities.AreEqual(TBytes.Create($01, $02), TBytes.Create($01, $03)) = False,
+    'different byte arrays');
 end;
 
 initialization

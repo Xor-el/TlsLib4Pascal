@@ -104,7 +104,6 @@ type
     FExtraDir: string;  // a fixture directory holding the second root
     FRootDer: TBytes;   // the test root DER
     FRoot2Der: TBytes;  // a second, distinct root DER
-    procedure WriteBytes(const APath: string; const AData: TBytes);
     /// <summary>Builds a filesystem source, freezes it into an immutable snapshot, and
     /// frees the source - the shape every caller uses. Fail-closed harvests raise here.</summary>
     function FileSnapshot(const AEnvFile, AEnvDir: string;
@@ -5028,19 +5027,6 @@ begin
     Result := LSource.Snapshot;
   finally
     LSource.Free;
-  end;
-end;
-
-procedure TTestSystemTrustFixtures.WriteBytes(const APath: string; const AData: TBytes);
-var
-  LStream: TFileStream;
-begin
-  LStream := TFileStream.Create(APath, fmCreate);
-  try
-    if System.Length(AData) > 0 then
-      LStream.WriteBuffer(AData[0], System.Length(AData));
-  finally
-    LStream.Free;
   end;
 end;
 

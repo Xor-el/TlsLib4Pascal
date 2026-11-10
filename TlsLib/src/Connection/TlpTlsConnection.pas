@@ -75,6 +75,10 @@ type
     FileName: string;
     Data: TBytes;
     class function FromFile(const APath: string): TTlsBlobSource; static;
+    /// <summary>Non-empty bytes the host already read from APath; signing and loading use the
+    /// bytes, the path only names the source in errors.</summary>
+    class function FromFileContent(const APath: string;
+      const AData: TBytes): TTlsBlobSource; static;
     class function FromBytes(const AData: TBytes): TTlsBlobSource; static;
     function IsEmpty: Boolean;
   end;
@@ -383,6 +387,8 @@ resourcestring
   SSystemTrustWithHostAnchors =
     'system trust with the host-supplied anchors or custom trust store could not be set up; ' +
     'use either system trust or the host trust sources (%s): %s';
+  SInlineTrustAnchor = '(inline bytes)';
+  STrustAnchorUnloadable = 'trust anchor %d (%s) could not be loaded: %s';
   SConfigAndOptionsConflict =
     '%s is set together with cert/trust/ALPN/provider options or a non-default security toggle ' +
     'that a fully-built config replaces; supply either the config or those options, not both';
@@ -413,6 +419,13 @@ class function TTlsBlobSource.FromFile(
 begin
   Result.FileName := APath;
   Result.Data := nil;
+end;
+
+class function TTlsBlobSource.FromFileContent(const APath: string;
+  const AData: TBytes): TTlsBlobSource;
+begin
+  Result.FileName := APath;
+  Result.Data := AData;
 end;
 
 class function TTlsBlobSource.FromBytes(
@@ -510,6 +523,7 @@ class function TTlsConfigComposer.Load(
   const ASource: TTlsBlobSource): TBytes;
 var
   LStream: TFileStream;
+  LSize: Int64;
 begin
   if System.Length(ASource.Data) > 0 then
     Exit(ASource.Data);
@@ -518,9 +532,10 @@ begin
     Exit;
   LStream := TFileStream.Create(ASource.FileName, fmOpenRead or fmShareDenyWrite);
   try
-    SetLength(Result, LStream.Size);
-    if LStream.Size > 0 then
-      LStream.ReadBuffer(Result[0], LStream.Size);
+    LSize := LStream.Size;
+    SetLength(Result, LSize);
+    if LSize > 0 then
+      LStream.ReadBuffer(Result[0], LSize);
   finally
     LStream.Free;
   end;
@@ -586,12 +601,29 @@ class function TTlsConfigComposer.HostAnchorStore(const AOptions: TTlsOptions;
 var
   LStores: TArray<ITrustAnchorStore>;
   LI: Int32;
+  LName: string;
+  LData: TBytes;
 begin
   LStores := nil;
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     if not AOptions.TrustAnchors[LI].IsEmpty then
-      TArrayUtilities.Append<ITrustAnchorStore>(LStores, TTrustAnchorStore.Create(
-        APkix.Certificates.LoadChain(Load(AOptions.TrustAnchors[LI]))) as ITrustAnchorStore);
+    begin
+      LData := Load(AOptions.TrustAnchors[LI]);
+      try
+        TArrayUtilities.Append<ITrustAnchorStore>(LStores, TTrustAnchorStore.Create(
+          APkix.Certificates.LoadChain(LData)) as ITrustAnchorStore);
+      except
+        on E: EArgumentTlsLibException do
+        begin
+          if AOptions.TrustAnchors[LI].FileName <> '' then
+            LName := AOptions.TrustAnchors[LI].FileName
+          else
+            LName := SInlineTrustAnchor;
+          raise EArgumentTlsLibException.CreateResFmt(@STrustAnchorUnloadable,
+            [LI, LName, E.Message]);
+        end;
+      end;
+    end;
   if AOptions.CustomTrustStore <> nil then
     TArrayUtilities.Append<ITrustAnchorStore>(LStores, AOptions.CustomTrustStore);
   if System.Length(LStores) = 0 then

@@ -83,15 +83,9 @@ procedure TTestBundleTrust.TestFromPemFileLoadsRoot;
 var
   LStore: ITrustAnchorStore;
   LPath: string;
-  LStream: TFileStream;
 begin
   LPath := TempPath('bundle_fixture.der');
-  LStream := TFileStream.Create(LPath, fmCreate);
-  try
-    LStream.WriteBuffer(FRootDer[0], Length(FRootDer));
-  finally
-    LStream.Free;
-  end;
+  WriteBytes(LPath, FRootDer);
   LStore := TBundleTrust.FromPemFile(Pkix, LPath);
   CheckTrue(LStore <> nil, 'FromPemFile returns an anchor store');
   CheckEquals(1, Length(LStore.RootCertificates),
