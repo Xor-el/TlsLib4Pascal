@@ -42,7 +42,7 @@ type
     // which primitives this provider can actually build, probed once at construction: a known id an
     // overlay lacks makes Suite return nil (a clean ECH reject, not internal_error), off the hot path
     FKemOk: array [0 .. 3] of Boolean;  // P-256, P-384, P-521, X25519
-    FHkdfOk: array [0 .. 2] of Boolean; // SHA-256, SHA-384, SHA-512
+    FHkdfOk: array [THashAlgorithm] of Boolean;
     FAeadOk: array [0 .. 2] of Boolean; // AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305
     class function KaAvailable(const APrimitives: ICryptoPrimitives;
       AAlgorithm: TKeyAgreementAlgorithm): Boolean; static;
@@ -50,7 +50,6 @@ type
       AHash: THashAlgorithm): Boolean; static;
     class function AeadAvailable(const APrimitives: ICryptoPrimitives;
       AAead: TAeadAlgorithm): Boolean; static;
-    class function HashIndex(AHash: THashAlgorithm): Int32; static;
     class function KemIndex(AKem: UInt16): Int32; static;
     class function AeadIndex(AAead: UInt16): Int32; static;
   public
@@ -684,6 +683,8 @@ end;
 { THpkeComposition }
 
 constructor THpkeComposition.Create(const APrimitives: ICryptoPrimitives);
+var
+  LHash: THashAlgorithm;
 begin
   inherited Create;
   FPrimitives := APrimitives;
@@ -692,9 +693,8 @@ begin
   FKemOk[1] := KaAvailable(APrimitives, TKeyAgreementAlgorithm.SECP384R1);
   FKemOk[2] := KaAvailable(APrimitives, TKeyAgreementAlgorithm.SECP521R1);
   FKemOk[3] := KaAvailable(APrimitives, TKeyAgreementAlgorithm.X25519);
-  FHkdfOk[0] := HkdfAvailable(APrimitives, THashAlgorithm.SHA_256);
-  FHkdfOk[1] := HkdfAvailable(APrimitives, THashAlgorithm.SHA_384);
-  FHkdfOk[2] := HkdfAvailable(APrimitives, THashAlgorithm.SHA_512);
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    FHkdfOk[LHash] := LHash.IsProtocolHash and HkdfAvailable(APrimitives, LHash);
   FAeadOk[0] := AeadAvailable(APrimitives, TAeadAlgorithm.AES_128_GCM);
   FAeadOk[1] := AeadAvailable(APrimitives, TAeadAlgorithm.AES_256_GCM);
   FAeadOk[2] := AeadAvailable(APrimitives, TAeadAlgorithm.CHACHA20_POLY1305);
@@ -745,18 +745,6 @@ begin
   end;
 end;
 
-class function THpkeComposition.HashIndex(AHash: THashAlgorithm): Int32;
-begin
-  case AHash of
-    THashAlgorithm.SHA_384:
-      Result := 1;
-    THashAlgorithm.SHA_512:
-      Result := 2;
-  else
-    Result := 0; // SHA-256
-  end;
-end;
-
 class function THpkeComposition.KemIndex(AKem: UInt16): Int32;
 begin
   case AKem of
@@ -789,8 +777,8 @@ begin
   // it - otherwise a caller (ECH) would get a non-nil suite whose Encap/SetupOpener then fails
   if THpkeCore.IsKnownKem(AKem) and THpkeCore.IsKnownKdf(AKdf) and
     THpkeCore.IsRealAead(AAead) and FKemOk[KemIndex(AKem)] and
-    FHkdfOk[HashIndex(THpkeCore.KemKdfHash(AKem))] and
-    FHkdfOk[HashIndex(THpkeCore.KdfHash(AKdf))] and FAeadOk[AeadIndex(AAead)] then
+    FHkdfOk[THpkeCore.KemKdfHash(AKem)] and FHkdfOk[THpkeCore.KdfHash(AKdf)] and
+    FAeadOk[AeadIndex(AAead)] then
     Result := THpkeCompositionSuite.Create(FPrimitives, AKem, AKdf, AAead) as IHpkeSuite
   else
     Result := nil;
