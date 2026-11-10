@@ -387,10 +387,8 @@ resourcestring
   SSystemTrustWithHostAnchors =
     'system trust with the host-supplied anchors or custom trust store could not be set up; ' +
     'use either system trust or the host trust sources (%s): %s';
-  SInlineTrustAnchor =
-    '(inline bytes)';
-  STrustAnchorUnloadable =
-    'trust anchor %d (%s) could not be loaded: %s';
+  SInlineTrustAnchor = '(inline bytes)';
+  STrustAnchorUnloadable = 'trust anchor %d (%s) could not be loaded: %s';
   SConfigAndOptionsConflict =
     '%s is set together with cert/trust/ALPN/provider options or a non-default security toggle ' +
     'that a fully-built config replaces; supply either the config or those options, not both';
