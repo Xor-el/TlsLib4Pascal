@@ -987,7 +987,7 @@ begin
     TTlsPresets.Strict(Crypto, Pkix).Client
       .WithServerVerification(
         TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
-      .WithSessionCache(TInMemorySessionCache.Create).Build;
+      .WithSessionCache(TInMemorySessionCache.Create as ISessionCache).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRefusedCache := True;
@@ -996,7 +996,8 @@ begin
   LRefusedStore := False;
   try
     TTlsPresets.Strict(Crypto, Pkix).Server.WithCredential(ServerCredential)
-      .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom)).Build;
+      .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom)
+      as ISessionStore).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LRefusedStore := True;

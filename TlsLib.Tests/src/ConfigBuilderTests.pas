@@ -2693,16 +2693,18 @@ procedure TTestConfigBuilder.TestResumptionSettingsAreRefusedWhenResumptionIsOff
 begin
   // a setting that only matters when resuming is refused with resumption off, in either order
   CheckTrue(BuildRefused(NewClientBuilder.WithResumption(False)
-    .WithSessionCache(TInMemorySessionCache.Create), 'resumption is off'), 'a session cache');
-  CheckTrue(BuildRefused(NewClientBuilder.WithSessionCache(TInMemorySessionCache.Create)
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache), 'resumption is off'),
+    'a session cache');
+  CheckTrue(BuildRefused(NewClientBuilder
+    .WithSessionCache(TInMemorySessionCache.Create as ISessionCache)
     .WithResumption(False), 'resumption is off'),
     'a session cache set before resumption was turned off');
   CheckTrue(BuildRefused(NewClientBuilder.WithResumption(False)
     .WithResumptionScope(Crypto.Primitives.GetRandom.GenerateBytes(8)), 'resumption is off'),
     'a client scope');
   CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False)
-    .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom)),
-    'resumption is off'), 'a session store');
+    .WithSessionStore(TInMemorySessionStore.Create(Crypto.Primitives.GetRandom)
+    as ISessionStore), 'resumption is off'), 'a session store');
   CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False).WithTicketLifetime(600),
     'resumption is off'), 'a ticket lifetime');
   CheckTrue(BuildRefused(NewServerBuilder.WithResumption(False).Tls13.WithTicketCount(1),
