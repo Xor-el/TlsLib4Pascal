@@ -1,0 +1,61 @@
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_f2c9bd75607afc::t_413679847a53c1 1713-1757
+  s_f2c9bd75607afc::t_a877f30a7c72f3 121-122,125
+  s_f2c9bd75607afc::t_35a65bf5b0f456 78-79
+  s_f2c9bd75607afc::t_06e290584ef00d 956-960,962-964,967-984,986-988,1004-1016
+  s_f2c9bd75607afc::t_aa59bcb2724084 965-966
+  s_f2c9bd75607afc::t_59447d6f6c3352 537,539
+  s_f2c9bd75607afc::t_221c09e5fdcf0e 161-163
+  s_f2c9bd75607afc::t_5c4d2bad583081 414-428
+  s_f2c9bd75607afc::t_2a690a053df73e 123-124
+  s_f2c9bd75607afc::t_760749fce4f1ee 80-81
+  s_f2c9bd75607afc::t_c5a86f140ddaa0 985,989-1003
+  s_f2c9bd75607afc::t_f0dfa3ee7befcc 961
+TlsLib/src/Common/TlpArrayUtilities.pas
+  s_f2c9bd75607afc::t_8eb9c38c19319b 40
+  s_f2c9bd75607afc::t_28d994145a438b 179
+  s_f2c9bd75607afc::t_5e2b96b33f7208 170-178,180-184
+  s_f2c9bd75607afc::t_670073871b27a0 58-59
+TlsLib.Tests/src/BundleTrustTests.pas
+  s_f2c9bd75607afc::t_3a49cf2169f626 88
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_f2c9bd75607afc::t_50b24c26564d57 390-393
+  s_f2c9bd75607afc::t_61014b09ae4416 620-621,623
+  s_f2c9bd75607afc::t_241c0cd06a1447 426-432
+  s_f2c9bd75607afc::t_280ac8483a30d3 78-81
+  s_f2c9bd75607afc::t_f6618355df0730 606-607,612-619,622,626-628
+  s_f2c9bd75607afc::t_bd51459216e4a7 528,537-540
+  s_f2c9bd75607afc::t_04b31efed1c9c4 624
+  s_f2c9bd75607afc::t_5df4153ad7bd3d 625
+TlsLib.Tests/src/TlsLibTestBase.pas
+  s_f2c9bd75607afc::t_2f122eb8429c59 141-153
+  s_f2c9bd75607afc::t_fb6e7d754cbc97 54-55
+TlsLib.Tests/src/ArrayUtilitiesTests.pas
+  s_f2c9bd75607afc::t_e663d3c2cb50ff 44-49
+  s_f2c9bd75607afc::t_c3144f9103dd59 117-166
+TlsLib.Tests/src/DataEncodingTests.pas
+  s_f2c9bd75607afc::t_d00df5f63f5c1e 39-41
+  s_f2c9bd75607afc::t_4c346bcd9e6504 136-137
+  s_f2c9bd75607afc::t_8706e3776a01e2 111-135,138-140
+  s_f2c9bd75607afc::t_357320846a6366 80,83,88,90-91,94
+TlsLib/src/Common/TlpDataEncoding.pas
+  s_f2c9bd75607afc::t_bd8651609a5925 112,116-117,119-121,126-130,132-136,139-140
+  s_f2c9bd75607afc::t_d86af1b2687a70 137-138
+  s_f2c9bd75607afc::t_399ad81712006d 44-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a8e1983944c74b65e09ecdcd3653d2297873195b",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
