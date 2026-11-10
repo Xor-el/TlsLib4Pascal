@@ -1,0 +1,66 @@
+TlsLib.Trust.System/src/TlpSystemTrustBase.pas
+  s_f2c9bd75607afc::t_cebc295f6434ab 24
+  s_f2c9bd75607afc::t_c5381204a7c6ff 171-172
+  s_f2c9bd75607afc::t_823e1d35bab1b4 309-327,329,331-334,337-352
+  s_f2c9bd75607afc::t_b2dca88515fc60 165-170
+  s_f2c9bd75607afc::t_c9819795d01cbe 330
+  s_f2c9bd75607afc::t_4f30c53d388a3e 328
+  s_f2c9bd75607afc::t_3c9b7a6a71b81c 335-336
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_f2c9bd75607afc::t_4b0ac2bde34ed0 2083-2085,2087-2094
+  s_f2c9bd75607afc::t_2806c321936fa3 2086
+  s_f2c9bd75607afc::t_13bafa18fad189 116
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_50cf0a1bc3f41b 8122
+  s_f2c9bd75607afc::t_f268f9c132bea5 8131
+  s_f2c9bd75607afc::t_5ee0c9a91eb3e8 1270-1271
+  s_f2c9bd75607afc::t_5870d44441de4f 5260-5261
+  s_f2c9bd75607afc::t_19ac0f5b5a4a05 1200-1269,1272-1296
+  s_f2c9bd75607afc::t_23ba87c188d7a4 496-497,499-502,504-510,513,515,518-519,523-560
+  s_f2c9bd75607afc::t_2a9e4bc903eba8 46-47
+  s_f2c9bd75607afc::t_368a00b0ee9ffe 498
+  s_f2c9bd75607afc::t_690aaf007eb735 503,511-512,514,516-517,520-522
+  s_f2c9bd75607afc::t_7f6748d2844fe6 186-195
+  s_f2c9bd75607afc::t_97a390193a99bc 928-934
+  s_f2c9bd75607afc::t_4c5968c953fd77 4974-5259,5262-5492
+TlsLib.Tests/src/CertificateCheckTests.pas
+  s_f2c9bd75607afc::t_c4f6657d883a8d 69-72
+  s_f2c9bd75607afc::t_5d49096c4ad630 232-258
+  s_f2c9bd75607afc::t_fda0a7d353154d 30
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_5502401715010f 211-213
+  s_f2c9bd75607afc::t_d43fc136c8d67d 778
+  s_f2c9bd75607afc::t_a522f982ec8fad 777
+  s_f2c9bd75607afc::t_2371a9c159fd5c 564
+  s_f2c9bd75607afc::t_14d2c535bc7d4e 772
+  s_f2c9bd75607afc::t_2d86437dd465f8 563,565-566
+  s_f2c9bd75607afc::t_70b473dca608b0 887-888
+  s_f2c9bd75607afc::t_fd93980c0c557b 771
+  s_f2c9bd75607afc::t_d86401b6f0b3dd 886
+  s_f2c9bd75607afc::t_e4aa4b71d02ef9 272
+  s_f2c9bd75607afc::t_ff98ca300f9918 739-746,749-757,762,770,773-774,776,779-782
+  s_f2c9bd75607afc::t_5c8f3534d33406 775
+  s_f2c9bd75607afc::t_bf3fb8ec6d9bca 747-748
+TlsLib.Tests/src/SignatureTests.pas
+  s_f2c9bd75607afc::t_71058a773b0d77 175-179
+  s_f2c9bd75607afc::t_bde50b27df04b4 115
+TlsLib/src/Interfaces/Pkix/Providers/TlpIPkixProvider.pas
+  s_f2c9bd75607afc::t_7e80cb6b90f7aa 69-74
+  s_f2c9bd75607afc::t_c0eeed626c01c3 36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c38dcd66f01b22a5a16979f234284de592b4f0d2",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
