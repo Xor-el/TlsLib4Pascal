@@ -77,6 +77,12 @@ type
     Intermediates: TArray<TBytes>;
   end;
 
+  /// <summary>Which certificates of a bundle or of an issuer lookup's anchor answer become trust
+  /// anchors. SelfSignedOnly: only a self-signed one; any other is chain material that completes
+  /// a peer's chain and is never trusted by itself. AnyCertificate: every one, so a bundle may
+  /// anchor at an intermediate.</summary>
+  TBundleAnchorRule = (SelfSignedOnly, AnyCertificate);
+
 implementation
 
 function TVerifiedChain.ValidatedPath: TArray<TBytes>;

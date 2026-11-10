@@ -41,9 +41,10 @@ type
   strict private
     FInner: IServerCertificateVerifierSource;
     FLookup: IIssuerLookup;
+    FRule: TBundleAnchorRule;
   public
     constructor Create(const AInner: IServerCertificateVerifierSource;
-      const ALookup: IIssuerLookup);
+      const ALookup: IIssuerLookup; ARule: TBundleAnchorRule);
     function CreateServerVerifier(const AContext: TServerTrustContext)
       : IServerCertificateVerifier;
   end;
@@ -54,9 +55,10 @@ type
   strict private
     FInner: IClientCertificateVerifierSource;
     FLookup: IIssuerLookup;
+    FRule: TBundleAnchorRule;
   public
     constructor Create(const AInner: IClientCertificateVerifierSource;
-      const ALookup: IIssuerLookup);
+      const ALookup: IIssuerLookup; ARule: TBundleAnchorRule);
     function CreateClientVerifier(const AContext: TClientTrustContext)
       : IClientCertificateVerifier;
   end;
@@ -72,10 +74,12 @@ type
   strict private
     FInner: IServerCertificateVerifierSource;
     FLookup: IIssuerLookup;
+    FRule: TBundleAnchorRule;
     FContext: TServerTrustContext;
   public
     constructor Create(const AInner: IServerCertificateVerifierSource;
-      const ALookup: IIssuerLookup; const AContext: TServerTrustContext);
+      const ALookup: IIssuerLookup; ARule: TBundleAnchorRule;
+      const AContext: TServerTrustContext);
     function VerifyServerCertificate(const AChain: TArray<TBytes>;
       const AServerName: TServerName; const AOcspStaple: TBytes;
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
@@ -85,10 +89,12 @@ type
   strict private
     FInner: IClientCertificateVerifierSource;
     FLookup: IIssuerLookup;
+    FRule: TBundleAnchorRule;
     FContext: TClientTrustContext;
   public
     constructor Create(const AInner: IClientCertificateVerifierSource;
-      const ALookup: IIssuerLookup; const AContext: TClientTrustContext);
+      const ALookup: IIssuerLookup; ARule: TBundleAnchorRule;
+      const AContext: TClientTrustContext);
     function VerifyClientCertificate(const AChain: TArray<TBytes>;
       out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
   end;
@@ -96,7 +102,8 @@ type
 { TIssuerLookupServerVerifierSource }
 
 constructor TIssuerLookupServerVerifierSource.Create(
-  const AInner: IServerCertificateVerifierSource; const ALookup: IIssuerLookup);
+  const AInner: IServerCertificateVerifierSource; const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule);
 begin
   inherited Create;
   if AInner = nil then
@@ -105,19 +112,21 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilLookup);
   FInner := AInner;
   FLookup := ALookup;
+  FRule := ARule;
 end;
 
 function TIssuerLookupServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 begin
-  Result := TIssuerLookupServerVerifier.Create(FInner, FLookup, AContext)
+  Result := TIssuerLookupServerVerifier.Create(FInner, FLookup, FRule, AContext)
     as IServerCertificateVerifier;
 end;
 
 { TIssuerLookupClientVerifierSource }
 
 constructor TIssuerLookupClientVerifierSource.Create(
-  const AInner: IClientCertificateVerifierSource; const ALookup: IIssuerLookup);
+  const AInner: IClientCertificateVerifierSource; const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule);
 begin
   inherited Create;
   if AInner = nil then
@@ -126,23 +135,25 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilLookup);
   FInner := AInner;
   FLookup := ALookup;
+  FRule := ARule;
 end;
 
 function TIssuerLookupClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 begin
-  Result := TIssuerLookupClientVerifier.Create(FInner, FLookup, AContext)
+  Result := TIssuerLookupClientVerifier.Create(FInner, FLookup, FRule, AContext)
     as IClientCertificateVerifier;
 end;
 
 { TIssuerLookupServerVerifier }
 
 constructor TIssuerLookupServerVerifier.Create(const AInner: IServerCertificateVerifierSource;
-  const ALookup: IIssuerLookup; const AContext: TServerTrustContext);
+  const ALookup: IIssuerLookup; ARule: TBundleAnchorRule; const AContext: TServerTrustContext);
 begin
   inherited Create;
   FInner := AInner;
   FLookup := ALookup;
+  FRule := ARule;
   FContext := AContext;
 end;
 
@@ -159,7 +170,7 @@ begin
   // the chain caps hold before the lookup is asked anything
   if not FContext.ChainLimits.AdmitsChain(AChain) then
     Exit(False);
-  TIssuerResolution.Resolve(FContext.Pkix.Certificates, FLookup, FContext.StrengthPolicy,
+  TIssuerResolution.Resolve(FContext.Pkix.Certificates, FLookup, FRule, FContext.StrengthPolicy,
     FContext.TrustStore, AChain, FContext.Intermediates, LStore, LFound);
   LContext := FContext;
   LContext.TrustStore := LStore;
@@ -171,11 +182,12 @@ end;
 { TIssuerLookupClientVerifier }
 
 constructor TIssuerLookupClientVerifier.Create(const AInner: IClientCertificateVerifierSource;
-  const ALookup: IIssuerLookup; const AContext: TClientTrustContext);
+  const ALookup: IIssuerLookup; ARule: TBundleAnchorRule; const AContext: TClientTrustContext);
 begin
   inherited Create;
   FInner := AInner;
   FLookup := ALookup;
+  FRule := ARule;
   FContext := AContext;
 end;
 
@@ -190,7 +202,7 @@ begin
   AAlert := TTlsAlertDescription.BadCertificate;
   if not FContext.ChainLimits.AdmitsChain(AChain) then
     Exit(False);
-  TIssuerResolution.Resolve(FContext.Pkix.Certificates, FLookup, FContext.StrengthPolicy,
+  TIssuerResolution.Resolve(FContext.Pkix.Certificates, FLookup, FRule, FContext.StrengthPolicy,
     FContext.TrustStore, AChain, FContext.Intermediates, LStore, LFound);
   LContext := FContext;
   LContext.TrustStore := LStore;

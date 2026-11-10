@@ -25,6 +25,7 @@ uses
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpIIssuerLookup,
+  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
@@ -48,7 +49,7 @@ type
   /// built once, frozen, and reused.
   /// </summary>
   ITlsCommonConfig = interface(IInterface)
-    ['{800299DA-C7C2-45A9-B0BD-32F0CDA80BF8}']
+    ['{6D3E1F6A-0B52-4C8E-9A47-5E2C81B7D934}']
     function Crypto: ICryptoProvider;
     /// <summary>The PKIX provider: X.509 inspection, path validation, revocation.</summary>
     function Pkix: IPkixProvider;
@@ -85,6 +86,9 @@ type
     /// TrustStore; nil when there is none. The engine applies it over the verifier source, so it
     /// is never part of that source.</summary>
     function IssuerLookup: IIssuerLookup;
+    /// <summary>Which of the certificates IssuerLookup offers as anchors the engine trusts as
+    /// anchors; meaningful only beside a lookup.</summary>
+    function IssuerAnchorRule: TBundleAnchorRule;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function CertificateChainLimits: TCertificateChainLimits;
     /// <summary>The peer-certificate minimum-strength floors (RSA bits, EC curves, EdDSA).</summary>

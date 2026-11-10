@@ -3467,8 +3467,8 @@ begin
   LPolicy := StrictPolicy;
   LReport := LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
     TServerVerification.VerifierSource(TFakeOsVerifierSources.Server)
-    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup)
-    .WithMinimumStrength(LPolicy.Rules.Strength).Build).Build);
+    .WithMinimumStrength(LPolicy.Rules.Strength).Build)
+    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CustomVerifierConfigured),
     'a lookup does not turn the OS source into a custom one');
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),

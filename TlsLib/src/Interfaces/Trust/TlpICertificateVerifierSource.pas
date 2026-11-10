@@ -20,7 +20,6 @@ uses
   TlpTrustPolicy,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
-  TlpIIssuerLookup,
   TlpCertificateStrengthPolicy;
 
 type
@@ -55,7 +54,7 @@ type
   /// ignore it.
   /// </summary>
   ITrustVerification = interface(IInterface)
-    ['{A82F0DFF-598E-4C8C-8136-8BF6EDAF32F7}']
+    ['{B85AB760-F4FF-4896-98B3-A0D67EE22EC4}']
     function Kind: TVerificationKind;
     /// <summary>WebPki: the trust roots. A client-role VerifierSource: its exclusive root.</summary>
     function AnchorStores: TArray<ITrustAnchorStore>;
@@ -63,9 +62,6 @@ type
     function AnchorData: TArray<TBytes>;
     /// <summary>Raw PEM or DER intermediate blobs that complete an incomplete peer chain.</summary>
     function IntermediateData: TArray<TBytes>;
-    /// <summary>The lookup that supplies the issuers of a peer chain on demand, beside the roots
-    /// above; nil when there is none.</summary>
-    function IssuerLookup: IIssuerLookup;
     function StrengthPolicy: TCertificateStrengthPolicy;
     function RevocationPosture: TRevocationPosture;
   end;
@@ -89,11 +85,9 @@ type
   /// <summary>The pipeline knobs of a WebPki or VerifierSource server policy; the anchors were
   /// fixed by the factory that made the builder. Build snapshots the draft.</summary>
   IServerVerificationBuilder = interface(IInterface)
-    ['{A38B9952-916D-4B95-B280-6D950AF34E19}']
+    ['{C2A9322E-6B4C-4ECD-BBA8-3D6CA74D3F28}']
     /// <summary>Adds PEM or DER intermediates to complete a peer chain that omits them.</summary>
     function WithIntermediateCertificates(const AData: TBytes): IServerVerificationBuilder;
-    /// <summary>Supplies the issuers of a peer chain on demand, beside the roots; nil is refused.</summary>
-    function WithIssuerLookup(const ALookup: IIssuerLookup): IServerVerificationBuilder;
     /// <summary>The key-strength floors applied to the verified path.</summary>
     function WithMinimumStrength(const APolicy: TCertificateStrengthPolicy)
       : IServerVerificationBuilder;
@@ -105,9 +99,8 @@ type
 
   /// <summary>The client-role counterpart of <see cref="IServerVerificationBuilder" />.</summary>
   IClientVerificationBuilder = interface(IInterface)
-    ['{2CCCABB4-EF20-44B7-BB59-5E45EB747B65}']
+    ['{A3D8BDB9-04C7-4010-BB14-512B09610A4F}']
     function WithIntermediateCertificates(const AData: TBytes): IClientVerificationBuilder;
-    function WithIssuerLookup(const ALookup: IIssuerLookup): IClientVerificationBuilder;
     function WithMinimumStrength(const APolicy: TCertificateStrengthPolicy)
       : IClientVerificationBuilder;
     function WithRevocation(APosture: TRevocationPosture): IClientVerificationBuilder;

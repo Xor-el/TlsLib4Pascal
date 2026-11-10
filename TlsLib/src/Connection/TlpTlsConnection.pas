@@ -41,11 +41,13 @@ uses
   TlpServerName,
   TlpICryptoProvider,
   TlpDefaultCryptoProvider,
+  TlpPkixDomainTypes,
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
+  TlpIIssuerLookup,
   TlpICertificateVerifierSource,
   TlpCertificateVerifierSource,
   TlpTrustPolicy,
@@ -103,6 +105,9 @@ type
     KeyPassword: string;
     CredentialForm: TTlsCredentialForm;          // how Certificate is read
     TrustAnchors: TArray<TTlsBlobSource>; // each is one WebPki anchor blob (union)
+    BundleAnchors: TBundleAnchorRule;            // which certificates of TrustAnchors anchor; default SelfSignedOnly
+    // issuers resolved on demand at verification, beside the anchors; a server reads it under client auth
+    IssuerLookup: IIssuerLookup;
     // client role: opt into the OS store (union); a server never reads it (system trust is not a client-CA)
     SystemTrust: ISystemTrustInstaller;
     CustomTrustStore: ITrustAnchorStore;         // one WebPki store (union)
@@ -164,10 +169,17 @@ type
       const ACrypto: ICryptoProvider; const APkix: IPkixProvider): TTlsCredential; static;
     class procedure Sign(var ASig: TTlsSignatureBuilder; const AName: string;
       const ASource: TTlsBlobSource); static;
-    /// <summary>The host's own roots as one store: every named anchor source and the custom store,
-    /// nil when none is set.</summary>
-    class function HostAnchorStore(const AOptions: TTlsOptions;
-      const APkix: IPkixProvider): ITrustAnchorStore; static;
+    class procedure SignIssuerLookup(var ASig: TTlsSignatureBuilder;
+      const ALookup: IIssuerLookup); static;
+    /// <summary>The host's own roots as one store: the anchors of every named anchor source under
+    /// BundleAnchors, and the custom store; nil when none is set. AIntermediates are the other
+    /// certificates of those sources, which only complete a peer's chain.</summary>
+    class function HostAnchorStore(const AOptions: TTlsOptions; const APkix: IPkixProvider;
+      out AIntermediates: TArray<TBytes>): ITrustAnchorStore; static;
+    /// <summary>AVerification with AIntermediates added as chain material; AVerification itself
+    /// when there are none or it is neither a WebPki nor a VerifierSource policy.</summary>
+    class function ServerVerificationWith(const AVerification: IServerVerification;
+      const AIntermediates: TArray<TBytes>): IServerVerification; static;
     class function HasTrustAnchor(const AOptions: TTlsOptions): Boolean; static;
     class function HasClientTrustSource(const AOptions: TTlsOptions): Boolean; static;
     class function HasClientAuthTrustSource(const AOptions: TTlsOptions): Boolean; static;
@@ -363,6 +375,8 @@ resourcestring
     'set client authentication to None';
   SSystemTrustIdentityEmpty =
     'the system-trust installer must name what it installs (Identity is empty)';
+  SIssuerLookupIdentityEmpty =
+    'an issuer lookup must name what it answers from (Identity is empty)';
   SVerifierWithoutVerify =
     'a custom server-certificate verifier replaces verification, so it cannot be combined with ' +
     'peer verification switched off; keep verification on, or drop the verifier';
@@ -596,22 +610,45 @@ begin
     ASig.AddFile(AName, ASource.FileName);
 end;
 
+class procedure TTlsConfigComposer.SignIssuerLookup(var ASig: TTlsSignatureBuilder;
+  const ALookup: IIssuerLookup);
+begin
+  // an unnamed lookup would collide with another unnamed one
+  if ALookup.Identity = '' then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SIssuerLookupIdentityEmpty);
+  ASig.AddText('issuerLookupId', ALookup.Identity);
+end;
+
 class function TTlsConfigComposer.HostAnchorStore(const AOptions: TTlsOptions;
-  const APkix: IPkixProvider): ITrustAnchorStore;
+  const APkix: IPkixProvider; out AIntermediates: TArray<TBytes>): ITrustAnchorStore;
 var
   LStores: TArray<ITrustAnchorStore>;
-  LI: Int32;
+  LCerts, LAnchors: TArray<TBytes>;
+  LI, LJ: Int32;
   LName: string;
   LData: TBytes;
 begin
   LStores := nil;
+  AIntermediates := nil;
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     if not AOptions.TrustAnchors[LI].IsEmpty then
     begin
       LData := Load(AOptions.TrustAnchors[LI]);
       try
-        TArrayUtilities.Append<ITrustAnchorStore>(LStores, TTrustAnchorStore.Create(
-          APkix.Certificates.LoadChain(LData)) as ITrustAnchorStore);
+        LCerts := APkix.Certificates.LoadChain(LData);
+        LAnchors := LCerts;
+        if AOptions.BundleAnchors = TBundleAnchorRule.SelfSignedOnly then
+        begin
+          LAnchors := nil;
+          for LJ := 0 to System.High(LCerts) do
+            if APkix.Certificates.Parse(LCerts[LJ]).IsSelfSigned = TCertAnswer.Yes then
+              TArrayUtilities.Append<TBytes>(LAnchors, LCerts[LJ])
+            else
+              TArrayUtilities.Append<TBytes>(AIntermediates, LCerts[LJ]);
+        end;
+        TArrayUtilities.Append<ITrustAnchorStore>(LStores,
+          TTrustAnchorStore.Create(LAnchors) as ITrustAnchorStore);
       except
         on E: EArgumentTlsLibException do
         begin
@@ -631,6 +668,27 @@ begin
   Result := TTrustAnchorStore.Union(LStores);
 end;
 
+class function TTlsConfigComposer.ServerVerificationWith(const AVerification: IServerVerification;
+  const AIntermediates: TArray<TBytes>): IServerVerification;
+var
+  LBuilder: IServerVerificationBuilder;
+  LBlob: TBytes;
+begin
+  if (System.Length(AIntermediates) = 0) or
+    not (AVerification.Kind in [TVerificationKind.WebPki, TVerificationKind.VerifierSource]) then
+    Exit(AVerification);
+  if AVerification.Kind = TVerificationKind.WebPki then
+    LBuilder := TServerVerification.WebPki(AVerification.AnchorStores, AVerification.AnchorData)
+  else
+    LBuilder := TServerVerification.VerifierSource(AVerification.Source);
+  for LBlob in AVerification.IntermediateData do
+    LBuilder.WithIntermediateCertificates(LBlob);
+  for LBlob in AIntermediates do
+    LBuilder.WithIntermediateCertificates(LBlob);
+  Result := LBuilder.WithMinimumStrength(AVerification.StrengthPolicy)
+    .WithRevocation(AVerification.RevocationPosture).Build;
+end;
+
 class function TTlsConfigComposer.HasTrustAnchor(
   const AOptions: TTlsOptions): Boolean;
 var
@@ -646,7 +704,8 @@ class function TTlsConfigComposer.HasClientTrustSource(
   const AOptions: TTlsOptions): Boolean;
 begin
   Result := (AOptions.ServerCertificateVerifier <> nil) or HasTrustAnchor(AOptions) or
-    (AOptions.SystemTrust <> nil) or (AOptions.CustomTrustStore <> nil);
+    (AOptions.SystemTrust <> nil) or (AOptions.CustomTrustStore <> nil) or
+    (AOptions.IssuerLookup <> nil);
 end;
 
 class function TTlsConfigComposer.HasClientAuthTrustSource(
@@ -655,7 +714,7 @@ begin
   // system trust is a server-CERTIFICATE source, never a client-CA (a server's client-CA is always
   // caller-supplied) - so it is deliberately not counted here
   Result := (AOptions.ClientCertificateVerifier <> nil) or HasTrustAnchor(AOptions) or
-    (AOptions.CustomTrustStore <> nil);
+    (AOptions.CustomTrustStore <> nil) or (AOptions.IssuerLookup <> nil);
 end;
 
 class function TTlsConfigComposer.HostListVersions(
@@ -697,6 +756,7 @@ var
   LPkix: IPkixProvider;
   LClient: ITlsClientConfigBuilder;
   LHostRoots: ITrustAnchorStore;
+  LHostIntermediates: TArray<TBytes>;
 begin
   // the verifier is the whole decision, so a switched-off verification beside it is a contradiction
   // the host should see in its own terms rather than as a builder conflict
@@ -715,10 +775,10 @@ begin
     LClient.WithSupportedVersions(AOptions.SupportedVersions);
   // compose peer trust from orthogonal sources: a whole-verifier REPLACES the pipeline, else the
   // trust sources union; with none named the policy is skip-verify or a Build refusal
-  LHostRoots := HostAnchorStore(AOptions, LPkix);
+  LHostRoots := HostAnchorStore(AOptions, LPkix, LHostIntermediates);
   if AOptions.ServerCertificateVerifier <> nil then
   begin
-    if (LHostRoots <> nil) or (AOptions.SystemTrust <> nil) then
+    if (LHostRoots <> nil) or (AOptions.SystemTrust <> nil) or (AOptions.IssuerLookup <> nil) then
       raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
         @SVerifierWithHostTrust, [AOptions.TrustSourceHint]);
     LClient.WithServerVerification(
@@ -729,8 +789,8 @@ begin
   else if AOptions.SystemTrust <> nil then
   begin
     try
-      LClient.WithServerVerification(
-        AOptions.SystemTrust.ServerVerification(LPkix, LHostRoots));
+      LClient.WithServerVerification(ServerVerificationWith(
+        AOptions.SystemTrust.ServerVerification(LPkix, LHostRoots), LHostIntermediates));
     except
       // name the host roots in the failure so it is not mistaken for a platform fault
       on E: EBaseTlsLibException do
@@ -743,10 +803,14 @@ begin
     end;
   end
   else if LHostRoots <> nil then
-    LClient.WithServerVerification(TServerVerification.WebPki(LHostRoots).Build)
-  else
+    LClient.WithServerVerification(ServerVerificationWith(
+      TServerVerification.WebPki(LHostRoots).Build, LHostIntermediates))
+  else if AOptions.IssuerLookup = nil then
     raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
       @SNoClientTrust, [AOptions.TrustSourceHint]);
+  if (AOptions.IssuerLookup <> nil) and AOptions.VerifyPeer and
+    (not AOptions.InsecureSkipVerify) then
+    LClient.WithIssuerLookup(AOptions.IssuerLookup, AOptions.BundleAnchors);
   if not AOptions.CheckHostName then
     LClient.WithDangerousDisableServerNameCheck;
   LClient.WithServerNameIndication(AOptions.ServerNameIndication);
@@ -777,6 +841,9 @@ var
   LPkix: IPkixProvider;
   LServer: ITlsServerConfigBuilder;
   LHostRoots: ITrustAnchorStore;
+  LHostIntermediates: TArray<TBytes>;
+  LClientTrust: IClientVerificationBuilder;
+  LBlob: TBytes;
 begin
   if AOptions.Certificate.IsEmpty then
   begin
@@ -838,17 +905,24 @@ begin
   if AOptions.ClientAuth <> TClientAuthMode.None then
   begin
     LServer.WithPeerAuth(AOptions.ClientAuth);
-    LHostRoots := HostAnchorStore(AOptions, LPkix);
+    LHostRoots := HostAnchorStore(AOptions, LPkix, LHostIntermediates);
     if AOptions.ClientCertificateVerifier <> nil then
     begin
-      if LHostRoots <> nil then
+      if (LHostRoots <> nil) or (AOptions.IssuerLookup <> nil) then
         raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
           @SVerifierWithHostTrust, [AOptions.ClientAuthSourceHint]);
       LServer.WithClientVerification(
         TClientVerification.Custom(AOptions.ClientCertificateVerifier));
     end
     else if LHostRoots <> nil then
-      LServer.WithClientVerification(TClientVerification.WebPki(LHostRoots).Build);
+    begin
+      LClientTrust := TClientVerification.WebPki(LHostRoots);
+      for LBlob in LHostIntermediates do
+        LClientTrust.WithIntermediateCertificates(LBlob);
+      LServer.WithClientVerification(LClientTrust.Build);
+    end;
+    if AOptions.IssuerLookup <> nil then
+      LServer.WithIssuerLookup(AOptions.IssuerLookup, AOptions.BundleAnchors);
     // the augment-only hook vets a presented client chain too, so an operator's allow-list runs
     if Assigned(AOptions.VerifyCallback) then
       LServer.WithCertificateVerifyCallback(AOptions.VerifyCallback);
@@ -877,6 +951,11 @@ begin
   LSig.AddCardinal('credForm', Cardinal(Ord(AOptions.CredentialForm)));
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     Sign(LSig, 'anchor', AOptions.TrustAnchors[LI]);
+  LSig.AddCardinal('bundleAnchors', Cardinal(Ord(AOptions.BundleAnchors)));
+  // by what the lookup answers from, so two lookups over different sources never share a config
+  LSig.AddFlag('issuerLookup', AOptions.IssuerLookup <> nil);
+  if AOptions.IssuerLookup <> nil then
+    SignIssuerLookup(LSig, AOptions.IssuerLookup);
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
   LSig.AddFlag('skipVerify', AOptions.InsecureSkipVerify);
   LSig.AddFlag('checkHost', AOptions.CheckHostName);
@@ -928,6 +1007,10 @@ begin
   LSig.AddCardinal('credForm', Cardinal(Ord(AOptions.CredentialForm)));
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     Sign(LSig, 'anchor', AOptions.TrustAnchors[LI]);
+  LSig.AddCardinal('bundleAnchors', Cardinal(Ord(AOptions.BundleAnchors)));
+  // a server reads the lookup only to verify a requested client chain
+  if (AOptions.ClientAuth <> TClientAuthMode.None) and (AOptions.IssuerLookup <> nil) then
+    SignIssuerLookup(LSig, AOptions.IssuerLookup);
   LSig.AddFlag('verifyPeer', AOptions.VerifyPeer);
   // the server build reads skip-verify under a client-auth mode (the mode-vs-verify guard)
   LSig.AddFlag('skipVerify', AOptions.InsecureSkipVerify);
@@ -962,7 +1045,8 @@ begin
   // option that role never consumes. The verdict resolvers and the handshake timeout are runtime
   // hooks and never conflict.
   LConflict := (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
-    HasTrustAnchor(AOptions) or
+    HasTrustAnchor(AOptions) or (AOptions.IssuerLookup <> nil) or
+    (AOptions.BundleAnchors <> TBundleAnchorRule.SelfSignedOnly) or
     (AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.AlpnProtocols) > 0) or
     (AOptions.Crypto <> nil) or (AOptions.Pkix <> nil) or
     (AOptions.CredentialForm <> TTlsCredentialForm.CertificateAndKey) or

@@ -136,8 +136,8 @@ begin
   LSource := AConfig.ServerVerifierSource;
   // wrapped here and not in the config, whose source is classified by its type
   if AConfig.IssuerLookup <> nil then
-    LSource := TIssuerLookupServerVerifierSource.Create(LSource, AConfig.IssuerLookup)
-      as IServerCertificateVerifierSource;
+    LSource := TIssuerLookupServerVerifierSource.Create(LSource, AConfig.IssuerLookup,
+      AConfig.IssuerAnchorRule) as IServerCertificateVerifierSource;
   Result := LSource.CreateServerVerifier(LSourceTrust);
   // SPKI pinning composes over the source output, so it augments any source (built-in or OS delegate)
   if System.Length(AConfig.CertificatePins) > 0 then
@@ -158,8 +158,8 @@ begin
   LSourceTrust.Dangerous.VerifyCallback := nil;
   LSource := AConfig.ClientVerifierSource;
   if AConfig.IssuerLookup <> nil then
-    LSource := TIssuerLookupClientVerifierSource.Create(LSource, AConfig.IssuerLookup)
-      as IClientCertificateVerifierSource;
+    LSource := TIssuerLookupClientVerifierSource.Create(LSource, AConfig.IssuerLookup,
+      AConfig.IssuerAnchorRule) as IClientCertificateVerifierSource;
   Result := LSource.CreateClientVerifier(LSourceTrust);
   // SPKI pinning composes over the source output, so it pins the presented client chain
   // uniformly over the built-in pipeline and an OS client delegate (RFC 7469)

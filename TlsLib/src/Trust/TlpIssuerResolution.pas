@@ -34,9 +34,10 @@ type
   /// in, verdict out: given the presented chain and the operator's intermediates it asks the lookup
   /// for each distinct issuer name once, then for the issuers of the intermediates it found, down
   /// to the path-building depth. Only a certificate the lookup returns under the asked name is
-  /// used. A self-signed certificate the lookup offers as an anchor, and whose key meets the
-  /// anchor floors, becomes an anchor; every other certificate is chain material only. The result
-  /// is the base store with the anchors layered over it, and the intermediates found.
+  /// used. A certificate the lookup offers as an anchor, whose key meets the anchor floors and
+  /// that is self-signed (or of any kind, under AnyCertificate), becomes an anchor; every other
+  /// certificate is chain material only. The result is the base store with the anchors layered
+  /// over it, and the intermediates found.
   /// </summary>
   TIssuerResolution = class sealed(TObject)
   strict private
@@ -44,6 +45,7 @@ type
     TWalk = record
       Inspector: ICertificateInspector;
       Policy: TCertificateStrengthPolicy;
+      Rule: TBundleAnchorRule;
       Asked: TArray<TBytes>;
       Pending: TArray<TBytes>;
       Anchors: TArray<TBytes>;
@@ -56,7 +58,8 @@ type
     /// <summary>Queues the issuer name of ACertDer; a certificate that does not parse names none.</summary>
     class procedure QueueIssuerOf(var AWalk: TWalk; const ACertDer: TBytes); static;
     /// <summary>Takes the certificates of ABlobs that carry AName as their subject: an anchor when
-    /// AClaimsAnchor and self-signed with a key above the floors, chain material otherwise.</summary>
+    /// AClaimsAnchor, the rule admits it and its key is above the floors, chain material
+    /// otherwise.</summary>
     class procedure Admit(var AWalk: TWalk; const ABlobs: TArray<TBytes>;
       const AName: TBytes; AClaimsAnchor: Boolean); static;
   public
@@ -64,9 +67,9 @@ type
     /// AIntermediates layered over it (ABase itself when none was found); AFound the intermediates
     /// found. A lookup that raises or returns unreadable data contributes nothing.</summary>
     class procedure Resolve(const AInspector: ICertificateInspector; const ALookup: IIssuerLookup;
-      const APolicy: TCertificateStrengthPolicy; const ABase: ITrustAnchorStore;
-      const AChain, AIntermediates: TArray<TBytes>; out AStore: ITrustAnchorStore;
-      out AFound: TArray<TBytes>); static;
+      ARule: TBundleAnchorRule; const APolicy: TCertificateStrengthPolicy;
+      const ABase: ITrustAnchorStore; const AChain, AIntermediates: TArray<TBytes>;
+      out AStore: ITrustAnchorStore; out AFound: TArray<TBytes>); static;
   end;
 
 implementation
@@ -135,7 +138,8 @@ begin
       // the name only selects which answer a certificate belongs to; trust is decided below
       if AWalk.Inspector.SameName(LSubject, AName) <> TCertAnswer.Yes then
         Continue;
-      if AClaimsAnchor and (LCert.IsSelfSigned = TCertAnswer.Yes) then
+      if AClaimsAnchor and ((AWalk.Rule = TBundleAnchorRule.AnyCertificate) or
+        (LCert.IsSelfSigned = TCertAnswer.Yes)) then
       begin
         if TChainAlgorithmPolicy.AnchorsMeetKeyFloors(AWalk.Inspector,
           TArray<TBytes>.Create(LCerts[LC]), AWalk.Policy, LAlert) then
@@ -151,9 +155,10 @@ begin
 end;
 
 class procedure TIssuerResolution.Resolve(const AInspector: ICertificateInspector;
-  const ALookup: IIssuerLookup; const APolicy: TCertificateStrengthPolicy;
-  const ABase: ITrustAnchorStore; const AChain, AIntermediates: TArray<TBytes>;
-  out AStore: ITrustAnchorStore; out AFound: TArray<TBytes>);
+  const ALookup: IIssuerLookup; ARule: TBundleAnchorRule;
+  const APolicy: TCertificateStrengthPolicy; const ABase: ITrustAnchorStore;
+  const AChain, AIntermediates: TArray<TBytes>; out AStore: ITrustAnchorStore;
+  out AFound: TArray<TBytes>);
 var
   LWalk: TWalk;
   LNames: TArray<TBytes>;
@@ -163,6 +168,7 @@ begin
   LWalk := Default(TWalk);
   LWalk.Inspector := AInspector;
   LWalk.Policy := APolicy;
+  LWalk.Rule := ARule;
   for LI := 0 to System.High(AChain) do
     QueueIssuerOf(LWalk, AChain[LI]);
   for LI := 0 to System.High(AIntermediates) do
