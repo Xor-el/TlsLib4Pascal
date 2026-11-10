@@ -33,6 +33,7 @@ uses
   TlpTlsLibExceptions,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpILayeredTrustAnchorStore,
   TlpTrustAnchorStore,
   TlpICertificateVerifierSource,
   TlpTrustPolicy,
@@ -49,6 +50,8 @@ type
     FCerts: TStringList;
     function StoreOf(const AFieldName: string): ITrustAnchorStore;
     function UnionOverWatchedStore(AReleased: PBoolean): ITrustAnchorStore;
+    function LayeredOverWatchedStore(AReleased: PBoolean): ITrustAnchorStore;
+    function Der(const AFieldName: string): TBytes;
   protected
     procedure SetUp; override;
   published
@@ -59,6 +62,13 @@ type
     procedure TestUnionCollapsesDuplicatesAndSkipsNilChildren;
     procedure TestUnionKeepsItsSourceStoresAlive;
     procedure TestAnchorMatchIsExactDer;
+    // layered store: a few extra roots over a base that is never copied
+    procedure TestLayeredStoreAnswersLikeAUnion;
+    procedure TestLayeredStoreRefusesWhatTheBaseDistrusts;
+    procedure TestLayeredStoreReturnsItsBaseWhenNothingIsAdded;
+    procedure TestLayeredStoreOverNoBaseIsAPlainStore;
+    procedure TestLayeredStoreOverALayeredStoreIsOneLayer;
+    procedure TestLayeredStoreKeepsItsBaseAlive;
     procedure TestBuildRefusesAUnionWhoseDistrustRemovesEveryAnchor;
     procedure TestCertificateVerifierLandsInFrozenConfig;
   end;
@@ -226,6 +236,114 @@ begin
   CheckFalse(LReleased, 'the union still holds the source store');
   LUnion := nil;
   CheckTrue(LReleased, 'the source store is released with the union');
+end;
+
+function TTestTrustComposition.Der(const AFieldName: string): TBytes;
+begin
+  Result := DecodeHex(FCerts.Values[AFieldName]);
+end;
+
+function TTestTrustComposition.LayeredOverWatchedStore(AReleased: PBoolean): ITrustAnchorStore;
+var
+  LWatched: ITrustAnchorStore;
+begin
+  LWatched := TReleaseWatchStore.Create(Der('root_cert'), AReleased);
+  Result := TTrustAnchorStore.Layered(LWatched, TArray<TBytes>.Create(Der('leaf_cert')));
+end;
+
+procedure TTestTrustComposition.TestLayeredStoreAnswersLikeAUnion;
+var
+  LBase, LExtra, LLayered, LUnion: ITrustAnchorStore;
+  LProbes, LRoots: TArray<TBytes>;
+  LI: Int32;
+begin
+  // the extras repeat a base anchor, repeat the base distrust, and add two new roots
+  LProbes := TArray<TBytes>.Create(Der('root_cert'), Der('root2_cert'), Der('leaf_cert'),
+    Der('expired_cert'), Der('wrongname_cert'));
+  LBase := TTrustAnchorStore.Create(TArray<TBytes>.Create(LProbes[0], LProbes[1]),
+    TArray<TBytes>.Create(LProbes[2]));
+  LExtra := TTrustAnchorStore.Create(TArray<TBytes>.Create(LProbes[0], LProbes[2], LProbes[3],
+    LProbes[4]));
+  LLayered := TTrustAnchorStore.Layered(LBase, LExtra.RootCertificates);
+  LUnion := TTrustAnchorStore.Union(TArray<ITrustAnchorStore>.Create(LBase, LExtra));
+  CheckEquals(LUnion.AnchorCount, LLayered.AnchorCount, 'the anchor count');
+  LRoots := LLayered.RootCertificates;
+  CheckEquals(LUnion.AnchorCount, System.Length(LRoots), 'the root copy agrees with the count');
+  for LI := 0 to System.High(LRoots) do
+    CheckTrue(LUnion.IsAnchor(LRoots[LI]), 'every layered root is a union anchor');
+  CheckEquals(System.Length(LUnion.DistrustedCertificates),
+    System.Length(LLayered.DistrustedCertificates), 'the distrust set');
+  for LI := 0 to System.High(LProbes) do
+  begin
+    CheckTrue(LUnion.IsAnchor(LProbes[LI]) = LLayered.IsAnchor(LProbes[LI]),
+      'IsAnchor of probe ' + IntToStr(LI));
+    CheckTrue(LUnion.IsDistrusted(LProbes[LI]) = LLayered.IsDistrusted(LProbes[LI]),
+      'IsDistrusted of probe ' + IntToStr(LI));
+  end;
+end;
+
+procedure TTestTrustComposition.TestLayeredStoreRefusesWhatTheBaseDistrusts;
+var
+  LBase, LLayered: ITrustAnchorStore;
+begin
+  LBase := TTrustAnchorStore.Create(TArray<TBytes>.Create(Der('root_cert')),
+    TArray<TBytes>.Create(Der('leaf_cert')));
+  LLayered := TTrustAnchorStore.Layered(LBase, TArray<TBytes>.Create(Der('leaf_cert')));
+  CheckFalse(LLayered.IsAnchor(Der('leaf_cert')), 'an extra the base distrusts is not an anchor');
+  CheckTrue(LLayered.IsDistrusted(Der('leaf_cert')), 'and stays distrusted');
+  CheckEquals(1, LLayered.AnchorCount, 'the anchor count is the base count');
+end;
+
+procedure TTestTrustComposition.TestLayeredStoreReturnsItsBaseWhenNothingIsAdded;
+var
+  LBase: ITrustAnchorStore;
+begin
+  // the base identity is what an identity-keyed cache serves from
+  LBase := TTrustAnchorStore.Create(TArray<TBytes>.Create(Der('root_cert')),
+    TArray<TBytes>.Create(Der('leaf_cert')));
+  CheckTrue(TTrustAnchorStore.Layered(LBase, nil) = LBase, 'no extras');
+  CheckTrue(TTrustAnchorStore.Layered(LBase, TArray<TBytes>.Create(Der('root_cert'))) = LBase,
+    'an extra the base already trusts');
+  CheckTrue(TTrustAnchorStore.Layered(LBase, TArray<TBytes>.Create(Der('leaf_cert'))) = LBase,
+    'an extra the base distrusts');
+end;
+
+procedure TTestTrustComposition.TestLayeredStoreOverNoBaseIsAPlainStore;
+var
+  LStore: ITrustAnchorStore;
+begin
+  LStore := TTrustAnchorStore.Layered(nil, TArray<TBytes>.Create(Der('root_cert'),
+    Der('leaf_cert'), Der('root_cert')));
+  CheckEquals(2, LStore.AnchorCount, 'the extras are the anchors, once each');
+  CheckTrue(LStore.IsAnchor(Der('leaf_cert')), 'an extra is an anchor');
+  CheckFalse(Supports(LStore, ILayeredTrustAnchorStore), 'there is no base to layer on');
+end;
+
+procedure TTestTrustComposition.TestLayeredStoreOverALayeredStoreIsOneLayer;
+var
+  LBase, LOne, LTwo: ITrustAnchorStore;
+  LParts: ILayeredTrustAnchorStore;
+begin
+  LBase := StoreOf('root_cert');
+  LOne := TTrustAnchorStore.Layered(LBase, TArray<TBytes>.Create(Der('leaf_cert')));
+  LTwo := TTrustAnchorStore.Layered(LOne, TArray<TBytes>.Create(Der('expired_cert')));
+  CheckEquals(3, LTwo.AnchorCount, 'the base and both layers');
+  CheckTrue(Supports(LTwo, ILayeredTrustAnchorStore, LParts), 'the result is layered');
+  CheckTrue(LParts.BaseStore = LBase, 'its base is the original store, not the first layer');
+  CheckEquals(2, System.Length(LParts.ExtraRoots), 'both layers are extras');
+end;
+
+procedure TTestTrustComposition.TestLayeredStoreKeepsItsBaseAlive;
+var
+  LLayered: ITrustAnchorStore;
+  LReleased: Boolean;
+begin
+  // an identity-keyed cache holds the base by address, so the layer must keep that store alive
+  LReleased := False;
+  LLayered := LayeredOverWatchedStore(@LReleased);
+  CheckFalse(LReleased, 'the layered store still holds the base');
+  LLayered := nil;
+  CheckTrue(LReleased, 'the base is released with the layered store');
 end;
 
 procedure TTestTrustComposition.TestAnchorMatchIsExactDer;

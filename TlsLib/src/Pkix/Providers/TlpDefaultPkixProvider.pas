@@ -86,6 +86,7 @@ uses
   TlpHttpUrl,
   TlpIPkixProvider,
   TlpITrustAnchorStore,
+  TlpILayeredTrustAnchorStore,
   TlpPkixDomainTypes,
   TlpTlsAlert,
   TlpDateTimeUtilities,
@@ -178,11 +179,30 @@ type
       procedure Remember(const AEntry: TTrustAnchorEntry);
       procedure Rebind(const AEntry: TTrustAnchorEntry);
     end;
+    // parsed extra anchors by content, kept apart from the ring so they cannot push a large base out
+    TParsedAnchorRing = record
+    strict private
+    const
+      ParsedAnchorCacheSize = Int32(64);
+    strict private
+      FDers: TArray<TBytes>;
+      FAnchors: TArray<ITrustAnchor>;
+      FCount: Int32;
+      FNext: Int32;
+    public
+      class function Init: TParsedAnchorRing; static;
+      function TryGet(const ADer: TBytes; out AAnchor: ITrustAnchor): Boolean;
+      procedure Remember(const ADer: TBytes; const AAnchor: ITrustAnchor);
+    end;
   class var
     FTrustAnchors: TTrustAnchorRing;
+    FParsedAnchors: TParsedAnchorRing;
     FTrustAnchorLock: TCriticalSection;
   strict private
     function TrustAnchorKey(const ATrustAnchors: TArray<TBytes>): TBytes;
+    /// <summary>The anchors of AExtraDers, each parsed once and then served from the cache.</summary>
+    function ParsedExtras(const AExtraDers: TArray<TBytes>;
+      const AParser: IX509CertificateParser): TArray<ITrustAnchor>;
     /// <summary>How many of the first ACount pooled certificates share ACert's subject name.</summary>
     class function PooledWithSubject(const APool: TArray<IX509Certificate>;
       ACount: Int32; const ACert: IX509Certificate): Int32; static;
@@ -701,15 +721,92 @@ begin
     Inc(FCount);
 end;
 
+class function TCertificatePathValidator.TParsedAnchorRing.Init: TParsedAnchorRing;
+begin
+  SetLength(Result.FDers, ParsedAnchorCacheSize);
+  SetLength(Result.FAnchors, ParsedAnchorCacheSize);
+  Result.FCount := 0;
+  Result.FNext := 0;
+end;
+
+function TCertificatePathValidator.TParsedAnchorRing.TryGet(const ADer: TBytes;
+  out AAnchor: ITrustAnchor): Boolean;
+var
+  LI: Int32;
+begin
+  AAnchor := nil;
+  for LI := 0 to FCount - 1 do
+    if TArrayUtilities.AreEqual(FDers[LI], ADer) then
+    begin
+      AAnchor := FAnchors[LI];
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+procedure TCertificatePathValidator.TParsedAnchorRing.Remember(const ADer: TBytes;
+  const AAnchor: ITrustAnchor);
+var
+  LKnown: ITrustAnchor;
+begin
+  // a concurrent parse of the same content may have stored it already
+  if TryGet(ADer, LKnown) then
+    Exit;
+  FDers[FNext] := ADer;
+  FAnchors[FNext] := AAnchor;
+  FNext := (FNext + 1) mod ParsedAnchorCacheSize;
+  if FCount < ParsedAnchorCacheSize then
+    Inc(FCount);
+end;
+
 class constructor TCertificatePathValidator.Create;
 begin
   FTrustAnchors := TTrustAnchorRing.Init;
+  FParsedAnchors := TParsedAnchorRing.Init;
   FTrustAnchorLock := TCriticalSection.Create;
 end;
 
 class destructor TCertificatePathValidator.Destroy;
 begin
   FTrustAnchorLock.Free;
+end;
+
+function TCertificatePathValidator.ParsedExtras(const AExtraDers: TArray<TBytes>;
+  const AParser: IX509CertificateParser): TArray<ITrustAnchor>;
+var
+  LCert: IX509Certificate;
+  LHit: Boolean;
+  LI: Int32;
+begin
+  SetLength(Result, System.Length(AExtraDers));
+  for LI := 0 to High(AExtraDers) do
+  begin
+    FTrustAnchorLock.Acquire;
+    try
+      LHit := FParsedAnchors.TryGet(AExtraDers[LI], Result[LI]);
+    finally
+      FTrustAnchorLock.Release;
+    end;
+    if LHit then
+      Continue;
+    try
+      LCert := AParser.ReadCertificate(AExtraDers[LI]);
+      if LCert = nil then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+      Result[LI] := TTrustAnchor.Create(LCert, nil);
+    except
+      on E: ECryptoLibException do
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+    end;
+    FTrustAnchorLock.Acquire;
+    try
+      FParsedAnchors.Remember(AExtraDers[LI], Result[LI]);
+    finally
+      FTrustAnchorLock.Release;
+    end;
+  end;
 end;
 
 class function TCertificatePathValidator.PooledWithSubject(
@@ -920,6 +1017,10 @@ var
   LPoolCount: Int32;
   LEntry, LByDigest: TTrustAnchorEntry;
   LHit: Boolean;
+  LLayered: ILayeredTrustAnchorStore;
+  LBase: ITrustAnchorStore;
+  LExtraDers: TArray<TBytes>;
+  LAnchorDers: TArray<TBytes>;
   LTarget: IX509CertStoreSelector;
   LBuilderParams: IPkixBuilderParameters;
   LPoolStore: IStore<IX509Certificate>;
@@ -960,9 +1061,17 @@ begin
   // store is immutable, so its identity finds them with no hashing; a new store object over
   // content already parsed is matched by a digest computed here (never taken from the store). The
   // parse itself runs outside the lock so concurrent cold verifies do not serialise on it.
+  // A layered store keys the ring by its base; its extras have their own cache.
+  LBase := ATrustAnchors;
+  LExtraDers := nil;
+  if Supports(ATrustAnchors, ILayeredTrustAnchorStore, LLayered) then
+  begin
+    LBase := LLayered.BaseStore;
+    LExtraDers := LLayered.ExtraRoots;
+  end;
   FTrustAnchorLock.Acquire;
   try
-    LHit := FTrustAnchors.TryGetByStore(ATrustAnchors, LEntry);
+    LHit := FTrustAnchors.TryGetByStore(LBase, LEntry);
   finally
     FTrustAnchorLock.Release;
   end;
@@ -970,8 +1079,8 @@ begin
   if not LHit then
   begin
     LEntry := Default(TTrustAnchorEntry);
-    LEntry.Store := ATrustAnchors;
-    LEntry.Ders := ATrustAnchors.RootCertificates;
+    LEntry.Store := LBase;
+    LEntry.Ders := LBase.RootCertificates;
     LEntry.Digest := TrustAnchorKey(LEntry.Ders);
     FTrustAnchorLock.Acquire;
     try
@@ -1013,6 +1122,12 @@ begin
     end;
   end;
   LAnchors := LEntry.Anchors;
+  LAnchorDers := LEntry.Ders;
+  if System.Length(LExtraDers) > 0 then
+  begin
+    LAnchors := TArrayUtilities.Concat<ITrustAnchor>(LAnchors, ParsedExtras(LExtraDers, LParser));
+    LAnchorDers := TArrayUtilities.Concat<TBytes>(LAnchorDers, LExtraDers);
+  end;
 
   // parse any configured intermediates; they pool with the presented certificates so an
   // incomplete chain can still be completed to an anchor (the sans-IO stand-in for AIA fetching).
@@ -1106,7 +1221,7 @@ begin
   EnforceAnchorValidity(LBuildResult.TrustAnchor.TrustedCert);
   EnforcePurpose(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
   EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert,
-    ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors, LEntry.Ders));
+    ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors, LAnchorDers));
 end;
 
 function TCertificatePathValidator.NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;

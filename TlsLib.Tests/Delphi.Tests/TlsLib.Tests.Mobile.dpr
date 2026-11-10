@@ -107,6 +107,7 @@ uses
   TlpIHttpFetcher in '..\..\TlsLib\src\Interfaces\Trust\TlpIHttpFetcher.pas',
   TlpLiveRevocation in '..\..\TlsLib\src\Trust\TlpLiveRevocation.pas',
   TlpITrustAnchorStore in '..\..\TlsLib\src\Interfaces\Trust\TlpITrustAnchorStore.pas',
+  TlpILayeredTrustAnchorStore in '..\..\TlsLib\src\Interfaces\Trust\TlpILayeredTrustAnchorStore.pas',
   TlpTrustAnchorStore in '..\..\TlsLib\src\Trust\TlpTrustAnchorStore.pas',
   TlpICertificateCompression in '..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompression.pas',
   TlpICertificateCompressionCache in '..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompressionCache.pas',

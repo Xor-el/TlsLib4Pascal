@@ -257,8 +257,12 @@ type
     function EkuCert(const AName: string): TBytes;
     function EkuEdgeCert(const AName: string): TBytes;
     function Reissued(const AName: string): TBytes;
-    function CountedVerifies(const AStore: TCountingTrustAnchorStore;
-      ACount: Int32): Boolean;
+    function CountedVerifies(const AStore: ITrustAnchorStore; ACount: Int32): Boolean;
+    // a large base that does not trust the reissued chain, and the rotating extras that do
+    function LargeBaseRoots: TArray<TBytes>;
+    function RotatingExtras(AIndex: Int32): TArray<TBytes>;
+    // every well-formed certificate of the loaded vector files, once each
+    function DistinctCertificates: TArray<TBytes>;
     function VerifierFor(const ARoot: TBytes; ACheckHostName: Boolean)
       : IServerCertificateVerifier;
     // a verifier trusting ARoot with the chain-algorithm policy switched on, as the engine
@@ -344,6 +348,11 @@ type
     procedure TestAnchorSetCopiedOnceAcrossVerifies;
     procedure TestDistinctStoresNeverShareCachedAnchors;
     procedure TestRepeatedStoresOverOneContentDoNotEvictOthers;
+    // a layered store serves its base from the anchor cache and parses only its extras
+    procedure TestLayeredStoreVerifiesLikeAUnion;
+    procedure TestLayeredBaseIsCopiedOnceAcrossRotatingExtras;
+    procedure TestUnparsableExtraFailsTheVerification;
+    procedure TestConcurrentLayeredVerifiesMatchSingleThreaded;
     // path building is bounded against a peer-controlled flood of same-named certificates, and a
     // nil parse result gets the right alert
     procedure TestSelfIssuedFillerFloodFailsFast;
@@ -356,6 +365,31 @@ type
   end;
 
 implementation
+
+type
+  /// <summary>Validates one chain over a shared base layered with rotating extras, to smoke-test
+  /// the parsed-anchor caches and their lock against the single-threaded verdicts.</summary>
+  TLayeredVerifyWorker = class sealed(TThread)
+  strict private
+  var
+    FValidator: ICertificatePathValidator;
+    FBase: ITrustAnchorStore;
+    FChain: TArray<TBytes>;
+    FRoot: TBytes;
+    FPool: TArray<TBytes>;
+    FExpected: TArray<Boolean>;
+    FFirst: Int32;
+    FOps: Int32;
+  public
+    Failure: string;
+    constructor Create(const AValidator: ICertificatePathValidator;
+      const ABase: ITrustAnchorStore; const AChain: TArray<TBytes>; const ARoot: TBytes;
+      const APool: TArray<TBytes>; const AExpected: TArray<Boolean>; AFirst, AOps: Int32);
+    procedure Execute; override;
+    class function Verifies(const AValidator: ICertificatePathValidator;
+      const ABase: ITrustAnchorStore; const AChain: TArray<TBytes>; const ARoot, AExtra: TBytes;
+      AWithRoot: Boolean): Boolean; static;
+  end;
 
 { TTestVerifyCallbackVerifier }
 
@@ -822,6 +856,66 @@ begin
     'ring_05', 'ring_06', 'ring_07', 'inter_serverauth_cert'], ['inter_serverauth_cert'],
     LBuilds)), 'a ring off the distrusted line keeps unknown_ca');
   CheckTrue(FIssuerProbes <= 200, 'issuer probes stay quadratic (' + IntToStr(FIssuerProbes) + ')');
+end;
+
+{ TLayeredVerifyWorker }
+
+constructor TLayeredVerifyWorker.Create(const AValidator: ICertificatePathValidator;
+  const ABase: ITrustAnchorStore; const AChain: TArray<TBytes>; const ARoot: TBytes;
+  const APool: TArray<TBytes>; const AExpected: TArray<Boolean>; AFirst, AOps: Int32);
+begin
+  inherited Create(True);
+  FreeOnTerminate := False;
+  FValidator := AValidator;
+  FBase := ABase;
+  FChain := AChain;
+  FRoot := ARoot;
+  FPool := APool;
+  FExpected := AExpected;
+  FFirst := AFirst;
+  FOps := AOps;
+end;
+
+class function TLayeredVerifyWorker.Verifies(const AValidator: ICertificatePathValidator;
+  const ABase: ITrustAnchorStore; const AChain: TArray<TBytes>; const ARoot, AExtra: TBytes;
+  AWithRoot: Boolean): Boolean;
+var
+  LExtras, LEffective: TArray<TBytes>;
+begin
+  if AWithRoot then
+    LExtras := TArray<TBytes>.Create(ARoot, AExtra)
+  else
+    LExtras := TArray<TBytes>.Create(AExtra);
+  LEffective := nil;
+  try
+    AValidator.ValidateCertificatePath(AChain, TTrustAnchorStore.Layered(ABase, LExtras), nil,
+      Now, TCertKeyPurpose.ServerAuth, LEffective);
+    Result := True;
+  except
+    on EFatalAlertTlsLibException do
+      Result := False;
+  end;
+end;
+
+procedure TLayeredVerifyWorker.Execute;
+var
+  LI, LK: Int32;
+begin
+  Failure := '';
+  try
+    for LI := 0 to FOps - 1 do
+    begin
+      LK := (FFirst + LI * 5) mod System.Length(FPool);
+      if Verifies(FValidator, FBase, FChain, FRoot, FPool[LK], LK mod 3 <> 0) <> FExpected[LK] then
+      begin
+        Failure := 'verdict differs for extra ' + IntToStr(LK);
+        Exit;
+      end;
+    end;
+  except
+    on E: Exception do
+      Failure := E.ClassName + ': ' + E.Message;
+  end;
 end;
 
 { TCountingTrustAnchorStore }
@@ -1877,7 +1971,25 @@ begin
   CheckTrue(LLimits.AdmitsChain(LChain), 'a chain exactly at every cap is admitted');
 end;
 
-function TTestCertificateVerifier.CountedVerifies(const AStore: TCountingTrustAnchorStore;
+function TTestCertificateVerifier.LargeBaseRoots: TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, 21);
+  Result[0] := Reissued('root2_cert');
+  for LI := 0 to 19 do
+    Result[LI + 1] := Flood(Format('filler_%.2d', [LI]));
+end;
+
+function TTestCertificateVerifier.RotatingExtras(AIndex: Int32): TArray<TBytes>;
+begin
+  // the root that issued the reissued chain, beside one filler per index
+  Result := TArray<TBytes>.Create(Reissued('root_cert'),
+    Flood(Format('filler_%.2d', [20 + AIndex])));
+end;
+
+function TTestCertificateVerifier.CountedVerifies(const AStore: ITrustAnchorStore;
   ACount: Int32): Boolean;
 var
   LStore: ITrustAnchorStore;
@@ -1947,6 +2059,120 @@ begin
       Reissued('root_reissued_sha1_cert')), TServerName.DnsName(''), nil, LVerified, LAlert);
   CheckTrue(CountedVerifies(LKept, 1), 'the kept store still verifies');
   CheckEquals(1, LKept.Reads, 'its anchors were not evicted, so it was not copied again');
+end;
+
+procedure TTestCertificateVerifier.TestLayeredStoreVerifiesLikeAUnion;
+var
+  LBase, LExtra: ITrustAnchorStore;
+begin
+  LBase := TTrustAnchorStore.Create(LargeBaseRoots);
+  LExtra := TTrustAnchorStore.Create(TArray<TBytes>.Create(Reissued('root_cert')));
+  CheckFalse(CountedVerifies(LBase, 1), 'the base alone does not trust the chain');
+  CheckTrue(CountedVerifies(TTrustAnchorStore.Union(
+    TArray<ITrustAnchorStore>.Create(LBase, LExtra)), 1), 'the union trusts it');
+  CheckTrue(CountedVerifies(TTrustAnchorStore.Layered(LBase, LExtra.RootCertificates), 1),
+    'so does the layered store');
+end;
+
+procedure TTestCertificateVerifier.TestLayeredBaseIsCopiedOnceAcrossRotatingExtras;
+var
+  LBase: TCountingTrustAnchorStore;
+  LBaseRef: ITrustAnchorStore;
+  LI: Int32;
+begin
+  LBase := TCountingTrustAnchorStore.Create(TTrustAnchorStore.Create(LargeBaseRoots)
+    as ITrustAnchorStore);
+  LBaseRef := LBase;
+  // more rotating extra sets than the anchor cache has slots, each a new store over the one base
+  for LI := 0 to 19 do
+    CheckTrue(CountedVerifies(TTrustAnchorStore.Layered(LBaseRef, RotatingExtras(LI)), 1),
+      'extra set ' + IntToStr(LI) + ' verifies');
+  CheckEquals(1, LBase.Reads, 'the base was copied once, whatever extras came and went');
+end;
+
+function TTestCertificateVerifier.DistinctCertificates: TArray<TBytes>;
+var
+  LHex: TStringList;
+  LLists: array [0 .. 7] of TStringList;
+  LDer: TBytes;
+  LI, LJ: Int32;
+begin
+  LLists[0] := FCerts;
+  LLists[1] := FChain3;
+  LLists[2] := FEku;
+  LLists[3] := FEkuEdge;
+  LLists[4] := FReissued;
+  LLists[5] := FFlood;
+  LLists[6] := FNameConstrained;
+  LLists[7] := FWeakAnchor;
+  Result := nil;
+  LHex := Own<TStringList>(TStringList.Create);
+  LHex.Sorted := True;
+  LHex.Duplicates := dupIgnore;
+  for LI := 0 to High(LLists) do
+    for LJ := 0 to LLists[LI].Count - 1 do
+    begin
+      LDer := nil;
+      try
+        LDer := DecodeHex(LLists[LI].ValueFromIndex[LJ]);
+      except
+        on EArgumentTlsLibException do
+          Continue;
+      end;
+      if Pkix.Certificates.IsWellFormed(LDer) and
+        (LHex.IndexOf(LLists[LI].ValueFromIndex[LJ]) < 0) then
+      begin
+        LHex.Add(LLists[LI].ValueFromIndex[LJ]);
+        SetLength(Result, System.Length(Result) + 1);
+        Result[High(Result)] := LDer;
+      end;
+    end;
+end;
+
+procedure TTestCertificateVerifier.TestConcurrentLayeredVerifiesMatchSingleThreaded;
+var
+  LBase: ITrustAnchorStore;
+  LPool: TArray<TBytes>;
+  LChain: TArray<TBytes>;
+  LExpected: TArray<Boolean>;
+  LWorkers: array [0 .. 3] of TLayeredVerifyWorker;
+  LI: Int32;
+begin
+  // a smoke test: a missing lock may or may not show as a wrong verdict or an exception on a run
+  LBase := TTrustAnchorStore.Create(LargeBaseRoots);
+  LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'));
+  LPool := DistinctCertificates;
+  CheckTrue(System.Length(LPool) > 80, 'more distinct extras than the parsed-anchor cache holds');
+  SetLength(LExpected, System.Length(LPool));
+  for LI := 0 to High(LPool) do
+    LExpected[LI] := TLayeredVerifyWorker.Verifies(Pkix.PathValidation, LBase, LChain,
+      Reissued('root_cert'), LPool[LI], LI mod 3 <> 0);
+  for LI := 0 to High(LWorkers) do
+    LWorkers[LI] := TLayeredVerifyWorker.Create(Pkix.PathValidation, LBase, LChain,
+      Reissued('root_cert'), LPool, LExpected, LI * 7, 400);
+  try
+    for LI := 0 to High(LWorkers) do
+      LWorkers[LI].Start;
+    for LI := 0 to High(LWorkers) do
+      LWorkers[LI].WaitFor;
+    for LI := 0 to High(LWorkers) do
+      CheckEquals('', LWorkers[LI].Failure, 'worker ' + IntToStr(LI) + ' matched the single-threaded verdicts');
+  finally
+    for LI := 0 to High(LWorkers) do
+      LWorkers[LI].Free;
+  end;
+end;
+
+procedure TTestCertificateVerifier.TestUnparsableExtraFailsTheVerification;
+var
+  LBase: ITrustAnchorStore;
+begin
+  LBase := TTrustAnchorStore.Create(LargeBaseRoots);
+  CheckTrue(CountedVerifies(TTrustAnchorStore.Layered(LBase,
+    TArray<TBytes>.Create(Reissued('root_cert'))), 1), 'control: the root alone verifies');
+  CheckFalse(CountedVerifies(TTrustAnchorStore.Layered(LBase,
+    TArray<TBytes>.Create(Reissued('root_cert'), TBytes.Create(1, 2, 3))), 1),
+    'a store with an unparsable anchor is refused, as a static store is');
 end;
 
 procedure TTestCertificateVerifier.TestSha1SelfSignedRootNotConfiguredRejected;
