@@ -85,15 +85,17 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | Source                                                | Maps to                                            |
 |-------------------------------------------------------|----------------------------------------------------|
 | `CertificateData.CertCA` / `.TrustedCertificate`      | `TServerVerification.WebPki` anchor blobs (unioned) |
-| `CertificateData.Certificate` + `.PrivateKey` + `KeyPassword` | `WithCredential` — own cert (server, or mTLS client) |
-| `CertificateData.PFX` + `KeyPassword`                  | `WithCredential` from a PKCS#12; its CA bag is sent as chain, never trusted. PFX beside `Certificate` or `PrivateKey` **fails loudly**, as does `CertCA` with both `Value` and `FileName` set |
-| `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Android / Unix); unions with `CertCA` / `CustomTrustStore` as "my CA plus the OS roots" ([rule](../../docs/system-trust.md#os-and-host-roots)); on Android, the `CertCA` / `CustomTrustStore` roots do not apply to hosts a network-security-config `<domain-config>` names |
+| `CertificateData.TrustedCertsDir`                     | anchors from a hashed certificate directory, files named as OpenSSL names them: PEM in lowercase `<hash>.0`, `.1`, … until the first gap, each certificate kept only under the hash of its own subject, each file read whole with no size limit; a list uses the platform path separator; a server reads it only with `ClientAuth`, and beside a supplied `ClientConfig` / `ServerConfig` it fails loudly; a missing, unreadable or empty directory, or an unloadable file, fails loudly |
+| `CertificateData.Certificate` + `.PrivateKey` + `.KeyPassword` | `WithCredential` — own cert (server, or mTLS client) |
+| `CertificateData.PFX` + `.KeyPassword`                 | `WithCredential` from a PKCS#12; its CA bag is sent as chain, never trusted. PFX beside `Certificate` or `PrivateKey` **fails loudly**, as does `CertCA` with both `Value` and `FileName` set |
+| `UseSystemTrust: Boolean`                             | OS system-trust store (crypt32 / SecTrust / Android / Unix); unions with `CertCA` / `TrustedCertsDir` / `CustomTrustStore` as "my CA plus the OS roots" ([rule](../../docs/system-trust.md#os-and-host-roots)); on Android, the `CertCA` / `CustomTrustStore` roots do not apply to hosts a network-security-config `<domain-config>` names |
 | `CustomTrustStore: ITrustAnchorStore`                 | `WebPki` store (unions with the above)             |
-| `ClientAuth: TClientAuthMode` (**server**)            | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs a private client-CA (`CertCA` / `TrustedCertificate` / `CustomTrustStore`). `UseSystemTrust` is a server-cert source, never a client-CA |
+| `ClientAuth: TClientAuthMode` (**server**)            | `WithPeerAuth(None / Requested / Required)`; default `None` never requests a client certificate. Any other mode needs a private client-CA (`CertCA` / `TrustedCertificate` / `TrustedCertsDir` / `CustomTrustStore`). `UseSystemTrust` is a server-cert source, never a client-CA |
 | `CustomServerCertificateVerifier` / `CustomClientCertificateVerifier` | `Custom` verification — **replaces** the pipeline (role-typed) |
 | `CheckHostName: Boolean` (default True)               | on by default; off via `WithDangerousDisableServerNameCheck` |
 | `SendHostAsSNI` (fcl-net native, default True)        | `WithServerNameIndication(Send / Omit)`; False sends no SNI but the certificate is still verified against the host |
 | `AlpnProtocols: TArray<string>`                       | `WithAlpnProtocols` (ASCII names, converted with `TAlpnProtocols.FromText`) |
+| `CertificateData.ALPNProtocols`                       | the same list as comma-separated text; beside `AlpnProtocols` it must name the same protocols in the same order, and beside a supplied `ClientConfig` / `ServerConfig` it fails loudly (fphttp2server fills the slot itself: clear it in `AfterSocketHandlerCreated` and put ALPN in the config) |
 | `VerifyPeerCert` (default **True**) | verify on/off; **False** → `dangerous` `DangerousSkip` |
 | `SSLType` (fcl-net native)                            | `stAny` offers TLS 1.3 and 1.2; `stTLSv1_2` offers 1.2 alone; any other value fails the handshake |
 | `VerifyCallback` | augment-only hook, runs last (presented chain + validated path + host → Boolean) |
@@ -117,14 +119,15 @@ clients to fetch the missing CA.
 `VerifyPeerCert` at `False` (so stock `TFPHTTPClient` does **not** verify — a well-known footgun);
 this adapter's `VerifyPeerCert` defaults to **`True`**, and fcl-web's own `VerifySSLCertificate`
 cannot change it. Trust is therefore **fail-closed**: a client
-that names **no** trust source (`CertCA`/`TrustedCertificate`, `UseSystemTrust`, `CustomTrustStore`,
-a custom verifier) **refuses to connect** — system trust is never implicit. Anchor sources UNION; a
-custom verifier is exclusive. A server requires `CertificateData.Certificate`/`.PrivateKey`; it
-requests + verifies client certificates only when `ClientAuth` is set (mTLS is an explicit opt-in; a
-named client-CA alone never triggers it). Set `ClientAuth` per server-side handler in the
-`OnCreateClientSocketHandler` hook, never process-wide. `UseSystemTrust` is a server-certificate
-source (a client verifying a server) and is **not** a valid client-CA: a mode whose only source is it
-fails the build — name a private `CertCA` (or a `CustomTrustStore`) for the client-CA.
+that names **no** trust source (`CertCA`/`TrustedCertificate`/`TrustedCertsDir`, `UseSystemTrust`,
+`CustomTrustStore`, a custom verifier) **refuses to connect** — system trust is never implicit.
+Anchor sources UNION; a custom verifier is exclusive. A server requires
+`CertificateData.Certificate`/`.PrivateKey`; it requests + verifies client certificates only when
+`ClientAuth` is set (mTLS is an explicit opt-in; a named client-CA alone never triggers it). Set
+`ClientAuth` per server-side handler in the `OnCreateClientSocketHandler` hook, never process-wide.
+`UseSystemTrust` is a server-certificate source (a client verifying a server) and is **not** a valid
+client-CA: a mode whose only source is it fails the build — name a private `CertCA` (or a
+`TrustedCertsDir` or `CustomTrustStore`) for the client-CA.
 
 Setting `VerifyPeerCert := False` is the loud, deliberate bypass (no PKIX/host/pinning checks) —
 for tests and pinned dev peers, never production. Set it through a `TTlsLibSocketHandler`, or in a
@@ -149,9 +152,21 @@ system-trust model see [docs/system-trust.md](../../docs/system-trust.md).
   handler. A handler given a `ClientConfig` / `ServerConfig` while `Crypto` or `Pkix` is non-nil or
   `SessionResumption` is False raises a conflict, as a config carries its own providers and
   resumption setting.
-- `KeyPassword` on the handler wins; when it is empty the host's `CertificateData.KeyPassword` is used.
 - A handler with no host (not created through a `TInetSocket`) fails closed under `CheckHostName`.
-- `BytesAvailable` reports our buffered plaintext count (the `SSL_pending` analogue).
+- `BytesAvailable` reports our buffered plaintext count (the `SSL_pending` analogue), and
+  `Select` / `CanRead` count it as readable.
+- A connection is not thread-safe: never use it from two threads at once (a `Send` or `Shutdown` on
+  one thread while another reads corrupts the stream). The exception is `Close`, which another
+  thread may call to end a blocked `Recv`; it returns once that call has, and the handler may be
+  freed after it. A `Recv` must not start once `Close` has begun. A blocked `Recv` checks for
+  `Close` ten times a second; `Close` does not end a blocked `Send`.
+- A TLS, socket or file failure in `Connect`, `Accept`, `Send` or `Recv` returns False / -1 with
+  `LastError` (the socket's error number when it has one, else 1), `LastErrorDesc` and
+  `LastSSLErrorCode` (the alert byte the failure carries, 0 without) set. Any other exception
+  propagates, one from `OnVerifyCertificate` in `Connect` included. In `Accept` every exception but
+  a memory, stack or privilege fault returns False, so a server keeps accepting; fcl-net frees the failed
+  connection and its text is lost, so log inside `OnVerifyCertificate`. A hook that raises sends
+  `bad_certificate`, as a rejection does.
 - `TSocketStream` owns and frees the handler it was given; the adapter frees its `TTlsConnection`
   (and with it the TLS stream) in `Destroy`.
 - After the handshake the handler reports `NegotiatedVersion`, `NegotiatedCipherSuite`,

@@ -27,6 +27,7 @@ interface
 uses
   SysUtils,
   Classes,
+  TypInfo,
   sockets,
   ssockets,
   sslsockets,
@@ -46,6 +47,12 @@ uses
   TlpITlsConfigMemo,
   TlpTlsConfigMemo,
   TlpTlsLibExceptions,
+  TlpPem,
+  TlpDer,
+  TlpArrayUtilities,
+  TlpBinaryPrimitives,
+  TlpDataEncoding,
+  TlpCryptoDomainTypes,
   TlpTlsCredential,
   TlpITlsTransport,
   TlpAlpnProtocols,
@@ -55,6 +62,59 @@ uses
   TlpNetSocket;
 
 type
+  /// <summary>The subject-name hash that names the files of a hashed certificate directory: SHA-1
+  /// over the canonical form of a certificate's subject Name, its first four digest bytes read
+  /// little-endian and written as eight lowercase hexadecimal digits. The canonical form
+  /// re-encodes every string value as UTF-8 with surrounding white space removed, inner runs of
+  /// white space folded to one space and ASCII letters lowercased, and orders each SET OF by its
+  /// encodings.</summary>
+  TOpenSslNameHash = class sealed(TObject)
+  strict private
+  const
+    MaxNameLength = Int32(16384);
+    TagOid = Byte($06);
+    TagUtf8String = Byte($0C);
+    TagNumericString = Byte($12);
+    TagPrintableString = Byte($13);
+    TagT61String = Byte($14);
+    TagIa5String = Byte($16);
+    TagUniversalString = Byte($1C);
+    TagBmpString = Byte($1E);
+    TagSequence = Byte($30);
+    TagSet = Byte($31);
+    TagVersion = Byte($A0);
+    class function IsSpace(AByte: Byte): Boolean; static;
+    /// <summary>The contents of the TLVs, all tagged ATag, that make up AParent exactly; False
+    /// when AParent is anything else.</summary>
+    class function ChildContents(const AParent: TBytes; ATag: Byte;
+      out AChildren: TArray<TBytes>): Boolean; static;
+    /// <summary>Whether AData is well-formed UTF-8: no overlong form, surrogate, code point above
+    /// 10FFFF or truncated sequence; noncharacters are accepted.</summary>
+    class function IsValidUtf8(const AData: TBytes): Boolean; static;
+    /// <summary>A string value as UTF-8; False for a string type outside the supported set, a
+    /// UTF-8 string that is not valid, or a surrogate or code point above 10FFFF.</summary>
+    class function ToUtf8(ATag: Byte; const AValue: TBytes;
+      out AUtf8: TBytes): Boolean; static;
+    class function Canonical(const AUtf8: TBytes): TBytes; static;
+    /// <summary>The canonical encoding of one attribute of a Name; False when its value type has
+    /// no hash.</summary>
+    class function CanonicalAttribute(const AAttribute: TBytes;
+      out AEncoded: TBytes): Boolean; static;
+    /// <summary>The canonical encoding of the SET OF whose content is ASet.</summary>
+    class function CanonicalSet(const ASet: TBytes; out AEncoded: TBytes): Boolean; static;
+    class function SubjectName(const ACertificate: TBytes;
+      out AName: TBytes): Boolean; static;
+  public
+    /// <summary>The hash of the DER Name AName; empty when it does not parse strictly, is larger
+    /// than 16 KiB, uses a string type outside the supported set or holds a string that does not
+    /// convert.</summary>
+    class function OfName(const ACrypto: ICryptoProvider; const AName: TBytes): string; static;
+    /// <summary>The file-name prefix of the DER certificate ACertificate; empty when its subject
+    /// has no hash (see OfName).</summary>
+    class function OfCertificate(const ACrypto: ICryptoProvider;
+      const ACertificate: TBytes): string; static;
+  end;
+
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
   /// TlsLib.Net's TNetOs on Socket.Handle, bypassing the SSL-aware handler methods
   /// (which carry decrypted application data and would otherwise recurse). A wait before each
@@ -65,12 +125,19 @@ type
   strict private
   var
     FHandle: THandle;
+    FSocketError: Integer;
+    FCancelled: Boolean;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
     constructor Create(AHandle: THandle);
+    /// <summary>The operating system's error number of the last send or receive that failed, 0
+    /// when none has since it was cleared.</summary>
+    property SocketError: Integer read FSocketError write FSocketError;
+    /// <summary>When set, a read waiting for the peer ends as an end of stream.</summary>
+    property Cancelled: Boolean read FCancelled write FCancelled;
   end;
 
   /// <summary>The benign certificate generator fcl-net's TSSLSocketHandler constructor demands:
@@ -111,14 +178,15 @@ type
   /// <summary>
   /// TlsLib4Pascal's implementation of fcl-net's TSSLSocketHandler. Connect / Accept run the
   /// handshake over Socket.Handle; Send / Recv move application data; Shutdown / Close send
-  /// close_notify; BytesAvailable reports buffered plaintext. Peer trust is sourced from fcl-net's
-  /// native CertificateData slots (CertCA / TrustedCertificate -> anchors, Certificate +
-  /// PrivateKey -> our own credential) plus the extension properties fcl-net lacks (UseSystemTrust,
-  /// a custom store/verifier, ALPN, the augment / async verdict hooks). Verification is governed by
-  /// VerifyPeerCert: this adapter defaults it True (secure by default, overriding fcl-net's own
-  /// False), so real verification runs and fails closed when no trust source is named.
-  /// Set VerifyPeerCert := False for the loud dangerous bypass (system trust is never implicit);
-  /// a write through the generic handler type counts only in units that use this one.
+  /// close_notify; BytesAvailable and Select report buffered plaintext. Peer trust is sourced from
+  /// fcl-net's native CertificateData slots (CertCA / TrustedCertificate / TrustedCertsDir ->
+  /// anchors, Certificate + PrivateKey -> our own credential, ALPNProtocols -> the ALPN list) plus
+  /// the extension properties fcl-net lacks (UseSystemTrust, a custom store/verifier, the augment /
+  /// async verdict hooks). Verification is governed by VerifyPeerCert: this adapter defaults it
+  /// True (secure by default, overriding fcl-net's own False), so real verification runs and fails
+  /// closed when no trust source is named. Set VerifyPeerCert := False for the loud dangerous
+  /// bypass (system trust is never implicit); a write through the generic handler type counts only
+  /// in units that use this one.
   /// fcl-net's SSLType pins the version: stAny offers TLS 1.3 and 1.2, stTLSv1_2 only 1.2, and any
   /// other value fails the handshake.
   /// </summary>
@@ -137,7 +205,6 @@ type
     FCustomServerCertVerifier: IServerCertificateVerifier;
     FCustomClientCertVerifier: IClientCertificateVerifier;
     FAlpnProtocols: TArray<string>;
-    FKeyPassword: string;
     FVerifyCallback: TTlsCertificateVerifyCallback;
     FVerdictResolver: TCertificateVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
@@ -147,9 +214,36 @@ type
     FServerConfig: ITlsServerConfig;
     FHandshakeTimeoutMs: Integer;
     FVerifyPeerCert: Boolean;
+    FSocketTransport: TFclNetSocketTransport;
+    FLastSslCode: Integer;
+    FInFlight: LongInt;
+    FClosing: LongInt;
+    FReaderThread: TThreadID;
+    /// <summary>Clears the recorded failure at the start of a call.</summary>
+    procedure BeginCall;
+    /// <summary>Records AError as the failure of the current call when it belongs to a family a
+    /// connection is expected to fail with (this library's own exceptions and the stream errors of
+    /// reading a configured file), or, with AAnyHookError, when it is anything but a memory,
+    /// stack or privilege fault; False for anything else, which the caller must let propagate. A server's
+    /// failed accept is freed by fcl-net, so the text recorded there is never read.</summary>
+    function RecordFailure(AError: Exception; AAnyHookError: Boolean): Boolean;
+    /// <summary>Stops new calls from entering Recv, ends a Recv that is inside and waits for it to
+    /// leave; True when none was inside.</summary>
+    function EndInFlight: Boolean;
     /// <summary>A fcl-net cert slot as a host-neutral blob source: its inline bytes when present,
     /// else its file path, else empty.</summary>
     class function SslDataBlob(const AData: TSSLData): TTlsBlobSource; static;
+    /// <summary>A published string property of CertificateData by name, empty when this fcl-net
+    /// lacks it.</summary>
+    function CertificateDataText(const AName: string): string;
+    /// <summary>The ALPN protocols to offer or select from: AlpnProtocols, or the comma-separated
+    /// CertificateData.ALPNProtocols (each name trimmed, empty ones skipped). Both set must name
+    /// the same protocols in the same order, else it refuses.</summary>
+    function EffectiveAlpnProtocols: TArray<string>;
+    /// <summary>Adds the trust anchors of CertificateData.TrustedCertsDir as they are on disk
+    /// now; with AConfigSupplied the directory is only noted, as the supplied config conflicts
+    /// with it.</summary>
+    procedure AddTrustedCertsDir(var AOptions: TTlsOptions; AConfigSupplied: Boolean);
     /// <summary>The host-neutral snapshot the adapter core composes into a TLS configuration: one
     /// value per handshake, so a handler setting changed mid-connection is never seen half-applied.
     /// The role (client vs server) is chosen by the caller when it resolves the config and attaches
@@ -181,6 +275,12 @@ type
     function Send(const Buffer; Count: Integer): Integer; override;
     function Recv(const Buffer; Count: Integer): Integer; override;
     function BytesAvailable: Integer; override;
+{$IF DECLARED(TSocketStates)}
+    function Select(ACheck: TSocketStates; ATimeOut: Integer): TSocketStates; override;
+{$IFEND}
+{$IF sslbase.StrDataCount >= 3}
+    function GetSelectedALPNProtocol: string; override;
+{$IFEND}
     /// <summary>The negotiated protocol version once the handshake completes.</summary>
     function NegotiatedVersion: TTlsVersion;
     /// <summary>The negotiated cipher-suite wire codepoint once the handshake completes (0 if none).</summary>
@@ -202,26 +302,25 @@ type
     /// <summary>A human-readable description of the last Connect/Accept/Send/Recv failure.</summary>
     property LastErrorDesc: string read FLastErrorDesc;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
-    /// bundle). Unions with a CertCA / TrustedCertificate bundle and any CustomTrustStore. System
-    /// trust is never implicit: when verifying you must name at least one source or the build fails
-    /// closed. Defaults to False.</summary>
+    /// bundle). Unions with a CertCA / TrustedCertificate / TrustedCertsDir and any
+    /// CustomTrustStore. System trust is never implicit: when verifying you must name at least one
+    /// source or the build fails closed. Defaults to False.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
     /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
     /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
     /// aborts when none is presented. Orthogonal to the client-CA the presented chain must reach -
-    /// CertCA / TrustedCertificate or a CustomTrustStore - and a mode other than None needs one (the
-    /// build fails closed). UseSystemTrust is a server-certificate source (a client verifying a
-    /// server) and is never a client-CA: a mode whose only source is it fails the build. Per handler,
-    /// never a process-wide default: set it in the OnCreateClientSocketHandler hook that builds each
-    /// server-side handler. Ignored on a client connection.</summary>
+    /// CertCA / TrustedCertificate / TrustedCertsDir or a CustomTrustStore - and a mode other than
+    /// None needs one (the build fails closed). UseSystemTrust is a server-certificate source (a
+    /// client verifying a server) and is never a client-CA: a mode whose only source is it fails
+    /// the build. Per handler, never a process-wide default: set it in the
+    /// OnCreateClientSocketHandler hook that builds each server-side handler. Ignored on a client
+    /// connection.</summary>
     property ClientAuth: TClientAuthMode read FClientAuth write FClientAuth;
     /// <summary>Whether the peer certificate's identity is checked against the host (RFC 9525).
     /// Defaults to True; set False to verify the chain but not the name.</summary>
     property CheckHostName: Boolean read FCheckHostName write FCheckHostName;
-    /// <summary>The password for an encrypted CertificateData.PrivateKey, if any.</summary>
-    property KeyPassword: string read FKeyPassword write FKeyPassword;
-    /// <summary>An injected anchor store; when set it UNIONS with the CertCA / TrustedCertificate
-    /// bundle and UseSystemTrust.</summary>
+    /// <summary>An injected anchor store; when set it UNIONS with the CertCA / TrustedCertificate /
+    /// TrustedCertsDir anchors and UseSystemTrust.</summary>
     property CustomTrustStore: ITrustAnchorStore read FCustomTrustStore
       write FCustomTrustStore;
     /// <summary>A whole-verifier for the peer SERVER certificate (client connections) that
@@ -233,7 +332,8 @@ type
     property CustomClientCertificateVerifier: IClientCertificateVerifier
       read FCustomClientCertVerifier write FCustomClientCertVerifier;
     /// <summary>The ALPN protocols to offer (client) or select from (server), most-preferred
-    /// first (e.g. ['h2', 'http/1.1']). Empty offers none.</summary>
+    /// first (e.g. ['h2', 'http/1.1']). Empty offers none. A CertificateData.ALPNProtocols that
+    /// names a different list refuses.</summary>
     property AlpnProtocols: TArray<string> read FAlpnProtocols write FAlpnProtocols;
     /// <summary>An augment-only peer-certificate hook: it runs after the built-in pipeline and can
     /// only additionally reject (never loosen it). On a server it vets the client chain, under
@@ -328,6 +428,7 @@ resourcestring
     'use stAny or stTLSv1_2';
   SFclNetCipherListHint = 'CertificateData.CipherList';
   SFclNetSendNoProgress = 'fcl-net socket send returned no progress';
+  SFclNetNoSession = 'no TLS session is established on this socket';
   SPeerVerifyRejected = 'the OnVerifyCertificate handler rejected the peer certificate';
   SNoSelfSignedCerts = 'TlsLib4Pascal does not generate self-signed certificates; supply ' +
     'CertificateData.Certificate and CertificateData.PrivateKey, or CertificateData.PFX';
@@ -335,17 +436,401 @@ resourcestring
     'PrivateKey; set one source for the credential';
   SFclNetCertCASourcesConflict = 'CertificateData.CertCA sets both Value and FileName; set one ' +
     'source for the CA';
+  SFclNetAlpnSourcesConflict = 'AlpnProtocols and CertificateData.ALPNProtocols disagree; set ' +
+    'one list';
   SFclNetCredentialSourceHint = 'CertificateData.Certificate and PrivateKey, or ' +
     'CertificateData.PFX';
   SNoHostForNameCheck = 'CheckHostName is on but the socket carries no host to verify the ' +
     'certificate identity against (RFC 9525); connect through a TInetSocket that carries the ' +
     'host, or set CheckHostName := False to skip the host-name check';
-  SFclNetTrustSourceHint = 'CertificateData.CertCA / TrustedCertificate, UseSystemTrust, or a ' +
-    'CustomTrustStore/CustomVerifier';
+  SFclNetTrustSourceHint = 'CertificateData.CertCA / TrustedCertificate / TrustedCertsDir, ' +
+    'UseSystemTrust, or a CustomTrustStore/CustomVerifier';
   SFclNetBaseVerifyIgnored = '(VerifyPeerCert was set False by code that does not use ' +
     'TlsLibFclNetTls, such as fcl-web''s VerifySSLCertificate; that write is ignored)';
-  SFclNetClientAuthSourceHint = 'CertificateData.CertCA / TrustedCertificate, or a ' +
-    'CustomTrustStore/CustomVerifier';
+  SFclNetClientAuthSourceHint = 'CertificateData.CertCA / TrustedCertificate / TrustedCertsDir, ' +
+    'or a CustomTrustStore/CustomVerifier';
+  SFclNetTrustedCertsDirNone = 'CertificateData.TrustedCertsDir ''%s'' names no directory';
+  SFclNetTrustedCertsDirMissing = 'CertificateData.TrustedCertsDir names ''%s'', which is not a ' +
+    'directory';
+  SFclNetTrustedCertsDirUnreadable = 'CertificateData.TrustedCertsDir names ''%s'', which ' +
+    'cannot be read';
+  SFclNetTrustedCertsDirFileUnreadable = 'CertificateData.TrustedCertsDir file ''%s'' cannot be ' +
+    'read: %s';
+  SFclNetTrustedCertsDirFileNotPem = 'CertificateData.TrustedCertsDir file ''%s'' holds no ' +
+    'PEM certificate';
+  SFclNetTrustedCertsDirFileUnnamed = 'CertificateData.TrustedCertsDir file ''%s'' holds a ' +
+    'certificate whose subject cannot be hashed';
+  SFclNetTrustedCertsDirEmpty = 'CertificateData.TrustedCertsDir ''%s'' holds no hashed ' +
+    'certificate files (<hash>.0, <hash>.1, ...); run openssl rehash on it';
+
+const
+  CancelPollMs = 100;
+
+type
+  /// <summary>The directory scan behind CertificateData.TrustedCertsDir.</summary>
+  THashedCertsDirectory = class sealed(TObject)
+  strict private
+  type
+    /// <summary>What a directory listing reported for one entry.</summary>
+    TListedEntry = class
+    public
+      Attr: Integer;
+    end;
+    /// <summary>Fills AEntries with the names of ADir, each owning its TListedEntry, sorted and
+    /// matched without regard to case; False when ADir cannot be listed.</summary>
+    class function ListDirectory(const ADir: string; AEntries: TStringList): Boolean; static;
+    /// <summary>Adds to APrefixes the lowercase text before the dot of every entry named as eight
+    /// hex digits, a dot and anything.</summary>
+    class procedure ListHashedPrefixes(AEntries, APrefixes: TStrings); static;
+    /// <summary>Whether the file system has the exact name AName in ADir, given that the listing
+    /// matched it as AListedName. A listed name whose case differs is confirmed with an exact
+    /// lookup, so the file system decides what a name matches; the attributes found go to
+    /// AEntry.</summary>
+    class function ConfirmListedName(const ADir, AName, AListedName: string;
+      AEntry: TListedEntry): Boolean; static;
+    /// <summary>Whether a listed entry, followed once through a link, is a regular file; a link
+    /// hands its target's attributes to AEntry.</summary>
+    class function ProbeHashedFile(const APath: string; AEntry: TListedEntry): Boolean; static;
+    /// <summary>The bytes of a hashed file; a file that cannot be read refuses.</summary>
+    class function ReadHashedFile(const APath: string): TBytes; static;
+    /// <summary>Appends to AAnchors the certificates of the PEM file APath, whose content is
+    /// AContent, that belong under APrefix, and returns how many. A file that is not PEM or holds
+    /// no certificate, and a certificate that cannot be named, refuse.</summary>
+    class function AppendCertificates(const ACrypto: ICryptoProvider; const APath, APrefix: string;
+      const AContent: TBytes; var AAnchors: TArray<TTlsBlobSource>): Integer; static;
+  public
+    /// <summary>Adds the trust anchors of a directory list the way a hashed certificate directory
+    /// is read: per directory, each lowercase hex prefix's files prefix.0, prefix.1, ... up to the
+    /// first missing number, all answered from one listing of the directory, each usable file read
+    /// once. A certificate is an anchor only when the hash of its subject is the prefix it was
+    /// found under.</summary>
+    class procedure AppendAnchors(const ACrypto: ICryptoProvider; const ADirs: string;
+      var AAnchors: TArray<TTlsBlobSource>); static;
+  end;
+
+{ TOpenSslNameHash }
+
+class function TOpenSslNameHash.IsSpace(AByte: Byte): Boolean;
+begin
+  Result := (AByte = $20) or ((AByte >= $09) and (AByte <= $0D));
+end;
+
+class function TOpenSslNameHash.ChildContents(const AParent: TBytes; ATag: Byte;
+  out AChildren: TArray<TBytes>): Boolean;
+var
+  LTag: Byte;
+  LPos, LContent, LLength, LNext: Int32;
+begin
+  Result := False;
+  AChildren := nil;
+  LPos := 0;
+  while LPos < System.Length(AParent) do
+  begin
+    if not TDer.ReadTlv(AParent, LPos, LTag, LContent, LLength, LNext) or (LTag <> ATag) then
+      Exit;
+    TArrayUtilities.Append<TBytes>(AChildren, System.Copy(AParent, LContent, LLength));
+    LPos := LNext;
+  end;
+  Result := True;
+end;
+
+class function TOpenSslNameHash.IsValidUtf8(const AData: TBytes): Boolean;
+var
+  LPos, LNeed: Int32;
+  LLow, LHigh: Byte;
+begin
+  Result := False;
+  LPos := 0;
+  while LPos < System.Length(AData) do
+  begin
+    LLow := $80;
+    LHigh := $BF;
+    case AData[LPos] of
+      $00..$7F:
+        LNeed := 0;
+      $C2..$DF:
+        LNeed := 1;
+      $E0:
+        begin
+          LNeed := 2;
+          LLow := $A0;
+        end;
+      $E1..$EC, $EE..$EF:
+        LNeed := 2;
+      $ED:
+        begin
+          LNeed := 2;
+          LHigh := $9F;
+        end;
+      $F0:
+        begin
+          LNeed := 3;
+          LLow := $90;
+        end;
+      $F1..$F3:
+        LNeed := 3;
+      $F4:
+        begin
+          LNeed := 3;
+          LHigh := $8F;
+        end;
+    else
+      Exit;
+    end;
+    Inc(LPos);
+    if System.Length(AData) - LPos < LNeed then
+      Exit;
+    if LNeed > 0 then
+    begin
+      if (AData[LPos] < LLow) or (AData[LPos] > LHigh) then
+        Exit;
+      Inc(LPos);
+      Dec(LNeed);
+      while LNeed > 0 do
+      begin
+        if (AData[LPos] and $C0) <> $80 then
+          Exit;
+        Inc(LPos);
+        Dec(LNeed);
+      end;
+    end;
+  end;
+  Result := True;
+end;
+
+class function TOpenSslNameHash.ToUtf8(ATag: Byte; const AValue: TBytes;
+  out AUtf8: TBytes): Boolean;
+var
+  LText: UnicodeString;
+  LUcs4: UCS4String;
+  LLatin1: TEncoding;
+  LI: Int32;
+  LCode: UInt32;
+begin
+  Result := False;
+  AUtf8 := nil;
+  case ATag of
+    TagUtf8String:
+      begin
+        if not IsValidUtf8(AValue) then
+          Exit;
+        AUtf8 := AValue;
+        Exit(True);
+      end;
+    TagBmpString:
+      begin
+        if (System.Length(AValue) mod 2) <> 0 then
+          Exit;
+        for LI := 0 to System.Length(AValue) div 2 - 1 do
+        begin
+          LCode := TBinaryPrimitives.ReadUInt16BigEndian(AValue, LI * 2);
+          if (LCode >= $D800) and (LCode <= $DFFF) then
+            Exit;
+        end;
+        LText := TEncoding.BigEndianUnicode.GetString(AValue);
+      end;
+    TagUniversalString:
+      begin
+        if (System.Length(AValue) mod 4) <> 0 then
+          Exit;
+        // the code points and the terminating zero an UCS4String carries
+        SetLength(LUcs4, System.Length(AValue) div 4 + 1);
+        for LI := 0 to System.Length(AValue) div 4 - 1 do
+        begin
+          LCode := TBinaryPrimitives.ReadUInt32BigEndian(AValue, LI * 4);
+          if (LCode > $10FFFF) or ((LCode >= $D800) and (LCode <= $DFFF)) then
+            Exit;
+          LUcs4[LI] := LCode;
+        end;
+        LText := UCS4StringToUnicodeString(LUcs4);
+      end;
+    // one byte per character, read as Latin-1
+    TagPrintableString, TagT61String, TagIa5String:
+      begin
+        LLatin1 := TEncoding.GetEncoding(28591);
+        try
+          LText := LLatin1.GetString(AValue);
+        finally
+          LLatin1.Free;
+        end;
+      end;
+  else
+    Exit;
+  end;
+  AUtf8 := BytesOf(UTF8Encode(LText));
+  Result := True;
+end;
+
+class function TOpenSslNameHash.Canonical(const AUtf8: TBytes): TBytes;
+var
+  LFrom, LTo, LI, LCount: Int32;
+  LByte: Byte;
+begin
+  LFrom := 0;
+  LTo := System.Length(AUtf8);
+  while (LFrom < LTo) and IsSpace(AUtf8[LFrom]) do
+    Inc(LFrom);
+  while (LTo > LFrom) and IsSpace(AUtf8[LTo - 1]) do
+    Dec(LTo);
+  Result := nil;
+  SetLength(Result, LTo - LFrom);
+  LCount := 0;
+  LI := LFrom;
+  while LI < LTo do
+  begin
+    LByte := AUtf8[LI];
+    if IsSpace(LByte) then
+    begin
+      LByte := $20;
+      while (LI < LTo) and IsSpace(AUtf8[LI]) do
+        Inc(LI);
+    end
+    else
+    begin
+      if (LByte >= Ord('A')) and (LByte <= Ord('Z')) then
+        LByte := LByte + 32;
+      Inc(LI);
+    end;
+    Result[LCount] := LByte;
+    Inc(LCount);
+  end;
+  SetLength(Result, LCount);
+end;
+
+class function TOpenSslNameHash.CanonicalAttribute(const AAttribute: TBytes;
+  out AEncoded: TBytes): Boolean;
+var
+  LOidTag, LValueTag: Byte;
+  LOidContent, LOidLength, LOidNext, LValueContent, LValueLength, LValueNext: Int32;
+  LText, LUtf8: TBytes;
+begin
+  Result := False;
+  AEncoded := nil;
+  if not TDer.ReadTlv(AAttribute, 0, LOidTag, LOidContent, LOidLength, LOidNext) or
+    (LOidTag <> TagOid) then
+    Exit;
+  if not TDer.ReadTlv(AAttribute, LOidNext, LValueTag, LValueContent, LValueLength,
+    LValueNext) or (LValueNext <> System.Length(AAttribute)) then
+    Exit;
+  LText := System.Copy(AAttribute, LValueContent, LValueLength);
+  // a NumericString is already canonical
+  if LValueTag <> TagNumericString then
+  begin
+    if not ToUtf8(LValueTag, LText, LUtf8) then
+      Exit;
+    LText := Canonical(LUtf8);
+    LValueTag := TagUtf8String;
+  end;
+  AEncoded := TDer.Tlv(TagSequence, TArrayUtilities.Concat([
+    TDer.Tlv(TagOid, System.Copy(AAttribute, LOidContent, LOidLength)),
+    TDer.Tlv(LValueTag, LText)]));
+  Result := True;
+end;
+
+class function TOpenSslNameHash.CanonicalSet(const ASet: TBytes;
+  out AEncoded: TBytes): Boolean;
+var
+  LAttributes, LCanonical: TArray<TBytes>;
+  LSwap: TBytes;
+  LI, LJ: Int32;
+begin
+  Result := False;
+  AEncoded := nil;
+  if not ChildContents(ASet, TagSequence, LAttributes) or (System.Length(LAttributes) = 0) then
+    Exit;
+  SetLength(LCanonical, System.Length(LAttributes));
+  for LI := 0 to System.High(LAttributes) do
+    if not CanonicalAttribute(LAttributes[LI], LCanonical[LI]) then
+      Exit;
+  // the encodings of a SET OF are in ascending order
+  for LI := 1 to System.High(LCanonical) do
+    for LJ := LI downto 1 do
+      if TArrayUtilities.CompareLexicographic(LCanonical[LJ], LCanonical[LJ - 1]) < 0 then
+      begin
+        LSwap := LCanonical[LJ];
+        LCanonical[LJ] := LCanonical[LJ - 1];
+        LCanonical[LJ - 1] := LSwap;
+      end;
+  AEncoded := TDer.Tlv(TagSet, TArrayUtilities.Concat(LCanonical));
+  Result := True;
+end;
+
+class function TOpenSslNameHash.OfName(const ACrypto: ICryptoProvider;
+  const AName: TBytes): string;
+var
+  LTag: Byte;
+  LContent, LLength, LNext, LI: Int32;
+  LSets, LCanonical: TArray<TBytes>;
+  LAll, LDigest, LPrefix: TBytes;
+  LHash: IHash;
+begin
+  Result := '';
+  if (System.Length(AName) > MaxNameLength) or
+    not TDer.ReadTlv(AName, 0, LTag, LContent, LLength, LNext) or (LTag <> TagSequence) or
+    (LNext <> System.Length(AName)) then
+    Exit;
+  if not ChildContents(System.Copy(AName, LContent, LLength), TagSet, LSets) then
+    Exit;
+  SetLength(LCanonical, System.Length(LSets));
+  for LI := 0 to System.High(LSets) do
+    if not CanonicalSet(LSets[LI], LCanonical[LI]) then
+      Exit;
+  LAll := TArrayUtilities.Concat(LCanonical);
+  LHash := ACrypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+  LHash.Update(LAll, 0, System.Length(LAll));
+  LDigest := LHash.DoFinal;
+  LPrefix := TBytes.Create(LDigest[3], LDigest[2], LDigest[1], LDigest[0]);
+  Result := TDataEncoding.HexEncode(LPrefix);
+end;
+
+class function TOpenSslNameHash.SubjectName(const ACertificate: TBytes;
+  out AName: TBytes): Boolean;
+var
+  LCertificate, LTbs: TBytes;
+  LTag: Byte;
+  LContent, LLength, LNext, LStart, LStep: Int32;
+begin
+  Result := False;
+  AName := nil;
+  if not TDer.ReadTlv(ACertificate, 0, LTag, LContent, LLength, LNext) or
+    (LTag <> TagSequence) then
+    Exit;
+  LCertificate := System.Copy(ACertificate, LContent, LLength);
+  if not TDer.ReadTlv(LCertificate, 0, LTag, LContent, LLength, LNext) or
+    (LTag <> TagSequence) then
+    Exit;
+  LTbs := System.Copy(LCertificate, LContent, LLength);
+  LStart := 0;
+  if not TDer.ReadTlv(LTbs, LStart, LTag, LContent, LLength, LNext) then
+    Exit;
+  if LTag = TagVersion then
+  begin
+    LStart := LNext;
+    if not TDer.ReadTlv(LTbs, LStart, LTag, LContent, LLength, LNext) then
+      Exit;
+  end;
+  // the serial number is read; the signature, issuer and validity are stepped over to the subject
+  for LStep := 1 to 4 do
+  begin
+    LStart := LNext;
+    if not TDer.ReadTlv(LTbs, LStart, LTag, LContent, LLength, LNext) then
+      Exit;
+  end;
+  if LTag <> TagSequence then
+    Exit;
+  AName := System.Copy(LTbs, LStart, LNext - LStart);
+  Result := True;
+end;
+
+class function TOpenSslNameHash.OfCertificate(const ACrypto: ICryptoProvider;
+  const ACertificate: TBytes): string;
+var
+  LName: TBytes;
+begin
+  Result := '';
+  if SubjectName(ACertificate, LName) then
+    Result := OfName(ACrypto, LName);
+end;
 
 { TFclNetSocketTransport }
 
@@ -357,8 +842,20 @@ begin
 end;
 
 function TFclNetSocketTransport.WaitReadable(AMs: Int32): Boolean;
+var
+  LLeftMs, LSliceMs: Int32;
 begin
-  Result := TNetOs.Wait(TNetHandle(FHandle), TNetWait.Readable, AMs);
+  // sliced waits let Cancelled end a blocked read; on Windows a shutdown or close does not
+  LLeftMs := AMs;
+  repeat
+    LSliceMs := LLeftMs;
+    if LSliceMs > CancelPollMs then
+      LSliceMs := CancelPollMs;
+    Result := TNetOs.Wait(TNetHandle(FHandle), TNetWait.Readable, LSliceMs);
+    Dec(LLeftMs, LSliceMs);
+  until Result or FCancelled or (LLeftMs <= 0);
+  // a cancelled wait ends as readable so the receive that follows reports the end
+  Result := Result or FCancelled;
 end;
 
 function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
@@ -366,6 +863,10 @@ function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
 var
   LErr: Integer;
 begin
+  repeat
+  until WaitReadable(CancelPollMs);
+  if FCancelled then
+    Exit(0);
   Result := TNetOs.ReceiveBytes(TNetHandle(FHandle), ABuffer, AOffset, AMaxLength);
   if Result >= 0 then
     Exit; // > 0 bytes, or 0 for an orderly close (the pump reports a truncated handshake)
@@ -375,12 +876,15 @@ begin
     Result := -LErr
   else
     Result := -1;
+  FSocketError := LErr;
 end;
 
 function TFclNetSocketTransport.SendRaw(const ABuffer: TBytes; AOffset,
   ALength: Int32): Int32;
 begin
   Result := TNetOs.SendBytes(TNetHandle(FHandle), ABuffer, AOffset, ALength);
+  if Result < 0 then
+    FSocketError := TNetOs.LastError;
   if Result <= 0 then
     raise ETlsStreamError.CreateRes(@SFclNetSendNoProgress);
 end;
@@ -422,9 +926,57 @@ end;
 
 destructor TTlsLibSocketHandler.Destroy;
 begin
+  // for a host that frees without Close
+  EndInFlight;
   FConnection.Free;
   FConnection := nil;
+  FSocketTransport := nil;
   inherited Destroy;
+end;
+
+procedure TTlsLibSocketHandler.BeginCall;
+begin
+  FLastError := 0;
+  FLastErrorDesc := '';
+  FLastSslCode := 0;
+  if FSocketTransport <> nil then
+    FSocketTransport.SocketError := 0;
+end;
+
+function TTlsLibSocketHandler.RecordFailure(AError: Exception; AAnyHookError: Boolean): Boolean;
+begin
+  Result := (AError is EBaseTlsLibException) or (AError is EStreamError) or
+    (AAnyHookError and not ((AError is EAccessViolation) or (AError is EStackOverflow) or
+    (AError is EPrivilege) or (AError is EHeapMemoryError)));
+  if not Result then
+    Exit;
+  FLastError := 1;
+  FLastErrorDesc := AError.Message;
+  FLastSslCode := 0;
+  if (AError is ETlsStreamError) and ETlsStreamError(AError).HasAlert then
+    FLastSslCode := ETlsStreamError(AError).Alert.ToByte
+  else if AError is EFatalAlertTlsLibException then
+    FLastSslCode := EFatalAlertTlsLibException(AError).AlertDescription.ToByte;
+  if (FSocketTransport <> nil) and (FSocketTransport.SocketError <> 0) then
+    FLastError := FSocketTransport.SocketError;
+end;
+
+function TTlsLibSocketHandler.EndInFlight: Boolean;
+begin
+  // flag then count here, count then flag in Recv: one side always sees the other
+  InterlockedExchange(FClosing, 1);
+  if FSocketTransport <> nil then
+    FSocketTransport.Cancelled := True;
+  Result := InterlockedCompareExchange(FInFlight, 0, 0) = 0;
+  if Result then
+    Exit;
+  if Socket <> nil then
+    fpShutdown(Socket.Handle, SHUT_RDWR);
+  // the reader's own thread would never see the count fall
+  if FReaderThread = GetCurrentThreadId then
+    Exit;
+  while InterlockedCompareExchange(FInFlight, 0, 0) > 0 do
+    Sleep(1);
 end;
 
 {$IF FPC_FULLVERSION >= 30203}
@@ -435,8 +987,8 @@ end;
 
 function TTlsLibSocketHandler.GetLastSSLErrorCode: Integer;
 begin
-  // no numeric code; the text is in GetLastSSLErrorString
-  Result := 0;
+  // the alert the failure carries, which a local refusal may name without sending, 0 when none
+  Result := FLastSslCode;
 end;
 {$IFEND}
 
@@ -455,6 +1007,271 @@ begin
     Result := TTlsBlobSource.FromBytes(AData.Value)
   else
     Result := TTlsBlobSource.FromFile(AData.FileName);
+end;
+
+function TTlsLibSocketHandler.CertificateDataText(const AName: string): string;
+begin
+  // the slot exists only in newer fcl-net, so it is read by name
+  if GetPropInfo(CertificateData, AName,
+    [tkSString, tkLString, tkAString, tkWString, tkUString]) <> nil then
+    Result := GetStrProp(CertificateData, AName)
+  else
+    Result := '';
+end;
+
+function TTlsLibSocketHandler.EffectiveAlpnProtocols: TArray<string>;
+var
+  LNames: TArray<string>;
+  LSlot: TArray<string>;
+  LName: string;
+  LI: Integer;
+begin
+  Result := FAlpnProtocols;
+  LNames := CertificateDataText('ALPNProtocols').Split([',']);
+  LSlot := nil;
+  for LI := 0 to System.High(LNames) do
+  begin
+    LName := Trim(LNames[LI]);
+    if LName <> '' then
+      TArrayUtilities.Append<string>(LSlot, LName);
+  end;
+  if System.Length(LSlot) = 0 then
+    Exit;
+  if System.Length(Result) = 0 then
+    Exit(LSlot);
+  // fcl-web's h2 server writes its own list into the slot, so an equal list is not a conflict
+  if TArrayUtilities.AreEqual<string>(Result, LSlot) then
+    Exit;
+  raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+    @SFclNetAlpnSourcesConflict);
+end;
+
+{ THashedCertsDirectory }
+
+class function THashedCertsDirectory.ListDirectory(const ADir: string;
+  AEntries: TStringList): Boolean;
+var
+  LFind: TSearchRec;
+  LEntry: TListedEntry;
+begin
+  Result := FindFirst(ADir + '*', faAnyFile or faSymLink, LFind) = 0;
+  if not Result then
+    Exit;
+  try
+    AEntries.OwnsObjects := True;
+    // the volume, not the platform, decides case; matches are confirmed by ConfirmListedName
+    AEntries.CaseSensitive := False;
+    repeat
+      LEntry := TListedEntry.Create;
+      AEntries.AddObject(LFind.Name, LEntry);
+      LEntry.Attr := LFind.Attr;
+    until FindNext(LFind) <> 0;
+    AEntries.Sorted := True;
+  finally
+    FindClose(LFind);
+  end;
+end;
+
+class procedure THashedCertsDirectory.ListHashedPrefixes(AEntries, APrefixes: TStrings);
+var
+  LName: string;
+  LDigits: TBytes;
+  LI: Integer;
+begin
+  for LI := 0 to AEntries.Count - 1 do
+  begin
+    LName := AEntries[LI];
+    if (System.Length(LName) >= 9) and (LName[9] = '.') and
+      TDataEncoding.TryHexDecode(System.Copy(LName, 1, 8), LDigits) then
+      APrefixes.Add(LowerCase(System.Copy(LName, 1, 8)));
+  end;
+end;
+
+class function THashedCertsDirectory.ConfirmListedName(const ADir, AName,
+  AListedName: string; AEntry: TListedEntry): Boolean;
+var
+  LFind: TSearchRec;
+begin
+  Result := AListedName = AName;
+  if Result then
+    Exit;
+  Result := FindFirst(ADir + AName, faAnyFile or faSymLink, LFind) = 0;
+  if Result then
+  begin
+    AEntry.Attr := LFind.Attr;
+    FindClose(LFind);
+  end;
+end;
+
+class function THashedCertsDirectory.ReadHashedFile(const APath: string): TBytes;
+var
+  LStream: TFileStream;
+  LSize: Int64;
+begin
+  try
+    LStream := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
+    try
+      LSize := LStream.Size;
+      SetLength(Result, LSize);
+      if LSize > 0 then
+        LStream.ReadBuffer(Result[0], LSize);
+    finally
+      LStream.Free;
+    end;
+  except
+    on E: EStreamError do
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SFclNetTrustedCertsDirFileUnreadable, [APath, E.Message]);
+  end;
+end;
+
+class function THashedCertsDirectory.AppendCertificates(const ACrypto: ICryptoProvider;
+  const APath, APrefix: string; const AContent: TBytes;
+  var AAnchors: TArray<TTlsBlobSource>): Integer;
+var
+  LBlocks: TArray<TPemBlock>;
+  LI: Integer;
+  LHashedName: string;
+  LHasCertificate: Boolean;
+begin
+  Result := 0;
+  try
+    LBlocks := TPem.ReadBlocks(AContent);
+  except
+    on EArgumentTlsLibException do
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SFclNetTrustedCertsDirFileNotPem, [APath]);
+  end;
+  LHasCertificate := False;
+  for LI := 0 to System.High(LBlocks) do
+  begin
+    if LBlocks[LI].PemType <> 'CERTIFICATE' then
+      Continue;
+    LHasCertificate := True;
+    LHashedName := TOpenSslNameHash.OfCertificate(ACrypto, LBlocks[LI].Content);
+    if LHashedName = '' then
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SFclNetTrustedCertsDirFileUnnamed, [APath]);
+    if LHashedName <> APrefix then
+      Continue;
+    SetLength(AAnchors, System.Length(AAnchors) + 1);
+    AAnchors[System.High(AAnchors)] := TTlsBlobSource.FromFileContent(APath, LBlocks[LI].Content);
+    Inc(Result);
+  end;
+  if not LHasCertificate then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SFclNetTrustedCertsDirFileNotPem, [APath]);
+end;
+
+class function THashedCertsDirectory.ProbeHashedFile(const APath: string;
+  AEntry: TListedEntry): Boolean;
+var
+  LFind: TSearchRec;
+begin
+  if (AEntry.Attr and faSymLink) <> 0 then
+  begin
+    // the listing saw the link itself; what it points at is one more stat
+    if FindFirst(APath, faAnyFile, LFind) <> 0 then
+      Exit(False);
+    AEntry.Attr := LFind.Attr;
+    FindClose(LFind);
+  end;
+  Result := (AEntry.Attr and (faDirectory or faSysFile)) = 0;
+end;
+
+class procedure THashedCertsDirectory.AppendAnchors(const ACrypto: ICryptoProvider;
+  const ADirs: string; var AAnchors: TArray<TTlsBlobSource>);
+var
+  LSegments: TArray<string>;
+  LSeen, LPrefixes, LEntries: TStringList;
+  LEntry: TListedEntry;
+  LDir, LName, LPath: string;
+  LI, LP, LNumber, LIndex, LFound, LNamed: Integer;
+  LExists: Boolean;
+begin
+  LSegments := ADirs.Split([PathSep]);
+  LSeen := TStringList.Create;
+  LPrefixes := TStringList.Create;
+  LEntries := TStringList.Create;
+  try
+    LSeen.CaseSensitive := True;
+    LPrefixes.Sorted := True;
+    LPrefixes.Duplicates := dupIgnore;
+    LNamed := 0;
+    for LI := 0 to System.High(LSegments) do
+    begin
+      if LSegments[LI] = '' then
+        Continue;
+      Inc(LNamed);
+      LDir := IncludeTrailingPathDelimiter(LSegments[LI]);
+      if LSeen.IndexOf(LDir) >= 0 then
+        Continue;
+      LSeen.Add(LDir);
+      if not DirectoryExists(LDir) then
+        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+          @SFclNetTrustedCertsDirMissing, [LSegments[LI]]);
+      LEntries.Clear;
+      LEntries.Sorted := False;
+      if not ListDirectory(LDir, LEntries) then
+        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+          @SFclNetTrustedCertsDirUnreadable, [LSegments[LI]]);
+      LPrefixes.Clear;
+      ListHashedPrefixes(LEntries, LPrefixes);
+      LFound := 0;
+      for LP := 0 to LPrefixes.Count - 1 do
+      begin
+        LNumber := 0;
+        repeat
+          LName := LPrefixes[LP] + '.' + IntToStr(LNumber);
+          LIndex := LEntries.IndexOf(LName);
+          LExists := LIndex >= 0;
+          if LExists then
+          begin
+            LEntry := TListedEntry(LEntries.Objects[LIndex]);
+            LExists := ConfirmListedName(LDir, LName, LEntries[LIndex], LEntry);
+          end;
+          if LExists then
+          begin
+            LPath := LDir + LName;
+            if ProbeHashedFile(LPath, LEntry) then
+            begin
+              Inc(LFound, AppendCertificates(ACrypto, LPath, LPrefixes[LP],
+                ReadHashedFile(LPath), AAnchors));
+            end;
+            Inc(LNumber);
+          end;
+        until not LExists;
+      end;
+      if LFound = 0 then
+        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+          @SFclNetTrustedCertsDirEmpty, [LSegments[LI]]);
+    end;
+    if LNamed = 0 then
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SFclNetTrustedCertsDirNone, [ADirs]);
+  finally
+    LEntries.Free;
+    LPrefixes.Free;
+    LSeen.Free;
+  end;
+end;
+
+{ TTlsLibSocketHandler }
+
+procedure TTlsLibSocketHandler.AddTrustedCertsDir(var AOptions: TTlsOptions;
+  AConfigSupplied: Boolean);
+var
+  LCertsDir: string;
+begin
+  LCertsDir := CertificateDataText('TrustedCertsDir');
+  if LCertsDir = '' then
+    Exit;
+  if AConfigSupplied then
+    TArrayUtilities.Append<TTlsBlobSource>(AOptions.TrustAnchors,
+      TTlsBlobSource.FromFile(LCertsDir))
+  else
+    THashedCertsDirectory.AppendAnchors(TTlsConfigComposer.EffectiveCrypto(AOptions), LCertsDir,
+      AOptions.TrustAnchors);
 end;
 
 function TTlsLibSocketHandler.Snapshot: TTlsOptions;
@@ -485,11 +1302,7 @@ begin
     Result.PrivateKey := SslDataBlob(CertificateData.PrivateKey);
   end;
   Result.CredentialSourceHint := SFclNetCredentialSourceHint;
-  // the adapter property shadows fcl-net's own KeyPassword, so honour the host's when ours is unset
-  if FKeyPassword <> '' then
-    Result.KeyPassword := FKeyPassword
-  else
-    Result.KeyPassword := CertificateData.KeyPassword;
+  Result.KeyPassword := CertificateData.KeyPassword;
   // fcl-net exposes two anchor slots; add each only when named so HasClientTrustSource stays honest
   LAnchors := nil;
   if not CertificateData.CertCA.Empty then
@@ -519,7 +1332,7 @@ begin
   else
     Result.ServerNameIndication := TServerNameIndication.Omit;
   Result.ClientAuth := FClientAuth;
-  Result.AlpnProtocols := FAlpnProtocols;
+  Result.AlpnProtocols := EffectiveAlpnProtocols;
   Result.VerifyCallback := FVerifyCallback;
   Result.ClientVerdictResolver := FVerdictResolver;
   Result.ClientVerdictDeadlineMs := FVerdictDeadlineMs;
@@ -550,6 +1363,7 @@ var
   LOptions: TTlsOptions;
 begin
   LOptions := Snapshot;
+  AddTrustedCertsDir(LOptions, FClientConfig <> nil);
   // no host to check the certificate name against: fail with the adapter's own message
   if FCheckHostName and (AHost = '') and (FClientConfig = nil) then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SNoHostForNameCheck);
@@ -561,6 +1375,9 @@ var
   LOptions: TTlsOptions;
 begin
   LOptions := Snapshot;
+  // a server reads anchors only to verify a client certificate
+  if (FClientAuth <> TClientAuthMode.None) or (FServerConfig <> nil) then
+    AddTrustedCertsDir(LOptions, FServerConfig <> nil);
   // a server never consults VerifyPeerCert (that switch governs a client verifying a server); it
   // requests + verifies a client certificate only when ClientAuth is set, so neutralise both
   // client-oriented verify toggles Snapshot derived from it - their value must not trip the
@@ -576,31 +1393,38 @@ var
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
   LEffectiveMs: Integer;
+  LTransport: TFclNetSocketTransport;
+  LTimed: ITlsTimedTransport;
+  LAllowed: Boolean;
 begin
   Result := False;
-  FLastError := 0;
-  FLastErrorDesc := '';
+  BeginCall;
   try
     // a reused handler drops any prior session so we rebuild cleanly on the new socket instead of
     // leaking the previous stream over a stale engine
     FConnection.Free;
     FConnection := nil;
+    FSocketTransport := nil;
+    InterlockedExchange(FClosing, 0);
     // attach the role-correct resolver: a client parks on the server's chain, a server (client
     // auth) on the mTLS client's chain - the two bind different EKUs
     if AIsClient then
     begin
       LClientConfig := BuildClientConfig(AHost);
-      FConnection := TTlsConnection.CreateClient(LClientConfig, AHost,
-        TFclNetSocketTransport.Create(Socket.Handle) as ITlsTimedTransport, FVerdictResolver,
+      LTransport := TFclNetSocketTransport.Create(Socket.Handle);
+      LTimed := LTransport;
+      FConnection := TTlsConnection.CreateClient(LClientConfig, AHost, LTimed, FVerdictResolver,
         FVerdictDeadlineMs);
     end
     else
     begin
       LServerConfig := BuildServerConfig;
-      FConnection := TTlsConnection.CreateServer(LServerConfig,
-        TFclNetSocketTransport.Create(Socket.Handle) as ITlsTimedTransport, FServerVerdictResolver,
+      LTransport := TFclNetSocketTransport.Create(Socket.Handle);
+      LTimed := LTransport;
+      FConnection := TTlsConnection.CreateServer(LServerConfig, LTimed, FServerVerdictResolver,
         FServerVerdictDeadlineMs);
     end;
+    FSocketTransport := LTransport;
     // the handshake read cap: the property when set, else the socket's IOTimeout, else the core
     // connection's one default
     LEffectiveMs := FHandshakeTimeoutMs;
@@ -611,19 +1435,25 @@ begin
     FConnection.Handshake(LEffectiveMs);
     // fcl-net's native OnVerifyCertificate hook runs after our pipeline accepts the chain and can
     // only additionally reject (augment-only, fail-closed)
-    if not DoVerifyCert then
-    begin
-      FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
+    LAllowed := False;
+    try
+      LAllowed := DoVerifyCert;
+    finally
+      // a hook that raises must reach the peer as a rejection, not an orderly close
+      if not LAllowed then
+        FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
+    end;
+    if not LAllowed then
       raise ETlsStreamError.CreateRes(TTlsAlertDescription.BadCertificate,
         @SPeerVerifyRejected);
-    end;
     SetSSLActive(True);
     Result := True;
   except
     on E: Exception do
     begin
-      FLastError := 1;
-      FLastErrorDesc := E.Message;
+      // a server's accept loop must outlive a callback that raises for one client
+      if not RecordFailure(E, not AIsClient) then
+        raise;
       if AIsClient and VerifyPeerCert and (not BaseVerifyPeerCert) and
         (FClientConfig = nil) then
         FLastErrorDesc := FLastErrorDesc + ' ' + SFclNetBaseVerifyIgnored;
@@ -655,29 +1485,38 @@ begin
     FConnection.CloseNotifyQuietly;
   SetSSLActive(False);
   if BiDirectional and (Socket <> nil) then
-    fpShutdown(Socket.Handle, 1);
+    fpShutdown(Socket.Handle, SHUT_WR);
   Result := True;
 end;
 
 function TTlsLibSocketHandler.Close: Boolean;
 begin
-  Result := Shutdown(False);
+  // fcl-net frees the handler next, so a blocked read is woken and must leave first
+  if EndInFlight then
+  begin
+    Result := Shutdown(False);
+    // a Recv that entered while this ran has seen the flag and leaves at once
+    EndInFlight;
+    Exit;
+  end;
+  SetSSLActive(False);
+  Result := True;
 end;
 
 function TTlsLibSocketHandler.Send(const Buffer; Count: Integer): Integer;
 begin
-  // fcl-net's handler is error-code based: clear the error and convert a fatal engine/transport
-  // failure into a negative count + a stored last-error rather than letting it propagate
-  FLastError := 0;
-  FLastErrorDesc := '';
+  BeginCall;
+  // an expected failure becomes -1 and the recorded state; anything else propagates
   try
+    if FConnection = nil then
+      raise ETlsStreamError.CreateRes(@SFclNetNoSession);
     FConnection.Write(PByte(@Buffer)^, Count);
     Result := Count;
   except
     on E: Exception do
     begin
-      FLastError := 1;
-      FLastErrorDesc := E.Message;
+      if not RecordFailure(E, False) then
+        raise;
       Result := -1;
     end;
   end;
@@ -685,19 +1524,29 @@ end;
 
 function TTlsLibSocketHandler.Recv(const Buffer; Count: Integer): Integer;
 begin
-  FLastError := 0;
-  FLastErrorDesc := '';
+  FReaderThread := GetCurrentThreadId;
+  InterlockedIncrement(FInFlight);
   try
-    // a clean close_notify surfaces as 0 (EOF, no error); an idle read ends retryably after
-    // Socket.IOTimeout ms (0 blocks)
-    Result := FConnection.Read(PByte(@Buffer)^, Count, Socket.IOTimeout);
-  except
-    on E: Exception do
-    begin
-      FLastError := 1;
-      FLastErrorDesc := E.Message;
-      Result := -1;
+    // a Close that began first has read the count as zero, so the engine is not entered
+    if InterlockedCompareExchange(FClosing, 0, 0) <> 0 then
+      Exit(0);
+    BeginCall;
+    try
+      if FConnection = nil then
+        raise ETlsStreamError.CreateRes(@SFclNetNoSession);
+      // a clean close_notify surfaces as 0 (EOF, no error); an idle read ends retryably after
+      // Socket.IOTimeout ms (0 blocks)
+      Result := FConnection.Read(PByte(@Buffer)^, Count, Socket.IOTimeout);
+    except
+      on E: Exception do
+      begin
+        if not RecordFailure(E, False) then
+          raise;
+        Result := -1;
+      end;
     end;
+  finally
+    InterlockedDecrement(FInFlight);
   end;
 end;
 
@@ -708,6 +1557,28 @@ begin
   else
     Result := 0;
 end;
+
+{$IF DECLARED(TSocketStates)}
+function TTlsLibSocketHandler.Select(ACheck: TSocketStates; ATimeOut: Integer): TSocketStates;
+begin
+  // plaintext we already decrypted is readable though the socket stays quiet
+  if (sosCanRead in ACheck) and (BytesAvailable > 0) then
+  begin
+    Result := [sosCanRead];
+    if ACheck - [sosCanRead] <> [] then
+      Result := Result + inherited Select(ACheck - [sosCanRead], 0);
+  end
+  else
+    Result := inherited Select(ACheck, ATimeOut);
+end;
+{$IFEND}
+
+{$IF sslbase.StrDataCount >= 3}
+function TTlsLibSocketHandler.GetSelectedALPNProtocol: string;
+begin
+  Result := NegotiatedAlpn;
+end;
+{$IFEND}
 
 function TTlsLibSocketHandler.NegotiatedVersion: TTlsVersion;
 begin
