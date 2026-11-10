@@ -261,6 +261,7 @@ type
     procedure TestExternalPskDuplicateIdentityIsRefused;
     procedure TestExternalPskSameIdentityDifferentContextIsAccepted;
     procedure TestExternalPskSha512ProvisionedHashIsAccepted;
+    procedure TestExternalPskSha1ProvisionedHashIsRefused;
     procedure TestExternalPskOversizeContextIsRefused;
     procedure TestExternalPskImportedIdentityAtTheWireLimitIsAccepted;
     procedure TestExternalPskImportedIdentityBeyondTheWireLimitIsRefused;
@@ -396,6 +397,7 @@ type
     procedure TestCustomSuiteRegistryWithNonCatalogRecordInListRefused;
     procedure TestCustomSuiteRegistryWithNonCatalogRecordBesideTls12PskRefused;
     procedure TestCustomSuiteRegistryOfCatalogRecordsBuilds;
+    procedure TestCustomRegistrySuiteOnNonProtocolHashIsRefused;
     procedure TestMalformedTrustAnchorIsRefusedAtBuild;
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
     procedure TestClientCredentialWithMismatchedKeyRejected;
@@ -1538,6 +1540,16 @@ begin
   LConfig := NewClientBuilder.Tls13.WithExternalPreSharedKeys(
     TArray<TExternalPsk>.Create(LPsk)).Build;
   CheckEquals(1, System.Length(LConfig.ExternalPsks), 'the SHA-512 PSK is kept');
+end;
+
+procedure TTestConfigBuilder.TestExternalPskSha1ProvisionedHashIsRefused;
+var
+  LPsk: TExternalPsk;
+begin
+  LPsk := MakePskSpec;
+  LPsk.Hash := THashAlgorithm.SHA_1;
+  CheckExternalPskRefused(TArray<TExternalPsk>.Create(LPsk),
+    'an external PSK provisioned under SHA-1');
 end;
 
 procedure TTestConfigBuilder.TestExternalPskOversizeContextIsRefused;
@@ -4394,6 +4406,26 @@ begin
     TFakeSuiteRegistry.Create(LSuites) as ICipherSuiteRegistry).Build;
   CheckEquals(System.Length(LSuites), System.Length(LConfig.CipherSuites.Items),
     'catalog records and a code the catalog does not know pass through');
+end;
+
+procedure TTestConfigBuilder.TestCustomRegistrySuiteOnNonProtocolHashIsRefused;
+var
+  LSuites: TArray<TTlsCipherSuite>;
+  LMessage: string;
+begin
+  LSuites := TCipherSuiteRegistry.CreateDualVersion(Crypto).Items;
+  LSuites[0].Common.Code := $C0FF;
+  LSuites[0].Common.Hash := THashAlgorithm.SHA_1;
+  LMessage := '';
+  try
+    NewClientBuilder.WithCipherSuites(TFakeSuiteRegistry.Create(LSuites) as ICipherSuiteRegistry)
+      .Build;
+  except
+    on E: EArgumentTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('cannot run on', LMessage) > 0,
+    'a host registry holding a suite on a hash TLS cannot run on is refused');
 end;
 
 procedure TTestConfigBuilder.TestMalformedTrustAnchorIsRefusedAtBuild;

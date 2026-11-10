@@ -891,12 +891,12 @@ at `Build`. Both ends configure the same identity + key. A client requires the P
 `Tls13.WithExternalPskRequired(False)` to let it fall back to certificate authentication.
 
 `WithExternalPreSharedKeys` refuses a malformed PSK up front: an empty or over-65535-byte identity, an
-empty secret, an identity plus context whose imported identity exceeds 65535 bytes, and two PSKs that
-share an identity and context. A client's `Build` also refuses a set that, sent once per KDF hash
-(SHA-256 and SHA-384), would not fit the 65535-byte ClientHello extensions block beside fixed
-allowances: the other extensions, the ALPN list as configured, a cached ticket when a session cache
-is set (a client caches no ticket over 16428 bytes, whoever issued it), and a doubled hello plus ECH
-overhead when ECH is on. A set that passes encodes (about 538 two-byte-identity PSKs with none of
+empty secret, a hash other than SHA-256, SHA-384 or SHA-512, an identity plus context whose imported
+identity exceeds 65535 bytes, and two PSKs that share an identity and context. A client's `Build`
+also refuses a set that, sent once per KDF hash (SHA-256 and SHA-384), would not fit the 65535-byte
+ClientHello extensions block beside fixed allowances: the other extensions, the ALPN list as
+configured, a cached ticket when a session cache is set (a client caches no ticket over 16428 bytes,
+whoever issued it), and a doubled hello plus ECH overhead when ECH is on. A set that passes encodes (about 538 two-byte-identity PSKs with none of
 those, 246 with ECH); a server may hold any number. A connection an
 external PSK authenticated reports `Resumed = False` and the configured identity in `PskIdentity`;
 only a later ticket resumption of it is a resumption.

@@ -28,7 +28,8 @@ uses
 type
   /// <summary>The default cipher-suite registry: an immutable, ordered suite list. A suite whose
   /// code is in the catalog must equal the catalog definition in every field, else the
-  /// constructor raises EArgumentTlsLibException; codes outside the catalog are accepted.</summary>
+  /// constructor raises EArgumentTlsLibException; codes outside the catalog are accepted when they
+  /// name protocol hashes.</summary>
   TCipherSuiteRegistry = class sealed(TCodeKeyedRegistryBase<TTlsCipherSuite>,
     ICipherSuiteRegistry)
   strict private
@@ -46,6 +47,9 @@ type
   public
     constructor Create(const ASuites: TArray<TTlsCipherSuite>);
     class function CodeOf(const ASuite: TTlsCipherSuite): UInt16; static;
+    /// <summary>Raises EArgumentTlsLibException for a suite that differs from the catalog
+    /// definition of its code or names a hash TLS cannot run on.</summary>
+    class procedure Validate(const ASuite: TTlsCipherSuite); static;
     function ToBuilder: ICipherSuiteRegistryBuilder;
 
     /// <summary>
@@ -93,16 +97,29 @@ implementation
 
 resourcestring
   SSuiteDiffersFromCatalog = 'cipher suite 0x%.4x differs from the catalog definition of its code';
+  SSuiteHashNotProtocol = 'cipher suite 0x%.4x names a hash TLS cannot run on';
 
 constructor TCipherSuiteRegistry.Create(const ASuites: TArray<TTlsCipherSuite>);
 var
   LI: Int32;
 begin
   for LI := 0 to System.Length(ASuites) - 1 do
-    if not TCipherSuiteCatalog.MatchesCatalog(ASuites[LI]) then
-      raise EArgumentTlsLibException.CreateResFmt(@SSuiteDiffersFromCatalog,
-        [ASuites[LI].Common.Code]);
+    Validate(ASuites[LI]);
   inherited Create(CodeOf, ASuites);
+end;
+
+class procedure TCipherSuiteRegistry.Validate(const ASuite: TTlsCipherSuite);
+var
+  LHash, LPrf: THashAlgorithm;
+begin
+  if not TCipherSuiteCatalog.MatchesCatalog(ASuite) then
+    raise EArgumentTlsLibException.CreateResFmt(@SSuiteDiffersFromCatalog,
+      [ASuite.Common.Code]);
+  LHash := ASuite.Common.Hash;
+  LPrf := ASuite.Prf;
+  if not (LHash.IsProtocolHash and LPrf.IsProtocolHash) then
+    raise EArgumentTlsLibException.CreateResFmt(@SSuiteHashNotProtocol,
+      [ASuite.Common.Code]);
 end;
 
 function TCipherSuiteRegistry.ToBuilder: ICipherSuiteRegistryBuilder;

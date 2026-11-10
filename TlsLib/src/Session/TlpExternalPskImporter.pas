@@ -80,6 +80,7 @@ resourcestring
     'the external PSK importer supports only HKDF-SHA256 and HKDF-SHA384 (RFC 9258)';
   SEmptyExternalPskIdentity =
     'the external PSK identity must not be empty (RFC 9258 external_identity<1..2^16-1>)';
+  SExternalPskHashNotProtocol = 'an external PSK names a hash TLS cannot run on';
 
 const
   KdfHkdfSha256 = UInt16($0001);
@@ -160,6 +161,8 @@ begin
   // RFC 9258 5.1: external_identity is opaque<1..2^16-1>, so a zero-length identity is invalid
   if System.Length(ASpec.Identity) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SEmptyExternalPskIdentity);
+  if not ASpec.Hash.IsProtocolHash then
+    raise EArgumentTlsLibException.CreateRes(@SExternalPskHashNotProtocol);
   // RFC 9258 5.1: the imported identity binds the external identity, context, target
   // protocol and target KDF, so the same secret under a different context/KDF/protocol
   // yields a distinct wire identity that will not match.

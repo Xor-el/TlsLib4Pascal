@@ -422,7 +422,7 @@ resourcestring
     'verdict slot: call only one';
   SDefaultKeysBesideExplicitKeys = 'WithDefaultSessionTicketKeys can never take effect beside ' +
     'WithSessionTicketKeys: call only one';
-  SSuiteDiffersFromCatalog = 'cipher suite 0x%.4x differs from the catalog definition of its code';
+  SExternalPskHashNotProtocol = 'an external PSK names a hash TLS cannot run on';
   SCipherSuiteListNotOffered = 'the cipher-suite list names only suites of a protocol version ' +
     'that is not offered, so it would change nothing: list a suite of an offered version or drop ' +
     'WithCipherSuiteList';
@@ -2759,6 +2759,8 @@ begin
   for LI := 0 to System.High(APsks) do
   begin
     ValidatePskEntry(APsks[LI].Identity, APsks[LI].Secret);
+    if not APsks[LI].Hash.IsProtocolHash then
+      raise EArgumentTlsLibException.CreateRes(@SExternalPskHashNotProtocol);
     // an imported identity that cannot be encoded would fail every accept and every offer
     if (System.Length(APsks[LI].Context) > High(UInt16)) or
       (System.Length(TExternalPskImporter.ImportedIdentity(APsks[LI].Identity,
@@ -3055,8 +3057,7 @@ begin
   LSuites := EffectiveCipherSuites;
   // a custom registry skips the default registry's own check, and the engine runs the record
   for LSuite in LSuites.Items do
-    if not TCipherSuiteCatalog.MatchesCatalog(LSuite) then
-      raise EArgumentTlsLibException.CreateResFmt(@SSuiteDiffersFromCatalog, [LSuite.Common.Code]);
+    TCipherSuiteRegistry.Validate(LSuite);
   ValidateOfferedVersionsHaveSuites(LSuites);
   if System.Length(FPreferredGroups) = 0 then
     raise EArgumentTlsLibException.CreateRes(@SNoPreferredGroups);

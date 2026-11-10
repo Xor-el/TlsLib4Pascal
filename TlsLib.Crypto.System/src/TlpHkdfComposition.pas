@@ -56,6 +56,7 @@ implementation
 
 resourcestring
   SNilHkdfPrimitives = 'the primitives facet must not be nil';
+  SNotProtocolHash = 'hash algorithm enum value %d is not a protocol hash';
 
 { THkdfComposition }
 
@@ -65,6 +66,8 @@ begin
   inherited Create;
   if APrimitives = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilHkdfPrimitives);
+  if not AAlgorithm.IsProtocolHash then
+    raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash, [Ord(AAlgorithm)]);
   FPrimitives := APrimitives;
   FAlgorithm := AAlgorithm;
 end;

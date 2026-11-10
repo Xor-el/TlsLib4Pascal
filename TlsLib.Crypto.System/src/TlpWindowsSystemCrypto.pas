@@ -814,7 +814,7 @@ type
     FApi: TCngApi;
     FAlgP256, FAlgP384, FAlgP521: Pointer;
     FX25519: Pointer;
-    FHashSha256, FHashSha384, FHashSha512: Pointer;
+    FHashSha1, FHashSha256, FHashSha384, FHashSha512: Pointer;
     FHmacSha256, FHmacSha384, FHmacSha512: Pointer;
     // whether this OS reuses hash/HMAC objects across FinishHash (Win8+); probed once
     FHashReusable: Boolean;
@@ -2586,6 +2586,7 @@ begin
     System.Assigned(FApi.Decapsulate);
   if LHashClone then // the vended hash exposes Clone (BCryptDuplicateHash)
   begin
+    FHashSha1 := TryOpenAlg('SHA1');
     FHashSha256 := TryOpenAlg('SHA256');
     FHashSha384 := TryOpenAlg('SHA384');
     FHashSha512 := TryOpenAlg('SHA512');
@@ -2684,6 +2685,7 @@ begin
     CloseAlg(FHashSha512);
     CloseAlg(FHashSha384);
     CloseAlg(FHashSha256);
+    CloseAlg(FHashSha1);
     CloseAlg(FAlgP521);
     CloseAlg(FAlgP384);
     CloseAlg(FAlgP256);
@@ -2788,6 +2790,11 @@ begin
         LAlg := FHashSha512;
         LHashSize := 64;
       end;
+    THashAlgorithm.SHA_1:
+      begin
+        LAlg := FHashSha1;
+        LHashSize := 20;
+      end;
   else
     LAlg := nil;
     LHashSize := 0;
@@ -2811,6 +2818,8 @@ begin
       Result := FHashSha384 <> nil;
     THashAlgorithm.SHA_512:
       Result := FHashSha512 <> nil;
+    THashAlgorithm.SHA_1:
+      Result := FHashSha1 <> nil;
   else
     Result := False;
   end;
@@ -3309,6 +3318,8 @@ var
       Result := Result + ' SHA-384';
     if FCng.HashAvailable(THashAlgorithm.SHA_512) then
       Result := Result + ' SHA-512';
+    if FCng.HashAvailable(THashAlgorithm.SHA_1) then
+      Result := Result + ' SHA-1';
     if Result <> '' then
       Result := 'hash' + Result;
   end;

@@ -29,6 +29,8 @@ uses
 {$ENDIF FPC}
   TlpArrayUtilities,
   TlpDataEncoding,
+  TlpCryptoDomainTypes,
+  TlpTlsLibExceptions,
   TlpDateTimeUtilities,
   TlpSystemTimeUtilities,
   TlpICryptoProvider,
@@ -99,6 +101,9 @@ type
     procedure CheckEqualBytes(const AName: string; const AExpected, AActual: TBytes);
     // Loads a "name=hexvalue" vector file; read fields via Result.Values['name'].
     function LoadVectorFields(const ARelativePath: string): TStringList;
+    // Asserts APrimitives builds HMAC, HKDF and the TLS 1.2 PRF over a protocol hash and raises
+    // ENotSupportedTlsLibException over any other.
+    procedure CheckKeyedFactoriesByHash(const APrimitives: ICryptoPrimitives);
   end;
 
 implementation
@@ -338,6 +343,40 @@ begin
   except
     Result.Free;
     raise;
+  end;
+end;
+
+procedure TTlsLibAlgorithmTestCase.CheckKeyedFactoriesByHash(const APrimitives: ICryptoPrimitives);
+var
+  LHash: THashAlgorithm;
+  LRaised: Boolean;
+begin
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+  begin
+    LRaised := False;
+    try
+      APrimitives.CreateHmac(LHash);
+    except
+      on ENotSupportedTlsLibException do
+        LRaised := True;
+    end;
+    CheckEquals(not LHash.IsProtocolHash, LRaised, Format('HMAC over hash %d', [Ord(LHash)]));
+    LRaised := False;
+    try
+      APrimitives.CreateHkdf(LHash);
+    except
+      on ENotSupportedTlsLibException do
+        LRaised := True;
+    end;
+    CheckEquals(not LHash.IsProtocolHash, LRaised, Format('HKDF over hash %d', [Ord(LHash)]));
+    LRaised := False;
+    try
+      APrimitives.CreateTls12Prf(LHash);
+    except
+      on ENotSupportedTlsLibException do
+        LRaised := True;
+    end;
+    CheckEquals(not LHash.IsProtocolHash, LRaised, Format('PRF over hash %d', [Ord(LHash)]));
   end;
 end;
 

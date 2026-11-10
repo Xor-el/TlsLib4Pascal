@@ -238,6 +238,7 @@ resourcestring
   SMalformedPkcs12 = 'the PKCS#12 blob could not be read (wrong password, bad MAC, or malformed)';
   SHkdfExpandTooLong = 'HKDF-Expand output length %d exceeds 255 * HashLen (%d)';
   SHkdfExpandNegative = 'HKDF-Expand output length must not be negative';
+  SNotProtocolHash = 'hash algorithm enum value %d is not a protocol hash';
 
 type
   TAeadKind = (AesGcm, ChaChaPoly);
@@ -279,10 +280,8 @@ type
   THkdfAdapter = class(TInterfacedObject, IHkdf)
   strict private
   var
-    FAlgorithm: THashAlgorithm;
     FExtractMac: IMac;
     FExpandGen: IHkdfBytesGenerator;
-    function NewDigest: IDigest;
   public
     constructor Create(AAlgorithm: THashAlgorithm);
     function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
@@ -512,8 +511,7 @@ type
       const AKeyParam: IAsymmetricKeyParameter): ISigningKey; static;
   end;
 
-  // Resolves a hash algorithm to its digest. A stateless leaf shared by
-  // the primitives and the path validator's anchor-key hash.
+  // The digest behind every keyed construction; refuses non-protocol hashes.
   TDigestResolver = class sealed(TObject)
   public
     class function Resolve(AAlgorithm: THashAlgorithm): IDigest; static;
@@ -670,14 +668,9 @@ end;
 constructor THkdfAdapter.Create(AAlgorithm: THashAlgorithm);
 begin
   inherited Create;
-  FAlgorithm := AAlgorithm;
-  FExtractMac := THMac.Create(NewDigest) as IMac;
-  FExpandGen := THkdfBytesGenerator.Create(NewDigest) as IHkdfBytesGenerator;
-end;
-
-function THkdfAdapter.NewDigest: IDigest;
-begin
-  Result := TDigestUtilities.GetDigest(TEnumUtilities.GetName<THashAlgorithm>(FAlgorithm));
+  FExtractMac := THMac.Create(TDigestResolver.Resolve(AAlgorithm)) as IMac;
+  FExpandGen := THkdfBytesGenerator.Create(
+    TDigestResolver.Resolve(AAlgorithm)) as IHkdfBytesGenerator;
 end;
 
 function THkdfAdapter.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
@@ -1860,6 +1853,8 @@ end;
 
 class function TDigestResolver.Resolve(AAlgorithm: THashAlgorithm): IDigest;
 begin
+  if not AAlgorithm.IsProtocolHash then
+    raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash, [Ord(AAlgorithm)]);
   Result := TDigestUtilities.GetDigest(
     TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm));
 end;
@@ -2003,7 +1998,8 @@ end;
 
 function TCryptoPrimitives.CreateHash(AAlgorithm: THashAlgorithm): IHash;
 begin
-  Result := THashAdapter.Create(TDigestResolver.Resolve(AAlgorithm));
+  Result := THashAdapter.Create(
+    TDigestUtilities.GetDigest(TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm)));
 end;
 
 function TCryptoPrimitives.CreateHmac(AAlgorithm: THashAlgorithm): IHmac;

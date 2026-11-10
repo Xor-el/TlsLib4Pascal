@@ -72,6 +72,7 @@ type
     procedure TestZeroLifetimeOfferabilityDivergence;
     procedure TestOfferableWithinCappedLifetime;
     procedure TestNotOfferablePastLifetime;
+    procedure TestSessionOnNonProtocolHashIsNotOfferable;
     procedure TestOfferabilityHonorsSevenDayCap;
     procedure TestAuthenticationLapsesPastSevenDays;
     procedure TestAuthenticationClockBehindIsNotLapsed;
@@ -239,6 +240,19 @@ begin
     '1.3 drops a ticket past its lifetime');
   CheckFalse(TClientSessionPolicy.IsOfferableTls12(LSession, 100001),
     '1.2 drops a ticket past its (non-zero) lifetime');
+end;
+
+procedure TTestClientSessionPolicy.TestSessionOnNonProtocolHashIsNotOfferable;
+var
+  LSession: IResumableSession;
+begin
+  CheckTrue(TClientSessionPolicy.IsOfferableTls13(MakeSession(100, 0), 50000),
+    'the SHA-256 session inside its lifetime is offerable');
+  LSession := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_1, TSecretBuffer.From(TBytes.Create(1, 2, 3, 4)), nil, '',
+    TBytes.Create($AB), 100, 0, 0, 0, nil, nil);
+  CheckFalse(TClientSessionPolicy.IsOfferableTls13(LSession, 50000),
+    'the same session on SHA-1 is not offered');
 end;
 
 procedure TTestClientSessionPolicy.TestOfferabilityHonorsSevenDayCap;

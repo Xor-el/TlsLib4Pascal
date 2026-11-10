@@ -31,6 +31,10 @@ uses
   TlpOSCryptoProvider,
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   TlpWindowsSystemCrypto,
+  TlpComplianceTypes,
+  TlpComplianceExceptions,
+  TlpCompliancePresets,
+  TlpComplianceCryptoProvider,
 {$IFEND}
   TlpICryptoBackendReport,
   TlpSystemCryptoStrictness,
@@ -64,6 +68,7 @@ uses
   TlpTls12PrfLabels,
   TlpSystemCryptoBase,
   MockCryptoProvider,
+  MockRandom,
   MockSystemCrypto,
   TlsLibTestBase;
 
@@ -234,7 +239,22 @@ type
     // Imports AField and checks that the key signs what the leaf's public key verifies.
     function ImportPairingLeaf(const AProvider: ICryptoProvider; const AField: string;
       const APassword: ISecretBuffer): TImportedCredential;
+    // The overlay's backend report, after asserting it serves SHA-1 natively.
+    function NativeSha1Report: ICryptoBackendReport;
+    // The SHA-1 of AMsg through APrimitives, fed in pieces whose sizes ARandom draws.
+    function Sha1DigestInPieces(const APrimitives: ICryptoPrimitives; const AMsg: TBytes;
+      const ARandom: IRandom): TBytes;
+    // Asserts APrimitives digests the SHA-1 known answers of Crypto/Digest/Sha1.txt.
+    procedure CheckSha1Kats(const APrimitives: ICryptoPrimitives);
   published
+    // SHA-1 is served by the OS module
+    procedure TestNativeSha1Kats;
+    procedure TestNativeSha1MatchesPortableOnRandomInput;
+    procedure TestNativeSha1CloneAndReuse;
+    // no keyed construction over SHA-1 exists in the overlay
+    procedure TestNativeOverlayRefusesKeyedSha1;
+    // the digest passes the module check and the keyed construction fails it
+    procedure TestStrictComplianceAdmitsNativeSha1Digest;
     // the native key's exported SPKI equals the leaf certificate's SPKI
     procedure TestPkcs12ExportedKeyMatchesLeaf;
     // with every portable import failing, the OS still unwraps the store and its key signs
@@ -1769,6 +1789,9 @@ begin
   CheckTrue(Supports(LProvider, ICryptoBackendReport, LReport), 'the overlay engaged');
   CheckTrue(LReport.HashBackend(THashAlgorithm.SHA_256).Backend = TCryptoBackend.System,
     'hashes');
+  CheckTrue(LReport.HashBackend(THashAlgorithm.SHA_1).Backend = TCryptoBackend.System,
+    'SHA-1 digests');
+  CheckTrue(Pos('SHA-1', LReport.Describe) > 0, 'the report names SHA-1');
   CheckTrue(LReport.HmacBackend(THashAlgorithm.SHA_384).Backend = TCryptoBackend.System,
     'HMAC');
   CheckTrue(LReport.AeadBackend(TAeadAlgorithm.AES_128_GCM).Backend = TCryptoBackend.System,
@@ -1780,6 +1803,159 @@ begin
   CheckTrue(IsNativeSigning(LProvider, TSignatureScheme.RSA_PSS_RSAE_SHA256), 'signing');
   CheckTrue(LReport.VerificationBackend(TSignatureScheme.ECDSA_SECP256R1_SHA256).Backend =
     TCryptoBackend.System, 'verification');
+end;
+
+function TTestWindowsNativeCryptoProvider.NativeSha1Report: ICryptoBackendReport;
+begin
+  CheckTrue(Supports(Crypto, ICryptoBackendReport, Result), 'the OS overlay is engaged');
+  CheckTrue(Result.HashBackend(THashAlgorithm.SHA_1).Backend = TCryptoBackend.System,
+    'SHA-1 is served by the OS module');
+end;
+
+function TTestWindowsNativeCryptoProvider.Sha1DigestInPieces(const APrimitives: ICryptoPrimitives;
+  const AMsg: TBytes; const ARandom: IRandom): TBytes;
+var
+  LHash: IHash;
+  LPos, LChunk: Int32;
+begin
+  LHash := APrimitives.CreateHash(THashAlgorithm.SHA_1);
+  LPos := 0;
+  while LPos < System.Length(AMsg) do
+  begin
+    LChunk := Int32(ARandom.GenerateBytes(1)[0]) mod (System.Length(AMsg) - LPos + 1);
+    LHash.Update(AMsg, LPos, LChunk);
+    LPos := LPos + LChunk;
+  end;
+  Result := LHash.DoFinal;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.CheckSha1Kats(const APrimitives: ICryptoPrimitives);
+var
+  LVec: TStringList;
+  LHash: IHash;
+  LChunk: TBytes;
+  LI: Int32;
+
+  procedure CheckDigest(const AName: string; const AMsg: TBytes; const ADigestHex: string);
+  begin
+    LHash := APrimitives.CreateHash(THashAlgorithm.SHA_1);
+    CheckEquals(20, LHash.HashSize, AName + ' size');
+    LHash.Update(AMsg, 0, System.Length(AMsg));
+    CheckEqualBytes(AName, DecodeHex(ADigestHex), LHash.DoFinal);
+  end;
+
+begin
+  LVec := LoadVectorFields('Crypto/Digest/Sha1.txt');
+  try
+    CheckDigest('SHA-1 of nothing', nil, LVec.Values['sha1_empty_digest']);
+    CheckDigest('SHA-1(abc)', DecodeHex(LVec.Values['sha1_abc_msg']),
+      LVec.Values['sha1_abc_digest']);
+    CheckDigest('SHA-1 of the 448-bit message', DecodeHex(LVec.Values['sha1_448bit_msg']),
+      LVec.Values['sha1_448bit_digest']);
+    CheckDigest('SHA-1 of the DER name', DecodeHex(LVec.Values['sha1_name_msg']),
+      LVec.Values['sha1_name_digest']);
+    LChunk := nil;
+    SetLength(LChunk, 1000);
+    FillChar(LChunk[0], System.Length(LChunk), Ord('a'));
+    LHash := APrimitives.CreateHash(THashAlgorithm.SHA_1);
+    for LI := 1 to 1000 do
+      LHash.Update(LChunk, 0, System.Length(LChunk));
+    CheckEqualBytes('SHA-1 of a million a', DecodeHex(LVec.Values['sha1_million_a_digest']),
+      LHash.DoFinal);
+  finally
+    LVec.Free;
+  end;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeSha1Kats;
+begin
+  NativeSha1Report;
+  CheckSha1Kats(Crypto.Primitives);
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeSha1MatchesPortableOnRandomInput;
+var
+  LRandom: IRandom;
+  LHash: IHash;
+  LMsg, LExpected: TBytes;
+  LI: Int32;
+begin
+  NativeSha1Report;
+  LRandom := TMockRandom.Create(2463534242) as IRandom;
+  for LI := 0 to 63 do
+  begin
+    LMsg := LRandom.GenerateBytes(Int32(LRandom.GenerateBytes(1)[0]));
+    LHash := Portable.Primitives.CreateHash(THashAlgorithm.SHA_1);
+    LHash.Update(LMsg, 0, System.Length(LMsg));
+    LExpected := LHash.DoFinal;
+    LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+    LHash.Update(LMsg, 0, System.Length(LMsg));
+    CheckEqualBytes(Format('message %d, native whole', [LI]), LExpected, LHash.DoFinal);
+    CheckEqualBytes(Format('message %d, native in pieces', [LI]), LExpected,
+      Sha1DigestInPieces(Crypto.Primitives, LMsg, LRandom));
+    CheckEqualBytes(Format('message %d, portable in pieces', [LI]), LExpected,
+      Sha1DigestInPieces(Portable.Primitives, LMsg, LRandom));
+  end;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeSha1CloneAndReuse;
+var
+  LVec: TStringList;
+  LHash, LClone: IHash;
+  LAbc, LAbcDigest, LEmptyDigest: TBytes;
+begin
+  NativeSha1Report;
+  LVec := LoadVectorFields('Crypto/Digest/Sha1.txt');
+  try
+    LAbc := DecodeHex(LVec.Values['sha1_abc_msg']);
+    LAbcDigest := DecodeHex(LVec.Values['sha1_abc_digest']);
+    LEmptyDigest := DecodeHex(LVec.Values['sha1_empty_digest']);
+    LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+    LHash.Update(LAbc, 0, 2);
+    LClone := LHash.Clone;
+    LClone.Update(LAbc, 2, 1);
+    CheckEqualBytes('the clone finishes the abc digest', LAbcDigest, LClone.DoFinal);
+    LHash.Update(LAbc, 2, 1);
+    CheckEqualBytes('the original is unaffected by the clone', LAbcDigest, LHash.DoFinal);
+    CheckEqualBytes('a finished hash digests nothing again', LEmptyDigest, LHash.DoFinal);
+    LClone.Update(LAbc, 0, 3);
+    CheckEqualBytes('a finished clone digests again', LAbcDigest, LClone.DoFinal);
+  finally
+    LVec.Free;
+  end;
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestNativeOverlayRefusesKeyedSha1;
+var
+  LReport: ICryptoBackendReport;
+begin
+  LReport := NativeSha1Report;
+  CheckKeyedFactoriesByHash(Crypto.Primitives);
+  CheckTrue(LReport.HmacBackend(THashAlgorithm.SHA_1).Backend <> TCryptoBackend.System,
+    'no native HMAC over SHA-1');
+  CheckTrue(LReport.HkdfBackend(THashAlgorithm.SHA_1).Backend <> TCryptoBackend.System,
+    'no native HKDF over SHA-1');
+  CheckTrue(LReport.Tls12PrfBackend(THashAlgorithm.SHA_1).Backend <> TCryptoBackend.System,
+    'no native TLS 1.2 PRF over SHA-1');
+end;
+
+procedure TTestWindowsNativeCryptoProvider.TestStrictComplianceAdmitsNativeSha1Digest;
+var
+  LProvider: ICryptoProvider;
+  LRaised: Boolean;
+begin
+  NativeSha1Report;
+  LProvider := TComplianceCryptoProvider.Compose(Crypto, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict);
+  CheckSha1Kats(LProvider.Primitives);
+  LRaised := False;
+  try
+    LProvider.Primitives.CreateHmac(THashAlgorithm.SHA_1);
+  except
+    on EComplianceRefusedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'keyed SHA-1 is refused beside the admitted digest');
 end;
 
 procedure TTestWindowsNativeCryptoProvider.TestAnUnopenableImplementationLeavesEveryFacetPortable;
@@ -1797,6 +1973,9 @@ begin
   CheckTrue(Supports(LProvider, ICryptoBackendReport, LReport), 'the overlay engaged');
   CheckTrue(LReport.HashBackend(THashAlgorithm.SHA_256).Backend = TCryptoBackend.Portable,
     'hashes');
+  CheckTrue(LReport.HashBackend(THashAlgorithm.SHA_1).Backend = TCryptoBackend.Portable,
+    'SHA-1 digests');
+  CheckSha1Kats(LProvider.Primitives);
   CheckTrue(LReport.HmacBackend(THashAlgorithm.SHA_256).Backend = TCryptoBackend.Portable,
     'HMAC');
   CheckTrue(LReport.AeadBackend(TAeadAlgorithm.AES_128_GCM).Backend = TCryptoBackend.Portable,
