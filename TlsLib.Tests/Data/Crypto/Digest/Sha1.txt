@@ -1,0 +1,9 @@
+# SHA-1 known-answer tests (FIPS 180-4, RFC 3174). sha1_name_msg is the canonical (case-folded) DER re-encoding of the Name C=ng, O=example corp, CN=test (UTF8String); the little-endian first four digest bytes (8bac9864) are its subject-name lookup hash.
+sha1_empty_digest=da39a3ee5e6b4b0d3255bfef95601890afd80709
+sha1_abc_msg=616263
+sha1_abc_digest=a9993e364706816aba3e25717850c26c9cd0d89d
+sha1_448bit_msg=6162636462636465636465666465666765666768666768696768696a68696a6b696a6b6c6a6b6c6d6b6c6d6e6c6d6e6f6d6e6f706e6f7071
+sha1_448bit_digest=84983e441c3bd26ebaae4aa1f95129e5e54670f1
+sha1_million_a_digest=34aa973cd4c4daa4f61eeb2bdbad27316534016f
+sha1_name_msg=310b300906035504060c026e6731153013060355040a0c0c6578616d706c6520636f7270310d300b06035504030c0474657374
+sha1_name_digest=6498ac8be0cda277a01a083b89f6444a5add2641

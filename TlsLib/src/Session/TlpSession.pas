@@ -52,7 +52,8 @@ type
     Secret: ISecretBuffer;
     /// <summary>The RFC 9258 context that scopes this PSK (may be empty).</summary>
     Context: TBytes;
-    /// <summary>The hash the PSK was provisioned for (RFC 9258 3); the importer derives for any of them.</summary>
+    /// <summary>The hash the PSK was provisioned for (RFC 9258 3): SHA-256, SHA-384 or SHA-512; the
+    /// importer derives for any of them.</summary>
     Hash: THashAlgorithm;
   end;
 

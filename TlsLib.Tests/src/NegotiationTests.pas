@@ -84,6 +84,9 @@ type
     procedure TestBuildRefusesAlteredProtocol;
     procedure TestBuildRefusesAlteredKeyExchange;
     procedure TestBuildRefusesAlteredAuth;
+    procedure TestEveryCatalogSuiteRunsOnProtocolHashes;
+    procedure TestBuildRefusesUnknownSuiteOnNonProtocolHash;
+    procedure TestBuildRefusesUnknownSuiteOnNonProtocolPrf;
     procedure TestMatchesCatalogAcceptsCatalogRecordAndUnknownCode;
     procedure TestMatchesCatalogRefusesEachAlteredField;
     procedure TestDowngradeSentinelEmittedAndDetected;
@@ -596,6 +599,42 @@ var
 begin
   LSuite := CatalogSuite;
   LSuite.Auth := TAuthMethod.Rsa;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestEveryCatalogSuiteRunsOnProtocolHashes;
+var
+  LSuites: TArray<TTlsCipherSuite>;
+  LI: Int32;
+begin
+  LSuites := TCipherSuiteCatalog.All;
+  CheckTrue(System.Length(LSuites) > 0, 'the catalog lists suites');
+  for LI := 0 to System.High(LSuites) do
+  begin
+    CheckTrue(LSuites[LI].Common.Hash.IsProtocolHash,
+      Format('suite 0x%.4x hash', [LSuites[LI].Common.Code]));
+    CheckTrue(LSuites[LI].Prf.IsProtocolHash,
+      Format('suite 0x%.4x PRF', [LSuites[LI].Common.Code]));
+  end;
+end;
+
+procedure TTestNegotiation.TestBuildRefusesUnknownSuiteOnNonProtocolHash;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Code := $C0FF;
+  LSuite.Common.Hash := THashAlgorithm.SHA_1;
+  CheckTrue(BuildRefuses(LSuite), 'refused');
+end;
+
+procedure TTestNegotiation.TestBuildRefusesUnknownSuiteOnNonProtocolPrf;
+var
+  LSuite: TTlsCipherSuite;
+begin
+  LSuite := CatalogSuite;
+  LSuite.Common.Code := $C0FF;
+  LSuite.Prf := THashAlgorithm.SHA_1;
   CheckTrue(BuildRefuses(LSuite), 'refused');
 end;
 

@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpDataEncoding,
+  TlpCryptoDomainTypes,
   TlpTlsAlert,
   TlpExtensionVector,
   TlpHandshakeMessages,
@@ -61,7 +62,8 @@ type
       const AScope: TBytes): string; static;
     /// <summary>Whether a cached TLS 1.3 session is still offerable as a PSK: a zero lifetime
     /// means discard immediately, and a ticket past its (capped) lifetime, or whose chain's
-    /// authentication has lapsed, is not offered (RFC 9846 4.7.1).</summary>
+    /// authentication has lapsed, is not offered (RFC 9846 4.7.1); neither is a session on a hash
+    /// TLS cannot run on.</summary>
     class function IsOfferableTls13(const ASession: IResumableSession;
       ANowMs: UInt64): Boolean; static;
     /// <summary>Whether a cached TLS 1.2 session is still offerable: a ticket past its hinted
@@ -140,14 +142,16 @@ class function TClientSessionPolicy.IsOfferableTls13(
   const ASession: IResumableSession; ANowMs: UInt64): Boolean;
 var
   LCappedLifetime: UInt32;
+  LHash: THashAlgorithm;
 begin
   // a ticket past its lifetime is not offered (RFC 9846 4.7.1): the client drops the
   // expired PSK and does a full handshake rather than offer one the server will reject.
   // A zero lifetime means discard immediately, and the seven-day ceiling is enforced here
   // too so a ticket cached out-of-band cannot outlive the RFC bound.
   LCappedLifetime := ClampTicketLifetime(ASession.TicketLifetime);
-  Result := (ASession.TicketLifetime > 0) and ((ANowMs - ASession.IssuedAtMillis) <=
-    (UInt64(LCappedLifetime) * 1000)) and
+  LHash := ASession.Hash;
+  Result := LHash.IsProtocolHash and (ASession.TicketLifetime > 0) and
+    ((ANowMs - ASession.IssuedAtMillis) <= (UInt64(LCappedLifetime) * 1000)) and
     not AuthenticationLapsed(ASession.AuthenticatedAtMillis, ANowMs);
 end;
 

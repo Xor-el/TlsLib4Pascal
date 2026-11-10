@@ -77,6 +77,9 @@ type
     procedure TestRsaPkcs1SchemesNameTheirDigest;
     procedure TestEdDsaSchemesNameNoDigest;
     procedure TestDigestByteLengths;
+    procedure TestEveryHashHasALength;
+    procedure TestProtocolHashesArePinned;
+    procedure TestEverySchemeHashIsAProtocolHash;
     // the provider seam binds the scheme's key family and never leaks a backend exception
     procedure TestVerifierFailsClosedOnSchemeKeyFamilyMismatch;
     procedure TestVerifierAllowsEcdsaCurveHashDecoupling;
@@ -541,6 +544,45 @@ begin
   CheckEquals(32, THashAlgorithm.SHA_256.ByteLength, 'SHA-256');
   CheckEquals(48, THashAlgorithm.SHA_384.ByteLength, 'SHA-384');
   CheckEquals(64, THashAlgorithm.SHA_512.ByteLength, 'SHA-512');
+  CheckEquals(20, THashAlgorithm.SHA_1.ByteLength, 'SHA-1');
+end;
+
+procedure TTestSignature.TestEveryHashHasALength;
+var
+  LHash: THashAlgorithm;
+begin
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    CheckTrue(LHash.ByteLength > 0, Format('hash %d has a positive length', [Ord(LHash)]));
+end;
+
+procedure TTestSignature.TestProtocolHashesArePinned;
+var
+  LHash: THashAlgorithm;
+  LProtocol: set of THashAlgorithm;
+begin
+  LProtocol := [];
+  for LHash := Low(THashAlgorithm) to High(THashAlgorithm) do
+    if LHash.IsProtocolHash then
+      Include(LProtocol, LHash);
+  CheckTrue(LProtocol = [THashAlgorithm.SHA_256, THashAlgorithm.SHA_384, THashAlgorithm.SHA_512],
+    'exactly SHA-256, SHA-384 and SHA-512 are protocol hashes');
+end;
+
+procedure TTestSignature.TestEverySchemeHashIsAProtocolHash;
+var
+  LScheme: TSignatureScheme;
+  LHash: THashAlgorithm;
+  LHashed: Int32;
+begin
+  LHashed := 0;
+  for LScheme := Low(TSignatureScheme) to High(TSignatureScheme) do
+    if LScheme.TryHash(LHash) then
+    begin
+      Inc(LHashed);
+      CheckTrue(LHash.IsProtocolHash,
+        Format('scheme %d hashes with a protocol hash', [Ord(LScheme)]));
+    end;
+  CheckTrue(LHashed > 0, 'some scheme names a hash');
 end;
 
 procedure TTestSignature.TestSchemeCodesFromRegistryMatchesRegistryOrder;

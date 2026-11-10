@@ -195,6 +195,7 @@ type
     procedure TestResumptionCompletesPskDheKe;
     procedure TestMachinesRequireAClock;
     procedure TestSingleUseTicketReplayRejected;
+    procedure TestCachedSha1SessionFallsBackToFullHandshake;
     procedure TestMismatchedBinderAbortsDecryptError;
     procedure TestEmptyPskIdentityAbortsDecodeError;
     procedure TestExpiredTicketNotAccepted;
@@ -617,6 +618,31 @@ begin
     LServerCred.CertificateChain[0], LInfo.PeerCertificates[0]);
   CheckEquals(0, System.Length(LInfo.ValidatedPath),
     'a non-reverify resumption validates no path on the client');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Resumption.TestCachedSha1SessionFallsBackToFullHandshake;
+var
+  LCache: ISessionCache;
+  LStore: ISessionStore;
+  LClient, LServer: ITlsEngine;
+begin
+  // a cached session whose hash TLS cannot run on is not offered: the handshake goes full
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom);
+  LCache.Store(ServerHost, ServerHost, TTls13ResumableSession.Create(
+    TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_1,
+    TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32)), nil, ServerHost,
+    Crypto.Primitives.GetRandom.GenerateBytes(32), 7200, 0,
+    UInt64(TSystemTimeUtilities.UtcUnixMs), 0, nil, nil) as IResumableSession);
+  LClient := NewClient(LCache, False);
+  LServer := NewServer(LStore, 1, 7200, True);
+  DriveHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the client completed');
+  CheckFalse(LServer.IsHandshaking, 'the server completed');
+  CheckFalse(LClient.IsTerminal, 'the client did not fail');
+  CheckFalse(LClient.ConnectionInfo.Resumed, 'the client handshake is full');
+  CheckFalse(LServer.ConnectionInfo.Resumed, 'the server handshake is full');
   CheckAppDataFlows(LClient, LServer);
 end;
 

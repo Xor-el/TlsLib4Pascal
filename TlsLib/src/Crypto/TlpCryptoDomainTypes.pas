@@ -26,11 +26,14 @@ type
   /// carry separators so they round-trip to the provider backend by name (e.g.
   /// SHA_256 -> "SHA-256"); they are internal identifiers, never on the wire.
   /// </summary>
-  THashAlgorithm = (SHA_256, SHA_384, SHA_512);
+  THashAlgorithm = (SHA_1, SHA_256, SHA_384, SHA_512);
 
-  /// <summary>The digest size of a hash algorithm.</summary>
+  /// <summary>The digest size and protocol standing of a hash algorithm.</summary>
   THashAlgorithmHelper = record helper for THashAlgorithm
     function ByteLength: Int32;
+    /// <summary>Whether TLS may key, MAC, sign or transcript with this hash; any other serves only
+    /// plain digests.</summary>
+    function IsProtocolHash: Boolean;
   end;
 
   /// <summary>The AEAD ciphers the library selects between (internal identifiers).</summary>
@@ -228,6 +231,8 @@ resourcestring
 function THashAlgorithmHelper.ByteLength: Int32;
 begin
   case Self of
+    THashAlgorithm.SHA_1:
+      Result := 20;
     THashAlgorithm.SHA_256:
       Result := 32;
     THashAlgorithm.SHA_384:
@@ -237,6 +242,11 @@ begin
   else
     raise ENotSupportedTlsLibException.CreateResFmt(@SNoHashLength, [Ord(Self)]);
   end;
+end;
+
+function THashAlgorithmHelper.IsProtocolHash: Boolean;
+begin
+  Result := Self in [THashAlgorithm.SHA_256, THashAlgorithm.SHA_384, THashAlgorithm.SHA_512];
 end;
 
 { TAeadUsageCategoryHelper }

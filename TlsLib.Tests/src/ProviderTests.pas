@@ -63,6 +63,9 @@ type
   published
     procedure TestSha256Kat;
     procedure TestSha384Kat;
+    procedure TestSha1Kat;
+    procedure TestSha1CloneAndReuse;
+    procedure TestKeyedFactoriesRefuseNonProtocolHashes;
     procedure TestHashCloneIsIndependent;
     procedure TestHashReuseAcrossDoFinal;
     procedure TestHmacReuseAcrossDoFinal;
@@ -150,6 +153,73 @@ begin
   finally
     LVec.Free;
   end;
+end;
+
+procedure TTestCryptoProvider.TestSha1Kat;
+var
+  LVec: TStringList;
+  LHash: IHash;
+  LChunk: TBytes;
+  LI: Int32;
+
+  procedure CheckDigest(const AName: string; const AMsg: TBytes; const ADigestHex: string);
+  begin
+    LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+    CheckEquals(20, LHash.HashSize, AName + ' size');
+    LHash.Update(AMsg, 0, System.Length(AMsg));
+    CheckEqualBytes(AName, DecodeHex(ADigestHex), LHash.DoFinal);
+  end;
+
+begin
+  LVec := LoadVectorFields('Crypto/Digest/Sha1.txt');
+  try
+    CheckDigest('SHA-1 of nothing', nil, LVec.Values['sha1_empty_digest']);
+    CheckDigest('SHA-1(abc)', DecodeHex(LVec.Values['sha1_abc_msg']),
+      LVec.Values['sha1_abc_digest']);
+    CheckDigest('SHA-1 of the 448-bit message', DecodeHex(LVec.Values['sha1_448bit_msg']),
+      LVec.Values['sha1_448bit_digest']);
+    CheckDigest('SHA-1 of the DER name', DecodeHex(LVec.Values['sha1_name_msg']),
+      LVec.Values['sha1_name_digest']);
+    LChunk := nil;
+    SetLength(LChunk, 1000);
+    FillChar(LChunk[0], System.Length(LChunk), Ord('a'));
+    LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+    for LI := 1 to 1000 do
+      LHash.Update(LChunk, 0, System.Length(LChunk));
+    CheckEqualBytes('SHA-1 of a million a', DecodeHex(LVec.Values['sha1_million_a_digest']),
+      LHash.DoFinal);
+  finally
+    LVec.Free;
+  end;
+end;
+
+procedure TTestCryptoProvider.TestSha1CloneAndReuse;
+var
+  LVec: TStringList;
+  LHash, LClone: IHash;
+  LAbc, LAbcDigest, LEmptyDigest: TBytes;
+begin
+  LVec := LoadVectorFields('Crypto/Digest/Sha1.txt');
+  try
+    LAbc := DecodeHex(LVec.Values['sha1_abc_msg']);
+    LAbcDigest := DecodeHex(LVec.Values['sha1_abc_digest']);
+    LEmptyDigest := DecodeHex(LVec.Values['sha1_empty_digest']);
+    LHash := Crypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+    LHash.Update(LAbc, 0, 2);
+    LClone := LHash.Clone;
+    LClone.Update(LAbc, 2, 1);
+    CheckEqualBytes('the clone finishes the abc digest', LAbcDigest, LClone.DoFinal);
+    LHash.Update(LAbc, 2, 1);
+    CheckEqualBytes('the original is unaffected by the clone', LAbcDigest, LHash.DoFinal);
+    CheckEqualBytes('a finished hash digests nothing again', LEmptyDigest, LHash.DoFinal);
+  finally
+    LVec.Free;
+  end;
+end;
+
+procedure TTestCryptoProvider.TestKeyedFactoriesRefuseNonProtocolHashes;
+begin
+  CheckKeyedFactoriesByHash(Crypto.Primitives);
 end;
 
 procedure TTestCryptoProvider.TestHashCloneIsIndependent;

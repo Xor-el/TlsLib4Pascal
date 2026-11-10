@@ -76,6 +76,7 @@ type
     procedure TestPartialTranscriptForBinder;
     procedure TestExternalPskImporterIdentityAndBinder;
     procedure TestExternalPskImporterImportAllOrder;
+    procedure TestImportRefusesNonProtocolProvisionedHash;
     procedure TestImportRejectsEmptyIdentity;
     procedure TestImportRejectsUnregisteredKdfHash;
     procedure TestImportDerivesFromAProvisionedSha512;
@@ -621,6 +622,25 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a target hash with no registered KDF id is rejected');
+end;
+
+procedure TTestTls13KeySchedule.TestImportRefusesNonProtocolProvisionedHash;
+var
+  LSpec: TExternalPsk;
+  LRaised: Boolean;
+begin
+  LSpec.Identity := TBytes.Create($61, $62);
+  LSpec.Secret := TSecretBuffer.From(DecodeHex('00112233445566778899AABBCCDDEEFF'));
+  LSpec.Context := nil;
+  LSpec.Hash := THashAlgorithm.SHA_1;
+  LRaised := False;
+  try
+    TExternalPskImporter.Import(Crypto, LSpec, $0304, THashAlgorithm.SHA_256);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a SHA-1 provisioned hash is rejected as an argument error');
 end;
 
 procedure TTestTls13KeySchedule.TestImportDerivesFromAProvisionedSha512;

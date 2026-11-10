@@ -104,6 +104,10 @@ type
     procedure TestRelaxedForwardsPortableRandomOnSystemBase;
     procedure TestStrictRefusesPortableHashBesideSystemOne;
     procedure TestRelaxedForwardsPortableHashBesideSystemOne;
+    procedure TestStrictRefusesSha1DigestOutsideTheModule;
+    procedure TestStrictAdmitsSha1DigestInTheModule;
+    procedure TestRelaxedForwardsPortableSha1Digest;
+    procedure TestKeyedSha1RefusedInBothModesEvenWhenReportedInModule;
     procedure TestStrictRefusesPortableHmacBesideSystemOne;
     procedure TestStrictRefusesPortableCurveBesideSystemOne;
     procedure TestKeyScheduleRefusesPlainMasterSecret;
@@ -1477,6 +1481,49 @@ begin
   LReport.PortableHashes := [THashAlgorithm.SHA_384];
   CheckFalse(RefusesHash(ProviderOver(LRef, TCompliancePresets.Fips140_3,
     TComplianceEnforcement.Relaxed), THashAlgorithm.SHA_384), 'relaxed mode forwards it');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRefusesSha1DigestOutsideTheModule;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableHashes := [THashAlgorithm.SHA_1];
+  CheckTrue(RefusesHash(ProviderOver(LRef, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict), THashAlgorithm.SHA_1), 'the portable SHA-1 is refused');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictAdmitsSha1DigestInTheModule;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := ProviderOver(TFakeBackendReport.Create([]) as ICryptoBackendReport,
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  CheckEquals(20, LProvider.Primitives.CreateHash(THashAlgorithm.SHA_1).HashSize,
+    'the module SHA-1 digests');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRelaxedForwardsPortableSha1Digest;
+var
+  LReport: TFakeBackendReport;
+  LRef: ICryptoBackendReport;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LRef := LReport;
+  LReport.PortableHashes := [THashAlgorithm.SHA_1];
+  CheckEquals(20, ProviderOver(LRef, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Relaxed).Primitives.CreateHash(THashAlgorithm.SHA_1).HashSize,
+    'relaxed mode forwards the portable SHA-1');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestKeyedSha1RefusedInBothModesEvenWhenReportedInModule;
+begin
+  CheckKeyedFactoriesByHash(ProviderOver(TFakeBackendReport.Create([]) as ICryptoBackendReport,
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict).Primitives);
+  CheckKeyedFactoriesByHash(ProviderOver(TFakeBackendReport.Create([]) as ICryptoBackendReport,
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed).Primitives);
 end;
 
 procedure TTestComplianceCryptoPrimitives.TestStrictRefusesPortableHmacBesideSystemOne;

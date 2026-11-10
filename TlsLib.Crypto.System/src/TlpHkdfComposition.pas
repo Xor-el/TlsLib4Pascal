@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpCryptoDomainTypes,
+  TlpEnumUtilities,
   TlpICryptoProvider,
   TlpISecretBuffer,
   TlpSecretBuffer,
@@ -56,6 +57,7 @@ implementation
 
 resourcestring
   SNilHkdfPrimitives = 'the primitives facet must not be nil';
+  SNotProtocolHash = 'hash algorithm %s is not a protocol hash';
 
 { THkdfComposition }
 
@@ -65,6 +67,9 @@ begin
   inherited Create;
   if APrimitives = nil then
     raise EArgumentTlsLibException.CreateRes(@SNilHkdfPrimitives);
+  if not AAlgorithm.IsProtocolHash then
+    raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash,
+      [TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm)]);
   FPrimitives := APrimitives;
   FAlgorithm := AAlgorithm;
 end;
