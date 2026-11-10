@@ -33,8 +33,12 @@ type
   /// shared across threads.
   /// </summary>
   IInspectedCertificate = interface(IInterface)
-    ['{C2DDBEB1-7FEA-4F46-A944-C27F3FD4E389}']
+    ['{A814FAE5-8749-4E37-B664-01D67BBBF420}']
     function PublicKeyInfo: TBytes;
+    /// <summary>The DER Name of the certificate's issuer.</summary>
+    function IssuerName: TBytes;
+    /// <summary>The DER Name of the certificate's subject.</summary>
+    function SubjectName: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
     /// <summary>
@@ -90,7 +94,7 @@ type
   /// extractor methods (PublicKeyInfo, DnsNames, IpAddresses) raise on malformed input.
   /// </summary>
   ICertificateInspector = interface(IInterface)
-    ['{2ED46833-4DDD-484C-B6A7-6785C0C2FC44}']
+    ['{58245924-EE0B-4FDF-9967-E65FCE0CA4FD}']
     /// <summary>
     /// Decodes ADer once into a handle that answers the per-certificate queries from
     /// that single decode. Raises when ADer does not decode to a certificate (empty or
@@ -175,6 +179,12 @@ type
     /// families), Undetermined when either input cannot be parsed as a public key.
     /// </summary>
     function SamePublicKey(const ASpkiA, ASpkiB: TBytes): TCertAnswer;
+    /// <summary>
+    /// Whether two DER Names denote the same distinguished name by the rule path building chains
+    /// on (RFC 5280 7.1: attribute types and values compared after string preparation, in order).
+    /// Yes when equal, No when they differ, Undetermined when either does not decode as a Name.
+    /// </summary>
+    function SameName(const AName1, AName2: TBytes): TCertAnswer;
   end;
 
   /// <summary>

@@ -176,6 +176,23 @@ type
     procedure TestIntermediateInsideItsValidityWindowIsAccepted;
   end;
 
+  /// <summary>A trust anchor that is not self-signed is held to its own validity window at the
+  /// verifier's clock; a self-signed root stays trusted whatever its dates.</summary>
+  TTestAnchorValidityWindow = class(TTlsLibAlgorithmTestCase)
+  strict private
+    // whether a verifier at AUnixMillis, trusting only the named anchor of AFile, accepts the
+    // one-certificate chain of ALeaf, with the alert when it refuses
+    function Verdict(const AFile, AAnchor, ALeaf: string; AUnixMillis: UInt64;
+      out AAlert: TTlsAlertDescription): Boolean;
+  published
+    procedure TestExpiredIntermediateAnchorIsCertificateExpired;
+    procedure TestIntermediateAnchorIsAcceptedUpToItsLastSecond;
+    procedure TestIntermediateAnchorIsRefusedFromTheSecondAfterItsEnd;
+    procedure TestNotYetValidIntermediateAnchorIsCertificateExpired;
+    procedure TestIntermediateAnchorIsAcceptedFromItsFirstSecond;
+    procedure TestExpiredSelfSignedRootStaysTrusted;
+  end;
+
 {$IFDEF TLSLIB_ANDROID}
   /// <summary>The chain-failure alerts of the real Android trust manager over an exclusive
   /// anchor; a bad signature directly under the anchor reads there as a missing anchor.</summary>
@@ -2153,6 +2170,86 @@ begin
     'the same chain is accepted once the intermediate is valid');
 end;
 
+{ TTestAnchorValidityWindow }
+
+const
+  // ae_inter ends 2030-01-01T00:00:00Z
+  UnixMillisSecondBeforeAnchorEnd = UInt64(1893455999000);
+  UnixMillisSecondAfterAnchorEnd = UInt64(1893456001000);
+  // chain_future_inter begins 2040-01-01T00:00:00Z
+  UnixMillisSecondBeforeAnchorStart = UInt64(2208988799000);
+  UnixMillisSecondAfterAnchorStart = UInt64(2208988801000);
+
+function TTestAnchorValidityWindow.Verdict(const AFile, AAnchor, ALeaf: string;
+  AUnixMillis: UInt64; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(AUnixMillis) as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field(AFile, AAnchor))) as ITrustAnchorStore, True)
+    as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field(AFile, ALeaf)), TServerName.DnsName('localhost'), nil,
+    LVerified, AAlert);
+end;
+
+procedure TTestAnchorValidityWindow.TestExpiredIntermediateAnchorIsCertificateExpired;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict('Certs/AnchorValidity.txt', 'ae_inter', 'ae_inter_leaf',
+    UnixMillisInsideAllWindows, LAlert), 'a leaf under an expired intermediate anchor is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'an expired anchor reads as an expired intermediate would');
+end;
+
+procedure TTestAnchorValidityWindow.TestIntermediateAnchorIsAcceptedUpToItsLastSecond;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(Verdict('Certs/AnchorValidity.txt', 'ae_inter', 'ae_inter_leaf',
+    UnixMillisSecondBeforeAnchorEnd, LAlert), 'an intermediate anchor inside its window is trusted');
+end;
+
+procedure TTestAnchorValidityWindow.TestIntermediateAnchorIsRefusedFromTheSecondAfterItsEnd;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict('Certs/AnchorValidity.txt', 'ae_inter', 'ae_inter_leaf',
+    UnixMillisSecondAfterAnchorEnd, LAlert), 'one second past its end the anchor is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+end;
+
+procedure TTestAnchorValidityWindow.TestNotYetValidIntermediateAnchorIsCertificateExpired;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(Verdict('Certs/ChainFailures.txt', 'chain_future_inter', 'chain_future_leaf',
+    UnixMillisSecondBeforeAnchorStart, LAlert),
+    'a leaf under an intermediate anchor not yet valid is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'a not-yet-valid anchor reads as a not-yet-valid intermediate would');
+end;
+
+procedure TTestAnchorValidityWindow.TestIntermediateAnchorIsAcceptedFromItsFirstSecond;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(Verdict('Certs/ChainFailures.txt', 'chain_future_inter', 'chain_future_leaf',
+    UnixMillisSecondAfterAnchorStart, LAlert), 'the anchor is trusted once its window opens');
+end;
+
+procedure TTestAnchorValidityWindow.TestExpiredSelfSignedRootStaysTrusted;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(Verdict('Certs/AnchorValidity.txt', 'ae_root', 'ae_root_leaf',
+    UnixMillisInsideAllWindows, LAlert), 'an expired self-signed root is trusted by configuration');
+end;
+
 {$IFDEF TLSLIB_ANDROID}
 
 { TTestAndroidChainFailureAlerts }
@@ -2328,6 +2425,7 @@ initialization
   RegisterTest(TTestVerifyCallbackVerifier);
   RegisterTest(TTestCriticalExtensionsAndEndEntity);
   RegisterTest(TTestChainFailureAlerts);
+  RegisterTest(TTestAnchorValidityWindow);
 {$IFDEF TLSLIB_ANDROID}
   RegisterTest(TTestAndroidChainFailureAlerts);
 {$ENDIF TLSLIB_ANDROID}
@@ -2336,6 +2434,7 @@ initialization
   RegisterTest(TTestVerifyCallbackVerifier.Suite);
   RegisterTest(TTestCriticalExtensionsAndEndEntity.Suite);
   RegisterTest(TTestChainFailureAlerts.Suite);
+  RegisterTest(TTestAnchorValidityWindow.Suite);
 {$IFDEF TLSLIB_ANDROID}
   RegisterTest(TTestAndroidChainFailureAlerts.Suite);
 {$ENDIF TLSLIB_ANDROID}

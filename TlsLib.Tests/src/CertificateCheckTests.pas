@@ -57,6 +57,14 @@ type
     procedure TestSelfSignedRootIsSelfSigned;
     procedure TestIssuedCertificateIsNotSelfSigned;
     procedure TestSelfIssuedCertificateSignedByAnotherKeyIsNotSelfSigned;
+    // issuer and subject Names, and their comparison (SameName)
+    procedure TestSubjectNameIsTheDerName;
+    procedure TestIssuerNameIsTheDerName;
+    procedure TestIssuerNameOfALeafIsTheSameNameAsItsIssuersSubject;
+    procedure TestSameNameIgnoresStringTypeAndCase;
+    procedure TestDifferentNamesAreNotTheSameName;
+    procedure TestRdnOrderMakesADifferentName;
+    procedure TestUndecodableNamesAreNotDetermined;
     // keyUsage (CertificateKeyUsagePermits)
     procedure TestDigitalSignatureCertPermitsSigning;
     procedure TestKeyEnciphermentCertForbidsSigning;
@@ -141,6 +149,79 @@ begin
     Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/ReissuedRoot.txt',
       'root_rollover_sha1_cert')).IsSelfSigned),
     'matching names are not enough: the signature must verify under its own key');
+end;
+
+procedure TTestCertificateChecks.TestSubjectNameIsTheDerName;
+begin
+  // CN=localhost as a UTF8String, the outer SEQUENCE included
+  CheckEqualBytes('the subject Name of the leaf',
+    DecodeHex('30143112301006035504030c096c6f63616c686f7374'),
+    Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_root_leaf')).SubjectName);
+end;
+
+procedure TTestCertificateChecks.TestIssuerNameIsTheDerName;
+begin
+  // CN=TlsLib Anchor Validity Root as a UTF8String, the outer SEQUENCE included
+  CheckEqualBytes('the issuer Name of the leaf',
+    DecodeHex('30263124302206035504030c1b546c734c696220416e63686f722056616c696469747920526f6f74'),
+    Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_root_leaf')).IssuerName);
+end;
+
+procedure TTestCertificateChecks.TestIssuerNameOfALeafIsTheSameNameAsItsIssuersSubject;
+begin
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Pkix.Certificates.SameName(
+    Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_inter_leaf')).IssuerName,
+    Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_inter')).SubjectName)),
+    'the leaf issuer Name chains to the issuing certificate subject Name');
+end;
+
+procedure TTestCertificateChecks.TestSameNameIgnoresStringTypeAndCase;
+var
+  LUtf8Test, LPrintableTest, LPrintableUpperCase: TBytes;
+begin
+  // CN=Test as a UTF8String, as a PrintableString, and as a PrintableString in other case
+  LUtf8Test := DecodeHex('300f310d300b06035504030c0454657374');
+  LPrintableTest := DecodeHex('300f310d300b0603550403130454657374');
+  LPrintableUpperCase := DecodeHex('300f310d300b0603550403130454455354');
+  CheckEquals(Ord(TCertAnswer.Yes), Ord(Pkix.Certificates.SameName(LUtf8Test, LPrintableTest)),
+    'the string type does not make a different name');
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Pkix.Certificates.SameName(LUtf8Test, LPrintableUpperCase)),
+    'ASCII case does not make a different name');
+end;
+
+procedure TTestCertificateChecks.TestDifferentNamesAreNotTheSameName;
+begin
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Pkix.Certificates.SameName(DecodeHex('300f310d300b06035504030c0454657374'),
+    DecodeHex('300f310d300b06035504030c0454657375'))),
+    'CN=Test and CN=Tesu differ');
+end;
+
+procedure TTestCertificateChecks.TestRdnOrderMakesADifferentName;
+begin
+  // CN=A,O=B against O=B,CN=A
+  CheckEquals(Ord(TCertAnswer.No),
+    Ord(Pkix.Certificates.SameName(
+    DecodeHex('3018310a30080603550403' + '0c0141' + '310a3008060355040a0c0142'),
+    DecodeHex('3018310a3008060355040a0c0142' + '310a30080603550403' + '0c0141'))),
+    'the same attributes in another order are another name');
+end;
+
+procedure TTestCertificateChecks.TestUndecodableNamesAreNotDetermined;
+var
+  LName: TBytes;
+begin
+  LName := DecodeHex('300f310d300b06035504030c0454657374');
+  CheckEquals(Ord(TCertAnswer.Undetermined),
+    Ord(Pkix.Certificates.SameName(TBytes.Create(7, 7, 7), LName)), 'garbage as the first name');
+  CheckEquals(Ord(TCertAnswer.Undetermined),
+    Ord(Pkix.Certificates.SameName(LName, nil)), 'nothing as the second name');
 end;
 
 function TTestCertificateChecks.Permits(const ACertName: string;

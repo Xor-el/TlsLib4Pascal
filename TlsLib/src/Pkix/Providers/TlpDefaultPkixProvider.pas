@@ -104,6 +104,8 @@ type
   public
     constructor Create(const ADer: TBytes);
     function PublicKeyInfo: TBytes;
+    function IssuerName: TBytes;
+    function SubjectName: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
@@ -140,6 +142,7 @@ type
     function KeyKind(const ACertificateDer: TBytes;
       out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function SamePublicKey(const ASpkiA, ASpkiB: TBytes): TCertAnswer;
+    function SameName(const AName1, AName2: TBytes): TCertAnswer;
   end;
 
   // ICertificatePathValidator - RFC 5280 path validation. The trust-anchor ring is a
@@ -579,6 +582,16 @@ begin
   Result := FCert.GetSubjectPublicKeyInfo.GetDerEncoded;
 end;
 
+function TInspectedCertificate.IssuerName: TBytes;
+begin
+  Result := FCert.IssuerDN.GetDerEncoded;
+end;
+
+function TInspectedCertificate.SubjectName: TBytes;
+begin
+  Result := FCert.SubjectDN.GetDerEncoded;
+end;
+
 function TInspectedCertificate.DnsNames: TArray<string>;
 var
   LGeneralNames: IGeneralNames;
@@ -876,6 +889,21 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain: TArray
     end;
   end;
 
+  // a self-signed root is trusted by configuration whatever its dates; any other anchor stands in for
+  // a CA certificate, so it is held to its own validity window like an intermediate. The self-signed
+  // test runs only on an out-of-window anchor, keeping its signature check off the common path.
+  procedure EnforceAnchorValidity(const AAnchorCert: IX509Certificate);
+  var
+    LAnchor: IInspectedCertificate;
+  begin
+    if AAnchorCert.IsValid(AValidationTimeUtc) then
+      Exit;
+    LAnchor := TInspectedCertificate.Create(AAnchorCert.GetEncoded) as IInspectedCertificate;
+    if LAnchor.IsSelfSigned <> TCertAnswer.Yes then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
+  end;
+
 const
   // the builder's depth cap does not count self-issued certificates, so a peer padding its chain with
   // same-named ones could still drive a permutation search, and cross-issuing subjects in a ring
@@ -1075,6 +1103,7 @@ begin
   if (System.Length(LBuilt) = 0) or (LBuilt[0] <> LCerts[0]) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+  EnforceAnchorValidity(LBuildResult.TrustAnchor.TrustedCert);
   EnforcePurpose(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
   EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert,
     ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors, LEntry.Ders));
@@ -1833,6 +1862,27 @@ begin
     if (LKeyA = nil) or (LKeyB = nil) then
       Exit(TCertAnswer.Undetermined);
     LMatch := LKeyA.Equals(LKeyB);
+  except
+    Exit(TCertAnswer.Undetermined);
+  end;
+  if LMatch then
+    Result := TCertAnswer.Yes
+  else
+    Result := TCertAnswer.No;
+end;
+
+function TCertificateInspector.SameName(const AName1, AName2: TBytes): TCertAnswer;
+var
+  LName1, LName2: IX509Name;
+  LMatch: Boolean;
+begin
+  // the rule path building chains on (in-order, string-prepared); undecodable input is never a raise
+  try
+    LName1 := TX509Name.GetInstance(AName1);
+    LName2 := TX509Name.GetInstance(AName2);
+    if (LName1 = nil) or (LName2 = nil) then
+      Exit(TCertAnswer.Undetermined);
+    LMatch := LName1.Equivalent(LName2, True);
   except
     Exit(TCertAnswer.Undetermined);
   end;

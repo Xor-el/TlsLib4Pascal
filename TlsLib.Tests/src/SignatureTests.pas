@@ -104,6 +104,8 @@ type
   public
     constructor Create(const AInner: IInspectedCertificate);
     function PublicKeyInfo: TBytes;
+    function IssuerName: TBytes;
+    function SubjectName: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
@@ -127,6 +129,16 @@ end;
 function TUndecodableKeyUsageLeaf.PublicKeyInfo: TBytes;
 begin
   Result := FInner.PublicKeyInfo;
+end;
+
+function TUndecodableKeyUsageLeaf.IssuerName: TBytes;
+begin
+  Result := FInner.IssuerName;
+end;
+
+function TUndecodableKeyUsageLeaf.SubjectName: TBytes;
+begin
+  Result := FInner.SubjectName;
 end;
 
 function TUndecodableKeyUsageLeaf.DnsNames: TArray<string>;
