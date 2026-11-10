@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="1"/>
-    <Files Count="164">
+    <Files Count="167">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>
         <UnitName Value="TlpCryptoDomainTypes"/>
@@ -685,6 +685,18 @@
         <Filename Value="..\..\Interfaces\Trust\TlpILayeredTrustAnchorStore.pas"/>
         <UnitName Value="TlpILayeredTrustAnchorStore"/>
       </Item164>
+      <Item165>
+        <Filename Value="..\..\Interfaces\Trust\TlpIIssuerLookup.pas"/>
+        <UnitName Value="TlpIIssuerLookup"/>
+      </Item165>
+      <Item166>
+        <Filename Value="..\..\Trust\TlpIssuerResolution.pas"/>
+        <UnitName Value="TlpIssuerResolution"/>
+      </Item166>
+      <Item167>
+        <Filename Value="..\..\Trust\TlpIssuerLookupVerifierSource.pas"/>
+        <UnitName Value="TlpIssuerLookupVerifierSource"/>
+      </Item167>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

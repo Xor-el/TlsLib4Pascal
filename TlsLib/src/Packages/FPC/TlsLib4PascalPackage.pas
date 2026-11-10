@@ -58,7 +58,8 @@ uses
   TlpCipherSuiteCatalog, TlpIpLiteral, TlpHttpUrl, TlpWindowsDynamicLibrary, 
   TlpPosixDynamicLibrary, TlpAlpnProtocols, TlpPkcs12Identity, 
   TlpITlsServerCredentialSet, TlpTls12PrfLabels, TlpClientPskPath,
-  TlpILayeredTrustAnchorStore;
+  TlpILayeredTrustAnchorStore, TlpIIssuerLookup, TlpIssuerResolution,
+  TlpIssuerLookupVerifierSource;
 
 implementation
 

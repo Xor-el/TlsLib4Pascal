@@ -22,6 +22,7 @@ uses
   TlpTrustPolicy,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpIIssuerLookup,
   TlpCertificateStrengthPolicy,
   TlpICertificateVerifierSource,
   TlpCertificateVerifier;
@@ -34,6 +35,7 @@ type
     AnchorStores: TArray<ITrustAnchorStore>;
     AnchorData: TArray<TBytes>;
     IntermediateData: TArray<TBytes>;
+    IssuerLookup: IIssuerLookup;
     Strength: TCertificateStrengthPolicy;
     Posture: TRevocationPosture;
     /// <summary>A draft of AKind over the given anchors with the default floors and the Soft
@@ -57,6 +59,7 @@ type
     function AnchorStores: TArray<ITrustAnchorStore>;
     function AnchorData: TArray<TBytes>;
     function IntermediateData: TArray<TBytes>;
+    function IssuerLookup: IIssuerLookup;
     function StrengthPolicy: TCertificateStrengthPolicy;
     function RevocationPosture: TRevocationPosture;
   end;
@@ -91,6 +94,7 @@ type
     constructor Create(const ADraft: TVerificationDraft;
       const ASource: IServerCertificateVerifierSource);
     function WithIntermediateCertificates(const AData: TBytes): IServerVerificationBuilder;
+    function WithIssuerLookup(const ALookup: IIssuerLookup): IServerVerificationBuilder;
     function WithMinimumStrength(const APolicy: TCertificateStrengthPolicy)
       : IServerVerificationBuilder;
     function WithRevocation(APosture: TRevocationPosture): IServerVerificationBuilder;
@@ -105,6 +109,7 @@ type
     constructor Create(const ADraft: TVerificationDraft;
       const ASource: IClientCertificateVerifierSource);
     function WithIntermediateCertificates(const AData: TBytes): IClientVerificationBuilder;
+    function WithIssuerLookup(const ALookup: IIssuerLookup): IClientVerificationBuilder;
     function WithMinimumStrength(const APolicy: TCertificateStrengthPolicy)
       : IClientVerificationBuilder;
     function WithRevocation(APosture: TRevocationPosture): IClientVerificationBuilder;
@@ -230,6 +235,7 @@ resourcestring
   SNilTrustStore = 'a trust store must not be nil';
   SEmptyAnchorData = 'a trust-anchor bundle must not be empty';
   SNilVerifier = 'a verifier or verifier source must not be nil';
+  SNilIssuerLookup = 'an issuer lookup must not be nil';
   SInvalidStrengthFloors = 'the minimum RSA modulus must be positive and, when a maximum is ' +
     'set (non-zero), no larger than that maximum';
 
@@ -299,6 +305,11 @@ begin
   Result := TArrayUtilities.DeepCopy<Byte>(FDraft.IntermediateData);
 end;
 
+function TTrustVerificationDataBase.IssuerLookup: IIssuerLookup;
+begin
+  Result := FDraft.IssuerLookup;
+end;
+
 function TTrustVerificationDataBase.StrengthPolicy: TCertificateStrengthPolicy;
 begin
   Result := FDraft.Strength;
@@ -366,6 +377,15 @@ begin
   Result := Self;
 end;
 
+function TServerVerificationBuilder.WithIssuerLookup(
+  const ALookup: IIssuerLookup): IServerVerificationBuilder;
+begin
+  if ALookup = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilIssuerLookup);
+  FDraft.IssuerLookup := ALookup;
+  Result := Self;
+end;
+
 function TServerVerificationBuilder.WithMinimumStrength(
   const APolicy: TCertificateStrengthPolicy): IServerVerificationBuilder;
 begin
@@ -399,6 +419,15 @@ function TClientVerificationBuilder.WithIntermediateCertificates(
   const AData: TBytes): IClientVerificationBuilder;
 begin
   FDraft.AddIntermediates(AData);
+  Result := Self;
+end;
+
+function TClientVerificationBuilder.WithIssuerLookup(
+  const ALookup: IIssuerLookup): IClientVerificationBuilder;
+begin
+  if ALookup = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilIssuerLookup);
+  FDraft.IssuerLookup := ALookup;
   Result := Self;
 end;
 

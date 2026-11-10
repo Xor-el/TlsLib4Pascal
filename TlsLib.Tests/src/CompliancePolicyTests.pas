@@ -53,6 +53,7 @@ uses
   TlpICertificateTrust,
   TlpIKeyLog,
   TlpICertificateVerifierSource,
+  TlpIIssuerLookup,
   TlpCertificateVerifierSource,
   TlpIEch,
   TlpEchClient,
@@ -395,6 +396,7 @@ type
     procedure TestInstanceVerifierRefusedInRelaxed;
     procedure TestBuiltInVerifierIsPlatformOnlyInRelaxed;
     procedure TestOsVerifierSourceHasNoVerifierFinding;
+    procedure TestOsVerifierSourceWithAnIssuerLookupHasNoVerifierFinding;
     procedure TestHostSourceIsCustom;
     procedure TestHostSourceRefusedInRelaxed;
     procedure TestRequiredPskClientIgnoresCustomVerifier;
@@ -3455,6 +3457,22 @@ begin
     'the OS source is not custom');
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
     'and is in the module');
+end;
+
+procedure TTestComplianceAdmit.TestOsVerifierSourceWithAnIssuerLookupHasNoVerifierFinding;
+var
+  LPolicy: ICompliancePolicy;
+  LReport: IComplianceReport;
+begin
+  LPolicy := StrictPolicy;
+  LReport := LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
+    TServerVerification.VerifierSource(TFakeOsVerifierSources.Server)
+    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup)
+    .WithMinimumStrength(LPolicy.Rules.Strength).Build).Build);
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CustomVerifierConfigured),
+    'a lookup does not turn the OS source into a custom one');
+  CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
+    'nor into the portable chain check');
 end;
 
 procedure TTestComplianceAdmit.TestHostSourceIsCustom;

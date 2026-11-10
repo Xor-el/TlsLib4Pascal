@@ -34,6 +34,7 @@ uses
   TlpSignatureSchemeRegistry,
   TlpCertificateVerifier,
   TlpICertificateVerifierSource,
+  TlpIssuerLookupVerifierSource,
   TlpServerName,
   TlpTrustPolicy,
   TlpTlsCredential,
@@ -128,10 +129,16 @@ class function TTlsEngineFactory.ComposeServerVerifier(const AConfig: ITlsClient
   const ATrust: TServerTrustContext): IServerCertificateVerifier;
 var
   LSourceTrust: TServerTrustContext;
+  LSource: IServerCertificateVerifierSource;
 begin
   LSourceTrust := ATrust;
   LSourceTrust.Dangerous.VerifyCallback := nil;
-  Result := AConfig.ServerVerifierSource.CreateServerVerifier(LSourceTrust);
+  LSource := AConfig.ServerVerifierSource;
+  // wrapped here and not in the config, whose source is classified by its type
+  if AConfig.IssuerLookup <> nil then
+    LSource := TIssuerLookupServerVerifierSource.Create(LSource, AConfig.IssuerLookup)
+      as IServerCertificateVerifierSource;
+  Result := LSource.CreateServerVerifier(LSourceTrust);
   // SPKI pinning composes over the source output, so it augments any source (built-in or OS delegate)
   if System.Length(AConfig.CertificatePins) > 0 then
     Result := TPinningVerifier.Create(Result, AConfig.CertificatePins, AConfig.Crypto,
@@ -145,10 +152,15 @@ class function TTlsEngineFactory.ComposeClientVerifier(const AConfig: ITlsServer
   const ATrust: TClientTrustContext): IClientCertificateVerifier;
 var
   LSourceTrust: TClientTrustContext;
+  LSource: IClientCertificateVerifierSource;
 begin
   LSourceTrust := ATrust;
   LSourceTrust.Dangerous.VerifyCallback := nil;
-  Result := AConfig.ClientVerifierSource.CreateClientVerifier(LSourceTrust);
+  LSource := AConfig.ClientVerifierSource;
+  if AConfig.IssuerLookup <> nil then
+    LSource := TIssuerLookupClientVerifierSource.Create(LSource, AConfig.IssuerLookup)
+      as IClientCertificateVerifierSource;
+  Result := LSource.CreateClientVerifier(LSourceTrust);
   // SPKI pinning composes over the source output, so it pins the presented client chain
   // uniformly over the built-in pipeline and an OS client delegate (RFC 7469)
   if System.Length(AConfig.CertificatePins) > 0 then

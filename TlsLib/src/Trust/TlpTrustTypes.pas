@@ -69,6 +69,14 @@ type
       AVerified: TVerifiedChain);
   end;
 
+  /// <summary>What an issuer lookup holds for one subject name: the certificates it offers as trust
+  /// anchors, and the ones it offers as chain material only. Each entry is a PEM, DER or PKCS#7
+  /// blob; a certificate the lookup cannot read is left out.</summary>
+  TLookedUpIssuers = record
+    Anchors: TArray<TBytes>;
+    Intermediates: TArray<TBytes>;
+  end;
+
 implementation
 
 function TVerifiedChain.ValidatedPath: TArray<TBytes>;

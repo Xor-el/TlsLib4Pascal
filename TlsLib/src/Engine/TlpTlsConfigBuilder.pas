@@ -38,6 +38,7 @@ uses
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpTrustTypes,
+  TlpIIssuerLookup,
   TlpICertificateVerifierSource,
   TlpCertificateVerifier,
   TlpCertificateVerifierSource,
@@ -126,6 +127,7 @@ type
     FAnchorStores: TArray<ITrustAnchorStore>;
     // the union of FAnchorStores, built when first needed and dropped when a store is added
     FComposedTrust: ITrustAnchorStore;
+    FIssuerLookup: IIssuerLookup;
     FServerCertVerifier: IServerCertificateVerifier;
     FServerVerifierSource: IServerCertificateVerifierSource;
     FClientCertVerifier: IClientCertificateVerifier;
@@ -630,6 +632,7 @@ type
     FCertificateCompressionCache: ICertificateCompressionCache;
     FCredential: TTlsCredential;
     FTrustStore: ITrustAnchorStore;
+    FIssuerLookup: IIssuerLookup;
     FChainLimits: TCertificateChainLimits;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FRevocationPosture: TRevocationPosture;
@@ -659,6 +662,7 @@ type
     function CertificateCompressionCache: ICertificateCompressionCache;
     function Credential: TTlsCredential;
     function TrustStore: ITrustAnchorStore;
+    function IssuerLookup: IIssuerLookup;
     function CertificateChainLimits: TCertificateChainLimits;
     function CertificateStrengthPolicy: TCertificateStrengthPolicy;
     function RevocationPosture: TRevocationPosture;
@@ -969,6 +973,11 @@ end;
 function TFrozenCommonConfigBase.TrustStore: ITrustAnchorStore;
 begin
   Result := FTrustStore;
+end;
+
+function TFrozenCommonConfigBase.IssuerLookup: IIssuerLookup;
+begin
+  Result := FIssuerLookup;
 end;
 
 function TFrozenCommonConfigBase.CertificateChainLimits: TCertificateChainLimits;
@@ -2588,6 +2597,7 @@ begin
     TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores,
       TTrustAnchorStore.Create(FPkix.Certificates.LoadChain(LBlob)) as ITrustAnchorStore);
   FComposedTrust := nil;
+  FIssuerLookup := AVerification.IssuerLookup;
   FIntermediateCertificates := nil;
   for LBlob in AVerification.IntermediateData do
     for LCert in FPkix.Certificates.LoadChain(LBlob) do
@@ -3232,6 +3242,7 @@ begin
   LConfig.FIntermediateCertificates := FIntermediateCertificates;
   LConfig.FDangerousTrust := FDangerousTrust;
   LConfig.FAsyncVerdict := FAsyncVerdict;
+  LConfig.FIssuerLookup := FIssuerLookup;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
   LConfig.FGrease := FGrease;
   LConfig.FResumption := FResumption;
@@ -3434,6 +3445,7 @@ begin
   LConfig.FIntermediateCertificates := FIntermediateCertificates;
   LConfig.FDangerousTrust := FDangerousTrust;
   LConfig.FAsyncVerdict := FAsyncVerdict;
+  LConfig.FIssuerLookup := FIssuerLookup;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
   LConfig.FServerNameAck := FServerNameAck;
   LConfig.FCipherPreference := FCipherPreference;
