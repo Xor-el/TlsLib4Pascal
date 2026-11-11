@@ -1,0 +1,25 @@
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_f2c9bd75607afc::t_60eb36be9badea 2524-2531
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_510308ad9d44a6 814-822
+  s_f2c9bd75607afc::t_013a28c5bd569b 120-121,129-130,958,964
+  s_f2c9bd75607afc::t_dbf1643347073b 845
+  s_f2c9bd75607afc::t_f69a3adec4baac 122-124
+  s_f2c9bd75607afc::t_f12ff9af7e8599 893
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7872ec5b266ad2704d6278aa382df430628dc2f4",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
