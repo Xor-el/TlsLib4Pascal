@@ -454,6 +454,11 @@ the async park instead):
   dNSName / iPAddress SANs itself rather than trust an engine's own host match, so no platform's
   deprecated subject-CN fallback is honoured. The host is still handed to a host-matching engine (for OS
   name-constraint checks) when the name check is on.
+- **Connection roots** (anchors and issuer lookup set on the config, see
+  [Bundle anchors and issuer lookup](#bundle-anchors-and-issuer-lookup)) are honoured by the server
+  delegate beside its own roots, for the live re-check too; a looked-up anchor joins the exclusive set
+  under `HostRoots`. An anchor that is not self-signed is held to its validity window after the OS
+  verdict (`certificate_expired`), on the server and client paths.
 - **Revocation posture** (`Soft`/`Hard`/`Off`) is honoured cache-only. **Hard** needs a fresh *Good*
   (a stapled leaf response, or a cached one on Windows/Apple) — a cold cache, or the intermediate that
   a staple never covers, can make Hard reject a first handshake unless `WithLiveRevocationVerdict` is
@@ -521,6 +526,54 @@ Who supplies the roots:
   otherwise, `Build` refuses a client delegate whose anchors yield no root certificate (rather than
   deferring to an `unknown_ca` at handshake).
 
+## Bundle anchors and issuer lookup
+
+**Which certificates of a bundle anchor.** The adapter bundle options (Indy `RootCertFile`, Synapse
+`CertCAFile`, mORMot `CACertificatesFile`, fcl-net `CertCA` / `TrustedCertificate` / `TrustedCertsDir`) and
+`TTlsOptions.TrustAnchors` follow `BundleAnchors`:
+
+- `SelfSignedOnly` (default): only a self-signed certificate anchors. Any other certificate in the
+  bundle completes a peer's chain and is never trusted by itself.
+- `AnyCertificate`: every certificate anchors, so a bundle may trust an intermediate directly.
+
+A bundle with no self-signed certificate then fails `Build` as having no trust anchor, unless
+`BundleAnchors` is `AnyCertificate`. Stores you build yourself (`TTrustAnchorStore`, `CustomTrustStore`,
+the host roots of system trust) are not filtered: whatever they hold anchors.
+
+**Anchor validity window.** A trust anchor that is not self-signed must be inside its `notBefore` /
+`notAfter` window; a self-signed root is trusted whatever its dates. The built-in validator applies this
+on the path it builds, and an OS delegate applies it as a post-check on the anchor of the path the OS
+built (`certificate_expired`). The post-check also refuses an anchor whose dates or self-signature the
+provider cannot determine, so an expired self-signed root the provider cannot verify fails the same way.
+
+**Issuer lookup.** `WithIssuerLookup(ALookup)` or `WithIssuerLookup(ALookup, ARule)` on the client or
+server config builder resolves the issuers of a peer chain on demand, during each verification, from an
+`IIssuerLookup` instead of loading a large trust source up front. It works beside the roots of the
+verification policy, or alone as the trust source, and with OS system trust: an OS delegate then trusts
+the looked-up anchors for that connection and completes the chain with the looked-up intermediates.
+
+- The lookup is asked for the certificates carrying a given subject name; it returns anchors and
+  intermediates separately, and `ARule` (default `SelfSignedOnly`) decides which of the anchors are
+  trusted, as for a bundle. The verifier checks what it returns like any other chain material.
+- One lookup serves every connection built over the config, so it must be thread-safe, and its
+  `Identity` must change whenever its answers can.
+- A client with a lookup defaults to `WithResumeVerification(Reverify)`, since what the lookup trusts
+  changes between connections; `Build` refuses that default when it cannot work (a `Hard` posture
+  without `WithLiveRevocationVerdict`, or early data beside an asynchronous verdict). A server cannot
+  re-verify a resumed client, so `fcl-net` puts each directory's modification time into the lookup
+  identity: adding or removing a file invalidates the tickets issued before, rewriting one in place
+  does not.
+- `Build` refuses a lookup beside a `Custom` or `DangerousSkip` policy, and on a server without
+  `WithPeerAuth`.
+- fcl-net `TrustedCertsDir` is such a lookup over OpenSSL-style hashed directories (a list searches
+  every directory): the directory is read when a chain is verified, only for the issuer names that
+  chain needs, and a file that cannot be read or holds no certificate is skipped.
+
+Compliance: the issuers a lookup returns are verified like any other chain material, but the lookup
+itself is host code, so the compliance report discloses it (see [compliance.md](compliance.md)).
+
+---
+
 ## System trust is never implicit
 
 Consistent with the library's fail-closed stance, **you must ask for system trust** — it is never a
@@ -563,8 +616,9 @@ never-implicit / fail-closed rule.
 ### Indy
 
 The IO-handler's `SSLOptions` carry a `UseSystemTrust` flag. It unions with a `RootCertFile` bundle
-and any `CustomTrustStore` (the union rule is [OS and host roots](#os-and-host-roots));
-a custom verifier replaces the pipeline. Verifying with no source named fails closed. The flag uses
+and any `CustomTrustStore` (the union rule is [OS and host roots](#os-and-host-roots); which
+`RootCertFile` certificates anchor follows `BundleAnchors`, see
+[Bundle anchors and issuer lookup](#bundle-anchors-and-issuer-lookup)); a custom verifier replaces the pipeline. Verifying with no source named fails closed. The flag uses
 the `Default` mode.
 
 ```pascal
@@ -633,6 +687,9 @@ H.UseSystemTrust := True;                                // OS roots
 `VerifyPeerCert` defaults to **True** here (stock fcl-net defaults it to `False`). With
 `UseSystemTrust` it uses the OS store; with `CertCA` / `TrustedCertificate` / `TrustedCertsDir` it
 pins to those anchors; with several it unions them; with none it fails closed.
+Which `CertCA` / `TrustedCertificate` certificates anchor follows `BundleAnchors`; `TrustedCertsDir`
+is an issuer lookup read at verification time (see
+[Bundle anchors and issuer lookup](#bundle-anchors-and-issuer-lookup)).
 `VerifyPeerCert := False` set through a `TTlsLibSocketHandler` is the loud verification bypass.
 
 ### Writing your own adapter
