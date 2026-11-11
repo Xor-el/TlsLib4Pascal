@@ -240,6 +240,7 @@ type
     // the leaf-only chain judged through the config's verifier source under its issuer lookup
     function LookedUpLeafVerdict(const AConfig: ITlsClientConfig;
       out AAlert: TTlsAlertDescription): Boolean;
+    function ClientBuildRefused(const AOpts: TTlsOptions): Boolean;
     function ClientConflicts(const AOpts: TTlsOptions): Boolean;
     function ServerConflicts(const AOpts: TTlsOptions): Boolean;
     function ClientSignatureRaises(const AOpts: TTlsOptions): Boolean;
@@ -254,6 +255,13 @@ type
     procedure TestTheRuleReachesTheClientConfig;
     procedure TestTheRuleReachesTheServerConfig;
     procedure TestSystemTrustBesideALookupBuilds;
+    procedure TestTheRuleReachesTheClientConfigBesideSystemTrust;
+    procedure TestTheRuleReachesTheClientConfigBesideHostRoots;
+    procedure TestTheRuleReachesTheServerConfigBesideHostRoots;
+    procedure TestSystemTrustSupplyingAWholeVerifierRefusesALookup;
+    procedure TestSystemTrustSkippingVerificationRefusesALookup;
+    procedure TestSystemTrustCarryingALookupRefusesAnother;
+    procedure TestALookupOfTheSystemTrustSurvivesHostIntermediates;
     procedure TestClientVerifierBesideALookupIsRefused;
     procedure TestServerVerifierBesideALookupIsRefused;
     procedure TestLookupBesideASuppliedClientConfigConflicts;
@@ -306,6 +314,8 @@ type
     InstallerIdentity: string;
     // refuses host roots beside it
     DelegateOnly: Boolean;
+    // returned as is instead of a WebPki policy over the store
+    Supplied: IServerVerification;
     constructor Create(ARaise: Boolean; const AStore: ITrustAnchorStore);
     function Identity: string;
     function ServerVerification(const APkix: IPkixProvider;
@@ -374,6 +384,8 @@ begin
   ExtraAnchors := AExtraAnchors;
   if DelegateOnly and (AExtraAnchors <> nil) then
     raise EInvalidOperationTlsLibException.Create('host roots beside the delegate');
+  if Supplied <> nil then
+    Exit(Supplied);
   Result := TServerVerification.WebPki(FStore).Build;
 end;
 
@@ -2916,6 +2928,17 @@ begin
     TArray<TBytes>.Create(FLeaf), TServerName.DnsName('localhost'), nil, LVerified, AAlert);
 end;
 
+function TTestComposerIssuerLookup.ClientBuildRefused(const AOpts: TTlsOptions): Boolean;
+begin
+  Result := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(AOpts);
+  except
+    on ETlsStreamError do
+      Result := True;
+  end;
+end;
+
 function TTestComposerIssuerLookup.ClientConflicts(const AOpts: TTlsOptions): Boolean;
 var
   LOpts: TTlsOptions;
@@ -3036,6 +3059,102 @@ begin
   LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
   CheckTrue(LFake.ClientRoleCalled, 'the installer supplied the system trust');
   CheckTrue(LConfig.IssuerLookup = FLookupRef, 'and the lookup rides beside it');
+end;
+
+procedure TTestComposerIssuerLookup.TestTheRuleReachesTheClientConfigBesideSystemTrust;
+var
+  LOpts: TTlsOptions;
+  LInst: ISystemTrustInstaller;
+begin
+  LInst := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LOpts := ClientOptions;
+  LOpts.SystemTrust := LInst;
+  LOpts.BundleAnchors := TBundleAnchorRule.AnyCertificate;
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate),
+    Ord(TTlsConfigComposer.BuildClientConfig(LOpts).IssuerAnchorRule), 'the rule it was given');
+end;
+
+procedure TTestComposerIssuerLookup.TestTheRuleReachesTheClientConfigBesideHostRoots;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := BundleOptions(TArray<TBytes>.Create(FRoot), TBundleAnchorRule.AnyCertificate);
+  LOpts.IssuerLookup := FLookupRef;
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate),
+    Ord(TTlsConfigComposer.BuildClientConfig(LOpts).IssuerAnchorRule), 'the rule it was given');
+end;
+
+procedure TTestComposerIssuerLookup.TestTheRuleReachesTheServerConfigBesideHostRoots;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := BundleServerOptions(TArray<TBytes>.Create(FRoot), TBundleAnchorRule.AnyCertificate);
+  LOpts.IssuerLookup := FLookupRef;
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate),
+    Ord(TTlsConfigComposer.BuildServerConfig(LOpts).IssuerAnchorRule), 'the rule it was given');
+end;
+
+procedure TTestComposerIssuerLookup.TestSystemTrustSupplyingAWholeVerifierRefusesALookup;
+var
+  LOpts: TTlsOptions;
+  LFake: TFakeSystemTrustInstaller;
+  LInst: ISystemTrustInstaller;
+begin
+  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake.Supplied := TServerVerification.Custom(
+    TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier);
+  LInst := LFake;
+  LOpts := ClientOptions;
+  LOpts.SystemTrust := LInst;
+  CheckTrue(ClientBuildRefused(LOpts), 'a whole verifier ignores the lookup');
+end;
+
+procedure TTestComposerIssuerLookup.TestSystemTrustSkippingVerificationRefusesALookup;
+var
+  LOpts: TTlsOptions;
+  LFake: TFakeSystemTrustInstaller;
+  LInst: ISystemTrustInstaller;
+begin
+  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake.Supplied := TServerVerification.DangerousSkip;
+  LInst := LFake;
+  LOpts := ClientOptions;
+  LOpts.SystemTrust := LInst;
+  CheckTrue(ClientBuildRefused(LOpts), 'skipped verification ignores the lookup');
+end;
+
+procedure TTestComposerIssuerLookup.TestSystemTrustCarryingALookupRefusesAnother;
+var
+  LOpts: TTlsOptions;
+  LFake: TFakeSystemTrustInstaller;
+  LInst: ISystemTrustInstaller;
+begin
+  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake.Supplied := TServerVerification.WebPki(FLookupRef).Build;
+  LInst := LFake;
+  LOpts := ClientOptions;
+  LOpts.IssuerLookup := TRecordingIssuerLookup.Create('other') as IIssuerLookup;
+  LOpts.SystemTrust := LInst;
+  CheckTrue(ClientBuildRefused(LOpts), 'two lookups would drop one silently');
+end;
+
+procedure TTestComposerIssuerLookup.TestALookupOfTheSystemTrustSurvivesHostIntermediates;
+var
+  LOpts: TTlsOptions;
+  LFake: TFakeSystemTrustInstaller;
+  LInst: ISystemTrustInstaller;
+  LConfig: ITlsClientConfig;
+begin
+  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake.Supplied := TServerVerification.WebPki(FLookupRef, TBundleAnchorRule.AnyCertificate).Build;
+  LInst := LFake;
+  LOpts := BundleOptions(TArray<TBytes>.Create(FIssuer), TBundleAnchorRule.SelfSignedOnly);
+  LOpts.SystemTrust := LInst;
+  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
+  CheckTrue(LConfig.IssuerLookup = FLookupRef, 'the lookup the installer supplied is kept');
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate), Ord(LConfig.IssuerAnchorRule),
+    'with its rule');
+  CheckTrue(Holds(LConfig.IntermediateCertificates, FIssuer), 'beside the host intermediate');
 end;
 
 procedure TTestComposerIssuerLookup.TestClientVerifierBesideALookupIsRefused;

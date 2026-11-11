@@ -21,8 +21,6 @@ uses
   TlpINegotiation,
   TlpNegotiationTypes,
   TlpICertificateTrust,
-  TlpIIssuerLookup,
-  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
@@ -71,7 +69,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{A736DB31-5205-4FDB-A840-E5FA79042C45}']
+    ['{29AF3A6C-72D0-4EC3-803D-28C8EC0D8632}']
     /// <summary>The cipher-suite registry offered. A configured TLS 1.2 PSK adds its ECDHE_PSK
     /// suites to it. Build refuses a record that differs from the catalog entry for its code or
     /// names a hash TLS cannot run on, from any registry.</summary>
@@ -141,18 +139,6 @@ type
     /// revocation or host-name checks (configured pins still apply to the leaf); tests and pinned
     /// development peers only.</summary>
     function WithServerVerification(const AVerification: IServerVerification): ITlsClientConfigBuilder;
-    /// <summary>Resolves the issuers of the server chain from ALookup on demand during each
-    /// verification, beside the roots of the verification policy (or alone, as the trust source).
-    /// Only a self-signed certificate the lookup offers as an anchor is trusted as one. Build
-    /// refuses it with a Custom or DangerousSkip policy, and, unless WithResumeVerification set a
-    /// mode, makes a resuming client re-verify the stored chain through the lookup (which Hard
-    /// revocation without a live verdict, or early data beside an asynchronous verdict, cannot do:
-    /// Build refuses both). nil is refused.</summary>
-    function WithIssuerLookup(const ALookup: IIssuerLookup): ITlsClientConfigBuilder; overload;
-    /// <summary>As above, with ARule choosing which certificates the lookup offers as anchors are
-    /// trusted as anchors.</summary>
-    function WithIssuerLookup(const ALookup: IIssuerLookup;
-      ARule: TBundleAnchorRule): ITlsClientConfigBuilder; overload;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>
@@ -309,7 +295,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{6FCE1663-42F5-48B8-AC98-1C12A15C5C94}']
+    ['{CB741560-7E47-4C87-ABBB-A90E087ED9B0}']
     /// <summary>The cipher-suite registry offered. A configured TLS 1.2 PSK adds its ECDHE_PSK
     /// suites to it. Build refuses a record that differs from the catalog entry for its code or
     /// names a hash TLS cannot run on, from any registry.</summary>
@@ -398,16 +384,6 @@ type
     /// DangerousSkip accepts a requested client chain without PKIX or revocation checks
     /// (configured pins still apply to the leaf); tests only.</summary>
     function WithClientVerification(const AVerification: IClientVerification): ITlsServerConfigBuilder;
-    /// <summary>Resolves the issuers of a client chain from ALookup on demand during each
-    /// verification, beside the roots of the client verification policy (or alone, as the trust
-    /// source). Takes effect with WithPeerAuth; Build refuses it otherwise, and with a Custom or
-    /// DangerousSkip policy. Only a self-signed certificate the lookup offers as an anchor is
-    /// trusted as one. nil is refused.</summary>
-    function WithIssuerLookup(const ALookup: IIssuerLookup): ITlsServerConfigBuilder; overload;
-    /// <summary>As above, with ARule choosing which certificates the lookup offers as anchors are
-    /// trusted as anchors.</summary>
-    function WithIssuerLookup(const ALookup: IIssuerLookup;
-      ARule: TBundleAnchorRule): ITlsServerConfigBuilder; overload;
     /// <summary>DANGEROUS: hands every secret of every connection built from this config to
     /// AKeyLog in the SSLKEYLOGFILE format (RFC 9850), so a packet capture can be decrypted.
     /// For debugging only - never production. nil (the default) clears it.</summary>
