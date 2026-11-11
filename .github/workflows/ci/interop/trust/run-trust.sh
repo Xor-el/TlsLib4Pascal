@@ -57,6 +57,9 @@ INSTALLED=0
 FAILURES=0
 # 1 once the OS has been seen refusing the loopback responder by policy (see live_os_fetch_probe)
 LIVE_FALLBACK=0
+STREAM_PID=""
+LOGSHOW_LINE=""
+LOGSHOW_RC=""
 OSNAME="$(uname -s)"
 # a per-run loopback port + URL for the live OCSP responder (the live cells fetch it)
 OCSP_PORT=$(( 20000 + (RANDOM % 20000) ))
@@ -104,6 +107,7 @@ ci_store_mutation_allowed() {
 
 cleanup() {
   if [ -n "$OCSP_PID" ]; then kill "$OCSP_PID" >/dev/null 2>&1 || true; fi
+  stop_trustd_stream || true
   if [ -n "$CRL_PID" ]; then kill "$CRL_PID" >/dev/null 2>&1 || true; wait "$CRL_PID" 2>/dev/null || true; fi
   if [ "$DISTRUSTED" = 1 ]; then uninstall_distrust || true; fi
   if [ "$INSTALLED" = 1 ]; then uninstall_root || true; fi
@@ -286,32 +290,105 @@ live_cell() { # <label> <shim-args...>: a cell that has the OS fetch OCSP from t
   fi
 }
 
+SSRF_PREDICATE='process == "trustd" AND eventMessage CONTAINS "SSRF-denied destination"'
+HTTP_PREDICATE='process == "trustd" AND subsystem == "com.apple.securityd" AND (category == "http" OR category == "ocsp" OR category == "rvc")'
+
+SSRF_MESSAGE='skipping SSRF-denied destination for OCSPFetchDelegate'
+
+ssrf_line() { # <text>: the first event line carrying the refusal, empty if none
+  grep -m 1 "$SSRF_MESSAGE" <<<"$1" || true
+}
+
+# sudo is root, so only a sudo'd pkill can stop the stream; it discards the buffered output
+stop_trustd_stream() {
+  [ -n "$STREAM_PID" ] || return 0
+  sudo -n pkill -f 'log stream .*[S]SRF-denied destination' >/dev/null 2>&1 || true
+  wait "$STREAM_PID" 2>/dev/null || true
+  STREAM_PID=""
+}
+
+# --timeout ends the stream and flushes its output; stop it only if that never happens
+await_trustd_stream() {
+  local _
+  for _ in $(seq 1 40); do
+    ps -p "$STREAM_PID" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  stop_trustd_stream
+}
+
+# log show as a second source: sets LOGSHOW_LINE; keeps the last attempt's rc and stderr
+trustd_log_show_ssrf() { # <log_start>
+  local try out deadline=$((SECONDS + 60))
+  LOGSHOW_LINE=""
+  for try in 1 2 3 4 5; do
+    LOGSHOW_RC=0
+    out="$(ci_run_bounded 30 sudo -n log show --start "$1" --info --debug \
+      --predicate "$SSRF_PREDICATE" 2>"$TMP/logshow.err")" || LOGSHOW_RC=$?
+    if [ -z "$out" ] && [ "$LOGSHOW_RC" -ne 0 ]; then
+      LOGSHOW_RC=0
+      out="$(ci_run_bounded 30 log show --start "$1" --info --debug \
+        --predicate "$SSRF_PREDICATE" 2>"$TMP/logshow.err")" || LOGSHOW_RC=$?
+    fi
+    LOGSHOW_LINE="$(ssrf_line "$out")"
+    [ -n "$LOGSHOW_LINE" ] && return 0
+    [ "$try" -lt 5 ] && [ "$SECONDS" -lt "$deadline" ] || break
+    sleep 2
+  done
+  return 1
+}
+
+trustd_http_dump() { # <log_start> <label>
+  echo "  --- trustd http/ocsp/rvc log ($2) ---"
+  ci_run_bounded 30 sudo -n log show --start "$1" --info --debug --style compact \
+    --predicate "$HTTP_PREDICATE" 2>&1 | tail -n 60 || true
+}
+
 live_os_fetch_probe() {
   # the server role needs no root install, so this can run before the bracket
-  local log_start trustd_log
+  local log_start seen_by="" line=""
   log_start="$(date '+%Y-%m-%d %H:%M:%S')"
+  : > "$TMP/trustd.stream"
+  sudo -n log stream --timeout 30 --style compact --predicate "$SSRF_PREDICATE" \
+    > "$TMP/trustd.stream" 2> "$TMP/trustd.stream.err" &
+  STREAM_PID=$!
+  sleep 1
   if ci_run_bounded 120 "$SHIM" --role server --tls-version 13 \
     --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
     --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_revoked.pem" \
     --client-key "$CA/live_client_revoked.key" --client-ca "$CA/root.pem" \
     --posture hard --expect reject:44 > "$TMP/probe" 2>&1; then
+    stop_trustd_stream
     return 0
   fi
-  trustd_log="$(ci_run_bounded 120 sudo -n log show --start "$log_start" --info --debug \
-    --predicate 'process == "trustd" AND eventMessage CONTAINS "SSRF-denied destination for OCSPFetchDelegate"' \
-    2>/dev/null || true)"
-  if [ -z "$trustd_log" ]; then
-    trustd_log="$(ci_run_bounded 120 log show --start "$log_start" --info --debug \
-      --predicate 'process == "trustd" AND eventMessage CONTAINS "SSRF-denied destination for OCSPFetchDelegate"' \
-      2>/dev/null || true)"
+  sleep 2
+  await_trustd_stream
+  line="$(ssrf_line "$(cat "$TMP/trustd.stream")")"
+  if [ -n "$line" ]; then
+    seen_by="log stream"
+  elif trustd_log_show_ssrf "$log_start"; then
+    seen_by="log show"
+    line="$LOGSHOW_LINE"
   fi
-  case "$trustd_log" in
-    *SSRF-denied*)
-      LIVE_FALLBACK=1
-      echo "::warning::LIVE-OS-FETCH: UNVERIFIED (the OS refused the loopback responder by policy); live cells run with the portable fallback" ;;
-    *)
-      echo "  live-fetch probe failed without an OS refusal: $(cat "$TMP/probe")" ;;
-  esac
+  if [ -n "$seen_by" ]; then
+    LIVE_FALLBACK=1
+    line="$(printf '%s' "$line" | cut -c1-200)"
+    echo "::warning::LIVE-OS-FETCH: UNVERIFIED (the OS refused the loopback responder by policy; seen by $seen_by: $line); live cells run with the portable fallback"
+    return 0
+  fi
+  echo "  live-fetch probe failed and no policy refusal was logged"
+  echo "  --- diagnostics ---"
+  sw_vers | sed 's/^/  /'
+  echo "  probe output: $(cat "$TMP/probe")"
+  echo "  --- trustd stream ---"
+  sed 's/^/  /' "$TMP/trustd.stream"
+  echo "  --- trustd stream stderr ---"
+  sed 's/^/  /' "$TMP/trustd.stream.err"
+  echo "  --- last log show attempt: rc=$LOGSHOW_RC stderr ---"
+  sed 's/^/  /' "$TMP/logshow.err"
+  trustd_http_dump "$log_start" "immediate"
+  sleep 5
+  trustd_http_dump "$log_start" "after 5 s"
 }
 
 echo "=== portable verifier (generated CA, no OS store) ==="
