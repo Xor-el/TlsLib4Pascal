@@ -34,6 +34,8 @@ uses
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpTrustTypes,
+  TlpIIssuerLookup,
+  TlpIssuerResolution,
   TlpITlsConfig,
   TlpSignatureSchemeRegistry,
   TlpICertificateVerifierSource,
@@ -77,15 +79,27 @@ type
     // skips the OS engine it was chosen for), only the reject callback is applied
     Dangerous: TDangerousTrust;
     DeadlineMs: Cardinal;
+    // the live re-check resolves a path's issuers through these, as the inline pass does
+    IssuerLookup: IIssuerLookup;
+    IssuerRule: TBundleAnchorRule;
+    BaseStore: ITrustAnchorStore;
     class function FromServerContext(const AContext: TServerTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
     class function FromClientContext(const AContext: TClientTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
+    /// <summary>APolicy with the roots AStore holds beyond the ones the policy carries trusted
+    /// beside them: those the policy distrusts or already trusts are left out, and each root is
+    /// taken once. Beside exclusive Anchors the roots join that set (an engine ignores ExtraAnchors
+    /// there); an engine that can trust neither with the OS roots nor alone is given them as
+    /// Anchors, which the evaluation refuses with internal_error. A nil AStore adds none.</summary>
+    class function WithContextRoots(const APolicy: TOSDelegatePolicy;
+      const AStore: ITrustAnchorStore; ACapabilities: TPlatformChainCapabilities)
+      : TOSDelegatePolicy; static;
     /// <summary>The live re-check policy for the server certificate a client verifies: the roots
     /// and the distrust set come from ARootsOf when it is the OS verifier source (the config's
     /// own, or the one a host source decorates), else from the config's trust store. Raises when
-    /// ARootsOf is neither the OS source nor backed by a trust store, since the roots it trusts
-    /// cannot be read.</summary>
+    /// ARootsOf is neither the OS source nor backed by a trust store or an issuer lookup, since
+    /// the roots it trusts cannot be read.</summary>
     class function FromClientConfig(const AConfig: ITlsClientConfig;
       const ARootsOf: IServerCertificateVerifierSource): TOSDelegatePolicy; static;
     /// <summary>The live re-check policy for the client certificate a server verifies: the
@@ -208,9 +222,6 @@ type
     FAnchors: TArray<TBytes>;
     FExtraAnchors: TArray<TBytes>;
     FDistrusted: TArray<TBytes>;
-    /// <summary>The roots AStore holds beyond the ones the source carries: those the source
-    /// distrusts or already trusts are left out, and each root is taken once.</summary>
-    function ContextRoots(const AStore: ITrustAnchorStore): TArray<TBytes>;
   public
     constructor Create(const AEngine: IPlatformChainEngine; AFetch: TSystemTrustFetch;
       AScope: TSystemTrustRootScope; const AHostRoots, ADistrusted: TArray<TBytes>);
@@ -238,6 +249,10 @@ type
   strict private
     FEngine: IPlatformChainEngine;
     FPolicy: TOSDelegatePolicy;
+    /// <summary>The policy for one park: FPolicy with the issuers the lookup holds for AChain
+    /// resolved into it, as the inline pass resolved them. False when there is no provider to
+    /// resolve with.</summary>
+    function PolicyFor(const AChain: TArray<TBytes>; out APolicy: TOSDelegatePolicy): Boolean;
   strict protected
     function EvaluateLive(const AChain: TArray<TBytes>; const AHostName: string;
       const AStaple: TBytes; ADeadlineMs: Cardinal; out AOutcome: TLiveRevocationOutcome;
@@ -318,6 +333,38 @@ begin
   Result.AdvertisedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   Result.DeadlineMs := AConfig.AsyncCertificateVerdict.DeadlineMs;
   Result.Intermediates := AConfig.IntermediateCertificates;
+  Result.IssuerLookup := AConfig.IssuerLookup;
+  Result.IssuerRule := AConfig.IssuerAnchorRule;
+  Result.BaseStore := AConfig.TrustStore;
+end;
+
+class function TOSDelegatePolicy.WithContextRoots(const APolicy: TOSDelegatePolicy;
+  const AStore: ITrustAnchorStore; ACapabilities: TPlatformChainCapabilities): TOSDelegatePolicy;
+var
+  LRoots, LHeld, LAdded: TArray<TBytes>;
+  LI: Int32;
+begin
+  Result := APolicy;
+  if AStore = nil then
+    Exit;
+  LHeld := TArrayUtilities.Concat<TBytes>(TArrayUtilities.Concat<TBytes>(APolicy.Distrusted,
+    APolicy.Anchors), APolicy.ExtraAnchors);
+  LAdded := nil;
+  LRoots := AStore.RootCertificates;
+  for LI := 0 to System.High(LRoots) do
+    if not TDelegateEvaluation.PathIsDistrusted(TArray<TBytes>.Create(LRoots[LI]), LHeld) then
+    begin
+      TArrayUtilities.Append<TBytes>(LAdded, LRoots[LI]);
+      TArrayUtilities.Append<TBytes>(LHeld, LRoots[LI]);
+    end;
+  if System.Length(LAdded) = 0 then
+    Exit;
+  if (System.Length(APolicy.Anchors) > 0) or
+    (ACapabilities * [TPlatformChainCapability.NativeAnchorUnion,
+    TPlatformChainCapability.ExclusiveServerAnchors] = []) then
+    Result.Anchors := TArrayUtilities.Concat<TBytes>(APolicy.Anchors, LAdded)
+  else
+    Result.ExtraAnchors := TArrayUtilities.Concat<TBytes>(APolicy.ExtraAnchors, LAdded);
 end;
 
 class function TOSDelegatePolicy.FromClientConfig(const AConfig: ITlsClientConfig;
@@ -340,9 +387,12 @@ begin
     Result.Anchors := AConfig.TrustStore.RootCertificates;
     Result.Distrusted := AConfig.TrustStore.DistrustedCertificates;
   end
-  // the built-in source with no store is a PSK-only or skip-verify config: no server certificate
+  // the built-in source with no store is a PSK-only or skip-verify config unless a lookup is its roots
   else if ARootsOf is TBuiltInServerVerifierSource then
-    raise EArgumentTlsLibException.CreateRes(@SLiveNeedsServerVerification)
+  begin
+    if AConfig.IssuerLookup = nil then
+      raise EArgumentTlsLibException.CreateRes(@SLiveNeedsServerVerification);
+  end
   // a wrapped source would be re-checked against the OS roots while it trusted others
   else if ARootsOf <> nil then
     raise EArgumentTlsLibException.CreateRes(@SLiveNeedsKnownRoots);
@@ -736,30 +786,10 @@ begin
   FDistrusted := TArrayUtilities.DeepCopy<Byte>(ADistrusted);
 end;
 
-function TOSVerifierSource.ContextRoots(const AStore: ITrustAnchorStore): TArray<TBytes>;
-var
-  LRoots, LHeld: TArray<TBytes>;
-  LI: Int32;
-begin
-  Result := nil;
-  if AStore = nil then
-    Exit;
-  LHeld := TArrayUtilities.Concat<TBytes>(TArrayUtilities.Concat<TBytes>(FDistrusted, FAnchors),
-    FExtraAnchors);
-  LRoots := AStore.RootCertificates;
-  for LI := 0 to System.High(LRoots) do
-    if not TDelegateEvaluation.PathIsDistrusted(TArray<TBytes>.Create(LRoots[LI]), LHeld) then
-    begin
-      TArrayUtilities.Append<TBytes>(Result, LRoots[LI]);
-      TArrayUtilities.Append<TBytes>(LHeld, LRoots[LI]);
-    end;
-end;
-
 function TOSVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 var
   LPolicy: TOSDelegatePolicy;
-  LContextRoots: TArray<TBytes>;
 begin
   if TDelegatePostChecks.LiveNeedsLiveRevocation(FFetch, AContext.Deferral) then
     raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SLiveNeedsLiveRevocationVerdict);
@@ -768,18 +798,7 @@ begin
   LPolicy.ExtraAnchors := FExtraAnchors;
   LPolicy.Distrusted := FDistrusted;
   // roots the connection adds (issuers found for this peer) are trusted beside the source's own
-  LContextRoots := ContextRoots(AContext.TrustStore);
-  if System.Length(LContextRoots) > 0 then
-  begin
-    if FEngine.Capabilities * [TPlatformChainCapability.NativeAnchorUnion,
-      TPlatformChainCapability.ExclusiveServerAnchors] = [] then
-      raise ESystemTrustUnsupportedTlsLibException.CreateRes(@SEngineCannotTrustOsAndHostRoots);
-    // beside an exclusive Anchors the engine ignores ExtraAnchors, so the roots join that set
-    if System.Length(FAnchors) > 0 then
-      LPolicy.Anchors := TArrayUtilities.Concat<TBytes>(FAnchors, LContextRoots)
-    else
-      LPolicy.ExtraAnchors := TArrayUtilities.Concat<TBytes>(FExtraAnchors, LContextRoots);
-  end;
+  LPolicy := TOSDelegatePolicy.WithContextRoots(LPolicy, AContext.TrustStore, FEngine.Capabilities);
   Result := TOSDelegateServerVerifier.Create(FEngine, LPolicy) as IServerCertificateVerifier;
 end;
 
@@ -828,74 +847,105 @@ begin
   FPolicy := APolicy;
 end;
 
+function TOSDelegateLiveResolver.PolicyFor(const AChain: TArray<TBytes>;
+  out APolicy: TOSDelegatePolicy): Boolean;
+var
+  LStore: ITrustAnchorStore;
+  LFound: TArray<TBytes>;
+begin
+  APolicy := FPolicy;
+  if FPolicy.IssuerLookup = nil then
+    Exit(True);
+  if FPolicy.Pkix = nil then
+    Exit(False);
+  TIssuerResolution.Resolve(FPolicy.Pkix.Certificates, FPolicy.IssuerLookup, FPolicy.IssuerRule,
+    FPolicy.StrengthPolicy, FPolicy.BaseStore, AChain, FPolicy.Intermediates, LStore, LFound);
+  if FExpectedPeer = TPeerRole.Server then
+    APolicy := TOSDelegatePolicy.WithContextRoots(FPolicy, LStore, FEngine.Capabilities)
+  else
+  begin
+    APolicy.AnchorStore := LStore;
+    APolicy.Anchors := LStore.RootCertificates;
+    APolicy.Distrusted := LStore.DistrustedCertificates;
+  end;
+  APolicy.Intermediates := TArrayUtilities.Concat<TBytes>(FPolicy.Intermediates, LFound);
+  Result := True;
+end;
+
 function TOSDelegateLiveResolver.EvaluateLive(const AChain: TArray<TBytes>;
   const AHostName: string; const AStaple: TBytes; ADeadlineMs: Cardinal;
   out AOutcome: TLiveRevocationOutcome; out ARejectAlert: TTlsAlertDescription): Boolean;
 var
+  LPolicy: TOSDelegatePolicy;
   LRequest: TPlatformChainRequest;
   LResult: TPlatformChainResult;
   LTrusted, LWithheld: Boolean;
 begin
+  if not PolicyFor(AChain, LPolicy) then
+  begin
+    ARejectAlert := TTlsAlertDescription.InternalError;
+    Exit(False);
+  end;
   LRequest := Default(TPlatformChainRequest);
   LRequest.Chain := AChain;
-  LRequest.Anchors := FPolicy.Anchors;
-  LRequest.ExtraAnchors := FPolicy.ExtraAnchors;
-  LRequest.Intermediates := FPolicy.Intermediates;
+  LRequest.Anchors := LPolicy.Anchors;
+  LRequest.ExtraAnchors := LPolicy.ExtraAnchors;
+  LRequest.Intermediates := LPolicy.Intermediates;
   LRequest.OcspStaple := AStaple;
   LRequest.Revocation := TPlatformRevocationCheck.RequirePositive;
   LRequest.NetworkAllowed := True;
-  LRequest.Clock := FPolicy.Clock;
+  LRequest.Clock := LPolicy.Clock;
   // the tighter of the resolver's own budget and the host's for this park; 0 means none
-  LRequest.DeadlineMs := FPolicy.DeadlineMs;
+  LRequest.DeadlineMs := LPolicy.DeadlineMs;
   if (ADeadlineMs <> 0) and ((LRequest.DeadlineMs = 0) or (ADeadlineMs < LRequest.DeadlineMs)) then
     LRequest.DeadlineMs := ADeadlineMs;
   // the base already stripped an IP literal via OsHostName, so a non-empty host is a DNS name;
   // withhold it from a name-matching engine when the name check is off, as BuildRequest does
-  if (AHostName <> '') and (FPolicy.CheckHostName or
+  if (AHostName <> '') and (LPolicy.CheckHostName or
     not (TPlatformChainCapability.DnsIdentity in FEngine.Capabilities)) then
     LRequest.ServerName := TServerName.DnsName(AHostName)
   else
     LRequest.ServerName := Default(TServerName);
   if FExpectedPeer = TPeerRole.Server then
-    LTrusted := TDelegateEvaluation.EvaluateServer(FEngine, LRequest, FPolicy.Distrusted,
+    LTrusted := TDelegateEvaluation.EvaluateServer(FEngine, LRequest, LPolicy.Distrusted,
       LResult, ARejectAlert)
   else
   begin
     LWithheld := False;
-    LRequest.Chain := TDelegateEvaluation.WithoutDistrusted(AChain, FPolicy.Distrusted, 1,
+    LRequest.Chain := TDelegateEvaluation.WithoutDistrusted(AChain, LPolicy.Distrusted, 1,
       LWithheld);
-    LRequest.Intermediates := TDelegateEvaluation.WithoutDistrusted(FPolicy.Intermediates,
-      FPolicy.Distrusted, 0, LWithheld);
+    LRequest.Intermediates := TDelegateEvaluation.WithoutDistrusted(LPolicy.Intermediates,
+      LPolicy.Distrusted, 0, LWithheld);
     LTrusted := FEngine.EvaluateClient(LRequest, LResult, ARejectAlert);
     if (not LTrusted) and LWithheld and (ARejectAlert = TTlsAlertDescription.UnknownCa) then
       ARejectAlert := TTlsAlertDescription.BadCertificate;
-    if LTrusted and TDelegateEvaluation.PathIsDistrusted(LResult.Path, FPolicy.Distrusted) then
+    if LTrusted and TDelegateEvaluation.PathIsDistrusted(LResult.Path, LPolicy.Distrusted) then
     begin
       ARejectAlert := TTlsAlertDescription.BadCertificate;
       LTrusted := False;
     end;
-    if LTrusted and not TDelegateEvaluation.AnchorClientPath(FPolicy, LRequest.Chain,
+    if LTrusted and not TDelegateEvaluation.AnchorClientPath(LPolicy, LRequest.Chain,
       LRequest.Intermediates, LWithheld, LResult, ARejectAlert) then
       LTrusted := False;
   end;
   if not LTrusted then
     Exit(False);
-  if TDelegatePostChecks.RejectNameConstraintViolation(FPolicy.Pkix, LResult.Path,
+  if TDelegatePostChecks.RejectNameConstraintViolation(LPolicy.Pkix, LResult.Path,
     ARejectAlert) then
     Exit(False);
-  if TDelegatePostChecks.RejectExpiredAnchor(FPolicy.Pkix, FPolicy.Clock, LResult.PolicyExempt,
+  if TDelegatePostChecks.RejectExpiredAnchor(LPolicy.Pkix, LPolicy.Clock, LResult.PolicyExempt,
     ARejectAlert) then
     Exit(False);
   // apply the strength policy over the live-built path when the platform trusted revocation too
   if LResult.Outcome = TLiveRevocationOutcome.Good then
   begin
-    if (FPolicy.Pkix = nil) or (System.Length(LResult.Path) = 0) then
+    if (LPolicy.Pkix = nil) or (System.Length(LResult.Path) = 0) then
     begin
       ARejectAlert := TTlsAlertDescription.InternalError;
       Exit(False);
     end;
-    if not TChainAlgorithmPolicy.Check(FPolicy.Pkix.Certificates, LResult.Path,
-      LResult.PolicyExempt, FPolicy.StrengthPolicy, FPolicy.AdvertisedSchemes, ARejectAlert) then
+    if not TChainAlgorithmPolicy.Check(LPolicy.Pkix.Certificates, LResult.Path,
+      LResult.PolicyExempt, LPolicy.StrengthPolicy, LPolicy.AdvertisedSchemes, ARejectAlert) then
       Exit(False);
   end;
   AOutcome := LResult.Outcome;

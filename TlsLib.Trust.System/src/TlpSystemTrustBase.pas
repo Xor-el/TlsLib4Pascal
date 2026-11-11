@@ -55,7 +55,8 @@ resourcestring
     'trusts; use the OS verifier source or a trust store, or pass the OS source it wraps';
   SLiveNeedsServerVerification =
     'the live revocation resolver needs a client config that verifies the server certificate; ' +
-    'this one has no trust store or OS verifier source (a PSK-only or skip-verify config)';
+    'this one has no trust store, issuer lookup or OS verifier source (a PSK-only or skip-verify ' +
+    'config)';
   SLiveRootsOfSourceDiffers =
     'the roots source passed to the live revocation resolver is not the OS verifier source the ' +
     'client config uses';
@@ -330,8 +331,6 @@ begin
     for LI := 0 to System.High(AAnchors) do
     begin
       LAnchor := APkix.Certificates.Parse(AAnchors[LI]);
-      // the self-signed test runs only on an out-of-window anchor, keeping its signature check off
-      // the common path
       if (LAnchor.IsValidAt(LTime) <> TCertAnswer.Yes) and
         (LAnchor.IsSelfSigned <> TCertAnswer.Yes) then
       begin

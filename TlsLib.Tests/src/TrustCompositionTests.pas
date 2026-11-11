@@ -42,6 +42,8 @@ uses
   TlpIIssuerLookup,
   TlpICertificateVerifierSource,
   TlpIssuerLookupVerifierSource,
+  TlpIssuerResolution,
+  TlpIPkixProvider,
   TlpTrustPolicy,
   TlpCertificateLimits,
   TlpCertificateStrengthPolicy,
@@ -59,6 +61,7 @@ uses
   TlpCertificateVerifierSource,
   TlpTlsPresets,
   MockCertificateVerifiers,
+  MockPkixProvider,
   TlsLibTestCertificates,
   TlsLibHandshakeTestBase,
   TlsLibTestBase;
@@ -85,7 +88,8 @@ type
     procedure TestLayeredStoreAnswersLikeAUnion;
     procedure TestLayeredStoreRefusesWhatTheBaseDistrusts;
     procedure TestLayeredStoreReturnsItsBaseWhenNothingIsAdded;
-    procedure TestLayeredStoreOverNoBaseIsAPlainStore;
+    procedure TestLayeredStoreOverNoBaseSitsOnAnEmptyBase;
+    procedure TestLayeredStoreOverNoBaseAndNoExtrasIsEmpty;
     procedure TestLayeredStoreOverALayeredStoreIsOneLayer;
     procedure TestLayeredStoreKeepsItsBaseAlive;
     procedure TestBuildRefusesAUnionWhoseDistrustRemovesEveryAnchor;
@@ -143,6 +147,11 @@ type
     procedure TestSomethingFoundHandsTheInnerALayeredStoreAndTheIntermediates;
     procedure TestARingOfIssuersTerminatesAndEachNameIsAskedOnce;
     procedure TestTheWalkStopsAtThePathBuildingDepth;
+    procedure TestAnIntermediateThePeerSentIsNotFoundAgain;
+    procedure TestAConfiguredIntermediateIsNotFoundAgain;
+    procedure TestAnAnswerWhoseNameCannotBeComparedIsIgnored;
+    procedure TestServerDecoratorSurfacesTheInnerRefusalAtCreation;
+    procedure TestClientDecoratorSurfacesTheInnerRefusalAtCreation;
     procedure TestServerDecoratorRefusesANilLookup;
     procedure TestServerDecoratorRefusesANilSource;
     procedure TestClientDecoratorRefusesANilLookup;
@@ -174,6 +183,9 @@ type
     // the lookup offers an intermediate as an anchor and the server sends only the leaf under it:
     // True when the client config under ARule completes the handshake
     function HandshakeAnchoredAtTheIssuer(ARule: TBundleAnchorRule): Boolean;
+    // the same for a client leaf under an intermediate the lookup offers: True when the server
+    // config under ARule accepts the client
+    function ServerHandshakeAnchoredAtTheIssuer(ARule: TBundleAnchorRule): Boolean;
   protected
     procedure SetUp; override;
     procedure TearDown; override;
@@ -198,6 +210,10 @@ type
     procedure TestServerPeerAuthWithAVerifierSourceAndNoRootsBuildsOnALookup;
     procedure TestFactoryPassesAnyCertificateToTheDecorator;
     procedure TestFactoryPassesSelfSignedOnlyToTheDecorator;
+    procedure TestServerFactoryPassesAnyCertificateToTheDecorator;
+    procedure TestServerFactoryPassesSelfSignedOnlyToTheDecorator;
+    procedure TestHardPostureRefusesTheDefaultReverifyAndNamesTheWayOut;
+    procedure TestEarlyDataBesideAnAsyncVerdictRefusesTheDefaultReverifyAndNamesTheWayOut;
     procedure TestResumingClientWithALookupDefaultsToReverify;
     procedure TestAnExplicitReuseOriginalBesideALookupIsKept;
     procedure TestResumingClientWithoutALookupKeepsReuseOriginal;
@@ -439,15 +455,27 @@ begin
     'an extra the base distrusts');
 end;
 
-procedure TTestTrustComposition.TestLayeredStoreOverNoBaseIsAPlainStore;
+procedure TTestTrustComposition.TestLayeredStoreOverNoBaseSitsOnAnEmptyBase;
 var
   LStore: ITrustAnchorStore;
+  LParts: ILayeredTrustAnchorStore;
 begin
   LStore := TTrustAnchorStore.Layered(nil, TArray<TBytes>.Create(Der('root_cert'),
     Der('leaf_cert'), Der('root_cert')));
   CheckEquals(2, LStore.AnchorCount, 'the extras are the anchors, once each');
   CheckTrue(LStore.IsAnchor(Der('leaf_cert')), 'an extra is an anchor');
-  CheckFalse(Supports(LStore, ILayeredTrustAnchorStore), 'there is no base to layer on');
+  CheckTrue(Supports(LStore, ILayeredTrustAnchorStore, LParts), 'the extras sit on a base');
+  CheckEquals(0, LParts.BaseStore.AnchorCount, 'which holds no root, so a cache has none to key');
+  CheckEquals(2, System.Length(LParts.ExtraRoots), 'and the extras are the anchors');
+end;
+
+procedure TTestTrustComposition.TestLayeredStoreOverNoBaseAndNoExtrasIsEmpty;
+var
+  LStore: ITrustAnchorStore;
+begin
+  LStore := TTrustAnchorStore.Layered(nil, nil);
+  CheckNotNull(LStore, 'an empty store, never nil');
+  CheckEquals(0, LStore.AnchorCount, 'with no anchor');
 end;
 
 procedure TTestTrustComposition.TestLayeredStoreOverALayeredStoreIsOneLayer;
@@ -558,6 +586,7 @@ const
   WeakFile = 'Certs/WeakAnchorClientChain.txt';
   EcFile = 'Certs/EcP256Chain.txt';
   ChainFile = 'Certs/OcspStapling.txt';
+  RenewalFile = 'Certs/IssuerRenewal.txt';
 
 procedure TTestIssuerLookup.SetUp;
 begin
@@ -812,6 +841,10 @@ begin
     'control: the 2048-bit root meets the default floors');
   LContext.StrengthPolicy.MinRsaModulusBits := 3072;
   LContext.StrengthPolicy.AnchorKeyFloors := True;
+  // the downstream chain policy also refuses a weak root, so the resolver's own check is shown by
+  // the store it hands the inner source
+  ServerVerdict(ServerVerifier(FCaptureRef, LContext), TArray<TBytes>.Create(LLeaf), LAlert);
+  CheckFalse(FCapture.Store.IsAnchor(LRoot), 'the resolver keeps the weak root out of the store');
   CheckFalse(ServerVerdict(ServerVerifier(TBuiltInServerVerifierSource.Create
     as IServerCertificateVerifierSource, LContext), TArray<TBytes>.Create(LLeaf), LAlert),
     'the root is below the anchor floor');
@@ -820,18 +853,21 @@ end;
 
 procedure TTestIssuerLookup.TestStaticDistrustBeatsALookedUpAnchor;
 var
+  LSource: IServerCertificateVerifierSource;
+  LChain: TArray<TBytes>;
   LDistrusting: ITrustAnchorStore;
   LAlert: TTlsAlertDescription;
 begin
+  // the inner source trusts exactly the anchors of the store it is given, so only that store can reject
+  LSource := TAnchorMembershipVerifierSource.Create as IServerCertificateVerifierSource;
+  LChain := TArray<TBytes>.Create(FLeaf, FIssuer, FRoot);
   FLookup.Offer(FRootName, TArray<TBytes>.Create(FRoot), nil);
-  CheckTrue(ServerVerdict(ServerVerifier(TBuiltInServerVerifierSource.Create
-    as IServerCertificateVerifierSource, ServerContext(FUnrelated)),
-    TArray<TBytes>.Create(FLeaf, FIssuer), LAlert), 'control: the root is not distrusted');
+  CheckTrue(ServerVerdict(ServerVerifier(LSource, ServerContext(FUnrelated)), LChain, LAlert),
+    'control: the root is not distrusted');
   LDistrusting := TTrustAnchorStore.Create(TArray<TBytes>.Create(
     TTlsLibTestCertificates.Field(EcFile, 'root2_cert')), TArray<TBytes>.Create(FRoot));
-  CheckFalse(ServerVerdict(ServerVerifier(TBuiltInServerVerifierSource.Create
-    as IServerCertificateVerifierSource, ServerContext(LDistrusting)),
-    TArray<TBytes>.Create(FLeaf, FIssuer), LAlert), 'the static distrust wins');
+  CheckFalse(ServerVerdict(ServerVerifier(LSource, ServerContext(LDistrusting)), LChain, LAlert),
+    'the static distrust wins');
 end;
 
 procedure TTestIssuerLookup.TestStaticDistrustKeepsALookedUpAnchorOutOfTheStore;
@@ -980,6 +1016,77 @@ begin
   CheckEquals(0, FLookup.TimesAsked(LRootName), 'the root name lies past the limit');
 end;
 
+procedure TTestIssuerLookup.TestAnIntermediateThePeerSentIsNotFoundAgain;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  FLookup.Offer(FIssuerName, nil, TArray<TBytes>.Create(FIssuer));
+  ServerVerdict(ServerVerifier(FCaptureRef, ServerContext(FUnrelated)),
+    TArray<TBytes>.Create(FLeaf, FIssuer), LAlert);
+  CheckEquals(0, System.Length(FCapture.Intermediates), 'the peer already holds the issuer');
+end;
+
+procedure TTestIssuerLookup.TestAConfiguredIntermediateIsNotFoundAgain;
+var
+  LContext: TServerTrustContext;
+  LAlert: TTlsAlertDescription;
+begin
+  FLookup.Offer(FIssuerName, nil, TArray<TBytes>.Create(FIssuer));
+  LContext := ServerContext(FUnrelated);
+  LContext.Intermediates := TArray<TBytes>.Create(FIssuer);
+  ServerVerdict(ServerVerifier(FCaptureRef, LContext), TArray<TBytes>.Create(FLeaf), LAlert);
+  CheckEquals(1, System.Length(FCapture.Intermediates), 'the configured issuer, once');
+end;
+
+procedure TTestIssuerLookup.TestAnAnswerWhoseNameCannotBeComparedIsIgnored;
+var
+  LInspector: ICertificateInspector;
+  LStore: ITrustAnchorStore;
+  LFound: TArray<TBytes>;
+begin
+  FLookup.Offer(FRootName, TArray<TBytes>.Create(FRoot), TArray<TBytes>.Create(FRoot));
+  LInspector := TScriptedNameInspector.Create(Pkix.Certificates, TCertAnswer.Undetermined)
+    as ICertificateInspector;
+  TIssuerResolution.Resolve(LInspector, FLookupRef, FRule, TCertificateStrengthPolicy.Defaults,
+    FUnrelated, TArray<TBytes>.Create(FIssuer), nil, LStore, LFound);
+  CheckFalse(LStore.IsAnchor(FRoot), 'a name that may differ does not select the answer');
+  CheckEquals(0, System.Length(LFound), 'nor does it add chain material');
+end;
+
+procedure TTestIssuerLookup.TestServerDecoratorSurfacesTheInnerRefusalAtCreation;
+var
+  LSource: IServerCertificateVerifierSource;
+  LRaised: Boolean;
+begin
+  LSource := TIssuerLookupServerVerifierSource.Create(TFakeHostVerifierSource.Create
+    as IServerCertificateVerifierSource, FLookupRef, FRule) as IServerCertificateVerifierSource;
+  LRaised := False;
+  try
+    LSource.CreateServerVerifier(ServerContext(FUnrelated));
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the inner source refuses when the verifier is created, not when it is used');
+end;
+
+procedure TTestIssuerLookup.TestClientDecoratorSurfacesTheInnerRefusalAtCreation;
+var
+  LSource: IClientCertificateVerifierSource;
+  LRaised: Boolean;
+begin
+  LSource := TIssuerLookupClientVerifierSource.Create(TFakeHostVerifierSource.Create
+    as IClientCertificateVerifierSource, FLookupRef, FRule) as IClientCertificateVerifierSource;
+  LRaised := False;
+  try
+    LSource.CreateClientVerifier(ClientContext(FUnrelated));
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the inner source refuses when the verifier is created, not when it is used');
+end;
+
 procedure TTestIssuerLookup.TestServerDecoratorRefusesANilLookup;
 var
   LRaised: Boolean;
@@ -1075,6 +1182,8 @@ begin
     TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.RsaPkcs1Sha256);
   LContext.StrengthPolicy.MinRsaModulusBits := 3072;
   LContext.StrengthPolicy.AnchorKeyFloors := True;
+  ServerVerdict(ServerVerifier(FCaptureRef, LContext), TArray<TBytes>.Create(LLeaf), LAlert);
+  CheckFalse(FCapture.Store.IsAnchor(LRoot), 'the resolver keeps the weak root out of the store');
   CheckFalse(ServerVerdict(ServerVerifier(TBuiltInServerVerifierSource.Create
     as IServerCertificateVerifierSource, LContext), TArray<TBytes>.Create(LLeaf), LAlert),
     'the root is below the anchor floor');
@@ -1178,6 +1287,82 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   RunHandshake(LClient, LServer);
   Result := not (LClient.IsHandshaking or LClient.IsTerminal);
+end;
+
+function TTestIssuerLookupConfig.ServerHandshakeAnchoredAtTheIssuer(ARule: TBundleAnchorRule)
+  : Boolean;
+var
+  LIssuer: TBytes;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClient, LServer: ITlsEngine;
+begin
+  LIssuer := TTlsLibTestCertificates.Field(RenewalFile, 'issuer_cert');
+  FLookup.Offer(Pkix.Certificates.Parse(LIssuer).SubjectName, TArray<TBytes>.Create(LIssuer), nil);
+  LClientConfig := ClientBuilder.WithServerVerification(TServerVerification.WebPki(
+    TTlsLibTestCertificates.Field(AuthFile, 'root_cert')).Build)
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+    TTlsLibTestCertificates.Field(RenewalFile, 'leaf_cert'),
+    TTlsLibTestCertificates.Field(RenewalFile, 'leaf_key'))).Build;
+  LServerConfig := ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
+    .WithIssuerLookup(FLookupRef, ARule).Build;
+  LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+  RunHandshake(LClient, LServer);
+  Result := not (LServer.IsHandshaking or LServer.IsTerminal);
+end;
+
+procedure TTestIssuerLookupConfig.TestServerFactoryPassesAnyCertificateToTheDecorator;
+begin
+  CheckTrue(ServerHandshakeAnchoredAtTheIssuer(TBundleAnchorRule.AnyCertificate),
+    'the intermediate is an anchor of the client chain under AnyCertificate');
+end;
+
+procedure TTestIssuerLookupConfig.TestServerFactoryPassesSelfSignedOnlyToTheDecorator;
+begin
+  CheckFalse(ServerHandshakeAnchoredAtTheIssuer(TBundleAnchorRule.SelfSignedOnly),
+    'the intermediate is chain material under SelfSignedOnly');
+end;
+
+procedure TTestIssuerLookupConfig.TestHardPostureRefusesTheDefaultReverifyAndNamesTheWayOut;
+var
+  LMessage: string;
+begin
+  LMessage := '';
+  try
+    ResumingClient.WithOcspStaplingRequest(True).WithServerVerification(
+      TServerVerification.WebPki(FUnrelated).WithRevocation(TRevocationPosture.Hard).Build)
+      .WithIssuerLookup(FLookupRef).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('issuer lookup', LMessage) > 0, 'the refusal names the lookup: ' + LMessage);
+  CheckTrue(Pos('WithResumeVerification(ReuseOriginal)', LMessage) > 0,
+    'and the way out: ' + LMessage);
+  CheckNotNull(ResumingClient.WithOcspStaplingRequest(True).WithServerVerification(
+    TServerVerification.WebPki(FUnrelated).WithRevocation(TRevocationPosture.Hard).Build)
+    .Build, 'control: the same client builds without the lookup');
+end;
+
+procedure TTestIssuerLookupConfig.TestEarlyDataBesideAnAsyncVerdictRefusesTheDefaultReverifyAndNamesTheWayOut;
+var
+  LMessage: string;
+begin
+  LMessage := '';
+  try
+    ResumingClient.WithAsyncCertificateVerdict(0).WithIssuerLookup(FLookupRef)
+      .Tls13.WithEarlyData(True).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('issuer lookup', LMessage) > 0, 'the refusal names the lookup: ' + LMessage);
+  CheckTrue(Pos('WithResumeVerification(ReuseOriginal)', LMessage) > 0,
+    'and the way out: ' + LMessage);
+  CheckNotNull(ResumingClient.WithAsyncCertificateVerdict(0)
+    .WithServerVerification(TServerVerification.WebPki(FUnrelated).Build)
+    .Tls13.WithEarlyData(True).Build, 'control: the same client builds without the lookup');
 end;
 
 procedure TTestIssuerLookupConfig.TestClientConfigCarriesTheLookupAndTheDefaultRule;

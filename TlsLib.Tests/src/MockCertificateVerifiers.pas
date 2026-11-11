@@ -119,6 +119,15 @@ type
     property Created: Int32 read FCreated;
   end;
 
+  /// <summary>A verifier source whose verifiers accept a chain exactly when its last certificate is
+  /// an anchor of the trust store the context carries, so only that store can reject.</summary>
+  TAnchorMembershipVerifierSource = class sealed(TInterfacedObject,
+    IServerCertificateVerifierSource)
+  public
+    function CreateServerVerifier(const AContext: TServerTrustContext)
+      : IServerCertificateVerifier;
+  end;
+
   /// <summary>An issuer lookup that answers from a script and records every name it is asked. A
   /// name is answered only when it equals a scripted name byte for byte.</summary>
   TRecordingIssuerLookup = class sealed(TInterfacedObject, IIssuerLookup)
@@ -148,6 +157,17 @@ implementation
 
 resourcestring
   SFakeVerifierAsked = 'the fake system verifier source builds no verifier';
+
+type
+  TAnchorMembershipVerifier = class sealed(TInterfacedObject, IServerCertificateVerifier)
+  strict private
+    FStore: ITrustAnchorStore;
+  public
+    constructor Create(const AStore: ITrustAnchorStore);
+    function VerifyServerCertificate(const AChain: TArray<TBytes>;
+      const AServerName: TServerName; const AOcspStaple: TBytes;
+      out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
+  end;
 
 { TFixedVerdictVerifier }
 
@@ -268,6 +288,32 @@ begin
   FStore := AContext.TrustStore;
   FIntermediates := AContext.Intermediates;
   Result := TFixedVerdictVerifier.CreateAccepting(False) as IClientCertificateVerifier;
+end;
+
+{ TAnchorMembershipVerifier }
+
+constructor TAnchorMembershipVerifier.Create(const AStore: ITrustAnchorStore);
+begin
+  inherited Create;
+  FStore := AStore;
+end;
+
+function TAnchorMembershipVerifier.VerifyServerCertificate(const AChain: TArray<TBytes>;
+  const AServerName: TServerName; const AOcspStaple: TBytes; out AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
+begin
+  AVerified := Default(TVerifiedChain);
+  AAlert := TTlsAlertDescription.UnknownCa;
+  Result := (FStore <> nil) and (System.Length(AChain) > 0) and
+    FStore.IsAnchor(AChain[System.High(AChain)]);
+end;
+
+{ TAnchorMembershipVerifierSource }
+
+function TAnchorMembershipVerifierSource.CreateServerVerifier(const AContext: TServerTrustContext)
+  : IServerCertificateVerifier;
+begin
+  Result := TAnchorMembershipVerifier.Create(AContext.TrustStore) as IServerCertificateVerifier;
 end;
 
 { TRecordingIssuerLookup }

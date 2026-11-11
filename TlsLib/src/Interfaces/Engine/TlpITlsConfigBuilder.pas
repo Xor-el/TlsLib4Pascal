@@ -71,7 +71,7 @@ type
   /// source (no silent-insecure).
   /// </summary>
   ITlsClientConfigBuilder = interface(IInterface)
-    ['{3E8B5D21-97C4-4A06-B1F3-C25D9E6A7048}']
+    ['{A736DB31-5205-4FDB-A840-E5FA79042C45}']
     /// <summary>The cipher-suite registry offered. A configured TLS 1.2 PSK adds its ECDHE_PSK
     /// suites to it. Build refuses a record that differs from the catalog entry for its code or
     /// names a hash TLS cannot run on, from any registry.</summary>
@@ -145,8 +145,9 @@ type
     /// verification, beside the roots of the verification policy (or alone, as the trust source).
     /// Only a self-signed certificate the lookup offers as an anchor is trusted as one. Build
     /// refuses it with a Custom or DangerousSkip policy, and, unless WithResumeVerification set a
-    /// mode, makes a resuming client re-verify the stored chain through the lookup. nil is
-    /// refused.</summary>
+    /// mode, makes a resuming client re-verify the stored chain through the lookup (which Hard
+    /// revocation without a live verdict, or early data beside an asynchronous verdict, cannot do:
+    /// Build refuses both). nil is refused.</summary>
     function WithIssuerLookup(const ALookup: IIssuerLookup): ITlsClientConfigBuilder; overload;
     /// <summary>As above, with ARule choosing which certificates the lookup offers as anchors are
     /// trusted as anchors.</summary>
@@ -308,7 +309,7 @@ type
   /// certificate credential.
   /// </summary>
   ITlsServerConfigBuilder = interface(IInterface)
-    ['{8A14C7E3-5F09-4D62-A3B8-1E7D40C96F25}']
+    ['{6FCE1663-42F5-48B8-AC98-1C12A15C5C94}']
     /// <summary>The cipher-suite registry offered. A configured TLS 1.2 PSK adds its ECDHE_PSK
     /// suites to it. Build refuses a record that differs from the catalog entry for its code or
     /// names a hash TLS cannot run on, from any registry.</summary>

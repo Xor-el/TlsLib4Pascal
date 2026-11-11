@@ -49,7 +49,7 @@ type
   /// built once, frozen, and reused.
   /// </summary>
   ITlsCommonConfig = interface(IInterface)
-    ['{6D3E1F6A-0B52-4C8E-9A47-5E2C81B7D934}']
+    ['{16E8D797-4195-4FF6-A90C-7DF5C78D3F82}']
     function Crypto: ICryptoProvider;
     /// <summary>The PKIX provider: X.509 inspection, path validation, revocation.</summary>
     function Pkix: IPkixProvider;
@@ -154,7 +154,7 @@ type
 
   /// <summary>A frozen client endpoint config: a trust source is mandatory.</summary>
   ITlsClientConfig = interface(ITlsCommonConfig)
-    ['{2E9C6A14-5D73-4F80-B1A8-6C3E0D5B94F7}']
+    ['{509D9322-C784-431E-BDF4-2F1979C75929}']
     /// <summary>Whether a client sprinkles GREASE values (RFC 8701) across its offers to keep
     /// peers tolerant of unknown values. Optional per the RFC; default True.</summary>
     function Grease: Boolean;
@@ -202,7 +202,7 @@ type
 
   /// <summary>A frozen server endpoint config: it authenticates with a certificate credential or an external PSK.</summary>
   ITlsServerConfig = interface(ITlsCommonConfig)
-    ['{9A4E1C28-6D50-4B63-8F17-2E6C0A5F84D3}']
+    ['{23DFAF5D-32F7-4D36-9BBC-14FCB6635CD7}']
     /// <summary>Whether a server that received a server_name (SNI) echoes the empty
     /// server_name acknowledgement (RFC 6066 3); default True.</summary>
     function ServerNameAcknowledgement: Boolean;

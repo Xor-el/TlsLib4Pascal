@@ -51,9 +51,9 @@ type
     /// <summary>A store of ABase's anchors and distrust plus AExtra, without copying or indexing the
     /// base: a consumer that caches per store identity keeps serving the base from that cache. An
     /// extra the base distrusts or already trusts is dropped, so distrust still wins. When nothing
-    /// is left to add, ABase itself is returned; a nil base gives a plain store of AExtra. A layered
-    /// base is flattened, so a store is never more than one layer deep. The layer keeps the base
-    /// alive.</summary>
+    /// is left to add, ABase itself is returned. A nil base counts as a store with no roots, so
+    /// the extras sit on an empty base. A layered base is flattened, so a store is never more than
+    /// one layer deep. The layer keeps the base alive.</summary>
     class function Layered(const ABase: ITrustAnchorStore;
       const AExtra: TArray<TBytes>): ITrustAnchorStore; static;
     function AnchorCount: Int32;
@@ -165,29 +165,30 @@ class function TTrustAnchorStore.Layered(const ABase: ITrustAnchorStore;
   const AExtra: TArray<TBytes>): ITrustAnchorStore;
 var
   LParts: ILayeredTrustAnchorStore;
-  LBase: ITrustAnchorStore;
+  LHeld, LBase: ITrustAnchorStore;
   LExtras: TArray<TBytes>;
   LAdded: Boolean;
   LI: Int32;
 begin
-  if ABase = nil then
-    Exit(TTrustAnchorStore.Create(AExtra) as ITrustAnchorStore);
-  LBase := ABase;
+  LHeld := ABase;
+  if LHeld = nil then
+    LHeld := TTrustAnchorStore.Create(nil) as ITrustAnchorStore;
+  LBase := LHeld;
   LExtras := nil;
-  if Supports(ABase, ILayeredTrustAnchorStore, LParts) then
+  if Supports(LHeld, ILayeredTrustAnchorStore, LParts) then
   begin
     LBase := LParts.BaseStore;
     LExtras := LParts.ExtraRoots;
   end;
   LAdded := False;
   for LI := 0 to System.High(AExtra) do
-    if not (ABase.IsAnchor(AExtra[LI]) or ABase.IsDistrusted(AExtra[LI])) then
+    if not (LHeld.IsAnchor(AExtra[LI]) or LHeld.IsDistrusted(AExtra[LI])) then
     begin
       TArrayUtilities.Append<TBytes>(LExtras, AExtra[LI]);
       LAdded := True;
     end;
   if not LAdded then
-    Exit(ABase);
+    Exit(LHeld);
   Result := TLayeredTrustAnchorStore.Create(LBase,
     TTrustAnchorStore.Create(LExtras) as ITrustAnchorStore);
 end;

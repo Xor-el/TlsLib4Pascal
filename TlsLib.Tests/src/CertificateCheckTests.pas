@@ -70,6 +70,8 @@ type
     procedure TestInstantInsideTheWindowIsValid;
     procedure TestInstantAfterTheEndIsNotValid;
     procedure TestInstantBeforeTheStartIsNotValid;
+    procedure TestInstantAtTheStartIsValid;
+    procedure TestInstantAtTheEndIsValid;
     // keyUsage (CertificateKeyUsagePermits)
     procedure TestDigitalSignatureCertPermitsSigning;
     procedure TestKeyEnciphermentCertForbidsSigning;
@@ -254,6 +256,24 @@ begin
     Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1577836799000))),
     'a certificate is not valid before its start');
+end;
+
+procedure TTestCertificateChecks.TestInstantAtTheStartIsValid;
+begin
+  // exactly 2020-01-01T00:00:00Z, the first instant of the window
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1577836800000))),
+    'the window includes its first instant');
+end;
+
+procedure TTestCertificateChecks.TestInstantAtTheEndIsValid;
+begin
+  // exactly 2030-01-01T00:00:00Z, the last instant of the window
+  CheckEquals(Ord(TCertAnswer.Yes),
+    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1893456000000))),
+    'the window includes its last instant');
 end;
 
 function TTestCertificateChecks.Permits(const ACertName: string;

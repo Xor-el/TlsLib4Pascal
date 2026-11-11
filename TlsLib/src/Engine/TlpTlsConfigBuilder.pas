@@ -406,6 +406,14 @@ resourcestring
   SReverifyHardNeedsLiveVerdict = 'WithResumeVerification(Reverify) under a Hard revocation ' +
     'posture needs WithLiveRevocationVerdict: a resume carries no staple, so the client could ' +
     'never resume; add the verdict or keep ReuseOriginal';
+  SLookupReverifyHardNeedsLiveVerdict = 'an issuer lookup makes a resuming client re-verify the ' +
+    'server, and a resume carries no staple, so a Hard revocation posture needs ' +
+    'WithLiveRevocationVerdict; add it, choose WithResumeVerification(ReuseOriginal), or drop the ' +
+    'lookup';
+  SLookupReverifyEarlyDataAsyncVerdict = 'an issuer lookup makes a resuming client re-verify the ' +
+    'server, and an asynchronous certificate verdict arrives after the server flight, so no early ' +
+    'data could precede it; drop the early data or the verdict, choose ' +
+    'WithResumeVerification(ReuseOriginal), or drop the lookup';
   SEarlyDataReverifyAsyncVerdict = 'WithEarlyData(True) cannot be combined with ' +
     'WithResumeVerification(Reverify) and an asynchronous certificate verdict: the verdict ' +
     'arrives after the server flight, so no early data could precede it; drop the early data ' +
@@ -3234,11 +3242,17 @@ begin
   // early-data budget here)
   if FClientEarlyData and ((not FResumption) or (FSessionCache = nil)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SEarlyDataNeedsResumption);
-  // what a lookup trusts can change between connections, so a resuming client re-verifies unless
-  // the caller chose a mode
+  // what a lookup trusts changes between connections, so a resuming client re-verifies by default
   if (FIssuerLookup <> nil) and (not FResumeVerificationSet) and FResumption and
     (FSessionCache <> nil) then
+  begin
+    if TRevocationDecision.HardNeedsLiveRevocation(FRevocationPosture,
+      FAsyncVerdict.Deferral = TVerdictDeferral.LiveRevocation) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SLookupReverifyHardNeedsLiveVerdict);
+    if FClientEarlyData and (FAsyncVerdict.Deferral <> TVerdictDeferral.None) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SLookupReverifyEarlyDataAsyncVerdict);
     FResumeVerification := TResumeVerification.Reverify;
+  end;
   // re-verifying a resumed peer is inert unless this config can actually resume (resumption on and
   // a cache to resume from)
   if (FResumeVerification = TResumeVerification.Reverify) and

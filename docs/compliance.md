@@ -218,7 +218,9 @@ floors, so call the overloads last.
 For live revocation use the overload with `Posture` and `DeadlineMs`, then assign the OS resolver
 from `TOSSystemTrust.LiveRevocationResolver(ServerConfig, nil)` to the verdict seam (see
 [system-trust.md](system-trust.md)). A live-revocation resolver is host-owned and cannot be
-inspected, so the report discloses it.
+inspected, so the report discloses it. An issuer lookup (`WithIssuerLookup`) is host-supplied in the
+same way: the certificates it returns go through the same chain verification, but what it answers
+with is not inspected, so the report discloses it.
 
 ### Checking credentials chosen at run time
 

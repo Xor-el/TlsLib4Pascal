@@ -118,6 +118,8 @@ end;
 function TIssuerLookupServerVerifierSource.CreateServerVerifier(
   const AContext: TServerTrustContext): IServerCertificateVerifier;
 begin
+  // the inner source's refusals of this context surface at engine creation, not mid-handshake
+  FInner.CreateServerVerifier(AContext);
   Result := TIssuerLookupServerVerifier.Create(FInner, FLookup, FRule, AContext)
     as IServerCertificateVerifier;
 end;
@@ -141,6 +143,7 @@ end;
 function TIssuerLookupClientVerifierSource.CreateClientVerifier(
   const AContext: TClientTrustContext): IClientCertificateVerifier;
 begin
+  FInner.CreateClientVerifier(AContext);
   Result := TIssuerLookupClientVerifier.Create(FInner, FLookup, FRule, AContext)
     as IClientCertificateVerifier;
 end;

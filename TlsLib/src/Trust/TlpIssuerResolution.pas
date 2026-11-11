@@ -46,6 +46,8 @@ type
       Inspector: ICertificateInspector;
       Policy: TCertificateStrengthPolicy;
       Rule: TBundleAnchorRule;
+      // the presented chain and the configured intermediates, which the verifier already holds
+      Held: TArray<TBytes>;
       Asked: TArray<TBytes>;
       Pending: TArray<TBytes>;
       Anchors: TArray<TBytes>;
@@ -53,9 +55,8 @@ type
     end;
   strict private
     class function Holds(const AItems: TArray<TBytes>; const AItem: TBytes): Boolean; static;
-    /// <summary>Queues AName to be asked unless it has been queued already.</summary>
-    class procedure Queue(var AWalk: TWalk; const AName: TBytes); static;
-    /// <summary>Queues the issuer name of ACertDer; a certificate that does not parse names none.</summary>
+    /// <summary>Queues the issuer name of ACertDer unless it has been queued already; a certificate
+    /// that does not parse names none.</summary>
     class procedure QueueIssuerOf(var AWalk: TWalk; const ACertDer: TBytes); static;
     /// <summary>Takes the certificates of ABlobs that carry AName as their subject: an anchor when
     /// AClaimsAnchor, the rule admits it and its key is above the floors, chain material
@@ -65,7 +66,8 @@ type
   public
     /// <summary>AStore is ABase with the anchors found for the issuers of AChain and
     /// AIntermediates layered over it (ABase itself when none was found); AFound the intermediates
-    /// found. A lookup that raises or returns unreadable data contributes nothing.</summary>
+    /// found, leaving out any that AChain or AIntermediates already hold. A lookup that raises or
+    /// returns unreadable data contributes nothing.</summary>
     class procedure Resolve(const AInspector: ICertificateInspector; const ALookup: IIssuerLookup;
       ARule: TBundleAnchorRule; const APolicy: TCertificateStrengthPolicy;
       const ABase: ITrustAnchorStore; const AChain, AIntermediates: TArray<TBytes>;
@@ -88,14 +90,6 @@ begin
   Result := False;
 end;
 
-class procedure TIssuerResolution.Queue(var AWalk: TWalk; const AName: TBytes);
-begin
-  if Holds(AWalk.Asked, AName) then
-    Exit;
-  TArrayUtilities.Append<TBytes>(AWalk.Asked, AName);
-  TArrayUtilities.Append<TBytes>(AWalk.Pending, AName);
-end;
-
 class procedure TIssuerResolution.QueueIssuerOf(var AWalk: TWalk; const ACertDer: TBytes);
 var
   LIssuer: TBytes;
@@ -106,7 +100,10 @@ begin
     on Exception do
       Exit;
   end;
-  Queue(AWalk, LIssuer);
+  if Holds(AWalk.Asked, LIssuer) then
+    Exit;
+  TArrayUtilities.Append<TBytes>(AWalk.Asked, LIssuer);
+  TArrayUtilities.Append<TBytes>(AWalk.Pending, LIssuer);
 end;
 
 class procedure TIssuerResolution.Admit(var AWalk: TWalk; const ABlobs: TArray<TBytes>;
@@ -145,7 +142,7 @@ begin
           TArray<TBytes>.Create(LCerts[LC]), AWalk.Policy, LAlert) then
           TArrayUtilities.Append<TBytes>(AWalk.Anchors, LCerts[LC]);
       end
-      else if not Holds(AWalk.Found, LCerts[LC]) then
+      else if not (Holds(AWalk.Found, LCerts[LC]) or Holds(AWalk.Held, LCerts[LC])) then
       begin
         TArrayUtilities.Append<TBytes>(AWalk.Found, LCerts[LC]);
         QueueIssuerOf(AWalk, LCerts[LC]);
@@ -169,6 +166,7 @@ begin
   LWalk.Inspector := AInspector;
   LWalk.Policy := APolicy;
   LWalk.Rule := ARule;
+  LWalk.Held := TArrayUtilities.Concat<TBytes>(AChain, AIntermediates);
   for LI := 0 to System.High(AChain) do
     QueueIssuerOf(LWalk, AChain[LI]);
   for LI := 0 to System.High(AIntermediates) do

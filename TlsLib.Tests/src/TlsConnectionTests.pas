@@ -31,6 +31,7 @@ uses
   TlpTlsAlert,
   TlpAlpnProtocols,
   TlpTlsVersion,
+  TlpPkixDomainTypes,
   TlpIPkixProvider,
   TlpDefaultCryptoProvider,
   TlpDefaultPkixProvider,
@@ -57,6 +58,7 @@ uses
   TlpClock,
   MockClock,
   MockCertificateVerifiers,
+  MockPkixProvider,
   TlpTlsLibExceptions,
   TlpTlsConnection,
   TlpTlsEngineFactory,
@@ -260,6 +262,7 @@ type
     procedure TestClientSignatureRefusesAnEmptyLookupIdentity;
     procedure TestServerSignatureRefusesAnEmptyLookupIdentityUnderClientAuth;
     procedure TestClientSignatureTracksTheBundleRule;
+    procedure TestClientSignatureIgnoresTheLookupAndTheRuleWhenVerificationIsSkipped;
     procedure TestServerSignatureTracksTheBundleRule;
     // the bundle rule
     procedure TestSelfSignedOnlyKeepsABundleIntermediateOutOfTheAnchorStore;
@@ -270,11 +273,13 @@ type
     procedure TestAnyCertificateAnchorsABundleIntermediate;
     procedure TestAnyCertificateBundleIntermediateVerifiesALeafUnderIt;
     procedure TestSelfSignedOnlyBundleOfOnlyAnIntermediateLeavesNoTrustSource;
+    procedure TestSelfSignedOnlyClientCaOfOnlyAnIntermediateLeavesNoClientTrustSource;
     procedure TestSelfSignedOnlyKeepsTheClientCaIntermediateOutOfTheServerAnchorStore;
     procedure TestSelfSignedOnlyMakesTheClientCaIntermediateServerChainMaterial;
     procedure TestSelfSignedOnlyPassesTheBundleIntermediateBesideSystemTrust;
     procedure TestACustomStoreIsAnchoredWhateverTheRule;
     procedure TestAPemBundleIsSplitCertificateByCertificate;
+    procedure TestAnInspectorFailureOnABundleCertificateNamesTheSource;
   end;
 
 implementation
@@ -2831,6 +2836,8 @@ begin
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
   Result.BundleAnchors := ARule;
+  Result.TrustSourceHint := 'TestBundle';
+  Result.ClientAuthSourceHint := 'TestClientBundle';
   Result.TrustAnchors := nil;
   for LI := 0 to System.High(ACerts) do
     TArrayUtilities.Append<TTlsBlobSource>(Result.TrustAnchors,
@@ -3137,6 +3144,20 @@ begin
     'the rule decides which certificates anchor, so it keys the config');
 end;
 
+procedure TTestComposerIssuerLookup.TestClientSignatureIgnoresTheLookupAndTheRuleWhenVerificationIsSkipped;
+var
+  LSkipped, LMut: TTlsOptions;
+begin
+  LSkipped := ClientOptions;
+  LSkipped.IssuerLookup := nil;
+  LSkipped.InsecureSkipVerify := True;
+  LMut := LSkipped;
+  LMut.IssuerLookup := TRecordingIssuerLookup.Create('lookup-a') as IIssuerLookup;
+  LMut.BundleAnchors := TBundleAnchorRule.AnyCertificate;
+  CheckEquals(TTlsConfigComposer.ClientSignature(LSkipped), TTlsConfigComposer.ClientSignature(LMut),
+    'a client that skips verification reads neither, so they do not key its config');
+end;
+
 procedure TTestComposerIssuerLookup.TestServerSignatureTracksTheBundleRule;
 var
   LBase, LMut: TTlsOptions;
@@ -3206,17 +3227,38 @@ end;
 
 procedure TTestComposerIssuerLookup.TestSelfSignedOnlyBundleOfOnlyAnIntermediateLeavesNoTrustSource;
 var
-  LRaised: Boolean;
+  LMessage: string;
 begin
-  LRaised := False;
+  LMessage := '';
   try
     TTlsConfigComposer.BuildClientConfig(BundleOptions(TArray<TBytes>.Create(FIssuer),
       TBundleAnchorRule.SelfSignedOnly));
   except
-    on EInvalidOperationTlsLibException do
-      LRaised := True;
+    on E: ETlsStreamError do
+      LMessage := E.Message;
   end;
-  CheckTrue(LRaised, 'a bundle with no anchor trusts nothing');
+  CheckTrue(Pos('hold no self-signed root', LMessage) > 0,
+    'a bundle with no root says so: ' + LMessage);
+  CheckTrue(Pos('TestBundle', LMessage) > 0, 'it names the source: ' + LMessage);
+  CheckTrue(Pos('BundleAnchors to AnyCertificate', LMessage) > 0,
+    'and the way to trust the certificates as anchors: ' + LMessage);
+end;
+
+procedure TTestComposerIssuerLookup.TestSelfSignedOnlyClientCaOfOnlyAnIntermediateLeavesNoClientTrustSource;
+var
+  LMessage: string;
+begin
+  LMessage := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(BundleServerOptions(TArray<TBytes>.Create(FIssuer),
+      TBundleAnchorRule.SelfSignedOnly));
+  except
+    on E: ETlsStreamError do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('hold no self-signed root', LMessage) > 0,
+    'a client-CA bundle with no root says so: ' + LMessage);
+  CheckTrue(Pos('TestClientBundle', LMessage) > 0, 'it names the client-CA source: ' + LMessage);
 end;
 
 procedure TTestComposerIssuerLookup.TestSelfSignedOnlyKeepsTheClientCaIntermediateOutOfTheServerAnchorStore;
@@ -3265,6 +3307,7 @@ procedure TTestComposerIssuerLookup.TestAPemBundleIsSplitCertificateByCertificat
 var
   LBlocks: TArray<TPemBlock>;
   LOpts: TTlsOptions;
+  LConfig: ITlsClientConfig;
 begin
   SetLength(LBlocks, 2);
   LBlocks[0].PemType := 'CERTIFICATE';
@@ -3274,8 +3317,35 @@ begin
   LOpts := BundleOptions(nil, TBundleAnchorRule.SelfSignedOnly);
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(TPem.WriteBlocks(LBlocks)));
-  CheckTrue(Holds(TTlsConfigComposer.BuildClientConfig(LOpts).IntermediateCertificates, FIssuer),
-    'one file holding a root and an intermediate is classified per certificate');
+  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
+  CheckTrue(Holds(LConfig.IntermediateCertificates, FIssuer),
+    'the intermediate of one file holding both completes chains');
+  CheckTrue(LConfig.TrustStore.IsAnchor(FOtherRoot), 'the root of that file stays an anchor');
+  CheckFalse(LConfig.TrustStore.IsAnchor(FIssuer), 'and the intermediate of that file is not one');
+end;
+
+procedure TTestComposerIssuerLookup.TestAnInspectorFailureOnABundleCertificateNamesTheSource;
+var
+  LInspector: TScriptedNameInspector;
+  LInspectorRef: ICertificateInspector;
+  LOpts: TTlsOptions;
+  LMessage: string;
+begin
+  LInspector := TScriptedNameInspector.Create(Pkix.Certificates, TCertAnswer.Yes);
+  LInspectorRef := LInspector;
+  LInspector.ParseRaises := True;
+  LOpts := BundleOptions(TArray<TBytes>.Create(FIssuer), TBundleAnchorRule.SelfSignedOnly);
+  LOpts.Pkix := (TPkixProviderBuilder.Create as IPkixProviderBuilder)
+    .WithInspector(LInspectorRef).Build;
+  LMessage := '';
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('trust anchor 0', LMessage) > 0, 'the failing source is numbered: ' + LMessage);
+  CheckTrue(Pos('the inspector failed', LMessage) > 0, 'with the cause: ' + LMessage);
 end;
 
 initialization

@@ -184,6 +184,9 @@ type
     // one-certificate chain of ALeaf, with the alert when it refuses
     function Verdict(const AFile, AAnchor, ALeaf: string; AUnixMillis: UInt64;
       out AAlert: TTlsAlertDescription): Boolean;
+    // as Verdict, trusting the named anchors of the renewal fixture, in order, at 2025-01-01
+    function RenewalVerdict(const AAnchors: array of string;
+      out AAlert: TTlsAlertDescription): Boolean;
   published
     procedure TestExpiredIntermediateAnchorIsCertificateExpired;
     procedure TestIntermediateAnchorIsAcceptedUpToItsLastSecond;
@@ -191,6 +194,8 @@ type
     procedure TestNotYetValidIntermediateAnchorIsCertificateExpired;
     procedure TestIntermediateAnchorIsAcceptedFromItsFirstSecond;
     procedure TestExpiredSelfSignedRootStaysTrusted;
+    procedure TestExpiredCopyOfAnAnchorDoesNotShadowTheValidCopy;
+    procedure TestOnlyTheExpiredCopyOfAnAnchorIsCertificateExpired;
   end;
 
 {$IFDEF TLSLIB_ANDROID}
@@ -352,6 +357,8 @@ type
     procedure TestLayeredStoreVerifiesLikeAUnion;
     procedure TestLayeredBaseIsCopiedOnceAcrossRotatingExtras;
     procedure TestUnparsableExtraFailsTheVerification;
+    procedure TestParsedExtrasAreNeverSubstitutedForAnotherCertificate;
+    procedure TestLookupOnlyStoresDoNotEvictALargeBase;
     procedure TestConcurrentLayeredVerifiesMatchSingleThreaded;
     // path building is bounded against a peer-controlled flood of same-named certificates, and a
     // nil parse result gets the right alert
@@ -386,9 +393,11 @@ type
       const ABase: ITrustAnchorStore; const AChain: TArray<TBytes>; const ARoot: TBytes;
       const APool: TArray<TBytes>; const AExpected: TArray<Boolean>; AFirst, AOps: Int32);
     procedure Execute; override;
+    /// <summary>Whether AChain validates against ABase and the extras; ALayered gives the extras as
+    /// a layered store (the parsed-extras cache), otherwise the same roots as one plain store.</summary>
     class function Verifies(const AValidator: ICertificatePathValidator;
       const ABase: ITrustAnchorStore; const AChain: TArray<TBytes>; const ARoot, AExtra: TBytes;
-      AWithRoot: Boolean): Boolean; static;
+      AWithRoot, ALayered: Boolean): Boolean; static;
   end;
 
 { TTestVerifyCallbackVerifier }
@@ -878,18 +887,32 @@ end;
 
 class function TLayeredVerifyWorker.Verifies(const AValidator: ICertificatePathValidator;
   const ABase: ITrustAnchorStore; const AChain: TArray<TBytes>; const ARoot, AExtra: TBytes;
-  AWithRoot: Boolean): Boolean;
+  AWithRoot, ALayered: Boolean): Boolean;
 var
-  LExtras, LEffective: TArray<TBytes>;
+  LExtras, LEffective, LUnion: TArray<TBytes>;
+  LStore: ITrustAnchorStore;
+  LI: Int32;
 begin
   if AWithRoot then
     LExtras := TArray<TBytes>.Create(ARoot, AExtra)
   else
     LExtras := TArray<TBytes>.Create(AExtra);
+  if ALayered then
+    LStore := TTrustAnchorStore.Layered(ABase, LExtras)
+  else
+  begin
+    LUnion := ABase.RootCertificates;
+    for LI := 0 to System.High(LExtras) do
+    begin
+      SetLength(LUnion, System.Length(LUnion) + 1);
+      LUnion[System.High(LUnion)] := LExtras[LI];
+    end;
+    LStore := TTrustAnchorStore.Create(LUnion);
+  end;
   LEffective := nil;
   try
-    AValidator.ValidateCertificatePath(AChain, TTrustAnchorStore.Layered(ABase, LExtras), nil,
-      Now, TCertKeyPurpose.ServerAuth, LEffective);
+    AValidator.ValidateCertificatePath(AChain, LStore, nil, Now, TCertKeyPurpose.ServerAuth,
+      LEffective);
     Result := True;
   except
     on EFatalAlertTlsLibException do
@@ -906,7 +929,8 @@ begin
     for LI := 0 to FOps - 1 do
     begin
       LK := (FFirst + LI * 5) mod System.Length(FPool);
-      if Verifies(FValidator, FBase, FChain, FRoot, FPool[LK], LK mod 3 <> 0) <> FExpected[LK] then
+      if Verifies(FValidator, FBase, FChain, FRoot, FPool[LK], LK mod 3 <> 0, True) <>
+        FExpected[LK] then
       begin
         Failure := 'verdict differs for extra ' + IntToStr(LK);
         Exit;
@@ -2138,7 +2162,8 @@ var
   LWorkers: array [0 .. 3] of TLayeredVerifyWorker;
   LI: Int32;
 begin
-  // a smoke test: a missing lock may or may not show as a wrong verdict or an exception on a run
+  // a smoke test: a missing lock may or may not show as a wrong verdict or an exception on a run.
+  // The expected verdicts come from plain stores, which never touch the parsed-extras cache.
   LBase := TTrustAnchorStore.Create(LargeBaseRoots);
   LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'));
   LPool := DistinctCertificates;
@@ -2146,7 +2171,7 @@ begin
   SetLength(LExpected, System.Length(LPool));
   for LI := 0 to High(LPool) do
     LExpected[LI] := TLayeredVerifyWorker.Verifies(Pkix.PathValidation, LBase, LChain,
-      Reissued('root_cert'), LPool[LI], LI mod 3 <> 0);
+      Reissued('root_cert'), LPool[LI], LI mod 3 <> 0, False);
   for LI := 0 to High(LWorkers) do
     LWorkers[LI] := TLayeredVerifyWorker.Create(Pkix.PathValidation, LBase, LChain,
       Reissued('root_cert'), LPool, LExpected, LI * 7, 400);
@@ -2173,6 +2198,47 @@ begin
   CheckFalse(CountedVerifies(TTrustAnchorStore.Layered(LBase,
     TArray<TBytes>.Create(Reissued('root_cert'), TBytes.Create(1, 2, 3))), 1),
     'a store with an unparsable anchor is refused, as a static store is');
+end;
+
+procedure TTestCertificateVerifier.TestParsedExtrasAreNeverSubstitutedForAnotherCertificate;
+var
+  LBase: ITrustAnchorStore;
+  LChain: TArray<TBytes>;
+  LRoot, LLookalike: TBytes;
+begin
+  // the lookalike has the root's subject and length but another key, so only the root anchors the
+  // chain; whichever of the two the extras cache saw first, each is judged as itself
+  LBase := TTrustAnchorStore.Create(LargeBaseRoots);
+  LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'));
+  LRoot := Reissued('root_cert');
+  LLookalike := Reissued('root_lookalike_cert');
+  CheckEquals(System.Length(LRoot), System.Length(LLookalike), 'the two certificates are the same size');
+  CheckTrue(TLayeredVerifyWorker.Verifies(Pkix.PathValidation, LBase, LChain, LRoot, LRoot, False,
+    True), 'the root anchors the chain');
+  CheckFalse(TLayeredVerifyWorker.Verifies(Pkix.PathValidation, LBase, LChain, LRoot, LLookalike,
+    False, True), 'the lookalike is not the root after it');
+  CheckTrue(TLayeredVerifyWorker.Verifies(Pkix.PathValidation, LBase, LChain, LRoot, LRoot, False,
+    True), 'the root is still the root after the lookalike');
+end;
+
+procedure TTestCertificateVerifier.TestLookupOnlyStoresDoNotEvictALargeBase;
+var
+  LBase: TCountingTrustAnchorStore;
+  LBaseRef: ITrustAnchorStore;
+  LI: Int32;
+begin
+  LBase := TCountingTrustAnchorStore.Create(TTrustAnchorStore.Create(LargeBaseRoots)
+    as ITrustAnchorStore);
+  LBaseRef := LBase;
+  CheckTrue(CountedVerifies(TTrustAnchorStore.Layered(LBaseRef, RotatingExtras(0)), 1),
+    'the large base verifies');
+  // more distinct root sets than the anchor cache has slots, none of them over any base
+  for LI := 1 to 12 do
+    CheckTrue(CountedVerifies(TTrustAnchorStore.Layered(nil, RotatingExtras(LI)), 1),
+      'lookup-only roots ' + IntToStr(LI) + ' verify');
+  CheckTrue(CountedVerifies(TTrustAnchorStore.Layered(LBaseRef, RotatingExtras(13)), 1),
+    'the large base still verifies');
+  CheckEquals(1, LBase.Reads, 'the lookup-only roots did not push the base out of the cache');
 end;
 
 procedure TTestCertificateVerifier.TestSha1SelfSignedRootNotConfiguredRejected;
@@ -2419,6 +2485,46 @@ begin
   Result := LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
     TTlsLibTestCertificates.Field(AFile, ALeaf)), TServerName.DnsName('localhost'), nil,
     LVerified, AAlert);
+end;
+
+function TTestAnchorValidityWindow.RenewalVerdict(const AAnchors: array of string;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LRoots: TArray<TBytes>;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LI: Int32;
+begin
+  LRoots := nil;
+  for LI := 0 to System.High(AAnchors) do
+  begin
+    SetLength(LRoots, System.Length(LRoots) + 1);
+    LRoots[System.High(LRoots)] := TTlsLibTestCertificates.Field('Certs/IssuerRenewal.txt',
+      AAnchors[LI]);
+  end;
+  LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(1735689600000) as ITlsClock,
+    TTrustAnchorStore.Create(LRoots) as ITrustAnchorStore, True) as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field('Certs/IssuerRenewal.txt', 'leaf_cert')),
+    TServerName.DnsName('localhost'), nil, LVerified, AAlert);
+end;
+
+procedure TTestAnchorValidityWindow.TestExpiredCopyOfAnAnchorDoesNotShadowTheValidCopy;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // the renewed issuer keeps its subject and key, and the expired copy comes first
+  CheckTrue(RenewalVerdict(['issuer_old_cert', 'issuer_cert'], LAlert),
+    'the path through the valid copy is found');
+end;
+
+procedure TTestAnchorValidityWindow.TestOnlyTheExpiredCopyOfAnAnchorIsCertificateExpired;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(RenewalVerdict(['issuer_old_cert'], LAlert), 'the only anchor is expired');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the expired copy was the one that matched');
 end;
 
 procedure TTestAnchorValidityWindow.TestExpiredIntermediateAnchorIsCertificateExpired;

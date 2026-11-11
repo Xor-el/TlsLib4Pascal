@@ -33,7 +33,7 @@ type
   /// shared across threads.
   /// </summary>
   IInspectedCertificate = interface(IInterface)
-    ['{3F6B0C7A-52D1-4E8B-9A64-C1D7E0B2A915}']
+    ['{DD311C63-58A2-466C-ABB1-14739B75C305}']
     function PublicKeyInfo: TBytes;
     /// <summary>The DER Name of the certificate's issuer.</summary>
     function IssuerName: TBytes;
@@ -187,8 +187,9 @@ type
     function SamePublicKey(const ASpkiA, ASpkiB: TBytes): TCertAnswer;
     /// <summary>
     /// Whether two DER Names denote the same distinguished name by the rule path building chains
-    /// on (RFC 5280 7.1: attribute types and values compared after string preparation, in order).
-    /// Yes when equal, No when they differ, Undetermined when either does not decode as a Name.
+    /// on (RFC 5280 7.1): attributes in order, values case-insensitively with whitespace
+    /// normalised. Yes when equal, No when they differ, Undetermined when either does not decode as
+    /// a Name.
     /// </summary>
     function SameName(const AName1, AName2: TBytes): TCertAnswer;
   end;
@@ -215,6 +216,8 @@ type
     /// They never anchor a path and never bypass validation. The presented certificates and the
     /// intermediates form one pool from which a path is built from the leaf up to an anchor, so
     /// extraneous, misordered or expired-but-unused certificates are left out (RFC 9846 4.5.1).
+    /// An anchor that is not self-signed is held to its own validity window: a copy outside it is
+    /// passed over for a valid one, and is certificate_expired when no other path builds.
     /// AEffectiveChain returns the validated path in issuer order (leaf at [0], its issuer at [1],
     /// ...), ending at the configured trust anchor exactly once - never the peer's presented order -
     /// so the caller's staple and pin checks key off the real issuer. It is a var parameter so a
