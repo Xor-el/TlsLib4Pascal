@@ -1,0 +1,29 @@
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_f2c9bd75607afc::t_d6bc74045a0c6e 110
+  s_f2c9bd75607afc::t_3b5fab96425c64 349,352,355
+  s_f2c9bd75607afc::t_75ad4584947a52 328-332
+  s_f2c9bd75607afc::t_fea95e9e65a2c2 302,305,308-317
+  s_f2c9bd75607afc::t_6e9a61cd12abed 293-295,297,300-301,303-304,306-307,318-319,324,337-342,344-346,351,354,364,374,380,382-383,389-391
+  s_f2c9bd75607afc::t_84d6884d63723a 60
+  s_f2c9bd75607afc::t_b3fcca44c2023a 353,361,366-367,369,371,379,381,384-388
+  s_f2c9bd75607afc::t_d403c519b9fce1 61-62
+  s_f2c9bd75607afc::t_ae8dda90816e75 296,298-299,320-323,325-327,333-336,343
+  s_f2c9bd75607afc::t_e7029f0ddf7c64 365,368,370,373,375-376
+  s_f2c9bd75607afc::t_613aa19e03e703 377-378
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "523a8ae697e1f2baea4a6a0cda41e8eb8c978444",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
