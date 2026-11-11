@@ -1,0 +1,86 @@
+TlsLib.Tests/src/TrustCompositionTests.pas
+  s_f2c9bd75607afc::t_974c79ec84008f 1043-1070
+  s_f2c9bd75607afc::t_8e2e877f59ad45 152-153
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_477c7bc4358572 895
+  s_f2c9bd75607afc::t_12ffa7c7256675 871
+  s_f2c9bd75607afc::t_366861e0652f3f 86-87
+  s_f2c9bd75607afc::t_292b8dee996114 391,398
+  s_f2c9bd75607afc::t_5000cd4df7c904 894,896-899
+  s_f2c9bd75607afc::t_6d872671e68b27 867
+docs/system-trust.md
+  s_f2c9bd75607afc::t_dc4d002aae456b 539-543,548-552
+  s_f2c9bd75607afc::t_ae83fdb40c724e 564-567,571-576
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_37b97c1ae06a84 2474
+  s_f2c9bd75607afc::t_88edabef6c114f 2548-2549
+  s_f2c9bd75607afc::t_97f40a2fa1f3f1 2470
+  s_f2c9bd75607afc::t_c1bf6aac86a1e8 2579-2580
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_f2c9bd75607afc::t_24cfe99e7d2f26 658-661
+TlsLib.Adapters/Synapse/Examples/src/SynapseLoopbackExample.pas
+  s_f2c9bd75607afc::t_770e20fa10b4b3 406
+TlsLib/src/Pkix/Providers/TlpDefaultPkixProvider.pas
+  s_f2c9bd75607afc::t_c89db597510c3c 1062
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_f2c9bd75607afc::t_8319b0ef4d5b3e 240-242
+  s_f2c9bd75607afc::t_ee3a7b73fe3727 43
+  s_f2c9bd75607afc::t_a08c6d6905cb75 2896-2918
+  s_f2c9bd75607afc::t_9577cc87e83731 3257-3299
+  s_f2c9bd75607afc::t_f961915e7735da 279-280
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_b08978dd951fc4 577-578
+  s_f2c9bd75607afc::t_f47afe46747bf6 579
+  s_f2c9bd75607afc::t_e9f2f0f53c7868 5727-5755
+  s_f2c9bd75607afc::t_c6364049522dc5 5771
+  s_f2c9bd75607afc::t_4e3ec6610b0dc0 5705-5726,5756-5770,5772
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_8bf807b22b7a15 140-141,147-148
+  s_f2c9bd75607afc::t_61853b51bba6b5 124-127
+  s_f2c9bd75607afc::t_97746c14838fbb 843,846-860,862-877,882
+  s_f2c9bd75607afc::t_334f43b6db110d 813
+  s_f2c9bd75607afc::t_4bd4e1647e79a0 829,831-832
+  s_f2c9bd75607afc::t_0071e3b33ee333 861
+  s_f2c9bd75607afc::t_59195577d16224 144-145
+  s_f2c9bd75607afc::t_c63f069485fe5d 800,929
+TlsLib/src/Interfaces/Trust/TlpIIssuerLookup.pas
+  s_f2c9bd75607afc::t_e37ba6e60d02ea 30-32
+  s_f2c9bd75607afc::t_86092f4b8e5715 36-38
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_e41311d140242e 87-88
+  s_f2c9bd75607afc::t_324fc50a769d8e 89
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_f2c9bd75607afc::t_94227cea567ff6 457-459
+  s_f2c9bd75607afc::t_fcc7d8f1ba7ee9 2664-2690,2693-2694,2696,2698-2700
+  s_f2c9bd75607afc::t_9e0528eb05312b 2516-2525,2528-2538,2540-2545
+  s_f2c9bd75607afc::t_e77084979b50ca 2526-2527
+  s_f2c9bd75607afc::t_d2fec90755d3ed 2786
+  s_f2c9bd75607afc::t_17d67fe8b66b5d 2630-2631
+  s_f2c9bd75607afc::t_f98d466b7441cb 2938
+  s_f2c9bd75607afc::t_d4752adc89760b 2773
+  s_f2c9bd75607afc::t_287db7576d48d4 463-464
+  s_f2c9bd75607afc::t_9fb349a34e9b34 2539
+TlsLib/src/Trust/TlpIssuerResolution.pas
+  s_f2c9bd75607afc::t_761ca1eb0f2a6b 34-36
+  s_f2c9bd75607afc::t_0b7a09b5c3fadf 193
+  s_f2c9bd75607afc::t_1440d3fa8927e4 63-64
+  s_f2c9bd75607afc::t_62e6f929661772 113-131
+  s_f2c9bd75607afc::t_029e5e14afc60d 51-52
+  s_f2c9bd75607afc::t_9b9df195ff9c07 204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e6351ee7c846f713724aff4ac3dfbdaf4dd5cbba",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
