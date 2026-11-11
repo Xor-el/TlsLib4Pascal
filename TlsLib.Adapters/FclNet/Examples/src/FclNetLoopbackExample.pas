@@ -2521,6 +2521,14 @@ begin
   TVectorLocator.WritePemTo(LDir + LRootName + '.1', 'CERTIFICATE', [ARootHex]);
   LEcho := Echo(LDir, '', LError);
   ExpectEquals('a root after a PEM block that is not base64', 'verify', LEcho, LError);
+
+  // nor does an entry that is a directory
+  LDir := NewDir(ABase, 'skipdirentry');
+  if not ForceDirectories(LDir + LRootName + '.0') then
+    raise Exception.Create('cannot create a directory in ' + LDir);
+  TVectorLocator.WritePemTo(LDir + LRootName + '.1', 'CERTIFICATE', [ARootHex]);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a directory entry', 'verify', LEcho, LError);
 end;
 
 class procedure TTrustedCertsDirCheck.RunPermissions(const ABase, ARootHex,

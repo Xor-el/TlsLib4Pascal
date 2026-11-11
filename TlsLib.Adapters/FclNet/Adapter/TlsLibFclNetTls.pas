@@ -117,10 +117,17 @@ type
   /// them anchor. A file that cannot be read or holds no certificate is skipped.</summary>
   TOpenSslHashedDirLookup = class sealed(TInterfacedObject, IIssuerLookup)
   strict private
+  const
+    HashHexLength = 8;
+    NumberSeparator = '.';
+    FirstSuffix = NumberSeparator + '0';
+    IdentityPrefix = 'openssl-capath:';
   var
     FCrypto: ICryptoProvider;
     FSource: string;
     FDirs: TArray<string>;
+    /// <summary>Whether AName is hash.0, with hash 8 hex digits: the first file of a hash.</summary>
+    class function IsFirstHashedName(const AName: string): Boolean; static;
     /// <summary>The state of ADir: its own time, and a digest of the name, size and time of every
     /// entry, so a change inside the time resolution of the file system still shows. One stamp for a
     /// directory that cannot be found.</summary>
@@ -804,10 +811,18 @@ begin
   end;
 end;
 
+class function TOpenSslHashedDirLookup.IsFirstHashedName(const AName: string): Boolean;
+var
+  LDigits: TBytes;
+begin
+  Result := (System.Length(AName) = HashHexLength + System.Length(FirstSuffix)) and
+    (System.Copy(AName, HashHexLength + 1, System.Length(FirstSuffix)) = FirstSuffix) and
+    TDataEncoding.TryHexDecode(System.Copy(AName, 1, HashHexLength), LDigits);
+end;
+
 procedure TOpenSslHashedDirLookup.CheckConfigured;
 var
   LFind: TSearchRec;
-  LDigits: TBytes;
   LName: string;
   LI: Integer;
   LHashed, LUsable: Boolean;
@@ -827,9 +842,7 @@ begin
       repeat
         LName := LFind.Name;
         // the lookup probes the lower-case spelling only, so that is the one that must resolve
-        LHashed := (System.Length(LName) = 10) and (LName[9] = '.') and (LName[10] = '0') and
-          TDataEncoding.TryHexDecode(System.Copy(LName, 1, 8), LDigits) and
-          Probe(FDirs[LI] + LowerCase(LName), LUsable);
+        LHashed := IsFirstHashedName(LName) and Probe(FDirs[LI] + LowerCase(LName), LUsable);
       until LHashed or (FindNext(LFind) <> 0);
     finally
       FindClose(LFind);
@@ -877,7 +890,7 @@ function TOpenSslHashedDirLookup.Identity: string;
 var
   LI: Integer;
 begin
-  Result := 'openssl-capath:';
+  Result := IdentityPrefix;
   for LI := 0 to System.High(FDirs) do
     Result := Result + FDirs[LI] + '@' + Stamp(FDirs[LI]) + PathSep;
 end;
@@ -942,13 +955,13 @@ var
   LUsable: Boolean;
 begin
   LNumber := 0;
-  LPath := ADir + AHash + '.0';
+  LPath := ADir + AHash + FirstSuffix;
   while Probe(LPath, LUsable) do
   begin
     if LUsable then
       AppendCertificates(LPath, AAnchors);
     Inc(LNumber);
-    LPath := ADir + AHash + '.' + IntToStr(LNumber);
+    LPath := ADir + AHash + NumberSeparator + IntToStr(LNumber);
   end;
 end;
 
