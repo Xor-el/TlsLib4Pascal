@@ -1,0 +1,23 @@
+docs/system-trust.md
+  s_f2c9bd75607afc::t_f9ed1b45df795a 571-572
+  s_f2c9bd75607afc::t_e39b4cc48a8f43 702,704-709
+  s_f2c9bd75607afc::t_2a00833337116e 645-647
+  s_f2c9bd75607afc::t_93454d8a8eb628 531-532
+  s_f2c9bd75607afc::t_7f5b4d2939d41a 676-678
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9f5b66d83d5c6139ca9062ee0a40170ff07dcc9d",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
