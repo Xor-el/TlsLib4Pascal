@@ -35,6 +35,7 @@ uses
   TlpEchConfig,
   TlpICryptoProvider,
   TlpIPkixProvider,
+  TlpTrustTypes,
   TlpTrustPolicy,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -99,6 +100,11 @@ procedure SetTlsLibMormotPkix(const APkix: IPkixProvider);
 /// tickets; a client caches and reuses them), so a reconnect skips the asymmetric handshake.
 /// Forward-secret (TLS 1.3 psk_dhe_ke); 0-RTT is never enabled. Default True.</summary>
 procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
+/// <summary>Sets which certificates of the context's CACertificatesFile bundle become trust
+/// anchors. SelfSignedOnly (the default): only a self-signed one; any other completes a peer's
+/// chain and is never trusted by itself. AnyCertificate: every one. Not allowed alongside a
+/// process-wide config-in when set to anything but the default.</summary>
+procedure SetTlsLibMormotBundleAnchors(ARule: TBundleAnchorRule);
 /// <summary>Sets the process-wide time budget (ms) for every whole handshake, so a peer that
 /// connects but sends no data cannot park the connection's thread. Deliberately NOT an app-read
 /// deadline. 0 (the default) uses the 30 s library default; a positive value overrides it.</summary>
@@ -171,6 +177,8 @@ type
     FPkix: IPkixProvider;
     // whether the context-driven build enables session resumption (default True)
     FSessionResumption: Boolean;
+    // which certificates of the CA bundle anchor (default SelfSignedOnly)
+    FBundleAnchors: TBundleAnchorRule;
     // the read timeout (ms) bounding every handshake; 0 uses the library default
     FHandshakeTimeoutMs: Int32;
   public
@@ -297,6 +305,11 @@ begin
   TTlsLibNetTls.FSessionResumption := AEnabled;
 end;
 
+procedure SetTlsLibMormotBundleAnchors(ARule: TBundleAnchorRule);
+begin
+  TTlsLibNetTls.FBundleAnchors := ARule;
+end;
+
 procedure SetTlsLibMormotHandshakeTimeout(AMs: Int32);
 begin
   TTlsLibNetTls.FHandshakeTimeoutMs := AMs;
@@ -388,6 +401,7 @@ begin
   FServerConfigMemo := TTlsConfigMemos.NewServer;
   FClientConfigMemo := TTlsConfigMemos.NewClient;
   FSessionResumption := True;
+  FBundleAnchors := TBundleAnchorRule.SelfSignedOnly;
 end;
 
 destructor TTlsLibNetTls.Destroy;
@@ -451,6 +465,7 @@ begin
       ((scsRoot in AContext.CASystemStores) or (scsCA in AContext.CASystemStores)) then
       Result.SystemTrust := TSystemTrustInstaller.Shared;
   end;
+  Result.BundleAnchors := FBundleAnchors;
   // a client maps IgnoreCertificateErrors onto the loud InsecureSkipVerify (never a silent bypass);
   // a server always verifies a requested client certificate, so its verify posture stays on
   if AIsClient then

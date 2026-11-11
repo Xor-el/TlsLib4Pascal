@@ -43,6 +43,7 @@ uses
   TlpIPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpTrustTypes,
   TlpTrustPolicy,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -76,6 +77,7 @@ type
     FInsecureSkipVerify: Boolean;
     FClientAuth: TClientAuthMode;
     FUseSystemTrust: Boolean;
+    FBundleAnchors: TBundleAnchorRule;
     FCustomTrustStore: ITrustAnchorStore;
     FCustomServerCertVerifier: IServerCertificateVerifier;
     FCustomClientCertVerifier: IClientCertificateVerifier;
@@ -168,6 +170,9 @@ type
     /// component, but never streamed (stored False): a secret must not be persisted into the owning
     /// form/data-module resource (.dfm on Delphi, .lfm on Lazarus), which is often committed.</summary>
     property KeyPassword: string read FKeyPassword write FKeyPassword stored False;
+    /// <summary>The PEM bundle of trusted certificates. With BundleAnchors SelfSignedOnly (the
+    /// default) only its self-signed certificates anchor and the others complete chains;
+    /// AnyCertificate makes every certificate an anchor.</summary>
     property RootCertFile: string read FRootCertFile write FRootCertFile;
     /// <summary>Whether the peer certificate is verified (client role). Default True. On a server,
     /// ClientAuth governs client-certificate authentication; VerifyPeer=False (or InsecureSkipVerify)
@@ -191,6 +196,11 @@ type
     /// when VerifyPeer is on you must name at least one source or the build fails closed. Defaults
     /// to False.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
+    /// <summary>Which certificates of RootCertFile become trust anchors. SelfSignedOnly (the
+    /// default): only a self-signed one; any other completes a peer's chain and is never trusted
+    /// by itself. AnyCertificate: every one. Not allowed alongside a supplied ClientConfig /
+    /// ServerConfig when set to anything but the default.</summary>
+    property BundleAnchors: TBundleAnchorRule read FBundleAnchors write FBundleAnchors;
     /// <summary>TLS session resumption (a server issues session tickets; a client caches and
     /// reuses them), so a reconnect skips the asymmetric handshake. Forward-secret (TLS 1.3
     /// psk_dhe_ke); 0-RTT is never enabled. Default True; set False to force a full handshake
@@ -343,6 +353,7 @@ begin
   FInsecureSkipVerify := False;
   FClientAuth := TClientAuthMode.None;
   FUseSystemTrust := False;
+  FBundleAnchors := TBundleAnchorRule.SelfSignedOnly;
   FSessionResumption := True;
 end;
 
@@ -361,6 +372,7 @@ begin
     FInsecureSkipVerify := LSrc.FInsecureSkipVerify;
     FClientAuth := LSrc.FClientAuth;
     FUseSystemTrust := LSrc.FUseSystemTrust;
+    FBundleAnchors := LSrc.FBundleAnchors;
     FCustomTrustStore := LSrc.FCustomTrustStore;
     FCustomServerCertVerifier := LSrc.FCustomServerCertVerifier;
     FCustomClientCertVerifier := LSrc.FCustomClientCertVerifier;
@@ -418,6 +430,7 @@ begin
   // never depends on the system-trust package
   if FUseSystemTrust then
     Result.SystemTrust := TSystemTrustInstaller.Shared;
+  Result.BundleAnchors := FBundleAnchors;
   Result.CustomTrustStore := FCustomTrustStore;
   Result.ServerCertificateVerifier := FCustomServerCertVerifier;
   Result.ClientCertificateVerifier := FCustomClientCertVerifier;

@@ -36,6 +36,7 @@ uses
   TlpDataEncoding,
   TlpICryptoProvider,
   TlpIPkixProvider,
+  TlpTrustTypes,
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpSecureMemory,
@@ -115,6 +116,7 @@ type
     FPkix: IPkixProvider;
     FUserPkix: IPkixProvider;
     FUseSystemTrust: Boolean;
+    FBundleAnchors: TBundleAnchorRule;
     FClientAuth: TClientAuthMode;
     FSessionResumption: Boolean;
     FClientConfig: ITlsClientConfig;
@@ -204,6 +206,12 @@ type
     /// the build fails closed. Per-connection, never a process-wide global, so it composes and stays
     /// thread-safe.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
+    /// <summary>Which certificates of the CertCAFile bundle become trust anchors. SelfSignedOnly
+    /// (the default): only a self-signed one; any other completes a peer's chain and is never
+    /// trusted by itself. AnyCertificate: every one. Not allowed alongside a supplied ClientConfig
+    /// / ServerConfig when set to anything but the default. Cast Sock.SSL to TSSLTlsLib to set
+    /// it.</summary>
+    property BundleAnchors: TBundleAnchorRule read FBundleAnchors write FBundleAnchors;
     /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
     /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
     /// aborts when none is presented. Orthogonal to the client-CA the presented chain must reach - a
@@ -343,6 +351,7 @@ begin
   // it to True so a dropped-in plugin verifies. Opt OUT with VerifyCert := False for the loud bypass.
   VerifyCert := True;
   FClientAuth := TClientAuthMode.None;
+  FBundleAnchors := TBundleAnchorRule.SelfSignedOnly;
   FSessionResumption := True;
 end;
 
@@ -355,6 +364,7 @@ begin
   begin
     LSource := TSSLTlsLib(Value);
     FUseSystemTrust := LSource.UseSystemTrust;
+    FBundleAnchors := LSource.BundleAnchors;
     FClientAuth := LSource.ClientAuth;
     FClientConfig := LSource.ClientConfig;
     FServerConfig := LSource.ServerConfig;
@@ -457,6 +467,7 @@ begin
     if FUseSystemTrust then
       Result.SystemTrust := TSystemTrustInstaller.Shared;
   end;
+  Result.BundleAnchors := FBundleAnchors;
   Result.VerifyPeer := FVerifyCert;
   Result.InsecureSkipVerify := not FVerifyCert;
   // CheckHostName keeps the composable default (True); Synapse exposes no knob. A server never

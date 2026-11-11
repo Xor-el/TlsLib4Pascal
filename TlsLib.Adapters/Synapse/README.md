@@ -35,7 +35,8 @@ peer.SSLAcceptConnection;             // handshake
 
 | Synapse `TCustomSSL` property                        | TlsLib4Pascal                            |
 |------------------------------------------------------|------------------------------------------|
-| `CertCAFile`                                         | `WebPki` anchors (client trust, or a server's client-auth CA) |
+| `CertCAFile`                                         | `WebPki` anchors (client trust, or a server's client-auth CA); a self-signed certificate anchors, any other completes chains and anchors nothing unless `BundleAnchors` is `AnyCertificate` |
+| `BundleAnchors` (extension)                          | `SelfSignedOnly` (default): only a self-signed certificate of `CertCAFile` anchors; `AnyCertificate`: every one does. Not allowed beside a supplied `ClientConfig` / `ServerConfig` unless left at the default |
 | `CertificateFile` / `Certificate` + `PrivateKeyFile` / `PrivateKey` + `KeyPassword`, or `PFX` / `PFXfile` | `WithCredential` (server cert/key, or client mTLS) |
 | `SNIHost`                                            | SNI + the verified host name             |
 | `VerifyCert` (default **True** here)                 | verify on/off; **False** → **`dangerous` `DangerousSkip`** |

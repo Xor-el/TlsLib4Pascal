@@ -43,6 +43,7 @@ uses
   TlpDataEncoding,
   TlpNegotiationTypes,
   TlpTlsCredential,
+  TlpTrustTypes,
   TlsLibIndyTls;
 
 const
@@ -298,10 +299,11 @@ var
   LClientIO: TTlsLibIOHandlerSocket;
   LEcho: string;
   LEchoHandler: TEchoHandler;
-  LOk, LTimedOut, LTicketsArrived, LExpressionRefused: Boolean;
+  LOk, LTimedOut, LTicketsArrived, LExpressionRefused, LAnchorsMapped: Boolean;
   LStarted: TDateTime;
   LLine: string;
   LCipher: UInt16;
+  LCopy: TTlsLibSSLOptions;
 begin
   Result := 1;
   GServerError := '';
@@ -359,9 +361,24 @@ begin
         LExpressionRefused := Pos('CipherList', E.Message) > 0;
     end;
 
+    // the bundle rule defaults to self-signed anchors only and reaches the composed options
+    LClientIO.SSLOptions.CipherList := '';
+    LAnchorsMapped := LClientIO.SSLOptions.Snapshot.BundleAnchors = TBundleAnchorRule.SelfSignedOnly;
+    LClientIO.SSLOptions.BundleAnchors := TBundleAnchorRule.AnyCertificate;
+    LAnchorsMapped := LAnchorsMapped and
+      (LClientIO.SSLOptions.Snapshot.BundleAnchors = TBundleAnchorRule.AnyCertificate);
+    LCopy := TTlsLibSSLOptions.Create;
+    try
+      LCopy.Assign(LClientIO.SSLOptions);
+      LAnchorsMapped := LAnchorsMapped and
+        (LCopy.BundleAnchors = TBundleAnchorRule.AnyCertificate);
+    finally
+      LCopy.Free;
+    end;
+
     TMutualTlsCheck.Run;
 
-    LOk := LTimedOut and (LEcho = 'ping from the indy client') and
+    LOk := LAnchorsMapped and LTimedOut and (LEcho = 'ping from the indy client') and
       (LClientIO.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
       (LCipher = TCipherSuites13.Aes256GcmSha384) and LExpressionRefused;
     if LOk then

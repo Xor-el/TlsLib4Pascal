@@ -39,7 +39,8 @@ when the protocol says "go secure", set `IO.PassThrough := False` and the handsh
 
 | `TTlsLibSSLOptions`                | TlsLib4Pascal                                              |
 |-----------------------------------|-----------------------------------------------------------|
-| `RootCertFile`                    | `WebPki` anchors (client trust; on a server the client-auth CA, consulted only when `ClientAuth <> None`) |
+| `RootCertFile`                    | `WebPki` anchors (client trust; on a server the client-auth CA, consulted only when `ClientAuth <> None`); a self-signed certificate anchors, any other completes chains and anchors nothing unless `BundleAnchors` is `AnyCertificate` |
+| `BundleAnchors`                   | `SelfSignedOnly` (default): only a self-signed certificate of `RootCertFile` anchors; `AnyCertificate`: every one does. Not allowed beside a supplied `ClientConfig` / `ServerConfig` unless left at the default |
 | `CertFile` + `KeyFile` + `KeyPassword` | `WithCredential` (server cert/key, or client mTLS); a `.pfx` / `.p12` `CertFile` is a PKCS#12 |
 | `ClientAuth` (server)             | `WithPeerAuth(None / Requested / Required)`; the default `None` never requests a client certificate. Any other mode needs a private client-CA (`RootCertFile` or a `CustomTrustStore`/custom verifier) and `VerifyPeer` on, else the build fails closed. `UseSystemTrust` is a server-cert source, never a client-CA |
 | `VerifyPeer = False` / `InsecureSkipVerify` | **`dangerous` `DangerousSkip`** |

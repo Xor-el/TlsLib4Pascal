@@ -24,7 +24,7 @@ assigns `NewNetTls`; if you prefer, assign it yourself: `NewNetTls := NewTlsLib4
 
 | mORMot `TNetTlsContext` field            | TlsLib4Pascal                                             |
 |------------------------------------------|----------------------------------------------------------|
-| `CACertificatesFile`                     | `WebPki` anchors (PEM/DER bundle)                         |
+| `CACertificatesFile`                     | `WebPki` anchors (PEM/DER bundle): a self-signed certificate anchors, any other completes chains and anchors nothing unless `SetTlsLibMormotBundleAnchors(AnyCertificate)` |
 | `CertificateFile` / `CertificateBin` + `PrivateKeyFile` + `PrivatePassword` | `WithCredential` (server cert/key, or client mTLS); a PKCS#12 only for a non-PEM source with no `PrivateKeyFile` |
 | `ClientCertificateAuthentication`        | `WithPeerAuth(Required)` + client-chain trust; `False` (default) never requests a client certificate. The client-CA is `CACertificatesFile` (`CASystemStores` is a server-cert source, ignored on a server). `Requested` (ask, tolerate absence) is available through `SetTlsLibMormotServerConfig` with a builder-driven config |
 | `CASystemStores`                         | OS system trust for a client: `scsRoot` and/or `scsCA` turn it on when `CACertificatesFile` is empty; `scsMY` / `scsSpc` do not count |
@@ -87,6 +87,7 @@ SetTlsLibMormotVerdictResolver(resolver, deadlineMs);         // client role: de
 SetTlsLibMormotServerVerdictResolver(resolver, deadlineMs);   // server role: decides an mTLS client's chain
 SetTlsLibMormotHandshakeTimeout(ms);                          // bounds the handshake read; 0 = 30 s default
 SetTlsLibMormotSessionResumption(enabled);                    // default True; 0-RTT is never enabled
+SetTlsLibMormotBundleAnchors(rule);                           // SelfSignedOnly (default) or AnyCertificate: which CACertificatesFile certificates anchor
 SetTlsLibMormotCrypto(crypto); SetTlsLibMormotPkix(pkix);     // providers for the context-driven build
 ```
 

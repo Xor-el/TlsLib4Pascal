@@ -43,6 +43,7 @@ uses
   synsock,
   TlpDataEncoding,
   TlpTlsAlert,
+  TlpTrustTypes,
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpNegotiationTypes,
@@ -394,9 +395,15 @@ begin
   LTo := TTCPBlockSocket.CreateWithSSL(SSLImplementation);
   try
     (LFrom.SSL as TSSLTlsLib).ClientAuth := TClientAuthMode.Required;
+    if (LFrom.SSL as TSSLTlsLib).BundleAnchors <> TBundleAnchorRule.SelfSignedOnly then
+      raise Exception.Create('BundleAnchors does not default to SelfSignedOnly');
+    (LFrom.SSL as TSSLTlsLib).BundleAnchors := TBundleAnchorRule.AnyCertificate;
     LTo.SSL.Assign(LFrom.SSL);
     if (LTo.SSL as TSSLTlsLib).ClientAuth <> TClientAuthMode.Required then
       raise Exception.Create('Assign dropped ClientAuth');
+    if (LTo.SSL as TSSLTlsLib).BundleAnchors <> TBundleAnchorRule.AnyCertificate then
+      raise Exception.Create('Assign dropped BundleAnchors');
+    LTo.SSL.SNIHost := 'localhost';
     LTo.SSL.Ciphers := 'HIGH';
     if LTo.SSL.Connect then
       raise Exception.Create('a Ciphers list was accepted');
