@@ -121,6 +121,10 @@ type
     FCrypto: ICryptoProvider;
     FSource: string;
     FDirs: TArray<string>;
+    /// <summary>The state of ADir: its own time, and a digest of the name, size and time of every
+    /// entry, so a change inside the time resolution of the file system still shows. One stamp for a
+    /// directory that cannot be found.</summary>
+    function Stamp(const ADir: string): string;
     /// <summary>Whether APath names an entry; AUsable says that it is a regular file or a link to
     /// one.</summary>
     class function Probe(const APath: string; out AUsable: Boolean): Boolean; static;
@@ -133,13 +137,15 @@ type
     procedure AppendDirectory(const ADir, AHash: string; var AAnchors: TArray<TBytes>);
   public
     /// <summary>A lookup over ADirs, a list in the platform's path separator: empty entries are
-    /// dropped, each directory gets a trailing delimiter and a repeated one is read once.</summary>
+    /// dropped, each directory is made absolute and gets a trailing delimiter, and a repeated one
+    /// is read once.</summary>
     constructor Create(const ACrypto: ICryptoProvider; const ADirs: string);
     /// <summary>Refuses a list that names no directory, a directory that is not there or cannot
-    /// be listed, and one that holds no file named like hash.0.</summary>
+    /// be listed, and one in which no file named like hash.0 resolves under its lower-case
+    /// spelling, the only one the lookup probes.</summary>
     procedure CheckConfigured;
-    /// <summary>The directories and the modification time of each, so a directory that gained or
-    /// lost an entry names another lookup.</summary>
+    /// <summary>The directories and the state of each, so a directory that gained or lost an
+    /// entry, or holds a file of another size or time, names another lookup.</summary>
     function Identity: string;
     function IssuersNamed(const ASubjectName: TBytes): TLookedUpIssuers;
   end;
@@ -791,7 +797,7 @@ begin
   begin
     if LSegments[LI] = '' then
       Continue;
-    LDir := IncludeTrailingPathDelimiter(LSegments[LI]);
+    LDir := IncludeTrailingPathDelimiter(ExpandFileName(LSegments[LI]));
     if TArrayUtilities.Contains<string>(FDirs, LDir) then
       Continue;
     TArrayUtilities.Append<string>(FDirs, LDir);
@@ -804,7 +810,7 @@ var
   LDigits: TBytes;
   LName: string;
   LI: Integer;
-  LHashed: Boolean;
+  LHashed, LUsable: Boolean;
 begin
   if System.Length(FDirs) = 0 then
     raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
@@ -820,8 +826,10 @@ begin
     try
       repeat
         LName := LFind.Name;
+        // the lookup probes the lower-case spelling only, so that is the one that must resolve
         LHashed := (System.Length(LName) = 10) and (LName[9] = '.') and (LName[10] = '0') and
-          TDataEncoding.TryHexDecode(System.Copy(LName, 1, 8), LDigits);
+          TDataEncoding.TryHexDecode(System.Copy(LName, 1, 8), LDigits) and
+          Probe(FDirs[LI] + LowerCase(LName), LUsable);
       until LHashed or (FindNext(LFind) <> 0);
     finally
       FindClose(LFind);
@@ -832,24 +840,46 @@ begin
   end;
 end;
 
-function TOpenSslHashedDirLookup.Identity: string;
+function TOpenSslHashedDirLookup.Stamp(const ADir: string): string;
 var
   LFind: TSearchRec;
-  LStamp: string;
+  LEntries: TStringList;
+  LHash: IHash;
+  LListing: TBytes;
+begin
+  if FindFirst(ExcludeTrailingPathDelimiter(ADir), faDirectory, LFind) <> 0 then
+    Exit('-');
+  Result := IntToStr(LFind.Time);
+  FindClose(LFind);
+  LEntries := TStringList.Create;
+  try
+    LEntries.CaseSensitive := True;
+    LEntries.Sorted := True;
+    if FindFirst(ADir + '*', faAnyFile or faSymLink, LFind) = 0 then
+      try
+        repeat
+          if (LFind.Name <> '.') and (LFind.Name <> '..') then
+            LEntries.Add(LFind.Name + '|' + IntToStr(LFind.Size) + '|' + IntToStr(LFind.Time));
+        until FindNext(LFind) <> 0;
+      finally
+        FindClose(LFind);
+      end;
+    LListing := TEncoding.UTF8.GetBytes(LEntries.Text);
+  finally
+    LEntries.Free;
+  end;
+  LHash := FCrypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+  LHash.Update(LListing, 0, System.Length(LListing));
+  Result := Result + ':' + TDataEncoding.HexEncode(LHash.DoFinal);
+end;
+
+function TOpenSslHashedDirLookup.Identity: string;
+var
   LI: Integer;
 begin
   Result := 'openssl-capath:';
   for LI := 0 to System.High(FDirs) do
-  begin
-    // a directory that cannot be found keeps one stamp
-    LStamp := '-';
-    if FindFirst(ExcludeTrailingPathDelimiter(FDirs[LI]), faDirectory, LFind) = 0 then
-    begin
-      LStamp := IntToStr(LFind.Time);
-      FindClose(LFind);
-    end;
-    Result := Result + FDirs[LI] + '@' + LStamp + PathSep;
-  end;
+    Result := Result + FDirs[LI] + '@' + Stamp(FDirs[LI]) + PathSep;
 end;
 
 class function TOpenSslHashedDirLookup.Probe(const APath: string;
@@ -896,9 +926,7 @@ begin
     end;
     LBlocks := TPem.ReadBlocks(LContent);
   except
-    on EStreamError do
-      Exit;
-    on EArgumentTlsLibException do
+    on Exception do
       Exit;
   end;
   for LI := 0 to System.High(LBlocks) do

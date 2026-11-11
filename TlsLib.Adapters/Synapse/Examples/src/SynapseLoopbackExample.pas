@@ -403,6 +403,7 @@ begin
       raise Exception.Create('Assign dropped ClientAuth');
     if (LTo.SSL as TSSLTlsLib).BundleAnchors <> TBundleAnchorRule.AnyCertificate then
       raise Exception.Create('Assign dropped BundleAnchors');
+    // the empty-host refusal comes before the Ciphers one
     LTo.SSL.SNIHost := 'localhost';
     LTo.SSL.Ciphers := 'HIGH';
     if LTo.SSL.Connect then

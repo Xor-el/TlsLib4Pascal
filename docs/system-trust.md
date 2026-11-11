@@ -536,15 +536,20 @@ Who supplies the roots:
   bundle completes a peer's chain and is never trusted by itself.
 - `AnyCertificate`: every certificate anchors, so a bundle may trust an intermediate directly.
 
-A bundle with no self-signed certificate then fails `Build` as having no trust anchor, unless
-`BundleAnchors` is `AnyCertificate`. Stores you build yourself (`TTrustAnchorStore`, `CustomTrustStore`,
+"Self-signed" means its own signature verifies with the provider, so a root signed with an algorithm the
+provider does not verify is chain material, not an anchor. When a bundle holds no self-signed certificate
+and no other trust source is set (system trust, a custom store with roots, an issuer lookup), `Build`
+fails with a message that names the source and `BundleAnchors`; beside another trust source the
+intermediates only complete chains. Stores you build yourself (`TTrustAnchorStore`, `CustomTrustStore`,
 the host roots of system trust) are not filtered: whatever they hold anchors.
 
 **Anchor validity window.** A trust anchor that is not self-signed must be inside its `notBefore` /
 `notAfter` window; a self-signed root is trusted whatever its dates. The built-in validator applies this
-on the path it builds, and an OS delegate applies it as a post-check on the anchor of the path the OS
-built (`certificate_expired`). The post-check also refuses an anchor whose dates or self-signature the
-provider cannot determine, so an expired self-signed root the provider cannot verify fails the same way.
+on the path it builds and passes over an expired copy of an anchor for a valid one. An OS delegate
+cannot steer the path the OS builds: it applies the rule as a post-check on the anchor of that path
+(`certificate_expired`), also when the dates or the self-signature of the anchor cannot be determined,
+so an expired root the provider cannot verify fails the same way, and a path the OS builds through an
+expired copy is refused even if a valid copy exists.
 
 **Issuer lookup.** `WithIssuerLookup(ALookup)` or `WithIssuerLookup(ALookup, ARule)` on the client or
 server config builder resolves the issuers of a peer chain on demand, during each verification, from an
@@ -556,13 +561,19 @@ the looked-up anchors for that connection and completes the chain with the looke
   intermediates separately, and `ARule` (default `SelfSignedOnly`) decides which of the anchors are
   trusted, as for a bundle. The verifier checks what it returns like any other chain material.
 - One lookup serves every connection built over the config, so it must be thread-safe, and its
-  `Identity` must change whenever its answers can.
+  `Identity` changes whenever its source does.
+- The lookup is asked for the issuer name of each certificate the peer sent, and for the issuer of each
+  intermediate it found or that the config holds and the walk reaches, down to the path-building depth,
+  once per name; a live revocation re-check and a resumed client's re-verification ask again.
 - A client with a lookup defaults to `WithResumeVerification(Reverify)`, since what the lookup trusts
   changes between connections; `Build` refuses that default when it cannot work (a `Hard` posture
   without `WithLiveRevocationVerdict`, or early data beside an asynchronous verdict). A server cannot
-  re-verify a resumed client, so `fcl-net` puts each directory's modification time into the lookup
-  identity: adding or removing a file invalidates the tickets issued before, rewriting one in place
-  does not.
+  re-verify a resumed client. A server composed from `TTlsOptions` (the adapters) scopes its tickets by
+  the lookup `Identity`, which `fcl-net` derives from each directory's entries (name, size, time):
+  adding, removing or rewriting a file invalidates the tickets issued before. A server built directly
+  with `WithIssuerLookup` does not read `Identity`, so its tickets outlive a change of the lookup.
+- The live revocation re-check resolves the lookup again. For a config that does not use OS roots it
+  trusts the config's roots and the looked-up ones only, never the OS roots.
 - `Build` refuses a lookup beside a `Custom` or `DangerousSkip` policy, and on a server without
   `WithPeerAuth`.
 - fcl-net `TrustedCertsDir` is such a lookup over OpenSSL-style hashed directories (a list searches

@@ -2467,9 +2467,11 @@ end;
 const
   // ae_inter ends 2030-01-01T00:00:00Z
   UnixMillisSecondBeforeAnchorEnd = UInt64(1893455999000);
+  UnixMillisAnchorEnd = UInt64(1893456000000);
   UnixMillisSecondAfterAnchorEnd = UInt64(1893456001000);
   // chain_future_inter begins 2040-01-01T00:00:00Z
   UnixMillisSecondBeforeAnchorStart = UInt64(2208988799000);
+  UnixMillisAnchorStart = UInt64(2208988800000);
   UnixMillisSecondAfterAnchorStart = UInt64(2208988801000);
 
 function TTestAnchorValidityWindow.Verdict(const AFile, AAnchor, ALeaf: string;
@@ -2543,6 +2545,8 @@ var
 begin
   CheckTrue(Verdict('Certs/AnchorValidity.txt', 'ae_inter', 'ae_inter_leaf',
     UnixMillisSecondBeforeAnchorEnd, LAlert), 'an intermediate anchor inside its window is trusted');
+  CheckTrue(Verdict('Certs/AnchorValidity.txt', 'ae_inter', 'ae_inter_leaf',
+    UnixMillisAnchorEnd, LAlert), 'it is still trusted at the instant its notAfter names');
 end;
 
 procedure TTestAnchorValidityWindow.TestIntermediateAnchorIsRefusedFromTheSecondAfterItsEnd;
@@ -2572,6 +2576,8 @@ var
 begin
   CheckTrue(Verdict('Certs/ChainFailures.txt', 'chain_future_inter', 'chain_future_leaf',
     UnixMillisSecondAfterAnchorStart, LAlert), 'the anchor is trusted once its window opens');
+  CheckTrue(Verdict('Certs/ChainFailures.txt', 'chain_future_inter', 'chain_future_leaf',
+    UnixMillisAnchorStart, LAlert), 'and at the instant its notBefore names');
 end;
 
 procedure TTestAnchorValidityWindow.TestExpiredSelfSignedRootStaysTrusted;

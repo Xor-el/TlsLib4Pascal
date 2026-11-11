@@ -40,6 +40,7 @@ uses
   TlpTrustAnchorStore,
   TlpTrustTypes,
   TlpIIssuerLookup,
+  TlpIssuerLookupVerifierSource,
   TlpServerName,
   TlpTrustPolicy,
   TlpCertificateLimits,
@@ -236,6 +237,9 @@ type
       ARule: TBundleAnchorRule): TTlsOptions;
     function Holds(const AList: TArray<TBytes>; const AItem: TBytes): Boolean;
     function LeafVerdict(const AConfig: ITlsClientConfig; out AAlert: TTlsAlertDescription): Boolean;
+    // the leaf-only chain judged through the config's verifier source under its issuer lookup
+    function LookedUpLeafVerdict(const AConfig: ITlsClientConfig;
+      out AAlert: TTlsAlertDescription): Boolean;
     function ClientConflicts(const AOpts: TTlsOptions): Boolean;
     function ServerConflicts(const AOpts: TTlsOptions): Boolean;
     function ClientSignatureRaises(const AOpts: TTlsOptions): Boolean;
@@ -272,6 +276,8 @@ type
     procedure TestSelfSignedOnlyBundleWithRootAndIntermediateVerifiesALeafOnlyChain;
     procedure TestAnyCertificateAnchorsABundleIntermediate;
     procedure TestAnyCertificateBundleIntermediateVerifiesALeafUnderIt;
+    procedure TestSelfSignedOnlyBundleOfOnlyAnIntermediateBesideALookupBuildsAndVerifies;
+    procedure TestSelfSignedOnlyClientCaOfOnlyAnIntermediateBesideALookupBuildsAndVerifies;
     procedure TestSelfSignedOnlyBundleOfOnlyAnIntermediateLeavesNoTrustSource;
     procedure TestSelfSignedOnlyClientCaOfOnlyAnIntermediateLeavesNoClientTrustSource;
     procedure TestSelfSignedOnlyKeepsTheClientCaIntermediateOutOfTheServerAnchorStore;
@@ -2887,6 +2893,29 @@ begin
     TArray<TBytes>.Create(FLeaf), TServerName.DnsName('localhost'), nil, LVerified, AAlert);
 end;
 
+function TTestComposerIssuerLookup.LookedUpLeafVerdict(const AConfig: ITlsClientConfig;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LTrust: TServerTrustContext;
+  LSource: IServerCertificateVerifierSource;
+  LVerified: TVerifiedChain;
+begin
+  LTrust := Default(TServerTrustContext);
+  LTrust.Pkix := Pkix;
+  LTrust.Clock := TSystemClock.Create;
+  LTrust.TrustStore := AConfig.TrustStore;
+  LTrust.Intermediates := AConfig.IntermediateCertificates;
+  LTrust.CheckHostName := True;
+  LTrust.ChainLimits := TCertificateChainLimits.Defaults;
+  LTrust.RevocationPosture := TRevocationPosture.Soft;
+  LTrust.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  LTrust.AdvertisedSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LSource := TIssuerLookupServerVerifierSource.Create(AConfig.ServerVerifierSource,
+    AConfig.IssuerLookup, AConfig.IssuerAnchorRule) as IServerCertificateVerifierSource;
+  Result := LSource.CreateServerVerifier(LTrust).VerifyServerCertificate(
+    TArray<TBytes>.Create(FLeaf), TServerName.DnsName('localhost'), nil, LVerified, AAlert);
+end;
+
 function TTestComposerIssuerLookup.ClientConflicts(const AOpts: TTlsOptions): Boolean;
 var
   LOpts: TTlsOptions;
@@ -3223,6 +3252,49 @@ begin
   CheckTrue(LeafVerdict(TTlsConfigComposer.BuildClientConfig(BundleOptions(
     TArray<TBytes>.Create(FIssuer), TBundleAnchorRule.AnyCertificate)), LAlert),
     'the intermediate is the trust point');
+end;
+
+procedure TTestComposerIssuerLookup.TestSelfSignedOnlyBundleOfOnlyAnIntermediateBesideALookupBuildsAndVerifies;
+var
+  LOpts: TTlsOptions;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the lookup does not count as a trust source for the no-root guard
+  FLookup.Offer(Pkix.Certificates.Parse(FRoot).SubjectName, TArray<TBytes>.Create(FRoot), nil);
+  LOpts := BundleOptions(TArray<TBytes>.Create(FIssuer), TBundleAnchorRule.SelfSignedOnly);
+  LOpts.IssuerLookup := FLookupRef;
+  CheckTrue(LookedUpLeafVerdict(TTlsConfigComposer.BuildClientConfig(LOpts), LAlert),
+    'the lookup supplies the root the bundle lacks');
+end;
+
+procedure TTestComposerIssuerLookup.TestSelfSignedOnlyClientCaOfOnlyAnIntermediateBesideALookupBuildsAndVerifies;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsServerConfig;
+  LSource: IClientCertificateVerifierSource;
+  LTrust: TClientTrustContext;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the lookup does not count as a trust source for the no-root guard
+  FLookup.Offer(Pkix.Certificates.Parse(FRoot).SubjectName, TArray<TBytes>.Create(FRoot), nil);
+  LOpts := BundleServerOptions(TArray<TBytes>.Create(FIssuer), TBundleAnchorRule.SelfSignedOnly);
+  LOpts.IssuerLookup := FLookupRef;
+  LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
+  LTrust := Default(TClientTrustContext);
+  LTrust.Pkix := Pkix;
+  LTrust.Clock := TSystemClock.Create;
+  LTrust.TrustStore := LConfig.TrustStore;
+  LTrust.Intermediates := LConfig.IntermediateCertificates;
+  LTrust.ChainLimits := TCertificateChainLimits.Defaults;
+  LTrust.RevocationPosture := TRevocationPosture.Soft;
+  LTrust.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  LTrust.AdvertisedSignatureSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LSource := TIssuerLookupClientVerifierSource.Create(LConfig.ClientVerifierSource,
+    LConfig.IssuerLookup, LConfig.IssuerAnchorRule) as IClientCertificateVerifierSource;
+  CheckTrue(LSource.CreateClientVerifier(LTrust).VerifyClientCertificate(
+    TArray<TBytes>.Create(FLeaf), LVerified, LAlert),
+    'the lookup supplies the client root the bundle lacks');
 end;
 
 procedure TTestComposerIssuerLookup.TestSelfSignedOnlyBundleOfOnlyAnIntermediateLeavesNoTrustSource;

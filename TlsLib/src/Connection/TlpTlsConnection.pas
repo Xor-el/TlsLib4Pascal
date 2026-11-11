@@ -655,6 +655,10 @@ begin
         TArrayUtilities.Append<ITrustAnchorStore>(LStores,
           TTrustAnchorStore.Create(LAnchors) as ITrustAnchorStore);
       except
+        on EOutOfMemory do
+          raise;
+        on EExternal do
+          raise;
         on E: Exception do
         begin
           if AOptions.TrustAnchors[LI].FileName <> '' then

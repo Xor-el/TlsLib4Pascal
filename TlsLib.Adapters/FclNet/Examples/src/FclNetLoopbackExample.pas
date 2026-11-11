@@ -454,10 +454,14 @@ type
     /// <summary>A link is followed, and one with nothing at its end is skipped; a file system
     /// without links has nothing to check.</summary>
     class procedure RunLinks(const ABase, ARootHex: string); static;
+    /// <summary>A file the process may not read is skipped; checked where the file system keeps
+    /// modes and the process is not privileged.</summary>
+    class procedure RunPermissions(const ABase, ARootHex, ALookalikeHex: string); static;
     /// <summary>A directory anchors only the self-signed certificates it holds, unless the bundle
     /// rule says every certificate.</summary>
     class procedure RunIssuers(const ABase: string); static;
-    /// <summary>The lookup's identity names the directories and their modification times.</summary>
+    /// <summary>The lookup's identity names the directories and what they hold, from an absolute
+    /// path.</summary>
     class procedure RunIdentity(const ABase: string); static;
   public
     /// <summary>TrustedCertsDir trusts exactly the certificates a hashed certificate directory
@@ -2509,6 +2513,36 @@ begin
   end;
   ExpectEquals('a root after a file that cannot be opened', 'verify', LEcho, LError);
 
+  // nor does a PEM block whose body is not base64, whatever the decoder raises for it
+  LDir := NewDir(ABase, 'skipbadbody');
+  TVectorLocator.WriteDerTo(LDir + LRootName + '.0', TDataEncoding.HexEncode(
+    TEncoding.ASCII.GetBytes('-----BEGIN CERTIFICATE-----' + #10 + '!!%%not base64%%!!' + #10 +
+    '-----END CERTIFICATE-----' + #10)));
+  TVectorLocator.WritePemTo(LDir + LRootName + '.1', 'CERTIFICATE', [ARootHex]);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a PEM block that is not base64', 'verify', LEcho, LError);
+end;
+
+class procedure TTrustedCertsDirCheck.RunPermissions(const ABase, ARootHex,
+  ALookalikeHex: string);
+{$IFDEF UNIX}
+var
+  LDir, LDenied, LEcho, LError: string;
+{$ENDIF}
+begin
+{$IFDEF UNIX}
+  // a file the process may not read is skipped like any file that cannot be used; root reads it anyway
+  if fpGetUid = 0 then
+    Exit;
+  LDir := NewDir(ABase, 'skipdenied');
+  LDenied := LDir + PathDelim + RootHash + '.0';
+  TVectorLocator.WritePemTo(LDenied, 'CERTIFICATE', [ALookalikeHex]);
+  TVectorLocator.WritePemTo(LDir + PathDelim + RootHash + '.1', 'CERTIFICATE', [ARootHex]);
+  if fpChmod(PChar(LDenied), 0) <> 0 then
+    raise Exception.Create('cannot change the mode of ' + LDenied);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a file that may not be read', 'verify', LEcho, LError);
+{$ENDIF}
 end;
 
 class procedure TTrustedCertsDirCheck.RunLinks(const ABase, ARootHex: string);
@@ -2593,8 +2627,8 @@ end;
 class procedure TTrustedCertsDirCheck.RunIdentity(const ABase: string);
 var
   LCrypto: ICryptoProvider;
-  LLookup, LRespelled, LOther, LMissing: IIssuerLookup;
-  LDir, LUnchanged, LAbsent: string;
+  LLookup, LRespelled, LOther, LMissing, LRelativeLookup: IIssuerLookup;
+  LDir, LUnchanged, LAbsent, LExtra, LCurrent, LRelative, LBefore: string;
   LStamp, LLater: LongInt;
 begin
   LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
@@ -2627,13 +2661,43 @@ begin
   ExpectEquals('a directory with its time set back', LUnchanged, LLookup.Identity,
     'the identity holds more than the directory and its time');
 
-  // a directory that is not there keeps one identity
+  // a change inside the resolution of the file system's time still names another lookup
+  LExtra := LDir + PathDelim + 'extra';
+  TVectorLocator.WriteDerTo(LExtra, '00');
+  if FileSetDate(LDir, LStamp) <> 0 then
+    raise Exception.Create('cannot set the time of the directory ' + LDir);
+  if LLookup.Identity = LUnchanged then
+    raise Exception.Create('the identity of ' + LDir + ' ignores a file added within its time');
+  DeleteFile(LExtra);
+  if FileSetDate(LDir, LStamp) <> 0 then
+    raise Exception.Create('cannot set the time of the directory ' + LDir);
+  ExpectEquals('a directory that lost the file again', LUnchanged, LLookup.Identity,
+    'the identity holds more than the directory and its entries');
+
+  // a relative spelling keeps naming the directory it named when it was given
+  LCurrent := GetCurrentDir;
+  LRelative := ExtractRelativePath(IncludeTrailingPathDelimiter(LCurrent), LDir);
+  LRelativeLookup := TOpenSslHashedDirLookup.Create(LCrypto, LRelative) as IIssuerLookup;
+  if not SetCurrentDir(ABase) then
+    raise Exception.Create('cannot change to ' + ABase);
+  try
+    ExpectEquals('a relative directory after the working directory moved', LUnchanged,
+      LRelativeLookup.Identity, 'the identity follows the working directory');
+  finally
+    SetCurrentDir(LCurrent);
+  end;
+
+  // a directory that is not there keeps one identity until it appears
   LAbsent := ABase + PathDelim + 'identityabsent';
   LMissing := TOpenSslHashedDirLookup.Create(LCrypto, LAbsent) as IIssuerLookup;
-  ExpectEquals('a missing directory', LMissing.Identity, LMissing.Identity,
+  LBefore := LMissing.Identity;
+  ExpectEquals('a missing directory', LBefore, LMissing.Identity,
     'the identity of a missing directory moves');
-  if LMissing.Identity = LUnchanged then
+  if LBefore = LUnchanged then
     raise Exception.Create('a missing directory shares the identity of one that is there');
+  NewDir(ABase, 'identityabsent');
+  if LMissing.Identity = LBefore then
+    raise Exception.Create('a directory that appeared keeps the identity it had when missing');
 end;
 
 class procedure TTrustedCertsDirCheck.Run;
@@ -2706,7 +2770,7 @@ begin
         ExpectEquals('a root in an uppercase name the file system folds', 'verify', LEcho, LError)
       else
         ExpectRefused('a root in an uppercase name the file system keeps apart', LEcho, LError,
-          UNTRUSTED_CHAIN);
+          NO_HASHED_FILES);
       LServer.WaitSettled;
 
       // a name the file system does not fold ends the numbers, as a missing file does
@@ -2719,7 +2783,7 @@ begin
           LError)
       else
         ExpectRefused('a root after an uppercase name the file system keeps apart', LEcho,
-          LError, UNTRUSTED_CHAIN);
+          LError, NO_HASHED_FILES);
       LServer.WaitSettled;
 
       // every number of a prefix is probed, not only the first
@@ -2871,6 +2935,7 @@ begin
       RunNaming(LBase, LRootHex, LOtherHex, LServer);
       RunSkipped(LBase, LRootHex, LookalikeRootHex);
       RunLinks(LBase, LRootHex);
+      RunPermissions(LBase, LRootHex, LookalikeRootHex);
     finally
       LServer.Terminate;
       LServer.Free;

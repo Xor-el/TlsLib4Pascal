@@ -149,6 +149,8 @@ type
     procedure TestTheWalkStopsAtThePathBuildingDepth;
     procedure TestAnIntermediateThePeerSentIsNotFoundAgain;
     procedure TestAConfiguredIntermediateIsNotFoundAgain;
+    procedure TestAConfiguredIntermediateOffTheChainIsNotWalked;
+    procedure TestAConfiguredIntermediateOnTheChainLeadsToALookedUpRoot;
     procedure TestAnAnswerWhoseNameCannotBeComparedIsIgnored;
     procedure TestServerDecoratorSurfacesTheInnerRefusalAtCreation;
     procedure TestClientDecoratorSurfacesTheInnerRefusalAtCreation;
@@ -1036,6 +1038,34 @@ begin
   LContext.Intermediates := TArray<TBytes>.Create(FIssuer);
   ServerVerdict(ServerVerifier(FCaptureRef, LContext), TArray<TBytes>.Create(FLeaf), LAlert);
   CheckEquals(1, System.Length(FCapture.Intermediates), 'the configured issuer, once');
+end;
+
+procedure TTestIssuerLookup.TestAConfiguredIntermediateOffTheChainIsNotWalked;
+var
+  LContext: TServerTrustContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LContext := ServerContext(FUnrelated);
+  LContext.Intermediates := TArray<TBytes>.Create(FIssuer);
+  ServerVerdict(ServerVerifier(TBuiltInServerVerifierSource.Create
+    as IServerCertificateVerifierSource, LContext),
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(EcFile, 'leaf_cert')), LAlert);
+  CheckEquals(1, System.Length(FLookup.Asked), 'only the leaf''s issuer is asked');
+  CheckEquals(0, FLookup.TimesAsked(FRootName), 'the issuer of an unrelated intermediate is not');
+end;
+
+procedure TTestIssuerLookup.TestAConfiguredIntermediateOnTheChainLeadsToALookedUpRoot;
+var
+  LContext: TServerTrustContext;
+  LAlert: TTlsAlertDescription;
+begin
+  FLookup.Offer(FRootName, TArray<TBytes>.Create(FRoot), nil);
+  LContext := ServerContext(FUnrelated);
+  LContext.Intermediates := TArray<TBytes>.Create(FIssuer);
+  CheckTrue(ServerVerdict(ServerVerifier(TBuiltInServerVerifierSource.Create
+    as IServerCertificateVerifierSource, LContext), TArray<TBytes>.Create(FLeaf), LAlert),
+    'leaf, configured intermediate, looked-up root');
+  CheckEquals(1, FLookup.TimesAsked(FRootName), 'the configured intermediate''s issuer was asked');
 end;
 
 procedure TTestIssuerLookup.TestAnAnswerWhoseNameCannotBeComparedIsIgnored;

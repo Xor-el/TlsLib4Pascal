@@ -31,9 +31,9 @@ uses
 type
   /// <summary>
   /// Resolves, for one verification, the issuers a peer's chain names from an issuer lookup. Data
-  /// in, verdict out: given the presented chain and the operator's intermediates it asks the lookup
-  /// for each distinct issuer name once, then for the issuers of the intermediates it found, down
-  /// to the path-building depth. Only a certificate the lookup returns under the asked name is
+  /// in, verdict out: given the presented chain it asks the lookup for each distinct issuer name
+  /// once, then for the issuers of the intermediates it found and of the operator's intermediates
+  /// whose subject it asked about, down to the path-building depth. Only a certificate the lookup returns under the asked name is
   /// used. A certificate the lookup offers as an anchor, whose key meets the anchor floors and
   /// that is self-signed (or of any kind, under AnyCertificate), becomes an anchor; every other
   /// certificate is chain material only. The result is the base store with the anchors layered
@@ -48,6 +48,8 @@ type
       Rule: TBundleAnchorRule;
       // the presented chain and the configured intermediates, which the verifier already holds
       Held: TArray<TBytes>;
+      // the operator's intermediates, whose issuers are asked only once the walk reaches their subject
+      Configured: TArray<TBytes>;
       Asked: TArray<TBytes>;
       Pending: TArray<TBytes>;
       Anchors: TArray<TBytes>;
@@ -58,6 +60,8 @@ type
     /// <summary>Queues the issuer name of ACertDer unless it has been queued already; a certificate
     /// that does not parse names none.</summary>
     class procedure QueueIssuerOf(var AWalk: TWalk; const ACertDer: TBytes); static;
+    /// <summary>Queues the issuer name of each configured intermediate whose subject is AName.</summary>
+    class procedure QueueConfiguredIssuersOf(var AWalk: TWalk; const AName: TBytes); static;
     /// <summary>Takes the certificates of ABlobs that carry AName as their subject: an anchor when
     /// AClaimsAnchor, the rule admits it and its key is above the floors, chain material
     /// otherwise.</summary>
@@ -104,6 +108,25 @@ begin
     Exit;
   TArrayUtilities.Append<TBytes>(AWalk.Asked, LIssuer);
   TArrayUtilities.Append<TBytes>(AWalk.Pending, LIssuer);
+end;
+
+class procedure TIssuerResolution.QueueConfiguredIssuersOf(var AWalk: TWalk;
+  const AName: TBytes);
+var
+  LSubject: TBytes;
+  LI: Int32;
+begin
+  for LI := 0 to System.High(AWalk.Configured) do
+  begin
+    try
+      LSubject := AWalk.Inspector.Parse(AWalk.Configured[LI]).SubjectName;
+    except
+      on Exception do
+        Continue;
+    end;
+    if AWalk.Inspector.SameName(LSubject, AName) = TCertAnswer.Yes then
+      QueueIssuerOf(AWalk, AWalk.Configured[LI]);
+  end;
 end;
 
 class procedure TIssuerResolution.Admit(var AWalk: TWalk; const ABlobs: TArray<TBytes>;
@@ -167,10 +190,9 @@ begin
   LWalk.Policy := APolicy;
   LWalk.Rule := ARule;
   LWalk.Held := TArrayUtilities.Concat<TBytes>(AChain, AIntermediates);
+  LWalk.Configured := AIntermediates;
   for LI := 0 to System.High(AChain) do
     QueueIssuerOf(LWalk, AChain[LI]);
-  for LI := 0 to System.High(AIntermediates) do
-    QueueIssuerOf(LWalk, AIntermediates[LI]);
   // one level per intermediate a built path may hold, plus the level that reaches its anchor
   LDepth := 0;
   while (System.Length(LWalk.Pending) > 0) and (LDepth <= TPathBuildLimits.MaxBuiltPathLength) do
@@ -179,6 +201,7 @@ begin
     LWalk.Pending := nil;
     for LI := 0 to System.High(LNames) do
     begin
+      QueueConfiguredIssuersOf(LWalk, LNames[LI]);
       LAnswer := Default(TLookedUpIssuers);
       try
         LAnswer := ALookup.IssuersNamed(LNames[LI]);

@@ -83,6 +83,8 @@ type
     IssuerLookup: IIssuerLookup;
     IssuerRule: TBundleAnchorRule;
     BaseStore: ITrustAnchorStore;
+    // the config trusts its own store and lookup roots only, so a live re-check never adds the OS roots
+    RootsExclusive: Boolean;
     class function FromServerContext(const AContext: TServerTrustContext;
       AFetch: TSystemTrustFetch): TOSDelegatePolicy; static;
     class function FromClientContext(const AContext: TClientTrustContext;
@@ -386,12 +388,14 @@ begin
   begin
     Result.Anchors := AConfig.TrustStore.RootCertificates;
     Result.Distrusted := AConfig.TrustStore.DistrustedCertificates;
+    Result.RootsExclusive := True;
   end
   // the built-in source with no store is a PSK-only or skip-verify config unless a lookup is its roots
   else if ARootsOf is TBuiltInServerVerifierSource then
   begin
     if AConfig.IssuerLookup = nil then
       raise EArgumentTlsLibException.CreateRes(@SLiveNeedsServerVerification);
+    Result.RootsExclusive := True;
   end
   // a wrapped source would be re-checked against the OS roots while it trusted others
   else if ARootsOf <> nil then
@@ -860,10 +864,11 @@ begin
     Exit(False);
   TIssuerResolution.Resolve(FPolicy.Pkix.Certificates, FPolicy.IssuerLookup, FPolicy.IssuerRule,
     FPolicy.StrengthPolicy, FPolicy.BaseStore, AChain, FPolicy.Intermediates, LStore, LFound);
-  if FExpectedPeer = TPeerRole.Server then
+  if (FExpectedPeer = TPeerRole.Server) and not FPolicy.RootsExclusive then
     APolicy := TOSDelegatePolicy.WithContextRoots(FPolicy, LStore, FEngine.Capabilities)
   else
   begin
+    APolicy.ExtraAnchors := nil;
     APolicy.AnchorStore := LStore;
     APolicy.Anchors := LStore.RootCertificates;
     APolicy.Distrusted := LStore.DistrustedCertificates;
@@ -884,6 +889,12 @@ begin
   if not PolicyFor(AChain, LPolicy) then
   begin
     ARejectAlert := TTlsAlertDescription.InternalError;
+    Exit(False);
+  end;
+  // an empty exclusive set would be judged against the OS roots
+  if LPolicy.RootsExclusive and (System.Length(LPolicy.Anchors) = 0) then
+  begin
+    ARejectAlert := TTlsAlertDescription.UnknownCa;
     Exit(False);
   end;
   LRequest := Default(TPlatformChainRequest);

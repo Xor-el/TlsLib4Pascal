@@ -1059,8 +1059,7 @@ begin
   // store is immutable, so its identity finds them with no hashing; a new store object over
   // content already parsed is matched by a digest computed here (never taken from the store). The
   // parse itself runs outside the lock so concurrent cold verifies do not serialise on it.
-  // A layered store keys the ring by its base; its extras have their own cache. A base with no
-  // roots has nothing to cache, so it never takes a slot.
+  // a layered store is keyed by its base; an empty base never takes a slot
   LBase := ATrustAnchors;
   LExtraDers := nil;
   if Supports(ATrustAnchors, ILayeredTrustAnchorStore, LLayered) then

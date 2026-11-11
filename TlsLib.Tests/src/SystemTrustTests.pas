@@ -574,6 +574,9 @@ type
     procedure TestLiveResolverHandsTheEngineTheIntermediatesTheLookupFound;
     procedure TestLiveResolverIsBuiltOverALookupOnlyClientConfig;
     procedure TestLiveResolverTrustsALookedUpRootOfALookupOnlyClientConfig;
+    procedure TestLiveResolverDoesNotTrustTheOsRootsOfALookupOnlyClientConfig;
+    procedure TestLiveResolverKeepsTheOsRootsOutOfAWebPkiConfigWithAStore;
+    procedure TestLiveResolverOfALookupConfigWithoutAProviderIsInternalError;
     procedure TestLiveResolverTrustsALookedUpClientRootBesideTheClientCa;
     procedure TestLiveResolverTrustsALookedUpClientRootOfALookupOnlyServerConfig;
     procedure TestLiveResolverRefusesAClientRootTheLookupForgot;
@@ -5699,8 +5702,74 @@ begin
   LiveServerVerdict(LConfig, LEngine, Roots(LLeaf), LAlert);
   CheckEquals(1, System.Length(LMock.Requests[0].Intermediates), 'the found intermediate');
   CheckEqualBytes('it is the issuer', LIssuer, LMock.Requests[0].Intermediates[0]);
-  CheckEqualBytes('and the found root is trusted beside the OS roots', LRoot,
-    LMock.Requests[0].ExtraAnchors[0]);
+  CheckEqualBytes('and the found root is the exclusive root', LRoot, LMock.Requests[0].Anchors[0]);
+  CheckEquals(0, System.Length(LMock.Requests[0].ExtraAnchors), 'the OS roots do not join it');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverDoesNotTrustTheOsRootsOfALookupOnlyClientConfig;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the lookup-only config keeps the OS roots for the live pass
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PrivateRoot));
+  LEngine := LFake;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithIssuerLookup(FLookupRef).Build;
+  FLookup.Forget;
+  CheckFalse(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    LAlert), 'a root only the OS holds does not anchor a lookup-only config');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'unknown_ca');
+  CheckEquals(0, LFake.ServerCalls, 'an empty exclusive set never reaches the engine');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverOfALookupConfigWithoutAProviderIsInternalError;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LPolicy: TOSDelegatePolicy;
+  LResolver: TOSDelegateLiveResolver;
+  LVerdict: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil);
+  LEngine := LFake;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithIssuerLookup(FLookupRef).Build;
+  LPolicy := TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
+  LPolicy.Pkix := nil;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, nil);
+  try
+    LVerdict := Default(TCertificateVerdictContext);
+    LVerdict.PeerRole := TPeerRole.Server;
+    LVerdict.Chain := TArray<TBytes>.Create(PrivateLeaf, PrivateRoot);
+    LVerdict.HostName := 'localhost';
+    CheckFalse(LResolver.ResolveVerdict(LVerdict, LAlert), 'nothing can resolve the issuers');
+  finally
+    LResolver.Free;
+  end;
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert), 'internal_error');
+  CheckEquals(0, LFake.ServerCalls, 'the engine is never asked');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverKeepsTheOsRootsOutOfAWebPkiConfigWithAStore;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PrivateRoot));
+  LEngine := LFake;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(StoreOf(Roots(PublicRoot))).Build)
+    .WithIssuerLookup(FLookupRef).Build;
+  FLookup.Forget;
+  CheckFalse(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    LAlert), 'the static store and the forgotten lookup anchor nothing');
+  CheckEquals(1, System.Length(LFake.Requests[0].Anchors), 'the static root alone is exclusive');
+  CheckEquals(0, System.Length(LFake.Requests[0].ExtraAnchors), 'the OS roots are not an extra');
 end;
 
 procedure TTestDelegateContextRoots.TestLiveResolverTrustsALookedUpClientRootBesideTheClientCa;
