@@ -1,0 +1,100 @@
+TlsLib/src/Handshake/TlpTls12ClientStateMachine.pas
+  s_f2c9bd75607afc::t_288f66084f9aeb 1339-1341,1348
+TlsLib/src/Interfaces/Engine/TlpITlsEngineOutbound.pas
+  s_f2c9bd75607afc::t_7f923ad0ed43cf 21
+  s_f2c9bd75607afc::t_a269252287c375 1-20,22-47
+TlsLib.Interop/src/InteropPump.pas
+  s_f2c9bd75607afc::t_ea762a835f1409 338
+TlsLib/src/Handshake/TlpTls12ServerStateMachine.pas
+  s_f2c9bd75607afc::t_64b4017a78cdae 1367-1369,1371-1372
+  s_f2c9bd75607afc::t_03fb14222560b4 344-345
+TlsLib/src/Packages/Delphi/TlsLib4PascalPackage.dpk
+  s_f2c9bd75607afc::t_884d0866dc7514 75-76
+TlsLib.Tests/src/MockSink.pas
+  s_f2c9bd75607afc::t_2bc5444226fea0 28-31
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.pas
+  s_f2c9bd75607afc::t_bceeca1f0f750b 62
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_f2c9bd75607afc::t_45717f4d9fdefe 283-284
+  s_f2c9bd75607afc::t_5973a7a8e05c22 716-717
+  s_f2c9bd75607afc::t_8c7cc8cd461306 671-672
+  s_f2c9bd75607afc::t_18f74b62b2b01b 718
+  s_f2c9bd75607afc::t_948f382d92d732 680,684
+TlsLib/src/Interfaces/Engine/TlpITlsEngineInbound.pas
+  s_f2c9bd75607afc::t_52f5945784400b 1-58
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_f2c9bd75607afc::t_05590c9437b851 145-147
+  s_f2c9bd75607afc::t_3435c562e6b4fd 200-201
+  s_f2c9bd75607afc::t_1e8493050c12f0 167-168
+  s_f2c9bd75607afc::t_4653f69665545f 137-138
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_f2c9bd75607afc::t_d89256d960b6b7 89-94
+  s_f2c9bd75607afc::t_4200fb2f483834 36-37
+  s_f2c9bd75607afc::t_a3fd77a22a7b72 77-79
+  s_f2c9bd75607afc::t_5b8b6f9b50a819 457-579
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_f2c9bd75607afc::t_b9ad56f81d604f 1705-1708
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_f2c9bd75607afc::t_e458c1cd90d9fd 387-393,411-412,510,594,598-600
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_f2c9bd75607afc::t_01dcd560f102c3 31
+  s_f2c9bd75607afc::t_10565b2ba0f663 700-707
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_f2c9bd75607afc::t_6791ea22cbe3b6 456
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_f2c9bd75607afc::t_a04b24b22523bc 1844,1851
+  s_f2c9bd75607afc::t_f1e45cdddb53de 174
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_f2c9bd75607afc::t_c401710b008ec1 92
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_7755b46e7d14fe 68-69
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_f2c9bd75607afc::t_5978eb73ad5f28 1236-1237
+  s_f2c9bd75607afc::t_843a17e1f13135 33
+  s_f2c9bd75607afc::t_8edec844fc7881 130-133
+  s_f2c9bd75607afc::t_043dfe0d80aa55 1211,1213
+  s_f2c9bd75607afc::t_1eb85ecfd33578 141-254
+  s_f2c9bd75607afc::t_a952771ccdc6f4 1161,1164,1166-1168,1177-1182,1184-1210,1212,1214-1235,1238-1258
+TlsLib.Tests/src/ProviderTests.pas
+  s_f2c9bd75607afc::t_0cb2dc569570fc 101-150
+  s_f2c9bd75607afc::t_71b7c0640ce8ba 383-420
+  s_f2c9bd75607afc::t_52ff1ce0b5a595 74
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_f2c9bd75607afc::t_001d7b79c9d910 59-61
+docs/cookbook.md
+  s_f2c9bd75607afc::t_a1cecb933e4e14 443-448
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_f2c9bd75607afc::t_5d24ec5ad10133 272
+  s_f2c9bd75607afc::t_8548c4f0b70c93 763
+  s_f2c9bd75607afc::t_39e9144098ca7e 1176
+  s_f2c9bd75607afc::t_ca4fc04855472c 1086
+  s_f2c9bd75607afc::t_9f7fe798e68e02 55-56,569-570
+  s_f2c9bd75607afc::t_c5e3436e7f8974 546
+  s_f2c9bd75607afc::t_0e2a827710934c 113-114
+  s_f2c9bd75607afc::t_635f5545dcd221 545
+  s_f2c9bd75607afc::t_1eea514bb11f6a 1016-1017
+  s_f2c9bd75607afc::t_66b23b22762609 540-544,547-568
+  s_f2c9bd75607afc::t_f2b4aff80a216a 1015
+  s_f2c9bd75607afc::t_85ecfdc53ca827 35-36
+  s_f2c9bd75607afc::t_d6fc531a370099 121-122
+  s_f2c9bd75607afc::t_facd397fe3705c 1020
+  s_f2c9bd75607afc::t_4c9b2d6484ec55 112
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_1275f6a6d7c54f 89-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3e91558b0d2dcbd2adeafa1e87949f08e1674fda",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
