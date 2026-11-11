@@ -324,8 +324,6 @@ type
     function WithCertificatePinning(const APins: TArray<TBytes>): TTlsConfigBuilder;
     function WithServerVerification(const AVerification: IServerVerification): TTlsConfigBuilder;
     function WithClientVerification(const AVerification: IClientVerification): TTlsConfigBuilder;
-    function WithIssuerLookup(const ALookup: IIssuerLookup;
-      ARule: TBundleAnchorRule): TTlsConfigBuilder;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): TTlsConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -390,10 +388,6 @@ resourcestring
   SEchBackendWithKeyStore = 'a split-mode ECH backend holds no keys; WithEchBackend is mutually ' +
     'exclusive with WithEchKeyStore';
   SNilVerification = 'a verification policy must not be nil';
-  SNilIssuerLookup = 'an issuer lookup must not be nil';
-  SIssuerLookupNeedsBuiltInVerification = 'an issuer lookup resolves the issuers the built-in ' +
-    'chain verification trusts, so it cannot be combined with a Custom or DangerousSkip ' +
-    'verification policy; remove one of them';
   SNilEchMode = 'an ECH mode must not be nil';
   SEchNeedsTls13Only = 'Encrypted Client Hello with a config list needs a TLS 1.3-only client ' +
     '(RFC 9849 sec. 6.1: the inner hello never offers TLS 1.2); pin WithSupportedVersions to ' +
@@ -495,8 +489,9 @@ resourcestring
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
   SClientVerifierSourceNeedsAnchors = 'a client-certificate verifier source consumes the ' +
     'configured client-CA anchors as its exclusive trust root and can trust nothing without them; ' +
-    'give the TClientVerification.VerifierSource store at least one root certificate (a verifier ' +
-    'that brings its own roots is installed with TClientVerification.Custom instead)';
+    'give the TClientVerification.VerifierSource store at least one root certificate, or add an ' +
+    'issuer lookup (a verifier that brings its own roots is installed with ' +
+    'TClientVerification.Custom instead)';
   SClientAnchorBelowKeyFloors = 'a client-CA trust anchor''s key is below the certificate ' +
     'strength floors or cannot be read, and the strength policy holds anchors to the floors ' +
     '(AnchorKeyFloors)';
@@ -798,9 +793,6 @@ type
     function WithServerNameIndication(AMode: TServerNameIndication): ITlsClientConfigBuilder;
     function WithOcspStaplingRequest(AEnabled: Boolean): ITlsClientConfigBuilder;
     function WithServerVerification(const AVerification: IServerVerification): ITlsClientConfigBuilder;
-    function WithIssuerLookup(const ALookup: IIssuerLookup): ITlsClientConfigBuilder; overload;
-    function WithIssuerLookup(const ALookup: IIssuerLookup;
-      ARule: TBundleAnchorRule): ITlsClientConfigBuilder; overload;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsClientConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -845,9 +837,6 @@ type
     function WithCertificatePinning(
       const APins: TArray<TBytes>): ITlsServerConfigBuilder;
     function WithClientVerification(const AVerification: IClientVerification): ITlsServerConfigBuilder;
-    function WithIssuerLookup(const ALookup: IIssuerLookup): ITlsServerConfigBuilder; overload;
-    function WithIssuerLookup(const ALookup: IIssuerLookup;
-      ARule: TBundleAnchorRule): ITlsServerConfigBuilder; overload;
     function WithCertificateVerifyCallback(
       const ACallback: TTlsCertificateVerifyCallback): ITlsServerConfigBuilder;
     function WithAsyncCertificateVerdict(
@@ -1343,20 +1332,6 @@ begin
   Result := Self;
 end;
 
-function TTlsClientConfigBuilder.WithIssuerLookup(
-  const ALookup: IIssuerLookup): ITlsClientConfigBuilder;
-begin
-  FOwner.WithIssuerLookup(ALookup, TBundleAnchorRule.SelfSignedOnly);
-  Result := Self;
-end;
-
-function TTlsClientConfigBuilder.WithIssuerLookup(const ALookup: IIssuerLookup;
-  ARule: TBundleAnchorRule): ITlsClientConfigBuilder;
-begin
-  FOwner.WithIssuerLookup(ALookup, ARule);
-  Result := Self;
-end;
-
 function TTlsClientConfigBuilder.WithAsyncCertificateVerdict(
   ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
 begin
@@ -1580,20 +1555,6 @@ function TTlsServerConfigBuilder.WithClientVerification(
   const AVerification: IClientVerification): ITlsServerConfigBuilder;
 begin
   FOwner.WithClientVerification(AVerification);
-  Result := Self;
-end;
-
-function TTlsServerConfigBuilder.WithIssuerLookup(
-  const ALookup: IIssuerLookup): ITlsServerConfigBuilder;
-begin
-  FOwner.WithIssuerLookup(ALookup, TBundleAnchorRule.SelfSignedOnly);
-  Result := Self;
-end;
-
-function TTlsServerConfigBuilder.WithIssuerLookup(const ALookup: IIssuerLookup;
-  ARule: TBundleAnchorRule): ITlsServerConfigBuilder;
-begin
-  FOwner.WithIssuerLookup(ALookup, ARule);
   Result := Self;
 end;
 
@@ -2644,17 +2605,6 @@ begin
   Result := Self;
 end;
 
-function TTlsConfigBuilder.WithIssuerLookup(const ALookup: IIssuerLookup;
-  ARule: TBundleAnchorRule): TTlsConfigBuilder;
-begin
-  GuardMutable;
-  if ALookup = nil then
-    raise EArgumentTlsLibException.CreateRes(@SNilIssuerLookup);
-  FIssuerLookup := ALookup;
-  FIssuerRule := ARule;
-  Result := Self;
-end;
-
 procedure TTlsConfigBuilder.ApplyTrustData(const AVerification: ITrustVerification);
 var
   LBlob, LCert: TBytes;
@@ -2665,6 +2615,8 @@ begin
     TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores,
       TTrustAnchorStore.Create(FPkix.Certificates.LoadChain(LBlob)) as ITrustAnchorStore);
   FComposedTrust := nil;
+  FIssuerLookup := AVerification.IssuerLookup;
+  FIssuerRule := AVerification.IssuerAnchorRule;
   FIntermediateCertificates := nil;
   for LBlob in AVerification.IntermediateData do
     for LCert in FPkix.Certificates.LoadChain(LBlob) do
@@ -3175,9 +3127,6 @@ begin
       FServerVerifierSource := FServerVerification.Source;
   end;
   ValidateAnchorRoots;
-  if (FIssuerLookup <> nil) and
-    ((FServerCertVerifier <> nil) or FDangerousTrust.InsecureSkipVerify) then
-    raise EInvalidOperationTlsLibException.CreateRes(@SIssuerLookupNeedsBuiltInVerification);
   // a client authenticates the server by its certificate (anchor ROOTS, an issuer lookup, a
   // whole-verifier, or a verifier source), by an out-of-band external PSK (RFC 9258), or by
   // explicitly skipping verification (the loud dangerous toggle); at least one is required (no
@@ -3379,9 +3328,6 @@ begin
       FClientVerifierSource := FClientVerification.Source;
   end;
   ValidateAnchorRoots;
-  if (FIssuerLookup <> nil) and
-    ((FClientCertVerifier <> nil) or FDangerousTrust.InsecureSkipVerify) then
-    raise EInvalidOperationTlsLibException.CreateRes(@SIssuerLookupNeedsBuiltInVerification);
   // external PSKs are TLS 1.3-only (RFC 9258): a server that accepts them without offering 1.3
   // could never use one, and would otherwise fail every connection that presents one
   if (System.Length(FExternalPsks) > 0) and

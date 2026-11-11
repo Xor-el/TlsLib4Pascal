@@ -3469,8 +3469,8 @@ begin
   LPolicy := StrictPolicy;
   LReport := LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
     TServerVerification.VerifierSource(TFakeOsVerifierSources.Server)
-    .WithMinimumStrength(LPolicy.Rules.Strength).Build)
-    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup).Build);
+    .WithMinimumStrength(LPolicy.Rules.Strength)
+    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup).Build).Build);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.CustomVerifierConfigured),
     'a lookup does not turn the OS source into a custom one');
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
@@ -3488,8 +3488,8 @@ begin
     'control: no lookup');
   CheckTrue(Disclosed(LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
     TServerVerification.VerifierSource(TFakeOsVerifierSources.Server)
-    .WithMinimumStrength(LPolicy.Rules.Strength).Build)
-    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup).Build),
+    .WithMinimumStrength(LPolicy.Rules.Strength)
+    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup).Build).Build),
     'host-supplied lookup'), 'what a lookup answers with is not inspected');
 end;
 
@@ -3498,8 +3498,10 @@ var
   LPolicy: ICompliancePolicy;
 begin
   LPolicy := StrictPolicy;
-  CheckTrue(Disclosed(LPolicy.Evaluate(MtlsServerBuilder(LPolicy, TRevocationPosture.Soft)
-    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup).Build),
+  CheckTrue(Disclosed(LPolicy.Evaluate(TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
+    TClientAuthMode.Required, TClientVerification.VerifierSource(TFakeOsVerifierSources.Client,
+    TTlsLibTestCertificates.EcP256RootStore)
+    .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup)).Build),
     'host-supplied lookup'), 'a lookup of client issuers is disclosed too');
   CheckFalse(Disclosed(LPolicy.Evaluate(ServerBuilder(LPolicy).Build), 'host-supplied lookup'),
     'a server that verifies no client chain has none');

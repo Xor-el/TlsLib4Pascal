@@ -177,10 +177,12 @@ type
     /// verify is chain material; each one costs a signature check when the config is built.</summary>
     class function HostAnchorStore(const AOptions: TTlsOptions; const APkix: IPkixProvider;
       out AIntermediates: TArray<TBytes>): ITrustAnchorStore; static;
-    /// <summary>AVerification with AIntermediates added as chain material; AVerification itself
-    /// when there are none or it is neither a WebPki nor a VerifierSource policy.</summary>
+    /// <summary>AVerification with AIntermediates added as chain material and ALookup (when not
+    /// nil) as its issuer lookup; AVerification itself when there is neither or it is neither a
+    /// WebPki nor a VerifierSource policy.</summary>
     class function ServerVerificationWith(const AVerification: IServerVerification;
-      const AIntermediates: TArray<TBytes>): IServerVerification; static;
+      const AIntermediates: TArray<TBytes>; const ALookup: IIssuerLookup;
+      ARule: TBundleAnchorRule): IServerVerification; static;
     class function HasTrustAnchor(const AOptions: TTlsOptions): Boolean; static;
     class function HasClientTrustSource(const AOptions: TTlsOptions): Boolean; static;
     class function HasClientAuthTrustSource(const AOptions: TTlsOptions): Boolean; static;
@@ -403,6 +405,11 @@ resourcestring
   SVerifierWithHostTrust =
     'a whole certificate verifier replaces the trust sources, so it cannot be combined with ' +
     'anchors, a custom trust store or system trust; remove one of them (%s)';
+  SLookupBesideWholeVerifier =
+    'an issuer lookup resolves the issuers of the built-in chain verification, so it cannot be ' +
+    'combined with a system trust that supplies a whole verifier or skips verification';
+  SLookupTwice =
+    'the system trust already carries an issuer lookup, so another one cannot be added';
   SSystemTrustWithHostAnchors =
     'system trust with the host-supplied anchors or custom trust store could not be set up; ' +
     'use either system trust or the host trust sources (%s): %s';
@@ -678,12 +685,19 @@ begin
 end;
 
 class function TTlsConfigComposer.ServerVerificationWith(const AVerification: IServerVerification;
-  const AIntermediates: TArray<TBytes>): IServerVerification;
+  const AIntermediates: TArray<TBytes>; const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule): IServerVerification;
 var
   LBuilder: IServerVerificationBuilder;
   LBlob: TBytes;
 begin
-  if (System.Length(AIntermediates) = 0) or
+  if (ALookup <> nil) and
+    not (AVerification.Kind in [TVerificationKind.WebPki, TVerificationKind.VerifierSource]) then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SLookupBesideWholeVerifier);
+  if (ALookup <> nil) and (AVerification.IssuerLookup <> nil) then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError, @SLookupTwice);
+  if ((System.Length(AIntermediates) = 0) and (ALookup = nil)) or
     not (AVerification.Kind in [TVerificationKind.WebPki, TVerificationKind.VerifierSource]) then
     Exit(AVerification);
   if AVerification.Kind = TVerificationKind.WebPki then
@@ -694,6 +708,10 @@ begin
     LBuilder.WithIntermediateCertificates(LBlob);
   for LBlob in AIntermediates do
     LBuilder.WithIntermediateCertificates(LBlob);
+  if ALookup <> nil then
+    LBuilder.WithIssuerLookup(ALookup, ARule)
+  else if AVerification.IssuerLookup <> nil then
+    LBuilder.WithIssuerLookup(AVerification.IssuerLookup, AVerification.IssuerAnchorRule);
   Result := LBuilder.WithMinimumStrength(AVerification.StrengthPolicy)
     .WithRevocation(AVerification.RevocationPosture).Build;
 end;
@@ -799,7 +817,8 @@ begin
   begin
     try
       LClient.WithServerVerification(ServerVerificationWith(
-        AOptions.SystemTrust.ServerVerification(LPkix, LHostRoots), LHostIntermediates));
+        AOptions.SystemTrust.ServerVerification(LPkix, LHostRoots), LHostIntermediates,
+        AOptions.IssuerLookup, AOptions.BundleAnchors));
     except
       // name the host roots in the failure so it is not mistaken for a platform fault
       on E: EBaseTlsLibException do
@@ -818,14 +837,15 @@ begin
       raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
         @STrustAnchorsHoldNoRoot, [AOptions.TrustSourceHint]);
     LClient.WithServerVerification(ServerVerificationWith(
-      TServerVerification.WebPki(LHostRoots).Build, LHostIntermediates));
+      TServerVerification.WebPki(LHostRoots).Build, LHostIntermediates,
+      AOptions.IssuerLookup, AOptions.BundleAnchors));
   end
-  else if AOptions.IssuerLookup = nil then
+  else if AOptions.IssuerLookup <> nil then
+    LClient.WithServerVerification(TServerVerification.WebPki(AOptions.IssuerLookup,
+      AOptions.BundleAnchors).Build)
+  else
     raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
       @SNoClientTrust, [AOptions.TrustSourceHint]);
-  if (AOptions.IssuerLookup <> nil) and AOptions.VerifyPeer and
-    (not AOptions.InsecureSkipVerify) then
-    LClient.WithIssuerLookup(AOptions.IssuerLookup, AOptions.BundleAnchors);
   if not AOptions.CheckHostName then
     LClient.WithDangerousDisableServerNameCheck;
   LClient.WithServerNameIndication(AOptions.ServerNameIndication);
@@ -938,10 +958,13 @@ begin
       LClientTrust := TClientVerification.WebPki(LHostRoots);
       for LBlob in LHostIntermediates do
         LClientTrust.WithIntermediateCertificates(LBlob);
+      if AOptions.IssuerLookup <> nil then
+        LClientTrust.WithIssuerLookup(AOptions.IssuerLookup, AOptions.BundleAnchors);
       LServer.WithClientVerification(LClientTrust.Build);
-    end;
-    if AOptions.IssuerLookup <> nil then
-      LServer.WithIssuerLookup(AOptions.IssuerLookup, AOptions.BundleAnchors);
+    end
+    else if AOptions.IssuerLookup <> nil then
+      LServer.WithClientVerification(TClientVerification.WebPki(AOptions.IssuerLookup,
+        AOptions.BundleAnchors).Build);
     // the augment-only hook vets a presented client chain too, so an operator's allow-list runs
     if Assigned(AOptions.VerifyCallback) then
       LServer.WithCertificateVerifyCallback(AOptions.VerifyCallback);

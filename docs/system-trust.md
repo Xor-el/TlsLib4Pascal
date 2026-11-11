@@ -505,10 +505,12 @@ A verification policy is one choice, and the anchors are arguments of the factor
 - **`WebPki`** — the built-in pipeline over the anchors you give it (stores and PEM/DER blobs
   **union** into one root set). System trust in Anchors mode joins this as a `WebPki` over the
   harvested OS roots plus yours, or yours alone (`TSystemTrust.ServerVerification`, client only:
-  system trust is server-cert trust, never a server's client-CA).
+  system trust is server-cert trust, never a server's client-CA). `WebPki(ALookup)` makes an
+  [issuer lookup](#bundle-anchors-and-issuer-lookup) the only trust source.
 - **`VerifierSource`** — a source that owns its roots (the OS delegate: the `Delegate` mode, the
   default on Windows, macOS, iOS and Android). The pipeline knobs (revocation, intermediates, minimum
-  strength) still apply. Host roots reach it as a factory argument and are applied as described in
+  strength) still apply, and so does an issuer lookup. Host roots reach it as a factory argument and
+  are applied as described in
   [OS and host roots](#os-and-host-roots) or
   [Host roots alone](#host-roots-alone-a-private-pki).
 - **`Custom`** — a whole verifier instance (below). It **replaces** the built-in pipeline, so it
@@ -550,11 +552,14 @@ cannot steer the path the OS builds: it applies the rule as a post-check on the 
 so an expired root the provider cannot verify fails the same way, and a path the OS builds through an
 expired copy is refused even if a valid copy exists.
 
-**Issuer lookup.** `WithIssuerLookup(ALookup)` or `WithIssuerLookup(ALookup, ARule)` on the client or
-server config builder resolves the issuers of a peer chain on demand, during each verification, from an
-`IIssuerLookup` instead of loading a large trust source up front. It works beside the roots of the
-verification policy, or alone as the trust source, and with OS system trust: an OS delegate then trusts
-the looked-up anchors for that connection and completes the chain with the looked-up intermediates.
+**Issuer lookup.** `WithIssuerLookup(ALookup)` or `WithIssuerLookup(ALookup, ARule)` on the verification
+builder (`IServerVerificationBuilder` / `IClientVerificationBuilder`) resolves the issuers of a peer chain
+on demand, during each verification, from an `IIssuerLookup` instead of loading a large trust source up
+front. It works beside the roots of a `WebPki` policy, with a `VerifierSource` policy and with OS system
+trust (an OS delegate then trusts the looked-up anchors for that connection and completes the chain with
+the looked-up intermediates), or alone: `WebPki(ALookup)` and `WebPki(ALookup, ARule)` make the lookup the
+trust source, with the revocation posture, strength floors and intermediates still settable. A `Custom` or
+`DangerousSkip` policy has no builder, so it cannot take a lookup.
 
 - The lookup is asked for the certificates carrying a given subject name; it returns anchors and
   intermediates separately, and `ARule` (default `SelfSignedOnly`) decides which of the anchors are
@@ -567,13 +572,15 @@ the looked-up anchors for that connection and completes the chain with the looke
 - A client with a lookup defaults to `WithResumeVerification(Reverify)`, since what the lookup trusts
   changes between connections; `Build` refuses that default when it cannot work (a `Hard` posture
   without `WithLiveRevocationVerdict`, or early data beside an asynchronous verdict). A server cannot
-  re-verify a resumed client. A server composed from `TTlsOptions` (the adapters) scopes its tickets by
+  re-verify a resumed client. A server composed from `TTlsOptions` scopes its tickets by
   the lookup `Identity`, so a change of the lookup invalidates the tickets issued before. A server built
-  directly with `WithIssuerLookup` does not read `Identity`, so its tickets outlive a change of the lookup.
+  directly with a lookup in its client verification does not read `Identity`, so its tickets outlive a change
+  of the lookup.
 - The live revocation re-check resolves the lookup again. For a config that does not use OS roots it
   trusts the config's roots and the looked-up ones only, never the OS roots.
-- `Build` refuses a lookup beside a `Custom` or `DangerousSkip` policy, and on a server without
-  `WithPeerAuth`.
+- `Build` refuses a server whose client verification carries a lookup but which has no `WithPeerAuth`.
+- `TSystemTrust.WithLiveSystemTrust` has overloads that take the lookup (and the rule) beside the live OS
+  verifier.
 
 Compliance: the issuers a lookup returns are verified like any other chain material, but the lookup
 itself is host code, so the compliance report discloses it (see [compliance.md](compliance.md)).
@@ -584,7 +591,7 @@ itself is host code, so the compliance report discloses it (see [compliance.md](
 
 Consistent with the library's fail-closed stance, **you must ask for system trust** — it is never a
 silent default. A client builder with verification on but no trust source named (no anchors, no
-system trust, no verifier) is **refused at `Build`**, not quietly pointed at the OS store. This is
+system trust, no issuer lookup, no verifier) is **refused at `Build`**, not quietly pointed at the OS store. This is
 deliberate: an implicit trust source is exactly the kind of thing that weakens security by accident.
 
 ---

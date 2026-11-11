@@ -165,10 +165,9 @@ type
     procedure TestAnyCertificateKeepsStaticDistrust;
   end;
 
-  /// <summary>The issuer lookup at config level, through the role-split config builders and the
-  /// engine factory: it is the trust source on its own, works beside any built-in or source
-  /// policy, is refused where the verification would ignore it, and makes a resuming client
-  /// re-verify.</summary>
+  /// <summary>The issuer lookup as an input of the verification policies, through the role-split
+  /// config builders and the engine factory: it is the trust source on its own, works beside any
+  /// built-in or source policy, and makes a resuming client re-verify.</summary>
   TTestIssuerLookupConfig = class(TTlsLibHandshakeTestCase)
   strict private
     FLookup: TRecordingIssuerLookup;
@@ -179,7 +178,6 @@ type
     function AuthCredential: TTlsCredential;
     function ClientBuilder: ITlsClientConfigBuilder;
     function ServerBuilder: ITlsServerConfigBuilder;
-    function ClientBuildRaises(const ABuilder: ITlsClientConfigBuilder): Boolean;
     function ServerBuildRaises(const ABuilder: ITlsServerConfigBuilder): Boolean;
     function ResumingClient: ITlsClientConfigBuilder;
     // the lookup offers an intermediate as an anchor and the server sends only the leaf under it:
@@ -197,17 +195,25 @@ type
     procedure TestClientConfigCarriesAnExplicitRule;
     procedure TestServerConfigCarriesAnExplicitRule;
     procedure TestClientConfigWithoutALookupCarriesNone;
-    procedure TestClientBuilderRefusesANilLookup;
-    procedure TestServerBuilderRefusesANilLookup;
+    procedure TestVerificationBuildersDefaultTheRuleToSelfSignedOnly;
+    procedure TestServerVerificationBuilderRefusesANilLookup;
+    procedure TestClientVerificationBuilderRefusesANilLookup;
+    procedure TestServerVerificationFactoryRefusesANilLookup;
+    procedure TestClientVerificationFactoryRefusesANilLookup;
+    procedure TestWebPkiWithNeitherRootsNorLookupIsRefusedAtBuild;
+    procedure TestALookupAloneSatisfiesTheWebPkiTrustSource;
+    procedure TestLookupOnlyServerVerificationCarriesPostureFloorsAndIntermediates;
+    procedure TestLookupOnlyClientVerificationCarriesPostureFloorsAndIntermediates;
+    procedure TestLookupOnlyClientConfigCarriesPostureAndFloors;
+    procedure TestLookupAndRootsUnionOnAHandshake;
+    procedure TestRootsAloneRefuseWhatTheLookupWouldTrust;
+    procedure TestALaterVerificationReplacesTheLookup;
+    procedure TestOneLookupServesBothRolesAndEachRoleAppliesItsOwnGuards;
     procedure TestLookupAloneIsAClientTrustSourceAndVerifiesTheServer;
     procedure TestLookupAloneIsAClientAuthTrustSourceAndVerifiesTheClient;
     procedure TestLookupBesideAClientVerifierSourceBuildsAndKeepsTheSource;
     procedure TestLookupBesideAServerVerifierSourceBuildsAndKeepsTheSource;
     procedure TestABuiltInSourceStaysBuiltInWithALookup;
-    procedure TestClientLookupWithACustomVerifierIsRefused;
-    procedure TestClientLookupWithSkippedVerificationIsRefused;
-    procedure TestServerLookupWithACustomVerifierIsRefused;
-    procedure TestServerLookupWithSkippedVerificationIsRefused;
     procedure TestServerLookupWithoutPeerAuthIsRefused;
     procedure TestServerPeerAuthWithAVerifierSourceAndNoRootsBuildsOnALookup;
     procedure TestFactoryPassesAnyCertificateToTheDecorator;
@@ -1273,17 +1279,6 @@ begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(AuthCredential);
 end;
 
-function TTestIssuerLookupConfig.ClientBuildRaises(const ABuilder: ITlsClientConfigBuilder): Boolean;
-begin
-  Result := False;
-  try
-    ABuilder.Build;
-  except
-    on EInvalidOperationTlsLibException do
-      Result := True;
-  end;
-end;
-
 function TTestIssuerLookupConfig.ServerBuildRaises(const ABuilder: ITlsServerConfigBuilder): Boolean;
 begin
   Result := False;
@@ -1313,7 +1308,8 @@ begin
     TTlsCredential.Load(Crypto, Pkix, TTlsLibTestCertificates.Field(ChainFile, 'leaf_cert'),
     TTlsLibTestCertificates.Field(ChainFile, 'leaf_key'))).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(
-    ClientBuilder.WithIssuerLookup(FLookupRef, ARule).Build, 'localhost');
+    ClientBuilder.WithServerVerification(TServerVerification.WebPki(FLookupRef, ARule).Build)
+    .Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   RunHandshake(LClient, LServer);
   Result := not (LClient.IsHandshaking or LClient.IsTerminal);
@@ -1335,7 +1331,7 @@ begin
     TTlsLibTestCertificates.Field(RenewalFile, 'leaf_cert'),
     TTlsLibTestCertificates.Field(RenewalFile, 'leaf_key'))).Build;
   LServerConfig := ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
-    .WithIssuerLookup(FLookupRef, ARule).Build;
+    .WithClientVerification(TClientVerification.WebPki(FLookupRef, ARule).Build).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   RunHandshake(LClient, LServer);
@@ -1361,8 +1357,8 @@ begin
   LMessage := '';
   try
     ResumingClient.WithOcspStaplingRequest(True).WithServerVerification(
-      TServerVerification.WebPki(FUnrelated).WithRevocation(TRevocationPosture.Hard).Build)
-      .WithIssuerLookup(FLookupRef).Build;
+      TServerVerification.WebPki(FUnrelated).WithRevocation(TRevocationPosture.Hard)
+      .WithIssuerLookup(FLookupRef).Build).Build;
   except
     on E: EInvalidOperationTlsLibException do
       LMessage := E.Message;
@@ -1381,7 +1377,8 @@ var
 begin
   LMessage := '';
   try
-    ResumingClient.WithAsyncCertificateVerdict(0).WithIssuerLookup(FLookupRef)
+    ResumingClient.WithAsyncCertificateVerdict(0)
+      .WithServerVerification(TServerVerification.WebPki(FLookupRef).Build)
       .Tls13.WithEarlyData(True).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -1399,7 +1396,8 @@ procedure TTestIssuerLookupConfig.TestClientConfigCarriesTheLookupAndTheDefaultR
 var
   LConfig: ITlsClientConfig;
 begin
-  LConfig := ClientBuilder.WithIssuerLookup(FLookupRef).Build;
+  LConfig := ClientBuilder.WithServerVerification(TServerVerification.WebPki(FLookupRef).Build)
+    .Build;
   CheckTrue(LConfig.IssuerLookup = FLookupRef, 'the lookup it was given');
   CheckEquals(Ord(TBundleAnchorRule.SelfSignedOnly), Ord(LConfig.IssuerAnchorRule),
     'only a self-signed certificate is an anchor by default');
@@ -1409,8 +1407,8 @@ procedure TTestIssuerLookupConfig.TestServerConfigCarriesTheLookupAndTheDefaultR
 var
   LConfig: ITlsServerConfig;
 begin
-  LConfig := ServerBuilder.WithPeerAuth(TClientAuthMode.Required).WithIssuerLookup(FLookupRef)
-    .Build;
+  LConfig := ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
+    .WithClientVerification(TClientVerification.WebPki(FLookupRef).Build).Build;
   CheckTrue(LConfig.IssuerLookup = FLookupRef, 'the lookup it was given');
   CheckEquals(Ord(TBundleAnchorRule.SelfSignedOnly), Ord(LConfig.IssuerAnchorRule),
     'only a self-signed certificate is an anchor by default');
@@ -1419,16 +1417,18 @@ end;
 procedure TTestIssuerLookupConfig.TestClientConfigCarriesAnExplicitRule;
 begin
   CheckEquals(Ord(TBundleAnchorRule.AnyCertificate),
-    Ord(ClientBuilder.WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build
+    Ord(ClientBuilder.WithServerVerification(TServerVerification.WebPki(FUnrelated)
+    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build).Build
     .IssuerAnchorRule), 'the rule it was given');
 end;
 
 procedure TTestIssuerLookupConfig.TestServerConfigCarriesAnExplicitRule;
 begin
   CheckEquals(Ord(TBundleAnchorRule.AnyCertificate),
-    Ord(ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
-    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build.IssuerAnchorRule),
-    'the rule it was given');
+    Ord(ServerBuilder.WithPeerAuth(TClientAuthMode.Required).WithClientVerification(
+    TClientVerification.WebPki(FUnrelated)
+    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build).Build
+    .IssuerAnchorRule), 'the rule it was given');
 end;
 
 procedure TTestIssuerLookupConfig.TestClientConfigWithoutALookupCarriesNone;
@@ -1437,13 +1437,23 @@ begin
     .Build.IssuerLookup = nil, 'none unless set');
 end;
 
-procedure TTestIssuerLookupConfig.TestClientBuilderRefusesANilLookup;
+procedure TTestIssuerLookupConfig.TestVerificationBuildersDefaultTheRuleToSelfSignedOnly;
+begin
+  CheckEquals(Ord(TBundleAnchorRule.SelfSignedOnly),
+    Ord(TServerVerification.WebPki(FUnrelated).WithIssuerLookup(FLookupRef).Build
+    .IssuerAnchorRule), 'server policy');
+  CheckEquals(Ord(TBundleAnchorRule.SelfSignedOnly),
+    Ord(TClientVerification.WebPki(FUnrelated).WithIssuerLookup(FLookupRef).Build
+    .IssuerAnchorRule), 'client policy');
+end;
+
+procedure TTestIssuerLookupConfig.TestServerVerificationBuilderRefusesANilLookup;
 var
   LRaised: Boolean;
 begin
   LRaised := False;
   try
-    ClientBuilder.WithIssuerLookup(nil);
+    TServerVerification.WebPki(FUnrelated).WithIssuerLookup(nil);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -1451,18 +1461,185 @@ begin
   CheckTrue(LRaised, 'a nil lookup is refused');
 end;
 
-procedure TTestIssuerLookupConfig.TestServerBuilderRefusesANilLookup;
+procedure TTestIssuerLookupConfig.TestClientVerificationBuilderRefusesANilLookup;
 var
   LRaised: Boolean;
 begin
   LRaised := False;
   try
-    ServerBuilder.WithIssuerLookup(nil);
+    TClientVerification.WebPki(FUnrelated).WithIssuerLookup(nil);
   except
     on EArgumentTlsLibException do
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a nil lookup is refused');
+end;
+
+procedure TTestIssuerLookupConfig.TestServerVerificationFactoryRefusesANilLookup;
+var
+  LRaised: Boolean;
+  LNone: IIssuerLookup;
+begin
+  LRaised := False;
+  LNone := nil;
+  try
+    TServerVerification.WebPki(LNone);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil lookup is refused');
+end;
+
+procedure TTestIssuerLookupConfig.TestClientVerificationFactoryRefusesANilLookup;
+var
+  LRaised: Boolean;
+  LNone: IIssuerLookup;
+begin
+  LRaised := False;
+  LNone := nil;
+  try
+    TClientVerification.WebPki(LNone, TBundleAnchorRule.AnyCertificate);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil lookup is refused');
+end;
+
+procedure TTestIssuerLookupConfig.TestWebPkiWithNeitherRootsNorLookupIsRefusedAtBuild;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TClientVerification.WebPki(TArray<ITrustAnchorStore>(nil), TArray<TBytes>(nil)).Build;
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'no roots and no lookup is no trust source');
+end;
+
+procedure TTestIssuerLookupConfig.TestALookupAloneSatisfiesTheWebPkiTrustSource;
+var
+  LServer: IServerVerification;
+  LClient: IClientVerification;
+begin
+  LServer := TServerVerification.WebPki(FLookupRef).Build;
+  LClient := TClientVerification.WebPki(FLookupRef).Build;
+  CheckEquals(0, System.Length(LServer.AnchorStores), 'no stores on the server policy');
+  CheckEquals(0, System.Length(LClient.AnchorData), 'no root blobs on the client policy');
+  CheckTrue(LServer.IssuerLookup = FLookupRef, 'the server policy carries the lookup');
+  CheckTrue(LClient.IssuerLookup = FLookupRef, 'the client policy carries the lookup');
+  CheckEquals(Ord(TVerificationKind.WebPki), Ord(LServer.Kind), 'still a WebPki policy');
+end;
+
+procedure TTestIssuerLookupConfig.TestLookupOnlyServerVerificationCarriesPostureFloorsAndIntermediates;
+var
+  LFloors: TCertificateStrengthPolicy;
+  LVerification: IServerVerification;
+begin
+  LFloors := TCertificateStrengthPolicy.Defaults;
+  LFloors.MinRsaModulusBits := 3072;
+  LVerification := TServerVerification.WebPki(FLookupRef, TBundleAnchorRule.AnyCertificate)
+    .WithRevocation(TRevocationPosture.Hard).WithMinimumStrength(LFloors)
+    .WithIntermediateCertificates(TTlsLibTestCertificates.Field(ChainFile, 'issuer_cert')).Build;
+  CheckEquals(Ord(TRevocationPosture.Hard), Ord(LVerification.RevocationPosture), 'posture');
+  CheckEquals(3072, LVerification.StrengthPolicy.MinRsaModulusBits, 'floors');
+  CheckEquals(1, System.Length(LVerification.IntermediateData), 'intermediates');
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate), Ord(LVerification.IssuerAnchorRule),
+    'the rule it was given');
+end;
+
+procedure TTestIssuerLookupConfig.TestLookupOnlyClientVerificationCarriesPostureFloorsAndIntermediates;
+var
+  LFloors: TCertificateStrengthPolicy;
+  LVerification: IClientVerification;
+begin
+  LFloors := TCertificateStrengthPolicy.Defaults;
+  LFloors.MinRsaModulusBits := 3072;
+  LVerification := TClientVerification.WebPki(FLookupRef)
+    .WithRevocation(TRevocationPosture.Hard).WithMinimumStrength(LFloors)
+    .WithIntermediateCertificates(TTlsLibTestCertificates.Field(ChainFile, 'issuer_cert')).Build;
+  CheckEquals(Ord(TRevocationPosture.Hard), Ord(LVerification.RevocationPosture), 'posture');
+  CheckEquals(3072, LVerification.StrengthPolicy.MinRsaModulusBits, 'floors');
+  CheckEquals(1, System.Length(LVerification.IntermediateData), 'intermediates');
+  CheckEquals(Ord(TBundleAnchorRule.SelfSignedOnly), Ord(LVerification.IssuerAnchorRule),
+    'the default rule');
+end;
+
+procedure TTestIssuerLookupConfig.TestLookupOnlyClientConfigCarriesPostureAndFloors;
+var
+  LFloors: TCertificateStrengthPolicy;
+  LConfig: ITlsClientConfig;
+begin
+  LFloors := TCertificateStrengthPolicy.Defaults;
+  LFloors.MinRsaModulusBits := 3072;
+  LConfig := ClientBuilder.WithOcspStaplingRequest(True).WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).WithRevocation(TRevocationPosture.Hard)
+    .WithMinimumStrength(LFloors)
+    .WithIntermediateCertificates(TTlsLibTestCertificates.Field(ChainFile, 'issuer_cert'))
+    .Build).Build;
+  CheckEquals(Ord(TRevocationPosture.Hard), Ord(LConfig.RevocationPosture), 'posture');
+  CheckEquals(3072, LConfig.CertificateStrengthPolicy.MinRsaModulusBits, 'floors');
+  CheckEquals(1, System.Length(LConfig.IntermediateCertificates), 'intermediates');
+  CheckTrue(LConfig.IssuerLookup = FLookupRef, 'and the lookup');
+end;
+
+procedure TTestIssuerLookupConfig.TestLookupAndRootsUnionOnAHandshake;
+var
+  LRoot: TBytes;
+  LClient, LServer: ITlsEngine;
+begin
+  LRoot := TTlsLibTestCertificates.Field(AuthFile, 'root_cert');
+  LClient := TTlsEngineFactory.CreateClientEngine(ClientBuilder.WithServerVerification(
+    TServerVerification.WebPki(LRoot).WithIssuerLookup(FLookupRef).Build).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerBuilder.Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LClient.IsTerminal,
+    'the root of the policy is trusted beside a lookup that knows nothing');
+  FLookup.Offer(Pkix.Certificates.Parse(LRoot).SubjectName, TArray<TBytes>.Create(LRoot), nil);
+  LClient := TTlsEngineFactory.CreateClientEngine(ClientBuilder.WithServerVerification(
+    TServerVerification.WebPki(FUnrelated).WithIssuerLookup(FLookupRef).Build).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerBuilder.Build);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LClient.IsTerminal,
+    'the root the lookup finds is trusted beside unrelated policy roots');
+end;
+
+procedure TTestIssuerLookupConfig.TestRootsAloneRefuseWhatTheLookupWouldTrust;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(ClientBuilder.WithServerVerification(
+    TServerVerification.WebPki(FUnrelated).Build).Build, 'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerBuilder.Build);
+  RunHandshake(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'control: without the lookup the unrelated roots refuse the server');
+end;
+
+procedure TTestIssuerLookupConfig.TestALaterVerificationReplacesTheLookup;
+begin
+  CheckTrue(ClientBuilder.WithServerVerification(TServerVerification.WebPki(FLookupRef).Build)
+    .WithServerVerification(TServerVerification.WebPki(FUnrelated).Build).Build.IssuerLookup = nil,
+    'the policy that replaced it carried none');
+end;
+
+procedure TTestIssuerLookupConfig.TestOneLookupServesBothRolesAndEachRoleAppliesItsOwnGuards;
+var
+  LClient: ITlsClientConfig;
+  LServer: ITlsServerConfig;
+begin
+  LClient := ClientBuilder.WithServerVerification(TServerVerification.WebPki(FLookupRef).Build)
+    .Build;
+  LServer := ServerBuilder.WithPeerAuth(TClientAuthMode.Required).WithClientVerification(
+    TClientVerification.WebPki(FLookupRef).Build).Build;
+  CheckTrue(LClient.IssuerLookup = FLookupRef, 'the client role resolves the server chain');
+  CheckTrue(LServer.IssuerLookup = FLookupRef, 'the server role resolves the client chain');
+  CheckTrue(ServerBuildRaises(ServerBuilder.WithClientVerification(
+    TClientVerification.WebPki(FLookupRef).Build)),
+    'the server role alone would ignore it without a requested client certificate');
 end;
 
 procedure TTestIssuerLookupConfig.TestLookupAloneIsAClientTrustSourceAndVerifiesTheServer;
@@ -1474,7 +1651,8 @@ var
 begin
   LRoot := TTlsLibTestCertificates.Field(AuthFile, 'root_cert');
   FLookup.Offer(Pkix.Certificates.Parse(LRoot).SubjectName, TArray<TBytes>.Create(LRoot), nil);
-  LClientConfig := ClientBuilder.WithIssuerLookup(FLookupRef).Build;
+  LClientConfig := ClientBuilder.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
   LServerConfig := ServerBuilder.Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
@@ -1500,7 +1678,7 @@ begin
   LClientConfig := ClientBuilder.WithServerVerification(TServerVerification.WebPki(LRoot).Build)
     .WithCredential(AuthCredential).Build;
   LServerConfig := ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
-    .WithIssuerLookup(FLookupRef).Build;
+    .WithClientVerification(TClientVerification.WebPki(FLookupRef).Build).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   RunHandshake(LClient, LServer);
@@ -1518,7 +1696,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := ClientBuilder.WithServerVerification(TServerVerification.VerifierSource(FCaptureRef)
-    .Build).WithIssuerLookup(FLookupRef).Build;
+    .WithIssuerLookup(FLookupRef).Build).Build;
   CheckTrue(LConfig.ServerVerifierSource = FCaptureRef, 'the source is the one given');
   CheckTrue(LConfig.IssuerLookup = FLookupRef, 'the lookup is carried beside it');
 end;
@@ -1529,7 +1707,7 @@ var
 begin
   LConfig := ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.VerifierSource(FCapture as
-    IClientCertificateVerifierSource, FUnrelated).Build).WithIssuerLookup(FLookupRef).Build;
+    IClientCertificateVerifierSource, FUnrelated).WithIssuerLookup(FLookupRef).Build).Build;
   CheckTrue(LConfig.ClientVerifierSource = (FCapture as IClientCertificateVerifierSource),
     'the source is the one given');
   CheckTrue(LConfig.IssuerLookup = FLookupRef, 'the lookup is carried beside it');
@@ -1540,44 +1718,16 @@ var
   LConfig: ITlsClientConfig;
 begin
   // a source is classified by its class, so the built-in one must not be seen as a wrapper
-  LConfig := ClientBuilder.WithServerVerification(TServerVerification.WebPki(FUnrelated).Build)
-    .WithIssuerLookup(FLookupRef).Build;
+  LConfig := ClientBuilder.WithServerVerification(TServerVerification.WebPki(FUnrelated)
+    .WithIssuerLookup(FLookupRef).Build).Build;
   CheckTrue(LConfig.ServerVerifierSource is TBuiltInServerVerifierSource, 'built in');
   CheckFalse(LConfig.ServerVerifierSource is TIssuerLookupServerVerifierSource, 'not the wrapper');
 end;
 
-procedure TTestIssuerLookupConfig.TestClientLookupWithACustomVerifierIsRefused;
-begin
-  CheckTrue(ClientBuildRaises(ClientBuilder.WithServerVerification(TServerVerification.Custom(
-    TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier))
-    .WithIssuerLookup(FLookupRef)), 'a whole verifier ignores the lookup');
-end;
-
-procedure TTestIssuerLookupConfig.TestClientLookupWithSkippedVerificationIsRefused;
-begin
-  CheckTrue(ClientBuildRaises(ClientBuilder.WithServerVerification(
-    TServerVerification.DangerousSkip).WithIssuerLookup(FLookupRef)),
-    'skipped verification ignores the lookup');
-end;
-
-procedure TTestIssuerLookupConfig.TestServerLookupWithACustomVerifierIsRefused;
-begin
-  CheckTrue(ServerBuildRaises(ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(TClientVerification.Custom(
-    TFixedVerdictVerifier.CreateAccepting(False) as IClientCertificateVerifier))
-    .WithIssuerLookup(FLookupRef)), 'a whole verifier ignores the lookup');
-end;
-
-procedure TTestIssuerLookupConfig.TestServerLookupWithSkippedVerificationIsRefused;
-begin
-  CheckTrue(ServerBuildRaises(ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(TClientVerification.DangerousSkip).WithIssuerLookup(FLookupRef)),
-    'skipped verification ignores the lookup');
-end;
-
 procedure TTestIssuerLookupConfig.TestServerLookupWithoutPeerAuthIsRefused;
 begin
-  CheckTrue(ServerBuildRaises(ServerBuilder.WithIssuerLookup(FLookupRef)),
+  CheckTrue(ServerBuildRaises(ServerBuilder.WithClientVerification(
+    TClientVerification.WebPki(FLookupRef).Build)),
     'a lookup on a server that requests no client certificate would be ignored');
 end;
 
@@ -1585,8 +1735,8 @@ procedure TTestIssuerLookupConfig.TestServerPeerAuthWithAVerifierSourceAndNoRoot
 begin
   CheckFalse(ServerBuildRaises(ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.VerifierSource(FCapture as
-    IClientCertificateVerifierSource, TTrustAnchorStore.Create(nil) as ITrustAnchorStore).Build)
-    .WithIssuerLookup(FLookupRef)), 'the lookup is the roots the source consumes');
+    IClientCertificateVerifierSource, TTrustAnchorStore.Create(nil) as ITrustAnchorStore)
+    .WithIssuerLookup(FLookupRef).Build)), 'the lookup is the roots the source consumes');
 end;
 
 procedure TTestIssuerLookupConfig.TestFactoryPassesAnyCertificateToTheDecorator;
@@ -1604,15 +1754,16 @@ end;
 procedure TTestIssuerLookupConfig.TestResumingClientWithALookupDefaultsToReverify;
 begin
   CheckEquals(Ord(TResumeVerification.Reverify),
-    Ord(ResumingClient.WithIssuerLookup(FLookupRef).Build.ResumeVerification),
-    'what a lookup trusts can change between connections');
+    Ord(ResumingClient.WithServerVerification(TServerVerification.WebPki(FLookupRef).Build)
+    .Build.ResumeVerification), 'what a lookup trusts can change between connections');
 end;
 
 procedure TTestIssuerLookupConfig.TestAnExplicitReuseOriginalBesideALookupIsKept;
 begin
   CheckEquals(Ord(TResumeVerification.ReuseOriginal),
     Ord(ResumingClient.WithResumeVerification(TResumeVerification.ReuseOriginal)
-    .WithIssuerLookup(FLookupRef).Build.ResumeVerification), 'the caller chose it');
+    .WithServerVerification(TServerVerification.WebPki(FLookupRef).Build).Build
+    .ResumeVerification), 'the caller chose it');
 end;
 
 procedure TTestIssuerLookupConfig.TestResumingClientWithoutALookupKeepsReuseOriginal;
@@ -1625,8 +1776,8 @@ end;
 procedure TTestIssuerLookupConfig.TestClientLookupWithoutACacheStillBuilds;
 begin
   CheckEquals(Ord(TResumeVerification.ReuseOriginal),
-    Ord(ClientBuilder.WithIssuerLookup(FLookupRef).Build.ResumeVerification),
-    'nothing to re-verify without a cache to resume from');
+    Ord(ClientBuilder.WithServerVerification(TServerVerification.WebPki(FLookupRef).Build)
+    .Build.ResumeVerification), 'nothing to re-verify without a cache to resume from');
 end;
 
 initialization

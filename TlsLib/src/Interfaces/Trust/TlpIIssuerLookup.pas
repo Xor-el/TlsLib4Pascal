@@ -28,8 +28,8 @@ type
   /// implementation never raises: a certificate it cannot read is left out of the answer. One
   /// instance serves every connection built over a configuration, so IssuersNamed is called
   /// concurrently from any thread and the implementation must be thread-safe. A server built
-  /// directly with WithIssuerLookup does not read Identity: its tickets outlive a change of the
-  /// lookup.
+  /// directly with a lookup in its client verification does not read Identity: its tickets outlive
+  /// a change of the lookup.
   /// </summary>
   IIssuerLookup = interface(IInterface)
     ['{B22D7182-332D-4C19-813F-63A7F43EC32B}']

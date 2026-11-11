@@ -22,6 +22,8 @@ uses
   TlpTrustPolicy,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpIIssuerLookup,
+  TlpTrustTypes,
   TlpCertificateStrengthPolicy,
   TlpICertificateVerifierSource,
   TlpCertificateVerifier;
@@ -34,6 +36,8 @@ type
     AnchorStores: TArray<ITrustAnchorStore>;
     AnchorData: TArray<TBytes>;
     IntermediateData: TArray<TBytes>;
+    IssuerLookup: IIssuerLookup;
+    IssuerRule: TBundleAnchorRule;
     Strength: TCertificateStrengthPolicy;
     Posture: TRevocationPosture;
     /// <summary>A draft of AKind over the given anchors with the default floors and the Soft
@@ -42,6 +46,10 @@ type
       const AStores: TArray<ITrustAnchorStore>; const AAnchorData: TArray<TBytes>)
       : TVerificationDraft; static;
     procedure AddIntermediates(const AData: TBytes);
+    /// <summary>Takes the lookup and its anchor rule, refusing nil.</summary>
+    procedure SetIssuerLookup(const ALookup: IIssuerLookup; ARule: TBundleAnchorRule);
+    /// <summary>Refuses a WebPki draft with neither roots nor a lookup (no silent-insecure).</summary>
+    procedure RequireTrustSource;
     /// <summary>Takes the floors, refusing a non-positive RSA minimum or a maximum below it.</summary>
     procedure SetStrength(const APolicy: TCertificateStrengthPolicy);
   end;
@@ -57,6 +65,8 @@ type
     function AnchorStores: TArray<ITrustAnchorStore>;
     function AnchorData: TArray<TBytes>;
     function IntermediateData: TArray<TBytes>;
+    function IssuerLookup: IIssuerLookup;
+    function IssuerAnchorRule: TBundleAnchorRule;
     function StrengthPolicy: TCertificateStrengthPolicy;
     function RevocationPosture: TRevocationPosture;
   end;
@@ -91,6 +101,9 @@ type
     constructor Create(const ADraft: TVerificationDraft;
       const ASource: IServerCertificateVerifierSource);
     function WithIntermediateCertificates(const AData: TBytes): IServerVerificationBuilder;
+    function WithIssuerLookup(const ALookup: IIssuerLookup): IServerVerificationBuilder; overload;
+    function WithIssuerLookup(const ALookup: IIssuerLookup;
+      ARule: TBundleAnchorRule): IServerVerificationBuilder; overload;
     function WithMinimumStrength(const APolicy: TCertificateStrengthPolicy)
       : IServerVerificationBuilder;
     function WithRevocation(APosture: TRevocationPosture): IServerVerificationBuilder;
@@ -105,6 +118,9 @@ type
     constructor Create(const ADraft: TVerificationDraft;
       const ASource: IClientCertificateVerifierSource);
     function WithIntermediateCertificates(const AData: TBytes): IClientVerificationBuilder;
+    function WithIssuerLookup(const ALookup: IIssuerLookup): IClientVerificationBuilder; overload;
+    function WithIssuerLookup(const ALookup: IIssuerLookup;
+      ARule: TBundleAnchorRule): IClientVerificationBuilder; overload;
     function WithMinimumStrength(const APolicy: TCertificateStrengthPolicy)
       : IClientVerificationBuilder;
     function WithRevocation(APosture: TRevocationPosture): IClientVerificationBuilder;
@@ -113,8 +129,9 @@ type
 
   /// <summary>
   /// The ways a client verifies the server's certificate. The anchors are arguments of the
-  /// factories, not setters on a builder, so a policy that ignores anchors (Custom, DangerousSkip,
-  /// a source that owns its roots) cannot be given any.
+  /// factories, not setters on a builder, so a policy that ignores them (Custom, DangerousSkip)
+  /// cannot be given any; an issuer lookup is a setter of the builders of WebPki and
+  /// VerifierSource, which are the only kinds that use one.
   /// </summary>
   TServerVerification = class sealed(TObject)
   public
@@ -127,6 +144,14 @@ type
     /// <summary>The built-in PKIX pipeline over the union of the stores and root blobs.</summary>
     class function WebPki(const AStores: TArray<ITrustAnchorStore>;
       const AAnchorData: TArray<TBytes>): IServerVerificationBuilder; overload; static;
+    /// <summary>The built-in PKIX pipeline with ALookup as its only trust source; the pipeline
+    /// knobs still apply. nil is refused.</summary>
+    class function WebPki(const ALookup: IIssuerLookup): IServerVerificationBuilder;
+      overload; static;
+    /// <summary>As above, with ARule choosing which of the certificates the lookup offers as
+    /// anchors are trusted as anchors.</summary>
+    class function WebPki(const ALookup: IIssuerLookup; ARule: TBundleAnchorRule)
+      : IServerVerificationBuilder; overload; static;
     /// <summary>A source that owns its roots (the OS delegate); the pipeline knobs still apply.</summary>
     class function VerifierSource(const ASource: IServerCertificateVerifierSource)
       : IServerVerificationBuilder; static;
@@ -152,6 +177,10 @@ type
       overload; static;
     class function WebPki(const AStores: TArray<ITrustAnchorStore>;
       const AAnchorData: TArray<TBytes>): IClientVerificationBuilder; overload; static;
+    class function WebPki(const ALookup: IIssuerLookup): IClientVerificationBuilder;
+      overload; static;
+    class function WebPki(const ALookup: IIssuerLookup; ARule: TBundleAnchorRule)
+      : IClientVerificationBuilder; overload; static;
     /// <summary>A source that consumes the anchors as its exclusive client-CA root (the OS delegate).</summary>
     class function VerifierSource(const ASource: IClientCertificateVerifierSource;
       const AStore: ITrustAnchorStore): IClientVerificationBuilder; overload; static;
@@ -225,11 +254,12 @@ type
 implementation
 
 resourcestring
-  SNoTrustAnchors = 'a WebPki verification needs at least one trust store or root certificate ' +
-    '(no silent-insecure)';
+  SNoTrustAnchors = 'a WebPki verification needs at least one trust store, root certificate or ' +
+    'issuer lookup (no silent-insecure)';
   SNilTrustStore = 'a trust store must not be nil';
   SEmptyAnchorData = 'a trust-anchor bundle must not be empty';
   SNilVerifier = 'a verifier or verifier source must not be nil';
+  SNilIssuerLookup = 'an issuer lookup must not be nil';
   SInvalidStrengthFloors = 'the minimum RSA modulus must be positive and, when a maximum is ' +
     'set (non-zero), no larger than that maximum';
 
@@ -247,9 +277,6 @@ begin
   for LI := 0 to System.High(AAnchorData) do
     if System.Length(AAnchorData[LI]) = 0 then
       raise EArgumentTlsLibException.CreateRes(@SEmptyAnchorData);
-  if (AKind = TVerificationKind.WebPki) and (System.Length(AStores) = 0) and
-    (System.Length(AAnchorData) = 0) then
-    raise EArgumentTlsLibException.CreateRes(@SNoTrustAnchors);
   Result := Default(TVerificationDraft);
   Result.Kind := AKind;
   Result.AnchorStores := System.Copy(AStores);
@@ -261,6 +288,22 @@ end;
 procedure TVerificationDraft.AddIntermediates(const AData: TBytes);
 begin
   TArrayUtilities.Append<TBytes>(IntermediateData, System.Copy(AData));
+end;
+
+procedure TVerificationDraft.SetIssuerLookup(const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule);
+begin
+  if ALookup = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilIssuerLookup);
+  IssuerLookup := ALookup;
+  IssuerRule := ARule;
+end;
+
+procedure TVerificationDraft.RequireTrustSource;
+begin
+  if (Kind = TVerificationKind.WebPki) and (System.Length(AnchorStores) = 0) and
+    (System.Length(AnchorData) = 0) and (IssuerLookup = nil) then
+    raise EArgumentTlsLibException.CreateRes(@SNoTrustAnchors);
 end;
 
 procedure TVerificationDraft.SetStrength(const APolicy: TCertificateStrengthPolicy);
@@ -297,6 +340,16 @@ end;
 function TTrustVerificationDataBase.IntermediateData: TArray<TBytes>;
 begin
   Result := TArrayUtilities.DeepCopy<Byte>(FDraft.IntermediateData);
+end;
+
+function TTrustVerificationDataBase.IssuerLookup: IIssuerLookup;
+begin
+  Result := FDraft.IssuerLookup;
+end;
+
+function TTrustVerificationDataBase.IssuerAnchorRule: TBundleAnchorRule;
+begin
+  Result := FDraft.IssuerRule;
 end;
 
 function TTrustVerificationDataBase.StrengthPolicy: TCertificateStrengthPolicy;
@@ -366,6 +419,19 @@ begin
   Result := Self;
 end;
 
+function TServerVerificationBuilder.WithIssuerLookup(
+  const ALookup: IIssuerLookup): IServerVerificationBuilder;
+begin
+  Result := WithIssuerLookup(ALookup, TBundleAnchorRule.SelfSignedOnly);
+end;
+
+function TServerVerificationBuilder.WithIssuerLookup(const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule): IServerVerificationBuilder;
+begin
+  FDraft.SetIssuerLookup(ALookup, ARule);
+  Result := Self;
+end;
+
 function TServerVerificationBuilder.WithMinimumStrength(
   const APolicy: TCertificateStrengthPolicy): IServerVerificationBuilder;
 begin
@@ -382,6 +448,7 @@ end;
 
 function TServerVerificationBuilder.Build: IServerVerification;
 begin
+  FDraft.RequireTrustSource;
   Result := TServerVerificationPolicy.Create(FDraft, nil, FSource) as IServerVerification;
 end;
 
@@ -402,6 +469,19 @@ begin
   Result := Self;
 end;
 
+function TClientVerificationBuilder.WithIssuerLookup(
+  const ALookup: IIssuerLookup): IClientVerificationBuilder;
+begin
+  Result := WithIssuerLookup(ALookup, TBundleAnchorRule.SelfSignedOnly);
+end;
+
+function TClientVerificationBuilder.WithIssuerLookup(const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule): IClientVerificationBuilder;
+begin
+  FDraft.SetIssuerLookup(ALookup, ARule);
+  Result := Self;
+end;
+
 function TClientVerificationBuilder.WithMinimumStrength(
   const APolicy: TCertificateStrengthPolicy): IClientVerificationBuilder;
 begin
@@ -418,6 +498,7 @@ end;
 
 function TClientVerificationBuilder.Build: IClientVerification;
 begin
+  FDraft.RequireTrustSource;
   Result := TClientVerificationPolicy.Create(FDraft, nil, FSource) as IClientVerification;
 end;
 
@@ -440,6 +521,18 @@ begin
   Result := TServerVerificationBuilder.Create(
     TVerificationDraft.Start(TVerificationKind.WebPki, AStores, AAnchorData), nil)
     as IServerVerificationBuilder;
+end;
+
+class function TServerVerification.WebPki(const ALookup: IIssuerLookup)
+  : IServerVerificationBuilder;
+begin
+  Result := WebPki(ALookup, TBundleAnchorRule.SelfSignedOnly);
+end;
+
+class function TServerVerification.WebPki(const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule): IServerVerificationBuilder;
+begin
+  Result := WebPki(nil, TArray<TBytes>(nil)).WithIssuerLookup(ALookup, ARule);
 end;
 
 class function TServerVerification.VerifierSource(
@@ -496,6 +589,18 @@ begin
   Result := TClientVerificationBuilder.Create(
     TVerificationDraft.Start(TVerificationKind.WebPki, AStores, AAnchorData), nil)
     as IClientVerificationBuilder;
+end;
+
+class function TClientVerification.WebPki(const ALookup: IIssuerLookup)
+  : IClientVerificationBuilder;
+begin
+  Result := WebPki(ALookup, TBundleAnchorRule.SelfSignedOnly);
+end;
+
+class function TClientVerification.WebPki(const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule): IClientVerificationBuilder;
+begin
+  Result := WebPki(nil, TArray<TBytes>(nil)).WithIssuerLookup(ALookup, ARule);
 end;
 
 class function TClientVerification.VerifierSource(const ASource: IClientCertificateVerifierSource;

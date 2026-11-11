@@ -20,6 +20,8 @@ uses
   TlpIPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpIIssuerLookup,
+  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpCertificateVerifierSource,
   TlpITlsConfigBuilder,
@@ -54,6 +56,9 @@ type
       AMode: TSystemTrustMode; const ARoots: TSystemTrustRoots;
       out AStores: TArray<ITrustAnchorStore>;
       out ASource: IServerCertificateVerifierSource); static;
+    class function LiveVerification(const APkixProvider: IPkixProvider;
+      const ARoots: TSystemTrustRoots; APosture: TRevocationPosture;
+      ADeadlineMs: Cardinal): IServerVerificationBuilder; static;
   public
     /// <summary>OS trust in the given mode, with ARoots deciding which roots vouch: the OS roots
     /// alone, with the host's, or the host's alone. Anchors also honours OS distrust of any
@@ -71,7 +76,20 @@ type
     /// Raises where the platform has no OS-native live revocation.</summary>
     class function WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
       const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
-      APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder; static;
+      APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
+      overload; static;
+    /// <summary>As above, with ALookup resolving issuers beside the OS roots during each
+    /// verification (see IServerVerificationBuilder.WithIssuerLookup). nil is refused.</summary>
+    class function WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+      const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
+      APosture: TRevocationPosture; ADeadlineMs: Cardinal; const ALookup: IIssuerLookup)
+      : ITlsClientConfigBuilder; overload; static;
+    /// <summary>As above, with ARule choosing which of the certificates the lookup offers as
+    /// anchors are trusted as anchors.</summary>
+    class function WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+      const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
+      APosture: TRevocationPosture; ADeadlineMs: Cardinal; const ALookup: IIssuerLookup;
+      ARule: TBundleAnchorRule): ITlsClientConfigBuilder; overload; static;
   end;
 
   /// <summary>
@@ -148,15 +166,43 @@ begin
   Result := TServerVerification.WebPki(LStores, nil);
 end;
 
+class function TSystemTrust.LiveVerification(const APkixProvider: IPkixProvider;
+  const ARoots: TSystemTrustRoots; APosture: TRevocationPosture;
+  ADeadlineMs: Cardinal): IServerVerificationBuilder;
+begin
+  if ADeadlineMs = 0 then
+    raise EArgumentTlsLibException.CreateRes(@SLiveNeedsDeadline);
+  Result := TServerVerification.VerifierSource(
+    TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.Live, ARoots, APkixProvider))
+    .WithRevocation(APosture);
+end;
+
 class function TSystemTrust.WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
   const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
   APosture: TRevocationPosture; ADeadlineMs: Cardinal): ITlsClientConfigBuilder;
 begin
-  if ADeadlineMs = 0 then
-    raise EArgumentTlsLibException.CreateRes(@SLiveNeedsDeadline);
-  ABuilder.WithServerVerification(TServerVerification.VerifierSource(
-    TOSSystemTrust.ServerVerifierSource(TSystemTrustFetch.Live, ARoots, APkixProvider))
-    .WithRevocation(APosture).Build);
+  ABuilder.WithServerVerification(
+    LiveVerification(APkixProvider, ARoots, APosture, ADeadlineMs).Build);
+  Result := ABuilder.WithLiveRevocationVerdict(ADeadlineMs);
+end;
+
+class function TSystemTrust.WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+  const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
+  APosture: TRevocationPosture; ADeadlineMs: Cardinal; const ALookup: IIssuerLookup)
+  : ITlsClientConfigBuilder;
+begin
+  Result := WithLiveSystemTrust(ABuilder, APkixProvider, ARoots, APosture, ADeadlineMs, ALookup,
+    TBundleAnchorRule.SelfSignedOnly);
+end;
+
+class function TSystemTrust.WithLiveSystemTrust(const ABuilder: ITlsClientConfigBuilder;
+  const APkixProvider: IPkixProvider; const ARoots: TSystemTrustRoots;
+  APosture: TRevocationPosture; ADeadlineMs: Cardinal; const ALookup: IIssuerLookup;
+  ARule: TBundleAnchorRule): ITlsClientConfigBuilder;
+begin
+  ABuilder.WithServerVerification(
+    LiveVerification(APkixProvider, ARoots, APosture, ADeadlineMs)
+    .WithIssuerLookup(ALookup, ARule).Build);
   Result := ABuilder.WithLiveRevocationVerdict(ADeadlineMs);
 end;
 

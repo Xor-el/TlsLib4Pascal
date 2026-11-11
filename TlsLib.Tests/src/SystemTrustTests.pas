@@ -769,6 +769,8 @@ type
     procedure TestHostRootsRefusesAPathThroughADistrustedCertificate;
     procedure TestDefaultModeHostRootsYieldsASourceWithAnchors;
     procedure TestWithLiveSystemTrustCarriesTheHostRoots;
+    procedure TestWithLiveSystemTrustCarriesTheLookupAndTheRule;
+    procedure TestWithLiveSystemTrustRefusesANilLookup;
     procedure TestInstallerTrustsItsExtraAnchorsWithTheOsRoots;
     procedure TestDistrustStoreIsTheDisallowedList;
   end;
@@ -5601,7 +5603,7 @@ begin
   LEngine := LFake;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
     TServerVerification.VerifierSource(OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil,
-    nil)).Build).WithIssuerLookup(FLookupRef).Build;
+    nil)).WithIssuerLookup(FLookupRef).Build).Build;
   CheckTrue(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
     LAlert), 'a path the lookup anchored inline is anchored at the park too');
   CheckEquals(2, LFake.ServerCalls, 'the OS roots first, then the looked-up root');
@@ -5620,7 +5622,7 @@ begin
     as IPlatformChainEngine;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
     TServerVerification.VerifierSource(OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil,
-    nil)).Build).WithIssuerLookup(FLookupRef).Build;
+    nil)).WithIssuerLookup(FLookupRef).Build).Build;
   FLookup.Forget;
   CheckFalse(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
     LAlert), 'nothing anchors the path any more');
@@ -5637,8 +5639,8 @@ begin
   LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil);
   LEngine := LFake;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
-    TServerVerification.WebPki(StoreOf(Roots(PublicRoot))).Build)
-    .WithIssuerLookup(FLookupRef).Build;
+    TServerVerification.WebPki(StoreOf(Roots(PublicRoot))).WithIssuerLookup(FLookupRef).Build)
+    .Build;
   CheckTrue(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
     LAlert), 'the looked-up root is trusted');
   CheckEquals(2, System.Length(LFake.Requests[0].Anchors), 'the static root and the looked-up one');
@@ -5654,7 +5656,8 @@ var
 begin
   // the lookup is the trust source, so the config is not a PSK-only or skip-verify one
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithIssuerLookup(FLookupRef).Build;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
   LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
     TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource), nil);
   try
@@ -5672,7 +5675,8 @@ var
 begin
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PublicRoot))
     as IPlatformChainEngine;
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithIssuerLookup(FLookupRef).Build;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
   CheckTrue(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
     LAlert), 'the lookup alone anchors the path');
 end;
@@ -5698,7 +5702,8 @@ begin
   LMock := TMockPlatformChainEngine.Create(ExclusiveCaps, False, Rejection,
     TTlsAlertDescription.UnknownCa);
   LEngine := LMock;
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithIssuerLookup(LTiersRef).Build;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(LTiersRef).Build).Build;
   LiveServerVerdict(LConfig, LEngine, Roots(LLeaf), LAlert);
   CheckEquals(1, System.Length(LMock.Requests[0].Intermediates), 'the found intermediate');
   CheckEqualBytes('it is the issuer', LIssuer, LMock.Requests[0].Intermediates[0]);
@@ -5716,7 +5721,8 @@ begin
   // mutation: the lookup-only config keeps the OS roots for the live pass
   LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PrivateRoot));
   LEngine := LFake;
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithIssuerLookup(FLookupRef).Build;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
   FLookup.Forget;
   CheckFalse(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
     LAlert), 'a root only the OS holds does not anchor a lookup-only config');
@@ -5736,8 +5742,9 @@ var
 begin
   LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil);
   LEngine := LFake;
-  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithIssuerLookup(FLookupRef).Build;
-  LPolicy := TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
+  LPolicy :=TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
   LPolicy.Pkix := nil;
   LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, nil);
   try
@@ -5763,8 +5770,8 @@ begin
   LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PrivateRoot));
   LEngine := LFake;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
-    TServerVerification.WebPki(StoreOf(Roots(PublicRoot))).Build)
-    .WithIssuerLookup(FLookupRef).Build;
+    TServerVerification.WebPki(StoreOf(Roots(PublicRoot))).WithIssuerLookup(FLookupRef).Build)
+    .Build;
   FLookup.Forget;
   CheckFalse(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
     LAlert), 'the static store and the forgotten lookup anchor nothing');
@@ -5782,8 +5789,8 @@ begin
   LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil);
   LEngine := LFake;
   LConfig := ServerConfigBuilder.WithClientVerification(
-    TClientVerification.WebPki(StoreOf(Roots(PublicRoot))).Build)
-    .WithIssuerLookup(FLookupRef).Build;
+    TClientVerification.WebPki(StoreOf(Roots(PublicRoot))).WithIssuerLookup(FLookupRef).Build)
+    .Build;
   CheckTrue(LiveClientVerdict(LConfig, LEngine, LAlert), 'the looked-up client root is trusted');
   CheckEquals(2, System.Length(LFake.Requests[0].Anchors), 'the client CA and the looked-up root');
 end;
@@ -5795,7 +5802,8 @@ var
   LAlert: TTlsAlertDescription;
 begin
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
-  LConfig := ServerConfigBuilder.WithIssuerLookup(FLookupRef).Build;
+  LConfig := ServerConfigBuilder.WithClientVerification(
+    TClientVerification.WebPki(FLookupRef).Build).Build;
   CheckTrue(LiveClientVerdict(LConfig, LEngine, LAlert), 'the lookup alone anchors the client');
 end;
 
@@ -5806,7 +5814,8 @@ var
   LAlert: TTlsAlertDescription;
 begin
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
-  LConfig := ServerConfigBuilder.WithIssuerLookup(FLookupRef).Build;
+  LConfig := ServerConfigBuilder.WithClientVerification(
+    TClientVerification.WebPki(FLookupRef).Build).Build;
   FLookup.Forget;
   CheckFalse(LiveClientVerdict(LConfig, LEngine, LAlert), 'nothing anchors the client any more');
 end;
@@ -5817,8 +5826,8 @@ var
   LPolicy: TOSDelegatePolicy;
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
-    TServerVerification.WebPki(StoreOf(Roots(PublicRoot))).Build)
-    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build;
+    TServerVerification.WebPki(StoreOf(Roots(PublicRoot)))
+    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build).Build;
   LPolicy := TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
   CheckTrue(LPolicy.IssuerLookup = FLookupRef, 'the lookup');
   CheckEquals(Ord(TBundleAnchorRule.AnyCertificate), Ord(LPolicy.IssuerRule), 'the rule');
@@ -5831,8 +5840,8 @@ var
   LPolicy: TOSDelegatePolicy;
 begin
   LConfig := ServerConfigBuilder.WithClientVerification(
-    TClientVerification.WebPki(StoreOf(Roots(PublicRoot))).Build)
-    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build;
+    TClientVerification.WebPki(StoreOf(Roots(PublicRoot)))
+    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build).Build;
   LPolicy := TOSDelegatePolicy.FromServerConfig(LConfig);
   CheckTrue(LPolicy.IssuerLookup = FLookupRef, 'the lookup');
   CheckEquals(Ord(TBundleAnchorRule.AnyCertificate), Ord(LPolicy.IssuerRule), 'the rule');
@@ -7690,6 +7699,42 @@ begin
     'the live source is the OS verifier source');
   LSource := LConfig.ServerVerifierSource as TOSVerifierSource;
   CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive root');
+end;
+
+procedure TTestWindowsHostRoots.TestWithLiveSystemTrustCarriesTheLookupAndTheRule;
+var
+  LLookup: IIssuerLookup;
+  LConfig: ITlsClientConfig;
+begin
+  LLookup := TRecordingIssuerLookup.Create('live-lookup') as IIssuerLookup;
+  LConfig := TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
+    TSystemTrustRoots.OsRoots, TRevocationPosture.Soft, 2000, LLookup).Build;
+  CheckTrue(LConfig.ServerVerifierSource is TOSVerifierSource, 'the live OS verifier source');
+  CheckTrue(LConfig.IssuerLookup = LLookup, 'the lookup it was given');
+  CheckEquals(Ord(TBundleAnchorRule.SelfSignedOnly), Ord(LConfig.IssuerAnchorRule),
+    'the default rule');
+  LConfig := TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
+    TSystemTrustRoots.OsRoots, TRevocationPosture.Soft, 2000, LLookup,
+    TBundleAnchorRule.AnyCertificate).Build;
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate), Ord(LConfig.IssuerAnchorRule),
+    'the rule it was given');
+end;
+
+procedure TTestWindowsHostRoots.TestWithLiveSystemTrustRefusesANilLookup;
+var
+  LNone: IIssuerLookup;
+  LRefused: Boolean;
+begin
+  LNone := nil;
+  LRefused := False;
+  try
+    TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
+      TSystemTrustRoots.OsRoots, TRevocationPosture.Soft, 2000, LNone);
+  except
+    on EArgumentTlsLibException do
+      LRefused := True;
+  end;
+  CheckTrue(LRefused, 'a nil lookup is refused');
 end;
 
 procedure TTestWindowsHostRoots.TestInstallerTrustsItsExtraAnchorsWithTheOsRoots;
