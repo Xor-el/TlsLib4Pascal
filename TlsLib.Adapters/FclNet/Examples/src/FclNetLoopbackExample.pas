@@ -2543,9 +2543,9 @@ begin
   if fpGetUid = 0 then
     Exit;
   LDir := NewDir(ABase, 'skipdenied');
-  LDenied := LDir + PathDelim + RootHash + '.0';
+  LDenied := ConcatPaths([LDir, RootHash + '.0']);
   TVectorLocator.WritePemTo(LDenied, 'CERTIFICATE', [ALookalikeHex]);
-  TVectorLocator.WritePemTo(LDir + PathDelim + RootHash + '.1', 'CERTIFICATE', [ARootHex]);
+  TVectorLocator.WritePemTo(ConcatPaths([LDir, RootHash + '.1']), 'CERTIFICATE', [ARootHex]);
   if fpChmod(PChar(LDenied), 0) <> 0 then
     raise Exception.Create('cannot change the mode of ' + LDenied);
   LEcho := Echo(LDir, '', LError);
@@ -2562,18 +2562,18 @@ begin
 {$IFDEF UNIX}
   // a link with nothing at its end is skipped like any file that cannot be used
   LDir := NewDir(ABase, 'skipbroken');
-  TVectorLocator.WritePemTo(LDir + PathDelim + RootHash + '.1', 'CERTIFICATE', [ARootHex]);
-  if fpSymlink(PChar(LDir + PathDelim + 'absent.pem'),
-    PChar(LDir + PathDelim + RootHash + '.0')) <> 0 then
+  TVectorLocator.WritePemTo(ConcatPaths([LDir, RootHash + '.1']), 'CERTIFICATE', [ARootHex]);
+  if fpSymlink(PChar(ConcatPaths([LDir, 'absent.pem'])),
+    PChar(ConcatPaths([LDir, RootHash + '.0']))) <> 0 then
     raise Exception.Create('cannot create a link in ' + LDir);
   LEcho := Echo(LDir, '', LError);
   ExpectEquals('a root after a broken link', 'verify', LEcho, LError);
 
   // and a link to a certificate is followed
-  LTarget := NewDir(ABase, 'linktarget') + PathDelim + 'root.pem';
+  LTarget := ConcatPaths([NewDir(ABase, 'linktarget'), 'root.pem']);
   TVectorLocator.WritePemTo(LTarget, 'CERTIFICATE', [ARootHex]);
   LDir := NewDir(ABase, 'followed');
-  if fpSymlink(PChar(LTarget), PChar(LDir + PathDelim + RootHash + '.0')) <> 0 then
+  if fpSymlink(PChar(LTarget), PChar(ConcatPaths([LDir, RootHash + '.0']))) <> 0 then
     raise Exception.Create('cannot create a link in ' + LDir);
   LEcho := Echo(LDir, '', LError);
   ExpectEquals('a root behind a link', 'verify', LEcho, LError);
@@ -2587,7 +2587,7 @@ var
 begin
   LRootHex := TVectorLocator.FieldHexFrom('ReissuedRoot.txt', 'root_cert');
   LIssuerHex := TVectorLocator.FieldHexFrom('ReissuedRoot.txt', 'issuer_cert');
-  LWrongRoot := NewDir(ABase, 'chainwrong') + PathDelim + 'root.der';
+  LWrongRoot := ConcatPaths([NewDir(ABase, 'chainwrong'), 'root.der']);
   TVectorLocator.WriteDerTo(LWrongRoot, TVectorLocator.FieldHexFrom('ReissuedRoot.txt',
     'root2_cert'));
   LServer := TVerifyServerThread.Create(
@@ -2599,7 +2599,7 @@ begin
 
     // an intermediate alone is chain material and anchors nothing
     LDir := NewDir(ABase, 'issuer');
-    TVectorLocator.WritePemTo(LDir + PathDelim + ChainIssuerHash + '.0', 'CERTIFICATE',
+    TVectorLocator.WritePemTo(ConcatPaths([LDir, ChainIssuerHash + '.0']), 'CERTIFICATE',
       [LIssuerHex]);
     LEcho := EchoChain(LDir, '', TBundleAnchorRule.SelfSignedOnly, LError);
     ExpectRefused('an intermediate alone in the directory', LEcho, LError, UNTRUSTED_CHAIN);
@@ -2616,13 +2616,13 @@ begin
     LServer.WaitSettled;
 
     // with its root beside it the intermediate completes a chain that sends the leaf alone
-    TVectorLocator.WritePemTo(LDir + PathDelim + ChainRootHash + '.0', 'CERTIFICATE', [LRootHex]);
+    TVectorLocator.WritePemTo(ConcatPaths([LDir, ChainRootHash + '.0']), 'CERTIFICATE', [LRootHex]);
     LEcho := EchoChain(LDir, '', TBundleAnchorRule.SelfSignedOnly, LError);
     ExpectEquals('an intermediate beside its root', 'verify', LEcho, LError);
 
     // and under AnyCertificate it anchors by itself
     LDir := NewDir(ABase, 'issueranchor');
-    TVectorLocator.WritePemTo(LDir + PathDelim + ChainIssuerHash + '.0', 'CERTIFICATE',
+    TVectorLocator.WritePemTo(ConcatPaths([LDir, ChainIssuerHash + '.0']), 'CERTIFICATE',
       [LIssuerHex]);
     LEcho := EchoChain(LDir, '', TBundleAnchorRule.AnyCertificate, LError);
     ExpectEquals('an intermediate alone under AnyCertificate', 'verify', LEcho, LError);
@@ -2650,7 +2650,7 @@ begin
 
   // the same directories spelled with empty entries, a trailing delimiter and a repeat
   LRespelled := TOpenSslHashedDirLookup.Create(LCrypto,
-    PathSeparator + LDir + PathDelim + PathSeparator + LDir) as IIssuerLookup;
+    PathSeparator + IncludeTrailingPathDelimiter(LDir) + PathSeparator + LDir) as IIssuerLookup;
   ExpectEquals('a directory spelled another way', LUnchanged, LRespelled.Identity,
     'the identity names the spelling');
 
@@ -2670,7 +2670,7 @@ begin
     'the identity holds more than the directory and its time');
 
   // a change inside the resolution of the file system's time still names another lookup
-  LExtra := LDir + PathDelim + 'extra';
+  LExtra := ConcatPaths([LDir, 'extra']);
   TVectorLocator.WriteDerTo(LExtra, '00');
   if FileSetDate(LDir, LStamp) <> 0 then
     raise Exception.Create('cannot set the time of the directory ' + LDir);
@@ -2696,7 +2696,7 @@ begin
   end;
 
   // a directory that is not there keeps one identity until it appears
-  LAbsent := ABase + PathDelim + 'identityabsent';
+  LAbsent := ConcatPaths([ABase, 'identityabsent']);
   LMissing := TOpenSslHashedDirLookup.Create(LCrypto, LAbsent) as IIssuerLookup;
   LBefore := LMissing.Identity;
   ExpectEquals('a missing directory', LBefore, LMissing.Identity,
