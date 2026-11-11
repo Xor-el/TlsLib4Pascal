@@ -1,0 +1,30 @@
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_f2c9bd75607afc::t_e8cb9889e1955a 3109
+  s_f2c9bd75607afc::t_267582b28fc121 3123
+  s_f2c9bd75607afc::t_a4d7c70c13cb5e 3064-3108,3110-3122,3124-3137,3139-3158
+  s_f2c9bd75607afc::t_9d50fe550c4e59 258-264
+  s_f2c9bd75607afc::t_b7cc9330e098a9 317-318
+  s_f2c9bd75607afc::t_46772a1ca2863e 243
+  s_f2c9bd75607afc::t_fa67462a69e207 387-388
+  s_f2c9bd75607afc::t_e37fdc430e800c 2931-2941
+  s_f2c9bd75607afc::t_7d24b03fe726be 3138
+  s_f2c9bd75607afc::t_bc829761f3f4b4 3159
+TlsLib/src/Interfaces/Engine/TlpITlsConfigBuilder.pas
+  s_f2c9bd75607afc::t_56797586ca017e 72,298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "16da961560b63a7a2fa2a538325711fdf6f6e375",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
