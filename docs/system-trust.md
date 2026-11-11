@@ -528,9 +528,8 @@ Who supplies the roots:
 
 ## Bundle anchors and issuer lookup
 
-**Which certificates of a bundle anchor.** The adapter bundle options (Indy `RootCertFile`, Synapse
-`CertCAFile`, mORMot `CACertificatesFile`, fcl-net `CertCA` / `TrustedCertificate` / `TrustedCertsDir`) and
-`TTlsOptions.TrustAnchors` follow `BundleAnchors`:
+**Which certificates of a bundle anchor.** `TTlsOptions.TrustAnchors`, and with it the CA-bundle option of
+each adapter (see [Through the adapters](#through-the-adapters)), follow `BundleAnchors`:
 
 - `SelfSignedOnly` (default): only a self-signed certificate anchors. Any other certificate in the
   bundle completes a peer's chain and is never trusted by itself.
@@ -569,16 +568,12 @@ the looked-up anchors for that connection and completes the chain with the looke
   changes between connections; `Build` refuses that default when it cannot work (a `Hard` posture
   without `WithLiveRevocationVerdict`, or early data beside an asynchronous verdict). A server cannot
   re-verify a resumed client. A server composed from `TTlsOptions` (the adapters) scopes its tickets by
-  the lookup `Identity`, which `fcl-net` derives from each directory's entries (name, size, time):
-  adding, removing or rewriting a file invalidates the tickets issued before. A server built directly
-  with `WithIssuerLookup` does not read `Identity`, so its tickets outlive a change of the lookup.
+  the lookup `Identity`, so a change of the lookup invalidates the tickets issued before. A server built
+  directly with `WithIssuerLookup` does not read `Identity`, so its tickets outlive a change of the lookup.
 - The live revocation re-check resolves the lookup again. For a config that does not use OS roots it
   trusts the config's roots and the looked-up ones only, never the OS roots.
 - `Build` refuses a lookup beside a `Custom` or `DangerousSkip` policy, and on a server without
   `WithPeerAuth`.
-- fcl-net `TrustedCertsDir` is such a lookup over OpenSSL-style hashed directories (a list searches
-  every directory): the directory is read when a chain is verified, only for the issuer names that
-  chain needs, and a file that cannot be read or holds no certificate is skipped.
 
 Compliance: the issuers a lookup returns are verified like any other chain material, but the lookup
 itself is host code, so the compliance report discloses it (see [compliance.md](compliance.md)).
@@ -647,6 +642,9 @@ harvested roots on Unix), but only when `CACertificatesFile` is empty: a
 CA file replaces system trust, as it does in mORMot's own OpenSSL backend.
 `scsMY`/`scsSpc` are *not* server-auth anchors and do not trigger it.
 
+Which `CACertificatesFile` certificates anchor follows `BundleAnchors`, set with
+`SetTlsLibMormotBundleAnchors` (see [Bundle anchors and issuer lookup](#bundle-anchors-and-issuer-lookup)).
+
 ```pascal
 LClient.TLS.CASystemStores := [scsRoot];         // OS roots (only when CACertificatesFile is empty)
 ```
@@ -675,6 +673,9 @@ LHttp.Sock.SSL.VerifyCert := True;                        // real verification
 // LHttp.Sock.SSL.CertCAFile := 'private.pem';            // (optional) unions a private CA
 ```
 
+Which `CertCAFile` certificates anchor follows `BundleAnchors`, a property of the plugin (see
+[Bundle anchors and issuer lookup](#bundle-anchors-and-issuer-lookup)).
+
 `VerifyCert := True` with a `CertCAFile` pins to that bundle; with `UseSystemTrust` it uses the OS
 store; with both it unions them; with neither it fails closed. `VerifyCert := False` is the loud
 `DangerousSkip` bypass.
@@ -698,9 +699,14 @@ H.UseSystemTrust := True;                                // OS roots
 `VerifyPeerCert` defaults to **True** here (stock fcl-net defaults it to `False`). With
 `UseSystemTrust` it uses the OS store; with `CertCA` / `TrustedCertificate` / `TrustedCertsDir` it
 pins to those anchors; with several it unions them; with none it fails closed.
-Which `CertCA` / `TrustedCertificate` certificates anchor follows `BundleAnchors`; `TrustedCertsDir`
-is an issuer lookup read at verification time (see
+Which `CertCA` / `TrustedCertificate` certificates anchor follows the handler's `BundleAnchors` (see
 [Bundle anchors and issuer lookup](#bundle-anchors-and-issuer-lookup)).
+
+`TrustedCertsDir` is an [issuer lookup](#bundle-anchors-and-issuer-lookup) over OpenSSL-style hashed
+directories (a list searches every directory): a directory is read when a chain is verified, only for
+the issuer names that chain needs, and a file that cannot be read or holds no certificate is skipped.
+Its `Identity` is built from each directory's entries (name, size, time), so adding, removing or
+rewriting a file invalidates the tickets a server issued before.
 `VerifyPeerCert := False` set through a `TTlsLibSocketHandler` is the loud verification bypass.
 
 ### Writing your own adapter
