@@ -1,0 +1,55 @@
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_f2c9bd75607afc::t_02bab38ce75eee 453
+  s_f2c9bd75607afc::t_c6143ee08501f4 2480
+  s_f2c9bd75607afc::t_5e17b9b483b46f 437-441,451-452,457-461,464-465
+  s_f2c9bd75607afc::t_acba1287837f29 2873
+  s_f2c9bd75607afc::t_4158f986a473ba 2422,2427,2434,2441,2449,2452,2458-2459,2466
+  s_f2c9bd75607afc::t_83ba2e713435d3 2792-2811
+  s_f2c9bd75607afc::t_d32287ba47d99c 417-420
+  s_f2c9bd75607afc::t_af676cc77232fb 454-456
+  s_f2c9bd75607afc::t_b0b8f2d26e7da9 2512-2521,2523-2530,2534-2538
+  s_f2c9bd75607afc::t_82c33ca1f6e588 2878-2879
+  s_f2c9bd75607afc::t_271eb6c528a06c 2477-2478
+  s_f2c9bd75607afc::t_c180c32cda9094 2872
+  s_f2c9bd75607afc::t_0b00c0617ec15d 3178
+  s_f2c9bd75607afc::t_9cca94a9bf77cf 67-68
+  s_f2c9bd75607afc::t_11bf228875cf8f 2709,2722
+  s_f2c9bd75607afc::t_0f77fc0401b676 2395,2399
+  s_f2c9bd75607afc::t_49b2c594e0320d 93,95
+  s_f2c9bd75607afc::t_42ce1cbf2f84cc 2739,2744-2746
+  s_f2c9bd75607afc::t_81659dc0cefc04 2844-2845
+  s_f2c9bd75607afc::t_512731a91feaf8 56-58
+  s_f2c9bd75607afc::t_1522f2f2c83f82 2339-2351
+  s_f2c9bd75607afc::t_4d63cae9f44284 2479,2481-2511,2522,2531-2533,2539-2638
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_648d7507a2a074 88
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_5a18cbc12a0895 778-780,782-784,786-794,798-863,865-867,869-870,872-873,875-899,901,904-906,909-910,912-914,916-924,927,929-930,932-937
+  s_f2c9bd75607afc::t_314145372509a1 211-213
+  s_f2c9bd75607afc::t_2a2d030be5c6e3 1160-1161,1166-1171
+  s_f2c9bd75607afc::t_4ccaf96dd94708 1358-1360
+  s_f2c9bd75607afc::t_803f3d78b4aac9 274-276
+  s_f2c9bd75607afc::t_032a306f506143 234
+  s_f2c9bd75607afc::t_8ed3fa0fde5214 43-44
+  s_f2c9bd75607afc::t_00ffaa3001ac7f 1216
+  s_f2c9bd75607afc::t_ce36c9d4eedea1 795-797
+  s_f2c9bd75607afc::t_3285efcd5001f2 496-498
+  s_f2c9bd75607afc::t_37b020a9c26d33 340-345
+  s_f2c9bd75607afc::t_b88c6e5e8db79d 111-144,900,925-926,928,931
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "277d05d12913399b4de0bab69adbb79fa4c37187",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
