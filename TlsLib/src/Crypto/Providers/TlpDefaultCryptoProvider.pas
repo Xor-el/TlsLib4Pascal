@@ -280,8 +280,8 @@ type
   THkdfAdapter = class(TInterfacedObject, IHkdf)
   strict private
   var
-    FExtractMac: IMac;
-    FExpandGen: IHkdfBytesGenerator;
+    FAlgorithm: THashAlgorithm;
+    FHashLen: Int32;
   public
     constructor Create(AAlgorithm: THashAlgorithm);
     function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
@@ -668,9 +668,8 @@ end;
 constructor THkdfAdapter.Create(AAlgorithm: THashAlgorithm);
 begin
   inherited Create;
-  FExtractMac := THMac.Create(TDigestResolver.Resolve(AAlgorithm)) as IMac;
-  FExpandGen := THkdfBytesGenerator.Create(
-    TDigestResolver.Resolve(AAlgorithm)) as IHkdfBytesGenerator;
+  FAlgorithm := AAlgorithm;
+  FHashLen := TDigestResolver.Resolve(AAlgorithm).GetDigestSize;
 end;
 
 function THkdfAdapter.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
@@ -678,11 +677,11 @@ var
   LMac: IMac;
   LSalt, LIkmBytes, LPrk: TBytes;
 begin
-  LMac := FExtractMac;
+  LMac := THMac.Create(TDigestResolver.Resolve(FAlgorithm)) as IMac;
   // a nil or empty salt is HashLen zeros; otherwise the salt is secret material, so it is
   // materialised into a private copy here and wiped, not aliased from the caller
   if (ASalt = nil) or (ASalt.Len = 0) then
-    SetLength(LSalt, LMac.GetMacSize)
+    SetLength(LSalt, FHashLen)
   else
     LSalt := ASalt.ToBytes;
   try
@@ -710,15 +709,13 @@ var
   LGen: IHkdfBytesGenerator;
   LParams: IHkdfParameters;
   LPrkBytes, LOkm: TBytes;
-  LHashLen: Int32;
 begin
   // RFC 5869: L must not exceed 255 * HashLen
-  LHashLen := FExtractMac.GetMacSize;
   if ALength < 0 then
     raise EArgumentTlsLibException.CreateRes(@SHkdfExpandNegative);
-  if ALength > 255 * LHashLen then
-    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong, [ALength, 255 * LHashLen]);
-  LGen := FExpandGen;
+  if ALength > 255 * FHashLen then
+    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong, [ALength, 255 * FHashLen]);
+  LGen := THkdfBytesGenerator.Create(TDigestResolver.Resolve(FAlgorithm)) as IHkdfBytesGenerator;
   LPrkBytes := APrk.ToBytes;
   try
     LParams := THkdfParameters.SkipExtractParameters(LPrkBytes, AInfo);

@@ -71,6 +71,7 @@ type
     procedure TestHmacReuseAcrossDoFinal;
     procedure TestHmacSha256Kat;
     procedure TestHkdfSha256Rfc5869;
+    procedure TestHkdfExpandIsSafeAcrossThreads;
     procedure TestHkdfExpandRejectsOverCapAndNegative;
     procedure TestAesGcmKat;
     procedure TestAes256GcmKat;
@@ -96,6 +97,56 @@ type
   end;
 
 implementation
+
+type
+  // expands one shared HKDF object in a loop and counts the results that differ from the expected
+  THkdfExpandWorker = class sealed(TThread)
+  strict private
+  var
+    FHkdf: IHkdf;
+    FPrk: ISecretBuffer;
+    FInfo: TBytes;
+    FExpected: TBytes;
+    FRounds: Int32;
+  public
+    Mismatches: Int32;
+    constructor Create(const AHkdf: IHkdf; const APrk: ISecretBuffer; const AInfo,
+      AExpected: TBytes; ARounds: Int32);
+    procedure Execute; override;
+  end;
+
+{ THkdfExpandWorker }
+
+constructor THkdfExpandWorker.Create(const AHkdf: IHkdf; const APrk: ISecretBuffer;
+  const AInfo, AExpected: TBytes; ARounds: Int32);
+begin
+  inherited Create(True);
+  FreeOnTerminate := False;
+  FHkdf := AHkdf;
+  FPrk := APrk;
+  FInfo := AInfo;
+  FExpected := AExpected;
+  FRounds := ARounds;
+end;
+
+procedure THkdfExpandWorker.Execute;
+var
+  LI: Int32;
+  LGot: TBytes;
+begin
+  Mismatches := 0;
+  try
+    for LI := 1 to FRounds do
+    begin
+      LGot := FHkdf.Expand(FPrk, FInfo, System.Length(FExpected)).ToBytes;
+      if (System.Length(LGot) <> System.Length(FExpected)) or
+        not CompareMem(@LGot[0], @FExpected[0], System.Length(FExpected)) then
+        Inc(Mismatches);
+    end;
+  except
+    Inc(Mismatches);
+  end;
+end;
 
 { TTestCryptoProvider }
 
@@ -326,6 +377,44 @@ begin
       SecretBytes(LOkm));
   finally
     LVec.Free;
+  end;
+end;
+
+procedure TTestCryptoProvider.TestHkdfExpandIsSafeAcrossThreads;
+const
+  WorkerCount = 4;
+  Rounds = 400;
+var
+  LHkdf: IHkdf;
+  LWorkers: array [0 .. WorkerCount - 1] of THkdfExpandWorker;
+  LPrk: ISecretBuffer;
+  LInfo, LExpected: TBytes;
+  LI: Int32;
+begin
+  // one object shared by threads that expand different material at once: each result must equal
+  // what the same call returns alone (the engine's inbound rekey, outbound rekey and exporter
+  // all derive through one key schedule object)
+  LHkdf := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  for LI := 0 to High(LWorkers) do
+    LWorkers[LI] := nil;
+  try
+    for LI := 0 to High(LWorkers) do
+    begin
+      LPrk := TSecretBuffer.From(PatternBytes(32, LI + 1));
+      LInfo := PatternBytes(10 + LI, LI + 40);
+      LExpected := LHkdf.Expand(LPrk, LInfo, 16 * (LI + 1)).ToBytes;
+      LWorkers[LI] := THkdfExpandWorker.Create(LHkdf, LPrk, LInfo, LExpected, Rounds);
+    end;
+    for LI := 0 to High(LWorkers) do
+      LWorkers[LI].Start;
+    for LI := 0 to High(LWorkers) do
+    begin
+      LWorkers[LI].WaitFor;
+      CheckEquals(0, LWorkers[LI].Mismatches, 'concurrent Expand calls do not interfere');
+    end;
+  finally
+    for LI := 0 to High(LWorkers) do
+      LWorkers[LI].Free;
   end;
 end;
 

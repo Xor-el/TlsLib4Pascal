@@ -55,7 +55,6 @@ type
     EchBackend,           // ECH split-mode backend (server): record the status for connection info
     EchServerRejected,    // ECH rejected at the server: record the status (the handshake continues)
     EchRejected,          // ECH was rejected (client): abort with ech_required, surface retry_configs
-    SendWarningAlert,     // emit a warning-level alert and continue (e.g. no_renegotiation)
     Fail);                // abort with a fatal alert
 
   /// <summary>The facts a handshake machine reports at completion beside the suite, group and
@@ -90,7 +89,7 @@ type
     Resumed: Boolean;            // ConnectionParams (resumed)
     ExtendedMasterSecret: Boolean; // ConnectionParams (RFC 7627 in use; always True on TLS 1.3)
     ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
-    Alert: TTlsAlertDescription; // Fail / SendWarningAlert
+    Alert: TTlsAlertDescription; // Fail
     Reason: string;              // Fail (why the handshake aborted; becomes LastError's message)
     Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
     HostName: string;            // AwaitCertificateVerdict (the host to authenticate against)
@@ -160,10 +159,6 @@ type
       AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
       const AFacts: TNegotiationFacts): THandshakeEffect; static;
     class function HandshakeEstablished: THandshakeEffect; static;
-    /// <summary>Emits a warning-level alert without tearing down the connection: the driver
-    /// delivers it through the sink so the engine writes it under the current epoch and stays
-    /// live (e.g. no_renegotiation, RFC 5246 7.4.1.1 / 7.2.2).</summary>
-    class function SendWarningAlert(AAlert: TTlsAlertDescription): THandshakeEffect; static;
     /// <summary>Aborts with AAlert; AReason is the error the application sees.</summary>
     class function Fail(AAlert: TTlsAlertDescription;
       const AReason: string): THandshakeEffect; static;
@@ -350,14 +345,6 @@ class function THandshakeEffects.HandshakeEstablished: THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
   Result.Kind := THandshakeEffectKind.HandshakeEstablished;
-end;
-
-class function THandshakeEffects.SendWarningAlert(
-  AAlert: TTlsAlertDescription): THandshakeEffect;
-begin
-  Result := Default(THandshakeEffect);
-  Result.Kind := THandshakeEffectKind.SendWarningAlert;
-  Result.Alert := AAlert;
 end;
 
 class function THandshakeEffects.Fail(AAlert: TTlsAlertDescription;

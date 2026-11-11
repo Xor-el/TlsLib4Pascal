@@ -33,6 +33,8 @@ uses
   TlpCipherSuiteRegistry,
   TlpICryptoProvider,
   TlpITlsEngine,
+  TlpITlsEngineInbound,
+  TlpITlsEngineOutbound,
   TlpTlsAlert,
   TlpTlsError,
   TlpHandshakeMessages,
@@ -72,6 +74,9 @@ type
     /// engines.</summary>
     procedure HandshakeWithFaultableClient(const ASwitch: TAeadFaultSwitch;
       out AClient, AServer: ITlsEngine);
+    /// <summary>Feeds AClient an application record from AServer with a flipped tag byte, which
+    /// fails the client's decryption.</summary>
+    procedure FeedCorruptRecord(const AClient, AServer: ITlsEngine);
   published
     procedure TestClientKeyUpdateNoRequestRekeysServerRead;
     procedure TestClientKeyUpdateRequestedTriggersOneResponse;
@@ -81,6 +86,12 @@ type
     procedure TestConsecutiveKeyUpdateFloodSaysWhy;
     procedure TestSendAlertWhoseSealFailsStillEndsTheEngine;
     procedure TestFloodRefusalWhoseAlertSealFailsKeepsItsAlert;
+    procedure TestInboundFailureSealsNothingUntilTheAlertIsTaken;
+    procedure TestPendingAlertSealFaultIsDroppedWithoutRaising;
+    procedure TestTransportLatchClearsAPendingAlertOnATerminalEngine;
+    procedure TestInboundFailureAfterOurCloseNotifyQueuesNoAlert;
+    procedure TestOwedKeyUpdateReplyIsNotOutgoingUntilAWrite;
+    procedure TestEngineServesTheInboundAndOutboundFaces;
     procedure TestUndrainedEventQueueIsBounded;
     procedure TestWriteAtUsageLimitRekeysAutomatically;
     procedure TestServerExportsKeyingMaterialInHalfRtt;
@@ -441,6 +452,129 @@ begin
   CheckEquals('the peer sent too many post-handshake messages without application data',
     LClient.LastError.Message, 'the flood reason survives the failed seal');
   CheckEquals(0, System.Length(Drain(LClient)), 'no alert was queued');
+end;
+
+procedure TTestTls13KeyUpdate.FeedCorruptRecord(const AClient, AServer: ITlsEngine);
+var
+  LData, LRecord: TBytes;
+begin
+  LData := DecodeHex('0102');
+  AServer.Write(LData, 0, System.Length(LData));
+  LRecord := Drain(AServer);
+  LRecord[System.High(LRecord)] := LRecord[System.High(LRecord)] xor $01;
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(AClient.ProcessInput(LRecord, 0,
+    System.Length(LRecord))), 'the corrupt record is fatal');
+end;
+
+procedure TTestTls13KeyUpdate.TestInboundFailureSealsNothingUntilTheAlertIsTaken;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+  LAlert: TBytes;
+begin
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  HandshakeWithFaultableClient(LSwitch, LClient, LServer);
+  // a seal during the inbound call would fault and drop the alert
+  LSwitch.Armed := True;
+  FeedCorruptRecord(LClient, LServer);
+  LSwitch.Armed := False;
+  CheckTrue(LClient.IsTerminal, 'the client ended');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LClient.LastError.Alert.Description),
+    'on the bad record');
+  CheckTrue(LClient.WantsWrite, 'the alert is owed');
+
+  LAlert := Drain(LClient);
+  CheckTrue(System.Length(LAlert) > 0, 'the alert was sealed when taken');
+  CheckFalse(LClient.WantsWrite, 'nothing is owed once the alert is taken');
+  CheckEquals(0, System.Length(Drain(LClient)), 'exactly one alert');
+  Feed(LServer, LAlert);
+  CheckTrue(LServer.IsTerminal, 'the server sees the fatal alert');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LServer.LastError.Alert.Description),
+    'the peer alert is bad_record_mac');
+  CheckEquals(Ord(TTlsErrorOrigin.Peer), Ord(LServer.LastError.Origin), 'sent by the peer');
+end;
+
+procedure TTestTls13KeyUpdate.TestPendingAlertSealFaultIsDroppedWithoutRaising;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+begin
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  HandshakeWithFaultableClient(LSwitch, LClient, LServer);
+  FeedCorruptRecord(LClient, LServer);
+  LSwitch.Armed := True;
+  CheckEquals(0, System.Length(Drain(LClient)), 'a seal fault yields no bytes and does not raise');
+  CheckFalse(LClient.WantsWrite, 'the dropped alert is not owed again');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LClient.LastError.Alert.Description),
+    'the engine keeps its original reason');
+end;
+
+procedure TTestTls13KeyUpdate.TestTransportLatchClearsAPendingAlertOnATerminalEngine;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  Handshake(LClient, LServer);
+  FeedCorruptRecord(LClient, LServer);
+  CheckTrue(LClient.WantsWrite, 'the alert is owed');
+  LClient.LatchTransportFailure('the socket closed');
+  CheckFalse(LClient.WantsWrite, 'the latch clears the owed alert');
+  CheckEquals(0, System.Length(Drain(LClient)), 'nothing is left to send');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LClient.LastError.Alert.Description),
+    'the recorded reason is not overwritten');
+end;
+
+procedure TTestTls13KeyUpdate.TestInboundFailureAfterOurCloseNotifyQueuesNoAlert;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  Handshake(LClient, LServer);
+  LClient.SendClose;
+  CheckTrue(System.Length(Drain(LClient)) > 0, 'the close_notify was sealed at once');
+  FeedCorruptRecord(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the client ended');
+  CheckFalse(LClient.WantsWrite, 'nothing may follow our close_notify');
+  CheckEquals(0, System.Length(Drain(LClient)), 'no alert follows the close_notify');
+end;
+
+procedure TTestTls13KeyUpdate.TestOwedKeyUpdateReplyIsNotOutgoingUntilAWrite;
+var
+  LClient, LServer: ITlsEngine;
+  LData: TBytes;
+begin
+  Handshake(LClient, LServer);
+  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+  Pump(LClient, LServer);
+  CheckEquals(1, CountKeyUpdateEvents(LServer), 'the server received the request');
+  CheckFalse(LServer.WantsWrite, 'the owed reply is not outgoing');
+  CheckEquals(0, System.Length(Drain(LServer)), 'taking output yields nothing');
+
+  LData := DecodeHex('0102');
+  LServer.Write(LData, 0, System.Length(LData));
+  CheckTrue(LServer.WantsWrite, 'the write carries the reply');
+  Pump(LServer, LClient);
+  CheckEquals(1, CountKeyUpdateEvents(LClient), 'the client received the reply');
+  CheckEqualBytes('the data follows the reply', LData, ReadAllApp(LClient));
+end;
+
+procedure TTestTls13KeyUpdate.TestEngineServesTheInboundAndOutboundFaces;
+var
+  LClient, LServer: ITlsEngine;
+  LOutbound: ITlsEngineOutbound;
+  LInbound: ITlsEngineInbound;
+  LData, LGot: TBytes;
+begin
+  Handshake(LClient, LServer);
+  CheckTrue(Supports(LClient, ITlsEngineOutbound, LOutbound), 'the outbound face');
+  CheckTrue(Supports(LServer, ITlsEngineInbound, LInbound), 'the inbound face');
+  LData := DecodeHex('010203');
+  LOutbound.Write(LData, 0, System.Length(LData));
+  CheckTrue(LOutbound.WantsWrite, 'a sealed record is outgoing');
+  Pump(LClient, LServer);
+  CheckFalse(LOutbound.WantsWrite, 'it was taken');
+  CheckEquals(3, LInbound.PendingAppData, 'the inbound face sees the data');
+  SetLength(LGot, 3);
+  CheckEquals(3, LInbound.ReadAppData(LGot, 0, 3), 'and reads it');
+  CheckEqualBytes('the data', LData, LGot);
 end;
 
 procedure TTestTls13KeyUpdate.TestUndrainedEventQueueIsBounded;

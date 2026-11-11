@@ -30,6 +30,7 @@ uses
 {$ENDIF FPC}
   TlpTlsVersion,
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsLibExceptions,
   TlpNamedGroups,
   TlpNegotiationTypes,
@@ -126,13 +127,130 @@ type
     procedure TestClientAcceptsValidX25519ServerKeyExchangeShare;
     procedure TestTamperedClientFinishedAborts;
     procedure TestServerRejectsClientFinishedWithWrongVerifyData;
-    procedure TestClientAnswersHelloRequestWithWarningThenAborts;
+    procedure TestClientIgnoresHelloRequest;
+    procedure TestServerRefusesRenegotiationClientHelloFatally;
+    procedure TestEngineClientIgnoresHelloRequestAndKeepsFlowing;
+    procedure TestEngineServerRefusesRenegotiationWithFatalAlert;
     procedure TestNonEmptyHelloRequestIsDecodeError;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
     procedure TestMissingStapleAbortsUnderHardPosture;
   end;
 
 implementation
+
+type
+  // forwards to a real machine; Inject makes the next RequestKeyUpdate seal ABytes as a
+  // handshake message, so a test can send a message the real machine never would
+  TEffectInjectingMachine = class sealed(TInterfacedObject, IHandshakeMachine)
+  strict private
+  var
+    FInner: IHandshakeMachine;
+    FInjected: TBytes;
+  public
+    constructor Create(const AInner: IHandshakeMachine);
+    procedure Inject(const ABytes: TBytes);
+    function Initiates: Boolean;
+    function Stage: THandshakeStage;
+    function Start: TArray<THandshakeEffect>;
+    function ProcessMessage(const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
+    function RequestKeyUpdate(ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
+    function TakePendingKeyUpdate: TArray<THandshakeEffect>;
+    function ResumeAfterVerdict: TArray<THandshakeEffect>;
+    function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
+    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; overload;
+    function CanExportKeyingMaterial: Boolean;
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
+    function CanExportEarlyKeyingMaterial: Boolean;
+    procedure ForgetSessionsOnFatal;
+  end;
+
+{ TEffectInjectingMachine }
+
+constructor TEffectInjectingMachine.Create(const AInner: IHandshakeMachine);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+procedure TEffectInjectingMachine.Inject(const ABytes: TBytes);
+begin
+  FInjected := ABytes;
+end;
+
+function TEffectInjectingMachine.Initiates: Boolean;
+begin
+  Result := FInner.Initiates;
+end;
+
+function TEffectInjectingMachine.Stage: THandshakeStage;
+begin
+  Result := FInner.Stage;
+end;
+
+function TEffectInjectingMachine.Start: TArray<THandshakeEffect>;
+begin
+  Result := FInner.Start;
+end;
+
+function TEffectInjectingMachine.ProcessMessage(
+  const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
+begin
+  Result := FInner.ProcessMessage(AMessage);
+end;
+
+function TEffectInjectingMachine.RequestKeyUpdate(
+  ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
+begin
+  if System.Length(FInjected) = 0 then
+    Exit(FInner.RequestKeyUpdate(ARequest));
+  Result := TArray<THandshakeEffect>.Create(THandshakeEffects.SendHandshake(FInjected));
+  FInjected := nil;
+end;
+
+function TEffectInjectingMachine.TakePendingKeyUpdate: TArray<THandshakeEffect>;
+begin
+  Result := FInner.TakePendingKeyUpdate;
+end;
+
+function TEffectInjectingMachine.ResumeAfterVerdict: TArray<THandshakeEffect>;
+begin
+  Result := FInner.ResumeAfterVerdict;
+end;
+
+function TEffectInjectingMachine.ExportKeyingMaterial(const ALabel: string;
+  ALength: Int32): TBytes;
+begin
+  Result := FInner.ExportKeyingMaterial(ALabel, ALength);
+end;
+
+function TEffectInjectingMachine.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := FInner.ExportKeyingMaterial(ALabel, AContext, ALength);
+end;
+
+function TEffectInjectingMachine.CanExportKeyingMaterial: Boolean;
+begin
+  Result := FInner.CanExportKeyingMaterial;
+end;
+
+function TEffectInjectingMachine.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := FInner.ExportEarlyKeyingMaterial(ALabel, AContext, ALength);
+end;
+
+function TEffectInjectingMachine.CanExportEarlyKeyingMaterial: Boolean;
+begin
+  Result := FInner.CanExportEarlyKeyingMaterial;
+end;
+
+procedure TEffectInjectingMachine.ForgetSessionsOnFatal;
+begin
+  FInner.ForgetSessionsOnFatal;
+end;
 
 { TTestTls12Loopback }
 
@@ -1040,17 +1158,14 @@ begin
     'the server rejects a client Finished with wrong verify_data (decrypt_error)');
 end;
 
-procedure TTestTls12Loopback.TestClientAnswersHelloRequestWithWarningThenAborts;
+procedure TTestTls12Loopback.TestClientIgnoresHelloRequest;
 var
   LClient, LServer: IHandshakeMachine;
-  LEffects: TArray<THandshakeEffect>;
-  LEffect: THandshakeEffect;
-  LWarnings, LFails: Int32;
+  LI: Int32;
 begin
-  // white-box: two bare 1.2 machines driven to Connected. This client does not renegotiate,
-  // so a post-handshake HelloRequest is answered with a warning no_renegotiation and the
-  // connection continues; a second one is fatal (library policy; RFC 5246 7.2.2 and RFC 5746 4.2
-  // do not make it so)
+  // white-box: two bare 1.2 machines driven to Connected. This client does not renegotiate and
+  // ignores a post-handshake HelloRequest without sending anything, however often it repeats
+  // (RFC 5246 7.4.1.1)
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);
   // ClientHello -> server flight -> client ClientKeyExchange+Finished -> server Finished -> client
@@ -1059,20 +1174,88 @@ begin
     AllSendHandshake(LClient.Start))))))));
 
   // a HelloRequest is type 0 with an empty body
-  LWarnings := 0;
-  for LEffect in DeliverFlight(LClient, TArray<TBytes>.Create(DecodeHex('00000000'))) do
-    if (LEffect.Kind = THandshakeEffectKind.SendWarningAlert) and
-      (LEffect.Alert = TTlsAlertDescription.NoRenegotiation) then
-      Inc(LWarnings);
-  CheckEquals(1, LWarnings, 'the first HelloRequest yields one warning no_renegotiation');
+  for LI := 1 to 3 do
+    CheckEquals(0, System.Length(DeliverFlight(LClient,
+      TArray<TBytes>.Create(DecodeHex('00000000')))),
+      'a HelloRequest yields no effect (no alert, no failure)');
+  CheckTrue(LClient.Stage = THandshakeStage.Connected, 'the client stays connected');
+end;
 
-  LFails := 0;
-  LEffects := DeliverFlight(LClient, TArray<TBytes>.Create(DecodeHex('00000000')));
-  for LEffect in LEffects do
-    if (LEffect.Kind = THandshakeEffectKind.Fail) and
-      (LEffect.Alert = TTlsAlertDescription.IllegalParameter) then
-      Inc(LFails);
-  CheckEquals(1, LFails, 'a second HelloRequest is fatal illegal_parameter');
+procedure TTestTls12Loopback.TestServerRefusesRenegotiationClientHelloFatally;
+var
+  LClient, LServer: IHandshakeMachine;
+  LEffects: TArray<THandshakeEffect>;
+begin
+  LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := ServerMachine(False);
+  DeliverFlight(LClient, AllSendHandshake(DeliverFlight(LServer,
+    AllSendHandshake(DeliverFlight(LClient, AllSendHandshake(DeliverFlight(LServer,
+    AllSendHandshake(LClient.Start))))))));
+  CheckTrue(LServer.Stage = THandshakeStage.Connected, 'the server is connected');
+
+  // a renegotiation ClientHello (type 1)
+  LEffects := DeliverFlight(LServer, TArray<TBytes>.Create(DecodeHex('01000000')));
+  CheckEquals(1, System.Length(LEffects), 'one effect');
+  CheckTrue(LEffects[0].Kind = THandshakeEffectKind.Fail, 'the refusal is a failure');
+  CheckEquals(Ord(TTlsAlertDescription.NoRenegotiation), Ord(LEffects[0].Alert),
+    'a fatal no_renegotiation');
+end;
+
+procedure TTestTls12Loopback.TestEngineClientIgnoresHelloRequestAndKeepsFlowing;
+var
+  LClient, LServer: ITlsEngine;
+  LProbe: TEffectInjectingMachine;
+  LMachine: IHandshakeMachine;
+begin
+  LProbe := TEffectInjectingMachine.Create(ServerMachine(False));
+  LMachine := LProbe as IHandshakeMachine;
+  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  LServer := TTlsEngine.CreateConfigured(LMachine, Crypto);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+
+  // the server emits a HelloRequest under its application write keys
+  LProbe.Inject(DecodeHex('00000000'));
+  LServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+  Pump(LServer, LClient);
+  CheckFalse(LClient.IsTerminal, 'the client ignores the HelloRequest');
+  CheckFalse(LClient.WantsWrite, 'the client has nothing to send');
+  CheckEquals(0, System.Length(Drain(LClient)), 'the client sent no alert');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Loopback.TestEngineServerRefusesRenegotiationWithFatalAlert;
+var
+  LClient, LServer: ITlsEngine;
+  LProbe: TEffectInjectingMachine;
+  LMachine: IHandshakeMachine;
+  LAlert: TBytes;
+begin
+  LProbe := TEffectInjectingMachine.Create(ClientMachine(
+    TCipherSuites12.EcdheEcdsaAes128GcmSha256, True));
+  LMachine := LProbe as IHandshakeMachine;
+  LClient := TTlsEngine.CreateConfigured(LMachine, Crypto);
+  LServer := NewServer(False);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LServer.IsHandshaking, 'the handshake completed');
+
+  // the client asks to renegotiate with a ClientHello under its application write keys
+  LProbe.Inject(DecodeHex('01000000'));
+  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+  Pump(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'the server refuses the renegotiation');
+  CheckEquals(Ord(TTlsAlertDescription.NoRenegotiation),
+    Ord(LServer.LastError.Alert.Description), 'with no_renegotiation');
+  CheckTrue(LServer.LastError.Alert.Level = TTlsAlertLevel.Fatal, 'at fatal level');
+  CheckTrue(LServer.WantsWrite, 'the alert is owed');
+
+  LAlert := Drain(LServer);
+  CheckTrue(System.Length(LAlert) > 0, 'the alert was sealed');
+  Feed(LClient, LAlert);
+  CheckTrue(LClient.IsTerminal, 'the client sees the fatal alert');
+  CheckEquals(Ord(TTlsAlertDescription.NoRenegotiation),
+    Ord(LClient.LastError.Alert.Description), 'the peer alert is no_renegotiation');
+  CheckEquals(Ord(TTlsErrorOrigin.Peer), Ord(LClient.LastError.Origin), 'sent by the peer');
 end;
 
 procedure TTestTls12Loopback.TestNonEmptyHelloRequestIsDecodeError;

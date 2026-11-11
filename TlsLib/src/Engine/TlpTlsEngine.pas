@@ -32,6 +32,8 @@ uses
   TlpRecordLayer,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
+  TlpITlsEngineInbound,
+  TlpITlsEngineOutbound,
   TlpHandshakeMessage,
   TlpHandshakeMessages,
   TlpTlsEngineEvents,
@@ -50,7 +52,8 @@ type
   /// application data, and the event queue, all as TBytes with explicit
   /// offset/length. Single-threaded: the caller serializes access.
   /// </summary>
-  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine)
+  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
+    ITlsEngineOutbound)
   strict private
   type
     // decrypted plaintext waiting for the caller: [FHead, FTail) of one buffer, so the byte
@@ -106,12 +109,17 @@ type
     // opening flight under the current write epoch
     FStarted: Boolean;
     FLastError: TTlsError;
+    // a post-handshake fatal alert, sealed by the next TakeOutgoing so the inbound path never seals
+    FPendingAlert: TTlsAlert;
+    FAlertPending: Boolean;
     // an out-of-range caller slice is misuse, refused locally rather than failed on the wire
     class procedure RequireSlice(const AData: TBytes; AOffset, ALength: Int32;
       AMessage: PResStringRec); static;
     procedure Enqueue(const AEvent: ITlsEvent);
     function IsTls13: Boolean;
     procedure QueueAlertRecord(const AAlert: TTlsAlert);
+    procedure ScheduleFatalAlert(const AAlert: TTlsAlert);
+    procedure SealPendingAlert;
     procedure AppendAppData(const AData: TBytes);
     procedure HandleIncomingAlert(const AData: TBytes);
     procedure RouteFragment(const AFragment: TTlsRecordFragment);
@@ -204,7 +212,6 @@ type
       AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
       const AFacts: TNegotiationFacts);
     procedure OnHandshakeEstablished;
-    procedure OnWarningAlert(AAlert: TTlsAlertDescription);
     procedure OnEchAccepted;
     procedure OnEchGreased;
     procedure OnEchBackend;
@@ -262,7 +269,7 @@ type
   /// </summary>
   TEngineHandshakeBridge = class sealed(TInterfacedObject, IRecordEpochInstaller,
     IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,
-    IHandshakeConnectionInfoSink, IEchStatusSink, IWarningAlertSink)
+    IHandshakeConnectionInfoSink, IEchStatusSink)
   strict private
   var
     FEngine: TTlsEngine;
@@ -292,7 +299,6 @@ type
       const AFacts: TNegotiationFacts);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription; const AReason: string);
-    procedure OnWarningAlert(AAlert: TTlsAlertDescription);
     procedure OnEchAccepted;
     procedure OnEchGreased;
     procedure OnEchBackend;
@@ -415,11 +421,6 @@ begin
   FEngine.SendAlert(AAlert, AReason);
 end;
 
-procedure TEngineHandshakeBridge.OnWarningAlert(AAlert: TTlsAlertDescription);
-begin
-  FEngine.OnWarningAlert(AAlert);
-end;
-
 procedure TEngineHandshakeBridge.OnEchAccepted;
 begin
   FEngine.OnEchAccepted;
@@ -532,11 +533,39 @@ procedure TTlsEngine.QueueAlertRecord(const AAlert: TTlsAlert);
 var
   LBytes: TBytes;
 begin
-  // nothing may follow our close_notify (RFC 9846 6.1); the engine still goes terminal
-  if FSentClose and (AAlert.Level = TTlsAlertLevel.Fatal) then
-    Exit;
   LBytes := TTlsAlertProtocol.Encode(AAlert);
   FRecordLayer.Write(TTlsContentType.Alert, LBytes, 0, System.Length(LBytes));
+end;
+
+procedure TTlsEngine.ScheduleFatalAlert(const AAlert: TTlsAlert);
+begin
+  // nothing may follow our close_notify (RFC 9846 6.1); the engine still goes terminal
+  if FSentClose then
+    Exit;
+  // the handshake seals from the inbound path, so its alert keeps order with its flights
+  if FHandshakeComplete then
+  begin
+    FPendingAlert := AAlert;
+    FAlertPending := True;
+    Exit;
+  end;
+  try
+    QueueAlertRecord(AAlert);
+  except
+    // if even emitting the alert fails, the engine still becomes terminal
+  end;
+end;
+
+procedure TTlsEngine.SealPendingAlert;
+begin
+  if not FAlertPending then
+    Exit;
+  FAlertPending := False;
+  try
+    QueueAlertRecord(FPendingAlert);
+  except
+    // a seal fault drops the alert; the engine stays terminal with its original reason
+  end;
 end;
 
 procedure TTlsEngine.AppendAppData(const AData: TBytes);
@@ -731,11 +760,7 @@ begin
   if FTerminal then
     Exit;
   FLastError := AError;
-  try
-    QueueAlertRecord(AError.Alert);
-  except
-    // if even emitting the alert fails, the engine still becomes terminal
-  end;
+  ScheduleFatalAlert(AError.Alert);
   EnterFatalState(True);
 end;
 
@@ -987,11 +1012,13 @@ end;
 
 procedure TTlsEngine.LatchTransportFailure(const AReason: string);
 begin
+  // queued bytes may trail a torn record: drop them and a pending alert, failed already or not
+  FAlertPending := False;
+  FRecordLayer.DiscardOutbound;
   if FTerminal then
     Exit;
-  // not a fatal alert, so sessions stay (RFC 5246 7.2.1); queued bytes may trail a torn record
+  // not a fatal alert, so sessions stay (RFC 5246 7.2.1)
   EnterFatalState(False);
-  FRecordLayer.DiscardOutbound;
   FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, AReason,
     TTlsErrorOrigin.Transport);
 end;
@@ -1056,6 +1083,7 @@ end;
 
 function TTlsEngine.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
 begin
+  SealPendingAlert;
   Result := FRecordLayer.TakeOutgoing(ADest, ADestOffset);
 end;
 
@@ -1145,7 +1173,7 @@ end;
 
 function TTlsEngine.WantsWrite: Boolean;
 begin
-  Result := FRecordLayer.PendingOutgoing > 0;
+  Result := FAlertPending or (FRecordLayer.PendingOutgoing > 0);
 end;
 
 function TTlsEngine.IsHandshaking: Boolean;
@@ -1345,15 +1373,6 @@ begin
   FHandshakeComplete := True;
   // a change_cipher_spec is no longer in its legal window once the handshake is done
   FRecordLayer.SetHandshakeComplete;
-end;
-
-procedure TTlsEngine.OnWarningAlert(AAlert: TTlsAlertDescription);
-begin
-  // a warning alert does not tear down the connection; suppress it once the connection is
-  // terminal or the write half was closed, so nothing is written after our close_notify
-  if FTerminal or FSentClose then
-    Exit;
-  QueueAlertRecord(TTlsAlert.Create(TTlsAlertLevel.Warning, AAlert));
 end;
 
 procedure TTlsEngine.OnEchAccepted;

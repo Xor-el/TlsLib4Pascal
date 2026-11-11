@@ -453,7 +453,7 @@ begin
       Exit(0);
     end;
     AEngine.ProcessInput(ATransportBuffer, 0, LGot);
-    // what the input provoked (a fatal alert, a no_renegotiation warning) must reach the peer now,
+    // what the input provoked (a fatal alert) must reach the peer now,
     // since a read-only caller never writes. The engine and transport are single-threaded: a
     // connection is not read and written from two threads at once
     FlushThenRaiseIfFatal(AEngine, ATransport, ATransportBuffer);

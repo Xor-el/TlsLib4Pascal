@@ -25,10 +25,10 @@ uses
 
 type
   /// <summary>A handshake sink double that records what the driver reports: event count and the
-  /// last event, whether the handshake was established, any failure alert and its reason, and any
-  /// warning alert. It also implements the optional IWarningAlertSink. A test that does not care
-  /// about the recordings simply ignores them (it doubles as a silent sink).</summary>
-  TMockHandshakeSink = class sealed(TInterfacedObject, IHandshakeSink, IWarningAlertSink)
+  /// last event, whether the handshake was established, and any failure alert and its reason. A
+  /// test that does not care about the recordings simply ignores them (it doubles as a silent
+  /// sink).</summary>
+  TMockHandshakeSink = class sealed(TInterfacedObject, IHandshakeSink)
   strict private
   var
     FEventCount: Int32;
@@ -37,23 +37,18 @@ type
     FFailed: Boolean;
     FFailedAlert: TTlsAlertDescription;
     FFailedReason: string;
-    FWarned: Boolean;
-    FWarnedAlert: TTlsAlertDescription;
   public
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
     procedure OnAlpnSelected(const AProtocol: TBytes);
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription; const AReason: string);
-    procedure OnWarningAlert(AAlert: TTlsAlertDescription);
     property EventCount: Int32 read FEventCount;
     property LastEvent: TTlsEventKind read FLastEvent;
     property Established: Boolean read FEstablished;
     property Failed: Boolean read FFailed;
     property FailedAlert: TTlsAlertDescription read FFailedAlert;
     property FailedReason: string read FFailedReason;
-    property Warned: Boolean read FWarned;
-    property WarnedAlert: TTlsAlertDescription read FWarnedAlert;
   end;
 
 implementation
@@ -85,12 +80,6 @@ begin
   FFailed := True;
   FFailedAlert := AAlert;
   FFailedReason := AReason;
-end;
-
-procedure TMockHandshakeSink.OnWarningAlert(AAlert: TTlsAlertDescription);
-begin
-  FWarned := True;
-  FWarnedAlert := AAlert;
 end;
 
 end.

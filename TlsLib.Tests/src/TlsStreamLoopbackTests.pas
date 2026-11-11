@@ -171,7 +171,7 @@ type
     procedure TestProtocolFatalAlertAtThePumpDropsTheCachedTickets;
     procedure TestLatchedEngineWritesNothingToTheTransport;
     procedure TestLatchDropsPendingOutboundBytes;
-    procedure TestLatchAfterAFatalAlertKeepsTheQueuedAlert;
+    procedure TestLatchAfterAFatalAlertDropsTheQueuedAlertAndKeepsTheReason;
     procedure TestFailedFlushBehindReadKeepsTheTransportMessage;
     procedure TestWriteAfterAFailedFlushBehindReadRaises;
     procedure TestBadRecordBehindTransportDataRaisesWithTheAlertSent;
@@ -1841,14 +1841,14 @@ begin
     'the latched failure is a transport failure, not an alert');
 end;
 
-procedure TTestTlsStreamLoopback.TestLatchAfterAFatalAlertKeepsTheQueuedAlert;
+procedure TTestTlsStreamLoopback.TestLatchAfterAFatalAlertDropsTheQueuedAlertAndKeepsTheReason;
 var
   LClient, LServer: ITlsEngine;
 begin
   HandshakeEngines(LClient, LServer);
   LClient.SendAlert(TTlsAlertDescription.DecodeError);
   LClient.LatchTransportFailure('x');
-  CheckTrue(LClient.WantsWrite, 'the already-terminal engine keeps its queued alert');
+  CheckFalse(LClient.WantsWrite, 'the latch drops the alert a broken transport cannot carry');
   CheckEquals(Ord(TTlsAlertDescription.DecodeError), Ord(LClient.LastError.Alert.Description),
     'the first error stands');
   CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LClient.LastError.Origin),

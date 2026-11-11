@@ -1336,16 +1336,16 @@ begin
       // ResumeAfterVerdict, so any message routed here is out of turn
       Result := Unexpected;
     TPhase.Connected:
-      // this client does not renegotiate: a HelloRequest is answered with a warning
-      // no_renegotiation and the connection continues (RFC 5246 7.4.1.1, 7.2.2). Its body is
-      // empty; anything else is a decode_error
+      // this client does not renegotiate: a HelloRequest is ignored and nothing is sent
+      // (RFC 5246 7.4.1.1); a storm of them is bounded by the post-handshake message limit. Its
+      // body is empty; anything else is a decode_error
       if LKnown and (LType = TTlsHandshakeType.HelloRequest) then
       begin
         if System.Length(AMessage.Body) <> 0 then
           Result := TArray<THandshakeEffect>.Create(
             THandshakeEffects.Fail(TTlsAlertDescription.DecodeError, SHelloRequestNotEmpty))
         else
-          Result := RefuseRenegotiation;
+          Result := nil;
       end
       else
         Result := Unexpected;

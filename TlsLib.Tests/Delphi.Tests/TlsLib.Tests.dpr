@@ -86,6 +86,8 @@ uses
   TlpTlsAlertProtocol in '..\..\TlsLib\src\Common\TlpTlsAlertProtocol.pas',
   TlpAlertMapping in '..\..\TlsLib\src\Common\TlpAlertMapping.pas',
   TlpITlsEngine in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsEngine.pas',
+  TlpITlsEngineInbound in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsEngineInbound.pas',
+  TlpITlsEngineOutbound in '..\..\TlsLib\src\Interfaces\Engine\TlpITlsEngineOutbound.pas',
   TlpTlsEngineEvents in '..\..\TlsLib\src\Engine\TlpTlsEngineEvents.pas',
   TlpTlsEngine in '..\..\TlsLib\src\Engine\TlpTlsEngine.pas',
   TlpHkdfLabel in '..\..\TlsLib\src\KeySchedule\TlpHkdfLabel.pas',

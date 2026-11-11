@@ -408,6 +408,8 @@
         <DCCReference Include="..\..\TlsLib\src\Common\TlpTlsAlertProtocol.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Common\TlpAlertMapping.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsEngine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsEngineInbound.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsEngineOutbound.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngineEvents.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsEngine.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpHkdfLabel.pas"/>

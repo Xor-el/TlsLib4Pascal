@@ -335,8 +335,7 @@ begin
     Result := FromLastError(AEngine);
     Exit;
   end;
-  // a non-fatal input can still queue outbound - e.g. a warning no_renegotiation in response to
-  // a post-handshake renegotiation request (RFC 5246 7.2.2) - which must reach the peer
+  // a non-fatal input can still queue outbound (the handshake's flights), which must reach the peer
   Flush(AEngine, ASocket);
   // carry any plaintext produced this cycle, even alongside a terminal event
   Result := ResultOf(TInteropStatus.Ok, '');
