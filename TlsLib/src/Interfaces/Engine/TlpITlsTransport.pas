@@ -41,13 +41,14 @@ type
   end;
 
   /// <summary>
-  /// An ITlsTransport whose reads a connection can bound: it arms a deadline for the handshake, or
-  /// for one application read, and a read past it raises instead of blocking.
+  /// An ITlsTransport whose reads and writes a connection can bound: it arms a deadline for the
+  /// handshake, for one application read, or for a send, and an operation past it raises instead of
+  /// blocking.
   /// </summary>
   ITlsTimedTransport = interface(ITlsTransport)
     ['{9280BFB7-E538-4D74-8C7A-9D0CAB8C326A}']
     /// <summary>Measures the deadlines on AClock (required; nil raises). Call it before
-    /// SetReadTimeout: it clears any armed cap.</summary>
+    /// SetReadTimeout or SetWriteTimeout: it clears any armed cap or deadline.</summary>
     procedure UseClock(const AClock: ITlsMonotonicClock);
     /// <summary>Bounds the reads that follow to AMs ms in total, as a deadline from this call
     /// (0 = block); a read past it raises ETlsHandshakeTimeout.</summary>
@@ -55,6 +56,10 @@ type
     /// <summary>As SetReadTimeout, for an application read: a read past the deadline raises the
     /// retryable ETlsReadTimeout.</summary>
     procedure SetApplicationReadTimeout(AMs: Int32);
+    /// <summary>Bounds the writes that follow to AMs ms in total, as a deadline from this call
+    /// (0 = block, the default); a write past it raises ETlsWriteTimeout, possibly after part of
+    /// the data was sent, so the connection is unusable afterwards.</summary>
+    procedure SetWriteTimeout(AMs: Int32);
   end;
 
 implementation

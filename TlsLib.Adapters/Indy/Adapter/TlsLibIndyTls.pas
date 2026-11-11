@@ -29,6 +29,7 @@ uses
   SysUtils,
   SyncObjs,
   IdGlobal,
+  IdStack,
   IdSSL,
   IdURI,
   IdStackConsts,
@@ -229,6 +230,7 @@ type
     FBinding: TIdSocketHandle;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -464,6 +466,20 @@ end;
 function TIndySocketTransport.WaitReadable(AMs: Int32): Boolean;
 begin
   Result := FBinding.Readable(AMs);
+end;
+
+function TIndySocketTransport.WaitWritable(AMs: Int32): Boolean;
+var
+  LWritable: TIdSocketList;
+begin
+  // Indy's own wait covers readability only
+  LWritable := TIdSocketList.CreateSocketList;
+  try
+    LWritable.Add(FBinding.Handle);
+    Result := LWritable.Select(nil, LWritable, nil, AMs);
+  finally
+    LWritable.Free;
+  end;
 end;
 
 function TIndySocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,

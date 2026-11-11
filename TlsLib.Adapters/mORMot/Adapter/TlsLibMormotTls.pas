@@ -126,6 +126,7 @@ type
     FSocket: TNetSocket;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -336,6 +337,11 @@ begin
   // WaitFor readiness, not SO_RCVTIMEO: mORMot's Recv maps a receive timeout to nrRetry, which
   // would spin the read loop instead of surfacing the elapsed cap
   Result := neRead in FSocket.WaitFor(AMs, [neRead]);
+end;
+
+function TMormotSocketTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  Result := neWrite in FSocket.WaitFor(AMs, [neWrite]);
 end;
 
 function TMormotSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,

@@ -93,6 +93,7 @@ type
     FSocket: TTCPBlockSocket;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -318,6 +319,11 @@ end;
 function TSynapseSocketTransport.WaitReadable(AMs: Int32): Boolean;
 begin
   Result := FSocket.CanRead(AMs);
+end;
+
+function TSynapseSocketTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  Result := FSocket.CanWrite(AMs);
 end;
 
 function TSynapseSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,

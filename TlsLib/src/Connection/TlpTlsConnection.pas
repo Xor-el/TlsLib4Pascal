@@ -228,14 +228,17 @@ type
   /// <summary>An ITlsTransport over a host socket whose reads can be bounded for the handshake phase:
   /// with a cap armed, the reads that follow share one deadline, and a read past it raises
   /// ETlsHandshakeTimeout (a silent, dead or trickling peer is reaped rather than parking the
-  /// thread); with the cap cleared reads block, as application reads must. A host supplies the
-  /// readiness wait and the raw receive/send.</summary>
+  /// thread); with the cap cleared reads block, as application reads must. Writes can be bounded
+  /// the same way, by a deadline that raises ETlsWriteTimeout. A host supplies the readiness waits
+  /// and the raw receive/send.</summary>
   TTlsTimedTransportBase = class abstract(TInterfacedObject, ITlsTransport, ITlsTimedTransport)
   strict private
   var
     FReadTimeoutMs: Int32;
     FDeadlineMs: Int64; // monotonic ms the armed cap expires at
     FApplicationRead: Boolean; // the armed cap bounds an application read, not the handshake
+    FWriteTimeoutMs: Int32;
+    FWriteDeadlineMs: Int64; // monotonic ms the armed write deadline expires at
     FClock: ITlsMonotonicClock;
     procedure RaiseCapElapsed;
   strict protected
@@ -243,6 +246,10 @@ type
     /// returns True, for a host that bounds the socket itself (a receive timeout on the handle) and
     /// reports the elapsed cap from ReceiveRaw.</summary>
     function WaitReadable(AMs: Int32): Boolean; virtual;
+    /// <summary>True when at least one byte can be sent within AMs ms. The default waits nowhere and
+    /// returns True, so an armed write deadline is then only checked between sends and a send
+    /// already in progress runs unbounded; a host with a selectable socket overrides it.</summary>
+    function WaitWritable(AMs: Int32): Boolean; virtual;
     /// <summary>One blocking receive: the count, 0 on an orderly close, a negative value for a host
     /// receive error (which the base surfaces as ETlsStreamError, never as end of stream). A host
     /// whose socket bounds its own receives raises the elapsed cap itself: ETlsHandshakeTimeout
@@ -271,6 +278,10 @@ type
     /// update, part of a record) keep a read going. A read past the deadline raises the retryable
     /// ETlsReadTimeout instead of ETlsHandshakeTimeout. SetReadTimeout(0) clears it.</summary>
     procedure SetApplicationReadTimeout(AMs: Int32);
+    /// <summary>Bounds the writes that follow to AMs ms in total, as a deadline from this call
+    /// (0 = block, which clears it). Before each send the base waits for writability within the time
+    /// left and raises ETlsWriteTimeout when the deadline has passed or the wait runs out.</summary>
+    procedure SetWriteTimeout(AMs: Int32);
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
@@ -436,6 +447,7 @@ resourcestring
   SHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SApplicationReadTimedOut = 'no application data arrived within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
+  SWriteTimedOut = 'the send did not complete within %d ms';
   STransportReceiveFailed = 'the host transport reported a receive error (%d)';
 
 { TTlsBlobSource }
@@ -1190,6 +1202,13 @@ begin
   FApplicationRead := AMs > 0;
 end;
 
+procedure TTlsTimedTransportBase.SetWriteTimeout(AMs: Int32);
+begin
+  FWriteTimeoutMs := AMs;
+  if AMs > 0 then
+    FWriteDeadlineMs := FClock.NowMonotonicMillis + AMs;
+end;
+
 constructor TTlsTimedTransportBase.Create;
 begin
   inherited Create;
@@ -1202,12 +1221,18 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilTransportClock);
   FClock := AClock;
   FReadTimeoutMs := 0;
+  FWriteTimeoutMs := 0;
 end;
 
 function TTlsTimedTransportBase.WaitReadable(AMs: Int32): Boolean;
 begin
   // a host that bounds the socket itself (a receive timeout on the handle) keeps this default and
   // reports the elapsed cap from ReceiveRaw
+  Result := True;
+end;
+
+function TTlsTimedTransportBase.WaitWritable(AMs: Int32): Boolean;
+begin
   Result := True;
 end;
 
@@ -1249,11 +1274,19 @@ procedure TTlsTimedTransportBase.Write(const ABuffer: TBytes; AOffset,
   ALength: Int32);
 var
   LOff, LRemain, LN: Int32;
+  LLeftMs: Int64;
 begin
   LOff := AOffset;
   LRemain := ALength;
   while LRemain > 0 do
   begin
+    // the deadline spans the whole write, so it is checked before every send, not once per call
+    if FWriteTimeoutMs > 0 then
+    begin
+      LLeftMs := FWriteDeadlineMs - FClock.NowMonotonicMillis;
+      if (LLeftMs <= 0) or (not WaitWritable(Int32(LLeftMs))) then
+        raise ETlsWriteTimeout.CreateResFmt(@SWriteTimedOut, [FWriteTimeoutMs]);
+    end;
     LN := SendRaw(ABuffer, LOff, LRemain);
     if LN <= 0 then
       raise ETlsStreamError.CreateRes(@SSendNoProgress);

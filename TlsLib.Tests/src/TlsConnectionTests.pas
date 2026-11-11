@@ -190,6 +190,12 @@ type
     procedure TestTransportTimesOutWhenSilent;
     procedure TestApplicationReadTimeoutRaisesTheRetryableReadTimeout;
     procedure TestCapCheckBetweenRetriesHonoursTheDeadline;
+    procedure TestWriteDeadlineIsCheckedBeforeEverySend;
+    procedure TestWriteToAPeerThatStoppedDrainingRaisesWriteTimeout;
+    procedure TestWriteWithoutADeadlineNeverWaits;
+    procedure TestClearedWriteDeadlineBlocksAgain;
+    procedure TestNewClockClearsTheWriteDeadline;
+    procedure TestDefaultWritabilityWaitStillChecksTheDeadlineBetweenSends;
     procedure TestSupportedVersionsOptionNarrowsTheOffer;
     procedure TestSupportedVersionsOrderIsPartOfTheMemoKey;
     procedure TestSupportedVersionsRefusesUnknownAndDuplicateCodes;
@@ -333,9 +339,12 @@ type
     FMaxSend: Int32;
     FOutbound: TBytes;
     FLastWaitMs: Int32;
+    FWritable: Boolean;
+    FLastWriteWaitMs: Int32;
     FDestroyedFlag: PBoolean;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -353,6 +362,22 @@ type
     property MaxSend: Int32 read FMaxSend write FMaxSend;
     /// <summary>The wait budget the last readiness check was given.</summary>
     property LastWaitMs: Int32 read FLastWaitMs;
+    /// <summary>Whether the send side reports writable; a peer that stopped draining is False.</summary>
+    property Writable: Boolean read FWritable write FWritable;
+    /// <summary>The wait budget the last writability check was given, -1 when none was made.</summary>
+    property LastWriteWaitMs: Int32 read FLastWriteWaitMs;
+  end;
+
+  // a timed transport that keeps the base's default writability wait, sending one byte at a time
+  TTestBareTransport = class(TTlsTimedTransportBase)
+  strict private
+    FSent: Int32;
+  strict protected
+    function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
+    function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
+  public
+    constructor Create(const AClock: ITlsMonotonicClock);
+    property Sent: Int32 read FSent;
   end;
 
 { TFakeSystemTrustInstaller }
@@ -417,6 +442,8 @@ begin
   FInPos := 0;
   FReadable := AReadable;
   FMaxSend := System.MaxInt;
+  FWritable := True;
+  FLastWriteWaitMs := -1;
 end;
 
 function TTestMemoryTransport.ArmedTimeout: Int32;
@@ -433,6 +460,12 @@ function TTestMemoryTransport.WaitReadable(AMs: Int32): Boolean;
 begin
   FLastWaitMs := AMs;
   Result := FReadable;
+end;
+
+function TTestMemoryTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  FLastWriteWaitMs := AMs;
+  Result := FWritable;
 end;
 
 function TTestMemoryTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
@@ -464,6 +497,27 @@ begin
   SetLength(FOutbound, LBase + LN);
   System.Move(ABuffer[AOffset], FOutbound[LBase], LN);
   Result := LN;
+end;
+
+{ TTestBareTransport }
+
+constructor TTestBareTransport.Create(const AClock: ITlsMonotonicClock);
+begin
+  inherited Create;
+  UseClock(AClock);
+end;
+
+function TTestBareTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Result := 0;
+end;
+
+function TTestBareTransport.SendRaw(const ABuffer: TBytes; AOffset,
+  ALength: Int32): Int32;
+begin
+  Inc(FSent);
+  Result := 1;
 end;
 
 { TTestTlsConnection }
@@ -2341,6 +2395,149 @@ begin
   CheckTrue(LRaised, 'a retry past the deadline raises the handshake timeout');
   LTransport.SetReadTimeout(0);
   LTransport.PollCap; // cleared: nothing to enforce
+end;
+
+procedure TTestTlsConnection.TestWriteDeadlineIsCheckedBeforeEverySend;
+var
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LData: TBytes;
+  LRaised: Boolean;
+begin
+  // the clock moves 100 ms on every read: the deadline (250 ms) is spent over the whole write, so
+  // each send gets only the time left and the third is refused although the peer is writable
+  LTransport := TTestMemoryTransport.Create(nil, True,
+    TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock);
+  LTimed := LTransport as ITlsTransport;
+  LTransport.MaxSend := 1;
+  LTransport.SetWriteTimeout(250);
+  LData := nil;
+  SetLength(LData, 4);
+  LRaised := False;
+  try
+    LTimed.Write(LData, 0, 4);
+  except
+    on E: ETlsWriteTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a write past the deadline raises a write timeout');
+  CheckEquals(2, System.Length(LTransport.Outbound), 'and stops before the send that is too late');
+  CheckEquals(50, LTransport.LastWriteWaitMs, 'a later send gets only the time left');
+end;
+
+procedure TTestTlsConnection.TestWriteToAPeerThatStoppedDrainingRaisesWriteTimeout;
+var
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LData: TBytes;
+  LRaised: Boolean;
+  LMsg: string;
+begin
+  LTransport := TTestMemoryTransport.Create(nil, True);
+  LTimed := LTransport as ITlsTransport;
+  LTransport.Writable := False;
+  LTransport.SetWriteTimeout(150);
+  LData := nil;
+  SetLength(LData, 8);
+  LRaised := False;
+  LMsg := '';
+  try
+    LTimed.Write(LData, 0, 8);
+  except
+    on E: ETlsWriteTimeout do
+    begin
+      LRaised := True;
+      LMsg := E.Message;
+    end;
+  end;
+  CheckTrue(LRaised, 'a peer that does not drain ends the write with a write timeout');
+  CheckTrue(Pos('150', LMsg) > 0, 'the timeout message carries the deadline');
+  CheckEquals(150, LTransport.LastWriteWaitMs, 'the first send is given the whole deadline');
+  CheckEquals(0, System.Length(LTransport.Outbound), 'and nothing was sent');
+end;
+
+procedure TTestTlsConnection.TestWriteWithoutADeadlineNeverWaits;
+var
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LData: TBytes;
+begin
+  LTransport := TTestMemoryTransport.Create(nil, True);
+  LTimed := LTransport as ITlsTransport;
+  LTransport.Writable := False; // would refuse, were a deadline armed
+  LData := nil;
+  SetLength(LData, 8);
+  LTimed.Write(LData, 0, 8);
+  CheckEquals(8, System.Length(LTransport.Outbound), 'an unarmed write sends everything');
+  CheckEquals(-1, LTransport.LastWriteWaitMs, 'and waits nowhere');
+end;
+
+procedure TTestTlsConnection.TestClearedWriteDeadlineBlocksAgain;
+var
+  LClockObj: TMockMonotonicClock;
+  LClock: ITlsMonotonicClock;
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LData: TBytes;
+begin
+  LClockObj := TMockMonotonicClock.Create(1000);
+  LClock := LClockObj;
+  LTransport := TTestMemoryTransport.Create(nil, True, LClock);
+  LTimed := LTransport as ITlsTransport;
+  LTransport.Writable := False;
+  LTransport.SetWriteTimeout(150);
+  LTransport.SetWriteTimeout(0);
+  LClockObj.Advance(5000); // far past the cleared deadline
+  LData := nil;
+  SetLength(LData, 8);
+  LTimed.Write(LData, 0, 8);
+  CheckEquals(8, System.Length(LTransport.Outbound), 'SetWriteTimeout(0) lifts the deadline');
+  CheckEquals(-1, LTransport.LastWriteWaitMs, 'and waits nowhere');
+end;
+
+procedure TTestTlsConnection.TestNewClockClearsTheWriteDeadline;
+var
+  LTransport: TTestMemoryTransport;
+  LTimed: ITlsTransport;
+  LData: TBytes;
+begin
+  LTransport := TTestMemoryTransport.Create(nil, True);
+  LTimed := LTransport as ITlsTransport;
+  LTransport.Writable := False;
+  LTransport.SetWriteTimeout(150);
+  LTransport.UseClock(TMockMonotonicClock.Create(9000) as ITlsMonotonicClock);
+  LData := nil;
+  SetLength(LData, 8);
+  LTimed.Write(LData, 0, 8);
+  CheckEquals(8, System.Length(LTransport.Outbound),
+    'a deadline measured on the old clock does not outlive it');
+end;
+
+procedure TTestTlsConnection.TestDefaultWritabilityWaitStillChecksTheDeadlineBetweenSends;
+var
+  LTransport: TTestBareTransport;
+  LTimed: ITlsTransport;
+  LData: TBytes;
+  LRaised: Boolean;
+begin
+  LTransport := TTestBareTransport.Create(
+    TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock);
+  LTimed := LTransport as ITlsTransport;
+  LTransport.SetWriteTimeout(250);
+  LData := nil;
+  SetLength(LData, 4);
+  LRaised := False;
+  try
+    LTimed.Write(LData, 0, 4);
+  except
+    on E: ETlsWriteTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a host that never waits for writability is still bounded between sends');
+  CheckEquals(2, LTransport.Sent, 'and stops before the send that is too late');
+  LTransport.SetWriteTimeout(0);
+  LTimed.Write(LData, 0, 4);
+  CheckEquals(6, LTransport.Sent, 'cleared, it sends the rest of a write without a bound');
 end;
 
 procedure TTestTlsConnection.TestSupportedVersionsOptionNarrowsTheOffer;

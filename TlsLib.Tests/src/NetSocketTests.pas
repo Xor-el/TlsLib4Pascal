@@ -93,6 +93,7 @@ type
     procedure TestServerHandshakeFailsFastWhenTheClientClosesFirst;
     procedure TestTlsConnectionRunsOverTheStreamsOnBothEnds;
     procedure TestWriteToAGonePeerFailsWithoutSigPipe;
+    procedure TestWriteDeadlineEndsAWriteToAPeerThatDoesNotDrain;
     procedure TestRefusedConnectReportsTheRefusal;
   end;
 
@@ -648,6 +649,43 @@ begin
   end;
   CheckTrue(LFailure = ETlsStreamError, 'a write to a gone peer fails with a stream error');
   CheckEquals('the socket made no progress sending', LMessage, 'the send itself failed');
+end;
+
+procedure TTestNetSocket.TestWriteDeadlineEndsAWriteToAPeerThatDoesNotDrain;
+const
+  DeadlineMs = 300;
+  // far more than the two socket buffers on the path can hold
+  MaxChunks = 16384;
+var
+  LListener: ITcpListener;
+  LClient, LServer: ITlsTimedTransport;
+  LClock: ITlsMonotonicClock;
+  LChunk: TBytes;
+  LCount: Int32;
+  LStart: Int64;
+  LRaised: Boolean;
+begin
+  LListener := Listener;
+  ConnectPair(LListener, LClient, LServer); // the server end never reads
+  LClock := TSystemMonotonicClock.Create;
+  LClient.UseClock(LClock);
+  SetLength(LChunk, 65536);
+  LClient.SetWriteTimeout(DeadlineMs);
+  LStart := LClock.NowMonotonicMillis;
+  LRaised := False;
+  LCount := 0;
+  try
+    while LCount < MaxChunks do
+    begin
+      LClient.Write(LChunk, 0, System.Length(LChunk));
+      Inc(LCount);
+    end;
+  except
+    on E: ETlsWriteTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a peer that stops draining ends the write with ETlsWriteTimeout');
+  CheckTrue(LClock.NowMonotonicMillis - LStart < 4000, 'and within about the deadline');
 end;
 
 procedure TTestNetSocket.TestRefusedConnectReportsTheRefusal;

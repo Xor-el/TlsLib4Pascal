@@ -109,6 +109,7 @@ type
     FHandle: TNetHandle;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -152,6 +153,11 @@ end;
 function TTcpStream.WaitReadable(AMs: Int32): Boolean;
 begin
   Result := TNetOs.Wait(FHandle, TNetWait.Readable, AMs);
+end;
+
+function TTcpStream.WaitWritable(AMs: Int32): Boolean;
+begin
+  Result := TNetOs.Wait(FHandle, TNetWait.Writable, AMs);
 end;
 
 function TTcpStream.ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;

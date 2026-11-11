@@ -171,6 +171,7 @@ type
     FCancelled: Boolean;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -1002,6 +1003,11 @@ begin
   until Result or FCancelled or (LLeftMs <= 0);
   // a cancelled wait ends as readable so the receive that follows reports the end
   Result := Result or FCancelled;
+end;
+
+function TFclNetSocketTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  Result := TNetOs.Wait(TNetHandle(FHandle), TNetWait.Writable, AMs);
 end;
 
 function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
