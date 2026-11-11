@@ -5744,7 +5744,7 @@ begin
   LEngine := LFake;
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
     TServerVerification.WebPki(FLookupRef).Build).Build;
-  LPolicy :=TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
+  LPolicy := TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
   LPolicy.Pkix := nil;
   LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, nil);
   try
