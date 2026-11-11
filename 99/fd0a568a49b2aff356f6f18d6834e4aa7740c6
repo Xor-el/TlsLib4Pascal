@@ -1,0 +1,29 @@
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_f2c9bd75607afc::t_4d26bcede08fe2 2566
+  s_f2c9bd75607afc::t_7bfc92a69ef5d1 2699
+  s_f2c9bd75607afc::t_4c282f40b13736 2548,2565
+  s_f2c9bd75607afc::t_4854f96d72cbc2 2573
+  s_f2c9bd75607afc::t_d33fe78aa1371f 2653
+  s_f2c9bd75607afc::t_a3a06b54691feb 2546
+  s_f2c9bd75607afc::t_33a750a934e295 2673
+  s_f2c9bd75607afc::t_cbf9d79ce3a52c 2619
+  s_f2c9bd75607afc::t_be8e25c42f857d 2602,2625
+  s_f2c9bd75607afc::t_235605496d135d 2590
+  s_f2c9bd75607afc::t_c1ebc6ec256c9a 2567,2576
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "99fd0a568a49b2aff356f6f18d6834e4aa7740c6",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
