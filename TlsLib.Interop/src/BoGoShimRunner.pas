@@ -1705,7 +1705,7 @@ begin
       // this shim never renegotiates: a client ignores a HelloRequest and a server refuses a
       // renegotiation ClientHello with a fatal no_renegotiation. Ignore-and-continue is what
       // -renegotiate-ignore expects; -forbid-renegotiation-after-handshake expects a fatal
-      // the client does not send (see the allowlist)
+      // the client does not send (see the disable ledger)
       '-renegotiate-ignore', '-forbid-renegotiation-after-handshake']) then
     begin
       // accepted no-op

@@ -1336,9 +1336,8 @@ begin
       // ResumeAfterVerdict, so any message routed here is out of turn
       Result := Unexpected;
     TPhase.Connected:
-      // this client does not renegotiate: a HelloRequest is ignored and nothing is sent
-      // (RFC 5246 7.4.1.1); a storm of them is bounded by the post-handshake message limit. Its
-      // body is empty; anything else is a decode_error
+      // a HelloRequest is ignored (RFC 5246 7.4.1.1); the post-handshake message limit bounds a storm
+      // its body is empty; anything else is a decode_error
       if LKnown and (LType = TTlsHandshakeType.HelloRequest) then
       begin
         if System.Length(AMessage.Body) <> 0 then

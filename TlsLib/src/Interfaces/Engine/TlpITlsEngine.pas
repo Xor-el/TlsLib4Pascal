@@ -27,8 +27,9 @@ uses
 type
   /// <summary>
   /// The result of feeding bytes to the engine: it made progress, it needs more
-  /// input, or it failed fatally (the engine is now terminal; a local failure queues its alert
-  /// unless our close_notify or a failed seal prevented it). Genuine API misuse raises instead.
+  /// input, or it failed fatally (the engine is now terminal; a local failure owes its alert
+  /// (see WantsWrite) unless our close_notify or a failed seal prevented it). Genuine API misuse
+  /// raises instead.
   /// </summary>
   TTlsOutcome = (Advanced, NeedMoreInput, Fatal);
 
@@ -198,7 +199,8 @@ type
     /// <summary>Whether the engine wants more transport bytes.</summary>
     function WantsRead: Boolean;
     /// <summary>Whether TakeOutgoing would return bytes: sealed bytes are queued or a fatal alert
-    /// awaits sealing. An owed KeyUpdate reply does not count; it goes out with the next Write.</summary>
+    /// awaits sealing (unless sealing it fails, which drops it). An owed KeyUpdate reply does not
+    /// count; it goes out with the next Write.</summary>
     function WantsWrite: Boolean;
     /// <summary>Whether the handshake is still in progress.</summary>
     function IsHandshaking: Boolean;

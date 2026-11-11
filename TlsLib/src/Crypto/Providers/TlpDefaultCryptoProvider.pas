@@ -281,7 +281,6 @@ type
   strict private
   var
     FAlgorithm: THashAlgorithm;
-    FHashLen: Int32;
   public
     constructor Create(AAlgorithm: THashAlgorithm);
     function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
@@ -514,6 +513,7 @@ type
   // The digest behind every keyed construction; refuses non-protocol hashes.
   TDigestResolver = class sealed(TObject)
   public
+    class procedure RequireProtocolHash(AAlgorithm: THashAlgorithm); static;
     class function Resolve(AAlgorithm: THashAlgorithm): IDigest; static;
   end;
 
@@ -668,8 +668,8 @@ end;
 constructor THkdfAdapter.Create(AAlgorithm: THashAlgorithm);
 begin
   inherited Create;
+  TDigestResolver.RequireProtocolHash(AAlgorithm);
   FAlgorithm := AAlgorithm;
-  FHashLen := TDigestResolver.Resolve(AAlgorithm).GetDigestSize;
 end;
 
 function THkdfAdapter.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
@@ -681,7 +681,7 @@ begin
   // a nil or empty salt is HashLen zeros; otherwise the salt is secret material, so it is
   // materialised into a private copy here and wiped, not aliased from the caller
   if (ASalt = nil) or (ASalt.Len = 0) then
-    SetLength(LSalt, FHashLen)
+    SetLength(LSalt, FAlgorithm.ByteLength)
   else
     LSalt := ASalt.ToBytes;
   try
@@ -709,12 +709,14 @@ var
   LGen: IHkdfBytesGenerator;
   LParams: IHkdfParameters;
   LPrkBytes, LOkm: TBytes;
+  LMaxLength: Int32;
 begin
   // RFC 5869: L must not exceed 255 * HashLen
   if ALength < 0 then
     raise EArgumentTlsLibException.CreateRes(@SHkdfExpandNegative);
-  if ALength > 255 * FHashLen then
-    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong, [ALength, 255 * FHashLen]);
+  LMaxLength := 255 * FAlgorithm.ByteLength;
+  if ALength > LMaxLength then
+    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong, [ALength, LMaxLength]);
   LGen := THkdfBytesGenerator.Create(TDigestResolver.Resolve(FAlgorithm)) as IHkdfBytesGenerator;
   LPrkBytes := APrk.ToBytes;
   try
@@ -1848,11 +1850,16 @@ end;
 
 { TDigestResolver }
 
-class function TDigestResolver.Resolve(AAlgorithm: THashAlgorithm): IDigest;
+class procedure TDigestResolver.RequireProtocolHash(AAlgorithm: THashAlgorithm);
 begin
   if not AAlgorithm.IsProtocolHash then
     raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash,
       [TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm)]);
+end;
+
+class function TDigestResolver.Resolve(AAlgorithm: THashAlgorithm): IDigest;
+begin
+  RequireProtocolHash(AAlgorithm);
   Result := TDigestUtilities.GetDigest(
     TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm));
 end;

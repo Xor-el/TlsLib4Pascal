@@ -342,7 +342,7 @@ implementation
 
 resourcestring
   SRenegotiationRefused = 'the peer asked to renegotiate, which this server does not do';
-  SClockRequired ='a clock is required (the handshake reads time for tickets and freshness)';
+  SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
   SNoTls12Offered = 'the client offered no protocol version this server supports';
   SNoCompatibleSuite =
     'no mutually supported TLS 1.2 ECDHE suite the credential can authenticate';
@@ -1364,9 +1364,7 @@ begin
       else
         Result := Unexpected;
     TPhase.Connected:
-      // this server does not renegotiate: a renegotiation ClientHello is refused with a fatal
-      // no_renegotiation, so the client is not left waiting for a ServerHello (local policy; RFC
-      // 5246 7.2.2 makes this alert a warning)
+      // a renegotiation ClientHello is refused fatally (local policy; RFC 5246 7.2.2 makes it a warning)
       if LKnown and (LType = TTlsHandshakeType.ClientHello) then
         Result := TArray<THandshakeEffect>.Create(
           THandshakeEffects.Fail(TTlsAlertDescription.NoRenegotiation, SRenegotiationRefused))

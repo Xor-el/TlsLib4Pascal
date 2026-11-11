@@ -440,12 +440,12 @@ or timers. You pump bytes; it transduces. The contract (unit `TlpITlsEngine`):
 - check `WantsWrite` / `IsHandshaking`, and service `NextEvent` every cycle — application data is
   not an event (poll `PendingAppData` / `ReadAppData`); past 64 undrained events the informational
   kinds are dropped, while `PeerAlert`, `Closed` and `CertificateReceived` never are
-- after the handshake, a fatal alert you provoke (a bad record, `SendAlert`) is sealed by the next
-  `TakeOutgoing`, and `WantsWrite` stays true until then. `WantsWrite` is true exactly when
-  `TakeOutgoing` would return bytes
+- after the handshake, a fatal alert (from a bad record or `SendAlert`) is sealed by the next
+  `TakeOutgoing`, and `WantsWrite` stays true until then. `WantsWrite` is true when
+  `TakeOutgoing` would return bytes or drop an alert whose sealing failed
 - the same object also implements `ITlsEngineInbound` (feeding, reading, queries) and
-  `ITlsEngineOutbound` (everything that seals or takes sealed bytes); use them to give one thread
-  the inbound half and another the outbound half only when you serialize the calls yourself
+  `ITlsEngineOutbound` (everything that seals or takes sealed bytes); the engine stays
+  single-threaded, and these faces only narrow what a holder can call
 
 ```pascal
 uses TlpTlsEngineFactory, TlpITlsEngine;

@@ -64,8 +64,41 @@ uses
   TlsLibHandshakeTestBase;
 
 type
+  // forwards to a real machine; Inject makes the next RequestKeyUpdate seal ABytes as a
+  // handshake message, so a test can send a message the real machine never would
+  TEffectInjectingMachine = class sealed(TInterfacedObject, IHandshakeMachine)
+  strict private
+  var
+    FInner: IHandshakeMachine;
+    FInjected: TBytes;
+  public
+    constructor Create(const AInner: IHandshakeMachine);
+    procedure Inject(const ABytes: TBytes);
+    function Initiates: Boolean;
+    function Stage: THandshakeStage;
+    function Start: TArray<THandshakeEffect>;
+    function ProcessMessage(const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
+    function RequestKeyUpdate(ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
+    function TakePendingKeyUpdate: TArray<THandshakeEffect>;
+    function ResumeAfterVerdict: TArray<THandshakeEffect>;
+    function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
+    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; overload;
+    function CanExportKeyingMaterial: Boolean;
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
+    function CanExportEarlyKeyingMaterial: Boolean;
+    procedure ForgetSessionsOnFatal;
+  end;
+
   TTestTls12Loopback = class(TTlsLibHandshakeTestCase)
   private
+    // a completed 1.2 handshake whose server can seal a handshake record of the test's choosing
+    procedure EstablishWithInjectingServer(out AClient, AServer: ITlsEngine;
+      out AProbe: TEffectInjectingMachine);
+    // the server seals AMessages as one record and AClient receives it
+    procedure SendInjected(const AProbe: TEffectInjectingMachine;
+      const AServer, AClient: ITlsEngine; const AMessages: TBytes);
     function NewClient(ASuite: UInt16; AOfferEms: Boolean): ITlsEngine;
     function NewServer(ARequireEms: Boolean): ITlsEngine;
     function NewClientEd448: ITlsEngine;
@@ -130,6 +163,10 @@ type
     procedure TestClientIgnoresHelloRequest;
     procedure TestServerRefusesRenegotiationClientHelloFatally;
     procedure TestEngineClientIgnoresHelloRequestAndKeepsFlowing;
+    procedure TestEngineClientRejectsNonEmptyHelloRequestSentThroughTheEngine;
+    procedure TestEngineClientAcceptsThirtyTwoHelloRequestsInARow;
+    procedure TestEngineClientRefusesAFloodOfHelloRequests;
+    procedure TestApplicationDataResetsTheHelloRequestCount;
     procedure TestEngineServerRefusesRenegotiationWithFatalAlert;
     procedure TestNonEmptyHelloRequestIsDecodeError;
     procedure TestStapledGoodOcspCompletesUnderHardPosture;
@@ -137,34 +174,6 @@ type
   end;
 
 implementation
-
-type
-  // forwards to a real machine; Inject makes the next RequestKeyUpdate seal ABytes as a
-  // handshake message, so a test can send a message the real machine never would
-  TEffectInjectingMachine = class sealed(TInterfacedObject, IHandshakeMachine)
-  strict private
-  var
-    FInner: IHandshakeMachine;
-    FInjected: TBytes;
-  public
-    constructor Create(const AInner: IHandshakeMachine);
-    procedure Inject(const ABytes: TBytes);
-    function Initiates: Boolean;
-    function Stage: THandshakeStage;
-    function Start: TArray<THandshakeEffect>;
-    function ProcessMessage(const AMessage: TTlsHandshakeMessage): TArray<THandshakeEffect>;
-    function RequestKeyUpdate(ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
-    function TakePendingKeyUpdate: TArray<THandshakeEffect>;
-    function ResumeAfterVerdict: TArray<THandshakeEffect>;
-    function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
-    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      ALength: Int32): TBytes; overload;
-    function CanExportKeyingMaterial: Boolean;
-    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      ALength: Int32): TBytes;
-    function CanExportEarlyKeyingMaterial: Boolean;
-    procedure ForgetSessionsOnFatal;
-  end;
 
 { TEffectInjectingMachine }
 
@@ -1164,8 +1173,8 @@ var
   LI: Int32;
 begin
   // white-box: two bare 1.2 machines driven to Connected. This client does not renegotiate and
-  // ignores a post-handshake HelloRequest without sending anything, however often it repeats
-  // (RFC 5246 7.4.1.1)
+  // ignores a post-handshake HelloRequest without sending anything, at the machine level however
+  // often it repeats (RFC 5246 7.4.1.1)
   LClient := ClientMachine(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
   LServer := ServerMachine(False);
   // ClientHello -> server flight -> client ClientKeyExchange+Finished -> server Finished -> client
@@ -1201,27 +1210,104 @@ begin
     'a fatal no_renegotiation');
 end;
 
+procedure TTestTls12Loopback.EstablishWithInjectingServer(out AClient, AServer: ITlsEngine;
+  out AProbe: TEffectInjectingMachine);
+var
+  LMachine: IHandshakeMachine;
+begin
+  AProbe := TEffectInjectingMachine.Create(ServerMachine(False));
+  LMachine := AProbe as IHandshakeMachine;
+  AClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
+  AServer := TTlsEngine.CreateConfigured(LMachine, Crypto);
+  RunHandshake(AClient, AServer);
+  CheckFalse(AClient.IsHandshaking, 'the handshake completed');
+end;
+
+procedure TTestTls12Loopback.SendInjected(const AProbe: TEffectInjectingMachine;
+  const AServer, AClient: ITlsEngine; const AMessages: TBytes);
+begin
+  // the server seals AMessages as one handshake record under its application write keys
+  AProbe.Inject(AMessages);
+  AServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
+  CheckTrue(AServer.WantsWrite, 'the injected record was sealed');
+  Pump(AServer, AClient);
+end;
+
 procedure TTestTls12Loopback.TestEngineClientIgnoresHelloRequestAndKeepsFlowing;
 var
   LClient, LServer: ITlsEngine;
   LProbe: TEffectInjectingMachine;
-  LMachine: IHandshakeMachine;
 begin
-  LProbe := TEffectInjectingMachine.Create(ServerMachine(False));
-  LMachine := LProbe as IHandshakeMachine;
-  LClient := NewClient(TCipherSuites12.EcdheEcdsaAes128GcmSha256, True);
-  LServer := TTlsEngine.CreateConfigured(LMachine, Crypto);
-  RunHandshake(LClient, LServer);
-  CheckFalse(LClient.IsHandshaking, 'the handshake completed');
+  EstablishWithInjectingServer(LClient, LServer, LProbe);
 
-  // the server emits a HelloRequest under its application write keys
-  LProbe.Inject(DecodeHex('00000000'));
-  LServer.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
-  Pump(LServer, LClient);
+  SendInjected(LProbe, LServer, LClient, DecodeHex('00000000'));
   CheckFalse(LClient.IsTerminal, 'the client ignores the HelloRequest');
   CheckFalse(LClient.WantsWrite, 'the client has nothing to send');
   CheckEquals(0, System.Length(Drain(LClient)), 'the client sent no alert');
   CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Loopback.TestEngineClientRejectsNonEmptyHelloRequestSentThroughTheEngine;
+var
+  LClient, LServer: ITlsEngine;
+  LProbe: TEffectInjectingMachine;
+begin
+  EstablishWithInjectingServer(LClient, LServer, LProbe);
+
+  // the twin of the ignore test: the same injection path, but the client must act on it
+  SendInjected(LProbe, LServer, LClient, DecodeHex('0000000100'));
+  CheckTrue(LClient.IsTerminal, 'the injected record reached the client machine');
+  CheckEquals(Ord(TTlsAlertDescription.DecodeError),
+    Ord(LClient.LastError.Alert.Description), 'a non-empty HelloRequest is a decode_error');
+end;
+
+procedure TTestTls12Loopback.TestEngineClientAcceptsThirtyTwoHelloRequestsInARow;
+var
+  LClient, LServer: ITlsEngine;
+  LProbe: TEffectInjectingMachine;
+begin
+  EstablishWithInjectingServer(LClient, LServer, LProbe);
+
+  SendInjected(LProbe, LServer, LClient, Filled(0, 32 * 4));
+  CheckFalse(LClient.IsTerminal, 'thirty-two HelloRequests are within the limit');
+  CheckFalse(LClient.WantsWrite, 'the client answers none of them');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls12Loopback.TestEngineClientRefusesAFloodOfHelloRequests;
+var
+  LClient, LServer: ITlsEngine;
+  LProbe: TEffectInjectingMachine;
+begin
+  EstablishWithInjectingServer(LClient, LServer, LProbe);
+
+  SendInjected(LProbe, LServer, LClient, Filled(0, 33 * 4));
+  CheckTrue(LClient.IsTerminal, 'the thirty-third HelloRequest in a row is a flood');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage),
+    Ord(LClient.LastError.Alert.Description), 'with unexpected_message');
+  CheckTrue(Pos('too many post-handshake messages', LClient.LastError.Message) > 0,
+    'with the flood reason');
+  CheckTrue(LClient.WantsWrite, 'the alert is owed');
+end;
+
+procedure TTestTls12Loopback.TestApplicationDataResetsTheHelloRequestCount;
+var
+  LClient, LServer: ITlsEngine;
+  LProbe: TEffectInjectingMachine;
+  LRound: Int32;
+begin
+  EstablishWithInjectingServer(LClient, LServer, LProbe);
+
+  // 96 HelloRequests in all, never more than 32 between two application records
+  for LRound := 1 to 3 do
+  begin
+    SendInjected(LProbe, LServer, LClient, Filled(0, 32 * 4));
+    CheckFalse(LClient.IsTerminal, 'the count is below the limit in this round');
+    LServer.Write(Filled($41, 1), 0, 1);
+    Pump(LServer, LClient);
+    CheckEquals(1, System.Length(ReadAllApp(LClient)), 'the application byte arrived');
+  end;
+  CheckFalse(LClient.IsTerminal, 'application data between them keeps the client live');
 end;
 
 procedure TTestTls12Loopback.TestEngineServerRefusesRenegotiationWithFatalAlert;

@@ -89,6 +89,7 @@ type
     procedure TestInboundFailureSealsNothingUntilTheAlertIsTaken;
     procedure TestPendingAlertSealFaultIsDroppedWithoutRaising;
     procedure TestTransportLatchClearsAPendingAlertOnATerminalEngine;
+    procedure TestTransportLatchDiscardsSealedBytesOnATerminalEngine;
     procedure TestInboundFailureAfterOurCloseNotifyQueuesNoAlert;
     procedure TestOwedKeyUpdateReplyIsNotOutgoingUntilAWrite;
     procedure TestEngineServesTheInboundAndOutboundFaces;
@@ -521,6 +522,25 @@ begin
   CheckEquals(0, System.Length(Drain(LClient)), 'nothing is left to send');
   CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LClient.LastError.Alert.Description),
     'the recorded reason is not overwritten');
+end;
+
+procedure TTestTls13KeyUpdate.TestTransportLatchDiscardsSealedBytesOnATerminalEngine;
+var
+  LClient, LServer: ITlsEngine;
+  LData, LHead: TBytes;
+begin
+  Handshake(LClient, LServer);
+  LData := DecodeHex('0102');
+  LClient.Write(LData, 0, System.Length(LData));
+  LClient.SendAlert(TTlsAlertDescription.DecodeError);
+  CheckTrue(LClient.IsTerminal, 'the client ended');
+  // a torn write: only the head of the queued bytes reached the transport
+  SetLength(LHead, 5);
+  CheckEquals(5, LClient.TakeOutgoing(LHead, 0), 'a partial take');
+  CheckTrue(LClient.WantsWrite, 'sealed bytes are still queued');
+  LClient.LatchTransportFailure('the socket closed');
+  CheckFalse(LClient.WantsWrite, 'the latch drops the sealed bytes of a terminal engine');
+  CheckEquals(0, System.Length(Drain(LClient)), 'nothing is left to send');
 end;
 
 procedure TTestTls13KeyUpdate.TestInboundFailureAfterOurCloseNotifyQueuesNoAlert;

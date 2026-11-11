@@ -18,13 +18,15 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpTlsError,
   TlpHandshakeMessages;
 
 type
   /// <summary>
   /// The outbound face of the engine: every call that can seal a record or take sealed bytes, and
-  /// the handshake controls that emit flights. WantsWrite is True exactly when TakeOutgoing would
-  /// return bytes. Contracts are those of ITlsEngine.
+  /// the handshake controls that emit flights, with the queries a writer needs to stop. WantsWrite
+  /// is True when TakeOutgoing would return bytes or drop a failed alert. Contracts are those of
+  /// ITlsEngine.
   /// </summary>
   ITlsEngineOutbound = interface(IInterface)
     ['{70F9B9A9-9120-495A-9A84-90C17E656C1B}']
@@ -39,7 +41,9 @@ type
     procedure LatchTransportFailure(const AReason: string);
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
     function WantsWrite: Boolean;
+    function IsTerminal: Boolean;
     function WriteClosed: Boolean;
+    function LastError: TTlsError;
   end;
 
 implementation

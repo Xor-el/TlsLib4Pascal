@@ -111,7 +111,7 @@ type
     FLastError: TTlsError;
     // a post-handshake fatal alert, sealed by the next TakeOutgoing so the inbound path never seals
     FPendingAlert: TTlsAlert;
-    FAlertPending: Boolean;
+    FHasPendingAlert: Boolean;
     // an out-of-range caller slice is misuse, refused locally rather than failed on the wire
     class procedure RequireSlice(const AData: TBytes; AOffset, ALength: Int32;
       AMessage: PResStringRec); static;
@@ -471,6 +471,7 @@ begin
   FSentClose := False;
   FHandshakeComplete := False;
   FAppWriteEpoch := False;
+  FHasPendingAlert := False;
   FWarningAlertCount := 0;
   FInfo.EchStatus := TEchStatus.NotOffered;
   // a zero wire code until an epoch's keys name the negotiated version
@@ -546,7 +547,7 @@ begin
   if FHandshakeComplete then
   begin
     FPendingAlert := AAlert;
-    FAlertPending := True;
+    FHasPendingAlert := True;
     Exit;
   end;
   try
@@ -558,9 +559,9 @@ end;
 
 procedure TTlsEngine.SealPendingAlert;
 begin
-  if not FAlertPending then
+  if not FHasPendingAlert then
     Exit;
-  FAlertPending := False;
+  FHasPendingAlert := False;
   try
     QueueAlertRecord(FPendingAlert);
   except
@@ -1013,7 +1014,7 @@ end;
 procedure TTlsEngine.LatchTransportFailure(const AReason: string);
 begin
   // queued bytes may trail a torn record: drop them and a pending alert, failed already or not
-  FAlertPending := False;
+  FHasPendingAlert := False;
   FRecordLayer.DiscardOutbound;
   if FTerminal then
     Exit;
@@ -1107,9 +1108,8 @@ begin
   Result := LWant;
   FAppQueue.Take(ADest, ADestOffset, LWant);
   // reading down the buffer relieves backpressure: resume the drain so records held back at the
-  // app-read cap (a raw embedder that fed a large buffer) surface, and a KeyUpdate/alert produced
-  // while pulling reaches the record layer's outbound queue. Not while parked, and never turning a
-  // pull failure into an escape.
+  // app-read cap (a raw embedder that fed a large buffer) surface, and a failure while pulling
+  // becomes terminal. Not while parked, and never turning a pull failure into an escape.
   if (not FConductor.AwaitingVerdict) and (not FTerminal) and (not FClosed) and
     (FAppQueue.Available < FMaxAppReadBuffer) then
   begin
@@ -1173,7 +1173,7 @@ end;
 
 function TTlsEngine.WantsWrite: Boolean;
 begin
-  Result := FAlertPending or (FRecordLayer.PendingOutgoing > 0);
+  Result := FHasPendingAlert or (FRecordLayer.PendingOutgoing > 0);
 end;
 
 function TTlsEngine.IsHandshaking: Boolean;

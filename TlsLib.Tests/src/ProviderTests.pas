@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   Classes,
+  SyncObjs,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
@@ -38,8 +39,15 @@ uses
   TlsLibTestBase;
 
 type
+  // one RFC 5869 test case: the inputs and the PRK and OKM they must give
+  THkdfVector = record
+    Salt, Ikm, Info, Prk, Okm: TBytes;
+  end;
+
   TTestCryptoProvider = class(TTlsLibAlgorithmTestCase)
   private
+    function Rfc5869Vector(const ASaltHex, AIkmHex, AInfoHex, APrkHex,
+      AOkmHex: string): THkdfVector;
     function SecretBytes(const ASecret: ISecretBuffer): TBytes;
     function IsAllZero(const AData: TBytes): Boolean;
     function PatternBytes(ALength, ASeed: Int32): TBytes;
@@ -71,7 +79,7 @@ type
     procedure TestHmacReuseAcrossDoFinal;
     procedure TestHmacSha256Kat;
     procedure TestHkdfSha256Rfc5869;
-    procedure TestHkdfExpandIsSafeAcrossThreads;
+    procedure TestHkdfIsSafeAcrossThreads;
     procedure TestHkdfExpandRejectsOverCapAndNegative;
     procedure TestAesGcmKat;
     procedure TestAes256GcmKat;
@@ -99,52 +107,71 @@ type
 implementation
 
 type
-  // expands one shared HKDF object in a loop and counts the results that differ from the expected
-  THkdfExpandWorker = class sealed(TThread)
+  // runs Extract then Expand on one shared HKDF object in a loop, once released, and counts the
+  // rounds whose PRK or OKM differ from the vector's
+  THkdfVectorWorker = class sealed(TThread)
   strict private
   var
     FHkdf: IHkdf;
-    FPrk: ISecretBuffer;
-    FInfo: TBytes;
-    FExpected: TBytes;
+    FVector: THkdfVector;
+    FSalt, FIkm: ISecretBuffer;
     FRounds: Int32;
+    FStart: TEvent;
+    FMismatches: Int32;
+    function Matches(const AExpected: TBytes; const AGot: ISecretBuffer): Boolean;
   public
-    Mismatches: Int32;
-    constructor Create(const AHkdf: IHkdf; const APrk: ISecretBuffer; const AInfo,
-      AExpected: TBytes; ARounds: Int32);
+    constructor Create(const AHkdf: IHkdf; const AVector: THkdfVector; ARounds: Int32;
+      AStart: TEvent);
     procedure Execute; override;
+    property Mismatches: Int32 read FMismatches;
   end;
 
-{ THkdfExpandWorker }
+const
+  StartTimeoutMs = 60000;
 
-constructor THkdfExpandWorker.Create(const AHkdf: IHkdf; const APrk: ISecretBuffer;
-  const AInfo, AExpected: TBytes; ARounds: Int32);
+{ THkdfVectorWorker }
+
+constructor THkdfVectorWorker.Create(const AHkdf: IHkdf; const AVector: THkdfVector;
+  ARounds: Int32; AStart: TEvent);
 begin
   inherited Create(True);
   FreeOnTerminate := False;
   FHkdf := AHkdf;
-  FPrk := APrk;
-  FInfo := AInfo;
-  FExpected := AExpected;
+  FVector := AVector;
+  if System.Length(AVector.Salt) > 0 then
+    FSalt := TSecretBuffer.From(AVector.Salt);
+  FIkm := TSecretBuffer.From(AVector.Ikm);
   FRounds := ARounds;
+  FStart := AStart;
 end;
 
-procedure THkdfExpandWorker.Execute;
+function THkdfVectorWorker.Matches(const AExpected: TBytes; const AGot: ISecretBuffer): Boolean;
 var
-  LI: Int32;
   LGot: TBytes;
 begin
-  Mismatches := 0;
+  LGot := AGot.ToBytes;
+  Result := (System.Length(LGot) = System.Length(AExpected)) and
+    CompareMem(@LGot[0], @AExpected[0], System.Length(AExpected));
+end;
+
+procedure THkdfVectorWorker.Execute;
+var
+  LI: Int32;
+  LPrk: ISecretBuffer;
+begin
+  FMismatches := 0;
+  FStart.WaitFor(StartTimeoutMs);
   try
     for LI := 1 to FRounds do
     begin
-      LGot := FHkdf.Expand(FPrk, FInfo, System.Length(FExpected)).ToBytes;
-      if (System.Length(LGot) <> System.Length(FExpected)) or
-        not CompareMem(@LGot[0], @FExpected[0], System.Length(FExpected)) then
-        Inc(Mismatches);
+      LPrk := FHkdf.Extract(FSalt, FIkm);
+      if not Matches(FVector.Prk, LPrk) then
+        Inc(FMismatches);
+      if not Matches(FVector.Okm, FHkdf.Expand(LPrk, FVector.Info, System.Length(FVector.Okm))) then
+        Inc(FMismatches);
     end;
   except
-    Inc(Mismatches);
+    Inc(FMismatches);
   end;
 end;
 
@@ -380,41 +407,79 @@ begin
   end;
 end;
 
-procedure TTestCryptoProvider.TestHkdfExpandIsSafeAcrossThreads;
+function TTestCryptoProvider.Rfc5869Vector(const ASaltHex, AIkmHex, AInfoHex, APrkHex,
+  AOkmHex: string): THkdfVector;
+begin
+  Result.Salt := DecodeHex(ASaltHex);
+  Result.Ikm := DecodeHex(AIkmHex);
+  Result.Info := DecodeHex(AInfoHex);
+  Result.Prk := DecodeHex(APrkHex);
+  Result.Okm := DecodeHex(AOkmHex);
+end;
+
+procedure TTestCryptoProvider.TestHkdfIsSafeAcrossThreads;
 const
-  WorkerCount = 4;
-  Rounds = 400;
+  WorkerCount = 6;
+  Rounds = 3000;
 var
   LHkdf: IHkdf;
-  LWorkers: array [0 .. WorkerCount - 1] of THkdfExpandWorker;
-  LPrk: ISecretBuffer;
-  LInfo, LExpected: TBytes;
+  LStart: TEvent;
+  LVectors: array [0 .. 2] of THkdfVector;
+  LWorkers: array [0 .. WorkerCount - 1] of THkdfVectorWorker;
   LI: Int32;
 begin
-  // one object shared by threads that expand different material at once: each result must equal
-  // what the same call returns alone (the engine's inbound rekey, outbound rekey and exporter
-  // all derive through one key schedule object)
+  // RFC 5869 A.1 to A.3 through one object shared by threads: the engine's inbound rekey, outbound
+  // rekey and exporter all derive through one key schedule object
+  LVectors[0] := Rfc5869Vector('000102030405060708090a0b0c',
+    '0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b', 'f0f1f2f3f4f5f6f7f8f9',
+    '077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5',
+    '3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865');
+  LVectors[1] := Rfc5869Vector('606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f' +
+    '808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf',
+    '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f' +
+    '202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f',
+    'b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf' +
+    'd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeef' +
+    'f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff',
+    '06a6b88c5853361a06104c9ceb35b45cef760014904671014a193f40c15fc244',
+    'b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c' +
+    '59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87');
+  LVectors[2] := Rfc5869Vector('', '0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b', '',
+    '19ef24a32c717b167f33a91d6f648bdf96596776afdb6377ac434c1c293ccb04',
+    '8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8');
+
   LHkdf := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  LStart := TEvent.Create(nil, True, False, '');
   for LI := 0 to High(LWorkers) do
     LWorkers[LI] := nil;
   try
-    for LI := 0 to High(LWorkers) do
+    // alone first, so a vector that is wrong here is not blamed on the threads
+    for LI := 0 to High(LVectors) do
     begin
-      LPrk := TSecretBuffer.From(PatternBytes(32, LI + 1));
-      LInfo := PatternBytes(10 + LI, LI + 40);
-      LExpected := LHkdf.Expand(LPrk, LInfo, 16 * (LI + 1)).ToBytes;
-      LWorkers[LI] := THkdfExpandWorker.Create(LHkdf, LPrk, LInfo, LExpected, Rounds);
+      LWorkers[LI] := THkdfVectorWorker.Create(LHkdf, LVectors[LI], 1, LStart);
+      LStart.SetEvent;
+      LWorkers[LI].Start;
+      LWorkers[LI].WaitFor;
+      CheckEquals(0, LWorkers[LI].Mismatches, 'the RFC 5869 vector holds single-threaded');
+      FreeAndNil(LWorkers[LI]);
     end;
+
+    LStart.ResetEvent;
+    for LI := 0 to High(LWorkers) do
+      LWorkers[LI] := THkdfVectorWorker.Create(LHkdf, LVectors[LI mod System.Length(LVectors)],
+        Rounds, LStart);
     for LI := 0 to High(LWorkers) do
       LWorkers[LI].Start;
+    LStart.SetEvent;
     for LI := 0 to High(LWorkers) do
     begin
       LWorkers[LI].WaitFor;
-      CheckEquals(0, LWorkers[LI].Mismatches, 'concurrent Expand calls do not interfere');
+      CheckEquals(0, LWorkers[LI].Mismatches, 'concurrent Extract and Expand calls do not interfere');
     end;
   finally
     for LI := 0 to High(LWorkers) do
       LWorkers[LI].Free;
+    LStart.Free;
   end;
 end;
 

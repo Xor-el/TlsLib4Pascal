@@ -329,13 +329,12 @@ begin
   LOutcome := AEngine.ProcessInput(LBuf, 0, LGot);
   if LOutcome = TTlsOutcome.Fatal then
   begin
-    // send the queued alert to the peer before reporting (as DriveHandshake does); the
-    // engine has framed the alert record but the shim must flush it, else the peer sees EOF
+    // flush the owed alert before reporting (as DriveHandshake does), else the peer sees EOF
     Flush(AEngine, ASocket);
     Result := FromLastError(AEngine);
     Exit;
   end;
-  // a non-fatal input can still queue outbound (the handshake's flights), which must reach the peer
+  // a non-fatal input can still leave bytes owed to the peer, which must reach it
   Flush(AEngine, ASocket);
   // carry any plaintext produced this cycle, even alongside a terminal event
   Result := ResultOf(TInteropStatus.Ok, '');
