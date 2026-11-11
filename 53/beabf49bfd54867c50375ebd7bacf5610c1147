@@ -1,0 +1,37 @@
+TlsLib.Adapters/mORMot/Packages/FPC/TlsLib.Adapter.mORMot.lpk
+  s_f2c9bd75607afc::t_7d40f12b122874 23
+TlsLib.Trust.Bundle/Packages/FPC/TlsLib.Trust.Bundle.lpk
+  s_f2c9bd75607afc::t_3a48d293a59a4a 23
+TlsLib.Net/Packages/FPC/TlsLib.Net.lpk
+  s_f2c9bd75607afc::t_d743ccd0c21bd9 23
+TlsLib.Compliance/Packages/FPC/TlsLib.Compliance.lpk
+  s_f2c9bd75607afc::t_062634dd7abe4f 23
+TlsLib.Adapters/Indy/Packages/FPC/TlsLib.Adapter.Indy.lpk
+  s_f2c9bd75607afc::t_80046e134ac4b3 23
+TlsLib.Adapters/Synapse/Packages/FPC/TlsLib.Adapter.Synapse.lpk
+  s_f2c9bd75607afc::t_ceab6fa4b26083 23
+TlsLib.Adapters/FclNet/Packages/FPC/TlsLib.Adapter.FclNet.lpk
+  s_f2c9bd75607afc::t_f09f0dbc12ff90 23
+TlsLib/src/Packages/FPC/TlsLib4PascalPackage.lpk
+  s_f2c9bd75607afc::t_3bc4221810b085 30
+TlsLib.Crypto.System/Packages/FPC/TlsLib.Crypto.System.lpk
+  s_f2c9bd75607afc::t_4c6746fe3d8e7b 23
+TlsLib.Trust.System/Packages/FPC/TlsLib.Trust.System.lpk
+  s_f2c9bd75607afc::t_95e1f5483a1895 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "53beabf49bfd54867c50375ebd7bacf5610c1147",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
