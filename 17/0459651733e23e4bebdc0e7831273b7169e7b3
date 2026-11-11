@@ -1,0 +1,63 @@
+TlsLib.Adapters/mORMot/README.md
+  s_f2c9bd75607afc::t_36710b8be02ea3 27
+  s_f2c9bd75607afc::t_e21e7a6fa8f540 90
+TlsLib.Adapters/Synapse/Examples/src/SynapseLoopbackExample.pas
+  s_f2c9bd75607afc::t_1fe8e9d994c2b5 398-400,404-406
+  s_f2c9bd75607afc::t_1cb2103869e8ee 46
+TlsLib.Adapters/Indy/README.md
+  s_f2c9bd75607afc::t_560ada76dd9dda 42-43
+TlsLib.Adapters/Indy/Examples/src/IndyLoopbackExample.pas
+  s_f2c9bd75607afc::t_630f2984848d1f 302,306
+  s_f2c9bd75607afc::t_e747089074d98f 364,366-369,378,381
+  s_f2c9bd75607afc::t_8ef466ba5530c6 365
+  s_f2c9bd75607afc::t_d3c54d529a8861 46
+  s_f2c9bd75607afc::t_9f75edef895609 370-377
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_f2c9bd75607afc::t_a7c55bf2b8d108 470
+  s_f2c9bd75607afc::t_cbd7dc496b2bf0 119
+  s_f2c9bd75607afc::t_d8079283385b8e 354
+  s_f2c9bd75607afc::t_aa74b87228c2d6 367
+  s_f2c9bd75607afc::t_add5c0a02929c3 209-214
+  s_463eafed89a57a::t_80588264c464ad 39
+TlsLib.Adapters/Synapse/README.md
+  s_f2c9bd75607afc::t_2998c8fb99f738 38-39
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_f2c9bd75607afc::t_3d8b01c54f7772 404
+  s_f2c9bd75607afc::t_db1195acfc80ee 468
+  s_f2c9bd75607afc::t_fc3c75cbb257eb 180-181
+  s_f2c9bd75607afc::t_f2ed994fc91bad 103-107
+  s_f2c9bd75607afc::t_4ccc922c2f40cb 308-312
+  s_463eafed89a57a::t_f38af8e7802932 38
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_f2c9bd75607afc::t_e9e552467fc643 173-175
+  s_f2c9bd75607afc::t_36176e11ec2910 199-203
+  s_f2c9bd75607afc::t_41251a1efb2562 356
+  s_f2c9bd75607afc::t_26f9726f298fd4 375
+  s_f2c9bd75607afc::t_53afdb8423d5ee 433
+  s_f2c9bd75607afc::t_2c02eae3aef537 80
+  s_463eafed89a57a::t_b9283229b60409 46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "170459651733e23e4bebdc0e7831273b7169e7b3",
+  "prompts": {},
+  "sessions": {
+    "s_463eafed89a57a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a9708dae361de9022",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
