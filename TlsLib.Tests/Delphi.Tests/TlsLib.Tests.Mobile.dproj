@@ -450,7 +450,11 @@
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpIHttpFetcher.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpLiveRevocation.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpITrustAnchorStore.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpILayeredTrustAnchorStore.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Trust\TlpTrustAnchorStore.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Trust\TlpIIssuerLookup.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpIssuerResolution.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Trust\TlpIssuerLookupVerifierSource.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompression.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\CertCompression\TlpICertificateCompressionCache.pas"/>
         <DCCReference Include="..\..\TlsLib\src\CertCompression\TlpZlibCertificateCompression.pas"/>

@@ -121,9 +121,10 @@ type
     /// runs on an indeterminate OS outcome before the posture decides. The caller owns and frees
     /// the result.
     /// Raises where the platform has no OS-native live revocation, or when the config's server
-    /// verifier source is neither the OS source nor backed by a trust store (a wrapped source's
-    /// roots cannot be read, so the re-check would use the OS roots instead; a PSK-only or
-    /// skip-verify config has no server certificate to re-check). The resolver evaluates with a
+    /// verifier source is neither the OS source nor backed by a trust store or an issuer lookup (a
+    /// wrapped source's roots cannot be read, so the re-check would use the OS roots instead; a
+    /// PSK-only or skip-verify config has no server certificate to re-check). A config's issuer
+    /// lookup is asked again on each re-check, as it was inline. The resolver evaluates with a
     /// fresh platform engine, not the one inside the config's source; for a host source
     /// that decorates the OS source, pass the OS source it wraps to the overload below.</summary>
     class function LiveRevocationResolver(const AConfig: ITlsClientConfig;
@@ -142,8 +143,9 @@ type
       : TOSLiveRevocationResolverBase; overload; static;
     /// <summary>A host-owned OS-native live-revocation resolver for the peer CLIENT certificate an
     /// mTLS server verifies, read from the server config (provider, clock, posture, strength policy,
-    /// advertised schemes, resolver fetch budget, and the client-CA anchors as the exclusive trust root):
-    /// assign its ResolveVerdict to the verdict seam. AFallback (may be nil) runs on an indeterminate
+    /// advertised schemes, resolver fetch budget, and the client-CA anchors as the exclusive trust root,
+    /// with the issuers the config's lookup holds for each client chain): assign its ResolveVerdict to
+    /// the verdict seam. AFallback (may be nil) runs on an indeterminate
     /// OS outcome before the posture decides. The caller owns and frees the result. Raises where the
     /// platform has no OS-native live revocation.</summary>
     class function LiveRevocationResolver(const AConfig: ITlsServerConfig;

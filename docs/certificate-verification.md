@@ -592,8 +592,15 @@ resolver configured.
 ### More behaviour worth knowing
 
 - **Anchors.** `WebPki` also takes a single `ITrustAnchorStore`, or a union of stores and root blobs
-  (`WebPki(TArray<ITrustAnchorStore>, TArray<TBytes>)`); a malformed anchor is refused at `Build`. `Custom(verifier, posture)` adds a
-  revocation posture for a live verdict over the verifier's path (the plain `Custom` is `Soft`).
+  (`WebPki(TArray<ITrustAnchorStore>, TArray<TBytes>)`); a malformed anchor is refused at
+  `Build`, and so is a `WebPki` policy with neither roots nor an issuer lookup. `Custom(verifier,
+  posture)` adds a revocation posture for a live verdict over the verifier's path (the plain
+  `Custom` is `Soft`).
+- **Bundle anchors and issuer lookup.** Of a bundle given through `TTlsOptions` or an adapter, only
+  self-signed certificates anchor by default (`BundleAnchors`); a non-self-signed anchor must be
+  inside its validity window. `WithIssuerLookup` on the verification builder, or `WebPki(ALookup)`
+  for a lookup on its own, resolves peer issuers on demand. See
+  [system-trust.md](system-trust.md#bundle-anchors-and-issuer-lookup).
 - **Identity.** Names match the certificate's SANs, with a single wildcard
   only as the whole leftmost label and only when at least two labels remain below it (so never
   `*.com`; there is no public-suffix list); an IP-literal host matches only an

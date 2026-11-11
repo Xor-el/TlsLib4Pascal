@@ -104,12 +104,15 @@ type
   public
     constructor Create(const AInner: IInspectedCertificate);
     function PublicKeyInfo: TBytes;
+    function IssuerName: TBytes;
+    function SubjectName: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
     function IsCertificateAuthority: TCertAnswer;
     function IsSelfSigned: TCertAnswer;
+    function IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
@@ -127,6 +130,16 @@ end;
 function TUndecodableKeyUsageLeaf.PublicKeyInfo: TBytes;
 begin
   Result := FInner.PublicKeyInfo;
+end;
+
+function TUndecodableKeyUsageLeaf.IssuerName: TBytes;
+begin
+  Result := FInner.IssuerName;
+end;
+
+function TUndecodableKeyUsageLeaf.SubjectName: TBytes;
+begin
+  Result := FInner.SubjectName;
 end;
 
 function TUndecodableKeyUsageLeaf.DnsNames: TArray<string>;
@@ -157,6 +170,11 @@ end;
 function TUndecodableKeyUsageLeaf.IsSelfSigned: TCertAnswer;
 begin
   Result := FInner.IsSelfSigned;
+end;
+
+function TUndecodableKeyUsageLeaf.IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
+begin
+  Result := FInner.IsValidAt(AValidationTimeUtc);
 end;
 
 function TUndecodableKeyUsageLeaf.KeyKind(out AKind: TSignatureKeyKind;

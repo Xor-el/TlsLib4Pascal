@@ -38,6 +38,7 @@ uses
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpTrustTypes,
+  TlpIIssuerLookup,
   TlpICertificateVerifierSource,
   TlpCertificateVerifier,
   TlpCertificateVerifierSource,
@@ -126,6 +127,8 @@ type
     FAnchorStores: TArray<ITrustAnchorStore>;
     // the union of FAnchorStores, built when first needed and dropped when a store is added
     FComposedTrust: ITrustAnchorStore;
+    FIssuerLookup: IIssuerLookup;
+    FIssuerRule: TBundleAnchorRule;
     FServerCertVerifier: IServerCertificateVerifier;
     FServerVerifierSource: IServerCertificateVerifierSource;
     FClientCertVerifier: IClientCertificateVerifier;
@@ -169,6 +172,7 @@ type
     FSessionCache: ISessionCache;
     FSessionScope: TBytes;
     FResumeVerification: TResumeVerification;
+    FResumeVerificationSet: Boolean;
     FClock: ITlsClock;
     FMonotonicClock: ITlsMonotonicClock;
     FKeyLog: IKeyLog;
@@ -396,6 +400,14 @@ resourcestring
   SReverifyHardNeedsLiveVerdict = 'WithResumeVerification(Reverify) under a Hard revocation ' +
     'posture needs WithLiveRevocationVerdict: a resume carries no staple, so the client could ' +
     'never resume; add the verdict or keep ReuseOriginal';
+  SLookupReverifyHardNeedsLiveVerdict = 'an issuer lookup makes a resuming client re-verify the ' +
+    'server, and a resume carries no staple, so a Hard revocation posture needs ' +
+    'WithLiveRevocationVerdict; add it, choose WithResumeVerification(ReuseOriginal), or drop the ' +
+    'lookup';
+  SLookupReverifyEarlyDataAsyncVerdict = 'an issuer lookup makes a resuming client re-verify the ' +
+    'server, and an asynchronous certificate verdict arrives after the server flight, so no early ' +
+    'data could precede it; drop the early data or the verdict, choose ' +
+    'WithResumeVerification(ReuseOriginal), or drop the lookup';
   SEarlyDataReverifyAsyncVerdict = 'WithEarlyData(True) cannot be combined with ' +
     'WithResumeVerification(Reverify) and an asynchronous certificate verdict: the verdict ' +
     'arrives after the server flight, so no early data could precede it; drop the early data ' +
@@ -477,8 +489,9 @@ resourcestring
   SNoClientAuthTrustStore = 'client authentication requires a trust source for the client certificate chain';
   SClientVerifierSourceNeedsAnchors = 'a client-certificate verifier source consumes the ' +
     'configured client-CA anchors as its exclusive trust root and can trust nothing without them; ' +
-    'give the TClientVerification.VerifierSource store at least one root certificate (a verifier ' +
-    'that brings its own roots is installed with TClientVerification.Custom instead)';
+    'give the TClientVerification.VerifierSource store at least one root certificate, or add an ' +
+    'issuer lookup (a verifier that brings its own roots is installed with ' +
+    'TClientVerification.Custom instead)';
   SClientAnchorBelowKeyFloors = 'a client-CA trust anchor''s key is below the certificate ' +
     'strength floors or cannot be read, and the strength policy holds anchors to the floors ' +
     '(AnchorKeyFloors)';
@@ -536,10 +549,10 @@ resourcestring
     'stapled OCSP response, so it always-rejects unless the client obtains revocation status: ' +
     'call WithOcspStaplingRequest(True) to request a staple, or configure a live OCSP/CRL verdict ' +
     'resolver (WithLiveRevocationVerdict)';
-  SServerTrustNeedsPeerAuth = 'client-certificate trust settings (trust anchors or store, pins, ' +
-    'intermediates, client-CA list, verifier, verify callback, skip-verify, Hard revocation or an ' +
-    'async or live certificate verdict) are set on a server that does not request client ' +
-    'certificates, so they would be ignored and clients admitted unauthenticated; call ' +
+  SServerTrustNeedsPeerAuth = 'client-certificate trust settings (trust anchors or store, issuer ' +
+    'lookup, pins, intermediates, client-CA list, verifier, verify callback, skip-verify, Hard ' +
+    'revocation or an async or live certificate verdict) are set on a server that does not ' +
+    'request client certificates, so they would be ignored and clients admitted unauthenticated; call ' +
     'WithPeerAuth, or remove them';
   SHardServerRevocationUnusable = 'a Hard revocation posture rejects a client whose certificate ' +
     'has no revocation status; a server cannot request a client OCSP staple, so Hard ' +
@@ -630,6 +643,8 @@ type
     FCertificateCompressionCache: ICertificateCompressionCache;
     FCredential: TTlsCredential;
     FTrustStore: ITrustAnchorStore;
+    FIssuerLookup: IIssuerLookup;
+    FIssuerRule: TBundleAnchorRule;
     FChainLimits: TCertificateChainLimits;
     FStrengthPolicy: TCertificateStrengthPolicy;
     FRevocationPosture: TRevocationPosture;
@@ -659,6 +674,8 @@ type
     function CertificateCompressionCache: ICertificateCompressionCache;
     function Credential: TTlsCredential;
     function TrustStore: ITrustAnchorStore;
+    function IssuerLookup: IIssuerLookup;
+    function IssuerAnchorRule: TBundleAnchorRule;
     function CertificateChainLimits: TCertificateChainLimits;
     function CertificateStrengthPolicy: TCertificateStrengthPolicy;
     function RevocationPosture: TRevocationPosture;
@@ -969,6 +986,16 @@ end;
 function TFrozenCommonConfigBase.TrustStore: ITrustAnchorStore;
 begin
   Result := FTrustStore;
+end;
+
+function TFrozenCommonConfigBase.IssuerLookup: IIssuerLookup;
+begin
+  Result := FIssuerLookup;
+end;
+
+function TFrozenCommonConfigBase.IssuerAnchorRule: TBundleAnchorRule;
+begin
+  Result := FIssuerRule;
 end;
 
 function TFrozenCommonConfigBase.CertificateChainLimits: TCertificateChainLimits;
@@ -2588,6 +2615,8 @@ begin
     TArrayUtilities.Append<ITrustAnchorStore>(FAnchorStores,
       TTrustAnchorStore.Create(FPkix.Certificates.LoadChain(LBlob)) as ITrustAnchorStore);
   FComposedTrust := nil;
+  FIssuerLookup := AVerification.IssuerLookup;
+  FIssuerRule := AVerification.IssuerAnchorRule;
   FIntermediateCertificates := nil;
   for LBlob in AVerification.IntermediateData do
     for LCert in FPkix.Certificates.LoadChain(LBlob) do
@@ -2648,6 +2677,7 @@ function TTlsConfigBuilder.WithResumeVerification(
 begin
   GuardMutable;
   FResumeVerification := AMode;
+  FResumeVerificationSet := True;
   Result := Self;
 end;
 
@@ -3097,11 +3127,11 @@ begin
       FServerVerifierSource := FServerVerification.Source;
   end;
   ValidateAnchorRoots;
-  // a client authenticates the server by its certificate (anchor ROOTS, a whole-verifier, or a
-  // verifier source), by an out-of-band external PSK (RFC 9258), or by explicitly skipping
-  // verification (the loud dangerous toggle); at least one is required (no silent-insecure). A
-  // store with no roots is not a source - it would "verify" against nothing.
-  LHasTrust := HasAnchorRoots or (FServerCertVerifier <> nil) or
+  // a client authenticates the server by its certificate (anchor ROOTS, an issuer lookup, a
+  // whole-verifier, or a verifier source), by an out-of-band external PSK (RFC 9258), or by
+  // explicitly skipping verification (the loud dangerous toggle); at least one is required (no
+  // silent-insecure). A store with no roots is not a source - it would "verify" against nothing.
+  LHasTrust := HasAnchorRoots or (FIssuerLookup <> nil) or (FServerCertVerifier <> nil) or
     (FServerVerifierSource <> nil);
   if (not LHasTrust) and (System.Length(FExternalPsks) = 0) and
     (System.Length(FTls12Psks) = 0) and (not FDangerousTrust.InsecureSkipVerify) then
@@ -3161,6 +3191,17 @@ begin
   // early-data budget here)
   if FClientEarlyData and ((not FResumption) or (FSessionCache = nil)) then
     raise EInvalidOperationTlsLibException.CreateRes(@SEarlyDataNeedsResumption);
+  // what a lookup trusts changes between connections, so a resuming client re-verifies by default
+  if (FIssuerLookup <> nil) and (not FResumeVerificationSet) and FResumption and
+    (FSessionCache <> nil) then
+  begin
+    if TRevocationDecision.HardNeedsLiveRevocation(FRevocationPosture,
+      FAsyncVerdict.Deferral = TVerdictDeferral.LiveRevocation) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SLookupReverifyHardNeedsLiveVerdict);
+    if FClientEarlyData and (FAsyncVerdict.Deferral <> TVerdictDeferral.None) then
+      raise EInvalidOperationTlsLibException.CreateRes(@SLookupReverifyEarlyDataAsyncVerdict);
+    FResumeVerification := TResumeVerification.Reverify;
+  end;
   // re-verifying a resumed peer is inert unless this config can actually resume (resumption on and
   // a cache to resume from)
   if (FResumeVerification = TResumeVerification.Reverify) and
@@ -3232,6 +3273,8 @@ begin
   LConfig.FIntermediateCertificates := FIntermediateCertificates;
   LConfig.FDangerousTrust := FDangerousTrust;
   LConfig.FAsyncVerdict := FAsyncVerdict;
+  LConfig.FIssuerLookup := FIssuerLookup;
+  LConfig.FIssuerRule := FIssuerRule;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
   LConfig.FGrease := FGrease;
   LConfig.FResumption := FResumption;
@@ -3321,9 +3364,9 @@ begin
   // without WithPeerAuth they would be accepted and silently ignored, and the server would admit
   // clients unauthenticated
   if (FClientAuth = TClientAuthMode.None) and
-    ((System.Length(FAnchorStores) > 0) or (FClientCertVerifier <> nil) or
-    (FClientVerifierSource <> nil) or (System.Length(FCertificatePins) > 0) or
-    (System.Length(FIntermediateCertificates) > 0) or
+    ((System.Length(FAnchorStores) > 0) or (FIssuerLookup <> nil) or
+    (FClientCertVerifier <> nil) or (FClientVerifierSource <> nil) or
+    (System.Length(FCertificatePins) > 0) or (System.Length(FIntermediateCertificates) > 0) or
     (System.Length(FClientCertificateAuthorities) > 0) or
     Assigned(FDangerousTrust.VerifyCallback) or FDangerousTrust.InsecureSkipVerify or
     (FAsyncVerdict.Deferral <> TVerdictDeferral.None) or
@@ -3339,11 +3382,12 @@ begin
   if (FClientAuth = TClientAuthMode.None) and FDecompressorsSet and
     (System.Length(FCertificateDecompressors) > 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SServerDecompressorsNeedPeerAuth);
-  // client authentication verifies the peer chain against a trust source: anchor ROOTS, a
-  // whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its own - it
-  // consumes the client-CA anchors as its exclusive root, so it needs roots too. Without one the
-  // server would only fail closed at handshake time, so reject it at build (fail fast)
-  if (FClientAuth <> TClientAuthMode.None) and (not HasAnchorRoots) and
+  // client authentication verifies the peer chain against a trust source: anchor ROOTS, an issuer
+  // lookup, a whole-verifier, or an explicit skip-verify. A verifier source is NOT a source on its
+  // own - it consumes the client-CA anchors as its exclusive root, so it needs roots or a lookup
+  // too. Without one the server would only fail closed at handshake time, so reject it at build
+  // (fail fast)
+  if (FClientAuth <> TClientAuthMode.None) and (not HasAnchorRoots) and (FIssuerLookup = nil) and
     (FClientCertVerifier = nil) and (not FDangerousTrust.InsecureSkipVerify) then
   begin
     // a source with no roots to consume: the most specific misconfiguration, named first (whether
@@ -3434,6 +3478,8 @@ begin
   LConfig.FIntermediateCertificates := FIntermediateCertificates;
   LConfig.FDangerousTrust := FDangerousTrust;
   LConfig.FAsyncVerdict := FAsyncVerdict;
+  LConfig.FIssuerLookup := FIssuerLookup;
+  LConfig.FIssuerRule := FIssuerRule;
   LConfig.FRequireExtendedMasterSecret := FRequireExtendedMasterSecret;
   LConfig.FServerNameAck := FServerNameAck;
   LConfig.FCipherPreference := FCipherPreference;

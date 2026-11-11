@@ -24,6 +24,8 @@ uses
   TlpNegotiationTypes,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpIIssuerLookup,
+  TlpTrustTypes,
   TlpICertificateVerifierSource,
   TlpICertificateCompression,
   TlpICertificateCompressionCache,
@@ -47,7 +49,7 @@ type
   /// built once, frozen, and reused.
   /// </summary>
   ITlsCommonConfig = interface(IInterface)
-    ['{B1854E25-E01F-451D-BE8B-BC5671D9387C}']
+    ['{16E8D797-4195-4FF6-A90C-7DF5C78D3F82}']
     function Crypto: ICryptoProvider;
     /// <summary>The PKIX provider: X.509 inspection, path validation, revocation.</summary>
     function Pkix: IPkixProvider;
@@ -80,6 +82,13 @@ type
     /// client chain when a server requests one). nil for a PSK-only or skip-verify client, or a
     /// whole-verifier configuration; otherwise the composed anchor roots.</summary>
     function TrustStore: ITrustAnchorStore;
+    /// <summary>The lookup the engine resolves a peer chain's issuers from at verification, beside
+    /// TrustStore; nil when there is none. The engine applies it over the verifier source, so it
+    /// is never part of that source.</summary>
+    function IssuerLookup: IIssuerLookup;
+    /// <summary>Which of the certificates IssuerLookup offers as anchors the engine trusts as
+    /// anchors; meaningful only beside a lookup.</summary>
+    function IssuerAnchorRule: TBundleAnchorRule;
     /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
     function CertificateChainLimits: TCertificateChainLimits;
     /// <summary>The peer-certificate minimum-strength floors (RSA bits, EC curves, EdDSA).</summary>
@@ -145,7 +154,7 @@ type
 
   /// <summary>A frozen client endpoint config: a trust source is mandatory.</summary>
   ITlsClientConfig = interface(ITlsCommonConfig)
-    ['{2E9C6A14-5D73-4F80-B1A8-6C3E0D5B94F7}']
+    ['{509D9322-C784-431E-BDF4-2F1979C75929}']
     /// <summary>Whether a client sprinkles GREASE values (RFC 8701) across its offers to keep
     /// peers tolerant of unknown values. Optional per the RFC; default True.</summary>
     function Grease: Boolean;
@@ -193,7 +202,7 @@ type
 
   /// <summary>A frozen server endpoint config: it authenticates with a certificate credential or an external PSK.</summary>
   ITlsServerConfig = interface(ITlsCommonConfig)
-    ['{9A4E1C28-6D50-4B63-8F17-2E6C0A5F84D3}']
+    ['{23DFAF5D-32F7-4D36-9BBC-14FCB6635CD7}']
     /// <summary>Whether a server that received a server_name (SNI) echoes the empty
     /// server_name acknowledgement (RFC 6066 3); default True.</summary>
     function ServerNameAcknowledgement: Boolean;

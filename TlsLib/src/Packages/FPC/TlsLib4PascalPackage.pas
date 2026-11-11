@@ -57,7 +57,9 @@ uses
   TlpSystemTimeUtilities, TlpWindowsSystemTime, TlpPosixSystemTime, 
   TlpCipherSuiteCatalog, TlpIpLiteral, TlpHttpUrl, TlpWindowsDynamicLibrary, 
   TlpPosixDynamicLibrary, TlpAlpnProtocols, TlpPkcs12Identity, 
-  TlpITlsServerCredentialSet, TlpTls12PrfLabels, TlpClientPskPath;
+  TlpITlsServerCredentialSet, TlpTls12PrfLabels, TlpClientPskPath, 
+  TlpILayeredTrustAnchorStore, TlpIIssuerLookup, TlpIssuerResolution, 
+  TlpIssuerLookupVerifierSource;
 
 implementation
 

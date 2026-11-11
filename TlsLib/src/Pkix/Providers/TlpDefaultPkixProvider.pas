@@ -86,6 +86,7 @@ uses
   TlpHttpUrl,
   TlpIPkixProvider,
   TlpITrustAnchorStore,
+  TlpILayeredTrustAnchorStore,
   TlpPkixDomainTypes,
   TlpTlsAlert,
   TlpDateTimeUtilities,
@@ -104,12 +105,15 @@ type
   public
     constructor Create(const ADer: TBytes);
     function PublicKeyInfo: TBytes;
+    function IssuerName: TBytes;
+    function SubjectName: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
     function IsCertificateAuthority: TCertAnswer;
     function IsSelfSigned: TCertAnswer;
+    function IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function KeyFacts(out AFacts: TCertKeyFacts): Boolean;
     function SignatureFacts(out AFacts: TCertSignatureFacts): Boolean;
@@ -140,6 +144,7 @@ type
     function KeyKind(const ACertificateDer: TBytes;
       out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     function SamePublicKey(const ASpkiA, ASpkiB: TBytes): TCertAnswer;
+    function SameName(const AName1, AName2: TBytes): TCertAnswer;
   end;
 
   // ICertificatePathValidator - RFC 5280 path validation. The trust-anchor ring is a
@@ -175,11 +180,30 @@ type
       procedure Remember(const AEntry: TTrustAnchorEntry);
       procedure Rebind(const AEntry: TTrustAnchorEntry);
     end;
+    // parsed extra anchors by content, kept apart from the ring so they cannot push a large base out
+    TParsedAnchorRing = record
+    strict private
+    const
+      ParsedAnchorCacheSize = Int32(64);
+    strict private
+      FDers: TArray<TBytes>;
+      FAnchors: TArray<ITrustAnchor>;
+      FCount: Int32;
+      FNext: Int32;
+    public
+      class function Init: TParsedAnchorRing; static;
+      function TryGet(const ADer: TBytes; out AAnchor: ITrustAnchor): Boolean;
+      procedure Remember(const ADer: TBytes; const AAnchor: ITrustAnchor);
+    end;
   class var
     FTrustAnchors: TTrustAnchorRing;
+    FParsedAnchors: TParsedAnchorRing;
     FTrustAnchorLock: TCriticalSection;
   strict private
     function TrustAnchorKey(const ATrustAnchors: TArray<TBytes>): TBytes;
+    /// <summary>The anchors of AExtraDers, each parsed once and then served from the cache.</summary>
+    function ParsedExtras(const AExtraDers: TArray<TBytes>;
+      const AParser: IX509CertificateParser): TArray<ITrustAnchor>;
     /// <summary>How many of the first ACount pooled certificates share ACert's subject name.</summary>
     class function PooledWithSubject(const APool: TArray<IX509Certificate>;
       ACount: Int32; const ACert: IX509Certificate): Int32; static;
@@ -579,6 +603,16 @@ begin
   Result := FCert.GetSubjectPublicKeyInfo.GetDerEncoded;
 end;
 
+function TInspectedCertificate.IssuerName: TBytes;
+begin
+  Result := FCert.IssuerDN.GetDerEncoded;
+end;
+
+function TInspectedCertificate.SubjectName: TBytes;
+begin
+  Result := FCert.SubjectDN.GetDerEncoded;
+end;
+
 function TInspectedCertificate.DnsNames: TArray<string>;
 var
   LGeneralNames: IGeneralNames;
@@ -688,15 +722,92 @@ begin
     Inc(FCount);
 end;
 
+class function TCertificatePathValidator.TParsedAnchorRing.Init: TParsedAnchorRing;
+begin
+  SetLength(Result.FDers, ParsedAnchorCacheSize);
+  SetLength(Result.FAnchors, ParsedAnchorCacheSize);
+  Result.FCount := 0;
+  Result.FNext := 0;
+end;
+
+function TCertificatePathValidator.TParsedAnchorRing.TryGet(const ADer: TBytes;
+  out AAnchor: ITrustAnchor): Boolean;
+var
+  LI: Int32;
+begin
+  AAnchor := nil;
+  for LI := 0 to FCount - 1 do
+    if TArrayUtilities.AreEqual(FDers[LI], ADer) then
+    begin
+      AAnchor := FAnchors[LI];
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+procedure TCertificatePathValidator.TParsedAnchorRing.Remember(const ADer: TBytes;
+  const AAnchor: ITrustAnchor);
+var
+  LKnown: ITrustAnchor;
+begin
+  // a concurrent parse of the same content may have stored it already
+  if TryGet(ADer, LKnown) then
+    Exit;
+  FDers[FNext] := ADer;
+  FAnchors[FNext] := AAnchor;
+  FNext := (FNext + 1) mod ParsedAnchorCacheSize;
+  if FCount < ParsedAnchorCacheSize then
+    Inc(FCount);
+end;
+
 class constructor TCertificatePathValidator.Create;
 begin
   FTrustAnchors := TTrustAnchorRing.Init;
+  FParsedAnchors := TParsedAnchorRing.Init;
   FTrustAnchorLock := TCriticalSection.Create;
 end;
 
 class destructor TCertificatePathValidator.Destroy;
 begin
   FTrustAnchorLock.Free;
+end;
+
+function TCertificatePathValidator.ParsedExtras(const AExtraDers: TArray<TBytes>;
+  const AParser: IX509CertificateParser): TArray<ITrustAnchor>;
+var
+  LCert: IX509Certificate;
+  LHit: Boolean;
+  LI: Int32;
+begin
+  SetLength(Result, System.Length(AExtraDers));
+  for LI := 0 to High(AExtraDers) do
+  begin
+    FTrustAnchorLock.Acquire;
+    try
+      LHit := FParsedAnchors.TryGet(AExtraDers[LI], Result[LI]);
+    finally
+      FTrustAnchorLock.Release;
+    end;
+    if LHit then
+      Continue;
+    try
+      LCert := AParser.ReadCertificate(AExtraDers[LI]);
+      if LCert = nil then
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+      Result[LI] := TTrustAnchor.Create(LCert, nil);
+    except
+      on E: ECryptoLibException do
+        raise EFatalAlertTlsLibException.CreateRes(
+          TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+    end;
+    FTrustAnchorLock.Acquire;
+    try
+      FParsedAnchors.Remember(AExtraDers[LI], Result[LI]);
+    finally
+      FTrustAnchorLock.Release;
+    end;
+  end;
 end;
 
 class function TCertificatePathValidator.PooledWithSubject(
@@ -876,6 +987,17 @@ procedure TCertificatePathValidator.ValidateCertificatePath(const AChain: TArray
     end;
   end;
 
+  // a self-signed root is trusted whatever its dates; any other anchor is held to its window
+  function AnchorOutOfWindow(const AAnchorCert: IX509Certificate): Boolean;
+  var
+    LAnchor: IInspectedCertificate;
+  begin
+    if AAnchorCert.IsValid(AValidationTimeUtc) then
+      Exit(False);
+    LAnchor := TInspectedCertificate.Create(AAnchorCert.GetEncoded) as IInspectedCertificate;
+    Result := LAnchor.IsSelfSigned <> TCertAnswer.Yes;
+  end;
+
 const
   // the builder's depth cap does not count self-issued certificates, so a peer padding its chain with
   // same-named ones could still drive a permutation search, and cross-issuing subjects in a ring
@@ -886,12 +1008,17 @@ const
 var
   LParser: IX509CertificateParser;
   LCerts, LPool, LInter: TArray<IX509Certificate>;
-  LAnchors: TArray<ITrustAnchor>;
+  LAnchors, LUsable, LKept: TArray<ITrustAnchor>;
   LAnchorCert: IX509Certificate;
   LBuilt: TArray<IX509Certificate>;
   LPoolCount: Int32;
+  LOutOfWindow: Boolean;
   LEntry, LByDigest: TTrustAnchorEntry;
   LHit: Boolean;
+  LLayered: ILayeredTrustAnchorStore;
+  LBase: ITrustAnchorStore;
+  LExtraDers: TArray<TBytes>;
+  LAnchorDers: TArray<TBytes>;
   LTarget: IX509CertStoreSelector;
   LBuilderParams: IPkixBuilderParameters;
   LPoolStore: IStore<IX509Certificate>;
@@ -932,18 +1059,31 @@ begin
   // store is immutable, so its identity finds them with no hashing; a new store object over
   // content already parsed is matched by a digest computed here (never taken from the store). The
   // parse itself runs outside the lock so concurrent cold verifies do not serialise on it.
-  FTrustAnchorLock.Acquire;
-  try
-    LHit := FTrustAnchors.TryGetByStore(ATrustAnchors, LEntry);
-  finally
-    FTrustAnchorLock.Release;
+  // a layered store is keyed by its base; an empty base never takes a slot
+  LBase := ATrustAnchors;
+  LExtraDers := nil;
+  if Supports(ATrustAnchors, ILayeredTrustAnchorStore, LLayered) then
+  begin
+    LBase := LLayered.BaseStore;
+    LExtraDers := LLayered.ExtraRoots;
+  end;
+  LEntry := Default(TTrustAnchorEntry);
+  LHit := LBase.AnchorCount = 0;
+  if not LHit then
+  begin
+    FTrustAnchorLock.Acquire;
+    try
+      LHit := FTrustAnchors.TryGetByStore(LBase, LEntry);
+    finally
+      FTrustAnchorLock.Release;
+    end;
   end;
 
   if not LHit then
   begin
     LEntry := Default(TTrustAnchorEntry);
-    LEntry.Store := ATrustAnchors;
-    LEntry.Ders := ATrustAnchors.RootCertificates;
+    LEntry.Store := LBase;
+    LEntry.Ders := LBase.RootCertificates;
     LEntry.Digest := TrustAnchorKey(LEntry.Ders);
     FTrustAnchorLock.Acquire;
     try
@@ -985,6 +1125,12 @@ begin
     end;
   end;
   LAnchors := LEntry.Anchors;
+  LAnchorDers := LEntry.Ders;
+  if System.Length(LExtraDers) > 0 then
+  begin
+    LAnchors := TArrayUtilities.Concat<ITrustAnchor>(LAnchors, ParsedExtras(LExtraDers, LParser));
+    LAnchorDers := TArrayUtilities.Concat<TBytes>(LAnchorDers, LExtraDers);
+  end;
 
   // parse any configured intermediates; they pool with the presented certificates so an
   // incomplete chain can still be completed to an anchor (the sans-IO stand-in for AIA fetching).
@@ -1026,45 +1172,64 @@ begin
   end;
   SetLength(LPool, LPoolCount);
 
-  try
-    // the build targets the leaf the peer presented (index 0); the DFS is depth-capped so a
-    // hostile pool of like-named fillers cannot fan it out
-    LTarget := TX509CertStoreSelector.Create;
-    LTarget.SetCertificate(LCerts[0]);
-    LBuilderParams := TPkixBuilderParameters.Create(LAnchors, LTarget);
-    LBuilderParams.SetIsRevocationEnabled(False);
-    LBuilderParams.SetDate(AValidationTimeUtc);
-    LBuilderParams.SetMaxPathLength(TPathBuildLimits.MaxBuiltPathLength);
-    LBuilderParams.AddCertPathChecker(
-      TTlsCriticalExtensionChecker.Create(LCerts[0]) as IPkixCertPathChecker);
-    LPoolStore := TCollectionStore<IX509Certificate>.Create(LPool);
-    LBuilderParams.AddStoreCert(LPoolStore);
-    LBuilder := TPkixCertPathBuilder.Create as IPkixCertPathBuilder;
-    LBuildResult := LBuilder.Build(LBuilderParams);
-  except
-    on E: ECryptoLibException do
-    begin
-      // the leaf is on every candidate path, so its own window decides expiry; an expired
-      // certificate on its issuer line is reported as expiry when no path built without it (the
-      // transitional-chain case); a stale extra elsewhere in the pool is not the cause, so it
-      // reads as nothing chaining to a trusted anchor
-      if ExpiredOnIssuerLine(LPool, AValidationTimeUtc) then
+  LUsable := LAnchors;
+  LOutOfWindow := True;
+  while LOutOfWindow do
+  begin
+    try
+      // the build targets the leaf the peer presented (index 0); the DFS is depth-capped so a
+      // hostile pool of like-named fillers cannot fan it out
+      LTarget := TX509CertStoreSelector.Create;
+      LTarget.SetCertificate(LCerts[0]);
+      LBuilderParams := TPkixBuilderParameters.Create(LUsable, LTarget);
+      LBuilderParams.SetIsRevocationEnabled(False);
+      LBuilderParams.SetDate(AValidationTimeUtc);
+      LBuilderParams.SetMaxPathLength(TPathBuildLimits.MaxBuiltPathLength);
+      LBuilderParams.AddCertPathChecker(
+        TTlsCriticalExtensionChecker.Create(LCerts[0]) as IPkixCertPathChecker);
+      LPoolStore := TCollectionStore<IX509Certificate>.Create(LPool);
+      LBuilderParams.AddStoreCert(LPoolStore);
+      LBuilder := TPkixCertPathBuilder.Create as IPkixCertPathBuilder;
+      LBuildResult := LBuilder.Build(LBuilderParams);
+    except
+      on E: ECryptoLibException do
+      begin
+        // only an anchor left out for its dates could have built the path
+        if System.Length(LUsable) < System.Length(LAnchors) then
+          raise EFatalAlertTlsLibException.CreateRes(
+            TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
+        // the leaf is on every candidate path, so its own window decides expiry; an expired
+        // certificate on its issuer line is reported as expiry when no path built without it (the
+        // transitional-chain case); a stale extra elsewhere in the pool is not the cause, so it
+        // reads as nothing chaining to a trusted anchor
+        if ExpiredOnIssuerLine(LPool, AValidationTimeUtc) then
+          raise EFatalAlertTlsLibException.CreateRes(
+            TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
+        if E is EPkixCertPathBuilderCryptoLibException then
+          case EPkixCertPathBuilderCryptoLibException(E).Reason of
+            TPkixCertPathValidatorReason.InvalidSignature:
+              raise EFatalAlertTlsLibException.CreateRes(
+                TTlsAlertDescription.DecryptError, @SInvalidChainSignature);
+            TPkixCertPathValidatorReason.UnrecognizedCriticalExtension:
+              raise EFatalAlertTlsLibException.CreateRes(
+                TTlsAlertDescription.CertificateUnknown, @SUnrecognizedCriticalExtension);
+            TPkixCertPathValidatorReason.InvalidName:
+              raise EFatalAlertTlsLibException.CreateRes(
+                TTlsAlertDescription.CertificateUnknown, @SNameConstraintViolated);
+          end;
         raise EFatalAlertTlsLibException.CreateRes(
-          TTlsAlertDescription.CertificateExpired, @SCertificateExpired);
-      if E is EPkixCertPathBuilderCryptoLibException then
-        case EPkixCertPathBuilderCryptoLibException(E).Reason of
-          TPkixCertPathValidatorReason.InvalidSignature:
-            raise EFatalAlertTlsLibException.CreateRes(
-              TTlsAlertDescription.DecryptError, @SInvalidChainSignature);
-          TPkixCertPathValidatorReason.UnrecognizedCriticalExtension:
-            raise EFatalAlertTlsLibException.CreateRes(
-              TTlsAlertDescription.CertificateUnknown, @SUnrecognizedCriticalExtension);
-          TPkixCertPathValidatorReason.InvalidName:
-            raise EFatalAlertTlsLibException.CreateRes(
-              TTlsAlertDescription.CertificateUnknown, @SNameConstraintViolated);
-        end;
-      raise EFatalAlertTlsLibException.CreateRes(
-        TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+          TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+      end;
+    end;
+    // an out-of-window anchor must not shadow a valid copy of it: build again without that one
+    LOutOfWindow := AnchorOutOfWindow(LBuildResult.TrustAnchor.TrustedCert);
+    if LOutOfWindow then
+    begin
+      LKept := nil;
+      for LI := 0 to High(LUsable) do
+        if LUsable[LI].TrustedCert <> LBuildResult.TrustAnchor.TrustedCert then
+          TArrayUtilities.Append<ITrustAnchor>(LKept, LUsable[LI]);
+      LUsable := LKept;
     end;
   end;
 
@@ -1077,7 +1242,7 @@ begin
       TTlsAlertDescription.UnknownCa, @SUntrustedChain);
   EnforcePurpose(LBuilt, LBuildResult.TrustAnchor.TrustedCert);
   EmitPath(LBuilt, LBuildResult.TrustAnchor.TrustedCert,
-    ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors, LEntry.Ders));
+    ResolvedAnchorDer(LBuildResult.TrustAnchor.TrustedCert, LAnchors, LAnchorDers));
 end;
 
 function TCertificatePathValidator.NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
@@ -1842,6 +2007,27 @@ begin
     Result := TCertAnswer.No;
 end;
 
+function TCertificateInspector.SameName(const AName1, AName2: TBytes): TCertAnswer;
+var
+  LName1, LName2: IX509Name;
+  LMatch: Boolean;
+begin
+  // the rule path building chains on (in-order, string-prepared); undecodable input is never a raise
+  try
+    LName1 := TX509Name.GetInstance(AName1);
+    LName2 := TX509Name.GetInstance(AName2);
+    if (LName1 = nil) or (LName2 = nil) then
+      Exit(TCertAnswer.Undetermined);
+    LMatch := LName1.Equivalent(LName2, True);
+  except
+    Exit(TCertAnswer.Undetermined);
+  end;
+  if LMatch then
+    Result := TCertAnswer.Yes
+  else
+    Result := TCertAnswer.No;
+end;
+
 function TInspectedCertificate.KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
 var
   LBits: TArray<Boolean>;
@@ -1912,6 +2098,18 @@ begin
     Result := TCertAnswer.Yes
   else
     Result := TCertAnswer.No;
+end;
+
+function TInspectedCertificate.IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
+begin
+  try
+    if FCert.IsValid(AValidationTimeUtc) then
+      Result := TCertAnswer.Yes
+    else
+      Result := TCertAnswer.No;
+  except
+    Result := TCertAnswer.Undetermined;
+  end;
 end;
 
 function TInspectedCertificate.PeerInfo(out ASubject, AIssuer, ACommonName,

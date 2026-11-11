@@ -53,6 +53,9 @@ uses
   DateUtils,
   TypInfo,
   ssockets,
+{$IFDEF UNIX}
+  BaseUnix,
+{$ENDIF}
 {$IF FPC_FULLVERSION >= 30301}
   fpsockets,
 {$IFEND}
@@ -61,6 +64,8 @@ uses
   Sockets,
   TlpDataEncoding,
   TlpPem,
+  TlpTrustTypes,
+  TlpIIssuerLookup,
   TlpNegotiationTypes,
   TlpTlsCredential,
   TlpICryptoProvider,
@@ -85,7 +90,9 @@ const
   CERTS_DIR_PORT = 28461;
   CERTS_DIR_SERVER_PORT = 28462;
   ALPN_PORT = 28463;
+  CERTS_DIR_CHAIN_PORT = 28464;
   NO_HASHED_FILES = 'holds no hashed certificate files';
+  SKIPPED_HINT = 'cannot be read is skipped';
   BASE_WRITE_HINT = 'that write is ignored';
   UNTRUSTED_CHAIN = 'chain was not trusted'; // the one message any certificate rejection carries
   EARLY_CLOSE_LIMIT_MS = 2000;
@@ -407,6 +414,10 @@ type
     RootHash = '9e452842';
     OtherHash = '3cb0a192';
     ClientAuthRootHash = '8f672146';
+    // the subject hashes of the reissued root, its issuer and the leaf below it
+    ChainRootHash = '8a26f184';
+    ChainIssuerHash = '1d54645b';
+    ChainLeafHash = 'ce275665';
     // a self-signed root with the subject of root_cert and a key of its own
     LookalikeRootHex =
       '3082018230820128a0030201020214793a5194ee53d879814ad64345bcebab21' +
@@ -423,6 +434,11 @@ type
       'c59578400220780cc61f915c61f0b7fecdcd98810caed266ff7bbc1fb4d877bb' +
       '3fdea9f21bba';
     class function Echo(const ADirs, ACertCA: string; out AError: string): string; static;
+    /// <summary>Connects to the chain server with the directory list ADirs, the CA file ACertCA
+    /// when set and bundle rule ARule; the server presents a leaf alone, issued by an
+    /// intermediate below a root.</summary>
+    class function EchoChain(const ADirs, ACertCA: string; ARule: TBundleAnchorRule;
+      out AError: string): string; static;
     /// <summary>Makes the empty directory BaseDir/AName and returns its path.</summary>
     class function NewDir(const ABase, AName: string): string; static;
     class procedure RemoveTree(const ADir: string); static;
@@ -432,10 +448,25 @@ type
     /// hash.</summary>
     class procedure RunNaming(const ABase, ARootHex, AOtherHex: string;
       AServer: TLoopbackServerBase); static;
+    /// <summary>A file that cannot be used is skipped and the numbers after it are still
+    /// read.</summary>
+    class procedure RunSkipped(const ABase, ARootHex, ALookalikeHex: string); static;
+    /// <summary>A link is followed, and one with nothing at its end is skipped; a file system
+    /// without links has nothing to check.</summary>
+    class procedure RunLinks(const ABase, ARootHex: string); static;
+    /// <summary>A file the process may not read is skipped; checked where the file system keeps
+    /// modes and the process is not privileged.</summary>
+    class procedure RunPermissions(const ABase, ARootHex, ALookalikeHex: string); static;
+    /// <summary>A directory anchors only the self-signed certificates it holds, unless the bundle
+    /// rule says every certificate.</summary>
+    class procedure RunIssuers(const ABase: string); static;
+    /// <summary>The lookup's identity names the directories and what they hold, from an absolute
+    /// path.</summary>
+    class procedure RunIdentity(const ABase: string); static;
   public
     /// <summary>TrustedCertsDir trusts exactly the certificates a hashed certificate directory
-    /// lookup loads, sees the directory as it is at each connection, and refuses what it cannot
-    /// read.</summary>
+    /// lookup finds when a verification asks, sees the directory as it is at each connection,
+    /// and skips what it cannot read.</summary>
     class procedure Run; static;
   end;
 
@@ -2309,6 +2340,19 @@ begin
   Result := TVerifyClient.Echo(LHandler, CERTS_DIR_PORT, AError);
 end;
 
+class function TTrustedCertsDirCheck.EchoChain(const ADirs, ACertCA: string;
+  ARule: TBundleAnchorRule; out AError: string): string;
+var
+  LHandler: TTestCertificateDataHandler;
+begin
+  LHandler := TTestCertificateDataHandler.Create;
+  (LHandler.CertificateData as TTestCertificateData).TrustedCertsDir := ADirs;
+  if ACertCA <> '' then
+    LHandler.CertificateData.CertCA.FileName := ACertCA;
+  LHandler.BundleAnchors := ARule;
+  Result := TVerifyClient.Echo(LHandler, CERTS_DIR_CHAIN_PORT, AError);
+end;
+
 class function TTrustedCertsDirCheck.NewDir(const ABase, AName: string): string;
 begin
   Result := IncludeTrailingPathDelimiter(ABase) + AName;
@@ -2352,11 +2396,11 @@ begin
   LRootName := PathDelim + RootHash;
   LOtherName := PathDelim + OtherHash;
 
-  // a file named for no hash leaves nothing to trust
+  // a root is found only under the hash of its own subject
   LDir := NewDir(ABase, 'misnamed');
   TVectorLocator.WritePemTo(LDir + PathDelim + '00000000.0', 'CERTIFICATE', [ARootHex]);
   LEcho := Echo(LDir, '', LError);
-  ExpectRefused('a root in a file named for no hash', LEcho, LError, NO_HASHED_FILES);
+  ExpectRefused('a root in a file named for no hash', LEcho, LError, UNTRUSTED_CHAIN);
   AServer.WaitSettled;
 
   // and does not vouch for the root beside a sound file
@@ -2379,26 +2423,26 @@ begin
   LEcho := Echo(LDir, '', LError);
   ExpectEquals('a root after another certificate of its hash in one file', 'verify', LEcho, LError);
 
-  // only PEM is read: the same certificate as DER, or under another PEM label, is refused
+  // only PEM is read: the same certificate as DER, or under another PEM label, trusts nothing
   LDir := NewDir(ABase, 'der');
   LHashed := LDir + LRootName + '.0';
   TVectorLocator.WriteDerTo(LHashed, ARootHex);
   LEcho := Echo(LDir, '', LError);
-  ExpectRefused('a root as DER in its hashed file', LEcho, LError, LHashed);
+  ExpectRefused('a root as DER in its hashed file', LEcho, LError, UNTRUSTED_CHAIN);
   AServer.WaitSettled;
 
   LDir := NewDir(ABase, 'trusted');
   LHashed := LDir + LRootName + '.0';
   TVectorLocator.WritePemTo(LHashed, 'TRUSTED CERTIFICATE', [ARootHex]);
   LEcho := Echo(LDir, '', LError);
-  ExpectRefused('a root as a TRUSTED CERTIFICATE block', LEcho, LError, LHashed);
+  ExpectRefused('a root as a TRUSTED CERTIFICATE block', LEcho, LError, UNTRUSTED_CHAIN);
   AServer.WaitSettled;
 
   LDir := NewDir(ABase, 'pkcs7');
   LHashed := LDir + LRootName + '.0';
   TVectorLocator.WritePemTo(LHashed, 'PKCS7', [ARootHex]);
   LEcho := Echo(LDir, '', LError);
-  ExpectRefused('a root in a PKCS7 block', LEcho, LError, LHashed);
+  ExpectRefused('a root in a PKCS7 block', LEcho, LError, UNTRUSTED_CHAIN);
   AServer.WaitSettled;
 
   LDir := NewDir(ABase, 'unterminated');
@@ -2406,23 +2450,24 @@ begin
   TVectorLocator.WriteDerTo(LHashed, TDataEncoding.HexEncode(
     TEncoding.ASCII.GetBytes('-----BEGIN CERTIFICATE-----' + #10 + 'MIIB' + #10)));
   LEcho := Echo(LDir, '', LError);
-  ExpectRefused('a PEM block without its end', LEcho, LError, LHashed);
+  ExpectRefused('a PEM block without its end', LEcho, LError, UNTRUSTED_CHAIN);
   AServer.WaitSettled;
 
-  // a subject of a string type that has no hash cannot be placed in a hashed directory
+  // a certificate whose subject is not the asked name is not the issuer, whatever file it is in
   LDir := NewDir(ABase, 'unnamed');
   LHashed := LDir + LRootName + '.0';
   TVectorLocator.WritePemTo(LHashed, 'CERTIFICATE',
     [StringReplace(LookalikeRootHex, '06035504030c13', '06035504031a13', [rfReplaceAll])]);
   LEcho := Echo(LDir, '', LError);
-  ExpectRefused('a root whose subject is a VisibleString', LEcho, LError, LHashed);
+  ExpectRefused('a certificate of another subject under the hash of the root', LEcho, LError,
+    UNTRUSTED_CHAIN);
   AServer.WaitSettled;
 
   LDir := NewDir(ABase, 'emptyfile');
   LHashed := LDir + LRootName + '.0';
   TVectorLocator.WriteDerTo(LHashed, '');
   LEcho := Echo(LDir, '', LError);
-  ExpectRefused('an empty hashed file', LEcho, LError, LHashed);
+  ExpectRefused('an empty hashed file', LEcho, LError, UNTRUSTED_CHAIN);
   AServer.WaitSettled;
 
   LDir := NewDir(ABase, 'padded');
@@ -2431,6 +2476,236 @@ begin
   TVectorLocator.PadTo(LHashed, PADDED_FILE_BYTES);
   LEcho := Echo(LDir, '', LError);
   ExpectEquals('a hashed file larger than a megabyte', 'verify', LEcho, LError);
+end;
+
+class procedure TTrustedCertsDirCheck.RunSkipped(const ABase, ARootHex,
+  ALookalikeHex: string);
+var
+  LDir, LRootName, LEcho, LError: string;
+  LLocked: TFileStream;
+begin
+  LRootName := PathDelim + RootHash;
+
+  // a file with no certificate does not end the numbers
+  LDir := NewDir(ABase, 'skipgarbage');
+  TVectorLocator.WriteDerTo(LDir + LRootName + '.0', '0001020304');
+  TVectorLocator.WritePemTo(LDir + LRootName + '.1', 'CERTIFICATE', [ARootHex]);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a file holding no certificate', 'verify', LEcho, LError);
+
+  // nor does a PEM block that cannot be framed
+  LDir := NewDir(ABase, 'skipunterminated');
+  TVectorLocator.WriteDerTo(LDir + LRootName + '.0', TDataEncoding.HexEncode(
+    TEncoding.ASCII.GetBytes('-----BEGIN CERTIFICATE-----' + #10 + 'MIIB' + #10)));
+  TVectorLocator.WritePemTo(LDir + LRootName + '.1', 'CERTIFICATE', [ARootHex]);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a PEM block without its end', 'verify', LEcho, LError);
+
+  // nor does a file that cannot be opened, where the file system keeps an open file from a reader
+  LDir := NewDir(ABase, 'skiplocked');
+  TVectorLocator.WritePemTo(LDir + LRootName + '.0', 'CERTIFICATE', [ALookalikeHex]);
+  TVectorLocator.WritePemTo(LDir + LRootName + '.1', 'CERTIFICATE', [ARootHex]);
+  LLocked := TFileStream.Create(LDir + LRootName + '.0', fmOpenRead or fmShareExclusive);
+  try
+    LEcho := Echo(LDir, '', LError);
+  finally
+    LLocked.Free;
+  end;
+  ExpectEquals('a root after a file that cannot be opened', 'verify', LEcho, LError);
+
+  // nor does a PEM block whose body is not base64, whatever the decoder raises for it
+  LDir := NewDir(ABase, 'skipbadbody');
+  TVectorLocator.WriteDerTo(LDir + LRootName + '.0', TDataEncoding.HexEncode(
+    TEncoding.ASCII.GetBytes('-----BEGIN CERTIFICATE-----' + #10 + '!!%%not base64%%!!' + #10 +
+    '-----END CERTIFICATE-----' + #10)));
+  TVectorLocator.WritePemTo(LDir + LRootName + '.1', 'CERTIFICATE', [ARootHex]);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a PEM block that is not base64', 'verify', LEcho, LError);
+
+  // nor does an entry that is a directory
+  LDir := NewDir(ABase, 'skipdirentry');
+  if not ForceDirectories(LDir + LRootName + '.0') then
+    raise Exception.Create('cannot create a directory in ' + LDir);
+  TVectorLocator.WritePemTo(LDir + LRootName + '.1', 'CERTIFICATE', [ARootHex]);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a directory entry', 'verify', LEcho, LError);
+end;
+
+class procedure TTrustedCertsDirCheck.RunPermissions(const ABase, ARootHex,
+  ALookalikeHex: string);
+{$IFDEF UNIX}
+var
+  LDir, LDenied, LEcho, LError: string;
+{$ENDIF}
+begin
+{$IFDEF UNIX}
+  // a file the process may not read is skipped like any file that cannot be used; root reads it anyway
+  if fpGetUid = 0 then
+    Exit;
+  LDir := NewDir(ABase, 'skipdenied');
+  LDenied := ConcatPaths([LDir, RootHash + '.0']);
+  TVectorLocator.WritePemTo(LDenied, 'CERTIFICATE', [ALookalikeHex]);
+  TVectorLocator.WritePemTo(ConcatPaths([LDir, RootHash + '.1']), 'CERTIFICATE', [ARootHex]);
+  if fpChmod(PChar(LDenied), 0) <> 0 then
+    raise Exception.Create('cannot change the mode of ' + LDenied);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a file that may not be read', 'verify', LEcho, LError);
+{$ENDIF}
+end;
+
+class procedure TTrustedCertsDirCheck.RunLinks(const ABase, ARootHex: string);
+{$IFDEF UNIX}
+var
+  LDir, LTarget, LEcho, LError: string;
+{$ENDIF}
+begin
+{$IFDEF UNIX}
+  // a link with nothing at its end is skipped like any file that cannot be used
+  LDir := NewDir(ABase, 'skipbroken');
+  TVectorLocator.WritePemTo(ConcatPaths([LDir, RootHash + '.1']), 'CERTIFICATE', [ARootHex]);
+  if fpSymlink(PChar(ConcatPaths([LDir, 'absent.pem'])),
+    PChar(ConcatPaths([LDir, RootHash + '.0']))) <> 0 then
+    raise Exception.Create('cannot create a link in ' + LDir);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root after a broken link', 'verify', LEcho, LError);
+
+  // and a link to a certificate is followed
+  LTarget := ConcatPaths([NewDir(ABase, 'linktarget'), 'root.pem']);
+  TVectorLocator.WritePemTo(LTarget, 'CERTIFICATE', [ARootHex]);
+  LDir := NewDir(ABase, 'followed');
+  if fpSymlink(PChar(LTarget), PChar(ConcatPaths([LDir, RootHash + '.0']))) <> 0 then
+    raise Exception.Create('cannot create a link in ' + LDir);
+  LEcho := Echo(LDir, '', LError);
+  ExpectEquals('a root behind a link', 'verify', LEcho, LError);
+{$ENDIF}
+end;
+
+class procedure TTrustedCertsDirCheck.RunIssuers(const ABase: string);
+var
+  LServer: TVerifyServerThread;
+  LRootHex, LIssuerHex, LWrongRoot, LDir, LEcho, LError: string;
+begin
+  LRootHex := TVectorLocator.FieldHexFrom('ReissuedRoot.txt', 'root_cert');
+  LIssuerHex := TVectorLocator.FieldHexFrom('ReissuedRoot.txt', 'issuer_cert');
+  LWrongRoot := ConcatPaths([NewDir(ABase, 'chainwrong'), 'root.der']);
+  TVectorLocator.WriteDerTo(LWrongRoot, TVectorLocator.FieldHexFrom('ReissuedRoot.txt',
+    'root2_cert'));
+  LServer := TVerifyServerThread.Create(
+    TDataEncoding.HexDecode(TVectorLocator.FieldHexFrom('ReissuedRoot.txt', 'leaf_cert')),
+    TDataEncoding.HexDecode(TVectorLocator.FieldHexFrom('ReissuedRoot.txt', 'leaf_key')),
+    CERTS_DIR_CHAIN_PORT);
+  try
+    LServer.StartListening;
+
+    // an intermediate alone is chain material and anchors nothing
+    LDir := NewDir(ABase, 'issuer');
+    TVectorLocator.WritePemTo(ConcatPaths([LDir, ChainIssuerHash + '.0']), 'CERTIFICATE',
+      [LIssuerHex]);
+    LEcho := EchoChain(LDir, '', TBundleAnchorRule.SelfSignedOnly, LError);
+    ExpectRefused('an intermediate alone in the directory', LEcho, LError, UNTRUSTED_CHAIN);
+    ExpectRefused('the refusal of an intermediate alone in the directory', LEcho, LError,
+      SKIPPED_HINT);
+    LServer.WaitSettled;
+
+    // the hint belongs to a directory
+    LEcho := EchoChain('', LWrongRoot, TBundleAnchorRule.SelfSignedOnly, LError);
+    ExpectRefused('a wrong root in CertCA', LEcho, LError, UNTRUSTED_CHAIN);
+    if Pos(SKIPPED_HINT, LError) > 0 then
+      raise Exception.Create('a wrong root in CertCA was refused with the hint of a directory: ' +
+        LError);
+    LServer.WaitSettled;
+
+    // with its root beside it the intermediate completes a chain that sends the leaf alone
+    TVectorLocator.WritePemTo(ConcatPaths([LDir, ChainRootHash + '.0']), 'CERTIFICATE', [LRootHex]);
+    LEcho := EchoChain(LDir, '', TBundleAnchorRule.SelfSignedOnly, LError);
+    ExpectEquals('an intermediate beside its root', 'verify', LEcho, LError);
+
+    // and under AnyCertificate it anchors by itself
+    LDir := NewDir(ABase, 'issueranchor');
+    TVectorLocator.WritePemTo(ConcatPaths([LDir, ChainIssuerHash + '.0']), 'CERTIFICATE',
+      [LIssuerHex]);
+    LEcho := EchoChain(LDir, '', TBundleAnchorRule.AnyCertificate, LError);
+    ExpectEquals('an intermediate alone under AnyCertificate', 'verify', LEcho, LError);
+  finally
+    LServer.Terminate;
+    LServer.Free;
+  end;
+end;
+
+class procedure TTrustedCertsDirCheck.RunIdentity(const ABase: string);
+var
+  LCrypto: ICryptoProvider;
+  LLookup, LRespelled, LOther, LMissing, LRelativeLookup: IIssuerLookup;
+  LDir, LUnchanged, LAbsent, LExtra, LCurrent, LRelative, LBefore: string;
+  LStamp, LLater: LongInt;
+begin
+  LCrypto := TDefaultCryptoProvider.Create as ICryptoProvider;
+  LDir := NewDir(ABase, 'identity');
+  LStamp := DateTimeToFileDate(EncodeDate(2024, 1, 1));
+  LLater := DateTimeToFileDate(EncodeDate(2025, 1, 1));
+  if FileSetDate(LDir, LStamp) <> 0 then
+    raise Exception.Create('cannot set the time of the directory ' + LDir);
+  LLookup := TOpenSslHashedDirLookup.Create(LCrypto, LDir) as IIssuerLookup;
+  LUnchanged := LLookup.Identity;
+
+  // the same directories spelled with empty entries, a trailing delimiter and a repeat
+  LRespelled := TOpenSslHashedDirLookup.Create(LCrypto,
+    PathSeparator + IncludeTrailingPathDelimiter(LDir) + PathSeparator + LDir) as IIssuerLookup;
+  ExpectEquals('a directory spelled another way', LUnchanged, LRespelled.Identity,
+    'the identity names the spelling');
+
+  LOther := TOpenSslHashedDirLookup.Create(LCrypto, NewDir(ABase, 'identityother'))
+    as IIssuerLookup;
+  if LOther.Identity = LUnchanged then
+    raise Exception.Create('two directories share the identity "' + LUnchanged + '"');
+
+  // a directory that changed names another lookup, and one set back names the first again
+  if FileSetDate(LDir, LLater) <> 0 then
+    raise Exception.Create('cannot set the time of the directory ' + LDir);
+  if LLookup.Identity = LUnchanged then
+    raise Exception.Create('the identity of ' + LDir + ' ignores its time');
+  if FileSetDate(LDir, LStamp) <> 0 then
+    raise Exception.Create('cannot set the time of the directory ' + LDir);
+  ExpectEquals('a directory with its time set back', LUnchanged, LLookup.Identity,
+    'the identity holds more than the directory and its time');
+
+  // a change inside the resolution of the file system's time still names another lookup
+  LExtra := ConcatPaths([LDir, 'extra']);
+  TVectorLocator.WriteDerTo(LExtra, '00');
+  if FileSetDate(LDir, LStamp) <> 0 then
+    raise Exception.Create('cannot set the time of the directory ' + LDir);
+  if LLookup.Identity = LUnchanged then
+    raise Exception.Create('the identity of ' + LDir + ' ignores a file added within its time');
+  DeleteFile(LExtra);
+  if FileSetDate(LDir, LStamp) <> 0 then
+    raise Exception.Create('cannot set the time of the directory ' + LDir);
+  ExpectEquals('a directory that lost the file again', LUnchanged, LLookup.Identity,
+    'the identity holds more than the directory and its entries');
+
+  // a relative spelling keeps naming the directory it named when it was given
+  LCurrent := GetCurrentDir;
+  LRelative := ExtractRelativePath(IncludeTrailingPathDelimiter(LCurrent), LDir);
+  LRelativeLookup := TOpenSslHashedDirLookup.Create(LCrypto, LRelative) as IIssuerLookup;
+  if not SetCurrentDir(ABase) then
+    raise Exception.Create('cannot change to ' + ABase);
+  try
+    ExpectEquals('a relative directory after the working directory moved', LUnchanged,
+      LRelativeLookup.Identity, 'the identity follows the working directory');
+  finally
+    SetCurrentDir(LCurrent);
+  end;
+
+  // a directory that is not there keeps one identity until it appears
+  LAbsent := ConcatPaths([ABase, 'identityabsent']);
+  LMissing := TOpenSslHashedDirLookup.Create(LCrypto, LAbsent) as IIssuerLookup;
+  LBefore := LMissing.Identity;
+  ExpectEquals('a missing directory', LBefore, LMissing.Identity,
+    'the identity of a missing directory moves');
+  if LBefore = LUnchanged then
+    raise Exception.Create('a missing directory shares the identity of one that is there');
+  NewDir(ABase, 'identityabsent');
+  if LMissing.Identity = LBefore then
+    raise Exception.Create('a directory that appeared keeps the identity it had when missing');
 end;
 
 class procedure TTrustedCertsDirCheck.Run;
@@ -2533,12 +2808,14 @@ begin
       LEcho := Echo(LDir, '', LError);
       ExpectEquals('a root after a directory in the numbered slot', 'verify', LEcho, LError);
 
-      // a hashed file that is no certificate names its path
+      // a hashed file that is no certificate trusts nothing, and the refusal says it is skipped
       LDir := NewDir(LBase, 'garbage');
       LHashed := LDir + LRootName + '.0';
       TVectorLocator.WriteDerTo(LHashed, '0001020304');
       LEcho := Echo(LDir, '', LError);
-      ExpectRefused('a hashed file holding no certificate', LEcho, LError, LHashed);
+      ExpectRefused('a hashed file holding no certificate', LEcho, LError, UNTRUSTED_CHAIN);
+      ExpectRefused('the refusal beside a hashed file holding no certificate', LEcho, LError,
+        SKIPPED_HINT);
       LServer.WaitSettled;
 
       LDir := NewDir(LBase, 'empty');
@@ -2584,6 +2861,26 @@ begin
       LEcho := Echo(LOther + PathSeparator + LOther + PathDelim, '', LError);
       ExpectEquals('a directory named twice', 'verify', LEcho, LError);
 
+      // every directory is searched, so a root that was renewed in the later one still counts
+      LDir := NewDir(LBase, 'stale');
+      TVectorLocator.WritePemTo(LDir + LRootName + '.0', 'CERTIFICATE', [LookalikeRootHex]);
+      LOther := NewDir(LBase, 'renewed');
+      TVectorLocator.WritePemTo(LOther + LRootName + '.0', 'CERTIFICATE', [LRootHex]);
+      LEcho := Echo(LDir + PathSeparator + LOther, '', LError);
+      ExpectEquals('a root renewed in the later directory', 'verify', LEcho, LError);
+      LEcho := Echo(LOther + PathSeparator + LDir, '', LError);
+      ExpectEquals('a root renewed in the earlier directory', 'verify', LEcho, LError);
+
+      // a file added after a refusal is found by the next connection
+      LDir := NewDir(LBase, 'added');
+      TVectorLocator.WritePemTo(LDir + LOtherName + '.0', 'CERTIFICATE', [LOtherHex]);
+      LEcho := Echo(LDir, '', LError);
+      ExpectRefused('a directory before its root is added', LEcho, LError, UNTRUSTED_CHAIN);
+      LServer.WaitSettled;
+      TVectorLocator.WritePemTo(LDir + LRootName + '.0', 'CERTIFICATE', [LRootHex]);
+      LEcho := Echo(LDir, '', LError);
+      ExpectEquals('a directory after its root is added', 'verify', LEcho, LError);
+
       // each connection sees the directory as it is then: a removed file stops being an anchor
       LDir := NewDir(LBase, 'removed');
       LHashed := LDir + LRootName + '.0';
@@ -2616,7 +2913,8 @@ begin
       TVectorLocator.WriteDerTo(LHashed, StringOfChar('0', 2 * LSize));
       FileSetDate(LHashed, LFixed);
       LEcho := Echo(LDir, '', LError);
-      ExpectRefused('a file overwritten with the same size and time', LEcho, LError, LHashed);
+      ExpectRefused('a file overwritten with the same size and time', LEcho, LError,
+        UNTRUSTED_CHAIN);
       LServer.WaitSettled;
 
       // a directory beside a fully built config is a conflict
@@ -2643,10 +2941,15 @@ begin
       LServer.WaitSettled;
 
       RunNaming(LBase, LRootHex, LOtherHex, LServer);
+      RunSkipped(LBase, LRootHex, LookalikeRootHex);
+      RunLinks(LBase, LRootHex);
+      RunPermissions(LBase, LRootHex, LookalikeRootHex);
     finally
       LServer.Terminate;
       LServer.Free;
     end;
+    RunIssuers(LBase);
+    RunIdentity(LBase);
     RunServerRole(LBase);
   finally
     RemoveTree(LBase);
@@ -2945,7 +3248,7 @@ begin
       WriteLn('FclNet loopback PASS: ', LVersion, ' handshake + echo + a stalled record bounded in ',
         LStallMs, ' ms + client PFX identity authenticated' +
         ' + a reset VerifyPeerCert still verifies' +
-        ' + a hashed certificate directory read fresh per connection and only by a verifying role' +
+        ' + a hashed certificate directory looked up per verification and only by a verifying role' +
         ' with its name hashes checked against openssl''s' +
         ' + ALPN from the list or the slot' +
         ' + memory faults not hidden, failures recorded by family, and a socket closed under a' +

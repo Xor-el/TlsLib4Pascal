@@ -43,6 +43,8 @@ uses
   TlpCertificateVerifierSource,
   TlpTrustTypes,
   TlpICertificateVerifierSource,
+  TlpIIssuerLookup,
+  TlpIssuerLookupVerifierSource,
   TlpTrustPolicy,
   TlpCertificateLimits,
   TlpServerName,
@@ -181,6 +183,16 @@ type
     procedure TestNameConstraintViolationNilProviderFailsClosed;
     procedure TestNameConstraintViolationEmptyPathFailsClosed;
     procedure TestNameConstraintViolationProviderFailureFailsClosed;
+    // a non-self-signed anchor the OS reports is held to its validity window
+    procedure TestExpiredNonSelfSignedAnchorIsRefused;
+    procedure TestNotYetValidNonSelfSignedAnchorIsRefused;
+    procedure TestNonSelfSignedAnchorInsideItsWindowIsNotRefused;
+    procedure TestExpiredSelfSignedAnchorIsNotRefused;
+    procedure TestExpiredAnchorCheckNilClockFallsBackToSystemTime;
+    procedure TestExpiredAnchorCheckNilProviderFailsClosed;
+    procedure TestExpiredAnchorCheckUnreadableAnchorFailsClosed;
+    procedure TestExpiredAnchorCheckWithoutAnchorsIsNotRefused;
+    procedure TestExpiredAnchorCheckRefusesAnyOutOfWindowAnchorOfTheList;
   end;
 
   /// <summary>Platform-neutral tests for the OS delegate template over a fake platform engine: the
@@ -481,6 +493,97 @@ type
     procedure TestOsAndHostRootsWithAllHostRootsDistrustedIsOsRootsOnly;
   end;
 
+  /// <summary>Platform-neutral tests for what the OS verifier source does with the roots and
+  /// intermediates a connection's trust context adds (the issuers a lookup found for this peer),
+  /// in both certificate roles, and for the validity window a non-self-signed anchor is held to.</summary>
+  TTestDelegateContextRoots = class(TTlsLibAlgorithmTestCase)
+  strict private
+    FEc: TStringList;
+    FOcsp: TStringList;
+    FClock: ITlsClock;
+    // answers for the private root only
+    FLookup: TRecordingIssuerLookup;
+    FLookupRef: IIssuerLookup;
+    function PrivateRoot: TBytes;
+    function PrivateLeaf: TBytes;
+    function PublicRoot: TBytes;
+    function Roots(const ARoot: TBytes): TArray<TBytes>;
+    function StoreOf(const ARoots: TArray<TBytes>): ITrustAnchorStore;
+    function UnionCaps: TPlatformChainCapabilities;
+    function ExclusiveCaps: TPlatformChainCapabilities;
+    function ServerContext(const AStore: ITrustAnchorStore): TServerTrustContext;
+    function ClientContext(const AStore: ITrustAnchorStore): TClientTrustContext;
+    function OsSource(const AEngine: IPlatformChainEngine; AScope: TSystemTrustRootScope;
+      const AHostRoots, ADistrusted: TArray<TBytes>): IServerCertificateVerifierSource;
+    function Rejection: TPlatformChainResult;
+    /// <summary>The first engine request the source builds for a server context holding
+    /// AContextRoots beside the source's own roots, over an engine that always refuses.</summary>
+    function ServerRequest(ACaps: TPlatformChainCapabilities; AScope: TSystemTrustRootScope;
+      const AHostRoots, ADistrusted, AContextRoots: TArray<TBytes>): TPlatformChainRequest;
+    /// <summary>Whether the source accepts the chain of ALeaf under the ae_ anchor AAnchor, the
+    /// engine reporting that anchor, at AUnixMillis.</summary>
+    function ServerVerifyAt(const AAnchor, ALeaf: string; AUnixMillis: UInt64;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function ClientVerifyAt(const AAnchor, ALeaf: string; AUnixMillis: UInt64;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function LiveVerifyAt(const AAnchor, ALeaf: string; AUnixMillis: UInt64;
+      out AAlert: TTlsAlertDescription): Boolean;
+    /// <summary>The live resolver of a client config over AEngine judging the private chain; the
+    /// engine trusts the public root as its OS root.</summary>
+    function LiveServerVerdict(const AConfig: ITlsClientConfig; const AEngine: IPlatformChainEngine;
+      const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+    function LiveClientVerdict(const AConfig: ITlsServerConfig; const AEngine: IPlatformChainEngine;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function ServerConfigBuilder: ITlsServerConfigBuilder;
+  protected
+    procedure SetUp; override;
+  published
+    // server certificate: roots the context adds
+    procedure TestContextRootReachesTheEngineAsAnExtraAnchor;
+    procedure TestContextRootJoinsTheHostRootsAsExtraAnchors;
+    procedure TestContextRootJoinsTheExclusiveRootsUnderHostRootsScope;
+    procedure TestContextRootChainIsTrustedUnderHostRootsScope;
+    procedure TestContextRootChainIsTrustedAfterTheExclusiveRetry;
+    procedure TestEngineWithoutRootUnionAnswersInternalErrorForContextRoots;
+    procedure TestLookupDecoratorRefusesALiveSourceWithoutAVerdictAtCreation;
+    procedure TestEngineWithoutRootUnionServesAContextWithoutAStore;
+    procedure TestEngineWithoutRootUnionServesAContextWithoutRoots;
+    procedure TestDistrustedContextRootIsNotPassed;
+    procedure TestContextRootTheSourceHoldsIsPassedOnce;
+    procedure TestNoContextRootsLeaveTheRequestAsTheSourceMakesIt;
+    procedure TestNoContextRootsLeaveTheExclusiveRootsAsTheSourceMakesThem;
+    procedure TestContextIntermediatesReachTheEngine;
+    procedure TestLookedUpRootIsTrustedThroughTheLookupDecorator;
+    // client certificate: the context store is the exclusive root set
+    procedure TestClientContextRootsAreTheEngineAnchors;
+    procedure TestClientContextIntermediatesReachTheEngine;
+    procedure TestClientLookedUpRootIsTrustedThroughTheLookupDecorator;
+    // a non-self-signed anchor the engine reports, in each role and in the live check
+    procedure TestServerRefusesAnExpiredIntermediateAnchor;
+    procedure TestServerRefusesANotYetValidIntermediateAnchor;
+    procedure TestServerAcceptsAnIntermediateAnchorInsideItsWindow;
+    procedure TestServerAcceptsAnExpiredSelfSignedRoot;
+    procedure TestClientRefusesAnExpiredIntermediateAnchor;
+    procedure TestClientAcceptsAnIntermediateAnchorInsideItsWindow;
+    procedure TestLiveResolverRefusesAnExpiredIntermediateAnchor;
+    procedure TestLiveResolverAcceptsAnIntermediateAnchorInsideItsWindow;
+    // the live re-check resolves the issuers of the path it is given through the config's lookup
+    procedure TestLiveResolverTrustsALookedUpRootOfAnOsClientConfig;
+    procedure TestLiveResolverRefusesALookedUpRootTheLookupForgot;
+    procedure TestLiveResolverTrustsALookedUpRootBesideStaticWebPkiRoots;
+    procedure TestLiveResolverHandsTheEngineTheIntermediatesTheLookupFound;
+    procedure TestLiveResolverIsBuiltOverALookupOnlyClientConfig;
+    procedure TestLiveResolverTrustsALookedUpRootOfALookupOnlyClientConfig;
+    procedure TestLiveResolverDoesNotTrustTheOsRootsOfALookupOnlyClientConfig;
+    procedure TestLiveResolverKeepsTheOsRootsOutOfAWebPkiConfigWithAStore;
+    procedure TestLiveResolverOfALookupConfigWithoutAProviderIsInternalError;
+    procedure TestLiveResolverTrustsALookedUpClientRootBesideTheClientCa;
+    procedure TestLiveResolverTrustsALookedUpClientRootOfALookupOnlyServerConfig;
+    procedure TestLiveResolverRefusesAClientRootTheLookupForgot;
+    procedure TestPolicyOfAClientConfigCarriesTheLookupTheRuleAndTheStore;
+    procedure TestPolicyOfAServerConfigCarriesTheLookupTheRuleAndTheStore;
+  end;
+
   /// <summary>Platform-neutral tests for the root-scope value (OsRoots, OsAndHostRoots,
   /// HostRoots) and the facade composition built from it where OS roots are read.</summary>
   TTestSystemTrustRoots = class(TTlsLibAlgorithmTestCase)
@@ -666,6 +769,8 @@ type
     procedure TestHostRootsRefusesAPathThroughADistrustedCertificate;
     procedure TestDefaultModeHostRootsYieldsASourceWithAnchors;
     procedure TestWithLiveSystemTrustCarriesTheHostRoots;
+    procedure TestWithLiveSystemTrustCarriesTheLookupAndTheRule;
+    procedure TestWithLiveSystemTrustRefusesANilLookup;
     procedure TestInstallerTrustsItsExtraAnchorsWithTheOsRoots;
     procedure TestDistrustStoreIsTheDisallowedList;
   end;
@@ -847,6 +952,13 @@ type
     /// <summary>What ReadDistrusted of this probe collects before filtering.</summary>
     procedure Collects(const ADistrusted: TArray<TBytes>);
   end;
+
+const
+  AnchorValidityFile = 'Certs/AnchorValidity.txt';
+  // ae_inter of AnchorValidityFile is valid from 2020-01-01T00:00:00Z to 2030-01-01T00:00:00Z
+  UnixMillisBeforeAnchorStart = UInt64(1577836799000);
+  UnixMillisInsideAnchorWindow = UInt64(1735689600000);
+  UnixMillisAfterAnchorEnd = UInt64(1893456001000);
 
 { TTestDelegatePostChecks }
 
@@ -1111,6 +1223,103 @@ begin
     'a provider that raises never admits the path');
   CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
     'the fail-closed alert is internal_error');
+end;
+
+procedure TTestDelegatePostChecks.TestExpiredNonSelfSignedAnchorIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
+    TMockClock.Create(UnixMillisAfterAnchorEnd) as ITlsClock,
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    'an intermediate anchor past its end is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+end;
+
+procedure TTestDelegatePostChecks.TestNotYetValidNonSelfSignedAnchorIsRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
+    TMockClock.Create(UnixMillisBeforeAnchorStart) as ITlsClock,
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    'an intermediate anchor before its start is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+end;
+
+procedure TTestDelegatePostChecks.TestNonSelfSignedAnchorInsideItsWindowIsNotRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
+    TMockClock.Create(UnixMillisInsideAnchorWindow) as ITlsClock,
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    'an intermediate anchor inside its window is not refused');
+end;
+
+procedure TTestDelegatePostChecks.TestExpiredSelfSignedAnchorIsNotRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
+    TMockClock.Create(UnixMillisAfterAnchorEnd) as ITlsClock,
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_root')), LAlert),
+    'a self-signed root is trusted by configuration whatever its dates');
+end;
+
+procedure TTestDelegatePostChecks.TestExpiredAnchorCheckNilClockFallsBackToSystemTime;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // ae_inter_leaf is not self-signed and valid until 2099, so only a wrong time can refuse it
+  CheckFalse(TDelegatePostChecks.RejectExpiredAnchor(Pkix, nil,
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter_leaf')),
+    LAlert), 'a nil clock means system time, not the epoch');
+end;
+
+procedure TTestDelegatePostChecks.TestExpiredAnchorCheckNilProviderFailsClosed;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(nil, FClock,
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    'a nil provider cannot vouch for the anchor');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+    'the fail-closed alert is internal_error');
+end;
+
+procedure TTestDelegatePostChecks.TestExpiredAnchorCheckUnreadableAnchorFailsClosed;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(Pkix, FClock,
+    TArray<TBytes>.Create(TBytes.Create(1, 2, 3)), LAlert),
+    'an anchor that does not parse is refused');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+    'the fail-closed alert is internal_error');
+end;
+
+procedure TTestDelegatePostChecks.TestExpiredAnchorCheckWithoutAnchorsIsNotRefused;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckFalse(TDelegatePostChecks.RejectExpiredAnchor(nil, FClock, nil, LAlert),
+    'a path the engine reports no anchor for has nothing to check');
+end;
+
+procedure TTestDelegatePostChecks.TestExpiredAnchorCheckRefusesAnyOutOfWindowAnchorOfTheList;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
+    TMockClock.Create(UnixMillisAfterAnchorEnd) as ITlsClock,
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_root'),
+    TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    'the second anchor is checked too');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
 end;
 
 { TFilterRootsProbe }
@@ -4790,6 +4999,855 @@ begin
   CheckEquals(0, System.Length(LSource.Anchors), 'the OS roots stand alone');
 end;
 
+{ TTestDelegateContextRoots }
+
+procedure TTestDelegateContextRoots.SetUp;
+begin
+  inherited SetUp;
+  FClock := TSystemClock.Create as ITlsClock;
+  FEc := Own<TStringList>(LoadVectorFields('Certs/EcP256Chain.txt'));
+  FOcsp := Own<TStringList>(LoadVectorFields('Certs/OcspStapling.txt'));
+  FLookup := TRecordingIssuerLookup.Create('live-roots');
+  FLookupRef := FLookup;
+  FLookup.Offer(Pkix.Certificates.Parse(PrivateRoot).SubjectName, Roots(PrivateRoot), nil);
+end;
+
+function TTestDelegateContextRoots.PrivateRoot: TBytes;
+begin
+  Result := DecodeHex(FEc.Values['root_cert']);
+end;
+
+function TTestDelegateContextRoots.PrivateLeaf: TBytes;
+begin
+  Result := DecodeHex(FEc.Values['leaf_cert']);
+end;
+
+function TTestDelegateContextRoots.PublicRoot: TBytes;
+begin
+  Result := DecodeHex(FOcsp.Values['issuer_cert']);
+end;
+
+function TTestDelegateContextRoots.Roots(const ARoot: TBytes): TArray<TBytes>;
+begin
+  Result := TArray<TBytes>.Create(ARoot);
+end;
+
+function TTestDelegateContextRoots.StoreOf(const ARoots: TArray<TBytes>): ITrustAnchorStore;
+begin
+  Result := TTrustAnchorStore.Create(ARoots) as ITrustAnchorStore;
+end;
+
+function TTestDelegateContextRoots.UnionCaps: TPlatformChainCapabilities;
+begin
+  Result := [TPlatformChainCapability.NativeAnchorUnion];
+end;
+
+function TTestDelegateContextRoots.ExclusiveCaps: TPlatformChainCapabilities;
+begin
+  Result := [TPlatformChainCapability.CachedRevocation, TPlatformChainCapability.LiveFetch,
+    TPlatformChainCapability.ExclusiveServerAnchors];
+end;
+
+function TTestDelegateContextRoots.ServerContext(const AStore: ITrustAnchorStore)
+  : TServerTrustContext;
+begin
+  Result := Default(TServerTrustContext);
+  Result.ChainLimits := TCertificateChainLimits.Defaults;
+  Result.Pkix := Pkix;
+  Result.Clock := FClock;
+  Result.TrustStore := AStore;
+  Result.CheckHostName := True;
+  Result.RevocationPosture := TRevocationPosture.Soft;
+  Result.Deferral := TVerdictDeferral.None;
+  Result.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  Result.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
+    TSignatureSchemes.EcdsaSecp521r1Sha512);
+end;
+
+function TTestDelegateContextRoots.ClientContext(const AStore: ITrustAnchorStore)
+  : TClientTrustContext;
+begin
+  Result := Default(TClientTrustContext);
+  Result.ChainLimits := TCertificateChainLimits.Defaults;
+  Result.Pkix := Pkix;
+  Result.Clock := FClock;
+  Result.TrustStore := AStore;
+  Result.RevocationPosture := TRevocationPosture.Soft;
+  Result.Deferral := TVerdictDeferral.None;
+  Result.StrengthPolicy := TCertificateStrengthPolicy.Defaults;
+  Result.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
+    TSignatureSchemes.EcdsaSecp256r1Sha256, TSignatureSchemes.EcdsaSecp384r1Sha384,
+    TSignatureSchemes.EcdsaSecp521r1Sha512);
+end;
+
+function TTestDelegateContextRoots.OsSource(const AEngine: IPlatformChainEngine;
+  AScope: TSystemTrustRootScope; const AHostRoots, ADistrusted: TArray<TBytes>)
+  : IServerCertificateVerifierSource;
+begin
+  Result := TOSVerifierSource.Create(AEngine, TSystemTrustFetch.CacheOnly, AScope, AHostRoots,
+    ADistrusted) as IServerCertificateVerifierSource;
+end;
+
+function TTestDelegateContextRoots.Rejection: TPlatformChainResult;
+begin
+  Result := Default(TPlatformChainResult);
+  Result.Failure := TPlatformChainFailure.NoTrustAnchor;
+end;
+
+function TTestDelegateContextRoots.ServerRequest(ACaps: TPlatformChainCapabilities;
+  AScope: TSystemTrustRootScope; const AHostRoots, ADistrusted, AContextRoots: TArray<TBytes>)
+  : TPlatformChainRequest;
+var
+  LMock: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LMock := TMockPlatformChainEngine.Create(ACaps, False, Rejection,
+    TTlsAlertDescription.UnknownCa);
+  LEngine := LMock;
+  OsSource(LEngine, AScope, AHostRoots, ADistrusted).CreateServerVerifier(
+    ServerContext(StoreOf(AContextRoots))).VerifyServerCertificate(
+    TArray<TBytes>.Create(PrivateLeaf, PrivateRoot), TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert);
+  Result := LMock.Requests[0];
+end;
+
+function TTestDelegateContextRoots.ServerVerifyAt(const AAnchor, ALeaf: string;
+  AUnixMillis: UInt64; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LAnchor: TBytes;
+  LEngine: IPlatformChainEngine;
+  LContext: TServerTrustContext;
+  LVerified: TVerifiedChain;
+begin
+  LAnchor := TTlsLibTestCertificates.Field(AnchorValidityFile, AAnchor);
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(LAnchor))
+    as IPlatformChainEngine;
+  LContext := ServerContext(nil);
+  LContext.Clock := TMockClock.Create(AUnixMillis) as ITlsClock;
+  Result := OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    .CreateServerVerifier(LContext).VerifyServerCertificate(
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, ALeaf), LAnchor),
+    TServerName.DnsName('localhost'), nil, LVerified, AAlert);
+end;
+
+function TTestDelegateContextRoots.ClientVerifyAt(const AAnchor, ALeaf: string;
+  AUnixMillis: UInt64; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LAnchor: TBytes;
+  LEngine: IPlatformChainEngine;
+  LContext: TClientTrustContext;
+  LVerified: TVerifiedChain;
+begin
+  LAnchor := TTlsLibTestCertificates.Field(AnchorValidityFile, AAnchor);
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
+  LContext := ClientContext(StoreOf(Roots(LAnchor)));
+  LContext.Clock := TMockClock.Create(AUnixMillis) as ITlsClock;
+  Result := (OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    as IClientCertificateVerifierSource).CreateClientVerifier(LContext)
+    .VerifyClientCertificate(TArray<TBytes>.Create(
+    TTlsLibTestCertificates.Field(AnchorValidityFile, ALeaf), LAnchor), LVerified, AAlert);
+end;
+
+function TTestDelegateContextRoots.LiveVerifyAt(const AAnchor, ALeaf: string;
+  AUnixMillis: UInt64; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LAnchor: TBytes;
+  LEngine: IPlatformChainEngine;
+  LContext: TServerTrustContext;
+  LResolver: TOSDelegateLiveResolver;
+  LVerdict: TCertificateVerdictContext;
+begin
+  LAnchor := TTlsLibTestCertificates.Field(AnchorValidityFile, AAnchor);
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(LAnchor))
+    as IPlatformChainEngine;
+  LContext := ServerContext(nil);
+  LContext.Clock := TMockClock.Create(AUnixMillis) as ITlsClock;
+  LContext.Deferral := TVerdictDeferral.LiveRevocation;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
+    TOSDelegatePolicy.FromServerContext(LContext, TSystemTrustFetch.Live), nil);
+  try
+    LVerdict := Default(TCertificateVerdictContext);
+    LVerdict.PeerRole := TPeerRole.Server;
+    LVerdict.Chain := TArray<TBytes>.Create(
+      TTlsLibTestCertificates.Field(AnchorValidityFile, ALeaf), LAnchor);
+    LVerdict.HostName := 'localhost';
+    Result := LResolver.ResolveVerdict(LVerdict, AAlert);
+  finally
+    LResolver.Free;
+  end;
+end;
+
+procedure TTestDelegateContextRoots.TestContextRootReachesTheEngineAsAnExtraAnchor;
+var
+  LRequest: TPlatformChainRequest;
+begin
+  // mutation: the context store is ignored
+  LRequest := ServerRequest(UnionCaps, TSystemTrustRootScope.OsAndHostRoots, nil, nil,
+    Roots(PrivateRoot));
+  CheckEquals(1, System.Length(LRequest.ExtraAnchors), 'the context root is an extra anchor');
+  CheckEqualBytes('the extra anchor is the context root', PrivateRoot, LRequest.ExtraAnchors[0]);
+  CheckEquals(0, System.Length(LRequest.Anchors), 'the OS roots stay in force');
+end;
+
+procedure TTestDelegateContextRoots.TestContextRootJoinsTheHostRootsAsExtraAnchors;
+var
+  LRequest: TPlatformChainRequest;
+begin
+  // mutation: the context roots replace the source's own extras
+  LRequest := ServerRequest(UnionCaps, TSystemTrustRootScope.OsAndHostRoots, Roots(PublicRoot),
+    nil, Roots(PrivateRoot));
+  CheckEquals(2, System.Length(LRequest.ExtraAnchors), 'both are extra anchors');
+  CheckEqualBytes('the source root comes first', PublicRoot, LRequest.ExtraAnchors[0]);
+  CheckEqualBytes('the context root follows', PrivateRoot, LRequest.ExtraAnchors[1]);
+end;
+
+procedure TTestDelegateContextRoots.TestContextRootJoinsTheExclusiveRootsUnderHostRootsScope;
+var
+  LRequest: TPlatformChainRequest;
+begin
+  // mutation: the context roots go to ExtraAnchors whatever the scope
+  LRequest := ServerRequest(ExclusiveCaps, TSystemTrustRootScope.HostRoots, Roots(PublicRoot),
+    nil, Roots(PrivateRoot));
+  CheckEquals(2, System.Length(LRequest.Anchors), 'the exclusive set holds both roots');
+  CheckEqualBytes('the context root joins the source root', PrivateRoot, LRequest.Anchors[1]);
+  CheckEquals(0, System.Length(LRequest.ExtraAnchors),
+    'an engine ignores extras beside an exclusive set');
+end;
+
+procedure TTestDelegateContextRoots.TestContextRootChainIsTrustedUnderHostRootsScope;
+var
+  LEngine: IPlatformChainEngine;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the context roots go to ExtraAnchors whatever the scope
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
+  CheckTrue(OsSource(LEngine, TSystemTrustRootScope.HostRoots, Roots(PublicRoot), nil)
+    .CreateServerVerifier(ServerContext(StoreOf(Roots(PrivateRoot)))).VerifyServerCertificate(
+    TArray<TBytes>.Create(PrivateLeaf, PrivateRoot), TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'a chain to a context root is trusted beside the exclusive host roots');
+end;
+
+procedure TTestDelegateContextRoots.TestContextRootChainIsTrustedAfterTheExclusiveRetry;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the context store is ignored
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PublicRoot));
+  LEngine := LFake;
+  CheckTrue(OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    .CreateServerVerifier(ServerContext(StoreOf(Roots(PrivateRoot)))).VerifyServerCertificate(
+    TArray<TBytes>.Create(PrivateLeaf, PrivateRoot), TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'the second evaluation trusts the context root');
+  CheckEquals(2, LFake.ServerCalls, 'the OS roots first, then the context root');
+  CheckEqualBytes('the retry has the context root as the exclusive root', PrivateRoot,
+    LFake.Requests[1].Anchors[0]);
+end;
+
+procedure TTestDelegateContextRoots.TestEngineWithoutRootUnionAnswersInternalErrorForContextRoots;
+var
+  LMock: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the roots go to ExtraAnchors, which the engine would ignore and judge against the OS
+  LMock := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Rejection, TTlsAlertDescription.UnknownCa);
+  LEngine := LMock;
+  LVerifier := OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    .CreateServerVerifier(ServerContext(StoreOf(Roots(PrivateRoot))));
+  CheckFalse(LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    TServerName.DnsName('localhost'), nil, LVerified, LAlert),
+    'an engine that cannot union roots does not trust a connection that adds some');
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert), 'it is a local fault');
+  CheckEquals(0, LMock.ServerCalls, 'and the engine is never asked');
+end;
+
+procedure TTestDelegateContextRoots.TestLookupDecoratorRefusesALiveSourceWithoutAVerdictAtCreation;
+var
+  LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
+  LRaised: Boolean;
+begin
+  // mutation: the decorator builds the inner verifier only when it verifies
+  LEngine := TMockPlatformChainEngine.Create(ExclusiveCaps, False, Rejection,
+    TTlsAlertDescription.UnknownCa);
+  LSource := TIssuerLookupServerVerifierSource.Create(
+    TOSVerifierSource.Create(LEngine, TSystemTrustFetch.Live, TSystemTrustRootScope.OsAndHostRoots,
+    nil, nil) as IServerCertificateVerifierSource, FLookupRef, TBundleAnchorRule.SelfSignedOnly)
+    as IServerCertificateVerifierSource;
+  LRaised := False;
+  try
+    LSource.CreateServerVerifier(ServerContext(nil));
+  except
+    on ESystemTrustUnsupportedTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a live fetch with no live-revocation verdict is refused at engine creation');
+end;
+
+procedure TTestDelegateContextRoots.TestEngineWithoutRootUnionServesAContextWithoutAStore;
+var
+  LEngine: IPlatformChainEngine;
+begin
+  // mutation: the capability check runs whether or not the context adds roots
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Rejection, TTlsAlertDescription.UnknownCa);
+  CheckNotNull(OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    .CreateServerVerifier(ServerContext(nil)), 'a context with no store makes a verifier');
+end;
+
+procedure TTestDelegateContextRoots.TestEngineWithoutRootUnionServesAContextWithoutRoots;
+var
+  LEngine: IPlatformChainEngine;
+begin
+  // mutation: the capability check runs whether or not the context adds roots
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], False,
+    Rejection, TTlsAlertDescription.UnknownCa);
+  CheckNotNull(OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    .CreateServerVerifier(ServerContext(StoreOf(nil))),
+    'a context with an empty store makes a verifier');
+end;
+
+procedure TTestDelegateContextRoots.TestDistrustedContextRootIsNotPassed;
+var
+  LRequest: TPlatformChainRequest;
+begin
+  // mutation: the source's distrust set is not applied to the context roots
+  LRequest := ServerRequest(UnionCaps, TSystemTrustRootScope.OsAndHostRoots, nil,
+    Roots(PrivateRoot), Roots(PrivateRoot));
+  CheckEquals(0, System.Length(LRequest.ExtraAnchors),
+    'a root the source distrusts is not handed to the engine');
+end;
+
+procedure TTestDelegateContextRoots.TestContextRootTheSourceHoldsIsPassedOnce;
+var
+  LRequest: TPlatformChainRequest;
+begin
+  // mutation: the roots the source already holds are not left out
+  LRequest := ServerRequest(UnionCaps, TSystemTrustRootScope.OsAndHostRoots, Roots(PrivateRoot),
+    nil, Roots(PrivateRoot));
+  CheckEquals(1, System.Length(LRequest.ExtraAnchors), 'the root is passed once');
+end;
+
+procedure TTestDelegateContextRoots.TestNoContextRootsLeaveTheRequestAsTheSourceMakesIt;
+var
+  LRequest: TPlatformChainRequest;
+begin
+  LRequest := ServerRequest(UnionCaps, TSystemTrustRootScope.OsAndHostRoots, Roots(PublicRoot),
+    nil, nil);
+  CheckEquals(1, System.Length(LRequest.ExtraAnchors), 'the source root is the only extra anchor');
+  CheckEqualBytes('the extra anchor is the source root', PublicRoot, LRequest.ExtraAnchors[0]);
+  CheckEquals(0, System.Length(LRequest.Anchors), 'the OS roots stay in force');
+end;
+
+procedure TTestDelegateContextRoots.TestNoContextRootsLeaveTheExclusiveRootsAsTheSourceMakesThem;
+var
+  LRequest: TPlatformChainRequest;
+begin
+  LRequest := ServerRequest(ExclusiveCaps, TSystemTrustRootScope.HostRoots, Roots(PublicRoot),
+    nil, nil);
+  CheckEquals(1, System.Length(LRequest.Anchors), 'the source root is the only exclusive root');
+  CheckEqualBytes('the exclusive root is the source root', PublicRoot, LRequest.Anchors[0]);
+  CheckEquals(0, System.Length(LRequest.ExtraAnchors), 'no extra anchor is added');
+end;
+
+procedure TTestDelegateContextRoots.TestContextIntermediatesReachTheEngine;
+var
+  LMock: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LContext: TServerTrustContext;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: FromServerContext drops the context intermediates
+  LMock := TMockPlatformChainEngine.Create(UnionCaps, False, Rejection,
+    TTlsAlertDescription.UnknownCa);
+  LEngine := LMock;
+  LContext := ServerContext(nil);
+  LContext.Intermediates := Roots(PublicRoot);
+  OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil).CreateServerVerifier(LContext)
+    .VerifyServerCertificate(TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    TServerName.DnsName('localhost'), nil, LVerified, LAlert);
+  CheckEquals(1, System.Length(LMock.Last.Intermediates), 'the intermediate is handed over');
+  CheckEqualBytes('it is the context intermediate', PublicRoot, LMock.Last.Intermediates[0]);
+end;
+
+procedure TTestDelegateContextRoots.TestLookedUpRootIsTrustedThroughTheLookupDecorator;
+var
+  LLookup: TRecordingIssuerLookup;
+  LLookupRef: IIssuerLookup;
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LSource: IServerCertificateVerifierSource;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the context store is ignored
+  LLookup := TRecordingIssuerLookup.Create('context-roots');
+  LLookupRef := LLookup;
+  LLookup.Offer(Pkix.Certificates.Parse(PrivateRoot).SubjectName, Roots(PrivateRoot), nil);
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PublicRoot));
+  LEngine := LFake;
+  LSource := TIssuerLookupServerVerifierSource.Create(
+    OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil), LLookupRef,
+    TBundleAnchorRule.SelfSignedOnly) as IServerCertificateVerifierSource;
+  CheckTrue(LSource.CreateServerVerifier(ServerContext(nil)).VerifyServerCertificate(
+    TArray<TBytes>.Create(PrivateLeaf, PrivateRoot), TServerName.DnsName('localhost'), nil,
+    LVerified, LAlert), 'a root only the lookup supplies is trusted by the OS source');
+  CheckEqualBytes('the engine judged against the looked-up root', PrivateRoot,
+    LFake.Requests[1].Anchors[0]);
+end;
+
+procedure TTestDelegateContextRoots.TestClientContextRootsAreTheEngineAnchors;
+var
+  LMock: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // a guard of the client role, which already read the whole context store
+  LMock := TMockPlatformChainEngine.Create(ExclusiveCaps, False, Rejection,
+    TTlsAlertDescription.UnknownCa);
+  LEngine := LMock;
+  (OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    as IClientCertificateVerifierSource).CreateClientVerifier(ClientContext(
+    TTrustAnchorStore.Layered(StoreOf(Roots(PublicRoot)), Roots(PrivateRoot))))
+    .VerifyClientCertificate(TArray<TBytes>.Create(PrivateLeaf, PrivateRoot), LVerified, LAlert);
+  CheckEquals(2, System.Length(LMock.Last.Anchors), 'the base and the added root are the anchors');
+  CheckEqualBytes('the added root is an anchor', PrivateRoot, LMock.Last.Anchors[1]);
+end;
+
+procedure TTestDelegateContextRoots.TestClientContextIntermediatesReachTheEngine;
+var
+  LMock: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LContext: TClientTrustContext;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  // a guard of the client role, which already read the context intermediates
+  LMock := TMockPlatformChainEngine.Create(ExclusiveCaps, False, Rejection,
+    TTlsAlertDescription.UnknownCa);
+  LEngine := LMock;
+  LContext := ClientContext(StoreOf(Roots(PrivateRoot)));
+  LContext.Intermediates := Roots(PublicRoot);
+  (OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    as IClientCertificateVerifierSource).CreateClientVerifier(LContext)
+    .VerifyClientCertificate(TArray<TBytes>.Create(PrivateLeaf, PrivateRoot), LVerified, LAlert);
+  CheckEquals(1, System.Length(LMock.Last.Intermediates), 'the intermediate is handed over');
+  CheckEqualBytes('it is the context intermediate', PublicRoot, LMock.Last.Intermediates[0]);
+end;
+
+procedure TTestDelegateContextRoots.TestClientLookedUpRootIsTrustedThroughTheLookupDecorator;
+var
+  LLookup: TRecordingIssuerLookup;
+  LLookupRef: IIssuerLookup;
+  LEngine: IPlatformChainEngine;
+  LSource: IClientCertificateVerifierSource;
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+begin
+  LLookup := TRecordingIssuerLookup.Create('context-roots');
+  LLookupRef := LLookup;
+  LLookup.Offer(Pkix.Certificates.Parse(PrivateRoot).SubjectName, Roots(PrivateRoot), nil);
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
+  LSource := TIssuerLookupClientVerifierSource.Create(
+    OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
+    as IClientCertificateVerifierSource, LLookupRef, TBundleAnchorRule.SelfSignedOnly)
+    as IClientCertificateVerifierSource;
+  CheckTrue(LSource.CreateClientVerifier(ClientContext(StoreOf(Roots(PublicRoot))))
+    .VerifyClientCertificate(TArray<TBytes>.Create(PrivateLeaf, PrivateRoot), LVerified, LAlert),
+    'a client root only the lookup supplies is trusted beside the configured client CA');
+end;
+
+procedure TTestDelegateContextRoots.TestServerRefusesAnExpiredIntermediateAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the post-check is not applied
+  CheckFalse(ServerVerifyAt('ae_inter', 'ae_inter_leaf', UnixMillisAfterAnchorEnd, LAlert),
+    'a path ending at an expired intermediate anchor is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+end;
+
+procedure TTestDelegateContextRoots.TestServerRefusesANotYetValidIntermediateAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: only the end of the window is checked
+  CheckFalse(ServerVerifyAt('ae_inter', 'ae_inter_leaf', UnixMillisBeforeAnchorStart, LAlert),
+    'a path ending at an intermediate anchor not yet valid is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+end;
+
+procedure TTestDelegateContextRoots.TestServerAcceptsAnIntermediateAnchorInsideItsWindow;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ServerVerifyAt('ae_inter', 'ae_inter_leaf', UnixMillisInsideAnchorWindow, LAlert),
+    'an intermediate anchor inside its window is trusted');
+end;
+
+procedure TTestDelegateContextRoots.TestServerAcceptsAnExpiredSelfSignedRoot;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the self-signed exception is dropped
+  CheckTrue(ServerVerifyAt('ae_root', 'ae_root_leaf', UnixMillisAfterAnchorEnd, LAlert),
+    'an expired self-signed root stays trusted by configuration');
+end;
+
+procedure TTestDelegateContextRoots.TestClientRefusesAnExpiredIntermediateAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the post-check is not applied
+  CheckFalse(ClientVerifyAt('ae_inter', 'ae_inter_leaf', UnixMillisAfterAnchorEnd, LAlert),
+    'a client path ending at an expired intermediate anchor is refused');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+end;
+
+procedure TTestDelegateContextRoots.TestClientAcceptsAnIntermediateAnchorInsideItsWindow;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(ClientVerifyAt('ae_inter', 'ae_inter_leaf', UnixMillisInsideAnchorWindow, LAlert),
+    'a client intermediate anchor inside its window is trusted');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverRefusesAnExpiredIntermediateAnchor;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the live check does not apply the post-check
+  CheckFalse(LiveVerifyAt('ae_inter', 'ae_inter_leaf', UnixMillisAfterAnchorEnd, LAlert),
+    'the live check refuses a path ending at an expired intermediate anchor');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
+    'the alert is certificate_expired');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverAcceptsAnIntermediateAnchorInsideItsWindow;
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(LiveVerifyAt('ae_inter', 'ae_inter_leaf', UnixMillisInsideAnchorWindow, LAlert),
+    'the live check trusts an intermediate anchor inside its window');
+end;
+
+function TTestDelegateContextRoots.LiveServerVerdict(const AConfig: ITlsClientConfig;
+  const AEngine: IPlatformChainEngine; const AChain: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LResolver: TOSDelegateLiveResolver;
+  LVerdict: TCertificateVerdictContext;
+begin
+  LResolver := TOSDelegateLiveResolver.Create(AEngine, TPeerRole.Server,
+    TOSDelegatePolicy.FromClientConfig(AConfig, AConfig.ServerVerifierSource), nil);
+  try
+    LVerdict := Default(TCertificateVerdictContext);
+    LVerdict.PeerRole := TPeerRole.Server;
+    LVerdict.Chain := AChain;
+    LVerdict.HostName := 'localhost';
+    Result := LResolver.ResolveVerdict(LVerdict, AAlert);
+  finally
+    LResolver.Free;
+  end;
+end;
+
+function TTestDelegateContextRoots.LiveClientVerdict(const AConfig: ITlsServerConfig;
+  const AEngine: IPlatformChainEngine; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LResolver: TOSDelegateLiveResolver;
+  LVerdict: TCertificateVerdictContext;
+begin
+  LResolver := TOSDelegateLiveResolver.Create(AEngine, TPeerRole.Client,
+    TOSDelegatePolicy.FromServerConfig(AConfig), nil);
+  try
+    LVerdict := Default(TCertificateVerdictContext);
+    LVerdict.PeerRole := TPeerRole.Client;
+    LVerdict.Chain := TArray<TBytes>.Create(PrivateLeaf, PrivateRoot);
+    Result := LResolver.ResolveVerdict(LVerdict, AAlert);
+  finally
+    LResolver.Free;
+  end;
+end;
+
+function TTestDelegateContextRoots.ServerConfigBuilder: ITlsServerConfigBuilder;
+begin
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix, PrivateLeaf, DecodeHex(FEc.Values['leaf_key'])))
+    .WithPeerAuth(TClientAuthMode.Required);
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverTrustsALookedUpRootOfAnOsClientConfig;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the park judges the path against the roots of the config alone
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PublicRoot));
+  LEngine := LFake;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.VerifierSource(OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil,
+    nil)).WithIssuerLookup(FLookupRef).Build).Build;
+  CheckTrue(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    LAlert), 'a path the lookup anchored inline is anchored at the park too');
+  CheckEquals(2, LFake.ServerCalls, 'the OS roots first, then the looked-up root');
+  CheckEqualBytes('the retry has the looked-up root as the exclusive root', PrivateRoot,
+    LFake.Requests[1].Anchors[0]);
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverRefusesALookedUpRootTheLookupForgot;
+var
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  // the park asks the lookup again, so a root it no longer holds anchors nothing
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PublicRoot))
+    as IPlatformChainEngine;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.VerifierSource(OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil,
+    nil)).WithIssuerLookup(FLookupRef).Build).Build;
+  FLookup.Forget;
+  CheckFalse(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    LAlert), 'nothing anchors the path any more');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'unknown_ca');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverTrustsALookedUpRootBesideStaticWebPkiRoots;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil);
+  LEngine := LFake;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(StoreOf(Roots(PublicRoot))).WithIssuerLookup(FLookupRef).Build)
+    .Build;
+  CheckTrue(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    LAlert), 'the looked-up root is trusted');
+  CheckEquals(2, System.Length(LFake.Requests[0].Anchors), 'the static root and the looked-up one');
+  CheckEqualBytes('the looked-up root follows the static one', PrivateRoot,
+    LFake.Requests[0].Anchors[1]);
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverIsBuiltOverALookupOnlyClientConfig;
+var
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LResolver: TOSDelegateLiveResolver;
+begin
+  // the lookup is the trust source, so the config is not a PSK-only or skip-verify one
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server,
+    TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource), nil);
+  try
+    CheckNotNull(LResolver, 'the resolver is built');
+  finally
+    LResolver.Free;
+  end;
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverTrustsALookedUpRootOfALookupOnlyClientConfig;
+var
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PublicRoot))
+    as IPlatformChainEngine;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
+  CheckTrue(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    LAlert), 'the lookup alone anchors the path');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverHandsTheEngineTheIntermediatesTheLookupFound;
+var
+  LTiers: TRecordingIssuerLookup;
+  LTiersRef: IIssuerLookup;
+  LIssuer, LRoot, LLeaf: TBytes;
+  LMock: TMockPlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the intermediates the lookup found are not added to the policy's
+  LIssuer := TTlsLibTestCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'issuer_cert');
+  LRoot := TTlsLibTestCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'root_cert');
+  LLeaf := TTlsLibTestCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'leaf_cert');
+  LTiers := TRecordingIssuerLookup.Create('tiers');
+  LTiersRef := LTiers;
+  LTiers.Offer(Pkix.Certificates.Parse(LIssuer).SubjectName, nil, Roots(LIssuer));
+  LTiers.Offer(Pkix.Certificates.Parse(LRoot).SubjectName, Roots(LRoot), nil);
+  LMock := TMockPlatformChainEngine.Create(ExclusiveCaps, False, Rejection,
+    TTlsAlertDescription.UnknownCa);
+  LEngine := LMock;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(LTiersRef).Build).Build;
+  LiveServerVerdict(LConfig, LEngine, Roots(LLeaf), LAlert);
+  CheckEquals(1, System.Length(LMock.Requests[0].Intermediates), 'the found intermediate');
+  CheckEqualBytes('it is the issuer', LIssuer, LMock.Requests[0].Intermediates[0]);
+  CheckEqualBytes('and the found root is the exclusive root', LRoot, LMock.Requests[0].Anchors[0]);
+  CheckEquals(0, System.Length(LMock.Requests[0].ExtraAnchors), 'the OS roots do not join it');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverDoesNotTrustTheOsRootsOfALookupOnlyClientConfig;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  // mutation: the lookup-only config keeps the OS roots for the live pass
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PrivateRoot));
+  LEngine := LFake;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
+  FLookup.Forget;
+  CheckFalse(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    LAlert), 'a root only the OS holds does not anchor a lookup-only config');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'unknown_ca');
+  CheckEquals(0, LFake.ServerCalls, 'an empty exclusive set never reaches the engine');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverOfALookupConfigWithoutAProviderIsInternalError;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LPolicy: TOSDelegatePolicy;
+  LResolver: TOSDelegateLiveResolver;
+  LVerdict: TCertificateVerdictContext;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil);
+  LEngine := LFake;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(FLookupRef).Build).Build;
+  LPolicy := TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
+  LPolicy.Pkix := nil;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, nil);
+  try
+    LVerdict := Default(TCertificateVerdictContext);
+    LVerdict.PeerRole := TPeerRole.Server;
+    LVerdict.Chain := TArray<TBytes>.Create(PrivateLeaf, PrivateRoot);
+    LVerdict.HostName := 'localhost';
+    CheckFalse(LResolver.ResolveVerdict(LVerdict, LAlert), 'nothing can resolve the issuers');
+  finally
+    LResolver.Free;
+  end;
+  CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert), 'internal_error');
+  CheckEquals(0, LFake.ServerCalls, 'the engine is never asked');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverKeepsTheOsRootsOutOfAWebPkiConfigWithAStore;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsClientConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(PrivateRoot));
+  LEngine := LFake;
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(StoreOf(Roots(PublicRoot))).WithIssuerLookup(FLookupRef).Build)
+    .Build;
+  FLookup.Forget;
+  CheckFalse(LiveServerVerdict(LConfig, LEngine, TArray<TBytes>.Create(PrivateLeaf, PrivateRoot),
+    LAlert), 'the static store and the forgotten lookup anchor nothing');
+  CheckEquals(1, System.Length(LFake.Requests[0].Anchors), 'the static root alone is exclusive');
+  CheckEquals(0, System.Length(LFake.Requests[0].ExtraAnchors), 'the OS roots are not an extra');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverTrustsALookedUpClientRootBesideTheClientCa;
+var
+  LFake: TAnchorAwarePlatformChainEngine;
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsServerConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  LFake := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil);
+  LEngine := LFake;
+  LConfig := ServerConfigBuilder.WithClientVerification(
+    TClientVerification.WebPki(StoreOf(Roots(PublicRoot))).WithIssuerLookup(FLookupRef).Build)
+    .Build;
+  CheckTrue(LiveClientVerdict(LConfig, LEngine, LAlert), 'the looked-up client root is trusted');
+  CheckEquals(2, System.Length(LFake.Requests[0].Anchors), 'the client CA and the looked-up root');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverTrustsALookedUpClientRootOfALookupOnlyServerConfig;
+var
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsServerConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
+  LConfig := ServerConfigBuilder.WithClientVerification(
+    TClientVerification.WebPki(FLookupRef).Build).Build;
+  CheckTrue(LiveClientVerdict(LConfig, LEngine, LAlert), 'the lookup alone anchors the client');
+end;
+
+procedure TTestDelegateContextRoots.TestLiveResolverRefusesAClientRootTheLookupForgot;
+var
+  LEngine: IPlatformChainEngine;
+  LConfig: ITlsServerConfig;
+  LAlert: TTlsAlertDescription;
+begin
+  LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
+  LConfig := ServerConfigBuilder.WithClientVerification(
+    TClientVerification.WebPki(FLookupRef).Build).Build;
+  FLookup.Forget;
+  CheckFalse(LiveClientVerdict(LConfig, LEngine, LAlert), 'nothing anchors the client any more');
+end;
+
+procedure TTestDelegateContextRoots.TestPolicyOfAClientConfigCarriesTheLookupTheRuleAndTheStore;
+var
+  LConfig: ITlsClientConfig;
+  LPolicy: TOSDelegatePolicy;
+begin
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client.WithServerVerification(
+    TServerVerification.WebPki(StoreOf(Roots(PublicRoot)))
+    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build).Build;
+  LPolicy := TOSDelegatePolicy.FromClientConfig(LConfig, LConfig.ServerVerifierSource);
+  CheckTrue(LPolicy.IssuerLookup = FLookupRef, 'the lookup');
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate), Ord(LPolicy.IssuerRule), 'the rule');
+  CheckTrue(LPolicy.BaseStore = LConfig.TrustStore, 'the store the lookup layers over');
+end;
+
+procedure TTestDelegateContextRoots.TestPolicyOfAServerConfigCarriesTheLookupTheRuleAndTheStore;
+var
+  LConfig: ITlsServerConfig;
+  LPolicy: TOSDelegatePolicy;
+begin
+  LConfig := ServerConfigBuilder.WithClientVerification(
+    TClientVerification.WebPki(StoreOf(Roots(PublicRoot)))
+    .WithIssuerLookup(FLookupRef, TBundleAnchorRule.AnyCertificate).Build).Build;
+  LPolicy := TOSDelegatePolicy.FromServerConfig(LConfig);
+  CheckTrue(LPolicy.IssuerLookup = FLookupRef, 'the lookup');
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate), Ord(LPolicy.IssuerRule), 'the rule');
+  CheckTrue(LPolicy.BaseStore = LConfig.TrustStore, 'the store the lookup layers over');
+end;
+
 { TTestSystemTrustRoots }
 
 function TTestSystemTrustRoots.Store: ITrustAnchorStore;
@@ -6643,6 +7701,42 @@ begin
   CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive root');
 end;
 
+procedure TTestWindowsHostRoots.TestWithLiveSystemTrustCarriesTheLookupAndTheRule;
+var
+  LLookup: IIssuerLookup;
+  LConfig: ITlsClientConfig;
+begin
+  LLookup := TRecordingIssuerLookup.Create('live-lookup') as IIssuerLookup;
+  LConfig := TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
+    TSystemTrustRoots.OsRoots, TRevocationPosture.Soft, 2000, LLookup).Build;
+  CheckTrue(LConfig.ServerVerifierSource is TOSVerifierSource, 'the live OS verifier source');
+  CheckTrue(LConfig.IssuerLookup = LLookup, 'the lookup it was given');
+  CheckEquals(Ord(TBundleAnchorRule.SelfSignedOnly), Ord(LConfig.IssuerAnchorRule),
+    'the default rule');
+  LConfig := TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
+    TSystemTrustRoots.OsRoots, TRevocationPosture.Soft, 2000, LLookup,
+    TBundleAnchorRule.AnyCertificate).Build;
+  CheckEquals(Ord(TBundleAnchorRule.AnyCertificate), Ord(LConfig.IssuerAnchorRule),
+    'the rule it was given');
+end;
+
+procedure TTestWindowsHostRoots.TestWithLiveSystemTrustRefusesANilLookup;
+var
+  LNone: IIssuerLookup;
+  LRefused: Boolean;
+begin
+  LNone := nil;
+  LRefused := False;
+  try
+    TSystemTrust.WithLiveSystemTrust(TTlsPresets.Compatible(Crypto, Pkix).Client, Pkix,
+      TSystemTrustRoots.OsRoots, TRevocationPosture.Soft, 2000, LNone);
+  except
+    on EArgumentTlsLibException do
+      LRefused := True;
+  end;
+  CheckTrue(LRefused, 'a nil lookup is refused');
+end;
+
 procedure TTestWindowsHostRoots.TestInstallerTrustsItsExtraAnchorsWithTheOsRoots;
 var
   LVerification: IServerVerification;
@@ -7419,6 +8513,7 @@ initialization
   RegisterTest(TTestOSDelegateTemplate);
   RegisterTest(TTestDelegateHostRoots);
   RegisterTest(TTestDelegateHostRootsAlone);
+  RegisterTest(TTestDelegateContextRoots);
   RegisterTest(TTestSystemTrustRoots);
   RegisterTest(TTestSystemTrustInstaller);
 {$ELSE}
@@ -7427,6 +8522,7 @@ initialization
   RegisterTest(TTestOSDelegateTemplate.Suite);
   RegisterTest(TTestDelegateHostRoots.Suite);
   RegisterTest(TTestDelegateHostRootsAlone.Suite);
+  RegisterTest(TTestDelegateContextRoots.Suite);
   RegisterTest(TTestSystemTrustRoots.Suite);
   RegisterTest(TTestSystemTrustInstaller.Suite);
 {$ENDIF FPC}

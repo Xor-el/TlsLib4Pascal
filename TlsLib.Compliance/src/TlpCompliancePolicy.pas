@@ -260,6 +260,8 @@ resourcestring
     'checked';
   SRevocationOff = 'revocation checking is off';
   SHostResolver = 'a live-revocation resolver is host-owned and cannot be inspected';
+  SHostIssuerLookup = 'the issuers of a peer chain are read from a host-supplied lookup, which ' +
+    'cannot be inspected';
   SRandomSubject = 'random generator';
   SHashSubject = 'hash %s';
   SHmacSubject = 'HMAC %s';
@@ -974,6 +976,8 @@ begin
     TArrayUtilities.Append<string>(ADisclosures, SRevocationOff);
   if AConfig.AsyncCertificateVerdict.Deferral = TVerdictDeferral.LiveRevocation then
     TArrayUtilities.Append<string>(ADisclosures, SHostResolver);
+  if AConfig.IssuerLookup <> nil then
+    TArrayUtilities.Append<string>(ADisclosures, SHostIssuerLookup);
 end;
 
 procedure TCompliancePolicy.CheckVerifierSource(const ASource: IInterface;

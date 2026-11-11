@@ -2637,12 +2637,12 @@ var
 begin
   LRaised := False;
   try
-    TServerVerification.WebPki(nil, nil);
+    TServerVerification.WebPki(nil, nil).Build;
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'a WebPki policy with no anchors is refused');
+  CheckTrue(LRaised, 'a WebPki policy with no anchors and no lookup is refused at Build');
   LRaised := False;
   try
     TServerVerification.Custom(nil);

@@ -21,6 +21,7 @@ uses
   TlpTlsAlert,
   TlpIClock,
   TlpClock,
+  TlpDateTimeUtilities,
   TlpServerName,
   TlpEndpointIdentity,
   TlpTrustPolicy,
@@ -54,7 +55,8 @@ resourcestring
     'trusts; use the OS verifier source or a trust store, or pass the OS source it wraps';
   SLiveNeedsServerVerification =
     'the live revocation resolver needs a client config that verifies the server certificate; ' +
-    'this one has no trust store or OS verifier source (a PSK-only or skip-verify config)';
+    'this one has no trust store, issuer lookup or OS verifier source (a PSK-only or skip-verify ' +
+    'config)';
   SLiveRootsOfSourceDiffers =
     'the roots source passed to the live revocation resolver is not the OS verifier source the ' +
     'client config uses';
@@ -161,6 +163,14 @@ type
     /// (internal_error) on a nil provider, an empty path or a provider that raises.</summary>
     class function RejectNameConstraintViolation(const APkix: IPkixProvider;
       const AOsPath: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean; static;
+    /// <summary>True (with AAlert = certificate_expired) when one of the trust anchors the OS
+    /// reported is outside its validity window at the clock's time and is not self-signed: a
+    /// self-signed root is trusted by configuration whatever its dates, any other anchor stands in
+    /// for a CA certificate and is held to its window like an intermediate (built-in verifier
+    /// parity). A nil clock means system time. Fail-closed (internal_error) on a nil provider or
+    /// a provider that raises.</summary>
+    class function RejectExpiredAnchor(const APkix: IPkixProvider; const AClock: ITlsClock;
+      const AAnchors: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>True (with AAlert = certificate_revoked) when the handshake staple is a definitive,
     /// authenticated Revoked over the OS-validated path - honored under every posture. A missing,
     /// Good or indeterminate staple does not fire here (the posture governs those). AOsPath carries
@@ -295,6 +305,48 @@ begin
   else
     Result := TLiveRevocationOutcome.Indeterminate;
   end;
+end;
+
+class function TDelegatePostChecks.RejectExpiredAnchor(const APkix: IPkixProvider;
+  const AClock: ITlsClock; const AAnchors: TArray<TBytes>;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LClock: ITlsClock;
+  LTime: TDateTime;
+  LAnchor: IInspectedCertificate;
+  LI: Int32;
+begin
+  if System.Length(AAnchors) = 0 then
+    Exit(False);
+  if APkix = nil then
+  begin
+    AAlert := TTlsAlertDescription.InternalError;
+    Exit(True);
+  end;
+  LClock := AClock;
+  if LClock = nil then
+    LClock := TSystemClock.Create as ITlsClock;
+  LTime := TDateTimeUtilities.UnixMsToDateTime(Int64(LClock.NowUnixMillis));
+  try
+    for LI := 0 to System.High(AAnchors) do
+    begin
+      LAnchor := APkix.Certificates.Parse(AAnchors[LI]);
+      if (LAnchor.IsValidAt(LTime) <> TCertAnswer.Yes) and
+        (LAnchor.IsSelfSigned <> TCertAnswer.Yes) then
+      begin
+        AAlert := TTlsAlertDescription.CertificateExpired;
+        Exit(True);
+      end;
+    end;
+  except
+    // a provider that raises cannot vouch for the anchor
+    on Exception do
+    begin
+      AAlert := TTlsAlertDescription.InternalError;
+      Exit(True);
+    end;
+  end;
+  Result := False;
 end;
 
 class function TDelegatePostChecks.RejectStapledRevoked(

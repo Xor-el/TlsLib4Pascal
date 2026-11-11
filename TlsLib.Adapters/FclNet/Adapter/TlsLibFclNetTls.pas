@@ -40,6 +40,8 @@ uses
   TlpIPkixProvider,
   TlpICertificateTrust,
   TlpITrustAnchorStore,
+  TlpTrustTypes,
+  TlpIIssuerLookup,
   TlpTrustPolicy,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -82,7 +84,6 @@ type
     TagBmpString = Byte($1E);
     TagSequence = Byte($30);
     TagSet = Byte($31);
-    TagVersion = Byte($A0);
     class function IsSpace(AByte: Byte): Boolean; static;
     /// <summary>The contents of the TLVs, all tagged ATag, that make up AParent exactly; False
     /// when AParent is anything else.</summary>
@@ -102,17 +103,58 @@ type
       out AEncoded: TBytes): Boolean; static;
     /// <summary>The canonical encoding of the SET OF whose content is ASet.</summary>
     class function CanonicalSet(const ASet: TBytes; out AEncoded: TBytes): Boolean; static;
-    class function SubjectName(const ACertificate: TBytes;
-      out AName: TBytes): Boolean; static;
   public
     /// <summary>The hash of the DER Name AName; empty when it does not parse strictly, is larger
     /// than 16 KiB, uses a string type outside the supported set or holds a string that does not
     /// convert.</summary>
     class function OfName(const ACrypto: ICryptoProvider; const AName: TBytes): string; static;
-    /// <summary>The file-name prefix of the DER certificate ACertificate; empty when its subject
-    /// has no hash (see OfName).</summary>
-    class function OfCertificate(const ACrypto: ICryptoProvider;
-      const ACertificate: TBytes): string; static;
+  end;
+
+  /// <summary>The issuers of a list of hashed certificate directories, read when a verification
+  /// asks for a subject name: in every directory, the PEM certificates of hash.0, hash.1, ... up
+  /// to the first missing number, where hash is the hash of the name (see TOpenSslNameHash). Every
+  /// certificate found is offered as an anchor and the verifier's bundle rule decides which of
+  /// them anchor. A file that cannot be read or holds no certificate is skipped.</summary>
+  TOpenSslHashedDirLookup = class sealed(TInterfacedObject, IIssuerLookup)
+  strict private
+  const
+    HashHexLength = 8;
+    NumberSeparator = '.';
+    FirstSuffix = NumberSeparator + '0';
+    IdentityPrefix = 'openssl-capath:';
+  var
+    FCrypto: ICryptoProvider;
+    FSource: string;
+    FDirs: TArray<string>;
+    /// <summary>Whether AName is hash.0, with hash 8 hex digits: the first file of a hash.</summary>
+    class function IsFirstHashedName(const AName: string): Boolean; static;
+    /// <summary>The state of ADir: its own time, and a digest of the name, size and time of every
+    /// entry, so a change inside the time resolution of the file system still shows. One stamp for a
+    /// directory that cannot be found.</summary>
+    function Stamp(const ADir: string): string;
+    /// <summary>Whether APath names an entry; AUsable says that it is a regular file or a link to
+    /// one.</summary>
+    class function Probe(const APath: string; out AUsable: Boolean): Boolean; static;
+    /// <summary>Appends to AAnchors the PEM certificates of the file APath; a file that cannot be
+    /// read, or is not PEM, adds none.</summary>
+    class procedure AppendCertificates(const APath: string;
+      var AAnchors: TArray<TBytes>); static;
+    /// <summary>Appends to AAnchors the certificates of ADir's files named AHash.k, k from 0 up
+    /// to the first number with no entry.</summary>
+    procedure AppendDirectory(const ADir, AHash: string; var AAnchors: TArray<TBytes>);
+  public
+    /// <summary>A lookup over ADirs, a list in the platform's path separator: empty entries are
+    /// dropped, each directory is made absolute and gets a trailing delimiter, and a repeated one
+    /// is read once.</summary>
+    constructor Create(const ACrypto: ICryptoProvider; const ADirs: string);
+    /// <summary>Refuses a list that names no directory, a directory that is not there or cannot
+    /// be listed, and one in which no file named like hash.0 resolves under its lower-case
+    /// spelling, the only one the lookup probes.</summary>
+    procedure CheckConfigured;
+    /// <summary>The directories and the state of each, so a directory that gained or lost an
+    /// entry, or holds a file of another size or time, names another lookup.</summary>
+    function Identity: string;
+    function IssuersNamed(const ASubjectName: TBytes): TLookedUpIssuers;
   end;
 
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
@@ -179,8 +221,9 @@ type
   /// TlsLib4Pascal's implementation of fcl-net's TSSLSocketHandler. Connect / Accept run the
   /// handshake over Socket.Handle; Send / Recv move application data; Shutdown / Close send
   /// close_notify; BytesAvailable and Select report buffered plaintext. Peer trust is sourced from
-  /// fcl-net's native CertificateData slots (CertCA / TrustedCertificate / TrustedCertsDir ->
-  /// anchors, Certificate + PrivateKey -> our own credential, ALPNProtocols -> the ALPN list) plus
+  /// fcl-net's native CertificateData slots (CertCA / TrustedCertificate -> anchors,
+  /// TrustedCertsDir -> issuers looked up in a hashed certificate directory at verification,
+  /// Certificate + PrivateKey -> our own credential, ALPNProtocols -> the ALPN list) plus
   /// the extension properties fcl-net lacks (UseSystemTrust, a custom store/verifier, the augment /
   /// async verdict hooks). Verification is governed by VerifyPeerCert: this adapter defaults it
   /// True (secure by default, overriding fcl-net's own False), so real verification runs and fails
@@ -201,6 +244,7 @@ type
     FUseSystemTrust: Boolean;
     FClientAuth: TClientAuthMode;
     FCheckHostName: Boolean;
+    FBundleAnchors: TBundleAnchorRule;
     FCustomTrustStore: ITrustAnchorStore;
     FCustomServerCertVerifier: IServerCertificateVerifier;
     FCustomClientCertVerifier: IClientCertificateVerifier;
@@ -240,9 +284,9 @@ type
     /// CertificateData.ALPNProtocols (each name trimmed, empty ones skipped). Both set must name
     /// the same protocols in the same order, else it refuses.</summary>
     function EffectiveAlpnProtocols: TArray<string>;
-    /// <summary>Adds the trust anchors of CertificateData.TrustedCertsDir as they are on disk
-    /// now; with AConfigSupplied the directory is only noted, as the supplied config conflicts
-    /// with it.</summary>
+    /// <summary>Makes CertificateData.TrustedCertsDir the issuer lookup of AOptions after checking
+    /// that it names hashed directories; with AConfigSupplied the directory is not checked, as
+    /// the supplied config conflicts with it.</summary>
     procedure AddTrustedCertsDir(var AOptions: TTlsOptions; AConfigSupplied: Boolean);
     /// <summary>The host-neutral snapshot the adapter core composes into a TLS configuration: one
     /// value per handshake, so a handler setting changed mid-connection is never seen half-applied.
@@ -306,6 +350,12 @@ type
     /// CustomTrustStore. System trust is never implicit: when verifying you must name at least one
     /// source or the build fails closed. Defaults to False.</summary>
     property UseSystemTrust: Boolean read FUseSystemTrust write FUseSystemTrust;
+    /// <summary>Which certificates found in CertCA, TrustedCertificate and TrustedCertsDir become
+    /// trust anchors. SelfSignedOnly (the default): only a self-signed one; any other completes a
+    /// peer's chain and is never trusted by itself. AnyCertificate: every one, so a bundle or a
+    /// directory may anchor at an intermediate. Not allowed alongside a supplied ClientConfig /
+    /// ServerConfig when set to anything but the default.</summary>
+    property BundleAnchors: TBundleAnchorRule read FBundleAnchors write FBundleAnchors;
     /// <summary>Server role: whether to request a client certificate (mutual TLS). None (the
     /// default) never asks; Requested asks and tolerates a client that sends none; Required asks and
     /// aborts when none is presented. Orthogonal to the client-CA the presented chain must reach -
@@ -454,59 +504,14 @@ resourcestring
     'directory';
   SFclNetTrustedCertsDirUnreadable = 'CertificateData.TrustedCertsDir names ''%s'', which ' +
     'cannot be read';
-  SFclNetTrustedCertsDirFileUnreadable = 'CertificateData.TrustedCertsDir file ''%s'' cannot be ' +
-    'read: %s';
-  SFclNetTrustedCertsDirFileNotPem = 'CertificateData.TrustedCertsDir file ''%s'' holds no ' +
-    'PEM certificate';
-  SFclNetTrustedCertsDirFileUnnamed = 'CertificateData.TrustedCertsDir file ''%s'' holds a ' +
-    'certificate whose subject cannot be hashed';
   SFclNetTrustedCertsDirEmpty = 'CertificateData.TrustedCertsDir ''%s'' holds no hashed ' +
     'certificate files (<hash>.0, <hash>.1, ...); run openssl rehash on it';
+  SFclNetTrustedCertsDirHint = '(TrustedCertsDir: a hashed file that cannot be read is skipped, ' +
+    'and a certificate that is not self-signed is an intermediate only unless BundleAnchors is ' +
+    'AnyCertificate)';
 
 const
   CancelPollMs = 100;
-
-type
-  /// <summary>The directory scan behind CertificateData.TrustedCertsDir.</summary>
-  THashedCertsDirectory = class sealed(TObject)
-  strict private
-  type
-    /// <summary>What a directory listing reported for one entry.</summary>
-    TListedEntry = class
-    public
-      Attr: Integer;
-    end;
-    /// <summary>Fills AEntries with the names of ADir, each owning its TListedEntry, sorted and
-    /// matched without regard to case; False when ADir cannot be listed.</summary>
-    class function ListDirectory(const ADir: string; AEntries: TStringList): Boolean; static;
-    /// <summary>Adds to APrefixes the lowercase text before the dot of every entry named as eight
-    /// hex digits, a dot and anything.</summary>
-    class procedure ListHashedPrefixes(AEntries, APrefixes: TStrings); static;
-    /// <summary>Whether the file system has the exact name AName in ADir, given that the listing
-    /// matched it as AListedName. A listed name whose case differs is confirmed with an exact
-    /// lookup, so the file system decides what a name matches; the attributes found go to
-    /// AEntry.</summary>
-    class function ConfirmListedName(const ADir, AName, AListedName: string;
-      AEntry: TListedEntry): Boolean; static;
-    /// <summary>Whether a listed entry, followed once through a link, is a regular file; a link
-    /// hands its target's attributes to AEntry.</summary>
-    class function ProbeHashedFile(const APath: string; AEntry: TListedEntry): Boolean; static;
-    /// <summary>The bytes of a hashed file; a file that cannot be read refuses.</summary>
-    class function ReadHashedFile(const APath: string): TBytes; static;
-    /// <summary>Appends to AAnchors the certificates of the PEM file APath, whose content is
-    /// AContent, that belong under APrefix, and returns how many. A file that is not PEM or holds
-    /// no certificate, and a certificate that cannot be named, refuse.</summary>
-    class function AppendCertificates(const ACrypto: ICryptoProvider; const APath, APrefix: string;
-      const AContent: TBytes; var AAnchors: TArray<TTlsBlobSource>): Integer; static;
-  public
-    /// <summary>Adds the trust anchors of a directory list the way a hashed certificate directory
-    /// is read: per directory, each lowercase hex prefix's files prefix.0, prefix.1, ... up to the
-    /// first missing number, all answered from one listing of the directory, each usable file read
-    /// once. A certificate is an anchor only when the hash of its subject is the prefix it was
-    /// found under.</summary>
-    class procedure AppendAnchors(const ACrypto: ICryptoProvider; const ADirs: string;
-      var AAnchors: TArray<TTlsBlobSource>); static;
-  end;
 
 { TOpenSslNameHash }
 
@@ -783,53 +788,194 @@ begin
   Result := TDataEncoding.HexEncode(LPrefix);
 end;
 
-class function TOpenSslNameHash.SubjectName(const ACertificate: TBytes;
-  out AName: TBytes): Boolean;
+{ TOpenSslHashedDirLookup }
+
+constructor TOpenSslHashedDirLookup.Create(const ACrypto: ICryptoProvider; const ADirs: string);
 var
-  LCertificate, LTbs: TBytes;
-  LTag: Byte;
-  LContent, LLength, LNext, LStart, LStep: Int32;
+  LSegments: TArray<string>;
+  LDir: string;
+  LI: Integer;
 begin
-  Result := False;
-  AName := nil;
-  if not TDer.ReadTlv(ACertificate, 0, LTag, LContent, LLength, LNext) or
-    (LTag <> TagSequence) then
-    Exit;
-  LCertificate := System.Copy(ACertificate, LContent, LLength);
-  if not TDer.ReadTlv(LCertificate, 0, LTag, LContent, LLength, LNext) or
-    (LTag <> TagSequence) then
-    Exit;
-  LTbs := System.Copy(LCertificate, LContent, LLength);
-  LStart := 0;
-  if not TDer.ReadTlv(LTbs, LStart, LTag, LContent, LLength, LNext) then
-    Exit;
-  if LTag = TagVersion then
+  inherited Create;
+  FCrypto := ACrypto;
+  FSource := ADirs;
+  LSegments := ADirs.Split([PathSep]);
+  for LI := 0 to System.High(LSegments) do
   begin
-    LStart := LNext;
-    if not TDer.ReadTlv(LTbs, LStart, LTag, LContent, LLength, LNext) then
-      Exit;
+    if LSegments[LI] = '' then
+      Continue;
+    LDir := IncludeTrailingPathDelimiter(ExpandFileName(LSegments[LI]));
+    if TArrayUtilities.Contains<string>(FDirs, LDir) then
+      Continue;
+    TArrayUtilities.Append<string>(FDirs, LDir);
   end;
-  // the serial number is read; the signature, issuer and validity are stepped over to the subject
-  for LStep := 1 to 4 do
-  begin
-    LStart := LNext;
-    if not TDer.ReadTlv(LTbs, LStart, LTag, LContent, LLength, LNext) then
-      Exit;
-  end;
-  if LTag <> TagSequence then
-    Exit;
-  AName := System.Copy(LTbs, LStart, LNext - LStart);
-  Result := True;
 end;
 
-class function TOpenSslNameHash.OfCertificate(const ACrypto: ICryptoProvider;
-  const ACertificate: TBytes): string;
+class function TOpenSslHashedDirLookup.IsFirstHashedName(const AName: string): Boolean;
 var
-  LName: TBytes;
+  LDigits: TBytes;
 begin
-  Result := '';
-  if SubjectName(ACertificate, LName) then
-    Result := OfName(ACrypto, LName);
+  Result := (System.Length(AName) = HashHexLength + System.Length(FirstSuffix)) and
+    (System.Copy(AName, HashHexLength + 1, System.Length(FirstSuffix)) = FirstSuffix) and
+    TDataEncoding.TryHexDecode(System.Copy(AName, 1, HashHexLength), LDigits);
+end;
+
+procedure TOpenSslHashedDirLookup.CheckConfigured;
+var
+  LFind: TSearchRec;
+  LName: string;
+  LI: Integer;
+  LHashed, LUsable: Boolean;
+begin
+  if System.Length(FDirs) = 0 then
+    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+      @SFclNetTrustedCertsDirNone, [FSource]);
+  for LI := 0 to System.High(FDirs) do
+  begin
+    if not DirectoryExists(FDirs[LI]) then
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SFclNetTrustedCertsDirMissing, [FDirs[LI]]);
+    if FindFirst(FDirs[LI] + '*', faAnyFile or faSymLink, LFind) <> 0 then
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SFclNetTrustedCertsDirUnreadable, [FDirs[LI]]);
+    try
+      repeat
+        LName := LFind.Name;
+        // the lookup probes the lower-case spelling only, so that is the one that must resolve
+        LHashed := IsFirstHashedName(LName) and Probe(FDirs[LI] + LowerCase(LName), LUsable);
+      until LHashed or (FindNext(LFind) <> 0);
+    finally
+      FindClose(LFind);
+    end;
+    if not LHashed then
+      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
+        @SFclNetTrustedCertsDirEmpty, [FDirs[LI]]);
+  end;
+end;
+
+function TOpenSslHashedDirLookup.Stamp(const ADir: string): string;
+var
+  LFind: TSearchRec;
+  LEntries: TStringList;
+  LHash: IHash;
+  LListing: TBytes;
+begin
+  if FindFirst(ExcludeTrailingPathDelimiter(ADir), faDirectory, LFind) <> 0 then
+    Exit('-');
+  Result := IntToStr(LFind.Time);
+  FindClose(LFind);
+  LEntries := TStringList.Create;
+  try
+    LEntries.CaseSensitive := True;
+    LEntries.Sorted := True;
+    if FindFirst(ADir + '*', faAnyFile or faSymLink, LFind) = 0 then
+      try
+        repeat
+          if (LFind.Name <> '.') and (LFind.Name <> '..') then
+            LEntries.Add(LFind.Name + '|' + IntToStr(LFind.Size) + '|' + IntToStr(LFind.Time));
+        until FindNext(LFind) <> 0;
+      finally
+        FindClose(LFind);
+      end;
+    LListing := TEncoding.UTF8.GetBytes(LEntries.Text);
+  finally
+    LEntries.Free;
+  end;
+  LHash := FCrypto.Primitives.CreateHash(THashAlgorithm.SHA_1);
+  LHash.Update(LListing, 0, System.Length(LListing));
+  Result := Result + ':' + TDataEncoding.HexEncode(LHash.DoFinal);
+end;
+
+function TOpenSslHashedDirLookup.Identity: string;
+var
+  LI: Integer;
+begin
+  Result := IdentityPrefix;
+  for LI := 0 to System.High(FDirs) do
+    Result := Result + FDirs[LI] + '@' + Stamp(FDirs[LI]) + PathSep;
+end;
+
+class function TOpenSslHashedDirLookup.Probe(const APath: string;
+  out AUsable: Boolean): Boolean;
+var
+  LFind: TSearchRec;
+  LAttr: Integer;
+begin
+  AUsable := False;
+  Result := FindFirst(APath, faAnyFile or faSymLink, LFind) = 0;
+  if not Result then
+    Exit;
+  LAttr := LFind.Attr;
+  FindClose(LFind);
+  if (LAttr and faSymLink) <> 0 then
+  begin
+    // the listing saw the link itself; a broken one has no target to read
+    if FindFirst(APath, faAnyFile, LFind) <> 0 then
+      Exit;
+    LAttr := LFind.Attr;
+    FindClose(LFind);
+  end;
+  AUsable := (LAttr and (faDirectory or faSysFile)) = 0;
+end;
+
+class procedure TOpenSslHashedDirLookup.AppendCertificates(const APath: string;
+  var AAnchors: TArray<TBytes>);
+var
+  LStream: TFileStream;
+  LContent: TBytes;
+  LBlocks: TArray<TPemBlock>;
+  LSize: Int64;
+  LI: Integer;
+begin
+  try
+    LStream := TFileStream.Create(APath, fmOpenRead or fmShareDenyNone);
+    try
+      LSize := LStream.Size;
+      SetLength(LContent, LSize);
+      if LSize > 0 then
+        LStream.ReadBuffer(LContent[0], LSize);
+    finally
+      LStream.Free;
+    end;
+    LBlocks := TPem.ReadBlocks(LContent);
+  except
+    on Exception do
+      Exit;
+  end;
+  for LI := 0 to System.High(LBlocks) do
+    if LBlocks[LI].PemType = 'CERTIFICATE' then
+      TArrayUtilities.Append<TBytes>(AAnchors, LBlocks[LI].Content);
+end;
+
+procedure TOpenSslHashedDirLookup.AppendDirectory(const ADir, AHash: string;
+  var AAnchors: TArray<TBytes>);
+var
+  LPath: string;
+  LNumber: Integer;
+  LUsable: Boolean;
+begin
+  LNumber := 0;
+  LPath := ADir + AHash + FirstSuffix;
+  while Probe(LPath, LUsable) do
+  begin
+    if LUsable then
+      AppendCertificates(LPath, AAnchors);
+    Inc(LNumber);
+    LPath := ADir + AHash + NumberSeparator + IntToStr(LNumber);
+  end;
+end;
+
+function TOpenSslHashedDirLookup.IssuersNamed(const ASubjectName: TBytes): TLookedUpIssuers;
+var
+  LHash: string;
+  LI: Integer;
+begin
+  Result := Default(TLookedUpIssuers);
+  LHash := TOpenSslNameHash.OfName(FCrypto, ASubjectName);
+  if LHash = '' then
+    Exit;
+  for LI := 0 to System.High(FDirs) do
+    AppendDirectory(FDirs[LI], LHash, Result.Anchors);
 end;
 
 { TFclNetSocketTransport }
@@ -1046,232 +1192,24 @@ begin
     @SFclNetAlpnSourcesConflict);
 end;
 
-{ THashedCertsDirectory }
-
-class function THashedCertsDirectory.ListDirectory(const ADir: string;
-  AEntries: TStringList): Boolean;
-var
-  LFind: TSearchRec;
-  LEntry: TListedEntry;
-begin
-  Result := FindFirst(ADir + '*', faAnyFile or faSymLink, LFind) = 0;
-  if not Result then
-    Exit;
-  try
-    AEntries.OwnsObjects := True;
-    // the volume, not the platform, decides case; matches are confirmed by ConfirmListedName
-    AEntries.CaseSensitive := False;
-    repeat
-      LEntry := TListedEntry.Create;
-      AEntries.AddObject(LFind.Name, LEntry);
-      LEntry.Attr := LFind.Attr;
-    until FindNext(LFind) <> 0;
-    AEntries.Sorted := True;
-  finally
-    FindClose(LFind);
-  end;
-end;
-
-class procedure THashedCertsDirectory.ListHashedPrefixes(AEntries, APrefixes: TStrings);
-var
-  LName: string;
-  LDigits: TBytes;
-  LI: Integer;
-begin
-  for LI := 0 to AEntries.Count - 1 do
-  begin
-    LName := AEntries[LI];
-    if (System.Length(LName) >= 9) and (LName[9] = '.') and
-      TDataEncoding.TryHexDecode(System.Copy(LName, 1, 8), LDigits) then
-      APrefixes.Add(LowerCase(System.Copy(LName, 1, 8)));
-  end;
-end;
-
-class function THashedCertsDirectory.ConfirmListedName(const ADir, AName,
-  AListedName: string; AEntry: TListedEntry): Boolean;
-var
-  LFind: TSearchRec;
-begin
-  Result := AListedName = AName;
-  if Result then
-    Exit;
-  Result := FindFirst(ADir + AName, faAnyFile or faSymLink, LFind) = 0;
-  if Result then
-  begin
-    AEntry.Attr := LFind.Attr;
-    FindClose(LFind);
-  end;
-end;
-
-class function THashedCertsDirectory.ReadHashedFile(const APath: string): TBytes;
-var
-  LStream: TFileStream;
-  LSize: Int64;
-begin
-  try
-    LStream := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
-    try
-      LSize := LStream.Size;
-      SetLength(Result, LSize);
-      if LSize > 0 then
-        LStream.ReadBuffer(Result[0], LSize);
-    finally
-      LStream.Free;
-    end;
-  except
-    on E: EStreamError do
-      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-        @SFclNetTrustedCertsDirFileUnreadable, [APath, E.Message]);
-  end;
-end;
-
-class function THashedCertsDirectory.AppendCertificates(const ACrypto: ICryptoProvider;
-  const APath, APrefix: string; const AContent: TBytes;
-  var AAnchors: TArray<TTlsBlobSource>): Integer;
-var
-  LBlocks: TArray<TPemBlock>;
-  LI: Integer;
-  LHashedName: string;
-  LHasCertificate: Boolean;
-begin
-  Result := 0;
-  try
-    LBlocks := TPem.ReadBlocks(AContent);
-  except
-    on EArgumentTlsLibException do
-      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-        @SFclNetTrustedCertsDirFileNotPem, [APath]);
-  end;
-  LHasCertificate := False;
-  for LI := 0 to System.High(LBlocks) do
-  begin
-    if LBlocks[LI].PemType <> 'CERTIFICATE' then
-      Continue;
-    LHasCertificate := True;
-    LHashedName := TOpenSslNameHash.OfCertificate(ACrypto, LBlocks[LI].Content);
-    if LHashedName = '' then
-      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-        @SFclNetTrustedCertsDirFileUnnamed, [APath]);
-    if LHashedName <> APrefix then
-      Continue;
-    SetLength(AAnchors, System.Length(AAnchors) + 1);
-    AAnchors[System.High(AAnchors)] := TTlsBlobSource.FromFileContent(APath, LBlocks[LI].Content);
-    Inc(Result);
-  end;
-  if not LHasCertificate then
-    raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-      @SFclNetTrustedCertsDirFileNotPem, [APath]);
-end;
-
-class function THashedCertsDirectory.ProbeHashedFile(const APath: string;
-  AEntry: TListedEntry): Boolean;
-var
-  LFind: TSearchRec;
-begin
-  if (AEntry.Attr and faSymLink) <> 0 then
-  begin
-    // the listing saw the link itself; what it points at is one more stat
-    if FindFirst(APath, faAnyFile, LFind) <> 0 then
-      Exit(False);
-    AEntry.Attr := LFind.Attr;
-    FindClose(LFind);
-  end;
-  Result := (AEntry.Attr and (faDirectory or faSysFile)) = 0;
-end;
-
-class procedure THashedCertsDirectory.AppendAnchors(const ACrypto: ICryptoProvider;
-  const ADirs: string; var AAnchors: TArray<TTlsBlobSource>);
-var
-  LSegments: TArray<string>;
-  LSeen, LPrefixes, LEntries: TStringList;
-  LEntry: TListedEntry;
-  LDir, LName, LPath: string;
-  LI, LP, LNumber, LIndex, LFound, LNamed: Integer;
-  LExists: Boolean;
-begin
-  LSegments := ADirs.Split([PathSep]);
-  LSeen := TStringList.Create;
-  LPrefixes := TStringList.Create;
-  LEntries := TStringList.Create;
-  try
-    LSeen.CaseSensitive := True;
-    LPrefixes.Sorted := True;
-    LPrefixes.Duplicates := dupIgnore;
-    LNamed := 0;
-    for LI := 0 to System.High(LSegments) do
-    begin
-      if LSegments[LI] = '' then
-        Continue;
-      Inc(LNamed);
-      LDir := IncludeTrailingPathDelimiter(LSegments[LI]);
-      if LSeen.IndexOf(LDir) >= 0 then
-        Continue;
-      LSeen.Add(LDir);
-      if not DirectoryExists(LDir) then
-        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-          @SFclNetTrustedCertsDirMissing, [LSegments[LI]]);
-      LEntries.Clear;
-      LEntries.Sorted := False;
-      if not ListDirectory(LDir, LEntries) then
-        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-          @SFclNetTrustedCertsDirUnreadable, [LSegments[LI]]);
-      LPrefixes.Clear;
-      ListHashedPrefixes(LEntries, LPrefixes);
-      LFound := 0;
-      for LP := 0 to LPrefixes.Count - 1 do
-      begin
-        LNumber := 0;
-        repeat
-          LName := LPrefixes[LP] + '.' + IntToStr(LNumber);
-          LIndex := LEntries.IndexOf(LName);
-          LExists := LIndex >= 0;
-          if LExists then
-          begin
-            LEntry := TListedEntry(LEntries.Objects[LIndex]);
-            LExists := ConfirmListedName(LDir, LName, LEntries[LIndex], LEntry);
-          end;
-          if LExists then
-          begin
-            LPath := LDir + LName;
-            if ProbeHashedFile(LPath, LEntry) then
-            begin
-              Inc(LFound, AppendCertificates(ACrypto, LPath, LPrefixes[LP],
-                ReadHashedFile(LPath), AAnchors));
-            end;
-            Inc(LNumber);
-          end;
-        until not LExists;
-      end;
-      if LFound = 0 then
-        raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-          @SFclNetTrustedCertsDirEmpty, [LSegments[LI]]);
-    end;
-    if LNamed = 0 then
-      raise ETlsStreamError.CreateResFmt(TTlsAlertDescription.InternalError,
-        @SFclNetTrustedCertsDirNone, [ADirs]);
-  finally
-    LEntries.Free;
-    LPrefixes.Free;
-    LSeen.Free;
-  end;
-end;
-
 { TTlsLibSocketHandler }
 
 procedure TTlsLibSocketHandler.AddTrustedCertsDir(var AOptions: TTlsOptions;
   AConfigSupplied: Boolean);
 var
   LCertsDir: string;
+  LLookup: TOpenSslHashedDirLookup;
+  LIssuers: IIssuerLookup;
 begin
   LCertsDir := CertificateDataText('TrustedCertsDir');
   if LCertsDir = '' then
     Exit;
-  if AConfigSupplied then
-    TArrayUtilities.Append<TTlsBlobSource>(AOptions.TrustAnchors,
-      TTlsBlobSource.FromFile(LCertsDir))
-  else
-    THashedCertsDirectory.AppendAnchors(TTlsConfigComposer.EffectiveCrypto(AOptions), LCertsDir,
-      AOptions.TrustAnchors);
+  LLookup := TOpenSslHashedDirLookup.Create(TTlsConfigComposer.EffectiveCrypto(AOptions),
+    LCertsDir);
+  LIssuers := LLookup;
+  if not AConfigSupplied then
+    LLookup.CheckConfigured;
+  AOptions.IssuerLookup := LIssuers;
 end;
 
 function TTlsLibSocketHandler.Snapshot: TTlsOptions;
@@ -1316,6 +1254,7 @@ begin
     LAnchors[System.High(LAnchors)] := SslDataBlob(CertificateData.TrustedCertificate);
   end;
   Result.TrustAnchors := LAnchors;
+  Result.BundleAnchors := FBundleAnchors;
   // UseSystemTrust opts into the OS store through the host-neutral installer seam, so the core
   // never depends on the system-trust package
   if FUseSystemTrust then
@@ -1457,6 +1396,9 @@ begin
       if AIsClient and VerifyPeerCert and (not BaseVerifyPeerCert) and
         (FClientConfig = nil) then
         FLastErrorDesc := FLastErrorDesc + ' ' + SFclNetBaseVerifyIgnored;
+      if (FLastSslCode = TTlsAlertDescription.UnknownCa.ToByte) and
+        (CertificateDataText('TrustedCertsDir') <> '') then
+        FLastErrorDesc := FLastErrorDesc + ' ' + SFclNetTrustedCertsDirHint;
     end;
   end;
 end;

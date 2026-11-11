@@ -69,6 +69,20 @@ type
       AVerified: TVerifiedChain);
   end;
 
+  /// <summary>What an issuer lookup holds for one subject name: the certificates it offers as trust
+  /// anchors, and the ones it offers as chain material only. Each entry is a PEM, DER or PKCS#7
+  /// blob; a certificate the lookup cannot read is left out.</summary>
+  TLookedUpIssuers = record
+    Anchors: TArray<TBytes>;
+    Intermediates: TArray<TBytes>;
+  end;
+
+  /// <summary>Which certificates of a bundle or of an issuer lookup's anchor answer become trust
+  /// anchors. SelfSignedOnly: only a self-signed one; any other is chain material that completes
+  /// a peer's chain and is never trusted by itself. AnyCertificate: every one, so a bundle may
+  /// anchor at an intermediate.</summary>
+  TBundleAnchorRule = (SelfSignedOnly, AnyCertificate);
+
 implementation
 
 function TVerifiedChain.ValidatedPath: TArray<TBytes>;

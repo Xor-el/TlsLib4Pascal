@@ -33,8 +33,12 @@ type
   /// shared across threads.
   /// </summary>
   IInspectedCertificate = interface(IInterface)
-    ['{C2DDBEB1-7FEA-4F46-A944-C27F3FD4E389}']
+    ['{DD311C63-58A2-466C-ABB1-14739B75C305}']
     function PublicKeyInfo: TBytes;
+    /// <summary>The DER Name of the certificate's issuer.</summary>
+    function IssuerName: TBytes;
+    /// <summary>The DER Name of the certificate's subject.</summary>
+    function SubjectName: TBytes;
     function DnsNames: TArray<string>;
     function IpAddresses: TArray<TBytes>;
     /// <summary>
@@ -62,6 +66,12 @@ type
     /// cannot verify; Undetermined when the names cannot be read.
     /// </summary>
     function IsSelfSigned: TCertAnswer;
+    /// <summary>
+    /// Whether AValidationTimeUtc lies within the certificate's validity window (RFC 5280 4.1.2.5,
+    /// notBefore and notAfter inclusive): Yes inside it, No before notBefore or after notAfter,
+    /// Undetermined when the dates cannot be read.
+    /// </summary>
+    function IsValidAt(const AValidationTimeUtc: TDateTime): TCertAnswer;
     function KeyKind(out AKind: TSignatureKeyKind; out AEcNamedGroup: UInt16): Boolean;
     /// <summary>
     /// The subject public key's strength facts (family, size, curve). Returns False (facts
@@ -90,7 +100,7 @@ type
   /// extractor methods (PublicKeyInfo, DnsNames, IpAddresses) raise on malformed input.
   /// </summary>
   ICertificateInspector = interface(IInterface)
-    ['{2ED46833-4DDD-484C-B6A7-6785C0C2FC44}']
+    ['{58245924-EE0B-4FDF-9967-E65FCE0CA4FD}']
     /// <summary>
     /// Decodes ADer once into a handle that answers the per-certificate queries from
     /// that single decode. Raises when ADer does not decode to a certificate (empty or
@@ -175,6 +185,13 @@ type
     /// families), Undetermined when either input cannot be parsed as a public key.
     /// </summary>
     function SamePublicKey(const ASpkiA, ASpkiB: TBytes): TCertAnswer;
+    /// <summary>
+    /// Whether two DER Names denote the same distinguished name by the rule path building chains
+    /// on (RFC 5280 7.1): attributes in order, values case-insensitively with whitespace
+    /// normalised. Yes when equal, No when they differ, Undetermined when either does not decode as
+    /// a Name.
+    /// </summary>
+    function SameName(const AName1, AName2: TBytes): TCertAnswer;
   end;
 
   /// <summary>
@@ -199,6 +216,8 @@ type
     /// They never anchor a path and never bypass validation. The presented certificates and the
     /// intermediates form one pool from which a path is built from the leaf up to an anchor, so
     /// extraneous, misordered or expired-but-unused certificates are left out (RFC 9846 4.5.1).
+    /// An anchor that is not self-signed is held to its own validity window: a copy outside it is
+    /// passed over for a valid one, and is certificate_expired when no other path builds.
     /// AEffectiveChain returns the validated path in issuer order (leaf at [0], its issuer at [1],
     /// ...), ending at the configured trust anchor exactly once - never the peer's presented order -
     /// so the caller's staple and pin checks key off the real issuer. It is a var parameter so a
