@@ -27,7 +27,7 @@
     </CompilerOptions>
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
-    <Version Major="1" Minor="1"/>
+    <Version Major="1" Minor="2"/>
     <Files Count="167">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>

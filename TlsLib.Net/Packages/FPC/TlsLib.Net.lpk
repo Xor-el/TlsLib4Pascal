@@ -20,7 +20,7 @@
     </CompilerOptions>
     <Description Value="Optional TCP sockets, HTTP fetcher and SVCB ECH lookup for TlsLib4Pascal"/>
     <License Value="MIT License"/>
-    <Version Major="1" Minor="1"/>
+    <Version Major="1" Minor="2"/>
     <Files Count="7">
       <Item1>
         <Filename Value="..\..\src\TlpNetExceptions.pas"/>
