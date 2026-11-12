@@ -3056,7 +3056,7 @@ begin
   finally
     FCallbackRelease.SetEvent;
     // the handshake thread is joined before the stream it uses is freed
-    if LStarted then
+    if LStarted and not LHandshaker.Finished then
       LHandshaker.WaitFor;
     LServer.Free;
   end;
