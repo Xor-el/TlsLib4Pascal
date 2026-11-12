@@ -1,0 +1,27 @@
+TlsLib.Tests/src/DuplexStressTests.pas
+  s_f2c9bd75607afc::t_fdaf1312c1141f 938-939
+  s_f2c9bd75607afc::t_43d1686ae0c066 1200-1202
+  s_f2c9bd75607afc::t_7402da0cdd65ae 811-813
+  s_f2c9bd75607afc::t_15f6f47359a07f 933-934
+  s_f2c9bd75607afc::t_9d45a4cf8ebadd 944
+  s_f2c9bd75607afc::t_f441037a747d3c 606
+  s_f2c9bd75607afc::t_14250c97c82e99 31
+  s_f2c9bd75607afc::t_8c15865fb756b7 599
+  s_f2c9bd75607afc::t_a0521d2921f811 611
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "324108725111c081893ede544395156c9258214a",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
