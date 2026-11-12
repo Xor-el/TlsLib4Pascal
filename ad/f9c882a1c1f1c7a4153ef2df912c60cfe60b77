@@ -1,0 +1,96 @@
+TlsLib.Tests/src/DuplexStressTests.pas
+  s_f2c9bd75607afc::t_5a5fb17696acc1 1213-1214,1216
+  s_f2c9bd75607afc::t_ad871732455be8 1239-1256
+  s_f2c9bd75607afc::t_ab86f9c75bc2e5 1136-1140
+  s_f2c9bd75607afc::t_33789d1dc56bb0 177-178
+  s_f2c9bd75607afc::t_53d45341e573f8 1354-1356,1360
+  s_f2c9bd75607afc::t_1cc226b49af10a 99,101-102
+  s_f2c9bd75607afc::t_7616065bbe9b7e 1075
+  s_f2c9bd75607afc::t_4bba0bd82080ca 476-483
+  s_f2c9bd75607afc::t_c32ef82bf90e32 1315
+  s_f2c9bd75607afc::t_cf290746b65d52 1208-1209,1215
+  s_f2c9bd75607afc::t_bdffc655808da2 376-377
+  s_f2c9bd75607afc::t_5c72ec803e6b34 1392
+  s_f2c9bd75607afc::t_3f0dba75a95e4e 1029-1030,1037
+  s_f2c9bd75607afc::t_205ec796759461 715-717
+  s_f2c9bd75607afc::t_78278e521b68b8 972-974
+  s_f2c9bd75607afc::t_76791ceae86702 1091-1092,1108-1112,1115-1120
+  s_f2c9bd75607afc::t_ee36b47d1d700c 1397
+  s_f2c9bd75607afc::t_bdb8700629ed0c 1715-1717,1721-1723
+  s_f2c9bd75607afc::t_a1e41fa79a11ff 127-128
+  s_f2c9bd75607afc::t_fc117b4d805575 410-412
+  s_f2c9bd75607afc::t_21849d9f7817d4 1348,1350
+  s_f2c9bd75607afc::t_9d2c87ce6ab6bf 24,31-32
+  s_f2c9bd75607afc::t_766f35a3aa8203 616-620
+  s_f2c9bd75607afc::t_41904ba5c728ed 1184
+  s_f2c9bd75607afc::t_41a1864650568a 281,286-287
+  s_f2c9bd75607afc::t_d73f4e01fa5c07 300,306
+  s_f2c9bd75607afc::t_4b9515e76bfca0 1196-1200
+  s_f2c9bd75607afc::t_cd225916749151 83,85-88,1121-1122,1448,1452,1456,1460,1463,1472,1532,1662,1686,1718,1724,1733,1745,1762-1763,1780,1787,1803
+  s_f2c9bd75607afc::t_a0a9b797aba8e1 1451,1455,1462,1467-1471
+  s_f2c9bd75607afc::t_63e622c8d7c739 1661
+  s_f2c9bd75607afc::t_4919d6a6966772 1752
+  s_f2c9bd75607afc::t_08e8c7038ba9ad 982-983,988
+  s_f2c9bd75607afc::t_7bdd164939cd70 310,314,324,326
+  s_f2c9bd75607afc::t_3aa77997e0d9c3 1023
+  s_f2c9bd75607afc::t_cdbf3bafc548a3 274-275
+  s_f2c9bd75607afc::t_16e83af08630cb 1163
+  s_f2c9bd75607afc::t_f85f675fe7e721 1044,1047,1050-1051,1053
+  s_f2c9bd75607afc::t_b00c0f72e03cf8 1743-1744,1749-1751,1753-1761,1764-1775,1786,1791-1802
+  s_f2c9bd75607afc::t_6ecae154c61b04 1446-1447
+  s_f2c9bd75607afc::t_8cdad13950c361 337,352-353,365-366
+  s_f2c9bd75607afc::t_a6647d7afa4a1a 878-880
+  s_f2c9bd75607afc::t_cce53502e313ba 421-425
+  s_f2c9bd75607afc::t_32abe45e877d2c 1113-1114
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_f2c9bd75607afc::t_78c27dd6c08ff7 3601
+  s_f2c9bd75607afc::t_4e09bc809df534 3749
+  s_f2c9bd75607afc::t_6226e4532f9164 384-399
+  s_f2c9bd75607afc::t_cb32c722800bd4 3900
+  s_f2c9bd75607afc::t_7110e1c80adcf5 69
+  s_f2c9bd75607afc::t_da845e98ded029 176-183
+  s_f2c9bd75607afc::t_80e5b678b9d102 3715-3729,3733-3748,3750-3899,3901-3926
+  s_f2c9bd75607afc::t_cdfa7a861ca477 301,3714
+  s_f2c9bd75607afc::t_e08074eff03843 707-732
+  s_f2c9bd75607afc::t_b6eb5beb213c4c 3730-3732
+  s_f2c9bd75607afc::t_13a7668a88f912 302-304
+  s_f2c9bd75607afc::t_3bc7633b04c2be 33-41
+  s_f2c9bd75607afc::t_3add2106e9158d 3682
+.github/workflows/make.yml
+  s_f2c9bd75607afc::t_e8e13455639df0 99
+TlsLib.Tests/src/MockTransport.pas
+  s_f2c9bd75607afc::t_49118b8ccbaf2c 537-541
+  s_f2c9bd75607afc::t_d60233de254efc 339-389
+  s_f2c9bd75607afc::t_a1d8be7cb32ee7 42-43,50,56,58,61,71,81,86-87,460-464,543-544
+  s_f2c9bd75607afc::t_b4a1f4bd4dd9c1 600
+  s_f2c9bd75607afc::t_147dd1e7efece0 80
+  s_f2c9bd75607afc::t_cbd29e03c7e441 227-228
+  s_f2c9bd75607afc::t_db77fa3ad674e6 69-70
+  s_f2c9bd75607afc::t_612dc2a84fb08c 486-519,522,527,533-536,542
+  s_f2c9bd75607afc::t_461d2e1bf1094d 429,438,455-459
+  s_f2c9bd75607afc::t_0d56006d70d122 26-29,31-32
+  s_f2c9bd75607afc::t_cf714aa5fbd11e 700-704
+  s_f2c9bd75607afc::t_60cb446e209a13 904
+  s_f2c9bd75607afc::t_30acdd10b4e305 428
+  s_f2c9bd75607afc::t_56c9ed1fbe73f9 626-630
+  s_f2c9bd75607afc::t_d9d04cba7592a4 122-123
+  s_f2c9bd75607afc::t_ec064f8bd7e2a4 1112-1458
+  s_f2c9bd75607afc::t_4ef72767ccddf6 598
+  s_f2c9bd75607afc::t_c96dc782dcb38d 901-903
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "adf9c882a1c1f1c7a4153ef2df912c60cfe60b77",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
