@@ -1,0 +1,36 @@
+docs/README.md
+  s_f2c9bd75607afc::t_62a2ec92cd04b9 101
+docs/getting-started.md
+  s_f2c9bd75607afc::t_3aafb16f010e7a 163-175
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_9c4803de1eefae 160-161
+README.md
+  s_f2c9bd75607afc::t_ded8774f612dbb 127
+docs/security-model.md
+  s_f2c9bd75607afc::t_8a6dc807cbe714 53
+  s_f2c9bd75607afc::t_fa4264e6d4db85 56
+docs/cookbook.md
+  s_f2c9bd75607afc::t_e146751728c2e9 441-442
+  s_f2c9bd75607afc::t_0d09dcfa949e07 533-534
+  s_f2c9bd75607afc::t_3e68f7c0d17eb7 464
+  s_f2c9bd75607afc::t_ce39c217b0d361 429-440,443-444
+  s_f2c9bd75607afc::t_40f735b33d4bbe 503-506
+TlsLib.Adapters/Indy/README.md
+  s_f2c9bd75607afc::t_920b4b661acbab 117-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2e62fdd2f76b394b92c2186e50d689edee10152b",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
