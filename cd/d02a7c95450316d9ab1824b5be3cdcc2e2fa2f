@@ -1,0 +1,37 @@
+TlsLib.Tests/src/MockSessionStores.pas
+  s_f2c9bd75607afc::t_9a2fa9b053a534 155-188,191-272
+  s_f2c9bd75607afc::t_42c8b0e9f21e1e 22
+TlsLib.Tests/src/MockSink.pas
+  s_f2c9bd75607afc::t_81562ecf6da46b 24-28
+  s_f2c9bd75607afc::t_9fbce818d2d4da 58-84
+  s_f2c9bd75607afc::t_9526f73270414c 116-201
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_f2c9bd75607afc::t_a84d2c8d716956 63
+TlsLib.Tests/src/MockRecordInstaller.pas
+  s_f2c9bd75607afc::t_e783de8039269b 123-148
+  s_f2c9bd75607afc::t_cb0bc4356113a6 52-67
+  s_f2c9bd75607afc::t_e9d3fec2efa14b 21-27,29
+TlsLib.Tests/src/Tls12LoopbackTests.pas
+  s_f2c9bd75607afc::t_c58de6cd03a14f 62
+TlsLib.Tests/src/MockTransport.pas
+  s_f2c9bd75607afc::t_6ffcc9765beddf 414-492
+  s_f2c9bd75607afc::t_4b974304ad2075 1620-1837
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_f2c9bd75607afc::t_4b263d90f90aaa 71-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cdd02a7c95450316d9ab1824b5be3cdcc2e2fa2f",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
