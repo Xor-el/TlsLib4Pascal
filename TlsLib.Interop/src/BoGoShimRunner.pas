@@ -1702,7 +1702,7 @@ begin
       '-no-tls1', '-no-tls11', '-no-legacy-server-connect',
       '-use-old-client-cert-callback', '-use-early-callback', '-no-op-extra-handshake',
       '-allow-hint-mismatch', '-on-resume-allow-hint-mismatch', '-install-ddos-callback',
-      // never renegotiates: a client ignores a HelloRequest, a server refuses a ClientHello
+      // never renegotiates (ignores a HelloRequest, refuses a ClientHello); see the disable ledger
       '-renegotiate-ignore', '-forbid-renegotiation-after-handshake']) then
     begin
       // accepted no-op

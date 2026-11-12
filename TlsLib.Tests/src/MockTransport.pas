@@ -22,6 +22,7 @@ uses
   Classes,
   SyncObjs,
   TlpIClock,
+  TlpClock,
   TlpTlsLibExceptions,
   TlpTlsAlert,
   TlpTlsError,
@@ -87,9 +88,13 @@ type
     property Stalls: Int64 read GetStalls;
   end;
 
+  /// <summary>A count that grows whenever the exchange under watch does real work.</summary>
+  TWedgeProgress = function: Int64 of object;
+
   /// <summary>Force-closes both loopback pipes when a pump wedges, so it fails as a surfaced EOF
   /// rather than hanging the run: a blocked read returns, a blocked write raises. It fires when no
-  /// byte has been written to either pipe for the idle time, or at the backstop however much
+  /// byte has been written to either pipe for the idle time, when the progress count has not grown
+  /// for the stall time (bytes that only keep a livelock busy), or at the backstop however much
   /// moved. Disarmed once the exchange completes.</summary>
   TWedgeWatchdog = class(TThread)
   strict private
@@ -99,6 +104,9 @@ type
     FPipeA, FPipeB: TMemoryPipe;
     FIdleMs: UInt32;
     FBackstopMs: UInt32;
+    FStallMs: UInt32;
+    FProgress: TWedgeProgress;
+    FClock: ITlsMonotonicClock;
     FDone: TEvent;
     FFired: Boolean;
   protected
@@ -108,6 +116,9 @@ type
     constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32); overload;
     /// <summary>Fires after AIdleMs with no byte written, or ABackstopMs after the start.</summary>
     constructor Create(const APipeA, APipeB: TMemoryPipe; AIdleMs, ABackstopMs: UInt32); overload;
+    /// <summary>As above, and after AStallMs in which AProgress did not grow.</summary>
+    constructor Create(const APipeA, APipeB: TMemoryPipe; AIdleMs, ABackstopMs, AStallMs: UInt32;
+      const AProgress: TWedgeProgress); overload;
     destructor Destroy; override;
     procedure Disarm; // the exchange finished in time; stop before the deadline
     property Fired: Boolean read FFired;
@@ -302,14 +313,14 @@ type
   end;
 
   /// <summary>A timed transport that logs the read caps armed ('a' or 'h' and the ms) and cleared
-  /// ('c') on its inner one. The first clear waits for a second arm, so a clear outside the read
-  /// side shows as a reordered log.</summary>
+  /// ('c') on its inner one. The first clear waits for a second arm or for EndHold, within the
+  /// hold bound, so a clear outside the read side shows as a reordered log.</summary>
   TCapLogTransport = class sealed(TInterfacedObject, ITlsTransport, ITlsTimedTransport)
   strict private
   const
-    // the longest the first clear waits for another arm
-    HoldBoundMs = 400;
+    DefaultHoldBoundMs = Int32(400);
   var
+    FHoldBoundMs: Int32;
     FInner: ITlsTimedTransport;
     FLock: TCriticalSection;
     FSecondArm: TEvent;
@@ -318,7 +329,11 @@ type
     FHeld: Boolean;
     procedure Append(const AEntry: string; AArm: Boolean);
   public
-    constructor Create(const AInner: ITlsTimedTransport);
+    /// <summary>The first clear waits at most 400 ms.</summary>
+    constructor Create(const AInner: ITlsTimedTransport); overload;
+    /// <summary>The first clear waits at most AHoldBoundMs, so a failing test cannot hang the
+    /// run.</summary>
+    constructor Create(const AInner: ITlsTimedTransport; AHoldBoundMs: Int32); overload;
     destructor Destroy; override;
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
@@ -326,6 +341,8 @@ type
     procedure SetReadTimeout(AMs: Int32);
     procedure SetApplicationReadTimeout(AMs: Int32);
     procedure SetWriteTimeout(AMs: Int32);
+    /// <summary>Lets the held first clear go ahead.</summary>
+    procedure EndHold;
     /// <summary>The caps armed and cleared so far, in order.</summary>
     function Log: string;
   end;
@@ -646,11 +663,20 @@ end;
 constructor TWedgeWatchdog.Create(const APipeA, APipeB: TMemoryPipe;
   AIdleMs, ABackstopMs: UInt32);
 begin
+  Create(APipeA, APipeB, AIdleMs, ABackstopMs, ABackstopMs, nil);
+end;
+
+constructor TWedgeWatchdog.Create(const APipeA, APipeB: TMemoryPipe;
+  AIdleMs, ABackstopMs, AStallMs: UInt32; const AProgress: TWedgeProgress);
+begin
   inherited Create(True);
   FPipeA := APipeA;
   FPipeB := APipeB;
   FIdleMs := AIdleMs;
   FBackstopMs := ABackstopMs;
+  FStallMs := AStallMs;
+  FProgress := AProgress;
+  FClock := TSystemMonotonicClock.Create;
   FDone := TEvent.Create(nil, True, False, '');
   FFired := False;
   FreeOnTerminate := False;
@@ -664,26 +690,38 @@ end;
 
 procedure TWedgeWatchdog.Execute;
 var
-  LMoved, LLastMoved: Int64;
-  LIdleMs, LElapsedMs: UInt32;
+  LMoved, LLastMoved, LDone, LLastDone, LStart, LNow, LMovedAt, LDoneAt: Int64;
 begin
-  // wait for the exchange to disarm us; if it goes quiet or runs out the backstop the pump has
-  // wedged, so close both pipes to unblock its reads and let the test surface the failure
+  // wait for the exchange to disarm us; if it goes quiet, stops making progress or runs out the
+  // backstop the pump has wedged, so close both pipes to unblock its reads and let the test
+  // surface the failure
   LLastMoved := FPipeA.Written + FPipeB.Written;
-  LIdleMs := 0;
-  LElapsedMs := 0;
+  LLastDone := 0;
+  if Assigned(FProgress) then
+    LLastDone := FProgress();
+  LStart := FClock.NowMonotonicMillis;
+  LMovedAt := LStart;
+  LDoneAt := LStart;
   while FDone.WaitFor(SliceMs) = wrTimeout do
   begin
-    System.Inc(LElapsedMs, SliceMs);
+    LNow := FClock.NowMonotonicMillis;
     LMoved := FPipeA.Written + FPipeB.Written;
     if LMoved <> LLastMoved then
     begin
       LLastMoved := LMoved;
-      LIdleMs := 0;
-    end
-    else
-      System.Inc(LIdleMs, SliceMs);
-    if (LIdleMs >= FIdleMs) or (LElapsedMs >= FBackstopMs) then
+      LMovedAt := LNow;
+    end;
+    if Assigned(FProgress) then
+    begin
+      LDone := FProgress();
+      if LDone <> LLastDone then
+      begin
+        LLastDone := LDone;
+        LDoneAt := LNow;
+      end;
+    end;
+    if (LNow - LMovedAt >= FIdleMs) or (LNow - LStart >= FBackstopMs) or
+      (Assigned(FProgress) and (LNow - LDoneAt >= FStallMs)) then
     begin
       FFired := True;
       FPipeA.Close;
@@ -1038,7 +1076,13 @@ end;
 
 constructor TCapLogTransport.Create(const AInner: ITlsTimedTransport);
 begin
+  Create(AInner, DefaultHoldBoundMs);
+end;
+
+constructor TCapLogTransport.Create(const AInner: ITlsTimedTransport; AHoldBoundMs: Int32);
+begin
   inherited Create;
+  FHoldBoundMs := AHoldBoundMs;
   FInner := AInner;
   FLock := TCriticalSection.Create;
   FSecondArm := TEvent.Create(nil, True, False, '');
@@ -1098,7 +1142,7 @@ begin
       FLock.Release;
     end;
     if LHold then
-      FSecondArm.WaitFor(HoldBoundMs);
+      FSecondArm.WaitFor(Cardinal(FHoldBoundMs));
     Append('c;', False);
   end;
   FInner.SetReadTimeout(AMs);
@@ -1113,6 +1157,11 @@ end;
 procedure TCapLogTransport.SetWriteTimeout(AMs: Int32);
 begin
   FInner.SetWriteTimeout(AMs);
+end;
+
+procedure TCapLogTransport.EndHold;
+begin
+  FSecondArm.SetEvent;
 end;
 
 function TCapLogTransport.Log: string;

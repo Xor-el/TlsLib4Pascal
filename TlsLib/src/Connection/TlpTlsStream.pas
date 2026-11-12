@@ -44,10 +44,14 @@ type
   /// in use. A blocked read ends only with bytes or when the host closes the transport. Free the
   /// stream only after every call has returned. Reads, writes and rekeys first wait for the
   /// handshake, under its own lock, which a blocked reader does not hold. A close, alert or
-  /// exporter call does not wait for the handshake but can wait for the engine call it is making,
-  /// which includes the built-in certificate check and any live revocation fetch. A callback the
-  /// handshake runs may call ConnectionInfo, PendingReadBytes, CloseNotify and SendAlert, but not
-  /// Read, Write, Handshake or RequestKeyUpdate.
+  /// exporter call does not wait for the handshake but can wait for the engine call the handshake
+  /// is making, which includes the built-in certificate check and any live revocation fetch.
+  /// Callbacks: one the handshake runs (verify, key log, session store, verdict resolver) may call
+  /// ConnectionInfo, PendingReadBytes, CloseNotify and SendAlert; Read, ReadTimed, ReadEarlyData,
+  /// Write, Handshake and RequestKeyUpdate raise EInvalidOperationTlsLibException there, and no
+  /// other call is supported. One run after the handshake (a client's session store receiving a
+  /// ticket) runs inside the Read that is holding the engine, so it may only query:
+  /// ConnectionInfo, PendingReadBytes and IsHandshakeComplete; no other call is supported there.
   /// </summary>
   TTlsStream = class(TStream)
   public
@@ -69,7 +73,7 @@ type
     FFailureMessage: string;
     FFailureHasAlert: Boolean;
     FFailureAlert: TTlsAlertDescription;
-    // set under FHandshakeLock once the handshake is complete and its read cap cleared
+    // set under FHandshakeLock and FReadLock once the handshake is complete and its cap cleared
     FHandshakeSettled: Boolean;
     // the read side's state: FReadLock guards every field from here to FReadChunk
     FReadClosed: Boolean;
@@ -82,8 +86,8 @@ type
     procedure RequireTimedForCap(AMs: Int32);
     procedure ArmReadCap(AMs: Int32; AApplication: Boolean);
     procedure ClearReadCap(AMs: Int32);
-    /// <summary>Waits for the handshake before a write, or refuses when the write side was
-    /// closed before it ran.</summary>
+    /// <summary>Drives or waits for the handshake before a write, or refuses when the write side
+    /// was closed before it ran.</summary>
     procedure HandshakeForWrite;
     /// <summary>One read cycle; the caller holds the read side.</summary>
     function ReadLocked(var ABuffer; ACount: Longint): Longint;
@@ -141,8 +145,7 @@ type
     procedure SendAlert(ADescription: TTlsAlertDescription);
     /// <summary>Asks for fresh traffic keys (TLS 1.3 KeyUpdate; a no-op under TLS 1.2). Drives or
     /// waits for the handshake and then for the send side like a write, and raises once the write
-    /// side is closed.
-    /// Use this, not the engine, while the stream is in use.</summary>
+    /// side is closed. Use this, not the engine, while the stream is in use.</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>The RFC 5705 / 9846 7.5 exporter keyed to this connection, or nil before the
     /// secret exists or after a failure. Use this, not the engine, while the stream is in
@@ -179,6 +182,8 @@ resourcestring
   SNotSeekable = 'a TLS stream is a sequential conduit and cannot be sought';
   SReadTruncated = 'the transport closed without close_notify (possible truncation)';
   SWriteAfterClose = 'the stream write side has been closed';
+  SHandshakeCallbackReentry = 'a handshake callback cannot read, write, rekey or handshake ' +
+    'the stream whose handshake is running it';
   SNilStreamArgument = 'a stream needs an engine and a transport (pass both, not nil)';
   SReadTimeoutNeedsTimedTransport = 'a read timeout needs a timed transport (an ' +
     'ITlsTimedTransport), and this stream was given a plain one';
@@ -312,7 +317,12 @@ begin
     Exit;
   FHandshakeLock.Enter;
   try
-    // another thread may have completed it while this one waited
+    // already settled: a reader may hold R by now, and publishing again would wait for it
+    if FHandshakeSettled then
+      Exit;
+    // under H, a running handshake can only be this thread's own: a callback it made
+    if FPump.IsHandshakeRunning then
+      raise EInvalidOperationTlsLibException.CreateRes(@SHandshakeCallbackReentry);
     if not FPump.ConfirmHandshakeComplete then
     begin
       ArmReadCap(AReadTimeoutMs, False);
@@ -322,7 +332,13 @@ begin
         ClearReadCap(AReadTimeoutMs);
       end;
     end;
-    FHandshakeSettled := True;
+    // published under R, which a reader that sees it takes before it reads the transport
+    FReadLock.Enter;
+    try
+      FHandshakeSettled := True;
+    finally
+      FReadLock.Leave;
+    end;
   finally
     FHandshakeLock.Leave;
   end;

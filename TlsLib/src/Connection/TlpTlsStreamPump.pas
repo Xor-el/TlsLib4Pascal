@@ -45,12 +45,12 @@ type
   /// E guards every engine call, and so every seal, and is never held across transport I/O; W is
   /// held by whoever sends, so wire order is seal order; the reader, Close and Abort only try W
   /// and never wait for it, and every release of W is followed by a recheck for bytes another
-  /// thread left owed. After the handshake the read path seals nothing itself: a fatal alert that
-  /// its input makes owed is sealed and sent by whoever next wins W, bounded by the close grace
-  /// on a timed transport. A fatal outcome
-  /// raises ETlsStreamError; a transport EOF mid-handshake raises ETlsTransportTruncated. ReadApp
-  /// and DriveHandshake must each be called by one thread at a time, and ReadApp only once the
-  /// handshake has completed; the other members may be called from any thread.
+  /// thread left owed. After the handshake the inbound calls never seal: a fatal alert that the
+  /// input makes owed is sealed and sent by whoever next wins W, bounded by the close grace on a
+  /// timed transport. A fatal outcome raises ETlsStreamError; a transport EOF mid-handshake raises
+  /// ETlsTransportTruncated. ReadApp and DriveHandshake must each be called by one thread at a
+  /// time, and ReadApp only once the handshake has completed; the other members may be called
+  /// from any thread.
   /// </summary>
   TTlsStreamPump = class sealed(TObject)
   public
@@ -213,6 +213,10 @@ type
     /// <summary>Whether the handshake has completed, read without a lock: a hint that never
     /// blocks, which may lag a completion in progress.</summary>
     function IsHandshakeComplete: Boolean;
+    /// <summary>Whether a handshake is running, read without a lock. Exact for a caller that holds
+    /// the stream's handshake side, since only the thread running the handshake can hold it and
+    /// see True.</summary>
+    function IsHandshakeRunning: Boolean;
     /// <summary>Whether the handshake has completed, confirmed under E when the lock-free read says
     /// no. A thread deciding whether it must wait for the handshake uses this one.</summary>
     function ConfirmHandshakeComplete: Boolean;
@@ -810,7 +814,7 @@ begin
     SendPendingQuietly;
     RaiseFailure;
   end;
-  // checked here so a closed write side reports a clear error and the bytes are never counted as sent
+  // checked here so a closed write side reports a clear error, never counting the bytes as sent
   if LClosed then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
 end;
@@ -929,6 +933,11 @@ end;
 function TTlsStreamPump.IsHandshakeComplete: Boolean;
 begin
   Result := FHandshakeState = THandshakeState.Complete;
+end;
+
+function TTlsStreamPump.IsHandshakeRunning: Boolean;
+begin
+  Result := FHandshakeState = THandshakeState.Running;
 end;
 
 function TTlsStreamPump.ConfirmHandshakeComplete: Boolean;

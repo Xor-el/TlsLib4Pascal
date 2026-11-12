@@ -109,6 +109,7 @@ type
   strict private
     function ClientConfig(AInsecureSkipVerify: Boolean;
       const AVerify: TTlsCertificateVerifyCallback): ITlsClientConfig;
+    function ServerBuilder: ITlsServerConfigBuilder;
     function ServerConfig: ITlsServerConfig;
     function NewClientStream(const ATransport: ITlsTransport;
       const AConfig: ITlsClientConfig): TTlsStream;
@@ -169,6 +170,26 @@ type
       const AHostName: string): Boolean;
     function BlockingVerify(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
+    function AlertingVerify(const APresented, AValidated: TArray<TBytes>;
+      const AHostName: string): Boolean;
+    function ReenteringVerify(const APresented, AValidated: TArray<TBytes>;
+      const AHostName: string): Boolean;
+    function ReenteringResolver(const ACtx: TCertificateVerdictContext;
+      out ARejectAlert: TTlsAlertDescription): Boolean;
+    procedure ReenteringKeyLog(const ALabel: string; const AClientRandom, ASecret: TBytes);
+    /// <summary>Calls each entry point of the stream that a handshake callback may not use and
+    /// records the class each raised. It acts once: a call it makes that reaches a callback again
+    /// does nothing there.</summary>
+    procedure ReenterTheStream(const AStream: TTlsStream);
+    /// <summary>What ReenterTheStream records when every call is refused.</summary>
+    function AllReentriesRefused: string;
+    /// <summary>Whether AThread has ended within AMs ms.</summary>
+    function ThreadEnds(const AThread: TThread; AMs: Int32): Boolean;
+    /// <summary>Handshakes the client through a verify callback that ends its own connection, with
+    /// every wait bounded, then ends and frees the echo server it ran against.</summary>
+    procedure HandshakeThroughACallbackThatEndsTheConnection(
+      const AVerify: TTlsCertificateVerifyCallback; out AReturned, AServerEnded: Boolean;
+      out AHandshakeError, AServerError: string);
     /// <summary>A client whose handshake parks in ParkedResolver, a server that echoes one message,
     /// and the events the handshake tests share; the client is FQueried.</summary>
     procedure StartParkedHandshake(out AServer: TServerRunner);
@@ -217,6 +238,7 @@ type
     FQueriedVersion: UInt16;
     FQueriedPending: Int32;
     FQueriedComplete: Boolean;
+    FReentryLog: string;
     FServing: TTlsStream;
     FServerConnection: TTlsConnection;
     FServerExported: TBytes;
@@ -300,6 +322,10 @@ type
     procedure TestReadCapsAreArmedAndClearedInsideTheReadSide;
     procedure TestPlainReadAfterTheHandshakeDoesNotInheritItsCap;
     procedure TestHandshakeCallbackMayQueryAndCloseItsOwnConnection;
+    procedure TestHandshakeCallbackMayQueryAndRefuseItsOwnConnection;
+    procedure TestHandshakeCallbackCannotReenterAClientHandshake;
+    procedure TestHandshakeCallbackCannotReenterAServerHandshake;
+    procedure TestVerdictResolverCannotReenterTheHandshake;
     procedure TestRequestKeyUpdateWaitsForTheWriteSide;
     procedure TestQueriesAndAWriteCompleteWhileAReadIsParked;
     procedure TestReadAndQueriesProceedWhileAWriterIsBlockedInASend;
@@ -756,13 +782,18 @@ begin
   Result := LClient.Build;
 end;
 
-function TTestTlsStreamLoopback.ServerConfig: ITlsServerConfig;
+function TTestTlsStreamLoopback.ServerBuilder: ITlsServerConfigBuilder;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithAlpnProtocols(TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11))
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
       TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')));
+end;
+
+function TTestTlsStreamLoopback.ServerConfig: ITlsServerConfig;
+begin
+  Result := ServerBuilder.Build;
 end;
 
 function TTestTlsStreamLoopback.NewClientStream(const ATransport: ITlsTransport;
@@ -2744,30 +2775,81 @@ begin
   Result := True;
 end;
 
-procedure TTestTlsStreamLoopback.TestHandshakeCallbackMayQueryAndCloseItsOwnConnection;
+function TTestTlsStreamLoopback.AlertingVerify(const APresented, AValidated: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  FQueriedVersion := FQueried.ConnectionInfo.NegotiatedVersion.WireValue;
+  FQueriedPending := FQueried.PendingReadBytes;
+  FQueried.SendAlert(TTlsAlertDescription.InternalError);
+  Result := True;
+end;
+
+function TTestTlsStreamLoopback.ThreadEnds(const AThread: TThread; AMs: Int32): Boolean;
+var
+  LWaited: Int32;
+begin
+  LWaited := 0;
+  while (not AThread.Finished) and (LWaited < AMs) do
+  begin
+    Sleep(10);
+    System.Inc(LWaited, 10);
+  end;
+  Result := AThread.Finished;
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeThroughACallbackThatEndsTheConnection(
+  const AVerify: TTlsCertificateVerifyCallback; out AReturned, AServerEnded: Boolean;
+  out AHandshakeError, AServerError: string);
 var
   LServer: TServerRunner;
   LTransport: TMemoryTransport;
   LHandshaker: TActionThread;
-  LReturned, LRaised: Boolean;
 begin
+  AReturned := False;
+  AServerEnded := False;
+  AHandshakeError := '';
   FQueryDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
-  FPingBytes := DecodeHex(PingHex);
-  RunLoopback(ClientConfig(False, ClosingVerify), TServerBehavior.EchoThenClose, FQueried,
-    LServer, LTransport);
+  RunLoopback(ClientConfig(False, AVerify), TServerBehavior.EchoThenClose, FQueried, LServer,
+    LTransport);
   Own<TTlsStream>(FQueried);
-  LHandshaker := Own<TActionThread>(TActionThread.Create(HandshakeThenSignal));
+  LHandshaker := TActionThread.Create(HandshakeThenSignal);
   try
     LHandshaker.Start;
-    LReturned := FQueryDone.WaitFor(20000) = wrSignaled;
-  finally
+    AReturned := FQueryDone.WaitFor(20000) = wrSignaled;
+    // a server whose peer closed or refused ends by itself; ending it first would read as a
+    // truncation
+    AServerEnded := AReturned and ThreadEnds(LServer, 20000);
     LServer.Finish;
+    // a handshake thread that never returned is left to the process rather than joined
+    if AReturned then
+    begin
+      LHandshaker.WaitFor;
+      AHandshakeError := LHandshaker.Error;
+    end
+    else
+      LHandshaker.FreeOnTerminate := True;
+    AServerError := LServer.Error;
+  finally
+    LServer.Free;
+    if AReturned then
+      LHandshaker.Free;
   end;
-  LHandshaker.WaitFor;
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeCallbackMayQueryAndCloseItsOwnConnection;
+var
+  LReturned, LServerEnded, LRaised: Boolean;
+  LHandshakeError, LServerError: string;
+begin
+  FPingBytes := DecodeHex(PingHex);
+  HandshakeThroughACallbackThatEndsTheConnection(ClosingVerify, LReturned, LServerEnded,
+    LHandshakeError, LServerError);
   CheckTrue(LReturned, 'the handshake returned although its callback called back');
-  CheckEquals('', LHandshaker.Error, 'and raised nothing');
+  CheckEquals('', LHandshakeError, 'and raised nothing');
   CheckEquals(0, Integer(FQueriedVersion), 'the callback saw the zero facts of a running handshake');
   CheckEquals(0, FQueriedPending, 'and no pending bytes');
+  CheckTrue(LServerEnded, 'the server read the close_notify the callback asked for and ended');
+  CheckEquals('', LServerError, 'as a clean end of stream, not a truncation');
   LRaised := False;
   try
     FQueried.Write(FPingBytes[0], System.Length(FPingBytes));
@@ -2775,8 +2857,199 @@ begin
     on EInvalidOperationTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'the close the callback asked for took effect: a write raises');
-  LServer.Free;
+  CheckTrue(LRaised, 'and a write on the closed connection raises');
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeCallbackMayQueryAndRefuseItsOwnConnection;
+var
+  LReturned, LServerEnded, LRaised: Boolean;
+  LHandshakeError, LServerError: string;
+begin
+  FPingBytes := DecodeHex(PingHex);
+  HandshakeThroughACallbackThatEndsTheConnection(AlertingVerify, LReturned, LServerEnded,
+    LHandshakeError, LServerError);
+  CheckTrue(LReturned, 'the handshake returned although its callback called back');
+  CheckEquals('', LHandshakeError, 'and raised nothing');
+  CheckEquals(0, Integer(FQueriedVersion), 'the callback saw the zero facts of a running handshake');
+  CheckEquals(0, FQueriedPending, 'and no pending bytes');
+  CheckTrue(LServerEnded, 'the server read the alert the callback asked for and ended');
+  CheckTrue(Pos('ETlsStreamError:', LServerError) = 1, 'with that fatal alert');
+  LRaised := False;
+  try
+    FQueried.Write(FPingBytes[0], System.Length(FPingBytes));
+  except
+    on E: ETlsStreamError do
+      LRaised := E.HasAlert and (E.Alert = TTlsAlertDescription.InternalError);
+  end;
+  CheckTrue(LRaised, 'and a write on the refused connection raises the alert');
+end;
+
+function TTestTlsStreamLoopback.AllReentriesRefused: string;
+var
+  LStep: Int32;
+begin
+  Result := '';
+  for LStep := 1 to 6 do
+    Result := Result + 'EInvalidOperationTlsLibException;';
+end;
+
+procedure TTestTlsStreamLoopback.ReenterTheStream(const AStream: TTlsStream);
+var
+  LByte: Byte;
+  LLog: string;
+  LStep: Int32;
+begin
+  if FReentryLog <> '' then
+    Exit;
+  FReentryLog := '-';
+  LByte := 0;
+  LLog := '';
+  for LStep := 0 to 5 do
+  begin
+    try
+      case LStep of
+        0: AStream.Read(LByte, 1);
+        1: AStream.ReadTimed(LByte, 1, 0);
+        2: AStream.ReadEarlyData(LByte, 1);
+        3: AStream.Write(LByte, 1);
+        4: AStream.Handshake;
+        5: AStream.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+      end;
+      LLog := LLog + 'none;';
+    except
+      on E: Exception do
+        LLog := LLog + E.ClassName + ';';
+    end;
+  end;
+  FReentryLog := LLog;
+end;
+
+function TTestTlsStreamLoopback.ReenteringVerify(const APresented, AValidated: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  ReenterTheStream(FQueried);
+  Result := True;
+end;
+
+function TTestTlsStreamLoopback.ReenteringResolver(const ACtx: TCertificateVerdictContext;
+  out ARejectAlert: TTlsAlertDescription): Boolean;
+begin
+  ReenterTheStream(FQueried);
+  ARejectAlert := TTlsAlertDescription.CertificateUnknown;
+  Result := True;
+end;
+
+procedure TTestTlsStreamLoopback.ReenteringKeyLog(const ALabel: string;
+  const AClientRandom, ASecret: TBytes);
+begin
+  ReenterTheStream(FServing);
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeCallbackCannotReenterAClientHandshake;
+var
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LPing, LEcho: TBytes;
+  LGot: Int32;
+begin
+  FReentryLog := '';
+  RunLoopback(ClientConfig(False, ReenteringVerify), TServerBehavior.EchoThenClose, FQueried,
+    LServer, LTransport);
+  Own<TTlsStream>(FQueried);
+  try
+    FQueried.Handshake;
+    CheckEquals(AllReentriesRefused, FReentryLog,
+      'every call the verify callback made into its own stream was refused');
+    // the stream is still sound: the handshake the callback tried to restart is the one that ran
+    LPing := DecodeHex(PingHex);
+    FQueried.Write(LPing[0], System.Length(LPing));
+    SetLength(LEcho, 4096);
+    LGot := FQueried.Read(LEcho[0], System.Length(LEcho));
+    CheckEqualBytes('the server echoed the client message', LPing, System.Copy(LEcho, 0, LGot));
+    FQueried.CloseNotify;
+    LServer.Finish;
+    CheckEquals('', LServer.Error, 'the server side ran without error');
+  finally
+    LServer.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeCallbackCannotReenterAServerHandshake;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientTransport, LServerTransport: TMemoryTransport;
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LWatch: TWedgeWatchdog;
+  LPing, LEcho: TBytes;
+  LGot: Int32;
+begin
+  FReentryLog := '';
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LClient := NewClientStream(LClientTransport as ITlsTransport, ClientConfig(False, nil));
+  // the server's key log runs inside the engine call that handles the ClientHello
+  FServing := TTlsStream.Create(LServerTransport as ITlsTransport,
+    TTlsEngineFactory.CreateServerEngine(
+    ServerBuilder.WithDangerousKeyLog(TCallbackKeyLog.Create(ReenteringKeyLog) as IKeyLog).Build),
+    False, '');
+  LServer := TServerRunner.Create(FServing, LServerTransport, LClientTransport,
+    TServerBehavior.EchoThenClose);
+  // a regression that re-enters the handshake parks the server in a read: the watchdog frees it
+  LWatch := TWedgeWatchdog.Create(LC2S, LS2C, 20000);
+  LWatch.Start;
+  LServer.Start;
+  try
+    LClient.Handshake;
+    LPing := DecodeHex(PingHex);
+    LClient.Write(LPing[0], System.Length(LPing));
+    SetLength(LEcho, 4096);
+    LGot := LClient.Read(LEcho[0], System.Length(LEcho));
+    CheckEqualBytes('the server echoed the client message', LPing, System.Copy(LEcho, 0, LGot));
+    LClient.CloseNotify;
+    LServer.Finish;
+    LWatch.Disarm;
+    CheckFalse(LWatch.Fired, 'the server was not left parked in a read');
+    CheckEquals('', LServer.Error, 'the server handshake ran to its end');
+    CheckEquals(AllReentriesRefused, FReentryLog,
+      'every call the key log made into its own stream was refused');
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    LWatch.Free;
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestVerdictResolverCannotReenterTheHandshake;
+var
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LPing, LEcho: TBytes;
+  LGot: Int32;
+begin
+  FReentryLog := '';
+  RunLoopback(AsyncClientConfig, TServerBehavior.EchoThenClose, FQueried, LServer, LTransport);
+  Own<TTlsStream>(FQueried);
+  try
+    FQueried.SetCertificateVerdictResolver(ReenteringResolver);
+    FQueried.Handshake;
+    CheckEquals(AllReentriesRefused, FReentryLog,
+      'every call the resolver made into its own stream was refused');
+    LPing := DecodeHex(PingHex);
+    FQueried.Write(LPing[0], System.Length(LPing));
+    SetLength(LEcho, 4096);
+    LGot := FQueried.Read(LEcho[0], System.Length(LEcho));
+    CheckEqualBytes('the server echoed the client message', LPing, System.Copy(LEcho, 0, LGot));
+    FQueried.CloseNotify;
+    LServer.Finish;
+    CheckEquals('', LServer.Error, 'the server side ran without error');
+  finally
+    LServer.Free;
+  end;
 end;
 
 procedure TTestTlsStreamLoopback.QueryQueried;
@@ -3620,7 +3893,8 @@ begin
   LInner := TPipeTimedTransport.Create(LS2C, LC2S);
   LInnerT := LInner;
   LInnerT.UseClock(LClockRef);
-  LLog := TCapLogTransport.Create(LInnerT);
+  // held until the test lets it go, within a bound that only a failing test reaches
+  LLog := TCapLogTransport.Create(LInnerT, 20000);
   LLogT := LLog;
   LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   LServerT := LServerTransport;
@@ -3650,9 +3924,12 @@ begin
       LReader.WaitFor;
       Fail('a plain read waits for data under no cap, but ended with ' + LReader.Error);
     end;
+    // the clear stayed held for the whole look, so a read that did not wait for it was caught
+    LLog.EndHold;
     FQueried.Write(FPingBytes[0], System.Length(FPingBytes));
     CheckTrue(FReaderDone.WaitFor(10000) = wrSignaled, 'the read got the echo');
   finally
+    LLog.EndHold;
     // ends a server still waiting for the message, and with it any read still blocked on it
     LInner.CloseWrite;
     LServerTransport.CloseWrite;

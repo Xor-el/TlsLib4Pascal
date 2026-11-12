@@ -112,6 +112,8 @@ type
     Wedge: Boolean;
     // the watchdog fires when no byte moves in either pipe for this long
     IdleMs: UInt32;
+    // or when no application byte is delivered for this long, whatever the wire carries
+    StallMs: UInt32;
     // and at this much total time, however much moved
     DeadlineMs: UInt32;
   end;
@@ -347,6 +349,9 @@ type
     function Spawn(const AWorker: TStressWorkerBase): TStressWorkerBase;
     function AwaitEnded(const AWorker: TStressWorkerBase): Boolean;
     function AwaitAll(const AWorkers: array of TStressWorkerBase): Boolean;
+    /// <summary>The application bytes sent and received so far, read from the watchdog's thread;
+    /// a worker not yet spawned counts for none.</summary>
+    function AppBytes: Int64;
     function Failures: string;
     function CheckTraffic: string;
     function CheckClose: string;
@@ -381,6 +386,13 @@ type
     procedure RunSpec(const ASpec: TStressSpec);
     procedure RunClose(AWire: UInt16; AKind: TCloseKind);
     procedure RunCorrupt(AWire: UInt16);
+    /// <summary>The count a stall test's watchdog reads.</summary>
+    function StallProgress: Int64;
+    /// <summary>Whether a watchdog with a 300 ms stall fires within ALookMs while bytes keep
+    /// moving, with the progress count growing or not.</summary>
+    function StallFires(AProgressGrows: Boolean; ALookMs: Int32): Boolean;
+  var
+    FStallCount: Int64;
   published
     procedure TestTls13TinyMessages;
     procedure TestTls13BoundaryMessages;
@@ -414,6 +426,8 @@ type
     procedure TestEngineCallsNeverOverlapWhenTheCloseArrives;
     procedure TestAnAbandonedRunUnblocksItsWorkersInsteadOfHanging;
     procedure TestAWedgeFailsWithADiagnosticInsteadOfHanging;
+    procedure TestAStallWhileBytesStillMoveFailsInsteadOfRunningToTheBackstop;
+    procedure TestSteadyProgressKeepsTheWatchdogQuiet;
   end;
 
 implementation
@@ -1085,7 +1099,8 @@ begin
   FServerTransport := TPipeTimedTransport.Create(FC2S, FS2C);
   FClient := NewIo(AClientConfig, nil, FClientTransport);
   FServer := NewIo(nil, AServerConfig, FServerTransport);
-  FWatch := TWedgeWatchdog.Create(FC2S, FS2C, ASpec.IdleMs, ASpec.DeadlineMs);
+  FWatch := TWedgeWatchdog.Create(FC2S, FS2C, ASpec.IdleMs, ASpec.DeadlineMs, ASpec.StallMs,
+    AppBytes);
   FWatch.Start;
 end;
 
@@ -1203,6 +1218,23 @@ begin
       'reply (%d); ', [LSent, LExpected]);
 end;
 
+function TStressRun.AppBytes: Int64;
+var
+  LWorkers: array[0..5] of TStressWorkerBase;
+  LIndex: Int32;
+begin
+  LWorkers[0] := FClientWriter;
+  LWorkers[1] := FClientWriter2;
+  LWorkers[2] := FClientReader;
+  LWorkers[3] := FServerWriter;
+  LWorkers[4] := FServerReader;
+  LWorkers[5] := FServerAlternator;
+  Result := 0;
+  for LIndex := 0 to High(LWorkers) do
+    if LWorkers[LIndex] <> nil then
+      System.Inc(Result, LWorkers[LIndex].Bytes);
+end;
+
 function TStressRun.Failures: string;
 var
   LWorker: TStressWorkerBase;
@@ -1214,7 +1246,8 @@ begin
   if FWatch.Fired then
   begin
     Result := Result + 'the watchdog fired (no byte moved for ' + IntToStr(FSpec.IdleMs) +
-      ' ms, or ' + IntToStr(FSpec.DeadlineMs) + ' ms passed), where the workers stood: ';
+      ' ms, no application byte for ' + IntToStr(FSpec.StallMs) + ' ms, or ' +
+      IntToStr(FSpec.DeadlineMs) + ' ms passed), where the workers stood: ';
     for LWorker in FWorkers do
       Result := Result + LWorker.Describe + '; ';
   end;
@@ -1454,6 +1487,7 @@ begin
   // the watchdog only turns a hang into a failure: it waits out a slow host while bytes move, and
   // its backstop grows with the soak size
   Result.IdleMs := 15000;
+  Result.StallMs := 120000;
   Result.DeadlineMs := 600000 * UInt32(Scale);
 end;
 
@@ -1807,6 +1841,55 @@ begin
   LOutcome := RunToEnd(LSpec, ClientConfig(LSpec.Wire), ServerConfig(LSpec.Wire));
   CheckTrue(Pos('the watchdog fired', LOutcome) > 0, 'the wedge is reported, not waited on');
   CheckTrue(Pos('client reader', LOutcome) > 0, 'with where the worker stood');
+end;
+
+function TTestDuplexStress.StallProgress: Int64;
+begin
+  Result := FStallCount;
+end;
+
+function TTestDuplexStress.StallFires(AProgressGrows: Boolean; ALookMs: Int32): Boolean;
+var
+  LPipeA, LPipeB: TMemoryPipe;
+  LWatch: TWedgeWatchdog;
+  LByte: TBytes;
+  LWaited: Int32;
+begin
+  LPipeA := TMemoryPipe.Create;
+  LPipeB := TMemoryPipe.Create;
+  FStallCount := 0;
+  SetLength(LByte, 1);
+  LWatch := TWedgeWatchdog.Create(LPipeA, LPipeB, 60000, 60000, 300, StallProgress);
+  try
+    LWatch.Start;
+    LWaited := 0;
+    // a byte every 20 ms is traffic, so only the stall can fire the watchdog
+    while (not LWatch.Fired) and (LWaited < ALookMs) do
+    begin
+      LPipeA.Write(LByte, 0, 1);
+      if AProgressGrows then
+        System.Inc(FStallCount);
+      Sleep(20);
+      System.Inc(LWaited, 20);
+    end;
+    Result := LWatch.Fired;
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    LWatch.Free;
+    LPipeA.Free;
+    LPipeB.Free;
+  end;
+end;
+
+procedure TTestDuplexStress.TestAStallWhileBytesStillMoveFailsInsteadOfRunningToTheBackstop;
+begin
+  CheckTrue(StallFires(False, 20000), 'a livelock that keeps bytes moving is caught by its stall');
+end;
+
+procedure TTestDuplexStress.TestSteadyProgressKeepsTheWatchdogQuiet;
+begin
+  CheckFalse(StallFires(True, 1500), 'a run that keeps delivering is left alone');
 end;
 
 initialization

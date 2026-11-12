@@ -437,8 +437,17 @@ while a stream wraps it, and free the stream only after every call has returned.
 `TTlsStream` built on an engine that does not also list `ITlsEngineInbound` and `ITlsEngineOutbound`
 raises `EArgumentTlsLibException`.
 
-While the handshake runs, `CloseNotify`, `SendAlert` and the exporter wait for the engine call it is
-making, which can be the whole built-in certificate check, live revocation fetch included.
+While the handshake runs, `CloseNotify`, `SendAlert` and the exporter can wait for the engine call
+the handshake is making, which can be the whole built-in certificate check, live revocation fetch
+included.
+
+**Callbacks.** A callback the handshake runs (verify, key log, session store, verdict resolver) may
+call `ConnectionInfo`, `PendingReadBytes`, `CloseNotify` and `SendAlert` on its own stream or
+connection; `Read`, `ReadTimed`, `ReadEarlyData`, `Write`, `Handshake` and `RequestKeyUpdate` raise
+`EInvalidOperationTlsLibException` there, and no other call is supported. A `CloseNotify` or
+`SendAlert` from it takes effect as the handshake completes. A callback run after the handshake, such
+as a client's session store receiving a ticket, runs inside the `Read` that holds the engine, so it
+may only query (`ConnectionInfo`, `PendingReadBytes`, `IsHandshakeComplete`).
 
 A closing send (close_notify or a fatal alert) is bounded on an `ITlsTimedTransport`, by the close
 grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`, which `TTlsConnection` uses; `TTlsStream.Create`
@@ -536,9 +545,9 @@ LEngine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
 It is a no-op before the handshake completes, on TLS 1.2, on a failed engine, after your own
 `close_notify` and once 2^48-1 KeyUpdates have been sent. On a stream or connection it drives or
 waits for the handshake, like a write, and after your own `close_notify` raises the write-after-close
-error instead. If an earlier `UpdateRequested` has not yet been answered by a KeyUpdate from the peer, a new one is sent as `UpdateNotRequested`; the write
-keys are still updated (RFC 9846 4.7.3). A peer's KeyUpdate is handled automatically and reported as a
-`KeyUpdateReceived` event.
+error instead. If an earlier `UpdateRequested` has not yet been answered by a KeyUpdate from the
+peer, a new one is sent as `UpdateNotRequested`; the write keys are still updated (RFC 9846 4.7.3).
+A peer's KeyUpdate is handled automatically and reported as a `KeyUpdateReceived` event.
 
 ## Mutual TLS (client certificates)
 
