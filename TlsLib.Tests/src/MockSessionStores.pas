@@ -167,25 +167,6 @@ type
     function Count: Int32;
   end;
 
-  /// <summary>A session cache that stores nothing and runs an action on each Store.</summary>
-  TCallbackSessionCache = class sealed(TInterfacedObject, ISessionCache)
-  strict private
-  var
-    FOnStore: TSessionCacheEvent;
-  public
-    constructor Create(const AOnStore: TSessionCacheEvent);
-    procedure Store(const AServerIdentity, AServerName: string;
-      const ASession: IResumableSession);
-    procedure Remove(const AServerIdentity, AServerName: string;
-      const ASession: IResumableSession);
-    function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
-      out ASession: IResumableSession): Boolean;
-    procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
-    function KxHint(const AServerIdentity, AServerName: string): UInt16;
-    procedure Clear;
-    function Count: Int32;
-  end;
-
 implementation
 
 { TFailingSessionCache }
@@ -221,51 +202,6 @@ begin
 end;
 
 function TFailingSessionCache.Count: Int32;
-begin
-  Result := 0;
-end;
-
-{ TCallbackSessionCache }
-
-constructor TCallbackSessionCache.Create(const AOnStore: TSessionCacheEvent);
-begin
-  inherited Create;
-  FOnStore := AOnStore;
-end;
-
-procedure TCallbackSessionCache.Store(const AServerIdentity, AServerName: string;
-  const ASession: IResumableSession);
-begin
-  FOnStore;
-end;
-
-procedure TCallbackSessionCache.Remove(const AServerIdentity, AServerName: string;
-  const ASession: IResumableSession);
-begin
-end;
-
-function TCallbackSessionCache.Take(const AServerIdentity, AServerName: string;
-  ANowMillis: UInt64; out ASession: IResumableSession): Boolean;
-begin
-  ASession := nil;
-  Result := False;
-end;
-
-procedure TCallbackSessionCache.SetKxHint(const AServerIdentity, AServerName: string;
-  AGroup: UInt16);
-begin
-end;
-
-function TCallbackSessionCache.KxHint(const AServerIdentity, AServerName: string): UInt16;
-begin
-  Result := 0;
-end;
-
-procedure TCallbackSessionCache.Clear;
-begin
-end;
-
-function TCallbackSessionCache.Count: Int32;
 begin
   Result := 0;
 end;

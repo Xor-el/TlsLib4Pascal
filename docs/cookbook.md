@@ -445,14 +445,14 @@ included.
 resolver, session store or cache, certificate compression cache, ECH key store, revocation
 fetcher, verdict resolver, or the transport) may call `ConnectionInfo` (`Info` on a
 `TTlsConnection`), `PendingReadBytes`, `IsHandshakeComplete`, `CloseNotify` and `SendAlert` on its
-own stream or connection. Any read, write, rekey or handshake of a non-zero count raises
-`EInvalidOperationTlsLibException` there, and no other call is supported. A `CloseNotify` or
+own stream or connection. Any handshake or rekey, and any read or write of a non-zero count,
+raises `EInvalidOperationTlsLibException` there, and no other call is supported. A `CloseNotify` or
 `SendAlert` from it takes effect as the handshake completes. A callback run after the handshake,
 such as a client session cache storing a ticket or dropping sessions on a fatal alert, can run
 inside a read, a write or an alert that holds the engine, so it may only query; inside a read, a
 read, write, rekey, close or alert on its stream raises. A ticket that arrives with the server's
 Finished is stored during the handshake, so follow the stricter rule. A callback must not wait for
-another thread that reads, writes, rekeys or handshakes the same stream.
+another thread that uses the same stream.
 
 A closing send (close_notify or a fatal alert) is bounded on an `ITlsTimedTransport`, by the close
 grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`, which `TTlsConnection` uses; `TTlsStream.Create`

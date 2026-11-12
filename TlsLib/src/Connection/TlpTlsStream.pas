@@ -49,15 +49,15 @@ type
   /// Callbacks: code the handshake runs (for example the verify callback, key log, credential
   /// resolver, session store or cache, certificate compression cache, ECH key store, revocation
   /// fetcher, verdict resolver or the transport) may call ConnectionInfo, PendingReadBytes,
-  /// IsHandshakeComplete, CloseNotify and SendAlert; any read, write, rekey or handshake of a
-  /// non-zero count raises EInvalidOperationTlsLibException there, and no other call is
-  /// supported. A callback that runs after the handshake (a client session cache storing a
+  /// IsHandshakeComplete, CloseNotify and SendAlert; any handshake or rekey, and any read or
+  /// write of a non-zero count, raises EInvalidOperationTlsLibException there, and no other call
+  /// is supported. A callback that runs after the handshake (a client session cache storing a
   /// ticket, or dropping sessions on a fatal alert) can run inside a read, a write or an alert
   /// that holds the engine, so it may only query: ConnectionInfo, PendingReadBytes and
   /// IsHandshakeComplete; inside a read, a read, write, rekey, close or alert on the stream
   /// raises. A ticket that arrives with the server's Finished is stored during the handshake, so
-  /// follow the stricter rule. A callback must not wait for another thread that reads, writes,
-  /// rekeys or handshakes the same stream.
+  /// follow the stricter rule. A callback must not wait for another thread that uses the same
+  /// stream.
   /// </summary>
   TTlsStream = class(TStream)
   public
@@ -487,6 +487,8 @@ begin
   Handshake;
   FReadLock.Enter;
   try
+    // refused before the cap is armed, so a refusal never clears the cap of the read it interrupts
+    FPump.RaiseIfInboundCall;
     ArmReadCap(AReadTimeoutMs, True);
     try
       Result := ReadLocked(ABuffer, ACount);

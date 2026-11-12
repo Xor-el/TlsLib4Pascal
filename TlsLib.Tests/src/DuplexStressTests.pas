@@ -377,7 +377,8 @@ type
   TTestDuplexStress = class(TTlsLibAlgorithmTestCase)
   strict private
   var
-    FStallCount: Int64;
+    FStallLock: TCriticalSection;
+    FStallCount: Int32;
     // multiplies every message count; TLSLIB_STRESS_LONG=true runs the soak size
     function Scale: Int32;
     function ClientConfig(AWire: UInt16): ITlsClientConfig;
@@ -1849,7 +1850,12 @@ end;
 
 function TTestDuplexStress.StallProgress: Int64;
 begin
-  Result := FStallCount;
+  FStallLock.Enter;
+  try
+    Result := FStallCount;
+  finally
+    FStallLock.Leave;
+  end;
 end;
 
 function TTestDuplexStress.StallFires(AProgressGrows: Boolean; AStallMs: UInt32;
@@ -1858,18 +1864,21 @@ var
   LPipeA, LPipeB: TMemoryPipe;
   LWatch: TWedgeWatchdog;
   LByte: TBytes;
-  LWaited: Int32;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
 begin
   LPipeA := TMemoryPipe.Create;
   LPipeB := TMemoryPipe.Create;
+  FStallLock := TCriticalSection.Create;
   FStallCount := 0;
   SetLength(LByte, 1);
+  LClock := TSystemMonotonicClock.Create;
   LWatch := TWedgeWatchdog.Create(LPipeA, LPipeB, 600000, 600000, AStallMs, StallProgress);
   try
+    LStart := LClock.NowMonotonicMillis;
     LWatch.Start;
-    LWaited := 0;
     // a byte every 20 ms is traffic, so only the stall can fire the watchdog
-    while (not LWatch.Fired) and (LWaited < ALookMs) do
+    while (not LWatch.Fired) and (LClock.NowMonotonicMillis - LStart < ALookMs) do
     begin
       try
         LPipeA.Write(LByte, 0, 1);
@@ -1879,15 +1888,22 @@ begin
           raise;
       end;
       if AProgressGrows then
-        System.Inc(FStallCount);
+      begin
+        FStallLock.Enter;
+        try
+          System.Inc(FStallCount);
+        finally
+          FStallLock.Leave;
+        end;
+      end;
       Sleep(20);
-      System.Inc(LWaited, 20);
     end;
     Result := LWatch.Fired;
   finally
     LWatch.Disarm;
     LWatch.WaitFor;
     LWatch.Free;
+    FStallLock.Free;
     LPipeA.Free;
     LPipeB.Free;
   end;
@@ -1901,7 +1917,7 @@ end;
 
 procedure TTestDuplexStress.TestSteadyProgressKeepsTheWatchdogQuiet;
 begin
-  // three stalls long, so a descheduled slow host has a hundred loops of margin
+  // three stalls long, so a slow host can be descheduled for two seconds without a false fire
   CheckFalse(StallFires(True, 2000, 6000), 'a run that keeps delivering is left alone');
 end;
 
@@ -1912,8 +1928,7 @@ var
   LStart: Int64;
   LOutcome: string;
 begin
-  // the client reads for a FIN that never comes and the wire goes quiet: only the run's own
-  // progress count can end it before the idle time
+  // quiet wire, client waiting for a FIN: only the stall can end it before the idle time
   LSpec := BaseSpec(TlsWireVersionTls13, TPayloadKind.Tiny, 20);
   LSpec.ServerWrites := False;
   LSpec.Wedge := True;

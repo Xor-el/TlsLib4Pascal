@@ -52,6 +52,8 @@ type
   /// time, and ReadApp only once the handshake has completed; the other members may be called
   /// from any thread. ReadApp, ReadEarlyData, WriteApp, RequestKeyUpdate and CloseWriteSide raise
   /// EInvalidOperationTlsLibException when called by code that ReadApp is running (a callback).
+  /// E is re-entrant: a callback inside an engine call takes it again, so it must stay a recursive
+  /// lock.
   /// </summary>
   TTlsStreamPump = class sealed(TObject)
   public
@@ -89,10 +91,6 @@ type
     FWriteChunk: TBytes;
     /// <summary>Whether the engine is terminal, read under E.</summary>
     function EngineIsTerminal: Boolean;
-    /// <summary>Raises when the calling thread is inside a read's engine calls, where a callback
-    /// that wrote, rekeyed or closed could wait on a writer that waits for E; the caller holds E,
-    /// so any other thread waits instead of seeing the flag.</summary>
-    procedure RaiseIfInboundCall;
     /// <summary>Sends every byte the engine owes; the caller holds W. A transport failure
     /// latches the engine (no alert, sessions kept), discards what it still owed, and raises
     /// unchanged. Nothing is ever sent after a partial send.</summary>
@@ -182,6 +180,10 @@ type
     /// <summary>As above, handing the resolver ADeadlineMs as its time budget (0 = none set).</summary>
     procedure DriveHandshake(AIsClient: Boolean;
       const AResolveVerdict: TCertificateVerdictResolver; ADeadlineMs: Cardinal); overload;
+    /// <summary>Raises when the calling thread is inside a read's engine calls, where a callback
+    /// that wrote, rekeyed or closed could wait on a writer that waits for E; it holds E while it
+    /// checks, so any other thread waits instead of seeing the flag.</summary>
+    procedure RaiseIfInboundCall;
     /// <summary>One application read cycle: drains engine-buffered plaintext (which may have
     /// arrived coalesced with the final handshake flight) before blocking on the transport.
     /// Returns the count copied into ADest and, via AStatus, whether more may follow, the
@@ -252,8 +254,8 @@ resourcestring
   SClosedDuringHandshake = 'the peer closed the connection during the handshake';
   SWriteAfterClose = 'a write was attempted after the connection was closed';
   SEarlyDataUnread = 'accepted 0-RTT data is waiting: read it with ReadEarlyData before Read';
-  SInboundCallReentry = 'code a read calls (a callback or the transport) cannot read, write, ' +
-    'rekey, close or send an alert on the stream that is reading';
+  SInboundCallReentry = 'a callback a read runs cannot read, write, rekey, close or send an ' +
+    'alert on the stream that is reading';
   SPumpArguments = 'a pump needs a transport and an engine that exposes both engine faces ' +
     '(pass both, not nil)';
 
@@ -322,8 +324,13 @@ end;
 
 procedure TTlsStreamPump.RaiseIfInboundCall;
 begin
-  if FInboundCall then
-    raise EInvalidOperationTlsLibException.CreateRes(@SInboundCallReentry);
+  FEngineLock.Enter;
+  try
+    if FInboundCall then
+      raise EInvalidOperationTlsLibException.CreateRes(@SInboundCallReentry);
+  finally
+    FEngineLock.Leave;
+  end;
 end;
 
 procedure TTlsStreamPump.SendPending;
@@ -852,12 +859,7 @@ begin
   if ACount <= 0 then
     Exit;
   // before W: a callback inside a read would otherwise wait for a writer that waits for E
-  FEngineLock.Enter;
-  try
-    RaiseIfInboundCall;
-  finally
-    FEngineLock.Leave;
-  end;
+  RaiseIfInboundCall;
   FWriteLock.Enter;
   try
     LOffset := 0;
@@ -884,12 +886,7 @@ procedure TTlsStreamPump.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
 var
   LClosed: Boolean;
 begin
-  FEngineLock.Enter;
-  try
-    RaiseIfInboundCall;
-  finally
-    FEngineLock.Leave;
-  end;
+  RaiseIfInboundCall;
   FWriteLock.Enter;
   try
     FEngineLock.Enter;

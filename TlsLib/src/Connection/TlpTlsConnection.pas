@@ -374,7 +374,8 @@ type
     function PendingReadBytes: Int32;
     /// <summary>Sends close_notify; raises like the stream does.</summary>
     procedure CloseNotify;
-    /// <summary>Sends close_notify, swallowing a write to an already-dead peer.</summary>
+    /// <summary>Sends close_notify, swallowing every failure: a write to an already-dead peer, and
+    /// the refusal when called from a callback inside a read, which then sends nothing.</summary>
     procedure CloseNotifyQuietly;
     /// <summary>Refuses the connection with a fatal alert (see TTlsStream.SendAlert): the host
     /// rejected the peer after the handshake completed.</summary>

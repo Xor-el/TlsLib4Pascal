@@ -32,12 +32,6 @@ uses
   TlpTlsVersion,
   TlpTlsAlert,
   TlpTlsContentType,
-  TlpCryptoDomainTypes,
-  TlpISecretBuffer,
-  TlpSecretBuffer,
-  TlpHkdfLabel,
-  TlpIRecordProtection,
-  TlpRecordProtection,
   TlpIKeyLog,
   TlpKeyLog,
   TlpHandshakeMessages,
@@ -187,16 +181,23 @@ type
     /// records the class each raised. It acts once: a call it makes that reaches a callback again
     /// does nothing there.</summary>
     procedure ReenterTheStream(const AStream: TTlsStream);
-    /// <summary>What ReenterTheStream or ReenterThePump records when each of its ASteps calls is
-    /// refused.</summary>
-    function AllReentriesRefused(ASteps: Int32): string;
-    /// <summary>Calls each entry point of the pump that a callback inside a read may not use and
-    /// records the class each raised. It acts once.</summary>
-    procedure ReenterThePump(const APump: TTlsStreamPump);
-    procedure StoreReenteringThePump;
+    /// <summary>Calls each entry point of FPumped that a callback inside a read may not use and
+    /// records whether the pump's own refusal answered it. It acts once.</summary>
+    procedure ReenterThePump;
+    // the cache callback that parks the read that stored a ticket until the test releases it
     procedure StoreParked;
-    /// <summary>A handshake whose client cache is ACache, the server's ticket left unsent.</summary>
+    // the cache callback that races a writer on another thread against its own write
+    procedure StoreRacingAWriter;
+    // the cache callback that asks the stream for a timed read while a timed read is running
+    procedure StoreReadingTimed;
+    function CachingClientConfig(const ACache: ISessionCache): ITlsClientConfig;
+    /// <summary>A handshake whose client caches in ACache, the server's tickets unsent.</summary>
     procedure HandshakeLeavingATicket(const ACache: ISessionCache;
+      out AClient, AServer: ITlsEngine);
+    /// <summary>A handshake in which the server writes ACount bytes before it reads the client's
+    /// Finished, so its tickets follow the data in the wire; the client holds the data, and the
+    /// tickets stay framed behind it when ACount reaches the engine's read buffer limit.</summary>
+    procedure HandshakeWithDataBeforeTheTickets(const ACache: ISessionCache; ACount: Int32;
       out AClient, AServer: ITlsEngine);
     /// <summary>Whether AThread has ended within AMs ms.</summary>
     function ThreadEnds(const AThread: TThread; AMs: Int32): Boolean;
@@ -239,8 +240,8 @@ type
     procedure ExportQueried;
     procedure QueryPumped;
   var
-    FVerifyEntered: TEvent;
-    FVerifyRelease: TEvent;
+    FCallbackEntered: TEvent;
+    FCallbackRelease: TEvent;
     FQueryDone: TEvent;
     FReaderDone: TEvent;
     FSecondDone: TEvent;
@@ -260,6 +261,7 @@ type
     FPumped: TTlsStreamPump;
     FPumpedByte: TBytes;
     FPumpedBuffer: TBytes;
+    FRacingWriter: TActionThread;
   published
     procedure TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
     procedure TestBulkWriteIsSealedInBoundedSlices;
@@ -351,6 +353,9 @@ type
     procedure TestSeveralKeyUpdatesInOneRecordFailTheStreamAndTheAlertReachesThePeer;
     procedure TestKeyUpdateRecordsInOneReadAreAnsweredByOneReply;
     procedure TestCallbackInsideAReadCannotWriteRekeyCloseOrReadAgain;
+    procedure TestCallbackInsideAResumedDrainCannotWriteRekeyCloseOrReadAgain;
+    procedure TestCallbackInsideAReadRefusesBeforeItWaitsForAWriter;
+    procedure TestRefusedTimedReadFromACallbackLeavesTheOuterCapArmed;
     procedure TestCallbackInsideAReadDoesNotRefuseAnotherThreadsWrite;
   end;
 
@@ -1842,17 +1847,38 @@ begin
   AWriteAttempts := LDead.Attempts;
 end;
 
-procedure TTestTlsStreamLoopback.HandshakeLeavingATicket(const ACache: ISessionCache;
-  out AClient, AServer: ITlsEngine);
-var
-  LClientConfig: ITlsClientConfig;
+function TTestTlsStreamLoopback.CachingClientConfig(const ACache: ISessionCache): ITlsClientConfig;
 begin
-  LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+  Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(
       TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithResumption(True)
     .WithSessionCache(ACache).Build;
-  HandshakeEnginesWith(LClientConfig, ServerConfig, AClient, AServer);
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeLeavingATicket(const ACache: ISessionCache;
+  out AClient, AServer: ITlsEngine);
+begin
+  HandshakeEnginesWith(CachingClientConfig(ACache), ServerConfig, AClient, AServer);
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeWithDataBeforeTheTickets(const ACache: ISessionCache;
+  ACount: Int32; out AClient, AServer: ITlsEngine);
+var
+  LData: TBytes;
+begin
+  AClient := TTlsEngineFactory.CreateClientEngine(CachingClientConfig(ACache), 'localhost');
+  AServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  AClient.StartHandshake;
+  PassOutgoing(AClient, AServer);
+  // the server's flight, after which it may already write: it has not read the client's Finished
+  PassOutgoing(AServer, AClient);
+  System.SetLength(LData, ACount);
+  AServer.Write(LData, 0, ACount);
+  PassOutgoing(AServer, AClient);
+  // the Finished lets the server issue its tickets, which follow the data in the wire
+  PassOutgoing(AClient, AServer);
+  CheckFalse(AServer.IsHandshaking, 'the server finished its handshake');
 end;
 
 procedure TTestTlsStreamLoopback.HandshakeCachingATicket(const ACache: ISessionCache;
@@ -2408,9 +2434,9 @@ end;
 function TTestTlsStreamLoopback.BlockingVerify(const APresented, AValidated: TArray<TBytes>;
   const AHostName: string): Boolean;
 begin
-  FVerifyEntered.SetEvent;
+  FCallbackEntered.SetEvent;
   // bounded so a failing test cannot hang the run
-  FVerifyRelease.WaitFor(20000);
+  FCallbackRelease.WaitFor(20000);
   Result := True;
 end;
 
@@ -2561,12 +2587,7 @@ begin
   CheckTrue(LRaised, 'and a write on the refused connection raises the alert');
 end;
 
-function TTestTlsStreamLoopback.AllReentriesRefused(ASteps: Int32): string;
-begin
-  Result := DupeString('EInvalidOperationTlsLibException;', ASteps);
-end;
-
-procedure TTestTlsStreamLoopback.ReenterThePump(const APump: TTlsStreamPump);
+procedure TTestTlsStreamLoopback.ReenterThePump;
 var
   LByte: TBytes;
   LLog: string;
@@ -2578,89 +2599,254 @@ begin
   FReentryLog := '-';
   LByte := DecodeHex('00');
   LLog := '';
+  // the read comes first: a nested read let through would clear the flag the later steps rely on
   for LStep := 0 to 4 do
   begin
     try
       case LStep of
-        0: APump.WriteApp(LByte[0], 1);
-        1: APump.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
-        2: APump.CloseWriteSide;
-        3: APump.ReadApp(LByte, 1, LStatus);
-        4: APump.ReadEarlyData(LByte, 1);
+        0: FPumped.ReadApp(LByte, 1, LStatus);
+        1: FPumped.WriteApp(LByte[0], 1);
+        2: FPumped.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+        3: FPumped.CloseWriteSide;
+        4: FPumped.ReadEarlyData(LByte, 1);
       end;
       LLog := LLog + 'none;';
     except
       on E: Exception do
-        LLog := LLog + E.ClassName + ';';
+        // the engine refuses a nested read in its own words, which is not the pump's refusal
+        if Pos('stream that is reading', E.Message) > 0 then
+          LLog := LLog + 'refused;'
+        else
+          LLog := LLog + E.ClassName + ': ' + E.Message + ';';
     end;
   end;
   FReentryLog := LLog;
 end;
 
-procedure TTestTlsStreamLoopback.StoreReenteringThePump;
-begin
-  ReenterThePump(FPumped);
-end;
-
 procedure TTestTlsStreamLoopback.StoreParked;
 begin
-  FVerifyEntered.SetEvent;
-  FVerifyRelease.WaitFor(20000);
+  FCallbackEntered.SetEvent;
+  FCallbackRelease.WaitFor(20000);
+end;
+
+procedure TTestTlsStreamLoopback.StoreRacingAWriter;
+var
+  LByte: TBytes;
+begin
+  if FReentryLog <> '' then
+    Exit;
+  FReentryLog := '-';
+  FRacingWriter := TActionThread.Create(WritePumped);
+  FRacingWriter.Start;
+  // long enough for the writer to reach the pump: it holds W and waits for E, or only waits for E
+  Sleep(200);
+  LByte := DecodeHex('00');
+  try
+    FPumped.WriteApp(LByte[0], 1);
+    FReentryLog := 'none';
+  except
+    on EInvalidOperationTlsLibException do
+      FReentryLog := 'refused';
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.StoreReadingTimed;
+var
+  LByte: Byte;
+begin
+  if FReentryLog <> '' then
+    Exit;
+  FReentryLog := '-';
+  LByte := 0;
+  try
+    FQueried.ReadTimed(LByte, 1, 1000);
+    FReentryLog := 'none';
+  except
+    on EInvalidOperationTlsLibException do
+      FReentryLog := 'refused';
+  end;
+  FCallbackEntered.SetEvent;
 end;
 
 procedure TTestTlsStreamLoopback.TestCallbackInsideAReadCannotWriteRekeyCloseOrReadAgain;
 var
+  LCacheImpl: TMockSessionCache;
+  LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
   LDest, LByte: TBytes;
   LStatus: TTlsReadStatus;
 begin
   FReentryLog := '';
-  HandshakeLeavingATicket(TCallbackSessionCache.Create(StoreReenteringThePump) as ISessionCache,
-    LClient, LServer);
+  LCacheImpl := TMockSessionCache.Create;
+  LCache := LCacheImpl as ISessionCache;
+  LCacheImpl.OnStored := ReenterThePump;
+  HandshakeLeavingATicket(LCache, LClient, LServer);
   FPumped := NewPump(LClient, TScriptedTransport.Create(TakeAll(LServer), False) as ITlsTransport);
   System.SetLength(LDest, 16);
   // the read stores the ticket, and the cache calls back into the pump that is reading
   FPumped.ReadApp(LDest, 16, LStatus);
-  CheckEquals(AllReentriesRefused(5), FReentryLog,
-    'every call the cache made into the pump that was reading was refused');
+  CheckEquals(DupeString('refused;', 5), FReentryLog,
+    'every call the cache made into the pump that was reading was refused by the pump');
   CheckFalse(FPumped.WriteSideClosed, 'a refused close left the write side open');
   LByte := DecodeHex('00');
   FPumped.WriteApp(LByte[0], 1);
   CheckFalse(LClient.IsTerminal, 'and the connection is sound: a write afterwards succeeds');
 end;
 
-procedure TTestTlsStreamLoopback.TestCallbackInsideAReadDoesNotRefuseAnotherThreadsWrite;
+procedure TTestTlsStreamLoopback.TestCallbackInsideAResumedDrainCannotWriteRekeyCloseOrReadAgain;
+const
+  AppReadBufferLimit = Int32(1 shl 20);
 var
+  LCacheImpl: TMockSessionCache;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LDest, LWire: TBytes;
+  LStatus: TTlsReadStatus;
+begin
+  FReentryLog := '';
+  LCacheImpl := TMockSessionCache.Create;
+  LCache := LCacheImpl as ISessionCache;
+  LCacheImpl.OnStored := ReenterThePump;
+  HandshakeWithDataBeforeTheTickets(LCache, AppReadBufferLimit, LClient, LServer);
+  CheckEquals(AppReadBufferLimit, LClient.PendingAppData, 'the client holds data up to its limit');
+  LWire := TakeAll(LServer);
+  LClient.ProcessInput(LWire, 0, System.Length(LWire));
+  CheckEquals('', FReentryLog, 'the tickets wait framed behind the data');
+  FPumped := NewPump(LClient, TScriptedTransport.Create(nil, False) as ITlsTransport);
+  System.SetLength(LDest, 16);
+  // the read makes room, and the drain it resumes stores a ticket in the cache that calls back
+  FPumped.ReadApp(LDest, 16, LStatus);
+  CheckEquals(DupeString('refused;', 5), FReentryLog,
+    'every call the cache made from the resumed drain was refused by the pump');
+end;
+
+procedure TTestTlsStreamLoopback.TestCallbackInsideAReadRefusesBeforeItWaitsForAWriter;
+var
+  LCacheImpl: TMockSessionCache;
+  LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
   LReader, LWriter: TActionThread;
-  LWriterStarted: Boolean;
+  LPump: TTlsStreamPump;
+  LEnded: Boolean;
 begin
-  LWriterStarted := False;
-  FVerifyEntered := Own<TEvent>(TEvent.Create(nil, True, False, ''));
-  FVerifyRelease := Own<TEvent>(TEvent.Create(nil, True, False, ''));
-  HandshakeLeavingATicket(TCallbackSessionCache.Create(StoreParked) as ISessionCache, LClient,
-    LServer);
-  FPumped := NewPump(LClient, TScriptedTransport.Create(TakeAll(LServer), False) as ITlsTransport);
+  FReentryLog := '';
+  FRacingWriter := nil;
+  LCacheImpl := TMockSessionCache.Create;
+  LCache := LCacheImpl as ISessionCache;
+  LCacheImpl.OnStored := StoreRacingAWriter;
+  HandshakeLeavingATicket(LCache, LClient, LServer);
   FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
   System.SetLength(FPumpedBuffer, 16);
   FPumpedByte := DecodeHex('00');
-  LReader := Own<TActionThread>(TActionThread.Create(ReadPumped));
-  LWriter := Own<TActionThread>(TActionThread.Create(WritePumped));
+  // freed only when both threads end: a refusal that waits for W deadlocks them, and they are left
+  LPump := TTlsStreamPump.Create(LClient,
+    TScriptedTransport.Create(TakeAll(LServer), False) as ITlsTransport, 0);
+  FPumped := LPump;
+  LReader := TActionThread.Create(ReadPumped);
+  LReader.Start;
+  LEnded := ThreadEnds(LReader, 20000) and (FRacingWriter <> nil) and
+    ThreadEnds(FRacingWriter, 20000);
+  CheckTrue(LEnded, 'neither the read nor the writer is stuck on the engine and write locks');
+  LWriter := FRacingWriter;
+  CheckEquals('refused', FReentryLog, 'the callback''s own write was refused, not left to wait');
+  CheckEquals('', LReader.Error, 'the read ended without error');
+  CheckEquals('', LWriter.Error, 'the writer on the other thread was not refused');
+  LReader.Free;
+  LWriter.Free;
+  LPump.Free;
+end;
+
+procedure TTestTlsStreamLoopback.TestRefusedTimedReadFromACallbackLeavesTheOuterCapArmed;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LInner: TPipeTimedTransport;
+  LServerTransport: TMemoryTransport;
+  LInnerT: ITlsTimedTransport;
+  LLog: TCapLogTransport;
+  LLogT, LServerT: ITlsTransport;
+  LCacheImpl: TMockSessionCache;
+  LCache: ISessionCache;
+  LServing, LLong: TActionThread;
+begin
+  FReentryLog := '';
+  FCallbackEntered := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FPingBytes := DecodeHex(PingHex);
+  System.SetLength(FReadBuffer, 4096);
+  LCacheImpl := TMockSessionCache.Create;
+  LCache := LCacheImpl as ISessionCache;
+  LCacheImpl.OnStored := StoreReadingTimed;
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LInner := TPipeTimedTransport.Create(LS2C, LC2S);
+  LInnerT := LInner;
+  LLog := TCapLogTransport.Create(LInnerT, 1);
+  LLogT := LLog;
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LServerT := LServerTransport;
+  FQueried := Own<TTlsStream>(NewClientStream(LLogT, CachingClientConfig(LCache)));
+  FServing := Own<TTlsStream>(NewServerStream(LServerT));
+  LServing := Own<TActionThread>(TActionThread.Create(ServeTimedEcho));
+  LLong := Own<TActionThread>(TActionThread.Create(TimedReadQueried));
+  LServing.Start;
+  try
+    FQueried.Handshake;
+    LLong.Start;
+    CheckTrue(FCallbackEntered.WaitFor(20000) = wrSignaled, 'the read reached the cache');
+    FQueried.Write(FPingBytes[0], System.Length(FPingBytes));
+    CheckTrue(FReaderDone.WaitFor(10000) = wrSignaled, 'the outer read got the echo');
+  finally
+    // ends a server still waiting for the message, and with it any read still blocked on it
+    LInner.CloseWrite;
+    LServerTransport.CloseWrite;
+  end;
+  LServing.WaitFor;
+  LLong.WaitFor;
+  CheckEquals('refused', FReentryLog, 'the cache''s timed read on its own stream was refused');
+  CheckEquals('', LLong.Error, 'the outer read ended cleanly');
+  CheckEquals('a20000;c;', LLog.Log, 'the refusal armed no cap and cleared no other');
+end;
+
+procedure TTestTlsStreamLoopback.TestCallbackInsideAReadDoesNotRefuseAnotherThreadsWrite;
+var
+  LCacheImpl: TMockSessionCache;
+  LCache: ISessionCache;
+  LClient, LServer: ITlsEngine;
+  LReader, LWriter: TActionThread;
+  LPump: TTlsStreamPump;
+  LEnded: Boolean;
+begin
+  FCallbackEntered := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FCallbackRelease := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  LCacheImpl := TMockSessionCache.Create;
+  LCache := LCacheImpl as ISessionCache;
+  LCacheImpl.OnStored := StoreParked;
+  HandshakeLeavingATicket(LCache, LClient, LServer);
+  FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  System.SetLength(FPumpedBuffer, 16);
+  FPumpedByte := DecodeHex('00');
+  // freed only when both threads end: a stuck one is left rather than waited for
+  LPump := TTlsStreamPump.Create(LClient,
+    TScriptedTransport.Create(TakeAll(LServer), False) as ITlsTransport, 0);
+  FPumped := LPump;
+  LReader := TActionThread.Create(ReadPumped);
+  LWriter := TActionThread.Create(WritePumped);
   LReader.Start;
   try
-    CheckTrue(FVerifyEntered.WaitFor(20000) = wrSignaled, 'the reader is in the cache callback');
+    CheckTrue(FCallbackEntered.WaitFor(20000) = wrSignaled, 'the reader is in the cache callback');
     LWriter.Start;
-    LWriterStarted := True;
     // the write waits for the engine the callback holds
     Sleep(200);
   finally
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
   end;
-  LReader.WaitFor;
-  if LWriterStarted then
-    LWriter.WaitFor;
+  LEnded := ThreadEnds(LReader, 20000) and ThreadEnds(LWriter, 20000);
+  CheckTrue(LEnded, 'neither the read nor the write on another thread is stuck');
   CheckEquals('', LReader.Error, 'the read ended without error');
   CheckEquals('', LWriter.Error, 'the write on another thread was not refused as a re-entry');
+  LReader.Free;
+  LWriter.Free;
+  LPump.Free;
 end;
 
 procedure TTestTlsStreamLoopback.ReenterTheStream(const AStream: TTlsStream);
@@ -2728,7 +2914,7 @@ begin
   Own<TTlsStream>(FQueried);
   try
     FQueried.Handshake;
-    CheckEquals(AllReentriesRefused(6), FReentryLog,
+    CheckEquals(DupeString('EInvalidOperationTlsLibException;', 6), FReentryLog,
       'every call the verify callback made into its own stream was refused');
     // the stream is still sound: the handshake the callback tried to restart is the one that ran
     LPing := DecodeHex(PingHex);
@@ -2783,7 +2969,7 @@ begin
     LWatch.Disarm;
     CheckFalse(LWatch.Fired, 'the server was not left parked in a read');
     CheckEquals('', LServer.Error, 'the server handshake ran to its end');
-    CheckEquals(AllReentriesRefused(6), FReentryLog,
+    CheckEquals(DupeString('EInvalidOperationTlsLibException;', 6), FReentryLog,
       'every call the key log made into its own stream was refused');
   finally
     LWatch.Disarm;
@@ -2807,7 +2993,7 @@ begin
   try
     FQueried.SetCertificateVerdictResolver(ReenteringResolver);
     FQueried.Handshake;
-    CheckEquals(AllReentriesRefused(6), FReentryLog,
+    CheckEquals(DupeString('EInvalidOperationTlsLibException;', 6), FReentryLog,
       'every call the resolver made into its own stream was refused');
     LPing := DecodeHex(PingHex);
     FQueried.Write(LPing[0], System.Length(LPing));
@@ -2837,8 +3023,8 @@ var
   LHandshaker, LQuerier: TActionThread;
   LAnswered, LStarted: Boolean;
 begin
-  FVerifyEntered := Own<TEvent>(TEvent.Create(nil, True, False, ''));
-  FVerifyRelease := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FCallbackEntered := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FCallbackRelease := Own<TEvent>(TEvent.Create(nil, True, False, ''));
   FQueryDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
   RunLoopback(ClientConfig(False, BlockingVerify), TServerBehavior.EchoThenClose, FQueried,
     LServer, LTransport);
@@ -2849,12 +3035,12 @@ begin
   try
     LHandshaker.Start;
     LStarted := True;
-    CheckTrue(FVerifyEntered.WaitFor(20000) = wrSignaled,
+    CheckTrue(FCallbackEntered.WaitFor(20000) = wrSignaled,
       'the handshake reached the host''s certificate callback');
     // the handshake now sits inside the callback holding the engine
     LQuerier.Start;
     LAnswered := FQueryDone.WaitFor(5000) = wrSignaled;
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     LQuerier.WaitFor;
     LHandshaker.WaitFor;
     CheckTrue(LAnswered, 'the queries returned while the handshake was parked in the callback');
@@ -2868,7 +3054,7 @@ begin
     FQueried.CloseNotify;
     LServer.Finish;
   finally
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     // the handshake thread is joined before the stream it uses is freed
     if LStarted then
       LHandshaker.WaitFor;
@@ -3253,9 +3439,9 @@ function TTestTlsStreamLoopback.ParkedResolver(const ACtx: TCertificateVerdictCo
   out ARejectAlert: TTlsAlertDescription): Boolean;
 begin
   ARejectAlert := TTlsAlertDescription.BadCertificate;
-  FVerifyEntered.SetEvent;
+  FCallbackEntered.SetEvent;
   // bounded so a failing test cannot hang the run
-  FVerifyRelease.WaitFor(20000);
+  FCallbackRelease.WaitFor(20000);
   Result := True;
 end;
 
@@ -3263,8 +3449,8 @@ procedure TTestTlsStreamLoopback.StartParkedHandshake(out AServer: TServerRunner
 var
   LTransport: TMemoryTransport;
 begin
-  FVerifyEntered := Own<TEvent>(TEvent.Create(nil, True, False, ''));
-  FVerifyRelease := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FCallbackEntered := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FCallbackRelease := Own<TEvent>(TEvent.Create(nil, True, False, ''));
   FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
   FSecondDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
   FPause := Own<TEvent>(TEvent.Create(nil, True, False, ''));
@@ -3346,15 +3532,15 @@ begin
   LWriter := Own<TActionThread>(TActionThread.Create(WriteQueried));
   try
     LReader.Start;
-    CheckTrue(FVerifyEntered.WaitFor(20000) = wrSignaled, 'the reader is driving the handshake');
+    CheckTrue(FCallbackEntered.WaitFor(20000) = wrSignaled, 'the reader is driving the handshake');
     LWriter.Start;
     // the write has to be waiting for the handshake when it completes
     FPause.WaitFor(300);
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     LWrote := FSecondDone.WaitFor(10000) = wrSignaled;
     LRead := FReaderDone.WaitFor(10000) = wrSignaled;
   finally
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     // ends a server still waiting for the request, and with it a reader blocked on the server
     LServer.Finish;
   end;
@@ -3374,7 +3560,7 @@ var
   LReturned: Boolean;
 begin
   StartParkedHandshake(LServer);
-  FVerifyRelease.SetEvent;
+  FCallbackRelease.SetEvent;
   FQueried.Handshake;
   LReader := Own<TActionThread>(TActionThread.Create(ReadQueried));
   LRepeater := Own<TActionThread>(TActionThread.Create(HandshakeRepeated));
@@ -3408,16 +3594,16 @@ begin
   LReader := Own<TActionThread>(TActionThread.Create(ReadQueried));
   try
     LHandshaker.Start;
-    CheckTrue(FVerifyEntered.WaitFor(20000) = wrSignaled, 'the handshake is parked');
+    CheckTrue(FCallbackEntered.WaitFor(20000) = wrSignaled, 'the handshake is parked');
     FQueried.CloseNotify;
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     LHandshaker.WaitFor;
     CheckEquals('', LHandshaker.Error, 'the handshake completed');
     LReader.Start;
     // the server read our close_notify and answered with its own: a clean end of stream
     LEnded := FReaderDone.WaitFor(10000) = wrSignaled;
   finally
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     LServer.Finish;
   end;
   LReader.WaitFor;
@@ -3444,12 +3630,12 @@ begin
   LHandshaker := Own<TActionThread>(TActionThread.Create(HandshakeQueried));
   try
     LHandshaker.Start;
-    CheckTrue(FVerifyEntered.WaitFor(20000) = wrSignaled, 'the handshake is parked');
+    CheckTrue(FCallbackEntered.WaitFor(20000) = wrSignaled, 'the handshake is parked');
     FQueried.SendAlert(TTlsAlertDescription.BadCertificate);
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     LHandshaker.WaitFor;
   finally
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     // the refused server fails on the alert; a lost alert would leave it waiting for this end
     LServer.Finish;
   end;
@@ -3877,15 +4063,16 @@ begin
   LExporter := Own<TActionThread>(TActionThread.Create(ExportQueried));
   try
     LHandshaker.Start;
-    CheckTrue(FVerifyEntered.WaitFor(20000) = wrSignaled, 'the handshake is parked in the resolver');
+    CheckTrue(FCallbackEntered.WaitFor(20000) = wrSignaled,
+      'the handshake is parked in the resolver');
     // the resolver runs with the engine lock free, so the exporter, which needs it, is answered
     LExporter.Start;
     LAnswered := FQueryDone.WaitFor(5000) = wrSignaled;
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     LHandshaker.WaitFor;
     LExporter.WaitFor;
   finally
-    FVerifyRelease.SetEvent;
+    FCallbackRelease.SetEvent;
     LServer.Finish;
   end;
   CheckTrue(LAnswered, 'the exporter returned while the resolver was parked');

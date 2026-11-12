@@ -475,18 +475,16 @@ type
     property Sent: Int32 read FSent;
   end;
 
-  TTestAction = procedure of object;
-
   /// <summary>Runs one action of a test on its own thread, keeping the exception it ended with.</summary>
   TActionThread = class(TThread)
   strict private
   var
-    FAction: TTestAction;
+    FAction: TThreadMethod;
     FError: string;
   protected
     procedure Execute; override;
   public
-    constructor Create(const AAction: TTestAction);
+    constructor Create(const AAction: TThreadMethod);
     property Error: string read FError;
   end;
 
@@ -1818,7 +1816,7 @@ end;
 
 { TActionThread }
 
-constructor TActionThread.Create(const AAction: TTestAction);
+constructor TActionThread.Create(const AAction: TThreadMethod);
 begin
   inherited Create(True);
   FAction := AAction;
