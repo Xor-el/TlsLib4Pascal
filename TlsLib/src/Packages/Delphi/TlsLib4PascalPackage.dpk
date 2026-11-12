@@ -72,6 +72,8 @@ contains
   TlpTlsAlertProtocol in '..\..\Common\TlpTlsAlertProtocol.pas',
   TlpAlertMapping in '..\..\Common\TlpAlertMapping.pas',
   TlpITlsEngine in '..\..\Interfaces\Engine\TlpITlsEngine.pas',
+  TlpITlsEngineInbound in '..\..\Interfaces\Engine\TlpITlsEngineInbound.pas',
+  TlpITlsEngineOutbound in '..\..\Interfaces\Engine\TlpITlsEngineOutbound.pas',
   TlpTlsEngineEvents in '..\..\Engine\TlpTlsEngineEvents.pas',
   TlpTlsEngine in '..\..\Engine\TlpTlsEngine.pas',
   TlpHkdfLabel in '..\..\KeySchedule\TlpHkdfLabel.pas',

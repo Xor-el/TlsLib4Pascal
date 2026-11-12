@@ -25,6 +25,7 @@ uses
   TlpTrustPolicy,
   TlpTlsStreamPump,
   TlpITlsEngine,
+  TlpITlsEngineInbound,
   InteropSocket,
   InteropUtils;
 
@@ -205,7 +206,8 @@ var
 begin
   // classify through the shared core; map its first terminal event to this harness's result
   // (leaving AResult untouched when nothing terminal drained, which PumpAppData relies on)
-  Result := TTlsStreamPump.DrainEvents(AEngine, LAlert, LClosed, ACertEvent);
+  Result := TTlsStreamPump.DrainEvents(AEngine as ITlsEngineInbound, LAlert, LClosed,
+    ACertEvent);
   if LAlert <> nil then
   begin
     AResult := ResultOf(TInteropStatus.PeerAlert, 'peer sent a fatal alert');
@@ -329,14 +331,12 @@ begin
   LOutcome := AEngine.ProcessInput(LBuf, 0, LGot);
   if LOutcome = TTlsOutcome.Fatal then
   begin
-    // send the queued alert to the peer before reporting (as DriveHandshake does); the
-    // engine has framed the alert record but the shim must flush it, else the peer sees EOF
+    // flush the owed alert before reporting (as DriveHandshake does), else the peer sees EOF
     Flush(AEngine, ASocket);
     Result := FromLastError(AEngine);
     Exit;
   end;
-  // a non-fatal input can still queue outbound - e.g. a warning no_renegotiation in response to
-  // a post-handshake renegotiation request (RFC 5246 7.2.2) - which must reach the peer
+  // a non-fatal input can still leave bytes owed to the peer, which must reach it
   Flush(AEngine, ASocket);
   // carry any plaintext produced this cycle, even alongside a terminal event
   Result := ResultOf(TInteropStatus.Ok, '');

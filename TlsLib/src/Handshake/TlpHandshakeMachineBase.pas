@@ -45,7 +45,6 @@ type
     FCodec: IExtensionBlockCodec;
     FTranscript: ITranscriptHash;
     FSelectedSuite: TTlsCipherSuite;
-    FRenegotiationRefused: Boolean;
     FStage: THandshakeStage;
     /// <summary>Routes one message to its phase handler.</summary>
     function Route(const AMessage: TTlsHandshakeMessage)
@@ -64,10 +63,6 @@ type
     function ContinueAfterVerdict: TArray<THandshakeEffect>; virtual;
     /// <summary>The effect that aborts on a message arriving out of phase.</summary>
     class function Unexpected: TArray<THandshakeEffect>; static;
-    /// <summary>Refuses a post-handshake renegotiation request: the first is answered with a
-    /// warning no_renegotiation (RFC 5246 7.2.2); a repeat is fatal to bound a renegotiation
-    /// loop. Used by the TLS 1.2 machines, which do not renegotiate.</summary>
-    function RefuseRenegotiation: TArray<THandshakeEffect>;
   public
     constructor Create(const AExtensionRegistry: IExtensionRegistry);
     /// <summary>A responder (server) by default; the client machines override to True.</summary>
@@ -108,7 +103,6 @@ implementation
 resourcestring
   SUnexpectedHandshakeMessage =
     'the peer sent a handshake message that is not expected at this point';
-  SRenegotiationRepeated = 'the peer asked to renegotiate again after it was refused';
 
 { THandshakeMachineBase }
 
@@ -152,19 +146,6 @@ class function THandshakeMachineBase.Unexpected: TArray<THandshakeEffect>;
 begin
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage, SUnexpectedHandshakeMessage));
-end;
-
-function THandshakeMachineBase.RefuseRenegotiation: TArray<THandshakeEffect>;
-begin
-  if FRenegotiationRefused then
-    Result := TArray<THandshakeEffect>.Create(
-      THandshakeEffects.Fail(TTlsAlertDescription.IllegalParameter, SRenegotiationRepeated))
-  else
-  begin
-    FRenegotiationRefused := True;
-    Result := TArray<THandshakeEffect>.Create(
-      THandshakeEffects.SendWarningAlert(TTlsAlertDescription.NoRenegotiation));
-  end;
 end;
 
 function THandshakeMachineBase.RequestKeyUpdate(

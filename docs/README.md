@@ -98,5 +98,6 @@ See [Getting started](getting-started.md) for how to add these on Delphi and FPC
 
 ---
 
-*Compiler floor: Delphi 10.4 Sydney+ and FPC 3.2.2+. The library is single-threaded per connection;
+*Compiler floor: Delphi 10.4 Sydney+ and FPC 3.2.2+. A stream or connection allows one thread to
+read while others write; a raw engine is single-threaded;
 config objects are immutable once built and freely shareable across threads.*

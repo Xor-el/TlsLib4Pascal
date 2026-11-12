@@ -119,8 +119,8 @@ resourcestring
 
 const
   // the most post-handshake messages accepted in a row with no application data between them; more
-  // are refused as a flood (local DoS policy). KeyUpdates and, for a client that does not resume,
-  // NewSessionTickets both count
+  // are refused as a flood (local DoS policy). KeyUpdates, HelloRequests and, for a client that
+  // does not resume, NewSessionTickets all count
   MaxConsecutivePostHandshakeMessages = Int32(32);
 
 { THandshakeConductor }

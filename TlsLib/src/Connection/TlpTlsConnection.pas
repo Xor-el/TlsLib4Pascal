@@ -57,6 +57,7 @@ uses
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,
   TlpTlsPresets,
+  TlpHandshakeMessages,
   TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsConfigMemo,
@@ -228,21 +229,35 @@ type
   /// <summary>An ITlsTransport over a host socket whose reads can be bounded for the handshake phase:
   /// with a cap armed, the reads that follow share one deadline, and a read past it raises
   /// ETlsHandshakeTimeout (a silent, dead or trickling peer is reaped rather than parking the
-  /// thread); with the cap cleared reads block, as application reads must. A host supplies the
-  /// readiness wait and the raw receive/send.</summary>
+  /// thread); with the cap cleared reads block, as application reads must. Writes can be bounded
+  /// the same way, by a deadline that raises ETlsWriteTimeout. A host supplies the readiness waits
+  /// and the raw receive/send.</summary>
   TTlsTimedTransportBase = class abstract(TInterfacedObject, ITlsTransport, ITlsTimedTransport)
   strict private
+  const
+    // a send this size after a positive writability wait does not block
+    ArmedSendSliceBytes = 1024;
   var
     FReadTimeoutMs: Int32;
     FDeadlineMs: Int64; // monotonic ms the armed cap expires at
     FApplicationRead: Boolean; // the armed cap bounds an application read, not the handshake
+    FWriteTimeoutMs: Int32;
+    FWriteDeadlineMs: Int64; // monotonic ms the armed write deadline expires at
     FClock: ITlsMonotonicClock;
     procedure RaiseCapElapsed;
+    procedure AwaitWritable;
   strict protected
     /// <summary>True when at least one byte can be read within AMs ms. The default waits nowhere and
     /// returns True, for a host that bounds the socket itself (a receive timeout on the handle) and
     /// reports the elapsed cap from ReceiveRaw.</summary>
     function WaitReadable(AMs: Int32): Boolean; virtual;
+    /// <summary>True when at least one byte can be sent within AMs ms. A socket error or hang-up
+    /// counts as ready, so the send that follows raises the real error. An interrupted wait may
+    /// return False early: the base asks again with the time left, so only the deadline ends the
+    /// wait. The default waits nowhere and returns True, so an armed write deadline is then only
+    /// checked between sends and a send in progress is not bounded; a host with a selectable socket
+    /// overrides it.</summary>
+    function WaitWritable(AMs: Int32): Boolean; virtual;
     /// <summary>One blocking receive: the count, 0 on an orderly close, a negative value for a host
     /// receive error (which the base surfaces as ETlsStreamError, never as end of stream). A host
     /// whose socket bounds its own receives raises the elapsed cap itself: ETlsHandshakeTimeout
@@ -255,12 +270,20 @@ type
     /// otherwise. A host that retries a receive inside ReceiveRaw calls it between attempts, so the
     /// retries cannot outlive the deadline the base only checks before each Read.</summary>
     procedure CheckReadCap;
+    /// <summary>Raises ETlsWriteTimeout when an armed write deadline has passed, and does nothing
+    /// otherwise. A host that retries a send inside SendRaw calls it between attempts, so the
+    /// retries cannot outlive the deadline the base only checks before each send.</summary>
+    procedure CheckWriteCap;
+    /// <summary>The longest a wait inside SendRaw may last: AMaxMs, or the time left on an armed
+    /// write deadline when that is less. Raises ETlsWriteTimeout once the deadline has passed.</summary>
+    function WriteWaitMs(AMaxMs: Int32): Int32;
     property ReadTimeoutMs: Int32 read FReadTimeoutMs;
   public
-    /// <summary>Measures the handshake deadline on the system monotonic clock.</summary>
+    /// <summary>Measures the handshake and write deadlines on the system monotonic clock.</summary>
     constructor Create;
-    /// <summary>Measures the handshake deadline on AClock instead (required; nil raises). Call it
-    /// before SetReadTimeout: it clears any armed cap, whose deadline belongs to the old clock.</summary>
+    /// <summary>Measures the deadlines on AClock instead (required; nil raises). Call it before
+    /// SetReadTimeout or SetWriteTimeout: it clears any armed cap or deadline, which belongs to the
+    /// old clock. Like SetWriteTimeout it is not thread-safe.</summary>
     procedure UseClock(const AClock: ITlsMonotonicClock);
     /// <summary>Bounds the reads that follow to AMs ms in total, as a deadline from this call
     /// (0 = block). A host that bounds its own socket (WaitReadable not overridden) can let a
@@ -271,6 +294,14 @@ type
     /// update, part of a record) keep a read going. A read past the deadline raises the retryable
     /// ETlsReadTimeout instead of ETlsHandshakeTimeout. SetReadTimeout(0) clears it.</summary>
     procedure SetApplicationReadTimeout(AMs: Int32);
+    /// <summary>Bounds the writes that follow to AMs ms in total, as a deadline from this call
+    /// (AMs &lt;= 0 clears it). While it is armed, a write goes out in sends of at most 1 KiB, each
+    /// after a wait for writability within the time left, and raises ETlsWriteTimeout once the
+    /// deadline has passed. A send after a positive wait does not block, so the whole write ends
+    /// within the deadline when the host's WaitWritable reports true writability. Not thread-safe:
+    /// call it only while holding the send side, and clear it in a finally before releasing that
+    /// side, or every later write sees the stale deadline.</summary>
+    procedure SetWriteTimeout(AMs: Int32);
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
   end;
@@ -279,14 +310,22 @@ type
   /// ready engine, the role-correct parked-verdict resolver, the handshake with its read cap armed
   /// and then cleared, application reads and writes, and the negotiated facts (zero values before
   /// the handshake). Host-owned; freeing it frees the stream and releases the transport and engine
-  /// without sending close_notify (a host calls CloseNotify at its own close hook). Not thread-safe:
-  /// a connection must not be read and written from two threads at once, so a host that broadcasts
-  /// from another thread serializes its access.</summary>
+  /// without sending close_notify (a host calls CloseNotify at its own close hook). Full duplex:
+  /// one thread may read while others write, close, abort, rekey or query it. Reads are serialised
+  /// with reads and writes with writes, so a message is never interleaved with another; a close or
+  /// alert never waits for a busy writer, which sends it before it returns; the engine underneath
+  /// must not be called directly while the connection is in use; and a read blocked on the socket
+  /// ends only with bytes or when the host closes the socket. Terminal sends (a fatal alert,
+  /// close_notify) are bounded by DefaultCloseGraceMs on the timed transport. Free it only after
+  /// every call has returned.</summary>
   TTlsConnection = class sealed(TObject)
   public const
     /// <summary>The handshake read-timeout the connection applies when the host passes 0 (30 s).
     /// Exported so an adapter can share the one default rather than repeat the literal.</summary>
     DefaultHandshakeTimeoutMs = Int32(30000);
+    /// <summary>The longest a terminal send (a fatal alert, close_notify) may take before it is
+    /// abandoned and the connection latched failed (5 s).</summary>
+    DefaultCloseGraceMs = TTlsStream.DefaultCloseGraceMs;
   strict private
   var
     FStream: TTlsStream;
@@ -325,10 +364,18 @@ type
     /// <summary>See TTlsStream.ReadEarlyData; call it after the handshake and before Read.</summary>
     function ReadEarlyData(var ABuffer; ACount: Longint): Longint;
     function Write(const ABuffer; ACount: Longint): Longint;
+    /// <summary>Asks for fresh traffic keys (see TTlsStream.RequestKeyUpdate). Call this, not the
+    /// engine, while the connection is in use.</summary>
+    procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+    /// <summary>The exporter keyed to this connection (see TTlsStream.ExportKeyingMaterial).</summary>
+    function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
+    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; overload;
     function PendingReadBytes: Int32;
     /// <summary>Sends close_notify; raises like the stream does.</summary>
     procedure CloseNotify;
-    /// <summary>Sends close_notify, swallowing a write to an already-dead peer.</summary>
+    /// <summary>Sends close_notify, swallowing every failure: a write to an already-dead peer, and
+    /// the refusal when called from a callback inside a read, which then sends nothing.</summary>
     procedure CloseNotifyQuietly;
     /// <summary>Refuses the connection with a fatal alert (see TTlsStream.SendAlert): the host
     /// rejected the peer after the handshake completed.</summary>
@@ -436,6 +483,7 @@ resourcestring
   SHandshakeReadTimedOut = 'the handshake did not complete within %d ms';
   SApplicationReadTimedOut = 'no application data arrived within %d ms';
   SSendNoProgress = 'the host transport reported no send progress';
+  SWriteTimedOut = 'the send did not complete within %d ms';
   STransportReceiveFailed = 'the host transport reported a receive error (%d)';
 
 { TTlsBlobSource }
@@ -1190,6 +1238,13 @@ begin
   FApplicationRead := AMs > 0;
 end;
 
+procedure TTlsTimedTransportBase.SetWriteTimeout(AMs: Int32);
+begin
+  FWriteTimeoutMs := AMs;
+  if AMs > 0 then
+    FWriteDeadlineMs := FClock.NowMonotonicMillis + AMs;
+end;
+
 constructor TTlsTimedTransportBase.Create;
 begin
   inherited Create;
@@ -1202,12 +1257,18 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilTransportClock);
   FClock := AClock;
   FReadTimeoutMs := 0;
+  FWriteTimeoutMs := 0;
 end;
 
 function TTlsTimedTransportBase.WaitReadable(AMs: Int32): Boolean;
 begin
   // a host that bounds the socket itself (a receive timeout on the handle) keeps this default and
   // reports the elapsed cap from ReceiveRaw
+  Result := True;
+end;
+
+function TTlsTimedTransportBase.WaitWritable(AMs: Int32): Boolean;
+begin
   Result := True;
 end;
 
@@ -1223,6 +1284,32 @@ procedure TTlsTimedTransportBase.CheckReadCap;
 begin
   if (FReadTimeoutMs > 0) and (FDeadlineMs - FClock.NowMonotonicMillis <= 0) then
     RaiseCapElapsed;
+end;
+
+procedure TTlsTimedTransportBase.CheckWriteCap;
+begin
+  if (FWriteTimeoutMs > 0) and (FWriteDeadlineMs - FClock.NowMonotonicMillis <= 0) then
+    raise ETlsWriteTimeout.CreateResFmt(@SWriteTimedOut, [FWriteTimeoutMs]);
+end;
+
+function TTlsTimedTransportBase.WriteWaitMs(AMaxMs: Int32): Int32;
+var
+  LLeftMs: Int64;
+begin
+  Result := AMaxMs;
+  if FWriteTimeoutMs <= 0 then
+    Exit;
+  LLeftMs := FWriteDeadlineMs - FClock.NowMonotonicMillis;
+  if LLeftMs <= 0 then
+    raise ETlsWriteTimeout.CreateResFmt(@SWriteTimedOut, [FWriteTimeoutMs]);
+  if LLeftMs < Result then
+    Result := Int32(LLeftMs);
+end;
+
+procedure TTlsTimedTransportBase.AwaitWritable;
+begin
+  repeat
+  until WaitWritable(WriteWaitMs(High(Int32)));
 end;
 
 function TTlsTimedTransportBase.Read(var ABuffer: TBytes; AOffset,
@@ -1248,13 +1335,20 @@ end;
 procedure TTlsTimedTransportBase.Write(const ABuffer: TBytes; AOffset,
   ALength: Int32);
 var
-  LOff, LRemain, LN: Int32;
+  LOff, LRemain, LSend, LN: Int32;
 begin
   LOff := AOffset;
   LRemain := ALength;
   while LRemain > 0 do
   begin
-    LN := SendRaw(ABuffer, LOff, LRemain);
+    LSend := LRemain;
+    if FWriteTimeoutMs > 0 then
+    begin
+      AwaitWritable;
+      if LSend > ArmedSendSliceBytes then
+        LSend := ArmedSendSliceBytes;
+    end;
+    LN := SendRaw(ABuffer, LOff, LSend);
     if LN <= 0 then
       raise ETlsStreamError.CreateRes(@SSendNoProgress);
     Inc(LOff, LN);
@@ -1283,7 +1377,7 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   FIsClient := AIsClient;
   FServerName := AServerName;
-  FStream := TTlsStream.Create(FTimed, FEngine, AIsClient, AServerName);
+  FStream := TTlsStream.Create(FTimed, FEngine, AIsClient, AServerName, DefaultCloseGraceMs);
   // the caller already chose the role-correct resolver (a client parks on the server's chain, a
   // server on the mTLS client's); the session never guesses the role
   if Assigned(AResolver) then
@@ -1348,24 +1442,13 @@ begin
   LMs := AHandshakeTimeoutMs;
   if LMs <= 0 then
     LMs := DefaultHandshakeTimeoutMs;
-  FTimed.SetReadTimeout(LMs);
-  try
-    FStream.Handshake;
-  finally
-    // clear the cap even if the handshake raised, so a retried app read is not left bounded
-    FTimed.SetReadTimeout(0);
-  end;
+  FStream.Handshake(LMs);
 end;
 
 function TTlsConnection.Read(var ABuffer; ACount: Longint;
   AReadTimeoutMs: Int32): Longint;
 begin
-  FTimed.SetApplicationReadTimeout(AReadTimeoutMs);
-  try
-    Result := Read(ABuffer, ACount);
-  finally
-    FTimed.SetReadTimeout(0);
-  end;
+  Result := FStream.ReadTimed(ABuffer, ACount, AReadTimeoutMs);
 end;
 
 function TTlsConnection.IsHandshakeComplete: Boolean;
@@ -1386,6 +1469,22 @@ end;
 function TTlsConnection.Write(const ABuffer; ACount: Longint): Longint;
 begin
   Result := FStream.Write(ABuffer, ACount);
+end;
+
+procedure TTlsConnection.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+begin
+  FStream.RequestKeyUpdate(ARequest);
+end;
+
+function TTlsConnection.ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes;
+begin
+  Result := FStream.ExportKeyingMaterial(ALabel, ALength);
+end;
+
+function TTlsConnection.ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+  ALength: Int32): TBytes;
+begin
+  Result := FStream.ExportKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 function TTlsConnection.PendingReadBytes: Int32;

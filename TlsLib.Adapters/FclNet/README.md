@@ -157,7 +157,8 @@ system-trust model see [docs/system-trust.md](../../docs/system-trust.md).
 - `BytesAvailable` reports our buffered plaintext count (the `SSL_pending` analogue), and
   `Select` / `CanRead` count it as readable.
 - A connection is not thread-safe: never use it from two threads at once (a `Send` or `Shutdown` on
-  one thread while another reads corrupts the stream). The exception is `Close`, which another
+  one thread while another reads is outside the handler's contract, although the TLS connection
+  underneath is full duplex). The exception is `Close`, which another
   thread may call to end a blocked `Recv`; it returns once that call has, and the handler may be
   freed after it. A `Recv` must not start once `Close` has begun. A blocked `Recv` checks for
   `Close` ten times a second; `Close` does not end a blocked `Send`.

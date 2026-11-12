@@ -29,6 +29,7 @@ uses
   SysUtils,
   SyncObjs,
   IdGlobal,
+  IdStack,
   IdSSL,
   IdURI,
   IdStackConsts,
@@ -227,12 +228,16 @@ type
   strict private
   var
     FBinding: TIdSocketHandle;
+    FWriteSet: TIdSocketList; // touched only by the send side
+    function SelectWritable(AMs: Int32): Boolean;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
     constructor Create(ABinding: TIdSocketHandle);
+    destructor Destroy; override;
   end;
 
   /// <summary>
@@ -459,11 +464,38 @@ constructor TIndySocketTransport.Create(ABinding: TIdSocketHandle);
 begin
   inherited Create;
   FBinding := ABinding;
+  FWriteSet := TIdSocketList.CreateSocketList;
+end;
+
+destructor TIndySocketTransport.Destroy;
+begin
+  FWriteSet.Free;
+  inherited Destroy;
 end;
 
 function TIndySocketTransport.WaitReadable(AMs: Int32): Boolean;
 begin
   Result := FBinding.Readable(AMs);
+end;
+
+function TIndySocketTransport.SelectWritable(AMs: Int32): Boolean;
+begin
+  FWriteSet.Clear;
+  FWriteSet.Add(FBinding.Handle);
+  Result := FWriteSet.Select(nil, FWriteSet, nil, AMs);
+end;
+
+function TIndySocketTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  // errors count as ready; Indy reads an interrupted select as ready too, so a yes is confirmed
+  if not FBinding.HandleAllocated then
+    Exit(True);
+  try
+    Result := SelectWritable(AMs) and SelectWritable(0);
+  except
+    on EIdSocketError do
+      Result := True;
+  end;
 end;
 
 function TIndySocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,

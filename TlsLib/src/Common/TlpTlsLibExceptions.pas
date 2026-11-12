@@ -153,6 +153,14 @@ type
   /// </summary>
   ETlsHandshakeTimeout = class(ETlsStreamError);
 
+  /// <summary>
+  /// A send armed with a write deadline did not finish in time: the peer is not draining its
+  /// socket fast enough, or has stopped, or the deadline had already passed when the send began.
+  /// NOT retryable: part of a record may already be on the wire, so the connection is unusable
+  /// afterwards.
+  /// </summary>
+  ETlsWriteTimeout = class(ETlsStreamError);
+
 resourcestring
   SEchRejected = 'the server rejected Encrypted Client Hello';
 

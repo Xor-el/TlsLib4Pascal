@@ -169,8 +169,10 @@ type
     FHandle: THandle;
     FSocketError: Integer;
     FCancelled: Boolean;
+    function WaitCancellable(AWait: TNetWait; AMs: Int32): Boolean;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -178,7 +180,8 @@ type
     /// <summary>The operating system's error number of the last send or receive that failed, 0
     /// when none has since it was cleared.</summary>
     property SocketError: Integer read FSocketError write FSocketError;
-    /// <summary>When set, a read waiting for the peer ends as an end of stream.</summary>
+    /// <summary>When set, a read waiting for the peer ends as an end of stream, and a wait for the
+    /// peer to drain ends at once.</summary>
     property Cancelled: Boolean read FCancelled write FCancelled;
   end;
 
@@ -987,21 +990,31 @@ begin
   TNetOs.ArmAgainstSigPipe(TNetHandle(FHandle));
 end;
 
-function TFclNetSocketTransport.WaitReadable(AMs: Int32): Boolean;
+function TFclNetSocketTransport.WaitCancellable(AWait: TNetWait; AMs: Int32): Boolean;
 var
   LLeftMs, LSliceMs: Int32;
 begin
-  // sliced waits let Cancelled end a blocked read; on Windows a shutdown or close does not
+  // sliced waits let Cancelled end a blocked wait; on Windows a shutdown or close does not
   LLeftMs := AMs;
   repeat
     LSliceMs := LLeftMs;
     if LSliceMs > CancelPollMs then
       LSliceMs := CancelPollMs;
-    Result := TNetOs.Wait(TNetHandle(FHandle), TNetWait.Readable, LSliceMs);
+    Result := TNetOs.Wait(TNetHandle(FHandle), AWait, LSliceMs);
     Dec(LLeftMs, LSliceMs);
   until Result or FCancelled or (LLeftMs <= 0);
-  // a cancelled wait ends as readable so the receive that follows reports the end
+  // a cancelled wait ends as ready so the receive or send that follows reports the end
   Result := Result or FCancelled;
+end;
+
+function TFclNetSocketTransport.WaitReadable(AMs: Int32): Boolean;
+begin
+  Result := WaitCancellable(TNetWait.Readable, AMs);
+end;
+
+function TFclNetSocketTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  Result := WaitCancellable(TNetWait.Writable, AMs);
 end;
 
 function TFclNetSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
