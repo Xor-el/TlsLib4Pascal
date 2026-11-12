@@ -156,11 +156,15 @@ type
   end;
 
   /// <summary>A transport whose socket died: every Write fails like a reset connection and a Read
-  /// reads as a closed peer.</summary>
+  /// reads as a closed peer. It counts the writes it was asked for.</summary>
   TDeadWriteTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  var
+    FAttempts: Int32;
   public
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    property Attempts: Int32 read FAttempts;
   end;
 
   /// <summary>A timed transport over a read pipe and a write pipe: reads wait on the pipe within
@@ -215,6 +219,7 @@ type
     FEntered: TEvent;
     FWrites: Int32;
     FWritten: Int32;
+    FCaptured: TBytes;
   public
     constructor Create(const AWire: TBytes);
     destructor Destroy; override;
@@ -228,6 +233,37 @@ type
     property Writes: Int32 read FWrites;
     /// <summary>The bytes of the writes that completed, read once the writer has been joined.</summary>
     property Written: Int32 read FWritten;
+    /// <summary>Those bytes in completion order, read once the writers have joined.</summary>
+    property Captured: TBytes read FCaptured;
+  end;
+
+  /// <summary>A timed transport that logs the read caps armed ('a' or 'h' and the ms) and cleared
+  /// ('c') on its inner one. The first clear waits for a second arm, so a clear outside the read
+  /// side shows as a reordered log.</summary>
+  TCapLogTransport = class sealed(TInterfacedObject, ITlsTransport, ITlsTimedTransport)
+  strict private
+  const
+    // the longest the first clear waits for another arm
+    HoldBoundMs = 400;
+  var
+    FInner: ITlsTimedTransport;
+    FLock: TCriticalSection;
+    FSecondArm: TEvent;
+    FLog: string;
+    FArms: Int32;
+    FHeld: Boolean;
+    procedure Append(const AEntry: string; AArm: Boolean);
+  public
+    constructor Create(const AInner: ITlsTimedTransport);
+    destructor Destroy; override;
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    procedure UseClock(const AClock: ITlsMonotonicClock);
+    procedure SetReadTimeout(AMs: Int32);
+    procedure SetApplicationReadTimeout(AMs: Int32);
+    procedure SetWriteTimeout(AMs: Int32);
+    /// <summary>The caps armed and cleared so far, in order.</summary>
+    function Log: string;
   end;
 
   /// <summary>A host resolver that answers one name, any case, with 127.0.0.1 and refuses the
@@ -538,6 +574,7 @@ end;
 
 procedure TDeadWriteTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
 begin
+  System.Inc(FAttempts);
   raise EInOutError.CreateRes(@SMockSocketFailed);
 end;
 
@@ -647,11 +684,16 @@ begin
 end;
 
 procedure TGatedTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+var
+  LOld: Int32;
 begin
   System.Inc(FWrites);
   FEntered.SetEvent;
   FGate.WaitFor(GateBoundMs);
   System.Inc(FWritten, ALength);
+  LOld := System.Length(FCaptured);
+  System.SetLength(FCaptured, LOld + ALength);
+  System.Move(ABuffer[AOffset], FCaptured[LOld], ALength);
 end;
 
 procedure TGatedTransport.Open;
@@ -662,6 +704,97 @@ end;
 function TGatedTransport.WaitEntered(AMs: Int32): Boolean;
 begin
   Result := FEntered.WaitFor(Cardinal(AMs)) = wrSignaled;
+end;
+
+{ TCapLogTransport }
+
+constructor TCapLogTransport.Create(const AInner: ITlsTimedTransport);
+begin
+  inherited Create;
+  FInner := AInner;
+  FLock := TCriticalSection.Create;
+  FSecondArm := TEvent.Create(nil, True, False, '');
+end;
+
+destructor TCapLogTransport.Destroy;
+begin
+  FSecondArm.Free;
+  FLock.Free;
+  inherited Destroy;
+end;
+
+procedure TCapLogTransport.Append(const AEntry: string; AArm: Boolean);
+begin
+  FLock.Acquire;
+  try
+    FLog := FLog + AEntry;
+    if AArm then
+    begin
+      System.Inc(FArms);
+      if FArms >= 2 then
+        FSecondArm.SetEvent;
+    end;
+  finally
+    FLock.Release;
+  end;
+end;
+
+function TCapLogTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+begin
+  Result := FInner.Read(ABuffer, AOffset, AMaxLength);
+end;
+
+procedure TCapLogTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
+  FInner.Write(ABuffer, AOffset, ALength);
+end;
+
+procedure TCapLogTransport.UseClock(const AClock: ITlsMonotonicClock);
+begin
+  FInner.UseClock(AClock);
+end;
+
+procedure TCapLogTransport.SetReadTimeout(AMs: Int32);
+var
+  LHold: Boolean;
+begin
+  if AMs > 0 then
+    Append('h' + IntToStr(AMs) + ';', True)
+  else
+  begin
+    FLock.Acquire;
+    try
+      LHold := not FHeld;
+      FHeld := True;
+    finally
+      FLock.Release;
+    end;
+    if LHold then
+      FSecondArm.WaitFor(HoldBoundMs);
+    Append('c;', False);
+  end;
+  FInner.SetReadTimeout(AMs);
+end;
+
+procedure TCapLogTransport.SetApplicationReadTimeout(AMs: Int32);
+begin
+  Append('a' + IntToStr(AMs) + ';', True);
+  FInner.SetApplicationReadTimeout(AMs);
+end;
+
+procedure TCapLogTransport.SetWriteTimeout(AMs: Int32);
+begin
+  FInner.SetWriteTimeout(AMs);
+end;
+
+function TCapLogTransport.Log: string;
+begin
+  FLock.Acquire;
+  try
+    Result := FLog;
+  finally
+    FLock.Release;
+  end;
 end;
 
 { TMockHostResolver }

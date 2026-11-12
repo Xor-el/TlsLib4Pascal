@@ -40,16 +40,16 @@ type
 
   /// <summary>
   /// Drives one sans-IO engine over a blocking ITlsTransport, and is the only code that touches
-  /// that engine while a connection is in use. It owns three locks, taken in the order read side
-  /// (held by the caller of ReadApp and DriveHandshake), then W, then E:
+  /// that engine while a connection is in use. It owns two locks, taken after the caller's
+  /// handshake side (around DriveHandshake) or read side (around ReadApp), in the order W, then E:
   /// E guards every engine call and is never held across transport I/O; W is held by whoever
   /// seals and sends, so wire order is seal order; the reader, Close and Abort only try W and never
   /// wait for it, and every release of W is followed by a recheck for bytes another thread left
   /// owed. After the handshake the read path never seals: what it provokes (a fatal alert) is
   /// sent by whoever wins W, bounded by the close grace on a timed transport. A fatal outcome
   /// raises ETlsStreamError; a transport EOF mid-handshake raises ETlsTransportTruncated. ReadApp
-  /// and DriveHandshake must be called by one thread at a time; the other members may be called
-  /// from any thread.
+  /// and DriveHandshake must each be called by one thread at a time, and ReadApp only once the
+  /// handshake has completed; the other members may be called from any thread.
   /// </summary>
   TTlsStreamPump = class sealed(TObject)
   public
@@ -64,18 +64,22 @@ type
   strict private
   type
     THandshakeState = (Idle, Running, Complete);
+    // what a close or refusal asked for while the handshake was running
+    TDeferredClose = (NotDeferred, DeferredNotify, DeferredAlert);
   var
     FInbound: ITlsEngineInbound;
     FOutbound: ITlsEngineOutbound;
     FTransport: ITlsTransport;
     FTimed: ITlsTimedTransport;
     FCloseGraceMs: Int32;
-    // E guards every engine call, FWriteClosed and every write of FHandshakeState
+    // E guards every engine call, FWriteClosed, FDeferredClose and every write of FHandshakeState
     FEngineLock: TCriticalSection;
     // W guards FSendBuffer, FWriteChunk and the right to take bytes from the engine and send them
     FWriteLock: TCriticalSection;
     FHandshakeState: THandshakeState; // lock-free reads are hints; Complete is final
     FWriteClosed: Boolean;
+    FDeferredClose: TDeferredClose;
+    FDeferredAlert: TTlsAlertDescription;
     FReadBuffer: TBytes; // the caller's read side
     FSendBuffer: TBytes;
     FWriteChunk: TBytes;
@@ -90,7 +94,7 @@ type
     procedure SendPendingBounded;
     /// <summary>As SendPendingBounded, swallowing every failure: the caller is already
     /// surfacing its own error, or has data to return, that a transport error must not mask.
-    /// The engine is latched or drained either way.</summary>
+    /// The engine is latched on a failure.</summary>
     procedure SendPendingQuietly;
     /// <summary>Leaves W, then sends what another thread queued while this one held it: the
     /// recheck that keeps a record from being stranded. Quiet and bounded, since only control
@@ -154,10 +158,12 @@ type
       const ACertEvent: ICertificateReceivedEvent;
       const AResolveVerdict: TCertificateVerdictResolver; APeerRole: TPeerRole;
       ADeadlineMs: Cardinal); overload; static;
-    /// <summary>Runs the handshake to completion, holding W throughout. A client sends its opening
-    /// flight first (StartHandshake); a server waits for the ClientHello. Raises on failure. This
-    /// overload has no resolver, so with async certificate verdicts enabled a parked verdict fails
-    /// closed with certificate_unknown; use the resolver overload to decide it out-of-band.</summary>
+    /// <summary>Runs the handshake to completion, holding W throughout; a no-op once it has
+    /// completed. A client sends its opening flight first (StartHandshake); a server waits for the
+    /// ClientHello. Raises on failure. A close or refusal asked for meanwhile takes effect the
+    /// moment the handshake completes (see Close and Abort). This overload has no resolver, so with
+    /// async certificate verdicts enabled a parked verdict fails closed with certificate_unknown;
+    /// use the resolver overload to decide it out-of-band.</summary>
     procedure DriveHandshake(AIsClient: Boolean); overload;
     /// <summary>Runs the handshake to completion, resolving any parked peer-certificate
     /// verdict through AResolveVerdict (a nil resolver fails such a park closed) with E released.
@@ -184,17 +190,22 @@ type
     /// calls raise the latched error.</summary>
     procedure WriteApp(const ABuffer; ACount: Int32);
     /// <summary>Sends a TLS 1.3 KeyUpdate and the reply owed to the peer's, waiting for W like a
-    /// write; raises when the connection has failed.</summary>
+    /// write; raises when the connection has failed or its write side is closed.</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Seals close_notify and sends it if W is free; a busy writer sends it in its
     /// recheck, so it can still be unsent when this returns. A transport failure raises as for
-    /// SendPending; a send past the close grace raises ETlsWriteTimeout.</summary>
+    /// SendPending; a send past the close grace raises ETlsWriteTimeout. While the handshake is
+    /// running it only records the request: the handshake thread sends close_notify as it
+    /// completes, and a failure of that send latches the engine without raising there.</summary>
     procedure Close;
     /// <summary>Sends a fatal alert (the engine goes terminal), best effort and without waiting
-    /// for W: used when the local host refuses a connection that already completed its handshake.</summary>
+    /// for W: used when the local host refuses a connection. While the handshake is running it
+    /// only records the refusal: the handshake thread sends the alert as the handshake completes,
+    /// so the connection never goes live.</summary>
     procedure Abort(ADescription: TTlsAlertDescription);
-    /// <summary>Marks the write side closed, for a write issued before the handshake ran. True when
-    /// this call closed it after the handshake completed, so a close_notify or alert is owed.</summary>
+    /// <summary>Marks the write side closed; True when it was open on a running or completed
+    /// handshake, so close_notify or an alert is owed. Before the handshake it only latches the
+    /// flag, which a later write reports.</summary>
     function CloseWriteSide: Boolean;
     /// <summary>Whether CloseWriteSide has closed the write side.</summary>
     function WriteSideClosed: Boolean;
@@ -532,20 +543,39 @@ end;
 
 procedure TTlsStreamPump.DriveHandshake(AIsClient: Boolean;
   const AResolveVerdict: TCertificateVerdictResolver; ADeadlineMs: Cardinal);
+var
+  LRun: Boolean;
 begin
   FWriteLock.Enter;
   try
     FEngineLock.Enter;
     try
-      FHandshakeState := THandshakeState.Running;
+      LRun := FHandshakeState <> THandshakeState.Complete;
+      if LRun then
+        FHandshakeState := THandshakeState.Running;
     finally
       FEngineLock.Leave;
     end;
+    if not LRun then
+      Exit;
     try
       RunHandshake(AIsClient, AResolveVerdict, ADeadlineMs);
+      // sealed here, sent by the release of W below
+      FEngineLock.Enter;
+      try
+        case FDeferredClose of
+          TDeferredClose.DeferredNotify:
+            FOutbound.SendClose;
+          TDeferredClose.DeferredAlert:
+            FOutbound.SendAlert(FDeferredAlert);
+        end;
+      finally
+        FEngineLock.Leave;
+      end;
     finally
       FEngineLock.Enter;
       try
+        FDeferredClose := TDeferredClose.NotDeferred;
         if FHandshakeState = THandshakeState.Running then
           FHandshakeState := THandshakeState.Idle;
       finally
@@ -719,8 +749,7 @@ begin
     finally
       FEngineLock.Leave;
     end;
-    // what the input provoked (a fatal alert) must reach the peer now, since a read-only caller
-    // never writes: the loop top sends it if W is free and raises
+    // the loop top sends the alert the input provoked, since a read-only caller never writes
     if LTerminal then
       Continue;
     if Result > 0 then
@@ -804,7 +833,7 @@ begin
       LChunk := ACount - LOffset;
       if LChunk > WriteChunk then
         LChunk := WriteChunk;
-      // grown on demand and capped, so a stream that only ever writes small messages never holds 64 KiB
+      // grown on demand and capped, so a stream that only writes small messages never holds 64 KiB
       if System.Length(FWriteChunk) < LChunk then
         SetLength(FWriteChunk, LChunk);
       Move(PByte(@ABuffer)[LOffset], FWriteChunk[0], LChunk);
@@ -818,15 +847,22 @@ begin
 end;
 
 procedure TTlsStreamPump.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+var
+  LClosed: Boolean;
 begin
   FWriteLock.Enter;
   try
     FEngineLock.Enter;
     try
-      FOutbound.RequestKeyUpdate(ARequest);
+      // a terminal engine reports its recorded failure below, not a closed write side
+      LClosed := (not FOutbound.IsTerminal) and (FWriteClosed or FOutbound.WriteClosed);
+      if not LClosed then
+        FOutbound.RequestKeyUpdate(ARequest);
     finally
       FEngineLock.Leave;
     end;
+    if LClosed then
+      raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
     FlushThenRaiseIfFatal;
   finally
     ReleaseWrite;
@@ -837,6 +873,12 @@ procedure TTlsStreamPump.Close;
 begin
   FEngineLock.Enter;
   try
+    if FHandshakeState = THandshakeState.Running then
+    begin
+      if FDeferredClose = TDeferredClose.NotDeferred then
+        FDeferredClose := TDeferredClose.DeferredNotify;
+      Exit;
+    end;
     FOutbound.SendClose;
   finally
     FEngineLock.Leave;
@@ -848,6 +890,15 @@ procedure TTlsStreamPump.Abort(ADescription: TTlsAlertDescription);
 begin
   FEngineLock.Enter;
   try
+    if FHandshakeState = THandshakeState.Running then
+    begin
+      if FDeferredClose = TDeferredClose.NotDeferred then
+      begin
+        FDeferredClose := TDeferredClose.DeferredAlert;
+        FDeferredAlert := ADescription;
+      end;
+      Exit;
+    end;
     FOutbound.SendAlert(ADescription);
   finally
     FEngineLock.Leave;
@@ -861,7 +912,7 @@ begin
   FEngineLock.Enter;
   try
     // a close before the handshake even ran has nothing to protect; only a live one is shut down
-    Result := (not FWriteClosed) and (FHandshakeState = THandshakeState.Complete);
+    Result := (not FWriteClosed) and (FHandshakeState <> THandshakeState.Idle);
     FWriteClosed := True;
   finally
     FEngineLock.Leave;
