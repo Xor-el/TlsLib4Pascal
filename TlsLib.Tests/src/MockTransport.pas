@@ -23,7 +23,13 @@ uses
   SyncObjs,
   TlpIClock,
   TlpTlsLibExceptions,
+  TlpTlsAlert,
+  TlpTlsError,
+  TlpTlsConnectionInfo,
+  TlpHandshakeMessages,
   TlpITlsEngine,
+  TlpITlsEngineInbound,
+  TlpITlsEngineOutbound,
   TlpITlsTransport,
   TlpINetSocket,
   TlpTlsConnection,
@@ -33,22 +39,26 @@ type
   /// <summary>A single-direction in-memory byte pipe with blocking reads. Write appends;
   /// a Read blocks for data or an orderly close (returns 0). The shared boundary the two
   /// single-threaded engines synchronize across in a loopback. A pipe made with a capacity holds
-  /// at most that many bytes: a Write blocks while it is full, and raises once the pipe is
-  /// closed, so a stalled peer is felt by the sender as it is on a socket.</summary>
+  /// at most that many bytes: a Write blocks while it is full, and unlike an unbounded pipe it
+  /// raises once the pipe is closed, so a stalled peer is felt by the sender as on a socket.</summary>
   TMemoryPipe = class sealed(TObject)
   strict private
   var
     FLock: TCriticalSection;
     FEvent: TEvent;
     FSpace: TEvent;
+    FParked: TEvent;
     FBuffer: TBytes;
     FHead: Int32;
     FCapacity: Int32;
     FClosed: Boolean;
     FWritten: Int64;
+    FStalls: Int64;
     FCorruptAt: Int64;
+    function AppendFits(const AData: TBytes; AOffset, ALength: Int32): Int32;
     procedure WriteBounded(const AData: TBytes; AOffset, ALength: Int32);
     function GetWritten: Int64;
+    function GetStalls: Int64;
     procedure CorruptWithin(AFrom: Int32; ALength: Int32);
   public
     constructor Create; overload;
@@ -56,6 +66,9 @@ type
     constructor Create(ACapacity: Int32); overload;
     destructor Destroy; override;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
+    /// <summary>Appends what fits now, without waiting, and returns the count (all of it when
+    /// the pipe is unbounded).</summary>
+    function TryWrite(const AData: TBytes; AOffset, ALength: Int32): Int32;
     function Read(var ADest: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Close;
     /// <summary>True when a Read would not block: bytes are buffered, or the pipe is closed. Waits
@@ -64,10 +77,14 @@ type
     /// <summary>True when a Write would not block: there is room, or the pipe is closed. Waits up
     /// to AMs ms for either.</summary>
     function WaitSpace(AMs: Int32): Boolean;
+    /// <summary>True while a Read is waiting on an empty, open pipe; waits up to AMs ms for one.</summary>
+    function WaitParked(AMs: Int32): Boolean;
     /// <summary>Flips the byte that is the AOffset'th ever written into the pipe.</summary>
     procedure CorruptByteAt(AOffset: Int64);
     /// <summary>The bytes ever written into the pipe.</summary>
     property Written: Int64 read GetWritten;
+    /// <summary>How many times a write found less room than it needed.</summary>
+    property Stalls: Int64 read GetStalls;
   end;
 
   /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
@@ -102,6 +119,8 @@ type
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
     procedure CloseWrite;
+    /// <summary>True while a Read of this transport waits for data; waits up to AMs ms for one.</summary>
+    function WaitReadParked(AMs: Int32): Boolean;
   end;
 
   /// <summary>A transport decorator that measures how much ciphertext the engine had queued when
@@ -205,8 +224,8 @@ type
   end;
 
   /// <summary>A timed transport over a read pipe and a write pipe: reads wait on the pipe within
-  /// an armed cap, and sends go straight into the write pipe, within an armed write deadline
-  /// when the pipe is bounded. Owns the write pipe, as TMemoryTransport does.</summary>
+  /// an armed cap, and a send takes what the write pipe has room for, so a send under an armed
+  /// write deadline never waits past it. Owns the write pipe, as TMemoryTransport does.</summary>
   TPipeTimedTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
@@ -317,6 +336,57 @@ type
     property Asked: Int32 read FAsked;
   end;
 
+  /// <summary>An engine decorator that counts the calls that run inside it at the same time: each
+  /// forwarded call yields once inside, so a caller that does not serialise its engine calls shows
+  /// as an overlap.</summary>
+  TExclusionProbeEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
+    ITlsEngineOutbound)
+  strict private
+  var
+    FInner: ITlsEngine;
+    FLock: TCriticalSection;
+    FInside: Int32;
+    FOverlaps: Int32;
+    procedure Enter;
+    procedure Leave;
+  public
+    constructor Create(const AInner: ITlsEngine);
+    destructor Destroy; override;
+    function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
+    procedure Write(const AData: TBytes; AOffset, ALength: Int32);
+    function WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
+    procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+    procedure SendClose;
+    procedure SendAlert(ADescription: TTlsAlertDescription); overload;
+    procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
+    procedure LatchTransportFailure(const AReason: string);
+    procedure StartHandshake;
+    procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
+    function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
+    function ReadAppData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
+    function PendingAppData: Int32;
+    function ReadEarlyData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
+    function PendingEarlyData: Int32;
+    function NextEvent(out AEvent: ITlsEvent): Boolean;
+    function ConnectionInfo: TTlsConnectionInfo;
+    function WantsRead: Boolean;
+    function WantsWrite: Boolean;
+    function IsHandshaking: Boolean;
+    function AwaitingCertificateVerdict: Boolean;
+    function IsTerminal: Boolean;
+    function IsClosed: Boolean;
+    function IsInboundClosed: Boolean;
+    function WriteClosed: Boolean;
+    function LastError: TTlsError;
+    function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
+    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; overload;
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
+    /// <summary>How many calls began while another was still inside.</summary>
+    function Overlaps: Int32;
+  end;
+
   /// <summary>The server half of a loopback on its own thread; owns the server stream.</summary>
   TLoopbackServerThread = class abstract(TThread)
   strict protected
@@ -355,6 +425,8 @@ begin
   FEvent := TEvent.Create(nil, True, False, '');
   // manual-reset: stays signaled while there is room or the pipe is closed
   FSpace := TEvent.Create(nil, True, True, '');
+  // manual-reset: signaled while a Read waits for data
+  FParked := TEvent.Create(nil, True, False, '');
   FHead := 0;
   FCapacity := ACapacity;
   FClosed := False;
@@ -363,6 +435,7 @@ end;
 
 destructor TMemoryPipe.Destroy;
 begin
+  FParked.Free;
   FSpace.Free;
   FEvent.Free;
   FLock.Free;
@@ -374,6 +447,16 @@ begin
   FLock.Acquire;
   try
     Result := FWritten;
+  finally
+    FLock.Release;
+  end;
+end;
+
+function TMemoryPipe.GetStalls: Int64;
+begin
+  FLock.Acquire;
+  try
+    Result := FStalls;
   finally
     FLock.Release;
   end;
@@ -400,43 +483,63 @@ begin
   end;
 end;
 
+function TMemoryPipe.AppendFits(const AData: TBytes; AOffset, ALength: Int32): Int32;
+var
+  LPending: Int32;
+begin
+  FLock.Acquire;
+  try
+    if FClosed then
+      raise EInOutError.CreateRes(@SMockPipeClosed);
+    LPending := System.Length(FBuffer) - FHead;
+    Result := FCapacity - LPending;
+    if Result > ALength then
+      Result := ALength;
+    if Result < ALength then
+      System.Inc(FStalls);
+    if Result > 0 then
+    begin
+      if FHead > 0 then
+      begin
+        Move(FBuffer[FHead], FBuffer[0], LPending);
+        FHead := 0;
+      end;
+      SetLength(FBuffer, LPending + Result);
+      Move(AData[AOffset], FBuffer[LPending], Result);
+      CorruptWithin(LPending, Result);
+      System.Inc(FWritten, Result);
+      FEvent.SetEvent;
+    end;
+    if LPending + Result >= FCapacity then
+      FSpace.ResetEvent;
+  finally
+    FLock.Release;
+  end;
+end;
+
 procedure TMemoryPipe.WriteBounded(const AData: TBytes; AOffset, ALength: Int32);
 var
-  LDone, LPending, LCount: Int32;
+  LDone: Int32;
 begin
   LDone := 0;
   while LDone < ALength do
   begin
-    FLock.Acquire;
-    try
-      if FClosed then
-        raise EInOutError.CreateRes(@SMockPipeClosed);
-      LPending := System.Length(FBuffer) - FHead;
-      LCount := FCapacity - LPending;
-      if LCount > ALength - LDone then
-        LCount := ALength - LDone;
-      if LCount > 0 then
-      begin
-        if FHead > 0 then
-        begin
-          Move(FBuffer[FHead], FBuffer[0], LPending);
-          FHead := 0;
-        end;
-        SetLength(FBuffer, LPending + LCount);
-        Move(AData[AOffset + LDone], FBuffer[LPending], LCount);
-        CorruptWithin(LPending, LCount);
-        System.Inc(LDone, LCount);
-        System.Inc(FWritten, LCount);
-        FEvent.SetEvent;
-      end;
-      if LPending + LCount >= FCapacity then
-        FSpace.ResetEvent;
-    finally
-      FLock.Release;
-    end;
+    System.Inc(LDone, AppendFits(AData, AOffset + LDone, ALength - LDone));
     if LDone < ALength then
       FSpace.WaitFor(INFINITE);
   end;
+end;
+
+function TMemoryPipe.TryWrite(const AData: TBytes; AOffset, ALength: Int32): Int32;
+begin
+  if ALength <= 0 then
+    Exit(0);
+  if FCapacity <= 0 then
+  begin
+    Write(AData, AOffset, ALength);
+    Exit(ALength);
+  end;
+  Result := AppendFits(AData, AOffset, ALength);
 end;
 
 procedure TMemoryPipe.Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -492,7 +595,9 @@ begin
     finally
       FLock.Release;
     end;
+    FParked.SetEvent;
     FEvent.WaitFor(INFINITE);
+    FParked.ResetEvent;
   until False;
 end;
 
@@ -516,6 +621,11 @@ end;
 function TMemoryPipe.WaitSpace(AMs: Int32): Boolean;
 begin
   Result := FSpace.WaitFor(Cardinal(AMs)) = wrSignaled;
+end;
+
+function TMemoryPipe.WaitParked(AMs: Int32): Boolean;
+begin
+  Result := FParked.WaitFor(Cardinal(AMs)) = wrSignaled;
 end;
 
 { TWedgeWatchdog }
@@ -585,6 +695,11 @@ end;
 procedure TMemoryTransport.CloseWrite;
 begin
   FWrite.Close;
+end;
+
+function TMemoryTransport.WaitReadParked(AMs: Int32): Boolean;
+begin
+  Result := FRead.WaitParked(AMs);
 end;
 
 { TPeakProbeTransport }
@@ -783,6 +898,10 @@ end;
 function TPipeTimedTransport.SendRaw(const ABuffer: TBytes; AOffset,
   ALength: Int32): Int32;
 begin
+  Result := FWrite.TryWrite(ABuffer, AOffset, ALength);
+  if Result > 0 then
+    Exit;
+  // an armed send waited for room first, so only an unarmed one meets a full pipe
   FWrite.Write(ABuffer, AOffset, ALength);
   Result := ALength;
 end;
@@ -988,6 +1107,353 @@ begin
   Result := SameText(AHost, FName);
   if Result then
     AAddress := TBytes.Create(127, 0, 0, 1);
+end;
+
+{ TExclusionProbeEngine }
+
+constructor TExclusionProbeEngine.Create(const AInner: ITlsEngine);
+begin
+  inherited Create;
+  FInner := AInner;
+  FLock := TCriticalSection.Create;
+end;
+
+destructor TExclusionProbeEngine.Destroy;
+begin
+  FLock.Free;
+  inherited Destroy;
+end;
+
+procedure TExclusionProbeEngine.Enter;
+begin
+  FLock.Acquire;
+  try
+    System.Inc(FInside);
+    if FInside > 1 then
+      System.Inc(FOverlaps);
+  finally
+    FLock.Release;
+  end;
+  Sleep(0);
+end;
+
+procedure TExclusionProbeEngine.Leave;
+begin
+  FLock.Acquire;
+  try
+    System.Dec(FInside);
+  finally
+    FLock.Release;
+  end;
+end;
+
+function TExclusionProbeEngine.Overlaps: Int32;
+begin
+  FLock.Acquire;
+  try
+    Result := FOverlaps;
+  finally
+    FLock.Release;
+  end;
+end;
+
+function TExclusionProbeEngine.ProcessInput(const AWire: TBytes; AOffset,
+  ALength: Int32): TTlsOutcome;
+begin
+  Enter;
+  try
+    Result := FInner.ProcessInput(AWire, AOffset, ALength);
+  finally
+    Leave;
+  end;
+end;
+
+procedure TExclusionProbeEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
+begin
+  Enter;
+  try
+    FInner.Write(AData, AOffset, ALength);
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.WriteEarlyData(const AData: TBytes; AOffset,
+  ALength: Int32): Int32;
+begin
+  Enter;
+  try
+    Result := FInner.WriteEarlyData(AData, AOffset, ALength);
+  finally
+    Leave;
+  end;
+end;
+
+procedure TExclusionProbeEngine.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+begin
+  Enter;
+  try
+    FInner.RequestKeyUpdate(ARequest);
+  finally
+    Leave;
+  end;
+end;
+
+procedure TExclusionProbeEngine.SendClose;
+begin
+  Enter;
+  try
+    FInner.SendClose;
+  finally
+    Leave;
+  end;
+end;
+
+procedure TExclusionProbeEngine.SendAlert(ADescription: TTlsAlertDescription);
+begin
+  Enter;
+  try
+    FInner.SendAlert(ADescription);
+  finally
+    Leave;
+  end;
+end;
+
+procedure TExclusionProbeEngine.SendAlert(ADescription: TTlsAlertDescription;
+  const AReason: string);
+begin
+  Enter;
+  try
+    FInner.SendAlert(ADescription, AReason);
+  finally
+    Leave;
+  end;
+end;
+
+procedure TExclusionProbeEngine.LatchTransportFailure(const AReason: string);
+begin
+  Enter;
+  try
+    FInner.LatchTransportFailure(AReason);
+  finally
+    Leave;
+  end;
+end;
+
+procedure TExclusionProbeEngine.StartHandshake;
+begin
+  Enter;
+  try
+    FInner.StartHandshake;
+  finally
+    Leave;
+  end;
+end;
+
+procedure TExclusionProbeEngine.SetCertificateVerdict(AAccept: Boolean;
+  AAlert: TTlsAlertDescription);
+begin
+  Enter;
+  try
+    FInner.SetCertificateVerdict(AAccept, AAlert);
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
+begin
+  Enter;
+  try
+    Result := FInner.TakeOutgoing(ADest, ADestOffset);
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.ReadAppData(var ADest: TBytes; ADestOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Enter;
+  try
+    Result := FInner.ReadAppData(ADest, ADestOffset, AMaxLength);
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.PendingAppData: Int32;
+begin
+  Enter;
+  try
+    Result := FInner.PendingAppData;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.ReadEarlyData(var ADest: TBytes; ADestOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Enter;
+  try
+    Result := FInner.ReadEarlyData(ADest, ADestOffset, AMaxLength);
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.PendingEarlyData: Int32;
+begin
+  Enter;
+  try
+    Result := FInner.PendingEarlyData;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.NextEvent(out AEvent: ITlsEvent): Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.NextEvent(AEvent);
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.ConnectionInfo: TTlsConnectionInfo;
+begin
+  Enter;
+  try
+    Result := FInner.ConnectionInfo;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.WantsRead: Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.WantsRead;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.WantsWrite: Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.WantsWrite;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.IsHandshaking: Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.IsHandshaking;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.AwaitingCertificateVerdict: Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.AwaitingCertificateVerdict;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.IsTerminal: Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.IsTerminal;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.IsClosed: Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.IsClosed;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.IsInboundClosed: Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.IsInboundClosed;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.WriteClosed: Boolean;
+begin
+  Enter;
+  try
+    Result := FInner.WriteClosed;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.LastError: TTlsError;
+begin
+  Enter;
+  try
+    Result := FInner.LastError;
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.ExportKeyingMaterial(const ALabel: string;
+  ALength: Int32): TBytes;
+begin
+  Enter;
+  try
+    Result := FInner.ExportKeyingMaterial(ALabel, ALength);
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Enter;
+  try
+    Result := FInner.ExportKeyingMaterial(ALabel, AContext, ALength);
+  finally
+    Leave;
+  end;
+end;
+
+function TExclusionProbeEngine.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Enter;
+  try
+    Result := FInner.ExportEarlyKeyingMaterial(ALabel, AContext, ALength);
+  finally
+    Leave;
+  end;
 end;
 
 { TLoopbackServerThread }

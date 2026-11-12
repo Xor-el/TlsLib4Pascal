@@ -21,12 +21,15 @@ uses
   SysUtils,
   Classes,
   SyncObjs,
+  Generics.Collections,
 {$IFDEF FPC}
   fpcunit,
   testregistry,
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
+  TlpIClock,
+  TlpClock,
   TlpTlsVersion,
   TlpTlsAlert,
   TlpHandshakeMessages,
@@ -77,8 +80,12 @@ type
     SingleByteReads: Boolean;
     // a writer asks for fresh keys after every this many messages (0 = never)
     KeyUpdateEvery: Int32;
-    // the capacity of each pipe, which is what makes a full pipe block a sender
+    // the capacity of each pipe
     Capacity: Int32;
+    // both pipes must have been full at some point
+    Backpressure: Boolean;
+    // the client's engine counts the calls that run inside it at once
+    Probe: Boolean;
     // a third thread per peer polls ConnectionInfo, PendingReadBytes, the exporter and rekeys
     Query: Boolean;
     ClientWriters: Int32;
@@ -89,8 +96,10 @@ type
     Close: TCloseKind;
     // the client has written this many bytes when the close happens
     CloseAtBytes: Int64;
-    // the close waits a random number of yields below this, to land anywhere in a write
+    // the close waits up to this many yields
     CloseSpinMax: Int32;
+    // seeds the close's number of yields
+    CloseSeed: UInt32;
     // the close comes as soon as the client's handshake is done, racing the writer's first messages
     CloseOnHandshake: Boolean;
     // the server has no writer and its reader must send nothing while the client rekeys
@@ -115,6 +124,8 @@ type
     constructor Create(const AStream: TTlsStream); overload;
     constructor Create(const AConnection: TTlsConnection); overload;
     destructor Destroy; override;
+    /// <summary>Returns once the handshake is complete, driving it if no other thread does.</summary>
+    procedure Handshake;
     function Read(var ABuffer; ACount: Int32): Int32;
     function ReadTimed(var ABuffer; ACount, AMs: Int32): Int32;
     procedure Write(const ABuffer; ACount: Int32);
@@ -163,6 +174,8 @@ type
     class function GetU32(const ABuffer: array of Byte; AOffset: Int32): UInt32; static;
     /// <summary>Consumes ACount bytes; False when they are not the stream the writers sent.</summary>
     function Feed(const ABuffer: TBytes; ACount: Int32): Boolean;
+    /// <summary>Whether the bytes fed so far end exactly at a frame boundary.</summary>
+    function Idle: Boolean;
     property Fins: Int32 read FFins;
     property Frames: Int32 read FFrames;
     property Bytes: Int64 read FBytes;
@@ -258,20 +271,20 @@ type
       AExpectFins: Int32);
   end;
 
-  /// <summary>Polls a peer from a third thread while traffic flows.</summary>
+  /// <summary>Polls a peer from a third thread until that peer's writer has ended, after which the
+  /// other side's reader may be gone and a rekey could block on a full pipe.</summary>
   TStressQuerier = class sealed(TStressWorker)
   strict private
   var
     FIo: TStressIo;
     FWire: UInt16;
-    FStop: TEvent;
+    FWriter: TStressWriter;
     FExported: TBytes;
   strict protected
     procedure Run; override;
   public
-    constructor Create(const AName: string; const AIo: TStressIo; AWire: UInt16);
-    destructor Destroy; override;
-    procedure Stop;
+    constructor Create(const AName: string; const AIo: TStressIo; AWire: UInt16;
+      const AWriter: TStressWriter);
     // the first exporter value this thread saw
     property Exported: TBytes read FExported;
   end;
@@ -284,20 +297,21 @@ type
     FWriter: TStressWriter;
     FKind: TCloseKind;
     FSpinMax: Int32;
+    FSeed: UInt32;
     FOnHandshake: Boolean;
   strict protected
     procedure Run; override;
   public
     constructor Create(const AName: string; const AIo: TStressIo; const AWriter: TStressWriter;
-      AKind: TCloseKind; ASpinMax: Int32; AOnHandshake: Boolean);
+      AKind: TCloseKind; ASpinMax: Int32; ASeed: UInt32; AOnHandshake: Boolean);
   end;
 
   /// <summary>Two peers over bounded in-memory pipes, the threads that load them and the watchdog
-  /// that fails a wedge instead of hanging the run. Execute returns '' or what went wrong.</summary>
+  /// that fails a wedge instead of hanging the run. Finish returns '' or what went wrong.</summary>
   TStressRun = class sealed(TObject)
   strict private
   const
-    // how many 100 ms waits workers get to unwind after the watchdog fires
+    // how many 100 ms waits workers get to unwind after the watchdog fires or the run is abandoned
     UnwindWaits = Int32(150);
   var
     FSpec: TStressSpec;
@@ -307,8 +321,9 @@ type
     FServerTransport: ITlsTimedTransport;
     FClient: TStressIo;
     FServer: TStressIo;
+    FClientProbe: TExclusionProbeEngine;
     FWatch: TWedgeWatchdog;
-    FWorkers: TList;
+    FWorkers: TObjectList<TStressWorker>;
     FClientWriter: TStressWriter;
     FClientWriter2: TStressWriter;
     FClientReader: TStressReader;
@@ -319,6 +334,7 @@ type
     FServerQuerier: TStressQuerier;
     FCloser: TStressCloser;
     FUnwound: Int32;
+    FAbandoning: Boolean;
     FStuck: Boolean;
     // what the server had written when its handshake ended, and what the read-only check found
     FBaseline: Int64;
@@ -333,6 +349,8 @@ type
     function CheckClose: string;
     function CheckCorrupt: string;
     function CheckExporters: string;
+    function CheckProbe: string;
+    function CheckBackpressure: string;
     /// <summary>The read-only server answered nothing while asked to rekey; its first write then
     /// sends the owed reply and a FIN.</summary>
     procedure ServerSpeaksOnce;
@@ -344,7 +362,8 @@ type
     procedure Start;
     /// <summary>Waits for the traffic to end and returns '' or what went wrong.</summary>
     function Finish: string;
-    function Execute: string;
+    /// <summary>Closes both pipes and waits for every worker to end; False when one never does.</summary>
+    function Abandon: Boolean;
   end;
 
   TTestDuplexStress = class(TTlsLibAlgorithmTestCase)
@@ -354,6 +373,8 @@ type
     function ClientConfig(AWire: UInt16): ITlsClientConfig;
     function ServerConfig(AWire: UInt16): ITlsServerConfig;
     function BaseSpec(AWire: UInt16; APayload: TPayloadKind; AFrames: Int32): TStressSpec;
+    function RunToEnd(const ASpec: TStressSpec; const AClientConfig: ITlsClientConfig;
+      const AServerConfig: ITlsServerConfig): string;
     procedure RunSpec(const ASpec: TStressSpec);
     procedure RunClose(AWire: UInt16; AKind: TCloseKind);
     procedure RunCorrupt(AWire: UInt16);
@@ -386,6 +407,9 @@ type
     procedure TestTls13FatalErrorFoundByTheReaderReachesThePeer;
     procedure TestTls12FatalErrorFoundByTheReaderReachesThePeer;
     procedure TestCloseRacingTheLastWriteNeverStrandsTheCloseNotify;
+    procedure TestEngineCallsNeverOverlapUnderTraffic;
+    procedure TestEngineCallsNeverOverlapWhenTheCloseArrives;
+    procedure TestAnAbandonedRunUnblocksItsWorkersInsteadOfHanging;
     procedure TestAWedgeFailsWithADiagnosticInsteadOfHanging;
   end;
 
@@ -394,6 +418,11 @@ implementation
 const
   ExporterLabel = 'EXPERIMENTAL tlslib duplex stress';
   ExporterLength = Int32(32);
+  HandshakeBoundMs = Int32(30000);
+  // a TLS 1.3 record around a payload: header, inner type and tag
+  RecordOverhead = Int32(22);
+  // a whole sealed KeyUpdate record
+  KeyUpdateRecordLength = Int32(27);
 
 type
   /// <summary>A small deterministic generator, so a failing run can be repeated.</summary>
@@ -442,6 +471,14 @@ begin
   FStream.Free;
   FConnection.Free;
   inherited Destroy;
+end;
+
+procedure TStressIo.Handshake;
+begin
+  if FConnection <> nil then
+    FConnection.Handshake(HandshakeBoundMs)
+  else
+    FStream.Handshake;
 end;
 
 function TStressIo.Read(var ABuffer; ACount: Int32): Int32;
@@ -576,6 +613,11 @@ begin
   Result := True;
 end;
 
+function TFrameParser.Idle: Boolean;
+begin
+  Result := (FHave = 0) and (FLeft = 0);
+end;
+
 function TFrameParser.Feed(const ABuffer: TBytes; ACount: Int32): Boolean;
 var
   LIndex, LRun: Int32;
@@ -670,6 +712,9 @@ const
     'querying', 'closing');
 begin
   Result := Format('%s %s message %d, %d bytes done', [FTitle, PhaseNames[FPhase], FSeq, FBytes]);
+  // a worker that is still running may be assigning its strings
+  if not WaitEnded(0) then
+    Exit;
   if FError <> '' then
     Result := Result + ' (' + FError + ')';
   if FStopNote <> '' then
@@ -830,6 +875,9 @@ begin
           raise EStressFailure.Create(LParser.Error);
         System.Inc(FBytes, LGot);
       end;
+      if (not LParser.Idle) or (LParser.Fins > FExpectFins) then
+        raise EStressFailure.CreateFmt('bytes followed the last FIN, at stream offset %d',
+          [LParser.Bytes]);
       FOutcome := TReaderOutcome.EndedWithFin;
     except
       on E: ETlsStreamError do
@@ -921,6 +969,9 @@ begin
         System.Inc(FBytes, LGot);
       end;
     end;
+    if (not LParser.Idle) or (LParser.Fins > FExpectFins) then
+      raise EStressFailure.CreateFmt('bytes followed the last FIN, at stream offset %d',
+        [LParser.Bytes]);
   finally
     LParser.Free;
   end;
@@ -928,23 +979,13 @@ end;
 
 { TStressQuerier }
 
-constructor TStressQuerier.Create(const AName: string; const AIo: TStressIo; AWire: UInt16);
+constructor TStressQuerier.Create(const AName: string; const AIo: TStressIo; AWire: UInt16;
+  const AWriter: TStressWriter);
 begin
   inherited Create(AName, False);
   FIo := AIo;
   FWire := AWire;
-  FStop := TEvent.Create(nil, True, False, '');
-end;
-
-destructor TStressQuerier.Destroy;
-begin
-  inherited Destroy;
-  FStop.Free;
-end;
-
-procedure TStressQuerier.Stop;
-begin
-  FStop.SetEvent;
+  FWriter := AWriter;
 end;
 
 procedure TStressQuerier.Run;
@@ -979,36 +1020,37 @@ begin
         FIo.Rekey(TKeyUpdateRequest.UpdateNotRequested);
     end;
     System.Inc(LRound);
-  until FStop.WaitFor(1) = wrSignaled;
+  until FWriter.WaitEnded(1);
 end;
 
 { TStressCloser }
 
 constructor TStressCloser.Create(const AName: string; const AIo: TStressIo;
-  const AWriter: TStressWriter; AKind: TCloseKind; ASpinMax: Int32; AOnHandshake: Boolean);
+  const AWriter: TStressWriter; AKind: TCloseKind; ASpinMax: Int32; ASeed: UInt32;
+  AOnHandshake: Boolean);
 begin
   inherited Create(AName, False);
   FIo := AIo;
   FWriter := AWriter;
   FKind := AKind;
   FSpinMax := ASpinMax;
+  FSeed := ASeed;
   FOnHandshake := AOnHandshake;
 end;
 
 procedure TStressCloser.Run;
 var
   LSpin: Int32;
+  LRng: TStressRng;
 begin
   if FOnHandshake then
-  begin
-    while (FIo.Version = 0) and not FWriter.WaitEnded(0) do
-      Sleep(0);
-  end
+    FIo.Handshake
   else
     FWriter.WaitReached(INFINITE);
-  // a different delay each time, so the close lands at a different point of the writer's work
+  // the seed makes the close land at a point of the writer's work that a rerun can repeat
+  LRng := TStressRng.Create(FSeed);
   if FSpinMax > 0 then
-    for LSpin := 1 to Random(FSpinMax + 1) do
+    for LSpin := 1 to Int32(LRng.Next mod UInt32(FSpinMax + 1)) do
       Sleep(0);
   Note(TStressPhase.Closing, 0);
   try
@@ -1030,7 +1072,7 @@ constructor TStressRun.Create(const AClientConfig: ITlsClientConfig;
 begin
   inherited Create;
   FSpec := ASpec;
-  FWorkers := TList.Create;
+  FWorkers := TObjectList<TStressWorker>.Create(True);
   FC2S := TMemoryPipe.Create(ASpec.Capacity);
   FS2C := TMemoryPipe.Create(ASpec.Capacity);
   if ASpec.CorruptAt > 0 then
@@ -1045,11 +1087,9 @@ begin
 end;
 
 destructor TStressRun.Destroy;
-var
-  LIndex: Int32;
 begin
-  // a worker that never unwound still uses everything below: leave it all to the process
-  if FStuck then
+  // a worker that never unwinds still uses everything below: leave it all to the process
+  if FStuck or not Abandon then
     Exit;
   if FWatch <> nil then
   begin
@@ -1057,14 +1097,27 @@ begin
     FWatch.WaitFor;
     FWatch.Free;
   end;
-  for LIndex := 0 to FWorkers.Count - 1 do
-    TObject(FWorkers[LIndex]).Free;
   FWorkers.Free;
   FClient.Free;
   FServer.Free;
   FClientTransport := nil;
   FServerTransport := nil;
   inherited Destroy;
+end;
+
+function TStressRun.Abandon: Boolean;
+var
+  LWorker: TStressWorker;
+begin
+  FAbandoning := True;
+  FC2S.Close;
+  FS2C.Close;
+  Result := True;
+  for LWorker in FWorkers do
+    if not AwaitEnded(LWorker) then
+      Result := False;
+  if not Result then
+    FStuck := True;
 end;
 
 function TStressRun.NewIo(const AConfig: ITlsClientConfig; const AServerConfig: ITlsServerConfig;
@@ -1080,6 +1133,11 @@ begin
     LEngine := TTlsEngineFactory.CreateClientEngine(AConfig, 'localhost')
   else
     LEngine := TTlsEngineFactory.CreateServerEngine(AServerConfig);
+  if FSpec.Probe and (AConfig <> nil) then
+  begin
+    FClientProbe := TExclusionProbeEngine.Create(LEngine);
+    LEngine := FClientProbe;
+  end;
   if FSpec.Io = TIoKind.OnConnection then
   begin
     Result := TStressIo.Create(TTlsConnection.Create(LEngine, ATransport, AConfig <> nil,
@@ -1102,7 +1160,7 @@ begin
   repeat
     if AWorker.WaitEnded(100) then
       Exit(True);
-    if FWatch.Fired then
+    if FWatch.Fired or FAbandoning then
     begin
       System.Inc(FUnwound);
       if FUnwound > UnwindWaits then
@@ -1123,7 +1181,7 @@ end;
 
 procedure TStressRun.ServerSpeaksOnce;
 var
-  LAfterStorm: Int64;
+  LAfterStorm, LSent, LExpected: Int64;
   LFin: TBytes;
 begin
   LAfterStorm := FS2C.Written;
@@ -1135,32 +1193,27 @@ begin
   TFrameParser.PutU32(LFin, 4, 0);
   TFrameParser.PutU32(LFin, 8, 0);
   FServer.Write(LFin[0], System.Length(LFin));
-  // a TLS 1.3 record adds 22 bytes (header, type, tag); the owed reply is a record ahead of the FIN
-  if FS2C.Written - LAfterStorm <= TFrameParser.HeaderLength + 22 then
-    FNote := FNote + 'the first write sent no owed reply; ';
+  LSent := FS2C.Written - LAfterStorm;
+  LExpected := TFrameParser.HeaderLength + RecordOverhead + KeyUpdateRecordLength;
+  if LSent <> LExpected then
+    FNote := FNote + Format('the first write sent %d bytes, not the FIN and one coalesced ' +
+      'reply (%d); ', [LSent, LExpected]);
 end;
 
 function TStressRun.Failures: string;
 var
-  LIndex: Int32;
   LWorker: TStressWorker;
 begin
   Result := '';
-  for LIndex := 0 to FWorkers.Count - 1 do
-  begin
-    LWorker := TStressWorker(FWorkers[LIndex]);
-    if LWorker.Error <> '' then
+  for LWorker in FWorkers do
+    if LWorker.WaitEnded(0) and (LWorker.Error <> '') then
       Result := Result + LWorker.Describe + '; ';
-  end;
   if FWatch.Fired then
   begin
-    Result := Result + 'the watchdog fired after ' + IntToStr(FSpec.DeadlineMs) + ' ms: ';
-    for LIndex := 0 to FWorkers.Count - 1 do
-    begin
-      LWorker := TStressWorker(FWorkers[LIndex]);
-      if not LWorker.WaitEnded(0) then
-        Result := Result + 'still running: ' + LWorker.Describe + '; ';
-    end;
+    Result := Result + 'the watchdog fired after ' + IntToStr(FSpec.DeadlineMs) + ' ms, where ' +
+      'the workers stood: ';
+    for LWorker in FWorkers do
+      Result := Result + LWorker.Describe + '; ';
   end;
 end;
 
@@ -1183,6 +1236,24 @@ begin
     if FClientReader.Bytes <> FServerWriter.Bytes then
       Result := Result + Format('the client read %d bytes of the %d the server sent; ',
         [FClientReader.Bytes, FServerWriter.Bytes]);
+  if (FClient.Pending <> 0) or (FServer.Pending <> 0) then
+    Result := Result + Format('bytes followed the last FIN (%d for the client, %d for the ' +
+      'server); ', [FClient.Pending, FServer.Pending]);
+end;
+
+function TStressRun.CheckProbe: string;
+begin
+  Result := '';
+  if (FClientProbe <> nil) and (FClientProbe.Overlaps > 0) then
+    Result := Format('%d engine calls began while another was inside; ', [FClientProbe.Overlaps]);
+end;
+
+function TStressRun.CheckBackpressure: string;
+begin
+  Result := '';
+  if FSpec.Backpressure and ((FC2S.Stalls = 0) or (FS2C.Stalls = 0)) then
+    Result := Format('a pipe never filled (%d stalls client to server, %d server to client); ',
+      [FC2S.Stalls, FS2C.Stalls]);
 end;
 
 function TStressRun.CheckCorrupt: string;
@@ -1241,7 +1312,7 @@ end;
 
 procedure TStressRun.Start;
 var
-  LIndex: Int32;
+  LWorker: TStressWorker;
   LExpectClientFins, LExpectServerFins: Int32;
   LClosing, LAlert: Boolean;
 begin
@@ -1274,20 +1345,19 @@ begin
   if FSpec.Query then
   begin
     FClientQuerier := TStressQuerier(Spawn(TStressQuerier.Create('client querier', FClient,
-      FSpec.Wire)));
+      FSpec.Wire, FClientWriter)));
     FServerQuerier := TStressQuerier(Spawn(TStressQuerier.Create('server querier', FServer,
-      FSpec.Wire)));
+      FSpec.Wire, FServerWriter)));
   end;
   if LClosing then
     FCloser := TStressCloser(Spawn(TStressCloser.Create('closer', FClient, FClientWriter,
-      FSpec.Close, FSpec.CloseSpinMax, FSpec.CloseOnHandshake)));
-  for LIndex := 0 to FWorkers.Count - 1 do
-    TStressWorker(FWorkers[LIndex]).Start;
+      FSpec.Close, FSpec.CloseSpinMax, FSpec.CloseSeed, FSpec.CloseOnHandshake)));
+  for LWorker in FWorkers do
+    LWorker.Start;
   if FSpec.ReadOnlyServer then
   begin
     // everything the server sends from here on is the reader's doing
-    while (FServer.Version = 0) and not FWatch.Fired do
-      Sleep(1);
+    FServer.Handshake;
     FBaseline := FS2C.Written;
   end;
 end;
@@ -1306,7 +1376,6 @@ begin
     FC2S.Close;
     FS2C.Close;
   end;
-  // the writers first; a querier is stopped only once they are done, while the readers still drain
   FStuck := (not AwaitAll([FClientWriter, FClientWriter2, FCloser])) or FStuck;
   if FSpec.Close = TCloseKind.AlertMidStream then
   begin
@@ -1320,18 +1389,12 @@ begin
     // a closed client reads no more: a server still sending must not wait for it
     FS2C.Close;
   end;
-  FStuck := (not AwaitAll([FServerWriter])) or FStuck;
-  if FClientQuerier <> nil then
-  begin
-    FClientQuerier.Stop;
-    FServerQuerier.Stop;
-    FStuck := (not AwaitAll([FClientQuerier, FServerQuerier])) or FStuck;
-  end;
+  FStuck := (not AwaitAll([FServerWriter, FClientQuerier, FServerQuerier])) or FStuck;
   FStuck := (not AwaitAll([FServerReader, FServerAlternator])) or FStuck;
   if FSpec.ReadOnlyServer and not FStuck then
     ServerSpeaksOnce;
   FStuck := (not AwaitAll([FClientReader])) or FStuck;
-  Result := Failures + FNote;
+  Result := Failures + FNote + CheckProbe + CheckBackpressure;
   if FStuck then
     Result := Result + 'a worker never unwound; ';
   if Result <> '' then
@@ -1342,12 +1405,6 @@ begin
     Result := CheckClose
   else
     Result := CheckTraffic + CheckExporters;
-end;
-
-function TStressRun.Execute: string;
-begin
-  Start;
-  Result := Finish;
 end;
 
 { TTestDuplexStress }
@@ -1386,23 +1443,33 @@ begin
   Result.Payload := APayload;
   Result.Frames := AFrames * Scale;
   Result.Capacity := 3000;
+  // a message longer than the pipe holds fills it
+  Result.Backpressure := APayload in [TPayloadKind.Boundary, TPayloadKind.Large,
+    TPayloadKind.Mixed];
   Result.ClientWriters := 1;
   Result.ServerWrites := True;
-  Result.DeadlineMs := 30000;
+  // the watchdog only turns a hang into a failure, so the deadline grows with the soak size
+  Result.DeadlineMs := 30000 * UInt32(Scale);
 end;
 
-procedure TTestDuplexStress.RunSpec(const ASpec: TStressSpec);
+function TTestDuplexStress.RunToEnd(const ASpec: TStressSpec; const AClientConfig: ITlsClientConfig;
+  const AServerConfig: ITlsServerConfig): string;
 var
   LRun: TStressRun;
-  LOutcome: string;
 begin
-  LRun := TStressRun.Create(ClientConfig(ASpec.Wire), ServerConfig(ASpec.Wire), ASpec);
+  LRun := TStressRun.Create(AClientConfig, AServerConfig, ASpec);
   try
-    LOutcome := LRun.Execute;
+    LRun.Start;
+    Result := LRun.Finish;
   finally
     LRun.Free;
   end;
-  CheckEquals('', LOutcome, 'both peers moved every byte, in order, both ways');
+end;
+
+procedure TTestDuplexStress.RunSpec(const ASpec: TStressSpec);
+begin
+  CheckEquals('', RunToEnd(ASpec, ClientConfig(ASpec.Wire), ServerConfig(ASpec.Wire)),
+    'both peers moved every byte, in order, both ways');
 end;
 
 procedure TTestDuplexStress.TestTls13TinyMessages;
@@ -1462,7 +1529,7 @@ procedure TTestDuplexStress.TestTls13KeyUpdateAfterEveryTinyMessage;
 var
   LSpec: TStressSpec;
 begin
-  // both readers owe a reply after every message while both senders are blocked on full pipes
+  // both readers owe a reply after every message
   LSpec := BaseSpec(TlsWireVersionTls13, TPayloadKind.Tiny, 2500);
   LSpec.KeyUpdateEvery := 1;
   LSpec.Capacity := 4096;
@@ -1591,6 +1658,8 @@ begin
   LSpec := BaseSpec(AWire, TPayloadKind.Boundary, 200);
   LSpec.CorruptAt := 400000;
   LSpec.Capacity := 4096;
+  // the server stops sending once its read fails
+  LSpec.Backpressure := False;
   RunSpec(LSpec);
 end;
 
@@ -1614,6 +1683,7 @@ begin
   LSpec.Capacity := 4096;
   // TLS 1.2 ends both directions at a close_notify, so the server has nothing to send there
   LSpec.ServerWrites := AWire = TlsWireVersionTls13;
+  LSpec.Backpressure := LSpec.ServerWrites;
   RunSpec(LSpec);
 end;
 
@@ -1642,11 +1712,16 @@ const
   Rounds = Int32(120);
 var
   LSpec: TStressSpec;
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+  LClock: ITlsMonotonicClock;
+  LSeedBase: UInt32;
   LRound: Int32;
-  LRun: TStressRun;
-  LOutcome: string;
 begin
-  Randomize;
+  LClientConfig := ClientConfig(TlsWireVersionTls13);
+  LServerConfig := ServerConfig(TlsWireVersionTls13);
+  LClock := TSystemMonotonicClock.Create;
+  LSeedBase := UInt32(LClock.NowMonotonicMillis);
   for LRound := 0 to Rounds * Scale - 1 do
   begin
     // the close races the last write of a writer that calls nothing afterwards
@@ -1655,6 +1730,7 @@ begin
     LSpec.CloseOnHandshake := True;
     LSpec.NoFin := True;
     LSpec.CloseSpinMax := 60;
+    LSpec.CloseSeed := LSeedBase + UInt32(LRound);
     LSpec.ServerWrites := False;
     // a pipe the writer often fills holds the send side while the close is requested
     case LRound mod 3 of
@@ -1664,20 +1740,59 @@ begin
       LSpec.Capacity := 4096;
     end;
     LSpec.DeadlineMs := 10000;
-    LRun := TStressRun.Create(ClientConfig(LSpec.Wire), ServerConfig(LSpec.Wire), LSpec);
-    try
-      LOutcome := LRun.Execute;
-    finally
-      LRun.Free;
-    end;
-    CheckEquals('', LOutcome, 'round ' + IntToStr(LRound) + ': the close_notify reached the server');
+    CheckEquals('', RunToEnd(LSpec, LClientConfig, LServerConfig),
+      Format('round %d, close seed %d: the close_notify reached the server',
+      [LRound, LSpec.CloseSeed]));
+  end;
+end;
+
+procedure TTestDuplexStress.TestEngineCallsNeverOverlapUnderTraffic;
+var
+  LSpec: TStressSpec;
+begin
+  // the probe fails any engine call made while another is inside the engine
+  LSpec := BaseSpec(TlsWireVersionTls13, TPayloadKind.Mixed, 40);
+  LSpec.Probe := True;
+  LSpec.Query := True;
+  LSpec.KeyUpdateEvery := 1;
+  LSpec.Capacity := 4096;
+  RunSpec(LSpec);
+end;
+
+procedure TTestDuplexStress.TestEngineCallsNeverOverlapWhenTheCloseArrives;
+var
+  LSpec: TStressSpec;
+begin
+  LSpec := BaseSpec(TlsWireVersionTls13, TPayloadKind.Boundary, 60);
+  LSpec.Probe := True;
+  LSpec.KeyUpdateEvery := 1;
+  LSpec.Capacity := 4096;
+  LSpec.Close := TCloseKind.CloseNotifyMidStream;
+  LSpec.CloseAtBytes := 100000;
+  RunSpec(LSpec);
+end;
+
+procedure TTestDuplexStress.TestAnAbandonedRunUnblocksItsWorkersInsteadOfHanging;
+var
+  LSpec: TStressSpec;
+  LRun: TStressRun;
+begin
+  // the client reads for a FIN that never comes; a failure after Start must not wait for it
+  LSpec := BaseSpec(TlsWireVersionTls13, TPayloadKind.Tiny, 20);
+  LSpec.ServerWrites := False;
+  LSpec.Wedge := True;
+  LRun := TStressRun.Create(ClientConfig(LSpec.Wire), ServerConfig(LSpec.Wire), LSpec);
+  try
+    LRun.Start;
+    CheckTrue(LRun.Abandon, 'every worker unwound once the pipes were closed');
+  finally
+    LRun.Free;
   end;
 end;
 
 procedure TTestDuplexStress.TestAWedgeFailsWithADiagnosticInsteadOfHanging;
 var
   LSpec: TStressSpec;
-  LRun: TStressRun;
   LOutcome: string;
 begin
   // the client reads for a FIN that never comes: the watchdog must end the run with a report
@@ -1685,12 +1800,7 @@ begin
   LSpec.ServerWrites := False;
   LSpec.Wedge := True;
   LSpec.DeadlineMs := 500;
-  LRun := TStressRun.Create(ClientConfig(LSpec.Wire), ServerConfig(LSpec.Wire), LSpec);
-  try
-    LOutcome := LRun.Execute;
-  finally
-    LRun.Free;
-  end;
+  LOutcome := RunToEnd(LSpec, ClientConfig(LSpec.Wire), ServerConfig(LSpec.Wire));
   CheckTrue(Pos('the watchdog fired', LOutcome) > 0, 'the wedge is reported, not waited on');
   CheckTrue(Pos('client reader', LOutcome) > 0, 'with where the worker stood');
 end;

@@ -30,6 +30,15 @@ uses
   TlpAlpnProtocols,
   TlpTlsVersion,
   TlpTlsAlert,
+  TlpTlsContentType,
+  TlpCryptoDomainTypes,
+  TlpISecretBuffer,
+  TlpSecretBuffer,
+  TlpHkdfLabel,
+  TlpIRecordProtection,
+  TlpRecordProtection,
+  TlpIKeyLog,
+  TlpKeyLog,
   TlpHandshakeMessages,
   TlpICryptoProvider,
   TlpTrustPolicy,
@@ -57,6 +66,7 @@ uses
   TlpTlsConnection,
   TlpTlsStream,
   MockClock,
+  MockKeyLog,
   MockTransport,
   MockVerifyHooks,
   MockCryptoProvider,
@@ -163,6 +173,14 @@ type
     // the resolver that parks the handshake with the engine lock free until the test releases it
     function ParkedResolver(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
+    function Tls13Aes128Registry: ICipherSuiteRegistry;
+    function PinnedClientConfig(const AKeyLog: IKeyLog): ITlsClientConfig;
+    function PinnedServerConfig: ITlsServerConfig;
+    /// <summary>Engines handshaken on TLS 1.3 with AES-128-GCM, the client logging its secrets to
+    /// AKeyLog, and nothing left queued.</summary>
+    procedure PinnedEngines(const AKeyLog: IKeyLog; out AClient, AServer: ITlsEngine);
+    /// <summary>The client's first application traffic secret, as AKeyLog saw it.</summary>
+    function ClientTraffic0(const AKeyLog: TMockKeyLog): TBytes;
     // thread bodies
     procedure HandshakeQueried;
     procedure HandshakeRepeated;
@@ -280,6 +298,10 @@ type
     procedure TestReadAndQueriesProceedWhileAWriterIsBlockedInASend;
     procedure TestExporterAnswersWhileAVerdictResolverIsParked;
     procedure TestRecheckThatFindsADeadSocketDoesNotMaskTheWritersError;
+    procedure TestTerminalSendThatFindsTooLittleRoomIsBoundedByTheCloseGrace;
+    procedure TestSeveralKeyUpdatesInOneRecordAreFatalWithOneAlert;
+    procedure TestSeveralKeyUpdatesInOneRecordFailTheStreamAndTheAlertReachesThePeer;
+    procedure TestKeyUpdateRecordsInOneReadAreAnsweredByOneReply;
   end;
 
 implementation
@@ -357,6 +379,22 @@ type
     property Sealed: Boolean read FSealed;
     /// <summary>Whether a latch leaves one byte owed.</summary>
     property OwesAfterLatch: Boolean read FOwesAfterLatch write FOwesAfterLatch;
+  end;
+
+  /// <summary>Seals records under a TLS 1.3 client's first application traffic secret from outside
+  /// its engine (AES-128-GCM, SHA-256), so a peer can be handed records no engine would send.</summary>
+  TTrafficForger = class sealed(TObject)
+  strict private
+  var
+    FCrypto: ICryptoProvider;
+    FHkdf: IHkdf;
+    FSecret: ISecretBuffer;
+  public
+    constructor Create(const ACrypto: ICryptoProvider; const ASecret: TBytes);
+    /// <summary>One record holding APlaintext, sealed at sequence 0 under the current keys.</summary>
+    function Seal(AContentType: TTlsContentType; const APlaintext: TBytes): TBytes;
+    /// <summary>Moves to the next generation of keys, as the KeyUpdate just sealed does.</summary>
+    procedure Advance;
   end;
 
   TTestAction = procedure of object;
@@ -664,6 +702,32 @@ begin
     on E: Exception do
       FError := E.ClassName + ': ' + E.Message;
   end;
+end;
+
+{ TTrafficForger }
+
+constructor TTrafficForger.Create(const ACrypto: ICryptoProvider; const ASecret: TBytes);
+begin
+  inherited Create;
+  FCrypto := ACrypto;
+  FHkdf := ACrypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  FSecret := TSecretBuffer.From(ASecret);
+end;
+
+function TTrafficForger.Seal(AContentType: TTlsContentType; const APlaintext: TBytes): TBytes;
+var
+  LProtection: IRecordProtection;
+begin
+  LProtection := TTls13RecordProtection.Create(
+    THkdfLabel.HkdfExpandLabel(FHkdf, FSecret, 'key', nil, 16),
+    THkdfLabel.HkdfExpandLabel(FHkdf, FSecret, 'iv', nil, 12),
+    FCrypto.Primitives.CreateAead(TAeadAlgorithm.AES_128_GCM));
+  Result := LProtection.Protect(AContentType, APlaintext, 0, System.Length(APlaintext));
+end;
+
+procedure TTrafficForger.Advance;
+begin
+  FSecret := THkdfLabel.HkdfExpandLabel(FHkdf, FSecret, 'traffic upd', nil, 32);
 end;
 
 { TTestTlsStreamLoopback }
@@ -3522,7 +3586,6 @@ var
 begin
   FQueryDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
   FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
-  FPause := Own<TEvent>(TEvent.Create(nil, True, False, ''));
   FPingBytes := DecodeHex(PingHex);
   System.SetLength(FReadBuffer, 4096);
   RunLoopback(ClientConfig(False, nil), TServerBehavior.EchoThenClose, FQueried, LServer,
@@ -3535,7 +3598,7 @@ begin
     FQueried.Handshake;
     // the server waits for a request, so this read stays parked inside the transport
     LReader.Start;
-    FPause.WaitFor(300);
+    CheckTrue(LTransport.WaitReadParked(20000), 'the reader is waiting for data in the transport');
     LProbe.Start;
     LAnswered := FQueryDone.WaitFor(5000) = wrSignaled;
   finally
@@ -3616,6 +3679,7 @@ begin
     LServer.Finish;
   end;
   CheckTrue(LAnswered, 'the exporter returned while the resolver was parked');
+  CheckEquals('', LExporter.Error, 'with an answer, not an error');
   CheckEquals('', LHandshaker.Error, 'the handshake finished once released');
 end;
 
@@ -3645,6 +3709,219 @@ begin
   end;
   CheckEquals(2, LDead.Attempts, 'the recheck tried to send the record that was owed');
   CheckTrue(Pos('(write 1)', LMessage) > 0, 'the caller sees the failed write, not the recheck');
+end;
+
+procedure TTestTlsStreamLoopback.TestTerminalSendThatFindsTooLittleRoomIsBoundedByTheCloseGrace;
+var
+  LClient, LServer: ITlsEngine;
+  LIn, LOut: TMemoryPipe;
+  LTransport: TPipeTimedTransport;
+  LTransportT: ITlsTransport;
+  LWatch: TWedgeWatchdog;
+  LJunk: TBytes;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LIn := Own<TMemoryPipe>(TMemoryPipe.Create);
+  // the transport owns the pipe it writes
+  LOut := TMemoryPipe.Create(256);
+  LTransport := TPipeTimedTransport.Create(LIn, LOut);
+  LTransportT := LTransport;
+  SetLength(LJunk, 246);
+  // 10 bytes of room: the pipe is writable, but a close_notify record (24 bytes) does not fit
+  CheckEquals(246, LOut.TryWrite(LJunk, 0, 246), 'nobody reads the pipe');
+  LWatch := TWedgeWatchdog.Create(LIn, LOut, 20000);
+  LWatch.Start;
+  LRaised := False;
+  try
+    try
+      Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LTransportT, 300)).Close;
+    except
+      on ETlsWriteTimeout do
+        LRaised := True;
+    end;
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    CheckFalse(LWatch.Fired, 'the send ended on its own deadline, not the watchdog');
+    LWatch.Free;
+  end;
+  CheckTrue(LRaised, 'a close_notify the pipe has no room for raises the write timeout');
+end;
+
+function TTestTlsStreamLoopback.Tls13Aes128Registry: ICipherSuiteRegistry;
+var
+  LBuilder: ICipherSuiteRegistryBuilder;
+begin
+  // the suite fixes the key length and hash the forger derives with
+  LBuilder := TCipherSuiteRegistry.CreateDefault(Crypto).ToBuilder;
+  LBuilder.Prune(TCipherSuites13.ChaCha20Poly1305Sha256);
+  LBuilder.Prune(TCipherSuites13.Aes256GcmSha384);
+  Result := LBuilder.Build;
+end;
+
+function TTestTlsStreamLoopback.PinnedClientConfig(const AKeyLog: IKeyLog): ITlsClientConfig;
+begin
+  Result := TTlsPresets.Hardened(Crypto, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
+    .WithCipherSuites(Tls13Aes128Registry).WithDangerousKeyLog(AKeyLog).Build;
+end;
+
+function TTestTlsStreamLoopback.PinnedServerConfig: ITlsServerConfig;
+begin
+  Result := TTlsPresets.Hardened(Crypto, Pkix).Server
+    .WithCredential(TTlsCredential.Load(Crypto, Pkix,
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
+    .WithCipherSuites(Tls13Aes128Registry).Build;
+end;
+
+procedure TTestTlsStreamLoopback.PinnedEngines(const AKeyLog: IKeyLog; out AClient,
+  AServer: ITlsEngine);
+begin
+  HandshakeEnginesWith(PinnedClientConfig(AKeyLog), PinnedServerConfig, AClient, AServer);
+  // the server's session tickets, if any, reach the client now
+  PassOutgoing(AServer, AClient);
+  PassOutgoing(AClient, AServer);
+end;
+
+function TTestTlsStreamLoopback.ClientTraffic0(const AKeyLog: TMockKeyLog): TBytes;
+var
+  LIndex: Int32;
+begin
+  Result := nil;
+  for LIndex := 0 to AKeyLog.Count - 1 do
+    if AKeyLog[LIndex].Lbl = KeyLogLabelClientTraffic0 then
+      Result := AKeyLog[LIndex].Secret;
+  CheckTrue(System.Length(Result) = 32, 'the key log holds the client''s first traffic secret');
+end;
+
+procedure TTestTlsStreamLoopback.TestSeveralKeyUpdatesInOneRecordAreFatalWithOneAlert;
+var
+  LKeyLog: TMockKeyLog;
+  LKeyLogT: IKeyLog;
+  LClient, LServer: ITlsEngine;
+  LForger: TTrafficForger;
+  LWire, LAlert: TBytes;
+begin
+  LKeyLog := TMockKeyLog.Create;
+  LKeyLogT := LKeyLog;
+  PinnedEngines(LKeyLogT, LClient, LServer);
+  LForger := Own<TTrafficForger>(TTrafficForger.Create(Crypto, ClientTraffic0(LKeyLog)));
+  // two KeyUpdate messages in one record: nothing may follow a read-key change within a record
+  LWire := LForger.Seal(TTlsContentType.Handshake, DecodeHex('1800000101' + '1800000101'));
+  CheckEquals(Ord(TTlsOutcome.Fatal), Ord(LServer.ProcessInput(LWire, 0, System.Length(LWire))),
+    'a record of two KeyUpdates is fatal');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage),
+    Ord(LServer.LastError.Alert.Description), 'with unexpected_message');
+  LAlert := TakeAll(LServer);
+  // header 5, alert 2, inner type 1, tag 16
+  CheckEquals(24, System.Length(LAlert), 'exactly one alert record is owed');
+  CheckEquals(0, System.Length(TakeAll(LServer)), 'and nothing else');
+  LClient.ProcessInput(LAlert, 0, System.Length(LAlert));
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage),
+    Ord(LClient.LastError.Alert.Description), 'the client reads the same alert');
+end;
+
+procedure TTestTlsStreamLoopback.TestSeveralKeyUpdatesInOneRecordFailTheStreamAndTheAlertReachesThePeer;
+var
+  LKeyLog: TMockKeyLog;
+  LKeyLogT: IKeyLog;
+  LC2S, LS2C: TMemoryPipe;
+  LClientTransport, LServerTransport: TMemoryTransport;
+  LClientT, LServerT: ITlsTransport;
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LWatch: TWedgeWatchdog;
+  LForger: TTrafficForger;
+  LWire, LBuf: TBytes;
+  LAlert: TTlsAlertDescription;
+  LAlerted: Boolean;
+begin
+  LKeyLog := TMockKeyLog.Create;
+  LKeyLogT := LKeyLog;
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  LClientT := LClientTransport;
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LServerT := LServerTransport;
+  LClient := Own<TTlsStream>(NewClientStream(LClientT, PinnedClientConfig(LKeyLogT)));
+  LServer := Own<TServerRunner>(TServerRunner.Create(
+    TTlsStream.Create(LServerT, TTlsEngineFactory.CreateServerEngine(PinnedServerConfig), False,
+    ''), LServerTransport, LClientTransport, TServerBehavior.EchoThenClose));
+  LWatch := TWedgeWatchdog.Create(LC2S, LS2C, 20000);
+  LWatch.Start;
+  LServer.Start;
+  try
+    LClient.Handshake;
+    LForger := Own<TTrafficForger>(TTrafficForger.Create(Crypto, ClientTraffic0(LKeyLog)));
+    LWire := LForger.Seal(TTlsContentType.Handshake, DecodeHex('1800000101' + '1800000101'));
+    LClientTransport.Write(LWire, 0, System.Length(LWire));
+    SetLength(LBuf, 16);
+    LAlerted := False;
+    LAlert := TTlsAlertDescription.CloseNotify;
+    try
+      LClient.Read(LBuf[0], System.Length(LBuf));
+    except
+      on E: ETlsStreamError do
+      begin
+        LAlerted := E.HasAlert;
+        LAlert := E.Alert;
+      end;
+    end;
+    LServer.Finish;
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    CheckFalse(LWatch.Fired, 'neither side was left waiting on the other');
+    LWatch.Free;
+  end;
+  CheckTrue(LAlerted, 'the client''s read raised the peer''s alert');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage), Ord(LAlert), 'unexpected_message');
+  CheckTrue(Pos('ETlsStreamError:', LServer.Error) = 1, 'the server''s read failed');
+end;
+
+procedure TTestTlsStreamLoopback.TestKeyUpdateRecordsInOneReadAreAnsweredByOneReply;
+var
+  LKeyLog: TMockKeyLog;
+  LKeyLogT: IKeyLog;
+  LClient, LServer: ITlsEngine;
+  LForger: TTrafficForger;
+  LWire, LReply, LPong: TBytes;
+  LEvent: ITlsEvent;
+  LIndex, LUpdates: Int32;
+begin
+  LKeyLog := TMockKeyLog.Create;
+  LKeyLogT := LKeyLog;
+  PinnedEngines(LKeyLogT, LClient, LServer);
+  LForger := Own<TTrafficForger>(TTrafficForger.Create(Crypto, ClientTraffic0(LKeyLog)));
+  // three update_requested records, each under the keys its predecessor installed, then data
+  LWire := nil;
+  for LIndex := 1 to 3 do
+  begin
+    LWire := ConcatBytes(LWire, LForger.Seal(TTlsContentType.Handshake, DecodeHex('1800000101')));
+    LForger.Advance;
+  end;
+  LWire := ConcatBytes(LWire, LForger.Seal(TTlsContentType.ApplicationData, DecodeHex('70696e67')));
+  CheckEquals(Ord(TTlsOutcome.Advanced), Ord(LServer.ProcessInput(LWire, 0, System.Length(LWire))),
+    'one read carrying three KeyUpdates and a record behind them is accepted');
+  CheckFalse(LServer.IsTerminal, 'the server stayed healthy');
+  CheckEquals(4, LServer.PendingAppData, 'the data behind the KeyUpdates was decrypted');
+  CheckFalse(LServer.WantsWrite, 'a read sends nothing, even with replies owed');
+  LPong := DecodeHex('706f6e67');
+  LServer.Write(LPong, 0, System.Length(LPong));
+  LReply := TakeAll(LServer);
+  // one KeyUpdate record (5 + 5 + 1 + 16) and the data record (5 + 4 + 1 + 16)
+  CheckEquals(27 + 26, System.Length(LReply), 'the next write sent one KeyUpdate and the data');
+  LClient.ProcessInput(LReply, 0, System.Length(LReply));
+  LUpdates := 0;
+  while LClient.NextEvent(LEvent) do
+    if LEvent.Kind = TTlsEventKind.KeyUpdateReceived then
+      System.Inc(LUpdates);
+  CheckEquals(1, LUpdates, 'the client saw one KeyUpdate');
+  CheckEquals(4, LClient.PendingAppData, 'and read the data behind it');
 end;
 
 initialization
