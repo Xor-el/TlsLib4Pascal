@@ -437,10 +437,14 @@ while a stream wraps it, and free the stream only after every call has returned.
 `TTlsStream` built on an engine that does not also list `ITlsEngineInbound` and `ITlsEngineOutbound`
 raises `EArgumentTlsLibException`.
 
-A closing send (close_notify or a fatal alert) is bounded on an `ITlsTimedTransport`, by
-the close grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`, which `TTlsConnection` uses;
-`TTlsStream.Create` takes another value, zero or less for unbounded), and raises `ETlsWriteTimeout` when the socket will not take it. A plain
-`ITlsTransport` cannot bound a send, so a closing send on it waits as long as the peer does not read.
+While the handshake runs, `CloseNotify`, `SendAlert` and the exporter wait for the engine call it is
+making, which can be the whole built-in certificate check, live revocation fetch included.
+
+A closing send (close_notify or a fatal alert) is bounded on an `ITlsTimedTransport`, by the close
+grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`, which `TTlsConnection` uses; `TTlsStream.Create`
+takes another value, zero or less for unbounded), and raises `ETlsWriteTimeout` when the socket
+will not take it. A plain `ITlsTransport` cannot bound a send, so a closing send on it waits as long
+as the peer does not read.
 
 ## Drive the raw sans-IO engine
 
@@ -530,9 +534,9 @@ LEngine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
 ```
 
 It is a no-op before the handshake completes, on TLS 1.2, on a failed engine, after your own
-`close_notify` and once 2^48-1 KeyUpdates have been sent. On a stream or connection it waits for the
-handshake, like a write, and after your own `close_notify` raises the write-after-close error instead. If an earlier `UpdateRequested` has not
-yet been answered by a KeyUpdate from the peer, a new one is sent as `UpdateNotRequested`; the write
+`close_notify` and once 2^48-1 KeyUpdates have been sent. On a stream or connection it drives or
+waits for the handshake, like a write, and after your own `close_notify` raises the write-after-close
+error instead. If an earlier `UpdateRequested` has not yet been answered by a KeyUpdate from the peer, a new one is sent as `UpdateNotRequested`; the write
 keys are still updated (RFC 9846 4.7.3). A peer's KeyUpdate is handled automatically and reported as a
 `KeyUpdateReceived` event.
 

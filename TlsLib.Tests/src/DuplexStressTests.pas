@@ -110,6 +110,9 @@ type
     NoFin: Boolean;
     // the client reads for a FIN that a server with no writer never sends
     Wedge: Boolean;
+    // the watchdog fires when no byte moves in either pipe for this long
+    IdleMs: UInt32;
+    // and at this much total time, however much moved
     DeadlineMs: UInt32;
   end;
 
@@ -183,7 +186,7 @@ type
   end;
 
   /// <summary>A thread of a stress run that keeps its failure and a note of where it was.</summary>
-  TStressWorker = class abstract(TThread)
+  TStressWorkerBase = class abstract(TThread)
   strict private
   var
     FTitle: string;
@@ -215,7 +218,7 @@ type
     property Title: string read FTitle;
   end;
 
-  TStressWriter = class sealed(TStressWorker)
+  TStressWriter = class sealed(TStressWorkerBase)
   strict private
   var
     FIo: TStressIo;
@@ -238,7 +241,7 @@ type
     procedure ReleaseFin;
   end;
 
-  TStressReader = class sealed(TStressWorker)
+  TStressReader = class sealed(TStressWorkerBase)
   strict private
   var
     FIo: TStressIo;
@@ -258,7 +261,7 @@ type
   end;
 
   /// <summary>A peer that is one thread: it sends a message, then reads what has arrived.</summary>
-  TStressAlternator = class sealed(TStressWorker)
+  TStressAlternator = class sealed(TStressWorkerBase)
   strict private
   var
     FIo: TStressIo;
@@ -273,7 +276,7 @@ type
 
   /// <summary>Polls a peer from a third thread until that peer's writer has ended, after which the
   /// other side's reader may be gone and a rekey could block on a full pipe.</summary>
-  TStressQuerier = class sealed(TStressWorker)
+  TStressQuerier = class sealed(TStressWorkerBase)
   strict private
   var
     FIo: TStressIo;
@@ -290,7 +293,7 @@ type
   end;
 
   /// <summary>Closes or refuses the client once its writer has sent enough.</summary>
-  TStressCloser = class sealed(TStressWorker)
+  TStressCloser = class sealed(TStressWorkerBase)
   strict private
   var
     FIo: TStressIo;
@@ -323,7 +326,7 @@ type
     FServer: TStressIo;
     FClientProbe: TExclusionProbeEngine;
     FWatch: TWedgeWatchdog;
-    FWorkers: TObjectList<TStressWorker>;
+    FWorkers: TObjectList<TStressWorkerBase>;
     FClientWriter: TStressWriter;
     FClientWriter2: TStressWriter;
     FClientReader: TStressReader;
@@ -341,9 +344,9 @@ type
     FNote: string;
     function NewIo(const AConfig: ITlsClientConfig; const AServerConfig: ITlsServerConfig;
       const ATransport: ITlsTimedTransport): TStressIo;
-    function Spawn(const AWorker: TStressWorker): TStressWorker;
-    function AwaitEnded(const AWorker: TStressWorker): Boolean;
-    function AwaitAll(const AWorkers: array of TStressWorker): Boolean;
+    function Spawn(const AWorker: TStressWorkerBase): TStressWorkerBase;
+    function AwaitEnded(const AWorker: TStressWorkerBase): Boolean;
+    function AwaitAll(const AWorkers: array of TStressWorkerBase): Boolean;
     function Failures: string;
     function CheckTraffic: string;
     function CheckClose: string;
@@ -657,9 +660,9 @@ begin
   Result := True;
 end;
 
-{ TStressWorker }
+{ TStressWorkerBase }
 
-constructor TStressWorker.Create(const AName: string; ATolerateStops: Boolean);
+constructor TStressWorkerBase.Create(const AName: string; ATolerateStops: Boolean);
 begin
   inherited Create(True);
   FTitle := AName;
@@ -668,13 +671,13 @@ begin
   FreeOnTerminate := False;
 end;
 
-destructor TStressWorker.Destroy;
+destructor TStressWorkerBase.Destroy;
 begin
   inherited Destroy;
   FEnded.Free;
 end;
 
-procedure TStressWorker.Execute;
+procedure TStressWorkerBase.Execute;
 begin
   try
     try
@@ -695,18 +698,18 @@ begin
   end;
 end;
 
-procedure TStressWorker.Note(APhase: TStressPhase; ASeq: Int32);
+procedure TStressWorkerBase.Note(APhase: TStressPhase; ASeq: Int32);
 begin
   FPhase := APhase;
   FSeq := ASeq;
 end;
 
-function TStressWorker.WaitEnded(AMs: Cardinal): Boolean;
+function TStressWorkerBase.WaitEnded(AMs: Cardinal): Boolean;
 begin
   Result := FEnded.WaitFor(AMs) = wrSignaled;
 end;
 
-function TStressWorker.Describe: string;
+function TStressWorkerBase.Describe: string;
 const
   PhaseNames: array[TStressPhase] of string = ('starting', 'sending', 'rekeying', 'receiving',
     'querying', 'closing');
@@ -1072,7 +1075,7 @@ constructor TStressRun.Create(const AClientConfig: ITlsClientConfig;
 begin
   inherited Create;
   FSpec := ASpec;
-  FWorkers := TObjectList<TStressWorker>.Create(True);
+  FWorkers := TObjectList<TStressWorkerBase>.Create(True);
   FC2S := TMemoryPipe.Create(ASpec.Capacity);
   FS2C := TMemoryPipe.Create(ASpec.Capacity);
   if ASpec.CorruptAt > 0 then
@@ -1082,7 +1085,7 @@ begin
   FServerTransport := TPipeTimedTransport.Create(FC2S, FS2C);
   FClient := NewIo(AClientConfig, nil, FClientTransport);
   FServer := NewIo(nil, AServerConfig, FServerTransport);
-  FWatch := TWedgeWatchdog.Create(FC2S, FS2C, ASpec.DeadlineMs);
+  FWatch := TWedgeWatchdog.Create(FC2S, FS2C, ASpec.IdleMs, ASpec.DeadlineMs);
   FWatch.Start;
 end;
 
@@ -1107,7 +1110,7 @@ end;
 
 function TStressRun.Abandon: Boolean;
 var
-  LWorker: TStressWorker;
+  LWorker: TStressWorkerBase;
 begin
   FAbandoning := True;
   FC2S.Close;
@@ -1149,13 +1152,13 @@ begin
   Result := TStressIo.Create(LStream);
 end;
 
-function TStressRun.Spawn(const AWorker: TStressWorker): TStressWorker;
+function TStressRun.Spawn(const AWorker: TStressWorkerBase): TStressWorkerBase;
 begin
   FWorkers.Add(AWorker);
   Result := AWorker;
 end;
 
-function TStressRun.AwaitEnded(const AWorker: TStressWorker): Boolean;
+function TStressRun.AwaitEnded(const AWorker: TStressWorkerBase): Boolean;
 begin
   repeat
     if AWorker.WaitEnded(100) then
@@ -1169,7 +1172,7 @@ begin
   until False;
 end;
 
-function TStressRun.AwaitAll(const AWorkers: array of TStressWorker): Boolean;
+function TStressRun.AwaitAll(const AWorkers: array of TStressWorkerBase): Boolean;
 var
   LIndex: Int32;
 begin
@@ -1202,7 +1205,7 @@ end;
 
 function TStressRun.Failures: string;
 var
-  LWorker: TStressWorker;
+  LWorker: TStressWorkerBase;
 begin
   Result := '';
   for LWorker in FWorkers do
@@ -1210,8 +1213,8 @@ begin
       Result := Result + LWorker.Describe + '; ';
   if FWatch.Fired then
   begin
-    Result := Result + 'the watchdog fired after ' + IntToStr(FSpec.DeadlineMs) + ' ms, where ' +
-      'the workers stood: ';
+    Result := Result + 'the watchdog fired (no byte moved for ' + IntToStr(FSpec.IdleMs) +
+      ' ms, or ' + IntToStr(FSpec.DeadlineMs) + ' ms passed), where the workers stood: ';
     for LWorker in FWorkers do
       Result := Result + LWorker.Describe + '; ';
   end;
@@ -1312,7 +1315,7 @@ end;
 
 procedure TStressRun.Start;
 var
-  LWorker: TStressWorker;
+  LWorker: TStressWorkerBase;
   LExpectClientFins, LExpectServerFins: Int32;
   LClosing, LAlert: Boolean;
 begin
@@ -1448,8 +1451,10 @@ begin
     TPayloadKind.Mixed];
   Result.ClientWriters := 1;
   Result.ServerWrites := True;
-  // the watchdog only turns a hang into a failure, so the deadline grows with the soak size
-  Result.DeadlineMs := 30000 * UInt32(Scale);
+  // the watchdog only turns a hang into a failure: it waits out a slow host while bytes move, and
+  // its backstop grows with the soak size
+  Result.IdleMs := 15000;
+  Result.DeadlineMs := 600000 * UInt32(Scale);
 end;
 
 function TTestDuplexStress.RunToEnd(const ASpec: TStressSpec; const AClientConfig: ITlsClientConfig;
@@ -1739,7 +1744,6 @@ begin
     else
       LSpec.Capacity := 4096;
     end;
-    LSpec.DeadlineMs := 10000;
     CheckEquals('', RunToEnd(LSpec, LClientConfig, LServerConfig),
       Format('round %d, close seed %d: the close_notify reached the server',
       [LRound, LSpec.CloseSeed]));
@@ -1799,7 +1803,7 @@ begin
   LSpec := BaseSpec(TlsWireVersionTls13, TPayloadKind.Tiny, 20);
   LSpec.ServerWrites := False;
   LSpec.Wedge := True;
-  LSpec.DeadlineMs := 500;
+  LSpec.IdleMs := 500;
   LOutcome := RunToEnd(LSpec, ClientConfig(LSpec.Wire), ServerConfig(LSpec.Wire));
   CheckTrue(Pos('the watchdog fired', LOutcome) > 0, 'the wedge is reported, not waited on');
   CheckTrue(Pos('client reader', LOutcome) > 0, 'with where the worker stood');

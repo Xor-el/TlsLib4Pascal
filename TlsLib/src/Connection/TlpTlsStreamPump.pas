@@ -42,11 +42,12 @@ type
   /// Drives one sans-IO engine over a blocking ITlsTransport, and is the only code that touches
   /// that engine while a connection is in use. It owns two locks, taken after the caller's
   /// handshake side (around DriveHandshake) or read side (around ReadApp), in the order W, then E:
-  /// E guards every engine call and is never held across transport I/O; W is held by whoever
-  /// seals and sends, so wire order is seal order; the reader, Close and Abort only try W and never
-  /// wait for it, and every release of W is followed by a recheck for bytes another thread left
-  /// owed. After the handshake the read path never seals: what it provokes (a fatal alert) is
-  /// sent by whoever wins W, bounded by the close grace on a timed transport. A fatal outcome
+  /// E guards every engine call, and so every seal, and is never held across transport I/O; W is
+  /// held by whoever sends, so wire order is seal order; the reader, Close and Abort only try W
+  /// and never wait for it, and every release of W is followed by a recheck for bytes another
+  /// thread left owed. After the handshake the read path seals nothing itself: a fatal alert that
+  /// its input makes owed is sealed and sent by whoever next wins W, bounded by the close grace
+  /// on a timed transport. A fatal outcome
   /// raises ETlsStreamError; a transport EOF mid-handshake raises ETlsTransportTruncated. ReadApp
   /// and DriveHandshake must each be called by one thread at a time, and ReadApp only once the
   /// handshake has completed; the other members may be called from any thread.
@@ -795,9 +796,7 @@ begin
   except
     on Exception do
     begin
-      // a failed seal may leave an alert owed - close_notify at the AEAD usage limit, or the
-      // fatal alert of a seal fault; deliver it (any slices sealed before are already on the
-      // wire) before surfacing the failure to the caller
+      // a failed seal may leave an alert owed: deliver it before surfacing the failure
       LFault := EngineIsTerminal;
       SendPendingQuietly;
       if LFault then
@@ -811,8 +810,7 @@ begin
     SendPendingQuietly;
     RaiseFailure;
   end;
-  // the engine's Write raises once the write side is closed; checking here lets the stream report a
-  // clear error rather than the raw engine exception (and never counts the bytes as sent)
+  // checked here so a closed write side reports a clear error and the bytes are never counted as sent
   if LClosed then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
 end;
@@ -826,8 +824,7 @@ begin
   FWriteLock.Enter;
   try
     LOffset := 0;
-    // the engine seals whatever it is handed in full, so a bulk write sealed whole would hold the
-    // entire ciphertext before the first send: seal and drain one bounded slice at a time
+    // the engine seals what it is handed in full: seal and drain one bounded slice at a time
     while LOffset < ACount do
     begin
       LChunk := ACount - LOffset;

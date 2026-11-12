@@ -1336,8 +1336,7 @@ begin
       // ResumeAfterVerdict, so any message routed here is out of turn
       Result := Unexpected;
     TPhase.Connected:
-      // a HelloRequest is ignored (RFC 5246 7.4.1.1); the post-handshake message limit bounds a storm
-      // its body is empty; anything else is a decode_error
+      // a HelloRequest is ignored (RFC 5246 7.4.1.1) and must be empty; a storm hits the message limit
       if LKnown and (LType = TTlsHandshakeType.HelloRequest) then
       begin
         if System.Length(AMessage.Body) <> 0 then

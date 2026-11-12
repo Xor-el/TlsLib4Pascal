@@ -87,20 +87,27 @@ type
     property Stalls: Int64 read GetStalls;
   end;
 
-  /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
-  /// a surfaced EOF rather than hanging the run: a blocked read returns, a blocked write raises.
-  /// Disarmed once the exchange completes.</summary>
+  /// <summary>Force-closes both loopback pipes when a pump wedges, so it fails as a surfaced EOF
+  /// rather than hanging the run: a blocked read returns, a blocked write raises. It fires when no
+  /// byte has been written to either pipe for the idle time, or at the backstop however much
+  /// moved. Disarmed once the exchange completes.</summary>
   TWedgeWatchdog = class(TThread)
   strict private
+  const
+    SliceMs = UInt32(50);
   var
     FPipeA, FPipeB: TMemoryPipe;
-    FDeadlineMs: UInt32;
+    FIdleMs: UInt32;
+    FBackstopMs: UInt32;
     FDone: TEvent;
     FFired: Boolean;
   protected
     procedure Execute; override;
   public
-    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32);
+    /// <summary>Fires ADeadlineMs after the start, whether or not bytes move.</summary>
+    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32); overload;
+    /// <summary>Fires after AIdleMs with no byte written, or ABackstopMs after the start.</summary>
+    constructor Create(const APipeA, APipeB: TMemoryPipe; AIdleMs, ABackstopMs: UInt32); overload;
     destructor Destroy; override;
     procedure Disarm; // the exchange finished in time; stop before the deadline
     property Fired: Boolean read FFired;
@@ -633,10 +640,17 @@ end;
 constructor TWedgeWatchdog.Create(const APipeA, APipeB: TMemoryPipe;
   ADeadlineMs: UInt32);
 begin
+  Create(APipeA, APipeB, ADeadlineMs, ADeadlineMs);
+end;
+
+constructor TWedgeWatchdog.Create(const APipeA, APipeB: TMemoryPipe;
+  AIdleMs, ABackstopMs: UInt32);
+begin
   inherited Create(True);
   FPipeA := APipeA;
   FPipeB := APipeB;
-  FDeadlineMs := ADeadlineMs;
+  FIdleMs := AIdleMs;
+  FBackstopMs := ABackstopMs;
   FDone := TEvent.Create(nil, True, False, '');
   FFired := False;
   FreeOnTerminate := False;
@@ -649,14 +663,33 @@ begin
 end;
 
 procedure TWedgeWatchdog.Execute;
+var
+  LMoved, LLastMoved: Int64;
+  LIdleMs, LElapsedMs: UInt32;
 begin
-  // wait for the exchange to disarm us; if the deadline passes first the pump has wedged,
-  // so close both pipes to unblock its reads and let the test surface the failure
-  if FDone.WaitFor(FDeadlineMs) = wrTimeout then
+  // wait for the exchange to disarm us; if it goes quiet or runs out the backstop the pump has
+  // wedged, so close both pipes to unblock its reads and let the test surface the failure
+  LLastMoved := FPipeA.Written + FPipeB.Written;
+  LIdleMs := 0;
+  LElapsedMs := 0;
+  while FDone.WaitFor(SliceMs) = wrTimeout do
   begin
-    FFired := True;
-    FPipeA.Close;
-    FPipeB.Close;
+    System.Inc(LElapsedMs, SliceMs);
+    LMoved := FPipeA.Written + FPipeB.Written;
+    if LMoved <> LLastMoved then
+    begin
+      LLastMoved := LMoved;
+      LIdleMs := 0;
+    end
+    else
+      System.Inc(LIdleMs, SliceMs);
+    if (LIdleMs >= FIdleMs) or (LElapsedMs >= FBackstopMs) then
+    begin
+      FFired := True;
+      FPipeA.Close;
+      FPipeB.Close;
+      Exit;
+    end;
   end;
 end;
 

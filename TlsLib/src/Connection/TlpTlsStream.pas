@@ -42,8 +42,12 @@ type
   /// a close or alert never waits for a busy writer (that writer sends it, so it can be unsent when
   /// the call returns), and the engine underneath must not be called directly while the stream is
   /// in use. A blocked read ends only with bytes or when the host closes the transport. Free the
-  /// stream only after every call has returned. Every call first waits for the handshake, under
-  /// its own lock, which a blocked reader does not hold.
+  /// stream only after every call has returned. Reads, writes and rekeys first wait for the
+  /// handshake, under its own lock, which a blocked reader does not hold. A close, alert or
+  /// exporter call does not wait for the handshake but can wait for the engine call it is making,
+  /// which includes the built-in certificate check and any live revocation fetch. A callback the
+  /// handshake runs may call ConnectionInfo, PendingReadBytes, CloseNotify and SendAlert, but not
+  /// Read, Write, Handshake or RequestKeyUpdate.
   /// </summary>
   TTlsStream = class(TStream)
   public
@@ -65,6 +69,8 @@ type
     FFailureMessage: string;
     FFailureHasAlert: Boolean;
     FFailureAlert: TTlsAlertDescription;
+    // set under FHandshakeLock once the handshake is complete and its read cap cleared
+    FHandshakeSettled: Boolean;
     // the read side's state: FReadLock guards every field from here to FReadChunk
     FReadClosed: Boolean;
     FTruncated: Boolean;
@@ -76,6 +82,9 @@ type
     procedure RequireTimedForCap(AMs: Int32);
     procedure ArmReadCap(AMs: Int32; AApplication: Boolean);
     procedure ClearReadCap(AMs: Int32);
+    /// <summary>Waits for the handshake before a write, or refuses when the write side was
+    /// closed before it ran.</summary>
+    procedure HandshakeForWrite;
     /// <summary>One read cycle; the caller holds the read side.</summary>
     function ReadLocked(var ABuffer; ACount: Longint): Longint;
   public
@@ -130,8 +139,9 @@ type
     /// another thread runs the handshake, the alert goes out as it completes and every later call
     /// raises it.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription);
-    /// <summary>Asks for fresh traffic keys (TLS 1.3 KeyUpdate; a no-op under TLS 1.2). Waits for
-    /// the handshake and for the send side like a write, and raises once the write side is closed.
+    /// <summary>Asks for fresh traffic keys (TLS 1.3 KeyUpdate; a no-op under TLS 1.2). Drives or
+    /// waits for the handshake and then for the send side like a write, and raises once the write
+    /// side is closed.
     /// Use this, not the engine, while the stream is in use.</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>The RFC 5705 / 9846 7.5 exporter keyed to this connection, or nil before the
@@ -267,6 +277,17 @@ begin
   end;
 end;
 
+procedure TTlsStream.HandshakeForWrite;
+begin
+  // a close before the handshake only latched the flag; fail here rather than run it and send
+  if not FPump.ConfirmHandshakeComplete then
+  begin
+    if FPump.WriteSideClosed then
+      raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
+    Handshake;
+  end;
+end;
+
 procedure TTlsStream.SetCertificateVerdictResolver(
   const AResolver: TCertificateVerdictResolver);
 begin
@@ -287,19 +308,21 @@ end;
 
 procedure TTlsStream.Handshake(AReadTimeoutMs: Int32);
 begin
-  if FPump.ConfirmHandshakeComplete then
+  if FHandshakeSettled then
     Exit;
   FHandshakeLock.Enter;
   try
     // another thread may have completed it while this one waited
-    if FPump.ConfirmHandshakeComplete then
-      Exit;
-    ArmReadCap(AReadTimeoutMs, False);
-    try
-      DriveHandshake;
-    finally
-      ClearReadCap(AReadTimeoutMs);
+    if not FPump.ConfirmHandshakeComplete then
+    begin
+      ArmReadCap(AReadTimeoutMs, False);
+      try
+        DriveHandshake;
+      finally
+        ClearReadCap(AReadTimeoutMs);
+      end;
     end;
+    FHandshakeSettled := True;
   finally
     FHandshakeLock.Leave;
   end;
@@ -333,7 +356,7 @@ end;
 
 procedure TTlsStream.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
 begin
-  Handshake;
+  HandshakeForWrite;
   FPump.RequestKeyUpdate(ARequest);
 end;
 
@@ -440,12 +463,6 @@ begin
   // refused before the handshake touches the transport
   RequireTimedForCap(AReadTimeoutMs);
   Handshake;
-  if AReadTimeoutMs > 0 then
-  begin
-    // the thread that completed the handshake clears its cap while still inside it: wait that out
-    FHandshakeLock.Enter;
-    FHandshakeLock.Leave;
-  end;
   FReadLock.Enter;
   try
     ArmReadCap(AReadTimeoutMs, True);
@@ -463,13 +480,7 @@ function TTlsStream.Write(const ABuffer; ACount: Longint): Longint;
 begin
   if ACount <= 0 then
     Exit(0);
-  // a close before the handshake only latched the flag; fail here rather than run it and send
-  if not FPump.ConfirmHandshakeComplete then
-  begin
-    if FPump.WriteSideClosed then
-      raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
-    Handshake;
-  end;
+  HandshakeForWrite;
   FPump.WriteApp(ABuffer, ACount);
   Result := ACount;
 end;

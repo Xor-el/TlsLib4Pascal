@@ -1702,10 +1702,7 @@ begin
       '-no-tls1', '-no-tls11', '-no-legacy-server-connect',
       '-use-old-client-cert-callback', '-use-early-callback', '-no-op-extra-handshake',
       '-allow-hint-mismatch', '-on-resume-allow-hint-mismatch', '-install-ddos-callback',
-      // this shim never renegotiates: a client ignores a HelloRequest and a server refuses a
-      // renegotiation ClientHello with a fatal no_renegotiation. Ignore-and-continue is what
-      // -renegotiate-ignore expects; -forbid-renegotiation-after-handshake expects a fatal
-      // the client does not send (see the disable ledger)
+      // never renegotiates: a client ignores a HelloRequest, a server refuses a ClientHello
       '-renegotiate-ignore', '-forbid-renegotiation-after-handshake']) then
     begin
       // accepted no-op

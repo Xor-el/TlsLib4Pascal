@@ -165,6 +165,8 @@ type
     procedure StartTimedEchoPair(out AClient: TTlsStream;
       out AClientTransport: TPipeTimedTransport);
     // the verify callback that parks the handshake until the test releases it
+    function ClosingVerify(const APresented, AValidated: TArray<TBytes>;
+      const AHostName: string): Boolean;
     function BlockingVerify(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
     /// <summary>A client whose handshake parks in ParkedResolver, a server that echoes one message,
@@ -183,6 +185,8 @@ type
     function ClientTraffic0(const AKeyLog: TMockKeyLog): TBytes;
     // thread bodies
     procedure HandshakeQueried;
+    procedure HandshakeCapped;
+    procedure HandshakeThenSignal;
     procedure HandshakeRepeated;
     procedure QueryQueried;
     procedure ReadQueried;
@@ -290,9 +294,12 @@ type
     procedure TestCloseNotifyDuringTheHandshakeIsSentAsItCompletes;
     procedure TestSendAlertDuringTheHandshakeRefusesTheConnection;
     procedure TestRequestKeyUpdateAfterCloseNotifyRaises;
+    procedure TestRequestKeyUpdateAfterAPreHandshakeCloseNotifyRefusesWithoutHandshaking;
     procedure TestRepeatedPumpHandshakeKeepsTheStateComplete;
     procedure TestReleaseWriteSendsWhatWasSealedAfterTheLastCheck;
     procedure TestReadCapsAreArmedAndClearedInsideTheReadSide;
+    procedure TestPlainReadAfterTheHandshakeDoesNotInheritItsCap;
+    procedure TestHandshakeCallbackMayQueryAndCloseItsOwnConnection;
     procedure TestRequestKeyUpdateWaitsForTheWriteSide;
     procedure TestQueriesAndAWriteCompleteWhileAReadIsParked;
     procedure TestReadAndQueriesProceedWhileAWriterIsBlockedInASend;
@@ -2714,6 +2721,64 @@ begin
   FQueried.Handshake;
 end;
 
+procedure TTestTlsStreamLoopback.HandshakeCapped;
+begin
+  FQueried.Handshake(30000);
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeThenSignal;
+begin
+  try
+    FQueried.Handshake;
+  finally
+    FQueryDone.SetEvent;
+  end;
+end;
+
+function TTestTlsStreamLoopback.ClosingVerify(const APresented, AValidated: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  FQueriedVersion := FQueried.ConnectionInfo.NegotiatedVersion.WireValue;
+  FQueriedPending := FQueried.PendingReadBytes;
+  FQueried.CloseNotify;
+  Result := True;
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeCallbackMayQueryAndCloseItsOwnConnection;
+var
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LHandshaker: TActionThread;
+  LReturned, LRaised: Boolean;
+begin
+  FQueryDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FPingBytes := DecodeHex(PingHex);
+  RunLoopback(ClientConfig(False, ClosingVerify), TServerBehavior.EchoThenClose, FQueried,
+    LServer, LTransport);
+  Own<TTlsStream>(FQueried);
+  LHandshaker := Own<TActionThread>(TActionThread.Create(HandshakeThenSignal));
+  try
+    LHandshaker.Start;
+    LReturned := FQueryDone.WaitFor(20000) = wrSignaled;
+  finally
+    LServer.Finish;
+  end;
+  LHandshaker.WaitFor;
+  CheckTrue(LReturned, 'the handshake returned although its callback called back');
+  CheckEquals('', LHandshaker.Error, 'and raised nothing');
+  CheckEquals(0, Integer(FQueriedVersion), 'the callback saw the zero facts of a running handshake');
+  CheckEquals(0, FQueriedPending, 'and no pending bytes');
+  LRaised := False;
+  try
+    FQueried.Write(FPingBytes[0], System.Length(FPingBytes));
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the close the callback asked for took effect: a write raises');
+  LServer.Free;
+end;
+
 procedure TTestTlsStreamLoopback.QueryQueried;
 begin
   FQueriedVersion := FQueried.ConnectionInfo.NegotiatedVersion.WireValue;
@@ -3385,6 +3450,32 @@ begin
   end;
 end;
 
+procedure TTestTlsStreamLoopback.TestRequestKeyUpdateAfterAPreHandshakeCloseNotifyRefusesWithoutHandshaking;
+var
+  LClient: TTlsStream;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LRaised: Boolean;
+begin
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  LClient := NewClientStream(LTransport, ClientConfig(False, nil));
+  try
+    LClient.CloseNotify;
+    LRaised := False;
+    try
+      LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+    except
+      on EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a rekey after a pre-handshake close raises, as a write does');
+    CheckEquals(0, LRecorder.Written, 'and ran no handshake');
+  finally
+    LClient.Free;
+  end;
+end;
+
 procedure TTestTlsStreamLoopback.TestRepeatedPumpHandshakeKeepsTheStateComplete;
 var
   LC2S, LS2C: TMemoryPipe;
@@ -3502,6 +3593,77 @@ begin
   CheckEqualBytes('the echo', FPingBytes, System.Copy(FReadBuffer, 0, FReadCount));
   CheckEquals('a20000;c;a150;c;', LLog.Log,
     'each cap was armed and cleared inside the read side that used it');
+end;
+
+procedure TTestTlsStreamLoopback.TestPlainReadAfterTheHandshakeDoesNotInheritItsCap;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LInner: TPipeTimedTransport;
+  LServerTransport: TMemoryTransport;
+  LInnerT: ITlsTimedTransport;
+  LLog: TCapLogTransport;
+  LLogT, LServerT: ITlsTransport;
+  LClock: TMockMonotonicClock;
+  LClockRef: ITlsMonotonicClock;
+  LServing, LHandshaker, LReader: TActionThread;
+  LWaited: Int32;
+  LEnded: Boolean;
+begin
+  FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FPause := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FPingBytes := DecodeHex(PingHex);
+  System.SetLength(FReadBuffer, 4096);
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClock := TMockMonotonicClock.Create(0);
+  LClockRef := LClock;
+  LInner := TPipeTimedTransport.Create(LS2C, LC2S);
+  LInnerT := LInner;
+  LInnerT.UseClock(LClockRef);
+  LLog := TCapLogTransport.Create(LInnerT);
+  LLogT := LLog;
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LServerT := LServerTransport;
+  FQueried := Own<TTlsStream>(NewClientStream(LLogT, ClientConfig(False, nil)));
+  FServing := Own<TTlsStream>(NewServerStream(LServerT));
+  LServing := Own<TActionThread>(TActionThread.Create(ServeTimedEcho));
+  LHandshaker := Own<TActionThread>(TActionThread.Create(HandshakeCapped));
+  LReader := Own<TActionThread>(TActionThread.Create(ReadQueried));
+  LServing.Start;
+  LHandshaker.Start;
+  try
+    // the log holds the handshake thread in the clearing of its cap, which comes after the
+    // handshake completed
+    LWaited := 0;
+    while (not FQueried.IsHandshakeComplete) and (LWaited < 20000) do
+    begin
+      FPause.WaitFor(5);
+      System.Inc(LWaited, 5);
+    end;
+    CheckTrue(FQueried.IsHandshakeComplete, 'the handshake completed');
+    // the handshake cap has run out, as it does for a connection that was quiet that long
+    LClock.Advance(60000);
+    LReader.Start;
+    LEnded := FReaderDone.WaitFor(700) = wrSignaled;
+    if LEnded then
+    begin
+      LReader.WaitFor;
+      Fail('a plain read waits for data under no cap, but ended with ' + LReader.Error);
+    end;
+    FQueried.Write(FPingBytes[0], System.Length(FPingBytes));
+    CheckTrue(FReaderDone.WaitFor(10000) = wrSignaled, 'the read got the echo');
+  finally
+    // ends a server still waiting for the message, and with it any read still blocked on it
+    LInner.CloseWrite;
+    LServerTransport.CloseWrite;
+  end;
+  LServing.WaitFor;
+  LHandshaker.WaitFor;
+  LReader.WaitFor;
+  CheckEquals('', LHandshaker.Error, 'the handshake completed');
+  CheckEquals('', LReader.Error, 'the read was not bounded by the cap of the handshake');
+  CheckEqualBytes('the echo', FPingBytes, System.Copy(FReadBuffer, 0, FReadCount));
+  CheckEquals('h30000;c;', LLog.Log, 'the read armed no cap of its own');
 end;
 
 procedure TTestTlsStreamLoopback.TestRequestKeyUpdateWaitsForTheWriteSide;

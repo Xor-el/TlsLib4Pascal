@@ -235,9 +235,7 @@ type
   TTlsTimedTransportBase = class abstract(TInterfacedObject, ITlsTransport, ITlsTimedTransport)
   strict private
   const
-    // While a write deadline is armed no send is larger than this. A socket reported writable has
-    // at least its low-water mark free (2048 bytes by default on BSD and macOS), so a send this
-    // size after a positive wait completes without blocking, which a larger one need not.
+    // a send this size after a positive writability wait does not block
     ArmedSendSliceBytes = 1024;
   var
     FReadTimeoutMs: Int32;
@@ -247,7 +245,6 @@ type
     FWriteDeadlineMs: Int64; // monotonic ms the armed write deadline expires at
     FClock: ITlsMonotonicClock;
     procedure RaiseCapElapsed;
-    procedure RaiseWriteElapsed;
     procedure AwaitWritable;
   strict protected
     /// <summary>True when at least one byte can be read within AMs ms. The default waits nowhere and
@@ -1288,15 +1285,10 @@ begin
     RaiseCapElapsed;
 end;
 
-procedure TTlsTimedTransportBase.RaiseWriteElapsed;
-begin
-  raise ETlsWriteTimeout.CreateResFmt(@SWriteTimedOut, [FWriteTimeoutMs]);
-end;
-
 procedure TTlsTimedTransportBase.CheckWriteCap;
 begin
   if (FWriteTimeoutMs > 0) and (FWriteDeadlineMs - FClock.NowMonotonicMillis <= 0) then
-    RaiseWriteElapsed;
+    raise ETlsWriteTimeout.CreateResFmt(@SWriteTimedOut, [FWriteTimeoutMs]);
 end;
 
 function TTlsTimedTransportBase.WriteWaitMs(AMaxMs: Int32): Int32;
@@ -1308,7 +1300,7 @@ begin
     Exit;
   LLeftMs := FWriteDeadlineMs - FClock.NowMonotonicMillis;
   if LLeftMs <= 0 then
-    RaiseWriteElapsed;
+    raise ETlsWriteTimeout.CreateResFmt(@SWriteTimedOut, [FWriteTimeoutMs]);
   if LLeftMs < Result then
     Result := Int32(LLeftMs);
 end;
