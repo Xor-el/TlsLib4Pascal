@@ -85,8 +85,10 @@ type
   /// <summary>An ITlsTransport over a Synapse block socket: raw ciphertext moves through synsock
   /// Recv/Send on the socket handle, bypassing TTCPBlockSocket's SSL-aware buffered methods
   /// (which would otherwise recurse back into this plugin once SSLEnabled is set). The
-  /// handshake-phase read cap comes from the shared timed-transport base; readiness is polled with
-  /// CanRead so no socket option (which Synapse cannot read back to restore) is touched.</summary>
+  /// handshake-phase read cap comes from the shared timed-transport base; read readiness is polled
+  /// with CanRead so no socket option (which Synapse cannot read back to restore) is touched, and
+  /// write readiness with a select on a private set, so the send side touches no block socket
+  /// state.</summary>
   TSynapseSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
@@ -322,8 +324,22 @@ begin
 end;
 
 function TSynapseSocketTransport.WaitWritable(AMs: Int32): Boolean;
+var
+  LWriteSet: TFDSet;
+  LTime: TTimeVal;
+  LReady: Integer;
 begin
-  Result := FSocket.CanWrite(AMs);
+  // not CanWrite: it writes block socket state that the read side shares
+  FD_ZERO(LWriteSet);
+  FD_SET(FSocket.Socket, LWriteSet);
+  LTime.tv_sec := AMs div 1000;
+  LTime.tv_usec := (AMs mod 1000) * 1000;
+  LReady := synsock.Select(FSocket.Socket + 1, nil, @LWriteSet, nil, @LTime);
+  // a failed select counts as ready; an interrupted one does not
+  if LReady < 0 then
+    Result := synsock.WSAGetLastError <> WSAEINTR
+  else
+    Result := LReady > 0;
 end;
 
 function TSynapseSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,

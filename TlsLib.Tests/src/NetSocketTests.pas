@@ -654,38 +654,39 @@ end;
 procedure TTestNetSocket.TestWriteDeadlineEndsAWriteToAPeerThatDoesNotDrain;
 const
   DeadlineMs = 300;
-  // far more than the two socket buffers on the path can hold
-  MaxChunks = 16384;
+  FillLimitMs = 20000;
 var
   LListener: ITcpListener;
   LClient, LServer: ITlsTimedTransport;
   LClock: ITlsMonotonicClock;
   LChunk: TBytes;
-  LCount: Int32;
-  LStart: Int64;
+  LFillEndsAt, LWriteStart, LStalledMs: Int64;
   LRaised: Boolean;
 begin
   LListener := Listener;
   ConnectPair(LListener, LClient, LServer); // the server end never reads
   LClock := TSystemMonotonicClock.Create;
   LClient.UseClock(LClock);
-  SetLength(LChunk, 65536);
-  LClient.SetWriteTimeout(DeadlineMs);
-  LStart := LClock.NowMonotonicMillis;
+  SetLength(LChunk, 1024);
   LRaised := False;
-  LCount := 0;
-  try
-    while LCount < MaxChunks do
-    begin
+  LStalledMs := 0;
+  LFillEndsAt := LClock.NowMonotonicMillis + FillLimitMs;
+  while (not LRaised) and (LClock.NowMonotonicMillis < LFillEndsAt) do
+  begin
+    LClient.SetWriteTimeout(DeadlineMs);
+    LWriteStart := LClock.NowMonotonicMillis;
+    try
       LClient.Write(LChunk, 0, System.Length(LChunk));
-      Inc(LCount);
+    except
+      on E: ETlsWriteTimeout do
+      begin
+        LRaised := True;
+        LStalledMs := LClock.NowMonotonicMillis - LWriteStart;
+      end;
     end;
-  except
-    on E: ETlsWriteTimeout do
-      LRaised := True;
   end;
-  CheckTrue(LRaised, 'a peer that stops draining ends the write with ETlsWriteTimeout');
-  CheckTrue(LClock.NowMonotonicMillis - LStart < 4000, 'and within about the deadline');
+  CheckTrue(LRaised, 'a peer that stops draining ends a write with ETlsWriteTimeout');
+  CheckTrue(LStalledMs < 4000, 'and the write ends about its deadline');
 end;
 
 procedure TTestNetSocket.TestRefusedConnectReportsTheRefusal;

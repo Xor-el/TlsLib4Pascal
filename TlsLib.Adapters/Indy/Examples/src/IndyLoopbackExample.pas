@@ -39,6 +39,10 @@ uses
   IdContext,
   IdTCPServer,
   IdTCPClient,
+  TlpClock,
+  TlpIClock,
+  TlpITlsTransport,
+  TlpTlsLibExceptions,
   TlpTlsVersion,
   TlpDataEncoding,
   TlpNegotiationTypes,
@@ -49,6 +53,10 @@ uses
 const
   PORT = 28444;
   MUTUAL_PORT = 28454;
+  WRITE_PORT = 28464;
+  WRITE_DEADLINE_MS = 300;
+  FILL_LIMIT_MS = 20000; // how long to keep writing before the peer's buffers must have filled
+  WRITE_STALL_LIMIT_MS = 4000; // a stalled write must end about its deadline, not this late
   CRLF = #13#10;
 
 var
@@ -81,6 +89,19 @@ type
     /// <summary>A client that presents the PKCS#12 identity authenticates to a server requiring a
     /// certificate and one that presents none is turned away; the .pfx file rules refuse a second
     /// credential file.</summary>
+    class procedure Run; static;
+  end;
+
+  /// <summary>A server handler that holds the connection open and never reads it.</summary>
+  TNeverReadsHandler = class sealed(TObject)
+  public
+    procedure DoExecute(AContext: TIdContext);
+  end;
+
+  TWriteDeadlineCheck = class sealed(TObject)
+  public
+    /// <summary>A send to a peer that never reads ends with ETlsWriteTimeout about the write
+    /// deadline once the socket buffers are full, instead of blocking.</summary>
     class procedure Run; static;
   end;
 
@@ -226,6 +247,71 @@ begin
     end;
   finally
     LOptions.Free;
+  end;
+end;
+
+procedure TNeverReadsHandler.DoExecute(AContext: TIdContext);
+begin
+  Sleep(20);
+end;
+
+class procedure TWriteDeadlineCheck.Run;
+var
+  LServer: TIdTCPServer;
+  LClient: TIdTCPClient;
+  LNeverReads: TNeverReadsHandler;
+  LTransport: ITlsTimedTransport;
+  LClock: ITlsMonotonicClock;
+  LChunk: TBytes;
+  LFillEndsAt, LWriteStart, LStalledMs: Int64;
+  LRaised: Boolean;
+begin
+  LNeverReads := TNeverReadsHandler.Create;
+  LServer := TIdTCPServer.Create(nil);
+  LClient := TIdTCPClient.Create(nil);
+  try
+    LServer.DefaultPort := WRITE_PORT;
+    LServer.OnExecute := LNeverReads.DoExecute;
+    LServer.Active := True;
+    LClient.Host := '127.0.0.1';
+    LClient.Port := WRITE_PORT;
+    LClient.Connect;
+    try
+      LTransport := TIndySocketTransport.Create(LClient.Socket.Binding) as ITlsTimedTransport;
+      LClock := TSystemMonotonicClock.Create as ITlsMonotonicClock;
+      LTransport.UseClock(LClock);
+      SetLength(LChunk, 1024);
+      LRaised := False;
+      LStalledMs := 0;
+      LFillEndsAt := LClock.NowMonotonicMillis + FILL_LIMIT_MS;
+      while (not LRaised) and (LClock.NowMonotonicMillis < LFillEndsAt) do
+      begin
+        LTransport.SetWriteTimeout(WRITE_DEADLINE_MS);
+        LWriteStart := LClock.NowMonotonicMillis;
+        try
+          LTransport.Write(LChunk, 0, System.Length(LChunk));
+        except
+          on E: ETlsWriteTimeout do
+          begin
+            LRaised := True;
+            LStalledMs := LClock.NowMonotonicMillis - LWriteStart;
+          end;
+        end;
+      end;
+      if not LRaised then
+        raise Exception.Create('write deadline check: the write was never bounded');
+      if LStalledMs > WRITE_STALL_LIMIT_MS then
+        raise Exception.CreateFmt('write deadline check: the write ended %d ms after its start',
+          [LStalledMs]);
+    finally
+      LTransport := nil;
+      LClient.Disconnect;
+    end;
+  finally
+    LServer.Active := False;
+    LClient.Free;
+    LServer.Free;
+    LNeverReads.Free;
   end;
 end;
 
@@ -377,6 +463,8 @@ begin
     end;
 
     TMutualTlsCheck.Run;
+    TWriteDeadlineCheck.Run;
+    Writeln('Indy write deadline PASS: a stalled write is bounded');
 
     LOk := LAnchorsMapped and LTimedOut and (LEcho = 'ping from the indy client') and
       (LClientIO.NegotiatedVersion.WireValue = TlsWireVersionTls13) and

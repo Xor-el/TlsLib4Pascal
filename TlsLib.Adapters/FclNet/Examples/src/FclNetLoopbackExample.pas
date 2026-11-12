@@ -77,10 +77,18 @@ uses
   TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpNetSocket,
+  TlpINetSocket,
+  TlpClock,
+  TlpIClock,
+  TlpITlsTransport,
+  TlpTlsLibExceptions,
   FclNetFclWebMimic,
   TlsLibFclNetTls;
 
 const
+  WRITE_DEADLINE_MS = 300;
+  FILL_LIMIT_MS = 20000; // how long to keep writing before the peer's buffers must have filled
+  WRITE_STALL_LIMIT_MS = 4000; // a stalled write must end about its deadline, not this late
   PORT = 28446;
   MUTUAL_PORT = 28456;
   EARLY_CLOSE_PORT = 28457;
@@ -329,6 +337,13 @@ type
   public
     /// <summary>The server's accept of a client that closes before its ClientHello returns
     /// promptly, not after the handshake cap.</summary>
+    class procedure Run; static;
+  end;
+
+  TWriteDeadlineCheck = class sealed(TObject)
+  public
+    /// <summary>A send to a peer that never reads ends with ETlsWriteTimeout about the write
+    /// deadline once the socket buffers are full, instead of blocking.</summary>
     class procedure Run; static;
   end;
 
@@ -1278,6 +1293,56 @@ begin
   finally
     LServer.Terminate;
     LServer.Free;
+  end;
+end;
+
+{ TWriteDeadlineCheck }
+
+class procedure TWriteDeadlineCheck.Run;
+var
+  LListener: ITcpListener;
+  LPeer, LTransport: ITlsTimedTransport;
+  LSock: TInetSocket;
+  LClock: ITlsMonotonicClock;
+  LChunk: TBytes;
+  LFillEndsAt, LWriteStart, LStalledMs: Int64;
+  LRaised: Boolean;
+begin
+  LListener := TTcpListener.Create('127.0.0.1', 0) as ITcpListener;
+  LSock := TInetSocket.Create('127.0.0.1', LListener.Port);
+  try
+    // the peer, held but never read from
+    if not LListener.TryAccept(5000, LPeer) then
+      raise Exception.Create('write deadline check: the connection was not accepted');
+    LTransport := TFclNetSocketTransport.Create(LSock.Handle) as ITlsTimedTransport;
+    LClock := TSystemMonotonicClock.Create as ITlsMonotonicClock;
+    LTransport.UseClock(LClock);
+    SetLength(LChunk, 1024);
+    LRaised := False;
+    LStalledMs := 0;
+    LFillEndsAt := LClock.NowMonotonicMillis + FILL_LIMIT_MS;
+    while (not LRaised) and (LClock.NowMonotonicMillis < LFillEndsAt) do
+    begin
+      LTransport.SetWriteTimeout(WRITE_DEADLINE_MS);
+      LWriteStart := LClock.NowMonotonicMillis;
+      try
+        LTransport.Write(LChunk, 0, System.Length(LChunk));
+      except
+        on E: ETlsWriteTimeout do
+        begin
+          LRaised := True;
+          LStalledMs := LClock.NowMonotonicMillis - LWriteStart;
+        end;
+      end;
+    end;
+    if not LRaised then
+      raise Exception.Create('write deadline check: the write was never bounded');
+    if LStalledMs > WRITE_STALL_LIMIT_MS then
+      raise Exception.CreateFmt('write deadline check: the write ended %d ms after its start',
+        [LStalledMs]);
+  finally
+    LTransport := nil;
+    LSock.Free;
   end;
 end;
 
@@ -3222,6 +3287,7 @@ begin
       TMutualTlsCheck.RunHookFault;
       TMutualTlsCheck.RunHookMemoryFault;
       TEarlyCloseCheck.Run;
+      TWriteDeadlineCheck.Run;
       TVerifyIgnoredCheck.Run;
       TVerifyHonouredCheck.Run;
       TSelfSignedLeafCheck.Run;
@@ -3251,6 +3317,7 @@ begin
         ' + a hashed certificate directory looked up per verification and only by a verifying role' +
         ' with its name hashes checked against openssl''s' +
         ' + ALPN from the list or the slot' +
+        ' + a write to a peer that never reads ended by its write deadline' +
         ' + memory faults not hidden, failures recorded by family, and a socket closed under a' +
         ' blocked Recv without freeing the handler beneath it');
       Result := 0;

@@ -41,8 +41,12 @@ uses
   DateUtils,
   blcksock,
   synsock,
+  TlpClock,
+  TlpIClock,
   TlpDataEncoding,
   TlpTlsAlert,
+  TlpTlsLibExceptions,
+  TlpITlsTransport,
   TlpTrustTypes,
   TlpTrustPolicy,
   TlpTlsCredential,
@@ -52,6 +56,10 @@ uses
 const
   PORT = '28445';
   MUTUAL_PORT = '28455';
+  WRITE_PORT = '28465';
+  WRITE_DEADLINE_MS = 300;
+  FILL_LIMIT_MS = 20000; // how long to keep writing before the peer's buffers must have filled
+  WRITE_STALL_LIMIT_MS = 4000; // a stalled write must end about its deadline, not this late
   CRLF = #13#10;
   STALL_HOLD_MS = 4000; // how long the server stays silent after the partial record
   READ_CAP_MS = 800;
@@ -115,6 +123,13 @@ type
   public
     /// <summary>A client that presents the PKCS#12 identity authenticates to a server requiring a
     /// certificate, and one that presents none is turned away.</summary>
+    class procedure Run; static;
+  end;
+
+  TWriteDeadlineCheck = class sealed(TObject)
+  public
+    /// <summary>A send to a peer that never reads ends with ETlsWriteTimeout about the write
+    /// deadline once the socket buffers are full, instead of blocking.</summary>
     class procedure Run; static;
   end;
 
@@ -425,6 +440,61 @@ begin
   end;
 end;
 
+class procedure TWriteDeadlineCheck.Run;
+var
+  LListener, LClient, LPeer: TTCPBlockSocket;
+  LTransport: ITlsTimedTransport;
+  LClock: ITlsMonotonicClock;
+  LChunk: TBytes;
+  LFillEndsAt, LWriteStart, LStalledMs: Int64;
+  LRaised: Boolean;
+begin
+  LListener := TTCPBlockSocket.Create;
+  LClient := TTCPBlockSocket.Create;
+  LPeer := TTCPBlockSocket.Create;
+  try
+    LListener.CreateSocket;
+    LListener.SetLinger(True, 1000);
+    LListener.Bind('127.0.0.1', WRITE_PORT);
+    LListener.Listen;
+    LClient.Connect('127.0.0.1', WRITE_PORT);
+    if LClient.LastError <> 0 then
+      raise Exception.Create('write deadline check: tcp connect failed');
+    LPeer.Socket := LListener.Accept; // the peer never reads
+    LTransport := TSynapseSocketTransport.Create(LClient) as ITlsTimedTransport;
+    LClock := TSystemMonotonicClock.Create as ITlsMonotonicClock;
+    LTransport.UseClock(LClock);
+    SetLength(LChunk, 1024);
+    LRaised := False;
+    LStalledMs := 0;
+    LFillEndsAt := LClock.NowMonotonicMillis + FILL_LIMIT_MS;
+    while (not LRaised) and (LClock.NowMonotonicMillis < LFillEndsAt) do
+    begin
+      LTransport.SetWriteTimeout(WRITE_DEADLINE_MS);
+      LWriteStart := LClock.NowMonotonicMillis;
+      try
+        LTransport.Write(LChunk, 0, System.Length(LChunk));
+      except
+        on E: ETlsWriteTimeout do
+        begin
+          LRaised := True;
+          LStalledMs := LClock.NowMonotonicMillis - LWriteStart;
+        end;
+      end;
+    end;
+    if not LRaised then
+      raise Exception.Create('write deadline check: the write was never bounded');
+    if LStalledMs > WRITE_STALL_LIMIT_MS then
+      raise Exception.CreateFmt('write deadline check: the write ended %d ms after its start',
+        [LStalledMs]);
+  finally
+    LTransport := nil;
+    LPeer.Free;
+    LClient.Free;
+    LListener.Free;
+  end;
+end;
+
 class function TSynapseLoopbackExample.Run: Integer;
 var
   LServer: TServerThread;
@@ -489,11 +559,12 @@ begin
     if GServerError <> '' then
       raise Exception.Create('server: ' + GServerError);
     TMutualTlsCheck.Run;
+    TWriteDeadlineCheck.Run;
 
     if LEcho = 'ping from the synapse client' then
     begin
       Writeln('Synapse loopback PASS: handshake + echo + a stalled record bounded in ',
-        LStallMs, ' ms + client PFX identity authenticated');
+        LStallMs, ' ms + client PFX identity authenticated + a stalled write bounded');
       Result := 0;
     end
     else

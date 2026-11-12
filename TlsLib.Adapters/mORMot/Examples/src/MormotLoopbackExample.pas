@@ -40,6 +40,9 @@ uses
   mormot.core.base,
   mormot.core.unicode,
   mormot.net.sock,
+  TlpClock,
+  TlpIClock,
+  TlpITlsTransport,
   TlpDataEncoding,
   TlpTlsAlert,
   TlpTrustPolicy,
@@ -49,6 +52,10 @@ uses
 const
   PORT = '28443';
   MUTUAL_PORT = '28453';
+  WRITE_PORT = '28463';
+  WRITE_DEADLINE_MS = 300;
+  FILL_LIMIT_MS = 20000; // how long to keep writing before the peer's buffers must have filled
+  WRITE_STALL_LIMIT_MS = 4000; // a stalled write must end about its deadline, not this late
   HOST = '127.0.0.1';
   PINGHEX = '70696e672066726f6d20746865206d6f724d6f7420636c69656e74';
 
@@ -112,6 +119,13 @@ type
   public
     // a client that presents the PKCS#12 identity authenticates to a server requiring a
     // certificate, and one that presents none is turned away
+    class procedure Run; static;
+  end;
+
+  TWriteDeadlineCheck = class sealed(TObject)
+  public
+    // a send to a peer that never reads ends with ETlsWriteTimeout about the write deadline once
+    // the socket buffers are full, instead of blocking
     class procedure Run; static;
   end;
 
@@ -522,6 +536,71 @@ begin
   end;
 end;
 
+class procedure TWriteDeadlineCheck.Run;
+var
+  LListener, LClientSocket, LPeer: TNetSocket;
+  LAddr: TNetAddr;
+  LTransport: ITlsTimedTransport;
+  LClock: ITlsMonotonicClock;
+  LChunk: TBytes;
+  LFillEndsAt, LWriteStart, LStalledMs: Int64;
+  LRaised, LDoBind, LAsync: Boolean;
+  LTimeoutMs, LRetry: Integer;
+begin
+  LDoBind := True;
+  LAsync := False;
+  LTimeoutMs := 3000;
+  LRetry := 0;
+  LTransport := nil;
+  LPeer := nil;
+  if NewSocket(HOST, WRITE_PORT, nlTcp, LDoBind, LTimeoutMs, LTimeoutMs, LTimeoutMs, LRetry,
+    LListener) <> nrOK then
+    raise Exception.Create('write deadline check: bind failed');
+  try
+    LDoBind := False;
+    if NewSocket(HOST, WRITE_PORT, nlTcp, LDoBind, LTimeoutMs, LTimeoutMs, LTimeoutMs, LRetry,
+      LClientSocket) <> nrOK then
+      raise Exception.Create('write deadline check: connect failed');
+    try
+      if LListener.Accept(LPeer, LAddr, LAsync) <> nrOK then // the peer never reads
+        raise Exception.Create('write deadline check: accept failed');
+      LTransport := TMormotSocketTransport.Create(LClientSocket) as ITlsTimedTransport;
+      LClock := TSystemMonotonicClock.Create as ITlsMonotonicClock;
+      LTransport.UseClock(LClock);
+      SetLength(LChunk, 1024);
+      LRaised := False;
+      LStalledMs := 0;
+      LFillEndsAt := LClock.NowMonotonicMillis + FILL_LIMIT_MS;
+      while (not LRaised) and (LClock.NowMonotonicMillis < LFillEndsAt) do
+      begin
+        LTransport.SetWriteTimeout(WRITE_DEADLINE_MS);
+        LWriteStart := LClock.NowMonotonicMillis;
+        try
+          LTransport.Write(LChunk, 0, System.Length(LChunk));
+        except
+          on E: ETlsWriteTimeout do
+          begin
+            LRaised := True;
+            LStalledMs := LClock.NowMonotonicMillis - LWriteStart;
+          end;
+        end;
+      end;
+      if not LRaised then
+        raise Exception.Create('write deadline check: the write was never bounded');
+      if LStalledMs > WRITE_STALL_LIMIT_MS then
+        raise Exception.CreateFmt('write deadline check: the write ended %d ms after its start',
+          [LStalledMs]);
+    finally
+      LTransport := nil;
+      LClientSocket.Close;
+      if LPeer <> nil then
+        LPeer.Close;
+    end;
+  finally
+    LListener.Close;
+  end;
+end;
+
 class function TMormotLoopbackExample.Run: Integer;
 var
   LServer: TServerThread;
@@ -589,6 +668,8 @@ begin
       Writeln('mORMot loopback FAIL: echo/version mismatch');
     LServer.Free;
     TMutualTlsCheck.Run;
+    TWriteDeadlineCheck.Run;
+    Writeln('mORMot write deadline PASS: a stalled write is bounded');
     LRefused := TRefusalChecks.AllRefused;
     if LRefused then
       Writeln('mORMot refusal checks PASS: unsupported context inputs fail loudly')
