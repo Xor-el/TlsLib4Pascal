@@ -411,6 +411,85 @@ type
     function Overlaps: Int32;
   end;
 
+  /// <summary>An engine over a real one that plays another thread's Close: on the first
+  /// IsTerminal call after WantsWrite answered False it seals close_notify, which is how a record
+  /// is sealed after a writer's last check and before it lets go of the write side. It can also
+  /// owe one more byte once the transport has failed, like a record sealed behind a failed send.</summary>
+  TSealAfterDrainEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
+    ITlsEngineOutbound)
+  strict private
+  var
+    FInner: ITlsEngine;
+    FDrained: Boolean;
+    FSealed: Boolean;
+    FOwesAfterLatch: Boolean;
+    FOwed: Boolean;
+  public
+    constructor Create(const AInner: ITlsEngine);
+    function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
+    procedure Write(const AData: TBytes; AOffset, ALength: Int32);
+    function WriteEarlyData(const AData: TBytes; AOffset, ALength: Int32): Int32;
+    procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+    procedure SendClose;
+    procedure SendAlert(ADescription: TTlsAlertDescription); overload;
+    procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
+    procedure LatchTransportFailure(const AReason: string);
+    procedure StartHandshake;
+    procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
+    function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
+    function ReadAppData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
+    function PendingAppData: Int32;
+    function ReadEarlyData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
+    function PendingEarlyData: Int32;
+    function NextEvent(out AEvent: ITlsEvent): Boolean;
+    function ConnectionInfo: TTlsConnectionInfo;
+    function WantsRead: Boolean;
+    function WantsWrite: Boolean;
+    function IsHandshaking: Boolean;
+    function AwaitingCertificateVerdict: Boolean;
+    function IsTerminal: Boolean;
+    function IsClosed: Boolean;
+    function IsInboundClosed: Boolean;
+    function WriteClosed: Boolean;
+    function LastError: TTlsError;
+    function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
+    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; overload;
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
+    /// <summary>Whether it sealed the close_notify.</summary>
+    property Sealed: Boolean read FSealed;
+    /// <summary>Whether a latch leaves one byte owed.</summary>
+    property OwesAfterLatch: Boolean read FOwesAfterLatch write FOwesAfterLatch;
+  end;
+
+  // a timed transport that keeps the base's default writability wait, sending one byte at a time
+  TTestBareTransport = class(TTlsTimedTransportBase)
+  strict private
+    FSent: Int32;
+  strict protected
+    function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
+    function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
+  public
+    constructor Create(const AClock: ITlsMonotonicClock);
+    property Sent: Int32 read FSent;
+  end;
+
+  TTestAction = procedure of object;
+
+  /// <summary>Runs one action of a test on its own thread, keeping the exception it ended with.</summary>
+  TActionThread = class(TThread)
+  strict private
+  var
+    FAction: TTestAction;
+    FError: string;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AAction: TTestAction);
+    property Error: string read FError;
+  end;
+
   /// <summary>The server half of a loopback on its own thread; owns the server stream.</summary>
   TLoopbackServerThread = class abstract(TThread)
   strict protected
@@ -1535,6 +1614,224 @@ begin
     Result := FInner.ExportEarlyKeyingMaterial(ALabel, AContext, ALength);
   finally
     Leave;
+  end;
+end;
+
+{ TSealAfterDrainEngine }
+
+constructor TSealAfterDrainEngine.Create(const AInner: ITlsEngine);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TSealAfterDrainEngine.ProcessInput(const AWire: TBytes; AOffset,
+  ALength: Int32): TTlsOutcome;
+begin
+  Result := FInner.ProcessInput(AWire, AOffset, ALength);
+end;
+
+procedure TSealAfterDrainEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
+begin
+  FInner.Write(AData, AOffset, ALength);
+end;
+
+function TSealAfterDrainEngine.WriteEarlyData(const AData: TBytes; AOffset,
+  ALength: Int32): Int32;
+begin
+  Result := FInner.WriteEarlyData(AData, AOffset, ALength);
+end;
+
+procedure TSealAfterDrainEngine.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+begin
+  FInner.RequestKeyUpdate(ARequest);
+end;
+
+procedure TSealAfterDrainEngine.SendClose;
+begin
+  FInner.SendClose;
+end;
+
+procedure TSealAfterDrainEngine.SendAlert(ADescription: TTlsAlertDescription);
+begin
+  FInner.SendAlert(ADescription);
+end;
+
+procedure TSealAfterDrainEngine.SendAlert(ADescription: TTlsAlertDescription;
+  const AReason: string);
+begin
+  FInner.SendAlert(ADescription, AReason);
+end;
+
+procedure TSealAfterDrainEngine.LatchTransportFailure(const AReason: string);
+begin
+  FInner.LatchTransportFailure(AReason);
+  FOwed := FOwesAfterLatch;
+  // owed once, so the recheck that fails to send it is not owed it again
+  FOwesAfterLatch := False;
+end;
+
+procedure TSealAfterDrainEngine.StartHandshake;
+begin
+  FInner.StartHandshake;
+end;
+
+procedure TSealAfterDrainEngine.SetCertificateVerdict(AAccept: Boolean;
+  AAlert: TTlsAlertDescription);
+begin
+  FInner.SetCertificateVerdict(AAccept, AAlert);
+end;
+
+function TSealAfterDrainEngine.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
+begin
+  Result := FInner.TakeOutgoing(ADest, ADestOffset);
+  if FOwed and (Result = 0) then
+  begin
+    FOwed := False;
+    ADest[ADestOffset] := 0;
+    Result := 1;
+  end;
+end;
+
+function TSealAfterDrainEngine.ReadAppData(var ADest: TBytes; ADestOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Result := FInner.ReadAppData(ADest, ADestOffset, AMaxLength);
+end;
+
+function TSealAfterDrainEngine.PendingAppData: Int32;
+begin
+  Result := FInner.PendingAppData;
+end;
+
+function TSealAfterDrainEngine.ReadEarlyData(var ADest: TBytes; ADestOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Result := FInner.ReadEarlyData(ADest, ADestOffset, AMaxLength);
+end;
+
+function TSealAfterDrainEngine.PendingEarlyData: Int32;
+begin
+  Result := FInner.PendingEarlyData;
+end;
+
+function TSealAfterDrainEngine.NextEvent(out AEvent: ITlsEvent): Boolean;
+begin
+  Result := FInner.NextEvent(AEvent);
+end;
+
+function TSealAfterDrainEngine.ConnectionInfo: TTlsConnectionInfo;
+begin
+  Result := FInner.ConnectionInfo;
+end;
+
+function TSealAfterDrainEngine.WantsRead: Boolean;
+begin
+  Result := FInner.WantsRead;
+end;
+
+function TSealAfterDrainEngine.WantsWrite: Boolean;
+begin
+  Result := FInner.WantsWrite or FOwed;
+  if not Result then
+    FDrained := True;
+end;
+
+function TSealAfterDrainEngine.IsHandshaking: Boolean;
+begin
+  Result := FInner.IsHandshaking;
+end;
+
+function TSealAfterDrainEngine.AwaitingCertificateVerdict: Boolean;
+begin
+  Result := FInner.AwaitingCertificateVerdict;
+end;
+
+function TSealAfterDrainEngine.IsTerminal: Boolean;
+begin
+  if FDrained and not FSealed then
+  begin
+    FSealed := True;
+    FInner.SendClose;
+  end;
+  Result := FInner.IsTerminal;
+end;
+
+function TSealAfterDrainEngine.IsClosed: Boolean;
+begin
+  Result := FInner.IsClosed;
+end;
+
+function TSealAfterDrainEngine.IsInboundClosed: Boolean;
+begin
+  Result := FInner.IsInboundClosed;
+end;
+
+function TSealAfterDrainEngine.WriteClosed: Boolean;
+begin
+  Result := FInner.WriteClosed;
+end;
+
+function TSealAfterDrainEngine.LastError: TTlsError;
+begin
+  Result := FInner.LastError;
+end;
+
+function TSealAfterDrainEngine.ExportKeyingMaterial(const ALabel: string;
+  ALength: Int32): TBytes;
+begin
+  Result := FInner.ExportKeyingMaterial(ALabel, ALength);
+end;
+
+function TSealAfterDrainEngine.ExportKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := FInner.ExportKeyingMaterial(ALabel, AContext, ALength);
+end;
+
+function TSealAfterDrainEngine.ExportEarlyKeyingMaterial(const ALabel: string;
+  const AContext: TBytes; ALength: Int32): TBytes;
+begin
+  Result := FInner.ExportEarlyKeyingMaterial(ALabel, AContext, ALength);
+end;
+
+{ TTestBareTransport }
+
+constructor TTestBareTransport.Create(const AClock: ITlsMonotonicClock);
+begin
+  inherited Create;
+  UseClock(AClock);
+end;
+
+function TTestBareTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Result := 0;
+end;
+
+function TTestBareTransport.SendRaw(const ABuffer: TBytes; AOffset,
+  ALength: Int32): Int32;
+begin
+  Inc(FSent);
+  Result := 1;
+end;
+
+{ TActionThread }
+
+constructor TActionThread.Create(const AAction: TTestAction);
+begin
+  inherited Create(True);
+  FAction := AAction;
+  FreeOnTerminate := False;
+end;
+
+procedure TActionThread.Execute;
+begin
+  try
+    FAction;
+  except
+    on E: Exception do
+      FError := E.ClassName + ': ' + E.Message;
   end;
 end;
 

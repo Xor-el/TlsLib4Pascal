@@ -60,6 +60,7 @@ uses
   MockClock,
   MockCertificateVerifiers,
   MockPkixProvider,
+  MockTransport,
   TlpTlsLibExceptions,
   TlpTlsConnection,
   TlpTlsEngineFactory,
@@ -391,18 +392,6 @@ type
     property LargestSend: Int32 read FLargestSend;
   end;
 
-  // a timed transport that keeps the base's default writability wait, sending one byte at a time
-  TTestBareTransport = class(TTlsTimedTransportBase)
-  strict private
-    FSent: Int32;
-  strict protected
-    function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
-    function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
-  public
-    constructor Create(const AClock: ITlsMonotonicClock);
-    property Sent: Int32 read FSent;
-  end;
-
 { TFakeSystemTrustInstaller }
 
 constructor TFakeSystemTrustInstaller.Create(ARaise: Boolean;
@@ -539,27 +528,6 @@ begin
   SetLength(FOutbound, LBase + LN);
   System.Move(ABuffer[AOffset], FOutbound[LBase], LN);
   Result := LN;
-end;
-
-{ TTestBareTransport }
-
-constructor TTestBareTransport.Create(const AClock: ITlsMonotonicClock);
-begin
-  inherited Create;
-  UseClock(AClock);
-end;
-
-function TTestBareTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
-  AMaxLength: Int32): Int32;
-begin
-  Result := 0;
-end;
-
-function TTestBareTransport.SendRaw(const ABuffer: TBytes; AOffset,
-  ALength: Int32): Int32;
-begin
-  Inc(FSent);
-  Result := 1;
 end;
 
 { TTestTlsConnection }
