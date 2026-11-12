@@ -60,7 +60,6 @@ type
   private
   const
     ServerHost = 'localhost';
-  var
     function AesGcmRegistry(const AProvider: ICryptoProvider): ICipherSuiteRegistry;
     function NewClient: ITlsEngine;
     function NewServer: ITlsEngine;

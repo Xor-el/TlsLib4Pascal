@@ -28,6 +28,7 @@ uses
 {$ELSE}
   TestFramework,
 {$ENDIF FPC}
+  TlpBinaryPrimitives,
   TlpIClock,
   TlpClock,
   TlpTlsVersion,
@@ -175,8 +176,6 @@ type
   public
     /// <summary>The byte every frame of ASeq from AWriter holds at AIndex.</summary>
     class function Pattern(AWriter: Int32; ASeq: UInt32; AIndex: UInt32): Byte; static;
-    class procedure PutU32(var ABuffer: TBytes; AOffset: Int32; AValue: UInt32); static;
-    class function GetU32(const ABuffer: array of Byte; AOffset: Int32): UInt32; static;
     /// <summary>Consumes ACount bytes; False when they are not the stream the writers sent.</summary>
     function Feed(const ABuffer: TBytes; ACount: Int32): Boolean;
     /// <summary>Whether the bytes fed so far end exactly at a frame boundary.</summary>
@@ -579,20 +578,6 @@ begin
   Result := Byte((ASeq * 131 + AIndex * 17 + (AIndex shr 7) * 3 + UInt32(AWriter) * 29) and $FF);
 end;
 
-class procedure TFrameParser.PutU32(var ABuffer: TBytes; AOffset: Int32; AValue: UInt32);
-begin
-  ABuffer[AOffset] := Byte(AValue shr 24);
-  ABuffer[AOffset + 1] := Byte(AValue shr 16);
-  ABuffer[AOffset + 2] := Byte(AValue shr 8);
-  ABuffer[AOffset + 3] := Byte(AValue);
-end;
-
-class function TFrameParser.GetU32(const ABuffer: array of Byte; AOffset: Int32): UInt32;
-begin
-  Result := (UInt32(ABuffer[AOffset]) shl 24) or (UInt32(ABuffer[AOffset + 1]) shl 16) or
-    (UInt32(ABuffer[AOffset + 2]) shl 8) or UInt32(ABuffer[AOffset + 3]);
-end;
-
 function TFrameParser.Fail(const AMessage: string): Boolean;
 begin
   FError := AMessage;
@@ -611,19 +596,19 @@ var
   LMagic: UInt32;
 begin
   FHave := 0;
-  LMagic := GetU32(FHeader, 0);
+  LMagic := TBinaryPrimitives.ReadUInt32BigEndian(PByte(@FHeader[0]), 0);
   FIsFin := (LMagic and $FFFF0000) = FinBase;
   if (not FIsFin) and ((LMagic and $FFFF0000) <> MagicBase) then
     Exit(Fail(Format('bad magic %x at stream offset %d', [LMagic, FBytes])));
   FWriter := Int32(LMagic and $FFFF);
   if FWriter > 1 then
     Exit(Fail(Format('bad writer id %d at stream offset %d', [FWriter, FBytes])));
-  FSeq := GetU32(FHeader, 4);
+  FSeq := TBinaryPrimitives.ReadUInt32BigEndian(PByte(@FHeader[0]), 4);
   if FSeq <> FExpected[FWriter] then
     Exit(Fail(Format('writer %d message %d arrived where %d was due (lost, repeated or ' +
       'interleaved) at stream offset %d', [FWriter, FSeq, FExpected[FWriter], FBytes])));
   System.Inc(FExpected[FWriter]);
-  FLeft := GetU32(FHeader, 8);
+  FLeft := TBinaryPrimitives.ReadUInt32BigEndian(PByte(@FHeader[0]), 8);
   FPos := 0;
   if FLeft > MaxLength then
     Exit(Fail(Format('bad length %d in writer %d message %d', [FLeft, FWriter, FSeq])));
@@ -823,9 +808,9 @@ begin
       LValue := TFrameParser.FinBase
     else
       LValue := TFrameParser.MagicBase;
-    TFrameParser.PutU32(LMessage, 0, LValue + UInt32(FWriterId));
-    TFrameParser.PutU32(LMessage, 4, UInt32(LSeq));
-    TFrameParser.PutU32(LMessage, 8, UInt32(LLength));
+    TBinaryPrimitives.WriteUInt32BigEndian(LMessage, 0, LValue + UInt32(FWriterId));
+    TBinaryPrimitives.WriteUInt32BigEndian(LMessage, 4, UInt32(LSeq));
+    TBinaryPrimitives.WriteUInt32BigEndian(LMessage, 8, UInt32(LLength));
     for LIndex := 0 to LLength - 1 do
       LMessage[TFrameParser.HeaderLength + LIndex] :=
         TFrameParser.Pattern(FWriterId, UInt32(LSeq), UInt32(LIndex));
@@ -945,18 +930,18 @@ begin
         LSentAll := LSeq >= FSpec.Frames;
         if LSentAll then
         begin
-          TFrameParser.PutU32(LMessage, 0, TFrameParser.FinBase);
-          TFrameParser.PutU32(LMessage, 8, 0);
+          TBinaryPrimitives.WriteUInt32BigEndian(LMessage, 0, TFrameParser.FinBase);
+          TBinaryPrimitives.WriteUInt32BigEndian(LMessage, 8, 0);
         end
         else
         begin
-          TFrameParser.PutU32(LMessage, 0, TFrameParser.MagicBase);
-          TFrameParser.PutU32(LMessage, 8, UInt32(MessageLength));
+          TBinaryPrimitives.WriteUInt32BigEndian(LMessage, 0, TFrameParser.MagicBase);
+          TBinaryPrimitives.WriteUInt32BigEndian(LMessage, 8, UInt32(MessageLength));
           for LIndex := 0 to MessageLength - 1 do
             LMessage[TFrameParser.HeaderLength + LIndex] :=
               TFrameParser.Pattern(0, UInt32(LSeq), UInt32(LIndex));
         end;
-        TFrameParser.PutU32(LMessage, 4, UInt32(LSeq));
+        TBinaryPrimitives.WriteUInt32BigEndian(LMessage, 4, UInt32(LSeq));
         Note(TStressPhase.Sending, LSeq);
         if LSentAll then
           FIo.Write(LMessage[0], TFrameParser.HeaderLength)
@@ -1212,9 +1197,9 @@ begin
     FNote := Format('the read-only server sent %d bytes while it was asked to rekey; ',
       [LAfterStorm - FBaseline]);
   SetLength(LFin, TFrameParser.HeaderLength);
-  TFrameParser.PutU32(LFin, 0, TFrameParser.FinBase);
-  TFrameParser.PutU32(LFin, 4, 0);
-  TFrameParser.PutU32(LFin, 8, 0);
+  TBinaryPrimitives.WriteUInt32BigEndian(LFin, 0, TFrameParser.FinBase);
+  TBinaryPrimitives.WriteUInt32BigEndian(LFin, 4, 0);
+  TBinaryPrimitives.WriteUInt32BigEndian(LFin, 8, 0);
   FServer.Write(LFin[0], System.Length(LFin));
   LSent := FS2C.Written - LAfterStorm;
   LExpected := TFrameParser.HeaderLength + RecordOverhead + KeyUpdateRecordLength;
