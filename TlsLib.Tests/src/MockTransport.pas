@@ -329,7 +329,7 @@ type
     FHeld: Boolean;
     procedure Append(const AEntry: string; AArm: Boolean);
   public
-    /// <summary>The first clear waits at most 400 ms.</summary>
+    /// <summary>The first clear waits at most the default hold bound.</summary>
     constructor Create(const AInner: ITlsTimedTransport); overload;
     /// <summary>The first clear waits at most AHoldBoundMs, so a failing test cannot hang the
     /// run.</summary>

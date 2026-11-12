@@ -46,12 +46,18 @@ type
   /// handshake, under its own lock, which a blocked reader does not hold. A close, alert or
   /// exporter call does not wait for the handshake but can wait for the engine call the handshake
   /// is making, which includes the built-in certificate check and any live revocation fetch.
-  /// Callbacks: one the handshake runs (verify, key log, session store, verdict resolver) may call
-  /// ConnectionInfo, PendingReadBytes, CloseNotify and SendAlert; Read, ReadTimed, ReadEarlyData,
-  /// Write, Handshake and RequestKeyUpdate raise EInvalidOperationTlsLibException there, and no
-  /// other call is supported. One run after the handshake (a client's session store receiving a
-  /// ticket) runs inside the Read that is holding the engine, so it may only query:
-  /// ConnectionInfo, PendingReadBytes and IsHandshakeComplete; no other call is supported there.
+  /// Callbacks: code the handshake runs (for example the verify callback, key log, credential
+  /// resolver, session store or cache, certificate compression cache, ECH key store, revocation
+  /// fetcher, verdict resolver or the transport) may call ConnectionInfo, PendingReadBytes,
+  /// IsHandshakeComplete, CloseNotify and SendAlert; any read, write, rekey or handshake of a
+  /// non-zero count raises EInvalidOperationTlsLibException there, and no other call is
+  /// supported. A callback that runs after the handshake (a client session cache storing a
+  /// ticket, or dropping sessions on a fatal alert) can run inside a read, a write or an alert
+  /// that holds the engine, so it may only query: ConnectionInfo, PendingReadBytes and
+  /// IsHandshakeComplete; inside a read, a read, write, rekey, close or alert on the stream
+  /// raises. A ticket that arrives with the server's Finished is stored during the handshake, so
+  /// follow the stricter rule. A callback must not wait for another thread that reads, writes,
+  /// rekeys or handshakes the same stream.
   /// </summary>
   TTlsStream = class(TStream)
   public
@@ -182,8 +188,8 @@ resourcestring
   SNotSeekable = 'a TLS stream is a sequential conduit and cannot be sought';
   SReadTruncated = 'the transport closed without close_notify (possible truncation)';
   SWriteAfterClose = 'the stream write side has been closed';
-  SHandshakeCallbackReentry = 'a handshake callback cannot read, write, rekey or handshake ' +
-    'the stream whose handshake is running it';
+  SHandshakeCallbackReentry = 'code the handshake calls (a callback or the transport) cannot ' +
+    'read, write, rekey or handshake the stream whose handshake is running it';
   SNilStreamArgument = 'a stream needs an engine and a transport (pass both, not nil)';
   SReadTimeoutNeedsTimedTransport = 'a read timeout needs a timed transport (an ' +
     'ITlsTimedTransport), and this stream was given a plain one';

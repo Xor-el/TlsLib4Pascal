@@ -441,13 +441,18 @@ While the handshake runs, `CloseNotify`, `SendAlert` and the exporter can wait f
 the handshake is making, which can be the whole built-in certificate check, live revocation fetch
 included.
 
-**Callbacks.** A callback the handshake runs (verify, key log, session store, verdict resolver) may
-call `ConnectionInfo`, `PendingReadBytes`, `CloseNotify` and `SendAlert` on its own stream or
-connection; `Read`, `ReadTimed`, `ReadEarlyData`, `Write`, `Handshake` and `RequestKeyUpdate` raise
+**Callbacks.** Code the handshake runs (for example the verify callback, key log, credential
+resolver, session store or cache, certificate compression cache, ECH key store, revocation
+fetcher, verdict resolver, or the transport) may call `ConnectionInfo` (`Info` on a
+`TTlsConnection`), `PendingReadBytes`, `IsHandshakeComplete`, `CloseNotify` and `SendAlert` on its
+own stream or connection. Any read, write, rekey or handshake of a non-zero count raises
 `EInvalidOperationTlsLibException` there, and no other call is supported. A `CloseNotify` or
-`SendAlert` from it takes effect as the handshake completes. A callback run after the handshake, such
-as a client's session store receiving a ticket, runs inside the `Read` that holds the engine, so it
-may only query (`ConnectionInfo`, `PendingReadBytes`, `IsHandshakeComplete`).
+`SendAlert` from it takes effect as the handshake completes. A callback run after the handshake,
+such as a client session cache storing a ticket or dropping sessions on a fatal alert, can run
+inside a read, a write or an alert that holds the engine, so it may only query; inside a read, a
+read, write, rekey, close or alert on its stream raises. A ticket that arrives with the server's
+Finished is stored during the handshake, so follow the stricter rule. A callback must not wait for
+another thread that reads, writes, rekeys or handshakes the same stream.
 
 A closing send (close_notify or a fatal alert) is bounded on an `ITlsTimedTransport`, by the close
 grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`, which `TTlsConnection` uses; `TTlsStream.Create`

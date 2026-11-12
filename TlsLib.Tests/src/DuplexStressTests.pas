@@ -376,6 +376,8 @@ type
 
   TTestDuplexStress = class(TTlsLibAlgorithmTestCase)
   strict private
+  var
+    FStallCount: Int64;
     // multiplies every message count; TLSLIB_STRESS_LONG=true runs the soak size
     function Scale: Int32;
     function ClientConfig(AWire: UInt16): ITlsClientConfig;
@@ -388,11 +390,9 @@ type
     procedure RunCorrupt(AWire: UInt16);
     /// <summary>The count a stall test's watchdog reads.</summary>
     function StallProgress: Int64;
-    /// <summary>Whether a watchdog with a 300 ms stall fires within ALookMs while bytes keep
+    /// <summary>Whether a watchdog with a stall of AStallMs fires within ALookMs while bytes keep
     /// moving, with the progress count growing or not.</summary>
-    function StallFires(AProgressGrows: Boolean; ALookMs: Int32): Boolean;
-  var
-    FStallCount: Int64;
+    function StallFires(AProgressGrows: Boolean; AStallMs: UInt32; ALookMs: Int32): Boolean;
   published
     procedure TestTls13TinyMessages;
     procedure TestTls13BoundaryMessages;
@@ -428,6 +428,7 @@ type
     procedure TestAWedgeFailsWithADiagnosticInsteadOfHanging;
     procedure TestAStallWhileBytesStillMoveFailsInsteadOfRunningToTheBackstop;
     procedure TestSteadyProgressKeepsTheWatchdogQuiet;
+    procedure TestARunsWatchdogFiresOnItsStallNotItsIdleTime;
   end;
 
 implementation
@@ -1106,15 +1107,18 @@ end;
 
 destructor TStressRun.Destroy;
 begin
-  // a worker that never unwinds still uses everything below: leave it all to the process
-  if FStuck or not Abandon then
-    Exit;
+  if not FStuck then
+    Abandon;
+  // the watchdog reads this object's workers: it ends before anything is freed
   if FWatch <> nil then
   begin
     FWatch.Disarm;
     FWatch.WaitFor;
     FWatch.Free;
   end;
+  // a worker that never unwinds still uses everything below: leave it all to the process
+  if FStuck then
+    Exit;
   FWorkers.Free;
   FClient.Free;
   FServer.Free;
@@ -1848,7 +1852,8 @@ begin
   Result := FStallCount;
 end;
 
-function TTestDuplexStress.StallFires(AProgressGrows: Boolean; ALookMs: Int32): Boolean;
+function TTestDuplexStress.StallFires(AProgressGrows: Boolean; AStallMs: UInt32;
+  ALookMs: Int32): Boolean;
 var
   LPipeA, LPipeB: TMemoryPipe;
   LWatch: TWedgeWatchdog;
@@ -1859,14 +1864,20 @@ begin
   LPipeB := TMemoryPipe.Create;
   FStallCount := 0;
   SetLength(LByte, 1);
-  LWatch := TWedgeWatchdog.Create(LPipeA, LPipeB, 60000, 60000, 300, StallProgress);
+  LWatch := TWedgeWatchdog.Create(LPipeA, LPipeB, 600000, 600000, AStallMs, StallProgress);
   try
     LWatch.Start;
     LWaited := 0;
     // a byte every 20 ms is traffic, so only the stall can fire the watchdog
     while (not LWatch.Fired) and (LWaited < ALookMs) do
     begin
-      LPipeA.Write(LByte, 0, 1);
+      try
+        LPipeA.Write(LByte, 0, 1);
+      except
+        // the watchdog closed the pipe between the check and the write: it has fired
+        if not LWatch.Fired then
+          raise;
+      end;
       if AProgressGrows then
         System.Inc(FStallCount);
       Sleep(20);
@@ -1884,12 +1895,35 @@ end;
 
 procedure TTestDuplexStress.TestAStallWhileBytesStillMoveFailsInsteadOfRunningToTheBackstop;
 begin
-  CheckTrue(StallFires(False, 20000), 'a livelock that keeps bytes moving is caught by its stall');
+  CheckTrue(StallFires(False, 2000, 20000),
+    'a livelock that keeps bytes moving is caught by its stall');
 end;
 
 procedure TTestDuplexStress.TestSteadyProgressKeepsTheWatchdogQuiet;
 begin
-  CheckFalse(StallFires(True, 1500), 'a run that keeps delivering is left alone');
+  // three stalls long, so a descheduled slow host has a hundred loops of margin
+  CheckFalse(StallFires(True, 2000, 6000), 'a run that keeps delivering is left alone');
+end;
+
+procedure TTestDuplexStress.TestARunsWatchdogFiresOnItsStallNotItsIdleTime;
+var
+  LSpec: TStressSpec;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+  LOutcome: string;
+begin
+  // the client reads for a FIN that never comes and the wire goes quiet: only the run's own
+  // progress count can end it before the idle time
+  LSpec := BaseSpec(TlsWireVersionTls13, TPayloadKind.Tiny, 20);
+  LSpec.ServerWrites := False;
+  LSpec.Wedge := True;
+  LSpec.IdleMs := 40000;
+  LSpec.StallMs := 2000;
+  LClock := TSystemMonotonicClock.Create;
+  LStart := LClock.NowMonotonicMillis;
+  LOutcome := RunToEnd(LSpec, ClientConfig(LSpec.Wire), ServerConfig(LSpec.Wire));
+  CheckTrue(Pos('the watchdog fired', LOutcome) > 0, 'the wedge is reported');
+  CheckTrue(LClock.NowMonotonicMillis - LStart < 20000, 'by the stall, long before the idle time');
 end;
 
 initialization

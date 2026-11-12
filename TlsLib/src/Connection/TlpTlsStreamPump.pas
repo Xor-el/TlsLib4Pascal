@@ -50,7 +50,8 @@ type
   /// timed transport. A fatal outcome raises ETlsStreamError; a transport EOF mid-handshake raises
   /// ETlsTransportTruncated. ReadApp and DriveHandshake must each be called by one thread at a
   /// time, and ReadApp only once the handshake has completed; the other members may be called
-  /// from any thread.
+  /// from any thread. ReadApp, ReadEarlyData, WriteApp, RequestKeyUpdate and CloseWriteSide raise
+  /// EInvalidOperationTlsLibException when called by code that ReadApp is running (a callback).
   /// </summary>
   TTlsStreamPump = class sealed(TObject)
   public
@@ -78,6 +79,8 @@ type
     // W guards FSendBuffer, FWriteChunk and the right to take bytes from the engine and send them
     FWriteLock: TCriticalSection;
     FHandshakeState: THandshakeState; // lock-free reads are hints; Complete is final
+    // set under E for the length of a read's engine calls, so only the thread inside them sees True
+    FInboundCall: Boolean;
     FWriteClosed: Boolean;
     FDeferredClose: TDeferredClose;
     FDeferredAlert: TTlsAlertDescription;
@@ -86,6 +89,10 @@ type
     FWriteChunk: TBytes;
     /// <summary>Whether the engine is terminal, read under E.</summary>
     function EngineIsTerminal: Boolean;
+    /// <summary>Raises when the calling thread is inside a read's engine calls, where a callback
+    /// that wrote, rekeyed or closed could wait on a writer that waits for E; the caller holds E,
+    /// so any other thread waits instead of seeing the flag.</summary>
+    procedure RaiseIfInboundCall;
     /// <summary>Sends every byte the engine owes; the caller holds W. A transport failure
     /// latches the engine (no alert, sessions kept), discards what it still owed, and raises
     /// unchanged. Nothing is ever sent after a partial send.</summary>
@@ -213,9 +220,8 @@ type
     /// <summary>Whether the handshake has completed, read without a lock: a hint that never
     /// blocks, which may lag a completion in progress.</summary>
     function IsHandshakeComplete: Boolean;
-    /// <summary>Whether a handshake is running, read without a lock. Exact for a caller that holds
-    /// the stream's handshake side, since only the thread running the handshake can hold it and
-    /// see True.</summary>
+    /// <summary>Whether a handshake is running, read without a lock. Exact for a caller serialised
+    /// with DriveHandshake: only the thread inside it sees True.</summary>
     function IsHandshakeRunning: Boolean;
     /// <summary>Whether the handshake has completed, confirmed under E when the lock-free read says
     /// no. A thread deciding whether it must wait for the handshake uses this one.</summary>
@@ -246,6 +252,8 @@ resourcestring
   SClosedDuringHandshake = 'the peer closed the connection during the handshake';
   SWriteAfterClose = 'a write was attempted after the connection was closed';
   SEarlyDataUnread = 'accepted 0-RTT data is waiting: read it with ReadEarlyData before Read';
+  SInboundCallReentry = 'code a read calls (a callback or the transport) cannot read, write, ' +
+    'rekey, close or send an alert on the stream that is reading';
   SPumpArguments = 'a pump needs a transport and an engine that exposes both engine faces ' +
     '(pass both, not nil)';
 
@@ -310,6 +318,12 @@ begin
   finally
     FEngineLock.Leave;
   end;
+end;
+
+procedure TTlsStreamPump.RaiseIfInboundCall;
+begin
+  if FInboundCall then
+    raise EInvalidOperationTlsLibException.CreateRes(@SInboundCallReentry);
 end;
 
 procedure TTlsStreamPump.SendPending;
@@ -688,21 +702,27 @@ begin
   LInboundClosed := False;
   FEngineLock.Enter;
   try
+    RaiseIfInboundCall;
     // 0-RTT bytes precede every 1-RTT byte; reading past them would reorder or lose them
     if FInbound.PendingEarlyData > 0 then
       raise EInvalidOperationTlsLibException.CreateRes(@SEarlyDataUnread);
-    // surface anything already buffered (app data can arrive coalesced with the peer's
-    // final handshake flight) before blocking on the transport
-    Result := FInbound.ReadAppData(ADest, 0, AMaxLength);
-    LTerminal := FInbound.IsTerminal;
-    if Result = 0 then
-    begin
-      // DrainEvents still runs for its side effect (it raises on a peer fatal alert); the clean
-      // close is detected via the engine's persistent flag, not the one-shot Closed event, which
-      // the handshake driver may already have drained when a close_notify coalesced with the
-      // peer's final flight
-      DrainEventsOrRaise(FInbound, LPeerClosed, LCertEvent);
-      LInboundClosed := FInbound.IsInboundClosed;
+    FInboundCall := True;
+    try
+      // surface anything already buffered (app data can arrive coalesced with the peer's
+      // final handshake flight) before blocking on the transport
+      Result := FInbound.ReadAppData(ADest, 0, AMaxLength);
+      LTerminal := FInbound.IsTerminal;
+      if Result = 0 then
+      begin
+        // DrainEvents still runs for its side effect (it raises on a peer fatal alert); the clean
+        // close is detected via the engine's persistent flag, not the one-shot Closed event, which
+        // the handshake driver may already have drained when a close_notify coalesced with the
+        // peer's final flight
+        DrainEventsOrRaise(FInbound, LPeerClosed, LCertEvent);
+        LInboundClosed := FInbound.IsInboundClosed;
+      end;
+    finally
+      FInboundCall := False;
     end;
   finally
     FEngineLock.Leave;
@@ -740,16 +760,21 @@ begin
     LInboundClosed := False;
     FEngineLock.Enter;
     try
-      FInbound.ProcessInput(FReadBuffer, 0, LGot);
-      LTerminal := FInbound.IsTerminal;
-      if not LTerminal then
-      begin
-        Result := FInbound.ReadAppData(ADest, 0, AMaxLength);
-        if Result = 0 then
+      FInboundCall := True;
+      try
+        FInbound.ProcessInput(FReadBuffer, 0, LGot);
+        LTerminal := FInbound.IsTerminal;
+        if not LTerminal then
         begin
-          DrainEventsOrRaise(FInbound, LPeerClosed, LCertEvent);
-          LInboundClosed := FInbound.IsInboundClosed;
+          Result := FInbound.ReadAppData(ADest, 0, AMaxLength);
+          if Result = 0 then
+          begin
+            DrainEventsOrRaise(FInbound, LPeerClosed, LCertEvent);
+            LInboundClosed := FInbound.IsInboundClosed;
+          end;
         end;
+      finally
+        FInboundCall := False;
       end;
     finally
       FEngineLock.Leave;
@@ -775,6 +800,7 @@ function TTlsStreamPump.ReadEarlyData(var ADest: TBytes; AMaxLength: Int32): Int
 begin
   FEngineLock.Enter;
   try
+    RaiseIfInboundCall;
     Result := FInbound.ReadEarlyData(ADest, 0, AMaxLength);
   finally
     FEngineLock.Leave;
@@ -825,6 +851,13 @@ var
 begin
   if ACount <= 0 then
     Exit;
+  // before W: a callback inside a read would otherwise wait for a writer that waits for E
+  FEngineLock.Enter;
+  try
+    RaiseIfInboundCall;
+  finally
+    FEngineLock.Leave;
+  end;
   FWriteLock.Enter;
   try
     LOffset := 0;
@@ -851,6 +884,12 @@ procedure TTlsStreamPump.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
 var
   LClosed: Boolean;
 begin
+  FEngineLock.Enter;
+  try
+    RaiseIfInboundCall;
+  finally
+    FEngineLock.Leave;
+  end;
   FWriteLock.Enter;
   try
     FEngineLock.Enter;
@@ -912,6 +951,7 @@ function TTlsStreamPump.CloseWriteSide: Boolean;
 begin
   FEngineLock.Enter;
   try
+    RaiseIfInboundCall;
     // a close before the handshake even ran has nothing to protect; only a live one is shut down
     Result := (not FWriteClosed) and (FHandshakeState <> THandshakeState.Idle);
     FWriteClosed := True;
