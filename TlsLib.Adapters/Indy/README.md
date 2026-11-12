@@ -114,8 +114,8 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 
 - Blocking seam only (the standard Indy IOHandler path).
 - A connection is not thread-safe once the handshake is done: do not read and write it from two
-  threads at once (a broadcaster writing while a worker reads must serialize), because a read can
-  flush queued outbound records.
+  threads at once (a broadcaster writing while a worker reads must serialize). The TLS connection
+  underneath is full duplex, but the handler keeps its own single-threaded contract.
 - `Clone` is implemented, so the handler works with Indy's server IOHandler pooling. The FTP data
   channels (`MakeFTPSvrPort` / `MakeFTPSvrPasv`) get a handler built from the same options.
 - `KeyPassword` is not streamed (`stored False`), so a password never lands in a `.dfm`.

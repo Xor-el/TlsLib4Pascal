@@ -160,6 +160,19 @@ end;
 
 `TTlsConnection.CreateServer(LConfig, LTransport, nil, 0)` is the server counterpart.
 
+A stream or connection is full duplex: one thread may read while others write, close, rekey or query
+(`LConn.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested)` for a TLS 1.3 rekey,
+`LConn.ExportKeyingMaterial('EXPORTER-my-app', 32)` for an exporter). Do not call the engine
+directly while one wraps it. A closing send (`close_notify` or an alert) is bounded by the close
+grace, 5 s (`TTlsStream.DefaultCloseGraceMs`; `TTlsStream.Create` takes another value), and raises
+`ETlsWriteTimeout` when the socket will not take it.
+
+If you write your own `ITlsTimedTransport`, derive from `TTlsTimedTransportBase` and override
+`WaitWritable` (and `WaitReadable`) so the read and write deadlines are real. A class that
+implements `ITlsTimedTransport` itself must implement `SetWriteTimeout`: values of zero or less clear
+the deadline, and once it has passed `Write` must raise `ETlsWriteTimeout`. An empty
+`SetWriteTimeout` compiles but leaves every closing send unbounded.
+
 Already using **mORMot, Indy, Synapse, or fcl-net**? Skip the transport entirely — the adapter for
 your stack wires all of this into the socket type you already use. See the
 [integration recipes](cookbook.md#integrate-with-your-networking-stack).

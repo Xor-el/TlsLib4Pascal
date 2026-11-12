@@ -426,6 +426,22 @@ If your transport's `Write` raises, the stream is finished: later writes, and re
 already received is returned, raise `ETlsStreamError` with no alert (`HasAlert` False), and
 `CloseNotify` does nothing. Reconnect; resumption still works.
 
+**Threads.** One thread may read while others write, close, abort, rekey or query the same stream
+or `TTlsConnection`: reads are serialised with reads and writes with writes, so one message is never
+interleaved with another. A `CloseNotify` or `SendAlert` made while another thread writes returns at
+once, and that writer sends the record before its own call returns. A blocked `Read` ends only when
+bytes arrive or the host closes the transport, so close the socket to stop a reader. `ConnectionInfo`
+and `PendingReadBytes` return zero values while the handshake runs. Do not call the engine directly
+while a stream wraps it, and free the stream only after every call has returned. The transport's
+`Read` and `Write` then run at the same time, so they must not share unsynchronised state. A
+`TTlsStream` built on an engine that does not also list `ITlsEngineInbound` and `ITlsEngineOutbound`
+raises `EArgumentTlsLibException`.
+
+A closing send (close_notify or a fatal alert) is bounded on an `ITlsTimedTransport`, by
+the close grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`, which `TTlsConnection` uses;
+`TTlsStream.Create` takes another value, zero or less for unbounded), and raises `ETlsWriteTimeout` when the socket will not take it. A plain
+`ITlsTransport` cannot bound a send, so a closing send on it waits as long as the peer does not read.
+
 ## Drive the raw sans-IO engine
 
 For non-blocking / event-loop frameworks, drive `ITlsEngine` directly — it owns no sockets, threads,
@@ -445,7 +461,7 @@ or timers. You pump bytes; it transduces. The contract (unit `TlpITlsEngine`):
   `TakeOutgoing` would return bytes or drop an alert whose sealing failed
 - the same object also implements `ITlsEngineInbound` (feeding, reading, queries) and
   `ITlsEngineOutbound` (everything that seals or takes sealed bytes); the engine stays
-  single-threaded, and these faces only narrow what a holder can call
+  single-threaded (it has no locks), and these faces only narrow what a holder can call
 
 ```pascal
 uses TlpTlsEngineFactory, TlpITlsEngine;
@@ -484,8 +500,10 @@ engine could be substituted wholesale. Most apps should prefer the stream or an 
 
 ## Export keying material and rekey
 
-Both are `ITlsEngine` methods; `TTlsStream` and `TTlsConnection` do not wrap them. With a stream,
-keep the engine you passed to `TTlsStream.Create`.
+Both are `ITlsEngine` methods, and `TTlsStream` and `TTlsConnection` wrap them as
+`ExportKeyingMaterial` and `RequestKeyUpdate` with the same arguments. Once a stream or connection
+wraps an engine, call these on the stream or connection, not the engine: they take the locks that
+keep a rekey from racing a write. The snippets below use the engine, as a raw-engine caller would.
 
 **Exported keying material** (RFC 5705 / RFC 9846 7.5) binds an application secret to this
 connection:
@@ -512,7 +530,8 @@ LEngine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
 ```
 
 It is a no-op before the handshake completes, on TLS 1.2, on a failed engine, after your own
-`close_notify` and once 2^48-1 KeyUpdates have been sent. If an earlier `UpdateRequested` has not
+`close_notify` and once 2^48-1 KeyUpdates have been sent. On a stream or connection it waits for the
+handshake, like a write, and after your own `close_notify` raises the write-after-close error instead. If an earlier `UpdateRequested` has not
 yet been answered by a KeyUpdate from the peer, a new one is sent as `UpdateNotRequested`; the write
 keys are still updated (RFC 9846 4.7.3). A peer's KeyUpdate is handled automatically and reported as a
 `KeyUpdateReceived` event.
