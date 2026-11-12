@@ -51,7 +51,10 @@ uses
   TlpITlsTransport,
   TlpTlsStreamPump,
   TlpTlsLibExceptions,
+  TlpIClock,
+  TlpTlsConnection,
   TlpTlsStream,
+  MockClock,
   MockTransport,
   MockVerifyHooks,
   MockCryptoProvider,
@@ -74,6 +77,7 @@ type
     FError: string;
     FNegotiatedVersion: UInt16;
     FAlpn: TBytes;
+    FExported: TBytes;
     FBulkBytes: Int32;
   protected
     procedure Execute; override;
@@ -83,6 +87,8 @@ type
     property Error: string read FError;
     property NegotiatedVersion: UInt16 read FNegotiatedVersion;
     property Alpn: TBytes read FAlpn;
+    // what the server's stream exported once its handshake finished
+    property Exported: TBytes read FExported;
     // total bytes a BulkEcho server echoes back before closing
     property BulkBytes: Int32 read FBulkBytes write FBulkBytes;
   end;
@@ -110,6 +116,11 @@ type
     function AsyncClientConfig: ITlsClientConfig;
     /// <summary>Moves everything AFrom has queued into ATo, returning the byte count.</summary>
     function PassOutgoing(const AFrom, ATo: ITlsEngine): Int32;
+    /// <summary>Everything AEngine has queued, as one wire.</summary>
+    function TakeAll(const AEngine: ITlsEngine): TBytes;
+    /// <summary>A pump over AEngine and ATransport, freed with the test; terminal sends are
+    /// unbounded.</summary>
+    function NewPump(const AEngine: ITlsEngine; const ATransport: ITlsTransport): TTlsStreamPump;
     procedure HandshakeEngines(out AClient, AServer: ITlsEngine);
     /// <summary>A handshake whose client caches the server's ticket in ACache.</summary>
     procedure HandshakeCachingATicket(const ACache: ISessionCache;
@@ -125,14 +136,47 @@ type
     function DataThenBadRecord(const AServer: ITlsEngine): TBytes;
     /// <summary>The server's two-byte reply followed by a KeyUpdate asking the client to rekey.</summary>
     function DataThenKeyUpdateRequest(const AServer: ITlsEngine): TBytes;
-    /// <summary>Reads data through a socket that dies under the flush of a queued KeyUpdate.</summary>
-    procedure ReadWithAKeyUpdateLostToADeadSocket(out AClient: ITlsEngine;
-      out ATransport: ITlsTransport);
+    /// <summary>Reads data through a socket that dies under the send of the alert a bad record
+    /// made owed.</summary>
+    procedure ReadWithAnAlertLostToADeadSocket(out AClient: ITlsEngine);
     /// <summary>Fails a write over a dead socket, leaving AClient latched.</summary>
     procedure FailAWriteOverADeadSocket(out AClient: ITlsEngine);
     /// <summary>Aborts an engine whose queue holds more than one transport chunk, over a dead
     /// socket that refuses the first chunk.</summary>
     procedure AbortWithAnOversizedQueueOverADeadSocket(out AClient: ITlsEngine);
+    /// <summary>A loopback whose client transport counts what the client writes.</summary>
+    procedure RunCountedLoopback(AServerBehavior: TServerBehavior; out AClient: TTlsStream;
+      out AServer: TServerRunner; out ACounter: TCountingTransport);
+    /// <summary>A client stream and a server stream over timed pipe transports; the server
+    /// echoes one message on its own thread, then closes cleanly.</summary>
+    procedure StartTimedEchoPair(out AClient: TTlsStream;
+      out AClientTransport: TPipeTimedTransport);
+    // the verify callback that parks the handshake until the test releases it
+    function BlockingVerify(const APresented, AValidated: TArray<TBytes>;
+      const AHostName: string): Boolean;
+    // thread bodies
+    procedure HandshakeQueried;
+    procedure QueryQueried;
+    procedure ServeTimedEcho;
+    procedure ServeConnection;
+    procedure WritePumped;
+    procedure ReadPumped;
+    procedure ClosePumped;
+  var
+    FVerifyEntered: TEvent;
+    FVerifyRelease: TEvent;
+    FQueryDone: TEvent;
+    FReaderDone: TEvent;
+    FQueried: TTlsStream;
+    FQueriedVersion: UInt16;
+    FQueriedPending: Int32;
+    FQueriedComplete: Boolean;
+    FServing: TTlsStream;
+    FServerConnection: TTlsConnection;
+    FServerExported: TBytes;
+    FPumped: TTlsStreamPump;
+    FPumpedByte: TBytes;
+    FPumpedBuffer: TBytes;
   published
     procedure TestClientServerLoopbackExchangesAppDataAndClosesCleanly;
     procedure TestBulkWriteIsSealedInBoundedSlices;
@@ -164,16 +208,16 @@ type
     procedure TestWriteOnTerminalEngineFlushesQueuedAlertBeforeRaising;
     procedure TestReadReturningDataFlushesAlertQueuedByTheDrain;
     procedure TestReadReturningBufferedDataSurvivesADeadTransport;
-    procedure TestPumpFillsTheCallersTransportBuffer;
-    procedure TestPumpReusesTheCallersTransportBuffer;
-    procedure TestFailedFlushBehindBufferedDataLatchesTheEngine;
+    procedure TestPumpSendsAndReadsThroughItsOwnBuffers;
+    procedure TestPumpReusesItsBuffers;
+    procedure TestFailedAlertSendBehindBufferedDataDropsTheAlert;
     procedure TestTransportWriteFailureKeepsTheCachedTickets;
     procedure TestProtocolFatalAlertAtThePumpDropsTheCachedTickets;
     procedure TestLatchedEngineWritesNothingToTheTransport;
     procedure TestLatchDropsPendingOutboundBytes;
     procedure TestLatchAfterAFatalAlertDropsTheQueuedAlertAndKeepsTheReason;
-    procedure TestFailedFlushBehindReadKeepsTheTransportMessage;
-    procedure TestWriteAfterAFailedFlushBehindReadRaises;
+    procedure TestFailedAlertSendBehindReadKeepsTheTlsReason;
+    procedure TestWriteAfterAFailedAlertSendBehindReadRaisesTheAlert;
     procedure TestBadRecordBehindTransportDataRaisesWithTheAlertSent;
     procedure TestKeyUpdateRequestBehindTransportDataIsAnsweredByTheNextWrite;
     procedure TestFailedWriteFlushLatchesTheEngine;
@@ -187,6 +231,18 @@ type
     procedure TestFailedHandshakeStartOverADeadSocketRaisesTheTlsError;
     procedure TestFailedFlushOnATerminalEngineDropsTheTail;
     procedure TestTerminalEngineSendsNothingAfterAFailedFlush;
+    procedure TestRequestKeyUpdateThroughTheStreamReachesThePeer;
+    procedure TestExportKeyingMaterialThroughTheStreamMatchesThePeer;
+    procedure TestQueriesAnswerAtOnceWhileTheHandshakeRuns;
+    procedure TestInfoOfAFailedHandshakeIsTheEnginesNotZero;
+    procedure TestTerminalSendOnAStalledSocketIsBoundedByTheCloseGrace;
+    procedure TestCloseNotifyOnAStalledSocketRaisesAWriteTimeout;
+    procedure TestReaderDoesNotWaitForTheWriteSide;
+    procedure TestCloseDoesNotWaitForTheWriteSide;
+    procedure TestApplicationReadCapIsArmedInsideTheReadSideAndCleared;
+    procedure TestHandshakeReadCapIsArmedAndClearedAroundTheHandshake;
+    procedure TestReadTimeoutNeedsATimedTransport;
+    procedure TestConnectionForwardsKeyUpdateAndExporter;
   end;
 
 implementation
@@ -194,6 +250,9 @@ implementation
 const
   // "ping from the client" / "pong from the server"
   PingHex = '70696e672066726f6d2074686520636c69656e74';
+  ExporterLabel = 'EXPERIMENTAL tlslib stream test';
+  // an application_data record that cannot authenticate
+  BadRecordHex = '170303001000112233445566778899aabbccddeeff';
 
 type
   /// <summary>A session cache whose Take raises, failing a resuming client's StartHandshake.</summary>
@@ -227,6 +286,21 @@ type
     destructor Destroy; override;
     procedure Disarm; // the exchange finished in time; stop before the deadline
     property Fired: Boolean read FFired;
+  end;
+
+  TTestAction = procedure of object;
+
+  /// <summary>Runs one action of a test on its own thread, keeping the exception it ended with.</summary>
+  TActionThread = class(TThread)
+  strict private
+  var
+    FAction: TTestAction;
+    FError: string;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const AAction: TTestAction);
+    property Error: string read FError;
   end;
 
 { TFailingSessionCache }
@@ -284,6 +358,7 @@ begin
     FStream.Handshake;
     FNegotiatedVersion := FStream.ConnectionInfo.NegotiatedVersion.WireValue;
     FAlpn := FStream.ConnectionInfo.AlpnProtocol;
+    FExported := FStream.ExportKeyingMaterial(ExporterLabel, 32);
     if FBehavior = TServerBehavior.TruncateAfterHandshake then
     begin
       FTransport.CloseWrite; // drop the write side with no close_notify
@@ -320,6 +395,25 @@ begin
       // the failure surfaces there (as whatever the server flushed first) rather than a hang
       FTransport.CloseWrite;
     end;
+  end;
+end;
+
+{ TActionThread }
+
+constructor TActionThread.Create(const AAction: TTestAction);
+begin
+  inherited Create(True);
+  FAction := AAction;
+  FreeOnTerminate := False;
+end;
+
+procedure TActionThread.Execute;
+begin
+  try
+    FAction;
+  except
+    on E: Exception do
+      FError := E.ClassName + ': ' + E.Message;
   end;
 end;
 
@@ -1534,6 +1628,19 @@ begin
   until LGot = 0;
 end;
 
+function TTestTlsStreamLoopback.TakeAll(const AEngine: ITlsEngine): TBytes;
+begin
+  Result := nil;
+  System.SetLength(Result, 65536);
+  System.SetLength(Result, AEngine.TakeOutgoing(Result, 0));
+end;
+
+function TTestTlsStreamLoopback.NewPump(const AEngine: ITlsEngine;
+  const ATransport: ITlsTransport): TTlsStreamPump;
+begin
+  Result := Own<TTlsStreamPump>(TTlsStreamPump.Create(AEngine, ATransport, 0));
+end;
+
 procedure TTestTlsStreamLoopback.HandshakeEngines(out AClient, AServer: ITlsEngine);
 begin
   HandshakeEnginesWith(ClientConfig(False, nil), ServerConfig, AClient, AServer);
@@ -1595,7 +1702,7 @@ var
   LClient, LServer: ITlsEngine;
   LRecorder: TRecordingTransport;
   LTransport: ITlsTransport;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
   LRaised: Boolean;
 begin
   HandshakeEngines(LClient, LServer);
@@ -1606,7 +1713,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1622,7 +1729,6 @@ var
   LTransport: ITlsTransport;
   LDest: TBytes;
   LWire: TBytes;
-  LTransportBuffer: TBytes;
   LStatus: TTlsReadStatus;
   LGot: Int32;
 begin
@@ -1632,7 +1738,7 @@ begin
   LRecorder := TRecordingTransport.Create;
   LTransport := LRecorder as ITlsTransport;
   System.SetLength(LDest, 16);
-  LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16, LStatus);
+  LGot := NewPump(LClient, LTransport).ReadApp(LDest, 16, LStatus);
   CheckEquals(2, LGot, 'the buffered data is returned');
   CheckTrue(LRecorder.Written > 0, 'the alert the drain queued was flushed with the data');
 end;
@@ -1670,7 +1776,7 @@ var
   LClient, LServer: ITlsEngine;
   LScripted: TScriptedTransport;
   LTransport: ITlsTransport;
-  LDest, LTransportBuffer: TBytes;
+  LDest: TBytes;
   LStatus: TTlsReadStatus;
   LRaised: Boolean;
 begin
@@ -1681,7 +1787,7 @@ begin
   System.SetLength(LDest, 16);
   LRaised := False;
   try
-    TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16, LStatus);
+    NewPump(LClient, LTransport).ReadApp(LDest, 16, LStatus);
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1696,7 +1802,8 @@ var
   LS2C, LC2S: TMemoryPipe;
   LTransport: ITlsTransport;
   LEvent: ITlsEvent;
-  LDest, LReply, LTransportBuffer, LWritten, LWire: TBytes;
+  LDest, LReply, LWritten, LWire: TBytes;
+  LPump: TTlsStreamPump;
   LStatus: TTlsReadStatus;
   LGot, LKeyUpdates: Int32;
 begin
@@ -1705,19 +1812,19 @@ begin
   LS2C := TMemoryPipe.Create;
   LC2S := TMemoryPipe.Create;
   LTransport := TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport;
+  LPump := NewPump(LClient, LTransport);
   try
     LWire := DataThenKeyUpdateRequest(LServer);
     LS2C.Write(LWire, 0, System.Length(LWire));
     LS2C.Close;
     LC2S.Close; // closed so the drains below read what was written, never block on an empty pipe
     System.SetLength(LDest, 16);
-    CheckEquals(2, TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16,
-      LStatus), 'the data');
+    CheckEquals(2, LPump.ReadApp(LDest, 16, LStatus), 'the data');
     System.SetLength(LWritten, 16384);
     CheckEquals(0, LC2S.Read(LWritten, 0, System.Length(LWritten)),
       'no reply was queued by the read');
     LReply := DecodeHex('03');
-    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LReply, 0, 1);
+    LPump.WriteApp(LReply[0], 1);
     LGot := LC2S.Read(LWritten, 0, System.Length(LWritten));
     CheckTrue(LGot > 0, 'the next write reached the transport');
     LServer.ProcessInput(LWritten, 0, LGot);
@@ -1733,21 +1840,18 @@ begin
   end;
 end;
 
-procedure TTestTlsStreamLoopback.ReadWithAKeyUpdateLostToADeadSocket(out AClient: ITlsEngine;
-  out ATransport: ITlsTransport);
+procedure TTestTlsStreamLoopback.ReadWithAnAlertLostToADeadSocket(out AClient: ITlsEngine);
 var
   LServer: ITlsEngine;
-  LDest, LWire, LTransportBuffer: TBytes;
+  LDest, LWire: TBytes;
   LStatus: TTlsReadStatus;
 begin
   HandshakeEngines(AClient, LServer);
-  LWire := DataThenKeyUpdateRequest(LServer);
+  LWire := DataThenBadRecord(LServer);
   AClient.ProcessInput(LWire, 0, System.Length(LWire));
-  // our own KeyUpdate is queued, and rotates the write keys, when the socket dies under the flush
-  AClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
-  ATransport := TDeadWriteTransport.Create as ITlsTransport;
   System.SetLength(LDest, 16);
-  TTlsStreamPump.ReadApp(AClient, ATransport, LTransportBuffer, LDest, 16, LStatus);
+  // the bad record made the engine terminal with bad_record_mac owed; the socket dies under its send
+  NewPump(AClient, TDeadWriteTransport.Create as ITlsTransport).ReadApp(LDest, 16, LStatus);
 end;
 
 procedure TTestTlsStreamLoopback.HandshakeCachingATicket(const ACache: ISessionCache;
@@ -1770,19 +1874,19 @@ procedure TTestTlsStreamLoopback.TestTransportWriteFailureKeepsTheCachedTickets;
 var
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
-  LDest, LWire, LTransportBuffer: TBytes;
-  LStatus: TTlsReadStatus;
+  LData: TBytes;
 begin
   LCache := TInMemorySessionCache.Create;
   HandshakeCachingATicket(LCache, LClient, LServer);
-  LWire := DataThenKeyUpdateRequest(LServer);
-  LClient.ProcessInput(LWire, 0, System.Length(LWire));
-  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
-  System.SetLength(LDest, 16);
-  // the socket dies under the flush: the engine latches, but a broken transport is no TLS fatal alert
-  TTlsStreamPump.ReadApp(LClient, TDeadWriteTransport.Create as ITlsTransport,
-    LTransportBuffer, LDest, 16, LStatus);
-  CheckTrue(LClient.IsTerminal, 'the lost flush latched the engine');
+  LData := DecodeHex('00');
+  try
+    // the socket dies under the send: the engine latches, but a broken transport is no TLS fatal alert
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1);
+  except
+    on EInOutError do
+      ;
+  end;
+  CheckTrue(LClient.IsTerminal, 'the lost send latched the engine');
   CheckTrue(LCache.Count > 0, 'the cached tickets stay resumable');
 end;
 
@@ -1790,12 +1894,11 @@ procedure TTestTlsStreamLoopback.TestProtocolFatalAlertAtThePumpDropsTheCachedTi
 var
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
-  LTransportBuffer: TBytes;
 begin
   LCache := TInMemorySessionCache.Create;
   HandshakeCachingATicket(LCache, LClient, LServer);
-  TTlsStreamPump.Abort(LClient, TRecordingTransport.Create as ITlsTransport,
-    LTransportBuffer, TTlsAlertDescription.InternalError);
+  NewPump(LClient, TRecordingTransport.Create as ITlsTransport).Abort(
+    TTlsAlertDescription.InternalError);
   CheckTrue(LClient.IsTerminal, 'the abort ended the connection');
   CheckEquals(0, LCache.Count, 'a fatal alert withdraws the tickets');
 end;
@@ -1805,7 +1908,7 @@ var
   LClient, LServer: ITlsEngine;
   LRecorder: TRecordingTransport;
   LTransport: ITlsTransport;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
   LRaised: Boolean;
 begin
   HandshakeEngines(LClient, LServer);
@@ -1817,7 +1920,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1855,114 +1958,117 @@ begin
     'the first error stays our own');
 end;
 
-procedure TTestTlsStreamLoopback.TestFailedFlushBehindBufferedDataLatchesTheEngine;
+procedure TTestTlsStreamLoopback.TestFailedAlertSendBehindBufferedDataDropsTheAlert;
 var
   LClient: ITlsEngine;
-  LTransport: ITlsTransport;
 begin
-  ReadWithAKeyUpdateLostToADeadSocket(LClient, LTransport);
-  CheckTrue(LClient.IsTerminal, 'the lost KeyUpdate latched the engine');
+  ReadWithAnAlertLostToADeadSocket(LClient);
+  CheckTrue(LClient.IsTerminal, 'the bad record ended the connection');
+  CheckFalse(LClient.WantsWrite, 'the alert the dead socket refused was dropped, not kept owed');
 end;
 
-procedure TTestTlsStreamLoopback.TestFailedFlushBehindReadKeepsTheTransportMessage;
+procedure TTestTlsStreamLoopback.TestFailedAlertSendBehindReadKeepsTheTlsReason;
 var
   LClient: ITlsEngine;
-  LTransport: ITlsTransport;
 begin
-  ReadWithAKeyUpdateLostToADeadSocket(LClient, LTransport);
-  CheckTrue(Pos('the mock socket failed', LClient.LastError.Message) > 0,
-    'the latched error names the transport failure');
+  ReadWithAnAlertLostToADeadSocket(LClient);
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LClient.LastError.Alert.Description),
+    'the first error stands');
+  CheckTrue(LClient.LastError.Origin <> TTlsErrorOrigin.Transport,
+    'the failed send does not replace the TLS reason with the transport failure');
 end;
 
-procedure TTestTlsStreamLoopback.TestWriteAfterAFailedFlushBehindReadRaises;
+procedure TTestTlsStreamLoopback.TestWriteAfterAFailedAlertSendBehindReadRaisesTheAlert;
 var
   LClient: ITlsEngine;
-  LTransport: ITlsTransport;
-  LData, LTransportBuffer: TBytes;
+  LRecorder: TRecordingTransport;
+  LData: TBytes;
   LRaised: Boolean;
 begin
-  ReadWithAKeyUpdateLostToADeadSocket(LClient, LTransport);
+  ReadWithAnAlertLostToADeadSocket(LClient);
   LData := DecodeHex('00');
+  LRecorder := TRecordingTransport.Create;
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+    NewPump(LClient, LRecorder as ITlsTransport).WriteApp(LData[0], 1);
   except
     on E: ETlsStreamError do
-      LRaised := True;
+      LRaised := E.Alert = TTlsAlertDescription.BadRecordMac;
   end;
-  CheckTrue(LRaised, 'no record is written under keys the peer never received');
+  CheckTrue(LRaised, 'the write raises the recorded bad_record_mac');
+  CheckEquals(0, LRecorder.Written, 'the alert is not sent again after the failed send');
 end;
 
-procedure TTestTlsStreamLoopback.TestPumpFillsTheCallersTransportBuffer;
+procedure TTestTlsStreamLoopback.TestPumpSendsAndReadsThroughItsOwnBuffers;
 var
   LClient, LServer: ITlsEngine;
-  LRecorder: TRecordingTransport;
-  LTransport: ITlsTransport;
-  LData, LTransportBuffer: TBytes;
+  LCounter: TCountingTransport;
+  LPump: TTlsStreamPump;
+  LData, LDest: TBytes;
+  LStatus: TTlsReadStatus;
 begin
   HandshakeEngines(LClient, LServer);
-  LRecorder := TRecordingTransport.Create;
-  LTransport := LRecorder as ITlsTransport;
-  LData := DecodeHex('00');
-  TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
-  CheckTrue(LRecorder.Written > 0, 'the record reached the transport');
-  CheckEquals(TTlsStreamPump.TransportChunk, System.Length(LTransportBuffer),
-    'the flush grew the caller''s buffer to the transport chunk');
+  LData := DecodeHex('0102');
+  LServer.Write(LData, 0, 2);
+  LCounter := TCountingTransport.Create(
+    TScriptedTransport.Create(TakeAll(LServer), False) as ITlsTransport);
+  LPump := NewPump(LClient, LCounter as ITlsTransport);
+  LPump.WriteApp(LData[0], 1);
+  System.SetLength(LDest, 16);
+  CheckEquals(2, LPump.ReadApp(LDest, 16, LStatus), 'the scripted record was read');
+  CheckTrue(LCounter.LastWriteBuffer <> nil, 'the write reached the transport');
+  CheckTrue(LCounter.LastReadBuffer <> nil, 'the read reached the transport');
+  CheckTrue(LCounter.LastWriteBuffer <> LCounter.LastReadBuffer,
+    'a read and a write never share a transport buffer');
 end;
 
-procedure TTestTlsStreamLoopback.TestPumpReusesTheCallersTransportBuffer;
+procedure TTestTlsStreamLoopback.TestPumpReusesItsBuffers;
 var
   LClient, LServer: ITlsEngine;
-  LRecorder: TRecordingTransport;
-  LTransport: ITlsTransport;
-  LData, LTransportBuffer, LFirst: TBytes;
+  LCounter: TCountingTransport;
+  LPump: TTlsStreamPump;
+  LData: TBytes;
+  LFirst: Pointer;
 begin
   HandshakeEngines(LClient, LServer);
-  LRecorder := TRecordingTransport.Create;
-  LTransport := LRecorder as ITlsTransport;
+  LCounter := TCountingTransport.Create(TRecordingTransport.Create as ITlsTransport);
+  LPump := NewPump(LClient, LCounter as ITlsTransport);
   LData := DecodeHex('00');
-  TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
-  // holding the first array alive means a reallocation cannot land on the same address
-  LFirst := LTransportBuffer;
-  CheckTrue(LFirst <> nil, 'the first flush allocated the caller''s buffer');
-  TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
-  CheckTrue(Pointer(LFirst) = Pointer(LTransportBuffer), 'the second flush reused the buffer');
+  LPump.WriteApp(LData[0], 1);
+  LFirst := LCounter.LastWriteBuffer;
+  CheckTrue(LFirst <> nil, 'the first send allocated the send buffer');
+  LPump.WriteApp(LData[0], 1);
+  CheckTrue(LFirst = LCounter.LastWriteBuffer, 'the second send reused the buffer');
 end;
 
 procedure TTestTlsStreamLoopback.TestReadReturningBufferedDataSurvivesADeadTransport;
 var
   LClient, LServer: ITlsEngine;
-  LTransport: ITlsTransport;
-  LDest, LWire, LData, LTransportBuffer: TBytes;
+  LDest, LWire: TBytes;
   LStatus: TTlsReadStatus;
   LGot: Int32;
 begin
   HandshakeEngines(LClient, LServer);
-  // the engine holds a queued KeyUpdate that a dead socket cannot take, beside the data it read
-  LData := DecodeHex('0102');
-  LServer.Write(LData, 0, 2);
-  System.SetLength(LWire, 16384);
-  System.SetLength(LWire, LServer.TakeOutgoing(LWire, 0));
+  // the engine owes an alert that a dead socket cannot take, beside the data it read
+  LWire := DataThenBadRecord(LServer);
   LClient.ProcessInput(LWire, 0, System.Length(LWire));
-  LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested);
-  LTransport := TDeadWriteTransport.Create as ITlsTransport;
   System.SetLength(LDest, 16);
-  LGot := TTlsStreamPump.ReadApp(LClient, LTransport, LTransportBuffer, LDest, 16, LStatus);
+  LGot := NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).ReadApp(LDest, 16,
+    LStatus);
   CheckEquals(2, LGot, 'the plaintext already taken from the engine is returned');
 end;
 
 procedure TTestTlsStreamLoopback.TestFailedWriteFlushLatchesTheEngine;
 var
   LClient, LServer: ITlsEngine;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
   LRaised: Boolean;
 begin
   HandshakeEngines(LClient, LServer);
   LData := DecodeHex('00');
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, TDeadWriteTransport.Create as ITlsTransport,
-      LTransportBuffer, LData, 0, 1);
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1);
   except
     on E: EInOutError do
       LRaised := True;
@@ -1974,13 +2080,12 @@ end;
 procedure TTestTlsStreamLoopback.FailAWriteOverADeadSocket(out AClient: ITlsEngine);
 var
   LServer: ITlsEngine;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
 begin
   HandshakeEngines(AClient, LServer);
   LData := DecodeHex('00');
   try
-    TTlsStreamPump.WriteApp(AClient, TDeadWriteTransport.Create as ITlsTransport,
-      LTransportBuffer, LData, 0, 1);
+    NewPump(AClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1);
   except
     on E: EInOutError do
       ;
@@ -1992,7 +2097,7 @@ var
   LClient: ITlsEngine;
   LRecorder: TRecordingTransport;
   LTransport: ITlsTransport;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
   LRaised: Boolean;
 begin
   FailAWriteOverADeadSocket(LClient);
@@ -2001,7 +2106,7 @@ begin
   LTransport := LRecorder as ITlsTransport;
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
   except
     on E: ETlsStreamError do
       LRaised := Pos('the mock socket failed', E.Message) > 0;
@@ -2014,7 +2119,7 @@ procedure TTestTlsStreamLoopback.TestWriteAfterAFailedWriteFlushRaisesNoAlert;
 var
   LClient: ITlsEngine;
   LTransport: ITlsTransport;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
   LRaised, LHasAlert: Boolean;
   LMessage: string;
 begin
@@ -2025,7 +2130,7 @@ begin
   LHasAlert := True;
   LMessage := '';
   try
-    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
   except
     on E: ETlsStreamError do
     begin
@@ -2085,12 +2190,11 @@ var
   LClient: ITlsEngine;
   LRecorder: TRecordingTransport;
   LTransport: ITlsTransport;
-  LTransportBuffer: TBytes;
 begin
   FailAWriteOverADeadSocket(LClient);
   LRecorder := TRecordingTransport.Create;
   LTransport := LRecorder as ITlsTransport;
-  TTlsStreamPump.Close(LClient, LTransport, LTransportBuffer);
+  NewPump(LClient, LTransport).Close;
   CheckEquals(0, LRecorder.Written, 'no close_notify follows the torn write');
 end;
 
@@ -2099,7 +2203,7 @@ var
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
   LRaised: Boolean;
 begin
   CappedTls12Configs(LClientConfig, LServerConfig);
@@ -2107,8 +2211,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, TDeadWriteTransport.Create as ITlsTransport,
-      LTransportBuffer, LData, 0, 1);
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1);
   except
     on ERecordLimitTlsLibException do
       LRaised := True;
@@ -2122,7 +2225,6 @@ var
   LCache: ISessionCache;
   LConfig: ITlsClientConfig;
   LClient: ITlsEngine;
-  LTransportBuffer: TBytes;
   LRaised: Boolean;
 begin
   LCache := TFailingSessionCache.Create;
@@ -2134,8 +2236,7 @@ begin
   LClient := TTlsEngineFactory.CreateClientEngine(LConfig, 'localhost');
   LRaised := False;
   try
-    TTlsStreamPump.DriveHandshake(LClient, TDeadWriteTransport.Create as ITlsTransport,
-      LTransportBuffer, True);
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).DriveHandshake(True);
   except
     on ETlsStreamError do
       LRaised := True;
@@ -2147,15 +2248,13 @@ procedure TTestTlsStreamLoopback.TestFailedCloseFlushKeepsTheCachedTickets;
 var
   LCache: ISessionCache;
   LClient, LServer: ITlsEngine;
-  LTransportBuffer: TBytes;
   LRaised: Boolean;
 begin
   LCache := TInMemorySessionCache.Create;
   HandshakeCachingATicket(LCache, LClient, LServer);
   LRaised := False;
   try
-    TTlsStreamPump.Close(LClient, TDeadWriteTransport.Create as ITlsTransport,
-      LTransportBuffer);
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).Close;
   except
     on E: EInOutError do
       LRaised := True;
@@ -2169,15 +2268,13 @@ procedure TTestTlsStreamLoopback.TestFailedHandshakeFlushLatchesTheEngine;
 var
   LConfig: ITlsClientConfig;
   LClient: ITlsEngine;
-  LTransportBuffer: TBytes;
   LRaised: Boolean;
 begin
   LConfig := ClientConfig(False, nil);
   LClient := TTlsEngineFactory.CreateClientEngine(LConfig, 'localhost');
   LRaised := False;
   try
-    TTlsStreamPump.DriveHandshake(LClient, TDeadWriteTransport.Create as ITlsTransport,
-      LTransportBuffer, True);
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).DriveHandshake(True);
   except
     on E: EInOutError do
       LRaised := True;
@@ -2189,13 +2286,13 @@ end;
 procedure TTestTlsStreamLoopback.AbortWithAnOversizedQueueOverADeadSocket(out AClient: ITlsEngine);
 var
   LServer: ITlsEngine;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
 begin
   HandshakeEngines(AClient, LServer);
   System.SetLength(LData, 2 * TTlsStreamPump.TransportChunk);
   AClient.Write(LData, 0, System.Length(LData));
-  TTlsStreamPump.Abort(AClient, TDeadWriteTransport.Create as ITlsTransport,
-    LTransportBuffer, TTlsAlertDescription.DecodeError);
+  NewPump(AClient, TDeadWriteTransport.Create as ITlsTransport).Abort(
+    TTlsAlertDescription.DecodeError);
 end;
 
 procedure TTestTlsStreamLoopback.TestFailedFlushOnATerminalEngineDropsTheTail;
@@ -2214,7 +2311,7 @@ var
   LClient: ITlsEngine;
   LRecorder: TRecordingTransport;
   LTransport: ITlsTransport;
-  LData, LTransportBuffer: TBytes;
+  LData: TBytes;
   LRaised: Boolean;
 begin
   AbortWithAnOversizedQueueOverADeadSocket(LClient);
@@ -2223,13 +2320,525 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, LData, 0, 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
   except
     on E: ETlsStreamError do
       LRaised := E.Alert = TTlsAlertDescription.DecodeError;
   end;
   CheckTrue(LRaised, 'the write raises the recorded decode_error');
   CheckEquals(0, LRecorder.Written, 'the alert is not resent after a failed flush');
+end;
+
+procedure TTestTlsStreamLoopback.RunCountedLoopback(AServerBehavior: TServerBehavior;
+  out AClient: TTlsStream; out AServer: TServerRunner; out ACounter: TCountingTransport);
+var
+  LC2S, LS2C: TMemoryPipe;
+  LInner, LServerTransport: TMemoryTransport;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LInner := TMemoryTransport.Create(LS2C, LC2S);
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  ACounter := TCountingTransport.Create(LInner as ITlsTransport);
+  AClient := NewClientStream(ACounter as ITlsTransport, ClientConfig(False, nil));
+  AServer := TServerRunner.Create(NewServerStream(LServerTransport as ITlsTransport),
+    LServerTransport, LInner, AServerBehavior);
+  AServer.Start;
+end;
+
+procedure TTestTlsStreamLoopback.TestRequestKeyUpdateThroughTheStreamReachesThePeer;
+var
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LCounter: TCountingTransport;
+  LPing, LEcho: TBytes;
+  LBefore, LGot: Int32;
+begin
+  RunCountedLoopback(TServerBehavior.EchoThenClose, LClient, LServer, LCounter);
+  try
+    LClient.Handshake;
+    LBefore := LCounter.Written;
+    LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+    CheckTrue(LCounter.Written > LBefore, 'the KeyUpdate record reached the transport');
+    LPing := DecodeHex(PingHex);
+    LClient.Write(LPing[0], System.Length(LPing));
+    SetLength(LEcho, 4096);
+    LGot := LClient.Read(LEcho[0], System.Length(LEcho));
+    CheckEqualBytes('both directions follow the rekey: the peer decrypted and answered under it',
+      LPing, System.Copy(LEcho, 0, LGot));
+    LClient.CloseNotify;
+    LServer.Finish;
+    CheckEquals('', LServer.Error, 'the server side ran without error');
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestExportKeyingMaterialThroughTheStreamMatchesThePeer;
+var
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LExported, LWithContext: TBytes;
+begin
+  RunLoopback(ClientConfig(False, nil), TServerBehavior.EchoThenClose, LClient, LServer,
+    LTransport);
+  try
+    LClient.Handshake;
+    LExported := LClient.ExportKeyingMaterial(ExporterLabel, 32);
+    LWithContext := LClient.ExportKeyingMaterial(ExporterLabel, DecodeHex('0a0b'), 32);
+    LClient.CloseNotify;
+    LServer.Finish;
+    CheckEquals(32, System.Length(LExported), 'the exporter produced the requested length');
+    CheckEqualBytes('both ends derive the same secret', LServer.Exported, LExported);
+    CheckEquals(32, System.Length(LWithContext), 'the context form produced the length too');
+    CheckFalse(AreEqual(LExported, LWithContext), 'a context changes the secret');
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+function TTestTlsStreamLoopback.BlockingVerify(const APresented, AValidated: TArray<TBytes>;
+  const AHostName: string): Boolean;
+begin
+  FVerifyEntered.SetEvent;
+  // bounded so a failing test cannot hang the run
+  FVerifyRelease.WaitFor(20000);
+  Result := True;
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeQueried;
+begin
+  FQueried.Handshake;
+end;
+
+procedure TTestTlsStreamLoopback.QueryQueried;
+begin
+  FQueriedVersion := FQueried.ConnectionInfo.NegotiatedVersion.WireValue;
+  FQueriedPending := FQueried.PendingReadBytes;
+  FQueriedComplete := FQueried.IsHandshakeComplete;
+  FQueryDone.SetEvent;
+end;
+
+procedure TTestTlsStreamLoopback.TestQueriesAnswerAtOnceWhileTheHandshakeRuns;
+var
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LHandshaker, LQuerier: TActionThread;
+  LAnswered, LStarted: Boolean;
+begin
+  FVerifyEntered := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FVerifyRelease := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FQueryDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  RunLoopback(ClientConfig(False, BlockingVerify), TServerBehavior.EchoThenClose, FQueried,
+    LServer, LTransport);
+  Own<TTlsStream>(FQueried);
+  LHandshaker := Own<TActionThread>(TActionThread.Create(HandshakeQueried));
+  LQuerier := Own<TActionThread>(TActionThread.Create(QueryQueried));
+  LStarted := False;
+  try
+    LHandshaker.Start;
+    LStarted := True;
+    CheckTrue(FVerifyEntered.WaitFor(20000) = wrSignaled,
+      'the handshake reached the host''s certificate callback');
+    // the handshake now sits inside the callback holding the engine
+    LQuerier.Start;
+    LAnswered := FQueryDone.WaitFor(5000) = wrSignaled;
+    FVerifyRelease.SetEvent;
+    LQuerier.WaitFor;
+    LHandshaker.WaitFor;
+    CheckTrue(LAnswered, 'the queries returned while the handshake was parked in the callback');
+    CheckEquals(0, Integer(FQueriedVersion), 'a running handshake reports no negotiated version');
+    CheckEquals(0, FQueriedPending, 'and no pending bytes');
+    CheckFalse(FQueriedComplete, 'and is not complete');
+    CheckEquals('', LHandshaker.Error, 'the handshake finished once released');
+    CheckTrue(FQueried.IsHandshakeComplete, 'and reports complete afterwards');
+    CheckTrue(FQueried.ConnectionInfo.NegotiatedVersion.WireValue <> 0,
+      'the facts are the engine''s once it has finished');
+    FQueried.CloseNotify;
+    LServer.Finish;
+  finally
+    FVerifyRelease.SetEvent;
+    // the handshake thread is joined before the stream it uses is freed
+    if LStarted then
+      LHandshaker.WaitFor;
+    LServer.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestInfoOfAFailedHandshakeIsTheEnginesNotZero;
+var
+  LClient: TTlsStream;
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LConfig: ITlsClientConfig;
+  LRaised: Boolean;
+begin
+  // a client that trusts an unrelated anchor rejects the chain after the version was negotiated
+  LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')).Build).Build;
+  RunLoopback(LConfig, TServerBehavior.EchoThenClose, LClient, LServer, LTransport);
+  try
+    LRaised := False;
+    try
+      LClient.Handshake;
+    except
+      on ETlsStreamError do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'the untrusted chain fails the handshake');
+    CheckTrue(LClient.ConnectionInfo.NegotiatedVersion.WireValue <> 0,
+      'after a failed handshake the facts are the engine''s, not the zero values of a running one');
+    LServer.Finish;
+  finally
+    LServer.Free;
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestTerminalSendOnAStalledSocketIsBoundedByTheCloseGrace;
+var
+  LClient, LServer: ITlsEngine;
+  LClock: ITlsMonotonicClock;
+  LStalled: TStalledTransport;
+  LPump: TTlsStreamPump;
+  LDest, LByte: TBytes;
+  LStatus: TTlsReadStatus;
+  LStart: Int64;
+  LRaisedAlert: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  // the clock moves 100 ms per reading, so a 500 ms grace is spent without waiting
+  LClock := TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock;
+  LStalled := TStalledTransport.Create(DecodeHex(BadRecordHex), LClock);
+  LPump := Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LStalled as ITlsTransport, 500));
+  System.SetLength(LDest, 16);
+  LStart := LClock.NowMonotonicMillis;
+  LRaisedAlert := False;
+  try
+    LPump.ReadApp(LDest, 16, LStatus);
+  except
+    on E: ETlsStreamError do
+      LRaisedAlert := E.HasAlert and (E.Alert = TTlsAlertDescription.BadRecordMac);
+  end;
+  CheckTrue(LRaisedAlert, 'the read raises the bad record, not the failed send');
+  CheckEquals(0, LStalled.Sends, 'the alert never reached the stalled socket');
+  CheckTrue(LClock.NowMonotonicMillis - LStart >= 500, 'the send waited out the grace');
+  CheckTrue(LClient.LastError.Origin <> TTlsErrorOrigin.Transport,
+    'the expired send does not replace the TLS reason');
+  CheckFalse(LClient.WantsWrite, 'the alert that could not be sent was dropped');
+  LByte := DecodeHex('00');
+  LStalled.Write(LByte, 0, 1);
+  CheckEquals(1, LStalled.Sends, 'the write deadline was cleared when the send ended');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseNotifyOnAStalledSocketRaisesAWriteTimeout;
+var
+  LClient, LServer: ITlsEngine;
+  LClock: ITlsMonotonicClock;
+  LStalled: TStalledTransport;
+  LByte: TBytes;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LClock := TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock;
+  LStalled := TStalledTransport.Create(nil, LClock);
+  LRaised := False;
+  try
+    Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LStalled as ITlsTransport, 500)).Close;
+  except
+    on ETlsWriteTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a close_notify the socket will not take raises the write timeout');
+  CheckEquals(0, LStalled.Sends, 'and never reached the socket');
+  CheckTrue(LClient.IsTerminal, 'the connection is latched failed');
+  LByte := DecodeHex('00');
+  LStalled.Write(LByte, 0, 1);
+  CheckEquals(1, LStalled.Sends, 'the write deadline was cleared when the send ended');
+end;
+
+procedure TTestTlsStreamLoopback.WritePumped;
+begin
+  FPumped.WriteApp(FPumpedByte[0], 1);
+end;
+
+procedure TTestTlsStreamLoopback.ReadPumped;
+var
+  LStatus: TTlsReadStatus;
+begin
+  try
+    FPumped.ReadApp(FPumpedBuffer, System.Length(FPumpedBuffer), LStatus);
+  finally
+    FReaderDone.SetEvent;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.ClosePumped;
+begin
+  try
+    FPumped.Close;
+  finally
+    FReaderDone.SetEvent;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestReaderDoesNotWaitForTheWriteSide;
+var
+  LClient, LServer: ITlsEngine;
+  LGated: TGatedTransport;
+  LWriter, LReader: TActionThread;
+  LReturned: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LGated := TGatedTransport.Create(DecodeHex(BadRecordHex));
+  FPumped := NewPump(LClient, LGated as ITlsTransport);
+  FPumpedByte := DecodeHex('00');
+  System.SetLength(FPumpedBuffer, 16);
+  FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  LWriter := Own<TActionThread>(TActionThread.Create(WritePumped));
+  LReader := Own<TActionThread>(TActionThread.Create(ReadPumped));
+  LWriter.Start;
+  try
+    CheckTrue(LGated.WaitEntered(20000), 'the writer is inside its send, holding the write side');
+    LReader.Start;
+    // the bad record makes the engine terminal while the writer holds the write side: the reader
+    // leaves the alert to that writer rather than wait for it
+    LReturned := FReaderDone.WaitFor(5000) = wrSignaled;
+  finally
+    LGated.Open;
+  end;
+  LWriter.WaitFor;
+  LReader.WaitFor;
+  CheckTrue(LReturned, 'the read returned without waiting for the writer');
+  CheckTrue(Pos('ETlsStreamError', LReader.Error) = 1, 'the read raised the bad record');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LClient.LastError.Alert.Description),
+    'the engine recorded the bad record');
+  CheckTrue(Pos('ETlsStreamError', LWriter.Error) = 1, 'the write fails with the recorded alert');
+  CheckTrue(LGated.Writes >= 2, 'the writer sent the alert the reader left owed');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseDoesNotWaitForTheWriteSide;
+var
+  LClient, LServer: ITlsEngine;
+  LGated: TGatedTransport;
+  LWriter, LCloser: TActionThread;
+  LReturned: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LGated := TGatedTransport.Create(nil);
+  FPumped := NewPump(LClient, LGated as ITlsTransport);
+  FPumpedByte := DecodeHex('00');
+  FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  LWriter := Own<TActionThread>(TActionThread.Create(WritePumped));
+  LCloser := Own<TActionThread>(TActionThread.Create(ClosePumped));
+  LWriter.Start;
+  try
+    CheckTrue(LGated.WaitEntered(20000), 'the writer is inside its send, holding the write side');
+    LCloser.Start;
+    LReturned := FReaderDone.WaitFor(5000) = wrSignaled;
+  finally
+    LGated.Open;
+  end;
+  LWriter.WaitFor;
+  LCloser.WaitFor;
+  CheckTrue(LReturned, 'close_notify returned without waiting for the writer');
+  CheckEquals('', LCloser.Error, 'and raised nothing');
+  CheckEquals('', LWriter.Error, 'the writer finished its message');
+  CheckTrue(LGated.Writes >= 2, 'the writer sent the close_notify the closer left owed');
+end;
+
+procedure TTestTlsStreamLoopback.StartTimedEchoPair(out AClient: TTlsStream;
+  out AClientTransport: TPipeTimedTransport);
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientT, LServerT: ITlsTransport;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  AClientTransport := TPipeTimedTransport.Create(LS2C, LC2S);
+  LClientT := AClientTransport as ITlsTransport;
+  LServerT := TMemoryTransport.Create(LC2S, LS2C) as ITlsTransport;
+  AClient := NewClientStream(LClientT, ClientConfig(False, nil));
+  FServing := Own<TTlsStream>(NewServerStream(LServerT));
+end;
+
+procedure TTestTlsStreamLoopback.ServeTimedEcho;
+var
+  LChunk: TBytes;
+  LGot: Int32;
+begin
+  FServing.Handshake;
+  System.SetLength(LChunk, 4096);
+  LGot := FServing.Read(LChunk[0], System.Length(LChunk));
+  if LGot > 0 then
+    FServing.Write(LChunk[0], LGot);
+  FServing.CloseNotify;
+end;
+
+procedure TTestTlsStreamLoopback.TestApplicationReadCapIsArmedInsideTheReadSideAndCleared;
+var
+  LClient: TTlsStream;
+  LTransport: TPipeTimedTransport;
+  LServing: TActionThread;
+  LBuf, LPing: TBytes;
+  LGot: Int32;
+  LTimedOut: Boolean;
+begin
+  StartTimedEchoPair(LClient, LTransport);
+  LServing := Own<TActionThread>(TActionThread.Create(ServeTimedEcho));
+  LServing.Start;
+  try
+    LClient.Handshake;
+    System.SetLength(LBuf, 4096);
+    LTimedOut := False;
+    try
+      LClient.ReadTimed(LBuf[0], System.Length(LBuf), 150);
+    except
+      on ETlsReadTimeout do
+        LTimedOut := True;
+    end;
+    CheckTrue(LTimedOut, 'a silent peer under the application cap raises the retryable timeout');
+    CheckEquals(0, LTransport.ArmedReadTimeoutMs, 'the cap is cleared although the read raised');
+    LPing := DecodeHex(PingHex);
+    LClient.Write(LPing[0], System.Length(LPing));
+    LGot := LClient.ReadTimed(LBuf[0], System.Length(LBuf), 20000);
+    CheckEqualBytes('the retried read returns the echo', LPing, System.Copy(LBuf, 0, LGot));
+    CheckEquals(0, LTransport.ArmedReadTimeoutMs, 'the cap is cleared after a read that returned');
+    LClient.CloseNotify;
+  finally
+    // ends a server still waiting for the message
+    LTransport.CloseWrite;
+    LServing.WaitFor;
+    LClient.Free;
+  end;
+  CheckEquals('', LServing.Error, 'the server side ran without error');
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeReadCapIsArmedAndClearedAroundTheHandshake;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LTransport: TPipeTimedTransport;
+  LClient: TTlsStream;
+  LFirst, LSecond: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LTransport := TPipeTimedTransport.Create(LS2C, LC2S);
+  LClient := NewClientStream(LTransport as ITlsTransport, ClientConfig(False, nil));
+  try
+    LFirst := False;
+    try
+      LClient.Handshake(150);
+    except
+      on ETlsHandshakeTimeout do
+        LFirst := True;
+    end;
+    CheckTrue(LFirst, 'a silent peer under the handshake cap raises the handshake timeout');
+    CheckEquals(0, LTransport.ArmedReadTimeoutMs, 'the cap is cleared although the handshake raised');
+    LSecond := False;
+    try
+      LClient.Handshake(150);
+    except
+      on ETlsHandshakeTimeout do
+        LSecond := True;
+    end;
+    CheckTrue(LSecond, 'the failure is latched, not retried');
+  finally
+    LClient.Free;
+    LS2C.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestReadTimeoutNeedsATimedTransport;
+var
+  LClient: TTlsStream;
+  LBuf: TBytes;
+  LReadRaised, LHandshakeRaised: Boolean;
+begin
+  LClient := NewClientStream(TRecordingTransport.Create as ITlsTransport,
+    ClientConfig(False, nil));
+  try
+    System.SetLength(LBuf, 16);
+    LReadRaised := False;
+    try
+      LClient.ReadTimed(LBuf[0], 16, 100);
+    except
+      on EInvalidOperationTlsLibException do
+        LReadRaised := True;
+    end;
+    LHandshakeRaised := False;
+    try
+      LClient.Handshake(100);
+    except
+      on EInvalidOperationTlsLibException do
+        LHandshakeRaised := True;
+    end;
+    CheckTrue(LReadRaised, 'a read timeout on a plain transport is refused, not ignored');
+    CheckTrue(LHandshakeRaised, 'so is a handshake timeout');
+  finally
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.ServeConnection;
+var
+  LChunk: TBytes;
+  LGot: Int32;
+begin
+  FServerConnection.Handshake(0);
+  FServerExported := FServerConnection.ExportKeyingMaterial(ExporterLabel, 32);
+  System.SetLength(LChunk, 4096);
+  LGot := FServerConnection.Read(LChunk[0], System.Length(LChunk));
+  if LGot > 0 then
+    FServerConnection.Write(LChunk[0], LGot);
+  FServerConnection.CloseNotify;
+end;
+
+procedure TTestTlsStreamLoopback.TestConnectionForwardsKeyUpdateAndExporter;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientTransport: TPipeTimedTransport;
+  LClientT, LServerT: ITlsTimedTransport;
+  LClient: TTlsConnection;
+  LServing: TActionThread;
+  LPing, LEcho, LExported, LWithContext: TBytes;
+  LGot: Int32;
+begin
+  CheckEquals(5000, TTlsConnection.DefaultCloseGraceMs, 'terminal sends are bounded by 5 s');
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientTransport := TPipeTimedTransport.Create(LS2C, LC2S);
+  LClientT := LClientTransport as ITlsTimedTransport;
+  LServerT := TPipeTimedTransport.Create(LC2S, LS2C) as ITlsTimedTransport;
+  LClient := TTlsConnection.CreateClient(ClientConfig(False, nil), 'localhost', LClientT, nil, 0);
+  FServerConnection := Own<TTlsConnection>(TTlsConnection.CreateServer(ServerConfig, LServerT,
+    nil, 0));
+  LServing := Own<TActionThread>(TActionThread.Create(ServeConnection));
+  LServing.Start;
+  try
+    LClient.Handshake(0);
+    LClient.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
+    LExported := LClient.ExportKeyingMaterial(ExporterLabel, 32);
+    LWithContext := LClient.ExportKeyingMaterial(ExporterLabel, DecodeHex('0a0b'), 32);
+    LPing := DecodeHex(PingHex);
+    LClient.Write(LPing[0], System.Length(LPing));
+    System.SetLength(LEcho, 4096);
+    LGot := LClient.Read(LEcho[0], System.Length(LEcho));
+    CheckEqualBytes('the peer follows the rekey and echoes', LPing, System.Copy(LEcho, 0, LGot));
+    LClient.CloseNotify;
+  finally
+    LClientTransport.CloseWrite;
+    LServing.WaitFor;
+  end;
+  CheckEquals('', LServing.Error, 'the server side ran without error');
+  CheckEquals(32, System.Length(LExported), 'the exporter produced the requested length');
+  CheckEqualBytes('both ends derive the same secret', FServerExported, LExported);
+  CheckFalse(AreEqual(LExported, LWithContext), 'a context changes the secret');
+  LClient.Free;
 end;
 
 

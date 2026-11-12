@@ -57,6 +57,7 @@ uses
   TlpITlsConfigBuilder,
   TlpISystemTrustInstaller,
   TlpTlsPresets,
+  TlpHandshakeMessages,
   TlpITlsEngine,
   TlpTlsEngineFactory,
   TlpITlsConfigMemo,
@@ -312,14 +313,22 @@ type
   /// ready engine, the role-correct parked-verdict resolver, the handshake with its read cap armed
   /// and then cleared, application reads and writes, and the negotiated facts (zero values before
   /// the handshake). Host-owned; freeing it frees the stream and releases the transport and engine
-  /// without sending close_notify (a host calls CloseNotify at its own close hook). Not thread-safe:
-  /// a connection must not be read and written from two threads at once, so a host that broadcasts
-  /// from another thread serializes its access.</summary>
+  /// without sending close_notify (a host calls CloseNotify at its own close hook). Full duplex:
+  /// one thread may read while others write, close, abort, rekey or query it. Reads are serialised
+  /// with reads and writes with writes, so a message is never interleaved with another; a close or
+  /// alert never waits for a busy writer, which sends it before it returns; the engine underneath
+  /// must not be called directly while the connection is in use; and a read blocked on the socket
+  /// ends only with bytes or when the host closes the socket. Terminal sends (a fatal alert,
+  /// close_notify) are bounded by DefaultCloseGraceMs on the timed transport. Free it only after
+  /// every call has returned.</summary>
   TTlsConnection = class sealed(TObject)
   public const
     /// <summary>The handshake read-timeout the connection applies when the host passes 0 (30 s).
     /// Exported so an adapter can share the one default rather than repeat the literal.</summary>
     DefaultHandshakeTimeoutMs = Int32(30000);
+    /// <summary>The longest a terminal send (a fatal alert, close_notify) may take before it is
+    /// abandoned and the connection latched failed (5 s).</summary>
+    DefaultCloseGraceMs = TTlsStream.DefaultCloseGraceMs;
   strict private
   var
     FStream: TTlsStream;
@@ -358,6 +367,13 @@ type
     /// <summary>See TTlsStream.ReadEarlyData; call it after the handshake and before Read.</summary>
     function ReadEarlyData(var ABuffer; ACount: Longint): Longint;
     function Write(const ABuffer; ACount: Longint): Longint;
+    /// <summary>Asks for fresh traffic keys (see TTlsStream.RequestKeyUpdate). Call this, not the
+    /// engine, while the connection is in use.</summary>
+    procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+    /// <summary>The exporter keyed to this connection (see TTlsStream.ExportKeyingMaterial).</summary>
+    function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
+    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; overload;
     function PendingReadBytes: Int32;
     /// <summary>Sends close_notify; raises like the stream does.</summary>
     procedure CloseNotify;
@@ -1368,7 +1384,7 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   FIsClient := AIsClient;
   FServerName := AServerName;
-  FStream := TTlsStream.Create(FTimed, FEngine, AIsClient, AServerName);
+  FStream := TTlsStream.Create(FTimed, FEngine, AIsClient, AServerName, DefaultCloseGraceMs);
   // the caller already chose the role-correct resolver (a client parks on the server's chain, a
   // server on the mTLS client's); the session never guesses the role
   if Assigned(AResolver) then
@@ -1433,24 +1449,13 @@ begin
   LMs := AHandshakeTimeoutMs;
   if LMs <= 0 then
     LMs := DefaultHandshakeTimeoutMs;
-  FTimed.SetReadTimeout(LMs);
-  try
-    FStream.Handshake;
-  finally
-    // clear the cap even if the handshake raised, so a retried app read is not left bounded
-    FTimed.SetReadTimeout(0);
-  end;
+  FStream.Handshake(LMs);
 end;
 
 function TTlsConnection.Read(var ABuffer; ACount: Longint;
   AReadTimeoutMs: Int32): Longint;
 begin
-  FTimed.SetApplicationReadTimeout(AReadTimeoutMs);
-  try
-    Result := Read(ABuffer, ACount);
-  finally
-    FTimed.SetReadTimeout(0);
-  end;
+  Result := FStream.ReadTimed(ABuffer, ACount, AReadTimeoutMs);
 end;
 
 function TTlsConnection.IsHandshakeComplete: Boolean;
@@ -1471,6 +1476,22 @@ end;
 function TTlsConnection.Write(const ABuffer; ACount: Longint): Longint;
 begin
   Result := FStream.Write(ABuffer, ACount);
+end;
+
+procedure TTlsConnection.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+begin
+  FStream.RequestKeyUpdate(ARequest);
+end;
+
+function TTlsConnection.ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes;
+begin
+  Result := FStream.ExportKeyingMaterial(ALabel, ALength);
+end;
+
+function TTlsConnection.ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+  ALength: Int32): TBytes;
+begin
+  Result := FStream.ExportKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 function TTlsConnection.PendingReadBytes: Int32;

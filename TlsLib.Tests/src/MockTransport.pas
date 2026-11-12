@@ -21,10 +21,12 @@ uses
   SysUtils,
   Classes,
   SyncObjs,
+  TlpIClock,
   TlpTlsLibExceptions,
   TlpITlsEngine,
   TlpITlsTransport,
   TlpINetSocket,
+  TlpTlsConnection,
   TlpTlsStream;
 
 type
@@ -45,6 +47,9 @@ type
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     function Read(var ADest: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Close;
+    /// <summary>True when a Read would not block: bytes are buffered, or the pipe is closed. Waits
+    /// up to AMs ms for either.</summary>
+    function WaitData(AMs: Int32): Boolean;
   end;
 
   /// <summary>An ITlsTransport over a read pipe and a write pipe (the two directions of a
@@ -116,6 +121,24 @@ type
     property Written: Int32 read FWritten;
   end;
 
+  /// <summary>A transport decorator that counts the bytes written through it and remembers the
+  /// buffer its last Read and its last Write were handed.</summary>
+  TCountingTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  var
+    FInner: ITlsTransport;
+    FWritten: Int32;
+    FLastReadBuffer: Pointer;
+    FLastWriteBuffer: Pointer;
+  public
+    constructor Create(const AInner: ITlsTransport);
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    property Written: Int32 read FWritten;
+    property LastReadBuffer: Pointer read FLastReadBuffer;
+    property LastWriteBuffer: Pointer read FLastWriteBuffer;
+  end;
+
   /// <summary>A transport that hands out one scripted wire on the first Read, then reads as a closed
   /// peer; it counts its writes, or fails them like a dead socket when so built.</summary>
   TScriptedTransport = class sealed(TInterfacedObject, ITlsTransport)
@@ -138,6 +161,73 @@ type
   public
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+  end;
+
+  /// <summary>A timed transport over a read pipe and a write pipe: reads wait on the pipe within
+  /// an armed cap, and sends go straight into the write pipe. Owns the write pipe, as
+  /// TMemoryTransport does.</summary>
+  TPipeTimedTransport = class sealed(TTlsTimedTransportBase)
+  strict private
+  var
+    FRead: TMemoryPipe;
+    FWrite: TMemoryPipe;
+  strict protected
+    function WaitReadable(AMs: Int32): Boolean; override;
+    function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
+    function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
+  public
+    constructor Create(const ARead, AWrite: TMemoryPipe);
+    destructor Destroy; override;
+    /// <summary>The read cap now armed, 0 when none.</summary>
+    function ArmedReadTimeoutMs: Int32;
+    procedure CloseWrite;
+  end;
+
+  /// <summary>A timed transport whose socket never becomes writable: it serves one scripted wire
+  /// on the first read and then reads as closed, and counts the sends that reach it. A send under
+  /// an armed write deadline waits for writability and so never reaches it; an unarmed one does.</summary>
+  TStalledTransport = class sealed(TTlsTimedTransportBase)
+  strict private
+  var
+    FWire: TBytes;
+    FServed: Boolean;
+    FSends: Int32;
+  strict protected
+    function WaitWritable(AMs: Int32): Boolean; override;
+    function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
+    function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
+  public
+    constructor Create(const AWire: TBytes; const AClock: ITlsMonotonicClock);
+    property Sends: Int32 read FSends;
+  end;
+
+  /// <summary>A transport whose Write blocks until Open is called (or a safety bound passes), so a
+  /// test can hold a writer inside a send. Reads serve one scripted wire and then read as closed.</summary>
+  TGatedTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  const
+    // the longest a Write waits for Open, so a failing test cannot hang the run
+    GateBoundMs = 20000;
+  var
+    FWire: TBytes;
+    FServed: Boolean;
+    FGate: TEvent;
+    FEntered: TEvent;
+    FWrites: Int32;
+    FWritten: Int32;
+  public
+    constructor Create(const AWire: TBytes);
+    destructor Destroy; override;
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    /// <summary>Lets every blocked and later Write through.</summary>
+    procedure Open;
+    /// <summary>Whether a Write has entered the transport within AMs ms.</summary>
+    function WaitEntered(AMs: Int32): Boolean;
+    /// <summary>The writes that entered, read once the writer has been joined.</summary>
+    property Writes: Int32 read FWrites;
+    /// <summary>The bytes of the writes that completed, read once the writer has been joined.</summary>
+    property Written: Int32 read FWritten;
   end;
 
   /// <summary>A host resolver that answers one name, any case, with 127.0.0.1 and refuses the
@@ -251,6 +341,11 @@ begin
   finally
     FLock.Release;
   end;
+end;
+
+function TMemoryPipe.WaitData(AMs: Int32): Boolean;
+begin
+  Result := FEvent.WaitFor(Cardinal(AMs)) = wrSignaled;
 end;
 
 { TMemoryTransport }
@@ -385,6 +480,27 @@ begin
   System.Inc(FWritten, ALength);
 end;
 
+{ TCountingTransport }
+
+constructor TCountingTransport.Create(const AInner: ITlsTransport);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function TCountingTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+begin
+  FLastReadBuffer := Pointer(ABuffer);
+  Result := FInner.Read(ABuffer, AOffset, AMaxLength);
+end;
+
+procedure TCountingTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
+  FLastWriteBuffer := Pointer(ABuffer);
+  FInner.Write(ABuffer, AOffset, ALength);
+  System.Inc(FWritten, ALength);
+end;
+
 { TScriptedTransport }
 
 constructor TScriptedTransport.Create(const AWire: TBytes; AWritesFail: Boolean);
@@ -423,6 +539,129 @@ end;
 procedure TDeadWriteTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
 begin
   raise EInOutError.CreateRes(@SMockSocketFailed);
+end;
+
+{ TPipeTimedTransport }
+
+constructor TPipeTimedTransport.Create(const ARead, AWrite: TMemoryPipe);
+begin
+  inherited Create;
+  FRead := ARead;
+  FWrite := AWrite;
+end;
+
+destructor TPipeTimedTransport.Destroy;
+begin
+  FWrite.Free;
+  inherited Destroy;
+end;
+
+function TPipeTimedTransport.WaitReadable(AMs: Int32): Boolean;
+begin
+  Result := FRead.WaitData(AMs);
+end;
+
+function TPipeTimedTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Result := FRead.Read(ABuffer, AOffset, AMaxLength);
+end;
+
+function TPipeTimedTransport.SendRaw(const ABuffer: TBytes; AOffset,
+  ALength: Int32): Int32;
+begin
+  FWrite.Write(ABuffer, AOffset, ALength);
+  Result := ALength;
+end;
+
+function TPipeTimedTransport.ArmedReadTimeoutMs: Int32;
+begin
+  Result := ReadTimeoutMs;
+end;
+
+procedure TPipeTimedTransport.CloseWrite;
+begin
+  FWrite.Close;
+end;
+
+{ TStalledTransport }
+
+constructor TStalledTransport.Create(const AWire: TBytes; const AClock: ITlsMonotonicClock);
+begin
+  inherited Create;
+  UseClock(AClock);
+  FWire := System.Copy(AWire);
+end;
+
+function TStalledTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  Result := False;
+end;
+
+function TStalledTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
+  AMaxLength: Int32): Int32;
+begin
+  Result := 0;
+  if FServed then
+    Exit;
+  FServed := True;
+  Result := System.Length(FWire);
+  if Result > AMaxLength then
+    Result := AMaxLength;
+  System.Move(FWire[0], ABuffer[AOffset], Result);
+end;
+
+function TStalledTransport.SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32;
+begin
+  System.Inc(FSends);
+  Result := ALength;
+end;
+
+{ TGatedTransport }
+
+constructor TGatedTransport.Create(const AWire: TBytes);
+begin
+  inherited Create;
+  FWire := System.Copy(AWire);
+  FGate := TEvent.Create(nil, True, False, '');
+  FEntered := TEvent.Create(nil, True, False, '');
+end;
+
+destructor TGatedTransport.Destroy;
+begin
+  FEntered.Free;
+  FGate.Free;
+  inherited Destroy;
+end;
+
+function TGatedTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+begin
+  Result := 0;
+  if FServed then
+    Exit;
+  FServed := True;
+  Result := System.Length(FWire);
+  if Result > AMaxLength then
+    Result := AMaxLength;
+  System.Move(FWire[0], ABuffer[AOffset], Result);
+end;
+
+procedure TGatedTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
+  System.Inc(FWrites);
+  FEntered.SetEvent;
+  FGate.WaitFor(GateBoundMs);
+  System.Inc(FWritten, ALength);
+end;
+
+procedure TGatedTransport.Open;
+begin
+  FGate.SetEvent;
+end;
+
+function TGatedTransport.WaitEntered(AMs: Int32): Boolean;
+begin
+  Result := FEntered.WaitFor(Cardinal(AMs)) = wrSignaled;
 end;
 
 { TMockHostResolver }

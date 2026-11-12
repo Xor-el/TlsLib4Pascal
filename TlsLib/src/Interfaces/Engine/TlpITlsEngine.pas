@@ -90,7 +90,9 @@ type
   /// timers and the same contract for client and server, independent of the
   /// negotiated protocol version. The caller feeds transport bytes and application
   /// writes in, and drains outbound bytes, application data, and events out.
-  /// Single-threaded: the caller serializes access; there are no internal locks.
+  /// Single-threaded: the caller serializes access; there are no internal locks. TTlsStream and
+  /// TTlsConnection do that for their callers, so once one wraps an engine it must not be called
+  /// directly while the connection is in use.
   /// </summary>
   ITlsEngine = interface(IInterface)
     ['{F334F198-3F67-4109-8AE8-B1B928131889}']

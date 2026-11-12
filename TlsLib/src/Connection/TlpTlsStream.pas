@@ -18,10 +18,12 @@ interface
 uses
   SysUtils,
   Classes,
+  SyncObjs,
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlpTlsConnectionInfo,
   TlpTrustPolicy,
+  TlpHandshakeMessages,
   TlpITlsEngine,
   TlpITlsTransport,
   TlpTlsStreamPump;
@@ -35,35 +37,59 @@ type
   /// adapter reuses it unchanged. The caller owns the engine, the transport, and the
   /// stream; freeing the stream does not close the transport (call CloseNotify first for a
   /// clean shutdown).
+  /// One thread may read while others write, close, abort, rekey or query it: reads are
+  /// serialised with reads and writes with writes (a write is never interleaved with another),
+  /// a close or alert never waits for a busy writer (that writer sends it, so it can be unsent when
+  /// the call returns), and the engine underneath must not be called directly while the stream is
+  /// in use. A blocked read ends only with bytes or when the host closes the transport. Free the
+  /// stream only after every call has returned.
   /// </summary>
   TTlsStream = class(TStream)
+  public
+  const
+    /// <summary>The longest a terminal send (a fatal alert, close_notify) may take on a timed
+    /// transport before it is abandoned and the connection latched failed (5 s).</summary>
+    DefaultCloseGraceMs = Int32(5000);
   strict private
   var
-    FTransport: ITlsTransport;
-    FEngine: ITlsEngine;
+    FPump: TTlsStreamPump;
+    FReadLock: TCriticalSection;
+    FTimed: ITlsTimedTransport;
     FIsClient: Boolean;
     FServerName: string;
-    FHandshakeDone: Boolean;
+    // the read side's state: FReadLock guards every field from here to FReadChunk
     FHandshakeFailed: Boolean;
     FFailureClass: ExceptClass;
     FFailureMessage: string;
     FFailureHasAlert: Boolean;
     FFailureAlert: TTlsAlertDescription;
     FReadClosed: Boolean;
-    FWriteClosed: Boolean;
     FTruncated: Boolean;
     FReadChunk: TBytes;
-    FWriteChunk: TBytes;
-    FTransportBuffer: TBytes;
     FVerdictResolver: TCertificateVerdictResolver;
     FVerdictDeadlineMs: Cardinal;
+    /// <summary>Waits for the handshake to complete (running it when no thread is) before a
+    /// write; the caller holds no lock.</summary>
     procedure EnsureHandshake;
+    /// <summary>Runs the handshake once; the caller holds the read side.</summary>
+    procedure DriveHandshake;
+    procedure ArmReadCap(AMs: Int32; AApplication: Boolean);
+    procedure ClearReadCap;
+    /// <summary>One read cycle; the caller holds the read side.</summary>
+    function ReadLocked(var ABuffer; ACount: Longint): Longint;
   public
     /// <summary>Wraps a ready engine and transport. AIsClient selects who opens the
     /// handshake (a client sends the first flight); AServerName is the host used for SNI /
-    /// verification, surfaced back through ConnectionInfo.</summary>
+    /// verification, surfaced back through ConnectionInfo. Terminal sends are bounded by
+    /// DefaultCloseGraceMs.</summary>
     constructor Create(const ATransport: ITlsTransport; const AEngine: ITlsEngine;
-      AIsClient: Boolean; const AServerName: string);
+      AIsClient: Boolean; const AServerName: string); overload;
+    /// <summary>As above, bounding each terminal send by ACloseGraceMs on a transport that is an
+    /// ITlsTimedTransport (zero or less leaves it unbounded).</summary>
+    constructor Create(const ATransport: ITlsTransport; const AEngine: ITlsEngine;
+      AIsClient: Boolean; const AServerName: string; ACloseGraceMs: Int32); overload;
+    /// <summary>Releases the locks. Free only after every call has returned.</summary>
+    destructor Destroy; override;
 
     /// <summary>Sets the out-of-band resolver for a parked peer-certificate verdict, used only
     /// when async certificate verdicts are enabled on the config. It runs after the built-in
@@ -75,28 +101,54 @@ type
       ADeadlineMs: Cardinal); overload;
     /// <summary>Runs the handshake if it has not already run; a no-op afterwards. The first
     /// Read/Write performs it implicitly, so calling this is optional - it lets a caller
-    /// front-load the handshake (and its errors) before any application byte.</summary>
-    procedure Handshake;
-    /// <summary>Whether the handshake has completed successfully.</summary>
+    /// front-load the handshake (and its errors) before any application byte. A thread that
+    /// finds another running it waits for it.</summary>
+    procedure Handshake; overload;
+    /// <summary>As above, bounding the handshake's reads to AReadTimeoutMs in total (zero or less
+    /// = block); the cap is armed and cleared inside the read side, so it never bounds another
+    /// reader. A positive value needs an ITlsTimedTransport.</summary>
+    procedure Handshake(AReadTimeoutMs: Int32); overload;
+    /// <summary>Whether the handshake has completed successfully; never waits.</summary>
     function IsHandshakeComplete: Boolean;
-    /// <summary>The negotiated connection info; meaningful only after the handshake.</summary>
+    /// <summary>The negotiated connection info. Zero values while the handshake is running, so a
+    /// thread polling during a slow certificate check is not stalled.</summary>
     function ConnectionInfo: TTlsConnectionInfo;
     /// <summary>Sends close_notify to shut the write side down cleanly (RFC 9846 6.1);
-    /// idempotent. The transport itself is not closed - the caller owns it.</summary>
+    /// idempotent. It does not wait for a writer that holds the send side: that writer sends it
+    /// before it returns, so the record may still be unsent when this returns. A send on a timed
+    /// transport is bounded by the close grace. The transport itself is not closed - the caller
+    /// owns it.</summary>
     procedure CloseNotify;
     /// <summary>Refuses the connection with a fatal alert (for example bad_certificate after a
     /// host hook rejects the peer once the handshake completed) instead of a clean close; the
-    /// write side is closed and the engine terminal. Idempotent.</summary>
+    /// write side is closed and the engine terminal. Idempotent, with the same hand-off as
+    /// CloseNotify.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription);
+    /// <summary>Asks for fresh traffic keys (TLS 1.3 KeyUpdate; a no-op under TLS 1.2). Waits for
+    /// the handshake and for the send side like a write. Use this, not the engine, while the
+    /// stream is in use.</summary>
+    procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+    /// <summary>The RFC 5705 / 9846 7.5 exporter keyed to this connection, or nil before the
+    /// secret exists or after a failure. Use this, not the engine, while the stream is in
+    /// use.</summary>
+    function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
+    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; overload;
     /// <summary>Whether the peer closed the transport without a close_notify: a possible
-    /// truncation. False after a clean close_notify shutdown.</summary>
+    /// truncation. False after a clean close_notify shutdown. Takes the read side, so it waits
+    /// for a read in progress.</summary>
     function TransportTruncated: Boolean;
     /// <summary>Decrypted application bytes already buffered and readable without touching
-    /// the transport (for a host's ReceivePending / WaitingData).</summary>
+    /// the transport (for a host's ReceivePending / WaitingData); 0 at once while the handshake
+    /// is running.</summary>
     function PendingReadBytes: Int32;
 
     // TStream
     function Read(var ABuffer; ACount: Longint): Longint; override;
+    /// <summary>As Read, giving up with the retryable ETlsReadTimeout when no application data has
+    /// arrived within AReadTimeoutMs in total (zero or less = block). The cap is armed and cleared
+    /// inside the read side. A positive value needs an ITlsTimedTransport.</summary>
+    function ReadTimed(var ABuffer; ACount: Longint; AReadTimeoutMs: Int32): Longint;
     /// <summary>Server only: the 0-RTT bytes the client sent before its handshake finished,
     /// replayable by an attacker (RFC 9846 8, F.5). Returns 0 when none remain. Read raises
     /// while any are unread, so they are never skipped or reordered.</summary>
@@ -112,28 +164,63 @@ resourcestring
   SReadTruncated = 'the transport closed without close_notify (possible truncation)';
   SWriteAfterClose = 'the stream write side has been closed';
   SNilStreamArgument = 'a stream needs an engine and a transport (pass both, not nil)';
+  SReadTimeoutNeedsTimedTransport = 'a read timeout needs a timed transport (an ' +
+    'ITlsTimedTransport), and this stream was given a plain one';
 
 { TTlsStream }
 
 constructor TTlsStream.Create(const ATransport: ITlsTransport;
   const AEngine: ITlsEngine; AIsClient: Boolean; const AServerName: string);
 begin
+  Create(ATransport, AEngine, AIsClient, AServerName, DefaultCloseGraceMs);
+end;
+
+constructor TTlsStream.Create(const ATransport: ITlsTransport;
+  const AEngine: ITlsEngine; AIsClient: Boolean; const AServerName: string;
+  ACloseGraceMs: Int32);
+begin
   inherited Create;
   if (AEngine = nil) or (ATransport = nil) then
     raise EArgumentTlsLibException.CreateRes(@SNilStreamArgument);
-  FTransport := ATransport;
-  FEngine := AEngine;
+  FReadLock := TCriticalSection.Create;
+  FPump := TTlsStreamPump.Create(AEngine, ATransport, ACloseGraceMs);
+  // a transport that cannot bound a read rejects a read timeout rather than ignoring it
+  Supports(ATransport, ITlsTimedTransport, FTimed);
   FIsClient := AIsClient;
   FServerName := AServerName;
-  FHandshakeDone := False;
-  FReadClosed := False;
-  FWriteClosed := False;
-  FTruncated := False;
 end;
 
-procedure TTlsStream.EnsureHandshake;
+destructor TTlsStream.Destroy;
 begin
-  if FHandshakeDone then
+  FPump.Free;
+  FReadLock.Free;
+  FTimed := nil;
+  inherited Destroy;
+end;
+
+procedure TTlsStream.ArmReadCap(AMs: Int32; AApplication: Boolean);
+begin
+  if AMs <= 0 then
+    Exit;
+  if FTimed = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReadTimeoutNeedsTimedTransport);
+  if AApplication then
+    FTimed.SetApplicationReadTimeout(AMs)
+  else
+    FTimed.SetReadTimeout(AMs);
+end;
+
+procedure TTlsStream.ClearReadCap;
+begin
+  // cleared even when the call raised, so a retried read is not left bounded
+  if FTimed <> nil then
+    FTimed.SetReadTimeout(0);
+end;
+
+procedure TTlsStream.DriveHandshake;
+begin
+  // another thread may have completed it while this one waited for the read side
+  if FPump.ConfirmHandshakeComplete then
     Exit;
   // a failed handshake is permanent for this stream: never re-drive it (a retry would emit a
   // second ClientHello or block on a dead transport, masking the real cause). Re-raise the
@@ -141,8 +228,7 @@ begin
   // stream to retry.
   if FHandshakeFailed then
   begin
-    if FEngine.IsTerminal then
-      TTlsStreamPump.RaiseIfFatal(FEngine);
+    FPump.RaiseFailure;
     // Exception constructors are not virtual, so a latched class cannot rebuild its own state
     if FFailureHasAlert then
       raise ETlsStreamError.Create(FFailureAlert, FFailureMessage);
@@ -152,8 +238,7 @@ begin
   end;
   // a nil resolver is exactly the inline path; a set one decides a parked async verdict
   try
-    TTlsStreamPump.DriveHandshake(FEngine, FTransport, FTransportBuffer, FIsClient,
-      FVerdictResolver, FVerdictDeadlineMs);
+    FPump.DriveHandshake(FIsClient, FVerdictResolver, FVerdictDeadlineMs);
   except
     on E: Exception do
     begin
@@ -170,7 +255,20 @@ begin
       raise;
     end;
   end;
-  FHandshakeDone := True;
+end;
+
+procedure TTlsStream.EnsureHandshake;
+begin
+  // a writer that finds the handshake incomplete waits for the read side, which the handshake
+  // holds; once it is complete a reader may hold that side indefinitely, so it is never taken
+  if FPump.ConfirmHandshakeComplete then
+    Exit;
+  FReadLock.Enter;
+  try
+    DriveHandshake;
+  finally
+    FReadLock.Leave;
+  end;
 end;
 
 procedure TTlsStream.SetCertificateVerdictResolver(
@@ -188,17 +286,32 @@ end;
 
 procedure TTlsStream.Handshake;
 begin
-  EnsureHandshake;
+  Handshake(0);
+end;
+
+procedure TTlsStream.Handshake(AReadTimeoutMs: Int32);
+begin
+  FReadLock.Enter;
+  try
+    ArmReadCap(AReadTimeoutMs, False);
+    try
+      DriveHandshake;
+    finally
+      ClearReadCap;
+    end;
+  finally
+    FReadLock.Leave;
+  end;
 end;
 
 function TTlsStream.IsHandshakeComplete: Boolean;
 begin
-  Result := FHandshakeDone;
+  Result := FPump.IsHandshakeComplete;
 end;
 
 function TTlsStream.ConnectionInfo: TTlsConnectionInfo;
 begin
-  Result := FEngine.ConnectionInfo;
+  Result := FPump.ConnectionInfo;
   // overlay the client-side construction host; where that is empty the engine's snapshot
   // already carries the SNI the client requested, as the handshake resolved it
   if FServerName <> '' then
@@ -207,31 +320,46 @@ end;
 
 procedure TTlsStream.SendAlert(ADescription: TTlsAlertDescription);
 begin
-  if FWriteClosed then
-    Exit;
-  FWriteClosed := True;
-  if FHandshakeDone then
-    TTlsStreamPump.Abort(FEngine, FTransport, FTransportBuffer, ADescription);
+  if FPump.CloseWriteSide then
+    FPump.Abort(ADescription);
 end;
 
 procedure TTlsStream.CloseNotify;
 begin
-  if FWriteClosed then
-    Exit;
-  FWriteClosed := True;
-  // a close before the handshake even ran has nothing to protect; only shut down a live one
-  if FHandshakeDone then
-    TTlsStreamPump.Close(FEngine, FTransport, FTransportBuffer);
+  if FPump.CloseWriteSide then
+    FPump.Close;
+end;
+
+procedure TTlsStream.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
+begin
+  EnsureHandshake;
+  FPump.RequestKeyUpdate(ARequest);
+end;
+
+function TTlsStream.ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes;
+begin
+  Result := FPump.ExportKeyingMaterial(ALabel, ALength);
+end;
+
+function TTlsStream.ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+  ALength: Int32): TBytes;
+begin
+  Result := FPump.ExportKeyingMaterial(ALabel, AContext, ALength);
 end;
 
 function TTlsStream.TransportTruncated: Boolean;
 begin
-  Result := FTruncated;
+  FReadLock.Enter;
+  try
+    Result := FTruncated;
+  finally
+    FReadLock.Leave;
+  end;
 end;
 
 function TTlsStream.PendingReadBytes: Int32;
 begin
-  Result := FEngine.PendingAppData;
+  Result := FPump.PendingAppData;
 end;
 
 function TTlsStream.ReadEarlyData(var ABuffer; ACount: Longint): Longint;
@@ -240,25 +368,28 @@ var
 begin
   if ACount <= 0 then
     Exit(0);
-  EnsureHandshake;
-  LChunk := ACount;
-  if LChunk > TTlsStreamPump.TransportChunk then
-    LChunk := TTlsStreamPump.TransportChunk;
-  if System.Length(FReadChunk) < LChunk then
-    SetLength(FReadChunk, LChunk);
-  Result := FEngine.ReadEarlyData(FReadChunk, 0, LChunk);
-  if Result > 0 then
-    Move(FReadChunk[0], ABuffer, Result);
+  FReadLock.Enter;
+  try
+    DriveHandshake;
+    LChunk := ACount;
+    if LChunk > TTlsStreamPump.TransportChunk then
+      LChunk := TTlsStreamPump.TransportChunk;
+    if System.Length(FReadChunk) < LChunk then
+      SetLength(FReadChunk, LChunk);
+    Result := FPump.ReadEarlyData(FReadChunk, LChunk);
+    if Result > 0 then
+      Move(FReadChunk[0], ABuffer, Result);
+  finally
+    FReadLock.Leave;
+  end;
 end;
 
-function TTlsStream.Read(var ABuffer; ACount: Longint): Longint;
+function TTlsStream.ReadLocked(var ABuffer; ACount: Longint): Longint;
 var
   LStatus: TTlsReadStatus;
-  LGot, LChunk: Int32;
+  LChunk: Int32;
 begin
-  if ACount <= 0 then
-    Exit(0);
-  EnsureHandshake;
+  DriveHandshake;
   // a truncation stays an error on every later read, never a clean end of stream
   if FTruncated then
     raise ETlsTransportTruncated.CreateRes(@SReadTruncated);
@@ -272,11 +403,10 @@ begin
     LChunk := TTlsStreamPump.TransportChunk;
   if System.Length(FReadChunk) < LChunk then
     SetLength(FReadChunk, LChunk);
-  LGot := TTlsStreamPump.ReadApp(FEngine, FTransport, FTransportBuffer, FReadChunk, LChunk,
-    LStatus);
+  Result := FPump.ReadApp(FReadChunk, LChunk, LStatus);
   case LStatus of
     TTlsReadStatus.Data:
-      Move(FReadChunk[0], ABuffer, LGot);
+      Move(FReadChunk[0], ABuffer, Result);
     TTlsReadStatus.CleanEof:
       FReadClosed := True;
     TTlsReadStatus.Truncated:
@@ -287,38 +417,51 @@ begin
         raise ETlsTransportTruncated.CreateRes(@SReadTruncated);
       end;
   end;
-  Result := LGot;
 end;
 
-function TTlsStream.Write(const ABuffer; ACount: Longint): Longint;
-var
-  LOffset, LChunk: Int32;
+function TTlsStream.Read(var ABuffer; ACount: Longint): Longint;
 begin
   if ACount <= 0 then
     Exit(0);
-  // a write after CloseNotify must fail rather than silently run the handshake and send: pre-handshake
-  // close only latched the flag, so guard here as the post-handshake engine already does
-  if FWriteClosed then
-    raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
-  EnsureHandshake;
-  // copy one bounded slice at a time rather than the whole buffer: a bulk write costs one
-  // reused slice of transient memory, never a second copy of the payload. Grow the slice on
-  // demand and cap it, so a stream that only ever writes small messages never holds 64 KiB
-  LChunk := ACount;
-  if LChunk > TTlsStreamPump.WriteChunk then
-    LChunk := TTlsStreamPump.WriteChunk;
-  if System.Length(FWriteChunk) < LChunk then
-    SetLength(FWriteChunk, LChunk);
-  LOffset := 0;
-  while LOffset < ACount do
-  begin
-    LChunk := ACount - LOffset;
-    if LChunk > TTlsStreamPump.WriteChunk then
-      LChunk := TTlsStreamPump.WriteChunk;
-    Move(PByte(@ABuffer)[LOffset], FWriteChunk[0], LChunk);
-    TTlsStreamPump.WriteApp(FEngine, FTransport, FTransportBuffer, FWriteChunk, 0, LChunk);
-    Inc(LOffset, LChunk);
+  FReadLock.Enter;
+  try
+    Result := ReadLocked(ABuffer, ACount);
+  finally
+    FReadLock.Leave;
   end;
+end;
+
+function TTlsStream.ReadTimed(var ABuffer; ACount: Longint;
+  AReadTimeoutMs: Int32): Longint;
+begin
+  if ACount <= 0 then
+    Exit(0);
+  FReadLock.Enter;
+  try
+    ArmReadCap(AReadTimeoutMs, True);
+    try
+      Result := ReadLocked(ABuffer, ACount);
+    finally
+      ClearReadCap;
+    end;
+  finally
+    FReadLock.Leave;
+  end;
+end;
+
+function TTlsStream.Write(const ABuffer; ACount: Longint): Longint;
+begin
+  if ACount <= 0 then
+    Exit(0);
+  // a write after CloseNotify must fail rather than silently run the handshake and send: a
+  // pre-handshake close only latched the flag, so guard here as the post-handshake engine already does
+  if not FPump.ConfirmHandshakeComplete then
+  begin
+    if FPump.WriteSideClosed then
+      raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
+    EnsureHandshake;
+  end;
+  FPump.WriteApp(ABuffer, ACount);
   Result := ACount;
 end;
 

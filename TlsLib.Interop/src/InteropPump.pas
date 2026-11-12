@@ -25,6 +25,7 @@ uses
   TlpTrustPolicy,
   TlpTlsStreamPump,
   TlpITlsEngine,
+  TlpITlsEngineInbound,
   InteropSocket,
   InteropUtils;
 
@@ -205,7 +206,8 @@ var
 begin
   // classify through the shared core; map its first terminal event to this harness's result
   // (leaving AResult untouched when nothing terminal drained, which PumpAppData relies on)
-  Result := TTlsStreamPump.DrainEvents(AEngine, LAlert, LClosed, ACertEvent);
+  Result := TTlsStreamPump.DrainEvents(AEngine as ITlsEngineInbound, LAlert, LClosed,
+    ACertEvent);
   if LAlert <> nil then
   begin
     AResult := ResultOf(TInteropStatus.PeerAlert, 'peer sent a fatal alert');

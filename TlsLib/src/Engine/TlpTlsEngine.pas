@@ -50,7 +50,8 @@ type
   /// The default sans-IO engine over a record layer, the alert protocol, and a
   /// driven handshake. It buffers inbound assembly, the outbound queue, decrypted
   /// application data, and the event queue, all as TBytes with explicit
-  /// offset/length. Single-threaded: the caller serializes access.
+  /// offset/length. Single-threaded: the caller serializes access (TTlsStream and TTlsConnection
+  /// do, so do not call the engine directly while one is in use).
   /// </summary>
   TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
     ITlsEngineOutbound)
