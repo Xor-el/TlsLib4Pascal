@@ -177,6 +177,9 @@ type
     procedure ReadPumped;
     procedure ClosePumped;
     procedure KeyUpdatePumped;
+    procedure ProbeQueried;
+    procedure ExportQueried;
+    procedure QueryPumped;
   var
     FVerifyEntered: TEvent;
     FVerifyRelease: TEvent;
@@ -273,6 +276,10 @@ type
     procedure TestReleaseWriteSendsWhatWasSealedAfterTheLastCheck;
     procedure TestReadCapsAreArmedAndClearedInsideTheReadSide;
     procedure TestRequestKeyUpdateWaitsForTheWriteSide;
+    procedure TestQueriesAndAWriteCompleteWhileAReadIsParked;
+    procedure TestReadAndQueriesProceedWhileAWriterIsBlockedInASend;
+    procedure TestExporterAnswersWhileAVerdictResolverIsParked;
+    procedure TestRecheckThatFindsADeadSocketDoesNotMaskTheWritersError;
   end;
 
 implementation
@@ -300,27 +307,10 @@ type
     function Count: Int32;
   end;
 
-  /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
-  /// a surfaced EOF rather than hanging the run. Disarmed once the exchange completes.</summary>
-  TWedgeWatchdog = class(TThread)
-  strict private
-  var
-    FPipeA, FPipeB: TMemoryPipe;
-    FDeadlineMs: UInt32;
-    FDone: TEvent;
-    FFired: Boolean;
-  protected
-    procedure Execute; override;
-  public
-    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32);
-    destructor Destroy; override;
-    procedure Disarm; // the exchange finished in time; stop before the deadline
-    property Fired: Boolean read FFired;
-  end;
-
   /// <summary>An engine over a real one that plays another thread's Close: on the first
   /// IsTerminal call after WantsWrite answered False it seals close_notify, which is how a record
-  /// is sealed after a writer's last check and before it lets go of the write side.</summary>
+  /// is sealed after a writer's last check and before it lets go of the write side. It can also
+  /// owe one more byte once the transport has failed, like a record sealed behind a failed send.</summary>
   TSealAfterDrainEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
     ITlsEngineOutbound)
   strict private
@@ -328,6 +318,8 @@ type
     FInner: ITlsEngine;
     FDrained: Boolean;
     FSealed: Boolean;
+    FOwesAfterLatch: Boolean;
+    FOwed: Boolean;
   public
     constructor Create(const AInner: ITlsEngine);
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
@@ -363,6 +355,8 @@ type
       ALength: Int32): TBytes;
     /// <summary>Whether it sealed the close_notify.</summary>
     property Sealed: Boolean read FSealed;
+    /// <summary>Whether a latch leaves one byte owed.</summary>
+    property OwesAfterLatch: Boolean read FOwesAfterLatch write FOwesAfterLatch;
   end;
 
   TTestAction = procedure of object;
@@ -466,6 +460,9 @@ end;
 procedure TSealAfterDrainEngine.LatchTransportFailure(const AReason: string);
 begin
   FInner.LatchTransportFailure(AReason);
+  FOwed := FOwesAfterLatch;
+  // owed once, so the recheck that fails to send it is not owed it again
+  FOwesAfterLatch := False;
 end;
 
 procedure TSealAfterDrainEngine.StartHandshake;
@@ -482,6 +479,12 @@ end;
 function TSealAfterDrainEngine.TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
 begin
   Result := FInner.TakeOutgoing(ADest, ADestOffset);
+  if FOwed and (Result = 0) then
+  begin
+    FOwed := False;
+    ADest[ADestOffset] := 0;
+    Result := 1;
+  end;
 end;
 
 function TSealAfterDrainEngine.ReadAppData(var ADest: TBytes; ADestOffset,
@@ -523,7 +526,7 @@ end;
 
 function TSealAfterDrainEngine.WantsWrite: Boolean;
 begin
-  Result := FInner.WantsWrite;
+  Result := FInner.WantsWrite or FOwed;
   if not Result then
     FDrained := True;
 end;
@@ -661,43 +664,6 @@ begin
     on E: Exception do
       FError := E.ClassName + ': ' + E.Message;
   end;
-end;
-
-{ TWedgeWatchdog }
-
-constructor TWedgeWatchdog.Create(const APipeA, APipeB: TMemoryPipe;
-  ADeadlineMs: UInt32);
-begin
-  inherited Create(True);
-  FPipeA := APipeA;
-  FPipeB := APipeB;
-  FDeadlineMs := ADeadlineMs;
-  FDone := TEvent.Create(nil, True, False, '');
-  FFired := False;
-  FreeOnTerminate := False;
-end;
-
-destructor TWedgeWatchdog.Destroy;
-begin
-  inherited Destroy;
-  FDone.Free;
-end;
-
-procedure TWedgeWatchdog.Execute;
-begin
-  // wait for the exchange to disarm us; if the deadline passes first the pump has wedged,
-  // so close both pipes to unblock its reads and let the test surface the failure
-  if FDone.WaitFor(FDeadlineMs) = wrTimeout then
-  begin
-    FFired := True;
-    FPipeA.Close;
-    FPipeB.Close;
-  end;
-end;
-
-procedure TWedgeWatchdog.Disarm;
-begin
-  FDone.SetEvent;
 end;
 
 { TTestTlsStreamLoopback }
@@ -3514,6 +3480,171 @@ begin
   CheckEquals(1, LKeyUpdates, 'the KeyUpdate reached the peer');
   CheckEquals(1, LServer.PendingAppData, 'behind the writer''s record, which the old keys sealed');
   CheckFalse(LServer.IsTerminal, 'in an order the peer could decrypt');
+end;
+
+procedure TTestTlsStreamLoopback.ProbeQueried;
+begin
+  try
+    FQueriedVersion := FQueried.ConnectionInfo.NegotiatedVersion.WireValue;
+    FQueriedPending := FQueried.PendingReadBytes;
+    FServerExported := FQueried.ExportKeyingMaterial(ExporterLabel, 32);
+    FQueried.Write(FPingBytes[0], System.Length(FPingBytes));
+  finally
+    FQueryDone.SetEvent;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.ExportQueried;
+begin
+  try
+    FServerExported := FQueried.ExportKeyingMaterial(ExporterLabel, 32);
+  finally
+    FQueryDone.SetEvent;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.QueryPumped;
+begin
+  try
+    FQueriedVersion := FPumped.ConnectionInfo.NegotiatedVersion.WireValue;
+    FQueriedPending := FPumped.PendingAppData;
+  finally
+    FSecondDone.SetEvent;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestQueriesAndAWriteCompleteWhileAReadIsParked;
+var
+  LServer: TServerRunner;
+  LTransport: TMemoryTransport;
+  LReader, LProbe: TActionThread;
+  LAnswered: Boolean;
+begin
+  FQueryDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FPause := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FPingBytes := DecodeHex(PingHex);
+  System.SetLength(FReadBuffer, 4096);
+  RunLoopback(ClientConfig(False, nil), TServerBehavior.EchoThenClose, FQueried, LServer,
+    LTransport);
+  Own<TTlsStream>(FQueried);
+  Own<TServerRunner>(LServer);
+  LReader := Own<TActionThread>(TActionThread.Create(ReadQueried));
+  LProbe := Own<TActionThread>(TActionThread.Create(ProbeQueried));
+  try
+    FQueried.Handshake;
+    // the server waits for a request, so this read stays parked inside the transport
+    LReader.Start;
+    FPause.WaitFor(300);
+    LProbe.Start;
+    LAnswered := FQueryDone.WaitFor(5000) = wrSignaled;
+  finally
+    // ends a server still waiting for the request, and with it the parked read
+    LServer.Finish;
+  end;
+  LProbe.WaitFor;
+  LReader.WaitFor;
+  CheckTrue(LAnswered, 'the queries and a write returned while a read was parked in the transport');
+  CheckEquals('', LProbe.Error, 'and raised nothing');
+  CheckTrue(FQueriedVersion <> 0, 'the facts were the engine''s');
+  CheckEquals(32, System.Length(FServerExported), 'the exporter answered');
+  CheckEquals('', LReader.Error, 'the parked read got the echo of that write');
+  CheckEqualBytes('the echo', FPingBytes, System.Copy(FReadBuffer, 0, FReadCount));
+end;
+
+procedure TTestTlsStreamLoopback.TestReadAndQueriesProceedWhileAWriterIsBlockedInASend;
+var
+  LClient, LServer: ITlsEngine;
+  LGated: TGatedTransport;
+  LWriter, LReader, LQuerier: TActionThread;
+  LData: TBytes;
+  LRead, LQueried: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LData := DecodeHex('0102');
+  LServer.Write(LData, 0, 2);
+  LGated := TGatedTransport.Create(TakeAll(LServer));
+  FPumped := NewPump(LClient, LGated as ITlsTransport);
+  FPumpedByte := DecodeHex('00');
+  System.SetLength(FPumpedBuffer, 16);
+  FReaderDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  FSecondDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  LWriter := Own<TActionThread>(TActionThread.Create(WritePumped));
+  LReader := Own<TActionThread>(TActionThread.Create(ReadPumped));
+  LQuerier := Own<TActionThread>(TActionThread.Create(QueryPumped));
+  LWriter.Start;
+  try
+    CheckTrue(LGated.WaitEntered(20000), 'the writer is inside its send, holding the write side');
+    LReader.Start;
+    LQuerier.Start;
+    LRead := FReaderDone.WaitFor(5000) = wrSignaled;
+    LQueried := FSecondDone.WaitFor(5000) = wrSignaled;
+  finally
+    LGated.Open;
+  end;
+  LWriter.WaitFor;
+  LReader.WaitFor;
+  LQuerier.WaitFor;
+  CheckTrue(LRead, 'the read returned inbound data while a send was blocked');
+  CheckTrue(LQueried, 'and so did the queries');
+  CheckEquals('', LReader.Error, 'the read raised nothing');
+  CheckEquals(1, Integer(FPumpedBuffer[0]), 'it returned the record the peer sent');
+  CheckTrue(FQueriedVersion <> 0, 'the facts were the engine''s');
+end;
+
+procedure TTestTlsStreamLoopback.TestExporterAnswersWhileAVerdictResolverIsParked;
+var
+  LServer: TServerRunner;
+  LHandshaker, LExporter: TActionThread;
+  LAnswered: Boolean;
+begin
+  StartParkedHandshake(LServer);
+  FQueryDone := Own<TEvent>(TEvent.Create(nil, True, False, ''));
+  LHandshaker := Own<TActionThread>(TActionThread.Create(HandshakeQueried));
+  LExporter := Own<TActionThread>(TActionThread.Create(ExportQueried));
+  try
+    LHandshaker.Start;
+    CheckTrue(FVerifyEntered.WaitFor(20000) = wrSignaled, 'the handshake is parked in the resolver');
+    // the resolver runs with the engine lock free, so the exporter, which needs it, is answered
+    LExporter.Start;
+    LAnswered := FQueryDone.WaitFor(5000) = wrSignaled;
+    FVerifyRelease.SetEvent;
+    LHandshaker.WaitFor;
+    LExporter.WaitFor;
+  finally
+    FVerifyRelease.SetEvent;
+    LServer.Finish;
+  end;
+  CheckTrue(LAnswered, 'the exporter returned while the resolver was parked');
+  CheckEquals('', LHandshaker.Error, 'the handshake finished once released');
+end;
+
+procedure TTestTlsStreamLoopback.TestRecheckThatFindsADeadSocketDoesNotMaskTheWritersError;
+var
+  LClient, LServer, LEngine: ITlsEngine;
+  LDouble: TSealAfterDrainEngine;
+  LDead: TDeadWriteTransport;
+  LDeadT: ITlsTransport;
+  LByte: TBytes;
+  LMessage: string;
+begin
+  HandshakeEngines(LClient, LServer);
+  LDouble := TSealAfterDrainEngine.Create(LClient);
+  LEngine := LDouble;
+  LDouble.OwesAfterLatch := True;
+  LDead := TDeadWriteTransport.Create;
+  LDeadT := LDead;
+  LByte := DecodeHex('00');
+  LMessage := '';
+  try
+    // the write fails on the dead socket, and the recheck behind it finds a record owed
+    NewPump(LEngine, LDeadT).WriteApp(LByte[0], 1);
+  except
+    on E: EInOutError do
+      LMessage := E.Message;
+  end;
+  CheckEquals(2, LDead.Attempts, 'the recheck tried to send the record that was owed');
+  CheckTrue(Pos('(write 1)', LMessage) > 0, 'the caller sees the failed write, not the recheck');
 end;
 
 initialization

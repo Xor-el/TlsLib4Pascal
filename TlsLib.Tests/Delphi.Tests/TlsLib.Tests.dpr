@@ -266,6 +266,7 @@ uses
   ArrayUtilitiesTests in '..\src\ArrayUtilitiesTests.pas',
   SystemCryptoHelperTests in '..\src\SystemCryptoHelperTests.pas',
   TlsStreamLoopbackTests in '..\src\TlsStreamLoopbackTests.pas',
+  DuplexStressTests in '..\src\DuplexStressTests.pas',
   EndpointIdentityTests in '..\src\EndpointIdentityTests.pas',
   PemTests in '..\src\PemTests.pas',
   DynamicLibraryTests in '..\src\DynamicLibraryTests.pas',

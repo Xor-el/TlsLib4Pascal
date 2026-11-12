@@ -32,17 +32,28 @@ uses
 type
   /// <summary>A single-direction in-memory byte pipe with blocking reads. Write appends;
   /// a Read blocks for data or an orderly close (returns 0). The shared boundary the two
-  /// single-threaded engines synchronize across in a loopback.</summary>
+  /// single-threaded engines synchronize across in a loopback. A pipe made with a capacity holds
+  /// at most that many bytes: a Write blocks while it is full, and raises once the pipe is
+  /// closed, so a stalled peer is felt by the sender as it is on a socket.</summary>
   TMemoryPipe = class sealed(TObject)
   strict private
   var
     FLock: TCriticalSection;
     FEvent: TEvent;
+    FSpace: TEvent;
     FBuffer: TBytes;
     FHead: Int32;
+    FCapacity: Int32;
     FClosed: Boolean;
+    FWritten: Int64;
+    FCorruptAt: Int64;
+    procedure WriteBounded(const AData: TBytes; AOffset, ALength: Int32);
+    function GetWritten: Int64;
+    procedure CorruptWithin(AFrom: Int32; ALength: Int32);
   public
-    constructor Create;
+    constructor Create; overload;
+    /// <summary>A pipe holding at most ACapacity bytes (zero or less = unbounded).</summary>
+    constructor Create(ACapacity: Int32); overload;
     destructor Destroy; override;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
     function Read(var ADest: TBytes; AOffset, AMaxLength: Int32): Int32;
@@ -50,6 +61,32 @@ type
     /// <summary>True when a Read would not block: bytes are buffered, or the pipe is closed. Waits
     /// up to AMs ms for either.</summary>
     function WaitData(AMs: Int32): Boolean;
+    /// <summary>True when a Write would not block: there is room, or the pipe is closed. Waits up
+    /// to AMs ms for either.</summary>
+    function WaitSpace(AMs: Int32): Boolean;
+    /// <summary>Flips the byte that is the AOffset'th ever written into the pipe.</summary>
+    procedure CorruptByteAt(AOffset: Int64);
+    /// <summary>The bytes ever written into the pipe.</summary>
+    property Written: Int64 read GetWritten;
+  end;
+
+  /// <summary>Force-closes both loopback pipes after a deadline so a pump that wedges fails as
+  /// a surfaced EOF rather than hanging the run: a blocked read returns, a blocked write raises.
+  /// Disarmed once the exchange completes.</summary>
+  TWedgeWatchdog = class(TThread)
+  strict private
+  var
+    FPipeA, FPipeB: TMemoryPipe;
+    FDeadlineMs: UInt32;
+    FDone: TEvent;
+    FFired: Boolean;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(const APipeA, APipeB: TMemoryPipe; ADeadlineMs: UInt32);
+    destructor Destroy; override;
+    procedure Disarm; // the exchange finished in time; stop before the deadline
+    property Fired: Boolean read FFired;
   end;
 
   /// <summary>An ITlsTransport over a read pipe and a write pipe (the two directions of a
@@ -155,8 +192,8 @@ type
     property Written: Int32 read FWritten;
   end;
 
-  /// <summary>A transport whose socket died: every Write fails like a reset connection and a Read
-  /// reads as a closed peer. It counts the writes it was asked for.</summary>
+  /// <summary>A transport whose socket died: every Write fails like a reset connection, naming
+  /// its number, and a Read reads as a closed peer. It counts the writes it was asked for.</summary>
   TDeadWriteTransport = class sealed(TInterfacedObject, ITlsTransport)
   strict private
   var
@@ -168,8 +205,8 @@ type
   end;
 
   /// <summary>A timed transport over a read pipe and a write pipe: reads wait on the pipe within
-  /// an armed cap, and sends go straight into the write pipe. Owns the write pipe, as
-  /// TMemoryTransport does.</summary>
+  /// an armed cap, and sends go straight into the write pipe, within an armed write deadline
+  /// when the pipe is bounded. Owns the write pipe, as TMemoryTransport does.</summary>
   TPipeTimedTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
@@ -177,6 +214,7 @@ type
     FWrite: TMemoryPipe;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -299,24 +337,106 @@ implementation
 resourcestring
   SMockReceiveTimedOut = 'the mock socket receive timeout elapsed';
   SMockSocketFailed = 'the mock socket failed';
+  SMockSocketFailedAt = 'the mock socket failed (write %d)';
+  SMockPipeClosed = 'the mock pipe was closed';
 
 { TMemoryPipe }
 
 constructor TMemoryPipe.Create;
 begin
+  Create(0);
+end;
+
+constructor TMemoryPipe.Create(ACapacity: Int32);
+begin
   inherited Create;
   FLock := TCriticalSection.Create;
   // manual-reset: stays signaled while bytes are buffered or the pipe is closed
   FEvent := TEvent.Create(nil, True, False, '');
+  // manual-reset: stays signaled while there is room or the pipe is closed
+  FSpace := TEvent.Create(nil, True, True, '');
   FHead := 0;
+  FCapacity := ACapacity;
   FClosed := False;
+  FCorruptAt := -1;
 end;
 
 destructor TMemoryPipe.Destroy;
 begin
+  FSpace.Free;
   FEvent.Free;
   FLock.Free;
   inherited Destroy;
+end;
+
+function TMemoryPipe.GetWritten: Int64;
+begin
+  FLock.Acquire;
+  try
+    Result := FWritten;
+  finally
+    FLock.Release;
+  end;
+end;
+
+procedure TMemoryPipe.CorruptByteAt(AOffset: Int64);
+begin
+  FLock.Acquire;
+  try
+    FCorruptAt := AOffset;
+  finally
+    FLock.Release;
+  end;
+end;
+
+procedure TMemoryPipe.CorruptWithin(AFrom: Int32; ALength: Int32);
+begin
+  // the caller holds the lock and has just appended ALength bytes at AFrom
+  if (FCorruptAt >= FWritten) and (FCorruptAt < FWritten + ALength) then
+  begin
+    FBuffer[AFrom + Int32(FCorruptAt - FWritten)] :=
+      FBuffer[AFrom + Int32(FCorruptAt - FWritten)] xor $FF;
+    FCorruptAt := -1;
+  end;
+end;
+
+procedure TMemoryPipe.WriteBounded(const AData: TBytes; AOffset, ALength: Int32);
+var
+  LDone, LPending, LCount: Int32;
+begin
+  LDone := 0;
+  while LDone < ALength do
+  begin
+    FLock.Acquire;
+    try
+      if FClosed then
+        raise EInOutError.CreateRes(@SMockPipeClosed);
+      LPending := System.Length(FBuffer) - FHead;
+      LCount := FCapacity - LPending;
+      if LCount > ALength - LDone then
+        LCount := ALength - LDone;
+      if LCount > 0 then
+      begin
+        if FHead > 0 then
+        begin
+          Move(FBuffer[FHead], FBuffer[0], LPending);
+          FHead := 0;
+        end;
+        SetLength(FBuffer, LPending + LCount);
+        Move(AData[AOffset + LDone], FBuffer[LPending], LCount);
+        CorruptWithin(LPending, LCount);
+        System.Inc(LDone, LCount);
+        System.Inc(FWritten, LCount);
+        FEvent.SetEvent;
+      end;
+      if LPending + LCount >= FCapacity then
+        FSpace.ResetEvent;
+    finally
+      FLock.Release;
+    end;
+    if LDone < ALength then
+      FSpace.WaitFor(INFINITE);
+  end;
 end;
 
 procedure TMemoryPipe.Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -325,11 +445,18 @@ var
 begin
   if ALength <= 0 then
     Exit;
+  if FCapacity > 0 then
+  begin
+    WriteBounded(AData, AOffset, ALength);
+    Exit;
+  end;
   FLock.Acquire;
   try
     LOld := System.Length(FBuffer);
     SetLength(FBuffer, LOld + ALength);
     Move(AData[AOffset], FBuffer[LOld], ALength);
+    CorruptWithin(LOld, ALength);
+    System.Inc(FWritten, ALength);
     FEvent.SetEvent;
   finally
     FLock.Release;
@@ -357,6 +484,7 @@ begin
           FHead := 0;
           FEvent.ResetEvent; // drained: block the next reader until more arrives
         end;
+        FSpace.SetEvent;
         Exit;
       end;
       if FClosed then
@@ -374,6 +502,7 @@ begin
   try
     FClosed := True;
     FEvent.SetEvent;
+    FSpace.SetEvent;
   finally
     FLock.Release;
   end;
@@ -382,6 +511,48 @@ end;
 function TMemoryPipe.WaitData(AMs: Int32): Boolean;
 begin
   Result := FEvent.WaitFor(Cardinal(AMs)) = wrSignaled;
+end;
+
+function TMemoryPipe.WaitSpace(AMs: Int32): Boolean;
+begin
+  Result := FSpace.WaitFor(Cardinal(AMs)) = wrSignaled;
+end;
+
+{ TWedgeWatchdog }
+
+constructor TWedgeWatchdog.Create(const APipeA, APipeB: TMemoryPipe;
+  ADeadlineMs: UInt32);
+begin
+  inherited Create(True);
+  FPipeA := APipeA;
+  FPipeB := APipeB;
+  FDeadlineMs := ADeadlineMs;
+  FDone := TEvent.Create(nil, True, False, '');
+  FFired := False;
+  FreeOnTerminate := False;
+end;
+
+destructor TWedgeWatchdog.Destroy;
+begin
+  inherited Destroy;
+  FDone.Free;
+end;
+
+procedure TWedgeWatchdog.Execute;
+begin
+  // wait for the exchange to disarm us; if the deadline passes first the pump has wedged,
+  // so close both pipes to unblock its reads and let the test surface the failure
+  if FDone.WaitFor(FDeadlineMs) = wrTimeout then
+  begin
+    FFired := True;
+    FPipeA.Close;
+    FPipeB.Close;
+  end;
+end;
+
+procedure TWedgeWatchdog.Disarm;
+begin
+  FDone.SetEvent;
 end;
 
 { TMemoryTransport }
@@ -575,7 +746,7 @@ end;
 procedure TDeadWriteTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
 begin
   System.Inc(FAttempts);
-  raise EInOutError.CreateRes(@SMockSocketFailed);
+  raise EInOutError.CreateResFmt(@SMockSocketFailedAt, [FAttempts]);
 end;
 
 { TPipeTimedTransport }
@@ -596,6 +767,11 @@ end;
 function TPipeTimedTransport.WaitReadable(AMs: Int32): Boolean;
 begin
   Result := FRead.WaitData(AMs);
+end;
+
+function TPipeTimedTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  Result := FWrite.WaitSpace(AMs);
 end;
 
 function TPipeTimedTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
