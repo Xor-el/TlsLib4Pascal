@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpICryptoProvider,
+  TlpISecretBuffer,
   TlpSecretBuffer,
   TlpCryptoDomainTypes,
   TlpPkixDomainTypes,
@@ -63,6 +64,9 @@ type
     procedure CheckDerivedPublicKey(const APrivField, APubField: string);
     // The RSA credential of the 2048-bit test chain: its leaf and the key that owns it.
     function RsaLeafCredential: TTlsCredential;
+    // Asserts importing the hex-encoded key AKeyHex under APassword raises exactly AClass with AMessage.
+    procedure CheckImportRefused(const AKeyHex: string; const APassword: ISecretBuffer;
+      AClass: ExceptClass; const AMessage: string);
   protected
     procedure SetUp; override;
   published
@@ -100,6 +104,12 @@ type
     procedure TestEmptyKeyRaisesTypedException;
     procedure TestUnsupportedAlgorithmRaisesTypedException;
     procedure TestWrongPasswordRaisesTypedException;
+    procedure TestWrongPasswordOnEncryptedPkcs8PemReportsUndecryptableKey;
+    procedure TestWrongPasswordOnLegacyEncryptedPemReportsUndecryptableKey;
+    procedure TestLegacyPemWithUnsupportedCipherReportsUnsupportedEncryption;
+    procedure TestEncryptedKeyOfUnsupportedAlgorithmIsNotBlamedOnPassword;
+    procedure TestEncryptedKeyOfUnknownAlgorithmIsNotBlamedOnPassword;
+    procedure TestUnencryptedGarbageStillReportsMalformedKey;
     procedure TestEncryptedKeyWithoutPasswordReportsPasswordRequired;
     procedure TestCertificateAsKeyIsNotReportedAsPasswordRequired;
     procedure TestSmallRsaKeyOmitsPssSchemeItCannotSign;
@@ -143,6 +153,13 @@ const
   // "The quick brown fox"
   SMessageHex = '54686520717569636b2062726f776e20666f78';
   SPassword = 'tlslib';
+  SWrongPassword = 'not-the-password';
+  SUndecryptableKeyText =
+    'the encrypted private key could not be read (wrong password, or damaged or malformed)';
+  SUnsupportedEncryptionText = 'the private key uses an unsupported encryption';
+  SUnsupportedAlgorithmText = 'the private key uses an algorithm this library cannot sign with';
+  SMalformedKeyText = 'the private key could not be parsed in any supported encoding';
+  SPasswordRequiredText = 'the private key is encrypted; a password is required to import it';
 
 { TTestCredentialImport }
 
@@ -596,7 +613,7 @@ var
 begin
   LRaised := False;
   try
-    Crypto.Signing.ImportSigningKey(DecodeHex('deadbeefdeadbeef'), nil);
+    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['garbage_der']), nil);
   except
     // a typed library exception, never a raw backend/ASN.1 exception
     on E: EArgumentTlsLibException do
@@ -634,41 +651,107 @@ begin
   CheckTrue(LRaised, 'an unsupported key algorithm raises ENotSupportedTlsLibException');
 end;
 
-procedure TTestCredentialImport.TestWrongPasswordRaisesTypedException;
+procedure TTestCredentialImport.CheckImportRefused(const AKeyHex: string;
+  const APassword: ISecretBuffer; AClass: ExceptClass; const AMessage: string);
 var
+  LClass: string;
+  LMsg: string;
   LRaised: Boolean;
 begin
+  LClass := '';
+  LMsg := '';
   LRaised := False;
   try
-    Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']), TSecretBuffer.FromString('not-the-password'));
+    Crypto.Signing.ImportSigningKey(DecodeHex(AKeyHex), APassword);
   except
-    on E: EArgumentTlsLibException do
-      LRaised := True;
+    on E: Exception do
+    begin
+      LRaised := E.ClassType = AClass;
+      LClass := E.ClassName;
+      LMsg := E.Message;
+    end;
   end;
-  CheckTrue(LRaised, 'a wrong decryption password raises EArgumentTlsLibException');
+  CheckTrue(LRaised, 'raises exactly ' + AClass.ClassName + '; got ' + LClass + ': ' + LMsg);
+  CheckEquals(AMessage, LMsg, 'the refusal text');
+end;
+
+procedure TTestCredentialImport.TestWrongPasswordRaisesTypedException;
+begin
+  CheckImportRefused(FV.Values['rsa_enc_der'], TSecretBuffer.FromString(SWrongPassword),
+    EArgumentTlsLibException, SUndecryptableKeyText);
+  CheckImportRefused(FV.Values['ec256_enc_der'], TSecretBuffer.FromString(SWrongPassword),
+    EArgumentTlsLibException, SUndecryptableKeyText);
+  CheckImportRefused(FV.Values['ed25519_enc_der'], TSecretBuffer.FromString(SWrongPassword),
+    EArgumentTlsLibException, SUndecryptableKeyText);
+  CheckImportRefused(FV.Values['ed448_enc_der'], TSecretBuffer.FromString(SWrongPassword),
+    EArgumentTlsLibException, SUndecryptableKeyText);
+end;
+
+procedure TTestCredentialImport.TestWrongPasswordOnEncryptedPkcs8PemReportsUndecryptableKey;
+begin
+  CheckImportRefused(FV.Values['rsa_enc_pem'], TSecretBuffer.FromString(SWrongPassword),
+    EArgumentTlsLibException, SUndecryptableKeyText);
+end;
+
+procedure TTestCredentialImport.TestWrongPasswordOnLegacyEncryptedPemReportsUndecryptableKey;
+begin
+  CheckImportRefused(FV.Values['ec256_legacy_enc_pem'], TSecretBuffer.FromString(SWrongPassword),
+    EArgumentTlsLibException, SUndecryptableKeyText);
+end;
+
+procedure TTestCredentialImport.TestLegacyPemWithUnsupportedCipherReportsUnsupportedEncryption;
+begin
+  // no password is blamed for a cipher the provider cannot run, the empty one included
+  CheckImportRefused(FV.Values['ec256_legacy_des3_pem'], TSecretBuffer.FromString(SPassword),
+    ENotSupportedTlsLibException, SUnsupportedEncryptionText);
+  CheckImportRefused(FV.Values['ec256_legacy_des3_pem'], TSecretBuffer.FromString(SWrongPassword),
+    ENotSupportedTlsLibException, SUnsupportedEncryptionText);
+  CheckImportRefused(FV.Values['ec256_legacy_des3_pem'], TSecretBuffer.FromString(''),
+    ENotSupportedTlsLibException, SUnsupportedEncryptionText);
+  CheckImportRefused(FV.Values['ec256_legacy_des3_pem'], nil,
+    ENotSupportedTlsLibException, SUnsupportedEncryptionText);
+end;
+
+procedure TTestCredentialImport.TestEncryptedKeyOfUnsupportedAlgorithmIsNotBlamedOnPassword;
+begin
+  // X25519 parses but cannot sign, so the right password gets the algorithm refusal
+  CheckImportRefused(FV.Values['x25519_enc_der'], TSecretBuffer.FromString(SPassword),
+    ENotSupportedTlsLibException, SUnsupportedAlgorithmText);
+  CheckImportRefused(FV.Values['x25519_enc_der'], TSecretBuffer.FromString(SWrongPassword),
+    EArgumentTlsLibException, SUndecryptableKeyText);
+end;
+
+procedure TTestCredentialImport.TestEncryptedKeyOfUnknownAlgorithmIsNotBlamedOnPassword;
+begin
+  // the same refusal as the key unencrypted: the right password decrypted it
+  CheckImportRefused(FV.Values['unknown_oid_enc_der'], TSecretBuffer.FromString(SPassword),
+    EArgumentTlsLibException, SMalformedKeyText);
+  CheckImportRefused(FV.Values['unknown_oid_enc_der'], TSecretBuffer.FromString(SWrongPassword),
+    EArgumentTlsLibException, SUndecryptableKeyText);
+end;
+
+procedure TTestCredentialImport.TestUnencryptedGarbageStillReportsMalformedKey;
+begin
+  // a password does not make an unencrypted refusal an encrypted-key one
+  CheckImportRefused(FV.Values['garbage_der'], TSecretBuffer.FromString(SPassword),
+    EArgumentTlsLibException, SMalformedKeyText);
+  CheckImportRefused(FV.Values['garbage_pkcs8_pem'], TSecretBuffer.FromString(SPassword),
+    EArgumentTlsLibException, SMalformedKeyText);
+  CheckImportRefused(FV.Values['garbage_legacy_pem'], TSecretBuffer.FromString(SPassword),
+    EArgumentTlsLibException, SMalformedKeyText);
+  CheckImportRefused(FV.Values['chain_leaf_der'], TSecretBuffer.FromString(SPassword),
+    EArgumentTlsLibException, SMalformedKeyText);
 end;
 
 procedure TTestCredentialImport.TestEncryptedKeyWithoutPasswordReportsPasswordRequired;
-
-  procedure CheckReportsPasswordRequired(const AField: string);
-  var
-    LMsg: string;
-  begin
-    LMsg := '';
-    try
-      Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values[AField]), nil);
-    except
-      on E: EArgumentTlsLibException do
-        LMsg := E.Message;
-    end;
-    CheckTrue(Pos('password', LMsg) > 0,
-      AField + ': an encrypted key without a password names the missing password; got: ' + LMsg);
-  end;
-
 begin
   // an encrypted key imported with no password is a distinct, actionable error, not "malformed"
-  CheckReportsPasswordRequired('rsa_enc_der');
-  CheckReportsPasswordRequired('rsa_enc_pem');
+  CheckImportRefused(FV.Values['rsa_enc_der'], nil, EArgumentTlsLibException, SPasswordRequiredText);
+  CheckImportRefused(FV.Values['rsa_enc_der'], TSecretBuffer.FromString(''),
+    EArgumentTlsLibException, SPasswordRequiredText);
+  CheckImportRefused(FV.Values['rsa_enc_pem'], nil, EArgumentTlsLibException, SPasswordRequiredText);
+  CheckImportRefused(FV.Values['rsa_enc_pem'], TSecretBuffer.FromString(''),
+    EArgumentTlsLibException, SPasswordRequiredText);
 end;
 
 procedure TTestCredentialImport.TestCertificateAsKeyIsNotReportedAsPasswordRequired;

@@ -239,7 +239,7 @@ type
     /// a wiped buffer of UTF-8 passphrase octets: nil and a zero-length buffer are both the empty
     /// passphrase. An encrypted key that does not decrypt under an empty passphrase raises
     /// EArgumentTlsLibException (password required); a legacy "Proc-Type: 4,ENCRYPTED" PEM key
-    /// needs a non-empty one. Malformed input raises
+    /// needs a non-empty one. Malformed input, a wrong password and a damaged encrypted key raise
     /// EArgumentTlsLibException; an unsupported key algorithm or key encryption raises
     /// ENotSupportedTlsLibException.
     /// </summary>
