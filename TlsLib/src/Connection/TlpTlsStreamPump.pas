@@ -145,6 +145,9 @@ type
       ACloseGraceMs: Int32);
     /// <summary>Releases the locks. No call may be running or follow.</summary>
     destructor Destroy; override;
+    /// <summary>Sets the close grace (see Create). Only before the handshake has started: the
+    /// sends that read it hold W, which is not taken here.</summary>
+    procedure SetCloseGraceMs(AMs: Int32);
     /// <summary>Drains the engine's event queue: reports a peer fatal alert (APeerAlert, nil when
     /// none) and a peer close_notify (APeerClosed), and captures a parked-certificate event so a
     /// resolver can decide the verdict. Never raises; the caller maps a terminal event to its own
@@ -197,8 +200,12 @@ type
     /// call, so concurrent writes are never interleaved. At the AEAD usage limit with no rekey
     /// available the engine's close_notify is still sent before ERecordLimitTlsLibException
     /// propagates. A transport failure ends the connection: its exception propagates and later
-    /// calls raise the latched error.</summary>
-    procedure WriteApp(const ABuffer; ACount: Int32);
+    /// calls raise the latched error. With AWriteTimeoutMs above zero the call ends with
+    /// ETlsWriteTimeout when its sends have not finished within that many ms; zero or less blocks.
+    /// The deadline is armed once W is held and cleared before it is released, so it never bounds
+    /// another sender. It applies only when the transport is an ITlsTimedTransport (TTlsStream
+    /// refuses a timeout without one).</summary>
+    procedure WriteApp(const ABuffer; ACount: Int32; AWriteTimeoutMs: Int32);
     /// <summary>Sends a TLS 1.3 KeyUpdate and the reply owed to the peer's, waiting for W like a
     /// write; raises when the connection has failed or its write side is closed.</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
@@ -256,6 +263,7 @@ resourcestring
   SEarlyDataUnread = 'accepted 0-RTT data is waiting: read it with ReadEarlyData before Read';
   SInboundCallReentry = 'a callback a read runs cannot read, write, rekey, close or send an ' +
     'alert on the stream that is reading';
+  SCloseGraceAfterHandshake = 'the close grace can only be set before the handshake starts';
   SPumpArguments = 'a pump needs a transport and an engine that exposes both engine faces ' +
     '(pass both, not nil)';
 
@@ -281,6 +289,18 @@ begin
   FWriteLock.Free;
   FEngineLock.Free;
   inherited Destroy;
+end;
+
+procedure TTlsStreamPump.SetCloseGraceMs(AMs: Int32);
+begin
+  FEngineLock.Enter;
+  try
+    if FHandshakeState <> THandshakeState.Idle then
+      raise EInvalidOperationTlsLibException.CreateRes(@SCloseGraceAfterHandshake);
+    FCloseGraceMs := AMs;
+  finally
+    FEngineLock.Leave;
+  end;
 end;
 
 class procedure TTlsStreamPump.RaiseIfFatal(const AEngine: ITlsEngineInbound);
@@ -852,30 +872,40 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
 end;
 
-procedure TTlsStreamPump.WriteApp(const ABuffer; ACount: Int32);
+procedure TTlsStreamPump.WriteApp(const ABuffer; ACount: Int32; AWriteTimeoutMs: Int32);
 var
   LOffset, LChunk: Int32;
+  LTimed: Boolean;
 begin
   if ACount <= 0 then
     Exit;
+  LTimed := (AWriteTimeoutMs > 0) and (FTimed <> nil);
   // before W: a callback inside a read would otherwise wait for a writer that waits for E
   RaiseIfInboundCall;
   FWriteLock.Enter;
   try
-    LOffset := 0;
-    // the engine seals what it is handed in full: seal and drain one bounded slice at a time
-    while LOffset < ACount do
-    begin
-      LChunk := ACount - LOffset;
-      if LChunk > WriteChunk then
-        LChunk := WriteChunk;
-      // grown on demand and capped, so a stream that only writes small messages never holds 64 KiB
-      if System.Length(FWriteChunk) < LChunk then
-        SetLength(FWriteChunk, LChunk);
-      Move(PByte(@ABuffer)[LOffset], FWriteChunk[0], LChunk);
-      SealSlice(LChunk);
-      FlushThenRaiseIfFatal;
-      Inc(LOffset, LChunk);
+    if LTimed then
+      FTimed.SetWriteTimeout(AWriteTimeoutMs);
+    try
+      LOffset := 0;
+      // the engine seals what it is handed in full: seal and drain one bounded slice at a time
+      while LOffset < ACount do
+      begin
+        LChunk := ACount - LOffset;
+        if LChunk > WriteChunk then
+          LChunk := WriteChunk;
+        // grown on demand and capped, so a stream that only writes small messages never holds 64 KiB
+        if System.Length(FWriteChunk) < LChunk then
+          SetLength(FWriteChunk, LChunk);
+        Move(PByte(@ABuffer)[LOffset], FWriteChunk[0], LChunk);
+        SealSlice(LChunk);
+        FlushThenRaiseIfFatal;
+        Inc(LOffset, LChunk);
+      end;
+    finally
+      // cleared before W is released, or the next sender would see the stale deadline
+      if LTimed then
+        FTimed.SetWriteTimeout(0);
     end;
   finally
     ReleaseWrite;

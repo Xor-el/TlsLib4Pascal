@@ -316,7 +316,7 @@ type
   /// alert never waits for a busy writer, which sends it before it returns; the engine underneath
   /// must not be called directly while the connection is in use; and a read blocked on the socket
   /// ends only with bytes or when the host closes the socket. Terminal sends (a fatal alert,
-  /// close_notify) are bounded by DefaultCloseGraceMs on the timed transport. Free it only after
+  /// close_notify) are bounded by CloseGraceMs on the timed transport. Free it only after
   /// every call has returned.</summary>
   TTlsConnection = class sealed(TObject)
   public const
@@ -333,7 +333,9 @@ type
     FEngine: ITlsEngine;
     FIsClient: Boolean;
     FServerName: string;
+    FCloseGraceMs: Int32;
     function Info: TTlsConnectionInfo;
+    procedure SetCloseGraceMs(AMs: Int32);
   public
     constructor Create(const AEngine: ITlsEngine; const ATransport: ITlsTimedTransport;
       AIsClient: Boolean; const AServerName: string;
@@ -363,7 +365,12 @@ type
     function Read(var ABuffer; ACount: Longint; AReadTimeoutMs: Int32): Longint; overload;
     /// <summary>See TTlsStream.ReadEarlyData; call it after the handshake and before Read.</summary>
     function ReadEarlyData(var ABuffer; ACount: Longint): Longint;
-    function Write(const ABuffer; ACount: Longint): Longint;
+    function Write(const ABuffer; ACount: Longint): Longint; overload;
+    /// <summary>A write that gives up with ETlsWriteTimeout when its sends have not finished within
+    /// AWriteTimeoutMs in total (0 or less = block). The deadline holds only for this write, and
+    /// the connection is ended when it expires, like any failed send. The handshake the write may
+    /// start and a closing send it makes are not under it; the latter is bounded by CloseGraceMs.</summary>
+    function Write(const ABuffer; ACount: Longint; AWriteTimeoutMs: Int32): Longint; overload;
     /// <summary>Asks for fresh traffic keys (see TTlsStream.RequestKeyUpdate). Call this, not the
     /// engine, while the connection is in use.</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
@@ -394,6 +401,11 @@ type
     /// snapshot, or the zero values when AConn is nil (an adapter that has not built one yet). Lets
     /// a host wrapper read the facts without repeating the nil guard per field.</summary>
     class function InfoOf(const AConn: TTlsConnection): TTlsConnectionInfo; static;
+    /// <summary>The longest a terminal send (a fatal alert, close_notify) may take before it is
+    /// abandoned and the connection latched failed (zero or less = unbounded); DefaultCloseGraceMs
+    /// until set. Set it before Handshake; a later set raises
+    /// EInvalidOperationTlsLibException.</summary>
+    property CloseGraceMs: Int32 read FCloseGraceMs write SetCloseGraceMs;
   end;
 
 implementation
@@ -1240,9 +1252,10 @@ end;
 
 procedure TTlsTimedTransportBase.SetWriteTimeout(AMs: Int32);
 begin
-  FWriteTimeoutMs := AMs;
+  // a clock that raises leaves nothing armed
   if AMs > 0 then
     FWriteDeadlineMs := FClock.NowMonotonicMillis + AMs;
+  FWriteTimeoutMs := AMs;
 end;
 
 constructor TTlsTimedTransportBase.Create;
@@ -1377,7 +1390,8 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SNilConnectionArgument);
   FIsClient := AIsClient;
   FServerName := AServerName;
-  FStream := TTlsStream.Create(FTimed, FEngine, AIsClient, AServerName, DefaultCloseGraceMs);
+  FCloseGraceMs := DefaultCloseGraceMs;
+  FStream := TTlsStream.Create(FTimed, FEngine, AIsClient, AServerName, FCloseGraceMs);
   // the caller already chose the role-correct resolver (a client parks on the server's chain, a
   // server on the mTLS client's); the session never guesses the role
   if Assigned(AResolver) then
@@ -1469,6 +1483,18 @@ end;
 function TTlsConnection.Write(const ABuffer; ACount: Longint): Longint;
 begin
   Result := FStream.Write(ABuffer, ACount);
+end;
+
+function TTlsConnection.Write(const ABuffer; ACount: Longint;
+  AWriteTimeoutMs: Int32): Longint;
+begin
+  Result := FStream.WriteTimed(ABuffer, ACount, AWriteTimeoutMs);
+end;
+
+procedure TTlsConnection.SetCloseGraceMs(AMs: Int32);
+begin
+  FStream.SetCloseGraceMs(AMs);
+  FCloseGraceMs := AMs;
 end;
 
 procedure TTlsConnection.RequestKeyUpdate(ARequest: TKeyUpdateRequest);

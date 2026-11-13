@@ -172,6 +172,13 @@ type
     class function LastError: Integer; static;
     /// <summary>The errno of the last call into the sockets unit on this thread.</summary>
     class function SocketError: Integer; static;
+    /// <summary>Sets what SocketError reads on this thread, for a failure the caller reports
+    /// without a call into the sockets unit.</summary>
+    class procedure SetLastError(AError: Integer); static;
+    /// <summary>Ends the calls blocked on AHandle, from any thread: both directions are shut down,
+    /// so a receive returns at once and a send fails. The descriptor stays open, for its owner to
+    /// close once no call can touch it.</summary>
+    class procedure AbortPending(AHandle: TPosixSocketHandle); static;
   end;
 
 {$IFEND}
@@ -270,6 +277,27 @@ begin
 {$ELSE}
   Result := LastError;
 {$IFEND}
+end;
+
+class procedure TPosixNetOs.SetLastError(AError: Integer);
+begin
+{$IFDEF FPC}
+  fpseterrno(AError);
+{$IFDEF TLSLIB_ANDROID}
+  fpsetCerrno(AError);
+{$ENDIF}
+{$ELSE}
+  System.SetLastError(AError);
+{$ENDIF}
+end;
+
+class procedure TPosixNetOs.AbortPending(AHandle: TPosixSocketHandle);
+begin
+{$IFDEF FPC}
+  fpShutdown(AHandle, SHUT_RDWR);
+{$ELSE}
+  shutdown(AHandle, SHUT_RDWR);
+{$ENDIF}
 end;
 
 class procedure TPosixNetOs.ArmAgainstSigPipe(AHandle: TPosixSocketHandle);

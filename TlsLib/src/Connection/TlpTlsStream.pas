@@ -179,6 +179,16 @@ type
     /// while any are unread, so they are never skipped or reordered.</summary>
     function ReadEarlyData(var ABuffer; ACount: Longint): Longint;
     function Write(const ABuffer; ACount: Longint): Longint; override;
+    /// <summary>As Write, giving up with ETlsWriteTimeout when its sends have not finished within
+    /// AWriteTimeoutMs in total (zero or less = block). The deadline is armed and cleared inside
+    /// the send side, so it never bounds another writer, and it ends the connection like any
+    /// transport failure. The handshake the write may start and a closing send it makes are not
+    /// under it; the latter is bounded by the close grace. A positive value needs an
+    /// ITlsTimedTransport.</summary>
+    function WriteTimed(const ABuffer; ACount: Longint; AWriteTimeoutMs: Int32): Longint;
+    /// <summary>Sets the longest a terminal send may take (see the constructor). Only before the
+    /// handshake starts; later it raises.</summary>
+    procedure SetCloseGraceMs(AMs: Int32);
     function Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64; override;
   end;
 
@@ -191,7 +201,7 @@ resourcestring
   SHandshakeCallbackReentry = 'code the handshake calls (a callback or the transport) cannot ' +
     'read, write, rekey or handshake the stream whose handshake is running it';
   SNilStreamArgument = 'a stream needs an engine and a transport (pass both, not nil)';
-  SReadTimeoutNeedsTimedTransport = 'a read timeout needs a timed transport (an ' +
+  STimeoutNeedsTimedTransport = 'a read or write timeout needs a timed transport (an ' +
     'ITlsTimedTransport), and this stream was given a plain one';
 
 { TTlsStream }
@@ -230,7 +240,7 @@ end;
 procedure TTlsStream.RequireTimedForCap(AMs: Int32);
 begin
   if (AMs > 0) and (FTimed = nil) then
-    raise EInvalidOperationTlsLibException.CreateRes(@SReadTimeoutNeedsTimedTransport);
+    raise EInvalidOperationTlsLibException.CreateRes(@STimeoutNeedsTimedTransport);
 end;
 
 procedure TTlsStream.ArmReadCap(AMs: Int32; AApplication: Boolean);
@@ -480,10 +490,10 @@ end;
 function TTlsStream.ReadTimed(var ABuffer; ACount: Longint;
   AReadTimeoutMs: Int32): Longint;
 begin
+  // refused before the handshake touches the transport, whatever the count
+  RequireTimedForCap(AReadTimeoutMs);
   if ACount <= 0 then
     Exit(0);
-  // refused before the handshake touches the transport
-  RequireTimedForCap(AReadTimeoutMs);
   Handshake;
   FReadLock.Enter;
   try
@@ -502,11 +512,24 @@ end;
 
 function TTlsStream.Write(const ABuffer; ACount: Longint): Longint;
 begin
+  Result := WriteTimed(ABuffer, ACount, 0);
+end;
+
+function TTlsStream.WriteTimed(const ABuffer; ACount: Longint;
+  AWriteTimeoutMs: Int32): Longint;
+begin
+  // refused before the handshake touches the transport, whatever the count
+  RequireTimedForCap(AWriteTimeoutMs);
   if ACount <= 0 then
     Exit(0);
   HandshakeForWrite;
-  FPump.WriteApp(ABuffer, ACount);
+  FPump.WriteApp(ABuffer, ACount, AWriteTimeoutMs);
   Result := ACount;
+end;
+
+procedure TTlsStream.SetCloseGraceMs(AMs: Int32);
+begin
+  FPump.SetCloseGraceMs(AMs);
 end;
 
 function TTlsStream.Seek(const AOffset: Int64; AOrigin: TSeekOrigin): Int64;

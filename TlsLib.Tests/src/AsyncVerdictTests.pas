@@ -1368,7 +1368,7 @@ begin
     LAlert := TTlsAlertDescription.CloseNotify;
     LByte := DecodeHex('01');
     try
-      LPump.WriteApp(LByte[0], 1);
+      LPump.WriteApp(LByte[0], 1, 0);
     except
       on E: ETlsStreamError do
       begin
@@ -1407,7 +1407,7 @@ begin
     LMessage := '';
     LByte := DecodeHex('01');
     try
-      Own<TTlsStreamPump>(TTlsStreamPump.Create(LServer, LTransport, 0)).WriteApp(LByte[0], 1);
+      Own<TTlsStreamPump>(TTlsStreamPump.Create(LServer, LTransport, 0)).WriteApp(LByte[0], 1, 0);
     except
       on E: ETlsStreamError do
         LMessage := E.Message;

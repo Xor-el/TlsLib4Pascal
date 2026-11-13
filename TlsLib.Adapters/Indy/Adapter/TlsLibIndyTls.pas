@@ -635,7 +635,8 @@ begin
   if FConnection <> nil then
     Exit; // fast path: handshake already run
   // the deferred handshake can be first reached from RecvEnc, SendEnc or Readable on different
-  // threads; serialize so it runs exactly once. After it, a connection is single-threaded
+  // threads; serialize so it runs exactly once. After it, one thread may read while another
+  // writes; two readers or two writers must serialize
   FHandshakeLock.Enter;
   try
     if FConnection <> nil then

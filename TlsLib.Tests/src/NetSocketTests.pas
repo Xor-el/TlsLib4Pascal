@@ -71,8 +71,16 @@ type
   /// </summary>
   TTestNetSocket = class(TNetSocketTestBase)
   strict private
+  var
+    FBlockedHandle: TNetHandle;
+    FBlockedResult: Int32;
+    FOtherThreadError: Integer;
     function ClientConfig: ITlsClientConfig;
     function ServerConfig: ITlsServerConfig;
+    /// <summary>A connected pair of raw sockets and the listener they came from.</summary>
+    procedure RawPair(out AListener, AClient, AServer: TNetHandle);
+    procedure ReceiveOnBlockedHandle;
+    procedure ReadErrorOnOtherThread;
   published
     procedure TestBytesRoundTripOnAnEphemeralPort;
     procedure TestTryAcceptWithNoClientReturnsWithinItsBound;
@@ -95,6 +103,9 @@ type
     procedure TestWriteToAGonePeerFailsWithoutSigPipe;
     procedure TestWriteDeadlineEndsAWriteToAPeerThatDoesNotDrain;
     procedure TestRefusedConnectReportsTheRefusal;
+    procedure TestAbortPendingEndsAReceiveBlockedOnAnotherThread;
+    procedure TestAbortPendingShutsBothDirectionsAndLeavesTheSocketOpen;
+    procedure TestSetLastErrorIsWhatTheThreadReadsBack;
   end;
 
 {$IFDEF TLSLIB_UNIXLIKE}
@@ -708,6 +719,124 @@ begin
   finally
     TNetOs.Close(LHandle);
   end;
+end;
+
+procedure TTestNetSocket.RawPair(out AListener, AClient, AServer: TNetHandle);
+var
+  LAddress: TBytes;
+begin
+  LAddress := TBytes.Create(127, 0, 0, 1);
+  AListener := TNetOs.InvalidHandle;
+  AClient := TNetOs.InvalidHandle;
+  AServer := TNetOs.InvalidHandle;
+  CheckEquals(0, TNetOs.OpenStream(AListener), 'a listener opens');
+  CheckEquals(0, TNetOs.BindAndListen(AListener, LAddress, 0, 1), 'and listens');
+  CheckEquals(0, TNetOs.OpenStream(AClient), 'a client opens');
+  CheckEquals(0, TNetOs.BeginConnect(AClient, LAddress, TNetOs.LocalPort(AListener)),
+    'and connects');
+  CheckEquals(0, TNetOs.AcceptConnection(AListener, AServer), 'the connection is accepted');
+end;
+
+procedure TTestNetSocket.ReceiveOnBlockedHandle;
+var
+  LBuffer: TBytes;
+begin
+  SetLength(LBuffer, 16);
+  FBlockedResult := TNetOs.ReceiveBytes(FBlockedHandle, LBuffer, 0, System.Length(LBuffer));
+end;
+
+procedure TTestNetSocket.ReadErrorOnOtherThread;
+begin
+  FOtherThreadError := TNetOs.LastError;
+end;
+
+procedure TTestNetSocket.TestAbortPendingEndsAReceiveBlockedOnAnotherThread;
+const
+  ParkMs = 200;
+  LimitMs = 10000;
+var
+  LListener, LClient, LServer: TNetHandle;
+  LReader: TActionThread;
+  LClock: ITlsMonotonicClock;
+  LStart, LWaitedMs: Int64;
+begin
+  LListener := TNetOs.InvalidHandle;
+  LClient := TNetOs.InvalidHandle;
+  LServer := TNetOs.InvalidHandle;
+  LReader := nil;
+  LClock := TSystemMonotonicClock.Create;
+  try
+    RawPair(LListener, LClient, LServer);
+    FBlockedHandle := LClient;
+    FBlockedResult := 1;
+    LReader := TActionThread.Create(ReceiveOnBlockedHandle);
+    LReader.Start;
+    Sleep(ParkMs);
+    CheckFalse(LReader.Finished, 'the receive waits for a peer that says nothing');
+    LStart := LClock.NowMonotonicMillis;
+    TNetOs.AbortPending(LClient);
+    while (not LReader.Finished) and (LClock.NowMonotonicMillis - LStart < LimitMs) do
+      Sleep(1);
+    LWaitedMs := LClock.NowMonotonicMillis - LStart;
+    // a peer that closes ends the receive too, so a failed abort cannot hang the join below
+    if not LReader.Finished then
+    begin
+      TNetOs.Close(LServer);
+      LServer := TNetOs.InvalidHandle;
+    end;
+    CheckTrue(LWaitedMs < LimitMs, 'the abort ends the receive');
+    LReader.WaitFor;
+    CheckEquals('', LReader.Error, 'without a fault');
+    CheckTrue(FBlockedResult <= 0, 'which reports the end, not bytes');
+  finally
+    LReader.Free;
+    TNetOs.Close(LClient);
+    TNetOs.Close(LServer);
+    TNetOs.Close(LListener);
+  end;
+end;
+
+procedure TTestNetSocket.TestAbortPendingShutsBothDirectionsAndLeavesTheSocketOpen;
+var
+  LListener, LClient, LServer: TNetHandle;
+  LBuffer: TBytes;
+begin
+  LListener := TNetOs.InvalidHandle;
+  LClient := TNetOs.InvalidHandle;
+  LServer := TNetOs.InvalidHandle;
+  try
+    RawPair(LListener, LClient, LServer);
+    SetLength(LBuffer, 4);
+    TNetOs.AbortPending(LClient);
+    CheckEquals(-1, TNetOs.SendBytes(LClient, LBuffer, 0, 1), 'a send fails');
+    CheckEquals(0, TNetOs.ReceiveBytes(LServer, LBuffer, 0, 1), 'and the peer reads the end');
+    CheckTrue(TNetOs.ReceiveBytes(LClient, LBuffer, 0, 1) <= 0, 'as does a receive');
+    CheckTrue(TNetOs.LocalPort(LClient) <> 0, 'the socket itself is still open');
+  finally
+    TNetOs.Close(LClient);
+    TNetOs.Close(LServer);
+    TNetOs.Close(LListener);
+  end;
+end;
+
+procedure TTestNetSocket.TestSetLastErrorIsWhatTheThreadReadsBack;
+const
+  Sentinel = 12345;
+var
+  LOther: TActionThread;
+begin
+  TNetOs.SetLastError(Sentinel);
+  CheckEquals(Sentinel, TNetOs.LastError, 'the thread reads back what it set');
+  FOtherThreadError := Sentinel;
+  LOther := TActionThread.Create(ReadErrorOnOtherThread);
+  try
+    LOther.Start;
+    LOther.WaitFor;
+    CheckTrue(FOtherThreadError <> Sentinel, 'and another thread does not see it');
+  finally
+    LOther.Free;
+  end;
+  TNetOs.SetLastError(0);
 end;
 
 {$IFDEF TLSLIB_UNIXLIKE}
