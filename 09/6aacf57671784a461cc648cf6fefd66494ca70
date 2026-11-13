@@ -1,0 +1,58 @@
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_f2c9bd75607afc::t_1ef7faeb66f5cf 3488,3490,3492
+  s_f2c9bd75607afc::t_35701908979287 3518-3527,3529-3533,3540-3549
+  s_f2c9bd75607afc::t_edf8cdadea9ca1 235,3550-3552
+  s_f2c9bd75607afc::t_4e0bdf65a197e7 262-263
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_f616da33ebcf8f 106
+  s_f2c9bd75607afc::t_9b93a6aafa4e37 162
+  s_f2c9bd75607afc::t_a1deb556e95a3d 164-165
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_d8474c30de09bf 1134
+  s_f2c9bd75607afc::t_2a51ff8cd3b3bc 1701
+  s_f2c9bd75607afc::t_ae0b93b3af73a7 346-348
+  s_f2c9bd75607afc::t_06c5585ca168b3 316
+  s_f2c9bd75607afc::t_3f9b3c4f34036b 1318
+  s_18b26bf66bd8a3::t_cccc8d937ffa0a 1323-1324
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_f2c9bd75607afc::t_4d621a8865b68a 3863,3867,3870,3877,3883-3884
+  s_f2c9bd75607afc::t_4ff46109736438 136
+  s_f2c9bd75607afc::t_5fa7aad9d81409 3933
+  s_f2c9bd75607afc::t_20e94240656935 3813,3815-3816,3818
+  s_f2c9bd75607afc::t_c5716e3bd0dbdf 3907,3910
+  s_f2c9bd75607afc::t_2a4cf2f3fcecd1 3758-3782,3784-3785,3787-3794
+  s_f2c9bd75607afc::t_67249e144fd8ce 3949-3952
+  s_f2c9bd75607afc::t_72bf368f8cd3c4 806
+  s_f2c9bd75607afc::t_b2d656aff13b52 138
+  s_f2c9bd75607afc::t_25dd4346f4030a 3874
+  s_f2c9bd75607afc::t_fd28587c76ef9a 4312
+  s_f2c9bd75607afc::t_2bfdabd866d6d4 4717
+  s_f2c9bd75607afc::t_e0efeeb393b7be 3800-3801,3803-3804,3807-3808
+  s_f2c9bd75607afc::t_f1ab4ad72c25da 784,786,792-793
+  s_f2c9bd75607afc::t_1b72ae78637db3 28
+  s_f2c9bd75607afc::t_132a7cc93596cc 3921
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "096aacf57671784a461cc648cf6fefd66494ca70",
+  "prompts": {},
+  "sessions": {
+    "s_18b26bf66bd8a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a6bd18cfd3328022c",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
