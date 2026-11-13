@@ -1,0 +1,51 @@
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_f2c9bd75607afc::t_115974578126b4 253-254
+docs/cookbook.md
+  s_f2c9bd75607afc::t_10afdbf2df9542 460-462
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_f2c9bd75607afc::t_3b18fcaff74419 212-213
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_f2c9bd75607afc::t_2149d8e349a586 110-111
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_c4273d407d6b99 105
+docs/getting-started.md
+  s_f2c9bd75607afc::t_52308182ea1e6b 166-168
+docs/security-model.md
+  s_f2c9bd75607afc::t_195adc77f4b579 56
+TlsLib/src/Connection/TlpTlsStream.pas
+  s_f2c9bd75607afc::t_0b7aac1df2d028 55-57
+TlsLib.Tests/src/MockTransport.pas
+  s_f2c9bd75607afc::t_d5fa63ce7017ea 222,226
+  s_f2c9bd75607afc::t_e2ef363d40cff4 1142
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_f2c9bd75607afc::t_c277cdbf63885b 711
+  s_f2c9bd75607afc::t_090a1e8c34bd6b 887
+  s_f2c9bd75607afc::t_3522d9e0f064e7 941
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_f2c9bd75607afc::t_7442df545ee87b 407-408
+  s_f2c9bd75607afc::t_4d0c6dc91d4406 323-325
+  s_f2c9bd75607afc::t_5d6f35b30d398c 358
+  s_f2c9bd75607afc::t_0c11dedf698cc3 359
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_8b20047f7c0d4a 503-504
+  s_f2c9bd75607afc::t_935d3a9cc7d560 502
+  s_f2c9bd75607afc::t_2ca7a424292fdb 308
+  s_f2c9bd75607afc::t_868a1cd0d53f14 404-405
+  s_f2c9bd75607afc::t_6f0e72f4ac7030 1612
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "67654491236141fc2f4a77a598d52c8b191068c4",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
