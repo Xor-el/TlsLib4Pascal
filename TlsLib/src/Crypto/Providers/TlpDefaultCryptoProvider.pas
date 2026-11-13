@@ -223,6 +223,8 @@ resourcestring
   SUnsupportedKeyEncryption = 'the private key uses an unsupported encryption';
   SEmptyPassphraseLegacyPem =
     'a legacy-encrypted PEM private key needs a non-empty password';
+  SEncryptedKeyUndecryptable =
+    'the encrypted private key could not be decrypted or parsed (wrong password, or a damaged or malformed key)';
   SUnsupportedKeyAlgorithm = 'the private key uses an algorithm this library cannot sign with';
   SForeignSigningKey = 'the signing key was not produced by this provider';
   SMalformedPublicKey = 'the public key could not be parsed as a SubjectPublicKeyInfo';
@@ -1673,7 +1675,19 @@ begin
     else
       LReader := TOpenSslPemReader.Create(LStream) as IOpenSslPemReader;
     try
-      LValue := LReader.ReadObject;
+      try
+        LValue := LReader.ReadObject;
+      except
+        on E: EBaseTlsLibException do
+          raise;
+        on E: Exception do
+        begin
+          // the empty passphrase was refused above, so an encrypted block here had a password
+          if HasHeader(LObject, 'Proc-Type', '4,ENCRYPTED') then
+            raise EArgumentTlsLibException.CreateRes(@SEncryptedKeyUndecryptable);
+          raise;
+        end;
+      end;
       if LValue.IsEmpty then
         raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
       if LValue.TryGetAsType<IAsymmetricCipherKeyPair>(LPair) then
@@ -1742,7 +1756,7 @@ begin
               // nil and zero-length are the empty passphrase: failing under it asks for a password
               if (APassword = nil) or (APassword.Len = 0) then
                 raise EArgumentTlsLibException.CreateRes(@SPrivateKeyPasswordRequired);
-              raise;
+              raise EArgumentTlsLibException.CreateRes(@SEncryptedKeyUndecryptable);
             end;
           end;
         finally
