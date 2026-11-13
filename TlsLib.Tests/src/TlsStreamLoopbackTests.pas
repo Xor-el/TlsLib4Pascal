@@ -327,6 +327,10 @@ type
     procedure TestApplicationReadCapIsArmedInsideTheReadSideAndCleared;
     procedure TestHandshakeReadCapIsArmedAndClearedAroundTheHandshake;
     procedure TestReadTimeoutNeedsATimedTransport;
+    procedure TestTimedWriteOnAStalledSocketRaisesAWriteTimeoutAndClearsTheDeadline;
+    procedure TestWriteTimeoutNeedsATimedTransport;
+    procedure TestCloseGraceSetBeforeTheHandshakeBoundsTerminalSends;
+    procedure TestCloseGraceCannotBeSetOnceTheHandshakeHasRun;
     procedure TestConnectionForwardsKeyUpdateAndExporter;
     procedure TestReaderThatDroveTheHandshakeDoesNotBlockAWriter;
     procedure TestHandshakeCallDoesNotWaitForABlockedReader;
@@ -3375,6 +3379,115 @@ begin
     CheckTrue(LHandshakeRaised, 'so is a handshake timeout');
   finally
     LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestTimedWriteOnAStalledSocketRaisesAWriteTimeoutAndClearsTheDeadline;
+var
+  LClient, LServer: ITlsEngine;
+  LStalled: TStalledTransport;
+  LByte: TBytes;
+  LMessage: string;
+begin
+  HandshakeEngines(LClient, LServer);
+  // the clock moves 100 ms per reading, so a 250 ms deadline is spent without waiting
+  LStalled := TStalledTransport.Create(nil,
+    TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock);
+  LByte := DecodeHex('00');
+  LMessage := '';
+  try
+    NewPump(LClient, LStalled as ITlsTransport).WriteApp(LByte[0], 1, 250);
+  except
+    on E: ETlsWriteTimeout do
+      LMessage := E.Message;
+  end;
+  CheckTrue(Pos('250', LMessage) > 0, 'a write the socket will not take raises the write timeout');
+  CheckEquals(0, LStalled.Sends, 'and never reached the socket');
+  LStalled.Write(LByte, 0, 1);
+  CheckEquals(1, LStalled.Sends, 'the write deadline was cleared when the write ended');
+end;
+
+procedure TTestTlsStreamLoopback.TestWriteTimeoutNeedsATimedTransport;
+var
+  LClient: TTlsStream;
+  LByte: TBytes;
+  LRaised: Boolean;
+begin
+  LClient := NewClientStream(TRecordingTransport.Create as ITlsTransport,
+    ClientConfig(False, nil));
+  try
+    LByte := DecodeHex('00');
+    LRaised := False;
+    try
+      LClient.WriteTimed(LByte[0], 1, 100);
+    except
+      on EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a write timeout on a plain transport is refused, not ignored');
+  finally
+    LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseGraceSetBeforeTheHandshakeBoundsTerminalSends;
+var
+  LClient, LServer: ITlsEngine;
+  LStalled: TStalledTransport;
+  LPump: TTlsStreamPump;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LStalled := TStalledTransport.Create(nil,
+    TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock);
+  // made with no grace, which leaves a terminal send unbounded
+  LPump := NewPump(LClient, LStalled as ITlsTransport);
+  LPump.SetCloseGraceMs(500);
+  LRaised := False;
+  try
+    LPump.Close;
+  except
+    on ETlsWriteTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the grace that was set bounds the close_notify');
+  CheckEquals(0, LStalled.Sends, 'which never reached the socket');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseGraceCannotBeSetOnceTheHandshakeHasRun;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientTransport, LServerTransport: TMemoryTransport;
+  LClientT, LServerT: ITlsTransport;
+  LPump: TTlsStreamPump;
+  LServer: TServerRunner;
+  LRaised: Boolean;
+begin
+  LC2S := TMemoryPipe.Create;
+  LS2C := TMemoryPipe.Create;
+  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  LClientT := LClientTransport;
+  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  LServerT := LServerTransport;
+  // the pump is registered before the server, which uses the client transport, so it outlives it
+  LPump := NewPump(TTlsEngineFactory.CreateClientEngine(ClientConfig(False, nil), 'localhost'),
+    LClientT);
+  LServer := Own<TServerRunner>(TServerRunner.Create(NewServerStream(LServerT),
+    LServerTransport, LClientTransport, TServerBehavior.EchoThenClose));
+  LServer.Start;
+  try
+    LPump.SetCloseGraceMs(100);
+    LPump.DriveHandshake(True);
+    LRaised := False;
+    try
+      LPump.SetCloseGraceMs(200);
+    except
+      on EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'the grace is refused once the handshake has run');
+  finally
+    LServer.Finish;
   end;
 end;
 

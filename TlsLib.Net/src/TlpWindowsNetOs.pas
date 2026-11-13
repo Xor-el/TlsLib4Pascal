@@ -39,6 +39,7 @@ type
     TGetAddrInfoFunc = function(ANode, AService: PAnsiChar; AHints: Pointer;
       out AList: Pointer): Int32; stdcall;
     TFreeAddrInfoProc = procedure(AList: Pointer); stdcall;
+    TCancelIoExFunc = function(AHandle: NativeUInt; AOverlapped: Pointer): LongBool; stdcall;
     // the C struct ADDRINFOA up to ai_next; ai_addrlen is a SIZE_T here and is never read
     TAddrInfoView = record
       Flags, Family, SockType, Protocol: Int32;
@@ -51,6 +52,7 @@ type
   class var
     FGetAddrInfo: TGetAddrInfoFunc;
     FFreeAddrInfo: TFreeAddrInfoProc;
+    FCancelIoEx: TCancelIoExFunc;
   strict private
     class procedure FillAddress(const AAddress: TBytes; APort: Word;
       out AAddr: TSockAddrIn); static;
@@ -97,6 +99,13 @@ type
     /// order; False when it has none. Blocks for as long as the system resolver does.</summary>
     class function LookupIPv4(const AHost: AnsiString; out AAddress: TBytes): Boolean; static;
     class function LastError: Integer; static;
+    /// <summary>Sets what LastError reads on this thread, for a failure the caller reports without
+    /// a Winsock call.</summary>
+    class procedure SetLastError(AError: Integer); static;
+    /// <summary>Ends the calls blocked on AHandle, from any thread: both directions are shut down
+    /// and every request still pending on the socket is cancelled, so a receive returns at once and
+    /// a send fails. The socket stays open, for its owner to close once no call can touch it.</summary>
+    class procedure AbortPending(AHandle: TWindowsSocketHandle); static;
   end;
 
 {$ENDIF}
@@ -125,6 +134,9 @@ begin
   LLibrary := TDynamicLibrary.Open('ws2_32.dll');
   FGetAddrInfo := TGetAddrInfoFunc(TDynamicLibrary.Resolve(LLibrary, 'getaddrinfo'));
   FFreeAddrInfo := TFreeAddrInfoProc(TDynamicLibrary.Resolve(LLibrary, 'freeaddrinfo'));
+  // kernel32 stays mapped for the life of the process; a Windows without the call leaves it nil
+  LLibrary := TDynamicLibrary.Open('kernel32.dll');
+  FCancelIoEx := TCancelIoExFunc(TDynamicLibrary.Resolve(LLibrary, 'CancelIoEx'));
 end;
 
 class function TWindowsNetOs.LookupIPv4(const AHost: AnsiString; out AAddress: TBytes): Boolean;
@@ -170,6 +182,19 @@ end;
 class function TWindowsNetOs.LastError: Integer;
 begin
   Result := WSAGetLastError;
+end;
+
+class procedure TWindowsNetOs.SetLastError(AError: Integer);
+begin
+  WSASetLastError(AError);
+end;
+
+class procedure TWindowsNetOs.AbortPending(AHandle: TWindowsSocketHandle);
+begin
+  Winsock2.shutdown(AHandle, SD_BOTH);
+  // a shutdown does not end a call already waiting in the driver
+  if Assigned(FCancelIoEx) then
+    FCancelIoEx(AHandle, nil);
 end;
 
 class procedure TWindowsNetOs.ArmAgainstSigPipe(AHandle: TWindowsSocketHandle);

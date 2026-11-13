@@ -22,7 +22,10 @@
 /// AlpnProtocols or CertificateData.ALPNProtocols and buffered
 /// plaintext (BytesAvailable, Select and CanRead), the recorded failure per family, memory faults
 /// that propagate, a server that outlives a raising certificate hook, and a socket closed or a
-/// handler freed while another thread is blocked in Recv.
+/// handler freed while another thread is blocked in Recv. The duplex checks run a Recv and a Send
+/// on two threads of one handler (each reads its own failure text), and Close, Shutdown and a
+/// freed handler against a Recv or Send in flight, a send that a peer never reading cannot finish,
+/// and a send bounded by IOTimeout.
 /// </summary>
 unit FclNetLoopbackExample;
 
@@ -120,6 +123,19 @@ const
   WATCHDOG_MS = 5000;
   DESTROY_GRACE_MS = 300;
   FAULT_BYTES = 16;
+  DUPLEX_PORT = 28465;
+  DUPLEX_BUFFER_BYTES = 4096; // a socket buffer small enough that a silent peer stops a send
+  DUPLEX_GRACE_MS = 500; // the close grace the duplex checks run at, in place of 5 s
+  DUPLEX_WATCHDOG_MS = 30000; // a call that is not back by now never will be
+  DUPLEX_PARK_MS = 500; // time for a send to a silent peer to be stuck
+  DUPLEX_TIMEOUT_MS = 200;
+  DUPLEX_WRITE_TIMEOUT_MS = 500;
+  DUPLEX_STUCK_BYTES = 16 * 1024 * 1024;
+  DUPLEX_LIVE_BYTES = 64 * 1024 * 1024; // more than a fast peer reads before the close arrives
+  DUPLEX_MIDWAY_BYTES = 262144;
+  DUPLEX_SLICE_BYTES = 65536; // what one write seals before it looks at the close
+  DUPLEX_SENTINEL = 12345; // an error number no call of the check can leave
+  DUPLEX_TICK_SLACK_MS = 50;
 
 type
 {$IF FPC_FULLVERSION < 30301}
@@ -622,6 +638,143 @@ type
     /// raise as an error code and the recorded state, with the socket's own error number when
     /// it has one.</summary>
     class procedure RunFamilies; static;
+  end;
+
+  /// <summary>What the peer of a duplex check does with its one connection: reads it to the end,
+  /// speaks once when told and then reads, reads from a small buffer once released, or holds it
+  /// open and never reads.</summary>
+  TDuplexPeerMode = (PeerReads, PeerSpeaksThenReads, PeerGated, PeerSilent);
+
+  /// <summary>The peer of a duplex check. A reading peer counts what it reads and records how
+  /// its read ended: 0 for a close_notify, below 0 for any other end. A silent one shrinks its
+  /// receive buffer, so a send of a few megabytes to it cannot finish.</summary>
+  TDuplexPeerThread = class(TLoopbackServerBase)
+  strict private
+  var
+    FCertificate, FPrivateKey, FSpeech: TBytes;
+    FMode: TDuplexPeerMode;
+    FSpeak, FEnded: TEvent;
+    FAccepted: TTlsLibSocketHandler;
+    FBytes: LongInt;
+    FEndResult: Integer;
+    FEndText: string;
+  strict protected
+    procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler); override;
+    procedure HandleConnect(Sender: TObject; AStream: TSocketStream); override;
+  public
+    constructor Create(AMode: TDuplexPeerMode);
+    destructor Destroy; override;
+    /// <summary>Has a peer that speaks write AData to its client, then read.</summary>
+    procedure Speak(const AData: TBytes);
+    /// <summary>Has a gated peer start to read.</summary>
+    procedure Release;
+    /// <summary>Set when a reading peer's read has ended.</summary>
+    property Ended: TEvent read FEnded;
+    property Bytes: LongInt read FBytes;
+    property EndResult: Integer read FEndResult;
+    property EndText: string read FEndText;
+  end;
+
+  /// <summary>A client connected to a duplex peer, and the peer.</summary>
+  TDuplexRig = class sealed(TObject)
+  strict private
+  var
+    FPeer: TDuplexPeerThread;
+    FSock: TInetSocket;
+    FHandler: TTlsLibSocketHandler;
+  public
+    /// <summary>Connects a client with the close grace ACloseGraceMs and the socket timeout
+    /// AIoTimeoutMs to a new peer; with AShrinkSend its send buffer is made small, so that what
+    /// a silent peer does not read stops a send at once.</summary>
+    constructor Create(AMode: TDuplexPeerMode; ACloseGraceMs, AIoTimeoutMs: Integer;
+      AShrinkSend: Boolean);
+    destructor Destroy; override;
+    /// <summary>Ends the check when AEvent is not set within the watchdog time: a call that never
+    /// returns holds its peer's connection open, so unwinding to free the peer would hang.</summary>
+    class procedure Expect(AEvent: TEvent; const AWhat: string); static;
+    /// <summary>Reports AMessage as the failure and ends the process.</summary>
+    class procedure Fail(const AMessage: string); static;
+    /// <summary>The handler was freed by the check: the socket is left to the process.</summary>
+    procedure ForgetHandler;
+    property Peer: TDuplexPeerThread read FPeer;
+    property Sock: TInetSocket read FSock;
+    property Handler: TTlsLibSocketHandler read FHandler;
+  end;
+
+  TDuplexCall = (CallSend, CallRecv, CallClose, CallShutdown, CallFree, CallTransportWrite);
+
+  /// <summary>One call on a handler made on its own thread, with what it returned, the handler's
+  /// text for it on that thread, and when it began and ended. With a gate the thread then waits
+  /// for it and reads the text again.</summary>
+  TDuplexCallThread = class(TThread)
+  strict private
+  var
+    FHandler: TTlsLibSocketHandler;
+    FTransport: ITlsTimedTransport;
+    FCall: TDuplexCall;
+    FPayload: TBytes;
+    FGate: TEvent;
+    FReadBack: Boolean;
+    FDone, FAfter: TEvent;
+    FResult, FLastError, FSocketError: Integer;
+    FText, FTextAfter, FFailure: string;
+    FBeganAt, FEndedAt: Int64;
+  protected
+    procedure Execute; override;
+  public
+    /// <summary>Starts the call; with AReadBack False the handler is not touched after the call,
+    /// for a call that frees it.</summary>
+    constructor Create(AHandler: TTlsLibSocketHandler; ACall: TDuplexCall;
+      const APayload: TBytes; AGate: TEvent; AReadBack: Boolean);
+    /// <summary>Starts one write of 1 KiB on ATransport, whose result is 1 when it raised
+    /// ETlsWriteTimeout and 0 when it wrote.</summary>
+    constructor CreateTransportWrite(const ATransport: ITlsTimedTransport);
+    destructor Destroy; override;
+    /// <summary>Waits for the thread to end.</summary>
+    procedure Join;
+    property Done: TEvent read FDone;
+    property After: TEvent read FAfter;
+    property CallResult: Integer read FResult;
+    property LastError: Integer read FLastError;
+    property SocketError: Integer read FSocketError;
+    property Text: string read FText;
+    property TextAfter: string read FTextAfter;
+    property Failure: string read FFailure;
+    property BeganAt: Int64 read FBeganAt;
+    property EndedAt: Int64 read FEndedAt;
+  end;
+
+  /// <summary>Two threads on one handler, one receiving and one sending: each reads its own
+  /// failure, and a thread that made no call reads the latest call's.</summary>
+  TDuplexTextCheck = class sealed(TObject)
+  public
+    class procedure RunConcurrent; static;
+    class procedure RunHandoff; static;
+    class procedure RunSingleThread; static;
+    class procedure RunSocketError; static;
+  end;
+
+  /// <summary>Close, Shutdown and a freed handler against calls in flight on other threads.</summary>
+  TDuplexCloseCheck = class sealed(TObject)
+  strict private
+    /// <summary>The payload of a send that a peer which never reads cannot take.</summary>
+    class function Payload(ABytes: Integer): TBytes; static;
+    /// <summary>Waits until the peer has read AAtLeast bytes, or fails.</summary>
+    class procedure AwaitBytes(APeer: TDuplexPeerThread; AAtLeast: LongInt); static;
+    /// <summary>The peer read whole slices ending in a close_notify, and AResult says how the send
+    /// that met the close ended.</summary>
+    class procedure ExpectPrefix(APeer: TDuplexPeerThread; ASendResult, ATotal: Integer;
+      const AWhat: string); static;
+  public
+    class procedure RunStuckSend; static;
+    class procedure RunLiveSend; static;
+    class procedure RunRecv; static;
+    class procedure RunShutdownMidSend; static;
+    class procedure RunFreedWithoutClose; static;
+    class procedure RunRefusedAfterClose; static;
+    class procedure RunAfterFailedRecv; static;
+    class procedure RunWriteTimeout; static;
+    class procedure RunCancelledWait; static;
   end;
 
 { TVectorLocator }
@@ -3200,6 +3353,725 @@ begin
   ExpectRefused('a slot beside a ClientConfig', LNegotiated, LError, 'is set together with');
 end;
 
+{ TDuplexPeerThread }
+
+constructor TDuplexPeerThread.Create(AMode: TDuplexPeerMode);
+begin
+  inherited Create(DUPLEX_PORT, 1);
+  FMode := AMode;
+  FCertificate := TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_cert'));
+  FPrivateKey := TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_key'));
+  FSpeak := TEvent.Create(nil, True, False, '');
+  FEnded := TEvent.Create(nil, True, False, '');
+end;
+
+destructor TDuplexPeerThread.Destroy;
+begin
+  inherited Destroy;
+  FEnded.Free;
+  FSpeak.Free;
+end;
+
+procedure TDuplexPeerThread.Speak(const AData: TBytes);
+begin
+  FSpeech := AData;
+  FSpeak.SetEvent;
+end;
+
+procedure TDuplexPeerThread.Release;
+begin
+  FSpeak.SetEvent;
+end;
+
+procedure TDuplexPeerThread.MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
+var
+  LHandler: TTlsLibSocketHandler;
+begin
+  LHandler := TTlsLibSocketHandler.Create;
+  LHandler.CertificateData.Certificate.Value := FCertificate;
+  LHandler.CertificateData.PrivateKey.Value := FPrivateKey;
+  FAccepted := LHandler;
+  AHandler := LHandler;
+end;
+
+procedure TDuplexPeerThread.HandleConnect(Sender: TObject; AStream: TSocketStream);
+var
+  LBuf: TBytes;
+  LN, LSize: Integer;
+begin
+  try
+    if FMode in [PeerGated, PeerSilent] then
+    begin
+      LSize := DUPLEX_BUFFER_BYTES;
+      fpSetSockOpt(AStream.Handle, SOL_SOCKET, SO_RCVBUF, @LSize, SizeOf(LSize));
+    end;
+    if FMode = PeerSilent then
+    begin
+      while not Terminated do
+        Sleep(ACCEPT_POLL_MS);
+    end
+    else
+    begin
+      if FMode in [PeerSpeaksThenReads, PeerGated] then
+        while (not Terminated) and (FSpeak.WaitFor(ACCEPT_POLL_MS) <> wrSignaled) do
+          ;
+      if FMode = PeerSpeaksThenReads then
+        AStream.Write(FSpeech[0], System.Length(FSpeech));
+      SetLength(LBuf, 16384);
+      repeat
+        LN := AStream.Read(LBuf[0], System.Length(LBuf));
+        if LN > 0 then
+          InterlockedExchangeAdd(FBytes, LN);
+      until LN <= 0;
+      FEndResult := LN;
+      FEndText := FAccepted.LastErrorDesc;
+      FEnded.SetEvent;
+    end;
+  except
+    on E: Exception do
+    begin
+      FEndResult := -1;
+      FEndText := E.ClassName + ': ' + E.Message;
+      FEnded.SetEvent;
+    end;
+  end;
+  AStream.Free;
+end;
+
+{ TDuplexRig }
+
+constructor TDuplexRig.Create(AMode: TDuplexPeerMode; ACloseGraceMs, AIoTimeoutMs: Integer;
+  AShrinkSend: Boolean);
+var
+  LSize: Integer;
+begin
+  inherited Create;
+  FPeer := TDuplexPeerThread.Create(AMode);
+  FPeer.StartListening;
+  FHandler := TTlsLibSocketHandler.Create;
+  FHandler.CertificateData.CertCA.FileName := TVectorLocator.WriteDer('duplex_root',
+    TVectorLocator.FieldHex('root_cert'));
+  FHandler.CloseGraceMs := ACloseGraceMs;
+  FSock := TInetSocket.Create('localhost', DUPLEX_PORT, FHandler);
+  FSock.Connect;
+  FSock.IOTimeout := AIoTimeoutMs;
+  if AShrinkSend then
+  begin
+    LSize := DUPLEX_BUFFER_BYTES;
+    fpSetSockOpt(FSock.Handle, SOL_SOCKET, SO_SNDBUF, @LSize, SizeOf(LSize));
+  end;
+end;
+
+destructor TDuplexRig.Destroy;
+begin
+  FSock.Free;
+  if FPeer <> nil then
+  begin
+    FPeer.Terminate;
+    FPeer.Free;
+  end;
+  inherited Destroy;
+end;
+
+class procedure TDuplexRig.Fail(const AMessage: string);
+begin
+  // a call that never returns holds its peer's connection open, so unwinding to free the peer
+  // would hang
+  WriteLn('FclNet loopback FAIL: ', AMessage);
+  Halt(1);
+end;
+
+class procedure TDuplexRig.Expect(AEvent: TEvent; const AWhat: string);
+begin
+  if AEvent.WaitFor(DUPLEX_WATCHDOG_MS) <> wrSignaled then
+    Fail(AWhat + ' did not return within ' + IntToStr(DUPLEX_WATCHDOG_MS) + ' ms');
+end;
+
+procedure TDuplexRig.ForgetHandler;
+begin
+  FSock := nil;
+  FHandler := nil;
+end;
+
+{ TDuplexCallThread }
+
+constructor TDuplexCallThread.Create(AHandler: TTlsLibSocketHandler; ACall: TDuplexCall;
+  const APayload: TBytes; AGate: TEvent; AReadBack: Boolean);
+begin
+  inherited Create(True);
+  FreeOnTerminate := False;
+  FHandler := AHandler;
+  FCall := ACall;
+  FPayload := APayload;
+  FGate := AGate;
+  FReadBack := AReadBack;
+  FDone := TEvent.Create(nil, True, False, '');
+  FAfter := TEvent.Create(nil, True, False, '');
+  Start;
+end;
+
+constructor TDuplexCallThread.CreateTransportWrite(const ATransport: ITlsTimedTransport);
+begin
+  inherited Create(True);
+  FreeOnTerminate := False;
+  FTransport := ATransport;
+  FCall := CallTransportWrite;
+  FDone := TEvent.Create(nil, True, False, '');
+  FAfter := TEvent.Create(nil, True, False, '');
+  Start;
+end;
+
+destructor TDuplexCallThread.Destroy;
+begin
+  inherited Destroy;
+  FAfter.Free;
+  FDone.Free;
+end;
+
+procedure TDuplexCallThread.Join;
+begin
+  WaitFor;
+end;
+
+procedure TDuplexCallThread.Execute;
+var
+  LBuf: TBytes;
+begin
+  try
+    FBeganAt := GetTickCount64;
+    case FCall of
+      CallSend:
+        FResult := FHandler.Send(FPayload[0], System.Length(FPayload));
+      CallRecv:
+        begin
+          SetLength(LBuf, 1);
+          FResult := FHandler.Recv(LBuf[0], 1);
+        end;
+      CallClose:
+        FResult := Ord(FHandler.Close);
+      CallShutdown:
+        FResult := Ord(FHandler.Shutdown(True));
+      CallFree:
+        FHandler.Free;
+      CallTransportWrite:
+        try
+          SetLength(LBuf, 1024);
+          FTransport.Write(LBuf, 0, System.Length(LBuf));
+        except
+          on E: ETlsWriteTimeout do
+            FResult := 1;
+        end;
+    end;
+    FEndedAt := GetTickCount64;
+    if FReadBack then
+    begin
+      FText := FHandler.LastErrorDesc;
+      FLastError := FHandler.LastError;
+      FSocketError := Sockets.SocketError;
+    end;
+  except
+    on E: Exception do
+      FFailure := E.ClassName + ': ' + E.Message;
+  end;
+  FDone.SetEvent;
+  try
+    if FGate <> nil then
+    begin
+      FGate.WaitFor(DUPLEX_WATCHDOG_MS);
+      FTextAfter := FHandler.LastErrorDesc;
+    end;
+  except
+    on E: Exception do
+      FFailure := E.ClassName + ': ' + E.Message;
+  end;
+  FAfter.SetEvent;
+end;
+
+{ TDuplexTextCheck }
+
+class procedure TDuplexTextCheck.RunConcurrent;
+var
+  LRig: TDuplexRig;
+  LGate: TEvent;
+  LRecv, LSend: TDuplexCallThread;
+begin
+  LGate := TEvent.Create(nil, True, False, '');
+  try
+    LRig := TDuplexRig.Create(PeerReads, 0, DUPLEX_TIMEOUT_MS, False);
+    try
+      // the receive fails, then the send succeeds, then the receiving thread looks again
+      LRecv := TDuplexCallThread.Create(LRig.Handler, CallRecv, nil, LGate, True);
+      try
+        TDuplexRig.Expect(LRecv.Done, 'the receive');
+        LSend := TDuplexCallThread.Create(LRig.Handler, CallSend,
+          TBytes.Create(1, 2, 3, 4), nil, True);
+        try
+          TDuplexRig.Expect(LSend.Done, 'the send');
+          LGate.SetEvent;
+          TDuplexRig.Expect(LRecv.After, 'the second look');
+          if (LRecv.Failure <> '') or (LSend.Failure <> '') then
+            raise Exception.Create('concurrent failure text: ' + LRecv.Failure + LSend.Failure);
+          if (LRecv.CallResult <> -1) or (Pos('no application data', LRecv.Text) = 0) then
+            raise Exception.Create('concurrent failure text: the receive did not time out: ' +
+              LRecv.Text);
+          if LRecv.TextAfter <> LRecv.Text then
+            raise Exception.Create('concurrent failure text: a send that succeeded erased the ' +
+              'text of the receive that failed: "' + LRecv.TextAfter + '"');
+          if (LSend.CallResult <> 4) or (LSend.Text <> '') then
+            raise Exception.Create('concurrent failure text: the send read "' + LSend.Text + '"');
+        finally
+          LGate.SetEvent;
+          LSend.Join;
+          LSend.Free;
+        end;
+      finally
+        LGate.SetEvent;
+        LRecv.Join;
+        LRecv.Free;
+      end;
+    finally
+      LRig.Free;
+    end;
+  finally
+    LGate.Free;
+  end;
+end;
+
+class procedure TDuplexTextCheck.RunHandoff;
+var
+  LRig: TDuplexRig;
+  LGate: TEvent;
+  LFirst, LSecond: TDuplexCallThread;
+begin
+  LGate := TEvent.Create(nil, True, False, '');
+  try
+    LRig := TDuplexRig.Create(PeerSpeaksThenReads, 0, DUPLEX_TIMEOUT_MS, False);
+    try
+      // one thread's receive fails; another thread then receives data on the same handler
+      LFirst := TDuplexCallThread.Create(LRig.Handler, CallRecv, nil, LGate, True);
+      try
+        TDuplexRig.Expect(LFirst.Done, 'the first receive');
+        LRig.Peer.Speak(TBytes.Create(Ord('x')));
+        LSecond := TDuplexCallThread.Create(LRig.Handler, CallRecv, nil, nil, True);
+        try
+          TDuplexRig.Expect(LSecond.Done, 'the second receive');
+          if (LSecond.CallResult <> 1) or (LSecond.Text <> '') then
+            raise Exception.Create('call handoff: the second receive read "' + LSecond.Text + '"');
+          // a thread that made no call reads the latest one
+          if LRig.Handler.LastErrorDesc <> '' then
+            raise Exception.Create('call handoff: an observer read "' +
+              LRig.Handler.LastErrorDesc + '", not the latest call''s text');
+          LGate.SetEvent;
+          TDuplexRig.Expect(LFirst.After, 'the first look');
+          if (LFirst.Text = '') or (LFirst.TextAfter <> LFirst.Text) then
+            raise Exception.Create('call handoff: the first thread lost its own failure: "' +
+              LFirst.TextAfter + '"');
+        finally
+          LGate.SetEvent;
+          LSecond.Join;
+          LSecond.Free;
+        end;
+      finally
+        LGate.SetEvent;
+        LFirst.Join;
+        LFirst.Free;
+      end;
+    finally
+      LRig.Free;
+    end;
+  finally
+    LGate.Free;
+  end;
+end;
+
+class procedure TDuplexTextCheck.RunSingleThread;
+var
+  LRig: TDuplexRig;
+  LBuf: TBytes;
+begin
+  LRig := TDuplexRig.Create(PeerReads, 0, DUPLEX_TIMEOUT_MS, False);
+  try
+    SetLength(LBuf, 4);
+    if (LRig.Handler.Recv(LBuf[0], 1) <> -1) or (LRig.Handler.LastErrorDesc = '') then
+      raise Exception.Create('single thread: an idle receive did not fail with a text');
+    if (LRig.Handler.Send(LBuf[0], 4) <> 4) or (LRig.Handler.LastErrorDesc <> '') then
+      raise Exception.Create('single thread: a send that succeeded left the text "' +
+        LRig.Handler.LastErrorDesc + '"');
+    if LRig.Handler.LastError <> 0 then
+      raise Exception.Create('single thread: a send that succeeded left LastError set');
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexTextCheck.RunSocketError;
+var
+  LHandler: TTlsLibSocketHandler;
+  LBuf: TBytes;
+begin
+  // no socket, so nothing between the sentinel and the end of the call can change the error
+  LHandler := TTlsLibSocketHandler.Create;
+  try
+    SetLength(LBuf, 1);
+    // a failure of the TLS layer is no socket failure, so the thread's own error reads 0
+    TNetOs.SetLastError(DUPLEX_SENTINEL);
+    if LHandler.Recv(LBuf[0], 1) <> -1 then
+      raise Exception.Create('socket error: a receive with no session did not fail');
+    if Sockets.SocketError <> 0 then
+      raise Exception.CreateFmt('socket error: a failed receive left the thread''s error at %d',
+        [Sockets.SocketError]);
+{$IF FPC_FULLVERSION >= 30203}
+    if Pos('no TLS session', LHandler.GetLastErrorDescription) = 0 then
+      raise Exception.Create('socket error: the description is "' +
+        LHandler.GetLastErrorDescription + '"');
+{$IFEND}
+  finally
+    LHandler.Free;
+  end;
+end;
+
+{ TDuplexCloseCheck }
+
+class function TDuplexCloseCheck.Payload(ABytes: Integer): TBytes;
+begin
+  Result := nil;
+  SetLength(Result, ABytes);
+end;
+
+class procedure TDuplexCloseCheck.AwaitBytes(APeer: TDuplexPeerThread; AAtLeast: LongInt);
+var
+  LStart: Int64;
+begin
+  LStart := GetTickCount64;
+  while APeer.Bytes < AAtLeast do
+  begin
+    if GetTickCount64 - LStart > DUPLEX_WATCHDOG_MS then
+      TDuplexRig.Fail('the peer did not read ' + IntToStr(AAtLeast) + ' bytes');
+    Sleep(2);
+  end;
+end;
+
+class procedure TDuplexCloseCheck.ExpectPrefix(APeer: TDuplexPeerThread; ASendResult,
+  ATotal: Integer; const AWhat: string);
+begin
+  TDuplexRig.Expect(APeer.Ended, AWhat + ': the peer''s read');
+  if APeer.EndResult <> 0 then
+    raise Exception.CreateFmt('%s: the peer''s read ended with %d (%s), not a close_notify',
+      [AWhat, APeer.EndResult, APeer.EndText]);
+  if ASendResult = ATotal then
+  begin
+    if APeer.Bytes <> ATotal then
+      raise Exception.CreateFmt('%s: the send completed but the peer read %d bytes',
+        [AWhat, APeer.Bytes]);
+  end
+  else if ASendResult = -1 then
+  begin
+    if (APeer.Bytes >= ATotal) or (APeer.Bytes mod DUPLEX_SLICE_BYTES <> 0) then
+      raise Exception.CreateFmt('%s: the send was cut short but the peer read %d bytes, not ' +
+        'whole slices of fewer than %d', [AWhat, APeer.Bytes, ATotal]);
+  end
+  else
+    raise Exception.CreateFmt('%s: the send returned %d', [AWhat, ASendResult]);
+end;
+
+class procedure TDuplexCloseCheck.RunStuckSend;
+var
+  LRig: TDuplexRig;
+  LSend, LClose: TDuplexCallThread;
+begin
+  LRig := TDuplexRig.Create(PeerSilent, DUPLEX_GRACE_MS, 0, True);
+  try
+    LSend := TDuplexCallThread.Create(LRig.Handler, CallSend, Payload(DUPLEX_STUCK_BYTES),
+      nil, True);
+    try
+      Sleep(DUPLEX_PARK_MS);
+      if LSend.Done.WaitFor(0) = wrSignaled then
+        raise Exception.Create('stuck send: the send finished against a peer that never reads');
+      LClose := TDuplexCallThread.Create(LRig.Handler, CallClose, nil, nil, True);
+      try
+        TDuplexRig.Expect(LClose.Done, 'Close');
+        TDuplexRig.Expect(LSend.Done, 'the stuck send');
+        if (LSend.Failure <> '') or (LClose.Failure <> '') then
+          raise Exception.Create('stuck send: ' + LSend.Failure + LClose.Failure);
+        if LSend.CallResult <> -1 then
+          raise Exception.CreateFmt('stuck send: the send returned %d', [LSend.CallResult]);
+        // Close leaves only once no call can touch the socket
+        if LSend.EndedAt > LClose.EndedAt then
+          raise Exception.Create('stuck send: Close returned before the send had');
+        if LClose.EndedAt - LClose.BeganAt < DUPLEX_GRACE_MS - DUPLEX_TICK_SLACK_MS then
+          raise Exception.CreateFmt('stuck send: Close returned after %d ms, inside the grace ' +
+            'of %d ms', [LClose.EndedAt - LClose.BeganAt, DUPLEX_GRACE_MS]);
+      finally
+        LClose.Join;
+        LClose.Free;
+      end;
+    finally
+      LSend.Join;
+      LSend.Free;
+    end;
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexCloseCheck.RunLiveSend;
+var
+  LRig: TDuplexRig;
+  LSend, LClose: TDuplexCallThread;
+begin
+  LRig := TDuplexRig.Create(PeerReads, DUPLEX_GRACE_MS, 0, False);
+  try
+    LSend := TDuplexCallThread.Create(LRig.Handler, CallSend, Payload(DUPLEX_LIVE_BYTES),
+      nil, True);
+    try
+      AwaitBytes(LRig.Peer, DUPLEX_MIDWAY_BYTES);
+      LClose := TDuplexCallThread.Create(LRig.Handler, CallClose, nil, nil, True);
+      try
+        TDuplexRig.Expect(LClose.Done, 'Close');
+        TDuplexRig.Expect(LSend.Done, 'the send');
+        ExpectPrefix(LRig.Peer, LSend.CallResult, DUPLEX_LIVE_BYTES, 'live send');
+      finally
+        LClose.Join;
+        LClose.Free;
+      end;
+    finally
+      LSend.Join;
+      LSend.Free;
+    end;
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexCloseCheck.RunRecv;
+var
+  LRig: TDuplexRig;
+  LRecv: TDuplexCallThread;
+begin
+  LRig := TDuplexRig.Create(PeerReads, DUPLEX_GRACE_MS, 0, False);
+  try
+    LRecv := TDuplexCallThread.Create(LRig.Handler, CallRecv, nil, nil, True);
+    try
+      Sleep(DUPLEX_PARK_MS);
+      LRig.Handler.Close;
+      TDuplexRig.Expect(LRecv.Done, 'the receive');
+      // a read that Close ended is a closed connection: not a truncation, and nothing recorded
+      if (LRecv.CallResult <> 0) or (LRecv.LastError <> 0) or (LRecv.Text <> '') then
+        raise Exception.CreateFmt('close during a receive: it returned %d, LastError %d, "%s"',
+          [LRecv.CallResult, LRecv.LastError, LRecv.Text]);
+      // and the peer was told, which a socket shut first would not have done
+      TDuplexRig.Expect(LRig.Peer.Ended, 'the peer''s read');
+      if LRig.Peer.EndResult <> 0 then
+        raise Exception.CreateFmt('close during a receive: the peer''s read ended with %d (%s), ' +
+          'not a close_notify', [LRig.Peer.EndResult, LRig.Peer.EndText]);
+    finally
+      LRecv.Join;
+      LRecv.Free;
+    end;
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexCloseCheck.RunShutdownMidSend;
+var
+  LRig: TDuplexRig;
+  LSend, LShutdown: TDuplexCallThread;
+begin
+  // the peer reads nothing until the shutdown has begun, so the send is held inside its slice
+  LRig := TDuplexRig.Create(PeerGated, DUPLEX_GRACE_MS, 0, True);
+  try
+    LSend := TDuplexCallThread.Create(LRig.Handler, CallSend, Payload(DUPLEX_STUCK_BYTES),
+      nil, True);
+    try
+      Sleep(DUPLEX_PARK_MS);
+      if LSend.Done.WaitFor(0) = wrSignaled then
+        raise Exception.Create('shutdown mid-send: the send finished against a peer not reading');
+      LShutdown := TDuplexCallThread.Create(LRig.Handler, CallShutdown, nil, nil, True);
+      try
+        Sleep(DUPLEX_TIMEOUT_MS);
+        LRig.Peer.Release;
+        TDuplexRig.Expect(LShutdown.Done, 'Shutdown');
+        TDuplexRig.Expect(LSend.Done, 'the send');
+        // the write side is shut only after the writer has gone
+        if LSend.EndedAt > LShutdown.EndedAt then
+          raise Exception.Create('shutdown mid-send: Shutdown returned before the send had');
+        ExpectPrefix(LRig.Peer, LSend.CallResult, DUPLEX_STUCK_BYTES, 'shutdown mid-send');
+      finally
+        LShutdown.Join;
+        LShutdown.Free;
+      end;
+    finally
+      LSend.Join;
+      LSend.Free;
+    end;
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexCloseCheck.RunFreedWithoutClose;
+var
+  LRig: TDuplexRig;
+  LSend, LFree: TDuplexCallThread;
+begin
+  LRig := TDuplexRig.Create(PeerSilent, DUPLEX_GRACE_MS, 0, True);
+  try
+    LSend := TDuplexCallThread.Create(LRig.Handler, CallSend, Payload(DUPLEX_STUCK_BYTES),
+      nil, False);
+    try
+      Sleep(DUPLEX_PARK_MS);
+      LFree := TDuplexCallThread.Create(LRig.Handler, CallFree, nil, nil, False);
+      try
+        TDuplexRig.Expect(LFree.Done, 'freeing the handler');
+        TDuplexRig.Expect(LSend.Done, 'the stuck send');
+        LRig.ForgetHandler;
+        if (LSend.Failure <> '') or (LFree.Failure <> '') then
+          raise Exception.Create('freed without close: ' + LSend.Failure + LFree.Failure);
+        if LSend.CallResult <> -1 then
+          raise Exception.CreateFmt('freed without close: the send returned %d', [LSend.CallResult]);
+        if LSend.EndedAt > LFree.EndedAt then
+          raise Exception.Create('freed without close: the handler was freed under the send');
+      finally
+        LFree.Join;
+        LFree.Free;
+      end;
+    finally
+      LSend.Join;
+      LSend.Free;
+    end;
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexCloseCheck.RunRefusedAfterClose;
+var
+  LRig: TDuplexRig;
+  LBuf: TBytes;
+  LStart: Int64;
+begin
+  LRig := TDuplexRig.Create(PeerSpeaksThenReads, DUPLEX_GRACE_MS, LONG_IO_TIMEOUT_MS, False);
+  try
+    SetLength(LBuf, 4);
+    // one byte of a two-byte record stays in the engine, which a call that entered would return
+    LRig.Peer.Speak(TBytes.Create(Ord('x'), Ord('y')));
+    if (LRig.Handler.Recv(LBuf[0], 1) <> 1) or (LRig.Handler.BytesAvailable <> 1) then
+      raise Exception.Create('refused calls: the first byte of the record was not read');
+    LRig.Handler.Close;
+    if (LRig.Handler.Send(LBuf[0], 4) <> -1) or (LRig.Handler.LastError = 0) or
+      (Pos('is closed', LRig.Handler.LastErrorDesc) = 0) then
+      raise Exception.Create('refused calls: a send after Close was not refused');
+    LStart := GetTickCount64;
+    if LRig.Handler.Recv(LBuf[0], 1) <> 0 then
+      raise Exception.Create('refused calls: a receive after Close entered the engine');
+    if (GetTickCount64 - LStart > DUPLEX_GRACE_MS) or (LRig.Handler.LastError <> 0) then
+      raise Exception.Create('refused calls: a receive after Close was not a closed connection');
+    TDuplexRig.Expect(LRig.Peer.Ended, 'the peer''s read');
+    if (LRig.Peer.EndResult <> 0) or (LRig.Peer.Bytes <> 0) then
+      raise Exception.CreateFmt('refused calls: the peer read %d bytes and ended with %d',
+        [LRig.Peer.Bytes, LRig.Peer.EndResult]);
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexCloseCheck.RunAfterFailedRecv;
+var
+  LRig: TDuplexRig;
+  LBuf: TBytes;
+  LStart: Int64;
+begin
+  LRig := TDuplexRig.Create(PeerReads, 2 * DUPLEX_GRACE_MS, DUPLEX_TIMEOUT_MS, False);
+  try
+    SetLength(LBuf, 1);
+    if LRig.Handler.Recv(LBuf[0], 1) <> -1 then
+      raise Exception.Create('close after a failed receive: the receive did not fail');
+    // the server loop that closes on the thread whose read just failed
+    LStart := GetTickCount64;
+    LRig.Handler.Close;
+    if GetTickCount64 - LStart >= DUPLEX_GRACE_MS then
+      raise Exception.Create('close after a failed receive: Close waited for a call');
+    TDuplexRig.Expect(LRig.Peer.Ended, 'the peer''s read');
+    if LRig.Peer.EndResult <> 0 then
+      raise Exception.Create('close after a failed receive: the peer saw no close_notify');
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexCloseCheck.RunWriteTimeout;
+var
+  LRig: TDuplexRig;
+  LSend: TDuplexCallThread;
+  LStart: Int64;
+begin
+  LRig := TDuplexRig.Create(PeerSilent, DUPLEX_GRACE_MS, DUPLEX_WRITE_TIMEOUT_MS, True);
+  try
+    LSend := TDuplexCallThread.Create(LRig.Handler, CallSend, Payload(DUPLEX_STUCK_BYTES),
+      nil, True);
+    try
+      TDuplexRig.Expect(LSend.Done, 'the send');
+      if (LSend.CallResult <> -1) or (Pos('did not complete within 500', LSend.Text) = 0) then
+        raise Exception.CreateFmt('write timeout: the send returned %d with "%s"',
+          [LSend.CallResult, LSend.Text]);
+      if (LSend.EndedAt - LSend.BeganAt < DUPLEX_WRITE_TIMEOUT_MS - DUPLEX_TICK_SLACK_MS) or
+        (LSend.EndedAt - LSend.BeganAt > WRITE_STALL_LIMIT_MS) then
+        raise Exception.CreateFmt('write timeout: the send ended after %d ms, not about %d ms',
+          [LSend.EndedAt - LSend.BeganAt, DUPLEX_WRITE_TIMEOUT_MS]);
+      // nothing is in flight now, so a close does not wait
+      LStart := GetTickCount64;
+      LRig.Handler.Close;
+      if GetTickCount64 - LStart >= DUPLEX_GRACE_MS then
+        raise Exception.Create('write timeout: Close waited after the send had ended');
+    finally
+      LSend.Join;
+      LSend.Free;
+    end;
+  finally
+    LRig.Free;
+  end;
+end;
+
+class procedure TDuplexCloseCheck.RunCancelledWait;
+var
+  LTransport: TFclNetSocketTransport;
+  LTimed: ITlsTimedTransport;
+  LWrite: TDuplexCallThread;
+  LHandle: TNetHandle;
+  LArmedAt: Int64;
+begin
+  // a listening socket never takes bytes, whatever the peers do, so the wait for room is exact
+  if (TNetOs.OpenStream(LHandle) <> 0) or
+    (TNetOs.BindAndListen(LHandle, TBytes.Create(127, 0, 0, 1), 0, 1) <> 0) then
+    raise Exception.Create('cancelled wait: no listening socket');
+  try
+    LTransport := TFclNetSocketTransport.Create(THandle(LHandle));
+    LTimed := LTransport as ITlsTimedTransport;
+    LTimed.UseClock(TSystemMonotonicClock.Create as ITlsMonotonicClock);
+    LTransport.Cancelled := True;
+    LArmedAt := GetTickCount64;
+    LTimed.SetWriteTimeout(DUPLEX_TIMEOUT_MS);
+    // a cancelled wait for room to send is not room: the deadline still ends the write
+    LWrite := TDuplexCallThread.CreateTransportWrite(LTimed);
+    try
+      TDuplexRig.Expect(LWrite.Done, 'a write on a cancelled transport with no room');
+      if (LWrite.CallResult <> 1) or (LWrite.Failure <> '') then
+        raise Exception.Create('cancelled wait: the write did not end in ETlsWriteTimeout: ' +
+          LWrite.Failure);
+      if LWrite.EndedAt - LArmedAt < DUPLEX_TIMEOUT_MS - DUPLEX_TICK_SLACK_MS then
+        raise Exception.CreateFmt('cancelled wait: the write ended after %d ms, inside its ' +
+          'deadline', [LWrite.EndedAt - LArmedAt]);
+    finally
+      LWrite.Join;
+      LWrite.Free;
+    end;
+  finally
+    LTimed := nil;
+    TNetOs.Close(LHandle);
+  end;
+end;
+
 { TFclNetLoopbackExample }
 
 class function TFclNetLoopbackExample.VersionText(const AVersion: TTlsVersion): string;
@@ -3304,6 +4176,19 @@ begin
       TFailureCheck.RunFamilies;
       TTeardownCheck.RunClosed;
       TTeardownCheck.Run;
+      TDuplexTextCheck.RunConcurrent;
+      TDuplexTextCheck.RunHandoff;
+      TDuplexTextCheck.RunSingleThread;
+      TDuplexTextCheck.RunSocketError;
+      TDuplexCloseCheck.RunStuckSend;
+      TDuplexCloseCheck.RunLiveSend;
+      TDuplexCloseCheck.RunRecv;
+      TDuplexCloseCheck.RunShutdownMidSend;
+      TDuplexCloseCheck.RunFreedWithoutClose;
+      TDuplexCloseCheck.RunRefusedAfterClose;
+      TDuplexCloseCheck.RunAfterFailedRecv;
+      TDuplexCloseCheck.RunWriteTimeout;
+      TDuplexCloseCheck.RunCancelledWait;
     finally
       LServer.Terminate;
       LServer.Free;
@@ -3319,7 +4204,10 @@ begin
         ' + ALPN from the list or the slot' +
         ' + a write to a peer that never reads ended by its write deadline' +
         ' + memory faults not hidden, failures recorded by family, and a socket closed under a' +
-        ' blocked Recv without freeing the handler beneath it');
+        ' blocked Recv without freeing the handler beneath it' +
+        ' + a Recv and a Send on two threads each reading their own failure' +
+        ' + Close, Shutdown and a freed handler ending a Recv or Send in flight after the' +
+        ' close_notify, and a Send bounded by IOTimeout');
       Result := 0;
     end
     else

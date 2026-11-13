@@ -164,8 +164,9 @@ A stream or connection is full duplex: one thread may read while others write, c
 (`LConn.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested)` for a TLS 1.3 rekey,
 `LConn.ExportKeyingMaterial('EXPORTER-my-app', 32)` for an exporter). Do not call the engine
 directly while one wraps it. A closing send (`close_notify` or an alert) is bounded by the close
-grace, 5 s (`TTlsStream.DefaultCloseGraceMs`; `TTlsStream.Create` takes another value), and raises
-`ETlsWriteTimeout` when the socket will not take it.
+grace, 5 s (`TTlsStream.DefaultCloseGraceMs`; `TTlsConnection.CloseGraceMs` or `TTlsStream.Create`
+sets another value), and raises `ETlsWriteTimeout` when the socket will not take it.
+`LConn.Write(Buf[0], Count, 5000)` bounds an application write the same way.
 
 If you write your own `ITlsTimedTransport`, derive from `TTlsTimedTransportBase` and override
 `WaitWritable` (and `WaitReadable`) so the read and write deadlines are real. A class that

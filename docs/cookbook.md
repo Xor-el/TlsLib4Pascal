@@ -455,10 +455,15 @@ Finished is stored during the handshake, so follow the stricter rule. A callback
 another thread that uses the same stream.
 
 A closing send (close_notify or a fatal alert) is bounded on an `ITlsTimedTransport`, by the close
-grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`, which `TTlsConnection` uses; `TTlsStream.Create`
-takes another value, zero or less for unbounded), and raises `ETlsWriteTimeout` when the socket
-will not take it. A plain `ITlsTransport` cannot bound a send, so a closing send on it waits as long
-as the peer does not read.
+grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`; `TTlsStream.Create` takes another value, zero or
+less for unbounded, and `TTlsConnection.CloseGraceMs` sets it before `Handshake`), and raises
+`ETlsWriteTimeout` when the socket will not take it. A plain `ITlsTransport` cannot bound a send, so
+a closing send on it waits as long as the peer does not read.
+
+An application write can be bounded the same way: `TTlsConnection.Write(Buf[0], Count, 5000)` (or
+`TTlsStream.WriteTimed`) raises `ETlsWriteTimeout` when it has not finished in 5 s in total, and
+the connection is ended, as part of a record may be out. It needs an `ITlsTimedTransport`, and the
+deadline holds only for that write.
 
 ## Drive the raw sans-IO engine
 
