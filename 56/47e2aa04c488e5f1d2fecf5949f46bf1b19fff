@@ -1,0 +1,23 @@
+TlsLib.Adapters/mORMot/Examples/src/MormotResumptionScopeExample.pas
+  s_f2c9bd75607afc::t_bc0aa214f57a06 346
+  s_f2c9bd75607afc::t_c5337b32d3bb02 292-293
+  s_f2c9bd75607afc::t_253a0427e9903e 247,250-270,274
+  s_f2c9bd75607afc::t_e3a0cbef86084e 55-56,248-249
+  s_f2c9bd75607afc::t_e7231f09aa2159 333-335,337-340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5647e2aa04c488e5f1d2fecf5949f46bf1b19fff",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
