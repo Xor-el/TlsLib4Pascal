@@ -1,0 +1,37 @@
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_f2c9bd75607afc::t_0846cb753ae1f6 47,49,53,55-56,59
+  s_f2c9bd75607afc::t_3eaf3e49186284 370,374
+  s_f2c9bd75607afc::t_5a0c74f5a3379a 488,491-494
+  s_f2c9bd75607afc::t_76a4f186c45c87 347
+  s_f2c9bd75607afc::t_5fd648e374fba7 414,419-422
+  s_f2c9bd75607afc::t_81d009940c728e 58
+  s_f2c9bd75607afc::t_2809c49fb8fe6f 335
+  s_f2c9bd75607afc::t_083679a950f17d 372
+  s_f2c9bd75607afc::t_0011739d742cbf 97
+  s_f2c9bd75607afc::t_26dc50cbd4e705 392
+  s_f2c9bd75607afc::t_12c6d4d2a18cff 386
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_f2c9bd75607afc::t_d38523fa54babf 694-696
+  s_f2c9bd75607afc::t_0af78720d9d077 714-717
+  s_f2c9bd75607afc::t_641f9bc50a933c 730-732,734-746
+  s_f2c9bd75607afc::t_7b2a33df642b3e 681
+  s_f2c9bd75607afc::t_55aed74e7f09ab 64
+  s_f2c9bd75607afc::t_5b2fd33dcb5d74 632-662,664,669,672-674,686-687
+  s_f2c9bd75607afc::t_760599f775d7fb 704-706
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b01334d2a5a35859959051070d51ecb81b7fe895",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
