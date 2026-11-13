@@ -1,0 +1,137 @@
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_16450e8573b65a 113
+  s_f2c9bd75607afc::t_eb6bdd7bfece40 107
+  s_f2c9bd75607afc::t_d3f8443af6044a 164-167
+  s_f2c9bd75607afc::t_dfe951373d5ab3 172-173
+  s_f2c9bd75607afc::t_9eb97ec935f7b3 106
+TlsLib/src/Connection/TlpTlsStream.pas
+  s_f2c9bd75607afc::t_ce689bd4b5716e 182,185-187,522
+  s_f2c9bd75607afc::t_d7435957802218 493-494
+  s_f2c9bd75607afc::t_b22a28e761b5ff 521
+TlsLib.Tests/src/AsyncVerdictTests.pas
+  s_f2c9bd75607afc::t_75c8a2456e2471 1410
+  s_f2c9bd75607afc::t_0964e272d430da 1371
+TlsLib.Tests/src/NetSocketTests.pas
+  s_f2c9bd75607afc::t_9815210b3ed5ca 760-761,763-767,769-772,776,778,780
+  s_f2c9bd75607afc::t_1c29073aad82e1 804-806,808
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_f2c9bd75607afc::t_813a37fe14fa90 369,371-372
+  s_f2c9bd75607afc::t_3b27ec89afaf28 1255,1258
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_f2c9bd75607afc::t_85338886f0a5c1 203-208
+docs/cookbook.md
+  s_f2c9bd75607afc::t_5358c4ae1abafd 464-467
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_12536c3986593c 349-352
+  s_f2c9bd75607afc::t_4ac29570249c1f 1156-1160
+  s_f2c9bd75607afc::t_9d60fc9c918ad7 1136
+  s_f2c9bd75607afc::t_22f4f156daf1a4 1239,1241
+  s_f2c9bd75607afc::t_82f5d49a9ea148 1712-1715,1718-1720
+  s_f2c9bd75607afc::t_7aac1a1c86c961 246-248
+  s_f2c9bd75607afc::t_730ea71ba891ce 1224
+  s_f2c9bd75607afc::t_0d426320ed0e4d 300-301
+  s_f2c9bd75607afc::t_b2940b57c603e5 1204,1302,1340,1348,1652,1657,1701,1721,1727,1732,1744,1761,1765,1770
+  s_f2c9bd75607afc::t_1cccf485bb2002 302-309
+  s_f2c9bd75607afc::t_9987c70d3926cc 164-167
+  s_f2c9bd75607afc::t_b2e04be0e27f10 404-405
+  s_f2c9bd75607afc::t_5d434e87c62831 1323-1330,1337-1339
+  s_f2c9bd75607afc::t_eb980cbe23884d 1345-1347
+  s_f2c9bd75607afc::t_77e2fdd14fefdc 1205-1206
+  s_f2c9bd75607afc::t_1d407072c6e61c 1331-1336
+  s_f2c9bd75607afc::t_eca50250a15771 1711
+  s_f2c9bd75607afc::t_a14e9e4c789715 1716-1717
+  s_2f5051bba9d705::t_4983beeecca376 1254
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_f2c9bd75607afc::t_cdcd6cd726c5ac 1816
+  s_f2c9bd75607afc::t_10242a56747616 3467-3476
+  s_f2c9bd75607afc::t_3461a3eeac6030 3524
+  s_f2c9bd75607afc::t_a1fb0cedc9461f 1705,1910,1949,2023,2048,2069,2072,2103,2120,2141,2165,2246,2355,3528-3530
+  s_f2c9bd75607afc::t_6a7d5f11e80944 3382-3389
+  s_f2c9bd75607afc::t_6c18cff31f4c0f 3457
+  s_f2c9bd75607afc::t_81d8a3fcdd11bf 3515
+  s_f2c9bd75607afc::t_f921cc192a8590 332-333
+  s_f2c9bd75607afc::t_360c125895f664 3438-3445,3451-3456,3458-3466,3477-3514,3516-3523,3525-3527
+  s_f2c9bd75607afc::t_9df40a6c3e1942 3166
+  s_f2c9bd75607afc::t_e7cb94f0b20d0d 2614,2651,2698,3967,4313
+TlsLib.Adapters/Indy/README.md
+  s_f2c9bd75607afc::t_a1beecdc623f45 117-118
+TlsLib.Adapters/FclNet/Examples/src/FclNetLoopbackExample.pas
+  s_f2c9bd75607afc::t_fb6818261d3659 3474,3477
+  s_f2c9bd75607afc::t_5a2f5d64471446 3565
+  s_f2c9bd75607afc::t_91291bf45f8dcc 4335,4338-4339,4341-4345
+  s_f2c9bd75607afc::t_e064e3c6f0d574 4515
+  s_f2c9bd75607afc::t_c6d9218f99d4d5 4348
+  s_f2c9bd75607afc::t_7bb505f0d91a63 136-138
+  s_f2c9bd75607afc::t_8c8e35d921b879 3617,3626
+  s_f2c9bd75607afc::t_1726b1dbcc53e1 4296
+  s_f2c9bd75607afc::t_05128b67b80730 4043-4052
+  s_f2c9bd75607afc::t_dc8cb1e7661b2a 130,4276
+  s_f2c9bd75607afc::t_ae17ff256b8ad4 4381
+  s_f2c9bd75607afc::t_a26ef202927301 4384
+  s_f2c9bd75607afc::t_17bea14d38e03f 3495,3501-3508
+  s_f2c9bd75607afc::t_2f27370a27f991 3651-3657
+  s_f2c9bd75607afc::t_f5856a8cf131b1 4294
+  s_f2c9bd75607afc::t_7675671bad7bd4 760-833
+  s_f2c9bd75607afc::t_d0dd82ed619703 4475
+  s_f2c9bd75607afc::t_cceab001457d36 3500
+  s_f2c9bd75607afc::t_e60ceff4430535 4637
+  s_f2c9bd75607afc::t_3a7dc62e1abe74 4663
+  s_f2c9bd75607afc::t_ecfcc2fd3ca1fa 4430,4435-4447
+  s_f2c9bd75607afc::t_d1456d4b052ac6 4011,4308
+  s_f2c9bd75607afc::t_07647ba9c66fc7 28
+  s_f2c9bd75607afc::t_3935ca5f230ad6 671-672
+  s_f2c9bd75607afc::t_e81e2a59493ccb 4161
+  s_f2c9bd75607afc::t_62a69e96d5e18d 4333
+  s_f2c9bd75607afc::t_51ac2ac42aacb1 4322
+  s_f2c9bd75607afc::t_18399281e5d940 706
+  s_f2c9bd75607afc::t_eba161a6f65534 722
+  s_f2c9bd75607afc::t_5892f20c9a71cf 723
+  s_f2c9bd75607afc::t_dc04c1a05de8e0 4179,4221,4327
+  s_f2c9bd75607afc::t_cba18533273b3b 4409
+  s_f2c9bd75607afc::t_8aa801028a022e 737-738
+  s_f2c9bd75607afc::t_5f7bf5f294a611 4632-4634
+  s_f2c9bd75607afc::t_b9096caebabea8 4060
+  s_f2c9bd75607afc::t_ef4de1e4ececeb 839-841,849
+  s_f2c9bd75607afc::t_2587d790480d42 4215-4216,4218,4222-4224,4228-4229,4232-4238,4244-4256,4260,4262-4264,4266-4267,4269-4272,4274-4275
+  s_f2c9bd75607afc::t_7931e8bc6d2e1e 3683-3971
+  s_f2c9bd75607afc::t_a7b82053475230 3594
+  s_f2c9bd75607afc::t_29426d47c95f9a 4192
+  s_f2c9bd75607afc::t_0bddfacb4d829e 4370
+  s_f2c9bd75607afc::t_64038475ffc5c6 646-648,651-652
+  s_f2c9bd75607afc::t_ad3007b7c7d1b4 3649-3650
+  s_f2c9bd75607afc::t_8dbac6395d1770 4026
+  s_f2c9bd75607afc::t_f7343e3c95f6a7 4065
+  s_f2c9bd75607afc::t_e7ce222f4ca889 87
+  s_f2c9bd75607afc::t_276b438d2a14f4 3542-3544
+  s_f2c9bd75607afc::t_51e5d0cda9dfdf 4257-4259,4261,4265,4268,4273
+  s_f2c9bd75607afc::t_86f57090bc3d87 3606
+  s_f2c9bd75607afc::t_db1fda8c3773a9 4130,4132,4134-4142
+  s_f2c9bd75607afc::t_03b238347cc00e 4006,4202,4277,4352,4388,4478
+  s_f2c9bd75607afc::t_3fcab95bd10db1 4198,4240
+  s_f2c9bd75607afc::t_d760f406f480f3 4227
+  s_f2c9bd75607afc::t_ed0dd31ef5d63e 707,709-712
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b6fa01511014fc2da1e0204be2e99d28d155dbda",
+  "prompts": {},
+  "sessions": {
+    "s_2f5051bba9d705": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-af9e5f9dc831ffb4b",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
