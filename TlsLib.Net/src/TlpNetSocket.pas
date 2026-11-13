@@ -14,8 +14,8 @@ unit TlpNetSocket;
 { Reference ITcpConnector and ITcpListener over the OS socket calls, OUTSIDE the sans-IO core
   package like TlpSocketHttpFetcher. The sockets are IPv4. Every wait for a socket is made by the
   OS layer (poll on POSIX, select on Windows), so no descriptor number can overrun a select set
-  and no wait depends on a kernel socket timeout option. A send is not bounded: ITlsTransport.Write
-  blocks until the bytes are handed over. }
+  and no wait depends on a kernel socket timeout option. A send is not bounded unless a write
+  deadline is armed: ITlsTransport.Write blocks until the bytes are handed over. }
 
 {$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
@@ -109,6 +109,7 @@ type
     FHandle: TNetHandle;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -152,6 +153,11 @@ end;
 function TTcpStream.WaitReadable(AMs: Int32): Boolean;
 begin
   Result := TNetOs.Wait(FHandle, TNetWait.Readable, AMs);
+end;
+
+function TTcpStream.WaitWritable(AMs: Int32): Boolean;
+begin
+  Result := TNetOs.Wait(FHandle, TNetWait.Writable, AMs);
 end;
 
 function TTcpStream.ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;

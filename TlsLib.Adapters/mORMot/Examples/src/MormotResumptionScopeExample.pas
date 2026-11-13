@@ -48,7 +48,7 @@ uses
   TlsLibMormotTls;
 
 const
-  PORT = '28451';
+  PORT = '28479';
   HOST = '127.0.0.1';
   PINGHEX = '70696e672066726f6d20746865206d6f724d6f7420636c69656e74';
   LEGS = 4; // the reject leg still opens a TCP connection, so the server accepts all four

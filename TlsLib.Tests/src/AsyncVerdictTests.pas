@@ -40,6 +40,7 @@ uses
   TlpTrustPolicy,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
+  TlpITlsEngineInbound,
   TlpTlsEngineFactory,
   TlpIClock,
   TlpClock,
@@ -1348,7 +1349,8 @@ var
   LClient, LServer: ITlsEngine;
   LRead: TMemoryPipe;
   LTransport: ITlsTransport;
-  LTransportBuffer: TBytes;
+  LPump: TTlsStreamPump;
+  LByte: TBytes;
   LAlert: TTlsAlertDescription;
   LFailed: Boolean;
 begin
@@ -1358,13 +1360,15 @@ begin
   LRead := TMemoryPipe.Create;
   try
     LTransport := TMemoryTransport.Create(LRead, TMemoryPipe.Create);
+    LPump := Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LTransport, 0));
     LClient.SendAlert(TTlsAlertDescription.HandshakeFailure);
     // a write on an engine that already recorded a fatal alert reports that alert, not a generic
     // closed-write error
     LFailed := False;
     LAlert := TTlsAlertDescription.CloseNotify;
+    LByte := DecodeHex('01');
     try
-      TTlsStreamPump.WriteApp(LClient, LTransport, LTransportBuffer, DecodeHex('01'), 0, 1);
+      LPump.WriteApp(LByte[0], 1, 0);
     except
       on E: ETlsStreamError do
       begin
@@ -1387,7 +1391,7 @@ var
   LClient, LServer: ITlsEngine;
   LRead: TMemoryPipe;
   LTransport: ITlsTransport;
-  LTransportBuffer: TBytes;
+  LByte: TBytes;
   LMessage: string;
   LForce12: Boolean;
 begin
@@ -1401,8 +1405,9 @@ begin
   try
     LTransport := TMemoryTransport.Create(LRead, TMemoryPipe.Create);
     LMessage := '';
+    LByte := DecodeHex('01');
     try
-      TTlsStreamPump.WriteApp(LServer, LTransport, LTransportBuffer, DecodeHex('01'), 0, 1);
+      Own<TTlsStreamPump>(TTlsStreamPump.Create(LServer, LTransport, 0)).WriteApp(LByte[0], 1, 0);
     except
       on E: ETlsStreamError do
         LMessage := E.Message;
@@ -1420,7 +1425,7 @@ var
   LClient, LServer: ITlsEngine;
   LRead, LWrite: TMemoryPipe;
   LTransport: ITlsTransport;
-  LWire, LTransportBuffer: TBytes;
+  LWire: TBytes;
   LGot: Int32;
 begin
   LClient := NewClient(ClientConfig(False, 0), 'localhost', LServer);
@@ -1432,7 +1437,7 @@ begin
     LTransport := TMemoryTransport.Create(LRead, LWrite);
     // a host that refuses the peer once the handshake finished sends bad_certificate, not a clean
     // close
-    TTlsStreamPump.Abort(LClient, LTransport, LTransportBuffer,
+    Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LTransport, 0)).Abort(
       TTlsAlertDescription.BadCertificate);
     CheckTrue(LClient.IsTerminal, 'the engine is terminal');
     LWire := nil;
@@ -1465,7 +1470,7 @@ begin
   // the server sends a fatal alert; the shared classifier reports it and never raises
   LServer.SendAlert(TTlsAlertDescription.HandshakeFailure);
   PumpOneWay(LServer, LClient);
-  CheckTrue(TTlsStreamPump.DrainEvents(LClient, LAlert, LClosed, LCert),
+  CheckTrue(TTlsStreamPump.DrainEvents(LClient as ITlsEngineInbound, LAlert, LClosed, LCert),
     'a peer fatal alert is a terminal event');
   CheckTrue(LAlert <> nil, 'the peer alert is reported, not raised');
   CheckFalse(LClosed, 'a fatal alert is not a clean close');
@@ -1487,7 +1492,7 @@ begin
   CheckFalse(LClient.IsHandshaking, 'the handshake completes');
   LServer.SendClose;
   PumpOneWay(LServer, LClient);
-  CheckTrue(TTlsStreamPump.DrainEvents(LClient, LAlert, LClosed, LCert),
+  CheckTrue(TTlsStreamPump.DrainEvents(LClient as ITlsEngineInbound, LAlert, LClosed, LCert),
     'a peer close_notify is a terminal event');
   CheckTrue(LAlert = nil, 'a clean close is not a peer alert');
   CheckTrue(LClosed, 'the peer close_notify is reported');

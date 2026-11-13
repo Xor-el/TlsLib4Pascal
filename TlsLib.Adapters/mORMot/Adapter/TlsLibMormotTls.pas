@@ -107,7 +107,8 @@ procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
 procedure SetTlsLibMormotBundleAnchors(ARule: TBundleAnchorRule);
 /// <summary>Sets the process-wide time budget (ms) for every whole handshake, so a peer that
 /// connects but sends no data cannot park the connection's thread. Deliberately NOT an app-read
-/// deadline. 0 (the default) uses the 30 s library default; a positive value overrides it.</summary>
+/// deadline. Zero or less (the default) uses the 30 s library default; a positive value
+/// overrides it.</summary>
 procedure SetTlsLibMormotHandshakeTimeout(AMs: Int32);
 /// <summary>Clears the process-wide build-once config caches so the next handshake rebuilds from
 /// current inputs. Call after rotating a certificate/key to purge the retired credential (a cached
@@ -119,13 +120,15 @@ type
   /// blocking Recv/Send, and the handshake-phase read cap comes from the shared timed-transport
   /// base. nrClosed is an orderly EOF (0). nrRetry under the handshake cap is read again (the base
   /// already bounded the wait); with no cap it is the socket's own receive timeout on an idle peer
-  /// and surfaces as the retryable ETlsReadTimeout. A send that stays blocked is bounded too.</summary>
+  /// and surfaces as the retryable ETlsReadTimeout. A send that stays blocked is bounded by the
+  /// write deadline when one is armed, and by 30 s otherwise.</summary>
   TMormotSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
     FSocket: TNetSocket;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -227,6 +230,8 @@ const
   // how long a blocked send waits for the peer to drain its receive window before the
   // connection is given up as dead; a peer that reads at all drains far sooner
   SendWaitMs = Int32(30000);
+  // WSAETIMEDOUT; no POSIX errno has this value
+  WinsockTimedOut = 10060;
 
 resourcestring
   SCARawUnsupported = 'the mORMot TLS context supplies CACertificatesRaw (in-memory OpenSSL ' +
@@ -338,6 +343,12 @@ begin
   Result := neRead in FSocket.WaitFor(AMs, [neRead]);
 end;
 
+function TMormotSocketTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  // an error or hang-up counts as ready, so the send reports it
+  Result := FSocket.WaitFor(AMs, [neWrite, neError]) <> [];
+end;
+
 function TMormotSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 var
@@ -374,20 +385,31 @@ end;
 function TMormotSocketTransport.SendRaw(const ABuffer: TBytes; AOffset,
   ALength: Int32): Int32;
 var
-  LLen: Integer;
+  LLen, LRawError, LWaitError: Integer;
+  LWaitMs: Int32;
   LRes: TNetResult;
 begin
   repeat
     LLen := ALength;
-    LRes := FSocket.Send(@ABuffer[AOffset], LLen);
+    LRes := FSocket.Send(@ABuffer[AOffset], LLen, @LRawError);
     case LRes of
       nrOK:
         Exit(LLen);
       nrRetry:
-        // the send buffer is full because the peer stopped reading: wait for writability with a
-        // bound so a dead peer surfaces instead of an unbounded retry loop
-        if not (neWrite in FSocket.WaitFor(SendWaitMs, [neWrite])) then
-          raise ETlsStreamError.CreateRes(@SMormotSendTimedOut);
+      begin
+        // a Winsock send timeout leaves the socket state indeterminate: resending could repeat bytes
+        if LRawError = WinsockTimedOut then
+          raise ETlsStreamError.CreateResFmt(@SMormotSendFailed, [Ord(LRes)]);
+        // the peer stopped reading: wait, bounded by the write deadline and SendWaitMs
+        LWaitMs := WriteWaitMs(SendWaitMs);
+        if (FSocket.WaitFor(LWaitMs, [neWrite, neError], @LWaitError) = []) and
+          (LWaitError = 0) then
+        begin
+          CheckWriteCap;
+          if LWaitMs = SendWaitMs then
+            raise ETlsStreamError.CreateRes(@SMormotSendTimedOut);
+        end;
+      end;
     else
       raise ETlsStreamError.CreateResFmt(@SMormotSendFailed, [Ord(LRes)]);
     end;

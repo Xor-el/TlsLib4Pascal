@@ -43,7 +43,8 @@ done
 source "$HERE/../shared/common.sh"
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"; kill $(jobs -p) 2>/dev/null || true' EXIT
+# command -p: the system rm; a toolchain rm on PATH cannot delete the MSYS fifo stand-ins
+trap 'kill $(jobs -p) 2>/dev/null || true; command -p rm -rf "$TMP"' EXIT
 
 # hex text on stdin to raw bytes on stdout; xxd is not installed on every OS
 unhex() {
@@ -61,7 +62,7 @@ unhex() {
 }
 
 # the cells connect over IPv4, and a bare -accept listens on IPv6 only on some systems
-ossl_server() { "$OPENSSL" s_server -4 "$@"; }
+ossl_server() { exec "$OPENSSL" s_server -4 "$@"; }
 
 reap_cell() { # a peer stuck in accept must not outlive its cell
   local _
@@ -624,6 +625,152 @@ if [ "$COMP_OK" -eq 1 ]; then
   reap_cell
 else
   echo "=== cells C1-C2 (certificate compression): SKIPPED (openssl without trace or compression, 2 cells) ==="
+fi
+
+# --- TLS 1.2 renegotiation cells: a HelloRequest to our client, a renegotiation ClientHello to our server ---
+# s_server's stdin is a command channel: a lone 'r' sends a HelloRequest and any other line goes out as
+# application data, so relayed lines start with hr- (a leading q Q r R P S k K c would run as a command).
+# Its -msg trace is flushed per message, so each command waits for its effect in the trace.
+# A native Windows openssl cannot poll stdin, so there the cells use Git's MSYS build, which can.
+RENEG_OPENSSL="$OPENSSL"
+RENEG_SKIP=""
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    RENEG_OPENSSL=/usr/bin/openssl
+    if [ ! -x "$RENEG_OPENSSL" ]; then
+      RENEG_SKIP="no MSYS openssl"
+    elif ! "$RENEG_OPENSSL" version -a 2>/dev/null | grep -qi '^platform: *\(msys\|cygwin\)'; then
+      RENEG_SKIP="$RENEG_OPENSSL is not an MSYS build"
+    else
+      case "$("$RENEG_OPENSSL" version 2>/dev/null)" in
+        OpenSSL\ [3-9].* | OpenSSL\ [1-9][0-9].*) : ;;
+        *) RENEG_SKIP="$RENEG_OPENSSL is older than 3.x" ;;
+      esac
+    fi ;;
+esac
+RENEG_HELLO_REQUEST='>>> TLS 1.2, Handshake .*HelloRequest'
+RENEG_CLIENT_HELLO_IN='<<< .*Handshake .*ClientHello'
+
+# the number of lines of a log that match a pattern
+reneg_count() { # <log> <pattern>
+  grep -c -- "$2" "$1" || true
+}
+
+# waits until a log holds <count> matching lines; fails when the process dies or the wait runs out
+reneg_await() { # <log> <pattern> <count> <pid>
+  local _
+  for _ in $(seq 1 200); do
+    [ "$(reneg_count "$1" "$2")" -ge "$3" ] && return 0
+    kill -0 "$4" 2>/dev/null || { [ "$(reneg_count "$1" "$2")" -ge "$3" ]; return; }
+    sleep 0.05
+  done
+  return 1
+}
+
+# the driver's first line, then the HelloRequests one at a time, then the relayed line
+reneg_send_commands() { # <s_server log> <driver pid> <hello-requests> <line relayed afterwards or empty>
+  local i
+  reneg_await "$1" 'hr-ping' 1 "$2" || return 1
+  for i in $(seq 1 "$3"); do
+    echo r >&3
+    reneg_await "$1" "$RENEG_HELLO_REQUEST" "$i" "$2" || return 1
+  done
+  [ -z "$4" ] || echo "$4" >&3
+}
+
+reneg_client_cell() { # <cell> <port> <hello-requests> <line relayed afterwards or empty> <driver args...>
+  local cell="$1" port="$2" count="$3" relay="$4" driver_pid
+  shift 4
+  mkfifo "$TMP/$cell.in"
+  exec 3<>"$TMP/$cell.in"
+  "$RENEG_OPENSSL" s_server -4 -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 -msg \
+    -accept "$port" -naccept 1 <&3 3>&- > "$TMP/s$cell.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s$cell.log" && break; sleep 0.1; done
+  ci_run_bounded 30 "$DRIVER" --role client --port "$port" --host localhost --ca "$TMP/srv_cert.pem" \
+    --message hr-ping --data-dir "$DATA_DIR" "$@" 3>&- > "$TMP/c$cell.out" 2>&1 &
+  driver_pid=$!
+  reneg_send_commands "$TMP/s$cell.log" "$driver_pid" "$count" "$relay" || kill "$driver_pid" 2>/dev/null || true
+  RENEG_RC=0
+  wait "$driver_pid" || RENEG_RC=$?
+  exec 3>&-
+  reap_cell
+}
+
+# the HelloRequests were ignored: the reply arrived, one ClientHello, no alert but close_notify
+reneg_ignored() { # <cell> <hello-requests>
+  local log="$TMP/s$1.log" stray
+  stray="$(grep '<<< TLS 1.2, Alert' "$log" | grep -v 'warning close_notify' || true)"
+  [ "$RENEG_RC" -eq 0 ] && grep -q '^hr-reply' "$log" && [ -z "$stray" ] \
+    && [ "$(reneg_count "$log" "$RENEG_HELLO_REQUEST")" -eq "$2" ] \
+    && [ "$(reneg_count "$log" "$RENEG_CLIENT_HELLO_IN")" -eq 1 ]
+}
+
+if [ -z "$RENEG_SKIP" ]; then
+  TOTAL=$((TOTAL+4))
+  echo "renegotiation cells use: $RENEG_OPENSSL"
+  "$RENEG_OPENSSL" version -a
+
+  # --- Cell R1: our client  ->  openssl s_server sending one HelloRequest ---
+  echo "=== cell R1: our client ignores a HelloRequest  ->  openssl s_server (TLS 1.2) ==="
+  PR1=14540
+  reneg_client_cell R1 $PR1 1 hr-after --await-line hr-after --reply hr-reply
+  if reneg_ignored R1 1; then
+    echo "  PASS: the HelloRequest was ignored (no alert) and the connection carried data both ways"
+  else
+    echo "  FAIL: cell R1"; cat "$TMP/sR1.log" "$TMP/cR1.out"; FAILURES=$((FAILURES+1))
+  fi
+
+  # --- Cell R2: 32 HelloRequests in a row, the most our client accepts ---
+  echo "=== cell R2: our client  ->  openssl s_server sending 32 HelloRequests (TLS 1.2) ==="
+  PR2=14541
+  reneg_client_cell R2 $PR2 32 hr-after --await-line hr-after --reply hr-reply
+  if reneg_ignored R2 32; then
+    echo "  PASS: 32 HelloRequests were ignored and the connection carried data both ways"
+  else
+    echo "  FAIL: cell R2"; cat "$TMP/sR2.log" "$TMP/cR2.out"; FAILURES=$((FAILURES+1))
+  fi
+
+  # --- Cell R3: a 33rd HelloRequest in a row ends the connection ---
+  echo "=== cell R3: our client  ->  openssl s_server sending 33 HelloRequests (TLS 1.2) ==="
+  PR3=14542
+  reneg_client_cell R3 $PR3 33 "" --expect-read-alert 10
+  if [ "$RENEG_RC" -eq 0 ] && [ "$(reneg_count "$TMP/sR3.log" "$RENEG_HELLO_REQUEST")" -eq 33 ] \
+     && grep -q '<<< TLS 1.2, Alert \[length 0002\], fatal unexpected_message' "$TMP/sR3.log"; then
+    echo "  PASS: the 33rd HelloRequest in a row ended the connection with fatal unexpected_message"
+  else
+    echo "  FAIL: cell R3"; cat "$TMP/sR3.log" "$TMP/cR3.out"; FAILURES=$((FAILURES+1))
+  fi
+
+  # --- Cell R4: our server  <-  openssl s_client renegotiating ---
+  echo "=== cell R4: our server  <-  openssl s_client renegotiating (TLS 1.2) ==="
+  PR4=14543
+  "$DRIVER" --role server --port $PR4 --data-dir "$DATA_DIR" > "$TMP/sR4.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sR4.log" && break; sleep 0.1; done
+  # 'R' makes s_client start a renegotiation; RENEGOTIATING on its output proves it did
+  RENEG_ALERT='<<< TLS 1.2, Alert \[length 0002\], fatal no_renegotiation'
+  mkfifo "$TMP/R4.in"
+  ci_run_bounded 60 "$RENEG_OPENSSL" s_client -connect 127.0.0.1:$PR4 -tls1_2 -msg \
+       -CAfile "$TMP/root.pem" -servername localhost -verify_hostname localhost -verify_return_error \
+       < "$TMP/R4.in" > "$TMP/cR4.out" 2>"$TMP/cR4.err" &
+  RENEG_PID=$!
+  exec 3>"$TMP/R4.in"
+  echo hr-ping >&3
+  if reneg_await "$TMP/cR4.out" '^hr-ping' 1 "$RENEG_PID"; then
+    echo R >&3
+    reneg_await "$TMP/cR4.out" "$RENEG_ALERT" 1 "$RENEG_PID" || true
+  fi
+  exec 3>&-
+  wait "$RENEG_PID" || true
+  if grep -q '^hr-ping' "$TMP/cR4.out" && grep -q 'RENEGOTIATING' "$TMP/cR4.out" "$TMP/cR4.err" \
+     && [ "$(reneg_count "$TMP/cR4.out" '>>> .*ClientHello')" -eq 2 ] \
+     && grep -q "$RENEG_ALERT" "$TMP/cR4.out"; then
+    echo "  PASS: our server answered the renegotiation ClientHello with fatal no_renegotiation"
+  else
+    echo "  FAIL: cell R4"; cat "$TMP/sR4.log" "$TMP/cR4.err" "$TMP/cR4.out"; FAILURES=$((FAILURES+1))
+  fi
+  reap_cell
+else
+  echo "=== cells R1-R4 (TLS 1.2 renegotiation): SKIPPED ($RENEG_SKIP, 4 cells) ==="
 fi
 
 echo "=== openssl matrix: $((TOTAL-FAILURES))/$TOTAL cells passed ==="

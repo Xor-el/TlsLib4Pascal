@@ -29,6 +29,7 @@ uses
   SysUtils,
   SyncObjs,
   IdGlobal,
+  IdStack,
   IdSSL,
   IdURI,
   IdStackConsts,
@@ -208,8 +209,8 @@ type
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption default True;
     /// <summary>The time budget (ms) for the whole server/client handshake, so a peer that
     /// connects but sends no data cannot park the connection's thread. Deliberately NOT
-    /// IOHandler.ReadTimeout (that is an app-read deadline). 0 (default) uses the 30 s library
-    /// default; set a positive value to override.</summary>
+    /// IOHandler.ReadTimeout (that is an app-read deadline). Zero or less (default) uses the 30 s
+    /// library default; set a positive value to override.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
     /// <summary>The cipher suites to offer and accept, in preference order: exact IANA or OpenSSL
     /// names separated by ':', ',' or spaces (see THostCipherList). It narrows and reorders this
@@ -227,12 +228,16 @@ type
   strict private
   var
     FBinding: TIdSocketHandle;
+    FWriteSet: TIdSocketList; // touched only by the send side
+    function SelectWritable(AMs: Int32): Boolean;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
     constructor Create(ABinding: TIdSocketHandle);
+    destructor Destroy; override;
   end;
 
   /// <summary>
@@ -459,11 +464,38 @@ constructor TIndySocketTransport.Create(ABinding: TIdSocketHandle);
 begin
   inherited Create;
   FBinding := ABinding;
+  FWriteSet := TIdSocketList.CreateSocketList;
+end;
+
+destructor TIndySocketTransport.Destroy;
+begin
+  FWriteSet.Free;
+  inherited Destroy;
 end;
 
 function TIndySocketTransport.WaitReadable(AMs: Int32): Boolean;
 begin
   Result := FBinding.Readable(AMs);
+end;
+
+function TIndySocketTransport.SelectWritable(AMs: Int32): Boolean;
+begin
+  FWriteSet.Clear;
+  FWriteSet.Add(FBinding.Handle);
+  Result := FWriteSet.Select(nil, FWriteSet, nil, AMs);
+end;
+
+function TIndySocketTransport.WaitWritable(AMs: Int32): Boolean;
+begin
+  // errors count as ready; Indy reads an interrupted select as ready too, so a yes is confirmed
+  if not FBinding.HandleAllocated then
+    Exit(True);
+  try
+    Result := SelectWritable(AMs) and SelectWritable(0);
+  except
+    on EIdSocketError do
+      Result := True;
+  end;
 end;
 
 function TIndySocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
@@ -603,7 +635,8 @@ begin
   if FConnection <> nil then
     Exit; // fast path: handshake already run
   // the deferred handshake can be first reached from RecvEnc, SendEnc or Readable on different
-  // threads; serialize so it runs exactly once. After it, a connection is single-threaded
+  // threads; serialize so it runs exactly once. After it, one thread may read while another
+  // writes; two readers or two writers must serialize
   FHandshakeLock.Enter;
   try
     if FConnection <> nil then

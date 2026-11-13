@@ -318,16 +318,12 @@ begin
   try
     LDriver.Apply(THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
     LDriver.Apply(THandshakeEffects.HandshakeEstablished);
-    LDriver.Apply(THandshakeEffects.SendWarningAlert(TTlsAlertDescription.NoRenegotiation));
     LDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.DecodeError, SProbeReason));
     LDriver.Apply(THandshakeEffects.SendChangeCipherSpec);
 
     CheckEquals(1, LSink.EventCount, 'one event raised');
     CheckEquals(Ord(TTlsEventKind.SessionTicketReceived), Ord(LSink.LastEvent), 'the event');
     CheckTrue(LSink.Established, 'handshake established');
-    CheckTrue(LSink.Warned, 'warning alert reported');
-    CheckEquals(Ord(TTlsAlertDescription.NoRenegotiation), Ord(LSink.WarnedAlert),
-      'warning alert code');
     CheckTrue(LSink.Failed, 'failure reported');
     CheckEquals(Ord(TTlsAlertDescription.DecodeError), Ord(LSink.FailedAlert), 'alert');
     // the CCS effect reached the record layer

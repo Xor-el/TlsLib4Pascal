@@ -1702,9 +1702,7 @@ begin
       '-no-tls1', '-no-tls11', '-no-legacy-server-connect',
       '-use-old-client-cert-callback', '-use-early-callback', '-no-op-extra-handshake',
       '-allow-hint-mismatch', '-on-resume-allow-hint-mismatch', '-install-ddos-callback',
-      // this shim never renegotiates: it answers a renegotiation request with a warning
-      // no_renegotiation and continues. The runner drops that warning, so its expectation for
-      // both flags (ignore-and-continue, or forbid-after-handshake) is satisfied regardless
+      // never renegotiates (ignores a HelloRequest, refuses a ClientHello); see the disable ledger
       '-renegotiate-ignore', '-forbid-renegotiation-after-handshake']) then
     begin
       // accepted no-op

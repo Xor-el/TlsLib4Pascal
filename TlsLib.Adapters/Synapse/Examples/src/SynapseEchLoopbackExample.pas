@@ -59,7 +59,7 @@ uses
   TlsLibSynapseTls;
 
 const
-  PORT = '28455';
+  PORT = '28482';
   CRLF = #13#10;
   PING = 'ping from the synapse ech client';
   PUBLIC_NAME = 'cover.example';

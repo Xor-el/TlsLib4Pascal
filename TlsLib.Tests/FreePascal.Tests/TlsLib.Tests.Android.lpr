@@ -67,6 +67,7 @@ uses
   Tls13LoopbackTests,
   Tls12LoopbackTests,
   TlsStreamLoopbackTests,
+  DuplexStressTests,
   Tls12ResumptionTests,
   ConfigResumptionTests,
   Tls13KeyUpdateTests,

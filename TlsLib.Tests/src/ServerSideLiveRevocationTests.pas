@@ -226,10 +226,7 @@ var
   LServerTransport: TMemoryTransport;
   LServerStream: TTlsStream;
 begin
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  AClientTransport := TMemoryTransport.Create(LS2C, LC2S);
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  TMemoryTransport.CreatePair(AClientTransport, LServerTransport, LC2S, LS2C);
   AClient := TTlsStream.Create(AClientTransport as ITlsTransport,
     TTlsEngineFactory.CreateClientEngine(AClientConfig, 'localhost'), True, 'localhost');
   LServerStream := TTlsStream.Create(LServerTransport as ITlsTransport,

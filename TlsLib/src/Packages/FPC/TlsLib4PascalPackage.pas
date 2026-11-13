@@ -59,7 +59,7 @@ uses
   TlpPosixDynamicLibrary, TlpAlpnProtocols, TlpPkcs12Identity, 
   TlpITlsServerCredentialSet, TlpTls12PrfLabels, TlpClientPskPath, 
   TlpILayeredTrustAnchorStore, TlpIIssuerLookup, TlpIssuerResolution, 
-  TlpIssuerLookupVerifierSource;
+  TlpIssuerLookupVerifierSource, TlpITlsEngineInbound, TlpITlsEngineOutbound;
 
 implementation
 

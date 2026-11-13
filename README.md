@@ -124,7 +124,7 @@ CPU-adaptive AEAD selection (ChaCha20-Poly1305 preferred where hardware AES is a
 <details>
 <summary><strong>Security invariants</strong></summary>
 
-Bounds-checked no-over-read parser · constant-time secret comparison · AEAD nonce non-reuse + usage limits · certificate decompression caps · peer key-share validation · full secret zeroization · DoS resource limits · single-threaded-per-connection model. Each is a stated, tested contract -- see the [security model](docs/security-model.md).
+Bounds-checked no-over-read parser · constant-time secret comparison · AEAD nonce non-reuse + usage limits · certificate decompression caps · peer key-share validation · full secret zeroization · DoS resource limits · full-duplex locking model (single-threaded raw engine). Each is a stated, tested contract -- see the [security model](docs/security-model.md).
 
 </details>
 

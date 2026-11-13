@@ -124,6 +124,8 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 
 ## Notes
 
+- A Synapse socket is used from one thread at a time: `TTCPBlockSocket` shares its error, status
+  and counter state between sending and receiving, so the plugin cannot make it full duplex.
 - The transport reads/writes the raw socket handle via `synsock`, bypassing `TTCPBlockSocket`'s
   own SSL-aware buffered methods (which would otherwise recurse once `SSLEnabled` is set).
 - `WaitingData` reports our buffered plaintext count (the `SSL_pending` analogue).

@@ -85,14 +85,17 @@ type
   /// <summary>An ITlsTransport over a Synapse block socket: raw ciphertext moves through synsock
   /// Recv/Send on the socket handle, bypassing TTCPBlockSocket's SSL-aware buffered methods
   /// (which would otherwise recurse back into this plugin once SSLEnabled is set). The
-  /// handshake-phase read cap comes from the shared timed-transport base; readiness is polled with
-  /// CanRead so no socket option (which Synapse cannot read back to restore) is touched.</summary>
+  /// handshake-phase read cap comes from the shared timed-transport base; read readiness is polled
+  /// with CanRead so no socket option (which Synapse cannot read back to restore) is touched, and
+  /// write readiness with a select on a private set, so the send side touches no block socket
+  /// state.</summary>
   TSynapseSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
     FSocket: TTCPBlockSocket;
   strict protected
     function WaitReadable(AMs: Int32): Boolean; override;
+    function WaitWritable(AMs: Int32): Boolean; override;
     function ReceiveRaw(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32; override;
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
@@ -246,9 +249,9 @@ type
     /// 0-RTT is never enabled. Default True; cast Sock.SSL to TSSLTlsLib to set it False.</summary>
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption;
     /// <summary>The time budget (ms) for the whole handshake, so a peer that connects but sends no
-    /// data cannot park the connection's thread. Deliberately NOT an app-read deadline. 0 (the
-    /// default) uses the 30 s library default; a positive value overrides it. Cast Sock.SSL to
-    /// TSSLTlsLib to set it.</summary>
+    /// data cannot park the connection's thread. Deliberately NOT an app-read deadline. Zero or
+    /// less (the default) uses the 30 s library default; a positive value overrides it. Cast
+    /// Sock.SSL to TSSLTlsLib to set it.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
     /// <summary>The time budget (ms) for one RecvBuffer call to deliver application data. Synapse's
     /// own timeouts only wait for the first byte, so without this a peer that sends part of a
@@ -318,6 +321,25 @@ end;
 function TSynapseSocketTransport.WaitReadable(AMs: Int32): Boolean;
 begin
   Result := FSocket.CanRead(AMs);
+end;
+
+function TSynapseSocketTransport.WaitWritable(AMs: Int32): Boolean;
+var
+  LWriteSet: TFDSet;
+  LTime: TTimeVal;
+  LReady: Integer;
+begin
+  // not CanWrite: it writes block socket state that the read side shares
+  FD_ZERO(LWriteSet);
+  FD_SET(FSocket.Socket, LWriteSet);
+  LTime.tv_sec := AMs div 1000;
+  LTime.tv_usec := (AMs mod 1000) * 1000;
+  LReady := synsock.Select(FSocket.Socket + 1, nil, @LWriteSet, nil, @LTime);
+  // a failed select counts as ready; an interrupted one does not
+  if LReady < 0 then
+    Result := synsock.WSAGetLastError <> WSAEINTR
+  else
+    Result := LReady > 0;
 end;
 
 function TSynapseSocketTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,

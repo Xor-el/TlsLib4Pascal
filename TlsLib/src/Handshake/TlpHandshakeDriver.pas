@@ -53,8 +53,6 @@ type
     // resolved once from the sink; nil when the sink does not track connection info
     FConnectionInfoSink: IHandshakeConnectionInfoSink;
     FEchStatusSink: IEchStatusSink;
-    // resolved once from the sink; nil when the sink does not handle warning alerts
-    FWarningAlertSink: IWarningAlertSink;
     procedure ApplyInstallKeys(const AEffect: THandshakeEffect);
   public
     constructor Create(const AChannel: IHandshakeChannel;
@@ -89,8 +87,6 @@ begin
     FConnectionInfoSink := nil;
   if not Supports(ASink, IEchStatusSink, FEchStatusSink) then
     FEchStatusSink := nil;
-  if not Supports(ASink, IWarningAlertSink, FWarningAlertSink) then
-    FWarningAlertSink := nil;
 end;
 
 procedure THandshakeDriver.ApplyInstallKeys(const AEffect: THandshakeEffect);
@@ -191,11 +187,6 @@ begin
         FEchStatusSink.OnEchRejected(AEffect.RetryConfigs, AEffect.IsRetry)
       else
         FSink.OnHandshakeFailed(TTlsAlertDescription.EchRequired, SEchRejected);
-    THandshakeEffectKind.SendWarningAlert:
-      // a sink that does not handle warning alerts never sees this effect; only the engine
-      // bridge does, and it writes the alert under the current epoch and stays live
-      if FWarningAlertSink <> nil then
-        FWarningAlertSink.OnWarningAlert(AEffect.Alert);
     THandshakeEffectKind.Fail:
       FSink.OnHandshakeFailed(AEffect.Alert, AEffect.Reason);
   end;

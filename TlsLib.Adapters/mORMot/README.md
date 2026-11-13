@@ -122,6 +122,8 @@ refused.
 
 ## Notes
 
+- A `TCrtSocket` is used from one thread at a time: a failed or ended read closes it on the reading
+  thread, which frees the TLS layer and the socket under a concurrent writer.
 - `GetRawTls` returns `nil`: TlsLib4Pascal is a managed engine with no `PSSL`/OpenSSL handle to
   hand back. `GetRawCert` returns the peer leaf DER (for mORMot's cert pinning / peer info), but
   not the signature-hash name, so TLS channel binding that needs it stays inert. On a resumed

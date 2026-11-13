@@ -19,6 +19,7 @@ interface
 
 uses
   SysUtils,
+  Classes,
   TlpArrayUtilities,
   TlpISecretBuffer,
   TlpSecretBuffer,
@@ -151,7 +152,59 @@ type
     function KeyNameLength: Int32;
   end;
 
+  /// <summary>A session cache whose Take raises, failing a resuming client's StartHandshake.</summary>
+  TFailingSessionCache = class sealed(TInterfacedObject, ISessionCache)
+  public
+    procedure Store(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    procedure Remove(const AServerIdentity, AServerName: string;
+      const ASession: IResumableSession);
+    function Take(const AServerIdentity, AServerName: string; ANowMillis: UInt64;
+      out ASession: IResumableSession): Boolean;
+    procedure SetKxHint(const AServerIdentity, AServerName: string; AGroup: UInt16);
+    function KxHint(const AServerIdentity, AServerName: string): UInt16;
+    procedure Clear;
+    function Count: Int32;
+  end;
+
 implementation
+
+{ TFailingSessionCache }
+
+procedure TFailingSessionCache.Store(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+end;
+
+procedure TFailingSessionCache.Remove(const AServerIdentity, AServerName: string;
+  const ASession: IResumableSession);
+begin
+end;
+
+function TFailingSessionCache.Take(const AServerIdentity, AServerName: string;
+  ANowMillis: UInt64; out ASession: IResumableSession): Boolean;
+begin
+  raise EInvalidOperation.Create('the session cache failed');
+end;
+
+procedure TFailingSessionCache.SetKxHint(const AServerIdentity, AServerName: string;
+  AGroup: UInt16);
+begin
+end;
+
+function TFailingSessionCache.KxHint(const AServerIdentity, AServerName: string): UInt16;
+begin
+  Result := 0;
+end;
+
+procedure TFailingSessionCache.Clear;
+begin
+end;
+
+function TFailingSessionCache.Count: Int32;
+begin
+  Result := 0;
+end;
 
 { TFlakyRemoveSessionCache }
 

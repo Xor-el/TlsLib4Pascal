@@ -27,8 +27,9 @@ uses
 type
   /// <summary>
   /// The result of feeding bytes to the engine: it made progress, it needs more
-  /// input, or it failed fatally (the engine is now terminal; a local failure queues its alert
-  /// unless our close_notify or a failed seal prevented it). Genuine API misuse raises instead.
+  /// input, or it failed fatally (the engine is now terminal; a local failure owes its alert
+  /// (see WantsWrite) unless our close_notify or a failed seal prevented it). Genuine API misuse
+  /// raises instead.
   /// </summary>
   TTlsOutcome = (Advanced, NeedMoreInput, Fatal);
 
@@ -89,7 +90,9 @@ type
   /// timers and the same contract for client and server, independent of the
   /// negotiated protocol version. The caller feeds transport bytes and application
   /// writes in, and drains outbound bytes, application data, and events out.
-  /// Single-threaded: the caller serializes access; there are no internal locks.
+  /// Single-threaded: the caller serializes access; there are no internal locks. TTlsStream and
+  /// TTlsConnection do that for their callers, so once one wraps an engine it must not be called
+  /// directly while the connection is in use.
   /// </summary>
   ITlsEngine = interface(IInterface)
     ['{F334F198-3F67-4109-8AE8-B1B928131889}']
@@ -134,15 +137,17 @@ type
     /// <summary>Sends a close_notify (clean shutdown).</summary>
     procedure SendClose;
     /// <summary>Sends a fatal alert and makes the engine terminal; nothing is queued after our
-    /// close_notify (RFC 9846 6.1) or if the alert cannot be sealed.</summary>
+    /// close_notify (RFC 9846 6.1) or if the alert cannot be sealed. Once the handshake is complete
+    /// the alert is sealed by the next TakeOutgoing; WantsWrite is True until then.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription); overload;
     /// <summary>As above, recording AReason as the error the next operation raises.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
     /// <summary>Ends the connection after the transport failed under it, recording AReason as the
     /// error the next operation raises. Unlike SendAlert this is not a TLS fatal alert, so the
     /// sessions the connection stored stay resumable (RFC 5246 7.2.1).
-    /// No alert is queued and pending outbound bytes are dropped; LastError.Origin is Transport and
-    /// carries no alert.</summary>
+    /// No alert is queued and pending outbound bytes and a pending fatal alert are dropped, also
+    /// when the engine had already failed (its recorded error is kept); LastError.Origin is
+    /// Transport and carries no alert.</summary>
     procedure LatchTransportFailure(const AReason: string);
     /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
     /// send until the ClientHello. Call it once: a second call raises, as does a call from inside
@@ -162,7 +167,8 @@ type
 
     // --- engine -> caller (drains) ---
     /// <summary>Copies pending outbound bytes into ADest at ADestOffset; returns the count, at most
-    /// Length(ADest) - ADestOffset (0 when that is not positive), so size ADest first.</summary>
+    /// Length(ADest) - ADestOffset (0 when that is not positive), so size ADest first. It first
+    /// seals a pending fatal alert; a seal fault drops the alert and never raises.</summary>
     function TakeOutgoing(var ADest: TBytes; ADestOffset: Int32): Int32;
     /// <summary>Copies up to AMaxLength decrypted application bytes out; returns the count. It can
     /// resume a deferred inbound drain, so like ProcessInput it can leave the engine terminal or
@@ -194,7 +200,9 @@ type
     function ConnectionInfo: TTlsConnectionInfo;
     /// <summary>Whether the engine wants more transport bytes.</summary>
     function WantsRead: Boolean;
-    /// <summary>Whether outbound bytes are waiting to be taken.</summary>
+    /// <summary>Whether TakeOutgoing would return bytes: sealed bytes are queued or a fatal alert
+    /// awaits sealing (unless sealing it fails, which drops it). An owed KeyUpdate reply does not
+    /// count; it goes out with the next Write.</summary>
     function WantsWrite: Boolean;
     /// <summary>Whether the handshake is still in progress.</summary>
     function IsHandshaking: Boolean;

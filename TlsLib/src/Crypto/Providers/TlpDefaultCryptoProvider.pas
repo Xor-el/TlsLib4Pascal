@@ -282,8 +282,7 @@ type
   THkdfAdapter = class(TInterfacedObject, IHkdf)
   strict private
   var
-    FExtractMac: IMac;
-    FExpandGen: IHkdfBytesGenerator;
+    FAlgorithm: THashAlgorithm;
   public
     constructor Create(AAlgorithm: THashAlgorithm);
     function Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
@@ -516,6 +515,7 @@ type
   // The digest behind every keyed construction; refuses non-protocol hashes.
   TDigestResolver = class sealed(TObject)
   public
+    class procedure RequireProtocolHash(AAlgorithm: THashAlgorithm); static;
     class function Resolve(AAlgorithm: THashAlgorithm): IDigest; static;
   end;
 
@@ -670,9 +670,8 @@ end;
 constructor THkdfAdapter.Create(AAlgorithm: THashAlgorithm);
 begin
   inherited Create;
-  FExtractMac := THMac.Create(TDigestResolver.Resolve(AAlgorithm)) as IMac;
-  FExpandGen := THkdfBytesGenerator.Create(
-    TDigestResolver.Resolve(AAlgorithm)) as IHkdfBytesGenerator;
+  TDigestResolver.RequireProtocolHash(AAlgorithm);
+  FAlgorithm := AAlgorithm;
 end;
 
 function THkdfAdapter.Extract(const ASalt, AIkm: ISecretBuffer): ISecretBuffer;
@@ -680,11 +679,11 @@ var
   LMac: IMac;
   LSalt, LIkmBytes, LPrk: TBytes;
 begin
-  LMac := FExtractMac;
+  LMac := THMac.Create(TDigestResolver.Resolve(FAlgorithm)) as IMac;
   // a nil or empty salt is HashLen zeros; otherwise the salt is secret material, so it is
   // materialised into a private copy here and wiped, not aliased from the caller
   if (ASalt = nil) or (ASalt.Len = 0) then
-    SetLength(LSalt, LMac.GetMacSize)
+    SetLength(LSalt, FAlgorithm.ByteLength)
   else
     LSalt := ASalt.ToBytes;
   try
@@ -712,15 +711,15 @@ var
   LGen: IHkdfBytesGenerator;
   LParams: IHkdfParameters;
   LPrkBytes, LOkm: TBytes;
-  LHashLen: Int32;
+  LMaxLength: Int32;
 begin
   // RFC 5869: L must not exceed 255 * HashLen
-  LHashLen := FExtractMac.GetMacSize;
   if ALength < 0 then
     raise EArgumentTlsLibException.CreateRes(@SHkdfExpandNegative);
-  if ALength > 255 * LHashLen then
-    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong, [ALength, 255 * LHashLen]);
-  LGen := FExpandGen;
+  LMaxLength := 255 * FAlgorithm.ByteLength;
+  if ALength > LMaxLength then
+    raise EArgumentTlsLibException.CreateResFmt(@SHkdfExpandTooLong, [ALength, LMaxLength]);
+  LGen := THkdfBytesGenerator.Create(TDigestResolver.Resolve(FAlgorithm)) as IHkdfBytesGenerator;
   LPrkBytes := APrk.ToBytes;
   try
     LParams := THkdfParameters.SkipExtractParameters(LPrkBytes, AInfo);
@@ -1882,11 +1881,16 @@ end;
 
 { TDigestResolver }
 
-class function TDigestResolver.Resolve(AAlgorithm: THashAlgorithm): IDigest;
+class procedure TDigestResolver.RequireProtocolHash(AAlgorithm: THashAlgorithm);
 begin
   if not AAlgorithm.IsProtocolHash then
     raise ENotSupportedTlsLibException.CreateResFmt(@SNotProtocolHash,
       [TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm)]);
+end;
+
+class function TDigestResolver.Resolve(AAlgorithm: THashAlgorithm): IDigest;
+begin
+  RequireProtocolHash(AAlgorithm);
   Result := TDigestUtilities.GetDigest(
     TEnumUtilities.GetName<THashAlgorithm>(AAlgorithm));
 end;
