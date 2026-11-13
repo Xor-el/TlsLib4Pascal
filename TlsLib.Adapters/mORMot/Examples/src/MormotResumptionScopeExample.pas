@@ -52,6 +52,8 @@ const
   HOST = '127.0.0.1';
   PINGHEX = '70696e672066726f6d20746865206d6f724d6f7420636c69656e74';
   LEGS = 4; // the reject leg still opens a TCP connection, so the server accepts all four
+  STOP_POLLS = 200; // bounded wait for the server thread to finish: STOP_POLLS * STOP_POLL_MS
+  STOP_POLL_MS = 50;
 
 var
   GLeafFile, GKeyFile: RawUtf8;
@@ -242,10 +244,34 @@ var
   procedure Fail(const AMsg: string);
   begin
     Writeln('mORMot resumption-scope FAIL: ', AMsg);
+    Flush(Output);
+  end;
+
+  // waits for the server thread to finish; while it is still blocked in Accept for legs that will
+  // never come, throwaway connections release it. False when it did not finish in time
+  function StopServer: Boolean;
+  var
+    LSock: TNetSocket;
+    LDoBind, LRdwr: Boolean;
+    LTimeoutMs, LRetry, LI: Integer;
+  begin
+    LDoBind := False;
+    LRdwr := True;
+    LTimeoutMs := 1000;
+    LRetry := 0;
+    for LI := 1 to STOP_POLLS do
+    begin
+      Sleep(STOP_POLL_MS);
+      if LServer.Finished then
+        Break;
+      if NewSocket(HOST, PORT, nlTcp, LDoBind, LTimeoutMs, LTimeoutMs, LTimeoutMs, LRetry, LSock) = nrOK then
+        LSock.ShutdownAndClose(LRdwr);
+    end;
+    Result := LServer.Finished;
   end;
 
 var
-  LConnected: Boolean;
+  LConnected, LStopped: Boolean;
 begin
   Result := 1;
   GServerError := '';
@@ -263,7 +289,8 @@ begin
     LServer.FreeOnTerminate := False;
     try
       LServer.Start;
-      GReady.WaitFor(5000);
+      if GReady.WaitFor(5000) <> wrSignaled then
+        raise Exception.Create('server did not start listening');
       if GServerError <> '' then
         raise Exception.Create('server: ' + GServerError);
 
@@ -302,18 +329,21 @@ begin
         Exit;
       end;
 
-      LServer.WaitFor;
-      if GServerError <> '' then
-        raise Exception.Create('server: ' + GServerError);
     finally
-      LServer.Free;
+      LStopped := StopServer;
+      if LStopped then
+        LServer.Free;
     end;
+    if not LStopped then
+      raise Exception.Create('server thread did not finish');
+    if GServerError <> '' then
+      raise Exception.Create('server: ' + GServerError);
 
     Writeln('mORMot resumption-scope PASS: same-trust resumes, different-trust is isolated');
     Result := 0;
   except
     on E: Exception do
-      Writeln('mORMot resumption-scope FAIL: ', E.ClassName, ': ', E.Message);
+      Fail(E.ClassName + ': ' + E.Message);
   end;
   GReady.Free;
 end;
