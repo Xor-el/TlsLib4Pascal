@@ -43,7 +43,8 @@ done
 source "$HERE/../shared/common.sh"
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"; kill $(jobs -p) 2>/dev/null || true' EXIT
+# command -p: the system rm; a toolchain rm on PATH cannot delete the MSYS fifo stand-ins
+trap 'kill $(jobs -p) 2>/dev/null || true; command -p rm -rf "$TMP"' EXIT
 
 # hex text on stdin to raw bytes on stdout; xxd is not installed on every OS
 unhex() {
