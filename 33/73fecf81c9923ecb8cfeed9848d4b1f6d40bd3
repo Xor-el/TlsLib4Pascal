@@ -1,0 +1,111 @@
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_f2c9bd75607afc::t_54aea25d42e8c9 229
+docs/getting-started.md
+  s_f2c9bd75607afc::t_be4bcdb347a7a8 166-167
+TlsLib.Adapters/Indy/Examples/src/IndyAdvancedConfigExample.pas
+  s_f2c9bd75607afc::t_8f56e5344f8a21 66
+TlsLib.Adapters/Synapse/Examples/src/SynapseEchLoopbackExample.pas
+  s_f2c9bd75607afc::t_7ff37340d042f7 62
+TlsLib.Adapters/mORMot/Examples/src/MormotAdvancedConfigExample.pas
+  s_f2c9bd75607afc::t_6ad8ba8d4e298a 63
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_f2c9bd75607afc::t_42135ceec2fb75 931
+  s_f2c9bd75607afc::t_4b3459287963e8 871
+docs/security-model.md
+  s_f2c9bd75607afc::t_d40f7e372c3e06 56
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_f2c9bd75607afc::t_7d397a14f4713e 405-406
+  s_f2c9bd75607afc::t_008d09ccbe7544 1496-1497,1499-1503
+  s_f2c9bd75607afc::t_e2161584fdacdd 357-358
+  s_f2c9bd75607afc::t_5f890ae6996598 128
+  s_f2c9bd75607afc::t_5c73ae46b719b7 323
+TlsLib.Adapters/Synapse/Examples/src/SynapseResumptionScopeExample.pas
+  s_f2c9bd75607afc::t_e2153662a41451 48
+TlsLib/src/Interfaces/Engine/TlpITlsTransport.pas
+  s_f2c9bd75607afc::t_dcb5166e272215 56
+docs/cookbook.md
+  s_f2c9bd75607afc::t_8aae852608f6d0 459-460
+TlsLib.Adapters/Indy/Adapter/TlsLibIndyTls.pas
+  s_f2c9bd75607afc::t_b18396f20bf322 212
+TlsLib.Adapters/FclNet/README.md
+  s_f2c9bd75607afc::t_4af60d1603004a 107
+TlsLib.Adapters/mORMot/Examples/src/MormotWedgeDemoExample.pas
+  s_f2c9bd75607afc::t_4d475efc27a9f6 50
+TlsLib.Adapters/Synapse/Examples/src/SynapseLoopbackExample.pas
+  s_f2c9bd75607afc::t_ae88c04772ac42 59
+TlsLib.Tests/src/MockTransport.pas
+  s_f2c9bd75607afc::t_e3027300d45398 273-278
+  s_f2c9bd75607afc::t_cfdfd2d0354a98 1058-1067
+  s_f2c9bd75607afc::t_35810085098ddc 1117
+  s_f2c9bd75607afc::t_c6ba5c3cd324b0 1142-1143
+  s_f2c9bd75607afc::t_adf3c411023677 1001-1014,1020,1026
+  s_f2c9bd75607afc::t_5f4f2412492012 1156
+  s_f2c9bd75607afc::t_b41a635d6b44a4 310
+  s_f2c9bd75607afc::t_3272858fe599fd 843-851
+  s_f2c9bd75607afc::t_f57d98f1b994b1 222-230,236
+  s_f2c9bd75607afc::t_7fc9753e537036 291
+  s_f2c9bd75607afc::t_cc1209eb4eef25 1128
+  s_f2c9bd75607afc::t_6d7e0a12fa66cc 136-141
+TlsLib/src/Connection/TlpTlsStream.pas
+  s_f2c9bd75607afc::t_d876ee36d5b8ab 49-56
+  s_f2c9bd75607afc::t_24f8a4a7cc7840 302
+TlsLib/src/Common/TlpTlsLibExceptions.pas
+  s_f2c9bd75607afc::t_c653455fa793f7 166
+TlsLib.Adapters/Synapse/Examples/src/SynapseAdvancedConfigExample.pas
+  s_f2c9bd75607afc::t_a8ee053769972f 60
+TlsLib.Adapters/Indy/Examples/src/IndyEchLoopbackExample.pas
+  s_f2c9bd75607afc::t_dedd1589f8d572 64
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_f2c9bd75607afc::t_84e8ca57815809 3607,3615,3617
+  s_f2c9bd75607afc::t_e648e5c0546e07 2931
+  s_f2c9bd75607afc::t_b91e426885c581 710-711
+  s_f2c9bd75607afc::t_7172bf7cf4c507 3565
+  s_f2c9bd75607afc::t_f4bc7cc9dd990b 2357
+  s_f2c9bd75607afc::t_a93ae02dde6d59 761
+  s_f2c9bd75607afc::t_c0d05466d0dc37 524,530-532
+  s_f2c9bd75607afc::t_d8fab091abba12 4445
+  s_f2c9bd75607afc::t_0be39e3c63ac93 557,565-567
+  s_f2c9bd75607afc::t_b0da92ddf2593f 940-941
+  s_f2c9bd75607afc::t_9c0d19d236a9d9 886-887
+  s_f2c9bd75607afc::t_c2829d4f8d4b9d 491,497,500-501
+  s_f2c9bd75607afc::t_e3e0eea78ff63e 607
+  s_f2c9bd75607afc::t_a7178611428994 1547
+  s_f2c9bd75607afc::t_1992dac17331a4 3460,3468,3470,3476-3481
+  s_f2c9bd75607afc::t_91ac736afd5867 3925
+TlsLib.Adapters/mORMot/Examples/src/MormotEchLoopbackExample.pas
+  s_f2c9bd75607afc::t_26e7d8655d6986 64
+TlsLib.Adapters/FclNet/Adapter/TlsLibFclNetTls.pas
+  s_f2c9bd75607afc::t_8e76b051f0d29f 1181-1190
+  s_f2c9bd75607afc::t_b6cbbcbfa55e6a 308-310
+  s_f2c9bd75607afc::t_9099884f234f12 1262-1270,1273,1277-1280
+  s_f2c9bd75607afc::t_4621e20e750037 1297
+  s_f2c9bd75607afc::t_1d7712a4d0cda2 1304-1306
+  s_f2c9bd75607afc::t_56345a76a681b4 404-405
+TlsLib.Adapters/mORMot/Examples/src/MormotResumptionScopeExample.pas
+  s_f2c9bd75607afc::t_f0e44e3106557e 51
+TlsLib.Adapters/FclNet/Examples/src/FclNetEchLoopbackExample.pas
+  s_f2c9bd75607afc::t_62224a46b96bd3 62
+TlsLib.Adapters/Synapse/Adapter/TlsLibSynapseTls.pas
+  s_f2c9bd75607afc::t_10aeec0c56e27c 252-253
+TlsLib.Adapters/mORMot/Adapter/TlsLibMormotTls.pas
+  s_f2c9bd75607afc::t_1bbf39145dda22 110
+TlsLib.Tests/src/DuplexStressTests.pas
+  s_f2c9bd75607afc::t_8a4dbe2b8f272d 1076-1077
+  s_f2c9bd75607afc::t_ea75cf66895f23 1082-1083,1086-1087
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3373fecf81c9923ecb8cfeed9848d4b1f6d40bd3",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
