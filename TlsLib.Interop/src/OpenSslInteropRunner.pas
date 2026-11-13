@@ -44,6 +44,21 @@ uses
   InteropUtils;
 
 type
+  /// <summary>What a client connection sends and how its exchange must end. AwaitLine and
+  /// ExpectReadAlert extend the read past the first echo; ExpectRejectAlert and ExpectReadAlert
+  /// are -1 when unused.</summary>
+  TClientExchange = record
+    Message: string;
+    /// <summary>When set, the read runs until the plaintext holds this text.</summary>
+    AwaitLine: string;
+    /// <summary>When set, sent once AwaitLine arrives.</summary>
+    Reply: string;
+    /// <summary>The handshake must abort with exactly this alert.</summary>
+    ExpectRejectAlert: Int32;
+    /// <summary>The handshake must complete and the read must end with this local alert.</summary>
+    ExpectReadAlert: Int32;
+  end;
+
   /// <summary>
   /// Drives our engine against an openssl s_client / s_server peer over loopback,
   /// for the always-on lighter interop matrix. As the server it presents the EC
@@ -73,17 +88,18 @@ type
       const AOfferedGroups: TArray<UInt16>;
       const AEchKeyStore: IEchServerKeyStore; AClientAuth: TClientAuthMode;
       const AClientTrust: ITrustAnchorStore): Int32; static;
-    class function RunClient(APort: Word; const AHost, ACaPemFile, AMessage,
+    class function RunClient(APort: Word; const AHost, ACaPemFile,
       AClientCredFile: string; AConnectionCount: Int32;
       const AOfferedGroups: TArray<UInt16>;
       const AEchConfigList: TBytes; ARequestOcsp, AApplyRevocation: Boolean;
-      APosture: TRevocationPosture; AExpectRejectAlert: Int32): Int32; static;
+      APosture: TRevocationPosture; const AExchange: TClientExchange): Int32; static;
     /// <summary>One client connection over ASocket, using AOptions. Returns 0 on a completed
-    /// handshake + echoed application data; when AExpectRejectAlert >= 0 the semantics invert -
-    /// 0 iff the handshake aborts with exactly that alert (a completed handshake then fails).</summary>
+    /// handshake + echoed application data; when ExpectRejectAlert >= 0 the semantics invert -
+    /// 0 iff the handshake aborts with exactly that alert (a completed handshake then fails).
+    /// With ExpectReadAlert >= 0 it is 0 iff the read then ends with exactly that local alert.</summary>
     class function RunOneClient(const ASocket: TInteropSocket;
       const ACryptoProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
-      const AMessage: string; AExpectRejectAlert: Int32): Int32; static;
+      const AExchange: TClientExchange): Int32; static;
   public
     /// <summary>Parses --role/--port/... and runs one exchange; returns the exit code.</summary>
     class function Run: Int32; static;
@@ -245,10 +261,10 @@ begin
 end;
 
 class function TOpenSslInteropRunner.RunClient(APort: Word; const AHost,
-  ACaPemFile, AMessage, AClientCredFile: string; AConnectionCount: Int32;
+  ACaPemFile, AClientCredFile: string; AConnectionCount: Int32;
   const AOfferedGroups: TArray<UInt16>; const AEchConfigList: TBytes;
   ARequestOcsp, AApplyRevocation: Boolean; APosture: TRevocationPosture;
-  AExpectRejectAlert: Int32): Int32;
+  const AExchange: TClientExchange): Int32;
 var
   LSocket: TInteropSocket;
   LCrypto: ICryptoProvider;
@@ -303,7 +319,7 @@ begin
   begin
     LSocket := TInteropSocket.Connect(AHost, APort);
     try
-      Result := RunOneClient(LSocket, LCrypto, LOptions, AMessage, AExpectRejectAlert);
+      Result := RunOneClient(LSocket, LCrypto, LOptions, AExchange);
     finally
       LSocket.Free;
     end;
@@ -314,12 +330,13 @@ end;
 
 class function TOpenSslInteropRunner.RunOneClient(const ASocket: TInteropSocket;
   const ACryptoProvider: ICryptoProvider; const AOptions: TInteropEngineOptions;
-  const AMessage: string; AExpectRejectAlert: Int32): Int32;
+  const AExchange: TClientExchange): Int32;
 var
   LEngine: ITlsEngine;
   LResult: TInteropResult;
   LSent, LGot: TBytes;
-  LI: Int32;
+  LI, LCycles: Int32;
+  LFound: Boolean;
 begin
   Result := 1;
   LEngine := TInteropEngine.Build(ACryptoProvider, AOptions);
@@ -329,15 +346,15 @@ begin
 
   // expect-reject: the handshake must abort with exactly the named alert (e.g. a peer that
   // staples a revoked OCSP response - proving we parse and reject a foreign encoder's staple)
-  if AExpectRejectAlert >= 0 then
+  if AExchange.ExpectRejectAlert >= 0 then
   begin
     if (LResult.Status = TInteropStatus.LocalAlert) and LResult.HasAlert and
-      (Ord(LResult.Alert) = AExpectRejectAlert) then
+      (Ord(LResult.Alert) = AExchange.ExpectRejectAlert) then
     begin
-      Writeln('client rejected as expected with alert ', AExpectRejectAlert);
+      Writeln('client rejected as expected with alert ', AExchange.ExpectRejectAlert);
       Exit(0);
     end;
-    Writeln(ErrOutput, 'expected client reject with alert ', AExpectRejectAlert,
+    Writeln(ErrOutput, 'expected client reject with alert ', AExchange.ExpectRejectAlert,
       ', got status ', Ord(LResult.Status), ' alert ', Ord(LResult.Alert),
       ' (', LResult.Detail, ')');
     Exit(1);
@@ -353,28 +370,56 @@ begin
 
   // a trailing newline lets a line-oriented openssl peer (s_server -rev) flush
   LSent := nil;
-  SetLength(LSent, System.Length(AMessage) + 1);
-  for LI := 1 to System.Length(AMessage) do
-    LSent[LI - 1] := Byte(Ord(AMessage[LI]));
+  SetLength(LSent, System.Length(AExchange.Message) + 1);
+  for LI := 1 to System.Length(AExchange.Message) do
+    LSent[LI - 1] := Byte(Ord(AExchange.Message[LI]));
   LSent[System.High(LSent)] := 10;
   TInteropPump.WriteAppData(LEngine, ASocket, LSent);
 
-  // read past any post-handshake records (NewSessionTicket) until the echo arrives
+  // read past any post-handshake records (NewSessionTicket) until the echo arrives; the
+  // awaited line or a read that must end in an alert can span many records, so it reads longer
+  LCycles := 8;
+  if (AExchange.AwaitLine <> '') or (AExchange.ExpectReadAlert >= 0) then
+    LCycles := 256;
   LGot := nil;
-  for LI := 0 to 7 do
+  for LI := 1 to LCycles do
   begin
     LResult := TInteropPump.PumpAppData(LEngine, ASocket);
-    if System.Length(LResult.Data) > 0 then
+    LGot := TInteropUtils.Concat(LGot, LResult.Data);
+    if AExchange.AwaitLine <> '' then
     begin
-      LGot := LResult.Data;
+      if Pos(AExchange.AwaitLine, StringOf(LGot)) > 0 then
+        Break;
+    end
+    else if (AExchange.ExpectReadAlert < 0) and (System.Length(LGot) > 0) then
       Break;
-    end;
     if LResult.Status <> TInteropStatus.Ok then
       Break;
   end;
-  if System.Length(LGot) > 0 then
+
+  if AExchange.ExpectReadAlert >= 0 then
+  begin
+    if (LResult.Status = TInteropStatus.LocalAlert) and LResult.HasAlert and
+      (Ord(LResult.Alert) = AExchange.ExpectReadAlert) then
+    begin
+      Writeln('client read ended as expected with alert ', AExchange.ExpectReadAlert);
+      Exit(0);
+    end;
+    Writeln(ErrOutput, 'expected client read to end with alert ', AExchange.ExpectReadAlert,
+      ', got status ', Ord(LResult.Status), ' alert ', Ord(LResult.Alert),
+      ' (', LResult.Detail, ')');
+    Exit(1);
+  end;
+
+  if AExchange.AwaitLine <> '' then
+    LFound := Pos(AExchange.AwaitLine, StringOf(LGot)) > 0
+  else
+    LFound := System.Length(LGot) > 0;
+  if LFound then
   begin
     Writeln('received ', System.Length(LGot), ' bytes back');
+    if AExchange.Reply <> '' then
+      TInteropPump.WriteAppData(LEngine, ASocket, BytesOf(AExchange.Reply + #10));
     Result := 0;
   end
   else
@@ -404,7 +449,7 @@ var
   LRequestOcsp, LApplyRev: Boolean;
   LPostureStr: string;
   LPosture: TRevocationPosture;
-  LExpectReject: Int32;
+  LExchange: TClientExchange;
   LClientAuth: TClientAuthMode;
   LClientTrust: ITrustAnchorStore;
 begin
@@ -443,14 +488,20 @@ begin
     LPostureStr := ArgValue('--revocation-posture', '');
     LApplyRev := LPostureStr <> '';
     LPosture := ParsePosture(LPostureStr);
-    LExpectReject := StrToIntDef(ArgValue('--expect-reject', '-1'), -1);
+    LExchange := Default(TClientExchange);
+    LExchange.Message := ArgValue('--message', 'openssl interop hello');
+    // --await-line reads until that text arrives and --reply then sends a line back;
+    // --expect-read-alert N asserts the read after the handshake ends with local alert N
+    LExchange.AwaitLine := ArgValue('--await-line', '');
+    LExchange.Reply := ArgValue('--reply', '');
+    LExchange.ExpectRejectAlert := StrToIntDef(ArgValue('--expect-reject', '-1'), -1);
+    LExchange.ExpectReadAlert := StrToIntDef(ArgValue('--expect-read-alert', '-1'), -1);
     if LRole = 'client' then
       // --resume-count on a client means it makes ResumeCount+1 connections over one
       // shared cache, resuming a prior session on the later ones
       Result := RunClient(LPort, ArgValue('--host', 'localhost'),
-        ArgValue('--ca', ''), ArgValue('--message', 'openssl interop hello'),
-        ArgValue('--client-cred', ''), LResumeCount + 1, LOfferedGroups,
-        LEchConfigList, LRequestOcsp, LApplyRev, LPosture, LExpectReject)
+        ArgValue('--ca', ''), ArgValue('--client-cred', ''), LResumeCount + 1,
+        LOfferedGroups, LEchConfigList, LRequestOcsp, LApplyRev, LPosture, LExchange)
     else
     begin
       LStek := nil;

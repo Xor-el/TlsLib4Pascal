@@ -626,5 +626,93 @@ else
   echo "=== cells C1-C2 (certificate compression): SKIPPED (openssl without trace or compression, 2 cells) ==="
 fi
 
+# --- TLS 1.2 renegotiation cells: a HelloRequest to our client, a renegotiation ClientHello to our server ---
+# s_server's stdin is a command channel: a lone 'r' sends a HelloRequest and any other line goes out as
+# application data, so relayed lines start with m8- (a leading q Q r R P S k K c would run as a command).
+# Its -msg trace is block-buffered, so it is read only after s_server has exited. Needs Linux s_server.
+m8_client_cell() { # <cell> <port> <hello-requests> <line relayed afterwards or empty> <driver args...>
+  local cell="$1" port="$2" count="$3" relay="$4" i
+  shift 4
+  mkfifo "$TMP/$cell.in"
+  exec 3<>"$TMP/$cell.in"
+  ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 -msg \
+    -accept "$port" -naccept 1 <&3 > "$TMP/s$cell.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s$cell.log" && break; sleep 0.1; done
+  ci_run_bounded 30 "$DRIVER" --role client --port "$port" --host localhost --ca "$TMP/srv_cert.pem" \
+    --message m8-ping --data-dir "$DATA_DIR" "$@" > "$TMP/c$cell.out" 2>&1 &
+  local driver_pid=$!
+  for _ in $(seq 1 100); do grep -q 'm8-ping' "$TMP/s$cell.log" && break; sleep 0.1; done
+  for i in $(seq 1 "$count"); do echo r >&3; sleep 0.15; done
+  [ -z "$relay" ] || echo "$relay" >&3
+  M8_RC=0
+  wait "$driver_pid" || M8_RC=$?
+  exec 3>&-
+  reap_cell
+}
+
+# the number of HelloRequests s_server sent, from its -msg trace
+m8_hello_requests() { # <s_server log>
+  grep -c '>>> TLS 1.2, Handshake .*HelloRequest' "$1" || true
+}
+
+# the driver read the line sent after the HelloRequests, s_server read the reply, and our client sent no alert but close_notify
+m8_ignored() { # <cell> <hello-requests>
+  local log="$TMP/s$1.log" stray
+  stray="$(grep '<<< TLS 1.2, Alert' "$log" | grep -v 'warning close_notify' || true)"
+  [ "$M8_RC" -eq 0 ] && grep -q '^m8-reply' "$log" && [ -z "$stray" ] \
+    && [ "$(m8_hello_requests "$log")" -eq "$2" ]
+}
+
+if [ "$(uname -s)" = "Linux" ]; then
+  TOTAL=$((TOTAL+4))
+
+  # --- Cell M8a: our client  ->  openssl s_server sending one HelloRequest ---
+  echo "=== cell M8a: our client ignores a HelloRequest  <-  openssl s_server (TLS 1.2) ==="
+  m8_client_cell M8a 14540 1 m8-after-hr --await-line m8-after-hr --reply m8-reply
+  if m8_ignored M8a 1; then
+    echo "  PASS: the HelloRequest was ignored (no alert) and the connection carried data both ways"
+  else
+    echo "  FAIL: cell M8a"; cat "$TMP/sM8a.log" "$TMP/cM8a.out"; FAILURES=$((FAILURES+1))
+  fi
+
+  # --- Cell M8b: 32 HelloRequests in a row, the most our client accepts ---
+  echo "=== cell M8b: our client  <-  openssl s_server sending 32 HelloRequests (TLS 1.2) ==="
+  m8_client_cell M8b 14541 32 m8-after-hr --await-line m8-after-hr --reply m8-reply
+  if m8_ignored M8b 32; then
+    echo "  PASS: 32 HelloRequests were ignored and the connection carried data both ways"
+  else
+    echo "  FAIL: cell M8b"; cat "$TMP/sM8b.log" "$TMP/cM8b.out"; FAILURES=$((FAILURES+1))
+  fi
+
+  # --- Cell M8c: a 33rd HelloRequest in a row ends the connection ---
+  echo "=== cell M8c: our client  <-  openssl s_server sending 33 HelloRequests (TLS 1.2) ==="
+  m8_client_cell M8c 14542 33 "" --expect-read-alert 10
+  if [ "$M8_RC" -eq 0 ] && [ "$(m8_hello_requests "$TMP/sM8c.log")" -eq 33 ] \
+     && grep -q '<<< TLS 1.2, Alert \[length 0002\], fatal unexpected_message' "$TMP/sM8c.log"; then
+    echo "  PASS: the 33rd HelloRequest in a row ended the connection with fatal unexpected_message"
+  else
+    echo "  FAIL: cell M8c"; cat "$TMP/sM8c.log" "$TMP/cM8c.out"; FAILURES=$((FAILURES+1))
+  fi
+
+  # --- Cell M8s: our server  <-  openssl s_client renegotiating ---
+  echo "=== cell M8s: our server  <-  openssl s_client renegotiating (TLS 1.2) ==="
+  PM8S=14543
+  "$DRIVER" --role server --port $PM8S --data-dir "$DATA_DIR" > "$TMP/sM8s.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sM8s.log" && break; sleep 0.1; done
+  # 'R' makes s_client start a renegotiation; RENEGOTIATING on its output proves it did
+  { printf 'm8-ping\n'; sleep 1; printf 'R\n'; sleep 2; } | ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PM8S -tls1_2 -msg \
+       -CAfile "$TMP/root.pem" -servername localhost -verify_hostname localhost -verify_return_error \
+       > "$TMP/cM8s.out" 2>"$TMP/cM8s.err" || true
+  if grep -q 'm8-ping' "$TMP/cM8s.out" && grep -q 'RENEGOTIATING' "$TMP/cM8s.out" "$TMP/cM8s.err" \
+     && grep -q '<<< TLS 1.2, Alert \[length 0002\], fatal no_renegotiation' "$TMP/cM8s.out"; then
+    echo "  PASS: our server answered the renegotiation ClientHello with fatal no_renegotiation"
+  else
+    echo "  FAIL: cell M8s"; cat "$TMP/sM8s.log" "$TMP/cM8s.err" "$TMP/cM8s.out"; FAILURES=$((FAILURES+1))
+  fi
+  reap_cell
+else
+  echo "=== cells M8a-M8s (TLS 1.2 renegotiation): SKIPPED (needs Linux s_server stdin commands, 4 cells) ==="
+fi
+
 echo "=== openssl matrix: $((TOTAL-FAILURES))/$TOTAL cells passed ==="
 [ "$FAILURES" -eq 0 ]
