@@ -25,7 +25,7 @@
 /// handler freed while another thread is blocked in Recv. The duplex checks run a Recv and a Send
 /// on two threads of one handler (each reads its own failure text), and Close, Shutdown and a
 /// freed handler against a Recv or Send in flight, a send that a peer never reading cannot finish,
-/// and a send that IOTimeout ends only when it idles.
+/// and a send that IOTimeout ends only when a piece of it does not complete.
 /// </summary>
 unit FclNetLoopbackExample;
 
@@ -133,9 +133,9 @@ const
   DUPLEX_TIMEOUT_MS = 200;
   DUPLEX_WRITE_TIMEOUT_MS = 500;
   DUPLEX_STUCK_BYTES = 16 * 1024 * 1024;
-  DUPLEX_SLOW_TIMEOUT_MS = 1000; // the write timeout of a send to a peer that pauses
+  DUPLEX_SLOW_TIMEOUT_MS = 2000; // the write timeout of a send to a peer that pauses
   DUPLEX_BURST_BYTES = 1024 * 1024; // what a slow peer reads between its pauses
-  DUPLEX_PAUSE_MS = 250; // each pause, a quarter of the timeout the send is under
+  DUPLEX_PAUSE_MS = 500; // each pause, a quarter of the timeout the send is under
   DUPLEX_SENTINEL = 12345; // an error number no call of the check can leave
   DUPLEX_TICK_SLACK_MS = 50;
 
@@ -781,12 +781,16 @@ type
     FGuard: TCriticalSection;
     FThreads: array[TProbeRole] of TThreadID;
     FRules: array of TProbeRule;
+    FEnters: array[TProbeRole] of Integer;
     procedure Pass(AOp: TProbeOp);
+    function Holds(AOp: TProbeOp): Boolean;
   public
     constructor Create;
     destructor Destroy; override;
     /// <summary>Makes the calling thread the one of ARole.</summary>
     procedure Claim(ARole: TProbeRole);
+    /// <summary>How many times the thread of ARole has taken the lock.</summary>
+    function Entered(ARole: TProbeRole): Integer;
     procedure Hold(ARole: TProbeRole; AOp: TProbeOp; AN: Integer; AGate, AReached: TEvent);
     procedure Acquire; override;
     procedure Release; override;
@@ -798,9 +802,8 @@ type
   strict private
   var
     FProbe: TProbeLock;
-  strict protected
-    function CreateCallLock: TCriticalSection; override;
   public
+    constructor Create; override;
     destructor Destroy; override;
     function Send(const Buffer; Count: Integer): Integer; override;
     function Close: Boolean; override;
@@ -3752,25 +3755,67 @@ begin
   TDuplexRig.Expect(LGate, 'a thread held by the lock probe');
 end;
 
-procedure TProbeLock.Acquire;
+function TProbeLock.Holds(AOp: TProbeOp): Boolean;
+var
+  LI: Integer;
 begin
+  Result := False;
+  FGuard.Enter;
+  try
+    for LI := 0 to System.High(FRules) do
+      if (FRules[LI].Op = AOp) and (FThreads[FRules[LI].Role] = GetCurrentThreadId) then
+        Result := True;
+  finally
+    FGuard.Leave;
+  end;
+end;
+
+function TProbeLock.Entered(ARole: TProbeRole): Integer;
+begin
+  FGuard.Enter;
+  try
+    Result := FEnters[ARole];
+  finally
+    FGuard.Leave;
+  end;
+end;
+
+procedure TProbeLock.Acquire;
+var
+  LRole: TProbeRole;
+begin
+  FGuard.Enter;
+  try
+    for LRole := Low(TProbeRole) to High(TProbeRole) do
+      if FThreads[LRole] = GetCurrentThreadId then
+        Inc(FEnters[LRole]);
+  finally
+    FGuard.Leave;
+  end;
   Pass(OpBeforeEnter);
   inherited Acquire;
 end;
 
 procedure TProbeLock.Release;
+var
+  LAfter: Boolean;
 begin
+  // read before the lock is let go of: the thread that frees the handler may do so right after
+  LAfter := Holds(OpAfterLeave);
   Pass(OpBeforeLeave);
   inherited Release;
-  Pass(OpAfterLeave);
+  if LAfter then
+    Pass(OpAfterLeave);
 end;
 
 { TProbeHandler }
 
-function TProbeHandler.CreateCallLock: TCriticalSection;
+constructor TProbeHandler.Create;
 begin
+  inherited Create;
+  FCallLock.Free;
   FProbe := TProbeLock.Create;
-  Result := FProbe;
+  FCallLock := FProbe;
 end;
 
 destructor TProbeHandler.Destroy;
@@ -3815,24 +3860,28 @@ class procedure TDuplexRaceCheck.RunFreedLastCall;
 var
   LHandler: TProbeHandler;
   LSend, LFree: TDuplexCallThread;
-  LHoldEnd, LHoldLeave, LAtEnd, LAtLeave: TEvent;
+  LHoldEnd, LHoldLeave, LHoldFree, LAtEnd, LAtLeave, LAtFree: TEvent;
 begin
   LHoldEnd := TEvent.Create(nil, True, False, '');
   LHoldLeave := TEvent.Create(nil, True, False, '');
+  LHoldFree := TEvent.Create(nil, True, False, '');
   LAtEnd := TEvent.Create(nil, True, False, '');
   LAtLeave := TEvent.Create(nil, True, False, '');
+  LAtFree := TEvent.Create(nil, True, False, '');
   try
     LHandler := TProbeHandler.Create;
     LHandler.CloseGraceMs := DUPLEX_LONG_GRACE_MS;
-    // the send is held as it ends, which is its second take of the lock, and then again as it
-    // lets go of it after counting itself out
+    // the send is held as it ends (its second take of the lock) and again as it lets go of it
     LHandler.Probe.Hold(RoleSender, OpBeforeEnter, 2, LHoldEnd, LAtEnd);
     LHandler.Probe.Hold(RoleSender, OpBeforeLeave, 2, LHoldLeave, LAtLeave);
+    LHandler.Probe.Hold(RoleCloser, OpAfterLeave, 1, LHoldFree, LAtFree);
     LSend := TDuplexCallThread.Create(LHandler, CallSend, TBytes.Create(1), nil, False);
     try
       TDuplexRig.Expect(LAtEnd, 'the send, reaching the end of its call');
       LFree := TDuplexCallThread.Create(LHandler, CallFree, nil, nil, False);
       try
+        TDuplexRig.Expect(LAtFree, 'the free, with the send in flight');
+        LHoldFree.SetEvent;
         Sleep(DUPLEX_TIMEOUT_MS);
         if LFree.Done.WaitFor(0) = wrSignaled then
           TDuplexRig.Fail('freed handler: it was freed under a call still in flight');
@@ -3855,8 +3904,10 @@ begin
       LSend.Free;
     end;
   finally
+    LAtFree.Free;
     LAtLeave.Free;
     LAtEnd.Free;
+    LHoldFree.Free;
     LHoldLeave.Free;
     LHoldEnd.Free;
   end;
@@ -3867,6 +3918,7 @@ var
   LHandler: TProbeHandler;
   LSend, LClose: TDuplexCallThread;
   LHoldBegin, LHoldEnd, LHoldClose, LAtBegin, LAtEnd, LAtClose: TEvent;
+  LEntered: Integer;
 begin
   LHoldBegin := TEvent.Create(nil, True, False, '');
   LHoldEnd := TEvent.Create(nil, True, False, '');
@@ -3878,8 +3930,7 @@ begin
     LHandler := TProbeHandler.Create;
     try
       LHandler.CloseGraceMs := DUPLEX_LONG_GRACE_MS;
-      // the send waits to begin its call until the close has marked the handler closing with no
-      // call in flight, and is then held as it ends
+      // the send begins only once Close has marked the handler closing, and is held as it ends
       LHandler.Probe.Hold(RoleSender, OpBeforeEnter, 1, LHoldBegin, LAtBegin);
       LHandler.Probe.Hold(RoleSender, OpBeforeEnter, 2, LHoldEnd, LAtEnd);
       LHandler.Probe.Hold(RoleCloser, OpAfterLeave, 1, LHoldClose, LAtClose);
@@ -3895,6 +3946,10 @@ begin
           Sleep(DUPLEX_TIMEOUT_MS);
           if LClose.Done.WaitFor(0) = wrSignaled then
             TDuplexRig.Fail('refused call: Close returned while a refused call was inside');
+          LEntered := LHandler.Probe.Entered(RoleCloser);
+          Sleep(DUPLEX_TIMEOUT_MS);
+          if LHandler.Probe.Entered(RoleCloser) <> LEntered then
+            TDuplexRig.Fail('refused call: Close kept taking the lock instead of waiting');
           LHoldEnd.SetEvent;
           TDuplexRig.Expect(LClose.Done, 'Close');
           TDuplexRig.Expect(LSend.Done, 'the send');
@@ -4254,8 +4309,7 @@ var
   LRig: TDuplexRig;
   LSend: TDuplexCallThread;
 begin
-  // the peer reads in bursts with pauses shorter than IOTimeout, so the send outlasts IOTimeout
-  // several times over without ever idling for it
+  // the peer pauses less than IOTimeout between bursts, so the send outlasts it several times over
   LRig := TDuplexRig.Create(PeerSlow, DUPLEX_GRACE_MS, DUPLEX_SLOW_TIMEOUT_MS, True);
   try
     LSend := TDuplexCallThread.Create(LRig.Handler, CallSend, Payload(DUPLEX_STUCK_BYTES),
@@ -4660,7 +4714,7 @@ begin
         ' blocked Recv without freeing the handler beneath it' +
         ' + a Recv and a Send on two threads each reading their own failure' +
         ' + Close, Shutdown and a freed handler ending a Recv or Send in flight after the' +
-        ' close_notify, and a Send ended by IOTimeout only when it idles');
+        ' close_notify, and a Send ended by IOTimeout only when a piece of it does not complete');
       Result := 0;
     end
     else

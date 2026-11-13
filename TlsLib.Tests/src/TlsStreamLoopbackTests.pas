@@ -232,6 +232,7 @@ type
     procedure ShortTimedReadQueried;
     procedure ServeTimedEcho;
     procedure ServeConnection;
+    procedure WriteTimedToStalledPeer;
     procedure WritePumped;
     procedure ReadPumped;
     procedure ClosePumped;
@@ -258,6 +259,8 @@ type
     FServing: TTlsStream;
     FServerConnection: TTlsConnection;
     FServerExported: TBytes;
+    FTimedClient: TTlsConnection;
+    FTimedWriteRaised: Boolean;
     FPumped: TTlsStreamPump;
     FPumpedByte: TBytes;
     FPumpedBuffer: TBytes;
@@ -3482,11 +3485,11 @@ var
   LClientTransport: TPipeTimedTransport;
   LClientT, LServerT: ITlsTimedTransport;
   LClient: TTlsConnection;
-  LServing: TActionThread;
-  LBig: TBytes;
+  LServing, LWriting: TActionThread;
   LRaised: Boolean;
+  LWaitedMs: Int32;
 begin
-  // the pipe holds one record at most, so a peer that stops reading stalls the sender
+  // the pipe holds less than a record, so a peer that stops reading stalls the sender
   LC2S := TMemoryPipe.Create(4096);
   LS2C := TMemoryPipe.Create;
   LClientTransport := TPipeTimedTransport.Create(LS2C, LC2S);
@@ -3512,19 +3515,38 @@ begin
     end;
     CheckTrue(LRaised, 'a grace set after the handshake is refused');
     CheckEquals(800, LClient.CloseGraceMs, 'and the grace stays what it was');
-    // the pipe holds less than a record, so the peer reads nothing of this and the write stalls
-    System.SetLength(LBig, 262144);
-    LRaised := False;
-    try
-      LClient.Write(LBig[0], System.Length(LBig), 150);
-    except
-      on ETlsWriteTimeout do
-        LRaised := True;
+    // the peer reads one record and then stops, so the write stalls
+    FTimedClient := LClient;
+    FTimedWriteRaised := False;
+    LWriting := Own<TActionThread>(TActionThread.Create(WriteTimedToStalledPeer));
+    LWriting.Start;
+    LWaitedMs := 0;
+    while (not LWriting.Finished) and (LWaitedMs < 10000) do
+    begin
+      Sleep(10);
+      System.Inc(LWaitedMs, 10);
     end;
-    CheckTrue(LRaised, 'a timed write the peer cannot take raises the write timeout');
+    // a write the timeout does not reach waits on the full pipe, which closing it ends
+    if not LWriting.Finished then
+      LClientTransport.CloseWrite;
+    LWriting.WaitFor;
+    CheckTrue(FTimedWriteRaised, 'a timed write the peer cannot take raises the write timeout');
   finally
     LClientTransport.CloseWrite;
     LServing.WaitFor;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.WriteTimedToStalledPeer;
+var
+  LBig: TBytes;
+begin
+  System.SetLength(LBig, 262144);
+  try
+    FTimedClient.Write(LBig[0], System.Length(LBig), 150);
+  except
+    on ETlsWriteTimeout do
+      FTimedWriteRaised := True;
   end;
 end;
 

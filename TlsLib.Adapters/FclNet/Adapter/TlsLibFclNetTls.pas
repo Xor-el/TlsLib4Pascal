@@ -252,7 +252,6 @@ type
     TCallRecord = record
       Thread: TThreadID;
       Seq: UInt32;
-      Kind: TCallKind;
       InFlight: Boolean;
       Code: Integer;
       SslCode: Integer;
@@ -283,7 +282,6 @@ type
     FSocketTransport: TFclNetSocketTransport;
     FCloseGraceMs: Integer;
     // FCallLock guards the call state down to FWritersIdle; two records serve a reader and a writer
-    FCallLock: TCriticalSection;
     FCalls: array[0..1] of TCallRecord;
     FCallSeq: UInt32;
     FInFlight: Integer;
@@ -315,7 +313,7 @@ type
     /// the calls in flight get the close grace to leave, and any still inside are then aborted.
     /// Returns once none can touch the socket, which fcl-net closes next.</summary>
     procedure EndCalls;
-    /// <summary>The close grace: CloseGraceMs, else the connection's default.</summary>
+    /// <summary>The close grace: the connection's, else CloseGraceMs, else the default.</summary>
     function GraceMs: Cardinal;
     function GetLastErrorDesc: string;
     /// <summary>A fcl-net cert slot as a host-neutral blob source: its inline bytes when present,
@@ -345,10 +343,10 @@ type
     // unit-private: FlushTlsLibFclNetConfigCache clears them
     FServerConfigMemo: ITlsServerConfigMemo;
     FClientConfigMemo: ITlsClientConfigMemo;
+  strict protected
+    // a subclass may replace it in its constructor, before any call
+    FCallLock: TCriticalSection;
   protected
-    /// <summary>The lock that guards the call state, made once by the constructor; a subclass may
-    /// return one that observes how it is taken and released.</summary>
-    function CreateCallLock: TCriticalSection; virtual;
 {$IF FPC_FULLVERSION >= 30203}
     // fcl-net declares these abstract from 3.2.3
     function GetLastSSLErrorString: string; override;
@@ -1133,7 +1131,7 @@ end;
 constructor TTlsLibSocketHandler.Create;
 begin
   // before the base constructor, so a destroy after a failed construction finds them
-  FCallLock := CreateCallLock;
+  FCallLock := TCriticalSection.Create;
   FDrained := TEvent.Create(nil, True, True, '');
   FWritersIdle := TEvent.Create(nil, True, True, '');
   inherited Create;
@@ -1151,11 +1149,6 @@ begin
   // verify by default; the base switch also starts True so the failure hint fires only on a reset
   VerifyPeerCert := True;
   inherited VerifyPeerCert := True;
-end;
-
-function TTlsLibSocketHandler.CreateCallLock: TCriticalSection;
-begin
-  Result := TCriticalSection.Create;
 end;
 
 destructor TTlsLibSocketHandler.Destroy;
@@ -1195,15 +1188,11 @@ begin
     Inc(FCallSeq);
     FCalls[Result].Thread := LThread;
     FCalls[Result].Seq := FCallSeq;
-    FCalls[Result].Kind := AKind;
     FCalls[Result].InFlight := True;
     FCalls[Result].Code := 0;
     FCalls[Result].SslCode := 0;
     FCalls[Result].Desc := '';
     Inc(FInFlight);
-    // a call counted after the close began, even a refused one, is waited for too
-    if FClosing and (FInFlight > FCloserCalls) then
-      FDrained.ResetEvent;
     if AKind = TCallKind.Send then
     begin
       Inc(FWriters);
@@ -1326,12 +1315,13 @@ begin
     if Socket <> nil then
       TNetOs.AbortPending(TNetHandle(Socket.Handle));
   end;
-  // each wait is followed by a look under the lock: a call refused since then must leave too, and
-  // the lock is free only once the last call to leave has let go of it
+  // a call refused since the last look must leave too; the lock is the barrier
   repeat
     FCallLock.Enter;
     try
       LBusy := FInFlight > FCloserCalls;
+      if LBusy then
+        FDrained.ResetEvent;
     finally
       FCallLock.Leave;
     end;
@@ -1708,7 +1698,7 @@ begin
       raise ETlsStreamError.CreateRes(@SFclNetClosed);
     if FConnection = nil then
       raise ETlsStreamError.CreateRes(@SFclNetNoSession);
-    // a send that stays idle for Socket.IOTimeout ms ends (0 blocks): each piece gets a new deadline
+    // each piece of a send gets Socket.IOTimeout ms (0 blocks)
     LTimeoutMs := Socket.IOTimeout;
     LOffset := 0;
     while LOffset < Count do
