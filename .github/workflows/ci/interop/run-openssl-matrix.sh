@@ -628,39 +628,39 @@ fi
 
 # --- TLS 1.2 renegotiation cells: a HelloRequest to our client, a renegotiation ClientHello to our server ---
 # s_server's stdin is a command channel: a lone 'r' sends a HelloRequest and any other line goes out as
-# application data, so relayed lines start with m8- (a leading q Q r R P S k K c would run as a command).
+# application data, so relayed lines start with hr- (a leading q Q r R P S k K c would run as a command).
 # Its -msg trace is flushed per message, so each command waits for its effect in the trace. Needs Linux s_server.
-M8_HELLO_REQUEST='>>> TLS 1.2, Handshake .*HelloRequest'
-M8_CLIENT_HELLO_IN='<<< .*Handshake .*ClientHello'
+RENEG_HELLO_REQUEST='>>> TLS 1.2, Handshake .*HelloRequest'
+RENEG_CLIENT_HELLO_IN='<<< .*Handshake .*ClientHello'
 
 # the number of lines of a log that match a pattern
-m8_count() { # <log> <pattern>
+reneg_count() { # <log> <pattern>
   grep -c -- "$2" "$1" || true
 }
 
 # waits until a log holds <count> matching lines; fails when the process dies or the wait runs out
-m8_await() { # <log> <pattern> <count> <pid>
+reneg_await() { # <log> <pattern> <count> <pid>
   local _
   for _ in $(seq 1 200); do
-    [ "$(m8_count "$1" "$2")" -ge "$3" ] && return 0
-    kill -0 "$4" 2>/dev/null || { [ "$(m8_count "$1" "$2")" -ge "$3" ]; return; }
+    [ "$(reneg_count "$1" "$2")" -ge "$3" ] && return 0
+    kill -0 "$4" 2>/dev/null || { [ "$(reneg_count "$1" "$2")" -ge "$3" ]; return; }
     sleep 0.05
   done
   return 1
 }
 
 # the driver's first line, then the HelloRequests one at a time, then the relayed line
-m8_send_commands() { # <s_server log> <driver pid> <hello-requests> <line relayed afterwards or empty>
+reneg_send_commands() { # <s_server log> <driver pid> <hello-requests> <line relayed afterwards or empty>
   local i
-  m8_await "$1" 'm8-ping' 1 "$2" || return 1
+  reneg_await "$1" 'hr-ping' 1 "$2" || return 1
   for i in $(seq 1 "$3"); do
     echo r >&3
-    m8_await "$1" "$M8_HELLO_REQUEST" "$i" "$2" || return 1
+    reneg_await "$1" "$RENEG_HELLO_REQUEST" "$i" "$2" || return 1
   done
   [ -z "$4" ] || echo "$4" >&3
 }
 
-m8_client_cell() { # <cell> <port> <hello-requests> <line relayed afterwards or empty> <driver args...>
+reneg_client_cell() { # <cell> <port> <hello-requests> <line relayed afterwards or empty> <driver args...>
   local cell="$1" port="$2" count="$3" relay="$4" driver_pid
   shift 4
   mkfifo "$TMP/$cell.in"
@@ -669,88 +669,88 @@ m8_client_cell() { # <cell> <port> <hello-requests> <line relayed afterwards or 
     -accept "$port" -naccept 1 <&3 3>&- > "$TMP/s$cell.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s$cell.log" && break; sleep 0.1; done
   ci_run_bounded 30 "$DRIVER" --role client --port "$port" --host localhost --ca "$TMP/srv_cert.pem" \
-    --message m8-ping --data-dir "$DATA_DIR" "$@" 3>&- > "$TMP/c$cell.out" 2>&1 &
+    --message hr-ping --data-dir "$DATA_DIR" "$@" 3>&- > "$TMP/c$cell.out" 2>&1 &
   driver_pid=$!
-  m8_send_commands "$TMP/s$cell.log" "$driver_pid" "$count" "$relay" || kill "$driver_pid" 2>/dev/null || true
-  M8_RC=0
-  wait "$driver_pid" || M8_RC=$?
+  reneg_send_commands "$TMP/s$cell.log" "$driver_pid" "$count" "$relay" || kill "$driver_pid" 2>/dev/null || true
+  RENEG_RC=0
+  wait "$driver_pid" || RENEG_RC=$?
   exec 3>&-
   reap_cell
 }
 
 # the HelloRequests were ignored: the reply arrived, one ClientHello, no alert but close_notify
-m8_ignored() { # <cell> <hello-requests>
+reneg_ignored() { # <cell> <hello-requests>
   local log="$TMP/s$1.log" stray
   stray="$(grep '<<< TLS 1.2, Alert' "$log" | grep -v 'warning close_notify' || true)"
-  [ "$M8_RC" -eq 0 ] && grep -q '^m8-reply' "$log" && [ -z "$stray" ] \
-    && [ "$(m8_count "$log" "$M8_HELLO_REQUEST")" -eq "$2" ] \
-    && [ "$(m8_count "$log" "$M8_CLIENT_HELLO_IN")" -eq 1 ]
+  [ "$RENEG_RC" -eq 0 ] && grep -q '^hr-reply' "$log" && [ -z "$stray" ] \
+    && [ "$(reneg_count "$log" "$RENEG_HELLO_REQUEST")" -eq "$2" ] \
+    && [ "$(reneg_count "$log" "$RENEG_CLIENT_HELLO_IN")" -eq 1 ]
 }
 
 if [ "$(uname -s)" = "Linux" ]; then
   TOTAL=$((TOTAL+4))
 
-  # --- Cell M8a: our client  ->  openssl s_server sending one HelloRequest ---
-  echo "=== cell M8a: our client ignores a HelloRequest  ->  openssl s_server (TLS 1.2) ==="
-  PM8A=14540
-  m8_client_cell M8a $PM8A 1 m8-after-hr --await-line m8-after-hr --reply m8-reply
-  if m8_ignored M8a 1; then
+  # --- Cell R1: our client  ->  openssl s_server sending one HelloRequest ---
+  echo "=== cell R1: our client ignores a HelloRequest  ->  openssl s_server (TLS 1.2) ==="
+  PR1=14540
+  reneg_client_cell R1 $PR1 1 hr-after --await-line hr-after --reply hr-reply
+  if reneg_ignored R1 1; then
     echo "  PASS: the HelloRequest was ignored (no alert) and the connection carried data both ways"
   else
-    echo "  FAIL: cell M8a"; cat "$TMP/sM8a.log" "$TMP/cM8a.out"; FAILURES=$((FAILURES+1))
+    echo "  FAIL: cell R1"; cat "$TMP/sR1.log" "$TMP/cR1.out"; FAILURES=$((FAILURES+1))
   fi
 
-  # --- Cell M8b: 32 HelloRequests in a row, the most our client accepts ---
-  echo "=== cell M8b: our client  ->  openssl s_server sending 32 HelloRequests (TLS 1.2) ==="
-  PM8B=14541
-  m8_client_cell M8b $PM8B 32 m8-after-hr --await-line m8-after-hr --reply m8-reply
-  if m8_ignored M8b 32; then
+  # --- Cell R2: 32 HelloRequests in a row, the most our client accepts ---
+  echo "=== cell R2: our client  ->  openssl s_server sending 32 HelloRequests (TLS 1.2) ==="
+  PR2=14541
+  reneg_client_cell R2 $PR2 32 hr-after --await-line hr-after --reply hr-reply
+  if reneg_ignored R2 32; then
     echo "  PASS: 32 HelloRequests were ignored and the connection carried data both ways"
   else
-    echo "  FAIL: cell M8b"; cat "$TMP/sM8b.log" "$TMP/cM8b.out"; FAILURES=$((FAILURES+1))
+    echo "  FAIL: cell R2"; cat "$TMP/sR2.log" "$TMP/cR2.out"; FAILURES=$((FAILURES+1))
   fi
 
-  # --- Cell M8c: a 33rd HelloRequest in a row ends the connection ---
-  echo "=== cell M8c: our client  ->  openssl s_server sending 33 HelloRequests (TLS 1.2) ==="
-  PM8C=14542
-  m8_client_cell M8c $PM8C 33 "" --expect-read-alert 10
-  if [ "$M8_RC" -eq 0 ] && [ "$(m8_count "$TMP/sM8c.log" "$M8_HELLO_REQUEST")" -eq 33 ] \
-     && grep -q '<<< TLS 1.2, Alert \[length 0002\], fatal unexpected_message' "$TMP/sM8c.log"; then
+  # --- Cell R3: a 33rd HelloRequest in a row ends the connection ---
+  echo "=== cell R3: our client  ->  openssl s_server sending 33 HelloRequests (TLS 1.2) ==="
+  PR3=14542
+  reneg_client_cell R3 $PR3 33 "" --expect-read-alert 10
+  if [ "$RENEG_RC" -eq 0 ] && [ "$(reneg_count "$TMP/sR3.log" "$RENEG_HELLO_REQUEST")" -eq 33 ] \
+     && grep -q '<<< TLS 1.2, Alert \[length 0002\], fatal unexpected_message' "$TMP/sR3.log"; then
     echo "  PASS: the 33rd HelloRequest in a row ended the connection with fatal unexpected_message"
   else
-    echo "  FAIL: cell M8c"; cat "$TMP/sM8c.log" "$TMP/cM8c.out"; FAILURES=$((FAILURES+1))
+    echo "  FAIL: cell R3"; cat "$TMP/sR3.log" "$TMP/cR3.out"; FAILURES=$((FAILURES+1))
   fi
 
-  # --- Cell M8s: our server  <-  openssl s_client renegotiating ---
-  echo "=== cell M8s: our server  <-  openssl s_client renegotiating (TLS 1.2) ==="
-  PM8S=14543
-  "$DRIVER" --role server --port $PM8S --data-dir "$DATA_DIR" > "$TMP/sM8s.log" 2>&1 &
-  for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sM8s.log" && break; sleep 0.1; done
+  # --- Cell R4: our server  <-  openssl s_client renegotiating ---
+  echo "=== cell R4: our server  <-  openssl s_client renegotiating (TLS 1.2) ==="
+  PR4=14543
+  "$DRIVER" --role server --port $PR4 --data-dir "$DATA_DIR" > "$TMP/sR4.log" 2>&1 &
+  for _ in $(seq 1 100); do grep -q 'listening on' "$TMP/sR4.log" && break; sleep 0.1; done
   # 'R' makes s_client start a renegotiation; RENEGOTIATING on its output proves it did
-  M8S_ALERT='<<< TLS 1.2, Alert \[length 0002\], fatal no_renegotiation'
-  mkfifo "$TMP/M8s.in"
-  ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PM8S -tls1_2 -msg \
+  RENEG_ALERT='<<< TLS 1.2, Alert \[length 0002\], fatal no_renegotiation'
+  mkfifo "$TMP/R4.in"
+  ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PR4 -tls1_2 -msg \
        -CAfile "$TMP/root.pem" -servername localhost -verify_hostname localhost -verify_return_error \
-       < "$TMP/M8s.in" > "$TMP/cM8s.out" 2>"$TMP/cM8s.err" &
-  M8S_PID=$!
-  exec 3>"$TMP/M8s.in"
-  echo m8-ping >&3
-  if m8_await "$TMP/cM8s.out" '^m8-ping' 1 "$M8S_PID"; then
+       < "$TMP/R4.in" > "$TMP/cR4.out" 2>"$TMP/cR4.err" &
+  RENEG_PID=$!
+  exec 3>"$TMP/R4.in"
+  echo hr-ping >&3
+  if reneg_await "$TMP/cR4.out" '^hr-ping' 1 "$RENEG_PID"; then
     echo R >&3
-    m8_await "$TMP/cM8s.out" "$M8S_ALERT" 1 "$M8S_PID" || true
+    reneg_await "$TMP/cR4.out" "$RENEG_ALERT" 1 "$RENEG_PID" || true
   fi
   exec 3>&-
-  wait "$M8S_PID" || true
-  if grep -q '^m8-ping' "$TMP/cM8s.out" && grep -q 'RENEGOTIATING' "$TMP/cM8s.out" "$TMP/cM8s.err" \
-     && [ "$(m8_count "$TMP/cM8s.out" '>>> .*ClientHello')" -eq 2 ] \
-     && grep -q "$M8S_ALERT" "$TMP/cM8s.out"; then
+  wait "$RENEG_PID" || true
+  if grep -q '^hr-ping' "$TMP/cR4.out" && grep -q 'RENEGOTIATING' "$TMP/cR4.out" "$TMP/cR4.err" \
+     && [ "$(reneg_count "$TMP/cR4.out" '>>> .*ClientHello')" -eq 2 ] \
+     && grep -q "$RENEG_ALERT" "$TMP/cR4.out"; then
     echo "  PASS: our server answered the renegotiation ClientHello with fatal no_renegotiation"
   else
-    echo "  FAIL: cell M8s"; cat "$TMP/sM8s.log" "$TMP/cM8s.err" "$TMP/cM8s.out"; FAILURES=$((FAILURES+1))
+    echo "  FAIL: cell R4"; cat "$TMP/sR4.log" "$TMP/cR4.err" "$TMP/cR4.out"; FAILURES=$((FAILURES+1))
   fi
   reap_cell
 else
-  echo "=== cells M8a-M8s (TLS 1.2 renegotiation): SKIPPED (needs Linux s_server stdin commands, 4 cells) ==="
+  echo "=== cells R1-R4 (TLS 1.2 renegotiation): SKIPPED (needs Linux s_server stdin commands, 4 cells) ==="
 fi
 
 echo "=== openssl matrix: $((TOTAL-FAILURES))/$TOTAL cells passed ==="
