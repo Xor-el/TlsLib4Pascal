@@ -1,0 +1,29 @@
+TlsLib.Interop/src/OpenSslInteropRunner.pas
+  s_f2c9bd75607afc::t_1e5402782a6536 47-61,412
+  s_f2c9bd75607afc::t_e65a32fa737693 333,338-339
+  s_f2c9bd75607afc::t_150ad24097b262 452
+  s_f2c9bd75607afc::t_afb469ed029cb5 264,267
+  s_f2c9bd75607afc::t_1f0afc556f0869 322
+  s_f2c9bd75607afc::t_d62b1b125c4ee6 491-498,503-504
+  s_f2c9bd75607afc::t_71ed5c0e48ed3a 373-375,379-383,385,388-389,391-394,399-411,413-418,421-422
+  s_f2c9bd75607afc::t_fc6c078b9b4233 91,95,97-99,102
+  s_f2c9bd75607afc::t_b512e6f7efd9dd 349,352,354,357
+.github/workflows/ci/interop/run-openssl-matrix.sh
+  s_f2c9bd75607afc::t_c535f6ea2f7c57 629-716
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "62d9c7bb79f4fa8e4b18c9589252f8754ddb9f7c",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
