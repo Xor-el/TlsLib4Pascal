@@ -224,7 +224,7 @@ resourcestring
   SEmptyPassphraseLegacyPem =
     'a legacy-encrypted PEM private key needs a non-empty password';
   SEncryptedKeyUndecryptable =
-    'the encrypted private key could not be decrypted or parsed (wrong password, or a damaged or malformed key)';
+    'the encrypted private key could not be read (wrong password, or damaged or malformed)';
   SUnsupportedKeyAlgorithm = 'the private key uses an algorithm this library cannot sign with';
   SForeignSigningKey = 'the signing key was not produced by this provider';
   SMalformedPublicKey = 'the public key could not be parsed as a SubjectPublicKeyInfo';
@@ -1638,6 +1638,9 @@ var
   LPair: IAsymmetricCipherKeyPair;
   LParam: IAsymmetricKeyParameter;
   LWipe: TBytes;
+  LHeader: IPemHeader;
+  LDekCipher: string;
+  LLegacyEncrypted: Boolean;
 begin
   Result := nil;
   // a key file often leads with other objects (EC PARAMETERS, a certificate in a cert+key
@@ -1645,9 +1648,23 @@ begin
   LObject := FirstPrivateKeyObject(AData);
   if LObject = nil then
     raise EArgumentTlsLibException.CreateRes(@SMalformedPrivateKey);
+  LLegacyEncrypted := HasHeader(LObject, 'Proc-Type', '4,ENCRYPTED');
+  if LLegacyEncrypted then
+    for LHeader in LObject.Headers do
+      if LHeader.Name = 'DEK-Info' then
+      begin
+        // the reader runs only AES and Blowfish: any other cipher is refused whatever the password
+        LDekCipher := TStringUtilities.Trim(Copy(LHeader.Value, 1,
+          Pos(',', LHeader.Value + ',') - 1));
+        if not ((Length(LDekCipher) > 4) and (LDekCipher[Length(LDekCipher) - 3] = '-') and
+          TStringUtilities.IsOneOf(Copy(LDekCipher, 1, Length(LDekCipher) - 4),
+          ['AES-128', 'AES-192', 'AES-256', 'BF']) and
+          TStringUtilities.IsOneOf(Copy(LDekCipher, Length(LDekCipher) - 2, 3),
+          ['CBC', 'CFB', 'ECB', 'OFB'])) then
+          raise ENotSupportedTlsLibException.CreateRes(@SUnsupportedKeyEncryption);
+      end;
   // the legacy reader cannot take an empty passphrase (nil or zero-length), so it is refused here
-  if ((APassword = nil) or (APassword.Len = 0)) and
-    HasHeader(LObject, 'Proc-Type', '4,ENCRYPTED') then
+  if ((APassword = nil) or (APassword.Len = 0)) and LLegacyEncrypted then
     raise EArgumentTlsLibException.CreateRes(@SEmptyPassphraseLegacyPem);
   // the label binds the content to an EncryptedPrivateKeyInfo (RFC 7468 11); the DER arm decrypts
   // under any passphrase, an empty one included
@@ -1678,12 +1695,10 @@ begin
       try
         LValue := LReader.ReadObject;
       except
-        on E: EBaseTlsLibException do
-          raise;
         on E: Exception do
         begin
           // the empty passphrase was refused above, so an encrypted block here had a password
-          if HasHeader(LObject, 'Proc-Type', '4,ENCRYPTED') then
+          if LLegacyEncrypted then
             raise EArgumentTlsLibException.CreateRes(@SEncryptedKeyUndecryptable);
           raise;
         end;
@@ -1745,7 +1760,7 @@ begin
         LPass := PasswordChars(APassword);
         try
           try
-            Result := TPrivateKeyFactory.DecryptKey(LPass, LEnc);
+            LInfo := TPrivateKeyInfoFactory.CreatePrivateKeyInfo(LPass, False, LEnc);
           except
             on E: EBaseTlsLibException do
               raise;
@@ -1762,6 +1777,8 @@ begin
         finally
           WipePasswordChars(LPass);
         end;
+        // a password that decrypted the key is not blamed when the key itself is unusable
+        Result := TPrivateKeyFactory.CreateKey(LInfo);
       end;
     TDerKeyShape.Pkcs1Rsa:
       begin
