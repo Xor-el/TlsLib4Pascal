@@ -96,7 +96,8 @@ env:
   # When true (default), the native, scalar and VM legs also run the unit tests that need live DNS
   # (TLSLIB_TEST_NETWORK). Set false to skip them.
   MAKE_TEST_NETWORK: true
-  # TLSLIB_STRESS_LONG=true runs the duplex stress suite at ten times its size; CI leaves it off.
+  # When true, the duplex stress suite runs at ten times its size (TLSLIB_STRESS_LONG). Default false.
+  MAKE_STRESS_LONG: false
   # The BoringSSL/BoGo peer commit the disable ledger is reconciled against (pins the
   # peer). Bumping it is a deliberate, reviewed change: any new test it introduces
   # surfaces as UNEXPECTED and must be triaged into pass/disable - the gate working.
@@ -176,6 +177,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64'].fpc_tarball_target }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         run: bash .github/workflows/ci/native-build.sh
 
       # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
@@ -224,6 +226,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64'].fpc_tarball_target }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         run: bash .github/workflows/ci/native-build.sh
 
       # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
@@ -274,6 +277,7 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-x64-scalar'].fpc_tarball_target }}
           MAKE_DEFINES: 'CRYPTOLIB_FORCE_SCALAR HASHLIB_FORCE_SCALAR'
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         run: bash .github/workflows/ci/native-build.sh
 
       - name: FclNet adapter (build + loopback)
@@ -317,6 +321,7 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['linux-arm64-scalar'].fpc_tarball_target }}
           MAKE_DEFINES: 'CRYPTOLIB_FORCE_SCALAR HASHLIB_FORCE_SCALAR'
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         run: bash .github/workflows/ci/native-build.sh
 
       - name: FclNet adapter (build + loopback)
@@ -366,6 +371,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-x64'].fpc_tarball_target }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         run: bash .github/workflows/ci/native-build.sh
 
       # The Build step runs the unit suites on the portable providers. When a non-portable
@@ -432,6 +438,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['windows-2022'].fpc_tarball_target }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         run: bash .github/workflows/ci/native-build.sh
 
       # The Build step runs the unit suites on the portable providers. When a non-portable
@@ -487,6 +494,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-arm64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-arm64'].fpc_tarball_target }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         run: bash .github/workflows/ci/native-build.sh
 
       # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
@@ -535,6 +543,7 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['macos-x64'].fpc_tarball_target }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         run: bash .github/workflows/ci/native-build.sh
 
       # FclNet adapter: compile the fcl-net adapter + examples and run its loopbacks (no deps
@@ -643,8 +652,9 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['freebsd'].fpc_tarball_target }}
           FREEBSD_INSTALL_MODE: interim
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         with:
-          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
+          envs: FPC_VERSION FPC_TARGET FPC_TARBALL_TARGET LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FREEBSD_INSTALL_MODE CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK TLSLIB_STRESS_LONG BOGO_REF
           release: "15.0"
           prepare: sh .github/workflows/ci/vm-freebsd-prepare.sh
           run: bash .github/workflows/ci/vm-freebsd-run.sh
@@ -683,8 +693,9 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['netbsd'].fpc_tarball_target }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK TLSLIB_STRESS_LONG BOGO_REF
           prepare: sh .github/workflows/ci/vm-netbsd-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
 
@@ -722,10 +733,11 @@ jobs:
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['dragonflybsd'].fpc_tarball_target }}
           LD_LIBRARY_PATH_EXTRA: /usr/local/lib
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
           # the FclNet loopback does not run on this OS
           MAKE_RUN_FCLNET: false
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET LD_LIBRARY_PATH_EXTRA CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK TLSLIB_STRESS_LONG BOGO_REF
           prepare: sh .github/workflows/ci/vm-dragonfly-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
 
@@ -762,8 +774,9 @@ jobs:
           FPC_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_target }}
           FPC_TARBALL_TARGET: ${{ fromJSON(needs.setup.outputs.target_map)['solaris'].fpc_tarball_target }}
           TLSLIB_TEST_NETWORK: ${{ env.MAKE_TEST_NETWORK }}
+          TLSLIB_STRESS_LONG: ${{ env.MAKE_STRESS_LONG }}
         with:
-          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK BOGO_REF
+          envs: FPC_VERSION LAZARUS_BRANCH LAZARUS_REPO MAKE_BUILD_BACKEND MAKE_PACKAGE_SCOPE MAKE_DEFINES MAKE_RUN_BENCHMARK MAKE_TEST_REPEAT MAKE_LAZBUILD_GUI FPC_TARGET FPC_TARBALL_TARGET CI_DEBUG MAKE_RUN_INTEROP MAKE_RUN_BOGO MAKE_RUN_OPENSSL MAKE_RUN_TRUST MAKE_RUN_AUTOROOT MAKE_RUN_FCLNET MAKE_CRYPTO_PROVIDER MAKE_PKIX_PROVIDER TLSLIB_TEST_NETWORK TLSLIB_STRESS_LONG BOGO_REF
           release: "11.4-gcc"
           prepare: sh .github/workflows/ci/vm-solaris-prepare.sh
           run: bash .github/workflows/ci/vm-run-shared.sh
