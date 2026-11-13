@@ -58,6 +58,9 @@ uses
   ssockets,
 {$IFDEF UNIX}
   BaseUnix,
+  termio,
+{$ELSE}
+  WinSock2,
 {$ENDIF}
 {$IF FPC_FULLVERSION >= 30301}
   fpsockets,
@@ -129,7 +132,10 @@ const
   DUPLEX_GRACE_MS = 500; // the close grace the duplex checks run at, in place of 5 s
   DUPLEX_LONG_GRACE_MS = 10000; // a grace that is only an upper bound for a call that leaves sooner
   DUPLEX_WATCHDOG_MS = 30000; // a call that is not back by now never will be
-  DUPLEX_PARK_MS = 500; // time for a send to a silent peer to be stuck
+  DUPLEX_PARK_MS = 500; // time for a receive with nothing to read to be parked
+  DUPLEX_STALL_QUIET_MS = 200; // how long a peer's queue holds still for the send to be stalled
+  DUPLEX_STALL_LIMIT_MS = 10000; // how long a send may take to stall
+  DUPLEX_STALL_POLL_MS = 10;
   DUPLEX_TIMEOUT_MS = 200;
   DUPLEX_WRITE_TIMEOUT_MS = 500;
   DUPLEX_STUCK_BYTES = 16 * 1024 * 1024;
@@ -188,7 +194,7 @@ type
   strict private
   var
     FServer: TInetServer;
-    FPort, FConnectionLimit, FAcceptErrors, FIdleTicks: Integer;
+    FPort, FConnectionLimit, FAcceptErrors, FIdleTicks, FReceiveBuffer: Integer;
   strict protected
   var
     FError: string;
@@ -213,6 +219,9 @@ type
     /// and raises when it does not.</summary>
     procedure WaitSettled;
     property Error: string read FError;
+    /// <summary>Set before StartListening: the receive buffer, in bytes, the listener gives the
+    /// connections it accepts; 0 leaves the default.</summary>
+    property ReceiveBuffer: Integer read FReceiveBuffer write FReceiveBuffer;
   end;
 
   /// <summary>The loopback server: binds 127.0.0.1:PORT, hands each accepted connection a fcl-net
@@ -660,6 +669,7 @@ type
     FBytes: LongInt;
     FEndResult: Integer;
     FEndText: string;
+    FConnection: PtrInt;
   strict protected
     procedure MakeHandler(Sender: TObject; out AHandler: TSocketHandler); override;
     procedure HandleConnect(Sender: TObject; AStream: TSocketStream); override;
@@ -668,6 +678,9 @@ type
     destructor Destroy; override;
     /// <summary>Has a peer that speaks write AData to its client, then read.</summary>
     procedure Speak(const AData: TBytes);
+    /// <summary>The bytes its connection holds that no read has taken, or -1 when that is not
+    /// known. Only meaningful while a gated or silent peer has not begun to read.</summary>
+    function Queued: Integer;
     /// <summary>Set to have a gated peer start to read.</summary>
     property Gate: TEvent read FSpeak;
     /// <summary>Set when a reading peer's read has ended.</summary>
@@ -839,6 +852,10 @@ type
   strict private
     /// <summary>The payload of a send that a peer which never reads cannot take.</summary>
     class function Payload(ABytes: Integer): TBytes; static;
+    /// <summary>Returns once ASend is still running and the bytes queued at the peer have held
+    /// still for a while, or once the send is done; ends the check when that does not
+    /// happen in time.</summary>
+    class procedure AwaitStall(APeer: TDuplexPeerThread; ASend: TDuplexCallThread); static;
     /// <summary>Closes AHandler on a thread of its own, so that a Close that never returns fails
     /// the check; returns the ms it took.</summary>
     class function TimedClose(AHandler: TTlsLibSocketHandler): Int64; static;
@@ -991,6 +1008,9 @@ begin
   FServer := TInetServer.Create('127.0.0.1', FPort);
   try
     FServer.ReuseAddress := True;
+    if (FReceiveBuffer > 0) and
+      not FServer.SetSockopt(SOL_SOCKET, SO_RCVBUF, FReceiveBuffer, SizeOf(FReceiveBuffer)) then
+      raise Exception.Create('the listener''s receive buffer could not be set');
     if FConnectionLimit > 0 then
       FServer.MaxConnections := FConnectionLimit;
     FServer.AcceptIdleTimeout := ACCEPT_POLL_MS;
@@ -3445,6 +3465,9 @@ begin
   FPrivateKey := TDataEncoding.HexDecode(TVectorLocator.FieldHex('leaf_key'));
   FSpeak := TEvent.Create(nil, True, False, '');
   FEnded := TEvent.Create(nil, True, False, '');
+  FConnection := -1;
+  if AMode in [PeerGated, PeerSlow, PeerSilent] then
+    ReceiveBuffer := DUPLEX_BUFFER_BYTES;
 end;
 
 destructor TDuplexPeerThread.Destroy;
@@ -3458,6 +3481,25 @@ procedure TDuplexPeerThread.Speak(const AData: TBytes);
 begin
   FSpeech := AData;
   FSpeak.SetEvent;
+end;
+
+function TDuplexPeerThread.Queued: Integer;
+var
+{$IFDEF UNIX}
+  LCount: cint;
+{$ELSE}
+  LCount: u_long;
+{$ENDIF}
+begin
+  Result := -1;
+  if FConnection < 0 then
+    Exit;
+{$IFDEF UNIX}
+  if fpIoctl(cint(FConnection), FIONREAD, @LCount) = 0 then
+{$ELSE}
+  if WinSock2.ioctlsocket(TSocket(FConnection), WinSock2.FIONREAD, LCount) = 0 then
+{$ENDIF}
+    Result := Integer(LCount);
 end;
 
 procedure TDuplexPeerThread.MakeHandler(Sender: TObject; out AHandler: TSocketHandler);
@@ -3477,6 +3519,7 @@ var
   LN, LSize, LBurst: Integer;
 begin
   try
+    FConnection := PtrInt(AStream.Handle);
     if FMode in [PeerGated, PeerSlow, PeerSilent] then
     begin
       LSize := DUPLEX_BUFFER_BYTES;
@@ -3540,16 +3583,16 @@ begin
     TVectorLocator.FieldHex('root_cert'));
   FHandler.CloseGraceMs := ACloseGraceMs;
   FSock := TInetSocket.Create('localhost', DUPLEX_PORT, FHandler);
-  FSock.Connect;
-  FSock.IOTimeout := AIoTimeoutMs;
-  // sends of 1 KiB under a timeout would otherwise wait on the peer's delayed acknowledgements
-  LSize := 1;
-  fpSetSockOpt(FSock.Handle, IPPROTO_TCP, TCP_NODELAY, @LSize, SizeOf(LSize));
   if AShrinkSend then
   begin
     LSize := DUPLEX_BUFFER_BYTES;
     fpSetSockOpt(FSock.Handle, SOL_SOCKET, SO_SNDBUF, @LSize, SizeOf(LSize));
   end;
+  FSock.Connect;
+  FSock.IOTimeout := AIoTimeoutMs;
+  // sends of 1 KiB under a timeout would otherwise wait on the peer's delayed acknowledgements
+  LSize := 1;
+  fpSetSockOpt(FSock.Handle, IPPROTO_TCP, TCP_NODELAY, @LSize, SizeOf(LSize));
 end;
 
 destructor TDuplexRig.Destroy;
@@ -4182,6 +4225,31 @@ begin
   SetLength(Result, ABytes);
 end;
 
+class procedure TDuplexCloseCheck.AwaitStall(APeer: TDuplexPeerThread; ASend: TDuplexCallThread);
+var
+  LStart, LChangedAt, LNow: Int64;
+  LQueued, LLast: Integer;
+begin
+  LStart := GetTickCount64;
+  LChangedAt := LStart;
+  LLast := -1;
+  repeat
+    if ASend.Done.WaitFor(DUPLEX_STALL_POLL_MS) = wrSignaled then
+      Exit;
+    LNow := GetTickCount64;
+    LQueued := APeer.Queued;
+    if LQueued <> LLast then
+    begin
+      LLast := LQueued;
+      LChangedAt := LNow;
+    end
+    else if (LQueued > 0) and (LNow - LChangedAt >= DUPLEX_STALL_QUIET_MS) then
+      Exit;
+  until LNow - LStart >= DUPLEX_STALL_LIMIT_MS;
+  TDuplexRig.Fail(Format('the send never stalled: the peer had %d bytes queued after %d ms',
+    [LLast, LNow - LStart]));
+end;
+
 class function TDuplexCloseCheck.TimedClose(AHandler: TTlsLibSocketHandler): Int64;
 var
   LClose: TDuplexCallThread;
@@ -4232,9 +4300,9 @@ begin
       nil, True);
     try
       TDuplexRig.Expect(LSend.Began, 'the send to begin');
-      Sleep(DUPLEX_PARK_MS);
+      AwaitStall(LRig.Peer, LSend);
       if LSend.Done.WaitFor(0) = wrSignaled then
-        raise Exception.Create('stuck send: the send finished against a peer that never reads');
+        raise Exception.Create('stuck send:the send finished against a peer that never reads');
       LClose := TDuplexCallThread.Create(LRig.Handler, CallClose, nil, nil, True);
       try
         TDuplexRig.Expect(LClose.Done, 'Close');
@@ -4274,9 +4342,9 @@ begin
       nil, True);
     try
       TDuplexRig.Expect(LSend.Began, 'the send to begin');
-      Sleep(DUPLEX_PARK_MS);
+      AwaitStall(LRig.Peer, LSend);
       if LSend.Done.WaitFor(0) = wrSignaled then
-        raise Exception.Create('live send: the send finished against a peer not reading');
+        raise Exception.Create('live send:the send finished against a peer not reading');
       LClose := TDuplexCallThread.Create(LRig.Handler, CallClose, nil, nil, True);
       try
         TDuplexRig.Expect(LClose.Began, 'Close to begin');
@@ -4379,9 +4447,9 @@ begin
       nil, True);
     try
       TDuplexRig.Expect(LSend.Began, 'the send to begin');
-      Sleep(DUPLEX_PARK_MS);
+      AwaitStall(LRig.Peer, LSend);
       if LSend.Done.WaitFor(0) = wrSignaled then
-        raise Exception.Create('shutdown mid-send: the send finished against a peer not reading');
+        raise Exception.Create('shutdown mid-send:the send finished against a peer not reading');
       LShutdown := TDuplexCallThread.Create(LRig.Handler, CallShutdown, nil, nil, True);
       try
         TDuplexRig.Expect(LShutdown.Began, 'Shutdown to begin');
@@ -4422,8 +4490,8 @@ begin
       nil, False);
     try
       TDuplexRig.Expect(LSend.Began, 'the send to begin');
-      Sleep(DUPLEX_PARK_MS);
-      LFree := TDuplexCallThread.Create(LRig.Handler, CallFree, nil, nil, False);
+      AwaitStall(LRig.Peer, LSend);
+      LFree :=TDuplexCallThread.Create(LRig.Handler, CallFree, nil, nil, False);
       try
         TDuplexRig.Expect(LFree.Done, 'freeing the handler');
         TDuplexRig.Expect(LSend.Done, 'the stuck send');
