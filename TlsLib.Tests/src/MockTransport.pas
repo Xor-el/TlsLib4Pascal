@@ -219,12 +219,11 @@ type
     property LastWriteBuffer: Pointer read FLastWriteBuffer;
   end;
 
-  /// <summary>One scripted wire, handed out whole on the first Serve and as a closed peer after.</summary>
+  /// <summary>One scripted wire, served whole on the first Serve, then as a closed peer.</summary>
   TScriptedWire = record
     Wire: TBytes;
     Served: Boolean;
-    /// <summary>Copies the wire into ABuffer at AOffset (at most AMaxLength bytes) the first time,
-    /// and returns 0 on every later call.</summary>
+    /// <summary>Copies the wire into ABuffer on the first call and returns 0 after.</summary>
     function Serve(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
   end;
 
@@ -1140,7 +1139,7 @@ constructor TGatedTransport.Create(const AWire: TBytes);
 begin
   inherited Create;
   FScript.Wire := System.Copy(AWire);
-  FGate :=TEvent.Create(nil, True, False, '');
+  FGate := TEvent.Create(nil, True, False, '');
   FEntered := TEvent.Create(nil, True, False, '');
 end;
 

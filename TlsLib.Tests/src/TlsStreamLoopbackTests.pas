@@ -708,7 +708,7 @@ begin
   for I := 0 to BULK - 1 do
     LTx[I] := Byte(I + (I shr 8));
   TMemoryTransport.CreatePair(LInner, LServerTransport, LC2S, LS2C);
-  LEngine :=TTlsEngineFactory.CreateClientEngine(ClientConfig(True, nil), 'localhost');
+  LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(True, nil), 'localhost');
   // the probe sits between the pump and the pipe and sees exactly what the engine had queued
   // at each transport write
   LProbe := TPeakProbeTransport.Create(LInner as ITlsTransport, LEngine);
@@ -884,7 +884,7 @@ var
 begin
   CappedTls12Configs(LClientConfig, LServerConfig);
   TMemoryTransport.CreatePair(LClientTransport, LServerTransport, LC2S, LS2C);
-  LClientEngine :=TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
+  LClientEngine := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   LServerEngine := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   LClient := TTlsStream.Create(LClientTransport as ITlsTransport, LClientEngine, True,
     'localhost');
@@ -938,7 +938,7 @@ var
   LTimedOut: Boolean;
 begin
   TMemoryTransport.CreatePair(LInner, LServerTransport, LC2S, LS2C);
-  LTimeout :=TTimeoutOnceTransport.Create(LInner as ITlsTransport);
+  LTimeout := TTimeoutOnceTransport.Create(LInner as ITlsTransport);
   LClient := NewClientStream(LTimeout as ITlsTransport, ClientConfig(False, nil));
   LServerStream := NewServerStream(LServerTransport as ITlsTransport);
   LServer := TServerRunner.Create(LServerStream, LServerTransport, LInner,

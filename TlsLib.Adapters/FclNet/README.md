@@ -102,7 +102,7 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `VerifyCallback` | augment-only hook, runs last (presented chain + validated path + host → Boolean) |
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused; beside a server config that requests no client certificate the resolver is refused outright |
-| `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = `Socket.IOTimeout` when set, else the 30 s default |
+| `HandshakeTimeoutMs` | bounds the handshake read (ms); zero or less = `Socket.IOTimeout` when set, else the 30 s default |
 | `Socket.IOTimeout` (fcl-net native) | bounds application reads and sends; a read that expires is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation; a `Send` writes pieces of up to 16 KiB, each of which must complete within the timeout; a `Send` whose pieces all do returns its count, otherwise it returns -1 and ends the connection, as part of a record may be out |
 | `CloseGraceMs` | the longest (ms) close_notify may take to send, and the longest `Close` waits for a `Recv` or `Send` in flight before it aborts the socket under them; zero or less = 5 s. Read when `Connect` / `Accept` begins; a later change has no effect |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |

@@ -305,8 +305,7 @@ type
     /// the text recorded there is never read.</summary>
     function EndCall(ASlot: Integer; AKind: TCallKind; AError: Exception;
       AAnyHookError: Boolean; const AHint: string): Boolean;
-    /// <summary>The record slot (0 or 1) AThread's last call used, -1 when it has none; the caller
-    /// holds FCallLock.</summary>
+    /// <summary>The slot AThread last used, -1 when none; the caller holds FCallLock.</summary>
     function SlotOfThread(AThread: TThreadID): Integer;
     /// <summary>The record the calling thread left, else the latest call's.</summary>
     function CallRecord: TCallRecord;
@@ -402,8 +401,8 @@ type
     property LastErrorDesc: string read GetLastErrorDesc;
     /// <summary>The longest (ms) close_notify, or a fatal alert, may take to send, and the longest
     /// Close waits for a Recv or Send in flight before it aborts the socket under them. Zero
-    /// or less (the default) takes TTlsConnection.DefaultCloseGraceMs. Read when Connect or Accept begins; a
-    /// later change has no effect.</summary>
+    /// or less (the default) takes TTlsConnection.DefaultCloseGraceMs. Read when Connect or Accept
+    /// begins; a later change has no effect.</summary>
     property CloseGraceMs: Integer read FCloseGraceMs write FCloseGraceMs;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
     /// bundle). Unions with a CertCA / TrustedCertificate / TrustedCertsDir and any
@@ -500,9 +499,9 @@ type
     /// False to force a full handshake every connection.</summary>
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption;
     /// <summary>The time budget (ms) for the whole handshake, so a peer that connects but sends no
-    /// data cannot park the connection's thread. 0 (the default) falls back to Socket.IOTimeout when
-    /// that is set, else the 30 s library default; a positive value overrides both. The cap is
-    /// enforced by a wait before each receive.</summary>
+    /// data cannot park the connection's thread. Zero or less (the default) falls back to
+    /// Socket.IOTimeout when that is set, else the 30 s library default; a positive value
+    /// overrides both. The cap is enforced by a wait before each receive.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
   published
     /// <summary>True (the default) verifies the server; False is the dangerous bypass.</summary>
@@ -1610,8 +1609,7 @@ begin
         FServerVerdictDeadlineMs);
     end;
     FSocketTransport := LTransport;
-    if FCloseGraceMs > 0 then
-      FConnection.CloseGraceMs := FCloseGraceMs;
+    FConnection.CloseGraceMs := FCloseGraceMs;
     // the handshake read cap: the property when set, else the socket's IOTimeout, else the core
     // connection's one default
     LEffectiveMs := FHandshakeTimeoutMs;

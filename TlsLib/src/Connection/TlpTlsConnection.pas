@@ -320,8 +320,9 @@ type
   /// every call has returned.</summary>
   TTlsConnection = class sealed(TObject)
   public const
-    /// <summary>The handshake read-timeout the connection applies when the host passes zero or less (30 s).
-    /// Exported so an adapter can share the one default rather than repeat the literal.</summary>
+    /// <summary>The handshake read-timeout the connection applies when the host passes zero or
+    /// less (30 s). Exported so an adapter can share the one default rather than repeat the
+    /// literal.</summary>
     DefaultHandshakeTimeoutMs = Int32(30000);
     /// <summary>The longest a terminal send (a fatal alert, close_notify) may take before it is
     /// abandoned and the connection latched failed (5 s).</summary>
@@ -354,8 +355,8 @@ type
       const ATransport: ITlsTimedTransport; const AResolver: TCertificateVerdictResolver;
       AVerdictDeadlineMs: Cardinal);
     destructor Destroy; override;
-    /// <summary>Runs the handshake with reads bounded by AHandshakeTimeoutMs (zero or less = the 30 s
-    /// library default); the cap is cleared afterwards even when the handshake raised.</summary>
+    /// <summary>Runs the handshake with reads bounded by AHandshakeTimeoutMs (zero or less = the
+    /// 30 s library default); the cap is cleared afterwards, even when it raised.</summary>
     procedure Handshake(AHandshakeTimeoutMs: Int32);
     function IsHandshakeComplete: Boolean;
     function Read(var ABuffer; ACount: Longint): Longint; overload;
@@ -403,9 +404,8 @@ type
     class function InfoOf(const AConn: TTlsConnection): TTlsConnectionInfo; static;
     /// <summary>The longest a terminal send (a fatal alert, close_notify) may take before it is
     /// abandoned and the connection latched failed (zero or less takes DefaultCloseGraceMs, as
-    /// Handshake does; the stream underneath, TTlsStream, leaves zero unbounded); DefaultCloseGraceMs
-    /// until set. Set it before Handshake; a later set raises
-    /// EInvalidOperationTlsLibException.</summary>
+    /// Handshake does); DefaultCloseGraceMs until set. Set it before Handshake; a later set
+    /// raises EInvalidOperationTlsLibException.</summary>
     property CloseGraceMs: Int32 read FCloseGraceMs write SetCloseGraceMs;
   end;
 

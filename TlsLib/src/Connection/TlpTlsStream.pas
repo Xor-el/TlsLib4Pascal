@@ -52,7 +52,9 @@ type
   /// EInvalidOperationTlsLibException there, and no other call is supported. A callback that
   /// runs after the handshake (for example a client session cache storing a ticket) can run
   /// inside a read, a write or an alert that holds the engine, so it may only query:
-  /// ConnectionInfo, PendingReadBytes and IsHandshakeComplete. A callback must not wait for
+  /// ConnectionInfo, PendingReadBytes and IsHandshakeComplete; inside a read, a read, write,
+  /// rekey, close or alert raises. A ticket that arrives with the server's Finished is stored
+  /// during the handshake, so the handshake rule applies to it. A callback must not wait for
   /// another thread that uses the same stream.
   /// </summary>
   TTlsStream = class(TStream)

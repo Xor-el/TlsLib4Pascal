@@ -250,8 +250,8 @@ type
     property SessionResumption: Boolean read FSessionResumption write FSessionResumption;
     /// <summary>The time budget (ms) for the whole handshake, so a peer that connects but sends no
     /// data cannot park the connection's thread. Deliberately NOT an app-read deadline. Zero or
-    /// less (the default) uses the 30 s library default; a positive value overrides it. Cast Sock.SSL to
-    /// TSSLTlsLib to set it.</summary>
+    /// less (the default) uses the 30 s library default; a positive value overrides it. Cast
+    /// Sock.SSL to TSSLTlsLib to set it.</summary>
     property HandshakeTimeoutMs: Integer read FHandshakeTimeoutMs write FHandshakeTimeoutMs;
     /// <summary>The time budget (ms) for one RecvBuffer call to deliver application data. Synapse's
     /// own timeouts only wait for the first byte, so without this a peer that sends part of a
