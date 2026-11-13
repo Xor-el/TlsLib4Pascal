@@ -45,7 +45,7 @@ uses
   TlsLibSynapseTls;
 
 const
-  PORT = '28450';
+  PORT = '28478';
   PING = 'ping from the synapse client';
   CRLF = #13#10;
   LEGS = 4; // the reject leg still opens a TCP connection, so the server accepts all four

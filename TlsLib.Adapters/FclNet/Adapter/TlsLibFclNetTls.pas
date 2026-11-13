@@ -305,6 +305,9 @@ type
     /// the text recorded there is never read.</summary>
     function EndCall(ASlot: Integer; AKind: TCallKind; AError: Exception;
       AAnyHookError: Boolean; const AHint: string): Boolean;
+    /// <summary>The record slot (0 or 1) AThread's last call used, -1 when it has none; the caller
+    /// holds FCallLock.</summary>
+    function SlotOfThread(AThread: TThreadID): Integer;
     /// <summary>The record the calling thread left, else the latest call's.</summary>
     function CallRecord: TCallRecord;
     /// <summary>The alert a failure carries, 0 when none.</summary>
@@ -398,8 +401,8 @@ type
     /// thread.</summary>
     property LastErrorDesc: string read GetLastErrorDesc;
     /// <summary>The longest (ms) close_notify, or a fatal alert, may take to send, and the longest
-    /// Close waits for a Recv or Send in flight before it aborts the socket under them. 0 (the
-    /// default) takes TTlsConnection.DefaultCloseGraceMs. Read when Connect or Accept begins; a
+    /// Close waits for a Recv or Send in flight before it aborts the socket under them. Zero
+    /// or less (the default) takes TTlsConnection.DefaultCloseGraceMs. Read when Connect or Accept begins; a
     /// later change has no effect.</summary>
     property CloseGraceMs: Integer read FCloseGraceMs write FCloseGraceMs;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
@@ -1175,16 +1178,16 @@ begin
     if AKind = TCallKind.Handshake then
       FClosing := False;
     ARefused := FClosing;
-    if FCalls[0].Thread = LThread then
-      Result := 0
-    else if FCalls[1].Thread = LThread then
-      Result := 1
-    else if FCalls[0].InFlight <> FCalls[1].InFlight then
-      Result := Ord(FCalls[0].InFlight)
-    else if Int32(FCalls[1].Seq - FCalls[0].Seq) < 0 then
-      Result := 1
-    else
-      Result := 0;
+    Result := SlotOfThread(LThread);
+    if Result < 0 then
+    begin
+      if FCalls[0].InFlight <> FCalls[1].InFlight then
+        Result := Ord(FCalls[0].InFlight)
+      else if Int32(FCalls[1].Seq - FCalls[0].Seq) < 0 then
+        Result := 1
+      else
+        Result := 0;
+    end;
     Inc(FCallSeq);
     FCalls[Result].Thread := LThread;
     FCalls[Result].Seq := FCallSeq;
@@ -1256,21 +1259,25 @@ begin
     TNetOs.SetLastError(LSocketError);
 end;
 
+function TTlsLibSocketHandler.SlotOfThread(AThread: TThreadID): Integer;
+begin
+  Result := -1;
+  if FCalls[0].Thread = AThread then
+    Result := 0
+  else if FCalls[1].Thread = AThread then
+    Result := 1;
+end;
+
 function TTlsLibSocketHandler.CallRecord: TCallRecord;
 var
-  LThread: TThreadID;
+  LSlot: Integer;
 begin
-  LThread := GetCurrentThreadId;
   FCallLock.Enter;
   try
-    if FCalls[0].Thread = LThread then
-      Result := FCalls[0]
-    else if FCalls[1].Thread = LThread then
-      Result := FCalls[1]
-    else if Int32(FCalls[1].Seq - FCalls[0].Seq) > 0 then
-      Result := FCalls[1]
-    else
-      Result := FCalls[0];
+    LSlot := SlotOfThread(GetCurrentThreadId);
+    if LSlot < 0 then
+      LSlot := Ord(Int32(FCalls[1].Seq - FCalls[0].Seq) > 0);
+    Result := FCalls[LSlot];
   finally
     FCallLock.Leave;
   end;
@@ -1287,16 +1294,16 @@ end;
 
 procedure TTlsLibSocketHandler.EndCalls;
 var
-  LI: Integer;
+  LSlot: Integer;
   LBusy: Boolean;
 begin
   FCallLock.Enter;
   try
     FClosing := True;
     FCloserCalls := 0;
-    for LI := 0 to 1 do
-      if FCalls[LI].InFlight and (FCalls[LI].Thread = GetCurrentThreadId) then
-        Inc(FCloserCalls);
+    LSlot := SlotOfThread(GetCurrentThreadId);
+    if (LSlot >= 0) and FCalls[LSlot].InFlight then
+      FCloserCalls := 1;
     if FInFlight <= FCloserCalls then
       FDrained.SetEvent
     else

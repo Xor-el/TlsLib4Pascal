@@ -53,7 +53,7 @@ type
     /// SetReadTimeout or SetWriteTimeout: it clears any armed cap or deadline.</summary>
     procedure UseClock(const AClock: ITlsMonotonicClock);
     /// <summary>Bounds the reads that follow to AMs ms in total, as a deadline from this call
-    /// (0 = block); a read past it raises ETlsHandshakeTimeout.</summary>
+    /// (zero or less = block); a read past it raises ETlsHandshakeTimeout.</summary>
     procedure SetReadTimeout(AMs: Int32);
     /// <summary>As SetReadTimeout, for an application read: a read past the deadline raises the
     /// retryable ETlsReadTimeout.</summary>

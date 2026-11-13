@@ -133,6 +133,12 @@ type
     FWrite: TMemoryPipe;
   public
     constructor Create(const ARead, AWrite: TMemoryPipe);
+    /// <summary>Builds the two directions of a duplex and the two transports over them. Each
+    /// transport owns the pipe it writes (the client the client-to-server one), so the two
+    /// transports free both pipes between them; the pipes stay reachable for a test that
+    /// preloads or watches them.</summary>
+    class procedure CreatePair(out AClient, AServer: TMemoryTransport;
+      out AClientToServer, AServerToClient: TMemoryPipe);
     destructor Destroy; override;
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
@@ -213,13 +219,21 @@ type
     property LastWriteBuffer: Pointer read FLastWriteBuffer;
   end;
 
+  /// <summary>One scripted wire, handed out whole on the first Serve and as a closed peer after.</summary>
+  TScriptedWire = record
+    Wire: TBytes;
+    Served: Boolean;
+    /// <summary>Copies the wire into ABuffer at AOffset (at most AMaxLength bytes) the first time,
+    /// and returns 0 on every later call.</summary>
+    function Serve(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+  end;
+
   /// <summary>A transport that hands out one scripted wire on the first Read, then reads as a closed
   /// peer; it counts its writes, or fails them like a dead socket when so built.</summary>
   TScriptedTransport = class sealed(TInterfacedObject, ITlsTransport)
   strict private
   var
-    FWire: TBytes;
-    FServed: Boolean;
+    FScript: TScriptedWire;
     FWritesFail: Boolean;
     FWritten: Int32;
   public
@@ -256,6 +270,12 @@ type
     function SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32; override;
   public
     constructor Create(const ARead, AWrite: TMemoryPipe);
+    /// <summary>As TMemoryTransport.CreatePair, over pipes holding at most the given capacities
+    /// (zero or less = unbounded): AClientToServerCapacity for what the client writes and
+    /// AServerToClientCapacity for what the server writes.</summary>
+    class procedure CreatePair(AClientToServerCapacity, AServerToClientCapacity: Int32;
+      out AClient, AServer: TPipeTimedTransport;
+      out AClientToServer, AServerToClient: TMemoryPipe);
     destructor Destroy; override;
     /// <summary>The read cap now armed, 0 when none.</summary>
     function ArmedReadTimeoutMs: Int32;
@@ -268,8 +288,7 @@ type
   TStalledTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
-    FWire: TBytes;
-    FServed: Boolean;
+    FScript: TScriptedWire;
     FSends: Int32;
   strict protected
     function WaitWritable(AMs: Int32): Boolean; override;
@@ -288,8 +307,7 @@ type
     // the longest a Write waits for Open, so a failing test cannot hang the run
     GateBoundMs = 20000;
   var
-    FWire: TBytes;
-    FServed: Boolean;
+    FScript: TScriptedWire;
     FGate: TEvent;
     FEntered: TEvent;
     FWrites: Int32;
@@ -822,6 +840,15 @@ begin
   FWrite := AWrite;
 end;
 
+class procedure TMemoryTransport.CreatePair(out AClient, AServer: TMemoryTransport;
+  out AClientToServer, AServerToClient: TMemoryPipe);
+begin
+  AClientToServer := TMemoryPipe.Create;
+  AServerToClient := TMemoryPipe.Create;
+  AClient := TMemoryTransport.Create(AServerToClient, AClientToServer);
+  AServer := TMemoryTransport.Create(AClientToServer, AServerToClient);
+end;
+
 destructor TMemoryTransport.Destroy;
 begin
   // each transport owns its write pipe; the paired transports free both pipes exactly once
@@ -971,25 +998,32 @@ begin
   System.Inc(FWritten, ALength);
 end;
 
+{ TScriptedWire }
+
+function TScriptedWire.Serve(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+begin
+  Result := 0;
+  if Served then
+    Exit;
+  Served := True;
+  Result := System.Length(Wire);
+  if Result > AMaxLength then
+    Result := AMaxLength;
+  System.Move(Wire[0], ABuffer[AOffset], Result);
+end;
+
 { TScriptedTransport }
 
 constructor TScriptedTransport.Create(const AWire: TBytes; AWritesFail: Boolean);
 begin
   inherited Create;
-  FWire := System.Copy(AWire);
+  FScript.Wire := System.Copy(AWire);
   FWritesFail := AWritesFail;
 end;
 
 function TScriptedTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
 begin
-  Result := 0;
-  if FServed then
-    Exit;
-  FServed := True;
-  Result := System.Length(FWire);
-  if Result > AMaxLength then
-    Result := AMaxLength;
-  System.Move(FWire[0], ABuffer[AOffset], Result);
+  Result := FScript.Serve(ABuffer, AOffset, AMaxLength);
 end;
 
 procedure TScriptedTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
@@ -1019,6 +1053,16 @@ begin
   inherited Create;
   FRead := ARead;
   FWrite := AWrite;
+end;
+
+class procedure TPipeTimedTransport.CreatePair(AClientToServerCapacity,
+  AServerToClientCapacity: Int32; out AClient, AServer: TPipeTimedTransport;
+  out AClientToServer, AServerToClient: TMemoryPipe);
+begin
+  AClientToServer := TMemoryPipe.Create(AClientToServerCapacity);
+  AServerToClient := TMemoryPipe.Create(AServerToClientCapacity);
+  AClient := TPipeTimedTransport.Create(AServerToClient, AClientToServer);
+  AServer := TPipeTimedTransport.Create(AClientToServer, AServerToClient);
 end;
 
 destructor TPipeTimedTransport.Destroy;
@@ -1070,7 +1114,7 @@ constructor TStalledTransport.Create(const AWire: TBytes; const AClock: ITlsMono
 begin
   inherited Create;
   UseClock(AClock);
-  FWire := System.Copy(AWire);
+  FScript.Wire := System.Copy(AWire);
 end;
 
 function TStalledTransport.WaitWritable(AMs: Int32): Boolean;
@@ -1081,14 +1125,7 @@ end;
 function TStalledTransport.ReceiveRaw(var ABuffer: TBytes; AOffset,
   AMaxLength: Int32): Int32;
 begin
-  Result := 0;
-  if FServed then
-    Exit;
-  FServed := True;
-  Result := System.Length(FWire);
-  if Result > AMaxLength then
-    Result := AMaxLength;
-  System.Move(FWire[0], ABuffer[AOffset], Result);
+  Result := FScript.Serve(ABuffer, AOffset, AMaxLength);
 end;
 
 function TStalledTransport.SendRaw(const ABuffer: TBytes; AOffset, ALength: Int32): Int32;
@@ -1102,8 +1139,8 @@ end;
 constructor TGatedTransport.Create(const AWire: TBytes);
 begin
   inherited Create;
-  FWire := System.Copy(AWire);
-  FGate := TEvent.Create(nil, True, False, '');
+  FScript.Wire := System.Copy(AWire);
+  FGate :=TEvent.Create(nil, True, False, '');
   FEntered := TEvent.Create(nil, True, False, '');
 end;
 
@@ -1116,14 +1153,7 @@ end;
 
 function TGatedTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
 begin
-  Result := 0;
-  if FServed then
-    Exit;
-  FServed := True;
-  Result := System.Length(FWire);
-  if Result > AMaxLength then
-    Result := AMaxLength;
-  System.Move(FWire[0], ABuffer[AOffset], Result);
+  Result := FScript.Serve(ABuffer, AOffset, AMaxLength);
 end;
 
 procedure TGatedTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);

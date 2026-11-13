@@ -163,10 +163,8 @@ end;
 A stream or connection is full duplex: one thread may read while others write, close, rekey or query
 (`LConn.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested)` for a TLS 1.3 rekey,
 `LConn.ExportKeyingMaterial('EXPORTER-my-app', 32)` for an exporter). Do not call the engine
-directly while one wraps it. A closing send (`close_notify` or an alert) is bounded by the close
-grace, 5 s (`TTlsStream.DefaultCloseGraceMs`; `TTlsConnection.CloseGraceMs` or `TTlsStream.Create`
-sets another value), and raises `ETlsWriteTimeout` when the socket will not take it.
-`LConn.Write(Buf[0], Count, 5000)` bounds an application write the same way.
+directly while one wraps it. Closing sends and application writes can be bounded with a deadline;
+see [Threads and Callbacks](cookbook.md#drive-tls-over-your-own-transport) for the rules.
 
 If you write your own `ITlsTimedTransport`, derive from `TTlsTimedTransportBase` and override
 `WaitWritable` (and `WaitReadable`) so the read and write deadlines are real. A class that

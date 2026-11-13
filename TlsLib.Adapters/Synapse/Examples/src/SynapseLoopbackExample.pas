@@ -56,7 +56,7 @@ uses
 const
   PORT = '28445';
   MUTUAL_PORT = '28455';
-  WRITE_PORT = '28465';
+  WRITE_PORT = '28484';
   WRITE_DEADLINE_MS = 300;
   FILL_LIMIT_MS = 20000; // how long to keep writing before the peer's buffers must have filled
   WRITE_STALL_LIMIT_MS = 4000; // a stalled write must end about its deadline, not this late

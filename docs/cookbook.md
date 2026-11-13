@@ -456,7 +456,8 @@ another thread that uses the same stream.
 
 A closing send (close_notify or a fatal alert) is bounded on an `ITlsTimedTransport`, by the close
 grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`; `TTlsStream.Create` takes another value, zero or
-less for unbounded, and `TTlsConnection.CloseGraceMs` sets it before `Handshake`), and raises
+less for unbounded, and `TTlsConnection.CloseGraceMs` sets it before `Handshake`; there zero or less
+keeps the default), and raises
 `ETlsWriteTimeout` when the socket will not take it. A plain `ITlsTransport` cannot bound a send, so
 a closing send on it waits as long as the peer does not read.
 

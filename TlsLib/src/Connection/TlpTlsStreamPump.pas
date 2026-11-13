@@ -259,7 +259,6 @@ resourcestring
   STruncatedHandshake = 'the transport closed during the handshake without close_notify ' +
     '(after %d handshake bytes from the peer)';
   SClosedDuringHandshake = 'the peer closed the connection during the handshake';
-  SWriteAfterClose = 'a write was attempted after the connection was closed';
   SEarlyDataUnread = 'accepted 0-RTT data is waiting: read it with ReadEarlyData before Read';
   SInboundCallReentry = 'a callback a read runs cannot read, write, rekey, close or send an ' +
     'alert on the stream that is reading';
@@ -869,7 +868,7 @@ begin
   end;
   // checked here so a closed write side reports a clear error, never counting the bytes as sent
   if LClosed then
-    raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
+    raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterConnectionClosed);
 end;
 
 procedure TTlsStreamPump.WriteApp(const ABuffer; ACount: Int32; AWriteTimeoutMs: Int32);
@@ -929,7 +928,7 @@ begin
       FEngineLock.Leave;
     end;
     if LClosed then
-      raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
+      raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterConnectionClosed);
     FlushThenRaiseIfFatal;
   finally
     ReleaseWrite;

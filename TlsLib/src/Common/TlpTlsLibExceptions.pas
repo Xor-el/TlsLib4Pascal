@@ -163,6 +163,7 @@ type
 
 resourcestring
   SEchRejected = 'the server rejected Encrypted Client Hello';
+  SWriteAfterConnectionClosed = 'a write was attempted after the connection was closed';
 
 implementation
 

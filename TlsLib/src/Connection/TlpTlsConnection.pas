@@ -125,7 +125,7 @@ type
     ServerVerdictResolver: TCertificateVerdictResolver;
     ServerVerdictDeadlineMs: Cardinal;
     SessionResumption: Boolean;                  // default True
-    HandshakeTimeoutMs: Int32;                   // 0 = the library default (30 000 ms)
+    HandshakeTimeoutMs: Int32;                   // zero or less = the library default (30 000 ms)
     SupportedVersions: TArray<UInt16>;           // wire codes in preference order; empty = TLS 1.3 + 1.2
     CipherSuites: TArray<UInt16>;                // host cipher list, wire codes in preference order; empty = the preset
     ClientConfig: ITlsClientConfig;              // config-in: replaces the client build
@@ -320,7 +320,7 @@ type
   /// every call has returned.</summary>
   TTlsConnection = class sealed(TObject)
   public const
-    /// <summary>The handshake read-timeout the connection applies when the host passes 0 (30 s).
+    /// <summary>The handshake read-timeout the connection applies when the host passes zero or less (30 s).
     /// Exported so an adapter can share the one default rather than repeat the literal.</summary>
     DefaultHandshakeTimeoutMs = Int32(30000);
     /// <summary>The longest a terminal send (a fatal alert, close_notify) may take before it is
@@ -354,8 +354,8 @@ type
       const ATransport: ITlsTimedTransport; const AResolver: TCertificateVerdictResolver;
       AVerdictDeadlineMs: Cardinal);
     destructor Destroy; override;
-    /// <summary>Runs the handshake with reads bounded by AHandshakeTimeoutMs (0 = the 30 s library
-    /// default); the cap is cleared afterwards even when the handshake raised.</summary>
+    /// <summary>Runs the handshake with reads bounded by AHandshakeTimeoutMs (zero or less = the 30 s
+    /// library default); the cap is cleared afterwards even when the handshake raised.</summary>
     procedure Handshake(AHandshakeTimeoutMs: Int32);
     function IsHandshakeComplete: Boolean;
     function Read(var ABuffer; ACount: Longint): Longint; overload;
@@ -402,7 +402,8 @@ type
     /// a host wrapper read the facts without repeating the nil guard per field.</summary>
     class function InfoOf(const AConn: TTlsConnection): TTlsConnectionInfo; static;
     /// <summary>The longest a terminal send (a fatal alert, close_notify) may take before it is
-    /// abandoned and the connection latched failed (zero or less = unbounded); DefaultCloseGraceMs
+    /// abandoned and the connection latched failed (zero or less takes DefaultCloseGraceMs, as
+    /// Handshake does; the stream underneath, TTlsStream, leaves zero unbounded); DefaultCloseGraceMs
     /// until set. Set it before Handshake; a later set raises
     /// EInvalidOperationTlsLibException.</summary>
     property CloseGraceMs: Int32 read FCloseGraceMs write SetCloseGraceMs;
@@ -1492,9 +1493,14 @@ begin
 end;
 
 procedure TTlsConnection.SetCloseGraceMs(AMs: Int32);
+var
+  LGraceMs: Int32;
 begin
-  FStream.SetCloseGraceMs(AMs);
-  FCloseGraceMs := AMs;
+  LGraceMs := AMs;
+  if LGraceMs <= 0 then
+    LGraceMs := DefaultCloseGraceMs;
+  FStream.SetCloseGraceMs(LGraceMs);
+  FCloseGraceMs := LGraceMs;
 end;
 
 procedure TTlsConnection.RequestKeyUpdate(ARequest: TKeyUpdateRequest);

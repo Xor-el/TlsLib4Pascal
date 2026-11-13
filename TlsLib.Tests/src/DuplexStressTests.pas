@@ -1073,17 +1073,18 @@ end;
 
 constructor TStressRun.Create(const AClientConfig: ITlsClientConfig;
   const AServerConfig: ITlsServerConfig; const ASpec: TStressSpec);
+var
+  LClientPipeTransport, LServerPipeTransport: TPipeTimedTransport;
 begin
   inherited Create;
   FSpec := ASpec;
   FWorkers := TObjectList<TStressWorkerBase>.Create(True);
-  FC2S := TMemoryPipe.Create(ASpec.Capacity);
-  FS2C := TMemoryPipe.Create(ASpec.Capacity);
+  TPipeTimedTransport.CreatePair(ASpec.Capacity, ASpec.Capacity, LClientPipeTransport,
+    LServerPipeTransport, FC2S, FS2C);
   if ASpec.CorruptAt > 0 then
     FC2S.CorruptByteAt(ASpec.CorruptAt);
-  // each transport owns the pipe it writes
-  FClientTransport := TPipeTimedTransport.Create(FS2C, FC2S);
-  FServerTransport := TPipeTimedTransport.Create(FC2S, FS2C);
+  FClientTransport := LClientPipeTransport;
+  FServerTransport := LServerPipeTransport;
   FClient := NewIo(AClientConfig, nil, FClientTransport);
   FServer := NewIo(nil, AServerConfig, FServerTransport);
   FWatch := TWedgeWatchdog.Create(FC2S, FS2C, ASpec.IdleMs, ASpec.DeadlineMs, ASpec.StallMs,

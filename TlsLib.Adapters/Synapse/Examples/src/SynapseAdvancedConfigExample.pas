@@ -57,7 +57,7 @@ uses
   TlsLibSynapseTls;
 
 const
-  PORT = '28450';
+  PORT = '28477';
   CRLF = #13#10;
   PING = 'ping from the synapse advanced-config client';
 

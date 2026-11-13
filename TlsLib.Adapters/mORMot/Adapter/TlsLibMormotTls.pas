@@ -107,7 +107,7 @@ procedure SetTlsLibMormotSessionResumption(AEnabled: Boolean);
 procedure SetTlsLibMormotBundleAnchors(ARule: TBundleAnchorRule);
 /// <summary>Sets the process-wide time budget (ms) for every whole handshake, so a peer that
 /// connects but sends no data cannot park the connection's thread. Deliberately NOT an app-read
-/// deadline. 0 (the default) uses the 30 s library default; a positive value overrides it.</summary>
+/// deadline. Zero or less (the default) uses the 30 s library default; a positive value overrides it.</summary>
 procedure SetTlsLibMormotHandshakeTimeout(AMs: Int32);
 /// <summary>Clears the process-wide build-once config caches so the next handshake rebuilds from
 /// current inputs. Call after rotating a certificate/key to purge the retired credential (a cached

@@ -488,17 +488,17 @@ end;
 procedure TTestTlsStreamLoopback.TestWriteAfterPreHandshakeCloseNotifyRaises;
 var
   LC2S, LS2C: TMemoryPipe;
+  LClientM, LServerM: TMemoryTransport;
   LClientT, LServerT: ITlsTransport;
   LClient: TTlsStream;
   LByte: Byte;
   LRaised: Boolean;
 begin
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
+  TMemoryTransport.CreatePair(LClientM, LServerM, LC2S, LS2C);
   // both paired transports are held so each frees one pipe exactly once (no peer thread needed:
   // the guard fires before any handshake or transport I/O)
-  LClientT := TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport;
-  LServerT := TMemoryTransport.Create(LC2S, LS2C) as ITlsTransport;
+  LClientT := LClientM;
+  LServerT := LServerM;
   LClient := NewClientStream(LClientT, ClientConfig(False, nil));
   try
     LClient.CloseNotify; // before any handshake: latches the write-closed flag, sends nothing
@@ -521,15 +521,15 @@ end;
 procedure TTestTlsStreamLoopback.TestWriteAfterPreHandshakeSendAlertRaises;
 var
   LC2S, LS2C: TMemoryPipe;
+  LClientM, LServerM: TMemoryTransport;
   LClientT, LServerT: ITlsTransport;
   LClient: TTlsStream;
   LByte: Byte;
   LRaised: Boolean;
 begin
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientT := TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport;
-  LServerT := TMemoryTransport.Create(LC2S, LS2C) as ITlsTransport;
+  TMemoryTransport.CreatePair(LClientM, LServerM, LC2S, LS2C);
+  LClientT := LClientM;
+  LServerT := LServerM;
   LClient := NewClientStream(LClientT, ClientConfig(False, nil));
   try
     // before any handshake there is no peer to alert: latch the closed flag and send nothing; a
@@ -554,6 +554,7 @@ end;
 procedure TTestTlsStreamLoopback.TestPeerCloseNotifyDuringHandshakeRaises;
 var
   LC2S, LS2C: TMemoryPipe;
+  LClientM, LServerM: TMemoryTransport;
   LClientT, LServerT: ITlsTransport;
   LClient: TTlsStream;
   LRaised: Boolean;
@@ -561,10 +562,9 @@ begin
   // the peer sends a plaintext close_notify (15 03 03 00 02 01 00) in place of its ServerHello: the
   // handshake is abandoned, so Handshake must raise promptly rather than block or misreport, and
   // not loop back into a read that never returns
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientT := TMemoryTransport.Create(LS2C, LC2S) as ITlsTransport;
-  LServerT := TMemoryTransport.Create(LC2S, LS2C) as ITlsTransport;
+  TMemoryTransport.CreatePair(LClientM, LServerM, LC2S, LS2C);
+  LClientT := LClientM;
+  LServerT := LServerM;
   // preload the server->client pipe so the client reads the close_notify when it awaits ServerHello
   LS2C.Write(DecodeHex('15030300020100'), 0, 7);
   // closed, so a regression fails the test instead of blocking on a read
@@ -604,12 +604,8 @@ var
   LClientT, LServerT: ITlsTransport;
   LServerStream: TTlsStream;
 begin
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  // client reads server->client, writes client->server; server mirrored
-  AClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  TMemoryTransport.CreatePair(AClientTransport, LServerTransport, LC2S, LS2C);
   LClientT := AClientTransport;
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   LServerT := LServerTransport;
   AClient := NewClientStream(LClientT, AClientConfig);
   LServerStream := NewServerStream(LServerT);
@@ -711,11 +707,8 @@ begin
   SetLength(LTx, BULK);
   for I := 0 to BULK - 1 do
     LTx[I] := Byte(I + (I shr 8));
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LInner := TMemoryTransport.Create(LS2C, LC2S);
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
-  LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(True, nil), 'localhost');
+  TMemoryTransport.CreatePair(LInner, LServerTransport, LC2S, LS2C);
+  LEngine :=TTlsEngineFactory.CreateClientEngine(ClientConfig(True, nil), 'localhost');
   // the probe sits between the pump and the pipe and sees exactly what the engine had queued
   // at each transport write
   LProbe := TPeakProbeTransport.Create(LInner as ITlsTransport, LEngine);
@@ -765,10 +758,7 @@ var
   LBuf: TBytes;
   LRaised, LTruncated: Boolean;
 begin
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  TMemoryTransport.CreatePair(LClientTransport, LServerTransport, LC2S, LS2C);
   LEngine := TTlsEngineFactory.CreateClientEngine(ClientConfig(False, nil), 'localhost');
   LClient := TTlsStream.Create(LClientTransport as ITlsTransport, LEngine, True, 'localhost');
   LServer := TServerRunner.Create(NewServerStream(LServerTransport as ITlsTransport),
@@ -893,11 +883,8 @@ var
   LRaised: Boolean;
 begin
   CappedTls12Configs(LClientConfig, LServerConfig);
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
-  LClientEngine := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
+  TMemoryTransport.CreatePair(LClientTransport, LServerTransport, LC2S, LS2C);
+  LClientEngine :=TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
   LServerEngine := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   LClient := TTlsStream.Create(LClientTransport as ITlsTransport, LClientEngine, True,
     'localhost');
@@ -950,11 +937,8 @@ var
   LGot: Int32;
   LTimedOut: Boolean;
 begin
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LInner := TMemoryTransport.Create(LS2C, LC2S);
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
-  LTimeout := TTimeoutOnceTransport.Create(LInner as ITlsTransport);
+  TMemoryTransport.CreatePair(LInner, LServerTransport, LC2S, LS2C);
+  LTimeout :=TTimeoutOnceTransport.Create(LInner as ITlsTransport);
   LClient := NewClientStream(LTimeout as ITlsTransport, ClientConfig(False, nil));
   LServerStream := NewServerStream(LServerTransport as ITlsTransport);
   LServer := TServerRunner.Create(LServerStream, LServerTransport, LInner,
@@ -1560,10 +1544,7 @@ begin
   for I := 0 to BULK - 1 do
     LTx[I] := Byte(I + (I shr 8)); // a position-dependent pattern so any misorder/truncation shows
 
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  TMemoryTransport.CreatePair(LClientTransport, LServerTransport, LC2S, LS2C);
   LClient := NewClientStream(LClientTransport as ITlsTransport, ClientConfig(True, nil));
   LServerStream := NewServerStream(LServerTransport as ITlsTransport);
   LServer := TServerRunner.Create(LServerStream, LServerTransport, LClientTransport,
@@ -2373,11 +2354,8 @@ var
   LConfig: ITlsClientConfig;
 begin
   LConfig := ClientConfig(False, nil);
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LInner := TMemoryTransport.Create(LS2C, LC2S);
+  TMemoryTransport.CreatePair(LInner, LServerTransport, LC2S, LS2C);
   LInnerT := LInner;
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   LServerT := LServerTransport;
   ACounter := TCountingTransport.Create(LInnerT);
   AClient := NewClientStream(ACounter as ITlsTransport, LConfig);
@@ -2950,10 +2928,7 @@ var
   LGot: Int32;
 begin
   FReentryLog := '';
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
+  TMemoryTransport.CreatePair(LClientTransport, LServerTransport, LC2S, LS2C);
   LClient := NewClientStream(LClientTransport as ITlsTransport, ClientConfig(False, nil));
   // the server's key log runs inside the engine call that handles the ClientHello
   FServing := TTlsStream.Create(LServerTransport as ITlsTransport,
@@ -3482,7 +3457,7 @@ end;
 procedure TTestTlsStreamLoopback.TestConnectionCloseGraceAndTimedWriteReachTheStream;
 var
   LC2S, LS2C: TMemoryPipe;
-  LClientTransport: TPipeTimedTransport;
+  LClientTransport, LServerTransport: TPipeTimedTransport;
   LClientT, LServerT: ITlsTimedTransport;
   LClient: TTlsConnection;
   LServing, LWriting: TActionThread;
@@ -3490,16 +3465,20 @@ var
   LWaitedMs: Int32;
 begin
   // the pipe holds less than a record, so a peer that stops reading stalls the sender
-  LC2S := TMemoryPipe.Create(4096);
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TPipeTimedTransport.Create(LS2C, LC2S);
+  TPipeTimedTransport.CreatePair(4096, 0, LClientTransport, LServerTransport, LC2S, LS2C);
   LClientT := LClientTransport as ITlsTimedTransport;
-  LServerT := TPipeTimedTransport.Create(LC2S, LS2C) as ITlsTimedTransport;
+  LServerT := LServerTransport as ITlsTimedTransport;
   LClient := Own<TTlsConnection>(TTlsConnection.CreateClient(ClientConfig(False, nil),
     'localhost', LClientT, nil, 0));
   FServerConnection := Own<TTlsConnection>(TTlsConnection.CreateServer(ServerConfig, LServerT,
     nil, 0));
   CheckEquals(TTlsConnection.DefaultCloseGraceMs, LClient.CloseGraceMs, 'the default grace');
+  LClient.CloseGraceMs := 0;
+  CheckEquals(TTlsConnection.DefaultCloseGraceMs, LClient.CloseGraceMs,
+    'zero takes the default grace');
+  LClient.CloseGraceMs := -1;
+  CheckEquals(TTlsConnection.DefaultCloseGraceMs, LClient.CloseGraceMs,
+    'a negative value takes the default grace');
   LClient.CloseGraceMs := 800;
   CheckEquals(800, LClient.CloseGraceMs, 'a grace set before the handshake reads back');
   LServing := Own<TActionThread>(TActionThread.Create(ServeConnection));
@@ -3583,11 +3562,8 @@ var
   LServer: TServerRunner;
   LRaised: Boolean;
 begin
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  TMemoryTransport.CreatePair(LClientTransport, LServerTransport, LC2S, LS2C);
   LClientT := LClientTransport;
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   LServerT := LServerTransport;
   // the pump is registered before the server, which uses the client transport, so it outlives it
   LPump := NewPump(TTlsEngineFactory.CreateClientEngine(ClientConfig(False, nil), 'localhost'),
@@ -3628,7 +3604,7 @@ end;
 procedure TTestTlsStreamLoopback.TestConnectionForwardsKeyUpdateAndExporter;
 var
   LC2S, LS2C: TMemoryPipe;
-  LClientTransport: TPipeTimedTransport;
+  LClientTransport, LServerTransport: TPipeTimedTransport;
   LClientT, LServerT: ITlsTimedTransport;
   LClient: TTlsConnection;
   LServing: TActionThread;
@@ -3636,11 +3612,9 @@ var
   LGot: Int32;
 begin
   CheckEquals(5000, TTlsConnection.DefaultCloseGraceMs, 'terminal sends are bounded by 5 s');
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TPipeTimedTransport.Create(LS2C, LC2S);
+  TPipeTimedTransport.CreatePair(0, 0, LClientTransport, LServerTransport, LC2S, LS2C);
   LClientT := LClientTransport as ITlsTimedTransport;
-  LServerT := TPipeTimedTransport.Create(LC2S, LS2C) as ITlsTimedTransport;
+  LServerT := LServerTransport as ITlsTimedTransport;
   LClient := Own<TTlsConnection>(TTlsConnection.CreateClient(ClientConfig(False, nil),
     'localhost', LClientT, nil, 0));
   FServerConnection := Own<TTlsConnection>(TTlsConnection.CreateServer(ServerConfig, LServerT,
@@ -3948,11 +3922,8 @@ var
   LServer: TServerRunner;
 begin
   LConfig := ClientConfig(False, nil);
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  TMemoryTransport.CreatePair(LClientTransport, LServerTransport, LC2S, LS2C);
   LClientT := LClientTransport;
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   LServerT := LServerTransport;
   // the pump is registered before the server, which uses the client transport, so it outlives it
   LPump := NewPump(TTlsEngineFactory.CreateClientEngine(LConfig, 'localhost'), LClientT);
@@ -4471,11 +4442,8 @@ var
 begin
   LKeyLog := TMockKeyLog.Create;
   LKeyLogT := LKeyLog;
-  LC2S := TMemoryPipe.Create;
-  LS2C := TMemoryPipe.Create;
-  LClientTransport := TMemoryTransport.Create(LS2C, LC2S);
+  TMemoryTransport.CreatePair(LClientTransport, LServerTransport, LC2S, LS2C);
   LClientT := LClientTransport;
-  LServerTransport := TMemoryTransport.Create(LC2S, LS2C);
   LServerT := LServerTransport;
   LClient := Own<TTlsStream>(NewClientStream(LClientT, PinnedClientConfig(LKeyLogT)));
   LServer := Own<TServerRunner>(TServerRunner.Create(
