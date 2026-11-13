@@ -114,8 +114,8 @@ relaxation, the `dangerous` escape hatches, and an ASP.NET Core mapping — see
 
 - Blocking seam only (the standard Indy IOHandler path).
 - Once the handshake is done, this handler lets one thread read while another writes; two readers
-  or two writers must serialise. `Close` from another thread sends `close_notify` without waiting
-  for a busy writer: that writer sends it after its current slice, and its next write fails.
+  or two writers must serialize. `Close` closes the socket at once: a write in progress on another
+  thread fails and may leave a partial record, so finish or stop writers before `Close`.
 - `Clone` is implemented, so the handler works with Indy's server IOHandler pooling. The FTP data
   channels (`MakeFTPSvrPort` / `MakeFTPSvrPasv`) get a handler built from the same options.
 - `KeyPassword` is not streamed (`stored False`), so a password never lands in a `.dfm`.

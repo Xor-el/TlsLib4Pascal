@@ -161,9 +161,10 @@ type
   /// <summary>An ITlsTransport over a raw fcl-net socket handle: raw ciphertext moves through
   /// TlsLib.Net's TNetOs on Socket.Handle, bypassing the SSL-aware handler methods
   /// (which carry decrypted application data and would otherwise recurse). A wait before each
-  /// receive enforces the handshake cap and read timeouts on every CPU, so Socket.IOTimeout is not
-  /// needed. An expiry is ETlsHandshakeTimeout under the handshake cap and the retryable
-  /// ETlsReadTimeout on an application read, never end of stream.</summary>
+  /// receive enforces the handshake cap and read timeouts, and a wait before each send of a timed
+  /// write enforces its deadline, so the socket itself needs no timeout. An expiry is
+  /// ETlsHandshakeTimeout under the handshake cap and the retryable ETlsReadTimeout on an
+  /// application read, never end of stream.</summary>
   TFclNetSocketTransport = class sealed(TTlsTimedTransportBase)
   strict private
   var
@@ -242,6 +243,9 @@ type
   /// </summary>
   TTlsLibSocketHandler = class(TSSLSocketHandler)
   strict private
+  const
+    // a Send under Socket.IOTimeout writes pieces of this size, each given the whole timeout
+    SendPieceBytes = 16384;
   type
     TCallKind = (Handshake, Receive, Send);
     // what one call left behind; a record belongs to the thread that made the call
@@ -293,16 +297,16 @@ type
     /// call in flight; returns its index. ARefused says a close has begun, so the call must not
     /// enter the engine. A handshake starts a new session, so it ends a close.</summary>
     function BeginCall(AKind: TCallKind; out ARefused: Boolean): Integer;
-    /// <summary>Ends the call of record ASlot and returns its count to the close waiting for it.
-    /// Records AError as its failure when it belongs to a family a connection is expected to fail
-    /// with (this library's own exceptions and the stream errors of reading a configured file),
-    /// or, with AAnyHookError, when it is anything but a memory, stack or privilege fault; False
-    /// for anything else, which the caller must let propagate. AHint ends the text. A recorded
-    /// failure sets LastError to the socket's error number, or 1, and the calling thread's own to
-    /// the socket's or 0. A server's failed accept is freed by fcl-net, so the text recorded there
-    /// is never read.</summary>
-    function EndCall(ASlot: Integer; AError: Exception; AAnyHookError: Boolean;
-      const AHint: string): Boolean;
+    /// <summary>Ends the call of kind AKind on record ASlot and returns its count to the close
+    /// waiting for it. Records AError as its failure when it belongs to a family a connection is
+    /// expected to fail with (this library's own exceptions and the stream errors of reading a
+    /// configured file), or, with AAnyHookError, when it is anything but a memory, stack or
+    /// privilege fault; False for anything else, which the caller must let propagate. AHint ends
+    /// the text. A recorded failure sets LastError to the socket's error number, or 1, and the
+    /// calling thread's own to the socket's or 0. A server's failed accept is freed by fcl-net, so
+    /// the text recorded there is never read.</summary>
+    function EndCall(ASlot: Integer; AKind: TCallKind; AError: Exception;
+      AAnyHookError: Boolean; const AHint: string): Boolean;
     /// <summary>The record the calling thread left, else the latest call's.</summary>
     function CallRecord: TCallRecord;
     /// <summary>The alert a failure carries, 0 when none.</summary>
@@ -341,8 +345,11 @@ type
     // unit-private: FlushTlsLibFclNetConfigCache clears them
     FServerConfigMemo: ITlsServerConfigMemo;
     FClientConfigMemo: ITlsClientConfigMemo;
-{$IF FPC_FULLVERSION >= 30203}
   protected
+    /// <summary>The lock that guards the call state, made once by the constructor; a subclass may
+    /// return one that observes how it is taken and released.</summary>
+    function CreateCallLock: TCriticalSection; virtual;
+{$IF FPC_FULLVERSION >= 30203}
     // fcl-net declares these abstract from 3.2.3
     function GetLastSSLErrorString: string; override;
     function GetLastSSLErrorCode: Integer; override;
@@ -394,7 +401,8 @@ type
     property LastErrorDesc: string read GetLastErrorDesc;
     /// <summary>The longest (ms) close_notify, or a fatal alert, may take to send, and the longest
     /// Close waits for a Recv or Send in flight before it aborts the socket under them. 0 (the
-    /// default) takes TTlsConnection.DefaultCloseGraceMs. Set it before Connect or Accept.</summary>
+    /// default) takes TTlsConnection.DefaultCloseGraceMs. Read when Connect or Accept begins; a
+    /// later change has no effect.</summary>
     property CloseGraceMs: Integer read FCloseGraceMs write FCloseGraceMs;
     /// <summary>Opt into the OS system-trust anchors (Windows crypt32 / macOS SecTrust / Unix
     /// bundle). Unions with a CertCA / TrustedCertificate / TrustedCertsDir and any
@@ -1125,7 +1133,7 @@ end;
 constructor TTlsLibSocketHandler.Create;
 begin
   // before the base constructor, so a destroy after a failed construction finds them
-  FCallLock := TCriticalSection.Create;
+  FCallLock := CreateCallLock;
   FDrained := TEvent.Create(nil, True, True, '');
   FWritersIdle := TEvent.Create(nil, True, True, '');
   inherited Create;
@@ -1143,6 +1151,11 @@ begin
   // verify by default; the base switch also starts True so the failure hint fires only on a reset
   VerifyPeerCert := True;
   inherited VerifyPeerCert := True;
+end;
+
+function TTlsLibSocketHandler.CreateCallLock: TCriticalSection;
+begin
+  Result := TCriticalSection.Create;
 end;
 
 destructor TTlsLibSocketHandler.Destroy;
@@ -1188,6 +1201,9 @@ begin
     FCalls[Result].SslCode := 0;
     FCalls[Result].Desc := '';
     Inc(FInFlight);
+    // a call counted after the close began, even a refused one, is waited for too
+    if FClosing and (FInFlight > FCloserCalls) then
+      FDrained.ResetEvent;
     if AKind = TCallKind.Send then
     begin
       Inc(FWriters);
@@ -1205,7 +1221,7 @@ begin
   end;
 end;
 
-function TTlsLibSocketHandler.EndCall(ASlot: Integer; AError: Exception;
+function TTlsLibSocketHandler.EndCall(ASlot: Integer; AKind: TCallKind; AError: Exception;
   AAnyHookError: Boolean; const AHint: string): Boolean;
 var
   LSocketError: Integer;
@@ -1220,9 +1236,9 @@ begin
     begin
       if FSocketTransport <> nil then
       begin
-        if FCalls[ASlot].Kind <> TCallKind.Send then
+        if AKind <> TCallKind.Send then
           LSocketError := FSocketTransport.ReceiveError;
-        if (LSocketError = 0) and (FCalls[ASlot].Kind <> TCallKind.Receive) then
+        if (LSocketError = 0) and (AKind <> TCallKind.Receive) then
           LSocketError := FSocketTransport.SendError;
       end;
       FCalls[ASlot].Code := 1;
@@ -1235,7 +1251,7 @@ begin
       FLastError := FCalls[ASlot].Code;
     FCalls[ASlot].InFlight := False;
     Dec(FInFlight);
-    if FCalls[ASlot].Kind = TCallKind.Send then
+    if AKind = TCallKind.Send then
     begin
       Dec(FWriters);
       if FWriters = 0 then
@@ -1283,6 +1299,7 @@ end;
 procedure TTlsLibSocketHandler.EndCalls;
 var
   LI: Integer;
+  LBusy: Boolean;
 begin
   FCallLock.Enter;
   try
@@ -1303,17 +1320,32 @@ begin
     FSocketTransport.Cancelled := True;
   if FConnection <> nil then
     FConnection.CloseNotifyQuietly;
-  if FDrained.WaitFor(GraceMs) = wrSignaled then
-    Exit;
-  // fcl-net frees the handler and closes the socket next, so no call may still be inside
-  if Socket <> nil then
-    TNetOs.AbortPending(TNetHandle(Socket.Handle));
-  FDrained.WaitFor(WaitForever);
+  if FDrained.WaitFor(GraceMs) <> wrSignaled then
+  begin
+    // fcl-net frees the handler and closes the socket next, so no call may still be inside
+    if Socket <> nil then
+      TNetOs.AbortPending(TNetHandle(Socket.Handle));
+  end;
+  // each wait is followed by a look under the lock: a call refused since then must leave too, and
+  // the lock is free only once the last call to leave has let go of it
+  repeat
+    FCallLock.Enter;
+    try
+      LBusy := FInFlight > FCloserCalls;
+    finally
+      FCallLock.Leave;
+    end;
+    if LBusy then
+      FDrained.WaitFor(WaitForever);
+  until not LBusy;
 end;
 
 function TTlsLibSocketHandler.GraceMs: Cardinal;
 begin
-  if FCloseGraceMs > 0 then
+  // the connection's own, which is fixed when its handshake begins
+  if FConnection <> nil then
+    Result := FConnection.CloseGraceMs
+  else if FCloseGraceMs > 0 then
     Result := FCloseGraceMs
   else
     Result := TTlsConnection.DefaultCloseGraceMs;
@@ -1617,12 +1649,12 @@ begin
         (CertificateDataText('TrustedCertsDir') <> '') then
         LHint := LHint + ' ' + SFclNetTrustedCertsDirHint;
       // a server's accept loop must outlive a callback that raises for one client
-      if not EndCall(LSlot, E, not AIsClient, LHint) then
+      if not EndCall(LSlot, TCallKind.Handshake, E, not AIsClient, LHint) then
         raise;
       Exit;
     end;
   end;
-  EndCall(LSlot, nil, False, '');
+  EndCall(LSlot, TCallKind.Handshake, nil, False, '');
 end;
 
 function TTlsLibSocketHandler.Connect: Boolean;
@@ -1666,7 +1698,7 @@ end;
 
 function TTlsLibSocketHandler.Send(const Buffer; Count: Integer): Integer;
 var
-  LSlot: Integer;
+  LSlot, LOffset, LPiece, LTimeoutMs: Integer;
   LRefused: Boolean;
 begin
   LSlot := BeginCall(TCallKind.Send, LRefused);
@@ -1676,19 +1708,28 @@ begin
       raise ETlsStreamError.CreateRes(@SFclNetClosed);
     if FConnection = nil then
       raise ETlsStreamError.CreateRes(@SFclNetNoSession);
-    // an idle send ends after Socket.IOTimeout ms (0 blocks)
-    FConnection.Write(PByte(@Buffer)^, Count, Socket.IOTimeout);
+    // a send that stays idle for Socket.IOTimeout ms ends (0 blocks): each piece gets a new deadline
+    LTimeoutMs := Socket.IOTimeout;
+    LOffset := 0;
+    while LOffset < Count do
+    begin
+      LPiece := Count - LOffset;
+      if (LTimeoutMs > 0) and (LPiece > SendPieceBytes) then
+        LPiece := SendPieceBytes;
+      FConnection.Write(PByte(@Buffer)[LOffset], LPiece, LTimeoutMs);
+      Inc(LOffset, LPiece);
+    end;
     Result := Count;
   except
     on E: Exception do
     begin
       Result := -1;
-      if not EndCall(LSlot, E, False, '') then
+      if not EndCall(LSlot, TCallKind.Send, E, False, '') then
         raise;
       Exit;
     end;
   end;
-  EndCall(LSlot, nil, False, '');
+  EndCall(LSlot, TCallKind.Send, nil, False, '');
 end;
 
 function TTlsLibSocketHandler.Recv(const Buffer; Count: Integer): Integer;
@@ -1700,7 +1741,7 @@ begin
   // a call that begins after a Close has begun does not enter the engine
   if LRefused then
   begin
-    EndCall(LSlot, nil, False, '');
+    EndCall(LSlot, TCallKind.Receive, nil, False, '');
     Exit(0);
   end;
   try
@@ -1717,16 +1758,16 @@ begin
         FSocketTransport.Cancelled then
       begin
         Result := 0;
-        EndCall(LSlot, nil, False, '');
+        EndCall(LSlot, TCallKind.Receive, nil, False, '');
         Exit;
       end;
       Result := -1;
-      if not EndCall(LSlot, E, False, '') then
+      if not EndCall(LSlot, TCallKind.Receive, E, False, '') then
         raise;
       Exit;
     end;
   end;
-  EndCall(LSlot, nil, False, '');
+  EndCall(LSlot, TCallKind.Receive, nil, False, '');
 end;
 
 function TTlsLibSocketHandler.BytesAvailable: Integer;

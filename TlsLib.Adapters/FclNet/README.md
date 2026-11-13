@@ -103,14 +103,14 @@ trust the familiar way. Only what fcl-net lacks is added as extension properties
 | `VerdictResolver` + `VerdictDeadlineMs` | client-role out-of-band verdict (server's chain), e.g. live OCSP/CRL |
 | `ServerVerdictResolver` + `ServerVerdictDeadlineMs` | server-role out-of-band verdict (mTLS client's chain); beside a supplied `ClientConfig` / `ServerConfig` that config must itself defer the verdict, else the connection is refused; beside a server config that requests no client certificate the resolver is refused outright |
 | `HandshakeTimeoutMs` | bounds the handshake read (ms); `0` = `Socket.IOTimeout` when set, else the 30 s default |
-| `Socket.IOTimeout` (fcl-net native) | bounds application reads and sends; a read that expires is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation; a `Send` that has not finished within it returns -1 and ends the connection, as part of a record may be out |
-| `CloseGraceMs` | the longest (ms) close_notify may take to send, and the longest `Close` waits for a `Recv` or `Send` in flight before it aborts the socket under them; `0` = 5 s. Set it before `Connect` / `Accept` |
+| `Socket.IOTimeout` (fcl-net native) | bounds application reads and sends; a read that expires is retryable (`Recv` returns -1 with `LastErrorDesc` set, the connection stays usable), never a truncation; a `Send` writes pieces of up to 16 KiB, each given the whole timeout, so a `Send` that keeps making progress finishes and one that makes none for that long returns -1 and ends the connection, as part of a record may be out |
+| `CloseGraceMs` | the longest (ms) close_notify may take to send, and the longest `Close` waits for a `Recv` or `Send` in flight before it aborts the socket under them; `0` = 5 s. Read when `Connect` / `Accept` begins; a later change has no effect |
 | `OnVerifyCertificate` (fcl-net native)                | augment-only reject after our pipeline             |
 | `SessionResumption: Boolean`                          | `WithResumption` (0-RTT is never enabled)          |
 | `Crypto` / `Pkix`                                     | the providers the slot-driven build uses (nil = the shared defaults) |
 | `ClientConfig` / `ServerConfig`                       | a fully built config that replaces the slot-driven build |
 
-**Timeouts**: the adapter waits before each receive and before each timed send, so `HandshakeTimeoutMs` and `Socket.IOTimeout` hold on every supported CPU. A send under `IOTimeout` goes out in pieces of 1 KiB.
+**Timeouts**: the adapter waits before each receive and before each timed send, so `HandshakeTimeoutMs` and `Socket.IOTimeout` hold whatever the system does with a timeout on the socket itself. fcl-net's `IOTimeout` setter raises `ESocketError` where the system refuses one; the value is stored first, so a host that catches it still has the bound. A send under `IOTimeout` goes out in sends of 1 KiB, each after a poll, which costs more calls than an unbounded `Send` and, without `TCP_NODELAY`, can leave small sends waiting on the peer's acknowledgements.
 **Certificate chain**: `CertificateData.Certificate` is the chain the server *presents* — put your leaf
 **followed by any intermediates** (a concatenated PEM, or a multi-cert byte slot) so clients build a
 complete chain. `CertCA` / `TrustedCertificate` are **trust sources** (used to verify the *peer*), never
@@ -161,14 +161,16 @@ system-trust model see [docs/system-trust.md](../../docs/system-trust.md).
   supported. `Close` may come from any thread: it sends close_notify, waits up to `CloseGraceMs`
   for the calls in flight, then aborts them, and returns once they have; the handler may be freed
   after it. A `Send` in flight when `Close` begins sends the slice it is on (up to 64 KiB),
-  after which close_notify goes out and that `Send` returns -1; a `Recv` ends as a closed connection (0).
-  A call that begins once `Close` has begun is refused (`Send` -1, `Recv` 0). `Shutdown(True)` waits
+  after which close_notify goes out and that `Send` returns -1 unless that slice was its last; a
+  `Recv` ends as a closed connection (0). A call that begins once `Close` has begun is refused
+  (`Send` -1, `Recv` 0), and `Close` waits for it too; no call may start once `Close` has
+  returned. `Connect` and `Accept` are not made on a handler while `Close` runs. `Shutdown(True)` waits
   for a `Send` in flight, up to `CloseGraceMs`, before it shuts the write side. `Close` from inside
   a callback of the same connection is not supported. Freeing the handler without `Close` does the same.
 - `LastErrorDesc`, `LastSSLErrorCode` and `LastSSLErrorString` describe the calling thread's last
   call (another thread sees the most recent call); `LastError` is fcl-net's one field and holds the
-  last call of either thread. After a failed call the calling thread's own socket error (what fcl-web's
-  WebSocket reads) is the socket's error number, or 0 for a TLS failure.
+  last call of either thread. After a failed call the calling thread's own socket error (what
+  `SocketError` reads) is the socket's error number, or 0 for a TLS failure.
 - A TLS, socket or file failure in `Connect`, `Accept`, `Send` or `Recv` returns False / -1 with
   `LastError` (the socket's error number when it has one, else 1), `LastErrorDesc` and
   `LastSSLErrorCode` (the alert byte the failure carries, 0 without) set. Any other exception

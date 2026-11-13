@@ -329,6 +329,8 @@ type
     procedure TestReadTimeoutNeedsATimedTransport;
     procedure TestTimedWriteOnAStalledSocketRaisesAWriteTimeoutAndClearsTheDeadline;
     procedure TestWriteTimeoutNeedsATimedTransport;
+    procedure TestTimedWriteThatCompletesLeavesNoDeadlineForTheNextWrite;
+    procedure TestConnectionCloseGraceAndTimedWriteReachTheStream;
     procedure TestCloseGraceSetBeforeTheHandshakeBoundsTerminalSends;
     procedure TestCloseGraceCannotBeSetOnceTheHandshakeHasRun;
     procedure TestConnectionForwardsKeyUpdateAndExporter;
@@ -1700,7 +1702,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1, 0);
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -1811,7 +1813,7 @@ begin
     CheckEquals(0, LC2S.Read(LWritten, 0, System.Length(LWritten)),
       'no reply was queued by the read');
     LReply := DecodeHex('03');
-    LPump.WriteApp(LReply[0], 1);
+    LPump.WriteApp(LReply[0], 1, 0);
     LGot := LC2S.Read(LWritten, 0, System.Length(LWritten));
     CheckTrue(LGot > 0, 'the next write reached the transport');
     LServer.ProcessInput(LWritten, 0, LGot);
@@ -1905,7 +1907,7 @@ begin
   LData := DecodeHex('00');
   try
     // the socket dies under the send: the engine latches, but a broken transport is no TLS fatal alert
-    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1, 0);
   except
     on EInOutError do
       ;
@@ -1944,7 +1946,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1, 0);
   except
     on E: ETlsStreamError do
       LRaised := True;
@@ -2018,7 +2020,7 @@ begin
   LRecorder := TRecordingTransport.Create;
   LRaised := False;
   try
-    NewPump(LClient, LRecorder as ITlsTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, LRecorder as ITlsTransport).WriteApp(LData[0], 1, 0);
   except
     on E: ETlsStreamError do
       LRaised := E.Alert = TTlsAlertDescription.BadRecordMac;
@@ -2043,7 +2045,7 @@ begin
   LCounter := TCountingTransport.Create(
     TScriptedTransport.Create(TakeAll(LServer), False) as ITlsTransport);
   LPump := NewPump(LClient, LCounter as ITlsTransport);
-  LPump.WriteApp(LData[0], 1);
+  LPump.WriteApp(LData[0], 1, 0);
   System.SetLength(LDest, 16);
   CheckEquals(2, LPump.ReadApp(LDest, 16, LStatus), 'the scripted record was read');
   CheckTrue(LCounter.LastWriteBuffer <> nil, 'the write reached the transport');
@@ -2064,10 +2066,10 @@ begin
   LCounter := TCountingTransport.Create(TRecordingTransport.Create as ITlsTransport);
   LPump := NewPump(LClient, LCounter as ITlsTransport);
   LData := DecodeHex('00');
-  LPump.WriteApp(LData[0], 1);
+  LPump.WriteApp(LData[0], 1, 0);
   LFirst := LCounter.LastWriteBuffer;
   CheckTrue(LFirst <> nil, 'the first send allocated the send buffer');
-  LPump.WriteApp(LData[0], 1);
+  LPump.WriteApp(LData[0], 1, 0);
   CheckTrue(LFirst = LCounter.LastWriteBuffer, 'the second send reused the buffer');
 end;
 
@@ -2098,7 +2100,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1, 0);
   except
     on E: EInOutError do
       LRaised := True;
@@ -2115,7 +2117,7 @@ begin
   HandshakeEngines(AClient, LServer);
   LData := DecodeHex('00');
   try
-    NewPump(AClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1);
+    NewPump(AClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1, 0);
   except
     on E: EInOutError do
       ;
@@ -2136,7 +2138,7 @@ begin
   LTransport := LRecorder as ITlsTransport;
   LRaised := False;
   try
-    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1, 0);
   except
     on E: ETlsStreamError do
       LRaised := Pos('the mock socket failed', E.Message) > 0;
@@ -2160,7 +2162,7 @@ begin
   LHasAlert := True;
   LMessage := '';
   try
-    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1, 0);
   except
     on E: ETlsStreamError do
     begin
@@ -2241,7 +2243,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).WriteApp(LData[0], 1, 0);
   except
     on ERecordLimitTlsLibException do
       LRaised := True;
@@ -2350,7 +2352,7 @@ begin
   LData := DecodeHex('00');
   LRaised := False;
   try
-    NewPump(LClient, LTransport).WriteApp(LData[0], 1);
+    NewPump(LClient, LTransport).WriteApp(LData[0], 1, 0);
   except
     on E: ETlsStreamError do
       LRaised := E.Alert = TTlsAlertDescription.DecodeError;
@@ -2609,7 +2611,7 @@ begin
     try
       case LStep of
         0: FPumped.ReadApp(LByte, 1, LStatus);
-        1: FPumped.WriteApp(LByte[0], 1);
+        1: FPumped.WriteApp(LByte[0], 1, 0);
         2: FPumped.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
         3: FPumped.CloseWriteSide;
         4: FPumped.ReadEarlyData(LByte, 1);
@@ -2646,7 +2648,7 @@ begin
   Sleep(200);
   LByte := DecodeHex('00');
   try
-    FPumped.WriteApp(LByte[0], 1);
+    FPumped.WriteApp(LByte[0], 1, 0);
     FReentryLog := 'none';
   except
     on EInvalidOperationTlsLibException do
@@ -2693,7 +2695,7 @@ begin
     'every call the cache made into the pump that was reading was refused by the pump');
   CheckFalse(FPumped.WriteSideClosed, 'a refused close left the write side open');
   LByte := DecodeHex('00');
-  FPumped.WriteApp(LByte[0], 1);
+  FPumped.WriteApp(LByte[0], 1, 0);
   CheckFalse(LClient.IsTerminal, 'and the connection is sound: a write afterwards succeeds');
 end;
 
@@ -3161,7 +3163,7 @@ end;
 
 procedure TTestTlsStreamLoopback.WritePumped;
 begin
-  FPumped.WriteApp(FPumpedByte[0], 1);
+  FPumped.WriteApp(FPumpedByte[0], 1, 0);
 end;
 
 procedure TTestTlsStreamLoopback.ReadPumped;
@@ -3377,6 +3379,14 @@ begin
     end;
     CheckTrue(LReadRaised, 'a read timeout on a plain transport is refused, not ignored');
     CheckTrue(LHandshakeRaised, 'so is a handshake timeout');
+    LReadRaised := False;
+    try
+      LClient.ReadTimed(LBuf[0], 0, 100);
+    except
+      on EInvalidOperationTlsLibException do
+        LReadRaised := True;
+    end;
+    CheckTrue(LReadRaised, 'so is a read timeout for no bytes');
   finally
     LClient.Free;
   end;
@@ -3425,8 +3435,96 @@ begin
         LRaised := True;
     end;
     CheckTrue(LRaised, 'a write timeout on a plain transport is refused, not ignored');
+    LRaised := False;
+    try
+      LClient.WriteTimed(LByte[0], 0, 100);
+    except
+      on EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'so is one of no bytes');
   finally
     LClient.Free;
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestTimedWriteThatCompletesLeavesNoDeadlineForTheNextWrite;
+var
+  LClient, LServer: ITlsEngine;
+  LTransport: TPipeTimedTransport;
+  LPump: TTlsStreamPump;
+  LByte: TBytes;
+  LMessage: string;
+  LI: Int32;
+begin
+  HandshakeEngines(LClient, LServer);
+  LTransport := TPipeTimedTransport.Create(Own<TMemoryPipe>(TMemoryPipe.Create),
+    TMemoryPipe.Create);
+  // the clock moves 100 ms per reading, so a deadline left armed is spent within a few writes
+  LTransport.UseClock(TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock);
+  LPump := NewPump(LClient, LTransport as ITlsTransport);
+  LByte := DecodeHex('00');
+  LMessage := '';
+  try
+    LPump.WriteApp(LByte[0], 1, 250);
+    for LI := 1 to 5 do
+      LPump.WriteApp(LByte[0], 1, 0);
+  except
+    on E: ETlsWriteTimeout do
+      LMessage := E.Message;
+  end;
+  CheckEquals('', LMessage, 'a write that finished in time left no deadline behind');
+end;
+
+procedure TTestTlsStreamLoopback.TestConnectionCloseGraceAndTimedWriteReachTheStream;
+var
+  LC2S, LS2C: TMemoryPipe;
+  LClientTransport: TPipeTimedTransport;
+  LClientT, LServerT: ITlsTimedTransport;
+  LClient: TTlsConnection;
+  LServing: TActionThread;
+  LBig: TBytes;
+  LRaised: Boolean;
+begin
+  // the pipe holds one record at most, so a peer that stops reading stalls the sender
+  LC2S := TMemoryPipe.Create(4096);
+  LS2C := TMemoryPipe.Create;
+  LClientTransport := TPipeTimedTransport.Create(LS2C, LC2S);
+  LClientT := LClientTransport as ITlsTimedTransport;
+  LServerT := TPipeTimedTransport.Create(LC2S, LS2C) as ITlsTimedTransport;
+  LClient := Own<TTlsConnection>(TTlsConnection.CreateClient(ClientConfig(False, nil),
+    'localhost', LClientT, nil, 0));
+  FServerConnection := Own<TTlsConnection>(TTlsConnection.CreateServer(ServerConfig, LServerT,
+    nil, 0));
+  CheckEquals(TTlsConnection.DefaultCloseGraceMs, LClient.CloseGraceMs, 'the default grace');
+  LClient.CloseGraceMs := 800;
+  CheckEquals(800, LClient.CloseGraceMs, 'a grace set before the handshake reads back');
+  LServing := Own<TActionThread>(TActionThread.Create(ServeConnection));
+  LServing.Start;
+  try
+    LClient.Handshake(0);
+    LRaised := False;
+    try
+      LClient.CloseGraceMs := 900;
+    except
+      on EInvalidOperationTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a grace set after the handshake is refused');
+    CheckEquals(800, LClient.CloseGraceMs, 'and the grace stays what it was');
+    // the pipe holds less than a record, so the peer reads nothing of this and the write stalls
+    System.SetLength(LBig, 262144);
+    LRaised := False;
+    try
+      LClient.Write(LBig[0], System.Length(LBig), 150);
+    except
+      on ETlsWriteTimeout do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, 'a timed write the peer cannot take raises the write timeout');
+  finally
+    LClientTransport.CloseWrite;
+    LServing.WaitFor;
   end;
 end;
 
@@ -3866,7 +3964,7 @@ begin
   LGated.Open;
   FPumped := NewPump(LEngine, LGatedT);
   LByte := DecodeHex('00');
-  FPumped.WriteApp(LByte[0], 1);
+  FPumped.WriteApp(LByte[0], 1, 0);
   CheckTrue(LDouble.Sealed, 'close_notify was sealed after the writer''s last check');
   LWire := LGated.Captured;
   LServer.ProcessInput(LWire, 0, System.Length(LWire));
@@ -4212,7 +4310,7 @@ begin
   LMessage := '';
   try
     // the write fails on the dead socket, and the recheck behind it finds a record owed
-    NewPump(LEngine, LDeadT).WriteApp(LByte[0], 1);
+    NewPump(LEngine, LDeadT).WriteApp(LByte[0], 1, 0);
   except
     on E: EInOutError do
       LMessage := E.Message;

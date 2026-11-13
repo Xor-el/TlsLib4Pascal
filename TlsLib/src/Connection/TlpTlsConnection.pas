@@ -366,9 +366,10 @@ type
     /// <summary>See TTlsStream.ReadEarlyData; call it after the handshake and before Read.</summary>
     function ReadEarlyData(var ABuffer; ACount: Longint): Longint;
     function Write(const ABuffer; ACount: Longint): Longint; overload;
-    /// <summary>A write that gives up with ETlsWriteTimeout when it has not finished within
+    /// <summary>A write that gives up with ETlsWriteTimeout when its sends have not finished within
     /// AWriteTimeoutMs in total (0 or less = block). The deadline holds only for this write, and
-    /// the connection is ended when it expires, like any failed send.</summary>
+    /// the connection is ended when it expires, like any failed send. The handshake the write may
+    /// start and a closing send it makes are not under it; the latter is bounded by CloseGraceMs.</summary>
     function Write(const ABuffer; ACount: Longint; AWriteTimeoutMs: Int32): Longint; overload;
     /// <summary>Asks for fresh traffic keys (see TTlsStream.RequestKeyUpdate). Call this, not the
     /// engine, while the connection is in use.</summary>
@@ -1251,9 +1252,10 @@ end;
 
 procedure TTlsTimedTransportBase.SetWriteTimeout(AMs: Int32);
 begin
-  FWriteTimeoutMs := AMs;
+  // a clock that raises leaves nothing armed
   if AMs > 0 then
     FWriteDeadlineMs := FClock.NowMonotonicMillis + AMs;
+  FWriteTimeoutMs := AMs;
 end;
 
 constructor TTlsTimedTransportBase.Create;

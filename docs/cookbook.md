@@ -461,9 +461,10 @@ less for unbounded, and `TTlsConnection.CloseGraceMs` sets it before `Handshake`
 a closing send on it waits as long as the peer does not read.
 
 An application write can be bounded the same way: `TTlsConnection.Write(Buf[0], Count, 5000)` (or
-`TTlsStream.WriteTimed`) raises `ETlsWriteTimeout` when it has not finished in 5 s in total, and
-the connection is ended, as part of a record may be out. It needs an `ITlsTimedTransport`, and the
-deadline holds only for that write.
+`TTlsStream.WriteTimed`) raises `ETlsWriteTimeout` when its sends have not finished in 5 s in total,
+and the connection is ended, as part of a record may be out. It needs an `ITlsTimedTransport`, and
+the deadline holds only for that write; the handshake the write may start and a closing send it
+makes are not under it.
 
 ## Drive the raw sans-IO engine
 

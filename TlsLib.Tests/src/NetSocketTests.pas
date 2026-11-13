@@ -757,23 +757,27 @@ const
 var
   LListener, LClient, LServer: TNetHandle;
   LReader: TActionThread;
-  LWaitedMs: Integer;
+  LClock: ITlsMonotonicClock;
+  LStart, LWaitedMs: Int64;
 begin
-  RawPair(LListener, LClient, LServer);
-  FBlockedHandle := LClient;
-  FBlockedResult := 1;
-  LWaitedMs := 0;
-  LReader := TActionThread.Create(ReceiveOnBlockedHandle);
+  LListener := TNetOs.InvalidHandle;
+  LClient := TNetOs.InvalidHandle;
+  LServer := TNetOs.InvalidHandle;
+  LReader := nil;
+  LClock := TSystemMonotonicClock.Create;
   try
+    RawPair(LListener, LClient, LServer);
+    FBlockedHandle := LClient;
+    FBlockedResult := 1;
+    LReader := TActionThread.Create(ReceiveOnBlockedHandle);
     LReader.Start;
     Sleep(ParkMs);
     CheckFalse(LReader.Finished, 'the receive waits for a peer that says nothing');
+    LStart := LClock.NowMonotonicMillis;
     TNetOs.AbortPending(LClient);
-    while (not LReader.Finished) and (LWaitedMs < LimitMs) do
-    begin
+    while (not LReader.Finished) and (LClock.NowMonotonicMillis - LStart < LimitMs) do
       Sleep(1);
-      Inc(LWaitedMs);
-    end;
+    LWaitedMs := LClock.NowMonotonicMillis - LStart;
     // a peer that closes ends the receive too, so a failed abort cannot hang the join below
     if not LReader.Finished then
     begin
@@ -797,8 +801,11 @@ var
   LListener, LClient, LServer: TNetHandle;
   LBuffer: TBytes;
 begin
-  RawPair(LListener, LClient, LServer);
+  LListener := TNetOs.InvalidHandle;
+  LClient := TNetOs.InvalidHandle;
+  LServer := TNetOs.InvalidHandle;
   try
+    RawPair(LListener, LClient, LServer);
     SetLength(LBuffer, 4);
     TNetOs.AbortPending(LClient);
     CheckEquals(-1, TNetOs.SendBytes(LClient, LBuffer, 0, 1), 'a send fails');

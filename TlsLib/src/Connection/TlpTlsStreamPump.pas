@@ -200,13 +200,12 @@ type
     /// call, so concurrent writes are never interleaved. At the AEAD usage limit with no rekey
     /// available the engine's close_notify is still sent before ERecordLimitTlsLibException
     /// propagates. A transport failure ends the connection: its exception propagates and later
-    /// calls raise the latched error.</summary>
-    procedure WriteApp(const ABuffer; ACount: Int32); overload;
-    /// <summary>As above, ending the call with ETlsWriteTimeout when it has not finished within
-    /// AWriteTimeoutMs in total (zero or less = block). The deadline is armed once W is held and
-    /// cleared before it is released, so it never bounds another sender; the transport must be an
-    /// ITlsTimedTransport.</summary>
-    procedure WriteApp(const ABuffer; ACount: Int32; AWriteTimeoutMs: Int32); overload;
+    /// calls raise the latched error. With AWriteTimeoutMs above zero the call ends with
+    /// ETlsWriteTimeout when its sends have not finished within that many ms; zero or less blocks.
+    /// The deadline is armed once W is held and cleared before it is released, so it never bounds
+    /// another sender. It applies only when the transport is an ITlsTimedTransport (TTlsStream
+    /// refuses a timeout without one).</summary>
+    procedure WriteApp(const ABuffer; ACount: Int32; AWriteTimeoutMs: Int32);
     /// <summary>Sends a TLS 1.3 KeyUpdate and the reply owed to the peer's, waiting for W like a
     /// write; raises when the connection has failed or its write side is closed.</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
@@ -871,11 +870,6 @@ begin
   // checked here so a closed write side reports a clear error, never counting the bytes as sent
   if LClosed then
     raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterClose);
-end;
-
-procedure TTlsStreamPump.WriteApp(const ABuffer; ACount: Int32);
-begin
-  WriteApp(ABuffer, ACount, 0);
 end;
 
 procedure TTlsStreamPump.WriteApp(const ABuffer; ACount: Int32; AWriteTimeoutMs: Int32);
