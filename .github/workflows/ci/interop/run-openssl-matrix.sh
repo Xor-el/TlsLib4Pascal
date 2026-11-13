@@ -629,7 +629,24 @@ fi
 # --- TLS 1.2 renegotiation cells: a HelloRequest to our client, a renegotiation ClientHello to our server ---
 # s_server's stdin is a command channel: a lone 'r' sends a HelloRequest and any other line goes out as
 # application data, so relayed lines start with hr- (a leading q Q r R P S k K c would run as a command).
-# Its -msg trace is flushed per message, so each command waits for its effect in the trace. Needs Linux s_server.
+# Its -msg trace is flushed per message, so each command waits for its effect in the trace.
+# A native Windows openssl cannot poll stdin, so there the cells use Git's MSYS build, which can.
+RENEG_OPENSSL="$OPENSSL"
+RENEG_SKIP=""
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    RENEG_OPENSSL=/usr/bin/openssl
+    if [ ! -x "$RENEG_OPENSSL" ]; then
+      RENEG_SKIP="no MSYS openssl"
+    elif ! "$RENEG_OPENSSL" version -a 2>/dev/null | grep -qi '^platform: *\(msys\|cygwin\)'; then
+      RENEG_SKIP="$RENEG_OPENSSL is not an MSYS build"
+    else
+      case "$("$RENEG_OPENSSL" version 2>/dev/null)" in
+        OpenSSL\ [3-9].* | OpenSSL\ [1-9][0-9].*) : ;;
+        *) RENEG_SKIP="$RENEG_OPENSSL is older than 3.x" ;;
+      esac
+    fi ;;
+esac
 RENEG_HELLO_REQUEST='>>> TLS 1.2, Handshake .*HelloRequest'
 RENEG_CLIENT_HELLO_IN='<<< .*Handshake .*ClientHello'
 
@@ -665,7 +682,7 @@ reneg_client_cell() { # <cell> <port> <hello-requests> <line relayed afterwards 
   shift 4
   mkfifo "$TMP/$cell.in"
   exec 3<>"$TMP/$cell.in"
-  ossl_server -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 -msg \
+  "$RENEG_OPENSSL" s_server -4 -cert "$TMP/srv_cert.pem" -key "$TMP/srv_key.pem" -tls1_2 -msg \
     -accept "$port" -naccept 1 <&3 3>&- > "$TMP/s$cell.log" 2>&1 &
   for _ in $(seq 1 100); do grep -q 'ACCEPT' "$TMP/s$cell.log" && break; sleep 0.1; done
   ci_run_bounded 30 "$DRIVER" --role client --port "$port" --host localhost --ca "$TMP/srv_cert.pem" \
@@ -687,8 +704,10 @@ reneg_ignored() { # <cell> <hello-requests>
     && [ "$(reneg_count "$log" "$RENEG_CLIENT_HELLO_IN")" -eq 1 ]
 }
 
-if [ "$(uname -s)" = "Linux" ]; then
+if [ -z "$RENEG_SKIP" ]; then
   TOTAL=$((TOTAL+4))
+  echo "renegotiation cells use: $RENEG_OPENSSL"
+  "$RENEG_OPENSSL" version -a
 
   # --- Cell R1: our client  ->  openssl s_server sending one HelloRequest ---
   echo "=== cell R1: our client ignores a HelloRequest  ->  openssl s_server (TLS 1.2) ==="
@@ -729,7 +748,7 @@ if [ "$(uname -s)" = "Linux" ]; then
   # 'R' makes s_client start a renegotiation; RENEGOTIATING on its output proves it did
   RENEG_ALERT='<<< TLS 1.2, Alert \[length 0002\], fatal no_renegotiation'
   mkfifo "$TMP/R4.in"
-  ci_run_bounded 60 "$OPENSSL" s_client -connect 127.0.0.1:$PR4 -tls1_2 -msg \
+  ci_run_bounded 60 "$RENEG_OPENSSL" s_client -connect 127.0.0.1:$PR4 -tls1_2 -msg \
        -CAfile "$TMP/root.pem" -servername localhost -verify_hostname localhost -verify_return_error \
        < "$TMP/R4.in" > "$TMP/cR4.out" 2>"$TMP/cR4.err" &
   RENEG_PID=$!
@@ -750,7 +769,7 @@ if [ "$(uname -s)" = "Linux" ]; then
   fi
   reap_cell
 else
-  echo "=== cells R1-R4 (TLS 1.2 renegotiation): SKIPPED (needs Linux s_server stdin commands, 4 cells) ==="
+  echo "=== cells R1-R4 (TLS 1.2 renegotiation): SKIPPED ($RENEG_SKIP, 4 cells) ==="
 fi
 
 echo "=== openssl matrix: $((TOTAL-FAILURES))/$TOTAL cells passed ==="
