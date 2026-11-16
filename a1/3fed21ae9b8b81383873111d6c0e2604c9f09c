@@ -1,0 +1,43 @@
+TlsLib.Net/src/TlpSocketHttpFetcher.pas
+  s_f2c9bd75607afc::t_551f7fed2d70b6 138-139
+  s_f2c9bd75607afc::t_da0db5af906655 126-128
+  s_f2c9bd75607afc::t_dcef4d09bbdbc7 690
+  s_f2c9bd75607afc::t_aa1418308c7a6f 778-779,781
+  s_f2c9bd75607afc::t_2cdf30cdb2dd97 291-295
+  s_f2c9bd75607afc::t_57d9718ac0b00e 801,805,809
+  s_f2c9bd75607afc::t_3b89e975b7c15e 70-74
+  s_f2c9bd75607afc::t_e5c75ce94019d1 800
+  s_f2c9bd75607afc::t_4c06cf642e7342 296-297
+TlsLib.Tests/src/SocketHttpExchangeTests.pas
+  s_f2c9bd75607afc::t_57bc3c51fde589 170
+  s_f2c9bd75607afc::t_0833fb129f9606 474-478
+  s_f2c9bd75607afc::t_fff7f591bb874d 206-208,1509-1511
+  s_f2c9bd75607afc::t_a30a1cd3724e4f 216
+  s_f2c9bd75607afc::t_0df06a619e3f32 1512-1530
+  s_f2c9bd75607afc::t_621dcd416871fb 1531-1533
+  s_92e50e9a2c97d3::t_32a43d0673d36d 1534
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a13fed21ae9b8b81383873111d6c0e2604c9f09c",
+  "prompts": {},
+  "sessions": {
+    "s_92e50e9a2c97d3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a98831fe4d8e8f395",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
