@@ -1,0 +1,32 @@
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_f2c9bd75607afc::t_e2849eab2d0a38 88
+  s_f2c9bd75607afc::t_d63b3c246c1653 794
+TlsLib.Tests/src/MockTransport.pas
+  s_f2c9bd75607afc::t_fcc1c2ddeba1ea 1004,1006-1010,1019,1025-1028,1032
+  s_f2c9bd75607afc::t_a5accb9895a1d1 198-200
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_f2c9bd75607afc::t_ed445f3c310e57 259
+TlsLib.Tests/src/TlsStreamLoopbackTests.pas
+  s_f2c9bd75607afc::t_254c1b2b490c34 4630-4631
+  s_f2c9bd75607afc::t_0da7bf3907bf8b 395-396
+  s_f2c9bd75607afc::t_27853d540646fb 4697,4703
+  s_f2c9bd75607afc::t_7eeb30a055a272 4622
+  s_f2c9bd75607afc::t_3b30ea8a694235 4744-4800
+  s_f2c9bd75607afc::t_3ecb7e436de0ac 383-384
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "44d7c6da64732964280889c99751637635221ae7",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
