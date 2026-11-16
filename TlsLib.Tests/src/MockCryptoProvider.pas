@@ -256,13 +256,18 @@ type
   end;
 
   /// <summary>A switch a test arms to make every <see cref="TCappedAead" /> that shares it fail on
-  /// Seal; Open is never affected.</summary>
+  /// Seal, or to fail one chosen seal; Open is never affected.</summary>
   TAeadFaultSwitch = class sealed(TObject)
   strict private
   var
     FArmed: Boolean;
+    FSealsUntilFault: Int32;
   public
     property Armed: Boolean read FArmed write FArmed;
+    /// <summary>Fails the ANth seal from now, once: the seals before and after it pass.</summary>
+    procedure FailNthSeal(AN: Int32);
+    /// <summary>Counts one seal and reports whether it must fail.</summary>
+    function TakeFault: Boolean;
   end;
 
   /// <summary>
@@ -838,6 +843,24 @@ begin
   Result := FComposed.Hpke;
 end;
 
+{ TAeadFaultSwitch }
+
+procedure TAeadFaultSwitch.FailNthSeal(AN: Int32);
+begin
+  FSealsUntilFault := AN;
+end;
+
+function TAeadFaultSwitch.TakeFault: Boolean;
+begin
+  Result := FArmed;
+  if FSealsUntilFault > 0 then
+  begin
+    System.Dec(FSealsUntilFault);
+    if FSealsUntilFault = 0 then
+      Result := True;
+  end;
+end;
+
 { TCappedAead }
 
 constructor TCappedAead.Create(const AInner: IAead; AUsageLimit: UInt64);
@@ -887,7 +910,7 @@ end;
 function TCappedAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
   const ADest: TBytes; ADestOff: Int32): Int32;
 begin
-  if (FSwitch <> nil) and FSwitch.Armed then
+  if (FSwitch <> nil) and FSwitch.TakeFault then
     raise EInvalidOperationTlsLibException.CreateRes(@SInjectedSealFault);
   Result := FInner.Seal(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
 end;
