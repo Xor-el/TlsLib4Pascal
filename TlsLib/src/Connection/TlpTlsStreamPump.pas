@@ -104,7 +104,8 @@ type
     procedure SendPendingQuietly;
     /// <summary>Leaves W, then sends what another thread queued while this one held it: the
     /// recheck that keeps a record from being stranded. Quiet and bounded, since only control
-    /// records can be owed once W is free.</summary>
+    /// records can be owed once W is free. Never called from a finally: its recheck can
+    /// send.</summary>
     procedure ReleaseWrite;
     /// <summary>Sends what the engine owes if W is free, and returns at once if it is not (the
     /// holder sends it in its recheck).</summary>
@@ -444,9 +445,11 @@ begin
       SendPendingBounded
     else
       SendPendingQuietly;
-  finally
+  except
     ReleaseWrite;
+    raise;
   end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.FlushPending;
@@ -601,35 +604,38 @@ begin
     finally
       FEngineLock.Leave;
     end;
-    if not LRun then
-      Exit;
-    try
-      RunHandshake(AIsClient, AResolveVerdict, ADeadlineMs);
-      // sealed here, sent by the release of W below
-      FEngineLock.Enter;
+    if LRun then
+    begin
       try
-        case FDeferredClose of
-          TDeferredClose.DeferredNotify:
-            FOutbound.SendClose;
-          TDeferredClose.DeferredAlert:
-            FOutbound.SendAlert(FDeferredAlert);
+        RunHandshake(AIsClient, AResolveVerdict, ADeadlineMs);
+        // sealed here, sent by the release of W below
+        FEngineLock.Enter;
+        try
+          case FDeferredClose of
+            TDeferredClose.DeferredNotify:
+              FOutbound.SendClose;
+            TDeferredClose.DeferredAlert:
+              FOutbound.SendAlert(FDeferredAlert);
+          end;
+        finally
+          FEngineLock.Leave;
         end;
       finally
-        FEngineLock.Leave;
-      end;
-    finally
-      FEngineLock.Enter;
-      try
-        FDeferredClose := TDeferredClose.NotDeferred;
-        if FHandshakeState = THandshakeState.Running then
-          FHandshakeState := THandshakeState.Idle;
-      finally
-        FEngineLock.Leave;
+        FEngineLock.Enter;
+        try
+          FDeferredClose := TDeferredClose.NotDeferred;
+          if FHandshakeState = THandshakeState.Running then
+            FHandshakeState := THandshakeState.Idle;
+        finally
+          FEngineLock.Leave;
+        end;
       end;
     end;
-  finally
+  except
     ReleaseWrite;
+    raise;
   end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.RunHandshake(AIsClient: Boolean;
@@ -906,9 +912,11 @@ begin
       if LTimed then
         FTimed.SetWriteTimeout(0);
     end;
-  finally
+  except
     ReleaseWrite;
+    raise;
   end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
@@ -930,9 +938,11 @@ begin
     if LClosed then
       raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterConnectionClosed);
     FlushThenRaiseIfFatal;
-  finally
+  except
     ReleaseWrite;
+    raise;
   end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.Close;
