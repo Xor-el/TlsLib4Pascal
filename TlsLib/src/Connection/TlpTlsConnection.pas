@@ -383,13 +383,14 @@ type
     /// <summary>Sends close_notify; raises like the stream does.</summary>
     procedure CloseNotify; overload;
     /// <summary>As CloseNotify, giving up on its own send after AGraceMs when that is sooner than
-    /// CloseGraceMs (zero or less adds no bound); a send a busy writer makes for it keeps
-    /// CloseGraceMs.</summary>
+    /// CloseGraceMs (zero or less adds no bound); a send a busy writer or the running handshake
+    /// makes for it keeps CloseGraceMs.</summary>
     procedure CloseNotify(AGraceMs: Int32); overload;
     /// <summary>Sends close_notify, swallowing every failure: a write to an already-dead peer, and
     /// the refusal when called from a callback inside a read, which then sends nothing.</summary>
     procedure CloseNotifyQuietly; overload;
-    /// <summary>As CloseNotifyQuietly, bounding its own send as CloseNotify(AGraceMs) does.</summary>
+    /// <summary>As CloseNotifyQuietly, bounding its own send as CloseNotify(AGraceMs) does.
+    /// </summary>
     procedure CloseNotifyQuietly(AGraceMs: Int32); overload;
     /// <summary>Refuses the connection with a fatal alert (see TTlsStream.SendAlert): the host
     /// rejected the peer after the handshake completed.</summary>

@@ -219,12 +219,10 @@ type
     /// SendPending; a send past the close grace raises ETlsWriteTimeout. While the handshake is
     /// running it only records the request: the handshake thread sends close_notify as it
     /// completes, and a failure of that send latches the engine without raising there. After a
-    /// failed transport read it only queues close_notify and does not send it.</summary>
-    procedure Close; overload;
-    /// <summary>As Close, bounding its own send by the lesser of AGraceMs and the close grace on a
-    /// timed transport (zero or less adds no bound); a busy writer still sends it under the close
-    /// grace.</summary>
-    procedure Close(AGraceMs: Int32); overload;
+    /// failed transport read it only queues close_notify and does not send it. Its own send is
+    /// bounded by the lesser of AGraceMs and the close grace on a timed transport (zero or less
+    /// adds no bound); a busy writer still sends it under the close grace.</summary>
+    procedure Close(AGraceMs: Int32);
     /// <summary>Sends a fatal alert (the engine goes terminal), best effort and without waiting
     /// for W: used when the local host refuses a connection. While the handshake is running it
     /// only records the refusal: the handshake thread sends the alert as the handshake completes,
@@ -962,11 +960,6 @@ begin
     raise;
   end;
   ReleaseWrite;
-end;
-
-procedure TTlsStreamPump.Close;
-begin
-  Close(0);
 end;
 
 procedure TTlsStreamPump.Close(AGraceMs: Int32);

@@ -244,7 +244,8 @@ type
     procedure ServeHandshakeOnly;
     /// <summary>A client connection past its handshake whose write pipe is full, so a send to it
     /// stalls until its deadline; CloseGraceMs is set when AGraceMs is above zero.</summary>
-    function NewConnectionWithAFullPipe(AGraceMs: Int32; out AC2S, AS2C: TMemoryPipe): TTlsConnection;
+    function NewConnectionWithAFullPipe(AGraceMs: Int32;
+      out AC2S, AS2C: TMemoryPipe): TTlsConnection;
     /// <summary>Closes a pump of AGraceMs over a socket that never takes a send, with
     /// Close(ACloseMs); true when the close raised the write timeout.</summary>
     function CloseOnAStalledSocket(AGraceMs, ACloseMs: Int32; out AElapsedMs: Int64;
@@ -2244,7 +2245,7 @@ begin
   FailAWriteOverADeadSocket(LClient);
   LRecorder := TRecordingTransport.Create;
   LTransport := LRecorder as ITlsTransport;
-  NewPump(LClient, LTransport).Close;
+  NewPump(LClient, LTransport).Close(0);
   CheckEquals(0, LRecorder.Written, 'no close_notify follows the torn write');
 end;
 
@@ -2304,7 +2305,7 @@ begin
   HandshakeCachingATicket(LCache, LClient, LServer);
   LRaised := False;
   try
-    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).Close;
+    NewPump(LClient, TDeadWriteTransport.Create as ITlsTransport).Close(0);
   except
     on E: EInOutError do
       LRaised := True;
@@ -3160,7 +3161,7 @@ begin
   LStalled := TStalledTransport.Create(nil, LClock);
   LRaised := False;
   try
-    Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LStalled as ITlsTransport, 500)).Close;
+    Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LStalled as ITlsTransport, 500)).Close(0);
   except
     on ETlsWriteTimeout do
       LRaised := True;
@@ -3192,7 +3193,7 @@ end;
 procedure TTestTlsStreamLoopback.ClosePumped;
 begin
   try
-    FPumped.Close;
+    FPumped.Close(0);
   finally
     FReaderDone.SetEvent;
   end;
@@ -3578,7 +3579,7 @@ begin
   LPump.SetCloseGraceMs(500);
   LRaised := False;
   try
-    LPump.Close;
+    LPump.Close(0);
   except
     on ETlsWriteTimeout do
       LRaised := True;
@@ -4370,7 +4371,7 @@ begin
   LRaised := False;
   try
     try
-      Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LTransportT, 300)).Close;
+      Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LTransportT, 300)).Close(0);
     except
       on ETlsWriteTimeout do
         LRaised := True;
@@ -4495,6 +4496,7 @@ var
 begin
   CheckTrue(CloseOnAStalledSocket(0, 300, LElapsedMs, LSends),
     'a close with no close grace is bounded by its own');
+  CheckTrue(LElapsedMs < 1000, 'it gave up after its own grace');
   CheckEquals(0, LSends, 'and never reached the socket');
 end;
 
@@ -4503,9 +4505,10 @@ var
   LElapsedMs: Int64;
   LSends: Int32;
 begin
-  CheckFalse(CloseOnAStalledSocket(0, 0, LElapsedMs, LSends),
-    'with no bound at all the send is not timed out');
-  CheckEquals(1, LSends, 'the unarmed send reached the socket');
+  CheckTrue(CloseOnAStalledSocket(300, 0, LElapsedMs, LSends),
+    'the close grace still bounds a close with no grace of its own');
+  CheckTrue(LElapsedMs < 1000, 'zero adds no bound and takes none away');
+  CheckEquals(0, LSends, 'and never reached the socket');
 end;
 
 procedure TTestTlsStreamLoopback.TestConnectionCloseNotifyQuietlyGivesUpWithinItsOwnGrace;
@@ -4532,7 +4535,7 @@ begin
     try
       LClient.Write(LByte[0], 1);
     except
-      on Exception do
+      on ETlsStreamError do
         LRaised := True;
     end;
   finally
@@ -4934,7 +4937,7 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'the read raises the transport failure');
-  LPump.Close;
+  LPump.Close(0);
   CheckEquals(0, LFailing.Attempts, 'a close after the failed read does not touch the transport');
   LData := DecodeHex('00');
   LRaised := False;
@@ -5002,7 +5005,7 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'the read raises the retryable timeout');
-  LPump.Close;
+  LPump.Close(0);
   CheckEquals(1, LFailing.Attempts, 'a close after a read timeout still sends close_notify');
 end;
 

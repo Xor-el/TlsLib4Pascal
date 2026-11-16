@@ -129,6 +129,7 @@ type
   TTestSocketHttpFetcherRequest = class(TSocketHttpExchangeTestCase)
   published
     procedure TestPostSendsBodyAndContentType;
+    procedure TestPostTheResponderNeverReadsEndsAtTheBudget;
     procedure TestInjectedContentTypeIsNotSent;
     procedure TestResolverMapsTheResponderName;
     procedure TestRefusingResolverPreventsTheConnect;
@@ -188,11 +189,14 @@ type
     FRequest: string;
     FAccepted: Boolean;
     FStarted: Boolean;
+    FDeaf: Boolean;
     function ReadRequest(const AStream: ITlsTimedTransport): string;
   protected
     procedure Execute; override;
   public
     constructor Create(const AScript: string);
+    // accepts one connection and never reads it
+    constructor CreateDeaf;
     procedure AfterConstruction; override;
     destructor Destroy; override;
     function Port: Word;
@@ -228,6 +232,7 @@ type
     FReplySent: Boolean;
     FBytesAfterReply: Int32;
     FSawCloseNotify: Boolean;
+    FHandshaken: Boolean;
     class function ToBytes(const AText: string): TBytes; static;
     class function ReadHead(const AStream: ITlsTimedTransport): string; static;
     procedure Serve(const AStream: ITlsTimedTransport);
@@ -254,6 +259,8 @@ type
     property BytesAfterReply: Int32 read FBytesAfterReply;
     // the client ended the connection with close_notify in AwaitClose mode; valid after Finish
     property SawCloseNotify: Boolean read FSawCloseNotify;
+    // the handshake completed; valid after Finish
+    property Handshaken: Boolean read FHandshaken;
   end;
 
   // admits or refuses every URL and records how often it was asked and the last URL it saw
@@ -296,6 +303,12 @@ begin
   SetLength(FScript, System.Length(AScript));
   for LI := 1 to System.Length(AScript) do
     FScript[LI - 1] := Byte(Ord(AScript[LI]));
+end;
+
+constructor TScriptedResponder.CreateDeaf;
+begin
+  Create('');
+  FDeaf := True;
 end;
 
 procedure TScriptedResponder.AfterConstruction;
@@ -371,6 +384,12 @@ begin
   if LStream = nil then
     Exit;
   FAccepted := True;
+  if FDeaf then
+  begin
+    while not Terminated do
+      Sleep(AcceptPollMs);
+    Exit;
+  end;
   try
     LStream.SetReadTimeout(RequestReadMs);
     FRequest := ReadRequest(LStream);
@@ -471,6 +490,7 @@ begin
   LConnection := TTlsConnection.CreateServer(FConfig, AStream, nil, 0);
   try
     LConnection.Handshake(ReadMs);
+    FHandshaken := True;
     if FMode = TTlsResponderMode.Deaf then
     begin
       FStop.WaitFor(DeafBoundMs);
@@ -960,6 +980,32 @@ begin
     CheckEquals('POST /ocsp HTTP/1.1' + CRLF + 'Host: 127.0.0.1:' + IntToStr(LResponder.Port) +
       CRLF + 'Content-Type: application/ocsp-request' + CRLF + 'Content-Length: 3' + CRLF +
       'Connection: close' + CRLF + CRLF + #1#2'A', LRequest, 'the request as written');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherRequest.TestPostTheResponderNeverReadsEndsAtTheBudget;
+var
+  LResponder: TScriptedResponder;
+  LFetcher: IHttpFetcher;
+  LBody, LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // far above what the sockets between the two ends can buffer
+  SetLength(LBody, 16 * 1024 * 1024);
+  LResponder := TScriptedResponder.CreateDeaf;
+  try
+    LFetcher := TSocketHttpFetcher.Create;
+    LClock := TSystemMonotonicClock.Create;
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Post(LResponder.Url, 'application/ocsp-request', LBody, 4000, DefaultCap,
+      LResponse), 'a request the responder never reads fails closed');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 7000, 'the send stops near the budget');
+    LResponder.Finish;
+    CheckTrue(LResponder.Accepted, 'the connection reached the responder');
   finally
     LFetcher := nil;
     LResponder.Free;
@@ -1525,10 +1571,11 @@ begin
     LClock := TSystemMonotonicClock.Create;
     LStart := LClock.NowMonotonicMillis;
     CheckFalse(LFetcher.Post('https://localhost:' + IntToStr(LResponder.Port) + '/',
-      'application/ocsp-request', LBody, 1500, DefaultCap, LResponse),
+      'application/ocsp-request', LBody, 4000, DefaultCap, LResponse),
       'a request the responder never reads fails closed');
-    CheckTrue(LClock.NowMonotonicMillis - LStart < 3500, 'the send stops near the budget');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 7000, 'the send stops near the budget');
     LResponder.Finish;
+    CheckTrue(LResponder.Handshaken, 'the budget outlasted the handshake, so the body was sent');
   finally
     LFetcher := nil;
     LResponder.Free;

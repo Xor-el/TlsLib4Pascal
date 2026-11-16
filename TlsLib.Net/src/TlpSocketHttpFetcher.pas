@@ -68,15 +68,15 @@ type
   /// TTcpConnector with a strict HTTP/1.1 exchange (RFC 9112) and, for https, a TTlsConnection
   /// built from the settings' TlsConfig. The timeout (0 means 60 s) bounds the connect, the TLS
   /// handshake, the proxy tunnel, every read and send and the closing close_notify, so a responder
-  /// that trickles bytes or goes silent cannot hold the caller past it; name resolution is outside
-  /// it. The response head is capped at 64 KiB and the body at the size cap; every wait polls, so
-  /// no descriptor number can overrun a select set. A POST's content type must be a bare
-  /// type/subtype. A redirect, a 101, a 204, a coded or ambiguously framed body
-  /// and an https body cut off without close_notify all fail, as does an https URL with no
-  /// TlsConfig, an IPv6 responder and a port on the standard blocked-port list. No other destination
-  /// is filtered unless the settings' DestinationPolicy or resolver filters it. The injected clock
-  /// may be read from another thread. Never raises; a failed exchange yields False with an empty
-  /// response.</summary>
+  /// that trickles bytes or goes silent cannot hold the caller past it (plus a short close floor);
+  /// name resolution is outside it. The response head is capped at 64 KiB and the body at the size
+  /// cap; every wait polls, so no descriptor number can overrun a select set. A POST's content
+  /// type must be a bare type/subtype. A redirect, a 101, a 204, a coded or ambiguously framed
+  /// body and an https body cut off without close_notify all fail, as does an https URL with no
+  /// TlsConfig, an IPv6 responder and a port on the standard blocked-port list. No other
+  /// destination is filtered unless the settings' DestinationPolicy or resolver filters it. The
+  /// injected clock may be read from another thread. Never raises; a failed exchange yields False
+  /// with an empty response.</summary>
   TSocketHttpFetcher = class sealed(TInterfacedObject, IHttpFetcher)
   strict private
     FSettings: TSocketHttpFetcherSettings;
@@ -775,8 +775,7 @@ begin
   else
     LTransport := LConnector.Connect(AUrl.Host, AUrl.Port);
   LTransport.UseClock(ASettings.Clock);
-  // one deadline for every read and send that follows, so a trickle or a deaf peer cannot outlast
-  // the budget
+  // one deadline for the reads and sends, re-armed after the connection's clock is installed
   LTransport.SetReadTimeout(ADeadline.RemainingMs);
   LTransport.SetWriteTimeout(ADeadline.RemainingMs);
   if LSecure then
@@ -784,6 +783,7 @@ begin
     if LProxied then
       OpenTunnel(LTransport, AUrl.Host + ':' + IntToStr(AUrl.Port));
     LConnection := TTlsConnection.CreateClient(ASettings.TlsConfig, AUrl.Host, LTransport, nil, 0);
+    LTransport.SetWriteTimeout(ADeadline.RemainingMs);
     LChannel := TTlsChannel.Create(LConnection, ADeadline);
     LConnection.Handshake(ADeadline.RemainingMs);
   end
