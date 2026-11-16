@@ -381,10 +381,16 @@ type
       ALength: Int32): TBytes; overload;
     function PendingReadBytes: Int32;
     /// <summary>Sends close_notify; raises like the stream does.</summary>
-    procedure CloseNotify;
+    procedure CloseNotify; overload;
+    /// <summary>As CloseNotify, giving up on its own send after AGraceMs when that is sooner than
+    /// CloseGraceMs (zero or less adds no bound); a send a busy writer makes for it keeps
+    /// CloseGraceMs.</summary>
+    procedure CloseNotify(AGraceMs: Int32); overload;
     /// <summary>Sends close_notify, swallowing every failure: a write to an already-dead peer, and
     /// the refusal when called from a callback inside a read, which then sends nothing.</summary>
-    procedure CloseNotifyQuietly;
+    procedure CloseNotifyQuietly; overload;
+    /// <summary>As CloseNotifyQuietly, bounding its own send as CloseNotify(AGraceMs) does.</summary>
+    procedure CloseNotifyQuietly(AGraceMs: Int32); overload;
     /// <summary>Refuses the connection with a fatal alert (see TTlsStream.SendAlert): the host
     /// rejected the peer after the handshake completed.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription);
@@ -405,7 +411,8 @@ type
     /// <summary>The longest a terminal send (a fatal alert, close_notify) may take before it is
     /// abandoned and the connection latched failed (zero or less takes DefaultCloseGraceMs, as
     /// Handshake does); DefaultCloseGraceMs until set. Set it before Handshake; a later set
-    /// raises EInvalidOperationTlsLibException.</summary>
+    /// raises EInvalidOperationTlsLibException. A single close can give up sooner
+    /// (CloseNotify(AGraceMs)).</summary>
     property CloseGraceMs: Int32 read FCloseGraceMs write SetCloseGraceMs;
   end;
 
@@ -1529,8 +1536,13 @@ end;
 
 procedure TTlsConnection.CloseNotify;
 begin
+  CloseNotify(0);
+end;
+
+procedure TTlsConnection.CloseNotify(AGraceMs: Int32);
+begin
   if FStream <> nil then
-    FStream.CloseNotify;
+    FStream.CloseNotify(AGraceMs);
 end;
 
 procedure TTlsConnection.SendAlert(ADescription: TTlsAlertDescription);
@@ -1541,11 +1553,15 @@ end;
 
 procedure TTlsConnection.CloseNotifyQuietly;
 begin
-  if FStream <> nil then
-    try
-      FStream.CloseNotify;
-    except
-    end;
+  CloseNotifyQuietly(0);
+end;
+
+procedure TTlsConnection.CloseNotifyQuietly(AGraceMs: Int32);
+begin
+  try
+    CloseNotify(AGraceMs);
+  except
+  end;
 end;
 
 function TTlsConnection.NegotiatedVersion: TTlsVersion;

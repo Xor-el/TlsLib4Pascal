@@ -98,21 +98,22 @@ type
     /// latches the engine (no alert, sessions kept), discards what it still owed, and raises
     /// unchanged. Nothing is ever sent after a partial send.</summary>
     procedure SendPending;
-    /// <summary>As SendPending, bounded by the close grace on a timed transport; the deadline is
-    /// armed only while W is held and cleared before the caller releases it.</summary>
-    procedure SendPendingBounded;
-    /// <summary>As SendPendingBounded, swallowing every failure: the caller is already
-    /// surfacing its own error, or has data to return, that a transport error must not mask.
-    /// The engine is latched on a failure.</summary>
+    /// <summary>As SendPending, bounded by AGraceMs on a timed transport (zero or less:
+    /// unbounded); the deadline is armed only while W is held and cleared before the caller
+    /// releases it.</summary>
+    procedure SendPendingBounded(AGraceMs: Int32);
+    /// <summary>As SendPendingBounded under the close grace, swallowing every failure: the caller
+    /// is already surfacing its own error, or has data to return, that a transport error must not
+    /// mask. The engine is latched on a failure.</summary>
     procedure SendPendingQuietly;
     /// <summary>Leaves W, then sends what another thread queued while this one held it: the
     /// recheck that keeps a record from being stranded. Quiet and bounded, since only control
     /// records can be owed once W is free. Never called from a finally: its recheck can
     /// send.</summary>
     procedure ReleaseWrite;
-    /// <summary>Sends what the engine owes if W is free, and returns at once if it is not (the
-    /// holder sends it in its recheck).</summary>
-    procedure FlushIfIdle(ARaise: Boolean);
+    /// <summary>Sends what the engine owes, quietly under the close grace, if W is free; returns
+    /// at once if it is not (the holder sends it in its recheck).</summary>
+    procedure FlushIfIdle;
     /// <summary>Sends what the engine queued; a transport failure raises while it is live and is
     /// swallowed once it is terminal. The caller holds W.</summary>
     procedure FlushPending;
@@ -219,7 +220,11 @@ type
     /// running it only records the request: the handshake thread sends close_notify as it
     /// completes, and a failure of that send latches the engine without raising there. After a
     /// failed transport read it only queues close_notify and does not send it.</summary>
-    procedure Close;
+    procedure Close; overload;
+    /// <summary>As Close, bounding its own send by the lesser of AGraceMs and the close grace on a
+    /// timed transport (zero or less adds no bound); a busy writer still sends it under the close
+    /// grace.</summary>
+    procedure Close(AGraceMs: Int32); overload;
     /// <summary>Sends a fatal alert (the engine goes terminal), best effort and without waiting
     /// for W: used when the local host refuses a connection. While the handshake is running it
     /// only records the refusal: the handshake thread sends the alert as the handshake completes,
@@ -394,14 +399,14 @@ begin
   end;
 end;
 
-procedure TTlsStreamPump.SendPendingBounded;
+procedure TTlsStreamPump.SendPendingBounded(AGraceMs: Int32);
 begin
-  if (FTimed = nil) or (FCloseGraceMs <= 0) then
+  if (FTimed = nil) or (AGraceMs <= 0) then
   begin
     SendPending;
     Exit;
   end;
-  FTimed.SetWriteTimeout(FCloseGraceMs);
+  FTimed.SetWriteTimeout(AGraceMs);
   try
     SendPending;
   finally
@@ -412,7 +417,7 @@ end;
 procedure TTlsStreamPump.SendPendingQuietly;
 begin
   try
-    SendPendingBounded;
+    SendPendingBounded(FCloseGraceMs);
   except
     // best effort: the caller's own error or data takes precedence
   end;
@@ -441,19 +446,11 @@ begin
   until False;
 end;
 
-procedure TTlsStreamPump.FlushIfIdle(ARaise: Boolean);
+procedure TTlsStreamPump.FlushIfIdle;
 begin
   if not FWriteLock.TryEnter then
     Exit;
-  try
-    if ARaise then
-      SendPendingBounded
-    else
-      SendPendingQuietly;
-  except
-    ReleaseWrite;
-    raise;
-  end;
+  SendPendingQuietly;
   ReleaseWrite;
 end;
 
@@ -768,7 +765,7 @@ begin
   begin
     // an alert the engine owes goes out now; a dead transport must not lose the bytes
     if LTerminal then
-      FlushIfIdle(False);
+      FlushIfIdle;
     AStatus := TTlsReadStatus.Data;
     Exit;
   end;
@@ -783,7 +780,7 @@ begin
     // a terminal engine takes no more input: reading would block forever with its alert unsent
     if LTerminal then
     begin
-      FlushIfIdle(False);
+      FlushIfIdle;
       RaiseFailure;
     end;
     try
@@ -968,8 +965,14 @@ begin
 end;
 
 procedure TTlsStreamPump.Close;
+begin
+  Close(0);
+end;
+
+procedure TTlsStreamPump.Close(AGraceMs: Int32);
 var
   LReadFailed: Boolean;
+  LGraceMs: Int32;
 begin
   FEngineLock.Enter;
   try
@@ -981,11 +984,22 @@ begin
     end;
     FOutbound.SendClose;
     LReadFailed := FReadFailed;
+    LGraceMs := FCloseGraceMs;
   finally
     FEngineLock.Leave;
   end;
-  if not LReadFailed then
-    FlushIfIdle(True);
+  // the sooner bound wins; a close grace of zero or less is none
+  if (AGraceMs > 0) and ((LGraceMs <= 0) or (AGraceMs < LGraceMs)) then
+    LGraceMs := AGraceMs;
+  if LReadFailed or not FWriteLock.TryEnter then
+    Exit;
+  try
+    SendPendingBounded(LGraceMs);
+  except
+    ReleaseWrite;
+    raise;
+  end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.Abort(ADescription: TTlsAlertDescription);
@@ -1010,7 +1024,7 @@ begin
   end;
   // the connection is already being refused; a dead peer must not mask the reason
   if not LReadFailed then
-    FlushIfIdle(False);
+    FlushIfIdle;
 end;
 
 function TTlsStreamPump.CloseWriteSide: Boolean;

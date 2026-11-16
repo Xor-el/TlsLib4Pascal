@@ -58,6 +58,7 @@ uses
   TlpTlsStreamPump,
   TlpTlsLibExceptions,
   TlpIClock,
+  TlpClock,
   TlpTlsConnection,
   TlpTlsStream,
   MockClock,
@@ -240,6 +241,14 @@ type
     procedure ShortTimedReadQueried;
     procedure ServeTimedEcho;
     procedure ServeConnection;
+    procedure ServeHandshakeOnly;
+    /// <summary>A client connection past its handshake whose write pipe is full, so a send to it
+    /// stalls until its deadline; CloseGraceMs is set when AGraceMs is above zero.</summary>
+    function NewConnectionWithAFullPipe(AGraceMs: Int32; out AC2S, AS2C: TMemoryPipe): TTlsConnection;
+    /// <summary>Closes a pump of AGraceMs over a socket that never takes a send, with
+    /// Close(ACloseMs); true when the close raised the write timeout.</summary>
+    function CloseOnAStalledSocket(AGraceMs, ACloseMs: Int32; out AElapsedMs: Int64;
+      out ASends: Int32): Boolean;
     procedure WriteTimedToStalledPeer;
     procedure WritePumped;
     procedure ReadPumped;
@@ -366,6 +375,12 @@ type
     procedure TestExporterAnswersWhileAVerdictResolverIsParked;
     procedure TestRecheckThatFindsADeadSocketDoesNotMaskTheWritersError;
     procedure TestTerminalSendThatFindsTooLittleRoomIsBoundedByTheCloseGrace;
+    procedure TestCloseThatGivesUpSoonerIsBoundedByItsOwnGrace;
+    procedure TestCloseGraceStaysTheLongestAClosingSendTakes;
+    procedure TestCloseWithItsOwnGraceBoundsAnUnboundedClose;
+    procedure TestCloseWithNoGraceOfItsOwnKeepsTheCloseGrace;
+    procedure TestConnectionCloseNotifyQuietlyGivesUpWithinItsOwnGrace;
+    procedure TestConnectionCloseNotifyWithoutAGraceKeepsCloseGraceMs;
     procedure TestSeveralKeyUpdatesInOneRecordAreFatalWithOneAlert;
     procedure TestSeveralKeyUpdatesInOneRecordFailTheStreamAndTheAlertReachesThePeer;
     procedure TestKeyUpdateRecordsInOneReadAreAnsweredByOneReply;
@@ -4367,6 +4382,199 @@ begin
     LWatch.Free;
   end;
   CheckTrue(LRaised, 'a close_notify the pipe has no room for raises the write timeout');
+end;
+
+procedure TTestTlsStreamLoopback.ServeHandshakeOnly;
+begin
+  FServerConnection.Handshake(0);
+end;
+
+function TTestTlsStreamLoopback.NewConnectionWithAFullPipe(AGraceMs: Int32;
+  out AC2S, AS2C: TMemoryPipe): TTlsConnection;
+var
+  LClientTransport, LServerTransport: TPipeTimedTransport;
+  LServing: TActionThread;
+  LWatch: TWedgeWatchdog;
+  LJunk: TBytes;
+begin
+  // the pipe holds less than a record, so a peer that stops reading stalls the sender
+  TPipeTimedTransport.CreatePair(4096, 0, LClientTransport, LServerTransport, AC2S, AS2C);
+  Result := Own<TTlsConnection>(TTlsConnection.CreateClient(ClientConfig(False, nil),
+    'localhost', LClientTransport as ITlsTimedTransport, nil, 0));
+  FServerConnection := Own<TTlsConnection>(TTlsConnection.CreateServer(ServerConfig,
+    LServerTransport as ITlsTimedTransport, nil, 0));
+  if AGraceMs > 0 then
+    Result.CloseGraceMs := AGraceMs;
+  LServing := Own<TActionThread>(TActionThread.Create(ServeHandshakeOnly));
+  LWatch := TWedgeWatchdog.Create(AC2S, AS2C, 20000);
+  LWatch.Start;
+  try
+    LServing.Start;
+    Result.Handshake(0);
+    LServing.WaitFor;
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    CheckFalse(LWatch.Fired, 'the handshake ended on its own, not the watchdog');
+    LWatch.Free;
+  end;
+  // nothing reads the pipe any more: fill it, so no record fits
+  System.SetLength(LJunk, 4096);
+  CheckTrue(AC2S.TryWrite(LJunk, 0, 4096) > 0, 'the pipe took the filler');
+end;
+
+function TTestTlsStreamLoopback.CloseOnAStalledSocket(AGraceMs, ACloseMs: Int32;
+  out AElapsedMs: Int64; out ASends: Int32): Boolean;
+var
+  LClient, LServer: ITlsEngine;
+  LClock: ITlsMonotonicClock;
+  LStalled: TStalledTransport;
+  LStart: Int64;
+begin
+  HandshakeEngines(LClient, LServer);
+  // the clock moves 100 ms per reading, so a bound is spent without waiting
+  LClock := TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock;
+  LStalled := TStalledTransport.Create(nil, LClock);
+  LStart := LClock.NowMonotonicMillis;
+  Result := False;
+  try
+    Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LStalled as ITlsTransport,
+      AGraceMs)).Close(ACloseMs);
+  except
+    on ETlsWriteTimeout do
+      Result := True;
+  end;
+  AElapsedMs := LClock.NowMonotonicMillis - LStart;
+  ASends := LStalled.Sends;
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseThatGivesUpSoonerIsBoundedByItsOwnGrace;
+var
+  LClient, LServer: ITlsEngine;
+  LClock: ITlsMonotonicClock;
+  LStalled: TStalledTransport;
+  LByte: TBytes;
+  LStart: Int64;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LClock := TMockMonotonicClock.Create(1000, 100) as ITlsMonotonicClock;
+  LStalled := TStalledTransport.Create(nil, LClock);
+  LStart := LClock.NowMonotonicMillis;
+  LRaised := False;
+  try
+    Own<TTlsStreamPump>(TTlsStreamPump.Create(LClient, LStalled as ITlsTransport,
+      5000)).Close(300);
+  except
+    on ETlsWriteTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a close_notify the socket will not take raises the write timeout');
+  CheckTrue(LClock.NowMonotonicMillis - LStart < 1000, 'it gave up after its own grace');
+  CheckEquals(0, LStalled.Sends, 'and never reached the socket');
+  CheckTrue(LClient.IsTerminal, 'the connection is latched failed');
+  LByte := DecodeHex('00');
+  LStalled.Write(LByte, 0, 1);
+  CheckEquals(1, LStalled.Sends, 'the write deadline was cleared when the send ended');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseGraceStaysTheLongestAClosingSendTakes;
+var
+  LElapsedMs: Int64;
+  LSends: Int32;
+begin
+  CheckTrue(CloseOnAStalledSocket(300, 5000, LElapsedMs, LSends),
+    'the close raises the write timeout');
+  CheckTrue(LElapsedMs < 1000, 'a longer bound of its own does not outlast the close grace');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseWithItsOwnGraceBoundsAnUnboundedClose;
+var
+  LElapsedMs: Int64;
+  LSends: Int32;
+begin
+  CheckTrue(CloseOnAStalledSocket(0, 300, LElapsedMs, LSends),
+    'a close with no close grace is bounded by its own');
+  CheckEquals(0, LSends, 'and never reached the socket');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseWithNoGraceOfItsOwnKeepsTheCloseGrace;
+var
+  LElapsedMs: Int64;
+  LSends: Int32;
+begin
+  CheckFalse(CloseOnAStalledSocket(0, 0, LElapsedMs, LSends),
+    'with no bound at all the send is not timed out');
+  CheckEquals(1, LSends, 'the unarmed send reached the socket');
+end;
+
+procedure TTestTlsStreamLoopback.TestConnectionCloseNotifyQuietlyGivesUpWithinItsOwnGrace;
+var
+  LClient: TTlsConnection;
+  LC2S, LS2C: TMemoryPipe;
+  LClock: ITlsMonotonicClock;
+  LWatch: TWedgeWatchdog;
+  LByte: TBytes;
+  LStart: Int64;
+  LRaised: Boolean;
+begin
+  LClient := NewConnectionWithAFullPipe(0, LC2S, LS2C);
+  LClock := TSystemMonotonicClock.Create as ITlsMonotonicClock;
+  LByte := DecodeHex('00');
+  LWatch := TWedgeWatchdog.Create(LC2S, LS2C, 20000);
+  LWatch.Start;
+  try
+    LStart := LClock.NowMonotonicMillis;
+    LClient.CloseNotifyQuietly(300);
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
+      'the close gave up well before the default grace');
+    LRaised := False;
+    try
+      LClient.Write(LByte[0], 1);
+    except
+      on Exception do
+        LRaised := True;
+    end;
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    CheckFalse(LWatch.Fired, 'the close ended on its own deadline, not the watchdog');
+    LWatch.Free;
+  end;
+  CheckTrue(LRaised, 'the connection is latched failed');
+end;
+
+procedure TTestTlsStreamLoopback.TestConnectionCloseNotifyWithoutAGraceKeepsCloseGraceMs;
+var
+  LClient: TTlsConnection;
+  LC2S, LS2C: TMemoryPipe;
+  LClock: ITlsMonotonicClock;
+  LWatch: TWedgeWatchdog;
+  LStart: Int64;
+  LRaised: Boolean;
+begin
+  LClient := NewConnectionWithAFullPipe(400, LC2S, LS2C);
+  LClock := TSystemMonotonicClock.Create as ITlsMonotonicClock;
+  LWatch := TWedgeWatchdog.Create(LC2S, LS2C, 20000);
+  LWatch.Start;
+  LRaised := False;
+  try
+    LStart := LClock.NowMonotonicMillis;
+    try
+      LClient.CloseNotify(0);
+    except
+      on ETlsWriteTimeout do
+        LRaised := True;
+    end;
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 4000,
+      'the close ended on CloseGraceMs, not the default grace');
+  finally
+    LWatch.Disarm;
+    LWatch.WaitFor;
+    CheckFalse(LWatch.Fired, 'the close ended on its own deadline, not the watchdog');
+    LWatch.Free;
+  end;
+  CheckTrue(LRaised, 'a close the pipe has no room for raises the write timeout');
 end;
 
 function TTestTlsStreamLoopback.Tls13Aes128Registry: ICipherSuiteRegistry;
