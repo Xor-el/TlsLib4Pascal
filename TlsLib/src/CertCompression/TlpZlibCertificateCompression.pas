@@ -17,9 +17,7 @@ interface
 
 uses
   SysUtils,
-  Classes,
 {$IFDEF FPC}
-  ZStream,
   paszlib,
 {$ELSE}
   System.ZLib,
@@ -63,6 +61,9 @@ type
 
 implementation
 
+type
+  TZlibStream = {$IFDEF FPC}TZStream{$ELSE}z_stream{$ENDIF};
+
 { TZlibCertificateCompressor }
 
 function TZlibCertificateCompressor.Algorithm: UInt16;
@@ -72,40 +73,39 @@ end;
 
 function TZlibCertificateCompressor.TryCompress(const AData: TBytes;
   out ACompressed: TBytes): Boolean;
+const
+  ChunkBytes = Int32(4096);
 var
-  LOutput: TMemoryStream;
-  LDeflate: {$IFDEF FPC}TCompressionStream{$ELSE}TZCompressionStream{$ENDIF};
+  LStrm: TZlibStream;
+  LStatus, LProduced: Int32;
 begin
   ACompressed := nil;
   Result := False;
-  LOutput := TMemoryStream.Create;
+  FillChar(LStrm, SizeOf(LStrm), 0);
+  if deflateInit(LStrm, Z_DEFAULT_COMPRESSION) <> Z_OK then
+    Exit;
   try
-    try
-{$IFDEF FPC}
-      LDeflate := TCompressionStream.Create(clDefault, LOutput);
-{$ELSE}
-      LDeflate := TZCompressionStream.Create(LOutput); // default compression level
-{$ENDIF}
-      try
-        if System.Length(AData) > 0 then
-          LDeflate.WriteBuffer(AData[0], System.Length(AData));
-      finally
-        LDeflate.Free; // flush on free
+    if System.Length(AData) > 0 then
+      LStrm.next_in := @AData[0];
+    LStrm.avail_in := System.Length(AData);
+    LProduced := 0;
+    repeat
+      SetLength(ACompressed, LProduced + ChunkBytes);
+      LStrm.next_out := @ACompressed[LProduced];
+      LStrm.avail_out := ChunkBytes;
+      LStatus := deflate(LStrm, Z_FINISH);
+      // Z_OK asks for more room; anything but that or the stream end is a failed compression
+      if (LStatus <> Z_OK) and (LStatus <> Z_STREAM_END) then
+      begin
+        ACompressed := nil;
+        Exit;
       end;
-    except
-      // a stream error from the backend is a recoverable failure: send uncompressed
-      on E: EStreamError do
-        Exit;
-      on E: EZlibError do
-        Exit;
-    end;
-    if LOutput.Size = 0 then
-      Exit;
-    SetLength(ACompressed, LOutput.Size);
-    Move(LOutput.Memory^, ACompressed[0], LOutput.Size);
+      Inc(LProduced, ChunkBytes - Int32(LStrm.avail_out));
+    until LStatus = Z_STREAM_END;
+    SetLength(ACompressed, LProduced);
     Result := True;
   finally
-    LOutput.Free;
+    deflateEnd(LStrm);
   end;
 end;
 
@@ -119,7 +119,7 @@ end;
 function TZlibCertificateDecompressor.TryDecompress(const ACompressed: TBytes;
   AMaxLength: Int32; out ADecompressed: TBytes): Boolean;
 var
-  LStrm: {$IFDEF FPC}TZStream{$ELSE}z_stream{$ENDIF};
+  LStrm: TZlibStream;
   LChunk: TBytes;
   LStatus, LProduced, LOut: Int32;
 begin
