@@ -459,7 +459,8 @@ grace (5000 ms: `TTlsStream.DefaultCloseGraceMs`; `TTlsStream.Create` takes anot
 less for unbounded, and `TTlsConnection.CloseGraceMs` sets it before `Handshake`; there zero or less
 takes the default), and raises `ETlsWriteTimeout` when the socket will not take it. A plain
 `ITlsTransport` cannot bound a send, so a closing send on it waits as long as the peer does not
-read.
+read. `CloseNotify(GraceMs)` gives up on that close sooner when `GraceMs` is less than the grace,
+for a caller whose own deadline is nearer; zero or less adds no bound.
 
 An application write can be bounded the same way: `TTlsConnection.Write(Buf[0], Count, 5000)` (or
 `TTlsStream.WriteTimed`) raises `ETlsWriteTimeout` when its sends have not finished in 5 s in total,

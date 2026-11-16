@@ -140,7 +140,11 @@ type
     /// takes effect as the handshake completes, which that thread sends without raising. A call
     /// before the handshake only latches the write side closed. The transport itself is not
     /// closed - the caller owns it.</summary>
-    procedure CloseNotify;
+    procedure CloseNotify; overload;
+    /// <summary>As CloseNotify, giving up on its own send after AGraceMs when that is sooner than
+    /// the close grace (zero or less adds no bound); a send a busy writer or the running handshake
+    /// makes for it keeps the close grace.</summary>
+    procedure CloseNotify(AGraceMs: Int32); overload;
     /// <summary>Refuses the connection with a fatal alert (for example bad_certificate after a
     /// host hook rejects the peer) instead of a clean close; the write side is closed and the
     /// engine terminal. Idempotent, with the same hand-off and timing as CloseNotify: while
@@ -379,8 +383,13 @@ end;
 
 procedure TTlsStream.CloseNotify;
 begin
+  CloseNotify(0);
+end;
+
+procedure TTlsStream.CloseNotify(AGraceMs: Int32);
+begin
   if FPump.CloseWriteSide then
-    FPump.Close;
+    FPump.Close(AGraceMs);
 end;
 
 procedure TTlsStream.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
