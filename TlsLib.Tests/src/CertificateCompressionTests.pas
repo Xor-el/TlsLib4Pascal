@@ -53,7 +53,7 @@ type
 
   TTestZlibCertificateCompression = class(TTlsLibAlgorithmTestCase)
   private
-    function Compress(const AData: TBytes): TBytes;
+    function ZlibCompress(const AData: TBytes): TBytes;
     function Inflate(const ACompressed: TBytes; AMaxLength: Int32): TBytes;
   published
     procedure TestCertificateDecompressionRoundTrip;
@@ -230,7 +230,7 @@ end;
 
 { TTestZlibCertificateCompression }
 
-function TTestZlibCertificateCompression.Compress(const AData: TBytes): TBytes;
+function TTestZlibCertificateCompression.ZlibCompress(const AData: TBytes): TBytes;
 var
   LCompressors: TArray<ICertificateCompressor>;
 begin
@@ -259,7 +259,7 @@ begin
   SetLength(LOriginal, 5000);
   for LI := 0 to System.Length(LOriginal) - 1 do
     LOriginal[LI] := Byte((LI * 7) and $FF);
-  LCompressed := Compress(LOriginal);
+  LCompressed := ZlibCompress(LOriginal);
   LRestored := TCertificateCompression.Decompress(
     TZlibCertificateCompression.DefaultDecompressors,
     TCertificateCompressionAlgorithms.Zlib, LCompressed, System.Length(LOriginal), 8192);
@@ -275,7 +275,7 @@ begin
   SetLength(LOriginal, 2048);
   for LI := 0 to System.Length(LOriginal) - 1 do
     LOriginal[LI] := Byte((LI * LI) shr 3);
-  LCompressed := Compress(LOriginal);
+  LCompressed := ZlibCompress(LOriginal);
   CheckEquals($78, LCompressed[0], 'the stream starts with the zlib header');
   CheckEqualBytes('the body inflates back byte for byte', LOriginal,
     Inflate(LCompressed, 4096));
@@ -296,7 +296,7 @@ begin
     LState := (LState * 1664525 + 1013904223) and $FFFFFFFF;
     LOriginal[LI] := Byte(LState shr 24);
   end;
-  LCompressed := Compress(LOriginal);
+  LCompressed := ZlibCompress(LOriginal);
   CheckTrue(System.Length(LCompressed) > 4096, 'the output is longer than one chunk');
   CheckEqualBytes('the body inflates back byte for byte', LOriginal,
     Inflate(LCompressed, 16384));
@@ -306,7 +306,7 @@ procedure TTestZlibCertificateCompression.TestZlibCompressionOfNothingIsAnEmptyS
 var
   LCompressed: TBytes;
 begin
-  LCompressed := Compress(nil);
+  LCompressed := ZlibCompress(nil);
   CheckTrue(System.Length(LCompressed) > 0, 'an empty body still yields a zlib stream');
   CheckEquals(0, System.Length(Inflate(LCompressed, 16)), 'the stream inflates to nothing');
 end;

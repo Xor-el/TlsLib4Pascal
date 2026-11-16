@@ -202,8 +202,7 @@ type
     property Accepted: Boolean read FAccepted;
   end;
 
-  // how a TLS responder ends: close_notify, a bare close, no handshake, counting post-reply bytes,
-  // or reading until the client ends the connection
+  // how a TLS responder ends: close_notify, bare close, no handshake, counting post-reply bytes, or awaiting the client's close
   TTlsResponderMode = (CloseNotify, BareClose, Silent, CountAfterReply, AwaitClose);
 
   // accepts one connection, optionally answers a CONNECT first, then serves one request over TLS
@@ -479,8 +478,7 @@ begin
         FRequest := FRequest + Char(LBuffer[LI]);
     end;
     LScript := ToBytes(FScript);
-    if System.Length(LScript) > 0 then
-      LConnection.Write(LScript[0], System.Length(LScript));
+    LConnection.Write(LScript[0], System.Length(LScript));
     if FMode = TTlsResponderMode.CloseNotify then
       LConnection.CloseNotifyQuietly
     else if FMode = TTlsResponderMode.AwaitClose then
@@ -1373,10 +1371,10 @@ begin
     LFetcher := TlsFetcher('localhost', 0);
     LClock := TSystemMonotonicClock.Create;
     LStart := LClock.NowMonotonicMillis;
-    CheckFalse(LFetcher.Get('https://localhost:' + IntToStr(LResponder.Port) + '/', 1000,
+    CheckFalse(LFetcher.Get('https://localhost:' + IntToStr(LResponder.Port) + '/', 3000,
       DefaultCap, LResponse), 'a response that never ends fails closed');
-    CheckTrue(LClock.NowMonotonicMillis - LStart < 5000, 'the fetch stops near the budget');
-    LResponder.Finish;
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 7000, 'the fetch stops near the budget');
+    CheckTrue(LResponder.Finish <> '', 'the responder received the request');
     CheckTrue(LResponder.SawCloseNotify, 'a read past the budget still ends with close_notify');
   finally
     LFetcher := nil;
