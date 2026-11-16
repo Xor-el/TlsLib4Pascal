@@ -67,11 +67,11 @@ type
   /// <summary>A blocking IHttpFetcher for live OCSP (POST) and CRL (GET) retrieval, over
   /// TTcpConnector with a strict HTTP/1.1 exchange (RFC 9112) and, for https, a TTlsConnection
   /// built from the settings' TlsConfig. The timeout (0 means 60 s) bounds the connect, the TLS
-  /// handshake, the proxy tunnel and every read, so a responder that trickles bytes or goes silent
-  /// cannot hold the caller past it; name resolution is outside it. The response head is capped at
-  /// 64 KiB and the body at the size cap; every wait polls, so no descriptor number can overrun a
-  /// select set. The request is sent unbounded, as it fits a socket buffer, and a POST's content
-  /// type must be a bare type/subtype. A redirect, a 101, a 204, a coded or ambiguously framed body
+  /// handshake, the proxy tunnel, every read and send and the closing close_notify, so a responder
+  /// that trickles bytes or goes silent cannot hold the caller past it; name resolution is outside
+  /// it. The response head is capped at 64 KiB and the body at the size cap; every wait polls, so
+  /// no descriptor number can overrun a select set. A POST's content type must be a bare
+  /// type/subtype. A redirect, a 101, a 204, a coded or ambiguously framed body
   /// and an https body cut off without close_notify all fail, as does an https URL with no
   /// TlsConfig, an IPv6 responder and a port on the standard blocked-port list. No other destination
   /// is filtered unless the settings' DestinationPolicy or resolver filters it. The injected clock
@@ -123,6 +123,9 @@ type
   // period hold the caller indefinitely, so every wait is clamped to what is left of this
   TFetchDeadline = class sealed(TObject)
   strict private
+  const
+    CloseFloorMs = Int32(50);
+  var
     FClock: ITlsMonotonicClock;
     FExpiresAt: Int64;
   public
@@ -132,6 +135,8 @@ type
     procedure Check;
     // the budget left, at least 1 so a spent budget still bounds a wait
     function RemainingMs: Int32;
+    // the budget left for a closing send, at least a short floor so a spent budget still tries
+    function CloseBoundMs: Int32;
   end;
 
   // a memory-backed sink that refuses to buffer past the cap or the budget; the raise reaches
@@ -281,6 +286,13 @@ begin
   if LLeft > High(Int32) then
     LLeft := High(Int32);
   Result := Int32(LLeft);
+end;
+
+function TFetchDeadline.CloseBoundMs: Int32;
+begin
+  Result := RemainingMs;
+  if Result < CloseFloorMs then
+    Result := CloseFloorMs;
 end;
 
 { TBoundedMemoryStream }
@@ -675,7 +687,7 @@ end;
 
 procedure TTlsChannel.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
 begin
-  FConnection.Write(ABuffer[AOffset], ALength);
+  FConnection.Write(ABuffer[AOffset], ALength, FDeadline.RemainingMs);
 end;
 
 { TSocketHttpExchange }
@@ -763,8 +775,10 @@ begin
   else
     LTransport := LConnector.Connect(AUrl.Host, AUrl.Port);
   LTransport.UseClock(ASettings.Clock);
-  // one deadline for every read that follows, so a trickle cannot outlast the budget
+  // one deadline for every read and send that follows, so a trickle or a deaf peer cannot outlast
+  // the budget
   LTransport.SetReadTimeout(ADeadline.RemainingMs);
+  LTransport.SetWriteTimeout(ADeadline.RemainingMs);
   if LSecure then
   begin
     if LProxied then
@@ -783,14 +797,16 @@ begin
     finally
       LExchange.Free;
     end;
+    // the verdict precedes the courtesy close, so a stalled close cannot fail a complete response
+    ADeadline.Check;
   except
     // a failed exchange still ends with close_notify, sent here and never from a release
     if LConnection <> nil then
-      LConnection.CloseNotifyQuietly;
+      LConnection.CloseNotifyQuietly(ADeadline.CloseBoundMs);
     raise;
   end;
   if LConnection <> nil then
-    LConnection.CloseNotifyQuietly;
+    LConnection.CloseNotifyQuietly(ADeadline.CloseBoundMs);
 end;
 
 class function TSocketHttpExchange.Fetch(const ASettings: TSocketHttpFetcherSettings;
@@ -812,7 +828,6 @@ begin
       LSink := TBoundedMemoryStream.Create(AMaxBytes, LDeadline);
       Execute(ASettings, LUrl, AMethod, AContentType, ABody, LDeadline, LSink,
         TBoundedMemoryStream.EffectiveCap(AMaxBytes));
-      LDeadline.Check;
       AResponse := ReadStreamBytes(LSink);
       Result := System.Length(AResponse) > 0;
     end;

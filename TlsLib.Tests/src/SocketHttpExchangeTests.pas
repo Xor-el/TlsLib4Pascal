@@ -167,6 +167,7 @@ type
     procedure TestDeferredVerdictConfigIsRefused;
     procedure TestCloseDelimitedBodyNeedsCloseNotify;
     procedure TestSilentHandshakeIsCutOffAtTheBudget;
+    procedure TestPostTheResponderNeverReadsEndsAtTheBudget;
     procedure TestHttpsThroughAConnectProxy;
     procedure TestRefusedConnectFails;
     procedure TestBytesAfterTheTunnelReplyFail;
@@ -202,8 +203,9 @@ type
     property Accepted: Boolean read FAccepted;
   end;
 
-  // how a TLS responder ends: close_notify, bare close, silent, counting, or awaiting the client
-  TTlsResponderMode = (CloseNotify, BareClose, Silent, CountAfterReply, AwaitClose);
+  // how a TLS responder ends: close_notify, bare close, silent, counting, awaiting the client, or
+  // completing the handshake and then never reading
+  TTlsResponderMode = (CloseNotify, BareClose, Silent, CountAfterReply, AwaitClose, Deaf);
 
   // accepts one connection, optionally answers a CONNECT first, then serves one request over TLS
   TTlsResponder = class(TThread)
@@ -211,6 +213,7 @@ type
   const
     AcceptPollMs = 100;
     ReadMs = 10000;
+    DeafBoundMs = 20000;
   var
     FListener: ITcpListener;
     FConfig: ITlsServerConfig;
@@ -468,6 +471,11 @@ begin
   LConnection := TTlsConnection.CreateServer(FConfig, AStream, nil, 0);
   try
     LConnection.Handshake(ReadMs);
+    if FMode = TTlsResponderMode.Deaf then
+    begin
+      FStop.WaitFor(DeafBoundMs);
+      Exit;
+    end;
     SetLength(LBuffer, 4096);
     while Pos(#13#10#13#10, FRequest) = 0 do
     begin
@@ -1494,6 +1502,32 @@ begin
       'the fetch stops near the budget, not at the handshake default');
     CheckTrue(LResponder.AcceptedEvent.WaitFor(5000) = wrSignaled,
       'the connection reached the responder');
+    LResponder.Finish;
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestPostTheResponderNeverReadsEndsAtTheBudget;
+var
+  LResponder: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LBody, LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  // far above what the sockets between the two ends can buffer
+  SetLength(LBody, 16 * 1024 * 1024);
+  LResponder := TTlsResponder.Create(ServerConfig, '', '', TTlsResponderMode.Deaf);
+  try
+    LFetcher := TlsFetcher('localhost', 0);
+    LClock := TSystemMonotonicClock.Create;
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Post('https://localhost:' + IntToStr(LResponder.Port) + '/',
+      'application/ocsp-request', LBody, 1500, DefaultCap, LResponse),
+      'a request the responder never reads fails closed');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 3500, 'the send stops near the budget');
     LResponder.Finish;
   finally
     LFetcher := nil;
