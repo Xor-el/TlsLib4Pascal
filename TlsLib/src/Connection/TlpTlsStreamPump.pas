@@ -85,7 +85,7 @@ type
     // set under E for the length of a read's engine calls, so only the thread inside them sees True
     FInboundCall: Boolean;
     FWriteClosed: Boolean;
-    // a transport read failed, a timeout aside; the reader never latches the engine under a writer
+    // a transport read failed, other than a retryable ETlsReadTimeout; Close and Abort then send nothing
     FReadFailed: Boolean;
     FDeferredClose: TDeferredClose;
     FDeferredAlert: TTlsAlertDescription;
@@ -218,13 +218,13 @@ type
     /// SendPending; a send past the close grace raises ETlsWriteTimeout. While the handshake is
     /// running it only records the request: the handshake thread sends close_notify as it
     /// completes, and a failure of that send latches the engine without raising there. After a
-    /// failed transport read it seals but sends nothing.</summary>
+    /// failed transport read it only queues close_notify and does not send it.</summary>
     procedure Close;
     /// <summary>Sends a fatal alert (the engine goes terminal), best effort and without waiting
     /// for W: used when the local host refuses a connection. While the handshake is running it
     /// only records the refusal: the handshake thread sends the alert as the handshake completes,
-    /// so the connection never goes live. After a failed transport read it seals but sends
-    /// nothing.</summary>
+    /// so the connection never goes live. After a failed transport read it only queues the alert
+    /// and does not send it.</summary>
     procedure Abort(ADescription: TTlsAlertDescription);
     /// <summary>Marks the write side closed; True when it was open on a running or completed
     /// handshake, so close_notify or an alert is owed. Before the handshake it only latches the
@@ -791,7 +791,7 @@ begin
     except
       on E: Exception do
       begin
-        // a timeout is retryable, any other failure leaves the transport unusable
+        // only ETlsReadTimeout is retryable; any other failure, a handshake timeout too, marks it
         if not (E is ETlsReadTimeout) then
         begin
           FEngineLock.Enter;

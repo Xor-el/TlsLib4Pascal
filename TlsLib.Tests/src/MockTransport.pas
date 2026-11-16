@@ -202,6 +202,8 @@ type
   var
     FServer: ITlsEngine;
     FServed: Boolean;
+    FFlight: TBytes;
+    FFlightPos: Int32;
     FSent: TBytes;
   public
     constructor Create(const AServer: ITlsEngine);
@@ -994,11 +996,36 @@ begin
 end;
 
 function TTamperedFlightTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+var
+  LChunk: TBytes;
+  LGot: Int32;
 begin
-  Result := FServer.TakeOutgoing(ABuffer, AOffset);
-  if (Result > 0) and not FServed then
-    ABuffer[AOffset + Result - 1] := ABuffer[AOffset + Result - 1] xor $01;
-  FServed := True;
+  if not FServed then
+  begin
+    System.SetLength(LChunk, 65536);
+    LGot := FServer.TakeOutgoing(LChunk, 0);
+    while LGot > 0 do
+    begin
+      System.SetLength(FFlight, System.Length(FFlight) + LGot);
+      System.Move(LChunk[0], FFlight[System.Length(FFlight) - LGot], LGot);
+      LGot := FServer.TakeOutgoing(LChunk, 0);
+    end;
+    if System.Length(FFlight) > 0 then
+    begin
+      FFlight[System.Length(FFlight) - 1] := FFlight[System.Length(FFlight) - 1] xor $01;
+      FServed := True;
+    end;
+  end;
+  if FFlightPos < System.Length(FFlight) then
+  begin
+    Result := System.Length(FFlight) - FFlightPos;
+    if Result > AMaxLength then
+      Result := AMaxLength;
+    System.Move(FFlight[FFlightPos], ABuffer[AOffset], Result);
+    System.Inc(FFlightPos, Result);
+  end
+  else
+    Result := FServer.TakeOutgoing(ABuffer, AOffset);
 end;
 
 procedure TTamperedFlightTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);

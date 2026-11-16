@@ -262,9 +262,12 @@ type
   var
     FArmed: Boolean;
     FSealsUntilFault: Int32;
+    FFaultedInnerType: Int32;
   public
     property Armed: Boolean read FArmed write FArmed;
-    /// <summary>Fails the ANth seal from now, once: the seals before and after it pass.</summary>
+    /// <summary>The TLS 1.3 inner content type of the last record whose seal failed.</summary>
+    property FaultedInnerType: Int32 read FFaultedInnerType write FFaultedInnerType;
+    /// <summary>Fails the ANth seal from now (AN >= 1), once; the seals around it pass.</summary>
     procedure FailNthSeal(AN: Int32);
     /// <summary>Counts one seal and reports whether it must fail.</summary>
     function TakeFault: Boolean;
@@ -343,6 +346,7 @@ const
 resourcestring
   SMissingAead = 'this primitives facet does not provide the requested AEAD';
   SInjectedSealFault = 'the AEAD seal was made to fail by the test';
+  SSealFaultIndexBelowOne = 'the seal to fail is counted from one';
   SMissingAgreement = 'this primitives facet does not provide the requested key agreement';
   SFakeHpkeSealer = 'the fake HPKE suite seals nothing';
 
@@ -847,6 +851,8 @@ end;
 
 procedure TAeadFaultSwitch.FailNthSeal(AN: Int32);
 begin
+  if AN < 1 then
+    raise EArgumentTlsLibException.CreateRes(@SSealFaultIndexBelowOne);
   FSealsUntilFault := AN;
 end;
 
@@ -911,7 +917,11 @@ function TCappedAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32
   const ADest: TBytes; ADestOff: Int32): Int32;
 begin
   if (FSwitch <> nil) and FSwitch.TakeFault then
+  begin
+    if ALen > 0 then
+      FSwitch.FaultedInnerType := ASrc[ASrcOff + ALen - 1];
     raise EInvalidOperationTlsLibException.CreateRes(@SInjectedSealFault);
+  end;
   Result := FInner.Seal(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
 end;
 

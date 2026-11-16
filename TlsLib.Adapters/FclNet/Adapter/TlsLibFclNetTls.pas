@@ -1620,6 +1620,7 @@ begin
     FConnection.Handshake(LEffectiveMs);
     // fcl-net's native OnVerifyCertificate hook runs after our pipeline accepts the chain and can
     // only additionally reject (augment-only, fail-closed)
+    LAllowed := False;
     try
       LAllowed := DoVerifyCert;
     except
