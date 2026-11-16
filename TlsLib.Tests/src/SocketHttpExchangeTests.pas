@@ -202,7 +202,7 @@ type
     property Accepted: Boolean read FAccepted;
   end;
 
-  // how a TLS responder ends: close_notify, bare close, no handshake, counting post-reply bytes, or awaiting the client's close
+  // how a TLS responder ends: close_notify, bare close, silent, counting, or awaiting the client
   TTlsResponderMode = (CloseNotify, BareClose, Silent, CountAfterReply, AwaitClose);
 
   // accepts one connection, optionally answers a CONNECT first, then serves one request over TLS
