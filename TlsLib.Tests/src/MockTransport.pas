@@ -182,12 +182,35 @@ type
     procedure Arm;
   end;
 
-  /// <summary>A transport that swallows writes and fails every Read with a non-TLS exception,
-  /// like a socket layer reporting its own error class.</summary>
+  /// <summary>A transport that swallows writes, counting them, and fails every Read with a
+  /// non-TLS exception, like a socket layer reporting its own error class.</summary>
   TFailingReadTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  var
+    FAttempts: Int32;
   public
     function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
     procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    property Attempts: Int32 read FAttempts;
+  end;
+
+  /// <summary>A transport in front of a server engine: what the client writes is fed to the
+  /// engine, and the Reads serve its flight with the last byte flipped, so the last record cannot
+  /// authenticate. The flight is taken on the first Read and served across as many Reads as the
+  /// callers' max length requires. It keeps every byte written to it.</summary>
+  TTamperedFlightTransport = class sealed(TInterfacedObject, ITlsTransport)
+  strict private
+  var
+    FServer: ITlsEngine;
+    FServed: Boolean;
+    FFlight: TBytes;
+    FFlightPos: Int32;
+    FSent: TBytes;
+  public
+    constructor Create(const AServer: ITlsEngine);
+    function Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+    procedure Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+    property Sent: TBytes read FSent;
   end;
 
   /// <summary>A transport that counts the bytes written to it and reads as a closed peer.</summary>
@@ -962,6 +985,58 @@ end;
 
 procedure TFailingReadTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
 begin
+  System.Inc(FAttempts);
+end;
+
+{ TTamperedFlightTransport }
+
+constructor TTamperedFlightTransport.Create(const AServer: ITlsEngine);
+begin
+  inherited Create;
+  FServer := AServer;
+end;
+
+function TTamperedFlightTransport.Read(var ABuffer: TBytes; AOffset, AMaxLength: Int32): Int32;
+var
+  LChunk: TBytes;
+  LGot: Int32;
+begin
+  if (not FServed) or (FFlightPos >= System.Length(FFlight)) then
+  begin
+    if FServed then
+    begin
+      FFlight := nil;
+      FFlightPos := 0;
+    end;
+    System.SetLength(LChunk, 65536);
+    LGot := FServer.TakeOutgoing(LChunk, 0);
+    while LGot > 0 do
+    begin
+      System.SetLength(FFlight, System.Length(FFlight) + LGot);
+      System.Move(LChunk[0], FFlight[System.Length(FFlight) - LGot], LGot);
+      LGot := FServer.TakeOutgoing(LChunk, 0);
+    end;
+    if (not FServed) and (System.Length(FFlight) > 0) then
+    begin
+      FFlight[System.Length(FFlight) - 1] := FFlight[System.Length(FFlight) - 1] xor $01;
+      FServed := True;
+    end;
+  end;
+  Result := System.Length(FFlight) - FFlightPos;
+  if Result > AMaxLength then
+    Result := AMaxLength;
+  if Result > 0 then
+  begin
+    System.Move(FFlight[FFlightPos], ABuffer[AOffset], Result);
+    System.Inc(FFlightPos, Result);
+  end;
+end;
+
+procedure TTamperedFlightTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);
+begin
+  System.SetLength(FSent, System.Length(FSent) + ALength);
+  System.Move(ABuffer[AOffset], FSent[System.Length(FSent) - ALength], ALength);
+  FServer.ProcessInput(ABuffer, AOffset, ALength);
 end;
 
 { TRecordingTransport }

@@ -158,6 +158,14 @@ type
     /// <summary>Aborts an engine whose queue holds more than one transport chunk, over a dead
     /// socket that refuses the first chunk.</summary>
     procedure AbortWithAnOversizedQueueOverADeadSocket(out AClient: ITlsEngine);
+    /// <summary>A client config whose AEAD seals fail as ASwitch says, at the given usage limit.
+    /// </summary>
+    function FaultableClientConfig(const ASwitch: TAeadFaultSwitch;
+      AUsageLimit: UInt64): ITlsClientConfig;
+    /// <summary>Whether writing AData through a pump over ATransport fails with the stream error
+    /// that carries internal_error.</summary>
+    function WriteFailsWithInternalError(const AEngine: ITlsEngine;
+      const ATransport: ITlsTransport; const AData: TBytes): Boolean;
     /// <summary>A loopback whose client transport counts what the client writes.</summary>
     procedure RunCountedLoopback(AServerBehavior: TServerBehavior; out AClient: TTlsStream;
       out AServer: TServerRunner; out ACounter: TCountingTransport);
@@ -366,6 +374,14 @@ type
     procedure TestCallbackInsideAReadRefusesBeforeItWaitsForAWriter;
     procedure TestRefusedTimedReadFromACallbackLeavesTheOuterCapArmed;
     procedure TestCallbackInsideAReadDoesNotRefuseAnotherThreadsWrite;
+    procedure TestSealFaultDuringAWriteFailsTheConnectionWithItsAlert;
+    procedure TestSealFaultDuringAWriteOverADeadSocketRaisesTheTlsError;
+    procedure TestRekeyFailureMidWriteFailsTheConnection;
+    procedure TestKeyUpdateReplyFailureFailsTheNextWrite;
+    procedure TestHandshakeAlertThatCannotBeSealedStillRaisesTheTlsError;
+    procedure TestCloseAfterAFailedReadSendsNothing;
+    procedure TestAbortAfterAFailedReadSendsNothing;
+    procedure TestCloseAfterAReadTimeoutStillSends;
   end;
 
 implementation
@@ -376,6 +392,9 @@ const
   ExporterLabel = 'EXPERIMENTAL tlslib stream test';
   // an application_data record that cannot authenticate
   BadRecordHex = '170303001000112233445566778899aabbccddeeff';
+  // RFC 9846 5.2: header, inner content type and AEAD tag around a TLS 1.3 plaintext
+  Tls13RecordOverhead = TRecordLimits.HeaderLength + 1 + 16;
+  Tls13AlertRecordSize = Tls13RecordOverhead + 2;
 
 { TServerRunner }
 
@@ -4520,6 +4539,263 @@ begin
       System.Inc(LUpdates);
   CheckEquals(1, LUpdates, 'the client saw one KeyUpdate');
   CheckEquals(4, LClient.PendingAppData, 'and read the data behind it');
+end;
+
+function TTestTlsStreamLoopback.FaultableClientConfig(const ASwitch: TAeadFaultSwitch;
+  AUsageLimit: UInt64): ITlsClientConfig;
+var
+  LFaulty: ICryptoProvider;
+begin
+  LFaulty := TCappedAeadProvider.Create(Crypto, AUsageLimit, ASwitch) as ICryptoProvider;
+  Result := TTlsPresets.Compatible(LFaulty, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(
+      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build).Build;
+end;
+
+function TTestTlsStreamLoopback.WriteFailsWithInternalError(const AEngine: ITlsEngine;
+  const ATransport: ITlsTransport; const AData: TBytes): Boolean;
+begin
+  Result := False;
+  try
+    NewPump(AEngine, ATransport).WriteApp(AData[0], System.Length(AData), 0);
+  except
+    on E: ETlsStreamError do
+      Result := E.HasAlert and (E.Alert = TTlsAlertDescription.InternalError);
+  end;
+end;
+
+procedure TTestTlsStreamLoopback.TestSealFaultDuringAWriteFailsTheConnectionWithItsAlert;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+begin
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  HandshakeEnginesWith(FaultableClientConfig(LSwitch, UInt64(1) shl 24), ServerConfig, LClient,
+    LServer);
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  // the record fails to seal; the alert that follows seals, so it can reach the peer
+  LSwitch.FailNthSeal(1);
+  CheckTrue(WriteFailsWithInternalError(LClient, LTransport, DecodeHex('00')),
+    'the write raises the failure with its alert');
+  CheckEquals(Tls13AlertRecordSize, LRecorder.Written, 'the alert alone reached the transport');
+  CheckTrue(LClient.IsTerminal, 'the connection ended');
+end;
+
+procedure TTestTlsStreamLoopback.TestSealFaultDuringAWriteOverADeadSocketRaisesTheTlsError;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+  LDead: TDeadWriteTransport;
+  LTransport: ITlsTransport;
+begin
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  HandshakeEnginesWith(FaultableClientConfig(LSwitch, UInt64(1) shl 24), ServerConfig, LClient,
+    LServer);
+  LDead := TDeadWriteTransport.Create;
+  LTransport := LDead;
+  LSwitch.FailNthSeal(1);
+  CheckTrue(WriteFailsWithInternalError(LClient, LTransport, DecodeHex('00')),
+    'the seal failure, not the transport error, reaches the caller');
+  CheckEquals(1, LDead.Attempts, 'the alert was sent once and the send was not retried');
+  CheckTrue(LClient.IsTerminal, 'the connection ended');
+end;
+
+procedure TTestTlsStreamLoopback.TestRekeyFailureMidWriteFailsTheConnection;
+const
+  Records = 20;
+  RecordsBeforeTheRekey = 16;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LData: TBytes;
+begin
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  // a usage limit of 32 puts the rekey after sixteen records
+  HandshakeEnginesWith(FaultableClientConfig(LSwitch, 32), ServerConfig, LClient, LServer);
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  System.SetLength(LData, Records * TRecordLimits.MaxPlaintext);
+  // the sixteen records seal, and the KeyUpdate behind them is the seventeenth seal
+  LSwitch.FailNthSeal(RecordsBeforeTheRekey + 1);
+  CheckTrue(WriteFailsWithInternalError(LClient, LTransport, LData),
+    'the write raises the failure with its alert');
+  CheckTrue(LClient.IsTerminal, 'the connection ended');
+  CheckEquals(Ord(TTlsContentType.Handshake), LSwitch.FaultedInnerType,
+    'the failed seal was the KeyUpdate, not an application record');
+  CheckEquals(RecordsBeforeTheRekey * (TRecordLimits.MaxPlaintext + Tls13RecordOverhead) +
+    Tls13AlertRecordSize,
+    LRecorder.Written, 'only the sixteen records and the alert were sent');
+end;
+
+procedure TTestTlsStreamLoopback.TestKeyUpdateReplyFailureFailsTheNextWrite;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+  LRecorder: TRecordingTransport;
+  LTransport: ITlsTransport;
+  LWire, LLeft: TBytes;
+begin
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  HandshakeEnginesWith(FaultableClientConfig(LSwitch, UInt64(1) shl 24), ServerConfig, LClient,
+    LServer);
+  // the client reads the peer's KeyUpdate, which owes a reply that the next write seals
+  LWire := DataThenKeyUpdateRequest(LServer);
+  LClient.ProcessInput(LWire, 0, System.Length(LWire));
+  CheckFalse(LClient.IsTerminal, 'the read succeeded');
+  LRecorder := TRecordingTransport.Create;
+  LTransport := LRecorder as ITlsTransport;
+  LSwitch.FailNthSeal(1);
+  CheckTrue(WriteFailsWithInternalError(LClient, LTransport, DecodeHex('00')),
+    'the write raises the failure with its alert');
+  CheckTrue(LClient.IsTerminal, 'the connection ended');
+  CheckEquals(Tls13AlertRecordSize, LRecorder.Written, 'the alert alone reached the transport');
+  System.SetLength(LLeft, 64);
+  CheckEquals(0, LClient.TakeOutgoing(LLeft, 0), 'the data was not queued behind the alert');
+end;
+
+procedure TTestTlsStreamLoopback.TestHandshakeAlertThatCannotBeSealedStillRaisesTheTlsError;
+var
+  LSwitch: TAeadFaultSwitch;
+  LClient, LServer: ITlsEngine;
+  LTamper: TTamperedFlightTransport;
+  LTransport: ITlsTransport;
+  LAlert: TTlsAlertDescription;
+  LSent: TBytes;
+  LPos: Int32;
+  LRaised: Boolean;
+begin
+  LSwitch := Own<TAeadFaultSwitch>(TAeadFaultSwitch.Create);
+  LSwitch.Armed := True;
+  LClient := TTlsEngineFactory.CreateClientEngine(FaultableClientConfig(LSwitch, UInt64(1) shl 24),
+    'localhost');
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LTamper := TTamperedFlightTransport.Create(LServer);
+  LTransport := LTamper;
+  LAlert := TTlsAlertDescription.CloseNotify;
+  LRaised := False;
+  try
+    NewPump(LClient, LTransport).DriveHandshake(True);
+  except
+    on E: ETlsStreamError do
+    begin
+      LRaised := E.HasAlert;
+      if LRaised then
+        LAlert := E.Alert;
+    end;
+  end;
+  CheckTrue(LRaised, 'the handshake raises the TLS error');
+  CheckEquals(Ord(TTlsAlertDescription.BadRecordMac), Ord(LAlert),
+    'on the record that cannot authenticate');
+  LSent := LTamper.Sent;
+  CheckTrue(System.Length(LSent) >= 5, 'the client sent its ClientHello');
+  LPos := 5 + (LSent[3] shl 8) + LSent[4];
+  while LPos + 5 <= System.Length(LSent) do
+  begin
+    CheckEquals(Ord(TTlsContentType.ChangeCipherSpec), LSent[LPos],
+      'nothing but change_cipher_spec follows the ClientHello');
+    System.Inc(LPos, 5 + (LSent[LPos + 3] shl 8) + LSent[LPos + 4]);
+  end;
+  CheckEquals(System.Length(LSent), LPos, 'the records end exactly at the end of what was sent');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseAfterAFailedReadSendsNothing;
+var
+  LClient, LServer: ITlsEngine;
+  LFailing: TFailingReadTransport;
+  LTransport: ITlsTransport;
+  LPump: TTlsStreamPump;
+  LDest, LData: TBytes;
+  LStatus: TTlsReadStatus;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LFailing := TFailingReadTransport.Create;
+  LTransport := LFailing;
+  LPump := NewPump(LClient, LTransport);
+  System.SetLength(LDest, 16);
+  LRaised := False;
+  try
+    LPump.ReadApp(LDest, 16, LStatus);
+  except
+    on EInOutError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the read raises the transport failure');
+  LPump.Close;
+  CheckEquals(0, LFailing.Attempts, 'a close after the failed read does not touch the transport');
+  LData := DecodeHex('00');
+  LRaised := False;
+  try
+    LPump.WriteApp(LData[0], 1, 0);
+  except
+    on EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a write after the close is refused as before');
+  // the queued close_notify goes out in the refused write's release recheck
+  CheckEquals(1, LFailing.Attempts, 'the queued record is sent by the later writer');
+end;
+
+procedure TTestTlsStreamLoopback.TestAbortAfterAFailedReadSendsNothing;
+var
+  LClient, LServer: ITlsEngine;
+  LFailing: TFailingReadTransport;
+  LTransport: ITlsTransport;
+  LPump: TTlsStreamPump;
+  LDest: TBytes;
+  LStatus: TTlsReadStatus;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LFailing := TFailingReadTransport.Create;
+  LTransport := LFailing;
+  LPump := NewPump(LClient, LTransport);
+  System.SetLength(LDest, 16);
+  LRaised := False;
+  try
+    LPump.ReadApp(LDest, 16, LStatus);
+  except
+    on EInOutError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the read raises the transport failure');
+  LPump.Abort(TTlsAlertDescription.InternalError);
+  CheckEquals(0, LFailing.Attempts, 'an abort after the failed read does not touch the transport');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseAfterAReadTimeoutStillSends;
+var
+  LClient, LServer: ITlsEngine;
+  LFailing: TFailingReadTransport;
+  LTimeout: TTimeoutOnceTransport;
+  LTransport: ITlsTransport;
+  LPump: TTlsStreamPump;
+  LDest: TBytes;
+  LStatus: TTlsReadStatus;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LFailing := TFailingReadTransport.Create;
+  LTimeout := TTimeoutOnceTransport.Create(LFailing as ITlsTransport);
+  LTransport := LTimeout;
+  LPump := NewPump(LClient, LTransport);
+  System.SetLength(LDest, 16);
+  LTimeout.Arm;
+  LRaised := False;
+  try
+    LPump.ReadApp(LDest, 16, LStatus);
+  except
+    on ETlsReadTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the read raises the retryable timeout');
+  LPump.Close;
+  CheckEquals(1, LFailing.Attempts, 'a close after a read timeout still sends close_notify');
 end;
 
 initialization

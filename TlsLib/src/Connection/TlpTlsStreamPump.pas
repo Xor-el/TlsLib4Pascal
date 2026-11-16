@@ -76,7 +76,8 @@ type
     FTransport: ITlsTransport;
     FTimed: ITlsTimedTransport;
     FCloseGraceMs: Int32;
-    // E guards every engine call, FWriteClosed, FDeferredClose and every write of FHandshakeState
+    // E guards every engine call, FWriteClosed, FReadFailed, FDeferredClose and every write of
+    // FHandshakeState
     FEngineLock: TCriticalSection;
     // W guards FSendBuffer, FWriteChunk and the right to take bytes from the engine and send them
     FWriteLock: TCriticalSection;
@@ -84,6 +85,8 @@ type
     // set under E for the length of a read's engine calls, so only the thread inside them sees True
     FInboundCall: Boolean;
     FWriteClosed: Boolean;
+    // a transport read failed (not a retryable ETlsReadTimeout); Close and Abort then send nothing
+    FReadFailed: Boolean;
     FDeferredClose: TDeferredClose;
     FDeferredAlert: TTlsAlertDescription;
     FReadBuffer: TBytes; // the caller's read side
@@ -104,7 +107,8 @@ type
     procedure SendPendingQuietly;
     /// <summary>Leaves W, then sends what another thread queued while this one held it: the
     /// recheck that keeps a record from being stranded. Quiet and bounded, since only control
-    /// records can be owed once W is free.</summary>
+    /// records can be owed once W is free. Never called from a finally: its recheck can
+    /// send.</summary>
     procedure ReleaseWrite;
     /// <summary>Sends what the engine owes if W is free, and returns at once if it is not (the
     /// holder sends it in its recheck).</summary>
@@ -213,12 +217,14 @@ type
     /// recheck, so it can still be unsent when this returns. A transport failure raises as for
     /// SendPending; a send past the close grace raises ETlsWriteTimeout. While the handshake is
     /// running it only records the request: the handshake thread sends close_notify as it
-    /// completes, and a failure of that send latches the engine without raising there.</summary>
+    /// completes, and a failure of that send latches the engine without raising there. After a
+    /// failed transport read it only queues close_notify and does not send it.</summary>
     procedure Close;
     /// <summary>Sends a fatal alert (the engine goes terminal), best effort and without waiting
     /// for W: used when the local host refuses a connection. While the handshake is running it
     /// only records the refusal: the handshake thread sends the alert as the handshake completes,
-    /// so the connection never goes live.</summary>
+    /// so the connection never goes live. After a failed transport read it only queues the alert
+    /// and does not send it.</summary>
     procedure Abort(ADescription: TTlsAlertDescription);
     /// <summary>Marks the write side closed; True when it was open on a running or completed
     /// handshake, so close_notify or an alert is owed. Before the handshake it only latches the
@@ -444,9 +450,11 @@ begin
       SendPendingBounded
     else
       SendPendingQuietly;
-  finally
+  except
     ReleaseWrite;
+    raise;
   end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.FlushPending;
@@ -601,35 +609,38 @@ begin
     finally
       FEngineLock.Leave;
     end;
-    if not LRun then
-      Exit;
-    try
-      RunHandshake(AIsClient, AResolveVerdict, ADeadlineMs);
-      // sealed here, sent by the release of W below
-      FEngineLock.Enter;
+    if LRun then
+    begin
       try
-        case FDeferredClose of
-          TDeferredClose.DeferredNotify:
-            FOutbound.SendClose;
-          TDeferredClose.DeferredAlert:
-            FOutbound.SendAlert(FDeferredAlert);
+        RunHandshake(AIsClient, AResolveVerdict, ADeadlineMs);
+        // sealed here, sent by the release of W below
+        FEngineLock.Enter;
+        try
+          case FDeferredClose of
+            TDeferredClose.DeferredNotify:
+              FOutbound.SendClose;
+            TDeferredClose.DeferredAlert:
+              FOutbound.SendAlert(FDeferredAlert);
+          end;
+        finally
+          FEngineLock.Leave;
         end;
       finally
-        FEngineLock.Leave;
-      end;
-    finally
-      FEngineLock.Enter;
-      try
-        FDeferredClose := TDeferredClose.NotDeferred;
-        if FHandshakeState = THandshakeState.Running then
-          FHandshakeState := THandshakeState.Idle;
-      finally
-        FEngineLock.Leave;
+        FEngineLock.Enter;
+        try
+          FDeferredClose := TDeferredClose.NotDeferred;
+          if FHandshakeState = THandshakeState.Running then
+            FHandshakeState := THandshakeState.Idle;
+        finally
+          FEngineLock.Leave;
+        end;
       end;
     end;
-  finally
+  except
     ReleaseWrite;
+    raise;
   end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.RunHandshake(AIsClient: Boolean;
@@ -775,7 +786,24 @@ begin
       FlushIfIdle(False);
       RaiseFailure;
     end;
-    LGot := FTransport.Read(FReadBuffer, 0, TransportChunk);
+    try
+      LGot := FTransport.Read(FReadBuffer, 0, TransportChunk);
+    except
+      on E: Exception do
+      begin
+        // only ETlsReadTimeout is retryable; every other failure latches FReadFailed
+        if not (E is ETlsReadTimeout) then
+        begin
+          FEngineLock.Enter;
+          try
+            FReadFailed := True;
+          finally
+            FEngineLock.Leave;
+          end;
+        end;
+        raise;
+      end;
+    end;
     if LGot = 0 then
     begin
       // the transport closed. A prior close_notify would have surfaced above as CleanEof,
@@ -906,9 +934,11 @@ begin
       if LTimed then
         FTimed.SetWriteTimeout(0);
     end;
-  finally
+  except
     ReleaseWrite;
+    raise;
   end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.RequestKeyUpdate(ARequest: TKeyUpdateRequest);
@@ -930,12 +960,16 @@ begin
     if LClosed then
       raise EInvalidOperationTlsLibException.CreateRes(@SWriteAfterConnectionClosed);
     FlushThenRaiseIfFatal;
-  finally
+  except
     ReleaseWrite;
+    raise;
   end;
+  ReleaseWrite;
 end;
 
 procedure TTlsStreamPump.Close;
+var
+  LReadFailed: Boolean;
 begin
   FEngineLock.Enter;
   try
@@ -946,13 +980,17 @@ begin
       Exit;
     end;
     FOutbound.SendClose;
+    LReadFailed := FReadFailed;
   finally
     FEngineLock.Leave;
   end;
-  FlushIfIdle(True);
+  if not LReadFailed then
+    FlushIfIdle(True);
 end;
 
 procedure TTlsStreamPump.Abort(ADescription: TTlsAlertDescription);
+var
+  LReadFailed: Boolean;
 begin
   FEngineLock.Enter;
   try
@@ -966,11 +1004,13 @@ begin
       Exit;
     end;
     FOutbound.SendAlert(ADescription);
+    LReadFailed := FReadFailed;
   finally
     FEngineLock.Leave;
   end;
   // the connection is already being refused; a dead peer must not mask the reason
-  FlushIfIdle(False);
+  if not LReadFailed then
+    FlushIfIdle(False);
 end;
 
 function TTlsStreamPump.CloseWriteSide: Boolean;

@@ -256,13 +256,21 @@ type
   end;
 
   /// <summary>A switch a test arms to make every <see cref="TCappedAead" /> that shares it fail on
-  /// Seal; Open is never affected.</summary>
+  /// Seal, or to fail one chosen seal; Open is never affected. It is single-threaded.</summary>
   TAeadFaultSwitch = class sealed(TObject)
   strict private
   var
     FArmed: Boolean;
+    FSealsUntilFault: Int32;
+    FFaultedInnerType: Int32;
   public
     property Armed: Boolean read FArmed write FArmed;
+    /// <summary>The TLS 1.3 inner content type of the last record whose seal failed.</summary>
+    property FaultedInnerType: Int32 read FFaultedInnerType write FFaultedInnerType;
+    /// <summary>Fails the ANth seal from now (AN >= 1), once; the seals around it pass.</summary>
+    procedure FailNthSeal(AN: Int32);
+    /// <summary>Counts one seal and reports whether it must fail.</summary>
+    function TakeFault: Boolean;
   end;
 
   /// <summary>
@@ -338,6 +346,7 @@ const
 resourcestring
   SMissingAead = 'this primitives facet does not provide the requested AEAD';
   SInjectedSealFault = 'the AEAD seal was made to fail by the test';
+  SSealFaultIndexBelowOne = 'the seal to fail is counted from one';
   SMissingAgreement = 'this primitives facet does not provide the requested key agreement';
   SFakeHpkeSealer = 'the fake HPKE suite seals nothing';
 
@@ -838,6 +847,26 @@ begin
   Result := FComposed.Hpke;
 end;
 
+{ TAeadFaultSwitch }
+
+procedure TAeadFaultSwitch.FailNthSeal(AN: Int32);
+begin
+  if AN < 1 then
+    raise EArgumentTlsLibException.CreateRes(@SSealFaultIndexBelowOne);
+  FSealsUntilFault := AN;
+end;
+
+function TAeadFaultSwitch.TakeFault: Boolean;
+begin
+  Result := FArmed;
+  if FSealsUntilFault > 0 then
+  begin
+    System.Dec(FSealsUntilFault);
+    if FSealsUntilFault = 0 then
+      Result := True;
+  end;
+end;
+
 { TCappedAead }
 
 constructor TCappedAead.Create(const AInner: IAead; AUsageLimit: UInt64);
@@ -887,8 +916,12 @@ end;
 function TCappedAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
   const ADest: TBytes; ADestOff: Int32): Int32;
 begin
-  if (FSwitch <> nil) and FSwitch.Armed then
+  if (FSwitch <> nil) and FSwitch.TakeFault then
+  begin
+    if ALen > 0 then
+      FSwitch.FaultedInnerType := ASrc[ASrcOff + ALen - 1];
     raise EInvalidOperationTlsLibException.CreateRes(@SInjectedSealFault);
+  end;
   Result := FInner.Seal(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
 end;
 

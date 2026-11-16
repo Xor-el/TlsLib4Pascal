@@ -1623,14 +1623,17 @@ begin
     LAllowed := False;
     try
       LAllowed := DoVerifyCert;
-    finally
+    except
       // a hook that raises must reach the peer as a rejection, not an orderly close
-      if not LAllowed then
-        FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
+      FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
+      raise;
     end;
     if not LAllowed then
+    begin
+      FConnection.SendAlert(TTlsAlertDescription.BadCertificate);
       raise ETlsStreamError.CreateRes(TTlsAlertDescription.BadCertificate,
         @SPeerVerifyRejected);
+    end;
     SetSSLActive(True);
     Result := True;
   except
