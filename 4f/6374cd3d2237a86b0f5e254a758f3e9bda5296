@@ -1,0 +1,23 @@
+TlsLib/src/Connection/TlpTlsStreamPump.pas
+  s_f2c9bd75607afc::t_0581e55dd8dc45 107-108
+  s_f2c9bd75607afc::t_fb836037eba7f9 915,917,919
+  s_f2c9bd75607afc::t_9aa63609084c5d 607-608,610-621,624-631,634,636,638
+  s_f2c9bd75607afc::t_b3ac0bf13e5a80 448,450,452
+  s_f2c9bd75607afc::t_2eaf5de9321460 941,943,945
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4f6374cd3d2237a86b0f5e254a758f3e9bda5296",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
