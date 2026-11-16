@@ -1,0 +1,48 @@
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_f2c9bd75607afc::t_e57673702e059d 61
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_f2c9bd75607afc::t_972e9a43a3485c 489-492
+  s_f2c9bd75607afc::t_8f8c84e0e469d1 40
+docs/security-model.md
+  s_f2c9bd75607afc::t_9df45bb86c0d9d 51
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_7b2c00986e8924::t_4251c6a9b08454 387-393,510,596,600-602
+  s_f2c9bd75607afc::t_b61fe6fdeac760 572
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_1fc6b78349d7c7 229
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_f2c9bd75607afc::t_947287f7f8591d 61
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_4fe6c40d81b825 254
+TlsLib.Tests/src/CertificateCompressionTests.pas
+  s_f2c9bd75607afc::t_ce1e26c2bdca3f 1-324
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_f2c9bd75607afc::t_be7dd41f7d6220 46
+  s_f2c9bd75607afc::t_f4b4127827d9c1 495-498
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.Android.lpr
+  s_f2c9bd75607afc::t_84cc507e2419be 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "84930ba4047ec7a61c34290c893f0f65c06114ec",
+  "prompts": {},
+  "sessions": {
+    "s_7b2c00986e8924": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a27afcfa146fcb501",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
