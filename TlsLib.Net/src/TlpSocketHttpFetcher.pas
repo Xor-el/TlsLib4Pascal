@@ -664,7 +664,6 @@ end;
 
 destructor TTlsChannel.Destroy;
 begin
-  FConnection.CloseNotifyQuietly;
   FConnection.Free;
   inherited Destroy;
 end;
@@ -737,6 +736,7 @@ var
   LChannel: ITlsTransport;
   LExchange: THttpExchange;
 begin
+  LConnection := nil;
   // the connector is IPv4-only, and the Host field would need the brackets
   if AUrl.HostKind = THttpHostKind.IPv6 then
     raise EArgumentTlsLibException.CreateRes(@SIPv6Responder);
@@ -775,13 +775,22 @@ begin
   end
   else
     LChannel := LTransport;
-  LChannel.Write(LRequest, 0, System.Length(LRequest));
-  LExchange := THttpExchange.Create(LChannel);
   try
-    LExchange.ReadResponse(ASink, ACap);
-  finally
-    LExchange.Free;
+    LChannel.Write(LRequest, 0, System.Length(LRequest));
+    LExchange := THttpExchange.Create(LChannel);
+    try
+      LExchange.ReadResponse(ASink, ACap);
+    finally
+      LExchange.Free;
+    end;
+  except
+    // a failed exchange still ends with close_notify, sent here and never from a release
+    if LConnection <> nil then
+      LConnection.CloseNotifyQuietly;
+    raise;
   end;
+  if LConnection <> nil then
+    LConnection.CloseNotifyQuietly;
 end;
 
 class function TSocketHttpExchange.Fetch(const ASettings: TSocketHttpFetcherSettings;

@@ -160,6 +160,9 @@ type
     function TlsFetcher(const AName: string; AProxyPort: Word): IHttpFetcher;
   published
     procedure TestHttpsResponderIsFetched;
+    procedure TestHttpsFetchEndsWithCloseNotify;
+    procedure TestRefusedHttpsResponseStillEndsWithCloseNotify;
+    procedure TestHttpsReadPastTheBudgetStillEndsWithCloseNotify;
     procedure TestHttpsWithoutTlsConfigConnectsNothing;
     procedure TestDeferredVerdictConfigIsRefused;
     procedure TestCloseDelimitedBodyNeedsCloseNotify;
@@ -199,8 +202,8 @@ type
     property Accepted: Boolean read FAccepted;
   end;
 
-  // how a TLS responder ends: close_notify, a bare close, no handshake, or counting post-reply bytes
-  TTlsResponderMode = (CloseNotify, BareClose, Silent, CountAfterReply);
+  // how a TLS responder ends: close_notify, bare close, silent, counting, or awaiting the client
+  TTlsResponderMode = (CloseNotify, BareClose, Silent, CountAfterReply, AwaitClose);
 
   // accepts one connection, optionally answers a CONNECT first, then serves one request over TLS
   TTlsResponder = class(TThread)
@@ -221,6 +224,7 @@ type
     FRequest: string;
     FReplySent: Boolean;
     FBytesAfterReply: Int32;
+    FSawCloseNotify: Boolean;
     class function ToBytes(const AText: string): TBytes; static;
     class function ReadHead(const AStream: ITlsTimedTransport): string; static;
     procedure Serve(const AStream: ITlsTimedTransport);
@@ -245,6 +249,8 @@ type
     property ReplySent: Boolean read FReplySent;
     // bytes the client sent after the proxy reply, until it hung up; valid after Finish
     property BytesAfterReply: Int32 read FBytesAfterReply;
+    // the client ended the connection with close_notify in AwaitClose mode; valid after Finish
+    property SawCloseNotify: Boolean read FSawCloseNotify;
   end;
 
   // admits or refuses every URL and records how often it was asked and the last URL it saw
@@ -474,7 +480,15 @@ begin
     LScript := ToBytes(FScript);
     LConnection.Write(LScript[0], System.Length(LScript));
     if FMode = TTlsResponderMode.CloseNotify then
-      LConnection.CloseNotifyQuietly;
+      LConnection.CloseNotifyQuietly
+    else if FMode = TTlsResponderMode.AwaitClose then
+    begin
+      // a read that ends in anything but a clean end of stream raises, leaving the flag unset
+      repeat
+        LGot := LConnection.Read(LBuffer[0], System.Length(LBuffer));
+      until LGot <= 0;
+      FSawCloseNotify := True;
+    end;
   finally
     LConnection.Free;
   end;
@@ -1297,6 +1311,71 @@ begin
     CheckEquals(Ord('o'), LResponse[4], 'with the bytes sent');
     CheckEquals('GET /crl HTTP/1.1' + CRLF + 'Host: ' + LHost + CRLF + 'Connection: close' + CRLF +
       CRLF, LResponder.Finish, 'the request went through the TLS channel');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestHttpsFetchEndsWithCloseNotify;
+var
+  LResponder: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LResponder := TTlsResponder.Create(ServerConfig, '', 'HTTP/1.1 200 OK' + CRLF +
+    'Content-Length: 5' + CRLF + CRLF + 'hello', TTlsResponderMode.AwaitClose);
+  try
+    LFetcher := TlsFetcher('localhost', 0);
+    CheckTrue(LFetcher.Get('https://localhost:' + IntToStr(LResponder.Port) + '/', 10000,
+      DefaultCap, LResponse), 'the https responder is fetched');
+    LResponder.Finish;
+    CheckTrue(LResponder.SawCloseNotify, 'a fetched response ends with close_notify');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestRefusedHttpsResponseStillEndsWithCloseNotify;
+var
+  LResponder: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+begin
+  LResponder := TTlsResponder.Create(ServerConfig, '', 'HTTP/1.1 404 Not Found' + CRLF +
+    'Content-Length: 0' + CRLF + CRLF, TTlsResponderMode.AwaitClose);
+  try
+    LFetcher := TlsFetcher('localhost', 0);
+    CheckFalse(LFetcher.Get('https://localhost:' + IntToStr(LResponder.Port) + '/', 10000,
+      DefaultCap, LResponse), 'a refused status fails closed');
+    LResponder.Finish;
+    CheckTrue(LResponder.SawCloseNotify, 'a refused response still ends with close_notify');
+  finally
+    LFetcher := nil;
+    LResponder.Free;
+  end;
+end;
+
+procedure TTestSocketHttpFetcherTls.TestHttpsReadPastTheBudgetStillEndsWithCloseNotify;
+var
+  LResponder: TTlsResponder;
+  LFetcher: IHttpFetcher;
+  LResponse: TBytes;
+  LClock: ITlsMonotonicClock;
+  LStart: Int64;
+begin
+  LResponder := TTlsResponder.Create(ServerConfig, '', 'HTTP/1.1 200 OK' + CRLF,
+    TTlsResponderMode.AwaitClose);
+  try
+    LFetcher := TlsFetcher('localhost', 0);
+    LClock := TSystemMonotonicClock.Create;
+    LStart := LClock.NowMonotonicMillis;
+    CheckFalse(LFetcher.Get('https://localhost:' + IntToStr(LResponder.Port) + '/', 3000,
+      DefaultCap, LResponse), 'a response that never ends fails closed');
+    CheckTrue(LClock.NowMonotonicMillis - LStart < 7000, 'the fetch stops near the budget');
+    CheckTrue(LResponder.Finish <> '', 'the responder received the request');
+    CheckTrue(LResponder.SawCloseNotify, 'a read past the budget still ends with close_notify');
   finally
     LFetcher := nil;
     LResponder.Free;
