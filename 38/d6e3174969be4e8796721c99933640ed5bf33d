@@ -1,0 +1,30 @@
+TlsLib.Tests/src/SocketHttpExchangeTests.pas
+  s_f2c9bd75607afc::t_01f85ed3b25491 481
+  s_f2c9bd75607afc::t_77535d57848f3b 1374,1376-1377
+  s_f2c9bd75607afc::t_ccff2f90d4d686 205
+TlsLib.Tests/src/CertificateCompressionTests.pas
+  s_f2c9bd75607afc::t_b6a74dde712baa 233
+  s_f2c9bd75607afc::t_a6cb229a65e243 56
+  s_f2c9bd75607afc::t_3e55d8bce0da3c 309
+  s_f2c9bd75607afc::t_7282b38be14697 262
+  s_f2c9bd75607afc::t_c6a6335799807f 299
+  s_f2c9bd75607afc::t_be6888320211be 278
+docs/security-model.md
+  s_f2c9bd75607afc::t_3a895e87dfb218 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "38d6e3174969be4e8796721c99933640ed5bf33d",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
