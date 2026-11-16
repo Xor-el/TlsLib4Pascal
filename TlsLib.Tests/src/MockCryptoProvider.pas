@@ -256,7 +256,7 @@ type
   end;
 
   /// <summary>A switch a test arms to make every <see cref="TCappedAead" /> that shares it fail on
-  /// Seal, or to fail one chosen seal; Open is never affected.</summary>
+  /// Seal, or to fail one chosen seal; Open is never affected. It is single-threaded.</summary>
   TAeadFaultSwitch = class sealed(TObject)
   strict private
   var

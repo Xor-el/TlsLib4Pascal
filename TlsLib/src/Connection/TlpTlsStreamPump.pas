@@ -85,7 +85,7 @@ type
     // set under E for the length of a read's engine calls, so only the thread inside them sees True
     FInboundCall: Boolean;
     FWriteClosed: Boolean;
-    // a transport read failed, other than a retryable ETlsReadTimeout; Close and Abort then send nothing
+    // a transport read failed (not a retryable ETlsReadTimeout); Close and Abort then send nothing
     FReadFailed: Boolean;
     FDeferredClose: TDeferredClose;
     FDeferredAlert: TTlsAlertDescription;
@@ -791,7 +791,7 @@ begin
     except
       on E: Exception do
       begin
-        // only ETlsReadTimeout is retryable; any other failure, a handshake timeout too, marks it
+        // only ETlsReadTimeout is retryable; every other failure latches FReadFailed
         if not (E is ETlsReadTimeout) then
         begin
           FEngineLock.Enter;

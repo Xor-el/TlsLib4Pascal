@@ -195,8 +195,9 @@ type
   end;
 
   /// <summary>A transport in front of a server engine: what the client writes is fed to the
-  /// engine, and the first Read serves the engine's flight with its last byte flipped, so the
-  /// last record cannot authenticate. It keeps every byte written to it.</summary>
+  /// engine, and the Reads serve its flight with the last byte flipped, so the last record cannot
+  /// authenticate. The flight is taken on the first Read and served across as many Reads as the
+  /// callers' max length requires. It keeps every byte written to it.</summary>
   TTamperedFlightTransport = class sealed(TInterfacedObject, ITlsTransport)
   strict private
   var
@@ -1000,8 +1001,13 @@ var
   LChunk: TBytes;
   LGot: Int32;
 begin
-  if not FServed then
+  if (not FServed) or (FFlightPos >= System.Length(FFlight)) then
   begin
+    if FServed then
+    begin
+      FFlight := nil;
+      FFlightPos := 0;
+    end;
     System.SetLength(LChunk, 65536);
     LGot := FServer.TakeOutgoing(LChunk, 0);
     while LGot > 0 do
@@ -1010,22 +1016,20 @@ begin
       System.Move(LChunk[0], FFlight[System.Length(FFlight) - LGot], LGot);
       LGot := FServer.TakeOutgoing(LChunk, 0);
     end;
-    if System.Length(FFlight) > 0 then
+    if (not FServed) and (System.Length(FFlight) > 0) then
     begin
       FFlight[System.Length(FFlight) - 1] := FFlight[System.Length(FFlight) - 1] xor $01;
       FServed := True;
     end;
   end;
-  if FFlightPos < System.Length(FFlight) then
+  Result := System.Length(FFlight) - FFlightPos;
+  if Result > AMaxLength then
+    Result := AMaxLength;
+  if Result > 0 then
   begin
-    Result := System.Length(FFlight) - FFlightPos;
-    if Result > AMaxLength then
-      Result := AMaxLength;
     System.Move(FFlight[FFlightPos], ABuffer[AOffset], Result);
     System.Inc(FFlightPos, Result);
-  end
-  else
-    Result := FServer.TakeOutgoing(ABuffer, AOffset);
+  end;
 end;
 
 procedure TTamperedFlightTransport.Write(const ABuffer: TBytes; AOffset, ALength: Int32);

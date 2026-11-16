@@ -380,6 +380,8 @@ type
     procedure TestKeyUpdateReplyFailureFailsTheNextWrite;
     procedure TestHandshakeAlertThatCannotBeSealedStillRaisesTheTlsError;
     procedure TestCloseAfterAFailedReadSendsNothing;
+    procedure TestAbortAfterAFailedReadSendsNothing;
+    procedure TestCloseAfterAReadTimeoutStillSends;
   end;
 
 implementation
@@ -390,8 +392,8 @@ const
   ExporterLabel = 'EXPERIMENTAL tlslib stream test';
   // an application_data record that cannot authenticate
   BadRecordHex = '170303001000112233445566778899aabbccddeeff';
-  // RFC 8446 sec. 5.2: header, inner content type and AEAD tag around a TLS 1.3 plaintext
-  Tls13RecordOverhead = 5 + 1 + 16;
+  // RFC 9846 5.2: header, inner content type and AEAD tag around a TLS 1.3 plaintext
+  Tls13RecordOverhead = TRecordLimits.HeaderLength + 1 + 16;
   Tls13AlertRecordSize = Tls13RecordOverhead + 2;
 
 { TServerRunner }
@@ -4605,7 +4607,6 @@ procedure TTestTlsStreamLoopback.TestRekeyFailureMidWriteFailsTheConnection;
 const
   Records = 20;
   RecordsBeforeTheRekey = 16;
-  RecordSize = 16384;
 var
   LSwitch: TAeadFaultSwitch;
   LClient, LServer: ITlsEngine;
@@ -4618,7 +4619,7 @@ begin
   HandshakeEnginesWith(FaultableClientConfig(LSwitch, 32), ServerConfig, LClient, LServer);
   LRecorder := TRecordingTransport.Create;
   LTransport := LRecorder as ITlsTransport;
-  System.SetLength(LData, Records * RecordSize);
+  System.SetLength(LData, Records * TRecordLimits.MaxPlaintext);
   // the sixteen records seal, and the KeyUpdate behind them is the seventeenth seal
   LSwitch.FailNthSeal(RecordsBeforeTheRekey + 1);
   CheckTrue(WriteFailsWithInternalError(LClient, LTransport, LData),
@@ -4626,7 +4627,8 @@ begin
   CheckTrue(LClient.IsTerminal, 'the connection ended');
   CheckEquals(Ord(TTlsContentType.Handshake), LSwitch.FaultedInnerType,
     'the failed seal was the KeyUpdate, not an application record');
-  CheckEquals(RecordsBeforeTheRekey * (RecordSize + Tls13RecordOverhead) + Tls13AlertRecordSize,
+  CheckEquals(RecordsBeforeTheRekey * (TRecordLimits.MaxPlaintext + Tls13RecordOverhead) +
+    Tls13AlertRecordSize,
     LRecorder.Written, 'only the sixteen records and the alert were sent');
 end;
 
@@ -4692,12 +4694,13 @@ begin
   LSent := LTamper.Sent;
   CheckTrue(System.Length(LSent) >= 5, 'the client sent its ClientHello');
   LPos := 5 + (LSent[3] shl 8) + LSent[4];
-  while LPos < System.Length(LSent) do
+  while LPos + 5 <= System.Length(LSent) do
   begin
     CheckEquals(Ord(TTlsContentType.ChangeCipherSpec), LSent[LPos],
       'nothing but change_cipher_spec follows the ClientHello');
     System.Inc(LPos, 5 + (LSent[LPos + 3] shl 8) + LSent[LPos + 4]);
   end;
+  CheckEquals(System.Length(LSent), LPos, 'the records end exactly at the end of what was sent');
 end;
 
 procedure TTestTlsStreamLoopback.TestCloseAfterAFailedReadSendsNothing;
@@ -4736,6 +4739,63 @@ begin
   CheckTrue(LRaised, 'a write after the close is refused as before');
   // the queued close_notify goes out in the refused write's release recheck
   CheckEquals(1, LFailing.Attempts, 'the queued record is sent by the later writer');
+end;
+
+procedure TTestTlsStreamLoopback.TestAbortAfterAFailedReadSendsNothing;
+var
+  LClient, LServer: ITlsEngine;
+  LFailing: TFailingReadTransport;
+  LTransport: ITlsTransport;
+  LPump: TTlsStreamPump;
+  LDest: TBytes;
+  LStatus: TTlsReadStatus;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LFailing := TFailingReadTransport.Create;
+  LTransport := LFailing;
+  LPump := NewPump(LClient, LTransport);
+  System.SetLength(LDest, 16);
+  LRaised := False;
+  try
+    LPump.ReadApp(LDest, 16, LStatus);
+  except
+    on EInOutError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the read raises the transport failure');
+  LPump.Abort(TTlsAlertDescription.InternalError);
+  CheckEquals(0, LFailing.Attempts, 'an abort after the failed read does not touch the transport');
+end;
+
+procedure TTestTlsStreamLoopback.TestCloseAfterAReadTimeoutStillSends;
+var
+  LClient, LServer: ITlsEngine;
+  LFailing: TFailingReadTransport;
+  LTimeout: TTimeoutOnceTransport;
+  LTransport: ITlsTransport;
+  LPump: TTlsStreamPump;
+  LDest: TBytes;
+  LStatus: TTlsReadStatus;
+  LRaised: Boolean;
+begin
+  HandshakeEngines(LClient, LServer);
+  LFailing := TFailingReadTransport.Create;
+  LTimeout := TTimeoutOnceTransport.Create(LFailing as ITlsTransport);
+  LTransport := LTimeout;
+  LPump := NewPump(LClient, LTransport);
+  System.SetLength(LDest, 16);
+  LTimeout.Arm;
+  LRaised := False;
+  try
+    LPump.ReadApp(LDest, 16, LStatus);
+  except
+    on ETlsReadTimeout do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the read raises the retryable timeout');
+  LPump.Close;
+  CheckEquals(1, LFailing.Attempts, 'a close after a read timeout still sends close_notify');
 end;
 
 initialization
