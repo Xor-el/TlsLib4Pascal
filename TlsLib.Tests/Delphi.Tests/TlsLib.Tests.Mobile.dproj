@@ -569,6 +569,7 @@
         <DCCReference Include="..\src\ResourceLimitTests.pas"/>
         <DCCReference Include="..\src\SessionStoreTests.pas"/>
         <DCCReference Include="..\src\CertificateCompressionCacheTests.pas"/>
+        <DCCReference Include="..\src\CertificateCompressionTests.pas"/>
         <DCCReference Include="..\src\DataEncodingTests.pas"/>
         <DCCReference Include="..\src\MockSessionStores.pas"/>
         <DCCReference Include="..\src\ClientSessionPolicyTests.pas"/>

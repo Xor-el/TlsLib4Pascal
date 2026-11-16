@@ -58,6 +58,7 @@ uses
   ResourceLimitTests,
   SessionStoreTests,
   CertificateCompressionCacheTests,
+  CertificateCompressionTests,
   DataEncodingTests,
   MockSessionStores,
   ClientSessionPolicyTests,

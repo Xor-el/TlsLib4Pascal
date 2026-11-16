@@ -226,6 +226,7 @@ uses
   ResourceLimitTests in '..\src\ResourceLimitTests.pas',
   SessionStoreTests in '..\src\SessionStoreTests.pas',
   CertificateCompressionCacheTests in '..\src\CertificateCompressionCacheTests.pas',
+  CertificateCompressionTests in '..\src\CertificateCompressionTests.pas',
   DataEncodingTests in '..\src\DataEncodingTests.pas',
   MockSessionStores in '..\src\MockSessionStores.pas',
   ClientSessionPolicyTests in '..\src\ClientSessionPolicyTests.pas',
