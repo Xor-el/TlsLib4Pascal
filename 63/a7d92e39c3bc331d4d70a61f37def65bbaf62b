@@ -1,0 +1,21 @@
+TlsLib/src/CertCompression/TlpZlibCertificateCompression.pas
+  s_f2c9bd75607afc::t_2265e794204ab1 64-66
+  s_f2c9bd75607afc::t_ca6da74c8b0f48 76-77,79-80,84-86,88-100,102-105,108
+  s_f2c9bd75607afc::t_a6ed80d36c4d6c 122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "63a7d92e39c3bc331d4d70a61f37def65bbaf62b",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
