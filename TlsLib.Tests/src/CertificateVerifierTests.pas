@@ -246,6 +246,8 @@ type
     FFlood: TStringList;
     // a name-constrained root, two intermediates (one constrained) and leaves in and out of scope
     FNameConstrained: TStringList;
+    // a root constrained to one email domain and leaves named by subject emailAddress or SAN
+    FNameConstrainedEmail: TStringList;
     // a root with a 2048-bit RSA key and an EC leaf it signed
     FWeakAnchor: TStringList;
     function NcPath(const ANames: array of string): TArray<TBytes>;
@@ -313,6 +315,9 @@ type
     procedure TestNameConstraintsAdmitDirectlyTrustedLeaf;
     procedure TestNameConstraintsRefuseUnusablePaths;
     procedure TestNameConstrainedChainIsValidatedByTheBuiltInVerifier;
+    procedure TestEmailConstraintAcceptsSubjectEmailInScopeWithoutSan;
+    procedure TestEmailConstraintRefusesSubjectEmailOutOfScopeWithoutSan;
+    procedure TestEmailConstraintRefusesSanEmailOutOfScope;
     procedure TestWeakAnchorChainIsValidatedByTheBuiltInVerifier;
     // extendedKeyUsage role enforcement (RFC 5280 4.2.1.12, required-if-present)
     procedure TestServerCertWithClientAuthOnlyEkuRejected;
@@ -988,6 +993,7 @@ begin
   FReissued := Own<TStringList>(LoadVectorFields('Certs/ReissuedRoot.txt'));
   FFlood := Own<TStringList>(LoadVectorFields('Certs/PathBuildFlood.txt'));
   FNameConstrained := Own<TStringList>(LoadVectorFields('Certs/NameConstrainedChain.txt'));
+  FNameConstrainedEmail := Own<TStringList>(LoadVectorFields('Certs/NameConstrainedEmail.txt'));
   FWeakAnchor := Own<TStringList>(LoadVectorFields('Certs/WeakAnchorClientChain.txt'));
 end;
 
@@ -1551,6 +1557,44 @@ begin
     CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
       LName + ' is certificate_unknown');
   end;
+end;
+
+procedure TTestCertificateVerifier.TestEmailConstraintAcceptsSubjectEmailInScopeWithoutSan;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  CheckTrue(VerifierFor(DecodeHex(FNameConstrainedEmail.Values['root_cert']), False)
+    .VerifyServerCertificate(TArray<TBytes>.Create(DecodeHex(
+    FNameConstrainedEmail.Values['email_in_scope_leaf_cert'])), TServerName.DnsName(''), nil,
+    LVerified, LAlert), 'a subject emailAddress inside the permitted subtree');
+end;
+
+procedure TTestCertificateVerifier.TestEmailConstraintRefusesSubjectEmailOutOfScopeWithoutSan;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // with no subjectAltName the rfc822Name constraint applies to the subject emailAddress
+  CheckFalse(VerifierFor(DecodeHex(FNameConstrainedEmail.Values['root_cert']), False)
+    .VerifyServerCertificate(TArray<TBytes>.Create(DecodeHex(
+    FNameConstrainedEmail.Values['email_out_of_scope_leaf_cert'])), TServerName.DnsName(''), nil,
+    LVerified, LAlert), 'a subject emailAddress outside the permitted subtree');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
+end;
+
+procedure TTestCertificateVerifier.TestEmailConstraintRefusesSanEmailOutOfScope;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  CheckFalse(VerifierFor(DecodeHex(FNameConstrainedEmail.Values['root_cert']), False)
+    .VerifyServerCertificate(TArray<TBytes>.Create(DecodeHex(
+    FNameConstrainedEmail.Values['email_san_out_of_scope_leaf_cert'])), TServerName.DnsName(''),
+    nil, LVerified, LAlert), 'an rfc822Name SAN outside the permitted subtree');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown');
 end;
 
 procedure TTestCertificateVerifier.TestWeakAnchorChainIsValidatedByTheBuiltInVerifier;
