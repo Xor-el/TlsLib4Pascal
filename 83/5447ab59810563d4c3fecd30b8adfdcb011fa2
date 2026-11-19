@@ -1,0 +1,24 @@
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_e62cc2a3708428 249-250
+  s_f2c9bd75607afc::t_a3d2ec58d20fc5 996-997
+  s_f2c9bd75607afc::t_f6c764c53ebb27 318-320
+  s_f2c9bd75607afc::t_be857acb9675a4 1563-1600
+TlsLib.Tests/Data/Certs/NameConstrainedEmail.txt
+  s_f2c9bd75607afc::t_accf9662aa1895 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "835447ab59810563d4c3fecd30b8adfdcb011fa2",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
