@@ -993,8 +993,7 @@ begin
   FReissued := Own<TStringList>(LoadVectorFields('Certs/ReissuedRoot.txt'));
   FFlood := Own<TStringList>(LoadVectorFields('Certs/PathBuildFlood.txt'));
   FNameConstrained := Own<TStringList>(LoadVectorFields('Certs/NameConstrainedChain.txt'));
-  FNameConstrainedEmail :=
-    Own<TStringList>(LoadVectorFields('Certs/NameConstrainedEmail.txt'));
+  FNameConstrainedEmail := Own<TStringList>(LoadVectorFields('Certs/NameConstrainedEmail.txt'));
   FWeakAnchor := Own<TStringList>(LoadVectorFields('Certs/WeakAnchorClientChain.txt'));
 end;
 
