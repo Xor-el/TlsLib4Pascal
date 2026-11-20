@@ -27,6 +27,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpPkixDomainTypes,
+  TlpIpLiteral,
   TlpDateTimeUtilities,
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
@@ -72,6 +73,12 @@ type
     procedure TestInstantBeforeTheStartIsNotValid;
     procedure TestInstantAtTheStartIsValid;
     procedure TestInstantAtTheEndIsValid;
+    // validity dates (Validity)
+    procedure TestValidityReadsNotBeforeAndNotAfter;
+    // subjectAltName entries (SubjectAltNames)
+    procedure TestSubjectAltNamesReadsDnsIpEmailAndUri;
+    procedure TestSubjectAltNamesEmptyWithoutExtension;
+    procedure TestSubjectAltNamesOfAnUnparsableCertificateRaises;
     // keyUsage (CertificateKeyUsagePermits)
     procedure TestDigitalSignatureCertPermitsSigning;
     procedure TestKeyEnciphermentCertForbidsSigning;
@@ -274,6 +281,66 @@ begin
     Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1893456000000))),
     'the window includes its last instant');
+end;
+
+procedure TTestCertificateChecks.TestValidityReadsNotBeforeAndNotAfter;
+var
+  LNotBefore, LNotAfter: TDateTime;
+begin
+  CheckTrue(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    'ae_inter')).Validity(LNotBefore, LNotAfter), 'the dates are read');
+  CheckTrue(Abs(LNotBefore - TDateTimeUtilities.UnixMsToDateTime(1577836800000)) < 1 / 86400000,
+    'notBefore is 2020-01-01T00:00:00Z');
+  CheckTrue(Abs(LNotAfter - TDateTimeUtilities.UnixMsToDateTime(1893456000000)) < 1 / 86400000,
+    'notAfter is 2030-01-01T00:00:00Z');
+end;
+
+procedure TTestCertificateChecks.TestSubjectAltNamesReadsDnsIpEmailAndUri;
+var
+  LLeaf: TBytes;
+  LNames: TCertSubjectAltNames;
+begin
+  LLeaf := TTlsLibTestCertificates.Field('Certs/SubjectAltNames.txt', 'san_leaf_cert');
+  LNames := Pkix.Certificates.Parse(LLeaf).SubjectAltNames;
+  CheckEquals(2, System.Length(LNames.DnsNames), 'two dNSName entries');
+  CheckEquals('localhost', LNames.DnsNames[0], 'the first dNSName, in certificate order');
+  CheckEquals('alt.example.test', LNames.DnsNames[1], 'the second dNSName');
+  CheckEquals(2, System.Length(LNames.IpAddresses), 'two iPAddress entries');
+  CheckEquals('192.0.2.17', TIpLiteral.FormatIPv4(LNames.IpAddresses[0]), 'the IPv4 octets');
+  CheckEquals(16, System.Length(LNames.IpAddresses[1]), 'the IPv6 octets');
+  CheckEquals('2001:db8::1', TIpLiteral.FormatIPv6(LNames.IpAddresses[1]), 'the IPv6 address');
+  CheckEquals(1, System.Length(LNames.EmailAddresses), 'one rfc822Name entry');
+  CheckEquals('user@example.test', LNames.EmailAddresses[0], 'the e-mail address');
+  CheckEquals(1, System.Length(LNames.Uris), 'one URI entry');
+  CheckEquals('spiffe://example.test/service', LNames.Uris[0], 'the URI');
+  CheckEquals(2, System.Length(Pkix.Certificates.SubjectAltNames(LLeaf).DnsNames),
+    'the DER-taking inspector reads the same entries');
+end;
+
+procedure TTestCertificateChecks.TestSubjectAltNamesEmptyWithoutExtension;
+var
+  LNames: TCertSubjectAltNames;
+begin
+  LNames := Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/SubjectAltNames.txt',
+    'plain_leaf_cert')).SubjectAltNames;
+  CheckEquals(0, System.Length(LNames.DnsNames), 'no dNSName');
+  CheckEquals(0, System.Length(LNames.IpAddresses), 'no iPAddress');
+  CheckEquals(0, System.Length(LNames.EmailAddresses), 'no rfc822Name');
+  CheckEquals(0, System.Length(LNames.Uris), 'no URI');
+end;
+
+procedure TTestCertificateChecks.TestSubjectAltNamesOfAnUnparsableCertificateRaises;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    Pkix.Certificates.SubjectAltNames(TBytes.Create(1, 2, 3));
+  except
+    on Exception do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a certificate that does not parse has no readable names');
 end;
 
 function TTestCertificateChecks.Permits(const ACertName: string;

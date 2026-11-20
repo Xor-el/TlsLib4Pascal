@@ -64,8 +64,7 @@ type
     function LoadChain(const AData: TBytes): TArray<TBytes>;
     function IsWellFormed(const ADer: TBytes): Boolean;
     function PublicKeyInfo(const ACertificateDer: TBytes): TBytes;
-    function DnsNames(const ACertificateDer: TBytes): TArray<string>;
-    function IpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
+    function SubjectAltNames(const ACertificateDer: TBytes): TCertSubjectAltNames;
     function PeerInfo(const ACertificateDer: TBytes;
       out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
     function TlsFeatures(const ACert: TBytes; out AFeatures: TArray<UInt16>): Boolean;
@@ -196,14 +195,10 @@ begin
   Result := FInner.PublicKeyInfo(ACertificateDer);
 end;
 
-function TScriptedNameInspector.DnsNames(const ACertificateDer: TBytes): TArray<string>;
+function TScriptedNameInspector.SubjectAltNames(
+  const ACertificateDer: TBytes): TCertSubjectAltNames;
 begin
-  Result := FInner.DnsNames(ACertificateDer);
-end;
-
-function TScriptedNameInspector.IpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
-begin
-  Result := FInner.IpAddresses(ACertificateDer);
+  Result := FInner.SubjectAltNames(ACertificateDer);
 end;
 
 function TScriptedNameInspector.PeerInfo(const ACertificateDer: TBytes;

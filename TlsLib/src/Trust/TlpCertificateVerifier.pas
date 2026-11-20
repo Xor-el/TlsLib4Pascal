@@ -586,6 +586,7 @@ var
   LEffectiveChain: TArray<TBytes>;
   LPresented, LIntermediates, LAnchors: TArray<TBytes>;
   LLeaf: IInspectedCertificate;
+  LSans: TCertSubjectAltNames;
   LWithheld: TArray<TBytes>;
 begin
   Result := False;
@@ -684,7 +685,8 @@ begin
       Exit;
     end;
     LLeaf := FPkix.Certificates.Parse(AChain[0]);
-    if not TEndpointIdentity.Matches(AServerName, LLeaf.DnsNames, LLeaf.IpAddresses) then
+    LSans := LLeaf.SubjectAltNames;
+    if not TEndpointIdentity.Matches(AServerName, LSans.DnsNames, LSans.IpAddresses) then
     begin
       AAlert := TTlsAlertDescription.BadCertificate;
       Exit;

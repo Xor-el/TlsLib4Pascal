@@ -32,6 +32,8 @@ type
     /// "::" and an optional trailing embedded IPv4 (RFC 4291 2.2). False for any other
     /// shape.</summary>
     class function TryParseIPv6(const AText: string; out ABytes: TBytes): Boolean; static;
+    /// <summary>The dotted quad of four octets.</summary>
+    class function FormatIPv4(const ABytes: TBytes): string; static;
     /// <summary>The canonical text of sixteen octets (RFC 5952): lower-case hex, no leading zeros,
     /// and the longest run of two or more zero groups (the first on a tie) written as "::". An
     /// embedded IPv4 is written as hex groups so every spelling has one canonical form.</summary>
@@ -177,6 +179,11 @@ begin
     Inc(LPos, 2);
   end;
   Result := True;
+end;
+
+class function TIpLiteral.FormatIPv4(const ABytes: TBytes): string;
+begin
+  Result := Format('%d.%d.%d.%d', [ABytes[0], ABytes[1], ABytes[2], ABytes[3]]);
 end;
 
 class function TIpLiteral.FormatIPv6(const ABytes: TBytes): string;

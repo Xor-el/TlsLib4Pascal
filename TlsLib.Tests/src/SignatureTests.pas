@@ -106,8 +106,8 @@ type
     function PublicKeyInfo: TBytes;
     function IssuerName: TBytes;
     function SubjectName: TBytes;
-    function DnsNames: TArray<string>;
-    function IpAddresses: TArray<TBytes>;
+    function SubjectAltNames: TCertSubjectAltNames;
+    function Validity(out ANotBefore, ANotAfter: TDateTime): Boolean;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
     function IsCertificateAuthority: TCertAnswer;
@@ -142,14 +142,14 @@ begin
   Result := FInner.SubjectName;
 end;
 
-function TUndecodableKeyUsageLeaf.DnsNames: TArray<string>;
+function TUndecodableKeyUsageLeaf.SubjectAltNames: TCertSubjectAltNames;
 begin
-  Result := FInner.DnsNames;
+  Result := FInner.SubjectAltNames;
 end;
 
-function TUndecodableKeyUsageLeaf.IpAddresses: TArray<TBytes>;
+function TUndecodableKeyUsageLeaf.Validity(out ANotBefore, ANotAfter: TDateTime): Boolean;
 begin
-  Result := FInner.IpAddresses;
+  Result := FInner.Validity(ANotBefore, ANotAfter);
 end;
 
 function TUndecodableKeyUsageLeaf.KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;

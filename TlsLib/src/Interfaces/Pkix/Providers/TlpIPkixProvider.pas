@@ -33,14 +33,18 @@ type
   /// shared across threads.
   /// </summary>
   IInspectedCertificate = interface(IInterface)
-    ['{DD311C63-58A2-466C-ABB1-14739B75C305}']
+    ['{7EFF6302-F1CA-4B93-9DAB-B4089B08D77D}']
     function PublicKeyInfo: TBytes;
     /// <summary>The DER Name of the certificate's issuer.</summary>
     function IssuerName: TBytes;
     /// <summary>The DER Name of the certificate's subject.</summary>
     function SubjectName: TBytes;
-    function DnsNames: TArray<string>;
-    function IpAddresses: TArray<TBytes>;
+    /// <summary>The certificate's subjectAltName entries, decoded once; empty when the extension is
+    /// absent. Raises on a malformed extension.</summary>
+    function SubjectAltNames: TCertSubjectAltNames;
+    /// <summary>The notBefore and notAfter dates (UTC). False, both zero, when they cannot be
+    /// read.</summary>
+    function Validity(out ANotBefore, ANotAfter: TDateTime): Boolean;
     /// <summary>
     /// Whether the certificate's keyUsage extension (RFC 5280 4.2.1.3) permits AUsage.
     /// Yes when the extension is absent (no restriction) or asserts the bit; No only when
@@ -97,10 +101,10 @@ type
   /// Pure, per-certificate, side-effect-free X.509 inspection. The Boolean-returning
   /// queries are fail-closed: they never raise on malformed input, returning False (or
   /// an empty result) so the caller decides the alert. Parse, LoadChain, and the
-  /// extractor methods (PublicKeyInfo, DnsNames, IpAddresses) raise on malformed input.
+  /// extractor methods (PublicKeyInfo, SubjectAltNames) raise on malformed input.
   /// </summary>
   ICertificateInspector = interface(IInterface)
-    ['{58245924-EE0B-4FDF-9967-E65FCE0CA4FD}']
+    ['{60A5A84F-7439-48D8-A3D0-7E55461AF8A3}']
     /// <summary>
     /// Decodes ADer once into a handle that answers the per-certificate queries from
     /// that single decode. Raises when ADer does not decode to a certificate (empty or
@@ -127,10 +131,8 @@ type
     function IsWellFormed(const ADer: TBytes): Boolean;
     /// <summary>The DER SubjectPublicKeyInfo of the X.509 certificate in ACertificateDer.</summary>
     function PublicKeyInfo(const ACertificateDer: TBytes): TBytes;
-    /// <summary>The dNSName SubjectAltName entries of the X.509 certificate in ACertificateDer.</summary>
-    function DnsNames(const ACertificateDer: TBytes): TArray<string>;
-    /// <summary>The iPAddress SAN entries (raw 4- or 16-byte octets) in ACertificateDer.</summary>
-    function IpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
+    /// <summary>The subjectAltName entries of the X.509 certificate in ACertificateDer.</summary>
+    function SubjectAltNames(const ACertificateDer: TBytes): TCertSubjectAltNames;
     /// <summary>
     /// Extracts a certificate's human-readable identity: the subject and issuer
     /// distinguished names, the subject common name, and the serial number in hex. Returns

@@ -2324,7 +2324,7 @@ var
 begin
   if System.Length(ACredential.CertificateChain) = 0 then
     raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCertMissing, [AHost]);
-  LSans := FPkix.Certificates.DnsNames(ACredential.CertificateChain[0]);
+  LSans := FPkix.Certificates.SubjectAltNames(ACredential.CertificateChain[0]).DnsNames;
   if Pos('*', AHost) = 0 then
     // an exact host must be covered by the leaf's dNSName SANs (RFC 9525)
     LOk := TEndpointIdentity.Matches(TServerName.DnsName(AHost), LSans, nil)

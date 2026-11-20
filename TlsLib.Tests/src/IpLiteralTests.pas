@@ -35,6 +35,7 @@ type
     function V6(const AText: string): Boolean;
   published
     procedure TestIPv4ParsesToItsOctets;
+    procedure TestIPv4FormatsToItsDottedQuad;
     procedure TestIPv4RefusesAmbiguousOrMalformedQuads;
     procedure TestIPv6ParsesFullAndCompressedForms;
     procedure TestIPv6EmbeddedIPv4;
@@ -70,6 +71,18 @@ begin
   CheckEquals(2, LBytes[2], 'third');
   CheckEquals(17, LBytes[3], 'fourth');
   CheckTrue(V4('0.0.0.0') and V4('255.255.255.255'), 'the range ends parse');
+end;
+
+procedure TTestIpLiteral.TestIPv4FormatsToItsDottedQuad;
+var
+  LBytes: TBytes;
+begin
+  CheckEquals('192.0.2.17', TIpLiteral.FormatIPv4(TBytes.Create(192, 0, 2, 17)), 'a dotted quad');
+  CheckEquals('0.0.0.0', TIpLiteral.FormatIPv4(TBytes.Create(0, 0, 0, 0)), 'the lowest');
+  CheckEquals('255.255.255.255', TIpLiteral.FormatIPv4(TBytes.Create(255, 255, 255, 255)),
+    'the highest');
+  CheckTrue(TIpLiteral.TryParseIPv4('10.20.30.40', LBytes), 'a quad parses');
+  CheckEquals('10.20.30.40', TIpLiteral.FormatIPv4(LBytes), 'and formats back to itself');
 end;
 
 procedure TTestIpLiteral.TestIPv4RefusesAmbiguousOrMalformedQuads;
