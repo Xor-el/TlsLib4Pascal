@@ -1,0 +1,42 @@
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_f2c9bd75607afc::t_ecc364111a5920 93-96,98-111
+  s_f2c9bd75607afc::t_4ef0c3fa155077 713,717
+  s_f2c9bd75607afc::t_3f0d6f3dab11fd 776-777
+  s_f2c9bd75607afc::t_5d54f0d7281916 651-712,714-716,718-775,778-904
+TlsLib/src/Handshake/TlpTlsCredential.pas
+  s_f2c9bd75607afc::t_20cc3c3f6fd215 68-69
+  s_f2c9bd75607afc::t_1031fd042e26eb 158-162
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_f2c9bd75607afc::t_cc81b2c911eb22 559
+  s_f2c9bd75607afc::t_6de596dd5e6c38 445-452
+  s_f2c9bd75607afc::t_3e238d46895d75 1175-1178
+  s_f2c9bd75607afc::t_3076f00ac98326 112
+  s_f2c9bd75607afc::t_917c1b3e12d05d 734-754
+  s_f2c9bd75607afc::t_d4bff1e9d5290b 998
+  s_f2c9bd75607afc::t_73306f9b7379b0 1113-1114
+  s_f2c9bd75607afc::t_82b49a704aa35b 55
+  s_f2c9bd75607afc::t_ce75ebb08a453f 967-968,970
+  s_f2c9bd75607afc::t_d8dbe03a9e3d6d 177-182
+  s_f2c9bd75607afc::t_15ff3317f6283a 662-674
+  s_f2c9bd75607afc::t_79c9e7949e924c 1219-1220
+  s_f2c9bd75607afc::t_d072c42a107e50 168-170
+  s_f2c9bd75607afc::t_324d03da81d743 1061
+  s_f2c9bd75607afc::t_38b9b89951f8d6 109
+  s_f2c9bd75607afc::t_bcc3a61b0f6335 1037-1040
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6867cf43f366cb894f8868cf2482a718398feba8",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
