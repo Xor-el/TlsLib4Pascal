@@ -289,6 +289,11 @@ The short version — the full treatment is in
 
 // pin an SPKI-SHA256 on top of normal validation (augments, never replaces)
 .WithCertificatePinning(TArray<TBytes>.Create(spkiSha256))
+
+// split a PEM, DER or PKCS#7 bundle into its anchors and the intermediates that only complete a chain
+//   uses TlpTrustAnchorStore, TlpTrustTypes;   // TBundleAnchorRule
+LStore := TTrustAnchorStore.FromBundle(Pkix.Certificates, LoadFile('bundle.pem'),
+  TBundleAnchorRule.SelfSignedOnly, LIntermediates);
 ```
 
 Anchors **union** inside one `WebPki` policy; a `TServerVerification.Custom` verifier **replaces** the
@@ -594,6 +599,11 @@ LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .Build;
 ```
 
+A host that builds from `TTlsOptions` names the identity with `Certificate` and `PrivateKey`, or sets
+`Credential` to a `TTlsCredential` it has already loaded: a key that cannot be written out (one held by
+an OS keystore or an HSM) or a credential it rotates in memory. `Credential` replaces the other four
+credential fields, setting both is refused, and the options never wipe it.
+
 `Required` fails the handshake closed if the client presents nothing. To revoke client certificates,
 see [revocation](#set-a-revocation-posture) — note a client can't staple, so `Hard` client-cert
 revocation needs a live resolver.
@@ -646,7 +656,7 @@ begin
   // LInfo.EarlyDataReason                why 0-RTT was or was not used (TEarlyDataReason)
   // LInfo.EarlyDataAccepted              0-RTT was accepted (client: the server took it; server: it opened the early-data window)
   // LInfo.TicketAgeSkew                  server, TLS 1.3 resumption: client-reported ticket age less the server's own, in seconds
-  // LInfo.RequestedSignatureSchemes      the signature_algorithms the peer's CertificateRequest listed
+  // LInfo.RequestedSignatureSchemes      the signature_algorithms the peer's CertificateRequest listed; non-empty exactly when one arrived, also after a failed handshake
 end;
 ```
 

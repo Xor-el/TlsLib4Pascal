@@ -520,14 +520,23 @@ It is a resource budget, not a trust input. The fields of `TCertificateChainLimi
 | `MaxCertificateLength` (one certificate) | 64 KiB | 16 KiB |
 | `MaxTotalChainLength` (the whole Certificate message) | 64 KiB | 32 KiB |
 | `MaxChainCertificates` | 16 | 8 |
+| `MaxPathLength` (certificates between the leaf and its anchor) | 4 | 4 |
 
 `MaxTotalChainLength` is also the handshake reassembly ceiling and the certificate-decompression
 ceiling. Start from `Defaults`; the setter raises `EArgumentTlsLibException` for a non-positive cap,
-a per-certificate cap above the total, a total above 16 MiB - 1, or a count outside 1..255. The caps
-apply in the built-in and OS verifiers; a `Custom` verifier owns only the per-certificate and count caps
-(`MaxTotalChainLength` still bounds reassembly and decompression for every verifier). On a server,
-`WithCertificateChainLimits` bounds a requested client certificate only; without `WithPeerAuth` any
-value other than the preset's is refused at `Build`.
+a per-certificate cap above the total, a total above 16 MiB - 1, a count outside 1..255, or a path
+length outside 0..16. The caps apply in the built-in and OS verifiers; a `Custom` verifier owns only
+the per-certificate and count caps (`MaxTotalChainLength` still bounds reassembly and decompression for
+every verifier). On a server, `WithCertificateChainLimits` bounds a requested client certificate only;
+without `WithPeerAuth` any value other than the preset's is refused at `Build`. `TTlsOptions` carries
+the same record as `CertificateChainLimits`, which a server reads only under `ClientAuth`.
+
+`MaxPathLength` counts the non-self-issued certificates strictly between the leaf and the trust anchor
+(RFC 5280 6.1.4 (l) skips a self-issued certificate, so a key rollover costs nothing). The anchor is
+never counted, a directly trusted leaf always passes, and 0 trusts only a leaf an anchor issued. A
+path over the bound is never accepted: the builder prunes it and keeps looking for a shorter one, a
+path an OS engine or a custom `ICertificatePathValidator` returns is refused afterwards, and either way
+the alert is `unknown_ca`. OpenSSL's `verify_depth` also counts self-issued certificates.
 
 ```pascal
 uses TlpCertificateLimits, TlpCertificateVerifierSource;
@@ -601,6 +610,11 @@ resolver configured.
   inside its validity window. `WithIssuerLookup` on the verification builder, or `WebPki(ALookup)`
   for a lookup on its own, resolves peer issuers on demand. See
   [system-trust.md](system-trust.md#bundle-anchors-and-issuer-lookup).
+- **Certificate inspection.** `ICertificateInspector.Parse(der)` returns an `IInspectedCertificate`
+  whose `SubjectAltNames` holds the dNSName, iPAddress, rfc822Name and URI entries (a
+  `TCertSubjectAltNames`) and whose `Validity` gives notBefore and notAfter; `TIpLiteral.FormatIPv4` and
+  `FormatIPv6` write an iPAddress entry as text. A SHA-256 certificate fingerprint is
+  `Crypto.Primitives.CreateHash(THashAlgorithm.SHA_256)` over the DER.
 - **Identity.** Names match the certificate's SANs, with a single wildcard
   only as the whole leftmost label and only when at least two labels remain below it (so never
   `*.com`; there is no public-suffix list); an IP-literal host matches only an
