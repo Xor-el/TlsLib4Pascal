@@ -54,6 +54,9 @@ uses
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsConfigBuilder,
+  TlpTlsConnection,
+  TlpTlsEngineFactory,
+  TlpITlsEngine,
   TlpTlsVersion,
   TlpNegotiationTypes,
   TlpCipherSuiteRegistry,
@@ -70,13 +73,14 @@ uses
   MockCryptoProvider,
   MockRandom,
   MockSystemCrypto,
-  TlsLibTestBase;
+  TlsLibTestBase,
+  TlsLibHandshakeTestBase;
 
 type
   /// <summary>What the native crypto provider suites share: the provider under test (whatever
   /// TOSCryptoProvider composes for the platform), the fixtures and the gates that tell whether
   /// something ran natively. It has no tests of its own and is never registered.</summary>
-  TNativeCryptoProviderTestBase = class abstract(TTlsLibAlgorithmTestCase)
+  TNativeCryptoProviderTestBase = class abstract(TTlsLibHandshakeTestCase)
   strict protected
     FKeys: TStringList;
     FPfx: TStringList;
@@ -124,6 +128,12 @@ type
   /// native, so a platform with no native provider runs none of them and a new one needs no edit
   /// here (the portable-path counterparts run everywhere).</summary>
   TTestNativeCryptoProvider = class(TNativeCryptoProviderTestBase)
+  private
+    // the PKCS#12 credential imported natively; otherwise skips the test and returns False
+    function NativeCredentialOrSkip(out ACredential: TTlsCredential): Boolean;
+    // the credential named in the server options and a client trusting its root complete a
+    // handshake at AVersion and carry application data
+    procedure CheckOptionsHandshake(const ACredential: TTlsCredential; AVersion: UInt16);
   published
     // the exported SubjectPublicKeyInfo does not come from the portable facet: over a base
     // whose ImportSigningKey raises, a natively imported key still exposes the correct SPKI
@@ -154,6 +164,13 @@ type
     procedure TestBuilderRejectsWrongLeafForNativeKey;
     // and the matching leaf builds: a native credential passes the leaf guard end to end
     procedure TestBuilderAcceptsNativeCredential;
+    // a native credential named in the options signs the handshake under the provider that
+    // imported it and is refused under the default provider
+    procedure TestOptionsNativeCredentialSignsTheHandshake;
+    procedure TestOptionsNativeCredentialUnderTheDefaultProviderIsRefused;
+    // the composed facet owns the native key and the portable ones; the portable facet owns no
+    // native key
+    procedure TestComposedSigningOwnsNativeAndPortableKeys;
     // a preference-narrowed copy of a native key keeps the same exported public key
     procedure TestPreferredSchemesCopySharesPublicKey;
     // and stays a module key, so a policy that places keys by the marker still admits it
@@ -2754,6 +2771,110 @@ begin
   // the native key's exported SPKI matches its own leaf, so the guard passes and Build succeeds
   CheckTrue(BuildServerConfig(LGood) <> nil,
     'a native credential whose key owns its leaf builds');
+end;
+
+function TTestNativeCryptoProvider.NativeCredentialOrSkip(
+  out ACredential: TTlsCredential): Boolean;
+var
+  LImported: TImportedCredential;
+begin
+  Result := NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256);
+  if not Result then
+    Exit;
+  LImported := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
+    TSecretBuffer.FromString(SPassword));
+  Result := IsNativeKey(Crypto, LImported.PrivateKey);
+  if not Result then
+  begin
+    SkipTest('the platform adopts no native PKCS#12 key');
+    Exit;
+  end;
+  ACredential.CertificateChain := LImported.CertificateChain;
+  ACredential.PrivateKey := LImported.PrivateKey;
+end;
+
+procedure TTestNativeCryptoProvider.CheckOptionsHandshake(const ACredential: TTlsCredential;
+  AVersion: UInt16);
+var
+  LServerOpts, LClientOpts: TTlsOptions;
+  LDnsNames: TArray<string>;
+  LHost: string;
+  LClient, LServer: ITlsEngine;
+begin
+  LServerOpts := TTlsOptions.Default;
+  LServerOpts.Crypto := Crypto;
+  LServerOpts.Pkix := Pkix;
+  LServerOpts.Credential := ACredential;
+  LServerOpts.SupportedVersions := TArray<UInt16>.Create(AVersion);
+  LClientOpts := TTlsOptions.Default;
+  LClientOpts.Crypto := Crypto;
+  LClientOpts.Pkix := Pkix;
+  LClientOpts.SupportedVersions := TArray<UInt16>.Create(AVersion);
+  LClientOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(DecodeHex(FPfx.Values['ca_cert_der'])));
+  LDnsNames := Pkix.Certificates.SubjectAltNames(ACredential.CertificateChain[0]).DnsNames;
+  if System.Length(LDnsNames) > 0 then
+    LHost := LDnsNames[0]
+  else
+  begin
+    LHost := 'localhost';
+    LClientOpts.CheckHostName := False;
+  end;
+  LServer := TTlsEngineFactory.CreateServerEngine(TTlsConfigComposer.BuildServerConfig(LServerOpts));
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    TTlsConfigComposer.BuildClientConfig(LClientOpts), LHost);
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  CheckFalse(LServer.IsHandshaking, 'the server completed the handshake');
+  CheckFalse(LServer.IsTerminal, 'the native key signed the CertificateVerify');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestNativeCryptoProvider.TestOptionsNativeCredentialSignsTheHandshake;
+var
+  LCredential: TTlsCredential;
+begin
+  if not NativeCredentialOrSkip(LCredential) then
+    Exit;
+  CheckOptionsHandshake(LCredential, TlsWireVersionTls13);
+  CheckOptionsHandshake(LCredential, TlsWireVersionTls12);
+end;
+
+procedure TTestNativeCryptoProvider.TestOptionsNativeCredentialUnderTheDefaultProviderIsRefused;
+var
+  LCredential: TTlsCredential;
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  if not NativeCredentialOrSkip(LCredential) then
+    Exit;
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := nil;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential := LCredential;
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: Exception do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a native key is refused by the default provider that did not import it');
+end;
+
+procedure TTestNativeCryptoProvider.TestComposedSigningOwnsNativeAndPortableKeys;
+var
+  LCredential: TTlsCredential;
+  LPortableKey: ISigningKey;
+begin
+  if not NativeCredentialOrSkip(LCredential) then
+    Exit;
+  LPortableKey := Portable.Signing.ImportSigningKey(DecodeHex(FKeys.Values['rsa_pkcs8_der']), nil);
+  CheckTrue(Crypto.Signing.OwnsKey(LCredential.PrivateKey), 'the composed facet owns the native key');
+  CheckTrue(Crypto.Signing.OwnsKey(LPortableKey), 'and the key the portable facet imported');
+  CheckFalse(Portable.Signing.OwnsKey(LCredential.PrivateKey),
+    'the portable facet owns no native key');
 end;
 
 procedure TTestNativeCryptoProvider.TestPreferredSchemesCopySharesPublicKey;
