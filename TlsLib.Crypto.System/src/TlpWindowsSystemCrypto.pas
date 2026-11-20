@@ -1155,6 +1155,7 @@ type
       const AKey: ISigningKey): ISignatureSigner; override;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier; override;
+    function OwnsKey(const AKey: ISigningKey): Boolean; override;
   end;
 
   // The facet check of the report above, kept off the report's class so the caller needs no
@@ -4566,6 +4567,11 @@ begin
     Result := TWindowsSignatureVerifier.Create(FNCrypt, LKeyHandle, AScheme)
   else
     Result := inherited CreateSignatureVerifier(AScheme, APublicKeyDer);
+end;
+
+function TWindowsSigningCrypto.OwnsKey(const AKey: ISigningKey): Boolean;
+begin
+  Result := Supports(AKey, IWindowsSigningKey) or inherited OwnsKey(AKey);
 end;
 
 { TWindowsSystemCrypto }

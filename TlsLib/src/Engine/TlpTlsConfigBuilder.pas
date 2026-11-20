@@ -593,7 +593,10 @@ resourcestring
   SCredentialKeyLeafMismatch = 'the credential''s private key does not match the public key in ' +
     'its end-entity certificate (CertificateChain[0]); load a leaf-first chain (from PEM) whose ' +
     'first certificate pairs with the key';
-  SCredentialLeafMalformed = 'the credential''s end-entity certificate (CertificateChain[0]) ' +
+  SCredentialKeyNotOwned = 'the credential''s private key was not loaded through this ' +
+    'configuration''s crypto provider, which cannot sign with it; load the credential through ' +
+    'the same provider';
+  SCredentialLeafMalformed ='the credential''s end-entity certificate (CertificateChain[0]) ' +
     'cannot be parsed';
   SCredentialLeafCannotSign = 'the credential''s end-entity certificate has a keyUsage extension ' +
     'that forbids digitalSignature, so it cannot sign a handshake (RFC 5280 4.2.1.3)';
@@ -2369,6 +2372,8 @@ begin
     TCredentialConsistency.KeyLeafMismatch:
       raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
   end;
+  if not FCrypto.Signing.OwnsKey(ACredential.PrivateKey) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyNotOwned);
 end;
 
 function TTlsConfigBuilder.ComposeCredentialResolver: ITlsServerCredentialResolver;

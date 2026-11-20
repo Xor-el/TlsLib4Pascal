@@ -409,6 +409,7 @@ type
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier;
+    function OwnsKey(const AKey: ISigningKey): Boolean;
   end;
 
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -569,6 +570,11 @@ begin
   if FThrowOnVerify then
     raise Exception.CreateRes(@SPortableUsed);
   Result := FReal.CreateSignatureVerifier(AScheme, APublicKeyDer);
+end;
+
+function TThrowingInnerSigning.OwnsKey(const AKey: ISigningKey): Boolean;
+begin
+  Result := FReal.OwnsKey(AKey);
 end;
 
 { TNativeCryptoProviderTestBase }

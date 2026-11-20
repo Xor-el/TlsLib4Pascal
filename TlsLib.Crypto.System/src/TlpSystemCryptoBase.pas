@@ -141,6 +141,7 @@ type
       const AKey: ISigningKey): ISignatureSigner; virtual;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier; virtual;
+    function OwnsKey(const AKey: ISigningKey): Boolean; virtual;
   end;
 
   /// <summary>
@@ -439,6 +440,11 @@ function TForwardingSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureSch
   const APublicKeyDer: TBytes): ISignatureVerifier;
 begin
   Result := FInner.CreateSignatureVerifier(AScheme, APublicKeyDer);
+end;
+
+function TForwardingSigningCrypto.OwnsKey(const AKey: ISigningKey): Boolean;
+begin
+  Result := FInner.OwnsKey(AKey);
 end;
 
 { TSystemBackendReportBase }

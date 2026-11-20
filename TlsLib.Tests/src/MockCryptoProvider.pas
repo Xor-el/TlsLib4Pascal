@@ -120,6 +120,7 @@ type
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier;
+    function OwnsKey(const AKey: ISigningKey): Boolean;
   end;
 
 
@@ -537,6 +538,11 @@ function TRejectingVerifierSigning.CreateSignatureVerifier(AScheme: TSignatureSc
   const APublicKeyDer: TBytes): ISignatureVerifier;
 begin
   Result := TRejectingSignatureVerifier.Create as ISignatureVerifier;
+end;
+
+function TRejectingVerifierSigning.OwnsKey(const AKey: ISigningKey): Boolean;
+begin
+  Result := FInner.OwnsKey(AKey);
 end;
 
 { TMockCryptoProvider }

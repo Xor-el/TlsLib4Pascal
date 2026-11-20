@@ -61,7 +61,9 @@ uses
   MockCertificateVerifiers,
   MockPkixProvider,
   MockTransport,
+  MockCryptoProvider,
   TlpTlsLibExceptions,
+  TlpISigningKey,
   TlpTlsConnection,
   TlpTlsEngineFactory,
   TlpNegotiationTypes,
@@ -93,6 +95,8 @@ type
     function Pkcs12Options(const AField: string): TTlsOptions;
     // the EC P-256 leaf and its key as a loaded credential
     function LoadedCredential: TTlsCredential;
+    // the options of the EC P-256 credential whose key is a handle no provider minted
+    function OptionsWithUnownedKey: TTlsOptions;
     // server options that request a client certificate verified against the EC P-256 root
     function ClientAuthServerOptions: TTlsOptions;
   published
@@ -105,6 +109,10 @@ type
     procedure TestOptionsCredentialKeyChangesSignature;
     procedure TestOptionsSameCredentialReusesConfig;
     procedure TestOptionsCredentialMismatchedKeyIsRefused;
+    // a key its crypto provider did not mint is refused at build, for the given provider and for
+    // the default one
+    procedure TestOptionsCredentialFromAnotherProviderIsRefused;
+    procedure TestOptionsCredentialIsCheckedAgainstTheDefaultProvider;
     procedure TestOptionsChainLimitsReachClientConfig;
     procedure TestOptionsChainLimitsReachServerConfigUnderClientAuth;
     procedure TestOptionsChainLimitsRefusedWithoutClientAuth;
@@ -663,6 +671,18 @@ begin
     TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
 end;
 
+function TTestTlsConnection.OptionsWithUnownedKey: TTlsOptions;
+var
+  LOwned: ISigningKey;
+begin
+  Result := TTlsOptions.Default;
+  Result.Pkix := Pkix;
+  Result.Credential := LoadedCredential;
+  LOwned := Result.Credential.PrivateKey;
+  Result.Credential.PrivateKey := TFakeSigningKey.Create(LOwned.CapableSchemes,
+    LOwned.PublicKeyInfo) as ISigningKey;
+end;
+
 function TTestTlsConnection.ClientAuthServerOptions: TTlsOptions;
 begin
   Result := ServerOptsWithCredential;
@@ -834,6 +854,42 @@ begin
   end;
   CheckTrue(Pos('private key does not match', LMsg) > 0,
     'the builder''s key and leaf consistency check is reached');
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialFromAnotherProviderIsRefused;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := OptionsWithUnownedKey;
+  LOpts.Crypto := Crypto;
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: Exception do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a key the options'' provider did not mint is refused at build');
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialIsCheckedAgainstTheDefaultProvider;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := OptionsWithUnownedKey;
+  LOpts.Crypto := nil;
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: Exception do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'with no provider named the default provider decides ownership');
 end;
 
 procedure TTestTlsConnection.TestOptionsChainLimitsReachClientConfig;

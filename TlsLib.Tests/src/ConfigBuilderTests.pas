@@ -93,6 +93,7 @@ uses
   TlpHandshakeMessages,
   TlsLibTestHandshakeDecoder,
   TlpTlsLib,
+  TlpISigningKey,
   MockCryptoProvider,
   TlsLibTestProviders,
   MockCertificateCompression,
@@ -113,6 +114,9 @@ type
     // the EcP256 leaf paired with a foreign private key from ImportKeys.txt (never its own key),
     // so the key does not own the leaf
     function CredentialWithForeignKey(const AKeyField: string): TTlsCredential;
+    // the EcP256 credential whose key is a handle no provider minted, over the leaf's own public
+    // key, so it is consistent with the leaf yet no provider can sign with it
+    function CredentialWithUnownedKey: TTlsCredential;
     // the dual-version suites with the first one's hash altered, held by a host registry
     function NonCatalogSuiteRegistry: ICipherSuiteRegistry;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
@@ -402,6 +406,10 @@ type
     procedure TestMalformedTrustAnchorIsRefusedAtBuild;
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
     procedure TestClientCredentialWithMismatchedKeyRejected;
+    // a key no provider minted is consistent with its leaf but cannot sign, so Build refuses it
+    procedure TestServerCredentialWithForeignKeyRejected;
+    procedure TestClientCredentialWithForeignKeyRejected;
+    procedure TestSniCredentialWithForeignKeyNamesHost;
     procedure TestMatchingCredentialBuildsServer;
     // RFC 9846 4.7.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
     procedure TestTicketLifetimeAboveCapIsRejected;
@@ -556,6 +564,16 @@ begin
   finally
     LKeys.Free;
   end;
+end;
+
+function TTestConfigBuilder.CredentialWithUnownedKey: TTlsCredential;
+var
+  LOwned: ISigningKey;
+begin
+  Result := ServerCredential;
+  LOwned := Result.PrivateKey;
+  Result.PrivateKey := TFakeSigningKey.Create(LOwned.CapableSchemes,
+    LOwned.PublicKeyInfo) as ISigningKey;
 end;
 
 function TTestConfigBuilder.BuildClientConfig(
@@ -4521,6 +4539,59 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client credential whose key does not own its leaf is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestServerCredentialWithForeignKeyRejected;
+var
+  LBuilder: ITlsConfigBuilder;
+  LMsg: string;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LMsg := '';
+  try
+    LBuilder.Server.WithCredential(CredentialWithUnownedKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a credential whose key the provider did not mint is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestClientCredentialWithForeignKeyRejected;
+var
+  LBuilder: ITlsConfigBuilder;
+  LMsg: string;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LMsg := '';
+  try
+    LBuilder.Client.WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      .WithCredential(CredentialWithUnownedKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a client credential whose key the provider did not mint is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestSniCredentialWithForeignKeyNamesHost;
+var
+  LBuilder: ITlsConfigBuilder;
+  LMsg: string;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LMsg := '';
+  try
+    LBuilder.Server.WithSniCredential('localhost', CredentialWithUnownedKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue((Pos('localhost', LMsg) > 0) and (Pos('not loaded through', LMsg) > 0),
+    'an SNI credential whose key the provider did not mint is refused and names its host');
 end;
 
 procedure TTestConfigBuilder.TestMatchingCredentialBuildsServer;
