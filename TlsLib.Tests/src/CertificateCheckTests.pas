@@ -79,6 +79,8 @@ type
     procedure TestSubjectAltNamesReadsDnsIpEmailAndUri;
     procedure TestSubjectAltNamesEmptyWithoutExtension;
     procedure TestSubjectAltNamesOfAnUnparsableCertificateRaises;
+    procedure TestSubjectAltNamesDropsAnIpAddressOfAnotherWidth;
+    procedure TestSubjectAltNamesOfAMalformedExtensionRaises;
     // keyUsage (CertificateKeyUsagePermits)
     procedure TestDigitalSignatureCertPermitsSigning;
     procedure TestKeyEnciphermentCertForbidsSigning;
@@ -341,6 +343,29 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a certificate that does not parse has no readable names');
+end;
+
+procedure TTestCertificateChecks.TestSubjectAltNamesDropsAnIpAddressOfAnotherWidth;
+begin
+  CheckEquals(0, System.Length(Pkix.Certificates.Parse(
+    TTlsLibTestCertificates.Field('Certs/SubjectAltNames.txt', 'short_ip_leaf_cert'))
+    .SubjectAltNames.IpAddresses), 'a three-octet iPAddress is neither four nor sixteen');
+end;
+
+procedure TTestCertificateChecks.TestSubjectAltNamesOfAMalformedExtensionRaises;
+var
+  LDer: TBytes;
+  LRaised: Boolean;
+begin
+  LDer := TTlsLibTestCertificates.Field('Certs/SubjectAltNames.txt', 'bad_san_leaf_cert');
+  LRaised := False;
+  try
+    Pkix.Certificates.SubjectAltNames(LDer);
+  except
+    on Exception do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an extension that is not a GeneralNames sequence is not readable');
 end;
 
 function TTestCertificateChecks.Permits(const ACertName: string;

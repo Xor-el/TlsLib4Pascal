@@ -411,6 +411,11 @@ type
     procedure TestClientCertificatePathLengthIsEnforced;
     procedure TestChainLimitsAdmitsPathCountsBetweenLeafAndAnchor;
     procedure TestChainLimitsAdmitsPathRefusesAnUnparsableCertificate;
+    procedure TestChainLimitsAdmitsPathRefusesANegativeBound;
+    procedure TestNegativePathLengthIsRefusedAtTheSeam;
+    procedure TestNegativePathLengthIsRefusedByTheVerifier;
+    procedure TestLargestPathLengthAdmitsASixIntermediatePath;
+    procedure TestDistrustClassificationDoesNotCountASelfIssuedCertificate;
   end;
 
 implementation
@@ -2938,6 +2943,74 @@ begin
   LPath := TArray<TBytes>.Create(Cert('leaf'), TBytes.Create(1, 2, 3), Cert('root'));
   CheckFalse(LLimits.AdmitsPath(Pkix.Certificates, LPath),
     'a certificate between the ends that does not parse is refused');
+end;
+
+procedure TTestPathLength.TestChainLimitsAdmitsPathRefusesANegativeBound;
+var
+  LLimits: TCertificateChainLimits;
+begin
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxPathLength := -1;
+  CheckFalse(LLimits.AdmitsPath(Pkix.Certificates, Chain(['leaf'])),
+    'a negative bound admits no path');
+end;
+
+procedure TTestPathLength.TestNegativePathLengthIsRefusedAtTheSeam;
+var
+  LEffective: TArray<TBytes>;
+  LAlert: TTlsAlertDescription;
+begin
+  LEffective := nil;
+  LAlert := TTlsAlertDescription.CloseNotify;
+  try
+    Pkix.PathValidation.ValidateCertificatePath(Chain(['leaf']),
+      TTrustAnchorStore.Create(Chain(['inter_6'])) as ITrustAnchorStore, nil, NowUtc,
+      TCertKeyPurpose.ServerAuth, -1, LEffective);
+  except
+    on E: EFatalAlertTlsLibException do
+      LAlert := E.AlertDescription;
+  end;
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'a negative bound is not read as unbounded');
+end;
+
+procedure TTestPathLength.TestNegativePathLengthIsRefusedByTheVerifier;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckFalse(ServerVerdict(VerifierFor(Pkix, ['inter_6'], [], -1) as IServerCertificateVerifier,
+    Chain(['leaf']), LAlert, LPathLength), 'a verifier bounded below zero admits nothing');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+end;
+
+procedure TTestPathLength.TestLargestPathLengthAdmitsASixIntermediatePath;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckTrue(ServerVerdict(VerifierFor(Pkix, ['root'], [], 16) as IServerCertificateVerifier,
+    Chain(['leaf', 'inter_6', 'inter_5', 'inter_4', 'inter_3', 'inter_2', 'inter_1']), LAlert,
+    LPathLength), 'the largest bound the builder admits is applied as given');
+  CheckEquals(8, LPathLength, 'the path is the leaf, six intermediates and the anchor');
+end;
+
+procedure TTestPathLength.TestDistrustClassificationDoesNotCountASelfIssuedCertificate;
+var
+  LOptions: TCertificateVerifierOptions;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+begin
+  // the rollover certificate is self-issued but not self-signed: the builder does not count it,
+  // so the distrusted issuer above it is within a bound of one
+  LOptions.ChainLimits.MaxPathLength := 1;
+  CheckFalse((TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(Chain(['root']), Chain(['rollover_a'])) as ITrustAnchorStore, False,
+    LOptions) as IServerCertificateVerifier).VerifyServerCertificate(
+    Chain(['rollover_leaf', 'rollover_b', 'rollover_a']), TServerName.DnsName(''), nil,
+    LVerified, LAlert), 'the path through the distrusted issuer is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'the distrust decided the failure');
 end;
 
 {$IFDEF TLSLIB_ANDROID}

@@ -33,7 +33,7 @@ type
   /// Resolves, for one verification, the issuers a peer's chain names from an issuer lookup. Data
   /// in, verdict out: given the presented chain it asks the lookup for each distinct issuer name
   /// once, then for the issuers of the intermediates it found and of the operator's intermediates
-  /// whose subject it asked about, down to the path-building depth. Only a certificate the lookup returns under the asked name is
+  /// whose subject it asked about, down to the path length. Only a certificate the lookup returns under the asked name is
   /// used. A certificate the lookup offers as an anchor, whose key meets the anchor floors and
   /// that is self-signed (or of any kind, under AnyCertificate), becomes an anchor; every other
   /// certificate is chain material only. The result is the base store with the anchors layered

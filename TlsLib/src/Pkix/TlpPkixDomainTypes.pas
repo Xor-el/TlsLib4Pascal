@@ -105,7 +105,8 @@ type
 
   /// <summary>The subjectAltName entries (RFC 5280 4.2.1.6) a TLS host reads: dNSName, iPAddress
   /// (raw 4- or 16-byte octets), rfc822Name and uniformResourceIdentifier, each in certificate
-  /// order. Other name forms are not carried.</summary>
+  /// order. An iPAddress entry of any other width is dropped; other name forms are not
+  /// carried.</summary>
   TCertSubjectAltNames = record
     DnsNames: TArray<string>;
     IpAddresses: TArray<TBytes>;

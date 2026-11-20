@@ -22,14 +22,14 @@ uses
 
 type
   /// <summary>
-  /// The certificate-chain resource caps (anti-DoS), bundled so a caller tunes them
+  /// The certificate-chain caps (anti-DoS), bundled so a caller tunes them
   /// as one frozen config value rather than several loose knobs. Bounds the chain by
-  /// bytes and by entry count; loosening them only relaxes the caller's own resource
-  /// budget - the chain still faces full PKIX validation - so this is a tuning input,
-  /// not a trust bypass. The defaults are a conservative web-PKI profile; a large
-  /// post-quantum chain is the usual reason to raise them. Start a custom value from Defaults:
-  /// a cap left at 0 admits no chain. The caps apply in the built-in and OS verifiers; a custom
-  /// verifier owns its own limits.
+  /// bytes, by entry count and by the intermediates a validated path may hold; loosening them
+  /// only relaxes the caller's own resource budget - the chain still faces full PKIX
+  /// validation - so this is a tuning input, not a trust bypass. The defaults are a conservative
+  /// web-PKI profile; a large post-quantum chain is the usual reason to raise them. Start a
+  /// custom value from Defaults: a size or count cap left at 0 admits no chain. The caps apply in
+  /// the built-in and OS verifiers; a custom verifier owns its own limits.
   /// </summary>
   TCertificateChainLimits = record
     /// <summary>The largest single certificate (cert_data), in bytes: a sub-bound within
@@ -59,7 +59,8 @@ type
     /// and the total length. An over-cap chain is refused before any PKIX work.</summary>
     function AdmitsChain(const AChain: TArray<TBytes>): Boolean;
     /// <summary>True when APath (leaf first, ending at its anchor) holds at most MaxPathLength
-    /// non-self-issued certificates between the two; False when one does not parse.</summary>
+    /// non-self-issued certificates between the two; False when one does not parse or the
+    /// bound is negative.</summary>
     function AdmitsPath(const AInspector: ICertificateInspector;
       const APath: TArray<TBytes>): Boolean;
   end;
@@ -110,6 +111,8 @@ var
   LCert: IInspectedCertificate;
 begin
   Result := False;
+  if MaxPathLength < 0 then
+    Exit;
   LCount := 0;
   for LI := 1 to System.High(APath) - 1 do
   begin
@@ -118,7 +121,8 @@ begin
       if AInspector.SameName(LCert.SubjectName, LCert.IssuerName) <> TCertAnswer.Yes then
         Inc(LCount);
     except
-      Exit;
+      on Exception do
+        Exit;
     end;
     if LCount > MaxPathLength then
       Exit;

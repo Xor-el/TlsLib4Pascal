@@ -455,7 +455,8 @@ begin
       TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
     LParams.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
       TSystemClock.Create as ITlsClock,
-      TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False);
+      TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False)
+      as IClientCertificateVerifier;
   end;
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;

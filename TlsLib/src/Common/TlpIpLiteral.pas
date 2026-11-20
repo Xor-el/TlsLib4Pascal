@@ -32,7 +32,7 @@ type
     /// "::" and an optional trailing embedded IPv4 (RFC 4291 2.2). False for any other
     /// shape.</summary>
     class function TryParseIPv6(const AText: string; out ABytes: TBytes): Boolean; static;
-    /// <summary>The dotted quad of four octets.</summary>
+    /// <summary>The dotted quad of four octets; the caller passes exactly four.</summary>
     class function FormatIPv4(const ABytes: TBytes): string; static;
     /// <summary>The canonical text of sixteen octets (RFC 5952): lower-case hex, no leading zeros,
     /// and the longest run of two or more zero groups (the first on a tie) written as "::". An

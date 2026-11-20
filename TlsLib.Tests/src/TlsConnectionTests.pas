@@ -72,6 +72,7 @@ uses
 type
   TTestTlsConnection = class(TTlsLibAlgorithmTestCase)
   strict private
+    function StubOcspStaple: TBytes;
     function StubVerifyCallback(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
     function StubResolver(const ACtx: TCertificateVerdictContext;
@@ -109,6 +110,8 @@ type
     procedure TestOptionsChainLimitsRefusedWithoutClientAuth;
     procedure TestOptionsChainLimitsConflictWithSuppliedConfig;
     procedure TestOptionsChainLimitsChangeTheSignature;
+    procedure TestZeroedOptionsChainLimitsMeanTheDefaults;
+    procedure TestStapleOnlyOptionsCredentialIsRefused;
     // credential forms
     procedure TestServerBuildsFromPkcs12;
     procedure TestClientBuildsFromPkcs12;
@@ -570,6 +573,11 @@ begin
   Result := False;
 end;
 
+function TTestTlsConnection.StubOcspStaple: TBytes;
+begin
+  Result := nil;
+end;
+
 function TTestTlsConnection.ClientOptsWithStore: TTlsOptions;
 begin
   Result := TTlsOptions.Default;
@@ -898,8 +906,49 @@ begin
     'the limits change the server key under client authentication');
   LA.ClientAuth := TClientAuthMode.None;
   LB.ClientAuth := TClientAuthMode.None;
-  CheckEquals(TTlsConfigComposer.ServerSignature(LA), TTlsConfigComposer.ServerSignature(LB),
-    'a server that requests no client certificate does not read them');
+  CheckTrue(TTlsConfigComposer.ServerSignature(LA) <> TTlsConfigComposer.ServerSignature(LB),
+    'a server that requests no client certificate still keys on them, so a memo hit never skips the refusal');
+end;
+
+procedure TTestTlsConnection.TestZeroedOptionsChainLimitsMeanTheDefaults;
+var
+  LOpts, LZeroed: TTlsOptions;
+  LMemo: ITlsClientConfigMemo;
+  LMsg: string;
+begin
+  LOpts := ClientOptsWithStore;
+  LZeroed := LOpts;
+  LZeroed.CertificateChainLimits := Default(TCertificateChainLimits);
+  CheckEquals(4, TTlsConfigComposer.BuildClientConfig(LZeroed).CertificateChainLimits.MaxPathLength,
+    'a zeroed client value builds with the defaults');
+  CheckEquals(TTlsConfigComposer.ClientSignature(LOpts), TTlsConfigComposer.ClientSignature(LZeroed),
+    'and keys like them');
+  LOpts := ServerOptsWithCredential;
+  LOpts.CertificateChainLimits := Default(TCertificateChainLimits);
+  CheckFalse(RaisesStreamError(LOpts, False, LMsg), 'a zeroed server value is not a changed one');
+  LOpts := TTlsOptions.Default;
+  LOpts.CertificateChainLimits := Default(TCertificateChainLimits);
+  LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
+  LMemo := TTlsConfigMemos.NewClient;
+  CheckNotNull(TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig'),
+    'a zeroed value beside a supplied config is no conflict');
+end;
+
+procedure TTestTlsConnection.TestStapleOnlyOptionsCredentialIsRefused;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.Credential.OcspStaple := TBytes.Create(1, 2, 3);
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg) and (Pos('only one credential source', LMsg) > 0),
+    'a staple beside blob credential options is refused, not dropped');
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := Crypto;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential.OcspStapleCallback := StubOcspStaple;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg) and (Pos('both a certificate chain', LMsg) > 0),
+    'a staple callback alone is a half-set credential');
 end;
 
 procedure TTestTlsConnection.TestServerBuildsFromPkcs12;

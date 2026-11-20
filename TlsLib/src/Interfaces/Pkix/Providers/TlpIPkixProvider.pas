@@ -229,7 +229,9 @@ type
     /// intermediate, never the anchor) that carries an EKU extension lacking the purpose
     /// is rejected with unsupported_certificate, while one with no EKU is unrestricted. A path
     /// with more than AMaxPathLength non-self-issued certificates between the leaf and the anchor
-    /// is never returned; when no shorter path exists the call fails with unknown_ca.
+    /// is never returned; when no shorter path exists the call fails with unknown_ca (or
+    /// certificate_expired when an expired issuer explains the failure). AMaxPathLength is 0 or more
+    /// (the config builder admits 0..16); a negative value fails with unknown_ca.
     /// </summary>
     procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;

@@ -65,7 +65,7 @@ type
     /// <summary>A copy that owns its certificate chain and staple bytes; the signing key and the
     /// staple callback are shared with this credential.</summary>
     function Clone: TTlsCredential;
-    /// <summary>True when neither a chain nor a key is set.</summary>
+    /// <summary>True when nothing is set: no chain, key, staple or staple callback.</summary>
     function IsEmpty: Boolean;
     /// <summary>Whether this credential can sign a handshake as presented, judged by
     /// ACertificates without a signing operation. The leaf and the key's public half are
@@ -157,7 +157,8 @@ end;
 
 function TTlsCredential.IsEmpty: Boolean;
 begin
-  Result := (System.Length(CertificateChain) = 0) and (PrivateKey = nil);
+  Result := (System.Length(CertificateChain) = 0) and (PrivateKey = nil) and
+    (System.Length(OcspStaple) = 0) and not Assigned(OcspStapleCallback);
 end;
 
 function TTlsCredential.Consistency(

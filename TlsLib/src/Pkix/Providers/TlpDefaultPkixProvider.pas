@@ -625,7 +625,8 @@ begin
         if Supports(LNames[LI].GetName, IAsn1String, LString) then
           TArrayUtilities.Append<string>(Result.DnsNames, LString.GetString);
       TGeneralName.IPAddress:
-        if Supports(LNames[LI].GetName, IAsn1OctetString, LOctets) then
+        if Supports(LNames[LI].GetName, IAsn1OctetString, LOctets) and
+          (System.Length(LOctets.GetOctets) in [4, 16]) then
           TArrayUtilities.Append<TBytes>(Result.IpAddresses, LOctets.GetOctets);
       TGeneralName.Rfc822Name:
         if Supports(LNames[LI].GetName, IAsn1String, LString) then
@@ -638,8 +639,6 @@ end;
 
 function TInspectedCertificate.Validity(out ANotBefore, ANotAfter: TDateTime): Boolean;
 begin
-  ANotBefore := 0;
-  ANotAfter := 0;
   try
     ANotBefore := FCert.NotBefore;
     ANotAfter := FCert.NotAfter;
@@ -1024,6 +1023,11 @@ begin
   if System.Length(AChain) = 0 then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.BadCertificate, @SBadCertificate);
+
+  // a negative bound would read as unbounded to the path builder
+  if AMaxPathLength < 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.UnknownCa, @SUntrustedChain);
 
   LParser := TX509CertificateParser.Create;
   try

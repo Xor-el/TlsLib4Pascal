@@ -76,7 +76,7 @@ type
 implementation
 
 resourcestring
-  SNilInspector = 'a certificate inspector is required to read a trust-anchor bundle';
+  SNilInspector = 'a certificate inspector is required to read a trust-anchor bundle (pass an instance, not nil)';
 
 type
   TLayeredTrustAnchorStore = class sealed(TInterfacedObject, ITrustAnchorStore,
