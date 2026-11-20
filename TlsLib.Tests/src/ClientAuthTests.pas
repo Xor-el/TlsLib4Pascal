@@ -132,6 +132,9 @@ type
     procedure TestTls12RequiredClientAuthCompletes;
     procedure TestTls12RequiredClientAuthMissingCertAborts;
     procedure TestTls12RequestedClientAuthWithoutCertCompletes;
+    procedure TestTls12CertificateRequestIsReportedAfterServerRefusesMissingCertificate;
+    procedure TestTls13CertificateRequestIsReportedAfterServerRefusesMissingCertificate;
+    procedure TestNoCertificateRequestLeavesRequestedSchemesEmpty;
     procedure TestTls13ClientDeclinesASha1ChainTheServerDidNotAdvertise;
     procedure TestTls13RequiredServerRefusesTheDeclinedSha1Chain;
     procedure TestTls12ClientDeclinesASha1ChainTheServerDidNotAdvertise;
@@ -735,6 +738,48 @@ begin
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
     '1.2 requested mTLS completes without a client cert');
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.2 requested mTLS: no failure');
+end;
+
+procedure TTestClientAuth.TestTls12CertificateRequestIsReportedAfterServerRefusesMissingCertificate;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New12Client(False);
+  LServer := New12Server(TClientAuthMode.Required);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, '1.2: the server refused the missing client certificate');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    '1.2: the client still reports the signature_algorithms of the request');
+end;
+
+procedure TTestClientAuth.TestTls13CertificateRequestIsReportedAfterServerRefusesMissingCertificate;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New13Client(False);
+  LServer := New13Server(TClientAuthMode.Required);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, '1.3: the server refused the missing client certificate');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    '1.3: the client still reports the signature_algorithms of the request');
+end;
+
+procedure TTestClientAuth.TestNoCertificateRequestLeavesRequestedSchemesEmpty;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New12Client(False);
+  LServer := New12Server(TClientAuthMode.None);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, '1.2: the handshake completed');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    '1.2: no request, no schemes');
+  LClient := New13Client(False);
+  LServer := New13Server(TClientAuthMode.None);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, '1.3: the handshake completed');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    '1.3: no request, no schemes');
 end;
 
 procedure TTestClientAuth.TestTls13ClientDeclinesASha1ChainTheServerDidNotAdvertise;

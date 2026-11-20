@@ -124,7 +124,7 @@ type
       AMaxEarlyData: UInt32;
       const AAntiReplay: IAntiReplayStrategy): ITlsEngine;
     function NewEchRejectServer(const AConfigList: TBytes;
-      const APrivateKey: ISecretBuffer): ITlsEngine;
+      const APrivateKey: ISecretBuffer; AClientAuth: TClientAuthMode): ITlsEngine;
     function NewHrrClient: ITlsEngine;
     function NewHrrServer: ITlsEngine;
     function NewHrrServerWithPolicy(const APolicy: INegotiationPolicy): ITlsEngine;
@@ -157,6 +157,7 @@ type
     procedure TestEchZeroRttLoopback;
     procedure TestEchResumeThenRejectLoopback;
     procedure TestEchRejectLoopback;
+    procedure TestEchRejectDoesNotReportOuterCertificateRequest;
     procedure TestClientServerLoopbackReachesApplicationData;
     procedure TestServerHalfRttWriteIsAccepted;
     procedure TestWriteUnderHandshakeKeysIsRefused;
@@ -442,11 +443,20 @@ begin
 end;
 
 function TTestTls13Loopback.NewEchRejectServer(const AConfigList: TBytes;
-  const APrivateKey: ISecretBuffer): ITlsEngine;
+  const APrivateKey: ISecretBuffer; AClientAuth: TClientAuthMode): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
 begin
   LParams := Default(TServerHandshakeParams);
+  LParams.ClientAuth := AClientAuth;
+  if AClientAuth <> TClientAuthMode.None then
+  begin
+    LParams.ClientAuthSignatureSchemes :=
+      TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LParams.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
+      TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False);
+  end;
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
@@ -1001,7 +1011,7 @@ begin
   // second: the resuming client's outer carries a GREASE PSK, but the server holds config_B
   // and rejects; the GREASE PSK must not derail the reject
   LClient := NewEchClientWith(LConfigA, LCache);
-  LServer := NewEchRejectServer(LConfigB, LSkB);
+  LServer := NewEchRejectServer(LConfigB, LSkB, TClientAuthMode.None);
   RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected,
     'the resuming client saw an ECH reject (the outer GREASE PSK was ignored)');
@@ -1124,7 +1134,7 @@ begin
   LClientList := BuildEchConfigList($AA, 'localhost', LClientSk);
   LServerList := BuildEchConfigList($BB, 'localhost', LServerSk);
   LClient := NewEchClientWith(LClientList, nil);
-  LServer := NewEchRejectServer(LServerList, LServerSk);
+  LServer := NewEchRejectServer(LServerList, LServerSk, TClientAuthMode.None);
   RunHandshake(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'the client aborted the rejected ECH handshake');
   LClientInfo := LClient.ConnectionInfo;
@@ -1141,6 +1151,24 @@ begin
     LReturnedRetry[0] := LReturnedRetry[0] xor $FF;
   CheckEqualBytes('mutating the returned retry_configs does not change a re-read', LServerList,
     LClient.ConnectionInfo.EchRetryConfigs);
+end;
+
+procedure TTestTls13Loopback.TestEchRejectDoesNotReportOuterCertificateRequest;
+var
+  LClient, LServer: ITlsEngine;
+  LClientList, LServerList: TBytes;
+  LClientSk, LServerSk: ISecretBuffer;
+begin
+  // the rejecting public_name server asks for a client certificate; the outer handshake's request
+  // is not the application's, so the client reports none
+  LClientList := BuildEchConfigList($AA, 'localhost', LClientSk);
+  LServerList := BuildEchConfigList($BB, 'localhost', LServerSk);
+  LClient := NewEchClientWith(LClientList, nil);
+  LServer := NewEchRejectServer(LServerList, LServerSk, TClientAuthMode.Requested);
+  RunHandshake(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected, 'the client recorded an ECH reject');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    'the outer handshake''s certificate request is not reported');
 end;
 
 function TTestTls13Loopback.NewStaplingServer(const AStaple: TBytes): ITlsEngine;

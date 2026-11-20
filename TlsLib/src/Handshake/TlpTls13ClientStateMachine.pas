@@ -2049,10 +2049,6 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.PskIdentity(
       TExternalPskImporter.ExternalIdentity(FSessionPskIdentity)));
-  if FCertificateRequested then
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.RequestedCertificateAuthorities(
-      FRequestedCertificateAuthorities, FClientAuthSchemes));
   if FEchOrch.Status = TEchStatus.Accepted then
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.EchAccepted)
@@ -2106,7 +2102,13 @@ begin
       if LKnown and (LType = TTlsHandshakeType.CertificateRequest) then
       begin
         ProcessCertificateRequest(AMessage);
-        Result := nil;
+        // the outer handshake of a rejected ECH offer never surfaces its request
+        if FEchOrch.Status = TEchStatus.Rejected then
+          Result := nil
+        else
+          Result := TArray<THandshakeEffect>.Create(
+            THandshakeEffects.RequestedCertificateAuthorities(
+            FRequestedCertificateAuthorities, FClientAuthSchemes));
       end
       else if LKnown and (LType = TTlsHandshakeType.Certificate) then
         Result := ProcessCertificate(AMessage)

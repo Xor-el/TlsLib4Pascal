@@ -67,7 +67,7 @@ type
     EarlyDataReason: TEarlyDataReason;
     /// Server, TLS 1.3 ticket resumption: the age the client reports for the ticket less the server's own, in whole seconds.
     TicketAgeSkew: Int32;
-    /// The signature_algorithms (IANA codes) the peer's CertificateRequest listed; empty when none was requested.
+    /// The signature_algorithms (IANA codes) the peer's CertificateRequest listed; non-empty exactly when one arrived, also after a failed handshake.
     RequestedSignatureSchemes: TArray<UInt16>;
     /// The identity of the pre-shared key that authenticated the connection: the TLS 1.2 PSK (RFC 4279) or
     /// the TLS 1.3 external PSK as configured (RFC 9258); empty when it used certificates.

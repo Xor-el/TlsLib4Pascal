@@ -1102,10 +1102,6 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
     FSessionGroup, False, FUseExtendedMasterSecret, FParams.ServerName, Facts));
-  if FCertificateRequested then
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.RequestedCertificateAuthorities(
-      FRequestedCertificateAuthorities, FClientAuthSchemes));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.HandshakeEstablished);
 end;
@@ -1305,7 +1301,9 @@ begin
       if LKnown and (LType = TTlsHandshakeType.CertificateRequest) and (not FPskMode) then
       begin
         ProcessCertificateRequest(AMessage);
-        Result := nil;
+        Result := TArray<THandshakeEffect>.Create(
+          THandshakeEffects.RequestedCertificateAuthorities(
+          FRequestedCertificateAuthorities, FClientAuthSchemes));
       end
       else if LKnown and (LType = TTlsHandshakeType.ServerHelloDone) then
         Result := ProcessServerHelloDone(AMessage)
