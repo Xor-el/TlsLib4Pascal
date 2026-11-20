@@ -109,7 +109,7 @@ type
     Credential: TTlsCredential;                  // a loaded identity, the caller's (never wiped); replaces Certificate, PrivateKey, KeyPassword, CredentialForm
     TrustAnchors: TArray<TTlsBlobSource>; // each is one WebPki anchor blob (union)
     BundleAnchors: TBundleAnchorRule;            // which TrustAnchors certificates anchor; default SelfSignedOnly
-    CertificateChainLimits: TCertificateChainLimits;  // zero = TCertificateChainLimits.Defaults; a server may change it only under ClientAuth
+    CertificateChainLimits: TCertificateChainLimits;  // all zero = TCertificateChainLimits.Defaults; a server may change it only under ClientAuth
     IssuerLookup: IIssuerLookup;                 // issuers read at verification; a server reads it under client auth
     // client role: opt into the OS store (union); a server never reads it (system trust is not a client-CA)
     SystemTrust: ISystemTrustInstaller;
@@ -174,7 +174,8 @@ type
       const ASource: TTlsBlobSource); static;
     class procedure SignIssuerLookup(var ASig: TTlsSignatureBuilder;
       const ALookup: IIssuerLookup); static;
-    /// <summary>The frozen config holds the key, so its address stays live.</summary>
+    /// <summary>The key is signed by address; the frozen config holds it, so the address stays
+    /// live.</summary>
     class procedure SignCredential(var ASig: TTlsSignatureBuilder;
       const ACredential: TTlsCredential); static;
     class procedure SignChainLimits(var ASig: TTlsSignatureBuilder;

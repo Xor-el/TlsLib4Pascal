@@ -612,7 +612,7 @@ var
   LNames: TArray<IGeneralName>;
   LString: IAsn1String;
   LOctets: IAsn1OctetString;
-  LI: Int32;
+  LI, LWidth: Int32;
 begin
   Result := Default(TCertSubjectAltNames);
   LGeneralNames := FCert.GetSubjectAlternativeNameExtension;
@@ -625,9 +625,12 @@ begin
         if Supports(LNames[LI].GetName, IAsn1String, LString) then
           TArrayUtilities.Append<string>(Result.DnsNames, LString.GetString);
       TGeneralName.IPAddress:
-        if Supports(LNames[LI].GetName, IAsn1OctetString, LOctets) and
-          (System.Length(LOctets.GetOctets) in [4, 16]) then
-          TArrayUtilities.Append<TBytes>(Result.IpAddresses, LOctets.GetOctets);
+        if Supports(LNames[LI].GetName, IAsn1OctetString, LOctets) then
+        begin
+          LWidth := System.Length(LOctets.GetOctets);
+          if (LWidth = 4) or (LWidth = 16) then
+            TArrayUtilities.Append<TBytes>(Result.IpAddresses, LOctets.GetOctets);
+        end;
       TGeneralName.Rfc822Name:
         if Supports(LNames[LI].GetName, IAsn1String, LString) then
           TArrayUtilities.Append<string>(Result.EmailAddresses, LString.GetString);

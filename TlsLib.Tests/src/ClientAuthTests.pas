@@ -908,6 +908,8 @@ begin
   LClient := PathLengthPair(4, LServer);
   Drive(LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'six intermediates exceed the server bound of four');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnknownCa)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'the abort is unknown_ca');
 end;
 
 procedure TTestClientAuth.TestRequiredServerAdmitsAClientChainWithinARaisedPathLength;

@@ -512,8 +512,8 @@ fetch timeout).
 ### Certificate-chain limits
 
 `WithCertificateChainLimits` (client and server builders) caps the peer's chain: its size and count
-before any PKIX work, its path length during and after it. It is a budget and a path bound, not a
-trust input. The fields of `TCertificateChainLimits` (unit
+before any PKIX work, its path length during and after it. It is a budget and a path bound; it never
+bypasses PKIX validation. The fields of `TCertificateChainLimits` (unit
 `TlpCertificateLimits`):
 
 | Field | Default | `Strict` preset |

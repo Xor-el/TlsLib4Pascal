@@ -1,5 +1,5 @@
 # Subject-alternative-name vectors, EC P-256, all ecdsa-with-SHA256, validity 2020-01-01..2099-12-31, keys not stored.
-#   root_cert (serial 1, self-signed, CA:TRUE) issues both leaves; each has EKU serverAuth+clientAuth and keyUsage digitalSignature.
+#   root_cert (serial 1, self-signed, CA:TRUE) issues every leaf; each has EKU serverAuth+clientAuth and keyUsage digitalSignature.
 #   san_leaf_cert (serial 2) carries subjectAltName DNS:localhost, DNS:alt.example.test, IP:192.0.2.17, IP:2001:db8::1, email:user@example.test and
 #     URI:spiffe://example.test/service, in that order.
 #   plain_leaf_cert (serial 3) carries no subjectAltName extension.
@@ -7,14 +7,15 @@
 #   bad_san_leaf_cert (serial 5) carries subjectAltName DER:04020102, a value that is not a GeneralNames sequence.
 # Generated with OpenSSL 3.2.1 (openssl ca -startdate 20200101000000Z -enddate 20991231000000Z; MSYS2_ARG_CONV_EXCL='*'):
 #   openssl ecparam -name prime256v1 -genkey -noout -out X.key   (each certificate)
-#   openssl req -new -key X.key -subj "/CN=<name>" -out X.csr    (names: TlsLib Names Root, TlsLib Names Leaf, TlsLib Names Plain Leaf)
+#   openssl req -new -key X.key -subj "/CN=<name>" -out X.csr    (names: TlsLib Names Root, TlsLib Names Leaf, TlsLib Names Plain Leaf, TlsLib Names Short IP Leaf, TlsLib Names Bad SAN Leaf)
 #   openssl ca -batch -config ca.cnf -selfsign -in root.csr -keyfile root.key -startdate NB -enddate NA -extfile ca.ext -notext -out root.pem
 #   openssl ca -batch -config ca.cnf -in X.csr -cert root.pem -keyfile root.key -startdate NB -enddate NA -extfile X.ext -notext -out X.pem
 #     ca.cnf: [ca] default_ca=c / [c] database=index.txt new_certs_dir=. serial=serial.txt default_md=sha256 policy=p unique_subject=no / [p] commonName=supplied
 #     ca.ext: basicConstraints=critical,CA:true / keyUsage=critical,keyCertSign,cRLSign / subjectKeyIdentifier=hash / authorityKeyIdentifier=keyid
-#     san.ext / plain.ext: basicConstraints=CA:false / keyUsage=critical,digitalSignature / extendedKeyUsage=serverAuth,clientAuth / subjectKeyIdentifier=hash / authorityKeyIdentifier=keyid,
-#       plus subjectAltName=<the list above> for san.ext only
-#   openssl verify -CAfile root.pem X.pem: both leaves verify
+#     san.ext / plain.ext / short_ip.ext / bad_san.ext: basicConstraints=CA:false / keyUsage=critical,digitalSignature / extendedKeyUsage=serverAuth,clientAuth / subjectKeyIdentifier=hash / authorityKeyIdentifier=keyid,
+#       plus subjectAltName=DNS:localhost,DNS:alt.example.test,IP:192.0.2.17,IP:2001:db8::1,email:user@example.test,URI:spiffe://example.test/service for san.ext,
+#       subjectAltName=DER:30058703010203 for short_ip.ext and subjectAltName=DER:04020102 for bad_san.ext; plain.ext carries none
+#   openssl verify -CAfile root.pem X.pem: san_leaf, plain_leaf and short_ip_leaf verify; bad_san_leaf does not (OpenSSL cannot read its extension)
 #   openssl x509 -in X.pem -outform DER | xxd -p   (each field)
 root_cert=3082016c30820111a003020102020101300a06082a8648ce3d040302301c311a301806035504030c11546c734c6962204e616d657320526f6f743020170d3230303130313030303030305a180f32303939313233313030303030305a301c311a301806035504030c11546c734c6962204e616d657320526f6f743059301306072a8648ce3d020106082a8648ce3d030107034200043a788604310eeacfc962778f9ff684be1ff6f14ec2bd9590713cb4663d009b5e109a9ca385d90b6cd786323edfb17a0bd76464c0ecce99dd4b25f49d7dc3f948a3423040300f0603551d130101ff040530030101ff300e0603551d0f0101ff040403020106301d0603551d0e041604140d669720c5f9b3058861197e4fd0328581e9d5c5300a06082a8648ce3d0403020349003046022100ae08389830806b3e04ae7befe91a0d70acf3785928b3612e50abc03129f299ab022100bf7a9e3766f195b8d0a872df25687e0557ab74d18190dc058be8d4660d6cd04c
 san_leaf_cert=30820219308201bfa003020102020102300a06082a8648ce3d040302301c311a301806035504030c11546c734c6962204e616d657320526f6f743020170d3230303130313030303030305a180f32303939313233313030303030305a301c311a301806035504030c11546c734c6962204e616d6573204c6561663059301306072a8648ce3d020106082a8648ce3d030107034200044761d2181f945ed0d2c54fb5f22c004275d2f6645373f12d796a031f9d0a6f3a4f333c1710cb660b0f9790ec1afee82324b080a247dab0b7fb10ddff455e8dfea381ef3081ec30090603551d1304023000300e0603551d0f0101ff040403020780301d0603551d250416301406082b0601050507030106082b0601050507030230700603551d110469306782096c6f63616c686f73748210616c742e6578616d706c652e746573748704c0000211871020010db8000000000000000000000001811175736572406578616d706c652e74657374861d7370696666653a2f2f6578616d706c652e746573742f73657276696365301d0603551d0e04160414b9646e90817b0793fb3d779eb808f5a3858afb60301f0603551d230418301680140d669720c5f9b3058861197e4fd0328581e9d5c5300a06082a8648ce3d040302034800304502203580e51931944330a2f416f79b4fef22227d51657ecea5f4f650dec4b9a7efcb022100f989fcd0e66a6a893dc6ad92a754b3b9b9088e32f9f15556945d30f0ba8d3a2d

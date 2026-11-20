@@ -2259,9 +2259,9 @@ function TTlsConfigBuilder.WithCertificateChainLimits(
   const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
 begin
   GuardMutable;
-  // a budget and a path bound, not a trust input, but a broken one (non-positive, per-cert above the whole
-  // message, a total past the 24-bit handshake-message ceiling that would wrap the derived
-  // reassembly cap, an entry count outside 1..255 or a path length outside 0..16) is a
+  // a budget and a path bound, never a PKIX bypass, but a broken one (non-positive, per-cert above
+  // the whole message, a total past the 24-bit handshake-message ceiling that would wrap the
+  // derived reassembly cap, an entry count outside 1..255 or a path length outside 0..16) is a
   // misconfiguration, refused at build time
   if (ALimits.MaxCertificateLength <= 0) or (ALimits.MaxTotalChainLength <= 0) or
     (ALimits.MaxCertificateLength > ALimits.MaxTotalChainLength) or
