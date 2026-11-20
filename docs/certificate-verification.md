@@ -511,8 +511,9 @@ fetch timeout).
 
 ### Certificate-chain limits
 
-`WithCertificateChainLimits` (client and server builders) caps the peer's chain before any PKIX work.
-It is a resource budget, not a trust input. The fields of `TCertificateChainLimits` (unit
+`WithCertificateChainLimits` (client and server builders) caps the peer's chain: its size and count
+before any PKIX work, its path length during and after it. It is a budget and a path bound, not a
+trust input. The fields of `TCertificateChainLimits` (unit
 `TlpCertificateLimits`):
 
 | Field | Default | `Strict` preset |
@@ -529,14 +530,16 @@ length outside 0..16. The caps apply in the built-in and OS verifiers; a `Custom
 the per-certificate and count caps (`MaxTotalChainLength` still bounds reassembly and decompression for
 every verifier). On a server, `WithCertificateChainLimits` bounds a requested client certificate only;
 without `WithPeerAuth` any value other than the preset's is refused at `Build`. `TTlsOptions` carries
-the same record as `CertificateChainLimits`, which a server reads only under `ClientAuth`.
+the same record as `CertificateChainLimits` (all zero means the defaults), which a server may change
+only under `ClientAuth`.
 
 `MaxPathLength` counts the non-self-issued certificates strictly between the leaf and the trust anchor
 (RFC 5280 6.1.4 (l) skips a self-issued certificate, so a key rollover costs nothing). The anchor is
 never counted, a directly trusted leaf always passes, and 0 trusts only a leaf an anchor issued. A
 path over the bound is never accepted: the builder prunes it and keeps looking for a shorter one, a
-path an OS engine or a custom `ICertificatePathValidator` returns is refused afterwards, and either way
-the alert is `unknown_ca`. OpenSSL's `verify_depth` also counts self-issued certificates.
+path an OS engine or a custom `ICertificatePathValidator` returns is refused afterwards, and the alert is
+`unknown_ca` (the built-in builder reports `certificate_expired` instead when an expired issuer explains
+the failure). OpenSSL's `verify_depth` also counts self-issued certificates.
 
 ```pascal
 uses TlpCertificateLimits, TlpCertificateVerifierSource;

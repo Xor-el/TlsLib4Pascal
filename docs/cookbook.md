@@ -646,7 +646,7 @@ begin
   // LInfo.PeerCertificates               peer chain as presented, leaf first (on a resume: the chain stored with the session)
   // LInfo.ValidatedPath                  path PKIX validated on this connection, leaf..anchor; empty on a resume unless re-verified
   // LInfo.PeerOcspStaple                 the stapled OCSP response, if any
-  // LInfo.RequestedCertificateAuthorities  CA names the peer's CertificateRequest listed (DER)
+  // LInfo.RequestedCertificateAuthorities  CA names the peer's CertificateRequest listed (DER); unauthenticated until the handshake completes
   // LInfo.PskIdentity                    the PSK identity that authenticated it (TLS 1.2 PSK, or the TLS 1.3 external identity as configured), or empty
   // LInfo.ExtendedMasterSecret           RFC 7627 in use (always True on TLS 1.3)
   // LInfo.EchStatus                      NotOffered / Greased / Accepted / Rejected / Backend
@@ -656,7 +656,7 @@ begin
   // LInfo.EarlyDataReason                why 0-RTT was or was not used (TEarlyDataReason)
   // LInfo.EarlyDataAccepted              0-RTT was accepted (client: the server took it; server: it opened the early-data window)
   // LInfo.TicketAgeSkew                  server, TLS 1.3 resumption: client-reported ticket age less the server's own, in seconds
-  // LInfo.RequestedSignatureSchemes      the signature_algorithms the peer's CertificateRequest listed; non-empty exactly when one arrived, also after a failed handshake
+  // LInfo.RequestedSignatureSchemes      the signature_algorithms the peer's CertificateRequest listed; non-empty exactly when one arrived, also after a failed handshake; unauthenticated until the handshake completes
 end;
 ```
 

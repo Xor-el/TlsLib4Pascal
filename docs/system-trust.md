@@ -571,7 +571,7 @@ trust source, with the revocation posture, strength floors and intermediates sti
 - One lookup serves every connection built over the config, so it must be thread-safe, and its
   `Identity` changes whenever its source does.
 - The lookup is asked for the issuer name of each certificate the peer sent, and for the issuer of each
-  intermediate it found or that the config holds and the walk reaches, down to the path-building depth,
+  intermediate it found or that the config holds and the walk reaches, down to the path length (`MaxPathLength`),
   once per name; a live revocation re-check and a resumed client's re-verification ask again.
 - A client with a lookup defaults to `WithResumeVerification(Reverify)`, since what the lookup trusts
   changes between connections; `Build` refuses that default when it cannot work (a `Hard` posture
