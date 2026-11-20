@@ -42,7 +42,7 @@ type
     procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-      var AEffectiveChain: TArray<TBytes>);
+      AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
     function NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
   end;
 
@@ -115,12 +115,12 @@ end;
 procedure TCompliancePathValidator.ValidateCertificatePath(const AChain: TArray<TBytes>;
   const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
   const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-  var AEffectiveChain: TArray<TBytes>);
+  AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
 begin
   if FStrict then
     raise EComplianceRefusedTlsLibException.CreateRes(@SChainOutsideModule);
   FInner.ValidateCertificatePath(AChain, ATrustAnchors, AIntermediates, AValidationTimeUtc,
-    AKeyPurpose, AEffectiveChain);
+    AKeyPurpose, AMaxPathLength, AEffectiveChain);
 end;
 
 function TCompliancePathValidator.NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;

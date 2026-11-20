@@ -174,7 +174,8 @@ begin
   if not FContext.ChainLimits.AdmitsChain(AChain) then
     Exit(False);
   TIssuerResolution.Resolve(FContext.Pkix.Certificates, FLookup, FRule, FContext.StrengthPolicy,
-    FContext.TrustStore, AChain, FContext.Intermediates, LStore, LFound);
+    FContext.TrustStore, FContext.ChainLimits.MaxPathLength, AChain, FContext.Intermediates,
+    LStore, LFound);
   LContext := FContext;
   LContext.TrustStore := LStore;
   LContext.Intermediates := TArrayUtilities.Concat<TBytes>(FContext.Intermediates, LFound);
@@ -206,7 +207,8 @@ begin
   if not FContext.ChainLimits.AdmitsChain(AChain) then
     Exit(False);
   TIssuerResolution.Resolve(FContext.Pkix.Certificates, FLookup, FRule, FContext.StrengthPolicy,
-    FContext.TrustStore, AChain, FContext.Intermediates, LStore, LFound);
+    FContext.TrustStore, FContext.ChainLimits.MaxPathLength, AChain, FContext.Intermediates,
+    LStore, LFound);
   LContext := FContext;
   LContext.TrustStore := LStore;
   LContext.Intermediates := TArrayUtilities.Concat<TBytes>(FContext.Intermediates, LFound);

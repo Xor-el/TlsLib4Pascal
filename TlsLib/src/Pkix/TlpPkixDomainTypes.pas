@@ -42,15 +42,6 @@ type
     const StatusRequest = UInt16(5);
   end;
 
-  /// <summary>The path-building bound the provider's builder and the verifier's distrust
-  /// classification share.</summary>
-  TPathBuildLimits = class sealed(TObject)
-  public
-    /// <summary>The most non-self-issued certificates above the leaf a built path may hold,
-    /// bounding the builder's search.</summary>
-    const MaxBuiltPathLength = 4;
-  end;
-
   /// <summary>
   /// The X.509 keyUsage bits (RFC 5280 4.2.1.3) a TLS handshake consults: whether a
   /// leaf may sign (DigitalSignature), receive a transported key (KeyEncipherment),

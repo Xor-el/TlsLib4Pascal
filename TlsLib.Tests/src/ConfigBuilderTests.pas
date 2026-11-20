@@ -359,6 +359,7 @@ type
     procedure TestCertificateChainLimitsAreConfigurable;
     procedure TestInvalidCertificateChainLimitsRejected;
     procedure TestInvalidChainEntryCapRejected;
+    procedure TestInvalidPathLengthRejected;
     procedure TestContradictoryStrengthFloorsRejected;
     procedure TestTls13CompressorOverrideLandsInFrozenConfig;
     procedure TestClientBuilderChainBuildsClient;
@@ -3846,6 +3847,35 @@ begin
   CheckFalse(Accepted(256), 'an entry cap above 255 is rejected');
 end;
 
+procedure TTestConfigBuilder.TestInvalidPathLengthRejected;
+
+  function Accepted(ALength: Int32): Boolean;
+  var
+    LLimits: TCertificateChainLimits;
+  begin
+    LLimits := TCertificateChainLimits.Defaults;
+    LLimits.MaxPathLength := ALength;
+    Result := True;
+    try
+      TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default)
+        .Client.WithCertificateChainLimits(LLimits);
+    except
+      on E: EArgumentTlsLibException do
+      begin
+        Result := False;
+        CheckTrue(Pos('MaxPathLength', E.Message) > 0, 'the message names the path length');
+      end;
+    end;
+  end;
+
+begin
+  CheckTrue(Accepted(4), 'the default path length is accepted');
+  CheckTrue(Accepted(0), 'a zero path length is accepted');
+  CheckTrue(Accepted(16), 'the largest path length is accepted');
+  CheckFalse(Accepted(-1), 'a negative path length is rejected');
+  CheckFalse(Accepted(17), 'a path length above 16 is rejected');
+end;
+
 procedure TTestConfigBuilder.TestContradictoryStrengthFloorsRejected;
 
   function Accepted(AMin, AMax: Int32): Boolean;
@@ -5555,6 +5585,10 @@ begin
   LLimits.MaxChainCertificates := 8;
   CheckTrue(BuildRefused(NewServerBuilder.WithCertificateChainLimits(LLimits),
     'certificate-chain limits'), 'chain limits changed on a server that requests no client certificate');
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxPathLength := 6;
+  CheckTrue(BuildRefused(NewServerBuilder.WithCertificateChainLimits(LLimits),
+    'certificate-chain limits'), 'a path length changed on a server that requests no client certificate');
 end;
 
 procedure TTestConfigBuilder.TestServerChainLimitsBuildWithPeerAuth;

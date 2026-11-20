@@ -200,7 +200,7 @@ type
   /// boolean.
   /// </summary>
   ICertificatePathValidator = interface(IInterface)
-    ['{B89D4446-026C-4F06-AC16-DEC035711D95}']
+    ['{A9E86E22-0B5B-47CD-80FF-7740813EFABA}']
     /// <summary>
     /// Validates the DER chain (leaf first) to one of the store's trust anchors (RFC
     /// 5280 path validation; revocation is out of band). A nil store or one with no anchors
@@ -225,12 +225,14 @@ type
     /// must set it. AKeyPurpose selects the extendedKeyUsage the
     /// path must carry (server vs client role); a certificate on the path (leaf or
     /// intermediate, never the anchor) that carries an EKU extension lacking the purpose
-    /// is rejected with unsupported_certificate, while one with no EKU is unrestricted.
+    /// is rejected with unsupported_certificate, while one with no EKU is unrestricted. A path
+    /// with more than AMaxPathLength non-self-issued certificates between the leaf and the anchor
+    /// is never returned; when no shorter path exists the call fails with unknown_ca.
     /// </summary>
     procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-      var AEffectiveChain: TArray<TBytes>);
+      AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
     /// <summary>
     /// Whether every certificate of the leaf-first APath below its last element, the trust
     /// anchor, satisfies the name constraints in force: the anchor's own nameConstraints (RFC

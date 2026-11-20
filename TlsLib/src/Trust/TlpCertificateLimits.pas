@@ -16,7 +16,9 @@ unit TlpCertificateLimits;
 interface
 
 uses
-  SysUtils;
+  SysUtils,
+  TlpPkixDomainTypes,
+  TlpIPkixProvider;
 
 type
   /// <summary>
@@ -43,13 +45,23 @@ type
     /// chain before it proves it holds the leaf key, and path building explores the presented
     /// certificates, so the count is bounded independently of the byte caps.</summary>
     MaxChainCertificates: Int32;
-    /// <summary>The conservative web-PKI defaults (sub-64 KiB certs and message, 16 certificates).</summary>
+    /// <summary>The most non-self-issued certificates a validated path may hold between the leaf
+    /// and its trust anchor (RFC 5280 6.1): 0 trusts only a leaf an anchor issued; a directly
+    /// trusted leaf always passes. Also bounds path building and issuer lookup. A self-issued
+    /// certificate is not counted.</summary>
+    MaxPathLength: Int32;
+    /// <summary>The conservative web-PKI defaults (sub-64 KiB certs and message, 16 certificates,
+    /// 4 intermediates).</summary>
     class function Defaults: TCertificateChainLimits; static;
     /// <summary>True when every cap of ALeft equals the matching cap of ARight.</summary>
     class operator Equal(const ALeft, ARight: TCertificateChainLimits): Boolean;
     /// <summary>True when AChain is within every cap: the entry count, each certificate's length
     /// and the total length. An over-cap chain is refused before any PKIX work.</summary>
     function AdmitsChain(const AChain: TArray<TBytes>): Boolean;
+    /// <summary>True when APath (leaf first, ending at its anchor) holds at most MaxPathLength
+    /// non-self-issued certificates between the two; False when one does not parse.</summary>
+    function AdmitsPath(const AInspector: ICertificateInspector;
+      const APath: TArray<TBytes>): Boolean;
   end;
 
 implementation
@@ -61,13 +73,15 @@ begin
   Result.MaxCertificateLength := 1 shl 16;
   Result.MaxTotalChainLength := 1 shl 16;
   Result.MaxChainCertificates := 16;
+  Result.MaxPathLength := 4;
 end;
 
 class operator TCertificateChainLimits.Equal(const ALeft, ARight: TCertificateChainLimits): Boolean;
 begin
   Result := (ALeft.MaxCertificateLength = ARight.MaxCertificateLength) and
     (ALeft.MaxTotalChainLength = ARight.MaxTotalChainLength) and
-    (ALeft.MaxChainCertificates = ARight.MaxChainCertificates);
+    (ALeft.MaxChainCertificates = ARight.MaxChainCertificates) and
+    (ALeft.MaxPathLength = ARight.MaxPathLength);
 end;
 
 function TCertificateChainLimits.AdmitsChain(const AChain: TArray<TBytes>): Boolean;
@@ -84,6 +98,29 @@ begin
       Exit;
     Inc(LTotal, System.Length(AChain[LI]));
     if LTotal > MaxTotalChainLength then
+      Exit;
+  end;
+  Result := True;
+end;
+
+function TCertificateChainLimits.AdmitsPath(const AInspector: ICertificateInspector;
+  const APath: TArray<TBytes>): Boolean;
+var
+  LI, LCount: Int32;
+  LCert: IInspectedCertificate;
+begin
+  Result := False;
+  LCount := 0;
+  for LI := 1 to System.High(APath) - 1 do
+  begin
+    try
+      LCert := AInspector.Parse(APath[LI]);
+      if AInspector.SameName(LCert.SubjectName, LCert.IssuerName) <> TCertAnswer.Yes then
+        Inc(LCount);
+    except
+      Exit;
+    end;
+    if LCount > MaxPathLength then
       Exit;
   end;
   Result := True;

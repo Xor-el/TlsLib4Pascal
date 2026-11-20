@@ -374,6 +374,43 @@ type
     procedure TestEmptyOrNonDerEntryIsBadCertificate;
     procedure TestChainOverEntryCapRefused;
     procedure TestChainLimitsAdmitsChainCapsEveryDimension;
+    procedure TestChainLimitsEqualComparesPathLength;
+    procedure TestDistrustClassificationUsesConfiguredPathLength;
+  end;
+
+  /// <summary>The bound on the non-self-issued certificates between a leaf and its anchor, counted
+  /// over built paths for both roles and enforced on a custom path validator's answer.</summary>
+  TTestPathLength = class(TTlsLibAlgorithmTestCase)
+  strict private
+    // a root, six issuers under it, a leaf under the sixth, a self-issued rollover and a cross-signed issuer
+    FPath: TStringList;
+    function Cert(const AName: string): TBytes;
+    // the certificates named, in order
+    function Chain(const ANames: array of string): TArray<TBytes>;
+    // a verifier trusting AAnchors under APkix, bounded to AMaxPathLength and seeded with AIntermediates
+    function VerifierFor(const APkix: IPkixProvider; const AAnchors, AIntermediates: array of string;
+      AMaxPathLength: Int32): TCertificateVerifier;
+    // whether AVerifier admits AChain as a server certificate, with the alert and the validated path length
+    function ServerVerdict(const AVerifier: IServerCertificateVerifier;
+      const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription;
+      out APathLength: Int32): Boolean;
+  protected
+    procedure SetUp; override;
+  published
+    procedure TestDefaultPathLengthAdmitsFourIntermediates;
+    procedure TestDefaultPathLengthRefusesFiveIntermediates;
+    procedure TestRaisedPathLengthAdmitsSixIntermediates;
+    procedure TestPathLengthZeroAdmitsLeafIssuedByAnchor;
+    procedure TestPathLengthZeroRefusesOneIntermediate;
+    procedure TestPathLengthZeroAdmitsDirectlyTrustedLeaf;
+    procedure TestSelfIssuedIntermediateIsNotCounted;
+    procedure TestPathLengthCountsOnlyUpToAnIntermediateAnchor;
+    procedure TestTightenedPathLengthStillFindsShorterCrossSignedPath;
+    procedure TestTightenedPathLengthRefusesTheLongCrossSignedPathAlone;
+    procedure TestCustomPathValidatorReturningLongerPathIsRefused;
+    procedure TestClientCertificatePathLengthIsEnforced;
+    procedure TestChainLimitsAdmitsPathCountsBetweenLeafAndAnchor;
+    procedure TestChainLimitsAdmitsPathRefusesAnUnparsableCertificate;
   end;
 
 implementation
@@ -917,7 +954,7 @@ begin
   LEffective := nil;
   try
     AValidator.ValidateCertificatePath(AChain, LStore, nil, Now, TCertKeyPurpose.ServerAuth,
-      LEffective);
+      TCertificateChainLimits.Defaults.MaxPathLength, LEffective);
     Result := True;
   except
     on EFatalAlertTlsLibException do
@@ -1924,7 +1961,8 @@ begin
   try
     Pkix.PathValidation.ValidateCertificatePath(AChain,
       TTrustAnchorStore.Create(TArray<TBytes>.Create(AAnchor)) as ITrustAnchorStore, nil,
-      NowUtc, TCertKeyPurpose.ServerAuth, LEffective);
+      NowUtc, TCertKeyPurpose.ServerAuth, TCertificateChainLimits.Defaults.MaxPathLength,
+      LEffective);
   except
     on E: EFatalAlertTlsLibException do
       Result := E.AlertDescription;
@@ -2037,6 +2075,46 @@ begin
   CheckFalse(LLimits.AdmitsChain(LChain), 'a chain over the total cap is refused');
   LLimits.MaxTotalChainLength := 300;
   CheckTrue(LLimits.AdmitsChain(LChain), 'a chain exactly at every cap is admitted');
+end;
+
+procedure TTestCertificateVerifier.TestChainLimitsEqualComparesPathLength;
+var
+  LLeft, LRight: TCertificateChainLimits;
+begin
+  LLeft := TCertificateChainLimits.Defaults;
+  LRight := TCertificateChainLimits.Defaults;
+  CheckEquals(4, LLeft.MaxPathLength, 'the default path length');
+  CheckTrue(LLeft = LRight, 'equal defaults compare equal');
+  LRight.MaxPathLength := 5;
+  CheckFalse(LLeft = LRight, 'a differing path length compares unequal');
+end;
+
+procedure TTestCertificateVerifier.TestDistrustClassificationUsesConfiguredPathLength;
+var
+  LOptions: TCertificateVerifierOptions;
+  LVerifier: IServerCertificateVerifier;
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LChain: TArray<TBytes>;
+begin
+  LChain := TArray<TBytes>.Create(Reissued('leaf_cert'), Reissued('issuer_cert'));
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Reissued('root_cert')),
+    TArray<TBytes>.Create(Reissued('issuer_cert'))) as ITrustAnchorStore, False)
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName(''), nil, LVerified,
+    LAlert), 'the path through the distrusted issuer is refused');
+  CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert),
+    'within the path length the distrust decided the failure');
+  LOptions.ChainLimits.MaxPathLength := 0;
+  LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(Reissued('root_cert')),
+    TArray<TBytes>.Create(Reissued('issuer_cert'))) as ITrustAnchorStore, False, LOptions)
+    as IServerCertificateVerifier;
+  CheckFalse(LVerifier.VerifyServerCertificate(LChain, TServerName.DnsName(''), nil, LVerified,
+    LAlert), 'the path is still refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert),
+    'beyond the path length the distrust did not decide the failure');
 end;
 
 function TTestCertificateVerifier.LargeBaseRoots: TArray<TBytes>;
@@ -2632,6 +2710,236 @@ begin
     UnixMillisInsideAllWindows, LAlert), 'an expired self-signed root is trusted by configuration');
 end;
 
+{ TTestPathLength }
+
+procedure TTestPathLength.SetUp;
+begin
+  inherited SetUp;
+  FPath := Own<TStringList>(LoadVectorFields('Certs/PathLength.txt'));
+end;
+
+function TTestPathLength.Cert(const AName: string): TBytes;
+begin
+  Result := DecodeHex(FPath.Values[AName + '_cert']);
+end;
+
+function TTestPathLength.Chain(const ANames: array of string): TArray<TBytes>;
+var
+  LI: Int32;
+begin
+  Result := nil;
+  SetLength(Result, System.Length(ANames));
+  for LI := 0 to High(ANames) do
+    Result[LI] := Cert(ANames[LI]);
+end;
+
+function TTestPathLength.VerifierFor(const APkix: IPkixProvider;
+  const AAnchors, AIntermediates: array of string;
+  AMaxPathLength: Int32): TCertificateVerifier;
+var
+  LOptions: TCertificateVerifierOptions;
+begin
+  LOptions.ChainLimits.MaxPathLength := AMaxPathLength;
+  LOptions.Intermediates := Chain(AIntermediates);
+  Result := TCertificateVerifier.Create(APkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(Chain(AAnchors)) as ITrustAnchorStore, False, LOptions);
+end;
+
+function TTestPathLength.ServerVerdict(const AVerifier: IServerCertificateVerifier;
+  const AChain: TArray<TBytes>; out AAlert: TTlsAlertDescription;
+  out APathLength: Int32): Boolean;
+var
+  LVerified: TVerifiedChain;
+begin
+  Result := AVerifier.VerifyServerCertificate(AChain, TServerName.DnsName(''), nil, LVerified,
+    AAlert);
+  APathLength := System.Length(LVerified.Path);
+end;
+
+procedure TTestPathLength.TestDefaultPathLengthAdmitsFourIntermediates;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckTrue(ServerVerdict(VerifierFor(Pkix, ['inter_2'], [], 4) as IServerCertificateVerifier,
+    Chain(['leaf', 'inter_6', 'inter_5', 'inter_4', 'inter_3']), LAlert, LPathLength),
+    'four certificates between the leaf and the anchor are admitted');
+  CheckEquals(6, LPathLength, 'the path is the leaf, four intermediates and the anchor');
+end;
+
+procedure TTestPathLength.TestDefaultPathLengthRefusesFiveIntermediates;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckFalse(ServerVerdict(VerifierFor(Pkix, ['inter_1'], [], 4) as IServerCertificateVerifier,
+    Chain(['leaf', 'inter_6', 'inter_5', 'inter_4', 'inter_3', 'inter_2']), LAlert, LPathLength),
+    'five certificates between the leaf and the anchor are refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+end;
+
+procedure TTestPathLength.TestRaisedPathLengthAdmitsSixIntermediates;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+  LChain: TArray<TBytes>;
+begin
+  LChain := Chain(['leaf', 'inter_6', 'inter_5', 'inter_4', 'inter_3', 'inter_2', 'inter_1']);
+  CheckFalse(ServerVerdict(VerifierFor(Pkix, ['root'], [], 4) as IServerCertificateVerifier,
+    LChain, LAlert, LPathLength), 'control: six intermediates exceed the default bound');
+  CheckTrue(ServerVerdict(VerifierFor(Pkix, ['root'], [], 6) as IServerCertificateVerifier,
+    LChain, LAlert, LPathLength), 'a raised bound admits six intermediates');
+  CheckEquals(8, LPathLength, 'the path is the leaf, six intermediates and the anchor');
+end;
+
+procedure TTestPathLength.TestPathLengthZeroAdmitsLeafIssuedByAnchor;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckTrue(ServerVerdict(VerifierFor(Pkix, ['inter_6'], [], 0) as IServerCertificateVerifier,
+    Chain(['leaf']), LAlert, LPathLength), 'a leaf an anchor issued is admitted at zero');
+  CheckEquals(2, LPathLength, 'the path is the leaf and the anchor');
+end;
+
+procedure TTestPathLength.TestPathLengthZeroRefusesOneIntermediate;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckFalse(ServerVerdict(VerifierFor(Pkix, ['inter_5'], [], 0) as IServerCertificateVerifier,
+    Chain(['leaf', 'inter_6']), LAlert, LPathLength), 'one intermediate is refused at zero');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+end;
+
+procedure TTestPathLength.TestPathLengthZeroAdmitsDirectlyTrustedLeaf;
+var
+  LOptions: TCertificateVerifierOptions;
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+  LSelfCa: TBytes;
+begin
+  LSelfCa := DecodeHex(Own<TStringList>(LoadVectorFields('Certs/CriticalExtensionsChain.txt'))
+    .Values['selfca_cert']);
+  LOptions.ChainLimits.MaxPathLength := 0;
+  CheckTrue(ServerVerdict(TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(LSelfCa)) as ITrustAnchorStore, False,
+    LOptions) as IServerCertificateVerifier, TArray<TBytes>.Create(LSelfCa), LAlert,
+    LPathLength), 'a directly trusted leaf is admitted at zero');
+  CheckEquals(1, LPathLength, 'the path is the leaf alone');
+end;
+
+procedure TTestPathLength.TestSelfIssuedIntermediateIsNotCounted;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+  LChain: TArray<TBytes>;
+begin
+  LChain := Chain(['rollover_leaf', 'rollover_b', 'rollover_a']);
+  CheckTrue(ServerVerdict(VerifierFor(Pkix, ['root'], [], 1) as IServerCertificateVerifier,
+    LChain, LAlert, LPathLength), 'the rollover certificate adds nothing to the count');
+  CheckEquals(4, LPathLength, 'the path holds both certificates');
+  CheckFalse(ServerVerdict(VerifierFor(Pkix, ['root'], [], 0) as IServerCertificateVerifier,
+    LChain, LAlert, LPathLength), 'the issuer it rolled over still counts');
+end;
+
+procedure TTestPathLength.TestPathLengthCountsOnlyUpToAnIntermediateAnchor;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckTrue(ServerVerdict(VerifierFor(Pkix, ['inter_4'], [], 2) as IServerCertificateVerifier,
+    Chain(['leaf', 'inter_6', 'inter_5']), LAlert, LPathLength),
+    'the certificates above an intermediate anchor are not counted');
+  CheckFalse(ServerVerdict(VerifierFor(Pkix, ['inter_3'], [], 2) as IServerCertificateVerifier,
+    Chain(['leaf', 'inter_6', 'inter_5', 'inter_4']), LAlert, LPathLength),
+    'one more certificate below the anchor is refused');
+end;
+
+procedure TTestPathLength.TestTightenedPathLengthStillFindsShorterCrossSignedPath;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  CheckTrue(ServerVerdict(VerifierFor(Pkix, ['root'], ['cross_issuer_short'], 1)
+    as IServerCertificateVerifier, Chain(['cross_leaf', 'cross_issuer_long', 'cross_mid']),
+    LAlert, LPathLength), 'the builder falls back to the path through the short issuer');
+  CheckEquals(3, LPathLength, 'the path is the leaf, the short issuer and the anchor');
+end;
+
+procedure TTestPathLength.TestTightenedPathLengthRefusesTheLongCrossSignedPathAlone;
+var
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+  LChain: TArray<TBytes>;
+begin
+  LChain := Chain(['cross_leaf', 'cross_issuer_long', 'cross_mid']);
+  CheckFalse(ServerVerdict(VerifierFor(Pkix, ['root'], [], 1) as IServerCertificateVerifier,
+    LChain, LAlert, LPathLength), 'two intermediates exceed the tightened bound');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+  CheckTrue(ServerVerdict(VerifierFor(Pkix, ['root'], [], 2) as IServerCertificateVerifier,
+    LChain, LAlert, LPathLength), 'control: the default-sized bound admits it');
+end;
+
+procedure TTestPathLength.TestCustomPathValidatorReturningLongerPathIsRefused;
+var
+  LMock: TMockPkixProvider;
+  LProvider: IPkixProvider;
+  LAlert: TTlsAlertDescription;
+  LPathLength: Int32;
+begin
+  LMock := TMockPkixProvider.Create(Pkix);
+  LProvider := LMock as IPkixProvider;
+  LMock.PathValidatorSpy.IgnoresPathLength := True;
+  CheckFalse(ServerVerdict(VerifierFor(LProvider, ['root'], [], 4) as IServerCertificateVerifier,
+    Chain(['leaf', 'inter_6', 'inter_5', 'inter_4', 'inter_3', 'inter_2', 'inter_1']), LAlert,
+    LPathLength), 'a longer path than the bound is refused whoever built it');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+end;
+
+procedure TTestPathLength.TestClientCertificatePathLengthIsEnforced;
+var
+  LAlert: TTlsAlertDescription;
+  LVerified: TVerifiedChain;
+  LChain: TArray<TBytes>;
+begin
+  LChain := Chain(['leaf', 'inter_6', 'inter_5', 'inter_4', 'inter_3', 'inter_2']);
+  CheckFalse((VerifierFor(Pkix, ['inter_1'], [], 4) as IClientCertificateVerifier)
+    .VerifyClientCertificate(LChain, LVerified, LAlert),
+    'a client chain over the bound is refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+  CheckTrue((VerifierFor(Pkix, ['inter_1'], [], 5) as IClientCertificateVerifier)
+    .VerifyClientCertificate(LChain, LVerified, LAlert), 'a raised bound admits it');
+end;
+
+procedure TTestPathLength.TestChainLimitsAdmitsPathCountsBetweenLeafAndAnchor;
+var
+  LLimits: TCertificateChainLimits;
+  LPath: TArray<TBytes>;
+begin
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxPathLength := 1;
+  LPath := Chain(['leaf', 'inter_6', 'inter_5']);
+  CheckTrue(LLimits.AdmitsPath(Pkix.Certificates, LPath), 'one certificate between the ends fits');
+  LPath := Chain(['leaf', 'inter_6', 'inter_5', 'inter_4']);
+  CheckFalse(LLimits.AdmitsPath(Pkix.Certificates, LPath), 'two certificates between do not');
+  LLimits.MaxPathLength := 0;
+  CheckTrue(LLimits.AdmitsPath(Pkix.Certificates, Chain(['leaf'])), 'a lone leaf always fits');
+  CheckTrue(LLimits.AdmitsPath(Pkix.Certificates, Chain(['leaf', 'inter_6'])),
+    'a leaf and its anchor fit at zero');
+end;
+
+procedure TTestPathLength.TestChainLimitsAdmitsPathRefusesAnUnparsableCertificate;
+var
+  LLimits: TCertificateChainLimits;
+  LPath: TArray<TBytes>;
+begin
+  LLimits := TCertificateChainLimits.Defaults;
+  LPath := TArray<TBytes>.Create(Cert('leaf'), TBytes.Create(1, 2, 3), Cert('root'));
+  CheckFalse(LLimits.AdmitsPath(Pkix.Certificates, LPath),
+    'a certificate between the ends that does not parse is refused');
+end;
+
 {$IFDEF TLSLIB_ANDROID}
 
 { TTestAndroidChainFailureAlerts }
@@ -2808,6 +3116,7 @@ initialization
   RegisterTest(TTestCriticalExtensionsAndEndEntity);
   RegisterTest(TTestChainFailureAlerts);
   RegisterTest(TTestAnchorValidityWindow);
+  RegisterTest(TTestPathLength);
 {$IFDEF TLSLIB_ANDROID}
   RegisterTest(TTestAndroidChainFailureAlerts);
 {$ENDIF TLSLIB_ANDROID}
@@ -2817,6 +3126,7 @@ initialization
   RegisterTest(TTestCriticalExtensionsAndEndEntity.Suite);
   RegisterTest(TTestChainFailureAlerts.Suite);
   RegisterTest(TTestAnchorValidityWindow.Suite);
+  RegisterTest(TTestPathLength.Suite);
 {$IFDEF TLSLIB_ANDROID}
   RegisterTest(TTestAndroidChainFailureAlerts.Suite);
 {$ENDIF TLSLIB_ANDROID}

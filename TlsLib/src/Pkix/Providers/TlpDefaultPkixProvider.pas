@@ -218,7 +218,7 @@ type
     procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-      var AEffectiveChain: TArray<TBytes>);
+      AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
     function NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
   end;
 
@@ -875,7 +875,7 @@ end;
 procedure TCertificatePathValidator.ValidateCertificatePath(const AChain: TArray<TBytes>;
   const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
   const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-  var AEffectiveChain: TArray<TBytes>);
+  AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
 
   // the anchor is identified the way the path validator identifies it - by subject name and
   // public key, not by exact encoding - so a re-encoded or re-issued same-key root the peer
@@ -1184,7 +1184,7 @@ begin
       LBuilderParams := TPkixBuilderParameters.Create(LUsable, LTarget);
       LBuilderParams.SetIsRevocationEnabled(False);
       LBuilderParams.SetDate(AValidationTimeUtc);
-      LBuilderParams.SetMaxPathLength(TPathBuildLimits.MaxBuiltPathLength);
+      LBuilderParams.SetMaxPathLength(AMaxPathLength);
       LBuilderParams.AddCertPathChecker(
         TTlsCriticalExtensionChecker.Create(LCerts[0]) as IPkixCertPathChecker);
       LPoolStore := TCollectionStore<IX509Certificate>.Create(LPool);

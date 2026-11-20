@@ -43,6 +43,7 @@ uses
   TlpISecretBuffer,
   TlpPkixDomainTypes,
   TlpIPkixProvider,
+  TlpCertificateLimits,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
   TlpTlsAlert,
@@ -2324,7 +2325,8 @@ begin
     Provider(AEnforcement).PathValidation.ValidateCertificatePath(
       TArray<TBytes>.Create(FLeaf),
       TTrustAnchorStore.Create(TArray<TBytes>.Create(AAnchor)) as ITrustAnchorStore, nil,
-      NowUtc, TCertKeyPurpose.ServerAuth, LEffective);
+      NowUtc, TCertKeyPurpose.ServerAuth, TCertificateChainLimits.Defaults.MaxPathLength,
+      LEffective);
   except
     on E: EFatalAlertTlsLibException do
     begin

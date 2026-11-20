@@ -147,6 +147,7 @@ type
     procedure TestSomethingFoundHandsTheInnerALayeredStoreAndTheIntermediates;
     procedure TestARingOfIssuersTerminatesAndEachNameIsAskedOnce;
     procedure TestTheWalkStopsAtThePathBuildingDepth;
+    procedure TestTheWalkStopsAtAConfiguredPathLength;
     procedure TestAnIntermediateThePeerSentIsNotFoundAgain;
     procedure TestAConfiguredIntermediateIsNotFoundAgain;
     procedure TestAConfiguredIntermediateOffTheChainIsNotWalked;
@@ -1019,9 +1020,28 @@ begin
     'root_cert')).SubjectName;
   ServerVerdict(ServerVerifier(FCaptureRef, ServerContext(FUnrelated)),
     TArray<TBytes>.Create(TTlsLibTestCertificates.Field(DepthFile, 'leaf_cert')), LAlert);
-  CheckEquals(TPathBuildLimits.MaxBuiltPathLength + 1, System.Length(FLookup.Asked),
+  CheckEquals(TCertificateChainLimits.Defaults.MaxPathLength + 1, System.Length(FLookup.Asked),
     'one ask per level down to the built-path limit');
   CheckEquals(0, FLookup.TimesAsked(LRootName), 'the root name lies past the limit');
+end;
+
+procedure TTestIssuerLookup.TestTheWalkStopsAtAConfiguredPathLength;
+var
+  LInter: TBytes;
+  LContext: TServerTrustContext;
+  LAlert: TTlsAlertDescription;
+  LI: Int32;
+begin
+  for LI := 1 to 5 do
+  begin
+    LInter := TTlsLibTestCertificates.Field(DepthFile, Format('inter_%d_cert', [LI]));
+    FLookup.Offer(Pkix.Certificates.Parse(LInter).SubjectName, nil, TArray<TBytes>.Create(LInter));
+  end;
+  LContext := ServerContext(FUnrelated);
+  LContext.ChainLimits.MaxPathLength := 2;
+  ServerVerdict(ServerVerifier(FCaptureRef, LContext),
+    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(DepthFile, 'leaf_cert')), LAlert);
+  CheckEquals(3, System.Length(FLookup.Asked), 'one ask per level down to the configured limit');
 end;
 
 procedure TTestIssuerLookup.TestAnIntermediateThePeerSentIsNotFoundAgain;
@@ -1084,7 +1104,8 @@ begin
   LInspector := TScriptedNameInspector.Create(Pkix.Certificates, TCertAnswer.Undetermined)
     as ICertificateInspector;
   TIssuerResolution.Resolve(LInspector, FLookupRef, FRule, TCertificateStrengthPolicy.Defaults,
-    FUnrelated, TArray<TBytes>.Create(FIssuer), nil, LStore, LFound);
+    FUnrelated, TCertificateChainLimits.Defaults.MaxPathLength, TArray<TBytes>.Create(FIssuer),
+    nil, LStore, LFound);
   CheckFalse(LStore.IsAnchor(FRoot), 'a name that may differ does not select the answer');
   CheckEquals(0, System.Length(LFound), 'nor does it add chain material');
 end;

@@ -526,7 +526,7 @@ begin
   try
     APolicy.Pkix.PathValidation.ValidateCertificatePath(AChain, APolicy.AnchorStore,
       AIntermediates, TDateTimeUtilities.UnixMsToDateTime(Int64(LClock.NowUnixMillis)),
-      TCertKeyPurpose.ClientAuth, LPath);
+      TCertKeyPurpose.ClientAuth, APolicy.ChainLimits.MaxPathLength, LPath);
   except
     on E: EFatalAlertTlsLibException do
     begin
@@ -863,7 +863,8 @@ begin
   if FPolicy.Pkix = nil then
     Exit(False);
   TIssuerResolution.Resolve(FPolicy.Pkix.Certificates, FPolicy.IssuerLookup, FPolicy.IssuerRule,
-    FPolicy.StrengthPolicy, FPolicy.BaseStore, AChain, FPolicy.Intermediates, LStore, LFound);
+    FPolicy.StrengthPolicy, FPolicy.BaseStore, FPolicy.ChainLimits.MaxPathLength, AChain,
+    FPolicy.Intermediates, LStore, LFound);
   if (FExpectedPeer = TPeerRole.Server) and not FPolicy.RootsExclusive then
     APolicy := TOSDelegatePolicy.WithContextRoots(FPolicy, LStore, FEngine.Capabilities)
   else

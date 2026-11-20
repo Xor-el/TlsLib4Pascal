@@ -504,7 +504,7 @@ begin
     for LA := 0 to LCount - 1 do
       for LC := 0 to 1 do
       begin
-        if LCost[LA * 2 + LC] > TPathBuildLimits.MaxBuiltPathLength then
+        if LCost[LA * 2 + LC] > FChainLimits.MaxPathLength then
           Continue;
         Expand(LA);
         if LC = 1 then
@@ -541,7 +541,7 @@ begin
           LTo := LB * 2 + LC;
           if LWithheldAt[LB] then
             LTo := LB * 2 + 1;
-          if (LNext <= TPathBuildLimits.MaxBuiltPathLength) and (LNext < LCost[LTo]) then
+          if (LNext <= FChainLimits.MaxPathLength) and (LNext < LCost[LTo]) then
           begin
             LCost[LTo] := LNext;
             LChanged := True;
@@ -623,7 +623,7 @@ begin
   LEffectiveChain := LPresented;
   try
     FPkix.PathValidation.ValidateCertificatePath(LPresented, FTrustStore,
-      LIntermediates, ValidationTimeUtc, AKeyPurpose, LEffectiveChain);
+      LIntermediates, ValidationTimeUtc, AKeyPurpose, FChainLimits.MaxPathLength, LEffectiveChain);
   except
     on E: EFatalAlertTlsLibException do
     begin
@@ -640,6 +640,12 @@ begin
   if AnyDistrusted(FTrustStore, LEffectiveChain) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
+    Exit;
+  end;
+  // binds a custom path validator too, which the builder's own bound does not
+  if not FChainLimits.AdmitsPath(FPkix.Certificates, LEffectiveChain) then
+  begin
+    AAlert := TTlsAlertDescription.UnknownCa;
     Exit;
   end;
 
