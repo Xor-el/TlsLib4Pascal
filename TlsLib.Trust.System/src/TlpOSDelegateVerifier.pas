@@ -614,6 +614,12 @@ begin
   // path validity (name constraints) precedes revocation and strength, as in the built-in verifier
   if TDelegatePostChecks.RejectNameConstraintViolation(FPolicy.Pkix, AResult.Path, AAlert) then
     Exit(False);
+  // the OS builds with its own depth limit, so the configured path length is held over its path
+  if not FPolicy.ChainLimits.AdmitsPath(FPolicy.Pkix.Certificates, AResult.Path) then
+  begin
+    AAlert := TTlsAlertDescription.UnknownCa;
+    Exit(False);
+  end;
   // a self-signed anchor is trusted whatever its dates; any other is held to its validity window
   if TDelegatePostChecks.RejectExpiredAnchor(FPolicy.Pkix, FPolicy.Clock, AResult.PolicyExempt,
     AAlert) then
@@ -945,6 +951,11 @@ begin
   if TDelegatePostChecks.RejectNameConstraintViolation(LPolicy.Pkix, LResult.Path,
     ARejectAlert) then
     Exit(False);
+  if not LPolicy.ChainLimits.AdmitsPath(LPolicy.Pkix.Certificates, LResult.Path) then
+  begin
+    ARejectAlert := TTlsAlertDescription.UnknownCa;
+    Exit(False);
+  end;
   if TDelegatePostChecks.RejectExpiredAnchor(LPolicy.Pkix, LPolicy.Clock, LResult.PolicyExempt,
     ARejectAlert) then
     Exit(False);
