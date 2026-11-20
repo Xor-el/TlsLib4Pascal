@@ -72,6 +72,11 @@ uses
   TlpAntiReplay,
   TlpIKeyLog,
   MockKeyLog,
+  MockCryptoProvider,
+  TlpDefaultCryptoProvider,
+  TlpITlsConfig,
+  TlpTlsConnection,
+  TlpTlsEngineFactory,
   TlsLibHandshakeTestBase,
   TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
@@ -91,6 +96,10 @@ type
     function NewClientEd25519: ITlsEngine;
     function NewServerEd25519: ITlsEngine;
     function NewServer: ITlsEngine;
+    // the provider whose signing facet imports handle keys (THandleSigningCrypto over Crypto)
+    function NewHandleProvider: ICryptoProvider;
+    // server options of the EcP256 credential loaded through AProvider, built on ACrypto
+    function HandleServerOptions(const AProvider, ACrypto: ICryptoProvider): TTlsOptions;
     function NewServerWithResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsEngine;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
@@ -194,6 +203,10 @@ type
     procedure TestCredentialSetOfASingleCredentialListsOne;
     procedure TestEd448ServerCredentialHandshake;
     procedure TestEd25519ServerCredentialHandshake;
+    // a credential loaded through a custom signing facet, whose keys are handles only it can sign
+    // with, signs the handshake when the options name that provider and is refused otherwise
+    procedure TestOptionsCredentialFromACustomSigningFacetSignsTheHandshake;
+    procedure TestOptionsCredentialFromACustomSigningFacetIsRefusedByThePlainProvider;
   end;
 
 implementation
@@ -309,6 +322,24 @@ end;
 function TTestTls13Loopback.NewServer: ITlsEngine;
 begin
   Result := NewServerWithResolver(TSniCredentialResolver.ForCredential(ServerCredential));
+end;
+
+function TTestTls13Loopback.NewHandleProvider: ICryptoProvider;
+var
+  LBuilder: ICryptoProviderBuilder;
+begin
+  LBuilder := TCryptoProviderBuilder.Create;
+  Result := LBuilder.WithPrimitives(Crypto.Primitives)
+    .WithSigning(THandleSigningCrypto.Create(Crypto.Signing) as ISigningCrypto).Build;
+end;
+
+function TTestTls13Loopback.HandleServerOptions(const AProvider,
+  ACrypto: ICryptoProvider): TTlsOptions;
+begin
+  Result := TTlsOptions.Default;
+  Result.Crypto := ACrypto;
+  Result.Pkix := Pkix;
+  Result.Credential := ServerCredential(AProvider);
 end;
 
 function TTestTls13Loopback.NewServerWithResolver(
@@ -2443,6 +2474,44 @@ begin
   Pump(LClient, LServer);
   CheckEqualBytes('app data flows over the Ed25519-authenticated channel', LMsg,
     ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestOptionsCredentialFromACustomSigningFacetSignsTheHandshake;
+var
+  LProvider: ICryptoProvider;
+  LClientOpts: TTlsOptions;
+  LClient, LServer: ITlsEngine;
+begin
+  LProvider := NewHandleProvider;
+  LClientOpts := TTlsOptions.Default;
+  LClientOpts.Crypto := Crypto;
+  LClientOpts.Pkix := Pkix;
+  LClientOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+  LServer := TTlsEngineFactory.CreateServerEngine(
+    TTlsConfigComposer.BuildServerConfig(HandleServerOptions(LProvider, LProvider)));
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    TTlsConfigComposer.BuildClientConfig(LClientOpts), 'localhost');
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  CheckFalse(LServer.IsHandshaking, 'the server completed the handshake');
+  CheckFalse(LServer.IsTerminal, 'the handle key signed the CertificateVerify');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Loopback.TestOptionsCredentialFromACustomSigningFacetIsRefusedByThePlainProvider;
+var
+  LMsg: string;
+begin
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(HandleServerOptions(NewHandleProvider, Crypto));
+  except
+    on E: Exception do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a handle key is refused by a provider that did not mint it');
 end;
 
 initialization

@@ -123,6 +123,45 @@ type
     function OwnsKey(const AKey: ISigningKey): Boolean;
   end;
 
+  /// <summary>A signing key that is a handle over a key held elsewhere, the way a device or
+  /// keystore key is: only the facet that minted it can reach what it stands for.</summary>
+  IHandleSigningKey = interface(ISigningKey)
+    ['{81579FAC-787A-4F24-9BFD-0D2D88C9EB89}']
+    /// <summary>The key the handle stands for.</summary>
+    function Device: ISigningKey;
+  end;
+
+  THandleSigningKey = class sealed(TInterfacedObject, ISigningKey, IHandleSigningKey)
+  strict private
+  var
+    FDevice: ISigningKey;
+  public
+    constructor Create(const ADevice: ISigningKey);
+    function Device: ISigningKey;
+    function CapableSchemes: TArray<TSignatureScheme>;
+    function PublicKeyInfo: TBytes;
+    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+  end;
+
+  /// <summary>An <see cref="ISigningCrypto" /> over an inner facet whose keys are handles: it
+  /// imports through the inner facet and wraps the result, owns only handles, and refuses to
+  /// sign with any other key.</summary>
+  THandleSigningCrypto = class sealed(TInterfacedObject, ISigningCrypto)
+  strict private
+  var
+    FInner: ISigningCrypto;
+  public
+    constructor Create(const AInner: ISigningCrypto);
+    function ImportSigningKey(const AData: TBytes; const APassword: ISecretBuffer): ISigningKey;
+    function ImportPkcs12(const AData: TBytes;
+      const APassword: ISecretBuffer): TImportedCredential;
+    function CreateSignatureSigner(AScheme: TSignatureScheme;
+      const AKey: ISigningKey): ISignatureSigner;
+    function CreateSignatureVerifier(AScheme: TSignatureScheme;
+      const APublicKeyDer: TBytes): ISignatureVerifier;
+    function OwnsKey(const AKey: ISigningKey): Boolean;
+  end;
+
 
   /// <summary>
   /// A test provider that runs the default crypto with a caller-supplied
@@ -349,7 +388,8 @@ resourcestring
   SInjectedSealFault = 'the AEAD seal was made to fail by the test';
   SSealFaultIndexBelowOne = 'the seal to fail is counted from one';
   SMissingAgreement = 'this primitives facet does not provide the requested key agreement';
-  SFakeHpkeSealer = 'the fake HPKE suite seals nothing';
+  SNotAHandle = 'the key is not a handle this signing facet minted';
+  SFakeHpkeSealer ='the fake HPKE suite seals nothing';
 
 { TRejectingSignatureVerifier }
 
@@ -543,6 +583,77 @@ end;
 function TRejectingVerifierSigning.OwnsKey(const AKey: ISigningKey): Boolean;
 begin
   Result := FInner.OwnsKey(AKey);
+end;
+
+{ THandleSigningKey }
+
+constructor THandleSigningKey.Create(const ADevice: ISigningKey);
+begin
+  inherited Create;
+  FDevice := ADevice;
+end;
+
+function THandleSigningKey.Device: ISigningKey;
+begin
+  Result := FDevice;
+end;
+
+function THandleSigningKey.CapableSchemes: TArray<TSignatureScheme>;
+begin
+  Result := FDevice.CapableSchemes;
+end;
+
+function THandleSigningKey.PublicKeyInfo: TBytes;
+begin
+  Result := FDevice.PublicKeyInfo;
+end;
+
+function THandleSigningKey.WithPreferredSchemes(
+  const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+begin
+  Result := THandleSigningKey.Create(FDevice.WithPreferredSchemes(ASchemes)) as ISigningKey;
+end;
+
+{ THandleSigningCrypto }
+
+constructor THandleSigningCrypto.Create(const AInner: ISigningCrypto);
+begin
+  inherited Create;
+  FInner := AInner;
+end;
+
+function THandleSigningCrypto.ImportSigningKey(const AData: TBytes;
+  const APassword: ISecretBuffer): ISigningKey;
+begin
+  Result := THandleSigningKey.Create(FInner.ImportSigningKey(AData, APassword)) as ISigningKey;
+end;
+
+function THandleSigningCrypto.ImportPkcs12(const AData: TBytes;
+  const APassword: ISecretBuffer): TImportedCredential;
+begin
+  Result := FInner.ImportPkcs12(AData, APassword);
+  Result.PrivateKey := THandleSigningKey.Create(Result.PrivateKey) as ISigningKey;
+end;
+
+function THandleSigningCrypto.CreateSignatureSigner(AScheme: TSignatureScheme;
+  const AKey: ISigningKey): ISignatureSigner;
+var
+  LHandle: IHandleSigningKey;
+begin
+  if not Supports(AKey, IHandleSigningKey, LHandle) then
+    raise EArgumentTlsLibException.CreateRes(@SNotAHandle);
+  Result := FInner.CreateSignatureSigner(AScheme, LHandle.Device);
+end;
+
+function THandleSigningCrypto.CreateSignatureVerifier(AScheme: TSignatureScheme;
+  const APublicKeyDer: TBytes): ISignatureVerifier;
+begin
+  Result := FInner.CreateSignatureVerifier(AScheme, APublicKeyDer);
+end;
+
+function THandleSigningCrypto.OwnsKey(const AKey: ISigningKey): Boolean;
+begin
+  Result := Supports(AKey, IHandleSigningKey);
 end;
 
 { TMockCryptoProvider }
