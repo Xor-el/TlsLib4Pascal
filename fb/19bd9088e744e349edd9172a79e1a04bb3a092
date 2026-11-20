@@ -1,0 +1,26 @@
+docs/cookbook.md
+  s_f2c9bd75607afc::t_da1f32dd7cc378 292-296
+  s_f2c9bd75607afc::t_ccd3f13db5324b 659
+  s_f2c9bd75607afc::t_a5c56f7fbe2b4c 602-606
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_b7bb52afd7c68d 613-617
+  s_f2c9bd75607afc::t_a4aa61cc97805e 523,527-539
+docs/system-trust.md
+  s_f2c9bd75607afc::t_90d94bb752a326 453-456
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fb19bd9088e744e349edd9172a79e1a04bb3a092",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
