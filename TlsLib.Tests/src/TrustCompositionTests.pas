@@ -32,6 +32,7 @@ uses
 {$ENDIF FPC}
   TlpTlsLibExceptions,
   TlpArrayUtilities,
+  TlpPem,
   TlpTlsAlert,
   TlpServerName,
   TlpTrustTypes,
@@ -74,9 +75,15 @@ type
     function UnionOverWatchedStore(AReleased: PBoolean): ITrustAnchorStore;
     function LayeredOverWatchedStore(AReleased: PBoolean): ITrustAnchorStore;
     function Der(const AFieldName: string): TBytes;
+    // a PEM bundle of the named certificates of the path-length fixture, in order
+    function Bundle(const ANames: array of string): TBytes;
   protected
     procedure SetUp; override;
   published
+    procedure TestFromBundleSelfSignedOnlySplitsRootsFromIntermediates;
+    procedure TestFromBundleAnyCertificateAnchorsEveryCertificate;
+    procedure TestFromBundleRefusesEmptyData;
+    procedure TestFromBundleRefusesNilInspector;
     procedure TestTwoAnchorStoresUnionIntoComposedStore;
     procedure TestDistrustingStoreDropsDistrustedRootsAndIsImmutable;
     procedure TestUnionCarriesAndAppliesDistrustAcrossStores;
@@ -301,6 +308,82 @@ function TTestTrustComposition.StoreOf(const AFieldName: string): ITrustAnchorSt
 begin
   Result := TTrustAnchorStore.Create(
     TArray<TBytes>.Create(DecodeHex(FCerts.Values[AFieldName]))) as ITrustAnchorStore;
+end;
+
+function TTestTrustComposition.Bundle(const ANames: array of string): TBytes;
+var
+  LBlocks: TArray<TPemBlock>;
+  LI: Int32;
+begin
+  SetLength(LBlocks, System.Length(ANames));
+  for LI := 0 to High(ANames) do
+  begin
+    LBlocks[LI].PemType := 'CERTIFICATE';
+    LBlocks[LI].Content := TTlsLibTestCertificates.Field('Certs/PathLength.txt',
+      ANames[LI] + '_cert');
+  end;
+  Result := TPem.WriteBlocks(LBlocks);
+end;
+
+procedure TTestTrustComposition.TestFromBundleSelfSignedOnlySplitsRootsFromIntermediates;
+var
+  LStore: ITrustAnchorStore;
+  LIntermediates: TArray<TBytes>;
+begin
+  LStore := TTrustAnchorStore.FromBundle(Pkix.Certificates,
+    Bundle(['inter_1', 'root', 'inter_2']), TBundleAnchorRule.SelfSignedOnly, LIntermediates);
+  CheckEquals(1, LStore.AnchorCount, 'only the self-signed certificate anchors');
+  CheckTrue(LStore.IsAnchor(TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'root_cert')),
+    'the root is the anchor');
+  CheckEquals(2, System.Length(LIntermediates), 'the others complete a chain');
+  CheckTrue(TArrayUtilities.AreEqual(LIntermediates[0],
+    TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'inter_1_cert')),
+    'in bundle order');
+  CheckTrue(TArrayUtilities.AreEqual(LIntermediates[1],
+    TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'inter_2_cert')), 'the second too');
+end;
+
+procedure TTestTrustComposition.TestFromBundleAnyCertificateAnchorsEveryCertificate;
+var
+  LStore: ITrustAnchorStore;
+  LIntermediates: TArray<TBytes>;
+begin
+  LStore := TTrustAnchorStore.FromBundle(Pkix.Certificates, Bundle(['root', 'inter_1', 'inter_2']),
+    TBundleAnchorRule.AnyCertificate, LIntermediates);
+  CheckEquals(3, LStore.AnchorCount, 'every certificate anchors');
+  CheckEquals(0, System.Length(LIntermediates), 'none is left as chain material');
+end;
+
+procedure TTestTrustComposition.TestFromBundleRefusesEmptyData;
+var
+  LIntermediates: TArray<TBytes>;
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TTrustAnchorStore.FromBundle(Pkix.Certificates, nil, TBundleAnchorRule.SelfSignedOnly,
+      LIntermediates);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a bundle with no certificate is refused');
+end;
+
+procedure TTestTrustComposition.TestFromBundleRefusesNilInspector;
+var
+  LIntermediates: TArray<TBytes>;
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    TTrustAnchorStore.FromBundle(nil, Bundle(['root']), TBundleAnchorRule.AnyCertificate,
+      LIntermediates);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a nil inspector is refused');
 end;
 
 procedure TTestTrustComposition.TestTwoAnchorStoresUnionIntoComposedStore;

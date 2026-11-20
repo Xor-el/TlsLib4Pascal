@@ -173,9 +173,8 @@ type
       const ALookup: IIssuerLookup); static;
     /// <summary>The host's own roots as one store: the anchors of every named anchor source under
     /// BundleAnchors, and the custom store; nil when none is set. AIntermediates are the other
-    /// certificates of those sources, which only complete a peer's chain. Under SelfSignedOnly a
-    /// certificate is an anchor only when its own signature verifies, so a root the provider will not
-    /// verify is chain material; each one costs a signature check when the config is built.</summary>
+    /// certificates of those sources, which only complete a peer's chain; each source is split as
+    /// <see cref="TTrustAnchorStore.FromBundle" /> does.</summary>
     class function HostAnchorStore(const AOptions: TTlsOptions; const APkix: IPkixProvider;
       out AIntermediates: TArray<TBytes>): ITrustAnchorStore; static;
     /// <summary>AVerification with AIntermediates added as chain material and ALookup (when not
@@ -705,7 +704,8 @@ class function TTlsConfigComposer.HostAnchorStore(const AOptions: TTlsOptions;
   const APkix: IPkixProvider; out AIntermediates: TArray<TBytes>): ITrustAnchorStore;
 var
   LStores: TArray<ITrustAnchorStore>;
-  LCerts, LAnchors: TArray<TBytes>;
+  LStore: ITrustAnchorStore;
+  LFound: TArray<TBytes>;
   LI, LJ: Int32;
   LName: string;
   LData: TBytes;
@@ -717,19 +717,11 @@ begin
     begin
       LData := Load(AOptions.TrustAnchors[LI]);
       try
-        LCerts := APkix.Certificates.LoadChain(LData);
-        LAnchors := LCerts;
-        if AOptions.BundleAnchors = TBundleAnchorRule.SelfSignedOnly then
-        begin
-          LAnchors := nil;
-          for LJ := 0 to System.High(LCerts) do
-            if APkix.Certificates.Parse(LCerts[LJ]).IsSelfSigned = TCertAnswer.Yes then
-              TArrayUtilities.Append<TBytes>(LAnchors, LCerts[LJ])
-            else
-              TArrayUtilities.Append<TBytes>(AIntermediates, LCerts[LJ]);
-        end;
-        TArrayUtilities.Append<ITrustAnchorStore>(LStores,
-          TTrustAnchorStore.Create(LAnchors) as ITrustAnchorStore);
+        LStore := TTrustAnchorStore.FromBundle(APkix.Certificates, LData, AOptions.BundleAnchors,
+          LFound);
+        TArrayUtilities.Append<ITrustAnchorStore>(LStores, LStore);
+        for LJ := 0 to System.High(LFound) do
+          TArrayUtilities.Append<TBytes>(AIntermediates, LFound[LJ]);
       except
         on EOutOfMemory do
           raise;
