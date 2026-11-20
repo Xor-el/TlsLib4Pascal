@@ -1,0 +1,58 @@
+TlsLib.Tests/src/CredentialImportTests.pas
+  s_f2c9bd75607afc::t_bc2fe3add15762 148-150
+  s_f2c9bd75607afc::t_a75fcf02184af3 1095-1120
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_17b95e7a1a7634 412
+  s_f2c9bd75607afc::t_df2a0b8bc9d578 575-579
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_f2c9bd75607afc::t_71b720bf362780 123,543-544,547
+  s_f2c9bd75607afc::t_a479a905d48841 545-546
+TlsLib/src/Engine/TlpTlsConfigBuilder.pas
+  s_f2c9bd75607afc::t_38f363b214231b 596-599
+  s_f2c9bd75607afc::t_f2211f036c3595 2375-2376
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_79bc39342a1cb4 1158
+  s_f2c9bd75607afc::t_bf424cd4496a6f 4572-4576
+TlsLib.Tests/src/MockCompliance.pas
+  s_f2c9bd75607afc::t_1f7293f2303eab 454-458
+  s_f2c9bd75607afc::t_282daf012dab8a 157
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_f2c9bd75607afc::t_7f8132af88a332 582
+  s_f2c9bd75607afc::t_dce8aff1949a18 2171-2175
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_f2c9bd75607afc::t_848402f4c1d233 228-229,232
+  s_f2c9bd75607afc::t_f046d35aaad1fe 280-283
+TlsLib.Tests/src/ConfigBuilderTests.pas
+  s_f2c9bd75607afc::t_5a6a59853962f5 96,117-119,409-412,569-578,4544-4596
+docs/cookbook.md
+  s_f2c9bd75607afc::t_3157ab560ee73d 607-608
+  s_f2c9bd75607afc::t_c881f86e7cdb3b 97-98
+TlsLib.Tests/src/TlsConnectionTests.pas
+  s_f2c9bd75607afc::t_2ef58067c4bb79 674-685
+  s_f2c9bd75607afc::t_df6ccf8e7c64a6 66
+  s_f2c9bd75607afc::t_bd1f212ecc26b8 859-894
+  s_f2c9bd75607afc::t_2acfe2844453d5 112-115
+  s_f2c9bd75607afc::t_66b3cf482f0f80 98-99
+  s_f2c9bd75607afc::t_cd57da2ce3c5dd 64
+TlsLib.Crypto.System/src/TlpSystemCryptoBase.pas
+  s_f2c9bd75607afc::t_82bded8379062a 445-449
+  s_f2c9bd75607afc::t_4db4d01cf244f5 144
+TlsLib/src/Connection/TlpTlsConnection.pas
+  s_f2c9bd75607afc::t_75f300c3827935 109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e115077dbbe960b7ff19a9b4e69226d47af41851",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
