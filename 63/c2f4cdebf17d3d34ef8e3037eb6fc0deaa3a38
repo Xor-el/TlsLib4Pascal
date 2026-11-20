@@ -1,0 +1,29 @@
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_f2c9bd75607afc::t_71b720bf362780 126-164
+  s_f2c9bd75607afc::t_a479a905d48841 588-657
+  s_f2c9bd75607afc::t_2cb895aef1bca5 391-392
+  s_f2c9bd75607afc::t_9e4ca6553a6aac 658
+TlsLib.Tests/src/Tls13LoopbackTests.pas
+  s_f2c9bd75607afc::t_0a5b4f96548882 75-79
+  s_f2c9bd75607afc::t_575633dbde6902 99-102
+  s_f2c9bd75607afc::t_af148d04d62b7b 206-209
+  s_f2c9bd75607afc::t_6b5e4228f41575 2479-2515
+  s_f2c9bd75607afc::t_213902786d1a04 327-344
+  s_f2c9bd75607afc::t_886eb5f1f759b4 2516
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "63c2f4cdebf17d3d34ef8e3037eb6fc0deaa3a38",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": null
+    }
+  }
+}
