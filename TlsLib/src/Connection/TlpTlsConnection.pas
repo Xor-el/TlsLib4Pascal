@@ -52,6 +52,7 @@ uses
   TlpCertificateVerifierSource,
   TlpTrustPolicy,
   TlpTrustTypes,
+  TlpCertificateLimits,
   TlpTlsCredential,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
@@ -105,8 +106,10 @@ type
     PrivateKey: TTlsBlobSource;
     KeyPassword: string;
     CredentialForm: TTlsCredentialForm;          // how Certificate is read
+    Credential: TTlsCredential;                  // a loaded identity; replaces Certificate, PrivateKey, KeyPassword and CredentialForm; the caller's, never wiped
     TrustAnchors: TArray<TTlsBlobSource>; // each is one WebPki anchor blob (union)
     BundleAnchors: TBundleAnchorRule;            // which TrustAnchors certificates anchor; default SelfSignedOnly
+    CertificateChainLimits: TCertificateChainLimits;  // default Defaults; a server applies it only under ClientAuth
     IssuerLookup: IIssuerLookup;                 // issuers read at verification; a server reads it under client auth
     // client role: opt into the OS store (union); a server never reads it (system trust is not a client-CA)
     SystemTrust: ISystemTrustInstaller;
@@ -162,15 +165,21 @@ type
   TTlsConfigComposer = class sealed(TObject)
   strict private
     class function Load(const ASource: TTlsBlobSource): TBytes; static;
-    /// <summary>The credential the options name, loaded in the form CredentialForm selects. Key and
-    /// PKCS#12 bytes read from a file are wiped after the import; inline bytes belong to the caller
-    /// and are left alone.</summary>
+    /// <summary>The credential the options name: Credential as it is, else the blobs loaded in the
+    /// form CredentialForm selects. Key and PKCS#12 bytes read from a file are wiped after the
+    /// import; inline bytes and a Credential belong to the caller and are left alone.</summary>
     class function LoadCredential(const AOptions: TTlsOptions;
       const ACrypto: ICryptoProvider; const APkix: IPkixProvider): TTlsCredential; static;
     class procedure Sign(var ASig: TTlsSignatureBuilder; const AName: string;
       const ASource: TTlsBlobSource); static;
     class procedure SignIssuerLookup(var ASig: TTlsSignatureBuilder;
       const ALookup: IIssuerLookup); static;
+    /// <summary>A loaded credential by its chain and staple digests, its key's address (the frozen
+    /// config holds the key, so the address stays live) and its callback's method.</summary>
+    class procedure SignCredential(var ASig: TTlsSignatureBuilder;
+      const ACredential: TTlsCredential); static;
+    class procedure SignChainLimits(var ASig: TTlsSignatureBuilder;
+      const ALimits: TCertificateChainLimits); static;
     /// <summary>The host's own roots as one store: the anchors of every named anchor source under
     /// BundleAnchors, and the custom store; nil when none is set. AIntermediates are the other
     /// certificates of those sources, which only complete a peer's chain; each source is split as
@@ -433,6 +442,14 @@ resourcestring
     'a private key is set but no certificate was supplied; set %s';
   SPkcs12WithPrivateKey =
     'a PKCS#12 identity carries its own key; do not also set a private key';
+  SCredentialAndBlobSource =
+    'a loaded credential replaces the certificate, key, password and form options; set only ' +
+    'one credential source';
+  SCredentialIncomplete =
+    'a loaded credential needs both a certificate chain and its private key';
+  SChainLimitsNeedClientAuth =
+    'certificate-chain limits bound only a requested client certificate; set ClientAuth or ' +
+    'leave them at the defaults';
   SNoClientAuthSource =
     'client authentication is requested but no client-CA was named; set %s, or turn client ' +
     'authentication off';
@@ -539,6 +556,7 @@ end;
 class function TTlsOptions.Default: TTlsOptions;
 begin
   Result := System.Default(TTlsOptions);
+  Result.CertificateChainLimits := TCertificateChainLimits.Defaults;
   Result.VerifyPeer := True;
   Result.CheckHostName := True;
   Result.ServerNameIndication := TServerNameIndication.Send;
@@ -641,6 +659,19 @@ var
   LCert, LKey: TBytes;
   LPkcs12: Boolean;
 begin
+  if not AOptions.Credential.IsEmpty then
+  begin
+    if (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
+      (AOptions.KeyPassword <> '') or
+      (AOptions.CredentialForm <> TTlsCredentialForm.CertificateAndKey) then
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+        @SCredentialAndBlobSource);
+    if (System.Length(AOptions.Credential.CertificateChain) = 0) or
+      (AOptions.Credential.PrivateKey = nil) then
+      raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+        @SCredentialIncomplete);
+    Exit(AOptions.Credential);
+  end;
   if AOptions.Certificate.IsEmpty then
   begin
     if AOptions.CredentialSourceHint = '' then
@@ -698,6 +729,27 @@ begin
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
       @SIssuerLookupIdentityEmpty);
   ASig.AddText('issuerLookupId', ALookup.Identity);
+end;
+
+class procedure TTlsConfigComposer.SignCredential(var ASig: TTlsSignatureBuilder;
+  const ACredential: TTlsCredential);
+var
+  LI: Int32;
+begin
+  for LI := 0 to System.High(ACredential.CertificateChain) do
+    ASig.AddBytesDigest('credChain', ACredential.CertificateChain[LI]);
+  ASig.AddPointer('credKey', ACredential.PrivateKey);
+  ASig.AddBytesDigest('credStaple', ACredential.OcspStaple);
+  ASig.AddMethod('credStapleCb', TMethod(ACredential.OcspStapleCallback));
+end;
+
+class procedure TTlsConfigComposer.SignChainLimits(var ASig: TTlsSignatureBuilder;
+  const ALimits: TCertificateChainLimits);
+begin
+  ASig.AddCardinal('limitCertificate', Cardinal(ALimits.MaxCertificateLength));
+  ASig.AddCardinal('limitTotal', Cardinal(ALimits.MaxTotalChainLength));
+  ASig.AddCardinal('limitCount', Cardinal(ALimits.MaxChainCertificates));
+  ASig.AddCardinal('limitPath', Cardinal(ALimits.MaxPathLength));
 end;
 
 class function TTlsConfigComposer.HostAnchorStore(const AOptions: TTlsOptions;
@@ -912,8 +964,10 @@ begin
   LClient.WithServerNameIndication(AOptions.ServerNameIndication);
   if System.Length(AOptions.AlpnProtocols) > 0 then
     LClient.WithAlpnProtocols(TAlpnProtocols.FromText(AOptions.AlpnProtocols));
-  if (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) then
+  if (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
+    (not AOptions.Credential.IsEmpty) then
     LClient.WithCredential(LoadCredential(AOptions, LCrypto, LPkix));
+  LClient.WithCertificateChainLimits(AOptions.CertificateChainLimits);
   // an app's augment-only verify rule, and the live-revocation verdict flag (the resolver itself is
   // a runtime stream hook attached at the session, not part of the frozen config)
   if Assigned(AOptions.VerifyCallback) then
@@ -941,7 +995,7 @@ var
   LClientTrust: IClientVerificationBuilder;
   LBlob: TBytes;
 begin
-  if AOptions.Certificate.IsEmpty then
+  if AOptions.Certificate.IsEmpty and AOptions.Credential.IsEmpty then
   begin
     if AOptions.CredentialSourceHint = '' then
       raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
@@ -980,7 +1034,10 @@ begin
       @SVerifyCallbackNeedsClientAuth)
   else if Assigned(AOptions.ServerVerdictResolver) then
     raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
-      @SVerdictResolverNeedsClientAuth);
+      @SVerdictResolverNeedsClientAuth)
+  else if not (AOptions.CertificateChainLimits = TCertificateChainLimits.Defaults) then
+    raise ETlsStreamError.CreateRes(TTlsAlertDescription.InternalError,
+      @SChainLimitsNeedClientAuth);
   LCrypto := EffectiveCrypto(AOptions);
   LPkix := EffectivePkix(AOptions);
   LServer := TTlsPresets.Compatible(LCrypto, LPkix).Server
@@ -1001,6 +1058,7 @@ begin
   if AOptions.ClientAuth <> TClientAuthMode.None then
   begin
     LServer.WithPeerAuth(AOptions.ClientAuth);
+    LServer.WithCertificateChainLimits(AOptions.CertificateChainLimits);
     LHostRoots := HostAnchorStore(AOptions, LPkix, LHostIntermediates);
     if AOptions.ClientCertificateVerifier <> nil then
     begin
@@ -1052,6 +1110,8 @@ begin
   Sign(LSig, 'key', AOptions.PrivateKey);
   LSig.AddSecret('keypw', AOptions.KeyPassword);
   LSig.AddCardinal('credForm', Cardinal(Ord(AOptions.CredentialForm)));
+  SignCredential(LSig, AOptions.Credential);
+  SignChainLimits(LSig, AOptions.CertificateChainLimits);
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     Sign(LSig, 'anchor', AOptions.TrustAnchors[LI]);
   // the rule and the lookup are read only by a verifying client
@@ -1112,6 +1172,10 @@ begin
   Sign(LSig, 'key', AOptions.PrivateKey);
   LSig.AddSecret('keypw', AOptions.KeyPassword);
   LSig.AddCardinal('credForm', Cardinal(Ord(AOptions.CredentialForm)));
+  SignCredential(LSig, AOptions.Credential);
+  // a server reads the limits only to verify a requested client chain
+  if AOptions.ClientAuth <> TClientAuthMode.None then
+    SignChainLimits(LSig, AOptions.CertificateChainLimits);
   for LI := 0 to System.High(AOptions.TrustAnchors) do
     Sign(LSig, 'anchor', AOptions.TrustAnchors[LI]);
   LSig.AddCardinal('bundleAnchors', Cardinal(Ord(AOptions.BundleAnchors)));
@@ -1152,6 +1216,8 @@ begin
   // option that role never consumes. The verdict resolvers and the handshake timeout are runtime
   // hooks and never conflict.
   LConflict := (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
+    (not AOptions.Credential.IsEmpty) or
+    not (AOptions.CertificateChainLimits = TCertificateChainLimits.Defaults) or
     HasTrustAnchor(AOptions) or (AOptions.IssuerLookup <> nil) or
     (AOptions.BundleAnchors <> TBundleAnchorRule.SelfSignedOnly) or
     (AOptions.CustomTrustStore <> nil) or (System.Length(AOptions.AlpnProtocols) > 0) or

@@ -65,6 +65,8 @@ type
     /// <summary>A copy that owns its certificate chain and staple bytes; the signing key and the
     /// staple callback are shared with this credential.</summary>
     function Clone: TTlsCredential;
+    /// <summary>True when neither a chain nor a key is set.</summary>
+    function IsEmpty: Boolean;
     /// <summary>Whether this credential can sign a handshake as presented, judged by
     /// ACertificates without a signing operation. The leaf and the key's public half are
     /// compared by key value, so equal keys that differ in encoding match. Never raises on a
@@ -151,6 +153,11 @@ begin
   Result := Self;
   Result.CertificateChain := TArrayUtilities.DeepCopy<Byte>(CertificateChain);
   Result.OcspStaple := System.Copy(OcspStaple);
+end;
+
+function TTlsCredential.IsEmpty: Boolean;
+begin
+  Result := (System.Length(CertificateChain) = 0) and (PrivateKey = nil);
 end;
 
 function TTlsCredential.Consistency(
