@@ -647,8 +647,8 @@ begin
     ANotAfter := FCert.NotAfter;
     Result := True;
   except
-    ANotBefore := 0;
-    ANotAfter := 0;
+    ANotBefore := Default(TDateTime);
+    ANotAfter := Default(TDateTime);
     Result := False;
   end;
 end;
