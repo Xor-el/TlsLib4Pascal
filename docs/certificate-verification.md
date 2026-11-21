@@ -539,7 +539,7 @@ never counted, a directly trusted leaf always passes, and 0 trusts only a leaf a
 path over the bound is never accepted: the builder prunes it and keeps looking for a shorter one, a
 path an OS engine or a custom `ICertificatePathValidator` returns is refused afterwards, and the alert is
 `unknown_ca` (the built-in builder reports `certificate_expired` instead when an expired issuer explains
-the failure). OpenSSL's `verify_depth` also counts self-issued certificates.
+the failure).
 
 ```pascal
 uses TlpCertificateLimits, TlpCertificateVerifierSource;
