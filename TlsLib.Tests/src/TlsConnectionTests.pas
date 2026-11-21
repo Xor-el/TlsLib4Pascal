@@ -149,6 +149,8 @@ type
     procedure TestClientCheckHostNameOffDisablesNameCheck;
     procedure TestClientServerNameIndicationForwarded;
     procedure TestClientAlpnForwarded;
+    procedure TestOptionsDuplicateAlpnNameIsRefusedOnTheClientBuild;
+    procedure TestOptionsEmptyAlpnNameIsRefusedOnTheServerBuild;
     procedure TestClientVerifyCallbackForwarded;
     procedure TestClientVerdictResolverArmsLiveRevocation;
     procedure TestClientNoResolverLeavesInlineVerdict;
@@ -193,7 +195,6 @@ type
     procedure TestSignatureEqualOptionsEqualKeys;
     procedure TestSignatureEachConcernChangesKey;
     procedure TestSignatureKeysAlpnByOctets;
-    procedure TestOptionsAlpnRefusedByTheBuilderRules;
     procedure TestConnectionRefusesANilConfigOrTransport;
     procedure TestConnectionCreateRefusesANilEngineOrTransport;
     procedure TestSignatureKeysSystemTrustByIdentity;
@@ -206,6 +207,7 @@ type
     procedure TestResolveMemoisesBuildOnce;
     procedure TestResolveConfigInReturnedAsIs;
     procedure TestGuardConflictOnEachField;
+    procedure TestGuardConflictOnAlpnBesideAServerConfig;
     procedure TestGuardConflictOnSecurityToggles;
     procedure TestGuardIncludesVerifyCallback;
     procedure TestGuardMessageNamesTheProperty;
@@ -1368,13 +1370,15 @@ procedure TTestTlsConnection.TestClientAlpnForwarded;
 var
   LOpts: TTlsOptions;
   LAlpn: TArray<TBytes>;
+  LOpaqueName: TBytes;
 begin
+  LOpaqueName := TBytes.Create($68, $FF);
   LOpts := ClientOptsWithStore;
-  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TBytes.Create($68, $FF));
+  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, LOpaqueName);
   LAlpn := TTlsConfigComposer.BuildClientConfig(LOpts).AlpnProtocols;
   CheckEquals(2, System.Length(LAlpn), 'both ALPN protocols are forwarded');
   CheckEqualBytes('first ALPN protocol', TAlpnProtocols.H2, LAlpn[0]);
-  CheckEqualBytes('second ALPN protocol, opaque octets', TBytes.Create($68, $FF), LAlpn[1]);
+  CheckEqualBytes('second ALPN protocol, opaque octets', LOpaqueName, LAlpn[1]);
 end;
 
 procedure TTestTlsConnection.TestClientVerifyCallbackForwarded;
@@ -2385,9 +2389,11 @@ end;
 procedure TTestTlsConnection.TestSignatureKeysAlpnByOctets;
 var
   LClientA, LClientB, LServerA, LServerB: TTlsOptions;
+  LOpaqueName: TBytes;
 begin
+  LOpaqueName := TBytes.Create($68, $FF);
   LClientA := ClientOptsWithStore;
-  LClientA.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TAlpnProtocols.H2);
+  LClientA.AlpnProtocols := TArray<TBytes>.Create(LOpaqueName, TAlpnProtocols.H2);
   // the same store instance on both sides, so only the ALPN octets can differ
   LClientB := LClientA;
   LClientB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TAlpnProtocols.H2);
@@ -2396,12 +2402,16 @@ begin
   LClientB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FE), TAlpnProtocols.H2);
   CheckFalse(TTlsConfigComposer.ClientSignature(LClientA) = TTlsConfigComposer.ClientSignature(LClientB),
     'names one octet apart give different client signatures');
-  LClientB.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TBytes.Create($68, $FF));
+  LClientB.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, LOpaqueName);
   CheckFalse(TTlsConfigComposer.ClientSignature(LClientA) = TTlsConfigComposer.ClientSignature(LClientB),
     'a different order gives a different client signature');
+  LClientA.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($61, $62), TBytes.Create($63));
+  LClientB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($61), TBytes.Create($62, $63));
+  CheckFalse(TTlsConfigComposer.ClientSignature(LClientA) = TTlsConfigComposer.ClientSignature(LClientB),
+    'moving an octet across a list boundary gives a different client signature');
 
   LServerA := ServerOptsWithCredential;
-  LServerA.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TAlpnProtocols.H2);
+  LServerA.AlpnProtocols := TArray<TBytes>.Create(LOpaqueName, TAlpnProtocols.H2);
   LServerB := LServerA;
   LServerB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TAlpnProtocols.H2);
   CheckEquals(TTlsConfigComposer.ServerSignature(LServerA), TTlsConfigComposer.ServerSignature(LServerB),
@@ -2409,34 +2419,62 @@ begin
   LServerB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FE), TAlpnProtocols.H2);
   CheckFalse(TTlsConfigComposer.ServerSignature(LServerA) = TTlsConfigComposer.ServerSignature(LServerB),
     'names one octet apart give different server signatures');
-  LServerB.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TBytes.Create($68, $FF));
+  LServerB.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, LOpaqueName);
   CheckFalse(TTlsConfigComposer.ServerSignature(LServerA) = TTlsConfigComposer.ServerSignature(LServerB),
     'a different order gives a different server signature');
 end;
 
-procedure TTestTlsConnection.TestOptionsAlpnRefusedByTheBuilderRules;
+procedure TTestTlsConnection.TestGuardConflictOnAlpnBesideAServerConfig;
 var
-  LClientOpts, LServerOpts: TTlsOptions;
-  LEmptyName: TBytes;
+  LOpts: TTlsOptions;
   LRaised: Boolean;
 begin
-  LEmptyName := nil;
-  LClientOpts := ClientOptsWithStore;
-  LClientOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.H2);
+  LOpts := TTlsOptions.Default;
+  LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
+  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2);
   LRaised := False;
   try
-    TTlsConfigComposer.BuildClientConfig(LClientOpts);
+    TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer, 'ServerConfig');
+  except
+    on E: ETlsStreamError do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'ALPN protocols beside a supplied server config fail loud');
+end;
+
+procedure TTestTlsConnection.TestOptionsDuplicateAlpnNameIsRefusedOnTheClientBuild;
+var
+  LOpts: TTlsOptions;
+  LRaised: Boolean;
+begin
+  LOpts := ClientOptsWithStore;
+  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.Http11);
+  CheckEquals(2, System.Length(TTlsConfigComposer.BuildClientConfig(LOpts).AlpnProtocols),
+    'the same options without the repeated name build');
+  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.H2);
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(LOpts);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a duplicate ALPN name is refused on the client build');
+end;
 
-  LServerOpts := ServerOptsWithCredential;
-  LServerOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, LEmptyName);
+procedure TTestTlsConnection.TestOptionsEmptyAlpnNameIsRefusedOnTheServerBuild;
+var
+  LOpts: TTlsOptions;
+  LRaised: Boolean;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2);
+  CheckEquals(1, System.Length(TTlsConfigComposer.BuildServerConfig(LOpts).AlpnProtocols),
+    'the same options without the empty name build');
+  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, nil);
   LRaised := False;
   try
-    TTlsConfigComposer.BuildServerConfig(LServerOpts);
+    TTlsConfigComposer.BuildServerConfig(LOpts);
   except
     on E: EArgumentTlsLibException do
       LRaised := True;

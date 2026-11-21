@@ -120,7 +120,7 @@ type
     CheckHostName: Boolean;                      // default True
     ServerNameIndication: TServerNameIndication; // client: Omit sends no SNI; the host is still verified
     ClientAuth: TClientAuthMode;                 // server: None never requests; a mode needs a client-trust source
-    AlpnProtocols: TArray<TBytes>;               // wire names in preference order; TAlpnProtocols.FromText turns ASCII text into them
+    AlpnProtocols: TArray<TBytes>;               // wire names in preference order; ASCII text via TAlpnProtocols.FromText
     VerifyCallback: TTlsCertificateVerifyCallback;
     ClientVerdictResolver: TCertificateVerdictResolver;
     ClientVerdictDeadlineMs: Cardinal;
