@@ -625,6 +625,8 @@ uses TlpAlpnProtocols;
 .WithAlpnProtocols(TAlpnProtocols.FromText(TArray<string>.Create('h2', 'http/1.1')))
 ```
 
+A host that builds from `TTlsOptions` sets `AlpnProtocols` to the same octets.
+
 Read the result off the connection afterwards (`ConnectionInfo.AlpnProtocol`, bytes; compare with
 `TArrayUtilities.AreEqual` or turn an ASCII name back with `TAlpnProtocols.TryToText`). A server
 already rejects an offer that shares no protocol with it; `.WithAlpnRejection(True)` rejects every

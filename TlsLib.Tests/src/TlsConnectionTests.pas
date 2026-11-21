@@ -192,6 +192,8 @@ type
     // signatures
     procedure TestSignatureEqualOptionsEqualKeys;
     procedure TestSignatureEachConcernChangesKey;
+    procedure TestSignatureKeysAlpnByOctets;
+    procedure TestOptionsAlpnRefusedByTheBuilderRules;
     procedure TestConnectionRefusesANilConfigOrTransport;
     procedure TestConnectionCreateRefusesANilEngineOrTransport;
     procedure TestSignatureKeysSystemTrustByIdentity;
@@ -1368,11 +1370,11 @@ var
   LAlpn: TArray<TBytes>;
 begin
   LOpts := ClientOptsWithStore;
-  LOpts.AlpnProtocols := TArray<string>.Create('h2', 'http/1.1');
+  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TBytes.Create($68, $FF));
   LAlpn := TTlsConfigComposer.BuildClientConfig(LOpts).AlpnProtocols;
   CheckEquals(2, System.Length(LAlpn), 'both ALPN protocols are forwarded');
   CheckEqualBytes('first ALPN protocol', TAlpnProtocols.H2, LAlpn[0]);
-  CheckEqualBytes('second ALPN protocol', TAlpnProtocols.Http11, LAlpn[1]);
+  CheckEqualBytes('second ALPN protocol, opaque octets', TBytes.Create($68, $FF), LAlpn[1]);
 end;
 
 procedure TTestTlsConnection.TestClientVerifyCallbackForwarded;
@@ -2076,7 +2078,7 @@ begin
     'changing the key password changes the key');
 
   LMut := LBase;
-  LMut.AlpnProtocols := TArray<string>.Create('h2');
+  LMut.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2);
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'adding ALPN changes the key');
 
@@ -2093,6 +2095,10 @@ begin
   LMut.ClientAuth := TClientAuthMode.Required;
   CheckFalse(TTlsConfigComposer.ServerSignature(LMut) = LBaseSig,
     'the client-auth mode changes the server key');
+  LMut := LBase;
+  LMut.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2);
+  CheckFalse(TTlsConfigComposer.ServerSignature(LMut) = LBaseSig,
+    'adding ALPN changes the server key');
 
   // system trust is a client-only read: it changes the CLIENT key but never the server key (the
   // server build does not read it, so it must not be in the server memo signature)
@@ -2370,6 +2376,72 @@ begin
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
     TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
   ExpectConflict(LOpts, 'system trust');
+
+  LOpts := TTlsOptions.Default;
+  LOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2);
+  ExpectConflict(LOpts, 'ALPN protocols');
+end;
+
+procedure TTestTlsConnection.TestSignatureKeysAlpnByOctets;
+var
+  LClientA, LClientB, LServerA, LServerB: TTlsOptions;
+begin
+  LClientA := ClientOptsWithStore;
+  LClientA.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TAlpnProtocols.H2);
+  // the same store instance on both sides, so only the ALPN octets can differ
+  LClientB := LClientA;
+  LClientB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TAlpnProtocols.H2);
+  CheckEquals(TTlsConfigComposer.ClientSignature(LClientA), TTlsConfigComposer.ClientSignature(LClientB),
+    'equal octets in separate arrays give equal client signatures');
+  LClientB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FE), TAlpnProtocols.H2);
+  CheckFalse(TTlsConfigComposer.ClientSignature(LClientA) = TTlsConfigComposer.ClientSignature(LClientB),
+    'names one octet apart give different client signatures');
+  LClientB.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TBytes.Create($68, $FF));
+  CheckFalse(TTlsConfigComposer.ClientSignature(LClientA) = TTlsConfigComposer.ClientSignature(LClientB),
+    'a different order gives a different client signature');
+
+  LServerA := ServerOptsWithCredential;
+  LServerA.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TAlpnProtocols.H2);
+  LServerB := LServerA;
+  LServerB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FF), TAlpnProtocols.H2);
+  CheckEquals(TTlsConfigComposer.ServerSignature(LServerA), TTlsConfigComposer.ServerSignature(LServerB),
+    'equal octets in separate arrays give equal server signatures');
+  LServerB.AlpnProtocols := TArray<TBytes>.Create(TBytes.Create($68, $FE), TAlpnProtocols.H2);
+  CheckFalse(TTlsConfigComposer.ServerSignature(LServerA) = TTlsConfigComposer.ServerSignature(LServerB),
+    'names one octet apart give different server signatures');
+  LServerB.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TBytes.Create($68, $FF));
+  CheckFalse(TTlsConfigComposer.ServerSignature(LServerA) = TTlsConfigComposer.ServerSignature(LServerB),
+    'a different order gives a different server signature');
+end;
+
+procedure TTestTlsConnection.TestOptionsAlpnRefusedByTheBuilderRules;
+var
+  LClientOpts, LServerOpts: TTlsOptions;
+  LEmptyName: TBytes;
+  LRaised: Boolean;
+begin
+  LEmptyName := nil;
+  LClientOpts := ClientOptsWithStore;
+  LClientOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, TAlpnProtocols.H2);
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildClientConfig(LClientOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a duplicate ALPN name is refused on the client build');
+
+  LServerOpts := ServerOptsWithCredential;
+  LServerOpts.AlpnProtocols := TArray<TBytes>.Create(TAlpnProtocols.H2, LEmptyName);
+  LRaised := False;
+  try
+    TTlsConfigComposer.BuildServerConfig(LServerOpts);
+  except
+    on E: EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an empty ALPN name is refused on the server build');
 end;
 
 procedure TTestTlsConnection.TestGuardConflictOnSecurityToggles;

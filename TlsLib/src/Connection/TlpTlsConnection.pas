@@ -27,7 +27,6 @@ interface
 uses
   SysUtils,
   Classes,
-  TlpAlpnProtocols,
   TlpIClock,
   TlpClock,
   TlpTlsAlert,
@@ -121,7 +120,7 @@ type
     CheckHostName: Boolean;                      // default True
     ServerNameIndication: TServerNameIndication; // client: Omit sends no SNI; the host is still verified
     ClientAuth: TClientAuthMode;                 // server: None never requests; a mode needs a client-trust source
-    AlpnProtocols: TArray<string>;
+    AlpnProtocols: TArray<TBytes>;               // wire names in preference order; TAlpnProtocols.FromText turns ASCII text into them
     VerifyCallback: TTlsCertificateVerifyCallback;
     ClientVerdictResolver: TCertificateVerdictResolver;
     ClientVerdictDeadlineMs: Cardinal;
@@ -978,7 +977,7 @@ begin
     LClient.WithDangerousDisableServerNameCheck;
   LClient.WithServerNameIndication(AOptions.ServerNameIndication);
   if System.Length(AOptions.AlpnProtocols) > 0 then
-    LClient.WithAlpnProtocols(TAlpnProtocols.FromText(AOptions.AlpnProtocols));
+    LClient.WithAlpnProtocols(AOptions.AlpnProtocols);
   if (not AOptions.Certificate.IsEmpty) or (not AOptions.PrivateKey.IsEmpty) or
     (not AOptions.Credential.IsEmpty) then
     LClient.WithCredential(LoadCredential(AOptions, LCrypto, LPkix));
@@ -1065,7 +1064,7 @@ begin
   else if System.Length(AOptions.SupportedVersions) > 0 then
     LServer.WithSupportedVersions(AOptions.SupportedVersions);
   if System.Length(AOptions.AlpnProtocols) > 0 then
-    LServer.WithAlpnProtocols(TAlpnProtocols.FromText(AOptions.AlpnProtocols));
+    LServer.WithAlpnProtocols(AOptions.AlpnProtocols);
   // request + verify client certificates only under an explicit mode (a named client-CA alone never
   // triggers it; system trust is a server-cert source and is never a client-CA). The async
   // client-certificate verdict park is armed here (and only here) so the server-role resolver runs
@@ -1158,7 +1157,7 @@ begin
   // a composed store keeps the stores it was built from, so this address stays live with the config
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
   for LI := 0 to System.High(AOptions.AlpnProtocols) do
-    LSig.AddText('alpn', AOptions.AlpnProtocols[LI]);
+    LSig.AddBytesDigest('alpn', AOptions.AlpnProtocols[LI]);
   LSig.AddMethod('verifyCb', TMethod(AOptions.VerifyCallback));
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ClientVerdictResolver));
   LSig.AddCardinal('deadline', AOptions.ClientVerdictDeadlineMs);
@@ -1203,7 +1202,7 @@ begin
   LSig.AddPointer('customStore', AOptions.CustomTrustStore);
   LSig.AddCardinal('clientAuth', Cardinal(Ord(AOptions.ClientAuth)));
   for LI := 0 to System.High(AOptions.AlpnProtocols) do
-    LSig.AddText('alpn', AOptions.AlpnProtocols[LI]);
+    LSig.AddBytesDigest('alpn', AOptions.AlpnProtocols[LI]);
   LSig.AddMethod('verifyCb', TMethod(AOptions.VerifyCallback));
   LSig.AddFlag('asyncVerdict', Assigned(AOptions.ServerVerdictResolver));
   LSig.AddCardinal('deadline', AOptions.ServerVerdictDeadlineMs);
