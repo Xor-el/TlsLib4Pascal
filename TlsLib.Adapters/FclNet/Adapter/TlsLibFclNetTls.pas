@@ -1515,7 +1515,7 @@ begin
   else
     Result.ServerNameIndication := TServerNameIndication.Omit;
   Result.ClientAuth := FClientAuth;
-  Result.AlpnProtocols := EffectiveAlpnProtocols;
+  Result.AlpnProtocols := TAlpnProtocols.FromText(EffectiveAlpnProtocols);
   Result.VerifyCallback := FVerifyCallback;
   Result.ClientVerdictResolver := FVerdictResolver;
   Result.ClientVerdictDeadlineMs := FVerdictDeadlineMs;

@@ -142,6 +142,7 @@ type
     procedure HandshakeEnginesWith(const AClientConfig: ITlsClientConfig;
       const AServerConfig: ITlsServerConfig; out AClient, AServer: ITlsEngine);
     procedure HandshakeTls12WithAlpn(out AClient, AServer: ITlsEngine);
+    procedure HandshakeOptionsWithOpaqueAlpn(AVersion: UInt16; out AClient, AServer: ITlsEngine);
     /// <summary>TLS 1.2 configs whose AEAD hits its usage limit on the first application record.</summary>
     procedure CappedTls12Configs(out AClientConfig: ITlsClientConfig;
       out AServerConfig: ITlsServerConfig);
@@ -311,6 +312,10 @@ type
     procedure TestPeerCloseNotifyDuringHandshakeRaises;
     procedure TestTls12ClientReportsTheSelectedAlpn;
     procedure TestTls12ServerReportsItsSelectedAlpn;
+    procedure TestOptionsClientReportsAnOpaqueAlpnNameOverTls13;
+    procedure TestOptionsServerReportsAnOpaqueAlpnNameOverTls13;
+    procedure TestOptionsClientReportsAnOpaqueAlpnNameOverTls12;
+    procedure TestOptionsServerReportsAnOpaqueAlpnNameOverTls12;
     procedure TestWriteOnTerminalEngineFlushesQueuedAlertBeforeRaising;
     procedure TestReadReturningDataFlushesAlertQueuedByTheDrain;
     procedure TestReadReturningBufferedDataSurvivesADeadTransport;
@@ -1670,6 +1675,79 @@ begin
   HandshakeTls12WithAlpn(LClient, LServer);
   CheckEqualBytes('the TLS 1.2 server reports the protocol it selected', TAlpnProtocols.Http11,
     LServer.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestTlsStreamLoopback.TestOptionsClientReportsAnOpaqueAlpnNameOverTls13;
+var
+  LClient, LServer: ITlsEngine;
+  LOpaqueName: TBytes;
+begin
+  LOpaqueName := TBytes.Create($68, $FF);
+  HandshakeOptionsWithOpaqueAlpn(TlsWireVersionTls13, LClient, LServer);
+  CheckEqualBytes('the client reports the opaque name over TLS 1.3', LOpaqueName,
+    LClient.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestTlsStreamLoopback.TestOptionsServerReportsAnOpaqueAlpnNameOverTls13;
+var
+  LClient, LServer: ITlsEngine;
+  LOpaqueName: TBytes;
+begin
+  LOpaqueName := TBytes.Create($68, $FF);
+  HandshakeOptionsWithOpaqueAlpn(TlsWireVersionTls13, LClient, LServer);
+  CheckEqualBytes('the server reports the opaque name over TLS 1.3', LOpaqueName,
+    LServer.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestTlsStreamLoopback.TestOptionsClientReportsAnOpaqueAlpnNameOverTls12;
+var
+  LClient, LServer: ITlsEngine;
+  LOpaqueName: TBytes;
+begin
+  LOpaqueName := TBytes.Create($68, $FF);
+  HandshakeOptionsWithOpaqueAlpn(TlsWireVersionTls12, LClient, LServer);
+  CheckEqualBytes('the client reports the opaque name over TLS 1.2', LOpaqueName,
+    LClient.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestTlsStreamLoopback.TestOptionsServerReportsAnOpaqueAlpnNameOverTls12;
+var
+  LClient, LServer: ITlsEngine;
+  LOpaqueName: TBytes;
+begin
+  LOpaqueName := TBytes.Create($68, $FF);
+  HandshakeOptionsWithOpaqueAlpn(TlsWireVersionTls12, LClient, LServer);
+  CheckEqualBytes('the server reports the opaque name over TLS 1.2', LOpaqueName,
+    LServer.ConnectionInfo.AlpnProtocol);
+end;
+
+procedure TTestTlsStreamLoopback.HandshakeOptionsWithOpaqueAlpn(AVersion: UInt16;
+  out AClient, AServer: ITlsEngine);
+var
+  LClientOpts, LServerOpts: TTlsOptions;
+  LOpaqueName: TBytes;
+begin
+  LOpaqueName := TBytes.Create($68, $FF);
+  LServerOpts := TTlsOptions.Default;
+  LServerOpts.Crypto := Crypto;
+  LServerOpts.Pkix := Pkix;
+  LServerOpts.Certificate := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+  LServerOpts.PrivateKey := TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+  LServerOpts.SupportedVersions := TArray<UInt16>.Create(AVersion);
+  LServerOpts.AlpnProtocols := TArray<TBytes>.Create(LOpaqueName, TAlpnProtocols.H2);
+  LClientOpts := TTlsOptions.Default;
+  LClientOpts.Crypto := Crypto;
+  LClientOpts.Pkix := Pkix;
+  LClientOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
+    TTlsBlobSource.FromBytes(TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+  LClientOpts.SupportedVersions := TArray<UInt16>.Create(AVersion);
+  LClientOpts.AlpnProtocols := TArray<TBytes>.Create(LOpaqueName);
+  HandshakeEnginesWith(TTlsConfigComposer.BuildClientConfig(LClientOpts),
+    TTlsConfigComposer.BuildServerConfig(LServerOpts), AClient, AServer);
+  CheckEquals(Integer(AVersion), Integer(AServer.ConnectionInfo.NegotiatedVersion.WireValue),
+    'the requested version was negotiated');
 end;
 
 procedure TTestTlsStreamLoopback.HandshakeTls12WithAlpn(out AClient, AServer: ITlsEngine);
