@@ -94,8 +94,8 @@ hand it to your adapter. The PKCS#12 importer fails closed on a bad password or 
 The leaf is the certificate that pairs the key (the linked one if it does, else the lowest DER),
 and the chain follows it by issuer name. Where the OS-native overlay can, the OS unwraps the
 file; a store it cannot unwrap goes to the portable importer.
-Load a credential through the crypto provider its config is built on: a key belongs to the
-provider that imported it, and `Build` refuses one that provider cannot sign with.
+Load a credential through the crypto provider its config is built on (or one that provider
+routes to); `Build` refuses a key that provider cannot sign with.
 
 To staple OCSP for the leaf, set the credential's `OcspStaple` (DER) or `OcspStapleCallback` (it
 refreshes an expiring staple and takes precedence; it must not do network I/O). The staple is sent
@@ -605,7 +605,7 @@ A host that builds from `TTlsOptions` names the identity with `Certificate` and 
 `Credential` to a `TTlsCredential` it has already loaded: a key that cannot be written out (one held by
 an OS keystore or an HSM) or a credential it rotates in memory. `Credential` replaces the other four
 credential fields, setting both is refused, and the options never wipe it. Load it through the
-provider in `Crypto`.
+provider in `Crypto` (the default provider when it is nil).
 
 `Required` fails the handshake closed if the client presents nothing. To revoke client certificates,
 see [revocation](#set-a-revocation-posture) — note a client can't staple, so `Hard` client-cert

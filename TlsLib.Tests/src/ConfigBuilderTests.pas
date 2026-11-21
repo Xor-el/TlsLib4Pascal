@@ -407,9 +407,9 @@ type
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
     procedure TestClientCredentialWithMismatchedKeyRejected;
     // a key no provider minted is consistent with its leaf but cannot sign, so Build refuses it
-    procedure TestServerCredentialWithForeignKeyRejected;
-    procedure TestClientCredentialWithForeignKeyRejected;
-    procedure TestSniCredentialWithForeignKeyNamesHost;
+    procedure TestServerCredentialWithUnownedKeyRejected;
+    procedure TestClientCredentialWithUnownedKeyRejected;
+    procedure TestSniCredentialWithUnownedKeyNamesHost;
     procedure TestMatchingCredentialBuildsServer;
     // RFC 9846 4.7.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
     procedure TestTicketLifetimeAboveCapIsRejected;
@@ -4541,7 +4541,7 @@ begin
   CheckTrue(LRaised, 'a client credential whose key does not own its leaf is refused at Build');
 end;
 
-procedure TTestConfigBuilder.TestServerCredentialWithForeignKeyRejected;
+procedure TTestConfigBuilder.TestServerCredentialWithUnownedKeyRejected;
 var
   LBuilder: ITlsConfigBuilder;
   LMsg: string;
@@ -4555,10 +4555,10 @@ begin
       LMsg := E.Message;
   end;
   CheckTrue(Pos('not loaded through', LMsg) > 0,
-    'a credential whose key the provider did not mint is refused at Build');
+    'a credential whose key the provider did not mint is refused at Build; got: ' + LMsg);
 end;
 
-procedure TTestConfigBuilder.TestClientCredentialWithForeignKeyRejected;
+procedure TTestConfigBuilder.TestClientCredentialWithUnownedKeyRejected;
 var
   LBuilder: ITlsConfigBuilder;
   LMsg: string;
@@ -4574,10 +4574,10 @@ begin
       LMsg := E.Message;
   end;
   CheckTrue(Pos('not loaded through', LMsg) > 0,
-    'a client credential whose key the provider did not mint is refused at Build');
+    'a client credential whose key the provider did not mint is refused at Build; got: ' + LMsg);
 end;
 
-procedure TTestConfigBuilder.TestSniCredentialWithForeignKeyNamesHost;
+procedure TTestConfigBuilder.TestSniCredentialWithUnownedKeyNamesHost;
 var
   LBuilder: ITlsConfigBuilder;
   LMsg: string;
@@ -4591,7 +4591,8 @@ begin
       LMsg := E.Message;
   end;
   CheckTrue((Pos('localhost', LMsg) > 0) and (Pos('not loaded through', LMsg) > 0),
-    'an SNI credential whose key the provider did not mint is refused and names its host');
+    'an SNI credential whose key the provider did not mint is refused and names its host; got: '
+    + LMsg);
 end;
 
 procedure TTestConfigBuilder.TestMatchingCredentialBuildsServer;

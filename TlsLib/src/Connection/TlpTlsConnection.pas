@@ -106,7 +106,7 @@ type
     PrivateKey: TTlsBlobSource;
     KeyPassword: string;
     CredentialForm: TTlsCredentialForm;          // how Certificate is read
-    Credential: TTlsCredential;                  // a loaded identity through Crypto, the caller's (never wiped); replaces Certificate, PrivateKey, KeyPassword, CredentialForm
+    Credential: TTlsCredential;                  // an identity loaded through Crypto, the caller's (never wiped); replaces Certificate, PrivateKey, KeyPassword, CredentialForm
     TrustAnchors: TArray<TTlsBlobSource>; // each is one WebPki anchor blob (union)
     BundleAnchors: TBundleAnchorRule;            // which TrustAnchors certificates anchor; default SelfSignedOnly
     CertificateChainLimits: TCertificateChainLimits;  // all zero = TCertificateChainLimits.Defaults; a server may change it only under ClientAuth

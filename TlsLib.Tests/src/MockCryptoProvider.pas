@@ -123,26 +123,6 @@ type
     function OwnsKey(const AKey: ISigningKey): Boolean;
   end;
 
-  /// <summary>A signing key that is a handle over a key held elsewhere, the way a device or
-  /// keystore key is: only the facet that minted it can reach what it stands for.</summary>
-  IHandleSigningKey = interface(ISigningKey)
-    ['{81579FAC-787A-4F24-9BFD-0D2D88C9EB89}']
-    /// <summary>The key the handle stands for.</summary>
-    function Device: ISigningKey;
-  end;
-
-  THandleSigningKey = class sealed(TInterfacedObject, ISigningKey, IHandleSigningKey)
-  strict private
-  var
-    FDevice: ISigningKey;
-  public
-    constructor Create(const ADevice: ISigningKey);
-    function Device: ISigningKey;
-    function CapableSchemes: TArray<TSignatureScheme>;
-    function PublicKeyInfo: TBytes;
-    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
-  end;
-
   /// <summary>An <see cref="ISigningCrypto" /> over an inner facet whose keys are handles: it
   /// imports through the inner facet and wraps the result, owns only handles, and refuses to
   /// sign with any other key.</summary>
@@ -389,7 +369,28 @@ resourcestring
   SSealFaultIndexBelowOne = 'the seal to fail is counted from one';
   SMissingAgreement = 'this primitives facet does not provide the requested key agreement';
   SNotAHandle = 'the key is not a handle this signing facet minted';
-  SFakeHpkeSealer ='the fake HPKE suite seals nothing';
+  SFakeHpkeSealer = 'the fake HPKE suite seals nothing';
+
+type
+  /// <summary>A signing key that is a handle over a key held elsewhere, the way a device or
+  /// keystore key is: only the facet that minted it can reach what it stands for.</summary>
+  IHandleSigningKey = interface(ISigningKey)
+    ['{81579FAC-787A-4F24-9BFD-0D2D88C9EB89}']
+    /// <summary>The key the handle stands for.</summary>
+    function Device: ISigningKey;
+  end;
+
+  THandleSigningKey = class sealed(TInterfacedObject, ISigningKey, IHandleSigningKey)
+  strict private
+  var
+    FDevice: ISigningKey;
+  public
+    constructor Create(const ADevice: ISigningKey);
+    function Device: ISigningKey;
+    function CapableSchemes: TArray<TSignatureScheme>;
+    function PublicKeyInfo: TBytes;
+    function WithPreferredSchemes(const ASchemes: TArray<TSignatureScheme>): ISigningKey;
+  end;
 
 { TRejectingSignatureVerifier }
 

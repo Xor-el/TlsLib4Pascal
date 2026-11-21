@@ -596,7 +596,7 @@ resourcestring
   SCredentialKeyNotOwned = 'the credential''s private key was not loaded through this ' +
     'configuration''s crypto provider, which cannot sign with it; load the credential through ' +
     'the same provider';
-  SCredentialLeafMalformed ='the credential''s end-entity certificate (CertificateChain[0]) ' +
+  SCredentialLeafMalformed = 'the credential''s end-entity certificate (CertificateChain[0]) ' +
     'cannot be parsed';
   SCredentialLeafCannotSign = 'the credential''s end-entity certificate has a keyUsage extension ' +
     'that forbids digitalSignature, so it cannot sign a handshake (RFC 5280 4.2.1.3)';

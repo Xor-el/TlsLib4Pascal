@@ -2712,21 +2712,13 @@ end;
 
 procedure TTestNativeCryptoProvider.TestBuilderRejectsWrongLeafForNativeKey;
 var
-  LCredential: TImportedCredential;
-  LWrong: TTlsCredential;
+  LCredential, LWrong: TTlsCredential;
   LEcChain: TStringList;
   LMsg: string;
 begin
-  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
-    Exit;
-  LCredential := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
-    TSecretBuffer.FromString(SPassword));
   // the guard under test is for a natively held key; a platform that adopts none skips
-  if not IsNativeKey(Crypto, LCredential.PrivateKey) then
-  begin
-    SkipTest('the platform adopts no native PKCS#12 key');
+  if not NativeCredentialOrSkip(LCredential) then
     Exit;
-  end;
   // pair the native RSA key with a valid EC signing leaf: it permits signing (so the guard
   // reaches the key compare) but its key is a different family, so it fails as a wrong leaf -
   // not on an earlier keyUsage/exportability check
@@ -2754,20 +2746,10 @@ end;
 
 procedure TTestNativeCryptoProvider.TestBuilderAcceptsNativeCredential;
 var
-  LCredential: TImportedCredential;
   LGood: TTlsCredential;
 begin
-  if not NativeSigningOrSkip(Crypto, TSignatureScheme.RSA_PSS_RSAE_SHA256) then
+  if not NativeCredentialOrSkip(LGood) then
     Exit;
-  LCredential := Crypto.Signing.ImportPkcs12(DecodeHex(FPfx.Values['chain_pfx']),
-    TSecretBuffer.FromString(SPassword));
-  if not IsNativeKey(Crypto, LCredential.PrivateKey) then
-  begin
-    SkipTest('the platform adopts no native PKCS#12 key');
-    Exit;
-  end;
-  LGood.CertificateChain := LCredential.CertificateChain;
-  LGood.PrivateKey := LCredential.PrivateKey;
   // the native key's exported SPKI matches its own leaf, so the guard passes and Build succeeds
   CheckTrue(BuildServerConfig(LGood) <> nil,
     'a native credential whose key owns its leaf builds');
@@ -2797,8 +2779,6 @@ procedure TTestNativeCryptoProvider.CheckOptionsHandshake(const ACredential: TTl
   AVersion: UInt16);
 var
   LServerOpts, LClientOpts: TTlsOptions;
-  LDnsNames: TArray<string>;
-  LHost: string;
   LClient, LServer: ITlsEngine;
 begin
   LServerOpts := TTlsOptions.Default;
@@ -2812,17 +2792,11 @@ begin
   LClientOpts.SupportedVersions := TArray<UInt16>.Create(AVersion);
   LClientOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(DecodeHex(FPfx.Values['ca_cert_der'])));
-  LDnsNames := Pkix.Certificates.SubjectAltNames(ACredential.CertificateChain[0]).DnsNames;
-  if System.Length(LDnsNames) > 0 then
-    LHost := LDnsNames[0]
-  else
-  begin
-    LHost := 'localhost';
-    LClientOpts.CheckHostName := False;
-  end;
+  // the chain_pfx leaf carries no subjectAltName; the host is not under test
+  LClientOpts.CheckHostName := False;
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsConfigComposer.BuildServerConfig(LServerOpts));
   LClient := TTlsEngineFactory.CreateClientEngine(
-    TTlsConfigComposer.BuildClientConfig(LClientOpts), LHost);
+    TTlsConfigComposer.BuildClientConfig(LClientOpts), 'localhost');
   RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
   CheckFalse(LServer.IsHandshaking, 'the server completed the handshake');
@@ -2860,7 +2834,7 @@ begin
       LMsg := E.Message;
   end;
   CheckTrue(Pos('not loaded through', LMsg) > 0,
-    'a native key is refused by the default provider that did not import it');
+    'a native key is refused by the default provider that did not import it; got: ' + LMsg);
 end;
 
 procedure TTestNativeCryptoProvider.TestComposedSigningOwnsNativeAndPortableKeys;

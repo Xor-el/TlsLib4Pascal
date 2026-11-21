@@ -33,6 +33,7 @@ uses
   TlpTlsVersion,
   TlpPkixDomainTypes,
   TlpIPkixProvider,
+  TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
@@ -109,10 +110,10 @@ type
     procedure TestOptionsCredentialKeyChangesSignature;
     procedure TestOptionsSameCredentialReusesConfig;
     procedure TestOptionsCredentialMismatchedKeyIsRefused;
-    // a key its crypto provider did not mint is refused at build, for the given provider and for
-    // the default one
-    procedure TestOptionsCredentialFromAnotherProviderIsRefused;
-    procedure TestOptionsCredentialIsCheckedAgainstTheDefaultProvider;
+    // a key its crypto provider cannot sign with is refused at build: a key no provider minted,
+    // and a key another provider minted when the options name no provider
+    procedure TestOptionsCredentialWithUnownedKeyIsRefused;
+    procedure TestOptionsCredentialOfAnotherProviderIsRefusedWhenNoProviderIsNamed;
     procedure TestOptionsChainLimitsReachClientConfig;
     procedure TestOptionsChainLimitsReachServerConfigUnderClientAuth;
     procedure TestOptionsChainLimitsRefusedWithoutClientAuth;
@@ -856,7 +857,7 @@ begin
     'the builder''s key and leaf consistency check is reached');
 end;
 
-procedure TTestTlsConnection.TestOptionsCredentialFromAnotherProviderIsRefused;
+procedure TTestTlsConnection.TestOptionsCredentialWithUnownedKeyIsRefused;
 var
   LOpts: TTlsOptions;
   LMsg: string;
@@ -871,16 +872,25 @@ begin
       LMsg := E.Message;
   end;
   CheckTrue(Pos('not loaded through', LMsg) > 0,
-    'a key the options'' provider did not mint is refused at build');
+    'a key the options'' provider did not mint is refused at build; got: ' + LMsg);
 end;
 
-procedure TTestTlsConnection.TestOptionsCredentialIsCheckedAgainstTheDefaultProvider;
+procedure TTestTlsConnection.TestOptionsCredentialOfAnotherProviderIsRefusedWhenNoProviderIsNamed;
 var
+  LBuilder: ICryptoProviderBuilder;
+  LHandleProvider: ICryptoProvider;
   LOpts: TTlsOptions;
   LMsg: string;
 begin
-  LOpts := OptionsWithUnownedKey;
+  LBuilder := TCryptoProviderBuilder.Create;
+  LHandleProvider := LBuilder.WithPrimitives(Crypto.Primitives)
+    .WithSigning(THandleSigningCrypto.Create(Crypto.Signing) as ISigningCrypto).Build;
+  LOpts := TTlsOptions.Default;
   LOpts.Crypto := nil;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential := TTlsCredential.Load(LHandleProvider, Pkix,
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   LMsg := '';
   try
     TTlsConfigComposer.BuildServerConfig(LOpts);
@@ -889,7 +899,7 @@ begin
       LMsg := E.Message;
   end;
   CheckTrue(Pos('not loaded through', LMsg) > 0,
-    'with no provider named the default provider decides ownership');
+    'a key another provider owns is refused by the default provider; got: ' + LMsg);
 end;
 
 procedure TTestTlsConnection.TestOptionsChainLimitsReachClientConfig;

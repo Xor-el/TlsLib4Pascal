@@ -1094,15 +1094,18 @@ end;
 
 procedure TTestCredentialImport.TestSigningOwnsTheKeysItImports;
 const
-  LFields: array[0..7] of string = ('rsa_pkcs8_der', 'rsa_pkcs1_pem', 'ec256_pkcs8_der',
+  Fields: array[0..7] of string = ('rsa_pkcs8_der', 'rsa_pkcs1_pem', 'ec256_pkcs8_der',
     'ec256_sec1_pem', 'ec384_pkcs8_der', 'ec521_pkcs8_der', 'ed25519_pkcs8_der',
     'ed448_pkcs8_der');
 var
   LI: Int32;
   LKey: ISigningKey;
 begin
-  for LI := 0 to System.Length(LFields) - 1 do
-    CheckTrue(Crypto.Signing.OwnsKey(Import(LFields[LI])), LFields[LI] + ' is owned');
+  for LI := 0 to System.Length(Fields) - 1 do
+    CheckTrue(Crypto.Signing.OwnsKey(Import(Fields[LI])), Fields[LI] + ' is owned');
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']),
+    TSecretBuffer.FromString(SPassword));
+  CheckTrue(Crypto.Signing.OwnsKey(LKey), 'an encrypted key is owned');
   LKey := Crypto.Signing.ImportPkcs12(TTlsLibTestCertificates.Field('Certs/Pkcs12.txt',
     'chain_pfx'), TSecretBuffer.FromString(SPassword)).PrivateKey;
   CheckTrue(Crypto.Signing.OwnsKey(LKey), 'a PKCS#12 key is owned');

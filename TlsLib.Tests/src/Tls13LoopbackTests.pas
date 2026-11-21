@@ -2511,7 +2511,7 @@ begin
       LMsg := E.Message;
   end;
   CheckTrue(Pos('not loaded through', LMsg) > 0,
-    'a handle key is refused by a provider that did not mint it');
+    'a handle key is refused by a provider that did not mint it; got: ' + LMsg);
 end;
 
 initialization
