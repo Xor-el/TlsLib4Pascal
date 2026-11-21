@@ -19,6 +19,10 @@ uses
   SysUtils,
   Generics.Collections,
   TlpArrayUtilities,
+  TlpTlsLibExceptions,
+  TlpIPkixProvider,
+  TlpTrustTypes,
+  TlpPkixDomainTypes,
   TlpITrustAnchorStore,
   TlpILayeredTrustAnchorStore;
 
@@ -56,6 +60,12 @@ type
     /// one layer deep. The layer keeps the base alive.</summary>
     class function Layered(const ABase: ITrustAnchorStore;
       const AExtra: TArray<TBytes>): ITrustAnchorStore; static;
+    /// <summary>A store over the anchors of the PEM, DER or PKCS#7 bundle in AData under ARule;
+    /// AIntermediates are its other certificates, which only complete a peer's chain. Under
+    /// SelfSignedOnly a certificate anchors only when its own signature verifies. Raises when AData
+    /// holds no certificate or AInspector is nil.</summary>
+    class function FromBundle(const AInspector: ICertificateInspector; const AData: TBytes;
+      ARule: TBundleAnchorRule; out AIntermediates: TArray<TBytes>): ITrustAnchorStore; static;
     function AnchorCount: Int32;
     function RootCertificates: TArray<TBytes>;
     function IsAnchor(const ACertificate: TBytes): Boolean;
@@ -64,6 +74,9 @@ type
   end;
 
 implementation
+
+resourcestring
+  SNilInspector = 'a certificate inspector is required to read a trust-anchor bundle (pass an instance, not nil)';
 
 type
   TLayeredTrustAnchorStore = class sealed(TInterfacedObject, ITrustAnchorStore,
@@ -191,6 +204,30 @@ begin
     Exit(LHeld);
   Result := TLayeredTrustAnchorStore.Create(LBase,
     TTrustAnchorStore.Create(LExtras) as ITrustAnchorStore);
+end;
+
+class function TTrustAnchorStore.FromBundle(const AInspector: ICertificateInspector;
+  const AData: TBytes; ARule: TBundleAnchorRule;
+  out AIntermediates: TArray<TBytes>): ITrustAnchorStore;
+var
+  LCerts, LAnchors: TArray<TBytes>;
+  LI: Int32;
+begin
+  AIntermediates := nil;
+  if AInspector = nil then
+    raise EArgumentTlsLibException.CreateRes(@SNilInspector);
+  LCerts := AInspector.LoadChain(AData);
+  LAnchors := LCerts;
+  if ARule = TBundleAnchorRule.SelfSignedOnly then
+  begin
+    LAnchors := nil;
+    for LI := 0 to System.High(LCerts) do
+      if AInspector.Parse(LCerts[LI]).IsSelfSigned = TCertAnswer.Yes then
+        TArrayUtilities.Append<TBytes>(LAnchors, LCerts[LI])
+      else
+        TArrayUtilities.Append<TBytes>(AIntermediates, LCerts[LI]);
+  end;
+  Result := TTrustAnchorStore.Create(LAnchors) as ITrustAnchorStore;
 end;
 
 function TTrustAnchorStore.AnchorCount: Int32;

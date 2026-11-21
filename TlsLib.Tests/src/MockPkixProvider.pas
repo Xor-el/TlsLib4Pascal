@@ -32,16 +32,20 @@ type
     FInner: ICertificatePathValidator;
     FCount: Integer;
     FNameConstraintsRaise: Boolean;
+    FIgnoresPathLength: Boolean;
   public
     constructor Create(const AInner: ICertificatePathValidator);
     procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-      var AEffectiveChain: TArray<TBytes>);
+      AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
     function NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
     property Count: Integer read FCount;
     /// <summary>Makes NameConstraintsAdmit raise instead of answering.</summary>
     property NameConstraintsRaise: Boolean read FNameConstraintsRaise write FNameConstraintsRaise;
+    /// <summary>Makes the validator build with the path-length ceiling whatever bound it is given,
+    /// as a custom validator that disregards the bound would.</summary>
+    property IgnoresPathLength: Boolean read FIgnoresPathLength write FIgnoresPathLength;
   end;
 
   /// <summary>An inspector that delegates to a real one except that SameName answers a scripted
@@ -60,8 +64,7 @@ type
     function LoadChain(const AData: TBytes): TArray<TBytes>;
     function IsWellFormed(const ADer: TBytes): Boolean;
     function PublicKeyInfo(const ACertificateDer: TBytes): TBytes;
-    function DnsNames(const ACertificateDer: TBytes): TArray<string>;
-    function IpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
+    function SubjectAltNames(const ACertificateDer: TBytes): TCertSubjectAltNames;
     function PeerInfo(const ACertificateDer: TBytes;
       out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
     function TlsFeatures(const ACert: TBytes; out AFeatures: TArray<UInt16>): Boolean;
@@ -144,11 +147,13 @@ end;
 procedure TCountingPathValidator.ValidateCertificatePath(const AChain: TArray<TBytes>;
   const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
   const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-  var AEffectiveChain: TArray<TBytes>);
+  AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
 begin
   Inc(FCount);
+  if FIgnoresPathLength then
+    AMaxPathLength := 16;
   FInner.ValidateCertificatePath(AChain, ATrustAnchors, AIntermediates, AValidationTimeUtc,
-    AKeyPurpose, AEffectiveChain);
+    AKeyPurpose, AMaxPathLength, AEffectiveChain);
 end;
 
 function TCountingPathValidator.NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
@@ -190,14 +195,10 @@ begin
   Result := FInner.PublicKeyInfo(ACertificateDer);
 end;
 
-function TScriptedNameInspector.DnsNames(const ACertificateDer: TBytes): TArray<string>;
+function TScriptedNameInspector.SubjectAltNames(
+  const ACertificateDer: TBytes): TCertSubjectAltNames;
 begin
-  Result := FInner.DnsNames(ACertificateDer);
-end;
-
-function TScriptedNameInspector.IpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
-begin
-  Result := FInner.IpAddresses(ACertificateDer);
+  Result := FInner.SubjectAltNames(ACertificateDer);
 end;
 
 function TScriptedNameInspector.PeerInfo(const ACertificateDer: TBytes;

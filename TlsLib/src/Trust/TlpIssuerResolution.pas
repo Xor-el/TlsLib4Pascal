@@ -33,7 +33,7 @@ type
   /// Resolves, for one verification, the issuers a peer's chain names from an issuer lookup. Data
   /// in, verdict out: given the presented chain it asks the lookup for each distinct issuer name
   /// once, then for the issuers of the intermediates it found and of the operator's intermediates
-  /// whose subject it asked about, down to the path-building depth. Only a certificate the lookup returns under the asked name is
+  /// whose subject it asked about, down to the path length. Only a certificate the lookup returns under the asked name is
   /// used. A certificate the lookup offers as an anchor, whose key meets the anchor floors and
   /// that is self-signed (or of any kind, under AnyCertificate), becomes an anchor; every other
   /// certificate is chain material only. The result is the base store with the anchors layered
@@ -74,7 +74,8 @@ type
     /// returns unreadable data contributes nothing.</summary>
     class procedure Resolve(const AInspector: ICertificateInspector; const ALookup: IIssuerLookup;
       ARule: TBundleAnchorRule; const APolicy: TCertificateStrengthPolicy;
-      const ABase: ITrustAnchorStore; const AChain, AIntermediates: TArray<TBytes>;
+      const ABase: ITrustAnchorStore; AMaxPathLength: Int32;
+      const AChain, AIntermediates: TArray<TBytes>;
       out AStore: ITrustAnchorStore; out AFound: TArray<TBytes>); static;
   end;
 
@@ -177,8 +178,8 @@ end;
 class procedure TIssuerResolution.Resolve(const AInspector: ICertificateInspector;
   const ALookup: IIssuerLookup; ARule: TBundleAnchorRule;
   const APolicy: TCertificateStrengthPolicy; const ABase: ITrustAnchorStore;
-  const AChain, AIntermediates: TArray<TBytes>; out AStore: ITrustAnchorStore;
-  out AFound: TArray<TBytes>);
+  AMaxPathLength: Int32; const AChain, AIntermediates: TArray<TBytes>;
+  out AStore: ITrustAnchorStore; out AFound: TArray<TBytes>);
 var
   LWalk: TWalk;
   LNames: TArray<TBytes>;
@@ -195,7 +196,7 @@ begin
     QueueIssuerOf(LWalk, AChain[LI]);
   // one level per intermediate a built path may hold, plus the level that reaches its anchor
   LDepth := 0;
-  while (System.Length(LWalk.Pending) > 0) and (LDepth <= TPathBuildLimits.MaxBuiltPathLength) do
+  while (System.Length(LWalk.Pending) > 0) and (LDepth <= AMaxPathLength) do
   begin
     LNames := LWalk.Pending;
     LWalk.Pending := nil;

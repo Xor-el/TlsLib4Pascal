@@ -33,6 +33,7 @@ uses
   TlpTlsVersion,
   TlpPkixDomainTypes,
   TlpIPkixProvider,
+  TlpICryptoProvider,
   TlpDefaultCryptoProvider,
   TlpDefaultPkixProvider,
   TlpICertificateTrust,
@@ -61,7 +62,9 @@ uses
   MockCertificateVerifiers,
   MockPkixProvider,
   MockTransport,
+  MockCryptoProvider,
   TlpTlsLibExceptions,
+  TlpISigningKey,
   TlpTlsConnection,
   TlpTlsEngineFactory,
   TlpNegotiationTypes,
@@ -72,6 +75,7 @@ uses
 type
   TTestTlsConnection = class(TTlsLibAlgorithmTestCase)
   strict private
+    function StubOcspStaple: TBytes;
     function StubVerifyCallback(const APresented, AValidated: TArray<TBytes>;
       const AHostName: string): Boolean;
     function StubResolver(const ACtx: TCertificateVerdictContext;
@@ -90,7 +94,33 @@ type
     function AnchorSignature(const ASource: TTlsBlobSource): string;
     function PemChain: TBytes;
     function Pkcs12Options(const AField: string): TTlsOptions;
+    // the EC P-256 leaf and its key as a loaded credential
+    function LoadedCredential: TTlsCredential;
+    // the options of the EC P-256 credential whose key is a handle no provider minted
+    function OptionsWithUnownedKey: TTlsOptions;
+    // server options that request a client certificate verified against the EC P-256 root
+    function ClientAuthServerOptions: TTlsOptions;
   published
+    // a loaded credential and the chain limits as options
+    procedure TestOptionsCredentialBuildsServerConfig;
+    procedure TestOptionsCredentialBuildsMutualTlsClient;
+    procedure TestOptionsCredentialWithBlobSourceIsRefused;
+    procedure TestIncompleteOptionsCredentialIsRefused;
+    procedure TestOptionsCredentialConflictsWithSuppliedConfig;
+    procedure TestOptionsCredentialKeyChangesSignature;
+    procedure TestOptionsSameCredentialReusesConfig;
+    procedure TestOptionsCredentialMismatchedKeyIsRefused;
+    // a key its crypto provider cannot sign with is refused at build: a key no provider minted,
+    // and a key another provider minted when the options name no provider
+    procedure TestOptionsCredentialWithUnownedKeyIsRefused;
+    procedure TestOptionsCredentialOfAnotherProviderIsRefusedWhenNoProviderIsNamed;
+    procedure TestOptionsChainLimitsReachClientConfig;
+    procedure TestOptionsChainLimitsReachServerConfigUnderClientAuth;
+    procedure TestOptionsChainLimitsRefusedWithoutClientAuth;
+    procedure TestOptionsChainLimitsConflictWithSuppliedConfig;
+    procedure TestOptionsChainLimitsChangeTheSignature;
+    procedure TestZeroedOptionsChainLimitsMeanTheDefaults;
+    procedure TestStapleOnlyOptionsCredentialIsRefused;
     // credential forms
     procedure TestServerBuildsFromPkcs12;
     procedure TestClientBuildsFromPkcs12;
@@ -552,6 +582,11 @@ begin
   Result := False;
 end;
 
+function TTestTlsConnection.StubOcspStaple: TBytes;
+begin
+  Result := nil;
+end;
+
 function TTestTlsConnection.ClientOptsWithStore: TTlsOptions;
 begin
   Result := TTlsOptions.Default;
@@ -628,6 +663,358 @@ begin
     TTlsLibTestCertificates.Field('Certs/Pkcs12.txt', AField));
   Result.KeyPassword := 'tlslib';
   Result.CredentialForm := TTlsCredentialForm.Pkcs12;
+end;
+
+function TTestTlsConnection.LoadedCredential: TTlsCredential;
+begin
+  Result := TTlsCredential.Load(Crypto, Pkix,
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+end;
+
+function TTestTlsConnection.OptionsWithUnownedKey: TTlsOptions;
+var
+  LOwned: ISigningKey;
+begin
+  Result := TTlsOptions.Default;
+  Result.Pkix := Pkix;
+  Result.Credential := LoadedCredential;
+  LOwned := Result.Credential.PrivateKey;
+  Result.Credential.PrivateKey := TFakeSigningKey.Create(LOwned.CapableSchemes,
+    LOwned.PublicKeyInfo) as ISigningKey;
+end;
+
+function TTestTlsConnection.ClientAuthServerOptions: TTlsOptions;
+begin
+  Result := ServerOptsWithCredential;
+  Result.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+  Result.ClientAuth := TClientAuthMode.Required;
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialBuildsServerConfig;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsServerConfig;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := Crypto;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential := LoadedCredential;
+  LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
+  CheckEquals(1, System.Length(LConfig.Credential.CertificateChain),
+    'the server presents the loaded chain');
+  CheckTrue(LConfig.Credential.PrivateKey = LOpts.Credential.PrivateKey,
+    'with the caller''s key, not a reload');
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialBuildsMutualTlsClient;
+var
+  LOpts: TTlsOptions;
+  LConfig: ITlsClientConfig;
+begin
+  LOpts := ClientOptsWithStore;
+  LOpts.Credential := LoadedCredential;
+  LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
+  CheckEquals(1, System.Length(LConfig.Credential.CertificateChain),
+    'the client presents the loaded chain');
+  CheckTrue(LConfig.Credential.PrivateKey = LOpts.Credential.PrivateKey,
+    'with the caller''s key');
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialWithBlobSourceIsRefused;
+var
+  LMsg: string;
+
+  function Refused(const AOpts: TTlsOptions): Boolean;
+  begin
+    Result := RaisesStreamError(AOpts, False, LMsg) and (Pos('only one credential source', LMsg) > 0);
+  end;
+
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.Credential := LoadedCredential;
+  CheckTrue(Refused(LOpts), 'a certificate and key beside a credential are refused');
+  LOpts := ServerOptsWithCredential;
+  LOpts.Credential := LoadedCredential;
+  LOpts.Certificate := Default(TTlsBlobSource);
+  CheckTrue(Refused(LOpts), 'a key beside a credential is refused');
+  LOpts := ServerOptsWithCredential;
+  LOpts.Credential := LoadedCredential;
+  LOpts.PrivateKey := Default(TTlsBlobSource);
+  CheckTrue(Refused(LOpts), 'a certificate beside a credential is refused');
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := Crypto;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential := LoadedCredential;
+  LOpts.KeyPassword := 'secret';
+  CheckTrue(Refused(LOpts), 'a key password beside a credential is refused');
+  LOpts.KeyPassword := '';
+  LOpts.CredentialForm := TTlsCredentialForm.Pkcs12;
+  CheckTrue(Refused(LOpts), 'a credential form beside a credential is refused');
+end;
+
+procedure TTestTlsConnection.TestIncompleteOptionsCredentialIsRefused;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := Crypto;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential := LoadedCredential;
+  LOpts.Credential.PrivateKey := nil;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg) and (Pos('both a certificate chain', LMsg) > 0),
+    'a chain without its key is refused');
+  LOpts.Credential := LoadedCredential;
+  LOpts.Credential.CertificateChain := nil;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg) and (Pos('both a certificate chain', LMsg) > 0),
+    'a key without its chain is refused');
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialConflictsWithSuppliedConfig;
+
+  function Conflicts(const AOpts: TTlsOptions; AIsClient: Boolean): Boolean;
+  begin
+    Result := False;
+    try
+      TTlsConfigComposer.GuardNoConflict(AOpts, AIsClient, 'ClientConfig');
+    except
+      on E: ETlsStreamError do
+        Result := True;
+    end;
+  end;
+
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := TTlsOptions.Default;
+  CheckFalse(Conflicts(LOpts, True), 'control: the defaults do not conflict');
+  LOpts.Credential := LoadedCredential;
+  CheckTrue(Conflicts(LOpts, True), 'a credential beside a supplied client config conflicts');
+  CheckTrue(Conflicts(LOpts, False), 'a credential beside a supplied server config conflicts');
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialKeyChangesSignature;
+var
+  LA, LB: TTlsOptions;
+begin
+  LA := ServerOptsWithCredential;
+  LA.Certificate := Default(TTlsBlobSource);
+  LA.PrivateKey := Default(TTlsBlobSource);
+  LA.Credential := LoadedCredential;
+  LB := LA;
+  LB.Credential := LoadedCredential;
+  CheckTrue(TTlsConfigComposer.ServerSignature(LA) <> TTlsConfigComposer.ServerSignature(LB),
+    'another key changes the server key');
+  CheckTrue(TTlsConfigComposer.ClientSignature(LA) <> TTlsConfigComposer.ClientSignature(LB),
+    'another key changes the client key');
+  LB := LA;
+  LB.Credential.OcspStaple := TBytes.Create(1, 2, 3);
+  CheckTrue(TTlsConfigComposer.ServerSignature(LA) <> TTlsConfigComposer.ServerSignature(LB),
+    'another staple changes the key');
+end;
+
+procedure TTestTlsConnection.TestOptionsSameCredentialReusesConfig;
+var
+  LA, LB: TTlsOptions;
+begin
+  LA := TTlsOptions.Default;
+  LA.Crypto := Crypto;
+  LA.Pkix := Pkix;
+  LA.Credential := LoadedCredential;
+  LB := LA;
+  CheckEquals(TTlsConfigComposer.ServerSignature(LA), TTlsConfigComposer.ServerSignature(LB),
+    'the same credential reuses the server config');
+  CheckEquals(TTlsConfigComposer.ClientSignature(LA), TTlsConfigComposer.ClientSignature(LB),
+    'and the client config');
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialMismatchedKeyIsRefused;
+var
+  LOpts: TTlsOptions;
+  LOther: TTlsCredential;
+  LMsg: string;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := Crypto;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential := LoadedCredential;
+  LOther := TTlsCredential.Load(Crypto, Pkix,
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_key'));
+  LOpts.Credential.PrivateKey := LOther.PrivateKey;
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: Exception do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('private key does not match', LMsg) > 0,
+    'the builder''s key and leaf consistency check is reached');
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialWithUnownedKeyIsRefused;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := OptionsWithUnownedKey;
+  LOpts.Crypto := Crypto;
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: Exception do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a key the options'' provider did not mint is refused at build; got: ' + LMsg);
+end;
+
+procedure TTestTlsConnection.TestOptionsCredentialOfAnotherProviderIsRefusedWhenNoProviderIsNamed;
+var
+  LBuilder: ICryptoProviderBuilder;
+  LHandleProvider: ICryptoProvider;
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LBuilder := TCryptoProviderBuilder.Create;
+  LHandleProvider := LBuilder.WithPrimitives(Crypto.Primitives)
+    .WithSigning(THandleSigningCrypto.Create(Crypto.Signing) as ISigningCrypto).Build;
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := nil;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential := TTlsCredential.Load(LHandleProvider, Pkix,
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(LOpts);
+  except
+    on E: Exception do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a key another provider owns is refused by the default provider; got: ' + LMsg);
+end;
+
+procedure TTestTlsConnection.TestOptionsChainLimitsReachClientConfig;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := ClientOptsWithStore;
+  LOpts.CertificateChainLimits.MaxPathLength := 6;
+  CheckEquals(6, TTlsConfigComposer.BuildClientConfig(LOpts).CertificateChainLimits.MaxPathLength,
+    'the configured path length reaches the client config');
+end;
+
+procedure TTestTlsConnection.TestOptionsChainLimitsReachServerConfigUnderClientAuth;
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := ClientAuthServerOptions;
+  LOpts.CertificateChainLimits.MaxChainCertificates := 8;
+  LOpts.CertificateChainLimits.MaxPathLength := 2;
+  CheckEquals(2, TTlsConfigComposer.BuildServerConfig(LOpts).CertificateChainLimits.MaxPathLength,
+    'the configured path length reaches the server config');
+  CheckEquals(8, TTlsConfigComposer.BuildServerConfig(LOpts).CertificateChainLimits.MaxChainCertificates,
+    'and the entry cap');
+end;
+
+procedure TTestTlsConnection.TestOptionsChainLimitsRefusedWithoutClientAuth;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := ServerOptsWithCredential;
+  CheckFalse(RaisesStreamError(LOpts, False, LMsg), 'control: the default limits build');
+  LOpts.CertificateChainLimits.MaxPathLength := 6;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg) and (Pos('certificate-chain limits', LMsg) > 0),
+    'changed limits on a server that requests no client certificate are refused');
+end;
+
+procedure TTestTlsConnection.TestOptionsChainLimitsConflictWithSuppliedConfig;
+
+  function Conflicts(const AOpts: TTlsOptions; AIsClient: Boolean): Boolean;
+  begin
+    Result := False;
+    try
+      TTlsConfigComposer.GuardNoConflict(AOpts, AIsClient, 'ClientConfig');
+    except
+      on E: ETlsStreamError do
+        Result := True;
+    end;
+  end;
+
+var
+  LOpts: TTlsOptions;
+begin
+  LOpts := TTlsOptions.Default;
+  LOpts.CertificateChainLimits.MaxPathLength := 6;
+  CheckTrue(Conflicts(LOpts, True), 'changed limits beside a supplied client config conflict');
+  CheckTrue(Conflicts(LOpts, False), 'changed limits beside a supplied server config conflict');
+end;
+
+procedure TTestTlsConnection.TestOptionsChainLimitsChangeTheSignature;
+var
+  LA, LB: TTlsOptions;
+begin
+  LA := ClientAuthServerOptions;
+  LB := LA;
+  LB.CertificateChainLimits.MaxPathLength := 6;
+  CheckTrue(TTlsConfigComposer.ClientSignature(LA) <> TTlsConfigComposer.ClientSignature(LB),
+    'the limits change the client key');
+  CheckTrue(TTlsConfigComposer.ServerSignature(LA) <> TTlsConfigComposer.ServerSignature(LB),
+    'the limits change the server key under client authentication');
+  LA.ClientAuth := TClientAuthMode.None;
+  LB.ClientAuth := TClientAuthMode.None;
+  CheckTrue(TTlsConfigComposer.ServerSignature(LA) <> TTlsConfigComposer.ServerSignature(LB),
+    'a server that requests no client certificate still keys on them, so a memo hit never skips the refusal');
+end;
+
+procedure TTestTlsConnection.TestZeroedOptionsChainLimitsMeanTheDefaults;
+var
+  LOpts, LZeroed: TTlsOptions;
+  LMemo: ITlsClientConfigMemo;
+  LMsg: string;
+begin
+  LOpts := ClientOptsWithStore;
+  LZeroed := LOpts;
+  LZeroed.CertificateChainLimits := Default(TCertificateChainLimits);
+  CheckEquals(4, TTlsConfigComposer.BuildClientConfig(LZeroed).CertificateChainLimits.MaxPathLength,
+    'a zeroed client value builds with the defaults');
+  CheckEquals(TTlsConfigComposer.ClientSignature(LOpts), TTlsConfigComposer.ClientSignature(LZeroed),
+    'and keys like them');
+  LOpts := ServerOptsWithCredential;
+  LOpts.CertificateChainLimits := Default(TCertificateChainLimits);
+  CheckFalse(RaisesStreamError(LOpts, False, LMsg), 'a zeroed server value is not a changed one');
+  LOpts := TTlsOptions.Default;
+  LOpts.CertificateChainLimits := Default(TCertificateChainLimits);
+  LOpts.ClientConfig := TTlsConfigComposer.BuildClientConfig(ClientOptsWithStore);
+  LMemo := TTlsConfigMemos.NewClient;
+  CheckNotNull(TTlsConfigComposer.ResolveClientConfig(LOpts, LMemo, 'ClientConfig'),
+    'a zeroed value beside a supplied config is no conflict');
+end;
+
+procedure TTestTlsConnection.TestStapleOnlyOptionsCredentialIsRefused;
+var
+  LOpts: TTlsOptions;
+  LMsg: string;
+begin
+  LOpts := ServerOptsWithCredential;
+  LOpts.Credential.OcspStaple := TBytes.Create(1, 2, 3);
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg) and (Pos('only one credential source', LMsg) > 0),
+    'a staple beside blob credential options is refused, not dropped');
+  LOpts := TTlsOptions.Default;
+  LOpts.Crypto := Crypto;
+  LOpts.Pkix := Pkix;
+  LOpts.Credential.OcspStapleCallback := StubOcspStaple;
+  CheckTrue(RaisesStreamError(LOpts, False, LMsg) and (Pos('both a certificate chain', LMsg) > 0),
+    'a staple callback alone is a half-set credential');
 end;
 
 procedure TTestTlsConnection.TestServerBuildsFromPkcs12;

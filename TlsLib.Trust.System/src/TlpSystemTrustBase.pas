@@ -401,6 +401,8 @@ end;
 class function TDelegatePostChecks.RejectNameMismatch(const AName: TServerName;
   const APkix: IPkixProvider; const AOsPath: TArray<TBytes>;
   out AAlert: TTlsAlertDescription): Boolean;
+var
+  LSans: TCertSubjectAltNames;
 begin
   // an engine that validates the chain but not the host: the full RFC 9525 identity is matched here.
   // an empty name never fires; without a provider to read the SANs, or with no validated leaf, the
@@ -412,9 +414,8 @@ begin
     AAlert := TTlsAlertDescription.BadCertificate;
     Exit(True);
   end;
-  Result := not TEndpointIdentity.Matches(AName,
-    APkix.Certificates.DnsNames(AOsPath[0]),
-    APkix.Certificates.IpAddresses(AOsPath[0]));
+  LSans := APkix.Certificates.SubjectAltNames(AOsPath[0]);
+  Result := not TEndpointIdentity.Matches(AName, LSans.DnsNames, LSans.IpAddresses);
   if Result then
     AAlert := TTlsAlertDescription.BadCertificate;
 end;

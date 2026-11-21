@@ -230,6 +230,17 @@ type
     function ResolveNcLive(const APkix: IPkixProvider; const AChain, APath: TArray<TBytes>;
       out AAlert: TTlsAlertDescription): Boolean;
     function Nc(const AName: string): TBytes;
+    // the path-length fixture certificate named
+    function PathCert(const AName: string): TBytes;
+    // a server delegate bound to AMaxPathLength over an engine that trusts APath, the name check off
+    function VerifyPathLengthServer(AMaxPathLength: Int32; const AChain, APath: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
+    function ResolvePathLengthLive(AMaxPathLength: Int32; const AChain, APath: TArray<TBytes>;
+      out AAlert: TTlsAlertDescription): Boolean;
+    // a client delegate bound to AMaxPathLength over an engine that reports no anchor
+    function VerifyPathLengthClient(AMaxPathLength: Int32; const AChain, AIntermediates,
+      AAnchors: TArray<TBytes>; out AVerified: TVerifiedChain;
+      out AAlert: TTlsAlertDescription): Boolean;
     // the certificate with a non-minimal outer length: the same certificate in another encoding
     function Reencoded(const ACert: TBytes): TBytes;
     function OcspChain: TArray<TBytes>;
@@ -294,6 +305,10 @@ type
     procedure TestNameConstraintProviderFailureRefusesTheEnginePath;
     procedure TestLiveEnginePathNameConstraintsAreEnforced;
     procedure TestLiveNameConstraintProviderFailureRefusesTheEnginePath;
+    // the configured path length bounds the OS-built path and the path built for a client
+    procedure TestDelegateRefusesOsPathLongerThanConfiguredLength;
+    procedure TestDelegateLiveRefusesOsPathLongerThanConfiguredLength;
+    procedure TestDelegateClientPathLengthIsEnforced;
     // a client engine that reports no anchor has the path built to the configured anchors
     procedure TestClientEngineReportingNoAnchorGetsThePathToTheConfiguredAnchor;
     procedure TestClientEngineReportingNoAnchorRefusesAnOutOfScopeLeaf;
@@ -1544,6 +1559,87 @@ begin
   Result := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
 end;
 
+function TTestOSDelegateTemplate.PathCert(const AName: string): TBytes;
+begin
+  Result := TTlsLibTestCertificates.Field('Certs/PathLength.txt', AName + '_cert');
+end;
+
+function TTestOSDelegateTemplate.VerifyPathLengthServer(AMaxPathLength: Int32;
+  const AChain, APath: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IServerCertificateVerifier;
+  LVerified: TVerifiedChain;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Good;
+  LResult.Path := APath;
+  LResult.PolicyExempt := TArray<TBytes>.Create(APath[System.High(APath)]);
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], True,
+    LResult, TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None,
+    nil);
+  LPolicy.ChainLimits.MaxPathLength := AMaxPathLength;
+  LPolicy.CheckHostName := False;
+  LVerifier := TOSDelegateServerVerifier.Create(LEngine, LPolicy) as IServerCertificateVerifier;
+  Result := LVerifier.VerifyServerCertificate(AChain, TServerName.DnsName('localhost'), nil,
+    LVerified, AAlert);
+end;
+
+function TTestOSDelegateTemplate.ResolvePathLengthLive(AMaxPathLength: Int32;
+  const AChain, APath: TArray<TBytes>; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
+  LResolver: TOSDelegateLiveResolver;
+  LContext: TCertificateVerdictContext;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Good;
+  LResult.Path := APath;
+  LResult.PolicyExempt := TArray<TBytes>.Create(APath[System.High(APath)]);
+  LEngine := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True, LResult,
+    TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.Live,
+    TVerdictDeferral.LiveRevocation, nil);
+  LPolicy.ChainLimits.MaxPathLength := AMaxPathLength;
+  LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Server, LPolicy, nil);
+  try
+    LContext := Default(TCertificateVerdictContext);
+    LContext.PeerRole := TPeerRole.Server;
+    LContext.Chain := AChain;
+    LContext.HostName := 'localhost';
+    Result := LResolver.ResolveVerdict(LContext, AAlert);
+  finally
+    LResolver.Free;
+  end;
+end;
+
+function TTestOSDelegateTemplate.VerifyPathLengthClient(AMaxPathLength: Int32;
+  const AChain, AIntermediates, AAnchors: TArray<TBytes>; out AVerified: TVerifiedChain;
+  out AAlert: TTlsAlertDescription): Boolean;
+var
+  LEngine: IPlatformChainEngine;
+  LResult: TPlatformChainResult;
+  LPolicy: TOSDelegatePolicy;
+  LVerifier: IClientCertificateVerifier;
+begin
+  LResult := Default(TPlatformChainResult);
+  LResult.Outcome := TLiveRevocationOutcome.Indeterminate;
+  LResult.Path := TArray<TBytes>.Create(AChain[0]);
+  LEngine := TMockPlatformChainEngine.Create([], True, LResult, TTlsAlertDescription.BadCertificate);
+  LPolicy := Policy(TRevocationPosture.Soft, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None,
+    AAnchors);
+  LPolicy.ChainLimits.MaxPathLength := AMaxPathLength;
+  LPolicy.CheckHostName := False;
+  LPolicy.Intermediates := AIntermediates;
+  LVerifier := TOSDelegateClientVerifier.Create(LEngine, LPolicy) as IClientCertificateVerifier;
+  Result := LVerifier.VerifyClientCertificate(AChain, AVerified, AAlert);
+end;
+
 function TTestOSDelegateTemplate.Reencoded(const ACert: TBytes): TBytes;
 begin
   // 30 82 hh ll -> 30 83 00 hh ll: the outer SEQUENCE is not signed, so a peer can re-encode it
@@ -2751,6 +2847,54 @@ begin
     TArray<TBytes>.Create(Nc('direct_in_scope_leaf'), Nc('root')), LAlert),
     'a provider that raises never admits the live path');
   CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert), 'the alert is internal_error');
+end;
+
+procedure TTestOSDelegateTemplate.TestDelegateRefusesOsPathLongerThanConfiguredLength;
+var
+  LAlert: TTlsAlertDescription;
+  LShort, LLong: TArray<TBytes>;
+begin
+  LShort := TArray<TBytes>.Create(PathCert('leaf'), PathCert('inter_6'), PathCert('inter_5'),
+    PathCert('inter_4'), PathCert('inter_3'), PathCert('inter_2'));
+  LLong := TArray<TBytes>.Create(PathCert('leaf'), PathCert('inter_6'), PathCert('inter_5'),
+    PathCert('inter_4'), PathCert('inter_3'), PathCert('inter_2'), PathCert('inter_1'));
+  CheckTrue(VerifyPathLengthServer(4, LShort, LShort, LAlert),
+    'an engine path with four certificates between the ends is accepted');
+  CheckFalse(VerifyPathLengthServer(4, LLong, LLong, LAlert),
+    'an engine path with five is refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+  CheckTrue(VerifyPathLengthServer(5, LLong, LLong, LAlert), 'a raised bound accepts it');
+end;
+
+procedure TTestOSDelegateTemplate.TestDelegateLiveRefusesOsPathLongerThanConfiguredLength;
+var
+  LAlert: TTlsAlertDescription;
+  LLong: TArray<TBytes>;
+begin
+  LLong := TArray<TBytes>.Create(PathCert('leaf'), PathCert('inter_6'), PathCert('inter_5'),
+    PathCert('inter_4'), PathCert('inter_3'), PathCert('inter_2'), PathCert('inter_1'));
+  CheckFalse(ResolvePathLengthLive(4, LLong, LLong, LAlert),
+    'a live engine path with five certificates between the ends is refused');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+  CheckTrue(ResolvePathLengthLive(5, LLong, LLong, LAlert), 'a raised bound accepts it live');
+end;
+
+procedure TTestOSDelegateTemplate.TestDelegateClientPathLengthIsEnforced;
+var
+  LVerified: TVerifiedChain;
+  LAlert: TTlsAlertDescription;
+  LChain, LIntermediates, LAnchors: TArray<TBytes>;
+begin
+  LChain := TArray<TBytes>.Create(PathCert('leaf'));
+  LIntermediates := TArray<TBytes>.Create(PathCert('inter_6'), PathCert('inter_5'),
+    PathCert('inter_4'), PathCert('inter_3'), PathCert('inter_2'));
+  LAnchors := TArray<TBytes>.Create(PathCert('inter_1'));
+  CheckFalse(VerifyPathLengthClient(4, LChain, LIntermediates, LAnchors, LVerified, LAlert),
+    'the path built to the configured anchor is held to the bound');
+  CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
+  CheckTrue(VerifyPathLengthClient(5, LChain, LIntermediates, LAnchors, LVerified, LAlert),
+    'a raised bound admits it');
+  CheckEquals(7, System.Length(LVerified.Path), 'the built path replaces the engine leaf');
 end;
 
 procedure TTestOSDelegateTemplate.TestClientEngineReportingNoAnchorGetsThePathToTheConfiguredAnchor;

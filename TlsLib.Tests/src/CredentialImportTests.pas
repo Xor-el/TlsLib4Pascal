@@ -145,6 +145,9 @@ type
     procedure TestConsistencyOfAMalformedLeafIsLeafMalformed;
     procedure TestConsistencyOfAnotherKeyIsKeyLeafMismatch;
     procedure TestConsistencyComparesKeysByValue;
+    // ISigningCrypto.OwnsKey: the facet owns what it imported, not a handle it never minted
+    procedure TestSigningOwnsTheKeysItImports;
+    procedure TestSigningDoesNotOwnAForeignKey;
   end;
 
 implementation
@@ -1087,6 +1090,35 @@ begin
     LCredential.PrivateKey.CapableSchemes, LReencoded) as ISigningKey;
   CheckEquals(Ord(TCredentialConsistency.Consistent),
     Ord(LCredential.Consistency(Pkix.Certificates)), 'the same key in another encoding');
+end;
+
+procedure TTestCredentialImport.TestSigningOwnsTheKeysItImports;
+const
+  Fields: array[0..7] of string = ('rsa_pkcs8_der', 'rsa_pkcs1_pem', 'ec256_pkcs8_der',
+    'ec256_sec1_pem', 'ec384_pkcs8_der', 'ec521_pkcs8_der', 'ed25519_pkcs8_der',
+    'ed448_pkcs8_der');
+var
+  LI: Int32;
+  LKey: ISigningKey;
+begin
+  for LI := 0 to System.Length(Fields) - 1 do
+    CheckTrue(Crypto.Signing.OwnsKey(Import(Fields[LI])), Fields[LI] + ' is owned');
+  LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']),
+    TSecretBuffer.FromString(SPassword));
+  CheckTrue(Crypto.Signing.OwnsKey(LKey), 'an encrypted key is owned');
+  LKey := Crypto.Signing.ImportPkcs12(TTlsLibTestCertificates.Field('Certs/Pkcs12.txt',
+    'chain_pfx'), TSecretBuffer.FromString(SPassword)).PrivateKey;
+  CheckTrue(Crypto.Signing.OwnsKey(LKey), 'a PKCS#12 key is owned');
+  CheckTrue(Crypto.Signing.OwnsKey(Import('rsa_pkcs8_der').WithPreferredSchemes(
+    TArray<TSignatureScheme>.Create(TSignatureScheme.RSA_PSS_RSAE_SHA256))),
+    'a key narrowed by WithPreferredSchemes is still owned');
+end;
+
+procedure TTestCredentialImport.TestSigningDoesNotOwnAForeignKey;
+begin
+  CheckFalse(Crypto.Signing.OwnsKey(TFakeSigningKey.Create(
+    Import('ec256_pkcs8_der').CapableSchemes, nil) as ISigningKey), 'a handle no provider minted');
+  CheckFalse(Crypto.Signing.OwnsKey(nil), 'no key');
 end;
 
 initialization

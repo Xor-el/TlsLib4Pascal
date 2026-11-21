@@ -225,11 +225,11 @@ type
   /// The signing-credential seam: imports private keys and PKCS#12 identities
   /// into opaque backend handles and mints signers/verifiers over them. An
   /// <see cref="ISigningKey" /> handle is meaningful only to the same backend's
-  /// <see cref="CreateSignatureSigner" />, so import and signer-minting are one
-  /// coherence domain.
+  /// <see cref="CreateSignatureSigner" /> (<see cref="OwnsKey" />), so import and
+  /// signer-minting are one coherence domain.
   /// </summary>
   ISigningCrypto = interface(IInterface)
-    ['{F109F075-4F7D-4FF5-91F4-CCE67C2E080F}']
+    ['{5ACA5C94-4002-4D8C-868B-7F386969F191}']
     /// <summary>
     /// Imports a signing private key in any supported encoding - PKCS#8, PKCS#1
     /// (RSAPrivateKey) or SEC1 (ECPrivateKey), in DER or PEM - into an opaque handle
@@ -277,6 +277,10 @@ type
     /// seam.</summary>
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier;
+    /// <summary>Whether AKey is a handle this facet minted, or one a facet it routes to minted, so
+    /// CreateSignatureSigner reaches the backend that holds it. Ownership only: the schemes and any
+    /// refusal stay CreateSignatureSigner's. False for nil.</summary>
+    function OwnsKey(const AKey: ISigningKey): Boolean;
   end;
 
 { ===== HPKE (RFC 9180) ===== }

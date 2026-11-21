@@ -450,6 +450,10 @@ the async park instead):
   platform's looser matching, such as a UPN constraint applied as a suffix, now sees
   `certificate_unknown`. A SAN-less leaf's CN is not
   matched against `dNSName` constraints (SAN-only, as in the built-in verifier).
+- **Path length** (`MaxPathLength` of the chain limits, default 4) is held over the OS-built path on
+  every delegate, and over the path built for a client certificate: more non-self-issued certificates
+  between the leaf and the anchor than the bound is `unknown_ca`, so a path the OS accepts can still be
+  refused (see [certificate-chain limits](certificate-verification.md#certificate-chain-limits)).
 - **RFC 9525 identity** is matched in-library on every delegate, SAN-only: the library checks the leaf's
   dNSName / iPAddress SANs itself rather than trust an engine's own host match, so no platform's
   deprecated subject-CN fallback is honoured. The host is still handed to a host-matching engine (for OS
@@ -567,7 +571,7 @@ trust source, with the revocation posture, strength floors and intermediates sti
 - One lookup serves every connection built over the config, so it must be thread-safe, and its
   `Identity` changes whenever its source does.
 - The lookup is asked for the issuer name of each certificate the peer sent, and for the issuer of each
-  intermediate it found or that the config holds and the walk reaches, down to the path-building depth,
+  intermediate it found or that the config holds and the walk reaches, down to the path length (`MaxPathLength`),
   once per name; a live revocation re-check and a resumed client's re-verification ask again.
 - A client with a lookup defaults to `WithResumeVerification(Reverify)`, since what the lookup trusts
   changes between connections; `Build` refuses that default when it cannot work (a `Hard` posture

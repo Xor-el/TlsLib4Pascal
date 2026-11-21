@@ -89,7 +89,8 @@ type
     /// <summary>Which of the certificates IssuerLookup offers as anchors the engine trusts as
     /// anchors; meaningful only beside a lookup.</summary>
     function IssuerAnchorRule: TBundleAnchorRule;
-    /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
+    /// <summary>The certificate-chain caps: size and count before PKIX validation, path length
+    /// during and after it.</summary>
     function CertificateChainLimits: TCertificateChainLimits;
     /// <summary>The peer-certificate minimum-strength floors (RSA bits, EC curves, EdDSA).</summary>
     function CertificateStrengthPolicy: TCertificateStrengthPolicy;

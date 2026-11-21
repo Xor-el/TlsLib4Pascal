@@ -16,6 +16,7 @@ unit TlpPkixDomainTypes;
 interface
 
 uses
+  SysUtils,
   TlpCryptoDomainTypes;
 
 type
@@ -40,15 +41,6 @@ type
   public
     /// <summary>status_request: the certificate is must-staple.</summary>
     const StatusRequest = UInt16(5);
-  end;
-
-  /// <summary>The path-building bound the provider's builder and the verifier's distrust
-  /// classification share.</summary>
-  TPathBuildLimits = class sealed(TObject)
-  public
-    /// <summary>The most non-self-issued certificates above the leaf a built path may hold,
-    /// bounding the builder's search.</summary>
-    const MaxBuiltPathLength = 4;
   end;
 
   /// <summary>
@@ -109,6 +101,17 @@ type
     Family: TCertSignatureFamily;
     Hash: TCertSignatureHash;
     PssCanonical: Boolean;
+  end;
+
+  /// <summary>The subjectAltName entries (RFC 5280 4.2.1.6) a TLS host reads: dNSName, iPAddress
+  /// (raw 4- or 16-byte octets), rfc822Name and uniformResourceIdentifier, each in certificate
+  /// order. An iPAddress entry of any other width is dropped; other name forms are not
+  /// carried.</summary>
+  TCertSubjectAltNames = record
+    DnsNames: TArray<string>;
+    IpAddresses: TArray<TBytes>;
+    EmailAddresses: TArray<string>;
+    Uris: TArray<string>;
   end;
 
 implementation

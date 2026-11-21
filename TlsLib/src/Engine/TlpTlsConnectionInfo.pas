@@ -56,7 +56,8 @@ type
     /// unless the client re-verified the stored chain (ResumeVerification = Reverify).
     ValidatedPath: TArray<TBytes>;
     /// The DER DistinguishedName certificate_authorities the peer named in its CertificateRequest
-    /// (RFC 9846 4.3.4 / RFC 5246 7.4.4); empty when none was requested or named.
+    /// (RFC 9846 4.3.4 / RFC 5246 7.4.4); empty when none was requested or named. Like
+    /// RequestedSignatureSchemes it is unauthenticated until the handshake completes.
     RequestedCertificateAuthorities: TArray<TBytes>;
     /// The signature scheme (IANA code) that verified the peer's CertificateVerify or ServerKeyExchange; 0
     /// when the peer did not sign. On a resumption, the scheme of the original handshake.
@@ -67,7 +68,7 @@ type
     EarlyDataReason: TEarlyDataReason;
     /// Server, TLS 1.3 ticket resumption: the age the client reports for the ticket less the server's own, in whole seconds.
     TicketAgeSkew: Int32;
-    /// The signature_algorithms (IANA codes) the peer's CertificateRequest listed; empty when none was requested.
+    /// The signature_algorithms (IANA codes) the peer's CertificateRequest listed; non-empty exactly when one arrived, also after a failed handshake; unauthenticated until the handshake completes.
     RequestedSignatureSchemes: TArray<UInt16>;
     /// The identity of the pre-shared key that authenticated the connection: the TLS 1.2 PSK (RFC 4279) or
     /// the TLS 1.3 external PSK as configured (RFC 9258); empty when it used certificates.

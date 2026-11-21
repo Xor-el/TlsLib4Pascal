@@ -100,8 +100,8 @@ type
     /// <summary>Offers record_size_limit (RFC 8449): the largest record this client accepts inbound,
     /// as TLSInnerPlaintext in TLS 1.3. 0 (the default) offers nothing; otherwise 64..16384.</summary>
     function WithRecordSizeLimit(ALimit: Int32): ITlsClientConfigBuilder;
-    /// <summary>The certificate-chain resource caps applied before PKIX validation. A Custom
-    /// verifier is bound only by MaxTotalChainLength.</summary>
+    /// <summary>The certificate-chain caps: size and count before PKIX validation, path length
+    /// during and after it. A Custom verifier is bound only by MaxTotalChainLength.</summary>
     function WithCertificateChainLimits(
       const ALimits: TCertificateChainLimits): ITlsClientConfigBuilder;
     /// <summary>The client's own credential for mutual TLS, presented when the server
@@ -345,7 +345,7 @@ type
     /// Build refuses a list too long for the TLS 1.3 CertificateRequest beside its other
     /// extensions.</summary>
     function WithClientCertificateAuthorities(const AAuthorities: TArray<TBytes>): ITlsServerConfigBuilder;
-    /// <summary>The certificate-chain resource caps for a requested client certificate; they bound
+    /// <summary>The certificate-chain caps for a requested client certificate; they bound
     /// that chain only; without WithPeerAuth any value other than the preset's is refused at
     /// Build. A Custom verifier is bound only by MaxTotalChainLength.</summary>
     function WithCertificateChainLimits(

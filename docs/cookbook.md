@@ -94,6 +94,8 @@ hand it to your adapter. The PKCS#12 importer fails closed on a bad password or 
 The leaf is the certificate that pairs the key (the linked one if it does, else the lowest DER),
 and the chain follows it by issuer name. Where the OS-native overlay can, the OS unwraps the
 file; a store it cannot unwrap goes to the portable importer.
+Load a credential through the crypto provider its config is built on (or one that provider
+routes to); `Build` refuses a key that provider cannot sign with.
 
 To staple OCSP for the leaf, set the credential's `OcspStaple` (DER) or `OcspStapleCallback` (it
 refreshes an expiring staple and takes precedence; it must not do network I/O). The staple is sent
@@ -289,6 +291,11 @@ The short version — the full treatment is in
 
 // pin an SPKI-SHA256 on top of normal validation (augments, never replaces)
 .WithCertificatePinning(TArray<TBytes>.Create(spkiSha256))
+
+// split a PEM, DER or PKCS#7 bundle into its anchors and the intermediates that only complete a chain
+//   uses TlpTrustAnchorStore, TlpTrustTypes;   // TBundleAnchorRule
+LStore := TTrustAnchorStore.FromBundle(Pkix.Certificates, LoadFile('bundle.pem'),
+  TBundleAnchorRule.SelfSignedOnly, LIntermediates);
 ```
 
 Anchors **union** inside one `WebPki` policy; a `TServerVerification.Custom` verifier **replaces** the
@@ -594,6 +601,12 @@ LClientConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
   .Build;
 ```
 
+A host that builds from `TTlsOptions` names the identity with `Certificate` and `PrivateKey`, or sets
+`Credential` to a `TTlsCredential` it has already loaded: a key that cannot be written out (one held by
+an OS keystore or an HSM) or a credential it rotates in memory. `Credential` replaces the other four
+credential fields, setting both is refused, and the options never wipe it. Load it through the
+provider in `Crypto` (the default provider when it is nil).
+
 `Required` fails the handshake closed if the client presents nothing. To revoke client certificates,
 see [revocation](#set-a-revocation-posture) — note a client can't staple, so `Hard` client-cert
 revocation needs a live resolver.
@@ -636,7 +649,7 @@ begin
   // LInfo.PeerCertificates               peer chain as presented, leaf first (on a resume: the chain stored with the session)
   // LInfo.ValidatedPath                  path PKIX validated on this connection, leaf..anchor; empty on a resume unless re-verified
   // LInfo.PeerOcspStaple                 the stapled OCSP response, if any
-  // LInfo.RequestedCertificateAuthorities  CA names the peer's CertificateRequest listed (DER)
+  // LInfo.RequestedCertificateAuthorities  CA names the peer's CertificateRequest listed (DER); unauthenticated until the handshake completes
   // LInfo.PskIdentity                    the PSK identity that authenticated it (TLS 1.2 PSK, or the TLS 1.3 external identity as configured), or empty
   // LInfo.ExtendedMasterSecret           RFC 7627 in use (always True on TLS 1.3)
   // LInfo.EchStatus                      NotOffered / Greased / Accepted / Rejected / Backend
@@ -646,7 +659,7 @@ begin
   // LInfo.EarlyDataReason                why 0-RTT was or was not used (TEarlyDataReason)
   // LInfo.EarlyDataAccepted              0-RTT was accepted (client: the server took it; server: it opened the early-data window)
   // LInfo.TicketAgeSkew                  server, TLS 1.3 resumption: client-reported ticket age less the server's own, in seconds
-  // LInfo.RequestedSignatureSchemes      the signature_algorithms the peer's CertificateRequest listed
+  // LInfo.RequestedSignatureSchemes      the signature_algorithms the peer's CertificateRequest listed; non-empty exactly when one arrived, also after a failed handshake; unauthenticated until the handshake completes
 end;
 ```
 

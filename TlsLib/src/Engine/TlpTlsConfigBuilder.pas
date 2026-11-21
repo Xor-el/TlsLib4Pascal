@@ -586,12 +586,16 @@ resourcestring
   STicketCountOutOfRange = 'the session-ticket count must be between 0 and 8 per handshake';
   SInvalidChainLimits = 'the certificate-chain limits must be positive, with ' +
     'MaxCertificateLength no larger than MaxTotalChainLength, which must not exceed the ' +
-    '16 MiB handshake-message ceiling, and MaxChainCertificates must be between 1 and 255';
+    '16 MiB handshake-message ceiling, MaxChainCertificates between 1 and 255, and ' +
+    'MaxPathLength between 0 and 16';
   SInvalidCertificatePin = 'a certificate pin must be a 32-byte SHA-256 SubjectPublicKeyInfo ' +
     'digest; a wrong-width pin can never match and would silently fail every handshake';
   SCredentialKeyLeafMismatch = 'the credential''s private key does not match the public key in ' +
     'its end-entity certificate (CertificateChain[0]); load a leaf-first chain (from PEM) whose ' +
     'first certificate pairs with the key';
+  SCredentialKeyNotOwned = 'the credential''s private key was not loaded through this ' +
+    'configuration''s crypto provider, which cannot sign with it; load the credential through ' +
+    'the same provider';
   SCredentialLeafMalformed = 'the credential''s end-entity certificate (CertificateChain[0]) ' +
     'cannot be parsed';
   SCredentialLeafCannotSign = 'the credential''s end-entity certificate has a keyUsage extension ' +
@@ -2258,13 +2262,15 @@ function TTlsConfigBuilder.WithCertificateChainLimits(
   const ALimits: TCertificateChainLimits): TTlsConfigBuilder;
 begin
   GuardMutable;
-  // a resource budget, not a trust input, but a broken one (non-positive, per-cert above the whole
-  // message, a total past the 24-bit handshake-message ceiling that would wrap the derived
-  // reassembly cap, or an entry count outside 1..255) is a misconfiguration, refused at build time
+  // a budget and a path bound, never a PKIX bypass, but a broken one (non-positive, per-cert above
+  // the whole message, a total past the 24-bit handshake-message ceiling that would wrap the
+  // derived reassembly cap, an entry count outside 1..255 or a path length outside 0..16) is a
+  // misconfiguration, refused at build time
   if (ALimits.MaxCertificateLength <= 0) or (ALimits.MaxTotalChainLength <= 0) or
     (ALimits.MaxCertificateLength > ALimits.MaxTotalChainLength) or
     (ALimits.MaxTotalChainLength > $FFFFFF) or
-    (ALimits.MaxChainCertificates < 1) or (ALimits.MaxChainCertificates > 255) then
+    (ALimits.MaxChainCertificates < 1) or (ALimits.MaxChainCertificates > 255) or
+    (ALimits.MaxPathLength < 0) or (ALimits.MaxPathLength > 16) then
     raise EArgumentTlsLibException.CreateRes(@SInvalidChainLimits);
   FChainLimits := ALimits;
   Result := Self;
@@ -2321,7 +2327,7 @@ var
 begin
   if System.Length(ACredential.CertificateChain) = 0 then
     raise EInvalidOperationTlsLibException.CreateResFmt(@SSniCertMissing, [AHost]);
-  LSans := FPkix.Certificates.DnsNames(ACredential.CertificateChain[0]);
+  LSans := FPkix.Certificates.SubjectAltNames(ACredential.CertificateChain[0]).DnsNames;
   if Pos('*', AHost) = 0 then
     // an exact host must be covered by the leaf's dNSName SANs (RFC 9525)
     LOk := TEndpointIdentity.Matches(TServerName.DnsName(AHost), LSans, nil)
@@ -2366,6 +2372,8 @@ begin
     TCredentialConsistency.KeyLeafMismatch:
       raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyLeafMismatch);
   end;
+  if not FCrypto.Signing.OwnsKey(ACredential.PrivateKey) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SCredentialKeyNotOwned);
 end;
 
 function TTlsConfigBuilder.ComposeCredentialResolver: ITlsServerCredentialResolver;

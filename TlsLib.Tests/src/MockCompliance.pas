@@ -154,6 +154,7 @@ type
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier;
+    function OwnsKey(const AKey: ISigningKey): Boolean;
   end;
 
   /// <summary>A classical group a host wrote, answering ACode; it agrees nothing. Never for
@@ -448,6 +449,11 @@ begin
     Result := TFakeSystemVerifier.Create as ISignatureVerifier
   else
     Result := TRejectingSignatureVerifier.Create as ISignatureVerifier;
+end;
+
+function TFakeSigningCrypto.OwnsKey(const AKey: ISigningKey): Boolean;
+begin
+  Result := True;
 end;
 
 { TFakeNamedGroup }

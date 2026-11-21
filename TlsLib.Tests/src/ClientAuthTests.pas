@@ -46,6 +46,13 @@ uses
   TlpTlsConnection,
   TlpICryptoProvider,
   TlpIPkixProvider,
+  TlpSecretBuffer,
+  TlpITlsConfig,
+  TlpITlsConfigBuilder,
+  TlpTlsPresets,
+  TlpTrustPolicy,
+  TlpCertificateVerifierSource,
+  TlpTlsEngineFactory,
   TlpTrustTypes,
   TlpCertificateVerify,
   TlpTlsAlert,
@@ -107,6 +114,14 @@ type
     // body length raises on CompressedClientCertificate
     function ServerAlertOnCompressedClientCertificate(ABudgetBelowBody: Boolean;
       out AAlert: TTlsAlertDescription): Boolean;
+    // a 1.3 client and a Required server that retries it onto secp256r1
+    function New13HelloRetryClient: ITlsEngine;
+    function New13HelloRetryServer: ITlsEngine;
+    // the six-issuer path-length leaf and its chain as a credential
+    function PathLengthCredential: TTlsCredential;
+    // a configured client that presents the six-issuer chain to a Required server bounded to
+    // AServerPathLength, which is returned through AServer
+    function PathLengthPair(AServerPathLength: Int32; out AServer: ITlsEngine): ITlsEngine;
     function New12Client(AWithCredential: Boolean): ITlsEngine;
     // an empty credential offers none
     function New12ClientWith(const ACredential: TTlsCredential): ITlsEngine;
@@ -132,6 +147,12 @@ type
     procedure TestTls12RequiredClientAuthCompletes;
     procedure TestTls12RequiredClientAuthMissingCertAborts;
     procedure TestTls12RequestedClientAuthWithoutCertCompletes;
+    procedure TestTls12CertificateRequestIsReportedAfterServerRefusesMissingCertificate;
+    procedure TestTls13CertificateRequestIsReportedAfterServerRefusesMissingCertificate;
+    procedure TestNoCertificateRequestLeavesRequestedSchemesEmpty;
+    procedure TestCertificateRequestAfterAHelloRetryRequestIsReported;
+    procedure TestRequiredServerRefusesAClientChainOverItsPathLength;
+    procedure TestRequiredServerAdmitsAClientChainWithinARaisedPathLength;
     procedure TestTls13ClientDeclinesASha1ChainTheServerDidNotAdvertise;
     procedure TestTls13RequiredServerRefusesTheDeclinedSha1Chain;
     procedure TestTls12ClientDeclinesASha1ChainTheServerDidNotAdvertise;
@@ -484,6 +505,94 @@ begin
     'a declared length at the chain budget is accepted');
 end;
 
+function TTestClientAuth.New13HelloRetryClient: ITlsEngine;
+var
+  LParams: TClientHandshakeParams;
+begin
+  LParams := Default(TClientHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Group := TNamedGroups.CreateX25519(Crypto);
+  LParams.GroupCode := TNamedGroupCatalog.X25519;
+  LParams.OfferedGroups := TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1,
+    TNamedGroupCatalog.X25519);
+  LParams.GroupRegistry := TNamedGroups.CreateDefaultRegistry(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
+  LParams.OfferedSchemes := TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientRandom := Filled($11, 32);
+  LParams.LegacySessionId := Filled($33, 32);
+  LParams.CertificateVerifier := PeerVerifier;
+  LParams.ExpectedServerName := TServerName.DnsName('localhost');
+  LParams.ClientCredential := Credential;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestClientAuth.New13HelloRetryServer: ITlsEngine;
+var
+  LParams: TServerHandshakeParams;
+begin
+  LParams := Default(TServerHandshakeParams);
+  LParams.Clock := TSystemClock.Create;
+  LParams.Crypto := Crypto;
+  LParams.Inspector := Pkix.Certificates;
+  LParams.Policy := TNegotiationPolicy.CreateDefault(Crypto);
+  LParams.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
+  LParams.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  LParams.Group := TNamedGroups.CreateNistEcdh(Crypto, 'secp256r1');
+  LParams.ServerRandom := Filled($22, 32);
+  LParams.CookieSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
+  LParams.CredentialResolver := TSniCredentialResolver.ForCredential(Credential);
+  LParams.ClientAuth := TClientAuthMode.Required;
+  LParams.ClientAuthSignatureSchemes :=
+    TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+  LParams.ClientCertificateVerifier := PeerVerifier;
+  Result := TTlsEngine.CreateConfigured(
+    TTls13ServerStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
+end;
+
+function TTestClientAuth.PathLengthCredential: TTlsCredential;
+var
+  LNames: TArray<string>;
+  LI: Int32;
+begin
+  LNames := TArray<string>.Create('leaf_cert', 'inter_6_cert', 'inter_5_cert', 'inter_4_cert',
+    'inter_3_cert', 'inter_2_cert', 'inter_1_cert');
+  SetLength(Result.CertificateChain, System.Length(LNames));
+  for LI := 0 to High(LNames) do
+    Result.CertificateChain[LI] := TTlsLibTestCertificates.Field('Certs/PathLength.txt', LNames[LI]);
+  Result.PrivateKey := Crypto.Signing.ImportSigningKey(
+    TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'leaf_key'), nil);
+end;
+
+function TTestClientAuth.PathLengthPair(AServerPathLength: Int32;
+  out AServer: ITlsEngine): ITlsEngine;
+var
+  LRoot: TBytes;
+  LLimits: TCertificateChainLimits;
+begin
+  LRoot := TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'root_cert');
+  // the client verifies the same six-issuer chain, so its own bound is raised to admit it
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxPathLength := 6;
+  Result := TTlsEngineFactory.CreateClientEngine(
+    TTlsPresets.Compatible(Crypto, Pkix).Client
+    .WithServerVerification(TServerVerification.WebPki(LRoot).Build)
+    .WithDangerousDisableServerNameCheck
+    .WithCredential(PathLengthCredential)
+    .WithCertificateChainLimits(LLimits).Build, 'localhost');
+  LLimits.MaxPathLength := AServerPathLength;
+  AServer := TTlsEngineFactory.CreateServerEngine(
+    TTlsPresets.Compatible(Crypto, Pkix).Server
+    .WithCredential(PathLengthCredential)
+    .WithClientVerification(TClientVerification.WebPki(LRoot).Build)
+    .WithPeerAuth(TClientAuthMode.Required)
+    .WithCertificateChainLimits(LLimits).Build);
+end;
+
 function TTestClientAuth.New12Client(AWithCredential: Boolean): ITlsEngine;
 var
   LCredential: TTlsCredential;
@@ -735,6 +844,82 @@ begin
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
     '1.2 requested mTLS completes without a client cert');
   CheckFalse(LClient.IsTerminal or LServer.IsTerminal, '1.2 requested mTLS: no failure');
+end;
+
+procedure TTestClientAuth.TestTls12CertificateRequestIsReportedAfterServerRefusesMissingCertificate;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New12Client(False);
+  LServer := New12Server(TClientAuthMode.Required);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, '1.2: the server refused the missing client certificate');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    '1.2: the client still reports the signature_algorithms of the request');
+end;
+
+procedure TTestClientAuth.TestTls13CertificateRequestIsReportedAfterServerRefusesMissingCertificate;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New13Client(False);
+  LServer := New13Server(TClientAuthMode.Required);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, '1.3: the server refused the missing client certificate');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    '1.3: the client still reports the signature_algorithms of the request');
+end;
+
+procedure TTestClientAuth.TestNoCertificateRequestLeavesRequestedSchemesEmpty;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New12Client(False);
+  LServer := New12Server(TClientAuthMode.None);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, '1.2: the handshake completed');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    '1.2: no request, no schemes');
+  LClient := New13Client(False);
+  LServer := New13Server(TClientAuthMode.None);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, '1.3: the handshake completed');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    '1.3: no request, no schemes');
+end;
+
+procedure TTestClientAuth.TestCertificateRequestAfterAHelloRetryRequestIsReported;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := New13HelloRetryClient;
+  LServer := New13HelloRetryServer;
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking, 'the retried handshake completed');
+  CheckTrue(LClient.ConnectionInfo.HelloRetryRequest, 'the server retried the client');
+  CheckEquals(1, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    'the request after the retry is reported');
+end;
+
+procedure TTestClientAuth.TestRequiredServerRefusesAClientChainOverItsPathLength;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := PathLengthPair(4, LServer);
+  Drive(LClient, LServer);
+  CheckTrue(LServer.IsTerminal, 'six intermediates exceed the server bound of four');
+  CheckEquals(Int64(Ord(TTlsAlertDescription.UnknownCa)),
+    Int64(Ord(LServer.LastError.Alert.Description)), 'the abort is unknown_ca');
+end;
+
+procedure TTestClientAuth.TestRequiredServerAdmitsAClientChainWithinARaisedPathLength;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  LClient := PathLengthPair(6, LServer);
+  Drive(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking, 'the handshake completed');
+  CheckFalse(LClient.IsTerminal or LServer.IsTerminal, 'a raised server bound admits the chain');
 end;
 
 procedure TTestClientAuth.TestTls13ClientDeclinesASha1ChainTheServerDidNotAdvertise;

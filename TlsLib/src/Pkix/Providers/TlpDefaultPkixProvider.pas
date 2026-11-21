@@ -107,8 +107,8 @@ type
     function PublicKeyInfo: TBytes;
     function IssuerName: TBytes;
     function SubjectName: TBytes;
-    function DnsNames: TArray<string>;
-    function IpAddresses: TArray<TBytes>;
+    function SubjectAltNames: TCertSubjectAltNames;
+    function Validity(out ANotBefore, ANotAfter: TDateTime): Boolean;
     function KeyUsagePermits(AUsage: TCertKeyUsage): TCertAnswer;
     function KeyIsRsaPss: TCertAnswer;
     function IsCertificateAuthority: TCertAnswer;
@@ -131,8 +131,7 @@ type
     function LoadChain(const AData: TBytes): TArray<TBytes>;
     function IsWellFormed(const ADer: TBytes): Boolean;
     function PublicKeyInfo(const ACertificateDer: TBytes): TBytes;
-    function DnsNames(const ACertificateDer: TBytes): TArray<string>;
-    function IpAddresses(const ACertificateDer: TBytes): TArray<TBytes>;
+    function SubjectAltNames(const ACertificateDer: TBytes): TCertSubjectAltNames;
     function PeerInfo(const ACertificateDer: TBytes;
       out ASubject, AIssuer, ACommonName, ASerialHex: string): Boolean;
     function TlsFeatures(const ACert: TBytes;
@@ -218,7 +217,7 @@ type
     procedure ValidateCertificatePath(const AChain: TArray<TBytes>;
       const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
       const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-      var AEffectiveChain: TArray<TBytes>);
+      AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
     function NameConstraintsAdmit(const APath: TArray<TBytes>): Boolean;
   end;
 
@@ -575,16 +574,10 @@ begin
   Result := Parse(ACertificateDer).PublicKeyInfo;
 end;
 
-function TCertificateInspector.DnsNames(
-  const ACertificateDer: TBytes): TArray<string>;
+function TCertificateInspector.SubjectAltNames(
+  const ACertificateDer: TBytes): TCertSubjectAltNames;
 begin
-  Result := Parse(ACertificateDer).DnsNames;
-end;
-
-function TCertificateInspector.IpAddresses(
-  const ACertificateDer: TBytes): TArray<TBytes>;
-begin
-  Result := Parse(ACertificateDer).IpAddresses;
+  Result := Parse(ACertificateDer).SubjectAltNames;
 end;
 
 constructor TInspectedCertificate.Create(const ADer: TBytes);
@@ -613,52 +606,51 @@ begin
   Result := FCert.SubjectDN.GetDerEncoded;
 end;
 
-function TInspectedCertificate.DnsNames: TArray<string>;
+function TInspectedCertificate.SubjectAltNames: TCertSubjectAltNames;
 var
   LGeneralNames: IGeneralNames;
   LNames: TArray<IGeneralName>;
   LString: IAsn1String;
-  LI, LCount: Int32;
+  LOctets: IAsn1OctetString;
+  LI, LWidth: Int32;
 begin
-  Result := nil;
+  Result := Default(TCertSubjectAltNames);
   LGeneralNames := FCert.GetSubjectAlternativeNameExtension;
   if LGeneralNames = nil then
     Exit;
   LNames := LGeneralNames.GetNames;
-  SetLength(Result, System.Length(LNames));
-  LCount := 0;
-  for LI := 0 to System.Length(LNames) - 1 do
-    if (LNames[LI].TagNo = TGeneralName.DnsName) and
-      Supports(LNames[LI].GetName, IAsn1String, LString) then
-    begin
-      Result[LCount] := LString.GetString;
-      Inc(LCount);
+  for LI := 0 to System.High(LNames) do
+    case LNames[LI].TagNo of
+      TGeneralName.DnsName:
+        if Supports(LNames[LI].GetName, IAsn1String, LString) then
+          TArrayUtilities.Append<string>(Result.DnsNames, LString.GetString);
+      TGeneralName.IPAddress:
+        if Supports(LNames[LI].GetName, IAsn1OctetString, LOctets) then
+        begin
+          LWidth := System.Length(LOctets.GetOctets);
+          if (LWidth = 4) or (LWidth = 16) then
+            TArrayUtilities.Append<TBytes>(Result.IpAddresses, LOctets.GetOctets);
+        end;
+      TGeneralName.Rfc822Name:
+        if Supports(LNames[LI].GetName, IAsn1String, LString) then
+          TArrayUtilities.Append<string>(Result.EmailAddresses, LString.GetString);
+      TGeneralName.UniformResourceIdentifier:
+        if Supports(LNames[LI].GetName, IAsn1String, LString) then
+          TArrayUtilities.Append<string>(Result.Uris, LString.GetString);
     end;
-  SetLength(Result, LCount);
 end;
 
-function TInspectedCertificate.IpAddresses: TArray<TBytes>;
-var
-  LGeneralNames: IGeneralNames;
-  LNames: TArray<IGeneralName>;
-  LOctets: IAsn1OctetString;
-  LI, LCount: Int32;
+function TInspectedCertificate.Validity(out ANotBefore, ANotAfter: TDateTime): Boolean;
 begin
-  Result := nil;
-  LGeneralNames := FCert.GetSubjectAlternativeNameExtension;
-  if LGeneralNames = nil then
-    Exit;
-  LNames := LGeneralNames.GetNames;
-  SetLength(Result, System.Length(LNames));
-  LCount := 0;
-  for LI := 0 to System.Length(LNames) - 1 do
-    if (LNames[LI].TagNo = TGeneralName.IPAddress) and
-      Supports(LNames[LI].GetName, IAsn1OctetString, LOctets) then
-    begin
-      Result[LCount] := LOctets.GetOctets;
-      Inc(LCount);
-    end;
-  SetLength(Result, LCount);
+  try
+    ANotBefore := FCert.NotBefore;
+    ANotAfter := FCert.NotAfter;
+    Result := True;
+  except
+    ANotBefore := 0;
+    ANotAfter := 0;
+    Result := False;
+  end;
 end;
 
 class function TCertificatePathValidator.TTrustAnchorRing.Init: TTrustAnchorRing;
@@ -875,7 +867,7 @@ end;
 procedure TCertificatePathValidator.ValidateCertificatePath(const AChain: TArray<TBytes>;
   const ATrustAnchors: ITrustAnchorStore; const AIntermediates: TArray<TBytes>;
   const AValidationTimeUtc: TDateTime; AKeyPurpose: TCertKeyPurpose;
-  var AEffectiveChain: TArray<TBytes>);
+  AMaxPathLength: Int32; var AEffectiveChain: TArray<TBytes>);
 
   // the anchor is identified the way the path validator identifies it - by subject name and
   // public key, not by exact encoding - so a re-encoded or re-issued same-key root the peer
@@ -1035,6 +1027,11 @@ begin
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.BadCertificate, @SBadCertificate);
 
+  // a negative bound would read as unbounded to the path builder
+  if AMaxPathLength < 0 then
+    raise EFatalAlertTlsLibException.CreateRes(
+      TTlsAlertDescription.UnknownCa, @SUntrustedChain);
+
   LParser := TX509CertificateParser.Create;
   try
     SetLength(LCerts, System.Length(AChain));
@@ -1184,7 +1181,7 @@ begin
       LBuilderParams := TPkixBuilderParameters.Create(LUsable, LTarget);
       LBuilderParams.SetIsRevocationEnabled(False);
       LBuilderParams.SetDate(AValidationTimeUtc);
-      LBuilderParams.SetMaxPathLength(TPathBuildLimits.MaxBuiltPathLength);
+      LBuilderParams.SetMaxPathLength(AMaxPathLength);
       LBuilderParams.AddCertPathChecker(
         TTlsCriticalExtensionChecker.Create(LCerts[0]) as IPkixCertPathChecker);
       LPoolStore := TCollectionStore<IX509Certificate>.Create(LPool);

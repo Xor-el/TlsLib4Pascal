@@ -72,6 +72,11 @@ uses
   TlpAntiReplay,
   TlpIKeyLog,
   MockKeyLog,
+  MockCryptoProvider,
+  TlpDefaultCryptoProvider,
+  TlpITlsConfig,
+  TlpTlsConnection,
+  TlpTlsEngineFactory,
   TlsLibHandshakeTestBase,
   TlsLibTestCertificates,
   TlsLibTestHandshakeDecoder;
@@ -91,6 +96,10 @@ type
     function NewClientEd25519: ITlsEngine;
     function NewServerEd25519: ITlsEngine;
     function NewServer: ITlsEngine;
+    // the provider whose signing facet imports handle keys (THandleSigningCrypto over Crypto)
+    function NewHandleProvider: ICryptoProvider;
+    // server options of the EcP256 credential loaded through AProvider, built on ACrypto
+    function HandleServerOptions(const AProvider, ACrypto: ICryptoProvider): TTlsOptions;
     function NewServerWithResolver(
       const AResolver: ITlsServerCredentialResolver): ITlsEngine;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
@@ -124,7 +133,7 @@ type
       AMaxEarlyData: UInt32;
       const AAntiReplay: IAntiReplayStrategy): ITlsEngine;
     function NewEchRejectServer(const AConfigList: TBytes;
-      const APrivateKey: ISecretBuffer): ITlsEngine;
+      const APrivateKey: ISecretBuffer; AClientAuth: TClientAuthMode): ITlsEngine;
     function NewHrrClient: ITlsEngine;
     function NewHrrServer: ITlsEngine;
     function NewHrrServerWithPolicy(const APolicy: INegotiationPolicy): ITlsEngine;
@@ -157,6 +166,7 @@ type
     procedure TestEchZeroRttLoopback;
     procedure TestEchResumeThenRejectLoopback;
     procedure TestEchRejectLoopback;
+    procedure TestEchRejectDoesNotReportOuterCertificateRequest;
     procedure TestClientServerLoopbackReachesApplicationData;
     procedure TestServerHalfRttWriteIsAccepted;
     procedure TestWriteUnderHandshakeKeysIsRefused;
@@ -193,6 +203,10 @@ type
     procedure TestCredentialSetOfASingleCredentialListsOne;
     procedure TestEd448ServerCredentialHandshake;
     procedure TestEd25519ServerCredentialHandshake;
+    // a credential loaded through a custom signing facet, whose keys are handles only it can sign
+    // with, signs the handshake when the options name that provider and is refused otherwise
+    procedure TestOptionsCredentialFromACustomSigningFacetSignsTheHandshake;
+    procedure TestOptionsCredentialFromACustomSigningFacetIsRefusedByThePlainProvider;
   end;
 
 implementation
@@ -308,6 +322,24 @@ end;
 function TTestTls13Loopback.NewServer: ITlsEngine;
 begin
   Result := NewServerWithResolver(TSniCredentialResolver.ForCredential(ServerCredential));
+end;
+
+function TTestTls13Loopback.NewHandleProvider: ICryptoProvider;
+var
+  LBuilder: ICryptoProviderBuilder;
+begin
+  LBuilder := TCryptoProviderBuilder.Create;
+  Result := LBuilder.WithPrimitives(Crypto.Primitives)
+    .WithSigning(THandleSigningCrypto.Create(Crypto.Signing) as ISigningCrypto).Build;
+end;
+
+function TTestTls13Loopback.HandleServerOptions(const AProvider,
+  ACrypto: ICryptoProvider): TTlsOptions;
+begin
+  Result := TTlsOptions.Default;
+  Result.Crypto := ACrypto;
+  Result.Pkix := Pkix;
+  Result.Credential := ServerCredential(AProvider);
 end;
 
 function TTestTls13Loopback.NewServerWithResolver(
@@ -442,11 +474,21 @@ begin
 end;
 
 function TTestTls13Loopback.NewEchRejectServer(const AConfigList: TBytes;
-  const APrivateKey: ISecretBuffer): ITlsEngine;
+  const APrivateKey: ISecretBuffer; AClientAuth: TClientAuthMode): ITlsEngine;
 var
   LParams: TServerHandshakeParams;
 begin
   LParams := Default(TServerHandshakeParams);
+  LParams.ClientAuth := AClientAuth;
+  if AClientAuth <> TClientAuthMode.None then
+  begin
+    LParams.ClientAuthSignatureSchemes :=
+      TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
+    LParams.ClientCertificateVerifier := TCertificateVerifier.Create(Pkix,
+      TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(nil) as ITrustAnchorStore, False)
+      as IClientCertificateVerifier;
+  end;
   LParams.Clock := TSystemClock.Create;
   LParams.Crypto := Crypto;
   LParams.Inspector := Pkix.Certificates;
@@ -1001,7 +1043,7 @@ begin
   // second: the resuming client's outer carries a GREASE PSK, but the server holds config_B
   // and rejects; the GREASE PSK must not derail the reject
   LClient := NewEchClientWith(LConfigA, LCache);
-  LServer := NewEchRejectServer(LConfigB, LSkB);
+  LServer := NewEchRejectServer(LConfigB, LSkB, TClientAuthMode.None);
   RunHandshake(LClient, LServer);
   CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected,
     'the resuming client saw an ECH reject (the outer GREASE PSK was ignored)');
@@ -1124,7 +1166,7 @@ begin
   LClientList := BuildEchConfigList($AA, 'localhost', LClientSk);
   LServerList := BuildEchConfigList($BB, 'localhost', LServerSk);
   LClient := NewEchClientWith(LClientList, nil);
-  LServer := NewEchRejectServer(LServerList, LServerSk);
+  LServer := NewEchRejectServer(LServerList, LServerSk, TClientAuthMode.None);
   RunHandshake(LClient, LServer);
   CheckTrue(LClient.IsTerminal, 'the client aborted the rejected ECH handshake');
   LClientInfo := LClient.ConnectionInfo;
@@ -1141,6 +1183,24 @@ begin
     LReturnedRetry[0] := LReturnedRetry[0] xor $FF;
   CheckEqualBytes('mutating the returned retry_configs does not change a re-read', LServerList,
     LClient.ConnectionInfo.EchRetryConfigs);
+end;
+
+procedure TTestTls13Loopback.TestEchRejectDoesNotReportOuterCertificateRequest;
+var
+  LClient, LServer: ITlsEngine;
+  LClientList, LServerList: TBytes;
+  LClientSk, LServerSk: ISecretBuffer;
+begin
+  // the rejecting public_name server asks for a client certificate; the outer handshake's request
+  // is not the application's, so the client reports none
+  LClientList := BuildEchConfigList($AA, 'localhost', LClientSk);
+  LServerList := BuildEchConfigList($BB, 'localhost', LServerSk);
+  LClient := NewEchClientWith(LClientList, nil);
+  LServer := NewEchRejectServer(LServerList, LServerSk, TClientAuthMode.Requested);
+  RunHandshake(LClient, LServer);
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Rejected, 'the client recorded an ECH reject');
+  CheckEquals(0, System.Length(LClient.ConnectionInfo.RequestedSignatureSchemes),
+    'the outer handshake''s certificate request is not reported');
 end;
 
 function TTestTls13Loopback.NewStaplingServer(const AStaple: TBytes): ITlsEngine;
@@ -2414,6 +2474,44 @@ begin
   Pump(LClient, LServer);
   CheckEqualBytes('app data flows over the Ed25519-authenticated channel', LMsg,
     ReadAllApp(LServer));
+end;
+
+procedure TTestTls13Loopback.TestOptionsCredentialFromACustomSigningFacetSignsTheHandshake;
+var
+  LProvider: ICryptoProvider;
+  LClientOpts: TTlsOptions;
+  LClient, LServer: ITlsEngine;
+begin
+  LProvider := NewHandleProvider;
+  LClientOpts := TTlsOptions.Default;
+  LClientOpts.Crypto := Crypto;
+  LClientOpts.Pkix := Pkix;
+  LClientOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(
+    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+  LServer := TTlsEngineFactory.CreateServerEngine(
+    TTlsConfigComposer.BuildServerConfig(HandleServerOptions(LProvider, LProvider)));
+  LClient := TTlsEngineFactory.CreateClientEngine(
+    TTlsConfigComposer.BuildClientConfig(LClientOpts), 'localhost');
+  RunHandshake(LClient, LServer);
+  CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
+  CheckFalse(LServer.IsHandshaking, 'the server completed the handshake');
+  CheckFalse(LServer.IsTerminal, 'the handle key signed the CertificateVerify');
+  CheckAppDataFlows(LClient, LServer);
+end;
+
+procedure TTestTls13Loopback.TestOptionsCredentialFromACustomSigningFacetIsRefusedByThePlainProvider;
+var
+  LMsg: string;
+begin
+  LMsg := '';
+  try
+    TTlsConfigComposer.BuildServerConfig(HandleServerOptions(NewHandleProvider, Crypto));
+  except
+    on E: Exception do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a handle key is refused by a provider that did not mint it; got: ' + LMsg);
 end;
 
 initialization

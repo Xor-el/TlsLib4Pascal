@@ -43,7 +43,8 @@ type
   /// escape hatch, no out-of-band deferral, no seeded intermediates, must-staple off - so a caller
   /// sets only the fields it needs.</summary>
   TCertificateVerifierOptions = record
-    /// <summary>The certificate-chain resource caps applied before PKIX validation.</summary>
+    /// <summary>The certificate-chain caps: size and count before PKIX validation, path length
+    /// during and after it.</summary>
     ChainLimits: TCertificateChainLimits;
     /// <summary>The stapled-revocation posture (RFC 6960): Soft (default), Hard, or Off.</summary>
     RevocationPosture: TRevocationPosture;
@@ -446,7 +447,7 @@ var
   LKnown, LChanged: Boolean;
   LCommonName, LSerial, LRootIssuer: string;
 
-  // which pool certificates signed AIndex; the diagonal tells whether it is self-signed
+  // which pool certificates signed AIndex
   procedure Expand(AIndex: Int32);
   var
     LJ: Int32;
@@ -497,14 +498,14 @@ begin
         LWithheldAt[LA] := True;
   for LA := 0 to System.High(LCost) do
     LCost[LA] := System.High(Int32);
-  // a state is (certificate, crossed a withheld one), costed in non-self-signed certificates above the leaf
+  // a state is (certificate, crossed a withheld one), costed in non-self-issued certificates above the leaf
   LCost[0] := 0;
   repeat
     LChanged := False;
     for LA := 0 to LCount - 1 do
       for LC := 0 to 1 do
       begin
-        if LCost[LA * 2 + LC] > TPathBuildLimits.MaxBuiltPathLength then
+        if LCost[LA * 2 + LC] > FChainLimits.MaxPathLength then
           Continue;
         Expand(LA);
         if LC = 1 then
@@ -536,12 +537,12 @@ begin
             Continue;
           Expand(LB);
           LNext := LCost[LA * 2 + LC];
-          if not LIssuedBy[LB][LB] then
+          if (LIssuerName[LB] = '') or not SameText(LIssuerName[LB], LSubject[LB]) then
             Inc(LNext);
           LTo := LB * 2 + LC;
           if LWithheldAt[LB] then
             LTo := LB * 2 + 1;
-          if (LNext <= TPathBuildLimits.MaxBuiltPathLength) and (LNext < LCost[LTo]) then
+          if (LNext <= FChainLimits.MaxPathLength) and (LNext < LCost[LTo]) then
           begin
             LCost[LTo] := LNext;
             LChanged := True;
@@ -586,6 +587,7 @@ var
   LEffectiveChain: TArray<TBytes>;
   LPresented, LIntermediates, LAnchors: TArray<TBytes>;
   LLeaf: IInspectedCertificate;
+  LSans: TCertSubjectAltNames;
   LWithheld: TArray<TBytes>;
 begin
   Result := False;
@@ -623,7 +625,7 @@ begin
   LEffectiveChain := LPresented;
   try
     FPkix.PathValidation.ValidateCertificatePath(LPresented, FTrustStore,
-      LIntermediates, ValidationTimeUtc, AKeyPurpose, LEffectiveChain);
+      LIntermediates, ValidationTimeUtc, AKeyPurpose, FChainLimits.MaxPathLength, LEffectiveChain);
   except
     on E: EFatalAlertTlsLibException do
     begin
@@ -640,6 +642,12 @@ begin
   if AnyDistrusted(FTrustStore, LEffectiveChain) then
   begin
     AAlert := TTlsAlertDescription.BadCertificate;
+    Exit;
+  end;
+  // binds a custom path validator too, which the builder's own bound does not
+  if not FChainLimits.AdmitsPath(FPkix.Certificates, LEffectiveChain) then
+  begin
+    AAlert := TTlsAlertDescription.UnknownCa;
     Exit;
   end;
 
@@ -678,7 +686,8 @@ begin
       Exit;
     end;
     LLeaf := FPkix.Certificates.Parse(AChain[0]);
-    if not TEndpointIdentity.Matches(AServerName, LLeaf.DnsNames, LLeaf.IpAddresses) then
+    LSans := LLeaf.SubjectAltNames;
+    if not TEndpointIdentity.Matches(AServerName, LSans.DnsNames, LSans.IpAddresses) then
     begin
       AAlert := TTlsAlertDescription.BadCertificate;
       Exit;

@@ -526,7 +526,7 @@ begin
   try
     APolicy.Pkix.PathValidation.ValidateCertificatePath(AChain, APolicy.AnchorStore,
       AIntermediates, TDateTimeUtilities.UnixMsToDateTime(Int64(LClock.NowUnixMillis)),
-      TCertKeyPurpose.ClientAuth, LPath);
+      TCertKeyPurpose.ClientAuth, APolicy.ChainLimits.MaxPathLength, LPath);
   except
     on E: EFatalAlertTlsLibException do
     begin
@@ -614,6 +614,12 @@ begin
   // path validity (name constraints) precedes revocation and strength, as in the built-in verifier
   if TDelegatePostChecks.RejectNameConstraintViolation(FPolicy.Pkix, AResult.Path, AAlert) then
     Exit(False);
+  // the OS builds with its own depth limit, so the configured path length is held over its path
+  if not FPolicy.ChainLimits.AdmitsPath(FPolicy.Pkix.Certificates, AResult.Path) then
+  begin
+    AAlert := TTlsAlertDescription.UnknownCa;
+    Exit(False);
+  end;
   // a self-signed anchor is trusted whatever its dates; any other is held to its validity window
   if TDelegatePostChecks.RejectExpiredAnchor(FPolicy.Pkix, FPolicy.Clock, AResult.PolicyExempt,
     AAlert) then
@@ -863,7 +869,8 @@ begin
   if FPolicy.Pkix = nil then
     Exit(False);
   TIssuerResolution.Resolve(FPolicy.Pkix.Certificates, FPolicy.IssuerLookup, FPolicy.IssuerRule,
-    FPolicy.StrengthPolicy, FPolicy.BaseStore, AChain, FPolicy.Intermediates, LStore, LFound);
+    FPolicy.StrengthPolicy, FPolicy.BaseStore, FPolicy.ChainLimits.MaxPathLength, AChain,
+    FPolicy.Intermediates, LStore, LFound);
   if (FExpectedPeer = TPeerRole.Server) and not FPolicy.RootsExclusive then
     APolicy := TOSDelegatePolicy.WithContextRoots(FPolicy, LStore, FEngine.Capabilities)
   else
@@ -944,6 +951,11 @@ begin
   if TDelegatePostChecks.RejectNameConstraintViolation(LPolicy.Pkix, LResult.Path,
     ARejectAlert) then
     Exit(False);
+  if not LPolicy.ChainLimits.AdmitsPath(LPolicy.Pkix.Certificates, LResult.Path) then
+  begin
+    ARejectAlert := TTlsAlertDescription.UnknownCa;
+    Exit(False);
+  end;
   if TDelegatePostChecks.RejectExpiredAnchor(LPolicy.Pkix, LPolicy.Clock, LResult.PolicyExempt,
     ARejectAlert) then
     Exit(False);

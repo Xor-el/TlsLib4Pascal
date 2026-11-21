@@ -579,6 +579,7 @@ type
       const AKey: ISigningKey): ISignatureSigner;
     function CreateSignatureVerifier(AScheme: TSignatureScheme;
       const APublicKeyDer: TBytes): ISignatureVerifier;
+    function OwnsKey(const AKey: ISigningKey): Boolean;
   end;
 
 { TRandomAdapter }
@@ -2165,6 +2166,11 @@ begin
       raise EArgumentTlsLibException.CreateRes(@SKeyUnusableForScheme);
   end;
   Result := TSignatureVerifierAdapter.Create(LSigner);
+end;
+
+function TSigningCrypto.OwnsKey(const AKey: ISigningKey): Boolean;
+begin
+  Result := Supports(AKey, IProviderSigningKey);
 end;
 
 function TSigningCrypto.ImportPkcs12(const AData: TBytes;

@@ -93,6 +93,7 @@ uses
   TlpHandshakeMessages,
   TlsLibTestHandshakeDecoder,
   TlpTlsLib,
+  TlpISigningKey,
   MockCryptoProvider,
   TlsLibTestProviders,
   MockCertificateCompression,
@@ -113,6 +114,9 @@ type
     // the EcP256 leaf paired with a foreign private key from ImportKeys.txt (never its own key),
     // so the key does not own the leaf
     function CredentialWithForeignKey(const AKeyField: string): TTlsCredential;
+    // the EcP256 credential whose key is a handle no provider minted, over the leaf's own public
+    // key, so it is consistent with the leaf yet no provider can sign with it
+    function CredentialWithUnownedKey: TTlsCredential;
     // the dual-version suites with the first one's hash altered, held by a host registry
     function NonCatalogSuiteRegistry: ICipherSuiteRegistry;
     function BuildEchConfigList(AConfigId: Byte; const APublicName: string;
@@ -359,6 +363,7 @@ type
     procedure TestCertificateChainLimitsAreConfigurable;
     procedure TestInvalidCertificateChainLimitsRejected;
     procedure TestInvalidChainEntryCapRejected;
+    procedure TestInvalidPathLengthRejected;
     procedure TestContradictoryStrengthFloorsRejected;
     procedure TestTls13CompressorOverrideLandsInFrozenConfig;
     procedure TestClientBuilderChainBuildsClient;
@@ -401,6 +406,10 @@ type
     procedure TestMalformedTrustAnchorIsRefusedAtBuild;
     procedure TestSniCredentialWithMismatchedKeyNamesHost;
     procedure TestClientCredentialWithMismatchedKeyRejected;
+    // a key no provider minted is consistent with its leaf but cannot sign, so Build refuses it
+    procedure TestServerCredentialWithUnownedKeyRejected;
+    procedure TestClientCredentialWithUnownedKeyRejected;
+    procedure TestSniCredentialWithUnownedKeyNamesHost;
     procedure TestMatchingCredentialBuildsServer;
     // RFC 9846 4.7.1: a server MUST NOT advertise a ticket lifetime over 604800 seconds
     procedure TestTicketLifetimeAboveCapIsRejected;
@@ -555,6 +564,16 @@ begin
   finally
     LKeys.Free;
   end;
+end;
+
+function TTestConfigBuilder.CredentialWithUnownedKey: TTlsCredential;
+var
+  LOwned: ISigningKey;
+begin
+  Result := ServerCredential;
+  LOwned := Result.PrivateKey;
+  Result.PrivateKey := TFakeSigningKey.Create(LOwned.CapableSchemes,
+    LOwned.PublicKeyInfo) as ISigningKey;
 end;
 
 function TTestConfigBuilder.BuildClientConfig(
@@ -3846,6 +3865,35 @@ begin
   CheckFalse(Accepted(256), 'an entry cap above 255 is rejected');
 end;
 
+procedure TTestConfigBuilder.TestInvalidPathLengthRejected;
+
+  function Accepted(ALength: Int32): Boolean;
+  var
+    LLimits: TCertificateChainLimits;
+  begin
+    LLimits := TCertificateChainLimits.Defaults;
+    LLimits.MaxPathLength := ALength;
+    Result := True;
+    try
+      TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, TTlsConfigProfile.Default)
+        .Client.WithCertificateChainLimits(LLimits);
+    except
+      on E: EArgumentTlsLibException do
+      begin
+        Result := False;
+        CheckTrue(Pos('MaxPathLength', E.Message) > 0, 'the message names the path length');
+      end;
+    end;
+  end;
+
+begin
+  CheckTrue(Accepted(4), 'the default path length is accepted');
+  CheckTrue(Accepted(0), 'a zero path length is accepted');
+  CheckTrue(Accepted(16), 'the largest path length is accepted');
+  CheckFalse(Accepted(-1), 'a negative path length is rejected');
+  CheckFalse(Accepted(17), 'a path length above 16 is rejected');
+end;
+
 procedure TTestConfigBuilder.TestContradictoryStrengthFloorsRejected;
 
   function Accepted(AMin, AMax: Int32): Boolean;
@@ -4491,6 +4539,60 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a client credential whose key does not own its leaf is refused at Build');
+end;
+
+procedure TTestConfigBuilder.TestServerCredentialWithUnownedKeyRejected;
+var
+  LBuilder: ITlsConfigBuilder;
+  LMsg: string;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LMsg := '';
+  try
+    LBuilder.Server.WithCredential(CredentialWithUnownedKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a credential whose key the provider did not mint is refused at Build; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestClientCredentialWithUnownedKeyRejected;
+var
+  LBuilder: ITlsConfigBuilder;
+  LMsg: string;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LMsg := '';
+  try
+    LBuilder.Client.WithServerVerification(
+      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      .WithCredential(CredentialWithUnownedKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue(Pos('not loaded through', LMsg) > 0,
+    'a client credential whose key the provider did not mint is refused at Build; got: ' + LMsg);
+end;
+
+procedure TTestConfigBuilder.TestSniCredentialWithUnownedKeyNamesHost;
+var
+  LBuilder: ITlsConfigBuilder;
+  LMsg: string;
+begin
+  LBuilder := TTlsConfigBuilder.CreateFromProfile(Crypto, Pkix, DefaultProfile);
+  LMsg := '';
+  try
+    LBuilder.Server.WithSniCredential('localhost', CredentialWithUnownedKey).Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LMsg := E.Message;
+  end;
+  CheckTrue((Pos('localhost', LMsg) > 0) and (Pos('not loaded through', LMsg) > 0),
+    'an SNI credential whose key the provider did not mint is refused and names its host; got: '
+    + LMsg);
 end;
 
 procedure TTestConfigBuilder.TestMatchingCredentialBuildsServer;
@@ -5555,6 +5657,10 @@ begin
   LLimits.MaxChainCertificates := 8;
   CheckTrue(BuildRefused(NewServerBuilder.WithCertificateChainLimits(LLimits),
     'certificate-chain limits'), 'chain limits changed on a server that requests no client certificate');
+  LLimits := TCertificateChainLimits.Defaults;
+  LLimits.MaxPathLength := 6;
+  CheckTrue(BuildRefused(NewServerBuilder.WithCertificateChainLimits(LLimits),
+    'certificate-chain limits'), 'a path length changed on a server that requests no client certificate');
 end;
 
 procedure TTestConfigBuilder.TestServerChainLimitsBuildWithPeerAuth;
