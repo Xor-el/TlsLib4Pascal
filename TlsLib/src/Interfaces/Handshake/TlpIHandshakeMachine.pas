@@ -109,6 +109,16 @@ type
   end;
 
   /// <summary>
+  /// An optional companion the driver reaches with Supports on the sink to report a failure TLS
+  /// defines no alert for. A sink without it receives such a failure as internal_error through
+  /// IHandshakeSink.
+  /// </summary>
+  IHandshakeLocalFailureSink = interface(IInterface)
+    ['{9B4E2C71-5D08-4A3F-A6E1-C7D32F8B1054}']
+    procedure OnHandshakeFailedWithoutAlert(const AReason: string);
+  end;
+
+  /// <summary>
   /// An optional companion the driver reaches with Supports on the sink to report the
   /// negotiated protocol version once an epoch's keys are installed. Kept off IHandshakeSink
   /// so existing sinks (and their test doubles) need not implement it; only the engine bridge

@@ -49,6 +49,8 @@ type
     // resolved once from the sink; nil when the sink does not track connection info
     FConnectionInfoSink: IHandshakeConnectionInfoSink;
     FEchStatusSink: IEchStatusSink;
+    // resolved once from the sink; nil when the sink cannot report a failure without an alert
+    FLocalFailureSink: IHandshakeLocalFailureSink;
     // set once a record-only effect failed for want of the companion
     FRecordControlMissing: Boolean;
     procedure ApplyInstallKeys(const AEffect: THandshakeEffect);
@@ -86,6 +88,8 @@ begin
     FConnectionInfoSink := nil;
   if not Supports(ASink, IEchStatusSink, FEchStatusSink) then
     FEchStatusSink := nil;
+  if not Supports(ASink, IHandshakeLocalFailureSink, FLocalFailureSink) then
+    FLocalFailureSink := nil;
 end;
 
 procedure THandshakeDriver.ApplyRecordControl(const AEffect: THandshakeEffect);
@@ -205,6 +209,11 @@ begin
         FSink.OnHandshakeFailed(TTlsAlertDescription.EchRequired, SEchRejected);
     THandshakeEffectKind.Fail:
       FSink.OnHandshakeFailed(AEffect.Alert, AEffect.Reason);
+    THandshakeEffectKind.FailWithoutAlert:
+      if FLocalFailureSink <> nil then
+        FLocalFailureSink.OnHandshakeFailedWithoutAlert(AEffect.Reason)
+      else
+        FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, AEffect.Reason);
   end;
 end;
 

@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="2"/>
-    <Files Count="175">
+    <Files Count="180">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>
         <UnitName Value="TlpCryptoDomainTypes"/>
@@ -729,6 +729,26 @@
         <Filename Value="..\..\Session\TlpTicketBinding.pas"/>
         <UnitName Value="TlpTicketBinding"/>
       </Item175>
+      <Item176>
+        <Filename Value="..\..\Interfaces\Engine\TlpITlsHandshakeEngine.pas"/>
+        <UnitName Value="TlpITlsHandshakeEngine"/>
+      </Item176>
+      <Item177>
+        <Filename Value="..\..\Engine\TlpHandshakeOutput.pas"/>
+        <UnitName Value="TlpHandshakeOutput"/>
+      </Item177>
+      <Item178>
+        <Filename Value="..\..\Engine\TlpEngineOutcome.pas"/>
+        <UnitName Value="TlpEngineOutcome"/>
+      </Item178>
+      <Item179>
+        <Filename Value="..\..\Handshake\TlpLeveledHandshakeChannel.pas"/>
+        <UnitName Value="TlpLeveledHandshakeChannel"/>
+      </Item179>
+      <Item180>
+        <Filename Value="..\..\Engine\TlpTlsHandshakeEngine.pas"/>
+        <UnitName Value="TlpTlsHandshakeEngine"/>
+      </Item180>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

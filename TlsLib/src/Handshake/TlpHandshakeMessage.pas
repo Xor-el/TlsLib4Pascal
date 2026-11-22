@@ -90,7 +90,11 @@ type
     FMaxCertificateMessageLength: Int32;
     FMaxTotalLength: Int32;
   public
-    constructor Create;
+    constructor Create; overload;
+    /// <summary>As above, bounding the Certificate message to AMaxCertificateMessageLength (a
+    /// caller's certificate-chain budget) and raising the reassembly ceiling to hold it plus one
+    /// following coalesced 16 KiB record, which is drained after every append.</summary>
+    constructor Create(AMaxCertificateMessageLength: Int32); overload;
 
     /// <summary>Appends inbound handshake-fragment bytes to the reassembly buffer.</summary>
     procedure Append(const AData: TBytes; AOffset, ALength: Int32);
@@ -212,6 +216,17 @@ begin
   FMaxMessageLength := DefaultMaxHandshakeMessageLength;
   FMaxCertificateMessageLength := DefaultMaxHandshakeMessageLength;
   FMaxTotalLength := DefaultMaxHandshakeReassembly;
+end;
+
+constructor THandshakeMessageReader.Create(AMaxCertificateMessageLength: Int32);
+begin
+  Create;
+  FMaxCertificateMessageLength := AMaxCertificateMessageLength;
+  // the reassembly buffer must hold a full Certificate message before it completes, plus headroom
+  // for at most one following coalesced record (one max-size 16 KiB plaintext record plus a
+  // handshake header), drained after every append
+  if FMaxTotalLength < AMaxCertificateMessageLength + (1 shl 14) + HandshakeHeaderLength then
+    FMaxTotalLength := AMaxCertificateMessageLength + (1 shl 14) + HandshakeHeaderLength;
 end;
 
 procedure THandshakeMessageReader.Append(const AData: TBytes;

@@ -182,6 +182,14 @@ type
     /// <summary>Where the host's session application data is read for a received ticket and the
     /// offered session's is published; nil keeps none.</summary>
     SessionApplicationData: ISessionApplicationDataChannel;
+    /// <summary>Whether the host owns record protection and the key lifecycle: the machine then
+    /// sends no change_cipher_spec and no EndOfEarlyData, emits no record-layer control effect,
+    /// refuses KeyUpdate and requires every ticket's early_data value to equal
+    /// TicketEarlyDataLimit.</summary>
+    HostOwnsRecordProtection: Boolean;
+    /// <summary>The max_early_data_size a ticket may carry under HostOwnsRecordProtection; a ticket
+    /// that carries another value fails the handshake without an alert.</summary>
+    TicketEarlyDataLimit: UInt32;
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
     /// augment-only and fail-closed, None by default.</summary>
     Deferral: TVerdictDeferral;
@@ -462,6 +470,8 @@ resourcestring
   SMissingServerKeyShare = 'the ServerHello carries no key_share for the asymmetric key exchange';
   SEarlyDataWithoutPsk =
     'EncryptedExtensions carries early_data but no offered PSK was accepted';
+  STicketEarlyDataLimitMismatch =
+    'the ticket advertises an early-data limit other than the one the host fixed';
   SBadServerFinished = 'the server Finished did not verify';
   SEmptyCertificate = 'the server sent an empty certificate list';
   SServerCertContextNotEmpty =
@@ -844,6 +854,11 @@ begin
   finally
     LContext.Free;
   end;
+  // a host that owns record protection fixes the early-data budget: any other advertised value is
+  // refused locally, before the ticket is cached
+  if FParams.HostOwnsRecordProtection and (LMaxEarlyData <> 0) and
+    (LMaxEarlyData <> FParams.TicketEarlyDataLimit) then
+    raise ELocalFailureTlsLibException.CreateRes(@STicketEarlyDataLimitMismatch);
   // a rejected ECH handshake authenticated only the public_name, so its tickets MUST be ignored
   // (RFC 9849 sec. 6.1.7); a reject is already terminal, so this guards against a future refactor
   if FEchOrch.Status = TEchStatus.Rejected then
@@ -1068,8 +1083,9 @@ begin
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.EarlyData));
     // bound the outbound 0-RTT at the ticket's max_early_data; bytes beyond the budget are
     // refused and the caller resends them as 1-RTT (RFC 9846 4.3.10)
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SetEarlyDataLimit(EarlyDataBudget(FPskOffers[0].MaxEarlyData)));
+    if not FParams.HostOwnsRecordProtection then
+      TArrayUtilities.Append<THandshakeEffect>(Result,
+        THandshakeEffects.SetEarlyDataLimit(EarlyDataBudget(FPskOffers[0].MaxEarlyData)));
   end;
 end;
 
@@ -1611,8 +1627,9 @@ begin
     FSchedule.ForgetEarlyExporter;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.RevertWriteToPlaintext);
+    if not FParams.HostOwnsRecordProtection then
+      TArrayUtilities.Append<THandshakeEffect>(Result,
+        THandshakeEffects.RevertWriteToPlaintext);
   end;
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LClientHello2));
@@ -1887,7 +1904,7 @@ end;
 function TTls13ClientStateMachine.MiddleboxCcs: TArray<THandshakeEffect>;
 begin
   Result := nil;
-  if FMiddleboxCcsSent then
+  if FMiddleboxCcsSent or FParams.HostOwnsRecordProtection then
     Exit;
   FMiddleboxCcsSent := True;
   Result := TArray<THandshakeEffect>.Create(THandshakeEffects.SendChangeCipherSpec);
@@ -1988,13 +2005,17 @@ var
 begin
   Result := nil;
   // accepted 0-RTT: EndOfEarlyData (under the early keys) closes early data and folds
-  // into the transcript, then the write side moves to the handshake keys (RFC 9846 4.6)
+  // into the transcript, then the write side moves to the handshake keys (RFC 9846 4.6); a host
+  // that owns record protection delimits early data itself, so only the write move remains
   if FEarlyDataAccepted then
   begin
-    LEndOfEarlyData := THandshakeFraming.Frame(TTlsHandshakeType.EndOfEarlyData, nil);
-    FTranscript.Update(LEndOfEarlyData);
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SendHandshake(LEndOfEarlyData));
+    if not FParams.HostOwnsRecordProtection then
+    begin
+      LEndOfEarlyData := THandshakeFraming.Frame(TTlsHandshakeType.EndOfEarlyData, nil);
+      FTranscript.Update(LEndOfEarlyData);
+      TArrayUtilities.Append<THandshakeEffect>(Result,
+        THandshakeEffects.SendHandshake(LEndOfEarlyData));
+    end;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
@@ -2138,7 +2159,8 @@ begin
       // the read epoch and may trigger one responding update (RFC 9846 4.7.3)
       if LKnown and (LType = TTlsHandshakeType.NewSessionTicket) then
         Result := CacheNewSessionTicket(AMessage)
-      else if LKnown and (LType = TTlsHandshakeType.KeyUpdate) then
+      else if LKnown and (LType = TTlsHandshakeType.KeyUpdate) and
+        not FParams.HostOwnsRecordProtection then
         Result := HandleInboundKeyUpdate(AMessage)
       else
         Result := Unexpected;

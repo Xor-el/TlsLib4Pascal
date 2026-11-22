@@ -140,7 +140,8 @@ begin
     Result := ResultOf(TInteropStatus.PeerAlert, LError.Message)
   else
     Result := ResultOf(TInteropStatus.LocalAlert, LError.Message);
-  Result.HasAlert := LError.Origin <> TTlsErrorOrigin.Transport;
+  Result.HasAlert := not (LError.Origin in [TTlsErrorOrigin.Transport,
+    TTlsErrorOrigin.LocalWithoutAlert]);
   if Result.HasAlert then
     Result.Alert := LError.Alert.Description;
 end;

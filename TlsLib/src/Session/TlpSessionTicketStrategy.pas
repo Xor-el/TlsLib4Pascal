@@ -195,6 +195,8 @@ begin
   case ABinding of
     TTicketBinding.RecordEngine:
       Result := 1;
+    TTicketBinding.HandshakeEngine:
+      Result := 2;
   end;
 end;
 
@@ -205,6 +207,8 @@ begin
   case ACode of
     1:
       ABinding := TTicketBinding.RecordEngine;
+    2:
+      ABinding := TTicketBinding.HandshakeEngine;
   else
     ABinding := TTicketBinding.RecordEngine;
     Result := False;

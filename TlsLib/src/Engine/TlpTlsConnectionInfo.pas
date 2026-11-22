@@ -99,6 +99,8 @@ type
     EchRejectAborted: Boolean;
   end;
 
+  PTlsConnectionInfo = ^TTlsConnectionInfo;
+
 implementation
 
 end.

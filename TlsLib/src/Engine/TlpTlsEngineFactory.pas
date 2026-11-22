@@ -40,6 +40,7 @@ uses
   TlpTrustPolicy,
   TlpTlsCredential,
   TlpTicketBinding,
+  TlpSession,
   TlpISession,
   TlpCoreExtensions,
   TlpITlsExtension,
@@ -55,7 +56,9 @@ uses
   TlpVersionDispatchMachine,
   TlpITlsConfig,
   TlpITlsEngine,
-  TlpTlsEngine;
+  TlpITlsHandshakeEngine,
+  TlpTlsEngine,
+  TlpTlsHandshakeEngine;
 
 type
   /// <summary>
@@ -97,6 +100,20 @@ type
     /// <summary>The client-certificate counterpart of ComposeServerVerifier.</summary>
     class function ComposeClientVerifier(const AConfig: ITlsServerConfig;
       const ATrust: TClientTrustContext): IClientCertificateVerifier; static;
+    /// <summary>Builds the server-certificate verifier a client checks the server against, the
+    /// resumption verifier (nil unless a resume can reverify) and the ECH reject verifier (nil
+    /// unless an ECH reject must prove public_name); AOffersResumption tells whether the client
+    /// resumes at all.</summary>
+    class procedure BuildServerCertificateVerifiers(const AConfig: ITlsClientConfig;
+      ADeferral: TVerdictDeferral; out AOffersResumption: Boolean;
+      out AVerifier, AResumeVerifier, AEchRejectVerifier: IServerCertificateVerifier); static;
+    /// <summary>The verifier a server checks client certificates with; nil unless the server
+    /// requests client authentication.</summary>
+    class function BuildClientCertificateVerifier(const AConfig: ITlsServerConfig;
+      ADeferral: TVerdictDeferral): IClientCertificateVerifier; static;
+    /// <summary>Refuses a config that does not offer TLS 1.3 alone: a handshake-only engine
+    /// speaks no other version.</summary>
+    class procedure RequireTls13Only(const AConfig: ITlsCommonConfig); static;
     /// <summary>The TLS 1.3 client machine's parameters.</summary>
     class function BuildClient13Params(const AConfig: ITlsClientConfig;
       const AServerName: TServerName; const AClientRandom, ASessionId: TBytes;
@@ -129,6 +146,22 @@ type
     /// <summary>As above, carrying AHostExtensions as the client engine overload does.</summary>
     class function CreateServerEngine(const AConfig: ITlsServerConfig;
       const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine; overload; static;
+    /// <summary>A handshake-only client engine for a host that owns record protection, ready for
+    /// StartHandshake. The config must offer TLS 1.3 alone. AHostExtensions ride its handshake as
+    /// for CreateClientEngine. ATicketEarlyDataLimit is the early-data budget every ticket the
+    /// server sends must carry (0 when 0-RTT is not used); any other value fails the handshake
+    /// without an alert. Tickets it caches resume only on a handshake-only engine.</summary>
+    class function CreateHandshakeClientEngine(const AConfig: ITlsClientConfig;
+      const AHost: string; const AHostExtensions: TArray<ITlsHostExtension>;
+      ATicketEarlyDataLimit: UInt32): ITlsHandshakeEngine; static;
+    /// <summary>A handshake-only server engine for a host that owns record protection; it starts
+    /// on the first ClientHello. The config must offer TLS 1.3 alone. When the config enables
+    /// early data, ATicketEarlyDataLimit is the budget its tickets advertise and accept (the
+    /// config's own limit is not used); a non-empty AEarlyDataContext replaces the config's
+    /// early-data context. Tickets it mints resume only on a handshake-only engine.</summary>
+    class function CreateHandshakeServerEngine(const AConfig: ITlsServerConfig;
+      const AHostExtensions: TArray<ITlsHostExtension>; ATicketEarlyDataLimit: UInt32;
+      const AEarlyDataContext: TBytes): ITlsHandshakeEngine; static;
   end;
 
 implementation
@@ -148,6 +181,9 @@ resourcestring
     'against; pass the connection host, or disable it with WithDangerousDisableServerNameCheck';
   SHostExtensionsNeedTls13 =
     'host extensions ride TLS 1.3 handshakes only, but the config does not offer TLS 1.3';
+  SHandshakeEngineNeedsTls13Only =
+    'a handshake-only engine speaks TLS 1.3 alone, so the config must offer TLS 1.3 and no other version';
+  SEarlyDataContextTooLongForTicket = 'the early-data context must not exceed 255 bytes';
 
 { TTlsEngineFactory }
 
@@ -204,6 +240,78 @@ begin
   if Assigned(ATrust.Dangerous.VerifyCallback) then
     Result := TClientVerifyCallbackVerifier.Create(Result, ATrust.Dangerous.VerifyCallback)
       as IClientCertificateVerifier;
+end;
+
+class procedure TTlsEngineFactory.BuildServerCertificateVerifiers(
+  const AConfig: ITlsClientConfig; ADeferral: TVerdictDeferral;
+  out AOffersResumption: Boolean; out AVerifier, AResumeVerifier,
+  AEchRejectVerifier: IServerCertificateVerifier);
+var
+  LTrustContext, LResumeContext, LRejectContext: TServerTrustContext;
+begin
+  // the source builds the verifier from this context, so the clock and posture reach the
+  // built-in and an OS delegate the same way
+  LTrustContext := Default(TServerTrustContext);
+  LTrustContext.Pkix := AConfig.Pkix;
+  LTrustContext.Clock := AConfig.Clock;
+  LTrustContext.TrustStore := AConfig.TrustStore;
+  LTrustContext.CheckHostName := AConfig.CheckServerName;
+  LTrustContext.ChainLimits := AConfig.CertificateChainLimits;
+  LTrustContext.RevocationPosture := AConfig.RevocationPosture;
+  LTrustContext.Dangerous := AConfig.DangerousTrust;
+  LTrustContext.Deferral := ADeferral;
+  LTrustContext.Intermediates := AConfig.IntermediateCertificates;
+  LTrustContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+  LTrustContext.AdvertisedSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
+  // the initial-handshake verifier: must-staple binds here only when the client offers status_request
+  LTrustContext.StatusRequestOffered := AConfig.RequestOcspStapling;
+  LTrustContext.Occasion := TVerificationOccasion.InitialHandshake;
+  AVerifier := ComposeServerVerifier(AConfig, LTrustContext);
+  // reverify-on-resume re-checks the stored chain, which carries no Certificate and no fresh
+  // staple: a second verifier built for the Resumption occasion so must-staple never fires on a
+  // resume. Built only when a resume can actually reverify (composed with the same pins).
+  AOffersResumption := AConfig.Resumption and (AConfig.SessionCache <> nil);
+  AResumeVerifier := nil;
+  if AOffersResumption and
+    (AConfig.ResumeVerification = TResumeVerification.Reverify) then
+  begin
+    LResumeContext := LTrustContext;
+    LResumeContext.Occasion := TVerificationOccasion.Resumption;
+    AResumeVerifier := ComposeServerVerifier(AConfig, LResumeContext);
+  end;
+  // an ECH reject proves public_name even with the origin check off, at one more source build
+  AEchRejectVerifier := nil;
+  if (AConfig.EncryptedClientHello <> nil) and AConfig.EncryptedClientHello.Usable and
+    not AConfig.CheckServerName then
+  begin
+    LRejectContext := LTrustContext;
+    LRejectContext.CheckHostName := True;
+    AEchRejectVerifier := ComposeServerVerifier(AConfig, LRejectContext);
+  end;
+end;
+
+class function TTlsEngineFactory.BuildClientCertificateVerifier(
+  const AConfig: ITlsServerConfig; ADeferral: TVerdictDeferral): IClientCertificateVerifier;
+var
+  LClientContext: TClientTrustContext;
+begin
+  // one client-certificate verifier from the source (built-in, injected, or the OS client
+  // delegate over the client-CA anchors), shared by the version machines; built only for mTLS
+  Result := nil;
+  if AConfig.ClientAuth = TClientAuthMode.None then
+    Exit;
+  LClientContext := Default(TClientTrustContext);
+  LClientContext.Pkix := AConfig.Pkix;
+  LClientContext.Clock := AConfig.Clock;
+  LClientContext.TrustStore := AConfig.TrustStore;
+  LClientContext.ChainLimits := AConfig.CertificateChainLimits;
+  LClientContext.RevocationPosture := AConfig.RevocationPosture;
+  LClientContext.Dangerous := AConfig.DangerousTrust;
+  LClientContext.Deferral := ADeferral;
+  LClientContext.Intermediates := AConfig.IntermediateCertificates;
+  LClientContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
+  LClientContext.AdvertisedSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
+  Result := ComposeClientVerifier(AConfig, LClientContext);
 end;
 
 class function TTlsEngineFactory.BuildClient13Params(const AConfig: ITlsClientConfig;
@@ -458,7 +566,6 @@ var
   L12: TClient12HandshakeParams;
   LClientRandom, LSessionId: TBytes;
   LVerifier, LResumeVerifier, LEchRejectVerifier: IServerCertificateVerifier;
-  LTrustContext, LResumeContext, LRejectContext: TServerTrustContext;
   LServerName: TServerName;
   LDeferral: TVerdictDeferral;
   LOffers13, LOffers12, LOffersResumption: Boolean;
@@ -483,45 +590,8 @@ begin
   if not TServerName.TryParse(AHost, LServerName) then
     if AConfig.CheckServerName then
       raise EArgumentTlsLibException.CreateRes(@SNoServerNameForCheck);
-  // the source builds the verifier from this context, so the clock and posture reach the
-  // built-in and an OS delegate the same way
-  LTrustContext := Default(TServerTrustContext);
-  LTrustContext.Pkix := AConfig.Pkix;
-  LTrustContext.Clock := AConfig.Clock;
-  LTrustContext.TrustStore := AConfig.TrustStore;
-  LTrustContext.CheckHostName := AConfig.CheckServerName;
-  LTrustContext.ChainLimits := AConfig.CertificateChainLimits;
-  LTrustContext.RevocationPosture := AConfig.RevocationPosture;
-  LTrustContext.Dangerous := AConfig.DangerousTrust;
-  LTrustContext.Deferral := LDeferral;
-  LTrustContext.Intermediates := AConfig.IntermediateCertificates;
-  LTrustContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
-  LTrustContext.AdvertisedSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
-  // the initial-handshake verifier: must-staple binds here only when the client offers status_request
-  LTrustContext.StatusRequestOffered := AConfig.RequestOcspStapling;
-  LTrustContext.Occasion := TVerificationOccasion.InitialHandshake;
-  LVerifier := ComposeServerVerifier(AConfig, LTrustContext);
-  // reverify-on-resume re-checks the stored chain, which carries no Certificate and no fresh
-  // staple: a second verifier built for the Resumption occasion so must-staple never fires on a
-  // resume. Built only when a resume can actually reverify (composed with the same pins).
-  LOffersResumption := AConfig.Resumption and (AConfig.SessionCache <> nil);
-  LResumeVerifier := nil;
-  if LOffersResumption and
-    (AConfig.ResumeVerification = TResumeVerification.Reverify) then
-  begin
-    LResumeContext := LTrustContext;
-    LResumeContext.Occasion := TVerificationOccasion.Resumption;
-    LResumeVerifier := ComposeServerVerifier(AConfig, LResumeContext);
-  end;
-  // an ECH reject proves public_name even with the origin check off, at one more source build
-  LEchRejectVerifier := nil;
-  if (AConfig.EncryptedClientHello <> nil) and AConfig.EncryptedClientHello.Usable and
-    not AConfig.CheckServerName then
-  begin
-    LRejectContext := LTrustContext;
-    LRejectContext.CheckHostName := True;
-    LEchRejectVerifier := ComposeServerVerifier(AConfig, LRejectContext);
-  end;
+  BuildServerCertificateVerifiers(AConfig, LDeferral, LOffersResumption, LVerifier,
+    LResumeVerifier, LEchRejectVerifier);
 
   L13 := BuildClient13Params(AConfig, LServerName, LClientRandom, LSessionId, LVerifier,
     LResumeVerifier, LEchRejectVerifier, LDeferral, LOffers13, LOffersResumption, LAdapters,
@@ -610,7 +680,6 @@ var
   L13: TServerHandshakeParams;
   L12: TServer12HandshakeParams;
   LServerRandom: TBytes;
-  LClientContext: TClientTrustContext;
   LClientVerifier: IClientCertificateVerifier;
   LDeferral: TVerdictDeferral;
   LOffers13, LOffers12: Boolean;
@@ -629,24 +698,7 @@ begin
   if AConfig.ClientAuth = TClientAuthMode.None then
     LDeferral := TVerdictDeferral.None;
 
-  // one client-certificate verifier from the source (built-in, injected, or the OS client
-  // delegate over the client-CA anchors), shared by both version machines; built only for mTLS
-  LClientVerifier := nil;
-  if AConfig.ClientAuth <> TClientAuthMode.None then
-  begin
-    LClientContext := Default(TClientTrustContext);
-    LClientContext.Pkix := AConfig.Pkix;
-    LClientContext.Clock := AConfig.Clock;
-    LClientContext.TrustStore := AConfig.TrustStore;
-    LClientContext.ChainLimits := AConfig.CertificateChainLimits;
-    LClientContext.RevocationPosture := AConfig.RevocationPosture;
-    LClientContext.Dangerous := AConfig.DangerousTrust;
-    LClientContext.Deferral := LDeferral;
-    LClientContext.Intermediates := AConfig.IntermediateCertificates;
-    LClientContext.StrengthPolicy := AConfig.CertificateStrengthPolicy;
-    LClientContext.AdvertisedSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
-    LClientVerifier := ComposeClientVerifier(AConfig, LClientContext);
-  end;
+  LClientVerifier := BuildClientCertificateVerifier(AConfig, LDeferral);
 
   L13 := BuildServer13Params(AConfig, LServerRandom, LClientVerifier, LDeferral,
     LOffers13, LAdapters);
@@ -721,6 +773,91 @@ begin
   // a server has no ticket to attach session application data to
   Result := TTlsEngine.Create(LMachine, AConfig.Crypto, LMaxCertificateMessage, LHostResults,
     nil) as ITlsEngine;
+end;
+
+class procedure TTlsEngineFactory.RequireTls13Only(const AConfig: ITlsCommonConfig);
+begin
+  if (not Offers(AConfig, TlsWireVersionTls13)) or Offers(AConfig, TlsWireVersionTls12) then
+    raise EArgumentTlsLibException.CreateRes(@SHandshakeEngineNeedsTls13Only);
+end;
+
+class function TTlsEngineFactory.CreateHandshakeClientEngine(
+  const AConfig: ITlsClientConfig; const AHost: string;
+  const AHostExtensions: TArray<ITlsHostExtension>;
+  ATicketEarlyDataLimit: UInt32): ITlsHandshakeEngine;
+var
+  L13: TClientHandshakeParams;
+  LVerifier, LResumeVerifier, LEchRejectVerifier: IServerCertificateVerifier;
+  LServerName: TServerName;
+  LDeferral: TVerdictDeferral;
+  LOffersResumption: Boolean;
+  LMachine: IHandshakeMachine;
+  LHostResults: ITlsHostExtensionResults;
+  LSessionData: ITlsSessionApplicationData;
+  LAdapters: TArray<ITlsExtension>;
+begin
+  RequireTls13Only(AConfig);
+  LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Client, True, LHostResults);
+  LSessionData := TSessionApplicationData.Create as ITlsSessionApplicationData;
+  LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
+  // fail closed: when name checking is on, a client must have a usable server name to verify
+  // the leaf against
+  if not TServerName.TryParse(AHost, LServerName) then
+    if AConfig.CheckServerName then
+      raise EArgumentTlsLibException.CreateRes(@SNoServerNameForCheck);
+  BuildServerCertificateVerifiers(AConfig, LDeferral, LOffersResumption, LVerifier,
+    LResumeVerifier, LEchRejectVerifier);
+  // no compatibility session id: there are no records for it to disguise
+  L13 := BuildClient13Params(AConfig, LServerName,
+    AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32), nil, LVerifier, LResumeVerifier,
+    LEchRejectVerifier, LDeferral, True, LOffersResumption, LAdapters,
+    LSessionData as ISessionApplicationDataChannel);
+  L13.HostOwnsRecordProtection := True;
+  L13.TicketBinding := TTicketBinding.HandshakeEngine;
+  L13.TicketEarlyDataLimit := ATicketEarlyDataLimit;
+  // record sizing is the host's
+  L13.RecordSizeLimit := 0;
+  LMachine := TTls13ClientStateMachine.Create(L13);
+  Result := TTlsHandshakeEngine.Create(LMachine,
+    AConfig.CertificateChainLimits.MaxTotalChainLength, LHostResults, LSessionData)
+    as ITlsHandshakeEngine;
+end;
+
+class function TTlsEngineFactory.CreateHandshakeServerEngine(
+  const AConfig: ITlsServerConfig; const AHostExtensions: TArray<ITlsHostExtension>;
+  ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITlsHandshakeEngine;
+var
+  L13: TServerHandshakeParams;
+  LHostResults: ITlsHostExtensionResults;
+  LAdapters: TArray<ITlsExtension>;
+  LDeferral: TVerdictDeferral;
+  LMachine: IHandshakeMachine;
+  LMaxCertificateMessage: Int32;
+begin
+  RequireTls13Only(AConfig);
+  if System.Length(AEarlyDataContext) > TSessionTicketLimits.MaxEarlyDataContextLength then
+    raise EArgumentTlsLibException.CreateRes(@SEarlyDataContextTooLongForTicket);
+  LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Server, True, LHostResults);
+  LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
+  if AConfig.ClientAuth = TClientAuthMode.None then
+    LDeferral := TVerdictDeferral.None;
+  L13 := BuildServer13Params(AConfig, AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32),
+    BuildClientCertificateVerifier(AConfig, LDeferral), LDeferral, True, LAdapters);
+  L13.HostOwnsRecordProtection := True;
+  L13.TicketBinding := TTicketBinding.HandshakeEngine;
+  // record sizing is the host's
+  L13.RecordSizeLimit := 0;
+  // the host fixes the early-data budget its tickets carry; the config only says whether 0-RTT is on
+  if L13.MaxEarlyData > 0 then
+    L13.MaxEarlyData := ATicketEarlyDataLimit;
+  if (System.Length(AEarlyDataContext) > 0) and AConfig.Resumption then
+    L13.EarlyDataContext := System.Copy(AEarlyDataContext);
+  LMaxCertificateMessage := DefaultMaxHandshakeMessageLength;
+  if AConfig.ClientAuth <> TClientAuthMode.None then
+    LMaxCertificateMessage := AConfig.CertificateChainLimits.MaxTotalChainLength;
+  LMachine := TTls13ServerStateMachine.Create(L13);
+  Result := TTlsHandshakeEngine.Create(LMachine, LMaxCertificateMessage, LHostResults, nil)
+    as ITlsHandshakeEngine;
 end;
 
 end.

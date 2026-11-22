@@ -147,7 +147,7 @@ var
 begin
   Result := False;
   for LEffect in AEffects do
-    if LEffect.Kind = THandshakeEffectKind.Fail then
+    if LEffect.Kind in [THandshakeEffectKind.Fail, THandshakeEffectKind.FailWithoutAlert] then
       Exit(True);
 end;
 

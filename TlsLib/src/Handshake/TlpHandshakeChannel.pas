@@ -52,11 +52,6 @@ type
 
 implementation
 
-const
-  // one max-size TLS plaintext record (16 KiB) plus a following handshake header: the most the
-  // reassembler can hold un-consumed once a Certificate completes, since it drains after every append
-  MaxCoalescedRecordHeadroom = Int32((1 shl 14) + HandshakeHeaderLength);
-
 { THandshakeChannel }
 
 constructor THandshakeChannel.Create(const ARecordLayer: TRecordLayer);
@@ -69,14 +64,7 @@ constructor THandshakeChannel.Create(const ARecordLayer: TRecordLayer;
 begin
   inherited Create;
   FRecordLayer := ARecordLayer;
-  FReader := THandshakeMessageReader.Create;
-  FReader.MaxCertificateMessageLength := AMaxCertificateMessageLength;
-  // the reassembly buffer must hold a full Certificate message before it completes, plus headroom
-  // for at most one following coalesced record (drained after every append)
-  if FReader.MaxTotalLength <
-    AMaxCertificateMessageLength + MaxCoalescedRecordHeadroom then
-    FReader.MaxTotalLength :=
-      AMaxCertificateMessageLength + MaxCoalescedRecordHeadroom;
+  FReader := THandshakeMessageReader.Create(AMaxCertificateMessageLength);
 end;
 
 destructor THandshakeChannel.Destroy;

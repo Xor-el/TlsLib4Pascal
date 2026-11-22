@@ -61,7 +61,9 @@ uses
   TlpILayeredTrustAnchorStore, TlpIIssuerLookup, TlpIssuerResolution, 
   TlpIssuerLookupVerifierSource, TlpITlsEngineInbound, TlpITlsEngineOutbound,
   TlpTrafficSecret, TlpITlsHostExtension, TlpHostExtensions,
-  TlpISessionApplicationData, TlpSessionApplicationData, TlpTicketBinding;
+  TlpISessionApplicationData, TlpSessionApplicationData, TlpTicketBinding,
+  TlpITlsHandshakeEngine, TlpHandshakeOutput, TlpEngineOutcome,
+  TlpLeveledHandshakeChannel, TlpTlsHandshakeEngine;
 
 implementation
 
