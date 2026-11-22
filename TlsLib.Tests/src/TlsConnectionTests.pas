@@ -69,7 +69,7 @@ uses
   TlpTlsEngineFactory,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -596,7 +596,7 @@ begin
   Result := TTlsOptions.Default;
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
-  Result.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
+  Result.CustomTrustStore := TSupportCertificates.EcP256RootStore;
   Result.TrustSourceHint := 'a trust anchor bundle, system trust, or a custom store';
 end;
 
@@ -621,9 +621,9 @@ begin
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
   Result.Certificate := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   Result.PrivateKey := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   Result.TrustSourceHint := 'a client-CA bundle';
   Result.ClientAuthSourceHint := 'a client-CA bundle';
 end;
@@ -654,7 +654,7 @@ begin
   SetLength(LBlocks, 1);
   LBlocks[0].PemType := 'CERTIFICATE';
   LBlocks[0].Content :=
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
   Result := TPem.WriteBlocks(LBlocks);
 end;
 
@@ -664,7 +664,7 @@ begin
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
   Result.Certificate := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/Pkcs12.txt', AField));
+    TSupportCertificates.Field('Certs/Pkcs12.txt', AField));
   Result.KeyPassword := 'tlslib';
   Result.CredentialForm := TTlsCredentialForm.Pkcs12;
 end;
@@ -672,8 +672,8 @@ end;
 function TTestTlsConnection.LoadedCredential: TTlsCredential;
 begin
   Result := TTlsCredential.Load(Crypto, Pkix,
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
 end;
 
 function TTestTlsConnection.OptionsWithUnownedKey: TTlsOptions;
@@ -692,7 +692,7 @@ function TTestTlsConnection.ClientAuthServerOptions: TTlsOptions;
 begin
   Result := ServerOptsWithCredential;
   Result.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   Result.ClientAuth := TClientAuthMode.Required;
 end;
 
@@ -847,8 +847,8 @@ begin
   LOpts.Pkix := Pkix;
   LOpts.Credential := LoadedCredential;
   LOther := TTlsCredential.Load(Crypto, Pkix,
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_key'));
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_key'));
   LOpts.Credential.PrivateKey := LOther.PrivateKey;
   LMsg := '';
   try
@@ -893,8 +893,8 @@ begin
   LOpts.Crypto := nil;
   LOpts.Pkix := Pkix;
   LOpts.Credential := TTlsCredential.Load(LHandleProvider, Pkix,
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   LMsg := '';
   try
     TTlsConfigComposer.BuildServerConfig(LOpts);
@@ -1032,7 +1032,7 @@ var
   LOpts: TTlsOptions;
 begin
   LOpts := Pkcs12Options('chain_pfx');
-  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
+  LOpts.CustomTrustStore := TSupportCertificates.EcP256RootStore;
   CheckNotNull(TTlsConfigComposer.BuildClientConfig(LOpts),
     'a client config builds from a PKCS#12 identity');
 end;
@@ -1076,9 +1076,9 @@ begin
   LCertPath := TempPath('credential_fixture.crt');
   LKeyPath := TempPath('credential_fixture.key');
   WriteBytes(LCertPath,
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   WriteBytes(LKeyPath,
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   LOpts := TTlsOptions.Default;
   LOpts.Crypto := Crypto;
   LOpts.Pkix := Pkix;
@@ -1095,7 +1095,7 @@ var
 begin
   LOpts := Pkcs12Options('chain_pfx');
   LOpts.PrivateKey := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
     'a PKCS#12 identity beside a separate private key is refused');
   CheckTrue(Pos('PKCS#12', LMsg) > 0, 'the message names PKCS#12: ' + LMsg);
@@ -1139,7 +1139,7 @@ var
 begin
   LOpts := ClientOptsWithStore;
   LOpts.PrivateKey := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'));
   LOpts.CredentialSourceHint := 'CertificateFile';
   CheckTrue(RaisesStreamError(LOpts, True, LMsg),
     'a client key with no certificate is refused, not dropped');
@@ -1281,7 +1281,7 @@ var
   LConfig: ITlsClientConfig;
 begin
   LOpts := TTlsOptions.Default;
-  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
+  LOpts.CustomTrustStore := TSupportCertificates.EcP256RootStore;
   LConfig := TTlsConfigComposer.BuildClientConfig(LOpts);
   CheckTrue(LConfig.Crypto = TDefaultCryptoProvider.Shared,
     'nil crypto falls back to the shared default');
@@ -1441,7 +1441,7 @@ var
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.Pkix := Pkix;
@@ -1474,7 +1474,7 @@ begin
   LOpts := TTlsOptions.Default;
   LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
     TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
-  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
+  LOpts.CustomTrustStore := TSupportCertificates.EcP256RootStore;
   LRaised := False;
   LAlert := TTlsAlertDescription.CloseNotify;
   LMessage := '';
@@ -1542,7 +1542,7 @@ procedure TTestTlsConnection.TestFileContentWithAnUnreadablePathBuilds;
 begin
   CheckEquals('', AnchorRefusal(TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromFileContent(TempPath('tlslib_no_such_content_anchor.crt'),
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')))),
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')))),
     'the bytes are used and the path is never opened');
 end;
 
@@ -1551,7 +1551,7 @@ var
   LMessage: string;
 begin
   LMessage := AnchorRefusal(TArray<TTlsBlobSource>.Create(
-    TTlsBlobSource.FromBytes(TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')),
+    TTlsBlobSource.FromBytes(TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')),
     TTlsBlobSource.FromBytes(TBytes.Create($01, $02, $03, $04, $05))));
   CheckTrue(Pos('trust anchor 1 (', LMessage) > 0,
     'the failing second anchor is named by its index: ' + LMessage);
@@ -1564,12 +1564,12 @@ var
   LInst: ISystemTrustInstaller;
   LHinted: Boolean;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LFake.DelegateOnly := True;
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.SystemTrust := LInst;
-  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
+  LOpts.CustomTrustStore := TSupportCertificates.EcP256RootStore;
   LOpts.TrustSourceHint := 'MyTrustKnob';
   LHinted := False;
   try
@@ -1588,14 +1588,14 @@ var
   LInst: ISystemTrustInstaller;
   LBlamed: Boolean;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LFake.DelegateOnly := True;
   LInst := LFake;
   LOpts := TTlsOptions.Default;
   LOpts.SystemTrust := LInst;
   LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
     TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
-  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
+  LOpts.CustomTrustStore := TSupportCertificates.EcP256RootStore;
   LOpts.TrustSourceHint := 'MyTrustKnob';
   LBlamed := True;
   try
@@ -1617,8 +1617,8 @@ begin
   LOpts := TTlsOptions.Default;
   LOpts.ServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
     .Tls13.WithEarlyData(16384).Build;
   LRefused := False;
   try
@@ -1680,7 +1680,7 @@ var
   LInst: ISystemTrustInstaller;
   LRaised: Boolean;
 begin
-  LInst := TFakeSystemTrustInstaller.Create(True, TTlsLibTestCertificates.EcP256RootStore);
+  LInst := TFakeSystemTrustInstaller.Create(True, TSupportCertificates.EcP256RootStore);
   LOpts := TTlsOptions.Default;
   LOpts.Pkix := Pkix;
   LOpts.SystemTrust := LInst;
@@ -1740,7 +1740,7 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Requested;
   CheckEquals(Ord(TClientAuthMode.Requested),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
@@ -1754,7 +1754,7 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   CheckEquals(Ord(TClientAuthMode.Required),
     Ord(TTlsConfigComposer.BuildServerConfig(LOpts).ClientAuth),
@@ -1771,10 +1771,10 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
-    TTlsLibTestCertificates.EcP256RootStore);
-  LOpts.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
+    TSupportCertificates.EcP256RootStore);
+  LOpts.CustomTrustStore := TSupportCertificates.EcP256RootStore;
   LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
   CheckEquals(Ord(TClientAuthMode.None), Ord(LConfig.ClientAuth),
     'anchors without a mode do not request client authentication');
@@ -1796,7 +1796,7 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.ServerVerdictResolver := StubResolver;
   LOpts.ServerVerdictDeadlineMs := 777;
@@ -1816,7 +1816,7 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ServerVerdictResolver := StubResolver;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
     'a resolver without a client-authentication mode is refused');
@@ -1859,7 +1859,7 @@ begin
   LBuild := ServerOptsWithCredential;
   LBuild.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LBuild.ClientAuth := TClientAuthMode.Required;
   LOpts := TTlsOptions.Default;
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(LBuild);
@@ -1919,7 +1919,7 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.VerifyPeer := False;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
@@ -1936,7 +1936,7 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.InsecureSkipVerify := True;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
@@ -1971,21 +1971,21 @@ begin
   // private CA ONLY - the OS/public store (a DISTINCT cert here) is never unioned into it
   LFake := TFakeSystemTrustInstaller.Create(False,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')))
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')))
       as ITrustAnchorStore);
   LInst := LFake;
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := LInst;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
   CheckFalse(LFake.ClientRoleCalled, 'a server build never touches the system-trust installer');
   CheckEquals(1, System.Length(LConfig.TrustStore.RootCertificates),
     'only the private client-CA is trusted; the OS store is not unioned in');
   CheckEqualBytes('the sole client-CA is the private root',
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'),
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'),
     LConfig.TrustStore.RootCertificates[0]);
 end;
 
@@ -1998,7 +1998,7 @@ begin
   // is a private client-CA, not "more" system trust
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
-    TTlsLibTestCertificates.EcP256RootStore);
+    TSupportCertificates.EcP256RootStore);
   LOpts.ClientAuth := TClientAuthMode.Required;
   CheckTrue(RaisesStreamError(LOpts, False, LMsg),
     'system trust as the only client-CA under a mode fails closed');
@@ -2014,7 +2014,7 @@ var
   LConfig: ITlsServerConfig;
 begin
   // with no mode, system trust on a server is inert and requests no client auth
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LInst := LFake;
   LOpts := ServerOptsWithCredential;
   LOpts.SystemTrust := LInst;
@@ -2088,7 +2088,7 @@ begin
 
   LMut := LBase;
   LMut.Certificate := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'a credential blob changes the key');
 
@@ -2108,14 +2108,14 @@ begin
   // server build does not read it, so it must not be in the server memo signature)
   LMut := LBase;
   LMut.SystemTrust := TFakeSystemTrustInstaller.Create(False,
-    TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
+    TSupportCertificates.EcP256RootStore) as ISystemTrustInstaller;
   CheckTrue(TTlsConfigComposer.ServerSignature(LMut) = LBaseSig,
     'system trust does not change the server key');
   LBase := ClientOptsWithStore;
   LBaseSig := TTlsConfigComposer.ClientSignature(LBase);
   LMut := LBase;
   LMut.SystemTrust := TFakeSystemTrustInstaller.Create(False,
-    TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
+    TSupportCertificates.EcP256RootStore) as ISystemTrustInstaller;
   CheckFalse(TTlsConfigComposer.ClientSignature(LMut) = LBaseSig,
     'system trust changes the client key');
 end;
@@ -2196,8 +2196,8 @@ begin
   // the key follows what the installer installs, not where it lives: equal identities share a
   // key across distinct instances, different identities never do
   LBase := ClientOptsWithStore;
-  LFirst := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
-  LSecond := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFirst := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
+  LSecond := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LA := LBase;
   LA.SystemTrust := LFirst as ISystemTrustInstaller;
   LB := LBase;
@@ -2359,7 +2359,7 @@ var
 begin
   LOpts := TTlsOptions.Default;
   LOpts.Certificate := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   ExpectConflict(LOpts, 'a certificate');
 
   LOpts := TTlsOptions.Default;
@@ -2369,7 +2369,7 @@ begin
   LOpts := TTlsOptions.Default;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   ExpectConflict(LOpts, 'trust anchors');
 
   LOpts := TTlsOptions.Default;
@@ -2378,7 +2378,7 @@ begin
 
   LOpts := TTlsOptions.Default;
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
-    TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
+    TSupportCertificates.EcP256RootStore) as ISystemTrustInstaller;
   ExpectConflict(LOpts, 'system trust');
 
   LOpts := TTlsOptions.Default;
@@ -2617,12 +2617,12 @@ begin
   LOpts.ServerCertificateVerifier := TFixedVerdictVerifier.CreateRejecting(
     TTlsAlertDescription.BadCertificate) as IServerCertificateVerifier;
   LOpts.SystemTrust := TFakeSystemTrustInstaller.Create(False,
-    TTlsLibTestCertificates.EcP256RootStore) as ISystemTrustInstaller;
+    TSupportCertificates.EcP256RootStore) as ISystemTrustInstaller;
   LOpts.ServerConfig := TTlsConfigComposer.BuildServerConfig(ServerOptsWithCredential);
   CheckNotNull(TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer,
     'ServerConfig'), 'client-only options do not conflict with a server config-in');
   LOpts.Certificate := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   LRaised := False;
   try
     TTlsConfigComposer.ResolveServerConfig(LOpts, TTlsConfigMemos.NewServer, 'ServerConfig');
@@ -2642,7 +2642,7 @@ begin
   LOpts := ServerOptsWithCredential;
   LOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(
     TTlsBlobSource.FromBytes(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LOpts.ClientAuth := TClientAuthMode.Required;
   LOpts.VerifyCallback := StubVerifyCallback;
   LConfig := TTlsConfigComposer.BuildServerConfig(LOpts);
@@ -2721,7 +2721,7 @@ begin
   LClockObj := TMockMonotonicClock.Create(1000);
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithMonotonicClock(LClockObj as ITlsMonotonicClock).Build;
   LTransport := TTestMemoryTransport.Create(nil, True);
   LTimed := LTransport as ITlsTransport;
@@ -2754,7 +2754,7 @@ var
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build;
   LTransport := TTestMemoryTransport.Create(nil, True);
   LDestroyed := False;
   LTransport.ReportDestructionTo(@LDestroyed);
@@ -3668,10 +3668,10 @@ begin
   inherited SetUp;
   FLookup := TRecordingIssuerLookup.Create('lookup-a');
   FLookupRef := FLookup;
-  FRoot := TTlsLibTestCertificates.Field(LookupChainFile, 'root_cert');
-  FIssuer := TTlsLibTestCertificates.Field(LookupChainFile, 'issuer_cert');
-  FLeaf := TTlsLibTestCertificates.Field(LookupChainFile, 'leaf_cert');
-  FOtherRoot := TTlsLibTestCertificates.Field(LookupEcFile, 'root2_cert');
+  FRoot := TSupportCertificates.Field(LookupChainFile, 'root_cert');
+  FIssuer := TSupportCertificates.Field(LookupChainFile, 'issuer_cert');
+  FLeaf := TSupportCertificates.Field(LookupChainFile, 'leaf_cert');
+  FOtherRoot := TSupportCertificates.Field(LookupEcFile, 'root2_cert');
 end;
 
 procedure TTestComposerIssuerLookup.TearDown;
@@ -3695,9 +3695,9 @@ begin
   Result.Crypto := Crypto;
   Result.Pkix := Pkix;
   Result.Certificate := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field(LookupEcFile, 'leaf_cert'));
+    TSupportCertificates.Field(LookupEcFile, 'leaf_cert'));
   Result.PrivateKey := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field(LookupEcFile, 'leaf_key'));
+    TSupportCertificates.Field(LookupEcFile, 'leaf_key'));
   Result.ClientAuth := TClientAuthMode.Required;
   Result.IssuerLookup := FLookupRef;
   Result.ClientAuthSourceHint := 'an issuer lookup';
@@ -3725,9 +3725,9 @@ function TTestComposerIssuerLookup.BundleServerOptions(const ACerts: TArray<TByt
 begin
   Result := BundleOptions(ACerts, ARule);
   Result.Certificate := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field(LookupEcFile, 'leaf_cert'));
+    TSupportCertificates.Field(LookupEcFile, 'leaf_cert'));
   Result.PrivateKey := TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field(LookupEcFile, 'leaf_key'));
+    TSupportCertificates.Field(LookupEcFile, 'leaf_key'));
   Result.ClientAuth := TClientAuthMode.Required;
 end;
 
@@ -3805,7 +3805,7 @@ begin
   LBase := TTlsOptions.Default;
   LBase.Crypto := Crypto;
   LBase.Pkix := Pkix;
-  LBase.CustomTrustStore := TTlsLibTestCertificates.EcP256RootStore;
+  LBase.CustomTrustStore := TSupportCertificates.EcP256RootStore;
   LOpts := AOpts;
   LOpts.Crypto := nil;
   LOpts.Pkix := nil;
@@ -3910,7 +3910,7 @@ var
   LInst: ISystemTrustInstaller;
   LConfig: ITlsClientConfig;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LInst := LFake;
   LOpts := ClientOptions;
   LOpts.SystemTrust := LInst;
@@ -3924,7 +3924,7 @@ var
   LOpts: TTlsOptions;
   LInst: ISystemTrustInstaller;
 begin
-  LInst := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LInst := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LOpts := ClientOptions;
   LOpts.SystemTrust := LInst;
   LOpts.BundleAnchors := TBundleAnchorRule.AnyCertificate;
@@ -3958,7 +3958,7 @@ var
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LFake.Supplied := TServerVerification.Custom(
     TFixedVerdictVerifier.CreateAccepting(False) as IServerCertificateVerifier);
   LInst := LFake;
@@ -3973,7 +3973,7 @@ var
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LFake.Supplied := TServerVerification.DangerousSkip;
   LInst := LFake;
   LOpts := ClientOptions;
@@ -3987,7 +3987,7 @@ var
   LFake: TFakeSystemTrustInstaller;
   LInst: ISystemTrustInstaller;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LFake.Supplied := TServerVerification.WebPki(FLookupRef).Build;
   LInst := LFake;
   LOpts := ClientOptions;
@@ -4003,7 +4003,7 @@ var
   LInst: ISystemTrustInstaller;
   LConfig: ITlsClientConfig;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LFake.Supplied := TServerVerification.WebPki(FLookupRef, TBundleAnchorRule.AnyCertificate).Build;
   LInst := LFake;
   LOpts := BundleOptions(TArray<TBytes>.Create(FIssuer), TBundleAnchorRule.SelfSignedOnly);
@@ -4331,7 +4331,7 @@ var
   LInst: ISystemTrustInstaller;
   LConfig: ITlsClientConfig;
 begin
-  LFake := TFakeSystemTrustInstaller.Create(False, TTlsLibTestCertificates.EcP256RootStore);
+  LFake := TFakeSystemTrustInstaller.Create(False, TSupportCertificates.EcP256RootStore);
   LInst := LFake;
   LOpts := BundleOptions(TArray<TBytes>.Create(FIssuer), TBundleAnchorRule.SelfSignedOnly);
   LOpts.SystemTrust := LInst;

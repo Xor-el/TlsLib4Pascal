@@ -49,9 +49,9 @@ uses
   TlpTlsEngineFactory,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
-  TlsLibTestHandshakeDecoder,
-  TlsLibTestCertificates,
-  TlsLibTestTicketRewriter,
+  SupportHandshakeDecoder,
+  SupportCertificates,
+  SupportTicketRewriter,
   TlsLibHandshakeTestBase;
 
 type
@@ -149,7 +149,7 @@ function TTestResumptionFeatures.ClientConfig(const ACache: ISessionCache;
 begin
   Result := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithResumption(True).WithSessionCache(ACache).WithResumptionScope(FScope)
     .Tls13.WithEarlyData(AEarlyData).Build;
 end;
@@ -584,7 +584,7 @@ begin
     Rebuilt(LSession, LSession.TicketIdentity, OtherEngineKind));
   LClient := NewClient(LCache, False);
   LClient.StartHandshake;
-  CheckFalse(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(Drain(LClient)).Contains(
+  CheckFalse(TSupportHandshakeDecoder.ClientHelloExtensions(Drain(LClient)).Contains(
     TExtensionTypes.PreSharedKey), 'no pre_shared_key is offered');
   CheckEquals(0, System.Length(ClientData(LClient).OfferedSessionApplicationData),
     'and no offered bytes are reported');
@@ -603,7 +603,7 @@ begin
     Rebuilt(LSession, LSession.TicketIdentity, LSession.TicketBinding));
   LClient := NewClient(LCache, False);
   LClient.StartHandshake;
-  CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(Drain(LClient)).Contains(
+  CheckTrue(TSupportHandshakeDecoder.ClientHelloExtensions(Drain(LClient)).Contains(
     TExtensionTypes.PreSharedKey), 'control: the rebuilt ticket of its own kind is offered');
 end;
 
@@ -620,7 +620,7 @@ begin
     TArray<ITlsHostExtension>.Create(TTlsHostExtensions.Make($FC01,
     [TTlsExtensionContextKind.ClientHello], DecodeHex('c1c2c3'), [])));
   LClient.StartHandshake;
-  LExtensions := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(Drain(LClient));
+  LExtensions := TSupportHandshakeDecoder.ClientHelloExtensions(Drain(LClient));
   CheckTrue(LExtensions.TryFind($FC01, LEntry), 'the host extension is offered');
   CheckTrue(LExtensions.Contains(TExtensionTypes.PreSharedKey), 'and so is the ticket');
   CheckTrue(LExtensions.IsLast(TExtensionTypes.PreSharedKey),
@@ -689,13 +689,13 @@ begin
   LCache := TInMemorySessionCache.Create;
   Seed(LCache, nil, nil);
   LSession := TakeCached(LCache);
-  LPlain := TTlsLibTestTicketRewriter.Plaintext(Crypto, FStek, LSession.TicketIdentity);
+  LPlain := TSupportTicketRewriter.Plaintext(Crypto, FStek, LSession.TicketIdentity);
   CheckEquals(12, Integer(LPlain[3]), 'the ticket is the current format');
   // format 11 is format 12 without its tail (the empty context's length byte, the engine kind)
   LPlain[3] := 11;
   SetLength(LPlain, System.Length(LPlain) - 2);
   LCache.Store(CacheKey, ServerHost, Rebuilt(LSession,
-    TTlsLibTestTicketRewriter.Resealed(Crypto, FStek, LSession.TicketIdentity, LPlain),
+    TSupportTicketRewriter.Resealed(Crypto, FStek, LSession.TicketIdentity, LPlain),
     LSession.TicketBinding));
   LClient := NewClient(LCache, False);
   LServer := NewServer(nil);
@@ -716,8 +716,8 @@ begin
   Seed(LCache, nil, nil);
   LSession := TakeCached(LCache);
   LCache.Store(CacheKey, ServerHost, Rebuilt(LSession,
-    TTlsLibTestTicketRewriter.Resealed(Crypto, FStek, LSession.TicketIdentity,
-    TTlsLibTestTicketRewriter.Plaintext(Crypto, FStek, LSession.TicketIdentity)),
+    TSupportTicketRewriter.Resealed(Crypto, FStek, LSession.TicketIdentity,
+    TSupportTicketRewriter.Plaintext(Crypto, FStek, LSession.TicketIdentity)),
     LSession.TicketBinding));
   LClient := NewClient(LCache, False);
   LServer := NewServer(nil);

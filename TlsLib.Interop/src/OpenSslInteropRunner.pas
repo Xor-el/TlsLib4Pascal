@@ -38,7 +38,7 @@ uses
   TlpInMemoryEchKeyStore,
   InteropSocket,
   InteropEngine,
-  TlsLibTestProviders,
+  SupportProviders,
   InteropCredentials,
   InteropPump,
   InteropUtils;
@@ -204,7 +204,7 @@ var
   LConn: Int32;
 begin
   Result := 1;
-  LCrypto := TTlsLibTestProviders.Crypto;
+  LCrypto := TSupportProviders.Crypto;
   LListener := TInteropListener.Bind('127.0.0.1', APort);
   try
     Writeln('listening on 127.0.0.1:', LListener.Port);
@@ -272,8 +272,8 @@ var
   LConn: Int32;
 begin
   Result := 1;
-  LCrypto := TTlsLibTestProviders.Crypto;
-  LPkix := TTlsLibTestProviders.Pkix;
+  LCrypto := TSupportProviders.Crypto;
+  LPkix := TSupportProviders.Pkix;
   // one shared cache carries a ticket from an earlier connection so a later one resumes it
   LCache := nil;
   if AConnectionCount > 1 then
@@ -502,10 +502,10 @@ begin
     begin
       LStek := nil;
       if LResumeCount > 0 then
-        LStek := TStekTicketKeyManager.Create(TTlsLibTestProviders.Crypto.Primitives.GetRandom)
+        LStek := TStekTicketKeyManager.Create(TSupportProviders.Crypto.Primitives.GetRandom)
           as ISessionTicketKeyManager;
-      LCrypto := TTlsLibTestProviders.Crypto;
-      LPkix := TTlsLibTestProviders.Pkix;
+      LCrypto := TSupportProviders.Crypto;
+      LPkix := TSupportProviders.Pkix;
       LStaple := nil;
       if LStapleField <> '' then
       begin

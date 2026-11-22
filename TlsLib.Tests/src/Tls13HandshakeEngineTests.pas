@@ -75,8 +75,8 @@ uses
   TlpITls13HandshakeEngine,
   TlpTls13HandshakeOutput,
   MockKeyLog,
-  TlsLibTestHandshakeDecoder,
-  TlsLibTestCertificates,
+  SupportHandshakeDecoder,
+  SupportCertificates,
   TlsLibHandshakeTestBase;
 
 type
@@ -241,7 +241,7 @@ function TTestTls13HandshakeEngine.ClientBuilder: ITlsClientConfigBuilder;
 begin
   Result := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build);
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build);
 end;
 
 function TTestTls13HandshakeEngine.ClientConfig: ITlsClientConfig;
@@ -584,10 +584,10 @@ var
 begin
   Run(NewClient(ClientConfig), NewServer(ServerConfig));
   LHello := THandshakeMessages.DecodeClientHello(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstData(FClientLog, TTlsEpoch.Plaintext)).Body);
+    TSupportHandshakeDecoder.HandshakeMessage(FirstData(FClientLog, TTlsEpoch.Plaintext)).Body);
   CheckEquals(0, System.Length(LHello.LegacySessionId), 'the ClientHello has an empty session id');
   LServerHello := THandshakeMessages.DecodeServerHello(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstData(FServerLog, TTlsEpoch.Plaintext)).Body);
+    TSupportHandshakeDecoder.HandshakeMessage(FirstData(FServerLog, TTlsEpoch.Plaintext)).Body);
   CheckEquals(0, System.Length(LServerHello.LegacySessionIdEcho), 'and so does the echo');
   LTypes := MessageTypes(FClientLog);
   for LType in LTypes do
@@ -606,7 +606,7 @@ begin
   LClient.StartHandshake;
   Deliver(LClient, NewServer(ServerConfig), FClientLog);
   LHello := THandshakeMessages.DecodeClientHello(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstData(FClientLog, TTlsEpoch.Plaintext)).Body);
+    TSupportHandshakeDecoder.HandshakeMessage(FirstData(FClientLog, TTlsEpoch.Plaintext)).Body);
   CheckFalse(TExtensionVector.Parse(LHello.Extensions).Contains(28),
     'record sizing is the host''s, so the extension is not offered');
 end;
@@ -813,7 +813,7 @@ begin
   try
     TTlsPresets.Hardened(LGated, Pkix).Client
       .WithServerVerification(
-        TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
+        TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build;
   except
     on EComplianceRefusedTlsLibException do
       LRefused := True;
@@ -862,7 +862,7 @@ var
   LSeen: Boolean;
 begin
   // a recorded hello: empty session id, record_size_limit and an extension type the core does not know
-  LHello := TTlsLibTestCertificates.Field('Handshake/ClientHelloRfc9001.txt', 'client_hello');
+  LHello := TSupportCertificates.Field('Handshake/ClientHelloRfc9001.txt', 'client_hello');
   LServer := NewServer(ServerBuilder.WithAlpnProtocols(
     TArray<TBytes>.Create(TEncoding.ASCII.GetBytes('alpn'))).Build);
   LServer.ProvideHandshakeData(TTlsEpoch.Plaintext, LHello, 0, System.Length(LHello));
@@ -875,7 +875,7 @@ begin
       (LOutput.Level = TTlsEpoch.Handshake) then
     begin
       CheckFalse(TExtensionVector.Parse(THandshakeMessages.DecodeEncryptedExtensions(
-        TTlsLibTestHandshakeDecoder.HandshakeMessage(LOutput.Data).Body)).Contains(28),
+        TSupportHandshakeDecoder.HandshakeMessage(LOutput.Data).Body)).Contains(28),
         'the offered record_size_limit is not echoed');
       LSeen := True;
     end;
@@ -889,7 +889,7 @@ var
   LServer: ITls13HandshakeEngine;
   LHello: TBytes;
 begin
-  LHello := TTlsLibTestCertificates.Field('Handshake/ClientHelloRfc9001.txt', 'client_hello');
+  LHello := TSupportCertificates.Field('Handshake/ClientHelloRfc9001.txt', 'client_hello');
   LServer := NewServer(ServerBuilder.WithAlpnProtocols(
     TArray<TBytes>.Create(TEncoding.ASCII.GetBytes('alpn'))).Build);
   LServer.ProvideHandshakeData(TTlsEpoch.Plaintext, LHello, 0, System.Length(LHello));
@@ -1093,9 +1093,9 @@ var
   LClient, LServer: ITls13HandshakeEngine;
   LLeaf, LKey, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert');
-  LKey := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key');
-  LRoot := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert');
+  LKey := TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key');
+  LRoot := TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
   LClient := NewClient(TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(LRoot).Build)
     .WithCredential(TTlsCredential.Load(Crypto, Pkix, LLeaf, LKey)).Build);
@@ -1146,7 +1146,7 @@ begin
   LList := EchConfigList($D7, 'cover.example', LSk);
   LClient := NewClient(TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Tls13.WithEch(TEchClientModes.Enable(LList)).Build);
   LServer := NewServer(TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential)
     .Tls13.WithEchKeyStore(TInMemoryEchKeyStore.FromConfig(LList, LSk, Crypto)).Build);
@@ -1155,7 +1155,7 @@ begin
   CheckFalse(LServer.IsTerminal, 'the server completed');
   CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH was accepted');
   LHello := THandshakeMessages.DecodeClientHello(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstData(FClientLog, TTlsEpoch.Plaintext)).Body);
+    TSupportHandshakeDecoder.HandshakeMessage(FirstData(FClientLog, TTlsEpoch.Plaintext)).Body);
   CheckEquals(0, System.Length(LHello.LegacySessionId), 'the outer hello has no session id');
 end;
 
@@ -1189,7 +1189,7 @@ var
   LType: Byte;
   LAnswered: Boolean;
 begin
-  LRoot := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
   LClientList := EchConfigList($D8, 'localhost', LClientSk);
   LServerList := EchConfigList($D9, 'localhost', LServerSk);
   LBuilder := ClientBuilder;
@@ -1221,7 +1221,7 @@ var
 begin
   LCache := TInMemorySessionCache.Create;
   Seed(LCache);
-  LOtherRoot := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
+  LOtherRoot := TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
   // the server cannot open the ticket and runs a full handshake; the client queues its handshake
   // write secret at the ServerHello and rejects the chain in the same delivery
   LClient := NewClient(ClientBuilder.WithServerVerification(
@@ -1305,14 +1305,14 @@ procedure TTestTls13HandshakeEngine.TestCreationRefusesAConfigWithoutTls13Alone;
 begin
   CheckTrue(CreationRaises(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build),
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build),
     'a client that also offers TLS 1.2');
   CheckTrue(CreationRaises(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build), 'a server that also offers TLS 1.2');
   CheckTrue(CreationRaises(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build),
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build),
     'a TLS 1.2-only client');
   CheckTrue(CreationRaises(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
@@ -1338,7 +1338,7 @@ begin
   LHandshakeClient.StartHandshake;
   CheckTrue(LHandshakeClient.NextOutput(LOutput), 'the ClientHello');
   CheckFalse(TExtensionVector.Parse(THandshakeMessages.DecodeClientHello(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(LOutput.Data).Body).Extensions).Contains(
+    TSupportHandshakeDecoder.HandshakeMessage(LOutput.Data).Body).Extensions).Contains(
     TExtensionTypes.PreSharedKey), 'it does not offer the other kind''s ticket');
 end;
 
@@ -1351,7 +1351,7 @@ begin
   Seed(LCache);
   LClient := TTlsEngineFactory.CreateClientEngine(ClientResuming(LCache, False), ServerHost);
   LClient.StartHandshake;
-  CheckFalse(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(Drain(LClient)).Contains(
+  CheckFalse(TSupportHandshakeDecoder.ClientHelloExtensions(Drain(LClient)).Contains(
     TExtensionTypes.PreSharedKey), 'the record engine does not offer the other kind''s ticket');
 end;
 
@@ -1396,7 +1396,7 @@ begin
   LOverlay := TOverlayCryptoProvider.Create(Crypto, LRef, nil, nil, nil);
   LClient := NewClient(TTlsPresets.Hardened(LOverlay, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build);
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build);
   LServer := NewServer(TTlsPresets.Hardened(LOverlay, Pkix).Server
     .WithCredential(ServerCredential(LOverlay)).Build);
   Run(LClient, LServer);

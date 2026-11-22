@@ -52,7 +52,7 @@ uses
   TlpAndroidSystemTrust,
   TlpOSDelegateVerifier,
 {$ENDIF TLSLIB_ANDROID}
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -681,7 +681,7 @@ begin
   Result := nil;
   SetLength(Result, System.Length(ANames));
   for LI := 0 to System.High(ANames) do
-    Result[LI] := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', ANames[LI]);
+    Result[LI] := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', ANames[LI]);
 end;
 
 function TTestCriticalExtensionsAndEndEntity.ServerVerdict(const ARoot: string;
@@ -2428,7 +2428,7 @@ begin
   Result := nil;
   SetLength(Result, System.Length(ANames));
   for LI := 0 to System.High(ANames) do
-    Result[LI] := TTlsLibTestCertificates.Field('Certs/ChainFailures.txt', ANames[LI]);
+    Result[LI] := TSupportCertificates.Field('Certs/ChainFailures.txt', ANames[LI]);
 end;
 
 procedure TChainFailureAlertTestBase.TestValidChainIsAccepted;
@@ -2539,11 +2539,11 @@ var
 begin
   LVerifier := TCertificateVerifier.Create(Pkix,
     TMockClock.Create(UnixMillisInsideAllWindows) as ITlsClock,
-    TTrustAnchorStore.Create(TArray<TBytes>.Create(TTlsLibTestCertificates.Field(
+    TTrustAnchorStore.Create(TArray<TBytes>.Create(TSupportCertificates.Field(
     'Certs/NameConstrainedRoot.txt', 'root_cert'))) as ITrustAnchorStore, True)
     as IServerCertificateVerifier;
   CheckFalse(LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/NameConstrainedRoot.txt', 'out_of_scope_leaf_cert')),
+    TSupportCertificates.Field('Certs/NameConstrainedRoot.txt', 'out_of_scope_leaf_cert')),
     TServerName.DnsName(''), nil, LVerified, LAlert),
     'a leaf outside the anchor name constraints is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
@@ -2609,10 +2609,10 @@ var
 begin
   LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(AUnixMillis) as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field(AFile, AAnchor))) as ITrustAnchorStore, True)
+    TSupportCertificates.Field(AFile, AAnchor))) as ITrustAnchorStore, True)
     as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field(AFile, ALeaf)), TServerName.DnsName('localhost'), nil,
+    TSupportCertificates.Field(AFile, ALeaf)), TServerName.DnsName('localhost'), nil,
     LVerified, AAlert);
 end;
 
@@ -2628,13 +2628,13 @@ begin
   for LI := 0 to System.High(AAnchors) do
   begin
     SetLength(LRoots, System.Length(LRoots) + 1);
-    LRoots[System.High(LRoots)] := TTlsLibTestCertificates.Field('Certs/IssuerRenewal.txt',
+    LRoots[System.High(LRoots)] := TSupportCertificates.Field('Certs/IssuerRenewal.txt',
       AAnchors[LI]);
   end;
   LVerifier := TCertificateVerifier.Create(Pkix, TMockClock.Create(1735689600000) as ITlsClock,
     TTrustAnchorStore.Create(LRoots) as ITrustAnchorStore, True) as IServerCertificateVerifier;
   Result := LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/IssuerRenewal.txt', 'leaf_cert')),
+    TSupportCertificates.Field('Certs/IssuerRenewal.txt', 'leaf_cert')),
     TServerName.DnsName('localhost'), nil, LVerified, AAlert);
 end;
 
@@ -3078,7 +3078,7 @@ begin
   Result := nil;
   SetLength(Result, System.Length(ANames));
   for LI := 0 to System.High(ANames) do
-    Result[LI] := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt',
+    Result[LI] := TSupportCertificates.Field('Certs/NameConstrainedChain.txt',
       ANames[LI] + '_cert');
 end;
 

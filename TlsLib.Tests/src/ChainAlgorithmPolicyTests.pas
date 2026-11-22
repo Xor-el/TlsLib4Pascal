@@ -32,7 +32,7 @@ uses
   TlpCertificateStrengthPolicy,
   TlpNegotiationTypes,
   TlpChainAlgorithmPolicy,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -371,10 +371,10 @@ var
 begin
   CheckTrue(TEndEntityPolicy.Admits(Pkix.Certificates,
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')),
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
     'a cA=FALSE leaf is admitted');
 end;
 
@@ -384,10 +384,10 @@ var
 begin
   CheckFalse(TEndEntityPolicy.Admits(Pkix.Certificates,
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert'),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')),
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
     'a cA=TRUE leaf under a root is refused');
   CheckEquals(Ord(TTlsAlertDescription.BadCertificate), Ord(LAlert), 'the alert is bad_certificate');
 end;
@@ -398,9 +398,9 @@ var
 begin
   CheckTrue(TEndEntityPolicy.Admits(Pkix.Certificates,
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')),
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')), LAlert),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')), LAlert),
     'a directly trusted self-signed CA certificate is admitted');
 end;
 
@@ -410,9 +410,9 @@ var
 begin
   CheckFalse(TEndEntityPolicy.Admits(Pkix.Certificates,
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert')),
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert')), LAlert),
     'the same certificate is refused when it is not the configured anchor');
 end;
 
@@ -934,7 +934,7 @@ var
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.AllowEdDsa := False;
-  LRoot := TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
   CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
     LPolicy, Advertised, LAlert), 'an Ed25519 anchor passes while the flag is off');
@@ -949,7 +949,7 @@ begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.AllowEdDsa := False;
   LPolicy.AnchorKeyFloors := True;
-  LRoot := TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
   CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
     LPolicy, Advertised, LAlert), 'an Ed25519 anchor is refused when EdDSA is disallowed');
@@ -962,7 +962,7 @@ var
   LAlert: TTlsAlertDescription;
   LRoot: TBytes;
 begin
-  LRoot := TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/DsaRoot.txt', 'root_cert');
   CheckTrue(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
     TCertificateStrengthPolicy.Defaults, Advertised, LAlert),
@@ -1029,7 +1029,7 @@ begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.AnchorKeyFloors := True;
   CheckFalse(TChainAlgorithmPolicy.AnchorsMeetKeyFloors(Pkix.Certificates,
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert')),
+    TArray<TBytes>.Create(TSupportCertificates.Field('Certs/DsaRoot.txt', 'root_cert')),
     LPolicy, LAlert), 'a DSA anchor key has no floor to meet');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert),
     'an anchor key of unknown kind is unsupported_certificate');
@@ -1043,7 +1043,7 @@ var
 begin
   LPolicy := TCertificateStrengthPolicy.Defaults;
   LPolicy.AnchorKeyFloors := True;
-  LRoot := TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/DsaRoot.txt', 'root_cert');
   CheckFalse(TChainAlgorithmPolicy.Check(Pkix.Certificates,
     TArray<TBytes>.Create(EcCert('leaf_cert'), LRoot), TArray<TBytes>.Create(LRoot),
     LPolicy, Advertised, LAlert), 'a DSA anchor key has no floor to meet');

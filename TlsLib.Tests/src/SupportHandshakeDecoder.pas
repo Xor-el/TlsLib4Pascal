@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlsLibTestHandshakeDecoder;
+unit SupportHandshakeDecoder;
 
 interface
 
@@ -29,7 +29,7 @@ type
   /// Decodes the handshake bytes a test captured off an engine, so a test can assert what went on
   /// the wire without a second decoder per suite.
   /// </summary>
-  TTlsLibTestHandshakeDecoder = class sealed(TObject)
+  TSupportHandshakeDecoder = class sealed(TObject)
   public
     /// <summary>The first handshake message framed in AFramed.</summary>
     class function HandshakeMessage(const AFramed: TBytes): TTlsHandshakeMessage; static;
@@ -49,7 +49,7 @@ type
 
 implementation
 
-class function TTlsLibTestHandshakeDecoder.HandshakeMessage(
+class function TSupportHandshakeDecoder.HandshakeMessage(
   const AFramed: TBytes): TTlsHandshakeMessage;
 var
   LReader: THandshakeMessageReader;
@@ -63,7 +63,7 @@ begin
   end;
 end;
 
-class function TTlsLibTestHandshakeDecoder.ClientHelloExtensions(
+class function TSupportHandshakeDecoder.ClientHelloExtensions(
   const AFlight: TBytes): TExtensionVector;
 var
   LPos, LRecLen, LHsLen: Int32;
@@ -85,7 +85,7 @@ begin
   end;
 end;
 
-class function TTlsLibTestHandshakeDecoder.ServerNameHost(
+class function TSupportHandshakeDecoder.ServerNameHost(
   const AServerNameData: TBytes): string;
 var
   LReader, LList, LName: TWireReader;
@@ -104,7 +104,7 @@ begin
     Result[LI + 1] := Char(LBytes[LI]);
 end;
 
-class function TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(const AWire: TBytes;
+class function TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(const AWire: TBytes;
   AMsgType: Byte; out ARecordPos, AMsgPos, AMsgLen: Int32): Boolean;
 var
   LRecLen, LInner: Int32;
@@ -136,7 +136,7 @@ begin
   end;
 end;
 
-class function TTlsLibTestHandshakeDecoder.ServerHello(
+class function TSupportHandshakeDecoder.ServerHello(
   const AFlight: TBytes): TTlsServerHello;
 var
   LPos, LLen: Int32;
@@ -157,7 +157,7 @@ begin
   end;
 end;
 
-class function TTlsLibTestHandshakeDecoder.ClientHello(
+class function TSupportHandshakeDecoder.ClientHello(
   const AFlight: TBytes): TTlsClientHello;
 begin
   // record header 5, handshake header 4

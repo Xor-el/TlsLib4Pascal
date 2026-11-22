@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlsLibTestCertificates;
+unit SupportCertificates;
 
 interface
 
@@ -26,11 +26,11 @@ uses
   TlpIPkixProvider,
   TlpITrustAnchorStore,
   TlpTrustAnchorStore,
-  TlsLibTestResourceLoader;
+  SupportResourceLoader;
 
 type
   /// <summary>The certificate vectors the suites share, read from the vector files.</summary>
-  TTlsLibTestCertificates = class sealed(TObject)
+  TSupportCertificates = class sealed(TObject)
   public
     /// <summary>The named hex field of a vector file, decoded.</summary>
     class function Field(const AFile, AName: string): TBytes; static;
@@ -47,13 +47,13 @@ type
 
 implementation
 
-class function TTlsLibTestCertificates.Field(const AFile, AName: string): TBytes;
+class function TSupportCertificates.Field(const AFile, AName: string): TBytes;
 var
   LFields: TStringList;
 begin
   LFields := TStringList.Create;
   try
-    LFields.LoadFromFile(TTlsLibTestResourceLoader.ResourcePath(AFile));
+    LFields.LoadFromFile(TSupportResourceLoader.ResourcePath(AFile));
     // vector files may space-separate bytes; strip whitespace, then decode strictly
     Result := TDataEncoding.HexDecode(StringReplace(LFields.Values[AName], ' ', '',
       [rfReplaceAll]));
@@ -62,13 +62,13 @@ begin
   end;
 end;
 
-class function TTlsLibTestCertificates.EcP256RootStore: ITrustAnchorStore;
+class function TSupportCertificates.EcP256RootStore: ITrustAnchorStore;
 begin
   Result := TTrustAnchorStore.Create(TArray<TBytes>.Create(
     Field('Certs/EcP256Chain.txt', 'root_cert'))) as ITrustAnchorStore;
 end;
 
-class function TTlsLibTestCertificates.SpkiSha256(const ACrypto: ICryptoProvider;
+class function TSupportCertificates.SpkiSha256(const ACrypto: ICryptoProvider;
   const APkix: IPkixProvider; const ACert: TBytes): TBytes;
 var
   LHash: IHash;
@@ -80,7 +80,7 @@ begin
   Result := LHash.DoFinal;
 end;
 
-class function TTlsLibTestCertificates.RsaSpkiWithoutNullParameters(const ASpki: TBytes): TBytes;
+class function TSupportCertificates.RsaSpkiWithoutNullParameters(const ASpki: TBytes): TBytes;
 const
   RsaEncryptionOid: array [0 .. 10] of Byte = ($06, $09, $2A, $86, $48, $86, $F7, $0D, $01,
     $01, $01);

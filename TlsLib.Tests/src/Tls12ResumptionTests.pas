@@ -72,8 +72,8 @@ uses
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
   TlpVersionDispatchMachine,
-  TlsLibTestHandshakeDecoder,
-  TlsLibTestCertificates,
+  SupportHandshakeDecoder,
+  SupportCertificates,
   TlsLibHandshakeTestBase;
 
 type
@@ -300,7 +300,7 @@ begin
   LParams.ClientRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.ServerIdentity := ServerHost + ':443';
@@ -338,7 +338,7 @@ var
   LRandom, LSessionId: TBytes;
 begin
   LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   // the dispatcher sends one unified ClientHello, so both sub-machines must share the same
   // client_random and legacy_session_id (the abbreviated Finished MAC binds them)
   LRandom := Crypto.Primitives.GetRandom.GenerateBytes(32);
@@ -938,14 +938,14 @@ begin
   LServer := NewServer(LStore, LKeys, 7200, True);
   LClient.StartHandshake;
   LHello := Drain(LClient);
-  CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LHello)
+  CheckTrue(TSupportHandshakeDecoder.ClientHelloExtensions(LHello)
     .TryFind(TExtensionTypes.SessionTicket, LExtension),
     'the next hello still advertises ticket support');
   CheckEquals(0, System.Length(LExtension.Data),
     'but carries no ticket: the over-limit one was not kept');
   Feed(LServer, LHello);
   LFlight := Drain(LServer);
-  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
+  CheckTrue(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
     Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen),
     'the next connection runs a full handshake');
 end;
@@ -1568,7 +1568,7 @@ begin
   LParams.OfferExtendedMasterSecret := True;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(ServerHost);
   LParams.ServerName := ServerHost;
   LParams.ServerIdentity := ServerHost + ':443';
@@ -1711,7 +1711,7 @@ begin
   end;
   CheckFalse(LClient.IsHandshaking, 'the client completed despite the declined ticket');
   CheckFalse(LServer.IsHandshaking, 'the server completed');
-  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LServerWire,
+  CheckTrue(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(LServerWire,
     Ord(TTlsHandshakeType.NewSessionTicket), LRecordPos, LMsgPos, LMsgLen),
     'the server still sent a NewSessionTicket (zero-length)');
   CheckAppDataFlows(LClient, LServer);
@@ -1764,7 +1764,7 @@ begin
   CheckTrue(ContainsBytes(LHello, LTicket), 'the bogus ticket is offered');
   Feed(LServer, LHello);
   LFlight := Drain(LServer);
-  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
+  CheckTrue(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
     Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen),
     'a bogus ticket falls back to a full handshake (Certificate sent)');
   Feed(LClient, LFlight);

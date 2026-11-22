@@ -52,7 +52,7 @@ uses
   InteropSocket,
   InteropEngine,
   InteropLeveledHost,
-  TlsLibTestProviders,
+  SupportProviders,
   InteropCredentials,
   InteropPump,
   InteropUtils;
@@ -2994,8 +2994,8 @@ begin
     Exit(ShimExitUnimplemented);
   end;
 
-  LCrypto := TTlsLibTestProviders.Crypto;
-  LPkix := TTlsLibTestProviders.Pkix;
+  LCrypto := TSupportProviders.Crypto;
+  LPkix := TSupportProviders.Pkix;
   // the client always keeps a session cache so it offers psk_key_exchange_modes and accepts
   // (and validates) the NewSessionTickets the server issues, even on a non-resume connection;
   // a resumption reuses the same cache across the ResumeCount+1 connections. The server only

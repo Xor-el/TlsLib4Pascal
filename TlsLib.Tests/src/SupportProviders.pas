@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlsLibTestProviders;
+unit SupportProviders;
 
 {$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
@@ -26,11 +26,11 @@ uses
 
 type
   /// <summary>Registered crypto providers; a new provider is one member here and one case arm
-  /// in <see cref="TTlsLibTestProviders.Crypto" />.</summary>
+  /// in <see cref="TSupportProviders.Crypto" />.</summary>
   TCryptoProviderChoice = (Portable, OS);
 
   /// <summary>Registered PKIX providers; a new provider is one member here and one case arm
-  /// in <see cref="TTlsLibTestProviders.Pkix" />.</summary>
+  /// in <see cref="TSupportProviders.Pkix" />.</summary>
   TPkixProviderChoice = (Portable);
 
   /// <summary>
@@ -38,7 +38,7 @@ type
   /// kind has its own switch: --crypto-provider=NAME / TLSLIB_CRYPTO_PROVIDER and
   /// --pkix-provider=NAME / TLSLIB_PKIX_PROVIDER (flag first, then variable, else portable).
   /// </summary>
-  TTlsLibTestProviders = class sealed(TObject)
+  TSupportProviders = class sealed(TObject)
   strict private
     // not inlined into Choice: a generic body cannot reference the implementation's resourcestring
     class procedure RaiseUnknownProvider(const AEnvVar, AValue, AValid: string); static;
@@ -67,7 +67,7 @@ implementation
 resourcestring
   SUnknownProvider = '%s: unknown provider "%s" (valid: %s)';
 
-class function TTlsLibTestProviders.Choice<T>(const AFlag, AEnvVar: string;
+class function TSupportProviders.Choice<T>(const AFlag, AEnvVar: string;
   const AFallback: T): T;
 var
   LPrefix, LValue, LValid: string;
@@ -96,34 +96,34 @@ begin
   RaiseUnknownProvider(AEnvVar, LValue, LValid);
 end;
 
-class procedure TTlsLibTestProviders.RaiseUnknownProvider(const AEnvVar, AValue,
+class procedure TSupportProviders.RaiseUnknownProvider(const AEnvVar, AValue,
   AValid: string);
 begin
   raise EArgumentException.CreateFmt(SUnknownProvider, [AEnvVar, AValue, AValid]);
 end;
 
-class function TTlsLibTestProviders.SelectedCrypto: TCryptoProviderChoice;
+class function TSupportProviders.SelectedCrypto: TCryptoProviderChoice;
 begin
   Result := Choice<TCryptoProviderChoice>(CryptoFlag, CryptoEnvVar,
     TCryptoProviderChoice.Portable);
 end;
 
-class function TTlsLibTestProviders.SelectedPkix: TPkixProviderChoice;
+class function TSupportProviders.SelectedPkix: TPkixProviderChoice;
 begin
   Result := Choice<TPkixProviderChoice>(PkixFlag, PkixEnvVar, TPkixProviderChoice.Portable);
 end;
 
-class function TTlsLibTestProviders.Crypto: ICryptoProvider;
+class function TSupportProviders.Crypto: ICryptoProvider;
 begin
   Result := Crypto(SelectedCrypto);
 end;
 
-class function TTlsLibTestProviders.Pkix: IPkixProvider;
+class function TSupportProviders.Pkix: IPkixProvider;
 begin
   Result := Pkix(SelectedPkix);
 end;
 
-class function TTlsLibTestProviders.Crypto(AChoice: TCryptoProviderChoice): ICryptoProvider;
+class function TSupportProviders.Crypto(AChoice: TCryptoProviderChoice): ICryptoProvider;
 begin
   case AChoice of
     TCryptoProviderChoice.Portable:
@@ -133,7 +133,7 @@ begin
   end;
 end;
 
-class function TTlsLibTestProviders.Pkix(AChoice: TPkixProviderChoice): IPkixProvider;
+class function TSupportProviders.Pkix(AChoice: TPkixProviderChoice): IPkixProvider;
 begin
   case AChoice of
     TPkixProviderChoice.Portable:
@@ -141,7 +141,7 @@ begin
   end;
 end;
 
-class function TTlsLibTestProviders.Describe: string;
+class function TSupportProviders.Describe: string;
 const
   Facets: array[Boolean] of string = ('no', 'yes');
 var

@@ -52,8 +52,8 @@ uses
   TlpTls13HandshakeBase,
   MockCryptoProvider,
   TlsLibHandshakeTestBase,
-  TlsLibTestCertificates,
-  TlsLibTestHandshakeDecoder;
+  SupportCertificates,
+  SupportHandshakeDecoder;
 
 type
   TTestTls13KeyUpdate = class(TTlsLibHandshakeTestCase)
@@ -174,7 +174,7 @@ begin
   Result := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Build, ServerHost);
 end;
 
@@ -240,7 +240,7 @@ begin
   AClient := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Hardened(LFaulty, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Build, ServerHost);
   AServer := NewServer;
   RunHandshake(AClient, AServer);
@@ -280,7 +280,7 @@ begin
   LClient := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Hardened(LCapped, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithCipherSuites(LRegistry).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(
     TTlsPresets.Hardened(LCapped, Pkix).Server.WithCredential(ServerCredential)
@@ -700,7 +700,7 @@ const
 begin
   LProbe := TKeyUpdateCapProbe.Create(Crypto);
   LMachine := LProbe as IHandshakeMachine;
-  LRequested := TTlsLibTestHandshakeDecoder.HandshakeMessage(
+  LRequested := TSupportHandshakeDecoder.HandshakeMessage(
     THandshakeFraming.Frame(TTlsHandshakeType.KeyUpdate, TBytes.Create(1)));
   LProbe.SetSent(MaxSent - 1);
   CheckEquals(2, System.Length(LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateNotRequested)),
@@ -776,7 +776,7 @@ var
 begin
   LProbe := TKeyUpdateCapProbe.Create(Crypto);
   LMachine := LProbe as IHandshakeMachine;
-  LPeerUpdate := TTlsLibTestHandshakeDecoder.HandshakeMessage(
+  LPeerUpdate := TSupportHandshakeDecoder.HandshakeMessage(
     THandshakeFraming.Frame(TTlsHandshakeType.KeyUpdate, TBytes.Create(0)));
   LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
   LMachine.RequestKeyUpdate(TKeyUpdateRequest.UpdateRequested);
@@ -834,7 +834,7 @@ begin
   // one config for every connection, so a cached share would repeat (RFC 9846 4.3.8)
   LClientConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build;
   LServerConfig := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build;
   for LI := 0 to 1 do
@@ -843,7 +843,7 @@ begin
     LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
     LClient.StartHandshake;
     LFlight := Drain(LClient);
-    CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LFlight)
+    CheckTrue(TSupportHandshakeDecoder.ClientHelloExtensions(LFlight)
       .TryFind(TExtensionTypes.KeyShare, LEntry), 'the ClientHello carries a key_share');
     // the GREASE share varies on its own, so compare the real one
     LReader := TWireReader.Create(LEntry.Data);
@@ -858,7 +858,7 @@ begin
     Feed(LServer, LFlight);
     LServerFlight := Drain(LServer);
     LHello := THandshakeMessages.DecodeServerHello(
-      TTlsLibTestHandshakeDecoder.HandshakeMessage(System.Copy(LServerFlight, 5,
+      TSupportHandshakeDecoder.HandshakeMessage(System.Copy(LServerFlight, 5,
       System.Length(LServerFlight) - 5)).Body);
     CheckFalse(CompareMem(@LHello.Random[0], @HelloRetryRequestSentinel[0],
       System.Length(HelloRetryRequestSentinel)), 'the first server flight is a ServerHello');

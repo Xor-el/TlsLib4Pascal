@@ -39,7 +39,7 @@ uses
   TlpEchExtension,
   TlpEchOuterExtensions,
   InteropEngine,
-  TlsLibTestProviders,
+  SupportProviders,
   InteropCredentials,
   InteropUtils;
 
@@ -1020,8 +1020,8 @@ begin
   FCorpusDir := LDataDir + PathDelim + 'Corpus';
   FRegressDir := FCorpusDir + PathDelim + 'regress';
   FFailuresDir := FCorpusDir + PathDelim + 'failures';
-  FProvider := TTlsLibTestProviders.Crypto;
-  FPkix := TTlsLibTestProviders.Pkix;
+  FProvider := TSupportProviders.Crypto;
+  FPkix := TSupportProviders.Pkix;
   LoadSeeds;
 
   // no silent caps: log every parser fuzzed and each tier's budget

@@ -40,7 +40,7 @@ uses
   TlpTrustPolicy,
   TlpLiveRevocation,
   MockPkixProvider,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -345,8 +345,8 @@ end;
 function TTestLiveRevocation.Chain: TArray<TBytes>;
 begin
   Result := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'));
 end;
 
 function TTestLiveRevocation.NewChecker(const AFetcher: IHttpFetcher;
@@ -454,7 +454,7 @@ var
   LUrls: TArray<string>;
 begin
   CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'), LUrls),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'), LUrls),
     'the leaf AIA carries an OCSP responder URL');
   CheckUrls(['http://ocsp.tlslib.test/'], LUrls, 'the OCSP URL is extracted verbatim');
 end;
@@ -466,7 +466,7 @@ begin
   // every http(s) responder in certificate order, the ldap entry skipped, the repeat kept (the
   // checker, not the provider, decides what to fetch)
   CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'multi_ocsp_cert'), LUrls),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'multi_ocsp_cert'), LUrls),
     'the certificate lists several responders');
   CheckUrls(['http://a.test/', 'http://b.test/', 'http://a.test/', 'https://c.test/',
     'http://d.test/'], LUrls, 'the fetchable responders in order');
@@ -481,7 +481,7 @@ begin
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
   FFetcher.ScriptPost(LA, False, nil, 0);
   FFetcher.ScriptPost(LB, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
     'the live second responder settles it');
   CheckUrls([LA, LB], FFetcher.PostUrls, 'both responders were asked, in order');
@@ -502,13 +502,13 @@ begin
   // the first answers with garbage, which is indeterminate, not an answer
   FFetcher.ScriptPost(LA, True, TBytes.Create(1, 2, 3), 0);
   FFetcher.ScriptPost(LB, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'), 0);
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
     'a revocation from the second responder is found');
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
   FFetcher.ScriptPost(LA, True, TBytes.Create(1, 2, 3), 0);
   FFetcher.ScriptPost(LB, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
     'control: the same layout with a good second answer is good');
 end;
@@ -521,17 +521,17 @@ begin
   LB := 'http://b.test/';
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
   FFetcher.ScriptPost(LA, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
   FFetcher.ScriptPost(LB, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'), 0);
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the first answer stands');
   CheckEquals(1, FFetcher.PostCount, 'no further responder is asked after a conclusive answer');
   // a revocation is just as conclusive: it is never traded for a later good answer
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create(LA, LB), nil);
   FFetcher.ScriptPost(LA, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'), 0);
   FFetcher.ScriptPost(LB, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked, 'a revocation stands');
   CheckEquals(1, FFetcher.PostCount, 'and stops the search');
 end;
@@ -567,7 +567,7 @@ begin
   Arrange(TLiveRevocationMethod.Ocsp, 1000, TArray<string>.Create(LA, LB), nil);
   FFetcher.ScriptPost(LA, False, nil, 1000);
   FFetcher.ScriptPost(LB, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
     'a spent budget ends the check indeterminate');
   CheckEquals(1, FFetcher.PostCount, 'the second responder is not asked');
@@ -575,7 +575,7 @@ begin
   Arrange(TLiveRevocationMethod.Ocsp, 1000, TArray<string>.Create(LA, LB), nil);
   FFetcher.ScriptPost(LA, False, nil, 10);
   FFetcher.ScriptPost(LB, True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
     'with budget left the second responder answers');
 end;
@@ -1021,25 +1021,25 @@ begin
   // the checker owns its candidates: changing the caller's array afterwards must not change which
   // issuer a leaf-only chain resolves to
   LOptions.IssuerCandidates := TArray<TBytes>.Create(System.Copy(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert')));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert')));
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil, LOptions);
   FFetcher.ScriptPost('http://a.test/', True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
   LOptions.IssuerCandidates[0][8] := LOptions.IssuerCandidates[0][8] xor $FF;
   CheckTrue(FChecker.Evaluate(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'))) =
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'))) =
     TLiveRevocationOutcome.Good,
     'the issuer is still found from the checker''s own copy');
   // control: the same change made before the checker is built does break issuer recovery, so the
   // change above would have shown had the checker kept the caller's array
   LOptions.IssuerCandidates := TArray<TBytes>.Create(System.Copy(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert')));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert')));
   LOptions.IssuerCandidates[0][8] := LOptions.IssuerCandidates[0][8] xor $FF;
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil, LOptions);
   FFetcher.ScriptPost('http://a.test/', True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), 0);
   CheckTrue(FChecker.Evaluate(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'))) =
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'))) =
     TLiveRevocationOutcome.Indeterminate, 'a damaged candidate no longer yields the issuer');
 end;
 
@@ -1062,11 +1062,11 @@ begin
   // fetcher: the ldap and file OCSP entries are skipped for the later HTTP one, and the ldap and
   // ftp distribution points are dropped
   CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'scheme_cert'), LOcsp),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'scheme_cert'), LOcsp),
     'the HTTP responder after the other schemes is found');
   CheckUrls(['http://ocsp.good.test/'], LOcsp, 'the http responder is returned as canonical text');
   CheckTrue(Pkix.Revocation.TryGetCrlDistributionPoints(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'scheme_cert'), LUrls),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'scheme_cert'), LUrls),
     'the https distribution point is found');
   CheckEquals(1, System.Length(LUrls), 'only the https distribution point survives');
   CheckEquals('https://crl.good.test/ca.crl', LUrls[0], 'the https URL');
@@ -1080,11 +1080,11 @@ begin
   // userinfo, a zero port, a zone-id literal and brackets in a path never reach a fetcher, and the
   // well-formed entry after them is still returned, as canonical text
   CheckTrue(Pkix.Revocation.TryGetOcspResponderUrls(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'strict_url_cert'), LOcsp),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'strict_url_cert'), LOcsp),
     'the well-formed responder after the malformed ones is found');
   CheckUrls(['http://ok.test/o'], LOcsp, 'only the canonical well-formed responder remains');
   CheckTrue(Pkix.Revocation.TryGetCrlDistributionPoints(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'strict_url_cert'), LUrls),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'strict_url_cert'), LUrls),
     'the well-formed distribution point is found');
   CheckUrls(['https://ok.test/c.crl'], LUrls, 'only the well-formed distribution point remains');
 end;
@@ -1094,7 +1094,7 @@ var
   LUrls: TArray<string>;
 begin
   CheckTrue(Pkix.Revocation.TryGetCrlDistributionPoints(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'), LUrls),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'), LUrls),
     'the leaf carries a CRL distribution point');
   CheckTrue(System.Length(LUrls) >= 1, 'at least one CRL URL is returned');
   CheckEquals('http://crl.tlslib.test/ca.crl', LUrls[0], 'the CRL URL is extracted');
@@ -1105,8 +1105,8 @@ var
   LReq: TBytes;
 begin
   CheckTrue(Pkix.Revocation.BuildOcspRequest(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'), LReq),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'), LReq),
     'an OCSP request is built for the leaf/issuer');
   CheckTrue(System.Length(LReq) > 0, 'the OCSP request is non-empty DER');
 end;
@@ -1118,7 +1118,7 @@ begin
   // the neutral peer-identity accessor an adapter's native verify hook (Synapse GetPeer*)
   // reads, so no adapter touches a crypto-backend type
   CheckTrue(Pkix.Certificates.PeerInfo(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'), LSubject, LIssuer,
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'), LSubject, LIssuer,
     LCommonName, LSerialHex), 'peer info is extracted from the leaf');
   CheckEquals('localhost', LCommonName, 'the leaf common name is localhost');
   CheckTrue(Pos('localhost', LSubject) > 0, 'the subject DN carries the common name');
@@ -1132,9 +1132,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   CheckTrue(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_revoked'), NowUtc,
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_revoked'), NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the issuer-signed CRL parses and verifies');
   CheckTrue(LRevoked, 'the leaf serial is listed as revoked in the CRL');
 end;
@@ -1145,9 +1145,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   CheckTrue(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'), NowUtc,
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'), NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the issuer-signed CRL parses and verifies');
   CheckFalse(LRevoked, 'the leaf is not listed in the good CRL');
 end;
@@ -1161,22 +1161,22 @@ begin
   // at an injected time INSIDE that window the same CRL is authoritative - proving the injected
   // clock, not the wall clock, drives CRL freshness
   CheckFalse(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'), NowUtc,
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'), NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the stale CRL is indeterminate at the current time');
   CheckTrue(LNextUpdate > 0, 'the CRL reports a nextUpdate window');
   CheckTrue(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'),
     LThisUpdate + (LNextUpdate - LThisUpdate) / 2, LRevoked, LThisUpdate, LNextUpdate),
     'the same CRL verifies when the injected time is inside its window');
   // and one day before thisUpdate it is not yet valid -> indeterminate
   CheckFalse(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'),
     LThisUpdate - 1, LRevoked, LThisUpdate, LNextUpdate),
     'the CRL is not yet valid before its thisUpdate');
 end;
@@ -1193,15 +1193,15 @@ begin
   // inside it. The stale CRL - indeterminate at the wall clock - now reads Good, proving the
   // checker feeds its injected clock through to the CRL freshness judgement.
   CheckFalse(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'), NowUtc,
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'), NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the stale CRL is indeterminate now');
   LMidMs := (TDateTimeUtilities.DateTimeToUnixMs(LThisUpdate) +
     TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate)) div 2;
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'));
   LChecker := TLiveRevocationChecker.Create(Pkix,
     TMockClock.Create(UInt64(LMidMs)) as ITlsClock, SystemTicks, LFetcher as IHttpFetcher,
     TRevocationPosture.Hard, TLiveRevocationMethod.Crl, 0);
@@ -1220,15 +1220,15 @@ var
 begin
   // capture the good CRL's window, then judge it one day past nextUpdate: indeterminate
   CheckTrue(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'), NowUtc,
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'), NowUtc,
     LRevoked, LThisUpdate, LNextUpdate), 'the good CRL verifies at the current time');
   CheckTrue(LNextUpdate > 0, 'the good CRL reports a nextUpdate window');
   CheckFalse(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'),
     LNextUpdate + 1, LRevoked, LThisUpdate, LNextUpdate),
     'a CRL judged past its nextUpdate is indeterminate');
 end;
@@ -1240,7 +1240,7 @@ var
 begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Ocsp);
   try
@@ -1263,7 +1263,7 @@ begin
   // buffer an unbounded body: 64 KiB for an OCSP response, 32 MiB for a CRL
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Ocsp);
   try
@@ -1275,7 +1275,7 @@ begin
 
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Crl);
   try
@@ -1293,7 +1293,7 @@ var
 begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
   LSoft := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Soft,
     TLiveRevocationMethod.Ocsp);
   LHard := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
@@ -1348,7 +1348,7 @@ begin
   // short-circuit, not a spy that never counts
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LSpy := TMockPkixProvider.Create(Pkix);
   LSpyPkix := LSpy;
   LSized := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
@@ -1409,7 +1409,7 @@ var
 begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_revoked'));
   LSoft := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Soft,
     TLiveRevocationMethod.Crl);
   try
@@ -1430,7 +1430,7 @@ var
 begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
   LHard := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Crl);
   try
@@ -1478,7 +1478,7 @@ begin
   // control: an in-cap CRL DOES reach the parser through the same spy
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
   LSpy := TMockPkixProvider.Create(Pkix);
   LSpyPkix := LSpy;
   LSized := TLiveRevocationChecker.Create(LSpyPkix, TSystemClock.Create as ITlsClock,
@@ -1504,16 +1504,16 @@ begin
   // stale-CRL replay. The provider primitive reports it directly, and the checker follows the
   // posture (Hard rejects).
   CheckFalse(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'), NowUtc,
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'), NowUtc,
     LRevoked, LThisUpdate, LNextUpdate),
     'a stale CRL (out of its validity window) is not authoritative');
   CheckFalse(LRevoked, 'a stale CRL yields no definitive revocation');
 
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_stale'));
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.Crl);
   try
@@ -1537,9 +1537,9 @@ begin
   // is soft). A stapled Revoked would still be caught upstream, before the park.
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
   LFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_revoked'));
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Off,
     TLiveRevocationMethod.OcspThenCrl);
   try
@@ -1561,17 +1561,17 @@ var
 begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LHard := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
     TLiveRevocationMethod.OcspThenCrl);
   try
     // no issuer entry means nothing can authenticate a revocation response
     CheckTrue(LHard.Evaluate(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'))) =
+      TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'))) =
       TLiveRevocationOutcome.Indeterminate,
       'a chain without an issuer is indeterminate');
     CheckFalse(Accepts(LHard, TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'))),
+      TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'))),
       'Hard rejects an unauthenticatable chain');
   finally
     LHard.Free;
@@ -1589,7 +1589,7 @@ begin
   // must abort with certificate_revoked, not the generic bad_certificate
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
   LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Soft,
     TLiveRevocationMethod.Ocsp);
   try
@@ -1751,7 +1751,7 @@ begin
     TRevocationWindow.ThisUpdateSkewMs)) as ITlsClock;
   CheckEquals(Ord(TStapleVerdict.GoodFresh),
     Ord(TOcspStaplePolicy.Verdict(Pkix, LClock, Chain,
-      TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'))),
+      TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'))),
     'a staple whose thisUpdate is within the skew ahead of the clock is current');
 end;
 
@@ -1763,7 +1763,7 @@ begin
     TRevocationWindow.ThisUpdateSkewMs - 1)) as ITlsClock;
   CheckEquals(Ord(TStapleVerdict.Indeterminate),
     Ord(TOcspStaplePolicy.Verdict(Pkix, LClock, Chain,
-      TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'))),
+      TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'))),
     'a staple whose thisUpdate is beyond the skew is not yet valid');
 end;
 
@@ -1774,7 +1774,7 @@ var
 begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LChecker := TLiveRevocationChecker.Create(Pkix,
     TMockClock.Create(UInt64(FixtureThisUpdateMs - TRevocationWindow.ThisUpdateSkewMs))
     as ITlsClock, SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard,
@@ -1794,7 +1794,7 @@ var
 begin
   LFetcher := TMockHttpFetcher.Create;
   LFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LChecker := TLiveRevocationChecker.Create(Pkix,
     TMockClock.Create(UInt64(FixtureThisUpdateMs - TRevocationWindow.ThisUpdateSkewMs - 1))
     as ITlsClock, SystemTicks, LFetcher as IHttpFetcher, TRevocationPosture.Hard,
@@ -1813,9 +1813,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   CheckTrue(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'),
     TDateTimeUtilities.UnixMsToDateTime(FixtureThisUpdateMs - TRevocationWindow.ThisUpdateSkewMs),
     LRevoked, LThisUpdate, LNextUpdate),
     'a CRL whose thisUpdate is within the skew ahead of the clock is current');
@@ -1827,9 +1827,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   CheckFalse(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'),
     TDateTimeUtilities.UnixMsToDateTime(FixtureThisUpdateMs -
     TRevocationWindow.ThisUpdateSkewMs - 1000), LRevoked, LThisUpdate, LNextUpdate),
     'a CRL whose thisUpdate is beyond the skew is not yet valid');
@@ -1839,7 +1839,7 @@ procedure TTestLiveRevocation.TestCachedOcspResponseIsReusedWithoutFetching;
 begin
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the first check is Good');
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the second check is Good');
   CheckEquals(1, FFetcher.PostCount, 'the responder was asked once');
@@ -1849,7 +1849,7 @@ procedure TTestLiveRevocation.TestCachedCrlIsReusedWithoutFetching;
 begin
   Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'));
   FFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the first check is Good');
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the second check is Good');
   CheckEquals(1, FFetcher.GetCount, 'the CRL was fetched once');
@@ -1859,7 +1859,7 @@ procedure TTestLiveRevocation.TestCachedResponseIsJudgedAgainOnEveryUse;
 begin
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   FChecker.Evaluate(Chain);
   FChecker.Evaluate(Chain);
   CheckEquals(2, FSpy.OcspParseCount,
@@ -1873,14 +1873,14 @@ var
   LNextMs: Int64;
 begin
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), NowUtc, LStatus,
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'), NowUtc, LStatus,
     LThisUpdate, LNextUpdate), 'the fixture response parses');
   LNextMs := TDateTimeUtilities.DateTimeToUnixMs(LNextUpdate);
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   // an hour before nextUpdate the response is Good and kept
   FClock.SetUnixMillis(UInt64(LNextMs - 60 * 60 * 1000));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'Good an hour before nextUpdate');
@@ -1899,7 +1899,7 @@ procedure TTestLiveRevocation.TestCachedResponseIsKeptAtMostADay;
 begin
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   FChecker.Evaluate(Chain);
   FClock.Advance(UInt64(24) * 60 * 60 * 1000 - 1);
   FChecker.Evaluate(Chain);
@@ -1915,7 +1915,7 @@ begin
   FFetcher.SetPost(True, TBytes.Create(1, 2, 3, 4, 5)); // not an OCSP response
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate, 'garbage is indeterminate');
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good,
     'the next check asks again and gets the real answer');
   CheckEquals(2, FFetcher.PostCount, 'both checks reached the responder');
@@ -1929,7 +1929,7 @@ begin
   Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'),
     LOptions);
   FFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
   FChecker.Evaluate(Chain);
   FSpy.OverrideCrlUrls(TArray<string>.Create('http://b.test/2.crl'));
   FChecker.Evaluate(Chain);
@@ -1946,7 +1946,7 @@ begin
   Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'),
     LOptions);
   FFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
   FChecker.Evaluate(Chain);
   FSpy.OverrideCrlUrls(TArray<string>.Create('http://b.test/2.crl'));
   FChecker.Evaluate(Chain);
@@ -1962,7 +1962,7 @@ begin
   LOptions.MaxCachedResponses := 0;
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil, LOptions);
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   FChecker.Evaluate(Chain);
   FChecker.Evaluate(Chain);
   CheckEquals(2, FFetcher.PostCount, 'with no cache every check asks the responder');
@@ -1972,10 +1972,10 @@ procedure TTestLiveRevocation.TestCachedRevokedAnswerIsReplayed;
 begin
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil);
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked, 'the first check is Revoked');
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
     'the second check is Revoked from the cache, whatever the responder would say now');
   CheckEquals(1, FFetcher.PostCount, 'the responder was asked once');
@@ -1987,16 +1987,16 @@ var
 begin
   Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'));
   FFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_revoked'));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked, 'the CRL lists the leaf');
   // another certificate whose issuer did not sign that CRL: it reads as indeterminate
   LOther := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'multi_ocsp_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'scheme_cert'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'multi_ocsp_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'scheme_cert'));
   CheckTrue(FChecker.Evaluate(LOther) = TLiveRevocationOutcome.Indeterminate,
     'the unrelated check is indeterminate');
   FFetcher.SetGet(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
     'the first leaf is still revoked from the cache');
 end;
@@ -2007,7 +2007,7 @@ var
   LPadded: TBytes;
 begin
   LPadded := System.Copy(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'crl_good'));
   SetLength(LPadded, 3000);
   LOptions.MaxCrlBytes := 4096;
   Arrange(TLiveRevocationMethod.Crl, 0, nil, TArray<string>.Create('http://a.test/1.crl'),
@@ -2033,13 +2033,13 @@ begin
   Arrange(TLiveRevocationMethod.Ocsp, 0, TArray<string>.Create('http://a.test/'), nil, LOptions);
   FClock.SetUnixMillis(UInt64(AfterNextUpdateMs));
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   CheckTrue(FChecker.Evaluate(Chain) = TLiveRevocationOutcome.Good, 'the live entry is cached');
   LExpired := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'expiry_leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'expiry_ca_cert'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'expiry_leaf_cert'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'expiry_ca_cert'));
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'expiry_ocsp_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'expiry_ocsp_revoked'));
   CheckTrue(FChecker.Evaluate(LExpired) = TLiveRevocationOutcome.Revoked,
     'a revocation is a revocation even past its nextUpdate');
   FFetcher.SetPost(False, nil);
@@ -2055,8 +2055,8 @@ var
 begin
   // the inner overlapping check caches a Revoked, then the outer one finishes with a Good
   LFetcher := TNestedCheckFetcher.Create(
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'),
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'), Chain);
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'),
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'), Chain);
   LChecker := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock, SystemTicks,
     LFetcher as IHttpFetcher, TRevocationPosture.Hard, TLiveRevocationMethod.Ocsp, 0);
   try
@@ -2075,8 +2075,8 @@ end;
 function TTestCrlScope.Chain: TArray<TBytes>;
 begin
   Result := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'ca_cert'));
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'ca_cert'));
 end;
 
 function TTestCrlScope.Classify(const ACrlField: string): string;
@@ -2085,9 +2085,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   if not Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', ACrlField), NowUtc, LRevoked,
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', ACrlField), NowUtc, LRevoked,
     LThisUpdate, LNextUpdate) then
     Result := 'Indeterminate'
   else if LRevoked then
@@ -2144,16 +2144,16 @@ begin
   // so replaying it years later cannot mask a revocation
   CheckClassified('crl_noidp_nonextupdate', 'Indeterminate', 'years past thisUpdate');
   CheckTrue(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'crl_noidp_nonextupdate'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'crl_noidp_nonextupdate'),
     EncodeDate(2020, 1, 3), LRevoked, LThisUpdate,
     LNextUpdate), 'authoritative shortly after thisUpdate');
   CheckFalse(LRevoked, 'the leaf is not listed');
   CheckFalse(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'crl_noidp_nonextupdate'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'crl_noidp_nonextupdate'),
     EncodeDate(2020, 1, 9), LRevoked, LThisUpdate,
     LNextUpdate), 'indeterminate once past the age bound');
 end;
@@ -2190,15 +2190,15 @@ begin
   // a CRL signed by a certificate that merely carries the issuer's name proves nothing about the
   // leaf, so it must not clear it; the control shows the genuine issuer's empty CRL does
   CheckTrue(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'crl_noidp_clean'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'crl_noidp_clean'),
     EncodeDate(2030, 1, 1), LRevoked, LThisUpdate, LNextUpdate),
     'control: the genuine issuer''s CRL is authoritative');
   CheckFalse(Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'forged_ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'crl_forged_empty'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'forged_ca_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'crl_forged_empty'),
     EncodeDate(2030, 1, 1), LRevoked, LThisUpdate, LNextUpdate),
     'a same-name issuer that did not sign the leaf is not authoritative');
 end;
@@ -2209,16 +2209,16 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   CheckTrue(Pkix.Revocation.ValidateOcspStaple(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'ocsp_real_good'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'ocsp_real_good'),
     EncodeDate(2030, 1, 1), LStatus, LThisUpdate, LNextUpdate),
     'control: the genuine issuer''s Good response is authoritative');
   CheckTrue(LStatus = TOcspStatus.Good, 'control: Good');
   CheckFalse(Pkix.Revocation.ValidateOcspStaple(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'forged_ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'ocsp_forged_good'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'forged_ca_cert'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'ocsp_forged_good'),
     EncodeDate(2030, 1, 1), LStatus, LThisUpdate, LNextUpdate),
     'a same-name issuer that did not sign the leaf cannot vouch for it');
 end;
@@ -2296,9 +2296,9 @@ begin
   // CDP URL. The outcome is Indeterminate, so Hard rejects and Soft accepts - Hard rejects
   // ONLY because the wrong-scope CRL is non-authoritative (a clean in-scope CRL accepts
   // under Hard in TestLiveInScopeCrlRevokesAndAccepts)
-  LSoft := NewChecker(TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'crl_shard2_clean'),
+  LSoft := NewChecker(TSupportCertificates.Field('Certs/CrlScope.txt', 'crl_shard2_clean'),
     TRevocationPosture.Soft);
-  LHard := NewChecker(TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'crl_shard2_clean'),
+  LHard := NewChecker(TSupportCertificates.Field('Certs/CrlScope.txt', 'crl_shard2_clean'),
     TRevocationPosture.Hard);
   try
     CheckTrue(LHard.Evaluate(Chain) = TLiveRevocationOutcome.Indeterminate,
@@ -2316,9 +2316,9 @@ var
   LRevoked, LClean: TLiveRevocationChecker;
 begin
   LRevoked := NewChecker(
-    TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'crl_shard1_revoked'),
+    TSupportCertificates.Field('Certs/CrlScope.txt', 'crl_shard1_revoked'),
     TRevocationPosture.Soft);
-  LClean := NewChecker(TTlsLibTestCertificates.Field('Certs/CrlScope.txt', 'crl_shard1_clean'),
+  LClean := NewChecker(TSupportCertificates.Field('Certs/CrlScope.txt', 'crl_shard1_clean'),
     TRevocationPosture.Hard);
   try
     CheckTrue(LRevoked.Evaluate(Chain) = TLiveRevocationOutcome.Revoked,
@@ -2341,9 +2341,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/WeakRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/WeakRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/WeakRevocation.txt', ACrlField), NowUtc, ARevoked,
+    TSupportCertificates.Field('Certs/WeakRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/WeakRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/WeakRevocation.txt', ACrlField), NowUtc, ARevoked,
     LThisUpdate, LNextUpdate);
 end;
 
@@ -2353,9 +2353,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := Pkix.Revocation.ValidateOcspStaple(
-    TTlsLibTestCertificates.Field('Certs/WeakRevocation.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/WeakRevocation.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/WeakRevocation.txt', AResponseField), NowUtc,
+    TSupportCertificates.Field('Certs/WeakRevocation.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/WeakRevocation.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/WeakRevocation.txt', AResponseField), NowUtc,
     AStatus, LThisUpdate, LNextUpdate);
 end;
 
@@ -2413,9 +2413,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := Pkix.Revocation.CheckCrlRevocation(
-    TTlsLibTestCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', ACrlField), NowUtc,
+    TSupportCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', ACrlField), NowUtc,
     LRevoked, LThisUpdate, LNextUpdate);
 end;
 
@@ -2426,9 +2426,9 @@ var
   LThisUpdate, LNextUpdate: TDateTime;
 begin
   Result := Pkix.Revocation.ValidateOcspStaple(
-    TTlsLibTestCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', 'ca_cert'),
-    TTlsLibTestCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', AResponseField),
+    TSupportCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', 'ca_cert'),
+    TSupportCertificates.Field('Certs/Pkcs1StrictDigestInfo.txt', AResponseField),
     NowUtc, LStatus, LThisUpdate, LNextUpdate) and (LStatus = TOcspStatus.Good);
 end;
 

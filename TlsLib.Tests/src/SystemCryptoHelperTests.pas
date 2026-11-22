@@ -46,7 +46,7 @@ uses
   TlpSystemCryptoBase,
   MockCryptoProvider,
   MockSystemCrypto,
-  TlsLibTestProviders,
+  SupportProviders,
   TlsLibTestBase;
 
 type
@@ -509,7 +509,7 @@ end;
 
 function TSystemCryptoHelperTestCase.CreateCrypto: ICryptoProvider;
 begin
-  Result := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  Result := TSupportProviders.Crypto(TCryptoProviderChoice.Portable);
 end;
 
 { TTestSystemCryptoHelpers }

@@ -73,8 +73,8 @@ uses
   TlpTls12ServerStateMachine,
   MockCertificateCompression,
   TlsLibHandshakeTestBase,
-  TlsLibTestCertificates,
-  TlsLibTestHandshakeDecoder;
+  SupportCertificates,
+  SupportHandshakeDecoder;
 
 type
   TTestClientAuth = class(TTlsLibHandshakeTestCase)
@@ -228,7 +228,7 @@ begin
   // trusts the test root; hostname identity is not applied to a peer certificate
   Result := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')))
+      TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')))
       as ITrustAnchorStore,
     False);
 end;
@@ -238,7 +238,7 @@ function TTestClientAuth.ReplaceHandshakeMessage(const AWire: TBytes; AMsgType: 
 var
   LPos, LInner, LMsgLen, LNewRecLen: Int32;
 begin
-  if not TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire, AMsgType, LPos,
+  if not TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(AWire, AMsgType, LPos,
     LInner, LMsgLen) then
     Exit(nil);
   LNewRecLen := ((AWire[LPos + 3] shl 8) or AWire[LPos + 4]) - (4 + LMsgLen) +
@@ -471,7 +471,7 @@ var
 begin
   LFramed := CompressedClientCertificate;
   LBodyLength := THandshakeMessages.DecodeCompressedCertificate(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(LFramed).Body).UncompressedLength;
+    TSupportHandshakeDecoder.HandshakeMessage(LFramed).Body).UncompressedLength;
   LLimits := TCertificateChainLimits.Defaults;
   if ABudgetBelowBody then
     LLimits.MaxTotalChainLength := LBodyLength - 1
@@ -480,9 +480,9 @@ begin
   LClient := New13ClientMachine(True);
   LServer := New13CompressingServerMachine(LLimits);
   AllSendHandshake(LServer.ProcessMessage(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+    TSupportHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
   Result := FailAlertOf(LServer.ProcessMessage(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(LFramed)), AAlert);
+    TSupportHandshakeDecoder.HandshakeMessage(LFramed)), AAlert);
 end;
 
 procedure TTestClientAuth.TestServerRejectsCompressedClientCertificateOverTheChainBudget;
@@ -563,9 +563,9 @@ begin
     'inter_3_cert', 'inter_2_cert', 'inter_1_cert');
   SetLength(Result.CertificateChain, System.Length(LNames));
   for LI := 0 to High(LNames) do
-    Result.CertificateChain[LI] := TTlsLibTestCertificates.Field('Certs/PathLength.txt', LNames[LI]);
+    Result.CertificateChain[LI] := TSupportCertificates.Field('Certs/PathLength.txt', LNames[LI]);
   Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'leaf_key'), nil);
+    TSupportCertificates.Field('Certs/PathLength.txt', 'leaf_key'), nil);
 end;
 
 function TTestClientAuth.PathLengthPair(AServerPathLength: Int32;
@@ -574,7 +574,7 @@ var
   LRoot: TBytes;
   LLimits: TCertificateChainLimits;
 begin
-  LRoot := TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/PathLength.txt', 'root_cert');
   // the client verifies the same six-issuer chain, so its own bound is raised to admit it
   LLimits := TCertificateChainLimits.Defaults;
   LLimits.MaxPathLength := 6;
@@ -659,7 +659,7 @@ procedure TTestClientAuth.PatchFirstCertVerifyScheme(var AWire: TBytes;
 var
   LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
-  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire,
+  CheckTrue(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(AWire,
     Ord(TTlsHandshakeType.CertificateVerify), LRecordPos, LMsgPos, LMsgLen),
     'the flight carries a plaintext CertificateVerify');
   // the body starts with the 2-byte scheme
@@ -672,7 +672,7 @@ var
   LRecordPos, LMsgPos, LMsgLen, LRecordEnd: Int32;
   LMsg, LRecord: TBytes;
 begin
-  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire,
+  CheckTrue(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(AWire,
     Ord(TTlsHandshakeType.CertificateRequest), LRecordPos, LMsgPos, LMsgLen),
     'the flight carries a plaintext CertificateRequest');
   LMsg := System.Copy(AWire, LMsgPos, 4 + LMsgLen);
@@ -732,13 +732,13 @@ begin
   end;
   LOpts.CustomTrustStore := TTrustAnchorStore.Create(
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')))
+      TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')))
     as ITrustAnchorStore;
   LCredential := TTlsConfigComposer.BuildClientConfig(LOpts).Credential;
   // the PKCS#12's leaf is the one presented, with its CA bag behind it
   CheckEquals(2, System.Length(LCredential.CertificateChain), 'leaf and CA bag');
   CheckTrue(AreEqual(LCredential.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert')),
+    TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert')),
     'the PFX leaf leads');
   LClient := New13ClientWith(LCredential);
   LServer := New13Server(TClientAuthMode.Required);
@@ -1086,14 +1086,14 @@ begin
   // client to WaitCertificate, then feed a CertificateRequest whose extensions omit it
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
-  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
-  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[0])); // ServerHello
-  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1])); // EncryptedExtensions
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LFlight[0])); // ServerHello
+  LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LFlight[1])); // EncryptedExtensions
   LReq.RequestContext := nil;
   LReq.Extensions := TBytes.Create($00, $00); // a present-but-empty extensions vector
   LCertReq := THandshakeFraming.Frame(TTlsHandshakeType.CertificateRequest,
     THandshakeMessages.EncodeCertificateRequest13(LReq));
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
     'a CertificateRequest without signature_algorithms aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.MissingExtension)), Int64(Ord(LAlert)),
     'the abort is missing_extension');
@@ -1111,25 +1111,25 @@ begin
   // CertificateVerify: the client refuses it whatever its credential
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
-  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
-  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[0])); // ServerHello
-  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1])); // EncryptedExtensions
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LFlight[0])); // ServerHello
+  LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LFlight[1])); // EncryptedExtensions
   LReq.RequestContext := nil;
   // extensions: one signature_algorithms (13) carrying [rsa_pkcs1_sha256 = 0x0401]
   LReq.Extensions := TBytes.Create($00, $08, $00, $0D, $00, $04, $00, $02, $04, $01);
   LCertReq := THandshakeFraming.Frame(TTlsHandshakeType.CertificateRequest,
     THandshakeMessages.EncodeCertificateRequest13(LReq));
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
     'a CertificateRequest with no TLS 1.3-usable scheme aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.HandshakeFailure)), Int64(Ord(LAlert)),
     'the abort is handshake_failure');
   // the same request refuses a client with no credential at all
   LClient := New13ClientMachine(False);
   LServer := New13ServerMachine(TClientAuthMode.Required);
-  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
-  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[0]));
-  LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[1]));
-  CheckTrue(FailAlertOf(LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LFlight[0]));
+  LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LFlight[1]));
+  CheckTrue(FailAlertOf(LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LCertReq)), LAlert),
     'a client without a credential refuses it too');
 end;
 
@@ -1149,20 +1149,20 @@ begin
   // (RFC 9846 4.5.1), so the server aborts; decode_error is this library's choice of alert
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
-  LServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+  LServerFlight := AllSendHandshake(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(LClient.Start))));
   LEffects := nil;
   for LI := 0 to High(LServerFlight) do
-    LEffects := LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LServerFlight[LI]));
+    LEffects := LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LServerFlight[LI]));
   LClientFlight := AllSendHandshake(LEffects);
   CheckTrue(System.Length(LClientFlight) > 0, 'the client answered the server flight');
-  CheckTrue(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientFlight[0]).TypeByte = Byte(Ord(TTlsHandshakeType.Certificate)),
+  CheckTrue(TSupportHandshakeDecoder.HandshakeMessage(LClientFlight[0]).TypeByte = Byte(Ord(TTlsHandshakeType.Certificate)),
     'the client flight starts with its Certificate');
-  LCert := THandshakeMessages.DecodeCertificate(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientFlight[0]).Body);
+  LCert := THandshakeMessages.DecodeCertificate(TSupportHandshakeDecoder.HandshakeMessage(LClientFlight[0]).Body);
   LCert.RequestContext := TBytes.Create($01);
   LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate(LCert));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
     'a non-empty client certificate_request_context aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.DecodeError)), Int64(Ord(LAlert)),
     'the abort is decode_error');
@@ -1182,20 +1182,20 @@ begin
   // intermediate entry is unsupported_extension just like one on the leaf (RFC 9846 4.5.1)
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
-  LServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+  LServerFlight := AllSendHandshake(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(LClient.Start))));
   LEffects := nil;
   for LI := 0 to High(LServerFlight) do
-    LEffects := LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LServerFlight[LI]));
+    LEffects := LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LServerFlight[LI]));
   LClientFlight := AllSendHandshake(LEffects);
   CheckTrue(System.Length(LClientFlight) > 0, 'the client answered the server flight');
-  LCert := THandshakeMessages.DecodeCertificate(TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientFlight[0]).Body);
+  LCert := THandshakeMessages.DecodeCertificate(TSupportHandshakeDecoder.HandshakeMessage(LClientFlight[0]).Body);
   SetLength(LCert.Entries, System.Length(LCert.Entries) + 1);
   LCert.Entries[High(LCert.Entries)].CertData := LCert.Entries[0].CertData;
   LCert.Entries[High(LCert.Entries)].Extensions := DecodeHex('0004aaaa0000');
   LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate(LCert));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
     'an extension on a client intermediate entry aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedExtension)), Int64(Ord(LAlert)),
     'the abort is unsupported_extension');
@@ -1213,26 +1213,26 @@ var
 begin
   LClient := New13ClientMachine(False);
   LServer := New13ServerMachine(TClientAuthMode.None);
-  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(LClient.Start))));
   LFailed := False;
   LAlert := TTlsAlertDescription.CloseNotify;
   for LI := 0 to High(LFlight) do
-    if TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[LI]).TypeByte = Byte(Ord(TTlsHandshakeType.Certificate)) then
+    if TSupportHandshakeDecoder.HandshakeMessage(LFlight[LI]).TypeByte = Byte(Ord(TTlsHandshakeType.Certificate)) then
     begin
       // the real server Certificate with its leaf swapped for the id-RSASSA-PSS certificate
       LCert := THandshakeMessages.DecodeCertificate(
-        TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[LI]).Body);
+        TSupportHandshakeDecoder.HandshakeMessage(LFlight[LI]).Body);
       LCert.Entries[0].CertData :=
-        TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert');
+        TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert');
       LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
         THandshakeMessages.EncodeCertificate(LCert));
       LFailed := FailAlertOf(LClient.ProcessMessage(
-        TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert);
+        TSupportHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert);
       Break;
     end
     else
-      LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[LI]));
+      LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LFlight[LI]));
   CheckTrue(LFailed,'the client aborts on the id-RSASSA-PSS server leaf');
   CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedCertificate)), Int64(Ord(LAlert)),
     'the abort is unsupported_certificate');
@@ -1250,20 +1250,20 @@ var
 begin
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
-  LServerFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+  LServerFlight := AllSendHandshake(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(LClient.Start))));
   LEffects := nil;
   for LI := 0 to High(LServerFlight) do
-    LEffects := LClient.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LServerFlight[LI]));
+    LEffects := LClient.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LServerFlight[LI]));
   LClientFlight := AllSendHandshake(LEffects);
   CheckTrue(System.Length(LClientFlight) > 0, 'the client answered the server flight');
   LCert := THandshakeMessages.DecodeCertificate(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(LClientFlight[0]).Body);
+    TSupportHandshakeDecoder.HandshakeMessage(LClientFlight[0]).Body);
   LCert.Entries[0].CertData :=
-    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert');
+    TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert');
   LCertMsg := THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate(LCert));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LCertMsg)), LAlert),
     'the server aborts on the id-RSASSA-PSS client leaf');
   CheckEquals(Int64(Ord(TTlsAlertDescription.UnsupportedCertificate)), Int64(Ord(LAlert)),
     'the abort is unsupported_certificate');
@@ -1281,7 +1281,7 @@ begin
   LFlight := ReplaceHandshakeMessage(Drain(LServer), Byte(Ord(TTlsHandshakeType.Certificate)),
     THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate12(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert')))));
+      TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert')))));
   CheckTrue(System.Length(LFlight) > 0, 'the server flight carries a Certificate to replace');
   Feed(LClient, LFlight);
   CheckTrue(LClient.IsTerminal, 'the client aborts on the id-RSASSA-PSS server leaf');
@@ -1302,7 +1302,7 @@ begin
   LFlight := ReplaceHandshakeMessage(Drain(LClient), Byte(Ord(TTlsHandshakeType.Certificate)),
     THandshakeFraming.Frame(TTlsHandshakeType.Certificate,
     THandshakeMessages.EncodeCertificate12(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert')))));
+      TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert')))));
   CheckTrue(System.Length(LFlight) > 0, 'the client flight carries a Certificate to replace');
   Feed(LServer, LFlight);
   CheckTrue(LServer.IsTerminal, 'the server aborts on the id-RSASSA-PSS client leaf');
@@ -1319,8 +1319,8 @@ begin
   LClient := New13Client(True);
   LServer := New13ServerPinned(TClientAuthMode.Required,
     TArray<TBytes>.Create(
-      TTlsLibTestCertificates.SpkiSha256(Crypto, Pkix,
-        TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'))));
+      TSupportCertificates.SpkiSha256(Crypto, Pkix,
+        TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'))));
   Drive(LClient, LServer);
   CheckFalse(LClient.IsHandshaking or LServer.IsHandshaking,
     '1.3 mTLS with a matching client-cert pin completes');
@@ -1627,8 +1627,8 @@ begin
   LClient := New13ClientMachine(True);
   LServer := New13ServerMachine(TClientAuthMode.Required);
   LServerFlight := AllSendHandshake(LServer.ProcessMessage(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    TSupportHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(
     CompressedClientCertificate)), LAlert), 'an unsolicited CompressedCertificate aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.UnexpectedMessage)), Int64(Ord(LAlert)),
     'the abort is unexpected_message');
@@ -1645,8 +1645,8 @@ begin
   LClient := New13ClientMachine(False);
   LServer := New13ServerMachine(TClientAuthMode.None);
   LServerFlight := AllSendHandshake(LServer.ProcessMessage(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
-  CheckTrue(FailAlertOf(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+    TSupportHandshakeDecoder.HandshakeMessage(FirstSendHandshake(LClient.Start))));
+  CheckTrue(FailAlertOf(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(
     CompressedClientCertificate)), LAlert), 'a CompressedCertificate with no client auth aborts');
   CheckEquals(Int64(Ord(TTlsAlertDescription.UnexpectedMessage)), Int64(Ord(LAlert)),
     'the abort is unexpected_message');

@@ -27,7 +27,7 @@ uses
 {$ENDIF FPC}
   TlpTlsLibExceptions,
   TlpHandshakeMessage,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -279,7 +279,7 @@ var
   LPos, LChunk: Int32;
 begin
   // the RFC 8448 ClientHello (200 wire bytes) fed 40 at a time
-  LWhole := TTlsLibTestCertificates.Field('Rfc8448/HandshakeMessages.txt', 'client_hello');
+  LWhole := TSupportCertificates.Field('Rfc8448/HandshakeMessages.txt', 'client_hello');
   LReader := THandshakeMessageReader.Create;
   try
     LPos := 0;
@@ -309,8 +309,8 @@ var
 begin
   // ClientHello and ServerHello coalesced into a single feed
   LBoth := ConcatBytes(
-    TTlsLibTestCertificates.Field('Rfc8448/HandshakeMessages.txt', 'client_hello'),
-    TTlsLibTestCertificates.Field('Rfc8448/HandshakeMessages.txt', 'server_hello'));
+    TSupportCertificates.Field('Rfc8448/HandshakeMessages.txt', 'client_hello'),
+    TSupportCertificates.Field('Rfc8448/HandshakeMessages.txt', 'server_hello'));
   LReader := THandshakeMessageReader.Create;
   try
     LReader.Append(LBoth, 0, System.Length(LBoth));

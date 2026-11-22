@@ -23,7 +23,7 @@ uses
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
-  TlsLibTestProviders,
+  SupportProviders,
   TlpINamedGroup,
   TlpNamedGroups,
   TlpINegotiation,
@@ -481,7 +481,7 @@ begin
   AServerConfig := nil;
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
-  LBuilder := TTlsPresets.Compatible(ACryptoProvider, TTlsLibTestProviders.Pkix);
+  LBuilder := TTlsPresets.Compatible(ACryptoProvider, TSupportProviders.Pkix);
   // a curve restriction to post-quantum-only groups, and a certificate-less PSK server (external
   // PSKs are TLS 1.3-only), are implicitly 1.3-only; drop the 1.2 offer so the version pair stays
   // consistent (the preset default offers 1.2)

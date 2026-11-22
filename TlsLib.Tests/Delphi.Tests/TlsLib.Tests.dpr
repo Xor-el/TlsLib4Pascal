@@ -207,11 +207,11 @@ uses
   TlpInMemorySessionStore in '..\..\TlsLib\src\Session\TlpInMemorySessionStore.pas',
   TlpSessionTicketKeys in '..\..\TlsLib\src\Session\TlpSessionTicketKeys.pas',
   TlpAntiReplay in '..\..\TlsLib\src\Session\TlpAntiReplay.pas',
-  TlsLibTestResourceLoader in '..\src\TlsLibTestResourceLoader.pas',
-  TlsLibTestProviders in '..\src\TlsLibTestProviders.pas',
-  TlsLibTestHandshakeDecoder in '..\src\TlsLibTestHandshakeDecoder.pas',
+  SupportResourceLoader in '..\src\SupportResourceLoader.pas',
+  SupportProviders in '..\src\SupportProviders.pas',
+  SupportHandshakeDecoder in '..\src\SupportHandshakeDecoder.pas',
   TlsLibTestBase in '..\src\TlsLibTestBase.pas',
-  TlsLibTestCertificates in '..\src\TlsLibTestCertificates.pas',
+  SupportCertificates in '..\src\SupportCertificates.pas',
   TlsLibHandshakeTestBase in '..\src\TlsLibHandshakeTestBase.pas',
   SecretTests in '..\src\SecretTests.pas',
   AlertTests in '..\src\AlertTests.pas',
@@ -264,7 +264,7 @@ uses
   HostExtensionTests in '..\src\HostExtensionTests.pas',
   ResumptionFeatureTests in '..\src\ResumptionFeatureTests.pas',
   Tls13HandshakeEngineTests in '..\src\Tls13HandshakeEngineTests.pas',
-  TlsLibTestTicketRewriter in '..\src\TlsLibTestTicketRewriter.pas',
+  SupportTicketRewriter in '..\src\SupportTicketRewriter.pas',
   CertificateCompressionCacheTests in '..\src\CertificateCompressionCacheTests.pas',
   CertificateCompressionTests in '..\src\CertificateCompressionTests.pas',
   DataEncodingTests in '..\src\DataEncodingTests.pas',
@@ -341,7 +341,7 @@ begin
   if IsConsole then
   begin
     // stderr keeps the runner's own output clean
-    Writeln(ErrOutput, 'providers: ' + TTlsLibTestProviders.Describe);
+    Writeln(ErrOutput, 'providers: ' + TSupportProviders.Describe);
     LPasses := 1;
     for LI := 1 to ParamCount do
       if Copy(ParamStr(LI), 1, 9) = '--repeat=' then

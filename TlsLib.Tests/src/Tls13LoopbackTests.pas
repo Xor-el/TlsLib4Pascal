@@ -78,8 +78,8 @@ uses
   TlpTlsConnection,
   TlpTlsEngineFactory,
   TlsLibHandshakeTestBase,
-  TlsLibTestCertificates,
-  TlsLibTestHandshakeDecoder;
+  SupportCertificates,
+  SupportHandshakeDecoder;
 
 type
   TTestTls13Loopback = class(TTlsLibHandshakeTestCase)
@@ -247,7 +247,7 @@ begin
   // ServerName is the SNI sent on the wire; ExpectedHostName is the name the leaf is checked against
   LParams.ServerName := ASni;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(AExpectedHost);
 
   Result := TTlsEngine.CreateConfigured(
@@ -275,7 +275,7 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/Ed448Chain.txt', 'root_cert')))
+      TSupportCertificates.Field('Certs/Ed448Chain.txt', 'root_cert')))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -307,7 +307,7 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert')))
+      TSupportCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert')))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -404,7 +404,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto, AConfigList, False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
@@ -466,7 +466,7 @@ begin
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
     TInMemoryEchKeyStore.FromConfig(
-      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
+      TSupportCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   if FServerKeyLog <> nil then
     LParams.KeyLog := FServerKeyLog as IKeyLog;
   Result := TTlsEngine.CreateConfigured(
@@ -533,9 +533,9 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto,
-    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), False, False)
+    TSupportCertificates.Field('Certs/Ech.txt', 'config_list'), False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
     TTls13ClientStateMachine.Create(LParams) as IHandshakeMachine, Crypto);
@@ -572,7 +572,7 @@ begin
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
     TInMemoryEchKeyStore.FromConfig(
-      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
+      TSupportCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
@@ -607,7 +607,7 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto, AConfigList, False, False)
     as IEchClientPolicy;
   Result := TTlsEngine.CreateConfigured(
@@ -663,9 +663,9 @@ begin
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.EchPolicy := TEchClientPolicy.Create(Crypto,
-    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), False, False)
+    TSupportCertificates.Field('Certs/Ech.txt', 'config_list'), False, False)
     as IEchClientPolicy;
   LParams.SessionCache := ACache;
   LParams.EarlyDataEnabled := AEarlyData;
@@ -701,7 +701,7 @@ begin
   end;
   LParams.EchPolicy := TEchServerPolicy.Keyed(Crypto,
     TInMemoryEchKeyStore.FromConfig(
-      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
+      TSupportCertificates.Field('Certs/Ech.txt', 'config_list'), LSk, Crypto), False);
   LParams.SessionStore := AStore;
   LParams.IssueTicketCount := AIssueTickets;
   LParams.TicketLifetimeSeconds := 7200;
@@ -921,7 +921,7 @@ var
   LEntry: TExtensionEntry;
 begin
   Result := nil;
-  LVec := TTlsLibTestHandshakeDecoder.ClientHelloExtensions(AFlight);
+  LVec := TSupportHandshakeDecoder.ClientHelloExtensions(AFlight);
   if LVec.TryFind(TExtensionTypes.PreSharedKey, LEntry) then
     Result := LEntry.Data;
 end;
@@ -1093,7 +1093,7 @@ var
   LMsg: TBytes;
 begin
   LClient := NewEchClientWith(
-    TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), nil);
+    TSupportCertificates.Field('Certs/Ech.txt', 'config_list'), nil);
   LServer := NewEchServer;
   RunHandshake(LClient, LServer);
   // completion proves ECH was accepted end to end: the server certificate matches only
@@ -1129,7 +1129,7 @@ begin
   LServerLog := FServerKeyLog;
   try
     LClient := NewEchClientWith(
-      TTlsLibTestCertificates.Field('Certs/Ech.txt', 'config_list'), nil);
+      TSupportCertificates.Field('Certs/Ech.txt', 'config_list'), nil);
     LServer := NewEchServer;
     RunHandshake(LClient, LServer);
     CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH was accepted');
@@ -1220,10 +1220,10 @@ begin
   // the leaf's issuer travels in the chain so the client can authenticate the staple
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
   LCred.PrivateKey := Crypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
 
@@ -1254,7 +1254,7 @@ begin
   LOptions.RevocationPosture := TRevocationPosture.Hard;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
+      TSupportCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
     as ITrustAnchorStore, True, LOptions) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
@@ -1284,7 +1284,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
@@ -1339,7 +1339,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
@@ -1389,7 +1389,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
@@ -1437,7 +1437,7 @@ begin
   LParams.ClientRandom := Filled($11, 32);
   LParams.LegacySessionId := Filled($33, 32);
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
 
   Result := TTlsEngine.CreateConfigured(
@@ -2163,7 +2163,7 @@ begin
   // hard-fail client requires (a posture of this library; the format is RFC 9846 4.5.1.1)
   LClient := NewHardRevocationClient;
   LServer := NewStaplingServer(
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good'));
   RunHandshake(LClient, LServer);
 
   CheckFalse(LClient.IsHandshaking, 'the client completed the handshake');
@@ -2197,7 +2197,7 @@ begin
   SetLength(LEntries, 2);
   LEntries[0].Host := 'other.example';
   LEntries[0].Credential := CredentialWithChain(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
   LEntries[1].Host := 'localhost';
   LEntries[1].Credential := ServerCredential;
 
@@ -2267,10 +2267,10 @@ begin
   LExact := ServerCredential;        // stands in for host.example.com
   // stands in for *.wild.example
   LWildcard := CredentialWithChain(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
   LDefault := Default(TTlsCredential);
   LDefault.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
 
   SetLength(LEntries, 2);
   LEntries[0].Host := 'host.example.com';
@@ -2320,10 +2320,10 @@ var
   LListed: TArray<TTlsCredential>;
 begin
   LDefault := CredentialWithChain(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LFirst := ServerCredential;
   LSecond := CredentialWithChain(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
   LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', LFirst),
     MakeEntry('*.b.example', LSecond));
   CheckTrue(Supports(TSniCredentialResolver.Create(LEntries, LDefault) as
@@ -2359,7 +2359,7 @@ var
 begin
   LShared := ServerCredential;
   LOther := CredentialWithChain(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'wrongname_cert')));
   LEntries := TArray<TSniCredentialEntry>.Create(MakeEntry('a.example', LShared),
     MakeEntry('b.example', LOther));
   CheckTrue(Supports(TSniCredentialResolver.Create(LEntries, LShared) as
@@ -2487,7 +2487,7 @@ begin
   LClientOpts.Crypto := Crypto;
   LClientOpts.Pkix := Pkix;
   LClientOpts.TrustAnchors := TArray<TTlsBlobSource>.Create(TTlsBlobSource.FromBytes(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')));
   LServer := TTlsEngineFactory.CreateServerEngine(
     TTlsConfigComposer.BuildServerConfig(HandleServerOptions(LProvider, LProvider)));
   LClient := TTlsEngineFactory.CreateClientEngine(

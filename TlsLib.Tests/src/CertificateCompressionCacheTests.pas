@@ -50,8 +50,8 @@ uses
   TlpTls13ServerStateMachine,
   MockCertificateCompression,
   TlsLibHandshakeTestBase,
-  TlsLibTestCertificates,
-  TlsLibTestHandshakeDecoder;
+  SupportCertificates,
+  SupportHandshakeDecoder;
 
 type
   TTestCertificateCompressionCache = class(TTlsLibHandshakeTestCase)
@@ -391,7 +391,7 @@ begin
   LParams.LegacySessionId := DecodeHex(StringOfChar('3', 64));
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   // the client advertises the built-in zlib decompressor, so the server may compress
   LParams.CertificateDecompressors := TZlibCertificateCompression.DefaultDecompressors;
   LParams.CertificateChainLimits := TCertificateChainLimits.Defaults;
@@ -432,9 +432,9 @@ begin
   LClient := NewClientMachine;
   LServer := NewServerMachine(AChain, ACompressors, ACache);
   // the encrypted flight is [ServerHello, EncryptedExtensions, Certificate, ...]
-  LFlight := AllSendHandshake(LServer.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(
+  LFlight := AllSendHandshake(LServer.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(
     FirstSendHandshake(LClient.Start))));
-  Result := TTlsLibTestHandshakeDecoder.HandshakeMessage(LFlight[2]);
+  Result := TSupportHandshakeDecoder.HandshakeMessage(LFlight[2]);
 end;
 
 function TTestCertificateCompressionCache.PlaintextCertBody(

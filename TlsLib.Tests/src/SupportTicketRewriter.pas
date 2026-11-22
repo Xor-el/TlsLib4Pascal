@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlsLibTestTicketRewriter;
+unit SupportTicketRewriter;
 
 interface
 
@@ -31,7 +31,7 @@ type
   /// Opens and re-seals a stateless ticket under its own key, so a test can rewrite a ticket's
   /// plaintext (an older format, an altered field) and present it as the server's.
   /// </summary>
-  TTlsLibTestTicketRewriter = class sealed(TObject)
+  TSupportTicketRewriter = class sealed(TObject)
   public
     /// <summary>The plaintext of ATicket, which AKeys sealed.</summary>
     class function Plaintext(const ACrypto: ICryptoProvider;
@@ -46,9 +46,9 @@ implementation
 const
   TicketNonceLength = Int32(12);
 
-{ TTlsLibTestTicketRewriter }
+{ TSupportTicketRewriter }
 
-class function TTlsLibTestTicketRewriter.Plaintext(const ACrypto: ICryptoProvider;
+class function TSupportTicketRewriter.Plaintext(const ACrypto: ICryptoProvider;
   const AKeys: ISessionTicketKeyManager; const ATicket: TBytes): TBytes;
 var
   LKeyName, LNonce: TBytes;
@@ -68,7 +68,7 @@ begin
     System.Length(ATicket) - LNameLen - TicketNonceLength));
 end;
 
-class function TTlsLibTestTicketRewriter.Resealed(const ACrypto: ICryptoProvider;
+class function TSupportTicketRewriter.Resealed(const ACrypto: ICryptoProvider;
   const AKeys: ISessionTicketKeyManager; const ATicket, APlain: TBytes): TBytes;
 var
   LKeyName, LNonce, LCipher: TBytes;

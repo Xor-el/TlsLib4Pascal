@@ -30,7 +30,7 @@ uses
   TlpIPkixProvider,
   TlpPkixDomainTypes,
   TlpISigningKey,
-  TlsLibTestProviders,
+  SupportProviders,
   TlpCryptoDomainTypes,
   TlpNegotiationTypes,
   TlpINegotiation,
@@ -404,7 +404,7 @@ begin
   // a random nonce would make each signature differ; matching the RFC's answers proves the
   // portable signer derives k from the key and message. Pinned to portable: native ECDSA signs
   // with a random nonce
-  LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LCrypto := TSupportProviders.Crypto(TCryptoProviderChoice.Portable);
   LKey := LCrypto.Signing.ImportSigningKey(DecodeHex(Rfc6979P256Pkcs8), nil);
   LSample := DecodeHex('73616d706c65'); // "sample"
   LTest := DecodeHex('74657374'); // "test"

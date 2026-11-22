@@ -90,7 +90,7 @@ uses
   MockPkixProvider,
   MockVerifyHooks,
   MockCertificateVerifiers,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -997,7 +997,7 @@ end;
 
 function TTestDelegatePostChecks.Nc(const AName: string): TBytes;
 begin
-  Result := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
+  Result := TSupportCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
 end;
 
 function TTestDelegatePostChecks.OcspChain: TArray<TBytes>;
@@ -1246,7 +1246,7 @@ var
 begin
   CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
     TMockClock.Create(UnixMillisAfterAnchorEnd) as ITlsClock,
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    TArray<TBytes>.Create(TSupportCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
     'an intermediate anchor past its end is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
     'the alert is certificate_expired');
@@ -1258,7 +1258,7 @@ var
 begin
   CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
     TMockClock.Create(UnixMillisBeforeAnchorStart) as ITlsClock,
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    TArray<TBytes>.Create(TSupportCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
     'an intermediate anchor before its start is refused');
   CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
     'the alert is certificate_expired');
@@ -1270,7 +1270,7 @@ var
 begin
   CheckFalse(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
     TMockClock.Create(UnixMillisInsideAnchorWindow) as ITlsClock,
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    TArray<TBytes>.Create(TSupportCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
     'an intermediate anchor inside its window is not refused');
 end;
 
@@ -1280,7 +1280,7 @@ var
 begin
   CheckFalse(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
     TMockClock.Create(UnixMillisAfterAnchorEnd) as ITlsClock,
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_root')), LAlert),
+    TArray<TBytes>.Create(TSupportCertificates.Field(AnchorValidityFile, 'ae_root')), LAlert),
     'a self-signed root is trusted by configuration whatever its dates');
 end;
 
@@ -1290,7 +1290,7 @@ var
 begin
   // ae_inter_leaf is not self-signed and valid until 2099, so only a wrong time can refuse it
   CheckFalse(TDelegatePostChecks.RejectExpiredAnchor(Pkix, nil,
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter_leaf')),
+    TArray<TBytes>.Create(TSupportCertificates.Field(AnchorValidityFile, 'ae_inter_leaf')),
     LAlert), 'a nil clock means system time, not the epoch');
 end;
 
@@ -1299,7 +1299,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(nil, FClock,
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    TArray<TBytes>.Create(TSupportCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
     'a nil provider cannot vouch for the anchor');
   CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
     'the fail-closed alert is internal_error');
@@ -1330,8 +1330,8 @@ var
 begin
   CheckTrue(TDelegatePostChecks.RejectExpiredAnchor(Pkix,
     TMockClock.Create(UnixMillisAfterAnchorEnd) as ITlsClock,
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_root'),
-    TTlsLibTestCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
+    TArray<TBytes>.Create(TSupportCertificates.Field(AnchorValidityFile, 'ae_root'),
+    TSupportCertificates.Field(AnchorValidityFile, 'ae_inter')), LAlert),
     'the second anchor is checked too');
   CheckEquals(Ord(TTlsAlertDescription.CertificateExpired), Ord(LAlert),
     'the alert is certificate_expired');
@@ -1556,12 +1556,12 @@ end;
 
 function TTestOSDelegateTemplate.Nc(const AName: string): TBytes;
 begin
-  Result := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
+  Result := TSupportCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
 end;
 
 function TTestOSDelegateTemplate.PathCert(const AName: string): TBytes;
 begin
-  Result := TTlsLibTestCertificates.Field('Certs/PathLength.txt', AName + '_cert');
+  Result := TSupportCertificates.Field('Certs/PathLength.txt', AName + '_cert');
 end;
 
 function TTestOSDelegateTemplate.VerifyPathLengthServer(AMaxPathLength: Int32;
@@ -2687,8 +2687,8 @@ var
   LAlert: TTlsAlertDescription;
   LCaLeaf, LRoot: TBytes;
 begin
-  LCaLeaf := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
+  LCaLeaf := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert');
+  LRoot := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
   CheckFalse(VerifyEnginePath(TArray<TBytes>.Create(LCaLeaf),
     TArray<TBytes>.Create(LCaLeaf, LRoot), TArray<TBytes>.Create(LRoot),
     TCertificateStrengthPolicy.Defaults, nil, LVerified, LAlert),
@@ -2703,7 +2703,7 @@ var
   LAlert: TTlsAlertDescription;
   LSelfCa: TBytes;
 begin
-  LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
+  LSelfCa := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LSelfCa), TArray<TBytes>.Create(LSelfCa),
     TArray<TBytes>.Create(LSelfCa), TCertificateStrengthPolicy.Defaults, nil, LVerified, LAlert),
     'the directly trusted self-signed CA certificate is accepted');
@@ -2715,7 +2715,7 @@ var
   LAlert: TTlsAlertDescription;
   LSelfCa: TBytes;
 begin
-  LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
+  LSelfCa := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckTrue(VerifyClientEnginePath(TArray<TBytes>.Create(LSelfCa),
     TArray<TBytes>.Create(LSelfCa), nil, TArray<TBytes>.Create(LSelfCa), nil, FClock, LVerified,
     LAlert), 'a leaf equal to a configured anchor is admitted though the engine named no anchor');
@@ -2728,7 +2728,7 @@ var
   LAlert: TTlsAlertDescription;
   LSelfCa: TBytes;
 begin
-  LSelfCa := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
+  LSelfCa := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(LSelfCa),
     TArray<TBytes>.Create(LSelfCa), nil, nil, nil, FClock, LVerified, LAlert),
     'the same CA leaf is refused when it is not a configured anchor');
@@ -2940,7 +2940,7 @@ var
 begin
   CheckFalse(VerifyClientEnginePath(TArray<TBytes>.Create(Nc('open_in_scope_leaf')),
     TArray<TBytes>.Create(Nc('open_in_scope_leaf')), TArray<TBytes>.Create(Nc('issuer_open')),
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')),
+    TArray<TBytes>.Create(TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')),
     nil, FClock, LVerified, LAlert), 'the configured anchor is not the leaf''s issuer line');
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'the alert is unknown_ca');
 end;
@@ -3078,10 +3078,10 @@ var
   LAlert: TTlsAlertDescription;
   LLeaf, LInter, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert');
-  LInter := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt',
+  LLeaf := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert');
+  LInter := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt',
     'inter_serverauth_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf, LInter),
     TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot),
     TCertificateStrengthPolicy.Defaults, nil, LVerified, LAlert),
@@ -3096,8 +3096,8 @@ var
   LStrength: TCertificateStrengthPolicy;
   LLeaf, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
   LStrength := TCertificateStrengthPolicy.Defaults;
   LStrength.MinRsaModulusBits := 4096;
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf), TArray<TBytes>.Create(LLeaf, LRoot),
@@ -3112,8 +3112,8 @@ var
   LStrength: TCertificateStrengthPolicy;
   LLeaf, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
   LStrength := TCertificateStrengthPolicy.Defaults;
   LStrength.MinRsaModulusBits := 4096;
   LStrength.AnchorKeyFloors := True;
@@ -3132,8 +3132,8 @@ var
   LStrength: TCertificateStrengthPolicy;
   LLeaf, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert');
+  LRoot := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
   LStrength := TCertificateStrengthPolicy.Defaults;
   LStrength.AllowedEcCurves := TArray<UInt16>.Create(TNamedGroupCatalog.Secp384r1);
   LStrength.AnchorKeyFloors := True;
@@ -3151,8 +3151,8 @@ var
   LStrength: TCertificateStrengthPolicy;
   LLeaf, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TSupportCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert');
   LStrength := TCertificateStrengthPolicy.Defaults;
   LStrength.AllowEdDsa := False;
   LStrength.AnchorKeyFloors := True;
@@ -3170,8 +3170,8 @@ var
   LStrength: TCertificateStrengthPolicy;
   LLeaf, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
   LStrength := TCertificateStrengthPolicy.Defaults;
   LStrength.AnchorKeyFloors := True;
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf), TArray<TBytes>.Create(LLeaf, LRoot),
@@ -3185,8 +3185,8 @@ var
   LStrength: TCertificateStrengthPolicy;
   LLeaf, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
   LStrength := TCertificateStrengthPolicy.Defaults;
   LStrength.MinRsaModulusBits := 4096;
   CheckTrue(ResolveLiveEnginePath(TArray<TBytes>.Create(LLeaf),
@@ -3200,8 +3200,8 @@ var
   LStrength: TCertificateStrengthPolicy;
   LLeaf, LRoot: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  LRoot := TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert');
   LStrength := TCertificateStrengthPolicy.Defaults;
   LStrength.MinRsaModulusBits := 4096;
   LStrength.AnchorKeyFloors := True;
@@ -3219,11 +3219,11 @@ var
   LSpy: TVerifyCallbackSpy;
   LLeaf, LInter, LRoot, LExtra: TBytes;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert');
-  LInter := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt',
+  LLeaf := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert');
+  LInter := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt',
     'inter_serverauth_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
-  LExtra := TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
+  LRoot := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'root_cert');
+  LExtra := TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert');
   LSpy := Own<TVerifyCallbackSpy>(TVerifyCallbackSpy.Create(True));
   CheckTrue(VerifyEnginePath(TArray<TBytes>.Create(LLeaf, LInter, LExtra),
     TArray<TBytes>.Create(LLeaf, LInter, LRoot), TArray<TBytes>.Create(LRoot),
@@ -5069,7 +5069,7 @@ end;
 procedure TTestDelegateHostRootsAlone.TestServerBuildRefusesAnUndescribableClientAnchorWithFloorsOn;
 begin
   CheckTrue(Pos('AnchorKeyFloors', ServerBuildMessage(True, TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/DsaRoot.txt', 'root_cert')))) > 0,
+    TSupportCertificates.Field('Certs/DsaRoot.txt', 'root_cert')))) > 0,
     'a DSA client-CA anchor has no floor to meet');
 end;
 
@@ -5266,14 +5266,14 @@ var
   LContext: TServerTrustContext;
   LVerified: TVerifiedChain;
 begin
-  LAnchor := TTlsLibTestCertificates.Field(AnchorValidityFile, AAnchor);
+  LAnchor := TSupportCertificates.Field(AnchorValidityFile, AAnchor);
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(LAnchor))
     as IPlatformChainEngine;
   LContext := ServerContext(nil);
   LContext.Clock := TMockClock.Create(AUnixMillis) as ITlsClock;
   Result := OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
     .CreateServerVerifier(LContext).VerifyServerCertificate(
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(AnchorValidityFile, ALeaf), LAnchor),
+    TArray<TBytes>.Create(TSupportCertificates.Field(AnchorValidityFile, ALeaf), LAnchor),
     TServerName.DnsName('localhost'), nil, LVerified, AAlert);
 end;
 
@@ -5285,14 +5285,14 @@ var
   LContext: TClientTrustContext;
   LVerified: TVerifiedChain;
 begin
-  LAnchor := TTlsLibTestCertificates.Field(AnchorValidityFile, AAnchor);
+  LAnchor := TSupportCertificates.Field(AnchorValidityFile, AAnchor);
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, nil) as IPlatformChainEngine;
   LContext := ClientContext(StoreOf(Roots(LAnchor)));
   LContext.Clock := TMockClock.Create(AUnixMillis) as ITlsClock;
   Result := (OsSource(LEngine, TSystemTrustRootScope.OsAndHostRoots, nil, nil)
     as IClientCertificateVerifierSource).CreateClientVerifier(LContext)
     .VerifyClientCertificate(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field(AnchorValidityFile, ALeaf), LAnchor), LVerified, AAlert);
+    TSupportCertificates.Field(AnchorValidityFile, ALeaf), LAnchor), LVerified, AAlert);
 end;
 
 function TTestDelegateContextRoots.LiveVerifyAt(const AAnchor, ALeaf: string;
@@ -5304,7 +5304,7 @@ var
   LResolver: TOSDelegateLiveResolver;
   LVerdict: TCertificateVerdictContext;
 begin
-  LAnchor := TTlsLibTestCertificates.Field(AnchorValidityFile, AAnchor);
+  LAnchor := TSupportCertificates.Field(AnchorValidityFile, AAnchor);
   LEngine := TAnchorAwarePlatformChainEngine.Create(ExclusiveCaps, Roots(LAnchor))
     as IPlatformChainEngine;
   LContext := ServerContext(nil);
@@ -5316,7 +5316,7 @@ begin
     LVerdict := Default(TCertificateVerdictContext);
     LVerdict.PeerRole := TPeerRole.Server;
     LVerdict.Chain := TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field(AnchorValidityFile, ALeaf), LAnchor);
+      TSupportCertificates.Field(AnchorValidityFile, ALeaf), LAnchor);
     LVerdict.HostName := 'localhost';
     Result := LResolver.ResolveVerdict(LVerdict, AAlert);
   finally
@@ -5836,9 +5836,9 @@ var
   LAlert: TTlsAlertDescription;
 begin
   // mutation: the intermediates the lookup found are not added to the policy's
-  LIssuer := TTlsLibTestCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'issuer_cert');
-  LRoot := TTlsLibTestCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'root_cert');
-  LLeaf := TTlsLibTestCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'leaf_cert');
+  LIssuer := TSupportCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'issuer_cert');
+  LRoot := TSupportCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'root_cert');
+  LLeaf := TSupportCertificates.Field('Certs/IntermediateClientAuthChain.txt', 'leaf_cert');
   LTiers := TRecordingIssuerLookup.Create('tiers');
   LTiersRef := LTiers;
   LTiers.Offer(Pkix.Certificates.Parse(LIssuer).SubjectName, nil, Roots(LIssuer));
@@ -6726,7 +6726,7 @@ end;
 
 function TTestWindowsClientDelegate.Nc(const AName: string): TBytes;
 begin
-  Result := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
+  Result := TSupportCertificates.Field('Certs/NameConstrainedChain.txt', AName + '_cert');
 end;
 
 function TTestWindowsClientDelegate.NcPolicy(const AIntermediates: TArray<TBytes>): TOSDelegatePolicy;

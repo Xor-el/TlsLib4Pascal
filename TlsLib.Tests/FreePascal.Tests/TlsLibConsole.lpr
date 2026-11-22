@@ -7,12 +7,12 @@ uses
   SysUtils,
   fpcunit,
   consoletestrunner,
-  TlsLibTestResourceLoader,
-  TlsLibTestProviders,
-  TlsLibTestHandshakeDecoder,
-  TlsLibTestTicketRewriter,
+  SupportResourceLoader,
+  SupportProviders,
+  SupportHandshakeDecoder,
+  SupportTicketRewriter,
   TlsLibTestBase,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibHandshakeTestBase,
   MockRandom,
   MockClock,
@@ -140,15 +140,15 @@ procedure TTlsLibConsoleTestRunner.AppendLongOpts;
 begin
   inherited AppendLongOpts;
   // fpcunit rejects unregistered options
-  LongOpts.Add(TTlsLibTestProviders.CryptoFlag + ':');
-  LongOpts.Add(TTlsLibTestProviders.PkixFlag + ':');
+  LongOpts.Add(TSupportProviders.CryptoFlag + ':');
+  LongOpts.Add(TSupportProviders.PkixFlag + ':');
   LongOpts.Add(RepeatFlag + ':');
 end;
 
 procedure TTlsLibConsoleTestRunner.WriteCustomHelp;
 begin
-  Writeln('  --', TTlsLibTestProviders.CryptoFlag, '=portable|os   crypto provider');
-  Writeln('  --', TTlsLibTestProviders.PkixFlag, '=portable   PKIX provider');
+  Writeln('  --', TSupportProviders.CryptoFlag, '=portable|os   crypto provider');
+  Writeln('  --', TSupportProviders.PkixFlag, '=portable   PKIX provider');
   Writeln('  env TLSLIB_TEST_NETWORK=true   also run the tests that need live DNS');
   Writeln('  --', RepeatFlag, '=N   run the suite N times in this process; fails if any pass fails (a report file keeps the last pass)');
 end;
@@ -182,7 +182,7 @@ begin
   Application := TTlsLibConsoleTestRunner.Create(nil);
   Application.Initialize;
   // stderr keeps --format=xml output clean
-  Writeln(StdErr, 'providers: ', TTlsLibTestProviders.Describe);
+  Writeln(StdErr, 'providers: ', TSupportProviders.Describe);
   Application.Run;
   Application.Free;
 end.

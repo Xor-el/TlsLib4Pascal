@@ -52,8 +52,8 @@ uses
   TlpTlsEngineFactory,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
-  TlsLibTestHandshakeDecoder,
-  TlsLibTestCertificates,
+  SupportHandshakeDecoder,
+  SupportCertificates,
   TlsLibHandshakeTestBase;
 
 type
@@ -197,14 +197,14 @@ begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(AVersions)
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build);
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build);
 end;
 
 function TTestHostExtension.Client13: ITlsClientConfig;
 begin
   Result := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build;
 end;
 
 function TTestHostExtension.Client13Resuming: ITlsClientConfig;
@@ -212,7 +212,7 @@ begin
   // a server issues tickets only to a client that holds a cache for them
   Result := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithResumption(True).WithSessionCache(TInMemorySessionCache.Create as ISessionCache).Build;
 end;
 
@@ -225,7 +225,7 @@ function TTestHostExtension.Client12Capable: ITlsClientConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build;
 end;
 
 function TTestHostExtension.Server12Only: ITlsServerConfig;
@@ -244,20 +244,20 @@ function TTestHostExtension.MtlsClient13: ITlsClientConfig;
 begin
   Result := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
+      TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key'))).Build;
+      TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key'))).Build;
 end;
 
 function TTestHostExtension.MtlsServer13: ITlsServerConfig;
 begin
   Result := TTlsPresets.Hardened(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')))
+      TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key')))
     .WithClientVerification(TClientVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
+      TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert')).Build)
     .WithPeerAuth(TClientAuthMode.Required).Build;
 end;
 
@@ -267,7 +267,7 @@ begin
     .WithPreferredGroups(TArray<UInt16>.Create(TNamedGroupCatalog.X25519,
       TNamedGroupCatalog.Secp256r1))
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build;
 end;
 
 function TTestHostExtension.ServerRetry: ITlsServerConfig;
@@ -311,7 +311,7 @@ var
 begin
   LBuilder := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build);
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build);
   if not AOriginNameCheck then
     LBuilder.WithDangerousDisableServerNameCheck;
   Result := LBuilder.Tls13.WithEch(TEchClientModes.Enable(AConfigList)).Build;
@@ -829,9 +829,9 @@ begin
   Feed(LServer, LFirst);
   Pump(LServer, LClient);
   LSecond := Drain(LClient);
-  CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LFirst).TryFind(HostType, LFirstExt),
+  CheckTrue(TSupportHandshakeDecoder.ClientHelloExtensions(LFirst).TryFind(HostType, LFirstExt),
     'the first ClientHello carries the extension');
-  CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LSecond).TryFind(HostType, LSecondExt),
+  CheckTrue(TSupportHandshakeDecoder.ClientHelloExtensions(LSecond).TryFind(HostType, LSecondExt),
     'the second ClientHello carries it too');
   CheckEqualBytes('the same body', LFirstExt.Data, LSecondExt.Data);
   Feed(LServer, LSecond);
@@ -905,7 +905,7 @@ begin
     DecodeHex('5e5f'), AtClientHello)));
   LClient.StartHandshake;
   LOuter := Drain(LClient);
-  CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LOuter).TryFind(HostType, LEntry),
+  CheckTrue(TSupportHandshakeDecoder.ClientHelloExtensions(LOuter).TryFind(HostType, LEntry),
     'the outer ClientHello carries the extension');
   CheckEqualBytes('with the inner''s body', DecodeHex('c1c2c3'), LEntry.Data);
   Feed(LServer, LOuter);

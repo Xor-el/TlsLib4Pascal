@@ -55,8 +55,8 @@ uses
   TlpTlsConnectionInfo,
   TlpITlsEngine,
   TlpCoreExtensions,
-  TlsLibTestHandshakeDecoder,
-  TlsLibTestCertificates,
+  SupportHandshakeDecoder,
+  SupportCertificates,
   TlsLibHandshakeTestBase;
 
 type
@@ -359,11 +359,11 @@ begin
   // leaf + issuer, with a current Good OCSP response sealed on the credential so the server
   // sends a CertificateStatus when the client requests one
   Result.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
   Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
-  Result.OcspStaple := TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good');
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
+  Result.OcspStaple := TSupportCertificates.Field('Certs/OcspStapling.txt', 'ocsp_good');
 end;
 
 function TTestConfigResumption.NewStaplingServer13(const AStore: ISessionStore;
@@ -401,7 +401,7 @@ begin
   // permissive: trusts the stapling root and completes a full handshake, caching the ticket the
   // strict client draws from; the host check is disabled to isolate the resumption behaviour
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+    .WithServerVerification(TServerVerification.WebPki(TSupportCertificates.Field(
       'Certs/OcspStapling.txt', 'root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumption(True)
@@ -417,7 +417,7 @@ var
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+    .WithServerVerification(TServerVerification.WebPki(TSupportCertificates.Field(
       'Certs/OcspStapling.txt', 'root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumption(True)
@@ -432,7 +432,7 @@ var
   LClient: ITlsClientConfigBuilder;
 begin
   LClient := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+    .WithServerVerification(TServerVerification.WebPki(TSupportCertificates.Field(
       'Certs/OcspStapling.txt', 'root_cert'))
     .WithRevocation(TRevocationPosture.Hard).Build)
     .WithDangerousDisableServerNameCheck
@@ -454,7 +454,7 @@ var
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
-    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+    .WithServerVerification(TServerVerification.WebPki(TSupportCertificates.Field(
       'Certs/OcspStapling.txt', 'root_cert'))
     .WithRevocation(TRevocationPosture.Hard).Build)
     .WithDangerousDisableServerNameCheck
@@ -476,7 +476,7 @@ var
 begin
   // Hard posture but the default ReuseOriginal (no re-verify on resume), so the gate never fires
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+    .WithServerVerification(TServerVerification.WebPki(TSupportCertificates.Field(
       'Certs/OcspStapling.txt', 'root_cert'))
     .WithRevocation(TRevocationPosture.Hard).Build)
     .WithDangerousDisableServerNameCheck
@@ -495,7 +495,7 @@ begin
   // Hardened is TLS 1.3-only; the public surface wires the cache and resumption toggle
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithResumption(AResumption)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
@@ -541,7 +541,7 @@ begin
   // resumption handshake check the stored chain before offering it, then park at ServerFinished
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithAsyncCertificateVerdict(0)
@@ -587,7 +587,7 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithSessionCache(ACache).WithResumptionScope(AScope)
     .Build;
   Result := TTlsEngineFactory.CreateClientEngine(LConfig, ServerHost);
@@ -603,7 +603,7 @@ begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12))
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithResumption(True)
     .WithResumeVerification(TResumeVerification.Reverify)
     .WithAsyncCertificateVerdict(0)
@@ -644,7 +644,7 @@ var
 begin
   LConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithResumption(True)
     .WithSessionCache(ACache)
     .Build;
@@ -793,7 +793,7 @@ begin
   LServer := NewScopedServer13(LStore, Crypto.Primitives.GetRandom.GenerateBytes(16));
   LClient.StartHandshake;
   LHello := Drain(LClient);
-  CheckTrue(TTlsLibTestHandshakeDecoder.ClientHelloExtensions(LHello)
+  CheckTrue(TSupportHandshakeDecoder.ClientHelloExtensions(LHello)
     .Contains(TExtensionTypes.PreSharedKey), 'the ClientHello offers the ticket');
   Feed(LServer, LHello);
   LIterations := 0;
@@ -986,7 +986,7 @@ begin
   try
     TTlsPresets.Strict(Crypto, Pkix).Client
       .WithServerVerification(
-        TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+        TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
       .WithSessionCache(TInMemorySessionCache.Create as ISessionCache).Build;
   except
     on E: EInvalidOperationTlsLibException do
@@ -1007,7 +1007,7 @@ begin
   // control: Strict as it ships completes a handshake and resumes nothing
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
     .WithCredential(ServerCredential).Build);
@@ -1031,7 +1031,7 @@ begin
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
     .WithResumption(True).WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithSessionCache(LCache).WithResumptionScope(LScope).Build,
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
@@ -1042,7 +1042,7 @@ begin
 
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Strict(Crypto, Pkix).Client
     .WithResumption(True).WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithSessionCache(LCache).WithResumptionScope(LScope).Build,
     ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Strict(Crypto, Pkix).Server
@@ -1772,7 +1772,7 @@ begin
   LBefore := LCache.Count;
   // Soft (the default posture) + Reverify, no live deferral
   LConfig := TTlsPresets.Hardened(Crypto, Pkix).Client
-    .WithServerVerification(TServerVerification.WebPki(TTlsLibTestCertificates.Field(
+    .WithServerVerification(TServerVerification.WebPki(TSupportCertificates.Field(
       'Certs/OcspStapling.txt', 'root_cert')).Build)
     .WithDangerousDisableServerNameCheck
     .WithResumeVerification(TResumeVerification.Reverify)
@@ -1790,15 +1790,15 @@ begin
   CheckEquals(2, System.Length(LInfo.PeerCertificates),
     'the presented chain is the stored leaf + issuer credential');
   CheckEqualBytes('the presented chain leaf is the stapling leaf',
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
     LInfo.PeerCertificates[0]);
   CheckTrue(System.Length(LInfo.ValidatedPath) >= System.Length(LInfo.PeerCertificates),
     'the Reverify resume validated a path at least as long as the presented chain');
   CheckEqualBytes('the validated path leaf is the stapling leaf',
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
     LInfo.ValidatedPath[0]);
   CheckEqualBytes('the validated path terminates at the stapling root',
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert'),
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'root_cert'),
     LInfo.ValidatedPath[System.High(LInfo.ValidatedPath)]);
 end;
 

@@ -29,7 +29,7 @@ uses
   TlpITlsEngine,
   InteropSocket,
   InteropEngine,
-  TlsLibTestProviders,
+  SupportProviders,
   InteropCredentials,
   InteropPump,
   InteropUtils,
@@ -161,8 +161,8 @@ begin
   LSocket := nil;
   try
     LSocket := FListener.Accept;
-    LCrypto := TTlsLibTestProviders.Crypto;
-    LPkix := TTlsLibTestProviders.Pkix;
+    LCrypto := TSupportProviders.Crypto;
+    LPkix := TSupportProviders.Pkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
     LOptions.SupportedVersions := FScenario.Versions;
@@ -227,7 +227,7 @@ begin
   LSocket := nil;
   try
     LSocket := FListener.Accept;
-    LCrypto := TTlsLibTestProviders.Crypto;
+    LCrypto := TSupportProviders.Crypto;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
     LOptions.SupportedVersions := TArray<UInt16>.Create(FCell.Version);
@@ -314,8 +314,8 @@ begin
   Result := '';
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
-    LCrypto := TTlsLibTestProviders.Crypto;
-    LPkix := TTlsLibTestProviders.Pkix;
+    LCrypto := TSupportProviders.Crypto;
+    LPkix := TSupportProviders.Pkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Client;
     LOptions.SupportedVersions := AScenario.Versions;
@@ -423,8 +423,8 @@ begin
   Result := '';
   LSocket := TInteropSocket.Connect('127.0.0.1', APort);
   try
-    LCrypto := TTlsLibTestProviders.Crypto;
-    LPkix := TTlsLibTestProviders.Pkix;
+    LCrypto := TSupportProviders.Crypto;
+    LPkix := TSupportProviders.Pkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Client;
     LOptions.SupportedVersions := TArray<UInt16>.Create(ACell.Version);

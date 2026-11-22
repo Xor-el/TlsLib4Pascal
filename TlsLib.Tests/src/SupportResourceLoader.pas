@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlsLibTestResourceLoader;
+unit SupportResourceLoader;
 
 {$I ..\..\TlsLib\src\Include\TlsLib.inc}
 
@@ -32,7 +32,7 @@ type
   /// directory (the app's documents folder on mobile) until a TlsLib.Tests\Data
   /// folder is found.
   /// </summary>
-  TTlsLibTestResourceLoader = class sealed(TObject)
+  TSupportResourceLoader = class sealed(TObject)
   strict private
     class var FDataRoot: string;
     class function DiscoverDataRoot: string; static;
@@ -53,7 +53,7 @@ resourcestring
   SDataRootNotFound =
     'could not locate the %s%s%s test-data folder by walking up from %s';
 
-class function TTlsLibTestResourceLoader.DiscoverDataRoot: string;
+class function TSupportResourceLoader.DiscoverDataRoot: string;
 var
   LStart, LDir, LCandidate, LParent: string;
   LI: Int32;
@@ -82,14 +82,14 @@ begin
     [TestsProjectName, PathDelim, TestsDataFolderName, LStart]);
 end;
 
-class function TTlsLibTestResourceLoader.DataRoot: string;
+class function TSupportResourceLoader.DataRoot: string;
 begin
   if FDataRoot = '' then
     FDataRoot := DiscoverDataRoot;
   Result := FDataRoot;
 end;
 
-class function TTlsLibTestResourceLoader.ResourcePath(const ARelativePath: string): string;
+class function TSupportResourceLoader.ResourcePath(const ARelativePath: string): string;
 var
   LRel: string;
 begin

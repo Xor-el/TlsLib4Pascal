@@ -35,8 +35,8 @@ uses
   TlpSystemTimeUtilities,
   TlpICryptoProvider,
   TlpIPkixProvider,
-  TlsLibTestResourceLoader,
-  TlsLibTestProviders;
+  SupportResourceLoader,
+  SupportProviders;
 
 type
   /// <summary>Shared base fixture. The runner reuses one fixture instance across suite runs, so a
@@ -263,12 +263,12 @@ end;
 
 function TTlsLibAlgorithmTestCase.CreateCrypto: ICryptoProvider;
 begin
-  Result := TTlsLibTestProviders.Crypto;
+  Result := TSupportProviders.Crypto;
 end;
 
 function TTlsLibAlgorithmTestCase.CreatePkix: IPkixProvider;
 begin
-  Result := TTlsLibTestProviders.Pkix;
+  Result := TSupportProviders.Pkix;
 end;
 
 function TTlsLibAlgorithmTestCase.GetCrypto: ICryptoProvider;
@@ -354,7 +354,7 @@ function TTlsLibAlgorithmTestCase.LoadVectorFields(const ARelativePath: string):
 begin
   Result := TStringList.Create;
   try
-    Result.LoadFromFile(TTlsLibTestResourceLoader.ResourcePath(ARelativePath));
+    Result.LoadFromFile(TSupportResourceLoader.ResourcePath(ARelativePath));
   except
     Result.Free;
     raise;

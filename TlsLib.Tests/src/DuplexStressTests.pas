@@ -46,7 +46,7 @@ uses
   TlpTlsConnection,
   TlpTlsStream,
   MockTransport,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -1448,7 +1448,7 @@ function TTestDuplexStress.ClientConfig(AWire: UInt16): ITlsClientConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithSupportedVersions(TArray<UInt16>.Create(AWire)).Build;
 end;
 
@@ -1456,8 +1456,8 @@ function TTestDuplexStress.ServerConfig(AWire: UInt16): ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
     .WithSupportedVersions(TArray<UInt16>.Create(AWire)).Build;
 end;
 

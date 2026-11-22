@@ -110,8 +110,8 @@ uses
   MockCertificateVerifiers,
   MockCredentialResolvers,
   MockVerifyHooks,
-  TlsLibTestCertificates,
-  TlsLibTestProviders,
+  SupportCertificates,
+  SupportProviders,
   TlsLibTestBase,
   TlsLibHandshakeTestBase;
 
@@ -986,7 +986,7 @@ end;
 
 function TCompliancePolicyTestCase.CreateCrypto: ICryptoProvider;
 begin
-  Result := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  Result := TSupportProviders.Crypto(TCryptoProviderChoice.Portable);
 end;
 
 function TCompliancePolicyTestCase.Identity: TModuleIdentity;
@@ -1005,7 +1005,7 @@ begin
   // the key must expose the public key of the leaf it signs for
   LKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.ECDSA_SECP256R1_SHA256), Pkix.Certificates.Parse(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')).PublicKeyInfo)
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert')).PublicKeyInfo)
     as ISigningKey;
   // the module serves the TLS 1.2 PRF, as the Windows module does
   LReport := TFakeBackendReport.Create([]);
@@ -1125,7 +1125,7 @@ begin
   Result := TComplianceTls.WithPeerAuth(APolicy, ServerBuilder(APolicy),
     TClientAuthMode.Required, TClientVerification.VerifierSource(
     TFakeOsVerifierSources.Client,
-    TTlsLibTestCertificates.EcP256RootStore).WithRevocation(APosture));
+    TSupportCertificates.EcP256RootStore).WithRevocation(APosture));
 end;
 
 function TCompliancePolicyTestCase.Disclosed(const AReport: IComplianceReport;
@@ -1908,7 +1908,7 @@ begin
     Ord(LAttestation.Status(TModuleStandard.Fips140_3)), 'no status');
   CheckEquals('', LAttestation.Identity.Describe, 'no identity');
   CheckTrue(LAttestation.Describe <> '', 'the reason is given');
-  CheckFalse(LAttestation.Covers(TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable)),
+  CheckFalse(LAttestation.Covers(TSupportProviders.Crypto(TCryptoProviderChoice.Portable)),
     'no provider is covered');
   CheckEquals(0, System.Length(LAttestation.Disclosures), 'nothing to disclose');
 end;
@@ -2557,7 +2557,7 @@ end;
 function TTestComplianceAdmit.Rsa2048Credential: TTlsCredential;
 begin
   Result.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
   Result.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.RSA_PSS_RSAE_SHA256), Pkix.Certificates.Parse(
     Result.CertificateChain[0]).PublicKeyInfo) as ISigningKey;
@@ -3400,7 +3400,7 @@ var
 begin
   LPolicy := StrictPolicy;
   CheckTrue(ClientAdmit(LPolicy, TComplianceTls.Client(LPolicy, TServerVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore)).Build, LFindings), 'refused');
+    TSupportCertificates.EcP256RootStore)).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
     'the portable chain check is outside the module');
 end;
@@ -3439,7 +3439,7 @@ var
 begin
   LPolicy := RelaxedPolicy;
   CheckFalse(ClientAdmit(LPolicy, TComplianceTls.Client(LPolicy, TServerVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore)).Build, LFindings), 'relaxed does not raise');
+    TSupportCertificates.EcP256RootStore)).Build, LFindings), 'relaxed does not raise');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
     'the portable check is a platform fact');
   CheckFalse(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
@@ -3500,7 +3500,7 @@ begin
   LPolicy := StrictPolicy;
   CheckTrue(Disclosed(LPolicy.Evaluate(TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
     TClientAuthMode.Required, TClientVerification.VerifierSource(TFakeOsVerifierSources.Client,
-    TTlsLibTestCertificates.EcP256RootStore)
+    TSupportCertificates.EcP256RootStore)
     .WithIssuerLookup(TRecordingIssuerLookup.Create('lookup') as IIssuerLookup)).Build),
     'host-supplied lookup'), 'a lookup of client issuers is disclosed too');
   CheckFalse(Disclosed(LPolicy.Evaluate(ServerBuilder(LPolicy).Build), 'host-supplied lookup'),
@@ -3596,7 +3596,7 @@ begin
   LPolicy := StrictPolicy;
   CheckTrue(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore).Build).Build, LFindings), 'refused');
+    TSupportCertificates.EcP256RootStore).Build).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
     'the client chain check is portable');
 end;
@@ -3609,7 +3609,7 @@ begin
   LPolicy := StrictPolicy;
   CheckFalse(ServerAdmit(LPolicy, TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
     TClientAuthMode.Required, TClientVerification.VerifierSource(
-    TFakeOsVerifierSources.Client, TTlsLibTestCertificates.EcP256RootStore)).Build,
+    TFakeOsVerifierSources.Client, TSupportCertificates.EcP256RootStore)).Build,
     LFindings), 'admitted');
 end;
 
@@ -3649,7 +3649,7 @@ var
 begin
   LPolicy := RelaxedPolicy;
   CheckFalse(ServerAdmit(LPolicy, ServerBuilder(LPolicy).WithPeerAuth(TClientAuthMode.Required)
-    .WithClientVerification(TClientVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore)
+    .WithClientVerification(TClientVerification.WebPki(TSupportCertificates.EcP256RootStore)
     .WithMinimumStrength(LPolicy.Rules.Strength).Build).Build, LFindings),
     'relaxed does not raise');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
@@ -3667,7 +3667,7 @@ begin
   CheckTrue(ServerAdmit(LPolicy, TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
     TClientAuthMode.Required, TClientVerification.VerifierSource(
     TFakeHostVerifierSource.Create as IClientCertificateVerifierSource,
-    TTlsLibTestCertificates.EcP256RootStore)).Build, LFindings), 'refused');
+    TSupportCertificates.EcP256RootStore)).Build, LFindings), 'refused');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.CustomVerifierConfigured),
     'a host source is not the OS source, so it is not in the module');
 end;
@@ -3857,7 +3857,7 @@ begin
   LWeak := ServerCredentialEd25519;
   LOther := LWeak;
   LOther.CertificateChain := TArray<TBytes>.Create(LWeak.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert'));
+    TSupportCertificates.Field('Certs/Ed25519Chain.txt', 'root_cert'));
   LFindings := LPolicy.Evaluate(RawServer(LPolicy).WithCredential(LWeak)
     .WithSniCredential('localhost', LOther).Build).Findings;
   CheckTrue(CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules) >= 2,
@@ -4255,7 +4255,7 @@ begin
   LCredential := ServerCredential(LPolicy.Crypto);
   // the P-256 leaf is inside the rules; the RSA-2048 certificate after it is not
   LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckEquals(1, CountOfKind(LFindings, TComplianceFindingKind.CredentialKeyBelowRules),
     'only the second certificate');
@@ -4327,7 +4327,7 @@ begin
     TComplianceEnforcement.Strict);
   LCredential := ServerCredential(Crypto);
   LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckTrue(Pos('certificate 1', FindingOfKind(LFindings,
     TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
@@ -4354,7 +4354,7 @@ begin
   LCredential := ServerCredential(Crypto);
   // the self-issued root sits mid-chain, as a key-rollover link does, with a certificate after it
   LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'),
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'),
     LCredential.CertificateChain[0]);
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   LSecond := False;
@@ -4385,7 +4385,7 @@ begin
     TComplianceEnforcement.Strict);
   LCredential := ServerCredential(Crypto);
   LCredential.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckTrue(System.Length(LFindings) > 0, 'not vacuous: the key still draws findings');
   for LI := 0 to System.Length(LFindings) - 1 do
@@ -4410,7 +4410,7 @@ begin
   LCredential := ServerCredential(Crypto);
   // a key rollover: the subject and the issuer name are one, and the old key signed it
   LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/RolloverRoot.txt', 'rollover_new_root_cert'));
+    TSupportCertificates.Field('Certs/RolloverRoot.txt', 'rollover_new_root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   LSecond := False;
   for LI := 0 to System.Length(LFindings) - 1 do
@@ -4435,7 +4435,7 @@ begin
     TComplianceEnforcement.Strict);
   LCredential := ServerCredential(Crypto);
   LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/RolloverRoot.txt', 'rollover_old_root_cert'));
+    TSupportCertificates.Field('Certs/RolloverRoot.txt', 'rollover_old_root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckTrue(Pos('certificate 1', FindingOfKind(LFindings,
     TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
@@ -4455,8 +4455,8 @@ begin
   LPolicy := StrictPolicy;
   LCredential := ServerCredential(LPolicy.Crypto);
   LCredential.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_key_root_cert'));
+    TSupportCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
+    TSupportCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_key_root_cert'));
   CheckTrue(Pkix.Certificates.Parse(LCredential.CertificateChain[0]).SignatureFacts(LFacts),
     'the fixture signature is readable');
   CheckEquals(Ord(TCertSignatureFamily.RsaPss), Ord(LFacts.Family), 'it is RSA-PSS');
@@ -4477,8 +4477,8 @@ begin
   LPolicy := StrictPolicy;
   LCredential := ServerCredential(LPolicy.Crypto);
   LCredential.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'rsa_key_root_cert'));
+    TSupportCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
+    TSupportCertificates.Field('Certs/PssIssuerKeyChain.txt', 'rsa_key_root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckTrue(System.Length(LFindings) > 0, 'not vacuous: the key of the credential draws findings');
   for LI := 0 to System.Length(LFindings) - 1 do
@@ -4497,9 +4497,9 @@ begin
   LCredential := ServerCredential(LPolicy.Crypto);
   // the issuer of certificate 1 is listed last, behind a certificate that does not issue it
   LCredential.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'rsa_key_root_cert'),
-    TTlsLibTestCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_key_root_cert'));
+    TSupportCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_signed_leaf_cert'),
+    TSupportCertificates.Field('Certs/PssIssuerKeyChain.txt', 'rsa_key_root_cert'),
+    TSupportCertificates.Field('Certs/PssIssuerKeyChain.txt', 'pss_key_root_cert'));
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckTrue(Pos('certificate 1 of the credential is signed under an RSASSA-PSS key',
     FindingOfKind(LFindings, TComplianceFindingKind.CredentialSchemesNotAllowed).Message) > 0,
@@ -4528,7 +4528,7 @@ begin
   LCredential := ServerCredential(LPolicy.Crypto);
   // an RSA PKCS#1 SHA-256 signature, a hash the ECDSA schemes of the rules also use
   LCredential.CertificateChain := TArray<TBytes>.Create(LCredential.CertificateChain[0],
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
   CheckTrue(Pkix.Certificates.Parse(LCredential.CertificateChain[1]).SignatureFacts(LFacts),
     'the fixture signature is readable');
   CheckEquals(Ord(TCertSignatureFamily.RsaPkcs1), Ord(LFacts.Family), 'it is RSA PKCS#1');
@@ -4604,7 +4604,7 @@ begin
   LCredential := ServerCredential(LPolicy.Crypto);
   LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.ECDSA_SECP256R1_SHA256), Pkix.Certificates.Parse(
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert')).PublicKeyInfo)
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert')).PublicKeyInfo)
     as ISigningKey;
   LFindings := LPolicy.EvaluateCredential(LCredential).Findings;
   CheckEquals(Ord(TComplianceFindingCategory.Configuration), Ord(FindingOfKind(LFindings,
@@ -4650,7 +4650,7 @@ begin
   LSpki := LCredential.PrivateKey.PublicKeyInfo;
   LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.RSA_PSS_RSAE_SHA256),
-    TTlsLibTestCertificates.RsaSpkiWithoutNullParameters(LSpki)) as ISigningKey;
+    TSupportCertificates.RsaSpkiWithoutNullParameters(LSpki)) as ISigningKey;
   CheckFalse(TArrayUtilities.AreEqual(LSpki, LCredential.PrivateKey.PublicKeyInfo),
     'the encodings differ in bytes');
   CheckFalse(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
@@ -4665,7 +4665,7 @@ begin
   LPolicy := StrictPolicy;
   LCredential := ServerCredential(LPolicy.Crypto);
   LCredential.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'ku_keyenc_cert'));
+    TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'ku_keyenc_cert'));
   CheckTrue(ReportHasKind(LPolicy.EvaluateCredential(LCredential),
     TComplianceFindingKind.CredentialKeyUnusable), 'a leaf that cannot sign a handshake');
 end;
@@ -4678,7 +4678,7 @@ begin
   LPolicy := StrictPolicy;
   LCredential := Rsa2048Credential;
   LCredential.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
+    TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
   LCredential.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.RSA_PSS_RSAE_SHA256), Pkix.Certificates.PublicKeyInfo(
     LCredential.CertificateChain[0])) as ISigningKey;
@@ -4707,7 +4707,7 @@ begin
   // the key is the leaf's own, so keyUsage is the only thing that can set the credential apart
   Result := ServerCredential(APolicy.Crypto);
   Result.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', ACertField));
+    TSupportCertificates.Field('Certs/KeyUsagePss.txt', ACertField));
   Result.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.ECDSA_SECP256R1_SHA256), Pkix.Certificates.PublicKeyInfo(
     Result.CertificateChain[0])) as ISigningKey;
@@ -4749,7 +4749,7 @@ begin
   LPolicy := StrictPolicy;
   LGiven := Rsa2048Credential;
   LGiven.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
+    TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
   LGiven.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.RSA_PSS_RSAE_SHA256), Pkix.Certificates.PublicKeyInfo(
     LGiven.CertificateChain[0])) as ISigningKey;
@@ -4767,7 +4767,7 @@ begin
   LGiven := ServerCredential(LPolicy.Crypto);
   LGiven.PrivateKey := TFakeSystemSigningKey.Create(TArray<TSignatureScheme>.Create(
     TSignatureScheme.ECDSA_SECP256R1_SHA256), Pkix.Certificates.Parse(
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert')).PublicKeyInfo)
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert')).PublicKeyInfo)
     as ISigningKey;
   CheckFalse(LPolicy.CheckedCredentialResolver(TFixedCredentialResolver.Create(LGiven,
     True) as ITlsServerCredentialResolver).TryResolve(Default(TTlsClientHelloInfo),
@@ -5056,7 +5056,7 @@ var
 begin
   LPolicy := StrictPolicy;
   CheckTrue(ClientAdmit(LPolicy, TComplianceTls.Client(LPolicy, TServerVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore)).Build, LFindings), 'strict raises');
+    TSupportCertificates.EcP256RootStore)).Build, LFindings), 'strict raises');
 end;
 
 procedure TTestComplianceAdmit.TestAdmitRelaxedKeepsPlatformFinding;
@@ -5066,7 +5066,7 @@ var
 begin
   LPolicy := RelaxedPolicy;
   CheckFalse(ClientAdmit(LPolicy, TComplianceTls.Client(LPolicy, TServerVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore)).Build, LFindings), 'relaxed does not raise');
+    TSupportCertificates.EcP256RootStore)).Build, LFindings), 'relaxed does not raise');
   CheckTrue(HasKind(LFindings, TComplianceFindingKind.ChainVerifiedOutsideModule),
     'and is never silent');
 end;
@@ -5090,7 +5090,7 @@ var
 begin
   LPolicy := RelaxedPolicy;
   CheckTrue(ClientAdmit(LPolicy, EarlyDataClientBuilder(LPolicy, TServerVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore)).Build, LFindings), 'raised');
+    TSupportCertificates.EcP256RootStore)).Build, LFindings), 'raised');
   CheckTrue(System.Length(LFindings) > 0, 'carries findings');
   for LI := 0 to System.Length(LFindings) - 1 do
     CheckEquals(Ord(TComplianceFindingCategory.Configuration), Ord(LFindings[LI].Category),
@@ -6239,7 +6239,7 @@ var
 begin
   LPolicy := RelaxedPolicy;
   if not ConfigOrSkip(LPolicy, TSystemTrustRoots.HostRoots(
-    TTlsLibTestCertificates.EcP256RootStore), LConfig) then
+    TSupportCertificates.EcP256RootStore), LConfig) then
     Exit;
   LReport := LPolicy.Evaluate(LConfig);
   CheckFalse(ReportHasKind(LReport, TComplianceFindingKind.ChainVerifiedOutsideModule),
@@ -6254,11 +6254,11 @@ var
   LSource: TOSVerifierSource;
 begin
   if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.HostRoots(
-    TTlsLibTestCertificates.EcP256RootStore), LConfig) then
+    TSupportCertificates.EcP256RootStore), LConfig) then
     Exit;
   LSource := SourceOf(LConfig);
   CheckEquals(1, System.Length(LSource.Anchors), 'the host root is the exclusive anchor');
-  CheckEqualBytes('the host root', TTlsLibTestCertificates.EcP256RootStore.RootCertificates[0],
+  CheckEqualBytes('the host root', TSupportCertificates.EcP256RootStore.RootCertificates[0],
     LSource.Anchors[0]);
   CheckEquals(0, System.Length(LSource.ExtraAnchors), 'nothing beside the OS roots');
 end;
@@ -6269,12 +6269,12 @@ var
   LSource: TOSVerifierSource;
 begin
   if not ConfigOrSkip(RelaxedPolicy, TSystemTrustRoots.OsAndHostRoots(
-    TTlsLibTestCertificates.EcP256RootStore), LConfig) then
+    TSupportCertificates.EcP256RootStore), LConfig) then
     Exit;
   LSource := SourceOf(LConfig);
   CheckEquals(0, System.Length(LSource.Anchors), 'the OS roots still apply');
   CheckEquals(1, System.Length(LSource.ExtraAnchors), 'the host root beside them');
-  CheckEqualBytes('the host root', TTlsLibTestCertificates.EcP256RootStore.RootCertificates[0],
+  CheckEqualBytes('the host root', TSupportCertificates.EcP256RootStore.RootCertificates[0],
     LSource.ExtraAnchors[0]);
 end;
 
@@ -6343,7 +6343,7 @@ end;
 function TTestComplianceMtls.FakeClientVerification: IClientVerificationBuilder;
 begin
   Result := TClientVerification.VerifierSource(TFakeOsVerifierSources.Client,
-    TTlsLibTestCertificates.EcP256RootStore);
+    TSupportCertificates.EcP256RootStore);
 end;
 
 function TTestComplianceMtls.LooseClientVerification: IClientVerificationBuilder;
@@ -6358,7 +6358,7 @@ end;
 function TTestComplianceMtls.WeakClientCa: ITrustAnchorStore;
 begin
   Result := TTrustAnchorStore.Create(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'))) as ITrustAnchorStore;
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'))) as ITrustAnchorStore;
 end;
 
 function TTestComplianceMtls.ClientCaOrSkip(const APolicy: ICompliancePolicy;
@@ -6390,7 +6390,7 @@ begin
   LPolicy := StrictPolicy;
   try
     ABuilder := TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy),
-      TClientAuthMode.Required, TTlsLibTestCertificates.EcP256RootStore, APosture, 1000);
+      TClientAuthMode.Required, TSupportCertificates.EcP256RootStore, APosture, 1000);
   except
     on ESystemTrustUnsupportedTlsLibException do
     begin
@@ -6532,7 +6532,7 @@ procedure TTestComplianceMtls.TestClientCaOverloadUsesTheOsVerifierSource;
 var
   LBuilder: ITlsServerConfigBuilder;
 begin
-  if not ClientCaOrSkip(StrictPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+  if not ClientCaOrSkip(StrictPolicy, TSupportCertificates.EcP256RootStore, LBuilder) then
     Exit;
   CheckTrue(LBuilder.Build.ClientVerifierSource is TOSVerifierSource,
     'the client chain is verified by the OS source');
@@ -6544,7 +6544,7 @@ var
   LBuilder: ITlsServerConfigBuilder;
 begin
   LPolicy := StrictPolicy;
-  if not ClientCaOrSkip(LPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+  if not ClientCaOrSkip(LPolicy, TSupportCertificates.EcP256RootStore, LBuilder) then
     Exit;
   CheckFalse(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
     TComplianceFindingKind.ChainVerifiedOutsideModule), 'the OS verifier decides');
@@ -6556,7 +6556,7 @@ var
   LBuilder: ITlsServerConfigBuilder;
 begin
   LPolicy := StrictPolicy;
-  if not ClientCaOrSkip(LPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+  if not ClientCaOrSkip(LPolicy, TSupportCertificates.EcP256RootStore, LBuilder) then
     Exit;
   CheckFalse(ReportHasKind(LPolicy.Evaluate(LBuilder.Build),
     TComplianceFindingKind.StrengthBelowRules), 'the floors are the rules');
@@ -6604,7 +6604,7 @@ var
   LRaised: Boolean;
 begin
   LPolicy := Rsa3072Policy;
-  if not ClientCaOrSkip(LPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+  if not ClientCaOrSkip(LPolicy, TSupportCertificates.EcP256RootStore, LBuilder) then
     Exit;
   CheckTrue(LBuilder.Build <> nil, 'control: a strong CA builds');
   if not ClientCaOrSkip(LPolicy, WeakClientCa, LBuilder) then
@@ -6633,7 +6633,7 @@ begin
   LRaised := False;
   try
     TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.Required,
-      TTlsLibTestCertificates.EcP256RootStore);
+      TSupportCertificates.EcP256RootStore);
   except
     on ESystemTrustUnsupportedTlsLibException do
       LRaised := True;
@@ -6705,7 +6705,7 @@ begin
   LRaised := False;
   try
     TComplianceTls.WithPeerAuth(LNone, ServerBuilder(StrictPolicy), TClientAuthMode.Required,
-      TTlsLibTestCertificates.EcP256RootStore);
+      TSupportCertificates.EcP256RootStore);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -6722,7 +6722,7 @@ begin
   LRaised := False;
   try
     TComplianceTls.WithPeerAuth(StrictPolicy, LNone, TClientAuthMode.Required,
-      TTlsLibTestCertificates.EcP256RootStore);
+      TSupportCertificates.EcP256RootStore);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -6739,7 +6739,7 @@ begin
   LRaised := False;
   try
     TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.None,
-      TTlsLibTestCertificates.EcP256RootStore);
+      TSupportCertificates.EcP256RootStore);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -6756,7 +6756,7 @@ begin
   LRaised := False;
   try
     TComplianceTls.WithPeerAuth(LNone, ServerBuilder(StrictPolicy), TClientAuthMode.Required,
-      TTlsLibTestCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
+      TSupportCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -6773,7 +6773,7 @@ begin
   LRaised := False;
   try
     TComplianceTls.WithPeerAuth(StrictPolicy, LNone, TClientAuthMode.Required,
-      TTlsLibTestCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
+      TSupportCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -6790,7 +6790,7 @@ begin
   LRaised := False;
   try
     TComplianceTls.WithPeerAuth(LPolicy, ServerBuilder(LPolicy), TClientAuthMode.None,
-      TTlsLibTestCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
+      TSupportCertificates.EcP256RootStore, TRevocationPosture.Soft, 1000);
   except
     on EArgumentTlsLibException do
       LRaised := True;
@@ -6819,7 +6819,7 @@ var
   LBuilder: ITlsServerConfigBuilder;
   LContext: TClientTrustContext;
 begin
-  if not ClientCaOrSkip(StrictPolicy, TTlsLibTestCertificates.EcP256RootStore, LBuilder) then
+  if not ClientCaOrSkip(StrictPolicy, TSupportCertificates.EcP256RootStore, LBuilder) then
     Exit;
   LContext := Default(TClientTrustContext);
   LContext.Deferral := TVerdictDeferral.None;
@@ -6947,8 +6947,8 @@ procedure TTestComplianceAnchorFloors.TestRsa2048AnchorIsRefusedUnderARulesFloor
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(AcceptsAnchor(Rsa3072Policy, TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt',
-    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), False,
+  CheckFalse(AcceptsAnchor(Rsa3072Policy, TSupportCertificates.Field('Certs/EcP256Chain.txt',
+    'leaf_cert'), TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), False,
     False, LAlert), 'the anchor key is below the floor');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert), 'the alert');
 end;
@@ -6957,8 +6957,8 @@ procedure TTestComplianceAnchorFloors.TestRsa2048AnchorPassesWhenTheFlagIsCleare
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(AcceptsAnchor(Rsa3072Policy, TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt',
-    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), True,
+  CheckTrue(AcceptsAnchor(Rsa3072Policy, TSupportCertificates.Field('Certs/EcP256Chain.txt',
+    'leaf_cert'), TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), True,
     False, LAlert), 'control: the same path with anchors exempt');
 end;
 
@@ -6966,8 +6966,8 @@ procedure TTestComplianceAnchorFloors.TestFips140_3AcceptsAnRsa2048Anchor;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(AcceptsAnchor(StrictPolicy, TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt',
-    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), False,
+  CheckTrue(AcceptsAnchor(StrictPolicy, TSupportCertificates.Field('Certs/EcP256Chain.txt',
+    'leaf_cert'), TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'root_cert'), False,
     False, LAlert), '2048 bits is inside the Fips140_3 range');
 end;
 
@@ -6975,8 +6975,8 @@ procedure TTestComplianceAnchorFloors.TestAnchorOnACurveOutsideTheListIsRefused;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckFalse(AcceptsAnchor(P384Policy, TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt',
-    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), False,
+  CheckFalse(AcceptsAnchor(P384Policy, TSupportCertificates.Field('Certs/Rsa2048Chain.txt',
+    'leaf_cert'), TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), False,
     False, LAlert), 'a P-256 anchor where only P-384 is listed');
   CheckEquals(Ord(TTlsAlertDescription.UnsupportedCertificate), Ord(LAlert), 'the alert');
 end;
@@ -6985,8 +6985,8 @@ procedure TTestComplianceAnchorFloors.TestAnchorOnACurveOutsideTheListPassesWhen
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(AcceptsAnchor(P384Policy, TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt',
-    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), True,
+  CheckTrue(AcceptsAnchor(P384Policy, TSupportCertificates.Field('Certs/Rsa2048Chain.txt',
+    'leaf_cert'), TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), True,
     False, LAlert), 'control: the same path with anchors exempt');
 end;
 
@@ -6994,8 +6994,8 @@ procedure TTestComplianceAnchorFloors.TestFips140_3AcceptsAP256Anchor;
 var
   LAlert: TTlsAlertDescription;
 begin
-  CheckTrue(AcceptsAnchor(StrictPolicy, TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt',
-    'leaf_cert'), TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), False,
+  CheckTrue(AcceptsAnchor(StrictPolicy, TSupportCertificates.Field('Certs/Rsa2048Chain.txt',
+    'leaf_cert'), TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert'), False,
     False, LAlert), 'P-256 is in the Fips140_3 list');
 end;
 
@@ -7961,7 +7961,7 @@ var
   LBase, LOs: ICryptoProvider;
 begin
   LAttestation := TWindowsModuleAttestation.Create as IModuleAttestation;
-  LBase := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  LBase := TSupportProviders.Crypto(TCryptoProviderChoice.Portable);
   CheckFalse(LAttestation.Covers(LBase), 'the portable provider is not what was attested');
   CheckFalse(LAttestation.Covers(nil), 'nor is nothing');
   LOs := TOSCryptoProvider.Compose(LBase);
@@ -8202,7 +8202,7 @@ begin
   if not ValidatedAttestationOrSkip(LAttestation) then
     Exit;
   LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3,
-    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
+    TSupportProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
     TComplianceEnforcement.Strict) as ICompliancePolicy;
   CheckEquals(Ord(TComplianceVerdict.PrimitivesInModule), Ord(LPolicy.PlatformReport.Verdict),
     'the validated build runs HKDF outside the module');
@@ -8216,7 +8216,7 @@ begin
   if not ValidatedAttestationOrSkip(LAttestation) then
     Exit;
   LPolicy := TCompliancePolicy.Create(Tls12OnlyRules,
-    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
+    TSupportProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
     TComplianceEnforcement.Strict) as ICompliancePolicy;
   CheckEquals(Ord(TComplianceVerdict.Compliant), Ord(LPolicy.PlatformReport.Verdict),
     'the module serves the TLS 1.2 PRF');
@@ -8239,7 +8239,7 @@ begin
   LFindings := nil;
   try
     LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3,
-      TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
+      TSupportProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
       TComplianceEnforcement.Strict) as ICompliancePolicy;
   except
     on E: EComplianceUnmetTlsLibException do
@@ -8264,7 +8264,7 @@ begin
     Exit;
   end;
   LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3,
-    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
+    TSupportProviders.Crypto(TCryptoProviderChoice.OS), Pkix, LAttestation,
     TComplianceEnforcement.Relaxed) as ICompliancePolicy;
   CheckTrue(ReportHasKind(LPolicy.PlatformReport, TComplianceFindingKind.ModuleNotValidated),
     'reported');
@@ -8285,7 +8285,7 @@ begin
     'the strength floors are the rules');
   // controls: the same policy does report both when a config earns them
   CheckTrue(ReportHasKind(LPolicy.Evaluate(TComplianceTls.Client(LPolicy,
-    TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore)).Build),
+    TServerVerification.WebPki(TSupportCertificates.EcP256RootStore)).Build),
     TComplianceFindingKind.ChainVerifiedOutsideModule), 'the built-in verifier is outside');
   CheckTrue(ReportHasKind(LPolicy.Evaluate(ClientBuilder(LPolicy).WithServerVerification(
     TServerVerification.VerifierSource(TFakeOsVerifierSources.Server).WithMinimumStrength(
@@ -8316,7 +8316,7 @@ var
   LStore: ITrustAnchorStore;
 begin
   LPolicy := RelaxedPolicy;
-  LStore := TTlsLibTestCertificates.EcP256RootStore;
+  LStore := TSupportCertificates.EcP256RootStore;
   LConfig := TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(LStore),
     TRevocationPosture.Soft, 1000).Build;
   CheckTrue(LConfig.ServerVerifierSource is TOSVerifierSource, 'the live source is the OS source');
@@ -8348,7 +8348,7 @@ var
   LPolicy: ICompliancePolicy;
   LCredential: TTlsCredential;
 begin
-  LOs := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
+  LOs := TSupportProviders.Crypto(TCryptoProviderChoice.OS);
   LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, LOs, Pkix,
     TOSModuleAttestation.Current, TComplianceEnforcement.Relaxed) as ICompliancePolicy;
   LCredential := MarkedKeyCredential(LOs, TArray<TSignatureScheme>.Create(
@@ -8364,7 +8364,7 @@ var
   LOs: ICryptoProvider;
   LPolicy: ICompliancePolicy;
 begin
-  LOs := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.OS);
+  LOs := TSupportProviders.Crypto(TCryptoProviderChoice.OS);
   LPolicy := TCompliancePolicy.Create(TCompliancePresets.Fips140_3, LOs, Pkix,
     TOSModuleAttestation.Current, TComplianceEnforcement.Relaxed) as ICompliancePolicy;
   CheckFalse(ReportHasKind(LPolicy.EvaluateCredential(ServerCredential(LOs)),

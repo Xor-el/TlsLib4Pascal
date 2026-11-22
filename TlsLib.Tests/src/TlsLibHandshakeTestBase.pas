@@ -27,8 +27,8 @@ uses
   TlpTlsCredential,
   TlpRecordHeader,
   TlsLibTestBase,
-  TlsLibTestCertificates,
-  TlsLibTestHandshakeDecoder;
+  SupportCertificates,
+  SupportHandshakeDecoder;
 
 type
   /// <summary>The helpers the handshake suites share; it has no tests and is never registered.</summary>
@@ -253,34 +253,34 @@ function TTlsLibHandshakeTestCase.ServerCredential(const ACrypto: ICryptoProvide
   : TTlsCredential;
 begin
   Result.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'));
   Result.PrivateKey := ACrypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'), nil);
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'), nil);
 end;
 
 function TTlsLibHandshakeTestCase.ServerCredentialEd25519: TTlsCredential;
 begin
   Result.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/Ed25519Chain.txt', 'leaf_cert'));
   Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/Ed25519Chain.txt', 'leaf_key'), nil);
+    TSupportCertificates.Field('Certs/Ed25519Chain.txt', 'leaf_key'), nil);
 end;
 
 function TTlsLibHandshakeTestCase.ServerCredentialEd448: TTlsCredential;
 begin
   Result.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/Ed448Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/Ed448Chain.txt', 'leaf_cert'));
   Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/Ed448Chain.txt', 'leaf_key'), nil);
+    TSupportCertificates.Field('Certs/Ed448Chain.txt', 'leaf_key'), nil);
 end;
 
 function TTlsLibHandshakeTestCase.ClientAuthCredential(out ARoot: TBytes): TTlsCredential;
 begin
-  ARoot := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
+  ARoot := TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
   Result.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_cert'));
   Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key'), nil);
+    TSupportCertificates.Field('Certs/ClientAuthChain.txt', 'leaf_key'), nil);
 end;
 
 function TTlsLibHandshakeTestCase.CredentialWithChain(
@@ -315,7 +315,7 @@ begin
   AClient.StartHandshake;
   Pump(AClient, AServer);
   LFlight := Drain(AServer);
-  Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
+  Result := TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(LFlight,
     Ord(TTlsHandshakeType.Certificate), LRecordPos, LMsgPos, LMsgLen);
   Feed(AClient, LFlight);
   ExchangeFlights(AClient, AServer);

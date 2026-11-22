@@ -37,7 +37,7 @@ uses
   TlpTlsLibExceptions,
   MockRandom,
   MockCryptoProvider,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -963,9 +963,9 @@ end;
 function TTestCredentialImport.RsaLeafCredential: TTlsCredential;
 begin
   Result.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_cert'));
   Result.PrivateKey := Crypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_key'), nil);
+    TSupportCertificates.Field('Certs/Rsa2048Chain.txt', 'leaf_key'), nil);
 end;
 
 procedure TTestCredentialImport.TestCloneOwnsTheChainAndStapleAndSharesTheKey;
@@ -1026,7 +1026,7 @@ var
 begin
   LCredential := RsaLeafCredential;
   LCredential.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'ku_keyenc_cert'));
+    TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'ku_keyenc_cert'));
   CheckEquals(Ord(TCredentialConsistency.LeafCannotSign),
     Ord(LCredential.Consistency(Pkix.Certificates)), 'a keyUsage without digitalSignature');
 end;
@@ -1037,7 +1037,7 @@ var
 begin
   LCredential := RsaLeafCredential;
   LCredential.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
+    TSupportCertificates.Field('Certs/KeyUsagePss.txt', 'rsapss_cert'));
   CheckEquals(Ord(TCredentialConsistency.LeafKeyRsaPss),
     Ord(LCredential.Consistency(Pkix.Certificates)), 'an RSA key over an id-RSASSA-PSS leaf');
 end;
@@ -1082,7 +1082,7 @@ var
   LReencoded: TBytes;
 begin
   LCredential := RsaLeafCredential;
-  LReencoded := TTlsLibTestCertificates.RsaSpkiWithoutNullParameters(
+  LReencoded := TSupportCertificates.RsaSpkiWithoutNullParameters(
     LCredential.PrivateKey.PublicKeyInfo);
   CheckFalse(TArrayUtilities.AreEqual(LReencoded, LCredential.PrivateKey.PublicKeyInfo),
     'the two encodings differ in bytes');
@@ -1106,7 +1106,7 @@ begin
   LKey := Crypto.Signing.ImportSigningKey(DecodeHex(FV.Values['rsa_enc_der']),
     TSecretBuffer.FromString(SPassword));
   CheckTrue(Crypto.Signing.OwnsKey(LKey), 'an encrypted key is owned');
-  LKey := Crypto.Signing.ImportPkcs12(TTlsLibTestCertificates.Field('Certs/Pkcs12.txt',
+  LKey := Crypto.Signing.ImportPkcs12(TSupportCertificates.Field('Certs/Pkcs12.txt',
     'chain_pfx'), TSecretBuffer.FromString(SPassword)).PrivateKey;
   CheckTrue(Crypto.Signing.OwnsKey(LKey), 'a PKCS#12 key is owned');
   CheckTrue(Crypto.Signing.OwnsKey(Import('rsa_pkcs8_der').WithPreferredSchemes(
