@@ -655,9 +655,11 @@ begin
   LKeys := NewKeys;
   LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
   LTicket := LStrategy.Seal(MakeSession(Tag($57, 8)));
-  // key name, 12-byte nonce, then the sealed body: damage its second byte
+  CheckTrue(LStrategy.Open(LTicket, LSeen), 'control: the genuine ticket opens');
+  // the sealed body ends in its 16-byte tag: damage the byte just before it
   LForged := System.Copy(LTicket);
-  LForged[LKeys.KeyNameLength + 12 + 1] := Byte(LForged[LKeys.KeyNameLength + 12 + 1] xor $80);
+  LForged[System.Length(LForged) - 17] := Byte(LForged[System.Length(LForged) - 17] xor $80);
+  LSeen := nil;
   CheckFalse(LStrategy.Open(LForged, LSeen), 'a forged body is a full handshake, not an error');
   CheckTrue(LSeen = nil, 'and yields no session');
 end;

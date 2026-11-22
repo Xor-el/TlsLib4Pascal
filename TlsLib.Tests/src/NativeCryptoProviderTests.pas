@@ -410,6 +410,24 @@ const
     'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
 
 type
+  // a sample mask that writes one fixed byte, so a test can tell it from any real mask
+  TSentinelSampleMask = class(TInterfacedObject, ISampleMask)
+  public
+    const
+      Sentinel = $5A;
+    function SampleSize: Int32;
+    function KeySize: Int32;
+    procedure Init(const AKey: ISecretBuffer);
+    procedure Compute(const ASample: TBytes; ASampleOff: Int32; const AMask: TBytes;
+      AMaskOff, AMaskLen: Int32);
+  end;
+
+  // primitives whose sample masks are sentinels, over a real facet for everything else
+  TSentinelMaskPrimitives = class(TForwardingCryptoPrimitives)
+  public
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask; override;
+  end;
+
   // a signing facet whose key import always fails loudly, used to prove the overlay's native
   // export never delegates to the portable facet; every other operation forwards to a real one
   TThrowingInnerSigning = class(TInterfacedObject, ISigningCrypto)
@@ -541,6 +559,35 @@ begin
     on E: Exception do
       FFailure := E.ClassName + ': ' + E.Message;
   end;
+end;
+
+{ TSentinelSampleMask }
+
+function TSentinelSampleMask.SampleSize: Int32;
+begin
+  Result := 16;
+end;
+
+function TSentinelSampleMask.KeySize: Int32;
+begin
+  Result := 16;
+end;
+
+procedure TSentinelSampleMask.Init(const AKey: ISecretBuffer);
+begin
+end;
+
+procedure TSentinelSampleMask.Compute(const ASample: TBytes; ASampleOff: Int32;
+  const AMask: TBytes; AMaskOff, AMaskLen: Int32);
+begin
+  FillChar(AMask[AMaskOff], AMaskLen, Sentinel);
+end;
+
+{ TSentinelMaskPrimitives }
+
+function TSentinelMaskPrimitives.CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
+begin
+  Result := TSentinelSampleMask.Create as ISampleMask;
 end;
 
 { TThrowingInnerSigning }
@@ -2477,24 +2524,22 @@ end;
 
 procedure TTestOverlayCryptoProvider.TestForwardingPrimitivesPassSampleMasksThrough;
 var
-  LForwarding: ICryptoPrimitives;
-  LThrough, LDirect: ISampleMask;
-  LKey, LSample, LThroughMask, LDirectMask: TBytes;
+  LInner, LForwarding: ICryptoPrimitives;
+  LMask: ISampleMask;
+  LOut: TBytes;
+  LI: Int32;
 begin
-  LForwarding := TForwardingCryptoPrimitives.Create(Portable.Primitives) as ICryptoPrimitives;
-  LThrough := LForwarding.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
-  LDirect := Portable.Primitives.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
-  LKey := Crypto.Primitives.GetRandom.GenerateBytes(LThrough.KeySize);
-  LSample := Crypto.Primitives.GetRandom.GenerateBytes(LThrough.SampleSize);
-  LThrough.Init(TSecretBuffer.From(LKey));
-  LDirect.Init(TSecretBuffer.From(LKey));
-  LThroughMask := nil;
-  SetLength(LThroughMask, 5);
-  LDirectMask := nil;
-  SetLength(LDirectMask, 5);
-  LThrough.Compute(LSample, 0, LThroughMask, 0, 5);
-  LDirect.Compute(LSample, 0, LDirectMask, 0, 5);
-  CheckEqualBytes('the forwarded mask is the inner one', LDirectMask, LThroughMask);
+  LInner := TSentinelMaskPrimitives.Create(Portable.Primitives) as ICryptoPrimitives;
+  LForwarding := TForwardingCryptoPrimitives.Create(LInner) as ICryptoPrimitives;
+  LOut := nil;
+  SetLength(LOut, 5);
+  // the inner facet's mask is the only one that writes the sentinel
+  for LI := Ord(Low(TSampleMaskAlgorithm)) to Ord(High(TSampleMaskAlgorithm)) do
+  begin
+    LMask := LForwarding.CreateSampleMask(TSampleMaskAlgorithm(LI));
+    LMask.Compute(Crypto.Primitives.GetRandom.GenerateBytes(16), 0, LOut, 0, 5);
+    CheckEquals(TSentinelSampleMask.Sentinel, LOut[4], Format('algorithm %d', [LI]));
+  end;
 end;
 
 procedure TTestNativeCryptoProvider.TestConcurrentSigningOnOneNativeKey;

@@ -141,6 +141,11 @@ type
     procedure TestAeadAadSpanOpenMatchesTheArrayOpen;
     procedure TestAeadAadSpanOpenRaisesBadRecordMac;
     procedure TestAeadAadSpanGuards;
+    procedure TestAeadAadSpanOverflowingOffsetIsRefused;
+    procedure TestAeadEmptyAadSpanAtTheEndIsAccepted;
+    procedure TestAeadTryOpenRaisesOnABadArgumentBeforeAShortInput;
+    procedure TestAeadAadSpansOfChangingLengthsOnOneInstance;
+    procedure TestAeadRepeatedAadSpansOfOneLengthStayCorrect;
   end;
 
 implementation
@@ -709,14 +714,14 @@ begin
         System.Move(LPlain[0], LBuf[OFF], LLen);
       LEnc := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
       LEnc.Init(TSecretBuffer.From(LKey));
-      LSealed := LEnc.Seal(LNonce, LAad, LBuf, OFF, LLen, LBuf, OFF);
+      LSealed := LEnc.Seal(LNonce, LAad, 0, System.Length(LAad), LBuf, OFF, LLen, LBuf, OFF);
       CheckEquals(LLen + 16, LSealed, AeadSuiteSpecs[LSi].Name + ': sealed length');
       CheckEqualBytes(AeadSuiteSpecs[LSi].Name + ': in-place seal matches allocating',
         LRef, System.Copy(LBuf, OFF, LSealed));
       // open in place, aliasing src = dest, and recover the plaintext
       LDec := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
       LDec.Init(TSecretBuffer.From(LKey));
-      LOpened := LDec.Open(LNonce, LAad, LBuf, OFF, LSealed, LBuf, OFF);
+      LOpened := LDec.Open(LNonce, LAad, 0, System.Length(LAad), LBuf, OFF, LSealed, LBuf, OFF);
       CheckEquals(LLen, LOpened, AeadSuiteSpecs[LSi].Name + ': opened length');
       CheckEqualBytes(AeadSuiteSpecs[LSi].Name + ': in-place open round-trips',
         LPlain, System.Copy(LBuf, OFF, LOpened));
@@ -744,13 +749,13 @@ begin
     System.Move(LPlain[0], LBuf[OFF], 64);
     LEnc := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
     LEnc.Init(TSecretBuffer.From(LKey));
-    LSealed := LEnc.Seal(LNonce, LAad, LBuf, OFF, 64, LBuf, OFF);
+    LSealed := LEnc.Seal(LNonce, LAad, 0, System.Length(LAad), LBuf, OFF, 64, LBuf, OFF);
     LBuf[OFF + LSealed - 1] := Byte(LBuf[OFF + LSealed - 1] xor $01); // corrupt the tag
     LDec := AProvider.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
     LDec.Init(TSecretBuffer.From(LKey));
     LRaised := False;
     try
-      LDec.Open(LNonce, LAad, LBuf, OFF, LSealed, LBuf, OFF);
+      LDec.Open(LNonce, LAad, 0, System.Length(LAad), LBuf, OFF, LSealed, LBuf, OFF);
     except
       on E: EFatalAlertTlsLibException do
         LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.BadRecordMac);
@@ -771,7 +776,7 @@ procedure TTestCryptoProvider.DoAeadSpanGuards(const AProvider: ICryptoProvider)
   begin
     Result := False;
     try
-      AAead.Seal(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+      AAead.Seal(ANonce, AAad, 0, System.Length(AAad), ASrc, ASrcOff, ALen, ADest, ADestOff);
     except
       on E: EArgumentTlsLibException do
         Result := True;
@@ -782,7 +787,7 @@ procedure TTestCryptoProvider.DoAeadSpanGuards(const AProvider: ICryptoProvider)
   begin
     Result := False;
     try
-      AAead.Open(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+      AAead.Open(ANonce, AAad, 0, System.Length(AAad), ASrc, ASrcOff, ALen, ADest, ADestOff);
     except
       on E: EArgumentTlsLibException do
         Result := True;
@@ -826,7 +831,7 @@ begin
   // a length below the tag size cannot authenticate: bad_record_mac, not an argument error
   LRaised := False;
   try
-    LAead.Open(LNonce, LAad, LCt, 0, 8, LOut, 0);
+    LAead.Open(LNonce, LAad, 0, System.Length(LAad), LCt, 0, 8, LOut, 0);
   except
     on E: EFatalAlertTlsLibException do
       LRaised := Ord(E.AlertDescription) = Ord(TTlsAlertDescription.BadRecordMac);
@@ -1141,7 +1146,7 @@ begin
   SetLength(LDest, 4 + LAead.TagSize);
   LRaised := False;
   try
-    LAead.Seal(LNonce, nil, DecodeHex('deadbeef'), 0, 4, LDest, 0);
+    LAead.Seal(LNonce, nil, 0, 0, DecodeHex('deadbeef'), 0, 4, LDest, 0);
   except
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
@@ -1383,7 +1388,8 @@ end;
 
 procedure TTestCryptoProvider.TestChaCha20SampleMaskAtTheCounterLimits;
 const
-  Counters: array [0 .. 3] of UInt32 = ($00000000, $00000001, $FFFFFFFE, $FFFFFFFF);
+  // the last block comes before other cases, so the next one shows nothing carried over
+  Counters: array [0 .. 3] of UInt32 = ($00000001, $FFFFFFFF, $00000000, $FFFFFFFE);
 var
   LCase, LI: Int32;
   LKey, LSample, LActual: TBytes;
@@ -1460,6 +1466,14 @@ begin
         LRaised := True;
     end;
     CheckTrue(LRaised, Format('algorithm %d: a key one byte short is refused', [LAi]));
+    LRaised := False;
+    try
+      LMask.Init(TSecretBuffer.From(PatternBytes(MaskKeySizes[LAi] + 1, 1)));
+    except
+      on E: EArgumentTlsLibException do
+        LRaised := True;
+    end;
+    CheckTrue(LRaised, Format('algorithm %d: a key one byte long is refused', [LAi]));
   end;
 end;
 
@@ -1681,7 +1695,7 @@ begin
     CheckEqualBytes(AeadSuiteSpecs[LSi].Name + ' TryOpen', LPlain, LByTry);
     LByOpen := nil;
     SetLength(LByOpen, 64);
-    LOpened := LAead.Open(LNonce, LAad, LSealed, 0, System.Length(LSealed), LByOpen, 0);
+    LOpened := LAead.Open(LNonce, LAad, 0, System.Length(LAad), LSealed, 0, System.Length(LSealed), LByOpen, 0);
     CheckEquals(LWritten, LOpened, AeadSuiteSpecs[LSi].Name + ': Open length');
     CheckEqualBytes(AeadSuiteSpecs[LSi].Name + ' Open', LByTry, LByOpen);
   end;
@@ -1922,6 +1936,182 @@ begin
     CheckTrue(TryOpenSpanRefused(0, 14), AeadSuiteSpecs[LSi].Name + ': TryOpen, a span past the end');
     CheckTrue(SealSpanRefused(0, 14), AeadSuiteSpecs[LSi].Name + ': Seal, a span past the end');
     CheckTrue(SealSpanRefused(-1, 4), AeadSuiteSpecs[LSi].Name + ': Seal, a negative offset');
+  end;
+end;
+
+procedure TTestCryptoProvider.TestAeadAadSpanOverflowingOffsetIsRefused;
+var
+  LSi, LOp, LWritten: Int32;
+  LAead: IAead;
+  LNonce, LAad, LPlain, LSealed, LDest: TBytes;
+
+  function Refused(AOp, AOff, ALen: Int32): Boolean;
+  begin
+    Result := False;
+    try
+      case AOp of
+        0:
+          LAead.Seal(PatternBytes(12, 1), LAad, AOff, ALen, LPlain, 0, 8, LDest, 0);
+        1:
+          LAead.Open(LNonce, LAad, AOff, ALen, LSealed, 0, System.Length(LSealed), LDest, 0);
+      else
+        LAead.TryOpen(LNonce, LAad, AOff, ALen, LSealed, 0, System.Length(LSealed), LDest, 0,
+          LWritten);
+      end;
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  for LSi := System.Low(AeadSuiteSpecs) to System.High(AeadSuiteSpecs) do
+  begin
+    SealForOpen(LSi, LAead, LNonce, LAad, LPlain, LSealed);
+    LDest := nil;
+    SetLength(LDest, 80);
+    for LOp := 0 to 2 do
+    begin
+      CheckTrue(Refused(LOp, High(Int32), 1), Format('%s op %d: the largest offset', [
+        AeadSuiteSpecs[LSi].Name, LOp]));
+      CheckTrue(Refused(LOp, 1, High(Int32)), Format('%s op %d: the largest length', [
+        AeadSuiteSpecs[LSi].Name, LOp]));
+    end;
+  end;
+end;
+
+procedure TTestCryptoProvider.TestAeadEmptyAadSpanAtTheEndIsAccepted;
+var
+  LSi, LWritten: Int32;
+  LKey, LNonce, LAad, LPlain, LSealed, LSpanSealed, LRefSealed, LOpened: TBytes;
+  LOpener, LSealer, LRef: IAead;
+begin
+  for LSi := System.Low(AeadSuiteSpecs) to System.High(AeadSuiteSpecs) do
+  begin
+    SealForOpen(LSi, LOpener, LNonce, LAad, LPlain, LSealed);
+    LKey := PatternBytes(AeadSuiteSpecs[LSi].KeySize, LSi + 7);
+    // an empty span at the end of a non-empty array is no associated data at all
+    LSealer := Crypto.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+    LSealer.Init(TSecretBuffer.From(LKey));
+    LSpanSealed := nil;
+    SetLength(LSpanSealed, System.Length(LPlain) + LSealer.TagSize);
+    LSealer.Seal(LNonce, LAad, System.Length(LAad), 0, LPlain, 0, System.Length(LPlain),
+      LSpanSealed, 0);
+    LRef := Crypto.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+    LRef.Init(TSecretBuffer.From(LKey));
+    LRefSealed := TAeadUtilities.Seal(LRef, LNonce, nil, LPlain);
+    CheckEqualBytes(AeadSuiteSpecs[LSi].Name + ' seal', LRefSealed, LSpanSealed);
+    LOpened := nil;
+    SetLength(LOpened, System.Length(LPlain));
+    CheckTrue(LOpener.TryOpen(LNonce, LAad, System.Length(LAad), 0, LSpanSealed, 0,
+      System.Length(LSpanSealed), LOpened, 0, LWritten), AeadSuiteSpecs[LSi].Name + ' open');
+    CheckEqualBytes(AeadSuiteSpecs[LSi].Name + ' plaintext', LPlain, LOpened);
+  end;
+end;
+
+procedure TTestCryptoProvider.TestAeadTryOpenRaisesOnABadArgumentBeforeAShortInput;
+var
+  LSi, LWritten: Int32;
+  LAead: IAead;
+  LNonce, LAad, LPlain, LSealed, LDest: TBytes;
+
+  function Raises(const ANonce: TBytes; AAadOff, ASrcOff, ALen: Int32): Boolean;
+  begin
+    Result := False;
+    try
+      LAead.TryOpen(ANonce, LAad, AAadOff, 4, LSealed, ASrcOff, ALen, LDest, 0, LWritten);
+    except
+      on E: EArgumentTlsLibException do
+        Result := True;
+    end;
+  end;
+
+begin
+  for LSi := System.Low(AeadSuiteSpecs) to System.High(AeadSuiteSpecs) do
+  begin
+    SealForOpen(LSi, LAead, LNonce, LAad, LPlain, LSealed);
+    LDest := nil;
+    SetLength(LDest, 8);
+    CheckFalse(Raises(LNonce, 0, 0, LAead.TagSize - 1), AeadSuiteSpecs[LSi].Name +
+      ': control, a well-formed short input is a failed authentication');
+    CheckTrue(Raises(LNonce, -1, 0, LAead.TagSize - 1), AeadSuiteSpecs[LSi].Name +
+      ': a short input with a bad associated-data span');
+    CheckTrue(Raises(System.Copy(LNonce, 0, 11), 0, 0, LAead.TagSize - 1),
+      AeadSuiteSpecs[LSi].Name + ': a short input with a wrong nonce size');
+    CheckTrue(Raises(LNonce, 0, 0, -1), AeadSuiteSpecs[LSi].Name + ': a negative length');
+    CheckTrue(Raises(LNonce, 0, System.Length(LSealed), 4), AeadSuiteSpecs[LSi].Name +
+      ': a short input beyond the source');
+  end;
+end;
+
+procedure TTestCryptoProvider.TestAeadAadSpansOfChangingLengthsOnOneInstance;
+const
+  // more distinct lengths than the provider keeps copies for, with repeats and an empty span
+  Lengths: array [0 .. 16] of Int32 = (13, 5, 20, 0, 7, 13, 5, 1, 2, 3, 4, 6, 8, 9, 10, 11, 13);
+var
+  LSi, LI, LLen, LOff: Int32;
+  LKey, LNonce, LBuffer, LPlain, LExact, LSealedSpan, LSealedRef, LOpened: TBytes;
+  LSealer, LOpener, LRef: IAead;
+begin
+  for LSi := System.Low(AeadSuiteSpecs) to System.High(AeadSuiteSpecs) do
+  begin
+    LKey := PatternBytes(AeadSuiteSpecs[LSi].KeySize, LSi + 1);
+    LBuffer := PatternBytes(64, LSi + 2);
+    LPlain := PatternBytes(40, LSi + 3);
+    LSealer := Crypto.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+    LSealer.Init(TSecretBuffer.From(LKey));
+    LOpener := Crypto.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+    LOpener.Init(TSecretBuffer.From(LKey));
+    for LI := System.Low(Lengths) to System.High(Lengths) do
+    begin
+      LLen := Lengths[LI];
+      LOff := LI mod 5;
+      LNonce := PatternBytes(12, LI + 30);
+      LExact := System.Copy(LBuffer, LOff, LLen);
+      LRef := Crypto.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+      LRef.Init(TSecretBuffer.From(LKey));
+      LSealedRef := TAeadUtilities.Seal(LRef, LNonce, LExact, LPlain);
+      LSealedSpan := nil;
+      SetLength(LSealedSpan, System.Length(LSealedRef));
+      LSealer.Seal(LNonce, LBuffer, LOff, LLen, LPlain, 0, System.Length(LPlain), LSealedSpan, 0);
+      CheckEqualBytes(Format('%s: seal with a span of %d at %d', [AeadSuiteSpecs[LSi].Name,
+        LLen, LOff]), LSealedRef, LSealedSpan);
+      LOpened := nil;
+      SetLength(LOpened, System.Length(LPlain));
+      LOpener.Open(LNonce, LBuffer, LOff, LLen, LSealedSpan, 0, System.Length(LSealedSpan),
+        LOpened, 0);
+      CheckEqualBytes(Format('%s: open with a span of %d at %d', [AeadSuiteSpecs[LSi].Name,
+        LLen, LOff]), LPlain, LOpened);
+    end;
+  end;
+end;
+
+procedure TTestCryptoProvider.TestAeadRepeatedAadSpansOfOneLengthStayCorrect;
+var
+  LSi, LI: Int32;
+  LKey, LNonce, LBuffer, LPlain, LSealedSpan, LSealedRef: TBytes;
+  LSealer, LRef: IAead;
+begin
+  // the same span length every call but new content, so a stale reused copy would show
+  for LSi := System.Low(AeadSuiteSpecs) to System.High(AeadSuiteSpecs) do
+  begin
+    LKey := PatternBytes(AeadSuiteSpecs[LSi].KeySize, LSi + 1);
+    LPlain := PatternBytes(40, LSi + 3);
+    LSealer := Crypto.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+    LSealer.Init(TSecretBuffer.From(LKey));
+    for LI := 0 to 11 do
+    begin
+      LBuffer := PatternBytes(32, LI * 7 + LSi);
+      LNonce := PatternBytes(12, LI + 50);
+      LRef := Crypto.Primitives.CreateAead(AeadSuiteSpecs[LSi].Algorithm);
+      LRef.Init(TSecretBuffer.From(LKey));
+      LSealedRef := TAeadUtilities.Seal(LRef, LNonce, System.Copy(LBuffer, 3, 13), LPlain);
+      LSealedSpan := nil;
+      SetLength(LSealedSpan, System.Length(LSealedRef));
+      LSealer.Seal(LNonce, LBuffer, 3, 13, LPlain, 0, System.Length(LPlain), LSealedSpan, 0);
+      CheckEqualBytes(Format('%s: call %d', [AeadSuiteSpecs[LSi].Name, LI]), LSealedRef,
+        LSealedSpan);
+    end;
   end;
 end;
 
