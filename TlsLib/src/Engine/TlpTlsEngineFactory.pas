@@ -90,6 +90,18 @@ type
     /// <summary>The client-certificate counterpart of ComposeServerVerifier.</summary>
     class function ComposeClientVerifier(const AConfig: ITlsServerConfig;
       const ATrust: TClientTrustContext): IClientCertificateVerifier; static;
+    /// <summary>The TLS 1.3 client machine's parameters from the config and the connection inputs
+    /// the factory resolved (shared randoms, name, verifiers); the TLS 1.2 side is assembled
+    /// separately.</summary>
+    class function BuildClient13Params(const AConfig: ITlsClientConfig;
+      const AServerName: TServerName; const AClientRandom, ASessionId: TBytes;
+      const AVerifier, AResumeVerifier, AEchRejectVerifier: IServerCertificateVerifier;
+      ADeferral: TVerdictDeferral; AOffersResumption: Boolean): TClientHandshakeParams; static;
+    /// <summary>The TLS 1.3 server machine's parameters from the config and the connection inputs
+    /// the factory resolved; the TLS 1.2 side is assembled separately.</summary>
+    class function BuildServer13Params(const AConfig: ITlsServerConfig;
+      const AServerRandom: TBytes; const AClientVerifier: IClientCertificateVerifier;
+      ADeferral: TVerdictDeferral): TServerHandshakeParams; static;
   public
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
@@ -169,6 +181,158 @@ begin
   if Assigned(ATrust.Dangerous.VerifyCallback) then
     Result := TClientVerifyCallbackVerifier.Create(Result, ATrust.Dangerous.VerifyCallback)
       as IClientCertificateVerifier;
+end;
+
+class function TTlsEngineFactory.BuildClient13Params(const AConfig: ITlsClientConfig;
+  const AServerName: TServerName; const AClientRandom, ASessionId: TBytes;
+  const AVerifier, AResumeVerifier, AEchRejectVerifier: IServerCertificateVerifier;
+  ADeferral: TVerdictDeferral; AOffersResumption: Boolean): TClientHandshakeParams;
+var
+  LOffers13: Boolean;
+begin
+  LOffers13 := Offers(AConfig, TlsWireVersionTls13);
+  Result := Default(TClientHandshakeParams);
+  Result.Crypto := AConfig.Crypto;
+  Result.Inspector := AConfig.Pkix.Certificates;
+  Result.Group := PreferredGroup(AConfig, Result.GroupCode);
+  // advertise every preferred group the registry holds (a pruned/absent group is dropped, not
+  // advertised-then-unresolvable) and carry the registry, so the server may retry the client
+  // onto any offered group it prefers (HelloRetryRequest)
+  Result.OfferedGroups := OfferedGroupCodes(AConfig, AnyGroupKind);
+  Result.GroupRegistry := AConfig.NamedGroups;
+  Result.CipherSuites := AConfig.CipherSuites;
+  // the extension registry (its ~20 handlers) is built only for a version whose machine is
+  // actually created; a single-version client would otherwise build and discard one
+  if LOffers13 then
+    Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  Result.OfferedSuites := SuiteCodes(AConfig);
+  Result.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
+  Result.AlpnProtocols := AConfig.AlpnProtocols;
+  Result.RecordSizeLimit := AConfig.RecordSizeLimit;
+  // the client advertises what it can decompress, and compresses its own Certificate with what it
+  // holds when the server asks for one and advertises a match (RFC 8879)
+  Result.CertificateDecompressors := AConfig.CertificateDecompressors;
+  Result.CertificateCompressors := AConfig.CertificateCompressors;
+  Result.CertificateCompressionCache := AConfig.CertificateCompressionCache;
+  // GREASE is on by default for a client (RFC 8701 keeps peers tolerant); optional per the RFC
+  Result.Grease := AConfig.Grease;
+  Result.RequestOcspStapling := AConfig.RequestOcspStapling;
+  // the config guarantees a non-nil clock (system clock by default); it backs a resumption
+  // PSK's obfuscated_ticket_age and ticket-lifetime expiry
+  Result.Clock := AConfig.Clock;
+  Result.KeyLog := AConfig.KeyLog;
+  Result.ClientRandom := AClientRandom;
+  Result.LegacySessionId := ASessionId;
+  // SNI carries the DNS name only (none for an IP literal, RFC 6066 sec. 3, no host, or Omit);
+  // the name check still uses the host
+  Result.ServerName := SniHostName(AConfig, AServerName);
+  // the session-cache identity is the full host (IP literals included), keeping each
+  // destination on its own cache key even when no SNI is sent
+  Result.ServerIdentity := AServerName.ToString;
+  Result.CertificateVerifier := AVerifier;
+  Result.CertificateChainLimits := AConfig.CertificateChainLimits;
+  Result.ResumeCertificateVerifier := AResumeVerifier;
+  Result.EchRejectCertificateVerifier := AEchRejectVerifier;
+  Result.Deferral := ADeferral;
+  Result.RevocationPosture := AConfig.RevocationPosture;
+  // Encrypted Client Hello policy (RFC 9849), nil when not offered
+  Result.EchPolicy := AConfig.EncryptedClientHello;
+  Result.ExpectedServerName := AServerName;
+  // a mutual-TLS client presents this credential when the server requests one; empty
+  // sends an empty client Certificate
+  Result.ClientCredential := AConfig.Credential;
+  if AOffersResumption and LOffers13 then
+  begin
+    Result.SessionCache := AConfig.SessionCache;
+    Result.SessionScope := AConfig.SessionScope;
+    Result.EarlyDataEnabled := AConfig.EarlyData;
+    Result.ResumeVerification := AConfig.ResumeVerification;
+  end;
+  // out-of-band external PSKs (RFC 9258) are a TLS 1.3-only offer. A PSK-only client (external
+  // PSKs configured with no certificate trust to fall back on) requires the server to select a
+  // PSK - a non-PSK ServerHello is then fatal.
+  if LOffers13 then
+  begin
+    Result.ExternalPsks := AConfig.ExternalPsks;
+    Result.RequirePsk := TClientPskPath.RequiresPsk(System.Length(AConfig.ExternalPsks),
+      AConfig.ExternalPskRequired);
+  end;
+end;
+
+class function TTlsEngineFactory.BuildServer13Params(const AConfig: ITlsServerConfig;
+  const AServerRandom: TBytes; const AClientVerifier: IClientCertificateVerifier;
+  ADeferral: TVerdictDeferral): TServerHandshakeParams;
+var
+  LOffers13: Boolean;
+  LGroupCode: UInt16;
+begin
+  LOffers13 := Offers(AConfig, TlsWireVersionTls13);
+  Result := Default(TServerHandshakeParams);
+  Result.Crypto := AConfig.Crypto;
+  Result.Inspector := AConfig.Pkix.Certificates;
+  Result.Clock := AConfig.Clock;
+  Result.KeyLog := AConfig.KeyLog;
+  Result.Policy := TNegotiationPolicy.Create(AConfig.CipherSuites,
+    AConfig.NamedGroups, AConfig.PreferredGroups, AConfig.SupportedVersions,
+    AConfig.CipherSuitePreference);
+  Result.CipherSuites := AConfig.CipherSuites;
+  // build the extension registry only for a version whose machine is created
+  if LOffers13 then
+    Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  // the negotiation policy (built above from the same PreferredGroups/NamedGroups) selects the
+  // group by server preference among the client's supported_groups (RFC 9846 4.3.7); the state
+  // machine resolves the selected code via GroupRegistry
+  Result.GroupRegistry := AConfig.NamedGroups;
+  // validate at creation that at least one preferred group is registered when 1.3 is offered (an
+  // empty registry-vs-preference intersection would leave the policy unable to select any group);
+  // the result is discarded - this is a creation-time guard, not a stored fallback
+  if LOffers13 then
+    PreferredGroup(AConfig, LGroupCode);
+  Result.ServerRandom := AServerRandom;
+  Result.AlpnProtocols := AConfig.AlpnProtocols;
+  Result.RecordSizeLimit := AConfig.RecordSizeLimit;
+  // the server compresses its Certificate with what it holds and the client advertised, and
+  // advertises what it can decompress when it asks for a client certificate (RFC 8879)
+  Result.CertificateCompressors := AConfig.CertificateCompressors;
+  Result.CertificateDecompressors := AConfig.CertificateDecompressors;
+  Result.CertificateChainLimits := AConfig.CertificateChainLimits;
+  // memoize that compression across connections (a stable certificate deflates once)
+  Result.CertificateCompressionCache := AConfig.CertificateCompressionCache;
+  // a per-server-instance secret so the server can answer with a stateless HelloRetryRequest
+  Result.CookieSecret := TSecretBuffer.From(AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32));
+  // the resolver selects the credential per handshake from the client's SNI (virtual hosting);
+  // each credential carries the chain, key, and (when set) the OCSP staple the server sends for
+  // its leaf once the client offers status_request
+  Result.CredentialResolver := AConfig.CredentialResolver;
+  Result.ServerNameAck := AConfig.ServerNameAcknowledgement;
+  Result.AlpnRejectAll := AConfig.AlpnRejectAll;
+  // mutual TLS: request a client certificate and verify it against the trust store
+  Result.ClientAuth := AConfig.ClientAuth;
+  Result.ClientAuthSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
+  Result.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
+  Result.ClientCertificateVerifier := AClientVerifier;
+  Result.Deferral := ADeferral;
+  Result.RevocationPosture := AConfig.RevocationPosture;
+  // resumption (RFC 9846 4.7.1): the session store/STEK are shared with the 1.2 machine; 0-RTT is
+  // 1.3-only, so the early-data budget and anti-replay reach only this machine
+  if AConfig.Resumption then
+  begin
+    Result.SessionStore := AConfig.SessionStore;
+    Result.SessionTicketKeys := AConfig.SessionTicketKeys;
+    Result.ResumptionScope := AConfig.ResumptionScope;
+    Result.IssueTicketCount := AConfig.TicketCount;
+    Result.TicketLifetimeSeconds := AConfig.TicketLifetimeSeconds;
+    Result.MaxEarlyData := AConfig.MaxEarlyData;
+    Result.AntiReplay := AConfig.AntiReplay;
+  end;
+  // out-of-band external PSKs (RFC 9258) and Encrypted Client Hello are matched only on the TLS
+  // 1.3 path; a keyed server decrypts ECH offers with its store and advertises its is_retry
+  // configs as retry_configs on reject (RFC 9849)
+  if LOffers13 then
+  begin
+    Result.ExternalPsks := AConfig.ExternalPsks;
+    Result.EchPolicy := AConfig.EncryptedClientHello;
+  end;
 end;
 
 class function TTlsEngineFactory.SuiteCodes(
@@ -313,56 +477,8 @@ begin
     LEchRejectVerifier := ComposeServerVerifier(AConfig, LRejectContext);
   end;
 
-  L13 := Default(TClientHandshakeParams);
-  L13.Crypto := AConfig.Crypto;
-  L13.Inspector := AConfig.Pkix.Certificates;
-  L13.Group := PreferredGroup(AConfig, L13.GroupCode);
-  // advertise every preferred group the registry holds (a pruned/absent group is dropped, not
-  // advertised-then-unresolvable) and carry the registry, so the server may retry the client
-  // onto any offered group it prefers (HelloRetryRequest)
-  L13.OfferedGroups := OfferedGroupCodes(AConfig, AnyGroupKind);
-  L13.GroupRegistry := AConfig.NamedGroups;
-  L13.CipherSuites := AConfig.CipherSuites;
-  // the extension registry (its ~20 handlers) is built only for a version whose machine is
-  // actually created below; a single-version client would otherwise build and discard one
-  if LOffers13 then
-    L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  L13.OfferedSuites := SuiteCodes(AConfig);
-  L13.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
-  L13.AlpnProtocols := AConfig.AlpnProtocols;
-  L13.RecordSizeLimit := AConfig.RecordSizeLimit;
-  // the client advertises what it can decompress, and compresses its own Certificate with what it
-  // holds when the server asks for one and advertises a match (RFC 8879)
-  L13.CertificateDecompressors := AConfig.CertificateDecompressors;
-  L13.CertificateCompressors := AConfig.CertificateCompressors;
-  L13.CertificateCompressionCache := AConfig.CertificateCompressionCache;
-  // GREASE is on by default for a client (RFC 8701 keeps peers tolerant); optional per the RFC
-  L13.Grease := AConfig.Grease;
-  L13.RequestOcspStapling := AConfig.RequestOcspStapling;
-  // the config guarantees a non-nil clock (system clock by default); it backs a resumption
-  // PSK's obfuscated_ticket_age and ticket-lifetime expiry
-  L13.Clock := AConfig.Clock;
-  L13.KeyLog := AConfig.KeyLog;
-  L13.ClientRandom := LClientRandom;
-  L13.LegacySessionId := LSessionId;
-  // SNI carries the DNS name only (none for an IP literal, RFC 6066 sec. 3, no host, or Omit);
-  // the name check below still uses the host
-  L13.ServerName := SniHostName(AConfig, LServerName);
-  // the session-cache identity is the full host (IP literals included), keeping each
-  // destination on its own cache key even when no SNI is sent
-  L13.ServerIdentity := LServerName.ToString;
-  L13.CertificateVerifier := LVerifier;
-  L13.CertificateChainLimits := AConfig.CertificateChainLimits;
-  L13.ResumeCertificateVerifier := LResumeVerifier;
-  L13.EchRejectCertificateVerifier := LEchRejectVerifier;
-  L13.Deferral := LDeferral;
-  L13.RevocationPosture := AConfig.RevocationPosture;
-  // Encrypted Client Hello policy (RFC 9849), nil when not offered
-  L13.EchPolicy := AConfig.EncryptedClientHello;
-  L13.ExpectedServerName := LServerName;
-  // a mutual-TLS client presents this credential when the server requests one; empty
-  // sends an empty client Certificate
-  L13.ClientCredential := AConfig.Credential;
+  L13 := BuildClient13Params(AConfig, LServerName, LClientRandom, LSessionId, LVerifier,
+    LResumeVerifier, LEchRejectVerifier, LDeferral, LOffersResumption);
 
   L12 := Default(TClient12HandshakeParams);
   L12.Crypto := AConfig.Crypto;
@@ -406,32 +522,13 @@ begin
   // resumption (RFC 9846 4.7.1 / RFC 5077): the version-appropriate client machine draws a
   // cached session and offers it. In a dual-version client the 1.3 machine draws (preferring
   // a 1.3 ticket, else offering a cached 1.2 session it hands to the 1.2 machine); either
-  // way the 1.2 machine still needs the cache to store completed 1.2 sessions, so wire both.
-  if LOffersResumption then
+  // way the 1.2 machine still needs the cache to store completed 1.2 sessions, so wire both
+  // (the 1.3 side is wired with its params above).
+  if LOffersResumption and LOffers12 then
   begin
-    if LOffers13 then
-    begin
-      L13.SessionCache := AConfig.SessionCache;
-      L13.SessionScope := AConfig.SessionScope;
-      L13.EarlyDataEnabled := AConfig.EarlyData;
-      L13.ResumeVerification := AConfig.ResumeVerification;
-    end;
-    if LOffers12 then
-    begin
-      L12.SessionCache := AConfig.SessionCache;
-      L12.SessionScope := AConfig.SessionScope;
-      L12.ResumeVerification := AConfig.ResumeVerification;
-    end;
-  end;
-
-  // out-of-band external PSKs (RFC 9258) are a TLS 1.3-only offer; the 1.2 machine ignores
-  // them. A PSK-only client (external PSKs configured with no certificate trust to fall back
-  // on) requires the server to select a PSK - a non-PSK ServerHello is then fatal.
-  if LOffers13 then
-  begin
-    L13.ExternalPsks := AConfig.ExternalPsks;
-    L13.RequirePsk := TClientPskPath.RequiresPsk(System.Length(AConfig.ExternalPsks),
-      AConfig.ExternalPskRequired);
+    L12.SessionCache := AConfig.SessionCache;
+    L12.SessionScope := AConfig.SessionScope;
+    L12.ResumeVerification := AConfig.ResumeVerification;
   end;
 
   // the inner hello never offers TLS 1.2 (RFC 9849 sec. 6.1), and this client also offers only
@@ -465,7 +562,6 @@ var
   LDeferral: TVerdictDeferral;
   LOffers13, LOffers12: Boolean;
   LMachine: IHandshakeMachine;
-  LGroupCode: UInt16;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
@@ -495,52 +591,7 @@ begin
     LClientVerifier := ComposeClientVerifier(AConfig, LClientContext);
   end;
 
-  L13 := Default(TServerHandshakeParams);
-  L13.Crypto := AConfig.Crypto;
-  L13.Inspector := AConfig.Pkix.Certificates;
-  L13.Clock := AConfig.Clock;
-  L13.KeyLog := AConfig.KeyLog;
-  L13.Policy := TNegotiationPolicy.Create(AConfig.CipherSuites,
-    AConfig.NamedGroups, AConfig.PreferredGroups, AConfig.SupportedVersions,
-    AConfig.CipherSuitePreference);
-  L13.CipherSuites := AConfig.CipherSuites;
-  // build the extension registry only for a version whose machine is created below
-  if LOffers13 then
-    L13.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
-  // the negotiation policy (built above from the same PreferredGroups/NamedGroups) selects the
-  // group by server preference among the client's supported_groups (RFC 9846 4.3.7); the state
-  // machine resolves the selected code via GroupRegistry
-  L13.GroupRegistry := AConfig.NamedGroups;
-  // validate at creation that at least one preferred group is registered when 1.3 is offered (an
-  // empty registry-vs-preference intersection would leave the policy unable to select any group);
-  // the result is discarded - this is a creation-time guard, not a stored fallback
-  if LOffers13 then
-    PreferredGroup(AConfig, LGroupCode);
-  L13.ServerRandom := LServerRandom;
-  L13.AlpnProtocols := AConfig.AlpnProtocols;
-  L13.RecordSizeLimit := AConfig.RecordSizeLimit;
-  // the server compresses its Certificate with what it holds and the client advertised, and
-  // advertises what it can decompress when it asks for a client certificate (RFC 8879)
-  L13.CertificateCompressors := AConfig.CertificateCompressors;
-  L13.CertificateDecompressors := AConfig.CertificateDecompressors;
-  L13.CertificateChainLimits := AConfig.CertificateChainLimits;
-  // memoize that compression across connections (a stable certificate deflates once)
-  L13.CertificateCompressionCache := AConfig.CertificateCompressionCache;
-  // a per-server-instance secret so the server can answer with a stateless HelloRetryRequest
-  L13.CookieSecret := TSecretBuffer.From(AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32));
-  // the resolver selects the credential per handshake from the client's SNI (virtual hosting);
-  // each credential carries the chain, key, and (when set) the OCSP staple the server sends for
-  // its leaf once the client offers status_request
-  L13.CredentialResolver := AConfig.CredentialResolver;
-  L13.ServerNameAck := AConfig.ServerNameAcknowledgement;
-  L13.AlpnRejectAll := AConfig.AlpnRejectAll;
-  // mutual TLS: request a client certificate and verify it against the trust store
-  L13.ClientAuth := AConfig.ClientAuth;
-  L13.ClientAuthSignatureSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
-  L13.ClientCertificateAuthorities := AConfig.ClientCertificateAuthorities;
-  L13.ClientCertificateVerifier := LClientVerifier;
-  L13.Deferral := LDeferral;
-  L13.RevocationPosture := AConfig.RevocationPosture;
+  L13 := BuildServer13Params(AConfig, LServerRandom, LClientVerifier, LDeferral);
 
   L12 := Default(TServer12HandshakeParams);
   L12.Crypto := AConfig.Crypto;
@@ -576,17 +627,10 @@ begin
   L12.RevocationPosture := AConfig.RevocationPosture;
 
   // resumption (RFC 9846 4.7.1 / RFC 5077): both version machines share the session
-  // store/STEK; each stores and accepts only its own version's sessions. 0-RTT is 1.3-only,
-  // so the early-data budget and anti-replay reach only the 1.3 machine
+  // store/STEK; each stores and accepts only its own version's sessions (the 1.3 side is wired
+  // with its params above)
   if AConfig.Resumption then
   begin
-    L13.SessionStore := AConfig.SessionStore;
-    L13.SessionTicketKeys := AConfig.SessionTicketKeys;
-    L13.ResumptionScope := AConfig.ResumptionScope;
-    L13.IssueTicketCount := AConfig.TicketCount;
-    L13.TicketLifetimeSeconds := AConfig.TicketLifetimeSeconds;
-    L13.MaxEarlyData := AConfig.MaxEarlyData;
-    L13.AntiReplay := AConfig.AntiReplay;
     L12.SessionStore := AConfig.SessionStore;
     L12.SessionTicketKeys := AConfig.SessionTicketKeys;
     L12.ResumptionScope := AConfig.ResumptionScope;
@@ -602,15 +646,6 @@ begin
     L12.PskDummyKey := TSecretBuffer.From(
       AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32));
   end;
-
-  // out-of-band external PSKs (RFC 9258) are matched only on the TLS 1.3 path
-  if LOffers13 then
-    L13.ExternalPsks := AConfig.ExternalPsks;
-
-  // Encrypted Client Hello is TLS 1.3-only: a keyed server decrypts offers with its store and
-  // advertises its is_retry configs as retry_configs on reject (RFC 9849)
-  if LOffers13 then
-    L13.EchPolicy := AConfig.EncryptedClientHello;
 
   if LOffers13 and LOffers12 then
     LMachine := TServerVersionDispatchMachine.Create(L13, L12,
