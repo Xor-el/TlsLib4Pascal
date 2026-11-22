@@ -90,6 +90,8 @@ type
     procedure TestTicketAeadIsAes256Gcm;
     procedure TestStoreTicketStrategyConsumeIsSingleUse;
     procedure TestStekTicketStrategyConsumeIsAlwaysTrue;
+    procedure TestStekOpenOfATamperedTagReadsAsUnreadable;
+    procedure TestStekOpenOfATamperedBodyReadsAsUnreadable;
     procedure TestStorePutWithId;
     procedure TestStoreBoundedEviction;
     procedure TestStoreRePutIdIsNotEvictedBeforeOlderEntries;
@@ -623,6 +625,41 @@ begin
   CheckTrue(LStrategy.Consume(LTicket), 'the first commit wins');
   CheckFalse(LStrategy.Consume(LTicket), 'a second commit of the same ticket is refused');
   CheckFalse(LStrategy.Open(LTicket, LOpened), 'a consumed ticket no longer opens');
+end;
+
+procedure TTestSessionStore.TestStekOpenOfATamperedTagReadsAsUnreadable;
+var
+  LKeys: ISessionTicketKeyManager;
+  LStrategy: ISessionTicketStrategy;
+  LTicket, LForged: TBytes;
+  LSeen: IResumableSession;
+begin
+  LKeys := NewKeys;
+  LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
+  LTicket := LStrategy.Seal(MakeSession(Tag($56, 8)));
+  CheckTrue(LStrategy.Open(LTicket, LSeen), 'control: the genuine ticket opens');
+  LForged := System.Copy(LTicket);
+  LForged[System.High(LForged)] := Byte(LForged[System.High(LForged)] xor $01);
+  LSeen := nil;
+  CheckFalse(LStrategy.Open(LForged, LSeen), 'a forged tag is a full handshake, not an error');
+  CheckTrue(LSeen = nil, 'and yields no session');
+end;
+
+procedure TTestSessionStore.TestStekOpenOfATamperedBodyReadsAsUnreadable;
+var
+  LKeys: ISessionTicketKeyManager;
+  LStrategy: ISessionTicketStrategy;
+  LTicket, LForged: TBytes;
+  LSeen: IResumableSession;
+begin
+  LKeys := NewKeys;
+  LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
+  LTicket := LStrategy.Seal(MakeSession(Tag($57, 8)));
+  // key name, 12-byte nonce, then the sealed body: damage its second byte
+  LForged := System.Copy(LTicket);
+  LForged[LKeys.KeyNameLength + 12 + 1] := Byte(LForged[LKeys.KeyNameLength + 12 + 1] xor $80);
+  CheckFalse(LStrategy.Open(LForged, LSeen), 'a forged body is a full handshake, not an error');
+  CheckTrue(LSeen = nil, 'and yields no session');
 end;
 
 procedure TTestSessionStore.TestStekTicketStrategyConsumeIsAlwaysTrue;
