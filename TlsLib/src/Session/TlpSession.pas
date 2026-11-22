@@ -22,6 +22,7 @@ uses
   TlpCryptoDomainTypes,
   TlpIKeySchedule,
   TlpISecretBuffer,
+  TlpTicketBinding,
   TlpISession;
 
 type
@@ -36,6 +37,8 @@ type
     /// name, the 12-byte nonce and the 16-byte tag. A server's larger ticket is ignored, which a
     /// client may do (RFC 9846 4.7.1, RFC 5077 3.3), so the ClientHello budget can count on it.</summary>
     MaxCachedTicketBytes = Int32(MaxSerializedSession + 16 + 12 + 16);
+    /// <summary>The longest early-data context, in bytes, a ticket seals.</summary>
+    MaxEarlyDataContextLength = Int32(255);
   end;
 
   /// <summary>
@@ -152,6 +155,9 @@ type
     FTicketIdentity: TBytes;
     FTicketAgeAdd: UInt32;
     FMaxEarlyData: UInt32;
+    FEarlyDataContext: TBytes;
+    FApplicationData: TBytes;
+    FTicketBinding: TTicketBinding;
   public
     /// <summary>APeerCertificates is the peer chain verified at establishment (empty when none).
     /// AResumptionScope is the opaque server scope sealed into the ticket (empty when none).</summary>
@@ -163,19 +169,26 @@ type
     /// <summary>As above, for a session an external pre-shared key authenticated (APskIdentity is
     /// that key's identity, APskBinding the digest of its secret), recording the signature
     /// scheme that verified the peer at establishment and the time of the full handshake that
-    /// authenticated it (AAuthenticatedAtMillis; the short form takes AIssuedAtMillis).</summary>
+    /// authenticated it (AAuthenticatedAtMillis; the short form takes AIssuedAtMillis), the
+    /// early-data context a server sealed into the ticket, the bytes a client host attached to it
+    /// and the kind of engine that minted it (the short form leaves the first two empty and
+    /// takes the record engine).</summary>
     constructor Create(ACipherSuite: UInt16; AHash: THashAlgorithm;
       const AResumptionSecret: ISecretBuffer; const AAlpn: TBytes; const AServerName: string;
       const ATicketIdentity: TBytes; ATicketLifetime, ATicketAgeAdd: UInt32;
       AIssuedAtMillis: UInt64; AMaxEarlyData: UInt32;
       const APeerCertificates: TArray<TBytes>; const AResumptionScope: TBytes;
       const APskIdentity, APskBinding: TBytes; APeerSignatureScheme: UInt16;
-      AAuthenticatedAtMillis: UInt64); overload;
+      AAuthenticatedAtMillis: UInt64; const AEarlyDataContext, AApplicationData: TBytes;
+      ATicketBinding: TTicketBinding); overload;
 
     function ResumptionSecret: ISecretBuffer;
     function TicketIdentity: TBytes;
     function TicketAgeAdd: UInt32;
     function MaxEarlyData: UInt32;
+    function EarlyDataContext: TBytes;
+    function ApplicationData: TBytes;
+    function TicketBinding: TTicketBinding;
     // IPreSharedKey (Hash/CipherSuite/Alpn/TicketLifetime/IssuedAtMillis are the base's; MaxEarlyData
     // and TicketAgeAdd are shared with ITls13ResumableSession) - only the PSK-specific projection here
     function Identity: TBytes;
@@ -380,7 +393,7 @@ constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
 begin
   Create(ACipherSuite, AHash, AResumptionSecret, AAlpn, AServerName, ATicketIdentity,
     ATicketLifetime, ATicketAgeAdd, AIssuedAtMillis, AMaxEarlyData, APeerCertificates,
-    AResumptionScope, nil, nil, 0, AIssuedAtMillis);
+    AResumptionScope, nil, nil, 0, AIssuedAtMillis, nil, nil, TTicketBinding.RecordEngine);
 end;
 
 constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
@@ -389,9 +402,13 @@ constructor TTls13ResumableSession.Create(ACipherSuite: UInt16;
   ATicketLifetime, ATicketAgeAdd: UInt32; AIssuedAtMillis: UInt64;
   AMaxEarlyData: UInt32; const APeerCertificates: TArray<TBytes>;
   const AResumptionScope: TBytes; const APskIdentity, APskBinding: TBytes;
-  APeerSignatureScheme: UInt16; AAuthenticatedAtMillis: UInt64);
+  APeerSignatureScheme: UInt16; AAuthenticatedAtMillis: UInt64;
+  const AEarlyDataContext, AApplicationData: TBytes; ATicketBinding: TTicketBinding);
 begin
   inherited Create;
+  FEarlyDataContext := System.Copy(AEarlyDataContext);
+  FApplicationData := System.Copy(AApplicationData);
+  FTicketBinding := ATicketBinding;
   FAuthenticatedAtMillis := AAuthenticatedAtMillis;
   FPeerSignatureScheme := APeerSignatureScheme;
   FPskIdentity := System.Copy(APskIdentity);
@@ -429,6 +446,21 @@ end;
 function TTls13ResumableSession.MaxEarlyData: UInt32;
 begin
   Result := FMaxEarlyData;
+end;
+
+function TTls13ResumableSession.EarlyDataContext: TBytes;
+begin
+  Result := System.Copy(FEarlyDataContext);
+end;
+
+function TTls13ResumableSession.ApplicationData: TBytes;
+begin
+  Result := System.Copy(FApplicationData);
+end;
+
+function TTls13ResumableSession.TicketBinding: TTicketBinding;
+begin
+  Result := FTicketBinding;
 end;
 
 function TTls13ResumableSession.Identity: TBytes;

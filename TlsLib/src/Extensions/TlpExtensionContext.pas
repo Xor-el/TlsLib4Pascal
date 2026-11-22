@@ -106,6 +106,8 @@ type
     EarlyDataAccepted: Boolean;
     /// <summary>early_data max_early_data_size carried in a NewSessionTicket.</summary>
     EarlyDataMaxSize: UInt32;
+    /// <summary>early_data was present in the NewSessionTicket, whatever its value.</summary>
+    EarlyDataMaxSizePresent: Boolean;
     /// <summary>session_ticket (RFC 5077): present in the ClientHello to indicate ticket
     /// support, and echoed empty by a 1.2 server that will send a NewSessionTicket. Set
     /// true outbound to emit it and true inbound when the peer's extension is present.</summary>

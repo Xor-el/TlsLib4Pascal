@@ -1,0 +1,5 @@
+# AES-256 mask known answer: FIPS 197 Appendix C.3, the whole ciphertext block (an independent
+# AES-256-ECB vector); the mask is its head.
+fips197_key=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+fips197_sample=00112233445566778899aabbccddeeff
+fips197_mask=8ea2b7ca516745bfeafc49904b496089

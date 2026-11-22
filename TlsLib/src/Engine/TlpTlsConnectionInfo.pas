@@ -22,11 +22,14 @@ uses
 
 type
   /// <summary>Why 0-RTT early data was or was not used on a connection (RFC 9846 4.3.10): the
-  /// first reason in this order that applies is reported; ReplayDetected is the anti-replay
-  /// decline (RFC 9846 8.2).</summary>
+  /// first applicable reason is reported (configuration, ticket, ALPN, context, age, replay);
+  /// ReplayDetected is the anti-replay
+  /// decline (RFC 9846 8.2); ContextMismatch is the server declining early data because the
+  /// ticket was issued under another early-data context than the one configured, while the
+  /// resumption itself went ahead.</summary>
   TEarlyDataReason = (Disabled, Accepted, ProtocolVersion, PeerDeclined, NoSessionOffered,
     SessionNotResumed, UnsupportedForSession, HelloRetryRequest, AlpnMismatch, TicketAgeSkew,
-    ReplayDetected);
+    ReplayDetected, ContextMismatch);
 
   /// <summary>
   /// A read-only snapshot of a connection's negotiated facts; the fields fill in as the
@@ -84,7 +87,9 @@ type
     /// always True on TLS 1.3. Without it a TLS 1.2 exporter is unavailable (RFC 7627 5.4).
     ExtendedMasterSecret: Boolean;
     /// Whether 0-RTT early data was accepted (RFC 9846 4.3.10): a client's offer the server accepted, or
-    /// a server that opened the early-data read window. False when none was offered or it was rejected.
+    /// a server that opened the early-data read window (a handshake-only server reports it at the
+    /// client Finished, though its host holds the early read secret from the ServerHello). False
+    /// when none was offered or it was rejected.
     EarlyDataAccepted: Boolean;
     /// The Encrypted Client Hello outcome (RFC 9849); see TEchStatus.
     EchStatus: TEchStatus;

@@ -342,8 +342,8 @@ begin
   Result[TRecordLimits.HeaderLength + ALength] := AContentType.ToByte;
   DeriveNonceInto(FIv, FSeq, FNonce);
   try
-    FAead.Seal(FNonce, FAad, Result, TRecordLimits.HeaderLength, LInnerLength,
-      Result, TRecordLimits.HeaderLength);
+    FAead.Seal(FNonce, FAad, 0, System.Length(FAad), Result, TRecordLimits.HeaderLength,
+      LInnerLength, Result, TRecordLimits.HeaderLength);
     Inc(FSeq);
   except
     // until the seal overwrites it, the buffer still holds the plaintext
@@ -376,8 +376,8 @@ begin
   SetLength(LInner, LInnerLength);
   DeriveNonceInto(FIv, FSeq, FNonce);
   // opened straight out of the record body, so the plaintext is materialized once
-  FAead.Open(FNonce, FAad, ARecord, AOffset + TRecordLimits.HeaderLength, LHeader.Length,
-    LInner, 0);
+  FAead.Open(FNonce, FAad, 0, System.Length(FAad), ARecord,
+    AOffset + TRecordLimits.HeaderLength, LHeader.Length, LInner, 0);
   try
     // the outer opaque_type check comes AFTER a successful decrypt: a record that fails its
     // AEAD (e.g. a plaintext record arriving where encryption is expected) is a bad_record_mac,
@@ -501,7 +501,8 @@ begin
   if ALength > 0 then
     Move(APlaintext[AOffset], Result[LBodyOffset], ALength);
   try
-    FAead.Seal(FNonce, FAad, Result, LBodyOffset, ALength, Result, LBodyOffset);
+    FAead.Seal(FNonce, FAad, 0, System.Length(FAad), Result, LBodyOffset, ALength, Result,
+      LBodyOffset);
     Inc(FSeq);
   except
     // until the seal overwrites it, the buffer still holds the plaintext
@@ -553,7 +554,8 @@ begin
   BuildAadInto(LHeader.ContentTypeByte, LVersion.WireValue, LPlaintextLength);
   SetLength(Result, LPlaintextLength);
   // opened straight out of the record body, so the plaintext is materialized once
-  FAead.Open(FNonce, FAad, ARecord, LCipherOffset, LCipherLength, Result, 0);
+  FAead.Open(FNonce, FAad, 0, System.Length(FAad), ARecord, LCipherOffset, LCipherLength,
+    Result, 0);
   // checked after a successful open so a forged oversize record stays a bad_record_mac;
   // the plaintext itself may not exceed 2^14 (RFC 5246 6.2.1)
   if System.Length(Result) > TRecordLimits.MaxPlaintext then

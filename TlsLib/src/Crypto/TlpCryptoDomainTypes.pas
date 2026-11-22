@@ -39,6 +39,10 @@ type
   /// <summary>The AEAD ciphers the library selects between (internal identifiers).</summary>
   TAeadAlgorithm = (AES_128_GCM, AES_256_GCM, CHACHA20_POLY1305);
 
+  /// <summary>The ciphers a sample mask is derived with: the AES block cipher or the ChaCha20
+  /// keystream.</summary>
+  TSampleMaskAlgorithm = (AES_128, AES_256, CHACHA20);
+
   /// <summary>An AEAD's usage-limit family: AES-GCM must proactively rekey by a
   /// record-count bound, ChaCha20-Poly1305 is bounded only by the record sequence.</summary>
   TAeadUsageCategory = (AesGcm, ChaCha20);

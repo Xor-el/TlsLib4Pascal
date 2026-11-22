@@ -180,6 +180,7 @@ type
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
     function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
     function HasHardwareAes: Boolean;
@@ -234,6 +235,7 @@ type
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
     function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
     function HasHardwareAes: Boolean;
@@ -315,10 +317,13 @@ type
     function NonceSize: Int32;
     function TagSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
-    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32;
-    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32;
+    function Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
+    function Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
+    function TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+      const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
+      out APlainLen: Int32): Boolean;
   end;
 
   /// <summary>An <see cref="ICryptoPrimitives" /> decorator whose <c>CreateAead</c> wraps the inner
@@ -338,6 +343,7 @@ type
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
     function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
     function HasHardwareAes: Boolean;
@@ -723,6 +729,11 @@ begin
   Result := FInner.CreateAead(AAlgorithm);
 end;
 
+function TFixedAesPrimitives.CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
+begin
+  Result := FInner.CreateSampleMask(AAlgorithm);
+end;
+
 function TFixedAesPrimitives.CreateKeyAgreement(
   AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
 begin
@@ -829,6 +840,11 @@ begin
     raise ENotSupportedTlsLibException.CreateRes(@SMissingAead);
   end;
   Result := FInner.CreateAead(AAlgorithm);
+end;
+
+function TMissingAeadPrimitives.CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
+begin
+  Result := FInner.CreateSampleMask(AAlgorithm);
 end;
 
 function TMissingAeadPrimitives.CreateKeyAgreement(
@@ -1031,8 +1047,8 @@ begin
   FInner.Init(AKey);
 end;
 
-function TCappedAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
+function TCappedAead.Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+  const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
 begin
   if (FSwitch <> nil) and FSwitch.TakeFault then
   begin
@@ -1040,13 +1056,21 @@ begin
       FSwitch.FaultedInnerType := ASrc[ASrcOff + ALen - 1];
     raise EInvalidOperationTlsLibException.CreateRes(@SInjectedSealFault);
   end;
-  Result := FInner.Seal(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+  Result := FInner.Seal(ANonce, AAad, AAadOff, AAadLen, ASrc, ASrcOff, ALen, ADest, ADestOff);
 end;
 
-function TCappedAead.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
+function TCappedAead.Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+  const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
 begin
-  Result := FInner.Open(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
+  Result := FInner.Open(ANonce, AAad, AAadOff, AAadLen, ASrc, ASrcOff, ALen, ADest, ADestOff);
+end;
+
+function TCappedAead.TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+  const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
+  out APlainLen: Int32): Boolean;
+begin
+  Result := FInner.TryOpen(ANonce, AAad, AAadOff, AAadLen, ASrc, ASrcOff, ALen, ADest,
+    ADestOff, APlainLen);
 end;
 
 { TCappedAeadPrimitives }
@@ -1088,6 +1112,11 @@ end;
 function TCappedAeadPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
   Result := TCappedAead.Create(FInner.CreateAead(AAlgorithm), FUsageLimit, FSwitch) as IAead;
+end;
+
+function TCappedAeadPrimitives.CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
+begin
+  Result := FInner.CreateSampleMask(AAlgorithm);
 end;
 
 function TCappedAeadPrimitives.CreateKeyAgreement(

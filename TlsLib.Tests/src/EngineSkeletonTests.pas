@@ -129,13 +129,16 @@ end;
 procedure TTestEngineSkeleton.TestEngineDoesNotExposeInstallerSeam;
 var
   LEngine: ITlsEngine;
-  LInstaller: IRecordEpochInstaller;
+  LInstaller: IEpochKeyInstaller;
+  LControl: IRecordLayerControl;
 begin
   // the engine must not surface an installer reference to callers; the handshake bridge
   // links the engine and driver without either owning the other
   LEngine := NewEngine;
-  CheckFalse(Supports(LEngine, IRecordEpochInstaller, LInstaller),
-    'the engine does not expose IRecordEpochInstaller');
+  CheckFalse(Supports(LEngine, IEpochKeyInstaller, LInstaller),
+    'the engine does not expose IEpochKeyInstaller');
+  CheckFalse(Supports(LEngine, IRecordLayerControl, LControl),
+    'the engine does not expose IRecordLayerControl');
 end;
 
 procedure TTestEngineSkeleton.TestFatalPreQueuesAlertAndTerminal;

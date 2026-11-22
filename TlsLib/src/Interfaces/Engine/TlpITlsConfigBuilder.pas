@@ -464,7 +464,7 @@ type
 
   /// <summary>The TLS 1.3-only server settings.</summary>
   ITls13ServerConfigFacet = interface(IInterface)
-    ['{8DBA71D8-F01C-4F5B-941A-960DC5474713}']
+    ['{938AF463-353E-4EC7-9402-A303D9E0D2F1}']
     /// <summary>The out-of-band external pre-shared keys (RFC 9258) the server imports and
     /// matches an offered pre_shared_key against, in preference order. A matching PSK is
     /// preferred over the server's certificate, and an accepted PSK stands in for client
@@ -518,6 +518,13 @@ type
     /// ticket keys, which need a session store or a strategy shared by every instance; a
     /// single-instance deployment opts in by passing a register here explicitly.</summary>
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
+    /// <summary>The context 0-RTT is bound to: it is sealed into every ticket this server issues,
+    /// and on resumption early data is accepted only when the ticket's context equals this one,
+    /// byte for byte (a ticket issued before the context was set, or under another one, still
+    /// resumes but without early data). Use it to tie early data to the settings a replayed
+    /// request must still satisfy. At most 255 bytes; empty (the default) binds nothing. Build
+    /// refuses a context without WithEarlyData, or with resumption off.</summary>
+    function WithEarlyDataContext(const AContext: TBytes): ITls13ServerConfigFacet;
     /// <summary>Enables Encrypted Client Hello: the key store the server decrypts offers with
     /// and advertises as retry_configs (RFC 9849), swapped to rotate keys. Build one from a
     /// store class - e.g. TInMemoryEchKeyStore.FromPem / .FromConfig - or supply your own. Raises on a

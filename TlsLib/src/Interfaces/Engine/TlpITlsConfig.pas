@@ -203,7 +203,7 @@ type
 
   /// <summary>A frozen server endpoint config: it authenticates with a certificate credential or an external PSK.</summary>
   ITlsServerConfig = interface(ITlsCommonConfig)
-    ['{23DFAF5D-32F7-4D36-9BBC-14FCB6635CD7}']
+    ['{DAD090F3-57ED-4854-958F-31748D095039}']
     /// <summary>Whether a server that received a server_name (SNI) echoes the empty
     /// server_name acknowledgement (RFC 6066 3); default True.</summary>
     function ServerNameAcknowledgement: Boolean;
@@ -256,6 +256,10 @@ type
     /// <summary>TLS 1.3 only: the 0-RTT early-data byte budget the server authorizes (0 = no early
     /// data).</summary>
     function MaxEarlyData: UInt32;
+    /// <summary>TLS 1.3 only: the opaque context sealed into issued tickets that 0-RTT must match
+    /// on resumption, byte for byte; empty when none. A ticket carrying another context still
+    /// resumes, without early data.</summary>
+    function EarlyDataContext: TBytes;
     /// <summary>TLS 1.3 only: the server's Encrypted Client Hello policy (RFC 9849): a keyed
     /// server's store and trial-decrypt setting, or a split-mode backend. nil when ECH is not
     /// configured; an inner-type

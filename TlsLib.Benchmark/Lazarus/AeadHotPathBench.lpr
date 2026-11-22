@@ -79,7 +79,7 @@ begin
   for LI := 0 to CRecords - 1 do
   begin
     SetNonce(LNonce, LI);
-    LReused.Seal(LNonce, LAad, LPlain, 0, CRecordSize, LSealed, 0);
+    LReused.Seal(LNonce, LAad, 0, Length(LAad), LPlain, 0, CRecordSize, LSealed, 0);
   end;
   LReuseMs := TThread.GetTickCount - LStart;
 
@@ -90,7 +90,7 @@ begin
     SetNonce(LNonce, LI);
     LFresh := AProvider.Primitives.CreateAead(AAlgorithm);
     LFresh.Init(LKey);
-    LFresh.Seal(LNonce, LAad, LPlain, 0, CRecordSize, LSealed, 0);
+    LFresh.Seal(LNonce, LAad, 0, Length(LAad), LPlain, 0, CRecordSize, LSealed, 0);
   end;
   LPerRecMs := TThread.GetTickCount - LStart;
 

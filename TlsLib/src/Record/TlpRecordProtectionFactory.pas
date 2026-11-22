@@ -22,6 +22,7 @@ uses
   TlpIKeySchedule,
   TlpIRecordProtection,
   TlpRecordProtection,
+  TlpTrafficKeys,
   TlpTlsLibExceptions;
 
 type
@@ -37,6 +38,10 @@ type
   public
     class function Build(const AVersion: TTlsVersion; const AKeys: ITrafficKeys;
       const AAead: IAead): IRecordProtection; static;
+    /// <summary>The TLS 1.3 record protection keyed from ASecret: the key and iv derive from it
+    /// under the suite's hash and the AEAD's key size, on ACrypto's HKDF and AEAD.</summary>
+    class function BuildFromSecret(const ACrypto: ICryptoProvider;
+      const ASecret: ITrafficSecret): IRecordProtection; static;
   end;
 
 implementation
@@ -56,6 +61,16 @@ begin
     Result := TTls12RecordProtection.Create(AKeys.Key, AKeys.Iv, AAead)
   else
     raise EArgumentTlsLibException.CreateRes(@SUnsupportedProtectionVersion);
+end;
+
+class function TRecordProtectionFactory.BuildFromSecret(const ACrypto: ICryptoProvider;
+  const ASecret: ITrafficSecret): IRecordProtection;
+var
+  LAead: IAead;
+begin
+  LAead := ACrypto.Primitives.CreateAead(ASecret.Aead);
+  Result := Build(TTlsVersion.Tls13, TTrafficKeys.FromSecret(
+    ACrypto.Primitives.CreateHkdf(ASecret.Hash), ASecret.Secret, LAead.KeySize), LAead);
 end;
 
 end.

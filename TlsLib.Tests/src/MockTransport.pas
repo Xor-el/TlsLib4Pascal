@@ -403,8 +403,8 @@ type
   /// <summary>An engine decorator that counts the calls that run inside it at the same time: each
   /// forwarded call yields once inside, so a caller that does not serialise its engine calls shows
   /// as an overlap.</summary>
-  TExclusionProbeEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
-    ITlsEngineOutbound)
+  TExclusionProbeEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsCommonEngine,
+    ITlsEngineInbound, ITlsEngineOutbound)
   strict private
   var
     FInner: ITlsEngine;
@@ -455,8 +455,8 @@ type
   /// IsTerminal call after WantsWrite answered False it seals close_notify, which is how a record
   /// is sealed after a writer's last check and before it lets go of the write side. It can also
   /// owe one more byte once the transport has failed, like a record sealed behind a failed send.</summary>
-  TSealAfterDrainEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
-    ITlsEngineOutbound)
+  TSealAfterDrainEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsCommonEngine,
+    ITlsEngineInbound, ITlsEngineOutbound)
   strict private
   var
     FInner: ITlsEngine;

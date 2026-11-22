@@ -174,7 +174,7 @@ begin
 
   FDriver := Own<THandshakeDriver>(THandshakeDriver.Create(
     THandshakeChannel.Create(FLayer) as IHandshakeChannel,
-    TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, Crypto,
+    TRecordLayerInstaller.Create(FLayer, Crypto) as IEpochKeyInstaller,
     TMockHandshakeSink.Create as IHandshakeSink));
 
   FDriver.ApplyAll(FSm.Start);

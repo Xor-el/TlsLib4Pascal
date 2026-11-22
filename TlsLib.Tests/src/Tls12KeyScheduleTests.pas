@@ -55,6 +55,7 @@ type
     procedure TestOnlyTheFiveLabelsAreKeyScheduleLabels;
     procedure TestExporterRefusesEveryKeyScheduleLabel;
     procedure TestForgetKeepsMasterForExporterAndReleasesKeyBlock;
+    procedure TestTrafficKeysOfPlaintextRaises;
     procedure TestDeriveMasterTwiceRaises;
     procedure TestDeriveMasterAfterSetMasterRaises;
     procedure TestDeriveMasterWithoutPreMasterRaises;
@@ -281,6 +282,24 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'the key-block traffic keys are released after forget');
+end;
+
+procedure TTestTls12KeySchedule.TestTrafficKeysOfPlaintextRaises;
+var
+  LSched: ITls12KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSchedule;
+  LSched.DeriveMasterSecret;
+  LSched.DeriveKeyBlock;
+  LRaised := False;
+  try
+    LSched.TrafficKeys(TTlsEpoch.Plaintext, TTlsDirection.ClientWrite);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the plaintext epoch has no traffic keys');
 end;
 
 procedure TTestTls12KeySchedule.TestDeriveMasterTwiceRaises;

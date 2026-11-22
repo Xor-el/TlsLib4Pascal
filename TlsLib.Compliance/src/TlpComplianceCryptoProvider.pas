@@ -74,6 +74,7 @@ type
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf; override;
     function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf; override;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead; override;
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask; override;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement; override;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem; override;
   end;
@@ -276,6 +277,30 @@ begin
     raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused, [LName]);
   RequireInModule(FReport.AeadBackend(AAlgorithm), LName);
   Result := inherited CreateAead(AAlgorithm);
+end;
+
+function TComplianceCryptoPrimitives.CreateSampleMask(
+  AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
+var
+  LName: string;
+  LAead: TAeadAlgorithm;
+begin
+  LName := TEnumUtilities.GetName<TSampleMaskAlgorithm>(AAlgorithm);
+  // a mask accompanies the AEAD of its cipher, so the rules that allow one allow the other
+  case AAlgorithm of
+    TSampleMaskAlgorithm.AES_128:
+      LAead := TAeadAlgorithm.AES_128_GCM;
+    TSampleMaskAlgorithm.AES_256:
+      LAead := TAeadAlgorithm.AES_256_GCM;
+    TSampleMaskAlgorithm.CHACHA20:
+      LAead := TAeadAlgorithm.CHACHA20_POLY1305;
+  else
+    raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused, [LName]);
+  end;
+  if not (LAead in FAeads) then
+    raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused, [LName]);
+  RequireInModule(FReport.SampleMaskBackend(AAlgorithm), LName);
+  Result := inherited CreateSampleMask(AAlgorithm);
 end;
 
 function TComplianceCryptoPrimitives.CreateKeyAgreement(

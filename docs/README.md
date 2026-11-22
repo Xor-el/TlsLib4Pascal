@@ -21,6 +21,7 @@ by task, and drop into a deep-dive guide when you need the detail.
 | **[OS system trust](system-trust.md)** | Verify against the operating system's own root store, the way a browser does. |
 | **[Certificate compression](certificate-compression.md)** | RFC 8879 compression and the cross-connection compression cache. |
 | **[Encrypted Client Hello](ech.md)** | RFC 9849 ECH: hide the SNI — offering it as a client, accepting it as a server, key generation, and DNS. |
+| **[TLS 1.3 handshake-only engine](tls13-handshake-engine.md)** | Your transport protects its own records and needs only the TLS 1.3 handshake and its traffic secrets. |
 | **[Compliance](compliance.md)** | Run under a FIPS or CNSA policy over the OS crypto module, and what it does and does not claim. |
 | **[Security model](security-model.md)** | The invariants, the fail-closed guarantees, and how each is tested — the auditor's map. |
 | **[SECURITY.md](../SECURITY.md)** | Reporting a vulnerability + the coordinated-disclosure policy. |

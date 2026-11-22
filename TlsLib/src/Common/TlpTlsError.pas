@@ -22,14 +22,16 @@ type
   /// <summary>Where the error came from: Local is one this side produced (its alert was sent,
   /// unless our close_notify or a failed seal prevented it), Peer one the peer sent (its alert
   /// was received), Transport a transport failure under the connection (no alert was sent or
-  /// received, so Alert and AlertByte are placeholders). Unknown is the zero value: no failure
-  /// recorded yet.</summary>
-  TTlsErrorOrigin = (Unknown, Local, Peer, Transport);
+  /// received, so Alert and AlertByte are placeholders), LocalWithoutAlert one this side produced
+  /// for a reason TLS defines no alert for (Alert and AlertByte are placeholders, nothing was
+  /// or will be sent). Unknown is the zero value: no failure recorded yet.</summary>
+  TTlsErrorOrigin = (Unknown, Local, Peer, Transport, LocalWithoutAlert);
 
   /// <summary>
   /// The structured, public-facing error surfaced to callers: the alert this
   /// side sent or would send (Local) or the peer sent (Peer), unless Origin is
-  /// Transport, and a human-readable message that must not leak internal state.
+  /// Transport or LocalWithoutAlert, and a human-readable message that must not leak internal
+  /// state.
   /// </summary>
   TTlsError = record
   strict private

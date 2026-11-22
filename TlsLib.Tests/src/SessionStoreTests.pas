@@ -36,6 +36,7 @@ uses
   TlpAeadUtilities,
   TlpISecretBuffer,
   TlpSecretBuffer,
+  TlpTicketBinding,
   TlpISession,
   TlpSession,
   TlpInMemorySessionCache,
@@ -44,7 +45,8 @@ uses
   TlpSessionTicketStrategy,
   TlpAntiReplay,
   TlpTlsLibExceptions,
-  TlsLibTestBase;
+  TlsLibTestBase,
+  TlsLibTestTicketRewriter;
 
 type
   TTestSessionStore = class(TTlsLibAlgorithmTestCase)
@@ -63,6 +65,7 @@ type
     // whether sealing / opening a ticket lets AFault out when the ticket AEAD raises it
     function SealRaisedFrom(AFault: ExceptClass): Boolean;
     function OpenRaisedFrom(AFault: ExceptClass): Boolean;
+    function MakeFullSession(const AEarlyDataContext, AApplicationData: TBytes): ITls13ResumableSession;
   published
     procedure TestCacheStoreAndTakeSingleUse;
     procedure TestCacheKeyedByServerAndSni;
@@ -90,6 +93,8 @@ type
     procedure TestTicketAeadIsAes256Gcm;
     procedure TestStoreTicketStrategyConsumeIsSingleUse;
     procedure TestStekTicketStrategyConsumeIsAlwaysTrue;
+    procedure TestStekOpenOfATamperedTagReadsAsUnreadable;
+    procedure TestStekOpenOfATamperedBodyReadsAsUnreadable;
     procedure TestStorePutWithId;
     procedure TestStoreBoundedEviction;
     procedure TestStoreRePutIdIsNotEvictedBeforeOlderEntries;
@@ -130,6 +135,14 @@ type
     procedure TestStekSealOpenCarriesTls13AuthenticatedAt;
     procedure TestStekSealOpenCarriesTls12AuthenticatedAt;
     procedure TestStekV10TicketIsDeclined;
+    procedure TestStekV11TicketIsDeclined;
+    procedure TestStekSealOpenCarriesEarlyDataContext;
+    procedure TestStekSealOpenCarriesAnEmptyEarlyDataContext;
+    procedure TestStekSealNeverCarriesApplicationData;
+    procedure TestStekOpenDeclinesAnUnknownEngineKind;
+    procedure TestStekSealDeclinesAnOversizedEarlyDataContext;
+    procedure TestCachePersistsTheNewSessionFields;
+    procedure TestStorePersistsTheNewSessionFields;
     procedure TestStekSealDeclinesBaseOnlySession;
     procedure TestAntiReplayDetectsReplay;
     procedure TestAntiReplayFreshAfterExpiry;
@@ -325,7 +338,8 @@ begin
   // freshly issued with a long lifetime, but authenticated more than seven days before the take
   LCache.Store('host:443', 'a.example', TTls13ResumableSession.Create(
     TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($01, 4)),
-    nil, '', Tag($01, 4), 604800, 0, CapMs, 0, nil, nil, nil, nil, 0, 0) as IResumableSession);
+    nil, '', Tag($01, 4), 604800, 0, CapMs, 0, nil, nil, nil, nil, 0, 0, nil, nil,
+    TTicketBinding.RecordEngine) as IResumableSession);
   CheckFalse(LCache.Take('host:443', 'a.example', CapMs + 1, LTaken),
     'a lapsed chain is dropped rather than returned');
   CheckEquals(0, LCache.Count, 'and no longer held');
@@ -623,6 +637,43 @@ begin
   CheckTrue(LStrategy.Consume(LTicket), 'the first commit wins');
   CheckFalse(LStrategy.Consume(LTicket), 'a second commit of the same ticket is refused');
   CheckFalse(LStrategy.Open(LTicket, LOpened), 'a consumed ticket no longer opens');
+end;
+
+procedure TTestSessionStore.TestStekOpenOfATamperedTagReadsAsUnreadable;
+var
+  LKeys: ISessionTicketKeyManager;
+  LStrategy: ISessionTicketStrategy;
+  LTicket, LForged: TBytes;
+  LSeen: IResumableSession;
+begin
+  LKeys := NewKeys;
+  LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
+  LTicket := LStrategy.Seal(MakeSession(Tag($56, 8)));
+  CheckTrue(LStrategy.Open(LTicket, LSeen), 'control: the genuine ticket opens');
+  LForged := System.Copy(LTicket);
+  LForged[System.High(LForged)] := Byte(LForged[System.High(LForged)] xor $01);
+  LSeen := nil;
+  CheckFalse(LStrategy.Open(LForged, LSeen), 'a forged tag is a full handshake, not an error');
+  CheckTrue(LSeen = nil, 'and yields no session');
+end;
+
+procedure TTestSessionStore.TestStekOpenOfATamperedBodyReadsAsUnreadable;
+var
+  LKeys: ISessionTicketKeyManager;
+  LStrategy: ISessionTicketStrategy;
+  LTicket, LForged: TBytes;
+  LSeen: IResumableSession;
+begin
+  LKeys := NewKeys;
+  LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
+  LTicket := LStrategy.Seal(MakeSession(Tag($57, 8)));
+  CheckTrue(LStrategy.Open(LTicket, LSeen), 'control: the genuine ticket opens');
+  // the sealed body ends in its 16-byte tag: damage the byte just before it
+  LForged := System.Copy(LTicket);
+  LForged[System.Length(LForged) - 17] := Byte(LForged[System.Length(LForged) - 17] xor $80);
+  LSeen := nil;
+  CheckFalse(LStrategy.Open(LForged, LSeen), 'a forged body is a full handshake, not an error');
+  CheckTrue(LSeen = nil, 'and yields no session');
 end;
 
 procedure TTestSessionStore.TestStekTicketStrategyConsumeIsAlwaysTrue;
@@ -1381,8 +1432,8 @@ begin
     TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager);
   CheckTrue(LStrategy.Open(LStrategy.Seal(TTls13ResumableSession.Create(
     TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)),
-    nil, 'host.example', Tag($AB, 4), 3600, $11223344, 1000, 4096, nil, nil, nil, nil, $0804, 700)
-    as IResumableSession), LOpened), 'the ticket opens');
+    nil, 'host.example', Tag($AB, 4), 3600, $11223344, 1000, 4096, nil, nil, nil, nil, $0804, 700,
+    nil, nil, TTicketBinding.RecordEngine) as IResumableSession), LOpened), 'the ticket opens');
   CheckEquals($0804, LOpened.PeerSignatureScheme, 'the peer signature scheme round-trips');
 end;
 
@@ -1397,7 +1448,8 @@ begin
   CheckTrue(LStrategy.Open(LStrategy.Seal(TTls13ResumableSession.Create(
     TCipherSuites13.Aes128GcmSha256, THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)),
     nil, 'host.example', Tag($AB, 4), 3600, $11223344, 1000, 4096, nil, nil, nil, nil, $0804,
-    UInt64($0000012345678ABC)) as IResumableSession), LOpened), 'the ticket opens');
+    UInt64($0000012345678ABC), nil, nil, TTicketBinding.RecordEngine) as IResumableSession),
+    LOpened), 'the ticket opens');
   CheckTrue(UInt64($0000012345678ABC) = LOpened.AuthenticatedAtMillis,
     'the 1.3 authentication time round-trips');
   CheckTrue(1000 = LOpened.IssuedAtMillis, 'the issue time stays its own field');
@@ -1413,14 +1465,20 @@ begin
     'the 1.2 authentication time round-trips');
 end;
 
+function TTestSessionStore.MakeFullSession(const AEarlyDataContext,
+  AApplicationData: TBytes): ITls13ResumableSession;
+begin
+  Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, TSecretBuffer.From(Tag($5E, 32)), nil, 'host.example', Tag($AB, 4),
+    3600, 1, 1000, 0, nil, nil, nil, nil, 0, 1000, AEarlyDataContext, AApplicationData,
+    TTicketBinding.RecordEngine);
+end;
+
 procedure TTestSessionStore.TestStekV10TicketIsDeclined;
 var
   LKeys: ISessionTicketKeyManager;
   LStrategy: ISessionTicketStrategy;
-  LTicket, LKeyName, LNonce, LPlain, LCipher: TBytes;
-  LKey: ISecretBuffer;
-  LAead: IAead;
-  LNameLen: Int32;
+  LTicket, LPlain: TBytes;
   LOpened: IResumableSession;
 begin
   LKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager;
@@ -1431,22 +1489,131 @@ begin
   CheckTrue(LStrategy.Open(LTicket, LOpened), 'control: the current format opens');
   // re-seal the same body under the same key, relabelled as format 10 (the format before the
   // authentication time was added); the version is the leading big-endian uint32
-  LNameLen := LKeys.KeyNameLength;
-  LKeyName := System.Copy(LTicket, 0, LNameLen);
-  LNonce := System.Copy(LTicket, LNameLen, 12);
-  CheckTrue(LKeys.KeyByName(LKeyName, LKey), 'the ticket key is held');
-  LAead := Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
-  LAead.Init(LKey);
-  LPlain := TAeadUtilities.Open(LAead, LNonce, LKeyName,
-    System.Copy(LTicket, LNameLen + 12, System.Length(LTicket) - LNameLen - 12));
-  CheckEquals(11, Integer(LPlain[3]), 'the current format is 11');
+  LPlain := TTlsLibTestTicketRewriter.Plaintext(Crypto, LKeys, LTicket);
+  CheckEquals(12, Integer(LPlain[3]), 'the current format is 12');
   LPlain[3] := 10;
-  LNonce := Crypto.Primitives.GetRandom.GenerateBytes(12);
-  LAead := Crypto.Primitives.CreateAead(TAeadAlgorithm.AES_256_GCM);
-  LAead.Init(LKey);
-  LCipher := TAeadUtilities.Seal(LAead, LNonce, LKeyName, LPlain);
-  LTicket := ConcatBytes(ConcatBytes(LKeyName, LNonce), LCipher);
-  CheckFalse(LStrategy.Open(LTicket, LOpened), 'a format 10 ticket draws a full handshake');
+  CheckFalse(LStrategy.Open(TTlsLibTestTicketRewriter.Resealed(Crypto, LKeys, LTicket, LPlain),
+    LOpened),
+    'a format 10 ticket draws a full handshake');
+end;
+
+procedure TTestSessionStore.TestStekV11TicketIsDeclined;
+var
+  LKeys: ISessionTicketKeyManager;
+  LStrategy: ISessionTicketStrategy;
+  LTicket, LPlain: TBytes;
+  LOpened: IResumableSession;
+begin
+  LKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager;
+  LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
+  LTicket := LStrategy.Seal(MakeFullSession(nil, nil) as IResumableSession);
+  LPlain := TTlsLibTestTicketRewriter.Plaintext(Crypto, LKeys, LTicket);
+  // format 11 is format 12 without its tail (the empty context's length byte, the engine kind)
+  LPlain[3] := 11;
+  SetLength(LPlain, System.Length(LPlain) - 2);
+  CheckFalse(LStrategy.Open(TTlsLibTestTicketRewriter.Resealed(Crypto, LKeys, LTicket, LPlain),
+    LOpened),
+    'a format 11 ticket draws a full handshake, not an error');
+end;
+
+procedure TTestSessionStore.TestStekSealOpenCarriesEarlyDataContext;
+var
+  LStrategy: ISessionTicketStrategy;
+  LOpened: IResumableSession;
+  L13: ITls13ResumableSession;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto, NewKeys);
+  CheckTrue(LStrategy.Open(LStrategy.Seal(MakeFullSession(Tag($C7, 40), nil)
+    as IResumableSession), LOpened), 'the ticket opens');
+  CheckTrue(Supports(LOpened, ITls13ResumableSession, L13), 'it is a 1.3 session');
+  CheckEqualBytes('the early-data context round-trips', Tag($C7, 40), L13.EarlyDataContext);
+  CheckEquals(Ord(TTicketBinding.RecordEngine), Ord(L13.TicketBinding),
+    'the engine kind round-trips');
+end;
+
+procedure TTestSessionStore.TestStekSealOpenCarriesAnEmptyEarlyDataContext;
+var
+  LStrategy: ISessionTicketStrategy;
+  LOpened: IResumableSession;
+  L13: ITls13ResumableSession;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto, NewKeys);
+  CheckTrue(LStrategy.Open(LStrategy.Seal(MakeFullSession(nil, nil) as IResumableSession),
+    LOpened), 'the ticket opens');
+  CheckTrue(Supports(LOpened, ITls13ResumableSession, L13), 'it is a 1.3 session');
+  CheckEquals(0, System.Length(L13.EarlyDataContext), 'no context stays no context');
+end;
+
+procedure TTestSessionStore.TestStekSealNeverCarriesApplicationData;
+var
+  LStrategy: ISessionTicketStrategy;
+  LOpened: IResumableSession;
+  L13: ITls13ResumableSession;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto, NewKeys);
+  CheckTrue(LStrategy.Open(LStrategy.Seal(MakeFullSession(nil, Tag($D1, 24))
+    as IResumableSession), LOpened), 'the ticket opens');
+  CheckTrue(Supports(LOpened, ITls13ResumableSession, L13), 'it is a 1.3 session');
+  CheckEquals(0, System.Length(L13.ApplicationData),
+    'the bytes a client host attaches stay on the client''s cached session');
+end;
+
+procedure TTestSessionStore.TestStekOpenDeclinesAnUnknownEngineKind;
+var
+  LKeys: ISessionTicketKeyManager;
+  LStrategy: ISessionTicketStrategy;
+  LTicket, LPlain: TBytes;
+  LOpened: IResumableSession;
+begin
+  LKeys := NewKeys;
+  LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
+  LTicket := LStrategy.Seal(MakeFullSession(nil, nil) as IResumableSession);
+  LPlain := TTlsLibTestTicketRewriter.Plaintext(Crypto, LKeys, LTicket);
+  CheckEquals(1, Integer(LPlain[System.Length(LPlain) - 1]), 'control: the record engine code');
+  LPlain[System.Length(LPlain) - 1] := 9;
+  CheckFalse(LStrategy.Open(TTlsLibTestTicketRewriter.Resealed(Crypto, LKeys, LTicket, LPlain),
+    LOpened),
+    'a ticket from an engine kind this build does not know draws a full handshake');
+end;
+
+procedure TTestSessionStore.TestStekSealDeclinesAnOversizedEarlyDataContext;
+var
+  LStrategy: ISessionTicketStrategy;
+begin
+  LStrategy := TStekTicketStrategy.Create(Crypto, NewKeys);
+  CheckTrue(System.Length(LStrategy.Seal(MakeFullSession(Tag($C7, 255), nil)
+    as IResumableSession)) > 0, 'control: a 255-byte context seals');
+  CheckEquals(0, System.Length(LStrategy.Seal(MakeFullSession(Tag($C7, 256), nil)
+    as IResumableSession)), 'a context beyond 255 bytes does not seal');
+end;
+
+procedure TTestSessionStore.TestCachePersistsTheNewSessionFields;
+var
+  LCache: ISessionCache;
+  LTaken: IResumableSession;
+  L13: ITls13ResumableSession;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LCache.Store('host:443', 'a.example', MakeFullSession(Tag($C7, 8), Tag($D1, 9))
+    as IResumableSession);
+  CheckTrue(LCache.Take('host:443', 'a.example', 2000, LTaken), 'the session is cached');
+  CheckTrue(Supports(LTaken, ITls13ResumableSession, L13), 'it is a 1.3 session');
+  CheckEqualBytes('the early-data context is kept', Tag($C7, 8), L13.EarlyDataContext);
+  CheckEqualBytes('the application data is kept', Tag($D1, 9), L13.ApplicationData);
+end;
+
+procedure TTestSessionStore.TestStorePersistsTheNewSessionFields;
+var
+  LStore: ISessionStore;
+  LTaken: IResumableSession;
+  L13: ITls13ResumableSession;
+begin
+  LStore := NewStore;
+  CheckTrue(LStore.Take(LStore.Put(MakeFullSession(Tag($C7, 8), Tag($D1, 9))
+    as IResumableSession), LTaken), 'the session is stored');
+  CheckTrue(Supports(LTaken, ITls13ResumableSession, L13), 'it is a 1.3 session');
+  CheckEqualBytes('the early-data context is kept', Tag($C7, 8), L13.EarlyDataContext);
+  CheckEqualBytes('the application data is kept', Tag($D1, 9), L13.ApplicationData);
 end;
 
 procedure TTestSessionStore.TestStekSealDeclinesBaseOnlySession;

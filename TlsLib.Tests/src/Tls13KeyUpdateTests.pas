@@ -132,7 +132,7 @@ begin
   LSuites := TCipherSuiteRegistry.CreateDefault(ACrypto);
   if not LSuites.TryGet(TCipherSuites13.Aes128GcmSha256, FSelectedSuite) then
     raise Exception.Create('the AES-128-GCM suite is not registered');
-  FSchedule := TTls13KeySchedule.Create(ACrypto, THashAlgorithm.SHA_256, 16);
+  FSchedule := TTls13KeySchedule.Create(ACrypto, FSelectedSuite.Common);
   SetLength(LZeros, 32);
   FSchedule.SetSharedSecret(TSecretBuffer.From(LZeros));
   FSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake, LZeros);

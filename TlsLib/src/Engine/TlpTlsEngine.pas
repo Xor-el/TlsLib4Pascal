@@ -17,7 +17,6 @@ interface
 
 uses
   SysUtils,
-  Generics.Collections,
   TlpTlsAlert,
   TlpTlsError,
   TlpTlsVersion,
@@ -26,9 +25,11 @@ uses
   TlpTlsAlertProtocol,
   TlpAlertMapping,
   TlpICryptoProvider,
+  TlpCryptoDomainTypes,
   TlpTrustPolicy,
   TlpIKeySchedule,
   TlpIRecordProtection,
+  TlpRecordProtectionFactory,
   TlpRecordLayer,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
@@ -43,7 +44,10 @@ uses
   TlpHandshakeEffect,
   TlpHandshakeDriver,
   TlpHandshakeConductor,
-  TlpEchConfig;
+  TlpEngineOutcome,
+  TlpEchConfig,
+  TlpITlsHostExtension,
+  TlpISessionApplicationData;
 
 type
   /// <summary>
@@ -53,8 +57,8 @@ type
   /// offset/length. Single-threaded: the caller serializes access (TTlsStream and TTlsConnection
   /// do, so do not call the engine directly while one is in use).
   /// </summary>
-  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
-    ITlsEngineOutbound)
+  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsCommonEngine, ITlsEngineInbound,
+    ITlsEngineOutbound, ITlsHostExtensionResults, ITlsSessionApplicationData)
   strict private
   type
     // decrypted plaintext waiting for the caller: [FHead, FTail) of one buffer, so the byte
@@ -73,7 +77,9 @@ type
     end;
   var
     FRecordLayer: TRecordLayer;
-    FEvents: TQueue<ITlsEvent>;
+    // the shared facts and events; FOutcomeRef keeps it alive
+    FOutcome: TEngineOutcome;
+    FOutcomeRef: IHandshakeSink;
     FConductor: THandshakeConductor;
     FAppQueue: TPlaintextQueue;
     // accepted 0-RTT application data, kept apart because it is replayable
@@ -99,8 +105,6 @@ type
     // early data (over-budget bytes are not held - the caller resends them, see WriteEarlyData)
     FEarlyDataLimit: Int32;
     FEarlyDataSent: Int32;
-    // the negotiated facts, surfaced to callers as one snapshot by ConnectionInfo
-    FInfo: TTlsConnectionInfo;
     // set while the engine runs handshake machinery (start, record drain, verdict resume): a
     // synchronous handshake callback (verify callback, verdict resolver, session store) is
     // re-entering the single-threaded engine if it calls ProcessInput/ReadAppData/
@@ -113,10 +117,16 @@ type
     // a post-handshake fatal alert, sealed by the next TakeOutgoing so the inbound path never seals
     FPendingAlert: TTlsAlert;
     FHasPendingAlert: Boolean;
+    FHostResults: ITlsHostExtensionResults;
+    FSessionData: ITlsSessionApplicationData;
+    // each is answered by the object the factory shares with the machine; nil is not answered
+    property HostResults: ITlsHostExtensionResults read FHostResults
+      implements ITlsHostExtensionResults;
+    property SessionData: ITlsSessionApplicationData read FSessionData
+      implements ITlsSessionApplicationData;
     // an out-of-range caller slice is misuse, refused locally rather than failed on the wire
     class procedure RequireSlice(const AData: TBytes; AOffset, ALength: Int32;
       AMessage: PResStringRec); static;
-    procedure Enqueue(const AEvent: ITlsEvent);
     function IsTls13: Boolean;
     procedure QueueAlertRecord(const AAlert: TTlsAlert);
     procedure ScheduleFatalAlert(const AAlert: TTlsAlert);
@@ -146,6 +156,12 @@ type
     constructor Create(const AInitialMachine: IHandshakeMachine;
       const ACryptoProvider: ICryptoProvider;
       AMaxCertificateMessageLength: Int32); overload;
+    /// <summary>As above, answering ITlsHostExtensionResults and ITlsSessionApplicationData from
+    /// the objects the factory shares with the machine; a nil one is not answered.</summary>
+    constructor Create(const AInitialMachine: IHandshakeMachine;
+      const ACryptoProvider: ICryptoProvider; AMaxCertificateMessageLength: Int32;
+      const AHostResults: ITlsHostExtensionResults;
+      const ASessionData: ITlsSessionApplicationData); overload;
     destructor Destroy; override;
 
     /// <summary>Builds a wired engine and returns it as an ITlsEngine.</summary>
@@ -194,30 +210,17 @@ type
     procedure InstallWriteProtection(const AProtection: IRecordProtection;
       AEpoch: TTlsEpoch);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
+    procedure SendChangeCipherSpec;
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
     procedure SetEarlyDataLimit(AMaxBytes: Int32);
     procedure SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
-    procedure OnAlpnSelected(const AProtocol: TBytes);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
-    procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
-    procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
-    procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>;
-      const ASchemes: TArray<UInt16>);
-    procedure OnPskIdentity(const AIdentity: TBytes);
-    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
-      const AFacts: TNegotiationFacts);
     procedure OnHandshakeEstablished;
-    procedure OnEchAccepted;
-    procedure OnEchGreased;
-    procedure OnEchBackend;
-    procedure OnEchServerRejected;
-    procedure OnEchRejected(const ARetryConfigs: TBytes; AIsRetryAttempt: Boolean);
   end;
 
 implementation
@@ -230,10 +233,6 @@ const
   // aborts the connection (RFC 5246 7.2 tolerates warnings, RFC 9846 6 / 6.1 only user_canceled;
   // a flood is a DoS)
   MaxWarningAlerts = Int32(4);
-  // the most undrained events kept before the informational kinds are dropped: room for a
-  // full handshake's worth plus a long run of post-handshake notices, while a caller that never
-  // drains cannot grow the queue without bound
-  MaxQueuedEvents = Int32(64);
 
 resourcestring
   SPeerFatalAlert = 'the peer sent a fatal alert';
@@ -266,20 +265,31 @@ resourcestring
 type
   /// <summary>
   /// Lets the handshake driver install epochs and report outcomes back to the engine, which
-  /// owns this bridge and is held by a raw reference.
+  /// owns this bridge and is held by a raw reference. It turns the keys the driver hands over
+  /// into record protection.
   /// </summary>
-  TEngineHandshakeBridge = class sealed(TInterfacedObject, IRecordEpochInstaller,
-    IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,
+  TEngineHandshakeBridge = class sealed(TInterfacedObject, IEpochKeyInstaller,
+    IRecordLayerControl, IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,
     IHandshakeConnectionInfoSink, IEchStatusSink)
   strict private
   var
     FEngine: TTlsEngine;
+    FCrypto: ICryptoProvider;
+    FOutcome: TEngineOutcome;
+    FInfoSink: IHandshakeConnectionInfoSink;
+    // the connection facts are recorded by the shared outcome
+    property InfoSink: IHandshakeConnectionInfoSink read FInfoSink
+      implements IHandshakeConnectionInfoSink;
   public
-    constructor Create(const AEngine: TTlsEngine);
-    procedure InstallReadProtection(const AProtection: IRecordProtection);
-    procedure InstallWriteProtection(const AProtection: IRecordProtection;
-      AEpoch: TTlsEpoch);
-    procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
+    constructor Create(const AEngine: TTlsEngine; const ACrypto: ICryptoProvider;
+      const AOutcome: TEngineOutcome);
+    procedure InstallReadSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
+    procedure InstallWriteSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
+    procedure InstallWriteKeys(AEpoch: TTlsEpoch; const AKeys: ITrafficKeys;
+      AAead: TAeadAlgorithm);
+    procedure SendChangeCipherSpec;
+    procedure ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
+      AAead: TAeadAlgorithm);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
@@ -291,13 +301,6 @@ type
     procedure OnOcspStapleReceived(const AStaple: TBytes);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
-    procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
-    procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>;
-      const ASchemes: TArray<UInt16>);
-    procedure OnPskIdentity(const AIdentity: TBytes);
-    procedure OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-      AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
-      const AFacts: TNegotiationFacts);
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription; const AReason: string);
     procedure OnEchAccepted;
@@ -309,28 +312,46 @@ type
 
 { TEngineHandshakeBridge }
 
-constructor TEngineHandshakeBridge.Create(const AEngine: TTlsEngine);
+constructor TEngineHandshakeBridge.Create(const AEngine: TTlsEngine;
+  const ACrypto: ICryptoProvider; const AOutcome: TEngineOutcome);
 begin
   inherited Create;
   FEngine := AEngine;
+  FCrypto := ACrypto;
+  FOutcome := AOutcome;
+  FInfoSink := AOutcome as IHandshakeConnectionInfoSink;
 end;
 
-procedure TEngineHandshakeBridge.InstallReadProtection(
-  const AProtection: IRecordProtection);
+procedure TEngineHandshakeBridge.InstallReadSecret(AEpoch: TTlsEpoch;
+  const ASecret: ITrafficSecret);
 begin
-  FEngine.InstallReadProtection(AProtection);
+  FEngine.InstallReadProtection(TRecordProtectionFactory.BuildFromSecret(FCrypto, ASecret));
 end;
 
-procedure TEngineHandshakeBridge.InstallWriteProtection(
-  const AProtection: IRecordProtection; AEpoch: TTlsEpoch);
+procedure TEngineHandshakeBridge.InstallWriteSecret(AEpoch: TTlsEpoch;
+  const ASecret: ITrafficSecret);
 begin
-  FEngine.InstallWriteProtection(AProtection, AEpoch);
+  FEngine.InstallWriteProtection(TRecordProtectionFactory.BuildFromSecret(FCrypto, ASecret),
+    AEpoch);
 end;
 
-procedure TEngineHandshakeBridge.ArmReadProtectionOnChangeCipherSpec(
-  const AProtection: IRecordProtection);
+procedure TEngineHandshakeBridge.InstallWriteKeys(AEpoch: TTlsEpoch;
+  const AKeys: ITrafficKeys; AAead: TAeadAlgorithm);
 begin
-  FEngine.ArmReadProtectionOnChangeCipherSpec(AProtection);
+  FEngine.InstallWriteProtection(TRecordProtectionFactory.Build(TTlsVersion.Tls12, AKeys,
+    FCrypto.Primitives.CreateAead(AAead)), AEpoch);
+end;
+
+procedure TEngineHandshakeBridge.SendChangeCipherSpec;
+begin
+  FEngine.SendChangeCipherSpec;
+end;
+
+procedure TEngineHandshakeBridge.ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
+  AAead: TAeadAlgorithm);
+begin
+  FEngine.ArmReadProtectionOnChangeCipherSpec(TRecordProtectionFactory.Build(
+    TTlsVersion.Tls12, AKeys, FCrypto.Primitives.CreateAead(AAead)));
 end;
 
 procedure TEngineHandshakeBridge.RevertWriteToPlaintext;
@@ -366,7 +387,7 @@ end;
 
 procedure TEngineHandshakeBridge.OnAlpnSelected(const AProtocol: TBytes);
 begin
-  FEngine.OnAlpnSelected(AProtocol);
+  FOutcome.OnAlpnSelected(AProtocol);
 end;
 
 procedure TEngineHandshakeBridge.OnVersionNegotiated(const AVersion: TTlsVersion);
@@ -376,7 +397,7 @@ end;
 
 procedure TEngineHandshakeBridge.OnOcspStapleReceived(const AStaple: TBytes);
 begin
-  FEngine.OnOcspStapleReceived(AStaple);
+  FOutcome.OnOcspStapleReceived(AStaple);
 end;
 
 procedure TEngineHandshakeBridge.OnCertificateVerdictNeeded(
@@ -384,31 +405,6 @@ procedure TEngineHandshakeBridge.OnCertificateVerdictNeeded(
   const AStaple: TBytes; APosture: TRevocationPosture);
 begin
   FEngine.OnCertificateVerdictNeeded(AChain, AValidatedPath, AHostName, AStaple, APosture);
-end;
-
-procedure TEngineHandshakeBridge.OnPeerCertificateChain(
-  const AChain, AValidatedPath: TArray<TBytes>);
-begin
-  FEngine.OnPeerCertificateChain(AChain, AValidatedPath);
-end;
-
-procedure TEngineHandshakeBridge.OnRequestedCertificateAuthorities(
-  const AAuthorities: TArray<TBytes>; const ASchemes: TArray<UInt16>);
-begin
-  FEngine.OnRequestedCertificateAuthorities(AAuthorities, ASchemes);
-end;
-
-procedure TEngineHandshakeBridge.OnPskIdentity(const AIdentity: TBytes);
-begin
-  FEngine.OnPskIdentity(AIdentity);
-end;
-
-procedure TEngineHandshakeBridge.OnConnectionParams(ACipherSuite,
-  ANamedGroup: UInt16; AResumed, AExtendedMasterSecret: Boolean;
-  const AServerName: string; const AFacts: TNegotiationFacts);
-begin
-  FEngine.OnConnectionParams(ACipherSuite, ANamedGroup, AResumed, AExtendedMasterSecret,
-    AServerName, AFacts);
 end;
 
 procedure TEngineHandshakeBridge.OnHandshakeEstablished;
@@ -424,28 +420,31 @@ end;
 
 procedure TEngineHandshakeBridge.OnEchAccepted;
 begin
-  FEngine.OnEchAccepted;
+  FOutcome.OnEchAccepted;
 end;
 
 procedure TEngineHandshakeBridge.OnEchGreased;
 begin
-  FEngine.OnEchGreased;
+  FOutcome.OnEchGreased;
 end;
 
 procedure TEngineHandshakeBridge.OnEchBackend;
 begin
-  FEngine.OnEchBackend;
+  FOutcome.OnEchBackend;
 end;
 
 procedure TEngineHandshakeBridge.OnEchServerRejected;
 begin
-  FEngine.OnEchServerRejected;
+  FOutcome.OnEchServerRejected;
 end;
 
 procedure TEngineHandshakeBridge.OnEchRejected(const ARetryConfigs: TBytes;
   AIsRetryAttempt: Boolean);
 begin
-  FEngine.OnEchRejected(ARetryConfigs, AIsRetryAttempt);
+  // surface the reject (retry_configs and the retry flag), then abort with ech_required - never a
+  // plaintext fall-back
+  FOutcome.RecordEchRejected(ARetryConfigs, AIsRetryAttempt);
+  FEngine.SendAlert(TTlsAlertDescription.EchRequired, SEchRejected);
 end;
 
 { TTlsEngine }
@@ -458,14 +457,26 @@ end;
 
 constructor TTlsEngine.Create(const AInitialMachine: IHandshakeMachine;
   const ACryptoProvider: ICryptoProvider; AMaxCertificateMessageLength: Int32);
+begin
+  // a machine built by hand shares nothing with the engine, so it answers neither interface
+  Create(AInitialMachine, ACryptoProvider, AMaxCertificateMessageLength, nil, nil);
+end;
+
+constructor TTlsEngine.Create(const AInitialMachine: IHandshakeMachine;
+  const ACryptoProvider: ICryptoProvider; AMaxCertificateMessageLength: Int32;
+  const AHostResults: ITlsHostExtensionResults;
+  const ASessionData: ITlsSessionApplicationData);
 var
   LChannel: IHandshakeChannel;
   LBridge: TEngineHandshakeBridge;
   LDriver: THandshakeDriver;
 begin
   inherited Create;
+  FHostResults := AHostResults;
+  FSessionData := ASessionData;
   FRecordLayer := TRecordLayer.Create;
-  FEvents := TQueue<ITlsEvent>.Create;
+  FOutcome := TEngineOutcome.Create;
+  FOutcomeRef := FOutcome as IHandshakeSink;
   FMaxAppReadBuffer := DefaultMaxAppReadBuffer;
   FTerminal := False;
   FClosed := False;
@@ -474,9 +485,6 @@ begin
   FAppWriteEpoch := False;
   FHasPendingAlert := False;
   FWarningAlertCount := 0;
-  FInfo.EchStatus := TEchStatus.NotOffered;
-  // a zero wire code until an epoch's keys name the negotiated version
-  FInfo.NegotiatedVersion := TTlsVersion.Create(0);
   FLastError := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, '');
   // an application_data record before the handshake completes is unexpected on a real
   // handshake (RFC 9846 5.1)
@@ -487,9 +495,9 @@ begin
     FRecordLayer.UseClientInitialRecordVersion;
   LChannel := THandshakeChannel.Create(FRecordLayer, AMaxCertificateMessageLength)
     as IHandshakeChannel;
-  LBridge := TEngineHandshakeBridge.Create(Self);
-  LDriver := THandshakeDriver.Create(LChannel, LBridge as IRecordEpochInstaller,
-    ACryptoProvider, LBridge as IHandshakeSink);
+  LBridge := TEngineHandshakeBridge.Create(Self, ACryptoProvider, FOutcome);
+  LDriver := THandshakeDriver.Create(LChannel, LBridge as IEpochKeyInstaller,
+    LBridge as IHandshakeSink);
   FConductor := THandshakeConductor.Create(LChannel, LDriver, AInitialMachine);
 end;
 
@@ -498,7 +506,6 @@ begin
   // free the conductor first: it releases the driver's references to the bridge,
   // whose raw back-reference to this engine must never outlive the engine
   FConductor.Free;
-  FEvents.Free;
   FRecordLayer.Free;
   inherited Destroy;
 end;
@@ -517,18 +524,6 @@ class function TTlsEngine.CreateConfigured(
 begin
   Result := TTlsEngine.Create(AInitialMachine, ACryptoProvider,
     AMaxCertificateMessageLength);
-end;
-
-procedure TTlsEngine.Enqueue(const AEvent: ITlsEvent);
-begin
-  // a caller that never drains must not grow the queue without bound: past the cap the
-  // informational kinds are dropped, while the terminal ones and a parked verdict (which the
-  // handshake cannot resume without) are always kept
-  if (FEvents.Count >= MaxQueuedEvents) and
-    not (AEvent.Kind in [TTlsEventKind.PeerAlert, TTlsEventKind.Closed,
-    TTlsEventKind.CertificateReceived]) then
-    Exit;
-  FEvents.Enqueue(AEvent);
 end;
 
 procedure TTlsEngine.QueueAlertRecord(const AAlert: TTlsAlert);
@@ -655,7 +650,7 @@ begin
     FClosed := True;
     // the peer's write side is closed; release any inbound state and ignore later bytes (RFC 9846 6.1)
     FRecordLayer.DiscardInbound;
-    Enqueue(TTlsEvents.MakeSimple(TTlsEventKind.Closed));
+    FOutcome.Enqueue(TTlsEvents.MakeSimple(TTlsEventKind.Closed));
     // closing before the handshake completes abandons it: a failure, not a half-close
     if not FHandshakeComplete then
     begin
@@ -671,7 +666,7 @@ begin
   // either level.
   if LReceived.LevelByte = TTlsAlertLevel.Warning.ToByte then
   begin
-    if (FInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
+    if (FOutcome.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
       not (LReceived.HasKnownDescription and
       (LReceived.Description = TTlsAlertDescription.UserCanceled)) then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -684,7 +679,7 @@ begin
   end;
   // a fatal alert is terminal; carry the peer's raw description byte so a code we do not map
   // (e.g. no_certificate, or a future one) is reported honestly rather than as our internal_error
-  Enqueue(TTlsEvents.MakePeerAlert(LReceived));
+  FOutcome.Enqueue(TTlsEvents.MakePeerAlert(LReceived));
   EnterFatalState(True);
   FLastError := TTlsError.CreatePeerFatal(LReceived.DescriptionByte, SPeerFatalAlert);
 end;
@@ -815,7 +810,7 @@ begin
   end;
   if FTerminal then // a received fatal alert or a handshake failure
     Exit(TTlsOutcome.Fatal);
-  if (FAppQueue.Available > 0) or (FEarlyQueue.Available > 0) or (FEvents.Count > 0) or
+  if (FAppQueue.Available > 0) or (FEarlyQueue.Available > 0) or (FOutcome.Events.Count > 0) or
     (FRecordLayer.PendingOutgoing > 0) then
     Result := TTlsOutcome.Advanced
   else
@@ -824,7 +819,7 @@ end;
 
 function TTlsEngine.IsTls13: Boolean;
 begin
-  Result := FInfo.NegotiatedVersion.WireValue = TlsWireVersionTls13;
+  Result := FOutcome.NegotiatedVersion.WireValue = TlsWireVersionTls13;
 end;
 
 procedure TTlsEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -1158,11 +1153,7 @@ end;
 
 function TTlsEngine.NextEvent(out AEvent: ITlsEvent): Boolean;
 begin
-  Result := FEvents.Count > 0;
-  if Result then
-    AEvent := FEvents.Dequeue
-  else
-    AEvent := nil;
+  Result := FOutcome.NextEvent(AEvent);
 end;
 
 function TTlsEngine.WantsRead: Boolean;
@@ -1218,13 +1209,7 @@ end;
 
 function TTlsEngine.ConnectionInfo: TTlsConnectionInfo;
 begin
-  Result := FInfo;
-  // copy retry_configs and the ALPN name so a caller cannot mutate the engine's held bytes (the
-  // name also rides a resumption ticket); the certificate, path, CA and staple arrays are shared
-  // read-only views, not copies
-  Result.EchRetryConfigs := System.Copy(FInfo.EchRetryConfigs);
-  Result.AlpnProtocol := System.Copy(FInfo.AlpnProtocol);
-  Result.PskIdentity := System.Copy(FInfo.PskIdentity);
+  Result := FOutcome.Info;
 end;
 
 procedure TTlsEngine.InstallReadProtection(const AProtection: IRecordProtection);
@@ -1252,6 +1237,12 @@ begin
   // application data may be sealed only once the Application write epoch is installed (a 1.3 server
   // reaches it at its Finished - half-RTT); handshake/early write epochs must not carry app data
   FAppWriteEpoch := AEpoch = TTlsEpoch.Application;
+end;
+
+procedure TTlsEngine.SendChangeCipherSpec;
+begin
+  // the legacy 1-byte 0x01 change_cipher_spec, sent in the clear (RFC 9846 E.4)
+  FRecordLayer.Write(TTlsContentType.ChangeCipherSpec, TBytes.Create(1), 0, 1);
 end;
 
 procedure TTlsEngine.RevertWriteToPlaintext;
@@ -1282,91 +1273,36 @@ procedure TTlsEngine.SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
 begin
   FRecordLayer.SetEarlyReadAccepted(AActive, AMaxBytes);
   if AActive then
-    FInfo.EarlyDataAccepted := True;
+    FOutcome.EarlyDataAccepted := True;
 end;
 
 procedure TTlsEngine.OnHandshakeEvent(AEvent: TTlsEventKind);
 begin
-  // manage the client's early-data buffer as the outcome becomes known
-  case AEvent of
-    TTlsEventKind.EarlyDataAccepted:
-      begin
-        // the early data was delivered under the 0-RTT keys
-        FEarlyDataClosed := True;
-        FInfo.EarlyDataAccepted := True;
-      end;
-    TTlsEventKind.EarlyDataRejected:
-      // the early data already went out under the early keys; on a reject it is discarded, not
-      // retransmitted as 1-RTT (RFC 9846 4.3.10 leaves any resend to the application)
-      FEarlyDataClosed := True;
-  end;
-  Enqueue(TTlsEvents.MakeSimple(AEvent));
-end;
-
-procedure TTlsEngine.OnAlpnSelected(const AProtocol: TBytes);
-begin
-  FInfo.AlpnProtocol := AProtocol;
+  // an accept or a reject closes the early-data window; a reject is not resent as 1-RTT here
+  if AEvent in [TTlsEventKind.EarlyDataAccepted, TTlsEventKind.EarlyDataRejected] then
+    FEarlyDataClosed := True;
+  FOutcome.OnHandshakeEvent(AEvent);
 end;
 
 procedure TTlsEngine.OnVersionNegotiated(const AVersion: TTlsVersion);
 begin
-  FInfo.NegotiatedVersion := AVersion;
+  FOutcome.OnVersionNegotiated(AVersion);
   // the record layer needs the version to classify an incoming change_cipher_spec (drop under
   // 1.3 vs reject out of window) before the next record after the peer's hello is pulled
   FRecordLayer.SetNegotiatedVersion(AVersion);
-end;
-
-procedure TTlsEngine.OnOcspStapleReceived(const AStaple: TBytes);
-begin
-  FInfo.PeerOcspStaple := AStaple;
-end;
-
-procedure TTlsEngine.OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
-begin
-  FInfo.PeerCertificates := AChain;
-  FInfo.ValidatedPath := AValidatedPath;
-end;
-
-procedure TTlsEngine.OnRequestedCertificateAuthorities(
-  const AAuthorities: TArray<TBytes>; const ASchemes: TArray<UInt16>);
-begin
-  FInfo.RequestedCertificateAuthorities := AAuthorities;
-  FInfo.RequestedSignatureSchemes := ASchemes;
-end;
-
-procedure TTlsEngine.OnPskIdentity(const AIdentity: TBytes);
-begin
-  FInfo.PskIdentity := AIdentity;
-end;
-
-procedure TTlsEngine.OnConnectionParams(ACipherSuite, ANamedGroup: UInt16;
-  AResumed, AExtendedMasterSecret: Boolean; const AServerName: string;
-  const AFacts: TNegotiationFacts);
-begin
-  FInfo.PeerSignatureScheme := AFacts.PeerSignatureScheme;
-  FInfo.HelloRetryRequest := AFacts.HelloRetryRequest;
-  FInfo.EarlyDataReason := AFacts.EarlyDataReason;
-  FInfo.TicketAgeSkew := AFacts.TicketAgeSkew;
-  FInfo.CipherSuite := ACipherSuite;
-  FInfo.NamedGroup := ANamedGroup;
-  FInfo.ServerName := AServerName;
-  FInfo.Resumed := AResumed;
-  FInfo.ExtendedMasterSecret := AExtendedMasterSecret;
 end;
 
 procedure TTlsEngine.OnCertificateVerdictNeeded(const AChain,
   AValidatedPath: TArray<TBytes>; const AHostName: string; const AStaple: TBytes;
   APosture: TRevocationPosture);
 begin
-  // the built-in pipeline has already accepted this chain; surface it so a host can decide
-  // out-of-band (augment-only). The conductor owns the park state (it sets AwaitingVerdict once
-  // this flight's effects have been applied); the handshake makes no further progress until
-  // SetCertificateVerdict resumes it. The park must not fire after completion.
+  // the conductor owns the park state (it sets AwaitingVerdict once this flight's effects have
+  // been applied); the handshake makes no further progress until SetCertificateVerdict resumes
+  // it. The park must not fire after completion.
 {$IFDEF DEBUG}
   System.Assert(not FHandshakeComplete);
 {$ENDIF DEBUG}
-  Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AValidatedPath, AHostName, AStaple,
-    APosture));
+  FOutcome.OnCertificateVerdictNeeded(AChain, AValidatedPath, AHostName, AStaple, APosture);
 end;
 
 procedure TTlsEngine.OnHandshakeEstablished;
@@ -1374,39 +1310,6 @@ begin
   FHandshakeComplete := True;
   // a change_cipher_spec is no longer in its legal window once the handshake is done
   FRecordLayer.SetHandshakeComplete;
-end;
-
-procedure TTlsEngine.OnEchAccepted;
-begin
-  FInfo.EchStatus := TEchStatus.Accepted;
-end;
-
-procedure TTlsEngine.OnEchGreased;
-begin
-  FInfo.EchStatus := TEchStatus.Greased;
-end;
-
-procedure TTlsEngine.OnEchBackend;
-begin
-  FInfo.EchStatus := TEchStatus.Backend;
-end;
-
-procedure TTlsEngine.OnEchServerRejected;
-begin
-  // the server rejected ECH and completed to the public_name; record it, do not abort
-  FInfo.EchStatus := TEchStatus.Rejected;
-end;
-
-procedure TTlsEngine.OnEchRejected(const ARetryConfigs: TBytes;
-  AIsRetryAttempt: Boolean);
-begin
-  // the client completed its flight to the public_name; surface the reject (retry_configs
-  // and the retry flag) then abort with ech_required - never a plaintext fall-back
-  FInfo.EchStatus := TEchStatus.Rejected;
-  FInfo.EchRetryConfigs := ARetryConfigs;
-  FInfo.EchIsRetryAttempt := AIsRetryAttempt;
-  FInfo.EchRejectAborted := True;
-  SendAlert(TTlsAlertDescription.EchRequired, SEchRejected);
 end;
 
 end.

@@ -20,6 +20,7 @@ uses
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpIKeySchedule,
+  TlpTicketBinding,
   TlpISecretBuffer;
 
 type
@@ -121,7 +122,7 @@ type
   /// <see cref="IPreSharedKey" /> with a plain <c>as</c> cast.
   /// </summary>
   ITls13ResumableSession = interface(IResumableSession)
-    ['{275BF83D-9B3F-4EF8-928E-816E549D00F4}']
+    ['{C1C2A131-5DE2-4B68-9AE2-2C12AEE44308}']
     /// <summary>The resumption PSK secret.</summary>
     function ResumptionSecret: ISecretBuffer;
     /// <summary>The opaque ticket that identifies this session on resumption.</summary>
@@ -130,6 +131,19 @@ type
     function TicketAgeAdd: UInt32;
     /// <summary>The 0-RTT byte budget the ticket authorized (0 = no early data).</summary>
     function MaxEarlyData: UInt32;
+    /// <summary>The opaque context the issuing server sealed into the ticket to bind 0-RTT to its
+    /// settings; empty when none. A server accepts early data only when this equals its own
+    /// configured context, byte for byte, and otherwise still resumes. A server stores it with
+    /// the session; a client's cached session leaves it empty. A custom persistent cache or
+    /// store must persist it and rebuild a session with the long-form constructor.</summary>
+    function EarlyDataContext: TBytes;
+    /// <summary>The bytes the client host attached to this ticket
+    /// (ITlsSessionApplicationData); empty when none. A custom persistent cache must persist them
+    /// and rebuild a session with the long-form constructor.</summary>
+    function ApplicationData: TBytes;
+    /// <summary>The kind of engine that minted the ticket; only that kind offers or accepts it.
+    /// A custom persistent cache or store must persist it.</summary>
+    function TicketBinding: TTicketBinding;
   end;
 
   /// <summary>
