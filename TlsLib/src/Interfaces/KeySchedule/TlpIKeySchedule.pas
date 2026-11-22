@@ -17,12 +17,14 @@ interface
 
 uses
   SysUtils,
+  TlpCryptoDomainTypes,
   TlpIKeyLog,
   TlpISecretBuffer;
 
 type
-  /// <summary>A protection epoch, in the order keys become available.</summary>
-  TTlsEpoch = (EarlyData, Handshake, Application);
+  /// <summary>A protection epoch, in the order keys become available; Plaintext is the
+  /// cleartext level before any keys exist and carries no secret.</summary>
+  TTlsEpoch = (Plaintext, EarlyData, Handshake, Application);
 
   /// <summary>
   /// Which binder label a pre_shared_key derives its binder key under (RFC 9846 7.1,
@@ -46,6 +48,18 @@ type
     ['{A6F4B0C2-3E71-4D95-8B26-0C7A1E5F93D4}']
     function Key: ISecretBuffer;
     function Iv: ISecretBuffer;
+  end;
+
+  /// <summary>
+  /// The TLS 1.3 traffic secret of one epoch and direction with the suite facts a holder needs
+  /// to turn it into record protection: the cipher suite codepoint, its hash and its AEAD.
+  /// </summary>
+  ITrafficSecret = interface(IInterface)
+    ['{DB71BC2E-37DD-4776-8582-19E34263969E}']
+    function Secret: ISecretBuffer;
+    function CipherSuite: UInt16;
+    function Hash: THashAlgorithm;
+    function Aead: TAeadAlgorithm;
   end;
 
   /// <summary>
@@ -101,7 +115,11 @@ type
   /// derives; a driver installs the results into the record layer.
   /// </summary>
   ITls13KeySchedule = interface(IKeySchedule)
-    ['{1D0C239E-56C2-48CA-8A1E-08907741DB3E}']
+    ['{DBA0625A-3B1C-4F42-9EEB-4F9A2162C1B8}']
+    /// <summary>The traffic secret of an already-derived epoch and direction; raises
+    /// EInvalidOperationTlsLibException for an epoch that was not derived (Plaintext never is) or
+    /// for a schedule built without a cipher suite.</summary>
+    function TrafficSecret(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ITrafficSecret;
     /// <summary>Whether the early_exporter_secret has been derived (the early epoch was
     /// taken), so ExportEarlyKeyingMaterial is available.</summary>
     function CanExportEarly: Boolean;

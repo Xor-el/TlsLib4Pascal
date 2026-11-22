@@ -26,9 +26,11 @@ uses
   TlpTlsAlertProtocol,
   TlpAlertMapping,
   TlpICryptoProvider,
+  TlpCryptoDomainTypes,
   TlpTrustPolicy,
   TlpIKeySchedule,
   TlpIRecordProtection,
+  TlpRecordProtectionFactory,
   TlpRecordLayer,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
@@ -194,6 +196,7 @@ type
     procedure InstallWriteProtection(const AProtection: IRecordProtection;
       AEpoch: TTlsEpoch);
     procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
+    procedure SendChangeCipherSpec;
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
@@ -266,20 +269,25 @@ resourcestring
 type
   /// <summary>
   /// Lets the handshake driver install epochs and report outcomes back to the engine, which
-  /// owns this bridge and is held by a raw reference.
+  /// owns this bridge and is held by a raw reference. It turns the keys the driver hands over
+  /// into record protection, so the TCP record layer is the only place that builds it.
   /// </summary>
-  TEngineHandshakeBridge = class sealed(TInterfacedObject, IRecordEpochInstaller,
-    IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,
+  TEngineHandshakeBridge = class sealed(TInterfacedObject, IEpochKeyInstaller,
+    IRecordLayerControl, IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,
     IHandshakeConnectionInfoSink, IEchStatusSink)
   strict private
   var
     FEngine: TTlsEngine;
+    FCrypto: ICryptoProvider;
   public
-    constructor Create(const AEngine: TTlsEngine);
-    procedure InstallReadProtection(const AProtection: IRecordProtection);
-    procedure InstallWriteProtection(const AProtection: IRecordProtection;
-      AEpoch: TTlsEpoch);
-    procedure ArmReadProtectionOnChangeCipherSpec(const AProtection: IRecordProtection);
+    constructor Create(const AEngine: TTlsEngine; const ACrypto: ICryptoProvider);
+    procedure InstallReadSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
+    procedure InstallWriteSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
+    procedure InstallWriteKeys(AEpoch: TTlsEpoch; const AKeys: ITrafficKeys;
+      AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+    procedure SendChangeCipherSpec;
+    procedure ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
+      AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
@@ -309,28 +317,44 @@ type
 
 { TEngineHandshakeBridge }
 
-constructor TEngineHandshakeBridge.Create(const AEngine: TTlsEngine);
+constructor TEngineHandshakeBridge.Create(const AEngine: TTlsEngine;
+  const ACrypto: ICryptoProvider);
 begin
   inherited Create;
   FEngine := AEngine;
+  FCrypto := ACrypto;
 end;
 
-procedure TEngineHandshakeBridge.InstallReadProtection(
-  const AProtection: IRecordProtection);
+procedure TEngineHandshakeBridge.InstallReadSecret(AEpoch: TTlsEpoch;
+  const ASecret: ITrafficSecret);
 begin
-  FEngine.InstallReadProtection(AProtection);
+  FEngine.InstallReadProtection(TRecordProtectionFactory.BuildFromSecret(FCrypto, ASecret));
 end;
 
-procedure TEngineHandshakeBridge.InstallWriteProtection(
-  const AProtection: IRecordProtection; AEpoch: TTlsEpoch);
+procedure TEngineHandshakeBridge.InstallWriteSecret(AEpoch: TTlsEpoch;
+  const ASecret: ITrafficSecret);
 begin
-  FEngine.InstallWriteProtection(AProtection, AEpoch);
+  FEngine.InstallWriteProtection(TRecordProtectionFactory.BuildFromSecret(FCrypto, ASecret),
+    AEpoch);
 end;
 
-procedure TEngineHandshakeBridge.ArmReadProtectionOnChangeCipherSpec(
-  const AProtection: IRecordProtection);
+procedure TEngineHandshakeBridge.InstallWriteKeys(AEpoch: TTlsEpoch;
+  const AKeys: ITrafficKeys; AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
 begin
-  FEngine.ArmReadProtectionOnChangeCipherSpec(AProtection);
+  FEngine.InstallWriteProtection(TRecordProtectionFactory.Build(AVersion, AKeys,
+    FCrypto.Primitives.CreateAead(AAead)), AEpoch);
+end;
+
+procedure TEngineHandshakeBridge.SendChangeCipherSpec;
+begin
+  FEngine.SendChangeCipherSpec;
+end;
+
+procedure TEngineHandshakeBridge.ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
+  AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+begin
+  FEngine.ArmReadProtectionOnChangeCipherSpec(TRecordProtectionFactory.Build(AVersion,
+    AKeys, FCrypto.Primitives.CreateAead(AAead)));
 end;
 
 procedure TEngineHandshakeBridge.RevertWriteToPlaintext;
@@ -487,9 +511,9 @@ begin
     FRecordLayer.UseClientInitialRecordVersion;
   LChannel := THandshakeChannel.Create(FRecordLayer, AMaxCertificateMessageLength)
     as IHandshakeChannel;
-  LBridge := TEngineHandshakeBridge.Create(Self);
-  LDriver := THandshakeDriver.Create(LChannel, LBridge as IRecordEpochInstaller,
-    ACryptoProvider, LBridge as IHandshakeSink);
+  LBridge := TEngineHandshakeBridge.Create(Self, ACryptoProvider);
+  LDriver := THandshakeDriver.Create(LChannel, LBridge as IEpochKeyInstaller,
+    LBridge as IHandshakeSink);
   FConductor := THandshakeConductor.Create(LChannel, LDriver, AInitialMachine);
 end;
 
@@ -1252,6 +1276,12 @@ begin
   // application data may be sealed only once the Application write epoch is installed (a 1.3 server
   // reaches it at its Finished - half-RTT); handshake/early write epochs must not carry app data
   FAppWriteEpoch := AEpoch = TTlsEpoch.Application;
+end;
+
+procedure TTlsEngine.SendChangeCipherSpec;
+begin
+  // the legacy 1-byte 0x01 change_cipher_spec, sent in the clear (RFC 9846 E.4)
+  FRecordLayer.Write(TTlsContentType.ChangeCipherSpec, TBytes.Create(1), 0, 1);
 end;
 
 procedure TTlsEngine.RevertWriteToPlaintext;

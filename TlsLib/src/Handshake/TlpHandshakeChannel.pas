@@ -24,8 +24,8 @@ uses
 
 type
   /// <summary>
-  /// The record-layer handshake channel: sends framed handshake messages (and the
-  /// middlebox CCS) out through the record layer, and reassembles the inbound
+  /// The record-layer handshake channel: sends framed handshake messages out through the
+  /// record layer, and reassembles the inbound
   /// handshake byte stream the engine feeds in. Owns its reassembler; the record
   /// layer is owned by the engine. Single-threaded.
   /// </summary>
@@ -44,7 +44,6 @@ type
     destructor Destroy; override;
 
     procedure SendHandshake(const AMessage: TBytes);
-    procedure SendChangeCipherSpec;
     function ReceiveHandshake(out AMessage: TTlsHandshakeMessage): Boolean;
     function HasPartialInbound: Boolean;
 
@@ -91,12 +90,6 @@ procedure THandshakeChannel.SendHandshake(const AMessage: TBytes);
 begin
   FRecordLayer.Write(TTlsContentType.Handshake, AMessage, 0,
     System.Length(AMessage));
-end;
-
-procedure THandshakeChannel.SendChangeCipherSpec;
-begin
-  // the legacy 1-byte 0x01 change_cipher_spec, sent in the clear (RFC 9846 E.4)
-  FRecordLayer.Write(TTlsContentType.ChangeCipherSpec, TBytes.Create(1), 0, 1);
 end;
 
 function THandshakeChannel.ReceiveHandshake(

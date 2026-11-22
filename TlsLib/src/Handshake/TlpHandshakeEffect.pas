@@ -74,9 +74,10 @@ type
   THandshakeEffect = record
     Kind: THandshakeEffectKind;
     Bytes: TBytes;               // SendHandshake / SelectAlpn (the protocol name)
-    Keys: ITrafficKeys;          // InstallKeys
+    Secret: ITrafficSecret;      // InstallKeys (TLS 1.3: the epoch's traffic secret; nil for TLS 1.2 keys)
+    Keys: ITrafficKeys;          // InstallKeys (TLS 1.2 only)
     Side: TRecordSide;           // InstallKeys
-    Aead: TAeadAlgorithm;        // InstallKeys (the negotiated suite's AEAD)
+    Aead: TAeadAlgorithm;        // InstallKeys (TLS 1.2 keys: the negotiated suite's AEAD)
     Version: TTlsVersion;        // InstallKeys (which record protection to build) / NegotiatedVersion
     Epoch: TTlsEpoch;            // InstallKeys (which epoch the keys belong to)
     Outbound: Int32;             // SetRecordSizeLimit (raw outbound record_size_limit)
@@ -109,8 +110,13 @@ type
   public
     class function SendHandshake(const ABytes: TBytes): THandshakeEffect; static;
     class function SendChangeCipherSpec: THandshakeEffect; static;
+    /// <summary>Installs TLS 1.2 traffic keys for AEpoch on ASide.</summary>
     class function InstallKeys(const AKeys: ITrafficKeys; ASide: TRecordSide;
       AAead: TAeadAlgorithm; const AVersion: TTlsVersion;
+      AEpoch: TTlsEpoch): THandshakeEffect; static;
+    /// <summary>Installs the TLS 1.3 traffic secret of AEpoch on ASide; the installer derives the
+    /// record keys from it.</summary>
+    class function InstallSecret(const ASecret: ITrafficSecret; ASide: TRecordSide;
       AEpoch: TTlsEpoch): THandshakeEffect; static;
     class function NegotiatedVersion(const AVersion: TTlsVersion): THandshakeEffect; static;
     class function SelectAlpn(const AProtocol: TBytes): THandshakeEffect; static;
@@ -217,6 +223,17 @@ begin
   Result.Side := ASide;
   Result.Aead := AAead;
   Result.Version := AVersion;
+  Result.Epoch := AEpoch;
+end;
+
+class function THandshakeEffects.InstallSecret(const ASecret: ITrafficSecret;
+  ASide: TRecordSide; AEpoch: TTlsEpoch): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.InstallKeys;
+  Result.Secret := ASecret;
+  Result.Side := ASide;
+  Result.Version := TTlsVersion.Tls13;
   Result.Epoch := AEpoch;
 end;
 

@@ -95,6 +95,7 @@ uses
   TlpExporterArgs in '..\..\TlsLib\src\KeySchedule\TlpExporterArgs.pas',
   TlpIKeySchedule in '..\..\TlsLib\src\Interfaces\KeySchedule\TlpIKeySchedule.pas',
   TlpTrafficKeys in '..\..\TlsLib\src\KeySchedule\TlpTrafficKeys.pas',
+  TlpTrafficSecret in '..\..\TlsLib\src\KeySchedule\TlpTrafficSecret.pas',
   TlpTls13KeySchedule in '..\..\TlsLib\src\KeySchedule\TlpTls13KeySchedule.pas',
   TlpTls12KeySchedule in '..\..\TlsLib\src\KeySchedule\TlpTls12KeySchedule.pas',
   TlpRecordProtectionFactory in '..\..\TlsLib\src\Record\TlpRecordProtectionFactory.pas',

@@ -1633,8 +1633,9 @@ begin
   // a HelloRetryRequest, if any, consumed the opener before this flight
   FEch := nil;
 
-  FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Hash,
-    FSelectedSuite.Common.KeyLength);
+  FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Code,
+    FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength,
+    FSelectedSuite.Common.Aead);
   // the key log keys every line by the ClientHello.random - the inner one here when ECH was
   // accepted, since AClientHello is the decrypted inner in that case (RFC 9850)
   FSchedule.SetKeyLog(FParams.KeyLog, AClientHello.Random);
@@ -1675,16 +1676,15 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SendChangeCipherSpec);
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ServerWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+    TTlsDirection.ServerWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
   // read side: early keys for accepted 0-RTT (handshake read installs after
   // EndOfEarlyData), else the handshake read keys now
   if FEarlyDataAccepted then
   begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.EarlyData,
-      TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls13, TTlsEpoch.EarlyData));
+      THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.EarlyData,
+      TTlsDirection.ClientWrite), TRecordSide.ReadSide, TTlsEpoch.EarlyData));
     // the read side is on the early-data epoch: application_data (the client's 0-RTT data)
     // legitimately precedes the handshake completion until EndOfEarlyData (RFC 9846 4.3.10),
     // bounded by the max_early_data_size of the ticket that authorized it (RFC 9846 4.7.1), and by
@@ -1695,8 +1695,8 @@ begin
   else
   begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-      TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
+      THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+      TTlsDirection.ClientWrite), TRecordSide.ReadSide, TTlsEpoch.Handshake));
     // the client sent 0-RTT the server is not accepting: skip those undecryptable records.
     // Not after an HRR though - a client must not resend early data past a retry, so any
     // early-data records on the second flight are illegal and must fail (bad record MAC).
@@ -1726,8 +1726,8 @@ begin
     THandshakeEffects.SendHandshake(LFlight.Finished));
   // after its own Finished the server writes with the application keys
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    TTlsDirection.ServerWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+    TTlsDirection.ServerWrite), TRecordSide.WriteSide, TTlsEpoch.Application));
 end;
 
 function TTls13ServerStateMachine.BuildServerHello(
@@ -2030,9 +2030,8 @@ begin
   // the handshake keys, and further application_data before that Finished is unexpected
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.SetEarlyReadEpoch(False, 0),
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls13, TTlsEpoch.Handshake));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+    TTlsDirection.ClientWrite), TRecordSide.ReadSide, TTlsEpoch.Handshake));
 end;
 
 function TTls13ServerStateMachine.ProcessClientFinished(
@@ -2050,8 +2049,8 @@ begin
   FPhase := TPhase.Connected;
   MarkConnected;
   Result := TArray<THandshakeEffect>.Create(
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    TTlsDirection.ClientWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application),
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+    TTlsDirection.ClientWrite), TRecordSide.ReadSide, TTlsEpoch.Application),
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
     FSelectedGroup.Code, FPskAccepted and (FPskBinderKind = TPskBinderKind.Resumption), True,
     FRequestedServerName, Facts));

@@ -17,11 +17,7 @@ interface
 
 uses
   SysUtils,
-  TlpICryptoProvider,
-  TlpIRecordProtection,
   TlpIKeySchedule,
-  TlpTlsVersion,
-  TlpRecordProtectionFactory,
   TlpITlsEngine,
   TlpTlsAlert,
   TlpTlsLibExceptions,
@@ -32,19 +28,19 @@ uses
 type
   /// <summary>
   /// Applies the pure state machine's effects to the real world: it frames and
-  /// sends handshake messages (and the middlebox CCS) through the channel, turns
-  /// an epoch's derived traffic keys into installed record protection (via the
-  /// factory into the record layer), and reports events, completion, cert
-  /// verdicts, and failures to the sink. The state machine has already resolved
-  /// which traffic secret each install uses; the driver only frames, builds, and
-  /// installs.
+  /// sends handshake messages through the channel, hands an epoch's traffic secret
+  /// (or TLS 1.2 keys) to the key installer, applies the record-only controls when the
+  /// installer also offers them (failing closed when it does not), and reports events,
+  /// completion, cert verdicts, and failures to the sink. The state machine has already
+  /// resolved which traffic secret each install uses; the driver only routes.
   /// </summary>
   THandshakeDriver = class sealed(TObject)
   strict private
   var
     FChannel: IHandshakeChannel;
-    FInstaller: IRecordEpochInstaller;
-    FCrypto: ICryptoProvider;
+    FInstaller: IEpochKeyInstaller;
+    // resolved once from the installer; nil when the installer owns no record layer
+    FRecordControl: IRecordLayerControl;
     FSink: IHandshakeSink;
     // resolved once from the sink; nil when the sink does not track the version
     FVersionSink: IHandshakeVersionSink;
@@ -54,10 +50,11 @@ type
     FConnectionInfoSink: IHandshakeConnectionInfoSink;
     FEchStatusSink: IEchStatusSink;
     procedure ApplyInstallKeys(const AEffect: THandshakeEffect);
+    procedure FailRecordControlMissing;
+    procedure ApplyRecordControl(const AEffect: THandshakeEffect);
   public
     constructor Create(const AChannel: IHandshakeChannel;
-      const AInstaller: IRecordEpochInstaller; const ACryptoProvider: ICryptoProvider;
-      const ASink: IHandshakeSink);
+      const AInstaller: IEpochKeyInstaller; const ASink: IHandshakeSink);
 
     procedure Apply(const AEffect: THandshakeEffect);
     procedure ApplyAll(const AEffects: TArray<THandshakeEffect>);
@@ -67,18 +64,19 @@ implementation
 
 resourcestring
   SVerdictUndeliverable = 'the handshake parked for a certificate verdict that nothing can deliver';
+  SRecordControlMissing = 'the handshake needs a record layer that the installer does not provide';
 
 { THandshakeDriver }
 
 constructor THandshakeDriver.Create(const AChannel: IHandshakeChannel;
-  const AInstaller: IRecordEpochInstaller; const ACryptoProvider: ICryptoProvider;
-  const ASink: IHandshakeSink);
+  const AInstaller: IEpochKeyInstaller; const ASink: IHandshakeSink);
 begin
   inherited Create;
   FChannel := AChannel;
   FInstaller := AInstaller;
-  FCrypto := ACryptoProvider;
   FSink := ASink;
+  if not Supports(AInstaller, IRecordLayerControl, FRecordControl) then
+    FRecordControl := nil;
   if not Supports(ASink, IHandshakeVersionSink, FVersionSink) then
     FVersionSink := nil;
   if not Supports(ASink, IHandshakeVerdictSink, FVerdictSink) then
@@ -89,31 +87,56 @@ begin
     FEchStatusSink := nil;
 end;
 
-procedure THandshakeDriver.ApplyInstallKeys(const AEffect: THandshakeEffect);
-var
-  LProtection: IRecordProtection;
+procedure THandshakeDriver.FailRecordControlMissing;
 begin
-  // the state machine names the negotiated AEAD and version in the effect, so the
-  // driver needs no up-front suite (a live client does not know the version or suite
-  // until the ServerHello)
-  LProtection := TRecordProtectionFactory.Build(AEffect.Version, AEffect.Keys,
-    FCrypto.Primitives.CreateAead(AEffect.Aead));
+  // a record-only effect reached an installer that owns no record layer: fail closed
+  FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SRecordControlMissing);
+end;
+
+procedure THandshakeDriver.ApplyRecordControl(const AEffect: THandshakeEffect);
+begin
+  if FRecordControl = nil then
+  begin
+    FailRecordControlMissing;
+    Exit;
+  end;
+  case AEffect.Kind of
+    THandshakeEffectKind.SendChangeCipherSpec:
+      FRecordControl.SendChangeCipherSpec;
+    THandshakeEffectKind.SetRecordSizeLimit:
+      FRecordControl.SetRecordSizeLimit(AEffect.Outbound, AEffect.Inbound);
+    THandshakeEffectKind.SkipEarlyData:
+      FRecordControl.SetEarlyDataSkip(AEffect.MaxBytes);
+    THandshakeEffectKind.SetEarlyDataLimit:
+      FRecordControl.SetEarlyDataLimit(AEffect.MaxBytes);
+    THandshakeEffectKind.RevertWriteToPlaintext:
+      FRecordControl.RevertWriteToPlaintext;
+    THandshakeEffectKind.SetEarlyReadEpoch:
+      FRecordControl.SetEarlyReadEpoch(AEffect.Active, AEffect.MaxBytes);
+  end;
+end;
+
+procedure THandshakeDriver.ApplyInstallKeys(const AEffect: THandshakeEffect);
+begin
   // the negotiated version rides every key install; surface it for connection info, except on the
   // early-data install, whose version is not negotiated (the hello effect or handshake install reports it)
   if (FVersionSink <> nil) and (AEffect.Epoch <> TTlsEpoch.EarlyData) then
     FVersionSink.OnVersionNegotiated(AEffect.Version);
-  if AEffect.Side = TRecordSide.ReadSide then
+  if AEffect.Secret <> nil then
   begin
-    // TLS 1.2 switches the read cipher on the peer's change_cipher_spec (RFC 5246 7.1), so arm
-    // the read epoch to activate then rather than immediately - this keeps a peer's plaintext
-    // alert sent before its CCS readable under the right epoch. TLS 1.3 installs directly.
-    if AEffect.Version.Equals(TTlsVersion.Tls12) then
-      FInstaller.ArmReadProtectionOnChangeCipherSpec(LProtection)
+    if AEffect.Side = TRecordSide.ReadSide then
+      FInstaller.InstallReadSecret(AEffect.Epoch, AEffect.Secret)
     else
-      FInstaller.InstallReadProtection(LProtection);
+      FInstaller.InstallWriteSecret(AEffect.Epoch, AEffect.Secret);
   end
+  else if AEffect.Side = TRecordSide.WriteSide then
+    FInstaller.InstallWriteKeys(AEffect.Epoch, AEffect.Keys, AEffect.Aead, AEffect.Version)
+  else if FRecordControl <> nil then
+    // TLS 1.2 switches the read cipher on the peer's change_cipher_spec (RFC 5246 7.1), so the
+    // read epoch is armed to activate then rather than immediately
+    FRecordControl.ArmReadKeysOnChangeCipherSpec(AEffect.Keys, AEffect.Aead, AEffect.Version)
   else
-    FInstaller.InstallWriteProtection(LProtection, AEffect.Epoch);
+    FailRecordControlMissing;
 end;
 
 procedure THandshakeDriver.Apply(const AEffect: THandshakeEffect);
@@ -121,8 +144,10 @@ begin
   case AEffect.Kind of
     THandshakeEffectKind.SendHandshake:
       FChannel.SendHandshake(AEffect.Bytes);
-    THandshakeEffectKind.SendChangeCipherSpec:
-      FChannel.SendChangeCipherSpec;
+    THandshakeEffectKind.SendChangeCipherSpec, THandshakeEffectKind.SetRecordSizeLimit,
+    THandshakeEffectKind.SkipEarlyData, THandshakeEffectKind.SetEarlyDataLimit,
+    THandshakeEffectKind.RevertWriteToPlaintext, THandshakeEffectKind.SetEarlyReadEpoch:
+      ApplyRecordControl(AEffect);
     THandshakeEffectKind.InstallKeys:
       ApplyInstallKeys(AEffect);
     THandshakeEffectKind.NegotiatedVersion:
@@ -132,16 +157,6 @@ begin
       FSink.OnAlpnSelected(AEffect.Bytes);
     THandshakeEffectKind.PeerOcspStaple:
       FSink.OnOcspStapleReceived(AEffect.Bytes);
-    THandshakeEffectKind.SetRecordSizeLimit:
-      FInstaller.SetRecordSizeLimit(AEffect.Outbound, AEffect.Inbound);
-    THandshakeEffectKind.SkipEarlyData:
-      FInstaller.SetEarlyDataSkip(AEffect.MaxBytes);
-    THandshakeEffectKind.SetEarlyDataLimit:
-      FInstaller.SetEarlyDataLimit(AEffect.MaxBytes);
-    THandshakeEffectKind.RevertWriteToPlaintext:
-      FInstaller.RevertWriteToPlaintext;
-    THandshakeEffectKind.SetEarlyReadEpoch:
-      FInstaller.SetEarlyReadEpoch(AEffect.Active, AEffect.MaxBytes);
     THandshakeEffectKind.RaiseEvent:
       FSink.OnHandshakeEvent(AEffect.Event);
     THandshakeEffectKind.AwaitCertificateVerdict:

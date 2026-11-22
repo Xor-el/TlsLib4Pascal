@@ -59,7 +59,8 @@ uses
   TlpPosixDynamicLibrary, TlpAlpnProtocols, TlpPkcs12Identity, 
   TlpITlsServerCredentialSet, TlpTls12PrfLabels, TlpClientPskPath, 
   TlpILayeredTrustAnchorStore, TlpIIssuerLookup, TlpIssuerResolution, 
-  TlpIssuerLookupVerifierSource, TlpITlsEngineInbound, TlpITlsEngineOutbound;
+  TlpIssuerLookupVerifierSource, TlpITlsEngineInbound, TlpITlsEngineOutbound,
+  TlpTrafficSecret;
 
 implementation
 

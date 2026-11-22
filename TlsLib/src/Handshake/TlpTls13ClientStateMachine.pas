@@ -1035,8 +1035,8 @@ begin
     // derive the client_early_traffic keys from the ClientHello transcript and open the
     // early write epoch, after the (plaintext) middlebox CCS. Under ECH the 0-RTT keys derive
     // from the inner transcript (+ inner random), the logical ClientHello (RFC 9849 sec. 6.1.5)
-    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common.Hash,
-      LPskSuite.Common.KeyLength);
+    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common.Code,
+      LPskSuite.Common.Hash, LPskSuite.Common.KeyLength, LPskSuite.Common.Aead);
     FSchedule.SetPsk(FPskOffers[0].Key);
     // key the log by the same random the early transcript uses: the inner ClientHello's under ECH
     if FEchOrch.Active then
@@ -1050,9 +1050,8 @@ begin
     // the plaintext CCS precedes the early keys
     Result := TArrayUtilities.Concat<THandshakeEffect>(Result, MiddleboxCcs);
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.EarlyData,
-      TTlsDirection.ClientWrite), TRecordSide.WriteSide, LPskSuite.Common.Aead,
-      TTlsVersion.Tls13, TTlsEpoch.EarlyData));
+      THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.EarlyData,
+      TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.EarlyData));
     // bound the outbound 0-RTT at the ticket's max_early_data; bytes beyond the budget are
     // refused and the caller resends them as 1-RTT (RFC 9846 4.3.10)
     TArrayUtilities.Append<THandshakeEffect>(Result,
@@ -1293,8 +1292,9 @@ begin
   // PSK-seeded for psk_dhe_ke) for the full/non-early or different-suite handshake
   if (FSchedule = nil) or (not FPskAccepted) or (not FEarlySuiteMatched) then
   begin
-    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Hash,
-      FSelectedSuite.Common.KeyLength);
+    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Code,
+      FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength,
+      FSelectedSuite.Common.Aead);
     // psk_dhe_ke: seed the accepted PSK before deriving the handshake secret
     if FPskAccepted then
       FSchedule.SetPsk(FAcceptedPsk.Key);
@@ -1313,15 +1313,15 @@ begin
     TArray<THandshakeEffect>.Create(
     THandshakeEffects.NegotiatedVersion(TTlsVersion.Tls13)), MiddleboxCcs);
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+    TTlsDirection.ServerWrite), TRecordSide.ReadSide, TTlsEpoch.Handshake));
   // with an accepted 0-RTT offer the write side stays on the early keys until
   // EndOfEarlyData (sent at EncryptedExtensions); otherwise switch write to handshake now
   if FEarlyDataOffered and FPskAccepted then
     Exit;
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+    TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
   // a PSK-rejected 0-RTT offer means the early data was ignored: the engine replays it
   if FEarlyDataOffered then
   begin
@@ -1419,9 +1419,8 @@ begin
       TArrayUtilities.Append<THandshakeEffect>(Result,
         THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
       TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-        TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-        TTlsVersion.Tls13, TTlsEpoch.Handshake));
+        THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+        TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
     end;
   end;
   // on an accepted resumption the server sends no Certificate/CertificateVerify: the
@@ -1985,9 +1984,8 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SendHandshake(LEndOfEarlyData));
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-      TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls13, TTlsEpoch.Handshake));
+      THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+      TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
   end;
 
   // mutual TLS: the client Certificate (+ CertificateVerify) precede the client Finished
@@ -2019,9 +2017,8 @@ begin
     // before the ech_required alert: a completed connection's post-Finished records - the alert
     // included - ride the application keys, and the peer decrypts them as such
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-      TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls13, TTlsEpoch.Application));
+      THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+      TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Application));
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.EchRejected(FEchOrch.RetryConfigs, FParams.EchPolicy.IsRetryAttempt));
     Exit(Result);
@@ -2034,13 +2031,11 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LClientFinished));
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls13, TTlsEpoch.Application));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+    TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Application));
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls13, TTlsEpoch.Application));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+    TTlsDirection.ServerWrite), TRecordSide.ReadSide, TTlsEpoch.Application));
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
     FCurrentGroupCode, FPskAccepted and FResumedFromTicket, True, FParams.ServerName, Facts));

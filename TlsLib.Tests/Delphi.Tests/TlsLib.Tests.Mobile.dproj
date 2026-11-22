@@ -417,6 +417,7 @@
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpExporterArgs.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\KeySchedule\TlpIKeySchedule.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTrafficKeys.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTrafficSecret.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls13KeySchedule.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls12KeySchedule.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Record\TlpRecordProtectionFactory.pas"/>

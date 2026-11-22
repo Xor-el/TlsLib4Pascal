@@ -81,6 +81,7 @@ contains
   TlpExporterArgs in '..\..\KeySchedule\TlpExporterArgs.pas',
   TlpIKeySchedule in '..\..\Interfaces\KeySchedule\TlpIKeySchedule.pas',
   TlpTrafficKeys in '..\..\KeySchedule\TlpTrafficKeys.pas',
+  TlpTrafficSecret in '..\..\KeySchedule\TlpTrafficSecret.pas',
   TlpTls13KeySchedule in '..\..\KeySchedule\TlpTls13KeySchedule.pas',
   TlpTls12KeySchedule in '..\..\KeySchedule\TlpTls12KeySchedule.pas',
   TlpRecordProtectionFactory in '..\..\Record\TlpRecordProtectionFactory.pas',

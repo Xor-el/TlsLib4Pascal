@@ -25,6 +25,7 @@ uses
   TlpIKeyLog,
   TlpKeyLog,
   TlpTrafficKeys,
+  TlpTrafficSecret,
   TlpHkdfLabel,
   TlpTlsLibExceptions,
   TlpExporterArgs,
@@ -46,7 +47,9 @@ type
     FHkdf: IHkdf;
     FHash: THashAlgorithm;
     FKeyLength: Int32;
-    FIvLength: Int32;
+    FCipherSuite: UInt16;
+    FAead: TAeadAlgorithm;
+    FHasCipherSuite: Boolean;
     FHashLength: Int32;
     FHashEmpty: TBytes;
     FPsk: ISecretBuffer;
@@ -76,9 +79,13 @@ type
     function ExportFrom(const AMaster: ISecretBuffer; const ALabel: string;
       const AContext: TBytes; ALength: Int32): TBytes;
   public
-    /// <summary>AHash is the suite hash; AKeyLength the AEAD key size.</summary>
+    /// <summary>AHash is the suite hash; AKeyLength the AEAD key size. A schedule built this way
+    /// knows no cipher suite, so TrafficSecret raises on it (binder and Finished uses only).</summary>
     constructor Create(const ACryptoProvider: ICryptoProvider; AHash: THashAlgorithm;
-      AKeyLength: Int32);
+      AKeyLength: Int32); overload;
+    /// <summary>As above for a negotiated suite: ACipherSuite and AAead ride every traffic secret.</summary>
+    constructor Create(const ACryptoProvider: ICryptoProvider; ACipherSuite: UInt16;
+      AHash: THashAlgorithm; AKeyLength: Int32; AAead: TAeadAlgorithm); overload;
 
     // IKeySchedule
     function TrafficKeys(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ITrafficKeys;
@@ -92,6 +99,7 @@ type
       ALength: Int32): TBytes; overload;
 
     // ITls13KeySchedule
+    function TrafficSecret(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ITrafficSecret;
     function CanExportEarly: Boolean;
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
@@ -117,11 +125,10 @@ type
 
 implementation
 
-const
-  Tls13IvLength = Int32(12);
-
 resourcestring
   SEpochNotDerived = 'the requested epoch secrets have not been derived';
+  SNoCipherSuite = 'the schedule was built without a cipher suite';
+  SPlaintextHasNoSecret = 'the plaintext epoch has no secrets';
   SHandshakeSecretsReleased = 'the handshake secrets have been released';
   SPskAfterEarlySecret = 'the pre-shared key must be set before the early secret is derived';
   SSharedSecretAfterHandshake =
@@ -143,11 +150,19 @@ begin
   FCrypto := ACryptoProvider;
   FHash := AHash;
   FKeyLength := AKeyLength;
-  FIvLength := Tls13IvLength;
   FHkdf := ACryptoProvider.Primitives.CreateHkdf(AHash);
   LHash := ACryptoProvider.Primitives.CreateHash(AHash);
   FHashLength := LHash.HashSize;
   FHashEmpty := LHash.DoFinal; // hash of the empty input
+end;
+
+constructor TTls13KeySchedule.Create(const ACryptoProvider: ICryptoProvider;
+  ACipherSuite: UInt16; AHash: THashAlgorithm; AKeyLength: Int32; AAead: TAeadAlgorithm);
+begin
+  Create(ACryptoProvider, AHash, AKeyLength);
+  FCipherSuite := ACipherSuite;
+  FAead := AAead;
+  FHasCipherSuite := True;
 end;
 
 procedure TTls13KeySchedule.LogSecret(const ALabel: string;
@@ -268,6 +283,8 @@ begin
   else
     Result := nil;
   end;
+  if Result = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
 end;
 
 procedure TTls13KeySchedule.SetPsk(const APsk: ISecretBuffer);
@@ -297,6 +314,8 @@ begin
   if System.Length(ATranscriptHash) <> FHashLength then
     raise EArgumentTlsLibException.CreateRes(@STranscriptHashLength);
   case AEpoch of
+    TTlsEpoch.Plaintext:
+      raise EInvalidOperationTlsLibException.CreateRes(@SPlaintextHasNoSecret);
     TTlsEpoch.EarlyData:
       begin
         EnsureEarlySecret;
@@ -335,14 +354,17 @@ end;
 
 function TTls13KeySchedule.TrafficKeys(AEpoch: TTlsEpoch;
   ADirection: TTlsDirection): ITrafficKeys;
-var
-  LSecret: ISecretBuffer;
 begin
-  LSecret := EpochSecret(AEpoch, ADirection);
-  if LSecret = nil then
-    raise EInvalidOperationTlsLibException.CreateRes(@SEpochNotDerived);
-  Result := TTrafficKeys.Create(THkdfLabel.HkdfExpandLabel(FHkdf, LSecret, 'key', nil, FKeyLength),
-    THkdfLabel.HkdfExpandLabel(FHkdf, LSecret, 'iv', nil, FIvLength));
+  Result := TTrafficKeys.FromSecret(FHkdf, EpochSecret(AEpoch, ADirection), FKeyLength);
+end;
+
+function TTls13KeySchedule.TrafficSecret(AEpoch: TTlsEpoch;
+  ADirection: TTlsDirection): ITrafficSecret;
+begin
+  if not FHasCipherSuite then
+    raise EInvalidOperationTlsLibException.CreateRes(@SNoCipherSuite);
+  Result := TTrafficSecret.Create(EpochSecret(AEpoch, ADirection), FCipherSuite, FHash,
+    FAead);
 end;
 
 function TTls13KeySchedule.FinishedKey(ADirection: TTlsDirection): ISecretBuffer;

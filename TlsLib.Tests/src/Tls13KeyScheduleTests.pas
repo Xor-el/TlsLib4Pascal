@@ -31,6 +31,7 @@ uses
   TlpSecretBuffer,
   TlpICryptoProvider,
   TlpCryptoDomainTypes,
+  TlpNegotiationTypes,
   TlpTlsVersion,
   TlpIRecordProtection,
   TlpRecordProtection,
@@ -50,6 +51,7 @@ type
   private
     FVec: TStringList;
     function NewSchedule: TTls13KeySchedule;
+    function NewSuiteSchedule: ITls13KeySchedule;
     function NewResumptionSchedule(const APsk: ISecretBuffer;
       const ASharedSecret: TBytes): ITls13KeySchedule;
     function Bytes(const AName: string): TBytes;
@@ -59,6 +61,14 @@ type
   published
     procedure TestSecretTreeRfc8448;
     procedure TestTrafficKeysRfc8448;
+    procedure TestTrafficSecretRfc8448;
+    procedure TestTrafficSecretCarriesTheSuiteFacts;
+    procedure TestKeyAndIvDerivedFromTheTrafficSecretMatchRfc8448;
+    procedure TestEarlyTrafficSecretMatchesIndependentDerivation;
+    procedure TestTrafficSecretOfAnUnderivedEpochRaises;
+    procedure TestTrafficSecretOfPlaintextRaises;
+    procedure TestDeriveEpochSecretsOfPlaintextRaises;
+    procedure TestTrafficSecretWithoutASuiteRaises;
     procedure TestClientFinishedVerifyDataRfc8448;
     procedure TestFinishedRoundTripAndRejectsWrongMac;
     procedure TestDerivedKeysDecryptRfc8448Record;
@@ -113,6 +123,13 @@ function TTestTls13KeySchedule.NewSchedule: TTls13KeySchedule;
 begin
   // the RFC 8448 sample suite is TLS_AES_128_GCM_SHA256
   Result := TTls13KeySchedule.Create(Crypto, THashAlgorithm.SHA_256, 16);
+  Result.SetSharedSecret(TSecretBuffer.From(Bytes('shared_secret')));
+end;
+
+function TTestTls13KeySchedule.NewSuiteSchedule: ITls13KeySchedule;
+begin
+  Result := TTls13KeySchedule.Create(Crypto, TCipherSuites13.Aes128GcmSha256,
+    THashAlgorithm.SHA_256, 16, TAeadAlgorithm.AES_128_GCM);
   Result.SetSharedSecret(TSecretBuffer.From(Bytes('shared_secret')));
 end;
 
@@ -193,6 +210,148 @@ begin
   LKeys := LSched.TrafficKeys(TTlsEpoch.Application, TTlsDirection.ServerWrite);
   CheckEqualBytes('s ap key', Bytes('s_ap_key'), ToBytes(LKeys.Key));
   CheckEqualBytes('s ap iv', Bytes('s_ap_iv'), ToBytes(LKeys.Iv));
+end;
+
+procedure TTestTls13KeySchedule.TestTrafficSecretRfc8448;
+var
+  LSched: ITls13KeySchedule;
+begin
+  LSched := NewSuiteSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+
+  CheckEqualBytes('c hs traffic', Bytes('c_hs_traffic'), ToBytes(
+    LSched.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ClientWrite).Secret));
+  CheckEqualBytes('s hs traffic', Bytes('s_hs_traffic'), ToBytes(
+    LSched.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ServerWrite).Secret));
+  CheckEqualBytes('c ap traffic', Bytes('c_ap_traffic'), ToBytes(
+    LSched.TrafficSecret(TTlsEpoch.Application, TTlsDirection.ClientWrite).Secret));
+  CheckEqualBytes('s ap traffic', Bytes('s_ap_traffic'), ToBytes(
+    LSched.TrafficSecret(TTlsEpoch.Application, TTlsDirection.ServerWrite).Secret));
+end;
+
+procedure TTestTls13KeySchedule.TestTrafficSecretCarriesTheSuiteFacts;
+var
+  LSched: ITls13KeySchedule;
+  LSecret: ITrafficSecret;
+begin
+  LSched := NewSuiteSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LSecret := LSched.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
+  CheckEquals(Int32(TCipherSuites13.Aes128GcmSha256), Int32(LSecret.CipherSuite),
+    'the cipher suite code');
+  CheckEquals(Ord(THashAlgorithm.SHA_256), Ord(LSecret.Hash), 'the suite hash');
+  CheckEquals(Ord(TAeadAlgorithm.AES_128_GCM), Ord(LSecret.Aead), 'the suite AEAD');
+end;
+
+procedure TTestTls13KeySchedule.TestKeyAndIvDerivedFromTheTrafficSecretMatchRfc8448;
+var
+  LSched: ITls13KeySchedule;
+  LHkdf: IHkdf;
+  LSecret: ITrafficSecret;
+begin
+  LSched := NewSuiteSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LHkdf := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+
+  LSecret := LSched.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
+  CheckEqualBytes('c hs key', Bytes('c_hs_key'), ToBytes(
+    THkdfLabel.HkdfExpandLabel(LHkdf, LSecret.Secret, 'key', nil, 16)));
+  CheckEqualBytes('c hs iv', Bytes('c_hs_iv'), ToBytes(
+    THkdfLabel.HkdfExpandLabel(LHkdf, LSecret.Secret, 'iv', nil, 12)));
+  LSecret := LSched.TrafficSecret(TTlsEpoch.Application, TTlsDirection.ServerWrite);
+  CheckEqualBytes('s ap key', Bytes('s_ap_key'), ToBytes(
+    THkdfLabel.HkdfExpandLabel(LHkdf, LSecret.Secret, 'key', nil, 16)));
+  CheckEqualBytes('s ap iv', Bytes('s_ap_iv'), ToBytes(
+    THkdfLabel.HkdfExpandLabel(LHkdf, LSecret.Secret, 'iv', nil, 12)));
+  // and the schedule's own (key, iv) is the same derivation
+  CheckEqualBytes('s ap key via the schedule', Bytes('s_ap_key'), ToBytes(
+    LSched.TrafficKeys(TTlsEpoch.Application, TTlsDirection.ServerWrite).Key));
+end;
+
+procedure TTestTls13KeySchedule.TestEarlyTrafficSecretMatchesIndependentDerivation;
+var
+  LSched: ITls13KeySchedule;
+  LHkdf: IHkdf;
+  LEarly: ISecretBuffer;
+  LHash: TBytes;
+begin
+  LHash := DecodeHex('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f');
+  LSched := NewSuiteSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.EarlyData, LHash);
+  // the 0-PSK early secret, the same one the RFC 8448 vector pins
+  LHkdf := Crypto.Primitives.CreateHkdf(THashAlgorithm.SHA_256);
+  LEarly := TSecretBuffer.From(Bytes('early_secret'));
+  CheckEqualBytes('c e traffic', ToBytes(THkdfLabel.DeriveSecret(LHkdf, LEarly,
+    'c e traffic', LHash)), ToBytes(
+    LSched.TrafficSecret(TTlsEpoch.EarlyData, TTlsDirection.ClientWrite).Secret));
+end;
+
+procedure TTestTls13KeySchedule.TestTrafficSecretOfAnUnderivedEpochRaises;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSuiteSchedule;
+  LRaised := False;
+  try
+    LSched.TrafficSecret(TTlsEpoch.Application, TTlsDirection.ClientWrite);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'an epoch that was not derived has no traffic secret');
+end;
+
+procedure TTestTls13KeySchedule.TestTrafficSecretOfPlaintextRaises;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSuiteSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LRaised := False;
+  try
+    LSched.TrafficSecret(TTlsEpoch.Plaintext, TTlsDirection.ClientWrite);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the plaintext epoch carries no secret');
+end;
+
+procedure TTestTls13KeySchedule.TestDeriveEpochSecretsOfPlaintextRaises;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSuiteSchedule;
+  LRaised := False;
+  try
+    LSched.DeriveEpochSecrets(TTlsEpoch.Plaintext, Bytes('hash_ch_sh'));
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the plaintext epoch derives no secrets');
+end;
+
+procedure TTestTls13KeySchedule.TestTrafficSecretWithoutASuiteRaises;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LRaised := False;
+  try
+    LSched.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a schedule built without a cipher suite cannot name its secrets');
 end;
 
 procedure TTestTls13KeySchedule.TestClientFinishedVerifyDataRfc8448;
