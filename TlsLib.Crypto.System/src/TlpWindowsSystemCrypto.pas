@@ -807,14 +807,10 @@ type
     function NonceSize: Int32;
     function TagSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
-    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32; overload;
     function Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
-    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32; overload;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
     function Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
     function TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
       const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
       out APlainLen: Int32): Boolean;
@@ -1807,12 +1803,6 @@ begin
   end;
 end;
 
-function TWindowsCngAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
-begin
-  Result := Seal(ANonce, AAad, 0, System.Length(AAad), ASrc, ASrcOff, ALen, ADest, ADestOff);
-end;
-
 function TWindowsCngAead.Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
   const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
 var
@@ -1858,12 +1848,6 @@ begin
   Result := ALen + FTagSize;
 end;
 
-function TWindowsCngAead.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
-begin
-  Result := Open(ANonce, AAad, 0, System.Length(AAad), ASrc, ASrcOff, ALen, ADest, ADestOff);
-end;
-
 function TWindowsCngAead.Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
   const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
 begin
@@ -1889,14 +1873,15 @@ begin
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
-  // an input too short to hold the tag cannot authenticate
+  if (AAadOff < 0) or (AAadLen < 0) or (Int64(AAadOff) + AAadLen > System.Length(AAad)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadAadSpanOutOfRange);
+  if (ASrcOff < 0) or (ALen < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
+  // only a well-formed input too short to hold the tag reads as a failed authentication
   if ALen < FTagSize then
     Exit(False);
   LCtLen := ALen - FTagSize;
-  if (AAadOff < 0) or (AAadLen < 0) or (Int64(AAadOff) + AAadLen > System.Length(AAad)) then
-    raise EArgumentTlsLibException.CreateRes(@SAeadAadSpanOutOfRange);
-  if (ASrcOff < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) or
-    (ADestOff < 0) or (Int64(ADestOff) + LCtLen > System.Length(ADest)) then
+  if (ADestOff < 0) or (Int64(ADestOff) + LCtLen > System.Length(ADest)) then
     raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
   if (PByte(ASrc) = PByte(ADest)) and (ASrcOff <> ADestOff) then
     raise EArgumentTlsLibException.CreateRes(@SAeadBadOverlap);

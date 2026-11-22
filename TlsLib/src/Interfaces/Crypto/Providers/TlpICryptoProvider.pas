@@ -95,7 +95,7 @@ type
 
   /// <summary>
   /// An AEAD cipher. The key is set once via <see cref="Init" />; the nonce and
-  /// associated data are per message, the data passed whole or as a span of an array.
+  /// associated data are per message, the data passed as a span of an array.
   /// <see cref="Open" /> raises on an authentication failure, <see cref="TryOpen" /> reports it.
   /// </summary>
   IAead = interface(IInterface)
@@ -117,27 +117,21 @@ type
     /// <summary>Encrypts and authenticates ASrc[ASrcOff .. ASrcOff+ALen), writing ciphertext
     /// followed by the tag (ALen + TagSize bytes) at ADest[ADestOff]. ADest may be the same array
     /// as ASrc with ADestOff = ASrcOff (exact in-place); any other overlap is rejected. The caller
-    /// sizes ADest for ALen + TagSize at ADestOff. Returns the bytes written.</summary>
-    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32; overload;
-    /// <summary>As above, with the associated data AAad[AAadOff .. AAadOff+AAadLen), so a caller
-    /// need not copy a header out of a larger buffer. A span outside AAad raises
+    /// sizes ADest for ALen + TagSize at ADestOff. Returns the bytes written.
+    /// The associated data is AAad[AAadOff .. AAadOff+AAadLen); a span outside AAad raises
     /// EArgumentTlsLibException.</summary>
     function Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
     /// <summary>Authenticates and decrypts ciphertext||tag at ASrc[ASrcOff .. ASrcOff+ALen),
-    /// writing the plaintext (ALen - TagSize bytes) at ADest[ADestOff]; same aliasing rule. Raises
-    /// a fatal bad_record_mac on authentication failure, leaving no unverified plaintext in ADest.
-    /// Returns the plaintext length.</summary>
-    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32; overload;
-    /// <summary>As above, with the associated data AAad[AAadOff .. AAadOff+AAadLen).</summary>
+    /// writing the plaintext (ALen - TagSize bytes) at ADest[ADestOff]; same aliasing rule and
+    /// associated data span. Raises a fatal bad_record_mac on authentication failure, leaving no
+    /// unverified plaintext in ADest. Returns the plaintext length.</summary>
     function Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
     /// <summary>Open that reports an authentication failure instead of raising: False (APlainLen
     /// 0, no plaintext left in ADest) when the tag does not verify, including input shorter than
     /// the tag; otherwise True with the plaintext length in APlainLen. Argument, key and backend
-    /// faults still raise.</summary>
+    /// faults still raise, whatever the input length.</summary>
     function TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
       const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
       out APlainLen: Int32): Boolean;
@@ -155,6 +149,8 @@ type
     function SampleSize: Int32;
     /// <summary>Required key length in bytes.</summary>
     function KeySize: Int32;
+    /// <summary>Keys the mask; a key whose length is not KeySize raises EArgumentTlsLibException,
+    /// and a second call re-keys.</summary>
     procedure Init(const AKey: ISecretBuffer);
     /// <summary>Writes AMaskLen mask bytes, 1 to <see cref="SampleSize" />, for the sample at
     /// ASample[ASampleOff .. ASampleOff+SampleSize) to AMask[AMaskOff]. The sample and the mask

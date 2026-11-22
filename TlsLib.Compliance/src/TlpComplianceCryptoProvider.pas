@@ -292,8 +292,10 @@ begin
       LAead := TAeadAlgorithm.AES_128_GCM;
     TSampleMaskAlgorithm.AES_256:
       LAead := TAeadAlgorithm.AES_256_GCM;
+    TSampleMaskAlgorithm.CHACHA20:
+      LAead := TAeadAlgorithm.CHACHA20_POLY1305;
   else
-    LAead := TAeadAlgorithm.CHACHA20_POLY1305;
+    raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused, [LName]);
   end;
   if not (LAead in FAeads) then
     raise EComplianceRefusedTlsLibException.CreateResFmt(@SAlgorithmRefused, [LName]);

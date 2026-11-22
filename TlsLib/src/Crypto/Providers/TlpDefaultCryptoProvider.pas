@@ -41,9 +41,6 @@ uses
   ClpAesBitSlicedEngine,
   ClpAesUtilities,
   ClpChaChaEngine,
-  ClpIStreamCipher,
-  ClpParametersWithIV,
-  ClpIParametersWithIV,
   ClpIAeadPacketCipher,
   ClpAesGcmPacketCipher,
   ClpChaCha20Poly1305PacketCipher,
@@ -301,6 +298,8 @@ type
 
   TAeadAdapter = class(TInterfacedObject, IAead)
   strict private
+  const
+    AadCacheSize = 8;
   var
     FKind: TAeadKind;
     FKeySize, FNonceSize, FTagSize: Int32;
@@ -308,9 +307,14 @@ type
     FKey: ISecretBuffer;
     FPacket: IAeadPacketCipher;
     FKeyPending: Boolean;
-    // the associated data of a span call that is not a whole array, reused across calls
-    FAadScratch: TBytes;
+    // copies for the last eight associated-data lengths, oldest evicted: the packet cipher takes whole arrays
+    FAadCache: array [0 .. AadCacheSize - 1] of TBytes;
+    FAadCacheNext: Int32;
     function NewPacketCipher: IAeadPacketCipher;
+    // Raises EArgumentTlsLibException for a nonce, associated-data or source span that is not valid.
+    procedure CheckInput(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+      const ASrc: TBytes; ASrcOff, ALen: Int32);
+    function AadFor(const AAad: TBytes; AAadOff, AAadLen: Int32): TBytes;
     function ProcessInto(AForEncryption: Boolean; const ANonce, AAad: TBytes;
       AAadOff, AAadLen: Int32; const ASrc: TBytes; ASrcOff, ALen: Int32;
       const ADest: TBytes; ADestOff: Int32): Int32;
@@ -324,39 +328,31 @@ type
     function NonceSize: Int32;
     function TagSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
-    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32; overload;
     function Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
-    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32; overload;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
     function Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
     function TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
       const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
       out APlainLen: Int32): Boolean;
   end;
 
-  TSampleMaskKind = (Aes, ChaCha);
-
-  // A sample mask over one engine keyed in Init: the head of the encrypted sample or of its keystream block.
+  // A sample mask keyed in Init: an AES engine, or a ChaCha20 state of its own whose block is read per call.
   TSampleMaskAdapter = class(TInterfacedObject, ISampleMask)
   strict private
   const
     SampleBytes = 16;
-    // the engine state words 12..15 hold the block counter then the 96-bit nonce
-    CounterWordByteOffset = 48;
+    ChaChaRounds = 20;
   var
-    FKind: TSampleMaskKind;
-    FKeySize: Int32;
+    FAlgorithm: TSampleMaskAlgorithm;
     FHasHardwareAes: Boolean;
     FAes: IBlockCipher;
-    FChaCha: IStreamCipher;
-    FChaChaState: PByte;
+    FState: TCryptoLibUInt32Array;
     FBlock: TBytes;
     FKeyed: Boolean;
+    procedure WipeKeyMaterial;
   public
-    constructor Create(AKind: TSampleMaskKind; AKeySize: Int32; AHasHardwareAes: Boolean);
+    constructor Create(AAlgorithm: TSampleMaskAlgorithm; AHasHardwareAes: Boolean);
     destructor Destroy; override;
     function SampleSize: Int32;
     function KeySize: Int32;
@@ -801,9 +797,13 @@ begin
 end;
 
 destructor TAeadAdapter.Destroy;
+var
+  LSlot: Int32;
 begin
   // releasing the retained packet cipher lets its mode wipe round-key/subkey/GHASH state
   FPacket := nil;
+  for LSlot := 0 to AadCacheSize - 1 do
+    TSecureMemory.WipeBytes(FAadCache[LSlot]);
   inherited Destroy;
 end;
 
@@ -867,25 +867,55 @@ begin
   FKeyPending := True;
 end;
 
-function TAeadAdapter.ProcessInto(AForEncryption: Boolean;
-  const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-  ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
-var
-  LKey, LAad: TBytes;
-  LUsedKey: Boolean;
-  LOutLen: Int32;
+procedure TAeadAdapter.CheckInput(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+  const ASrc: TBytes; ASrcOff, ALen: Int32);
 begin
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
   if (AAadOff < 0) or (AAadLen < 0) or (Int64(AAadOff) + AAadLen > System.Length(AAad)) then
     raise EArgumentTlsLibException.CreateRes(@SAeadAadSpanOutOfRange);
+  if (ASrcOff < 0) or (ALen < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
+end;
+
+function TAeadAdapter.AadFor(const AAad: TBytes; AAadOff, AAadLen: Int32): TBytes;
+var
+  LSlot: Int32;
+begin
+  // the whole array goes through as it is
+  if (AAadOff = 0) and (AAadLen = System.Length(AAad)) then
+    Exit(AAad);
+  if AAadLen = 0 then
+    Exit(nil);
+  for LSlot := 0 to AadCacheSize - 1 do
+    if System.Length(FAadCache[LSlot]) = AAadLen then
+    begin
+      Move(AAad[AAadOff], FAadCache[LSlot][0], AAadLen);
+      Exit(FAadCache[LSlot]);
+    end;
+  LSlot := FAadCacheNext;
+  FAadCacheNext := (FAadCacheNext + 1) mod AadCacheSize;
+  FAadCache[LSlot] := nil;
+  SetLength(FAadCache[LSlot], AAadLen);
+  Move(AAad[AAadOff], FAadCache[LSlot][0], AAadLen);
+  Result := FAadCache[LSlot];
+end;
+
+// the caller has run CheckInput
+function TAeadAdapter.ProcessInto(AForEncryption: Boolean;
+  const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
+  ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
+var
+  LKey: TBytes;
+  LUsedKey: Boolean;
+  LOutLen: Int32;
+begin
   if AForEncryption then
     LOutLen := ALen + FTagSize
   else
     LOutLen := ALen - FTagSize;
-  if (ASrcOff < 0) or (ALen < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) or
-    (ADestOff < 0) or (LOutLen < 0) or (Int64(ADestOff) + LOutLen > System.Length(ADest)) then
+  if (ADestOff < 0) or (LOutLen < 0) or (Int64(ADestOff) + LOutLen > System.Length(ADest)) then
     raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
   // in-place is only supported as an exact alias (same array, same offset); any other overlap
   // would let the cipher read bytes it has already overwritten
@@ -899,17 +929,6 @@ begin
   // FSeq), so reusing the mode across records is safe (the mode is not thread-safe)
   if FPacket = nil then
     FPacket := NewPacketCipher;
-  // the mode takes the associated data as a whole array: a span of a larger one is copied
-  if (AAadOff = 0) and (AAadLen = System.Length(AAad)) then
-    LAad := AAad
-  else
-  begin
-    if System.Length(FAadScratch) <> AAadLen then
-      SetLength(FAadScratch, AAadLen);
-    if AAadLen > 0 then
-      Move(AAad[AAadOff], FAadScratch[0], AAadLen);
-    LAad := FAadScratch;
-  end;
   // key the mode on the first record after Init; later records pass nil to reuse the schedule
   LUsedKey := FKeyPending;
   if LUsedKey then
@@ -917,8 +936,8 @@ begin
   else
     LKey := nil;
   try
-    Result := FPacket.ProcessPacket(AForEncryption, LKey, ANonce, LAad, ASrc, ASrcOff,
-      ALen, ADest, ADestOff, FTagSize * 8);
+    Result := FPacket.ProcessPacket(AForEncryption, LKey, ANonce,
+      AadFor(AAad, AAadOff, AAadLen), ASrc, ASrcOff, ALen, ADest, ADestOff, FTagSize * 8);
     // clear the pending flag only after the mode accepted and retained the key, so a throw
     // mid-init leaves the next record to re-supply it rather than pass nil to an unkeyed mode
     if LUsedKey then
@@ -931,15 +950,10 @@ begin
   end;
 end;
 
-function TAeadAdapter.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
-begin
-  Result := Seal(ANonce, AAad, 0, System.Length(AAad), ASrc, ASrcOff, ALen, ADest, ADestOff);
-end;
-
 function TAeadAdapter.Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
   const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
 begin
+  CheckInput(ANonce, AAad, AAadOff, AAadLen, ASrc, ASrcOff, ALen);
   try
     Result := ProcessInto(True, ANonce, AAad, AAadOff, AAadLen, ASrc, ASrcOff, ALen, ADest,
       ADestOff);
@@ -948,12 +962,6 @@ begin
     on E: ECryptoLibException do
       raise EArgumentTlsLibException.CreateRes(@SAeadSealRejected);
   end;
-end;
-
-function TAeadAdapter.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
-begin
-  Result := Open(ANonce, AAad, 0, System.Length(AAad), ASrc, ASrcOff, ALen, ADest, ADestOff);
 end;
 
 function TAeadAdapter.Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
@@ -970,7 +978,8 @@ function TAeadAdapter.TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int3
   out APlainLen: Int32): Boolean;
 begin
   APlainLen := 0;
-  // an input too short to hold the tag cannot authenticate: a failure, not an argument error
+  // a bad argument raises whatever the length; only then can a short input read as a failed tag
+  CheckInput(ANonce, AAad, AAadOff, AAadLen, ASrc, ASrcOff, ALen);
   if ALen < FTagSize then
     Exit(False);
   Result := True;
@@ -988,22 +997,29 @@ end;
 
 { TSampleMaskAdapter }
 
-constructor TSampleMaskAdapter.Create(AKind: TSampleMaskKind; AKeySize: Int32;
+constructor TSampleMaskAdapter.Create(AAlgorithm: TSampleMaskAlgorithm;
   AHasHardwareAes: Boolean);
 begin
   inherited Create;
-  FKind := AKind;
-  FKeySize := AKeySize;
+  FAlgorithm := AAlgorithm;
   FHasHardwareAes := AHasHardwareAes;
 end;
 
 destructor TSampleMaskAdapter.Destroy;
 begin
-  // releasing the engines lets them wipe their key schedules
-  FAes := nil;
-  FChaCha := nil;
-  FChaChaState := nil;
+  WipeKeyMaterial;
   inherited Destroy;
+end;
+
+procedure TSampleMaskAdapter.WipeKeyMaterial;
+begin
+  // releasing the AES engine lets it wipe its key schedule; the ChaCha20 state is ours to wipe
+  FAes := nil;
+  if System.Length(FState) > 0 then
+    TSecureMemory.Wipe(@FState[0], System.Length(FState) * SizeOf(UInt32));
+  FState := nil;
+  TSecureMemory.WipeBytes(FBlock);
+  FKeyed := False;
 end;
 
 function TSampleMaskAdapter.SampleSize: Int32;
@@ -1013,23 +1029,32 @@ end;
 
 function TSampleMaskAdapter.KeySize: Int32;
 begin
-  Result := FKeySize;
+  if FAlgorithm = TSampleMaskAlgorithm.AES_128 then
+    Result := 16
+  else
+    Result := 32;
 end;
 
 procedure TSampleMaskAdapter.Init(const AKey: ISecretBuffer);
 var
-  LKey, LZeroIv: TBytes;
-  LChaCha: TChaChaEngine;
+  LKey: TBytes;
 begin
-  if AKey.Len <> FKeySize then
-    raise EArgumentTlsLibException.CreateResFmt(@SInvalidMaskKeySize, [AKey.Len, FKeySize]);
-  FKeyed := False;
-  // the AES block scratch, and the zero input the ChaCha keystream is read through
-  FBlock := nil;
-  SetLength(FBlock, SampleBytes);
+  if AKey.Len <> KeySize then
+    raise EArgumentTlsLibException.CreateResFmt(@SInvalidMaskKeySize, [AKey.Len, KeySize]);
+  WipeKeyMaterial;
   LKey := AKey.ToBytes;
   try
-    if FKind = TSampleMaskKind.Aes then
+    if FAlgorithm = TSampleMaskAlgorithm.CHACHA20 then
+    begin
+      SetLength(FState, 16);
+      FState[0] := $61707865;
+      FState[1] := $3320646E;
+      FState[2] := $79622D32;
+      FState[3] := $6B206574;
+      TBinaryPrimitives.CopyUInt32LittleEndian(Pointer(LKey), 0, @FState[4], 0, 32);
+      SetLength(FBlock, 64);
+    end
+    else
     begin
       // the engine selection the AES-GCM adapter makes
       if FHasHardwareAes then
@@ -1037,17 +1062,7 @@ begin
       else
         FAes := TAesBitSlicedEngine.Create as IBlockCipher;
       FAes.Init(True, TKeyParameter.Create(LKey) as IKeyParameter);
-    end
-    else
-    begin
-      LZeroIv := nil;
-      SetLength(LZeroIv, 8);
-      LChaCha := TChaChaEngine.Create;
-      FChaCha := LChaCha as IStreamCipher;
-      FChaCha.Init(True, TParametersWithIV.Create(TKeyParameter.Create(LKey) as IKeyParameter,
-        LZeroIv) as IParametersWithIV);
-      // the state array is fixed for the engine's lifetime
-      FChaChaState := PByte(LChaCha.GetEngineStatePtr) + CounterWordByteOffset;
+      SetLength(FBlock, SampleBytes);
     end;
     FKeyed := True;
   finally
@@ -1065,20 +1080,16 @@ begin
   if (AMaskOff < 0) or (AMaskLen < 1) or (AMaskLen > SampleBytes) or
     (Int64(AMaskOff) + AMaskLen > System.Length(AMask)) then
     raise EArgumentTlsLibException.CreateRes(@SMaskSpanOutOfRange);
-  if FKind = TSampleMaskKind.Aes then
+  if FAlgorithm = TSampleMaskAlgorithm.CHACHA20 then
   begin
-    FAes.ProcessBlock(ASample, ASampleOff, FBlock, 0);
-    Move(FBlock[0], AMask[AMaskOff], AMaskLen);
+    // block counter then nonce: the sample is state words 12..15 as it stands
+    TBinaryPrimitives.CopyUInt32LittleEndian(Pointer(ASample), ASampleOff, @FState[12], 0,
+      SampleBytes);
+    TChaChaBaseEngine.ChaChaCore(ChaChaRounds, FState, FBlock);
   end
   else
-  begin
-    // Reset zeroes the counter words, so the sample goes in after it
-    FChaCha.Reset;
-    TBinaryPrimitives.CopyUInt32LittleEndian(Pointer(ASample), ASampleOff, FChaChaState, 0,
-      SampleBytes);
-    // FBlock holds sixteen zero octets: the keystream is the output
-    FChaCha.ProcessBytes(FBlock, 0, AMaskLen, AMask, AMaskOff);
-  end;
+    FAes.ProcessBlock(ASample, ASampleOff, FBlock, 0);
+  Move(FBlock[0], AMask[AMaskOff], AMaskLen);
 end;
 
 { TKeyExchangePrivateKey }
@@ -2252,12 +2263,10 @@ end;
 function TCryptoPrimitives.CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
 begin
   case AAlgorithm of
-    TSampleMaskAlgorithm.AES_128:
-      Result := TSampleMaskAdapter.Create(TSampleMaskKind.Aes, 16, FHasHardwareAes);
-    TSampleMaskAlgorithm.AES_256:
-      Result := TSampleMaskAdapter.Create(TSampleMaskKind.Aes, 32, FHasHardwareAes);
+    TSampleMaskAlgorithm.AES_128, TSampleMaskAlgorithm.AES_256:
+      Result := TSampleMaskAdapter.Create(AAlgorithm, FHasHardwareAes);
     TSampleMaskAlgorithm.CHACHA20:
-      Result := TSampleMaskAdapter.Create(TSampleMaskKind.ChaCha, 32, FHasHardwareAes);
+      Result := TSampleMaskAdapter.Create(AAlgorithm, False);
   else
     raise ENotSupportedTlsLibException.CreateResFmt(@SUnhandledAlgorithm,
       [Ord(AAlgorithm)]);

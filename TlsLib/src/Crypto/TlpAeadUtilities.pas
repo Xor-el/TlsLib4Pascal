@@ -24,6 +24,8 @@ type
   /// that do not reuse a buffer (HPKE, session tickets, tests): seals/opens a whole array and
   /// returns a fresh result.</summary>
   TAeadUtilities = class sealed(TObject)
+  strict private
+    class function PlainBuffer(const AAead: IAead; ACipherLen: Int32): TBytes; static;
   public
     /// <summary>Seals APlaintext whole; returns ciphertext followed by the tag.</summary>
     class function Seal(const AAead: IAead; const ANonce, AAad,
@@ -47,36 +49,36 @@ begin
   LPlainLen := System.Length(APlaintext);
   Result := nil;
   SetLength(Result, LPlainLen + AAead.TagSize);
-  AAead.Seal(ANonce, AAad, APlaintext, 0, LPlainLen, Result, 0);
+  AAead.Seal(ANonce, AAad, 0, System.Length(AAad), APlaintext, 0, LPlainLen, Result, 0);
+end;
+
+class function TAeadUtilities.PlainBuffer(const AAead: IAead; ACipherLen: Int32): TBytes;
+var
+  LPlainLen: Int32;
+begin
+  LPlainLen := ACipherLen - AAead.TagSize;
+  if LPlainLen < 0 then
+    LPlainLen := 0; // a too-short input cannot authenticate; Open and TryOpen report it
+  Result := nil;
+  SetLength(Result, LPlainLen);
 end;
 
 class function TAeadUtilities.Open(const AAead: IAead; const ANonce, AAad,
   ACiphertext: TBytes): TBytes;
-var
-  LCipherLen, LPlainLen: Int32;
 begin
-  LCipherLen := System.Length(ACiphertext);
-  LPlainLen := LCipherLen - AAead.TagSize;
-  if LPlainLen < 0 then
-    LPlainLen := 0; // a too-short input cannot authenticate; let Open surface bad_record_mac
-  Result := nil;
-  SetLength(Result, LPlainLen);
-  AAead.Open(ANonce, AAad, ACiphertext, 0, LCipherLen, Result, 0);
+  Result := PlainBuffer(AAead, System.Length(ACiphertext));
+  AAead.Open(ANonce, AAad, 0, System.Length(AAad), ACiphertext, 0, System.Length(ACiphertext),
+    Result, 0);
 end;
 
 class function TAeadUtilities.TryOpen(const AAead: IAead; const ANonce, AAad,
   ACiphertext: TBytes; out APlaintext: TBytes): Boolean;
 var
-  LCipherLen, LPlainLen, LWritten: Int32;
+  LWritten: Int32;
 begin
-  LCipherLen := System.Length(ACiphertext);
-  LPlainLen := LCipherLen - AAead.TagSize;
-  if LPlainLen < 0 then
-    LPlainLen := 0; // a too-short input cannot authenticate; TryOpen reports it
-  APlaintext := nil;
-  SetLength(APlaintext, LPlainLen);
-  Result := AAead.TryOpen(ANonce, AAad, 0, System.Length(AAad), ACiphertext, 0, LCipherLen,
-    APlaintext, 0, LWritten);
+  APlaintext := PlainBuffer(AAead, System.Length(ACiphertext));
+  Result := AAead.TryOpen(ANonce, AAad, 0, System.Length(AAad), ACiphertext, 0,
+    System.Length(ACiphertext), APlaintext, 0, LWritten);
   if not Result then
     APlaintext := nil;
 end;

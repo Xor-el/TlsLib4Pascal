@@ -317,14 +317,10 @@ type
     function NonceSize: Int32;
     function TagSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
-    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32; overload;
     function Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
-    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32; overload;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
     function Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
-      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
     function TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
       const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
       out APlainLen: Int32): Boolean;
@@ -1051,12 +1047,6 @@ begin
   FInner.Init(AKey);
 end;
 
-function TCappedAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
-begin
-  Result := Seal(ANonce, AAad, 0, System.Length(AAad), ASrc, ASrcOff, ALen, ADest, ADestOff);
-end;
-
 function TCappedAead.Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
   const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
 begin
@@ -1067,12 +1057,6 @@ begin
     raise EInvalidOperationTlsLibException.CreateRes(@SInjectedSealFault);
   end;
   Result := FInner.Seal(ANonce, AAad, AAadOff, AAadLen, ASrc, ASrcOff, ALen, ADest, ADestOff);
-end;
-
-function TCappedAead.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
-begin
-  Result := FInner.Open(ANonce, AAad, ASrc, ASrcOff, ALen, ADest, ADestOff);
 end;
 
 function TCappedAead.Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
