@@ -44,9 +44,14 @@ uses
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
+  TlpITlsHandshakeEngine,
+  TlpITlsHostExtension,
+  TlpHostExtensions,
+  TlpExtensionContext,
   TlpHandshakeMessages,
   InteropSocket,
   InteropEngine,
+  InteropLeveledHost,
   TlsLibTestProviders,
   InteropCredentials,
   InteropPump,
@@ -357,6 +362,19 @@ type
     HasExpectEchRetryConfigs: Boolean;
     ExpectNoEchRetryConfigs: Boolean;
     EchServerConfigs: TArray<TBoGoEchServerConfig>;
+    /// <summary>The runner's leveled mode: the shim plays the host of a handshake-only engine over
+    /// the leveled record framing instead of driving a record engine over the stream.</summary>
+    LeveledHost: Boolean;
+    /// <summary>The host extension body the shim sends, and whether one was configured; the
+    /// runner's second codepoint selects the legacy extension type.</summary>
+    HostExtensionBody: TBytes;
+    HostExtensionSet: Boolean;
+    HostExtensionLegacy: Boolean;
+    /// <summary>The body the shim expects the peer's host extension to carry.</summary>
+    ExpectPeerExtensionBody: TBytes;
+    ExpectPeerExtensionSet: Boolean;
+    /// <summary>The early-data context a leveled server binds its tickets to.</summary>
+    EarlyDataContext: TBytes;
   end;
 
   /// <summary>
@@ -430,7 +448,20 @@ type
     class function BuildOptions(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const AConfig: TBoGoConfig;
       AIsResume: Boolean): TInteropEngineOptions; static;
+    /// <summary>Fills the connection facts the post-handshake assertions read, from the finished
+    /// handshake AInfo and the shim's recorders.</summary>
+    class procedure Observe(const AConfig: TBoGoConfig; const AOptions: TInteropEngineOptions;
+      const AInfo: TTlsConnectionInfo; AIsResume: Boolean;
+      var AObserved: TBoGoObserved); static;
+    /// <summary>Checks the stapled OCSP response and the requested certificate_authorities the
+    /// client saw against the runner's expectations; a shim exit code.</summary>
+    class function CheckPeerFacts(const AConfig: TBoGoConfig; const AInfo: TTlsConnectionInfo;
+      AIsResume: Boolean): Int32; static;
     class function RunExchange(const ACryptoProvider: ICryptoProvider;
+      const APkix: IPkixProvider; const ASocket: TInteropSocket;
+      const AConfig: TBoGoConfig; AIsResume: Boolean): Int32; static;
+    /// <summary>One connection of the leveled mode: the handshake-only engine and its host.</summary>
+    class function RunLeveledExchange(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const ASocket: TInteropSocket;
       const AConfig: TBoGoConfig; AIsResume: Boolean): Int32; static;
     class function FinishShutdown(const AEngine: ITlsEngine;
@@ -448,6 +479,11 @@ const
   XorMask = $FF;
   // the server's 0-RTT budget when early data is enabled (BoGo's test messages are small)
   EarlyDataBudget = UInt32(16384);
+  // the host extension types the runner's leveled mode uses: the registered one and its legacy codepoint
+  HostExtensionTypeStandard = UInt16($0039);
+  HostExtensionTypeLegacy = UInt16($FFA5);
+  // the early-data limit a host that delimits early data itself fixes for its tickets
+  LeveledTicketEarlyDataLimit = UInt32($FFFFFFFF);
   ShrinkingAlgorithm = UInt16($FF01);
   ExpandingAlgorithm = UInt16($FF02);
   RandomAlgorithm = UInt16($FF03);
@@ -1894,6 +1930,23 @@ begin
       // tickets are disabled on the resumption connection only (BuildOptions drops the
       // server's ticket keys / session store and the client's session cache when resuming)
       AConfig.OnResumeNoTicket := True
+    // the runner's leveled mode: host extension body and codepoint, expectation, early-data context
+    else if LArg = '-quic' then
+      AConfig.LeveledHost := True
+    else if LArg = '-quic-transport-params' then
+    begin
+      AConfig.HostExtensionBody := TInteropUtils.DecodeBase64(NextValue(LArg));
+      AConfig.HostExtensionSet := True;
+    end
+    else if LArg = '-expect-quic-transport-params' then
+    begin
+      AConfig.ExpectPeerExtensionBody := TInteropUtils.DecodeBase64(NextValue(LArg));
+      AConfig.ExpectPeerExtensionSet := True;
+    end
+    else if LArg = '-quic-use-legacy-codepoint' then
+      AConfig.HostExtensionLegacy := NextValue(LArg) = '1'
+    else if LArg = '-quic-early-data-context' then
+      AConfig.EarlyDataContext := TInteropUtils.OctetsOf(NextValue(LArg))
     else if LArg = '-enable-early-data' then
       // the client offers 0-RTT on a resumption when the ticket authorizes it
       AConfig.EnableEarlyData := True
@@ -2348,6 +2401,63 @@ begin
   Result := ShimExitPass;
 end;
 
+class procedure TBoGoShimRunner.Observe(const AConfig: TBoGoConfig;
+  const AOptions: TInteropEngineOptions; const AInfo: TTlsConnectionInfo; AIsResume: Boolean;
+  var AObserved: TBoGoObserved);
+begin
+  AObserved.Info := AInfo;
+  AObserved.VerifyFailConfigured := AConfig.VerifyFail or
+    ((AConfig.OnResumeVerifyFail or AConfig.OnRetryVerifyFail) and AIsResume);
+  AObserved.WebPkiTrust := AOptions.Trust <> nil;
+  AObserved.EarlyDataRefused := (not AConfig.IsServer) and AConfig.EnableEarlyData and
+    (not AOptions.OfferEarlyData);
+  if AConfig.CacheView <> nil then
+    AObserved.OfferedSession := AConfig.CacheView.OfferedSession;
+  if AConfig.HelloView <> nil then
+  begin
+    AObserved.HelloSeen := AConfig.HelloView.Seen;
+    AObserved.HelloAlpn := AConfig.HelloView.AlpnProtocols;
+    AObserved.HelloSchemes := AConfig.HelloView.SignatureSchemes;
+  end;
+end;
+
+class function TBoGoShimRunner.CheckPeerFacts(const AConfig: TBoGoConfig;
+  const AInfo: TTlsConnectionInfo; AIsResume: Boolean): Int32;
+var
+  LSeenCas: TArray<TBytes>;
+  LCaIdx: Int32;
+begin
+  // the client must have received exactly the stapled OCSP response the runner expects.
+  // The staple rides the Certificate message, which a full TLS 1.3 resumption omits (there
+  // is no re-authentication), so it is only asserted on the full handshake - our client
+  // does not cache and re-surface a prior staple across resumption.
+  if AConfig.HasExpectOcsp and (not AIsResume) and
+    (not TInteropUtils.BytesEqual(AInfo.PeerOcspStaple, AConfig.ExpectOcspResponse)) then
+  begin
+    Writeln(ErrOutput, 'the stapled OCSP response did not match the expected one');
+    Exit(ShimExitFail);
+  end;
+  // the client must have seen exactly the certificate_authorities the server named in its
+  // CertificateRequest (RFC 9846 4.3.4 / RFC 5246 7.4.4), in the same order
+  if AConfig.ExpectClientCaListSet then
+  begin
+    LSeenCas := AInfo.RequestedCertificateAuthorities;
+    if System.Length(LSeenCas) <> System.Length(AConfig.ExpectClientCaList) then
+    begin
+      Writeln(ErrOutput, 'the requested certificate_authorities count did not match');
+      Exit(ShimExitFail);
+    end;
+    for LCaIdx := 0 to System.High(AConfig.ExpectClientCaList) do
+      if not TInteropUtils.BytesEqual(LSeenCas[LCaIdx],
+        AConfig.ExpectClientCaList[LCaIdx]) then
+      begin
+        Writeln(ErrOutput, 'a requested certificate_authorities entry did not match');
+        Exit(ShimExitFail);
+      end;
+  end;
+  Result := ShimExitPass;
+end;
+
 class function TBoGoShimRunner.RunExchange(const ACryptoProvider: ICryptoProvider;
   const APkix: IPkixProvider; const ASocket: TInteropSocket;
   const AConfig: TBoGoConfig; AIsResume: Boolean): Int32;
@@ -2363,9 +2473,8 @@ var
   LExportContext, LExported, LInitialWrite, LDeferred, LPayload: TBytes;
   LExportProbe: TExportProbe;
   LProbe: IHandshakeProbe;
-  LSeenCas: TArray<TBytes>;
   LInfo: TTlsConnectionInfo;
-  LCaIdx, LRep, LRepeat, LAccepted, LCheck: Int32;
+  LRep, LRepeat, LAccepted, LCheck: Int32;
   LObserved: TBoGoObserved;
   LNameRecorder: TInteropVerifyNameRecorder;
   LRecorderOwner: IInterface;
@@ -2508,51 +2617,13 @@ begin
     Exit(ShimExitFail);
   end;
 
-  LObserved.Info := LInfo;
-  LObserved.VerifyFailConfigured := AConfig.VerifyFail or
-    ((AConfig.OnResumeVerifyFail or AConfig.OnRetryVerifyFail) and AIsResume);
-  LObserved.WebPkiTrust := LOptions.Trust <> nil;
-  LObserved.EarlyDataRefused := (not AConfig.IsServer) and AConfig.EnableEarlyData and
-    (not LOptions.OfferEarlyData);
-  if AConfig.CacheView <> nil then
-    LObserved.OfferedSession := AConfig.CacheView.OfferedSession;
-  if AConfig.HelloView <> nil then
-  begin
-    LObserved.HelloSeen := AConfig.HelloView.Seen;
-    LObserved.HelloAlpn := AConfig.HelloView.AlpnProtocols;
-    LObserved.HelloSchemes := AConfig.HelloView.SignatureSchemes;
-  end;
+  Observe(AConfig, LOptions, LInfo, AIsResume, LObserved);
   LCheck := CheckHandshakeExpectations(AConfig, LObserved, APkix);
   if LCheck <> ShimExitPass then
     Exit(LCheck);
-  // the client must have received exactly the stapled OCSP response the runner expects.
-  // The staple rides the Certificate message, which a full TLS 1.3 resumption omits (there
-  // is no re-authentication), so it is only asserted on the full handshake - our client
-  // does not cache and re-surface a prior staple across resumption.
-  if AConfig.HasExpectOcsp and (not AIsResume) and
-    (not TInteropUtils.BytesEqual(LInfo.PeerOcspStaple, AConfig.ExpectOcspResponse)) then
-  begin
-    Writeln(ErrOutput, 'the stapled OCSP response did not match the expected one');
-    Exit(ShimExitFail);
-  end;
-  // the client must have seen exactly the certificate_authorities the server named in its
-  // CertificateRequest (RFC 9846 4.3.4 / RFC 5246 7.4.4), in the same order
-  if AConfig.ExpectClientCaListSet then
-  begin
-    LSeenCas := LInfo.RequestedCertificateAuthorities;
-    if System.Length(LSeenCas) <> System.Length(AConfig.ExpectClientCaList) then
-    begin
-      Writeln(ErrOutput, 'the requested certificate_authorities count did not match');
-      Exit(ShimExitFail);
-    end;
-    for LCaIdx := 0 to System.High(AConfig.ExpectClientCaList) do
-      if not TInteropUtils.BytesEqual(LSeenCas[LCaIdx],
-        AConfig.ExpectClientCaList[LCaIdx]) then
-      begin
-        Writeln(ErrOutput, 'a requested certificate_authorities entry did not match');
-        Exit(ShimExitFail);
-      end;
-  end;
+  LCheck := CheckPeerFacts(AConfig, LInfo, AIsResume);
+  if LCheck <> ShimExitPass then
+    Exit(LCheck);
 
   // exported keying material is written first thing after the handshake so the runner reads it
   // before the echo protocol (RFC 5705 / RFC 9846 7.5). A TLS 1.3 server writes the value it
@@ -2633,6 +2704,176 @@ begin
   Result := ShimExitPass;
 end;
 
+class function TBoGoShimRunner.RunLeveledExchange(const ACryptoProvider: ICryptoProvider;
+  const APkix: IPkixProvider; const ASocket: TInteropSocket;
+  const AConfig: TBoGoConfig; AIsResume: Boolean): Int32;
+var
+  LOptions: TInteropEngineOptions;
+  LEngine: ITlsHandshakeEngine;
+  LHost: TInteropLeveledHost;
+  LExtensions: TArray<ITlsHostExtension>;
+  LExtensionType: UInt16;
+  LResults: ITlsHostExtensionResults;
+  LObserved: TBoGoObserved;
+  LInfo: TTlsConnectionInfo;
+  LStatus: TInteropLeveledStatus;
+  LData, LPeerBody, LExported, LInitialWrite, LDeferred, LPayload, LExportContext: TBytes;
+  LExportLen, LRep, LRepeat, LCheck: Int32;
+  LExportLabel: string;
+  LWritesFirst, LEarlyWrite: Boolean;
+
+  // the runner's echo protocol: every byte flipped and written back
+  procedure EchoBack(const AReceived: TBytes);
+  var
+    LEcho: TBytes;
+    LI: Int32;
+  begin
+    LEcho := System.Copy(AReceived, 0, System.Length(AReceived));
+    for LI := 0 to System.High(LEcho) do
+      LEcho[LI] := LEcho[LI] xor XorMask;
+    LHost.WriteApplication(LEcho);
+  end;
+
+begin
+  // each recorder reports the current connection only, though the cache and store span the loop
+  if AConfig.CacheView <> nil then
+    AConfig.CacheView.BeginConnection;
+  if AConfig.StoreView <> nil then
+    AConfig.StoreView.BeginConnection;
+  if AConfig.HelloView <> nil then
+    AConfig.HelloView.BeginConnection;
+  LOptions := BuildOptions(ACryptoProvider, APkix, AConfig, AIsResume);
+  // the handshake-only engine speaks TLS 1.3 alone
+  LOptions.SupportedVersions := TArray<UInt16>.Create(WireVersionTls13);
+  LOptions.ReverifyOnResume := AConfig.ReverifyOnResume and AIsResume;
+  LOptions.VerifyFail := (AConfig.VerifyFail or (AIsResume and AConfig.OnResumeVerifyFail)) and
+    (AConfig.VerifyPeer or AConfig.RequireClientCert or LOptions.ReverifyOnResume);
+  // the offer-time check is synchronous
+  if LOptions.ReverifyOnResume then
+    LOptions.AsyncVerify := False;
+  LExtensionType := HostExtensionTypeStandard;
+  if AConfig.HostExtensionLegacy then
+    LExtensionType := HostExtensionTypeLegacy;
+  // a client sends its extension in the ClientHello and requires the server's in the
+  // EncryptedExtensions; a server does the reverse
+  LExtensions := nil;
+  if AConfig.HostExtensionSet then
+  begin
+    SetLength(LExtensions, 1);
+    if AConfig.IsServer then
+      LExtensions[0] := TTlsHostExtensions.Make(LExtensionType,
+        [TTlsExtensionContextKind.EncryptedExtensions], AConfig.HostExtensionBody,
+        [TTlsExtensionContextKind.ClientHello])
+    else
+      LExtensions[0] := TTlsHostExtensions.Make(LExtensionType,
+        [TTlsExtensionContextKind.ClientHello], AConfig.HostExtensionBody,
+        [TTlsExtensionContextKind.EncryptedExtensions]);
+  end;
+  LEngine := TInteropEngine.BuildHandshake(ACryptoProvider, LOptions, LExtensions,
+    LeveledTicketEarlyDataLimit, AConfig.EarlyDataContext);
+  LObserved := Default(TBoGoObserved);
+  LObserved.IsResume := AIsResume;
+  LWritesFirst := AConfig.ShimWritesFirst or (AConfig.OnResumeShimWritesFirst and AIsResume);
+  LInitialWrite := AConfig.InitialWrite;
+  LRepeat := 1;
+  if AIsResume and (System.Length(AConfig.OnResumeInitialWrite) > 0) then
+  begin
+    LInitialWrite := AConfig.OnResumeInitialWrite;
+    LRepeat := AConfig.OnResumeInitialWriteRepeat;
+  end;
+  LEarlyWrite := LWritesFirst and AConfig.EnableEarlyData and AIsResume and
+    (not AConfig.IsServer) and (System.Length(LInitialWrite) > 0);
+  LExportLen := AConfig.ExportLen;
+  LExportLabel := AConfig.ExportLabel;
+  LExportContext := AConfig.ExportContext;
+  if AIsResume and (AConfig.OnResumeExportLen > 0) then
+  begin
+    LExportLen := AConfig.OnResumeExportLen;
+    LExportLabel := AConfig.OnResumeExportLabel;
+    LExportContext := AConfig.OnResumeExportContext;
+  end;
+  LHost := TInteropLeveledHost.Create(LEngine, ASocket, AConfig.IsServer, True,
+    not LOptions.VerifyFail);
+  try
+    LHost.Start;
+    // the early write goes out right after the ClientHello when the engine keyed early data;
+    // otherwise it waits for the handshake and goes out as application data
+    LDeferred := nil;
+    if LEarlyWrite then
+      for LRep := 1 to LRepeat do
+        if not LHost.WriteApplication(LInitialWrite) then
+          LDeferred := TArrayUtilities.Concat(LDeferred, LInitialWrite);
+    LStatus := TInteropLeveledStatus.Progressed;
+    while (LStatus = TInteropLeveledStatus.Progressed) and (not LHost.IsComplete) do
+    begin
+      LStatus := LHost.Pump(LData);
+      // a server that accepted early data answers it as it arrives
+      if System.Length(LData) > 0 then
+        EchoBack(LData);
+    end;
+    if not LHost.IsComplete then
+    begin
+      Writeln(ErrOutput, 'handshake failed: ', LHost.Detail);
+      Exit(ShimExitFail);
+    end;
+    LInfo := LEngine.ConnectionInfo;
+    if EchAcceptExpected(AConfig, AIsResume) and (LInfo.EchStatus <> TEchStatus.Accepted) then
+    begin
+      Writeln(ErrOutput, 'ECH was expected to be accepted but was not');
+      Exit(ShimExitFail);
+    end;
+    Observe(AConfig, LOptions, LInfo, AIsResume, LObserved);
+    LCheck := CheckHandshakeExpectations(AConfig, LObserved, APkix);
+    if LCheck <> ShimExitPass then
+      Exit(LCheck);
+    LCheck := CheckPeerFacts(AConfig, LInfo, AIsResume);
+    if LCheck <> ShimExitPass then
+      Exit(LCheck);
+    if AConfig.ExpectPeerExtensionSet and
+      not (Supports(LEngine, ITlsHostExtensionResults, LResults) and
+      LResults.TryGetPeerExtension(LExtensionType, LPeerBody) and
+      TInteropUtils.BytesEqual(LPeerBody, AConfig.ExpectPeerExtensionBody)) then
+    begin
+      Writeln(ErrOutput, 'the peer host extension did not match the expected body');
+      Exit(ShimExitFail);
+    end;
+    if LExportLen > 0 then
+    begin
+      if AConfig.UseExportContext then
+        LExported := LEngine.ExportKeyingMaterial(LExportLabel, LExportContext, LExportLen)
+      else
+        LExported := LEngine.ExportKeyingMaterial(LExportLabel, LExportLen);
+      LHost.WriteApplication(LExported);
+    end;
+    if LWritesFirst then
+    begin
+      if LEarlyWrite then
+        LPayload := LDeferred
+      else
+        LPayload := LInitialWrite;
+      if System.Length(LPayload) > 0 then
+        LHost.WriteApplication(LPayload);
+    end;
+    // the shim shuts down right after the handshake; the host sends no close_notify of its own
+    if AConfig.ShimShutsDown then
+      Exit(CheckSessionExpectations(AConfig, LObserved));
+    // the runner ends the connection when it is done, which reads here as the transport closing
+    repeat
+      LStatus := LHost.Pump(LData);
+      if System.Length(LData) > 0 then
+        EchoBack(LData);
+    until LStatus <> TInteropLeveledStatus.Progressed;
+    if LStatus = TInteropLeveledStatus.Failed then
+    begin
+      Writeln(ErrOutput, 'exchange failed: ', LHost.Detail);
+      Exit(ShimExitFail);
+    end;
+    Result := CheckSessionExpectations(AConfig, LObserved);
+  finally
+    LHost.Free;
+  end;
+end;
+
 class function TBoGoShimRunner.Run: Int32;
 var
   LConfig: TBoGoConfig;
@@ -2682,6 +2923,14 @@ begin
     end;
     Writeln(ErrOutput, 'unimplemented: no supported version in the requested range');
     Exit(ShimExitUnimplemented);
+  end;
+
+  // a host extension body without the leveled mode is a misconfigured run, which the runner
+  // expects to fail
+  if LConfig.HostExtensionSet and (not LConfig.LeveledHost) then
+  begin
+    Writeln(ErrOutput, 'a host extension body needs the leveled mode');
+    Exit(ShimExitFail);
   end;
 
   LCrypto := TTlsLibTestProviders.Crypto;
@@ -2755,7 +3004,10 @@ begin
       LSocket := TInteropSocket.Connect(LAddress, LConfig.Port);
       try
         AnnounceShimId(LSocket, LConfig.ShimId);
-        Result := RunExchange(LCrypto, LPkix, LSocket, LConfig, LConn > 0);
+        if LConfig.LeveledHost then
+          Result := RunLeveledExchange(LCrypto, LPkix, LSocket, LConfig, LConn > 0)
+        else
+          Result := RunExchange(LCrypto, LPkix, LSocket, LConfig, LConn > 0);
       finally
         LSocket.Free;
       end;

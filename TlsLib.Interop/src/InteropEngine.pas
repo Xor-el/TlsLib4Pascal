@@ -48,6 +48,8 @@ uses
   TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpITlsEngine,
+  TlpITlsHandshakeEngine,
+  TlpITlsHostExtension,
   TlpTlsEngineFactory;
 
 type
@@ -234,10 +236,20 @@ type
     /// codepoints are skipped), for the client's -verify-prefs offer.</summary>
     class function SignatureSchemesFromCodes(
       const ACodes: TArray<UInt16>): ISignatureSchemeRegistry; static;
+    /// <summary>The role's frozen config from the harness options; the other config is nil.</summary>
+    class procedure Configure(const ACryptoProvider: ICryptoProvider;
+      const AOptions: TInteropEngineOptions; out AClientConfig: ITlsClientConfig;
+      out AServerConfig: ITlsServerConfig); static;
   public
     /// <summary>A client or server engine ready for the harness pump.</summary>
     class function Build(const ACryptoProvider: ICryptoProvider;
       const AOptions: TInteropEngineOptions): ITlsEngine; static;
+    /// <summary>As Build, for a host that owns record protection: a handshake-only engine over
+    /// the same config, with the host's extensions, ticket early-data limit and (server)
+    /// early-data context.</summary>
+    class function BuildHandshake(const ACryptoProvider: ICryptoProvider;
+      const AOptions: TInteropEngineOptions; const AHostExtensions: TArray<ITlsHostExtension>;
+      ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITlsHandshakeEngine; static;
   end;
 
 implementation
@@ -451,8 +463,9 @@ begin
   Result := LBuilder.Build;
 end;
 
-class function TInteropEngine.Build(const ACryptoProvider: ICryptoProvider;
-  const AOptions: TInteropEngineOptions): ITlsEngine;
+class procedure TInteropEngine.Configure(const ACryptoProvider: ICryptoProvider;
+  const AOptions: TInteropEngineOptions; out AClientConfig: ITlsClientConfig;
+  out AServerConfig: ITlsServerConfig);
 var
   LBuilder: ITlsConfigBuilder;
   LClient: ITlsClientConfigBuilder;
@@ -464,6 +477,8 @@ var
   LEchMode: IEchClientMode;
   LCertPath, LRequestsCert: Boolean;
 begin
+  AClientConfig := nil;
+  AServerConfig := nil;
   // Compatible seeds the suites, signature schemes, named-group registry and the
   // TLS 1.3 + hardened 1.2 version offer; the harness only overrides what a test dictates
   LBuilder := TTlsPresets.Compatible(ACryptoProvider, TTlsLibTestProviders.Pkix);
@@ -570,8 +585,7 @@ begin
       if AOptions.HasCredential then
         LClient.Tls13.WithCertificateCompressors(AOptions.CertificateCompressors);
     end;
-    Result := TTlsEngineFactory.CreateClientEngine(
-      LClient.Build, AOptions.ServerName);
+    AClientConfig := LClient.Build;
   end
   else
   begin
@@ -681,8 +695,37 @@ begin
     // server would fail the build
     else if Offers13(LVersions) then
       LServer.Tls13.WithEchBackend;
-    Result := TTlsEngineFactory.CreateServerEngine(LServer.Build);
+    AServerConfig := LServer.Build;
   end;
+end;
+
+class function TInteropEngine.Build(const ACryptoProvider: ICryptoProvider;
+  const AOptions: TInteropEngineOptions): ITlsEngine;
+var
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+begin
+  Configure(ACryptoProvider, AOptions, LClientConfig, LServerConfig);
+  if AOptions.Role = TInteropRole.Client then
+    Result := TTlsEngineFactory.CreateClientEngine(LClientConfig, AOptions.ServerName)
+  else
+    Result := TTlsEngineFactory.CreateServerEngine(LServerConfig);
+end;
+
+class function TInteropEngine.BuildHandshake(const ACryptoProvider: ICryptoProvider;
+  const AOptions: TInteropEngineOptions; const AHostExtensions: TArray<ITlsHostExtension>;
+  ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITlsHandshakeEngine;
+var
+  LClientConfig: ITlsClientConfig;
+  LServerConfig: ITlsServerConfig;
+begin
+  Configure(ACryptoProvider, AOptions, LClientConfig, LServerConfig);
+  if AOptions.Role = TInteropRole.Client then
+    Result := TTlsEngineFactory.CreateHandshakeClientEngine(LClientConfig, AOptions.ServerName,
+      AHostExtensions, ATicketEarlyDataLimit)
+  else
+    Result := TTlsEngineFactory.CreateHandshakeServerEngine(LServerConfig, AHostExtensions,
+      ATicketEarlyDataLimit, AEarlyDataContext);
 end;
 
 initialization
