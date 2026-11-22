@@ -1,0 +1,59 @@
+TlsLib/src/Interfaces/Crypto/Providers/TlpICryptoProvider.pas
+  s_f2c9bd75607afc::t_80cf11fe2a756f 98
+  s_f2c9bd75607afc::t_72aaa3d3198189 120
+  s_f2c9bd75607afc::t_ef0ac3147e0a0c 121,124,126-128,130,134
+  s_f2c9bd75607afc::t_011d377dc9199d 152-153
+TlsLib/src/Crypto/Providers/TlpDefaultCryptoProvider.pas
+  s_f2c9bd75607afc::t_7c2fa4bbe735d6 800-801,805-806
+  s_f2c9bd75607afc::t_555b82fc9c0e97 981
+  s_f2c9bd75607afc::t_4d9b66d579bf0b 301-302
+  s_f2c9bd75607afc::t_7d5b34c7955297 332,334,340,345,347,350,353,355
+  s_f2c9bd75607afc::t_e9efb7b90f6c2c 870-893,895-905,910,918
+  s_f2c9bd75607afc::t_e337fe88507837 894
+  s_f2c9bd75607afc::t_ed359d4d259777 1000,1004,1010,1014-1022
+  s_f2c9bd75607afc::t_cc9223efdce881 1032-1035,1040,1043-1044,1047,1049-1057,1065
+  s_f2c9bd75607afc::t_cd521d277c3ea2 956
+  s_f2c9bd75607afc::t_a23b12d6f58cc2 1042
+  s_f2c9bd75607afc::t_2f87cdd4f523f4 939-940
+  s_f2c9bd75607afc::t_058afd17ed5d7f 310
+  s_f2c9bd75607afc::t_33e616c81b4030 982
+  s_f2c9bd75607afc::t_cfa9a31f0e3948 1083,1085-1088,1091-1092
+  s_f2c9bd75607afc::t_6ddc287e78129c 311-312,314-317,1023-1024,1048
+  s_f2c9bd75607afc::t_275a50d54662f8 2266-2267,2269
+TlsLib/src/Record/TlpRecordProtection.pas
+  s_f2c9bd75607afc::t_e931cfab4719e4 345-346
+  s_f2c9bd75607afc::t_13f495122d5be3 557-558
+  s_f2c9bd75607afc::t_d0fe56b2795e68 379-380
+  s_f2c9bd75607afc::t_e8c48c93aebaab 504-505
+TlsLib.Benchmark/Lazarus/AeadHotPathBench.lpr
+  s_f2c9bd75607afc::t_ed069fe63983c9 93
+  s_f2c9bd75607afc::t_0cedf4ab85d510 82
+TlsLib.Tests/src/MockCryptoProvider.pas
+  s_f2c9bd75607afc::t_cd7bd26cd72495 321,323
+TlsLib.Compliance/src/TlpComplianceCryptoProvider.pas
+  s_f2c9bd75607afc::t_708e4126698a06 295-296,298
+TlsLib.Crypto.System/src/TlpWindowsSystemCrypto.pas
+  s_f2c9bd75607afc::t_ce3498e6dbc7d8 811,813
+  s_f2c9bd75607afc::t_9be807c13fc1d1 1876-1879,1884
+  s_f2c9bd75607afc::t_033af9689b4a2c 1880
+TlsLib/src/Crypto/TlpAeadUtilities.pas
+  s_f2c9bd75607afc::t_e15eca529f6a2b 27-28
+  s_f2c9bd75607afc::t_e2da8b746485b7 52,55,64-71,77,79-81
+  s_f2c9bd75607afc::t_456c382da9f2e2 57,59,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "886923bfce1f95d865dedc19a9ed2fb990a9ee59",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
