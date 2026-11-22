@@ -122,7 +122,7 @@ begin
   Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, TSecretBuffer.From(TBytes.Create(1, 2, 3, 4)), nil, '',
     TBytes.Create($AB), ALifetime, 0, AIssuedAtMillis, 0, nil, nil, nil, nil, 0,
-    AAuthenticatedAtMillis);
+    AAuthenticatedAtMillis, nil, nil, TTicketBinding.RecordEngine);
 end;
 
 function TTestClientSessionPolicy.MakeAuthenticatedTls12Session(ALifetime: UInt32;
@@ -159,7 +159,8 @@ function TTestClientSessionPolicy.MakeChainSession(const AChain: TArray<TBytes>;
 begin
   Result := TTls13ResumableSession.Create(TCipherSuites13.Aes128GcmSha256,
     THashAlgorithm.SHA_256, TSecretBuffer.From(TBytes.Create(1, 2, 3, 4)), nil, '',
-    TBytes.Create($AB), 100, 0, 0, 0, AChain, nil, APskIdentity, nil, 0, 0);
+    TBytes.Create($AB), 100, 0, 0, 0, AChain, nil, APskIdentity, nil, 0, 0, nil, nil,
+    TTicketBinding.RecordEngine);
 end;
 
 procedure TTestClientSessionPolicy.CheckOfferRefused(const APrimary,

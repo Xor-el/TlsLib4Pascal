@@ -43,7 +43,7 @@
         <PackageName Value="FCL"/>
       </Item8>
     </RequiredPackages>
-    <Units Count="113">
+    <Units Count="116">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -496,6 +496,18 @@
         <Filename Value="..\src\CertificateCompressionTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit112>
+      <Unit113>
+        <Filename Value="..\src\HostExtensionTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit113>
+      <Unit114>
+        <Filename Value="..\src\ResumptionFeatureTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit114>
+      <Unit115>
+        <Filename Value="..\src\TlsLibTestTickets.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit115>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

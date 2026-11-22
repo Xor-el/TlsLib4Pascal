@@ -3281,7 +3281,8 @@ begin
     ASession.TicketLifetime, ASession.TicketAgeAdd, ASession.IssuedAtMillis,
     ASession.MaxEarlyData, ASession.PeerCertificates, ASession.ResumptionScope,
     ASession.PskIdentity, ASession.PskBinding, ASession.PeerSignatureScheme,
-    AAuthenticatedAt) as IResumableSession;
+    AAuthenticatedAt, ASession.EarlyDataContext, ASession.ApplicationData,
+    ASession.TicketBinding) as IResumableSession;
 end;
 
 procedure TTestTls13Resumption.RenewAfterSixDays(AAdvanceServerClock: Boolean;
@@ -3450,7 +3451,8 @@ begin
     L13Stored.ResumptionSecret, L13Stored.Alpn, L13Stored.ServerName, nil, 1209600,
     L13Stored.TicketAgeAdd, L13Stored.IssuedAtMillis, L13Stored.MaxEarlyData,
     L13Stored.PeerCertificates, L13Stored.ResumptionScope, L13Stored.PskIdentity,
-    L13Stored.PskBinding, L13Stored.PeerSignatureScheme, L13Stored.AuthenticatedAtMillis)
+    L13Stored.PskBinding, L13Stored.PeerSignatureScheme, L13Stored.AuthenticatedAtMillis,
+    L13Stored.EarlyDataContext, L13Stored.ApplicationData, L13Stored.TicketBinding)
     as IResumableSession);
   LCache.Store(ServerHost, ServerHost, Reauthenticated(L13First, LHandle, StartMs));
   LClientClock.Advance(SevenDaysMs);
