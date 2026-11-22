@@ -191,6 +191,7 @@ begin
   begin
     LReader := TWireReader.Create(AExtensionData);
     AContext.EarlyDataMaxSize := LReader.ReadUInt32;
+    AContext.EarlyDataMaxSizePresent := True;
     LReader.ExpectEnd;
     Exit;
   end;

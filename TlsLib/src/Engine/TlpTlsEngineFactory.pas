@@ -111,6 +111,14 @@ type
     /// requests client authentication.</summary>
     class function BuildClientCertificateVerifier(const AConfig: ITlsServerConfig;
       ADeferral: TVerdictDeferral): IClientCertificateVerifier; static;
+    /// <summary>The Certificate-message cap a server's reassembler takes: the chain budget when it
+    /// requests client authentication, else the default.</summary>
+    class function ClientCertificateMessageCap(
+      const AConfig: ITlsServerConfig): Int32; static;
+    /// <summary>The server name a client connects to; fails closed when name checking is on and
+    /// AHost holds no usable name.</summary>
+    class function ParseServerName(const AConfig: ITlsClientConfig;
+      const AHost: string): TServerName; static;
     /// <summary>Refuses a config that does not offer TLS 1.3 alone: a handshake-only engine
     /// speaks no other version.</summary>
     class procedure RequireTls13Only(const AConfig: ITlsCommonConfig); static;
@@ -183,7 +191,7 @@ resourcestring
     'host extensions ride TLS 1.3 handshakes only, but the config does not offer TLS 1.3';
   SHandshakeEngineNeedsTls13Only =
     'a handshake-only engine speaks TLS 1.3 alone, so the config must offer TLS 1.3 and no other version';
-  SEarlyDataContextTooLongForTicket = 'the early-data context must not exceed 255 bytes';
+  SEarlyDataContextTooLongForTicket = 'the early-data context exceeds the ticket limit';
 
 { TTlsEngineFactory }
 
@@ -585,11 +593,7 @@ begin
   // hand-off keeps the ServerKeyExchange/master-secret binding of the sent ClientHello
   LClientRandom := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
   LSessionId := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
-  // fail closed: when name checking is on, a client must have a usable server name to verify
-  // the leaf against. A missing/unparsable host here would otherwise silently skip RFC 9525.
-  if not TServerName.TryParse(AHost, LServerName) then
-    if AConfig.CheckServerName then
-      raise EArgumentTlsLibException.CreateRes(@SNoServerNameForCheck);
+  LServerName := ParseServerName(AConfig, AHost);
   BuildServerCertificateVerifiers(AConfig, LDeferral, LOffersResumption, LVerifier,
     LResumeVerifier, LEchRejectVerifier);
 
@@ -686,7 +690,6 @@ var
   LMachine: IHandshakeMachine;
   LHostResults: ITlsHostExtensionResults;
   LAdapters: TArray<ITlsExtension>;
-  LMaxCertificateMessage: Int32;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
@@ -765,14 +768,29 @@ begin
   else
     LMachine := TTls12ServerStateMachine.Create(L12);
 
+  // a server has no ticket to attach session application data to
+  Result := TTlsEngine.Create(LMachine, AConfig.Crypto, ClientCertificateMessageCap(AConfig),
+    LHostResults, nil) as ITlsEngine;
+end;
+
+class function TTlsEngineFactory.ClientCertificateMessageCap(
+  const AConfig: ITlsServerConfig): Int32;
+begin
   // a server receives a peer Certificate only when it requests client authentication; otherwise it
   // never reassembles one, so the reassembler keeps the tighter default cap
-  LMaxCertificateMessage := DefaultMaxHandshakeMessageLength;
+  Result := DefaultMaxHandshakeMessageLength;
   if AConfig.ClientAuth <> TClientAuthMode.None then
-    LMaxCertificateMessage := AConfig.CertificateChainLimits.MaxTotalChainLength;
-  // a server has no ticket to attach session application data to
-  Result := TTlsEngine.Create(LMachine, AConfig.Crypto, LMaxCertificateMessage, LHostResults,
-    nil) as ITlsEngine;
+    Result := AConfig.CertificateChainLimits.MaxTotalChainLength;
+end;
+
+class function TTlsEngineFactory.ParseServerName(const AConfig: ITlsClientConfig;
+  const AHost: string): TServerName;
+begin
+  // fail closed: when name checking is on, a client must have a usable server name to verify
+  // the leaf against. A missing/unparsable host here would otherwise silently skip RFC 9525.
+  if not TServerName.TryParse(AHost, Result) then
+    if AConfig.CheckServerName then
+      raise EArgumentTlsLibException.CreateRes(@SNoServerNameForCheck);
 end;
 
 class procedure TTlsEngineFactory.RequireTls13Only(const AConfig: ITlsCommonConfig);
@@ -800,11 +818,7 @@ begin
   LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Client, True, LHostResults);
   LSessionData := TSessionApplicationData.Create as ITlsSessionApplicationData;
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
-  // fail closed: when name checking is on, a client must have a usable server name to verify
-  // the leaf against
-  if not TServerName.TryParse(AHost, LServerName) then
-    if AConfig.CheckServerName then
-      raise EArgumentTlsLibException.CreateRes(@SNoServerNameForCheck);
+  LServerName := ParseServerName(AConfig, AHost);
   BuildServerCertificateVerifiers(AConfig, LDeferral, LOffersResumption, LVerifier,
     LResumeVerifier, LEchRejectVerifier);
   // no compatibility session id: there are no records for it to disguise
@@ -832,7 +846,6 @@ var
   LAdapters: TArray<ITlsExtension>;
   LDeferral: TVerdictDeferral;
   LMachine: IHandshakeMachine;
-  LMaxCertificateMessage: Int32;
 begin
   RequireTls13Only(AConfig);
   if System.Length(AEarlyDataContext) > TSessionTicketLimits.MaxEarlyDataContextLength then
@@ -852,12 +865,9 @@ begin
     L13.MaxEarlyData := ATicketEarlyDataLimit;
   if (System.Length(AEarlyDataContext) > 0) and AConfig.Resumption then
     L13.EarlyDataContext := System.Copy(AEarlyDataContext);
-  LMaxCertificateMessage := DefaultMaxHandshakeMessageLength;
-  if AConfig.ClientAuth <> TClientAuthMode.None then
-    LMaxCertificateMessage := AConfig.CertificateChainLimits.MaxTotalChainLength;
   LMachine := TTls13ServerStateMachine.Create(L13);
-  Result := TTlsHandshakeEngine.Create(LMachine, LMaxCertificateMessage, LHostResults, nil)
-    as ITlsHandshakeEngine;
+  Result := TTlsHandshakeEngine.Create(LMachine, ClientCertificateMessageCap(AConfig),
+    LHostResults, nil) as ITlsHandshakeEngine;
 end;
 
 end.

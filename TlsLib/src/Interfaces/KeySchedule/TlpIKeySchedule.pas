@@ -115,11 +115,14 @@ type
   /// derives; a driver installs the results into the record layer.
   /// </summary>
   ITls13KeySchedule = interface(IKeySchedule)
-    ['{DBA0625A-3B1C-4F42-9EEB-4F9A2162C1B8}']
-    /// <summary>The traffic secret of an already-derived epoch and direction; raises
-    /// EInvalidOperationTlsLibException for an epoch that was not derived (Plaintext never is) or
-    /// for a schedule built without a cipher suite.</summary>
+    ['{3E7B91D4-62A8-4C15-B0F3-8D5A29C7E146}']
+    /// <summary>A copy of the traffic secret of an already-derived epoch and direction, wiped
+    /// when its holder lets go; raises EInvalidOperationTlsLibException for an epoch that was not
+    /// derived (Plaintext never is) or for a schedule built without a cipher suite.</summary>
     function TrafficSecret(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ITrafficSecret;
+    /// <summary>Drops the application traffic secret of ADirection, for an owner that never
+    /// rekeys (it hands the secret out and keeps none); TrafficSecret then raises for it.</summary>
+    procedure ForgetApplicationTrafficSecret(ADirection: TTlsDirection);
     /// <summary>Whether the early_exporter_secret has been derived (the early epoch was
     /// taken), so ExportEarlyKeyingMaterial is available.</summary>
     function CanExportEarly: Boolean;

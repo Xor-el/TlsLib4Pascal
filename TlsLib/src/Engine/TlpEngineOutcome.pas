@@ -36,8 +36,8 @@ type
   /// bounded event queue and the first failure. It takes the facts as data from the driver and
   /// answers with the event or error to surface, so an engine owns only what is particular to
   /// it (its record layer or its output queue). As a sink it serves an engine whose host is told
-  /// of every failure rather than sent an alert; an engine with more to do on a failure or an
-  /// ECH reject uses the recording methods directly.
+  /// of every failure rather than sent an alert; the record engine keeps its own failure state and
+  /// uses the recording methods directly.
   /// </summary>
   TEngineOutcome = class sealed(TInterfacedObject, IHandshakeSink,
     IHandshakeLocalFailureSink, IHandshakeVersionSink, IHandshakeVerdictSink,
@@ -45,6 +45,7 @@ type
   strict private
   var
     FFacts: TTlsConnectionInfo;
+    FFactsPtr: PTlsConnectionInfo;
     FEvents: TQueue<ITlsEvent>;
     FTerminal: Boolean;
     FEstablished: Boolean;
@@ -57,9 +58,10 @@ type
     /// terminal ones and a parked verdict (which the handshake cannot resume without) are kept.</summary>
     procedure Enqueue(const AEvent: ITlsEvent);
     function NextEvent(out AEvent: ITlsEvent): Boolean;
-    function PendingEvents: Int32;
+    /// <summary>The queued events, for the owner to count.</summary>
+    property Events: TQueue<ITlsEvent> read FEvents;
     /// <summary>The live facts record, for the engine that updates fields only it knows.</summary>
-    function Facts: PTlsConnectionInfo;
+    property Facts: PTlsConnectionInfo read FFactsPtr;
     /// <summary>A snapshot of the facts; the byte arrays are copies, the certificate, path and
     /// authority arrays shared read-only views.</summary>
     function Info: TTlsConnectionInfo;
@@ -111,6 +113,7 @@ constructor TEngineOutcome.Create;
 begin
   inherited Create;
   FEvents := TQueue<ITlsEvent>.Create;
+  FFactsPtr := @FFacts;
   FFacts.EchStatus := TEchStatus.NotOffered;
   // a zero wire code until an epoch's keys name the negotiated version
   FFacts.NegotiatedVersion := TTlsVersion.Create(0);
@@ -139,16 +142,6 @@ begin
     AEvent := FEvents.Dequeue
   else
     AEvent := nil;
-end;
-
-function TEngineOutcome.PendingEvents: Int32;
-begin
-  Result := FEvents.Count;
-end;
-
-function TEngineOutcome.Facts: PTlsConnectionInfo;
-begin
-  Result := @FFacts;
 end;
 
 function TEngineOutcome.Info: TTlsConnectionInfo;
@@ -245,7 +238,7 @@ begin
   FFacts.PeerSignatureScheme := AFacts.PeerSignatureScheme;
   FFacts.HelloRetryRequest := AFacts.HelloRetryRequest;
   FFacts.EarlyDataReason := AFacts.EarlyDataReason;
-  // an engine with no record layer to open an early-data window learns the accept here
+  // both engines learn an accept here, whichever way each opens its early-data window
   if AFacts.EarlyDataReason = TEarlyDataReason.Accepted then
     FFacts.EarlyDataAccepted := True;
   FFacts.TicketAgeSkew := AFacts.TicketAgeSkew;
@@ -280,8 +273,7 @@ end;
 procedure TEngineOutcome.RecordEchRejected(const ARetryConfigs: TBytes;
   AIsRetryAttempt: Boolean);
 begin
-  // the client completed its flight to the public_name; surface the reject (retry_configs
-  // and the retry flag), the abort with ech_required follows and is never a plaintext fall-back
+  // the abort with ech_required follows and is never a plaintext fall-back
   FFacts.EchStatus := TEchStatus.Rejected;
   FFacts.EchRetryConfigs := ARetryConfigs;
   FFacts.EchIsRetryAttempt := AIsRetryAttempt;

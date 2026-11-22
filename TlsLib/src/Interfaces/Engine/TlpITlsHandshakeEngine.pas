@@ -33,8 +33,9 @@ type
   /// an empty legacy_session_id, and neither sends nor receives alerts: a failure is reported
   /// through LastError, and the host maps it. Everything flows by pull: the host feeds the bytes
   /// of one level, then drains NextOutput (handshake bytes per level, the secrets to install, the
-  /// end of the handshake) and NextEvent. No host code runs inside a call. Single-threaded: the
-  /// caller serializes access.
+  /// end of the handshake) and NextEvent. No host extension or transport callback runs inside a
+  /// call; the host inspects ALPN and extension bodies between input and output. Single-threaded:
+  /// the caller serializes access.
   /// </summary>
   ITlsHandshakeEngine = interface(IInterface)
     ['{58A3D7C1-E94B-4B02-8D16-27F0B65C4A93}']
@@ -44,8 +45,9 @@ type
     /// <summary>Feeds handshake bytes the peer sent at ALevel, which must be the level the engine
     /// reads now (Plaintext until the first read secret, then the level of the latest Handshake or
     /// Application read secret). Bytes at any other level, or a handshake message that straddles a
-    /// change of read level, fail with unexpected_message. Data fed once the engine is terminal
-    /// returns Fatal.</summary>
+    /// change of read level, fail with unexpected_message. Returns Advanced when it queued an
+    /// output or an event, NeedMoreInput when it waits for more bytes, and Fatal once the engine
+    /// is terminal.</summary>
     function ProvideHandshakeData(ALevel: TTlsEpoch; const AData: TBytes;
       AOffset, ALength: Int32): TTlsOutcome;
     /// <summary>Dequeues the next item for the host, in the order the handshake produced it;

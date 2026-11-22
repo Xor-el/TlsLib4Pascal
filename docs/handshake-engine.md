@@ -3,8 +3,8 @@
 **TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Compliance](compliance.md) · [Security model](security-model.md)
 
 `ITlsHandshakeEngine` runs a TLS 1.3 handshake for a **host that owns record protection and the key
-lifecycle**: a transport that frames, protects and numbers its own packets (the arrangement RFC 9001
-describes) and wants TLS only for the handshake. The engine exchanges handshake messages per
+lifecycle**: a transport that frames and protects its own data (the arrangement RFC 9001 describes)
+and wants TLS only for the handshake. The engine exchanges handshake messages per
 encryption level and hands the host the traffic secrets. It holds no traffic keys, so it never seals
 or opens a record.
 
@@ -38,7 +38,8 @@ LServer := TTlsEngineFactory.CreateHandshakeServerEngine(LServerConfig, LHostExt
 `LTicketEarlyDataLimit` is the early-data budget the host fixes for its tickets. A server that has
 early data enabled in its config writes exactly this value into every NewSessionTicket (the config's
 own budget is not used); a client fails the handshake, without an alert, on a ticket that advertises
-any other non-zero value. A non-empty `LEarlyDataContext` replaces the config's early-data context.
+any other value, an explicit 0 included. A non-empty `LEarlyDataContext` replaces the config's
+early-data context.
 
 Host extensions (`ITlsHostExtension`), the early-data context and session application data
 (`ITlsSessionApplicationData`, client only) work as they do on `ITlsEngine`; the engine answers
@@ -47,10 +48,13 @@ Host extensions (`ITlsHostExtension`), the early-data context and session applic
 ## Driving it
 
 Everything is pull. The host feeds the bytes of one level, then drains the outputs and the events.
+`ProvideHandshakeData` returns `Advanced` when it queued an output or an event, `NeedMoreInput` when
+it needs more bytes, and `Fatal` once the engine failed.
 
 ```pascal
 LClient.StartHandshake;
 repeat
+  // drain after every feed, so the step that completes the handshake is not left in the queue
   while LClient.NextOutput(LOutput) do
     case LOutput.Kind of
       THandshakeOutputKind.HandshakeData:  Send(LOutput.Level, LOutput.Data);
@@ -58,10 +62,15 @@ repeat
       THandshakeOutputKind.WriteSecret:    InstallWrite(LOutput.Level, LOutput.Secret);
       THandshakeOutputKind.HandshakeComplete: ...
     end;
+  if LClient.IsTerminal then
+    Break;
   // bytes arrive from the peer at ALevel
   LClient.ProvideHandshakeData(ALevel, ABytes, 0, Length(ABytes));
-until LClient.IsTerminal or not LClient.IsHandshaking;
+until False;
 ```
+
+After `HandshakeComplete` the server's NewSessionTicket messages still arrive at the Application
+level; feed them the same way.
 
 - Levels are `Plaintext`, `EarlyData`, `Handshake` and `Application`. `Plaintext` carries no secret.
 - `ProvideHandshakeData` accepts bytes only at the level the engine reads now: `Plaintext` until the
@@ -69,9 +78,15 @@ until LClient.IsTerminal or not LClient.IsHandshaking;
   any other level, or a handshake message that straddles a change of read level, fail with
   `unexpected_message`. Keep data that arrives early for a later level and feed it when that level
   is reached.
-- The outputs come in the order the handshake produced them. A secret belongs to the host from the
-  moment it is taken (`ITrafficSecret`, wiped when released); the engine keeps no copy of an
-  application secret.
+- The outputs come in the order the handshake produced them. A secret is a copy that belongs to the
+  host from the moment it is taken (`ITrafficSecret`, wiped when released). The engine forgets its
+  own application traffic secrets as it hands them out, since the host rekeys; the handshake
+  secrets are released when the handshake completes.
+- The host enforces the early-data budget (the engine neither bounds nor skips early data), and on
+  an `EarlyDataRejected` event, also after a retry, it discards the early data and the early write
+  key: nothing reverts a write level.
+- A NewSessionTicket count restarts with each `ProvideHandshakeData` call, so a long-lived
+  connection may receive tickets without limit.
 - Client order: `ClientHello` at Plaintext, the early write secret when 0-RTT is offered, the
   handshake secrets at the ServerHello, then its Finished at Handshake, the application write and
   read secrets, and `HandshakeComplete`.
@@ -79,11 +94,13 @@ until LClient.IsTerminal or not LClient.IsHandshaking;
   it accepts 0-RTT), its flight at Handshake, the application write secret at its Finished. The
   application read secret is queued only after the client Finished verified.
 - `HandshakeComplete` follows every other output of the step that completed the handshake.
-- After a failure `NextOutput` returns nothing; read `LastError`.
+- After a failure the queue is dropped and `NextOutput` returns nothing; read `LastError`.
 
 ## Checks between input and output
 
-No host code runs inside a call, so the host can look at the state before it sends anything: after
+No host extension or transport callback runs inside a call (the callbacks the config names, such as
+a verify callback, a session cache or a key log, still do), so the host can look at the state before
+it sends anything: after
 `ProvideHandshakeData` returns, `ConnectionInfo` shows the selected ALPN protocol and
 `ITlsHostExtensionResults` the peer's host extension bodies, before any output is taken. A host that
 rejects the connection at that point stops there and reports the failure itself. Those values are

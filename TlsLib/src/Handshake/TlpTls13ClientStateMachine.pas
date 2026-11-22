@@ -841,6 +841,7 @@ var
   LApplicationData: TBytes;
   LLifetime: UInt32;
   LAuthenticatedAtMs, LNowMs: UInt64;
+  LEarlyDataPresent: Boolean;
 begin
   Result := nil;
   // validate the ticket structure even when not caching (an empty/malformed ticket is a
@@ -851,12 +852,12 @@ begin
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.NewSessionTicket,
       LNst.Extensions);
     LMaxEarlyData := LContext.EarlyDataMaxSize;
+    LEarlyDataPresent := LContext.EarlyDataMaxSizePresent;
   finally
     LContext.Free;
   end;
-  // a host that owns record protection fixes the early-data budget: any other advertised value is
-  // refused locally, before the ticket is cached
-  if FParams.HostOwnsRecordProtection and (LMaxEarlyData <> 0) and
+  // the host fixes the early-data budget: a ticket advertising another value fails locally
+  if FParams.HostOwnsRecordProtection and LEarlyDataPresent and
     (LMaxEarlyData <> FParams.TicketEarlyDataLimit) then
     raise ELocalFailureTlsLibException.CreateRes(@STicketEarlyDataLimitMismatch);
   // a rejected ECH handshake authenticated only the public_name, so its tickets MUST be ignored
@@ -2052,6 +2053,11 @@ begin
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Application));
+    if FParams.HostOwnsRecordProtection then
+    begin
+      FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ClientWrite);
+      FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ServerWrite);
+    end;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.EchRejected(FEchOrch.RetryConfigs, FParams.EchPolicy.IsRetryAttempt));
     Exit(Result);
@@ -2069,6 +2075,12 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
     TTlsDirection.ServerWrite), TRecordSide.ReadSide, TTlsEpoch.Application));
+  // the host keeps the application secrets from here and rekeys them itself
+  if FParams.HostOwnsRecordProtection then
+  begin
+    FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ClientWrite);
+    FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ServerWrite);
+  end;
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
     FCurrentGroupCode, FPskAccepted and FResumedFromTicket, True, FParams.ServerName, Facts));

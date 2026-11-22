@@ -77,8 +77,7 @@ type
     end;
   var
     FRecordLayer: TRecordLayer;
-    // the negotiated facts and the event queue; FOutcomeRef keeps the object alive for as long
-    // as the engine and FFacts is its live facts record
+    // the shared facts and events; FOutcomeRef keeps it alive and FFacts is its live record
     FOutcome: TEngineOutcome;
     FOutcomeRef: IHandshakeSink;
     FFacts: PTlsConnectionInfo;
@@ -813,7 +812,7 @@ begin
   end;
   if FTerminal then // a received fatal alert or a handshake failure
     Exit(TTlsOutcome.Fatal);
-  if (FAppQueue.Available > 0) or (FEarlyQueue.Available > 0) or (FOutcome.PendingEvents > 0) or
+  if (FAppQueue.Available > 0) or (FEarlyQueue.Available > 0) or (FOutcome.Events.Count > 0) or
     (FRecordLayer.PendingOutgoing > 0) then
     Result := TTlsOutcome.Advanced
   else
@@ -1281,10 +1280,7 @@ end;
 
 procedure TTlsEngine.OnHandshakeEvent(AEvent: TTlsEventKind);
 begin
-  // manage the client's early-data buffer as the outcome becomes known; the early data was
-  // delivered under the 0-RTT keys on an accept, and on a reject it already went out under the
-  // early keys and is discarded, not retransmitted as 1-RTT (RFC 9846 4.3.10 leaves any resend
-  // to the application)
+  // an accept or a reject closes the early-data window; a reject is not resent as 1-RTT here
   if AEvent in [TTlsEventKind.EarlyDataAccepted, TTlsEventKind.EarlyDataRejected] then
     FEarlyDataClosed := True;
   FOutcome.OnHandshakeEvent(AEvent);

@@ -52,8 +52,7 @@ type
     FConductor: THandshakeConductor;
     FHostResults: ITlsHostExtensionResults;
     FSessionData: ITlsSessionApplicationData;
-    // set while the engine runs handshake machinery: a synchronous handshake callback that calls
-    // back into the single-threaded engine fails loud
+    // set while a step runs: a callback that re-enters the engine fails loud
     FDraining: Boolean;
     FStarted: Boolean;
     FCompleteQueued: Boolean;
@@ -63,7 +62,6 @@ type
       implements ITlsHostExtensionResults;
     property SessionData: ITlsSessionApplicationData read FSessionData
       implements ITlsSessionApplicationData;
-    procedure Fail(const AException: Exception);
     /// <summary>After any handshake step: on a failure drops the sessions it stored or minted
     /// (once), and on completion queues the end of the handshake after the step's outputs.</summary>
     procedure Settle;
@@ -132,15 +130,12 @@ begin
   inherited Destroy;
 end;
 
-procedure TTlsHandshakeEngine.Fail(const AException: Exception);
-begin
-  FOutcome.Fail(TAlertMapping.ErrorFor(AException));
-end;
-
 procedure TTlsHandshakeEngine.Settle;
 begin
   if FOutcome.IsTerminal then
   begin
+    // nothing more is sent after a failure, and no queued secret outlives it
+    FChannel.Queue.Clear;
     if not FSettled then
     begin
       FSettled := True;
@@ -155,7 +150,7 @@ begin
   if FOutcome.IsEstablished and not FCompleteQueued then
   begin
     FCompleteQueued := True;
-    FChannel.QueueComplete;
+    FChannel.Enqueue(THandshakeOutputKind.HandshakeComplete, FChannel.WriteLevel, nil);
   end;
 end;
 
@@ -174,7 +169,7 @@ begin
       FConductor.Start;
     except
       on E: Exception do
-        Fail(E);
+        FOutcome.Fail(TAlertMapping.ErrorFor(E));
     end;
   finally
     FDraining := False;
@@ -201,10 +196,12 @@ begin
   FDraining := True;
   try
     try
+      // the host carries application data itself, so the flood count restarts with each delivery
+      FConductor.NoteApplicationData;
       FConductor.DeliverHandshake(AData, AOffset, ALength);
     except
       on E: Exception do
-        Fail(E);
+        FOutcome.Fail(TAlertMapping.ErrorFor(E));
     end;
   finally
     FDraining := False;
@@ -212,7 +209,7 @@ begin
   Settle;
   if FOutcome.IsTerminal then
     Exit(TTlsOutcome.Fatal);
-  if FOutcome.PendingEvents > 0 then
+  if (FOutcome.Events.Count > 0) or (FChannel.Queue.Count > 0) then
     Exit(TTlsOutcome.Advanced);
   Result := TTlsOutcome.NeedMoreInput;
 end;
@@ -242,7 +239,7 @@ begin
       FConductor.ResolveCertificateVerdict(AAccept, AAlert);
     except
       on E: Exception do
-        Fail(E);
+        FOutcome.Fail(TAlertMapping.ErrorFor(E));
     end;
   finally
     FDraining := False;
@@ -288,8 +285,7 @@ end;
 function TTlsHandshakeEngine.ExportKeyingMaterial(const ALabel: string;
   ALength: Int32): TBytes;
 begin
-  // available once the exporter secret is derived and not while parked on a verdict; a failed
-  // connection exports nothing
+  // nothing before the exporter secret exists, while parked, or once failed
   if FOutcome.IsTerminal or (not FConductor.CanExportKeyingMaterial) then
     Exit(nil);
   Result := FConductor.ExportKeyingMaterial(ALabel, ALength);

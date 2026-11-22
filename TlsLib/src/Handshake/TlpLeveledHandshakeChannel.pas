@@ -43,8 +43,6 @@ type
     FOutputs: TList<THandshakeOutput>;
     FReadLevel: TTlsEpoch;
     FWriteLevel: TTlsEpoch;
-    procedure Enqueue(AKind: THandshakeOutputKind; ALevel: TTlsEpoch;
-      const ASecret: ITrafficSecret);
   public
     constructor Create(AMaxCertificateMessageLength: Int32);
     destructor Destroy; override;
@@ -57,12 +55,17 @@ type
     procedure InstallReadSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
     procedure InstallWriteSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
 
-    /// <summary>Queues the end of the handshake after everything queued so far.</summary>
-    procedure QueueComplete;
+    /// <summary>Queues a secret or the end of the handshake after everything queued so far.</summary>
+    procedure Enqueue(AKind: THandshakeOutputKind; ALevel: TTlsEpoch;
+      const ASecret: ITrafficSecret);
     /// <summary>Dequeues the oldest queued item; False when none is queued.</summary>
     function TryTake(out AOutput: THandshakeOutput): Boolean;
     /// <summary>The level inbound handshake bytes must belong to now.</summary>
     property ReadLevel: TTlsEpoch read FReadLevel;
+    /// <summary>The level outbound handshake bytes ride now.</summary>
+    property WriteLevel: TTlsEpoch read FWriteLevel;
+    /// <summary>The queued items, oldest first; the owner may count or clear them.</summary>
+    property Queue: TList<THandshakeOutput> read FOutputs;
   end;
 
 implementation
@@ -150,11 +153,6 @@ begin
   if AEpoch in [TTlsEpoch.Handshake, TTlsEpoch.Application] then
     FWriteLevel := AEpoch;
   Enqueue(THandshakeOutputKind.WriteSecret, AEpoch, ASecret);
-end;
-
-procedure TLeveledHandshakeChannel.QueueComplete;
-begin
-  Enqueue(THandshakeOutputKind.HandshakeComplete, FWriteLevel, nil);
 end;
 
 function TLeveledHandshakeChannel.TryTake(out AOutput: THandshakeOutput): Boolean;

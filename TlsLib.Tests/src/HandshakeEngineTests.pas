@@ -59,6 +59,12 @@ uses
   TlpTlsCredential,
   TlpCertificateVerifierSource,
   TlpSystemCryptoBase,
+  TlpComplianceTypes,
+  TlpICryptoBackendReport,
+  MockCompliance,
+  TlpComplianceExceptions,
+  TlpCompliancePresets,
+  TlpComplianceCryptoProvider,
   TlpITlsConfig,
   TlpITlsConfigBuilder,
   TlpTlsPresets,
@@ -91,6 +97,8 @@ type
     FStek: ISessionTicketKeyManager;
     FAntiReplay: IAntiReplayStrategy;
     FScope: TBytes;
+    // zero each secret the host takes, as a host does once it has keyed its protection
+    FWipeSecrets: Boolean;
     FClientLog: THandshakeLog;
     FServerLog: THandshakeLog;
     function ClientBuilder: ITlsClientConfigBuilder;
@@ -99,6 +107,10 @@ type
     function ServerBuilder: ITlsServerConfigBuilder;
     function ServerConfig: ITlsServerConfig;
     function ServerResuming(AEarlyData: Boolean): ITlsServerConfig;
+    function EchResumingClient(const ACache: ISessionCache;
+      const AConfigList: TBytes): ITlsClientConfig;
+    function EchResumingServer(const AConfigList: TBytes;
+      const APrivateKey: ISecretBuffer): ITlsServerConfig;
     function NewClient(const AConfig: ITlsClientConfig): ITlsHandshakeEngine;
     function NewServer(const AConfig: ITlsServerConfig): ITlsHandshakeEngine;
     /// <summary>Moves everything ASrc has queued to ADst (handshake bytes at their level), logging
@@ -138,6 +150,14 @@ type
     procedure TestServerRefusesAClientHelloWithASessionId;
     procedure TestKeyUpdateIsUnexpected;
     procedure TestEndOfEarlyDataIsUnexpected;
+    procedure TestZeroRttDeclinedWithoutRetryCompletes;
+    procedure TestPostHandshakeCertificateRequestIsUnexpected;
+    procedure TestProvideHandshakeDataReportsProgress;
+    procedure TestTicketsAreNotCappedAcrossDeliveries;
+    procedure TestTicketWithAnExplicitZeroLimitFails;
+    procedure TestHostWipingItsSecretsLeavesTheHandshakeIntact;
+    procedure TestZeroRttWithEchIsAccepted;
+    procedure TestComplianceGatedProviderRefusesWhatItsRulesRefuse;
     procedure TestInputAtAnotherLevelFails;
     procedure TestMessageStraddlingAKeyChangeFails;
     procedure TestRfc9001ClientHelloIsServedWithItsLimitIgnored;
@@ -239,6 +259,26 @@ begin
   Result := LBuilder.Build;
 end;
 
+function TTestHandshakeEngine.EchResumingClient(const ACache: ISessionCache;
+  const AConfigList: TBytes): ITlsClientConfig;
+var
+  LBuilder: ITlsClientConfigBuilder;
+begin
+  LBuilder := ClientBuilder.WithResumption(True).WithSessionCache(ACache)
+    .WithResumptionScope(FScope);
+  Result := LBuilder.Tls13.WithEarlyData(True).WithEch(TEchClientModes.Enable(AConfigList)).Build;
+end;
+
+function TTestHandshakeEngine.EchResumingServer(const AConfigList: TBytes;
+  const APrivateKey: ISecretBuffer): ITlsServerConfig;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LBuilder := ServerBuilder.WithResumption(True).WithSessionTicketKeys(FStek);
+  Result := LBuilder.Tls13.WithTicketCount(1).WithEarlyData(16384).WithAntiReplay(FAntiReplay)
+    .WithEchKeyStore(TInMemoryEchKeyStore.FromConfig(AConfigList, APrivateKey, Crypto)).Build;
+end;
+
 function TTestHandshakeEngine.NewClient(const AConfig: ITlsClientConfig): ITlsHandshakeEngine;
 begin
   Result := TTlsEngineFactory.CreateHandshakeClientEngine(AConfig, ServerHost, nil, TicketLimit);
@@ -260,7 +300,9 @@ begin
     Inc(Result);
     ALog.Add(LOutput);
     if LOutput.Kind = THandshakeOutputKind.HandshakeData then
-      ADst.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data));
+      ADst.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data))
+    else if FWipeSecrets and (LOutput.Secret <> nil) then
+      FillChar(LOutput.Secret.Secret.DataPtr^, LOutput.Secret.Secret.Len, 0);
   end;
 end;
 
@@ -588,15 +630,175 @@ end;
 
 procedure TTestHandshakeEngine.TestEndOfEarlyDataIsUnexpected;
 var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+  LOutput: THandshakeOutput;
+begin
+  LCache := TInMemorySessionCache.Create;
+  Seed(LCache);
+  LClient := NewClient(ClientResuming(LCache, True));
+  LServer := NewServer(ServerResuming(True));
+  LClient.StartHandshake;
+  Deliver(LClient, LServer, FClientLog);
+  while LServer.NextOutput(LOutput) do
+    FServerLog.Add(LOutput);
+  CheckTrue(HasOutput(FServerLog, THandshakeOutputKind.ReadSecret, TTlsEpoch.EarlyData),
+    'the server accepted 0-RTT');
+  // the host delimits early data, so the server reads its client's Finished next
+  LServer.ProvideHandshakeData(TTlsEpoch.Handshake, TBytes.Create(5, 0, 0, 0), 0, 4);
+  CheckFailedWith(LServer, TTlsAlertDescription.UnexpectedMessage, 'an EndOfEarlyData');
+end;
+
+procedure TTestHandshakeEngine.TestZeroRttDeclinedWithoutRetryCompletes;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  Seed(LCache);
+  LClient := NewClient(ClientResuming(LCache, True));
+  LServer := NewServer(ServerResuming(False));
+  Run(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the client completed');
+  CheckFalse(LServer.IsTerminal, 'the server completed');
+  CheckTrue(EventSeen(LClient, TTlsEventKind.EarlyDataRejected), 'the early data was declined');
+  CheckFalse(LServer.ConnectionInfo.EarlyDataAccepted, 'the server did not accept it');
+  CheckFalse(HasOutput(FServerLog, THandshakeOutputKind.ReadSecret, TTlsEpoch.EarlyData),
+    'and keyed no early read');
+end;
+
+procedure TTestHandshakeEngine.TestPostHandshakeCertificateRequestIsUnexpected;
+var
   LClient, LServer: ITlsHandshakeEngine;
 begin
   LClient := NewClient(ClientConfig);
   LServer := NewServer(ServerConfig);
+  Run(LClient, LServer);
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, TBytes.Create(13, 0, 0, 0), 0, 4);
+  CheckFailedWith(LClient, TTlsAlertDescription.UnexpectedMessage, 'a CertificateRequest');
+end;
+
+procedure TTestHandshakeEngine.TestProvideHandshakeDataReportsProgress;
+var
+  LClient, LServer: ITlsHandshakeEngine;
+  LOutput: THandshakeOutput;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
   LClient.StartHandshake;
-  Deliver(LClient, LServer, FClientLog);
-  // the server now reads its client's Finished at the handshake level
-  LServer.ProvideHandshakeData(TTlsEpoch.Handshake, TBytes.Create(5, 0, 0, 0), 0, 4);
-  CheckFailedWith(LServer, TTlsAlertDescription.UnexpectedMessage, 'an EndOfEarlyData');
+  CheckTrue(LClient.NextOutput(LOutput), 'the ClientHello');
+  CheckEquals(Ord(TTlsOutcome.Advanced),
+    Ord(LServer.ProvideHandshakeData(TTlsEpoch.Plaintext, LOutput.Data, 0,
+    System.Length(LOutput.Data))), 'a flight was queued');
+  CheckTrue(LServer.NextOutput(LOutput), 'the ServerHello');
+  CheckEquals(Ord(TTlsOutcome.NeedMoreInput),
+    Ord(LClient.ProvideHandshakeData(TTlsEpoch.Plaintext, LOutput.Data, 0, 3)),
+    'a partial message needs more');
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LClient.ProvideHandshakeData(TTlsEpoch.Application, LOutput.Data, 0, 3)),
+    'a wrong level fails');
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LClient.ProvideHandshakeData(TTlsEpoch.Plaintext, LOutput.Data, 0, 3)),
+    'and the engine stays failed');
+end;
+
+procedure TTestHandshakeEngine.TestTicketsAreNotCappedAcrossDeliveries;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+  LOutput: THandshakeOutput;
+  LTicket: TBytes;
+  LIndex: Int32;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(ClientResuming(LCache, False));
+  LServer := NewServer(ServerResuming(True));
+  Run(LClient, LServer);
+  for LOutput in FServerLog do
+    if (LOutput.Kind = THandshakeOutputKind.HandshakeData) and
+      (LOutput.Level = TTlsEpoch.Application) then
+      LTicket := LOutput.Data;
+  CheckTrue(System.Length(LTicket) > 0, 'the server sent a ticket');
+  for LIndex := 1 to 40 do
+    LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
+  CheckFalse(LClient.IsTerminal, 'forty tickets over separate deliveries are accepted');
+end;
+
+procedure TTestHandshakeEngine.TestTicketWithAnExplicitZeroLimitFails;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+  LNewSessionTicket: TBytes;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(ClientResuming(LCache, False));
+  LServer := NewServer(ServerResuming(True));
+  Run(LClient, LServer);
+  // lifetime, age_add, empty nonce, a 4-byte ticket and an early_data extension carrying 0
+  LNewSessionTicket := DecodeHex('04000019' + '00000e10' + '00000000' + '00' + '0004' +
+    '01020304' + '0008' + '002a' + '0004' + '00000000');
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, LNewSessionTicket, 0,
+    System.Length(LNewSessionTicket));
+  CheckLocalWithoutAlert(LClient, 'an early_data of 0 where the host fixed another limit');
+end;
+
+procedure TTestHandshakeEngine.TestHostWipingItsSecretsLeavesTheHandshakeIntact;
+var
+  LClient, LServer: ITlsHandshakeEngine;
+begin
+  FWipeSecrets := True;
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  Run(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the client completed with its copies zeroed');
+  CheckFalse(LServer.IsTerminal, 'and so did the server');
+  CheckFalse(LClient.IsHandshaking, 'the client finished');
+end;
+
+procedure TTestHandshakeEngine.TestZeroRttWithEchIsAccepted;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+  LList: TBytes;
+  LSk: ISecretBuffer;
+begin
+  LList := EchConfigList($D7, 'cover.example', LSk);
+  LCache := TInMemorySessionCache.Create;
+  Run(NewClient(EchResumingClient(LCache, LList)), NewServer(EchResumingServer(LList, LSk)));
+  CheckTrue(LCache.Count > 0, 'a ticket was cached');
+  FClientLog.Clear;
+  FServerLog.Clear;
+  LClient := NewClient(EchResumingClient(LCache, LList));
+  LServer := NewServer(EchResumingServer(LList, LSk));
+  Run(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the client completed');
+  CheckTrue(LClient.ConnectionInfo.EchStatus = TEchStatus.Accepted, 'ECH was accepted');
+  CheckTrue(LServer.ConnectionInfo.EarlyDataAccepted, 'with early data');
+  CheckEqualBytes('the early secret agrees',
+    SecretOf(FClientLog, THandshakeOutputKind.WriteSecret, TTlsEpoch.EarlyData),
+    SecretOf(FServerLog, THandshakeOutputKind.ReadSecret, TTlsEpoch.EarlyData));
+end;
+
+procedure TTestHandshakeEngine.TestComplianceGatedProviderRefusesWhatItsRulesRefuse;
+var
+  LGated: ICryptoProvider;
+  LRefused: Boolean;
+begin
+  LGated := TComplianceCryptoProvider.Compose(
+    TOverlayCryptoProvider.Create(Crypto, Crypto.Primitives, nil,
+    TFakeBackendReport.Create([]) as ICryptoBackendReport, nil) as ICryptoProvider,
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
+  // the default group is one the rules refuse, and the engine does not get round the gate
+  LRefused := False;
+  try
+    NewClient(TTlsPresets.Hardened(LGated, Pkix).Client
+      .WithServerVerification(
+        TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build);
+  except
+    on EComplianceRefusedTlsLibException do
+      LRefused := True;
+  end;
+  CheckTrue(LRefused, 'a group the rules refuse is refused');
 end;
 
 procedure TTestHandshakeEngine.TestInputAtAnotherLevelFails;
@@ -639,7 +841,7 @@ var
   LOutput: THandshakeOutput;
   LSeen: Boolean;
 begin
-  // a recorded hello: empty session id, record_size_limit and a transport-parameters extension
+  // a recorded hello: empty session id, record_size_limit and an extension type the core does not know
   LHello := TTlsLibTestCertificates.Field('Handshake/ClientHelloRfc9001.txt', 'client_hello');
   LServer := NewServer(ServerBuilder.WithAlpnProtocols(
     TArray<TBytes>.Create(TEncoding.ASCII.GetBytes('alpn'))).Build);
@@ -1046,7 +1248,7 @@ var
   LClient: ITlsHandshakeEngine;
 begin
   LClient := NewClient(ClientConfig);
-  LClient.LatchTransportFailure('the datagram path died');
+  LClient.LatchTransportFailure('the path died');
   CheckTrue(LClient.IsTerminal, 'the engine ended');
   CheckEquals(Ord(TTlsErrorOrigin.Transport), Ord(LClient.LastError.Origin), 'a transport failure');
 end;

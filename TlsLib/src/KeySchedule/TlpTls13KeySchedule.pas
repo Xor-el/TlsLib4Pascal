@@ -101,6 +101,7 @@ type
 
     // ITls13KeySchedule
     function TrafficSecret(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ITrafficSecret;
+    procedure ForgetApplicationTrafficSecret(ADirection: TTlsDirection);
     function CanExportEarly: Boolean;
     function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes;
@@ -361,11 +362,23 @@ end;
 
 function TTls13KeySchedule.TrafficSecret(AEpoch: TTlsEpoch;
   ADirection: TTlsDirection): ITrafficSecret;
+var
+  LSecret: ISecretBuffer;
 begin
   if not FHasCipherSuite then
     raise EInvalidOperationTlsLibException.CreateRes(@SNoCipherSuite);
-  Result := TTrafficSecret.Create(EpochSecret(AEpoch, ADirection), FCipherSuite, FHash,
-    FAead);
+  LSecret := EpochSecret(AEpoch, ADirection);
+  // a copy, so the holder wiping or releasing its secret never touches the schedule's
+  Result := TTrafficSecret.Create(TSecretBuffer.Slice(LSecret, 0, LSecret.Len), FCipherSuite,
+    FHash, FAead);
+end;
+
+procedure TTls13KeySchedule.ForgetApplicationTrafficSecret(ADirection: TTlsDirection);
+begin
+  if ADirection = TTlsDirection.ClientWrite then
+    FClientApTraffic := nil
+  else
+    FServerApTraffic := nil;
 end;
 
 function TTls13KeySchedule.FinishedKey(ADirection: TTlsDirection): ISecretBuffer;

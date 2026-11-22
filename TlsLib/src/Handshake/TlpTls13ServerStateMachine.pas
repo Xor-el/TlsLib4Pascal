@@ -1763,6 +1763,9 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
     TTlsDirection.ServerWrite), TRecordSide.WriteSide, TTlsEpoch.Application));
+  // the host keeps the secret from here and rekeys it itself
+  if FParams.HostOwnsRecordProtection then
+    FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ServerWrite);
 end;
 
 function TTls13ServerStateMachine.BuildServerHello(
@@ -2089,6 +2092,8 @@ begin
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
     FSelectedGroup.Code, FPskAccepted and (FPskBinderKind = TPskBinderKind.Resumption), True,
     FRequestedServerName, Facts));
+  if FParams.HostOwnsRecordProtection then
+    FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ClientWrite);
   // the external identity as configured, also for a ticket resumption of a PSK-authenticated session
   if FPskAccepted and (System.Length(FSessionPskIdentity) > 0) then
     TArrayUtilities.Append<THandshakeEffect>(Result,

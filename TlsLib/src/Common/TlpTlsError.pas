@@ -30,7 +30,8 @@ type
   /// <summary>
   /// The structured, public-facing error surfaced to callers: the alert this
   /// side sent or would send (Local) or the peer sent (Peer), unless Origin is
-  /// Transport or LocalWithoutAlert, and a human-readable message that must not leak internal state.
+  /// Transport or LocalWithoutAlert, and a human-readable message that must not leak internal
+  /// state.
   /// </summary>
   TTlsError = record
   strict private

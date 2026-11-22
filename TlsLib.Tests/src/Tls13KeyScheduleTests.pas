@@ -66,6 +66,8 @@ type
     procedure TestTrafficSecretCarriesTheSuiteFactsOfAnAes256Suite;
     procedure TestKeyAndIvDerivedFromTheTrafficSecretMatchRfc8448;
     procedure TestEarlyTrafficSecretMatchesIndependentDerivation;
+    procedure TestTrafficSecretIsACopy;
+    procedure TestForgottenApplicationSecretIsGone;
     procedure TestTrafficSecretOfAnUnderivedEpochRaises;
     procedure TestTrafficSecretOfPlaintextRaises;
     procedure TestDeriveEpochSecretsOfPlaintextRaises;
@@ -313,6 +315,40 @@ begin
   CheckEqualBytes('c e traffic', ToBytes(THkdfLabel.DeriveSecret(LHkdf, LEarly,
     'c e traffic', LHash)), ToBytes(
     LSched.TrafficSecret(TTlsEpoch.EarlyData, TTlsDirection.ClientWrite).Secret));
+end;
+
+procedure TTestTls13KeySchedule.TestTrafficSecretIsACopy;
+var
+  LSched: ITls13KeySchedule;
+  LFirst: ITrafficSecret;
+begin
+  LSched := NewSuiteSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LFirst := LSched.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ClientWrite);
+  FillChar(LFirst.Secret.DataPtr^, LFirst.Secret.Len, 0);
+  CheckEqualBytes('the schedule''s own secret is untouched', Bytes('c_hs_traffic'),
+    ToBytes(LSched.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ClientWrite).Secret));
+end;
+
+procedure TTestTls13KeySchedule.TestForgottenApplicationSecretIsGone;
+var
+  LSched: ITls13KeySchedule;
+  LRaised: Boolean;
+begin
+  LSched := NewSuiteSchedule;
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, Bytes('hash_ch_sh'));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Application, Bytes('hash_ch_sf'));
+  LSched.ForgetApplicationTrafficSecret(TTlsDirection.ClientWrite);
+  LRaised := False;
+  try
+    LSched.TrafficSecret(TTlsEpoch.Application, TTlsDirection.ClientWrite);
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'the forgotten direction serves nothing');
+  CheckEqualBytes('the other direction stays', Bytes('s_ap_traffic'), ToBytes(
+    LSched.TrafficSecret(TTlsEpoch.Application, TTlsDirection.ServerWrite).Secret));
 end;
 
 procedure TTestTls13KeySchedule.TestTrafficSecretOfAnUnderivedEpochRaises;
