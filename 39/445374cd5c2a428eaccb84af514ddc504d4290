@@ -1,0 +1,48 @@
+docs/tls13-handshake-engine.md
+  s_f2c9bd75607afc::t_f36b3ed41d26e6 11-13
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_f2c9bd75607afc::t_05b736e65a7928 613
+  s_f2c9bd75607afc::t_12e3c7dae4bbca 2740,2743-2745
+  s_f2c9bd75607afc::t_be99d5e500840b 2893,2895-2901
+  s_f2c9bd75607afc::t_f59a2b85adf908 536
+  s_f2c9bd75607afc::t_d9c6ea7ffc8313 2848-2849
+  s_f2c9bd75607afc::t_ffc6d68268e3ca 2822-2828
+TlsLib.Tests/src/Tls13HandshakeEngineTests.pas
+  s_f2c9bd75607afc::t_569a0d5d9593a8 1399-1409
+  s_f2c9bd75607afc::t_1e9f7b0da47127 193
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_f2c9bd75607afc::t_932b96e19a6320 254
+  s_f2c9bd75607afc::t_2e3ada120a36ce 255-258
+  s_f2c9bd75607afc::t_94ef369e29ce5e 88
+  s_f2c9bd75607afc::t_06c71f16c85d79 89-161,166-170,175-176
+TlsLib.Tests/src/MockTransport.pas
+  s_f2c9bd75607afc::t_0974a294aba7d4 458-459
+  s_f2c9bd75607afc::t_ae3a8bf71a0c97 406-407
+TlsLib/src/Interfaces/Engine/TlpITls13HandshakeEngine.pas
+  s_f2c9bd75607afc::t_436f95dd239386 42-45
+  s_f2c9bd75607afc::t_9a7bdc1f19b509 48-49
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_f2c9bd75607afc::t_df5e021f0495b3 60
+TlsLib/src/Engine/TlpTls13HandshakeEngine.pas
+  s_f2c9bd75607afc::t_0d4e71cde42ad2 45
+TlsLib.Interop/src/InteropPump.pas
+  s_f2c9bd75607afc::t_7bc44decf7236e 76
+  s_f2c9bd75607afc::t_ab0ec79e178224 62-63
+  s_f2c9bd75607afc::t_d642a773dfeaf9 133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "39445374cd5c2a428eaccb84af514ddc504d4290",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
