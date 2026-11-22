@@ -44,8 +44,6 @@ type
     constructor Create(const ALayer: TRecordLayer; const ACrypto: ICryptoProvider);
     procedure InstallReadSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
     procedure InstallWriteSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
-    procedure InstallWriteKeys(AEpoch: TTlsEpoch; const AKeys: ITrafficKeys;
-      AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
   end;
 
   /// <summary>The key installer plus the record-only controls: a handshake driver over this
@@ -54,8 +52,10 @@ type
     IRecordLayerControl)
   public
     procedure SendChangeCipherSpec;
+    procedure InstallWriteKeys(AEpoch: TTlsEpoch; const AKeys: ITrafficKeys;
+      AAead: TAeadAlgorithm);
     procedure ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
-      AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+      AAead: TAeadAlgorithm);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
@@ -104,13 +104,6 @@ begin
   FLayer.SetWriteProtection(TRecordProtectionFactory.BuildFromSecret(FCrypto, ASecret));
 end;
 
-procedure TRecordLayerKeyInstaller.InstallWriteKeys(AEpoch: TTlsEpoch;
-  const AKeys: ITrafficKeys; AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
-begin
-  FLayer.SetWriteProtection(TRecordProtectionFactory.Build(AVersion, AKeys,
-    FCrypto.Primitives.CreateAead(AAead)));
-end;
-
 { TRecordLayerInstaller }
 
 procedure TRecordLayerInstaller.SendChangeCipherSpec;
@@ -118,11 +111,18 @@ begin
   FLayer.Write(TTlsContentType.ChangeCipherSpec, TBytes.Create(1), 0, 1);
 end;
 
-procedure TRecordLayerInstaller.ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
-  AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+procedure TRecordLayerInstaller.InstallWriteKeys(AEpoch: TTlsEpoch;
+  const AKeys: ITrafficKeys; AAead: TAeadAlgorithm);
 begin
-  FLayer.ArmReadProtectionOnChangeCipherSpec(TRecordProtectionFactory.Build(AVersion, AKeys,
+  FLayer.SetWriteProtection(TRecordProtectionFactory.Build(TTlsVersion.Tls12, AKeys,
     FCrypto.Primitives.CreateAead(AAead)));
+end;
+
+procedure TRecordLayerInstaller.ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
+  AAead: TAeadAlgorithm);
+begin
+  FLayer.ArmReadProtectionOnChangeCipherSpec(TRecordProtectionFactory.Build(
+    TTlsVersion.Tls12, AKeys, FCrypto.Primitives.CreateAead(AAead)));
 end;
 
 procedure TRecordLayerInstaller.RevertWriteToPlaintext;

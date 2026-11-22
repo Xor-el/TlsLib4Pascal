@@ -65,6 +65,8 @@ type
     procedure TestDriverInstallKeysDecryptsRfc8448Record;
     procedure TestRecordOnlyEffectsFailClosedWithoutTheRecordCompanion;
     procedure TestTls12ReadInstallFailsClosedWithoutTheRecordCompanion;
+    procedure TestTls12WriteInstallFailsClosedWithoutTheRecordCompanion;
+    procedure TestApplyAllStopsAfterAFailClosedEffect;
     procedure TestKeyOnlyInstallerStillInstallsASecret;
     procedure TestDriverReportsOutcomesToSink;
     procedure TestDriverForwardsTheFailReasonToTheSink;
@@ -115,8 +117,7 @@ var
   LHash: TBytes;
 begin
   // any valid epoch secrets; the routing tests only care where the driver installs them, not what
-  Result := TTls13KeySchedule.Create(Crypto, DefaultSuite.Common.Code,
-    DefaultSuite.Common.Hash, DefaultSuite.Common.KeyLength, DefaultSuite.Common.Aead);
+  Result := TTls13KeySchedule.Create(Crypto, DefaultSuite.Common);
   Result.SetSharedSecret(TSecretBuffer.From(DecodeHex(
     '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f')));
   SetLength(LHash, 32);
@@ -317,6 +318,57 @@ begin
   end;
 end;
 
+procedure TTestHandshakeDriver.TestTls12WriteInstallFailsClosedWithoutTheRecordCompanion;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+  LSink: TMockHandshakeSink;
+  LSinkRef: IHandshakeSink;
+begin
+  LLayer := TRecordLayer.Create;
+  LSink := TMockHandshakeSink.Create;
+  LSinkRef := LSink;
+  LDriver := THandshakeDriver.Create(
+    THandshakeChannel.Create(LLayer) as IHandshakeChannel,
+    TRecordLayerKeyInstaller.Create(LLayer, Crypto) as IEpochKeyInstaller, LSinkRef);
+  try
+    LDriver.Apply(THandshakeEffects.InstallKeys(
+      SampleSchedule.TrafficKeys(TTlsEpoch.Handshake, TTlsDirection.ServerWrite),
+      TRecordSide.WriteSide, DefaultSuite.Common.Aead, TTlsVersion.Tls12, TTlsEpoch.Application));
+    CheckTrue(LSink.Failed, 'a TLS 1.2 write install without the companion fails closed');
+    CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LSink.FailedAlert),
+      'the failure is internal_error');
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestApplyAllStopsAfterAFailClosedEffect;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+begin
+  // a key-only installer: the CCS fails closed, so the secret install after it is not applied
+  LLayer := TRecordLayer.Create;
+  LDriver := THandshakeDriver.Create(
+    THandshakeChannel.Create(LLayer) as IHandshakeChannel,
+    TRecordLayerKeyInstaller.Create(LLayer, Crypto) as IEpochKeyInstaller,
+    TMockHandshakeSink.Create as IHandshakeSink);
+  try
+    LDriver.ApplyAll(TArray<THandshakeEffect>.Create(
+      THandshakeEffects.SendChangeCipherSpec,
+      THandshakeEffects.InstallSecret(
+        SampleSchedule.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ServerWrite),
+        TRecordSide.WriteSide, TTlsEpoch.Application)));
+    LLayer.Write(TTlsContentType.ApplicationData, DecodeHex('0102030405'), 0, 5);
+    CheckEquals(10, System.Length(TakeOutgoing(LLayer)), 'the write epoch stayed plaintext');
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
+end;
+
 procedure TTestHandshakeDriver.TestKeyOnlyInstallerStillInstallsASecret;
 var
   LLayer: TRecordLayer;
@@ -381,8 +433,7 @@ begin
   LLayer := TRecordLayer.Create;
   LDriver := nil;
   try
-    LSchedule := TTls13KeySchedule.Create(Crypto, DefaultSuite.Common.Code,
-      DefaultSuite.Common.Hash, DefaultSuite.Common.KeyLength, DefaultSuite.Common.Aead);
+    LSchedule := TTls13KeySchedule.Create(Crypto, DefaultSuite.Common);
     LSchedule.SetSharedSecret(TSecretBuffer.From(DecodeHex(LVec.Values['shared_secret'])));
     LSchedule.DeriveEpochSecrets(TTlsEpoch.Handshake,
       DecodeHex(LVec.Values['hash_ch_sh']));

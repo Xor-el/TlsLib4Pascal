@@ -207,10 +207,8 @@ type
   end;
 
   /// <summary>
-  /// The internal seam the handshake driver uses to install an epoch's keys as they become
-  /// available, turning the plaintext engine into a protected one and, on the write side, marking
-  /// the handshake established. Deliberately kept off the public ITlsEngine surface (a caller never
-  /// installs epochs directly); reach it with Supports(engine, IEpochKeyInstaller, x).
+  /// The seam the handshake driver uses to install a TLS 1.3 epoch's keys as they become
+  /// available. Kept off the public ITlsEngine surface: the engine hands it to its driver.
   /// </summary>
   IEpochKeyInstaller = interface(IInterface)
     ['{A28C50AE-6A2D-4C0B-863E-52293B2C2778}']
@@ -220,30 +218,27 @@ type
     /// application writes on the Application epoch, which a server reaches at its Finished
     /// (half-RTT).</summary>
     procedure InstallWriteSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
-    /// <summary>Installs the TLS 1.2 write epoch AEpoch from derived traffic keys.</summary>
-    procedure InstallWriteKeys(AEpoch: TTlsEpoch; const AKeys: ITrafficKeys;
-      AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
   end;
 
   /// <summary>
-  /// The record-layer half of the install seam: the controls that only an installer which owns
-  /// a record layer can honour. Kept apart from IEpochKeyInstaller so an installer that only
-  /// receives keys implements the latter alone; reach it with Supports(installer,
-  /// IRecordLayerControl, x). The class implementing it must list it, since ancestors of a
-  /// listed interface are not queryable.
+  /// The controls only an installer that owns a record layer can honour, including the TLS 1.2 key
+  /// installs; reach it with Supports(installer, IRecordLayerControl, x).
   /// </summary>
   IRecordLayerControl = interface(IInterface)
     ['{EDF3E04E-F35D-4A97-A7E5-9517EDB4CC91}']
     /// <summary>Emits the legacy change_cipher_spec for middlebox compatibility, in the clear
     /// (RFC 9846 E.4).</summary>
     procedure SendChangeCipherSpec;
+    /// <summary>Installs the TLS 1.2 write epoch AEpoch from derived traffic keys.</summary>
+    procedure InstallWriteKeys(AEpoch: TTlsEpoch; const AKeys: ITrafficKeys;
+      AAead: TAeadAlgorithm);
     /// <summary>
     /// Arms a TLS 1.2 read epoch to activate on the peer's next change_cipher_spec instead of
     /// immediately (RFC 5246 7.1). The active read epoch stays put until that plaintext CCS is
     /// consumed, so a peer's plaintext alert sent before its CCS is read under the right epoch.
     /// </summary>
     procedure ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
-      AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+      AAead: TAeadAlgorithm);
     /// <summary>
     /// Reverts the write epoch to plaintext, abandoning an installed early-data write
     /// protection when a HelloRetryRequest rejects offered 0-RTT (RFC 9846 4.3.10): the

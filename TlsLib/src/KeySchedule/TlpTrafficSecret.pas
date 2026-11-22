@@ -22,7 +22,7 @@ uses
 
 type
   /// <summary>A TLS 1.3 traffic secret with the suite facts needed to key record protection
-  /// from it; owns its buffer, which is wiped once the last holder lets go.</summary>
+  /// from it; holds its buffer, which is wiped once the last holder lets go.</summary>
   TTrafficSecret = class sealed(TInterfacedObject, ITrafficSecret)
   strict private
   var

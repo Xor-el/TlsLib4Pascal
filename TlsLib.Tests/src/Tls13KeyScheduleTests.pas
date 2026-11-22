@@ -63,6 +63,7 @@ type
     procedure TestTrafficKeysRfc8448;
     procedure TestTrafficSecretRfc8448;
     procedure TestTrafficSecretCarriesTheSuiteFacts;
+    procedure TestTrafficSecretCarriesTheSuiteFactsOfAnAes256Suite;
     procedure TestKeyAndIvDerivedFromTheTrafficSecretMatchRfc8448;
     procedure TestEarlyTrafficSecretMatchesIndependentDerivation;
     procedure TestTrafficSecretOfAnUnderivedEpochRaises;
@@ -127,9 +128,14 @@ begin
 end;
 
 function TTestTls13KeySchedule.NewSuiteSchedule: ITls13KeySchedule;
+var
+  LSuite: TCipherSuiteCommon;
 begin
-  Result := TTls13KeySchedule.Create(Crypto, TCipherSuites13.Aes128GcmSha256,
-    THashAlgorithm.SHA_256, 16, TAeadAlgorithm.AES_128_GCM);
+  LSuite.Code := TCipherSuites13.Aes128GcmSha256;
+  LSuite.Hash := THashAlgorithm.SHA_256;
+  LSuite.Aead := TAeadAlgorithm.AES_128_GCM;
+  LSuite.KeyLength := 16;
+  Result := TTls13KeySchedule.Create(Crypto, LSuite);
   Result.SetSharedSecret(TSecretBuffer.From(Bytes('shared_secret')));
 end;
 
@@ -244,6 +250,27 @@ begin
   CheckEquals(Ord(TAeadAlgorithm.AES_128_GCM), Ord(LSecret.Aead), 'the suite AEAD');
 end;
 
+procedure TTestTls13KeySchedule.TestTrafficSecretCarriesTheSuiteFactsOfAnAes256Suite;
+var
+  LSuite: TCipherSuiteCommon;
+  LSched: ITls13KeySchedule;
+  LSecret: ITrafficSecret;
+begin
+  LSuite.Code := TCipherSuites13.Aes256GcmSha384;
+  LSuite.Hash := THashAlgorithm.SHA_384;
+  LSuite.Aead := TAeadAlgorithm.AES_256_GCM;
+  LSuite.KeyLength := 32;
+  LSched := TTls13KeySchedule.Create(Crypto, LSuite);
+  LSched.SetSharedSecret(TSecretBuffer.From(Bytes('shared_secret')));
+  LSched.DeriveEpochSecrets(TTlsEpoch.Handshake, DecodeHex(StringOfChar('0', 96)));
+  LSecret := LSched.TrafficSecret(TTlsEpoch.Handshake, TTlsDirection.ServerWrite);
+  CheckEquals(Int32(TCipherSuites13.Aes256GcmSha384), Int32(LSecret.CipherSuite),
+    'the cipher suite code');
+  CheckEquals(Ord(THashAlgorithm.SHA_384), Ord(LSecret.Hash), 'the suite hash');
+  CheckEquals(Ord(TAeadAlgorithm.AES_256_GCM), Ord(LSecret.Aead), 'the suite AEAD');
+  CheckEquals(48, LSecret.Secret.Len, 'a SHA-384 traffic secret is 48 bytes');
+end;
+
 procedure TTestTls13KeySchedule.TestKeyAndIvDerivedFromTheTrafficSecretMatchRfc8448;
 var
   LSched: ITls13KeySchedule;
@@ -277,7 +304,7 @@ var
   LEarly: ISecretBuffer;
   LHash: TBytes;
 begin
-  LHash := DecodeHex('000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f');
+  LHash := Bytes('hash_ch_sh');
   LSched := NewSuiteSchedule;
   LSched.DeriveEpochSecrets(TTlsEpoch.EarlyData, LHash);
   // the 0-PSK early secret, the same one the RFC 8448 vector pins

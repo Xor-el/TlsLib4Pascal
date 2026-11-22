@@ -90,18 +90,16 @@ type
     /// <summary>The client-certificate counterpart of ComposeServerVerifier.</summary>
     class function ComposeClientVerifier(const AConfig: ITlsServerConfig;
       const ATrust: TClientTrustContext): IClientCertificateVerifier; static;
-    /// <summary>The TLS 1.3 client machine's parameters from the config and the connection inputs
-    /// the factory resolved (shared randoms, name, verifiers); the TLS 1.2 side is assembled
-    /// separately.</summary>
+    /// <summary>The TLS 1.3 client machine's parameters.</summary>
     class function BuildClient13Params(const AConfig: ITlsClientConfig;
       const AServerName: TServerName; const AClientRandom, ASessionId: TBytes;
       const AVerifier, AResumeVerifier, AEchRejectVerifier: IServerCertificateVerifier;
-      ADeferral: TVerdictDeferral; AOffersResumption: Boolean): TClientHandshakeParams; static;
-    /// <summary>The TLS 1.3 server machine's parameters from the config and the connection inputs
-    /// the factory resolved; the TLS 1.2 side is assembled separately.</summary>
+      ADeferral: TVerdictDeferral; AOffers13, AOffersResumption: Boolean): TClientHandshakeParams;
+      static;
+    /// <summary>The TLS 1.3 server machine's parameters.</summary>
     class function BuildServer13Params(const AConfig: ITlsServerConfig;
       const AServerRandom: TBytes; const AClientVerifier: IClientCertificateVerifier;
-      ADeferral: TVerdictDeferral): TServerHandshakeParams; static;
+      ADeferral: TVerdictDeferral; AOffers13: Boolean): TServerHandshakeParams; static;
   public
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
@@ -186,11 +184,8 @@ end;
 class function TTlsEngineFactory.BuildClient13Params(const AConfig: ITlsClientConfig;
   const AServerName: TServerName; const AClientRandom, ASessionId: TBytes;
   const AVerifier, AResumeVerifier, AEchRejectVerifier: IServerCertificateVerifier;
-  ADeferral: TVerdictDeferral; AOffersResumption: Boolean): TClientHandshakeParams;
-var
-  LOffers13: Boolean;
+  ADeferral: TVerdictDeferral; AOffers13, AOffersResumption: Boolean): TClientHandshakeParams;
 begin
-  LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   Result := Default(TClientHandshakeParams);
   Result.Crypto := AConfig.Crypto;
   Result.Inspector := AConfig.Pkix.Certificates;
@@ -203,7 +198,7 @@ begin
   Result.CipherSuites := AConfig.CipherSuites;
   // the extension registry (its ~20 handlers) is built only for a version whose machine is
   // actually created; a single-version client would otherwise build and discard one
-  if LOffers13 then
+  if AOffers13 then
     Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   Result.OfferedSuites := SuiteCodes(AConfig);
   Result.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
@@ -241,7 +236,7 @@ begin
   // a mutual-TLS client presents this credential when the server requests one; empty
   // sends an empty client Certificate
   Result.ClientCredential := AConfig.Credential;
-  if AOffersResumption and LOffers13 then
+  if AOffersResumption and AOffers13 then
   begin
     Result.SessionCache := AConfig.SessionCache;
     Result.SessionScope := AConfig.SessionScope;
@@ -251,7 +246,7 @@ begin
   // out-of-band external PSKs (RFC 9258) are a TLS 1.3-only offer. A PSK-only client (external
   // PSKs configured with no certificate trust to fall back on) requires the server to select a
   // PSK - a non-PSK ServerHello is then fatal.
-  if LOffers13 then
+  if AOffers13 then
   begin
     Result.ExternalPsks := AConfig.ExternalPsks;
     Result.RequirePsk := TClientPskPath.RequiresPsk(System.Length(AConfig.ExternalPsks),
@@ -261,12 +256,10 @@ end;
 
 class function TTlsEngineFactory.BuildServer13Params(const AConfig: ITlsServerConfig;
   const AServerRandom: TBytes; const AClientVerifier: IClientCertificateVerifier;
-  ADeferral: TVerdictDeferral): TServerHandshakeParams;
+  ADeferral: TVerdictDeferral; AOffers13: Boolean): TServerHandshakeParams;
 var
-  LOffers13: Boolean;
   LGroupCode: UInt16;
 begin
-  LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   Result := Default(TServerHandshakeParams);
   Result.Crypto := AConfig.Crypto;
   Result.Inspector := AConfig.Pkix.Certificates;
@@ -277,7 +270,7 @@ begin
     AConfig.CipherSuitePreference);
   Result.CipherSuites := AConfig.CipherSuites;
   // build the extension registry only for a version whose machine is created
-  if LOffers13 then
+  if AOffers13 then
     Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
   // the negotiation policy (built above from the same PreferredGroups/NamedGroups) selects the
   // group by server preference among the client's supported_groups (RFC 9846 4.3.7); the state
@@ -286,7 +279,7 @@ begin
   // validate at creation that at least one preferred group is registered when 1.3 is offered (an
   // empty registry-vs-preference intersection would leave the policy unable to select any group);
   // the result is discarded - this is a creation-time guard, not a stored fallback
-  if LOffers13 then
+  if AOffers13 then
     PreferredGroup(AConfig, LGroupCode);
   Result.ServerRandom := AServerRandom;
   Result.AlpnProtocols := AConfig.AlpnProtocols;
@@ -328,7 +321,7 @@ begin
   // out-of-band external PSKs (RFC 9258) and Encrypted Client Hello are matched only on the TLS
   // 1.3 path; a keyed server decrypts ECH offers with its store and advertises its is_retry
   // configs as retry_configs on reject (RFC 9849)
-  if LOffers13 then
+  if AOffers13 then
   begin
     Result.ExternalPsks := AConfig.ExternalPsks;
     Result.EchPolicy := AConfig.EncryptedClientHello;
@@ -478,7 +471,7 @@ begin
   end;
 
   L13 := BuildClient13Params(AConfig, LServerName, LClientRandom, LSessionId, LVerifier,
-    LResumeVerifier, LEchRejectVerifier, LDeferral, LOffersResumption);
+    LResumeVerifier, LEchRejectVerifier, LDeferral, LOffers13, LOffersResumption);
 
   L12 := Default(TClient12HandshakeParams);
   L12.Crypto := AConfig.Crypto;
@@ -591,7 +584,8 @@ begin
     LClientVerifier := ComposeClientVerifier(AConfig, LClientContext);
   end;
 
-  L13 := BuildServer13Params(AConfig, LServerRandom, LClientVerifier, LDeferral);
+  L13 := BuildServer13Params(AConfig, LServerRandom, LClientVerifier, LDeferral,
+    LOffers13);
 
   L12 := Default(TServer12HandshakeParams);
   L12.Crypto := AConfig.Crypto;

@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpCryptoDomainTypes,
+  TlpNegotiationTypes,
   TlpISecretBuffer,
   TlpSecretBuffer,
   TlpICryptoProvider,
@@ -83,9 +84,9 @@ type
     /// knows no cipher suite, so TrafficSecret raises on it (binder and Finished uses only).</summary>
     constructor Create(const ACryptoProvider: ICryptoProvider; AHash: THashAlgorithm;
       AKeyLength: Int32); overload;
-    /// <summary>As above for a negotiated suite: ACipherSuite and AAead ride every traffic secret.</summary>
-    constructor Create(const ACryptoProvider: ICryptoProvider; ACipherSuite: UInt16;
-      AHash: THashAlgorithm; AKeyLength: Int32; AAead: TAeadAlgorithm); overload;
+    /// <summary>As above for a negotiated suite: its code and AEAD ride every traffic secret.</summary>
+    constructor Create(const ACryptoProvider: ICryptoProvider;
+      const ASuite: TCipherSuiteCommon); overload;
 
     // IKeySchedule
     function TrafficKeys(AEpoch: TTlsEpoch; ADirection: TTlsDirection): ITrafficKeys;
@@ -157,11 +158,11 @@ begin
 end;
 
 constructor TTls13KeySchedule.Create(const ACryptoProvider: ICryptoProvider;
-  ACipherSuite: UInt16; AHash: THashAlgorithm; AKeyLength: Int32; AAead: TAeadAlgorithm);
+  const ASuite: TCipherSuiteCommon);
 begin
-  Create(ACryptoProvider, AHash, AKeyLength);
-  FCipherSuite := ACipherSuite;
-  FAead := AAead;
+  Create(ACryptoProvider, ASuite.Hash, ASuite.KeyLength);
+  FCipherSuite := ASuite.Code;
+  FAead := ASuite.Aead;
   FHasCipherSuite := True;
 end;
 

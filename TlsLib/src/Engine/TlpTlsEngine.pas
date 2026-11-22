@@ -270,7 +270,7 @@ type
   /// <summary>
   /// Lets the handshake driver install epochs and report outcomes back to the engine, which
   /// owns this bridge and is held by a raw reference. It turns the keys the driver hands over
-  /// into record protection, so the TCP record layer is the only place that builds it.
+  /// into record protection.
   /// </summary>
   TEngineHandshakeBridge = class sealed(TInterfacedObject, IEpochKeyInstaller,
     IRecordLayerControl, IHandshakeSink, IHandshakeVersionSink, IHandshakeVerdictSink,
@@ -284,10 +284,10 @@ type
     procedure InstallReadSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
     procedure InstallWriteSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
     procedure InstallWriteKeys(AEpoch: TTlsEpoch; const AKeys: ITrafficKeys;
-      AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+      AAead: TAeadAlgorithm);
     procedure SendChangeCipherSpec;
     procedure ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
-      AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+      AAead: TAeadAlgorithm);
     procedure RevertWriteToPlaintext;
     procedure SetRecordSizeLimit(AOutboundLimit, AInboundLimit: Int32);
     procedure SetEarlyDataSkip(AMaxBytes: Int32);
@@ -339,9 +339,9 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.InstallWriteKeys(AEpoch: TTlsEpoch;
-  const AKeys: ITrafficKeys; AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+  const AKeys: ITrafficKeys; AAead: TAeadAlgorithm);
 begin
-  FEngine.InstallWriteProtection(TRecordProtectionFactory.Build(AVersion, AKeys,
+  FEngine.InstallWriteProtection(TRecordProtectionFactory.Build(TTlsVersion.Tls12, AKeys,
     FCrypto.Primitives.CreateAead(AAead)), AEpoch);
 end;
 
@@ -351,10 +351,10 @@ begin
 end;
 
 procedure TEngineHandshakeBridge.ArmReadKeysOnChangeCipherSpec(const AKeys: ITrafficKeys;
-  AAead: TAeadAlgorithm; const AVersion: TTlsVersion);
+  AAead: TAeadAlgorithm);
 begin
-  FEngine.ArmReadProtectionOnChangeCipherSpec(TRecordProtectionFactory.Build(AVersion,
-    AKeys, FCrypto.Primitives.CreateAead(AAead)));
+  FEngine.ArmReadProtectionOnChangeCipherSpec(TRecordProtectionFactory.Build(
+    TTlsVersion.Tls12, AKeys, FCrypto.Primitives.CreateAead(AAead)));
 end;
 
 procedure TEngineHandshakeBridge.RevertWriteToPlaintext;

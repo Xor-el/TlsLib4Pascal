@@ -29,7 +29,7 @@ type
   /// <summary>
   /// Applies the pure state machine's effects to the real world: it frames and
   /// sends handshake messages through the channel, hands an epoch's traffic secret
-  /// (or TLS 1.2 keys) to the key installer, applies the record-only controls when the
+  /// to the key installer, applies the record-only controls and TLS 1.2 keys when the
   /// installer also offers them (failing closed when it does not), and reports events,
   /// completion, cert verdicts, and failures to the sink. The state machine has already
   /// resolved which traffic secret each install uses; the driver only routes.
@@ -49,8 +49,9 @@ type
     // resolved once from the sink; nil when the sink does not track connection info
     FConnectionInfoSink: IHandshakeConnectionInfoSink;
     FEchStatusSink: IEchStatusSink;
+    // set once a record-only effect failed for want of the companion
+    FRecordControlMissing: Boolean;
     procedure ApplyInstallKeys(const AEffect: THandshakeEffect);
-    procedure FailRecordControlMissing;
     procedure ApplyRecordControl(const AEffect: THandshakeEffect);
   public
     constructor Create(const AChannel: IHandshakeChannel;
@@ -87,17 +88,13 @@ begin
     FEchStatusSink := nil;
 end;
 
-procedure THandshakeDriver.FailRecordControlMissing;
-begin
-  // a record-only effect reached an installer that owns no record layer: fail closed
-  FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SRecordControlMissing);
-end;
-
 procedure THandshakeDriver.ApplyRecordControl(const AEffect: THandshakeEffect);
 begin
   if FRecordControl = nil then
   begin
-    FailRecordControlMissing;
+    // the installer owns no record layer: fail closed and apply nothing more from this batch
+    FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SRecordControlMissing);
+    FRecordControlMissing := True;
     Exit;
   end;
   case AEffect.Kind of
@@ -129,14 +126,18 @@ begin
     else
       FInstaller.InstallWriteSecret(AEffect.Epoch, AEffect.Secret);
   end
+  else if FRecordControl = nil then
+  begin
+    // TLS 1.2 keys install through the record layer: fail closed without it
+    FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SRecordControlMissing);
+    FRecordControlMissing := True;
+  end
   else if AEffect.Side = TRecordSide.WriteSide then
-    FInstaller.InstallWriteKeys(AEffect.Epoch, AEffect.Keys, AEffect.Aead, AEffect.Version)
-  else if FRecordControl <> nil then
+    FRecordControl.InstallWriteKeys(AEffect.Epoch, AEffect.Keys, AEffect.Aead)
+  else
     // TLS 1.2 switches the read cipher on the peer's change_cipher_spec (RFC 5246 7.1), so the
     // read epoch is armed to activate then rather than immediately
-    FRecordControl.ArmReadKeysOnChangeCipherSpec(AEffect.Keys, AEffect.Aead, AEffect.Version)
-  else
-    FailRecordControlMissing;
+    FRecordControl.ArmReadKeysOnChangeCipherSpec(AEffect.Keys, AEffect.Aead);
 end;
 
 procedure THandshakeDriver.Apply(const AEffect: THandshakeEffect);
@@ -212,7 +213,11 @@ var
   LEffect: THandshakeEffect;
 begin
   for LEffect in AEffects do
+  begin
     Apply(LEffect);
+    if FRecordControlMissing then
+      Break;
+  end;
 end;
 
 end.

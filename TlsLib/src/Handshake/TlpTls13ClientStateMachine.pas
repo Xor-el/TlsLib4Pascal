@@ -1035,8 +1035,7 @@ begin
     // derive the client_early_traffic keys from the ClientHello transcript and open the
     // early write epoch, after the (plaintext) middlebox CCS. Under ECH the 0-RTT keys derive
     // from the inner transcript (+ inner random), the logical ClientHello (RFC 9849 sec. 6.1.5)
-    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common.Code,
-      LPskSuite.Common.Hash, LPskSuite.Common.KeyLength, LPskSuite.Common.Aead);
+    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common);
     FSchedule.SetPsk(FPskOffers[0].Key);
     // key the log by the same random the early transcript uses: the inner ClientHello's under ECH
     if FEchOrch.Active then
@@ -1292,9 +1291,7 @@ begin
   // PSK-seeded for psk_dhe_ke) for the full/non-early or different-suite handshake
   if (FSchedule = nil) or (not FPskAccepted) or (not FEarlySuiteMatched) then
   begin
-    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Code,
-      FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength,
-      FSelectedSuite.Common.Aead);
+    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common);
     // psk_dhe_ke: seed the accepted PSK before deriving the handshake secret
     if FPskAccepted then
       FSchedule.SetPsk(FAcceptedPsk.Key);

@@ -1633,9 +1633,7 @@ begin
   // a HelloRetryRequest, if any, consumed the opener before this flight
   FEch := nil;
 
-  FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Code,
-    FSelectedSuite.Common.Hash, FSelectedSuite.Common.KeyLength,
-    FSelectedSuite.Common.Aead);
+  FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common);
   // the key log keys every line by the ClientHello.random - the inner one here when ECH was
   // accepted, since AClientHello is the decrypted inner in that case (RFC 9850)
   FSchedule.SetKeyLog(FParams.KeyLog, AClientHello.Random);

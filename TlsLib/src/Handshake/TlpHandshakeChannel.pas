@@ -25,9 +25,8 @@ uses
 type
   /// <summary>
   /// The record-layer handshake channel: sends framed handshake messages out through the
-  /// record layer, and reassembles the inbound
-  /// handshake byte stream the engine feeds in. Owns its reassembler; the record
-  /// layer is owned by the engine. Single-threaded.
+  /// record layer, and reassembles the inbound handshake byte stream the engine feeds in. Owns
+  /// its reassembler; the record layer is owned by the engine. Single-threaded.
   /// </summary>
   THandshakeChannel = class sealed(TInterfacedObject, IHandshakeChannel)
   strict private
