@@ -8,6 +8,9 @@ and wants TLS only for the handshake. The engine exchanges handshake messages pe
 encryption level and hands the host the traffic secrets. It holds no traffic keys, so it never seals
 or opens a record.
 
+`ITls13HandshakeEngine` inherits `ITlsCommonEngine`, as `ITlsEngine` does: starting the handshake, status,
+the certificate verdict, events, connection facts and the exporters are the same calls on both.
+
 The engine uses the same state machines, key schedule, extension codec, certificate pipeline, ECH,
 resumption and crypto provider as `ITlsEngine`. A provider overlay or a compliance gate configured on
 the config applies to every key operation here as it does there.

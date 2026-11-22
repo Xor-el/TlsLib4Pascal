@@ -190,6 +190,7 @@ type
     procedure TestHandshakeEngineTicketIsNotOfferedToTheRecordEngine;
     procedure TestServerDeclinesARecordEngineTicket;
     procedure TestCryptoOverlayDerivesTheKeys;
+    procedure TestBothEnginesAnswerTheCommonInterface;
     procedure TestTransportFailureIsReportedWithoutAlert;
     procedure TestNothingIsPulledOnceTerminal;
     procedure TestLocalWithoutAlertCarriesNoAlertToAStream;
@@ -1393,6 +1394,17 @@ begin
   Run(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the handshake completed over the overlay');
   CheckTrue(LCounting.Hkdfs > 0, 'the key schedule ran through the overlay''s HKDF');
+end;
+
+procedure TTestTls13HandshakeEngine.TestBothEnginesAnswerTheCommonInterface;
+var
+  LCommon: ITlsCommonEngine;
+begin
+  CheckTrue(Supports(TTlsEngineFactory.CreateClientEngine(ClientConfig, ServerHost),
+    ITlsCommonEngine, LCommon), 'the record engine is queryable as the common engine');
+  CheckTrue(Supports(NewClient(ClientConfig), ITlsCommonEngine, LCommon),
+    'and so is the handshake-only engine');
+  CheckFalse(LCommon.IsTerminal, 'through which its status reads');
 end;
 
 procedure TTestTls13HandshakeEngine.TestTransportFailureIsReportedWithoutAlert;

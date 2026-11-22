@@ -533,7 +533,7 @@ type
   public
     constructor Create(const ALabel: string; const AContext: TBytes;
       AUseContext: Boolean; ALength: Int32);
-    procedure Observe(const AEngine: ITlsEngine);
+    procedure Observe(const AEngine: ITlsCommonEngine);
     property Captured: TBytes read FCaptured;
     property HasCaptured: Boolean read FHasCaptured;
   end;
@@ -610,7 +610,7 @@ begin
   FHasCaptured := False;
 end;
 
-procedure TExportProbe.Observe(const AEngine: ITlsEngine);
+procedure TExportProbe.Observe(const AEngine: ITlsCommonEngine);
 var
   LBytes: TBytes;
 begin
@@ -2737,10 +2737,12 @@ var
   LObserved: TBoGoObserved;
   LInfo: TTlsConnectionInfo;
   LStatus: TInteropLeveledStatus;
-  LData, LPeerBody, LExported, LInitialWrite, LDeferred, LPayload, LExportContext: TBytes;
+  LData, LPeerBody, LInitialWrite, LDeferred, LPayload, LExportContext: TBytes;
   LExportLen, LRep, LRepeat, LCheck: Int32;
   LExportLabel, LMessage: string;
-  LWritesFirst, LEarlyWrite, LRetryVerifyFail, LExportTaken: Boolean;
+  LWritesFirst, LEarlyWrite, LRetryVerifyFail: Boolean;
+  LExportProbe: TExportProbe;
+  LProbeOwner: IHandshakeProbe;
   LNameRecorder: TInteropVerifyNameRecorder;
   LRecorderOwner: IInterface;
 
@@ -2762,14 +2764,6 @@ var
     for LI := 0 to System.High(LEcho) do
       LEcho[LI] := LEcho[LI] xor XorMask;
     Result := Send(LEcho);
-  end;
-
-  function ExportMaterial: TBytes;
-  begin
-    if AConfig.UseExportContext then
-      Result := LEngine.ExportKeyingMaterial(LExportLabel, LExportContext, LExportLen)
-    else
-      Result := LEngine.ExportKeyingMaterial(LExportLabel, LExportLen);
   end;
 
 begin
@@ -2825,6 +2819,13 @@ begin
     LExportLabel := AConfig.OnResumeExportLabel;
     LExportContext := AConfig.OnResumeExportContext;
   end;
+  LExportProbe := nil;
+  if LExportLen > 0 then
+  begin
+    LExportProbe := TExportProbe.Create(LExportLabel, LExportContext, AConfig.UseExportContext,
+      LExportLen);
+    LProbeOwner := LExportProbe;
+  end;
   LHost := TInteropLeveledHost.Create(LEngine, ASocket, AConfig.IsServer, True,
     not LOptions.VerifyFail);
   try
@@ -2835,8 +2836,6 @@ begin
       for LRep := 1 to LRepeat do
         if not LHost.WriteApplication(LInitialWrite) then
           LDeferred := TArrayUtilities.Concat(LDeferred, LInitialWrite);
-    LExportTaken := False;
-    LExported := nil;
     LStatus := TInteropLeveledStatus.Progressed;
     while (LStatus = TInteropLeveledStatus.Progressed) and (not LHost.IsComplete) do
     begin
@@ -2846,11 +2845,8 @@ begin
         Exit(ShimExitFail);
       // a server's keying material is available as soon as its flight is sent, before the client's
       // Finished; taking it then proves the half-RTT export works
-      if AConfig.IsServer and (LExportLen > 0) and LHost.FlightSent and (not LExportTaken) then
-      begin
-        LExported := ExportMaterial;
-        LExportTaken := True;
-      end;
+      if AConfig.IsServer and LHost.FlightSent and (LExportProbe <> nil) then
+        LExportProbe.Observe(LEngine);
     end;
     if LNameRecorder <> nil then
       LObserved.VerifiedNames := LNameRecorder.Names;
@@ -2894,11 +2890,15 @@ begin
       Writeln(ErrOutput, 'the peer host extension did not match the expected body');
       Exit(ShimExitFail);
     end;
-    if LExportLen > 0 then
+    if LExportProbe <> nil then
     begin
-      if not LExportTaken then
-        LExported := ExportMaterial;
-      if not Send(LExported) then
+      LExportProbe.Observe(LEngine);
+      if not LExportProbe.HasCaptured then
+      begin
+        Writeln(ErrOutput, 'the keying-material export was unavailable');
+        Exit(ShimExitFail);
+      end;
+      if not Send(LExportProbe.Captured) then
         Exit(ShimExitFail);
     end;
     if LWritesFirst then

@@ -57,7 +57,7 @@ type
   /// offset/length. Single-threaded: the caller serializes access (TTlsStream and TTlsConnection
   /// do, so do not call the engine directly while one is in use).
   /// </summary>
-  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsEngineInbound,
+  TTlsEngine = class sealed(TInterfacedObject, ITlsEngine, ITlsCommonEngine, ITlsEngineInbound,
     ITlsEngineOutbound, ITlsHostExtensionResults, ITlsSessionApplicationData)
   strict private
   type

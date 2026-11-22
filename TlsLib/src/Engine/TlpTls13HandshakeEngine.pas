@@ -42,7 +42,7 @@ type
   /// The machine must be built for a host that owns record protection; the factory does that.
   /// </summary>
   TTls13HandshakeEngine = class sealed(TInterfacedObject, ITls13HandshakeEngine,
-    ITlsHostExtensionResults, ITlsSessionApplicationData)
+    ITlsCommonEngine, ITlsHostExtensionResults, ITlsSessionApplicationData)
   strict private
   var
     FChannel: TLeveledHandshakeChannel;

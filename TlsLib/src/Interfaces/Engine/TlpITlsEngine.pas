@@ -86,16 +86,94 @@ type
   end;
 
   /// <summary>
+  /// What every engine offers, whatever protects its records: starting the handshake, the status
+  /// of the handshake and of the connection, the certificate verdict, events, the connection facts
+  /// and the keying-material exporters. Both the record engine and the handshake-only engine
+  /// inherit it; a class that implements either must list it too, since an ancestor of a listed
+  /// interface is not queryable.
+  /// </summary>
+  ITlsCommonEngine = interface(IInterface)
+    ['{9C27D5B4-61EA-4F38-B0A9-3D84E7126F5C}']
+    /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
+    /// send until the ClientHello. Call it once: a second call raises, as does a call from inside
+    /// a handshake callback; on an engine that already failed it does nothing.</summary>
+    procedure StartHandshake;
+    /// <summary>
+    /// Resumes a handshake parked for an async peer-certificate verdict.
+    /// AAccept True continues the handshake; the built-in trust
+    /// pipeline has already passed, so this only confirms the augment verdict. AAccept False
+    /// aborts fail-closed with AAlert (ignored on accept): typically bad_certificate; a
+    /// live-revocation reject passes certificate_revoked, an indeterminate hard-fail
+    /// bad_certificate_status_response. A no-op when no verdict is awaited. Called by the driver
+    /// on the host's decision or with False when a resolver could not decide within its budget
+    /// (the engine owns no timer).
+    /// </summary>
+    procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
+    /// <summary>Ends the connection after the transport failed under it, recording AReason as the
+    /// error the next operation raises. Unlike a fatal alert this keeps the sessions the connection
+    /// stored resumable (RFC 5246 7.2.1). No alert is involved, and pending outbound items are
+    /// dropped, also when the engine had already failed (its recorded error is kept);
+    /// LastError.Origin is Transport and carries no alert.</summary>
+    procedure LatchTransportFailure(const AReason: string);
+    /// <summary>Dequeues the next event; False when the queue is empty. Drain it every cycle:
+    /// past a bounded backlog of undrained events the informational kinds (SessionTicketReceived,
+    /// EarlyData*, KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the
+    /// queue without bound; PeerAlert, Closed and CertificateReceived are never dropped.</summary>
+    function NextEvent(out AEvent: ITlsEvent): Boolean;
+    /// <summary>A snapshot of the negotiated facts; zero values before the handshake resolves
+    /// each of them.</summary>
+    function ConnectionInfo: TTlsConnectionInfo;
+    /// <summary>Whether the handshake is still in progress.</summary>
+    function IsHandshaking: Boolean;
+    /// <summary>
+    /// Whether the handshake is parked awaiting an async peer-certificate verdict: the peer
+    /// chain passed the built-in pipeline and a CertificateReceived event was raised; the
+    /// handshake makes no further progress until SetCertificateVerdict is called. Always
+    /// False when async certificate verdicts are disabled (the verdict resolves inline).
+    /// </summary>
+    function AwaitingCertificateVerdict: Boolean;
+    /// <summary>Whether the engine has FAILED and accepts no more work: a fatal failure, or the
+    /// transport failing under it. Engine-specific closing behaviour is on the descendants.</summary>
+    function IsTerminal: Boolean;
+    /// <summary>The structured error after a failure or a latched transport failure.</summary>
+    function LastError: TTlsError;
+    /// <summary>Exported keying material derived from the connection's exporter secret with no
+    /// context value (RFC 9846 7.5 / RFC 5705). Available once the exporter secret is derived: for a
+    /// TLS 1.3 server that is half-RTT (after it sent its Finished) - the value binds the
+    /// transcript through the server Finished and so precedes client authentication under
+    /// mutual TLS; TLS 1.2 is available only after the handshake completes, and only when the session
+    /// used Extended Master Secret (RFC 7627 5.4; see ConnectionInfo.ExtendedMasterSecret). Empty
+    /// otherwise (and on a failed connection).</summary>
+    function ExportKeyingMaterial(const ALabel: string;
+      ALength: Int32): TBytes; overload;
+    /// <summary>Exported keying material derived from the connection's exporter secret and bound to
+    /// AContext (RFC 9846 7.5 / RFC 5705). A supplied context, empty or not, is distinct from no
+    /// context at all. Availability matches the no-context overload.</summary>
+    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes; overload;
+    /// <summary>Early-data (0-RTT) keying material (RFC 9846 7.5). TLS 1.3 only: available on a
+    /// client from when it offers 0-RTT until the server rejects it, and on a server once it
+    /// accepts 0-RTT; empty otherwise, once 0-RTT is rejected, on TLS 1.2, and on a failed
+    /// connection. Material from early data carries the same replay caveat as ReadEarlyData.</summary>
+    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
+      ALength: Int32): TBytes;
+  end;
+
+  /// <summary>
   /// The sans-IO TLS engine: a pure transducer with no sockets, threads, or
   /// timers and the same contract for client and server, independent of the
   /// negotiated protocol version. The caller feeds transport bytes and application
-  /// writes in, and drains outbound bytes, application data, and events out.
+  /// writes in, and drains outbound bytes, application data, and events out. A fatal alert or
+  /// a latched transport failure makes it terminal (IsTerminal); a close_notify after the
+  /// handshake does not, since under TLS 1.3 it half-closes - end a read loop on IsClosed and
+  /// detect a clean inbound shutdown with IsInboundClosed. A TLS 1.2 exporter needs the handshake
+  /// complete and Extended Master Secret.
   /// Single-threaded: the caller serializes access; there are no internal locks. TTlsStream and
   /// TTlsConnection do that for their callers, so once one wraps an engine it must not be called
   /// directly while the connection is in use.
   /// </summary>
-  ITlsEngine = interface(IInterface)
-    ['{F334F198-3F67-4109-8AE8-B1B928131889}']
+  ITlsEngine = interface(ITlsCommonEngine)
+    ['{A81D4C72-5E39-4B06-9F2A-D7C1830B64E5}']
     // --- network -> engine ---
     /// <summary>Feeds transport bytes; drives the record layer.</summary>
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
@@ -142,29 +220,6 @@ type
     procedure SendAlert(ADescription: TTlsAlertDescription); overload;
     /// <summary>As above, recording AReason as the error the next operation raises.</summary>
     procedure SendAlert(ADescription: TTlsAlertDescription; const AReason: string); overload;
-    /// <summary>Ends the connection after the transport failed under it, recording AReason as the
-    /// error the next operation raises. Unlike SendAlert this is not a TLS fatal alert, so the
-    /// sessions the connection stored stay resumable (RFC 5246 7.2.1).
-    /// No alert is queued and pending outbound bytes and a pending fatal alert are dropped, also
-    /// when the engine had already failed (its recorded error is kept); LastError.Origin is
-    /// Transport and carries no alert.</summary>
-    procedure LatchTransportFailure(const AReason: string);
-    /// <summary>Starts the handshake: a client emits its first flight; a server has nothing to
-    /// send until the ClientHello. Call it once: a second call raises, as does a call from inside
-    /// a handshake callback; on an engine that already failed it does nothing.</summary>
-    procedure StartHandshake;
-    /// <summary>
-    /// Resumes a handshake parked for an async peer-certificate verdict.
-    /// AAccept True continues the handshake; the built-in trust
-    /// pipeline has already passed, so this only confirms the augment verdict. AAccept False
-    /// aborts fail-closed with AAlert (ignored on accept): typically bad_certificate; a
-    /// live-revocation reject passes certificate_revoked, an indeterminate hard-fail
-    /// bad_certificate_status_response. A no-op when no verdict is awaited. Called by the driver
-    /// on the host's decision or with False when a resolver could not decide within its budget
-    /// (the engine owns no timer).
-    /// </summary>
-    procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
-
     // --- engine -> caller (drains) ---
     /// <summary>Copies pending outbound bytes into ADest at ADestOffset; returns the count, at most
     /// Length(ADest) - ADestOffset (0 when that is not positive), so size ADest first. It first
@@ -187,42 +242,20 @@ type
     function ReadEarlyData(var ADest: TBytes; ADestOffset, AMaxLength: Int32): Int32;
     /// <summary>The number of accepted early-data bytes buffered and waiting to be read.</summary>
     function PendingEarlyData: Int32;
-    /// <summary>Dequeues the next event; False when the queue is empty. Drain it every cycle:
-    /// past a bounded backlog of undrained events the informational kinds (SessionTicketReceived,
-    /// EarlyData*, KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the
-    /// queue without bound; PeerAlert, Closed and CertificateReceived are never dropped. Application
-    /// data is not an event - it is signalled by PendingAppData and read with ReadAppData.</summary>
-    function NextEvent(out AEvent: ITlsEvent): Boolean;
 
     // --- status ---
-    /// <summary>A snapshot of the negotiated facts; zero values before the handshake resolves
-    /// each of them.</summary>
-    function ConnectionInfo: TTlsConnectionInfo;
     /// <summary>Whether the engine wants more transport bytes.</summary>
     function WantsRead: Boolean;
     /// <summary>Whether TakeOutgoing would return bytes: sealed bytes are queued or a fatal alert
     /// awaits sealing (unless sealing it fails, which drops it). An owed KeyUpdate reply does not
     /// count; it goes out with the next Write.</summary>
     function WantsWrite: Boolean;
-    /// <summary>Whether the handshake is still in progress.</summary>
-    function IsHandshaking: Boolean;
-    /// <summary>
-    /// Whether the handshake is parked awaiting an async peer-certificate verdict: the peer
-    /// chain passed the built-in pipeline and a CertificateReceived event was raised; the
-    /// handshake makes no further progress until SetCertificateVerdict is called. Always
-    /// False when async certificate verdicts are disabled (the verdict resolves inline).
-    /// </summary>
-    function AwaitingCertificateVerdict: Boolean;
-    /// <summary>Whether the engine has FAILED (a fatal alert was sent or received, the peer sent
-    /// close_notify before the handshake completed, or the transport failed under it) and accepts
-    /// no more work. It is NOT set by a close_notify after the handshake (under TLS 1.3 that
-    /// half-closes: the write side stays open). To end a read loop use IsClosed (failed or
-    /// peer-closed); to detect a clean inbound shutdown use IsInboundClosed.</summary>
-    function IsTerminal: Boolean;
     /// <summary>Whether the engine is finished for reading: it has failed OR the peer sent
-    /// close_notify. The single, honest loop condition for a raw embedder - once True no further
-    /// application data will ever be read, so a `while not IsClosed do Pump` loop terminates (a
-    /// loop keyed on IsTerminal alone would spin forever after a clean close).</summary>
+    /// close_notify (IsTerminal alone is not set by a close_notify after the handshake: under TLS
+    /// 1.3 that half-closes and the write side stays open). The single, honest loop condition for
+    /// a raw embedder - once True no further application data will ever be read, so a `while not
+    /// IsClosed do Pump` loop terminates (a loop keyed on IsTerminal alone would spin forever
+    /// after a clean close).</summary>
     function IsClosed: Boolean;
     /// <summary>Whether the peer sent close_notify: a clean inbound shutdown. Unlike the
     /// one-shot Closed event, this is a persistent, idempotent query - it stays True once
@@ -235,28 +268,6 @@ type
     /// TLS 1.3 an inbound close_notify leaves the write side open (RFC 9846 6.1). A Write in this
     /// state raises EInvalidOperationTlsLibException, so callers must check this first.</summary>
     function WriteClosed: Boolean;
-    /// <summary>The structured error after a Fatal outcome or a latched transport failure.</summary>
-    function LastError: TTlsError;
-    /// <summary>Exported keying material derived from the connection's exporter secret with no
-    /// context value (RFC 9846 7.5 / RFC 5705). Available once the exporter secret is derived: for a
-    /// TLS 1.3 server that is half-RTT (after it sent its Finished) - the value binds the
-    /// transcript through the server Finished and so precedes client authentication under
-    /// mutual TLS; TLS 1.2 is available only after the handshake completes, and only when the session
-    /// used Extended Master Secret (RFC 7627 5.4; see ConnectionInfo.ExtendedMasterSecret). Empty
-    /// otherwise (and on a failed connection).</summary>
-    function ExportKeyingMaterial(const ALabel: string;
-      ALength: Int32): TBytes; overload;
-    /// <summary>Exported keying material derived from the connection's exporter secret and bound to
-    /// AContext (RFC 9846 7.5 / RFC 5705). A supplied context, empty or not, is distinct from no
-    /// context at all. Availability matches the no-context overload.</summary>
-    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      ALength: Int32): TBytes; overload;
-    /// <summary>Early-data (0-RTT) keying material (RFC 9846 7.5). TLS 1.3 only: available on a
-    /// client from when it offers 0-RTT until the server rejects it, and on a server once it
-    /// accepts 0-RTT; empty otherwise, once 0-RTT is rejected, on TLS 1.2, and on a failed
-    /// connection. Material from early data carries the same replay caveat as ReadEarlyData.</summary>
-    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      ALength: Int32): TBytes;
   end;
 
 implementation

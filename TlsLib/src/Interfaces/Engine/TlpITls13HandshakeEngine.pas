@@ -39,14 +39,14 @@ type
   /// connection itself, with no_application_protocol), and bytes at the EarlyData level fail with
   /// unexpected_message. The ticket early-data limit the factory takes fixes the value tickets
   /// carry: 0 turns a server's 0-RTT off and leaves a client's check of received tickets off,
-  /// and a mismatch ends the connection without an alert. Single-threaded:
+  /// and a mismatch ends the connection without an alert. LastError carries the alert a record
+  /// engine would have sent (Origin Local), or Origin LocalWithoutAlert or Transport with a
+  /// placeholder alert; the peer's alerts never reach it. Start it with StartHandshake (a
+  /// client queues its ClientHello, a server waits for one; a second call raises). Single-threaded:
   /// the caller serializes access.
   /// </summary>
-  ITls13HandshakeEngine = interface(IInterface)
-    ['{3E5B7A12-9C4D-4F86-A1D3-6B2E80F4C759}']
-    /// <summary>Starts the handshake: a client queues its ClientHello; a server waits for one.
-    /// Raises EInvalidOperationTlsLibException when called twice.</summary>
-    procedure StartHandshake;
+  ITls13HandshakeEngine = interface(ITlsCommonEngine)
+    ['{6D14B8F3-2A7C-4E95-8C01-F3A9D5E27B60}']
     /// <summary>Feeds handshake bytes the peer sent at ALevel, which must be the level the engine
     /// reads now (Plaintext until the first read secret, then the level of the latest Handshake or
     /// Application read secret). Bytes at any other level, or a handshake message that straddles a
@@ -60,26 +60,6 @@ type
     /// handshake bytes stays, plus every write secret queued after them; after any other failure
     /// nothing does. A secret is the host's from here on.</summary>
     function NextOutput(out AOutput: TTls13HandshakeOutput): Boolean;
-    function NextEvent(out AEvent: ITlsEvent): Boolean;
-    /// <summary>Resumes a handshake parked on a peer-certificate verdict; a no-op otherwise.</summary>
-    procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
-    /// <summary>Ends the connection because the transport under it failed; no alert is involved
-    /// and resumable sessions are kept.</summary>
-    procedure LatchTransportFailure(const AReason: string);
-    function IsHandshaking: Boolean;
-    function AwaitingCertificateVerdict: Boolean;
-    function IsTerminal: Boolean;
-    /// <summary>Why the engine is terminal. The alert is the one a record engine would have sent
-    /// (Origin Local) or the peer's (never here); with Origin LocalWithoutAlert or Transport the
-    /// alert is a placeholder.</summary>
-    function LastError: TTlsError;
-    function ConnectionInfo: TTlsConnectionInfo;
-    function ExportKeyingMaterial(const ALabel: string;
-      ALength: Int32): TBytes; overload;
-    function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      ALength: Int32): TBytes; overload;
-    function ExportEarlyKeyingMaterial(const ALabel: string; const AContext: TBytes;
-      ALength: Int32): TBytes;
   end;
 
 implementation
