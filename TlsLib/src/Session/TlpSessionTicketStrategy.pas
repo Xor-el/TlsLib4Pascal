@@ -466,7 +466,8 @@ begin
     // Init can reject a key a custom manager cannot bind (e.g. a wrong-length one); keep it inside
     // the guard so that, like an authentication failure, it falls back to a full handshake
     LAead.Init(LKey);
-    LPlain := TAeadUtilities.Open(LAead, LNonce, LKeyName, LCipher);
+    if not TAeadUtilities.TryOpen(LAead, LNonce, LKeyName, LCipher, LPlain) then
+      Exit; // a forged or corrupted ticket -> full handshake
   except
     on E: EBaseTlsLibException do
       Exit;

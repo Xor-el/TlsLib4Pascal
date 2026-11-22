@@ -56,6 +56,7 @@ type
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf; virtual;
     function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf; virtual;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead; virtual;
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask; virtual;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement; virtual;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem; virtual;
     function HasHardwareAes: Boolean; virtual;
@@ -182,6 +183,7 @@ type
     /// itself overrides it.</summary>
     function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; virtual;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry; virtual;
+    function SampleMaskBackend(AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry; virtual;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; virtual;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry; virtual;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; virtual;
@@ -240,6 +242,12 @@ end;
 function TForwardingCryptoPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
   Result := FInner.CreateAead(AAlgorithm);
+end;
+
+function TForwardingCryptoPrimitives.CreateSampleMask(
+  AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
+begin
+  Result := FInner.CreateSampleMask(AAlgorithm);
 end;
 
 function TForwardingCryptoPrimitives.CreateKeyAgreement(
@@ -520,6 +528,12 @@ end;
 
 function TSystemBackendReportBase.AeadBackend(
   AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
+begin
+  Result := NotNative;
+end;
+
+function TSystemBackendReportBase.SampleMaskBackend(
+  AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry;
 begin
   Result := NotNative;
 end;

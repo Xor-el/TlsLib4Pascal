@@ -95,11 +95,11 @@ type
 
   /// <summary>
   /// An AEAD cipher. The key is set once via <see cref="Init" />; the nonce and
-  /// associated data are per message. <see cref="Open" /> raises on an
-  /// authentication failure.
+  /// associated data are per message, the data passed whole or as a span of an array.
+  /// <see cref="Open" /> raises on an authentication failure, <see cref="TryOpen" /> reports it.
   /// </summary>
   IAead = interface(IInterface)
-    ['{9F5FB86B-C4E6-49C0-BE25-95FA8DB9DAF6}']
+    ['{5B2CD727-430E-483F-BBAE-5C865A433D43}']
     /// <summary>The AEAD's family (AES-GCM vs ChaCha20-Poly1305): selects the TLS 1.2 nonce framing
     /// and the default usage limit.</summary>
     function UsageCategory: TAeadUsageCategory;
@@ -119,13 +119,49 @@ type
     /// as ASrc with ADestOff = ASrcOff (exact in-place); any other overlap is rejected. The caller
     /// sizes ADest for ALen + TagSize at ADestOff. Returns the bytes written.</summary>
     function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32; overload;
+    /// <summary>As above, with the associated data AAad[AAadOff .. AAadOff+AAadLen), so a caller
+    /// need not copy a header out of a larger buffer. A span outside AAad raises
+    /// EArgumentTlsLibException.</summary>
+    function Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
     /// <summary>Authenticates and decrypts ciphertext||tag at ASrc[ASrcOff .. ASrcOff+ALen),
     /// writing the plaintext (ALen - TagSize bytes) at ADest[ADestOff]; same aliasing rule. Raises
     /// a fatal bad_record_mac on authentication failure, leaving no unverified plaintext in ADest.
     /// Returns the plaintext length.</summary>
     function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32;
+      const ADest: TBytes; ADestOff: Int32): Int32; overload;
+    /// <summary>As above, with the associated data AAad[AAadOff .. AAadOff+AAadLen).</summary>
+    function Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32; overload;
+    /// <summary>Open that reports an authentication failure instead of raising: False (APlainLen
+    /// 0, no plaintext left in ADest) when the tag does not verify, including input shorter than
+    /// the tag; otherwise True with the plaintext length in APlainLen. Argument, key and backend
+    /// faults still raise.</summary>
+    function TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+      const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
+      out APlainLen: Int32): Boolean;
+  end;
+
+  /// <summary>
+  /// A keyed one-block mask: the first bytes of the cipher's output for a 16-byte sample, from the
+  /// AES block cipher (the sample is the block) or the ChaCha20 keystream (the sample is the block
+  /// counter, then the nonce). The key is set once via <see cref="Init" />; an instance is stateful
+  /// and is not shared across threads.
+  /// </summary>
+  ISampleMask = interface(IInterface)
+    ['{7D33F2FD-B207-457D-A877-265FE480F569}']
+    /// <summary>Required sample length in bytes.</summary>
+    function SampleSize: Int32;
+    /// <summary>Required key length in bytes.</summary>
+    function KeySize: Int32;
+    procedure Init(const AKey: ISecretBuffer);
+    /// <summary>Writes AMaskLen mask bytes, 1 to <see cref="SampleSize" />, for the sample at
+    /// ASample[ASampleOff .. ASampleOff+SampleSize) to AMask[AMaskOff]. The sample and the mask
+    /// may share an array. A span outside its array or a length outside 1..SampleSize raises
+    /// EArgumentTlsLibException; a call before Init raises EInvalidOperationTlsLibException.</summary>
+    procedure Compute(const ASample: TBytes; ASampleOff: Int32; const AMask: TBytes;
+      AMaskOff, AMaskLen: Int32);
   end;
 
   /// <summary>
@@ -185,13 +221,14 @@ type
   /// protocol hash (IsProtocolHash); any other is refused at creation.
   /// </summary>
   ICryptoPrimitives = interface(IInterface)
-    ['{55A260D5-E22D-4876-894B-5FB957433E38}']
+    ['{02F1AF6C-6106-488A-B8E1-2DC906DA0B44}']
     function GetRandom: IRandom;
     function CreateHash(AAlgorithm: THashAlgorithm): IHash;
     function CreateHmac(AAlgorithm: THashAlgorithm): IHmac;
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf;
     function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem;
     /// <summary>Whether hardware accelerated AES is present on this host.</summary>

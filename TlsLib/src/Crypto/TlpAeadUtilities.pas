@@ -31,6 +31,10 @@ type
     /// <summary>Opens ciphertext||tag whole; returns the plaintext, raising on auth failure.</summary>
     class function Open(const AAead: IAead; const ANonce, AAad,
       ACiphertext: TBytes): TBytes; static;
+    /// <summary>As <see cref="Open" />, but False (APlaintext nil) on an authentication failure
+    /// instead of raising.</summary>
+    class function TryOpen(const AAead: IAead; const ANonce, AAad, ACiphertext: TBytes;
+      out APlaintext: TBytes): Boolean; static;
   end;
 
 implementation
@@ -58,6 +62,23 @@ begin
   Result := nil;
   SetLength(Result, LPlainLen);
   AAead.Open(ANonce, AAad, ACiphertext, 0, LCipherLen, Result, 0);
+end;
+
+class function TAeadUtilities.TryOpen(const AAead: IAead; const ANonce, AAad,
+  ACiphertext: TBytes; out APlaintext: TBytes): Boolean;
+var
+  LCipherLen, LPlainLen, LWritten: Int32;
+begin
+  LCipherLen := System.Length(ACiphertext);
+  LPlainLen := LCipherLen - AAead.TagSize;
+  if LPlainLen < 0 then
+    LPlainLen := 0; // a too-short input cannot authenticate; TryOpen reports it
+  APlaintext := nil;
+  SetLength(APlaintext, LPlainLen);
+  Result := AAead.TryOpen(ANonce, AAad, 0, System.Length(AAad), ACiphertext, 0, LCipherLen,
+    APlaintext, 0, LWritten);
+  if not Result then
+    APlaintext := nil;
 end;
 
 end.

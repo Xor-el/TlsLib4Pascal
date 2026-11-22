@@ -59,6 +59,7 @@ type
   end;
 
   TComplianceHashSet = set of THashAlgorithm;
+  TComplianceSampleMaskSet = set of TSampleMaskAlgorithm;
 
   /// <summary>A backend report that places every operation in the OS module except the entries
   /// it is told to keep portable (the AEADs at construction, the rest through the properties,
@@ -71,6 +72,7 @@ type
     FPortableRandom: Boolean;
     FPortableHashes: TComplianceHashSet;
     FPortableHmacs: TComplianceHashSet;
+    FPortableSampleMasks: TComplianceSampleMaskSet;
     FPortableCurves: TComplianceKeyAgreementSet;
     FPortableVerification: TComplianceSchemeSet;
     FNativePrf: Boolean;
@@ -86,6 +88,8 @@ type
     property PortableRandom: Boolean read FPortableRandom write FPortableRandom;
     property PortableHashes: TComplianceHashSet read FPortableHashes write FPortableHashes;
     property PortableHmacs: TComplianceHashSet read FPortableHmacs write FPortableHmacs;
+    property PortableSampleMasks: TComplianceSampleMaskSet read FPortableSampleMasks
+      write FPortableSampleMasks;
     property PortableCurves: TComplianceKeyAgreementSet read FPortableCurves
       write FPortableCurves;
     property PortableVerification: TComplianceSchemeSet read FPortableVerification
@@ -94,6 +98,7 @@ type
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry; override;
+    function SampleMaskBackend(AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry; override;
     function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; override;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
@@ -117,6 +122,7 @@ type
     function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
+    function SampleMaskBackend(AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry;
@@ -271,6 +277,15 @@ begin
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
 end;
 
+function TFakeBackendReport.SampleMaskBackend(
+  AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry;
+begin
+  if AAlgorithm in FPortableSampleMasks then
+    Result := NotNative
+  else
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback);
+end;
+
 function TFakeBackendReport.Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
 begin
   if FNativePrf and not (AAlgorithm in FComposedPrfHashes) then
@@ -355,6 +370,12 @@ begin
 end;
 
 function TFakeVerifierReport.AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
+begin
+  Result := Placed(True);
+end;
+
+function TFakeVerifierReport.SampleMaskBackend(
+  AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry;
 begin
   Result := Placed(True);
 end;
