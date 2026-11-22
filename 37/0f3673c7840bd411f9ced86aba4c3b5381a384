@@ -1,0 +1,24 @@
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_f2c9bd75607afc::t_a30c9c0ddf8d0f 93-104
+  s_f2c9bd75607afc::t_b929fe39b146b2 186-337
+  s_f2c9bd75607afc::t_ca299150e4c77d 630-631
+  s_f2c9bd75607afc::t_6c16afc1bd61d9 594
+  s_f2c9bd75607afc::t_5d9b4385b3e531 525-527,529-531
+  s_f2c9bd75607afc::t_dfe467b6a1fba9 480-481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "370f3673c7840bd411f9ced86aba4c3b5381a384",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
