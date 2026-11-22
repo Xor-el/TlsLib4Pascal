@@ -1,0 +1,42 @@
+TlsLib.Tests/Data/Crypto/SampleMask/Aes128.txt
+  s_f2c9bd75607afc::t_9a61cf082b44f1 2-3
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_f2c9bd75607afc::t_047ea2dcd04000 658-659,661-662
+TlsLib.Tests/src/ProviderTests.pas
+  s_f2c9bd75607afc::t_ebcea037fd0484 1942-1943,1945-1985,1988-1990,2009-2116
+  s_f2c9bd75607afc::t_34661063ca9a1a 144-148
+  s_f2c9bd75607afc::t_e39cec5b9925cf 1391-1392
+  s_f2c9bd75607afc::t_b010284a038d04 1944
+  s_f2c9bd75607afc::t_84732dfb538405 1469-1476
+  s_f2c9bd75607afc::t_e8f9fd5cf8dc9b 1986-1987,1991-2008
+  s_f2c9bd75607afc::t_e0430950ad2b7c 2117
+  s_12855de1cb3b11::t_7f2e8f06b93c0f 717,724,752,758,779,790,834,1149,1698
+TlsLib.Tests/src/NativeCryptoProviderTests.pas
+  s_f2c9bd75607afc::t_1be9a2f9751003 564-592
+  s_f2c9bd75607afc::t_6af0e9bd98e0b2 413-430,2531
+  s_f2c9bd75607afc::t_272d27366f6175 2527-2530,2532-2542
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "03dbe0afff6521ff1563b1cd8eee0baae67fcf53",
+  "prompts": {},
+  "sessions": {
+    "s_12855de1cb3b11": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a49da3ca5e6d6b906",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
