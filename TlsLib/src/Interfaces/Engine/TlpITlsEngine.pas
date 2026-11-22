@@ -88,7 +88,7 @@ type
   /// <summary>
   /// What every engine offers, whatever protects its records: starting the handshake, the status
   /// of the handshake and of the connection, the certificate verdict, events, the connection facts
-  /// and the keying-material exporters. Both the record engine and the handshake-only engine
+  /// and the keying-material exporters. Both the record engine and the TLS 1.3 handshake-only engine
   /// inherit it; a class that implements either must list it too, since an ancestor of a listed
   /// interface is not queryable.
   /// </summary>
@@ -163,11 +163,11 @@ type
   /// The sans-IO TLS engine: a pure transducer with no sockets, threads, or
   /// timers and the same contract for client and server, independent of the
   /// negotiated protocol version. The caller feeds transport bytes and application
-  /// writes in, and drains outbound bytes, application data, and events out. A fatal alert or
-  /// a latched transport failure makes it terminal (IsTerminal); a close_notify after the
-  /// handshake does not, since under TLS 1.3 it half-closes - end a read loop on IsClosed and
-  /// detect a clean inbound shutdown with IsInboundClosed. A TLS 1.2 exporter needs the handshake
-  /// complete and Extended Master Secret.
+  /// writes in, and drains outbound bytes, application data, and events out. A fatal alert, a
+  /// latched transport failure or a close_notify before the handshake completed makes it terminal
+  /// (IsTerminal); a close_notify after the handshake does not, since under TLS 1.3 it half-closes
+  /// - end a read loop on IsClosed and detect a clean inbound shutdown with IsInboundClosed.
+  /// Application data is not an event: PendingAppData signals it and ReadAppData reads it.
   /// Single-threaded: the caller serializes access; there are no internal locks. TTlsStream and
   /// TTlsConnection do that for their callers, so once one wraps an engine it must not be called
   /// directly while the connection is in use.

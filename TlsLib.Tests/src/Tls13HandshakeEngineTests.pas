@@ -49,6 +49,7 @@ uses
   TlpSession,
   TlpClientSessionPolicy,
   TlpInMemorySessionCache,
+  TlpInMemorySessionStore,
   TlpSessionTicketKeys,
   TlpAntiReplay,
   TlpSystemTimeUtilities,
@@ -1477,15 +1478,34 @@ end;
 procedure TTestTls13HandshakeEngine.TestZeroLimitTurnsServerEarlyDataOff;
 var
   LCache: ISessionCache;
+  LStore: ISessionStore;
+  LBuilder: ITlsServerConfigBuilder;
+  LConfig: ITlsServerConfig;
   LClient, LServer: ITls13HandshakeEngine;
+  LSession, LStored: ITls13ResumableSession;
+  LServerSession: IResumableSession;
 begin
   LCache := TInMemorySessionCache.Create;
-  SeedWithContext(LCache, DecodeHex('c0ffee'));
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore;
+  LBuilder := ServerBuilder.WithResumption(True).WithSessionTicketKeys(FStek)
+    .WithSessionStore(LStore);
+  LBuilder.Tls13.WithTicketCount(1).WithEarlyData(16384).WithAntiReplay(FAntiReplay);
+  LConfig := LBuilder.Build;
+  Run(NewClient(ClientResuming(LCache, False)),
+    TTlsEngineFactory.CreateTls13HandshakeServerEngine(LConfig, nil, TicketLimit,
+    DecodeHex('c0ffee')));
   LClient := NewClient(ClientResuming(LCache, True));
-  LServer := ServerWithContext(DecodeHex('c0ffee'), 0);
+  LServer := TTlsEngineFactory.CreateTls13HandshakeServerEngine(LConfig, nil, 0,
+    DecodeHex('c0ffee'));
   Run(LClient, LServer);
   CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed');
   CheckFalse(LServer.ConnectionInfo.EarlyDataAccepted, 'with 0-RTT off');
+  // the session it stored for the new ticket allows no early data and seals no context
+  CheckTrue(Cached(LCache, TTicketBinding.HandshakeEngine, LSession), 'it minted a ticket');
+  CheckTrue(LStore.Take(LSession.TicketIdentity, LServerSession), 'and stored the session');
+  CheckTrue(Supports(LServerSession, ITls13ResumableSession, LStored), 'a 1.3 session');
+  CheckEquals(0, Int64(LStored.MaxEarlyData), 'that allows no early data');
+  CheckEquals(0, System.Length(LStored.EarlyDataContext), 'and carries no context');
 end;
 
 procedure TTestTls13HandshakeEngine.TestBothEnginesAnswerTheCommonInterface;

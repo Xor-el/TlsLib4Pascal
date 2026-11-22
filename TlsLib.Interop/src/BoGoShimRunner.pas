@@ -519,9 +519,9 @@ type
 
   /// <summary>Captures a TLS 1.3 server's keying-material export in half-RTT (the first non-nil
   /// value while the handshake is still running, i.e. after the server Finished, before the
-  /// client's). The captured value is written post-handshake; a nil capture on a TLS 1.3 server
-  /// means the half-RTT export was unavailable and fails the test loudly (no post-handshake
-  /// fallback), so the BoGo exporter tests actually exercise the half-RTT path.</summary>
+  /// client's). The captured value is written post-handshake; the record-engine path treats a nil
+  /// capture on a TLS 1.3 server as an unavailable half-RTT export and fails the test loudly, so
+  /// the BoGo exporter tests actually exercise the half-RTT path.</summary>
   TExportProbe = class(TInterfacedObject, IHandshakeProbe)
   strict private
     FLabel: string;
@@ -2775,7 +2775,7 @@ begin
   if AConfig.HelloView <> nil then
     AConfig.HelloView.BeginConnection;
   LOptions := BuildOptions(ACryptoProvider, APkix, AConfig, AIsResume);
-  // the TLS 1.3 handshake-only engine speaks TLS 1.3 alone
+  // the engine speaks TLS 1.3 alone
   LOptions.SupportedVersions := TArray<UInt16>.Create(WireVersionTls13);
   LObserved := Default(TBoGoObserved);
   LObserved.IsResume := AIsResume;

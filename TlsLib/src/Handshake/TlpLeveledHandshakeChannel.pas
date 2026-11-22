@@ -28,8 +28,7 @@ uses
 type
   /// <summary>
   /// A TLS 1.3 handshake channel with no record layer under it, for a host that protects records
-  /// itself:
-  /// each handshake message and each installed traffic secret is queued, in the order the
+  /// itself: each handshake message and each installed traffic secret is queued, in the order the
   /// machine produced it, for the host to pull, and inbound handshake bytes are reassembled into
   /// messages. Handshake bytes ride the level of the latest Handshake or Application write
   /// install (a Plaintext start), and inbound bytes belong to the level of the latest Handshake

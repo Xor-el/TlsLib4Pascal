@@ -41,10 +41,10 @@ type
   /// The host of a TLS 1.3 handshake-only engine over the reference runner's leveled record
   /// framing: each record is a type byte, a level byte, the cipher suite, a four-byte length and
   /// the level's traffic secret followed by the payload, so both sides check that they agree on
-  /// the keys. The host owns the per-level secrets the engine hands out, writes the engine's handshake bytes at
-  /// the level it names, feeds the engine what the peer sends at the level it arrived on, and
-  /// carries application data. A local failure goes out as an alert record at the latest
-  /// handshake or application write level, after any flight the engine produced before it.
+  /// the keys. The host owns the per-level secrets the engine hands out, writes the engine's
+  /// handshake bytes at the level it names, feeds the engine what the peer sends at the level it
+  /// arrived on, and carries application data. A local failure goes out as an alert record at the
+  /// latest handshake or application write level, after any flight the engine produced before it.
   /// </summary>
   TInteropLeveledHost = class sealed(TObject)
   strict private
@@ -91,7 +91,7 @@ type
     /// handshake is not complete, at the early-data level; False when that level has no key
     /// and nothing was written.</summary>
     function WriteApplication(const AData: TBytes): Boolean;
-    /// <summary>Handles the next record. AApp receives the payload of an application record.</summary>
+    /// <summary>Handles the next record; AApp receives an application record's payload.</summary>
     function Pump(out AApp: TBytes): TInteropLeveledStatus;
     property IsComplete: Boolean read FComplete;
     /// <summary>Whether a server has sent its whole first flight, its application write key

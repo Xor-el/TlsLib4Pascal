@@ -1295,8 +1295,7 @@ var
 begin
   LVec := LoadVectorFields('Crypto/SampleMask/ChaCha20.txt');
   try
-    // a sample may name the last block of the 32-bit counter, which must not be refused, and one
-    // keyed mask serves every case
+    // one keyed mask serves every case, the last block of the 32-bit counter included
     LMask := Crypto.Primitives.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
     LMask.Init(TSecretBuffer.From(DecodeHex(LVec.Values['limit_key'])));
     for LCase := 0 to CaseCount - 1 do

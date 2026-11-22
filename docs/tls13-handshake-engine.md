@@ -43,7 +43,7 @@ early data enabled in its config writes exactly this value into every NewSession
 own budget is not used); a limit of 0 turns the server's 0-RTT off. A client that keeps a session
 cache fails the connection, without an alert, on a ticket that advertises any other value, an
 explicit 0 included; a client with no session cache ignores tickets. A limit of 0 leaves the
-client's check off, so a host that offers 0-RTT passes the value its tickets must carry. A
+client's check off, so a host that offers 0-RTT passes the value its tickets must carry.
 `LEarlyDataContext` is the early-data context the server's tickets carry and 0-RTT must match. It
 is the only source: a config with its own early-data context (a record-engine setting) is refused,
 and the context is sealed only while 0-RTT is on. It is at most 255 bytes.

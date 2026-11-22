@@ -76,6 +76,10 @@ type
     function NewServer(const AContext: TBytes): ITlsEngine;
     function NewStoreServer(const AStore: ISessionStore): ITlsEngine;
     procedure Establish(const AClient, AServer: ITlsEngine);
+    /// <summary>A seed connection through a store-backed server holding ASeedContext, then a 0-RTT
+    /// resumption through a server over the same store holding AResumeContext.</summary>
+    procedure ResumeThroughAStore(const ASeedContext, AResumeContext: TBytes;
+      out AClient, AServer: ITlsEngine);
     /// <summary>A first connection that leaves a ticket in ACache, minted under AServerContext and
     /// carrying the application data AData when it is not empty.</summary>
     procedure Seed(const ACache: ISessionCache; const AServerContext, AData: TBytes);
@@ -97,8 +101,9 @@ type
     procedure TestEarlyDataContextOf255BytesIsAccepted;
     procedure TestEarlyDataContextBeyond255BytesIsRefused;
     procedure TestEarlyDataContextWithoutEarlyDataIsRefusedAtBuild;
-    procedure TestEarlyDataContextWithoutResumptionIsRefusedAtBuild;
-    procedure TestEarlyDataContextBuildsForAStoreOnlyServer;
+    procedure TestEarlyDataWithoutResumptionIsRefusedAtBuild;
+    procedure TestStoreServerAcceptsEarlyDataUnderTheSameContext;
+    procedure TestStoreServerRefusesEarlyDataUnderAnotherContext;
     procedure TestMatchingContextAcceptsEarlyData;
     procedure TestMismatchedContextRefusesEarlyDataButResumes;
     procedure TestTicketWithoutAContextRefusesEarlyDataUnderAConfiguredOne;
@@ -317,13 +322,12 @@ begin
   CheckTrue(LRaised, 'a context no 0-RTT consults is refused');
 end;
 
-procedure TTestResumptionFeatures.TestEarlyDataContextWithoutResumptionIsRefusedAtBuild;
+procedure TTestResumptionFeatures.TestEarlyDataWithoutResumptionIsRefusedAtBuild;
 var
   LBuilder: ITlsServerConfigBuilder;
   LRaised: Boolean;
 begin
   LBuilder := ServerBuilderWithEarlyData.WithResumption(False);
-  LBuilder.Tls13.WithEarlyDataContext(DecodeHex('c0ffee'));
   LRaised := False;
   try
     LBuilder.Build;
@@ -331,20 +335,45 @@ begin
     on E: EInvalidOperationTlsLibException do
       LRaised := True;
   end;
-  CheckTrue(LRaised, 'a context with resumption off is refused');
+  CheckTrue(LRaised, 'early data with resumption off is refused');
 end;
 
-procedure TTestResumptionFeatures.TestEarlyDataContextBuildsForAStoreOnlyServer;
+procedure TTestResumptionFeatures.ResumeThroughAStore(const ASeedContext, AResumeContext: TBytes;
+  out AClient, AServer: ITlsEngine);
 var
-  LBuilder: ITlsServerConfigBuilder;
+  LCache: ISessionCache;
+  LStore: ISessionStore;
 begin
-  LBuilder := TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential)
-    .WithResumption(True).WithSessionStore(
-    TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore);
-  LBuilder.Tls13.WithEarlyData(16384).WithAntiReplay(FAntiReplay)
-    .WithEarlyDataContext(DecodeHex('c0ffee'));
-  CheckEqualBytes('a store-only server keeps the context', DecodeHex('c0ffee'),
-    LBuilder.Build.EarlyDataContext);
+  LCache := TInMemorySessionCache.Create;
+  LStore := TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore;
+  AClient := NewClient(LCache, False);
+  Establish(AClient, TTlsEngineFactory.CreateServerEngine(ServerConfig(ASeedContext, LStore)));
+  CheckTrue(LCache.Count > 0, 'a ticket was cached');
+  AClient := NewClient(LCache, True);
+  AServer := TTlsEngineFactory.CreateServerEngine(ServerConfig(AResumeContext, LStore));
+  AClient.StartHandshake;
+  AClient.WriteEarlyData(FEarly, 0, System.Length(FEarly));
+  ExchangeFlights(AClient, AServer);
+  Pump(AServer, AClient);
+end;
+
+procedure TTestResumptionFeatures.TestStoreServerAcceptsEarlyDataUnderTheSameContext;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeThroughAStore(DecodeHex('c0ffee'), DecodeHex('c0ffee'), LClient, LServer);
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the store server resumed');
+  CheckTrue(LServer.ConnectionInfo.EarlyDataAccepted, 'and accepted 0-RTT');
+end;
+
+procedure TTestResumptionFeatures.TestStoreServerRefusesEarlyDataUnderAnotherContext;
+var
+  LClient, LServer: ITlsEngine;
+begin
+  ResumeThroughAStore(DecodeHex('c0ffee'), DecodeHex('c0ffef'), LClient, LServer);
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the store server still resumed');
+  CheckEquals(Ord(TEarlyDataReason.ContextMismatch),
+    Ord(LServer.ConnectionInfo.EarlyDataReason), 'but declined 0-RTT for the context');
 end;
 
 procedure TTestResumptionFeatures.TestMatchingContextAcceptsEarlyData;
