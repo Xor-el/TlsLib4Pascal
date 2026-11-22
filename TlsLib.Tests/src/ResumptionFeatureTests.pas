@@ -97,6 +97,8 @@ type
     procedure TestEarlyDataContextOf255BytesIsAccepted;
     procedure TestEarlyDataContextBeyond255BytesIsRefused;
     procedure TestEarlyDataContextWithoutEarlyDataIsRefusedAtBuild;
+    procedure TestEarlyDataContextWithoutResumptionIsRefusedAtBuild;
+    procedure TestEarlyDataContextBuildsForAStoreOnlyServer;
     procedure TestMatchingContextAcceptsEarlyData;
     procedure TestMismatchedContextRefusesEarlyDataButResumes;
     procedure TestTicketWithoutAContextRefusesEarlyDataUnderAConfiguredOne;
@@ -313,6 +315,36 @@ begin
       LRaised := True;
   end;
   CheckTrue(LRaised, 'a context no 0-RTT consults is refused');
+end;
+
+procedure TTestResumptionFeatures.TestEarlyDataContextWithoutResumptionIsRefusedAtBuild;
+var
+  LBuilder: ITlsServerConfigBuilder;
+  LRaised: Boolean;
+begin
+  LBuilder := ServerBuilderWithEarlyData.WithResumption(False);
+  LBuilder.Tls13.WithEarlyDataContext(DecodeHex('c0ffee'));
+  LRaised := False;
+  try
+    LBuilder.Build;
+  except
+    on E: EInvalidOperationTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a context with resumption off is refused');
+end;
+
+procedure TTestResumptionFeatures.TestEarlyDataContextBuildsForAStoreOnlyServer;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LBuilder := TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential)
+    .WithResumption(True).WithSessionStore(
+    TInMemorySessionStore.Create(Crypto.Primitives.GetRandom) as ISessionStore);
+  LBuilder.Tls13.WithEarlyData(16384).WithAntiReplay(FAntiReplay)
+    .WithEarlyDataContext(DecodeHex('c0ffee'));
+  CheckEqualBytes('a store-only server keeps the context', DecodeHex('c0ffee'),
+    LBuilder.Build.EarlyDataContext);
 end;
 
 procedure TTestResumptionFeatures.TestMatchingContextAcceptsEarlyData;

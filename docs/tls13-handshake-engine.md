@@ -44,11 +44,13 @@ own budget is not used); a limit of 0 turns the server's 0-RTT off. A client tha
 cache fails the connection, without an alert, on a ticket that advertises any other value, an
 explicit 0 included; a client with no session cache ignores tickets. A limit of 0 leaves the
 client's check off, so a host that offers 0-RTT passes the value its tickets must carry. A
-non-empty `LEarlyDataContext` replaces the config's early-data context.
+`LEarlyDataContext` is the early-data context the server's tickets carry and 0-RTT must match. It
+is the only source: a config with its own early-data context (a record-engine setting) is refused,
+and the context is sealed only while 0-RTT is on. It is at most 255 bytes.
 
-Host extensions (`ITlsHostExtension`), the early-data context and session application data
-(`ITlsSessionApplicationData`, client only) work as they do on `ITlsEngine`; the engine answers
-`ITlsHostExtensionResults` for the peer's bodies.
+Host extensions (`ITlsHostExtension`) and session application data (`ITlsSessionApplicationData`,
+client only) work as they do on `ITlsEngine`; the engine answers `ITlsHostExtensionResults` for the
+peer's bodies.
 
 ## Driving it
 

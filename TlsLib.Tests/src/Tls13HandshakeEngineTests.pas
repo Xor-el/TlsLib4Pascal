@@ -138,6 +138,8 @@ type
     function EventSeen(const AEngine: ITls13HandshakeEngine; AKind: TTlsEventKind): Boolean;
     function EchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes;
+    function ServerWithContext(const AContext: TBytes; ALimit: UInt32): ITls13HandshakeEngine;
+    procedure SeedWithContext(const ACache: ISessionCache; const AContext: TBytes);
     /// <summary>A framed NewSessionTicket whose early_data extension carries ALimit.</summary>
     function TicketWithEarlyDataLimit(ALimit: UInt32): TBytes;
     function CreationRaises(const AConfig: ITlsClientConfig): Boolean; overload;
@@ -190,6 +192,11 @@ type
     procedure TestHandshakeEngineTicketIsNotOfferedToTheRecordEngine;
     procedure TestServerDeclinesARecordEngineTicket;
     procedure TestCryptoOverlayDerivesTheKeys;
+    procedure TestHostEarlyDataContextMatchAcceptsEarlyData;
+    procedure TestHostEarlyDataContextMismatchDeclinesEarlyDataButResumes;
+    procedure TestConfigEarlyDataContextIsRefusedOnTheServer;
+    procedure TestOversizedHostEarlyDataContextIsRefused;
+    procedure TestZeroLimitTurnsServerEarlyDataOff;
     procedure TestBothEnginesAnswerTheCommonInterface;
     procedure TestTransportFailureIsReportedWithoutAlert;
     procedure TestNothingIsPulledOnceTerminal;
@@ -1394,6 +1401,91 @@ begin
   Run(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the handshake completed over the overlay');
   CheckTrue(LCounting.Hkdfs > 0, 'the key schedule ran through the overlay''s HKDF');
+end;
+
+function TTestTls13HandshakeEngine.ServerWithContext(const AContext: TBytes;
+  ALimit: UInt32): ITls13HandshakeEngine;
+begin
+  Result := TTlsEngineFactory.CreateTls13HandshakeServerEngine(ServerResuming(True), nil, ALimit,
+    AContext);
+end;
+
+procedure TTestTls13HandshakeEngine.SeedWithContext(const ACache: ISessionCache;
+  const AContext: TBytes);
+begin
+  Run(NewClient(ClientResuming(ACache, False)), ServerWithContext(AContext, TicketLimit));
+  CheckTrue(ACache.Count > 0, 'a ticket was cached');
+  FClientLog.Clear;
+  FServerLog.Clear;
+end;
+
+procedure TTestTls13HandshakeEngine.TestHostEarlyDataContextMatchAcceptsEarlyData;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITls13HandshakeEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  SeedWithContext(LCache, DecodeHex('c0ffee'));
+  LClient := NewClient(ClientResuming(LCache, True));
+  LServer := ServerWithContext(DecodeHex('c0ffee'), TicketLimit);
+  Run(LClient, LServer);
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed');
+  CheckTrue(LServer.ConnectionInfo.EarlyDataAccepted, 'and accepted 0-RTT under the same context');
+end;
+
+procedure TTestTls13HandshakeEngine.TestHostEarlyDataContextMismatchDeclinesEarlyDataButResumes;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITls13HandshakeEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  SeedWithContext(LCache, DecodeHex('c0ffee'));
+  LClient := NewClient(ClientResuming(LCache, True));
+  LServer := ServerWithContext(DecodeHex('beef'), TicketLimit);
+  Run(LClient, LServer);
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server still resumed');
+  CheckFalse(LServer.ConnectionInfo.EarlyDataAccepted, 'but declined 0-RTT');
+  CheckEquals(Ord(TEarlyDataReason.ContextMismatch),
+    Ord(LServer.ConnectionInfo.EarlyDataReason), 'for the context');
+end;
+
+procedure TTestTls13HandshakeEngine.TestConfigEarlyDataContextIsRefusedOnTheServer;
+var
+  LBuilder: ITlsServerConfigBuilder;
+begin
+  LBuilder := ServerBuilder.WithResumption(True).WithSessionTicketKeys(FStek);
+  LBuilder.Tls13.WithEarlyData(16384).WithAntiReplay(FAntiReplay)
+    .WithEarlyDataContext(DecodeHex('c0ffee'));
+  CheckTrue(CreationRaises(LBuilder.Build), 'the host is the only source of the context');
+end;
+
+procedure TTestTls13HandshakeEngine.TestOversizedHostEarlyDataContextIsRefused;
+var
+  LRaised: Boolean;
+begin
+  LRaised := False;
+  try
+    ServerWithContext(Filled($C7, 256), TicketLimit);
+  except
+    on EArgumentTlsLibException do
+      LRaised := True;
+  end;
+  CheckTrue(LRaised, 'a 256-byte context is refused');
+  ServerWithContext(Filled($C7, 255), TicketLimit);
+end;
+
+procedure TTestTls13HandshakeEngine.TestZeroLimitTurnsServerEarlyDataOff;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITls13HandshakeEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  SeedWithContext(LCache, DecodeHex('c0ffee'));
+  LClient := NewClient(ClientResuming(LCache, True));
+  LServer := ServerWithContext(DecodeHex('c0ffee'), 0);
+  Run(LClient, LServer);
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the server resumed');
+  CheckFalse(LServer.ConnectionInfo.EarlyDataAccepted, 'with 0-RTT off');
 end;
 
 procedure TTestTls13HandshakeEngine.TestBothEnginesAnswerTheCommonInterface;

@@ -87,7 +87,9 @@ type
     /// always True on TLS 1.3. Without it a TLS 1.2 exporter is unavailable (RFC 7627 5.4).
     ExtendedMasterSecret: Boolean;
     /// Whether 0-RTT early data was accepted (RFC 9846 4.3.10): a client's offer the server accepted, or
-    /// a server that opened the early-data read window. False when none was offered or it was rejected.
+    /// a server that opened the early-data read window (a handshake-only server reports it at the
+    /// client Finished, though its host holds the early read secret from the ServerHello). False
+    /// when none was offered or it was rejected.
     EarlyDataAccepted: Boolean;
     /// The Encrypted Client Hello outcome (RFC 9849); see TEchStatus.
     EchStatus: TEchStatus;
@@ -98,8 +100,6 @@ type
     EchIsRetryAttempt: Boolean;
     EchRejectAborted: Boolean;
   end;
-
-  PTlsConnectionInfo = ^TTlsConnectionInfo;
 
 implementation
 

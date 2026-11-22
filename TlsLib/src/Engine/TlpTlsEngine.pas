@@ -77,10 +77,9 @@ type
     end;
   var
     FRecordLayer: TRecordLayer;
-    // the shared facts and events; FOutcomeRef keeps it alive and FFacts is its live record
+    // the shared facts and events; FOutcomeRef keeps it alive
     FOutcome: TEngineOutcome;
     FOutcomeRef: IHandshakeSink;
-    FFacts: PTlsConnectionInfo;
     FConductor: THandshakeConductor;
     FAppQueue: TPlaintextQueue;
     // accepted 0-RTT application data, kept apart because it is replayable
@@ -478,7 +477,6 @@ begin
   FRecordLayer := TRecordLayer.Create;
   FOutcome := TEngineOutcome.Create;
   FOutcomeRef := FOutcome as IHandshakeSink;
-  FFacts := FOutcome.Facts;
   FMaxAppReadBuffer := DefaultMaxAppReadBuffer;
   FTerminal := False;
   FClosed := False;
@@ -668,7 +666,7 @@ begin
   // either level.
   if LReceived.LevelByte = TTlsAlertLevel.Warning.ToByte then
   begin
-    if (FFacts^.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
+    if (FOutcome.NegotiatedVersion.WireValue = TlsWireVersionTls13) and
       not (LReceived.HasKnownDescription and
       (LReceived.Description = TTlsAlertDescription.UserCanceled)) then
       raise EFatalAlertTlsLibException.CreateRes(
@@ -821,7 +819,7 @@ end;
 
 function TTlsEngine.IsTls13: Boolean;
 begin
-  Result := FFacts^.NegotiatedVersion.WireValue = TlsWireVersionTls13;
+  Result := FOutcome.NegotiatedVersion.WireValue = TlsWireVersionTls13;
 end;
 
 procedure TTlsEngine.Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -1275,7 +1273,7 @@ procedure TTlsEngine.SetEarlyReadEpoch(AActive: Boolean; AMaxBytes: Int32);
 begin
   FRecordLayer.SetEarlyReadAccepted(AActive, AMaxBytes);
   if AActive then
-    FFacts^.EarlyDataAccepted := True;
+    FOutcome.EarlyDataAccepted := True;
 end;
 
 procedure TTlsEngine.OnHandshakeEvent(AEvent: TTlsEventKind);

@@ -167,9 +167,10 @@ type
     /// <summary>A TLS 1.3 handshake-only server engine for a host that owns record protection; it
     /// starts on the first ClientHello. The config must offer TLS 1.3 alone. When the config
     /// enables early data, ATicketEarlyDataLimit is the budget its tickets advertise and accept
-    /// (the config's own limit is not used), and 0 turns 0-RTT off; a non-empty AEarlyDataContext
-    /// replaces the config's early-data context. Tickets it mints resume only on a TLS 1.3
-    /// handshake-only engine.</summary>
+    /// (the config's own limit is not used), and 0 turns 0-RTT off. AEarlyDataContext is the only
+    /// source of the early-data context its tickets carry and 0-RTT must match, sealed while 0-RTT
+    /// is on; a config with its own early-data context (a record-engine setting) is refused.
+    /// Tickets it mints resume only on a TLS 1.3 handshake-only engine.</summary>
     class function CreateTls13HandshakeServerEngine(const AConfig: ITlsServerConfig;
       const AHostExtensions: TArray<ITlsHostExtension>; ATicketEarlyDataLimit: UInt32;
       const AEarlyDataContext: TBytes): ITls13HandshakeEngine; static;
@@ -195,6 +196,8 @@ resourcestring
   SHandshakeEngineNeedsTls13Only =
     'a TLS 1.3 handshake-only engine needs a config that offers TLS 1.3 and no other version';
   SEarlyDataContextTooLongForTicket = 'the early-data context exceeds the ticket limit';
+  SConfigEarlyDataContextOnHandshakeEngine =
+    'a TLS 1.3 handshake-only engine takes its early-data context from the host, not the config';
 
 { TTlsEngineFactory }
 
@@ -342,8 +345,7 @@ begin
   Result.OfferedGroups := OfferedGroupCodes(AConfig, AnyGroupKind);
   Result.GroupRegistry := AConfig.NamedGroups;
   Result.CipherSuites := AConfig.CipherSuites;
-  // the extension registry (its ~20 handlers) is built only for a version whose machine is
-  // actually created; a single-version client would otherwise build and discard one
+  // the extension registry is built only for a version whose machine is created
   if AOffers13 then
     Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry(AHostAdapters);
   Result.TicketBinding := TTicketBinding.RecordEngine;
@@ -853,6 +855,8 @@ begin
   RequireTls13Only(AConfig);
   if System.Length(AEarlyDataContext) > TSessionTicketLimits.MaxEarlyDataContextLength then
     raise EArgumentTlsLibException.CreateRes(@SEarlyDataContextTooLongForTicket);
+  if System.Length(AConfig.EarlyDataContext) > 0 then
+    raise EArgumentTlsLibException.CreateRes(@SConfigEarlyDataContextOnHandshakeEngine);
   LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Server, True, LHostResults);
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
   if AConfig.ClientAuth = TClientAuthMode.None then
@@ -866,7 +870,8 @@ begin
   // the host fixes the early-data budget its tickets carry; the config only says whether 0-RTT is on
   if L13.MaxEarlyData > 0 then
     L13.MaxEarlyData := ATicketEarlyDataLimit;
-  if (System.Length(AEarlyDataContext) > 0) and AConfig.Resumption then
+  // the context binds 0-RTT, so it is sealed only while 0-RTT is on
+  if L13.MaxEarlyData > 0 then
     L13.EarlyDataContext := System.Copy(AEarlyDataContext);
   LMachine := TTls13ServerStateMachine.Create(L13);
   Result := TTls13HandshakeEngine.Create(LMachine, ClientCertificateMessageCap(AConfig),

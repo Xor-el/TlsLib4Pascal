@@ -45,7 +45,6 @@ type
   strict private
   var
     FFacts: TTlsConnectionInfo;
-    FFactsPtr: PTlsConnectionInfo;
     FEvents: TQueue<ITlsEvent>;
     FTerminal: Boolean;
     FEstablished: Boolean;
@@ -60,8 +59,14 @@ type
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     /// <summary>The queued events, for the owner to count.</summary>
     property Events: TQueue<ITlsEvent> read FEvents;
-    /// <summary>The live facts record, for the engine that updates fields only it knows.</summary>
-    property Facts: PTlsConnectionInfo read FFactsPtr;
+    /// <summary>The negotiated version as the facts hold it right now, read without a snapshot.</summary>
+    property NegotiatedVersion: TTlsVersion read FFacts.NegotiatedVersion;
+    /// <summary>Whether early data was accepted; a record engine's server also sets it when it opens
+    /// the early-data read window, which the handshake-only server never does, so there it turns
+    /// True at the client Finished although the host holds the early read secret from the
+    /// ServerHello.</summary>
+    property EarlyDataAccepted: Boolean read FFacts.EarlyDataAccepted
+      write FFacts.EarlyDataAccepted;
     /// <summary>A snapshot of the facts; the byte arrays are copies, the certificate, path and
     /// authority arrays shared read-only views.</summary>
     function Info: TTlsConnectionInfo;
@@ -113,7 +118,6 @@ constructor TEngineOutcome.Create;
 begin
   inherited Create;
   FEvents := TQueue<ITlsEvent>.Create;
-  FFactsPtr := @FFacts;
   FFacts.EchStatus := TEchStatus.NotOffered;
   // a zero wire code until an epoch's keys name the negotiated version
   FFacts.NegotiatedVersion := TTlsVersion.Create(0);
