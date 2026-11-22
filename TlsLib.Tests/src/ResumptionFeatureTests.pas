@@ -32,6 +32,7 @@ uses
   TlpITlsHostExtension,
   TlpHostExtensions,
   TlpCoreExtensions,
+  TlpTicketBinding,
   TlpISession,
   TlpSession,
   TlpISessionApplicationData,
@@ -107,7 +108,8 @@ type
     procedure TestApplicationDataSetAfterTheTicketLeavesItAlone;
     procedure TestApplicationDataIsCopiedWhenSet;
     procedure TestAResumedConnectionAttachesItsOwnApplicationData;
-    procedure TestServerEngineRefusesSessionApplicationData;
+    procedure TestServerEngineDoesNotAnswerSessionApplicationData;
+    procedure TestEngineKindsKeepTheirCachedTicketsApart;
     procedure TestClientDoesNotOfferATicketOfAnotherEngineKind;
     procedure TestClientOffersTheTicketItself;
     procedure TestPreSharedKeyStaysLastBesideAHostExtension;
@@ -330,6 +332,7 @@ begin
   CheckEquals(Ord(TEarlyDataReason.Accepted), Ord(LServer.ConnectionInfo.EarlyDataReason),
     'the server''s reason');
   CheckEqualBytes('the early data arrives', FEarly, ReadAllEarly(LServer));
+  CheckEquals(1, FAntiReplay.Count, 'the accepted offer was recorded');
 end;
 
 procedure TTestResumptionFeatures.TestMismatchedContextRefusesEarlyDataButResumes;
@@ -350,6 +353,7 @@ begin
   CheckEquals(Ord(TEarlyDataReason.PeerDeclined), Ord(LClient.ConnectionInfo.EarlyDataReason),
     'which the client sees as a decline');
   CheckEquals(0, System.Length(ReadAllEarly(LServer)), 'no early data was delivered');
+  CheckEquals(0, FAntiReplay.Count, 'the refused offer used no anti-replay slot');
 end;
 
 procedure TTestResumptionFeatures.TestTicketWithoutAContextRefusesEarlyDataUnderAConfiguredOne;
@@ -492,22 +496,22 @@ begin
     TakeCached(LCache).ApplicationData);
 end;
 
-procedure TTestResumptionFeatures.TestServerEngineRefusesSessionApplicationData;
+procedure TTestResumptionFeatures.TestServerEngineDoesNotAnswerSessionApplicationData;
 var
-  LServer: ITlsEngine;
-  LRaised: Boolean;
+  LData: ITlsSessionApplicationData;
 begin
-  LServer := NewServer(nil);
-  LRaised := False;
-  try
-    ClientData(LServer).SetSessionApplicationData(DecodeHex('a1'));
-  except
-    on E: EInvalidOperationTlsLibException do
-      LRaised := True;
-  end;
-  CheckTrue(LRaised, 'a server has no ticket to attach them to');
-  CheckEquals(0, System.Length(ClientData(LServer).OfferedSessionApplicationData),
-    'and offers none');
+  CheckFalse(Supports(NewServer(nil), ITlsSessionApplicationData, LData),
+    'a server has no ticket to attach them to, so it does not claim the interface');
+end;
+
+procedure TTestResumptionFeatures.TestEngineKindsKeepTheirCachedTicketsApart;
+begin
+  CheckEquals(TClientSessionPolicy.CacheIdentity(ServerHost, ServerHost, FScope),
+    TClientSessionPolicy.CacheIdentity(ServerHost, ServerHost, FScope,
+    TTicketBinding.RecordEngine), 'the record engine keeps its key');
+  CheckFalse(TClientSessionPolicy.CacheIdentity(ServerHost, ServerHost, FScope) =
+    TClientSessionPolicy.CacheIdentity(ServerHost, ServerHost, FScope, OtherEngineKind),
+    'another engine kind has a key of its own');
 end;
 
 procedure TTestResumptionFeatures.TestClientDoesNotOfferATicketOfAnotherEngineKind;

@@ -61,7 +61,7 @@ uses
   TlpILayeredTrustAnchorStore, TlpIIssuerLookup, TlpIssuerResolution, 
   TlpIssuerLookupVerifierSource, TlpITlsEngineInbound, TlpITlsEngineOutbound,
   TlpTrafficSecret, TlpITlsHostExtension, TlpHostExtensions,
-  TlpISessionApplicationData, TlpSessionApplicationData;
+  TlpISessionApplicationData, TlpSessionApplicationData, TlpTicketBinding;
 
 implementation
 

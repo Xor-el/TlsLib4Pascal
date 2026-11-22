@@ -21,9 +21,8 @@ uses
 type
   /// <summary>
   /// Opaque bytes a client host keeps with the resumable sessions it caches, such as the settings
-  /// the server announced on this connection. Reach it with Supports on an engine. A server engine
-  /// has no session to attach them to: SetSessionApplicationData raises there and
-  /// OfferedSessionApplicationData is empty.
+  /// the server announced on this connection. Reach it with Supports on an engine: only a client
+  /// engine the factory built answers it, since a server has no ticket to attach them to.
   /// </summary>
   ITlsSessionApplicationData = interface(IInterface)
     ['{A0680FD5-B341-48C4-8C43-B6A4FEE40AC0}']
@@ -36,8 +35,8 @@ type
   end;
 
   /// <summary>
-  /// The engine-internal side of <see cref="ITlsSessionApplicationData" />: what a client machine
-  /// reads when it caches a ticket and where it publishes the offered session's bytes.
+  /// The handshake's side of <see cref="ITlsSessionApplicationData" />, for whoever drives a client
+  /// machine: what it reads when it caches a ticket and where it publishes the offered session's bytes.
   /// </summary>
   ISessionApplicationDataChannel = interface(IInterface)
     ['{2D0B2D5D-12C8-4EC9-A239-67E39EE75460}']

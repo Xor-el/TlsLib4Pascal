@@ -28,7 +28,7 @@
     <Description Value="Opinionated yet Modular TLS for Modern Object Pascal"/>
     <License Value="MIT License"/>
     <Version Major="1" Minor="2"/>
-    <Files Count="174">
+    <Files Count="175">
       <Item1>
         <Filename Value="..\..\Crypto\TlpCryptoDomainTypes.pas"/>
         <UnitName Value="TlpCryptoDomainTypes"/>
@@ -725,6 +725,10 @@
         <Filename Value="..\..\Session\TlpSessionApplicationData.pas"/>
         <UnitName Value="TlpSessionApplicationData"/>
       </Item174>
+      <Item175>
+        <Filename Value="..\..\Session\TlpTicketBinding.pas"/>
+        <UnitName Value="TlpTicketBinding"/>
+      </Item175>
     </Files>
     <CompatibilityMode Value="True"/>
     <RequiredPkgs Count="2">

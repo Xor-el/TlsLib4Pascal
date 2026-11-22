@@ -29,6 +29,7 @@ uses
   TlpWireVectorMarker,
   TlpIWireWriter,
   TlpWireWriter,
+  TlpTicketBinding,
   TlpISession,
   TlpSession;
 
@@ -194,8 +195,6 @@ begin
   case ABinding of
     TTicketBinding.RecordEngine:
       Result := 1;
-  else
-    Result := 0;
   end;
 end;
 
@@ -259,6 +258,10 @@ begin
   LWriter.WriteUInt16(ASession.PeerSignatureScheme);
   if Supports(ASession, ITls13ResumableSession, L13) then
   begin
+    // refused before any secret is written
+    LContext := L13.EarlyDataContext;
+    if System.Length(LContext) > TSessionTicketLimits.MaxEarlyDataContextLength then
+      Exit;
     LWriter.WriteUInt32(L13.TicketAgeAdd);
     LWriter.WriteUInt32(L13.MaxEarlyData);
     LResumption := nil;
@@ -269,9 +272,6 @@ begin
     LWriter.CloseVector(LMarker);
     TSecureMemory.WipeBytes(LResumption);
     // sealed: the early-data context and the engine kind; the client's application data never is
-    LContext := L13.EarlyDataContext;
-    if System.Length(LContext) > TSessionTicketLimits.MaxEarlyDataContextLength then
-      Exit;
     LMarker := LWriter.OpenVector(1);
     LWriter.WriteBytes(LContext);
     LWriter.CloseVector(LMarker);

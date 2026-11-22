@@ -270,11 +270,11 @@ var
   LSealer: IHpkeSealer;
   LEncoded: TBytes;
   LOuterEntry, LRefEntry, LInnerEntry: TExtensionEntry;
-  LReader, LSkip: TWireReader;
+  LReader: TWireReader;
 begin
   FHostAdapters := TTlsHostExtensions.Adapt(TArray<ITlsHostExtension>.Create(
     TTlsHostExtensions.Make(HostType, [TTlsExtensionContextKind.ClientHello],
-    DecodeHex('c1c2c3'), [])), LResults);
+    DecodeHex('c1c2c3'), [])), TTlsHostExtensionRole.Client, LResults);
   PrepareReseal(LServer, LOuter, LEntries, LOuterEch, LSealer, LEncoded);
 
   CheckTrue(LEntries.TryFind(HostType, LOuterEntry), 'the outer ClientHello carries the extension');
@@ -283,9 +283,9 @@ begin
   LReader := TWireReader.Create(LEncoded);
   LReader.Skip(2);
   LReader.Skip(32);
-  LSkip := LReader.OpenVector(1);
-  LSkip := LReader.OpenVector(2);
-  LSkip := LReader.OpenVector(1);
+  LReader.OpenVector(1);
+  LReader.OpenVector(2);
+  LReader.OpenVector(1);
   LEncEntries := TExtensionVector.ParseFrom(LReader);
   CheckFalse(LEncEntries.Contains(HostType),
     'the sealed inner does not repeat the extension: it is compressed');

@@ -20,15 +20,10 @@ uses
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpIKeySchedule,
+  TlpTicketBinding,
   TlpISecretBuffer;
 
 type
-  /// <summary>
-  /// Which kind of engine minted a TLS 1.3 session. A ticket resumes only on the kind that minted
-  /// it, so settings one kind attaches to a ticket never reach another.
-  /// </summary>
-  TTicketBinding = (RecordEngine);
-
   /// <summary>
   /// A pre-shared key the client offers in a ClientHello (RFC 9846 4.3.11). An
   /// external PSK carries only its identity, secret and bound hash; a resumption PSK

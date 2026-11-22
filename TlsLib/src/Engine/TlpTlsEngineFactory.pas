@@ -39,6 +39,7 @@ uses
   TlpServerName,
   TlpTrustPolicy,
   TlpTlsCredential,
+  TlpTicketBinding,
   TlpISession,
   TlpCoreExtensions,
   TlpITlsExtension,
@@ -111,14 +112,16 @@ type
     /// <summary>The registry entries carrying AHostExtensions; they ride TLS 1.3 handshakes only,
     /// so a config that does not offer 1.3 cannot take them.</summary>
     class function HostAdapters(const AHostExtensions: TArray<ITlsHostExtension>;
-      AOffers13: Boolean; out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>; static;
+      ARole: TTlsHostExtensionRole; AOffers13: Boolean;
+      out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>; static;
   public
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
       const AHost: string): ITlsEngine; overload; static;
     /// <summary>As above, carrying AHostExtensions in its TLS 1.3 handshakes; read the peer's back
-    /// with Supports(engine, ITlsHostExtensionResults). TLS 1.2 handshakes carry none. Raises when
-    /// the config offers no TLS 1.3, or a host extension is refused (see TTlsHostExtensions).</summary>
+    /// with Supports(engine, ITlsHostExtensionResults). A TLS 1.2 handshake neither answers nor
+    /// requires them. Raises when the config offers no TLS 1.3, or a host extension is refused
+    /// (see TTlsHostExtensions).</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig; const AHost: string;
       const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine; overload; static;
     /// <summary>A server engine wired from the config; it starts on the first ClientHello.</summary>
@@ -433,10 +436,10 @@ begin
 end;
 
 class function TTlsEngineFactory.HostAdapters(
-  const AHostExtensions: TArray<ITlsHostExtension>; AOffers13: Boolean;
-  out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>;
+  const AHostExtensions: TArray<ITlsHostExtension>; ARole: TTlsHostExtensionRole;
+  AOffers13: Boolean; out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>;
 begin
-  Result := TTlsHostExtensions.Adapt(AHostExtensions, AResults);
+  Result := TTlsHostExtensions.Adapt(AHostExtensions, ARole, AResults);
   if (System.Length(Result) > 0) and not AOffers13 then
     raise EArgumentTlsLibException.CreateRes(@SHostExtensionsNeedTls13);
 end;
@@ -466,8 +469,8 @@ var
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
-  LAdapters := HostAdapters(AHostExtensions, LOffers13, LHostResults);
-  LSessionData := TSessionApplicationData.Create(True) as ITlsSessionApplicationData;
+  LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Client, LOffers13, LHostResults);
+  LSessionData := TSessionApplicationData.Create as ITlsSessionApplicationData;
   // a verdict-deferral mode parks the handshake after the pipeline accepts the server chain; any
   // time budget belongs to the resolver built from the config, not the engine
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
@@ -591,8 +594,8 @@ begin
     LMachine := TTls12ClientStateMachine.Create(L12);
 
   // a client always receives the server's Certificate, so bound its reassembler by the chain budget
-  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto,
-    AConfig.CertificateChainLimits.MaxTotalChainLength, LHostResults, LSessionData);
+  Result := TTlsEngine.Create(LMachine, AConfig.Crypto,
+    AConfig.CertificateChainLimits.MaxTotalChainLength, LHostResults, LSessionData) as ITlsEngine;
 end;
 
 class function TTlsEngineFactory.CreateServerEngine(
@@ -618,7 +621,7 @@ var
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
-  LAdapters := HostAdapters(AHostExtensions, LOffers13, LHostResults);
+  LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Server, LOffers13, LHostResults);
   LServerRandom := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
   // a verdict-deferral mode parks the handshake after the pipeline accepts the client chain
   // (only meaningful when the server requests client authentication)
@@ -715,8 +718,9 @@ begin
   LMaxCertificateMessage := DefaultMaxHandshakeMessageLength;
   if AConfig.ClientAuth <> TClientAuthMode.None then
     LMaxCertificateMessage := AConfig.CertificateChainLimits.MaxTotalChainLength;
-  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto, LMaxCertificateMessage,
-    LHostResults, TSessionApplicationData.Create(False) as ITlsSessionApplicationData);
+  // a server has no ticket to attach session application data to
+  Result := TTlsEngine.Create(LMachine, AConfig.Crypto, LMaxCertificateMessage, LHostResults,
+    nil) as ITlsEngine;
 end;
 
 end.

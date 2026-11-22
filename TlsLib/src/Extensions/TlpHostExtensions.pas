@@ -27,6 +27,10 @@ uses
   TlpITlsHostExtension;
 
 type
+  /// <summary>The side of the handshake an engine plays: it sends host extensions in the messages
+  /// its role sends and requires them in the messages the other role sends.</summary>
+  TTlsHostExtensionRole = (Client, Server);
+
   /// <summary>
   /// Builds host extensions and wires them into an engine's extension registry. A host
   /// extension is data: the codec places it by its declared messages, the peer's copy is read
@@ -42,18 +46,22 @@ type
     /// core registry holds is refused when an engine is created.</summary>
     class function Make(AExtensionType: UInt16; ASendIn: TTlsExtensionContexts;
       const ABody: TBytes; ARequiredIn: TTlsExtensionContexts): ITlsHostExtension; static;
-    /// <summary>Validates AExtensions (any implementer, a type listed twice raises) and returns the
-    /// registry entries that carry them, with AResults reading the peer's copies back.</summary>
+    /// <summary>Validates AExtensions for ARole (any implementer, read once; a type listed twice, a
+    /// message ARole never sends in SendIn, or one the other role never sends in RequiredIn raises)
+    /// and returns the registry entries that carry them, with AResults reading the peer's copies
+    /// back.</summary>
     class function Adapt(const AExtensions: TArray<ITlsHostExtension>;
+      ARole: TTlsHostExtensionRole;
       out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>; static;
   end;
 
 implementation
 
 const
-  HostExtensionKinds: TTlsExtensionContexts = [TTlsExtensionContextKind.ClientHello,
-    TTlsExtensionContextKind.HelloRetryRequest, TTlsExtensionContextKind.EncryptedExtensions,
-    TTlsExtensionContextKind.CertificateRequest, TTlsExtensionContextKind.NewSessionTicket];
+  ClientSentKinds: TTlsExtensionContexts = [TTlsExtensionContextKind.ClientHello];
+  ServerSentKinds: TTlsExtensionContexts = [TTlsExtensionContextKind.HelloRetryRequest,
+    TTlsExtensionContextKind.EncryptedExtensions, TTlsExtensionContextKind.CertificateRequest,
+    TTlsExtensionContextKind.NewSessionTicket];
   MaxHostExtensionBody = Int32($FFFF);
 
 resourcestring
@@ -62,6 +70,8 @@ resourcestring
   SHostExtensionKindNotSupported = 'a host extension can ride only a ClientHello, ' +
     'HelloRetryRequest, EncryptedExtensions, CertificateRequest or NewSessionTicket';
   SHostExtensionBodyTooLong = 'a host extension body must not exceed 65535 bytes';
+  SHostExtensionKindWrongRole = 'a client sends host extensions only in the ClientHello and ' +
+    'requires them only in messages a server sends; a server does the reverse';
   SDuplicateHostExtension = 'two host extensions share one extension type';
   SNilHostExtension = 'a host extension is nil';
   SRequiredHostExtensionMissing = 'the peer omitted a required host extension';
@@ -168,9 +178,7 @@ end;
 function THostExtensionAdapter.ValidContexts: TTlsExtensionContexts;
 begin
   Result := FSendIn + FRequiredIn;
-  // an offer may be answered by any message that answers one, and an answer implies an offer
-  if TTlsExtensionContextKind.ClientHello in FSendIn then
-    Result := Result + (HostExtensionKinds - [TTlsExtensionContextKind.ClientHello]);
+  // an answer implies the peer's offer, so a sender of any other message accepts the ClientHello
   if FSendIn - [TTlsExtensionContextKind.ClientHello] <> [] then
     Include(Result, TTlsExtensionContextKind.ClientHello);
 end;
@@ -218,8 +226,8 @@ begin
   ABody := nil;
   if AType <> FType then
     Exit;
-  // the latest message that carried it wins
-  for LKind := High(TTlsExtensionContextKind) downto Low(TTlsExtensionContextKind) do
+  // the earliest message that carried it wins, so a later copy never replaces what was read
+  for LKind := Low(TTlsExtensionContextKind) to High(TTlsExtensionContextKind) do
     if LKind in FPeerSeen then
     begin
       ABody := System.Copy(FPeerBodies[LKind]);
@@ -255,8 +263,8 @@ begin
   if TGrease.IsGrease(AExtension.ExtensionType) or
     (AExtension.ExtensionType = TExtensionTypes.EchOuterExtensions) then
     raise EArgumentTlsLibException.CreateRes(@SReservedHostExtensionType);
-  if not ((AExtension.SendIn <= HostExtensionKinds) and
-    (AExtension.RequiredIn <= HostExtensionKinds)) then
+  if not ((AExtension.SendIn <= (ClientSentKinds + ServerSentKinds)) and
+    (AExtension.RequiredIn <= (ClientSentKinds + ServerSentKinds))) then
     raise EArgumentTlsLibException.CreateRes(@SHostExtensionKindNotSupported);
   if System.Length(AExtension.Body) > MaxHostExtensionBody then
     raise EArgumentTlsLibException.CreateRes(@SHostExtensionBodyTooLong);
@@ -272,23 +280,44 @@ begin
 end;
 
 class function TTlsHostExtensions.Adapt(const AExtensions: TArray<ITlsHostExtension>;
+  ARole: TTlsHostExtensionRole;
   out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>;
 var
   LExt: ITlsExtension;
+  LSnapshot: ITlsHostExtension;
+  LSnapshots: TArray<ITlsHostExtension>;
   LResults: TArray<ITlsHostExtensionResults>;
+  LSendable, LReceivable: TTlsExtensionContexts;
   LI, LJ: Int32;
 begin
   Result := nil;
   LResults := nil;
+  LSnapshots := nil;
+  if ARole = TTlsHostExtensionRole.Client then
+  begin
+    LSendable := ClientSentKinds;
+    LReceivable := ServerSentKinds;
+  end
+  else
+  begin
+    LSendable := ServerSentKinds;
+    LReceivable := ClientSentKinds;
+  end;
   for LI := 0 to High(AExtensions) do
   begin
     if AExtensions[LI] = nil then
       raise EArgumentTlsLibException.CreateRes(@SNilHostExtension);
-    Validate(AExtensions[LI]);
-    for LJ := 0 to LI - 1 do
-      if AExtensions[LJ].ExtensionType = AExtensions[LI].ExtensionType then
+    // read the implementer once: what is validated is what the adapter carries
+    LSnapshot := THostExtension.Create(AExtensions[LI].ExtensionType, AExtensions[LI].SendIn,
+      AExtensions[LI].Body, AExtensions[LI].RequiredIn) as ITlsHostExtension;
+    Validate(LSnapshot);
+    if not ((LSnapshot.SendIn <= LSendable) and (LSnapshot.RequiredIn <= LReceivable)) then
+      raise EArgumentTlsLibException.CreateRes(@SHostExtensionKindWrongRole);
+    for LJ := 0 to High(LSnapshots) do
+      if LSnapshots[LJ].ExtensionType = LSnapshot.ExtensionType then
         raise EArgumentTlsLibException.CreateRes(@SDuplicateHostExtension);
-    LExt := THostExtensionAdapter.Create(AExtensions[LI]) as ITlsExtension;
+    TArrayUtilities.Append<ITlsHostExtension>(LSnapshots, LSnapshot);
+    LExt := THostExtensionAdapter.Create(LSnapshot) as ITlsExtension;
     TArrayUtilities.Append<ITlsExtension>(Result, LExt);
     TArrayUtilities.Append<ITlsHostExtensionResults>(LResults,
       LExt as ITlsHostExtensionResults);

@@ -47,9 +47,7 @@ uses
   TlpHandshakeConductor,
   TlpEchConfig,
   TlpITlsHostExtension,
-  TlpHostExtensions,
-  TlpISessionApplicationData,
-  TlpSessionApplicationData;
+  TlpISessionApplicationData;
 
 type
   /// <summary>
@@ -121,7 +119,7 @@ type
     FHasPendingAlert: Boolean;
     FHostResults: ITlsHostExtensionResults;
     FSessionData: ITlsSessionApplicationData;
-    // each is answered by the object the factory shares with the handshake machines
+    // each is answered by the object the factory shares with the machine; nil is not answered
     property HostResults: ITlsHostExtensionResults read FHostResults
       implements ITlsHostExtensionResults;
     property SessionData: ITlsSessionApplicationData read FSessionData
@@ -160,7 +158,7 @@ type
       const ACryptoProvider: ICryptoProvider;
       AMaxCertificateMessageLength: Int32); overload;
     /// <summary>As above, answering ITlsHostExtensionResults and ITlsSessionApplicationData from
-    /// the objects the factory shares with the machine; both are required.</summary>
+    /// the objects the factory shares with the machine; a nil one is not answered.</summary>
     constructor Create(const AInitialMachine: IHandshakeMachine;
       const ACryptoProvider: ICryptoProvider; AMaxCertificateMessageLength: Int32;
       const AHostResults: ITlsHostExtensionResults;
@@ -174,11 +172,6 @@ type
     class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
       const ACryptoProvider: ICryptoProvider;
       AMaxCertificateMessageLength: Int32): ITlsEngine; overload; static;
-    /// <summary>As above, with the objects the factory shares with the machine.</summary>
-    class function CreateConfigured(const AInitialMachine: IHandshakeMachine;
-      const ACryptoProvider: ICryptoProvider; AMaxCertificateMessageLength: Int32;
-      const AHostResults: ITlsHostExtensionResults;
-      const ASessionData: ITlsSessionApplicationData): ITlsEngine; overload; static;
 
     function ProcessInput(const AWire: TBytes; AOffset, ALength: Int32): TTlsOutcome;
     procedure Write(const AData: TBytes; AOffset, ALength: Int32);
@@ -266,8 +259,6 @@ resourcestring
   SWarningAlertInTls13 = 'a warning alert other than user_canceled is not permitted in TLS 1.3';
   STooManyWarningAlerts = 'the peer sent too many warning-level alerts';
   SBogusAlertLevel = 'the alert carries a level that is neither warning nor fatal';
-  SEngineSharedObjectsRequired =
-    'an engine needs its host-extension results and session application data';
   SReentrantEngineCall =
     'the engine was re-entered from within a handshake callback; it is single-threaded and a ' +
     'callback must not call back into it';
@@ -506,13 +497,9 @@ end;
 
 constructor TTlsEngine.Create(const AInitialMachine: IHandshakeMachine;
   const ACryptoProvider: ICryptoProvider; AMaxCertificateMessageLength: Int32);
-var
-  LNoResults: ITlsHostExtensionResults;
 begin
-  // a machine built by hand has no host extensions and nothing sharing its session data
-  TTlsHostExtensions.Adapt(nil, LNoResults);
-  Create(AInitialMachine, ACryptoProvider, AMaxCertificateMessageLength, LNoResults,
-    TSessionApplicationData.Create(AInitialMachine.Initiates) as ITlsSessionApplicationData);
+  // a machine built by hand shares nothing with the engine, so it answers neither interface
+  Create(AInitialMachine, ACryptoProvider, AMaxCertificateMessageLength, nil, nil);
 end;
 
 constructor TTlsEngine.Create(const AInitialMachine: IHandshakeMachine;
@@ -524,8 +511,6 @@ var
   LBridge: TEngineHandshakeBridge;
   LDriver: THandshakeDriver;
 begin
-  if (AHostResults = nil) or (ASessionData = nil) then
-    raise EArgumentTlsLibException.CreateRes(@SEngineSharedObjectsRequired);
   inherited Create;
   FHostResults := AHostResults;
   FSessionData := ASessionData;
@@ -582,16 +567,6 @@ class function TTlsEngine.CreateConfigured(
 begin
   Result := TTlsEngine.Create(AInitialMachine, ACryptoProvider,
     AMaxCertificateMessageLength);
-end;
-
-class function TTlsEngine.CreateConfigured(
-  const AInitialMachine: IHandshakeMachine;
-  const ACryptoProvider: ICryptoProvider; AMaxCertificateMessageLength: Int32;
-  const AHostResults: ITlsHostExtensionResults;
-  const ASessionData: ITlsSessionApplicationData): ITlsEngine;
-begin
-  Result := TTlsEngine.Create(AInitialMachine, ACryptoProvider,
-    AMaxCertificateMessageLength, AHostResults, ASessionData);
 end;
 
 procedure TTlsEngine.Enqueue(const AEvent: ITlsEvent);

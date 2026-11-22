@@ -422,6 +422,7 @@
         <DCCReference Include="..\..\TlsLib\src\Extensions\TlpHostExtensions.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Session\TlpISessionApplicationData.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Session\TlpSessionApplicationData.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Session\TlpTicketBinding.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls13KeySchedule.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls12KeySchedule.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Record\TlpRecordProtectionFactory.pas"/>

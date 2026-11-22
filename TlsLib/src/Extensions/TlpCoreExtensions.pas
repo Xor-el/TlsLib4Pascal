@@ -216,7 +216,8 @@ uses
   TlpEchRegistryExtension;
 
 resourcestring
-  SHostExtensionTypeInUse = 'a host extension cannot use the type of an extension the core registry holds';
+  SHostExtensionsNotPlaced = 'the core registry has no encrypted_client_hello entry to place host extensions before';
+  SHostExtensionTypeInUse ='a host extension cannot use the type of an extension the core registry holds';
   SUnknownNameType = 'server_name carries an unknown name_type';
   SEmptyHostName = 'server_name host_name is empty';
   SEmptyAlpnProtocol = 'ALPN carries a zero-length protocol name';
@@ -1165,6 +1166,7 @@ class function TCoreExtensions.CreateDefaultRegistry(
 var
   LCore: IExtensionRegistry;
   LExt, LHost: ITlsExtension;
+  LPlaced: Boolean;
 begin
   LCore := CreateDefaultRegistry;
   if System.Length(AHostExtensions) = 0 then
@@ -1173,13 +1175,19 @@ begin
     if LCore.Contains(LHost.ExtensionType) then
       raise EArgumentTlsLibException.CreateRes(@SHostExtensionTypeInUse);
   Result := TExtensionRegistry.Create;
+  LPlaced := False;
   for LExt in LCore.Items do
   begin
     if LExt.ExtensionType = TExtensionTypes.EncryptedClientHello then
+    begin
       for LHost in AHostExtensions do
         Result.Add(LHost);
+      LPlaced := True;
+    end;
     Result.Add(LExt);
   end;
+  if not LPlaced then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHostExtensionsNotPlaced);
 end;
 
 end.

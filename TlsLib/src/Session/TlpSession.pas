@@ -22,6 +22,7 @@ uses
   TlpCryptoDomainTypes,
   TlpIKeySchedule,
   TlpISecretBuffer,
+  TlpTicketBinding,
   TlpISession;
 
 type

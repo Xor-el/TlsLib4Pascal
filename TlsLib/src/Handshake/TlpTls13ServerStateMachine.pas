@@ -38,6 +38,7 @@ uses
   TlpNegotiationTypes,
   TlpINegotiation,
   TlpNegotiationPolicy,
+  TlpTicketBinding,
   TlpISession,
   TlpIClock,
   TlpIKeyLog,

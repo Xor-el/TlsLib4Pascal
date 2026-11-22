@@ -100,6 +100,7 @@ uses
   TlpHostExtensions in '..\..\TlsLib\src\Extensions\TlpHostExtensions.pas',
   TlpISessionApplicationData in '..\..\TlsLib\src\Interfaces\Session\TlpISessionApplicationData.pas',
   TlpSessionApplicationData in '..\..\TlsLib\src\Session\TlpSessionApplicationData.pas',
+  TlpTicketBinding in '..\..\TlsLib\src\Session\TlpTicketBinding.pas',
   TlpTls13KeySchedule in '..\..\TlsLib\src\KeySchedule\TlpTls13KeySchedule.pas',
   TlpTls12KeySchedule in '..\..\TlsLib\src\KeySchedule\TlpTls12KeySchedule.pas',
   TlpRecordProtectionFactory in '..\..\TlsLib\src\Record\TlpRecordProtectionFactory.pas',

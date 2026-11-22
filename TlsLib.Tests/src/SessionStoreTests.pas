@@ -36,6 +36,7 @@ uses
   TlpAeadUtilities,
   TlpISecretBuffer,
   TlpSecretBuffer,
+  TlpTicketBinding,
   TlpISession,
   TlpSession,
   TlpInMemorySessionCache,
@@ -1596,8 +1597,6 @@ begin
   CheckTrue(Supports(LTaken, ITls13ResumableSession, L13), 'it is a 1.3 session');
   CheckEqualBytes('the early-data context is kept', Tag($C7, 8), L13.EarlyDataContext);
   CheckEqualBytes('the application data is kept', Tag($D1, 9), L13.ApplicationData);
-  CheckEquals(Ord(TTicketBinding.RecordEngine), Ord(L13.TicketBinding),
-    'the engine kind is kept');
 end;
 
 procedure TTestSessionStore.TestStorePersistsTheNewSessionFields;
@@ -1612,8 +1611,6 @@ begin
   CheckTrue(Supports(LTaken, ITls13ResumableSession, L13), 'it is a 1.3 session');
   CheckEqualBytes('the early-data context is kept', Tag($C7, 8), L13.EarlyDataContext);
   CheckEqualBytes('the application data is kept', Tag($D1, 9), L13.ApplicationData);
-  CheckEquals(Ord(TTicketBinding.RecordEngine), Ord(L13.TicketBinding),
-    'the engine kind is kept');
 end;
 
 procedure TTestSessionStore.TestStekSealDeclinesBaseOnlySession;

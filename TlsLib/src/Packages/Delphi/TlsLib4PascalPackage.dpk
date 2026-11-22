@@ -86,6 +86,7 @@ contains
   TlpHostExtensions in '..\..\Extensions\TlpHostExtensions.pas',
   TlpISessionApplicationData in '..\..\Interfaces\Session\TlpISessionApplicationData.pas',
   TlpSessionApplicationData in '..\..\Session\TlpSessionApplicationData.pas',
+  TlpTicketBinding in '..\..\Session\TlpTicketBinding.pas',
   TlpTls13KeySchedule in '..\..\KeySchedule\TlpTls13KeySchedule.pas',
   TlpTls12KeySchedule in '..\..\KeySchedule\TlpTls12KeySchedule.pas',
   TlpRecordProtectionFactory in '..\..\Record\TlpRecordProtectionFactory.pas',

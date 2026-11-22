@@ -29,6 +29,7 @@ uses
   TlpNegotiationTypes,
   TlpISecretBuffer,
   TlpSecretBuffer,
+  TlpTicketBinding,
   TlpISession,
   TlpSession,
   TlpServerName,

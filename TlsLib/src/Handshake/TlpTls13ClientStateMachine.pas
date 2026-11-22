@@ -61,6 +61,7 @@ uses
   TlpServerName,
   TlpISigningKey,
   TlpTlsCredential,
+  TlpTicketBinding,
   TlpISession,
   TlpISessionApplicationData,
   TlpIClock,
@@ -748,7 +749,7 @@ end;
 function TTls13ClientStateMachine.CacheServerIdentity: string;
 begin
   Result := TClientSessionPolicy.CacheIdentity(FParams.ServerIdentity,
-    FParams.ServerName, FParams.SessionScope);
+    FParams.ServerName, FParams.SessionScope, FParams.TicketBinding);
 end;
 
 function TTls13ClientStateMachine.HashUnder(AHash: THashAlgorithm;

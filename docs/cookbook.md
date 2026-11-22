@@ -696,11 +696,16 @@ NewSessionTicket. Any message but the ClientHello is answered only when the peer
 carried the type; a peer that leaves a required copy out fails the handshake with
 `missing_extension`. A type the core already uses, a GREASE value, `ech_outer_extensions`, a body over
 65535 bytes or a type listed twice raises `EArgumentTlsLibException` when the extension or the engine
-is created. Host extensions ride TLS 1.3 handshakes only: a config that does not offer TLS 1.3 is
-refused them, and a dual-version handshake that negotiates TLS 1.2 carries none and enforces no
-requirement. A retried ClientHello repeats the body byte for byte, and under Encrypted Client Hello
-the outer ClientHello carries it too and the inner one references it like any shared extension. No
-host code runs inside the handshake, and the bodies are the host's to validate.
+is created, as does a client that sends in a message but the ClientHello or requires one in the
+ClientHello, and a server that does the reverse. A copy in a message the host did not declare is
+`illegal_parameter`, and a later message never replaces the copy read from an earlier one. Host
+extensions ride TLS 1.3 handshakes only: a config that does not offer TLS 1.3 is refused them, and a
+dual-version ClientHello still offers one, but a handshake that negotiates TLS 1.2 neither answers it
+nor enforces a requirement (a TLS 1.2 server that echoes it fails the handshake). A retried
+ClientHello repeats the body byte for byte, and under Encrypted Client Hello the outer ClientHello
+carries it too, so its body is visible on the wire (put nothing ECH should hide in it), and the inner
+one references it like any shared extension. No host code runs inside the handshake, and the bodies
+are the host's to validate.
 
 ## Resume sessions
 
@@ -777,13 +782,12 @@ A client host can keep bytes of its own with the tickets it caches (settings the
 the connection, say). Reach `ITlsSessionApplicationData` with `Supports` on the engine: call
 `SetSessionApplicationData` before the tickets arrive, and every ticket received after that carries
 the bytes; `OfferedSessionApplicationData` returns what the offered ticket carried, right after
-`StartHandshake` (empty when no resumption is offered). A server engine has no ticket to attach them
-to, so setting them there raises. A custom `ISessionCache` or `ISessionStore` must persist what
+`StartHandshake` (empty when no resumption is offered). Only a client engine from the factory
+answers the interface, since a server has no ticket to attach them to. A custom `ISessionCache` or `ISessionStore` must persist what
 `ITls13ResumableSession` now carries (`EarlyDataContext`, `ApplicationData` and `TicketBinding`) and
 rebuild a session with the long-form `TTls13ResumableSession.Create`.
 
-The sealed ticket format changed, so a ticket an earlier build issued is not readable: the
-connection runs a full handshake, never fails. A ticket carries the kind of engine that minted it and
+A ticket sealed under another ticket format draws a full handshake, never a failure. A ticket carries the kind of engine that minted it and
 is offered and resumed only by that kind.
 
 ## 0-RTT early data
