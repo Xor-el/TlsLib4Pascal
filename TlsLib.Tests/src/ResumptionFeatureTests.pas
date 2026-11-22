@@ -244,12 +244,8 @@ begin
 end;
 
 function TTestResumptionFeatures.OtherEngineKind: TTicketBinding;
-var
-  LOrdinal: Byte;
 begin
-  // no second engine kind exists yet; a value no engine stamps stands in for it
-  LOrdinal := Byte(Ord(TTicketBinding.RecordEngine)) + 1;
-  Result := TTicketBinding(LOrdinal);
+  Result := TTicketBinding.HandshakeEngine;
 end;
 
 procedure TTestResumptionFeatures.TestEarlyDataContextReachesTheFrozenConfig;

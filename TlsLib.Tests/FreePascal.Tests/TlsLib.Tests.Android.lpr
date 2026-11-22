@@ -61,6 +61,7 @@ uses
   SessionStoreTests,
   HostExtensionTests,
   ResumptionFeatureTests,
+  HandshakeEngineTests,
   CertificateCompressionCacheTests,
   CertificateCompressionTests,
   DataEncodingTests,
