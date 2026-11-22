@@ -56,9 +56,9 @@ uses
   TlpVersionDispatchMachine,
   TlpITlsConfig,
   TlpITlsEngine,
-  TlpITlsHandshakeEngine,
+  TlpITls13HandshakeEngine,
   TlpTlsEngine,
-  TlpTlsHandshakeEngine;
+  TlpTls13HandshakeEngine;
 
 type
   /// <summary>
@@ -119,8 +119,8 @@ type
     /// AHost holds no usable name.</summary>
     class function ParseServerName(const AConfig: ITlsClientConfig;
       const AHost: string): TServerName; static;
-    /// <summary>Refuses a config that does not offer TLS 1.3 alone: a handshake-only engine
-    /// speaks no other version.</summary>
+    /// <summary>Refuses a config that does not offer TLS 1.3 alone: a TLS 1.3
+    /// handshake-only engine speaks no other version.</summary>
     class procedure RequireTls13Only(const AConfig: ITlsCommonConfig); static;
     /// <summary>The TLS 1.3 client machine's parameters.</summary>
     class function BuildClient13Params(const AConfig: ITlsClientConfig;
@@ -154,24 +154,25 @@ type
     /// <summary>As above, carrying AHostExtensions as the client engine overload does.</summary>
     class function CreateServerEngine(const AConfig: ITlsServerConfig;
       const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine; overload; static;
-    /// <summary>A handshake-only client engine for a host that owns record protection, ready for
-    /// StartHandshake. The config must offer TLS 1.3 alone. AHostExtensions ride its handshake as
-    /// for CreateClientEngine. ATicketEarlyDataLimit is the early-data budget every ticket it
+    /// <summary>A TLS 1.3 handshake-only client engine for a host that owns record protection,
+    /// ready for StartHandshake. The config must offer TLS 1.3 alone. AHostExtensions ride its
+    /// handshake as for CreateClientEngine. ATicketEarlyDataLimit is the early-data budget every ticket it
     /// receives while it keeps a session cache must carry: any other value, an explicit 0
     /// included, fails the connection without an alert. A client with no session cache ignores
     /// tickets. 0 leaves the value unchecked; a host that offers 0-RTT passes the value its
-    /// tickets must carry. Tickets it caches resume only on a handshake-only engine.</summary>
-    class function CreateHandshakeClientEngine(const AConfig: ITlsClientConfig;
+    /// tickets must carry. Tickets it caches resume only on a TLS 1.3 handshake-only engine.</summary>
+    class function CreateTls13HandshakeClientEngine(const AConfig: ITlsClientConfig;
       const AHost: string; const AHostExtensions: TArray<ITlsHostExtension>;
-      ATicketEarlyDataLimit: UInt32): ITlsHandshakeEngine; static;
-    /// <summary>A handshake-only server engine for a host that owns record protection; it starts
-    /// on the first ClientHello. The config must offer TLS 1.3 alone. When the config enables
-    /// early data, ATicketEarlyDataLimit is the budget its tickets advertise and accept (the
-    /// config's own limit is not used), and 0 turns 0-RTT off; a non-empty AEarlyDataContext replaces the config's
-    /// early-data context. Tickets it mints resume only on a handshake-only engine.</summary>
-    class function CreateHandshakeServerEngine(const AConfig: ITlsServerConfig;
+      ATicketEarlyDataLimit: UInt32): ITls13HandshakeEngine; static;
+    /// <summary>A TLS 1.3 handshake-only server engine for a host that owns record protection; it
+    /// starts on the first ClientHello. The config must offer TLS 1.3 alone. When the config
+    /// enables early data, ATicketEarlyDataLimit is the budget its tickets advertise and accept
+    /// (the config's own limit is not used), and 0 turns 0-RTT off; a non-empty AEarlyDataContext
+    /// replaces the config's early-data context. Tickets it mints resume only on a TLS 1.3
+    /// handshake-only engine.</summary>
+    class function CreateTls13HandshakeServerEngine(const AConfig: ITlsServerConfig;
       const AHostExtensions: TArray<ITlsHostExtension>; ATicketEarlyDataLimit: UInt32;
-      const AEarlyDataContext: TBytes): ITlsHandshakeEngine; static;
+      const AEarlyDataContext: TBytes): ITls13HandshakeEngine; static;
   end;
 
 implementation
@@ -192,7 +193,7 @@ resourcestring
   SHostExtensionsNeedTls13 =
     'host extensions ride TLS 1.3 handshakes only, but the config does not offer TLS 1.3';
   SHandshakeEngineNeedsTls13Only =
-    'a handshake-only engine speaks TLS 1.3 alone, so the config must offer TLS 1.3 and no other version';
+    'a TLS 1.3 handshake-only engine needs a config that offers TLS 1.3 and no other version';
   SEarlyDataContextTooLongForTicket = 'the early-data context exceeds the ticket limit';
 
 { TTlsEngineFactory }
@@ -801,10 +802,10 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SHandshakeEngineNeedsTls13Only);
 end;
 
-class function TTlsEngineFactory.CreateHandshakeClientEngine(
+class function TTlsEngineFactory.CreateTls13HandshakeClientEngine(
   const AConfig: ITlsClientConfig; const AHost: string;
   const AHostExtensions: TArray<ITlsHostExtension>;
-  ATicketEarlyDataLimit: UInt32): ITlsHandshakeEngine;
+  ATicketEarlyDataLimit: UInt32): ITls13HandshakeEngine;
 var
   L13: TClientHandshakeParams;
   LVerifier, LResumeVerifier, LEchRejectVerifier: IServerCertificateVerifier;
@@ -834,14 +835,14 @@ begin
   // record sizing is the host's
   L13.RecordSizeLimit := 0;
   LMachine := TTls13ClientStateMachine.Create(L13);
-  Result := TTlsHandshakeEngine.Create(LMachine,
+  Result := TTls13HandshakeEngine.Create(LMachine,
     AConfig.CertificateChainLimits.MaxTotalChainLength, LHostResults, LSessionData)
-    as ITlsHandshakeEngine;
+    as ITls13HandshakeEngine;
 end;
 
-class function TTlsEngineFactory.CreateHandshakeServerEngine(
+class function TTlsEngineFactory.CreateTls13HandshakeServerEngine(
   const AConfig: ITlsServerConfig; const AHostExtensions: TArray<ITlsHostExtension>;
-  ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITlsHandshakeEngine;
+  ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITls13HandshakeEngine;
 var
   L13: TServerHandshakeParams;
   LHostResults: ITlsHostExtensionResults;
@@ -868,8 +869,8 @@ begin
   if (System.Length(AEarlyDataContext) > 0) and AConfig.Resumption then
     L13.EarlyDataContext := System.Copy(AEarlyDataContext);
   LMachine := TTls13ServerStateMachine.Create(L13);
-  Result := TTlsHandshakeEngine.Create(LMachine, ClientCertificateMessageCap(AConfig),
-    LHostResults, nil) as ITlsHandshakeEngine;
+  Result := TTls13HandshakeEngine.Create(LMachine, ClientCertificateMessageCap(AConfig),
+    LHostResults, nil) as ITls13HandshakeEngine;
 end;
 
 end.

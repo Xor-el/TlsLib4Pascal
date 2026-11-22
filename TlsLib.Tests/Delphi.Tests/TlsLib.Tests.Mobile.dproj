@@ -423,11 +423,11 @@
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Session\TlpISessionApplicationData.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Session\TlpSessionApplicationData.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Session\TlpTicketBinding.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITlsHandshakeEngine.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Engine\TlpHandshakeOutput.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITls13HandshakeEngine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTls13HandshakeOutput.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpEngineOutcome.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Handshake\TlpLeveledHandshakeChannel.pas"/>
-        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTlsHandshakeEngine.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Engine\TlpTls13HandshakeEngine.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls13KeySchedule.pas"/>
         <DCCReference Include="..\..\TlsLib\src\KeySchedule\TlpTls12KeySchedule.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Record\TlpRecordProtectionFactory.pas"/>
@@ -581,7 +581,7 @@
         <DCCReference Include="..\src\SessionStoreTests.pas"/>
         <DCCReference Include="..\src\HostExtensionTests.pas"/>
         <DCCReference Include="..\src\ResumptionFeatureTests.pas"/>
-        <DCCReference Include="..\src\HandshakeEngineTests.pas"/>
+        <DCCReference Include="..\src\Tls13HandshakeEngineTests.pas"/>
         <DCCReference Include="..\src\TlsLibTestTicketRewriter.pas"/>
         <DCCReference Include="..\src\CertificateCompressionCacheTests.pas"/>
         <DCCReference Include="..\src\CertificateCompressionTests.pas"/>

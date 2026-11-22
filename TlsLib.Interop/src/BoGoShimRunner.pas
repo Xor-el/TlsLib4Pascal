@@ -44,7 +44,7 @@ uses
   TlpTlsConnection,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
-  TlpITlsHandshakeEngine,
+  TlpITls13HandshakeEngine,
   TlpITlsHostExtension,
   TlpHostExtensions,
   TlpExtensionContext,
@@ -362,7 +362,7 @@ type
     HasExpectEchRetryConfigs: Boolean;
     ExpectNoEchRetryConfigs: Boolean;
     EchServerConfigs: TArray<TBoGoEchServerConfig>;
-    /// <summary>The runner's leveled mode: the shim plays the host of a handshake-only engine over
+    /// <summary>The runner's leveled mode: the shim plays the host of a TLS 1.3 handshake-only engine over
     /// the leveled record framing instead of driving a record engine over the stream.</summary>
     LeveledHost: Boolean;
     /// <summary>The host extension body the shim sends, and whether one was configured; the
@@ -467,7 +467,7 @@ type
     class function RunExchange(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const ASocket: TInteropSocket;
       const AConfig: TBoGoConfig; AIsResume: Boolean): Int32; static;
-    /// <summary>One connection of the leveled mode: the handshake-only engine and its host.</summary>
+    /// <summary>One connection of the leveled mode: the TLS 1.3 handshake-only engine and its host.</summary>
     class function RunLeveledExchange(const ACryptoProvider: ICryptoProvider;
       const APkix: IPkixProvider; const ASocket: TInteropSocket;
       const AConfig: TBoGoConfig; AIsResume: Boolean): Int32; static;
@@ -2729,7 +2729,7 @@ class function TBoGoShimRunner.RunLeveledExchange(const ACryptoProvider: ICrypto
   const AConfig: TBoGoConfig; AIsResume: Boolean): Int32;
 var
   LOptions: TInteropEngineOptions;
-  LEngine: ITlsHandshakeEngine;
+  LEngine: ITls13HandshakeEngine;
   LHost: TInteropLeveledHost;
   LExtensions: TArray<ITlsHostExtension>;
   LExtensionType: UInt16;
@@ -2781,7 +2781,7 @@ begin
   if AConfig.HelloView <> nil then
     AConfig.HelloView.BeginConnection;
   LOptions := BuildOptions(ACryptoProvider, APkix, AConfig, AIsResume);
-  // the handshake-only engine speaks TLS 1.3 alone
+  // the TLS 1.3 handshake-only engine speaks TLS 1.3 alone
   LOptions.SupportedVersions := TArray<UInt16>.Create(WireVersionTls13);
   LObserved := Default(TBoGoObserved);
   LObserved.IsResume := AIsResume;

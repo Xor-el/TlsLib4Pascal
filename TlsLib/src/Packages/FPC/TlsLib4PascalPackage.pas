@@ -62,8 +62,8 @@ uses
   TlpIssuerLookupVerifierSource, TlpITlsEngineInbound, TlpITlsEngineOutbound,
   TlpTrafficSecret, TlpITlsHostExtension, TlpHostExtensions,
   TlpISessionApplicationData, TlpSessionApplicationData, TlpTicketBinding,
-  TlpITlsHandshakeEngine, TlpHandshakeOutput, TlpEngineOutcome,
-  TlpLeveledHandshakeChannel, TlpTlsHandshakeEngine;
+  TlpITls13HandshakeEngine, TlpTls13HandshakeOutput, TlpEngineOutcome,
+  TlpLeveledHandshakeChannel, TlpTls13HandshakeEngine;
 
 implementation
 

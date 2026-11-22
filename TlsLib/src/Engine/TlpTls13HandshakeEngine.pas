@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlpTlsHandshakeEngine;
+unit TlpTls13HandshakeEngine;
 
 {$I ..\Include\TlsLib.inc}
 
@@ -24,8 +24,8 @@ uses
   TlpIKeySchedule,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
-  TlpITlsHandshakeEngine,
-  TlpHandshakeOutput,
+  TlpITls13HandshakeEngine,
+  TlpTls13HandshakeOutput,
   TlpIHandshakeChannel,
   TlpIHandshakeMachine,
   TlpLeveledHandshakeChannel,
@@ -37,11 +37,11 @@ uses
 
 type
   /// <summary>
-  /// The handshake-only engine: a TLS 1.3 handshake machine driven over a leveled channel, so the
+  /// The TLS 1.3 handshake-only engine: a handshake machine driven over a leveled channel, so the
   /// host that owns record protection exchanges handshake bytes and traffic secrets per level.
   /// The machine must be built for a host that owns record protection; the factory does that.
   /// </summary>
-  TTlsHandshakeEngine = class sealed(TInterfacedObject, ITlsHandshakeEngine,
+  TTls13HandshakeEngine = class sealed(TInterfacedObject, ITls13HandshakeEngine,
     ITlsHostExtensionResults, ITlsSessionApplicationData)
   strict private
   var
@@ -76,7 +76,7 @@ type
     procedure StartHandshake;
     function ProvideHandshakeData(ALevel: TTlsEpoch; const AData: TBytes;
       AOffset, ALength: Int32): TTlsOutcome;
-    function NextOutput(out AOutput: THandshakeOutput): Boolean;
+    function NextOutput(out AOutput: TTls13HandshakeOutput): Boolean;
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
     procedure LatchTransportFailure(const AReason: string);
@@ -103,9 +103,9 @@ resourcestring
   SProvideSliceOutOfRange = 'the ProvideHandshakeData (offset, length) slice is out of range';
   SWrongInputLevel = 'handshake data arrived at a level other than the one being read';
 
-{ TTlsHandshakeEngine }
+{ TTls13HandshakeEngine }
 
-constructor TTlsHandshakeEngine.Create(const AMachine: IHandshakeMachine;
+constructor TTls13HandshakeEngine.Create(const AMachine: IHandshakeMachine;
   AMaxCertificateMessageLength: Int32; const AHostResults: ITlsHostExtensionResults;
   const ASessionData: ITlsSessionApplicationData);
 var
@@ -123,14 +123,14 @@ begin
   FConductor := THandshakeConductor.Create(FChannelRef, LDriver, AMachine);
 end;
 
-destructor TTlsHandshakeEngine.Destroy;
+destructor TTls13HandshakeEngine.Destroy;
 begin
   // the conductor owns the driver, which holds the channel and the outcome
   FConductor.Free;
   inherited Destroy;
 end;
 
-procedure TTlsHandshakeEngine.Settle;
+procedure TTls13HandshakeEngine.Settle;
 var
   LKeep, LI: Int32;
 begin
@@ -141,14 +141,14 @@ begin
     LKeep := -1;
     if FOutcome.LastError.Origin = TTlsErrorOrigin.Local then
       for LI := FChannel.Queue.Count - 1 downto 0 do
-        if FChannel.Queue[LI].Kind = THandshakeOutputKind.HandshakeData then
+        if FChannel.Queue[LI].Kind = TTls13HandshakeOutputKind.HandshakeData then
         begin
           LKeep := LI;
           Break;
         end;
     for LI := FChannel.Queue.Count - 1 downto 0 do
       if (FOutcome.LastError.Origin <> TTlsErrorOrigin.Local) or
-        ((LI > LKeep) and (FChannel.Queue[LI].Kind <> THandshakeOutputKind.WriteSecret)) then
+        ((LI > LKeep) and (FChannel.Queue[LI].Kind <> TTls13HandshakeOutputKind.WriteSecret)) then
         FChannel.Queue.Delete(LI);
     if not FSettled then
     begin
@@ -164,11 +164,11 @@ begin
   if FOutcome.IsEstablished and not FCompleteQueued then
   begin
     FCompleteQueued := True;
-    FChannel.Enqueue(THandshakeOutputKind.HandshakeComplete, FChannel.WriteLevel, nil);
+    FChannel.Enqueue(TTls13HandshakeOutputKind.HandshakeComplete, FChannel.WriteLevel, nil);
   end;
 end;
 
-procedure TTlsHandshakeEngine.StartHandshake;
+procedure TTls13HandshakeEngine.StartHandshake;
 begin
   if FOutcome.IsTerminal then
     Exit;
@@ -191,7 +191,7 @@ begin
   Settle;
 end;
 
-function TTlsHandshakeEngine.ProvideHandshakeData(ALevel: TTlsEpoch;
+function TTls13HandshakeEngine.ProvideHandshakeData(ALevel: TTlsEpoch;
   const AData: TBytes; AOffset, ALength: Int32): TTlsOutcome;
 begin
   if FDraining then
@@ -228,18 +228,18 @@ begin
   Result := TTlsOutcome.NeedMoreInput;
 end;
 
-function TTlsHandshakeEngine.NextOutput(out AOutput: THandshakeOutput): Boolean;
+function TTls13HandshakeEngine.NextOutput(out AOutput: TTls13HandshakeOutput): Boolean;
 begin
-  AOutput := Default(THandshakeOutput);
+  AOutput := Default(TTls13HandshakeOutput);
   Result := FChannel.TryTake(AOutput);
 end;
 
-function TTlsHandshakeEngine.NextEvent(out AEvent: ITlsEvent): Boolean;
+function TTls13HandshakeEngine.NextEvent(out AEvent: ITlsEvent): Boolean;
 begin
   Result := FOutcome.NextEvent(AEvent);
 end;
 
-procedure TTlsHandshakeEngine.SetCertificateVerdict(AAccept: Boolean;
+procedure TTls13HandshakeEngine.SetCertificateVerdict(AAccept: Boolean;
   AAlert: TTlsAlertDescription);
 begin
   if FDraining then
@@ -261,7 +261,7 @@ begin
   Settle;
 end;
 
-procedure TTlsHandshakeEngine.LatchTransportFailure(const AReason: string);
+procedure TTls13HandshakeEngine.LatchTransportFailure(const AReason: string);
 begin
   // not a fatal alert, so sessions stay (RFC 5246 7.2.1)
   if FOutcome.IsTerminal then
@@ -273,32 +273,32 @@ begin
   FChannel.Queue.Clear;
 end;
 
-function TTlsHandshakeEngine.IsHandshaking: Boolean;
+function TTls13HandshakeEngine.IsHandshaking: Boolean;
 begin
   Result := (not FOutcome.IsTerminal) and (not FOutcome.IsEstablished);
 end;
 
-function TTlsHandshakeEngine.AwaitingCertificateVerdict: Boolean;
+function TTls13HandshakeEngine.AwaitingCertificateVerdict: Boolean;
 begin
   Result := FConductor.AwaitingVerdict;
 end;
 
-function TTlsHandshakeEngine.IsTerminal: Boolean;
+function TTls13HandshakeEngine.IsTerminal: Boolean;
 begin
   Result := FOutcome.IsTerminal;
 end;
 
-function TTlsHandshakeEngine.LastError: TTlsError;
+function TTls13HandshakeEngine.LastError: TTlsError;
 begin
   Result := FOutcome.LastError;
 end;
 
-function TTlsHandshakeEngine.ConnectionInfo: TTlsConnectionInfo;
+function TTls13HandshakeEngine.ConnectionInfo: TTlsConnectionInfo;
 begin
   Result := FOutcome.Info;
 end;
 
-function TTlsHandshakeEngine.ExportKeyingMaterial(const ALabel: string;
+function TTls13HandshakeEngine.ExportKeyingMaterial(const ALabel: string;
   ALength: Int32): TBytes;
 begin
   // nothing before the exporter secret exists, while parked, or once failed
@@ -307,7 +307,7 @@ begin
   Result := FConductor.ExportKeyingMaterial(ALabel, ALength);
 end;
 
-function TTlsHandshakeEngine.ExportKeyingMaterial(const ALabel: string;
+function TTls13HandshakeEngine.ExportKeyingMaterial(const ALabel: string;
   const AContext: TBytes; ALength: Int32): TBytes;
 begin
   if FOutcome.IsTerminal or (not FConductor.CanExportKeyingMaterial) then
@@ -315,7 +315,7 @@ begin
   Result := FConductor.ExportKeyingMaterial(ALabel, AContext, ALength);
 end;
 
-function TTlsHandshakeEngine.ExportEarlyKeyingMaterial(const ALabel: string;
+function TTls13HandshakeEngine.ExportEarlyKeyingMaterial(const ALabel: string;
   const AContext: TBytes; ALength: Int32): TBytes;
 begin
   // available on a client once it offers 0-RTT and on a server once it accepts it

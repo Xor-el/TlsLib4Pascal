@@ -9,7 +9,7 @@
 
 (* &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&& *)
 
-unit TlpITlsHandshakeEngine;
+unit TlpITls13HandshakeEngine;
 
 {$I ..\..\Include\TlsLib.inc}
 
@@ -22,7 +22,7 @@ uses
   TlpTlsConnectionInfo,
   TlpIKeySchedule,
   TlpITlsEngine,
-  TlpHandshakeOutput;
+  TlpTls13HandshakeOutput;
 
 type
   /// <summary>
@@ -42,8 +42,8 @@ type
   /// and a mismatch ends the connection without an alert. Single-threaded:
   /// the caller serializes access.
   /// </summary>
-  ITlsHandshakeEngine = interface(IInterface)
-    ['{58A3D7C1-E94B-4B02-8D16-27F0B65C4A93}']
+  ITls13HandshakeEngine = interface(IInterface)
+    ['{3E5B7A12-9C4D-4F86-A1D3-6B2E80F4C759}']
     /// <summary>Starts the handshake: a client queues its ClientHello; a server waits for one.
     /// Raises EInvalidOperationTlsLibException when called twice.</summary>
     procedure StartHandshake;
@@ -59,7 +59,7 @@ type
     /// False when none is queued. After a failure with an alert, everything queued up to the last
     /// handshake bytes stays, plus every write secret queued after them; after any other failure
     /// nothing does. A secret is the host's from here on.</summary>
-    function NextOutput(out AOutput: THandshakeOutput): Boolean;
+    function NextOutput(out AOutput: TTls13HandshakeOutput): Boolean;
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     /// <summary>Resumes a handshake parked on a peer-certificate verdict; a no-op otherwise.</summary>
     procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);

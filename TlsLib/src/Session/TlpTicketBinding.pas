@@ -19,7 +19,7 @@ type
   /// <summary>
   /// Which kind of engine minted a TLS 1.3 session. A ticket resumes only on the kind that minted
   /// it, so settings one kind attaches to a ticket never reach another. HandshakeEngine is an
-  /// engine whose host owns record protection.
+  /// engine whose host owns record protection (the TLS 1.3 handshake-only engine).
   /// </summary>
   TTicketBinding = (RecordEngine, HandshakeEngine);
 

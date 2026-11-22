@@ -1,8 +1,8 @@
-# Handshake-only engine
+# TLS 1.3 handshake-only engine
 
 **TlsLib4Pascal docs** · [Home](README.md) · [Getting started](getting-started.md) · [Cookbook](cookbook.md) · [Verification](certificate-verification.md) · [System trust](system-trust.md) · [Compression](certificate-compression.md) · [ECH](ech.md) · [Compliance](compliance.md) · [Security model](security-model.md)
 
-`ITlsHandshakeEngine` runs a TLS 1.3 handshake for a **host that owns record protection and the key
+`ITls13HandshakeEngine` runs a TLS 1.3 handshake for a **host that owns record protection and the key
 lifecycle**: a transport that frames and protects its own data (the arrangement RFC 9001 describes)
 and wants TLS only for the handshake. The engine exchanges handshake messages per
 encryption level and hands the host the traffic secrets. It holds no traffic keys, so it never seals
@@ -29,9 +29,9 @@ the config applies to every key operation here as it does there.
 ## Creating one
 
 ```pascal
-LClient := TTlsEngineFactory.CreateHandshakeClientEngine(LClientConfig, 'example.com',
+LClient := TTlsEngineFactory.CreateTls13HandshakeClientEngine(LClientConfig, 'example.com',
   LHostExtensions, LTicketEarlyDataLimit);
-LServer := TTlsEngineFactory.CreateHandshakeServerEngine(LServerConfig, LHostExtensions,
+LServer := TTlsEngineFactory.CreateTls13HandshakeServerEngine(LServerConfig, LHostExtensions,
   LTicketEarlyDataLimit, LEarlyDataContext);
 ```
 
@@ -59,10 +59,10 @@ repeat
   // drain after every feed, so the step that completes the handshake is not left in the queue
   while LClient.NextOutput(LOutput) do
     case LOutput.Kind of
-      THandshakeOutputKind.HandshakeData:  Send(LOutput.Level, LOutput.Data);
-      THandshakeOutputKind.ReadSecret:     InstallRead(LOutput.Level, LOutput.Secret);
-      THandshakeOutputKind.WriteSecret:    InstallWrite(LOutput.Level, LOutput.Secret);
-      THandshakeOutputKind.HandshakeComplete: ...
+      TTls13HandshakeOutputKind.HandshakeData:  Send(LOutput.Level, LOutput.Data);
+      TTls13HandshakeOutputKind.ReadSecret:     InstallRead(LOutput.Level, LOutput.Secret);
+      TTls13HandshakeOutputKind.WriteSecret:    InstallWrite(LOutput.Level, LOutput.Secret);
+      TTls13HandshakeOutputKind.HandshakeComplete: ...
     end;
   if LClient.IsTerminal then
     Break;
@@ -115,7 +115,7 @@ handshake that selects no ALPN protocol; a host that requires one fails the conn
 
 ## Tickets
 
-A ticket minted by this engine carries its engine kind and resumes only on a handshake-only engine,
+A ticket minted by this engine carries its engine kind and resumes only on a TLS 1.3 handshake-only engine,
 and a record engine's ticket is never offered to or accepted by this one, so a budget the host fixed
 never becomes a record engine's early-data window. A client cache keeps the kinds under separate keys.
 

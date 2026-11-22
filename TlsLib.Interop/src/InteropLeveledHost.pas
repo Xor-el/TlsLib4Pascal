@@ -27,8 +27,8 @@ uses
   TlpISecretBuffer,
   TlpIKeySchedule,
   TlpITlsEngine,
-  TlpITlsHandshakeEngine,
-  TlpHandshakeOutput,
+  TlpITls13HandshakeEngine,
+  TlpTls13HandshakeOutput,
   InteropSocket,
   InteropUtils;
 
@@ -38,10 +38,10 @@ type
   TInteropLeveledStatus = (Progressed, Closed, Failed);
 
   /// <summary>
-  /// The host of a handshake-only engine over the reference runner's leveled record framing: each
-  /// record is a type byte, a level byte, the cipher suite, a four-byte length and the level's
-  /// traffic secret followed by the payload, so both sides check that they agree on the keys. The
-  /// host owns the per-level secrets the engine hands out, writes the engine's handshake bytes at
+  /// The host of a TLS 1.3 handshake-only engine over the reference runner's leveled record
+  /// framing: each record is a type byte, a level byte, the cipher suite, a four-byte length and
+  /// the level's traffic secret followed by the payload, so both sides check that they agree on
+  /// the keys. The host owns the per-level secrets the engine hands out, writes the engine's handshake bytes at
   /// the level it names, feeds the engine what the peer sends at the level it arrived on, and
   /// carries application data. A local failure goes out as an alert record at the latest
   /// handshake or application write level, after any flight the engine produced before it.
@@ -58,7 +58,7 @@ type
     TLevelKeys = array[TTlsEpoch] of TLevelKey;
     TReceive = (Received, EndOfStream, Truncated);
   var
-    FEngine: ITlsHandshakeEngine;
+    FEngine: ITls13HandshakeEngine;
     FSocket: TInteropSocket;
     FIsServer: Boolean;
     FRequireAlpn: Boolean;
@@ -75,14 +75,14 @@ type
     function ReadRecord(out AType: Byte; out ALevel: TTlsEpoch;
       out AData: TBytes): TInteropLeveledStatus;
     procedure SendAlert(AAlertByte: Byte);
-    function Collect: TArray<THandshakeOutput>;
-    procedure Transmit(const AOutputs: TArray<THandshakeOutput>);
-    function EngineFailed(const AOutputs: TArray<THandshakeOutput>): TInteropLeveledStatus;
+    function Collect: TArray<TTls13HandshakeOutput>;
+    procedure Transmit(const AOutputs: TArray<TTls13HandshakeOutput>);
+    function EngineFailed(const AOutputs: TArray<TTls13HandshakeOutput>): TInteropLeveledStatus;
   public
     /// <summary>ARequireAlpn makes the host abort a connection that settles on no ALPN protocol,
     /// before it transmits what the engine produced at that step; AAcceptVerdict is the answer it
     /// gives when the engine parks on a certificate verdict.</summary>
-    constructor Create(const AEngine: ITlsHandshakeEngine; const ASocket: TInteropSocket;
+    constructor Create(const AEngine: ITls13HandshakeEngine; const ASocket: TInteropSocket;
       AIsServer, ARequireAlpn, AAcceptVerdict: Boolean);
     destructor Destroy; override;
     /// <summary>Starts the handshake and sends what the engine produced.</summary>
@@ -131,7 +131,7 @@ begin
   Result.Secret := ASecret.Secret.ToBytes;
 end;
 
-constructor TInteropLeveledHost.Create(const AEngine: ITlsHandshakeEngine;
+constructor TInteropLeveledHost.Create(const AEngine: ITls13HandshakeEngine;
   const ASocket: TInteropSocket; AIsServer, ARequireAlpn, AAcceptVerdict: Boolean);
 begin
   inherited Create;
@@ -317,29 +317,29 @@ begin
   end;
 end;
 
-function TInteropLeveledHost.Collect: TArray<THandshakeOutput>;
+function TInteropLeveledHost.Collect: TArray<TTls13HandshakeOutput>;
 var
-  LOutput: THandshakeOutput;
+  LOutput: TTls13HandshakeOutput;
 begin
   if FEngine.AwaitingCertificateVerdict then
     FEngine.SetCertificateVerdict(FAcceptVerdict, TTlsAlertDescription.BadCertificate);
   Result := nil;
   while FEngine.NextOutput(LOutput) do
-    TArrayUtilities.Append<THandshakeOutput>(Result, LOutput);
+    TArrayUtilities.Append<TTls13HandshakeOutput>(Result, LOutput);
 end;
 
-procedure TInteropLeveledHost.Transmit(const AOutputs: TArray<THandshakeOutput>);
+procedure TInteropLeveledHost.Transmit(const AOutputs: TArray<TTls13HandshakeOutput>);
 var
-  LOutput: THandshakeOutput;
+  LOutput: TTls13HandshakeOutput;
   LEvent: ITlsEvent;
 begin
   for LOutput in AOutputs do
     case LOutput.Kind of
-      THandshakeOutputKind.HandshakeData:
+      TTls13HandshakeOutputKind.HandshakeData:
         WriteRecord(RecordHandshake, LOutput.Level, LOutput.Data);
-      THandshakeOutputKind.ReadSecret:
+      TTls13HandshakeOutputKind.ReadSecret:
         FRead[LOutput.Level] := TLevelKey.From(LOutput.Secret);
-      THandshakeOutputKind.WriteSecret:
+      TTls13HandshakeOutputKind.WriteSecret:
         begin
           FWrite[LOutput.Level] := TLevelKey.From(LOutput.Secret);
           // an early-data key never carries handshake bytes or alerts
@@ -348,7 +348,7 @@ begin
           if FIsServer and (LOutput.Level = TTlsEpoch.Application) then
             FFlightSent := True;
         end;
-      THandshakeOutputKind.HandshakeComplete:
+      TTls13HandshakeOutputKind.HandshakeComplete:
         FComplete := True;
     end;
   while FEngine.NextEvent(LEvent) do
@@ -361,7 +361,7 @@ begin
 end;
 
 function TInteropLeveledHost.EngineFailed(
-  const AOutputs: TArray<THandshakeOutput>): TInteropLeveledStatus;
+  const AOutputs: TArray<TTls13HandshakeOutput>): TInteropLeveledStatus;
 var
   LError: TTlsError;
 begin
@@ -398,8 +398,8 @@ var
   LType: Byte;
   LLevel: TTlsEpoch;
   LData: TBytes;
-  LOutputs: TArray<THandshakeOutput>;
-  LOutput: THandshakeOutput;
+  LOutputs: TArray<TTls13HandshakeOutput>;
+  LOutput: TTls13HandshakeOutput;
   LSettled: Boolean;
 begin
   AApp := nil;
@@ -419,10 +419,10 @@ begin
         // when it answers at the handshake level; it is checked before any of that is transmitted
         LSettled := False;
         for LOutput in LOutputs do
-          if (FIsServer and (LOutput.Kind = THandshakeOutputKind.WriteSecret) and
+          if (FIsServer and (LOutput.Kind = TTls13HandshakeOutputKind.WriteSecret) and
             (LOutput.Level = TTlsEpoch.Handshake)) or
-            ((not FIsServer) and ((LOutput.Kind = THandshakeOutputKind.HandshakeComplete) or
-            ((LOutput.Kind = THandshakeOutputKind.HandshakeData) and
+            ((not FIsServer) and ((LOutput.Kind = TTls13HandshakeOutputKind.HandshakeComplete) or
+            ((LOutput.Kind = TTls13HandshakeOutputKind.HandshakeData) and
             (LOutput.Level = TTlsEpoch.Handshake)))) then
             LSettled := True;
         if FRequireAlpn and (not FAlpnChecked) and LSettled then

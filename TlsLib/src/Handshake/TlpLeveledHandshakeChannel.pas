@@ -23,11 +23,12 @@ uses
   TlpHandshakeMessage,
   TlpIHandshakeChannel,
   TlpIHandshakeMachine,
-  TlpHandshakeOutput;
+  TlpTls13HandshakeOutput;
 
 type
   /// <summary>
-  /// A handshake channel with no record layer under it, for a host that protects records itself:
+  /// A TLS 1.3 handshake channel with no record layer under it, for a host that protects records
+  /// itself:
   /// each handshake message and each installed traffic secret is queued, in the order the
   /// machine produced it, for the host to pull, and inbound handshake bytes are reassembled into
   /// messages. Handshake bytes ride the level of the latest Handshake or Application write
@@ -40,7 +41,7 @@ type
   strict private
   var
     FReader: THandshakeMessageReader;
-    FOutputs: TList<THandshakeOutput>;
+    FOutputs: TList<TTls13HandshakeOutput>;
     FReadLevel: TTlsEpoch;
     FWriteLevel: TTlsEpoch;
   public
@@ -56,16 +57,16 @@ type
     procedure InstallWriteSecret(AEpoch: TTlsEpoch; const ASecret: ITrafficSecret);
 
     /// <summary>Queues a secret or the end of the handshake after everything queued so far.</summary>
-    procedure Enqueue(AKind: THandshakeOutputKind; ALevel: TTlsEpoch;
+    procedure Enqueue(AKind: TTls13HandshakeOutputKind; ALevel: TTlsEpoch;
       const ASecret: ITrafficSecret);
     /// <summary>Dequeues the oldest queued item; False when none is queued.</summary>
-    function TryTake(out AOutput: THandshakeOutput): Boolean;
+    function TryTake(out AOutput: TTls13HandshakeOutput): Boolean;
     /// <summary>The level inbound handshake bytes must belong to now.</summary>
     property ReadLevel: TTlsEpoch read FReadLevel;
     /// <summary>The level outbound handshake bytes ride now.</summary>
     property WriteLevel: TTlsEpoch read FWriteLevel;
     /// <summary>The queued items, oldest first; the owner may count or clear them.</summary>
-    property Queue: TList<THandshakeOutput> read FOutputs;
+    property Queue: TList<TTls13HandshakeOutput> read FOutputs;
   end;
 
 implementation
@@ -76,7 +77,7 @@ constructor TLeveledHandshakeChannel.Create(AMaxCertificateMessageLength: Int32)
 begin
   inherited Create;
   FReader := THandshakeMessageReader.Create(AMaxCertificateMessageLength);
-  FOutputs := TList<THandshakeOutput>.Create;
+  FOutputs := TList<TTls13HandshakeOutput>.Create;
   FReadLevel := TTlsEpoch.Plaintext;
   FWriteLevel := TTlsEpoch.Plaintext;
 end;
@@ -88,12 +89,12 @@ begin
   inherited Destroy;
 end;
 
-procedure TLeveledHandshakeChannel.Enqueue(AKind: THandshakeOutputKind;
+procedure TLeveledHandshakeChannel.Enqueue(AKind: TTls13HandshakeOutputKind;
   ALevel: TTlsEpoch; const ASecret: ITrafficSecret);
 var
-  LOutput: THandshakeOutput;
+  LOutput: TTls13HandshakeOutput;
 begin
-  LOutput := Default(THandshakeOutput);
+  LOutput := Default(TTls13HandshakeOutput);
   LOutput.Kind := AKind;
   LOutput.Level := ALevel;
   LOutput.Secret := ASecret;
@@ -102,21 +103,21 @@ end;
 
 procedure TLeveledHandshakeChannel.SendHandshake(const AMessage: TBytes);
 var
-  LOutput: THandshakeOutput;
+  LOutput: TTls13HandshakeOutput;
 begin
   // consecutive messages of one level reach the host as one run of bytes
   if FOutputs.Count > 0 then
   begin
     LOutput := FOutputs[FOutputs.Count - 1];
-    if (LOutput.Kind = THandshakeOutputKind.HandshakeData) and (LOutput.Level = FWriteLevel) then
+    if (LOutput.Kind = TTls13HandshakeOutputKind.HandshakeData) and (LOutput.Level = FWriteLevel) then
     begin
       LOutput.Data := TArrayUtilities.Concat(LOutput.Data, AMessage);
       FOutputs[FOutputs.Count - 1] := LOutput;
       Exit;
     end;
   end;
-  LOutput := Default(THandshakeOutput);
-  LOutput.Kind := THandshakeOutputKind.HandshakeData;
+  LOutput := Default(TTls13HandshakeOutput);
+  LOutput.Kind := TTls13HandshakeOutputKind.HandshakeData;
   LOutput.Level := FWriteLevel;
   LOutput.Data := System.Copy(AMessage);
   FOutputs.Add(LOutput);
@@ -144,7 +145,7 @@ procedure TLeveledHandshakeChannel.InstallReadSecret(AEpoch: TTlsEpoch;
 begin
   if AEpoch in [TTlsEpoch.Handshake, TTlsEpoch.Application] then
     FReadLevel := AEpoch;
-  Enqueue(THandshakeOutputKind.ReadSecret, AEpoch, ASecret);
+  Enqueue(TTls13HandshakeOutputKind.ReadSecret, AEpoch, ASecret);
 end;
 
 procedure TLeveledHandshakeChannel.InstallWriteSecret(AEpoch: TTlsEpoch;
@@ -152,10 +153,10 @@ procedure TLeveledHandshakeChannel.InstallWriteSecret(AEpoch: TTlsEpoch;
 begin
   if AEpoch in [TTlsEpoch.Handshake, TTlsEpoch.Application] then
     FWriteLevel := AEpoch;
-  Enqueue(THandshakeOutputKind.WriteSecret, AEpoch, ASecret);
+  Enqueue(TTls13HandshakeOutputKind.WriteSecret, AEpoch, ASecret);
 end;
 
-function TLeveledHandshakeChannel.TryTake(out AOutput: THandshakeOutput): Boolean;
+function TLeveledHandshakeChannel.TryTake(out AOutput: TTls13HandshakeOutput): Boolean;
 begin
   Result := FOutputs.Count > 0;
   if not Result then

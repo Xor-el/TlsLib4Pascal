@@ -60,7 +60,7 @@ uses
   SessionStoreTests,
   HostExtensionTests,
   ResumptionFeatureTests,
-  HandshakeEngineTests,
+  Tls13HandshakeEngineTests,
   CertificateCompressionCacheTests,
   CertificateCompressionTests,
   DataEncodingTests,

@@ -48,7 +48,7 @@ uses
   TlpCertificateVerifierSource,
   TlpTlsPresets,
   TlpITlsEngine,
-  TlpITlsHandshakeEngine,
+  TlpITls13HandshakeEngine,
   TlpITlsHostExtension,
   TlpTlsEngineFactory;
 
@@ -244,12 +244,12 @@ type
     /// <summary>A client or server engine ready for the harness pump.</summary>
     class function Build(const ACryptoProvider: ICryptoProvider;
       const AOptions: TInteropEngineOptions): ITlsEngine; static;
-    /// <summary>As Build, for a host that owns record protection: a handshake-only engine over
+    /// <summary>As Build, for a host that owns record protection: a TLS 1.3 handshake-only engine over
     /// the same config, with the host's extensions, ticket early-data limit and (server)
     /// early-data context.</summary>
     class function BuildHandshake(const ACryptoProvider: ICryptoProvider;
       const AOptions: TInteropEngineOptions; const AHostExtensions: TArray<ITlsHostExtension>;
-      ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITlsHandshakeEngine; static;
+      ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITls13HandshakeEngine; static;
   end;
 
 implementation
@@ -714,17 +714,17 @@ end;
 
 class function TInteropEngine.BuildHandshake(const ACryptoProvider: ICryptoProvider;
   const AOptions: TInteropEngineOptions; const AHostExtensions: TArray<ITlsHostExtension>;
-  ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITlsHandshakeEngine;
+  ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITls13HandshakeEngine;
 var
   LClientConfig: ITlsClientConfig;
   LServerConfig: ITlsServerConfig;
 begin
   Configure(ACryptoProvider, AOptions, LClientConfig, LServerConfig);
   if AOptions.Role = TInteropRole.Client then
-    Result := TTlsEngineFactory.CreateHandshakeClientEngine(LClientConfig, AOptions.ServerName,
+    Result := TTlsEngineFactory.CreateTls13HandshakeClientEngine(LClientConfig, AOptions.ServerName,
       AHostExtensions, ATicketEarlyDataLimit)
   else
-    Result := TTlsEngineFactory.CreateHandshakeServerEngine(LServerConfig, AHostExtensions,
+    Result := TTlsEngineFactory.CreateTls13HandshakeServerEngine(LServerConfig, AHostExtensions,
       ATicketEarlyDataLimit, AEarlyDataContext);
 end;
 
