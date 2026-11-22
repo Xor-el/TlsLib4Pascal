@@ -1994,7 +1994,8 @@ begin
   Result := (System.Length(FExternalPsks) > 0) or (not FExternalPskRequired) or
     FClientEarlyData or (FMaxEarlyData > 0) or (FTicketCount <> DefaultTicketCount) or
     (FAntiReplay <> nil) or (System.Length(FEarlyDataContext) > 0) or (FEchMode <> nil) or
-    (FEchServerPolicy <> nil) or FCompressorsSet or FDecompressorsSet or (FCertificateCompressionCache <> nil);
+    (FEchServerPolicy <> nil) or FCompressorsSet or FDecompressorsSet or
+    (FCertificateCompressionCache <> nil);
 end;
 
 function TTlsConfigBuilder.Tls12FacetConfigured: Boolean;

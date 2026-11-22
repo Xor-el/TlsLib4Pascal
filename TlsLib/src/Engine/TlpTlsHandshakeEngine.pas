@@ -136,8 +136,8 @@ var
 begin
   if FOutcome.IsTerminal then
   begin
-    // an alert follows the flight the machine had already produced, as on a record engine, under
-    // the write keys installed by then; nothing else queued outlives the failure
+    // an alert follows what the machine had produced, as on a record engine, under the write keys
+    // installed by then; of the rest only those keys outlive the failure
     LKeep := -1;
     if FOutcome.LastError.Origin = TTlsErrorOrigin.Local then
       for LI := FChannel.Queue.Count - 1 downto 0 do
@@ -146,8 +146,9 @@ begin
           LKeep := LI;
           Break;
         end;
-    for LI := FChannel.Queue.Count - 1 downto LKeep + 1 do
-      if (LKeep < 0) or (FChannel.Queue[LI].Kind <> THandshakeOutputKind.WriteSecret) then
+    for LI := FChannel.Queue.Count - 1 downto 0 do
+      if (FOutcome.LastError.Origin <> TTlsErrorOrigin.Local) or
+        ((LI > LKeep) and (FChannel.Queue[LI].Kind <> THandshakeOutputKind.WriteSecret)) then
         FChannel.Queue.Delete(LI);
     if not FSettled then
     begin

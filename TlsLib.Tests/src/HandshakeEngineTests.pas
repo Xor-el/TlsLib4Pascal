@@ -157,13 +157,16 @@ type
     procedure TestTicketWithAnExplicitZeroLimitFails;
     procedure TestHostWipingItsSecretsLeavesTheHandshakeIntact;
     procedure TestZeroRttWithEchIsAccepted;
-    procedure TestComplianceGatedProviderRefusesWhatItsRulesRefuse;
+    procedure TestComplianceGatedProviderRefusesTheConfigItBuildsFrom;
     procedure TestInputAtAnotherLevelFails;
     procedure TestMessageStraddlingAKeyChangeFails;
     procedure TestRfc9001ClientHelloIsServedWithItsLimitIgnored;
     procedure TestAlpnIsVisibleBeforeAnythingIsPulled;
     procedure TestTicketCarriesTheFixedEarlyDataLimit;
     procedure TestMismatchedTicketLimitFailsWithoutAnAlert;
+    procedure TestClientHandshakeWriteSecretFollowsTheServerHelloAfterAZeroRttOffer;
+    procedure TestZeroLimitLeavesTheTicketValueUnchecked;
+    procedure TestClientWithoutACacheIgnoresTickets;
     procedure TestResumptionUsesTheTicketOfItsOwnKind;
     procedure TestZeroRttIsAcceptedAndKeysAgree;
     procedure TestZeroRttIsRejectedAfterARetry;
@@ -173,6 +176,7 @@ type
     procedure TestEchAccepted;
     procedure TestEchRejectedFailsTheClientWithEchRequired;
     procedure TestEchRejectedClientStillAnswersACertificateRequest;
+    procedure TestWriteSecretQueuedBeforeAnAlertFailureStaysPullable;
     procedure TestAsyncVerdictParksAndResumes;
     procedure TestAsyncVerdictRejectIsReported;
     procedure TestKeyLogReceivesTheHandshakeSecrets;
@@ -780,7 +784,7 @@ begin
     SecretOf(FServerLog, THandshakeOutputKind.ReadSecret, TTlsEpoch.EarlyData));
 end;
 
-procedure TTestHandshakeEngine.TestComplianceGatedProviderRefusesWhatItsRulesRefuse;
+procedure TTestHandshakeEngine.TestComplianceGatedProviderRefusesTheConfigItBuildsFrom;
 var
   LGated: ICryptoProvider;
   LRefused: Boolean;
@@ -789,17 +793,18 @@ begin
     TOverlayCryptoProvider.Create(Crypto, Crypto.Primitives, nil,
     TFakeBackendReport.Create([]) as ICryptoBackendReport, nil) as ICryptoProvider,
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
-  // the default group is one the rules refuse, and the engine does not get round the gate
+  // the preset's default group is one the rules refuse, and the refusal comes while the config is
+  // built, so no handshake-only engine is ever created over a provider that would refuse it
   LRefused := False;
   try
-    NewClient(TTlsPresets.Hardened(LGated, Pkix).Client
+    TTlsPresets.Hardened(LGated, Pkix).Client
       .WithServerVerification(
-        TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build);
+        TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
   except
     on EComplianceRefusedTlsLibException do
       LRefused := True;
   end;
-  CheckTrue(LRefused, 'a group the rules refuse is refused');
+  CheckTrue(LRefused, 'a group the rules refuse is refused when the config is built');
 end;
 
 procedure TTestHandshakeEngine.TestInputAtAnotherLevelFails;
@@ -905,6 +910,51 @@ begin
   Run(LClient, LServer);
   CheckLocalWithoutAlert(LClient, 'a limit the host did not fix');
   CheckEquals(0, LCache.Count, 'the ticket was not cached');
+end;
+
+procedure TTestHandshakeEngine.TestClientHandshakeWriteSecretFollowsTheServerHelloAfterAZeroRttOffer;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+  LOutput: THandshakeOutput;
+begin
+  LCache := TInMemorySessionCache.Create;
+  Seed(LCache);
+  LClient := NewClient(ClientResuming(LCache, True));
+  LServer := NewServer(ServerResuming(True));
+  LClient.StartHandshake;
+  Deliver(LClient, LServer, FClientLog);
+  CheckTrue(LServer.NextOutput(LOutput), 'the ServerHello');
+  LClient.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data));
+  CheckTrue(LClient.NextOutput(LOutput), 'the handshake read secret');
+  CheckEquals(Ord(THandshakeOutputKind.ReadSecret), Ord(LOutput.Kind), 'a read secret first');
+  CheckTrue(LClient.NextOutput(LOutput), 'the handshake write secret follows at once');
+  CheckEquals(Ord(THandshakeOutputKind.WriteSecret), Ord(LOutput.Kind), 'a write secret');
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LOutput.Level), 'at the handshake level');
+end;
+
+procedure TTestHandshakeEngine.TestZeroLimitLeavesTheTicketValueUnchecked;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := TTlsEngineFactory.CreateHandshakeClientEngine(ClientResuming(LCache, False),
+    ServerHost, nil, 0);
+  LServer := NewServer(ServerResuming(True));
+  Run(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the client took the ticket');
+  CheckTrue(LCache.Count > 0, 'and cached it');
+end;
+
+procedure TTestHandshakeEngine.TestClientWithoutACacheIgnoresTickets;
+var
+  LClient, LServer: ITlsHandshakeEngine;
+begin
+  LClient := TTlsEngineFactory.CreateHandshakeClientEngine(ClientConfig, ServerHost, nil, 1234);
+  LServer := NewServer(ServerResuming(True));
+  Run(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'tickets it does not keep are ignored, whatever they advertise');
 end;
 
 procedure TTestHandshakeEngine.TestResumptionUsesTheTicketOfItsOwnKind;
@@ -1107,6 +1157,28 @@ begin
       LAnswered := True;
   CheckTrue(LAnswered, 'the answer to the CertificateRequest');
   CheckFalse(LClient.NextOutput(LOutput), 'nothing is left once the flight is taken');
+end;
+
+procedure TTestHandshakeEngine.TestWriteSecretQueuedBeforeAnAlertFailureStaysPullable;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+  LOtherRoot: TBytes;
+begin
+  LCache := TInMemorySessionCache.Create;
+  Seed(LCache);
+  LOtherRoot := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
+  // the client offers 0-RTT; the server's ticket keys differ, so it runs a full handshake, and the
+  // client, which drops its early key at EncryptedExtensions, then rejects the chain in that delivery
+  LClient := NewClient(ClientBuilder.WithServerVerification(
+    TServerVerification.WebPki(LOtherRoot).Build).WithResumption(True).WithSessionCache(LCache)
+    .WithResumptionScope(FScope).Tls13.WithEarlyData(True).Build);
+  LServer := NewServer(ServerConfig);
+  Run(LClient, LServer);
+  CheckTrue(LClient.IsTerminal, 'the client rejected the chain');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LClient.LastError.Origin), 'with an alert');
+  CheckTrue(HasOutput(FClientLog, THandshakeOutputKind.WriteSecret, TTlsEpoch.Handshake),
+    'the handshake write secret the alert goes out under is still pulled');
 end;
 
 procedure TTestHandshakeEngine.TestAsyncVerdictParksAndResumes;

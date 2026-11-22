@@ -783,12 +783,12 @@ the connection, say). Reach `ITlsSessionApplicationData` with `Supports` on the 
 `SetSessionApplicationData` before the tickets arrive, and every ticket received after that carries
 the bytes; `OfferedSessionApplicationData` returns what the offered ticket carried, right after
 `StartHandshake` (empty when no resumption is offered). Only a client engine from the factory
-answers the interface, since a server has no ticket to attach them to. A custom `ISessionCache` or `ISessionStore` must persist what
-`ITls13ResumableSession` now carries (`EarlyDataContext`, `ApplicationData` and `TicketBinding`) and
+answers the interface, since a server has no ticket to attach them to. A custom `ISessionCache` or
+`ISessionStore` must persist what `ITls13ResumableSession` now carries (`EarlyDataContext`, `ApplicationData` and `TicketBinding`) and
 rebuild a session with the long-form `TTls13ResumableSession.Create`.
 
-A ticket sealed under another ticket format draws a full handshake, never a failure. A ticket carries the kind of engine that minted it and
-is offered and resumed only by that kind.
+A ticket sealed under another ticket format draws a full handshake, never a failure. A ticket
+carries the kind of engine that minted it and is offered and resumed only by that kind.
 
 ## 0-RTT early data
 

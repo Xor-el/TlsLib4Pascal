@@ -34,7 +34,10 @@ type
   /// through LastError, and the host maps it. Everything flows by pull: the host feeds the bytes
   /// of one level, then drains NextOutput (handshake bytes per level, the secrets to install, the
   /// end of the handshake) and NextEvent. No host extension or transport callback runs inside a
-  /// call; the host inspects ALPN and extension bodies between input and output. Single-threaded:
+  /// call; the host inspects ALPN and extension bodies between input and output. The engine
+  /// accepts a handshake that selects no ALPN protocol (a host that requires one fails the
+  /// connection itself, with no_application_protocol), and bytes at the EarlyData level fail with
+  /// unexpected_message. Single-threaded:
   /// the caller serializes access.
   /// </summary>
   ITlsHandshakeEngine = interface(IInterface)
@@ -51,9 +54,9 @@ type
     function ProvideHandshakeData(ALevel: TTlsEpoch; const AData: TBytes;
       AOffset, ALength: Int32): TTlsOutcome;
     /// <summary>Dequeues the next item for the host, in the order the handshake produced it;
-    /// False when none is queued. After a failure with an alert only the flight produced before it
-    /// and the write secrets the alert goes out under remain; after any other failure nothing does.
-    /// A secret is the host's from here on.</summary>
+    /// False when none is queued. After a failure with an alert, everything queued up to the last
+    /// handshake bytes stays, plus every write secret queued after them; after any other failure
+    /// nothing does. A secret is the host's from here on.</summary>
     function NextOutput(out AOutput: THandshakeOutput): Boolean;
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     /// <summary>Resumes a handshake parked on a peer-certificate verdict; a no-op otherwise.</summary>

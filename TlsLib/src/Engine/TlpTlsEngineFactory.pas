@@ -156,9 +156,10 @@ type
       const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine; overload; static;
     /// <summary>A handshake-only client engine for a host that owns record protection, ready for
     /// StartHandshake. The config must offer TLS 1.3 alone. AHostExtensions ride its handshake as
-    /// for CreateClientEngine. ATicketEarlyDataLimit is the early-data budget every ticket the
-    /// server sends must carry (0 when 0-RTT is not used); any other value fails the handshake
-    /// without an alert. Tickets it caches resume only on a handshake-only engine.</summary>
+    /// for CreateClientEngine. ATicketEarlyDataLimit is the early-data budget every ticket it
+    /// caches must carry: any other value, an explicit 0 included, fails the connection without an
+    /// alert. A client that keeps no tickets ignores them, and 0 leaves the value unchecked. Tickets
+    /// it caches resume only on a handshake-only engine.</summary>
     class function CreateHandshakeClientEngine(const AConfig: ITlsClientConfig;
       const AHost: string; const AHostExtensions: TArray<ITlsHostExtension>;
       ATicketEarlyDataLimit: UInt32): ITlsHandshakeEngine; static;

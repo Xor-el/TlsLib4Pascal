@@ -856,16 +856,17 @@ begin
   finally
     LContext.Free;
   end;
-  // the host fixes the early-data budget: a ticket advertising another value fails locally
-  if FParams.HostOwnsRecordProtection and LEarlyDataPresent and
-    (LMaxEarlyData <> FParams.TicketEarlyDataLimit) then
-    raise ELocalFailureTlsLibException.CreateRes(@STicketEarlyDataLimitMismatch);
   // a rejected ECH handshake authenticated only the public_name, so its tickets MUST be ignored
   // (RFC 9849 sec. 6.1.7); a reject is already terminal, so this guards against a future refactor
   if FEchOrch.Status = TEchStatus.Rejected then
     Exit;
+  // a client that keeps no tickets ignores them (RFC 9846 4.7.1)
   if FParams.SessionCache = nil then
     Exit;
+  // a host that fixed a limit gets a cached ticket advertising another value refused locally
+  if FParams.HostOwnsRecordProtection and (FParams.TicketEarlyDataLimit <> 0) and
+    LEarlyDataPresent and (LMaxEarlyData <> FParams.TicketEarlyDataLimit) then
+    raise ELocalFailureTlsLibException.CreateRes(@STicketEarlyDataLimitMismatch);
   // ticket_lifetime 0 means discard immediately, and a client MUST NOT use a ticket for longer
   // than seven days regardless of what the server advertised (RFC 9846 4.7.1)
   if LNst.TicketLifetime = 0 then
@@ -1344,15 +1345,15 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
     TTlsDirection.ServerWrite), TRecordSide.ReadSide, TTlsEpoch.Handshake));
-  // with an accepted 0-RTT offer the write side stays on the early keys until
-  // EndOfEarlyData (sent at EncryptedExtensions); otherwise switch write to handshake now
-  if FEarlyDataOffered and FPskAccepted then
+  // with an accepted 0-RTT offer a record engine keeps writing under the early keys until its
+  // EndOfEarlyData; a host that owns record protection has none, so it gets the keys now
+  if FEarlyDataOffered and FPskAccepted and (not FParams.HostOwnsRecordProtection) then
     Exit;
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
     TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
   // a PSK-rejected 0-RTT offer means the early data was ignored: the engine replays it
-  if FEarlyDataOffered then
+  if FEarlyDataOffered and (not FPskAccepted) then
   begin
     // the server never derived the early exporter for a refused offer, so drop ours
     FSchedule.ForgetEarlyExporter;
@@ -1447,9 +1448,10 @@ begin
       FSchedule.ForgetEarlyExporter;
       TArrayUtilities.Append<THandshakeEffect>(Result,
         THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
-      TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
-        TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
+      if not FParams.HostOwnsRecordProtection then
+        TArrayUtilities.Append<THandshakeEffect>(Result,
+          THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+          TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
     end;
   end;
   // on an accepted resumption the server sends no Certificate/CertificateVerify: the
@@ -2007,16 +2009,13 @@ begin
   Result := nil;
   // accepted 0-RTT: EndOfEarlyData (under the early keys) closes early data and folds
   // into the transcript, then the write side moves to the handshake keys (RFC 9846 4.6); a host
-  // that owns record protection delimits early data itself, so only the write move remains
-  if FEarlyDataAccepted then
+  // that owns record protection delimits early data itself and already holds those keys
+  if FEarlyDataAccepted and (not FParams.HostOwnsRecordProtection) then
   begin
-    if not FParams.HostOwnsRecordProtection then
-    begin
-      LEndOfEarlyData := THandshakeFraming.Frame(TTlsHandshakeType.EndOfEarlyData, nil);
-      FTranscript.Update(LEndOfEarlyData);
-      TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.SendHandshake(LEndOfEarlyData));
-    end;
+    LEndOfEarlyData := THandshakeFraming.Frame(TTlsHandshakeType.EndOfEarlyData, nil);
+    FTranscript.Update(LEndOfEarlyData);
+    TArrayUtilities.Append<THandshakeEffect>(Result,
+      THandshakeEffects.SendHandshake(LEndOfEarlyData));
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
       TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));

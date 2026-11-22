@@ -37,9 +37,10 @@ LServer := TTlsEngineFactory.CreateHandshakeServerEngine(LServerConfig, LHostExt
 
 `LTicketEarlyDataLimit` is the early-data budget the host fixes for its tickets. A server that has
 early data enabled in its config writes exactly this value into every NewSessionTicket (the config's
-own budget is not used); a client fails the handshake, without an alert, on a ticket that advertises
-any other value, an explicit 0 included. A non-empty `LEarlyDataContext` replaces the config's
-early-data context.
+own budget is not used). A client that caches tickets fails the connection, without an alert, on a
+ticket that advertises any other value, an explicit 0 included; a client with no session cache
+ignores tickets, and a limit of 0 leaves the value unchecked. A non-empty `LEarlyDataContext`
+replaces the config's early-data context.
 
 Host extensions (`ITlsHostExtension`), the early-data context and session application data
 (`ITlsSessionApplicationData`, client only) work as they do on `ITlsEngine`; the engine answers
@@ -77,7 +78,8 @@ level; feed them the same way.
   first read secret, then the level of the latest `Handshake` or `Application` read secret. Bytes at
   any other level, or a handshake message that straddles a change of read level, fail with
   `unexpected_message`. Keep data that arrives early for a later level and feed it when that level
-  is reached.
+  is reached. Handshake bytes at the `EarlyData` level fail the same way; a host whose transport
+  forbids them there maps that failure or refuses the bytes before feeding them.
 - The outputs come in the order the handshake produced them. A secret is a copy that belongs to the
   host from the moment it is taken (`ITrafficSecret`, wiped when released). The engine forgets its
   own application traffic secrets as it hands them out, since the host rekeys; the handshake
@@ -94,11 +96,9 @@ level; feed them the same way.
   it accepts 0-RTT), its flight at Handshake, the application write secret at its Finished. The
   application read secret is queued only after the client Finished verified.
 - `HandshakeComplete` follows every other output of the step that completed the handshake.
-- After a failure `LastError` says why. When the failure has an alert, the handshake bytes the engine
-  had already produced stay pullable (the flight a record engine would have sent before the alert),
-  with the secrets that protect them and the write secrets installed after them, which the alert
-  goes out under; everything else queued is dropped. After any other failure `NextOutput` returns
-  nothing.
+- After a failure `LastError` says why. When the failure has an alert, everything queued up to the
+  last handshake bytes stays pullable, plus every write secret queued after them; the rest is
+  dropped. After any other failure `NextOutput` returns nothing.
 
 ## Checks between input and output
 
@@ -108,7 +108,9 @@ it sends anything: after
 `ProvideHandshakeData` returns, `ConnectionInfo` shows the selected ALPN protocol and
 `ITlsHostExtensionResults` the peer's host extension bodies, before any output is taken. A host that
 rejects the connection at that point stops there and reports the failure itself. Those values are
-unauthenticated until the handshake completes.
+unauthenticated until the handshake completes. The engine keeps the RFC 7301 rules, so it accepts a
+handshake that selects no ALPN protocol; a host that requires one fails the connection with
+`no_application_protocol` when `ConnectionInfo` reports none, on either side.
 
 ## Tickets
 

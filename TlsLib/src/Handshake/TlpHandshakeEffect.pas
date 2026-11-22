@@ -192,8 +192,8 @@ type
     /// <summary>Maps an in-band protocol exception to a Fail effect (EFatalAlert - which covers
     /// EDecodeError - to its alert; EPeerInput to illegal_parameter; ELocalFailure to
     /// FailWithoutAlert) carrying the exception's message (our own resourcestrings only); returns
-    /// False for any other exception, which the caller re-raises. The single home for the machines' and the version dispatcher's
-    /// exception-to-Fail mapping.</summary>
+    /// False for any other exception, which the caller re-raises. The single home for the
+    /// machines' and the version dispatcher's exception-to-Fail mapping.</summary>
     class function TryFromException(const AError: Exception;
       out AEffect: THandshakeEffect): Boolean; static;
   end;

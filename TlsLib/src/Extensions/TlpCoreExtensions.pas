@@ -216,8 +216,10 @@ uses
   TlpEchRegistryExtension;
 
 resourcestring
-  SHostExtensionsNotPlaced = 'the core registry has no encrypted_client_hello entry to place host extensions before';
-  SHostExtensionTypeInUse ='a host extension cannot use the type of an extension the core registry holds';
+  SHostExtensionsNotPlaced =
+    'the core registry has no encrypted_client_hello entry to place host extensions before';
+  SHostExtensionTypeInUse =
+    'a host extension cannot use the type of an extension the core registry holds';
   SUnknownNameType = 'server_name carries an unknown name_type';
   SEmptyHostName = 'server_name host_name is empty';
   SEmptyAlpnProtocol = 'ALPN carries a zero-length protocol name';
