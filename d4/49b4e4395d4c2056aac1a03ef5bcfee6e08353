@@ -1,0 +1,104 @@
+TlsLib.Tests/src/ClientSessionPolicyTests.pas
+  s_f2c9bd75607afc::t_ab5251f2f9795c 125
+  s_f2c9bd75607afc::t_d09356949668c5 162-163
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.dpr
+  s_f2c9bd75607afc::t_a746c6b20c545c 99-102
+  s_f2c9bd75607afc::t_77011e0bf4d221 258-260
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpi
+  s_f2c9bd75607afc::t_7b7f81b82a18ae 40
+  s_f2c9bd75607afc::t_67ab3c5e3e8ca0 493-504
+TlsLib.Tests/src/EchClientEngineTests.pas
+  s_f2c9bd75607afc::t_953c8b26983c0d 261-300
+  s_f2c9bd75607afc::t_3eb6b66fe562b3 104
+  s_f2c9bd75607afc::t_59418da2952420 47-49
+  s_f2c9bd75607afc::t_7897037e237599 150
+  s_f2c9bd75607afc::t_42776365d548b6 78-79
+  s_f2c9bd75607afc::t_807bd62aa040c8 301-302
+TlsLib.Tests/src/ResumptionFeatureTests.pas
+  s_f2c9bd75607afc::t_07573658e69a4c 580-581
+  s_f2c9bd75607afc::t_f4e7560b531099 633
+  s_f2c9bd75607afc::t_91eaad6c2c6c5c 380-381
+  s_f2c9bd75607afc::t_a3ee0fe3f5add1 438
+  s_f2c9bd75607afc::t_b3b412b7611d90 44
+  s_f2c9bd75607afc::t_087d853e4c342b 549-568
+  s_f2c9bd75607afc::t_f017364357b25b 1-29,34-43,45-112,114-151,153-379,382-437,439-548,569-577,579,582-605,607-632,634-676
+  s_f2c9bd75607afc::t_87b5e38aee3320 113
+  s_f2c9bd75607afc::t_14a3164bc03e4e 578,606
+  s_f2c9bd75607afc::t_184633fa32e662 152
+  s_f2c9bd75607afc::t_eea58ea0fd4622 30-33
+TlsLib.Tests/FreePascal.Tests/TlsLib.lpr
+  s_f2c9bd75607afc::t_97f5fe28029d2a 13
+  s_f2c9bd75607afc::t_650d292f681cde 61-62
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_f2c9bd75607afc::t_fdfd18d9a33ef1 421-424
+  s_f2c9bd75607afc::t_a7647a5a56c5d1 576-578
+  s_a57e00aa2b215b::t_c79c9a61ba0f4d 387-393,515,604,608-610
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.lpi
+  s_f2c9bd75607afc::t_887f487c7508e0 46
+  s_f2c9bd75607afc::t_50bdfac5ff4cbc 499-510
+TlsLib.Tests/FreePascal.Tests/TlsLibConsole.lpr
+  s_f2c9bd75607afc::t_d7eedada5fda86 13
+  s_f2c9bd75607afc::t_453c3e71208265 61-62
+TlsLib.Tests/src/HostExtensionTests.pas
+  s_f2c9bd75607afc::t_4cd1fdee9a21b6 756
+  s_f2c9bd75607afc::t_2c42c82ff7c92b 41-42
+  s_f2c9bd75607afc::t_7eb08c083a1913 674-678,687-691
+  s_f2c9bd75607afc::t_f817bc0b101213 612
+  s_f2c9bd75607afc::t_007425d29d0826 494
+  s_f2c9bd75607afc::t_1d166d28eb2933 32
+  s_f2c9bd75607afc::t_f4816071f22d80 423
+  s_f2c9bd75607afc::t_109f6f6d857d07 119
+  s_f2c9bd75607afc::t_61f3368807377e 515,518-519,522,524-525,527-530
+  s_f2c9bd75607afc::t_885654a54ea1f2 71
+  s_f2c9bd75607afc::t_32f98d8dc46a83 585
+  s_f2c9bd75607afc::t_71106c870120bf 576,579
+  s_f2c9bd75607afc::t_a879adc2c39847 673
+  s_f2c9bd75607afc::t_3527efe4047278 587-588
+  s_f2c9bd75607afc::t_0749b92d620f2d 153-161
+  s_f2c9bd75607afc::t_ad24a6761389c0 504-513,516-517,520-521,523,526,531-575,577-578,580-584,586,589-604
+  s_f2c9bd75607afc::t_64c6312175bc9d 120-122
+  s_f2c9bd75607afc::t_7b219b9f457d0c 648
+  s_f2c9bd75607afc::t_0fca42375c804c 1-31,33-40,43-46,48-70,72-92,100-118,123-152,162-422,424-477,479-493,495-503,514,605-611,613-647,649-672,679-686,692-755,757-763
+  s_f2c9bd75607afc::t_1411c5651f833b 47
+  s_f2c9bd75607afc::t_46a5141373f399 478
+  s_f2c9bd75607afc::t_4d5377467b23d1 93-99
+TlsLib.Tests/src/Tls13ResumptionTests.pas
+  s_f2c9bd75607afc::t_b67d0f75839894 3284-3285
+  s_f2c9bd75607afc::t_d8a0fbf2274fd4 3454-3455
+TlsLib.Tests/FreePascal.Tests/TlsLib.Tests.Android.lpr
+  s_f2c9bd75607afc::t_e2fbd2e8a65b0f 62-63
+  s_f2c9bd75607afc::t_987b96a28542f9 14
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dpr
+  s_f2c9bd75607afc::t_f3abdc4842c567 78-81
+  s_f2c9bd75607afc::t_d49387f9c75b67 233-235
+TlsLib.Tests/src/TlsLibTestTickets.pas
+  s_f2c9bd75607afc::t_4b0c15f946dd00 1-89
+TlsLib.Tests/src/SessionStoreTests.pas
+  s_f2c9bd75607afc::t_012bf96a0756c7 1509
+  s_f2c9bd75607afc::t_c812cdc97f2630 47-48
+  s_f2c9bd75607afc::t_2aa70f4d9ca814 67,137-144,340-341,1434-1435,1450-1451,1467-1475,1480,1491-1492,1494-1508,1510-1616
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d449b4e4395d4c2056aac1a03ef5bcfee6e08353",
+  "prompts": {},
+  "sessions": {
+    "s_a57e00aa2b215b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a3e2c7c0f8600265b",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    },
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
