@@ -196,6 +196,10 @@ type
     // an id-RSASSA-PSS SubjectPublicKeyInfo verifies no RSA scheme, natively or not
     procedure TestPssSpkiVerifiesNoRsaPkcs1Signature;
     procedure TestPssSpkiVerifiesNoRsaPssRsaeSignature;
+    // the AES sample masks the report places in the module equal the portable ones on random
+    // keys and samples, and the ChaCha20 mask stays portable
+    procedure TestAesSampleMaskMatchesPortable;
+    procedure TestChaCha20SampleMaskStaysPortable;
   end;
 
   /// <summary>The overlay's HPKE contract, directly and through Compose, so every platform is covered.</summary>
@@ -232,6 +236,8 @@ type
     // no provider other than what Compose returned is a composition, on any platform
     procedure TestNilIsNotAComposition;
     procedure TestPortableProviderIsNotAComposition;
+    // the forwarding primitives pass a sample mask through to the inner facet
+    procedure TestForwardingPrimitivesPassSampleMasksThrough;
   end;
 
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
@@ -404,6 +410,24 @@ const
     'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
 
 type
+  // a sample mask that writes one fixed byte, so a test can tell it from any real mask
+  TSentinelSampleMask = class(TInterfacedObject, ISampleMask)
+  public
+    const
+      Sentinel = $5A;
+    function SampleSize: Int32;
+    function KeySize: Int32;
+    procedure Init(const AKey: ISecretBuffer);
+    procedure Compute(const ASample: TBytes; ASampleOff: Int32; const AMask: TBytes;
+      AMaskOff, AMaskLen: Int32);
+  end;
+
+  // primitives whose sample masks are sentinels, over a real facet for everything else
+  TSentinelMaskPrimitives = class(TForwardingCryptoPrimitives)
+  public
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask; override;
+  end;
+
   // a signing facet whose key import always fails loudly, used to prove the overlay's native
   // export never delegates to the portable facet; every other operation forwards to a real one
   TThrowingInnerSigning = class(TInterfacedObject, ISigningCrypto)
@@ -535,6 +559,35 @@ begin
     on E: Exception do
       FFailure := E.ClassName + ': ' + E.Message;
   end;
+end;
+
+{ TSentinelSampleMask }
+
+function TSentinelSampleMask.SampleSize: Int32;
+begin
+  Result := 16;
+end;
+
+function TSentinelSampleMask.KeySize: Int32;
+begin
+  Result := 16;
+end;
+
+procedure TSentinelSampleMask.Init(const AKey: ISecretBuffer);
+begin
+end;
+
+procedure TSentinelSampleMask.Compute(const ASample: TBytes; ASampleOff: Int32;
+  const AMask: TBytes; AMaskOff, AMaskLen: Int32);
+begin
+  FillChar(AMask[AMaskOff], AMaskLen, Sentinel);
+end;
+
+{ TSentinelMaskPrimitives }
+
+function TSentinelMaskPrimitives.CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
+begin
+  Result := TSentinelSampleMask.Create as ISampleMask;
 end;
 
 { TThrowingInnerSigning }
@@ -1819,6 +1872,13 @@ begin
     'HMAC');
   CheckTrue(LReport.AeadBackend(TAeadAlgorithm.AES_128_GCM).Backend = TCryptoBackend.System,
     'AES-GCM');
+  CheckTrue(LReport.SampleMaskBackend(TSampleMaskAlgorithm.AES_128).Backend =
+    TCryptoBackend.System, 'AES-128 sample mask');
+  CheckTrue(LReport.SampleMaskBackend(TSampleMaskAlgorithm.AES_256).Backend =
+    TCryptoBackend.System, 'AES-256 sample mask');
+  CheckTrue(LReport.SampleMaskBackend(TSampleMaskAlgorithm.CHACHA20).Backend =
+    TCryptoBackend.Portable, 'ChaCha20 sample mask');
+  CheckTrue(Pos('sample mask AES-ECB', LReport.Describe) > 0, 'the report names the mask');
   CheckTrue(LReport.KeyAgreementBackend(TKeyAgreementAlgorithm.SECP256R1).Backend =
     TCryptoBackend.System, 'ECDH');
   CheckTrue(LReport.Tls12PrfBackend(THashAlgorithm.SHA_384).Backend = TCryptoBackend.System,
@@ -2462,6 +2522,26 @@ begin
   CheckFalse(TOSCryptoProvider.IsComposition(Portable), 'the portable provider');
 end;
 
+procedure TTestOverlayCryptoProvider.TestForwardingPrimitivesPassSampleMasksThrough;
+var
+  LInner, LForwarding: ICryptoPrimitives;
+  LMask: ISampleMask;
+  LOut: TBytes;
+  LI: Int32;
+begin
+  LInner := TSentinelMaskPrimitives.Create(Portable.Primitives) as ICryptoPrimitives;
+  LForwarding := TForwardingCryptoPrimitives.Create(LInner) as ICryptoPrimitives;
+  LOut := nil;
+  SetLength(LOut, 5);
+  // the inner facet's mask is the only one that writes the sentinel
+  for LI := Ord(Low(TSampleMaskAlgorithm)) to Ord(High(TSampleMaskAlgorithm)) do
+  begin
+    LMask := LForwarding.CreateSampleMask(TSampleMaskAlgorithm(LI));
+    LMask.Compute(Crypto.Primitives.GetRandom.GenerateBytes(16), 0, LOut, 0, 5);
+    CheckEquals(TSentinelSampleMask.Sentinel, LOut[4], Format('algorithm %d', [LI]));
+  end;
+end;
+
 procedure TTestNativeCryptoProvider.TestConcurrentSigningOnOneNativeKey;
 const
   WorkerCount = 8;
@@ -2637,6 +2717,78 @@ begin
     DecodeHex(FKeys.Values['rsa_pub'])), 'control: the signature verifies under the rsaEncryption SPKI');
   CheckFalse(SignedVerifies(TSignatureScheme.RSA_PSS_RSAE_SHA256, LKey,
     DecodeHex(FKeys.Values['rsa_pub_pss'])), 'the same key as id-RSASSA-PSS verifies nothing');
+end;
+
+procedure TTestNativeCryptoProvider.TestAesSampleMaskMatchesPortable;
+const
+  Algorithms: array [0 .. 1] of TSampleMaskAlgorithm = (TSampleMaskAlgorithm.AES_128,
+    TSampleMaskAlgorithm.AES_256);
+var
+  LReport: ICryptoBackendReport;
+  LAi, LKeyRound, LSampleRound: Int32;
+  LNative, LPortable: ISampleMask;
+  LKey, LSample, LNativeMask, LPortableMask: TBytes;
+begin
+  if not (Supports(Crypto, ICryptoBackendReport, LReport) and
+    (LReport.SampleMaskBackend(TSampleMaskAlgorithm.AES_128).Backend = TCryptoBackend.System)) then
+  begin
+    SkipTest('the platform serves no sample mask from a native module');
+    Exit;
+  end;
+  for LAi := System.Low(Algorithms) to System.High(Algorithms) do
+  begin
+    CheckTrue(LReport.SampleMaskBackend(Algorithms[LAi]).Backend = TCryptoBackend.System,
+      Format('algorithm %d is reported native', [LAi]));
+    for LKeyRound := 0 to 15 do
+    begin
+      LNative := Crypto.Primitives.CreateSampleMask(Algorithms[LAi]);
+      LPortable := Portable.Primitives.CreateSampleMask(Algorithms[LAi]);
+      LKey := Crypto.Primitives.GetRandom.GenerateBytes(LNative.KeySize);
+      LNative.Init(TSecretBuffer.From(LKey));
+      LPortable.Init(TSecretBuffer.From(LKey));
+      for LSampleRound := 0 to 15 do
+      begin
+        LSample := Crypto.Primitives.GetRandom.GenerateBytes(LNative.SampleSize);
+        LNativeMask := nil;
+        SetLength(LNativeMask, 5 + (LSampleRound mod 12));
+        LPortableMask := nil;
+        SetLength(LPortableMask, System.Length(LNativeMask));
+        LNative.Compute(LSample, 0, LNativeMask, 0, System.Length(LNativeMask));
+        LPortable.Compute(LSample, 0, LPortableMask, 0, System.Length(LPortableMask));
+        CheckEqualBytes(Format('algorithm %d, key %d, sample %d', [LAi, LKeyRound, LSampleRound]),
+          LPortableMask, LNativeMask);
+      end;
+    end;
+  end;
+end;
+
+procedure TTestNativeCryptoProvider.TestChaCha20SampleMaskStaysPortable;
+var
+  LReport: ICryptoBackendReport;
+  LNative, LPortable: ISampleMask;
+  LKey, LSample, LNativeMask, LPortableMask: TBytes;
+begin
+  if not (Supports(Crypto, ICryptoBackendReport, LReport) and
+    (LReport.SampleMaskBackend(TSampleMaskAlgorithm.AES_128).Backend = TCryptoBackend.System)) then
+  begin
+    SkipTest('the platform serves no sample mask from a native module');
+    Exit;
+  end;
+  CheckTrue(LReport.SampleMaskBackend(TSampleMaskAlgorithm.CHACHA20).Backend =
+    TCryptoBackend.Portable, 'the ChaCha20 mask is reported portable');
+  LNative := Crypto.Primitives.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
+  LPortable := Portable.Primitives.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
+  LKey := Crypto.Primitives.GetRandom.GenerateBytes(LNative.KeySize);
+  LSample := Crypto.Primitives.GetRandom.GenerateBytes(LNative.SampleSize);
+  LNative.Init(TSecretBuffer.From(LKey));
+  LPortable.Init(TSecretBuffer.From(LKey));
+  LNativeMask := nil;
+  SetLength(LNativeMask, 5);
+  LPortableMask := nil;
+  SetLength(LPortableMask, 5);
+  LNative.Compute(LSample, 0, LNativeMask, 0, 5);
+  LPortable.Compute(LSample, 0, LPortableMask, 0, 5);
+  CheckEqualBytes('ChaCha20 mask under the overlay', LPortableMask, LNativeMask);
 end;
 
 procedure TTestNativeCryptoProvider.TestPkcs12MultiKeyStillFailsClosed;

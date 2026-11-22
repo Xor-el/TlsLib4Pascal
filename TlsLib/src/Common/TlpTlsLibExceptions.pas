@@ -88,6 +88,12 @@ type
   end;
 
   /// <summary>
+  /// A failure this side detected for which TLS defines no alert (an out-of-range value the
+  /// local policy fixes). The engine boundary reports it with no alert.
+  /// </summary>
+  ELocalFailureTlsLibException = class(EBaseTlsLibException);
+
+  /// <summary>
   /// A wire-parsing failure; always maps to the decode_error alert. Raised by
   /// the bounds-checked codec on any malformed input.
   /// </summary>
@@ -109,7 +115,8 @@ type
     FAlert: TTlsAlertDescription;
     FHasAlert: Boolean;
   public
-    /// <summary>Carries AError's alert; HasAlert is False when AError.Origin is Transport.</summary>
+    /// <summary>Carries AError's alert; HasAlert is False when AError.Origin is Transport or
+    /// LocalWithoutAlert.</summary>
     constructor Create(const AError: TTlsError); overload;
     constructor Create(ADescription: TTlsAlertDescription;
       const AMessage: string); overload;
@@ -212,7 +219,8 @@ constructor ETlsStreamError.Create(const AError: TTlsError);
 begin
   inherited Create(AError.Message);
   FAlert := AError.Alert.Description;
-  FHasAlert := AError.Origin <> TTlsErrorOrigin.Transport;
+  FHasAlert := not (AError.Origin in [TTlsErrorOrigin.Transport,
+    TTlsErrorOrigin.LocalWithoutAlert]);
 end;
 
 constructor ETlsStreamError.Create(ADescription: TTlsAlertDescription;

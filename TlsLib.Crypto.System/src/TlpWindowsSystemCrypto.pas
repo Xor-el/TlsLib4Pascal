@@ -180,6 +180,7 @@ var
   KDF_RAW_SECRET: WideString = 'TRUNCATE';
   BCRYPT_CHAINING_MODE_PROP: WideString = 'ChainingMode';
   BCRYPT_CHAIN_MODE_GCM_VAL: WideString = 'ChainingModeGCM';
+  BCRYPT_CHAIN_MODE_ECB_VAL: WideString = 'ChainingModeECB';
   BCRYPT_ECC_CURVE_NAME_PROP: WideString = 'ECCCurveName';
   CURVE25519_NAME: WideString = 'curve25519';
   MLKEM_ALG_NAME: WideString = 'ML-KEM';
@@ -215,6 +216,11 @@ resourcestring
   SAeadSpanOutOfRange = 'the AEAD source/destination span is out of range';
   SAeadBadOverlap = 'the AEAD source and destination may only alias at the same offset';
   SAeadNotKeyed = 'the AEAD cipher has no key; call Init before Seal or Open';
+  SAeadAadSpanOutOfRange = 'the AEAD associated-data span is out of range';
+  SSampleMaskNotKeyed = 'the sample mask has no key; call Init before Compute';
+  SInvalidMaskKeySize = 'sample mask key size %d does not match the required %d bytes';
+  SSampleSpanOutOfRange = 'the sample span lies outside its buffer';
+  SMaskSpanOutOfRange = 'the mask span lies outside its buffer or exceeds the sample size';
   SUpdateSpanOutOfRange = 'the Update source span is out of range';
   SInvalidKeySize = 'AEAD key size %d does not match the required %d bytes';
   SInvalidNonceSize = 'AEAD nonce size %d does not match the required %d bytes';
@@ -482,7 +488,7 @@ type
 
   // whether native ECDH is usable and, if so, the factory for its per-curve agreements.
   IWindowsCng = interface(IInterface)
-    ['{3C9E71B4-A6D2-4F05-8B1E-5D27C0F94A63}']
+    ['{DDAAF77A-C0BF-418D-AD78-7F46BCEF6CC3}']
     function TryCreateAgreement(AAlgorithm: TKeyAgreementAlgorithm;
       out AAgreement: IKeyAgreement): Boolean;
     /// <summary>Whether the given NIST curve is served from CNG on this host (its
@@ -519,6 +525,12 @@ type
     function TryCreateAead(AAlgorithm: TAeadAlgorithm; out AAead: IAead): Boolean;
     /// <summary>Whether the given AEAD is served from CNG on this host.</summary>
     function AeadAvailable(AAlgorithm: TAeadAlgorithm): Boolean;
+    /// <summary>A CNG AES-ECB sample mask for AAlgorithm, or False when CNG cannot serve it here
+    /// (always False for the ChaCha20 mask: CNG has no raw ChaCha20).</summary>
+    function TryCreateSampleMask(AAlgorithm: TSampleMaskAlgorithm;
+      out AMask: ISampleMask): Boolean;
+    /// <summary>Whether the given sample mask is served from CNG on this host.</summary>
+    function SampleMaskAvailable(AAlgorithm: TSampleMaskAlgorithm): Boolean;
     /// <summary>A CNG KEM for AAlgorithm, or False when CNG cannot serve it here (ML-KEM
     /// needs Windows 11 24H2 or later).</summary>
     function TryCreateKem(AAlgorithm: TKemAlgorithm; out AKem: IKem): Boolean;
@@ -783,7 +795,7 @@ type
     FKeyHandle: Pointer;
     FLastNonce: TBytes;
     procedure InitAuthInfo(out AInfo: TBCryptAuthCipherModeInfo;
-      const ANonce, AAad: TBytes; ATag: PByte);
+      const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; ATag: PByte);
   public
     constructor Create(const AApi: TCngApi; AAlg: Pointer;
       ACategory: TAeadUsageCategory;
@@ -795,10 +807,36 @@ type
     function NonceSize: Int32;
     function TagSize: Int32;
     procedure Init(const AKey: ISecretBuffer);
-    function Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32;
-    function Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-      const ADest: TBytes; ADestOff: Int32): Int32;
+    function Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
+    function Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; const ASrc: TBytes;
+      ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
+    function TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+      const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
+      out APlainLen: Int32): Boolean;
+  end;
+
+  // A CNG AES-ECB sample mask: the key handle is made once in Init, each Compute is one block encrypt.
+  TWindowsCngSampleMask = class(TInterfacedObject, ISampleMask)
+  strict private
+  const
+    SampleBytes = 16;
+  var
+    FApi: TCngApi;
+    FAlg: Pointer;
+    FKeySize: Int32;
+    FKeeper: IWindowsCng;
+    FKeyHandle: Pointer;
+    FBlock: TBytes;
+  public
+    constructor Create(const AApi: TCngApi; AAlg: Pointer; AKeySize: Int32;
+      const AKeeper: IWindowsCng);
+    destructor Destroy; override;
+    function SampleSize: Int32;
+    function KeySize: Int32;
+    procedure Init(const AKey: ISecretBuffer);
+    procedure Compute(const ASample: TBytes; ASampleOff: Int32; const AMask: TBytes;
+      AMaskOff, AMaskLen: Int32);
   end;
 
   // Owns the dynamically loaded bcrypt module and the CNG algorithm-provider handles,
@@ -818,7 +856,7 @@ type
     FHmacSha256, FHmacSha384, FHmacSha512: Pointer;
     // whether this OS reuses hash/HMAC objects across FinishHash (Win8+); probed once
     FHashReusable: Boolean;
-    FAesGcm, FChaCha: Pointer;
+    FAesGcm, FAesEcb, FChaCha: Pointer;
     FMlKem: Pointer;
     FHkdfAlg: Pointer;
     FTls12Kdf: Pointer;
@@ -830,7 +868,7 @@ type
     class function Curve(AAlgorithm: TKeyAgreementAlgorithm): TCngCurve; static;
     function TryOpenAlg(const AAlgId: WideString): Pointer; overload;
     function TryOpenAlg(const AAlgId: WideString; AFlags: ULONG): Pointer; overload;
-    function OpenAesGcm: Pointer;
+    function OpenAes(const AChainMode: WideString): Pointer;
     function OpenX25519: Pointer;
     function ProbeRandom: Boolean;
     /// <summary>Derives OKM from an already-computed PRK via the CNG HKDF provider's
@@ -860,6 +898,9 @@ type
     function Tls12PrfAvailable(AAlgorithm: THashAlgorithm): Boolean;
     function TryCreateAead(AAlgorithm: TAeadAlgorithm; out AAead: IAead): Boolean;
     function AeadAvailable(AAlgorithm: TAeadAlgorithm): Boolean;
+    function TryCreateSampleMask(AAlgorithm: TSampleMaskAlgorithm;
+      out AMask: ISampleMask): Boolean;
+    function SampleMaskAvailable(AAlgorithm: TSampleMaskAlgorithm): Boolean;
     function TryCreateKem(AAlgorithm: TKemAlgorithm; out AKem: IKem): Boolean;
     function KemAvailable(AAlgorithm: TKemAlgorithm): Boolean;
     function BcryptApi: TCngApi;
@@ -881,6 +922,7 @@ type
     function CreateHkdf(AAlgorithm: THashAlgorithm): IHkdf; override;
     function CreateTls12Prf(AAlgorithm: THashAlgorithm): ITls12Prf; override;
     function CreateAead(AAlgorithm: TAeadAlgorithm): IAead; override;
+    function CreateSampleMask(AAlgorithm: TSampleMaskAlgorithm): ISampleMask; override;
     function CreateKeyAgreement(AAlgorithm: TKeyAgreementAlgorithm): IKeyAgreement; override;
     function CreateKem(AAlgorithm: TKemAlgorithm): IKem; override;
   end;
@@ -1199,6 +1241,7 @@ type
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry; override;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry; override;
+    function SampleMaskBackend(AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry; override;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry; override;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry; override;
     function SigningBackend(AScheme: TSignatureScheme): TCryptoBackendEntry; override;
@@ -1720,17 +1763,17 @@ begin
 end;
 
 procedure TWindowsCngAead.InitAuthInfo(out AInfo: TBCryptAuthCipherModeInfo;
-  const ANonce, AAad: TBytes; ATag: PByte);
+  const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32; ATag: PByte);
 begin
   System.FillChar(AInfo, SizeOf(AInfo), 0);
   AInfo.cbSize := SizeOf(AInfo);
   AInfo.dwInfoVersion := BCRYPT_AUTH_MODE_INFO_VERSION;
   AInfo.pbNonce := PByte(ANonce);
   AInfo.cbNonce := System.Length(ANonce);
-  if System.Length(AAad) > 0 then
+  if AAadLen > 0 then
   begin
-    AInfo.pbAuthData := PByte(AAad);
-    AInfo.cbAuthData := System.Length(AAad);
+    AInfo.pbAuthData := @AAad[AAadOff];
+    AInfo.cbAuthData := AAadLen;
   end;
   AInfo.pbTag := ATag;
   AInfo.cbTag := FTagSize;
@@ -1760,8 +1803,8 @@ begin
   end;
 end;
 
-function TWindowsCngAead.Seal(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
+function TWindowsCngAead.Seal(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+  const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
 var
   LInfo: TBCryptAuthCipherModeInfo;
   LCbResult: ULONG;
@@ -1772,6 +1815,8 @@ begin
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
+  if (AAadOff < 0) or (AAadLen < 0) or (Int64(AAadOff) + AAadLen > System.Length(AAad)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadAadSpanOutOfRange);
   if (ASrcOff < 0) or (ALen < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) or
     (ADestOff < 0) or (Int64(ADestOff) + ALen + FTagSize > System.Length(ADest)) then
     raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
@@ -1784,7 +1829,7 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SAeadNonceReused);
   // the tag goes straight after the ciphertext; BCryptEncrypt permits in = out, so an exact-alias
   // in-place seal is just a pointer choice
-  InitAuthInfo(LInfo, ANonce, AAad, @ADest[ADestOff + ALen]);
+  InitAuthInfo(LInfo, ANonce, AAad, AAadOff, AAadLen, @ADest[ADestOff + ALen]);
   if ALen > 0 then
   begin
     LIn := @ASrc[ASrcOff];
@@ -1803,8 +1848,18 @@ begin
   Result := ALen + FTagSize;
 end;
 
-function TWindowsCngAead.Open(const ANonce, AAad, ASrc: TBytes; ASrcOff, ALen: Int32;
-  const ADest: TBytes; ADestOff: Int32): Int32;
+function TWindowsCngAead.Open(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+  const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32): Int32;
+begin
+  if not TryOpen(ANonce, AAad, AAadOff, AAadLen, ASrc, ASrcOff, ALen, ADest, ADestOff,
+    Result) then
+    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
+      @SAeadAuthFailed);
+end;
+
+function TWindowsCngAead.TryOpen(const ANonce, AAad: TBytes; AAadOff, AAadLen: Int32;
+  const ASrc: TBytes; ASrcOff, ALen: Int32; const ADest: TBytes; ADestOff: Int32;
+  out APlainLen: Int32): Boolean;
 var
   LInfo: TBCryptAuthCipherModeInfo;
   LCtLen: Int32;
@@ -1812,23 +1867,27 @@ var
   LStatus: Integer;
   LIn, LOut: PByte;
 begin
+  APlainLen := 0;
   if FKeyHandle = nil then
     raise EInvalidOperationTlsLibException.CreateRes(@SAeadNotKeyed);
   if System.Length(ANonce) <> FNonceSize then
     raise EArgumentTlsLibException.CreateResFmt(@SInvalidNonceSize,
       [System.Length(ANonce), FNonceSize]);
+  if (AAadOff < 0) or (AAadLen < 0) or (Int64(AAadOff) + AAadLen > System.Length(AAad)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadAadSpanOutOfRange);
+  if (ASrcOff < 0) or (ALen < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) then
+    raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
+  // only a well-formed input too short to hold the tag reads as a failed authentication
   if ALen < FTagSize then
-    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
-      @SAeadAuthFailed);
+    Exit(False);
   LCtLen := ALen - FTagSize;
-  if (ASrcOff < 0) or (Int64(ASrcOff) + ALen > System.Length(ASrc)) or
-    (ADestOff < 0) or (Int64(ADestOff) + LCtLen > System.Length(ADest)) then
+  if (ADestOff < 0) or (Int64(ADestOff) + LCtLen > System.Length(ADest)) then
     raise EArgumentTlsLibException.CreateRes(@SAeadSpanOutOfRange);
   if (PByte(ASrc) = PByte(ADest)) and (ASrcOff <> ADestOff) then
     raise EArgumentTlsLibException.CreateRes(@SAeadBadOverlap);
   // the received tag is the trailing FTagSize bytes of the input; under exact aliasing it lies
   // beyond the plaintext output span, so it is not overwritten before CNG reads it
-  InitAuthInfo(LInfo, ANonce, AAad, @ASrc[ASrcOff + LCtLen]);
+  InitAuthInfo(LInfo, ANonce, AAad, AAadOff, AAadLen, @ASrc[ASrcOff + LCtLen]);
   if LCtLen > 0 then
   begin
     LIn := @ASrc[ASrcOff];
@@ -1849,10 +1908,81 @@ begin
       TSecureMemory.Wipe(@ADest[ADestOff], LCtLen);
     if LStatus <> STATUS_AUTH_TAG_MISMATCH then
       TCngError.Check(LStatus);
-    raise EFatalAlertTlsLibException.CreateRes(TTlsAlertDescription.BadRecordMac,
-      @SAeadAuthFailed);
+    Exit(False);
   end;
-  Result := LCtLen;
+  APlainLen := LCtLen;
+  Result := True;
+end;
+
+{ TWindowsCngSampleMask }
+
+constructor TWindowsCngSampleMask.Create(const AApi: TCngApi; AAlg: Pointer;
+  AKeySize: Int32; const AKeeper: IWindowsCng);
+begin
+  inherited Create;
+  FApi := AApi;
+  FAlg := AAlg;
+  FKeySize := AKeySize;
+  FKeeper := AKeeper;
+  SetLength(FBlock, SampleBytes);
+end;
+
+destructor TWindowsCngSampleMask.Destroy;
+begin
+  if FKeyHandle <> nil then
+    FApi.DestroyKey(FKeyHandle);
+  inherited Destroy;
+end;
+
+function TWindowsCngSampleMask.SampleSize: Int32;
+begin
+  Result := SampleBytes;
+end;
+
+function TWindowsCngSampleMask.KeySize: Int32;
+begin
+  Result := FKeySize;
+end;
+
+procedure TWindowsCngSampleMask.Init(const AKey: ISecretBuffer);
+var
+  LKey: TBytes;
+begin
+  if AKey.Len <> FKeySize then
+    raise EArgumentTlsLibException.CreateResFmt(@SInvalidMaskKeySize,
+      [AKey.Len, FKeySize]);
+  if FKeyHandle <> nil then
+  begin
+    FApi.DestroyKey(FKeyHandle);
+    FKeyHandle := nil;
+  end;
+  LKey := AKey.ToBytes;
+  try
+    // nil key-object buffer: CNG allocates and frees it with the key handle
+    TCngError.Check(FApi.GenerateSymmetricKey(FAlg, FKeyHandle, nil, 0, PByte(LKey),
+      System.Length(LKey), 0));
+  finally
+    TSecureMemory.WipeBytes(LKey);
+  end;
+end;
+
+procedure TWindowsCngSampleMask.Compute(const ASample: TBytes; ASampleOff: Int32;
+  const AMask: TBytes; AMaskOff, AMaskLen: Int32);
+var
+  LCbResult: ULONG;
+begin
+  if FKeyHandle = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SSampleMaskNotKeyed);
+  if (ASampleOff < 0) or (Int64(ASampleOff) + SampleBytes > System.Length(ASample)) then
+    raise EArgumentTlsLibException.CreateRes(@SSampleSpanOutOfRange);
+  if (AMaskOff < 0) or (AMaskLen < 1) or (AMaskLen > SampleBytes) or
+    (Int64(AMaskOff) + AMaskLen > System.Length(AMask)) then
+    raise EArgumentTlsLibException.CreateRes(@SMaskSpanOutOfRange);
+  LCbResult := 0;
+  // ECB with no padding flag: one whole block in, one block out
+  TCngError.Check(FApi.Encrypt(FKeyHandle, @ASample[ASampleOff], SampleBytes, nil, nil, 0,
+    @FBlock[0], SampleBytes, LCbResult, 0));
+  Move(FBlock[0], AMask[AMaskOff], AMaskLen);
 end;
 
 { TWindowsCngKeyAgreement }
@@ -2514,15 +2644,15 @@ begin
     Result := nil;
 end;
 
-function TWindowsCng.OpenAesGcm: Pointer;
+function TWindowsCng.OpenAes(const AChainMode: WideString): Pointer;
 begin
-  // AES with the GCM chaining mode set on the provider; keys inherit it. If GCM cannot be
-  // set (very old CNG) the handle is dropped and AES-GCM falls back to the portable facet.
+  // AES with the chaining mode set on the provider; keys inherit it. If the mode cannot be
+  // set (very old CNG) the handle is dropped and that mode falls back to the portable facet.
   Result := TryOpenAlg('AES');
   if (Result <> nil) and
     (FApi.SetProperty(Result, PWideChar(BCRYPT_CHAINING_MODE_PROP),
-    PByte(PWideChar(BCRYPT_CHAIN_MODE_GCM_VAL)),
-    (System.Length(BCRYPT_CHAIN_MODE_GCM_VAL) + 1) * SizeOf(WideChar), 0)
+    PByte(PWideChar(AChainMode)),
+    (System.Length(AChainMode) + 1) * SizeOf(WideChar), 0)
     <> STATUS_SUCCESS) then
   begin
     FApi.CloseAlgorithmProvider(Result, 0);
@@ -2624,7 +2754,8 @@ begin
   end;
   if LAead then
   begin
-    FAesGcm := OpenAesGcm;
+    FAesGcm := OpenAes(BCRYPT_CHAIN_MODE_GCM_VAL);
+    FAesEcb := OpenAes(BCRYPT_CHAIN_MODE_ECB_VAL);
     FChaCha := TryOpenAlg('CHACHA20_POLY1305');
   end;
   if LKem then
@@ -2679,6 +2810,7 @@ begin
     CloseAlg(FMlKem);
     CloseAlg(FX25519);
     CloseAlg(FChaCha);
+    CloseAlg(FAesEcb);
     CloseAlg(FAesGcm);
     CloseAlg(FHmacSha512);
     CloseAlg(FHmacSha384);
@@ -3055,6 +3187,31 @@ begin
   end;
 end;
 
+function TWindowsCng.TryCreateSampleMask(AAlgorithm: TSampleMaskAlgorithm;
+  out AMask: ISampleMask): Boolean;
+var
+  LKeySize: Int32;
+begin
+  Result := SampleMaskAvailable(AAlgorithm);
+  if not Result then
+  begin
+    AMask := nil;
+    Exit;
+  end;
+  if AAlgorithm = TSampleMaskAlgorithm.AES_128 then
+    LKeySize := 16
+  else
+    LKeySize := 32;
+  AMask := TWindowsCngSampleMask.Create(FApi, FAesEcb, LKeySize, Self as IWindowsCng);
+end;
+
+function TWindowsCng.SampleMaskAvailable(AAlgorithm: TSampleMaskAlgorithm): Boolean;
+begin
+  // CNG has no raw ChaCha20, so that mask stays portable
+  Result := (AAlgorithm in [TSampleMaskAlgorithm.AES_128, TSampleMaskAlgorithm.AES_256]) and
+    (FAesEcb <> nil);
+end;
+
 function TWindowsCng.TryCreateKem(AAlgorithm: TKemAlgorithm;
   out AKem: IKem): Boolean;
 begin
@@ -3131,6 +3288,13 @@ function TWindowsCryptoPrimitives.CreateAead(AAlgorithm: TAeadAlgorithm): IAead;
 begin
   if not FCng.TryCreateAead(AAlgorithm, Result) then
     Result := inherited CreateAead(AAlgorithm);
+end;
+
+function TWindowsCryptoPrimitives.CreateSampleMask(
+  AAlgorithm: TSampleMaskAlgorithm): ISampleMask;
+begin
+  if not FCng.TryCreateSampleMask(AAlgorithm, Result) then
+    Result := inherited CreateSampleMask(AAlgorithm);
 end;
 
 function TWindowsCryptoPrimitives.CreateKeyAgreement(
@@ -3225,6 +3389,17 @@ begin
     Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
   else
     // e.g. ChaCha20-Poly1305 before Windows 11
+    Result := Ent(TCryptoBackend.Portable, TCryptoBackendReason.NotPresent);
+end;
+
+function TWindowsBackendReport.SampleMaskBackend(
+  AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry;
+begin
+  if FCng.SampleMaskAvailable(AAlgorithm) then
+    Result := Ent(TCryptoBackend.System, TCryptoBackendReason.NotFallback)
+  else if AAlgorithm = TSampleMaskAlgorithm.CHACHA20 then
+    Result := NotNative
+  else
     Result := Ent(TCryptoBackend.Portable, TCryptoBackendReason.NotPresent);
 end;
 
@@ -3380,6 +3555,8 @@ begin
     Add('DRBG');
   Add(Hashes);
   Add(Aeads);
+  if FCng.SampleMaskAvailable(TSampleMaskAlgorithm.AES_128) then
+    Add('sample mask AES-ECB');
   Add(Curves);
   Add(Kems);
   Add(Signings);

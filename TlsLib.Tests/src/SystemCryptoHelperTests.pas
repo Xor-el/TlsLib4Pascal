@@ -333,6 +333,7 @@ type
     procedure TestHashDefaultsToNotNative;
     procedure TestHmacDefaultsToNotNative;
     procedure TestAeadDefaultsToNotNative;
+    procedure TestSampleMaskDefaultsToNotNative;
     procedure TestKeyAgreementDefaultsToNotNative;
     procedure TestKemDefaultsToNotNative;
     procedure TestSigningDefaultsToNotNative;
@@ -2106,6 +2107,16 @@ begin
   LReport := TBareBackendReport.Create(False);
   for LAead := Low(TAeadAlgorithm) to High(TAeadAlgorithm) do
     CheckNotNative(Format('aead %d', [Ord(LAead)]), LReport.AeadBackend(LAead));
+end;
+
+procedure TTestSystemBackendReport.TestSampleMaskDefaultsToNotNative;
+var
+  LReport: ICryptoBackendReport;
+  LMask: TSampleMaskAlgorithm;
+begin
+  LReport := TBareBackendReport.Create(False);
+  for LMask := Low(TSampleMaskAlgorithm) to High(TSampleMaskAlgorithm) do
+    CheckNotNative(Format('sample mask %d', [Ord(LMask)]), LReport.SampleMaskBackend(LMask));
 end;
 
 procedure TTestSystemBackendReport.TestKeyAgreementDefaultsToNotNative;

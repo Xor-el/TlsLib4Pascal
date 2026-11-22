@@ -63,7 +63,10 @@ class function TAlertMapping.ErrorFor(const AException: Exception): TTlsError;
 begin
   // our own exceptions carry a resourcestring message (no secret material); an
   // unrecognized exception is reduced to a generic message so nothing leaks
-  if AException is EBaseTlsLibException then
+  if AException is ELocalFailureTlsLibException then
+    Result := TTlsError.CreateFatal(TTlsAlertDescription.InternalError, AException.Message,
+      TTlsErrorOrigin.LocalWithoutAlert)
+  else if AException is EBaseTlsLibException then
     Result := TTlsError.Create(AlertFor(AException), AException.Message,
       TTlsErrorOrigin.Local)
   else

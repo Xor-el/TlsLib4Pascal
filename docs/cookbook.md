@@ -24,6 +24,7 @@ Read [Getting started](getting-started.md) first.
 - [Mutual TLS (client certificates)](#mutual-tls-client-certificates)
 - [Negotiate ALPN](#negotiate-alpn)
 - [Inspect the connection](#inspect-the-connection)
+- [Carry your own extension](#carry-your-own-extension)
 - [Resume sessions](#resume-sessions)
 - [0-RTT early data](#0-rtt-early-data)
 - [Set a revocation posture](#set-a-revocation-posture)
@@ -665,6 +666,47 @@ begin
 end;
 ```
 
+## Carry your own extension
+
+A host extension is data: a type, the messages it is sent in, a body, and the messages the peer must
+carry it in. Build one with `TTlsHostExtensions.Make` and pass the list to the engine factory; the
+peer's copy comes back through `ITlsHostExtensionResults` (`Supports` on the engine).
+
+```pascal
+uses TlpExtensionContext, TlpITlsHostExtension, TlpHostExtensions, TlpTlsEngineFactory;
+
+// CLIENT: offer type $FC01 in the ClientHello and require the server's copy in EncryptedExtensions
+LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'example.com',
+  TArray<ITlsHostExtension>.Create(TTlsHostExtensions.Make($FC01,
+    [TTlsExtensionContextKind.ClientHello], LBody, [TTlsExtensionContextKind.EncryptedExtensions])));
+
+// SERVER: answer it, and require it in the ClientHello
+LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig,
+  TArray<ITlsHostExtension>.Create(TTlsHostExtensions.Make($FC01,
+    [TTlsExtensionContextKind.EncryptedExtensions], LAnswer, [TTlsExtensionContextKind.ClientHello])));
+
+// later, once the carrying message was processed
+if Supports(LServer, ITlsHostExtensionResults, LResults) and
+  LResults.TryGetPeerExtension($FC01, LPeerBody) then
+  ...   // unauthenticated until the handshake completes
+```
+
+The messages are ClientHello, HelloRetryRequest, EncryptedExtensions, CertificateRequest and
+NewSessionTicket. Any message but the ClientHello is answered only when the peer's ClientHello
+carried the type; a peer that leaves a required copy out fails the handshake with
+`missing_extension`. A type the core already uses, a GREASE value, `ech_outer_extensions`, a body over
+65535 bytes or a type listed twice raises `EArgumentTlsLibException` when the extension or the engine
+is created, as does a client that sends in a message but the ClientHello or requires one in the
+ClientHello, and a server that does the reverse. A copy in a message the host did not declare is
+`illegal_parameter`, and a later message never replaces the copy read from an earlier one. Host
+extensions ride TLS 1.3 handshakes only: a config that does not offer TLS 1.3 is refused them, and a
+dual-version ClientHello still offers one, but a handshake that negotiates TLS 1.2 neither answers it
+nor enforces a requirement (a TLS 1.2 server that echoes it fails the handshake). A retried
+ClientHello repeats the body byte for byte, and under Encrypted Client Hello the outer ClientHello
+carries it too, so its body is visible on the wire (put nothing ECH should hide in it), and the inner
+one references it like any shared extension. No host code runs inside the handshake, and the bodies
+are the host's to validate.
+
 ## Resume sessions
 
 Resumption is `psk_dhe_ke` (forward-secret). The client cache hands each ticket out once. Give the
@@ -736,6 +778,19 @@ asks for that default explicitly (also beside a session store), and `Tls13.WithT
 many TLS 1.3 tickets each handshake issues; on a TLS 1.3-only server `WithTicketCount(0)` refuses
 default ticket keys and a non-default lifetime, as no tickets would be issued.
 
+A client host can keep bytes of its own with the tickets it caches (settings the server announced on
+the connection, say). Reach `ITlsSessionApplicationData` with `Supports` on the engine: call
+`SetSessionApplicationData` before the tickets arrive, and every ticket received after that carries
+the bytes; `OfferedSessionApplicationData` returns what the offered ticket carried, right after
+`StartHandshake` (empty when no resumption is offered). Only a client engine from the factory
+answers the interface, since a server has no ticket to attach them to. A custom `ISessionCache` or
+`ISessionStore` must persist what `ITls13ResumableSession` now carries (`EarlyDataContext`,
+`ApplicationData` and `TicketBinding`) and rebuild a session with the long-form
+`TTls13ResumableSession.Create`.
+
+A ticket sealed under another ticket format draws a full handshake, never a failure. A ticket
+carries the kind of engine that minted it and is offered and resumed only by that kind.
+
 ## 0-RTT early data
 
 0-RTT is **off by default** and is a deliberate opt-in, because early data is replayable — only send
@@ -777,6 +832,13 @@ together with `Reverify` and an async verdict (`WithAsyncCertificateVerdict` or
 `WithLiveRevocationVerdict`): that verdict resolves after the server flight, so no early data could
 precede it. A `Hard`-revocation client using `Reverify` always carries a live verdict, so it cannot
 use 0-RTT.
+
+To bind early data to the settings a replayed request must still satisfy, give the server a context
+with `Tls13.WithEarlyDataContext(Bytes)` (at most 255 bytes, and `WithEarlyData` must be set). It is
+sealed into every ticket the server issues, and on resumption 0-RTT is accepted only when the ticket's
+context equals the configured one byte for byte. A mismatch (including a ticket issued before a
+context was set) still resumes, without early data: the server reports `ContextMismatch` and the
+client sees `PeerDeclined`.
 
 On the server, accepted early data is **never** returned by `ReadAppData` or a stream `Read`: it is
 replayable, so it is kept apart and read with `ReadEarlyData` (`PendingEarlyData` says how much is

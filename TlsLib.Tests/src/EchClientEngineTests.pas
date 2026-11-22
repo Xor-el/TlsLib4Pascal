@@ -44,6 +44,9 @@ uses
   TlpExtensionVector,
   TlpExtensionContext,
   TlpITlsExtension,
+  TlpITlsHostExtension,
+  TlpHostExtensions,
+  TlpArrayUtilities,
   TlpExtensionBlockCodec,
   TlpNegotiationPolicy,
   TlpEchExtension,
@@ -72,6 +75,8 @@ type
   TTestEchClientEngine = class(TTlsLibAlgorithmTestCase)
   private
     FVec: TStringList;
+    // host extensions the client machine's registry carries; none unless a test sets them
+    FHostAdapters: TArray<ITlsExtension>;
     function BaseParams(const AEchConfigList: TBytes): TClientHandshakeParams;
     function OuterClientHello: TBytes;
     // decode + vector-parse the framed outer once, then drive ProcessOuter (its new triple)
@@ -96,6 +101,7 @@ type
     procedure SetUp; override;
   published
     procedure TestOuterHidesRealSniAndDecryptsToInner;
+    procedure TestHostExtensionIsInTheOuterAndReferencedByTheInner;
     procedure TestUnusableConfigFailsClosed;
     procedure TestRetryChecksTheWireConfigIdNotTheEntrys;
     procedure TestAcceptedOuterWithLegacyVersion0304AbortsProtocolVersion;
@@ -141,7 +147,7 @@ begin
   Result.Group := TNamedGroups.CreateX25519(Crypto);
   Result.GroupCode := TNamedGroupCatalog.X25519;
   Result.CipherSuites := TCipherSuiteRegistry.CreateDefault(Crypto);
-  Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+  Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry(FHostAdapters);
   Result.OfferedSuites := TArray<UInt16>.Create(TCipherSuites13.Aes128GcmSha256);
   Result.OfferedSchemes :=
     TArray<UInt16>.Create(TSignatureSchemes.EcdsaSecp256r1Sha256);
@@ -250,6 +256,48 @@ begin
     'the inner has a server_name');
   CheckEquals(RealSni, TTlsLibTestHandshakeDecoder.ServerNameHost(LSni.Data),
     'the reconstructed inner SNI is the real host');
+end;
+
+procedure TTestEchClientEngine.TestHostExtensionIsInTheOuterAndReferencedByTheInner;
+const
+  HostType = UInt16($FC01);
+var
+  LResults: ITlsHostExtensionResults;
+  LServer: IEchServerHandshake;
+  LOuter: TTlsClientHello;
+  LEntries, LEncEntries, LReconstructed: TExtensionVector;
+  LOuterEch: TEchOuterClientHello;
+  LSealer: IHpkeSealer;
+  LEncoded: TBytes;
+  LOuterEntry, LRefEntry, LInnerEntry: TExtensionEntry;
+  LReader: TWireReader;
+begin
+  FHostAdapters := TTlsHostExtensions.Adapt(TArray<ITlsHostExtension>.Create(
+    TTlsHostExtensions.Make(HostType, [TTlsExtensionContextKind.ClientHello],
+    DecodeHex('c1c2c3'), [])), TTlsHostExtensionRole.Client, LResults);
+  PrepareReseal(LServer, LOuter, LEntries, LOuterEch, LSealer, LEncoded);
+
+  CheckTrue(LEntries.TryFind(HostType, LOuterEntry), 'the outer ClientHello carries the extension');
+  CheckEqualBytes('with its body', DecodeHex('c1c2c3'), LOuterEntry.Data);
+
+  LReader := TWireReader.Create(LEncoded);
+  LReader.Skip(2);
+  LReader.Skip(32);
+  LReader.OpenVector(1);
+  LReader.OpenVector(2);
+  LReader.OpenVector(1);
+  LEncEntries := TExtensionVector.ParseFrom(LReader);
+  CheckFalse(LEncEntries.Contains(HostType),
+    'the sealed inner does not repeat the extension: it is compressed');
+  CheckTrue(LEncEntries.TryFind(TExtensionTypes.EchOuterExtensions, LRefEntry),
+    'the sealed inner references outer extensions');
+  CheckTrue(TArrayUtilities.Contains<UInt16>(TEchExtension.DecodeOuterExtensions(LRefEntry.Data),
+    HostType), 'and one of them is the host extension');
+
+  LReconstructed := TEchOuterExtensions.Reconstruct(LEntries, LEncEntries);
+  CheckTrue(LReconstructed.TryFind(HostType, LInnerEntry),
+    'the reconstructed inner carries the extension again');
+  CheckEqualBytes('with the same body', DecodeHex('c1c2c3'), LInnerEntry.Data);
 end;
 
 procedure TTestEchClientEngine.TestUnusableConfigFailsClosed;

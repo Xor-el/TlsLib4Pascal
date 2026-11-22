@@ -72,6 +72,8 @@ type
     function RefusesHkdf(const AProvider: ICryptoProvider; AAlgorithm: THashAlgorithm): Boolean;
     function RefusesPrf(const AProvider: ICryptoProvider; AAlgorithm: THashAlgorithm): Boolean;
     function RefusesAead(const AProvider: ICryptoProvider; AAlgorithm: TAeadAlgorithm): Boolean;
+    function RefusesSampleMask(const AProvider: ICryptoProvider;
+      AAlgorithm: TSampleMaskAlgorithm): Boolean;
     function RefusesKeyAgreement(const AProvider: ICryptoProvider;
       AAlgorithm: TKeyAgreementAlgorithm): Boolean;
     function RefusesKem(const AProvider: ICryptoProvider; AAlgorithm: TKemAlgorithm): Boolean;
@@ -146,6 +148,14 @@ type
     procedure TestStrictRefusesPortableAead;
     procedure TestStrictAllowsSystemAeadBesidePortableOne;
     procedure TestRelaxedForwardsPortableAead;
+    // a sample mask follows the AEAD of its cipher in the rules and, in strict mode, the module
+    procedure TestSampleMasksAllowedUnderFips;
+    procedure TestChaChaSampleMaskRefusedUnderFips;
+    procedure TestAes128SampleMaskRefusedUnderCnsa1;
+    procedure TestAes256SampleMaskAllowedUnderCnsa1;
+    procedure TestStrictRefusesPortableSampleMask;
+    procedure TestRelaxedForwardsPortableSampleMask;
+    procedure TestRefusedSampleMaskIsAComplianceRefusal;
     procedure TestStrictRefusesRandomOnPortableBase;
     procedure TestRelaxedForwardsRandomOnPortableBase;
     procedure TestStrictAcceptsRandomOnSystemBase;
@@ -445,6 +455,18 @@ begin
   end;
 end;
 
+function TTestComplianceCryptoPrimitives.RefusesSampleMask(const AProvider: ICryptoProvider;
+  AAlgorithm: TSampleMaskAlgorithm): Boolean;
+begin
+  Result := False;
+  try
+    AProvider.Primitives.CreateSampleMask(AAlgorithm);
+  except
+    on EComplianceRefusedTlsLibException do
+      Result := True;
+  end;
+end;
+
 function TTestComplianceCryptoPrimitives.RefusesKeyAgreement(const AProvider: ICryptoProvider;
   AAlgorithm: TKeyAgreementAlgorithm): Boolean;
 begin
@@ -674,6 +696,99 @@ begin
     TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
   CheckFalse(RefusesAead(LProvider, TAeadAlgorithm.AES_128_GCM),
     'relaxed mode passes a platform fact through');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestSampleMasksAllowedUnderFips;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  CheckFalse(RefusesSampleMask(LProvider, TSampleMaskAlgorithm.AES_128), 'AES-128 is allowed');
+  CheckFalse(RefusesSampleMask(LProvider, TSampleMaskAlgorithm.AES_256), 'AES-256 is allowed');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestChaChaSampleMaskRefusedUnderFips;
+var
+  LStrict, LRelaxed: ICryptoProvider;
+begin
+  LStrict := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  LRelaxed := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Relaxed);
+  CheckTrue(RefusesSampleMask(LStrict, TSampleMaskAlgorithm.CHACHA20), 'strict mode');
+  CheckTrue(RefusesSampleMask(LRelaxed, TSampleMaskAlgorithm.CHACHA20),
+    'an allowlist refuses in relaxed mode too');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestAes128SampleMaskRefusedUnderCnsa1;
+var
+  LStrict, LRelaxed: ICryptoProvider;
+begin
+  LStrict := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
+    TCompliancePresets.Cnsa1, TComplianceEnforcement.Strict);
+  LRelaxed := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
+    TCompliancePresets.Cnsa1, TComplianceEnforcement.Relaxed);
+  CheckTrue(RefusesSampleMask(LStrict, TSampleMaskAlgorithm.AES_128), 'strict mode');
+  CheckTrue(RefusesSampleMask(LRelaxed, TSampleMaskAlgorithm.AES_128), 'relaxed mode');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestAes256SampleMaskAllowedUnderCnsa1;
+var
+  LProvider: ICryptoProvider;
+begin
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
+    TCompliancePresets.Cnsa1, TComplianceEnforcement.Strict);
+  CheckFalse(RefusesSampleMask(LProvider, TSampleMaskAlgorithm.AES_256), 'AES-256 is allowed');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestStrictRefusesPortableSampleMask;
+var
+  LReport: TFakeBackendReport;
+  LProvider: ICryptoProvider;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LReport.PortableSampleMasks := [TSampleMaskAlgorithm.AES_128];
+  LProvider := ProviderOver(LReport as ICryptoBackendReport, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Strict);
+  CheckTrue(RefusesSampleMask(LProvider, TSampleMaskAlgorithm.AES_128),
+    'an allowed mask the module does not serve is refused');
+  CheckFalse(RefusesSampleMask(LProvider, TSampleMaskAlgorithm.AES_256),
+    'only the portable mask is refused');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRelaxedForwardsPortableSampleMask;
+var
+  LReport: TFakeBackendReport;
+  LProvider: ICryptoProvider;
+begin
+  LReport := TFakeBackendReport.Create([]);
+  LReport.PortableSampleMasks := [TSampleMaskAlgorithm.AES_128];
+  LProvider := ProviderOver(LReport as ICryptoBackendReport, TCompliancePresets.Fips140_3,
+    TComplianceEnforcement.Relaxed);
+  CheckFalse(RefusesSampleMask(LProvider, TSampleMaskAlgorithm.AES_128),
+    'relaxed mode passes a platform fact through');
+end;
+
+procedure TTestComplianceCryptoPrimitives.TestRefusedSampleMaskIsAComplianceRefusal;
+var
+  LProvider: ICryptoProvider;
+  LRaised: Boolean;
+begin
+  LProvider := TComplianceCryptoProvider.Compose(TComplianceFakes.SystemOver([]),
+    TCompliancePresets.Fips140_3, TComplianceEnforcement.Strict);
+  LRaised := False;
+  try
+    LProvider.Primitives.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
+  except
+    on E: EFatalAlertTlsLibException do
+    begin
+      LRaised := True;
+      CheckTrue(E is EComplianceRefusedTlsLibException, 'the refusal type');
+      CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(E.AlertDescription), 'alert');
+    end;
+  end;
+  CheckTrue(LRaised, 'a refusal is a fatal alert exception');
 end;
 
 procedure TTestComplianceCryptoPrimitives.TestStrictRefusesRandomOnPortableBase;

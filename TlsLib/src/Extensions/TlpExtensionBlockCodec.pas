@@ -17,6 +17,7 @@ interface
 
 uses
   SysUtils,
+  TlpArrayUtilities,
   TlpCodeKeyedRegistry,
   TlpTlsAlert,
   TlpTlsLibExceptions,
@@ -46,6 +47,7 @@ type
   strict private
   var
     FRegistry: IExtensionRegistry;
+    FObservers: TArray<IExtensionBlockObserver>;
     class function IsResponseContext(AKind: TTlsExtensionContextKind): Boolean; static;
   public
     constructor Create(const ARegistry: IExtensionRegistry);
@@ -83,9 +85,16 @@ end;
 { TExtensionBlockCodec }
 
 constructor TExtensionBlockCodec.Create(const ARegistry: IExtensionRegistry);
+var
+  LExt: ITlsExtension;
+  LObserver: IExtensionBlockObserver;
 begin
   inherited Create;
   FRegistry := ARegistry;
+  // the registry is complete once a machine is built, so the observers are found once
+  for LExt in ARegistry.Items do
+    if Supports(LExt, IExtensionBlockObserver, LObserver) then
+      TArrayUtilities.Append<IExtensionBlockObserver>(FObservers, LObserver);
 end;
 
 class function TExtensionBlockCodec.IsResponseContext(
@@ -160,6 +169,8 @@ var
   LI: Int32;
 begin
   AContext.MessageContext := AKind;
+  for LI := 0 to High(FObservers) do
+    FObservers[LI].BlockStarted(AKind);
   // semantic pass: record which types an inbound ClientHello carried (symmetric with the
   // produce path, so the server can enforce presence rules such as RFC 9846 9.2's mutually-
   // required extensions), reject a response extension the ClientHello never offered, and
@@ -197,6 +208,9 @@ begin
       LExt.Consume(AContext, LEntry.Data);
     end;
   end;
+  // a required extension the peer left out is missing_extension, raised once the block is read
+  for LI := 0 to High(FObservers) do
+    FObservers[LI].BlockConsumed(AKind);
 end;
 
 end.

@@ -61,7 +61,9 @@ uses
   TlpServerName,
   TlpISigningKey,
   TlpTlsCredential,
+  TlpTicketBinding,
   TlpISession,
+  TlpISessionApplicationData,
   TlpIClock,
   TlpIKeyLog,
   TlpSession,
@@ -174,6 +176,21 @@ type
     /// <summary>When set (with a resumption PSK whose ticket permits it), the client
     /// offers 0-RTT early data and installs the early write epoch. OFF by default.</summary>
     EarlyDataEnabled: Boolean;
+    /// <summary>The kind of engine this machine serves: stamped on the tickets it caches, and the
+    /// only kind of cached ticket it offers.</summary>
+    TicketBinding: TTicketBinding;
+    /// <summary>Where the host's session application data is read for a received ticket and the
+    /// offered session's is published; nil keeps none.</summary>
+    SessionApplicationData: ISessionApplicationDataChannel;
+    /// <summary>Whether the host owns record protection and the key lifecycle: the machine then
+    /// sends no change_cipher_spec and no EndOfEarlyData, emits no record-layer control effect,
+    /// refuses KeyUpdate and checks a received ticket's early_data value (see
+    /// TicketEarlyDataLimit).</summary>
+    HostOwnsRecordProtection: Boolean;
+    /// <summary>The max_early_data_size a received ticket must carry under HostOwnsRecordProtection
+    /// when it is not 0 and a session cache is set; another value fails the connection without an
+    /// alert. 0 leaves the value unchecked.</summary>
+    TicketEarlyDataLimit: UInt32;
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
     /// augment-only and fail-closed, None by default.</summary>
     Deferral: TVerdictDeferral;
@@ -454,6 +471,8 @@ resourcestring
   SMissingServerKeyShare = 'the ServerHello carries no key_share for the asymmetric key exchange';
   SEarlyDataWithoutPsk =
     'EncryptedExtensions carries early_data but no offered PSK was accepted';
+  STicketEarlyDataLimitMismatch =
+    'the ticket advertises an early-data limit other than the one the host fixed';
   SBadServerFinished = 'the server Finished did not verify';
   SEmptyCertificate = 'the server sent an empty certificate list';
   SServerCertContextNotEmpty =
@@ -741,7 +760,7 @@ end;
 function TTls13ClientStateMachine.CacheServerIdentity: string;
 begin
   Result := TClientSessionPolicy.CacheIdentity(FParams.ServerIdentity,
-    FParams.ServerName, FParams.SessionScope);
+    FParams.ServerName, FParams.SessionScope, FParams.TicketBinding);
 end;
 
 function TTls13ClientStateMachine.HashUnder(AHash: THashAlgorithm;
@@ -820,8 +839,10 @@ var
   LContext: TExtensionContext;
   LMaxEarlyData: UInt32;
   LPeerChain: TArray<TBytes>;
+  LApplicationData: TBytes;
   LLifetime: UInt32;
   LAuthenticatedAtMs, LNowMs: UInt64;
+  LEarlyDataPresent: Boolean;
 begin
   Result := nil;
   // validate the ticket structure even when not caching (an empty/malformed ticket is a
@@ -832,6 +853,7 @@ begin
     FCodec.ConsumeBlock(LContext, TTlsExtensionContextKind.NewSessionTicket,
       LNst.Extensions);
     LMaxEarlyData := LContext.EarlyDataMaxSize;
+    LEarlyDataPresent := LContext.EarlyDataMaxSizePresent;
   finally
     LContext.Free;
   end;
@@ -839,8 +861,13 @@ begin
   // (RFC 9849 sec. 6.1.7); a reject is already terminal, so this guards against a future refactor
   if FEchOrch.Status = TEchStatus.Rejected then
     Exit;
+  // a client that keeps no tickets ignores them (RFC 9846 4.7.1)
   if FParams.SessionCache = nil then
     Exit;
+  // a host that fixed a limit gets a cached ticket advertising another value refused locally
+  if FParams.HostOwnsRecordProtection and (FParams.TicketEarlyDataLimit <> 0) and
+    LEarlyDataPresent and (LMaxEarlyData <> FParams.TicketEarlyDataLimit) then
+    raise ELocalFailureTlsLibException.CreateRes(@STicketEarlyDataLimitMismatch);
   // ticket_lifetime 0 means discard immediately, and a client MUST NOT use a ticket for longer
   // than seven days regardless of what the server advertised (RFC 9846 4.7.1)
   if LNst.TicketLifetime = 0 then
@@ -861,12 +888,15 @@ begin
   LPeerChain := FCertificateChain;
   if FResumedFromTicket then
     LPeerChain := FResumptionPeerCertificates;
+  LApplicationData := nil;
+  if FParams.SessionApplicationData <> nil then
+    LApplicationData := FParams.SessionApplicationData.Current;
   LSession := TTls13ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, LPsk, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
     LLifetime, LNst.TicketAgeAdd, LNowMs,
     LMaxEarlyData, LPeerChain, nil, FSessionPskIdentity, FSessionPskBinding,
-    FPeerSignatureScheme, LAuthenticatedAtMs);
+    FPeerSignatureScheme, LAuthenticatedAtMs, nil, LApplicationData, FParams.TicketBinding);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   // bounded against a server streaming tickets; a dropped ticket escapes the fatal-alert cache
   // withdrawal (RFC 9846 6, "if possible")
@@ -928,6 +958,7 @@ begin
     begin
       if TClientSessionPolicy.IsOfferableTls13(LCached, FParams.Clock.NowUnixMillis) and
         Supports(LCached, ITls13ResumableSession, L13) and
+        (L13.TicketBinding = FParams.TicketBinding) and
         TClientSessionPolicy.SessionTrustedForOffer(FParams.ResumeVerification, LCached,
         FParams.CertificateVerifier, FParams.ResumeCertificateVerifier, FExpectedName,
         FResumeValidatedPath) then
@@ -939,6 +970,8 @@ begin
             L13.Hash, L13.CipherSuite, L13.MaxEarlyData, L13.Alpn, TPskBinderKind.Resumption,
             L13.TicketLifetime, L13.TicketAgeAdd, L13.IssuedAtMillis);
         FPskOffers := TArray<IPreSharedKey>.Create(LOfferedPsk);
+        if FParams.SessionApplicationData <> nil then
+          FParams.SessionApplicationData.PublishOffered(L13.ApplicationData);
         // kept to surface the resumed chain and to park a deferred verdict on it
         FResumptionPeerCertificates := LCached.PeerCertificates;
         FResumptionPskIdentity := LCached.PskIdentity;
@@ -1035,8 +1068,7 @@ begin
     // derive the client_early_traffic keys from the ClientHello transcript and open the
     // early write epoch, after the (plaintext) middlebox CCS. Under ECH the 0-RTT keys derive
     // from the inner transcript (+ inner random), the logical ClientHello (RFC 9849 sec. 6.1.5)
-    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common.Hash,
-      LPskSuite.Common.KeyLength);
+    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, LPskSuite.Common);
     FSchedule.SetPsk(FPskOffers[0].Key);
     // key the log by the same random the early transcript uses: the inner ClientHello's under ECH
     if FEchOrch.Active then
@@ -1050,13 +1082,13 @@ begin
     // the plaintext CCS precedes the early keys
     Result := TArrayUtilities.Concat<THandshakeEffect>(Result, MiddleboxCcs);
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.EarlyData,
-      TTlsDirection.ClientWrite), TRecordSide.WriteSide, LPskSuite.Common.Aead,
-      TTlsVersion.Tls13, TTlsEpoch.EarlyData));
+      THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.EarlyData,
+      TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.EarlyData));
     // bound the outbound 0-RTT at the ticket's max_early_data; bytes beyond the budget are
     // refused and the caller resends them as 1-RTT (RFC 9846 4.3.10)
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.SetEarlyDataLimit(EarlyDataBudget(FPskOffers[0].MaxEarlyData)));
+    if not FParams.HostOwnsRecordProtection then
+      TArrayUtilities.Append<THandshakeEffect>(Result,
+        THandshakeEffects.SetEarlyDataLimit(EarlyDataBudget(FPskOffers[0].MaxEarlyData)));
   end;
 end;
 
@@ -1293,8 +1325,7 @@ begin
   // PSK-seeded for psk_dhe_ke) for the full/non-early or different-suite handshake
   if (FSchedule = nil) or (not FPskAccepted) or (not FEarlySuiteMatched) then
   begin
-    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common.Hash,
-      FSelectedSuite.Common.KeyLength);
+    FSchedule := TTls13KeySchedule.Create(FParams.Crypto, FSelectedSuite.Common);
     // psk_dhe_ke: seed the accepted PSK before deriving the handshake secret
     if FPskAccepted then
       FSchedule.SetPsk(FAcceptedPsk.Key);
@@ -1313,17 +1344,17 @@ begin
     TArray<THandshakeEffect>.Create(
     THandshakeEffects.NegotiatedVersion(TTlsVersion.Tls13)), MiddleboxCcs);
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
-  // with an accepted 0-RTT offer the write side stays on the early keys until
-  // EndOfEarlyData (sent at EncryptedExtensions); otherwise switch write to handshake now
-  if FEarlyDataOffered and FPskAccepted then
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+    TTlsDirection.ServerWrite), TRecordSide.ReadSide, TTlsEpoch.Handshake));
+  // with an accepted 0-RTT offer a record engine keeps writing under the early keys until its
+  // EndOfEarlyData; a host that owns record protection has none, so it gets the keys now
+  if FEarlyDataOffered and FPskAccepted and (not FParams.HostOwnsRecordProtection) then
     Exit;
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-    TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Handshake));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+    TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
   // a PSK-rejected 0-RTT offer means the early data was ignored: the engine replays it
-  if FEarlyDataOffered then
+  if FEarlyDataOffered and (not FPskAccepted) then
   begin
     // the server never derived the early exporter for a refused offer, so drop ours
     FSchedule.ForgetEarlyExporter;
@@ -1418,10 +1449,10 @@ begin
       FSchedule.ForgetEarlyExporter;
       TArrayUtilities.Append<THandshakeEffect>(Result,
         THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
-      TArrayUtilities.Append<THandshakeEffect>(Result,
-        THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-        TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-        TTlsVersion.Tls13, TTlsEpoch.Handshake));
+      if not FParams.HostOwnsRecordProtection then
+        TArrayUtilities.Append<THandshakeEffect>(Result,
+          THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+          TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
     end;
   end;
   // on an accepted resumption the server sends no Certificate/CertificateVerify: the
@@ -1600,8 +1631,9 @@ begin
     FSchedule.ForgetEarlyExporter;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.RaiseEvent(TTlsEventKind.EarlyDataRejected));
-    TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.RevertWriteToPlaintext);
+    if not FParams.HostOwnsRecordProtection then
+      TArrayUtilities.Append<THandshakeEffect>(Result,
+        THandshakeEffects.RevertWriteToPlaintext);
   end;
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LClientHello2));
@@ -1876,7 +1908,7 @@ end;
 function TTls13ClientStateMachine.MiddleboxCcs: TArray<THandshakeEffect>;
 begin
   Result := nil;
-  if FMiddleboxCcsSent then
+  if FMiddleboxCcsSent or FParams.HostOwnsRecordProtection then
     Exit;
   FMiddleboxCcsSent := True;
   Result := TArray<THandshakeEffect>.Create(THandshakeEffects.SendChangeCipherSpec);
@@ -1977,17 +2009,17 @@ var
 begin
   Result := nil;
   // accepted 0-RTT: EndOfEarlyData (under the early keys) closes early data and folds
-  // into the transcript, then the write side moves to the handshake keys (RFC 9846 4.6)
-  if FEarlyDataAccepted then
+  // into the transcript, then the write side moves to the handshake keys (RFC 9846 4.6); a host
+  // that owns record protection delimits early data itself and already holds those keys
+  if FEarlyDataAccepted and (not FParams.HostOwnsRecordProtection) then
   begin
     LEndOfEarlyData := THandshakeFraming.Frame(TTlsHandshakeType.EndOfEarlyData, nil);
     FTranscript.Update(LEndOfEarlyData);
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.SendHandshake(LEndOfEarlyData));
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Handshake,
-      TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls13, TTlsEpoch.Handshake));
+      THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Handshake,
+      TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Handshake));
   end;
 
   // mutual TLS: the client Certificate (+ CertificateVerify) precede the client Finished
@@ -2019,9 +2051,13 @@ begin
     // before the ech_required alert: a completed connection's post-Finished records - the alert
     // included - ride the application keys, and the peer decrypts them as such
     TArrayUtilities.Append<THandshakeEffect>(Result,
-      THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-      TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-      TTlsVersion.Tls13, TTlsEpoch.Application));
+      THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+      TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Application));
+    if FParams.HostOwnsRecordProtection then
+    begin
+      FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ClientWrite);
+      FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ServerWrite);
+    end;
     TArrayUtilities.Append<THandshakeEffect>(Result,
       THandshakeEffects.EchRejected(FEchOrch.RetryConfigs, FParams.EchPolicy.IsRetryAttempt));
     Exit(Result);
@@ -2034,13 +2070,17 @@ begin
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.SendHandshake(LClientFinished));
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    TTlsDirection.ClientWrite), TRecordSide.WriteSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls13, TTlsEpoch.Application));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+    TTlsDirection.ClientWrite), TRecordSide.WriteSide, TTlsEpoch.Application));
   TArrayUtilities.Append<THandshakeEffect>(Result,
-    THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    TTlsDirection.ServerWrite), TRecordSide.ReadSide, FSelectedSuite.Common.Aead,
-    TTlsVersion.Tls13, TTlsEpoch.Application));
+    THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+    TTlsDirection.ServerWrite), TRecordSide.ReadSide, TTlsEpoch.Application));
+  // the host keeps the application secrets from here and rekeys them itself
+  if FParams.HostOwnsRecordProtection then
+  begin
+    FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ClientWrite);
+    FSchedule.ForgetApplicationTrafficSecret(TTlsDirection.ServerWrite);
+  end;
   TArrayUtilities.Append<THandshakeEffect>(Result,
     THandshakeEffects.ConnectionParams(FSelectedSuite.Common.Code,
     FCurrentGroupCode, FPskAccepted and FResumedFromTicket, True, FParams.ServerName, Facts));
@@ -2131,7 +2171,8 @@ begin
       // the read epoch and may trigger one responding update (RFC 9846 4.7.3)
       if LKnown and (LType = TTlsHandshakeType.NewSessionTicket) then
         Result := CacheNewSessionTicket(AMessage)
-      else if LKnown and (LType = TTlsHandshakeType.KeyUpdate) then
+      else if LKnown and (LType = TTlsHandshakeType.KeyUpdate) and
+        not FParams.HostOwnsRecordProtection then
         Result := HandleInboundKeyUpdate(AMessage)
       else
         Result := Unexpected;

@@ -26,6 +26,7 @@ uses
   TlpTrustTypes,
   TlpServerName,
   TlpTlsCredential,
+  TlpTicketBinding,
   TlpISession;
 
 type
@@ -59,7 +60,12 @@ type
     /// configuration does not resume across the two (the #31 separator cannot occur in an
     /// identity).</summary>
     class function CacheIdentity(const AServerIdentity, AServerName: string;
-      const AScope: TBytes): string; static;
+      const AScope: TBytes): string; overload; static;
+    /// <summary>As above, kept apart per engine kind: the record engine's key is the one above, and
+    /// another kind's differs, so engines of two kinds sharing a cache never take each other's
+    /// tickets.</summary>
+    class function CacheIdentity(const AServerIdentity, AServerName: string;
+      const AScope: TBytes; ABinding: TTicketBinding): string; overload; static;
     /// <summary>Whether a cached TLS 1.3 session is still offerable as a PSK: a zero lifetime
     /// means discard immediately, and a ticket past its (capped) lifetime, or whose chain's
     /// authentication has lapsed, is not offered (RFC 9846 4.7.1); neither is a session on a hash
@@ -136,6 +142,14 @@ begin
   // resume across the two (the separator is a control char that cannot occur in a server identity)
   if System.Length(AScope) > 0 then
     Result := Result + #31 + TDataEncoding.HexEncode(AScope);
+end;
+
+class function TClientSessionPolicy.CacheIdentity(const AServerIdentity, AServerName: string;
+  const AScope: TBytes; ABinding: TTicketBinding): string;
+begin
+  Result := CacheIdentity(AServerIdentity, AServerName, AScope);
+  if ABinding <> TTicketBinding.RecordEngine then
+    Result := Result + #30 + IntToStr(Ord(ABinding));
 end;
 
 class function TClientSessionPolicy.IsOfferableTls13(

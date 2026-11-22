@@ -1,0 +1,19 @@
+# AES-128 mask known answers: the mask is the head of AES-ECB(key, sample).
+# rfc9001_*: RFC 9001 Appendix A.1 hp keys; A.2 (client) and A.3 (server) samples and masks.
+# rfc9369_*: RFC 9369 Appendix A.1 hp keys; A.2 (client) and A.3 (server) samples and masks.
+# fips197: FIPS 197 Appendix C.1, whole ciphertext block.
+rfc9001_client_key=9f50449e04a0e810283a1e9933adedd2
+rfc9001_client_sample=d1b1c98dd7689fb8ec11d242b123dc9b
+rfc9001_client_mask=437b9aec36
+rfc9001_server_key=c206b8d9b9f0f37644430b490eeaa314
+rfc9001_server_sample=2cd0991cd25b0aac406a5816b6394100
+rfc9001_server_mask=2ec0d8356a
+rfc9369_client_key=45b95e15235d6f45a6b19cbcb0294ba9
+rfc9369_client_sample=ffe67b6abcdb4298b485dd04de806071
+rfc9369_client_mask=94a0c95e80
+rfc9369_server_key=edf6d05c83121201b436e16877593c3a
+rfc9369_server_sample=6f05d8a4398c47089698baeea26b91eb
+rfc9369_server_mask=4dd92e91ea
+fips197_key=000102030405060708090a0b0c0d0e0f
+fips197_sample=00112233445566778899aabbccddeeff
+fips197_mask=69c4e0d86a7b0430d8cdb78070b4c55a

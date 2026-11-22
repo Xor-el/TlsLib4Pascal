@@ -24,10 +24,9 @@ uses
 
 type
   /// <summary>
-  /// The record-layer handshake channel: sends framed handshake messages (and the
-  /// middlebox CCS) out through the record layer, and reassembles the inbound
-  /// handshake byte stream the engine feeds in. Owns its reassembler; the record
-  /// layer is owned by the engine. Single-threaded.
+  /// The record-layer handshake channel: sends framed handshake messages out through the
+  /// record layer, and reassembles the inbound handshake byte stream the engine feeds in. Owns
+  /// its reassembler; the record layer is owned by the engine. Single-threaded.
   /// </summary>
   THandshakeChannel = class sealed(TInterfacedObject, IHandshakeChannel)
   strict private
@@ -44,7 +43,6 @@ type
     destructor Destroy; override;
 
     procedure SendHandshake(const AMessage: TBytes);
-    procedure SendChangeCipherSpec;
     function ReceiveHandshake(out AMessage: TTlsHandshakeMessage): Boolean;
     function HasPartialInbound: Boolean;
 
@@ -53,11 +51,6 @@ type
   end;
 
 implementation
-
-const
-  // one max-size TLS plaintext record (16 KiB) plus a following handshake header: the most the
-  // reassembler can hold un-consumed once a Certificate completes, since it drains after every append
-  MaxCoalescedRecordHeadroom = Int32((1 shl 14) + HandshakeHeaderLength);
 
 { THandshakeChannel }
 
@@ -71,14 +64,7 @@ constructor THandshakeChannel.Create(const ARecordLayer: TRecordLayer;
 begin
   inherited Create;
   FRecordLayer := ARecordLayer;
-  FReader := THandshakeMessageReader.Create;
-  FReader.MaxCertificateMessageLength := AMaxCertificateMessageLength;
-  // the reassembly buffer must hold a full Certificate message before it completes, plus headroom
-  // for at most one following coalesced record (drained after every append)
-  if FReader.MaxTotalLength <
-    AMaxCertificateMessageLength + MaxCoalescedRecordHeadroom then
-    FReader.MaxTotalLength :=
-      AMaxCertificateMessageLength + MaxCoalescedRecordHeadroom;
+  FReader := THandshakeMessageReader.Create(AMaxCertificateMessageLength);
 end;
 
 destructor THandshakeChannel.Destroy;
@@ -91,12 +77,6 @@ procedure THandshakeChannel.SendHandshake(const AMessage: TBytes);
 begin
   FRecordLayer.Write(TTlsContentType.Handshake, AMessage, 0,
     System.Length(AMessage));
-end;
-
-procedure THandshakeChannel.SendChangeCipherSpec;
-begin
-  // the legacy 1-byte 0x01 change_cipher_spec, sent in the clear (RFC 9846 E.4)
-  FRecordLayer.Write(TTlsContentType.ChangeCipherSpec, TBytes.Create(1), 0, 1);
 end;
 
 function THandshakeChannel.ReceiveHandshake(

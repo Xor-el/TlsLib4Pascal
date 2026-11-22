@@ -127,7 +127,7 @@ begin
   // TearDown. A superseded driver holds only non-owning refs to FLayer, so it is inert until then
   FDriver := Own<THandshakeDriver>(THandshakeDriver.Create(
     THandshakeChannel.Create(FLayer) as IHandshakeChannel,
-    TRecordLayerInstaller.Create(FLayer) as IRecordEpochInstaller, ACryptoProvider,
+    TRecordLayerInstaller.Create(FLayer, ACryptoProvider) as IEpochKeyInstaller,
     TMockHandshakeSink.Create as IHandshakeSink));
 end;
 

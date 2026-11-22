@@ -201,7 +201,12 @@ type
   /// <summary>Builds a registry with the core extension set, in ClientHello emission order.</summary>
   TCoreExtensions = class sealed(TObject)
   public
-    class function CreateDefaultRegistry: IExtensionRegistry; static;
+    class function CreateDefaultRegistry: IExtensionRegistry; overload; static;
+    /// <summary>As above, with AHostExtensions emitted just before encrypted_client_hello, so
+    /// pre_shared_key stays last and they sit in the run an ECH inner compresses. Raises when a
+    /// host extension has the type of one the core registry holds.</summary>
+    class function CreateDefaultRegistry(
+      const AHostExtensions: TArray<ITlsExtension>): IExtensionRegistry; overload; static;
   end;
 
 implementation
@@ -211,6 +216,10 @@ uses
   TlpEchRegistryExtension;
 
 resourcestring
+  SHostExtensionsNotPlaced =
+    'the core registry has no encrypted_client_hello entry to place host extensions before';
+  SHostExtensionTypeInUse =
+    'a host extension cannot use the type of an extension the core registry holds';
   SUnknownNameType = 'server_name carries an unknown name_type';
   SEmptyHostName = 'server_name host_name is empty';
   SEmptyAlpnProtocol = 'ALPN carries a zero-length protocol name';
@@ -1152,6 +1161,35 @@ begin
   Result.Add(TEncryptedClientHelloExtension.Create as ITlsExtension);
   // order is local policy; pre_shared_key last per RFC 9846 4.3.11
   Result.Add(TPreSharedKeyExtension.Create as ITlsExtension);
+end;
+
+class function TCoreExtensions.CreateDefaultRegistry(
+  const AHostExtensions: TArray<ITlsExtension>): IExtensionRegistry;
+var
+  LCore: IExtensionRegistry;
+  LExt, LHost: ITlsExtension;
+  LPlaced: Boolean;
+begin
+  LCore := CreateDefaultRegistry;
+  if System.Length(AHostExtensions) = 0 then
+    Exit(LCore);
+  for LHost in AHostExtensions do
+    if LCore.Contains(LHost.ExtensionType) then
+      raise EArgumentTlsLibException.CreateRes(@SHostExtensionTypeInUse);
+  Result := TExtensionRegistry.Create;
+  LPlaced := False;
+  for LExt in LCore.Items do
+  begin
+    if LExt.ExtensionType = TExtensionTypes.EncryptedClientHello then
+    begin
+      for LHost in AHostExtensions do
+        Result.Add(LHost);
+      LPlaced := True;
+    end;
+    Result.Add(LExt);
+  end;
+  if not LPlaced then
+    raise EInvalidOperationTlsLibException.CreateRes(@SHostExtensionsNotPlaced);
 end;
 
 end.

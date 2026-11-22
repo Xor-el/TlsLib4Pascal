@@ -31,13 +31,14 @@ type
   /// config builder at Build.
   /// </summary>
   ICryptoBackendReport = interface(IInterface)
-    ['{C48329E6-48DE-4B8F-97D6-E9E692291DCA}']
+    ['{A3132AEC-C6C0-43A1-B4FE-76BE27CAECF4}']
     function RandomBackend: TCryptoBackendEntry;
     function HashBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function HmacBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function HkdfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function Tls12PrfBackend(AAlgorithm: THashAlgorithm): TCryptoBackendEntry;
     function AeadBackend(AAlgorithm: TAeadAlgorithm): TCryptoBackendEntry;
+    function SampleMaskBackend(AAlgorithm: TSampleMaskAlgorithm): TCryptoBackendEntry;
     function KeyAgreementBackend(AAlgorithm: TKeyAgreementAlgorithm): TCryptoBackendEntry;
     function KemBackend(AAlgorithm: TKemAlgorithm): TCryptoBackendEntry;
     /// <summary>Signing is about keys: the backend that signs with a key of this scheme.</summary>

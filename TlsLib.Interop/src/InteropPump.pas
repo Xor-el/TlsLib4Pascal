@@ -59,8 +59,8 @@ type
   /// caller can capture half-RTT state (e.g. a TLS 1.3 server's keying-material export, available
   /// after its Finished but before the peer's). Implementations must not raise.</summary>
   IHandshakeProbe = interface(IInterface)
-    ['{6B2E1D74-9A03-4C58-8E1F-3D7A0C56B9E2}']
-    procedure Observe(const AEngine: ITlsEngine);
+    ['{C45A7E19-0B62-4D83-9E71-A2F6385D1B04}']
+    procedure Observe(const AEngine: ITlsCommonEngine);
   end;
 
   /// <summary>
@@ -73,7 +73,7 @@ type
   strict private
     class function ResultOf(AStatus: TInteropStatus;
       const ADetail: string): TInteropResult; static;
-    class function FromLastError(const AEngine: ITlsEngine): TInteropResult; static;
+    class function FromLastError(const AEngine: ITlsCommonEngine): TInteropResult; static;
     class function DrainEvents(const AEngine: ITlsEngine;
       var AResult: TInteropResult;
       out ACertEvent: ICertificateReceivedEvent): Boolean; static;
@@ -130,7 +130,7 @@ begin
   Result.Detail := ADetail;
 end;
 
-class function TInteropPump.FromLastError(const AEngine: ITlsEngine): TInteropResult;
+class function TInteropPump.FromLastError(const AEngine: ITlsCommonEngine): TInteropResult;
 var
   LError: TTlsError;
 begin
@@ -140,7 +140,8 @@ begin
     Result := ResultOf(TInteropStatus.PeerAlert, LError.Message)
   else
     Result := ResultOf(TInteropStatus.LocalAlert, LError.Message);
-  Result.HasAlert := LError.Origin <> TTlsErrorOrigin.Transport;
+  Result.HasAlert := not (LError.Origin in [TTlsErrorOrigin.Transport,
+    TTlsErrorOrigin.LocalWithoutAlert]);
   if Result.HasAlert then
     Result.Alert := LError.Alert.Description;
 end;

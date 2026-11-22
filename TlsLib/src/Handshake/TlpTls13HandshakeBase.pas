@@ -98,8 +98,8 @@ function TTls13HandshakeBase.RekeyEffect(ADirection: TTlsDirection;
   ASide: TRecordSide): THandshakeEffect;
 begin
   FSchedule.AdvanceKeyUpdate(ADirection);
-  Result := THandshakeEffects.InstallKeys(FSchedule.TrafficKeys(TTlsEpoch.Application,
-    ADirection), ASide, FSelectedSuite.Common.Aead, TTlsVersion.Tls13, TTlsEpoch.Application);
+  Result := THandshakeEffects.InstallSecret(FSchedule.TrafficSecret(TTlsEpoch.Application,
+    ADirection), ASide, TTlsEpoch.Application);
 end;
 
 function TTls13HandshakeBase.CanSendKeyUpdate: Boolean;

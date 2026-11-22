@@ -55,7 +55,8 @@ type
     EchBackend,           // ECH split-mode backend (server): record the status for connection info
     EchServerRejected,    // ECH rejected at the server: record the status (the handshake continues)
     EchRejected,          // ECH was rejected (client): abort with ech_required, surface retry_configs
-    Fail);                // abort with a fatal alert
+    Fail,                 // abort with a fatal alert
+    FailWithoutAlert);    // abort for a reason TLS defines no alert for
 
   /// <summary>The facts a handshake machine reports at completion beside the suite, group and
   /// resumption flag; the engine copies them onto the connection info.</summary>
@@ -74,9 +75,10 @@ type
   THandshakeEffect = record
     Kind: THandshakeEffectKind;
     Bytes: TBytes;               // SendHandshake / SelectAlpn (the protocol name)
-    Keys: ITrafficKeys;          // InstallKeys
+    Secret: ITrafficSecret;      // InstallKeys (TLS 1.3: the epoch's traffic secret; nil for TLS 1.2 keys)
+    Keys: ITrafficKeys;          // InstallKeys (TLS 1.2 only)
     Side: TRecordSide;           // InstallKeys
-    Aead: TAeadAlgorithm;        // InstallKeys (the negotiated suite's AEAD)
+    Aead: TAeadAlgorithm;        // InstallKeys (TLS 1.2 keys: the negotiated suite's AEAD)
     Version: TTlsVersion;        // InstallKeys (which record protection to build) / NegotiatedVersion
     Epoch: TTlsEpoch;            // InstallKeys (which epoch the keys belong to)
     Outbound: Int32;             // SetRecordSizeLimit (raw outbound record_size_limit)
@@ -90,7 +92,7 @@ type
     ExtendedMasterSecret: Boolean; // ConnectionParams (RFC 7627 in use; always True on TLS 1.3)
     ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
     Alert: TTlsAlertDescription; // Fail
-    Reason: string;              // Fail (why the handshake aborted; becomes LastError's message)
+    Reason: string;              // Fail / FailWithoutAlert (why the handshake aborted; becomes LastError's message)
     Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
     HostName: string;            // AwaitCertificateVerdict (the host to authenticate against)
     RevocationPosture: TRevocationPosture; // AwaitCertificateVerdict (the configured posture)
@@ -109,8 +111,13 @@ type
   public
     class function SendHandshake(const ABytes: TBytes): THandshakeEffect; static;
     class function SendChangeCipherSpec: THandshakeEffect; static;
+    /// <summary>Installs TLS 1.2 traffic keys for AEpoch on ASide.</summary>
     class function InstallKeys(const AKeys: ITrafficKeys; ASide: TRecordSide;
       AAead: TAeadAlgorithm; const AVersion: TTlsVersion;
+      AEpoch: TTlsEpoch): THandshakeEffect; static;
+    /// <summary>Installs the TLS 1.3 traffic secret of AEpoch on ASide; the installer derives the
+    /// record keys from it.</summary>
+    class function InstallSecret(const ASecret: ITrafficSecret; ASide: TRecordSide;
       AEpoch: TTlsEpoch): THandshakeEffect; static;
     class function NegotiatedVersion(const AVersion: TTlsVersion): THandshakeEffect; static;
     class function SelectAlpn(const AProtocol: TBytes): THandshakeEffect; static;
@@ -162,6 +169,8 @@ type
     /// <summary>Aborts with AAlert; AReason is the error the application sees.</summary>
     class function Fail(AAlert: TTlsAlertDescription;
       const AReason: string): THandshakeEffect; static;
+    /// <summary>Aborts for a reason TLS defines no alert for; AReason is the error the host sees.</summary>
+    class function FailWithoutAlert(const AReason: string): THandshakeEffect; static;
     /// <summary>ECH was accepted (RFC 9849): record the accepted status so connection info
     /// reports it. Emitted by the 1.3 machines at completion when ECH was in play.</summary>
     class function EchAccepted: THandshakeEffect; static;
@@ -181,10 +190,10 @@ type
     class function EchRejected(const ARetryConfigs: TBytes;
       AIsRetryAttempt: Boolean): THandshakeEffect; static;
     /// <summary>Maps an in-band protocol exception to a Fail effect (EFatalAlert - which covers
-    /// EDecodeError - to its alert; EPeerInput to illegal_parameter) carrying the exception's
-    /// message (our own resourcestrings only); returns False for any other exception, which the
-    /// caller re-raises. The single home for the machines' and the version dispatcher's
-    /// exception-to-Fail mapping.</summary>
+    /// EDecodeError - to its alert; EPeerInput to illegal_parameter; ELocalFailure to
+    /// FailWithoutAlert) carrying the exception's message (our own resourcestrings only); returns
+    /// False for any other exception, which the caller re-raises. The single home for the
+    /// machines' and the version dispatcher's exception-to-Fail mapping.</summary>
     class function TryFromException(const AError: Exception;
       out AEffect: THandshakeEffect): Boolean; static;
   end;
@@ -217,6 +226,17 @@ begin
   Result.Side := ASide;
   Result.Aead := AAead;
   Result.Version := AVersion;
+  Result.Epoch := AEpoch;
+end;
+
+class function THandshakeEffects.InstallSecret(const ASecret: ITrafficSecret;
+  ASide: TRecordSide; AEpoch: TTlsEpoch): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.InstallKeys;
+  Result.Secret := ASecret;
+  Result.Side := ASide;
+  Result.Version := TTlsVersion.Tls13;
   Result.Epoch := AEpoch;
 end;
 
@@ -356,6 +376,13 @@ begin
   Result.Reason := AReason;
 end;
 
+class function THandshakeEffects.FailWithoutAlert(const AReason: string): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.FailWithoutAlert;
+  Result.Reason := AReason;
+end;
+
 class function THandshakeEffects.EchAccepted: THandshakeEffect;
 begin
   Result := Default(THandshakeEffect);
@@ -399,6 +426,8 @@ begin
     AEffect := Fail(TTlsAlertDescription.IllegalParameter, AError.Message)
   else if AError is EFatalAlertTlsLibException then
     AEffect := Fail(EFatalAlertTlsLibException(AError).AlertDescription, AError.Message)
+  else if AError is ELocalFailureTlsLibException then
+    AEffect := FailWithoutAlert(AError.Message)
   else
   begin
     AEffect := Default(THandshakeEffect);

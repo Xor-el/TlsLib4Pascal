@@ -28,7 +28,7 @@
         <PackageName Value="FCL"/>
       </Item3>
     </RequiredPackages>
-    <Units Count="7">
+    <Units Count="8">
       <Unit0>
         <Filename Value="BoGoShim.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -54,9 +54,13 @@
         <IsPartOfProject Value="True"/>
       </Unit5>
       <Unit6>
-        <Filename Value="..\src\BoGoShimRunner.pas"/>
+        <Filename Value="..\src\InteropLeveledHost.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit6>
+      <Unit7>
+        <Filename Value="..\src\BoGoShimRunner.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit7>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
