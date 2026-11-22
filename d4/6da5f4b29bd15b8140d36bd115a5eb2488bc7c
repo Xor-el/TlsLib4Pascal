@@ -1,0 +1,77 @@
+TlsLib/src/Handshake/TlpTls13ServerStateMachine.pas
+  s_f2c9bd75607afc::t_278fcb3a8d9b42 1636
+TlsLib/src/KeySchedule/TlpTrafficSecret.pas
+  s_f2c9bd75607afc::t_dec1c08821de9f 25
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_f2c9bd75607afc::t_83c4ec715d6182 1038
+  s_f2c9bd75607afc::t_39d8360997ee77 1294
+TlsLib/src/Engine/TlpTlsEngine.pas
+  s_f2c9bd75607afc::t_5a879cb11ba637 342,344
+  s_f2c9bd75607afc::t_d6a2b34d2ac009 287,290
+  s_f2c9bd75607afc::t_148cfa5d4d4c27 354,356-357
+  s_f2c9bd75607afc::t_1a9f5258d1c959 273
+TlsLib/src/Handshake/TlpHandshakeChannel.pas
+  s_f2c9bd75607afc::t_1231038d118bae 28-29
+TlsLib.Tests/src/HandshakeDriverTests.pas
+  s_f2c9bd75607afc::t_2c370c9bd84bef 68-69
+  s_f2c9bd75607afc::t_948d218940ce6d 321-371
+  s_f2c9bd75607afc::t_96bd2359388725 436
+  s_f2c9bd75607afc::t_acf27909f9da3d 120
+TlsLib.Tests/src/Tls13KeyUpdateTests.pas
+  s_f2c9bd75607afc::t_47cb09621a855a 135
+TlsLib.Tests/src/MockRecordInstaller.pas
+  s_f2c9bd75607afc::t_e3eafb3681655a 114-115,117,121-125
+  s_f2c9bd75607afc::t_eda332bf96382a 126-127
+  s_f2c9bd75607afc::t_a17ea944133db1 55-56,58
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_f2c9bd75607afc::t_2ae52016ec6ed9 239
+  s_f2c9bd75607afc::t_a797834c0dfd94 259
+  s_f2c9bd75607afc::t_2967532c99336f 249
+  s_f2c9bd75607afc::t_30cbd436fd5ac6 474
+  s_f2c9bd75607afc::t_cb5d1fb2a15084 587-588
+  s_f2c9bd75607afc::t_f6e5dbef9f5b02 201
+  s_f2c9bd75607afc::t_bd2a57420b297d 324
+  s_f2c9bd75607afc::t_260b1a2d16609a 282
+  s_f2c9bd75607afc::t_ee2b48a10f9fac 93,97-99,102
+  s_f2c9bd75607afc::t_1f8cafff0ecee6 187
+  s_f2c9bd75607afc::t_806c5ee2842438 273
+TlsLib.Tests/src/Tls13KeyScheduleTests.pas
+  s_f2c9bd75607afc::t_9e9560e2397f7e 66
+  s_f2c9bd75607afc::t_d8c9ad99af291a 307
+  s_f2c9bd75607afc::t_ce56a554ab3892 253-273
+  s_f2c9bd75607afc::t_cfe040cb3e3f50 131-132,134-138
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_f2c9bd75607afc::t_16b5de48f98454 232-234,241
+  s_f2c9bd75607afc::t_a681d69d9438a2 210-211
+  s_f2c9bd75607afc::t_6600b9ea68b193 224-225
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_f2c9bd75607afc::t_3be2b6cba6878a 32
+  s_f2c9bd75607afc::t_decee6674f4b61 218
+  s_f2c9bd75607afc::t_7fe7b0e2f06787 52-53
+  s_f2c9bd75607afc::t_42f45c1369eb0c 95-97
+  s_f2c9bd75607afc::t_472ac37944e68b 129-131,133-134,136-137,140
+  s_f2c9bd75607afc::t_d4d3b6b3df178e 132
+  s_f2c9bd75607afc::t_304fe405653829 216,219-220
+TlsLib/src/KeySchedule/TlpTls13KeySchedule.pas
+  s_f2c9bd75607afc::t_4ac8140811ce8a 21
+  s_f2c9bd75607afc::t_318c25e5b4fa26 161,163-165
+  s_f2c9bd75607afc::t_9b11934fab079b 87-89
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_f2c9bd75607afc::t_8adc1a16c31713 387-393,511,597,601-603
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d46da5f4b29bd15b8140d36bd115a5eb2488bc7c",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
