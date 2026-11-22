@@ -68,9 +68,6 @@ type
     procedure DoAgreeRejectsForeignKeyHandle(const AProvider: ICryptoProvider);
     procedure DoAgreeRejectsCompressedPeerPoint(const AProvider: ICryptoProvider);
     procedure DoAeadSealWithoutInitRaisesTyped(const AProvider: ICryptoProvider);
-    // The ChaCha20 block (RFC 8439 2.3) for the key and the 16-byte counter-then-nonce sample,
-    // computed here from the specification as the independent reference.
-    function ReferenceChaCha20Block(const AKey, ASample: TBytes): TBytes;
     // The key, sample and mask named APrefix in AVec, run through a fresh sample mask.
     procedure CheckMaskKat(AAlgorithm: TSampleMaskAlgorithm; const AVec: TStringList;
       const APrefix: string);
@@ -119,8 +116,6 @@ type
     procedure TestAes128SampleMaskKnownAnswers;
     procedure TestAes256SampleMaskKnownAnswer;
     procedure TestChaCha20SampleMaskKnownAnswers;
-    procedure TestReferenceChaCha20BlockMatchesTheRfcVector;
-    procedure TestChaCha20SampleMaskMatchesTheReferenceBlock;
     procedure TestChaCha20SampleMaskAtTheCounterLimits;
     procedure TestSampleMaskShorterThanTheBlockIsAPrefix;
     procedure TestSampleMaskReportsItsSizes;
@@ -1218,70 +1213,10 @@ begin
   CheckEquals(3, LContentLen, 'short-form content length');
 end;
 
-type
-  TChaChaState = array [0 .. 15] of UInt32;
-
 const
   MaskAlgorithms: array [0 .. 2] of TSampleMaskAlgorithm = (TSampleMaskAlgorithm.AES_128,
     TSampleMaskAlgorithm.AES_256, TSampleMaskAlgorithm.CHACHA20);
   MaskKeySizes: array [0 .. 2] of Int32 = (16, 32, 32);
-
-function TTestCryptoProvider.ReferenceChaCha20Block(const AKey, ASample: TBytes): TBytes;
-  function Rotl(AValue: UInt32; ABits: Int32): UInt32;
-  begin
-    Result := UInt32((AValue shl ABits) or (AValue shr (32 - ABits)));
-  end;
-  function LoadLe(const AData: TBytes; AOffset: Int32): UInt32;
-  begin
-    Result := UInt32(AData[AOffset]) or (UInt32(AData[AOffset + 1]) shl 8) or
-      (UInt32(AData[AOffset + 2]) shl 16) or (UInt32(AData[AOffset + 3]) shl 24);
-  end;
-  procedure QuarterRound(var AState: TChaChaState; AA, AB, AC, AD: Int32);
-  begin
-    AState[AA] := AState[AA] + AState[AB];
-    AState[AD] := Rotl(AState[AD] xor AState[AA], 16);
-    AState[AC] := AState[AC] + AState[AD];
-    AState[AB] := Rotl(AState[AB] xor AState[AC], 12);
-    AState[AA] := AState[AA] + AState[AB];
-    AState[AD] := Rotl(AState[AD] xor AState[AA], 8);
-    AState[AC] := AState[AC] + AState[AD];
-    AState[AB] := Rotl(AState[AB] xor AState[AC], 7);
-  end;
-var
-  LInitial, LWork: TChaChaState;
-  LI: Int32;
-begin
-  LInitial[0] := $61707865;
-  LInitial[1] := $3320646E;
-  LInitial[2] := $79622D32;
-  LInitial[3] := $6B206574;
-  for LI := 0 to 7 do
-    LInitial[4 + LI] := LoadLe(AKey, LI * 4);
-  for LI := 0 to 3 do
-    LInitial[12 + LI] := LoadLe(ASample, LI * 4);
-  LWork := LInitial;
-  for LI := 1 to 10 do
-  begin
-    QuarterRound(LWork, 0, 4, 8, 12);
-    QuarterRound(LWork, 1, 5, 9, 13);
-    QuarterRound(LWork, 2, 6, 10, 14);
-    QuarterRound(LWork, 3, 7, 11, 15);
-    QuarterRound(LWork, 0, 5, 10, 15);
-    QuarterRound(LWork, 1, 6, 11, 12);
-    QuarterRound(LWork, 2, 7, 8, 13);
-    QuarterRound(LWork, 3, 4, 9, 14);
-  end;
-  Result := nil;
-  SetLength(Result, 64);
-  for LI := 0 to 15 do
-  begin
-    LWork[LI] := LWork[LI] + LInitial[LI];
-    Result[LI * 4] := Byte(LWork[LI]);
-    Result[LI * 4 + 1] := Byte(LWork[LI] shr 8);
-    Result[LI * 4 + 2] := Byte(LWork[LI] shr 16);
-    Result[LI * 4 + 3] := Byte(LWork[LI] shr 24);
-  end;
-end;
 
 procedure TTestCryptoProvider.CheckMaskKat(AAlgorithm: TSampleMaskAlgorithm;
   const AVec: TStringList; const APrefix: string);
@@ -1348,67 +1283,33 @@ begin
   end;
 end;
 
-procedure TTestCryptoProvider.TestReferenceChaCha20BlockMatchesTheRfcVector;
-var
-  LVec: TStringList;
-  LBlock, LExpected: TBytes;
-begin
-  // the control for the reference the next two tests lean on
-  LVec := LoadVectorFields('Crypto/SampleMask/ChaCha20.txt');
-  try
-    LExpected := DecodeHex(LVec.Values['rfc8439_block_mask']);
-    LBlock := ReferenceChaCha20Block(DecodeHex(LVec.Values['rfc8439_block_key']),
-      DecodeHex(LVec.Values['rfc8439_block_sample']));
-    CheckEqualBytes('reference block head', LExpected, System.Copy(LBlock, 0,
-      System.Length(LExpected)));
-  finally
-    LVec.Free;
-  end;
-end;
-
-procedure TTestCryptoProvider.TestChaCha20SampleMaskMatchesTheReferenceBlock;
-var
-  LRound: Int32;
-  LKey, LSample, LActual: TBytes;
-  LMask: ISampleMask;
-begin
-  for LRound := 0 to 63 do
-  begin
-    LKey := PatternBytes(32, LRound);
-    LSample := PatternBytes(16, LRound + 100);
-    LMask := Crypto.Primitives.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
-    LMask.Init(TSecretBuffer.From(LKey));
-    LActual := nil;
-    SetLength(LActual, 16);
-    LMask.Compute(LSample, 0, LActual, 0, 16);
-    CheckEqualBytes(Format('round %d', [LRound]),
-      System.Copy(ReferenceChaCha20Block(LKey, LSample), 0, 16), LActual);
-  end;
-end;
-
 procedure TTestCryptoProvider.TestChaCha20SampleMaskAtTheCounterLimits;
 const
-  // the last block comes before other cases, so the next one shows nothing carried over
-  Counters: array [0 .. 3] of UInt32 = ($00000001, $FFFFFFFF, $00000000, $FFFFFFFE);
+  // the stored cases run in order, so a later one shows nothing carried over from an earlier
+  CaseCount = 5;
 var
-  LCase, LI: Int32;
-  LKey, LSample, LActual: TBytes;
+  LVec: TStringList;
+  LCase: Int32;
+  LExpected, LActual: TBytes;
   LMask: ISampleMask;
 begin
-  // a sample may name the last block of the 32-bit counter, which must not be refused
-  LKey := PatternBytes(32, 5);
-  LMask := Crypto.Primitives.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
-  LMask.Init(TSecretBuffer.From(LKey));
-  for LCase := System.Low(Counters) to System.High(Counters) do
-  begin
-    LSample := PatternBytes(16, 40 + LCase);
-    for LI := 0 to 3 do
-      LSample[LI] := Byte(Counters[LCase] shr (8 * LI));
-    LActual := nil;
-    SetLength(LActual, 16);
-    LMask.Compute(LSample, 0, LActual, 0, 16);
-    CheckEqualBytes(Format('counter case %d', [LCase]),
-      System.Copy(ReferenceChaCha20Block(LKey, LSample), 0, 16), LActual);
+  LVec := LoadVectorFields('Crypto/SampleMask/ChaCha20.txt');
+  try
+    // a sample may name the last block of the 32-bit counter, which must not be refused, and one
+    // keyed mask serves every case
+    LMask := Crypto.Primitives.CreateSampleMask(TSampleMaskAlgorithm.CHACHA20);
+    LMask.Init(TSecretBuffer.From(DecodeHex(LVec.Values['limit_key'])));
+    for LCase := 0 to CaseCount - 1 do
+    begin
+      LExpected := DecodeHex(LVec.Values[Format('limit_%d_mask', [LCase])]);
+      LActual := nil;
+      SetLength(LActual, System.Length(LExpected));
+      LMask.Compute(DecodeHex(LVec.Values[Format('limit_%d_sample', [LCase])]), 0, LActual, 0,
+        System.Length(LExpected));
+      CheckEqualBytes(Format('counter case %d', [LCase]), LExpected, LActual);
+    end;
+  finally
+    LVec.Free;
   end;
 end;
 

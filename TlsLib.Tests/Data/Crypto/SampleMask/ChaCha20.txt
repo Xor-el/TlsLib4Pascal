@@ -12,3 +12,18 @@ rfc9369_chacha_mask=97580e32bf
 rfc8439_block_key=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 rfc8439_block_sample=01000000000000090000004a00000000
 rfc8439_block_mask=10f1e7e4d13b5915500fdd1fa32071c4
+# limit_*: one key, five samples with block counters 1, ffffffff, 0, fffffffe and 80000000 (in
+# that order, each with its own nonce); masks are the first 16 keystream bytes. They come from
+# the Python cryptography ChaCha20 (OpenSSL), the openssl enc -chacha20 command line, and an
+# independent pure-Python RFC 8439 2.3 block; all three agree and reproduce the vectors above.
+limit_key=202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f
+limit_0_sample=01000000a0a0a0a0a0a0a0a0a0a0a0a0
+limit_0_mask=5a21995f3fbcabdad19f41937eefe823
+limit_1_sample=ffffffffa1a1a1a1a1a1a1a1a1a1a1a1
+limit_1_mask=ec27ef7244dab058158f607f89593ced
+limit_2_sample=00000000a2a2a2a2a2a2a2a2a2a2a2a2
+limit_2_mask=12c9662665fe77bf1386d7cafdb0b7ac
+limit_3_sample=feffffffa3a3a3a3a3a3a3a3a3a3a3a3
+limit_3_mask=66cb551337df624e7f746c632a5f8fea
+limit_4_sample=00000080a4a4a4a4a4a4a4a4a4a4a4a4
+limit_4_mask=7af0f51d1d7e562d0b4f3c53206d5668
