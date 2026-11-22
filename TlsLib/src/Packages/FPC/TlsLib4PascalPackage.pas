@@ -60,7 +60,8 @@ uses
   TlpITlsServerCredentialSet, TlpTls12PrfLabels, TlpClientPskPath, 
   TlpILayeredTrustAnchorStore, TlpIIssuerLookup, TlpIssuerResolution, 
   TlpIssuerLookupVerifierSource, TlpITlsEngineInbound, TlpITlsEngineOutbound,
-  TlpTrafficSecret;
+  TlpTrafficSecret, TlpITlsHostExtension, TlpHostExtensions,
+  TlpISessionApplicationData, TlpSessionApplicationData;
 
 implementation
 

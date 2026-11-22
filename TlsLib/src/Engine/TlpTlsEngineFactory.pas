@@ -29,6 +29,7 @@ uses
   TlpICertificateTrust,
   TlpTrustTypes,
   TlpICertificateCompression,
+  TlpHandshakeMessage,
   TlpNegotiationTypes,
   TlpNegotiationPolicy,
   TlpSignatureSchemeRegistry,
@@ -40,6 +41,11 @@ uses
   TlpTlsCredential,
   TlpISession,
   TlpCoreExtensions,
+  TlpITlsExtension,
+  TlpITlsHostExtension,
+  TlpHostExtensions,
+  TlpISessionApplicationData,
+  TlpSessionApplicationData,
   TlpIHandshakeMachine,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
@@ -94,18 +100,32 @@ type
     class function BuildClient13Params(const AConfig: ITlsClientConfig;
       const AServerName: TServerName; const AClientRandom, ASessionId: TBytes;
       const AVerifier, AResumeVerifier, AEchRejectVerifier: IServerCertificateVerifier;
-      ADeferral: TVerdictDeferral; AOffers13, AOffersResumption: Boolean): TClientHandshakeParams;
-      static;
+      ADeferral: TVerdictDeferral; AOffers13, AOffersResumption: Boolean;
+      const AHostAdapters: TArray<ITlsExtension>;
+      const ASessionData: ISessionApplicationDataChannel): TClientHandshakeParams; static;
     /// <summary>The TLS 1.3 server machine's parameters.</summary>
     class function BuildServer13Params(const AConfig: ITlsServerConfig;
       const AServerRandom: TBytes; const AClientVerifier: IClientCertificateVerifier;
-      ADeferral: TVerdictDeferral; AOffers13: Boolean): TServerHandshakeParams; static;
+      ADeferral: TVerdictDeferral; AOffers13: Boolean;
+      const AHostAdapters: TArray<ITlsExtension>): TServerHandshakeParams; static;
+    /// <summary>The registry entries carrying AHostExtensions; they ride TLS 1.3 handshakes only,
+    /// so a config that does not offer 1.3 cannot take them.</summary>
+    class function HostAdapters(const AHostExtensions: TArray<ITlsHostExtension>;
+      AOffers13: Boolean; out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>; static;
   public
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
-      const AHost: string): ITlsEngine; static;
+      const AHost: string): ITlsEngine; overload; static;
+    /// <summary>As above, carrying AHostExtensions in its TLS 1.3 handshakes; read the peer's back
+    /// with Supports(engine, ITlsHostExtensionResults). TLS 1.2 handshakes carry none. Raises when
+    /// the config offers no TLS 1.3, or a host extension is refused (see TTlsHostExtensions).</summary>
+    class function CreateClientEngine(const AConfig: ITlsClientConfig; const AHost: string;
+      const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine; overload; static;
     /// <summary>A server engine wired from the config; it starts on the first ClientHello.</summary>
-    class function CreateServerEngine(const AConfig: ITlsServerConfig): ITlsEngine; static;
+    class function CreateServerEngine(const AConfig: ITlsServerConfig): ITlsEngine; overload; static;
+    /// <summary>As above, carrying AHostExtensions as the client engine overload does.</summary>
+    class function CreateServerEngine(const AConfig: ITlsServerConfig;
+      const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine; overload; static;
   end;
 
 implementation
@@ -123,6 +143,8 @@ resourcestring
   SNoServerNameForCheck =
     'server-name checking is on but no usable host was given to verify the certificate ' +
     'against; pass the connection host, or disable it with WithDangerousDisableServerNameCheck';
+  SHostExtensionsNeedTls13 =
+    'host extensions ride TLS 1.3 handshakes only, but the config does not offer TLS 1.3';
 
 { TTlsEngineFactory }
 
@@ -184,7 +206,9 @@ end;
 class function TTlsEngineFactory.BuildClient13Params(const AConfig: ITlsClientConfig;
   const AServerName: TServerName; const AClientRandom, ASessionId: TBytes;
   const AVerifier, AResumeVerifier, AEchRejectVerifier: IServerCertificateVerifier;
-  ADeferral: TVerdictDeferral; AOffers13, AOffersResumption: Boolean): TClientHandshakeParams;
+  ADeferral: TVerdictDeferral; AOffers13, AOffersResumption: Boolean;
+  const AHostAdapters: TArray<ITlsExtension>;
+  const ASessionData: ISessionApplicationDataChannel): TClientHandshakeParams;
 begin
   Result := Default(TClientHandshakeParams);
   Result.Crypto := AConfig.Crypto;
@@ -199,7 +223,9 @@ begin
   // the extension registry (its ~20 handlers) is built only for a version whose machine is
   // actually created; a single-version client would otherwise build and discard one
   if AOffers13 then
-    Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry(AHostAdapters);
+  Result.TicketBinding := TTicketBinding.RecordEngine;
+  Result.SessionApplicationData := ASessionData;
   Result.OfferedSuites := SuiteCodes(AConfig);
   Result.OfferedSchemes := TSignatureSchemeCodes.FromRegistry(AConfig.SignatureSchemes);
   Result.AlpnProtocols := AConfig.AlpnProtocols;
@@ -256,7 +282,8 @@ end;
 
 class function TTlsEngineFactory.BuildServer13Params(const AConfig: ITlsServerConfig;
   const AServerRandom: TBytes; const AClientVerifier: IClientCertificateVerifier;
-  ADeferral: TVerdictDeferral; AOffers13: Boolean): TServerHandshakeParams;
+  ADeferral: TVerdictDeferral; AOffers13: Boolean;
+  const AHostAdapters: TArray<ITlsExtension>): TServerHandshakeParams;
 var
   LGroupCode: UInt16;
 begin
@@ -271,7 +298,8 @@ begin
   Result.CipherSuites := AConfig.CipherSuites;
   // build the extension registry only for a version whose machine is created
   if AOffers13 then
-    Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry;
+    Result.ExtensionRegistry := TCoreExtensions.CreateDefaultRegistry(AHostAdapters);
+  Result.TicketBinding := TTicketBinding.RecordEngine;
   // the negotiation policy (built above from the same PreferredGroups/NamedGroups) selects the
   // group by server preference among the client's supported_groups (RFC 9846 4.3.7); the state
   // machine resolves the selected code via GroupRegistry
@@ -316,6 +344,7 @@ begin
     Result.IssueTicketCount := AConfig.TicketCount;
     Result.TicketLifetimeSeconds := AConfig.TicketLifetimeSeconds;
     Result.MaxEarlyData := AConfig.MaxEarlyData;
+    Result.EarlyDataContext := AConfig.EarlyDataContext;
     Result.AntiReplay := AConfig.AntiReplay;
   end;
   // out-of-band external PSKs (RFC 9258) and Encrypted Client Hello are matched only on the TLS
@@ -403,8 +432,24 @@ begin
   Result := TArrayUtilities.Contains<UInt16>(AConfig.SupportedVersions, AVersion);
 end;
 
+class function TTlsEngineFactory.HostAdapters(
+  const AHostExtensions: TArray<ITlsHostExtension>; AOffers13: Boolean;
+  out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>;
+begin
+  Result := TTlsHostExtensions.Adapt(AHostExtensions, AResults);
+  if (System.Length(Result) > 0) and not AOffers13 then
+    raise EArgumentTlsLibException.CreateRes(@SHostExtensionsNeedTls13);
+end;
+
 class function TTlsEngineFactory.CreateClientEngine(
   const AConfig: ITlsClientConfig; const AHost: string): ITlsEngine;
+begin
+  Result := CreateClientEngine(AConfig, AHost, nil);
+end;
+
+class function TTlsEngineFactory.CreateClientEngine(
+  const AConfig: ITlsClientConfig; const AHost: string;
+  const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine;
 var
   L13: TClientHandshakeParams;
   L12: TClient12HandshakeParams;
@@ -415,9 +460,14 @@ var
   LDeferral: TVerdictDeferral;
   LOffers13, LOffers12, LOffersResumption: Boolean;
   LMachine: IHandshakeMachine;
+  LHostResults: ITlsHostExtensionResults;
+  LSessionData: ITlsSessionApplicationData;
+  LAdapters: TArray<ITlsExtension>;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
+  LAdapters := HostAdapters(AHostExtensions, LOffers13, LHostResults);
+  LSessionData := TSessionApplicationData.Create(True) as ITlsSessionApplicationData;
   // a verdict-deferral mode parks the handshake after the pipeline accepts the server chain; any
   // time budget belongs to the resolver built from the config, not the engine
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
@@ -471,7 +521,8 @@ begin
   end;
 
   L13 := BuildClient13Params(AConfig, LServerName, LClientRandom, LSessionId, LVerifier,
-    LResumeVerifier, LEchRejectVerifier, LDeferral, LOffers13, LOffersResumption);
+    LResumeVerifier, LEchRejectVerifier, LDeferral, LOffers13, LOffersResumption, LAdapters,
+    LSessionData as ISessionApplicationDataChannel);
 
   L12 := Default(TClient12HandshakeParams);
   L12.Crypto := AConfig.Crypto;
@@ -541,11 +592,17 @@ begin
 
   // a client always receives the server's Certificate, so bound its reassembler by the chain budget
   Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto,
-    AConfig.CertificateChainLimits.MaxTotalChainLength);
+    AConfig.CertificateChainLimits.MaxTotalChainLength, LHostResults, LSessionData);
 end;
 
 class function TTlsEngineFactory.CreateServerEngine(
   const AConfig: ITlsServerConfig): ITlsEngine;
+begin
+  Result := CreateServerEngine(AConfig, nil);
+end;
+
+class function TTlsEngineFactory.CreateServerEngine(const AConfig: ITlsServerConfig;
+  const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine;
 var
   L13: TServerHandshakeParams;
   L12: TServer12HandshakeParams;
@@ -555,9 +612,13 @@ var
   LDeferral: TVerdictDeferral;
   LOffers13, LOffers12: Boolean;
   LMachine: IHandshakeMachine;
+  LHostResults: ITlsHostExtensionResults;
+  LAdapters: TArray<ITlsExtension>;
+  LMaxCertificateMessage: Int32;
 begin
   LOffers13 := Offers(AConfig, TlsWireVersionTls13);
   LOffers12 := Offers(AConfig, TlsWireVersionTls12);
+  LAdapters := HostAdapters(AHostExtensions, LOffers13, LHostResults);
   LServerRandom := AConfig.Crypto.Primitives.GetRandom.GenerateBytes(32);
   // a verdict-deferral mode parks the handshake after the pipeline accepts the client chain
   // (only meaningful when the server requests client authentication)
@@ -585,7 +646,7 @@ begin
   end;
 
   L13 := BuildServer13Params(AConfig, LServerRandom, LClientVerifier, LDeferral,
-    LOffers13);
+    LOffers13, LAdapters);
 
   L12 := Default(TServer12HandshakeParams);
   L12.Crypto := AConfig.Crypto;
@@ -651,11 +712,11 @@ begin
 
   // a server receives a peer Certificate only when it requests client authentication; otherwise it
   // never reassembles one, so the reassembler keeps the tighter default cap
+  LMaxCertificateMessage := DefaultMaxHandshakeMessageLength;
   if AConfig.ClientAuth <> TClientAuthMode.None then
-    Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto,
-      AConfig.CertificateChainLimits.MaxTotalChainLength)
-  else
-    Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto);
+    LMaxCertificateMessage := AConfig.CertificateChainLimits.MaxTotalChainLength;
+  Result := TTlsEngine.CreateConfigured(LMachine, AConfig.Crypto, LMaxCertificateMessage,
+    LHostResults, TSessionApplicationData.Create(False) as ITlsSessionApplicationData);
 end;
 
 end.

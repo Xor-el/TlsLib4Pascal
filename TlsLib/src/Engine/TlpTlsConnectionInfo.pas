@@ -23,10 +23,12 @@ uses
 type
   /// <summary>Why 0-RTT early data was or was not used on a connection (RFC 9846 4.3.10): the
   /// first reason in this order that applies is reported; ReplayDetected is the anti-replay
-  /// decline (RFC 9846 8.2).</summary>
+  /// decline (RFC 9846 8.2); ContextMismatch is the server declining early data because the
+  /// ticket was issued under another early-data context than the one configured, while the
+  /// resumption itself went ahead.</summary>
   TEarlyDataReason = (Disabled, Accepted, ProtocolVersion, PeerDeclined, NoSessionOffered,
     SessionNotResumed, UnsupportedForSession, HelloRetryRequest, AlpnMismatch, TicketAgeSkew,
-    ReplayDetected);
+    ReplayDetected, ContextMismatch);
 
   /// <summary>
   /// A read-only snapshot of a connection's negotiated facts; the fields fill in as the

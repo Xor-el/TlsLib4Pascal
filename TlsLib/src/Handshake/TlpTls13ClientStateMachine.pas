@@ -62,6 +62,7 @@ uses
   TlpISigningKey,
   TlpTlsCredential,
   TlpISession,
+  TlpISessionApplicationData,
   TlpIClock,
   TlpIKeyLog,
   TlpSession,
@@ -174,6 +175,12 @@ type
     /// <summary>When set (with a resumption PSK whose ticket permits it), the client
     /// offers 0-RTT early data and installs the early write epoch. OFF by default.</summary>
     EarlyDataEnabled: Boolean;
+    /// <summary>The kind of engine this machine serves: stamped on the tickets it caches, and the
+    /// only kind of cached ticket it offers.</summary>
+    TicketBinding: TTicketBinding;
+    /// <summary>Where the host's session application data is read for a received ticket and the
+    /// offered session's is published; nil keeps none.</summary>
+    SessionApplicationData: ISessionApplicationDataChannel;
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
     /// augment-only and fail-closed, None by default.</summary>
     Deferral: TVerdictDeferral;
@@ -820,6 +827,7 @@ var
   LContext: TExtensionContext;
   LMaxEarlyData: UInt32;
   LPeerChain: TArray<TBytes>;
+  LApplicationData: TBytes;
   LLifetime: UInt32;
   LAuthenticatedAtMs, LNowMs: UInt64;
 begin
@@ -861,12 +869,15 @@ begin
   LPeerChain := FCertificateChain;
   if FResumedFromTicket then
     LPeerChain := FResumptionPeerCertificates;
+  LApplicationData := nil;
+  if FParams.SessionApplicationData <> nil then
+    LApplicationData := FParams.SessionApplicationData.Current;
   LSession := TTls13ResumableSession.Create(FSelectedSuite.Common.Code,
     FSelectedSuite.Common.Hash, LPsk, FNegotiatedAlpn,
     FParams.ServerName, LNst.Ticket,
     LLifetime, LNst.TicketAgeAdd, LNowMs,
     LMaxEarlyData, LPeerChain, nil, FSessionPskIdentity, FSessionPskBinding,
-    FPeerSignatureScheme, LAuthenticatedAtMs);
+    FPeerSignatureScheme, LAuthenticatedAtMs, nil, LApplicationData, FParams.TicketBinding);
   FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
   // bounded against a server streaming tickets; a dropped ticket escapes the fatal-alert cache
   // withdrawal (RFC 9846 6, "if possible")
@@ -928,6 +939,7 @@ begin
     begin
       if TClientSessionPolicy.IsOfferableTls13(LCached, FParams.Clock.NowUnixMillis) and
         Supports(LCached, ITls13ResumableSession, L13) and
+        (L13.TicketBinding = FParams.TicketBinding) and
         TClientSessionPolicy.SessionTrustedForOffer(FParams.ResumeVerification, LCached,
         FParams.CertificateVerifier, FParams.ResumeCertificateVerifier, FExpectedName,
         FResumeValidatedPath) then
@@ -939,6 +951,8 @@ begin
             L13.Hash, L13.CipherSuite, L13.MaxEarlyData, L13.Alpn, TPskBinderKind.Resumption,
             L13.TicketLifetime, L13.TicketAgeAdd, L13.IssuedAtMillis);
         FPskOffers := TArray<IPreSharedKey>.Create(LOfferedPsk);
+        if FParams.SessionApplicationData <> nil then
+          FParams.SessionApplicationData.PublishOffered(L13.ApplicationData);
         // kept to surface the resumed chain and to park a deferred verdict on it
         FResumptionPeerCertificates := LCached.PeerCertificates;
         FResumptionPskIdentity := LCached.PskIdentity;

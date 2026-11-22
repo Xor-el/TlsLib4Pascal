@@ -72,6 +72,11 @@ type
     /// the deserialize (a graceful full handshake), never a mis-derived key.</summary>
     class function HashToCode(AHash: THashAlgorithm): Byte; static;
     class function TryCodeToHash(ACode: Byte; out AHash: THashAlgorithm): Boolean; static;
+    /// <summary>The stable wire code of the engine kind that minted a ticket, fixed like the hash
+    /// codes so a reorder of the enum cannot reinterpret a peer's ticket.</summary>
+    class function BindingToCode(ABinding: TTicketBinding): Byte; static;
+    class function TryCodeToBinding(ACode: Byte;
+      out ABinding: TTicketBinding): Boolean; static;
   public
     constructor Create(const ACryptoProvider: ICryptoProvider;
       const AKeys: ISessionTicketKeyManager);
@@ -106,7 +111,7 @@ implementation
 
 const
   // bumped on any layout change; an older ticket fails the version check and draws a full handshake
-  TicketFormatVersion = UInt32(11);
+  TicketFormatVersion = UInt32(12);
   TicketNonceLength = Int32(12); // AES-256-GCM nonce
   // the serialized session carries the peer chain the client volunteered; cap it so an oversized
   // chain does not bloat the ticket and the resumed ClientHello that re-presents it. Past the cap
@@ -184,6 +189,29 @@ begin
   end;
 end;
 
+class function TStekTicketStrategy.BindingToCode(ABinding: TTicketBinding): Byte;
+begin
+  case ABinding of
+    TTicketBinding.RecordEngine:
+      Result := 1;
+  else
+    Result := 0;
+  end;
+end;
+
+class function TStekTicketStrategy.TryCodeToBinding(ACode: Byte;
+  out ABinding: TTicketBinding): Boolean;
+begin
+  Result := True;
+  case ACode of
+    1:
+      ABinding := TTicketBinding.RecordEngine;
+  else
+    ABinding := TTicketBinding.RecordEngine;
+    Result := False;
+  end;
+end;
+
 class function TStekTicketStrategy.SerializeSession(
   const ASession: IResumableSession): TBytes;
 var
@@ -192,7 +220,7 @@ var
   LIssued, LAuthenticated: UInt64;
   L13: ITls13ResumableSession;
   L12: ITls12ResumableSession;
-  LResumption, LMaster: TBytes;
+  LResumption, LMaster, LContext: TBytes;
 begin
   Result := nil;
   LWriter := TWireWriter.Create;
@@ -240,6 +268,14 @@ begin
     LWriter.WriteBytes(LResumption);
     LWriter.CloseVector(LMarker);
     TSecureMemory.WipeBytes(LResumption);
+    // sealed: the early-data context and the engine kind; the client's application data never is
+    LContext := L13.EarlyDataContext;
+    if System.Length(LContext) > TSessionTicketLimits.MaxEarlyDataContextLength then
+      Exit;
+    LMarker := LWriter.OpenVector(1);
+    LWriter.WriteBytes(LContext);
+    LWriter.CloseVector(LMarker);
+    LWriter.WriteUInt8(BindingToCode(L13.TicketBinding));
   end
   else if Supports(ASession, ITls12ResumableSession, L12) then
   begin
@@ -309,8 +345,9 @@ var
   LLifetime, LAgeAdd, LMaxEarly, LHi, LLo: UInt32;
   LIssued, LAuthenticated: UInt64;
   LServerName: string;
-  LAlpn, LResumption, LMaster, LScope, LPskIdentity, LPskBinding: TBytes;
+  LAlpn, LResumption, LMaster, LScope, LPskIdentity, LPskBinding, LEarlyContext: TBytes;
   LPeerChain: TArray<TBytes>;
+  LBinding: TTicketBinding;
 begin
   ASession := nil;
   Result := False;
@@ -356,12 +393,18 @@ begin
       // a 1.3 ticket with no resumption secret is unusable
       if System.Length(LResumption) = 0 then
         Exit;
+      LVec := LReader.OpenVector(1);
+      LEarlyContext := LVec.ReadBytes(LVec.Remaining);
+      // an unknown engine kind is a format mismatch -> full handshake
+      if not TryCodeToBinding(LReader.ReadUInt8, LBinding) then
+        Exit;
       // an authenticated body with trailing bytes is a format mismatch -> full handshake
       if LReader.Remaining <> 0 then
         Exit;
       ASession := TTls13ResumableSession.Create(LSuite, LHash,
         TSecretBuffer.From(LResumption), LAlpn, LServerName, nil, LLifetime, LAgeAdd,
-        LIssued, LMaxEarly, LPeerChain, LScope, LPskIdentity, LPskBinding, LScheme, LAuthenticated);
+        LIssued, LMaxEarly, LPeerChain, LScope, LPskIdentity, LPskBinding, LScheme, LAuthenticated,
+        LEarlyContext, nil, LBinding);
     end
     else if LVersion = TlsWireVersionTls12 then
     begin

@@ -169,6 +169,12 @@ type
     /// <summary>The 0-RTT byte budget the server advertises in its tickets and accepts;
     /// 0 disables early data (the default).</summary>
     MaxEarlyData: UInt32;
+    /// <summary>The context sealed into issued tickets that 0-RTT must match on resumption, byte
+    /// for byte; empty binds nothing.</summary>
+    EarlyDataContext: TBytes;
+    /// <summary>The kind of engine this machine serves: stamped on the tickets it mints, and the
+    /// only kind of ticket it resumes.</summary>
+    TicketBinding: TTicketBinding;
     /// <summary>The bounded anti-replay register that gates 0-RTT acceptance; required
     /// whenever MaxEarlyData is set (no register means no early data is accepted).</summary>
     AntiReplay: IAntiReplayStrategy;
@@ -285,6 +291,8 @@ type
     FAcceptedIdentityIndex: Int32;
     FEarlyAgeFresh: Boolean;
     FEarlyReplayed: Boolean;
+    /// <summary>Whether the accepted ticket's sealed early-data context equals the configured one.</summary>
+    FEarlyContextMatches: Boolean;
     FTicketAgeSkew: Int32;
     /// <summary>The max_early_data_size the resumed ticket authorized; bounds how much rejected
     /// 0-RTT to skip. 0 when no ticket opened (e.g. a foreign STEK), in which case the skip budget
@@ -861,6 +869,8 @@ begin
     Result := TEarlyDataReason.PeerDeclined
   else if not TArrayUtilities.AreEqual(FSelectedAlpn, FAcceptedSessionAlpn) then
     Result := TEarlyDataReason.AlpnMismatch
+  else if not FEarlyContextMatches then
+    Result := TEarlyDataReason.ContextMismatch
   else if not FEarlyAgeFresh then
     Result := TEarlyDataReason.TicketAgeSkew
   else if FEarlyReplayed then
@@ -944,6 +954,9 @@ begin
     // trust, so decline it rather than reuse its stored identity
     if not TArrayUtilities.AreEqual(LSession.ResumptionScope, FParams.ResumptionScope) then
       Continue;
+    // a ticket another kind of engine minted may carry settings that are not this engine's
+    if L13.TicketBinding <> FParams.TicketBinding then
+      Continue;
     // a session an external PSK authenticated resumes only while that PSK is still configured
     // with the same secret, so removing or rotating the key ends the sessions it made
     if (System.Length(LSession.PskIdentity) > 0) and
@@ -1003,11 +1016,14 @@ begin
     // it, the reported age is fresh (RFC 9846 8.3), and the binder is not a replay (RFC 9846 8.2)
     FAcceptedMaxEarlyData := L13.MaxEarlyData;
     FAcceptedIdentityIndex := LI;
+    // a context mismatch refuses only the early data, never the resumption
+    FEarlyContextMatches := TArrayUtilities.AreEqual(L13.EarlyDataContext,
+      FParams.EarlyDataContext);
     TicketAgeVerdict(AContext.OfferedPskAges[LI], L13.TicketAgeAdd, LSession.IssuedAtMillis,
       LNowMs, FTicketAgeSkew, FEarlyAgeFresh);
     FEarlyDataAccepted := (LI = 0) and FEarlyDataOfferedByClient and
       (FParams.MaxEarlyData > 0) and (L13.MaxEarlyData > 0) and FEarlyAgeFresh and
-      (FParams.AntiReplay <> nil);
+      FEarlyContextMatches and (FParams.AntiReplay <> nil);
     if FEarlyDataAccepted then
     begin
       FEarlyDataAccepted := FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[LI],
@@ -2131,7 +2147,8 @@ begin
       FRequestedServerName, nil,
       LLifetime, LAgeAdd, LNowMs,
       FParams.MaxEarlyData, LChainForTicket, FParams.ResumptionScope,
-      FSessionPskIdentity, FSessionPskBinding, FPeerSignatureScheme, LAuthenticatedAtMs);
+      FSessionPskIdentity, FSessionPskBinding, FPeerSignatureScheme, LAuthenticatedAtMs,
+      FParams.EarlyDataContext, nil, FParams.TicketBinding);
     LHandle := FTicketStrategy.Seal(LSession);
     // an empty handle means the strategy declined to seal (e.g. an oversized chain over the cap):
     // issue no ticket for this connection rather than an unusable one

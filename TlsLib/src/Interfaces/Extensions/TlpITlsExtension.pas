@@ -37,6 +37,17 @@ type
   end;
 
   /// <summary>
+  /// An optional companion of an extension, reached with Supports on a registry entry: the codec
+  /// announces each inbound block of a kind before parsing it and once it is consumed, so an
+  /// extension can reset its per-message state and demand that it was present.
+  /// </summary>
+  IExtensionBlockObserver = interface(IInterface)
+    ['{237AB5AA-A966-46C3-9CE3-79078455772D}']
+    procedure BlockStarted(AKind: TTlsExtensionContextKind);
+    procedure BlockConsumed(AKind: TTlsExtensionContextKind);
+  end;
+
+  /// <summary>
   /// The injectable set of extensions the codec drives. Keyed by extension type;
   /// pruning an entry removes that extension from both production and recognition
   /// (unknown-skip then applies).

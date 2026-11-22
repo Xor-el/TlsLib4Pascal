@@ -185,6 +185,7 @@ type
     FTicketLifetimeSeconds: UInt32;
     FTicketCount: Int32;
     FMaxEarlyData: UInt32;
+    FEarlyDataContext: TBytes;
     FEchMode: IEchClientMode;
     FEchServerPolicy: IEchServerPolicy;
     // a certificate-codec list has no non-default value to compare, so setting one counts
@@ -351,6 +352,7 @@ type
     function WithClientEarlyData(AEnabled: Boolean): TTlsConfigBuilder;
     function WithServerEarlyData(AMaxBytes: UInt32): TTlsConfigBuilder;
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): TTlsConfigBuilder;
+    function WithEarlyDataContext(const AContext: TBytes): TTlsConfigBuilder;
     function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): TTlsConfigBuilder; overload;
     function WithEchKeyStore(const AKeyStore: IEchServerKeyStore;
       ATrialDecrypt: Boolean): TTlsConfigBuilder; overload;
@@ -561,6 +563,9 @@ resourcestring
   STicketLifetimeTooLong = 'the session-ticket lifetime must not exceed 604800 seconds ' +
     '(7 days), the maximum a server may advertise (RFC 9846 4.7.1)';
   SResumptionScopeTooLong = 'the resumption scope must not exceed 32 bytes';
+  SEarlyDataContextTooLong = 'the early-data context must not exceed 255 bytes';
+  SEarlyDataContextNeedsEarlyData = 'an early-data context is compared only for 0-RTT, but no ' +
+    'early-data budget is set; set WithEarlyData or drop the context';
   SExternalPskNeedsTls13 = 'external PSKs are TLS 1.3-only (RFC 9258); offering them without TLS ' +
     '1.3 leaves them unusable, so add TLS 1.3 to the offered versions or remove the external PSKs';
   SEarlyDataNeedsResumption = '0-RTT early data is sent only on a resumed handshake; enabling it ' +
@@ -745,6 +750,7 @@ type
     FTicketCount: Int32;
     FTls12PskIdentityHint: TBytes;
     FMaxEarlyData: UInt32;
+    FEarlyDataContext: TBytes;
     FEchServerPolicy: IEchServerPolicy;
   public
     function ServerNameAcknowledgement: Boolean;
@@ -763,6 +769,7 @@ type
     function TicketCount: Int32;
     function Tls12PskIdentityHint: TBytes;
     function MaxEarlyData: UInt32;
+    function EarlyDataContext: TBytes;
     function EncryptedClientHello: IEchServerPolicy;
   end;
 
@@ -900,6 +907,7 @@ type
       const ACache: ICertificateCompressionCache): ITls13ServerConfigFacet;
     function WithEarlyData(AMaxBytes: UInt32): ITls13ServerConfigFacet;
     function WithAntiReplay(const AStrategy: IAntiReplayStrategy): ITls13ServerConfigFacet;
+    function WithEarlyDataContext(const AContext: TBytes): ITls13ServerConfigFacet;
     function WithEchKeyStore(const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet; overload;
     function WithEchKeyStore(const AKeyStore: IEchServerKeyStore;
       ATrialDecrypt: Boolean): ITls13ServerConfigFacet; overload;
@@ -1214,6 +1222,11 @@ end;
 function TFrozenServerConfig.MaxEarlyData: UInt32;
 begin
   Result := FMaxEarlyData;
+end;
+
+function TFrozenServerConfig.EarlyDataContext: TBytes;
+begin
+  Result := System.Copy(FEarlyDataContext);
 end;
 
 function TFrozenServerConfig.EncryptedClientHello: IEchServerPolicy;
@@ -1804,6 +1817,13 @@ begin
   Result := Self;
 end;
 
+function TTls13ServerConfigFacet.WithEarlyDataContext(
+  const AContext: TBytes): ITls13ServerConfigFacet;
+begin
+  FOwner.WithEarlyDataContext(AContext);
+  Result := Self;
+end;
+
 function TTls13ServerConfigFacet.WithEchKeyStore(
   const AKeyStore: IEchServerKeyStore): ITls13ServerConfigFacet;
 begin
@@ -1973,8 +1993,8 @@ function TTlsConfigBuilder.Tls13FacetConfigured: Boolean;
 begin
   Result := (System.Length(FExternalPsks) > 0) or (not FExternalPskRequired) or
     FClientEarlyData or (FMaxEarlyData > 0) or (FTicketCount <> DefaultTicketCount) or
-    (FAntiReplay <> nil) or (FEchMode <> nil) or (FEchServerPolicy <> nil) or
-    FCompressorsSet or FDecompressorsSet or (FCertificateCompressionCache <> nil);
+    (FAntiReplay <> nil) or (System.Length(FEarlyDataContext) > 0) or (FEchMode <> nil) or
+    (FEchServerPolicy <> nil) or FCompressorsSet or FDecompressorsSet or (FCertificateCompressionCache <> nil);
 end;
 
 function TTlsConfigBuilder.Tls12FacetConfigured: Boolean;
@@ -2944,6 +2964,16 @@ begin
   Result := Self;
 end;
 
+function TTlsConfigBuilder.WithEarlyDataContext(
+  const AContext: TBytes): TTlsConfigBuilder;
+begin
+  GuardMutable;
+  if System.Length(AContext) > TSessionTicketLimits.MaxEarlyDataContextLength then
+    raise EArgumentTlsLibException.CreateRes(@SEarlyDataContextTooLong);
+  FEarlyDataContext := System.Copy(AContext);
+  Result := Self;
+end;
+
 function TTlsConfigBuilder.WithEchKeyStore(
   const AKeyStore: IEchServerKeyStore): TTlsConfigBuilder;
 begin
@@ -3436,6 +3466,9 @@ begin
   // the strategy is read only when early data is accepted
   if (FAntiReplay <> nil) and (FMaxEarlyData = 0) then
     raise EInvalidOperationTlsLibException.CreateRes(@SAntiReplayNeedsEarlyData);
+  // the context is compared only when 0-RTT is accepted
+  if (System.Length(FEarlyDataContext) > 0) and (FMaxEarlyData = 0) then
+    raise EInvalidOperationTlsLibException.CreateRes(@SEarlyDataContextNeedsEarlyData);
   // every other resumption setting is equally inert with resumption off; a ticket lifetime or count
   // counts only when it differs from its default, like any other setting
   if (not FResumption) and ((FSessionStore <> nil) or (FSessionTicketKeys <> nil) or
@@ -3525,6 +3558,7 @@ begin
   LConfig.FTicketCount := FTicketCount;
   LConfig.FTls12PskIdentityHint := FTls12PskIdentityHint;
   LConfig.FMaxEarlyData := FMaxEarlyData;
+  LConfig.FEarlyDataContext := System.Copy(FEarlyDataContext);
   LConfig.FEchServerPolicy := FEchServerPolicy;
   FFrozen := True;
 end;
