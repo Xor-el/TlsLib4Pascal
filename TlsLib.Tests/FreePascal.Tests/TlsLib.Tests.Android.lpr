@@ -11,7 +11,7 @@ uses
   TlsLibTestResourceLoader,
   TlsLibTestProviders,
   TlsLibTestHandshakeDecoder,
-  TlsLibTestTickets,
+  TlsLibTestTicketRewriter,
   TlsLibTestBase,
   TlsLibTestCertificates,
   TlsLibHandshakeTestBase,

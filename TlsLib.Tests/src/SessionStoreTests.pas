@@ -46,7 +46,7 @@ uses
   TlpAntiReplay,
   TlpTlsLibExceptions,
   TlsLibTestBase,
-  TlsLibTestTickets;
+  TlsLibTestTicketRewriter;
 
 type
   TTestSessionStore = class(TTlsLibAlgorithmTestCase)
@@ -1489,10 +1489,11 @@ begin
   CheckTrue(LStrategy.Open(LTicket, LOpened), 'control: the current format opens');
   // re-seal the same body under the same key, relabelled as format 10 (the format before the
   // authentication time was added); the version is the leading big-endian uint32
-  LPlain := TTlsLibTestTickets.Plaintext(Crypto, LKeys, LTicket);
+  LPlain := TTlsLibTestTicketRewriter.Plaintext(Crypto, LKeys, LTicket);
   CheckEquals(12, Integer(LPlain[3]), 'the current format is 12');
   LPlain[3] := 10;
-  CheckFalse(LStrategy.Open(TTlsLibTestTickets.Resealed(Crypto, LKeys, LTicket, LPlain), LOpened),
+  CheckFalse(LStrategy.Open(TTlsLibTestTicketRewriter.Resealed(Crypto, LKeys, LTicket, LPlain),
+    LOpened),
     'a format 10 ticket draws a full handshake');
 end;
 
@@ -1506,11 +1507,12 @@ begin
   LKeys := TStekTicketKeyManager.Create(Crypto.Primitives.GetRandom) as ISessionTicketKeyManager;
   LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
   LTicket := LStrategy.Seal(MakeFullSession(nil, nil) as IResumableSession);
-  LPlain := TTlsLibTestTickets.Plaintext(Crypto, LKeys, LTicket);
+  LPlain := TTlsLibTestTicketRewriter.Plaintext(Crypto, LKeys, LTicket);
   // format 11 is format 12 without its tail (the empty context's length byte, the engine kind)
   LPlain[3] := 11;
   SetLength(LPlain, System.Length(LPlain) - 2);
-  CheckFalse(LStrategy.Open(TTlsLibTestTickets.Resealed(Crypto, LKeys, LTicket, LPlain), LOpened),
+  CheckFalse(LStrategy.Open(TTlsLibTestTicketRewriter.Resealed(Crypto, LKeys, LTicket, LPlain),
+    LOpened),
     'a format 11 ticket draws a full handshake, not an error');
 end;
 
@@ -1566,10 +1568,11 @@ begin
   LKeys := NewKeys;
   LStrategy := TStekTicketStrategy.Create(Crypto, LKeys);
   LTicket := LStrategy.Seal(MakeFullSession(nil, nil) as IResumableSession);
-  LPlain := TTlsLibTestTickets.Plaintext(Crypto, LKeys, LTicket);
+  LPlain := TTlsLibTestTicketRewriter.Plaintext(Crypto, LKeys, LTicket);
   CheckEquals(1, Integer(LPlain[System.Length(LPlain) - 1]), 'control: the record engine code');
   LPlain[System.Length(LPlain) - 1] := 9;
-  CheckFalse(LStrategy.Open(TTlsLibTestTickets.Resealed(Crypto, LKeys, LTicket, LPlain), LOpened),
+  CheckFalse(LStrategy.Open(TTlsLibTestTicketRewriter.Resealed(Crypto, LKeys, LTicket, LPlain),
+    LOpened),
     'a ticket from an engine kind this build does not know draws a full handshake');
 end;
 

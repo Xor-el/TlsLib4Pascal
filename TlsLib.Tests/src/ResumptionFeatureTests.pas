@@ -51,7 +51,7 @@ uses
   TlpITlsEngine,
   TlsLibTestHandshakeDecoder,
   TlsLibTestCertificates,
-  TlsLibTestTickets,
+  TlsLibTestTicketRewriter,
   TlsLibHandshakeTestBase;
 
 type
@@ -628,13 +628,13 @@ begin
   LCache := TInMemorySessionCache.Create;
   Seed(LCache, nil, nil);
   LSession := TakeCached(LCache);
-  LPlain := TTlsLibTestTickets.Plaintext(Crypto, FStek, LSession.TicketIdentity);
+  LPlain := TTlsLibTestTicketRewriter.Plaintext(Crypto, FStek, LSession.TicketIdentity);
   CheckEquals(12, Integer(LPlain[3]), 'the ticket is the current format');
   // format 11 is format 12 without its tail (the empty context's length byte, the engine kind)
   LPlain[3] := 11;
   SetLength(LPlain, System.Length(LPlain) - 2);
   LCache.Store(CacheKey, ServerHost, Rebuilt(LSession,
-    TTlsLibTestTickets.Resealed(Crypto, FStek, LSession.TicketIdentity, LPlain),
+    TTlsLibTestTicketRewriter.Resealed(Crypto, FStek, LSession.TicketIdentity, LPlain),
     LSession.TicketBinding));
   LClient := NewClient(LCache, False);
   LServer := NewServer(nil);
@@ -655,8 +655,8 @@ begin
   Seed(LCache, nil, nil);
   LSession := TakeCached(LCache);
   LCache.Store(CacheKey, ServerHost, Rebuilt(LSession,
-    TTlsLibTestTickets.Resealed(Crypto, FStek, LSession.TicketIdentity,
-    TTlsLibTestTickets.Plaintext(Crypto, FStek, LSession.TicketIdentity)),
+    TTlsLibTestTicketRewriter.Resealed(Crypto, FStek, LSession.TicketIdentity,
+    TTlsLibTestTicketRewriter.Plaintext(Crypto, FStek, LSession.TicketIdentity)),
     LSession.TicketBinding));
   LClient := NewClient(LCache, False);
   LServer := NewServer(nil);

@@ -264,7 +264,7 @@ uses
   HostExtensionTests in '..\src\HostExtensionTests.pas',
   ResumptionFeatureTests in '..\src\ResumptionFeatureTests.pas',
   HandshakeEngineTests in '..\src\HandshakeEngineTests.pas',
-  TlsLibTestTickets in '..\src\TlsLibTestTickets.pas',
+  TlsLibTestTicketRewriter in '..\src\TlsLibTestTicketRewriter.pas',
   CertificateCompressionCacheTests in '..\src\CertificateCompressionCacheTests.pas',
   CertificateCompressionTests in '..\src\CertificateCompressionTests.pas',
   DataEncodingTests in '..\src\DataEncodingTests.pas',

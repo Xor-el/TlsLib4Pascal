@@ -582,7 +582,7 @@
         <DCCReference Include="..\src\HostExtensionTests.pas"/>
         <DCCReference Include="..\src\ResumptionFeatureTests.pas"/>
         <DCCReference Include="..\src\HandshakeEngineTests.pas"/>
-        <DCCReference Include="..\src\TlsLibTestTickets.pas"/>
+        <DCCReference Include="..\src\TlsLibTestTicketRewriter.pas"/>
         <DCCReference Include="..\src\CertificateCompressionCacheTests.pas"/>
         <DCCReference Include="..\src\CertificateCompressionTests.pas"/>
         <DCCReference Include="..\src\DataEncodingTests.pas"/>
