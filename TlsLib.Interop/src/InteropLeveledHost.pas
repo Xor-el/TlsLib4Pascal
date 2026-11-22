@@ -20,6 +20,8 @@ interface
 uses
   SysUtils,
   Math,
+  TlpArrayUtilities,
+  TlpSecureMemory,
   TlpTlsAlert,
   TlpTlsError,
   TlpISecretBuffer,
@@ -30,14 +32,9 @@ uses
   InteropSocket,
   InteropUtils;
 
-const
-  LeveledRecordAlert = 21;
-  LeveledRecordHandshake = 22;
-  LeveledRecordApplication = 23;
-
 type
-  /// <summary>How one host step ended: a record was handled, the transport ended, or the
-  /// exchange failed (Detail says why).</summary>
+  /// <summary>How one host step ended: a record was handled, the transport ended at a record
+  /// boundary, or the exchange failed (Detail says why).</summary>
   TInteropLeveledStatus = (Progressed, Closed, Failed);
 
   /// <summary>
@@ -47,7 +44,7 @@ type
   /// host owns the per-level secrets the engine hands out, writes the engine's handshake bytes at
   /// the level it names, feeds the engine what the peer sends at the level it arrived on, and
   /// carries application data. A local failure goes out as an alert record at the latest
-  /// handshake or application write level.
+  /// handshake or application write level, after any flight the engine produced before it.
   /// </summary>
   TInteropLeveledHost = class sealed(TObject)
   strict private
@@ -59,6 +56,7 @@ type
       class function From(const ASecret: ITrafficSecret): TLevelKey; static;
     end;
     TLevelKeys = array[TTlsEpoch] of TLevelKey;
+    TReceive = (Received, EndOfStream, Truncated);
   var
     FEngine: ITlsHandshakeEngine;
     FSocket: TInteropSocket;
@@ -70,19 +68,20 @@ type
     FAlertLevel: TTlsEpoch;
     FComplete: Boolean;
     FAlpnChecked: Boolean;
-    FServerAnswered: Boolean;
+    FFlightSent: Boolean;
     FDetail: string;
     procedure WriteRecord(AType: Byte; ALevel: TTlsEpoch; const AData: TBytes);
-    function ReceiveExact(ACount: Int32; out AData: TBytes): Boolean;
+    function ReceiveExact(ACount: Int32; AAtBoundary: Boolean; out AData: TBytes): TReceive;
     function ReadRecord(out AType: Byte; out ALevel: TTlsEpoch;
       out AData: TBytes): TInteropLeveledStatus;
     procedure SendAlert(AAlertByte: Byte);
-    function EngineFailed: TInteropLeveledStatus;
-    function MissingAlpn: TInteropLeveledStatus;
-    procedure Drain;
+    function Collect: TArray<THandshakeOutput>;
+    procedure Transmit(const AOutputs: TArray<THandshakeOutput>);
+    function EngineFailed(const AOutputs: TArray<THandshakeOutput>): TInteropLeveledStatus;
   public
-    /// <summary>ARequireAlpn makes the host abort a connection that settles on no ALPN protocol;
-    /// AAcceptVerdict is the answer it gives when the engine parks on a certificate verdict.</summary>
+    /// <summary>ARequireAlpn makes the host abort a connection that settles on no ALPN protocol,
+    /// before it transmits what the engine produced at that step; AAcceptVerdict is the answer it
+    /// gives when the engine parks on a certificate verdict.</summary>
     constructor Create(const AEngine: ITlsHandshakeEngine; const ASocket: TInteropSocket;
       AIsServer, ARequireAlpn, AAcceptVerdict: Boolean);
     destructor Destroy; override;
@@ -95,12 +94,18 @@ type
     /// <summary>Handles the next record. AApp receives the payload of an application record.</summary>
     function Pump(out AApp: TBytes): TInteropLeveledStatus;
     property IsComplete: Boolean read FComplete;
+    /// <summary>Whether a server has sent its whole first flight, its application write key
+    /// included, which is when its half-RTT keying material is available.</summary>
+    property FlightSent: Boolean read FFlightSent;
     property Detail: string read FDetail;
   end;
 
 implementation
 
 const
+  RecordAlert = 21;
+  RecordHandshake = 22;
+  RecordApplication = 23;
   MaxRecordLength = 16 * 1024 * 1024;
   ReceiveChunk = 16384;
   NoApplicationProtocolAlert = 120;
@@ -116,6 +121,8 @@ resourcestring
   SEarlyApplicationData = 'application data arrived before the handshake completed';
   SNoApplicationProtocol = 'the handshake settled on no application protocol';
   SPeerAlert = 'the peer sent an alert';
+  STransportClosed = 'the transport closed';
+  STransportTruncated = 'the transport ended inside a record';
 
 class function TInteropLeveledHost.TLevelKey.From(const ASecret: ITrafficSecret): TLevelKey;
 begin
@@ -139,15 +146,12 @@ end;
 destructor TInteropLeveledHost.Destroy;
 var
   LLevel: TTlsEpoch;
-  LI: Int32;
 begin
   // the secrets are the host's copies: zero them before they go
   for LLevel := System.Low(TTlsEpoch) to System.High(TTlsEpoch) do
   begin
-    for LI := 0 to System.High(FRead[LLevel].Secret) do
-      FRead[LLevel].Secret[LI] := 0;
-    for LI := 0 to System.High(FWrite[LLevel].Secret) do
-      FWrite[LLevel].Secret[LI] := 0;
+    TSecureMemory.WipeBytes(FRead[LLevel].Secret);
+    TSecureMemory.WipeBytes(FWrite[LLevel].Secret);
   end;
   inherited Destroy;
 end;
@@ -177,7 +181,8 @@ begin
   FSocket.SendAll(LFrame, 0, System.Length(LFrame));
 end;
 
-function TInteropLeveledHost.ReceiveExact(ACount: Int32; out AData: TBytes): Boolean;
+function TInteropLeveledHost.ReceiveExact(ACount: Int32; AAtBoundary: Boolean;
+  out AData: TBytes): TReceive;
 var
   LChunk: TBytes;
   LGot, LPos: Int32;
@@ -187,7 +192,7 @@ begin
   LChunk := nil;
   SetLength(LChunk, ReceiveChunk);
   LPos := 0;
-  Result := True;
+  Result := TReceive.Received;
   while LPos < ACount do
   begin
     try
@@ -198,7 +203,12 @@ begin
         LGot := 0;
     end;
     if LGot = 0 then
-      Exit(False);
+    begin
+      // an end at a record boundary is the peer finishing; anywhere else the record was cut
+      if AAtBoundary and (LPos = 0) then
+        Exit(TReceive.EndOfStream);
+      Exit(TReceive.Truncated);
+    end;
     System.Move(LChunk[0], AData[LPos], LGot);
     Inc(LPos, LGot);
   end;
@@ -213,14 +223,24 @@ var
   LSuite: UInt16;
   LSecretLength: Int32;
   LKey: TLevelKey;
+  LReceive: TReceive;
 begin
   AData := nil;
   AType := 0;
   ALevel := TTlsEpoch.Plaintext;
   while True do
   begin
-    if not ReceiveExact(8, LHeader) then
-      Exit(TInteropLeveledStatus.Closed);
+    LReceive := ReceiveExact(8, True, LHeader);
+    if LReceive <> TReceive.Received then
+    begin
+      if LReceive = TReceive.EndOfStream then
+      begin
+        FDetail := STransportClosed;
+        Exit(TInteropLeveledStatus.Closed);
+      end;
+      FDetail := STransportTruncated;
+      Exit(TInteropLeveledStatus.Failed);
+    end;
     AType := LHeader[0];
     LLevelId := LHeader[1];
     LSuite := UInt16((UInt16(LHeader[2]) shl 8) or LHeader[3]);
@@ -246,8 +266,11 @@ begin
         FDetail := SKeysNotConfigured;
         Exit(TInteropLeveledStatus.Failed);
       end;
-      if not ReceiveExact(Int32(LLength), LBody) then
-        Exit(TInteropLeveledStatus.Closed);
+      if ReceiveExact(Int32(LLength), False, LBody) <> TReceive.Received then
+      begin
+        FDetail := STransportTruncated;
+        Exit(TInteropLeveledStatus.Failed);
+      end;
       Continue;
     end;
     if LSuite <> LKey.Suite then
@@ -261,15 +284,17 @@ begin
       FDetail := SRecordTooShort;
       Exit(TInteropLeveledStatus.Failed);
     end;
-    if not ReceiveExact(LSecretLength, LSecret) then
-      Exit(TInteropLeveledStatus.Closed);
+    if (ReceiveExact(LSecretLength, False, LSecret) <> TReceive.Received) or
+      (ReceiveExact(Int32(LLength) - LSecretLength, False, AData) <> TReceive.Received) then
+    begin
+      FDetail := STransportTruncated;
+      Exit(TInteropLeveledStatus.Failed);
+    end;
     if not TInteropUtils.BytesEqual(LSecret, LKey.Secret) then
     begin
       FDetail := SSecretMismatch;
       Exit(TInteropLeveledStatus.Failed);
     end;
-    if not ReceiveExact(Int32(LLength) - LSecretLength, AData) then
-      Exit(TInteropLeveledStatus.Closed);
     Exit(TInteropLeveledStatus.Progressed);
   end;
 end;
@@ -284,7 +309,7 @@ begin
   LAlert[0] := 2;
   LAlert[1] := AAlertByte;
   try
-    WriteRecord(LeveledRecordAlert, FAlertLevel, LAlert);
+    WriteRecord(RecordAlert, FAlertLevel, LAlert);
   except
     // the peer may already be gone, which leaves the alert unsent and the failure unchanged
     on EInteropSocket do
@@ -292,36 +317,26 @@ begin
   end;
 end;
 
-function TInteropLeveledHost.EngineFailed: TInteropLeveledStatus;
+function TInteropLeveledHost.Collect: TArray<THandshakeOutput>;
 var
-  LError: TTlsError;
+  LOutput: THandshakeOutput;
 begin
-  LError := FEngine.LastError;
-  FDetail := LError.Message;
-  // a failure TLS has no alert for is reported to the peer by closing, so nothing is sent
-  if LError.Origin = TTlsErrorOrigin.Local then
-    SendAlert(LError.AlertByte);
-  Result := TInteropLeveledStatus.Failed;
+  if FEngine.AwaitingCertificateVerdict then
+    FEngine.SetCertificateVerdict(FAcceptVerdict, TTlsAlertDescription.BadCertificate);
+  Result := nil;
+  while FEngine.NextOutput(LOutput) do
+    TArrayUtilities.Append<THandshakeOutput>(Result, LOutput);
 end;
 
-function TInteropLeveledHost.MissingAlpn: TInteropLeveledStatus;
-begin
-  FDetail := SNoApplicationProtocol;
-  SendAlert(NoApplicationProtocolAlert);
-  Result := TInteropLeveledStatus.Failed;
-end;
-
-procedure TInteropLeveledHost.Drain;
+procedure TInteropLeveledHost.Transmit(const AOutputs: TArray<THandshakeOutput>);
 var
   LOutput: THandshakeOutput;
   LEvent: ITlsEvent;
 begin
-  if FEngine.AwaitingCertificateVerdict then
-    FEngine.SetCertificateVerdict(FAcceptVerdict, TTlsAlertDescription.BadCertificate);
-  while FEngine.NextOutput(LOutput) do
+  for LOutput in AOutputs do
     case LOutput.Kind of
       THandshakeOutputKind.HandshakeData:
-        WriteRecord(LeveledRecordHandshake, LOutput.Level, LOutput.Data);
+        WriteRecord(RecordHandshake, LOutput.Level, LOutput.Data);
       THandshakeOutputKind.ReadSecret:
         FRead[LOutput.Level] := TLevelKey.From(LOutput.Secret);
       THandshakeOutputKind.WriteSecret:
@@ -330,8 +345,8 @@ begin
           // an early-data key never carries handshake bytes or alerts
           if LOutput.Level <> TTlsEpoch.EarlyData then
             FAlertLevel := LOutput.Level;
-          if FIsServer and (LOutput.Level = TTlsEpoch.Handshake) then
-            FServerAnswered := True;
+          if FIsServer and (LOutput.Level = TTlsEpoch.Application) then
+            FFlightSent := True;
         end;
       THandshakeOutputKind.HandshakeComplete:
         FComplete := True;
@@ -339,13 +354,31 @@ begin
   while FEngine.NextEvent(LEvent) do
     // a refused offer takes the early write key with it
     if LEvent.Kind = TTlsEventKind.EarlyDataRejected then
+    begin
+      TSecureMemory.WipeBytes(FWrite[TTlsEpoch.EarlyData].Secret);
       FWrite[TTlsEpoch.EarlyData] := Default(TLevelKey);
+    end;
+end;
+
+function TInteropLeveledHost.EngineFailed(
+  const AOutputs: TArray<THandshakeOutput>): TInteropLeveledStatus;
+var
+  LError: TTlsError;
+begin
+  // the flight the engine produced before it failed goes out first, then the alert
+  Transmit(AOutputs);
+  LError := FEngine.LastError;
+  FDetail := LError.Message;
+  // a failure TLS has no alert for is reported to the peer by closing, so nothing is sent
+  if LError.Origin = TTlsErrorOrigin.Local then
+    SendAlert(LError.AlertByte);
+  Result := TInteropLeveledStatus.Failed;
 end;
 
 procedure TInteropLeveledHost.Start;
 begin
   FEngine.StartHandshake;
-  Drain;
+  Transmit(Collect);
 end;
 
 function TInteropLeveledHost.WriteApplication(const AData: TBytes): Boolean;
@@ -357,7 +390,7 @@ begin
     LLevel := TTlsEpoch.EarlyData;
   Result := FWrite[LLevel].Installed;
   if Result then
-    WriteRecord(LeveledRecordApplication, LLevel, AData);
+    WriteRecord(RecordApplication, LLevel, AData);
 end;
 
 function TInteropLeveledHost.Pump(out AApp: TBytes): TInteropLeveledStatus;
@@ -365,31 +398,46 @@ var
   LType: Byte;
   LLevel: TTlsEpoch;
   LData: TBytes;
-  LOutcome: TTlsOutcome;
+  LOutputs: TArray<THandshakeOutput>;
+  LOutput: THandshakeOutput;
+  LSettled: Boolean;
 begin
   AApp := nil;
   Result := ReadRecord(LType, LLevel, LData);
   if Result <> TInteropLeveledStatus.Progressed then
     Exit;
   case LType of
-    LeveledRecordHandshake:
+    RecordHandshake:
       begin
-        LOutcome := FEngine.ProvideHandshakeData(LLevel, LData, 0, System.Length(LData));
-        if LOutcome = TTlsOutcome.Fatal then
-          Exit(EngineFailed);
-        Drain;
+        if FEngine.ProvideHandshakeData(LLevel, LData, 0, System.Length(LData)) =
+          TTlsOutcome.Fatal then
+          Exit(EngineFailed(Collect));
+        LOutputs := Collect;
         if FEngine.IsTerminal then
-          Exit(EngineFailed);
-        // the protocol is settled once a server has answered with its handshake keys, and for a
-        // client when the handshake completes
-        if FRequireAlpn and (not FAlpnChecked) and (FServerAnswered or FComplete) then
+          Exit(EngineFailed(LOutputs));
+        // the protocol is settled once a server answers with its handshake keys, and for a client
+        // when it answers at the handshake level; it is checked before any of that is transmitted
+        LSettled := False;
+        for LOutput in LOutputs do
+          if (FIsServer and (LOutput.Kind = THandshakeOutputKind.WriteSecret) and
+            (LOutput.Level = TTlsEpoch.Handshake)) or
+            ((not FIsServer) and ((LOutput.Kind = THandshakeOutputKind.HandshakeComplete) or
+            ((LOutput.Kind = THandshakeOutputKind.HandshakeData) and
+            (LOutput.Level = TTlsEpoch.Handshake)))) then
+            LSettled := True;
+        if FRequireAlpn and (not FAlpnChecked) and LSettled then
         begin
           FAlpnChecked := True;
           if System.Length(FEngine.ConnectionInfo.AlpnProtocol) = 0 then
-            Exit(MissingAlpn);
+          begin
+            FDetail := SNoApplicationProtocol;
+            SendAlert(NoApplicationProtocolAlert);
+            Exit(TInteropLeveledStatus.Failed);
+          end;
         end;
+        Transmit(LOutputs);
       end;
-    LeveledRecordApplication:
+    RecordApplication:
       // early data reaches a server before its handshake completes; nothing else does
       if FComplete or (FIsServer and (LLevel = TTlsEpoch.EarlyData)) then
         AApp := LData
@@ -398,7 +446,7 @@ begin
         FDetail := SEarlyApplicationData;
         Result := TInteropLeveledStatus.Failed;
       end;
-    LeveledRecordAlert:
+    RecordAlert:
       begin
         FDetail := SPeerAlert;
         Result := TInteropLeveledStatus.Failed;

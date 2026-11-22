@@ -94,7 +94,11 @@ level; feed them the same way.
   it accepts 0-RTT), its flight at Handshake, the application write secret at its Finished. The
   application read secret is queued only after the client Finished verified.
 - `HandshakeComplete` follows every other output of the step that completed the handshake.
-- After a failure the queue is dropped and `NextOutput` returns nothing; read `LastError`.
+- After a failure `LastError` says why. When the failure has an alert, the handshake bytes the engine
+  had already produced stay pullable (the flight a record engine would have sent before the alert),
+  with the secrets that protect them and the write secrets installed after them, which the alert
+  goes out under; everything else queued is dropped. After any other failure `NextOutput` returns
+  nothing.
 
 ## Checks between input and output
 

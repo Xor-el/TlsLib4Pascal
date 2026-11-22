@@ -131,11 +131,24 @@ begin
 end;
 
 procedure TTlsHandshakeEngine.Settle;
+var
+  LKeep, LI: Int32;
 begin
   if FOutcome.IsTerminal then
   begin
-    // nothing more is sent after a failure, and no queued secret outlives it
-    FChannel.Queue.Clear;
+    // an alert follows the flight the machine had already produced, as on a record engine, under
+    // the write keys installed by then; nothing else queued outlives the failure
+    LKeep := -1;
+    if FOutcome.LastError.Origin = TTlsErrorOrigin.Local then
+      for LI := FChannel.Queue.Count - 1 downto 0 do
+        if FChannel.Queue[LI].Kind = THandshakeOutputKind.HandshakeData then
+        begin
+          LKeep := LI;
+          Break;
+        end;
+    for LI := FChannel.Queue.Count - 1 downto LKeep + 1 do
+      if (LKeep < 0) or (FChannel.Queue[LI].Kind <> THandshakeOutputKind.WriteSecret) then
+        FChannel.Queue.Delete(LI);
     if not FSettled then
     begin
       FSettled := True;
@@ -217,7 +230,7 @@ end;
 function TTlsHandshakeEngine.NextOutput(out AOutput: THandshakeOutput): Boolean;
 begin
   AOutput := Default(THandshakeOutput);
-  Result := (not FOutcome.IsTerminal) and FChannel.TryTake(AOutput);
+  Result := FChannel.TryTake(AOutput);
 end;
 
 function TTlsHandshakeEngine.NextEvent(out AEvent: ITlsEvent): Boolean;
@@ -255,6 +268,8 @@ begin
   FSettled := True;
   FOutcome.Fail(TTlsError.CreateFatal(TTlsAlertDescription.InternalError, AReason,
     TTlsErrorOrigin.Transport));
+  // the transport is gone, so nothing queued can be sent
+  FChannel.Queue.Clear;
 end;
 
 function TTlsHandshakeEngine.IsHandshaking: Boolean;

@@ -172,6 +172,7 @@ type
     procedure TestHostExtensionsGoBothWays;
     procedure TestEchAccepted;
     procedure TestEchRejectedFailsTheClientWithEchRequired;
+    procedure TestEchRejectedClientStillAnswersACertificateRequest;
     procedure TestAsyncVerdictParksAndResumes;
     procedure TestAsyncVerdictRejectIsReported;
     procedure TestKeyLogReceivesTheHandshakeSecrets;
@@ -1072,6 +1073,40 @@ begin
   Run(LClient, LServer);
   CheckFailedWith(LClient, TTlsAlertDescription.EchRequired, 'a rejected offer');
   CheckTrue(LClient.ConnectionInfo.EchRejectAborted, 'the facts say the client aborted');
+end;
+
+procedure TTestHandshakeEngine.TestEchRejectedClientStillAnswersACertificateRequest;
+var
+  LClient, LServer: ITlsHandshakeEngine;
+  LClientList, LServerList, LRoot, LTypes: TBytes;
+  LClientSk, LServerSk: ISecretBuffer;
+  LBuilder: ITlsClientConfigBuilder;
+  LOutput: THandshakeOutput;
+  LType: Byte;
+  LAnswered: Boolean;
+begin
+  LRoot := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
+  LClientList := EchConfigList($D8, 'localhost', LClientSk);
+  LServerList := EchConfigList($D9, 'localhost', LServerSk);
+  LBuilder := ClientBuilder;
+  LBuilder.WithDangerousDisableServerNameCheck;
+  LClient := NewClient(LBuilder.Tls13.WithEch(TEchClientModes.Enable(LClientList)).Build);
+  LServer := NewServer(TTlsPresets.Hardened(Crypto, Pkix).Server.WithCredential(ServerCredential)
+    .WithClientVerification(TClientVerification.WebPki(LRoot).Build)
+    .WithPeerAuth(TClientAuthMode.Requested)
+    .Tls13.WithEchKeyStore(TInMemoryEchKeyStore.FromConfig(LServerList, LServerSk, Crypto)).Build);
+  Run(LClient, LServer);
+  CheckFailedWith(LClient, TTlsAlertDescription.EchRequired, 'a rejected offer');
+  // the flight produced before the abort is still the client's to send: the empty Certificate
+  // that answers the request, as a record engine sends it before the alert
+  LTypes := MessageTypes(FClientLog);
+  CheckTrue(System.Length(LTypes) > 1, 'the client sent more than its hello');
+  LAnswered := False;
+  for LType in LTypes do
+    if LType = 11 then
+      LAnswered := True;
+  CheckTrue(LAnswered, 'the answer to the CertificateRequest');
+  CheckFalse(LClient.NextOutput(LOutput), 'nothing is left once the flight is taken');
 end;
 
 procedure TTestHandshakeEngine.TestAsyncVerdictParksAndResumes;

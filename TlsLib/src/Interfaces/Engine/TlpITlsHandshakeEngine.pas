@@ -51,7 +51,9 @@ type
     function ProvideHandshakeData(ALevel: TTlsEpoch; const AData: TBytes;
       AOffset, ALength: Int32): TTlsOutcome;
     /// <summary>Dequeues the next item for the host, in the order the handshake produced it;
-    /// False when none is queued or the engine is terminal. A secret is the host's from here on.</summary>
+    /// False when none is queued. After a failure with an alert only the flight produced before it
+    /// and the write secrets the alert goes out under remain; after any other failure nothing does.
+    /// A secret is the host's from here on.</summary>
     function NextOutput(out AOutput: THandshakeOutput): Boolean;
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     /// <summary>Resumes a handshake parked on a peer-certificate verdict; a no-op otherwise.</summary>
