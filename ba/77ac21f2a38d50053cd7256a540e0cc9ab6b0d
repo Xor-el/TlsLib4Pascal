@@ -1,0 +1,53 @@
+TlsLib.Interop/src/BoGoShimRunner.pas
+  s_f2c9bd75607afc::t_e2676eaf4cb50b 2832,2838-2839,2845-2853,2855-2862,2869-2874
+  s_f2c9bd75607afc::t_60b1b9c7fe4072 2538-2539,2746,2854,2875,2995
+  s_f2c9bd75607afc::t_dfff88329f8935 2786-2789,2793
+  s_f2c9bd75607afc::t_31806ce753e4dc 460-466
+  s_f2c9bd75607afc::t_9cb6550920464e 2526
+  s_f2c9bd75607afc::t_964bdd71703321 2767
+  s_f2c9bd75607afc::t_609e1cb2e3bd67 2742-2745,2747-2753,2756,2764-2766,2768-2772
+  s_f2c9bd75607afc::t_93f90c15a4eea8 2899-2902,2910-2911,2919-2920
+  s_f2c9bd75607afc::t_216e424da405a4 2984-2985,2987,2990-2994
+  s_f2c9bd75607afc::t_d9c25808e69da0 2468-2504
+.github/workflows/ci/interop/bogo-shim-config.json
+  s_f2c9bd75607afc::t_d61feeacf65487 54
+  s_f2c9bd75607afc::t_59592b291a1449 308-309
+  s_f2c9bd75607afc::t_6d9cd43f35a9dd 288
+  s_f2c9bd75607afc::t_3945f031908358 177
+TlsLib.Interop/src/InteropLeveledHost.pas
+  s_f2c9bd75607afc::t_c8fd1c419b3838 23-24,36-37,47,59,71,74,78-80,82-84,97-99,106-108,124-125,153-154,184-185,195,206-211,226,233-243,269-273,287-292,312,320,322,324-328,331,336,339,348-349,357-358,360-375,381,393,401-403,410,412-415,417-428,432-436,438,440,449
+TlsLib/src/Engine/TlpTlsHandshakeEngine.pas
+  s_f2c9bd75607afc::t_3ea0b5ff2886a7 134-135
+  s_f2c9bd75607afc::t_4ec69383b3ceab 141-148
+  s_f2c9bd75607afc::t_d2a37a81add599 271-272
+  s_f2c9bd75607afc::t_f9a3c60cb6eaab 233
+  s_f2c9bd75607afc::t_e7f0050f3ccf32 139-140,149-151
+TlsLib/src/Interfaces/Engine/TlpITlsHandshakeEngine.pas
+  s_f2c9bd75607afc::t_f96293c5f88a09 54
+  s_f2c9bd75607afc::t_893fd690f6d00e 55-56
+TlsLib.Tests/src/HandshakeEngineTests.pas
+  s_f2c9bd75607afc::t_6eb4caa5234e51 1104-1108
+  s_f2c9bd75607afc::t_f7de14951e8098 1078-1080,1082-1084,1087-1103,1109-1111
+  s_f2c9bd75607afc::t_f2aa6e95efaf3d 1081
+  s_f2c9bd75607afc::t_4443a67c29f276 1085-1086
+  s_f2c9bd75607afc::t_1d47de06e1c31d 175
+docs/handshake-engine.md
+  s_f2c9bd75607afc::t_74a640bfcb1f0a 99-101
+  s_f2c9bd75607afc::t_c138e7934329da 97-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ba77ac21f2a38d50053cd7256a540e0cc9ab6b0d",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
