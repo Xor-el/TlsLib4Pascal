@@ -345,8 +345,8 @@ end;
 procedure TTlsLibAlgorithmTestCase.CheckEqualBytes(const AName: string;
   const AExpected, AActual: TBytes);
 begin
-  if not AreEqual(AExpected, AActual) then
-    Fail(Format('%s failed - expected %s got %s',
+  CheckTrue(AreEqual(AExpected, AActual),
+    Format('%s failed - expected %s got %s',
       [AName, EncodeHex(AExpected), EncodeHex(AActual)]));
 end;
 
