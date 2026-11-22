@@ -1,0 +1,22 @@
+TlsLib.Tests/Data/Crypto/SampleMask/ChaCha20.txt
+  s_f2c9bd75607afc::t_41da6755117699 15-29
+TlsLib.Tests/src/ProviderTests.pas
+  s_f2c9bd75607afc::t_f9138647c466b3 1288
+  s_f2c9bd75607afc::t_9ee2348f2bc3c3 1286-1287,1289,1292-1294,1298-1310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "65c30fef2192d552e3818e8e345b5b7c3fa71534",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
