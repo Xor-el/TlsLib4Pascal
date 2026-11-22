@@ -145,7 +145,7 @@ type
       const AHost: string): ITlsEngine; overload; static;
     /// <summary>As above, carrying AHostExtensions in its TLS 1.3 handshakes; read the peer's back
     /// with Supports(engine, ITlsHostExtensionResults). A TLS 1.2 handshake neither answers nor
-    /// requires them. Raises when the config offers no TLS 1.3, or a host extension is refused
+    /// requires them, and a TLS 1.2 server that echoes one fails the handshake. Raises when the config offers no TLS 1.3, or a host extension is refused
     /// (see TTlsHostExtensions).</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig; const AHost: string;
       const AHostExtensions: TArray<ITlsHostExtension>): ITlsEngine; overload; static;
@@ -157,16 +157,17 @@ type
     /// <summary>A handshake-only client engine for a host that owns record protection, ready for
     /// StartHandshake. The config must offer TLS 1.3 alone. AHostExtensions ride its handshake as
     /// for CreateClientEngine. ATicketEarlyDataLimit is the early-data budget every ticket it
-    /// caches must carry: any other value, an explicit 0 included, fails the connection without an
-    /// alert. A client that keeps no tickets ignores them, and 0 leaves the value unchecked. Tickets
-    /// it caches resume only on a handshake-only engine.</summary>
+    /// receives while it keeps a session cache must carry: any other value, an explicit 0
+    /// included, fails the connection without an alert. A client with no session cache ignores
+    /// tickets. 0 leaves the value unchecked; a host that offers 0-RTT passes the value its
+    /// tickets must carry. Tickets it caches resume only on a handshake-only engine.</summary>
     class function CreateHandshakeClientEngine(const AConfig: ITlsClientConfig;
       const AHost: string; const AHostExtensions: TArray<ITlsHostExtension>;
       ATicketEarlyDataLimit: UInt32): ITlsHandshakeEngine; static;
     /// <summary>A handshake-only server engine for a host that owns record protection; it starts
     /// on the first ClientHello. The config must offer TLS 1.3 alone. When the config enables
     /// early data, ATicketEarlyDataLimit is the budget its tickets advertise and accept (the
-    /// config's own limit is not used); a non-empty AEarlyDataContext replaces the config's
+    /// config's own limit is not used), and 0 turns 0-RTT off; a non-empty AEarlyDataContext replaces the config's
     /// early-data context. Tickets it mints resume only on a handshake-only engine.</summary>
     class function CreateHandshakeServerEngine(const AConfig: ITlsServerConfig;
       const AHostExtensions: TArray<ITlsHostExtension>; ATicketEarlyDataLimit: UInt32;

@@ -37,10 +37,11 @@ LServer := TTlsEngineFactory.CreateHandshakeServerEngine(LServerConfig, LHostExt
 
 `LTicketEarlyDataLimit` is the early-data budget the host fixes for its tickets. A server that has
 early data enabled in its config writes exactly this value into every NewSessionTicket (the config's
-own budget is not used). A client that caches tickets fails the connection, without an alert, on a
-ticket that advertises any other value, an explicit 0 included; a client with no session cache
-ignores tickets, and a limit of 0 leaves the value unchecked. A non-empty `LEarlyDataContext`
-replaces the config's early-data context.
+own budget is not used); a limit of 0 turns the server's 0-RTT off. A client that keeps a session
+cache fails the connection, without an alert, on a ticket that advertises any other value, an
+explicit 0 included; a client with no session cache ignores tickets. A limit of 0 leaves the
+client's check off, so a host that offers 0-RTT passes the value its tickets must carry. A
+non-empty `LEarlyDataContext` replaces the config's early-data context.
 
 Host extensions (`ITlsHostExtension`), the early-data context and session application data
 (`ITlsSessionApplicationData`, client only) work as they do on `ITlsEngine`; the engine answers

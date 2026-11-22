@@ -37,7 +37,9 @@ type
   /// call; the host inspects ALPN and extension bodies between input and output. The engine
   /// accepts a handshake that selects no ALPN protocol (a host that requires one fails the
   /// connection itself, with no_application_protocol), and bytes at the EarlyData level fail with
-  /// unexpected_message. Single-threaded:
+  /// unexpected_message. The ticket early-data limit the factory takes fixes the value tickets
+  /// carry: 0 turns a server's 0-RTT off and leaves a client's check of received tickets off,
+  /// and a mismatch ends the connection without an alert. Single-threaded:
   /// the caller serializes access.
   /// </summary>
   ITlsHandshakeEngine = interface(IInterface)

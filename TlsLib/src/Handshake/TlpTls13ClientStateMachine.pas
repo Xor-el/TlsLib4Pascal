@@ -184,11 +184,12 @@ type
     SessionApplicationData: ISessionApplicationDataChannel;
     /// <summary>Whether the host owns record protection and the key lifecycle: the machine then
     /// sends no change_cipher_spec and no EndOfEarlyData, emits no record-layer control effect,
-    /// refuses KeyUpdate and requires every ticket's early_data value to equal
-    /// TicketEarlyDataLimit.</summary>
+    /// refuses KeyUpdate and checks a received ticket's early_data value (see
+    /// TicketEarlyDataLimit).</summary>
     HostOwnsRecordProtection: Boolean;
-    /// <summary>The max_early_data_size a ticket may carry under HostOwnsRecordProtection; a ticket
-    /// that carries another value fails the handshake without an alert.</summary>
+    /// <summary>The max_early_data_size a received ticket must carry under HostOwnsRecordProtection
+    /// when it is not 0 and a session cache is set; another value fails the connection without an
+    /// alert. 0 leaves the value unchecked.</summary>
     TicketEarlyDataLimit: UInt32;
     /// <summary>How a peer-certificate verdict is deferred out-of-band (see TVerdictDeferral):
     /// augment-only and fail-closed, None by default.</summary>

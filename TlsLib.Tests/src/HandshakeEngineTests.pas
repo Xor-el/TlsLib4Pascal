@@ -137,6 +137,8 @@ type
     function EventSeen(const AEngine: ITlsHandshakeEngine; AKind: TTlsEventKind): Boolean;
     function EchConfigList(AConfigId: Byte; const APublicName: string;
       out APrivateKey: ISecretBuffer): TBytes;
+    /// <summary>A framed NewSessionTicket whose early_data extension carries ALimit.</summary>
+    function TicketWithEarlyDataLimit(ALimit: UInt32): TBytes;
     function CreationRaises(const AConfig: ITlsClientConfig): Boolean; overload;
     function CreationRaises(const AConfig: ITlsServerConfig): Boolean; overload;
   protected
@@ -167,6 +169,7 @@ type
     procedure TestClientHandshakeWriteSecretFollowsTheServerHelloAfterAZeroRttOffer;
     procedure TestZeroLimitLeavesTheTicketValueUnchecked;
     procedure TestClientWithoutACacheIgnoresTickets;
+    procedure TestNoAlertFailureDropsEveryQueuedSecret;
     procedure TestResumptionUsesTheTicketOfItsOwnKind;
     procedure TestZeroRttIsAcceptedAndKeysAgree;
     procedure TestZeroRttIsRejectedAfterARetry;
@@ -667,6 +670,7 @@ begin
   CheckFalse(LClient.IsTerminal, 'the client completed');
   CheckFalse(LServer.IsTerminal, 'the server completed');
   CheckTrue(EventSeen(LClient, TTlsEventKind.EarlyDataRejected), 'the early data was declined');
+  CheckEquals('D0 W1 R2 W2 D2 W3 R3 C', Describe(FClientLog), 'the client''s order');
   CheckFalse(LServer.ConnectionInfo.EarlyDataAccepted, 'the server did not accept it');
   CheckFalse(HasOutput(FServerLog, THandshakeOutputKind.ReadSecret, TTlsEpoch.EarlyData),
     'and keyed no early read');
@@ -947,14 +951,54 @@ begin
   CheckTrue(LCache.Count > 0, 'and cached it');
 end;
 
+function TTestHandshakeEngine.TicketWithEarlyDataLimit(ALimit: UInt32): TBytes;
+var
+  LNst: TTlsNewSessionTicket;
+begin
+  LNst.TicketLifetime := 3600;
+  LNst.TicketAgeAdd := 0;
+  LNst.TicketNonce := Filled($01, 8);
+  LNst.Ticket := Filled($7A, 16);
+  // an extension vector holding early_data (42) with max_early_data_size
+  LNst.Extensions := TBytes.Create(0, 8, 0, 42, 0, 4, Byte(ALimit shr 24), Byte(ALimit shr 16),
+    Byte(ALimit shr 8), Byte(ALimit));
+  Result := THandshakeFraming.Frame(TTlsHandshakeType.NewSessionTicket,
+    THandshakeMessages.EncodeNewSessionTicket(LNst));
+end;
+
 procedure TTestHandshakeEngine.TestClientWithoutACacheIgnoresTickets;
 var
   LClient, LServer: ITlsHandshakeEngine;
+  LTicket: TBytes;
 begin
-  LClient := TTlsEngineFactory.CreateHandshakeClientEngine(ClientConfig, ServerHost, nil, 1234);
-  LServer := NewServer(ServerResuming(True));
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
   Run(LClient, LServer);
-  CheckFalse(LClient.IsTerminal, 'tickets it does not keep are ignored, whatever they advertise');
+  CheckFalse(LClient.IsTerminal, 'the handshake completed');
+  // the host-fixed limit is $FFFFFFFF, and this ticket carries another value
+  LTicket := TicketWithEarlyDataLimit(1234);
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
+  CheckFalse(LClient.IsTerminal, 'a ticket a client does not keep is ignored, whatever it advertises');
+end;
+
+procedure TTestHandshakeEngine.TestNoAlertFailureDropsEveryQueuedSecret;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITlsHandshakeEngine;
+  LOutput: THandshakeOutput;
+  LTicket: TBytes;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(ClientResuming(LCache, False));
+  LServer := NewServer(ServerResuming(True));
+  LClient.StartHandshake;
+  Deliver(LClient, LServer, FClientLog);
+  Deliver(LServer, LClient, FServerLog);
+  // the client's Finished and its secrets are queued, and a ticket with a wrong limit arrives
+  LTicket := TicketWithEarlyDataLimit(1234);
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
+  CheckLocalWithoutAlert(LClient, 'a limit the host did not fix');
+  CheckFalse(LClient.NextOutput(LOutput), 'nothing queued outlives a failure without an alert');
 end;
 
 procedure TTestHandshakeEngine.TestResumptionUsesTheTicketOfItsOwnKind;
@@ -1168,8 +1212,8 @@ begin
   LCache := TInMemorySessionCache.Create;
   Seed(LCache);
   LOtherRoot := TTlsLibTestCertificates.Field('Certs/ClientAuthChain.txt', 'root_cert');
-  // the client offers 0-RTT; the server's ticket keys differ, so it runs a full handshake, and the
-  // client, which drops its early key at EncryptedExtensions, then rejects the chain in that delivery
+  // the server cannot open the ticket and runs a full handshake; the client queues its handshake
+  // write secret at the ServerHello and rejects the chain in the same delivery
   LClient := NewClient(ClientBuilder.WithServerVerification(
     TServerVerification.WebPki(LOtherRoot).Build).WithResumption(True).WithSessionCache(LCache)
     .WithResumptionScope(FScope).Tls13.WithEarlyData(True).Build);
