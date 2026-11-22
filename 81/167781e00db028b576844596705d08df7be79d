@@ -1,0 +1,19 @@
+TlsLib.Tests/Delphi.Tests/TlsLib.Tests.Mobile.dproj
+  s_171919d6a98d09::t_f7d64ef7cfc1f9 387-393,521,611,615-617
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "81167781e00db028b576844596705d08df7be79d",
+  "prompts": {},
+  "sessions": {
+    "s_171919d6a98d09": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a115af80bcc5a3b3b",
+        "model": "unknown"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
