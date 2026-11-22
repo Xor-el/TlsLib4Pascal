@@ -49,7 +49,7 @@
         <IsPartOfProject Value="True"/>
       </Unit0>
       <Unit1>
-        <Filename Value="..\src\TlsLibTestResourceLoader.pas"/>
+        <Filename Value="..\src\SupportResourceLoader.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit1>
       <Unit2>
@@ -365,11 +365,11 @@
         <IsPartOfProject Value="True"/>
       </Unit79>
       <Unit80>
-        <Filename Value="..\src\TlsLibTestProviders.pas"/>
+        <Filename Value="..\src\SupportProviders.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit80>
       <Unit81>
-        <Filename Value="..\src\TlsLibTestHandshakeDecoder.pas"/>
+        <Filename Value="..\src\SupportHandshakeDecoder.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit81>
       <Unit82>
@@ -429,7 +429,7 @@
         <IsPartOfProject Value="True"/>
       </Unit95>
       <Unit96>
-        <Filename Value="..\src\TlsLibTestCertificates.pas"/>
+        <Filename Value="..\src\SupportCertificates.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit96>
       <Unit97>
@@ -505,7 +505,7 @@
         <IsPartOfProject Value="True"/>
       </Unit114>
       <Unit115>
-        <Filename Value="..\src\TlsLibTestTicketRewriter.pas"/>
+        <Filename Value="..\src\SupportTicketRewriter.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit115>
       <Unit116>

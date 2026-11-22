@@ -32,7 +32,7 @@ uses
   TlpITlsConfigBuilder,
   TlpCertificateVerifierSource,
   TlpTlsPresets,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -62,7 +62,7 @@ begin
   // a real single-root store lets the client build so its invariants can be read
   Result := ABuilder.Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build).Build;
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build).Build;
 end;
 
 procedure TTestPreset.TestHardenedPrefersPqHybridGroup;
@@ -160,7 +160,7 @@ begin
   // staple request of the caller's own - Build does not fail fast as always-rejecting
   LConfig := TTlsPresets.Strict(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore)
       .WithRevocation(TRevocationPosture.Hard).Build)
     .Build;
   CheckEquals(Ord(TRevocationPosture.Hard), Ord(LConfig.RevocationPosture),

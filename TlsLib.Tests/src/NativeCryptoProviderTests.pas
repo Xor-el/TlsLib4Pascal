@@ -27,7 +27,7 @@ uses
   TlpICryptoProvider,
   TlpIKeyExchangePrivateKey,
   TlpDefaultCryptoProvider,
-  TlsLibTestProviders,
+  SupportProviders,
   TlpOSCryptoProvider,
 {$IF DEFINED(TLSLIB_MSWINDOWS)}
   TlpWindowsSystemCrypto,
@@ -663,7 +663,7 @@ end;
 
 function TNativeCryptoProviderTestBase.Portable: ICryptoProvider;
 begin
-  Result := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  Result := TSupportProviders.Crypto(TCryptoProviderChoice.Portable);
 end;
 
 function TNativeCryptoProviderTestBase.Composed(

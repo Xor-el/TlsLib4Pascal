@@ -32,7 +32,7 @@ uses
   TlpIPkixProvider,
   TlpDefaultPkixProvider,
   MockPkixProvider,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -116,7 +116,7 @@ procedure TTestCertificateChecks.TestCaCertificateIsAnAuthority;
 begin
   CheckEquals(Ord(TCertAnswer.Yes),
     Ord(Pkix.Certificates.IsCertificateAuthority(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert'))),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'caleaf_cert'))),
     'a certificate asserting cA=TRUE is an authority');
 end;
 
@@ -124,7 +124,7 @@ procedure TTestCertificateChecks.TestSelfSignedCaCertificateIsAnAuthority;
 begin
   CheckEquals(Ord(TCertAnswer.Yes),
     Ord(Pkix.Certificates.IsCertificateAuthority(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert'))),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'selfca_cert'))),
     'a self-signed certificate asserting cA=TRUE is an authority');
 end;
 
@@ -132,7 +132,7 @@ procedure TTestCertificateChecks.TestEndEntityCertificateIsNotAnAuthority;
 begin
   CheckEquals(Ord(TCertAnswer.No),
     Ord(Pkix.Certificates.IsCertificateAuthority(
-      TTlsLibTestCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert'))),
+      TSupportCertificates.Field('Certs/CriticalExtensionsChain.txt', 'leaf_cert'))),
     'a certificate with cA=FALSE is not an authority');
 end;
 
@@ -147,7 +147,7 @@ procedure TTestCertificateChecks.TestSelfSignedRootIsSelfSigned;
 begin
   CheckEquals(Ord(TCertAnswer.Yes),
     Ord(Pkix.Certificates.Parse(
-      TTlsLibTestCertificates.Field('Certs/ReissuedRoot.txt', 'root_cert')).IsSelfSigned),
+      TSupportCertificates.Field('Certs/ReissuedRoot.txt', 'root_cert')).IsSelfSigned),
     'a root verifying under its own key is self-signed');
 end;
 
@@ -155,14 +155,14 @@ procedure TTestCertificateChecks.TestIssuedCertificateIsNotSelfSigned;
 begin
   CheckEquals(Ord(TCertAnswer.No),
     Ord(Pkix.Certificates.Parse(
-      TTlsLibTestCertificates.Field('Certs/ReissuedRoot.txt', 'issuer_cert')).IsSelfSigned),
+      TSupportCertificates.Field('Certs/ReissuedRoot.txt', 'issuer_cert')).IsSelfSigned),
     'a certificate whose issuer name differs from its subject is not self-signed');
 end;
 
 procedure TTestCertificateChecks.TestSelfIssuedCertificateSignedByAnotherKeyIsNotSelfSigned;
 begin
   CheckEquals(Ord(TCertAnswer.No),
-    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/ReissuedRoot.txt',
+    Ord(Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/ReissuedRoot.txt',
       'root_rollover_sha1_cert')).IsSelfSigned),
     'matching names are not enough: the signature must verify under its own key');
 end;
@@ -172,7 +172,7 @@ begin
   // CN=localhost as a UTF8String, the outer SEQUENCE included
   CheckEqualBytes('the subject Name of the leaf',
     DecodeHex('30143112301006035504030c096c6f63616c686f7374'),
-    Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_root_leaf')).SubjectName);
 end;
 
@@ -181,7 +181,7 @@ begin
   // CN=TlsLib Anchor Validity Root as a UTF8String, the outer SEQUENCE included
   CheckEqualBytes('the issuer Name of the leaf',
     DecodeHex('30263124302206035504030c1b546c734c696220416e63686f722056616c696469747920526f6f74'),
-    Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_root_leaf')).IssuerName);
 end;
 
@@ -189,9 +189,9 @@ procedure TTestCertificateChecks.TestIssuerNameOfALeafIsTheSameNameAsItsIssuersS
 begin
   CheckEquals(Ord(TCertAnswer.Yes),
     Ord(Pkix.Certificates.SameName(
-    Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter_leaf')).IssuerName,
-    Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).SubjectName)),
     'the leaf issuer Name chains to the issuing certificate subject Name');
 end;
@@ -244,7 +244,7 @@ procedure TTestCertificateChecks.TestInstantInsideTheWindowIsValid;
 begin
   // ae_inter is valid 2020-01-01T00:00:00Z to 2030-01-01T00:00:00Z; this is 2025-01-01
   CheckEquals(Ord(TCertAnswer.Yes),
-    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Ord(Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1735689600000))),
     'a certificate is valid inside its window');
 end;
@@ -253,7 +253,7 @@ procedure TTestCertificateChecks.TestInstantAfterTheEndIsNotValid;
 begin
   // one second after 2030-01-01T00:00:00Z
   CheckEquals(Ord(TCertAnswer.No),
-    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Ord(Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1893456001000))),
     'a certificate is not valid after its end');
 end;
@@ -262,7 +262,7 @@ procedure TTestCertificateChecks.TestInstantBeforeTheStartIsNotValid;
 begin
   // one second before 2020-01-01T00:00:00Z
   CheckEquals(Ord(TCertAnswer.No),
-    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Ord(Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1577836799000))),
     'a certificate is not valid before its start');
 end;
@@ -271,7 +271,7 @@ procedure TTestCertificateChecks.TestInstantAtTheStartIsValid;
 begin
   // exactly 2020-01-01T00:00:00Z, the first instant of the window
   CheckEquals(Ord(TCertAnswer.Yes),
-    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Ord(Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1577836800000))),
     'the window includes its first instant');
 end;
@@ -280,7 +280,7 @@ procedure TTestCertificateChecks.TestInstantAtTheEndIsValid;
 begin
   // exactly 2030-01-01T00:00:00Z, the last instant of the window
   CheckEquals(Ord(TCertAnswer.Yes),
-    Ord(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+    Ord(Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).IsValidAt(TDateTimeUtilities.UnixMsToDateTime(1893456000000))),
     'the window includes its last instant');
 end;
@@ -289,7 +289,7 @@ procedure TTestCertificateChecks.TestValidityReadsNotBeforeAndNotAfter;
 var
   LNotBefore, LNotAfter: TDateTime;
 begin
-  CheckTrue(Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/AnchorValidity.txt',
+  CheckTrue(Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/AnchorValidity.txt',
     'ae_inter')).Validity(LNotBefore, LNotAfter), 'the dates are read');
   CheckTrue(Abs(LNotBefore - TDateTimeUtilities.UnixMsToDateTime(1577836800000)) < 1 / 86400000,
     'notBefore is 2020-01-01T00:00:00Z');
@@ -302,7 +302,7 @@ var
   LLeaf: TBytes;
   LNames: TCertSubjectAltNames;
 begin
-  LLeaf := TTlsLibTestCertificates.Field('Certs/SubjectAltNames.txt', 'san_leaf_cert');
+  LLeaf := TSupportCertificates.Field('Certs/SubjectAltNames.txt', 'san_leaf_cert');
   LNames := Pkix.Certificates.Parse(LLeaf).SubjectAltNames;
   CheckEquals(2, System.Length(LNames.DnsNames), 'two dNSName entries');
   CheckEquals('localhost', LNames.DnsNames[0], 'the first dNSName, in certificate order');
@@ -323,7 +323,7 @@ procedure TTestCertificateChecks.TestSubjectAltNamesEmptyWithoutExtension;
 var
   LNames: TCertSubjectAltNames;
 begin
-  LNames := Pkix.Certificates.Parse(TTlsLibTestCertificates.Field('Certs/SubjectAltNames.txt',
+  LNames := Pkix.Certificates.Parse(TSupportCertificates.Field('Certs/SubjectAltNames.txt',
     'plain_leaf_cert')).SubjectAltNames;
   CheckEquals(0, System.Length(LNames.DnsNames), 'no dNSName');
   CheckEquals(0, System.Length(LNames.IpAddresses), 'no iPAddress');
@@ -348,7 +348,7 @@ end;
 procedure TTestCertificateChecks.TestSubjectAltNamesDropsAnIpAddressOfAnotherWidth;
 begin
   CheckEquals(0, System.Length(Pkix.Certificates.Parse(
-    TTlsLibTestCertificates.Field('Certs/SubjectAltNames.txt', 'short_ip_leaf_cert'))
+    TSupportCertificates.Field('Certs/SubjectAltNames.txt', 'short_ip_leaf_cert'))
     .SubjectAltNames.IpAddresses), 'a three-octet iPAddress is neither four nor sixteen');
 end;
 
@@ -357,7 +357,7 @@ var
   LDer: TBytes;
   LRaised: Boolean;
 begin
-  LDer := TTlsLibTestCertificates.Field('Certs/SubjectAltNames.txt', 'bad_san_leaf_cert');
+  LDer := TSupportCertificates.Field('Certs/SubjectAltNames.txt', 'bad_san_leaf_cert');
   LRaised := False;
   try
     Pkix.Certificates.SubjectAltNames(LDer);

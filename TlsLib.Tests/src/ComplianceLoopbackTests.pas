@@ -66,7 +66,7 @@ uses
   TlpInMemorySessionCache,
   TlpInMemorySessionStore,
   MockCompliance,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibHandshakeTestBase;
 
 type
@@ -170,7 +170,7 @@ function TTestComplianceLoopback.ClientConfig(const APolicy: ICompliancePolicy)
   : ITlsClientConfig;
 begin
   Result := TComplianceTls.BuildClient(APolicy, TComplianceTls.Client(APolicy,
-    TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore)));
+    TServerVerification.WebPki(TSupportCertificates.EcP256RootStore)));
 end;
 
 function TTestComplianceLoopback.Tls12ClientConfig(const APolicy: ICompliancePolicy)
@@ -179,7 +179,7 @@ var
   LBuilder: ITlsClientConfigBuilder;
 begin
   LBuilder := TComplianceTls.Client(APolicy, TServerVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore));
+    TSupportCertificates.EcP256RootStore));
   LBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   Result := TComplianceTls.BuildClient(APolicy, LBuilder);
 end;
@@ -199,7 +199,7 @@ begin
   // a client built with no policy, offering only what the rules refuse
   LBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client;
   LBuilder.WithServerVerification(TServerVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore).Build);
+    TSupportCertificates.EcP256RootStore).Build);
   LBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls13));
   LBuilder.WithPreferredGroups(APreferredGroups);
   LBuilder.WithCipherSuiteList(ASuites);
@@ -225,7 +225,7 @@ begin
   LParams.LegacySessionId := nil;
   LParams.OfferExtendedMasterSecret := False;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
-    TSystemClock.Create as ITlsClock, TTlsLibTestCertificates.EcP256RootStore, True)
+    TSystemClock.Create as ITlsClock, TSupportCertificates.EcP256RootStore, True)
     as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName(Host);
   Result := TTlsEngine.CreateConfigured(TTls12ClientStateMachine.Create(LParams)
@@ -274,7 +274,7 @@ function TTestComplianceLoopback.ResumingClient(const APolicy: ICompliancePolicy
   const ACache: ISessionCache): ITlsClientConfig;
 begin
   Result := TComplianceTls.BuildClient(APolicy, TComplianceTls.Client(APolicy,
-    TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore))
+    TServerVerification.WebPki(TSupportCertificates.EcP256RootStore))
     .WithSessionCache(ACache).WithResumptionScope(APolicy.SessionScope));
 end;
 
@@ -284,7 +284,7 @@ var
   LBuilder: ITlsClientConfigBuilder;
 begin
   LBuilder := TComplianceTls.Client(APolicy, TServerVerification.WebPki(
-    TTlsLibTestCertificates.EcP256RootStore));
+    TSupportCertificates.EcP256RootStore));
   LBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   Result := TComplianceTls.BuildClient(APolicy,
     LBuilder.WithSessionCache(ACache).WithResumptionScope(APolicy.SessionScope));
@@ -776,7 +776,7 @@ begin
   for LI := 0 to System.Length(LGroups) - 1 do
   begin
     LClientBuilder := TComplianceTls.Client(LPolicy, TServerVerification.WebPki(
-      TTlsLibTestCertificates.EcP256RootStore));
+      TSupportCertificates.EcP256RootStore));
     LClientBuilder.WithPreferredGroups(TArray<UInt16>.Create(LGroups[LI]));
     LServerBuilder := TComplianceTls.Server(LPolicy, ServerCredential(LPolicy.Crypto));
     LServerBuilder.WithPreferredGroups(TArray<UInt16>.Create(LGroups[LI]));
@@ -810,7 +810,7 @@ begin
   for LI := 0 to System.Length(LGroups) - 1 do
   begin
     LClientBuilder := TComplianceTls.Client(LPolicy, TServerVerification.WebPki(
-      TTlsLibTestCertificates.EcP256RootStore));
+      TSupportCertificates.EcP256RootStore));
     LClientBuilder.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
     // a TLS 1.2 ECDSA certificate must be on a curve the client offers, and the credential is P-256
     if LGroups[LI] = TNamedGroupCatalog.Secp256r1 then
@@ -847,7 +847,7 @@ begin
   LPolicy := NewPolicy;
   LClient := TTlsEngineFactory.CreateClientEngine(TComplianceTls.BuildClient(LPolicy,
     TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(
-    TTlsLibTestCertificates.EcP256RootStore))), Host);
+    TSupportCertificates.EcP256RootStore))), Host);
   LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig(LPolicy));
   RunHandshake(LClient, LServer);
   CheckFalse(LClient.IsHandshaking, 'the OS verifier trusted the host root alone');
@@ -890,7 +890,7 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(LServerConfig);
   LClient := TTlsEngineFactory.CreateClientEngine(TComplianceTls.BuildClient(LPolicy,
     TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(
-    TTlsLibTestCertificates.EcP256RootStore)).WithCredential(LCredential)), Host);
+    TSupportCertificates.EcP256RootStore)).WithCredential(LCredential)), Host);
   RunHandshake(LClient, LServer);
   CheckFalse(LServer.IsTerminal, 'the server did not fail');
   CheckFalse(LServer.IsHandshaking, 'the server finished');
@@ -912,7 +912,7 @@ begin
     ServerCredential(LPolicy.Crypto)), TClientAuthMode.Required, AClientCa)));
   AClient := TTlsEngineFactory.CreateClientEngine(TComplianceTls.BuildClient(LPolicy,
     TComplianceTls.Client(LPolicy, TSystemTrustRoots.HostRoots(
-    TTlsLibTestCertificates.EcP256RootStore)).WithCredential(LCredential)), Host);
+    TSupportCertificates.EcP256RootStore)).WithCredential(LCredential)), Host);
   RunHandshake(AClient, AServer);
 end;
 
@@ -932,7 +932,7 @@ procedure TTestComplianceLoopback.TestMtlsServerRefusesAClientChainOutsideItsCli
 var
   LClient, LServer: ITlsEngine;
 begin
-  MtlsHandshake(TTlsLibTestCertificates.EcP256RootStore, LClient, LServer);
+  MtlsHandshake(TSupportCertificates.EcP256RootStore, LClient, LServer);
   CheckTrue(LServer.IsTerminal, 'the client chain does not reach the client CA');
 end;
 
@@ -940,7 +940,7 @@ procedure TTestComplianceLoopback.TestMtlsServerRefusalOutsideItsClientCaCarries
 var
   LClient, LServer: ITlsEngine;
 begin
-  MtlsHandshake(TTlsLibTestCertificates.EcP256RootStore, LClient, LServer);
+  MtlsHandshake(TSupportCertificates.EcP256RootStore, LClient, LServer);
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LServer.LastError.Alert.Description),
     'unknown_ca');
 end;

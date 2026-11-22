@@ -44,7 +44,7 @@ uses
   TlpTrustAnchorStore,
   TlpNegotiationTypes,
   MockClock,
-  TlsLibTestCertificates,
+  SupportCertificates,
 {$ENDIF TLSLIB_MACOS}
   TlpTlsAlert,
   TlpAppleSystemTrust,
@@ -145,7 +145,7 @@ var
   LAlert: TTlsAlertDescription;
   LVerified: TVerifiedChain;
 begin
-  LRoot := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/NameConstrainedChain.txt', 'root_cert');
   LPolicy := Default(TOSDelegatePolicy);
   LPolicy.ChainLimits := TCertificateChainLimits.Defaults;
   LPolicy.Pkix := Pkix;
@@ -163,12 +163,12 @@ begin
   LVerifier := TOSDelegateServerVerifier.Create(
     TAppleChainEngine.Create as IPlatformChainEngine, LPolicy) as IServerCertificateVerifier;
   CheckTrue(LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'apple_in_scope_leaf_cert'),
+    TSupportCertificates.Field('Certs/NameConstrainedChain.txt', 'apple_in_scope_leaf_cert'),
     LRoot), TServerName.DnsName('mac.corp.example'), nil, LVerified, LAlert),
     'a leaf inside the anchor name constraints is accepted');
   // the status trustd reports for a violation is unverifiable offline, so only the refusal is pinned
   CheckFalse(LVerifier.VerifyServerCertificate(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'apple_out_of_scope_leaf_cert'),
+    TSupportCertificates.Field('Certs/NameConstrainedChain.txt', 'apple_out_of_scope_leaf_cert'),
     LRoot), TServerName.DnsName('bank.example'), nil, LVerified, LAlert),
     'a leaf outside the anchor name constraints is refused');
   CheckTrue(LAlert in [TTlsAlertDescription.CertificateUnknown, TTlsAlertDescription.UnknownCa],

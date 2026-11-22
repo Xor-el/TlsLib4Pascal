@@ -43,7 +43,7 @@ uses
   MockTransport,
   MockHttpFetcher,
   MockVerifyHooks,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -187,12 +187,12 @@ var
 begin
   LServer := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key')))
     .WithPeerAuth(TClientAuthMode.Required)
     // the private client CA (issues the client leaf)
     .WithClientVerification(TClientVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'))
+      TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'))
       .WithRevocation(APosture).Build)
     .WithLiveRevocationVerdict(0); // arm the park so the live resolver runs off the engine
   if AForce12 then
@@ -206,11 +206,11 @@ var
 begin
   LClient := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     // the LiveRevocation leaf alone: no EKU, so client-auth capable, with OCSP/CRL vectors
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-      TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'leaf_key')));
+      TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/LiveRevocation.txt', 'leaf_key')));
   if AForce12 then
     LClient.WithSupportedVersions(TArray<UInt16>.Create(TlsWireVersionTls12));
   Result := LClient.Build;
@@ -244,7 +244,7 @@ begin
   if AWithCandidates then
   begin
     LOptions.IssuerCandidates := TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'));
+      TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ca_cert'));
     Result := TLiveRevocationChecker.Create(Pkix, TSystemClock.Create as ITlsClock,
       TSystemMonotonicClock.Create as ITlsMonotonicClock, FFetcher, APosture,
       TLiveRevocationMethod.OcspThenCrl, 0, LOptions);
@@ -306,7 +306,7 @@ var
 begin
   FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
   try
     RunLoopback(ClientConfig(False), ServerConfig(TRevocationPosture.Hard, False),
@@ -340,7 +340,7 @@ var
 begin
   FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
   try
     RunLoopback(ClientConfig(False), ServerConfig(TRevocationPosture.Hard, False),
@@ -438,7 +438,7 @@ begin
   // the TLS 1.2 server machine also parks on the client-chain verdict; a live-good client completes
   FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
   try
     RunLoopback(ClientConfig(True), ServerConfig(TRevocationPosture.Hard, True),
@@ -477,7 +477,7 @@ begin
   // and surfaces the exact code, matching the TLS 1.3 sibling.
   FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_revoked'));
   LChecker := NewChecker(TRevocationPosture.Hard, True);
   try
     RunLoopback(ClientConfig(True), ServerConfig(TRevocationPosture.Hard, True),
@@ -562,7 +562,7 @@ begin
   // handshake completes - the issuer comes from PKIX, not from configured candidates.
   FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(True,
-    TTlsLibTestCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
+    TSupportCertificates.Field('Certs/LiveRevocation.txt', 'ocsp_good'));
   LChecker := NewChecker(TRevocationPosture.Hard, False);
   try
     RunLoopback(ClientConfig(False), ServerConfig(TRevocationPosture.Hard, False),

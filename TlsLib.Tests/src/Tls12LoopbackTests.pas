@@ -60,8 +60,8 @@ uses
   TlpTls12ServerStateMachine,
   MockCryptoProvider,
   MockSink,
-  TlsLibTestHandshakeDecoder,
-  TlsLibTestCertificates,
+  SupportHandshakeDecoder,
+  SupportCertificates,
   TlsLibHandshakeTestBase;
 
 type
@@ -175,7 +175,7 @@ begin
   LParams.LegacySessionId := nil;
   LParams.OfferExtendedMasterSecret := AOfferEms;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine;
 end;
@@ -351,7 +351,7 @@ begin
   LOptions.RevocationPosture := TRevocationPosture.Hard;
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
+      TSupportCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
     as ITrustAnchorStore, True, LOptions) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTlsEngine.CreateConfigured(
@@ -573,7 +573,7 @@ function TTestTls12Loopback.TamperHandshakeMessage(var AWire: TBytes;
 var
   LRecordPos, LMsgPos, LMsgLen: Int32;
 begin
-  Result := TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(AWire, AMsgType,
+  Result := TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(AWire, AMsgType,
     LRecordPos, LMsgPos, LMsgLen);
   if Result then
     AWire[LMsgPos + 3 + LMsgLen] := AWire[LMsgPos + 3 + LMsgLen] xor $01;
@@ -638,7 +638,7 @@ begin
   LWire := Drain(LClient);
   if AZeroShare then
   begin
-    CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LWire,
+    CheckTrue(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(LWire,
       Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
       'the client flight carries a plaintext ClientKeyExchange');
     CheckEquals(33, LMsgLen, 'the ClientKeyExchange holds one X25519 share');
@@ -661,7 +661,7 @@ begin
   Result.StartHandshake;
   Pump(Result, LServer);
   LWire := Drain(LServer);
-  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(LWire,
+  CheckTrue(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(LWire,
     Ord(TTlsHandshakeType.ServerKeyExchange), LRecordPos, LMsgPos, LMsgLen),
     'the server flight carries a plaintext ServerKeyExchange');
   LSke := THandshakeMessages.DecodeServerKeyExchangeEcdhe(
@@ -715,7 +715,7 @@ begin
   CheckTrue(LClient.IsTerminal, 'an all-zero server share fails the client');
   CheckEquals(Ord(TTlsAlertDescription.IllegalParameter),
     Ord(LClient.LastError.Alert.Description), 'with illegal_parameter');
-  CheckFalse(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(Drain(LClient),
+  CheckFalse(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(Drain(LClient),
     Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
     'no ClientKeyExchange is sent after the refusal');
 end;
@@ -731,7 +731,7 @@ begin
   LShare[0] := 9;
   LClient := ClientAfterServerFlight(LShare);
   CheckFalse(LClient.IsTerminal, 'a valid re-signed share does not fail the client');
-  CheckTrue(TTlsLibTestHandshakeDecoder.FindPlaintextHandshakeMessage(Drain(LClient),
+  CheckTrue(TSupportHandshakeDecoder.FindPlaintextHandshakeMessage(Drain(LClient),
     Ord(TTlsHandshakeType.ClientKeyExchange), LRecordPos, LMsgPos, LMsgLen),
     'the client answers with a ClientKeyExchange');
 end;
@@ -789,7 +789,7 @@ function TTestTls12Loopback.DecodeServerFlightHello(
   const AFlight: TArray<TBytes>): TTlsServerHello;
 begin
   Result := THandshakeMessages.DecodeServerHello(
-    TTlsLibTestHandshakeDecoder.HandshakeMessage(AFlight[0]).Body);
+    TSupportHandshakeDecoder.HandshakeMessage(AFlight[0]).Body);
 end;
 
 function TTestTls12Loopback.HasEffect(const AEffects: TArray<THandshakeEffect>;
@@ -845,10 +845,10 @@ begin
   // the leaf's issuer travels in the chain so the client can authenticate the staple
   LCred := Default(TTlsCredential);
   LCred.CertificateChain := TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'leaf_cert'),
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'issuer_cert'));
   LCred.PrivateKey := Crypto.Signing.ImportSigningKey(
-    TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
+    TSupportCertificates.Field('Certs/OcspStapling.txt', 'leaf_key'), nil);
   LCred.OcspStaple := AStaple;
   LParams.CredentialResolver := TSniCredentialResolver.ForCredential(LCred);
   Result := TTls12ServerStateMachine.Create(LParams) as IHandshakeMachine;
@@ -882,7 +882,7 @@ begin
   LParams.CertificateVerifier := TCertificateVerifier.Create(Pkix,
     TSystemClock.Create as ITlsClock,
     TTrustAnchorStore.Create(TArray<TBytes>.Create(
-      TTlsLibTestCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
+      TSupportCertificates.Field('Certs/OcspStapling.txt', 'root_cert')))
     as ITrustAnchorStore, True) as IServerCertificateVerifier;
   LParams.ExpectedServerName := TServerName.DnsName('localhost');
   Result := TTls12ClientStateMachine.Create(LParams) as IHandshakeMachine;
@@ -896,7 +896,7 @@ var
 begin
   // the CertificateStatus is omitted, so the park waits for the signed ServerKeyExchange
   LClient := ParkingStaplingClientMachine;
-  LServer := StaplingServerMachine(TTlsLibTestCertificates.Field('Certs/OcspStapling.txt',
+  LServer := StaplingServerMachine(TSupportCertificates.Field('Certs/OcspStapling.txt',
     'ocsp_good'));
   LMsgs := AllServerMessages(AllSendHandshake(DeliverFlight(LServer,
     AllSendHandshake(LClient.Start))));
@@ -933,7 +933,7 @@ var
 begin
   // a ServerHelloDone where the ServerKeyExchange is awaited fails at once, nothing having been proved
   LClient := ParkingStaplingClientMachine;
-  LServer := StaplingServerMachine(TTlsLibTestCertificates.Field('Certs/OcspStapling.txt',
+  LServer := StaplingServerMachine(TSupportCertificates.Field('Certs/OcspStapling.txt',
     'ocsp_good'));
   LMsgs := AllServerMessages(AllSendHandshake(DeliverFlight(LServer,
     AllSendHandshake(LClient.Start))));
@@ -1261,7 +1261,7 @@ begin
   // the server sends a CertificateStatus carrying a current Good OCSP response, which a
   // hard-fail client requires (a posture of this library; the message format is RFC 6066 8)
   LClient := NewHardRevocationClient;
-  LServer := NewStaplingServer(TTlsLibTestCertificates.Field('Certs/OcspStapling.txt',
+  LServer := NewStaplingServer(TSupportCertificates.Field('Certs/OcspStapling.txt',
     'ocsp_good'));
   RunHandshake(LClient, LServer);
 

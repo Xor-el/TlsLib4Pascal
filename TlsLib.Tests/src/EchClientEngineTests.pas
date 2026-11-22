@@ -63,7 +63,7 @@ uses
   TlpTlsAlert,
   TlpTlsLibExceptions,
   TlsLibTestBase,
-  TlsLibTestHandshakeDecoder;
+  SupportHandshakeDecoder;
 
 type
   /// <summary>
@@ -213,7 +213,7 @@ begin
 
   // the outer offers the public_name
   CheckTrue(LEntries.TryFind(TExtensionTypes.ServerName, LSni), 'outer has SNI');
-  CheckEquals(PublicName, TTlsLibTestHandshakeDecoder.ServerNameHost(LSni.Data), 'the outer SNI is the public_name');
+  CheckEquals(PublicName, TSupportHandshakeDecoder.ServerNameHost(LSni.Data), 'the outer SNI is the public_name');
 
   // decode the outer encrypted_client_hello extension
   CheckTrue(LEntries.TryFind(TExtensionTypes.EncryptedClientHello, LEch),
@@ -254,7 +254,7 @@ begin
   // the reconstructed inner carries the real SNI
   CheckTrue(LReconstructed.TryFind(TExtensionTypes.ServerName, LSni),
     'the inner has a server_name');
-  CheckEquals(RealSni, TTlsLibTestHandshakeDecoder.ServerNameHost(LSni.Data),
+  CheckEquals(RealSni, TSupportHandshakeDecoder.ServerNameHost(LSni.Data),
     'the reconstructed inner SNI is the real host');
 end;
 
@@ -801,7 +801,7 @@ begin
   LMachine := TTls13ClientStateMachine.Create(LParams);
   try
     LMachine.Start;
-    Result := LMachine.ProcessMessage(TTlsLibTestHandshakeDecoder.HandshakeMessage(LHrr));
+    Result := LMachine.ProcessMessage(TSupportHandshakeDecoder.HandshakeMessage(LHrr));
   finally
     LMachine.Free;
   end;

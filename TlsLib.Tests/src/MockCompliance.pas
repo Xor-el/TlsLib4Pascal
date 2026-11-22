@@ -32,7 +32,7 @@ uses
   MockCryptoProvider,
   MockSystemCrypto,
   TlpTlsLibExceptions,
-  TlsLibTestProviders;
+  SupportProviders;
 
 type
   /// <summary>An <see cref="IModuleAttestation" /> that answers a fixed status and identity, so a
@@ -539,7 +539,7 @@ class function TComplianceFakes.FakeSystemBase(const AReport: ICryptoBackendRepo
   const ASigning: ISigningCrypto; const AHpke: IHpkeCrypto): ICryptoProvider;
 begin
   Result := TOverlayCryptoProvider.Create(
-    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable), nil, ASigning, AReport, AHpke);
+    TSupportProviders.Crypto(TCryptoProviderChoice.Portable), nil, ASigning, AReport, AHpke);
 end;
 
 class function TComplianceFakes.SystemOver(APortableAeads: TComplianceAeadSet): ICryptoProvider;

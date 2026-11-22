@@ -18,7 +18,7 @@ uses
   System.IOUtils,
   FMX.Types, FMX.Controls, FMX.Forms, FMX.Graphics, FMX.Dialogs, FMX.StdCtrls, FMX.Layouts,
   FMX.Controls.Presentation, FMX.Edit, FMX.Memo.Types, FMX.ScrollBox, FMX.Memo,
-  TlsLibTestResourceLoader, MobileTestRunner;
+  SupportResourceLoader, MobileTestRunner;
 
 type
   TMobileTestHostForm = class(TForm)
@@ -96,9 +96,9 @@ begin
     memLog.Lines.Clear;
     memLog.Lines.Add('=== Test data ===');
     try
-      memLog.Lines.Add('Data root: ' + TTlsLibTestResourceLoader.DataRoot);
+      memLog.Lines.Add('Data root: ' + TSupportResourceLoader.DataRoot);
       memLog.Lines.Add('file count: ' + IntToStr(Length(TDirectory.GetFiles(
-        TTlsLibTestResourceLoader.DataRoot, '*', TSearchOption.soAllDirectories))));
+        TSupportResourceLoader.DataRoot, '*', TSearchOption.soAllDirectories))));
     except
       // a missing data root must not stop the host from starting; the tests report it
       on E: Exception do

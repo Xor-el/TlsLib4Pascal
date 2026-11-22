@@ -63,7 +63,7 @@ uses
   TlpTlsPresets,
   MockCertificateVerifiers,
   MockPkixProvider,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibHandshakeTestBase,
   TlsLibTestBase;
 
@@ -319,7 +319,7 @@ begin
   for LI := 0 to High(ANames) do
   begin
     LBlocks[LI].PemType := 'CERTIFICATE';
-    LBlocks[LI].Content := TTlsLibTestCertificates.Field('Certs/PathLength.txt',
+    LBlocks[LI].Content := TSupportCertificates.Field('Certs/PathLength.txt',
       ANames[LI] + '_cert');
   end;
   Result := TPem.WriteBlocks(LBlocks);
@@ -333,14 +333,14 @@ begin
   LStore := TTrustAnchorStore.FromBundle(Pkix.Certificates,
     Bundle(['inter_1', 'root', 'inter_2']), TBundleAnchorRule.SelfSignedOnly, LIntermediates);
   CheckEquals(1, LStore.AnchorCount, 'only the self-signed certificate anchors');
-  CheckTrue(LStore.IsAnchor(TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'root_cert')),
+  CheckTrue(LStore.IsAnchor(TSupportCertificates.Field('Certs/PathLength.txt', 'root_cert')),
     'the root is the anchor');
   CheckEquals(2, System.Length(LIntermediates), 'the others complete a chain');
   CheckTrue(TArrayUtilities.AreEqual(LIntermediates[0],
-    TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'inter_1_cert')),
+    TSupportCertificates.Field('Certs/PathLength.txt', 'inter_1_cert')),
     'in bundle order');
   CheckTrue(TArrayUtilities.AreEqual(LIntermediates[1],
-    TTlsLibTestCertificates.Field('Certs/PathLength.txt', 'inter_2_cert')), 'the second too');
+    TSupportCertificates.Field('Certs/PathLength.txt', 'inter_2_cert')), 'the second too');
 end;
 
 procedure TTestTrustComposition.TestFromBundleAnyCertificateAnchorsEveryCertificate;
@@ -687,14 +687,14 @@ begin
   FLookupRef := FLookup;
   FCapture := TCapturingVerifierSource.Create;
   FCaptureRef := FCapture;
-  FRoot := TTlsLibTestCertificates.Field(TiersFile, 'root_cert');
-  FIssuer := TTlsLibTestCertificates.Field(TiersFile, 'issuer_cert');
-  FLeaf := TTlsLibTestCertificates.Field(TiersFile, 'leaf_cert');
+  FRoot := TSupportCertificates.Field(TiersFile, 'root_cert');
+  FIssuer := TSupportCertificates.Field(TiersFile, 'issuer_cert');
+  FLeaf := TSupportCertificates.Field(TiersFile, 'leaf_cert');
   FRootName := Pkix.Certificates.Parse(FRoot).SubjectName;
   FIssuerName := Pkix.Certificates.Parse(FIssuer).SubjectName;
   FLeafName := Pkix.Certificates.Parse(FLeaf).SubjectName;
   FUnrelated := TTrustAnchorStore.Create(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field(EcFile, 'root2_cert'))) as ITrustAnchorStore;
+    TSupportCertificates.Field(EcFile, 'root2_cert'))) as ITrustAnchorStore;
   FRule := TBundleAnchorRule.SelfSignedOnly;
 end;
 
@@ -770,8 +770,8 @@ end;
 
 function TTestIssuerLookup.AuthCredential: TTlsCredential;
 begin
-  Result := TTlsCredential.Load(Crypto, Pkix, TTlsLibTestCertificates.Field(AuthFile, 'leaf_cert'),
-    TTlsLibTestCertificates.Field(AuthFile, 'leaf_key'));
+  Result := TTlsCredential.Load(Crypto, Pkix, TSupportCertificates.Field(AuthFile, 'leaf_cert'),
+    TSupportCertificates.Field(AuthFile, 'leaf_key'));
 end;
 
 procedure TTestIssuerLookup.TestLookedUpRootAnchorsAServerChain;
@@ -922,8 +922,8 @@ var
   LContext: TServerTrustContext;
   LAlert: TTlsAlertDescription;
 begin
-  LRoot := TTlsLibTestCertificates.Field(WeakFile, 'root_cert');
-  LLeaf := TTlsLibTestCertificates.Field(WeakFile, 'leaf_cert');
+  LRoot := TSupportCertificates.Field(WeakFile, 'root_cert');
+  LLeaf := TSupportCertificates.Field(WeakFile, 'leaf_cert');
   FLookup.Offer(Pkix.Certificates.Parse(LRoot).SubjectName, TArray<TBytes>.Create(LRoot), nil);
   LContext := ServerContext(FUnrelated);
   LContext.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
@@ -957,7 +957,7 @@ begin
   CheckTrue(ServerVerdict(ServerVerifier(LSource, ServerContext(FUnrelated)), LChain, LAlert),
     'control: the root is not distrusted');
   LDistrusting := TTrustAnchorStore.Create(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field(EcFile, 'root2_cert')), TArray<TBytes>.Create(FRoot));
+    TSupportCertificates.Field(EcFile, 'root2_cert')), TArray<TBytes>.Create(FRoot));
   CheckFalse(ServerVerdict(ServerVerifier(LSource, ServerContext(LDistrusting)), LChain, LAlert),
     'the static distrust wins');
 end;
@@ -968,7 +968,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   LDistrusting := TTrustAnchorStore.Create(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field(EcFile, 'root2_cert')), TArray<TBytes>.Create(FRoot));
+    TSupportCertificates.Field(EcFile, 'root2_cert')), TArray<TBytes>.Create(FRoot));
   FLookup.Offer(FRootName, TArray<TBytes>.Create(FRoot), nil);
   ServerVerdict(ServerVerifier(FCaptureRef, ServerContext(LDistrusting)),
     TArray<TBytes>.Create(FLeaf, FIssuer), LAlert);
@@ -1066,7 +1066,7 @@ begin
   LRing := nil;
   LNames := nil;
   for LI := 0 to 15 do
-    TArrayUtilities.Append<TBytes>(LRing, TTlsLibTestCertificates.Field(RingFile,
+    TArrayUtilities.Append<TBytes>(LRing, TSupportCertificates.Field(RingFile,
       Format('ring_%.2d', [LI])));
   for LI := 0 to System.High(LRing) do
   begin
@@ -1081,7 +1081,7 @@ begin
   for LI := 0 to System.High(LNames) do
     FLookup.Offer(LNames[LI], nil, LRing);
   ServerVerdict(ServerVerifier(FCaptureRef, ServerContext(FUnrelated)),
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(RingFile, 'ring_leaf')), LAlert);
+    TArray<TBytes>.Create(TSupportCertificates.Field(RingFile, 'ring_leaf')), LAlert);
   CheckEquals(4, System.Length(FLookup.Asked), 'one ask per name');
   for LI := 0 to System.High(LNames) do
     CheckEquals(1, FLookup.TimesAsked(LNames[LI]), 'name ' + IntToStr(LI));
@@ -1096,13 +1096,13 @@ var
 begin
   for LI := 1 to 5 do
   begin
-    LInter := TTlsLibTestCertificates.Field(DepthFile, Format('inter_%d_cert', [LI]));
+    LInter := TSupportCertificates.Field(DepthFile, Format('inter_%d_cert', [LI]));
     FLookup.Offer(Pkix.Certificates.Parse(LInter).SubjectName, nil, TArray<TBytes>.Create(LInter));
   end;
-  LRootName := Pkix.Certificates.Parse(TTlsLibTestCertificates.Field(DepthFile,
+  LRootName := Pkix.Certificates.Parse(TSupportCertificates.Field(DepthFile,
     'root_cert')).SubjectName;
   ServerVerdict(ServerVerifier(FCaptureRef, ServerContext(FUnrelated)),
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(DepthFile, 'leaf_cert')), LAlert);
+    TArray<TBytes>.Create(TSupportCertificates.Field(DepthFile, 'leaf_cert')), LAlert);
   CheckEquals(TCertificateChainLimits.Defaults.MaxPathLength + 1, System.Length(FLookup.Asked),
     'one ask per level down to the built-path limit');
   CheckEquals(0, FLookup.TimesAsked(LRootName), 'the root name lies past the limit');
@@ -1117,13 +1117,13 @@ var
 begin
   for LI := 1 to 5 do
   begin
-    LInter := TTlsLibTestCertificates.Field(DepthFile, Format('inter_%d_cert', [LI]));
+    LInter := TSupportCertificates.Field(DepthFile, Format('inter_%d_cert', [LI]));
     FLookup.Offer(Pkix.Certificates.Parse(LInter).SubjectName, nil, TArray<TBytes>.Create(LInter));
   end;
   LContext := ServerContext(FUnrelated);
   LContext.ChainLimits.MaxPathLength := 2;
   ServerVerdict(ServerVerifier(FCaptureRef, LContext),
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(DepthFile, 'leaf_cert')), LAlert);
+    TArray<TBytes>.Create(TSupportCertificates.Field(DepthFile, 'leaf_cert')), LAlert);
   CheckEquals(3, System.Length(FLookup.Asked), 'one ask per level down to the configured limit');
 end;
 
@@ -1158,7 +1158,7 @@ begin
   LContext.Intermediates := TArray<TBytes>.Create(FIssuer);
   ServerVerdict(ServerVerifier(TBuiltInServerVerifierSource.Create
     as IServerCertificateVerifierSource, LContext),
-    TArray<TBytes>.Create(TTlsLibTestCertificates.Field(EcFile, 'leaf_cert')), LAlert);
+    TArray<TBytes>.Create(TSupportCertificates.Field(EcFile, 'leaf_cert')), LAlert);
   CheckEquals(1, System.Length(FLookup.Asked), 'only the leaf''s issuer is asked');
   CheckEquals(0, FLookup.TimesAsked(FRootName), 'the issuer of an unrelated intermediate is not');
 end;
@@ -1314,8 +1314,8 @@ var
   LAlert: TTlsAlertDescription;
 begin
   FRule := TBundleAnchorRule.AnyCertificate;
-  LRoot := TTlsLibTestCertificates.Field(WeakFile, 'root_cert');
-  LLeaf := TTlsLibTestCertificates.Field(WeakFile, 'leaf_cert');
+  LRoot := TSupportCertificates.Field(WeakFile, 'root_cert');
+  LLeaf := TSupportCertificates.Field(WeakFile, 'leaf_cert');
   FLookup.Offer(Pkix.Certificates.Parse(LRoot).SubjectName, TArray<TBytes>.Create(LRoot), nil);
   LContext := ServerContext(FUnrelated);
   LContext.AdvertisedSignatureSchemes := TArray<UInt16>.Create(
@@ -1337,7 +1337,7 @@ var
 begin
   FRule := TBundleAnchorRule.AnyCertificate;
   LBase := TTrustAnchorStore.Create(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field(EcFile, 'root2_cert')), TArray<TBytes>.Create(FIssuer))
+    TSupportCertificates.Field(EcFile, 'root2_cert')), TArray<TBytes>.Create(FIssuer))
     as ITrustAnchorStore;
   FLookup.Offer(FIssuerName, TArray<TBytes>.Create(FIssuer), nil);
   CheckFalse(ServerVerdict(ServerVerifier(TBuiltInServerVerifierSource.Create
@@ -1356,7 +1356,7 @@ begin
   FCapture := TCapturingVerifierSource.Create;
   FCaptureRef := FCapture;
   FUnrelated := TTrustAnchorStore.Create(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field(EcFile, 'root2_cert'))) as ITrustAnchorStore;
+    TSupportCertificates.Field(EcFile, 'root2_cert'))) as ITrustAnchorStore;
 end;
 
 procedure TTestIssuerLookupConfig.TearDown;
@@ -1369,8 +1369,8 @@ end;
 
 function TTestIssuerLookupConfig.AuthCredential: TTlsCredential;
 begin
-  Result := TTlsCredential.Load(Crypto, Pkix, TTlsLibTestCertificates.Field(AuthFile, 'leaf_cert'),
-    TTlsLibTestCertificates.Field(AuthFile, 'leaf_key'));
+  Result := TTlsCredential.Load(Crypto, Pkix, TSupportCertificates.Field(AuthFile, 'leaf_cert'),
+    TSupportCertificates.Field(AuthFile, 'leaf_key'));
 end;
 
 function TTestIssuerLookupConfig.ClientBuilder: ITlsClientConfigBuilder;
@@ -1406,11 +1406,11 @@ var
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
 begin
-  LIssuer := TTlsLibTestCertificates.Field(ChainFile, 'issuer_cert');
+  LIssuer := TSupportCertificates.Field(ChainFile, 'issuer_cert');
   FLookup.Offer(Pkix.Certificates.Parse(LIssuer).SubjectName, TArray<TBytes>.Create(LIssuer), nil);
   LServerConfig := TTlsPresets.Compatible(Crypto, Pkix).Server.WithCredential(
-    TTlsCredential.Load(Crypto, Pkix, TTlsLibTestCertificates.Field(ChainFile, 'leaf_cert'),
-    TTlsLibTestCertificates.Field(ChainFile, 'leaf_key'))).Build;
+    TTlsCredential.Load(Crypto, Pkix, TSupportCertificates.Field(ChainFile, 'leaf_cert'),
+    TSupportCertificates.Field(ChainFile, 'leaf_key'))).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(
     ClientBuilder.WithServerVerification(TServerVerification.WebPki(FLookupRef, ARule).Build)
     .Build, 'localhost');
@@ -1427,13 +1427,13 @@ var
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
 begin
-  LIssuer := TTlsLibTestCertificates.Field(RenewalFile, 'issuer_cert');
+  LIssuer := TSupportCertificates.Field(RenewalFile, 'issuer_cert');
   FLookup.Offer(Pkix.Certificates.Parse(LIssuer).SubjectName, TArray<TBytes>.Create(LIssuer), nil);
   LClientConfig := ClientBuilder.WithServerVerification(TServerVerification.WebPki(
-    TTlsLibTestCertificates.Field(AuthFile, 'root_cert')).Build)
+    TSupportCertificates.Field(AuthFile, 'root_cert')).Build)
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-    TTlsLibTestCertificates.Field(RenewalFile, 'leaf_cert'),
-    TTlsLibTestCertificates.Field(RenewalFile, 'leaf_key'))).Build;
+    TSupportCertificates.Field(RenewalFile, 'leaf_cert'),
+    TSupportCertificates.Field(RenewalFile, 'leaf_key'))).Build;
   LServerConfig := ServerBuilder.WithPeerAuth(TClientAuthMode.Required)
     .WithClientVerification(TClientVerification.WebPki(FLookupRef, ARule).Build).Build;
   LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'localhost');
@@ -1648,7 +1648,7 @@ begin
   LFloors.MinRsaModulusBits := 3072;
   LVerification := TServerVerification.WebPki(FLookupRef, TBundleAnchorRule.AnyCertificate)
     .WithRevocation(TRevocationPosture.Hard).WithMinimumStrength(LFloors)
-    .WithIntermediateCertificates(TTlsLibTestCertificates.Field(ChainFile, 'issuer_cert')).Build;
+    .WithIntermediateCertificates(TSupportCertificates.Field(ChainFile, 'issuer_cert')).Build;
   CheckEquals(Ord(TRevocationPosture.Hard), Ord(LVerification.RevocationPosture), 'posture');
   CheckEquals(3072, LVerification.StrengthPolicy.MinRsaModulusBits, 'floors');
   CheckEquals(1, System.Length(LVerification.IntermediateData), 'intermediates');
@@ -1665,7 +1665,7 @@ begin
   LFloors.MinRsaModulusBits := 3072;
   LVerification := TClientVerification.WebPki(FLookupRef)
     .WithRevocation(TRevocationPosture.Hard).WithMinimumStrength(LFloors)
-    .WithIntermediateCertificates(TTlsLibTestCertificates.Field(ChainFile, 'issuer_cert')).Build;
+    .WithIntermediateCertificates(TSupportCertificates.Field(ChainFile, 'issuer_cert')).Build;
   CheckEquals(Ord(TRevocationPosture.Hard), Ord(LVerification.RevocationPosture), 'posture');
   CheckEquals(3072, LVerification.StrengthPolicy.MinRsaModulusBits, 'floors');
   CheckEquals(1, System.Length(LVerification.IntermediateData), 'intermediates');
@@ -1683,7 +1683,7 @@ begin
   LConfig := ClientBuilder.WithOcspStaplingRequest(True).WithServerVerification(
     TServerVerification.WebPki(FLookupRef).WithRevocation(TRevocationPosture.Hard)
     .WithMinimumStrength(LFloors)
-    .WithIntermediateCertificates(TTlsLibTestCertificates.Field(ChainFile, 'issuer_cert'))
+    .WithIntermediateCertificates(TSupportCertificates.Field(ChainFile, 'issuer_cert'))
     .Build).Build;
   CheckEquals(Ord(TRevocationPosture.Hard), Ord(LConfig.RevocationPosture), 'posture');
   CheckEquals(3072, LConfig.CertificateStrengthPolicy.MinRsaModulusBits, 'floors');
@@ -1696,7 +1696,7 @@ var
   LRoot: TBytes;
   LClient, LServer: ITlsEngine;
 begin
-  LRoot := TTlsLibTestCertificates.Field(AuthFile, 'root_cert');
+  LRoot := TSupportCertificates.Field(AuthFile, 'root_cert');
   LClient := TTlsEngineFactory.CreateClientEngine(ClientBuilder.WithServerVerification(
     TServerVerification.WebPki(LRoot).WithIssuerLookup(FLookupRef).Build).Build, 'localhost');
   LServer := TTlsEngineFactory.CreateServerEngine(ServerBuilder.Build);
@@ -1753,7 +1753,7 @@ var
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
 begin
-  LRoot := TTlsLibTestCertificates.Field(AuthFile, 'root_cert');
+  LRoot := TSupportCertificates.Field(AuthFile, 'root_cert');
   FLookup.Offer(Pkix.Certificates.Parse(LRoot).SubjectName, TArray<TBytes>.Create(LRoot), nil);
   LClientConfig := ClientBuilder.WithServerVerification(
     TServerVerification.WebPki(FLookupRef).Build).Build;
@@ -1777,7 +1777,7 @@ var
   LServerConfig: ITlsServerConfig;
   LClient, LServer: ITlsEngine;
 begin
-  LRoot := TTlsLibTestCertificates.Field(AuthFile, 'root_cert');
+  LRoot := TSupportCertificates.Field(AuthFile, 'root_cert');
   FLookup.Offer(Pkix.Certificates.Parse(LRoot).SubjectName, TArray<TBytes>.Create(LRoot), nil);
   LClientConfig := ClientBuilder.WithServerVerification(TServerVerification.WebPki(LRoot).Build)
     .WithCredential(AuthCredential).Build;

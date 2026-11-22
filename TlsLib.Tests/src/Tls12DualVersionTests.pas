@@ -59,7 +59,7 @@ uses
   TlpTls12ClientStateMachine,
   TlpTls12ServerStateMachine,
   TlpVersionDispatchMachine,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibHandshakeTestBase;
 
 type
@@ -175,7 +175,7 @@ begin
   Result.ClientRandom := Filled($11, 32);
   Result.LegacySessionId := Filled($33, 32);
   Result.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   Result.ExpectedServerName := TServerName.DnsName('localhost');
 end;
 
@@ -202,7 +202,7 @@ begin
   Result.LegacySessionId := Filled($33, 32);
   Result.OfferExtendedMasterSecret := True;
   Result.CertificateVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
-    TTlsLibTestCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
+    TSupportCertificates.EcP256RootStore, True) as IServerCertificateVerifier;
   Result.ExpectedServerName := TServerName.DnsName('localhost');
 end;
 
@@ -377,7 +377,7 @@ begin
     .Server.WithCredential(ServerCredential).Build);
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Client.WithServerVerification(TServerVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .Build, 'localhost');
   RunHandshake(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset engine');
@@ -400,7 +400,7 @@ begin
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Client.WithCredential(LClientCred)
     .WithServerVerification(TServerVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .Build, 'localhost');
   RunHandshake(LClient, LServer);
   CheckExchangesData(LClient, LServer, 'Compatible preset mutual TLS');
@@ -1204,7 +1204,7 @@ begin
   try
     TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
       .Client.WithServerVerification(TServerVerification.WebPki(
-        TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
+        TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
       .Build, '');
   except
     on E: EArgumentTlsLibException do
@@ -1215,7 +1215,7 @@ begin
   // opting out with WithDangerousDisableServerNameCheck allows an empty host (chain-only trust, no SNI)
   TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix)
     .Client.WithServerVerification(TServerVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build)
     .WithDangerousDisableServerNameCheck.Build, '');
   CheckTrue(True, 'with name-check off, an empty host is allowed');
 end;

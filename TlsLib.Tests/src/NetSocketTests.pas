@@ -51,7 +51,7 @@ uses
   TlpTlsLibExceptions,
   TlpCertificateVerifierSource,
   MockTransport,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -268,15 +268,15 @@ function TTestNetSocket.ClientConfig: ITlsClientConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build).Build;
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build).Build;
 end;
 
 function TTestNetSocket.ServerConfig: ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
 end;
 
 procedure TTestNetSocket.TestBytesRoundTripOnAnEphemeralPort;

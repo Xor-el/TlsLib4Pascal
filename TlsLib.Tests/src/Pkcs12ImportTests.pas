@@ -45,7 +45,7 @@ uses
   TlpCertificateVerifier,
   TlpTlsAlert,
   TlpTlsLibExceptions,
-  TlsLibTestProviders,
+  SupportProviders,
   TlsLibTestBase;
 
 type
@@ -361,7 +361,7 @@ function TTestPkcs12Import.ImportFailure(const AField: string): string;
 begin
   Result := '';
   try
-    TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable).Signing.ImportPkcs12(
+    TSupportProviders.Crypto(TCryptoProviderChoice.Portable).Signing.ImportPkcs12(
       Blob(AField), nil);
   except
     on E: Exception do

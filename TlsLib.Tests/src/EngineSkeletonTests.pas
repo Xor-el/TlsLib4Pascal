@@ -38,7 +38,7 @@ uses
   TlpITlsEngine,
   TlpIHandshakeMachine,
   TlpCertificateVerifierSource,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -83,7 +83,7 @@ begin
   Result := TTlsEngineFactory.CreateClientEngine(
     TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Build, 'localhost');
 end;
 

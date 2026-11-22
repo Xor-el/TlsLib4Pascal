@@ -35,7 +35,7 @@ uses
   TlpArrayUtilities,
   TlpCryptoDomainTypes,
   TlpICryptoProvider,
-  TlsLibTestProviders,
+  SupportProviders,
   MockCryptoProvider,
   TlpINamedGroup,
   TlpIKeyExchangePrivateKey,
@@ -154,7 +154,7 @@ begin
   try
     // portable: the vector's u lies outside the prime-order subgroup, refused by Windows Server
     // 2025 CNG (build 26100)
-    LCrypto := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+    LCrypto := TSupportProviders.Crypto(TCryptoProviderChoice.Portable);
     LGroup := TNamedGroups.CreateX25519(LCrypto);
     // adopt the raw RFC 7748 scalar into a key; Decapsulate is then ECDH(scalar, u)
     LKa := LCrypto.Primitives.CreateKeyAgreement(TKeyAgreementAlgorithm.X25519);

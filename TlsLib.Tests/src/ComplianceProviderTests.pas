@@ -58,8 +58,8 @@ uses
   MockCryptoProvider,
   MockSystemCrypto,
   MockPkixProvider,
-  TlsLibTestCertificates,
-  TlsLibTestProviders,
+  SupportCertificates,
+  SupportProviders,
   TlsLibTestBase;
 
 type
@@ -375,7 +375,7 @@ end;
 
 function TTestComplianceCryptoPrimitives.CreateCrypto: ICryptoProvider;
 begin
-  Result := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  Result := TSupportProviders.Crypto(TCryptoProviderChoice.Portable);
 end;
 
 function TTestComplianceCryptoPrimitives.RequireModuleRules: TComplianceRules;
@@ -1906,7 +1906,7 @@ end;
 
 function TTestComplianceSigningCrypto.CreateCrypto: ICryptoProvider;
 begin
-  Result := TTlsLibTestProviders.Crypto(TCryptoProviderChoice.Portable);
+  Result := TSupportProviders.Crypto(TCryptoProviderChoice.Portable);
 end;
 
 procedure TTestComplianceSigningCrypto.SetUp;
@@ -2412,8 +2412,8 @@ begin
   inherited SetUp;
   FSpy := TMockPkixProvider.Create(Pkix);
   FSpyRef := FSpy as IPkixProvider;
-  FLeaf := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
-  FRoot := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
+  FLeaf := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert');
+  FRoot := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
 end;
 
 procedure TTestCompliancePkix.TearDown;
@@ -2484,7 +2484,7 @@ var
   LAlert: TTlsAlertDescription;
 begin
   LAlert := PathAlert(TComplianceEnforcement.Relaxed,
-    TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root2_cert'), LFailed);
+    TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root2_cert'), LFailed);
   CheckTrue(LFailed, 'a chain to another root fails');
   CheckEquals(Ord(TTlsAlertDescription.UnknownCa), Ord(LAlert), 'with the base alert');
 end;
@@ -2493,12 +2493,12 @@ procedure TTestCompliancePkix.CheckNameConstraintAnswers(AEnforcement: TComplian
 var
   LRoot: TBytes;
 begin
-  LRoot := TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/NameConstrainedChain.txt', 'root_cert');
   CheckTrue(Provider(AEnforcement).PathValidation.NameConstraintsAdmit(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt', 'direct_in_scope_leaf_cert'),
+    TSupportCertificates.Field('Certs/NameConstrainedChain.txt', 'direct_in_scope_leaf_cert'),
     LRoot)), 'a leaf inside the anchor constraints is admitted');
   CheckFalse(Provider(AEnforcement).PathValidation.NameConstraintsAdmit(TArray<TBytes>.Create(
-    TTlsLibTestCertificates.Field('Certs/NameConstrainedChain.txt',
+    TSupportCertificates.Field('Certs/NameConstrainedChain.txt',
     'direct_out_of_scope_leaf_cert'), LRoot)), 'a leaf outside them is refused');
 end;
 

@@ -51,7 +51,7 @@ uses
   TlpTlsEngineFactory,
   TlpTlsConnectionInfo,
   TlpITlsEngine,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibHandshakeTestBase;
 
 type
@@ -162,7 +162,7 @@ begin
   Result := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(Only12)
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Build, ServerHost);
 end;
 
@@ -173,7 +173,7 @@ var
 begin
   LBuilder := TTlsPresets.Compatible(Crypto, Pkix).Client.WithSupportedVersions(Only12)
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithResumption(True).WithSessionCache(ACache)
     .WithResumptionScope(BytesOf('reverify-client')).WithResumeVerification(TResumeVerification.Reverify);
   if ADeferral = TVerdictDeferral.LiveRevocation then
@@ -494,7 +494,7 @@ begin
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(Only12)
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCredential(ServerCredential).Build);
@@ -522,7 +522,7 @@ begin
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(Only12)
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := NewServerWithCertificate(TArray<TTls12Psk>.Create(Psk(Identity1, 1)));
   RunHandshake(LClient, LServer);
@@ -539,7 +539,7 @@ begin
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCredential(ServerCredential)
     .WithClientVerification(
-      TClientVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TClientVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .WithPeerAuth(TClientAuthMode.Required)
     .Tls12.WithPreSharedKeys(TArray<TTls12Psk>.Create(Psk(Identity1, 1))).Build);
   LClient := NewClient(Psk(Identity1, 1));
@@ -784,7 +784,7 @@ begin
   LClient := TTlsEngineFactory.CreateClientEngine(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(Only12)
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1)).WithPreSharedKeyRequired(False).Build, ServerHost);
   LServer := TTlsEngineFactory.CreateServerEngine(TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithSupportedVersions(Only12).WithCipherSuites(LRegistry.Build).WithCredential(ServerCredential).Build);
@@ -875,7 +875,7 @@ begin
   CheckTrue(ClientRefused(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(LOnly13)
     .WithServerVerification(
-      TServerVerification.WebPki(TTlsLibTestCertificates.EcP256RootStore).Build)
+      TServerVerification.WebPki(TSupportCertificates.EcP256RootStore).Build)
     .Tls12.WithPreSharedKey(Psk(Identity1, 1))), 'a TLS 1.2 PSK without TLS 1.2 offered');
   CheckTrue(ClientRefused(TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithSupportedVersions(LBoth).Tls12.WithPreSharedKey(Psk(Identity1, 1))),

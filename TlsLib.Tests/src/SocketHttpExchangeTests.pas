@@ -40,7 +40,7 @@ uses
   TlpSocketHttpFetcher,
   TlpCertificateVerifierSource,
   MockTransport,
-  TlsLibTestCertificates,
+  SupportCertificates,
   TlsLibTestBase;
 
 type
@@ -1320,15 +1320,15 @@ function TTestSocketHttpFetcherTls.ClientConfig: ITlsClientConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build).Build;
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert')).Build).Build;
 end;
 
 function TTestSocketHttpFetcherTls.ServerConfig: ITlsServerConfig;
 begin
   Result := TTlsPresets.Compatible(Crypto, Pkix).Server
     .WithCredential(TTlsCredential.Load(Crypto, Pkix,
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
-      TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_cert'),
+      TSupportCertificates.Field('Certs/EcP256Chain.txt', 'leaf_key'))).Build;
 end;
 
 function TTestSocketHttpFetcherTls.TlsFetcher(const AName: string;
@@ -1468,7 +1468,7 @@ var
   LRaised: Boolean;
 begin
   LSettings := TSocketHttpFetcherSettings.Defaults;
-  LRoot := TTlsLibTestCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
+  LRoot := TSupportCertificates.Field('Certs/EcP256Chain.txt', 'root_cert');
   LSettings.TlsConfig := TTlsPresets.Compatible(Crypto, Pkix).Client
     .WithServerVerification(TServerVerification.WebPki(LRoot).Build)
     .WithLiveRevocationVerdict(1000).Build;

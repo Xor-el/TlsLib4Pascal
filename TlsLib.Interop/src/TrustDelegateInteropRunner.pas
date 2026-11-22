@@ -44,7 +44,7 @@ uses
   TlpOSSystemTrust,
   InteropSocket,
   InteropEngine,
-  TlsLibTestProviders,
+  SupportProviders,
   InteropCredentials,
   InteropPump,
   InteropUtils;
@@ -215,8 +215,8 @@ begin
   LSocket := nil;
   try
     LSocket := FListener.Accept;
-    LCrypto := TTlsLibTestProviders.Crypto;
-    LPkix := TTlsLibTestProviders.Pkix;
+    LCrypto := TSupportProviders.Crypto;
+    LPkix := TSupportProviders.Pkix;
     LOptions := Default(TInteropEngineOptions);
     LOptions.Role := TInteropRole.Server;
     LOptions.SupportedVersions := TArray<UInt16>.Create(FCell.TlsVersion);
@@ -271,8 +271,8 @@ var
 begin
   FError := '';
   try
-    LCrypto := TTlsLibTestProviders.Crypto;
-    LPkix := TTlsLibTestProviders.Pkix;
+    LCrypto := TSupportProviders.Crypto;
+    LPkix := TSupportProviders.Pkix;
     LBuilder := TTlsPresets.Compatible(LCrypto, LPkix);
     LClient := LBuilder.Client;
     LClient.WithSupportedVersions(TArray<UInt16>.Create(FCell.TlsVersion));
@@ -465,8 +465,8 @@ begin
   Result := '';
   LSocket := TInteropSocket.Connect(AHost, APort);
   try
-    LCrypto := TTlsLibTestProviders.Crypto;
-    LPkix := TTlsLibTestProviders.Pkix;
+    LCrypto := TSupportProviders.Crypto;
+    LPkix := TSupportProviders.Pkix;
     LConfig := BuildClientConfig(LCrypto, LPkix, ACell);
     LEngine := TTlsEngineFactory.CreateClientEngine(LConfig, ACell.ExpectName);
     LEngine.StartHandshake;
@@ -552,8 +552,8 @@ var
   LLiveCaFile: string;
 begin
   Result := '';
-  LCrypto := TTlsLibTestProviders.Crypto;
-  LPkix := TTlsLibTestProviders.Pkix;
+  LCrypto := TSupportProviders.Crypto;
+  LPkix := TSupportProviders.Pkix;
   LListener := TInteropListener.Bind('127.0.0.1', 0);
   try
     // the main thread connects the presenter first (so it can never miss the accept), then hands the
