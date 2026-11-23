@@ -236,8 +236,8 @@ type
     /// <summary>The scope tickets are accepted and sealed under: the configuration's, or its
     /// combination with this engine's own.</summary>
     FEffectiveScope: TBytes;
-    /// <summary>When the first ClientHello arrived; the ticket's freshness, expiry and anti-replay
-    /// window are judged at that time, however long a pause lasts.</summary>
+    /// <summary>When the first ClientHello arrived; the ticket's freshness and expiry are judged
+    /// at that time, however long a pause lasts.</summary>
     FClientHelloReceivedMs: UInt64;
     /// <summary>The first ClientHello while the machine is parked: decoded, as framed (the inner
     /// one on ECH accept) and with the extension context the validation filled, which this
@@ -1080,8 +1080,10 @@ begin
       FEarlyContextMatches and (FParams.AntiReplay <> nil);
     if FEarlyDataAccepted then
     begin
+      // the register prunes by the current time, so a pause past its window declines 0-RTT
       FEarlyDataAccepted := FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[LI],
-        LNowMs, LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
+        FParams.Clock.NowUnixMillis,
+        LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
       FEarlyReplayed := not FEarlyDataAccepted;
     end;
     Exit(True);
@@ -1290,7 +1292,7 @@ var
   LEchRaw: TBytes;
   LExtensions: TExtensionVector;
 begin
-  // freshness, expiry and the anti-replay window are judged from when the ClientHello arrived
+  // freshness and expiry are judged from when the ClientHello arrived
   FClientHelloReceivedMs := FParams.Clock.NowUnixMillis;
   LEchRaw := AMessage.Raw;
   LClientHello := THandshakeMessages.DecodeClientHello(
