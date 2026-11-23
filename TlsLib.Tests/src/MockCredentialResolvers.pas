@@ -55,6 +55,23 @@ type
     function Credentials: TArray<TTlsCredential>;
   end;
 
+  /// <summary>A host method a resolver runs on every lookup.</summary>
+  TResolveCallback = procedure of object;
+
+  /// <summary>A resolver that answers one fixed credential and runs a host method on every
+  /// lookup, as a host that calls back into the engine from its resolver does. Never for
+  /// production use.</summary>
+  TCallbackCredentialResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver)
+  strict private
+  var
+    FCredential: TTlsCredential;
+    FOnResolve: TResolveCallback;
+  public
+    constructor Create(const ACredential: TTlsCredential; AOnResolve: TResolveCallback);
+    function TryResolve(const AClientHello: TTlsClientHelloInfo;
+      out ACredential: TTlsCredential): Boolean;
+  end;
+
   /// <summary>A resolver whose lookup fails, as a host resolver backed by a store that is down.
   /// Never for production use.</summary>
   TFailingCredentialResolver = class sealed(TInterfacedObject, ITlsServerCredentialResolver)
@@ -84,6 +101,24 @@ begin
   FHello := AClientHello;
   ACredential := FCredential;
   Result := FResolves;
+end;
+
+{ TCallbackCredentialResolver }
+
+constructor TCallbackCredentialResolver.Create(const ACredential: TTlsCredential;
+  AOnResolve: TResolveCallback);
+begin
+  inherited Create;
+  FCredential := ACredential;
+  FOnResolve := AOnResolve;
+end;
+
+function TCallbackCredentialResolver.TryResolve(const AClientHello: TTlsClientHelloInfo;
+  out ACredential: TTlsCredential): Boolean;
+begin
+  FOnResolve;
+  ACredential := FCredential;
+  Result := True;
 end;
 
 { TListedCredentialResolver }

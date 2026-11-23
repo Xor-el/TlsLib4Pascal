@@ -47,6 +47,8 @@ type
     FVersionSink: IHandshakeVersionSink;
     // resolved once from the sink; nil when the sink does not handle async cert verdicts
     FVerdictSink: IHandshakeVerdictSink;
+    // resolved once from the sink; nil when the sink cannot carry a ClientHello park
+    FClientHelloSink: IHandshakeClientHelloSink;
     // resolved once from the sink; nil when the sink does not track connection info
     FConnectionInfoSink: IHandshakeConnectionInfoSink;
     FEchStatusSink: IEchStatusSink;
@@ -70,6 +72,7 @@ implementation
 
 resourcestring
   SVerdictUndeliverable = 'the handshake parked for a certificate verdict that nothing can deliver';
+  SClientHelloUndeliverable = 'the handshake parked at the ClientHello with nothing to continue it';
   SRecordControlMissing = 'the handshake needs a record layer that the installer does not provide';
 
 { THandshakeDriver }
@@ -87,6 +90,8 @@ begin
     FVersionSink := nil;
   if not Supports(ASink, IHandshakeVerdictSink, FVerdictSink) then
     FVerdictSink := nil;
+  if not Supports(ASink, IHandshakeClientHelloSink, FClientHelloSink) then
+    FClientHelloSink := nil;
   if not Supports(ASink, IHandshakeConnectionInfoSink, FConnectionInfoSink) then
     FConnectionInfoSink := nil;
   if not Supports(ASink, IEchStatusSink, FEchStatusSink) then
@@ -178,6 +183,12 @@ begin
           AEffect.HostName, AEffect.Staple, AEffect.RevocationPosture)
       else
         FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SVerdictUndeliverable);
+    THandshakeEffectKind.AwaitClientHello:
+      // as the verdict park: a sink that cannot carry it fails closed instead of wedging
+      if FClientHelloSink <> nil then
+        FClientHelloSink.OnClientHelloParked(AEffect.ServerName)
+      else
+        FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SClientHelloUndeliverable);
     THandshakeEffectKind.PeerCertificateChain:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain, AEffect.ValidatedPath);

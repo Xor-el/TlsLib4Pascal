@@ -46,6 +46,7 @@ type
     SetEarlyReadEpoch,    // open/close the accepted-0-RTT early-data read window (server)
     RaiseEvent,
     AwaitCertificateVerdict, // park the handshake for an out-of-band peer-certificate verdict
+    AwaitClientHello,     // park the server at the validated ClientHello for the host's continue
     PeerCertificateChain, // surface the presented peer chain and validated path for connection info
     RequestedCertificateAuthorities, // surface a CertificateRequest's certificate_authorities
     PskIdentity,          // surface the identity of the pre-shared key that authenticated the connection
@@ -91,7 +92,7 @@ type
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
     Resumed: Boolean;            // ConnectionParams (resumed)
     ExtendedMasterSecret: Boolean; // ConnectionParams (RFC 7627 in use; always True on TLS 1.3)
-    ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
+    ServerName: string;          // ConnectionParams / AwaitClientHello (the SNI in play; empty when none)
     Alert: TTlsAlertDescription; // Fail
     Reason: string;              // Fail / FailWithoutAlert (why the handshake aborted; becomes LastError's message)
     Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
@@ -147,6 +148,10 @@ type
     class function AwaitCertificateVerdict(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes;
       APosture: TRevocationPosture): THandshakeEffect; static;
+    /// <summary>Parks a server at the first ClientHello once it is validated and before anything
+    /// is selected: the driver reports AServerName (what the client offered; empty when none) to the
+    /// host, which resumes with the engine's ContinueAfterClientHello.</summary>
+    class function AwaitClientHello(const AServerName: string): THandshakeEffect; static;
     /// <summary>Surfaces the peer certificate chain as presented (leaf first, DER) and the path the
     /// built-in pipeline validated for read-only connection info; carries no verdict and never blocks
     /// the handshake. AValidatedPath is empty on a resumption that re-ran no verification.</summary>
@@ -325,6 +330,14 @@ begin
   Result.HostName := AHostName;
   Result.Staple := AStaple;
   Result.RevocationPosture := APosture;
+end;
+
+class function THandshakeEffects.AwaitClientHello(
+  const AServerName: string): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.AwaitClientHello;
+  Result.ServerName := AServerName;
 end;
 
 class function THandshakeEffects.PeerCertificateChain(

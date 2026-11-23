@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpArrayUtilities,
+  TlpTlsLibExceptions,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpIKeySchedule,
@@ -41,6 +42,25 @@ type
     MaxEarlyDataContextLength = Int32(255);
     /// <summary>The longest resumption partition, in bytes, a client engine keys its tickets by.</summary>
     MaxResumptionPartitionLength = Int32(32);
+    /// <summary>The longest resumption scope, in bytes, a configuration or a server engine
+    /// seals into its tickets.</summary>
+    MaxResumptionScopeLength = Int32(32);
+  end;
+
+  /// <summary>
+  /// The scope a server engine accepts and seals its tickets under. A configuration's scope keeps
+  /// configurations that share a ticket key or store from resuming each other's tickets; an engine's
+  /// own scope narrows that further without ever widening it.
+  /// </summary>
+  TSessionScope = class sealed(TObject)
+  public
+    /// <summary>Raises EArgumentTlsLibException when AEngineScope is longer than the limit.</summary>
+    class procedure RequireEngineScope(const AEngineScope: TBytes); static;
+    /// <summary>AConfigScope itself when AEngineScope is empty; otherwise one length byte and
+    /// AConfigScope zero-padded to the limit, then one length byte and AEngineScope. Both lengths
+    /// are explicit, so no two pairs share a result, and a configuration scope is never longer
+    /// than the limit, so no result equals one. Raises like RequireEngineScope.</summary>
+    class function Combine(const AConfigScope, AEngineScope: TBytes): TBytes; static;
   end;
 
   /// <summary>
@@ -237,6 +257,36 @@ type
   end;
 
 implementation
+
+resourcestring
+  SEngineResumptionScopeTooLong = 'a resumption scope exceeds the limit';
+
+{ TSessionScope }
+
+class procedure TSessionScope.RequireEngineScope(const AEngineScope: TBytes);
+begin
+  if System.Length(AEngineScope) > TSessionTicketLimits.MaxResumptionScopeLength then
+    raise EArgumentTlsLibException.CreateRes(@SEngineResumptionScopeTooLong);
+end;
+
+class function TSessionScope.Combine(const AConfigScope, AEngineScope: TBytes): TBytes;
+begin
+  RequireEngineScope(AEngineScope);
+  if System.Length(AEngineScope) = 0 then
+    Exit(AConfigScope);
+  // the padding below holds exactly the limit, which only a configuration scope past it exceeds
+  if System.Length(AConfigScope) > TSessionTicketLimits.MaxResumptionScopeLength then
+    raise EArgumentTlsLibException.CreateRes(@SEngineResumptionScopeTooLong);
+  Result := nil;
+  SetLength(Result, 1 + TSessionTicketLimits.MaxResumptionScopeLength + 1 +
+    System.Length(AEngineScope));
+  Result[0] := Byte(System.Length(AConfigScope));
+  if System.Length(AConfigScope) > 0 then
+    Move(AConfigScope[0], Result[1], System.Length(AConfigScope));
+  Result[1 + TSessionTicketLimits.MaxResumptionScopeLength] := Byte(System.Length(AEngineScope));
+  Move(AEngineScope[0], Result[2 + TSessionTicketLimits.MaxResumptionScopeLength],
+    System.Length(AEngineScope));
+end;
 
 { TPreSharedKey }
 

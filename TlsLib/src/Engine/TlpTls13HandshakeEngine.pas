@@ -33,6 +33,9 @@ uses
   TlpHandshakeConductor,
   TlpEngineOutcome,
   TlpITlsHostExtension,
+  TlpIHostExtensionReplies,
+  TlpExtensionContext,
+  TlpSession,
   TlpISessionApplicationData,
   TlpITlsResumptionPartition;
 
@@ -55,6 +58,8 @@ type
     FHostResults: ITlsHostExtensionResults;
     FSessionData: ITlsSessionApplicationData;
     FPartition: ITlsResumptionPartition;
+    // the server's host extension replies, installed at the continue; nil on a client
+    FReplies: IHostExtensionReplies;
     // set while a step runs: a callback that re-enters the engine fails loud
     FDraining: Boolean;
     FStarted: Boolean;
@@ -72,11 +77,12 @@ type
     procedure Settle;
   public
     /// <summary>Wires the machine over a leveled channel. The machine is built for a host that
-    /// owns record protection; a nil AHostResults, ASessionData or APartition is not answered.</summary>
+    /// owns record protection; a nil AHostResults, ASessionData or APartition is not answered.
+    /// AReplies is the server's means to answer its host extensions at a ClientHello pause.</summary>
     constructor Create(const AMachine: IHandshakeMachine;
       AMaxCertificateMessageLength: Int32; const AHostResults: ITlsHostExtensionResults;
       const ASessionData: ITlsSessionApplicationData;
-      const APartition: ITlsResumptionPartition);
+      const APartition: ITlsResumptionPartition; const AReplies: IHostExtensionReplies);
     destructor Destroy; override;
 
     procedure StartHandshake;
@@ -86,6 +92,10 @@ type
     function NextOutput(out AOutput: TTls13HandshakeOutput): Boolean;
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
+    function AwaitingClientHello: Boolean;
+    function OfferedServerName: string;
+    procedure ContinueAfterClientHello(const AReplies: TArray<TTlsHostExtensionReply>;
+      const AResumptionScope: TBytes);
     procedure LatchTransportFailure(const AReason: string);
     function IsHandshaking: Boolean;
     function AwaitingCertificateVerdict: Boolean;
@@ -115,7 +125,7 @@ resourcestring
 constructor TTls13HandshakeEngine.Create(const AMachine: IHandshakeMachine;
   AMaxCertificateMessageLength: Int32; const AHostResults: ITlsHostExtensionResults;
   const ASessionData: ITlsSessionApplicationData;
-  const APartition: ITlsResumptionPartition);
+  const APartition: ITlsResumptionPartition; const AReplies: IHostExtensionReplies);
 var
   LDriver: THandshakeDriver;
 begin
@@ -123,6 +133,7 @@ begin
   FHostResults := AHostResults;
   FSessionData := ASessionData;
   FPartition := APartition;
+  FReplies := AReplies;
   FChannel := TLeveledHandshakeChannel.Create(AMaxCertificateMessageLength);
   FChannelRef := FChannel as IHandshakeChannel;
   FOutcome := TEngineOutcome.Create;
@@ -265,6 +276,44 @@ begin
   try
     try
       FConductor.ResolveCertificateVerdict(AAccept, AAlert);
+    except
+      on E: Exception do
+        FOutcome.Fail(TAlertMapping.ErrorFor(E));
+    end;
+  finally
+    FDraining := False;
+  end;
+  Settle;
+end;
+
+function TTls13HandshakeEngine.AwaitingClientHello: Boolean;
+begin
+  Result := FConductor.AwaitingClientHello and not FOutcome.IsTerminal;
+end;
+
+function TTls13HandshakeEngine.OfferedServerName: string;
+begin
+  if AwaitingClientHello then
+    Result := FOutcome.OfferedServerName
+  else
+    Result := '';
+end;
+
+procedure TTls13HandshakeEngine.ContinueAfterClientHello(
+  const AReplies: TArray<TTlsHostExtensionReply>; const AResumptionScope: TBytes);
+begin
+  if FDraining then
+    raise EInvalidOperationTlsLibException.CreateRes(@SReentrantEngineCall);
+  // a no-op unless the handshake is actually parked at the ClientHello, and once a failure ended it
+  if not AwaitingClientHello then
+    Exit;
+  // every check runs before the first change, so a misuse leaves the engine parked and usable
+  TSessionScope.RequireEngineScope(AResumptionScope);
+  FReplies.Install(AReplies);
+  FDraining := True;
+  try
+    try
+      FConductor.ResolveClientHello(AResumptionScope);
     except
       on E: Exception do
         FOutcome.Fail(TAlertMapping.ErrorFor(E));

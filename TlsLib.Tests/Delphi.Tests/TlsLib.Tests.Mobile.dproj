@@ -424,6 +424,7 @@
         <DCCReference Include="..\..\TlsLib\src\Session\TlpSessionApplicationData.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Session\TlpITlsResumptionPartition.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Session\TlpResumptionPartition.pas"/>
+        <DCCReference Include="..\..\TlsLib\src\Interfaces\Extensions\TlpIHostExtensionReplies.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Session\TlpTicketBinding.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Interfaces\Engine\TlpITls13HandshakeEngine.pas"/>
         <DCCReference Include="..\..\TlsLib\src\Engine\TlpTls13HandshakeOutput.pas"/>
@@ -585,6 +586,7 @@
         <DCCReference Include="..\src\ResumptionFeatureTests.pas"/>
         <DCCReference Include="..\src\Tls13HandshakeEngineTests.pas"/>
         <DCCReference Include="..\src\ResumptionPartitionTests.pas"/>
+        <DCCReference Include="..\src\ClientHelloPauseTests.pas"/>
         <DCCReference Include="..\src\SupportTicketRewriter.pas"/>
         <DCCReference Include="..\src\CertificateCompressionCacheTests.pas"/>
         <DCCReference Include="..\src\CertificateCompressionTests.pas"/>

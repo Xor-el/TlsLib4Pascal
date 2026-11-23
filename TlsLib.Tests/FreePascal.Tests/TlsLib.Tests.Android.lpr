@@ -63,6 +63,7 @@ uses
   ResumptionFeatureTests,
   Tls13HandshakeEngineTests,
   ResumptionPartitionTests,
+  ClientHelloPauseTests,
   CertificateCompressionCacheTests,
   CertificateCompressionTests,
   DataEncodingTests,

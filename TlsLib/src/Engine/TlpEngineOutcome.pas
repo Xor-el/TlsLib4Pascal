@@ -41,10 +41,13 @@ type
   /// </summary>
   TEngineOutcome = class sealed(TInterfacedObject, IHandshakeSink,
     IHandshakeLocalFailureSink, IHandshakeFailureCauseSink, IHandshakeVersionSink,
-    IHandshakeVerdictSink, IHandshakeConnectionInfoSink, IEchStatusSink)
+    IHandshakeVerdictSink, IHandshakeClientHelloSink, IHandshakeConnectionInfoSink,
+    IEchStatusSink)
   strict private
   var
     FFacts: TTlsConnectionInfo;
+    // the server name the parked ClientHello offered
+    FOfferedServerName: string;
     FEvents: TQueue<ITlsEvent>;
     FTerminal: Boolean;
     FEstablished: Boolean;
@@ -56,7 +59,8 @@ type
     destructor Destroy; override;
 
     /// <summary>Queues AEvent; past the cap the informational kinds are dropped, while the
-    /// terminal ones and a parked verdict (which the handshake cannot resume without) are kept.</summary>
+    /// terminal ones and a parked verdict or ClientHello (which the handshake cannot resume
+    /// without) are kept.</summary>
     procedure Enqueue(const AEvent: ITlsEvent);
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     /// <summary>The queued events, for the owner to count.</summary>
@@ -78,6 +82,8 @@ type
     property IsTerminal: Boolean read FTerminal;
     property IsEstablished: Boolean read FEstablished;
     property LastError: TTlsError read FLastError;
+    /// <summary>The server name the ClientHello a server parked at offered.</summary>
+    property OfferedServerName: string read FOfferedServerName;
 
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
     procedure OnAlpnSelected(const AProtocol: TBytes);
@@ -89,6 +95,7 @@ type
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
+    procedure OnClientHelloParked(const AServerName: string);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>;
       const ASchemes: TArray<UInt16>);
@@ -137,7 +144,7 @@ procedure TEngineOutcome.Enqueue(const AEvent: ITlsEvent);
 begin
   if (FEvents.Count >= MaxQueuedEvents) and
     not (AEvent.Kind in [TTlsEventKind.PeerAlert, TTlsEventKind.Closed,
-    TTlsEventKind.CertificateReceived]) then
+    TTlsEventKind.CertificateReceived, TTlsEventKind.ClientHelloReceived]) then
     Exit;
   FEvents.Enqueue(AEvent);
 end;
@@ -223,6 +230,12 @@ begin
   // out-of-band (augment-only)
   Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AValidatedPath, AHostName, AStaple,
     APosture));
+end;
+
+procedure TEngineOutcome.OnClientHelloParked(const AServerName: string);
+begin
+  FOfferedServerName := AServerName;
+  Enqueue(TTlsEvents.MakeSimple(TTlsEventKind.ClientHelloReceived));
 end;
 
 procedure TEngineOutcome.OnPeerCertificateChain(const AChain,

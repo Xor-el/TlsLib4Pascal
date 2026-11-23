@@ -43,7 +43,7 @@
         <PackageName Value="FCL"/>
       </Item8>
     </RequiredPackages>
-    <Units Count="118">
+    <Units Count="119">
       <Unit0>
         <Filename Value="TlsLib.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -516,6 +516,10 @@
         <Filename Value="..\src\ResumptionPartitionTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit117>
+      <Unit118>
+        <Filename Value="..\src\ClientHelloPauseTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit118>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

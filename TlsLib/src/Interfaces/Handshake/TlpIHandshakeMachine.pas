@@ -38,7 +38,7 @@ type
   /// by raising.
   /// </summary>
   IHandshakeMachine = interface(IInterface)
-    ['{D797ED55-685B-4FD7-8CD6-5F1A0DB03060}']
+    ['{12424A02-2B19-47D9-BFBA-C20E15D28E3D}']
     /// <summary>Whether this endpoint initiates the handshake (a client sending the first
     /// ClientHello) rather than responding to it (a server). Drives the initial
     /// legacy_record_version (RFC 9846 5.1).</summary>
@@ -64,6 +64,12 @@ type
     /// initial-certificate park (the buffered server flight drives that) and for every
     /// machine/version that does not park at a message-less point.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
+    /// <summary>Resumes a server parked at its validated first ClientHello (Stage =
+    /// ParkedForClientHello): leaves the park, sets the engine's resumption scope when
+    /// AResumptionScope is not empty, and returns the effects of negotiating and answering that
+    /// ClientHello. Raises EInvalidOperationTlsLibException on a machine that is not parked
+    /// there.</summary>
+    function ContinueAfterClientHello(const AResumptionScope: TBytes): TArray<THandshakeEffect>;
     /// <summary>Exported keying material over the established secrets with no context value (RFC
     /// 9846 7.5 / RFC 5705). Empty unless CanExportKeyingMaterial (the exporter secret has been
     /// derived).</summary>
@@ -152,6 +158,17 @@ type
     ['{359BC235-C73B-450D-83CC-38475B5F5C71}']
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
+  end;
+
+  /// <summary>
+  /// An optional companion the driver reaches with Supports on the sink to report that a server
+  /// parked at the validated first ClientHello; the host later resumes with the engine's
+  /// ContinueAfterClientHello. Kept off IHandshakeSink so existing sinks (and their test doubles)
+  /// need not implement it; only the handshake-only engine's sink does.
+  /// </summary>
+  IHandshakeClientHelloSink = interface(IInterface)
+    ['{0A4AD554-C720-456C-90D0-0450863CE2EF}']
+    procedure OnClientHelloParked(const AServerName: string);
   end;
 
   /// <summary>

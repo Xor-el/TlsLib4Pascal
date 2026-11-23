@@ -37,6 +37,12 @@ type
   /// <summary>The set of message kinds an extension is permitted to appear in.</summary>
   TTlsExtensionContexts = set of TTlsExtensionContextKind;
 
+  /// <summary>A server host extension's reply body, chosen after reading what the client offered.</summary>
+  TTlsHostExtensionReply = record
+    ExtensionType: UInt16;
+    Body: TBytes;
+  end;
+
   /// <summary>A key_share entry: a named group and its key-exchange bytes.</summary>
   TTlsKeyShareEntry = record
     Group: UInt16;

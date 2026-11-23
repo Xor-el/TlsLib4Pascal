@@ -64,7 +64,7 @@ uses
   TlpISessionApplicationData, TlpSessionApplicationData, TlpTicketBinding,
   TlpITls13HandshakeEngine, TlpTls13HandshakeOutput, TlpEngineOutcome,
   TlpLeveledHandshakeChannel, TlpTls13HandshakeEngine,
-  TlpITlsResumptionPartition, TlpResumptionPartition;
+  TlpITlsResumptionPartition, TlpResumptionPartition, TlpIHostExtensionReplies;
 
 implementation
 

@@ -21,10 +21,11 @@ type
   /// machine's fine-grained private phase. Handshaking is the default running state;
   /// ParkedForVerdict means the machine is suspended awaiting an out-of-band peer-certificate
   /// verdict (the async-verdict seam) and must not advance keying material or the exporter;
-  /// Connected means the handshake has established (its HandshakeEstablished was emitted).
-  /// The engine and conductor read this instead of scanning effects or proxy flags.
+  /// ParkedForClientHello means a server validated the first ClientHello and waits for the
+  /// host's continue; Connected means the handshake has established (its HandshakeEstablished
+  /// was emitted). The engine and conductor read this instead of scanning effects or proxy flags.
   /// </summary>
-  THandshakeStage = (Handshaking, ParkedForVerdict, Connected);
+  THandshakeStage = (Handshaking, ParkedForVerdict, Connected, ParkedForClientHello);
 
 implementation
 

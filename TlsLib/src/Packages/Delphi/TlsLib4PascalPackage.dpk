@@ -88,6 +88,7 @@ contains
   TlpSessionApplicationData in '..\..\Session\TlpSessionApplicationData.pas',
   TlpITlsResumptionPartition in '..\..\Interfaces\Session\TlpITlsResumptionPartition.pas',
   TlpResumptionPartition in '..\..\Session\TlpResumptionPartition.pas',
+  TlpIHostExtensionReplies in '..\..\Interfaces\Extensions\TlpIHostExtensionReplies.pas',
   TlpTicketBinding in '..\..\Session\TlpTicketBinding.pas',
   TlpITls13HandshakeEngine in '..\..\Interfaces\Engine\TlpITls13HandshakeEngine.pas',
   TlpTls13HandshakeOutput in '..\..\Engine\TlpTls13HandshakeOutput.pas',

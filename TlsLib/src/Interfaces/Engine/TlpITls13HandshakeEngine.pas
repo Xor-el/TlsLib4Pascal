@@ -22,6 +22,7 @@ uses
   TlpTlsConnectionInfo,
   TlpIKeySchedule,
   TlpITlsEngine,
+  TlpExtensionContext,
   TlpTls13HandshakeOutput;
 
 type
@@ -50,6 +51,27 @@ type
     /// <summary>The level the next ProvideHandshakeData must use. It advances when the read
     /// secret is queued, before the host drains it; EarlyData is never reported.</summary>
     function ReadLevel: TTlsEpoch;
+    /// <summary>Whether a server created to pause is parked at its first ClientHello, which it
+    /// has validated (ECH decrypted) but not yet answered. The call that parks returns Advanced
+    /// with a ClientHelloReceived event; until ContinueAfterClientHello the engine buffers further
+    /// input and queues nothing. Always False on a client and on a server created without the
+    /// pause.</summary>
+    function AwaitingClientHello: Boolean;
+    /// <summary>The server name the parked ClientHello offered, empty when it offered none or
+    /// nothing is parked. It is unauthenticated, and the outer ClientHello's when ECH was not
+    /// accepted.</summary>
+    function OfferedServerName: string;
+    /// <summary>Answers the parked ClientHello. AReplies holds one reply body for each registered
+    /// server host extension the client offered (read with ITlsHostExtensionResults) that the host
+    /// wants sent, wherever that extension rides; an offered extension with no reply is not sent.
+    /// A non-empty AResumptionScope, at most 32 bytes, becomes this engine's own scope: tickets are
+    /// accepted and sealed under it combined with the configuration's. A misuse (a reply for an
+    /// extension that was not offered or twice, a body over 65535 bytes, an overlong scope) raises
+    /// EArgumentTlsLibException and leaves the engine parked and usable. A no-op when not parked,
+    /// once terminal, and on a client. Raises EInvalidOperationTlsLibException when called from
+    /// inside a handshake callback.</summary>
+    procedure ContinueAfterClientHello(const AReplies: TArray<TTlsHostExtensionReply>;
+      const AResumptionScope: TBytes);
     /// <summary>Feeds handshake bytes the peer sent at ALevel, which must be the level the engine
     /// reads now (Plaintext until the first read secret, then the level of the latest Handshake or
     /// Application read secret). Bytes at any other level, or a handshake message that straddles a

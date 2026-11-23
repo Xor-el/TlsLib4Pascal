@@ -45,6 +45,7 @@ uses
   TlpCoreExtensions,
   TlpITlsExtension,
   TlpITlsHostExtension,
+  TlpIHostExtensionReplies,
   TlpHostExtensions,
   TlpISessionApplicationData,
   TlpSessionApplicationData,
@@ -140,7 +141,13 @@ type
     /// so a config that does not offer 1.3 cannot take them.</summary>
     class function HostAdapters(const AHostExtensions: TArray<ITlsHostExtension>;
       ARole: TTlsHostExtensionRole; AOffers13: Boolean;
-      out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>; static;
+      out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>; overload; static;
+    /// <summary>As above, also returning the means to answer the extensions at a ClientHello
+    /// pause.</summary>
+    class function HostAdapters(const AHostExtensions: TArray<ITlsHostExtension>;
+      ARole: TTlsHostExtensionRole; AOffers13: Boolean;
+      out AResults: ITlsHostExtensionResults;
+      out AReplies: IHostExtensionReplies): TArray<ITlsExtension>; overload; static;
   public
     /// <summary>A client engine wired from the config, ready for StartHandshake.</summary>
     class function CreateClientEngine(const AConfig: ITlsClientConfig;
@@ -184,7 +191,21 @@ type
     /// Tickets it mints resume only on a TLS 1.3 handshake-only engine.</summary>
     class function CreateTls13HandshakeServerEngine(const AConfig: ITlsServerConfig;
       const AHostExtensions: TArray<ITlsHostExtension>; ATicketEarlyDataLimit: UInt32;
-      const AEarlyDataContext: TBytes): ITls13HandshakeEngine; static;
+      const AEarlyDataContext: TBytes): ITls13HandshakeEngine; overload; static;
+    /// <summary>As above, with a resumption scope of its own and an optional pause at the
+    /// ClientHello. A non-empty AResumptionScope (at most 32 bytes, else EArgumentTlsLibException)
+    /// is combined with the config's scope: the engine accepts and seals tickets only under that
+    /// combination, which no configuration scope can equal, so engines with different scopes never
+    /// resume each other's tickets. With APauseAtClientHello the engine parks once it has
+    /// validated the first ClientHello (ECH decrypted), before anything is selected, and resumes at
+    /// ITls13HandshakeEngine.ContinueAfterClientHello, where the host chooses the bodies of the
+    /// extensions it registered and, optionally, the scope. On a pausing engine a registered
+    /// extension is sent only when the host answers it there, so the body given at registration
+    /// is never sent.</summary>
+    class function CreateTls13HandshakeServerEngine(const AConfig: ITlsServerConfig;
+      const AHostExtensions: TArray<ITlsHostExtension>; ATicketEarlyDataLimit: UInt32;
+      const AEarlyDataContext, AResumptionScope: TBytes;
+      APauseAtClientHello: Boolean): ITls13HandshakeEngine; overload; static;
   end;
 
 implementation
@@ -570,8 +591,18 @@ end;
 class function TTlsEngineFactory.HostAdapters(
   const AHostExtensions: TArray<ITlsHostExtension>; ARole: TTlsHostExtensionRole;
   AOffers13: Boolean; out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>;
+var
+  LReplies: IHostExtensionReplies;
 begin
-  Result := TTlsHostExtensions.Adapt(AHostExtensions, ARole, AResults);
+  Result := HostAdapters(AHostExtensions, ARole, AOffers13, AResults, LReplies);
+end;
+
+class function TTlsEngineFactory.HostAdapters(
+  const AHostExtensions: TArray<ITlsHostExtension>; ARole: TTlsHostExtensionRole;
+  AOffers13: Boolean; out AResults: ITlsHostExtensionResults;
+  out AReplies: IHostExtensionReplies): TArray<ITlsExtension>;
+begin
+  Result := TTlsHostExtensions.Adapt(AHostExtensions, ARole, AResults, AReplies);
   if (System.Length(Result) > 0) and not AOffers13 then
     raise EArgumentTlsLibException.CreateRes(@SHostExtensionsNeedTls13);
 end;
@@ -862,15 +893,25 @@ begin
   LMachine := TTls13ClientStateMachine.Create(L13);
   Result := TTls13HandshakeEngine.Create(LMachine,
     AConfig.CertificateChainLimits.MaxTotalChainLength, LHostResults, LSessionData,
-    LPartition) as ITls13HandshakeEngine;
+    LPartition, nil) as ITls13HandshakeEngine;
 end;
 
 class function TTlsEngineFactory.CreateTls13HandshakeServerEngine(
   const AConfig: ITlsServerConfig; const AHostExtensions: TArray<ITlsHostExtension>;
   ATicketEarlyDataLimit: UInt32; const AEarlyDataContext: TBytes): ITls13HandshakeEngine;
+begin
+  Result := CreateTls13HandshakeServerEngine(AConfig, AHostExtensions, ATicketEarlyDataLimit,
+    AEarlyDataContext, nil, False);
+end;
+
+class function TTlsEngineFactory.CreateTls13HandshakeServerEngine(
+  const AConfig: ITlsServerConfig; const AHostExtensions: TArray<ITlsHostExtension>;
+  ATicketEarlyDataLimit: UInt32; const AEarlyDataContext, AResumptionScope: TBytes;
+  APauseAtClientHello: Boolean): ITls13HandshakeEngine;
 var
   L13: TServerHandshakeParams;
   LHostResults: ITlsHostExtensionResults;
+  LReplies: IHostExtensionReplies;
   LAdapters: TArray<ITlsExtension>;
   LDeferral: TVerdictDeferral;
   LMachine: IHandshakeMachine;
@@ -880,7 +921,8 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SEarlyDataContextTooLongForTicket);
   if System.Length(AConfig.EarlyDataContext) > 0 then
     raise EArgumentTlsLibException.CreateRes(@SConfigEarlyDataContextOnHandshakeEngine);
-  LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Server, True, LHostResults);
+  LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Server, True, LHostResults,
+    LReplies);
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
   if AConfig.ClientAuth = TClientAuthMode.None then
     LDeferral := TVerdictDeferral.None;
@@ -896,9 +938,11 @@ begin
   // the context binds 0-RTT, so it is sealed only while 0-RTT is on
   if L13.MaxEarlyData > 0 then
     L13.EarlyDataContext := System.Copy(AEarlyDataContext);
+  L13.EngineResumptionScope := System.Copy(AResumptionScope);
+  L13.ClientHelloPause := APauseAtClientHello;
   LMachine := TTls13ServerStateMachine.Create(L13);
   Result := TTls13HandshakeEngine.Create(LMachine, ClientCertificateMessageCap(AConfig),
-    LHostResults, nil, nil) as ITls13HandshakeEngine;
+    LHostResults, nil, nil, LReplies) as ITls13HandshakeEngine;
 end;
 
 end.
