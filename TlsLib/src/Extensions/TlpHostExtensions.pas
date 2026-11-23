@@ -254,12 +254,12 @@ procedure THostExtensionAdapter.BlockConsumed(AKind: TTlsExtensionContextKind);
 var
   LOffered: Boolean;
 begin
-  // the second ClientHello repeats the first's offer but for what the retry carried (RFC 9846 4.2.2)
-  if FInstalled and (AKind = TTlsExtensionContextKind.ClientHello) and not FSentInRetry then
+  // the second ClientHello repeats the first's offer, but a type the retry carried may change its body (RFC 9846 4.2.2)
+  if FInstalled and (AKind = TTlsExtensionContextKind.ClientHello) then
   begin
     LOffered := TTlsExtensionContextKind.ClientHello in FPeerSeen;
-    if (LOffered <> FFirstOffered) or (LOffered and not TArrayUtilities.AreEqual(FFirstBody,
-      FPeerBodies[TTlsExtensionContextKind.ClientHello])) then
+    if (LOffered <> FFirstOffered) or ((not FSentInRetry) and LOffered and
+      not TArrayUtilities.AreEqual(FFirstBody, FPeerBodies[TTlsExtensionContextKind.ClientHello])) then
       raise EFatalAlertTlsLibException.CreateRes(
         TTlsAlertDescription.IllegalParameter, @SHostExtensionChangedOnRetry);
   end;

@@ -193,9 +193,10 @@ end;
 - After a HelloRetryRequest the second ClientHello does not pause. On a pausing engine it must
   repeat the first one's offer of each registered host extension, body included, and the engine
   fails it with `illegal_parameter` otherwise (RFC 9846 4.2.2). An extension the HelloRetryRequest
-  itself carried is exempt.
-- Ticket expiry, freshness and the 0-RTT replay check are judged when the engine continues: a
-  pause longer than the tolerated ticket-age skew declines 0-RTT, and the resumption still goes ahead.
+  itself carried may change its body but not be dropped. After a retry the host-extension results
+  show the second ClientHello's body, while the reply given at the pause stands.
+- Ticket expiry, freshness and the 0-RTT replay check are judged when the engine continues: the
+  pause counts toward the ticket age, so a long pause declines 0-RTT, and the resumption still goes ahead.
 
 ## Checks between input and output
 

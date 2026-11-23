@@ -163,6 +163,7 @@ type
     procedure TestSecondClientHelloWithADroppedTypeFails;
     procedure TestSecondClientHelloDroppingARequiredTypeIsIllegalParameter;
     procedure TestTypeTheRetryCarriedMayChangeInTheSecondClientHello;
+    procedure TestTypeTheRetryCarriedMayNotBeDroppedInTheSecondClientHello;
     procedure TestEchAcceptedShowsTheInnerValues;
     procedure TestEchRejectedShowsTheOuterServerName;
     procedure TestFailingValidationNeverPauses;
@@ -171,8 +172,8 @@ type
     procedure TestScopeSetAtContinueGovernsSealing;
     procedure TestEmptyScopeAtContinueKeepsTheCreationScope;
     procedure TestScopeAtContinueReplacesTheCreationScope;
-    procedure TestPausePastTheFreshnessSkewDeclinesZeroRtt;
-    procedure TestPausePastTheFreshnessSkewStillResumes;
+    procedure TestPauseCountsTowardTheTicketAgeAndDeclinesZeroRtt;
+    procedure TestPauseCountsTowardTheTicketAgeAndStillResumes;
     procedure TestPauseOutlastingTheReplayWindowDeclinesZeroRtt;
     procedure TestPauseOutlastingTheReplayWindowStillResumes;
     procedure TestReplayContinuedPastTheReplayWindowIsRefused;
@@ -817,6 +818,21 @@ begin
   CheckTrue(System.Length(TakeData(LServer)) > 0, 'the server answered with its flight');
 end;
 
+procedure TTestClientHelloPause.TestTypeTheRetryCarriedMayNotBeDroppedInTheSecondClientHello;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LHello: TBytes;
+begin
+  LHello := SecondHello(TArray<ITlsHostExtension>.Create(ClientExt(DecodeHex('c1c2c3'),
+    [TTlsExtensionContextKind.HelloRetryRequest])),
+    TArray<ITlsHostExtension>.Create(ServerExt([TTlsExtensionContextKind.HelloRetryRequest,
+    TTlsExtensionContextKind.EncryptedExtensions], [], HostType)),
+    TArray<TTlsHostExtensionReply>.Create(Reply(HostType, DecodeHex('aa'))), LClient, LServer);
+  LHello := Rewritten(LHello, HostType, nil, TRewrite.DropType);
+  LServer.ProvideHandshakeData(TTlsEpoch.Plaintext, LHello, 0, System.Length(LHello));
+  CheckFailedWith(LServer, TTlsAlertDescription.IllegalParameter, 'a type the retry carried');
+end;
+
 procedure TTestClientHelloPause.TestEchAcceptedShowsTheInnerValues;
 var
   LClient, LServer: ITls13HandshakeEngine;
@@ -927,7 +943,7 @@ begin
     ServerAs(TBytes.Create($0A), nil, False)), 'and not that of the creation');
 end;
 
-procedure TTestClientHelloPause.TestPausePastTheFreshnessSkewDeclinesZeroRtt;
+procedure TTestClientHelloPause.TestPauseCountsTowardTheTicketAgeAndDeclinesZeroRtt;
 var
   LClient, LServer: ITls13HandshakeEngine;
   LClock: TMockClock;
@@ -945,7 +961,7 @@ begin
   CheckFalse(HasEarlyReadSecret(LServer), 'the ticket age is judged when the engine continues');
 end;
 
-procedure TTestClientHelloPause.TestPausePastTheFreshnessSkewStillResumes;
+procedure TTestClientHelloPause.TestPauseCountsTowardTheTicketAgeAndStillResumes;
 var
   LClient, LServer: ITls13HandshakeEngine;
   LClock: TMockClock;
