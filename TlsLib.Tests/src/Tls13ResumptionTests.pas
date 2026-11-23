@@ -1746,6 +1746,8 @@ var
 begin
   LRecorder := TRecordingAntiReplay.Create;
   LAnti := LRecorder;
+  // a stopped clock: the receipt time and the time the register is given are one instant
+  FServerClock := TMockClock.Create(UInt64(TSystemTimeUtilities.UtcUnixMs));
   LIdentity := Crypto.Primitives.GetRandom.GenerateBytes(32);
   LSecret := TSecretBuffer.From(Crypto.Primitives.GetRandom.GenerateBytes(32));
   LCache := TInMemorySessionCache.Create;

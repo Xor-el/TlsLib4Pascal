@@ -86,6 +86,9 @@ type
 
 implementation
 
+resourcestring
+  SNeverParks = 'this double never parks at a ClientHello';
+
 { TMockHandshakeSink }
 
 procedure TMockHandshakeSink.OnHandshakeEvent(AEvent: TTlsEventKind);
@@ -171,7 +174,7 @@ end;
 function TEffectInjectingMachine.ContinueAfterClientHello(
   const AResumptionScope: TBytes): TArray<THandshakeEffect>;
 begin
-  raise EInvalidOperationTlsLibException.Create('this double never parks at a ClientHello');
+  raise EInvalidOperationTlsLibException.CreateRes(@SNeverParks);
 end;
 
 function TEffectInjectingMachine.ExportKeyingMaterial(const ALabel: string;
