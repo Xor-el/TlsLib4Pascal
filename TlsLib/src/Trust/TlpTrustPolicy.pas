@@ -35,8 +35,9 @@ type
   /// unknown/indeterminate outcome is treated; a definitive, authenticated Revoked is
   /// always rejected under every posture. Soft (the default) accepts a missing or
   /// indeterminate staple; Hard rejects anything short of a
-  /// current Good staple (bad_certificate_status_response; a Good staple with no nextUpdate and a
-  /// thisUpdate at most 7 days old also counts as current); Off does not require a stapled
+  /// current Good staple (bad_certificate_status_response for a server certificate,
+  /// certificate_unknown for an undecided client certificate; a Good staple with no nextUpdate and
+  /// a thisUpdate at most 7 days old also counts as current); Off does not require a stapled
   /// OCSP response (a missing or indeterminate staple is accepted), but still rejects a
   /// definitive Revoked. Must-staple (RFC 7633) is enforced at the TLS layer independently of
   /// this setting, but only for an initial-handshake server certificate the client requested a
@@ -59,13 +60,23 @@ type
   /// RFC 6960 4.2.2.1 says newer information is then always available), or Stale.</summary>
   TOcspFreshness = (Fresh, Unbounded, Stale);
 
+  /// <summary>Whose certificate a verdict concerns. Server: we are the client and the chain
+  /// is the server's, matched against HostName. Client: we are the server and the chain is an mTLS
+  /// client's, with no host identity to match. A resolver that evaluates a role-specific trust
+  /// engine (an OS-native live check binds the server-auth or client-auth EKU) must branch on this
+  /// rather than assume a role - the same process may run both a client and an mTLS server. Unknown
+  /// is the zero value so a hand-built context that forgets to set the role fails a role-specific
+  /// resolver's check closed rather than defaulting to a wrong role.</summary>
+  TPeerRole = (Unknown, Server, Client);
+
   /// <summary>
   /// The one revocation-decision table every verifier and resolver applies: a definitive Revoked
   /// rejects under every posture (certificate_revoked); a Good accepts; an Indeterminate accepts
   /// unless the posture is Hard and the decision is not deferred to a live check, in which case it
-  /// rejects (bad_certificate_status_response). Deferral to a live check is expressed by evaluating
-  /// at an effective posture of Soft, so the handshake reaches the park where the live result is
-  /// decided at the configured posture.
+  /// rejects (bad_certificate_status_response when the peer is a server, else certificate_unknown:
+  /// RFC 9846 6.2 makes the former a client's alert). Deferral to a live check is expressed by
+  /// evaluating at an effective posture of Soft, so the handshake reaches the park where the live
+  /// result is decided at the configured posture.
   /// </summary>
   TRevocationDecision = class sealed(TObject)
   public
@@ -84,11 +95,11 @@ type
     /// case is deferred to a live check; otherwise the configured posture.</summary>
     class function EffectivePosture(APosture: TRevocationPosture;
       ADeferToLive: Boolean): TRevocationPosture; static;
-    /// <summary>True to accept; False with AAlert (certificate_revoked for Revoked,
-    /// bad_certificate_status_response for an undeferred Indeterminate under Hard). AAlert is
-    /// untouched on True.</summary>
+    /// <summary>True to accept; False with AAlert (certificate_revoked for Revoked; for an
+    /// undeferred Indeterminate under Hard, bad_certificate_status_response when APeer is Server,
+    /// else certificate_unknown). AAlert is untouched on True.</summary>
     class function Decide(AOutcome: TLiveRevocationOutcome; APosture: TRevocationPosture;
-      ADeferToLive: Boolean; out AAlert: TTlsAlertDescription): Boolean; static;
+      ADeferToLive: Boolean; APeer: TPeerRole; out AAlert: TTlsAlertDescription): Boolean; static;
     /// <summary>True when a Hard posture can only be satisfied by a live-revocation verdict: an
     /// indeterminate outcome (no staple) is decided inline by posture unless deferred to a live
     /// check, so an undeferred Hard rejects every staple-less peer.</summary>
@@ -159,15 +170,6 @@ type
       const APresented: TArray<TBytes>; const AVerified: TVerifiedChain;
       const AHostName: string; out AAlert: TTlsAlertDescription): Boolean; static;
   end;
-
-  /// <summary>Whose certificate a parked verdict concerns. Server: we are the client and the chain
-  /// is the server's, matched against HostName. Client: we are the server and the chain is an mTLS
-  /// client's, with no host identity to match. A resolver that evaluates a role-specific trust
-  /// engine (an OS-native live check binds the server-auth or client-auth EKU) must branch on this
-  /// rather than assume a role - the same process may run both a client and an mTLS server. Unknown
-  /// is the zero value so a hand-built context that forgets to set the role fails a role-specific
-  /// resolver's check closed rather than defaulting to a wrong role.</summary>
-  TPeerRole = (Unknown, Server, Client);
 
   /// <summary>
   /// The asynchronous certificate-verdict setting. When Deferral is not None, the engine runs
@@ -351,7 +353,7 @@ begin
 end;
 
 class function TRevocationDecision.Decide(AOutcome: TLiveRevocationOutcome;
-  APosture: TRevocationPosture; ADeferToLive: Boolean;
+  APosture: TRevocationPosture; ADeferToLive: Boolean; APeer: TPeerRole;
   out AAlert: TTlsAlertDescription): Boolean;
 begin
   case AOutcome of
@@ -366,8 +368,12 @@ begin
     // Indeterminate: reject only under an effective Hard posture (a Hard check not deferred to a
     // live one); Soft/Off, or a deferred Hard, accept and let the live check (if any) decide
     Result := EffectivePosture(APosture, ADeferToLive) <> TRevocationPosture.Hard;
+    // bad_certificate_status_response is a client's alert about a server's staple (RFC 9846 6.2)
     if not Result then
-      AAlert := TTlsAlertDescription.BadCertificateStatusResponse;
+      if APeer = TPeerRole.Server then
+        AAlert := TTlsAlertDescription.BadCertificateStatusResponse
+      else
+        AAlert := TTlsAlertDescription.CertificateUnknown;
   end;
 end;
 

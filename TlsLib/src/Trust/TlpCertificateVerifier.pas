@@ -333,6 +333,7 @@ var
   LFeatures: TArray<UInt16>;
   LMustStaple: Boolean;
   LVerdict: TStapleVerdict;
+  LPeer: TPeerRole;
   LI: Int32;
 begin
   // settled = a definitive, authenticated revocation verdict was reached inline (a current Good, or
@@ -408,8 +409,14 @@ begin
     Result := False;
   end
   else
+  begin
+    if AKeyPurpose = TCertKeyPurpose.ClientAuth then
+      LPeer := TPeerRole.Client
+    else
+      LPeer := TPeerRole.Server;
     Result := TRevocationDecision.Decide(TLiveRevocationOutcome.Indeterminate,
-      FRevocationPosture, FDeferral = TVerdictDeferral.LiveRevocation, AAlert);
+      FRevocationPosture, FDeferral = TVerdictDeferral.LiveRevocation, LPeer, AAlert);
+  end;
 end;
 
 class function TCertificateVerifier.WithoutDistrusted(

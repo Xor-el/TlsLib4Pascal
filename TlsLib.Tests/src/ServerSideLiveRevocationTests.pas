@@ -112,6 +112,7 @@ type
     procedure TestLiveIndeterminateSoftAcceptsTls13;
     procedure TestLiveGoodClientCompletesTls12;
     procedure TestLiveRevokedClientRejectedTls12;
+    procedure TestLiveIndeterminateHardRejectsTls12;
     procedure TestStubResolverAcceptCompletes;
     procedure TestStubResolverRejectAborts;
     procedure TestLeafOnlyClientResolvesIssuerFromValidatedPathWithoutCandidates;
@@ -381,9 +382,10 @@ begin
       LChecker.ResolveVerdict, False, LClient, LServer, LTransport);
     try
       LAlert := ClientFatalAlert(LClient);
-      CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificateStatusResponse)),
+      CheckTrue(FFetcher.PostCount + FFetcher.GetCount > 0, 'the live check queried the responder');
+      CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateUnknown)),
         Int64(Ord(LAlert)),
-        'an unreachable responder under Hard rejects with bad_certificate_status_response');
+        'an unreachable responder under Hard rejects the client with certificate_unknown');
       LServer.Finish;
       CheckFalse(LServer.HandshakeOk, 'the server rejected the indeterminate client under Hard');
     finally
@@ -500,6 +502,41 @@ begin
   end;
 end;
 
+procedure TTestServerSideLiveRevocation.TestLiveIndeterminateHardRejectsTls12;
+var
+  LClient: TTlsStream;
+  LServer: TMtlsLiveServerRunner;
+  LTransport: TMemoryTransport;
+  LChecker: TLiveRevocationChecker;
+  LAlert: TTlsAlertDescription;
+begin
+  // the 1.2 server aborts an undecided client certificate under Hard with certificate_unknown
+  FFetcher := TMockHttpFetcher.Create;
+  FFetcher.SetPost(False, nil);
+  FFetcher.SetGet(False, nil);
+  LChecker := NewChecker(TRevocationPosture.Hard, True);
+  try
+    RunLoopback(ClientConfig(True), ServerConfig(TRevocationPosture.Hard, True),
+      LChecker.ResolveVerdict, False, LClient, LServer, LTransport);
+    try
+      LAlert := ClientFatalAlert(LClient);
+      CheckTrue(FFetcher.PostCount + FFetcher.GetCount > 0, 'the live check queried the responder');
+      CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateUnknown)), Int64(Ord(LAlert)),
+        'the 1.2 client receives certificate_unknown for the undecided client certificate');
+      LServer.Finish;
+      CheckFalse(LServer.HandshakeOk, 'the 1.2 server rejected the undecided client certificate');
+      CheckTrue(LServer.HasAlert, 'the 1.2 server aborted with an alert');
+      CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateUnknown)),
+        Int64(Ord(LServer.Alert)), 'the 1.2 server emitted certificate_unknown');
+    finally
+      LServer.Free;
+      LClient.Free;
+    end;
+  finally
+    LChecker.Free;
+  end;
+end;
+
 procedure TTestServerSideLiveRevocation.TestStubResolverAcceptCompletes;
 var
   LClient: TTlsStream;
@@ -597,7 +634,7 @@ var
 begin
   // the mirror of the accept case: leaf-only client, no candidates, but the responder returns an
   // unusable answer. The validated path still lets the checker fetch (so the responder IS queried),
-  // and an unauthenticated/indeterminate answer under Hard rejects with bad_certificate_status_response.
+  // and an unauthenticated/indeterminate answer under Hard rejects with certificate_unknown.
   FFetcher := TMockHttpFetcher.Create;
   FFetcher.SetPost(False, nil); // the responder was reached, but no usable OCSP came back
   LChecker := NewChecker(TRevocationPosture.Hard, False);
@@ -606,13 +643,13 @@ begin
       LChecker.ResolveVerdict, False, LClient, LServer, LTransport);
     try
       LAlert := ClientFatalAlert(LClient);
-      CheckEquals(Int64(Ord(TTlsAlertDescription.BadCertificateStatusResponse)),
-        Int64(Ord(LAlert)),
-        'an indeterminate live outcome under Hard rejects');
-      LServer.Finish;
-      CheckFalse(LServer.HandshakeOk, 'the server rejected the indeterminate client');
       CheckEquals(1, FFetcher.PostCount,
         'the responder was still queried - the validated path supplied the issuer');
+      CheckEquals(Int64(Ord(TTlsAlertDescription.CertificateUnknown)),
+        Int64(Ord(LAlert)),
+        'an indeterminate live outcome under Hard rejects with certificate_unknown');
+      LServer.Finish;
+      CheckFalse(LServer.HandshakeOk, 'the server rejected the indeterminate client');
     finally
       LServer.Free;
       LClient.Free;

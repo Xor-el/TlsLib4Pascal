@@ -214,9 +214,10 @@ type
     /// <summary>Signature-compatible with the stream verdict resolver (the host name is
     /// not used for revocation): assign it to TTlsStream.SetCertificateVerdictResolver to run
     /// live revocation as the out-of-band verdict for a parked handshake. On reject, ARejectAlert
-    /// is certificate_revoked for a definitive Revoked and bad_certificate_status_response for a
-    /// hard-fail indeterminate. The verdict is decided at the stricter of this checker's posture
-    /// and ACtx.RevocationPosture (Hard over Soft over Off).</summary>
+    /// is certificate_revoked for a definitive Revoked and, for a hard-fail indeterminate,
+    /// bad_certificate_status_response when ACtx.PeerRole is Server, else certificate_unknown. The
+    /// verdict is decided at the stricter of this checker's posture and ACtx.RevocationPosture (Hard
+    /// over Soft over Off).</summary>
     function ResolveVerdict(const ACtx: TCertificateVerdictContext;
       out ARejectAlert: TTlsAlertDescription): Boolean;
   end;
@@ -645,8 +646,9 @@ var
 begin
   // authenticate against the validated path (issuer at index 1) when the pipeline produced one,
   // so the leaf's issuer comes from PKIX, not a re-guess over configured candidates. The shared
-  // table sets certificate_revoked on a definitive Revoked and bad_certificate_status_response on
-  // a hard-fail indeterminate; the accept paths leave the pre-set default (unused).
+  // table sets certificate_revoked on a definitive Revoked and, on a hard-fail indeterminate,
+  // bad_certificate_status_response for a server peer else certificate_unknown; the accept paths
+  // leave the pre-set default (unused).
   ARejectAlert := TTlsAlertDescription.BadCertificate;
   // the budget the host set for the park binds as well as the checker's own; the tighter one wins
   LDeadlineMs := FDeadlineMs;
@@ -655,7 +657,8 @@ begin
   // the configuration's posture holds even when this checker was built with a laxer one
   LPosture := TRevocationDecision.Stricter(FPosture, ACtx.RevocationPosture);
   Result := TRevocationDecision.Decide(
-    EvaluateWithin(ACtx.RevocationPath, LDeadlineMs, LPosture), LPosture, False, ARejectAlert);
+    EvaluateWithin(ACtx.RevocationPath, LDeadlineMs, LPosture), LPosture, False, ACtx.PeerRole,
+    ARejectAlert);
 end;
 
 end.

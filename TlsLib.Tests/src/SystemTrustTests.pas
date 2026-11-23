@@ -331,6 +331,8 @@ type
     procedure TestLiveEnginePathAnchorKeyBelowTheFloorIsRefusedWhenFlagged;
     procedure TestVerifyCallbackSeesThePresentedChainAndTheEnginePath;
     procedure TestClientRoutesByStapleWithoutCachedRevocation;
+    procedure TestClientVerifierCachedIndeterminateUnderHardAvoidsStatusResponseAlert;
+    procedure TestLiveResolverClientPeerIndeterminateUnderHardAvoidsStatusResponseAlert;
     procedure TestStapledRevokedRejectsWithoutCachedRevocation;
     procedure TestVerifyCallbackRejectYieldsCertificateUnknown;
     procedure TestVerifyCallbackNotInvokedWhenEngineRejects;
@@ -2648,7 +2650,7 @@ begin
   System.Inc(FFallbackCalls);
   ARejectAlert := TTlsAlertDescription.BadCertificate;
   Result := TRevocationDecision.Decide(TLiveRevocationOutcome.Indeterminate,
-    ACtx.RevocationPosture, False, ARejectAlert);
+    ACtx.RevocationPosture, False, ACtx.PeerRole, ARejectAlert);
 end;
 
 procedure TTestOSDelegateTemplate.TestLiveResolverFallbackDecidesAtTheLiftedPosture;
@@ -3260,11 +3262,78 @@ begin
     TVerdictDeferral.None, LAlert), 'Soft accepts an indeterminate no-cached-revocation client');
   CheckFalse(VerifyClient(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly,
     TVerdictDeferral.None, LAlert), 'Hard rejects it inline');
-  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
-    'the inline Hard rejection is bad_certificate_status_response');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the inline Hard rejection of a client certificate is certificate_unknown');
   CheckTrue(VerifyClient(TRevocationPosture.Hard, TSystemTrustFetch.CacheOnly,
     TVerdictDeferral.LiveRevocation, LAlert),
     'Hard defers the indeterminate case to the park when the live verdict is armed');
+end;
+
+procedure TTestOSDelegateTemplate.TestClientVerifierCachedIndeterminateUnderHardAvoidsStatusResponseAlert;
+
+  function VerifyClient(APosture: TRevocationPosture; out AAlert: TTlsAlertDescription): Boolean;
+  var
+    LFake: TMockPlatformChainEngine;
+    LEngine: IPlatformChainEngine;
+    LVerifier: IClientCertificateVerifier;
+    LVerified: TVerifiedChain;
+  begin
+    // the engine folds revocation into its own outcome (CachedRevocation arm of the shared tail)
+    LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.CachedRevocation], True,
+      Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+    LEngine := LFake;
+    LVerifier := TOSDelegateClientVerifier.Create(LEngine,
+      Policy(APosture, TSystemTrustFetch.CacheOnly, TVerdictDeferral.None, OcspChain))
+      as IClientCertificateVerifier;
+    Result := LVerifier.VerifyClientCertificate(OcspChain, LVerified, AAlert);
+  end;
+
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(VerifyClient(TRevocationPosture.Soft, LAlert),
+    'Soft accepts the same outcome, so the Hard rejection is the revocation decision');
+  CheckFalse(VerifyClient(TRevocationPosture.Hard, LAlert),
+    'Hard rejects the indeterminate outcome');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the Hard rejection of a client certificate is certificate_unknown');
+end;
+
+procedure TTestOSDelegateTemplate.TestLiveResolverClientPeerIndeterminateUnderHardAvoidsStatusResponseAlert;
+
+  function Resolve(AConfigured: TRevocationPosture; out AAlert: TTlsAlertDescription): Boolean;
+  var
+    LFake: TMockPlatformChainEngine;
+    LEngine: IPlatformChainEngine;
+    LResolver: TOSDelegateLiveResolver;
+    LContext: TCertificateVerdictContext;
+  begin
+    LFake := TMockPlatformChainEngine.Create([TPlatformChainCapability.LiveFetch], True,
+      Result_(TLiveRevocationOutcome.Indeterminate, OcspChain), TTlsAlertDescription.BadCertificate);
+    LEngine := LFake;
+    LResolver := TOSDelegateLiveResolver.Create(LEngine, TPeerRole.Client,
+      Policy(TRevocationPosture.Soft, TSystemTrustFetch.Live, TVerdictDeferral.LiveRevocation,
+      OcspChain), nil);
+    try
+      LContext := Default(TCertificateVerdictContext);
+      LContext.PeerRole := TPeerRole.Client;
+      LContext.Chain := OcspChain;
+      LContext.RevocationPosture := AConfigured;
+      Result := LResolver.ResolveVerdict(LContext, AAlert);
+    finally
+      LResolver.Free;
+    end;
+  end;
+
+var
+  LAlert: TTlsAlertDescription;
+begin
+  CheckTrue(Resolve(TRevocationPosture.Soft, LAlert),
+    'Soft accepts the same result, so the Hard rejection is the revocation decision');
+  CheckFalse(Resolve(TRevocationPosture.Hard, LAlert),
+    'an indeterminate live result is refused under a Hard configuration');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the Hard rejection of a client certificate is certificate_unknown');
 end;
 
 procedure TTestOSDelegateTemplate.TestStapledRevokedRejectsWithoutCachedRevocation;
@@ -6877,17 +6946,30 @@ end;
 
 procedure TTestWindowsClientDelegate.TestHardPostureRejectsUnrevocableChain;
 var
-  LAlert: TTlsAlertDescription;
+  LEngine: IPlatformChainEngine;
+  LRequest: TPlatformChainRequest;
+  LResult: TPlatformChainResult;
+  LAlert, LEngineAlert: TTlsAlertDescription;
 begin
+  // the engine itself reports Indeterminate, so the alert below is the revocation decision's
+  LEngine := TWindowsChainEngine.Create as IPlatformChainEngine;
+  LRequest := Default(TPlatformChainRequest);
+  LRequest.Chain := Leaf;
+  LRequest.Anchors := OwnAnchor;
+  LRequest.Revocation := TPlatformRevocationCheck.RequirePositive;
+  LRequest.NetworkAllowed := False;
+  LRequest.Clock := TSystemClock.Create as ITlsClock;
+  CheckTrue(LEngine.EvaluateClient(LRequest, LResult, LEngineAlert), 'the engine builds the path');
+  CheckEquals(Ord(TLiveRevocationOutcome.Indeterminate), Ord(LResult.Outcome),
+    'the engine reports an indeterminate revocation outcome');
   // the private CA publishes no reachable revocation data, so the status is indeterminate;
   // Hard posture rejects an indeterminate outcome
   CheckFalse(Verify(OwnAnchor, TRevocationPosture.Hard,
     TSystemClock.Create as ITlsClock, LAlert),
     'Hard posture rejects a chain whose revocation status is indeterminate');
-  // the OS engine reports the indeterminate outcome over its built path, so the shared pipeline
-  // renders the precise revocation alert rather than a generic failure
-  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
-    'the indeterminate rejection alert is bad_certificate_status_response');
+  // the shared pipeline renders the revocation alert for a client certificate
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the indeterminate rejection alert is certificate_unknown');
 end;
 
 procedure TTestWindowsClientDelegate.TestSoftPostureAcceptsUnrevocableChain;
@@ -8037,17 +8119,30 @@ end;
 
 procedure TTestAppleClientDelegate.TestHardPostureRejectsUnrevocableChain;
 var
-  LAlert: TTlsAlertDescription;
+  LEngine: IPlatformChainEngine;
+  LRequest: TPlatformChainRequest;
+  LResult: TPlatformChainResult;
+  LAlert, LEngineAlert: TTlsAlertDescription;
 begin
+  // the engine itself reports Indeterminate, so the alert below is the revocation decision's
+  LEngine := TAppleChainEngine.Create as IPlatformChainEngine;
+  LRequest := Default(TPlatformChainRequest);
+  LRequest.Chain := Leaf;
+  LRequest.Anchors := OwnAnchor;
+  LRequest.Revocation := TPlatformRevocationCheck.RequirePositive;
+  LRequest.NetworkAllowed := False;
+  LRequest.Clock := TSystemClock.Create as ITlsClock;
+  CheckTrue(LEngine.EvaluateClient(LRequest, LResult, LEngineAlert), 'the engine builds the path');
+  CheckEquals(Ord(TLiveRevocationOutcome.Indeterminate), Ord(LResult.Outcome),
+    'the engine reports an indeterminate revocation outcome');
   // the private CA publishes no reachable revocation data and network fetch is disabled, so the
   // status is indeterminate; a Hard posture (require-positive) rejects an indeterminate outcome
   CheckFalse(Verify(OwnAnchor, TRevocationPosture.Hard,
     TSystemClock.Create as ITlsClock, LAlert),
     'Hard posture rejects a chain whose revocation status is indeterminate');
-  // the OS engine reports the indeterminate outcome over its built path, so the shared pipeline
-  // renders the precise revocation alert rather than a generic failure
-  CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
-    'the indeterminate rejection alert is bad_certificate_status_response');
+  // the shared pipeline renders the revocation alert for a client certificate
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the indeterminate rejection alert is certificate_unknown');
 end;
 
 procedure TTestAppleClientDelegate.TestSoftPostureAcceptsUnrevocableChain;
