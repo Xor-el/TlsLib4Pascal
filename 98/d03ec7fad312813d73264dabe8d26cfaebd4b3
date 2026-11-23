@@ -1,0 +1,95 @@
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_f2c9bd75607afc::t_b32608d8e18d2b 72
+  s_f2c9bd75607afc::t_46696c0f9c40ed 393-399,400-402
+  s_f2c9bd75607afc::t_c487ace7ce797f 1727-1731,1733-1739,1741,1744-1745,1747,1750-1762,1764-1768,1770-1778
+  s_f2c9bd75607afc::t_afc821f9c57148 2613-2617,2619-2643,2646-2648,2650
+  s_f2c9bd75607afc::t_e907a419b67b36 2606,2610,2612,2618
+  s_f2c9bd75607afc::t_b47bd8d2732610 169-171
+  s_f2c9bd75607afc::t_a9b57e2699e1e1 70-71
+  s_f2c9bd75607afc::t_5ed1f98c7d2881 1732,1740,1742-1743,1746,1748-1749
+  s_f2c9bd75607afc::t_e3ee22db637c4c 1769
+  s_f2c9bd75607afc::t_55b99fc13b23ac 2644-2645
+  s_f2c9bd75607afc::t_3522c8e13cfe0f 392
+  s_f2c9bd75607afc::t_bf1705e76e5426 272-274
+  s_f2c9bd75607afc::t_45eef5c284d4a6 1763
+TlsLib.Tests/src/CertificateVerifierTests.pas
+  s_f2c9bd75607afc::t_432b14a4e0066e 326
+  s_f2c9bd75607afc::t_0cb02419acf3b5 1716-1744
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_d7aa7cac7164a8 8122-8125,8128-8137,8143-8145
+  s_f2c9bd75607afc::t_cfad0190124aac 3265-3266,3272-3294,3298-3331,3333-3336
+  s_f2c9bd75607afc::t_173cabd30892a5 6949-6952,6955-6964,6970-6972
+  s_f2c9bd75607afc::t_3020b6978fe4e8 334-335
+  s_f2c9bd75607afc::t_a40692baeb286d 2653,3337-3338
+  s_f2c9bd75607afc::t_c1e9190d7c7284 8127
+  s_f2c9bd75607afc::t_514111fc9db301 3332
+  s_f2c9bd75607afc::t_716fa4245676cd 3295-3297
+  s_f2c9bd75607afc::t_de6289a4356720 6954
+TlsLib/src/Trust/TlpCertificateVerifier.pas
+  s_f2c9bd75607afc::t_085a936c48face 412-416,418-419
+  s_f2c9bd75607afc::t_236a5c95e664bf 336
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_f2c9bd75607afc::t_1d33c42fcc59e9 371,373-376
+  s_f2c9bd75607afc::t_1bea084734ad1b 77
+  s_f2c9bd75607afc::t_57582fefb35b91 63-71,76
+  s_f2c9bd75607afc::t_2acd2f61907473 78-79
+  s_f2c9bd75607afc::t_0fc9894ee82da3 102
+  s_f2c9bd75607afc::t_761a3dcf363545 356
+  s_f2c9bd75607afc::t_c6eced2c42e6fd 38
+  s_f2c9bd75607afc::t_c01bb9228c7b80 39-40
+  s_f2c9bd75607afc::t_d882fb99fb4657 98-100
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_f2c9bd75607afc::t_42725414e1cf50 115
+  s_f2c9bd75607afc::t_ac4e6f6541df8b 505-512,514-539
+  s_f2c9bd75607afc::t_e89e77b8bd4cb1 646-648,650
+  s_f2c9bd75607afc::t_36b44af17b4147 637
+  s_f2c9bd75607afc::t_7ff39186fd341e 385-386
+  s_f2c9bd75607afc::t_e63de294b6d6ac 513
+  s_f2c9bd75607afc::t_422c8ef889dc00 388
+TlsLib/src/Trust/TlpLiveRevocation.pas
+  s_f2c9bd75607afc::t_d10c746a8f8dd4 218-220
+  s_f2c9bd75607afc::t_8e05e115095eb1 217
+  s_f2c9bd75607afc::t_30288847a022d2 649-651
+  s_f2c9bd75607afc::t_d140d6ff5523ee 660-661
+TlsLib/src/Interfaces/Engine/TlpITlsEngine.pas
+  s_f2c9bd75607afc::t_4ab42567672ed4 108-110
+TlsLib.Trust.System/src/TlpOSLiveRevocation.pas
+  s_f2c9bd75607afc::t_9acc53c70d68cf 120
+  s_f2c9bd75607afc::t_d97b153c53c75a 111
+.github/workflows/ci/interop/trust/run-trust.sh
+  s_f2c9bd75607afc::t_f97cdc43c41fd9 708
+  s_f2c9bd75607afc::t_13f24bcb41d72e 432
+  s_f2c9bd75607afc::t_495ee51205bcee 431
+  s_f2c9bd75607afc::t_c3090eecbcabc9 36-37
+  s_f2c9bd75607afc::t_9b3cc45561832f 433-434
+  s_f2c9bd75607afc::t_a191e8187cfa0c 717,721
+  s_f2c9bd75607afc::t_ee7f45e2a52daa 452,456
+  s_f2c9bd75607afc::t_d231493c92d0da 729,733
+TlsLib.Trust.System/src/TlpOSDelegateVerifier.pas
+  s_f2c9bd75607afc::t_6b34ef79d7d200 173
+  s_f2c9bd75607afc::t_b98267dfc53c6c 754
+  s_f2c9bd75607afc::t_25edc8d74d1af6 602
+  s_f2c9bd75607afc::t_0c6e31e4dafbd5 652
+  s_f2c9bd75607afc::t_91ab105c9d1f94 631-632
+  s_f2c9bd75607afc::t_f32c4a531b54af 711
+docs/system-trust.md
+  s_f2c9bd75607afc::t_811acfbf12b02b 412
+docs/certificate-verification.md
+  s_f2c9bd75607afc::t_1a33764287aaaf 466-468
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "98d03ec7fad312813d73264dabe8d26cfaebd4b3",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
