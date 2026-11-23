@@ -1,0 +1,26 @@
+TlsLib/src/Engine/TlpTlsEngineFactory.pas
+  s_f2c9bd75607afc::t_de51a87c3a665a 159-161
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_f2c9bd75607afc::t_6ea14cec8b492f 867,871-873
+docs/tls13-handshake-engine.md
+  s_f2c9bd75607afc::t_9e02ee4eba6ebd 43-45
+TlsLib.Tests/src/Tls13HandshakeEngineTests.pas
+  s_f2c9bd75607afc::t_01860a6f5f48db 180
+  s_f2c9bd75607afc::t_faa23542775733 1056-1069,1081
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0fdea7044f1f0db31241a4d745834a693931e9c7",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
