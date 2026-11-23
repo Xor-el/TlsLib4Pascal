@@ -744,8 +744,8 @@ while LServer.NextEvent(LEvent) do
   end;
 ```
 
-The engine parks after it decrypted and validated the ClientHello, before it selects anything or decides on a
-HelloRetryRequest, and the call that parks returns `Advanced`. A reply replaces the registered body
+The engine parks after it decrypted and validated the ClientHello, before it selects
+anything or decides on a HelloRetryRequest, and the call that parks returns `Advanced`. A reply replaces the registered body
 and goes wherever the extension rides; an offered extension with no reply is not sent. A reply for an
 extension the client did not offer, two for one extension or a body over 65535 bytes raises
 `EArgumentTlsLibException` and leaves the engine parked. To refuse the connection instead, call

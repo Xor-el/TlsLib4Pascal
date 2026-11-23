@@ -815,7 +815,6 @@ begin
   CheckEquals(35, System.Length(TSessionScope.Combine(nil, TBytes.Create($01))), 'the shortest');
   LLongest := System.Length(TSessionScope.Combine(Filled($01, 32), Filled($02, 32)));
   CheckEquals(66, LLongest, 'the longest');
-  CheckTrue(LLongest <= 255, 'inside the ticket scope vector');
 end;
 
 initialization
