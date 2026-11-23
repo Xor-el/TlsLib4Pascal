@@ -119,7 +119,7 @@ type
     /// <summary>Dequeues the next event; False when the queue is empty. Drain it every cycle:
     /// past a bounded backlog of undrained events the informational kinds (SessionTicketReceived,
     /// EarlyData*, KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the
-    /// queue without bound; PeerAlert, Closed and CertificateReceived are never dropped.</summary>
+    /// queue without bound; PeerAlert, Closed, CertificateReceived and ClientHelloReceived are never dropped.</summary>
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     /// <summary>A snapshot of the negotiated facts; zero values before the handshake resolves
     /// each of them.</summary>

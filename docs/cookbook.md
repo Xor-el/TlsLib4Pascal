@@ -25,7 +25,9 @@ Read [Getting started](getting-started.md) first.
 - [Negotiate ALPN](#negotiate-alpn)
 - [Inspect the connection](#inspect-the-connection)
 - [Carry your own extension](#carry-your-own-extension)
+- [Choose an extension reply from the ClientHello](#choose-an-extension-reply-from-the-clienthello)
 - [Resume sessions](#resume-sessions)
+- [Partition resumption between services that share one configuration](#partition-resumption-between-services-that-share-one-configuration)
 - [0-RTT early data](#0-rtt-early-data)
 - [Set a revocation posture](#set-a-revocation-posture)
 - [Certificate compression](#certificate-compression)
@@ -707,6 +709,47 @@ carries it too, so its body is visible on the wire (put nothing ECH should hide 
 one references it like any shared extension. No host code runs inside the handshake, and the bodies
 are the host's to validate.
 
+## Choose an extension reply from the ClientHello
+
+A [handshake-only server engine](tls13-handshake-engine.md) can wait for the client's ClientHello
+before it answers a host extension, so the reply depends on what the client offered. Register the
+extension, create the engine with the pause on, and continue once you chose:
+
+```pascal
+uses TlpExtensionContext, TlpITlsHostExtension, TlpHostExtensions, TlpTlsEngineFactory, TlpITlsEngine,
+  TlpITls13HandshakeEngine, TlpIKeySchedule;
+
+// the body given here is never sent on a pausing engine; only a reply is
+LServer := TTlsEngineFactory.CreateTls13HandshakeServerEngine(LServerConfig,
+  TArray<ITlsHostExtension>.Create(TTlsHostExtensions.Make($FC01,
+    [TTlsExtensionContextKind.EncryptedExtensions], nil, [])),
+  LTicketEarlyDataLimit, LEarlyDataContext, nil, {APauseAtClientHello=} True);
+
+LServer.ProvideHandshakeData(TTlsEpoch.Plaintext, LBytes, 0, Length(LBytes));
+while LServer.NextEvent(LEvent) do
+  if LEvent.Kind = TTlsEventKind.ClientHelloReceived then
+  begin
+    // OfferedServerName and the client's body are unauthenticated
+    LName := LServer.OfferedServerName;
+    if Supports(LServer, ITlsHostExtensionResults, LResults) and
+      LResults.TryGetPeerExtension($FC01, LOffered) then
+      LServer.ContinueAfterClientHello(
+        TArray<TTlsHostExtensionReply>.Create(ReplyFor(LName, LOffered)), nil)
+    else
+      LServer.ContinueAfterClientHello(nil, nil);
+  end;
+```
+
+`ReplyFor` fills a `TTlsHostExtensionReply` (`ExtensionType` and `Body`). The engine parks after it
+decrypted and validated the ClientHello, before it selects anything or decides on a
+HelloRetryRequest, and the call that parks returns `Advanced`. A reply replaces the registered body
+and goes wherever the extension rides; an offered extension with no reply is not sent. A reply for an
+extension the client did not offer, two for one extension or a body over 65535 bytes raises
+`EArgumentTlsLibException` and leaves the engine parked. To refuse the connection instead, call
+`LatchTransportFailure`. If the client's ECH was rejected, the name and bodies are the outer
+ClientHello's. After a HelloRetryRequest the second ClientHello must repeat the first one's offer of
+each registered extension, or the handshake fails with `illegal_parameter`.
+
 ## Resume sessions
 
 Resumption is `psk_dhe_ke` (forward-secret). The client cache hands each ticket out once. Give the
@@ -790,6 +833,35 @@ answers the interface, since a server has no ticket to attach them to. A custom 
 
 A ticket sealed under another ticket format draws a full handshake, never a failure. A ticket
 carries the kind of engine that minted it and is offered and resumed only by that kind.
+
+## Partition resumption between services that share one configuration
+
+Several services behind one configuration (and so one session cache or ticket key) must not resume
+each other's tickets. On a [handshake-only engine](tls13-handshake-engine.md) give each service its
+own tag.
+
+```pascal
+uses TlpTlsEngineFactory, TlpITlsResumptionPartition;
+
+// CLIENT: tickets are cached and offered per partition (at most 32 bytes)
+LClient := TTlsEngineFactory.CreateTls13HandshakeClientEngine(LClientConfig, 'example.com',
+  nil, LTicketEarlyDataLimit, TEncoding.UTF8.GetBytes('billing'));
+
+// received tickets from here on are stored under another partition
+if Supports(LClient, ITlsResumptionPartition, LPartition) then
+  LPartition.SetResumptionPartition(TEncoding.UTF8.GetBytes('billing-eu'));
+
+// SERVER: tickets are accepted and sealed under the configuration's scope combined with this one
+LServer := TTlsEngineFactory.CreateTls13HandshakeServerEngine(LServerConfig, nil,
+  LTicketEarlyDataLimit, LEarlyDataContext, TEncoding.UTF8.GetBytes('billing'),
+  {APauseAtClientHello=} False);
+```
+
+The ticket a client offers is the one of the partition it was created with; the partition set later
+applies to tickets received after. An empty partition is the unpartitioned key. On a server the
+scope can instead be given at `ContinueAfterClientHello`, once the ClientHello shows which service
+it is for. Either way a scope or partition over 32 bytes raises `EArgumentTlsLibException`, and an
+engine with a scope never resumes a ticket minted without it, or under another scope.
 
 ## 0-RTT early data
 

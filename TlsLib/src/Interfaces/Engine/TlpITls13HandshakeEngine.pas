@@ -34,8 +34,10 @@ type
   /// an empty legacy_session_id, and neither sends nor receives alerts: a failure is reported
   /// through LastError, and the host maps it. Everything flows by pull: the host feeds the bytes
   /// of one level, then drains NextOutput (handshake bytes per level, the secrets to install, the
-  /// end of the handshake) and NextEvent. No host extension or transport callback runs inside a
-  /// call; the host inspects ALPN and extension bodies between input and output. The engine
+  /// end of the handshake) and NextEvent. No host extension callback runs inside a call (the
+  /// callbacks the config names still do, a credential resolver also inside
+  /// ContinueAfterClientHello); the host inspects ALPN and extension bodies between input and
+  /// output. The engine
   /// accepts a handshake that selects no ALPN protocol (a host that requires one fails the
   /// connection itself, with no_application_protocol), and bytes at the EarlyData level fail with
   /// unexpected_message. The ticket early-data limit the factory takes fixes the value tickets
