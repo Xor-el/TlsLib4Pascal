@@ -194,8 +194,8 @@ end;
   repeat the first one's offer of each registered host extension, body included, and the engine
   fails it with `illegal_parameter` otherwise (RFC 9846 4.2.2). An extension the HelloRetryRequest
   itself carried is exempt.
-- Ticket freshness and expiry are judged at the time the ClientHello arrived. 0-RTT is declined
-  when the pause outlasts the replay window.
+- Ticket expiry, freshness and the 0-RTT replay check are judged when the engine continues: a
+  pause longer than the tolerated ticket-age skew declines 0-RTT, and the resumption still goes ahead.
 
 ## Checks between input and output
 

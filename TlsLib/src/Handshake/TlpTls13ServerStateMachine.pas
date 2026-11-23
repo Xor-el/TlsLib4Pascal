@@ -236,9 +236,6 @@ type
     /// <summary>The scope tickets are accepted and sealed under: the configuration's, or its
     /// combination with this engine's own.</summary>
     FEffectiveScope: TBytes;
-    /// <summary>When the first ClientHello arrived; the ticket's freshness and expiry are judged
-    /// at that time, however long a pause lasts.</summary>
-    FClientHelloReceivedMs: UInt64;
     /// <summary>The first ClientHello while the machine is parked: decoded, as framed (the inner
     /// one on ECH accept) and with the extension context the validation filled, which this
     /// machine owns until the continue or its destruction.</summary>
@@ -1023,7 +1020,7 @@ begin
     if not FParams.CipherSuites.TryGet(LSession.CipherSuite, LSuite) then
       Continue;
     // freshness: reject a ticket at or past its lifetime (a 0-second lifetime is expired)
-    LNowMs := FClientHelloReceivedMs;
+    LNowMs := FParams.Clock.NowUnixMillis;
     if LNowMs >= LSession.IssuedAtMillis + UInt64(LSession.TicketLifetime) * 1000 then
       Continue;
     // re-issued tickets do not extend the chain: resumable only seven days from the authentication
@@ -1080,10 +1077,8 @@ begin
       FEarlyContextMatches and (FParams.AntiReplay <> nil);
     if FEarlyDataAccepted then
     begin
-      // the register prunes by the current time, so a pause past its window declines 0-RTT
       FEarlyDataAccepted := FParams.AntiReplay.CheckAndRecord(AContext.OfferedPskBinders[LI],
-        FParams.Clock.NowUnixMillis,
-        LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
+        LNowMs, LNowMs + UInt64(2 * MaxFreshnessSkewMillis) + 1);
       FEarlyReplayed := not FEarlyDataAccepted;
     end;
     Exit(True);
@@ -1292,8 +1287,6 @@ var
   LEchRaw: TBytes;
   LExtensions: TExtensionVector;
 begin
-  // freshness and expiry are judged from when the ClientHello arrived
-  FClientHelloReceivedMs := FParams.Clock.NowUnixMillis;
   LEchRaw := AMessage.Raw;
   LClientHello := THandshakeMessages.DecodeClientHello(
     System.Copy(AMessage.Raw, 4, System.Length(AMessage.Raw) - 4));

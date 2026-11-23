@@ -171,10 +171,12 @@ type
     procedure TestScopeSetAtContinueGovernsSealing;
     procedure TestEmptyScopeAtContinueKeepsTheCreationScope;
     procedure TestScopeAtContinueReplacesTheCreationScope;
-    procedure TestPauseLongerThanTheFreshnessWindowStillAcceptsZeroRtt;
+    procedure TestPausePastTheFreshnessSkewDeclinesZeroRtt;
+    procedure TestPausePastTheFreshnessSkewStillResumes;
     procedure TestPauseOutlastingTheReplayWindowDeclinesZeroRtt;
     procedure TestPauseOutlastingTheReplayWindowStillResumes;
-    procedure TestReplayContinuedAfterAnUnrelatedPruneIsRefused;
+    procedure TestReplayContinuedPastTheReplayWindowIsRefused;
+    procedure TestReplayParkedLateAndContinuedPastTheFirstStrikeIsRefused;
     procedure TestRefusedParkedConnectionLeavesTheAntiReplaySlotUnused;
     procedure TestContinuedConnectionIsAReplayForAnotherEngine;
     procedure TestReplyForAnExtensionTheClientDidNotOfferIsRefused;
@@ -925,7 +927,7 @@ begin
     ServerAs(TBytes.Create($0A), nil, False)), 'and not that of the creation');
 end;
 
-procedure TTestClientHelloPause.TestPauseLongerThanTheFreshnessWindowStillAcceptsZeroRtt;
+procedure TTestClientHelloPause.TestPausePastTheFreshnessSkewDeclinesZeroRtt;
 var
   LClient, LServer: ITls13HandshakeEngine;
   LClock: TMockClock;
@@ -938,10 +940,28 @@ begin
   LClient := EarlyDataClient(LConfig);
   LServer := NewServer(LConfig, nil, True);
   Park(LClient, LServer);
-  // past the tolerated skew between the ages the two sides measure, inside the replay window
   LClock.Advance(61000);
   LServer.ContinueAfterClientHello(nil, nil);
-  CheckTrue(HasEarlyReadSecret(LServer), 'the early data is judged as of the ClientHello');
+  CheckFalse(HasEarlyReadSecret(LServer), 'the ticket age is judged when the engine continues');
+end;
+
+procedure TTestClientHelloPause.TestPausePastTheFreshnessSkewStillResumes;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LClock: TMockClock;
+  LClockRef: ITlsClock;
+  LConfig: ITlsServerConfig;
+begin
+  LClock := TMockClock.Create(UInt64(TSystemTimeUtilities.UtcUnixMs));
+  LClockRef := LClock as ITlsClock;
+  LConfig := ServerResuming(True, LClockRef);
+  LClient := EarlyDataClient(LConfig);
+  LServer := NewServer(LConfig, nil, True);
+  Park(LClient, LServer);
+  LClock.Advance(61000);
+  LServer.ContinueAfterClientHello(nil, nil);
+  Exchange(LClient, LServer);
+  CheckTrue(LServer.ConnectionInfo.Resumed, 'the resumption goes ahead without the early data');
 end;
 
 procedure TTestClientHelloPause.TestPauseOutlastingTheReplayWindowDeclinesZeroRtt;
@@ -981,14 +1001,13 @@ begin
   CheckTrue(LServer.ConnectionInfo.Resumed, 'the resumption goes ahead without the early data');
 end;
 
-procedure TTestClientHelloPause.TestReplayContinuedAfterAnUnrelatedPruneIsRefused;
+procedure TTestClientHelloPause.TestReplayContinuedPastTheReplayWindowIsRefused;
 var
   LClient, LFirst, LSecond: ITls13HandshakeEngine;
   LClock: TMockClock;
   LClockRef: ITlsClock;
   LConfig: ITlsServerConfig;
-  LHello, LUnrelated: TBytes;
-  LNow: UInt64;
+  LHello: TBytes;
 begin
   LClock := TMockClock.Create(UInt64(TSystemTimeUtilities.UtcUnixMs));
   LClockRef := LClock as ITlsClock;
@@ -1004,11 +1023,35 @@ begin
   LSecond.ProvideHandshakeData(TTlsEpoch.Plaintext, LHello, 0, System.Length(LHello));
   CheckTrue(LSecond.AwaitingClientHello, 'the replay parked');
   LClock.Advance(130000);
-  LNow := LClock.NowUnixMillis;
-  LUnrelated := Filled($E7, 32);
-  CheckTrue(FAntiReplay.CheckAndRecord(LUnrelated, LNow, LNow + 1000), 'an unrelated value pruned');
   LSecond.ContinueAfterClientHello(nil, nil);
-  CheckFalse(HasEarlyReadSecret(LSecond), 'the replay is not accepted once its strike lapsed');
+  CheckFalse(HasEarlyReadSecret(LSecond), 'the replay is not accepted past its own window');
+end;
+
+procedure TTestClientHelloPause.TestReplayParkedLateAndContinuedPastTheFirstStrikeIsRefused;
+var
+  LClient, LFirst, LSecond: ITls13HandshakeEngine;
+  LClock: TMockClock;
+  LClockRef: ITlsClock;
+  LConfig: ITlsServerConfig;
+  LHello: TBytes;
+begin
+  LClock := TMockClock.Create(UInt64(TSystemTimeUtilities.UtcUnixMs));
+  LClockRef := LClock as ITlsClock;
+  LConfig := ServerResuming(True, LClockRef);
+  LClient := EarlyDataClient(LConfig);
+  LClient.StartHandshake;
+  LHello := TakeData(LClient);
+  LFirst := NewServer(LConfig, nil, True);
+  LFirst.ProvideHandshakeData(TTlsEpoch.Plaintext, LHello, 0, System.Length(LHello));
+  LFirst.ContinueAfterClientHello(nil, nil);
+  CheckTrue(HasEarlyReadSecret(LFirst), 'the first server accepted the early data');
+  LClock.Advance(59000);
+  LSecond := NewServer(LConfig, nil, True);
+  LSecond.ProvideHandshakeData(TTlsEpoch.Plaintext, LHello, 0, System.Length(LHello));
+  CheckTrue(LSecond.AwaitingClientHello, 'the replay parked');
+  LClock.Advance(62000);
+  LSecond.ContinueAfterClientHello(nil, nil);
+  CheckFalse(HasEarlyReadSecret(LSecond), 'the replay is not accepted past the first strike');
 end;
 
 procedure TTestClientHelloPause.TestRefusedParkedConnectionLeavesTheAntiReplaySlotUnused;
