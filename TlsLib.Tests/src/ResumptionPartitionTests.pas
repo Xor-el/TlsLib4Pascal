@@ -97,6 +97,7 @@ type
     procedure TestEngineCreatedWithTheNewPartitionResumesTheTicket;
     procedure TestOfferedTicketIsThatOfTheCreationPartition;
     procedure TestFatalFailureRemovesTheTicketUnderItsStoredKey;
+    procedure TestFatalFailureRemovesTheTicketStoredUnderALaterPartition;
     procedure TestKeyExchangeHintIsKeptUnderTheCreationPartition;
     procedure TestCreationRefusesAPartitionOverTheLimit;
     procedure TestCreationAcceptsAPartitionAtTheLimit;
@@ -116,7 +117,7 @@ type
   /// The per-engine resumption scope of a TLS 1.3 handshake-only server: tickets are accepted and
   /// sealed under the configuration's scope combined with the engine's own, a combination no
   /// configuration scope can equal, so engines with different scopes, and configurations with
-  /// different client-authentication trust, never resume each other's tickets.
+  /// different scopes, never resume each other's tickets.
   /// </summary>
   TTestServerResumptionScope = class(TTlsLibHandshakeTestCase)
   private
@@ -151,7 +152,7 @@ type
     procedure TestEmptyEngineScopeKeepsTheConfigurationScope;
     procedure TestEngineScopeKeepsTheConfigurationScopeApart;
     procedure TestNaivelyConcatenatedScopesDoNotCollide;
-    procedure TestConfigurationsWithDifferentTrustNeverResumeUnderOneEngineScope;
+    procedure TestMutualConfigurationsWithDifferentScopesNeverResumeUnderOneEngineScope;
     procedure TestConfigurationsWithTheSameScopeResumeUnderOneEngineScope;
     procedure TestCreationRefusesAnEngineScopeOverTheLimit;
     procedure TestCreationAcceptsAnEngineScopeAtTheLimit;
@@ -437,6 +438,25 @@ begin
   LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
   CheckTrue(LClient.IsTerminal, 'the client failed');
   CheckEquals(0, LCache.Count, 'the failure withdrew the ticket it had stored');
+end;
+
+procedure TTestResumptionPartition.TestFatalFailureRemovesTheTicketStoredUnderALaterPartition;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITls13HandshakeEngine;
+  LTicket: TBytes;
+begin
+  LCache := TInMemorySessionCache.Create;
+  LClient := NewClient(LCache, TBytes.Create($0A));
+  LServer := NewServer;
+  RunUntilTicketsAreQueued(LClient, LServer);
+  SetPartition(LClient, TBytes.Create($0B));
+  Deliver(LServer, LClient);
+  CheckEquals(1, LCache.Count, 'the ticket was cached');
+  LTicket := TicketWithEarlyDataLimit(1234);
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
+  CheckTrue(LClient.IsTerminal, 'the client failed');
+  CheckEquals(0, LCache.Count, 'the failure withdrew the ticket under the key it was stored with');
 end;
 
 procedure TTestResumptionPartition.TestKeyExchangeHintIsKeptUnderTheCreationPartition;
@@ -749,11 +769,11 @@ begin
     'and the combination by the plain scope');
 end;
 
-procedure TTestServerResumptionScope.TestConfigurationsWithDifferentTrustNeverResumeUnderOneEngineScope;
+procedure TTestServerResumptionScope.TestMutualConfigurationsWithDifferentScopesNeverResumeUnderOneEngineScope;
 begin
   CheckFalse(ResumesAcross(MutualServerConfig(TBytes.Create($01)), TBytes.Create($0A),
     MutualServerConfig(TBytes.Create($02)), TBytes.Create($0A), True),
-    'two client-authenticating configurations sharing a ticket key');
+    'two client-authenticating configurations of different scopes sharing a ticket key');
 end;
 
 procedure TTestServerResumptionScope.TestConfigurationsWithTheSameScopeResumeUnderOneEngineScope;
@@ -789,10 +809,13 @@ begin
 end;
 
 procedure TTestServerResumptionScope.TestCombinedScopeStaysInsideTheTicketScopeLimit;
+var
+  LLongest: Int32;
 begin
   CheckEquals(35, System.Length(TSessionScope.Combine(nil, TBytes.Create($01))), 'the shortest');
-  CheckEquals(66, System.Length(TSessionScope.Combine(Filled($01, 32), Filled($02, 32))),
-    'the longest');
+  LLongest := System.Length(TSessionScope.Combine(Filled($01, 32), Filled($02, 32)));
+  CheckEquals(66, LLongest, 'the longest');
+  CheckTrue(LLongest <= 255, 'inside the ticket scope vector');
 end;
 
 initialization
