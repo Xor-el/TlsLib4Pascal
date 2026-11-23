@@ -76,6 +76,7 @@ type
     procedure StartHandshake;
     function ProvideHandshakeData(ALevel: TTlsEpoch; const AData: TBytes;
       AOffset, ALength: Int32): TTlsOutcome;
+    function ReadLevel: TTlsEpoch;
     function NextOutput(out AOutput: TTls13HandshakeOutput): Boolean;
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     procedure SetCertificateVerdict(AAccept: Boolean; AAlert: TTlsAlertDescription);
@@ -226,6 +227,11 @@ begin
   if (FOutcome.Events.Count > 0) or (FChannel.Queue.Count > 0) then
     Exit(TTlsOutcome.Advanced);
   Result := TTlsOutcome.NeedMoreInput;
+end;
+
+function TTls13HandshakeEngine.ReadLevel: TTlsEpoch;
+begin
+  Result := FChannel.ReadLevel;
 end;
 
 function TTls13HandshakeEngine.NextOutput(out AOutput: TTls13HandshakeOutput): Boolean;

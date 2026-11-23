@@ -46,7 +46,10 @@ type
   /// the caller serializes access.
   /// </summary>
   ITls13HandshakeEngine = interface(ITlsCommonEngine)
-    ['{6D14B8F3-2A7C-4E95-8C01-F3A9D5E27B60}']
+    ['{7B79762F-492A-4660-A1BC-F281F99C3C28}']
+    /// <summary>The level the next ProvideHandshakeData must use. It advances when the read
+    /// secret is queued, before the host drains it; EarlyData is never reported.</summary>
+    function ReadLevel: TTlsEpoch;
     /// <summary>Feeds handshake bytes the peer sent at ALevel, which must be the level the engine
     /// reads now (Plaintext until the first read secret, then the level of the latest Handshake or
     /// Application read secret). Bytes at any other level, or a handshake message that straddles a

@@ -181,6 +181,8 @@ type
     procedure TestNoAlertFailureDropsEveryQueuedSecret;
     procedure TestResumptionUsesTheTicketOfItsOwnKind;
     procedure TestZeroRttIsAcceptedAndKeysAgree;
+    procedure TestReadLevelFollowsTheReadSecretsBeforeTheyAreDrained;
+    procedure TestReadLevelIsNeverEarlyData;
     procedure TestZeroRttIsRejectedAfterARetry;
     procedure TestHelloRetryRequestCompletes;
     procedure TestMutualAuthentication;
@@ -1139,6 +1141,66 @@ begin
   LServerExport := LServer.ExportEarlyKeyingMaterial('early label', nil, 32);
   CheckEquals(32, System.Length(LClientExport), 'an early export exists');
   CheckEqualBytes('and agrees', LClientExport, LServerExport);
+end;
+
+procedure TTestTls13HandshakeEngine.TestReadLevelFollowsTheReadSecretsBeforeTheyAreDrained;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LOutput: TTls13HandshakeOutput;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  CheckEquals(Ord(TTlsEpoch.Plaintext), Ord(LClient.ReadLevel), 'the client starts in the clear');
+  CheckEquals(Ord(TTlsEpoch.Plaintext), Ord(LServer.ReadLevel), 'and so does the server');
+  LClient.StartHandshake;
+  CheckEquals(Ord(TTlsEpoch.Plaintext), Ord(LClient.ReadLevel),
+    'a queued ClientHello reads nothing new');
+  CheckTrue(LClient.NextOutput(LOutput), 'the ClientHello');
+  LServer.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data));
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LServer.ReadLevel),
+    'the server reads its client''s Finished at the handshake level, secrets not yet drained');
+  CheckTrue(LServer.NextOutput(LOutput), 'the ServerHello');
+  LClient.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data));
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LClient.ReadLevel),
+    'the client moved to the handshake level with its read secret still queued');
+  while LServer.NextOutput(LOutput) do
+    if (LOutput.Kind = TTls13HandshakeOutputKind.HandshakeData) and
+      (LOutput.Level = TTlsEpoch.Handshake) then
+    begin
+      LClient.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data));
+      Break;
+    end;
+  CheckEquals(Ord(TTlsEpoch.Application), Ord(LClient.ReadLevel),
+    'the server Finished moved the client to the application level');
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LServer.ReadLevel),
+    'the server still waits for the client Finished at the handshake level');
+  Deliver(LClient, LServer, FClientLog);
+  CheckEquals(Ord(TTlsEpoch.Application), Ord(LServer.ReadLevel),
+    'the client Finished moved the server to the application level');
+end;
+
+procedure TTestTls13HandshakeEngine.TestReadLevelIsNeverEarlyData;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITls13HandshakeEngine;
+  LOutput: TTls13HandshakeOutput;
+begin
+  LCache := TInMemorySessionCache.Create;
+  Seed(LCache);
+  LClient := NewClient(ClientResuming(LCache, True));
+  LServer := NewServer(ServerResuming(True));
+  LClient.StartHandshake;
+  CheckEquals(Ord(TTlsEpoch.Plaintext), Ord(LClient.ReadLevel),
+    'an early write secret does not move the client''s read level');
+  Deliver(LClient, LServer, FClientLog);
+  CheckTrue(HasOutput(FClientLog, TTls13HandshakeOutputKind.WriteSecret, TTlsEpoch.EarlyData),
+    'the client keyed 0-RTT');
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LServer.ReadLevel),
+    'the early read secret does not show: the server reads the handshake level next');
+  while LServer.NextOutput(LOutput) do
+    FServerLog.Add(LOutput);
+  CheckTrue(HasOutput(FServerLog, TTls13HandshakeOutputKind.ReadSecret, TTlsEpoch.EarlyData),
+    'the server did queue an early read secret');
 end;
 
 procedure TTestTls13HandshakeEngine.TestZeroRttIsRejectedAfterARetry;
