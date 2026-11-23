@@ -1,0 +1,30 @@
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_f2c9bd75607afc::t_7a6c07757630c0 46
+TlsLib/src/Extensions/TlpHostExtensions.pas
+  s_f2c9bd75607afc::t_35866a5f456c7f 257-258,262
+  s_f2c9bd75607afc::t_4334aa4dc8ef80 261
+TlsLib.Tests/src/ClientHelloPauseTests.pas
+  s_f2c9bd75607afc::t_778d72571769c0 166
+  s_f2c9bd75607afc::t_a628c02f9f0a6e 946
+  s_f2c9bd75607afc::t_55843140152cea 175-176
+  s_f2c9bd75607afc::t_b9a9e91b5f1406 821-835
+  s_f2c9bd75607afc::t_7140bd0fdfcc7c 964
+docs/tls13-handshake-engine.md
+  s_f2c9bd75607afc::t_26bc2eb91f5fab 196-199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d01ab8b7c33d7783e0e46a8b408366b52158e041",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
