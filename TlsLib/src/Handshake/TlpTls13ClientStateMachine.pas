@@ -864,13 +864,13 @@ begin
   // (RFC 9849 sec. 6.1.7); a reject is already terminal, so this guards against a future refactor
   if FEchOrch.Status = TEchStatus.Rejected then
     Exit;
-  // a client that keeps no tickets ignores them (RFC 9846 4.7.1)
-  if FParams.SessionCache = nil then
-    Exit;
-  // a host that fixed a limit gets a cached ticket advertising another value refused locally
+  // a host that fixed a limit gets any ticket advertising another value refused locally
   if FParams.HostOwnsRecordProtection and (FParams.TicketEarlyDataLimit <> 0) and
     LEarlyDataPresent and (LMaxEarlyData <> FParams.TicketEarlyDataLimit) then
     raise ELocalFailureTlsLibException.CreateRes(@STicketEarlyDataLimitMismatch);
+  // a client that keeps no tickets ignores them (RFC 9846 4.7.1)
+  if FParams.SessionCache = nil then
+    Exit;
   // ticket_lifetime 0 means discard immediately, and a client MUST NOT use a ticket for longer
   // than seven days regardless of what the server advertised (RFC 9846 4.7.1)
   if LNst.TicketLifetime = 0 then

@@ -177,6 +177,7 @@ type
     procedure TestClientHandshakeWriteSecretFollowsTheServerHelloAfterAZeroRttOffer;
     procedure TestZeroLimitLeavesTheTicketValueUnchecked;
     procedure TestClientWithoutACacheIgnoresTickets;
+    procedure TestClientWithoutACacheRefusesAMismatchingTicket;
     procedure TestNoAlertFailureDropsEveryQueuedSecret;
     procedure TestResumptionUsesTheTicketOfItsOwnKind;
     procedure TestZeroRttIsAcceptedAndKeysAgree;
@@ -1060,10 +1061,24 @@ begin
   LServer := NewServer(ServerConfig);
   Run(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the handshake completed');
+  LTicket := TicketWithEarlyDataLimit(TicketLimit);
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
+  CheckFalse(LClient.IsTerminal, 'a ticket a client does not keep is ignored');
+end;
+
+procedure TTestTls13HandshakeEngine.TestClientWithoutACacheRefusesAMismatchingTicket;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LTicket: TBytes;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  Run(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the handshake completed');
   // the host-fixed limit is $FFFFFFFF, and this ticket carries another value
   LTicket := TicketWithEarlyDataLimit(1234);
   LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
-  CheckFalse(LClient.IsTerminal, 'a ticket a client does not keep is ignored, whatever it advertises');
+  CheckLocalWithoutAlert(LClient, 'a limit the host did not fix');
 end;
 
 procedure TTestTls13HandshakeEngine.TestNoAlertFailureDropsEveryQueuedSecret;
