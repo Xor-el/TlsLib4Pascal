@@ -43,8 +43,8 @@ type
     /// ClientHello) rather than responding to it (a server). Drives the initial
     /// legacy_record_version (RFC 9846 5.1).</summary>
     function Initiates: Boolean;
-    /// <summary>The coarse handshake stage (Handshaking / ParkedForVerdict / ParkedForClientHello / Connected), read by
-    /// the engine and conductor to gate KeyUpdate, exporter availability, and completion without
+    /// <summary>The coarse handshake stage (Handshaking / ParkedForVerdict / ParkedForClientHello /
+    /// Connected), read by the engine and conductor to gate KeyUpdate, exporter availability, and completion without
     /// scanning effects or proxy flags.</summary>
     function Stage: THandshakeStage;
     function Start: TArray<THandshakeEffect>;

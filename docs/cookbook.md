@@ -744,14 +744,15 @@ while LServer.NextEvent(LEvent) do
   end;
 ```
 
-The engine parks after it decrypted and validated the ClientHello, before it selects
-anything or decides on a HelloRetryRequest, and the call that parks returns `Advanced`. A reply replaces the registered body
-and goes wherever the extension rides; an offered extension with no reply is not sent. A reply for an
-extension the client did not offer, two for one extension or a body over 65535 bytes raises
-`EArgumentTlsLibException` and leaves the engine parked. To refuse the connection instead, call
-`LatchTransportFailure`. If the client's ECH was rejected, the name and bodies are the outer
+The engine parks after it decrypted and validated the ClientHello, before it selects anything or
+decides on a HelloRetryRequest, and the call that parks returns `Advanced`. A reply replaces the
+registered body and goes wherever the extension rides; an offered extension with no reply is not
+sent. A reply for an extension the client did not offer, two for one extension or a body over
+65535 bytes raises `EArgumentTlsLibException` and leaves the engine parked. To refuse the
+connection instead, call `LatchTransportFailure`. If the client's ECH was rejected, the name and bodies are the outer
 ClientHello's. After a HelloRetryRequest the second ClientHello must repeat the first one's offer of
-each registered extension, or the handshake fails with `illegal_parameter`.
+each registered extension, or the handshake fails with `illegal_parameter`; an extension the
+HelloRetryRequest carried may change its body but not be dropped.
 
 ## Resume sessions
 

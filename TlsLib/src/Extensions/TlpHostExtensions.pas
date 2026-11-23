@@ -254,7 +254,7 @@ procedure THostExtensionAdapter.BlockConsumed(AKind: TTlsExtensionContextKind);
 var
   LOffered: Boolean;
 begin
-  // the second ClientHello repeats the first's offer, but a type the retry carried may change its body (RFC 9846 4.2.2)
+  // the offer repeats, but a type the retry carried may change its body (RFC 9846 4.2.2)
   if FInstalled and (AKind = TTlsExtensionContextKind.ClientHello) then
   begin
     LOffered := TTlsExtensionContextKind.ClientHello in FPeerSeen;

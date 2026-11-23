@@ -196,7 +196,8 @@ end;
   itself carried may change its body but not be dropped. After a retry the host-extension results
   show the second ClientHello's body, while the reply given at the pause stands.
 - Ticket expiry, freshness and the 0-RTT replay check are judged when the engine continues: the
-  pause counts toward the ticket age, so a long pause declines 0-RTT, and the resumption still goes ahead.
+  pause counts toward the ticket age, so a long pause declines 0-RTT, and the resumption still goes
+  ahead while the ticket is valid.
 
 ## Checks between input and output
 
