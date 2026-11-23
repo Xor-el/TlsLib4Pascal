@@ -71,6 +71,7 @@ uses
   TlpEchExtension,
   TlpEchServer,
   TlpHandshakeEffect,
+  TlpHandshakeStage,
   TlpTlsConnectionInfo,
   TlpRecordHeader,
   TlpIHandshakeMachine,
@@ -163,6 +164,14 @@ type
     /// <summary>An opaque scope sealed into issued tickets and required to match on resumption,
     /// partitioning configurations that share a ticket key or store; empty does not partition.</summary>
     ResumptionScope: TBytes;
+    /// <summary>This engine's own scope, at most 32 bytes. Non-empty, it is combined with
+    /// ResumptionScope into a scope no configuration scope can equal, used to accept and to seal
+    /// tickets; empty leaves ResumptionScope alone.</summary>
+    EngineResumptionScope: TBytes;
+    /// <summary>Whether the machine parks at the first ClientHello once it is validated, before
+    /// anything is selected, until ContinueAfterClientHello resumes it. Meant for a host that owns
+    /// record protection.</summary>
+    ClientHelloPause: Boolean;
     /// <summary>How many NewSessionTickets to send after the handshake (0 = none).</summary>
     IssueTicketCount: Int32;
     /// <summary>The ticket lifetime hint in seconds carried in each NewSessionTicket.</summary>
@@ -210,7 +219,7 @@ type
     /// age for a 0-RTT offer (RFC 9846 8.3); also sizes the anti-replay hold.</summary>
     MaxFreshnessSkewMillis = UInt32(60) * 1000;
   type
-    TPhase = (Initial, WaitSecondClientHello, WaitClientCertificate,
+    TPhase = (Initial, ParkedClientHello, WaitSecondClientHello, WaitClientCertificate,
       WaitClientCertVerify, WaitEndOfEarlyData, WaitClientFinished, Connected);
     /// <summary>The server's encrypted-flight messages, framed. CertificateRequest is
     /// empty unless client authentication is requested.</summary>
@@ -224,6 +233,15 @@ type
   var
     FParams: TServerHandshakeParams;
     FPhase: TPhase;
+    /// <summary>The scope tickets are accepted and sealed under: the configuration's, or its
+    /// combination with this engine's own.</summary>
+    FEffectiveScope: TBytes;
+    /// <summary>The first ClientHello while the machine is parked: decoded, as framed (the inner
+    /// one on ECH accept) and with the extension context the validation filled, which this
+    /// machine owns until the continue or its destruction.</summary>
+    FParkedClientHello: TTlsClientHello;
+    FParkedRaw: TBytes;
+    FParkedContext: TExtensionContext;
     /// <summary>The asymmetric key exchange group selected from the client's offer, resolved
     /// to its group object for encapsulation (RFC 9846 4.3.8).</summary>
     FSelectedGroup: INamedGroup;
@@ -363,15 +381,23 @@ type
       : TArray<THandshakeEffect>;
     function ProcessSecondClientHello(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>;
-    /// <summary>Consumes the ClientHello extensions into AContext, validates the
-    /// signature_algorithms, and selects the version, suite (FSelectedSuite), and the
-    /// server's group; raises the right alert on any mismatch. When AAllowResumption is
-    /// set it first tries to accept a resumption PSK (which then picks the suite and
-    /// skips the certificate-auth path).</summary>
-    procedure NegotiateFrom(const AClientHello: TTlsClientHello;
+    /// <summary>Consumes the ClientHello extensions into AContext and checks what the ClientHello
+    /// itself must satisfy: the PSK offer, the version, legacy fields, and the pairing of
+    /// supported_groups with key_share; raises the right alert on any violation. Nothing is
+    /// selected, so a server may park after it.</summary>
+    procedure ValidateClientHello(const AClientHello: TTlsClientHello;
+      const AContext: TExtensionContext; const AExtensions: TExtensionVector);
+    /// <summary>Selects what the validated ClientHello is answered with: the credential,
+    /// signature scheme, suite (FSelectedSuite), the server's group and ALPN, raising the right
+    /// alert on any mismatch. When AAllowResumption is set it first tries to accept a resumption
+    /// PSK (which then picks the suite and skips the certificate-auth path).</summary>
+    procedure SelectFrom(const AClientHello: TTlsClientHello;
       const AContext: TExtensionContext; const ARawClientHello: TBytes;
-      const AExtensions: TExtensionVector; AAllowResumption: Boolean;
-      out ASelectedGroup: UInt16);
+      AAllowResumption: Boolean; out ASelectedGroup: UInt16);
+    /// <summary>Selects for and answers the first ClientHello: a HelloRetryRequest when the client
+    /// sent no share for the selected group, else the server flight. The transcript is folded here.</summary>
+    function AnswerClientHello(const AClientHello: TTlsClientHello;
+      const AContext: TExtensionContext; const AEchRaw: TBytes): TArray<THandshakeEffect>;
     /// <summary>
     /// Attempts to accept a resumption PSK from the ClientHello: looks up the first
     /// offered identity in the store (single-use), checks it is unexpired, and verifies
@@ -487,6 +513,10 @@ type
   strict protected
     function Route(const AMessage: TTlsHandshakeMessage)
       : TArray<THandshakeEffect>; override;
+    /// <summary>Answers the parked ClientHello; a non-empty AResumptionScope becomes this engine's
+    /// own scope first. Raises EInvalidOperationTlsLibException when not parked.</summary>
+    function SelectAfterClientHello(const AResumptionScope: TBytes)
+      : TArray<THandshakeEffect>; override;
     function WriteDirection: TTlsDirection; override;
     function ReadDirection: TTlsDirection; override;
   public
@@ -586,6 +616,8 @@ begin
     raise EArgumentTlsLibException.CreateRes(@SClockRequired);
   FParams := AParams;
   FPhase := TPhase.Initial;
+  FEffectiveScope := TSessionScope.Combine(AParams.ResumptionScope,
+    AParams.EngineResumptionScope);
   FEchStatus := TEchStatus.NotOffered;
   if FParams.CookieSecret <> nil then
     FCookie := THelloRetryCookie.Create(FParams.Crypto, FParams.CookieSecret);
@@ -600,6 +632,7 @@ end;
 
 destructor TTls13ServerStateMachine.Destroy;
 begin
+  FParkedContext.Free;
   FCookie.Free;
   inherited Destroy;
 end;
@@ -693,12 +726,10 @@ begin
       FParams.RecordSizeLimit));
 end;
 
-procedure TTls13ServerStateMachine.NegotiateFrom(
+procedure TTls13ServerStateMachine.ValidateClientHello(
   const AClientHello: TTlsClientHello; const AContext: TExtensionContext;
-  const ARawClientHello: TBytes; const AExtensions: TExtensionVector;
-  AAllowResumption: Boolean; out ASelectedGroup: UInt16);
+  const AExtensions: TExtensionVector);
 var
-  LSuiteCode: UInt16;
   LClientOffersTls13: Boolean;
 begin
   // re-derived per ClientHello so a retry that drops the offer drops the response too
@@ -767,7 +798,14 @@ begin
     not AContext.WasOffered(TExtensionTypes.SupportedGroups) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.MissingExtension, @SMissingSupportedGroups);
+end;
 
+procedure TTls13ServerStateMachine.SelectFrom(const AClientHello: TTlsClientHello;
+  const AContext: TExtensionContext; const ARawClientHello: TBytes;
+  AAllowResumption: Boolean; out ASelectedGroup: UInt16);
+var
+  LSuiteCode: UInt16;
+begin
   // capture the client's SNI host_name up front (RFC 6066 3): it drives the certificate
   // selection on the non-PSK path below and guards resumption against a host mismatch, both of
   // which precede the EncryptedExtensions where the acknowledgement is later echoed
@@ -965,7 +1003,7 @@ begin
       Continue;
     // a ticket minted under a different resumption scope may not share this config's client-auth
     // trust, so decline it rather than reuse its stored identity
-    if not TArrayUtilities.AreEqual(LSession.ResumptionScope, FParams.ResumptionScope) then
+    if not TArrayUtilities.AreEqual(LSession.ResumptionScope, FEffectiveScope) then
       Continue;
     // a ticket another kind of engine minted may carry settings that are not this engine's
     if L13.TicketBinding <> FParams.TicketBinding then
@@ -1244,10 +1282,9 @@ function TTls13ServerStateMachine.ProcessClientHello(
 var
   LClientHello: TTlsClientHello;
   LContext: TExtensionContext;
-  LSelectedGroup: UInt16;
   LEchType: TEchClientHelloType;
   LHasEch: Boolean;
-  LClientShare, LEchRaw: TBytes;
+  LEchRaw: TBytes;
   LExtensions: TExtensionVector;
 begin
   LEchRaw := AMessage.Raw;
@@ -1291,21 +1328,68 @@ begin
   end;
   LContext := TExtensionContext.Create;
   try
-    NegotiateFrom(LClientHello, LContext, LEchRaw, LExtensions, True, LSelectedGroup);
-    LClientShare := KeyShareFor(LContext, LSelectedGroup);
-    if System.Length(LClientShare) = 0 then
-      // the client listed our group but sent no share for it: ask for one
-      Result := EmitHelloRetryRequest(LClientHello, LEchRaw, LSelectedGroup)
-    else
-    begin
-      // transcript: ClientHello, then (activated) ServerHello inside EmitServerFlight
-      FTranscript.Update(LEchRaw);
-      FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash));
-      // the client_early_traffic secret is over the ClientHello-only transcript
-      if FEarlyDataAccepted then
-        FEarlyTranscriptHash := FTranscript.CurrentHash;
-      Result := EmitServerFlight(LClientHello, LSelectedGroup, LClientShare, True);
-    end;
+    ValidateClientHello(LClientHello, LContext, LExtensions);
+    if not FParams.ClientHelloPause then
+      Exit(AnswerClientHello(LClientHello, LContext, LEchRaw));
+    Result := TArray<THandshakeEffect>.Create(THandshakeEffects.AwaitClientHello(
+      LContext.ServerName));
+    // the context outlives this call; handing it over last leaves the finally nothing to free
+    FParkedClientHello := LClientHello;
+    FParkedRaw := LEchRaw;
+    FPhase := TPhase.ParkedClientHello;
+    FStage := THandshakeStage.ParkedForClientHello;
+    FParkedContext := LContext;
+    LContext := nil;
+  finally
+    LContext.Free;
+  end;
+end;
+
+function TTls13ServerStateMachine.AnswerClientHello(const AClientHello: TTlsClientHello;
+  const AContext: TExtensionContext; const AEchRaw: TBytes): TArray<THandshakeEffect>;
+var
+  LSelectedGroup: UInt16;
+  LClientShare: TBytes;
+begin
+  SelectFrom(AClientHello, AContext, AEchRaw, True, LSelectedGroup);
+  LClientShare := KeyShareFor(AContext, LSelectedGroup);
+  if System.Length(LClientShare) = 0 then
+    // the client listed our group but sent no share for it: ask for one
+    Result := EmitHelloRetryRequest(AClientHello, AEchRaw, LSelectedGroup)
+  else
+  begin
+    // transcript: ClientHello, then (activated) ServerHello inside EmitServerFlight
+    FTranscript.Update(AEchRaw);
+    FTranscript.Activate(FParams.Crypto.Primitives.CreateHash(FSelectedSuite.Common.Hash));
+    // the client_early_traffic secret is over the ClientHello-only transcript
+    if FEarlyDataAccepted then
+      FEarlyTranscriptHash := FTranscript.CurrentHash;
+    Result := EmitServerFlight(AClientHello, LSelectedGroup, LClientShare, True);
+  end;
+end;
+
+function TTls13ServerStateMachine.SelectAfterClientHello(
+  const AResumptionScope: TBytes): TArray<THandshakeEffect>;
+var
+  LContext: TExtensionContext;
+  LClientHello: TTlsClientHello;
+  LRaw: TBytes;
+begin
+  if FPhase <> TPhase.ParkedClientHello then
+    Exit(inherited SelectAfterClientHello(AResumptionScope));
+  // the parked state moves into locals first, so a failure below leaves nothing to free twice
+  LContext := FParkedContext;
+  LClientHello := FParkedClientHello;
+  LRaw := FParkedRaw;
+  FParkedContext := nil;
+  FParkedClientHello := Default(TTlsClientHello);
+  FParkedRaw := nil;
+  FPhase := TPhase.Initial;
+  FStage := THandshakeStage.Handshaking;
+  try
+    if System.Length(AResumptionScope) > 0 then
+      FEffectiveScope := TSessionScope.Combine(FParams.ResumptionScope, AResumptionScope);
+    Result := AnswerClientHello(LClientHello, LContext, LRaw);
   finally
     LContext.Free;
   end;
@@ -1499,7 +1583,8 @@ begin
     // resumption is not attempted on the retry ClientHello (kept to the first flight)
     LSentServerName := FClientSentServerName;
     LRequestedServerName := FRequestedServerName;
-    NegotiateFrom(LClientHello, LContext, LCh2Raw, LExtensions, False, LSelectedGroup);
+    ValidateClientHello(LClientHello, LContext, LExtensions);
+    SelectFrom(LClientHello, LContext, LCh2Raw, False, LSelectedGroup);
     // server_name is not a permitted retry change (RFC 9846 4.2.2); the ticket's host check ran on
     // the first hello only
     if (FClientSentServerName <> LSentServerName) or
@@ -2172,7 +2257,7 @@ begin
       FSelectedSuite.Common.Hash, LPsk, FSelectedAlpn,
       FRequestedServerName, nil,
       LLifetime, LAgeAdd, LNowMs,
-      FParams.MaxEarlyData, LChainForTicket, FParams.ResumptionScope,
+      FParams.MaxEarlyData, LChainForTicket, FEffectiveScope,
       FSessionPskIdentity, FSessionPskBinding, FPeerSignatureScheme, LAuthenticatedAtMs,
       FParams.EarlyDataContext, nil, FParams.TicketBinding);
     LHandle := FTicketStrategy.Seal(LSession);

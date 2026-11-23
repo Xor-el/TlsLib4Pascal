@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpTlsError,
   TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeStage,
@@ -42,6 +43,8 @@ type
     // set when the machine parks on a peer-certificate verdict (async): further inbound
     // messages are buffered, not processed, until the verdict resolves the park
     FVerdictPending: Boolean;
+    // set when a server parks at its validated ClientHello: inbound is buffered until the host continues
+    FClientHelloPending: Boolean;
     // count of post-handshake messages (KeyUpdate / NewSessionTicket) received with no
     // intervening application data; bounded to refuse a flood, reset by genuine traffic
     FPostHandshakeMessages: Int32;
@@ -62,9 +65,18 @@ type
     /// boundary or completion while still handshaking.</summary>
     function ExcessAfterBoundary(const AEffects: TArray<THandshakeEffect>;
       AWasEstablished: Boolean): Boolean;
+    /// <summary>The Fail for excess buffered bytes; a read-key change gives it the
+    /// DataAfterReadLevelChange cause.</summary>
+    class function ExcessDataFailure(
+      const AEffects: TArray<THandshakeEffect>): THandshakeEffect; static;
     /// <summary>Feeds every whole buffered message into the machine, applying its effects,
-    /// until the channel drains, a Fail stops it, or the machine parks for a verdict.</summary>
+    /// until the channel drains, a Fail stops it, or the machine parks for a verdict or a
+    /// ClientHello.</summary>
     procedure DrainInbound;
+    /// <summary>Applies the effects of a resumed park; unless they fail or leave excess bytes
+    /// behind a boundary, drains the input buffered during the park.</summary>
+    procedure ApplyResumption(const AEffects: TArray<THandshakeEffect>;
+      AWasEstablished: Boolean);
   public
     constructor Create(const AChannel: IHandshakeChannel;
       const ADriver: THandshakeDriver; const AMachine: IHandshakeMachine);
@@ -81,6 +93,11 @@ type
     /// AAlert. A no-op when nothing is parked.</summary>
     procedure ResolveCertificateVerdict(AAccept: Boolean;
       AAlert: TTlsAlertDescription);
+    /// <summary>Whether a server is parked at its validated ClientHello awaiting the host.</summary>
+    property AwaitingClientHello: Boolean read FClientHelloPending;
+    /// <summary>Resumes a parked ClientHello: applies the effects of negotiating and answering
+    /// it, then drains the input buffered during the park. A no-op when nothing is parked.</summary>
+    procedure ResolveClientHello(const AResumptionScope: TBytes);
     /// <summary>Applies the machine's post-handshake KeyUpdate effects (RFC 9846 4.7.3).</summary>
     procedure RequestKeyUpdate(ARequest: TKeyUpdateRequest);
     /// <summary>Applies any pending coalesced KeyUpdate response (before an app write).</summary>
@@ -191,6 +208,17 @@ begin
     ((not AWasEstablished) and (HasFlightBoundary(AEffects) or IsEstablished)));
 end;
 
+class function THandshakeConductor.ExcessDataFailure(
+  const AEffects: TArray<THandshakeEffect>): THandshakeEffect;
+begin
+  if HasReadKeyChange(AEffects) then
+    Result := THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+      SDataPastFlightBoundary, TTlsErrorCause.DataAfterReadLevelChange)
+  else
+    Result := THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+      SDataPastFlightBoundary);
+end;
+
 procedure THandshakeConductor.Start;
 begin
   FDriver.ApplyAll(FMachine.Start);
@@ -285,8 +313,7 @@ begin
     // records, so only a key change is a boundary once established.
     if ExcessAfterBoundary(LEffects, LWasEstablished) then
     begin
-      FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
-        SDataPastFlightBoundary));
+      FDriver.Apply(ExcessDataFailure(LEffects));
       Exit;
     end;
     // a park for an async peer-certificate verdict suspends processing: the rest of the
@@ -296,6 +323,12 @@ begin
       FVerdictPending := True;
       Break;
     end;
+    // a server parked at its ClientHello likewise keeps what follows buffered for the continue
+    if FMachine.Stage = THandshakeStage.ParkedForClientHello then
+    begin
+      FClientHelloPending := True;
+      Break;
+    end;
   end;
 end;
 
@@ -303,8 +336,8 @@ procedure THandshakeConductor.DeliverHandshake(const AData: TBytes;
   AOffset, ALength: Int32);
 begin
   FChannel.AppendInbound(AData, AOffset, ALength);
-  // while parked on a verdict, buffer only; the verdict will drain what is already here
-  if FVerdictPending then
+  // while parked on a verdict or a ClientHello, buffer only; the resume will drain what is here
+  if FVerdictPending or FClientHelloPending then
     Exit;
   DrainInbound;
 end;
@@ -317,7 +350,6 @@ end;
 procedure THandshakeConductor.ResolveCertificateVerdict(AAccept: Boolean;
   AAlert: TTlsAlertDescription);
 var
-  LEffects: TArray<THandshakeEffect>;
   LWasEstablished: Boolean;
 begin
   if not FVerdictPending then
@@ -336,21 +368,37 @@ begin
   // completion, so the machine emits its closing flight here. The initial-certificate park
   // returns none - its buffered server flight drives it below.
   LWasEstablished := IsEstablished;
-  LEffects := FMachine.ResumeAfterVerdict;
-  FDriver.ApplyAll(LEffects);
-  if HasFail(LEffects) then
+  ApplyResumption(FMachine.ResumeAfterVerdict, LWasEstablished);
+end;
+
+procedure THandshakeConductor.ApplyResumption(const AEffects: TArray<THandshakeEffect>;
+  AWasEstablished: Boolean);
+begin
+  FDriver.ApplyAll(AEffects);
+  if HasFail(AEffects) then
     Exit;
   // the same flight-boundary excess-data guard DrainInbound applies to a batch: the peer's
-  // prior flight (the server Finished) must have ended on a record boundary
-  if ExcessAfterBoundary(LEffects, LWasEstablished) then
+  // prior flight (the server Finished, the ClientHello) must have ended on a record boundary
+  if ExcessAfterBoundary(AEffects, AWasEstablished) then
   begin
-    FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
-      SDataPastFlightBoundary));
+    FDriver.Apply(ExcessDataFailure(AEffects));
     Exit;
   end;
   // process the buffered remainder: the initial-park server flight (CertificateVerify,
-  // Finished), or a NewSessionTicket coalesced behind the resumed server Finished
+  // Finished), a NewSessionTicket coalesced behind the resumed server Finished, or the
+  // peer's flight that followed a ClientHello
   DrainInbound;
+end;
+
+procedure THandshakeConductor.ResolveClientHello(const AResumptionScope: TBytes);
+var
+  LWasEstablished: Boolean;
+begin
+  if not FClientHelloPending then
+    Exit;
+  FClientHelloPending := False;
+  LWasEstablished := IsEstablished;
+  ApplyResumption(FMachine.ContinueAfterClientHello(AResumptionScope), LWasEstablished);
 end;
 
 end.

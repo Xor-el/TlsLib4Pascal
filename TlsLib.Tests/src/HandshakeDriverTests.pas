@@ -74,6 +74,8 @@ type
     procedure TestTryFromExceptionCarriesThePeerInputMessage;
     procedure TestDriverFailsClosedOnUndeliverableVerdictPark;
     procedure TestUndeliverableVerdictParkSaysWhy;
+    procedure TestDriverFailsClosedOnUndeliverableClientHelloPark;
+    procedure TestUndeliverableClientHelloParkSaysWhy;
     procedure TestDriverArmsTls12ReadInstallButInstallsTls13Immediately;
     procedure TestDriverWriteInstallIsImmediate;
   end;
@@ -507,6 +509,53 @@ begin
     CheckTrue(LSink.Failed, 'an undeliverable verdict park fails the handshake');
     CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LSink.FailedAlert),
       'the failure is internal_error: our side could not carry the park');
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestDriverFailsClosedOnUndeliverableClientHelloPark;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+  LSink: TMockHandshakeSink;
+  LSinkRef: IHandshakeSink;
+begin
+  // the mock sink takes no ClientHello park: it would wedge the handshake forever, so the
+  // driver must fail it closed instead
+  LLayer := TRecordLayer.Create;
+  LSink := TMockHandshakeSink.Create;
+  LSinkRef := LSink;
+  LDriver := THandshakeDriver.Create(THandshakeChannel.Create(LLayer) as IHandshakeChannel, nil,
+    LSinkRef);
+  try
+    LDriver.Apply(THandshakeEffects.AwaitClientHello('x'));
+    CheckTrue(LSink.Failed, 'an undeliverable ClientHello park fails the handshake');
+    CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LSink.FailedAlert),
+      'the failure is internal_error: our side could not carry the park');
+  finally
+    LDriver.Free;
+    LLayer.Free;
+  end;
+end;
+
+procedure TTestHandshakeDriver.TestUndeliverableClientHelloParkSaysWhy;
+var
+  LLayer: TRecordLayer;
+  LDriver: THandshakeDriver;
+  LSink: TMockHandshakeSink;
+  LSinkRef: IHandshakeSink;
+begin
+  LLayer := TRecordLayer.Create;
+  LSink := TMockHandshakeSink.Create;
+  LSinkRef := LSink;
+  LDriver := THandshakeDriver.Create(THandshakeChannel.Create(LLayer) as IHandshakeChannel, nil,
+    LSinkRef);
+  try
+    LDriver.Apply(THandshakeEffects.AwaitClientHello('x'));
+    CheckEquals('the handshake parked at the ClientHello with nothing to continue it',
+      LSink.FailedReason, 'the failure says the park could not be delivered');
   finally
     LDriver.Free;
     LLayer.Free;

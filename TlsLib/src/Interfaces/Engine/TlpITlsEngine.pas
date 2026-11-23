@@ -41,7 +41,8 @@ type
     EarlyDataAccepted,  // the server accepted the client's 0-RTT early data
     EarlyDataRejected,  // the server rejected 0-RTT; the accepted early data is discarded (not replayed)
     KeyUpdateReceived,  // the peer sent a post-handshake KeyUpdate; the read epoch rekeyed
-    CertificateReceived // the peer chain passed and the peer proved key possession; a verdict is awaited
+    CertificateReceived, // the peer chain passed and the peer proved key possession; a verdict is awaited
+    ClientHelloReceived  // a server parked at the validated ClientHello; the host continues it
   );
 
   /// <summary>A pollable, closure-free engine event (event-as-data queue).</summary>
@@ -118,7 +119,7 @@ type
     /// <summary>Dequeues the next event; False when the queue is empty. Drain it every cycle:
     /// past a bounded backlog of undrained events the informational kinds (SessionTicketReceived,
     /// EarlyData*, KeyUpdateReceived) are dropped, so a caller that never drains cannot grow the
-    /// queue without bound; PeerAlert, Closed and CertificateReceived are never dropped.</summary>
+    /// queue without bound; PeerAlert, Closed, CertificateReceived and ClientHelloReceived are never dropped.</summary>
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     /// <summary>A snapshot of the negotiated facts; zero values before the handshake resolves
     /// each of them.</summary>

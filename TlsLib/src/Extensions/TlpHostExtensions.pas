@@ -24,7 +24,8 @@ uses
   TlpCoreExtensions,
   TlpGrease,
   TlpITlsExtension,
-  TlpITlsHostExtension;
+  TlpITlsHostExtension,
+  TlpIHostExtensionReplies;
 
 type
   /// <summary>The side of the handshake an engine plays: it sends host extensions in the messages
@@ -52,7 +53,12 @@ type
     /// back.</summary>
     class function Adapt(const AExtensions: TArray<ITlsHostExtension>;
       ARole: TTlsHostExtensionRole;
-      out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>; static;
+      out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>; overload; static;
+    /// <summary>As above, also returning AReplies, with which a server engine chooses the reply
+    /// bodies once the client's ClientHello was read; the engine alone holds it.</summary>
+    class function Adapt(const AExtensions: TArray<ITlsHostExtension>;
+      ARole: TTlsHostExtensionRole; out AResults: ITlsHostExtensionResults;
+      out AReplies: IHostExtensionReplies): TArray<ITlsExtension>; overload; static;
   end;
 
 implementation
@@ -75,6 +81,10 @@ resourcestring
   SDuplicateHostExtension = 'two host extensions share one extension type';
   SNilHostExtension = 'a host extension is nil';
   SRequiredHostExtensionMissing = 'the peer omitted a required host extension';
+  SHostExtensionReplyNotOffered = 'a host extension reply names an extension the client did not offer';
+  SDuplicateHostExtensionReply = 'two host extension replies share one extension type';
+  SHostExtensionChangedOnRetry =
+    'the second ClientHello changed a host extension the first one offered (RFC 9846 4.2.2)';
 
 type
   THostExtension = class sealed(TInterfacedObject, ITlsHostExtension)
@@ -97,7 +107,7 @@ type
   /// message kind, answers a message other than the ClientHello only once the peer's ClientHello
   /// carried the type, and fails the handshake when a required copy is absent.</summary>
   THostExtensionAdapter = class sealed(TInterfacedObject, ITlsExtension,
-    IExtensionBlockObserver, ITlsHostExtensionResults)
+    IExtensionBlockObserver, ITlsHostExtensionResults, IHostExtensionReplies)
   strict private
   var
     FType: UInt16;
@@ -106,6 +116,14 @@ type
     FBody: TBytes;
     FPeerSeen: TTlsExtensionContexts;
     FPeerBodies: array[TTlsExtensionContextKind] of TBytes;
+    // set once the host chose its replies: the creation body is then never sent
+    FInstalled: Boolean;
+    FAnswered: Boolean;
+    FReply: TBytes;
+    // what the first ClientHello offered, which the second must repeat
+    FFirstOffered: Boolean;
+    FFirstBody: TBytes;
+    FSentInRetry: Boolean;
   public
     constructor Create(const AExtension: ITlsHostExtension);
     function ExtensionType: UInt16;
@@ -115,6 +133,8 @@ type
     procedure BlockStarted(AKind: TTlsExtensionContextKind);
     procedure BlockConsumed(AKind: TTlsExtensionContextKind);
     function TryGetPeerExtension(AType: UInt16; out ABody: TBytes): Boolean;
+    function IsOffered(AExtensionType: UInt16): Boolean;
+    procedure Install(const AReplies: TArray<TTlsHostExtensionReply>);
   end;
 
   THostExtensionResults = class sealed(TInterfacedObject, ITlsHostExtensionResults)
@@ -124,6 +144,16 @@ type
   public
     constructor Create(const AAdapters: TArray<ITlsHostExtensionResults>);
     function TryGetPeerExtension(AType: UInt16; out ABody: TBytes): Boolean;
+  end;
+
+  THostExtensionReplies = class sealed(TInterfacedObject, IHostExtensionReplies)
+  strict private
+  var
+    FAdapters: TArray<IHostExtensionReplies>;
+  public
+    constructor Create(const AAdapters: TArray<IHostExtensionReplies>);
+    function IsOffered(AExtensionType: UInt16): Boolean;
+    procedure Install(const AReplies: TArray<TTlsHostExtensionReply>);
   end;
 
 { THostExtension }
@@ -190,10 +220,20 @@ begin
   Result := (AContext.MessageContext in FSendIn) and
     ((AContext.MessageContext = TTlsExtensionContextKind.ClientHello) or
     (TTlsExtensionContextKind.ClientHello in FPeerSeen));
-  if Result then
-    ABody := System.Copy(FBody)
-  else
+  // once the host chose its replies, only an answered extension is sent, with its reply body
+  if Result and FInstalled then
+    Result := FAnswered;
+  if not Result then
+  begin
     ABody := nil;
+    Exit;
+  end;
+  if FInstalled then
+    ABody := System.Copy(FReply)
+  else
+    ABody := System.Copy(FBody);
+  if AContext.MessageContext = TTlsExtensionContextKind.HelloRetryRequest then
+    FSentInRetry := True;
 end;
 
 procedure THostExtensionAdapter.Consume(const AContext: TExtensionContext;
@@ -211,7 +251,18 @@ begin
 end;
 
 procedure THostExtensionAdapter.BlockConsumed(AKind: TTlsExtensionContextKind);
+var
+  LOffered: Boolean;
 begin
+  // the offer repeats, but a type the retry carried may change its body (RFC 9846 4.2.2)
+  if FInstalled and (AKind = TTlsExtensionContextKind.ClientHello) then
+  begin
+    LOffered := TTlsExtensionContextKind.ClientHello in FPeerSeen;
+    if (LOffered <> FFirstOffered) or ((not FSentInRetry) and LOffered and
+      not TArrayUtilities.AreEqual(FFirstBody, FPeerBodies[TTlsExtensionContextKind.ClientHello])) then
+      raise EFatalAlertTlsLibException.CreateRes(
+        TTlsAlertDescription.IllegalParameter, @SHostExtensionChangedOnRetry);
+  end;
   if (AKind in FRequiredIn) and not (AKind in FPeerSeen) then
     raise EFatalAlertTlsLibException.CreateRes(
       TTlsAlertDescription.MissingExtension, @SRequiredHostExtensionMissing);
@@ -233,6 +284,66 @@ begin
       ABody := System.Copy(FPeerBodies[LKind]);
       Exit(True);
     end;
+end;
+
+function THostExtensionAdapter.IsOffered(AExtensionType: UInt16): Boolean;
+begin
+  Result := (AExtensionType = FType) and
+    (TTlsExtensionContextKind.ClientHello in FPeerSeen);
+end;
+
+procedure THostExtensionAdapter.Install(const AReplies: TArray<TTlsHostExtensionReply>);
+var
+  LI: Int32;
+begin
+  FInstalled := True;
+  FAnswered := False;
+  FReply := nil;
+  for LI := 0 to High(AReplies) do
+    if AReplies[LI].ExtensionType = FType then
+    begin
+      FAnswered := True;
+      FReply := System.Copy(AReplies[LI].Body);
+    end;
+  FFirstOffered := TTlsExtensionContextKind.ClientHello in FPeerSeen;
+  FFirstBody := System.Copy(FPeerBodies[TTlsExtensionContextKind.ClientHello]);
+end;
+
+{ THostExtensionReplies }
+
+constructor THostExtensionReplies.Create(const AAdapters: TArray<IHostExtensionReplies>);
+begin
+  inherited Create;
+  FAdapters := System.Copy(AAdapters);
+end;
+
+function THostExtensionReplies.IsOffered(AExtensionType: UInt16): Boolean;
+var
+  LI: Int32;
+begin
+  Result := False;
+  for LI := 0 to High(FAdapters) do
+    if FAdapters[LI].IsOffered(AExtensionType) then
+      Exit(True);
+end;
+
+procedure THostExtensionReplies.Install(const AReplies: TArray<TTlsHostExtensionReply>);
+var
+  LI, LJ: Int32;
+begin
+  // every reply is checked before the first adapter changes
+  for LI := 0 to High(AReplies) do
+  begin
+    if not IsOffered(AReplies[LI].ExtensionType) then
+      raise EArgumentTlsLibException.CreateRes(@SHostExtensionReplyNotOffered);
+    if System.Length(AReplies[LI].Body) > MaxHostExtensionBody then
+      raise EArgumentTlsLibException.CreateRes(@SHostExtensionBodyTooLong);
+    for LJ := 0 to LI - 1 do
+      if AReplies[LJ].ExtensionType = AReplies[LI].ExtensionType then
+        raise EArgumentTlsLibException.CreateRes(@SDuplicateHostExtensionReply);
+  end;
+  for LI := 0 to High(FAdapters) do
+    FAdapters[LI].Install(AReplies);
 end;
 
 { THostExtensionResults }
@@ -283,15 +394,26 @@ class function TTlsHostExtensions.Adapt(const AExtensions: TArray<ITlsHostExtens
   ARole: TTlsHostExtensionRole;
   out AResults: ITlsHostExtensionResults): TArray<ITlsExtension>;
 var
+  LReplies: IHostExtensionReplies;
+begin
+  Result := Adapt(AExtensions, ARole, AResults, LReplies);
+end;
+
+class function TTlsHostExtensions.Adapt(const AExtensions: TArray<ITlsHostExtension>;
+  ARole: TTlsHostExtensionRole; out AResults: ITlsHostExtensionResults;
+  out AReplies: IHostExtensionReplies): TArray<ITlsExtension>;
+var
   LExt: ITlsExtension;
   LSnapshot: ITlsHostExtension;
   LSnapshots: TArray<ITlsHostExtension>;
   LResults: TArray<ITlsHostExtensionResults>;
+  LReplies: TArray<IHostExtensionReplies>;
   LSendable, LReceivable: TTlsExtensionContexts;
   LI, LJ: Int32;
 begin
   Result := nil;
   LResults := nil;
+  LReplies := nil;
   LSnapshots := nil;
   if ARole = TTlsHostExtensionRole.Client then
   begin
@@ -321,8 +443,10 @@ begin
     TArrayUtilities.Append<ITlsExtension>(Result, LExt);
     TArrayUtilities.Append<ITlsHostExtensionResults>(LResults,
       LExt as ITlsHostExtensionResults);
+    TArrayUtilities.Append<IHostExtensionReplies>(LReplies, LExt as IHostExtensionReplies);
   end;
   AResults := THostExtensionResults.Create(LResults) as ITlsHostExtensionResults;
+  AReplies := THostExtensionReplies.Create(LReplies) as IHostExtensionReplies;
 end;
 
 end.

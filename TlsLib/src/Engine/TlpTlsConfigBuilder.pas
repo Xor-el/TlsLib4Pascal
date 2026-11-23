@@ -108,7 +108,7 @@ type
     /// WithTicketLifetime sets another.</summary>
     DefaultTicketLifetimeSeconds = UInt32(7200);
     /// <summary>The longest session or resumption scope, in bytes, the builder accepts.</summary>
-    MaxResumptionScopeLength = Int32(32);
+    MaxResumptionScopeLength = TSessionTicketLimits.MaxResumptionScopeLength;
   strict private
   var
     FFrozen: Boolean;

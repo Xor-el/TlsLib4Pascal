@@ -40,21 +40,27 @@ type
   /// uses the recording methods directly.
   /// </summary>
   TEngineOutcome = class sealed(TInterfacedObject, IHandshakeSink,
-    IHandshakeLocalFailureSink, IHandshakeVersionSink, IHandshakeVerdictSink,
-    IHandshakeConnectionInfoSink, IEchStatusSink)
+    IHandshakeLocalFailureSink, IHandshakeFailureCauseSink, IHandshakeVersionSink,
+    IHandshakeVerdictSink, IHandshakeClientHelloSink, IHandshakeConnectionInfoSink,
+    IEchStatusSink)
   strict private
   var
     FFacts: TTlsConnectionInfo;
+    // the server name the parked ClientHello offered
+    FOfferedServerName: string;
     FEvents: TQueue<ITlsEvent>;
     FTerminal: Boolean;
     FEstablished: Boolean;
     FLastError: TTlsError;
+    // the cause the driver reported for the failure OnHandshakeFailed is about to record
+    FPendingCause: TTlsErrorCause;
   public
     constructor Create;
     destructor Destroy; override;
 
     /// <summary>Queues AEvent; past the cap the informational kinds are dropped, while the
-    /// terminal ones and a parked verdict (which the handshake cannot resume without) are kept.</summary>
+    /// terminal ones and a parked verdict or ClientHello (which the handshake cannot resume
+    /// without) are kept.</summary>
     procedure Enqueue(const AEvent: ITlsEvent);
     function NextEvent(out AEvent: ITlsEvent): Boolean;
     /// <summary>The queued events, for the owner to count.</summary>
@@ -76,6 +82,8 @@ type
     property IsTerminal: Boolean read FTerminal;
     property IsEstablished: Boolean read FEstablished;
     property LastError: TTlsError read FLastError;
+    /// <summary>The server name of the ClientHello the server parked at.</summary>
+    property OfferedServerName: string read FOfferedServerName;
 
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);
     procedure OnAlpnSelected(const AProtocol: TBytes);
@@ -83,9 +91,11 @@ type
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription; const AReason: string);
     procedure OnHandshakeFailedWithoutAlert(const AReason: string);
+    procedure OnHandshakeFailureCause(ACause: TTlsErrorCause);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
+    procedure OnClientHelloParked(const AServerName: string);
     procedure OnPeerCertificateChain(const AChain, AValidatedPath: TArray<TBytes>);
     procedure OnRequestedCertificateAuthorities(const AAuthorities: TArray<TBytes>;
       const ASchemes: TArray<UInt16>);
@@ -134,7 +144,7 @@ procedure TEngineOutcome.Enqueue(const AEvent: ITlsEvent);
 begin
   if (FEvents.Count >= MaxQueuedEvents) and
     not (AEvent.Kind in [TTlsEventKind.PeerAlert, TTlsEventKind.Closed,
-    TTlsEventKind.CertificateReceived]) then
+    TTlsEventKind.CertificateReceived, TTlsEventKind.ClientHelloReceived]) then
     Exit;
   FEvents.Enqueue(AEvent);
 end;
@@ -192,7 +202,13 @@ end;
 procedure TEngineOutcome.OnHandshakeFailed(AAlert: TTlsAlertDescription;
   const AReason: string);
 begin
-  Fail(TTlsError.CreateFatal(AAlert, AReason, TTlsErrorOrigin.Local));
+  Fail(TTlsError.CreateFatal(AAlert, AReason, TTlsErrorOrigin.Local, FPendingCause));
+  FPendingCause := TTlsErrorCause.Unspecified;
+end;
+
+procedure TEngineOutcome.OnHandshakeFailureCause(ACause: TTlsErrorCause);
+begin
+  FPendingCause := ACause;
 end;
 
 procedure TEngineOutcome.OnHandshakeFailedWithoutAlert(const AReason: string);
@@ -214,6 +230,12 @@ begin
   // out-of-band (augment-only)
   Enqueue(TTlsEvents.MakeCertificateReceived(AChain, AValidatedPath, AHostName, AStaple,
     APosture));
+end;
+
+procedure TEngineOutcome.OnClientHelloParked(const AServerName: string);
+begin
+  FOfferedServerName := AServerName;
+  Enqueue(TTlsEvents.MakeSimple(TTlsEventKind.ClientHelloReceived));
 end;
 
 procedure TEngineOutcome.OnPeerCertificateChain(const AChain,

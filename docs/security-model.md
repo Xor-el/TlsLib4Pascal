@@ -210,6 +210,11 @@ These are intentional and documented — flagging them up front so they aren't m
   3DES) that the portable backend rejects. Not every OS reports a second key that matches no
   certificate or separate key bags that hold the same key, so an OS backend can accept a store
   the portable backend rejects.
+- **A server engine's resumption scope is combined with the configuration's.** The configuration
+  scope is what keeps configurations that share a ticket key or store from resuming each other's
+  tickets, so an engine's own scope may narrow it but never replace it; the combined scope is longer
+  than any configuration scope can be, so a handshake-only engine with a scope never accepts a
+  ticket a plain configuration minted, and the reverse.
 - **The managed engine is always ours.** Native OS/JVM TLS stacks are never the handshake/record
   engine (a deliberate one-behavior / one-test-corpus stance); OS *trust* (opt-in; its Default
   mode is the OS's own verifier on Windows, macOS, iOS and Android) and the opt-in OS-native crypto

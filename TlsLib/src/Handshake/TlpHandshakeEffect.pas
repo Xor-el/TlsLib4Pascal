@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpTlsLibExceptions,
@@ -45,6 +46,7 @@ type
     SetEarlyReadEpoch,    // open/close the accepted-0-RTT early-data read window (server)
     RaiseEvent,
     AwaitCertificateVerdict, // park the handshake for an out-of-band peer-certificate verdict
+    AwaitClientHello,     // park the server at the validated ClientHello for the host's continue
     PeerCertificateChain, // surface the presented peer chain and validated path for connection info
     RequestedCertificateAuthorities, // surface a CertificateRequest's certificate_authorities
     PskIdentity,          // surface the identity of the pre-shared key that authenticated the connection
@@ -90,7 +92,7 @@ type
     NamedGroup: UInt16;          // ConnectionParams (0 when none / non-(EC)DHE)
     Resumed: Boolean;            // ConnectionParams (resumed)
     ExtendedMasterSecret: Boolean; // ConnectionParams (RFC 7627 in use; always True on TLS 1.3)
-    ServerName: string;          // ConnectionParams (the SNI in play; empty when none)
+    ServerName: string;          // ConnectionParams / AwaitClientHello (the SNI in play; empty when none)
     Alert: TTlsAlertDescription; // Fail
     Reason: string;              // Fail / FailWithoutAlert (why the handshake aborted; becomes LastError's message)
     Staple: TBytes;              // AwaitCertificateVerdict (the handshake OCSP staple; empty when none)
@@ -104,6 +106,7 @@ type
     Schemes: TArray<UInt16>;     // RequestedCertificateAuthorities (the CertificateRequest signature_algorithms)
     Facts: TNegotiationFacts;    // ConnectionParams (signature scheme, HelloRetryRequest, early-data reason, ticket age skew)
     Identity: TBytes;            // PskIdentity (the pre-shared key's identity)
+    Cause: TTlsErrorCause;       // Fail (why the handshake aborted when the alert is ambiguous)
   end;
 
   /// <summary>Builds the handshake effect values.</summary>
@@ -145,6 +148,10 @@ type
     class function AwaitCertificateVerdict(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes;
       APosture: TRevocationPosture): THandshakeEffect; static;
+    /// <summary>Parks a server at the first ClientHello once it is validated and before anything
+    /// is selected: the driver reports AServerName (what the client offered; empty when none) to the
+    /// host, which resumes with the engine's ContinueAfterClientHello.</summary>
+    class function AwaitClientHello(const AServerName: string): THandshakeEffect; static;
     /// <summary>Surfaces the peer certificate chain as presented (leaf first, DER) and the path the
     /// built-in pipeline validated for read-only connection info; carries no verdict and never blocks
     /// the handshake. AValidatedPath is empty on a resumption that re-ran no verification.</summary>
@@ -168,7 +175,10 @@ type
     class function HandshakeEstablished: THandshakeEffect; static;
     /// <summary>Aborts with AAlert; AReason is the error the application sees.</summary>
     class function Fail(AAlert: TTlsAlertDescription;
-      const AReason: string): THandshakeEffect; static;
+      const AReason: string): THandshakeEffect; overload; static;
+    /// <summary>Aborts with AAlert and records ACause for the host.</summary>
+    class function Fail(AAlert: TTlsAlertDescription; const AReason: string;
+      ACause: TTlsErrorCause): THandshakeEffect; overload; static;
     /// <summary>Aborts for a reason TLS defines no alert for; AReason is the error the host sees.</summary>
     class function FailWithoutAlert(const AReason: string): THandshakeEffect; static;
     /// <summary>ECH was accepted (RFC 9849): record the accepted status so connection info
@@ -322,6 +332,14 @@ begin
   Result.RevocationPosture := APosture;
 end;
 
+class function THandshakeEffects.AwaitClientHello(
+  const AServerName: string): THandshakeEffect;
+begin
+  Result := Default(THandshakeEffect);
+  Result.Kind := THandshakeEffectKind.AwaitClientHello;
+  Result.ServerName := AServerName;
+end;
+
 class function THandshakeEffects.PeerCertificateChain(
   const AChain, AValidatedPath: TArray<TBytes>): THandshakeEffect;
 begin
@@ -374,6 +392,13 @@ begin
   Result.Kind := THandshakeEffectKind.Fail;
   Result.Alert := AAlert;
   Result.Reason := AReason;
+end;
+
+class function THandshakeEffects.Fail(AAlert: TTlsAlertDescription;
+  const AReason: string; ACause: TTlsErrorCause): THandshakeEffect;
+begin
+  Result := Fail(AAlert, AReason);
+  Result.Cause := ACause;
 end;
 
 class function THandshakeEffects.FailWithoutAlert(const AReason: string): THandshakeEffect;

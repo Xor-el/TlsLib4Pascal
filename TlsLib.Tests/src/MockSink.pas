@@ -20,6 +20,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpTlsLibExceptions,
   TlpITlsEngine,
   TlpIHandshakeMachine,
   TlpHandshakeEffect,
@@ -72,6 +73,7 @@ type
     function RequestKeyUpdate(ARequest: TKeyUpdateRequest): TArray<THandshakeEffect>;
     function TakePendingKeyUpdate: TArray<THandshakeEffect>;
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
+    function ContinueAfterClientHello(const AResumptionScope: TBytes): TArray<THandshakeEffect>;
     function ExportKeyingMaterial(const ALabel: string; ALength: Int32): TBytes; overload;
     function ExportKeyingMaterial(const ALabel: string; const AContext: TBytes;
       ALength: Int32): TBytes; overload;
@@ -83,6 +85,9 @@ type
   end;
 
 implementation
+
+resourcestring
+  SNeverParks = 'this double never parks at a ClientHello';
 
 { TMockHandshakeSink }
 
@@ -164,6 +169,12 @@ end;
 function TEffectInjectingMachine.ResumeAfterVerdict: TArray<THandshakeEffect>;
 begin
   Result := FInner.ResumeAfterVerdict;
+end;
+
+function TEffectInjectingMachine.ContinueAfterClientHello(
+  const AResumptionScope: TBytes): TArray<THandshakeEffect>;
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SNeverParks);
 end;
 
 function TEffectInjectingMachine.ExportKeyingMaterial(const ALabel: string;

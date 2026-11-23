@@ -76,6 +76,9 @@ type
     function TakePendingKeyUpdate: TArray<THandshakeEffect>;
     /// <summary>Forwards a resume-after-verdict continuation to the resolved sub-machine.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
+    /// <summary>Forwards a continue-after-ClientHello to the resolved sub-machine; raises
+    /// EInvalidOperationTlsLibException before one is resolved.</summary>
+    function ContinueAfterClientHello(const AResumptionScope: TBytes): TArray<THandshakeEffect>;
     /// <summary>Forwards an exporter request to the resolved sub-machine.</summary>
     function ExportKeyingMaterial(const ALabel: string;
       ALength: Int32): TBytes; overload;
@@ -145,6 +148,7 @@ resourcestring
   SEmptySupportedVersions = 'supported_versions names no version (RFC 9846 4.3.1 requires at least one)';
   SClockRequired = 'a clock is required (the handshake reads time for tickets and freshness)';
   SFirstMessageNotClientHello = 'the first handshake message is not a ClientHello';
+  SNoMachineToContinue = 'no handshake machine was resolved to continue';
   SInappropriateFallback =
     'the client signalled a fallback below the highest version this server supports';
   SClientBelowTls12 = 'the client offers no version at or above TLS 1.2';
@@ -219,6 +223,14 @@ begin
     Result := FInner.ResumeAfterVerdict
   else
     Result := nil;
+end;
+
+function TVersionDispatchMachineBase.ContinueAfterClientHello(
+  const AResumptionScope: TBytes): TArray<THandshakeEffect>;
+begin
+  if FInner = nil then
+    raise EInvalidOperationTlsLibException.CreateRes(@SNoMachineToContinue);
+  Result := FInner.ContinueAfterClientHello(AResumptionScope);
 end;
 
 function TVersionDispatchMachineBase.ExportKeyingMaterial(const ALabel: string;

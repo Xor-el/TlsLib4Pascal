@@ -20,6 +20,7 @@ uses
   TlpIKeySchedule,
   TlpITlsEngine,
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsLibExceptions,
   TlpIHandshakeChannel,
   TlpIHandshakeMachine,
@@ -46,11 +47,15 @@ type
     FVersionSink: IHandshakeVersionSink;
     // resolved once from the sink; nil when the sink does not handle async cert verdicts
     FVerdictSink: IHandshakeVerdictSink;
+    // resolved once from the sink; nil when the sink cannot carry a ClientHello park
+    FClientHelloSink: IHandshakeClientHelloSink;
     // resolved once from the sink; nil when the sink does not track connection info
     FConnectionInfoSink: IHandshakeConnectionInfoSink;
     FEchStatusSink: IEchStatusSink;
     // resolved once from the sink; nil when the sink cannot report a failure without an alert
     FLocalFailureSink: IHandshakeLocalFailureSink;
+    // resolved once from the sink; nil when the sink does not report a failure cause
+    FFailureCauseSink: IHandshakeFailureCauseSink;
     // set once a record-only effect failed for want of the companion
     FRecordControlMissing: Boolean;
     procedure ApplyInstallKeys(const AEffect: THandshakeEffect);
@@ -67,6 +72,7 @@ implementation
 
 resourcestring
   SVerdictUndeliverable = 'the handshake parked for a certificate verdict that nothing can deliver';
+  SClientHelloUndeliverable = 'the handshake parked at the ClientHello with nothing to continue it';
   SRecordControlMissing = 'the handshake needs a record layer that the installer does not provide';
 
 { THandshakeDriver }
@@ -84,12 +90,16 @@ begin
     FVersionSink := nil;
   if not Supports(ASink, IHandshakeVerdictSink, FVerdictSink) then
     FVerdictSink := nil;
+  if not Supports(ASink, IHandshakeClientHelloSink, FClientHelloSink) then
+    FClientHelloSink := nil;
   if not Supports(ASink, IHandshakeConnectionInfoSink, FConnectionInfoSink) then
     FConnectionInfoSink := nil;
   if not Supports(ASink, IEchStatusSink, FEchStatusSink) then
     FEchStatusSink := nil;
   if not Supports(ASink, IHandshakeLocalFailureSink, FLocalFailureSink) then
     FLocalFailureSink := nil;
+  if not Supports(ASink, IHandshakeFailureCauseSink, FFailureCauseSink) then
+    FFailureCauseSink := nil;
 end;
 
 procedure THandshakeDriver.ApplyRecordControl(const AEffect: THandshakeEffect);
@@ -173,6 +183,12 @@ begin
           AEffect.HostName, AEffect.Staple, AEffect.RevocationPosture)
       else
         FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SVerdictUndeliverable);
+    THandshakeEffectKind.AwaitClientHello:
+      // as the verdict park: a sink that cannot carry it fails closed instead of wedging
+      if FClientHelloSink <> nil then
+        FClientHelloSink.OnClientHelloParked(AEffect.ServerName)
+      else
+        FSink.OnHandshakeFailed(TTlsAlertDescription.InternalError, SClientHelloUndeliverable);
     THandshakeEffectKind.PeerCertificateChain:
       if FConnectionInfoSink <> nil then
         FConnectionInfoSink.OnPeerCertificateChain(AEffect.Chain, AEffect.ValidatedPath);
@@ -208,7 +224,11 @@ begin
       else
         FSink.OnHandshakeFailed(TTlsAlertDescription.EchRequired, SEchRejected);
     THandshakeEffectKind.Fail:
+    begin
+      if (FFailureCauseSink <> nil) and (AEffect.Cause <> TTlsErrorCause.Unspecified) then
+        FFailureCauseSink.OnHandshakeFailureCause(AEffect.Cause);
       FSink.OnHandshakeFailed(AEffect.Alert, AEffect.Reason);
+    end;
     THandshakeEffectKind.FailWithoutAlert:
       if FLocalFailureSink <> nil then
         FLocalFailureSink.OnHandshakeFailedWithoutAlert(AEffect.Reason)

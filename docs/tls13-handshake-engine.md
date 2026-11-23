@@ -38,11 +38,24 @@ LServer := TTlsEngineFactory.CreateTls13HandshakeServerEngine(LServerConfig, LHo
   LTicketEarlyDataLimit, LEarlyDataContext);
 ```
 
+Two overloads add what a service that shares one configuration needs: the client takes a trailing
+resumption partition, the server a resumption scope and the ClientHello pause (see
+[Resumption partition and scope](#resumption-partition-and-scope) and
+[Pausing at the ClientHello](#pausing-at-the-clienthello)).
+
+```pascal
+LClient := TTlsEngineFactory.CreateTls13HandshakeClientEngine(LClientConfig, 'example.com',
+  LHostExtensions, LTicketEarlyDataLimit, LPartition);
+LServer := TTlsEngineFactory.CreateTls13HandshakeServerEngine(LServerConfig, LHostExtensions,
+  LTicketEarlyDataLimit, LEarlyDataContext, LScope, {APauseAtClientHello=} True);
+```
+
 `LTicketEarlyDataLimit` is the early-data budget the host fixes for its tickets. A server that has
 early data enabled in its config writes exactly this value into every NewSessionTicket (the config's
-own budget is not used); a limit of 0 turns the server's 0-RTT off. A client that keeps a session
-cache fails the connection, without an alert, on a ticket that advertises any other value, an
-explicit 0 included; a client with no session cache ignores tickets. A limit of 0 leaves the
+own budget is not used, though `WithEarlyData` must still be below 1 MiB); a limit of 0 turns the
+server's 0-RTT off. Any client engine fails the
+connection, without an alert, on a ticket that advertises any other value, an explicit 0
+included; a client with no session cache otherwise ignores tickets. A limit of 0 leaves the
 client's check off, so a host that offers 0-RTT passes the value its tickets must carry.
 `LEarlyDataContext` is the early-data context the server's tickets carry and 0-RTT must match. It
 is the only source: a config with its own early-data context (a record-engine setting) is refused,
@@ -80,8 +93,12 @@ After `HandshakeComplete` the server's NewSessionTicket messages still arrive at
 level; feed them the same way.
 
 - Levels are `Plaintext`, `EarlyData`, `Handshake` and `Application`. `Plaintext` carries no secret.
-- `ProvideHandshakeData` accepts bytes only at the level the engine reads now: `Plaintext` until the
-  first read secret, then the level of the latest `Handshake` or `Application` read secret. Bytes at
+- `ReadLevel` is the level the next `ProvideHandshakeData` must use. It starts at `Plaintext` and
+  moves when a `Handshake` or `Application` read secret is queued, before the host takes that
+  secret from `NextOutput`; it is never `EarlyData`.
+- `ProvideHandshakeData` accepts bytes only at the level the engine reads now (`ReadLevel`):
+  `Plaintext` until the first read secret, then the level of the latest `Handshake` or `Application`
+  read secret. Bytes at
   any other level, or a handshake message that straddles a change of read level, fail with
   `unexpected_message`. Keep data that arrives early for a later level and feed it when that level
   is reached. Handshake bytes at the `EarlyData` level fail the same way; a host whose transport
@@ -106,11 +123,87 @@ level; feed them the same way.
   last handshake bytes stays pullable, plus every write secret queued after them; the rest is
   dropped. After any other failure `NextOutput` returns nothing.
 
+## Error causes
+
+`LastError.Cause` (`TTlsErrorCause`) tells apart failures that share an alert. Only this engine
+reports one; a record engine always reports `Unspecified`.
+
+| Cause | When | Alert |
+|---|---|---|
+| `Unspecified` | Every other failure, and every failure with no cause recorded. | any |
+| `DataAfterReadLevelChange` | Handshake bytes follow the message that moved the read level, so they belong to the next level but arrived at the current one (RFC 9846 5.1). | `unexpected_message` |
+| `UnrequestedPostHandshakeAuthentication` | A client receives a CertificateRequest after the handshake, which it never offered (RFC 9846 4.7.2). | `unexpected_message` |
+
+## Resumption partition and scope
+
+Services that share one configuration, and so one session cache or ticket key, keep their tickets
+apart with a tag of their own.
+
+- **Client partition.** The client factory overload takes a partition of at most 32 bytes. The
+  ticket the engine offers is the one cached under that partition, and tickets it receives are
+  cached under it. `ITlsResumptionPartition` (`Supports` on the engine) changes the partition tickets
+  received from then on are stored under; the ticket offered stays the creation one. An empty
+  partition is the unpartitioned key, which the overload without one uses. A longer one raises
+  `EArgumentTlsLibException`.
+- **Server scope.** The server factory overload takes a scope of at most 32 bytes, and
+  `ContinueAfterClientHello` can replace it. A non-empty scope is combined with the configuration's
+  scope, and the engine accepts and seals tickets only under the combination. The combination
+  cannot equal any configuration scope, so an engine with a scope never resumes a ticket another
+  configuration or an engine without one minted, and engines with different scopes never resume
+  each other's tickets. An empty scope leaves the configuration's alone.
+
+## Pausing at the ClientHello
+
+A host that picks what to answer from what the client offered (a server name, an extension) creates
+the server engine with `APauseAtClientHello`. Without it the engine answers a ClientHello as it
+arrives, and `AwaitingClientHello` is always `False`, as on a client.
+
+The engine parks once it decrypted an ECH ClientHello and validated the ClientHello, before it
+selects a credential, a suite or a group, resumes a ticket, or decides on a HelloRetryRequest. The
+`ProvideHandshakeData` call that parks returns `Advanced` with a `ClientHelloReceived` event. While
+parked the engine queues no output; bytes fed meanwhile at `ReadLevel` are held, and nothing may
+follow the ClientHello before the continue (a message held behind it fails the handshake when the
+engine continues, as bytes after the ClientHello do without the pause). 0-RTT records that arrive
+while parked are kept by the host until the continue queues the early read secret.
+
+```pascal
+if LServer.AwaitingClientHello then
+begin
+  LName := LServer.OfferedServerName;
+  LServer.ContinueAfterClientHello(LReplies, LScope);
+end;
+```
+
+- `OfferedServerName` is the server name the ClientHello offered, empty when it offered none. It and
+  the offered extension bodies (`ITlsHostExtensionResults`) are unauthenticated. When ECH was
+  rejected they come from the outer ClientHello.
+- `ContinueAfterClientHello` takes one reply per registered server host extension the client
+  offered that the host wants sent. The reply body replaces the body the extension was registered
+  with, and is sent wherever the extension rides. An offered extension without a reply is not
+  sent; with no pause the registered body is sent as before. A reply for an extension the client
+  did not offer, two replies for one extension, a body over 65535 bytes or a scope over 32 bytes
+  raises `EArgumentTlsLibException` and leaves the engine parked.
+- The scope is the server scope above. Empty keeps the one the engine was created with.
+- The continue then selects and answers. A selection failure is reported through `LastError` as
+  any other, and the credential resolver runs inside the call. It is a no-op when the engine is not
+  parked, is terminal, or is a client, and raises `EInvalidOperationTlsLibException` from inside a
+  callback.
+- A host that refuses the connection while parked calls `LatchTransportFailure`, which ends the
+  engine; nothing was selected or minted.
+- After a HelloRetryRequest the second ClientHello does not pause. On a pausing engine it must
+  repeat the first one's offer of each registered host extension, body included, and the engine
+  fails it with `illegal_parameter` otherwise (RFC 9846 4.2.2). An extension the HelloRetryRequest
+  itself carried may change its body but not be dropped. After a retry the host-extension results
+  show the second ClientHello's body, while the reply given at the pause stands.
+- Ticket expiry, freshness and the 0-RTT replay check are judged when the engine continues: the
+  pause counts toward the ticket age, so a long pause declines 0-RTT, and the resumption still goes
+  ahead while the ticket is valid.
+
 ## Checks between input and output
 
-No host extension or transport callback runs inside a call (the callbacks the config names, such as
-a verify callback, a session cache or a key log, still do), so the host can look at the state before
-it sends anything: after
+No host extension callback runs inside a call. The callbacks the config names (a verify callback, a
+credential resolver, a session cache, a key log) still do, a resolver on a server also inside
+`ContinueAfterClientHello`. The host can look at the state before it sends anything: after
 `ProvideHandshakeData` returns, `ConnectionInfo` shows the selected ALPN protocol and
 `ITlsHostExtensionResults` the peer's host extension bodies, before any output is taken. A host that
 rejects the connection at that point stops there and reports the failure itself. Those values are

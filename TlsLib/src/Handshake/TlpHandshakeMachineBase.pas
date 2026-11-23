@@ -61,6 +61,11 @@ type
     /// default, overridden by the clients' reverify-on-resume park. ResumeAfterVerdict clears the
     /// park stage and returns this.</summary>
     function ContinueAfterVerdict: TArray<THandshakeEffect>; virtual;
+    /// <summary>Negotiates and answers the ClientHello a server parked at; raises
+    /// EInvalidOperationTlsLibException by default, overridden by the TLS 1.3 server machine.
+    /// ContinueAfterClientHello maps an in-band failure it raises to a Fail effect.</summary>
+    function SelectAfterClientHello(const AResumptionScope: TBytes)
+      : TArray<THandshakeEffect>; virtual;
     /// <summary>The effect that aborts on a message arriving out of phase.</summary>
     class function Unexpected: TArray<THandshakeEffect>; static;
   public
@@ -82,6 +87,10 @@ type
     /// and returns the machine's withheld continuation (ContinueAfterVerdict). The client machines
     /// supply the continuation by overriding ContinueAfterVerdict.</summary>
     function ResumeAfterVerdict: TArray<THandshakeEffect>;
+    /// <summary>Resumes a server parked at its ClientHello (SelectAfterClientHello), turning an
+    /// in-band protocol failure into a Fail effect as ProcessMessage does.</summary>
+    function ContinueAfterClientHello(const AResumptionScope: TBytes)
+      : TArray<THandshakeEffect>;
     /// <summary>No exporter until a machine derives its secrets; concrete versions override.</summary>
     function ExportKeyingMaterial(const ALabel: string;
       ALength: Int32): TBytes; overload; virtual;
@@ -103,6 +112,7 @@ implementation
 resourcestring
   SUnexpectedHandshakeMessage =
     'the peer sent a handshake message that is not expected at this point';
+  SNotParkedAtClientHello = 'the handshake is not parked at a ClientHello';
 
 { THandshakeMachineBase }
 
@@ -142,6 +152,12 @@ begin
   Result := nil;
 end;
 
+function THandshakeMachineBase.SelectAfterClientHello(
+  const AResumptionScope: TBytes): TArray<THandshakeEffect>;
+begin
+  raise EInvalidOperationTlsLibException.CreateRes(@SNotParkedAtClientHello);
+end;
+
 class function THandshakeMachineBase.Unexpected: TArray<THandshakeEffect>;
 begin
   Result := TArray<THandshakeEffect>.Create(
@@ -164,6 +180,23 @@ begin
   // the out-of-band verdict resolved: leave the park and hand back the withheld continuation
   FStage := THandshakeStage.Handshaking;
   Result := ContinueAfterVerdict;
+end;
+
+function THandshakeMachineBase.ContinueAfterClientHello(
+  const AResumptionScope: TBytes): TArray<THandshakeEffect>;
+var
+  LEffect: THandshakeEffect;
+begin
+  try
+    Result := SelectAfterClientHello(AResumptionScope);
+  except
+    // an in-band protocol failure surfaces as a Fail effect, not a raised exception
+    on E: Exception do
+      if THandshakeEffects.TryFromException(E, LEffect) then
+        Result := TArray<THandshakeEffect>.Create(LEffect)
+      else
+        raise;
+  end;
 end;
 
 function THandshakeMachineBase.ExportKeyingMaterial(const ALabel: string;

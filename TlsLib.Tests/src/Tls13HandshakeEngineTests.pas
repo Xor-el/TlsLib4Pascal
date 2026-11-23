@@ -166,6 +166,10 @@ type
     procedure TestComplianceGatedProviderRefusesTheConfigItBuildsFrom;
     procedure TestInputAtAnotherLevelFails;
     procedure TestMessageStraddlingAKeyChangeFails;
+    procedure TestDataBehindAKeyChangeCarriesItsCause;
+    procedure TestDataBehindAFlightBoundaryCarriesNoCause;
+    procedure TestRecordEngineDataBehindAKeyChangeCarriesNoCause;
+    procedure TestUnrequestedPostHandshakeCertificateRequestCarriesItsCause;
     procedure TestRfc9001ClientHelloIsServedWithItsLimitIgnored;
     procedure TestAlpnIsVisibleBeforeAnythingIsPulled;
     procedure TestTicketCarriesTheFixedEarlyDataLimit;
@@ -173,9 +177,12 @@ type
     procedure TestClientHandshakeWriteSecretFollowsTheServerHelloAfterAZeroRttOffer;
     procedure TestZeroLimitLeavesTheTicketValueUnchecked;
     procedure TestClientWithoutACacheIgnoresTickets;
+    procedure TestClientWithoutACacheRefusesAMismatchingTicket;
     procedure TestNoAlertFailureDropsEveryQueuedSecret;
     procedure TestResumptionUsesTheTicketOfItsOwnKind;
     procedure TestZeroRttIsAcceptedAndKeysAgree;
+    procedure TestReadLevelFollowsTheReadSecretsBeforeTheyAreDrained;
+    procedure TestReadLevelIsNeverEarlyData;
     procedure TestZeroRttIsRejectedAfterARetry;
     procedure TestHelloRetryRequestCompletes;
     procedure TestMutualAuthentication;
@@ -854,6 +861,77 @@ begin
   CheckFailedWith(LClient, TTlsAlertDescription.UnexpectedMessage, 'a partial message');
 end;
 
+procedure TTestTls13HandshakeEngine.TestDataBehindAKeyChangeCarriesItsCause;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LOutput: TTls13HandshakeOutput;
+  LBytes: TBytes;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  LClient.StartHandshake;
+  Deliver(LClient, LServer, FClientLog);
+  CheckTrue(LServer.NextOutput(LOutput), 'the ServerHello');
+  LBytes := ConcatBytes(LOutput.Data, TBytes.Create(8));
+  LClient.ProvideHandshakeData(TTlsEpoch.Plaintext, LBytes, 0, System.Length(LBytes));
+  CheckFailedWith(LClient, TTlsAlertDescription.UnexpectedMessage, 'data behind the ServerHello');
+  CheckEquals(Ord(TTlsErrorCause.DataAfterReadLevelChange), Ord(LClient.LastError.Cause),
+    'the read level changed under it');
+end;
+
+procedure TTestTls13HandshakeEngine.TestDataBehindAFlightBoundaryCarriesNoCause;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LOutput: TTls13HandshakeOutput;
+  LBytes: TBytes;
+begin
+  // the server prefers a group the client sent no share for, so its answer is a HelloRetryRequest:
+  // a flight boundary with no read key change
+  LClient := NewClient(ClientBuilder.WithPreferredGroups(
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1)).Build);
+  LServer := NewServer(ServerBuilder.WithPreferredGroups(
+    TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1)).Build);
+  LClient.StartHandshake;
+  CheckTrue(LClient.NextOutput(LOutput), 'the ClientHello');
+  LBytes := ConcatBytes(LOutput.Data, TBytes.Create(8));
+  LServer.ProvideHandshakeData(TTlsEpoch.Plaintext, LBytes, 0, System.Length(LBytes));
+  CheckFailedWith(LServer, TTlsAlertDescription.UnexpectedMessage, 'data behind the ClientHello');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LServer.LastError.Cause),
+    'no read key changed, so there is no cause');
+end;
+
+procedure TTestTls13HandshakeEngine.TestRecordEngineDataBehindAKeyChangeCarriesNoCause;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight, LMerged: TBytes;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(ClientConfig, ServerHost);
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClient.StartHandshake;
+  Pump(LClient, LServer);
+  LFlight := Drain(LServer);
+  LMerged := FirstRecordWith(LFlight, DecodeHex('08 00 00 02 00 00'));
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LClient.ProcessInput(LMerged, 0, System.Length(LMerged))), 'the record engine fails too');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage), Ord(LClient.LastError.Alert.Description),
+    'with the same alert');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LClient.LastError.Cause),
+    'and no cause');
+end;
+
+procedure TTestTls13HandshakeEngine.TestUnrequestedPostHandshakeCertificateRequestCarriesItsCause;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  Run(LClient, LServer);
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, TBytes.Create(13, 0, 0, 0), 0, 4);
+  CheckFailedWith(LClient, TTlsAlertDescription.UnexpectedMessage, 'a CertificateRequest');
+  CheckEquals(Ord(TTlsErrorCause.UnrequestedPostHandshakeAuthentication),
+    Ord(LClient.LastError.Cause), 'one the client never asked for');
+end;
+
 procedure TTestTls13HandshakeEngine.TestRfc9001ClientHelloIsServedWithItsLimitIgnored;
 var
   LServer: ITls13HandshakeEngine;
@@ -985,10 +1063,24 @@ begin
   LServer := NewServer(ServerConfig);
   Run(LClient, LServer);
   CheckFalse(LClient.IsTerminal, 'the handshake completed');
+  LTicket := TicketWithEarlyDataLimit(TicketLimit);
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
+  CheckFalse(LClient.IsTerminal, 'a ticket a client does not keep is ignored');
+end;
+
+procedure TTestTls13HandshakeEngine.TestClientWithoutACacheRefusesAMismatchingTicket;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LTicket: TBytes;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  Run(LClient, LServer);
+  CheckFalse(LClient.IsTerminal, 'the handshake completed');
   // the host-fixed limit is $FFFFFFFF, and this ticket carries another value
   LTicket := TicketWithEarlyDataLimit(1234);
   LClient.ProvideHandshakeData(TTlsEpoch.Application, LTicket, 0, System.Length(LTicket));
-  CheckFalse(LClient.IsTerminal, 'a ticket a client does not keep is ignored, whatever it advertises');
+  CheckLocalWithoutAlert(LClient, 'a limit the host did not fix');
 end;
 
 procedure TTestTls13HandshakeEngine.TestNoAlertFailureDropsEveryQueuedSecret;
@@ -1049,6 +1141,66 @@ begin
   LServerExport := LServer.ExportEarlyKeyingMaterial('early label', nil, 32);
   CheckEquals(32, System.Length(LClientExport), 'an early export exists');
   CheckEqualBytes('and agrees', LClientExport, LServerExport);
+end;
+
+procedure TTestTls13HandshakeEngine.TestReadLevelFollowsTheReadSecretsBeforeTheyAreDrained;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LOutput: TTls13HandshakeOutput;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  CheckEquals(Ord(TTlsEpoch.Plaintext), Ord(LClient.ReadLevel), 'the client starts in the clear');
+  CheckEquals(Ord(TTlsEpoch.Plaintext), Ord(LServer.ReadLevel), 'and so does the server');
+  LClient.StartHandshake;
+  CheckEquals(Ord(TTlsEpoch.Plaintext), Ord(LClient.ReadLevel),
+    'a queued ClientHello reads nothing new');
+  CheckTrue(LClient.NextOutput(LOutput), 'the ClientHello');
+  LServer.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data));
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LServer.ReadLevel),
+    'the server reads its client''s Finished at the handshake level, secrets not yet drained');
+  CheckTrue(LServer.NextOutput(LOutput), 'the ServerHello');
+  LClient.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data));
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LClient.ReadLevel),
+    'the client moved to the handshake level with its read secret still queued');
+  while LServer.NextOutput(LOutput) do
+    if (LOutput.Kind = TTls13HandshakeOutputKind.HandshakeData) and
+      (LOutput.Level = TTlsEpoch.Handshake) then
+    begin
+      LClient.ProvideHandshakeData(LOutput.Level, LOutput.Data, 0, System.Length(LOutput.Data));
+      Break;
+    end;
+  CheckEquals(Ord(TTlsEpoch.Application), Ord(LClient.ReadLevel),
+    'the server Finished moved the client to the application level');
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LServer.ReadLevel),
+    'the server still waits for the client Finished at the handshake level');
+  Deliver(LClient, LServer, FClientLog);
+  CheckEquals(Ord(TTlsEpoch.Application), Ord(LServer.ReadLevel),
+    'the client Finished moved the server to the application level');
+end;
+
+procedure TTestTls13HandshakeEngine.TestReadLevelIsNeverEarlyData;
+var
+  LCache: ISessionCache;
+  LClient, LServer: ITls13HandshakeEngine;
+  LOutput: TTls13HandshakeOutput;
+begin
+  LCache := TInMemorySessionCache.Create;
+  Seed(LCache);
+  LClient := NewClient(ClientResuming(LCache, True));
+  LServer := NewServer(ServerResuming(True));
+  LClient.StartHandshake;
+  CheckEquals(Ord(TTlsEpoch.Plaintext), Ord(LClient.ReadLevel),
+    'an early write secret does not move the client''s read level');
+  Deliver(LClient, LServer, FClientLog);
+  CheckTrue(HasOutput(FClientLog, TTls13HandshakeOutputKind.WriteSecret, TTlsEpoch.EarlyData),
+    'the client keyed 0-RTT');
+  CheckEquals(Ord(TTlsEpoch.Handshake), Ord(LServer.ReadLevel),
+    'the early read secret does not show: the server reads the handshake level next');
+  while LServer.NextOutput(LOutput) do
+    FServerLog.Add(LOutput);
+  CheckTrue(HasOutput(FServerLog, TTls13HandshakeOutputKind.ReadSecret, TTlsEpoch.EarlyData),
+    'the server did queue an early read secret');
 end;
 
 procedure TTestTls13HandshakeEngine.TestZeroRttIsRejectedAfterARetry;
