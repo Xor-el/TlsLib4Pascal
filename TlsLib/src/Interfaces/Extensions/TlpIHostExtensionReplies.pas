@@ -31,9 +31,10 @@ type
     /// carried.</summary>
     function IsOffered(AExtensionType: UInt16): Boolean;
     /// <summary>Sends the reply body of each extension named in AReplies wherever that extension
-    /// rides, and sends no other offered one. Raises EArgumentTlsLibException and changes nothing
-    /// when a reply names an extension the client did not offer, one extension twice, or a body
-    /// over 65535 bytes.</summary>
+    /// rides, and sends no other offered one. The registry validates first: it raises
+    /// EArgumentTlsLibException and changes nothing when a reply names an extension the client did
+    /// not offer, one extension twice, or a body over 65535 bytes; an entry only applies the
+    /// replies it is given.</summary>
     procedure Install(const AReplies: TArray<TTlsHostExtensionReply>);
   end;
 

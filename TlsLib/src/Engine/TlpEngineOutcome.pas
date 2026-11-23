@@ -82,7 +82,7 @@ type
     property IsTerminal: Boolean read FTerminal;
     property IsEstablished: Boolean read FEstablished;
     property LastError: TTlsError read FLastError;
-    /// <summary>The server name the ClientHello a server parked at offered.</summary>
+    /// <summary>The server name of the ClientHello the server parked at.</summary>
     property OfferedServerName: string read FOfferedServerName;
 
     procedure OnHandshakeEvent(AEvent: TTlsEventKind);

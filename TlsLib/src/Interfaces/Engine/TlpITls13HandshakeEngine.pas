@@ -37,16 +37,15 @@ type
   /// end of the handshake) and NextEvent. No host extension callback runs inside a call (the
   /// callbacks the config names still do, a credential resolver also inside
   /// ContinueAfterClientHello); the host inspects ALPN and extension bodies between input and
-  /// output. The engine
-  /// accepts a handshake that selects no ALPN protocol (a host that requires one fails the
-  /// connection itself, with no_application_protocol), and bytes at the EarlyData level fail with
-  /// unexpected_message. The ticket early-data limit the factory takes fixes the value tickets
-  /// carry: 0 turns a server's 0-RTT off and leaves a client's check of received tickets off,
-  /// and a mismatch ends the connection without an alert. LastError carries the alert a record
-  /// engine would have sent (Origin Local), or Origin LocalWithoutAlert or Transport with a
-  /// placeholder alert; the peer's alerts never reach it. Start it with StartHandshake (a
-  /// client queues its ClientHello, a server waits for one; a second call raises). Single-threaded:
-  /// the caller serializes access.
+  /// output. The engine accepts a handshake that selects no ALPN protocol (a host that requires
+  /// one fails the connection itself, with no_application_protocol), and bytes at the EarlyData
+  /// level fail with unexpected_message. The ticket early-data limit the factory takes fixes the
+  /// value tickets carry: 0 turns a server's 0-RTT off and leaves a client's check of received
+  /// tickets off, and a mismatch ends the connection without an alert. LastError carries the
+  /// alert a record engine would have sent (Origin Local), or Origin LocalWithoutAlert or
+  /// Transport with a placeholder alert; the peer's alerts never reach it. Start it with
+  /// StartHandshake (a client queues its ClientHello, a server waits for one; a second call
+  /// raises). Single-threaded: the caller serializes access.
   /// </summary>
   ITls13HandshakeEngine = interface(ITlsCommonEngine)
     ['{7B79762F-492A-4660-A1BC-F281F99C3C28}']

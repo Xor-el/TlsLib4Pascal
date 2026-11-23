@@ -491,7 +491,8 @@ or timers. You pump bytes; it transduces. The contract (unit `TlpITlsEngine`):
 - push/pull application data with `Write(...)` / `ReadAppData(...)`
 - check `WantsWrite` / `IsHandshaking`, and service `NextEvent` every cycle — application data is
   not an event (poll `PendingAppData` / `ReadAppData`); past 64 undrained events the informational
-  kinds are dropped, while `PeerAlert`, `Closed` and `CertificateReceived` never are
+  kinds are dropped, while `PeerAlert`, `Closed`, `CertificateReceived` and `ClientHelloReceived`
+  never are
 - after the handshake, a fatal alert (from a bad record or `SendAlert`) is sealed by the next
   `TakeOutgoing`, and `WantsWrite` stays true until then. `WantsWrite` is true when
   `TakeOutgoing` would return bytes or drop an alert whose sealing failed
@@ -675,7 +676,7 @@ carry it in. Build one with `TTlsHostExtensions.Make` and pass the list to the e
 peer's copy comes back through `ITlsHostExtensionResults` (`Supports` on the engine).
 
 ```pascal
-uses TlpExtensionContext, TlpITlsHostExtension, TlpHostExtensions, TlpTlsEngineFactory;
+uses SysUtils, TlpExtensionContext, TlpITlsHostExtension, TlpHostExtensions, TlpTlsEngineFactory;
 
 // CLIENT: offer type $FC01 in the ClientHello and require the server's copy in EncryptedExtensions
 LClient := TTlsEngineFactory.CreateClientEngine(LClientConfig, 'example.com',
@@ -716,8 +717,8 @@ before it answers a host extension, so the reply depends on what the client offe
 extension, create the engine with the pause on, and continue once you chose:
 
 ```pascal
-uses TlpExtensionContext, TlpITlsHostExtension, TlpHostExtensions, TlpTlsEngineFactory, TlpITlsEngine,
-  TlpITls13HandshakeEngine, TlpIKeySchedule;
+uses SysUtils, TlpExtensionContext, TlpITlsHostExtension, TlpHostExtensions, TlpTlsEngineFactory,
+  TlpITlsEngine, TlpITls13HandshakeEngine, TlpIKeySchedule;
 
 // the body given here is never sent on a pausing engine; only a reply is
 LServer := TTlsEngineFactory.CreateTls13HandshakeServerEngine(LServerConfig,
@@ -733,15 +734,17 @@ while LServer.NextEvent(LEvent) do
     LName := LServer.OfferedServerName;
     if Supports(LServer, ITlsHostExtensionResults, LResults) and
       LResults.TryGetPeerExtension($FC01, LOffered) then
-      LServer.ContinueAfterClientHello(
-        TArray<TTlsHostExtensionReply>.Create(ReplyFor(LName, LOffered)), nil)
+    begin
+      LReply.ExtensionType := $FC01;
+      LReply.Body := TEncoding.UTF8.GetBytes(LName);
+      LServer.ContinueAfterClientHello(TArray<TTlsHostExtensionReply>.Create(LReply), nil);
+    end
     else
       LServer.ContinueAfterClientHello(nil, nil);
   end;
 ```
 
-`ReplyFor` fills a `TTlsHostExtensionReply` (`ExtensionType` and `Body`). The engine parks after it
-decrypted and validated the ClientHello, before it selects anything or decides on a
+The engine parks after it decrypted and validated the ClientHello, before it selects anything or decides on a
 HelloRetryRequest, and the call that parks returns `Advanced`. A reply replaces the registered body
 and goes wherever the extension rides; an offered extension with no reply is not sent. A reply for an
 extension the client did not offer, two for one extension or a body over 65535 bytes raises
@@ -841,7 +844,7 @@ each other's tickets. On a [handshake-only engine](tls13-handshake-engine.md) gi
 own tag.
 
 ```pascal
-uses TlpTlsEngineFactory, TlpITlsResumptionPartition;
+uses SysUtils, TlpTlsEngineFactory, TlpITlsResumptionPartition;
 
 // CLIENT: tickets are cached and offered per partition (at most 32 bytes)
 LClient := TTlsEngineFactory.CreateTls13HandshakeClientEngine(LClientConfig, 'example.com',

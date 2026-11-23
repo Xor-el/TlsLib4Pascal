@@ -78,7 +78,8 @@ type
   public
     /// <summary>Wires the machine over a leveled channel. The machine is built for a host that
     /// owns record protection; a nil AHostResults, ASessionData or APartition is not answered.
-    /// AReplies is the server's means to answer its host extensions at a ClientHello pause.</summary>
+    /// AReplies is the server's means to answer its host extensions at a ClientHello pause, and is
+    /// required over a machine that pauses.</summary>
     constructor Create(const AMachine: IHandshakeMachine;
       AMaxCertificateMessageLength: Int32; const AHostResults: ITlsHostExtensionResults;
       const ASessionData: ITlsSessionApplicationData;

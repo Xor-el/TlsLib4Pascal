@@ -94,7 +94,7 @@ type
     procedure ResolveCertificateVerdict(AAccept: Boolean;
       AAlert: TTlsAlertDescription);
     /// <summary>Whether a server is parked at its validated ClientHello awaiting the host.</summary>
-    function AwaitingClientHello: Boolean;
+    property AwaitingClientHello: Boolean read FClientHelloPending;
     /// <summary>Resumes a parked ClientHello: applies the effects of negotiating and answering
     /// it, then drains the input buffered during the park. A no-op when nothing is parked.</summary>
     procedure ResolveClientHello(const AResumptionScope: TBytes);
@@ -388,11 +388,6 @@ begin
   // Finished), a NewSessionTicket coalesced behind the resumed server Finished, or the
   // peer's flight that followed a ClientHello
   DrainInbound;
-end;
-
-function THandshakeConductor.AwaitingClientHello: Boolean;
-begin
-  Result := FClientHelloPending;
 end;
 
 procedure THandshakeConductor.ResolveClientHello(const AResumptionScope: TBytes);

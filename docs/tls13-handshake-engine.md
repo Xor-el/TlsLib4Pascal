@@ -161,9 +161,10 @@ arrives, and `AwaitingClientHello` is always `False`, as on a client.
 The engine parks once it decrypted an ECH ClientHello and validated the ClientHello, before it
 selects a credential, a suite or a group, resumes a ticket, or decides on a HelloRetryRequest. The
 `ProvideHandshakeData` call that parks returns `Advanced` with a `ClientHelloReceived` event. While
-parked the engine queues no output; bytes fed meanwhile are held, and nothing may follow the
-ClientHello before the continue (a message held behind it fails the handshake when the engine
-continues, as bytes after the ClientHello do without the pause).
+parked the engine queues no output; bytes fed meanwhile at `ReadLevel` are held, and nothing may
+follow the ClientHello before the continue (a message held behind it fails the handshake when the
+engine continues, as bytes after the ClientHello do without the pause). 0-RTT records that arrive
+while parked are kept by the host until the continue queues the early read secret.
 
 ```pascal
 if LServer.AwaitingClientHello then
@@ -193,8 +194,8 @@ end;
   repeat the first one's offer of each registered host extension, body included, and the engine
   fails it with `illegal_parameter` otherwise (RFC 9846 4.2.2). An extension the HelloRetryRequest
   itself carried is exempt.
-- The clock is read once, when the ClientHello arrives. Ticket freshness, expiry and the 0-RTT
-  anti-replay window are judged at that time, however long the engine stays parked.
+- Ticket freshness and expiry are judged at the time the ClientHello arrived. 0-RTT is declined
+  when the pause outlasts the replay window.
 
 ## Checks between input and output
 
