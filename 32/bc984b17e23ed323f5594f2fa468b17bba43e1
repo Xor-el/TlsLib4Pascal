@@ -1,0 +1,36 @@
+TlsLib.Tests/src/SystemTrustTests.pas
+  s_f2c9bd75607afc::t_c1e9190d7c7284 8127
+  s_f2c9bd75607afc::t_514111fc9db301 3332
+  s_f2c9bd75607afc::t_716fa4245676cd 3295-3297
+  s_f2c9bd75607afc::t_de6289a4356720 6954
+TlsLib/src/Trust/TlpTrustPolicy.pas
+  s_f2c9bd75607afc::t_c01bb9228c7b80 39-40
+  s_f2c9bd75607afc::t_d882fb99fb4657 98-100
+TlsLib.Tests/src/ServerSideLiveRevocationTests.pas
+  s_f2c9bd75607afc::t_e63de294b6d6ac 513
+  s_f2c9bd75607afc::t_422c8ef889dc00 388
+TlsLib.Tests/src/LiveRevocationTests.pas
+  s_f2c9bd75607afc::t_a9b57e2699e1e1 70-71
+  s_f2c9bd75607afc::t_5ed1f98c7d2881 1732,1740,1742-1743,1746,1748-1749
+  s_f2c9bd75607afc::t_e3ee22db637c4c 1769
+  s_f2c9bd75607afc::t_55b99fc13b23ac 2644-2645
+  s_f2c9bd75607afc::t_3522c8e13cfe0f 392
+  s_f2c9bd75607afc::t_bf1705e76e5426 272-274
+  s_f2c9bd75607afc::t_45eef5c284d4a6 1763
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "32bc984b17e23ed323f5594f2fa468b17bba43e1",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
