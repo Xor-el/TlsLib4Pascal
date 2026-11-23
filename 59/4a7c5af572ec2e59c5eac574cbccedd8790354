@@ -1,0 +1,36 @@
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_f2c9bd75607afc::t_3d1cb62886196c 97
+TlsLib/src/Engine/TlpEngineOutcome.pas
+  s_f2c9bd75607afc::t_5fbdf2f0713945 85
+docs/cookbook.md
+  s_f2c9bd75607afc::t_50007c408eec2a 737-741,747
+  s_f2c9bd75607afc::t_99fd943e4459aa 494-495
+  s_f2c9bd75607afc::t_7f33626ffed7fc 847
+  s_f2c9bd75607afc::t_40f6503939fbf6 720-721
+  s_f2c9bd75607afc::t_4673813d4d0414 679
+docs/tls13-handshake-engine.md
+  s_f2c9bd75607afc::t_46349514eed709 197-198
+  s_f2c9bd75607afc::t_c5979c096964c7 164-167
+TlsLib/src/Engine/TlpTls13HandshakeEngine.pas
+  s_f2c9bd75607afc::t_74279e763d4860 81-82
+TlsLib/src/Interfaces/Engine/TlpITls13HandshakeEngine.pas
+  s_f2c9bd75607afc::t_fc63451130013c 40-48
+TlsLib/src/Interfaces/Extensions/TlpIHostExtensionReplies.pas
+  s_f2c9bd75607afc::t_246d9a64ece7d7 34-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "594a7c5af572ec2e59c5eac574cbccedd8790354",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
