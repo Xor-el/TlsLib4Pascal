@@ -65,6 +65,7 @@ uses
   TlpTicketBinding,
   TlpISession,
   TlpISessionApplicationData,
+  TlpITlsResumptionPartition,
   TlpIClock,
   TlpIKeyLog,
   TlpSession,
@@ -183,6 +184,10 @@ type
     /// <summary>Where the host's session application data is read for a received ticket and the
     /// offered session's is published; nil keeps none.</summary>
     SessionApplicationData: ISessionApplicationDataChannel;
+    /// <summary>Where the resumption partition is read: the machine offers the ticket of the
+    /// partition it was created with and stores a received ticket under the current one; nil keeps
+    /// the unpartitioned key.</summary>
+    ResumptionPartition: IResumptionPartitionChannel;
     /// <summary>Whether the host owns record protection and the key lifecycle: the machine then
     /// sends no change_cipher_spec and no EndOfEarlyData, emits no record-layer control effect,
     /// refuses KeyUpdate and checks a received ticket's early_data value (see
@@ -215,6 +220,10 @@ type
   type
     TPhase = (Initial, WaitServerHello, WaitEncryptedExtensions, WaitCertificate,
       WaitCertificateVerify, WaitServerFinished, WaitResumeVerdict, Connected);
+    TStoredTicket = record
+      Session: IResumableSession;
+      Key: string;
+    end;
   var
     FParams: TClientHandshakeParams;
     // ITls13ClientReplay: a supplied ClientHello emitted verbatim, empty otherwise
@@ -278,8 +287,12 @@ type
     // when this connection's chain was authenticated: the offered session's time on a resumption,
     // else the moment the server Finished verified; tickets received on it keep it
     FAuthenticatedAtMs: UInt64;
-    /// <summary>The tickets this connection cached, which a fatal alert removes.</summary>
-    FStoredSessions: TArray<IResumableSession>;
+    /// <summary>The partition this machine was created with, which the ticket it offers and its
+    /// key-exchange hint belong to.</summary>
+    FCreationPartition: TBytes;
+    /// <summary>The tickets this connection cached with the key each was stored under, which a
+    /// fatal alert removes.</summary>
+    FStoredSessions: TArray<TStoredTicket>;
     FPeerSignatureScheme: UInt16;
     FResumedFromTicket: Boolean;
     // this handshake's PSK identity and binding, kept because the accepted PSK is released
@@ -335,8 +348,11 @@ type
     procedure ApplyOffered(const AContext: TExtensionContext);
     function BuildClientHello(const ARandom: TBytes;
       const AEchBody: TBytes): TBytes;
-    /// <summary>The (server identity, SNI) key this client caches resumable sessions under.</summary>
-    function CacheServerIdentity: string;
+    /// <summary>The (server identity, SNI) key this client caches resumable sessions of
+    /// APartition under.</summary>
+    function CacheServerIdentity(const APartition: TBytes): string;
+    /// <summary>The partition a ticket received now is stored under; empty when none is set.</summary>
+    function CurrentPartition: TBytes;
     /// <summary>The digest of AData under AHash (the per-PSK binder transcript on the first
     /// ClientHello, where the transcript is otherwise just this message).</summary>
     function HashUnder(AHash: THashAlgorithm; const AData: TBytes): TBytes;
@@ -528,6 +544,7 @@ begin
   if AParams.Clock = nil then
     raise EArgumentTlsLibException.CreateRes(@SClockRequired);
   FParams := AParams;
+  FCreationPartition := CurrentPartition;
   FCurrentGroup := AParams.Group;
   FCurrentGroupCode := AParams.GroupCode;
   // start on the outer identity; ECH accept / reject swaps these to the inner random / public_name
@@ -760,10 +777,17 @@ begin
       TTlsAlertDescription.InternalError, @SHelloRetryCookieTooLarge);
 end;
 
-function TTls13ClientStateMachine.CacheServerIdentity: string;
+function TTls13ClientStateMachine.CacheServerIdentity(const APartition: TBytes): string;
 begin
   Result := TClientSessionPolicy.CacheIdentity(FParams.ServerIdentity,
-    FParams.ServerName, FParams.SessionScope, FParams.TicketBinding);
+    FParams.ServerName, FParams.SessionScope, APartition, FParams.TicketBinding);
+end;
+
+function TTls13ClientStateMachine.CurrentPartition: TBytes;
+begin
+  Result := nil;
+  if FParams.ResumptionPartition <> nil then
+    Result := FParams.ResumptionPartition.Current;
 end;
 
 function TTls13ClientStateMachine.HashUnder(AHash: THashAlgorithm;
@@ -839,6 +863,7 @@ var
   LNst: TTlsNewSessionTicket;
   LPsk: ISecretBuffer;
   LSession: IResumableSession;
+  LStored: TStoredTicket;
   LContext: TExtensionContext;
   LMaxEarlyData: UInt32;
   LPeerChain: TArray<TBytes>;
@@ -900,12 +925,14 @@ begin
     LLifetime, LNst.TicketAgeAdd, LNowMs,
     LMaxEarlyData, LPeerChain, nil, FSessionPskIdentity, FSessionPskBinding,
     FPeerSignatureScheme, LAuthenticatedAtMs, nil, LApplicationData, FParams.TicketBinding);
-  FParams.SessionCache.Store(CacheServerIdentity, FParams.ServerName, LSession);
+  LStored.Session := LSession;
+  LStored.Key := CacheServerIdentity(CurrentPartition);
+  FParams.SessionCache.Store(LStored.Key, FParams.ServerName, LSession);
   // bounded against a server streaming tickets; a dropped ticket escapes the fatal-alert cache
   // withdrawal (RFC 9846 6, "if possible")
   if System.Length(FStoredSessions) >= MaxRememberedTickets then
     FStoredSessions := System.Copy(FStoredSessions, 1, MaxRememberedTickets - 1);
-  TArrayUtilities.Append<IResumableSession>(FStoredSessions, LSession);
+  TArrayUtilities.Append<TStoredTicket>(FStoredSessions, LStored);
   Result := TArray<THandshakeEffect>.Create(
     THandshakeEffects.RaiseEvent(TTlsEventKind.SessionTicketReceived));
 end;
@@ -935,7 +962,8 @@ begin
   if (FParams.SessionCache <> nil) and (FParams.GroupRegistry <> nil) and
     (not FEchOrch.Active) then
   begin
-    LHint := FParams.SessionCache.KxHint(CacheServerIdentity, FParams.ServerName);
+    LHint := FParams.SessionCache.KxHint(CacheServerIdentity(FCreationPartition),
+      FParams.ServerName);
     if (LHint <> 0) and (LHint <> FCurrentGroupCode) and
       (TArrayUtilities.Contains<UInt16>(FParams.OfferedGroups, LHint)) and
       FParams.GroupRegistry.TryGet(LHint, LHintGroup) then
@@ -953,7 +981,7 @@ begin
   // threaded to a 1.2 sub-machine by the version-dispatching parent.
   // a preset verbatim ClientHello forbids a SessionCache, so no resumption take here
   LSessionTaken := (FParams.SessionCache <> nil)
-    and FParams.SessionCache.Take(CacheServerIdentity, FParams.ServerName,
+    and FParams.SessionCache.Take(CacheServerIdentity(FCreationPartition), FParams.ServerName,
     FParams.Clock.NowUnixMillis, LCached);
   if LSessionTaken then
   begin
@@ -1314,7 +1342,7 @@ begin
   // so the next initial ClientHello to this server leads with it. Not on an ECH reject: that
   // group is the public_name server's choice, not the real server's, so it is no hint for it
   if (FParams.SessionCache <> nil) and (FEchOrch.Status <> TEchStatus.Rejected) then
-    FParams.SessionCache.SetKxHint(CacheServerIdentity, FParams.ServerName,
+    FParams.SessionCache.SetKxHint(CacheServerIdentity(FCreationPartition), FParams.ServerName,
       FCurrentGroupCode);
 
   // a PSK is bound to a hash, so the server may pick any same-hash suite for the handshake;
@@ -2192,17 +2220,17 @@ end;
 
 procedure TTls13ClientStateMachine.ForgetSessionsOnFatal;
 var
-  LSession: IResumableSession;
-  LStored: TArray<IResumableSession>;
+  LTicket: TStoredTicket;
+  LStored: TArray<TStoredTicket>;
 begin
   // RFC 9846 6: tickets of a failed connection SHOULD be discarded
   LStored := FStoredSessions;
   FStoredSessions := nil;
   if FParams.SessionCache = nil then
     Exit;
-  for LSession in LStored do
+  for LTicket in LStored do
     try
-      FParams.SessionCache.Remove(CacheServerIdentity, FParams.ServerName, LSession);
+      FParams.SessionCache.Remove(LTicket.Key, FParams.ServerName, LTicket.Session);
     except
       // one failing removal must not keep the rest from being withdrawn
     end;

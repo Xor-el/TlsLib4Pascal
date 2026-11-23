@@ -37,7 +37,7 @@
         <PackageName Value="FCL"/>
       </Item6>
     </RequiredPackages>
-    <Units Count="117">
+    <Units Count="118">
       <Unit0>
         <Filename Value="TlsLibConsole.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -506,6 +506,10 @@
         <Filename Value="..\src\Tls13HandshakeEngineTests.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit116>
+      <Unit117>
+        <Filename Value="..\src\ResumptionPartitionTests.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit117>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

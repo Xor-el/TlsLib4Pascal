@@ -33,7 +33,8 @@ uses
   TlpHandshakeConductor,
   TlpEngineOutcome,
   TlpITlsHostExtension,
-  TlpISessionApplicationData;
+  TlpISessionApplicationData,
+  TlpITlsResumptionPartition;
 
 type
   /// <summary>
@@ -42,7 +43,8 @@ type
   /// The machine must be built for a host that owns record protection; the factory does that.
   /// </summary>
   TTls13HandshakeEngine = class sealed(TInterfacedObject, ITls13HandshakeEngine,
-    ITlsCommonEngine, ITlsHostExtensionResults, ITlsSessionApplicationData)
+    ITlsCommonEngine, ITlsHostExtensionResults, ITlsSessionApplicationData,
+    ITlsResumptionPartition)
   strict private
   var
     FChannel: TLeveledHandshakeChannel;
@@ -52,6 +54,7 @@ type
     FConductor: THandshakeConductor;
     FHostResults: ITlsHostExtensionResults;
     FSessionData: ITlsSessionApplicationData;
+    FPartition: ITlsResumptionPartition;
     // set while a step runs: a callback that re-enters the engine fails loud
     FDraining: Boolean;
     FStarted: Boolean;
@@ -62,15 +65,18 @@ type
       implements ITlsHostExtensionResults;
     property SessionData: ITlsSessionApplicationData read FSessionData
       implements ITlsSessionApplicationData;
+    property Partition: ITlsResumptionPartition read FPartition
+      implements ITlsResumptionPartition;
     /// <summary>After any handshake step: on a failure drops the sessions it stored or minted
     /// (once), and on completion queues the end of the handshake after the step's outputs.</summary>
     procedure Settle;
   public
     /// <summary>Wires the machine over a leveled channel. The machine is built for a host that
-    /// owns record protection; a nil AHostResults or ASessionData is not answered.</summary>
+    /// owns record protection; a nil AHostResults, ASessionData or APartition is not answered.</summary>
     constructor Create(const AMachine: IHandshakeMachine;
       AMaxCertificateMessageLength: Int32; const AHostResults: ITlsHostExtensionResults;
-      const ASessionData: ITlsSessionApplicationData);
+      const ASessionData: ITlsSessionApplicationData;
+      const APartition: ITlsResumptionPartition);
     destructor Destroy; override;
 
     procedure StartHandshake;
@@ -108,13 +114,15 @@ resourcestring
 
 constructor TTls13HandshakeEngine.Create(const AMachine: IHandshakeMachine;
   AMaxCertificateMessageLength: Int32; const AHostResults: ITlsHostExtensionResults;
-  const ASessionData: ITlsSessionApplicationData);
+  const ASessionData: ITlsSessionApplicationData;
+  const APartition: ITlsResumptionPartition);
 var
   LDriver: THandshakeDriver;
 begin
   inherited Create;
   FHostResults := AHostResults;
   FSessionData := ASessionData;
+  FPartition := APartition;
   FChannel := TLeveledHandshakeChannel.Create(AMaxCertificateMessageLength);
   FChannelRef := FChannel as IHandshakeChannel;
   FOutcome := TEngineOutcome.Create;

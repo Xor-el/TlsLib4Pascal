@@ -39,6 +39,8 @@ type
     MaxCachedTicketBytes = Int32(MaxSerializedSession + 16 + 12 + 16);
     /// <summary>The longest early-data context, in bytes, a ticket seals.</summary>
     MaxEarlyDataContextLength = Int32(255);
+    /// <summary>The longest resumption partition, in bytes, a client engine keys its tickets by.</summary>
+    MaxResumptionPartitionLength = Int32(32);
   end;
 
   /// <summary>

@@ -62,6 +62,7 @@ uses
   HostExtensionTests,
   ResumptionFeatureTests,
   Tls13HandshakeEngineTests,
+  ResumptionPartitionTests,
   CertificateCompressionCacheTests,
   CertificateCompressionTests,
   DataEncodingTests,

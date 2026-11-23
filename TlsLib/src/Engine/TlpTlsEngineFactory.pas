@@ -48,6 +48,8 @@ uses
   TlpHostExtensions,
   TlpISessionApplicationData,
   TlpSessionApplicationData,
+  TlpITlsResumptionPartition,
+  TlpResumptionPartition,
   TlpIHandshakeMachine,
   TlpTls13ClientStateMachine,
   TlpTls13ServerStateMachine,
@@ -163,7 +165,16 @@ type
     /// tickets must carry. Tickets it caches resume only on a TLS 1.3 handshake-only engine.</summary>
     class function CreateTls13HandshakeClientEngine(const AConfig: ITlsClientConfig;
       const AHost: string; const AHostExtensions: TArray<ITlsHostExtension>;
-      ATicketEarlyDataLimit: UInt32): ITls13HandshakeEngine; static;
+      ATicketEarlyDataLimit: UInt32): ITls13HandshakeEngine; overload; static;
+    /// <summary>As above, starting in the resumption partition AResumptionPartition (at most 32
+    /// bytes, else EArgumentTlsLibException): the ticket it offers is the one cached under that
+    /// partition, and tickets it receives are cached under it until
+    /// ITlsResumptionPartition.SetResumptionPartition changes it. An empty partition is the one
+    /// the overload above uses.</summary>
+    class function CreateTls13HandshakeClientEngine(const AConfig: ITlsClientConfig;
+      const AHost: string; const AHostExtensions: TArray<ITlsHostExtension>;
+      ATicketEarlyDataLimit: UInt32; const AResumptionPartition: TBytes): ITls13HandshakeEngine;
+      overload; static;
     /// <summary>A TLS 1.3 handshake-only server engine for a host that owns record protection; it
     /// starts on the first ClientHello. The config must offer TLS 1.3 alone. When the config
     /// enables early data, ATicketEarlyDataLimit is the budget its tickets advertise and accept
@@ -808,6 +819,15 @@ class function TTlsEngineFactory.CreateTls13HandshakeClientEngine(
   const AConfig: ITlsClientConfig; const AHost: string;
   const AHostExtensions: TArray<ITlsHostExtension>;
   ATicketEarlyDataLimit: UInt32): ITls13HandshakeEngine;
+begin
+  Result := CreateTls13HandshakeClientEngine(AConfig, AHost, AHostExtensions,
+    ATicketEarlyDataLimit, nil);
+end;
+
+class function TTlsEngineFactory.CreateTls13HandshakeClientEngine(
+  const AConfig: ITlsClientConfig; const AHost: string;
+  const AHostExtensions: TArray<ITlsHostExtension>;
+  ATicketEarlyDataLimit: UInt32; const AResumptionPartition: TBytes): ITls13HandshakeEngine;
 var
   L13: TClientHandshakeParams;
   LVerifier, LResumeVerifier, LEchRejectVerifier: IServerCertificateVerifier;
@@ -817,9 +837,11 @@ var
   LMachine: IHandshakeMachine;
   LHostResults: ITlsHostExtensionResults;
   LSessionData: ITlsSessionApplicationData;
+  LPartition: ITlsResumptionPartition;
   LAdapters: TArray<ITlsExtension>;
 begin
   RequireTls13Only(AConfig);
+  LPartition := TResumptionPartition.Create(AResumptionPartition) as ITlsResumptionPartition;
   LAdapters := HostAdapters(AHostExtensions, TTlsHostExtensionRole.Client, True, LHostResults);
   LSessionData := TSessionApplicationData.Create as ITlsSessionApplicationData;
   LDeferral := AConfig.AsyncCertificateVerdict.Deferral;
@@ -834,12 +856,13 @@ begin
   L13.HostOwnsRecordProtection := True;
   L13.TicketBinding := TTicketBinding.HandshakeEngine;
   L13.TicketEarlyDataLimit := ATicketEarlyDataLimit;
+  L13.ResumptionPartition := LPartition as IResumptionPartitionChannel;
   // record sizing is the host's
   L13.RecordSizeLimit := 0;
   LMachine := TTls13ClientStateMachine.Create(L13);
   Result := TTls13HandshakeEngine.Create(LMachine,
-    AConfig.CertificateChainLimits.MaxTotalChainLength, LHostResults, LSessionData)
-    as ITls13HandshakeEngine;
+    AConfig.CertificateChainLimits.MaxTotalChainLength, LHostResults, LSessionData,
+    LPartition) as ITls13HandshakeEngine;
 end;
 
 class function TTlsEngineFactory.CreateTls13HandshakeServerEngine(
@@ -875,7 +898,7 @@ begin
     L13.EarlyDataContext := System.Copy(AEarlyDataContext);
   LMachine := TTls13ServerStateMachine.Create(L13);
   Result := TTls13HandshakeEngine.Create(LMachine, ClientCertificateMessageCap(AConfig),
-    LHostResults, nil) as ITls13HandshakeEngine;
+    LHostResults, nil, nil) as ITls13HandshakeEngine;
 end;
 
 end.

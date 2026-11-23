@@ -66,6 +66,11 @@ type
     /// tickets.</summary>
     class function CacheIdentity(const AServerIdentity, AServerName: string;
       const AScope: TBytes; ABinding: TTicketBinding): string; overload; static;
+    /// <summary>As above, kept apart per resumption partition: an empty partition leaves the key
+    /// unchanged, and another gets a key of its own after the scope (the #29 separator cannot occur
+    /// in an identity).</summary>
+    class function CacheIdentity(const AServerIdentity, AServerName: string;
+      const AScope, APartition: TBytes; ABinding: TTicketBinding): string; overload; static;
     /// <summary>Whether a cached TLS 1.3 session is still offerable as a PSK: a zero lifetime
     /// means discard immediately, and a ticket past its (capped) lifetime, or whose chain's
     /// authentication has lapsed, is not offered (RFC 9846 4.7.1); neither is a session on a hash
@@ -147,7 +152,15 @@ end;
 class function TClientSessionPolicy.CacheIdentity(const AServerIdentity, AServerName: string;
   const AScope: TBytes; ABinding: TTicketBinding): string;
 begin
+  Result := CacheIdentity(AServerIdentity, AServerName, AScope, nil, ABinding);
+end;
+
+class function TClientSessionPolicy.CacheIdentity(const AServerIdentity, AServerName: string;
+  const AScope, APartition: TBytes; ABinding: TTicketBinding): string;
+begin
   Result := CacheIdentity(AServerIdentity, AServerName, AScope);
+  if System.Length(APartition) > 0 then
+    Result := Result + #29 + TDataEncoding.HexEncode(APartition);
   if ABinding <> TTicketBinding.RecordEngine then
     Result := Result + #30 + IntToStr(Ord(ABinding));
 end;

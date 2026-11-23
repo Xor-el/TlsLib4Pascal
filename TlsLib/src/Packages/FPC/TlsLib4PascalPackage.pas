@@ -63,7 +63,8 @@ uses
   TlpTrafficSecret, TlpITlsHostExtension, TlpHostExtensions,
   TlpISessionApplicationData, TlpSessionApplicationData, TlpTicketBinding,
   TlpITls13HandshakeEngine, TlpTls13HandshakeOutput, TlpEngineOutcome,
-  TlpLeveledHandshakeChannel, TlpTls13HandshakeEngine;
+  TlpLeveledHandshakeChannel, TlpTls13HandshakeEngine,
+  TlpITlsResumptionPartition, TlpResumptionPartition;
 
 implementation
 
