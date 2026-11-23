@@ -1,0 +1,67 @@
+TlsLib/src/Handshake/TlpHandshakeDriver.pas
+  s_f2c9bd75607afc::t_1885f95709ad4d 96-97
+  s_f2c9bd75607afc::t_f2c9afb189720c 216-218,220
+  s_f2c9bd75607afc::t_b75f83ba344949 23
+  s_f2c9bd75607afc::t_3c1a4576823626 55-56
+TlsLib/src/Interfaces/Handshake/TlpIHandshakeMachine.pas
+  s_f2c9bd75607afc::t_dc1f48c1499966 122-131
+  s_f2c9bd75607afc::t_d6fb3ee2ee6608 21
+TlsLib.Tests/src/ExceptionTests.pas
+  s_f2c9bd75607afc::t_43902905db2cd3 31
+  s_f2c9bd75607afc::t_9c043f161dfb94 49-52
+  s_f2c9bd75607afc::t_04803ae2e4d321 201-272
+TlsLib/src/Handshake/TlpHandshakeConductor.pas
+  s_f2c9bd75607afc::t_2bb275bc4cfcfe 21
+  s_f2c9bd75607afc::t_3fcaad18dd273e 204
+  s_f2c9bd75607afc::t_967b54eac7e70f 199-203,205-209
+  s_f2c9bd75607afc::t_164ce84ad036cb 362
+  s_f2c9bd75607afc::t_c95b3a9b2d8c5e 304
+  s_f2c9bd75607afc::t_dd0757c4f60baf 66-69
+TlsLib/src/Handshake/TlpTls13ClientStateMachine.pas
+  s_f2c9bd75607afc::t_d617a775a555e7 23
+  s_f2c9bd75607afc::t_b234da97372309 515-516
+  s_f2c9bd75607afc::t_ee9f6a999fbb6d 2185
+  s_f2c9bd75607afc::t_28a3a81e584a13 2180-2184
+TlsLib/src/Engine/TlpEngineOutcome.pas
+  s_f2c9bd75607afc::t_76df852a3901f7 43-44,52-53
+  s_f2c9bd75607afc::t_1a7644660786ce 198-204
+  s_f2c9bd75607afc::t_932f140b7867b9 88
+TlsLib.Tests/src/Tls13ClientReplayTests.pas
+  s_f2c9bd75607afc::t_f0f9ab6a4348e1 634-635
+  s_f2c9bd75607afc::t_2d218a0626bff6 32
+  s_f2c9bd75607afc::t_bd44a17b8dcc8e 587-588,590,593,603-608
+  s_f2c9bd75607afc::t_7887306e6c2766 84-86
+  s_f2c9bd75607afc::t_717067620f6052 107
+  s_f2c9bd75607afc::t_2dc2e346a50b5e 609-610,625-633,636-648
+TlsLib/src/Handshake/TlpHandshakeEffect.pas
+  s_f2c9bd75607afc::t_27e177c78c292c 108
+  s_f2c9bd75607afc::t_a705bb13f35dec 173-176
+  s_f2c9bd75607afc::t_456c607afe8786 21
+  s_f2c9bd75607afc::t_5f15beb4703e21 384-390
+TlsLib/src/Common/TlpTlsError.pas
+  s_f2c9bd75607afc::t_890e67e5dbdd82 113-119
+  s_f2c9bd75607afc::t_885b822a13a1e5 30-36
+  s_f2c9bd75607afc::t_e91792321f7663 60-62
+  s_f2c9bd75607afc::t_03d5df34d60443 49
+  s_f2c9bd75607afc::t_07ddc952dbfc5b 98
+  s_f2c9bd75607afc::t_69803b9743ece5 76-78
+TlsLib.Tests/src/Tls13HandshakeEngineTests.pas
+  s_f2c9bd75607afc::t_94789c6d7b1e92 861-931
+  s_f2c9bd75607afc::t_51cc3da47fbefc 169-172
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2f8db1e7053b32c8f153534b25edbe615f1138df",
+  "prompts": {},
+  "sessions": {
+    "s_f2c9bd75607afc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "93bd4649-2a9e-4694-931c-623400c4649b",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Ugochukwu Mmaduekwe <ugo4brain@gmail.com>"
+    }
+  }
+}
