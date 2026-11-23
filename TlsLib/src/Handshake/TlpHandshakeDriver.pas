@@ -20,6 +20,7 @@ uses
   TlpIKeySchedule,
   TlpITlsEngine,
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsLibExceptions,
   TlpIHandshakeChannel,
   TlpIHandshakeMachine,
@@ -51,6 +52,8 @@ type
     FEchStatusSink: IEchStatusSink;
     // resolved once from the sink; nil when the sink cannot report a failure without an alert
     FLocalFailureSink: IHandshakeLocalFailureSink;
+    // resolved once from the sink; nil when the sink does not report a failure cause
+    FFailureCauseSink: IHandshakeFailureCauseSink;
     // set once a record-only effect failed for want of the companion
     FRecordControlMissing: Boolean;
     procedure ApplyInstallKeys(const AEffect: THandshakeEffect);
@@ -90,6 +93,8 @@ begin
     FEchStatusSink := nil;
   if not Supports(ASink, IHandshakeLocalFailureSink, FLocalFailureSink) then
     FLocalFailureSink := nil;
+  if not Supports(ASink, IHandshakeFailureCauseSink, FFailureCauseSink) then
+    FFailureCauseSink := nil;
 end;
 
 procedure THandshakeDriver.ApplyRecordControl(const AEffect: THandshakeEffect);
@@ -208,7 +213,11 @@ begin
       else
         FSink.OnHandshakeFailed(TTlsAlertDescription.EchRequired, SEchRejected);
     THandshakeEffectKind.Fail:
+    begin
+      if (FFailureCauseSink <> nil) and (AEffect.Cause <> TTlsErrorCause.Unspecified) then
+        FFailureCauseSink.OnHandshakeFailureCause(AEffect.Cause);
       FSink.OnHandshakeFailed(AEffect.Alert, AEffect.Reason);
+    end;
     THandshakeEffectKind.FailWithoutAlert:
       if FLocalFailureSink <> nil then
         FLocalFailureSink.OnHandshakeFailedWithoutAlert(AEffect.Reason)

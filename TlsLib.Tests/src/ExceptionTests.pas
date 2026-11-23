@@ -28,6 +28,7 @@ uses
   TlpTlsAlert,
   TlpTlsError,
   TlpTlsLibExceptions,
+  TlpHandshakeEffect,
   TlsLibTestBase;
 
 type
@@ -45,6 +46,10 @@ type
     procedure TestStreamErrorFromALocalErrorCarriesTheAlert;
     procedure TestStreamErrorFromAPeerErrorCarriesTheAlert;
     procedure TestStreamErrorFromAnUnknownOriginErrorCarriesTheAlert;
+    procedure TestZeroValuedErrorAndEffectHaveNoCause;
+    procedure TestEveryErrorFactoryYieldsNoCause;
+    procedure TestCauseOverloadCarriesTheCause;
+    procedure TestFactoriesOverwriteACauseHeldInTheResultVariable;
     procedure TestFatalAlertCarriesDescription;
     procedure TestDecodeErrorMapsToDecodeError;
     procedure TestHierarchy;
@@ -191,6 +196,78 @@ begin
       LMessage := E.Message;
   end;
   CheckEquals('value 42 out of range', LMessage, 'CreateResFmt message');
+end;
+
+procedure TTestExceptions.TestZeroValuedErrorAndEffectHaveNoCause;
+begin
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(Default(TTlsError).Cause),
+    'a zeroed error has no cause');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(Default(THandshakeEffect).Cause),
+    'a zeroed effect has no cause');
+  CheckEquals(0, Ord(TTlsErrorCause.Unspecified), 'Unspecified is the zero value');
+end;
+
+procedure TTestExceptions.TestEveryErrorFactoryYieldsNoCause;
+var
+  LAlert: TTlsAlert;
+begin
+  LAlert := TTlsAlert.CreateFatal(TTlsAlertDescription.UnexpectedMessage);
+  CheckEquals(Ord(TTlsErrorCause.Unspecified),
+    Ord(TTlsError.Create(LAlert, 'm').Cause), 'Create with an alert and a message');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified),
+    Ord(TTlsError.Create(LAlert, 'm', TTlsErrorOrigin.Local).Cause), 'Create with an origin');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified),
+    Ord(TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm').Cause),
+    'CreateFatal with a message');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified),
+    Ord(TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm',
+    TTlsErrorOrigin.Local).Cause), 'CreateFatal with an origin');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified),
+    Ord(TTlsError.CreatePeerFatal(TTlsAlertDescription.UnexpectedMessage.ToByte, 'm').Cause),
+    'CreatePeerFatal');
+end;
+
+procedure TTestExceptions.TestCauseOverloadCarriesTheCause;
+var
+  LError: TTlsError;
+begin
+  LError := TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm',
+    TTlsErrorOrigin.Local, TTlsErrorCause.UnrequestedPostHandshakeAuthentication);
+  CheckEquals(Ord(TTlsErrorCause.UnrequestedPostHandshakeAuthentication), Ord(LError.Cause),
+    'the cause');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage), Ord(LError.Alert.Description),
+    'beside the alert');
+  CheckEquals(Ord(TTlsErrorOrigin.Local), Ord(LError.Origin), 'the origin');
+  CheckEquals('m', LError.Message, 'and the message');
+end;
+
+procedure TTestExceptions.TestFactoriesOverwriteACauseHeldInTheResultVariable;
+var
+  LError: TTlsError;
+  LAlert: TTlsAlert;
+begin
+  LAlert := TTlsAlert.CreateFatal(TTlsAlertDescription.UnexpectedMessage);
+  LError := TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm',
+    TTlsErrorOrigin.Local, TTlsErrorCause.DataAfterReadLevelChange);
+  LError := TTlsError.Create(LAlert, 'm');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LError.Cause), 'Create with a message');
+  LError := TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm',
+    TTlsErrorOrigin.Local, TTlsErrorCause.DataAfterReadLevelChange);
+  LError := TTlsError.Create(LAlert, 'm', TTlsErrorOrigin.Local);
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LError.Cause), 'Create with an origin');
+  LError := TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm',
+    TTlsErrorOrigin.Local, TTlsErrorCause.DataAfterReadLevelChange);
+  LError := TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LError.Cause), 'CreateFatal with a message');
+  LError := TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm',
+    TTlsErrorOrigin.Local, TTlsErrorCause.DataAfterReadLevelChange);
+  LError := TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm',
+    TTlsErrorOrigin.Local);
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LError.Cause), 'CreateFatal with an origin');
+  LError := TTlsError.CreateFatal(TTlsAlertDescription.UnexpectedMessage, 'm',
+    TTlsErrorOrigin.Local, TTlsErrorCause.DataAfterReadLevelChange);
+  LError := TTlsError.CreatePeerFatal(TTlsAlertDescription.UnexpectedMessage.ToByte, 'm');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LError.Cause), 'CreatePeerFatal');
 end;
 
 procedure TTestExceptions.TestFatalAlertCarriesDescription;

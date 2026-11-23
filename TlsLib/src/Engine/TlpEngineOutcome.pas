@@ -40,8 +40,8 @@ type
   /// uses the recording methods directly.
   /// </summary>
   TEngineOutcome = class sealed(TInterfacedObject, IHandshakeSink,
-    IHandshakeLocalFailureSink, IHandshakeVersionSink, IHandshakeVerdictSink,
-    IHandshakeConnectionInfoSink, IEchStatusSink)
+    IHandshakeLocalFailureSink, IHandshakeFailureCauseSink, IHandshakeVersionSink,
+    IHandshakeVerdictSink, IHandshakeConnectionInfoSink, IEchStatusSink)
   strict private
   var
     FFacts: TTlsConnectionInfo;
@@ -49,6 +49,8 @@ type
     FTerminal: Boolean;
     FEstablished: Boolean;
     FLastError: TTlsError;
+    // the cause the driver reported for the failure OnHandshakeFailed is about to record
+    FPendingCause: TTlsErrorCause;
   public
     constructor Create;
     destructor Destroy; override;
@@ -83,6 +85,7 @@ type
     procedure OnHandshakeEstablished;
     procedure OnHandshakeFailed(AAlert: TTlsAlertDescription; const AReason: string);
     procedure OnHandshakeFailedWithoutAlert(const AReason: string);
+    procedure OnHandshakeFailureCause(ACause: TTlsErrorCause);
     procedure OnVersionNegotiated(const AVersion: TTlsVersion);
     procedure OnCertificateVerdictNeeded(const AChain, AValidatedPath: TArray<TBytes>;
       const AHostName: string; const AStaple: TBytes; APosture: TRevocationPosture);
@@ -192,7 +195,13 @@ end;
 procedure TEngineOutcome.OnHandshakeFailed(AAlert: TTlsAlertDescription;
   const AReason: string);
 begin
-  Fail(TTlsError.CreateFatal(AAlert, AReason, TTlsErrorOrigin.Local));
+  Fail(TTlsError.CreateFatal(AAlert, AReason, TTlsErrorOrigin.Local, FPendingCause));
+  FPendingCause := TTlsErrorCause.Unspecified;
+end;
+
+procedure TEngineOutcome.OnHandshakeFailureCause(ACause: TTlsErrorCause);
+begin
+  FPendingCause := ACause;
 end;
 
 procedure TEngineOutcome.OnHandshakeFailedWithoutAlert(const AReason: string);

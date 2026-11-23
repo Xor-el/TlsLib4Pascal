@@ -166,6 +166,10 @@ type
     procedure TestComplianceGatedProviderRefusesTheConfigItBuildsFrom;
     procedure TestInputAtAnotherLevelFails;
     procedure TestMessageStraddlingAKeyChangeFails;
+    procedure TestDataBehindAKeyChangeCarriesItsCause;
+    procedure TestDataBehindAFlightBoundaryCarriesNoCause;
+    procedure TestRecordEngineDataBehindAKeyChangeCarriesNoCause;
+    procedure TestUnrequestedPostHandshakeCertificateRequestCarriesItsCause;
     procedure TestRfc9001ClientHelloIsServedWithItsLimitIgnored;
     procedure TestAlpnIsVisibleBeforeAnythingIsPulled;
     procedure TestTicketCarriesTheFixedEarlyDataLimit;
@@ -852,6 +856,77 @@ begin
   LBytes := ConcatBytes(LOutput.Data, TBytes.Create(8));
   LClient.ProvideHandshakeData(TTlsEpoch.Plaintext, LBytes, 0, System.Length(LBytes));
   CheckFailedWith(LClient, TTlsAlertDescription.UnexpectedMessage, 'a partial message');
+end;
+
+procedure TTestTls13HandshakeEngine.TestDataBehindAKeyChangeCarriesItsCause;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LOutput: TTls13HandshakeOutput;
+  LBytes: TBytes;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  LClient.StartHandshake;
+  Deliver(LClient, LServer, FClientLog);
+  CheckTrue(LServer.NextOutput(LOutput), 'the ServerHello');
+  LBytes := ConcatBytes(LOutput.Data, TBytes.Create(8));
+  LClient.ProvideHandshakeData(TTlsEpoch.Plaintext, LBytes, 0, System.Length(LBytes));
+  CheckFailedWith(LClient, TTlsAlertDescription.UnexpectedMessage, 'data behind the ServerHello');
+  CheckEquals(Ord(TTlsErrorCause.DataAfterReadLevelChange), Ord(LClient.LastError.Cause),
+    'the read level changed under it');
+end;
+
+procedure TTestTls13HandshakeEngine.TestDataBehindAFlightBoundaryCarriesNoCause;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+  LOutput: TTls13HandshakeOutput;
+  LBytes: TBytes;
+begin
+  // the server prefers a group the client sent no share for, so its answer is a HelloRetryRequest:
+  // a flight boundary with no read key change
+  LClient := NewClient(ClientBuilder.WithPreferredGroups(
+    TArray<UInt16>.Create(TNamedGroupCatalog.X25519, TNamedGroupCatalog.Secp256r1)).Build);
+  LServer := NewServer(ServerBuilder.WithPreferredGroups(
+    TArray<UInt16>.Create(TNamedGroupCatalog.Secp256r1)).Build);
+  LClient.StartHandshake;
+  CheckTrue(LClient.NextOutput(LOutput), 'the ClientHello');
+  LBytes := ConcatBytes(LOutput.Data, TBytes.Create(8));
+  LServer.ProvideHandshakeData(TTlsEpoch.Plaintext, LBytes, 0, System.Length(LBytes));
+  CheckFailedWith(LServer, TTlsAlertDescription.UnexpectedMessage, 'data behind the ClientHello');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LServer.LastError.Cause),
+    'no read key changed, so there is no cause');
+end;
+
+procedure TTestTls13HandshakeEngine.TestRecordEngineDataBehindAKeyChangeCarriesNoCause;
+var
+  LClient, LServer: ITlsEngine;
+  LFlight, LMerged: TBytes;
+begin
+  LClient := TTlsEngineFactory.CreateClientEngine(ClientConfig, ServerHost);
+  LServer := TTlsEngineFactory.CreateServerEngine(ServerConfig);
+  LClient.StartHandshake;
+  Pump(LClient, LServer);
+  LFlight := Drain(LServer);
+  LMerged := FirstRecordWith(LFlight, DecodeHex('08 00 00 02 00 00'));
+  CheckEquals(Ord(TTlsOutcome.Fatal),
+    Ord(LClient.ProcessInput(LMerged, 0, System.Length(LMerged))), 'the record engine fails too');
+  CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage), Ord(LClient.LastError.Alert.Description),
+    'with the same alert');
+  CheckEquals(Ord(TTlsErrorCause.Unspecified), Ord(LClient.LastError.Cause),
+    'and no cause');
+end;
+
+procedure TTestTls13HandshakeEngine.TestUnrequestedPostHandshakeCertificateRequestCarriesItsCause;
+var
+  LClient, LServer: ITls13HandshakeEngine;
+begin
+  LClient := NewClient(ClientConfig);
+  LServer := NewServer(ServerConfig);
+  Run(LClient, LServer);
+  LClient.ProvideHandshakeData(TTlsEpoch.Application, TBytes.Create(13, 0, 0, 0), 0, 4);
+  CheckFailedWith(LClient, TTlsAlertDescription.UnexpectedMessage, 'a CertificateRequest');
+  CheckEquals(Ord(TTlsErrorCause.UnrequestedPostHandshakeAuthentication),
+    Ord(LClient.LastError.Cause), 'one the client never asked for');
 end;
 
 procedure TTestTls13HandshakeEngine.TestRfc9001ClientHelloIsServedWithItsLimitIgnored;

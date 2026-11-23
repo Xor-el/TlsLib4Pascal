@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsVersion,
   TlpCryptoDomainTypes,
   TlpTlsLibExceptions,
@@ -104,6 +105,7 @@ type
     Schemes: TArray<UInt16>;     // RequestedCertificateAuthorities (the CertificateRequest signature_algorithms)
     Facts: TNegotiationFacts;    // ConnectionParams (signature scheme, HelloRetryRequest, early-data reason, ticket age skew)
     Identity: TBytes;            // PskIdentity (the pre-shared key's identity)
+    Cause: TTlsErrorCause;       // Fail (why the handshake aborted when the alert is ambiguous)
   end;
 
   /// <summary>Builds the handshake effect values.</summary>
@@ -168,7 +170,10 @@ type
     class function HandshakeEstablished: THandshakeEffect; static;
     /// <summary>Aborts with AAlert; AReason is the error the application sees.</summary>
     class function Fail(AAlert: TTlsAlertDescription;
-      const AReason: string): THandshakeEffect; static;
+      const AReason: string): THandshakeEffect; overload; static;
+    /// <summary>Aborts with AAlert and records ACause for the host.</summary>
+    class function Fail(AAlert: TTlsAlertDescription; const AReason: string;
+      ACause: TTlsErrorCause): THandshakeEffect; overload; static;
     /// <summary>Aborts for a reason TLS defines no alert for; AReason is the error the host sees.</summary>
     class function FailWithoutAlert(const AReason: string): THandshakeEffect; static;
     /// <summary>ECH was accepted (RFC 9849): record the accepted status so connection info
@@ -374,6 +379,13 @@ begin
   Result.Kind := THandshakeEffectKind.Fail;
   Result.Alert := AAlert;
   Result.Reason := AReason;
+end;
+
+class function THandshakeEffects.Fail(AAlert: TTlsAlertDescription;
+  const AReason: string; ACause: TTlsErrorCause): THandshakeEffect;
+begin
+  Result := Fail(AAlert, AReason);
+  Result.Cause := ACause;
 end;
 
 class function THandshakeEffects.FailWithoutAlert(const AReason: string): THandshakeEffect;

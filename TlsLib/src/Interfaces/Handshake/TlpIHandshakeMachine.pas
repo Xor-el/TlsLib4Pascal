@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsVersion,
   TlpITlsEngine,
   TlpHandshakeStage,
@@ -116,6 +117,16 @@ type
   IHandshakeLocalFailureSink = interface(IInterface)
     ['{9B4E2C71-5D08-4A3F-A6E1-C7D32F8B1054}']
     procedure OnHandshakeFailedWithoutAlert(const AReason: string);
+  end;
+
+  /// <summary>
+  /// An optional companion the driver reaches with Supports on the sink to report why a fatal
+  /// alert failed the handshake, immediately before IHandshakeSink.OnHandshakeFailed. A sink
+  /// without it reports no cause.
+  /// </summary>
+  IHandshakeFailureCauseSink = interface(IInterface)
+    ['{BE525F4D-F789-454C-921D-270055C9DAE9}']
+    procedure OnHandshakeFailureCause(ACause: TTlsErrorCause);
   end;
 
   /// <summary>

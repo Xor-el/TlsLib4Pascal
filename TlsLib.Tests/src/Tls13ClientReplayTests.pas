@@ -29,6 +29,7 @@ uses
   TestFramework,
 {$ENDIF FPC}
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsVersion,
   TlpINamedGroup,
   TlpNegotiationTypes,
@@ -80,6 +81,9 @@ type
       out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>A minimal well-formed NewSessionTicket message (RFC 9846 4.7.1).</summary>
     function BuildNewSessionTicket: TTlsHandshakeMessage;
+    /// <summary>AType framed around ABody, as the reader hands it to a machine.</summary>
+    function FramedMessage(AType: TTlsHandshakeType;
+      const ABody: TBytes): TTlsHandshakeMessage;
   protected
     procedure SetUp; override;
     function TakeAll(const ALayer: TRecordLayer): TBytes;
@@ -100,6 +104,7 @@ type
     procedure TestServerHelloMissingKeyShareRejected;
     procedure TestServerHelloDowngradeSentinelRejected;
     procedure TestPostHandshakeNewSessionTicketTolerated;
+    procedure TestPostHandshakeCertificateRequestCarriesItsCause;
   end;
 
 implementation
@@ -579,16 +584,13 @@ begin
     'a downgrade sentinel is illegal_parameter');
 end;
 
-function TTestTls13ClientReplay.BuildNewSessionTicket: TTlsHandshakeMessage;
+function TTestTls13ClientReplay.FramedMessage(AType: TTlsHandshakeType;
+  const ABody: TBytes): TTlsHandshakeMessage;
 var
-  LBody, LFramed: TBytes;
+  LFramed: TBytes;
   LReader: THandshakeMessageReader;
 begin
-  // ticket_lifetime(4) + ticket_age_add(4) + ticket_nonce<0..255> +
-  // ticket<1..2^16-1> + extensions<0..2^16-2>
-  LBody := DecodeHex('00001c20' + '00000000' + '00' + '0008' +
-    '0102030405060708' + '0000');
-  LFramed := THandshakeFraming.Frame(TTlsHandshakeType.NewSessionTicket, LBody);
+  LFramed := THandshakeFraming.Frame(AType, ABody);
   LReader := THandshakeMessageReader.Create;
   try
     LReader.Append(LFramed, 0, System.Length(LFramed));
@@ -596,6 +598,14 @@ begin
   finally
     LReader.Free;
   end;
+end;
+
+function TTestTls13ClientReplay.BuildNewSessionTicket: TTlsHandshakeMessage;
+begin
+  // ticket_lifetime(4) + ticket_age_add(4) + ticket_nonce<0..255> +
+  // ticket<1..2^16-1> + extensions<0..2^16-2>
+  Result := FramedMessage(TTlsHandshakeType.NewSessionTicket,
+    DecodeHex('00001c20' + '00000000' + '00' + '0008' + '0102030405060708' + '0000'));
 end;
 
 procedure TTestTls13ClientReplay.TestPostHandshakeNewSessionTicketTolerated;
@@ -610,6 +620,30 @@ begin
   // real 1.3 server, which sends tickets by default)
   CheckFalse(FailAlertOf(FSm.ProcessMessage(BuildNewSessionTicket), LAlert),
     'a post-handshake NewSessionTicket does not abort the connection');
+end;
+
+procedure TTestTls13ClientReplay.TestPostHandshakeCertificateRequestCarriesItsCause;
+var
+  LEffects: TArray<THandshakeEffect>;
+  LEffect: THandshakeEffect;
+  LFailures: Int32;
+begin
+  ArrangeThroughCertificateVerify;
+  FDriver.ApplyAll(FSm.ProcessMessage(Msg('server_finished')));
+
+  LEffects := FSm.ProcessMessage(FramedMessage(TTlsHandshakeType.CertificateRequest,
+    TBytes.Create(0, 0, 0)));
+  LFailures := 0;
+  for LEffect in LEffects do
+    if LEffect.Kind = THandshakeEffectKind.Fail then
+    begin
+      Inc(LFailures);
+      CheckEquals(Ord(TTlsAlertDescription.UnexpectedMessage), Ord(LEffect.Alert),
+        'the alert stays unexpected_message');
+      CheckEquals(Ord(TTlsErrorCause.UnrequestedPostHandshakeAuthentication), Ord(LEffect.Cause),
+        'the effect names the cause');
+    end;
+  CheckEquals(1, LFailures, 'one failure');
 end;
 
 initialization

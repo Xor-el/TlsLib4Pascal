@@ -18,6 +18,7 @@ interface
 uses
   SysUtils,
   TlpTlsAlert,
+  TlpTlsError,
   TlpHandshakeMessages,
   TlpHandshakeMessage,
   TlpHandshakeStage,
@@ -62,6 +63,10 @@ type
     /// boundary or completion while still handshaking.</summary>
     function ExcessAfterBoundary(const AEffects: TArray<THandshakeEffect>;
       AWasEstablished: Boolean): Boolean;
+    /// <summary>The Fail for excess buffered bytes; a read-key change gives it the
+    /// DataAfterReadLevelChange cause.</summary>
+    class function ExcessDataFailure(
+      const AEffects: TArray<THandshakeEffect>): THandshakeEffect; static;
     /// <summary>Feeds every whole buffered message into the machine, applying its effects,
     /// until the channel drains, a Fail stops it, or the machine parks for a verdict.</summary>
     procedure DrainInbound;
@@ -191,6 +196,17 @@ begin
     ((not AWasEstablished) and (HasFlightBoundary(AEffects) or IsEstablished)));
 end;
 
+class function THandshakeConductor.ExcessDataFailure(
+  const AEffects: TArray<THandshakeEffect>): THandshakeEffect;
+begin
+  if HasReadKeyChange(AEffects) then
+    Result := THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+      SDataPastFlightBoundary, TTlsErrorCause.DataAfterReadLevelChange)
+  else
+    Result := THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+      SDataPastFlightBoundary);
+end;
+
 procedure THandshakeConductor.Start;
 begin
   FDriver.ApplyAll(FMachine.Start);
@@ -285,8 +301,7 @@ begin
     // records, so only a key change is a boundary once established.
     if ExcessAfterBoundary(LEffects, LWasEstablished) then
     begin
-      FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
-        SDataPastFlightBoundary));
+      FDriver.Apply(ExcessDataFailure(LEffects));
       Exit;
     end;
     // a park for an async peer-certificate verdict suspends processing: the rest of the
@@ -344,8 +359,7 @@ begin
   // prior flight (the server Finished) must have ended on a record boundary
   if ExcessAfterBoundary(LEffects, LWasEstablished) then
   begin
-    FDriver.Apply(THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
-      SDataPastFlightBoundary));
+    FDriver.Apply(ExcessDataFailure(LEffects));
     Exit;
   end;
   // process the buffered remainder: the initial-park server flight (CertificateVerify,

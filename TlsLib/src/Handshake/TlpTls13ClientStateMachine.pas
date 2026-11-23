@@ -20,6 +20,7 @@ uses
   TlpAlpnProtocols,
   TlpArrayUtilities,
   TlpTlsAlert,
+  TlpTlsError,
   TlpTlsVersion,
   TlpTlsLibExceptions,
   TlpISecretBuffer,
@@ -511,6 +512,8 @@ resourcestring
   SPskRequiredNotSelected = 'the server did not select a pre_shared_key and no certificate trust is configured';
   SEchRejectPsk = 'a rejected-ECH ServerHello selected the outer pre_shared_key';
   SCertReqMissingSigAlgs = 'CertificateRequest must contain signature_algorithms (RFC 9846 4.4.2)';
+  SPostHandshakeAuthenticationUnrequested =
+    'the server sent a CertificateRequest after the handshake, which this client never offered';
 
 const
   PskDheKeMode = Byte(1); // psk_key_exchange_modes: psk_dhe_ke
@@ -2174,6 +2177,12 @@ begin
       else if LKnown and (LType = TTlsHandshakeType.KeyUpdate) and
         not FParams.HostOwnsRecordProtection then
         Result := HandleInboundKeyUpdate(AMessage)
+      else if LKnown and (LType = TTlsHandshakeType.CertificateRequest) then
+        // post_handshake_auth is never offered (RFC 9846 4.7.2)
+        Result := TArray<THandshakeEffect>.Create(
+          THandshakeEffects.Fail(TTlsAlertDescription.UnexpectedMessage,
+          SPostHandshakeAuthenticationUnrequested,
+          TTlsErrorCause.UnrequestedPostHandshakeAuthentication))
       else
         Result := Unexpected;
   else

@@ -27,6 +27,13 @@ type
   /// or will be sent). Unknown is the zero value: no failure recorded yet.</summary>
   TTlsErrorOrigin = (Unknown, Local, Peer, Transport, LocalWithoutAlert);
 
+  /// <summary>Why a handshake-only engine failed when the alert alone is ambiguous:
+  /// DataAfterReadLevelChange is handshake data left over where the read level changes (RFC 9846
+  /// 5.1), UnrequestedPostHandshakeAuthentication a CertificateRequest the client never asked for
+  /// (RFC 9846 4.7.2). Unspecified is the zero value: no cause recorded.</summary>
+  TTlsErrorCause = (Unspecified, DataAfterReadLevelChange,
+    UnrequestedPostHandshakeAuthentication);
+
   /// <summary>
   /// The structured, public-facing error surfaced to callers: the alert this
   /// side sent or would send (Local) or the peer sent (Peer), unless Origin is
@@ -39,6 +46,7 @@ type
     FMessage: string;
     FOrigin: TTlsErrorOrigin;
     FAlertByte: Byte;
+    FCause: TTlsErrorCause;
   public
     class function Create(const AAlert: TTlsAlert; const AMessage: string): TTlsError;
       overload; static;
@@ -49,6 +57,9 @@ type
       const AMessage: string): TTlsError; overload; static;
     class function CreateFatal(ADescription: TTlsAlertDescription;
       const AMessage: string; AOrigin: TTlsErrorOrigin): TTlsError; overload; static;
+    class function CreateFatal(ADescription: TTlsAlertDescription;
+      const AMessage: string; AOrigin: TTlsErrorOrigin;
+      ACause: TTlsErrorCause): TTlsError; overload; static;
     /// <summary>A fatal error for a peer-sent alert, carrying the RAW wire description byte so the
     /// diagnostic stays honest even for a code this library does not map (e.g. no_certificate or a
     /// future code): Alert maps the byte when known, else it is a placeholder internal_error, but
@@ -62,6 +73,9 @@ type
     /// when unmapped); otherwise the byte of Alert.Description; a placeholder when Origin is
     /// Transport.</summary>
     property AlertByte: Byte read FAlertByte;
+    /// <summary>Why the engine failed; Unspecified unless a handshake-only engine reports a
+    /// cause.</summary>
+    property Cause: TTlsErrorCause read FCause;
   end;
 
 implementation
@@ -81,6 +95,7 @@ begin
   Result.FMessage := AMessage;
   Result.FOrigin := AOrigin;
   Result.FAlertByte := AAlert.Description.ToByte;
+  Result.FCause := TTlsErrorCause.Unspecified;
 end;
 
 class function TTlsError.CreateFatal(ADescription: TTlsAlertDescription;
@@ -93,6 +108,13 @@ class function TTlsError.CreateFatal(ADescription: TTlsAlertDescription;
   const AMessage: string; AOrigin: TTlsErrorOrigin): TTlsError;
 begin
   Result := TTlsError.Create(TTlsAlert.CreateFatal(ADescription), AMessage, AOrigin);
+end;
+
+class function TTlsError.CreateFatal(ADescription: TTlsAlertDescription;
+  const AMessage: string; AOrigin: TTlsErrorOrigin; ACause: TTlsErrorCause): TTlsError;
+begin
+  Result := TTlsError.CreateFatal(ADescription, AMessage, AOrigin);
+  Result.FCause := ACause;
 end;
 
 class function TTlsError.CreatePeerFatal(ADescriptionByte: Byte;
