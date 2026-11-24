@@ -33,8 +33,8 @@
 #                 against the in-memory exclusive client-CA anchors, never the machine store, so the
 #                 good/revoked/unreachable cells need NO install and run locally too; only the
 #                 exclusivity cell (foreign resolver CA) runs inside the install bracket, where it can
-#                 discriminate. Its revoked(44)/indeterminate(113) alerts come from our resolver, not
-#                 the OS map, so they are asserted exactly on both platforms.
+#                 discriminate. Its revoked(44)/indeterminate(46) alerts are asserted exactly on
+#                 both platforms; the unreachable cells pair the 46 with a Soft accept.
 #   * live fallback - where the OS refuses the loopback OCSP responder by policy (detected at run
 #                 time from trustd's log), the live cells run with the portable fallback instead and
 #                 the no-fallback cells pin the posture verdict; the degraded mode is announced.
@@ -428,10 +428,10 @@ if [ "$HAS_DELEGATE" = 1 ]; then
 
   # server verifies a CLIENT certificate live through the OS delegate. This roots against the
   # in-memory exclusive client-CA anchors (never the machine store), so it needs NO root install and
-  # runs on any OS-delegate platform - locally included. The reject alerts (44 revoked, 113
-  # indeterminate) come from our resolver, not the OS map, so they are asserted exactly on both
-  # platforms. The server presents a root-signed server cert the in-process client presenter trusts;
-  # the presenter offers the client leaf, whose AIA the OS server re-checks against the responder.
+  # runs on any OS-delegate platform - locally included. The reject alerts (44 revoked, 46
+  # indeterminate) are asserted exactly on both platforms. The server presents a root-signed server
+  # cert the in-process client presenter trusts; the presenter offers the client leaf, whose AIA the
+  # OS server re-checks against the responder.
   echo "=== OS trust delegate: server verifies client certificate (live) ==="
   if [ "$OSNAME" = "Darwin" ]; then
     live_os_fetch_probe
@@ -449,11 +449,11 @@ if [ "$HAS_DELEGATE" = 1 ]; then
       --posture hard --expect reject:44
   done
   if [ "$LIVE_FALLBACK" = 1 ]; then
-    cell "server live good client (no fallback, Hard) -> bad_certificate_status_response" \
+    cell "server live good client (no fallback, Hard) -> certificate_unknown" \
       --role server --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
       --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_good.pem" \
       --client-key "$CA/live_client_good.key" --client-ca "$CA/root.pem" \
-      --posture hard --expect reject:113
+      --posture hard --expect reject:46
   fi
 
   # OS distrust beats a host root: the run root is NOT installed here, only passed as --host-root, so a
@@ -705,7 +705,7 @@ if [ "$HAS_DELEGATE" = 1 ]; then
 
   # server-verifies-client with an UNREACHABLE responder: the client leaf's AIA is the dead port, so
   # the live check is genuinely indeterminate. Soft accepts (proves the outcome is Indeterminate, not
-  # a definitive reject); Hard rejects bad_certificate_status_response(113). Needs no install (exclusive
+  # a definitive reject); Hard rejects certificate_unknown(46). Needs no install (exclusive
   # in-memory anchors); run LAST so no earlier cell can have warmed a cache for this URL (the port is
   # dead anyway, and each cell is a fresh process).
   echo "=== OS trust delegate: server verifies client, responder unreachable (live) ==="
@@ -714,11 +714,11 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
     --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
     --posture soft --expect accept
-  cell "server live unreachable client (Hard) -> bad_certificate_status_response" --role server \
+  cell "server live unreachable client (Hard) -> certificate_unknown" --role server \
     --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
     --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
     --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
-    --posture hard --expect reject:113
+    --posture hard --expect reject:46
   # the same dead port with the portable fallback wired: it dials the port too, and the posture
   # still decides, so the fallback wiring and lifetimes run on every OS-delegate platform
   cell "server live unreachable client (Soft, portable fallback) -> accept" --role server \
@@ -726,11 +726,11 @@ if [ "$HAS_DELEGATE" = 1 ]; then
     --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
     --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
     --posture soft --expect accept --live-fallback portable
-  cell "server live unreachable client (Hard, portable fallback) -> bad_certificate_status_response" \
+  cell "server live unreachable client (Hard, portable fallback) -> certificate_unknown" \
     --role server --root "$CA/root.pem" --server-cert "$CA/live_leaf_fullchain.pem" \
     --server-key "$CA/live_leaf.key" --client-cert "$CA/live_client_down.pem" \
     --client-key "$CA/live_client_down.key" --client-ca "$CA/root.pem" \
-    --posture hard --expect reject:113 --live-fallback portable
+    --posture hard --expect reject:46 --live-fallback portable
 else
   echo "=== OS trust delegate: SKIPPED (no OS delegate on $OSNAME) ==="
 fi

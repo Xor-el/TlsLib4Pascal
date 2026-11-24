@@ -409,7 +409,7 @@ serverStream.SetCertificateVerdictResolver(resolver.ResolveVerdict);  // caller 
 The inline pass stays socket-free and *defers* an indeterminate revocation (effective-Soft) so the
 handshake parks; the OS engine then re-evaluates with network fetch enabled and resolves the park —
 a definitive **Revoked** aborts `certificate_revoked`, a **Good** accepts, an **indeterminate** follows
-the posture (`Soft`/`Off` accept, `Hard` rejects `bad_certificate_status_response`). Because the client
+the posture (`Soft`/`Off` accept, `Hard` rejects `certificate_unknown`). Because the client
 path roots against an **in-memory exclusive client-CA store** (never the machine store), this needs no
 store install and is exercisable locally. `Live` requires `WithLiveRevocationVerdict` (the park is
 where it runs) — a server built `Live` without it raises before any IO. Pass a portable fallback

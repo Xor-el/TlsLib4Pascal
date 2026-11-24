@@ -67,6 +67,9 @@ type
     function AcceptsUnderConfig(const AChecker: TLiveRevocationChecker;
       const AChain: TArray<TBytes>; AConfigPosture: TRevocationPosture;
       out AAlert: TTlsAlertDescription): Boolean;
+    // the checker's verdict over the fixture chain for a peer of the given role
+    function VerdictForRole(const AChecker: TLiveRevocationChecker; ARole: TPeerRole;
+      out AAlert: TTlsAlertDescription): Boolean;
     // scripted responders: the spy lists the URLs, the fetcher answers each one and takes time on
     // the mock clock, and the checker runs under a total budget
     procedure Arrange(AMethod: TLiveRevocationMethod; ADeadlineMs: Cardinal;
@@ -163,6 +166,9 @@ type
     procedure TestLiveGoodWithoutNextUpdateBeyondMaxAgeIsIndeterminate;
     // the configured posture holds: the stricter of the checker's and the configuration's decides
     procedure TestConfiguredHardRejectsWhereASoftCheckerWouldAccept;
+    // the undecided-Hard alert follows the peer role: 113 only for a server's certificate
+    procedure TestClientPeerIndeterminateUnderHardAvoidsStatusResponseAlert;
+    procedure TestUnknownPeerIndeterminateUnderHardAvoidsStatusResponseAlert;
     procedure TestConfiguredSoftDoesNotRelaxAHardChecker;
     procedure TestConfiguredHardMakesAnOffCheckerFetch;
     // thisUpdate may run a bounded skew ahead of the clock, on the staple, the live OCSP and the CRL
@@ -263,8 +269,9 @@ type
 
   /// <summary>The one revocation-decision table every verifier and resolver applies (RFC 6960):
   /// a definitive Revoked rejects under every posture (certificate_revoked), a Good accepts, and an
-  /// indeterminate outcome follows the effective posture - Hard rejects (bad_certificate_status_response)
-  /// unless deferral to a live check lowers it to Soft.</summary>
+  /// indeterminate outcome follows the effective posture - Hard rejects
+  /// (bad_certificate_status_response for a server peer, else certificate_unknown) unless deferral
+  /// to a live check lowers it to Soft.</summary>
   TTestRevocationDecision = class(TTlsLibAlgorithmTestCase)
   published
     procedure TestDecideTruthTable;
@@ -379,6 +386,17 @@ begin
   LCtx.PeerRole := TPeerRole.Server;
   LCtx.Chain := AChain;
   LCtx.RevocationPosture := AConfigPosture;
+  Result := AChecker.ResolveVerdict(LCtx, AAlert);
+end;
+
+function TTestLiveRevocation.VerdictForRole(const AChecker: TLiveRevocationChecker;
+  ARole: TPeerRole; out AAlert: TTlsAlertDescription): Boolean;
+var
+  LCtx: TCertificateVerdictContext;
+begin
+  LCtx := Default(TCertificateVerdictContext);
+  LCtx.PeerRole := ARole;
+  LCtx.Chain := Chain;
   Result := AChecker.ResolveVerdict(LCtx, AAlert);
 end;
 
@@ -1706,6 +1724,58 @@ begin
   end;
 end;
 
+procedure TTestLiveRevocation.TestClientPeerIndeterminateUnderHardAvoidsStatusResponseAlert;
+var
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+  LAlert: TTlsAlertDescription;
+  LServerPosts: Int32;
+begin
+  // one checker over one unreachable responder: the role is the only variable between the verdicts
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(False, nil);
+  LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    TLiveRevocationMethod.Ocsp);
+  try
+    CheckFalse(VerdictForRole(LChecker, TPeerRole.Server, LAlert),
+      'Hard rejects an unreachable responder for a server certificate');
+    LServerPosts := LFetcher.PostCount;
+    CheckTrue(LServerPosts > 0, 'the live check queried the responder');
+    CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
+      'a server certificate gets bad_certificate_status_response');
+    CheckFalse(VerdictForRole(LChecker, TPeerRole.Client, LAlert),
+      'Hard rejects an unreachable responder for a client certificate');
+    CheckTrue(LFetcher.PostCount > LServerPosts,
+      'the client verdict queried the responder itself');
+    CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+      'a client certificate gets certificate_unknown');
+  finally
+    LChecker.Free;
+  end;
+end;
+
+procedure TTestLiveRevocation.TestUnknownPeerIndeterminateUnderHardAvoidsStatusResponseAlert;
+var
+  LFetcher: TMockHttpFetcher;
+  LChecker: TLiveRevocationChecker;
+  LAlert: TTlsAlertDescription;
+begin
+  // a hand-built context without a role must not get bad_certificate_status_response either
+  LFetcher := TMockHttpFetcher.Create;
+  LFetcher.SetPost(False, nil);
+  LChecker := NewChecker(LFetcher as IHttpFetcher, TRevocationPosture.Hard,
+    TLiveRevocationMethod.Ocsp);
+  try
+    CheckFalse(VerdictForRole(LChecker, TPeerRole.Unknown, LAlert),
+      'Hard rejects an unreachable responder when the role is unknown');
+    CheckTrue(LFetcher.PostCount > 0, 'the live check queried the responder');
+    CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+      'an unknown role gets certificate_unknown');
+  finally
+    LChecker.Free;
+  end;
+end;
+
 procedure TTestLiveRevocation.TestConfiguredSoftDoesNotRelaxAHardChecker;
 var
   LFetcher: TMockHttpFetcher;
@@ -2533,41 +2603,51 @@ procedure TTestRevocationDecision.TestDecideTruthTable;
 var
   LOutcome: TLiveRevocationOutcome;
   LPosture: TRevocationPosture;
+  LPeer: TPeerRole;
   LDeferIdx: Integer;
   LDefer, LResult, LExpected: Boolean;
   LAlert, LAlert2: TTlsAlertDescription;
+  LUndecidedAlert: TTlsAlertDescription;
 begin
-  for LOutcome := Low(TLiveRevocationOutcome) to High(TLiveRevocationOutcome) do
-    for LPosture := Low(TRevocationPosture) to High(TRevocationPosture) do
-      for LDeferIdx := 0 to 1 do
-      begin
-        LDefer := LDeferIdx = 1;
-        LAlert := TTlsAlertDescription.InternalError; // sentinel: untouched on accept
-        LResult := TRevocationDecision.Decide(LOutcome, LPosture, LDefer, LAlert);
-        case LOutcome of
-          TLiveRevocationOutcome.Good:
-            LExpected := True;
-          TLiveRevocationOutcome.Revoked:
-            LExpected := False;
-        else
-          LExpected := TRevocationDecision.EffectivePosture(LPosture, LDefer) <>
-            TRevocationPosture.Hard;
+  for LPeer := Low(TPeerRole) to High(TPeerRole) do
+  begin
+    if LPeer = TPeerRole.Server then
+      LUndecidedAlert := TTlsAlertDescription.BadCertificateStatusResponse
+    else
+      LUndecidedAlert := TTlsAlertDescription.CertificateUnknown;
+    for LOutcome := Low(TLiveRevocationOutcome) to High(TLiveRevocationOutcome) do
+      for LPosture := Low(TRevocationPosture) to High(TRevocationPosture) do
+        for LDeferIdx := 0 to 1 do
+        begin
+          LDefer := LDeferIdx = 1;
+          LAlert := TTlsAlertDescription.InternalError; // sentinel: untouched on accept
+          LResult := TRevocationDecision.Decide(LOutcome, LPosture, LDefer, LPeer, LAlert);
+          case LOutcome of
+            TLiveRevocationOutcome.Good:
+              LExpected := True;
+            TLiveRevocationOutcome.Revoked:
+              LExpected := False;
+          else
+            LExpected := TRevocationDecision.EffectivePosture(LPosture, LDefer) <>
+              TRevocationPosture.Hard;
+          end;
+          CheckTrue(LResult = LExpected, 'Decide verdict');
+          if LResult then
+            CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
+              'the alert is left untouched on accept')
+          else if LOutcome = TLiveRevocationOutcome.Revoked then
+            CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
+              'a Revoked outcome aborts certificate_revoked')
+          else
+            CheckEquals(Ord(LUndecidedAlert), Ord(LAlert),
+              'an undeferred Hard indeterminate aborts with the alert of the peer role');
+          // deferral is expressed as an effective posture:
+          // Decide(o,p,d) = Decide(o, eff(p,d), False)
+          CheckTrue(LResult = TRevocationDecision.Decide(LOutcome,
+            TRevocationDecision.EffectivePosture(LPosture, LDefer), False, LPeer, LAlert2),
+            'Decide via the effective posture matches');
         end;
-        CheckTrue(LResult = LExpected, 'Decide verdict');
-        if LResult then
-          CheckEquals(Ord(TTlsAlertDescription.InternalError), Ord(LAlert),
-            'the alert is left untouched on accept')
-        else if LOutcome = TLiveRevocationOutcome.Revoked then
-          CheckEquals(Ord(TTlsAlertDescription.CertificateRevoked), Ord(LAlert),
-            'a Revoked outcome aborts certificate_revoked')
-        else
-          CheckEquals(Ord(TTlsAlertDescription.BadCertificateStatusResponse), Ord(LAlert),
-            'an undeferred Hard indeterminate aborts bad_certificate_status_response');
-        // deferral is expressed as an effective posture: Decide(o,p,d) = Decide(o, eff(p,d), False)
-        CheckTrue(LResult = TRevocationDecision.Decide(LOutcome,
-          TRevocationDecision.EffectivePosture(LPosture, LDefer), False, LAlert2),
-          'Decide via the effective posture matches');
-      end;
+  end;
 end;
 
 procedure TTestRevocationDecision.TestEffectivePosture;

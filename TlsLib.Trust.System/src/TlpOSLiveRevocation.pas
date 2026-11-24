@@ -108,7 +108,7 @@ begin
   // an indeterminate live result (the OS could not fetch or decide) defers to the portable
   // fallback when one is wired (OCSP/CRL over the host's IHttpFetcher); otherwise the shared
   // decision table applies the posture (Revoked rejects, Good accepts, Hard rejects an
-  // indeterminate with bad_certificate_status_response, Soft/Off accept)
+  // indeterminate with the role's alert, Soft/Off accept)
   if (LOutcome = TLiveRevocationOutcome.Indeterminate) and System.Assigned(FFallback) then
   begin
     // the fallback decides at the lifted posture, not the one the context alone carries
@@ -117,7 +117,7 @@ begin
     Result := FFallback(LCtx, ARejectAlert);
   end
   else
-    Result := TRevocationDecision.Decide(LOutcome, LPosture, False, ARejectAlert);
+    Result := TRevocationDecision.Decide(LOutcome, LPosture, False, ACtx.PeerRole, ARejectAlert);
 end;
 
 end.

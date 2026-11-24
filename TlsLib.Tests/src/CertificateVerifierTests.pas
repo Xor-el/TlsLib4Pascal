@@ -323,6 +323,7 @@ type
     procedure TestServerCertWithClientAuthOnlyEkuRejected;
     procedure TestServerCertWithNoEkuAccepted;
     procedure TestClientCertWithServerAuthOnlyEkuRejected;
+    procedure TestClientCertificateIndeterminateUnderHardAvoidsStatusResponseAlert;
     procedure TestClientCertWithClientAuthAccepted;
     // end-entity EKU is enforced even when the leaf is itself the pinned trust anchor
     procedure TestPinnedSelfSignedClientAuthOnlyLeafRejectedAsServer;
@@ -1710,6 +1711,35 @@ begin
   CheckTrue(ClientVerifierFor(EkuCert('root_cert')).VerifyClientCertificate(
     TArray<TBytes>.Create(EkuCert('leaf_cert')), LVerified, LAlert),
     'a clientAuth-capable leaf is accepted as a client certificate');
+end;
+
+procedure TTestCertificateVerifier.TestClientCertificateIndeterminateUnderHardAvoidsStatusResponseAlert;
+
+  function Verify(APosture: TRevocationPosture; out AAlert: TTlsAlertDescription): Boolean;
+  var
+    LOptions: TCertificateVerifierOptions;
+    LVerifier: IClientCertificateVerifier;
+    LVerified: TVerifiedChain;
+  begin
+    LOptions.RevocationPosture := APosture;
+    LOptions.Deferral := TVerdictDeferral.None;
+    LVerifier := TCertificateVerifier.Create(Pkix, TSystemClock.Create as ITlsClock,
+      TTrustAnchorStore.Create(TArray<TBytes>.Create(EkuCert('root_cert'))) as ITrustAnchorStore,
+      False, LOptions) as IClientCertificateVerifier;
+    Result := LVerifier.VerifyClientCertificate(
+      TArray<TBytes>.Create(EkuCert('leaf_cert')), LVerified, AAlert);
+  end;
+
+var
+  LAlert: TTlsAlertDescription;
+begin
+  // a client certificate is never stapled, so its revocation status is undecided inline
+  CheckTrue(Verify(TRevocationPosture.Soft, LAlert),
+    'control: Soft accepts the chain, so the Hard rejection is the revocation decision');
+  CheckFalse(Verify(TRevocationPosture.Hard, LAlert),
+    'Hard rejects a client certificate with no revocation status');
+  CheckEquals(Ord(TTlsAlertDescription.CertificateUnknown), Ord(LAlert),
+    'the alert is certificate_unknown, not bad_certificate_status_response');
 end;
 
 procedure TTestCertificateVerifier.TestPinnedSelfSignedClientAuthOnlyLeafRejectedAsServer;

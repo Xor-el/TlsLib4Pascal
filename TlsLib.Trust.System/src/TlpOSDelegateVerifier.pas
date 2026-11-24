@@ -170,7 +170,7 @@ type
     /// <summary>The shared tail after a True engine result: name constraints -> engine revocation ->
     /// strength -> end entity -> staple -> identity.</summary>
     function Complete(const AResult: TPlatformChainResult; const AServerName: TServerName;
-      const AStaple: TBytes; out AVerified: TVerifiedChain;
+      const AStaple: TBytes; ARole: TPeerRole; out AVerified: TVerifiedChain;
       out AAlert: TTlsAlertDescription): Boolean;
     /// <summary>Runs the configured augment-only reject hook last, over a chain the engine already
     /// trusted; a rejection clears AVerified and reports certificate_unknown (mirrors the built-in
@@ -599,7 +599,7 @@ begin
 end;
 
 function TOSDelegateVerifierBase.Complete(const AResult: TPlatformChainResult;
-  const AServerName: TServerName; const AStaple: TBytes;
+  const AServerName: TServerName; const AStaple: TBytes; ARole: TPeerRole;
   out AVerified: TVerifiedChain; out AAlert: TTlsAlertDescription): Boolean;
 var
   LRoots: TArray<TBytes>;
@@ -628,7 +628,8 @@ begin
   // verdict) decides it before the strength policy, so a chain that is both revoked and weak still
   // reports the revocation alert; an engine that renders none defers revocation to the staple below
   if TPlatformChainCapability.CachedRevocation in Engine.Capabilities then
-    if not TRevocationDecision.Decide(AResult.Outcome, FPolicy.Posture, DeferToLive, AAlert) then
+    if not TRevocationDecision.Decide(AResult.Outcome, FPolicy.Posture, DeferToLive, ARole,
+      AAlert) then
       Exit(False);
   // strength over the OS-built path, the engine's exempt certificates skipped
   if not TChainAlgorithmPolicy.Check(FPolicy.Pkix.Certificates, AResult.Path,
@@ -648,7 +649,7 @@ begin
       Exit(False);
   end
   else if not TRevocationDecision.Decide(TDelegatePostChecks.StapleOutcome(FPolicy.Pkix,
-    FPolicy.Clock, AResult.Path, AStaple), FPolicy.Posture, DeferToLive, AAlert) then
+    FPolicy.Clock, AResult.Path, AStaple), FPolicy.Posture, DeferToLive, ARole, AAlert) then
     Exit(False);
   // RFC 7633: the TLS Feature well-formedness is a hard invariant for either role; a must-staple
   // server leaf additionally demands a current Good staple when the client asked to staple on the
@@ -707,7 +708,7 @@ begin
   if not TDelegateEvaluation.EvaluateServer(Engine, LRequest, Policy.Distrusted, LResult,
     AAlert) then
     Exit(False);
-  if not Complete(LResult, AServerName, AOcspStaple, AVerified, AAlert) then
+  if not Complete(LResult, AServerName, AOcspStaple, TPeerRole.Server, AVerified, AAlert) then
     Exit(False);
   Result := ApplyDangerous(AChain, AServerName.ToString, AVerified, AAlert);
 end;
@@ -750,7 +751,7 @@ begin
   if not TDelegateEvaluation.AnchorClientPath(Policy, LRequest.Chain, LRequest.Intermediates,
     LWithheld, LResult, AAlert) then
     Exit(False);
-  if not Complete(LResult, LNoName, nil, AVerified, AAlert) then
+  if not Complete(LResult, LNoName, nil, TPeerRole.Client, AVerified, AAlert) then
     Exit(False);
   // a client certificate carries no host, so the augment hook sees an empty name (built-in parity)
   Result := ApplyDangerous(AChain, '', AVerified, AAlert);

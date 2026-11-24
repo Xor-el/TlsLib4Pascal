@@ -463,7 +463,9 @@ certificate a server verifies — set it with `TClientVerification`'s `WithRevoc
 to staple, so `Hard` client-certificate revocation is satisfiable **only** by a live resolver
 (there is no stapled fallback); `Build` rejects a `Hard`, client-authenticating server that does not
 call `WithLiveRevocationVerdict`. Attach the resolver on the server's stream exactly as above; a revoked client certificate
-then aborts the handshake with `certificate_revoked`. This works with both the **portable**
+then aborts the handshake with `certificate_revoked`, and an undecided status under `Hard` aborts
+with `certificate_unknown` (`bad_certificate_status_response` is a client's alert about a stapled
+response). This works with both the **portable**
 `TLiveRevocationChecker` (give it the configured client-CA anchors as `TLiveRevocationOptions.IssuerCandidates`, so it can
 recover the issuer of a leaf-only client credential) and the **OS-native** delegate on Windows/Apple
 (`TOSSystemTrust.ClientVerifierSource(TSystemTrustFetch.Live)` +
